@@ -25,6 +25,8 @@ static const clj_value CLJ_TRUE  = (2 << 3) | 0x2;
 static const clj_value CLJ_THROWN = (3 << 3) | 0x2;
 // Root of a var before its first def (var.h). Never stored anywhere else.
 static const clj_value CLJ_UNBOUND = (4 << 3) | 0x2;
+// Returned by a recur node after rebinding its target's slots (eval.h). Never stored.
+static const clj_value CLJ_RECUR = (5 << 3) | 0x2;
 
 static const intptr_t CLJ_FIXNUM_MAX = INTPTR_MAX >> 1;
 static const intptr_t CLJ_FIXNUM_MIN = INTPTR_MIN >> 1;
