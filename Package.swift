@@ -26,7 +26,7 @@ let package = Package(
 		),
 		.testTarget(
 			name: "ClojureTests",
-			dependencies: ["Clojure"]
+			dependencies: ["Clojure", "CljCore"]
 		),
 	],
 	cLanguageStandard: .c17

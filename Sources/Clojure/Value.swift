@@ -2,28 +2,47 @@
 import CljCore
 
 /// The single type that crosses the Swift ↔ core boundary.
-/// Retain/release hooks arrive together with the core's RC; until then only immediates are safe to hold.
+/// Immediates live inline; heap values are held through `Ref`, whose deinit releases them.
 public struct Value: Sendable {
 	public let raw: clj_value
+	private let ref: Ref?
 
-	public init(raw: clj_value) {
-		self.raw = raw
+	/// Swift may drop the reference on any thread, so the core object must already be atomic.
+	private final class Ref: @unchecked Sendable {
+		let raw: clj_value
+		init(owning raw: clj_value) { self.raw = raw }
+		deinit { clj_release(raw) }
 	}
 
-	public static let nil_ = Value(raw: CLJ_NIL)
+	/// Takes over a +1 reference and marks the reachable graph shared.
+	public init(owning raw: clj_value) {
+		self.raw = raw
+		if clj_is_ptr(raw) {
+			clj_share(raw)
+			ref = Ref(owning: raw)
+		} else {
+			ref = nil
+		}
+	}
+
+	public init(borrowing raw: clj_value) {
+		self.init(owning: clj_retain(raw))
+	}
+
+	public static let nil_ = Value(owning: CLJ_NIL)
 	public static let fixnumRange = CLJ_FIXNUM_MIN...CLJ_FIXNUM_MAX
 
 	public init(_ b: Bool) {
-		raw = clj_bool(b)
+		self.init(owning: clj_bool(b))
 	}
 
 	public init(_ n: Int) {
 		precondition(Self.fixnumRange.contains(n), "fixnum out of range")
-		raw = clj_fixnum(n)
+		self.init(owning: clj_fixnum(n))
 	}
 
 	public init(_ c: Unicode.Scalar) {
-		raw = clj_char(c.value)
+		self.init(owning: clj_char(c.value))
 	}
 
 	public var isNil: Bool { clj_is_nil(raw) }

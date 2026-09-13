@@ -1,6 +1,7 @@
 #ifndef CLJ_CORE_H
 #define CLJ_CORE_H
 
+#include "cons.h"
 #include "object.h"
 #include "value.h"
 
