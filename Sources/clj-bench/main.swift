@@ -34,15 +34,19 @@ func randomKeys(_ count: Int, below: Int, offset: Int = 0, seed: UInt64) -> [Int
 	return (0..<count).map { _ in Int(rng.next() % UInt64(below)) + offset }
 }
 
-// Median of `reps` runs, ns per op. The checksum keeps the optimizer from dropping the work.
+// Median of `reps` runs, ns per op. Each run repeats the body until ~targetOps operations are done,
+// so a 10-op scenario is not a 1 µs measurement dominated by the timer. One untimed warmup run.
+// The checksum keeps the optimizer from dropping the work.
+let targetOps = 1_000_000
 func measure(ops: Int, _ body: () -> UInt64) -> Double {
+	let iters = max(1, targetOps / ops)
 	var times: [Double] = []
-	var sink: UInt64 = 0
+	var sink: UInt64 = body()
 	for _ in 0..<reps {
 		let t0 = DispatchTime.now().uptimeNanoseconds
-		sink &+= body()
+		for _ in 0..<iters { sink &+= body() }
 		let t1 = DispatchTime.now().uptimeNanoseconds
-		times.append(Double(t1 - t0) / Double(ops))
+		times.append(Double(t1 - t0) / Double(ops * iters))
 	}
 	blackHole(sink)
 	return times.sorted()[reps / 2]
@@ -212,6 +216,8 @@ for n in sizes {
 		dict: measure(ops: n) { dDissocReuse(keys, order) }))
 }
 
+let mode = clj_debug_pool_enabled() ? "pool" : "system malloc"
+print("C allocator: \(mode)\n")
 print("| scenario | n | C HAMT | TreeDictionary | Dictionary | tree / C |")
 print("|---|---:|---:|---:|---:|---:|")
 for r in rows {
