@@ -16,6 +16,7 @@ extension CoreTests {
 		}
 
 		@Test func worksAsDictionaryKey() {
+			_ = Value(keyword: "k") // interning allocates immortals; take the baseline after
 			let before = clj_debug_live_objects()
 			do {
 				var d: [Value: Int] = [:]
