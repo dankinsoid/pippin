@@ -3,50 +3,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "clj/object.h"
+#include "alloc.h"
 
 const clj_type clj_type_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "type",
 };
 
-#if CLJ_DEBUG
-// One process-wide counter, contended across threads; debug-only, so acceptable until profiles say otherwise.
-static _Atomic int64_t live_objects;
-int64_t clj_debug_live_objects(void) { return atomic_load(&live_objects); }
-#define LIVE_ADD(n) atomic_fetch_add_explicit(&live_objects, (n), memory_order_relaxed)
-#else
-int64_t clj_debug_live_objects(void) { return -1; }
-#define LIVE_ADD(n) ((void)0)
-#endif
-
 void clj_fatal(const char *msg) {
 	fprintf(stderr, "clj: fatal: %s\n", msg);
 	abort();
-}
-
-// calloc stands in for the size-class pool (design §4); callers depend only on this signature.
-void *clj_alloc(const clj_type *type, size_t size) {
-	clj_header *h = calloc(1, size);
-	if (!h) clj_fatal("out of memory");
-	atomic_init(&h->rc, 1);
-	h->type = type;
-	LIVE_ADD(1);
-	return h;
-}
-
-void *clj_realloc(void *obj, size_t size) {
-	clj_header *h = obj;
-	CLJ_ASSERT(!(h->flags & CLJ_FLAG_IMMORTAL) && atomic_load_explicit(&h->rc, memory_order_relaxed) == 1,
-	           "realloc of a non-unique object");
-	h = realloc(h, size);
-	if (!h) clj_fatal("out of memory");
-	return h;
-}
-
-static void dealloc(clj_header *h) {
-	LIVE_ADD(-1);
-	free(h);
 }
 
 static bool release_reaches_zero(clj_header *h) {
@@ -64,17 +30,18 @@ static bool release_reaches_zero(clj_header *h) {
 	return rc == 1;
 }
 
-// A dead object's rc+flags become the intrusive worklist link.
+// A dead object's rc+flags become the intrusive worklist link; bit 0 keeps CLJ_FLAG_LARGE for dealloc.
 // memcpy rather than a cast to stay clear of aliasing rules; it compiles to a plain store.
 static void set_dead_next(clj_header *h, clj_header *next) {
-	uintptr_t link = (uintptr_t)next;
+	uintptr_t link = (uintptr_t)next | ((h->flags & CLJ_FLAG_LARGE) ? 1 : 0);
 	memcpy((void *)h, &link, sizeof link);
 }
 
 static clj_header *get_dead_next(clj_header *h) {
 	uintptr_t link;
 	memcpy(&link, (void *)h, sizeof link);
-	return (clj_header *)link;
+	h->flags = (link & 1) ? CLJ_FLAG_LARGE : 0;
+	return (clj_header *)(link & ~(uintptr_t)1);
 }
 
 static void release_child(clj_value child, void *ctx) {
@@ -97,7 +64,7 @@ static void free_object(clj_header *dead) {
 		const clj_type *t = h->type;
 		if (t->each_child) t->each_child(h, release_child, &stack);
 		if (t->finalize) t->finalize(h);
-		dealloc(h);
+		clj_dealloc(h);
 	}
 }
 

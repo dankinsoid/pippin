@@ -32,6 +32,8 @@ typedef struct {
 #define CLJ_FLAG_SHARED   ((uint32_t)1 << 0)
 // Static objects (builtin type descriptors): retain/release are no-ops.
 #define CLJ_FLAG_IMMORTAL ((uint32_t)1 << 1)
+// Lives in the system allocator, not a pool slab: too big for a size class, or CLJ_SYSTEM_ALLOC=1.
+#define CLJ_FLAG_LARGE    ((uint32_t)1 << 2)
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
 
@@ -54,9 +56,10 @@ extern const clj_type clj_type_type;
 static inline clj_header *clj_header_of(clj_value v) { return (clj_header *)clj_to_ptr(v); }
 
 // Zero-filled, rc = 1. Zero memory reads as nil, so value slots need no init.
+// Size-class pool per thread; CLJ_SYSTEM_ALLOC=1 in the environment routes to calloc/realloc/free.
 void *clj_alloc(const clj_type *type, size_t size);
 // obj must be unique (rc == 1): the object may move, so no one else can hold its address.
-// Children are untouched; bytes beyond the old size are uninitialized.
+// Children are untouched; bytes beyond the old size are uninitialized. Same size class keeps the address.
 void *clj_realloc(void *obj, size_t size);
 
 void      clj_retain_slow(clj_header *h);
@@ -72,6 +75,9 @@ void      clj_fatal(const char *msg) __attribute__((noreturn));
 int64_t clj_debug_live_objects(void);
 // True when v and everything reachable from it is shared or immortal.
 bool clj_debug_all_shared(clj_value v);
+bool clj_debug_pool_enabled(void);
+// Pool cell size an allocation of `size` bytes gets; 0 when it goes to the system allocator.
+size_t clj_debug_cell_size(size_t size);
 // Test hook: replaces clj_hash for every value while set. NULL restores the default.
 void clj_debug_set_hash_override(uint32_t (*fn)(clj_value v));
 extern uint32_t (*clj_debug_hash_override)(clj_value v);
