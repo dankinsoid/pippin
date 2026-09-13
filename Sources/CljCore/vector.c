@@ -6,9 +6,11 @@ enum { BITS = 5, WIDTH = 32, MASK = 31 };
 enum { NODE_RELAXED = 1u << 0 };
 
 // `relaxed` and `sizes` (cumulative counts per slot, NULL here) are reserved for RRB nodes.
+// cap >= len: slots are over-allocated so conj does not move the tail on every element.
 typedef struct {
 	clj_header h;
-	uint32_t   len;
+	uint16_t   len;
+	uint16_t   cap;
 	uint32_t   flags;
 	uint32_t  *sizes;
 	clj_value  slots[];
@@ -49,16 +51,33 @@ static void store(clj_header *owner, clj_value *slot, clj_value v) {
 	*slot = v;
 }
 
+// Powers of two up to 8, then a full node: a 32-slot leaf is 288 bytes and lands in the 320 size
+// class either way, so a growing tail pays 4 moves per 32 conj instead of 12 and small vectors stay small.
+static uint32_t cap_for(uint32_t len) {
+	if (len > 8) return WIDTH;
+	uint32_t c = 1;
+	while (c < len) c <<= 1;
+	return c;
+}
+
 static node *node_alloc(uint32_t len) {
-	node *n = clj_alloc(&node_type, sizeof *n + len * sizeof(clj_value));
-	n->len = len;
+	uint32_t cap = cap_for(len);
+	node *n = clj_alloc(&node_type, sizeof *n + cap * sizeof(clj_value));
+	n->len = (uint16_t)len;
+	n->cap = (uint16_t)cap;
 	return n;
 }
 
-// n unique; slots past the old len are uninitialized until stored.
+// n unique; slots past the old len are nil until stored, vacated slots must already be released.
 static node *node_resize(node *n, uint32_t len) {
-	n = clj_realloc(n, sizeof *n + len * sizeof(clj_value));
-	n->len = len;
+	if (len > n->cap) {
+		uint32_t cap = cap_for(len);
+		n = clj_realloc(n, sizeof *n + cap * sizeof(clj_value));
+		for (uint32_t i = n->cap; i < cap; i++) n->slots[i] = CLJ_NIL;
+		n->cap = (uint16_t)cap;
+	}
+	for (uint32_t i = len; i < n->len; i++) n->slots[i] = CLJ_NIL;
+	n->len = (uint16_t)len;
 	return n;
 }
 
@@ -124,7 +143,7 @@ static clj_value pop_tail(clj_value nv, uint32_t shift, uint32_t count) {
 	} else {
 		clj_release(n->slots[j]);
 	}
-	n->len = (uint32_t)j;
+	n->slots[j] = CLJ_NIL;
 	if (j == 0) {
 		clj_release(clj_from_ptr(n));
 		return CLJ_NIL;

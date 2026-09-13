@@ -62,3 +62,12 @@ Map numbers from the same invocation matched the 8533784 table within noise.
   where `Array` is quadratic.
 - The pool takes 2.5–3.6× off every allocating scenario, more than for the map: a vector op is
   almost nothing but allocation.
+
+### Vector node capacity (after 732ffff), pool only, one run
+
+Nodes carry a capacity (powers of two up to 8, then 32) so a growing tail moves 4 times per 32 conj
+instead of at every size-class boundary. C vector, ns/op, 732ffff → this commit:
+conj old dropped 10.7 → 8.1 (1k), 11.1 → 8.2 (100k); pop to empty 18.0 → 12.7 (1k), 18.5 → 13.2 (100k);
+conj all kept and nth unchanged within noise. The remaining gap to `Array.append` (1.2 ns) is the
+persistent wrapper itself: two uniqueness checks, hash-cache reset, tail indirection, and a
+non-inlined call across the Swift/C boundary.
