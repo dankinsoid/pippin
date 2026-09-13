@@ -33,6 +33,15 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	return h;
 }
 
+void *clj_realloc(void *obj, size_t size) {
+	clj_header *h = obj;
+	CLJ_ASSERT(!(h->flags & CLJ_FLAG_IMMORTAL) && atomic_load_explicit(&h->rc, memory_order_relaxed) == 1,
+	           "realloc of a non-unique object");
+	h = realloc(h, size);
+	if (!h) clj_fatal("out of memory");
+	return h;
+}
+
 static void dealloc(clj_header *h) {
 	LIVE_ADD(-1);
 	free(h);
@@ -133,6 +142,7 @@ static void share_visit(clj_value child, void *ctx) {
 
 void clj_share(clj_value v) {
 	if (!clj_is_ptr(v)) return;
+	if (clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) return;
 	value_stack st = {0};
 	stack_push(&st, v);
 	while (st.count) {
@@ -142,4 +152,19 @@ void clj_share(clj_value v) {
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
 	free(st.items);
+}
+
+bool clj_debug_all_shared(clj_value v) {
+	if (!clj_is_ptr(v)) return true;
+	value_stack st = {0};
+	stack_push(&st, v);
+	bool ok = true;
+	while (ok && st.count) {
+		clj_header *h = clj_header_of(st.items[--st.count]);
+		if (h->flags & CLJ_FLAG_IMMORTAL) continue;
+		ok = (h->flags & CLJ_FLAG_SHARED) != 0;
+		if (ok && h->type->each_child) h->type->each_child(h, share_visit, &st);
+	}
+	free(st.items);
+	return ok;
 }

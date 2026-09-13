@@ -3,6 +3,7 @@
 
 // Umbrella header: re-exports the public core API.
 #include "cons.h"   // IWYU pragma: export
+#include "map.h"    // IWYU pragma: export
 #include "object.h" // IWYU pragma: export
 #include "value.h"  // IWYU pragma: export
 
