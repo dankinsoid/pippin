@@ -1,11 +1,21 @@
 // @ai-generated(solo)
 #include <math.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "clj/core.h"
+
+static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
+static clj_value      kw_message, kw_data, kw_cause;
+
+static void intern_keywords(void) {
+	kw_message = clj_keyword_from_cstr("message");
+	kw_data = clj_keyword_from_cstr("data");
+	kw_cause = clj_keyword_from_cstr("cause");
+}
 
 typedef struct {
 	char  *data;
@@ -232,8 +242,30 @@ static void emit(buf *b, frame_stack *stack, clj_value v) {
 	} else if (clj_is_keyword(v)) {
 		put_char(b, ':');
 		put_symbol_text(b, clj_keyword_ns(v), clj_keyword_name(v));
+	} else if (!clj_is_ptr(v)) {
+		put_fmt(b, "#<special %lu>", (unsigned long)v);
 	} else if (clj_is_symbol(v)) {
 		put_symbol_text(b, clj_symbol_ns(v), clj_symbol_name(v));
+	} else if (clj_is_var(v)) {
+		put_cstr(b, "#'");
+		put_symbol_text(b, CLJ_NIL, clj_symbol_name(clj_var_ns(v)));
+		put_char(b, '/');
+		put_symbol_text(b, CLJ_NIL, clj_symbol_name(clj_var_name(v)));
+	} else if (clj_is_exception(v)) {
+		// Printed as a map literal after the tag, so the map frame does the field walk.
+		pthread_once(&keywords_once, intern_keywords);
+		put_cstr(b, "#error {");
+		frame *f = push_frame(stack, F_MAP);
+		bool with_cause = !clj_is_nil(clj_exception_cause(v));
+		f->entries = malloc(6 * sizeof *f->entries);
+		if (!f->entries) clj_fatal("out of memory");
+		f->entries[0] = kw_message;
+		f->entries[1] = clj_exception_message(v);
+		f->entries[2] = kw_data;
+		f->entries[3] = clj_exception_data(v);
+		f->entries[4] = kw_cause;
+		f->entries[5] = clj_exception_cause(v);
+		f->n = with_cause ? 6 : 4;
 	} else if (clj_is_list(v)) {
 		put_char(b, '(');
 		push_frame(stack, F_SEQ)->it = clj_seq_iter_start(v);

@@ -3,9 +3,11 @@
 
 // Umbrella header: re-exports the public core API.
 #include "cons.h"    // IWYU pragma: export
+#include "error.h"   // IWYU pragma: export
 #include "keyword.h" // IWYU pragma: export
 #include "list.h"    // IWYU pragma: export
 #include "map.h"     // IWYU pragma: export
+#include "ns.h"      // IWYU pragma: export
 #include "number.h"  // IWYU pragma: export
 #include "object.h"  // IWYU pragma: export
 #include "printer.h" // IWYU pragma: export
@@ -13,6 +15,7 @@
 #include "string.h"  // IWYU pragma: export
 #include "symbol.h"  // IWYU pragma: export
 #include "value.h"   // IWYU pragma: export
+#include "var.h"     // IWYU pragma: export
 #include "vector.h"  // IWYU pragma: export
 
 // Static string; for heap objects the type descriptor's name.

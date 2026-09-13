@@ -21,6 +21,10 @@ static const uintptr_t CLJ_TAG_CHAR    = 0x6;
 static const clj_value CLJ_NIL   = 0;
 static const clj_value CLJ_FALSE = (1 << 3) | 0x2;
 static const clj_value CLJ_TRUE  = (2 << 3) | 0x2;
+// Returned by a function that failed; the exception is pending in the thread (error.h). Never stored.
+static const clj_value CLJ_THROWN = (3 << 3) | 0x2;
+// Root of a var before its first def (var.h). Never stored anywhere else.
+static const clj_value CLJ_UNBOUND = (4 << 3) | 0x2;
 
 static const intptr_t CLJ_FIXNUM_MAX = INTPTR_MAX >> 1;
 static const intptr_t CLJ_FIXNUM_MIN = INTPTR_MIN >> 1;
