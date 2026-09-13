@@ -1,24 +1,33 @@
-// swift-tools-version: 5.9
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
-    name: "ClojureSwift",
-    platforms: [
-        .macOS(.v13),
-        .iOS(.v16)
-    ],
-    products: [
-        .library(
-            name: "ClojureSwift",
-            targets: ["ClojureSwift"]),
-    ],
-    targets: [
-        .target(
-            name: "ClojureSwift"),
-        .testTarget(
-            name: "ClojureSwiftTests",
-            dependencies: ["ClojureSwift"]),
-    ]
+	name: "Clojure",
+	platforms: [
+		.macOS(.v14),
+		.iOS(.v17),
+	],
+	products: [
+		.library(name: "Clojure", targets: ["Clojure"]),
+	],
+	targets: [
+		// Portable runtime core. No platform headers here; everything host-specific goes through the Swift target.
+		.target(
+			name: "CljCore",
+			cSettings: [
+				// unsafeFlags makes the package unusable as a dependency; fine while it is a root package.
+				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),
+				.unsafeFlags(["-DCLJ_DEBUG=1"], .when(configuration: .debug)),
+			]
+		),
+		.target(
+			name: "Clojure",
+			dependencies: ["CljCore"]
+		),
+		.testTarget(
+			name: "ClojureTests",
+			dependencies: ["Clojure"]
+		),
+	],
+	cLanguageStandard: .c17
 )
