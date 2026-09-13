@@ -224,7 +224,8 @@ static bool collect_entry(clj_value key, clj_value val, void *ctx) {
 }
 
 // Scalars are written outright; a collection writes its opener and pushes a frame.
-static void emit(buf *b, frame_stack *stack, clj_value v) {
+// Not readably (Clojure's *print-readably* false): strings and chars as their text.
+static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 	if (clj_is_nil(v)) {
 		put_cstr(b, "nil");
 	} else if (v == CLJ_TRUE) {
@@ -234,11 +235,13 @@ static void emit(buf *b, frame_stack *stack, clj_value v) {
 	} else if (clj_is_fixnum(v)) {
 		put_fmt(b, "%lld", (long long)clj_fixnum_val(v));
 	} else if (clj_is_char(v)) {
-		put_char_literal(b, clj_char_val(v));
+		if (readably) put_char_literal(b, clj_char_val(v));
+		else put_utf8(b, clj_char_val(v));
 	} else if (clj_is_double(v)) {
 		put_double(b, clj_double_val(v));
 	} else if (clj_is_string(v)) {
-		put_string_literal(b, v);
+		if (readably) put_string_literal(b, v);
+		else put_bytes(b, clj_string_bytes(v), clj_string_len(v));
 	} else if (clj_is_keyword(v)) {
 		put_char(b, ':');
 		put_symbol_text(b, clj_keyword_ns(v), clj_keyword_name(v));
@@ -337,13 +340,13 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out) {
 	return false;
 }
 
-clj_value clj_pr_str(clj_value root) {
+static clj_value print_to_string(clj_value root, bool readably) {
 	buf         b = {0};
 	frame_stack stack = {0};
 	clj_value   v = root;
 	bool        pending = true;
 	for (;;) {
-		if (pending) emit(&b, &stack, v);
+		if (pending) emit(&b, &stack, v, readably);
 		if (!stack.count) break;
 		pending = next_child(&b, &stack, &v);
 	}
@@ -352,3 +355,7 @@ clj_value clj_pr_str(clj_value root) {
 	free(b.data);
 	return s;
 }
+
+clj_value clj_pr_str(clj_value v) { return print_to_string(v, true); }
+
+clj_value clj_print_str(clj_value v) { return print_to_string(v, false); }
