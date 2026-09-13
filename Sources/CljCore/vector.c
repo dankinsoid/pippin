@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include "clj/list.h"
 #include "clj/vector.h"
 
 enum { BITS = 5, WIDTH = 32, MASK = 31 };
@@ -184,6 +185,7 @@ static uint32_t vector_hash(void *self) {
 }
 
 static bool vector_equals(void *self, clj_value other) {
+	if (clj_is_list(other)) return clj_seq_equals(clj_from_ptr(self), other);
 	if (!clj_is_vector(other)) return false;
 	const clj_vector *a = self, *b = vector_of(other);
 	if (a->count != b->count) return false;

@@ -46,6 +46,36 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   when shared and resets the hash cache. Clojure does the same.
 - **Index and count are `uint32_t`**; a negative index from a higher layer must be rejected there.
 
+## List (Sources/CljCore/list.c, cons.c)
+
+- **`clj_list_count` is O(n)** and a cons cell caches no hash, so hashing a list walks it every time.
+  Trigger: lists as map keys or `count` on long lists in a profile. Fix: a `clj_list` wrapper with
+  count and hash cache, as Clojure's PersistentList; cons stays the 32-byte cell for `cons`/lazy seqs.
+- **Hash and equality recurse on nesting depth** (`clj_hash` → element hash). Reading and printing are
+  iterative, so a 200k-deep literal reads and prints but crashes when hashed. Trigger: untrusted input
+  used as a map key. Fix: an explicit stack in `clj_seq_hash`/`clj_seq_equals`, or a depth cap.
+
+## Reader (Sources/CljCore/reader.c)
+
+- **Not supported, reported as errors**: sets `#{}`, metadata `^`, syntax-quote and unquote, `#(`,
+  regex, var quote, namespaced maps `#:`, reader conditionals, tagged literals, `::kw` (needs the
+  current ns), bigint/BigDecimal/ratio/hex/radix/octal numbers. Each is a `switch` arm in
+  `read_dispatch`/`parse_number` to replace when the feature lands.
+- **No metadata on forms.** `form_line`/`form_col` expose the start of the last top-level form only;
+  nested forms carry no position. Trigger: analyzer error messages. Needs the symbol/list meta slot.
+- **Input is not validated as UTF-8** except inside a character literal; malformed bytes pass through
+  into strings and symbols, and a column counts every non-continuation byte. Trigger: a non-Swift host
+  feeding raw bytes.
+- **`strtod`/`snprintf` in reader and printer follow the C locale**, which the runtime never changes;
+  a host calling `setlocale` with a comma decimal point would break doubles.
+
+## Printer (Sources/CljCore/printer.c)
+
+- **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.
+  Trigger: printing huge maps in a profile. Fix: a resumable map iterator.
+- **Control characters print as `\uXXXX`** inside strings and as char literals; Clojure prints them raw.
+  Readable by both, but `(pr-str "\u0001")` differs from the JVM byte for byte.
+
 ## Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)
 
 - **Symbols carry no metadata slot.** Trigger: the reader attaching `:line`/`:column`, or `with-meta`

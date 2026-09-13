@@ -1,0 +1,623 @@
+// @ai-generated(solo)
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "clj/core.h"
+
+typedef enum { F_LIST, F_VECTOR, F_MAP, F_QUOTE, F_DEREF, F_DISCARD } frame_kind;
+
+typedef struct {
+	frame_kind kind;
+	size_t     start; // index into the value stack where this collection's items begin
+	uint32_t   line, col;
+} frame;
+
+// Explicit stacks: nesting depth is bounded by memory, not by the C stack.
+typedef struct {
+	clj_reader *r;
+	clj_value  *vals;
+	size_t      nvals, vcap;
+	frame      *frames;
+	size_t      nframes, fcap;
+} parser;
+
+typedef struct {
+	char  *data;
+	size_t len, cap;
+} buf;
+
+static void buf_put(buf *b, const char *s, size_t n) {
+	if (b->len + n > b->cap) {
+		size_t cap = b->cap ? b->cap : 32;
+		while (cap < b->len + n) cap *= 2;
+		b->data = realloc(b->data, cap);
+		if (!b->data) clj_fatal("out of memory");
+		b->cap = cap;
+	}
+	memcpy(b->data + b->len, s, n);
+	b->len += n;
+}
+
+static void buf_put_utf8(buf *b, uint32_t cp) {
+	char s[4];
+	size_t n;
+	if (cp < 0x80) {
+		s[0] = (char)cp;
+		n = 1;
+	} else if (cp < 0x800) {
+		s[0] = (char)(0xC0 | (cp >> 6));
+		s[1] = (char)(0x80 | (cp & 0x3F));
+		n = 2;
+	} else if (cp < 0x10000) {
+		s[0] = (char)(0xE0 | (cp >> 12));
+		s[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		s[2] = (char)(0x80 | (cp & 0x3F));
+		n = 3;
+	} else {
+		s[0] = (char)(0xF0 | (cp >> 18));
+		s[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+		s[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		s[3] = (char)(0x80 | (cp & 0x3F));
+		n = 4;
+	}
+	buf_put(b, s, n);
+}
+
+// Byte length of the scalar at s, 0 when malformed (overlong, surrogate, truncated, > U+10FFFF).
+static size_t decode_utf8(const unsigned char *s, size_t n, uint32_t *cp) {
+	if (n == 0) return 0;
+	unsigned char c = s[0];
+	size_t len;
+	uint32_t v, min;
+	if (c < 0x80) {
+		*cp = c;
+		return 1;
+	} else if ((c & 0xE0) == 0xC0) {
+		len = 2, v = c & 0x1F, min = 0x80;
+	} else if ((c & 0xF0) == 0xE0) {
+		len = 3, v = c & 0x0F, min = 0x800;
+	} else if ((c & 0xF8) == 0xF0) {
+		len = 4, v = c & 0x07, min = 0x10000;
+	} else {
+		return 0;
+	}
+	if (n < len) return 0;
+	for (size_t i = 1; i < len; i++) {
+		if ((s[i] & 0xC0) != 0x80) return 0;
+		v = (v << 6) | (s[i] & 0x3F);
+	}
+	if (v < min || v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
+	*cp = v;
+	return len;
+}
+
+static bool at_eof(const clj_reader *r) { return r->pos >= r->len; }
+static unsigned char peek(const clj_reader *r) { return (unsigned char)r->bytes[r->pos]; }
+
+static void advance(clj_reader *r) {
+	unsigned char c = peek(r);
+	r->pos++;
+	if (c == '\n') {
+		r->line++;
+		r->col = 1;
+	} else if ((c & 0xC0) != 0x80) {
+		r->col++;
+	}
+}
+
+static bool is_ws(unsigned char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ',' || c == '\f' || c == '\v'; }
+
+// Clojure's terminating macro characters; `#`, `'` and `%` may appear inside a token.
+static bool is_terminating(unsigned char c) { return strchr("\";@^`~()[]{}\\", c) != NULL && c != '\0'; }
+
+static bool is_digit(unsigned char c) { return c >= '0' && c <= '9'; }
+
+static int hex_val(unsigned char c) {
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+static clj_read_status fail(parser *p, uint32_t line, uint32_t col, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+static clj_read_status fail(parser *p, uint32_t line, uint32_t col, const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(p->r->message, sizeof p->r->message, fmt, ap);
+	va_end(ap);
+	p->r->error_line = line;
+	p->r->error_col = col;
+	return CLJ_READ_ERROR;
+}
+
+static void skip_line(clj_reader *r) {
+	while (!at_eof(r) && peek(r) != '\n') advance(r);
+}
+
+static void skip_blank(clj_reader *r) {
+	while (!at_eof(r)) {
+		unsigned char c = peek(r);
+		if (is_ws(c)) advance(r);
+		else if (c == ';') skip_line(r);
+		else break;
+	}
+}
+
+// Consumes the rest of a token; the caller has already consumed any literal first character.
+static void read_token_tail(clj_reader *r) {
+	while (!at_eof(r) && !is_ws(peek(r)) && !is_terminating(peek(r))) advance(r);
+}
+
+static void push_frame(parser *p, frame_kind kind, uint32_t line, uint32_t col) {
+	if (p->nframes == p->fcap) {
+		p->fcap = p->fcap ? p->fcap * 2 : 16;
+		p->frames = realloc(p->frames, p->fcap * sizeof *p->frames);
+		if (!p->frames) clj_fatal("out of memory");
+	}
+	p->frames[p->nframes++] = (frame){kind, p->nvals, line, col};
+}
+
+static void push_raw(parser *p, clj_value v) {
+	if (p->nvals == p->vcap) {
+		p->vcap = p->vcap ? p->vcap * 2 : 64;
+		p->vals = realloc(p->vals, p->vcap * sizeof *p->vals);
+		if (!p->vals) clj_fatal("out of memory");
+	}
+	p->vals[p->nvals++] = v;
+}
+
+// Consumes sym and v.
+static clj_value wrap(clj_value sym, clj_value v) {
+	clj_value items[2] = {sym, v};
+	clj_value list = clj_list_from_array(items, 2);
+	clj_release(sym);
+	clj_release(v);
+	return list;
+}
+
+// Consumes v: applies pending prefix frames (quote, deref, discard), then stores it.
+static void push_value(parser *p, clj_value v) {
+	while (p->nframes) {
+		frame *f = &p->frames[p->nframes - 1];
+		if (f->kind == F_QUOTE) {
+			v = wrap(clj_symbol_from_cstr("quote"), v);
+		} else if (f->kind == F_DEREF) {
+			v = wrap(clj_symbol_from_cstr("clojure.core/deref"), v);
+		} else if (f->kind == F_DISCARD) {
+			clj_release(v);
+			p->nframes--;
+			return;
+		} else {
+			break;
+		}
+		p->nframes--;
+	}
+	push_raw(p, v);
+}
+
+static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
+	size_t i = 0;
+	bool neg = false;
+	if (tok[0] == '+' || tok[0] == '-') {
+		neg = tok[0] == '-';
+		i = 1;
+	}
+	size_t digits = i;
+	while (digits < n && is_digit((unsigned char)tok[digits])) digits++;
+	if (tok[i] == '0' && digits - i == 1 && digits < n && (tok[digits] == 'x' || tok[digits] == 'X'))
+		return fail(p, line, col, "Hex literals are not supported yet: %.*s", (int)n, tok);
+	if (digits < n && (tok[digits] == 'r' || tok[digits] == 'R') && digits - i <= 2)
+		return fail(p, line, col, "Radix literals are not supported yet: %.*s", (int)n, tok);
+	if (digits < n && tok[digits] == '/') {
+		size_t j = digits + 1;
+		while (j < n && is_digit((unsigned char)tok[j])) j++;
+		if (j == n && j > digits + 1) return fail(p, line, col, "Ratios are not supported yet: %.*s", (int)n, tok);
+		return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	}
+	if (digits < n && (tok[digits] == '.' || tok[digits] == 'e' || tok[digits] == 'E')) {
+		size_t j = digits;
+		if (tok[j] == '.') {
+			j++;
+			while (j < n && is_digit((unsigned char)tok[j])) j++;
+		}
+		if (j < n && (tok[j] == 'e' || tok[j] == 'E')) {
+			j++;
+			if (j < n && (tok[j] == '+' || tok[j] == '-')) j++;
+			size_t exp_start = j;
+			while (j < n && is_digit((unsigned char)tok[j])) j++;
+			if (j == exp_start) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		}
+		if (j + 1 == n && tok[j] == 'M') return fail(p, line, col, "BigDecimal literals (M suffix) are not supported yet: %.*s", (int)n, tok);
+		if (j != n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		char *copy = malloc(n + 1);
+		if (!copy) clj_fatal("out of memory");
+		memcpy(copy, tok, n);
+		copy[n] = '\0';
+		// Locale-dependent; the runtime never calls setlocale.
+		double d = strtod(copy, NULL);
+		free(copy);
+		push_value(p, clj_double_new(d));
+		return CLJ_READ_OK;
+	}
+	if (digits + 1 == n && tok[digits] == 'N') return fail(p, line, col, "BigInt literals (N suffix) are not supported yet: %.*s", (int)n, tok);
+	if (digits != n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	if (tok[i] == '0' && digits - i > 1) return fail(p, line, col, "Octal literals are not supported yet: %.*s", (int)n, tok);
+	uint64_t limit = neg ? (uint64_t)1 << 62 : ((uint64_t)1 << 62) - 1;
+	uint64_t v = 0;
+	for (size_t j = i; j < n; j++) {
+		uint64_t d = (uint64_t)(tok[j] - '0');
+		if (v > (limit - d) / 10) return fail(p, line, col, "Integer out of fixnum range, bigint is not supported yet: %.*s", (int)n, tok);
+		v = v * 10 + d;
+	}
+	push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
+	return CLJ_READ_OK;
+}
+
+// Clojure's symbolPat: `(P/)?(/|N)` with P and N starting with a non-digit, N without slashes.
+static bool valid_symbol_text(const char *s, size_t n) {
+	if (n == 1 && s[0] == '/') return true;
+	if (is_digit((unsigned char)s[0]) || s[0] == '/') return false;
+	if (s[n - 1] == ':') return false;
+	size_t last = n;
+	for (size_t i = 0; i < n; i++) {
+		if (s[i] == ':' && i + 1 < n && s[i + 1] == ':') return false;
+		if (s[i] == '/') last = i;
+	}
+	if (last == n) return true;
+	if (s[last - 1] == ':') return false;
+	if (last + 1 == n) return last >= 2 && s[last - 1] == '/';
+	return !is_digit((unsigned char)s[last + 1]);
+}
+
+static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
+	bool keyword = tok[0] == ':';
+	if (keyword && n > 1 && tok[1] == ':')
+		return fail(p, line, col, "Auto-resolved keywords (::) need a current namespace, not supported yet: %.*s", (int)n, tok);
+	const char *s = tok + keyword;
+	size_t len = n - keyword;
+	if (len == 0 || !valid_symbol_text(s, len)) return fail(p, line, col, "Invalid token: %.*s", (int)n, tok);
+	clj_value ns = CLJ_NIL, name;
+	const char *slash = memchr(s, '/', len);
+	if (!slash || len == 1) {
+		name = clj_string_new(s, len);
+	} else {
+		ns = clj_string_new(s, (size_t)(slash - s));
+		name = clj_string_new(slash + 1, len - (size_t)(slash - s) - 1);
+	}
+	clj_value v = keyword ? clj_keyword_intern(ns, name) : clj_symbol_new(ns, name);
+	clj_release(ns);
+	clj_release(name);
+	push_value(p, v);
+	return CLJ_READ_OK;
+}
+
+static clj_read_status read_token(parser *p, uint32_t line, uint32_t col) {
+	clj_reader *r = p->r;
+	size_t start = r->pos;
+	read_token_tail(r);
+	const char *tok = r->bytes + start;
+	size_t n = r->pos - start;
+	if (n == 3 && memcmp(tok, "nil", 3) == 0) {
+		push_value(p, CLJ_NIL);
+	} else if (n == 4 && memcmp(tok, "true", 4) == 0) {
+		push_value(p, CLJ_TRUE);
+	} else if (n == 5 && memcmp(tok, "false", 5) == 0) {
+		push_value(p, CLJ_FALSE);
+	} else if (is_digit((unsigned char)tok[0]) || (n > 1 && (tok[0] == '+' || tok[0] == '-') && is_digit((unsigned char)tok[1]))) {
+		return parse_number(p, tok, n, line, col);
+	} else {
+		return parse_symbol(p, tok, n, line, col);
+	}
+	return CLJ_READ_OK;
+}
+
+// Exactly `count` hex digits; -1 when fewer are present.
+static int64_t read_hex(clj_reader *r, int count) {
+	int64_t v = 0;
+	for (int i = 0; i < count; i++) {
+		if (at_eof(r) || hex_val(peek(r)) < 0) return -1;
+		v = v * 16 + hex_val(peek(r));
+		advance(r);
+	}
+	return v;
+}
+
+static clj_read_status read_string(parser *p, uint32_t line, uint32_t col) {
+	clj_reader *r = p->r;
+	advance(r);
+	buf b = {0};
+	clj_read_status st = CLJ_READ_OK;
+	for (;;) {
+		if (at_eof(r)) {
+			st = fail(p, line, col, "EOF while reading string");
+			break;
+		}
+		unsigned char c = peek(r);
+		if (c == '"') {
+			advance(r);
+			break;
+		}
+		if (c != '\\') {
+			buf_put(&b, r->bytes + r->pos, 1);
+			advance(r);
+			continue;
+		}
+		uint32_t eline = r->line, ecol = r->col;
+		advance(r);
+		if (at_eof(r)) {
+			st = fail(p, line, col, "EOF while reading string");
+			break;
+		}
+		unsigned char e = peek(r);
+		advance(r);
+		char simple = 0;
+		switch (e) {
+		case 't': simple = '\t'; break;
+		case 'r': simple = '\r'; break;
+		case 'n': simple = '\n'; break;
+		case '\\': simple = '\\'; break;
+		case '"': simple = '"'; break;
+		case 'b': simple = '\b'; break;
+		case 'f': simple = '\f'; break;
+		}
+		if (simple) {
+			buf_put(&b, &simple, 1);
+		} else if (e == 'u') {
+			int64_t cp = read_hex(r, 4);
+			if (cp < 0) {
+				st = fail(p, eline, ecol, "Invalid unicode escape: expected 4 hex digits");
+				break;
+			}
+			// UTF-16 surrogate pairs written as two escapes form one scalar, as in a Java string.
+			if (cp >= 0xD800 && cp <= 0xDBFF && r->pos + 1 < r->len && r->bytes[r->pos] == '\\' && r->bytes[r->pos + 1] == 'u') {
+				size_t save_pos = r->pos;
+				uint32_t save_line = r->line, save_col = r->col;
+				advance(r);
+				advance(r);
+				int64_t low = read_hex(r, 4);
+				if (low >= 0xDC00 && low <= 0xDFFF) {
+					cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+				} else {
+					r->pos = save_pos;
+					r->line = save_line;
+					r->col = save_col;
+				}
+			}
+			if (cp >= 0xD800 && cp <= 0xDFFF) {
+				st = fail(p, eline, ecol, "Invalid unicode escape: lone surrogate \\u%04llx", (long long)cp);
+				break;
+			}
+			buf_put_utf8(&b, (uint32_t)cp);
+		} else if (e >= '0' && e <= '7') {
+			uint32_t v = e - '0';
+			for (int i = 0; i < 2 && !at_eof(r) && peek(r) >= '0' && peek(r) <= '7'; i++) {
+				v = v * 8 + (peek(r) - '0');
+				advance(r);
+			}
+			if (v > 0377) {
+				st = fail(p, eline, ecol, "Octal escape sequence must be in range [0, 377]");
+				break;
+			}
+			buf_put_utf8(&b, v);
+		} else {
+			st = fail(p, eline, ecol, "Unsupported escape character: \\%c", e);
+			break;
+		}
+	}
+	if (st == CLJ_READ_OK) push_value(p, clj_string_new(b.data, b.len));
+	free(b.data);
+	return st;
+}
+
+static clj_read_status read_char(parser *p, uint32_t line, uint32_t col) {
+	clj_reader *r = p->r;
+	advance(r);
+	if (at_eof(r)) return fail(p, line, col, "EOF while reading character");
+	uint32_t first;
+	size_t first_len = decode_utf8((const unsigned char *)r->bytes + r->pos, r->len - r->pos, &first);
+	if (!first_len) return fail(p, line, col, "Invalid UTF-8 in character literal");
+	size_t start = r->pos;
+	for (size_t i = 0; i < first_len; i++) advance(r);
+	read_token_tail(r);
+	const char *tok = r->bytes + start;
+	size_t n = r->pos - start;
+	uint32_t cp;
+	if (n == first_len) {
+		cp = first;
+	} else if (n == 7 && memcmp(tok, "newline", 7) == 0) {
+		cp = '\n';
+	} else if (n == 5 && memcmp(tok, "space", 5) == 0) {
+		cp = ' ';
+	} else if (n == 3 && memcmp(tok, "tab", 3) == 0) {
+		cp = '\t';
+	} else if (n == 9 && memcmp(tok, "backspace", 9) == 0) {
+		cp = '\b';
+	} else if (n == 8 && memcmp(tok, "formfeed", 8) == 0) {
+		cp = '\f';
+	} else if (n == 6 && memcmp(tok, "return", 6) == 0) {
+		cp = '\r';
+	} else if (tok[0] == 'u' && n == 5) {
+		int64_t v = 0;
+		for (size_t i = 1; i < 5; i++) {
+			int h = hex_val((unsigned char)tok[i]);
+			if (h < 0) return fail(p, line, col, "Unsupported character: \\%.*s", (int)n, tok);
+			v = v * 16 + h;
+		}
+		if (v >= 0xD800 && v <= 0xDFFF) return fail(p, line, col, "Invalid character constant: \\%.*s", (int)n, tok);
+		cp = (uint32_t)v;
+	} else if (tok[0] == 'o' && n >= 2 && n <= 4) {
+		uint32_t v = 0;
+		for (size_t i = 1; i < n; i++) {
+			if (tok[i] < '0' || tok[i] > '7') return fail(p, line, col, "Unsupported character: \\%.*s", (int)n, tok);
+			v = v * 8 + (uint32_t)(tok[i] - '0');
+		}
+		if (v > 0377) return fail(p, line, col, "Octal escape sequence must be in range [0, 377]");
+		cp = v;
+	} else {
+		return fail(p, line, col, "Unsupported character: \\%.*s", (int)n, tok);
+	}
+	push_value(p, clj_char(cp));
+	return CLJ_READ_OK;
+}
+
+static clj_read_status read_symbolic_value(parser *p, uint32_t line, uint32_t col) {
+	clj_reader *r = p->r;
+	size_t start = r->pos;
+	read_token_tail(r);
+	const char *tok = r->bytes + start;
+	size_t n = r->pos - start;
+	double d;
+	if (n == 3 && memcmp(tok, "Inf", 3) == 0) d = __builtin_inf();
+	else if (n == 4 && memcmp(tok, "-Inf", 4) == 0) d = -__builtin_inf();
+	else if (n == 3 && memcmp(tok, "NaN", 3) == 0) d = __builtin_nan("");
+	else return fail(p, line, col, "Unknown symbolic value: ##%.*s", (int)n, tok);
+	push_value(p, clj_double_new(d));
+	return CLJ_READ_OK;
+}
+
+static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
+	clj_reader *r = p->r;
+	advance(r);
+	if (at_eof(r)) return fail(p, line, col, "EOF while reading dispatch character");
+	unsigned char c = peek(r);
+	switch (c) {
+	case '_':
+		advance(r);
+		push_frame(p, F_DISCARD, line, col);
+		return CLJ_READ_OK;
+	case '#':
+		advance(r);
+		return read_symbolic_value(p, line, col);
+	case '!':
+		skip_line(r);
+		return CLJ_READ_OK;
+	case '{': return fail(p, line, col, "Set literals are not supported yet");
+	case '(': return fail(p, line, col, "Anonymous function literals are not supported yet");
+	case '"': return fail(p, line, col, "Regex literals are not supported yet");
+	case '\'': return fail(p, line, col, "Var quote is not supported yet");
+	case ':': return fail(p, line, col, "Namespaced map literals are not supported yet");
+	case '?': return fail(p, line, col, "Reader conditionals are not supported yet");
+	case '=': return fail(p, line, col, "Read-eval is not supported yet");
+	case '^': return fail(p, line, col, "Metadata is not supported yet");
+	case '<': return fail(p, line, col, "Unreadable form");
+	default: return fail(p, line, col, "Tagged literals are not supported yet");
+	}
+}
+
+static clj_read_status close_map(parser *p, const frame *f, clj_value *out) {
+	size_t n = p->nvals - f->start;
+	if (n % 2) return fail(p, f->line, f->col, "Map literal must contain an even number of forms");
+	clj_value m = clj_map_empty();
+	for (size_t i = f->start; i < p->nvals; i += 2) {
+		clj_value key = p->vals[i];
+		if (clj_map_contains(m, key)) {
+			clj_value text = clj_pr_str(key);
+			clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+			clj_release(text);
+			clj_release(m);
+			return st;
+		}
+		m = clj_map_assoc(m, key, p->vals[i + 1]);
+	}
+	*out = m;
+	return CLJ_READ_OK;
+}
+
+static clj_read_status close_collection(parser *p, unsigned char closer, uint32_t line, uint32_t col) {
+	frame_kind expected = closer == ')' ? F_LIST : closer == ']' ? F_VECTOR : F_MAP;
+	if (!p->nframes || p->frames[p->nframes - 1].kind != expected) return fail(p, line, col, "Unmatched delimiter: %c", closer);
+	frame f = p->frames[--p->nframes];
+	size_t n = p->nvals - f.start;
+	const clj_value *items = n ? p->vals + f.start : NULL;
+	clj_value v;
+	if (f.kind == F_LIST) {
+		v = clj_list_from_array(items, n);
+	} else if (f.kind == F_VECTOR) {
+		if (n > UINT32_MAX) return fail(p, f.line, f.col, "Vector literal too long");
+		v = clj_vector_from_array(items, (uint32_t)n);
+	} else {
+		clj_read_status st = close_map(p, &f, &v);
+		if (st != CLJ_READ_OK) return st;
+	}
+	for (size_t i = f.start; i < p->nvals; i++) clj_release(p->vals[i]);
+	p->nvals = f.start;
+	push_value(p, v);
+	return CLJ_READ_OK;
+}
+
+static clj_read_status read_form(parser *p) {
+	clj_reader *r = p->r;
+	uint32_t line = r->line, col = r->col;
+	unsigned char c = peek(r);
+	switch (c) {
+	case '(':
+	case '[':
+	case '{':
+		advance(r);
+		push_frame(p, c == '(' ? F_LIST : c == '[' ? F_VECTOR : F_MAP, line, col);
+		return CLJ_READ_OK;
+	case ')':
+	case ']':
+	case '}':
+		advance(r);
+		return close_collection(p, c, line, col);
+	case '\'':
+		advance(r);
+		push_frame(p, F_QUOTE, line, col);
+		return CLJ_READ_OK;
+	case '@':
+		advance(r);
+		push_frame(p, F_DEREF, line, col);
+		return CLJ_READ_OK;
+	case '"': return read_string(p, line, col);
+	case '\\': return read_char(p, line, col);
+	case '#': return read_dispatch(p, line, col);
+	case '^': return fail(p, line, col, "Metadata is not supported yet");
+	case '`': return fail(p, line, col, "Syntax-quote is not supported yet");
+	case '~': return fail(p, line, col, "Unquote is not supported yet");
+	default: return read_token(p, line, col);
+	}
+}
+
+void clj_reader_init(clj_reader *r, const char *bytes, size_t len) {
+	memset(r, 0, sizeof *r);
+	r->bytes = bytes;
+	r->len = len;
+	r->line = r->col = 1;
+}
+
+const char *clj_reader_message(const clj_reader *r) { return r->message; }
+
+clj_read_status clj_read(clj_reader *r, clj_value *out) {
+	parser p = {.r = r};
+	clj_read_status st;
+	for (;;) {
+		skip_blank(r);
+		if (at_eof(r)) {
+			if (p.nframes) {
+				const frame *f = &p.frames[p.nframes - 1];
+				st = fail(&p, f->line, f->col, "EOF while reading");
+			} else {
+				st = CLJ_READ_EOF;
+			}
+			break;
+		}
+		if (!p.nframes) {
+			r->form_line = r->line;
+			r->form_col = r->col;
+		}
+		st = read_form(&p);
+		if (st != CLJ_READ_OK) break;
+		if (!p.nframes && p.nvals) {
+			*out = p.vals[0];
+			p.nvals = 0;
+			break;
+		}
+	}
+	for (size_t i = 0; i < p.nvals; i++) clj_release(p.vals[i]);
+	free(p.vals);
+	free(p.frames);
+	return st;
+}

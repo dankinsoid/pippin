@@ -71,6 +71,13 @@ public struct Value: Sendable {
 		})
 	}
 
+	/// A list of the elements, ending in the empty list.
+	public init(list elements: [Value]) {
+		self.init(owning: withExtendedLifetime(elements) {
+			elements.map(\.raw).withUnsafeBufferPointer { clj_list_from_array($0.baseAddress, $0.count) }
+		})
+	}
+
 	public var isNil: Bool { clj_is_nil(raw) }
 	public var isTruthy: Bool { clj_truthy(raw) }
 
@@ -101,7 +108,95 @@ public struct Value: Sendable {
 		return out
 	}
 
+	/// The elements of a list (a cons chain or `()`), in order; nil for any other value.
+	public var list: [Value]? {
+		guard clj_is_list(raw) else { return nil }
+		var out: [Value] = []
+		withExtendedLifetime(self) {
+			var it = clj_seq_iter_start(raw)
+			var item: clj_value = CLJ_NIL
+			while clj_seq_iter_next(&it, &item) { out.append(Value(borrowing: item)) }
+		}
+		return out
+	}
+
 	public var typeName: String { String(cString: clj_type_name(raw)) }
+}
+
+/// A syntax error from the reader; line and column are 1-based, the column counts code points.
+public struct ReaderError: Error, Equatable, CustomStringConvertible {
+	public let message: String
+	public let line: Int
+	public let column: Int
+
+	public init(message: String, line: Int, column: Int) {
+		self.message = message
+		self.line = line
+		self.column = column
+	}
+
+	public var description: String { "\(line):\(column): \(message)" }
+}
+
+extension Value {
+	/// Reads exactly one form; anything but whitespace and comments after it is an error.
+	public init(reading text: String) throws {
+		var first: Value?
+		try Self.read(text) { value, reader in
+			if first == nil {
+				first = value
+				return true
+			}
+			throw ReaderError(message: "Unexpected trailing input", line: Int(reader.form_line), column: Int(reader.form_col))
+		}
+		guard let first else { throw ReaderError(message: "EOF while reading", line: 1, column: 1) }
+		self = first
+	}
+
+	/// Every form in the text, in order.
+	public static func readAll(_ text: String) throws -> [Value] {
+		var out: [Value] = []
+		try read(text) { value, _ in
+			out.append(value)
+			return true
+		}
+		return out
+	}
+
+	// The body returns false to stop; a thrown error propagates after the reader is torn down.
+	private static func read(_ text: String, _ body: (Value, clj_reader) throws -> Bool) throws {
+		var bytes = Array(text.utf8)
+		try bytes.withUnsafeMutableBufferPointer { buf in
+			try buf.withMemoryRebound(to: CChar.self) { chars in
+				var reader = clj_reader()
+				clj_reader_init(&reader, chars.baseAddress, chars.count)
+				while true {
+					var raw: clj_value = CLJ_NIL
+					switch clj_read(&reader, &raw) {
+					case CLJ_READ_EOF:
+						return
+					case CLJ_READ_ERROR:
+						throw ReaderError(
+							message: String(cString: clj_reader_message(&reader)),
+							line: Int(reader.error_line), column: Int(reader.error_col))
+					default:
+						if try !body(Value(owning: raw), reader) { return }
+					}
+				}
+			}
+		}
+	}
+}
+
+extension Value: CustomStringConvertible {
+	/// Clojure `pr-str`.
+	public var description: String {
+		withExtendedLifetime(self) {
+			let s = clj_pr_str(raw)
+			defer { clj_release(s) }
+			return String(decoding: UnsafeRawBufferPointer(start: clj_string_bytes(s), count: Int(clj_string_len(s))), as: UTF8.self)
+		}
+	}
 }
 
 extension Value: ExpressibleByNilLiteral, ExpressibleByBooleanLiteral, ExpressibleByIntegerLiteral,
