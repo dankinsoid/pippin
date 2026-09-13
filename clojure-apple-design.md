@@ -220,6 +220,48 @@ Dev-сборка = ядро + интерпретатор + все мосты д�
 
 **Почему Clojure JVM так не делает.** Нет своих call site'ов (`(:name m)` → `Keyword.invoke` → `ILookup.valAt`, HotSpot кэширует класс, не shape); нет unboxed-слотов без Valhalla; GC делает аллокацию дешёвой; философия «знаешь ключи — `defrecord`», без скрытого глобального состояния; консерватизм core (структуры не менялись с 1.0). У нас все три технических условия есть: свои сайты, unboxed-слоты, дорогая аллокация как мотив.
 
+### Низкоуровневый слой: числа, layout, память
+**Как это делают динамические языки.** Четыре стратегии: (1) горячее не в этом языке — NumPy/BLAS, Neanderthal; свою математику так не напишешь; (2) типизированное подмножество — Common Lisp `declare` + SBCL, Clojure `^long` и примитивные массивы, Cython/Numba; Julia сильнее всех: вывод + специализация, обычный код на числах = C, `struct` с конкретными полями имеет C-layout; (3) контроль layout'а — LuaJIT FFI `ffi.cdef`, Julia `struct`, TypedArray, Clojure `deftype` с примитивными полями; (4) FFI в C. Наш дизайн даёт все четыре: автоматика (вывод + unboxed слоты + elements kinds — путь Julia) для 90% кода, явные инструменты с гарантиями — для остального.
+
+**Из clojure.core как есть:** `^long`/`^double`, примитивные массивы (`long-array`, `aget`/`aset`, `amap`/`areduce`), `vector-of`, `loop/recur` без боксов, `unchecked-*` и `*unchecked-math*`, `bit-*`, `deftype` с примитивными и `^:unsynchronized-mutable` полями + `set!` в методах, `transient`, `definline`, `volatile!`. Покрывает «unboxed цикл над массивом» — ~60% числового кода.
+
+**Чего нет, потому что JVM не умел, а C умеет:**
+- Ширина чисел: `i8…i64`, `u8…u64`, `f32`, `f16` как типы полей и элементов, арифметика без промоушена в long/double. Metal-буферы, аудио, сеть.
+- Layout структур: вложенные структуры по значению (inline, не указателем), inline-массивы фиксированного размера в полях, `^:packed`, выравнивание. JVM структур не имеет — `deftype` там класс со ссылками.
+- Значимые типы без RC: копируются по значению, без заголовка — как Swift-struct. `Vec3`, `Color`, `Rect` — 24 байта в регистрах вместо аллокации.
+- Типизированные массивы структур `(array Vertex n)` с inline-элементами. Здесь SoA живёт легально — как явный тип, не магия над `vector`.
+- SIMD: `(simd :f32 4)` → C vector extensions, операции интринсиками.
+- Сырая память: opaque `ptr`, `(ptr-get :f32 p off)`, `mem-alloc`, view на `UnsafeMutableRawPointer` — только в ns с `^:unsafe`.
+- Интроспекция: `(sizeof T)`, `(offsetof T :x)`, `(alignof T)` — без этого не заполнить `MTLBuffer` под шейдер.
+- Интринсики: `popcount`, `clz`, `ctz`, rotate, `fma`, saturating.
+- Гарантии: `^:no-alloc`, `:strict`-ns, `^:inline` (§3, решётка фактов). `:strict` подсвечивает каждый бокс — аналог `@code_warntype`, главный инструмент числового кода: «где я потерял тип».
+- SIMD/Accelerate/vDSP/BLAS — просто стабы, без моста через `Value`; C-функции с сигнатурой из заголовка вызываются напрямую с unboxed аргументами (у Clojure JVM — JNI/Panama).
+
+Не добавлять: мутабельные локалы (`set!` на `let`) — семантический разлом, `loop/recur` и мутабельные поля `deftype` покрывают; ручное управление памятью вне `^:unsafe`.
+
+**`deflayout` — layout как данные.**
+```clojure
+(deflayout Vertex
+  [[:pos [:f32 3]]
+   [:uv  [:f32 2]]
+   [:color :u32]])
+```
+Той же формы, что схемы; вычисляется при компиляции (как схемные функции), порождает C-struct, знает sizeof/offsetof/alignof; та же декларация может породить Metal-совместимую структуру для шейдера.
+
+Представление в рантайме — два состояния одного значения, как Swift-struct:
+- Типизированный контекст (поле другого layout'а, элемент `(array Vertex n)`, unboxed-локал с известным типом) — inline байты без заголовка.
+- Динамический контекст — бокс: heap-объект `{rc, tag=LAYOUT, descriptor*}` + payload. `Value` получает один новый тег; intrinsics с tag-switch — одну ветку «смотри в дескриптор». Это `Any`-бокс существенциала в Swift, только явно.
+- Дескриптор — shape с фиксированным layout'ом: ключи → смещение + тип поля (у shape: ключи → индексы). Вся динамическая семантика — от shape-мап: `(:pos v)` через `ILookup` по дескриптору, `=` по полям, hash, print, seq. `(assoc v :color c)` — копия байт + запись → новый бокс; персистентность бесплатно, потому что копия, а не разделение. Мутация — только `^:unsafe` или `aset` в типизированный массив.
+- Ограничение isbits (из Julia): внутри layout'а только скаляры, вложенные layout'ы, inline-массивы. Никаких `Value`/ссылок. Копия = memcpy, RC не участвует, GC-корней нет, кладётся в `MTLBuffer` и передаётся в C как есть. Структура со ссылками — это `deftype`, другая вещь. Граница: layout = байты, deftype = объект.
+- Бокс при потере типа: `(aget verts i)` с известным типом — unboxed в регистрах/на стеке; с ⊤ — бокс (аллокация). Как Julia isbits. `:strict`/`^:no-alloc` подсвечивает.
+- Арифметика на layout'ах не встроена — `extend-type Vec3 IAdd` или функции, диспатч по дескриптору. Исключение: SIMD-layout'ы `[:f32 4] ^:simd` — интринсики знают операции напрямую.
+- Интероп: дескриптор → C-struct для кодогена; Swift `@frozen`/C-импортированные структуры совместимы по layout'у → memcpy; произвольные Swift-struct — проверка `MemoryLayout` при сборке моста, иначе поле за полем.
+- Стоимость добавления: тег + тип дескриптора, наследующий shape, + ветка в 3–4 intrinsics. Остальное — переиспользование сделанного для мап.
+
+**Числовая башня** (нет Java, нет bignum в Swift stdlib). `BigInt`, `BigDecimal`, `Ratio` — типы рантайма на C поверх GMP/MPFR (LGPL — динамически) или permissive (`libtommath`/`mini-gmp`), либо своя. Продвижение как в Clojure: `+` на int64 переполняется → исключение, `+'`/`*'`/`inc'` — автопромоушен. Диспатч по тегу в интринсике, unboxed fast path int64/double, медленный путь — C-функция bignum. Своя библиотека высокой точности — на C или на Clojure с `:strict`: limb-массивы = `(vector-of :long)` + unboxed loop.
+
+**Критерий достаточности.** На этом слое можно написать particle-систему без единого бокса с прямой записью в `MTLBuffer`. Если нет — инструментов не хватает.
+
 ### Атомы
 - `Mutex` (`Synchronization`, iOS 18+) или `OSAllocatedUnfairLock`, не голый `os_unfair_lock` (нужна стабильность адреса). Не CAS: lock-free refcounted-указатель = гонка retain/release, нужны hazard pointers или DCAS ради повторения JVM-дизайна.
 - `f` выполняется ровно один раз, под локом. Watches — после отпускания лока. Вложенный `swap!` на тот же атом — trap (на JVM — бесконечный ретрай, оба баг). `deref` тоже под локом — дёшево.
@@ -396,6 +438,9 @@ Escaping — главная проблема для *потока управле
 | HM/OCaml-унификация | делает язык типизированным; у нас решётка с ⊤, success typings |
 | Открытый API для инжекта кода в обход дерева | протекает AST; расширение декларативное: факты на варах, refinements на предикатах, схемные функции |
 | Константность как отдельный факт | это singleton-тип в решётке типов; compile-time вычислимость — производная (чистота ∧ singleton-входы) |
+| Мутабельные локалы (`set!` на `let`) | семантический разлом; `loop/recur` + мутабельные поля `deftype` покрывают |
+| Ссылки/`Value` внутри `deflayout` | ломает isbits: копия перестаёт быть memcpy, появляются RC-корни в буферах; для этого `deftype` |
+| SoA неявно над `vector` | явный `(array Layout n)` — см. низкоуровневый слой §4 |
 
 ---
 
@@ -433,3 +478,4 @@ Escaping — главная проблема для *потока управле
 - **Swift-рантайм:** wickwirew/Runtime, Echo, Mike Ash «Exploring Swift Memory Layout», Swift ABI stability docs, `_typeByName`, `_openExistential`, `@_dynamicReplacement`, `swift_conformsToProtocol`.
 - **JIT для контраста:** HotSpot (tiered C1/C2, inline caches, escape analysis, uncommon traps/deopt, OSR).
 - **Вывод фактов:** Julia type inference (abstract interpretation, widening, `@code_warntype`); Dialyzer / success typings (Lindahl & Sagonas); Typed Racket occurrence typing (Tobin-Hochstadt & Felleisen); TypeScript control-flow analysis / type guards; Kotlin smart casts; Zig comptime; Malli `m/=>`.
+- **Низкоуровневый слой:** Julia isbits / struct layout и `@code_warntype`; LuaJIT FFI cdata; SBCL `declare`; Clojure `vector-of` / `deftype` mutable fields; clang vector extensions; Swift `@frozen` / `MemoryLayout`.
