@@ -11,6 +11,8 @@
 
 // Ownership convention: arguments are borrowed (+0), return values are owned (+1).
 // A callee that stores an argument retains it itself.
+// Exception: an operation that may reuse its argument in place (assoc, conj, ...) consumes it (+1 in);
+// with a borrowed unique argument the mutation would silently rewrite the caller's old value.
 
 typedef struct clj_type clj_type;
 
@@ -24,8 +26,9 @@ typedef struct {
 } clj_header;
 
 // Set on the whole reachable graph once it crosses a thread or is exported to the host;
-// from then on RC is atomic. Invariant: every child of a shared object is shared.
-// Only the owning thread sets it, before publishing, so a plain write suffices.
+// from then on RC is atomic. Only the owning thread sets it, before publishing, so a plain write suffices.
+// Invariant: every child of a shared object is shared. In-place reuse of a shared object
+// (rc == 1) must clj_share any new child before storing it.
 #define CLJ_FLAG_SHARED   ((uint32_t)1 << 0)
 // Static objects (builtin type descriptors): retain/release are no-ops.
 #define CLJ_FLAG_IMMORTAL ((uint32_t)1 << 1)

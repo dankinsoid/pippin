@@ -11,6 +11,7 @@ const clj_type clj_type_type = {
 };
 
 #if CLJ_DEBUG
+// One process-wide counter, contended across threads; debug-only, so acceptable until profiles say otherwise.
 static _Atomic int64_t live_objects;
 int64_t clj_debug_live_objects(void) { return atomic_load(&live_objects); }
 #define LIVE_ADD(n) atomic_fetch_add_explicit(&live_objects, (n), memory_order_relaxed)
@@ -24,6 +25,7 @@ void clj_fatal(const char *msg) {
 	abort();
 }
 
+// calloc stands in for the size-class pool (design §4); callers depend only on this signature.
 void *clj_alloc(const clj_type *type, size_t size) {
 	clj_header *h = calloc(1, size);
 	if (!h) clj_fatal("out of memory");
@@ -47,7 +49,7 @@ static void dealloc(clj_header *h) {
 	free(h);
 }
 
-static bool dec_to_zero(clj_header *h) {
+static bool release_reaches_zero(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
 	if (h->flags & CLJ_FLAG_SHARED) {
 		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_release);
@@ -79,7 +81,7 @@ static void release_child(clj_value child, void *ctx) {
 	if (!clj_is_ptr(child)) return;
 	clj_header **stack = ctx;
 	clj_header *h = clj_header_of(child);
-	if (dec_to_zero(h)) {
+	if (release_reaches_zero(h)) {
 		set_dead_next(h, *stack);
 		*stack = h;
 	}
@@ -107,7 +109,7 @@ void clj_retain_slow(clj_header *h) {
 }
 
 void clj_release_slow(clj_header *h) {
-	if (dec_to_zero(h)) free_object(h);
+	if (release_reaches_zero(h)) free_object(h);
 }
 
 bool clj_is_unique(clj_value v) {
