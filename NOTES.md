@@ -62,12 +62,66 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   current ns), bigint/BigDecimal/ratio/hex/radix/octal numbers. Each is a `switch` arm in
   `read_dispatch`/`parse_number` to replace when the feature lands.
 - **No metadata on forms.** `form_line`/`form_col` expose the start of the last top-level form only;
-  nested forms carry no position. Trigger: analyzer error messages. Needs the symbol/list meta slot.
+  nested forms carry no position, so every analysis error reports the top-level form's `:line`/`:column`.
+  Trigger: error messages inside a long `defn`. Needs the symbol/list meta slot.
 - **Input is not validated as UTF-8** except inside a character literal; malformed bytes pass through
   into strings and symbols, and a column counts every non-continuation byte. Trigger: a non-Swift host
   feeding raw bytes.
 - **`strtod`/`snprintf` in reader and printer follow the C locale**, which the runtime never changes;
   a host calling `setlocale` with a comma decimal point would break doubles.
+
+## Analyzer and evaluator (Sources/CljCore/analyzer.c, eval.c, fn.c)
+
+- **No macros.** Special forms are `def if do let fn loop recur quote` (plus `let*`/`fn*`/`loop*`);
+  `defn`, `when`, `cond`, `->` and the rest of core.clj need `defmacro` and macroexpand in the pipeline.
+  Trigger: the first attempt to load core.clj.
+- **No destructuring.** `let`/`fn`/`loop` bind vectors of plain symbols only. Comes with macros
+  (`destructure` is a macro-time function in Clojure).
+- **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
+  "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
+- **`def` is eager and vars are plain roots.** No lazy thunk state, no `^:dynamic`/binding, no
+  `*ns*` var (the current namespace is a thread-local pointer, `user` by default). Trigger: the first
+  ns whose load-time cost shows, or the first `binding`.
+- **No `try`/`catch`/`throw` forms.** Exceptions propagate as `CLJ_THROWN` to the host; `ex-info`
+  exists only in C (`clj_ex_info`). Trigger: error handling in Clojure code.
+- **Concurrent `def` against `deref` is unsafe.** `clj_var_root` returns a borrowed pointer and a
+  racing `clj_var_bind_root` releases the old root, so a reader may retain a freed value.
+  Redefinition is a dev-time operation until the epoch/inline-cache design (var inline cache, §6)
+  lands; until then evaluate on one thread at a time. Same for `clj_ns_current` vs `clj_init`
+  ordering: call `clj_init` before any evaluation.
+- **Var lookup is a root load on every evaluation** of a var node, no inline cache or epoch check.
+  Trigger: profiling a hot loop over core fns.
+- **C stack per Clojure call is large.** Each call is ~5 C frames with slot and argument buffers on the
+  stack: ~0.6 KB in a debug build, ~2.3 KB under ASan, ~3.7 KB under UBSan. On Swift Testing's 512 KB
+  threads that is ~600 / ~170 / ~100 nested non-tail calls before the guard throws "Stack overflow"
+  (the guard reads the thread's real bounds on Apple platforms; elsewhere it assumes 512 KB). Fix: a
+  heap-allocated shadow stack of frames (also the crash-report trace from the design) and fewer C
+  frames per call. Tests keep non-tail recursion depth ≤ 50.
+- **The stack guard has no host fallback.** `pthread_get_stackaddr_np` is Apple/BSD; other platforms
+  get a fixed 512 KB assumption measured from the first call. Trigger: a Linux port.
+- **Vars are immortal.** Every `def` of a new name leaks a var, its name symbol and string for the
+  life of the process, as do namespaces; tests declare their vars before taking live-object baselines.
+- **No ratio, no bigint.** Fixnum overflow throws "integer overflow"; `/` of fixnums yields a fixnum
+  only when exact and a double otherwise. Trigger: any arithmetic that expects promotion.
+- **Analysis error messages are capped at 512 bytes** (`fail` formats into a fixed buffer): a huge
+  unresolved form is truncated in the message.
+- **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
+  Trigger: memory of a large loaded program. Fix: per-kind sizes via `clj_alloc(size)`.
+
+## Builtins (Sources/CljCore/builtins.c)
+
+- **Coverage is the minimum for the evaluator tests**: arithmetic and comparison, type predicates,
+  `get assoc dissoc contains? count conj nth first rest next cons list vector hash-map`, `str pr-str
+  pr prn print println identity apply`. No `seq`, `map`, `reduce`, `keys`, `vals`, `max`, `mod`, ...
+  Most of the rest belongs in core.clj once macros exist; the seq protocol (lazy seqs, `seq` on
+  maps and strings) is a runtime feature.
+- **`rest`/`next` on a vector copy the remainder into a list** (O(n) per step, so walking a vector
+  by `rest` is O(n²)); `nth` on a list walks it. Trigger: seq-style loops over big vectors. Fix:
+  chunked/indexed seqs.
+- **Output hook is process-wide** (`clj_set_output`), not per thread or per runtime. Trigger: two
+  hosts printing concurrently.
+- **Error messages are Clojure-like, not Clojure-identical**: type names are the runtime's
+  (`string cannot be cast to a number`, not `java.lang.String ... java.lang.Number`).
 
 ## Printer (Sources/CljCore/printer.c)
 
@@ -80,6 +134,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - **Symbols carry no metadata slot.** Trigger: the reader attaching `:line`/`:column`, or `with-meta`
   on a symbol. Add a `meta` value slot (nil by default) and visit it in `each_child`.
+- **Interning a keyword is permanent and shows in `clj_debug_live_objects`** (keyword, symbol,
+  string, intern-table nodes); tests intern the keywords they use before taking a baseline.
 - **Keyword intern table is one global map under one mutex**, and interning allocates a temporary
   symbol for the lookup even on a hit. Trigger: keyword literals resolved at runtime in a hot path
   (the reader/analyzer resolves them once, so unlikely). Fix: sharded tables or a lock-free read path.
