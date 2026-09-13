@@ -89,3 +89,14 @@ extension Value: ExpressibleByNilLiteral, ExpressibleByBooleanLiteral, Expressib
 	public init(floatLiteral value: Double) { self.init(value) }
 	public init(stringLiteral value: String) { self.init(value) }
 }
+
+// Clojure `=` and `hash`: Value(1) != Value(1.0), NaN != NaN, as with Swift's Double.
+extension Value: Hashable {
+	public static func == (lhs: Value, rhs: Value) -> Bool {
+		withExtendedLifetime((lhs, rhs)) { clj_equals(lhs.raw, rhs.raw) }
+	}
+
+	public func hash(into hasher: inout Hasher) {
+		withExtendedLifetime(self) { hasher.combine(clj_hash(raw)) }
+	}
+}
