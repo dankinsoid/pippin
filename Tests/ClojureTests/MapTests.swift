@@ -239,6 +239,66 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		@Test func heapKeysRoundTrip() {
+			let kw = clj_keyword_from_cstr("map-key/kw")
+			let before = clj_debug_live_objects()
+			let str = clj_string_from_cstr("key")
+			let dbl = clj_double_new(-0.0)
+			let sym = clj_symbol_from_cstr("map-key/sym")
+			var m = clj_map_empty()
+			m = clj_map_assoc(m, kw, clj_fixnum(1))
+			m = clj_map_assoc(m, str, clj_fixnum(2))
+			m = clj_map_assoc(m, dbl, clj_fixnum(3))
+			m = clj_map_assoc(m, sym, clj_fixnum(4))
+			m = clj_map_assoc(m, clj_fixnum(0), clj_fixnum(5))
+			#expect(clj_map_count(m) == 5)
+			#expect(clj_map_get(m, clj_keyword_from_cstr("map-key/kw"), missing) == clj_fixnum(1))
+			let str2 = clj_string_from_cstr("key")
+			let dbl2 = clj_double_new(0.0)
+			let sym2 = clj_symbol_from_cstr("map-key/sym")
+			#expect(clj_map_get(m, str2, missing) == clj_fixnum(2))
+			#expect(clj_map_get(m, dbl2, missing) == clj_fixnum(3))
+			#expect(clj_map_get(m, sym2, missing) == clj_fixnum(4))
+			#expect(clj_map_get(m, clj_fixnum(0), missing) == clj_fixnum(5))
+			#expect(clj_map_get(m, clj_fixnum(3), missing) == missing)
+			m = clj_map_dissoc(m, str2)
+			m = clj_map_dissoc(m, dbl2)
+			m = clj_map_dissoc(m, sym2)
+			m = clj_map_dissoc(m, kw)
+			#expect(clj_map_count(m) == 1)
+			for v in [str, dbl, sym, str2, dbl2, sym2, m] { clj_release(v) }
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func hashIsCachedAndResetInPlace() {
+			let before = clj_debug_live_objects()
+			var m = clj_map_assoc(clj_map_empty(), clj_fixnum(1), clj_fixnum(1))
+			#expect(clj_debug_cached_hash(m) == 0)
+			let h1 = clj_hash(m)
+			#expect(clj_debug_cached_hash(m) == h1)
+			#expect(clj_hash(m) == h1)
+
+			let same = clj_map_assoc(m, clj_fixnum(1), clj_fixnum(1))
+			#expect(same == m)
+			#expect(clj_debug_cached_hash(m) == h1)
+
+			m = clj_map_assoc(m, clj_fixnum(2), clj_fixnum(2))
+			#expect(clj_debug_cached_hash(m) == 0)
+			let h2 = clj_hash(m)
+			#expect(h2 != h1)
+			m = clj_map_dissoc(m, clj_fixnum(2))
+			#expect(clj_debug_cached_hash(m) == 0)
+			#expect(clj_hash(m) == h1)
+
+			let copy = clj_map_assoc(clj_retain(m), clj_fixnum(3), clj_fixnum(3))
+			#expect(copy != m)
+			#expect(clj_debug_cached_hash(m) == h1)
+			#expect(clj_debug_cached_hash(copy) == 0)
+			clj_release(copy)
+			clj_release(m)
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func heapValuesAreOwned() {
 			let before = clj_debug_live_objects()
 			let v = clj_cons_new(clj_fixnum(1), CLJ_NIL)

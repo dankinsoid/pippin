@@ -9,6 +9,14 @@ const char *clj_type_name(clj_value v) {
 	return clj_header_of(v)->type->name;
 }
 
+uint32_t clj_debug_cached_hash(clj_value v) {
+	if (clj_is_string(v)) return clj_hash_cache_load(&clj_string_of(v)->hash);
+	if (clj_is_symbol(v)) return clj_hash_cache_load(&clj_symbol_of(v)->hash);
+	if (clj_is_keyword(v)) return clj_hash_cache_load(&clj_keyword_of(v)->hash);
+	if (clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type) return clj_hash_cache_load(&clj_map_of(v)->hash);
+	clj_fatal("value of a type without a hash cache");
+}
+
 uint32_t (*clj_debug_hash_override)(clj_value v);
 
 void clj_debug_set_hash_override(uint32_t (*fn)(clj_value v)) {

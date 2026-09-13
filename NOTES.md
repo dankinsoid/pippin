@@ -27,11 +27,17 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Map (Sources/CljCore/map.c)
 
-- **Hash of a map is not cached**; O(n) per `clj_hash(map)`. Trigger: keywords/strings land — add the
-  cached-hash field to keyword, string and map in one step. Cache writes must be safe on shared
-  objects (relaxed atomic) and reset on in-place mutation.
 - **`clj_debug_hash_override` is checked on every `clj_hash`** even in release (one global load +
   branch). Trigger: it shows in a profile.
+
+## Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)
+
+- **Symbols carry no metadata slot.** Trigger: the reader attaching `:line`/`:column`, or `with-meta`
+  on a symbol. Add a `meta` value slot (nil by default) and visit it in `each_child`.
+- **Keyword intern table is one global map under one mutex**, and interning allocates a temporary
+  symbol for the lookup even on a hit. Trigger: keyword literals resolved at runtime in a hot path
+  (the reader/analyzer resolves them once, so unlikely). Fix: sharded tables or a lock-free read path.
+- **A string is limited to 4 GiB** (`uint32_t len`); `clj_string_new` aborts beyond that.
 
 ## Benchmarks (bench/)
 

@@ -130,6 +130,24 @@ static inline uint32_t clj_fmix32(uint32_t h) {
 // murmur3 mixing of an aggregate hash with the element count (Clojure's mixCollHash).
 uint32_t clj_mix_coll_hash(uint32_t hash, uint32_t count);
 
+// Java's hashCombine, which Clojure uses for symbols.
+static inline uint32_t clj_hash_combine(uint32_t seed, uint32_t hash) {
+	return seed ^ (hash + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+}
+
+// Cached-hash slot (string, symbol, keyword, map): 0 means not computed; a computed 0 is stored as 1
+// so the slot never reads as empty. Relaxed suffices: racing writers store the same value.
+// In-place mutation of the owner must reset the slot to 0.
+static inline uint32_t clj_hash_cache_load(const _Atomic uint32_t *slot) {
+	return atomic_load_explicit(slot, memory_order_relaxed);
+}
+
+static inline uint32_t clj_hash_cache_store(_Atomic uint32_t *slot, uint32_t hash) {
+	if (hash == 0) hash = 1;
+	atomic_store_explicit(slot, hash, memory_order_relaxed);
+	return hash;
+}
+
 uint32_t clj_hash_slow(clj_value v);
 bool     clj_equals_slow(clj_value a, clj_value b);
 

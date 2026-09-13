@@ -422,9 +422,11 @@ static bool hash_entry(clj_value key, clj_value val, void *ctx) {
 
 static uint32_t map_hash(void *self) {
 	clj_map *m = self;
+	uint32_t h = clj_hash_cache_load(&m->hash);
+	if (h) return h;
 	uint32_t sum = 0;
 	clj_map_each(clj_from_ptr(m), hash_entry, &sum);
-	return clj_mix_coll_hash(sum, m->count);
+	return clj_hash_cache_store(&m->hash, clj_mix_coll_hash(sum, m->count));
 }
 
 typedef struct {
@@ -486,6 +488,8 @@ static clj_value map_commit(clj_value map, bool unique, clj_value root, edit e, 
 		c->count = m->count;
 		clj_release(map);
 		m = c;
+	} else {
+		atomic_store_explicit(&m->hash, 0, memory_order_relaxed);
 	}
 	store(&m->h, &m->root, root);
 	if (e.count_changed) m->count = (uint32_t)((int32_t)m->count + delta);
