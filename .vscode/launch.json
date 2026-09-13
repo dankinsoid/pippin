@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:ClojureSwift}",
+      "name": "Debug clj-bench",
+      "target": "clj-bench",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug clj-bench"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:ClojureSwift}",
+      "name": "Release clj-bench",
+      "target": "clj-bench",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release clj-bench"
+    }
+  ]
+}

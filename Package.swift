@@ -10,6 +10,10 @@ let package = Package(
 	products: [
 		.library(name: "Clojure", targets: ["Clojure"]),
 	],
+	dependencies: [
+		// Bench-only: TreeDictionary is the reference persistent map on Swift classes.
+		.package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
+	],
 	targets: [
 		// Portable runtime core. No platform headers here; everything host-specific goes through the Swift target.
 		.target(
@@ -27,6 +31,13 @@ let package = Package(
 		.testTarget(
 			name: "ClojureTests",
 			dependencies: ["Clojure", "CljCore"]
+		),
+		.executableTarget(
+			name: "clj-bench",
+			dependencies: [
+				"CljCore",
+				.product(name: "HashTreeCollections", package: "swift-collections"),
+			]
 		),
 	],
 	cLanguageStandard: .c17
