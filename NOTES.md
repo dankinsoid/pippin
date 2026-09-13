@@ -30,6 +30,22 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **`clj_debug_hash_override` is checked on every `clj_hash`** even in release (one global load +
   branch). Trigger: it shows in a profile.
 
+- **`clj_map_of` stays in map.h**: core.c reads the hash slot through it and MapTests checks root
+  identity. Trigger: a second map representation (shapes) behind the same functions; then replace both
+  uses with accessors like `clj_debug_vector_root`.
+
+## Vector (Sources/CljCore/vector.c)
+
+- **`clj_vector_from_array` is a conj loop**: the leaf grows through `clj_realloc` one slot at a time,
+  ~13 size-class moves per 32 elements. Trigger: reader or `vec` on large inputs showing in a profile.
+  Fix: build full leaves directly and push them.
+- **`conj` is 10× a mutable `Array` append** (bench/RESULTS.md): wrapper and tail ownership checks,
+  a retain, and a `clj_realloc` that moves at every size-class boundary. Trigger: a conj loop in a
+  profile. Fix: transients (one owner, no checks), or a tail allocated at slack capacity.
+- **No identity short-circuit in `assoc`**: storing the element already there still copies the path
+  when shared and resets the hash cache. Clojure does the same.
+- **Index and count are `uint32_t`**; a negative index from a higher layer must be rejected there.
+
 ## Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)
 
 - **Symbols carry no metadata slot.** Trigger: the reader attaching `:line`/`:column`, or `with-meta`

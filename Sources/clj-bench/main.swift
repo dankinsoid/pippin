@@ -162,6 +162,81 @@ func dDissocReuse(_ keys: [Int], _ order: [Int]) -> UInt64 {
 	return UInt64(d.count)
 }
 
+// MARK: - C vector
+
+func cVecBuild(_ n: Int) -> clj_value {
+	var v = clj_vector_empty()
+	for i in 0..<n { v = clj_vector_conj(v, clj_fixnum(i)) }
+	return v
+}
+
+func cConjReuse(_ n: Int) -> UInt64 {
+	let v = cVecBuild(n)
+	let c = clj_vector_count(v)
+	clj_release(v)
+	return UInt64(c)
+}
+
+func cConjPersist(_ n: Int) -> UInt64 {
+	var versions: [clj_value] = []
+	versions.reserveCapacity(n)
+	var v = clj_vector_empty()
+	for i in 0..<n {
+		versions.append(clj_retain(v))
+		v = clj_vector_conj(v, clj_fixnum(i))
+	}
+	let c = clj_vector_count(v)
+	clj_release(v)
+	for old in versions { clj_release(old) }
+	return UInt64(c)
+}
+
+func cNth(_ v: clj_value, _ probes: [Int]) -> UInt64 {
+	var sum: UInt64 = 0
+	for i in probes { sum &+= UInt64(bitPattern: Int64(clj_fixnum_val(clj_vector_nth(v, UInt32(i))))) }
+	return sum
+}
+
+func cPopReuse(_ n: Int) -> UInt64 {
+	var v = cVecBuild(n)
+	for _ in 0..<n { v = clj_vector_pop(v) }
+	let c = clj_vector_count(v)
+	clj_release(v)
+	return UInt64(c)
+}
+
+// MARK: - Array
+
+func aBuild(_ n: Int) -> [Int] {
+	var a: [Int] = []
+	for i in 0..<n { a.append(i) }
+	return a
+}
+
+// Every version copies the whole buffer: O(n²), a reference point for small n only.
+func aAppendPersist(_ n: Int) -> UInt64 {
+	var versions: [[Int]] = []
+	versions.reserveCapacity(n)
+	var a: [Int] = []
+	for i in 0..<n {
+		versions.append(a)
+		a.append(i)
+	}
+	return UInt64(a.count &+ versions.count)
+}
+
+func aNth(_ a: [Int], _ probes: [Int]) -> UInt64 {
+	var sum: UInt64 = 0
+	for i in probes { sum &+= UInt64(a[i]) }
+	return sum
+}
+
+func aPopReuse(_ n: Int) -> UInt64 {
+	var a = aBuild(n)
+	for _ in 0..<n { a.removeLast() }
+	return UInt64(a.count)
+}
+
 // MARK: - Driver
 
 struct Row {
@@ -224,3 +299,37 @@ for r in rows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.tree)) | \(fmt(r.dict)) | \(ratio(r.c, r.tree)) |")
 }
 print("\nns per op, median of \(reps) runs; get = \(lookups) random probes")
+
+struct VectorRow {
+	let scenario: String
+	let n: Int
+	let c: Double
+	let array: Double?
+}
+
+var vectorRows: [VectorRow] = []
+for n in sizes {
+	let probes = randomKeys(lookups, below: n, seed: 5)
+	vectorRows.append(VectorRow(scenario: "conj, old version dropped", n: n,
+		c: measure(ops: n) { cConjReuse(n) },
+		array: measure(ops: n) { UInt64(aBuild(n).count) }))
+	vectorRows.append(VectorRow(scenario: "conj, all versions kept", n: n,
+		c: measure(ops: n) { cConjPersist(n) },
+		array: n <= 1_000 ? measure(ops: n) { aAppendPersist(n) } : nil))
+	let cv = cVecBuild(n)
+	let av = aBuild(n)
+	vectorRows.append(VectorRow(scenario: "nth, random", n: n,
+		c: measure(ops: lookups) { cNth(cv, probes) },
+		array: measure(ops: lookups) { aNth(av, probes) }))
+	clj_release(cv)
+	vectorRows.append(VectorRow(scenario: "pop to empty", n: n,
+		c: measure(ops: n) { cPopReuse(n) },
+		array: measure(ops: n) { aPopReuse(n) }))
+}
+
+print("\n| scenario | n | C vector | Array | array / C |")
+print("|---|---:|---:|---:|---:|")
+for r in vectorRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.array)) | \(r.array.map { ratio(r.c, $0) } ?? "—") |")
+}
+print("\nns per op; Array is mutable and in place, the persistent column copies the buffer per version")

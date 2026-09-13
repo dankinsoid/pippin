@@ -63,6 +63,14 @@ public struct Value: Sendable {
 		self.init(owning: clj_symbol_from_cstr(text))
 	}
 
+	/// A persistent vector of the elements.
+	public init(_ array: [Value]) {
+		// The raw words are borrowed from `array`, which must outlive the C call.
+		self.init(owning: withExtendedLifetime(array) {
+			array.map(\.raw).withUnsafeBufferPointer { clj_vector_from_array($0.baseAddress, UInt32($0.count)) }
+		})
+	}
+
 	public var isNil: Bool { clj_is_nil(raw) }
 	public var isTruthy: Bool { clj_truthy(raw) }
 
@@ -77,17 +85,34 @@ public struct Value: Sendable {
 		return String(decoding: bytes, as: UTF8.self)
 	}
 
+	/// The elements of a vector, in order; nil for any other value.
+	public var array: [Value]? {
+		guard clj_is_vector(raw) else { return nil }
+		var out: [Value] = []
+		out.reserveCapacity(Int(clj_vector_count(raw)))
+		withExtendedLifetime(self) {
+			withUnsafeMutablePointer(to: &out) { p in
+				clj_vector_each(raw, { item, ctx in
+					ctx!.assumingMemoryBound(to: [Value].self).pointee.append(Value(borrowing: item))
+					return true
+				}, p)
+			}
+		}
+		return out
+	}
+
 	public var typeName: String { String(cString: clj_type_name(raw)) }
 }
 
 extension Value: ExpressibleByNilLiteral, ExpressibleByBooleanLiteral, ExpressibleByIntegerLiteral,
-	ExpressibleByFloatLiteral, ExpressibleByStringLiteral
+	ExpressibleByFloatLiteral, ExpressibleByStringLiteral, ExpressibleByArrayLiteral
 {
 	public init(nilLiteral: ()) { self = .nil_ }
 	public init(booleanLiteral value: Bool) { self.init(value) }
 	public init(integerLiteral value: Int) { self.init(value) }
 	public init(floatLiteral value: Double) { self.init(value) }
 	public init(stringLiteral value: String) { self.init(value) }
+	public init(arrayLiteral elements: Value...) { self.init(elements) }
 }
 
 // Clojure `=` and `hash`: Value(1) != Value(1.0), NaN != NaN, as with Swift's Double.

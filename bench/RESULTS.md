@@ -30,3 +30,35 @@ Pool allocator (C) vs system malloc (C, control); Swift columns are the same cod
 | dissoc to empty | 100000 | 175.3 | 231.7 | 258.2 | 63.3 | 1.5× |
 
 Swift columns agree within 1–4 % across the two runs, so the C pool / C malloc delta is the allocator.
+
+## Vector — Apple M3 Pro, 36 GB, Swift 6.2.4
+
+Persistent vector (32-way trie + tail) vs Swift `Array`. `Array` is mutable and appends in place;
+its "all versions kept" column copies the whole buffer per version (O(n²), so n ≤ 1000 only).
+swift-collections 1.1 has no persistent vector, so there is no Swift persistent reference column.
+Map numbers from the same invocation matched the 8533784 table within noise.
+
+| scenario | n | C pool | C malloc | Array | array / C pool |
+|---|---:|---:|---:|---:|---:|
+| conj, old version dropped | 10 | 16.4 | 42.1 | 27.1 | 1.7× |
+| conj, all versions kept | 10 | 52.7 | 125.4 | 80.1 | 1.5× |
+| nth, random | 10 | 1.1 | 1.1 | 0.4 | 0.4× |
+| pop to empty | 10 | 24.8 | 67.0 | 27.2 | 1.1× |
+| conj, old version dropped | 1000 | 10.7 | 37.9 | 1.2 | 0.1× |
+| conj, all versions kept | 1000 | 61.6 | 143.2 | 145.1 | 2.4× |
+| nth, random | 1000 | 1.4 | 1.4 | 0.4 | 0.3× |
+| pop to empty | 1000 | 18.0 | 53.8 | 1.4 | 0.1× |
+| conj, old version dropped | 100000 | 11.1 | 37.9 | 1.5 | 0.1× |
+| conj, all versions kept | 100000 | 67.8 | 179.5 | — | — |
+| nth, random | 100000 | 2.6 | 2.6 | 0.6 | 0.2× |
+| pop to empty | 100000 | 18.5 | 64.5 | 1.9 | 0.1× |
+
+- `conj` with the old version dropped is one `clj_realloc` of the tail per element (a size-class
+  move every few elements) plus a full-leaf push every 32; `Array` appends amortized into slack.
+  The 10× gap to a mutable array is the price of a persistent structure with exact-size nodes;
+  a transient or a slack-capacity tail would close most of it (NOTES.md).
+- `nth` is one to three dependent loads plus the tail check; 2–4× a bounds-checked array index.
+- Keeping every version costs the same as a mutable `Array` copy at n = 1000 and stays flat at 100k,
+  where `Array` is quadratic.
+- The pool takes 2.5–3.6× off every allocating scenario, more than for the map: a vector op is
+  almost nothing but allocation.
