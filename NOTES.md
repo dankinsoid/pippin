@@ -167,9 +167,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   "Unsupported binding form/key" here; Clojure's function binds `a`/`foo` but its `let` spec rejects
   both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
   merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
-  Trigger: a library relying on the trailing-map call style. No metadata, so `:or` keys and `:keys`
-  entries carry none, and `& rest` walks with `first`/`next` (each `next` on a vector copies, see
-  Builtins).
+  Trigger: a library relying on the trailing-map call style.
 - **`fn` has no `:pre`/`:post` conditions**: a map as the first body form is evaluated and discarded
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
