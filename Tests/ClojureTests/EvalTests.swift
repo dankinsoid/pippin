@@ -56,11 +56,8 @@ extension CoreTests {
 				#expect(evalError("(let [x 1 y (nope)] x)") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:line 1, :column 13}}")
 				#expect(evalError("(if 1 (nope) 2)") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:line 1, :column 7}}")
 				#expect(evalError("(def ev-f (fn [x] (nope)))") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:line 1, :column 19}}")
-				print("PROBE before ev-h", clj_debug_live_objects() - before)
 				#expect(evalError("(def ev-h (fn ev-deep [n] (+ 1 (ev-deep n)))) (ev-h 0)")?.hasPrefix("#error {:message \"Stack overflow\"") == true)
-				print("PROBE after ev-h", clj_debug_live_objects() - before)
 				_ = try eval("(def ev-x nil) (def ev-f nil) (def ev-g nil) (def ev-h nil)")
-				print("PROBE after reset", clj_debug_live_objects() - before)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
