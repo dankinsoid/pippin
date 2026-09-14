@@ -40,7 +40,9 @@ static void buf_free(clj_value *small, clj_value *p) {
 static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
 
 // A local, captured or constant read without a retain: its home (the frame, the closure's env, the tree)
-// outlives the consumer. Every other kind evaluates owned.
+// outlives the consumer. A var's root is borrowed only while immortal (every root bound by boot): a rebind
+// releases an ordinary root at once, and the +1 taken here is what keeps such a body alive through the call.
+// Every other kind evaluates owned.
 // @ai-generated(guided)
 static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *owned) {
 	*owned = false;
@@ -48,6 +50,19 @@ static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *own
 	case CLJ_NODE_LOCAL: return f->slots[n->u.index];
 	case CLJ_NODE_CAPTURED: return f->captured[n->u.index];
 	case CLJ_NODE_CONST: return n->u.value;
+	case CLJ_NODE_VAR: {
+		clj_value root = clj_var_root(n->u.var);
+		if (!clj_is_ptr(root)) {
+			if (root == CLJ_UNBOUND) {
+				*owned = true;
+				return clj_var_deref(n->u.var);
+			}
+			return root;
+		}
+		if (clj_header_of(root)->flags & CLJ_FLAG_IMMORTAL) return root;
+		*owned = true;
+		return clj_retain(root);
+	}
 	default:
 		*owned = true;
 		return eval_child(n, f);

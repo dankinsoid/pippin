@@ -165,6 +165,33 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// Every root boot bound is immortal, so a call through a core var retains nothing: the rc of a native
+		// and of a core.clj closure stays put across 1000 calls each, while a user fn's root is ordinary.
+		@Test func coreRootsAreImmortal() throws {
+			func rc(_ v: clj_value) -> UInt32 { UnsafeRawPointer(clj_header_of(v)).load(as: UInt32.self) }
+			func immortal(_ v: clj_value) -> Bool { clj_header_of(v).pointee.flags & UInt32(CLJ_FLAG_IMMORTAL) != 0 }
+			let second = clj_var_root(coreVar("second")), mapFn = clj_var_root(coreVar("map")), plus = clj_var_root(coreVar("+"))
+			#expect(immortal(second) && immortal(mapFn) && immortal(plus))
+			#expect(!clj_is_unique(mapFn))
+			let rcs = [rc(second), rc(mapFn), rc(plus)]
+			_ = try cljEval("(def imm-f (fn [x] (inc x)))")
+			let userSym = Value(symbol: "imm-f")
+			let user = withExtendedLifetime(userSym) { clj_var_root(clj_ns_resolve(clj_ns_user(), userSym.raw)) }
+			#expect(!immortal(user) && clj_is_shared(user))
+			let before = clj_debug_live_objects()
+			do {
+				let sum: Int = 1000 * 5 + 999 * 1000 / 2
+				#expect(try cljEval("(loop [i 0 acc 0] (if (< i 1000) (recur (inc i) (+ acc (second [1 2]) (first (map inc [1])) (imm-f i))) acc))") == Value(sum))
+				#expect([rc(second), rc(mapFn), rc(plus)] == rcs)
+				#expect(rc(user) == 1)
+				// A var not from boot is retained around its call and released after.
+				#expect(try cljEval("[(imm-f 1) (imm-f 2)]") == [2, 3])
+				#expect(rc(user) == 1)
+			}
+			#expect(clj_debug_live_objects() == before)
+			_ = try cljEval("(def imm-f nil)")
+		}
+
 		// [:intrinsic ns/name args*] round-trips; a name or arity the table lacks is refused on read.
 		@Test func serializationRoundTrip() throws {
 			let before = clj_debug_live_objects()

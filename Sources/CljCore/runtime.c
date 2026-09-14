@@ -72,6 +72,18 @@ static void load_core(void) {
 	}
 }
 
+// Every root bound by boot outlives the process, so a read of it needs no retain (eval_borrowed): what a
+// later rebind of the var "releases" is a no-op, a bounded leak per redefinition. Type descriptors are left
+// alone: clj_is_user_type reads the flag as "builtin".
+// @ai-generated(guided)
+static bool immortalize_root(clj_value sym, clj_value var, void *ctx) {
+	(void)sym;
+	(void)ctx;
+	clj_value root = clj_var_root(var);
+	if (clj_is_ptr(root) && !clj_is_type(root)) clj_header_of(root)->flags |= CLJ_FLAG_IMMORTAL;
+	return true;
+}
+
 static void init(void) {
 	clj_value core = clj_ns_core();
 	// Interned up front so printing an error, an analysis position or a trace allocates nothing lasting later.
@@ -82,6 +94,7 @@ static void init(void) {
 	clj_intrinsics_install();
 	clj_ns_set_current(core);
 	load_core();
+	clj_map_each(clj_ns_of(core)->mappings, immortalize_root, NULL);
 	clj_ns_set_current(clj_ns_user());
 }
 
