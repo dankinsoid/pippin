@@ -19,6 +19,11 @@ private func clojureError(_ rt: Runtime, _ source: String) -> ClojureError? {
 
 private func message(_ rt: Runtime, _ source: String) -> String? { clojureError(rt, source)?.message }
 
+private func owned(_ raw: clj_value) throws -> Value {
+	if raw == CLJ_THROWN { throw ClojureError.takePending() }
+	return Value(owning: raw)
+}
+
 extension CoreTests {
 	@Suite struct ProtocolTests {
 		let rt = Runtime()
@@ -120,12 +125,17 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A reify site's type is made on its first evaluation and lives for the process: every site runs once before the baseline.
 		@Test func reifyCapturesLocals() throws {
-			try declare("Named", "name-of", "Greeter", "greet", "make-named", "same-site")
+			try declare("Named", "name-of", "Greeter", "greet", "make-named", "other-site", "named-x", "self-site")
 			_ = try rt.eval("""
 			(defprotocol Named (name-of [this]))
 			(defprotocol Greeter (greet [this] [this other]))
 			(defn make-named [n] (reify Named (name-of [this] n) Greeter (greet [this] (str "hi " n)) (greet [this o] (str n "+" (name-of o)))))
+			(defn other-site [] (reify Named (name-of [_] 0)))
+			(defn named-x [x] (reify Named (name-of [this] (inc x))))
+			(defn self-site [] (reify Named (name-of [this] (identical? this this))))
+			[(make-named 0) (other-site) (named-x 0) (self-site)]
 			""")
 			let before = clj_debug_live_objects()
 			do {
@@ -133,16 +143,46 @@ extension CoreTests {
 					== ["a", "b", "hi a", "a+b", "b+a"])
 				// One anonymous type per site: two instances share it, two sites do not.
 				#expect(try rt.eval("(identical? (type (make-named 1)) (type (make-named 2)))") == true)
-				#expect(try rt.eval("(identical? (type (make-named 1)) (type (reify Named (name-of [_] 0))))") == false)
-				#expect(try rt.eval("(let [x 41 r (reify Named (name-of [this] (inc x)))] [(name-of r) (satisfies? Named r) (satisfies? Greeter r) (instance? (type r) r)])") == [42, true, false, true])
-				#expect(try rt.eval("(str (name-of (let [x 41] (reify Named (name-of [this] x)))))") == "41")
+				#expect(try rt.eval("(identical? (type (make-named 1)) (type (other-site)))") == false)
+				#expect(try rt.eval("(let [r (named-x 41)] [(name-of r) (satisfies? Named r) (satisfies? Greeter r) (instance? (type r) r)])") == [42, true, false, true])
+				#expect(try rt.eval("(str (name-of (named-x 40)))") == "41")
 				// this is the instance itself.
-				#expect(try rt.eval("(let [r (reify Named (name-of [this] (identical? this this)))] (name-of r))") == true)
+				#expect(try rt.eval("(name-of (self-site))") == true)
 				#expect(try rt.eval("(pr-str (make-named 1))").string?.hasPrefix("#object[user.reify__") == true)
+				// Expansion-time errors: no site, no type.
 				#expect(message(rt, "(reify Nope (x [this] 1))") == "Unable to resolve protocol: Nope")
 				#expect(message(rt, "(reify (x [this] 1))") == "Method x given before any protocol")
+				#expect(try rt.eval("(macroexpand '(reify Named (name-of [_] 0)))").description.hasPrefix("(clojure.core/new* (clojure.core/reify-type* (quote reify__") == true)
 			}
 			#expect(clj_debug_live_objects() == before)
+		}
+
+		// One type per site however often it runs, and a tree that went through data reaches the same type.
+		@Test func reifySiteMakesOneType() throws {
+			try declare("Named", "name-of", "boxed")
+			_ = try rt.eval("(defprotocol Named (name-of [this])) (defn boxed [n] (reify Named (name-of [this] n)))")
+			_ = try rt.eval("(boxed 0) (boxed 1)")
+			let after2 = clj_debug_live_objects()
+			for i in 2..<100 { #expect(try rt.eval("(name-of (boxed \(i)))") == Value(i)) }
+			#expect(clj_debug_live_objects() == after2)
+			#expect(try rt.eval("(identical? (type (boxed 1)) (type (boxed 2)))") == true)
+			// The site's name is a constant symbol in the tree, so the read-back copy finds the same registry entry.
+			let source = try Value(reading: "(fn [n] (reify Named (name-of [this] (+ n 1))))")
+			let tree = try #require(withExtendedLifetime(source) { clj_analyze(source.raw, nil) })
+			let data = try owned(clj_node_to_data(tree))
+			let text = try #require(Value(owning: clj_pr_str(data.raw)).string)
+			let read = try Value(reading: text)
+			let copy = try #require(withExtendedLifetime(read) { clj_node_from_data(read.raw) })
+			_ = try rt.eval("(def boxed-a) (def boxed-b)")
+			for (name, node) in [("boxed-a", tree), ("boxed-b", copy)] {
+				let exec = clj_exec_new(node)
+				let fn = try owned(clj_exec_run(exec)), holder = try rt.eval("#'\(name)")
+				withExtendedLifetime((fn, holder)) { clj_var_bind_root(holder.raw, fn.raw) }
+				clj_release(exec)
+				clj_release(clj_from_ptr(UnsafeMutableRawPointer(node)))
+			}
+			#expect(try rt.eval("[(name-of (boxed-a 1)) (name-of (boxed-b 2)) (identical? (type (boxed-a 0)) (type (boxed-b 0)))]") == [2, 3, true])
+			_ = try rt.eval("(def boxed-a nil) (def boxed-b nil)")
 		}
 
 		@Test func extendBuiltinTypes() throws {

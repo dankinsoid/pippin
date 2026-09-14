@@ -910,11 +910,79 @@ static clj_value trampoline_invoke(void *ctx, const clj_value *args, size_t n) {
 	return clj_invoke(clj_instance_field(args[0], idx), args, n);
 }
 
-static clj_value b_trampoline(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_fixnum(args[0]) || clj_fixnum_val(args[0]) < 0) return clj_throw_msg("trampoline* expects a field index");
-	return clj_fn_native_ctx(CLJ_NIL, trampoline_invoke, (void *)(uintptr_t)clj_fixnum_val(args[0]), NULL, 1, CLJ_ARITY_ANY);
+// ---- reify types: one per expansion site for the life of the process, keyed by the site's gensym'd name
+
+static pthread_mutex_t reify_lock = PTHREAD_MUTEX_INITIALIZER;
+static clj_value       reify_types; // map symbol -> type; nil until the first site
+
+typedef struct {
+	clj_value map; // owned: {:method trampoline}
+	clj_value thrown;
+} trampoline_ctx;
+
+static bool add_trampoline(clj_value key, clj_value val, void *ctx) {
+	trampoline_ctx *c = ctx;
+	if (!clj_is_fixnum(val) || clj_fixnum_val(val) < 0) {
+		c->thrown = clj_throw_msg("reify-type* expects a field index per method, got: %s", clj_type_name(val));
+		return false;
+	}
+	clj_value f = clj_fn_native_ctx(CLJ_NIL, trampoline_invoke, (void *)(uintptr_t)clj_fixnum_val(val), NULL, 1, CLJ_ARITY_ANY);
+	c->map = clj_map_assoc(c->map, key, f);
+	clj_release(f);
+	return true;
 }
+
+// impls alternate protocol and {:method field-index}; owned type, or CLJ_THROWN.
+static clj_value reify_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+	if (nimpls % 2) return clj_throw_msg("reify-type* expects protocol and method-map pairs");
+	clj_value *with_fns = calloc(nimpls ? nimpls : 1, sizeof *with_fns);
+	if (!with_fns) clj_fatal("out of memory");
+	clj_value type = CLJ_NIL;
+	size_t    made = 0;
+	for (; made < nimpls; made += 2) {
+		clj_value mm = impls[made + 1];
+		if (!clj_is_nil(mm) && !clj_is_map(mm)) {
+			type = clj_throw_msg("reify-type* expects a map of field indices, got: %s", clj_type_name(mm));
+			break;
+		}
+		trampoline_ctx c = {clj_map_empty(), CLJ_NIL};
+		if (!clj_is_nil(mm)) clj_map_each(mm, add_trampoline, &c);
+		if (c.thrown == CLJ_THROWN) {
+			clj_release(c.map);
+			type = CLJ_THROWN;
+			break;
+		}
+		with_fns[made] = impls[made];
+		with_fns[made + 1] = c.map;
+	}
+	if (type != CLJ_THROWN) type = clj_user_type_new(name, fields, with_fns, nimpls);
+	for (size_t i = 1; i < made; i += 2) clj_release(with_fns[i]);
+	free(with_fns);
+	return type;
+}
+
+// The type behind a reify site: made on the first call, a lookup after. Creation runs under the
+// registry lock so a racing first call of one site cannot make two types.
+static clj_value reify_type(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+	if (!is_unqualified_symbol(name)) return clj_throw_msg("reify-type* expects a symbol, got: %s", clj_type_name(name));
+	if (!clj_is_vector(fields)) return clj_throw_msg("reify-type* expects a field vector, got: %s", clj_type_name(fields));
+	pthread_mutex_lock(&reify_lock);
+	clj_value type = clj_is_nil(reify_types) ? CLJ_NIL : clj_map_get(reify_types, name, CLJ_NIL);
+	if (!clj_is_nil(type)) {
+		// Gensym names are unique per process; a tree loaded from elsewhere may reuse one for another site.
+		if (((clj_user_type *)clj_to_ptr(type))->nfields != clj_vector_count(fields)) {
+			pthread_mutex_unlock(&reify_lock);
+			return clj_throw_msg("reify type %s already exists with a different shape", clj_string_bytes(clj_symbol_name(name)));
+		}
+		clj_retain(type);
+	} else if ((type = reify_type_new(name, fields, impls, nimpls)) != CLJ_THROWN) {
+		reify_types = clj_map_assoc(clj_is_nil(reify_types) ? clj_map_empty() : reify_types, name, type);
+	}
+	pthread_mutex_unlock(&reify_lock);
+	return type;
+}
+
+static clj_value b_reify_type(const clj_value *args, size_t n) { return reify_type(args[0], args[1], args + 2, n - 2); }
 
 static clj_value b_extend(const clj_value *args, size_t n) {
 	(void)n;
@@ -965,7 +1033,7 @@ void clj_proto_install(void) {
 		uint32_t      min, max;
 	} fns[] = {
 		{"protocol*", b_protocol, 2, 2},       {"protocol-method*", b_protocol_method, 2, 2}, {"deftype*", b_deftype, 2, CLJ_ARITY_ANY},
-		{"new*", b_new, 1, CLJ_ARITY_ANY},     {"field*", b_field, 2, 2},                     {"trampoline*", b_trampoline, 1, 1},
+		{"new*", b_new, 1, CLJ_ARITY_ANY},     {"field*", b_field, 2, 2},                     {"reify-type*", b_reify_type, 2, CLJ_ARITY_ANY},
 		{"extend*", b_extend, 3, 3},           {"satisfies?", b_satisfies, 2, 2},             {"extends?", b_extends, 2, 2},
 		{"instance?", b_instance, 2, 2},       {"type", b_type, 1, 1},                        {"identical?", b_identical, 2, 2},
 		{"protocol-epoch*", b_proto_epoch, 0, 0},

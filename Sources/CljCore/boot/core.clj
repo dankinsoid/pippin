@@ -761,8 +761,10 @@
        (def ~nm (deftype* '~nm '~fields ~@(mapcat (fn [g] [(first g) (method-map (second g) wrap)]) groups)))
        ~nm)))
 
-;; The type is made once, at expansion: its slots and protocol tables hold trampolines into the
-;; instance's fields, one per method, which the expansion fills with closures over the site's locals.
+;; The expansion is data and var references only, so the tree serializes: the type is made on the
+;; first evaluation of the site (reify-type* caches it under the gensym'd name), its slots and
+;; protocol tables hold trampolines into the instance's fields, one per method, which each
+;; evaluation fills with closures over the site's locals.
 (defmacro reify
   "(reify proto (m [this a] ...) ...): an instance of an anonymous type closing over the locals in scope."
   [& impls]
@@ -776,16 +778,15 @@
                                  (recur (next ms) (conj acc [p (first (first ms)) (second (first ms)) (count acc)]))
                                  acc))))
                     acc))
-        proto-value (fn [p]
-                      (if (symbol? p)
-                        (let [v (resolve p)]
-                          (if v (deref v) (throw (ex-info (str "Unable to resolve protocol: " p) nil))))
-                        p))
-        trampolines (fn [g]
-                      (loop [es (seq (filter (fn [e] (= (nth e 0) (first g))) entries)) m {}]
-                        (if es
-                          (recur (next es) (assoc m (keyword (name (nth (first es) 1))) (trampoline* (nth (first es) 3))))
-                          m)))
-        t (apply deftype* (gensym "reify__") (vec (map (fn [e] (nth e 1)) entries))
-                 (mapcat (fn [g] [(proto-value (first g)) (trampolines g)]) groups))]
-    `(new* ~t ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))
+        check-proto (fn [p]
+                      (when (and (symbol? p) (not (resolve p)))
+                        (throw (ex-info (str "Unable to resolve protocol: " p) nil)))
+                      p)
+        slots (fn [g]
+                (loop [es (seq (filter (fn [e] (= (nth e 0) (first g))) entries)) m {}]
+                  (if es
+                    (recur (next es) (assoc m (keyword (name (nth (first es) 1))) (nth (first es) 3)))
+                    m)))]
+    `(new* (reify-type* '~(gensym "reify__") '~(vec (map (fn [e] (nth e 1)) entries))
+                        ~@(mapcat (fn [g] [(check-proto (first g)) (slots g)]) groups))
+           ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))

@@ -80,11 +80,20 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   (`(extend-type ISeq P ...)`) covers every type with those bits, on the concrete type missing; a
   user protocol cannot be a type designator. Trigger: the first record-shaped state (then a shape
   descriptor with map slots) or the first `(.-x o)`.
-- **`reify` creates its type, slots and protocol tables at macro expansion**, so `macroexpand` of a
-  reify form makes a throwaway type (freed with the expansion) and bumps the epoch. Its closures
-  live in the instance's fields; the type's slots and tables hold trampolines into them. `deftype`
-  methods may shadow a field with a param, as in Clojure; fields a body names are bound at the top
-  of that body (one `field*` call each), whether or not the reference is under a `quote`.
+- **`reify` expands to data and var references only**: `(new* (reify-type* 'reify__N '[m ...] P {:m 0}
+  ...) closures...)`. `reify-type*` makes the type on the site's first evaluation and keeps it in a
+  process-wide registry under the gensym'd name (its own mutex, taken before the protocol one), so a
+  later evaluation is a lookup and a tree that went through `to_data`/`from_data` reaches the same
+  type; the method closures are made per evaluation, the instance's fields hold them and the type's
+  slots and tables hold trampolines into those fields. A site's type is immortal like a var: a test
+  that counts live objects runs every site once before its baseline. The registry key is only
+  unique within one process; a loaded tree from elsewhere that reuses a name with another field count
+  is refused ("already exists with a different shape"), the same count with other protocols is not
+  detected. Trigger: a tree cache on disk / AOT; then a key from the defining namespace and a site
+  hash. The hit path still evaluates the protocol var references (a retain/release each) and holds
+  the mutex. `deftype` keeps calling `deftype*` at run time under its `def`. `deftype` methods may
+  shadow a field with a param, as in Clojure; fields a body names are bound at the top of that body
+  (one `field*` call each), whether or not the reference is under a `quote`.
 - **Builtin type names are vars in clojure.core** (`String`, `Long`/`Integer`, `Double`, `Boolean`,
   `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentList`/`Cons`,
   `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,

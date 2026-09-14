@@ -227,8 +227,9 @@ extension CoreTests {
 			try unbind("Fail", "->Fail", "Plain", "->Plain", "Loud", "->Loud")
 		}
 
+		// A reify site's type is made on its first evaluation and lives for the process: every site runs once before the baseline.
 		@Test func reifyImplementingSeqCapturesLocal() throws {
-			try declare("upto")
+			try declare("upto", "times", "lookup-a")
 			_ = try rt.eval("""
 			(defn upto [n]
 			  (let [k n]
@@ -240,6 +241,9 @@ extension CoreTests {
 			      Sequential
 			      Counted
 			      (count [_] k))))
+			(defn times [x] (reify IFn (invoke [_ y] (* x y))))
+			(defn lookup-a [] (reify ILookup (valAt [_ k nf] (if (= k :a) 1 nf))))
+			[(upto 1) (times 1) (lookup-a)]
 			""")
 			let before = clj_debug_live_objects()
 			do {
@@ -247,11 +251,11 @@ extension CoreTests {
 				#expect(try rt.eval("[(count (upto 4)) (counted? (upto 4)) (= (upto 2) '(2 1)) (seq? (upto 1))]") == [4, true, true, true])
 				#expect(try rt.eval("(map inc (upto 2))") == Value(list: [3, 2]))
 				#expect(try rt.eval("(pr-str (upto 2))") == "(2 1)")
-				#expect(try rt.eval("(let [x 5 r (reify IFn (invoke [_ y] (* x y)))] [(r 2) (map r [1 2])])") == [10, Value(list: [5, 10])])
-				#expect(try rt.eval("(let [r (reify ILookup (valAt [_ k nf] (if (= k :a) 1 nf)))] [(:a r) (get r :b :nf)])") == [1, kw("nf")])
+				#expect(try rt.eval("(let [r (times 5)] [(r 2) (map r [1 2])])") == [10, Value(list: [5, 10])])
+				#expect(try rt.eval("(let [r (lookup-a)] [(:a r) (get r :b :nf)])") == [1, kw("nf")])
 			}
 			#expect(clj_debug_live_objects() == before)
-			try unbind("upto")
+			try unbind("upto", "times", "lookup-a")
 		}
 
 		@Test func slotsAreWriteOnce() throws {

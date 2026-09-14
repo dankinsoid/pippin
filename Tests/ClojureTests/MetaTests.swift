@@ -138,7 +138,9 @@ extension CoreTests {
 		}
 
 		@Test func deftypeImplementsIMetaAndIObj() throws {
-			try declare("MetaBox", "->MetaBox", "OnlyMeta", "->OnlyMeta", "BadMeta", "->BadMeta")
+			try declare("MetaBox", "->MetaBox", "OnlyMeta", "->OnlyMeta", "BadMeta", "->BadMeta", "meta-site")
+			// A reify site's type is made on its first evaluation and lives for the process, like a var.
+			_ = try rt.eval("(defn meta-site [m] (reify IMeta (meta [_] m))) (meta-site nil)")
 			let before = clj_debug_live_objects()
 			do {
 				_ = try rt.eval("""
@@ -159,8 +161,7 @@ extension CoreTests {
 				#expect(message(rt, "(with-meta (->OnlyMeta {}) {})") == "with-meta: user.OnlyMeta does not support metadata")
 				#expect(message(rt, "(meta (->BadMeta))") == "meta of user.BadMeta must return a map or nil, got: fixnum")
 				#expect(message(rt, "(deftype BadMeta [] IMeta (withMeta [_ m] m))") == "No method :withMeta in interface IMeta")
-				let reified = try rt.eval("(let [m {:a 1}] (meta (reify IMeta (meta [_] m))))")
-				#expect(reified == m(["a": 1]))
+				#expect(try rt.eval("(meta (meta-site {:a 1}))") == m(["a": 1]))
 				try unbind("MetaBox", "->MetaBox", "OnlyMeta", "->OnlyMeta", "BadMeta", "->BadMeta")
 			}
 			#expect(clj_debug_live_objects() == before)
