@@ -248,6 +248,12 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   value — makes `to_data` throw "not serializable: <type>". Vars travel as qualified symbols and are
   interned on read; `from_data` checks the shape and slot bounds, not that `recur` sits in a tail
   position. Trigger: a tree cache on disk / AOT; then a binary form and a `recur` placement check.
+- **Every core.clj form and every type-macro expansion must serialize** (`CoreSerializableTests`):
+  each top-level form is analyzed in `clojure.core` and round-tripped through `to_data`, `pr-str`,
+  read, `from_data`; the test pins the form count so an empty run cannot pass. core.clj defines
+  `defprotocol`/`deftype`/`extend-type`/`extend-protocol`/`reify` without using them, so their
+  expansions are checked on user forms in the same test. A macro that needs a runtime object must
+  emit a var reference or a builtin call that finds it at run time (`reify-type*`), never the object.
 - **Macros expand in the analyzer, in `analyze_list`**, not in a separate pass: a list whose head
   resolves to a macro var (and is not a local or a special form) is expanded until it is not, then
   analyzed. `&env` is always nil: locals are slot indices, not a map. Trigger: a macro that inspects
