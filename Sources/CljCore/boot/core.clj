@@ -22,8 +22,104 @@
           (throw (ex-info "cond requires an even number of forms" {})))
        (cond ~@(next (next clauses))))))
 
+;; Clojure's destructure: bindings for let* with nested forms expanded to nth/get, or the
+;; input itself when every binding form is already a symbol. Not supported: a keyword as a
+;; binding form and a map key that is a keyword other than :as/:or/:keys/:strs/:syms (both are
+;; spec errors in Clojure) — reported as unsupported.
 (def destructure
-  (fn* [bindings] bindings))
+  (fn* [bindings]
+    (let* [pvec
+           (fn* [pb bvec b v]
+             (let* [gvec (gensym "vec__")
+                    gseq (gensym "seq__")
+                    gfirst (gensym "first__")
+                    has-rest (loop* [bs (seq b)]
+                               (if bs
+                                 (if (= (first bs) '&) true (recur (next bs)))
+                                 false))]
+               (loop* [ret (let* [ret (conj bvec gvec v)]
+                             (if has-rest (conj ret gseq (list `seq gvec)) ret))
+                       n 0
+                       bs (seq b)
+                       seen-rest? false]
+                 (if bs
+                   (let* [firstb (first bs)]
+                     (cond
+                       (= firstb '&) (recur (pb ret (second bs) gseq) n (next (next bs)) true)
+                       (= firstb :as) (pb ret (second bs) gvec)
+                       :else (if seen-rest?
+                               (throw (ex-info "Unsupported binding form, only :as can follow & parameter" nil))
+                               (recur (pb (if has-rest
+                                            (conj ret gfirst `(first ~gseq) gseq `(next ~gseq))
+                                            ret)
+                                          firstb
+                                          (if has-rest gfirst (list `nth gvec n nil)))
+                                      (inc n)
+                                      (next bs)
+                                      seen-rest?))))
+                   ret))))
+           ;; [[binding key] ...] for the idents under :keys/:strs/:syms, key made by f.
+           key-entries
+           (fn* [idents f]
+             (loop* [s (seq idents) acc []]
+               (if s
+                 (recur (next s) (conj acc [(first s) (f (first s))]))
+                 acc)))
+           pmap
+           (fn* [pb bvec b v]
+             (let* [gmap (gensym "map__")
+                    defaults (get b :or)
+                    ret (conj bvec gmap v
+                              gmap `(if (seq? ~gmap)
+                                      (if (next ~gmap) (apply hash-map ~gmap) (if (seq ~gmap) (first ~gmap) {}))
+                                      ~gmap))
+                    ret (if (get b :as) (conj ret (get b :as) gmap) ret)
+                    bes (loop* [es (seq b) acc []]
+                          (if es
+                            (let* [k (nth (first es) 0)
+                                   x (nth (first es) 1)]
+                              (recur (next es)
+                                     (if (keyword? k)
+                                       (let* [kn (name k)
+                                              kns (namespace k)]
+                                         (cond
+                                           (= k :as) acc
+                                           (= k :or) acc
+                                           (= kn "keys") (into acc (key-entries x (fn* [i] (keyword (if kns kns (namespace i)) (name i)))))
+                                           (= kn "syms") (into acc (key-entries x (fn* [i] (list 'quote (symbol (if kns kns (namespace i)) (name i))))))
+                                           (= kn "strs") (into acc (key-entries x str))
+                                           :else (throw (ex-info (str "Unsupported binding key: " k) nil))))
+                                       (conj acc [k x]))))
+                            acc))]
+               (loop* [bes (seq bes) ret ret]
+                 (if bes
+                   (let* [bb (nth (first bes) 0)
+                          bk (nth (first bes) 1)
+                          local (if (if (symbol? bb) true (keyword? bb)) (symbol nil (name bb)) bb)
+                          bv (if (contains? defaults local)
+                               (list `get gmap bk (get defaults local))
+                               (list `get gmap bk))]
+                     (recur (next bes)
+                            (if (symbol? local)
+                              (conj ret local bv)
+                              (pb ret bb bv))))
+                   ret))))
+           pb
+           (fn* pb [bvec b v]
+             (cond
+               (symbol? b) (conj bvec b v)
+               (vector? b) (pvec pb bvec b v)
+               (map? b) (pmap pb bvec b v)
+               :else (throw (ex-info (str "Unsupported binding form: " b) nil))))]
+      (if (loop* [i 0]
+            (if (< i (count bindings))
+              (if (symbol? (nth bindings i)) (recur (+ i 2)) false)
+              true))
+        bindings
+        (loop* [i 0 ret []]
+          (if (< i (count bindings))
+            (recur (+ i 2) (pb ret (nth bindings i) (nth bindings (inc i))))
+            ret))))))
 
 (def check-bindings
   (fn* [what bindings]
