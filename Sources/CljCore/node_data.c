@@ -11,6 +11,7 @@
 //           | [:recur [slot*] [arg*]]
 //           | [:fn name-or-nil [arity+] [capture*]]
 //           | [:invoke f arg*]
+//           | [:intrinsic ns/name arg*]     a listed core var at the arity of the args; unknown pairs are refused
 //           | [:def ns/name init-or-nil meta macro dynamic]
 //           | [:try body [catch*] finally-or-nil]
 //           | [:throw node]
@@ -40,7 +41,7 @@
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_captured, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
-	kw_invoke, kw_def, kw_vector, kw_map, kw_try, kw_throw, kw_all, kw_error;
+	kw_invoke, kw_intrinsic, kw_def, kw_vector, kw_map, kw_try, kw_throw, kw_all, kw_error;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
@@ -55,6 +56,7 @@ static void intern_keywords(void) {
 	kw_recur = clj_keyword_from_cstr("recur");
 	kw_fn = clj_keyword_from_cstr("fn");
 	kw_invoke = clj_keyword_from_cstr("invoke");
+	kw_intrinsic = clj_keyword_from_cstr("intrinsic");
 	kw_def = clj_keyword_from_cstr("def");
 	kw_vector = clj_keyword_from_cstr("vector");
 	kw_map = clj_keyword_from_cstr("map");
@@ -253,6 +255,15 @@ static clj_value encode_kind(const clj_node *n) {
 	}
 	case CLJ_NODE_TRY: return encode_try(n);
 	case CLJ_NODE_THROW: return vec2(kw_throw, encode(n->u.throw_));
+	case CLJ_NODE_INTRINSIC: {
+		clj_value *items = zalloc(n->u.intrinsic.n + 2, sizeof *items);
+		items[0] = kw_intrinsic;
+		items[1] = qualified(n->u.intrinsic.var);
+		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) items[i + 2] = encode(n->u.intrinsic.args[i]);
+		clj_value v = vec_take(items, n->u.intrinsic.n + 2);
+		free(items);
+		return v;
+	}
 	}
 	clj_fatal("unknown node kind");
 }
@@ -478,6 +489,19 @@ static clj_node *decode_invoke(clj_value data) {
 	return decode_into(n->u.invoke.args, data, 2, n->u.invoke.n) ? n : drop(n);
 }
 
+static clj_node *decode_intrinsic(clj_value data) {
+	if (clj_vector_count(data) < 3) return fail_data(data, "expected [ns/name args*]");
+	uint32_t             nargs = clj_vector_count(data) - 2;
+	const clj_intrinsic *op = clj_intrinsic_find_named(clj_vector_nth(data, 1), nargs);
+	if (!op) return fail_data(data, "unknown intrinsic");
+	clj_node *n = clj_node_alloc(CLJ_NODE_INTRINSIC);
+	n->u.intrinsic.op = op;
+	n->u.intrinsic.var = clj_retain(clj_intrinsic_var(op));
+	n->u.intrinsic.n = nargs;
+	n->u.intrinsic.args = zalloc(nargs, sizeof *n->u.intrinsic.args);
+	return decode_into(n->u.intrinsic.args, data, 2, nargs) ? n : drop(n);
+}
+
 static clj_node *decode_kind(clj_value data);
 
 // @ai-generated(guided)
@@ -513,6 +537,7 @@ static clj_node *decode_kind(clj_value data) {
 	if (head == kw_recur) return decode_recur(data);
 	if (head == kw_fn) return decode_fn(data);
 	if (head == kw_invoke) return decode_invoke(data);
+	if (head == kw_intrinsic) return decode_intrinsic(data);
 	if (head == kw_def) return decode_def(data);
 	if (head == kw_try) return decode_try(data);
 	if (head == kw_throw) return decode_single(CLJ_NODE_THROW, data);

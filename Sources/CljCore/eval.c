@@ -8,6 +8,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
+#include "clj/intrinsics.h"
 #include "clj/list.h"
 #include "clj/map.h"
 #include "clj/printer.h"
@@ -189,8 +190,12 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 	return fn;
 }
 
-// A var in fn position stays owned: the +1 held here is what keeps a running body alive when a concurrent
-// def replaces the var's root; borrowing it needs deferred freeing of old roots (NOTES.md).
+// A closure gets the call site for its shadow frame; anything else goes through the invoke slot.
+static inline clj_value invoke_at(clj_value fn, const clj_value *args, uint32_t n, const clj_node *site) {
+	if (clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_CLOSURE) return clj_closure_invoke_at(fn, args, n, site);
+	return clj_invoke(fn, args, n);
+}
+
 static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	bool      fn_owned;
 	clj_value fn = eval_borrowed(n->u.invoke.fn, f, &fn_owned);
@@ -200,12 +205,32 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
 	if (eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned)) {
-		if (clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_CLOSURE) result = clj_closure_invoke_at(fn, args, n->u.invoke.n, n);
-		else result = clj_invoke(fn, args, n->u.invoke.n);
+		result = invoke_at(fn, args, n->u.invoke.n, n);
 		release_owned(args, n->u.invoke.n, owned);
 	}
 	buf_free(small, args);
 	if (fn_owned) clj_release(fn);
+	return result;
+}
+
+// The var's root is compared with the fn the table resolved at boot before every call: a rebound var
+// ((def + ...) in clojure.core, with-redefs) takes the generic path, so the rewrite is invisible to the
+// program. A relaxed load suffices: a match calls a C function that reads nothing the bind published.
+// @ai-generated(guided)
+static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
+	const clj_intrinsic *op = n->u.intrinsic.op;
+	clj_value            args[3];
+	uint64_t             owned;
+	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned)) return CLJ_THROWN;
+	clj_value result;
+	if (__builtin_expect(clj_var_root_relaxed(n->u.intrinsic.var) == clj_intrinsic_builtin(op), 1)) {
+		result = clj_intrinsic_call(op, args);
+	} else {
+		clj_value fn = clj_var_deref(n->u.intrinsic.var);
+		result = fn == CLJ_THROWN ? CLJ_THROWN : invoke_at(fn, args, n->u.intrinsic.n, n);
+		clj_release(fn);
+	}
+	release_owned(args, n->u.intrinsic.n, owned);
 	return result;
 }
 
@@ -332,6 +357,7 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_MAP: return eval_map;
 	case CLJ_NODE_TRY: return eval_try;
 	case CLJ_NODE_THROW: return eval_throw;
+	case CLJ_NODE_INTRINSIC: return eval_intrinsic;
 	}
 	clj_fatal("unknown node kind");
 }

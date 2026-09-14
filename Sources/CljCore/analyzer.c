@@ -72,6 +72,10 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit_node(n->u.try_.finally_, visit, ctx);
 		break;
 	case CLJ_NODE_THROW: visit_node(n->u.throw_, visit, ctx); break;
+	case CLJ_NODE_INTRINSIC:
+		visit(n->u.intrinsic.var, ctx);
+		visit_nodes(n->u.intrinsic.args, n->u.intrinsic.n, visit, ctx);
+		break;
 	}
 }
 
@@ -96,6 +100,7 @@ static void node_finalize(void *self) {
 		free(n->u.fn.captures);
 		break;
 	case CLJ_NODE_INVOKE: free(n->u.invoke.args); break;
+	case CLJ_NODE_INTRINSIC: free(n->u.intrinsic.args); break;
 	case CLJ_NODE_TRY: free(n->u.try_.catches); break;
 	default: break;
 	}
@@ -301,6 +306,7 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		child(n->u.try_.finally_, visit, ctx);
 		break;
 	case CLJ_NODE_THROW: child(n->u.throw_, visit, ctx); break;
+	case CLJ_NODE_INTRINSIC: children(n->u.intrinsic.args, n->u.intrinsic.n, visit, ctx); break;
 	}
 }
 
@@ -1213,6 +1219,9 @@ clj_node *clj_analyze(clj_value form, const clj_env *env) {
 	clj_node *node = analyze(&a, &top, form, false);
 	free(top.locals);
 	clj_release(a.keeps);
-	if (node) clj_node_number(node);
+	if (node) {
+		clj_optimize(node);
+		clj_node_number(node);
+	}
 	return node;
 }

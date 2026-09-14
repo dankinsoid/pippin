@@ -26,11 +26,168 @@ private enum Outcome: Equatable {
 	}
 }
 
+// An analyzed tree with its exec table, analyzed in a namespace of choice; releases both.
+private final class Tree {
+	let node: UnsafeMutablePointer<clj_node>
+	let exec: clj_value
+
+	init(_ source: String, ns: clj_value = CLJ_NIL) throws {
+		let form = try Value(reading: source)
+		var env = clj_env(ns: ns, line: 0, col: 0)
+		guard let node = withExtendedLifetime(form, { clj_analyze(form.raw, &env) }) else { throw ClojureError.takePending() }
+		self.node = node
+		exec = clj_exec_new(node)
+	}
+
+	init(data: Value) throws {
+		guard let node = withExtendedLifetime(data, { clj_node_from_data(data.raw) }) else { throw ClojureError.takePending() }
+		self.node = node
+		exec = clj_exec_new(node)
+	}
+
+	func data() throws -> Value {
+		let raw = clj_node_to_data(node)
+		if raw == CLJ_THROWN { throw ClojureError.takePending() }
+		return Value(owning: raw)
+	}
+
+	func run() throws -> Value {
+		let raw = clj_exec_run(exec)
+		if raw == CLJ_THROWN { throw ClojureError.takePending() }
+		return Value(owning: raw)
+	}
+
+	// The node kinds of the tree in id order.
+	var kinds: [clj_node_kind] {
+		var out: [clj_node_kind] = []
+		collect(node, &out)
+		return out
+	}
+
+	private func collect(_ n: UnsafePointer<clj_node>, _ out: inout [clj_node_kind]) {
+		out.append(n.pointee.kind)
+		var children: [UnsafePointer<clj_node>] = []
+		withUnsafeMutablePointer(to: &children) { ctx in
+			clj_node_children(n, { child, ctx in
+				ctx!.assumingMemoryBound(to: [UnsafePointer<clj_node>].self).pointee.append(child!)
+			}, ctx)
+		}
+		for c in children { collect(c, &out) }
+	}
+
+	deinit {
+		clj_release(exec)
+		clj_release(clj_from_ptr(UnsafeMutableRawPointer(node)))
+	}
+}
+
+private func message<T>(_ body: () throws -> T) -> String? {
+	do {
+		_ = try body()
+		return nil
+	} catch {
+		return (error as? ClojureError)?.message ?? "\(error)"
+	}
+}
+
+private func coreVar(_ name: String) -> clj_value {
+	let sym = Value(symbol: name)
+	return withExtendedLifetime(sym) { clj_ns_resolve(clj_ns_core(), sym.raw) }
+}
+
 extension CoreTests {
 	@Suite struct IntrinsicsTests {
 		init() {
 			clj_init()
-			for k in ["k", "a", "b", "intrinsic"] { _ = Value(keyword: k) }
+			// The codec interns its node-kind keywords on first use; a baseline taken before that would drift.
+			for k in ["k", "a", "b", "const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "intrinsic",
+			          "def", "vector", "map", "try", "throw", "all", "error"] { _ = Value(keyword: k) }
+		}
+
+		// The optimizer keys on the var: only a call through the core var at a listed arity becomes an intrinsic.
+		@Test func rewriteKeyedByVarAndArity() throws {
+			let nsName = Value(symbol: "intr-ns"), plus = Value(symbol: "+")
+			let ns = withExtendedLifetime(nsName) { clj_ns_find_or_create(nsName.raw) }
+			_ = withExtendedLifetime(plus) { clj_ns_intern(ns, plus.raw) }
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try Tree("(+ 1 2)").data() == Value(reading: "[:intrinsic clojure.core/+ [:const 1 1 1] [:const 2 1 1] 1 1]"))
+				#expect(try Tree("(clojure.core/+ 1 2)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(+ 1 2)").run() == 3)
+				#expect(try Tree("(let [+ -] (+ 1 2))").kinds == [CLJ_NODE_LET, CLJ_NODE_VAR, CLJ_NODE_INVOKE, CLJ_NODE_LOCAL, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(let [+ -] (+ 1 2))").run() == -1)
+				#expect(try Tree("(+ 1 2)", ns: ns).kinds == [CLJ_NODE_INVOKE, CLJ_NODE_VAR, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(clojure.core/+ 1 2)", ns: ns).kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(+ 1 2 3)").kinds == [CLJ_NODE_INVOKE, CLJ_NODE_VAR, CLJ_NODE_CONST, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(+ 1 2 3)").run() == 6)
+				#expect(try Tree("(apply + [1 2])").kinds == [CLJ_NODE_INVOKE, CLJ_NODE_VAR, CLJ_NODE_VAR, CLJ_NODE_CONST])
+				#expect(try Tree("(get {:a 1} :a)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(get {:a 1} :b 2)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(get {:a 1} :b 2)").run() == 2)
+				#expect(try Tree("(fn [x] (if (< x 1) (inc x) (dec x)))").kinds == [CLJ_NODE_FN, CLJ_NODE_IF, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_CONST,
+				                                                                     CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL])
+				// An intrinsic throws like the builtin, and a throw releases the borrowed arguments cleanly.
+				#expect(message { try Tree("(let [x \"s\"] (+ x 1))").run() } == "string cannot be cast to a number")
+				#expect(message { try Tree("(nth [1] 5)").run() } == "Index 5 out of bounds for length 1")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A rebound core var takes the generic path until the boot fn is bound again: (def + ...) in clojure.core
+		// and a host rebind alike.
+		@Test func guardFallsBackWhenTheVarIsRebound() throws {
+			let plus = coreVar("+")
+			let boot = clj_var_root(plus)
+			let tree = try Tree("(fn [a b] (+ a b))")
+			let f = try tree.run()
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try f(1, 2) == 3)
+				do {
+					let minus = try cljEval("(fn [a b] (- a b))")
+					withExtendedLifetime(minus) { clj_var_bind_root(plus, minus.raw) }
+				}
+				#expect(try f(1, 2) == -1)
+				#expect(try cljEval("(+ 1 2)") == -1)
+				clj_var_bind_root(plus, boot)
+				#expect(try f(1, 2) == 3)
+				#expect(clj_var_root(plus) == boot)
+
+				clj_ns_set_current(clj_ns_core())
+				_ = try cljEval("(def + (fn [a b] (* a b)))")
+				clj_ns_set_current(clj_ns_user())
+				#expect(try f(3, 4) == 12)
+				#expect(try cljEval("(+ 3 4)") == 12)
+				clj_var_bind_root(plus, boot)
+				clj_var_set_meta(plus, CLJ_NIL)
+				#expect(try f(3, 4) == 7)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// [:intrinsic ns/name args*] round-trips; a name or arity the table lacks is refused on read.
+		@Test func serializationRoundTrip() throws {
+			let before = clj_debug_live_objects()
+			do {
+				for source in ["(let [v [1 2 3]] [(first v) (count v) (nth v 1) (get v 5 :k) (conj v 4) (assoc v 0 :a) (contains? v 2)])",
+				               "(loop [i 0 acc 0] (if (< i 5) (recur (inc i) (+ acc i)) acc))",
+				               "((fn [s] (if (seq s) (cons (first s) (rest s)) (empty? s))) [1 2])"] {
+					let tree = try Tree(source)
+					let data = try tree.data()
+					#expect(data.description.contains(":intrinsic"))
+					let text = try #require(Value(owning: clj_pr_str(data.raw)).string)
+					let read = try Tree(data: Value(reading: text))
+					#expect(try read.data() == data, Comment(rawValue: source))
+					#expect(read.node.pointee.nnodes == tree.node.pointee.nnodes)
+					#expect(try read.run() == tree.run(), Comment(rawValue: source))
+				}
+				#expect(try Tree(data: Value(reading: "[:intrinsic clojure.core/+ [:const 1] [:const 2]]")).run() == 3)
+				#expect(message { try Tree(data: Value(reading: "[:intrinsic clojure.core/+ [:const 1]]")) } == "malformed node data, unknown intrinsic: [:intrinsic clojure.core/+ [:const 1]]")
+				#expect(message { try Tree(data: Value(reading: "[:intrinsic clojure.core/nope [:const 1]]")) } == "malformed node data, unknown intrinsic: [:intrinsic clojure.core/nope [:const 1]]")
+				#expect(message { try Tree(data: Value(reading: "[:intrinsic user/+ [:const 1] [:const 2]]")) } == "malformed node data, unknown intrinsic: [:intrinsic user/+ [:const 1] [:const 2]]")
+				#expect(message { try Tree(data: Value(reading: "[:intrinsic clojure.core/+]")) } == "malformed node data, expected [ns/name args*]: [:intrinsic clojure.core/+]")
+			}
+			#expect(clj_debug_live_objects() == before)
 		}
 
 		// Every table entry crossed with sample values of every type, by arity: the C function called directly

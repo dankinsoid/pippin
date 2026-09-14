@@ -2,11 +2,13 @@
 #ifndef CLJ_ANALYZER_H
 #define CLJ_ANALYZER_H
 
+#include "intrinsics.h"
 #include "object.h"
 
 // Forms become a tree of nodes; every symbol is resolved here, so evaluation never looks a name up.
-// A tree is the program only: immutable once analyzed and free of interpreter state, so an evaluator (eval.h)
-// and an emitter read the same nodes. Per-node execution state lives in a side table indexed by node id.
+// A tree is the program only: immutable once analyzed and optimized (optimizer.c rewrites it before it is
+// numbered) and free of interpreter state, so an evaluator (eval.h) and an emitter read the same nodes.
+// Per-node execution state lives in a side table indexed by node id.
 // Nodes are heap objects: a closure retains the tree it was created in, which keeps its bodies alive past the form.
 
 typedef struct clj_node clj_node;
@@ -28,6 +30,7 @@ typedef enum {
 	CLJ_NODE_MAP,
 	CLJ_NODE_TRY,
 	CLJ_NODE_THROW,
+	CLJ_NODE_INTRINSIC, // a call of a core var the intrinsics table lists, at a listed arity (optimizer.c)
 } clj_node_kind;
 
 // Clojure's limit; more parameters go through the rest argument.
@@ -111,6 +114,12 @@ struct clj_node {
 			const clj_node *finally_; // NULL when absent
 		} try_;
 		const clj_node *throw_; // the value to throw
+		struct {
+			const clj_intrinsic *op;
+			clj_value            var;  // the core var the head resolved to; its root is checked against op's boot fn on every call
+			const clj_node     **args; // n == op->arity
+			uint32_t             n;
+		} intrinsic;
 	} u;
 };
 
