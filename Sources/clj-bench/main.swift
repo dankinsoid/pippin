@@ -430,9 +430,52 @@ do {
 clj_release(sumFn)
 clj_release(walkFn)
 
+// (loop [i 0] (if (< i n) (recur (inc i)) i)): one rebind, a comparison and an increment per iteration.
+func cCountLoop(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
+
+// Same loop with the increment behind a closure call through a var: one interpreted call per iteration.
+func cClosureCallLoop(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
+
+@inline(never) func incBox(_ x: Int) -> Int { x + 1 }
+
+func aClosureCallLoop(_ n: Int) -> UInt64 {
+	var i = 0
+	while i < n { i = incBox(i) }
+	return UInt64(i)
+}
+
+let countFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))")
+let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (< i n) (recur (bench-inc i)) i)))")
+
+struct CallRow {
+	let scenario: String
+	let n: Int
+	let c: Double
+	let swift: Double?
+}
+
+var callRows: [CallRow] = []
+do {
+	let n = 100_000
+	// A Swift counting loop folds to a closed form under -O, so it has no reference column.
+	callRows.append(CallRow(scenario: "counting loop", n: n, c: measure(ops: n) { cCountLoop(countFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
+		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
+		swift: measure(ops: n) { aClosureCallLoop(n) }))
+}
+clj_release(countFn)
+clj_release(callFn)
+
 print("\n| scenario | n | interpreted | C iterator | Swift for | interpreted / Swift |")
 print("|---|---:|---:|---:|---:|---:|")
 for r in seqRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.iterator)) | \(fmt(r.swift)) | \(ratio(r.swift, r.c)) |")
 }
 print("\nns per element; interpreted = a core.clj fn called through clj_invoke, C iterator = clj_seq_iter over the same vector")
+
+print("\n| scenario | n | interpreted | Swift while | interpreted / Swift |")
+print("|---|---:|---:|---:|---:|")
+for r in callRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
+}
+print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x)))")
