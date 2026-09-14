@@ -170,6 +170,7 @@ extension Value {
 			try buf.withMemoryRebound(to: CChar.self) { chars in
 				var reader = clj_reader()
 				clj_reader_init(&reader, chars.baseAddress, chars.count)
+				reader.resolve = clj_syntax_quote_resolve
 				while true {
 					var raw: clj_value = CLJ_NIL
 					switch clj_read(&reader, &raw) {

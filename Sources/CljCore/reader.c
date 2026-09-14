@@ -6,7 +6,7 @@
 
 #include "clj/core.h"
 
-typedef enum { F_LIST, F_VECTOR, F_MAP, F_QUOTE, F_DEREF, F_DISCARD } frame_kind;
+typedef enum { F_LIST, F_VECTOR, F_MAP, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING } frame_kind;
 
 typedef struct {
 	frame_kind kind;
@@ -21,6 +21,7 @@ typedef struct {
 	size_t      nvals, vcap;
 	frame      *frames;
 	size_t      nframes, fcap;
+	size_t      sq_depth; // open syntax-quote frames, so ~ knows whether it is inside one
 } parser;
 
 typedef struct {
@@ -177,24 +178,252 @@ static clj_value wrap(clj_value sym, clj_value v) {
 	return list;
 }
 
-// Consumes v: applies pending prefix frames (quote, deref, discard), then stores it.
-static void push_value(parser *p, clj_value v) {
+// ---- syntax-quote, expanded at read time exactly as Clojure's LispReader does
+
+typedef struct {
+	parser   *p;
+	clj_value gensyms; // map: auto-gensym symbol → its generated symbol
+	uint32_t  line, col;
+} sq;
+
+static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type; }
+
+static bool symbol_named(clj_value v, const char *ns, const char *name) {
+	if (!clj_is_symbol(v) || clj_is_nil(clj_symbol_ns(v))) return false;
+	return strcmp(clj_string_bytes(clj_symbol_ns(v)), ns) == 0 && strcmp(clj_string_bytes(clj_symbol_name(v)), name) == 0;
+}
+
+static bool is_tagged(clj_value form, const char *name) {
+	return clj_is_list(form) && !clj_is_empty_list(form) && symbol_named(clj_cons_of(form)->first, "clojure.core", name);
+}
+
+static clj_value second(clj_value list) { return clj_cons_of(clj_cons_of(list)->rest)->first; }
+
+static bool is_auto_gensym(clj_value sym) {
+	if (!clj_is_nil(clj_symbol_ns(sym))) return false;
+	clj_value name = clj_symbol_name(sym);
+	uint32_t  len = clj_string_len(name);
+	return len > 1 && clj_string_bytes(name)[len - 1] == '#';
+}
+
+// Owned; the same symbol for the same name within one syntax-quote.
+static clj_value gensym_for(sq *q, clj_value sym) {
+	clj_value found = clj_map_get(q->gensyms, sym, CLJ_NIL);
+	if (!clj_is_nil(found)) return clj_retain(found);
+	clj_value name = clj_symbol_name(sym);
+	size_t    cap = clj_string_len(name) + 32;
+	char     *text = malloc(cap);
+	if (!text) clj_fatal("out of memory");
+	snprintf(text, cap, "%.*s__%llu__auto__", (int)clj_string_len(name) - 1, clj_string_bytes(name), (unsigned long long)clj_next_id());
+	clj_value gs = clj_symbol_from_cstr(text);
+	free(text);
+	q->gensyms = clj_map_assoc(q->gensyms, sym, gs);
+	return gs;
+}
+
+// (items...) consuming every item.
+static clj_value list_owning(clj_value *items, size_t n) {
+	clj_value list = clj_list_from_array(items, n);
+	for (size_t i = 0; i < n; i++) clj_release(items[i]);
+	return list;
+}
+
+static clj_value core_sym(const char *name) {
+	char text[64];
+	snprintf(text, sizeof text, "clojure.core/%s", name);
+	return clj_symbol_from_cstr(text);
+}
+
+// (clojure.core/list v) consuming v.
+static clj_value wrap_list(clj_value v) {
+	clj_value pair[2] = {core_sym("list"), v};
+	return list_owning(pair, 2);
+}
+
+// (seq (concat args...)) consuming args.
+static clj_value seq_concat(clj_value *args, size_t n) {
+	clj_value *with_head = malloc((n + 1) * sizeof *with_head);
+	if (!with_head) clj_fatal("out of memory");
+	with_head[0] = core_sym("concat");
+	memcpy(with_head + 1, args, n * sizeof *args);
+	clj_value concat = list_owning(with_head, n + 1);
+	free(with_head);
+	clj_value pair[2] = {core_sym("seq"), concat};
+	return list_owning(pair, 2);
+}
+
+// (apply f (seq (concat args...))) consuming args.
+static clj_value apply_to(const char *fn, clj_value *args, size_t n) {
+	clj_value triple[3] = {core_sym("apply"), core_sym(fn), seq_concat(args, n)};
+	return list_owning(triple, 3);
+}
+
+typedef struct {
+	clj_value *entries;
+	size_t     n;
+} collect_ctx;
+
+static bool collect_entry(clj_value key, clj_value val, void *ctx) {
+	collect_ctx *c = ctx;
+	c->entries[c->n++] = key;
+	c->entries[c->n++] = val;
+	return true;
+}
+
+// Borrowed items of a list, a vector or a map (flattened to key value ...).
+static clj_value *coll_items(clj_value coll, size_t *n) {
+	if (is_map(coll)) {
+		collect_ctx c = {calloc(2 * (size_t)clj_map_count(coll) + 1, sizeof(clj_value)), 0};
+		if (!c.entries) clj_fatal("out of memory");
+		clj_map_each(coll, collect_entry, &c);
+		*n = c.n;
+		return c.entries;
+	}
+	size_t     count = clj_list_count(coll);
+	clj_value *items = calloc(count + 1, sizeof *items);
+	if (!items) clj_fatal("out of memory");
+	clj_seq_iter it = clj_seq_iter_start(coll);
+	size_t       i = 0;
+	while (clj_seq_iter_next(&it, &items[i])) i++;
+	*n = count;
+	return items;
+}
+
+static bool is_sq_coll(clj_value v) { return (clj_is_list(v) && !clj_is_empty_list(v)) || clj_is_vector(v) || is_map(v); }
+
+// Everything but a non-empty collection.
+static clj_value sq_atom(sq *q, clj_value form) {
+	if (clj_is_symbol(form)) {
+		clj_value sym;
+		if (is_auto_gensym(form)) sym = gensym_for(q, form);
+		else if (q->p->r->resolve) sym = q->p->r->resolve(form, q->p->r->resolve_ctx);
+		else sym = clj_retain(form);
+		clj_value pair[2] = {clj_symbol_from_cstr("quote"), sym};
+		return list_owning(pair, 2);
+	}
+	if (clj_is_empty_list(form)) {
+		clj_value head = core_sym("list");
+		return list_owning(&head, 1);
+	}
+	if (clj_is_keyword(form) || clj_is_fixnum(form) || clj_is_double(form) || clj_is_char(form) || clj_is_string(form)) return clj_retain(form);
+	clj_value pair[2] = {clj_symbol_from_cstr("quote"), clj_retain(form)};
+	return list_owning(pair, 2);
+}
+
+// One collection being rebuilt: its items, and the concat arguments produced for them so far.
+typedef struct {
+	clj_value  form;
+	clj_value *items; // borrowed
+	clj_value *args;  // owned
+	size_t     n, i;
+} sq_frame;
+
+typedef struct {
+	sq_frame *items;
+	size_t    n, cap;
+} sq_stack;
+
+static void sq_push(sq_stack *s, clj_value form) {
+	if (s->n == s->cap) {
+		s->cap = s->cap ? s->cap * 2 : 16;
+		s->items = realloc(s->items, s->cap * sizeof *s->items);
+		if (!s->items) clj_fatal("out of memory");
+	}
+	sq_frame *f = &s->items[s->n++];
+	f->form = form;
+	f->items = coll_items(form, &f->n);
+	f->args = calloc(f->n + 1, sizeof *f->args);
+	if (!f->args) clj_fatal("out of memory");
+	f->i = 0;
+}
+
+// Pops the frame and builds its expansion.
+static clj_value sq_pop(sq_stack *s) {
+	sq_frame *f = &s->items[--s->n];
+	clj_value v;
+	if (clj_is_vector(f->form)) v = apply_to("vector", f->args, f->n);
+	else if (is_map(f->form)) v = apply_to("hash-map", f->args, f->n);
+	else v = seq_concat(f->args, f->n);
+	free(f->args);
+	free(f->items);
+	return v;
+}
+
+// Iterative like the parser, so nesting depth is bounded by memory. ~@ only fails at the root: inside
+// a collection it always has a list to splice into.
+static clj_read_status sq_form(sq *q, clj_value root, clj_value *out) {
+	if (is_tagged(root, "unquote")) {
+		*out = clj_retain(second(root));
+		return CLJ_READ_OK;
+	}
+	if (is_tagged(root, "unquote-splicing")) return fail(q->p, q->line, q->col, "splice not in list");
+	if (!is_sq_coll(root)) {
+		*out = sq_atom(q, root);
+		return CLJ_READ_OK;
+	}
+	sq_stack stack = {0};
+	sq_push(&stack, root);
+	for (;;) {
+		sq_frame *f = &stack.items[stack.n - 1];
+		if (f->i == f->n) {
+			clj_value built = sq_pop(&stack);
+			if (!stack.n) {
+				*out = built;
+				break;
+			}
+			f = &stack.items[stack.n - 1];
+			f->args[f->i++] = wrap_list(built);
+			continue;
+		}
+		clj_value item = f->items[f->i];
+		if (is_tagged(item, "unquote-splicing")) f->args[f->i++] = clj_retain(second(item));
+		else if (is_tagged(item, "unquote")) f->args[f->i++] = wrap_list(clj_retain(second(item)));
+		else if (is_sq_coll(item)) sq_push(&stack, item);
+		else f->args[f->i++] = wrap_list(sq_atom(q, item));
+	}
+	free(stack.items);
+	return CLJ_READ_OK;
+}
+
+// Consumes form. The gensym table is fresh per syntax-quote, so a nested one names its own x#.
+static clj_read_status syntax_quote(parser *p, const frame *f, clj_value form, clj_value *out) {
+	sq q = {p, clj_map_empty(), f->line, f->col};
+	clj_read_status st = sq_form(&q, form, out);
+	clj_release(q.gensyms);
+	clj_release(form);
+	return st;
+}
+
+// Consumes v: applies pending prefix frames (quote, deref, discard, ...), then stores it.
+static clj_read_status push_value(parser *p, clj_value v) {
 	while (p->nframes) {
 		frame *f = &p->frames[p->nframes - 1];
-		if (f->kind == F_QUOTE) {
-			v = wrap(clj_symbol_from_cstr("quote"), v);
-		} else if (f->kind == F_DEREF) {
-			v = wrap(clj_symbol_from_cstr("clojure.core/deref"), v);
-		} else if (f->kind == F_DISCARD) {
+		switch (f->kind) {
+		case F_QUOTE: v = wrap(clj_symbol_from_cstr("quote"), v); break;
+		case F_DEREF: v = wrap(clj_symbol_from_cstr("clojure.core/deref"), v); break;
+		case F_VAR: v = wrap(clj_symbol_from_cstr("var"), v); break;
+		case F_UNQUOTE: v = wrap(clj_symbol_from_cstr("clojure.core/unquote"), v); break;
+		case F_UNQUOTE_SPLICING: v = wrap(clj_symbol_from_cstr("clojure.core/unquote-splicing"), v); break;
+		case F_SYNTAX_QUOTE: {
+			clj_value expanded;
+			clj_read_status st = syntax_quote(p, f, v, &expanded);
+			p->sq_depth--;
+			if (st != CLJ_READ_OK) return st;
+			v = expanded;
+			break;
+		}
+		case F_DISCARD:
 			clj_release(v);
 			p->nframes--;
-			return;
-		} else {
-			break;
+			return CLJ_READ_OK;
+		default:
+			push_raw(p, v);
+			return CLJ_READ_OK;
 		}
 		p->nframes--;
 	}
 	push_raw(p, v);
+	return CLJ_READ_OK;
 }
 
 static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
@@ -238,8 +467,7 @@ static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32
 		// Locale-dependent; the runtime never calls setlocale.
 		double d = strtod(copy, NULL);
 		free(copy);
-		push_value(p, clj_double_new(d));
-		return CLJ_READ_OK;
+		return push_value(p, clj_double_new(d));
 	}
 	if (digits + 1 == n && tok[digits] == 'N') return fail(p, line, col, "BigInt literals (N suffix) are not supported yet: %.*s", (int)n, tok);
 	if (digits != n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
@@ -251,8 +479,7 @@ static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32
 		if (v > (limit - d) / 10) return fail(p, line, col, "Integer out of fixnum range, bigint is not supported yet: %.*s", (int)n, tok);
 		v = v * 10 + d;
 	}
-	push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
-	return CLJ_READ_OK;
+	return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
 }
 
 // Clojure's symbolPat: `(P/)?(/|N)` with P and N starting with a non-digit, N without slashes.
@@ -289,8 +516,7 @@ static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32
 	clj_value v = keyword ? clj_keyword_intern(ns, name) : clj_symbol_new(ns, name);
 	clj_release(ns);
 	clj_release(name);
-	push_value(p, v);
-	return CLJ_READ_OK;
+	return push_value(p, v);
 }
 
 static clj_read_status read_token(parser *p, uint32_t line, uint32_t col) {
@@ -300,11 +526,11 @@ static clj_read_status read_token(parser *p, uint32_t line, uint32_t col) {
 	const char *tok = r->bytes + start;
 	size_t n = r->pos - start;
 	if (n == 3 && memcmp(tok, "nil", 3) == 0) {
-		push_value(p, CLJ_NIL);
+		return push_value(p, CLJ_NIL);
 	} else if (n == 4 && memcmp(tok, "true", 4) == 0) {
-		push_value(p, CLJ_TRUE);
+		return push_value(p, CLJ_TRUE);
 	} else if (n == 5 && memcmp(tok, "false", 5) == 0) {
-		push_value(p, CLJ_FALSE);
+		return push_value(p, CLJ_FALSE);
 	} else if (is_digit((unsigned char)tok[0]) || (n > 1 && (tok[0] == '+' || tok[0] == '-') && is_digit((unsigned char)tok[1]))) {
 		return parse_number(p, tok, n, line, col);
 	} else {
@@ -406,7 +632,7 @@ static clj_read_status read_string(parser *p, uint32_t line, uint32_t col) {
 			break;
 		}
 	}
-	if (st == CLJ_READ_OK) push_value(p, clj_string_new(b.data, b.len));
+	if (st == CLJ_READ_OK) st = push_value(p, clj_string_new(b.data, b.len));
 	free(b.data);
 	return st;
 }
@@ -458,8 +684,7 @@ static clj_read_status read_char(parser *p, uint32_t line, uint32_t col) {
 	} else {
 		return fail(p, line, col, "Unsupported character: \\%.*s", (int)n, tok);
 	}
-	push_value(p, clj_char(cp));
-	return CLJ_READ_OK;
+	return push_value(p, clj_char(cp));
 }
 
 static clj_read_status read_symbolic_value(parser *p, uint32_t line, uint32_t col) {
@@ -473,8 +698,7 @@ static clj_read_status read_symbolic_value(parser *p, uint32_t line, uint32_t co
 	else if (n == 4 && memcmp(tok, "-Inf", 4) == 0) d = -__builtin_inf();
 	else if (n == 3 && memcmp(tok, "NaN", 3) == 0) d = __builtin_nan("");
 	else return fail(p, line, col, "Unknown symbolic value: ##%.*s", (int)n, tok);
-	push_value(p, clj_double_new(d));
-	return CLJ_READ_OK;
+	return push_value(p, clj_double_new(d));
 }
 
 static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
@@ -496,7 +720,10 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 	case '{': return fail(p, line, col, "Set literals are not supported yet");
 	case '(': return fail(p, line, col, "Anonymous function literals are not supported yet");
 	case '"': return fail(p, line, col, "Regex literals are not supported yet");
-	case '\'': return fail(p, line, col, "Var quote is not supported yet");
+	case '\'':
+		advance(r);
+		push_frame(p, F_VAR, line, col);
+		return CLJ_READ_OK;
 	case ':': return fail(p, line, col, "Namespaced map literals are not supported yet");
 	case '?': return fail(p, line, col, "Reader conditionals are not supported yet");
 	case '=': return fail(p, line, col, "Read-eval is not supported yet");
@@ -543,8 +770,7 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 	}
 	for (size_t i = f.start; i < p->nvals; i++) clj_release(p->vals[i]);
 	p->nvals = f.start;
-	push_value(p, v);
-	return CLJ_READ_OK;
+	return push_value(p, v);
 }
 
 static clj_read_status read_form(parser *p) {
@@ -575,8 +801,19 @@ static clj_read_status read_form(parser *p) {
 	case '\\': return read_char(p, line, col);
 	case '#': return read_dispatch(p, line, col);
 	case '^': return fail(p, line, col, "Metadata is not supported yet");
-	case '`': return fail(p, line, col, "Syntax-quote is not supported yet");
-	case '~': return fail(p, line, col, "Unquote is not supported yet");
+	case '`':
+		advance(r);
+		push_frame(p, F_SYNTAX_QUOTE, line, col);
+		p->sq_depth++;
+		return CLJ_READ_OK;
+	case '~': {
+		advance(r);
+		bool splicing = !at_eof(r) && peek(r) == '@';
+		if (splicing) advance(r);
+		if (!p->sq_depth) return fail(p, line, col, "%s outside syntax-quote", splicing ? "Unquote-splicing" : "Unquote");
+		push_frame(p, splicing ? F_UNQUOTE_SPLICING : F_UNQUOTE, line, col);
+		return CLJ_READ_OK;
+	}
 	default: return read_token(p, line, col);
 	}
 }

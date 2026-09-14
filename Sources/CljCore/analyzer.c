@@ -231,6 +231,30 @@ static bool symbol_is(clj_value sym, const char *name) {
 	return is_unqualified_symbol(sym) && strcmp(clj_string_bytes(clj_symbol_name(sym)), name) == 0;
 }
 
+typedef enum { SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_DEFMACRO, SP_RECUR, SP_VAR, SP_RESERVED } special;
+
+static const struct {
+	const char *name;
+	special     kind;
+} specials[] = {
+	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let", SP_LET},     {"let*", SP_LET},
+	{"loop", SP_LOOP},   {"loop*", SP_LOOP}, {"fn", SP_FN},         {"fn*", SP_FN},      {"def", SP_DEF},
+	{"defmacro", SP_DEFMACRO}, {"recur", SP_RECUR}, {"var", SP_VAR},
+	// Kept unqualified by syntax-quote: `&` in params; throw/try/catch/finally before they become special forms.
+	{"&", SP_RESERVED}, {"throw", SP_RESERVED}, {"try", SP_RESERVED}, {"catch", SP_RESERVED}, {"finally", SP_RESERVED},
+};
+
+static special special_of(clj_value sym) {
+	if (!is_unqualified_symbol(sym)) return SP_NONE;
+	const char *name = clj_string_bytes(clj_symbol_name(sym));
+	for (size_t i = 0; i < sizeof specials / sizeof *specials; i++) {
+		if (strcmp(specials[i].name, name) == 0) return specials[i].kind;
+	}
+	return SP_NONE;
+}
+
+bool clj_is_special_symbol(clj_value sym) { return special_of(sym) != SP_NONE; }
+
 static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type; }
 
 // Borrowed items of a list or vector in a malloc'd array.
@@ -577,29 +601,31 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 	return node;
 }
 
+static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
+	if (n != 2) return fail(a, "Wrong number of args (%u) passed to var", n - 1);
+	if (!clj_is_symbol(items[1])) return fail_form(a, "var requires a symbol, got: %s", items[1]);
+	clj_value var = clj_ns_resolve(a->env.ns, items[1]);
+	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve var: %s in this context", items[1]);
+	return node_const(var);
+}
+
 static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) {
 	uint32_t   n;
 	clj_value *items = seq_items(form, &n);
-	clj_value  head = items[0];
 	clj_node  *node;
-	if (symbol_is(head, "quote")) {
-		node = n == 2 ? node_const(items[1]) : fail(a, "Wrong number of args (%u) passed to quote", n - 1);
-	} else if (symbol_is(head, "if")) {
-		node = analyze_if(a, s, items, n, tail);
-	} else if (symbol_is(head, "do")) {
-		node = analyze_body(a, s, items + 1, n - 1, tail);
-	} else if (symbol_is(head, "let") || symbol_is(head, "let*")) {
-		node = analyze_let(a, s, items, n, tail, false);
-	} else if (symbol_is(head, "loop") || symbol_is(head, "loop*")) {
-		node = analyze_let(a, s, items, n, tail, true);
-	} else if (symbol_is(head, "fn") || symbol_is(head, "fn*")) {
-		node = analyze_fn(a, s, items, n);
-	} else if (symbol_is(head, "def")) {
-		node = analyze_def(a, s, items, n);
-	} else if (symbol_is(head, "recur")) {
-		node = analyze_recur(a, s, items, n, tail);
-	} else {
-		node = analyze_invoke(a, s, items, n);
+	switch (special_of(items[0])) {
+	case SP_QUOTE: node = n == 2 ? node_const(items[1]) : fail(a, "Wrong number of args (%u) passed to quote", n - 1); break;
+	case SP_IF: node = analyze_if(a, s, items, n, tail); break;
+	case SP_DO: node = analyze_body(a, s, items + 1, n - 1, tail); break;
+	case SP_LET: node = analyze_let(a, s, items, n, tail, false); break;
+	case SP_LOOP: node = analyze_let(a, s, items, n, tail, true); break;
+	case SP_FN: node = analyze_fn(a, s, items, n); break;
+	case SP_DEF: node = analyze_def(a, s, items, n); break;
+	case SP_DEFMACRO: node = fail(a, "defmacro is not supported yet"); break;
+	case SP_RECUR: node = analyze_recur(a, s, items, n, tail); break;
+	case SP_VAR: node = analyze_var(a, items, n); break;
+	case SP_NONE:
+	case SP_RESERVED: node = analyze_invoke(a, s, items, n); break;
 	}
 	free(items);
 	return node;

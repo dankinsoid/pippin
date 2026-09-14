@@ -70,7 +70,6 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("(1\n  #{2})", 2, 3, "Set literals are not supported yet"),
 	("#(+ 1 %)", 1, 1, "Anonymous function literals are not supported yet"),
 	("#\"re\"", 1, 1, "Regex literals are not supported yet"),
-	("#'x", 1, 1, "Var quote is not supported yet"),
 	("#:a{:b 1}", 1, 1, "Namespaced map literals are not supported yet"),
 	("#?(:clj 1)", 1, 1, "Reader conditionals are not supported yet"),
 	("#=(+ 1 2)", 1, 1, "Read-eval is not supported yet"),
@@ -78,9 +77,13 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("#<x>", 1, 1, "Unreadable form"),
 	("#inst \"2020\"", 1, 1, "Tagged literals are not supported yet"),
 	("^:a x", 1, 1, "Metadata is not supported yet"),
-	("`x", 1, 1, "Syntax-quote is not supported yet"),
-	("~x", 1, 1, "Unquote is not supported yet"),
-	("(a ~@b)", 1, 4, "Unquote is not supported yet"),
+	("`~@x", 1, 1, "splice not in list"),
+	("`(a `~@b)", 1, 5, "splice not in list"),
+	("~x", 1, 1, "Unquote outside syntax-quote"),
+	("(`a ~b)", 1, 5, "Unquote outside syntax-quote"),
+	("(a ~@b)", 1, 4, "Unquote-splicing outside syntax-quote"),
+	("`", 1, 1, "EOF while reading"),
+	("`(a ~)", 1, 6, "Unmatched delimiter: )"),
 	("##Foo", 1, 1, "Unknown symbolic value: ##Foo"),
 	("1 2", 1, 3, "Unexpected trailing input"),
 	("1 )", 1, 3, "Unmatched delimiter: )"),
@@ -195,6 +198,8 @@ extension CoreTests {
 				#expect(try read("''x") == list(sym("quote"), list(sym("quote"), sym("x"))))
 				#expect(try read("@x") == list(sym("clojure.core/deref"), sym("x")))
 				#expect(try read("'@x") == list(sym("quote"), list(sym("clojure.core/deref"), sym("x"))))
+				#expect(try read("#'x") == list(sym("var"), sym("x")))
+				#expect(try read("#'ns/x") == list(sym("var"), sym("ns/x")))
 				#expect(try read("[1 #_2 3]") == [1, 3])
 				#expect(try read("[1 #_(2 [3]) 4]") == [1, 4])
 				#expect(try read("[#_ #_ 1 2 3]") == [3])
@@ -210,6 +215,7 @@ extension CoreTests {
 		}
 
 		@Test(arguments: errorCases) func errors(text: String, line: Int, column: Int, message: String) {
+			clj_init()
 			let before = clj_debug_live_objects()
 			#expect(readError(text) == ReaderError(message: message, line: line, column: column), "\(text.debugDescription)")
 			#expect(clj_debug_live_objects() == before)

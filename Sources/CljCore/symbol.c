@@ -42,6 +42,10 @@ clj_value clj_symbol_new(clj_value ns, clj_value name) {
 	return clj_from_ptr(s);
 }
 
+static _Atomic uint64_t next_id;
+
+uint64_t clj_next_id(void) { return atomic_fetch_add_explicit(&next_id, 1, memory_order_relaxed) + 1; }
+
 clj_value clj_symbol_from_cstr(const char *s) {
 	const char *slash = strchr(s, '/');
 	clj_value ns = CLJ_NIL, name;

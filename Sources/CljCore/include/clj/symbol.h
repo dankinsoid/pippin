@@ -24,4 +24,7 @@ static inline clj_symbol *clj_symbol_of(clj_value v) { return (clj_symbol *)clj_
 static inline clj_value clj_symbol_ns(clj_value s) { return clj_symbol_of(s)->ns; }
 static inline clj_value clj_symbol_name(clj_value s) { return clj_symbol_of(s)->name; }
 
+// Process-wide counter behind gensym and the reader's auto-gensym; the first call returns 1.
+uint64_t clj_next_id(void);
+
 #endif

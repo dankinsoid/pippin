@@ -103,4 +103,7 @@ typedef struct {
 // Nested forms carry no position yet, so every error reports the top-level form's (NOTES.md).
 clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots);
 
+// Special-form names (plus & and the reserved throw/try/catch/finally): syntax-quote leaves them unqualified.
+bool clj_is_special_symbol(clj_value sym);
+
 #endif
