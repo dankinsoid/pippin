@@ -8,6 +8,7 @@
 #include "clj/analyzer.h"
 #include "clj/error.h"
 #include "clj/eval.h"
+#include "clj/fn.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/map.h"
@@ -141,24 +142,53 @@ static void *zalloc(size_t n, size_t size) {
 	return p;
 }
 
-static clj_node *fail(const analyzer *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
-static clj_node *fail(const analyzer *a, const char *fmt, ...) {
+// Consumes data (a map or nil); the position is added when known.
+static clj_value with_position(const analyzer *a, clj_value data) {
+	if (!a->env.line) return data;
+	pthread_once(&keywords_once, intern_keywords);
+	if (clj_is_nil(data)) data = clj_map_empty();
+	data = clj_map_assoc(data, kw_line, clj_fixnum(a->env.line));
+	return clj_map_assoc(data, kw_column, clj_fixnum(a->env.col));
+}
+
+static void throw_at(const analyzer *a, const char *fmt, va_list ap) {
 	char buf[512];
-	va_list ap;
-	va_start(ap, fmt);
 	vsnprintf(buf, sizeof buf, fmt, ap);
-	va_end(ap);
 	clj_value message = clj_string_from_cstr(buf);
-	clj_value data = CLJ_NIL;
-	if (a->env.line) {
-		pthread_once(&keywords_once, intern_keywords);
-		data = clj_map_assoc(clj_map_empty(), kw_line, clj_fixnum(a->env.line));
-		data = clj_map_assoc(data, kw_column, clj_fixnum(a->env.col));
-	}
+	clj_value data = with_position(a, CLJ_NIL);
 	clj_throw(clj_ex_info(message, data));
 	clj_release(message);
 	clj_release(data);
+}
+
+static clj_node *fail(const analyzer *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static clj_node *fail(const analyzer *a, const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	throw_at(a, fmt, ap);
+	va_end(ap);
 	return NULL;
+}
+
+static clj_value fail_value(const analyzer *a, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static clj_value fail_value(const analyzer *a, const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	throw_at(a, fmt, ap);
+	va_end(ap);
+	return CLJ_THROWN;
+}
+
+// Rethrows the pending exception with the position added to its data and the original as the cause.
+static clj_value rethrow_positioned(const analyzer *a) {
+	if (!a->env.line) return CLJ_THROWN;
+	clj_value ex = clj_take_pending();
+	clj_value data = clj_exception_data(ex);
+	data = with_position(a, clj_is_nil(data) ? CLJ_NIL : clj_retain(data));
+	clj_value wrapped = clj_ex_info_cause(clj_exception_message(ex), data, ex);
+	clj_release(data);
+	clj_release(ex);
+	return clj_throw(wrapped);
 }
 
 // fmt has one %s, filled with the printed form.
@@ -282,9 +312,89 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 	}
 	clj_value var = clj_ns_resolve(a->env.ns, sym);
 	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve symbol: %s in this context", sym);
+	if (clj_var_is_macro(var)) return fail_form(a, "Can't take value of a macro: %s", var);
 	clj_node *n = node_new(CLJ_NODE_VAR);
 	n->u.var = clj_retain(var);
 	return n;
+}
+
+// ---- macro expansion
+
+enum { MAX_EXPANSION_STEPS = 1000 };
+
+// The macro var a list form's head names, or nil: a local of s (NULL at top level) shadows it.
+static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
+	if (!clj_is_list(form) || clj_is_empty_list(form)) return CLJ_NIL;
+	clj_value head = clj_cons_of(form)->first;
+	if (!clj_is_symbol(head) || clj_is_special_symbol(head)) return CLJ_NIL;
+	if (s && clj_is_nil(clj_symbol_ns(head))) {
+		bool     captured;
+		uint32_t index;
+		if (resolve_local(s, head, &captured, &index)) return CLJ_NIL;
+	}
+	clj_value var = clj_ns_resolve(a->env.ns, head);
+	return !clj_is_nil(var) && clj_var_is_macro(var) ? var : CLJ_NIL;
+}
+
+// (macro &form &env args...) with &env nil: there is no local environment value yet.
+static clj_value expand_once(const analyzer *a, clj_value var, clj_value form) {
+	clj_value fn = clj_var_deref(var);
+	if (fn == CLJ_THROWN) return rethrow_positioned(a);
+	uint32_t   n;
+	clj_value *items = seq_items(form, &n);
+	clj_value *args = zalloc(n + 1, sizeof *args);
+	args[0] = form;
+	args[1] = CLJ_NIL;
+	memcpy(args + 2, items + 1, (n - 1) * sizeof *args);
+	clj_value r = clj_invoke(fn, args, n + 1);
+	free(args);
+	free(items);
+	clj_release(fn);
+	return r == CLJ_THROWN ? rethrow_positioned(a) : r;
+}
+
+// A macro returning its own form ends the loop, as in Clojure; the form is then analyzed as a call.
+static clj_value expand_all(const analyzer *a, scope *s, clj_value form) {
+	clj_value cur = clj_retain(form);
+	for (uint32_t step = 0;; step++) {
+		clj_value var = macro_var(a, s, cur);
+		if (clj_is_nil(var)) return cur;
+		if (step == MAX_EXPANSION_STEPS) {
+			clj_value text = clj_pr_str(cur);
+			clj_release(cur);
+			clj_value r = fail_value(a, "Macro expansion exceeded %d steps at: %s", MAX_EXPANSION_STEPS, clj_string_bytes(text));
+			clj_release(text);
+			return r;
+		}
+		clj_value next = expand_once(a, var, cur);
+		if (next == CLJ_THROWN) {
+			clj_release(cur);
+			return CLJ_THROWN;
+		}
+		if (next == cur) {
+			clj_release(next);
+			return cur;
+		}
+		clj_release(cur);
+		cur = next;
+	}
+}
+
+static analyzer analyzer_for(const clj_env *env) {
+	analyzer a = {.env = env ? *env : (clj_env){0}};
+	if (clj_is_nil(a.env.ns)) a.env.ns = clj_ns_current();
+	return a;
+}
+
+clj_value clj_macroexpand_1(clj_value form, const clj_env *env) {
+	analyzer  a = analyzer_for(env);
+	clj_value var = macro_var(&a, NULL, form);
+	return clj_is_nil(var) ? clj_retain(form) : expand_once(&a, var, form);
+}
+
+clj_value clj_macroexpand(clj_value form, const clj_env *env) {
+	analyzer a = analyzer_for(env);
+	return expand_all(&a, NULL, form);
 }
 
 static bool all_const(clj_node *const *nodes, uint32_t n) {
@@ -601,6 +711,57 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 	return node;
 }
 
+// [&form &env params...]
+static clj_value macro_params(clj_value params) {
+	uint32_t   n;
+	clj_value *syms = seq_items(params, &n);
+	clj_value *all = zalloc(n + 2, sizeof *all);
+	all[0] = clj_symbol_from_cstr("&form");
+	all[1] = clj_symbol_from_cstr("&env");
+	memcpy(all + 2, syms, n * sizeof *all);
+	clj_value v = clj_vector_from_array(all, n + 2);
+	clj_release(all[0]);
+	clj_release(all[1]);
+	free(all);
+	free(syms);
+	return v;
+}
+
+// A def of the fn with &form and &env prepended to every arity; the var is flagged when the def runs.
+static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
+	if (n < 2 || !clj_is_symbol(items[1])) return fail(a, "First argument to defmacro must be a Symbol");
+	uint32_t i = 2;
+	if (i < n && clj_is_string(items[i])) i++; // docstring; no metadata to keep it in yet
+	if (i >= n) return fail(a, "Parameter declaration missing");
+	clj_value *fn_items = zalloc(n - i + 1, sizeof *fn_items);
+	uint32_t   nfn = 0;
+	fn_items[nfn++] = clj_symbol_from_cstr("fn");
+	if (clj_is_vector(items[i])) {
+		fn_items[nfn++] = macro_params(items[i]);
+		for (uint32_t j = i + 1; j < n; j++) fn_items[nfn++] = clj_retain(items[j]);
+	} else {
+		for (uint32_t j = i; j < n; j++) {
+			clj_value arity = items[j];
+			if (clj_is_list(arity) && !clj_is_empty_list(arity) && clj_is_vector(clj_cons_of(arity)->first)) {
+				clj_value params = macro_params(clj_cons_of(arity)->first);
+				arity = clj_cons_new(params, clj_cons_of(arity)->rest);
+				clj_release(params);
+			} else {
+				clj_retain(arity); // analyze_fn reports the malformed arity
+			}
+			fn_items[nfn++] = arity;
+		}
+	}
+	clj_value fn_form = clj_list_from_array(fn_items, nfn);
+	for (uint32_t j = 0; j < nfn; j++) clj_release(fn_items[j]);
+	free(fn_items);
+	clj_value def_items[3] = {items[0], items[1], fn_form};
+	clj_node *node = analyze_def(a, s, def_items, 3);
+	clj_release(fn_form);
+	if (node) node->u.def.macro = true;
+	return node;
+}
+
 static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
 	if (n != 2) return fail(a, "Wrong number of args (%u) passed to var", n - 1);
 	if (!clj_is_symbol(items[1])) return fail_form(a, "var requires a symbol, got: %s", items[1]);
@@ -610,6 +771,14 @@ static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
 }
 
 static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) {
+	clj_value expanded = expand_all(a, s, form);
+	if (expanded == CLJ_THROWN) return NULL;
+	if (expanded != form) {
+		clj_node *node = analyze(a, s, expanded, tail);
+		clj_release(expanded);
+		return node;
+	}
+	clj_release(expanded);
 	uint32_t   n;
 	clj_value *items = seq_items(form, &n);
 	clj_node  *node;
@@ -621,7 +790,7 @@ static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) 
 	case SP_LOOP: node = analyze_let(a, s, items, n, tail, true); break;
 	case SP_FN: node = analyze_fn(a, s, items, n); break;
 	case SP_DEF: node = analyze_def(a, s, items, n); break;
-	case SP_DEFMACRO: node = fail(a, "defmacro is not supported yet"); break;
+	case SP_DEFMACRO: node = analyze_defmacro(a, s, items, n); break;
 	case SP_RECUR: node = analyze_recur(a, s, items, n, tail); break;
 	case SP_VAR: node = analyze_var(a, items, n); break;
 	case SP_NONE:
@@ -640,8 +809,7 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 }
 
 clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots) {
-	analyzer a = {.env = env ? *env : (clj_env){0}};
-	if (clj_is_nil(a.env.ns)) a.env.ns = clj_ns_current();
+	analyzer  a = analyzer_for(env);
 	scope     top = {0};
 	clj_node *node = analyze(&a, &top, form, false);
 	free(top.locals);

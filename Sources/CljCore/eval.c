@@ -153,6 +153,7 @@ static clj_value eval_def(const clj_node *n, clj_frame *f) {
 		clj_var_bind_root(n->u.def.var, v);
 		clj_release(v);
 	}
+	clj_var_set_macro(n->u.def.var, n->u.def.macro);
 	return clj_retain(n->u.def.var);
 }
 
@@ -285,11 +286,31 @@ clj_value clj_eval_node(const clj_node *node, uint32_t nslots) {
 	return v;
 }
 
+static bool is_do_form(clj_value form) {
+	if (!clj_is_list(form) || clj_is_empty_list(form)) return false;
+	clj_value head = clj_cons_of(form)->first;
+	return clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(clj_string_bytes(clj_symbol_name(head)), "do") == 0;
+}
+
+// A top-level (do ...) is a sequence of top-level forms: a defmacro in it is visible to the next form.
 clj_value clj_eval(clj_value form, const clj_env *env) {
-	uint32_t  nslots;
-	clj_node *node = clj_analyze(form, env, &nslots);
-	if (!node) return CLJ_THROWN;
-	clj_value v = clj_eval_node(node, nslots);
-	clj_release(clj_from_ptr(node));
+	clj_value expanded = clj_macroexpand(form, env);
+	if (expanded == CLJ_THROWN) return CLJ_THROWN;
+	clj_value v = CLJ_NIL;
+	if (is_do_form(expanded)) {
+		clj_seq_iter it = clj_seq_iter_start(clj_cons_of(expanded)->rest);
+		clj_value    item;
+		while (clj_seq_iter_next(&it, &item)) {
+			clj_release(v);
+			v = clj_eval(item, env);
+			if (v == CLJ_THROWN) break;
+		}
+	} else {
+		uint32_t  nslots;
+		clj_node *node = clj_analyze(expanded, env, &nslots);
+		v = node ? clj_eval_node(node, nslots) : CLJ_THROWN;
+		if (node) clj_release(clj_from_ptr(node));
+	}
+	clj_release(expanded);
 	return v;
 }

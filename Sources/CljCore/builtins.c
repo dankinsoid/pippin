@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -209,6 +210,7 @@ PREDICATE(b_vector_p, clj_is_vector)
 PREDICATE(b_map, is_map)
 PREDICATE(b_list_p, clj_is_list)
 PREDICATE(b_fn, clj_is_fn)
+PREDICATE(b_seq_p, clj_is_list)
 
 // ---- collections
 
@@ -410,6 +412,308 @@ static clj_value b_hash_map(const clj_value *args, size_t n) {
 	return m;
 }
 
+// ---- seqs (eager: every result is a fully built list, NOTES.md)
+
+// Owned: nil, or something clj_seq_iter walks (a list or vector; a map as a list of [k v]).
+static clj_value as_seq(clj_value v) {
+	if (clj_is_nil(v) || clj_is_list(v) || clj_is_vector(v)) return clj_retain(v);
+	if (!is_map(v)) return not_a_seq(v);
+	size_t   n = 2 * (size_t)clj_map_count(v);
+	collect c = {malloc((n + 1) * sizeof(clj_value)), 0};
+	if (!c.entries) clj_fatal("out of memory");
+	clj_map_each(v, collect_entry, &c);
+	clj_value *pairs = malloc((n / 2 + 1) * sizeof *pairs);
+	if (!pairs) clj_fatal("out of memory");
+	for (size_t i = 0; i < n; i += 2) pairs[i / 2] = clj_vector_from_array(c.entries + i, 2);
+	clj_value list = clj_list_from_array(pairs, n / 2);
+	for (size_t i = 0; i < n / 2; i++) clj_release(pairs[i]);
+	free(pairs);
+	free(c.entries);
+	return list;
+}
+
+// Borrowed items of a seqable in a malloc'd array; *seq keeps them alive and is owned by the caller.
+static clj_value *seq_items(clj_value v, size_t *n, clj_value *seq) {
+	*seq = as_seq(v);
+	if (*seq == CLJ_THROWN) return NULL;
+	size_t     count = clj_list_count(*seq);
+	clj_value *items = malloc((count + 1) * sizeof *items);
+	if (!items) clj_fatal("out of memory");
+	clj_seq_iter it = clj_seq_iter_start(*seq);
+	size_t       i = 0;
+	while (clj_seq_iter_next(&it, &items[i])) i++;
+	*n = count;
+	return items;
+}
+
+static clj_value b_seq(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value seq = as_seq(args[0]);
+	if (seq == CLJ_THROWN) return CLJ_THROWN;
+	if (clj_is_vector(seq)) {
+		size_t     count;
+		clj_value  keep;
+		clj_value *items = seq_items(seq, &count, &keep);
+		clj_value  list = clj_list_from_array(items, count);
+		free(items);
+		clj_release(keep);
+		clj_release(seq);
+		seq = list;
+	}
+	if (clj_is_empty_list(seq)) {
+		clj_release(seq);
+		return CLJ_NIL;
+	}
+	return seq;
+}
+
+static clj_value b_concat(const clj_value *args, size_t n) {
+	clj_value *all = NULL;
+	size_t     total = 0;
+	clj_value *seqs = malloc((n + 1) * sizeof *seqs);
+	if (!seqs) clj_fatal("out of memory");
+	clj_value result = CLJ_THROWN;
+	size_t    i = 0;
+	for (; i < n; i++) {
+		size_t     count;
+		clj_value *items = seq_items(args[i], &count, &seqs[i]);
+		if (!items) break;
+		all = realloc(all, (total + count + 1) * sizeof *all);
+		if (!all) clj_fatal("out of memory");
+		memcpy(all + total, items, count * sizeof *all);
+		total += count;
+		free(items);
+	}
+	if (i == n) result = clj_list_from_array(all, total);
+	for (size_t j = 0; j < i; j++) clj_release(seqs[j]);
+	free(seqs);
+	free(all);
+	return result;
+}
+
+static clj_value b_list_star(const clj_value *args, size_t n) {
+	size_t     count;
+	clj_value  keep;
+	clj_value *rest = seq_items(args[n - 1], &count, &keep);
+	if (!rest) return CLJ_THROWN;
+	clj_value *all = malloc((n - 1 + count + 1) * sizeof *all);
+	if (!all) clj_fatal("out of memory");
+	memcpy(all, args, (n - 1) * sizeof *all);
+	memcpy(all + n - 1, rest, count * sizeof *all);
+	size_t    total = n - 1 + count;
+	clj_value r = total ? clj_list_from_array(all, total) : CLJ_NIL;
+	free(all);
+	free(rest);
+	clj_release(keep);
+	return r;
+}
+
+static clj_value b_empty(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value coll = args[0];
+	if (clj_is_nil(coll)) return CLJ_TRUE;
+	if (clj_is_string(coll)) return clj_bool(clj_string_len(coll) == 0);
+	if (is_map(coll)) return clj_bool(clj_map_count(coll) == 0);
+	if (clj_is_vector(coll)) return clj_bool(clj_vector_count(coll) == 0);
+	if (clj_is_list(coll)) return clj_bool(clj_is_empty_list(coll));
+	return not_a_seq(coll);
+}
+
+static clj_value b_second(const clj_value *args, size_t n) {
+	(void)n;
+	size_t     count;
+	clj_value  keep;
+	clj_value *items = seq_items(args[0], &count, &keep);
+	if (!items) return CLJ_THROWN;
+	clj_value r = count > 1 ? clj_retain(items[1]) : CLJ_NIL;
+	free(items);
+	clj_release(keep);
+	return r;
+}
+
+static clj_value b_last(const clj_value *args, size_t n) {
+	(void)n;
+	size_t     count;
+	clj_value  keep;
+	clj_value *items = seq_items(args[0], &count, &keep);
+	if (!items) return CLJ_THROWN;
+	clj_value r = count ? clj_retain(items[count - 1]) : CLJ_NIL;
+	free(items);
+	clj_release(keep);
+	return r;
+}
+
+static clj_value b_butlast(const clj_value *args, size_t n) {
+	(void)n;
+	size_t     count;
+	clj_value  keep;
+	clj_value *items = seq_items(args[0], &count, &keep);
+	if (!items) return CLJ_THROWN;
+	clj_value r = count > 1 ? clj_list_from_array(items, count - 1) : CLJ_NIL;
+	free(items);
+	clj_release(keep);
+	return r;
+}
+
+static clj_value b_reverse(const clj_value *args, size_t n) {
+	(void)n;
+	size_t     count;
+	clj_value  keep;
+	clj_value *items = seq_items(args[0], &count, &keep);
+	if (!items) return CLJ_THROWN;
+	clj_value r = clj_list_empty();
+	for (size_t i = 0; i < count; i++) {
+		clj_value c = clj_cons_new(items[i], r);
+		clj_release(r);
+		r = c;
+	}
+	free(items);
+	clj_release(keep);
+	return r;
+}
+
+static clj_value b_into(const clj_value *args, size_t n) {
+	(void)n;
+	size_t     count;
+	clj_value  keep;
+	clj_value *items = seq_items(args[1], &count, &keep);
+	if (!items) return CLJ_THROWN;
+	clj_value *all = malloc((count + 2) * sizeof *all);
+	if (!all) clj_fatal("out of memory");
+	all[0] = args[0];
+	memcpy(all + 1, items, count * sizeof *all);
+	clj_value r = b_conj(all, count + 1);
+	free(all);
+	free(items);
+	clj_release(keep);
+	return r;
+}
+
+// ---- names
+
+// Splits "ns/name" at the first slash, as the reader does; "/" alone is a name.
+static void split_name(clj_value text, clj_value *ns, clj_value *name) {
+	const char *s = clj_string_bytes(text);
+	size_t      len = clj_string_len(text);
+	const char *slash = memchr(s, '/', len);
+	if (!slash || len == 1) {
+		*ns = CLJ_NIL;
+		*name = clj_retain(text);
+	} else {
+		*ns = clj_string_new(s, (size_t)(slash - s));
+		*name = clj_string_new(slash + 1, len - (size_t)(slash - s) - 1);
+	}
+}
+
+// Owned ns (or nil) and name of what a symbol or keyword can be made from.
+static clj_value name_parts(const clj_value *args, size_t n, clj_value *ns, clj_value *name) {
+	if (n == 2) {
+		if (!clj_is_nil(args[0]) && !clj_is_string(args[0])) return clj_throw_msg("namespace must be a string or nil, got: %s", clj_type_name(args[0]));
+		if (!clj_is_string(args[1])) return clj_throw_msg("name must be a string, got: %s", clj_type_name(args[1]));
+		*ns = clj_retain(args[0]);
+		*name = clj_retain(args[1]);
+		return CLJ_NIL;
+	}
+	clj_value v = args[0];
+	if (clj_is_string(v)) {
+		split_name(v, ns, name);
+	} else if (clj_is_symbol(v)) {
+		*ns = clj_retain(clj_symbol_ns(v));
+		*name = clj_retain(clj_symbol_name(v));
+	} else if (clj_is_keyword(v)) {
+		*ns = clj_retain(clj_keyword_ns(v));
+		*name = clj_retain(clj_keyword_name(v));
+	} else if (clj_is_var(v)) {
+		*ns = clj_retain(clj_symbol_name(clj_var_ns(v)));
+		*name = clj_retain(clj_symbol_name(clj_var_name(v)));
+	} else {
+		return clj_throw_msg("no conversion to symbol from: %s", clj_type_name(v));
+	}
+	return CLJ_NIL;
+}
+
+static clj_value b_make_symbol(const clj_value *args, size_t n) {
+	if (n == 1 && clj_is_symbol(args[0])) return clj_retain(args[0]);
+	clj_value ns, name;
+	if (name_parts(args, n, &ns, &name) == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_symbol_new(ns, name);
+	clj_release(ns);
+	clj_release(name);
+	return r;
+}
+
+static clj_value b_make_keyword(const clj_value *args, size_t n) {
+	if (n == 1 && clj_is_keyword(args[0])) return args[0];
+	clj_value ns, name;
+	if (name_parts(args, n, &ns, &name) == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_keyword_intern(ns, name);
+	clj_release(ns);
+	clj_release(name);
+	return r;
+}
+
+static clj_value b_name(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value v = args[0];
+	if (clj_is_string(v)) return clj_retain(v);
+	if (clj_is_symbol(v)) return clj_retain(clj_symbol_name(v));
+	if (clj_is_keyword(v)) return clj_retain(clj_keyword_name(v));
+	return clj_throw_msg("%s cannot be cast to a named value", clj_type_name(v));
+}
+
+static clj_value b_namespace(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value v = args[0];
+	if (clj_is_symbol(v)) return clj_retain(clj_symbol_ns(v));
+	if (clj_is_keyword(v)) return clj_retain(clj_keyword_ns(v));
+	return clj_throw_msg("%s cannot be cast to a named value", clj_type_name(v));
+}
+
+static clj_value b_gensym(const clj_value *args, size_t n) {
+	const char *prefix = "G__";
+	if (n == 1) {
+		if (clj_is_string(args[0])) prefix = clj_string_bytes(args[0]);
+		else if (clj_is_symbol(args[0])) prefix = clj_string_bytes(clj_symbol_name(args[0]));
+		else return clj_throw_msg("gensym prefix must be a string or symbol, got: %s", clj_type_name(args[0]));
+	}
+	size_t cap = strlen(prefix) + 24;
+	char  *text = malloc(cap);
+	if (!text) clj_fatal("out of memory");
+	snprintf(text, cap, "%s%llu", prefix, (unsigned long long)clj_next_id());
+	clj_value name = clj_string_from_cstr(text);
+	clj_value r = clj_symbol_new(CLJ_NIL, name);
+	clj_release(name);
+	free(text);
+	return r;
+}
+
+// ---- macros and exceptions
+
+static clj_value b_macroexpand_1(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_macroexpand_1(args[0], NULL);
+}
+
+static clj_value b_macroexpand(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_macroexpand(args[0], NULL);
+}
+
+static clj_value b_ex_info(const clj_value *args, size_t n) {
+	if (!clj_is_string(args[0])) return clj_throw_msg("ex-info message must be a string, got: %s", clj_type_name(args[0]));
+	if (!clj_is_nil(args[1]) && !is_map(args[1])) return clj_throw_msg("ex-info data must be a map, got: %s", clj_type_name(args[1]));
+	clj_value cause = n == 3 ? args[2] : CLJ_NIL;
+	if (!clj_is_nil(cause) && !clj_is_exception(cause)) return clj_throw_msg("ex-info cause must be an exception, got: %s", clj_type_name(cause));
+	return clj_ex_info_cause(args[0], args[1], cause);
+}
+
+// A native until try/catch make throw a special form (NOTES.md).
+static clj_value b_throw(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_exception(args[0])) return clj_throw_msg("Can only throw an exception, got: %s", clj_type_name(args[0]));
+	return clj_throw(clj_retain(args[0]));
+}
+
 // ---- strings and output
 
 typedef struct {
@@ -548,7 +852,11 @@ static const entry entries[] = {
 	{"next", b_next, 1, 1},        {"cons", b_cons, 2, 2},       {"list", b_list, 0, ANY},      {"vector", b_vector, 0, ANY},
 	{"hash-map", b_hash_map, 0, ANY}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},  {"pr", b_pr, 0, ANY},
 	{"prn", b_prn, 0, ANY},        {"print", b_print, 0, ANY},   {"println", b_println, 0, ANY}, {"identity", b_identity, 1, 1},
-	{"apply", b_apply, 2, ANY},
+	{"apply", b_apply, 2, ANY},    {"seq", b_seq, 1, 1},         {"seq?", b_seq_p, 1, 1},       {"concat", b_concat, 0, ANY},
+	{"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},   {"second", b_second, 1, 1},    {"last", b_last, 1, 1},
+	{"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1}, {"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2},
+	{"keyword", b_make_keyword, 1, 2},  {"name", b_name, 1, 1},       {"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1},
+	{"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1}, {"ex-info", b_ex_info, 2, 3}, {"throw", b_throw, 1, 1},
 };
 
 void clj_builtins_install(void) {

@@ -10,6 +10,7 @@ typedef struct {
 	clj_value         ns;   // symbol
 	clj_value         name; // symbol
 	_Atomic clj_value root; // CLJ_UNBOUND until the first def
+	bool              macro; // set by defmacro, cleared by def; the analyzer expands calls through such vars
 } clj_var;
 
 extern const clj_type clj_var_type;
@@ -29,5 +30,8 @@ static inline bool clj_var_is_bound(clj_value var) { return clj_var_root(var) !=
 void clj_var_bind_root(clj_value var, clj_value val);
 // Owned root; throws when unbound.
 clj_value clj_var_deref(clj_value var);
+
+static inline bool clj_var_is_macro(clj_value var) { return clj_var_of(var)->macro; }
+static inline void clj_var_set_macro(clj_value var, bool macro) { clj_var_of(var)->macro = macro; }
 
 #endif

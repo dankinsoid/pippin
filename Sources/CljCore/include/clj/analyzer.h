@@ -85,7 +85,8 @@ struct clj_node {
 		} invoke;
 		struct {
 			clj_value var;
-			clj_node *init; // NULL for (def x)
+			clj_node *init;  // NULL for (def x)
+			bool      macro; // defmacro
 		} def;
 	} u;
 };
@@ -105,5 +106,10 @@ clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots);
 
 // Special-form names (plus & and the reserved throw/try/catch/finally): syntax-quote leaves them unqualified.
 bool clj_is_special_symbol(clj_value sym);
+
+// Owned expansion, or form retained when its head is no macro; a macro's exception gets env's position.
+clj_value clj_macroexpand_1(clj_value form, const clj_env *env);
+// Every step; throws when a macro keeps expanding past 1000 steps.
+clj_value clj_macroexpand(clj_value form, const clj_env *env);
 
 #endif
