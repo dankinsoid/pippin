@@ -67,12 +67,24 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   checks first and reports with the type name; no chunked/`IReduce` fast paths, so every element
   of a user seq costs two Clojure calls (`first`, `next`) and usually an instance allocation, and
   `count` without `Counted` walks it.
-- **Protocol dispatch has no inline cache.** Every call walks the type's snapshot (a linear scan of
-  its protocols) and on a miss the core-interface entries, then `Object`. The definition epoch is
-  there for the cache the design describes; nothing consumes it yet. Trigger: protocol calls in a profile.
-  Shape when it lands: the call node keeps `{type, fn, epoch}` and skips the window and the scan on
-  a hit. The cached fn must be retained by the node, not borrowed from the snapshot: a retired
-  snapshot releases its impls once every window has closed, and a cached path opens no window.
+- **Protocol dispatch is cached per call site** (eval.c, `proto_ic`; bench/RESULTS.md, "Call-site
+  caches"): an INVOKE node whose head evaluates to a method fn keeps, in its exec's side array, the
+  method's serial (a counter on `clj_method_ctx`, never reused), the definition epoch of the fill and
+  up to four `{receiver type, impl, arity}` entries; past four the oldest is replaced. The impls are
+  *borrowed* from the tables, not retained: a retained impl would pin whatever the last call reached
+  (a user type through `map`'s site in core.clj, which never dies) and cycle through a recursive
+  method (impl → exec → site → impl). What makes borrowing safe is that only an epoch bump retires a
+  table — `extend`, and now a dying `deftype` descriptor (`type_finalize` bumps) — and a hit checks the
+  epoch inside a dispatch window before retaining the impl for the call, so a concurrent `extend`
+  either bumped first (miss) or waits for the window. A miss dispatches as before (`impl_of` under its
+  window) and records the result only when the epoch read before the lookup still holds. Several
+  threads run one exec, so a fill takes a seqlock (`seq` odd while writing; a losing filler gives up,
+  a reader that sees a change takes the generic path). The method's declared arity is checked before
+  the cache, so the error still names the method. Cost of a hit: the serial and type loads, the
+  seqlock reads, two seq_cst stores for the window, the epoch load, an atomic retain/release pair on
+  the shared impl, then the closure entry; ~9 ns less than the table walk. Not cached: a method
+  called through `apply` or from a native (no INVOKE node), a nil impl (the error path). Trigger for
+  a megamorphic cutoff: a site cycling through more than four receivers in a profile.
 - **No `defrecord`, no `.-field` access, no protocol inheritance.** A deftype's fields are positional
   slots read through `field*`, visible as locals inside its own method bodies only; from outside
   there is no accessor. A deftype carries meta only by implementing `IObj` itself (a field for it).
@@ -259,13 +271,12 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   only when its bit is set and marks the new owned one, teardown releases owned slots only; a frame
   with more than 64 slots retains every param at entry and treats every slot as owned; the top-level
   frame starts with none. Whatever lands in the heap or is returned is retained as before: `let`/`recur`
-  inits, closure capture, a body whose tail is a local. A var read in a borrowed position is +0 only
-  when its root is immortal (every root bound by boot, next entry); an ordinary root is retained,
-  since `clj_var_bind_root` releases the old root at once and that +1 is what keeps a running body
-  alive when a `def` replaces it mid-call. Trigger for borrowing those too: deferred freeing of old
-  roots past every reader's window (the epoch is in place, the window is not). Measured effect of
-  borrowing locals alone was nil (a non-shared pair is five plain instructions); borrowing the core
-  roots removed the atomic pair every call through a core var paid (bench/RESULTS.md, intrinsics).
+  inits, closure capture, a body whose tail is a local. A var read in a borrowed position is +0 when
+  its root is immortal (every root bound by boot, next entry) or a fn (next entry but one); a data
+  root is retained, since `clj_var_bind_root` releases the old root at once and that +1 is what keeps
+  it alive through the call. Measured effect of borrowing locals alone was nil (a non-shared pair is
+  five plain instructions); borrowing the core roots removed the atomic pair every call through a
+  core var paid, borrowing user fn roots the same pair on every user call (bench/RESULTS.md).
 - **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
   are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
   vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and the reader positions on
@@ -319,9 +330,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `clj_debug_shadow_stack_set_capacity` since Swift Testing's stacks overflow the C stack long before
   8192 (the main thread of a release build can reach it). `clj_shadow_stack_snapshot` is
   async-signal-safe: it reads through a pthread key rather than the `_Thread_local`, because a first
-  touch of a `_Thread_local` on a thread that never ran Clojure allocates under dyld. Cost per call:
-  one TLS load, a null check, two stores and an increment, plus one load and branch on the
-  instrumentation byte (bench/RESULTS.md: ~1 ns on the closure-call scenario, within its noise). The
+  touch of a `_Thread_local` on a thread that never ran Clojure allocates under dyld. The stack guard's
+  limit lives in the same struct, so a call pays one TLS load for both. Cost per call: that load, a
+  null check, two stores, an increment and a decrement with a compare, plus one load and branch on the
+  instrumentation byte (bench/RESULTS.md: within the run-to-run noise of the closure-call scenario). The
   C stack is still what limits recursion depth; the shadow stack does not replace it.
 - **Crash handler** (`clj_crash_handler_install`) is opt-in: a host with its own crash reporter
   (Crashlytics, MetricKit) must not have its handlers replaced, and calls `clj_shadow_stack_snapshot`
@@ -367,30 +379,67 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Concurrent `def` against `deref` is unsafe**, and `alter-meta!`/`reset-meta!` against `meta` the
   same way: `clj_var_root`/`clj_var_meta` return a borrowed pointer and a racing writer releases the
   old value, so a reader may retain a freed one (`alter-meta!` is a CAS loop, so its `f` may run
-  more than once under contention, as Clojure's). Redefinition is a dev-time operation until the
-  epoch/inline-cache design (var inline cache, §6) lands; until then evaluate on one thread at a
-  time. Same for `clj_ns_current` vs `clj_init` ordering: call `clj_init` before any evaluation.
+  more than once under contention, as Clojure's); a fn root read at +0 by a call on one thread while
+  another thread's `def` replaces it is the same race (the parked-root list is per thread). Redefinition
+  is a dev-time operation; evaluate on one thread at a time while defining. Concurrent *calls* of one
+  fn from several threads are fine, `extend` against them included (the protocol cache is built for
+  it, `concurrentDispatchWhileExtending`). Same for `clj_ns_current` vs `clj_init` ordering: call
+  `clj_init` before any evaluation.
 - **A side cell of an exec node is a shared mutable cell** (any slot written at run time: an inline
   cache, a cached transducer composition, specialization state, profile counters). It must hold an
   immortal value (filled once via CAS, `CLJ_FLAG_IMMORTAL` set before publishing, the loser freed before
   publishing; the leak is bounded by the number of forms, as with vars), be per-thread, or hold a shared
   value released through the epoch. An ordinary object with an ordinary release there is the concurrent
-  `def`/`deref` race again. No cell violates this yet: INTRINSIC keeps a retained (immortal) var and reads
-  the root at evaluation. Trigger: the transducer-composition cache (design §6b, "Интерпретатор до компилятора", item 6).
+  `def`/`deref` race again. INTRINSIC keeps a retained (immortal) var and reads the root at evaluation;
+  the protocol cache (type descriptor entry above) is the third kind: borrowed impls that only an epoch
+  bump retires, a seqlock around the fill. Trigger: the transducer-composition cache (design §6b, "Интерпретатор до компилятора", item 6).
 - **Var lookup is a root load on every evaluation** of a var node (an acquire load; an intrinsic's guard
-  is a relaxed one), no inline cache. Trigger for the cache (`{epoch, fn}` in `exec_node`, design §6b
-  item 5): the guard and the root load showing in a profile of calls through user vars.
+  is a relaxed one), no inline cache, and no closure cache either: a closure's fn node carries its arity
+  table, so the call path reads `fixed[nargs]` off the live closure — one load — where a cache keyed on
+  the fn would have to be validated by that same load (and a retained key pins captures or cycles
+  through recursion: a site in core.clj's `map` would hold the last `f`, a site in `f` its own exec).
+  What a var cache could still save is the acquire load and the immortal/fn check, ~1 ns; trigger: that
+  showing in a profile.
+- **The call path** (eval.c, `eval_invoke`, `run_frame`; bench/RESULTS.md, "Call-site caches"): a
+  closure with a fixed arity for the call and a frame of at most `SMALL_SLOTS` (16) has its arguments
+  evaluated straight into the frame on `eval_invoke`'s stack — no argument buffer, no copy — and the
+  owned mask of that evaluation is the frame's, so a `recur` over a param releases what it should and
+  teardown releases the rest. The guard reads its limit from the shadow stack (the one thread-local a
+  call touches; computed on the thread's first call), then the shadow push, the instrumentation byte,
+  the body, the pop (which drains parked fn roots at depth zero). ~7 ns per call including the
+  dispatch of a one-intrinsic body; the guard, the shadow frame and the instrumentation byte are each
+  within the run-to-run noise now. The generic path (`closure_run`) takes a variadic arity (the rest
+  list is built from the buffer), a frame past 16 slots (heap) or 64 (every param retained), a native,
+  a protocol method (its cache) and every call from a native or the host (`clj_closure_invoke_at`).
+  Debug builds count per site the calls that took a fast path (`clj_debug_exec_ic_hits`) against the
+  generic ones (`..._misses`); release builds count nothing. The site array is indexed by
+  `clj_node.site`, the node's ordinal among the tree's INVOKE nodes, assigned with the ids (it fills
+  the padding after `col`, so a node grew by nothing; `from_data` renumbers it too).
 - **The definition epoch** (epoch.h) is one process-wide counter bumped by every root bind (`def`,
-  `defmacro`, boot, a host bind), every `extend` and every type creation (`deftype`, a reify site's first
-  evaluation); `protocol-epoch*` returns it. Nothing consumes it yet beyond tests: the inline caches of
-  the design key on it, and one bump anywhere invalidates every cache in the process (they rewarm in
-  microseconds, so there is no per-var epoch). Meta changes do not bump it.
+  `defmacro`, boot, a host bind), every `extend`, every type creation (`deftype`, a reify site's first
+  evaluation) and every `deftype` descriptor's death; `protocol-epoch*` returns it. The protocol call
+  cache keys on it, and one bump anywhere invalidates every such cache in the process (they rewarm in
+  microseconds, so there is no per-var epoch). Its load and bump are seq_cst so that a read inside a
+  dispatch window pairs with a writer's bump-then-wait (Dekker), the same way the window pairs with
+  the table publish. Meta changes do not bump it.
 - **Immortal core roots.** Once core.clj is loaded, `clj_init` sets `CLJ_FLAG_IMMORTAL` on the root of
   every `clojure.core` var (natives, closures, protocols; type descriptors are skipped because
   `clj_is_user_type` reads the flag as "builtin"). Retain and release on them are no-ops, so
   `eval_borrowed` reads such a var at +0. A later `(def map ...)` in clojure.core "releases" the old
   root as a no-op — a bounded leak per redefinition, accepted — and binds an ordinary root, which reads
   owned. Roots bound after boot (user vars, a core var rebound from the REPL) are never immortalized.
+- **A replaced fn root is released once the thread is idle** (`clj_eval_retire_root`, eval.c). A fn
+  root is read at +0, so `clj_var_bind_root` cannot release the old fn while a body on this thread
+  may still be running it or holding it as a borrowed argument: while a closure frame is up (shadow
+  depth) or a `clj_exec_run` is active, the old fn is parked on a per-thread list, drained when the
+  last of the two returns to zero (one compare on the pop path; a throw unwinds through the same
+  exit). At the top level of a form the def is inside `clj_exec_run`, so `(f (def f ...))` parks too.
+  Consequences: the parking is unbounded while the thread stays in flight — `(dotimes [i 1e6] (def f
+  (fn [] i)))` inside a closure holds 1e6 fns until it returns; a thread that exits mid-flight leaks
+  its list; a `def` on another thread against a running call is the unsafe race the "Concurrent
+  `def`" entry describes, unchanged (the list is per thread, there is no reader window on calls).
+  Trigger for a bounded variant: a def loop showing in memory; then a drain at every closure return
+  whose frame holds no parked root, or the epoch-based reclamation the design names.
 - **The optimizer pass** (optimizer.c, `clj_optimize`) runs inside `clj_analyze` after analysis and before
   numbering: it is where "immutable after analysis" begins, so what it produces is what serializes and
   what every evaluator and emitter sees; `clj_node_from_data` does not run it (its input is already
@@ -417,12 +466,14 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
   guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
   call — no frame, no arity table, no var deref.
-- **C stack per Clojure call is large.** Each call is ~5 C frames with slot and argument buffers on the
-  stack: ~0.6 KB in a debug build, ~2.3 KB under ASan, ~3.7 KB under UBSan. On Swift Testing's 512 KB
-  threads that is ~600 / ~170 / ~100 nested non-tail calls before the guard throws "Stack overflow"
-  (the guard reads the thread's real bounds on Apple platforms; elsewhere it assumes 512 KB). Fix:
-  frames on the heap and fewer C frames per call (the shadow stack records frames, it does not hold
-  them). Tests keep non-tail recursion depth ≤ 50.
+- **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
+  the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
+  callee's frame; the generic path adds `closure_run` with its own 16 slots): on the order of 0.6 KB
+  in a debug build, ~2.3 KB under ASan, ~3.7 KB under UBSan, measured before the direct path. On Swift
+  Testing's 512 KB threads that is ~600 / ~170 / ~100 nested non-tail calls before the guard throws
+  "Stack overflow" (the guard reads the thread's real bounds on Apple platforms; elsewhere it assumes
+  512 KB). Fix: frames on the heap and fewer C frames per call (the shadow stack records frames, it
+  does not hold them). Tests keep non-tail recursion depth ≤ 50.
 - **The stack guard has no host fallback.** `pthread_get_stackaddr_np` is Apple/BSD; other platforms
   get a fixed 512 KB assumption measured from the first call. Trigger: a Linux port.
 - **Vars are immortal.** Every `def` of a new name leaks a var, its name symbol and string for the

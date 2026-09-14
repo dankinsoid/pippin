@@ -169,3 +169,56 @@ whose Swift reference columns sat at their quiet values (0.3 / 0.1 / 0.7 ns) wer
   body) at ~17 ns each, two calls of a fn held in a local (`(f (first s))`, `(f acc x)`) through the
   generic `clj_invoke` at ~10 ns each, and four allocations per element (the cons, the lazy seq, the
   thunk closure with its captures, the range step).
+
+## Call-site caches, direct closure entry — 75d023c, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+A call through a user var reads the fn root at +0 (a replaced root is parked until the thread is idle),
+a closure with a fixed arity and a small frame has its arguments evaluated straight into its frame and its
+body entered without `clj_invoke`, and a protocol method at the head dispatches through a per-site cache
+of `{receiver type, impl}` entries keyed by the definition epoch (NOTES.md, "The call path" and
+"Protocol dispatch is cached per call site"). Three new scenarios: the counting loop with `(+ i (m x))`
+per iteration for a one-method protocol extended to a deftype and to `Long`, the receiver an instance in
+a local, a fixnum, or alternating. Medians of three alternating runs of each binary (67febaa with this
+harness vs 75d023c), ns per element or iteration. The map and vector tables matched within their noise
+(±4 %, `nth` 1k at its known ±0.2 ns alignment swing).
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| reduce + map inc range | 1000 | 181.2 | 177.5 | −2 % |
+| reduce + map inc range | 100000 | 184.5 | 177.9 | −4 % |
+| seq walk of a vector | 1000 | 37.1 | 36.7 | −1 % |
+| counting loop | 100000 | 15.2 | 15.5 | +2 % |
+| closure call in a loop | 100000 | 31.1 | 22.3 | −28 % |
+| protocol call, deftype receiver | 100000 | 44.9 | 35.4 | −21 % |
+| protocol call, fixnum receiver | 100000 | 45.2 | 36.3 | −20 % |
+| protocol call, bi-morphic | 100000 | 59.9 | 50.2 | −16 % |
+
+Breakdown of a closure call before, by removing one stage at a time from a scratch build (three runs
+each, the closure-call row; the loop without the call is 15 ns, the `(inc x)` body ~3): the var read
+with its atomic retain/release on the shared root 3.3 ns, the zeroed 16-slot frame 1.7 (a
+variable-size `memset` call), the stack guard 1.5 (its own thread-local), shadow push/pop 1.1, the
+instrumentation byte 0.8, the argument buffer 0.8, the slot release 0.8, and ~2.5 for the arity search,
+the frame and the C calls between `eval_invoke` and the body — ~12.5 ns of call mechanics.
+
+After: the same subtraction leaves the guard, the shadow frame and the instrumentation byte each within
+the ±0.3 ns run-to-run spread (one thread-local load serves the guard and the frame, the byte is a
+global), and the call mechanics are ~4 ns: the var's acquire load and the fn check, three dependent
+loads to the arity (`fn`, its node, `fixed[n]`), the argument evaluated into the frame, the frame's
+exec load, the indirect call into the body and the owned-mask release. The closure-call row is now
+22 ns: 12 for the loop, ~3 for `inc`, ~7 for the call with its body dispatch. `closure call, local head`
+(the same loop with `f` in a `let`) reads 21 ns: the var costs ~1 ns.
+
+Protocol call: 45 → 35 ns on a deftype receiver. The row is the loop (12), `+` (~3), the receiver read
+(a local) and the call; the call went from ~30 ns (the var's atomic pair, `clj_invoke` → the native's
+arity check → `impl_of` under its window with the table scan → `clj_invoke` of the impl → the closure
+path with the buffer copy) to ~20: the method arity check, the serial and type loads, the seqlock
+snapshot, the window with the epoch check and the atomic retain/release of the shared impl, then the
+impl's closure entry through `closure_run` (~6). Removing the window or the retain/release from a
+scratch build saved ~1.5 ns each; the rest is spread over the dispatch. The fixnum receiver costs the
+same as the deftype one (the cache does not care which table the entry came from; before, the fixnum
+went through the side table's hash probe). Bi-morphic adds the `even?` intrinsic, the `if` and a
+second entry in the scan: 60 → 50.
+
+The pipeline row moves only 4 %: of its three closure calls per element only `map`'s recursion takes
+the direct path (`(f (first s))` and `(f acc x)` call the natives `inc` and `+` through the generic
+invoke, the `lazy-seq` thunk is forced from a native), and none is a protocol call.

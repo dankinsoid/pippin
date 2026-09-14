@@ -447,6 +447,13 @@ func aClosureCallLoop(_ n: Int) -> UInt64 {
 let countFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))")
 let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (< i n) (recur (bench-inc i)) i)))")
 
+// The same loop with a protocol method call per iteration: the receiver is a deftype instance held in a
+// local (mono), a fixnum (mono, a builtin type's table), or alternating between the two (bi-morphic).
+_ = cljEval("(defprotocol BenchP (bench-m [x])) (deftype BenchT [] BenchP (bench-m [x] 1)) (extend-type Long BenchP (bench-m [x] 1))")
+let protoTypeFn = cljEval("(fn [n] (let [t (->BenchT)] (loop [i 0] (if (< i n) (recur (+ i (bench-m t))) i))))")
+let protoBuiltinFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-m i))) i)))")
+let protoBiFn = cljEval("(fn [n] (let [t (->BenchT)] (loop [i 0] (if (< i n) (recur (+ i (bench-m (if (even? i) t i)))) i))))")
+
 struct CallRow {
 	let scenario: String
 	let n: Int
@@ -462,9 +469,15 @@ do {
 	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
 		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
 		swift: measure(ops: n) { aClosureCallLoop(n) }))
+	callRows.append(CallRow(scenario: "protocol call, deftype receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoTypeFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "protocol call, fixnum receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoBuiltinFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "protocol call, bi-morphic", n: n, c: measure(ops: n) { cClosureCallLoop(protoBiFn, n) }, swift: nil))
 }
 clj_release(countFn)
 clj_release(callFn)
+clj_release(protoTypeFn)
+clj_release(protoBuiltinFn)
+clj_release(protoBiFn)
 
 print("\n| scenario | n | interpreted | C iterator | Swift for | interpreted / Swift |")
 print("|---|---:|---:|---:|---:|---:|")
@@ -478,4 +491,4 @@ print("|---|---:|---:|---:|---:|")
 for r in callRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
 }
-print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x)))")
+print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x))), protocol call = the same with (+ i (m x)) for a one-method protocol extended to a deftype and to Long")
