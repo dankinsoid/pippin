@@ -8,6 +8,7 @@
 typedef struct {
 	size_t           depth;
 	size_t           mask;
+	char            *stack_limit; // lowest C stack address the interpreter may still use; eval.c fills it on the first call
 	clj_shadow_frame frames[CLJ_SHADOW_CAPACITY];
 } clj_shadow_stack;
 

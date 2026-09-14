@@ -1,10 +1,12 @@
 // @ai-generated(guided)
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "clj/coll.h"
 #include "clj/core.h"
+#include "clj/epoch.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -12,11 +14,14 @@
 #include "clj/list.h"
 #include "clj/map.h"
 #include "clj/printer.h"
+#include "clj/proto.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "epoch_internal.h"
 #include "profile_internal.h"
+#include "proto_internal.h"
 #include "shadow_internal.h"
 
 enum {
@@ -38,6 +43,51 @@ static void buf_free(clj_value *small, clj_value *p) {
 }
 
 static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
+
+// ---- call-site caches
+
+typedef struct {
+	const clj_type     *receiver;
+	clj_value           impl;  // borrowed from the type's table: alive while the epoch holds (proto.h)
+	const clj_fn_arity *arity; // of impl at the site's argument count when impl is a closure, else NULL
+} proto_ic_entry;
+
+// The protocol cache of a site: the method fn (by serial) it saw last and the impl per receiver type found
+// for it at `epoch`. Nothing is retained: a retained impl would pin what the last call reached (a user type
+// through `map`'s site in core.clj) and cycle through a recursive method (impl -> exec -> site -> impl).
+// The impls are borrowed from the tables, which only an epoch bump retires (extend, a dying type); a hit
+// retains one inside a dispatch window after seeing the epoch unchanged, so a concurrent extend cannot free
+// it. Several threads run one exec: fills are serialized by the seqlock and a reader that sees a fill in
+// progress or a changed sequence takes the generic path.
+typedef struct {
+	_Atomic uint64_t seq; // odd while a fill runs
+	uint64_t         method_serial, epoch;
+	uint32_t         n, next; // entries filled; the one an eviction replaces
+	proto_ic_entry   e[CLJ_PROTO_IC_ENTRIES];
+} proto_ic;
+
+// A closure needs no cache: its fn node carries the arity table, one load away. The site keeps the protocol
+// cache (made on the first protocol dispatch) and, in debug builds, counts the calls its fast paths took
+// (hits) against those that went through the generic invoke (misses).
+struct clj_call_site {
+	_Atomic(proto_ic *) proto;
+#if CLJ_DEBUG
+	_Atomic uint64_t hits, misses;
+#endif
+};
+
+#if CLJ_DEBUG
+#define IC_COUNT(site, which) atomic_fetch_add_explicit(&(site)->which, 1, memory_order_relaxed)
+#else
+#define IC_COUNT(site, which) ((void)0)
+#endif
+
+// The body of f's arity for n arguments, NULL when none takes n.
+static inline const clj_fn_arity *arity_for(const clj_node *code, size_t n) {
+	const clj_fn_arity *arity = n <= CLJ_FN_MAX_FIXED ? code->u.fn.fixed[n] : NULL;
+	if (!arity && code->u.fn.variadic && n >= code->u.fn.variadic->nparams) arity = code->u.fn.variadic;
+	return arity;
+}
 
 // Old fn roots a def replaced while this thread was evaluating. A fn root is read at +0 (eval_borrowed), so
 // the release waits until nothing on the thread can still hold such a read: no closure frame (shadow depth)
@@ -246,19 +296,217 @@ static inline clj_value invoke_at(clj_value fn, const clj_value *args, uint32_t 
 	return clj_invoke(fn, args, n);
 }
 
+// The guard reads its limit from the shadow stack, the one thread-local a call touches; the limit is computed
+// on the thread's first call.
+static char *stack_limit_of(clj_shadow_stack *s) {
+#if defined(__APPLE__)
+	pthread_t self = pthread_self();
+	char     *top = pthread_get_stackaddr_np(self);
+	size_t    size = pthread_get_stacksize_np(self);
+	size_t    margin = size / 4 < STACK_MARGIN ? size / 4 : STACK_MARGIN;
+	s->stack_limit = top - size + margin;
+#else
+	// No portable stack bounds: assume the thread's default and that we are near the top.
+	char here;
+	s->stack_limit = &here - (512 * 1024 - STACK_MARGIN);
+#endif
+	return s->stack_limit;
+}
+
+// Runs arity's body over slots the caller filled: the fixed params (and the self slot) borrowed, the rest
+// owned as `owned` says; every owned slot is released after. The frame's exec is the closure's own.
+// @ai-generated(guided)
+static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, const clj_fn_arity *arity, clj_value *slots, uint64_t owned, const clj_node *site) {
+	const clj_fn     *fn = clj_fn_of(f);
+	const clj_node   *code = fn->u.node;
+	clj_shadow_stack *s = clj_shadow_tls;
+	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
+	char *limit = s->stack_limit;
+	if (__builtin_expect(!limit, 0)) limit = stack_limit_of(s);
+	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned};
+	if (__builtin_expect((char *)&frame < limit, 0)) {
+		slots_release(&frame, arity->nslots);
+		return clj_throw_msg("Stack overflow");
+	}
+	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site};
+	s->depth++;
+	// Read once: a profiler started or stopped mid-body counts only calls timed from their entry.
+	uint8_t  instrument = clj_instrument;
+	uint64_t t0 = 0;
+#ifdef __APPLE__
+	os_signpost_id_t signpost = 0;
+#endif
+	if (__builtin_expect(instrument, 0)) {
+		if (instrument & CLJ_INSTRUMENT_PROFILE) t0 = clj_profile_now();
+#ifdef __APPLE__
+		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(fn->name);
+#endif
+	}
+	clj_value v;
+	for (;;) {
+		v = eval_child(arity->body, &frame);
+		if (v != CLJ_RECUR) break;
+	}
+	if (__builtin_expect(instrument, 0)) {
+#ifdef __APPLE__
+		if (signpost) clj_signpost_end(signpost);
+#endif
+		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
+	}
+	if (__builtin_expect(--s->depth == 0, 0) && retired.n) drain_retired();
+	slots_release(&frame, arity->nslots);
+	return v;
+}
+
+// A call with the arguments already in a buffer: the frame copies them. Frames past SMALL_SLOTS live on the
+// heap, past 64 slots they retain every param (eval.h).
+// @ai-generated(guided)
+static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
+	clj_value  small[SMALL_SLOTS];
+	clj_value *slots = small;
+	if (arity->nslots > SMALL_SLOTS) {
+		slots = malloc(arity->nslots * sizeof *slots);
+		if (!slots) clj_fatal("out of memory");
+	}
+	bool     big = arity->nslots > 64;
+	uint64_t owned = big ? UINT64_MAX : 0;
+	uint32_t filled = arity->nparams;
+	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big ? clj_retain(args[i]) : args[i];
+	if (arity->variadic) {
+		slots[filled++] = n > arity->nparams ? clj_list_from_array(args + arity->nparams, n - arity->nparams) : CLJ_NIL;
+		owned |= (uint64_t)1 << arity->nparams;
+	}
+	for (uint32_t i = filled; i < arity->nslots; i++) slots[i] = CLJ_NIL;
+	if (arity->self_slot >= 0) slots[arity->self_slot] = big ? clj_retain(f) : f;
+	clj_value v = run_frame(f, arity, slots, owned, site);
+	if (slots != small) free(slots);
+	return v;
+}
+
+static clj_value call_impl(clj_value impl, const clj_fn_arity *arity, const clj_value *args, uint32_t n, const clj_node *at) {
+	if (arity) return closure_run(impl, arity, args, n, at);
+	return invoke_at(impl, args, n, at);
+}
+
+// A consistent snapshot of the entry for t under the seqlock, or false.
+static bool proto_ic_find(const proto_ic *ic, uint64_t serial, const clj_type *t, proto_ic_entry *out, uint64_t *epoch) {
+	uint64_t s0 = atomic_load_explicit(&ic->seq, memory_order_acquire);
+	if ((s0 & 1) || ic->method_serial != serial) return false;
+	bool found = false;
+	for (uint32_t i = 0; i < ic->n && i < CLJ_PROTO_IC_ENTRIES; i++) {
+		if (ic->e[i].receiver == t) {
+			*out = ic->e[i];
+			found = true;
+			break;
+		}
+	}
+	*epoch = ic->epoch;
+	atomic_thread_fence(memory_order_acquire);
+	return found && atomic_load_explicit(&ic->seq, memory_order_relaxed) == s0;
+}
+
+// Records what a dispatch under `epoch` found; a fill racing with another gives up (the other one's
+// entry is as good), one under a moved epoch or another method empties the cache first.
+// @ai-generated(guided)
+static void proto_ic_fill(clj_call_site *site, uint64_t serial, uint64_t epoch, const clj_type *t, clj_value impl, const clj_fn_arity *arity) {
+	proto_ic *ic = atomic_load_explicit(&site->proto, memory_order_acquire);
+	if (!ic) {
+		proto_ic *fresh = calloc(1, sizeof *fresh);
+		if (!fresh) clj_fatal("out of memory");
+		proto_ic *expected = NULL;
+		if (atomic_compare_exchange_strong_explicit(&site->proto, &expected, fresh, memory_order_acq_rel, memory_order_acquire)) {
+			ic = fresh;
+		} else {
+			free(fresh);
+			ic = expected;
+		}
+	}
+	uint64_t s0 = atomic_load_explicit(&ic->seq, memory_order_relaxed);
+	if ((s0 & 1) || !atomic_compare_exchange_strong_explicit(&ic->seq, &s0, s0 + 1, memory_order_acq_rel, memory_order_relaxed)) return;
+	if (ic->method_serial != serial || ic->epoch != epoch) {
+		ic->method_serial = serial;
+		ic->epoch = epoch;
+		ic->n = ic->next = 0;
+	}
+	uint32_t i = ic->n < CLJ_PROTO_IC_ENTRIES ? ic->n++ : ic->next++ % CLJ_PROTO_IC_ENTRIES;
+	ic->e[i] = (proto_ic_entry){t, impl, arity};
+	atomic_store_explicit(&ic->seq, s0 + 2, memory_order_release);
+}
+
+// The method's own arity check comes first, as through clj_invoke, so the error names the method rather
+// than the impl. A hit calls the cached impl; a miss dispatches through the tables under their reader window
+// and records what it found.
+// @ai-generated(guided)
+static clj_value invoke_protocol(clj_call_site *site, clj_value method, const clj_value *args, uint32_t n, const clj_node *at) {
+	const clj_fn *mf = clj_fn_of(method);
+	if (n < mf->min_arity || (mf->max_arity != CLJ_ARITY_ANY && n > mf->max_arity)) return clj_arity_error(method, n);
+	uint64_t        serial = clj_method_ctx_of(method)->serial;
+	const clj_type *t = clj_dispatch_type_inline(args[0]);
+	proto_ic       *ic = atomic_load_explicit(&site->proto, memory_order_acquire);
+	proto_ic_entry  entry;
+	uint64_t        epoch;
+	if (__builtin_expect(ic && proto_ic_find(ic, serial, t, &entry, &epoch), 1)) {
+		// The window makes the epoch check meaningful: a concurrent extend either bumped before this read or
+		// waits for the close, so an impl the check admits is retained from a live table.
+		clj_proto_reader *window = clj_proto_window_open_inline();
+		bool              live = clj_epoch_load() == epoch;
+		if (live) clj_retain(entry.impl);
+		clj_proto_window_close_inline(window);
+		if (live) {
+			IC_COUNT(site, hits);
+			clj_value r = call_impl(entry.impl, entry.arity, args, n, at);
+			clj_release(entry.impl);
+			return r;
+		}
+	}
+	IC_COUNT(site, misses);
+	epoch = clj_epoch_load();
+	clj_value impl = clj_protocol_method_impl(method, args[0]);
+	if (clj_is_nil(impl)) return clj_protocol_no_impl(method, args[0]);
+	const clj_fn_arity *arity = clj_is_fn(impl) && clj_fn_of(impl)->kind == CLJ_FN_CLOSURE ? arity_for(clj_fn_of(impl)->u.node, n) : NULL;
+	// The lookup ran between two reads of the same epoch, so the impl belongs to the tables of that epoch.
+	if (clj_epoch_load() == epoch) proto_ic_fill(site, serial, epoch, t, impl, arity);
+	clj_value r = call_impl(impl, arity, args, n, at);
+	clj_release(impl);
+	return r;
+}
+
+// A closure with a fixed arity for the call and a small frame gets its arguments evaluated straight into its
+// slots: no argument buffer, no copy, and the owned mask of the evaluation is the frame's. Everything else
+// evaluates into a buffer and dispatches from there.
+// @ai-generated(guided)
 static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	bool      fn_owned;
 	clj_value fn = eval_borrowed(n->u.invoke.fn, f, &fn_owned);
 	if (fn == CLJ_THROWN) return CLJ_THROWN;
-	clj_value  small[SMALL_ARGS];
-	clj_value *args = buf_alloc(small, n->u.invoke.n);
-	clj_value  result = CLJ_THROWN;
-	uint64_t   owned;
-	if (eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned)) {
-		result = invoke_at(fn, args, n->u.invoke.n, n);
-		release_owned(args, n->u.invoke.n, owned);
+	uint32_t            nargs = n->u.invoke.n;
+	clj_call_site      *site = &((clj_exec *)f->exec)->sites[n->site];
+	clj_value           result = CLJ_THROWN;
+	uint64_t            owned;
+	const clj_fn_arity *arity = NULL;
+	if (__builtin_expect(clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_CLOSURE && nargs <= CLJ_FN_MAX_FIXED, 1)) arity = clj_fn_of(fn)->u.node->u.fn.fixed[nargs];
+	if (__builtin_expect(arity != NULL, 1) && arity->nslots <= SMALL_SLOTS) {
+		IC_COUNT(site, hits);
+		clj_value slots[SMALL_SLOTS];
+		if (eval_all(n->u.invoke.args, nargs, f, slots, &owned)) {
+			for (uint32_t i = nargs; i < arity->nslots; i++) slots[i] = CLJ_NIL;
+			if (arity->self_slot >= 0) slots[arity->self_slot] = fn;
+			result = run_frame(fn, arity, slots, owned, n);
+		}
+	} else {
+		clj_value  small[SMALL_ARGS];
+		clj_value *args = buf_alloc(small, nargs);
+		if (eval_all(n->u.invoke.args, nargs, f, args, &owned)) {
+			if (nargs && clj_is_protocol_method(fn)) {
+				result = invoke_protocol(site, fn, args, nargs, n);
+			} else {
+				IC_COUNT(site, misses);
+				result = invoke_at(fn, args, nargs, n);
+			}
+			release_owned(args, nargs, owned);
+		}
+		buf_free(small, args);
 	}
-	buf_free(small, args);
 	if (fn_owned) clj_release(fn);
 	return result;
 }
@@ -438,15 +686,87 @@ void clj_exec_count(clj_value exec, bool on) {
 
 uint64_t clj_exec_hits(clj_value exec, uint32_t id) { return clj_exec_of(exec)->nodes[id].hits; }
 
+typedef struct {
+	uint32_t        id;
+	const clj_node *found;
+} find_ctx;
+
+// Ids are pre-order and a subtree's are contiguous: one child per level contains the target.
+static void find_node(const clj_node *n, void *ctx) {
+	find_ctx *c = ctx;
+	if (c->found || c->id < n->id || c->id >= n->id + n->nnodes) return;
+	if (n->id == c->id) c->found = n;
+	else clj_node_children(n, find_node, c);
+}
+
+static const clj_call_site *site_of(clj_value exec, uint32_t id) {
+	const clj_exec *e = clj_exec_of(exec);
+	find_ctx        c = {id, NULL};
+	find_node(e->root, &c);
+	CLJ_ASSERT(c.found && c.found->kind == CLJ_NODE_INVOKE, "not an invoke node of this exec");
+	return &e->sites[c.found->site];
+}
+
+int64_t clj_debug_exec_ic_hits(clj_value exec, uint32_t id) {
+#if CLJ_DEBUG
+	return (int64_t)atomic_load_explicit(&site_of(exec, id)->hits, memory_order_relaxed);
+#else
+	(void)exec;
+	(void)id;
+	return -1;
+#endif
+}
+
+int64_t clj_debug_exec_ic_misses(clj_value exec, uint32_t id) {
+#if CLJ_DEBUG
+	return (int64_t)atomic_load_explicit(&site_of(exec, id)->misses, memory_order_relaxed);
+#else
+	(void)exec;
+	(void)id;
+	return -1;
+#endif
+}
+
+typedef struct {
+	uint32_t        site;
+	const clj_node *found;
+} find_site_ctx;
+
+static void find_site(const clj_node *n, void *ctx) {
+	find_site_ctx *c = ctx;
+	if (c->found) return;
+	if (n->kind == CLJ_NODE_INVOKE && n->site == c->site) c->found = n;
+	else clj_node_children(n, find_site, c);
+}
+
+uint32_t clj_debug_exec_invoke_id(clj_value exec, uint32_t site) {
+	find_site_ctx c = {site, NULL};
+	find_site(clj_exec_of(exec)->root, &c);
+	CLJ_ASSERT(c.found, "no invoke node with that ordinal");
+	return c.found->id;
+}
+
+uint32_t clj_debug_exec_ic_proto_entries(clj_value exec, uint32_t id) {
+	const proto_ic *ic = atomic_load_explicit(&site_of(exec, id)->proto, memory_order_acquire);
+	return ic ? ic->n : 0;
+}
+
 static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
 	const clj_exec *e = self;
 	visit(clj_from_ptr((void *)e->root), ctx);
+}
+
+static void exec_finalize(void *self) {
+	clj_exec *e = self;
+	for (uint32_t i = 0; i < e->nsites; i++) free(atomic_load_explicit(&e->sites[i].proto, memory_order_relaxed));
+	free(e->sites);
 }
 
 const clj_type clj_exec_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "exec",
 	.each_child = exec_each_child,
+	.finalize = exec_finalize,
 };
 
 typedef struct {
@@ -463,6 +783,9 @@ static void build(const clj_node *n, void *ctx) {
 	build_ctx *b = ctx;
 	b->exec->nodes[n->id].eval = clj_node_eval_fn(n->kind);
 	switch (n->kind) {
+	case CLJ_NODE_INVOKE:
+		if (n->site >= b->exec->nsites) b->exec->nsites = n->site + 1;
+		break;
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
 		for (uint32_t i = 0; i < n->u.let.n; i++) note_slot(b, n->u.let.slots[i]);
@@ -487,27 +810,11 @@ clj_value clj_exec_new(const clj_node *root) {
 	e->root = root;
 	build_ctx b = {e, true};
 	build(root, &b);
-	return clj_from_ptr(e);
-}
-
-// Lowest address the interpreter may still use on this thread; computed once per thread.
-static _Thread_local char *stack_limit;
-
-static bool stack_exhausted(void) {
-	char here;
-	if (!stack_limit) {
-#if defined(__APPLE__)
-		pthread_t self = pthread_self();
-		char     *top = pthread_get_stackaddr_np(self);
-		size_t    size = pthread_get_stacksize_np(self);
-		size_t    margin = size / 4 < STACK_MARGIN ? size / 4 : STACK_MARGIN;
-		stack_limit = top - size + margin;
-#else
-		// No portable stack bounds: assume the thread's default and that we are near the top.
-		stack_limit = &here - (512 * 1024 - STACK_MARGIN);
-#endif
+	if (e->nsites) {
+		e->sites = calloc(e->nsites, sizeof *e->sites);
+		if (!e->sites) clj_fatal("out of memory");
 	}
-	return &here < stack_limit;
+	return clj_from_ptr(e);
 }
 
 static clj_value arity_error(clj_value f, size_t n) {
@@ -522,59 +829,9 @@ static clj_value arity_error(clj_value f, size_t n) {
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) { return clj_closure_invoke_at(f, args, n, NULL); }
 
 clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, const clj_node *site) {
-	const clj_fn       *fn = clj_fn_of(f);
-	const clj_node     *code = fn->u.node;
-	const clj_fn_arity *arity = NULL;
-	if (n <= CLJ_FN_MAX_FIXED) arity = code->u.fn.fixed[n];
-	if (!arity && code->u.fn.variadic && n >= code->u.fn.variadic->nparams) arity = code->u.fn.variadic;
+	const clj_fn_arity *arity = arity_for(clj_fn_of(f)->u.node, n);
 	if (!arity) return arity_error(f, n);
-	if (stack_exhausted()) return clj_throw_msg("Stack overflow");
-
-	clj_value  small[SMALL_SLOTS];
-	clj_value *slots = small;
-	if (arity->nslots > SMALL_SLOTS) {
-		slots = malloc(arity->nslots * sizeof *slots);
-		if (!slots) clj_fatal("out of memory");
-	}
-	memset(slots, 0, arity->nslots * sizeof *slots);
-	bool     big = arity->nslots > 64;
-	uint64_t owned = big ? UINT64_MAX : 0;
-	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big ? clj_retain(args[i]) : args[i];
-	if (arity->variadic) {
-		slots[arity->nparams] = n > arity->nparams ? clj_list_from_array(args + arity->nparams, n - arity->nparams) : CLJ_NIL;
-		owned |= (uint64_t)1 << arity->nparams;
-	}
-	if (arity->self_slot >= 0) slots[arity->self_slot] = big ? clj_retain(f) : f;
-
-	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned};
-	clj_shadow_push(code, site);
-	// Read once: a profiler started or stopped mid-body counts only calls timed from their entry.
-	uint8_t  instrument = clj_instrument;
-	uint64_t t0 = 0;
-#ifdef __APPLE__
-	os_signpost_id_t signpost = 0;
-#endif
-	if (__builtin_expect(instrument, 0)) {
-		if (instrument & CLJ_INSTRUMENT_PROFILE) t0 = clj_profile_now();
-#ifdef __APPLE__
-		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(fn->name);
-#endif
-	}
-	clj_value v;
-	for (;;) {
-		v = eval_child(arity->body, &frame);
-		if (v != CLJ_RECUR) break;
-	}
-	if (__builtin_expect(instrument, 0)) {
-#ifdef __APPLE__
-		if (signpost) clj_signpost_end(signpost);
-#endif
-		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
-	}
-	if (__builtin_expect(clj_shadow_pop() == 0, 0) && retired.n) drain_retired();
-	slots_release(&frame, arity->nslots);
-	if (slots != small) free(slots);
-	return v;
+	return closure_run(f, arity, args, n, site);
 }
 
 clj_value clj_exec_run(clj_value exec) {

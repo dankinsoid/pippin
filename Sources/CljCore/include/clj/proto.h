@@ -2,6 +2,7 @@
 #ifndef CLJ_PROTO_H
 #define CLJ_PROTO_H
 
+#include "fn.h"
 #include "object.h"
 
 // Protocol tables are immutable snapshots: heap descriptors own theirs in user_protos, immortal ones sit in a side table (NOTES.md).
@@ -23,6 +24,28 @@ static inline clj_protocol *clj_protocol_of(clj_value v) { return (clj_protocol 
 clj_value clj_protocol_new(clj_value name, clj_value sigs);
 // The dispatching fn of method idx; its min arity is at least 1.
 clj_value clj_protocol_method(clj_value proto, uint32_t idx);
+
+// The context of a method fn (a CLJ_FN_NATIVE_CTX native around clj_protocol_method_invoke).
+typedef struct {
+	clj_value proto;  // borrowed: the fn's code slot keeps the protocol alive
+	uint32_t  idx;    // method index in the protocol
+	uint64_t  serial; // unique for the process: the identity a call-site cache keys on without holding the fn
+} clj_method_ctx;
+
+clj_value clj_protocol_method_invoke(void *ctx, const clj_value *args, size_t n);
+
+static inline bool clj_is_protocol_method(clj_value f) {
+	return clj_is_fn(f) && clj_fn_of(f)->kind == CLJ_FN_NATIVE_CTX && clj_fn_of(f)->u.native_ctx.fn == clj_protocol_method_invoke;
+}
+static inline const clj_method_ctx *clj_method_ctx_of(clj_value f) { return clj_fn_of(f)->u.native_ctx.ctx; }
+
+// Owned impl of the method for v, or nil when v's type does not satisfy the protocol; the lookup opens a
+// reader window (NOTES.md). The impl is an element of the type's table, which only a definition-epoch bump
+// retires: a cache may hold it borrowed and, inside a window that saw the epoch unchanged, retain it.
+clj_value clj_protocol_method_impl(clj_value method, clj_value v);
+
+// Throws "No implementation of method: ..." for v.
+clj_value clj_protocol_no_impl(clj_value method, clj_value v);
 
 // Pseudo-descriptors stand in for nil, fixnums, booleans and chars.
 const clj_type *clj_dispatch_type(clj_value v);

@@ -13,11 +13,15 @@ typedef struct {
 	uint64_t    hits; // counted only while clj_exec_count is on
 } clj_exec_node;
 
+typedef struct clj_call_site clj_call_site;
+
 // One per tree; a closure retains the exec of the tree it was created in.
 typedef struct {
 	clj_header      h;
 	const clj_node *root;   // retained
 	uint32_t        nslots; // frame slots the root needs at top level
+	uint32_t        nsites; // invoke nodes in the tree
+	clj_call_site  *sites;  // their inline caches, indexed by clj_node.site (eval.c)
 	clj_exec_node   nodes[]; // indexed by node id
 } clj_exec;
 
@@ -43,6 +47,16 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind);
 // Swaps every node's eval for a hit-counting wrapper and back; off costs nothing, not even a branch.
 void     clj_exec_count(clj_value exec, bool on);
 uint64_t clj_exec_hits(clj_value exec, uint32_t id);
+// Call-site counters of the invoke node with this id, counted in debug builds only (-1 otherwise): a hit
+// entered a closure body directly or called a cached protocol impl, a miss went through the generic invoke
+// (a native, a variadic or large-frame closure, a protocol dispatch through the tables, which refills).
+int64_t clj_debug_exec_ic_hits(clj_value exec, uint32_t id);
+int64_t clj_debug_exec_ic_misses(clj_value exec, uint32_t id);
+// Receiver types the protocol cache of that node holds, at most CLJ_PROTO_IC_ENTRIES.
+uint32_t clj_debug_exec_ic_proto_entries(clj_value exec, uint32_t id);
+// The id of the tree's invoke node number `site` in pre-order (its clj_node.site); aborts past the last.
+uint32_t clj_debug_exec_invoke_id(clj_value exec, uint32_t site);
+#define CLJ_PROTO_IC_ENTRIES 4
 // Evaluates the root in a fresh frame. Owned result or CLJ_THROWN.
 clj_value clj_exec_run(clj_value exec);
 // clj_exec_new, run, release: for a tree executed once.

@@ -17,6 +17,7 @@
 #include "clj/number.h"
 #include "clj/printer.h"
 #include "clj/proto.h"
+#include "proto_internal.h"
 #include "clj/seq.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
@@ -50,17 +51,12 @@ static pthread_mutex_t       lock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic(side_table *) side;
 static _Atomic uint32_t      next_proto_id;
 
-// A thread's dispatch window; a writer frees a retired snapshot only after every window has closed.
-typedef struct reader {
-	_Atomic uint32_t active;
-	struct reader   *next;
-} reader;
+typedef clj_proto_reader reader;
 
 static reader               *readers; // pushed under lock, never removed
-static _Thread_local reader *my_reader;
+_Thread_local clj_proto_reader *clj_proto_reader_tls;
 
-static reader *reader_here(void) {
-	if (my_reader) return my_reader;
+clj_proto_reader *clj_proto_reader_init(void) {
 	reader *r = malloc(sizeof *r);
 	if (!r) clj_fatal("out of memory");
 	atomic_init(&r->active, 0);
@@ -68,18 +64,13 @@ static reader *reader_here(void) {
 	r->next = readers;
 	readers = r;
 	pthread_mutex_unlock(&lock);
-	my_reader = r;
+	clj_proto_reader_tls = r;
 	return r;
 }
 
-// seq_cst on both sides (Dekker): a reader either shows up to the writer's scan or sees the new snapshot.
-static reader *window_open(void) {
-	reader *r = reader_here();
-	atomic_store_explicit(&r->active, 1, memory_order_seq_cst);
-	return r;
-}
+static reader *window_open(void) { return clj_proto_window_open_inline(); }
 
-static void window_close(reader *r) { atomic_store_explicit(&r->active, 0, memory_order_seq_cst); }
+static void window_close(reader *r) { clj_proto_window_close_inline(r); }
 
 static void wait_readers(void) {
 	for (reader *r = readers; r; r = r->next) {
@@ -91,10 +82,14 @@ static void wait_readers(void) {
 
 #define PSEUDO(nm) {.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type}, .name = nm}
 
-static const clj_type nil_type = PSEUDO("nil");
-static const clj_type fixnum_type = PSEUDO("fixnum");
-static const clj_type boolean_type = PSEUDO("boolean");
-static const clj_type char_type = PSEUDO("char");
+const clj_type clj_nil_dispatch_type = PSEUDO("nil");
+const clj_type clj_fixnum_dispatch_type = PSEUDO("fixnum");
+const clj_type clj_boolean_dispatch_type = PSEUDO("boolean");
+const clj_type clj_char_dispatch_type = PSEUDO("char");
+#define nil_type     clj_nil_dispatch_type
+#define fixnum_type  clj_fixnum_dispatch_type
+#define boolean_type clj_boolean_dispatch_type
+#define char_type    clj_char_dispatch_type
 static const clj_type object_type = PSEUDO("Object");
 
 typedef struct {
@@ -129,14 +124,7 @@ static core_interface interfaces[] = {
 
 enum { NINTERFACES = sizeof interfaces / sizeof *interfaces };
 
-const clj_type *clj_dispatch_type(clj_value v) {
-	if (clj_is_ptr(v)) return clj_type_of(v);
-	if (clj_is_nil(v)) return &nil_type;
-	if (clj_is_fixnum(v)) return &fixnum_type;
-	if (clj_is_bool(v)) return &boolean_type;
-	if (clj_is_char(v)) return &char_type;
-	clj_fatal("protocol dispatch on a non-value");
-}
+const clj_type *clj_dispatch_type(clj_value v) { return clj_dispatch_type_inline(v); }
 
 const clj_type *clj_object_type(void) { return &object_type; }
 
@@ -304,10 +292,9 @@ clj_value clj_protocol_new(clj_value name, clj_value sigs) {
 
 // ---- method fns
 
-typedef struct {
-	clj_value proto; // borrowed: the fn's code slot keeps the protocol alive
-	uint32_t  idx;
-} method_ctx;
+typedef clj_method_ctx method_ctx;
+
+static _Atomic uint64_t method_serials;
 
 static clj_value no_impl(const method_ctx *m, clj_value v) {
 	const clj_protocol *p = clj_protocol_of(m->proto);
@@ -316,7 +303,7 @@ static clj_value no_impl(const method_ctx *m, clj_value v) {
 	                     clj_string_bytes(clj_symbol_ns(p->name)), clj_string_bytes(clj_symbol_name(p->name)), clj_type_name(v));
 }
 
-static clj_value method_invoke(void *ctx, const clj_value *args, size_t n) {
+clj_value clj_protocol_method_invoke(void *ctx, const clj_value *args, size_t n) {
 	const method_ctx *m = ctx;
 	clj_value         f = impl_of(m->proto, m->idx, args[0]);
 	if (clj_is_nil(f)) return no_impl(m, args[0]);
@@ -324,6 +311,13 @@ static clj_value method_invoke(void *ctx, const clj_value *args, size_t n) {
 	clj_release(f);
 	return r;
 }
+
+clj_value clj_protocol_method_impl(clj_value method, clj_value v) {
+	const method_ctx *m = clj_fn_of(method)->u.native_ctx.ctx;
+	return impl_of(m->proto, m->idx, v);
+}
+
+clj_value clj_protocol_no_impl(clj_value method, clj_value v) { return no_impl(clj_fn_of(method)->u.native_ctx.ctx, v); }
 
 static bool is_amp(clj_value v) { return is_unqualified_symbol(v) && strcmp(clj_string_bytes(clj_symbol_name(v)), "&") == 0; }
 
@@ -348,8 +342,9 @@ clj_value clj_protocol_method(clj_value proto, uint32_t idx) {
 	if (!ctx) clj_fatal("out of memory");
 	ctx->proto = proto;
 	ctx->idx = idx;
+	ctx->serial = atomic_fetch_add_explicit(&method_serials, 1, memory_order_relaxed) + 1;
 	clj_value name = clj_symbol_new(clj_symbol_ns(p->name), clj_symbol_name(clj_vector_nth(p->methods, idx)));
-	clj_value f = clj_fn_native_ctx(name, method_invoke, ctx, free, min, max);
+	clj_value f = clj_fn_native_ctx(name, clj_protocol_method_invoke, ctx, free, min, max);
 	clj_release(name);
 	clj_fn_of(f)->code = clj_retain(proto);
 	return f;
@@ -527,7 +522,12 @@ static void type_each_child(void *self, clj_visitor visit, void *ctx) {
 	window_close(r);
 }
 
-static void type_finalize(void *self) { free(((clj_user_type *)self)->t.user_protos); }
+// A dying type retires its table without an extend: the bump invalidates every call-site cache that borrows
+// an impl from it.
+static void type_finalize(void *self) {
+	free(((clj_user_type *)self)->t.user_protos);
+	clj_epoch_bump();
+}
 
 // Only heap descriptors (deftype, reify) reach each_child and finalize; builtin ones are immortal.
 const clj_type clj_type_type = {

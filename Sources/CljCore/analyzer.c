@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -243,9 +244,12 @@ static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
 	return r;
 }
 
+static _Atomic uint64_t fn_serials;
+
 clj_node *clj_node_alloc(clj_node_kind kind) {
 	clj_node *n = clj_alloc(&clj_node_type, sizeof *n);
 	n->kind = kind;
+	if (kind == CLJ_NODE_FN) n->u.fn.serial = atomic_fetch_add_explicit(&fn_serials, 1, memory_order_relaxed) + 1;
 	return n;
 }
 
@@ -310,18 +314,23 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 	}
 }
 
+typedef struct {
+	uint32_t nodes, sites;
+} numbering;
+
 // The tree is still the analyzer's own here: the const on the visitor's argument is dropped once.
 static void number(const clj_node *n, void *ctx) {
-	uint32_t *counter = ctx;
-	clj_node *m = (clj_node *)n;
-	m->id = (*counter)++;
-	clj_node_children(m, number, counter);
-	m->nnodes = *counter - m->id;
+	numbering *c = ctx;
+	clj_node  *m = (clj_node *)n;
+	m->id = c->nodes++;
+	if (m->kind == CLJ_NODE_INVOKE) m->site = c->sites++;
+	clj_node_children(m, number, c);
+	m->nnodes = c->nodes - m->id;
 }
 
 void clj_node_number(clj_node *root) {
-	uint32_t counter = 0;
-	number(root, &counter);
+	numbering c = {0, 0};
+	number(root, &c);
 }
 
 static clj_node *node_const(const analyzer *a, clj_value v) {

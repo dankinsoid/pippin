@@ -66,6 +66,7 @@ struct clj_node {
 	uint32_t      id;     // pre-order index within its tree; the root is 0
 	uint32_t      nnodes; // size of the subtree: it holds the ids id .. id + nnodes - 1
 	uint32_t      line, col; // of the innermost enclosing list the reader positioned; 0 when unknown
+	uint32_t      site;      // INVOKE: ordinal among the tree's invoke nodes, the index of its call-site cache in the exec (eval.h)
 	union {
 		clj_value value; // const
 		uint32_t  index; // local, captured
@@ -89,7 +90,8 @@ struct clj_node {
 			uint32_t         n;
 		} recur;
 		struct {
-			clj_value      name; // symbol or nil
+			uint64_t       serial; // unique for the process: the identity a call-site cache keys on without holding the node
+			clj_value      name;   // symbol or nil
 			clj_fn_arity  *fixed[CLJ_FN_MAX_FIXED + 1];
 			clj_fn_arity  *variadic;
 			clj_capture   *captures;
