@@ -103,13 +103,24 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// Every node carries the position of its innermost enclosing list as a trailing pair (a list a macro
+		// rebuilt has none: `a` in `([] a)` reports the fn form); a tree read from data without positions
+		// encodes without them.
 		@Test func encodingShape() throws {
 			let before = clj_debug_live_objects()
 			do {
 				let tree = try Tree.analyze("(let [x 1] (if x (inc x) [x]))")
-				#expect(try tree.data() == Value(reading: "[:let [[0 [:const 1]]] [:if [:local 0] [:invoke [:var clojure.core/inc] [:local 0]] [:vector [:local 0]]]]"))
+				#expect(try tree.data() == Value(reading: "[:let [[0 [:const 1 1 1]]] [:if [:local 0 1 12] [:invoke [:var clojure.core/inc 1 18] [:local 0 1 18] 1 18] [:vector [:local 0 1 12] 1 12] 1 12] 1 1]"))
 				let fn = try Tree.analyze("(let [a 1] (fn ([] a) ([x & r] (recur x r))))")
-				#expect(try fn.data() == Value(reading: "[:let [[0 [:const 1]]] [:fn nil [[0 false nil 0 [:captured 0]] [1 true nil 2 [:recur [0 1] [[:local 0] [:local 1]]]]] [[:local 0]]]]"))
+				#expect(try fn.data() == Value(reading: "[:let [[0 [:const 1 1 1]]] [:fn nil [[0 false nil 0 [:captured 0 1 12]] [1 true nil 2 [:recur [0 1] [[:local 0 1 32] [:local 1 1 32]] 1 32]]] [[:local 0]] 1 12] 1 1]"))
+				let bare = try Tree.read(Value(reading: "[:let [[0 [:const 1]]] [:if [:local 0] [:invoke [:var clojure.core/inc] [:local 0]] [:vector [:local 0]]]]"))
+				#expect(try bare.data() == Value(reading: "[:let [[0 [:const 1]]] [:if [:local 0] [:invoke [:var clojure.core/inc] [:local 0]] [:vector [:local 0]]]]"))
+				#expect(bare.node.pointee.line == 0)
+				let positioned = try Tree.read(Value(reading: "[:if [:const true 3 4] [:const 1] [:const 2] 3 2]"))
+				#expect(positioned.node.pointee.line == 3 && positioned.node.pointee.col == 2)
+				#expect(positioned.node.pointee.u.if_.test.pointee.line == 3 && positioned.node.pointee.u.if_.test.pointee.col == 4)
+				#expect(positioned.node.pointee.u.if_.then.pointee.line == 0)
+				#expect(try positioned.data() == Value(reading: "[:if [:const true 3 4] [:const 1] [:const 2] 3 2]"))
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

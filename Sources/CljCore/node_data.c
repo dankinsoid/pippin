@@ -17,6 +17,8 @@
 //   arity   = [nparams variadic self-slot-or-nil nslots body]
 //   capture = [:local slot] | [:captured index]                 where the closure takes the value from
 //   catch   = [:all slot handler] | [:error slot handler]
+// A node with a position carries `line column` as two trailing fixnums (line > 0), after everything
+// else; no node kind ends in a fixnum otherwise, so the pair is unambiguous and omitted when unknown.
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -205,7 +207,17 @@ static clj_value encode_try(const clj_node *n) {
 	return v;
 }
 
+static clj_value encode_kind(const clj_node *n);
+
+// @ai-generated(guided)
 static clj_value encode(const clj_node *n) {
+	clj_value v = encode_kind(n);
+	if (v == CLJ_THROWN || !n->line) return v;
+	v = clj_vector_conj(v, clj_fixnum(n->line));
+	return clj_vector_conj(v, clj_fixnum(n->col));
+}
+
+static clj_value encode_kind(const clj_node *n) {
 	switch (n->kind) {
 	case CLJ_NODE_CONST:
 		if (clj_is_var(n->u.value)) return vec2(kw_the_var, qualified(n->u.value));
@@ -466,8 +478,26 @@ static clj_node *decode_invoke(clj_value data) {
 	return decode_into(n->u.invoke.args, data, 2, n->u.invoke.n) ? n : drop(n);
 }
 
+static clj_node *decode_kind(clj_value data);
+
+// @ai-generated(guided)
 static clj_node *decode(clj_value data) {
 	if (!is_vector_of(data, 1) || !clj_is_keyword(clj_vector_nth(data, 0))) return fail_data(data, "expected [:kind ...]");
+	uint32_t count = clj_vector_count(data), line = 0, col = 0;
+	if (count >= 3 && as_u32(clj_vector_nth(data, count - 2), &line) && line > 0 && as_u32(clj_vector_nth(data, count - 1), &col)) {
+		clj_value body = clj_vector_pop(clj_vector_pop(clj_retain(data)));
+		clj_node *n = decode_kind(body);
+		clj_release(body);
+		if (n) {
+			n->line = line;
+			n->col = col;
+		}
+		return n;
+	}
+	return decode_kind(data);
+}
+
+static clj_node *decode_kind(clj_value data) {
 	clj_value head = clj_vector_nth(data, 0);
 	if (head == kw_const) return decode_single(CLJ_NODE_CONST, data);
 	if (head == kw_local) return decode_leaf(CLJ_NODE_LOCAL, data);

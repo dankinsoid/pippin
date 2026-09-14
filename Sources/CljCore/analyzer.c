@@ -244,7 +244,12 @@ clj_node *clj_node_alloc(clj_node_kind kind) {
 	return n;
 }
 
-static clj_node *node_new(clj_node_kind kind) { return clj_node_alloc(kind); }
+static clj_node *node_new(const analyzer *a, clj_node_kind kind) {
+	clj_node *n = clj_node_alloc(kind);
+	n->line = a->line;
+	n->col = a->col;
+	return n;
+}
 
 static void child(const clj_node *n, clj_node_visitor visit, void *ctx) {
 	if (n) visit(n, ctx);
@@ -313,8 +318,8 @@ void clj_node_number(clj_node *root) {
 	number(root, &counter);
 }
 
-static clj_node *node_const(clj_value v) {
-	clj_node *n = node_new(CLJ_NODE_CONST);
+static clj_node *node_const(const analyzer *a, clj_value v) {
+	clj_node *n = node_new(a, CLJ_NODE_CONST);
 	n->u.value = clj_retain(v);
 	return n;
 }
@@ -424,7 +429,7 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 		bool     captured;
 		uint32_t index;
 		if (resolve_local(s, sym, &captured, &index)) {
-			clj_node *n = node_new(captured ? CLJ_NODE_CAPTURED : CLJ_NODE_LOCAL);
+			clj_node *n = node_new(a, captured ? CLJ_NODE_CAPTURED : CLJ_NODE_LOCAL);
 			n->u.index = index;
 			return n;
 		}
@@ -433,7 +438,7 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve symbol: %s in this context", sym);
 	if (private_elsewhere(a, sym, var)) return fail_form(a, "var: %s is not public", sym);
 	if (clj_var_is_macro(var)) return fail_form(a, "Can't take value of a macro: %s", var);
-	clj_node *n = node_new(CLJ_NODE_VAR);
+	clj_node *n = node_new(a, CLJ_NODE_VAR);
 	n->u.var = clj_retain(var);
 	return n;
 }
@@ -543,10 +548,10 @@ static bool all_const(const clj_node *const *nodes, uint32_t n) {
 }
 
 // A literal whose elements all analyzed to constants folds into one constant.
-static clj_node *fold_or_keep(clj_node *node, clj_value (*build)(const clj_node *const *, uint32_t)) {
+static clj_node *fold_or_keep(const analyzer *a, clj_node *node, clj_value (*build)(const clj_node *const *, uint32_t)) {
 	if (!all_const(node->u.seq.items, node->u.seq.n)) return node;
 	clj_value v = build(node->u.seq.items, node->u.seq.n);
-	clj_node *c = node_const(v);
+	clj_node *c = node_const(a, v);
 	clj_release(v);
 	clj_release(clj_from_ptr(node));
 	return c;
@@ -578,7 +583,7 @@ static clj_node *analyze_vector(analyzer *a, scope *s, clj_value form) {
 	uint32_t   n;
 	clj_value *items = seq_items(a, form, &n);
 	if (!items) return NULL;
-	clj_node  *node = node_new(CLJ_NODE_VECTOR);
+	clj_node  *node = node_new(a, CLJ_NODE_VECTOR);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
 	node->u.seq.n = n;
 	bool ok = analyze_into(a, s, node->u.seq.items, items, n, false);
@@ -587,7 +592,7 @@ static clj_node *analyze_vector(analyzer *a, scope *s, clj_value form) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	return fold_or_keep(node, build_vector);
+	return fold_or_keep(a, node, build_vector);
 }
 
 typedef struct {
@@ -607,7 +612,7 @@ static clj_node *analyze_map(analyzer *a, scope *s, clj_value form) {
 	clj_value  *entries = zalloc(n, sizeof *entries);
 	collect_ctx c = {entries, 0};
 	clj_map_each(form, collect_entry, &c);
-	clj_node *node = node_new(CLJ_NODE_MAP);
+	clj_node *node = node_new(a, CLJ_NODE_MAP);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
 	node->u.seq.n = n;
 	bool ok = analyze_into(a, s, node->u.seq.items, entries, n, false);
@@ -616,14 +621,14 @@ static clj_node *analyze_map(analyzer *a, scope *s, clj_value form) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	return fold_or_keep(node, build_map);
+	return fold_or_keep(a, node, build_map);
 }
 
 // Zero forms is nil, one is itself, more is a do.
 static clj_node *analyze_body(analyzer *a, scope *s, const clj_value *forms, uint32_t n, bool tail) {
-	if (n == 0) return node_const(CLJ_NIL);
+	if (n == 0) return node_const(a, CLJ_NIL);
 	if (n == 1) return analyze(a, s, forms[0], tail);
-	clj_node *node = node_new(CLJ_NODE_DO);
+	clj_node *node = node_new(a, CLJ_NODE_DO);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
 	node->u.seq.n = n;
 	if (!analyze_into(a, s, node->u.seq.items, forms, n, tail)) {
@@ -636,7 +641,7 @@ static clj_node *analyze_body(analyzer *a, scope *s, const clj_value *forms, uin
 static clj_node *analyze_if(analyzer *a, scope *s, const clj_value *items, uint32_t n, bool tail) {
 	if (n < 3) return fail(a, "Too few arguments to if");
 	if (n > 4) return fail(a, "Too many arguments to if");
-	clj_node *node = node_new(CLJ_NODE_IF);
+	clj_node *node = node_new(a, CLJ_NODE_IF);
 	if (!(node->u.if_.test = analyze(a, s, items[1], false)) ||
 	    !(node->u.if_.then = analyze(a, s, items[2], tail)) ||
 	    (n == 4 && !(node->u.if_.else_ = analyze(a, s, items[3], tail)))) {
@@ -657,7 +662,7 @@ static clj_node *analyze_let(analyzer *a, scope *s, const clj_value *items, uint
 		return fail(a, "%s requires an even number of forms in binding vector", what);
 	}
 	uint32_t  nb = nforms / 2;
-	clj_node *node = node_new(loop ? CLJ_NODE_LOOP : CLJ_NODE_LET);
+	clj_node *node = node_new(a, loop ? CLJ_NODE_LOOP : CLJ_NODE_LET);
 	node->u.let.slots = zalloc(nb, sizeof *node->u.let.slots);
 	node->u.let.inits = zalloc(nb, sizeof *node->u.let.inits);
 	node->u.let.n = nb;
@@ -702,7 +707,7 @@ static clj_node *analyze_recur(analyzer *a, scope *s, const clj_value *items, ui
 	if (!tail || !s->recur) return fail(a, "Can only recur from tail position");
 	uint32_t nargs = n - 1;
 	if (nargs != s->recur->n) return fail(a, "Mismatched argument count to recur, expected: %u args, got: %u", s->recur->n, nargs);
-	clj_node *node = node_new(CLJ_NODE_RECUR);
+	clj_node *node = node_new(a, CLJ_NODE_RECUR);
 	node->u.recur.args = zalloc(nargs, sizeof *node->u.recur.args);
 	node->u.recur.slots = zalloc(nargs, sizeof *node->u.recur.slots);
 	node->u.recur.n = nargs;
@@ -780,7 +785,7 @@ static bool analyze_arity(analyzer *a, clj_node *fn, capture_list *captures, sco
 
 static clj_node *analyze_fn(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
 	uint32_t  i = 1;
-	clj_node *node = node_new(CLJ_NODE_FN);
+	clj_node *node = node_new(a, CLJ_NODE_FN);
 	if (i < n && clj_is_symbol(items[i])) {
 		if (!clj_is_nil(clj_symbol_ns(items[i]))) {
 			clj_release(clj_from_ptr(node));
@@ -864,7 +869,7 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	}
 	// The var's name is a bare symbol: the meta stays on the var, not on the key that reaches it.
 	if (!clj_is_nil(clj_symbol_ns(sym)) || !clj_is_nil(sym_meta)) name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
-	clj_node *node = node_new(CLJ_NODE_DEF);
+	clj_node *node = node_new(a, CLJ_NODE_DEF);
 	node->u.def.var = clj_retain(clj_ns_intern(a->env.ns, name));
 	node->u.def.dynamic = !clj_is_nil(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_dynamic, CLJ_NIL));
 	clj_release(sym_meta);
@@ -890,7 +895,7 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 }
 
 static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
-	clj_node *node = node_new(CLJ_NODE_INVOKE);
+	clj_node *node = node_new(a, CLJ_NODE_INVOKE);
 	node->u.invoke.args = zalloc(n - 1, sizeof *node->u.invoke.args);
 	node->u.invoke.n = n - 1;
 	if (!(node->u.invoke.fn = analyze(a, s, items[0], false)) || !analyze_into(a, s, node->u.invoke.args, items + 1, n - 1, false)) {
@@ -1034,7 +1039,7 @@ static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items,
 static clj_node *analyze_throw(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
 	if (n < 2) return fail(a, "Too few arguments to throw, throw expects a single Throwable instance");
 	if (n > 2) return fail(a, "Too many arguments to throw, throw expects a single Throwable instance");
-	clj_node *node = node_new(CLJ_NODE_THROW);
+	clj_node *node = node_new(a, CLJ_NODE_THROW);
 	if (!(node->u.throw_ = analyze(a, s, items[1], false))) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
@@ -1110,7 +1115,7 @@ static clj_node *analyze_try(analyzer *a, scope *s, const clj_value *items, uint
 	try_clause clause = TRY_BODY;
 	while (nbody < n && (clause = try_clause_of(items[nbody])) == TRY_BODY) nbody++;
 	if (clause == TRY_THROWN) return NULL;
-	clj_node *node = node_new(CLJ_NODE_TRY);
+	clj_node *node = node_new(a, CLJ_NODE_TRY);
 	node->u.try_.catches = zalloc(n - nbody, sizeof *node->u.try_.catches);
 	s->try_depth++;
 	node->u.try_.body = analyze_body(a, s, items + 1, nbody - 1, false);
@@ -1136,7 +1141,7 @@ static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
 	if (!clj_is_symbol(items[1])) return fail_form(a, "var requires a symbol, got: %s", items[1]);
 	clj_value var = clj_ns_resolve(a->env.ns, items[1]);
 	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve var: %s in this context", items[1]);
-	return node_const(var);
+	return node_const(a, var);
 }
 
 static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tail);
@@ -1165,7 +1170,7 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	if (!items) return NULL;
 	clj_node *node;
 	switch (special_of(items[0])) {
-	case SP_QUOTE: node = n == 2 ? node_const(items[1]) : fail(a, "Wrong number of args (%u) passed to quote", n - 1); break;
+	case SP_QUOTE: node = n == 2 ? node_const(a, items[1]) : fail(a, "Wrong number of args (%u) passed to quote", n - 1); break;
 	case SP_IF: node = analyze_if(a, s, items, n, tail); break;
 	case SP_DO: node = analyze_body(a, s, items + 1, n - 1, tail); break;
 	case SP_LET: node = analyze_let(a, s, items, n, tail, false); break;
@@ -1192,14 +1197,14 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	if (clj_is_seq(form)) {
 		clj_value seq = clj_seq(form);
 		if (seq == CLJ_THROWN) return NULL;
-		if (clj_is_nil(seq)) return node_const(clj_list_empty());
+		if (clj_is_nil(seq)) return node_const(a, clj_list_empty());
 		clj_node *node = analyze_list(a, s, seq, tail);
 		clj_release(seq);
 		return node;
 	}
 	if (clj_is_vector(form)) return analyze_vector(a, s, form);
 	if (is_map(form)) return analyze_map(a, s, form);
-	return node_const(form);
+	return node_const(a, form);
 }
 
 clj_node *clj_analyze(clj_value form, const clj_env *env) {

@@ -62,6 +62,7 @@ struct clj_node {
 	clj_node_kind kind;
 	uint32_t      id;     // pre-order index within its tree; the root is 0
 	uint32_t      nnodes; // size of the subtree: it holds the ids id .. id + nnodes - 1
+	uint32_t      line, col; // of the innermost enclosing list the reader positioned; 0 when unknown
 	union {
 		clj_value value; // const
 		uint32_t  index; // local, captured
