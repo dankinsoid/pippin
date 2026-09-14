@@ -90,8 +90,7 @@ struct clj_node {
 			uint32_t         n;
 		} recur;
 		struct {
-			uint64_t       serial; // unique for the process: the identity a call-site cache keys on without holding the node
-			clj_value      name;   // symbol or nil
+			clj_value      name; // symbol or nil
 			clj_fn_arity  *fixed[CLJ_FN_MAX_FIXED + 1];
 			clj_fn_arity  *variadic;
 			clj_capture   *captures;

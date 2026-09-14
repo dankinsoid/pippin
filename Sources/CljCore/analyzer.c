@@ -2,7 +2,6 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -244,12 +243,9 @@ static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
 	return r;
 }
 
-static _Atomic uint64_t fn_serials;
-
 clj_node *clj_node_alloc(clj_node_kind kind) {
 	clj_node *n = clj_alloc(&clj_node_type, sizeof *n);
 	n->kind = kind;
-	if (kind == CLJ_NODE_FN) n->u.fn.serial = atomic_fetch_add_explicit(&fn_serials, 1, memory_order_relaxed) + 1;
 	return n;
 }
 
