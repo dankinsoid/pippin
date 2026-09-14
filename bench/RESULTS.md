@@ -131,3 +131,41 @@ after: reduce + map inc range 224.2 → 228.8 (1k), 225.1 → 231.0 (100k); seq 
 56.1 → 56.3; counting loop 29.0 → 29.6; closure call in a loop 44.4 → 45.8. The closure-call row moves
 by ~1.4 ns per call (3 %), at the edge of the ±3 % run-to-run spread; the rows without closure calls
 move within it.
+
+## Intrinsics, immortal core roots — ef3641a, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The optimizer rewrites a call through a listed core var into an INTRINSIC node (a guard on the var's
+root, then the C function on borrowed arguments: no frame, no `clj_invoke`, no var deref), and every
+root bound by boot is immortal, so a call through any other core var reads it at +0 (NOTES.md,
+"Analyzer and evaluator"). Medians of three alternating runs of each binary (915405b vs ef3641a),
+ns per element or iteration; the machine carried a foreground load part of the session, so only runs
+whose Swift reference columns sat at their quiet values (0.3 / 0.1 / 0.7 ns) were kept.
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| reduce + map inc range | 1000 | 225.3 | 180.1 | −20 % |
+| reduce + map inc range | 100000 | 223.2 | 178.1 | −20 % |
+| seq walk of a vector | 1000 | 54.9 | 38.2 | −30 % |
+| counting loop | 100000 | 29.1 | 15.2 | −48 % |
+| closure call in a loop | 100000 | 45.2 | 31.9 | −29 % |
+
+- **Counting loop, 29 → 15 ns.** `(< i n)` and `(inc i)` were two builtin calls at ~10 ns each (an
+  atomic retain/release pair on the var's root, `clj_invoke` through the descriptor slot, the native's
+  arity check, the variadic fold); as intrinsics they are ~3 ns each: the exec-table dispatch, two
+  borrowed argument reads, the guard (a relaxed load and a compare) and one indirect call into the
+  arithmetic. The other ~9 ns are the `loop`/`if`/`recur` nodes (one exec-table dispatch each, the
+  `recur` argument buffer and the slot rebind).
+- **Closure call, 45 → 32 ns.** The loop above minus its `inc` (~12 ns) plus the call of `bench-inc`:
+  the var read is now +0 and the body's `(inc x)` an intrinsic, but the closure call itself still
+  costs ~17 ns — arity lookup, the stack guard, a zeroed 16-slot frame, shadow push/pop, the
+  instrumentation byte, the argument buffer and the slot release — which is the next target (design
+  §6b item 5: the var inline cache and a call without `clj_invoke`).
+- **Seq walk, 55 → 38 ns.** `first`, `next` and `+` are intrinsics (~9 ns together); what remains is
+  the vector-seq view allocated and freed per `next` (~10 ns), two trie leaf lookups, the six node
+  dispatches of the loop body and the two slot rebinds.
+- **Pipeline, 225 → 178 ns.** The intrinsics inside `map` and `reduce` (`seq`, `first`, `rest`,
+  `cons`) and the borrowed reads of `map`/`lazy-seq*` account for the 20 %; the rest is what the
+  optimizer cannot touch yet: three closure calls (`map`'s thunk, its recursion, `reduce`'s loop
+  body) at ~17 ns each, two calls of a fn held in a local (`(f (first s))`, `(f acc x)`) through the
+  generic `clj_invoke` at ~10 ns each, and four allocations per element (the cons, the lazy seq, the
+  thunk closure with its captures, the range step).
