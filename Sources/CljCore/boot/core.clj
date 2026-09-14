@@ -1,7 +1,6 @@
 ;; @ai-generated(guided)
 ;; Order matters: a macro must be defined before the first form that uses it.
-;; Docstrings are dropped: no metadata slot to keep them in yet (NOTES.md). def takes none at all,
-;; so the helpers it defines carry a comment instead.
+;; Docstrings land in the var's :doc; a helper defined with def (above defn) carries a comment instead.
 ;; Up to the `fn` macro only let*/loop*/fn* and the macros above a form are available;
 ;; defmacro emits fn* until `fn` is a macro, so those macro params cannot destructure.
 
@@ -160,7 +159,7 @@
             ret))))))
 
 ;; Throws unless bindings is a vector of an even number of forms; what names the form in the message.
-(def check-bindings
+(def ^:private check-bindings
   (fn* [what bindings]
     (if (vector? bindings)
       nil
@@ -196,7 +195,7 @@
           `(let ~bfs (loop* ~gs (let ~bs ~@body))))))))
 
 ;; Params with every non-symbol replaced by a gensym, destructured by a let wrapped around body.
-(def maybe-destructured
+(def ^:private maybe-destructured
   (fn* [params body]
     (loop* [i 0 new-params [] lets []]
       (if (< i (count params))
@@ -240,12 +239,32 @@
       (list* 'fn* name new-sigs)
       (list* 'fn* new-sigs))))
 
+;; The param vectors of an fdecl, one per arity, as the :arglists value.
+(def ^:private sigs
+  (fn* [fdecl]
+    (if (seq? (first fdecl))
+      (loop* [ret [] fdecls (seq fdecl)]
+        (if fdecls
+          (recur (conj ret (first (first fdecls))) (next fdecls))
+          (seq ret)))
+      (list (first fdecl)))))
+
 (defmacro defn
-  "(defn name docstring? [params] body...) or (defn name docstring? ([params] body...)...).
-  Defines name as the fn. The docstring is read and discarded: there is no metadata yet."
+  "(defn name docstring? attr-map? [params] body... attr-map?) or with ([params] body...)+ arities.
+  Same as (def name (fn ...)) with the docstring, the attr-maps and :arglists added to the var's metadata."
   [name & fdecl]
-  (let [fdecl (if (string? (first fdecl)) (next fdecl) fdecl)]
-    `(def ~name (fn ~@fdecl))))
+  (when-not (symbol? name)
+    (throw (ex-info "First argument to defn must be a symbol" nil)))
+  (let [m (if (string? (first fdecl)) {:doc (first fdecl)} {})
+        fdecl (if (string? (first fdecl)) (next fdecl) fdecl)
+        m (if (map? (first fdecl)) (conj m (first fdecl)) m)
+        fdecl (if (map? (first fdecl)) (next fdecl) fdecl)
+        fdecl (if (vector? (first fdecl)) (list fdecl) fdecl)
+        m (if (map? (last fdecl)) (conj m (last fdecl)) m)
+        fdecl (if (map? (last fdecl)) (butlast fdecl) fdecl)
+        m (conj {:arglists (list 'quote (sigs fdecl))} m)
+        m (conj (if (meta name) (meta name) {}) m)]
+    (list 'def (with-meta name m) (cons `fn fdecl))))
 
 (defmacro and
   "Evaluates its args left to right and returns the first logical-false one, or the
@@ -264,6 +283,16 @@
   ([x & next]
    `(let [or# ~x]
       (if or# or# (or ~@next)))))
+
+(defmacro defn-
+  "Same as defn, yielding a non-public def."
+  [name & decls]
+  (list* `defn (with-meta name (assoc (or (meta name) {}) :private true)) decls))
+
+(defn vary-meta
+  "Returns an object of the same type and value as obj, with (apply f (meta obj) args) as its metadata."
+  [obj f & args]
+  (with-meta obj (apply f (meta obj) args)))
 
 (defmacro ->
   "Threads x into each form as its first argument: (-> x (f a) g) is (g (f x a))."
@@ -343,6 +372,20 @@
            (if names
              (recur (next names) (cons `(def ~(first names)) defs))
              defs))))
+
+;; Clojure's print-doc layout: a rule, ns/name, the arglists, Macro when it is one, the docstring indented.
+(defn- print-doc [m]
+  (println "-------------------------")
+  (println (str (when-let [ns (:ns m)] (str ns "/")) (:name m)))
+  (when (:arglists m) (prn (:arglists m)))
+  (when (:macro m) (println "Macro"))
+  (when (:doc m) (println " " (:doc m))))
+
+;; #'print-doc: the expansion runs in the caller's namespace, where a private var does not resolve.
+(defmacro doc
+  "Prints the documentation of the var name resolves to."
+  [name]
+  `(#'print-doc (meta (var ~name))))
 
 ;; ---- seqs. Lazy where Clojure is lazy; eager walks use loop/recur so long seqs cost no stack.
 
@@ -584,7 +627,7 @@
 
 ;; (P (m [this] ...) (m [this a] ...) Q (n [x] ...)) → [[P [[m [([this] ...) ([this a] ...)]]]] [Q [[n [([x] ...)]]]],
 ;; a protocol named twice merging into one group.
-(defn group-impls
+(defn- group-impls
   "Groups the method impls of a deftype, reify or extend-type body by protocol, then by method name."
   [impls]
   (loop [impls (seq impls) cur -1 acc []]
@@ -610,7 +653,7 @@
               (recur (next impls) (count acc) (conj acc [x []]))))))
       acc)))
 
-(defn form-uses?
+(defn- form-uses?
   "True when sym occurs anywhere in form; shadowing is ignored."
   [form sym]
   (cond
@@ -621,12 +664,12 @@
     :else false))
 
 ;; A method's arities as one fn form; wrap turns (params body) into the body forms to emit.
-(defn method-fn
+(defn- method-fn
   "The fn form implementing one method from its sigs ((params body...) ...)."
   [sigs wrap]
   `(fn ~@(map (fn [sig] (list* (first sig) (wrap (first sig) (next sig)))) sigs)))
 
-(defn method-map
+(defn- method-map
   "The {:method (fn ...)} form of one protocol's grouped methods."
   [ms wrap]
   (loop [ms (seq ms) m {}]
@@ -635,19 +678,27 @@
         (recur (next ms) (assoc m (keyword (name nm)) (method-fn sigs wrap))))
       m)))
 
-(defn body-as-is
+(defn- body-as-is
   "The wrap that emits a method body unchanged."
   [params body]
   body)
 
 (defmacro defprotocol
-  "(defprotocol P docstring? (m [this] [this a] docstring?) ...): P holds the protocol, each method a dispatching fn."
+  "(defprotocol P docstring? (m [this] [this a] docstring?) ...): P holds the protocol, each method a
+  dispatching fn; the docstrings land in :doc of the vars, the param vectors in :arglists of the methods."
   [nm & specs]
-  (let [specs (if (string? (first specs)) (next specs) specs)
-        sigs (vec (map (fn [s] [(first s) (vec (filter vector? (next s)))]) specs))]
+  (let [pdoc (when (string? (first specs)) (first specs))
+        specs (if pdoc (next specs) specs)
+        sigs (vec (map (fn [s] [(first s) (vec (filter vector? (next s)))]) specs))
+        docs (vec (map (fn [s] (some (fn [x] (when (string? x) x)) (next s))) specs))
+        method-def (fn [i]
+                     (let [[mname arglists] (nth sigs i)
+                           m {:arglists (list 'quote (seq arglists))}
+                           m (if (nth docs i) (assoc m :doc (nth docs i)) m)]
+                       `(def ~(with-meta mname m) (protocol-method* ~nm ~i))))]
     `(do
-       (def ~nm (protocol* '~nm '~sigs))
-       ~@(map (fn [i] `(def ~(first (nth sigs i)) (protocol-method* ~nm ~i))) (range (count sigs)))
+       (def ~(if pdoc (with-meta nm {:doc pdoc}) nm) (protocol* '~nm '~sigs))
+       ~@(map method-def (range (count sigs)))
        '~nm)))
 
 (defn extend
