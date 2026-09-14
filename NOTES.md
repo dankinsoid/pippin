@@ -20,16 +20,40 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Type descriptor (object.h, coll.c, seq.c)
 
-- **Builtin descriptors are write-once and `user_protos` is NULL.** No mutation API: `extend-type`,
-  `defprotocol`, `deftype`/`reify` are not implemented. Trigger: the first `defprotocol`. Then a
-  protocol table hangs off `user_protos`, patched under a global mutex with release-store /
-  acquire-load, and every patch bumps a **protocol epoch** (design section "Дескриптор типа") so
-  inline caches on AST nodes invalidate; without the epoch a REPL `extend-type` never reaches a
-  cached call site. The core-interface slots of a builtin type stay closed even then.
+- **Builtin descriptors stay `const`; their protocol tables live in a side table** (proto.c) keyed by
+  descriptor pointer, while a `deftype`/`reify` descriptor owns its table in `user_protos`. Both are
+  immutable snapshots: `extend` builds the next one under the protocol mutex, publishes it with a
+  seq_cst store, bumps `clj_proto_epoch()` and frees the old one after every reader's dispatch window
+  (a per-thread flag, Dekker-ordered with the publish) has closed. Per-thread reader slots are never
+  freed; a retired snapshot's impls are released, so a redefinition leaks nothing. The
+  core-interface slots of every type stay write-once: `(extend-type String ISeq ...)` is refused.
+- **Protocol dispatch has no inline cache.** Every call walks the type's snapshot (a linear scan of
+  its protocols) and on a miss the core-interface entries, then `Object`. The epoch is exposed for
+  the cache the design describes; nothing consumes it yet. Trigger: protocol calls in a profile.
+- **No `defrecord`, no `.-field` access, no protocol inheritance, no deftype metadata.** A deftype's
+  fields are positional slots read through `field*`, visible as locals inside its own method bodies
+  only; from outside there is no accessor. A protocol cannot extend another. `extend-type` on a
+  core interface as the *type* (`(extend-type ISeq P ...)`) covers every type with those bits, on
+  the concrete type missing; a user protocol cannot be a type designator. Trigger: the first
+  record-shaped state (then a shape descriptor with map slots) or the first `(.-x o)`.
+- **`reify` creates and extends its type at macro expansion**, so `macroexpand` of a reify form
+  makes a throwaway type (freed with the expansion) and bumps the epoch. Its closures live in the
+  instance's fields; the type's slots hold trampolines into them. `deftype` methods may shadow a
+  field with a param, as in Clojure; fields a body names are bound at the top of that body (one
+  `field*` call each), whether or not the reference is under a `quote`.
+- **Builtin type names are vars in clojure.core** (`String`, `Long`/`Integer`, `Double`, `Boolean`,
+  `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentList`/`Cons`,
+  `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,
+  `Protocol`, `Type`, `Object`; the core interfaces `Seqable ISeq Sequential IPersistentCollection
+  Counted ILookup Associative Indexed IFn IPersistentList IPersistentVector IPersistentMap
+  IExceptionInfo`) holding descriptors; `(type x)` reaches every other one and `nil` is the literal.
+  A user `(def String ...)` shadows the name. `Number` does not exist: fixnum and double are two
+  descriptors, extend both.
 - **`clj_seq_iter` walks builtin seq types only** (cons, (), vector, string, the seq.h types) and
-  aborts on anything else. Trigger: a `deftype` implementing ISeq; the iterator then falls back to
-  the first/next slots with an owned intermediate, and callers that keep borrowed items past the
-  walk (analyzer `seq_items`, `clj_seq_items`) retain them.
+  aborts on anything else. Trigger: a `deftype` implementing ISeq — which today cannot exist, as
+  core interfaces are not extendable; when they are, the iterator falls back to the first/next slots
+  with an owned intermediate, and callers that keep borrowed items past the walk (analyzer
+  `seq_items`, `clj_seq_items`) retain them.
 - **No chunked seqs.** `seq` on a vector is a view that allocates one 32-byte object per `next`
   (bench/RESULTS.md: 50 ns per element interpreted, 3.5 ns through the iterator). Trigger: seq
   walks of big vectors in a profile; Clojure's chunked seqs batch 32 elements per allocation and
@@ -177,7 +201,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - **Coverage is the minimum for the evaluator tests and core.clj**: arithmetic and comparison, type
   predicates, `get assoc dissoc contains? count conj nth first rest next cons list list* vector
-  hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash`,
+  hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
+  resolve deref identical? type instance? satisfies? extends?` (`deref` takes vars only: no atoms),
   the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative? indexed? list?
   vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str pr prn print
   println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data ex-cause`. No `keys`, `vals`, `max`,
@@ -209,6 +234,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `check-bindings`, `maybe-destructured` (public vars; Clojure keeps the second private). Not yet:
   `defn-`, `doto`, `condp`, `case`, `while`, `letfn`, `for`, `doseq`, `fn` literals, `some->`, `as->`,
   `cond->`, `reduced` (so `reduce` cannot stop early), `sort`, `group-by`, `frequencies`, transducers.
+- **Protocol macros keep their helpers public** (`group-impls`, `form-uses?`, `method-fn`,
+  `method-map`, `body-as-is`), as `destructure` does. `defprotocol` drops docstrings and takes no
+  options (`:extend-via-metadata`, `:on-interface`). `extend` rejects a key that names no method
+  where Clojure ignores it. Method fns are unnamed, so an arity error inside an impl says `fn`; the
+  dispatching fn checks the declared arities first and names the method.
 - **`concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only**: syntax-quote expands `~@` to
   `(seq (concat ...))`, so every macro expansion runs through it. A macro's output is therefore a
   cons chain with lazy tails, which the analyzer realizes while collecting items; code-sized data,
@@ -236,6 +266,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `ex-info` from Clojure code, or the analyzer's positioned rethrow of a macro failure) it surfaces as
   `ClojureError` with `cause.hostError` set. Trigger: a host caller wanting `catch let e as MyError`
   through a macro; then unwrap the cause chain in `takePending` or stop positioning host errors.
+- **A Swift fn extends a protocol only through `extend`** (`(extend T P {:m f})` with `f` a
+  `Value(function:)`); there is no Swift API for protocols, types or `satisfies?`. Trigger: a host
+  wanting to implement a Clojure protocol for its own type registry (design section "Интероп").
 - **`Value(function:)` bounds arity with a closed range**; a variadic fn with a minimum is `nil`
   (any count) plus a check in the body. Trigger: the first host fn wanting `[a & rest]` semantics.
 - **The Swift body of a host fn is not `Sendable`-checked** and runs on whichever thread invokes the
