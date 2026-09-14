@@ -56,8 +56,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `(get x k)` reaches a `valAt` that has only the 2-arity, a not-found needs the 3-arity (a `reify`
   trampoline accepts any arity, so its `valAt` always gets 3 args). The trampolines type-check what
   comes back (`seq`/`next` a seq or nil, `more` a seq, `count` a non-negative integer, ex-* their
-  field types) and throw otherwise; `count` reports a throw as `CLJ_COUNT_THROWN`, the one slot
-  without a value-sized error channel. Limitations: `empty` and `applyTo` have no slot and are
+  field types) and throw otherwise. Limitations: `empty` and `applyTo` have no slot and are
   refused by name; `Associative`, `Indexed`, `IPersistentMap/Vector/List` cannot be implemented (no
   assoc/nth slots — trigger: the first user map or vector type); `Object` methods
   (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an

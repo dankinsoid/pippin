@@ -492,7 +492,7 @@ static clj_value map_seq(clj_value self) {
 	return list;
 }
 
-static size_t map_count(clj_value self) { return clj_map_count(self); }
+static clj_value map_count(clj_value self) { return clj_fixnum(clj_map_count(self)); }
 
 static clj_value map_lookup(clj_value self, clj_value key, clj_value not_found) {
 	return clj_retain(clj_map_get(self, key, not_found));

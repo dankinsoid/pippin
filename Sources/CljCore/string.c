@@ -63,7 +63,7 @@ static clj_value string_next(clj_value self) {
 	return next < len ? clj_string_seq_new(self, (uint32_t)next) : CLJ_NIL;
 }
 
-static size_t string_count(clj_value self) { return clj_string_count(self); }
+static clj_value string_count(clj_value self) { return clj_fixnum((intptr_t)clj_string_count(self)); }
 
 // (get "abc" 1) is \b, as RT.get special-cases strings; a string is still no ILookup (no bit).
 static clj_value string_lookup(clj_value self, clj_value key, clj_value not_found) {

@@ -74,10 +74,7 @@ clj_value clj_seq_cons(clj_value x, clj_value coll) {
 clj_value clj_count(clj_value coll) {
 	if (clj_is_nil(coll)) return clj_fixnum(0);
 	const clj_type *t = type_or_null(coll);
-	if (t && t->count) {
-		size_t n = t->count(coll);
-		return n == CLJ_COUNT_THROWN ? CLJ_THROWN : clj_fixnum((intptr_t)n);
-	}
+	if (t && t->count) return t->count(coll);
 	if (!t || !t->seq) return clj_throw_msg("count not supported on this type: %s", clj_type_name(coll));
 	clj_value s = t->seq(coll);
 	if (s == CLJ_THROWN) return s;
@@ -128,7 +125,9 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		// CLJ_UNBOUND is never an element, so it tells a miss from a stored value.
 		clj_value r = t->lookup(coll, index, CLJ_UNBOUND);
 		if (r != CLJ_UNBOUND) return r;
-		count = t->count(coll);
+		clj_value n = t->count(coll);
+		if (n == CLJ_THROWN) return n;
+		count = (size_t)clj_fixnum_val(n);
 	} else if (t == &clj_string_type) {
 		uint32_t cp;
 		if (i >= 0 && string_nth(coll, (size_t)i, &cp)) return clj_char(cp);

@@ -24,9 +24,9 @@ static clj_value vector_seq_next(clj_value self) {
 	return s->i + 1 < clj_vector_count(s->vec) ? clj_vector_seq_new(s->vec, s->i + 1) : CLJ_NIL;
 }
 
-static size_t vector_seq_count(clj_value self) {
+static clj_value vector_seq_count(clj_value self) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
-	return clj_vector_count(s->vec) - s->i;
+	return clj_fixnum(clj_vector_count(s->vec) - s->i);
 }
 
 const clj_type clj_vector_seq_type = {
@@ -66,12 +66,12 @@ static clj_value string_seq_next(clj_value self) {
 	return next < len ? clj_string_seq_new(s->str, (uint32_t)next) : CLJ_NIL;
 }
 
-static size_t string_seq_count(clj_value self) {
+static clj_value string_seq_count(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
 	const unsigned char  *p = (const unsigned char *)clj_string_bytes(s->str);
 	size_t                n = clj_string_len(s->str), count = 0;
 	for (size_t i = s->pos; i < n; i++) count += (p[i] & 0xC0) != 0x80;
-	return count;
+	return clj_fixnum((intptr_t)count);
 }
 
 const clj_type clj_string_seq_type = {
@@ -104,10 +104,10 @@ static clj_value range_next(clj_value self) {
 	return clj_range_new(next, r->end, r->step);
 }
 
-static size_t range_count(clj_value self) {
+static clj_value range_count(clj_value self) {
 	const clj_range *r = clj_range_of(self);
 	intptr_t         span = r->end - r->start, step = r->step;
-	return (size_t)(span / step + (span % step != 0));
+	return clj_fixnum(span / step + (span % step != 0));
 }
 
 const clj_type clj_range_type = {

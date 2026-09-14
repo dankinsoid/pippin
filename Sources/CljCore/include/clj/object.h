@@ -58,9 +58,6 @@ typedef void (*clj_visitor)(clj_value child, void *ctx);
 #define CLJ_CORE_HASHEQ      0x2000 // IHashEq: hasheq method behind the hash slot
 #define CLJ_CORE_EQUIV       0x4000 // IEquiv: equiv method behind the equals slot
 
-// A count slot returning this has thrown, the exception pending; only a deftype trampoline does.
-#define CLJ_COUNT_THROWN SIZE_MAX
-
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.
 // Core-interface slots are write-once: a builtin's are static, a deftype's are filled at creation from
@@ -85,8 +82,8 @@ struct clj_type {
 	clj_value (*next)(clj_value self);
 	// ISeq.more: NULL means next, or () when that is nil. A cons overrides it to hand out an unrealized tail.
 	clj_value (*rest)(clj_value self);
-	// NULL: count walks the seq. CLJ_COUNT_THROWN with the exception pending (deftype only).
-	size_t (*count)(clj_value self);
+	// NULL: count walks the seq. A fixnum, or CLJ_THROWN like every other slot.
+	clj_value (*count)(clj_value self);
 	clj_value (*lookup)(clj_value self, clj_value key, clj_value not_found);
 	clj_value (*conj)(clj_value self, clj_value x);
 	// Arity is checked by the object (a fn carries its arity table), not the type.

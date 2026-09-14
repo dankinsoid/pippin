@@ -206,7 +206,7 @@ static clj_value vector_first(clj_value self) { return vector_of(self)->count ? 
 
 static clj_value vector_next(clj_value self) { return vector_of(self)->count > 1 ? clj_vector_seq_new(self, 1) : CLJ_NIL; }
 
-static size_t vector_count(clj_value self) { return vector_of(self)->count; }
+static clj_value vector_count(clj_value self) { return clj_fixnum(vector_of(self)->count); }
 
 static clj_value vector_lookup(clj_value self, clj_value key, clj_value not_found) {
 	if (clj_is_fixnum(key)) {

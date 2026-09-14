@@ -6,9 +6,9 @@ static clj_value empty_list_nil(clj_value self) {
 	return CLJ_NIL;
 }
 
-static size_t empty_list_count(clj_value self) {
+static clj_value empty_list_count(clj_value self) {
 	(void)self;
-	return 0;
+	return clj_fixnum(0);
 }
 
 const clj_type clj_empty_list_type = {

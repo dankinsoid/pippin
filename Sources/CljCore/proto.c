@@ -639,10 +639,9 @@ static clj_value user_next(clj_value self) {
 	return checked(self, CLJ_CM_NEXT, r, clj_is_nil(r) || clj_is_seq(r), "a seq or nil");
 }
 
-static size_t user_count(clj_value self) {
+static clj_value user_count(clj_value self) {
 	clj_value r = call_core(self, CLJ_CM_COUNT, NULL, 0);
-	r = checked(self, CLJ_CM_COUNT, r, clj_is_fixnum(r) && clj_fixnum_val(r) >= 0, "a non-negative integer");
-	return r == CLJ_THROWN ? CLJ_COUNT_THROWN : (size_t)clj_fixnum_val(r);
+	return checked(self, CLJ_CM_COUNT, r, clj_is_fixnum(r) && clj_fixnum_val(r) >= 0, "a non-negative integer");
 }
 
 // (get x k) reaches valAt with 2 args when the fn has no 3-arity, as RT.get on the JVM; a not-found needs the 3-arity.
