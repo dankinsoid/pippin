@@ -112,7 +112,8 @@ extension CoreTests {
 				let m = try? Value(reading: "{:a 1, :b 2}")
 				#expect(["{:a 1, :b 2}", "{:b 2, :a 1}"].contains(m?.description ?? ""))
 				#expect(Value(owning: clj_map_empty()).description == "{}")
-				#expect(Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(consNil.raw).pointee.type))).description == "#object[type]")
+				// A type descriptor prints as its name, as a class does in Clojure.
+				#expect(Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(consNil.raw).pointee.type))).description == "cons")
 				#expect("\(Value(list: [Value(symbol: "quote"), Value(symbol: "x")]))" == "(quote x)")
 			}
 			#expect(clj_debug_live_objects() == before)

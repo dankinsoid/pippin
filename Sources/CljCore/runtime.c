@@ -8,6 +8,7 @@
 #include "clj/keyword.h"
 #include "clj/ns.h"
 #include "clj/printer.h"
+#include "clj/proto.h"
 #include "clj/reader.h"
 #include "clj/runtime.h"
 #include "clj/string.h"
@@ -59,6 +60,7 @@ static void init(void) {
 	// Interned up front so printing an error or an analysis position allocates nothing lasting later.
 	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_builtins_install();
+	clj_proto_install();
 	clj_ns_set_current(core);
 	load_core();
 	clj_ns_set_current(clj_ns_user());

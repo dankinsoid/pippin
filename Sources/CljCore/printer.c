@@ -299,6 +299,12 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		collect_ctx c = {f->entries, 0};
 		clj_map_each(v, collect_entry, &c);
 		f->n = n;
+	} else if (clj_is_type(v)) {
+		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);
+	} else if (clj_is_protocol(v)) {
+		put_cstr(b, "#object[protocol ");
+		put_symbol_text(b, clj_symbol_ns(clj_protocol_of(v)->name), clj_symbol_name(clj_protocol_of(v)->name));
+		put_char(b, ']');
 	} else {
 		put_fmt(b, "#object[%s]", clj_type_name(v));
 	}

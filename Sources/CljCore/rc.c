@@ -5,11 +5,6 @@
 
 #include "alloc.h"
 
-const clj_type clj_type_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
-	.name = "type",
-};
-
 void clj_fatal(const char *msg) {
 	fprintf(stderr, "clj: fatal: %s\n", msg);
 	abort();
@@ -18,11 +13,10 @@ void clj_fatal(const char *msg) {
 static bool release_reaches_zero(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
 	if (h->flags & CLJ_FLAG_SHARED) {
-		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_release);
+		// acq_rel rather than release plus an acquire fence on zero: TSan does not model fences.
+		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_acq_rel);
 		CLJ_ASSERT(prev > 0, "release of a freed shared object");
-		if (prev != 1) return false;
-		atomic_thread_fence(memory_order_acquire);
-		return true;
+		return prev == 1;
 	}
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	CLJ_ASSERT(rc > 0, "release of a freed object");

@@ -718,6 +718,20 @@ static clj_value b_identity(const clj_value *args, size_t n) {
 
 static clj_value b_apply(const clj_value *args, size_t n) { return clj_apply(args[0], args + 1, n - 1); }
 
+// ---- vars
+
+static clj_value b_resolve(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_symbol(args[0])) return clj_throw_msg("resolve expects a symbol, got: %s", clj_type_name(args[0]));
+	return clj_ns_resolve(clj_ns_current(), args[0]);
+}
+
+static clj_value b_deref(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_var(args[0])) return clj_throw_msg("deref not supported on this type: %s", clj_type_name(args[0]));
+	return clj_var_deref(args[0]);
+}
+
 // ---- registration
 
 typedef struct {
@@ -750,6 +764,7 @@ static const entry entries[] = {
 	{"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
+	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 1},
 };
 
 void clj_builtins_install(void) {
