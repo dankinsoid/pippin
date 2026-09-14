@@ -25,8 +25,46 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   immutable snapshots: `extend` builds the next one under the protocol mutex, publishes it with a
   seq_cst store, bumps `clj_proto_epoch()` and frees the old one after every reader's dispatch window
   (a per-thread flag, Dekker-ordered with the publish) has closed. Per-thread reader slots are never
-  freed; a retired snapshot's impls are released, so a redefinition leaks nothing. The
-  core-interface slots of every type stay write-once: `(extend-type String ISeq ...)` is refused.
+  freed; a retired snapshot's impls are released, so a redefinition leaks nothing. The core-interface
+  slots of every type are write-once: a builtin's are static, a `deftype`/`reify` fills its own at
+  creation from the interfaces its form names (next item); `(extend-type String ISeq ...)` and
+  `(extend-type MyType ISeq ...)` are refused alike.
+- **`deftype`/`reify` implement core interfaces through slot trampolines.** `deftype*` takes every
+  `interface method-map` pair of the form: a core interface fills the descriptor's slots with C
+  trampolines into the method fns (`core_fns` on `clj_user_type`, visited by `type_each_child`) and
+  ORs its bits into `core_bits`; a protocol goes through `extend`. The canonical table (JVM method
+  names, so Clojure code reads as is):
+
+  | interface | methods (`this` first) | slot | bits |
+  |---|---|---|---|
+  | `Seqable` | `seq` | seq | SEQABLE |
+  | `ISeq` | `seq first next more`/`rest` `cons count equiv` | seq first next rest conj count equals | SEQ, SEQABLE, COLL |
+  | `Sequential` | none (marker) | equals/hash default to the ASeq trait | SEQUENTIAL |
+  | `IPersistentCollection` | `seq cons count equiv` | seq conj count equals | COLL, SEQABLE |
+  | `Counted` | `count` | count | COUNTED |
+  | `ILookup` | `valAt` (2 and 3 args) | lookup | LOOKUP |
+  | `IFn` | `invoke` (any arities) | invoke | FN |
+  | `IHashEq` | `hasheq` | hash | HASHEQ |
+  | `IEquiv` | `equiv` | equals | EQUIV |
+  | `IExceptionInfo` | `ex-message ex-data ex-cause` (`getMessage getData getCause`) | ex_message ex_data ex_cause | ERROR |
+
+  `count` under `ISeq` fills the slot without the Counted bit; `equiv`/`hasheq` given anywhere set
+  EQUIV/HASHEQ (bits only user types carry: `(satisfies? IHashEq [1])` is false). A declared
+  interface keeps its slot even without the method, and that slot throws "No implementation of
+  method" when reached — the JVM refuses the form at compile time; ex-* default to nil as
+  `Throwable.getMessage` does; `next` missing but `more` given derives next as `(seq (more x))`.
+  `(get x k)` reaches a `valAt` that has only the 2-arity, a not-found needs the 3-arity (a `reify`
+  trampoline accepts any arity, so its `valAt` always gets 3 args). The trampolines type-check what
+  comes back (`seq`/`next` a seq or nil, `more` a seq, `count` a non-negative integer, ex-* their
+  field types) and throw otherwise; `count` reports a throw as `CLJ_COUNT_THROWN`, the one slot
+  without a value-sized error channel. Limitations: `empty` and `applyTo` have no slot and are
+  refused by name; `Associative`, `Indexed`, `IPersistentMap/Vector/List` cannot be implemented (no
+  assoc/nth slots — trigger: the first user map or vector type); `Object` methods
+  (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
+  arity error inside a method says `fn` and counts `this`, except `IFn`'s, which the trampoline
+  checks first and reports with the type name; no chunked/`IReduce` fast paths, so every element
+  of a user seq costs two Clojure calls (`first`, `next`) and usually an instance allocation, and
+  `count` without `Counted` walks it.
 - **Protocol dispatch has no inline cache.** Every call walks the type's snapshot (a linear scan of
   its protocols) and on a miss the core-interface entries, then `Object`. The epoch is exposed for
   the cache the design describes; nothing consumes it yet. Trigger: protocol calls in a profile.
@@ -39,31 +77,37 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   core interface as the *type* (`(extend-type ISeq P ...)`) covers every type with those bits, on
   the concrete type missing; a user protocol cannot be a type designator. Trigger: the first
   record-shaped state (then a shape descriptor with map slots) or the first `(.-x o)`.
-- **`reify` creates and extends its type at macro expansion**, so `macroexpand` of a reify form
-  makes a throwaway type (freed with the expansion) and bumps the epoch. Its closures live in the
-  instance's fields; the type's slots hold trampolines into them. `deftype` methods may shadow a
-  field with a param, as in Clojure; fields a body names are bound at the top of that body (one
-  `field*` call each), whether or not the reference is under a `quote`.
+- **`reify` creates its type, slots and protocol tables at macro expansion**, so `macroexpand` of a
+  reify form makes a throwaway type (freed with the expansion) and bumps the epoch. Its closures
+  live in the instance's fields; the type's slots and tables hold trampolines into them. `deftype`
+  methods may shadow a field with a param, as in Clojure; fields a body names are bound at the top
+  of that body (one `field*` call each), whether or not the reference is under a `quote`.
 - **Builtin type names are vars in clojure.core** (`String`, `Long`/`Integer`, `Double`, `Boolean`,
   `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentList`/`Cons`,
   `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,
   `Protocol`, `Type`, `Object`; the core interfaces `Seqable ISeq Sequential IPersistentCollection
-  Counted ILookup Associative Indexed IFn IPersistentList IPersistentVector IPersistentMap
-  IExceptionInfo`) holding descriptors; `(type x)` reaches every other one and `nil` is the literal.
+  Counted ILookup Associative Indexed IFn IHashEq IEquiv IPersistentList IPersistentVector
+  IPersistentMap IExceptionInfo`) holding descriptors; `(type x)` reaches every other one and `nil` is the literal.
   A user `(def String ...)` shadows the name. `Number` does not exist: fixnum and double are two
   descriptors, extend both.
-- **`clj_seq_iter` walks builtin seq types only** (cons, (), vector, string, the seq.h types) and
-  aborts on anything else. Trigger: a `deftype` implementing ISeq — which today cannot exist, as
-  core interfaces are not extendable; when they are, the iterator falls back to the first/next slots
-  with an owned intermediate, and callers that keep borrowed items past the walk (analyzer
-  `seq_items`, `clj_seq_items`) retain them.
+- **`clj_seq_iter` walks builtin seq types inline** (cons, (), vector, string, the seq.h types) and
+  everything else through its slots: a seqable that is no seq is `seq`'d, a seq's `first`/`next`
+  hand out owned values the iterator holds (`held`, `item`) until the next step or
+  `clj_seq_iter_close`, which a walk that stops early must call (`nth`, `clj_seq_equals`, the
+  printer's frames, `is_do_form`, `macro_var` do). Items of the inline path stay borrowed from the
+  walked value; once a slot yielded one (`it.slots`) `clj_seq_items` retains every item and hands
+  back a vector as `keep`, and the analyzer holds such vectors (`analyzer.keeps`) until the
+  analysis ends. Trigger for a faster path: a user seq in a profile (chunking, or a slot walk that
+  batches).
 - **No chunked seqs.** `seq` on a vector is a view that allocates one 32-byte object per `next`
   (bench/RESULTS.md: 50 ns per element interpreted, 3.5 ns through the iterator). Trigger: seq
   walks of big vectors in a profile; Clojure's chunked seqs batch 32 elements per allocation and
   need `chunk-first`/`chunk-rest` in `map`/`filter`/`reduce`.
 - **`clj_equals`/`clj_hash` cannot throw**, so a lazy seq whose thunk throws compares unequal /
-  hashes what it yielded and the exception is dropped (`drop_thrown` in coll.c); Clojure throws
-  out of `=`. Trigger: user code relying on that exception. Fix: fallible equals/hash slots.
+  hashes what it yielded and the exception is dropped (`drop_thrown` in coll.c); a deftype `equiv`
+  that throws compares unequal and a `hasheq` that throws or yields a non-integer hashes 0, the
+  same way. Clojure throws out of `=`. Trigger: user code relying on that exception. Fix: fallible
+  equals/hash slots.
 - **`apply` spreads its whole last argument** (`clj_seq_items`), so `(apply f infinite-seq)` never
   returns even for a variadic f; Clojure hands the rest seq to a variadic fn lazily. core.clj avoids
   `(apply concat ...)` for that reason (`mapcat`). Trigger: a library doing `(apply concat (map ...))`
