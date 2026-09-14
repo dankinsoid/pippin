@@ -3,6 +3,7 @@
 
 #include "clj/epoch.h"
 #include "clj/error.h"
+#include "clj/eval.h"
 #include "clj/fn.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
@@ -62,7 +63,7 @@ clj_value clj_var_root(clj_value var) { return atomic_load_explicit(&clj_var_of(
 void clj_var_bind_root(clj_value var, clj_value val) {
 	clj_share(val);
 	clj_value old = atomic_exchange_explicit(&clj_var_of(var)->root, clj_retain(val), memory_order_acq_rel);
-	if (old != CLJ_UNBOUND) clj_release(old);
+	if (old != CLJ_UNBOUND && !clj_eval_retire_root(old)) clj_release(old);
 	clj_epoch_bump();
 }
 

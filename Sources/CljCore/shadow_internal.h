@@ -23,6 +23,7 @@ static inline void clj_shadow_push(const clj_node *fn_node, const clj_node *call
 	s->depth++;
 }
 
-static inline void clj_shadow_pop(void) { clj_shadow_tls->depth--; }
+// The depth left; 0 means no closure runs on the thread.
+static inline size_t clj_shadow_pop(void) { return --clj_shadow_tls->depth; }
 
 #endif

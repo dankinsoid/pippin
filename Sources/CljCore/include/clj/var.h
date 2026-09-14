@@ -30,7 +30,8 @@ clj_value clj_var_root(clj_value var);
 // The same without ordering: for a guard that only compares the root against a known immortal object.
 static inline clj_value clj_var_root_relaxed(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->root, memory_order_relaxed); }
 static inline bool clj_var_is_bound(clj_value var) { return clj_var_root(var) != CLJ_UNBOUND; }
-// Shares and retains val (a var is reachable from every thread), releases the previous root.
+// Shares and retains val (a var is reachable from every thread), releases the previous root (a fn root once the
+// thread is idle: clj_eval_retire_root).
 void clj_var_bind_root(clj_value var, clj_value val);
 // Owned root; throws when unbound.
 clj_value clj_var_deref(clj_value var);

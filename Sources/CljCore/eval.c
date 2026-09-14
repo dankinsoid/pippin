@@ -39,10 +39,44 @@ static void buf_free(clj_value *small, clj_value *p) {
 
 static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
 
+// Old fn roots a def replaced while this thread was evaluating. A fn root is read at +0 (eval_borrowed), so
+// the release waits until nothing on the thread can still hold such a read: no closure frame (shadow depth)
+// and no clj_exec_run. Unbounded while the thread stays in flight; a def on another thread is not covered
+// (NOTES.md).
+typedef struct {
+	clj_value *items;
+	size_t     n, cap;
+	uint32_t   exec_depth; // clj_exec_run nesting on this thread
+} retired_roots;
+
+static _Thread_local retired_roots retired;
+
+static bool in_flight(void) { return retired.exec_depth > 0 || (clj_shadow_tls && clj_shadow_tls->depth > 0); }
+
+// @ai-generated(guided)
+bool clj_eval_retire_root(clj_value old) {
+	if (!clj_is_fn(old) || !in_flight()) return false;
+	if (retired.n == retired.cap) {
+		retired.cap = retired.cap ? retired.cap * 2 : 8;
+		retired.items = realloc(retired.items, retired.cap * sizeof *retired.items);
+		if (!retired.items) clj_fatal("out of memory");
+	}
+	retired.items[retired.n++] = old;
+	return true;
+}
+
+// Called where a depth returned to zero; the other one may still be up.
+static void drain_retired(void) {
+	if (in_flight()) return;
+	while (retired.n) clj_release(retired.items[--retired.n]);
+}
+
+size_t clj_debug_retired_roots(void) { return retired.n; }
+
 // A local, captured or constant read without a retain: its home (the frame, the closure's env, the tree)
-// outlives the consumer. A var's root is borrowed only while immortal (every root bound by boot): a rebind
-// releases an ordinary root at once, and the +1 taken here is what keeps such a body alive through the call.
-// Every other kind evaluates owned.
+// outlives the consumer. A var's root is borrowed when immortal (every root bound by boot) or a fn (a rebind
+// parks the old fn until the thread is idle, clj_eval_retire_root); a data root is retained, since a rebind
+// releases it at once. Every other kind evaluates owned.
 // @ai-generated(guided)
 static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *owned) {
 	*owned = false;
@@ -59,7 +93,8 @@ static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *own
 			}
 			return root;
 		}
-		if (clj_header_of(root)->flags & CLJ_FLAG_IMMORTAL) return root;
+		const clj_header *h = clj_header_of(root);
+		if ((h->flags & CLJ_FLAG_IMMORTAL) || h->type == &clj_fn_type) return root;
 		*owned = true;
 		return clj_retain(root);
 	}
@@ -536,7 +571,7 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 #endif
 		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
 	}
-	clj_shadow_pop();
+	if (__builtin_expect(clj_shadow_pop() == 0, 0) && retired.n) drain_retired();
 	slots_release(&frame, arity->nslots);
 	if (slots != small) free(slots);
 	return v;
@@ -553,10 +588,12 @@ clj_value clj_exec_run(clj_value exec) {
 	}
 	memset(slots, 0, nslots * sizeof *slots);
 	clj_frame frame = {slots, NULL, e, 0};
+	retired.exec_depth++;
 	clj_value v = eval_child(e->root, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
 	slots_release(&frame, nslots);
 	if (slots != small) free(slots);
+	if (--retired.exec_depth == 0 && retired.n) drain_retired();
 	return v;
 }
 

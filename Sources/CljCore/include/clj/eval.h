@@ -50,6 +50,13 @@ clj_value clj_eval_node(const clj_node *node);
 // Analyze and evaluate one form; env NULL means the current namespace and no position.
 clj_value clj_eval(clj_value form, const clj_env *env);
 
+// Takes an old fn root a rebind replaced while this thread evaluates (a closure frame or clj_exec_run is up)
+// and releases it once the thread is idle; false when the caller releases it itself. Only fn roots are read
+// at +0 by the evaluator, so only they are parked.
+bool clj_eval_retire_root(clj_value old);
+// Parked roots on this thread, for tests.
+size_t clj_debug_retired_roots(void);
+
 // Arity dispatch and body evaluation of a closure; clj_invoke calls it.
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n);
 // The same with the invoke node for the shadow frame (shadow.h); NULL when there is none.
