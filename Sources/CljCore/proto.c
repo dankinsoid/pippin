@@ -7,6 +7,7 @@
 
 #include "clj/coll.h"
 #include "clj/core.h"
+#include "clj/epoch.h"
 #include "clj/error.h"
 #include "clj/fn.h"
 #include "clj/keyword.h"
@@ -47,7 +48,6 @@ typedef struct {
 // One writer at a time; readers never take it.
 static pthread_mutex_t       lock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic(side_table *) side;
-static _Atomic uint64_t      epoch;
 static _Atomic uint32_t      next_proto_id;
 
 // A thread's dispatch window; a writer frees a retired snapshot only after every window has closed.
@@ -86,8 +86,6 @@ static void wait_readers(void) {
 		while (atomic_load_explicit(&r->active, memory_order_seq_cst)) sched_yield();
 	}
 }
-
-uint64_t clj_proto_epoch(void) { return atomic_load_explicit(&epoch, memory_order_acquire); }
 
 // ---- pseudo-descriptors: dispatch keys for immediates, Object and the core interfaces
 
@@ -479,7 +477,7 @@ clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map
 	proto_table *fresh = table_with(old, proto, fns);
 	if (immortal) atomic_store_explicit(&side, side_with(old_side, t, fresh), memory_order_seq_cst);
 	else __atomic_store_n(&((clj_type *)t)->user_protos, fresh, __ATOMIC_SEQ_CST);
-	atomic_fetch_add_explicit(&epoch, 1, memory_order_release);
+	clj_epoch_bump();
 	wait_readers();
 	pthread_mutex_unlock(&lock);
 
@@ -848,6 +846,7 @@ clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *i
 	if (!clj_is_nil(ut->core_fns[CLJ_CM_HASH])) ut->t.core_bits |= CLJ_CORE_HASHEQ;
 	if (!clj_is_nil(ut->core_fns[CLJ_CM_EQUALS])) ut->t.core_bits |= CLJ_CORE_EQUIV;
 	fill_slots(ut);
+	clj_epoch_bump();
 	return type;
 }
 
@@ -1017,7 +1016,7 @@ static clj_value b_identical(const clj_value *args, size_t n) {
 static clj_value b_proto_epoch(const clj_value *args, size_t n) {
 	(void)args;
 	(void)n;
-	return clj_fixnum((intptr_t)clj_proto_epoch());
+	return clj_fixnum((intptr_t)clj_epoch());
 }
 
 static void bind_core(const char *name, clj_value val) {

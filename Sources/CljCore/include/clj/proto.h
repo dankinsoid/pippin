@@ -28,8 +28,6 @@ clj_value clj_protocol_method(clj_value proto, uint32_t idx);
 const clj_type *clj_dispatch_type(clj_value v);
 // The fallback every type reaches: (extend-type Object ...).
 const clj_type *clj_object_type(void);
-// Bumped by every extend; an inline cache keyed by type must check it.
-uint64_t clj_proto_epoch(void);
 
 // type is a descriptor, nil (the nil type) or a core interface; a core interface as proto is refused. nil or CLJ_THROWN.
 clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map);
