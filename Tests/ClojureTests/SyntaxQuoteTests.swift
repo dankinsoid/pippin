@@ -28,7 +28,9 @@ extension CoreTests {
 				#expect(try expand("`(a b)") == "(clojure.core/seq (clojure.core/concat (clojure.core/list (quote user/a)) (clojure.core/list (quote user/b))))")
 				#expect(try expand("`(inc sq-defined)") == "(clojure.core/seq (clojure.core/concat (clojure.core/list (quote clojure.core/inc)) (clojure.core/list (quote user/sq-defined))))")
 				#expect(try expand("`(if a (do b))") == "(clojure.core/seq (clojure.core/concat (clojure.core/list (quote if)) (clojure.core/list (quote user/a)) (clojure.core/list (clojure.core/seq (clojure.core/concat (clojure.core/list (quote do)) (clojure.core/list (quote user/b)))))))")
-				#expect(try expand("`(fn [a & r] (let [x 1] (recur x)))").contains("(quote fn)) (clojure.core/list (clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (quote user/a)) (clojure.core/list (quote &)) (clojure.core/list (quote user/r)))))) (clojure.core/list (clojure.core/seq (clojure.core/concat (clojure.core/list (quote let))"))
+				#expect(try expand("`(fn* [a & r] (let* [x 1] (recur x)))").contains("(quote fn*)) (clojure.core/list (clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (quote user/a)) (clojure.core/list (quote &)) (clojure.core/list (quote user/r)))))) (clojure.core/list (clojure.core/seq (clojure.core/concat (clojure.core/list (quote let*))"))
+				// let/loop/fn are core.clj macros, so they qualify like any other var.
+				#expect(try expand("`(fn let loop)") == "(clojure.core/seq (clojure.core/concat (clojure.core/list (quote clojure.core/fn)) (clojure.core/list (quote clojure.core/let)) (clojure.core/list (quote clojure.core/loop))))")
 				#expect(try expand("`other/x") == "(quote other/x)")
 				#expect(try expand("`[a]") == "(clojure.core/apply clojure.core/vector (clojure.core/seq (clojure.core/concat (clojure.core/list (quote user/a)))))")
 				#expect(try expand("`{a b}") == "(clojure.core/apply clojure.core/hash-map (clojure.core/seq (clojure.core/concat (clojure.core/list (quote user/a)) (clojure.core/list (quote user/b)))))")

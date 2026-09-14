@@ -267,9 +267,9 @@ static const struct {
 	const char *name;
 	special     kind;
 } specials[] = {
-	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let", SP_LET},     {"let*", SP_LET},
-	{"loop", SP_LOOP},   {"loop*", SP_LOOP}, {"fn", SP_FN},         {"fn*", SP_FN},      {"def", SP_DEF},
-	{"defmacro", SP_DEFMACRO}, {"recur", SP_RECUR}, {"var", SP_VAR},
+	// let/loop/fn are core.clj macros over the starred forms (destructuring).
+	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let*", SP_LET},    {"loop*", SP_LOOP},
+	{"fn*", SP_FN},      {"def", SP_DEF},   {"defmacro", SP_DEFMACRO}, {"recur", SP_RECUR}, {"var", SP_VAR},
 	// Kept unqualified by syntax-quote: `&` in params; throw/try/catch/finally before they become special forms.
 	{"&", SP_RESERVED}, {"throw", SP_RESERVED}, {"try", SP_RESERVED}, {"catch", SP_RESERVED}, {"finally", SP_RESERVED},
 };
@@ -727,6 +727,20 @@ static clj_value macro_params(clj_value params) {
 	return v;
 }
 
+// @ai-generated(guided)
+// clojure.core/fn once core.clj has defined the macro (params then destructure); fn* while booting before it.
+static clj_value macro_fn_symbol(void) {
+	clj_value fn = clj_symbol_from_cstr("fn");
+	clj_value var = clj_ns_resolve(clj_ns_core(), fn);
+	if (clj_is_nil(var) || !clj_var_is_macro(var)) {
+		clj_release(fn);
+		return clj_symbol_from_cstr("fn*");
+	}
+	clj_value qualified = clj_symbol_new(clj_symbol_name(clj_ns_name(clj_ns_core())), clj_symbol_name(fn));
+	clj_release(fn);
+	return qualified;
+}
+
 // A def of the fn with &form and &env prepended to every arity; the var is flagged when the def runs.
 static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
 	if (n < 2 || !clj_is_symbol(items[1])) return fail(a, "First argument to defmacro must be a Symbol");
@@ -735,7 +749,7 @@ static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items,
 	if (i >= n) return fail(a, "Parameter declaration missing");
 	clj_value *fn_items = zalloc(n - i + 1, sizeof *fn_items);
 	uint32_t   nfn = 0;
-	fn_items[nfn++] = clj_symbol_from_cstr("fn");
+	fn_items[nfn++] = macro_fn_symbol();
 	if (clj_is_vector(items[i])) {
 		fn_items[nfn++] = macro_params(items[i]);
 		for (uint32_t j = i + 1; j < n; j++) fn_items[nfn++] = clj_retain(items[j]);

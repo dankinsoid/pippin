@@ -53,7 +53,8 @@ extension CoreTests {
 				#expect(try eval("(macroexpand '(inc 1))") == Value(reading: "(inc 1)"))
 				#expect(try eval("(macroexpand-1 'x)") == Value(symbol: "x"))
 				#expect(try eval("(macroexpand-1 '())") == Value(list: []))
-				#expect(try eval("(macroexpand-1 '(let [x 1] x))") == Value(reading: "(let [x 1] x)"))
+				#expect(try eval("(macroexpand-1 '(let [x 1] x))") == Value(reading: "(let* [x 1] x)"))
+				#expect(try eval("(macroexpand-1 '(let* [x 1] x))") == Value(reading: "(let* [x 1] x)"))
 				// &form is the whole call, &env nil.
 				_ = try eval("(defmacro mt-echo [& xs] (list 'quote &form))")
 				#expect(try eval("(mt-echo 1 (2) [3])") == Value(reading: "(mt-echo 1 (2) [3])"))
