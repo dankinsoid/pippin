@@ -1,34 +1,40 @@
 // @ai-generated(guided)
 import CljCore
 
-/// A Clojure exception (`ex-info`): message, data map and an optional cause.
+/// A value thrown by Clojure code and not caught: an `ex-info`, or any other value (`throw` takes anything).
 public struct ClojureError: Error, CustomStringConvertible {
+	/// The thrown value itself.
+	public let thrown: Value
+	/// `ex-message`, or "Thrown value: <pr-str>" when the value is not an error.
 	public let message: String
-	/// A map, or nil.
+	/// `ex-data` (a map, or nil); the value itself when it is not an error.
 	public let data: Value
-	/// The causing exception value, or nil.
+	/// `ex-cause`, or nil.
 	public let cause: Value
 
-	/// Wraps an exception value, sharing it with the core.
-	public init(exception: Value) {
-		precondition(clj_is_exception(exception.raw), "not an exception")
-		let (message, data, cause) = withExtendedLifetime(exception) {
-			(Value(borrowing: clj_exception_message(exception.raw)).string ?? "",
-			 Value(borrowing: clj_exception_data(exception.raw)),
-			 Value(borrowing: clj_exception_cause(exception.raw)))
+	/// Wraps a thrown value, sharing it with the core.
+	public init(thrown: Value) {
+		self.thrown = thrown
+		if thrown.isException {
+			(message, data, cause) = withExtendedLifetime(thrown) {
+				(Value(owning: clj_ex_message(thrown.raw)).string ?? "",
+				 Value(owning: clj_ex_data(thrown.raw)),
+				 Value(owning: clj_ex_cause(thrown.raw)))
+			}
+		} else {
+			message = "Thrown value: \(thrown)"
+			data = thrown
+			cause = nil
 		}
-		self.message = message
-		self.data = data
-		self.cause = cause
 	}
 
-	public var causeError: ClojureError? { cause.isNil ? nil : ClojureError(exception: cause) }
+	public var causeError: ClojureError? { cause.isNil ? nil : ClojureError(thrown: cause) }
 
-	/// The exception pending in the calling thread; the caller has just seen CLJ_THROWN.
-	static func takePending() -> ClojureError {
+	/// The value pending in the calling thread as a Swift error; the caller has just seen CLJ_THROWN.
+	static func takePending() -> any Error {
 		let ex = clj_take_pending()
 		precondition(ex != CLJ_NIL, "CLJ_THROWN without a pending exception")
-		return ClojureError(exception: Value(owning: ex))
+		return ClojureError(thrown: Value(owning: ex))
 	}
 
 	public var description: String { message }

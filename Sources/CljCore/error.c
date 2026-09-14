@@ -36,7 +36,6 @@ clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) 
 clj_value clj_ex_info(clj_value message, clj_value data) { return clj_ex_info_cause(message, data, CLJ_NIL); }
 
 clj_value clj_throw(clj_value ex) {
-	CLJ_ASSERT(clj_is_exception(ex), "throw of a non-exception");
 	clj_release(pending);
 	pending = ex;
 	return CLJ_THROWN;
@@ -59,6 +58,14 @@ clj_value clj_throw_msg(const char *fmt, ...) {
 	clj_release(message);
 	return clj_throw(ex);
 }
+
+// A thrown string is its own message (CLJS says nil), so a :default handler reads (throw "m") like an ex-info.
+clj_value clj_ex_message(clj_value v) {
+	if (clj_is_string(v)) return clj_retain(v);
+	return clj_is_exception(v) ? clj_retain(clj_exception_message(v)) : CLJ_NIL;
+}
+clj_value clj_ex_data(clj_value v) { return clj_is_exception(v) ? clj_retain(clj_exception_data(v)) : CLJ_NIL; }
+clj_value clj_ex_cause(clj_value v) { return clj_is_exception(v) ? clj_retain(clj_exception_cause(v)) : CLJ_NIL; }
 
 clj_value clj_pending(void) { return pending; }
 

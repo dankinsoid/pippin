@@ -192,6 +192,49 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+// @ai-generated(guided)
+static clj_value eval_throw(const clj_node *n, clj_frame *f) {
+	clj_value v = n->u.throw_->eval(n->u.throw_, f);
+	if (v == CLJ_THROWN) return CLJ_THROWN;
+	return clj_throw(v);
+}
+
+static bool catch_matches(const clj_catch *c, clj_value ex) {
+	return c->kind == CLJ_CATCH_ALL || clj_is_exception(ex);
+}
+
+// Unwinding is the ordinary return path: the body has already released its temporaries when CLJ_THROWN
+// arrives here. finally runs on both paths; when it throws, its exception replaces the in-flight one.
+// @ai-generated(guided)
+static clj_value eval_try(const clj_node *n, clj_frame *f) {
+	clj_value v = n->u.try_.body->eval(n->u.try_.body, f);
+	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped a try body");
+	if (v == CLJ_THROWN && n->u.try_.ncatches) {
+		clj_value ex = clj_take_pending();
+		bool      handled = false;
+		for (uint32_t i = 0; i < n->u.try_.ncatches && !handled; i++) {
+			const clj_catch *c = &n->u.try_.catches[i];
+			if (!catch_matches(c, ex)) continue;
+			slot_set(f, c->slot, ex);
+			v = c->handler->eval(c->handler, f);
+			handled = true;
+		}
+		if (!handled) clj_throw(ex);
+	}
+	if (n->u.try_.finally_) {
+		// The pending slot is free while finally runs; the in-flight exception is parked here.
+		clj_value parked = v == CLJ_THROWN ? clj_take_pending() : CLJ_NIL;
+		clj_value fv = n->u.try_.finally_->eval(n->u.try_.finally_, f);
+		if (fv == CLJ_THROWN) {
+			clj_release(v == CLJ_THROWN ? parked : v);
+			return CLJ_THROWN;
+		}
+		clj_release(fv);
+		if (v == CLJ_THROWN) clj_throw(parked);
+	}
+	return v;
+}
+
 clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	switch (kind) {
 	case CLJ_NODE_CONST: return eval_const;
@@ -208,6 +251,8 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_DEF: return eval_def;
 	case CLJ_NODE_VECTOR: return eval_vector;
 	case CLJ_NODE_MAP: return eval_map;
+	case CLJ_NODE_TRY: return eval_try;
+	case CLJ_NODE_THROW: return eval_throw;
 	}
 	clj_fatal("unknown node kind");
 }

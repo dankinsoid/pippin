@@ -125,9 +125,21 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   below `fn` or write the `first`/`second` by hand.
 - **No metadata, so no docstrings.** `defn`/`defmacro` accept a docstring and drop it; `^:private`,
   `^:dynamic`, attr-maps and `(doc x)` need a meta slot on symbols, vars and collections.
-- **No `try`/`catch`/`finally`; `throw` is a native fn.** `(throw ex)` works as a call, and
-  syntax-quote already keeps `throw`/`try`/`catch`/`finally` unqualified so macros written now survive
-  the switch to special forms. Trigger: error handling in Clojure code.
+- **Exceptions unwind by return code, not by `longjmp`**: `try` sees `CLJ_THROWN` from its body and
+  takes the pending value; every C frame in between releases its own temporaries on the way out. No
+  stack trace is captured, so an uncaught exception reports only the top-level form's position.
+  Trigger: debugging a deep failure; then the shadow stack of frames from the design (also the crash
+  trace) records the Clojure frames at throw time.
+- **`catch` knows five class names and no hierarchy**: `:default`, `Throwable`, `Exception` and
+  `Object` take every thrown value, `ExceptionInfo` takes values whose type has `CLJ_CORE_ERROR`;
+  anything else is "Unable to resolve classname". Trigger: catching a host error by its Swift type
+  (`(catch MyError e ...)`); that needs a class registry mapping names to descriptors or host
+  metatypes, and `isa?`-style ordering of the clauses.
+- **`throw` accepts any value** (CLJS semantics): no implicit wrapping of a string or map into an
+  ex-info, and no runtime check. `ex-message` of a thrown string is the string itself (CLJS says nil),
+  so a `:default` handler reads `(throw "m")` like an ex-info; a string is still no error for
+  `ExceptionInfo` or `ex-data`. Trigger: the analyzer's `:strict` mode, which should warn on "throw of
+  a non-error value" (JVM/Swift strictness as a lint, not a runtime rule).
 - **No `ns` form.** Everything the host evaluates lands in `user`; core.clj is loaded with the current
   namespace set to `clojure.core` by `clj_init`. `clj_ns_set_current` is the only way to move.
 - **`defmacro` on a failing body still interns the var** (analysis creates it before the fn is
@@ -168,7 +180,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash`,
   the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative? indexed? list?
   vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str pr prn print
-  println identity apply`, `macroexpand-1 macroexpand ex-info throw`. No `keys`, `vals`, `max`,
+  println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data ex-cause`. No `keys`, `vals`, `max`,
   `mod`, `sort`, `reduced`, ... Most of the rest belongs in core.clj.
 - **`seq` on a map is an eager list of `[k v]` vectors** (no O(1) view, no first/next fast path):
   `(first m)` builds the whole entry list. Trigger: `first`/`some` over big maps in a profile. Fix:
@@ -201,8 +213,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `(seq (concat ...))`, so every macro expansion runs through it. A macro's output is therefore a
   cons chain with lazy tails, which the analyzer realizes while collecting items; code-sized data,
   but each splice costs a closure and a lazy seq per element. Trigger: macro expansion in a profile.
-  Fix: a C `concat` over already-realized arguments when every argument is counted. `assert` throws through the `throw` native
-  and is always on (no `*assert*`). `dotimes` does not coerce its count to a long.
+  Fix: a C `concat` over already-realized arguments when every argument is counted. `assert` is always
+  on (no `*assert*`). `dotimes` does not coerce its count to a long.
 - **`destructure` follows clojure.core with these gaps.** A keyword as a binding form (`[:a 1]`) and a
   map key that is a keyword other than `:as`/`:or`/`:keys`/`:strs`/`:syms` (`{:foo x}`) are
   "Unsupported binding form/key" here; Clojure's function binds `a`/`foo` but its `let` spec rejects

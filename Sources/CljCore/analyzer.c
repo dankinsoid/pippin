@@ -65,6 +65,12 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit(n->u.def.var, ctx);
 		visit_node(n->u.def.init, visit, ctx);
 		break;
+	case CLJ_NODE_TRY:
+		visit_node(n->u.try_.body, visit, ctx);
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) visit_node(n->u.try_.catches[i].handler, visit, ctx);
+		visit_node(n->u.try_.finally_, visit, ctx);
+		break;
+	case CLJ_NODE_THROW: visit_node(n->u.throw_, visit, ctx); break;
 	}
 }
 
@@ -89,6 +95,7 @@ static void node_finalize(void *self) {
 		free(n->u.fn.captures);
 		break;
 	case CLJ_NODE_INVOKE: free(n->u.invoke.args); break;
+	case CLJ_NODE_TRY: free(n->u.try_.catches); break;
 	default: break;
 	}
 }
@@ -123,6 +130,7 @@ typedef struct scope {
 	uint32_t            nlocals, lcap;
 	uint32_t            nslots;
 	const recur_target *recur; // innermost loop or the arity itself; NULL where recur is illegal
+	uint32_t            try_depth; // try forms between here and the recur target; recur across one is illegal
 } scope;
 
 typedef struct {
@@ -182,7 +190,7 @@ static clj_value fail_value(const analyzer *a, const char *fmt, ...) {
 
 // Rethrows the pending exception with the position added to its data and the original as the cause.
 static clj_value rethrow_positioned(const analyzer *a) {
-	if (!a->env.line) return CLJ_THROWN;
+	if (!a->env.line || !clj_is_exception(clj_pending())) return CLJ_THROWN;
 	clj_value ex = clj_take_pending();
 	clj_value data = clj_exception_data(ex);
 	data = with_position(a, clj_is_nil(data) ? CLJ_NIL : clj_retain(data));
@@ -263,7 +271,10 @@ static bool symbol_is(clj_value sym, const char *name) {
 	return is_unqualified_symbol(sym) && strcmp(clj_string_bytes(clj_symbol_name(sym)), name) == 0;
 }
 
-typedef enum { SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_DEFMACRO, SP_RECUR, SP_VAR, SP_RESERVED } special;
+typedef enum {
+	SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_DEFMACRO, SP_RECUR, SP_VAR, SP_TRY, SP_THROW,
+	SP_CATCH, SP_FINALLY, SP_RESERVED
+} special;
 
 static const struct {
 	const char *name;
@@ -272,8 +283,9 @@ static const struct {
 	// let/loop/fn are core.clj macros over the starred forms (destructuring).
 	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let*", SP_LET},    {"loop*", SP_LOOP},
 	{"fn*", SP_FN},      {"def", SP_DEF},   {"defmacro", SP_DEFMACRO}, {"recur", SP_RECUR}, {"var", SP_VAR},
-	// Kept unqualified by syntax-quote: `&` in params; throw/try/catch/finally before they become special forms.
-	{"&", SP_RESERVED}, {"throw", SP_RESERVED}, {"try", SP_RESERVED}, {"catch", SP_RESERVED}, {"finally", SP_RESERVED},
+	{"try", SP_TRY},     {"throw", SP_THROW},
+	// Clause heads and `&` in params: not forms of their own, but syntax-quote must keep them unqualified.
+	{"catch", SP_CATCH}, {"finally", SP_FINALLY}, {"&", SP_RESERVED},
 };
 
 static special special_of(clj_value sym) {
@@ -550,9 +562,12 @@ static clj_node *analyze_let(analyzer *a, scope *s, const clj_value *items, uint
 		if (loop) {
 			recur_target        target = {nb, node->u.let.slots};
 			const recur_target *saved = s->recur;
+			uint32_t            saved_try_depth = s->try_depth;
 			s->recur = &target;
+			s->try_depth = 0;
 			node->u.let.body = analyze_body(a, s, items + 2, n - 2, true);
 			s->recur = saved;
+			s->try_depth = saved_try_depth;
 		} else {
 			node->u.let.body = analyze_body(a, s, items + 2, n - 2, tail);
 		}
@@ -567,6 +582,7 @@ static clj_node *analyze_let(analyzer *a, scope *s, const clj_value *items, uint
 }
 
 static clj_node *analyze_recur(analyzer *a, scope *s, const clj_value *items, uint32_t n, bool tail) {
+	if (s->recur && s->try_depth) return fail(a, "Cannot recur across try");
 	if (!tail || !s->recur) return fail(a, "Can only recur from tail position");
 	uint32_t nargs = n - 1;
 	if (nargs != s->recur->n) return fail(a, "Mismatched argument count to recur, expected: %u args, got: %u", s->recur->n, nargs);
@@ -814,6 +830,107 @@ static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items,
 	return node;
 }
 
+// @ai-generated(guided)
+static clj_node *analyze_throw(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
+	if (n < 2) return fail(a, "Too few arguments to throw, throw expects a single Throwable instance");
+	if (n > 2) return fail(a, "Too many arguments to throw, throw expects a single Throwable instance");
+	clj_node *node = node_new(CLJ_NODE_THROW);
+	if (!(node->u.throw_ = analyze(a, s, items[1], false))) {
+		clj_release(clj_from_ptr(node));
+		return NULL;
+	}
+	return node;
+}
+
+typedef enum { TRY_BODY, TRY_CATCH, TRY_FINALLY, TRY_THROWN } try_clause;
+
+// What a try item is by its head; TRY_THROWN when reading the head throws.
+static try_clause try_clause_of(clj_value item) {
+	if (!clj_is_seq(item)) return TRY_BODY;
+	clj_value head = clj_first(item);
+	if (head == CLJ_THROWN) return TRY_THROWN;
+	special sp = special_of(head);
+	clj_release(head);
+	return sp == SP_CATCH ? TRY_CATCH : sp == SP_FINALLY ? TRY_FINALLY : TRY_BODY;
+}
+
+// @ai-generated(guided)
+static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch_kind *kind) {
+	if (clj_is_keyword(cls) && clj_is_nil(clj_keyword_ns(cls)) && strcmp(clj_string_bytes(clj_keyword_name(cls)), "default") == 0) {
+		*kind = CLJ_CATCH_ALL;
+		return true;
+	}
+	if (symbol_is(cls, "Throwable") || symbol_is(cls, "Exception") || symbol_is(cls, "Object")) {
+		*kind = CLJ_CATCH_ALL;
+		return true;
+	}
+	if (symbol_is(cls, "ExceptionInfo")) {
+		*kind = CLJ_CATCH_ERROR;
+		return true;
+	}
+	return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
+}
+
+// (catch Class name body*): the binding is a local of the handler only.
+// @ai-generated(guided)
+static bool analyze_catch(analyzer *a, scope *s, clj_catch *c, clj_value clause) {
+	uint32_t   n;
+	clj_value *items = seq_items(clause, &n);
+	if (!items) return false;
+	bool ok;
+	if (n < 3) ok = fail(a, "catch clause requires a classname and a binding: (catch Class name body*)") != NULL;
+	else if (!catch_kind_of(a, items[1], &c->kind)) ok = false;
+	else if (!is_unqualified_symbol(items[2])) ok = fail_form(a, "Bad binding form, expected symbol, got: %s", items[2]) != NULL;
+	else {
+		uint32_t saved_nlocals = s->nlocals;
+		c->slot = new_slot(s);
+		push_local(s, items[2], c->slot);
+		c->handler = analyze_body(a, s, items + 3, n - 3, false);
+		s->nlocals = saved_nlocals;
+		ok = c->handler != NULL;
+	}
+	free(items);
+	return ok;
+}
+
+// @ai-generated(guided)
+static bool analyze_finally(analyzer *a, scope *s, clj_node **out, clj_value clause) {
+	uint32_t   n;
+	clj_value *items = seq_items(clause, &n);
+	if (!items) return false;
+	*out = analyze_body(a, s, items + 1, n - 1, false);
+	free(items);
+	return *out != NULL;
+}
+
+// (try body* catch* finally?). Nothing inside is in tail position: recur must not leave the try.
+// @ai-generated(guided)
+static clj_node *analyze_try(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
+	uint32_t   nbody = 1;
+	try_clause clause = TRY_BODY;
+	while (nbody < n && (clause = try_clause_of(items[nbody])) == TRY_BODY) nbody++;
+	if (clause == TRY_THROWN) return NULL;
+	clj_node *node = node_new(CLJ_NODE_TRY);
+	node->u.try_.catches = zalloc(n - nbody, sizeof *node->u.try_.catches);
+	s->try_depth++;
+	node->u.try_.body = analyze_body(a, s, items + 1, nbody - 1, false);
+	bool ok = node->u.try_.body != NULL;
+	for (uint32_t i = nbody; i < n && ok; i++) {
+		clause = try_clause_of(items[i]);
+		if (clause == TRY_THROWN) ok = false;
+		else if (node->u.try_.finally_) ok = fail(a, "finally clause must be last in try expression") != NULL;
+		else if (clause == TRY_BODY) ok = fail(a, "Only catch or finally clause can follow catch in try expression") != NULL;
+		else if (clause == TRY_CATCH) ok = analyze_catch(a, s, &node->u.try_.catches[node->u.try_.ncatches++], items[i]);
+		else ok = analyze_finally(a, s, &node->u.try_.finally_, items[i]);
+	}
+	s->try_depth--;
+	if (!ok) {
+		clj_release(clj_from_ptr(node));
+		return NULL;
+	}
+	return node;
+}
+
 static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
 	if (n != 2) return fail(a, "Wrong number of args (%u) passed to var", n - 1);
 	if (!clj_is_symbol(items[1])) return fail_form(a, "var requires a symbol, got: %s", items[1]);
@@ -846,6 +963,10 @@ static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) 
 	case SP_DEFMACRO: node = analyze_defmacro(a, s, items, n); break;
 	case SP_RECUR: node = analyze_recur(a, s, items, n, tail); break;
 	case SP_VAR: node = analyze_var(a, items, n); break;
+	case SP_TRY: node = analyze_try(a, s, items, n); break;
+	case SP_THROW: node = analyze_throw(a, s, items, n); break;
+	case SP_CATCH: node = fail(a, "catch outside try"); break;
+	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:
 	case SP_RESERVED: node = analyze_invoke(a, s, items, n); break;
 	}

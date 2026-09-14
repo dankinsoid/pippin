@@ -21,6 +21,7 @@ clj_value clj_ex_info(clj_value message, clj_value data);
 clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause);
 
 // Consumes ex (+1 in): the pending slot takes it over, dropping any exception already pending.
+// Any value can be thrown, as in ClojureScript; (throw 42) leaves the fixnum pending.
 clj_value clj_throw(clj_value ex);
 // ex-info with the formatted message and nil data.
 clj_value clj_throw_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -36,5 +37,10 @@ static inline clj_exception *clj_exception_of(clj_value v) { return (clj_excepti
 static inline clj_value clj_exception_message(clj_value ex) { return clj_exception_of(ex)->message; }
 static inline clj_value clj_exception_data(clj_value ex) { return clj_exception_of(ex)->data; }
 static inline clj_value clj_exception_cause(clj_value ex) { return clj_exception_of(ex)->cause; }
+
+// ex-message / ex-data / ex-cause of any value: owned, nil when v is not an error.
+clj_value clj_ex_message(clj_value v);
+clj_value clj_ex_data(clj_value v);
+clj_value clj_ex_cause(clj_value v);
 
 #endif

@@ -26,6 +26,8 @@ typedef enum {
 	CLJ_NODE_DEF,
 	CLJ_NODE_VECTOR, // literal with non-constant elements
 	CLJ_NODE_MAP,
+	CLJ_NODE_TRY,
+	CLJ_NODE_THROW,
 } clj_node_kind;
 
 // Clojure's limit; more parameters go through the rest argument.
@@ -38,6 +40,16 @@ typedef struct {
 	uint32_t  nslots;
 	clj_node *body;
 } clj_fn_arity;
+
+// Which thrown values a catch clause takes. There is no class hierarchy: :default, Throwable, Exception and
+// Object take every value; ExceptionInfo takes values whose type has CLJ_CORE_ERROR.
+typedef enum { CLJ_CATCH_ALL, CLJ_CATCH_ERROR } clj_catch_kind;
+
+typedef struct {
+	clj_catch_kind kind;
+	uint32_t       slot; // the binding, a frame slot as for let*
+	clj_node      *handler;
+} clj_catch;
 
 // Where a closure takes a captured value from in the frame that creates it.
 typedef struct {
@@ -88,6 +100,13 @@ struct clj_node {
 			clj_node *init;  // NULL for (def x)
 			bool      macro; // defmacro
 		} def;
+		struct {
+			clj_node  *body;
+			clj_catch *catches; // tried in order
+			uint32_t   ncatches;
+			clj_node  *finally_; // NULL when absent
+		} try_;
+		clj_node *throw_; // the value to throw
 	} u;
 };
 
@@ -104,7 +123,7 @@ typedef struct {
 // Nested forms carry no position yet, so every error reports the top-level form's (NOTES.md).
 clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots);
 
-// Special-form names (plus & and the reserved throw/try/catch/finally): syntax-quote leaves them unqualified.
+// Special-form names (plus & and the clause heads catch/finally): syntax-quote leaves them unqualified.
 bool clj_is_special_symbol(clj_value sym);
 
 // Owned expansion, or form retained when its head is no macro; a macro's exception gets env's position.

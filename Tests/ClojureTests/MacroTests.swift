@@ -246,7 +246,7 @@ extension CoreTests {
 			do {
 				#expect(cljEvalError("(throw (ex-info \"boom\" {:k 1}))") == "#error {:message \"boom\", :data {:k 1}}")
 				#expect(cljEvalError("(throw (ex-info \"outer\" nil (ex-info \"inner\" {})))") == "#error {:message \"outer\", :data nil, :cause #error {:message \"inner\", :data {}}}")
-				#expect(message("(throw 1)") == "Can only throw an exception, got: fixnum")
+				#expect(cljEvalError("(throw 1)") == "1")
 				#expect(message("(ex-info 1 {})") == "ex-info message must be a string, got: fixnum")
 				#expect(message("(ex-info \"m\" 1)") == "ex-info data must be a map, got: fixnum")
 				#expect(message("(ex-info \"m\" {} 1)") == "ex-info cause must be an exception, got: fixnum")

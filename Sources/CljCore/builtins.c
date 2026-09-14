@@ -578,11 +578,20 @@ static clj_value b_ex_info(const clj_value *args, size_t n) {
 	return clj_ex_info_cause(args[0], args[1], cause);
 }
 
-// A native until try/catch make throw a special form (NOTES.md).
-static clj_value b_throw(const clj_value *args, size_t n) {
+// nil for anything that is not an error, as Clojure's ex-message/ex-data/ex-cause do for non-Throwables.
+static clj_value b_ex_message(const clj_value *args, size_t n) {
 	(void)n;
-	if (!clj_is_exception(args[0])) return clj_throw_msg("Can only throw an exception, got: %s", clj_type_name(args[0]));
-	return clj_throw(clj_retain(args[0]));
+	return clj_ex_message(args[0]);
+}
+
+static clj_value b_ex_data(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_ex_data(args[0]);
+}
+
+static clj_value b_ex_cause(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_ex_cause(args[0]);
 }
 
 // ---- strings and output
@@ -740,7 +749,7 @@ static const entry entries[] = {
 	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1},
 	{"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
-	{"ex-info", b_ex_info, 2, 3},  {"throw", b_throw, 1, 1},
+	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 };
 
 void clj_builtins_install(void) {
