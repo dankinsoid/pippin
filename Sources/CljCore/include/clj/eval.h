@@ -24,10 +24,15 @@ extern const clj_type clj_exec_type;
 
 static inline clj_exec *clj_exec_of(clj_value v) { return (clj_exec *)clj_to_ptr(v); }
 
+// Slot ownership: a fixed param and the self slot borrow from the caller's argument array, which the +0
+// convention keeps alive for the whole call; let/loop/recur/catch store owned values. `owned` has one bit
+// per slot for the first 64; a frame with more slots retains every param at entry and treats every slot
+// as owned, so a slot index >= 64 is owned by definition.
 struct clj_frame {
-	clj_value      *slots;    // owned by the frame, released when it ends
+	clj_value      *slots;
 	clj_value      *captured; // borrowed from the running closure
 	const clj_exec *exec;     // of the tree the running node belongs to
+	uint64_t        owned;
 };
 
 // Builds the table in one walk of the tree. Owned.

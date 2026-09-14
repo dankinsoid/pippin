@@ -36,22 +36,72 @@ static void buf_free(clj_value *small, clj_value *p) {
 
 static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
 
-static void slot_set(clj_frame *f, uint32_t i, clj_value v) {
-	clj_value old = f->slots[i];
-	f->slots[i] = v;
-	clj_release(old);
+// A local, captured or constant read without a retain: its home (the frame, the closure's env, the tree)
+// outlives the consumer. Every other kind evaluates owned.
+// @ai-generated(guided)
+static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *owned) {
+	*owned = false;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL: return f->slots[n->u.index];
+	case CLJ_NODE_CAPTURED: return f->captured[n->u.index];
+	case CLJ_NODE_CONST: return n->u.value;
+	default:
+		*owned = true;
+		return eval_child(n, f);
+	}
 }
 
-// Evaluates nodes into out; on failure releases what was already evaluated.
-static bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out) {
+static inline bool slot_owned(const clj_frame *f, uint32_t i) { return i >= 64 || (f->owned >> i) & 1; }
+
+// Stores an owned value; the old one is released only when the frame owned it.
+static inline void slot_set(clj_frame *f, uint32_t i, clj_value v) {
+	clj_value old = f->slots[i];
+	f->slots[i] = v;
+	if (slot_owned(f, i)) {
+		clj_release(old);
+	} else {
+		f->owned |= (uint64_t)1 << i;
+	}
+}
+
+static inline void release_all(const clj_value *vals, uint32_t n) {
+	for (uint32_t i = 0; i < n; i++) clj_release(vals[i]);
+}
+
+// Releases the values whose bit is set; n > 64 means every one.
+static inline void release_owned(const clj_value *vals, uint32_t n, uint64_t owned) {
+	if (n > 64) {
+		release_all(vals, n);
+		return;
+	}
+	while (owned) {
+		clj_release(vals[__builtin_ctzll(owned)]);
+		owned &= owned - 1;
+	}
+}
+
+static void slots_release(const clj_frame *f, uint32_t n) { release_owned(f->slots, n, f->owned); }
+
+// Evaluates nodes into out; on failure releases what was already evaluated. With `owned` the reads that can
+// be borrowed are, and the mask says which results the caller must release (n > 64: every one); NULL evaluates
+// everything owned, for values that are stored.
+// @ai-generated(guided)
+// Always inlined: the borrow/owned branch folds away per call site.
+static inline __attribute__((always_inline)) bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned) {
+	uint64_t mask = 0;
+	bool     borrow = owned && n <= 64;
 	for (uint32_t i = 0; i < n; i++) {
-		clj_value v = eval_child(nodes[i], f);
+		bool      own = true;
+		clj_value v = borrow ? eval_borrowed(nodes[i], f, &own) : eval_child(nodes[i], f);
 		if (v == CLJ_THROWN) {
-			for (uint32_t j = 0; j < i; j++) clj_release(out[j]);
+			if (borrow) release_owned(out, i, mask);
+			else release_all(out, i);
 			return false;
 		}
+		if (borrow && own) mask |= (uint64_t)1 << i;
 		out[i] = v;
 	}
+	if (owned) *owned = borrow ? mask : UINT64_MAX;
 	return true;
 }
 
@@ -70,10 +120,11 @@ static clj_value eval_var(const clj_node *n, clj_frame *f) {
 }
 
 static clj_value eval_if(const clj_node *n, clj_frame *f) {
-	clj_value test = eval_child(n->u.if_.test, f);
+	bool      owned;
+	clj_value test = eval_borrowed(n->u.if_.test, f, &owned);
 	if (test == CLJ_THROWN) return CLJ_THROWN;
 	bool truthy = clj_truthy(test);
-	clj_release(test);
+	if (owned) clj_release(test);
 	const clj_node *branch = truthy ? n->u.if_.then : n->u.if_.else_;
 	return branch ? eval_child(branch, f) : CLJ_NIL;
 }
@@ -81,9 +132,10 @@ static clj_value eval_if(const clj_node *n, clj_frame *f) {
 static clj_value eval_do(const clj_node *n, clj_frame *f) {
 	uint32_t last = n->u.seq.n - 1;
 	for (uint32_t i = 0; i < last; i++) {
-		clj_value v = eval_child(n->u.seq.items[i], f);
+		bool      owned;
+		clj_value v = eval_borrowed(n->u.seq.items[i], f, &owned);
 		if (v == CLJ_THROWN) return CLJ_THROWN;
-		clj_release(v);
+		if (owned) clj_release(v);
 	}
 	return eval_child(n->u.seq.items[last], f);
 }
@@ -115,7 +167,7 @@ static clj_value eval_loop(const clj_node *n, clj_frame *f) {
 static clj_value eval_recur(const clj_node *n, clj_frame *f) {
 	clj_value  small[SMALL_ARGS];
 	clj_value *vals = buf_alloc(small, n->u.recur.n);
-	bool ok = eval_all(n->u.recur.args, n->u.recur.n, f, vals);
+	bool ok = eval_all(n->u.recur.args, n->u.recur.n, f, vals, NULL);
 	if (ok) {
 		for (uint32_t i = 0; i < n->u.recur.n; i++) slot_set(f, n->u.recur.slots[i], vals[i]);
 	}
@@ -135,18 +187,22 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 	return fn;
 }
 
+// A var in fn position stays owned: the +1 held here is what keeps a running body alive when a concurrent
+// def replaces the var's root; borrowing it needs deferred freeing of old roots (NOTES.md).
 static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
-	clj_value fn = eval_child(n->u.invoke.fn, f);
+	bool      fn_owned;
+	clj_value fn = eval_borrowed(n->u.invoke.fn, f, &fn_owned);
 	if (fn == CLJ_THROWN) return CLJ_THROWN;
 	clj_value  small[SMALL_ARGS];
 	clj_value *args = buf_alloc(small, n->u.invoke.n);
 	clj_value  result = CLJ_THROWN;
-	if (eval_all(n->u.invoke.args, n->u.invoke.n, f, args)) {
+	uint64_t   owned;
+	if (eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned)) {
 		result = clj_invoke(fn, args, n->u.invoke.n);
-		for (uint32_t i = 0; i < n->u.invoke.n; i++) clj_release(args[i]);
+		release_owned(args, n->u.invoke.n, owned);
 	}
 	buf_free(small, args);
-	clj_release(fn);
+	if (fn_owned) clj_release(fn);
 	return result;
 }
 
@@ -176,9 +232,10 @@ static clj_value eval_vector(const clj_node *n, clj_frame *f) {
 	clj_value  small[SMALL_ARGS];
 	clj_value *items = buf_alloc(small, n->u.seq.n);
 	clj_value  result = CLJ_THROWN;
-	if (eval_all(n->u.seq.items, n->u.seq.n, f, items)) {
+	uint64_t   owned;
+	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned)) {
 		result = clj_vector_from_array(items, n->u.seq.n);
-		for (uint32_t i = 0; i < n->u.seq.n; i++) clj_release(items[i]);
+		release_owned(items, n->u.seq.n, owned);
 	}
 	buf_free(small, items);
 	return result;
@@ -188,7 +245,8 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 	clj_value  small[SMALL_ARGS];
 	clj_value *items = buf_alloc(small, n->u.seq.n);
 	clj_value  result = CLJ_THROWN;
-	if (eval_all(n->u.seq.items, n->u.seq.n, f, items)) {
+	uint64_t   owned;
+	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned)) {
 		result = clj_map_empty();
 		for (uint32_t i = 0; i < n->u.seq.n; i += 2) {
 			if (clj_map_contains(result, items[i])) {
@@ -200,7 +258,7 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 			}
 			result = clj_map_assoc(result, items[i], items[i + 1]);
 		}
-		for (uint32_t i = 0; i < n->u.seq.n; i++) clj_release(items[i]);
+		release_owned(items, n->u.seq.n, owned);
 	}
 	buf_free(small, items);
 	return result;
@@ -368,17 +426,22 @@ clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) {
 		if (!slots) clj_fatal("out of memory");
 	}
 	memset(slots, 0, arity->nslots * sizeof *slots);
-	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = clj_retain(args[i]);
-	if (arity->variadic) slots[arity->nparams] = n > arity->nparams ? clj_list_from_array(args + arity->nparams, n - arity->nparams) : CLJ_NIL;
-	if (arity->self_slot >= 0) slots[arity->self_slot] = clj_retain(f);
+	bool     big = arity->nslots > 64;
+	uint64_t owned = big ? UINT64_MAX : 0;
+	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big ? clj_retain(args[i]) : args[i];
+	if (arity->variadic) {
+		slots[arity->nparams] = n > arity->nparams ? clj_list_from_array(args + arity->nparams, n - arity->nparams) : CLJ_NIL;
+		owned |= (uint64_t)1 << arity->nparams;
+	}
+	if (arity->self_slot >= 0) slots[arity->self_slot] = big ? clj_retain(f) : f;
 
-	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code)};
+	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned};
 	clj_value v;
 	for (;;) {
 		v = eval_child(arity->body, &frame);
 		if (v != CLJ_RECUR) break;
 	}
-	for (uint32_t i = 0; i < arity->nslots; i++) clj_release(slots[i]);
+	slots_release(&frame, arity->nslots);
 	if (slots != small) free(slots);
 	return v;
 }
@@ -393,10 +456,10 @@ clj_value clj_exec_run(clj_value exec) {
 		if (!slots) clj_fatal("out of memory");
 	}
 	memset(slots, 0, nslots * sizeof *slots);
-	clj_frame frame = {slots, NULL, e};
+	clj_frame frame = {slots, NULL, e, 0};
 	clj_value v = eval_child(e->root, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
-	for (uint32_t i = 0; i < nslots; i++) clj_release(slots[i]);
+	slots_release(&frame, nslots);
 	if (slots != small) free(slots);
 	return v;
 }
