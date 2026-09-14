@@ -3,6 +3,14 @@ import CljCore
 
 /// A value thrown by Clojure code and not caught: an `ex-info`, or any other value (`throw` takes anything).
 public struct ClojureError: Error, CustomStringConvertible {
+	/// One Clojure fn on the stack at the throw: its name and where it was called (its own position when
+	/// the call came from the host or a native).
+	public struct Frame: Equatable, Sendable {
+		public let fn: String?
+		public let line: Int
+		public let column: Int
+	}
+
 	/// The thrown value itself.
 	public let thrown: Value
 	/// `ex-message`, or "Thrown value: <pr-str>" when the value is not an error.
@@ -11,10 +19,28 @@ public struct ClojureError: Error, CustomStringConvertible {
 	public let data: Value
 	/// `ex-cause`, or nil.
 	public let cause: Value
+	/// The Clojure frames at the throw, innermost first; empty for a throw at top level.
+	public let trace: [Frame]
+	// The trace as Clojure data, so a rethrow from a host fn keeps the frames of a non-error value.
+	let traceValue: Value
 
-	/// Wraps a thrown value, sharing it with the core.
+	/// Wraps a thrown value, sharing it with the core; the trace is the one on an `ex-info`, else none.
 	public init(thrown: Value) {
+		self.init(thrown: thrown, trace: thrown.isException ? Value(owning: withExtendedLifetime(thrown) { clj_ex_trace(thrown.raw) }) : nil)
+	}
+
+	init(thrown: Value, trace: Value) {
 		self.thrown = thrown
+		traceValue = trace
+		self.trace = (trace.array ?? []).map { m in
+			withExtendedLifetime(m) {
+				let fn = Value(borrowing: clj_map_get(m.raw, clj_keyword_from_cstr("fn"), CLJ_NIL))
+				let line = clj_map_get(m.raw, clj_keyword_from_cstr("line"), CLJ_NIL)
+				let column = clj_map_get(m.raw, clj_keyword_from_cstr("column"), CLJ_NIL)
+				return Frame(fn: fn.isNil ? nil : fn.description, line: clj_is_fixnum(line) ? clj_fixnum_val(line) : 0,
+				             column: clj_is_fixnum(column) ? clj_fixnum_val(column) : 0)
+			}
+		}
 		if thrown.isException {
 			// A deftype error's slots run Clojure code and may throw; that exception's text stands in for the field.
 			func field(_ slot: (clj_value) -> clj_value) -> Value {
@@ -36,11 +62,15 @@ public struct ClojureError: Error, CustomStringConvertible {
 	/// The value pending in the calling thread as a Swift error; the caller has just seen CLJ_THROWN.
 	/// A host error made from a Swift error yields that error itself, so it round-trips through Clojure code.
 	static func takePending() -> any Error {
+		let trace = Value(owning: clj_take_pending_trace())
 		let ex = Value(owning: clj_take_pending())
-		return ex.hostError ?? ClojureError(thrown: ex)
+		return ex.hostError ?? ClojureError(thrown: ex, trace: trace)
 	}
 
-	public var description: String { message }
+	/// The message, then one line per frame: `at fn (line:column)`, innermost first.
+	public var description: String {
+		trace.reduce(message) { "\($0)\n\tat \($1.fn ?? "fn") (\($1.line):\($1.column))" }
+	}
 }
 
 /// Reads and evaluates Clojure source in the `user` namespace.
@@ -164,7 +194,7 @@ extension Value {
 			let result = try body(values)
 			return withExtendedLifetime(result) { clj_retain(result.raw) }
 		} catch let e as ClojureError {
-			return withExtendedLifetime(e.thrown) { clj_throw(clj_retain(e.thrown.raw)) }
+			return withExtendedLifetime((e.thrown, e.traceValue)) { clj_throw_traced(clj_retain(e.thrown.raw), clj_retain(e.traceValue.raw)) }
 		} catch {
 			let wrapped = Value(hostError: error)
 			return withExtendedLifetime(wrapped) { clj_throw(clj_retain(wrapped.raw)) }

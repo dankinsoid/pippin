@@ -6,6 +6,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/keyword.h"
+#include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/printer.h"
 #include "clj/proto.h"
@@ -14,6 +15,7 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
+#include "clj/vector.h"
 
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
@@ -33,6 +35,18 @@ static void boot_failed(const char *what, uint32_t line, uint32_t col, const cha
 	clj_fatal(msg);
 }
 
+static void print_trace(clj_value trace) {
+	if (!clj_is_vector(trace)) return;
+	clj_value kw_fn = clj_keyword_from_cstr("fn"), kw_line = clj_keyword_from_cstr("line"), kw_column = clj_keyword_from_cstr("column");
+	for (uint32_t i = 0; i < clj_vector_count(trace); i++) {
+		clj_value frame = clj_vector_nth(trace, i), fn = clj_map_get(frame, kw_fn, CLJ_NIL);
+		clj_value name = clj_is_nil(fn) ? clj_string_from_cstr("fn") : clj_pr_str(fn);
+		fprintf(stderr, "  at %s (%ld:%ld)\n", clj_string_bytes(name), (long)clj_fixnum_val(clj_map_get(frame, kw_line, clj_fixnum(0))),
+		        (long)clj_fixnum_val(clj_map_get(frame, kw_column, clj_fixnum(0))));
+		clj_release(name);
+	}
+}
+
 // Evaluates core.clj in clojure.core; the caller has made it the current namespace for the resolver.
 static void load_core(void) {
 	clj_reader r;
@@ -47,8 +61,10 @@ static void load_core(void) {
 		clj_value v = clj_eval(form, &env);
 		clj_release(form);
 		if (v == CLJ_THROWN) {
+			clj_value trace = clj_take_pending_trace();
 			clj_value ex = clj_take_pending();
 			clj_value text = clj_pr_str(ex);
+			print_trace(trace);
 			boot_failed("exception", r.form_line, r.form_col, clj_string_bytes(text));
 		}
 		clj_release(v);
@@ -57,9 +73,9 @@ static void load_core(void) {
 
 static void init(void) {
 	clj_value core = clj_ns_core();
-	// Interned up front so printing an error or an analysis position allocates nothing lasting later.
+	// Interned up front so printing an error, an analysis position or a trace allocates nothing lasting later.
 	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", "tag", "ns", "name", "doc", "arglists",
-	                                                    "macro", "dynamic", "private", NULL}; *k; k++) clj_keyword_from_cstr(*k);
+	                                                    "macro", "dynamic", "private", "fn", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_builtins_install();
 	clj_proto_install();
 	clj_ns_set_current(core);

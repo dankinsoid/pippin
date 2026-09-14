@@ -594,6 +594,11 @@ static clj_value b_ex_cause(const clj_value *args, size_t n) {
 	return clj_ex_cause(args[0]);
 }
 
+static clj_value b_ex_trace(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_ex_trace(args[0]);
+}
+
 // ---- strings and output
 
 typedef struct {
@@ -815,6 +820,7 @@ static const entry entries[] = {
 	{"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
+	{"ex-trace", b_ex_trace, 1, 1},
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 1},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
 	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},
 };

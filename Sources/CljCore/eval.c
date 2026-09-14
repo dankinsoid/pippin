@@ -15,6 +15,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "shadow_internal.h"
 
 enum {
 	SMALL_SLOTS = 16, // frame slots kept on the C stack
@@ -198,7 +199,8 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
 	if (eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned)) {
-		result = clj_invoke(fn, args, n->u.invoke.n);
+		if (clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_CLOSURE) result = clj_closure_invoke_at(fn, args, n->u.invoke.n, n);
+		else result = clj_invoke(fn, args, n->u.invoke.n);
 		release_owned(args, n->u.invoke.n, owned);
 	}
 	buf_free(small, args);
@@ -282,6 +284,7 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 	clj_value v = eval_child(n->u.try_.body, f);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped a try body");
 	if (v == CLJ_THROWN && n->u.try_.ncatches) {
+		clj_value trace = clj_take_pending_trace();
 		clj_value ex = clj_take_pending();
 		bool      handled = false;
 		for (uint32_t i = 0; i < n->u.try_.ncatches && !handled; i++) {
@@ -291,18 +294,21 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 			v = eval_child(c->handler, f);
 			handled = true;
 		}
-		if (!handled) clj_throw(ex);
+		if (handled) clj_release(trace);
+		else clj_throw_traced(ex, trace);
 	}
 	if (n->u.try_.finally_) {
 		// The pending slot is free while finally runs; the in-flight exception is parked here.
+		clj_value parked_trace = v == CLJ_THROWN ? clj_take_pending_trace() : CLJ_NIL;
 		clj_value parked = v == CLJ_THROWN ? clj_take_pending() : CLJ_NIL;
 		clj_value fv = eval_child(n->u.try_.finally_, f);
 		if (fv == CLJ_THROWN) {
 			clj_release(v == CLJ_THROWN ? parked : v);
+			clj_release(parked_trace);
 			return CLJ_THROWN;
 		}
 		clj_release(fv);
-		if (v == CLJ_THROWN) clj_throw(parked);
+		if (v == CLJ_THROWN) clj_throw_traced(parked, parked_trace);
 	}
 	return v;
 }
@@ -410,7 +416,9 @@ static clj_value arity_error(clj_value f, size_t n) {
 	return r;
 }
 
-clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) {
+clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) { return clj_closure_invoke_at(f, args, n, NULL); }
+
+clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, const clj_node *site) {
 	const clj_fn       *fn = clj_fn_of(f);
 	const clj_node     *code = fn->u.node;
 	const clj_fn_arity *arity = NULL;
@@ -436,11 +444,13 @@ clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) {
 	if (arity->self_slot >= 0) slots[arity->self_slot] = big ? clj_retain(f) : f;
 
 	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned};
+	clj_shadow_push(code, site);
 	clj_value v;
 	for (;;) {
 		v = eval_child(arity->body, &frame);
 		if (v != CLJ_RECUR) break;
 	}
+	clj_shadow_pop();
 	slots_release(&frame, arity->nslots);
 	if (slots != small) free(slots);
 	return v;

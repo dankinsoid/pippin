@@ -46,5 +46,7 @@ clj_value clj_eval(clj_value form, const clj_env *env);
 
 // Arity dispatch and body evaluation of a closure; clj_invoke calls it.
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n);
+// The same with the invoke node for the shadow frame (shadow.h); NULL when there is none.
+clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, const clj_node *site);
 
 #endif

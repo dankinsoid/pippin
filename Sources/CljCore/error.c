@@ -8,9 +8,13 @@
 #include "clj/error.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
+#include "clj/shadow.h"
 #include "clj/string.h"
 
 static _Thread_local clj_value pending;
+static _Thread_local clj_value pending_trace;
+
+enum { TRACE_FRAMES = 256 };
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_host_error;
@@ -22,6 +26,7 @@ static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(e->message, ctx);
 	visit(e->data, ctx);
 	visit(e->cause, ctx);
+	visit(e->trace, ctx);
 }
 
 static uint32_t exception_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
@@ -102,11 +107,29 @@ clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) 
 
 clj_value clj_ex_info(clj_value message, clj_value data) { return clj_ex_info_cause(message, data, CLJ_NIL); }
 
-clj_value clj_throw(clj_value ex) {
+// @ai-generated(guided)
+clj_value clj_throw_traced(clj_value ex, clj_value trace) {
+	if (clj_is_ex_info(ex)) {
+		clj_exception *e = clj_exception_of(ex);
+		if (clj_is_nil(e->trace)) {
+			if (clj_is_nil(trace)) trace = clj_shadow_stack_trace(TRACE_FRAMES);
+			if (e->h.flags & CLJ_FLAG_SHARED) clj_share(trace);
+			e->trace = trace;
+		} else {
+			clj_release(trace);
+		}
+		trace = clj_retain(e->trace);
+	} else if (clj_is_nil(trace)) {
+		trace = clj_shadow_stack_trace(TRACE_FRAMES);
+	}
 	clj_release(pending);
+	clj_release(pending_trace);
 	pending = ex;
+	pending_trace = trace;
 	return CLJ_THROWN;
 }
+
+clj_value clj_throw(clj_value ex) { return clj_throw_traced(ex, CLJ_NIL); }
 
 clj_value clj_throw_msg(const char *fmt, ...) {
 	va_list ap;
@@ -136,10 +159,22 @@ clj_value clj_ex_data(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)
 
 clj_value clj_ex_cause(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)->ex_cause(v) : CLJ_NIL; }
 
+clj_value clj_ex_trace(clj_value v) { return clj_is_ex_info(v) ? clj_retain(clj_exception_of(v)->trace) : CLJ_NIL; }
+
 clj_value clj_pending(void) { return pending; }
 
 clj_value clj_take_pending(void) {
 	clj_value ex = pending;
 	pending = CLJ_NIL;
+	clj_release(pending_trace);
+	pending_trace = CLJ_NIL;
 	return ex;
+}
+
+clj_value clj_pending_trace(void) { return pending_trace; }
+
+clj_value clj_take_pending_trace(void) {
+	clj_value trace = pending_trace;
+	pending_trace = CLJ_NIL;
+	return trace;
 }
