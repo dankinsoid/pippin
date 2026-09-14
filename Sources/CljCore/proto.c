@@ -1008,11 +1008,6 @@ static clj_value b_type(const clj_value *args, size_t n) {
 	return clj_retain(clj_from_ptr((void *)clj_dispatch_type(args[0])));
 }
 
-static clj_value b_identical(const clj_value *args, size_t n) {
-	(void)n;
-	return clj_bool(args[0] == args[1]);
-}
-
 static clj_value b_proto_epoch(const clj_value *args, size_t n) {
 	(void)args;
 	(void)n;
@@ -1034,7 +1029,7 @@ void clj_proto_install(void) {
 		{"protocol*", b_protocol, 2, 2},       {"protocol-method*", b_protocol_method, 2, 2}, {"deftype*", b_deftype, 2, CLJ_ARITY_ANY},
 		{"new*", b_new, 1, CLJ_ARITY_ANY},     {"field*", b_field, 2, 2},                     {"reify-type*", b_reify_type, 2, CLJ_ARITY_ANY},
 		{"extend*", b_extend, 3, 3},           {"satisfies?", b_satisfies, 2, 2},             {"extends?", b_extends, 2, 2},
-		{"instance?", b_instance, 2, 2},       {"type", b_type, 1, 1},                        {"identical?", b_identical, 2, 2},
+		{"instance?", b_instance, 2, 2},       {"type", b_type, 1, 1},
 		{"protocol-epoch*", b_proto_epoch, 0, 0},
 	};
 	clj_value core_name = clj_symbol_name(clj_ns_name(clj_ns_core()));

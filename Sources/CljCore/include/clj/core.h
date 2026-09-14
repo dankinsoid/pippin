@@ -9,6 +9,7 @@
 #include "error.h"   // IWYU pragma: export
 #include "eval.h"    // IWYU pragma: export
 #include "fn.h"      // IWYU pragma: export
+#include "intrinsics.h" // IWYU pragma: export
 #include "keyword.h" // IWYU pragma: export
 #include "list.h"    // IWYU pragma: export
 #include "map.h"     // IWYU pragma: export

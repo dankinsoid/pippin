@@ -5,6 +5,7 @@
 #include "clj/analyzer.h"
 #include "clj/error.h"
 #include "clj/eval.h"
+#include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/ns.h"
@@ -78,6 +79,7 @@ static void init(void) {
 	                                                    "macro", "dynamic", "private", "fn", "fns", "calls", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_builtins_install();
 	clj_proto_install();
+	clj_intrinsics_install();
 	clj_ns_set_current(core);
 	load_core();
 	clj_ns_set_current(clj_ns_user());

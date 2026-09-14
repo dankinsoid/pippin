@@ -6,6 +6,7 @@
 #include "clj/coll.h"
 #include "clj/core.h"
 #include "clj/fn.h"
+#include "clj/intrinsics.h"
 #include "clj/runtime.h"
 #include "clj/seq.h"
 
@@ -33,114 +34,132 @@ static double as_double(const num *n) { return n->is_double ? n->d : (double)n->
 
 static clj_value not_a_number(clj_value v) { return clj_throw_msg("%s cannot be cast to a number", clj_type_name(v)); }
 
-static clj_value from_num(const num *n) {
-	if (n->is_double) return clj_double_new(n->d);
-	if (n->i > CLJ_FIXNUM_MAX || n->i < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
-	return clj_fixnum(n->i);
-}
-
 typedef enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV } arith_op;
 
-static clj_value arith_step(num *acc, clj_value v, arith_op op) {
-	num b;
-	if (!to_num(v, &b)) return not_a_number(v);
-	if (acc->is_double || b.is_double) {
-		double x = as_double(acc), y = as_double(&b);
-		acc->is_double = true;
+static clj_value arith2(clj_value a, clj_value b, arith_op op) {
+	num x, y;
+	if (!to_num(a, &x)) return not_a_number(a);
+	if (!to_num(b, &y)) return not_a_number(b);
+	if (x.is_double || y.is_double) {
+		double p = as_double(&x), q = as_double(&y), r = 0;
 		switch (op) {
-		case OP_ADD: acc->d = x + y; break;
-		case OP_SUB: acc->d = x - y; break;
-		case OP_MUL: acc->d = x * y; break;
-		case OP_DIV: acc->d = x / y; break;
+		case OP_ADD: r = p + q; break;
+		case OP_SUB: r = p - q; break;
+		case OP_MUL: r = p * q; break;
+		case OP_DIV: r = p / q; break;
 		}
-		return CLJ_NIL;
+		return clj_double_new(r);
 	}
-	bool overflow = false;
+	intptr_t r = 0;
+	bool     overflow = false;
 	switch (op) {
-	case OP_ADD: overflow = __builtin_add_overflow(acc->i, b.i, &acc->i); break;
-	case OP_SUB: overflow = __builtin_sub_overflow(acc->i, b.i, &acc->i); break;
-	case OP_MUL: overflow = __builtin_mul_overflow(acc->i, b.i, &acc->i); break;
+	case OP_ADD: overflow = __builtin_add_overflow(x.i, y.i, &r); break;
+	case OP_SUB: overflow = __builtin_sub_overflow(x.i, y.i, &r); break;
+	case OP_MUL: overflow = __builtin_mul_overflow(x.i, y.i, &r); break;
 	case OP_DIV:
-		if (b.i == 0) return clj_throw_msg("Divide by zero");
+		if (y.i == 0) return clj_throw_msg("Divide by zero");
 		// An inexact quotient is a double until ratios exist (NOTES.md).
-		if (acc->i % b.i != 0) {
-			acc->is_double = true;
-			acc->d = (double)acc->i / (double)b.i;
-		} else {
-			overflow = (acc->i == INTPTR_MIN && b.i == -1);
-			if (!overflow) acc->i /= b.i;
-		}
+		if (x.i % y.i != 0) return clj_double_new((double)x.i / (double)y.i);
+		overflow = (x.i == INTPTR_MIN && y.i == -1);
+		if (!overflow) r = x.i / y.i;
 		break;
 	}
-	return overflow ? clj_throw_msg("integer overflow") : CLJ_NIL;
+	if (overflow || r > CLJ_FIXNUM_MAX || r < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
+	return clj_fixnum(r);
 }
 
-static clj_value arith(const clj_value *args, size_t n, arith_op op, intptr_t identity) {
-	num    acc = {false, identity, 0};
-	size_t start = 0;
-	if (n > 0 && (op == OP_ADD || op == OP_MUL || n > 1)) {
-		if (!to_num(args[0], &acc)) return not_a_number(args[0]);
-		start = 1;
+clj_value clj_add(clj_value a, clj_value b) { return arith2(a, b, OP_ADD); }
+clj_value clj_sub(clj_value a, clj_value b) { return arith2(a, b, OP_SUB); }
+clj_value clj_mul(clj_value a, clj_value b) { return arith2(a, b, OP_MUL); }
+clj_value clj_div(clj_value a, clj_value b) { return arith2(a, b, OP_DIV); }
+clj_value clj_inc(clj_value v) { return clj_add(v, clj_fixnum(1)); }
+clj_value clj_dec(clj_value v) { return clj_sub(v, clj_fixnum(1)); }
+
+// (op a b c ...) as a left fold over the two-argument function; (op) is the identity, (op a) is a checked a
+// for + and *, and (op identity a) for - and /.
+static clj_value arith_fold(const clj_value *args, size_t n, clj_intrinsic_2 op, intptr_t identity, bool unary_is_self) {
+	if (n == 0) return clj_fixnum(identity);
+	if (n == 1) {
+		num x;
+		if (!to_num(args[0], &x)) return not_a_number(args[0]);
+		return unary_is_self ? clj_retain(args[0]) : op(clj_fixnum(identity), args[0]);
 	}
-	for (size_t i = start; i < n; i++) {
-		if (arith_step(&acc, args[i], op) == CLJ_THROWN) return CLJ_THROWN;
+	clj_value acc = op(args[0], args[1]);
+	for (size_t i = 2; i < n && acc != CLJ_THROWN; i++) {
+		clj_value next = op(acc, args[i]);
+		clj_release(acc);
+		acc = next;
 	}
-	return from_num(&acc);
+	return acc;
 }
 
-static clj_value b_add(const clj_value *args, size_t n) { return arith(args, n, OP_ADD, 0); }
-static clj_value b_sub(const clj_value *args, size_t n) { return arith(args, n, OP_SUB, 0); }
-static clj_value b_mul(const clj_value *args, size_t n) { return arith(args, n, OP_MUL, 1); }
-static clj_value b_div(const clj_value *args, size_t n) { return arith(args, n, OP_DIV, 1); }
-
-static clj_value b_inc(const clj_value *args, size_t n) {
-	(void)n;
-	clj_value one = clj_fixnum(1);
-	clj_value pair[2] = {args[0], one};
-	return arith(pair, 2, OP_ADD, 0);
-}
-
-static clj_value b_dec(const clj_value *args, size_t n) {
-	(void)n;
-	clj_value pair[2] = {args[0], clj_fixnum(1)};
-	return arith(pair, 2, OP_SUB, 0);
-}
+static clj_value b_add(const clj_value *args, size_t n) { return arith_fold(args, n, clj_add, 0, true); }
+static clj_value b_sub(const clj_value *args, size_t n) { return arith_fold(args, n, clj_sub, 0, false); }
+static clj_value b_mul(const clj_value *args, size_t n) { return arith_fold(args, n, clj_mul, 1, true); }
+static clj_value b_div(const clj_value *args, size_t n) { return arith_fold(args, n, clj_div, 1, false); }
 
 typedef enum { CMP_LT, CMP_LE, CMP_GT, CMP_GE } cmp_op;
 
-static clj_value compare(const clj_value *args, size_t n, cmp_op op) {
-	num prev;
-	if (!to_num(args[0], &prev)) return not_a_number(args[0]);
+static clj_value compare2(clj_value a, clj_value b, cmp_op op) {
+	num x, y;
+	if (!to_num(a, &x)) return not_a_number(a);
+	if (!to_num(b, &y)) return not_a_number(b);
+	bool ok;
+	if (x.is_double || y.is_double) {
+		double p = as_double(&x), q = as_double(&y);
+		ok = op == CMP_LT ? p < q : op == CMP_LE ? p <= q : op == CMP_GT ? p > q : p >= q;
+	} else {
+		intptr_t p = x.i, q = y.i;
+		ok = op == CMP_LT ? p < q : op == CMP_LE ? p <= q : op == CMP_GT ? p > q : p >= q;
+	}
+	return clj_bool(ok);
+}
+
+clj_value clj_lt(clj_value a, clj_value b) { return compare2(a, b, CMP_LT); }
+clj_value clj_le(clj_value a, clj_value b) { return compare2(a, b, CMP_LE); }
+clj_value clj_gt(clj_value a, clj_value b) { return compare2(a, b, CMP_GT); }
+clj_value clj_ge(clj_value a, clj_value b) { return compare2(a, b, CMP_GE); }
+
+// (op a b c ...) is true when every adjacent pair is; (op a) is true for a number.
+static clj_value compare_fold(const clj_value *args, size_t n, clj_intrinsic_2 op) {
+	if (n == 1) {
+		num x;
+		return to_num(args[0], &x) ? CLJ_TRUE : not_a_number(args[0]);
+	}
 	for (size_t i = 1; i < n; i++) {
-		num cur;
-		if (!to_num(args[i], &cur)) return not_a_number(args[i]);
-		bool ok;
-		if (prev.is_double || cur.is_double) {
-			double a = as_double(&prev), b = as_double(&cur);
-			ok = op == CMP_LT ? a < b : op == CMP_LE ? a <= b : op == CMP_GT ? a > b : a >= b;
-		} else {
-			intptr_t a = prev.i, b = cur.i;
-			ok = op == CMP_LT ? a < b : op == CMP_LE ? a <= b : op == CMP_GT ? a > b : a >= b;
-		}
-		if (!ok) return CLJ_FALSE;
-		prev = cur;
+		clj_value r = op(args[i - 1], args[i]);
+		if (r != CLJ_TRUE) return r;
 	}
 	return CLJ_TRUE;
 }
 
-static clj_value b_lt(const clj_value *args, size_t n) { return compare(args, n, CMP_LT); }
-static clj_value b_le(const clj_value *args, size_t n) { return compare(args, n, CMP_LE); }
-static clj_value b_gt(const clj_value *args, size_t n) { return compare(args, n, CMP_GT); }
-static clj_value b_ge(const clj_value *args, size_t n) { return compare(args, n, CMP_GE); }
+static clj_value b_lt(const clj_value *args, size_t n) { return compare_fold(args, n, clj_lt); }
+static clj_value b_le(const clj_value *args, size_t n) { return compare_fold(args, n, clj_le); }
+static clj_value b_gt(const clj_value *args, size_t n) { return compare_fold(args, n, clj_gt); }
+static clj_value b_ge(const clj_value *args, size_t n) { return compare_fold(args, n, clj_ge); }
+
+clj_value clj_eq(clj_value a, clj_value b) { return clj_bool(clj_equals(a, b)); }
+clj_value clj_neq(clj_value a, clj_value b) { return clj_bool(!clj_equals(a, b)); }
+clj_value clj_identical(clj_value a, clj_value b) { return clj_bool(a == b); }
 
 static clj_value b_eq(const clj_value *args, size_t n) {
 	for (size_t i = 1; i < n; i++) {
-		if (!clj_equals(args[0], args[i])) return CLJ_FALSE;
+		if (clj_eq(args[0], args[i]) == CLJ_FALSE) return CLJ_FALSE;
 	}
 	return CLJ_TRUE;
 }
 
-static clj_value b_neq(const clj_value *args, size_t n) { return clj_bool(b_eq(args, n) == CLJ_FALSE); }
+static clj_value b_neq(const clj_value *args, size_t n) {
+	for (size_t i = 1; i < n; i++) {
+		if (clj_neq(args[0], args[i]) == CLJ_TRUE) return CLJ_TRUE;
+	}
+	return CLJ_FALSE;
+}
+
+static clj_value b_identical(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_identical(args[0], args[1]);
+}
 
 static clj_value b_hash(const clj_value *args, size_t n) {
 	(void)n;
@@ -160,47 +179,47 @@ static clj_value int_arg(clj_value v, intptr_t *out) {
 	return CLJ_NIL;
 }
 
-static clj_value b_zero(const clj_value *args, size_t n) {
-	(void)n;
-	num v;
-	if (!to_num(args[0], &v)) return not_a_number(args[0]);
-	return clj_bool(as_double(&v) == 0);
+clj_value clj_zero_p(clj_value v) {
+	num x;
+	if (!to_num(v, &x)) return not_a_number(v);
+	return clj_bool(as_double(&x) == 0);
 }
 
-static clj_value b_pos(const clj_value *args, size_t n) {
-	(void)n;
-	num v;
-	if (!to_num(args[0], &v)) return not_a_number(args[0]);
-	return clj_bool(as_double(&v) > 0);
+clj_value clj_pos_p(clj_value v) {
+	num x;
+	if (!to_num(v, &x)) return not_a_number(v);
+	return clj_bool(as_double(&x) > 0);
 }
 
-static clj_value b_neg(const clj_value *args, size_t n) {
-	(void)n;
-	num v;
-	if (!to_num(args[0], &v)) return not_a_number(args[0]);
-	return clj_bool(as_double(&v) < 0);
+clj_value clj_neg_p(clj_value v) {
+	num x;
+	if (!to_num(v, &x)) return not_a_number(v);
+	return clj_bool(as_double(&x) < 0);
 }
 
-static clj_value b_even(const clj_value *args, size_t n) {
-	(void)n;
+clj_value clj_even_p(clj_value v) {
 	intptr_t i;
-	if (int_arg(args[0], &i) == CLJ_THROWN) return CLJ_THROWN;
+	if (int_arg(v, &i) == CLJ_THROWN) return CLJ_THROWN;
 	return clj_bool(i % 2 == 0);
 }
 
-static clj_value b_odd(const clj_value *args, size_t n) {
-	(void)n;
+clj_value clj_odd_p(clj_value v) {
 	intptr_t i;
-	if (int_arg(args[0], &i) == CLJ_THROWN) return CLJ_THROWN;
+	if (int_arg(v, &i) == CLJ_THROWN) return CLJ_THROWN;
 	return clj_bool(i % 2 != 0);
 }
 
 // ---- predicates
 
-#define PREDICATE(name, test) \
-	static clj_value name(const clj_value *args, size_t n) { \
+// The one-argument function of intrinsics.h and the builtin that forwards to it.
+#define PREDICATE(cname, bname, test) \
+	clj_value cname(clj_value v) { return clj_bool(test(v)); } \
+	FORWARD1(cname, bname)
+
+#define FORWARD1(cname, bname) \
+	static clj_value bname(const clj_value *args, size_t n) { \
 		(void)n; \
-		return clj_bool(test(args[0])); \
+		return cname(args[0]); \
 	}
 
 static bool is_number(clj_value v) { return clj_is_fixnum(v) || clj_is_double(v); }
@@ -215,60 +234,75 @@ static bool is_ifn(clj_value v) { return clj_has_core(v, CLJ_CORE_FN); }
 static bool is_associative(clj_value v) { return clj_has_core(v, CLJ_CORE_ASSOCIATIVE); }
 static bool is_indexed(clj_value v) { return clj_has_core(v, CLJ_CORE_INDEXED); }
 
-PREDICATE(b_not, is_not)
-PREDICATE(b_nil, clj_is_nil)
-PREDICATE(b_number, is_number)
-PREDICATE(b_string, clj_is_string)
-PREDICATE(b_keyword, clj_is_keyword)
-PREDICATE(b_symbol, clj_is_symbol)
-PREDICATE(b_vector_p, is_vector_p)
-PREDICATE(b_map, is_map_p)
-PREDICATE(b_list_p, is_list_p)
-PREDICATE(b_fn, clj_is_fn)
-PREDICATE(b_seq_p, clj_is_seq)
-PREDICATE(b_seqable_p, clj_is_seqable)
-PREDICATE(b_sequential_p, is_sequential)
-PREDICATE(b_coll_p, is_coll)
-PREDICATE(b_counted_p, is_counted)
-PREDICATE(b_ifn_p, is_ifn)
-PREDICATE(b_associative_p, is_associative)
-PREDICATE(b_indexed_p, is_indexed)
-PREDICATE(b_char_p, clj_is_char)
-PREDICATE(b_integer_p, clj_is_fixnum)
+PREDICATE(clj_not, b_not, is_not)
+PREDICATE(clj_nil_p, b_nil, clj_is_nil)
+PREDICATE(clj_number_p, b_number, is_number)
+PREDICATE(clj_string_p, b_string, clj_is_string)
+PREDICATE(clj_keyword_p, b_keyword, clj_is_keyword)
+PREDICATE(clj_symbol_p, b_symbol, clj_is_symbol)
+PREDICATE(clj_vector_p, b_vector_p, is_vector_p)
+PREDICATE(clj_map_p, b_map, is_map_p)
+PREDICATE(clj_list_p, b_list_p, is_list_p)
+PREDICATE(clj_fn_p, b_fn, clj_is_fn)
+PREDICATE(clj_seq_p, b_seq_p, clj_is_seq)
+PREDICATE(clj_seqable_p, b_seqable_p, clj_is_seqable)
+PREDICATE(clj_sequential_p, b_sequential_p, is_sequential)
+PREDICATE(clj_coll_p, b_coll_p, is_coll)
+PREDICATE(clj_counted_p, b_counted_p, is_counted)
+PREDICATE(clj_ifn_p, b_ifn_p, is_ifn)
+PREDICATE(clj_associative_p, b_associative_p, is_associative)
+PREDICATE(clj_indexed_p, b_indexed_p, is_indexed)
+PREDICATE(clj_char_p, b_char_p, clj_is_char)
+PREDICATE(clj_integer_p, b_integer_p, clj_is_fixnum)
+FORWARD1(clj_inc, b_inc)
+FORWARD1(clj_dec, b_dec)
+FORWARD1(clj_zero_p, b_zero)
+FORWARD1(clj_pos_p, b_pos)
+FORWARD1(clj_neg_p, b_neg)
+FORWARD1(clj_even_p, b_even)
+FORWARD1(clj_odd_p, b_odd)
 
 // ---- collections
 
-static clj_value b_get(const clj_value *args, size_t n) { return clj_get(args[0], args[1], n == 3 ? args[2] : CLJ_NIL); }
+clj_value clj_get2(clj_value coll, clj_value key) { return clj_get(coll, key, CLJ_NIL); }
+clj_value clj_nth2(clj_value coll, clj_value index) { return clj_nth(coll, index, false, CLJ_NIL); }
+clj_value clj_nth3(clj_value coll, clj_value index, clj_value not_found) { return clj_nth(coll, index, true, not_found); }
+clj_value clj_conj2(clj_value coll, clj_value x) { return clj_conj(clj_retain(coll), x); }
 
-static clj_value b_nth(const clj_value *args, size_t n) { return clj_nth(args[0], args[1], n == 3, n == 3 ? args[2] : CLJ_NIL); }
+static clj_value b_get(const clj_value *args, size_t n) { return n == 3 ? clj_get(args[0], args[1], args[2]) : clj_get2(args[0], args[1]); }
+
+static clj_value b_nth(const clj_value *args, size_t n) { return n == 3 ? clj_nth3(args[0], args[1], args[2]) : clj_nth2(args[0], args[1]); }
+
+// Consumes coll (+1 in), as clj_conj does.
+static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
+	if (clj_is_map(coll)) return clj_map_assoc(coll, key, val);
+	if (clj_is_vector(coll)) {
+		if (!clj_is_fixnum(key)) {
+			clj_release(coll);
+			return clj_throw_msg("Key must be integer");
+		}
+		intptr_t idx = clj_fixnum_val(key);
+		if (idx < 0 || (uintptr_t)idx > clj_vector_count(coll)) {
+			uint32_t count = clj_vector_count(coll);
+			clj_release(coll);
+			return clj_throw_msg("Index %lld out of bounds for length %u", (long long)idx, count);
+		}
+		return clj_vector_assoc(coll, (uint32_t)idx, val);
+	}
+	clj_value e = clj_throw_msg("assoc not supported on this type: %s", clj_type_name(coll));
+	clj_release(coll);
+	return e;
+}
+
+clj_value clj_assoc3(clj_value coll, clj_value key, clj_value val) {
+	return assoc_one(clj_is_nil(coll) ? clj_map_empty() : clj_retain(coll), key, val);
+}
 
 static clj_value b_assoc(const clj_value *args, size_t n) {
 	if (n % 2 == 0) return clj_throw_msg("assoc expects even number of arguments after map/vector, found odd number");
-	clj_value coll = args[0];
-	if (clj_is_nil(coll)) coll = clj_map_empty();
-	if (clj_is_map(coll)) {
-		coll = clj_retain(coll);
-		for (size_t i = 1; i < n; i += 2) coll = clj_map_assoc(coll, args[i], args[i + 1]);
-		return coll;
-	}
-	if (clj_is_vector(coll)) {
-		coll = clj_retain(coll);
-		for (size_t i = 1; i < n; i += 2) {
-			if (!clj_is_fixnum(args[i])) {
-				clj_release(coll);
-				return clj_throw_msg("Key must be integer");
-			}
-			intptr_t idx = clj_fixnum_val(args[i]);
-			if (idx < 0 || (uintptr_t)idx > clj_vector_count(coll)) {
-				uint32_t count = clj_vector_count(coll);
-				clj_release(coll);
-				return clj_throw_msg("Index %lld out of bounds for length %u", (long long)idx, count);
-			}
-			coll = clj_vector_assoc(coll, (uint32_t)idx, args[i + 1]);
-		}
-		return coll;
-	}
-	return clj_throw_msg("assoc not supported on this type: %s", clj_type_name(coll));
+	clj_value coll = clj_assoc3(args[0], args[1], args[2]);
+	for (size_t i = 3; i < n && coll != CLJ_THROWN; i += 2) coll = assoc_one(coll, args[i], args[i + 1]);
+	return coll;
 }
 
 static clj_value b_dissoc(const clj_value *args, size_t n) {
@@ -280,44 +314,31 @@ static clj_value b_dissoc(const clj_value *args, size_t n) {
 	return coll;
 }
 
-static clj_value b_contains(const clj_value *args, size_t n) {
-	(void)n;
-	clj_value coll = args[0], key = args[1];
+clj_value clj_contains_p(clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_FALSE;
 	if (clj_is_map(coll)) return clj_bool(clj_map_contains(coll, key));
 	if (clj_is_vector(coll)) return clj_bool(clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && (uintptr_t)clj_fixnum_val(key) < clj_vector_count(coll));
 	return clj_throw_msg("contains? not supported on type: %s", clj_type_name(coll));
 }
 
-static clj_value b_count(const clj_value *args, size_t n) {
+static clj_value b_contains(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_count(args[0]);
+	return clj_contains_p(args[0], args[1]);
 }
 
 static clj_value b_conj(const clj_value *args, size_t n) {
 	if (n == 0) return clj_vector_empty();
-	clj_value coll = clj_retain(args[0]);
-	for (size_t i = 1; i < n; i++) {
-		coll = clj_conj(coll, args[i]);
-		if (coll == CLJ_THROWN) return CLJ_THROWN;
-	}
+	if (n == 1) return clj_retain(args[0]);
+	clj_value coll = clj_conj2(args[0], args[1]);
+	for (size_t i = 2; i < n && coll != CLJ_THROWN; i++) coll = clj_conj(coll, args[i]);
 	return coll;
 }
 
-static clj_value b_first(const clj_value *args, size_t n) {
-	(void)n;
-	return clj_first(args[0]);
-}
-
-static clj_value b_rest(const clj_value *args, size_t n) {
-	(void)n;
-	return clj_rest(args[0]);
-}
-
-static clj_value b_next(const clj_value *args, size_t n) {
-	(void)n;
-	return clj_next(args[0]);
-}
+FORWARD1(clj_count, b_count)
+FORWARD1(clj_first, b_first)
+FORWARD1(clj_rest, b_rest)
+FORWARD1(clj_next, b_next)
+FORWARD1(clj_seq, b_seq)
 
 static clj_value b_cons(const clj_value *args, size_t n) {
 	(void)n;
@@ -345,11 +366,6 @@ static clj_value b_hash_map(const clj_value *args, size_t n) {
 }
 
 // ---- seqs
-
-static clj_value b_seq(const clj_value *args, size_t n) {
-	(void)n;
-	return clj_seq(args[0]);
-}
 
 static clj_value b_lazy_seq_star(const clj_value *args, size_t n) {
 	(void)n;
@@ -387,13 +403,14 @@ static clj_value b_list_star(const clj_value *args, size_t n) {
 	return r;
 }
 
-static clj_value b_empty(const clj_value *args, size_t n) {
-	(void)n;
-	clj_value s = clj_seq(args[0]);
+clj_value clj_empty_p(clj_value v) {
+	clj_value s = clj_seq(v);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_release(s);
 	return clj_bool(clj_is_nil(s));
 }
+
+FORWARD1(clj_empty_p, b_empty)
 
 static clj_value b_second(const clj_value *args, size_t n) {
 	(void)n;
@@ -816,7 +833,7 @@ typedef struct {
 static const entry entries[] = {
 	{"+", b_add, 0, ANY},          {"-", b_sub, 1, ANY},         {"*", b_mul, 0, ANY},          {"/", b_div, 1, ANY},
 	{"<", b_lt, 1, ANY},           {"<=", b_le, 1, ANY},         {">", b_gt, 1, ANY},           {">=", b_ge, 1, ANY},
-	{"=", b_eq, 1, ANY},           {"not=", b_neq, 1, ANY},      {"hash", b_hash, 1, 1},      {"inc", b_inc, 1, 1},          {"dec", b_dec, 1, 1},
+	{"=", b_eq, 1, ANY},           {"not=", b_neq, 1, ANY},      {"identical?", b_identical, 2, 2},      {"hash", b_hash, 1, 1},      {"inc", b_inc, 1, 1},          {"dec", b_dec, 1, 1},
 	{"not", b_not, 1, 1},          {"nil?", b_nil, 1, 1},        {"zero?", b_zero, 1, 1},       {"pos?", b_pos, 1, 1},
 	{"neg?", b_neg, 1, 1},         {"even?", b_even, 1, 1},      {"odd?", b_odd, 1, 1},         {"number?", b_number, 1, 1},
 	{"string?", b_string, 1, 1},   {"keyword?", b_keyword, 1, 1}, {"symbol?", b_symbol, 1, 1},  {"vector?", b_vector_p, 1, 1},
