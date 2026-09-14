@@ -15,6 +15,7 @@
 #include "number.h"  // IWYU pragma: export
 #include "object.h"  // IWYU pragma: export
 #include "printer.h" // IWYU pragma: export
+#include "profile.h" // IWYU pragma: export
 #include "proto.h"   // IWYU pragma: export
 #include "reader.h"  // IWYU pragma: export
 #include "runtime.h" // IWYU pragma: export

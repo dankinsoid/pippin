@@ -322,6 +322,14 @@
   "Ignores body and yields nil. The forms are still read, so they must be readable."
   [& body])
 
+;; Not a top-level do: that would analyze (and macroexpand) the rest with the profiler already on.
+(defmacro profile
+  "Runs body with the fn profiler on: {:result v :profile {:fns [...]}} (see profile-stop!)."
+  [& body]
+  `(let [v# (do (profile-start!)
+                (try (do ~@body) (catch :default e# (profile-stop!) (throw e#))))]
+     {:result v# :profile (profile-stop!)}))
+
 (defmacro dotimes
   "binding => name n. Evaluates body once for each integer from 0 below n, with
   name bound to it. Returns nil."

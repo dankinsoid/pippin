@@ -80,6 +80,12 @@ public struct ClojureError: Error, CustomStringConvertible {
 public final class Runtime: Sendable {
 	public init() { clj_init() }
 
+	/// Instruments signposts (subsystem `clj`, name `invoke`) around every Clojure fn call. Process-wide.
+	public static var signposts: Bool {
+		get { clj_signposts_enabled() }
+		set { clj_signposts_enable(newValue) }
+	}
+
 	/// Evaluates every form in order and returns the last value; nil for empty input.
 	/// Throws `ReaderError` for syntax errors and `ClojureError` for analysis and runtime errors.
 	public func eval(_ source: String) throws -> Value {

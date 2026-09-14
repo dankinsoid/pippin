@@ -15,6 +15,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "profile_internal.h"
 #include "shadow_internal.h"
 
 enum {
@@ -313,7 +314,7 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 	return v;
 }
 
-static clj_eval_fn eval_fn_of(clj_node_kind kind) {
+clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	switch (kind) {
 	case CLJ_NODE_CONST: return eval_const;
 	case CLJ_NODE_LOCAL: return eval_local;
@@ -334,6 +335,32 @@ static clj_eval_fn eval_fn_of(clj_node_kind kind) {
 	}
 	clj_fatal("unknown node kind");
 }
+
+// The exec is const to the frame only by convention; the table is its own mutable state.
+// @ai-generated(guided)
+static clj_value eval_counting(const clj_node *n, clj_frame *f) {
+	((clj_exec *)f->exec)->nodes[n->id].hits++;
+	return clj_node_eval_fn(n->kind)(n, f);
+}
+
+static void count_on(const clj_node *n, void *ctx) {
+	clj_exec *e = ctx;
+	e->nodes[n->id].eval = eval_counting;
+	clj_node_children(n, count_on, e);
+}
+
+static void count_off(const clj_node *n, void *ctx) {
+	clj_exec *e = ctx;
+	e->nodes[n->id].eval = clj_node_eval_fn(n->kind);
+	clj_node_children(n, count_off, e);
+}
+
+void clj_exec_count(clj_value exec, bool on) {
+	clj_exec *e = clj_exec_of(exec);
+	(on ? count_on : count_off)(e->root, e);
+}
+
+uint64_t clj_exec_hits(clj_value exec, uint32_t id) { return clj_exec_of(exec)->nodes[id].hits; }
 
 static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
 	const clj_exec *e = self;
@@ -358,7 +385,7 @@ static void note_slot(build_ctx *b, uint32_t slot) {
 // @ai-generated(guided)
 static void build(const clj_node *n, void *ctx) {
 	build_ctx *b = ctx;
-	b->exec->nodes[n->id].eval = eval_fn_of(n->kind);
+	b->exec->nodes[n->id].eval = clj_node_eval_fn(n->kind);
 	switch (n->kind) {
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
@@ -445,10 +472,28 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 
 	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned};
 	clj_shadow_push(code, site);
+	// Read once: a profiler started or stopped mid-body counts only calls timed from their entry.
+	uint8_t  instrument = clj_instrument;
+	uint64_t t0 = 0;
+#ifdef __APPLE__
+	os_signpost_id_t signpost = 0;
+#endif
+	if (__builtin_expect(instrument, 0)) {
+		if (instrument & CLJ_INSTRUMENT_PROFILE) t0 = clj_profile_now();
+#ifdef __APPLE__
+		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(fn->name);
+#endif
+	}
 	clj_value v;
 	for (;;) {
 		v = eval_child(arity->body, &frame);
 		if (v != CLJ_RECUR) break;
+	}
+	if (__builtin_expect(instrument, 0)) {
+#ifdef __APPLE__
+		if (signpost) clj_signpost_end(signpost);
+#endif
+		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
 	}
 	clj_shadow_pop();
 	slots_release(&frame, arity->nslots);

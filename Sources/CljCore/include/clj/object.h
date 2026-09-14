@@ -130,6 +130,10 @@ void      clj_fatal(const char *msg) __attribute__((noreturn));
 // Declared regardless of CLJ_DEBUG: the Swift importer reads this header without the C target's defines.
 // Returns -1 when the build does not track it.
 int64_t clj_debug_live_objects(void);
+// Live objects of one type; -1 when untracked. A deftype descriptor's own object counts under clj_type_type.
+int64_t clj_debug_live_objects_of(const clj_type *type);
+// "type: count" per type with live objects, to stderr: what a leaking test left behind.
+void clj_debug_live_report(void);
 // True when v and everything reachable from it is shared or immortal.
 bool clj_debug_all_shared(clj_value v);
 bool clj_debug_pool_enabled(void);

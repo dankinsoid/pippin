@@ -10,6 +10,7 @@ typedef clj_value (*clj_eval_fn)(const clj_node *node, clj_frame *frame);
 // Execution state of one node; inline caches, profile counters and rewrites land here, never in the node.
 typedef struct {
 	clj_eval_fn eval;
+	uint64_t    hits; // counted only while clj_exec_count is on
 } clj_exec_node;
 
 // One per tree; a closure retains the exec of the tree it was created in.
@@ -37,6 +38,11 @@ struct clj_frame {
 
 // Builds the table in one walk of the tree. Owned.
 clj_value clj_exec_new(const clj_node *root);
+// The interpreter's eval for a node kind: what an exec table holds when no rewrite is on.
+clj_eval_fn clj_node_eval_fn(clj_node_kind kind);
+// Swaps every node's eval for a hit-counting wrapper and back; off costs nothing, not even a branch.
+void     clj_exec_count(clj_value exec, bool on);
+uint64_t clj_exec_hits(clj_value exec, uint32_t id);
 // Evaluates the root in a fresh frame. Owned result or CLJ_THROWN.
 clj_value clj_exec_run(clj_value exec);
 // clj_exec_new, run, release: for a tree executed once.

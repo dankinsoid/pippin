@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -44,10 +45,53 @@ static _Thread_local heap *tls_heap;
 // One process-wide counter, contended across threads; debug-only, so acceptable until profiles say otherwise.
 static _Atomic int64_t live_objects;
 int64_t clj_debug_live_objects(void) { return atomic_load(&live_objects); }
-#define LIVE_ADD(n) atomic_fetch_add_explicit(&live_objects, (n), memory_order_relaxed)
+
+// Per-type counts in a fixed open-addressing table keyed by descriptor; a slot is claimed once and never
+// freed, so a dead deftype descriptor keeps its slot (and a reused address its history).
+enum { TYPE_SLOTS = 1024 };
+
+typedef struct {
+	_Atomic(const clj_type *) type;
+	_Atomic int64_t           live;
+} type_count;
+
+static type_count type_counts[TYPE_SLOTS];
+
+static type_count *type_slot(const clj_type *type) {
+	size_t i = (((uintptr_t)type >> 4) * 0x9E3779B97F4A7C15u) & (TYPE_SLOTS - 1);
+	for (size_t probes = 0; probes < TYPE_SLOTS; probes++, i = (i + 1) & (TYPE_SLOTS - 1)) {
+		const clj_type *cur = atomic_load_explicit(&type_counts[i].type, memory_order_acquire);
+		if (cur == type) return &type_counts[i];
+		if (!cur && atomic_compare_exchange_strong_explicit(&type_counts[i].type, &cur, type, memory_order_acq_rel, memory_order_acquire)) return &type_counts[i];
+		if (cur == type) return &type_counts[i];
+	}
+	clj_fatal("too many types for the debug live-object table");
+}
+
+static void live_add(const clj_type *type, int64_t n) {
+	atomic_fetch_add_explicit(&live_objects, n, memory_order_relaxed);
+	atomic_fetch_add_explicit(&type_slot(type)->live, n, memory_order_relaxed);
+}
+
+int64_t clj_debug_live_objects_of(const clj_type *type) { return atomic_load(&type_slot(type)->live); }
+
+void clj_debug_live_report(void) {
+	for (size_t i = 0; i < TYPE_SLOTS; i++) {
+		const clj_type *type = atomic_load_explicit(&type_counts[i].type, memory_order_acquire);
+		int64_t         live = type ? atomic_load(&type_counts[i].live) : 0;
+		if (live) fprintf(stderr, "%s: %lld\n", type->name, (long long)live);
+	}
+}
+
+#define LIVE_ADD(type, n) live_add((type), (n))
 #else
 int64_t clj_debug_live_objects(void) { return -1; }
-#define LIVE_ADD(n) ((void)0)
+int64_t clj_debug_live_objects_of(const clj_type *type) {
+	(void)type;
+	return -1;
+}
+void clj_debug_live_report(void) {}
+#define LIVE_ADD(type, n) ((void)0)
 #endif
 
 // CLJ_SYSTEM_ALLOC=1 routes every object through calloc/realloc/free so ASan sees object boundaries.
@@ -183,7 +227,7 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	}
 	atomic_init(&h->rc, 1);
 	h->type = type;
-	LIVE_ADD(1);
+	LIVE_ADD(type, 1);
 	return h;
 }
 
@@ -221,7 +265,7 @@ void *clj_realloc(void *obj, size_t size) {
 }
 
 void clj_dealloc(clj_header *h) {
-	LIVE_ADD(-1);
+	LIVE_ADD(h->type, -1);
 	if (h->flags & CLJ_FLAG_LARGE) free(h);
 	else pool_free(h);
 }

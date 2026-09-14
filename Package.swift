@@ -15,7 +15,8 @@ let package = Package(
 		.package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
 	],
 	targets: [
-		// Portable runtime core. No platform headers here; everything host-specific goes through the Swift target.
+		// Portable runtime core. No platform headers here except os/signpost.h under __APPLE__ (profile.c);
+		// everything else host-specific goes through the Swift target.
 		.target(
 			name: "CljCore",
 			// boot/core.clj reaches the binary through the generated core_clj.inc (make boot).
