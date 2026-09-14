@@ -83,9 +83,14 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   analyzed. `&env` is always nil: locals are slot indices, not a map. Trigger: a macro that inspects
   `&env` (`clojure.tools.macro`-style, `binding`-aware macros). Arity errors count `&form`/`&env`
   (`Wrong number of args (2)` for `(when)`); Clojure subtracts 2.
-- **No destructuring.** `let`/`fn`/`loop` bind vectors of plain symbols only; `defn`/`if-let`/
-  `when-let` in core.clj inherit that. Needs `destructure` written in core.clj (it is a plain
-  function called at macro time) plus `let` becoming a macro over `let*`.
+- **`let`/`loop`/`fn` are core.clj macros over `let*`/`loop*`/`fn*`**, as in Clojure, so
+  `macroexpand-1` of `(let ...)` yields `let*` and syntax-quote qualifies them to `clojure.core/let`.
+  The analyzer's messages for the starred forms still say `let`/`loop` (`(let* [a] a)` reports
+  "let requires an even number of forms"); Clojure says "Bad binding form". Trigger: nobody.
+- **`defmacro` emits `clojure.core/fn` once that macro exists, `fn*` before** (`macro_fn_symbol`):
+  macros defined in core.clj above the `fn` macro (`when`, `cond`, ...) cannot destructure their
+  params. Trigger: a `[bindings & body]`-style macro that wants `[[x y] & body]` up there; move it
+  below `fn` or write the `first`/`second` by hand.
 - **No metadata, so no docstrings.** `defn`/`defmacro` accept a docstring and drop it; `^:private`,
   `^:dynamic`, attr-maps and `(doc x)` need a meta slot on symbols, vars and collections.
 - **No `try`/`catch`/`finally`; `throw` is a native fn.** `(throw ex)` works as a call, and
@@ -152,10 +157,22 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   binary, so it is a build bug, not a user error.
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
-- **Contents**: `defn when when-not if-not cond and or -> ->> comment dotimes if-let when-let assert
-  declare`. Not yet: `defn-`, `doto`, `condp`, `case`, `while`, `letfn`, `for`, `doseq`, `fn` literals,
-  `some->`, `as->`, `cond->`. `assert` throws through the `throw` native and is always on (no
-  `*assert*`). `dotimes` does not coerce its count to a long.
+- **Contents**: `when when-not if-not cond destructure let loop fn defn and or -> ->> comment dotimes
+  if-let when-let assert declare`, plus the helpers `check-bindings`, `maybe-destructured` (public
+  vars; Clojure keeps the second private). Not yet: `defn-`, `doto`, `condp`, `case`, `while`, `letfn`,
+  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`. `assert` throws through the `throw` native
+  and is always on (no `*assert*`). `dotimes` does not coerce its count to a long.
+- **`destructure` follows clojure.core with these gaps.** A keyword as a binding form (`[:a 1]`) and a
+  map key that is a keyword other than `:as`/`:or`/`:keys`/`:strs`/`:syms` (`{:foo x}`) are
+  "Unsupported binding form/key" here; Clojure's function binds `a`/`foo` but its `let` spec rejects
+  both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
+  merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
+  Trigger: a library relying on the trailing-map call style. No metadata, so `:or` keys and `:keys`
+  entries carry none, and `& rest` walks with `first`/`next` (each `next` on a vector copies, see
+  Builtins).
+- **`fn` has no `:pre`/`:post` conditions**: a map as the first body form is evaluated and discarded
+  like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
+  `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
 
 ## Printer (Sources/CljCore/printer.c)
 
