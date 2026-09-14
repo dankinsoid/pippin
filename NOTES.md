@@ -202,8 +202,25 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **`strtod`/`snprintf` in reader and printer follow the C locale**, which the runtime never changes;
   a host calling `setlocale` with a comma decimal point would break doubles.
 
-## Analyzer and evaluator (Sources/CljCore/analyzer.c, eval.c, fn.c)
+## Analyzer and evaluator (Sources/CljCore/analyzer.c, eval.c, fn.c, node_data.c)
 
+- **A node is the program, `clj_exec` its execution state.** `clj_node` carries no interpreter field and
+  is `const` to eval.c and fn.c; the analyzer numbers a finished tree in pre-order (`id`, `nnodes` = subtree
+  size, so a subtree's ids are contiguous). `clj_exec_new` builds `exec_node[nnodes]` in one walk when a
+  tree first runs and every child dispatch goes through `frame->exec->nodes[id]`: one extra indirection
+  per node, 1–3 % on the seq benchmarks. The table holds only the eval pointer. Trigger for widening it:
+  the var inline cache / profile counters from the design.
+- **A closure retains its whole top-level tree** through the exec, not only its fn subtree: a fn defined
+  inside a large top-level `let` keeps every sibling constant alive, and tests that count live objects
+  across a redefinition must repeat the exact defining form. Trigger: memory of a large loaded program;
+  then a per-fn exec sliced by the fn's id range.
+- **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
+  are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
+  vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and reader positions are
+  dropped). Anything else — a fn or protocol a macro embedded as a constant, a deftype descriptor, a host
+  value — makes `to_data` throw "not serializable: <type>". Vars travel as qualified symbols and are
+  interned on read; `from_data` checks the shape and slot bounds, not that `recur` sits in a tail
+  position. Trigger: a tree cache on disk / AOT; then a binary form and a `recur` placement check.
 - **Macros expand in the analyzer, in `analyze_list`**, not in a separate pass: a list whose head
   resolves to a macro var (and is not a local or a special form) is expanded until it is not, then
   analyzed. `&env` is always nil: locals are slot indices, not a map. Trigger: a macro that inspects

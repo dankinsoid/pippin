@@ -92,3 +92,10 @@ the C iterator column is `clj_seq_iter` over the same vector, the Swift column `
   `clj_invoke`, one vector-seq allocation and free per step); the C iterator is 3.5 ns, mostly the
   type dispatch and the trie leaf lookup per element. Chunked seqs would cut the per-element
   allocation, not the interpreter overhead (NOTES.md).
+
+### Exec table (after 41548a8), pool only, three alternating runs each
+
+Dispatch through `frame->exec->nodes[id]` instead of an eval pointer in the node (NOTES.md). Medians,
+ns per element, before → after: reduce + map inc range 222.3 → 224.7 (1k), 222.4 → 230.5 (100k); seq walk
+of a vector 55.5 → 56.0. Run-to-run spread of the same binary is ±3 %, so the cost is at most a few
+percent: one dependent load per child evaluation.

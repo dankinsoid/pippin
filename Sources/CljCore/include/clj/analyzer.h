@@ -115,8 +115,6 @@ struct clj_node {
 
 extern const clj_type clj_node_type;
 
-static inline const clj_node *clj_node_of(clj_value v) { return (const clj_node *)clj_to_ptr(v); }
-
 // The child nodes of n in id order, each once: the walk a numbering, an exec table or an emitter follows.
 typedef void (*clj_node_visitor)(const clj_node *child, void *ctx);
 void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx);
