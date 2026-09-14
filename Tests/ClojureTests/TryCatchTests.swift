@@ -182,7 +182,7 @@ extension CoreTests {
 				#expect(message(rt, "(try (nope) (catch :default e 1))") == "Unable to resolve symbol: nope in this context")
 				#expect(message(rt, "(try 1 (catch :default e (nope)))") == "Unable to resolve symbol: nope in this context")
 				#expect(message(rt, "(try 1 (finally (nope)))") == "Unable to resolve symbol: nope in this context")
-				#expect(try clojureError(rt, "\n (try 1 (catch :default e (nope)))")?.data == Value(reading: "{:line 2 :column 2}"))
+				#expect(try clojureError(rt, "\n (try 1 (catch :default e (nope)))")?.data == Value(reading: "{:line 2 :column 27}"))
 				// Analysis errors are not caught by the try being analyzed.
 				#expect(message(rt, "(try (nope) (catch :default e :caught))") == "Unable to resolve symbol: nope in this context")
 			}

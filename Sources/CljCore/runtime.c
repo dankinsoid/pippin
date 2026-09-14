@@ -58,7 +58,8 @@ static void load_core(void) {
 static void init(void) {
 	clj_value core = clj_ns_core();
 	// Interned up front so printing an error or an analysis position allocates nothing lasting later.
-	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", NULL}; *k; k++) clj_keyword_from_cstr(*k);
+	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", "tag", "ns", "name", "doc", "arglists",
+	                                                    "macro", "dynamic", "private", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_builtins_install();
 	clj_proto_install();
 	clj_ns_set_current(core);

@@ -151,7 +151,7 @@ extension CoreTests {
 				#expect(message(rt, "(def rt-x-unbound) rt-x-unbound") == "Unbound var: #'user/rt-x-unbound")
 				try unbind("rt-x", "rt-f")
 			}
-			#expect(clj_debug_live_objects() == before + 3) // rt-x-unbound: the var, its name symbol and the name string
+			#expect(clj_debug_live_objects() == before + 6) // rt-x-unbound: the var, its name symbol and the name string, its meta map and two nodes
 		}
 
 		@Test func collectionsAsFunctionsAndApply() throws {
@@ -186,7 +186,7 @@ extension CoreTests {
 			do {
 				let e = try #require(clojureError(rt, "1\n  (let [x 1]\n    (nope x))"))
 				#expect(e.message == "Unable to resolve symbol: nope in this context")
-				#expect(try e.data == Value(reading: "{:line 2 :column 3}"))
+				#expect(try e.data == Value(reading: "{:line 3 :column 5}"))
 				#expect(e.cause == nil)
 				#expect(e.causeError == nil)
 				#expect(e.description == e.message)
@@ -195,7 +195,7 @@ extension CoreTests {
 				#expect(runtime.data == nil)
 				#expect(throws: ReaderError.self) { try rt.eval("(+ 1") }
 				#expect(throws: ReaderError.self) { try rt.eval("1 )") }
-				#expect(try clojureError(rt, "(let [x 1] (if x (recur)))")?.data == Value(reading: "{:line 1 :column 1}"))
+				#expect(try clojureError(rt, "(let [x 1] (if x (recur)))")?.data == Value(reading: "{:line 1 :column 18}"))
 				#expect(try rt.eval("(def rt-deep (fn [n] (+ 1 (rt-deep (inc n)))))").description == "#'user/rt-deep")
 				#expect(message(rt, "(rt-deep 0)") == "Stack overflow")
 				#expect(message(rt, "(rt-deep 0)") == "Stack overflow")

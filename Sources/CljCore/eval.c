@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "clj/coll.h"
+#include "clj/core.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -147,6 +148,7 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+// Root first, then meta, then the flags, as DefExpr.eval does.
 static clj_value eval_def(const clj_node *n, clj_frame *f) {
 	if (n->u.def.init) {
 		clj_value v = n->u.def.init->eval(n->u.def.init, f);
@@ -154,7 +156,17 @@ static clj_value eval_def(const clj_node *n, clj_frame *f) {
 		clj_var_bind_root(n->u.def.var, v);
 		clj_release(v);
 	}
+	clj_value m = n->u.def.meta->eval(n->u.def.meta, f);
+	if (m == CLJ_THROWN) return CLJ_THROWN;
+	if (!clj_is_map(m)) {
+		clj_value e = clj_throw_msg("def metadata must be a map, got: %s", clj_type_name(m));
+		clj_release(m);
+		return e;
+	}
+	clj_var_set_meta(n->u.def.var, m);
+	clj_release(m);
 	clj_var_set_macro(n->u.def.var, n->u.def.macro);
+	clj_var_set_dynamic(n->u.def.var, n->u.def.dynamic);
 	return clj_retain(n->u.def.var);
 }
 
@@ -345,8 +357,12 @@ static bool is_do_form(clj_value form, clj_seq_iter *it) {
 }
 
 // A top-level (do ...) is a sequence of top-level forms: a defmacro in it is visible to the next form.
-clj_value clj_eval(clj_value form, const clj_env *env) {
-	clj_value expanded = clj_macroexpand(form, env);
+// Without a position in env the form's own :line/:column stand in, so the expansion's errors keep them.
+clj_value clj_eval(clj_value form, const clj_env *given) {
+	clj_env local = given ? *given : (clj_env){0};
+	if (!local.line) clj_form_position(form, &local.line, &local.col);
+	const clj_env *env = &local;
+	clj_value      expanded = clj_macroexpand(form, env);
 	if (expanded == CLJ_THROWN) return CLJ_THROWN;
 	clj_value    v = CLJ_NIL;
 	clj_seq_iter it;

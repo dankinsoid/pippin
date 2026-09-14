@@ -97,8 +97,10 @@ struct clj_node {
 		} invoke;
 		struct {
 			clj_value var;
-			clj_node *init;  // NULL for (def x)
-			bool      macro; // defmacro
+			clj_node *init;    // NULL for (def x)
+			clj_node *meta;    // the var's meta: the symbol's meta plus :ns :name :line :column, evaluated at def time
+			bool      macro;   // defmacro
+			bool      dynamic; // :dynamic in the symbol's meta
 		} def;
 		struct {
 			clj_node  *body;
@@ -120,8 +122,12 @@ typedef struct {
 } clj_env;
 
 // Owned node, or NULL with the exception pending. *nslots is the number of frame slots the tree needs.
-// Nested forms carry no position yet, so every error reports the top-level form's (NOTES.md).
+// An error reports the :line/:column of the innermost enclosing list that carries them (the reader puts
+// them on every list), falling back to env's position.
 clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots);
+
+// The :line/:column a form's meta carries (the reader puts them on lists); false without both.
+bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col);
 
 // Special-form names (plus & and the clause heads catch/finally): syntax-quote leaves them unqualified.
 bool clj_is_special_symbol(clj_value sym);
