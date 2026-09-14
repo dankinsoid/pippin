@@ -365,6 +365,7 @@ static clj_value print_to_string(clj_value root, bool readably) {
 	}
 	for (size_t i = stack.count; i > 0; i--) {
 		if (stack.items[i - 1].kind == F_MAP) free(stack.items[i - 1].entries);
+		if (stack.items[i - 1].kind == F_SEQ) clj_seq_iter_close(&stack.items[i - 1].it);
 	}
 	free(stack.items);
 	clj_value s = thrown ? CLJ_THROWN : clj_string_new(b.data, b.len);

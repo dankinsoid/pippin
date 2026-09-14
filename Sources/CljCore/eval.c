@@ -339,7 +339,9 @@ static bool is_do_form(clj_value form, clj_seq_iter *it) {
 	*it = clj_seq_iter_start(form);
 	clj_value head;
 	if (!clj_seq_iter_next(it, &head)) return false;
-	return clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(clj_string_bytes(clj_symbol_name(head)), "do") == 0;
+	if (clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(clj_string_bytes(clj_symbol_name(head)), "do") == 0) return true;
+	clj_seq_iter_close(it);
+	return false;
 }
 
 // A top-level (do ...) is a sequence of top-level forms: a defmacro in it is visible to the next form.
@@ -355,6 +357,7 @@ clj_value clj_eval(clj_value form, const clj_env *env) {
 			v = clj_eval(item, env);
 			if (v == CLJ_THROWN) break;
 		}
+		clj_seq_iter_close(&it);
 		if (it.thrown) {
 			clj_release(v);
 			v = CLJ_THROWN;

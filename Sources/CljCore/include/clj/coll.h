@@ -27,17 +27,24 @@ clj_value clj_get(clj_value coll, clj_value key, clj_value not_found);
 // Indexed types, strings (code points) and sequential seqs (walked). Out of range throws, or yields not_found when has_not_found.
 clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value not_found);
 
-// Walks nil, (), a cons chain, a vector, a string and the seq types of seq.h; a cons tail may be any of
-// those. Items are borrowed and stay valid while the walked value is: a cons chain and a realized lazy
-// seq keep their elements alive, a view keeps its backing collection.
+// Walks any seqable: nil, (), a cons chain, a vector, a string and the seq types of seq.h inline, and any
+// other type (a deftype/reify seq, a map) through its slots. Items are borrowed and stay valid while the
+// walked value is — a cons chain and a realized lazy seq keep their elements alive, a view keeps its backing
+// collection — except that an item a first slot yielded lives only until the next step or close (`slots`).
 typedef struct {
 	clj_value cur;    // borrowed
 	uintptr_t pos;    // index into a vector, byte offset into a string, or the current value of a range
-	bool      thrown; // a lazy seq's thunk threw; the exception is pending and the walk is over
+	bool      thrown; // a lazy seq's thunk or a slot threw; the exception is pending and the walk is over
+	bool      slots;  // set once a first/next slot was used: from then on items are owned by the iterator
+	bool      yielded; // cur's first is out; the next step calls its next slot
+	clj_value held;   // owned: the seq cur borrows from when a slot produced it, else nil
+	clj_value item;   // owned: the last item a first slot yielded, else nil
 } clj_seq_iter;
 
 clj_seq_iter clj_seq_iter_start(clj_value seq);
 bool         clj_seq_iter_next(clj_seq_iter *it, clj_value *out);
+// Releases what the iterator holds; needed only when a walk stops before next returned false. Idempotent.
+void clj_seq_iter_close(clj_seq_iter *it);
 
 // Borrowed items of any seqable in a malloc'd array; *keep holds them alive and is owned by the caller.
 // NULL with the exception pending when coll is not seqable or realizing it throws.

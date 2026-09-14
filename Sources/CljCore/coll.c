@@ -74,7 +74,10 @@ clj_value clj_seq_cons(clj_value x, clj_value coll) {
 clj_value clj_count(clj_value coll) {
 	if (clj_is_nil(coll)) return clj_fixnum(0);
 	const clj_type *t = type_or_null(coll);
-	if (t && t->count) return clj_fixnum((intptr_t)t->count(coll));
+	if (t && t->count) {
+		size_t n = t->count(coll);
+		return n == CLJ_COUNT_THROWN ? CLJ_THROWN : clj_fixnum((intptr_t)n);
+	}
 	if (!t || !t->seq) return clj_throw_msg("count not supported on this type: %s", clj_type_name(coll));
 	clj_value s = t->seq(coll);
 	if (s == CLJ_THROWN) return s;
@@ -139,6 +142,7 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		while (clj_seq_iter_next(&it, &item)) {
 			if ((intptr_t)count == i) {
 				clj_retain(item);
+				clj_seq_iter_close(&it);
 				clj_release(s);
 				return item;
 			}
@@ -159,6 +163,7 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 static void iter_enter(clj_seq_iter *it, clj_value v) {
 	it->cur = v;
 	it->pos = 0;
+	it->yielded = false;
 	if (!clj_is_ptr(v)) return;
 	const clj_type *t = clj_type_of(v);
 	if (t == &clj_vector_seq_type) it->pos = clj_vector_seq_of(v)->i;
@@ -172,10 +177,31 @@ clj_seq_iter clj_seq_iter_start(clj_value seq) {
 	return it;
 }
 
+void clj_seq_iter_close(clj_seq_iter *it) {
+	clj_release(it->item);
+	clj_release(it->held);
+	it->item = it->held = it->cur = CLJ_NIL;
+	it->yielded = false;
+}
+
+static bool done(clj_seq_iter *it, bool thrown) {
+	it->thrown = thrown;
+	clj_seq_iter_close(it);
+	return false;
+}
+
+// Makes an owned value the walk's current position; the previous held one dies with it.
+static void hold(clj_seq_iter *it, clj_value owned) {
+	clj_value old = it->held;
+	it->held = owned;
+	iter_enter(it, owned);
+	clj_release(old);
+}
+
 bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 	for (;;) {
 		clj_value cur = it->cur;
-		if (!clj_is_ptr(cur)) return false;
+		if (!clj_is_ptr(cur)) return done(it, false);
 		const clj_type *t = clj_type_of(cur);
 		if (t == &clj_cons_type) {
 			const clj_cons *c = clj_cons_of(cur);
@@ -183,17 +209,17 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 			iter_enter(it, c->rest);
 			return true;
 		}
-		if (t == &clj_empty_list_type) return false;
+		if (t == &clj_empty_list_type) return done(it, false);
 		if (t == &clj_vector_type || t == &clj_vector_seq_type) {
 			clj_value vec = t == &clj_vector_type ? cur : clj_vector_seq_of(cur)->vec;
-			if (it->pos >= clj_vector_count(vec)) return false;
+			if (it->pos >= clj_vector_count(vec)) return done(it, false);
 			*out = clj_vector_nth(vec, (uint32_t)it->pos++);
 			return true;
 		}
 		if (t == &clj_string_type || t == &clj_string_seq_type) {
 			clj_value s = t == &clj_string_type ? cur : clj_string_seq_of(cur)->str;
 			size_t    len = clj_string_len(s);
-			if (it->pos >= len) return false;
+			if (it->pos >= len) return done(it, false);
 			uint32_t cp;
 			it->pos += clj_utf8_decode(clj_string_bytes(s), len, it->pos, &cp);
 			*out = clj_char(cp);
@@ -202,23 +228,42 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 		if (t == &clj_range_type) {
 			const clj_range *r = clj_range_of(cur);
 			intptr_t         at = (intptr_t)it->pos;
-			if (r->step > 0 ? at >= r->end : at <= r->end) return false;
+			if (r->step > 0 ? at >= r->end : at <= r->end) return done(it, false);
 			*out = clj_fixnum(at);
 			it->pos = (uintptr_t)(at + r->step);
 			return true;
 		}
 		if (t == &clj_lazy_seq_type) {
 			clj_value v = clj_lazy_seq_force(cur);
-			if (v == CLJ_THROWN) {
-				it->thrown = true;
-				it->cur = CLJ_NIL;
-				return false;
-			}
+			if (v == CLJ_THROWN) return done(it, true);
 			iter_enter(it, v);
 			continue;
 		}
-		// A deftype seq would go through the first/next slots with owned intermediates (NOTES.md).
-		clj_fatal("seq iterator: not a builtin seq");
+		// Anything else goes through its slots, which hand out owned values: a seqable that is no seq is seq'd first.
+		if (!t->first || !t->next) {
+			if (!t->seq) {
+				clj_throw_msg("Don't know how to create ISeq from: %s", clj_type_name(cur));
+				return done(it, true);
+			}
+			clj_value s = t->seq(cur);
+			if (s == CLJ_THROWN) return done(it, true);
+			hold(it, s);
+			continue;
+		}
+		if (it->yielded) {
+			clj_value nx = t->next(cur);
+			clj_release(it->item);
+			it->item = CLJ_NIL;
+			if (nx == CLJ_THROWN) return done(it, true);
+			hold(it, nx);
+			continue;
+		}
+		clj_value x = t->first(cur);
+		if (x == CLJ_THROWN) return done(it, true);
+		it->item = x;
+		it->slots = it->yielded = true;
+		*out = x;
+		return true;
 	}
 }
 
@@ -230,7 +275,13 @@ clj_value *clj_seq_items(clj_value coll, size_t *n, clj_value *keep) {
 	if (!items) clj_fatal("out of memory");
 	clj_seq_iter it = clj_seq_iter_start(seq);
 	clj_value    item;
+	bool         own = false; // slot-yielded items outlive their step only if retained here
 	while (clj_seq_iter_next(&it, &item)) {
+		if (it.slots && !own) {
+			own = true;
+			for (size_t i = 0; i < count; i++) clj_retain(items[i]);
+		}
+		if (own) clj_retain(item);
 		if (count == cap) {
 			cap *= 2;
 			items = realloc(items, cap * sizeof *items);
@@ -239,12 +290,21 @@ clj_value *clj_seq_items(clj_value coll, size_t *n, clj_value *keep) {
 		items[count++] = item;
 	}
 	if (it.thrown) {
+		if (own) {
+			for (size_t i = 0; i < count; i++) clj_release(items[i]);
+		}
 		free(items);
 		clj_release(seq);
 		return NULL;
 	}
 	*n = count;
-	*keep = seq;
+	if (own) {
+		*keep = clj_vector_from_array(items, (uint32_t)count);
+		for (size_t i = 0; i < count; i++) clj_release(items[i]);
+		clj_release(seq);
+	} else {
+		*keep = seq;
+	}
 	return items;
 }
 
@@ -259,17 +319,27 @@ static void drop_thrown(const clj_seq_iter *it) {
 bool clj_seq_equals(clj_value a, clj_value b) {
 	clj_seq_iter ia = clj_seq_iter_start(a), ib = clj_seq_iter_start(b);
 	clj_value    x, y;
+	bool         eq;
 	for (;;) {
 		bool ma = clj_seq_iter_next(&ia, &x), mb = clj_seq_iter_next(&ib, &y);
 		if (ia.thrown || ib.thrown) {
 			drop_thrown(&ia);
 			drop_thrown(&ib);
-			return false;
+			eq = false;
+			break;
 		}
-		if (ma != mb) return false;
-		if (!ma) return true;
-		if (!clj_equals(x, y)) return false;
+		if (ma != mb || !ma) {
+			eq = ma == mb;
+			break;
+		}
+		if (!clj_equals(x, y)) {
+			eq = false;
+			break;
+		}
 	}
+	clj_seq_iter_close(&ia);
+	clj_seq_iter_close(&ib);
+	return eq;
 }
 
 uint32_t clj_seq_hash(clj_value seq) {

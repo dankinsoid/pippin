@@ -134,7 +134,8 @@ typedef struct scope {
 } scope;
 
 typedef struct {
-	clj_env env;
+	clj_env   env;
+	clj_value keeps; // vector holding the items of forms whose seq yields them owned (a deftype seq), or nil
 } analyzer;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
@@ -307,13 +308,15 @@ bool clj_is_special_symbol(clj_value sym) { return special_of(sym) != SP_NONE; }
 
 static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type; }
 
-// Borrowed items of a seq or vector form in a malloc'd array; the form keeps them alive.
+// Borrowed items of a seq or vector form in a malloc'd array; the form keeps them alive, or the analyzer
+// does until it is done when the form's seq hands them out owned (clj_seq_items then keeps a vector).
 // NULL with the exception pending when realizing a lazy form throws.
-static clj_value *seq_items(clj_value form, uint32_t *n) {
+static clj_value *seq_items(analyzer *a, clj_value form, uint32_t *n) {
 	size_t     count;
 	clj_value  keep;
 	clj_value *items = clj_seq_items(form, &count, &keep);
 	if (!items) return NULL;
+	if (clj_is_vector(keep)) a->keeps = clj_vector_conj(clj_is_nil(a->keeps) ? clj_vector_empty() : a->keeps, keep);
 	clj_release(keep);
 	*n = (uint32_t)count;
 	return items;
@@ -349,6 +352,7 @@ static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
 	clj_seq_iter it = clj_seq_iter_start(form);
 	clj_value    head;
 	if (!clj_seq_iter_next(&it, &head)) return CLJ_NIL;
+	clj_seq_iter_close(&it);
 	if (!clj_is_symbol(head) || clj_is_special_symbol(head)) return CLJ_NIL;
 	if (s && clj_is_nil(clj_symbol_ns(head))) {
 		bool     captured;
@@ -360,11 +364,11 @@ static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
 }
 
 // (macro &form &env args...) with &env nil: there is no local environment value yet.
-static clj_value expand_once(const analyzer *a, clj_value var, clj_value form) {
+static clj_value expand_once(analyzer *a, clj_value var, clj_value form) {
 	clj_value fn = clj_var_deref(var);
 	if (fn == CLJ_THROWN) return rethrow_positioned(a);
 	uint32_t   n;
-	clj_value *items = seq_items(form, &n);
+	clj_value *items = seq_items(a, form, &n);
 	if (!items) {
 		clj_release(fn);
 		return rethrow_positioned(a);
@@ -381,7 +385,7 @@ static clj_value expand_once(const analyzer *a, clj_value var, clj_value form) {
 }
 
 // A macro returning its own form ends the loop, as in Clojure; the form is then analyzed as a call.
-static clj_value expand_all(const analyzer *a, scope *s, clj_value form) {
+static clj_value expand_all(analyzer *a, scope *s, clj_value form) {
 	clj_value cur = clj_retain(form);
 	for (uint32_t step = 0;; step++) {
 		clj_value var = macro_var(a, s, cur);
@@ -417,12 +421,16 @@ static analyzer analyzer_for(const clj_env *env) {
 clj_value clj_macroexpand_1(clj_value form, const clj_env *env) {
 	analyzer  a = analyzer_for(env);
 	clj_value var = macro_var(&a, NULL, form);
-	return clj_is_nil(var) ? clj_retain(form) : expand_once(&a, var, form);
+	clj_value r = clj_is_nil(var) ? clj_retain(form) : expand_once(&a, var, form);
+	clj_release(a.keeps);
+	return r;
 }
 
 clj_value clj_macroexpand(clj_value form, const clj_env *env) {
-	analyzer a = analyzer_for(env);
-	return expand_all(&a, NULL, form);
+	analyzer  a = analyzer_for(env);
+	clj_value r = expand_all(&a, NULL, form);
+	clj_release(a.keeps);
+	return r;
 }
 
 static bool all_const(clj_node *const *nodes, uint32_t n) {
@@ -466,7 +474,7 @@ static bool analyze_into(analyzer *a, scope *s, clj_node **out, const clj_value 
 
 static clj_node *analyze_vector(analyzer *a, scope *s, clj_value form) {
 	uint32_t   n;
-	clj_value *items = seq_items(form, &n);
+	clj_value *items = seq_items(a, form, &n);
 	if (!items) return NULL;
 	clj_node  *node = node_new(CLJ_NODE_VECTOR);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
@@ -540,7 +548,7 @@ static clj_node *analyze_let(analyzer *a, scope *s, const clj_value *items, uint
 	const char *what = loop ? "loop" : "let";
 	if (n < 2 || !clj_is_vector(items[1])) return fail(a, "%s requires a vector for its binding", what);
 	uint32_t   nforms;
-	clj_value *forms = seq_items(items[1], &nforms);
+	clj_value *forms = seq_items(a, items[1], &nforms);
 	if (!forms) return NULL;
 	if (nforms % 2) {
 		free(forms);
@@ -607,7 +615,7 @@ static clj_node *analyze_recur(analyzer *a, scope *s, const clj_value *items, ui
 static bool analyze_arity(analyzer *a, clj_node *fn, capture_list *captures, scope *parent, clj_value params, const clj_value *body, uint32_t nbody) {
 	scope    s = {.parent = parent, .captures = captures};
 	uint32_t nparams;
-	clj_value *syms = seq_items(params, &nparams);
+	clj_value *syms = seq_items(a, params, &nparams);
 	if (!syms) return false;
 	clj_fn_arity *arity = zalloc(1, sizeof *arity);
 	arity->self_slot = -1;
@@ -689,7 +697,7 @@ static clj_node *analyze_fn(analyzer *a, scope *s, const clj_value *items, uint3
 		ok = true;
 		for (; i < n && ok; i++) {
 			uint32_t   nsig = 0;
-			clj_value *sig = clj_is_seq(items[i]) ? seq_items(items[i], &nsig) : NULL;
+			clj_value *sig = clj_is_seq(items[i]) ? seq_items(a, items[i], &nsig) : NULL;
 			if (!sig && clj_is_seq(items[i])) {
 				ok = false;
 				break;
@@ -752,9 +760,9 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 }
 
 // [&form &env params...]
-static clj_value macro_params(clj_value params) {
+static clj_value macro_params(analyzer *a, clj_value params) {
 	uint32_t   n;
-	clj_value *syms = seq_items(params, &n);
+	clj_value *syms = seq_items(a, params, &n);
 	if (!syms) return CLJ_THROWN;
 	clj_value *all = zalloc(n + 2, sizeof *all);
 	all[0] = clj_symbol_from_cstr("&form");
@@ -793,7 +801,7 @@ static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items,
 	fn_items[nfn++] = macro_fn_symbol();
 	bool ok = true;
 	if (clj_is_vector(items[i])) {
-		fn_items[nfn++] = macro_params(items[i]);
+		fn_items[nfn++] = macro_params(a, items[i]);
 		ok = fn_items[nfn - 1] != CLJ_THROWN;
 		for (uint32_t j = i + 1; j < n; j++) fn_items[nfn++] = clj_retain(items[j]);
 	} else {
@@ -805,7 +813,7 @@ static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items,
 				break;
 			}
 			if (clj_is_vector(head)) {
-				clj_value params = macro_params(head);
+				clj_value params = macro_params(a, head);
 				clj_value body = clj_rest(arity);
 				if (params == CLJ_THROWN || body == CLJ_THROWN) {
 					ok = false;
@@ -881,7 +889,7 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch_kind *kind) {
 // @ai-generated(guided)
 static bool analyze_catch(analyzer *a, scope *s, clj_catch *c, clj_value clause) {
 	uint32_t   n;
-	clj_value *items = seq_items(clause, &n);
+	clj_value *items = seq_items(a, clause, &n);
 	if (!items) return false;
 	bool ok;
 	if (n < 3) ok = fail(a, "catch clause requires a classname and a binding: (catch Class name body*)") != NULL;
@@ -902,7 +910,7 @@ static bool analyze_catch(analyzer *a, scope *s, clj_catch *c, clj_value clause)
 // @ai-generated(guided)
 static bool analyze_finally(analyzer *a, scope *s, clj_node **out, clj_value clause) {
 	uint32_t   n;
-	clj_value *items = seq_items(clause, &n);
+	clj_value *items = seq_items(a, clause, &n);
 	if (!items) return false;
 	*out = analyze_body(a, s, items + 1, n - 1, false);
 	free(items);
@@ -955,7 +963,7 @@ static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) 
 	}
 	clj_release(expanded);
 	uint32_t   n;
-	clj_value *items = seq_items(form, &n);
+	clj_value *items = seq_items(a, form, &n);
 	if (!items) return NULL;
 	clj_node *node;
 	switch (special_of(items[0])) {
@@ -1001,6 +1009,7 @@ clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots) {
 	scope     top = {0};
 	clj_node *node = analyze(&a, &top, form, false);
 	free(top.locals);
+	clj_release(a.keeps);
 	*nslots = top.nslots;
 	return node;
 }
