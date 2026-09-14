@@ -189,12 +189,18 @@ static clj_value fail_value(const analyzer *a, const char *fmt, ...) {
 }
 
 // Rethrows the pending exception with the position added to its data and the original as the cause.
+// A thrown value that is no error, or an error without a string message, passes unchanged.
 static clj_value rethrow_positioned(const analyzer *a) {
 	if (!a->env.line || !clj_is_exception(clj_pending())) return CLJ_THROWN;
 	clj_value ex = clj_take_pending();
-	clj_value data = clj_exception_data(ex);
-	data = with_position(a, clj_is_nil(data) ? CLJ_NIL : clj_retain(data));
-	clj_value wrapped = clj_ex_info_cause(clj_exception_message(ex), data, ex);
+	clj_value message = clj_ex_message(ex);
+	if (!clj_is_string(message)) {
+		clj_release(message);
+		return clj_throw(ex);
+	}
+	clj_value data = with_position(a, clj_ex_data(ex));
+	clj_value wrapped = clj_ex_info_cause(message, data, ex);
+	clj_release(message);
 	clj_release(data);
 	clj_release(ex);
 	return clj_throw(wrapped);

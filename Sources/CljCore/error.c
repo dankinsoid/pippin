@@ -16,10 +16,25 @@ static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(e->cause, ctx);
 }
 
+static uint32_t exception_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
+
+static bool exception_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
+
+static clj_value exception_message(clj_value self) { return clj_retain(clj_exception_of(self)->message); }
+static clj_value exception_data(clj_value self) { return clj_retain(clj_exception_of(self)->data); }
+static clj_value exception_cause(clj_value self) { return clj_retain(clj_exception_of(self)->cause); }
+
+// Identity hash and equality, as Throwable on the JVM.
 const clj_type clj_exception_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "exception",
+	.core_bits = CLJ_CORE_ERROR,
 	.each_child = exception_each_child,
+	.hash = exception_hash,
+	.equals = exception_equals,
+	.ex_message = exception_message,
+	.ex_data = exception_data,
+	.ex_cause = exception_cause,
 };
 
 clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) {
@@ -62,10 +77,12 @@ clj_value clj_throw_msg(const char *fmt, ...) {
 // A thrown string is its own message (CLJS says nil), so a :default handler reads (throw "m") like an ex-info.
 clj_value clj_ex_message(clj_value v) {
 	if (clj_is_string(v)) return clj_retain(v);
-	return clj_is_exception(v) ? clj_retain(clj_exception_message(v)) : CLJ_NIL;
+	return clj_is_exception(v) ? clj_type_of(v)->ex_message(v) : CLJ_NIL;
 }
-clj_value clj_ex_data(clj_value v) { return clj_is_exception(v) ? clj_retain(clj_exception_data(v)) : CLJ_NIL; }
-clj_value clj_ex_cause(clj_value v) { return clj_is_exception(v) ? clj_retain(clj_exception_cause(v)) : CLJ_NIL; }
+
+clj_value clj_ex_data(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)->ex_data(v) : CLJ_NIL; }
+
+clj_value clj_ex_cause(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)->ex_cause(v) : CLJ_NIL; }
 
 clj_value clj_pending(void) { return pending; }
 

@@ -262,7 +262,7 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 			put_symbol_text(b, clj_symbol_ns(name), clj_symbol_name(name));
 		}
 		put_char(b, ']');
-	} else if (clj_is_exception(v)) {
+	} else if (clj_is_ex_info(v)) {
 		// Printed as a map literal after the tag, so the map frame does the field walk.
 		pthread_once(&keywords_once, intern_keywords);
 		put_cstr(b, "#error {");

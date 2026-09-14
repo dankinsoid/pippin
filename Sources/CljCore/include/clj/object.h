@@ -53,6 +53,7 @@ typedef void (*clj_visitor)(clj_value child, void *ctx);
 #define CLJ_CORE_LIST        0x200 // IPersistentList (list? x)
 #define CLJ_CORE_VECTOR      0x400 // IPersistentVector
 #define CLJ_CORE_MAP         0x800 // IPersistentMap
+#define CLJ_CORE_ERROR       0x1000 // IExceptionInfo: ex_message/ex_data/ex_cause slots; what (catch ExceptionInfo e) takes
 
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.
@@ -84,6 +85,10 @@ struct clj_type {
 	clj_value (*conj)(clj_value self, clj_value x);
 	// Arity is checked by the object (a fn carries its arity table), not the type.
 	clj_value (*invoke)(clj_value self, const clj_value *args, size_t n);
+	// IExceptionInfo: a string or nil, a map or nil, a thrown value or nil. Mandatory on CLJ_CORE_ERROR types.
+	clj_value (*ex_message)(clj_value self);
+	clj_value (*ex_data)(clj_value self);
+	clj_value (*ex_cause)(clj_value self);
 	// defprotocol tables, NULL until protocols exist (NOTES.md).
 	void *user_protos;
 };

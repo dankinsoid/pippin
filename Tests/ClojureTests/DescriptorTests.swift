@@ -23,6 +23,7 @@ private let SEQABLE = UInt64(CLJ_CORE_SEQABLE), SEQ = UInt64(CLJ_CORE_SEQ), SEQU
 private let COLL = UInt64(CLJ_CORE_COLL), COUNTED = UInt64(CLJ_CORE_COUNTED), LOOKUP = UInt64(CLJ_CORE_LOOKUP)
 private let ASSOCIATIVE = UInt64(CLJ_CORE_ASSOCIATIVE), INDEXED = UInt64(CLJ_CORE_INDEXED), FN = UInt64(CLJ_CORE_FN)
 private let LIST = UInt64(CLJ_CORE_LIST), VECTOR = UInt64(CLJ_CORE_VECTOR), MAP = UInt64(CLJ_CORE_MAP)
+private let ERROR = UInt64(CLJ_CORE_ERROR)
 private let ASEQ = SEQABLE | SEQ | SEQUENTIAL | COLL
 
 extension CoreTests {
@@ -39,7 +40,7 @@ extension CoreTests {
 				("symbol", Value(symbol: "s"), 0),
 				("fn", try eval("inc"), FN),
 				("double", 1.5, 0),
-				("exception", try eval("(ex-info \"x\" {})"), 0),
+				("exception", try eval("(ex-info \"x\" {})"), ERROR),
 				("var", try eval("#'inc"), FN),
 				("namespace", Value(borrowing: clj_ns_user()), 0),
 				("type", Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(Value(list: []).raw).pointee.type))), 0),
@@ -70,6 +71,7 @@ extension CoreTests {
 				if bits & COUNTED != 0 { #expect(t.count != nil, "\(name) count slot") }
 				if bits & LOOKUP != 0 { #expect(t.lookup != nil, "\(name) lookup slot") }
 				if bits & COLL != 0 { #expect(t.conj != nil, "\(name) conj slot") }
+				#expect((t.ex_message != nil && t.ex_data != nil && t.ex_cause != nil) == (bits & ERROR != 0), "\(name) error slots")
 				#expect(t.user_protos == nil)
 			}
 			#expect(clj_core_bits(CLJ_NIL) == 0)
