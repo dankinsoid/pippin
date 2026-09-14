@@ -579,3 +579,161 @@
     (if (and ks vs)
       (recur (assoc m (first ks) (first vs)) (next ks) (next vs))
       m)))
+
+;; ---- protocols and types. Dispatch lives in C (proto.c); these macros only shape the forms.
+
+;; (P (m [this] ...) (m [this a] ...) Q (n [x] ...)) → [[P [[m [([this] ...) ([this a] ...)]]]] [Q [[n [([x] ...)]]]],
+;; a protocol named twice merging into one group.
+(defn group-impls
+  "Groups the method impls of a deftype, reify or extend-type body by protocol, then by method name."
+  [impls]
+  (loop [impls (seq impls) cur -1 acc []]
+    (if impls
+      (let [x (first impls)]
+        (if (seq? x)
+          (if (neg? cur)
+            (throw (ex-info (str "Method " (first x) " given before any protocol") nil))
+            (let [[p ms] (nth acc cur)
+                  nm (first x)
+                  ;; (m [x] ...) is one arity, (m ([x] ...) ([x y] ...)) several.
+                  sigs (if (vector? (second x)) [(next x)] (vec (next x)))]
+              (when-not (every? (fn [sig] (and (seq? sig) (vector? (first sig)))) sigs)
+                (throw (ex-info (str "Method " nm " needs a parameter vector") nil)))
+              (recur (next impls) cur
+                     (assoc acc cur
+                            [p (if (some (fn [m] (= (first m) nm)) ms)
+                                 (vec (map (fn [m] (if (= (first m) nm) [nm (into (second m) sigs)] m)) ms))
+                                 (conj ms [nm sigs]))]))))
+          (let [at (loop [i 0] (cond (= i (count acc)) nil (= (first (nth acc i)) x) i :else (recur (inc i))))]
+            (if at
+              (recur (next impls) at acc)
+              (recur (next impls) (count acc) (conj acc [x []]))))))
+      acc)))
+
+(defn form-uses?
+  "True when sym occurs anywhere in form; shadowing is ignored."
+  [form sym]
+  (cond
+    (= form sym) true
+    (seq? form) (if (some (fn [x] (form-uses? x sym)) form) true false)
+    (vector? form) (if (some (fn [x] (form-uses? x sym)) form) true false)
+    (map? form) (if (some (fn [e] (form-uses? e sym)) (seq form)) true false)
+    :else false))
+
+;; A method's arities as one fn form; wrap turns (params body) into the body forms to emit.
+(defn method-fn
+  "The fn form implementing one method from its sigs ((params body...) ...)."
+  [sigs wrap]
+  `(fn ~@(map (fn [sig] (list* (first sig) (wrap (first sig) (next sig)))) sigs)))
+
+(defn method-map
+  "The {:method (fn ...)} form of one protocol's grouped methods."
+  [ms wrap]
+  (loop [ms (seq ms) m {}]
+    (if ms
+      (let [[nm sigs] (first ms)]
+        (recur (next ms) (assoc m (keyword (name nm)) (method-fn sigs wrap))))
+      m)))
+
+(defn body-as-is
+  "The wrap that emits a method body unchanged."
+  [params body]
+  body)
+
+(defmacro defprotocol
+  "(defprotocol P docstring? (m [this] [this a] docstring?) ...): P holds the protocol, each method a dispatching fn."
+  [nm & specs]
+  (let [specs (if (string? (first specs)) (next specs) specs)
+        sigs (vec (map (fn [s] [(first s) (vec (filter vector? (next s)))]) specs))]
+    `(do
+       (def ~nm (protocol* '~nm '~sigs))
+       ~@(map (fn [i] `(def ~(first (nth sigs i)) (protocol-method* ~nm ~i))) (range (count sigs)))
+       '~nm)))
+
+(defn extend
+  "(extend type proto {:m (fn ...)} proto2 {...}): implements protocols for a type from method maps."
+  [t & proto+mmaps]
+  (loop [s (seq proto+mmaps)]
+    (when s
+      (if (next s)
+        (do
+          (extend* t (first s) (second s))
+          (recur (next (next s))))
+        (throw (ex-info "extend expects protocol and method-map pairs" nil)))))
+  nil)
+
+(defmacro extend-type
+  "(extend-type type proto (m [this] ...) ... proto2 ...)"
+  [t & impls]
+  `(extend ~t ~@(mapcat (fn [g] [(first g) (method-map (second g) body-as-is)]) (group-impls impls))))
+
+(defmacro extend-protocol
+  "(extend-protocol proto type (m [this] ...) ... type2 ...)"
+  [p & specs]
+  (let [groups (loop [specs (seq specs) acc []]
+                 (if specs
+                   (let [x (first specs)]
+                     (if (seq? x)
+                       (if (empty? acc)
+                         (throw (ex-info (str "Method " (first x) " given before any type") nil))
+                         (let [i (dec (count acc))]
+                           (recur (next specs) (assoc acc i (conj (nth acc i) x)))))
+                       (recur (next specs) (conj acc [x]))))
+                   acc))]
+    `(do ~@(map (fn [g] `(extend-type ~(first g) ~p ~@(next g))) groups))))
+
+;; Fields are read through field* at the top of each method body, only those the body names and no
+;; param shadows: a positional slot per field, no (.-field x) access (NOTES.md).
+(defmacro deftype
+  "(deftype Name [field ...] proto (m [this a] ...) ...): a type, its ->Name constructor and the impls."
+  [nm fields & impls]
+  (let [groups (group-impls impls)
+        ctor (symbol (str "->" (name nm)))
+        wrap (fn [params body]
+               (let [this (first params)]
+                 (when-not (symbol? this)
+                   (throw (ex-info (str "deftype method params must start with this, got: " params) nil)))
+                 (let [bindings (loop [i 0 acc []]
+                                  (if (< i (count fields))
+                                    (let [f (nth fields i)]
+                                      (recur (inc i)
+                                             (if (and (form-uses? body f) (not-any? (fn [p] (= p f)) params))
+                                               (conj acc f `(field* ~this ~i))
+                                               acc)))
+                                    acc))]
+                   (if (seq bindings) (list `(let ~bindings ~@body)) body))))]
+    `(do
+       (def ~nm (deftype* '~nm '~fields))
+       (def ~ctor (fn [~@fields] (new* ~nm ~@fields)))
+       ~@(map (fn [g] `(extend* ~nm ~(first g) ~(method-map (second g) wrap))) groups)
+       ~nm)))
+
+;; The type is made and extended once, at expansion: its slots hold trampolines into the instance's
+;; fields, one per method, which the expansion fills with closures over the site's locals.
+(defmacro reify
+  "(reify proto (m [this a] ...) ...): an instance of an anonymous type closing over the locals in scope."
+  [& impls]
+  (let [groups (group-impls impls)
+        entries (loop [gs (seq groups) acc []]
+                  (if gs
+                    (let [[p ms] (first gs)]
+                      (recur (next gs)
+                             (loop [ms (seq ms) acc acc]
+                               (if ms
+                                 (recur (next ms) (conj acc [p (first (first ms)) (second (first ms)) (count acc)]))
+                                 acc))))
+                    acc))
+        t (deftype* (gensym "reify__") (vec (map (fn [e] (nth e 1)) entries)))
+        proto-value (fn [p]
+                      (if (symbol? p)
+                        (let [v (resolve p)]
+                          (if v (deref v) (throw (ex-info (str "Unable to resolve protocol: " p) nil))))
+                        p))]
+    (dorun (map (fn [g]
+                  (extend* t (proto-value (first g))
+                           (loop [es (seq (filter (fn [e] (= (nth e 0) (first g))) entries)) m {}]
+                             (if es
+                               (recur (next es) (assoc m (keyword (name (nth (first es) 1))) (trampoline* (nth (first es) 3))))
+                               m))))
+                groups))
+    `(new* ~t ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))
