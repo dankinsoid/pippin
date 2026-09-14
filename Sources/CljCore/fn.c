@@ -26,11 +26,17 @@ static uint32_t fn_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)se
 
 static bool fn_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
+static void fn_finalize(void *self) {
+	clj_fn *f = self;
+	if (f->kind == CLJ_FN_NATIVE_CTX && f->u.native_ctx.release) f->u.native_ctx.release(f->u.native_ctx.ctx);
+}
+
 static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
 	const clj_fn *fn = clj_fn_of(f);
 	if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
 	if (n < fn->min_arity || (fn->max_arity != CLJ_ARITY_ANY && n > fn->max_arity)) return clj_arity_error(f, n);
-	return fn->native(args, n);
+	if (fn->kind == CLJ_FN_NATIVE_CTX) return fn->u.native_ctx.fn(fn->u.native_ctx.ctx, args, n);
+	return fn->u.native(args, n);
 }
 
 const clj_type clj_fn_type = {
@@ -38,19 +44,34 @@ const clj_type clj_fn_type = {
 	.name = "fn",
 	.core_bits = CLJ_CORE_FN,
 	.each_child = fn_each_child,
+	.finalize = fn_finalize,
 	.hash = fn_hash,
 	.equals = fn_equals,
 	.invoke = fn_invoke,
 };
 
-clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity) {
+static clj_fn *native_new(clj_value name, clj_fn_kind kind, uint32_t min_arity, uint32_t max_arity) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f);
 	f->name = clj_retain(name);
-	f->kind = CLJ_FN_NATIVE;
+	f->kind = kind;
 	f->min_arity = min_arity;
 	f->max_arity = max_arity;
-	f->native = fn;
+	return f;
+}
+
+clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity) {
+	clj_fn *f = native_new(name, CLJ_FN_NATIVE, min_arity, max_arity);
+	f->u.native = fn;
+	return clj_from_ptr(f);
+}
+
+// @ai-generated(guided)
+clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, void (*release)(void *ctx), uint32_t min_arity, uint32_t max_arity) {
+	clj_fn *f = native_new(name, CLJ_FN_NATIVE_CTX, min_arity, max_arity);
+	f->u.native_ctx.fn = fn;
+	f->u.native_ctx.ctx = ctx;
+	f->u.native_ctx.release = release;
 	return clj_from_ptr(f);
 }
 

@@ -31,10 +31,10 @@ public struct ClojureError: Error, CustomStringConvertible {
 	public var causeError: ClojureError? { cause.isNil ? nil : ClojureError(thrown: cause) }
 
 	/// The value pending in the calling thread as a Swift error; the caller has just seen CLJ_THROWN.
+	/// A host error made from a Swift error yields that error itself, so it round-trips through Clojure code.
 	static func takePending() -> any Error {
-		let ex = clj_take_pending()
-		precondition(ex != CLJ_NIL, "CLJ_THROWN without a pending exception")
-		return ClojureError(thrown: Value(owning: ex))
+		let ex = Value(owning: clj_take_pending())
+		return ex.hostError ?? ClojureError(thrown: ex)
 	}
 
 	public var description: String { message }
@@ -80,7 +80,8 @@ public final class Runtime: Sendable {
 }
 
 extension Value {
-	/// Invokes a fn, keyword, map or vector as Clojure does; throws `ClojureError` otherwise.
+	/// Invokes a fn, keyword, map or vector as Clojure does. Throws what the call threw: the Swift error a
+	/// host fn failed with, or `ClojureError` for anything thrown by Clojure code.
 	public func callAsFunction(_ args: Value...) throws -> Value {
 		try withExtendedLifetime((self, args)) {
 			let result = args.map(\.raw).withUnsafeBufferPointer { clj_invoke(raw, $0.baseAddress, $0.count) }
@@ -90,5 +91,65 @@ extension Value {
 	}
 
 	public var isFn: Bool { clj_is_fn(raw) }
+	/// Any error value: an `ex-info` or a host error.
 	public var isException: Bool { clj_is_exception(raw) }
+}
+
+// Payload of a host error made from a Swift error.
+private final class HostErrorBox {
+	let error: any Error
+	init(_ error: any Error) { self.error = error }
+}
+
+private final class NativeBody {
+	let body: ([Value]) throws -> Value
+	init(_ body: @escaping ([Value]) throws -> Value) { self.body = body }
+}
+
+extension Value {
+	/// A host error carrying `error`: `ex-message` is `String(describing: error)`, `ex-data` is
+	/// `{:host/error <this value>}`. `hostError` gives the Swift error back.
+	public init(hostError error: any Error) {
+		let message = Value(String(describing: error))
+		let payload = Unmanaged.passRetained(HostErrorBox(error)).toOpaque()
+		self.init(owning: withExtendedLifetime(message) {
+			clj_host_error_new(message.raw, payload) { Unmanaged<HostErrorBox>.fromOpaque($0!).release() }
+		})
+	}
+
+	/// The Swift error inside a host error; nil for every other value.
+	public var hostError: (any Error)? {
+		guard clj_is_host_error(raw) else { return nil }
+		return withExtendedLifetime(self) { Unmanaged<HostErrorBox>.fromOpaque(clj_host_error_payload(raw)).takeUnretainedValue().error }
+	}
+
+	/// A fn backed by a Swift closure, callable from Clojure code. `arity` bounds the argument count
+	/// (nil accepts any); the name appears in arity errors. The body runs on whichever thread invokes the
+	/// fn. A thrown `ClojureError` rethrows its original value; any other Swift error becomes a host error,
+	/// which `try`/`catch` sees as an `ExceptionInfo` and which comes back as the same Swift error when it
+	/// reaches `Runtime.eval` or `callAsFunction` uncaught.
+	public init(function name: String? = nil, arity: ClosedRange<Int>? = nil, _ body: @escaping ([Value]) throws -> Value) {
+		let symbol = name.map { Value(symbol: $0) } ?? nil
+		let ctx = Unmanaged.passRetained(NativeBody(body)).toOpaque()
+		let min = UInt32(arity?.lowerBound ?? 0)
+		let max = arity.map { UInt32($0.upperBound) } ?? CLJ_ARITY_ANY
+		self.init(owning: withExtendedLifetime(symbol) {
+			clj_fn_native_ctx(symbol.raw, Self.invokeNative, ctx, { Unmanaged<NativeBody>.fromOpaque($0!).release() }, min, max)
+		})
+	}
+
+	// Swift errors cannot unwind C frames: the boundary catches everything and leaves it pending.
+	private static let invokeNative: clj_native_ctx_fn = { ctx, args, n in
+		let body = Unmanaged<NativeBody>.fromOpaque(ctx!).takeUnretainedValue().body
+		let values = (0..<n).map { Value(borrowing: args![$0]) }
+		do {
+			let result = try body(values)
+			return withExtendedLifetime(result) { clj_retain(result.raw) }
+		} catch let e as ClojureError {
+			return withExtendedLifetime(e.thrown) { clj_throw(clj_retain(e.thrown.raw)) }
+		} catch {
+			let wrapped = Value(hostError: error)
+			return withExtendedLifetime(wrapped) { clj_throw(clj_retain(wrapped.raw)) }
+		}
+	}
 }

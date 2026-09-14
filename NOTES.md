@@ -225,6 +225,25 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
 
+## Host bridge (Sources/Clojure, error.c host-error, fn.c context natives)
+
+- **A host error keeps the Swift `Error` boxed as an opaque payload** and captures
+  `String(describing:)` as its message when made; `ex-data` builds `{:host/error e}` on every call
+  (storing it would make the value its own child). Trigger: `(catch MyError e ...)` by host type, or
+  `(:code (ex-data e))`-style access to the error's fields; both need a host type registry, and the
+  second a `Codable`/reflection walk of the error (design section "Интероп").
+- **Only a host error thrown as is comes back as the Swift error.** Wrapped as a cause (an
+  `ex-info` from Clojure code, or the analyzer's positioned rethrow of a macro failure) it surfaces as
+  `ClojureError` with `cause.hostError` set. Trigger: a host caller wanting `catch let e as MyError`
+  through a macro; then unwrap the cause chain in `takePending` or stop positioning host errors.
+- **`Value(function:)` bounds arity with a closed range**; a variadic fn with a minimum is `nil`
+  (any count) plus a check in the body. Trigger: the first host fn wanting `[a & rest]` semantics.
+- **The Swift body of a host fn is not `Sendable`-checked** and runs on whichever thread invokes the
+  fn; the runtime evaluates on one thread at a time (NOTES, evaluator). Trigger: multi-threaded
+  evaluation.
+- **`ClojureError` has no Clojure stack trace** (`clojureTrace` in the design): only the top-level
+  form's `:line`/`:column` in `data`. Same trigger as the shadow stack above.
+
 ## Printer (Sources/CljCore/printer.c)
 
 - **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.

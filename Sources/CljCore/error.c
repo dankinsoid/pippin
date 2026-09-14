@@ -3,11 +3,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <pthread.h>
+
 #include "clj/error.h"
+#include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/string.h"
 
 static _Thread_local clj_value pending;
+
+static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
+static clj_value      kw_host_error;
+
+static void intern_keywords(void) { kw_host_error = clj_keyword_from_cstr("host/error"); }
 
 static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_exception *e = self;
@@ -36,6 +44,50 @@ const clj_type clj_exception_type = {
 	.ex_data = exception_data,
 	.ex_cause = exception_cause,
 };
+
+static void host_error_each_child(void *self, clj_visitor visit, void *ctx) { visit(((clj_host_error *)self)->message, ctx); }
+
+static void host_error_finalize(void *self) {
+	clj_host_error *e = self;
+	if (e->release) e->release(e->payload);
+}
+
+static clj_value host_error_message(clj_value self) { return clj_retain(((clj_host_error *)clj_to_ptr(self))->message); }
+
+// Built per call: storing the map would make the value its own child, a cycle RC never frees.
+static clj_value host_error_data(clj_value self) {
+	pthread_once(&keywords_once, intern_keywords);
+	return clj_map_assoc(clj_map_empty(), kw_host_error, self);
+}
+
+static clj_value host_error_cause(clj_value self) {
+	(void)self;
+	return CLJ_NIL;
+}
+
+// @ai-generated(guided)
+const clj_type clj_host_error_type = {
+	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.name = "host-error",
+	.core_bits = CLJ_CORE_ERROR,
+	.each_child = host_error_each_child,
+	.finalize = host_error_finalize,
+	.hash = exception_hash,
+	.equals = exception_equals,
+	.ex_message = host_error_message,
+	.ex_data = host_error_data,
+	.ex_cause = host_error_cause,
+};
+
+// @ai-generated(guided)
+clj_value clj_host_error_new(clj_value message, void *payload, void (*release)(void *payload)) {
+	CLJ_ASSERT(clj_is_string(message), "host error message must be a string");
+	clj_host_error *e = clj_alloc(&clj_host_error_type, sizeof *e);
+	e->message = clj_retain(message);
+	e->payload = payload;
+	e->release = release;
+	return clj_from_ptr(e);
+}
 
 clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) {
 	CLJ_ASSERT(clj_is_string(message), "exception message must be a string");

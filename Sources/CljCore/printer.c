@@ -277,6 +277,11 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		f->entries[4] = kw_cause;
 		f->entries[5] = clj_exception_cause(v);
 		f->n = with_cause ? 6 : 4;
+	} else if (clj_is_host_error(v)) {
+		// ex-data holds the value itself; spelled out here rather than walked.
+		put_cstr(b, "#error {:message ");
+		put_string_literal(b, clj_host_error_message(v));
+		put_cstr(b, ", :data {:host/error #object[host-error]}}");
 	} else if (clj_is_seq(v)) {
 		put_char(b, '(');
 		push_frame(stack, F_SEQ)->it = clj_seq_iter_start(v);

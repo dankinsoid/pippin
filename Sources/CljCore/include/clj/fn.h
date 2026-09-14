@@ -6,26 +6,37 @@
 
 // args are borrowed; the result is owned or CLJ_THROWN.
 typedef clj_value (*clj_native_fn)(const clj_value *args, size_t n);
+// The same with a context: how a host closure (a Swift block) becomes a fn. ctx is borrowed from the fn.
+typedef clj_value (*clj_native_ctx_fn)(void *ctx, const clj_value *args, size_t n);
 
-typedef enum { CLJ_FN_CLOSURE, CLJ_FN_NATIVE } clj_fn_kind;
+typedef enum { CLJ_FN_CLOSURE, CLJ_FN_NATIVE, CLJ_FN_NATIVE_CTX } clj_fn_kind;
 
 // max_arity of a variadic native.
 static const uint32_t CLJ_ARITY_ANY = UINT32_MAX;
 
 typedef struct {
-	clj_header    h;
-	clj_value     name; // symbol or nil; only for messages
-	clj_fn_kind   kind;
-	uint32_t      min_arity, max_arity; // natives; a closure dispatches on its code's arity table
-	clj_native_fn native;
-	clj_value     code; // fn node (analyzer.h) of a closure, nil for a native
-	uint32_t      nenv;
-	clj_value     env[]; // captured values, owned
+	clj_header  h;
+	clj_value   name; // symbol or nil; only for messages
+	clj_fn_kind kind;
+	uint32_t    min_arity, max_arity; // natives; a closure dispatches on its code's arity table
+	union {
+		clj_native_fn native;
+		struct {
+			clj_native_ctx_fn fn;
+			void             *ctx;
+			void (*release)(void *ctx); // NULL when ctx needs no cleanup
+		} native_ctx;
+	} u;
+	clj_value code; // fn node (analyzer.h) of a closure, nil for a native
+	uint32_t  nenv;
+	clj_value env[]; // captured values, owned
 } clj_fn;
 
 extern const clj_type clj_fn_type;
 
 clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity);
+// The fn owns ctx: release runs once, when the fn dies, on whatever thread drops the last reference.
+clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, void (*release)(void *ctx), uint32_t min_arity, uint32_t max_arity);
 // env items are borrowed and retained.
 clj_value clj_fn_closure(clj_value code, clj_value name, const clj_value *env, uint32_t nenv);
 
