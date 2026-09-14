@@ -1,5 +1,8 @@
 // @ai-generated(solo)
-#include "clj/list.h"
+#include "clj/coll.h"
+#include "clj/error.h"
+#include "clj/fn.h"
+#include "clj/seq.h"
 #include "clj/vector.h"
 
 enum { BITS = 5, WIDTH = 32, MASK = 31 };
@@ -185,8 +188,7 @@ static uint32_t vector_hash(void *self) {
 }
 
 static bool vector_equals(void *self, clj_value other) {
-	if (clj_is_list(other)) return clj_seq_equals(clj_from_ptr(self), other);
-	if (!clj_is_vector(other)) return false;
+	if (!clj_is_vector(other)) return clj_has_core(other, CLJ_CORE_SEQUENTIAL) && clj_seq_equals(clj_from_ptr(self), other);
 	const clj_vector *a = self, *b = vector_of(other);
 	if (a->count != b->count) return false;
 	for (uint32_t base = 0; base < a->count; base += WIDTH) {
@@ -198,12 +200,42 @@ static bool vector_equals(void *self, clj_value other) {
 	return true;
 }
 
+static clj_value vector_seq(clj_value self) { return vector_of(self)->count ? clj_vector_seq_new(self, 0) : CLJ_NIL; }
+
+static clj_value vector_first(clj_value self) { return vector_of(self)->count ? clj_retain(clj_vector_nth(self, 0)) : CLJ_NIL; }
+
+static clj_value vector_next(clj_value self) { return vector_of(self)->count > 1 ? clj_vector_seq_new(self, 1) : CLJ_NIL; }
+
+static size_t vector_count(clj_value self) { return vector_of(self)->count; }
+
+static clj_value vector_lookup(clj_value self, clj_value key, clj_value not_found) {
+	if (clj_is_fixnum(key)) {
+		intptr_t i = clj_fixnum_val(key);
+		if (i >= 0 && (uintptr_t)i < vector_of(self)->count) return clj_retain(clj_vector_nth(self, (uint32_t)i));
+	}
+	return clj_retain(not_found);
+}
+
+static clj_value vector_invoke(clj_value self, const clj_value *args, size_t n) {
+	if (n != 1) return clj_arity_error(self, n);
+	return clj_nth(self, args[0], false, CLJ_NIL);
+}
+
 const clj_type clj_vector_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "vector",
+	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_SEQUENTIAL | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP |
+	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR,
 	.each_child = vector_each_child,
 	.hash = vector_hash,
 	.equals = vector_equals,
+	.seq = vector_seq,
+	.first = vector_first,
+	.next = vector_next,
+	.count = vector_count,
+	.lookup = vector_lookup,
+	.conj = clj_vector_conj,
+	.invoke = vector_invoke,
 };
 
 static clj_vector empty_vector = {

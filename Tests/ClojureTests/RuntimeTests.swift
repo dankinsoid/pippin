@@ -237,7 +237,7 @@ extension CoreTests {
 		}
 
 		@Test func smallProgram() throws {
-			try declare("fib", "reduce", "frequencies", "range")
+			try declare("fib", "rt-reduce", "frequencies", "rt-range")
 			let before = clj_debug_live_objects()
 			do {
 				let program = """
@@ -246,25 +246,25 @@ extension CoreTests {
 				    (loop [i 0 a 0 b 1]
 				      (if (= i n) a (recur (inc i) b (+ a b))))))
 
-				(def reduce
+				(def rt-reduce
 				  (fn [f init coll]
 				    (loop [acc init coll coll]
 				      (if (nil? (first coll))
 				        acc
 				        (recur (f acc (first coll)) (rest coll))))))
 
-				(def range
+				(def rt-range
 				  (fn [n]
 				    (loop [i (dec n) acc nil]
 				      (if (neg? i) acc (recur (dec i) (cons i acc))))))
 
 				(def frequencies
 				  (fn [coll]
-				    (reduce (fn [m k] (assoc m k (inc (get m k 0)))) {} coll)))
+				    (rt-reduce (fn [m k] (assoc m k (inc (get m k 0)))) {} coll)))
 
-				(let [fibs (reduce (fn [v i] (conj v (fib i))) [] (range 10))
-				      total (reduce + 0 fibs)
-				      parity (frequencies (reduce (fn [v x] (conj v (if (even? x) :even :odd))) [] fibs))]
+				(let [fibs (rt-reduce (fn [v i] (conj v (fib i))) [] (rt-range 10))
+				      total (rt-reduce + 0 fibs)
+				      parity (frequencies (rt-reduce (fn [v x] (conj v (if (even? x) :even :odd))) [] fibs))]
 				  (println "fibs:" fibs "total:" total)
 				  {:fibs fibs :total total :parity parity :fib-88 (fib 88)})
 				"""
@@ -272,7 +272,7 @@ extension CoreTests {
 				let out = try capturingOutput { result = try rt.eval(program) }
 				#expect(out == "fibs: [0 1 1 2 3 5 8 13 21 34] total: 88\n")
 				#expect(try result == Value(reading: "{:fibs [0 1 1 2 3 5 8 13 21 34] :total 88 :parity {:even 4 :odd 6} :fib-88 1100087778366101931}"))
-				try unbind("fib", "reduce", "frequencies", "range")
+				try unbind("fib", "rt-reduce", "frequencies", "rt-range")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

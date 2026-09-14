@@ -32,10 +32,12 @@ clj_value clj_fn_closure(clj_value code, clj_value name, const clj_value *env, u
 static inline bool    clj_is_fn(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_fn_type; }
 static inline clj_fn *clj_fn_of(clj_value v) { return (clj_fn *)clj_to_ptr(v); }
 
-// The single IFn dispatch: fn, keyword (lookup in args[0]), map (get), vector (nth).
+// The single IFn dispatch through the type's invoke slot: fn, keyword (lookup in args[0]), map (get), vector (nth).
 // args are borrowed; the result is owned or CLJ_THROWN.
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n);
-// (apply f a b ... seq): the last argument is a list, vector or nil and is spread.
+// (apply f a b ... seq): the last argument is any seqable and is spread.
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n);
+// "Wrong number of args (n) passed to: f" for any invokable; invoke slots share it.
+clj_value clj_arity_error(clj_value f, size_t n);
 
 #endif

@@ -1,7 +1,6 @@
 // @ai-generated(solo)
 #include "clj/cons.h"
 #include "clj/list.h"
-#include "clj/vector.h"
 
 static void cons_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_cons *c = self;
@@ -9,19 +8,30 @@ static void cons_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(c->rest, ctx);
 }
 
-// No cache slot: the cell stays 32 bytes, so hashing a list walks it every time.
-static uint32_t cons_hash(void *self) { return clj_seq_hash(clj_from_ptr(self)); }
+static clj_value cons_first(clj_value self) { return clj_retain(clj_cons_of(self)->first); }
 
-static bool cons_equals(void *self, clj_value other) {
-	return (clj_is_list(other) || clj_is_vector(other)) && clj_seq_equals(clj_from_ptr(self), other);
+static clj_value cons_next(clj_value self) { return clj_seq(clj_cons_of(self)->rest); }
+
+// The tail as stored, so a lazy tail stays unrealized; a raw non-seq tail (C callers) is seq'd.
+static clj_value cons_rest(clj_value self) {
+	clj_value rest = clj_cons_of(self)->rest;
+	if (clj_is_seq(rest)) return clj_retain(rest);
+	clj_value s = clj_seq(rest);
+	if (s == CLJ_THROWN || !clj_is_nil(s)) return s;
+	return clj_list_empty();
 }
 
+// No hash cache: the cell stays 32 bytes, so hashing a list walks it every time.
+// CLJ_CORE_LIST until a PersistentList wrapper exists (NOTES.md): reader lists are cons chains.
 const clj_type clj_cons_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "cons",
+	CLJ_ASEQ_TRAIT(CLJ_CORE_LIST),
 	.each_child = cons_each_child,
-	.hash = cons_hash,
-	.equals = cons_equals,
+	.seq = clj_aseq_seq,
+	.first = cons_first,
+	.next = cons_next,
+	.rest = cons_rest,
 };
 
 clj_value clj_cons_new(clj_value first, clj_value rest) {

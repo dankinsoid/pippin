@@ -37,11 +37,33 @@ typedef struct {
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
 
+// Core interfaces a type implements, mirroring Clojure's: `(map? x)` is one AND on the bitset.
+// A slot may exist without the bit (a string has lookup and count, as RT.get/RT.count special-case it),
+// so dispatch reads the slot and predicates read the bit.
+// Plain literals: static initializers need constant expressions and Swift imports literal macros.
+#define CLJ_CORE_SEQABLE     0x001 // seq slot
+#define CLJ_CORE_SEQ         0x002 // ISeq: a value that is its own seq (seq? x)
+#define CLJ_CORE_SEQUENTIAL  0x004 // ordered; sequential equality applies
+#define CLJ_CORE_COLL        0x008 // IPersistentCollection (coll? x)
+#define CLJ_CORE_COUNTED     0x010 // O(1) count
+#define CLJ_CORE_LOOKUP      0x020 // ILookup
+#define CLJ_CORE_ASSOCIATIVE 0x040 // Associative
+#define CLJ_CORE_INDEXED     0x080 // O(1) nth
+#define CLJ_CORE_FN          0x100 // IFn (ifn? x)
+#define CLJ_CORE_LIST        0x200 // IPersistentList (list? x)
+#define CLJ_CORE_VECTOR      0x400 // IPersistentVector
+#define CLJ_CORE_MAP         0x800 // IPersistentMap
+
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.
+// Builtin descriptors are write-once: a builtin type never gains or loses a core interface
+// (the extend-type boundary in the design); user protocols will hang off user_protos instead.
+// Slot convention as for every function: arguments borrowed, results owned or CLJ_THROWN;
+// conj is the exception and consumes self, so a unique collection can be updated in place.
 struct clj_type {
 	clj_header  h;
 	const char *name;
+	uint64_t    core_bits;
 	// NULL for leaf types. Drives both drop and share.
 	void (*each_child)(void *self, clj_visitor visit, void *ctx);
 	// Resources beyond child values (mutex, external buffer). NULL if none.
@@ -49,11 +71,30 @@ struct clj_type {
 	// NULL when values of the type cannot be map keys; clj_hash/clj_equals abort on them.
 	uint32_t (*hash)(void *self);
 	bool     (*equals)(void *self, clj_value other);
+	// Seqable: nil when empty, else a value of a type with CLJ_CORE_SEQ. The one mandatory seq slot.
+	clj_value (*seq)(clj_value self);
+	// Fast paths, only where seq is an O(1) view; NULL goes through seq. Mandatory on CLJ_CORE_SEQ types.
+	clj_value (*first)(clj_value self);
+	clj_value (*next)(clj_value self);
+	// ISeq.more: NULL means next, or () when that is nil. A cons overrides it to hand out an unrealized tail.
+	clj_value (*rest)(clj_value self);
+	// NULL: count walks the seq.
+	size_t (*count)(clj_value self);
+	clj_value (*lookup)(clj_value self, clj_value key, clj_value not_found);
+	clj_value (*conj)(clj_value self, clj_value x);
+	// Arity is checked by the object (a fn carries its arity table), not the type.
+	clj_value (*invoke)(clj_value self, const clj_value *args, size_t n);
+	// defprotocol tables, NULL until protocols exist (NOTES.md).
+	void *user_protos;
 };
 
 extern const clj_type clj_type_type;
 
 static inline clj_header *clj_header_of(clj_value v) { return (clj_header *)clj_to_ptr(v); }
+static inline const clj_type *clj_type_of(clj_value v) { return clj_header_of(v)->type; }
+// 0 for immediates: nil, numbers, chars and booleans implement no core interface at the type level.
+static inline uint64_t clj_core_bits(clj_value v) { return clj_is_ptr(v) ? clj_type_of(v)->core_bits : 0; }
+static inline bool     clj_has_core(clj_value v, uint64_t bits) { return (clj_core_bits(v) & bits) == bits; }
 
 // Zero-filled, rc = 1. Zero memory reads as nil, so value slots need no init.
 // Size-class pool per thread; CLJ_SYSTEM_ALLOC=1 in the environment routes to calloc/realloc/free.

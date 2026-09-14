@@ -123,9 +123,10 @@ public struct Value: Sendable {
 		return out
 	}
 
-	/// The elements of a list (a cons chain or `()`), in order; nil for any other value.
+	/// The elements of any seq (a list, a lazy seq, a range, a seq view), in order; nil for any other value.
+	/// Walking realizes a lazy seq; a thunk that throws ends the walk early.
 	public var list: [Value]? {
-		guard clj_is_list(raw) else { return nil }
+		guard clj_is_seq(raw) else { return nil }
 		var out: [Value] = []
 		withExtendedLifetime(self) {
 			var it = clj_seq_iter_start(raw)
@@ -259,10 +260,11 @@ extension Value {
 }
 
 extension Value: CustomStringConvertible {
-	/// Clojure `pr-str`.
+	/// Clojure `pr-str`. Printing realizes lazy seqs; when a thunk throws, the exception's text stands in.
 	public var description: String {
 		withExtendedLifetime(self) {
 			let s = clj_pr_str(raw)
+			if s == CLJ_THROWN { return "#<lazy-seq threw: \(Value(owning: clj_take_pending()))>" }
 			defer { clj_release(s) }
 			return Self.decode(s)
 		}

@@ -1,6 +1,8 @@
 // @ai-generated(solo)
 #include <pthread.h>
 
+#include "clj/coll.h"
+#include "clj/fn.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
 
@@ -20,12 +22,19 @@ static uint32_t keyword_hash(void *self) {
 
 static bool keyword_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
+static clj_value keyword_invoke(clj_value self, const clj_value *args, size_t n) {
+	if (n != 1 && n != 2) return clj_arity_error(self, n);
+	return clj_get(args[0], self, n == 2 ? args[1] : CLJ_NIL);
+}
+
 const clj_type clj_keyword_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "keyword",
+	.core_bits = CLJ_CORE_FN,
 	.each_child = keyword_each_child,
 	.hash = keyword_hash,
 	.equals = keyword_equals,
+	.invoke = keyword_invoke,
 };
 
 // Consumes sym: a new keyword takes it over, an existing one drops it.

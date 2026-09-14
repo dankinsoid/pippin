@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -194,6 +195,7 @@ static clj_value rethrow_positioned(const analyzer *a) {
 // fmt has one %s, filled with the printed form.
 static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
 	clj_value text = clj_pr_str(form);
+	if (text == CLJ_THROWN) return NULL;
 	clj_node *r = fail(a, fmt, clj_string_bytes(text));
 	clj_release(text);
 	return r;
@@ -287,13 +289,14 @@ bool clj_is_special_symbol(clj_value sym) { return special_of(sym) != SP_NONE; }
 
 static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type; }
 
-// Borrowed items of a list or vector in a malloc'd array.
-static clj_value *seq_items(clj_value seq, uint32_t *n) {
-	size_t     count = clj_list_count(seq);
-	clj_value *items = zalloc(count, sizeof *items);
-	clj_seq_iter it = clj_seq_iter_start(seq);
-	size_t       i = 0;
-	while (clj_seq_iter_next(&it, &items[i])) i++;
+// Borrowed items of a seq or vector form in a malloc'd array; the form keeps them alive.
+// NULL with the exception pending when realizing a lazy form throws.
+static clj_value *seq_items(clj_value form, uint32_t *n) {
+	size_t     count;
+	clj_value  keep;
+	clj_value *items = clj_seq_items(form, &count, &keep);
+	if (!items) return NULL;
+	clj_release(keep);
 	*n = (uint32_t)count;
 	return items;
 }
@@ -322,10 +325,12 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 
 enum { MAX_EXPANSION_STEPS = 1000 };
 
-// The macro var a list form's head names, or nil: a local of s (NULL at top level) shadows it.
+// The macro var a seq form's head names, or nil: a local of s (NULL at top level) shadows it.
 static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
-	if (!clj_is_list(form) || clj_is_empty_list(form)) return CLJ_NIL;
-	clj_value head = clj_cons_of(form)->first;
+	if (!clj_is_seq(form)) return CLJ_NIL;
+	clj_seq_iter it = clj_seq_iter_start(form);
+	clj_value    head;
+	if (!clj_seq_iter_next(&it, &head)) return CLJ_NIL;
 	if (!clj_is_symbol(head) || clj_is_special_symbol(head)) return CLJ_NIL;
 	if (s && clj_is_nil(clj_symbol_ns(head))) {
 		bool     captured;
@@ -342,6 +347,10 @@ static clj_value expand_once(const analyzer *a, clj_value var, clj_value form) {
 	if (fn == CLJ_THROWN) return rethrow_positioned(a);
 	uint32_t   n;
 	clj_value *items = seq_items(form, &n);
+	if (!items) {
+		clj_release(fn);
+		return rethrow_positioned(a);
+	}
 	clj_value *args = zalloc(n + 1, sizeof *args);
 	args[0] = form;
 	args[1] = CLJ_NIL;
@@ -362,6 +371,7 @@ static clj_value expand_all(const analyzer *a, scope *s, clj_value form) {
 		if (step == MAX_EXPANSION_STEPS) {
 			clj_value text = clj_pr_str(cur);
 			clj_release(cur);
+			if (text == CLJ_THROWN) return CLJ_THROWN;
 			clj_value r = fail_value(a, "Macro expansion exceeded %d steps at: %s", MAX_EXPANSION_STEPS, clj_string_bytes(text));
 			clj_release(text);
 			return r;
@@ -439,6 +449,7 @@ static bool analyze_into(analyzer *a, scope *s, clj_node **out, const clj_value 
 static clj_node *analyze_vector(analyzer *a, scope *s, clj_value form) {
 	uint32_t   n;
 	clj_value *items = seq_items(form, &n);
+	if (!items) return NULL;
 	clj_node  *node = node_new(CLJ_NODE_VECTOR);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
 	node->u.seq.n = n;
@@ -512,6 +523,7 @@ static clj_node *analyze_let(analyzer *a, scope *s, const clj_value *items, uint
 	if (n < 2 || !clj_is_vector(items[1])) return fail(a, "%s requires a vector for its binding", what);
 	uint32_t   nforms;
 	clj_value *forms = seq_items(items[1], &nforms);
+	if (!forms) return NULL;
 	if (nforms % 2) {
 		free(forms);
 		return fail(a, "%s requires an even number of forms in binding vector", what);
@@ -574,6 +586,7 @@ static bool analyze_arity(analyzer *a, clj_node *fn, capture_list *captures, sco
 	scope    s = {.parent = parent, .captures = captures};
 	uint32_t nparams;
 	clj_value *syms = seq_items(params, &nparams);
+	if (!syms) return false;
 	clj_fn_arity *arity = zalloc(1, sizeof *arity);
 	arity->self_slot = -1;
 	bool ok = true;
@@ -653,12 +666,17 @@ static clj_node *analyze_fn(analyzer *a, scope *s, const clj_value *items, uint3
 	} else {
 		ok = true;
 		for (; i < n && ok; i++) {
-			if (!clj_is_list(items[i]) || clj_is_empty_list(items[i])) {
+			uint32_t   nsig = 0;
+			clj_value *sig = clj_is_seq(items[i]) ? seq_items(items[i], &nsig) : NULL;
+			if (!sig && clj_is_seq(items[i])) {
+				ok = false;
+				break;
+			}
+			if (!sig || nsig == 0) {
+				free(sig);
 				ok = fail_form(a, "Parameter declaration %s should be a vector", items[i]) != NULL;
 				break;
 			}
-			uint32_t   nsig;
-			clj_value *sig = seq_items(items[i], &nsig);
 			if (!clj_is_vector(sig[0])) ok = fail_form(a, "Parameter declaration %s should be a vector", sig[0]) != NULL;
 			else ok = analyze_arity(a, node, &captures, s, sig[0], sig + 1, nsig - 1);
 			free(sig);
@@ -715,6 +733,7 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 static clj_value macro_params(clj_value params) {
 	uint32_t   n;
 	clj_value *syms = seq_items(params, &n);
+	if (!syms) return CLJ_THROWN;
 	clj_value *all = zalloc(n + 2, sizeof *all);
 	all[0] = clj_symbol_from_cstr("&form");
 	all[1] = clj_symbol_from_cstr("&env");
@@ -750,21 +769,40 @@ static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items,
 	clj_value *fn_items = zalloc(n - i + 1, sizeof *fn_items);
 	uint32_t   nfn = 0;
 	fn_items[nfn++] = macro_fn_symbol();
+	bool ok = true;
 	if (clj_is_vector(items[i])) {
 		fn_items[nfn++] = macro_params(items[i]);
+		ok = fn_items[nfn - 1] != CLJ_THROWN;
 		for (uint32_t j = i + 1; j < n; j++) fn_items[nfn++] = clj_retain(items[j]);
 	} else {
-		for (uint32_t j = i; j < n; j++) {
+		for (uint32_t j = i; j < n && ok; j++) {
 			clj_value arity = items[j];
-			if (clj_is_list(arity) && !clj_is_empty_list(arity) && clj_is_vector(clj_cons_of(arity)->first)) {
-				clj_value params = macro_params(clj_cons_of(arity)->first);
-				arity = clj_cons_new(params, clj_cons_of(arity)->rest);
+			clj_value head = clj_is_seq(arity) ? clj_first(arity) : CLJ_NIL;
+			if (head == CLJ_THROWN) {
+				ok = false;
+				break;
+			}
+			if (clj_is_vector(head)) {
+				clj_value params = macro_params(head);
+				clj_value body = clj_rest(arity);
+				if (params == CLJ_THROWN || body == CLJ_THROWN) {
+					ok = false;
+				} else {
+					arity = clj_cons_new(params, body);
+				}
 				clj_release(params);
+				clj_release(body);
 			} else {
 				clj_retain(arity); // analyze_fn reports the malformed arity
 			}
-			fn_items[nfn++] = arity;
+			clj_release(head);
+			if (ok) fn_items[nfn++] = arity;
 		}
+	}
+	if (!ok) {
+		for (uint32_t j = 0; j < nfn; j++) clj_release(fn_items[j]);
+		free(fn_items);
+		return NULL;
 	}
 	clj_value fn_form = clj_list_from_array(fn_items, nfn);
 	for (uint32_t j = 0; j < nfn; j++) clj_release(fn_items[j]);
@@ -795,7 +833,8 @@ static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) 
 	clj_release(expanded);
 	uint32_t   n;
 	clj_value *items = seq_items(form, &n);
-	clj_node  *node;
+	if (!items) return NULL;
+	clj_node *node;
 	switch (special_of(items[0])) {
 	case SP_QUOTE: node = n == 2 ? node_const(items[1]) : fail(a, "Wrong number of args (%u) passed to quote", n - 1); break;
 	case SP_IF: node = analyze_if(a, s, items, n, tail); break;
@@ -814,9 +853,17 @@ static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) 
 	return node;
 }
 
+// Any seq is a list form: macros hand back lazy seqs, and () analyzes as itself.
 static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	if (clj_is_symbol(form)) return analyze_symbol(a, s, form);
-	if (clj_is_list(form)) return clj_is_empty_list(form) ? node_const(form) : analyze_list(a, s, form, tail);
+	if (clj_is_seq(form)) {
+		clj_value seq = clj_seq(form);
+		if (seq == CLJ_THROWN) return NULL;
+		if (clj_is_nil(seq)) return node_const(clj_list_empty());
+		clj_node *node = analyze_list(a, s, seq, tail);
+		clj_release(seq);
+		return node;
+	}
 	if (clj_is_vector(form)) return analyze_vector(a, s, form);
 	if (is_map(form)) return analyze_map(a, s, form);
 	return node_const(form);

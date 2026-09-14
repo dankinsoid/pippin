@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -179,7 +180,7 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 			if (clj_map_contains(result, items[i])) {
 				clj_value text = clj_pr_str(items[i]);
 				clj_release(result);
-				result = clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
+				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
 				clj_release(text);
 				break;
 			}
@@ -234,6 +235,7 @@ static bool stack_exhausted(void) {
 static clj_value arity_error(clj_value f, size_t n) {
 	clj_value name = clj_fn_of(f)->name;
 	clj_value text = clj_is_nil(name) ? clj_string_from_cstr("fn") : clj_pr_str(name);
+	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
 	clj_release(text);
 	return r;
@@ -286,9 +288,12 @@ clj_value clj_eval_node(const clj_node *node, uint32_t nslots) {
 	return v;
 }
 
-static bool is_do_form(clj_value form) {
-	if (!clj_is_list(form) || clj_is_empty_list(form)) return false;
-	clj_value head = clj_cons_of(form)->first;
+// Positions it after the head when form is (do ...); a macro may have produced any seq type.
+static bool is_do_form(clj_value form, clj_seq_iter *it) {
+	if (!clj_is_seq(form)) return false;
+	*it = clj_seq_iter_start(form);
+	clj_value head;
+	if (!clj_seq_iter_next(it, &head)) return false;
 	return clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(clj_string_bytes(clj_symbol_name(head)), "do") == 0;
 }
 
@@ -296,14 +301,18 @@ static bool is_do_form(clj_value form) {
 clj_value clj_eval(clj_value form, const clj_env *env) {
 	clj_value expanded = clj_macroexpand(form, env);
 	if (expanded == CLJ_THROWN) return CLJ_THROWN;
-	clj_value v = CLJ_NIL;
-	if (is_do_form(expanded)) {
-		clj_seq_iter it = clj_seq_iter_start(clj_cons_of(expanded)->rest);
-		clj_value    item;
+	clj_value    v = CLJ_NIL;
+	clj_seq_iter it;
+	if (is_do_form(expanded, &it)) {
+		clj_value item;
 		while (clj_seq_iter_next(&it, &item)) {
 			clj_release(v);
 			v = clj_eval(item, env);
 			if (v == CLJ_THROWN) break;
+		}
+		if (it.thrown) {
+			clj_release(v);
+			v = CLJ_THROWN;
 		}
 	} else {
 		uint32_t  nslots;

@@ -1,7 +1,13 @@
 // @ai-generated(solo)
+#include <stdlib.h>
 #include <string.h>
 
+#include "clj/coll.h"
+#include "clj/error.h"
+#include "clj/fn.h"
+#include "clj/list.h"
 #include "clj/map.h"
+#include "clj/vector.h"
 
 enum { BITS = 5, MASK = 31 };
 
@@ -450,12 +456,80 @@ static bool map_equals(void *self, clj_value other) {
 	return ec.equal;
 }
 
+typedef struct {
+	clj_value *entries;
+	size_t     n;
+} collect_ctx;
+
+static bool collect_entry(clj_value key, clj_value val, void *ctx) {
+	collect_ctx *c = ctx;
+	c->entries[c->n++] = key;
+	c->entries[c->n++] = val;
+	return true;
+}
+
+// Owned key value ... of the map in a malloc'd array, borrowed from the live map.
+static clj_value *entries_of(clj_value map, size_t *n) {
+	*n = 2 * (size_t)clj_map_count(map);
+	collect_ctx c = {malloc((*n + 1) * sizeof(clj_value)), 0};
+	if (!c.entries) clj_fatal("out of memory");
+	clj_map_each(map, collect_entry, &c);
+	return c.entries;
+}
+
+// Eager list of [k v] vectors; a map has no O(1) seq view, so no first/next fast path (NOTES.md).
+static clj_value map_seq(clj_value self) {
+	if (!clj_map_count(self)) return CLJ_NIL;
+	size_t     n;
+	clj_value *entries = entries_of(self, &n);
+	clj_value *pairs = malloc((n / 2) * sizeof *pairs);
+	if (!pairs) clj_fatal("out of memory");
+	for (size_t i = 0; i < n; i += 2) pairs[i / 2] = clj_vector_from_array(entries + i, 2);
+	clj_value list = clj_list_from_array(pairs, n / 2);
+	for (size_t i = 0; i < n / 2; i++) clj_release(pairs[i]);
+	free(pairs);
+	free(entries);
+	return list;
+}
+
+static size_t map_count(clj_value self) { return clj_map_count(self); }
+
+static clj_value map_lookup(clj_value self, clj_value key, clj_value not_found) {
+	return clj_retain(clj_map_get(self, key, not_found));
+}
+
+// Consumes self. An entry is a [k v] pair, a map (all its entries) or nil (no-op).
+static clj_value map_conj(clj_value self, clj_value item) {
+	if (clj_is_nil(item)) return self;
+	if (clj_is_vector(item) && clj_vector_count(item) == 2) return clj_map_assoc(self, clj_vector_nth(item, 0), clj_vector_nth(item, 1));
+	if (clj_is_map(item)) {
+		size_t     n;
+		clj_value *entries = entries_of(item, &n);
+		for (size_t j = 0; j < n; j += 2) self = clj_map_assoc(self, entries[j], entries[j + 1]);
+		free(entries);
+		return self;
+	}
+	clj_release(self);
+	return clj_throw_msg("Vector arg to map conj must be a pair");
+}
+
+static clj_value map_invoke(clj_value self, const clj_value *args, size_t n) {
+	if (n != 1 && n != 2) return clj_arity_error(self, n);
+	return map_lookup(self, args[0], n == 2 ? args[1] : CLJ_NIL);
+}
+
 const clj_type clj_map_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "map",
+	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP,
 	.each_child = map_each_child,
 	.hash = map_hash,
 	.equals = map_equals,
+	.seq = map_seq,
+	.count = map_count,
+	.lookup = map_lookup,
+	.conj = map_conj,
+	.invoke = map_invoke,
 };
 
 static bnode   empty_root = {.h = {1, CLJ_FLAG_IMMORTAL, &bnode_type}};

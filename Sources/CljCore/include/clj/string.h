@@ -24,4 +24,10 @@ static inline clj_string *clj_string_of(clj_value v) { return (clj_string *)clj_
 static inline const char *clj_string_bytes(clj_value s) { return clj_string_of(s)->bytes; }
 static inline uint32_t    clj_string_len(clj_value s) { return clj_string_of(s)->len; }
 
+// Decodes the code point at byte offset pos (< len) into *out; returns its byte length. Malformed
+// bytes decode to whatever they hold rather than failing (the reader does not validate UTF-8, NOTES.md).
+size_t clj_utf8_decode(const char *bytes, size_t len, size_t pos, uint32_t *out);
+// Code points in a string, O(n).
+size_t clj_string_count(clj_value s);
+
 #endif

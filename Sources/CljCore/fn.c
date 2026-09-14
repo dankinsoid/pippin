@@ -26,12 +26,21 @@ static uint32_t fn_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)se
 
 static bool fn_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
+static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
+	const clj_fn *fn = clj_fn_of(f);
+	if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
+	if (n < fn->min_arity || (fn->max_arity != CLJ_ARITY_ANY && n > fn->max_arity)) return clj_arity_error(f, n);
+	return fn->native(args, n);
+}
+
 const clj_type clj_fn_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "fn",
+	.core_bits = CLJ_CORE_FN,
 	.each_child = fn_each_child,
 	.hash = fn_hash,
 	.equals = fn_equals,
+	.invoke = fn_invoke,
 };
 
 clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity) {
@@ -56,33 +65,18 @@ clj_value clj_fn_closure(clj_value code, clj_value name, const clj_value *env, u
 	return clj_from_ptr(f);
 }
 
-static clj_value arity_error(clj_value f, size_t n) {
+clj_value clj_arity_error(clj_value f, size_t n) {
 	clj_value text = clj_pr_str(clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : f);
+	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
 	clj_release(text);
 	return r;
 }
 
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
-	if (clj_is_fn(f)) {
-		const clj_fn *fn = clj_fn_of(f);
-		if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
-		if (n < fn->min_arity || (fn->max_arity != CLJ_ARITY_ANY && n > fn->max_arity)) return arity_error(f, n);
-		return fn->native(args, n);
-	}
-	if (clj_is_keyword(f)) {
-		if (n != 1 && n != 2) return arity_error(f, n);
-		return clj_get(args[0], f, n == 2 ? args[1] : CLJ_NIL);
-	}
-	if (clj_is_ptr(f) && clj_header_of(f)->type == &clj_map_type) {
-		if (n != 1 && n != 2) return arity_error(f, n);
-		return clj_get(f, args[0], n == 2 ? args[1] : CLJ_NIL);
-	}
-	if (clj_is_vector(f)) {
-		if (n != 1) return arity_error(f, n);
-		return clj_nth(f, args[0], false, CLJ_NIL);
-	}
+	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
 	clj_value text = clj_pr_str(f);
+	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("%s cannot be invoked", clj_string_bytes(text));
 	clj_release(text);
 	return r;
@@ -90,17 +84,18 @@ clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	CLJ_ASSERT(n >= 1, "apply needs the sequence argument");
-	clj_value seq = args[n - 1];
-	if (!clj_is_nil(seq) && !clj_is_list(seq) && !clj_is_vector(seq)) return clj_throw_msg("Don't know how to create ISeq from: %s", clj_type_name(seq));
-	size_t     spread = clj_is_nil(seq) ? 0 : clj_list_count(seq);
+	size_t     spread;
+	clj_value  keep;
+	clj_value *items = clj_seq_items(args[n - 1], &spread, &keep);
+	if (!items) return CLJ_THROWN;
 	size_t     total = n - 1 + spread;
 	clj_value *all = malloc((total ? total : 1) * sizeof *all);
 	if (!all) clj_fatal("out of memory");
 	memcpy(all, args, (n - 1) * sizeof *all);
-	clj_seq_iter it = clj_seq_iter_start(seq);
-	size_t       i = n - 1;
-	while (clj_seq_iter_next(&it, &all[i])) i++;
+	memcpy(all + n - 1, items, spread * sizeof *all);
 	clj_value r = clj_invoke(f, all, total);
 	free(all);
+	free(items);
+	clj_release(keep);
 	return r;
 }

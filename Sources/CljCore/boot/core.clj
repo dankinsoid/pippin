@@ -4,6 +4,32 @@
 ;; Up to the `fn` macro only let*/loop*/fn* and the macros above a form are available;
 ;; defmacro emits fn* until `fn` is a macro, so those macro params cannot destructure.
 
+;; Syntax-quote expands ~@ to (seq (concat ...)), so concat precedes every macro and is written
+;; without any. Lazy as in Clojure: each step realizes one element of the first live argument.
+(def concat
+  (fn* concat
+    ([] (lazy-seq* (fn* [] nil)))
+    ([x] (lazy-seq* (fn* [] x)))
+    ([x y]
+     (lazy-seq* (fn* []
+       (let* [s (seq x)]
+         (if s
+           (cons (first s) (concat (rest s) y))
+           y)))))
+    ([x y & zs]
+     (let* [cat (fn* cat [xys zs]
+                  (lazy-seq* (fn* []
+                    (let* [xys (seq xys)]
+                      (if xys
+                        (cons (first xys) (cat (rest xys) zs))
+                        (if zs
+                          (cat (first zs) (next zs))
+                          nil))))))]
+       (cat (concat x y) zs)))))
+
+(defmacro lazy-seq [& body]
+  `(lazy-seq* (fn* [] ~@body)))
+
 (defmacro when [test & body]
   `(if ~test (do ~@body)))
 
@@ -273,3 +299,186 @@
            (if names
              (recur (next names) (cons `(def ~(first names)) defs))
              defs))))
+
+;; ---- seqs. Lazy where Clojure is lazy; eager walks use loop/recur so long seqs cost no stack.
+
+(defn complement [f]
+  (fn [& args] (not (apply f args))))
+
+(defn nthrest [coll n]
+  (loop [n n xs coll]
+    (if (and (pos? n) (seq xs))
+      (recur (dec n) (rest xs))
+      xs)))
+
+(defn some [pred coll]
+  (loop [s (seq coll)]
+    (when s
+      (or (pred (first s)) (recur (next s))))))
+
+(defn every? [pred coll]
+  (loop [s (seq coll)]
+    (cond
+      (nil? s) true
+      (pred (first s)) (recur (next s))
+      :else false)))
+
+(defn not-any? [pred coll] (not (some pred coll)))
+
+(defn not-every? [pred coll] (not (every? pred coll)))
+
+(defn reduce
+  ([f coll]
+   (let [s (seq coll)]
+     (if s
+       (reduce f (first s) (next s))
+       (f))))
+  ([f val coll]
+   (loop [acc val s (seq coll)]
+     (if s
+       (recur (f acc (first s)) (next s))
+       acc))))
+
+(defn map
+  ([f coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (cons (f (first s)) (map f (rest s))))))
+  ([f c1 c2]
+   (lazy-seq
+     (let [s1 (seq c1) s2 (seq c2)]
+       (when (and s1 s2)
+         (cons (f (first s1) (first s2)) (map f (rest s1) (rest s2)))))))
+  ([f c1 c2 c3]
+   (lazy-seq
+     (let [s1 (seq c1) s2 (seq c2) s3 (seq c3)]
+       (when (and s1 s2 s3)
+         (cons (f (first s1) (first s2) (first s3)) (map f (rest s1) (rest s2) (rest s3)))))))
+  ([f c1 c2 c3 & colls]
+   (let [step (fn step [cs]
+                (lazy-seq
+                  (let [ss (map seq cs)]
+                    (when (every? identity ss)
+                      (cons (map first ss) (step (map rest ss)))))))]
+     (map (fn [xs] (apply f xs)) (step (conj colls c3 c2 c1))))))
+
+(defn filter [pred coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [f (first s) r (rest s)]
+        (if (pred f)
+          (cons f (filter pred r))
+          (filter pred r))))))
+
+(defn remove [pred coll]
+  (filter (complement pred) coll))
+
+(defn keep [f coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (let [x (f (first s))]
+        (if (nil? x)
+          (keep f (rest s))
+          (cons x (keep f (rest s))))))))
+
+(defn take [n coll]
+  (lazy-seq
+    (when (pos? n)
+      (when-let [s (seq coll)]
+        (cons (first s) (take (dec n) (rest s)))))))
+
+(defn drop [n coll]
+  (let [step (fn [n coll]
+               (let [s (seq coll)]
+                 (if (and (pos? n) s)
+                   (recur (dec n) (rest s))
+                   s)))]
+    (lazy-seq (step n coll))))
+
+(defn take-while [pred coll]
+  (lazy-seq
+    (when-let [s (seq coll)]
+      (when (pred (first s))
+        (cons (first s) (take-while pred (rest s)))))))
+
+(defn drop-while [pred coll]
+  (let [step (fn [pred coll]
+               (let [s (seq coll)]
+                 (if (and s (pred (first s)))
+                   (recur pred (rest s))
+                   s)))]
+    (lazy-seq (step pred coll))))
+
+(defn iterate [f x]
+  (cons x (lazy-seq (iterate f (f x)))))
+
+(defn repeat
+  ([x] (lazy-seq (cons x (repeat x))))
+  ([n x] (take n (repeat x))))
+
+;; Fixnum ranges are the O(1) range type; step 0 repeats as Clojure's does; doubles walk a lazy seq.
+(defn range
+  ([] (iterate inc 0))
+  ([end] (range 0 end 1))
+  ([start end] (range start end 1))
+  ([start end step]
+   (cond
+     (zero? step) (if (< start end) (repeat start) ())
+     (and (integer? start) (integer? end) (integer? step)) (range* start end step)
+     :else (let [cmp (if (pos? step) < >)]
+             (take-while (fn [x] (cmp x end)) (iterate (fn [x] (+ x step)) start))))))
+
+(defn interleave
+  ([] ())
+  ([c1] (lazy-seq c1))
+  ([c1 c2]
+   (lazy-seq
+     (let [s1 (seq c1) s2 (seq c2)]
+       (when (and s1 s2)
+         (cons (first s1) (cons (first s2) (interleave (rest s1) (rest s2))))))))
+  ([c1 c2 & colls]
+   (lazy-seq
+     (let [ss (map seq (conj colls c2 c1))]
+       (when (every? identity ss)
+         (concat (map first ss) (apply interleave (map rest ss))))))))
+
+(defn interpose [sep coll]
+  (drop 1 (interleave (repeat sep) coll)))
+
+;; Not (apply concat ...): apply spreads its whole seq here (NOTES.md), which would realize an infinite input.
+(defn mapcat [f & colls]
+  (let [step (fn step [ss]
+               (lazy-seq
+                 (when-let [s (seq ss)]
+                   (concat (first s) (step (rest s))))))]
+    (step (apply map f colls))))
+
+(defn dorun
+  ([coll]
+   (loop [s (seq coll)]
+     (when s (recur (next s)))))
+  ([n coll]
+   (loop [n n s (seq coll)]
+     (when (and s (pos? n))
+       (recur (dec n) (next s))))))
+
+(defn doall
+  ([coll] (dorun coll) coll)
+  ([n coll] (dorun n coll) coll))
+
+(defn vec [coll] (into [] coll))
+
+(defn partition
+  ([n coll] (partition n n coll))
+  ([n step coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [p (doall (take n s))]
+         (when (= n (count p))
+           (cons p (partition n step (nthrest s step)))))))))
+
+(defn zipmap [keys vals]
+  (loop [m {} ks (seq keys) vs (seq vals)]
+    (if (and ks vs)
+      (recur (assoc m (first ks) (first vs)) (next ks) (next vs))
+      m)))

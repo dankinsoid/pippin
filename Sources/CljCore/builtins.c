@@ -7,6 +7,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/runtime.h"
+#include "clj/seq.h"
 
 // ---- numbers
 
@@ -141,9 +142,16 @@ static clj_value b_eq(const clj_value *args, size_t n) {
 
 static clj_value b_neq(const clj_value *args, size_t n) { return clj_bool(b_eq(args, n) == CLJ_FALSE); }
 
+static clj_value b_hash(const clj_value *args, size_t n) {
+	(void)n;
+	if (clj_is_ptr(args[0]) && !clj_type_of(args[0])->hash) return clj_throw_msg("%s cannot be hashed", clj_type_name(args[0]));
+	return clj_fixnum((int32_t)clj_hash(args[0]));
+}
+
 static clj_value int_arg(clj_value v, intptr_t *out) {
 	if (!clj_is_fixnum(v)) {
 		clj_value text = clj_pr_str(v);
+		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("Argument must be an integer: %s", clj_string_bytes(text));
 		clj_release(text);
 		return r;
@@ -189,8 +197,6 @@ static clj_value b_odd(const clj_value *args, size_t n) {
 
 // ---- predicates
 
-static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type; }
-
 #define PREDICATE(name, test) \
 	static clj_value name(const clj_value *args, size_t n) { \
 		(void)n; \
@@ -199,6 +205,15 @@ static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type
 
 static bool is_number(clj_value v) { return clj_is_fixnum(v) || clj_is_double(v); }
 static bool is_not(clj_value v) { return !clj_truthy(v); }
+static bool is_map_p(clj_value v) { return clj_has_core(v, CLJ_CORE_MAP); }
+static bool is_vector_p(clj_value v) { return clj_has_core(v, CLJ_CORE_VECTOR); }
+static bool is_list_p(clj_value v) { return clj_has_core(v, CLJ_CORE_LIST); }
+static bool is_sequential(clj_value v) { return clj_has_core(v, CLJ_CORE_SEQUENTIAL); }
+static bool is_coll(clj_value v) { return clj_has_core(v, CLJ_CORE_COLL); }
+static bool is_counted(clj_value v) { return clj_has_core(v, CLJ_CORE_COUNTED); }
+static bool is_ifn(clj_value v) { return clj_has_core(v, CLJ_CORE_FN); }
+static bool is_associative(clj_value v) { return clj_has_core(v, CLJ_CORE_ASSOCIATIVE); }
+static bool is_indexed(clj_value v) { return clj_has_core(v, CLJ_CORE_INDEXED); }
 
 PREDICATE(b_not, is_not)
 PREDICATE(b_nil, clj_is_nil)
@@ -206,15 +221,22 @@ PREDICATE(b_number, is_number)
 PREDICATE(b_string, clj_is_string)
 PREDICATE(b_keyword, clj_is_keyword)
 PREDICATE(b_symbol, clj_is_symbol)
-PREDICATE(b_vector_p, clj_is_vector)
-PREDICATE(b_map, is_map)
-PREDICATE(b_list_p, clj_is_list)
+PREDICATE(b_vector_p, is_vector_p)
+PREDICATE(b_map, is_map_p)
+PREDICATE(b_list_p, is_list_p)
 PREDICATE(b_fn, clj_is_fn)
-PREDICATE(b_seq_p, clj_is_list)
+PREDICATE(b_seq_p, clj_is_seq)
+PREDICATE(b_seqable_p, clj_is_seqable)
+PREDICATE(b_sequential_p, is_sequential)
+PREDICATE(b_coll_p, is_coll)
+PREDICATE(b_counted_p, is_counted)
+PREDICATE(b_ifn_p, is_ifn)
+PREDICATE(b_associative_p, is_associative)
+PREDICATE(b_indexed_p, is_indexed)
+PREDICATE(b_char_p, clj_is_char)
+PREDICATE(b_integer_p, clj_is_fixnum)
 
 // ---- collections
-
-static clj_value not_a_seq(clj_value v) { return clj_throw_msg("Don't know how to create ISeq from: %s", clj_type_name(v)); }
 
 static clj_value b_get(const clj_value *args, size_t n) { return clj_get(args[0], args[1], n == 3 ? args[2] : CLJ_NIL); }
 
@@ -224,7 +246,7 @@ static clj_value b_assoc(const clj_value *args, size_t n) {
 	if (n % 2 == 0) return clj_throw_msg("assoc expects even number of arguments after map/vector, found odd number");
 	clj_value coll = args[0];
 	if (clj_is_nil(coll)) coll = clj_map_empty();
-	if (is_map(coll)) {
+	if (clj_is_map(coll)) {
 		coll = clj_retain(coll);
 		for (size_t i = 1; i < n; i += 2) coll = clj_map_assoc(coll, args[i], args[i + 1]);
 		return coll;
@@ -252,7 +274,7 @@ static clj_value b_assoc(const clj_value *args, size_t n) {
 static clj_value b_dissoc(const clj_value *args, size_t n) {
 	clj_value coll = args[0];
 	if (clj_is_nil(coll)) return CLJ_NIL;
-	if (!is_map(coll)) return clj_throw_msg("dissoc not supported on this type: %s", clj_type_name(coll));
+	if (!clj_is_map(coll)) return clj_throw_msg("dissoc not supported on this type: %s", clj_type_name(coll));
 	coll = clj_retain(coll);
 	for (size_t i = 1; i < n; i++) coll = clj_map_dissoc(coll, args[i]);
 	return coll;
@@ -262,135 +284,44 @@ static clj_value b_contains(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value coll = args[0], key = args[1];
 	if (clj_is_nil(coll)) return CLJ_FALSE;
-	if (is_map(coll)) return clj_bool(clj_map_contains(coll, key));
+	if (clj_is_map(coll)) return clj_bool(clj_map_contains(coll, key));
 	if (clj_is_vector(coll)) return clj_bool(clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && (uintptr_t)clj_fixnum_val(key) < clj_vector_count(coll));
 	return clj_throw_msg("contains? not supported on type: %s", clj_type_name(coll));
 }
 
-static size_t string_count(clj_value s) {
-	const unsigned char *p = (const unsigned char *)clj_string_bytes(s);
-	size_t               len = clj_string_len(s), count = 0;
-	for (size_t i = 0; i < len; i++) count += (p[i] & 0xC0) != 0x80;
-	return count;
-}
-
 static clj_value b_count(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value coll = args[0];
-	if (clj_is_nil(coll)) return clj_fixnum(0);
-	if (clj_is_vector(coll)) return clj_fixnum(clj_vector_count(coll));
-	if (is_map(coll)) return clj_fixnum(clj_map_count(coll));
-	if (clj_is_list(coll)) return clj_fixnum((intptr_t)clj_list_count(coll));
-	if (clj_is_string(coll)) return clj_fixnum((intptr_t)string_count(coll));
-	return clj_throw_msg("count not supported on this type: %s", clj_type_name(coll));
-}
-
-typedef struct {
-	clj_value *entries;
-	size_t     n;
-} collect;
-
-static bool collect_entry(clj_value key, clj_value val, void *ctx) {
-	collect *c = ctx;
-	c->entries[c->n++] = key;
-	c->entries[c->n++] = val;
-	return true;
+	return clj_count(args[0]);
 }
 
 static clj_value b_conj(const clj_value *args, size_t n) {
 	if (n == 0) return clj_vector_empty();
 	clj_value coll = clj_retain(args[0]);
-	if (clj_is_nil(coll)) coll = clj_list_empty();
-	if (clj_is_vector(coll)) {
-		for (size_t i = 1; i < n; i++) coll = clj_vector_conj(coll, args[i]);
-		return coll;
+	for (size_t i = 1; i < n; i++) {
+		coll = clj_conj(coll, args[i]);
+		if (coll == CLJ_THROWN) return CLJ_THROWN;
 	}
-	if (clj_is_list(coll)) {
-		for (size_t i = 1; i < n; i++) {
-			clj_value c = clj_cons_new(args[i], coll);
-			clj_release(coll);
-			coll = c;
-		}
-		return coll;
-	}
-	if (is_map(coll)) {
-		for (size_t i = 1; i < n; i++) {
-			clj_value item = args[i];
-			if (clj_is_nil(item)) continue;
-			if (clj_is_vector(item) && clj_vector_count(item) == 2) {
-				coll = clj_map_assoc(coll, clj_vector_nth(item, 0), clj_vector_nth(item, 1));
-			} else if (is_map(item)) {
-				collect c = {malloc((2 * (size_t)clj_map_count(item) + 1) * sizeof(clj_value)), 0};
-				if (!c.entries) clj_fatal("out of memory");
-				clj_map_each(item, collect_entry, &c);
-				for (size_t j = 0; j < c.n; j += 2) coll = clj_map_assoc(coll, c.entries[j], c.entries[j + 1]);
-				free(c.entries);
-			} else {
-				clj_release(coll);
-				return clj_throw_msg("Vector arg to map conj must be a pair");
-			}
-		}
-		return coll;
-	}
-	clj_value r = clj_throw_msg("conj not supported on this type: %s", clj_type_name(coll));
-	clj_release(coll);
-	return r;
+	return coll;
 }
 
 static clj_value b_first(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value coll = args[0];
-	if (clj_is_nil(coll)) return CLJ_NIL;
-	if (!clj_is_list(coll) && !clj_is_vector(coll)) return not_a_seq(coll);
-	clj_seq_iter it = clj_seq_iter_start(coll);
-	clj_value    item;
-	return clj_seq_iter_next(&it, &item) ? clj_retain(item) : CLJ_NIL;
-}
-
-// The tail of a cons, or a fresh list of a vector's remaining items; empty is () for rest and nil for next.
-static clj_value rest_of(clj_value coll, bool next) {
-	clj_value r;
-	if (clj_is_nil(coll) || clj_is_empty_list(coll)) {
-		r = clj_list_empty();
-	} else if (clj_is_list(coll)) {
-		r = clj_retain(clj_cons_of(coll)->rest);
-		if (clj_is_nil(r)) r = clj_list_empty();
-	} else if (clj_is_vector(coll)) {
-		uint32_t   count = clj_vector_count(coll);
-		clj_value *items = malloc((count ? count : 1) * sizeof *items);
-		if (!items) clj_fatal("out of memory");
-		for (uint32_t i = 1; i < count; i++) items[i - 1] = clj_vector_nth(coll, i);
-		r = clj_list_from_array(items, count ? count - 1 : 0);
-		free(items);
-	} else {
-		return not_a_seq(coll);
-	}
-	if (next) {
-		clj_seq_iter it = clj_seq_iter_start(r);
-		clj_value    item;
-		if (!clj_seq_iter_next(&it, &item)) {
-			clj_release(r);
-			return CLJ_NIL;
-		}
-	}
-	return r;
+	return clj_first(args[0]);
 }
 
 static clj_value b_rest(const clj_value *args, size_t n) {
 	(void)n;
-	return rest_of(args[0], false);
+	return clj_rest(args[0]);
 }
 
 static clj_value b_next(const clj_value *args, size_t n) {
 	(void)n;
-	return rest_of(args[0], true);
+	return clj_next(args[0]);
 }
 
 static clj_value b_cons(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value seq = args[1];
-	if (!clj_is_nil(seq) && !clj_is_list(seq) && !clj_is_vector(seq)) return not_a_seq(seq);
-	return clj_cons_new(args[0], seq);
+	return clj_seq_cons(args[0], args[1]);
 }
 
 static clj_value b_list(const clj_value *args, size_t n) { return clj_list_from_array(args, n); }
@@ -403,6 +334,7 @@ static clj_value b_vector(const clj_value *args, size_t n) {
 static clj_value b_hash_map(const clj_value *args, size_t n) {
 	if (n % 2) {
 		clj_value text = clj_pr_str(args[n - 1]);
+		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
 		clj_release(text);
 		return r;
@@ -412,142 +344,83 @@ static clj_value b_hash_map(const clj_value *args, size_t n) {
 	return m;
 }
 
-// ---- seqs (eager: every result is a fully built list, NOTES.md)
-
-// Owned: nil, or something clj_seq_iter walks (a list or vector; a map as a list of [k v]).
-static clj_value as_seq(clj_value v) {
-	if (clj_is_nil(v) || clj_is_list(v) || clj_is_vector(v)) return clj_retain(v);
-	if (!is_map(v)) return not_a_seq(v);
-	size_t   n = 2 * (size_t)clj_map_count(v);
-	collect c = {malloc((n + 1) * sizeof(clj_value)), 0};
-	if (!c.entries) clj_fatal("out of memory");
-	clj_map_each(v, collect_entry, &c);
-	clj_value *pairs = malloc((n / 2 + 1) * sizeof *pairs);
-	if (!pairs) clj_fatal("out of memory");
-	for (size_t i = 0; i < n; i += 2) pairs[i / 2] = clj_vector_from_array(c.entries + i, 2);
-	clj_value list = clj_list_from_array(pairs, n / 2);
-	for (size_t i = 0; i < n / 2; i++) clj_release(pairs[i]);
-	free(pairs);
-	free(c.entries);
-	return list;
-}
-
-// Borrowed items of a seqable in a malloc'd array; *seq keeps them alive and is owned by the caller.
-static clj_value *seq_items(clj_value v, size_t *n, clj_value *seq) {
-	*seq = as_seq(v);
-	if (*seq == CLJ_THROWN) return NULL;
-	size_t     count = clj_list_count(*seq);
-	clj_value *items = malloc((count + 1) * sizeof *items);
-	if (!items) clj_fatal("out of memory");
-	clj_seq_iter it = clj_seq_iter_start(*seq);
-	size_t       i = 0;
-	while (clj_seq_iter_next(&it, &items[i])) i++;
-	*n = count;
-	return items;
-}
+// ---- seqs
 
 static clj_value b_seq(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value seq = as_seq(args[0]);
-	if (seq == CLJ_THROWN) return CLJ_THROWN;
-	if (clj_is_vector(seq)) {
-		size_t     count;
-		clj_value  keep;
-		clj_value *items = seq_items(seq, &count, &keep);
-		clj_value  list = clj_list_from_array(items, count);
-		free(items);
-		clj_release(keep);
-		clj_release(seq);
-		seq = list;
-	}
-	if (clj_is_empty_list(seq)) {
-		clj_release(seq);
-		return CLJ_NIL;
-	}
-	return seq;
+	return clj_seq(args[0]);
 }
 
-static clj_value b_concat(const clj_value *args, size_t n) {
-	clj_value *all = NULL;
-	size_t     total = 0;
-	clj_value *seqs = malloc((n + 1) * sizeof *seqs);
-	if (!seqs) clj_fatal("out of memory");
-	clj_value result = CLJ_THROWN;
-	size_t    i = 0;
-	for (; i < n; i++) {
-		size_t     count;
-		clj_value *items = seq_items(args[i], &count, &seqs[i]);
-		if (!items) break;
-		all = realloc(all, (total + count + 1) * sizeof *all);
-		if (!all) clj_fatal("out of memory");
-		memcpy(all + total, items, count * sizeof *all);
-		total += count;
-		free(items);
-	}
-	if (i == n) result = clj_list_from_array(all, total);
-	for (size_t j = 0; j < i; j++) clj_release(seqs[j]);
-	free(seqs);
-	free(all);
-	return result;
+static clj_value b_lazy_seq_star(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_fn(args[0])) return clj_throw_msg("lazy-seq* expects a fn, got: %s", clj_type_name(args[0]));
+	return clj_lazy_seq_new(args[0]);
 }
 
+static clj_value b_realized_p(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_lazy_seq(args[0])) return clj_throw_msg("realized? not supported on this type: %s", clj_type_name(args[0]));
+	return clj_bool(clj_lazy_seq_realized(args[0]));
+}
+
+// (range* start end step) over fixnums; core.clj's range handles the other arities and doubles.
+static clj_value b_range_star(const clj_value *args, size_t n) {
+	(void)n;
+	intptr_t v[3];
+	for (size_t i = 0; i < 3; i++) {
+		if (int_arg(args[i], &v[i]) == CLJ_THROWN) return CLJ_THROWN;
+	}
+	if (v[2] == 0) return clj_throw_msg("range* step must not be 0");
+	return clj_range_new(v[0], v[1], v[2]);
+}
+
+// (cons a (cons b ... coll)): the last argument is the tail as a seq and stays unrealized.
 static clj_value b_list_star(const clj_value *args, size_t n) {
-	size_t     count;
-	clj_value  keep;
-	clj_value *rest = seq_items(args[n - 1], &count, &keep);
-	if (!rest) return CLJ_THROWN;
-	clj_value *all = malloc((n - 1 + count + 1) * sizeof *all);
-	if (!all) clj_fatal("out of memory");
-	memcpy(all, args, (n - 1) * sizeof *all);
-	memcpy(all + n - 1, rest, count * sizeof *all);
-	size_t    total = n - 1 + count;
-	clj_value r = total ? clj_list_from_array(all, total) : CLJ_NIL;
-	free(all);
-	free(rest);
-	clj_release(keep);
+	clj_value tail = args[n - 1];
+	clj_value r = clj_is_seq(tail) ? clj_retain(tail) : clj_seq(tail);
+	if (r == CLJ_THROWN) return CLJ_THROWN;
+	for (size_t i = n - 1; i > 0; i--) {
+		clj_value c = clj_cons_new(args[i - 1], r);
+		clj_release(r);
+		r = c;
+	}
 	return r;
 }
 
 static clj_value b_empty(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value coll = args[0];
-	if (clj_is_nil(coll)) return CLJ_TRUE;
-	if (clj_is_string(coll)) return clj_bool(clj_string_len(coll) == 0);
-	if (is_map(coll)) return clj_bool(clj_map_count(coll) == 0);
-	if (clj_is_vector(coll)) return clj_bool(clj_vector_count(coll) == 0);
-	if (clj_is_list(coll)) return clj_bool(clj_is_empty_list(coll));
-	return not_a_seq(coll);
+	clj_value s = clj_seq(args[0]);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_release(s);
+	return clj_bool(clj_is_nil(s));
 }
 
 static clj_value b_second(const clj_value *args, size_t n) {
 	(void)n;
-	size_t     count;
-	clj_value  keep;
-	clj_value *items = seq_items(args[0], &count, &keep);
-	if (!items) return CLJ_THROWN;
-	clj_value r = count > 1 ? clj_retain(items[1]) : CLJ_NIL;
-	free(items);
-	clj_release(keep);
+	clj_value rest = clj_next(args[0]);
+	if (rest == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_first(rest);
+	clj_release(rest);
 	return r;
 }
 
 static clj_value b_last(const clj_value *args, size_t n) {
 	(void)n;
-	size_t     count;
-	clj_value  keep;
-	clj_value *items = seq_items(args[0], &count, &keep);
-	if (!items) return CLJ_THROWN;
-	clj_value r = count ? clj_retain(items[count - 1]) : CLJ_NIL;
-	free(items);
-	clj_release(keep);
-	return r;
+	clj_value s = clj_seq(args[0]);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_seq_iter it = clj_seq_iter_start(s);
+	clj_value    item, last = CLJ_NIL;
+	while (clj_seq_iter_next(&it, &item)) last = item;
+	clj_retain(last);
+	clj_release(s);
+	return it.thrown ? CLJ_THROWN : last;
 }
 
 static clj_value b_butlast(const clj_value *args, size_t n) {
 	(void)n;
 	size_t     count;
 	clj_value  keep;
-	clj_value *items = seq_items(args[0], &count, &keep);
+	clj_value *items = clj_seq_items(args[0], &count, &keep);
 	if (!items) return CLJ_THROWN;
 	clj_value r = count > 1 ? clj_list_from_array(items, count - 1) : CLJ_NIL;
 	free(items);
@@ -557,18 +430,20 @@ static clj_value b_butlast(const clj_value *args, size_t n) {
 
 static clj_value b_reverse(const clj_value *args, size_t n) {
 	(void)n;
-	size_t     count;
-	clj_value  keep;
-	clj_value *items = seq_items(args[0], &count, &keep);
-	if (!items) return CLJ_THROWN;
-	clj_value r = clj_list_empty();
-	for (size_t i = 0; i < count; i++) {
-		clj_value c = clj_cons_new(items[i], r);
+	clj_value s = clj_seq(args[0]);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_seq_iter it = clj_seq_iter_start(s);
+	clj_value    item, r = clj_list_empty();
+	while (clj_seq_iter_next(&it, &item)) {
+		clj_value c = clj_cons_new(item, r);
 		clj_release(r);
 		r = c;
 	}
-	free(items);
-	clj_release(keep);
+	clj_release(s);
+	if (it.thrown) {
+		clj_release(r);
+		return CLJ_THROWN;
+	}
 	return r;
 }
 
@@ -576,14 +451,10 @@ static clj_value b_into(const clj_value *args, size_t n) {
 	(void)n;
 	size_t     count;
 	clj_value  keep;
-	clj_value *items = seq_items(args[1], &count, &keep);
+	clj_value *items = clj_seq_items(args[1], &count, &keep);
 	if (!items) return CLJ_THROWN;
-	clj_value *all = malloc((count + 2) * sizeof *all);
-	if (!all) clj_fatal("out of memory");
-	all[0] = args[0];
-	memcpy(all + 1, items, count * sizeof *all);
-	clj_value r = b_conj(all, count + 1);
-	free(all);
+	clj_value r = clj_retain(args[0]);
+	for (size_t i = 0; i < count && r != CLJ_THROWN; i++) r = clj_conj(r, items[i]);
 	free(items);
 	clj_release(keep);
 	return r;
@@ -701,7 +572,7 @@ static clj_value b_macroexpand(const clj_value *args, size_t n) {
 
 static clj_value b_ex_info(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return clj_throw_msg("ex-info message must be a string, got: %s", clj_type_name(args[0]));
-	if (!clj_is_nil(args[1]) && !is_map(args[1])) return clj_throw_msg("ex-info data must be a map, got: %s", clj_type_name(args[1]));
+	if (!clj_is_nil(args[1]) && !clj_is_map(args[1])) return clj_throw_msg("ex-info data must be a map, got: %s", clj_type_name(args[1]));
 	clj_value cause = n == 3 ? args[2] : CLJ_NIL;
 	if (!clj_is_nil(cause) && !clj_is_exception(cause)) return clj_throw_msg("ex-info cause must be an exception, got: %s", clj_type_name(cause));
 	return clj_ex_info_cause(args[0], args[1], cause);
@@ -733,12 +604,14 @@ static void buf_put(buf *b, const char *s, size_t n) {
 	b->len += n;
 }
 
+static bool put_pr(buf *b, clj_value v);
+
 // Clojure `str`: strings raw, nil empty, everything else as pr-str (a char as its text).
-static void put_str(buf *b, clj_value v) {
-	if (clj_is_nil(v)) return;
+static bool put_str(buf *b, clj_value v) {
+	if (clj_is_nil(v)) return true;
 	if (clj_is_string(v)) {
 		buf_put(b, clj_string_bytes(v), clj_string_len(v));
-		return;
+		return true;
 	}
 	if (clj_is_char(v)) {
 		uint32_t cp = clj_char_val(v);
@@ -764,35 +637,42 @@ static void put_str(buf *b, clj_value v) {
 			n = 4;
 		}
 		buf_put(b, u, n);
-		return;
+		return true;
 	}
-	clj_value s = clj_pr_str(v);
-	buf_put(b, clj_string_bytes(s), clj_string_len(s));
-	clj_release(s);
+	return put_pr(b, v);
 }
 
-static void put_print(buf *b, clj_value v) {
+// Printing realizes lazy seqs, so it can throw.
+static bool put_print(buf *b, clj_value v) {
 	clj_value s = clj_print_str(v);
+	if (s == CLJ_THROWN) return false;
 	buf_put(b, clj_string_bytes(s), clj_string_len(s));
 	clj_release(s);
+	return true;
 }
 
-static void put_pr(buf *b, clj_value v) {
+static bool put_pr(buf *b, clj_value v) {
 	clj_value s = clj_pr_str(v);
+	if (s == CLJ_THROWN) return false;
 	buf_put(b, clj_string_bytes(s), clj_string_len(s));
 	clj_release(s);
+	return true;
 }
 
-static void join(buf *b, const clj_value *args, size_t n, void (*put)(buf *, clj_value), bool spaces) {
+static bool join(buf *b, const clj_value *args, size_t n, bool (*put)(buf *, clj_value), bool spaces) {
 	for (size_t i = 0; i < n; i++) {
 		if (spaces && i) buf_put(b, " ", 1);
-		put(b, args[i]);
+		if (!put(b, args[i])) {
+			free(b->data);
+			return false;
+		}
 	}
+	return true;
 }
 
 static clj_value b_str(const clj_value *args, size_t n) {
 	buf b = {0};
-	join(&b, args, n, put_str, false);
+	if (!join(&b, args, n, put_str, false)) return CLJ_THROWN;
 	clj_value s = clj_string_new(b.data, b.len);
 	free(b.data);
 	return s;
@@ -800,15 +680,15 @@ static clj_value b_str(const clj_value *args, size_t n) {
 
 static clj_value b_pr_str(const clj_value *args, size_t n) {
 	buf b = {0};
-	join(&b, args, n, put_pr, true);
+	if (!join(&b, args, n, put_pr, true)) return CLJ_THROWN;
 	clj_value s = clj_string_new(b.data, b.len);
 	free(b.data);
 	return s;
 }
 
-static clj_value print_line(const clj_value *args, size_t n, void (*put)(buf *, clj_value), bool newline) {
+static clj_value print_line(const clj_value *args, size_t n, bool (*put)(buf *, clj_value), bool newline) {
 	buf b = {0};
-	join(&b, args, n, put, true);
+	if (!join(&b, args, n, put, true)) return CLJ_THROWN;
 	if (newline) buf_put(&b, "\n", 1);
 	clj_output(b.data ? b.data : "", b.len);
 	free(b.data);
@@ -842,21 +722,25 @@ typedef struct {
 static const entry entries[] = {
 	{"+", b_add, 0, ANY},          {"-", b_sub, 1, ANY},         {"*", b_mul, 0, ANY},          {"/", b_div, 1, ANY},
 	{"<", b_lt, 1, ANY},           {"<=", b_le, 1, ANY},         {">", b_gt, 1, ANY},           {">=", b_ge, 1, ANY},
-	{"=", b_eq, 1, ANY},           {"not=", b_neq, 1, ANY},      {"inc", b_inc, 1, 1},          {"dec", b_dec, 1, 1},
+	{"=", b_eq, 1, ANY},           {"not=", b_neq, 1, ANY},      {"hash", b_hash, 1, 1},      {"inc", b_inc, 1, 1},          {"dec", b_dec, 1, 1},
 	{"not", b_not, 1, 1},          {"nil?", b_nil, 1, 1},        {"zero?", b_zero, 1, 1},       {"pos?", b_pos, 1, 1},
 	{"neg?", b_neg, 1, 1},         {"even?", b_even, 1, 1},      {"odd?", b_odd, 1, 1},         {"number?", b_number, 1, 1},
 	{"string?", b_string, 1, 1},   {"keyword?", b_keyword, 1, 1}, {"symbol?", b_symbol, 1, 1},  {"vector?", b_vector_p, 1, 1},
-	{"map?", b_map, 1, 1},         {"list?", b_list_p, 1, 1},      {"fn?", b_fn, 1, 1},           {"get", b_get, 2, 3},
-	{"assoc", b_assoc, 3, ANY},    {"dissoc", b_dissoc, 1, ANY}, {"contains?", b_contains, 2, 2}, {"count", b_count, 1, 1},
-	{"conj", b_conj, 0, ANY},      {"nth", b_nth, 2, 3},         {"first", b_first, 1, 1},      {"rest", b_rest, 1, 1},
-	{"next", b_next, 1, 1},        {"cons", b_cons, 2, 2},       {"list", b_list, 0, ANY},      {"vector", b_vector, 0, ANY},
-	{"hash-map", b_hash_map, 0, ANY}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},  {"pr", b_pr, 0, ANY},
-	{"prn", b_prn, 0, ANY},        {"print", b_print, 0, ANY},   {"println", b_println, 0, ANY}, {"identity", b_identity, 1, 1},
-	{"apply", b_apply, 2, ANY},    {"seq", b_seq, 1, 1},         {"seq?", b_seq_p, 1, 1},       {"concat", b_concat, 0, ANY},
-	{"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},   {"second", b_second, 1, 1},    {"last", b_last, 1, 1},
-	{"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1}, {"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2},
-	{"keyword", b_make_keyword, 1, 2},  {"name", b_name, 1, 1},       {"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1},
-	{"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1}, {"ex-info", b_ex_info, 2, 3}, {"throw", b_throw, 1, 1},
+	{"map?", b_map, 1, 1},         {"list?", b_list_p, 1, 1},    {"fn?", b_fn, 1, 1},           {"char?", b_char_p, 1, 1},
+	{"integer?", b_integer_p, 1, 1},
+	{"seq?", b_seq_p, 1, 1},       {"seqable?", b_seqable_p, 1, 1}, {"sequential?", b_sequential_p, 1, 1}, {"coll?", b_coll_p, 1, 1},
+	{"counted?", b_counted_p, 1, 1}, {"ifn?", b_ifn_p, 1, 1},    {"associative?", b_associative_p, 1, 1}, {"indexed?", b_indexed_p, 1, 1},
+	{"get", b_get, 2, 3},          {"assoc", b_assoc, 3, ANY},   {"dissoc", b_dissoc, 1, ANY},  {"contains?", b_contains, 2, 2},
+	{"count", b_count, 1, 1},      {"conj", b_conj, 0, ANY},     {"nth", b_nth, 2, 3},          {"first", b_first, 1, 1},
+	{"rest", b_rest, 1, 1},        {"next", b_next, 1, 1},       {"cons", b_cons, 2, 2},        {"list", b_list, 0, ANY},
+	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},
+	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
+	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", b_lazy_seq_star, 1, 1},
+	{"realized?", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
+	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1},
+	{"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
+	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
+	{"ex-info", b_ex_info, 2, 3},  {"throw", b_throw, 1, 1},
 };
 
 void clj_builtins_install(void) {

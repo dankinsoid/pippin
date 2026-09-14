@@ -277,7 +277,7 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		f->entries[4] = kw_cause;
 		f->entries[5] = clj_exception_cause(v);
 		f->n = with_cause ? 6 : 4;
-	} else if (clj_is_list(v)) {
+	} else if (clj_is_seq(v)) {
 		put_char(b, '(');
 		push_frame(stack, F_SEQ)->it = clj_seq_iter_start(v);
 	} else if (clj_is_vector(v)) {
@@ -300,7 +300,7 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 }
 
 // Yields the next child of the top frame, or closes it. false when the frame is done.
-static bool next_child(buf *b, frame_stack *stack, clj_value *out) {
+static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown) {
 	frame *f = &stack->items[stack->count - 1];
 	switch (f->kind) {
 	case F_SEQ:
@@ -309,6 +309,7 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out) {
 			f->first = false;
 			return true;
 		}
+		if (f->it.thrown) *thrown = true;
 		put_char(b, ')');
 		break;
 	case F_VECTOR:
@@ -340,18 +341,22 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out) {
 	return false;
 }
 
+// Realizes lazy seqs on the way; a thunk that throws makes the whole print throw, as in Clojure.
 static clj_value print_to_string(clj_value root, bool readably) {
 	buf         b = {0};
 	frame_stack stack = {0};
 	clj_value   v = root;
-	bool        pending = true;
+	bool        pending = true, thrown = false;
 	for (;;) {
 		if (pending) emit(&b, &stack, v, readably);
-		if (!stack.count) break;
-		pending = next_child(&b, &stack, &v);
+		if (!stack.count || thrown) break;
+		pending = next_child(&b, &stack, &v, &thrown);
+	}
+	for (size_t i = stack.count; i > 0; i--) {
+		if (stack.items[i - 1].kind == F_MAP) free(stack.items[i - 1].entries);
 	}
 	free(stack.items);
-	clj_value s = clj_string_new(b.data, b.len);
+	clj_value s = thrown ? CLJ_THROWN : clj_string_new(b.data, b.len);
 	free(b.data);
 	return s;
 }

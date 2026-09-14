@@ -1,25 +1,24 @@
 // @ai-generated(solo)
 #include "clj/list.h"
-#include "clj/vector.h"
 
-static uint32_t empty_list_hash(void *self) {
+static clj_value empty_list_nil(clj_value self) {
 	(void)self;
-	return clj_mix_coll_hash(1, 0);
+	return CLJ_NIL;
 }
 
-static bool empty_list_equals(void *self, clj_value other) {
+static size_t empty_list_count(clj_value self) {
 	(void)self;
-	if (!clj_is_list(other) && !clj_is_vector(other)) return false;
-	clj_seq_iter it = clj_seq_iter_start(other);
-	clj_value item;
-	return !clj_seq_iter_next(&it, &item);
+	return 0;
 }
 
 const clj_type clj_empty_list_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "empty-list",
-	.hash = empty_list_hash,
-	.equals = empty_list_equals,
+	CLJ_ASEQ_TRAIT(CLJ_CORE_LIST | CLJ_CORE_COUNTED),
+	.seq = empty_list_nil,
+	.first = empty_list_nil,
+	.next = empty_list_nil,
+	.count = empty_list_count,
 };
 
 static clj_header empty_list = {1, CLJ_FLAG_IMMORTAL, &clj_empty_list_type};
@@ -38,46 +37,9 @@ clj_value clj_list_from_array(const clj_value *items, size_t n) {
 }
 
 size_t clj_list_count(clj_value list) {
-	size_t n = 0;
+	size_t       n = 0;
 	clj_seq_iter it = clj_seq_iter_start(list);
-	clj_value item;
+	clj_value    item;
 	while (clj_seq_iter_next(&it, &item)) n++;
 	return n;
-}
-
-bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
-	clj_value cur = it->cur;
-	if (clj_is_nil(cur) || clj_is_empty_list(cur)) return false;
-	if (clj_is_vector(cur)) {
-		if (it->idx >= clj_vector_count(cur)) return false;
-		*out = clj_vector_nth(cur, it->idx++);
-		return true;
-	}
-	if (clj_header_of(cur)->type != &clj_cons_type) clj_fatal("improper list tail");
-	clj_cons *c = clj_cons_of(cur);
-	*out = c->first;
-	it->cur = c->rest;
-	return true;
-}
-
-bool clj_seq_equals(clj_value a, clj_value b) {
-	clj_seq_iter ia = clj_seq_iter_start(a), ib = clj_seq_iter_start(b);
-	clj_value x, y;
-	for (;;) {
-		bool ma = clj_seq_iter_next(&ia, &x), mb = clj_seq_iter_next(&ib, &y);
-		if (ma != mb) return false;
-		if (!ma) return true;
-		if (!clj_equals(x, y)) return false;
-	}
-}
-
-uint32_t clj_seq_hash(clj_value seq) {
-	uint32_t h = 1, n = 0;
-	clj_seq_iter it = clj_seq_iter_start(seq);
-	clj_value item;
-	while (clj_seq_iter_next(&it, &item)) {
-		h = 31 * h + clj_hash(item);
-		n++;
-	}
-	return clj_mix_coll_hash(h, n);
 }

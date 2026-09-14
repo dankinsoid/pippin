@@ -1,8 +1,9 @@
 // @ai-generated(guided)
-#include "clj/var.h"
 #include "clj/error.h"
+#include "clj/fn.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
+#include "clj/var.h"
 
 static void var_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_var *v = self;
@@ -15,12 +16,23 @@ static uint32_t var_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)s
 
 static bool var_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
+// A var invokes its current root, as Clojure's Var implements IFn.
+static clj_value var_invoke(clj_value self, const clj_value *args, size_t n) {
+	clj_value f = clj_var_deref(self);
+	if (f == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_invoke(f, args, n);
+	clj_release(f);
+	return r;
+}
+
 const clj_type clj_var_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "var",
+	.core_bits = CLJ_CORE_FN,
 	.each_child = var_each_child,
 	.hash = var_hash,
 	.equals = var_equals,
+	.invoke = var_invoke,
 };
 
 clj_value clj_var_new(clj_value ns, clj_value name) {

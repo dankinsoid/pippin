@@ -179,7 +179,9 @@ extension CoreTests {
 				#expect(try eval("(concat)") == Value(list: []))
 				#expect(try eval("(concat [1] '(2 3) nil [] {:a 1})") == Value(reading: "(1 2 3 [:a 1])"))
 				#expect(try eval("(seq (concat))") == nil)
-				#expect(message("(concat [1] 2)") == "Don't know how to create ISeq from: fixnum")
+				// concat is lazy: the bad argument is only reached when realized.
+				#expect(message("(doall (concat [1] 2))") == "Don't know how to create ISeq from: fixnum")
+				#expect(message("(pr-str (concat [1] 2))") == "Don't know how to create ISeq from: fixnum")
 				#expect(try eval("(list* nil)") == nil)
 				#expect(try eval("(list* [])") == nil)
 				#expect(try eval("(list* 1 nil)") == Value(list: [1]))
