@@ -23,9 +23,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Builtin descriptors stay `const`; their protocol tables live in a side table** (proto.c) keyed by
   descriptor pointer, while a `deftype`/`reify` descriptor owns its table in `user_protos`. Both are
   immutable snapshots: `extend` builds the next one under the protocol mutex, publishes it with a
-  seq_cst store, bumps `clj_proto_epoch()` and frees the old one after every reader's dispatch window
-  (a per-thread flag, Dekker-ordered with the publish) has closed. Per-thread reader slots are never
-  freed; a retired snapshot's impls are released, so a redefinition leaks nothing. The core-interface
+  seq_cst store, bumps the definition epoch (`clj_epoch()`) and frees the old one after every reader's
+  dispatch window (a per-thread flag, Dekker-ordered with the publish) has closed. Per-thread reader
+  slots are never freed; a retired snapshot's impls are released, so a redefinition leaks nothing. The core-interface
   slots of every type are write-once: a builtin's are static, a `deftype`/`reify` fills its own at
   creation from the interfaces its form names (next item); `(extend-type String ISeq ...)` and
   `(extend-type MyType ISeq ...)` are refused alike.
@@ -68,8 +68,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   of a user seq costs two Clojure calls (`first`, `next`) and usually an instance allocation, and
   `count` without `Counted` walks it.
 - **Protocol dispatch has no inline cache.** Every call walks the type's snapshot (a linear scan of
-  its protocols) and on a miss the core-interface entries, then `Object`. The epoch is exposed for
-  the cache the design describes; nothing consumes it yet. Trigger: protocol calls in a profile.
+  its protocols) and on a miss the core-interface entries, then `Object`. The definition epoch is
+  there for the cache the design describes; nothing consumes it yet. Trigger: protocol calls in a profile.
   Shape when it lands: the call node keeps `{type, fn, epoch}` and skips the window and the scan on
   a hit. The cached fn must be retained by the node, not borrowed from the snapshot: a retired
   snapshot releases its impls once every window has closed, and a cached path opens no window.
@@ -242,12 +242,13 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   only when its bit is set and marks the new owned one, teardown releases owned slots only; a frame
   with more than 64 slots retains every param at entry and treats every slot as owned; the top-level
   frame starts with none. Whatever lands in the heap or is returned is retained as before: `let`/`recur`
-  inits, closure capture, a body whose tail is a local. A var in fn position stays owned: the +1
-  `eval_invoke` holds is what keeps a running body alive when a concurrent `def` replaces the var's
-  root (`clj_var_bind_root` releases the old root at once). Trigger for borrowing it: the var inline
-  cache / epoch design, which defers freeing old roots past every reader's window. Measured effect on
-  bench/RESULTS.md is nil: a non-shared retain/release pair is five plain instructions, while every
-  call through a var pays an atomic pair on the shared root plus `clj_invoke` dispatch.
+  inits, closure capture, a body whose tail is a local. A var read in a borrowed position is +0 only
+  when its root is immortal (every root bound by boot, next entry); an ordinary root is retained,
+  since `clj_var_bind_root` releases the old root at once and that +1 is what keeps a running body
+  alive when a `def` replaces it mid-call. Trigger for borrowing those too: deferred freeing of old
+  roots past every reader's window (the epoch is in place, the window is not). Measured effect of
+  borrowing locals alone was nil (a non-shared pair is five plain instructions); borrowing the core
+  roots removed the atomic pair every call through a core var paid (bench/RESULTS.md, intrinsics).
 - **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
   are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
   vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and the reader positions on
@@ -352,8 +353,46 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   more than once under contention, as Clojure's). Redefinition is a dev-time operation until the
   epoch/inline-cache design (var inline cache, §6) lands; until then evaluate on one thread at a
   time. Same for `clj_ns_current` vs `clj_init` ordering: call `clj_init` before any evaluation.
-- **Var lookup is a root load on every evaluation** of a var node, no inline cache or epoch check.
-  Trigger: profiling a hot loop over core fns.
+- **Var lookup is a root load on every evaluation** of a var node (an acquire load; an intrinsic's guard
+  is a relaxed one), no inline cache. Trigger for the cache (`{epoch, fn}` in `exec_node`, design §6b
+  item 5): the guard and the root load showing in a profile of calls through user vars.
+- **The definition epoch** (epoch.h) is one process-wide counter bumped by every root bind (`def`,
+  `defmacro`, boot, a host bind), every `extend` and every type creation (`deftype`, a reify site's first
+  evaluation); `protocol-epoch*` returns it. Nothing consumes it yet beyond tests: the inline caches of
+  the design key on it, and one bump anywhere invalidates every cache in the process (they rewarm in
+  microseconds, so there is no per-var epoch). Meta changes do not bump it.
+- **Immortal core roots.** Once core.clj is loaded, `clj_init` sets `CLJ_FLAG_IMMORTAL` on the root of
+  every `clojure.core` var (natives, closures, protocols; type descriptors are skipped because
+  `clj_is_user_type` reads the flag as "builtin"). Retain and release on them are no-ops, so
+  `eval_borrowed` reads such a var at +0. A later `(def map ...)` in clojure.core "releases" the old
+  root as a no-op — a bounded leak per redefinition, accepted — and binds an ordinary root, which reads
+  owned. Roots bound after boot (user vars, a core var rebound from the REPL) are never immortalized.
+- **The optimizer pass** (optimizer.c, `clj_optimize`) runs inside `clj_analyze` after analysis and before
+  numbering: it is where "immutable after analysis" begins, so what it produces is what serializes and
+  what every evaluator and emitter sees; `clj_node_from_data` does not run it (its input is already
+  optimized). One rewrite so far: `INVOKE(VAR core-var, args...)` becomes `INTRINSIC {op, var, args}`
+  when the head resolved to the var an intrinsics entry names and the arity is listed. Keyed by the
+  var, so a local `(let [+ -] ...)`, a user namespace's own `+` or `(apply + ...)` are untouched; a
+  `(clojure.core/+ a b)` anywhere is rewritten. Not yet: folding of pure intrinsics on constant
+  arguments (the `pure` flag is set, nothing reads it), any rewrite that needs liveness.
+- **Intrinsics table** (intrinsics.h/.c): `{qualified name, arity, kind INTRINSIC_1/2/3, C function, pure}`
+  for `+ - * /` (2 args), `inc dec`, `< <= > >= = not= identical?` (2 args), `not nil? zero? pos? neg?
+  even? odd?`, the type predicates, `empty? first rest next seq count`, `cons get(2,3) nth(2,3) conj(2)
+  assoc(3) contains?`; a side table resolved at boot holds each entry's var and native fn. The rule,
+  kept by structure: the builtin bound to the same var calls the same function — single-arity builtins
+  forward, variadic ones fold (`b_add` is a loop over `clj_add`), `conj`/`assoc` differ only by the
+  retain before their consuming core. Consequences: `(+ a b c)` boxes a double at every step where the
+  old accumulator did not, and a fixnum fold that overflows mid-way throws where the old one could
+  recover (`(+ MAX MAX (- MAX))`); Clojure promotes both. `IntrinsicsTests` crosses every entry with
+  sample values of every type against `clj_invoke` and pins that core.clj rebinds none of them. `==`
+  is not an entry because no builtin exists; `str`, `hash`, `second`, `meta`, `apply` are left out
+  (variadic with no fixed core, throw on unhashable types, composed, or not one function).
+- **Intrinsic guard.** `eval_intrinsic` compares the var's root (relaxed load) with the boot fn from the
+  side table before every call; on a mismatch it derefs the var and goes through `clj_invoke`, so
+  `(def + ...)` in clojure.core or a host rebind is semantically invisible, and binding the boot fn back
+  restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
+  guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
+  call — no frame, no arity table, no var deref.
 - **C stack per Clojure call is large.** Each call is ~5 C frames with slot and argument buffers on the
   stack: ~0.6 KB in a debug build, ~2.3 KB under ASan, ~3.7 KB under UBSan. On Swift Testing's 512 KB
   threads that is ~600 / ~170 / ~100 nested non-tail calls before the guard throws "Stack overflow"
