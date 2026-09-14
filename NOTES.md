@@ -214,6 +214,24 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   inside a large top-level `let` keeps every sibling constant alive, and tests that count live objects
   across a redefinition must repeat the exact defining form. Trigger: memory of a large loaded program;
   then a per-fn exec sliced by the fn's id range.
+- **Ownership in the evaluator is a runtime rule, not an analysis** (design, "Конвенция счётчиков"). A
+  node evaluates to an owned value, except that `eval_borrowed` reads a local, captured or constant
+  node at +0 where the consumer only needs it for a call the frame outlives: the fn position and the
+  arguments of an invoke, vector and map literal items, the test of `if`, non-last items of `do`.
+  `eval_all` returns a `uint64_t` mask of the owned results (more than 64: all owned) and only those
+  are released, on the throw-midway path too. A closure frame borrows its fixed params and the self
+  slot from the caller's argument array, alive for the whole call by the +0 convention (`eval_invoke`'s
+  buffer, a native's stack array, `clj_apply`'s `all[]`); the variadic rest list is built and owned.
+  `clj_frame.owned` has one bit per slot: `slot_set` (let, loop, recur, catch) releases the old value
+  only when its bit is set and marks the new owned one, teardown releases owned slots only; a frame
+  with more than 64 slots retains every param at entry and treats every slot as owned; the top-level
+  frame starts with none. Whatever lands in the heap or is returned is retained as before: `let`/`recur`
+  inits, closure capture, a body whose tail is a local. A var in fn position stays owned: the +1
+  `eval_invoke` holds is what keeps a running body alive when a concurrent `def` replaces the var's
+  root (`clj_var_bind_root` releases the old root at once). Trigger for borrowing it: the var inline
+  cache / epoch design, which defers freeing old roots past every reader's window. Measured effect on
+  bench/RESULTS.md is nil: a non-shared retain/release pair is five plain instructions, while every
+  call through a var pays an atomic pair on the shared root plus `clj_invoke` dispatch.
 - **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
   are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
   vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and reader positions are

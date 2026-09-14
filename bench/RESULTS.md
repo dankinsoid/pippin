@@ -99,3 +99,26 @@ Dispatch through `frame->exec->nodes[id]` instead of an eval pointer in the node
 ns per element, before → after: reduce + map inc range 222.3 → 224.7 (1k), 222.4 → 230.5 (100k); seq walk
 of a vector 55.5 → 56.0. Run-to-run spread of the same binary is ±3 %, so the cost is at most a few
 percent: one dependent load per child evaluation.
+
+## Calls — 9136398, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Two loops over n = 100k: `(loop [i 0] (if (< i n) (recur (inc i)) i))` (two var calls, one rebind per
+iteration) and the same with `(f i)` for `(def f (fn [x] (inc x)))` (one closure call per iteration
+on top). The Swift column is `while i < n { i = incBox(i) }` with a non-inlined `incBox`; a plain
+counting loop folds to a closed form under -O, so it has no reference column.
+
+| scenario | n | interpreted | Swift while | interpreted / Swift |
+|---|---:|---:|---:|---:|
+| counting loop | 100000 | 29.8 | — | — |
+| closure call in a loop | 100000 | 45.3 | 0.8 | 57× |
+
+### Borrowed reads and params (after 9136398), pool only, alternating runs
+
+The evaluator reads locals, captured values and constants at +0 in argument, test and non-last `do`
+positions, and a closure frame borrows its fixed params from the caller's argument array (NOTES.md,
+"Ownership in the evaluator"). Medians of two alternating runs of each binary, before → after:
+reduce + map inc range 228.6 → 230.1 (1k), 228.6 → 227.9 (100k); seq walk of a vector 55.2 → 56.3;
+counting loop 29.7 → 30.4; closure call in a loop 45.8 → 44.7. All within the ±3 % run-to-run spread:
+a retain/release pair on a non-shared object is five plain instructions, so the reads it removes were
+not where the time goes. The remaining per-call cost is the var deref (an atomic pair on the shared
+root, kept deliberately) and `clj_invoke` dispatch.
