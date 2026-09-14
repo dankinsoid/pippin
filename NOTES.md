@@ -30,6 +30,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Protocol dispatch has no inline cache.** Every call walks the type's snapshot (a linear scan of
   its protocols) and on a miss the core-interface entries, then `Object`. The epoch is exposed for
   the cache the design describes; nothing consumes it yet. Trigger: protocol calls in a profile.
+  Shape when it lands: the call node keeps `{type, fn, epoch}` and skips the window and the scan on
+  a hit. The cached fn must be retained by the node, not borrowed from the snapshot: a retired
+  snapshot releases its impls once every window has closed, and a cached path opens no window.
 - **No `defrecord`, no `.-field` access, no protocol inheritance, no deftype metadata.** A deftype's
   fields are positional slots read through `field*`, visible as locals inside its own method bodies
   only; from outside there is no accessor. A protocol cannot extend another. `extend-type` on a
