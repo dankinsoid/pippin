@@ -71,3 +71,24 @@ conj old dropped 10.7 → 8.1 (1k), 11.1 → 8.2 (100k); pop to empty 18.0 → 1
 conj all kept and nth unchanged within noise. The remaining gap to `Array.append` (1.2 ns) is the
 persistent wrapper itself: two uniqueness checks, hash-cache reset, tail indirection, and a
 non-inlined call across the Swift/C boundary.
+
+## Seqs — a3e216a, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Lazy seqs on the descriptor slots: `(reduce + (map inc (range n)))` is a `range` view, a `map`
+lazy seq realized one element per `next`, and a `loop*`-based `reduce`, all interpreted. The seq
+walk is `(loop [s (seq v) acc 0] (if s (recur (next s) (+ acc (first s))) acc))` over a 1k vector;
+the C iterator column is `clj_seq_iter` over the same vector, the Swift column `for x in array`.
+
+| scenario | n | interpreted | C iterator | Swift for | interpreted / Swift |
+|---|---:|---:|---:|---:|---:|
+| reduce + map inc range | 1000 | 219.1 | — | 0.3 | 786× |
+| reduce + map inc range | 100000 | 219.9 | — | 0.3 | 797× |
+| seq walk of a vector | 1000 | 53.1 | 3.5 | 0.1 | 529× |
+
+- ~220 ns per element for the pipeline is about ten interpreted calls: the `map` thunk (a closure
+  invoke, `seq`, `first`, `f`, `cons`, `rest`, a new lazy seq), then `reduce`'s `first`/`next`/`+`
+  and the loop rebind. Flat from 1k to 100k: no per-element growth, nothing recursive.
+- The interpreted walk of a vector is ~50 ns per element (`seq`/`first`/`next`/`+`/`if` through
+  `clj_invoke`, one vector-seq allocation and free per step); the C iterator is 3.5 ns, mostly the
+  type dispatch and the trie leaf lookup per element. Chunked seqs would cut the per-element
+  allocation, not the interpreter overhead (NOTES.md).

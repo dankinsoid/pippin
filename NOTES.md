@@ -18,6 +18,37 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Linear search for a slab with room** when the current one is full. Trigger: a profile showing it;
   unlikely.
 
+## Type descriptor (object.h, coll.c, seq.c)
+
+- **Builtin descriptors are write-once and `user_protos` is NULL.** No mutation API: `extend-type`,
+  `defprotocol`, `deftype`/`reify` are not implemented. Trigger: the first `defprotocol`. Then a
+  protocol table hangs off `user_protos`, patched under a global mutex with release-store /
+  acquire-load, and every patch bumps a **protocol epoch** (design section "Дескриптор типа") so
+  inline caches on AST nodes invalidate; without the epoch a REPL `extend-type` never reaches a
+  cached call site. The core-interface slots of a builtin type stay closed even then.
+- **`clj_seq_iter` walks builtin seq types only** (cons, (), vector, string, the seq.h types) and
+  aborts on anything else. Trigger: a `deftype` implementing ISeq; the iterator then falls back to
+  the first/next slots with an owned intermediate, and callers that keep borrowed items past the
+  walk (analyzer `seq_items`, `clj_seq_items`) retain them.
+- **No chunked seqs.** `seq` on a vector is a view that allocates one 32-byte object per `next`
+  (bench/RESULTS.md: 50 ns per element interpreted, 3.5 ns through the iterator). Trigger: seq
+  walks of big vectors in a profile; Clojure's chunked seqs batch 32 elements per allocation and
+  need `chunk-first`/`chunk-rest` in `map`/`filter`/`reduce`.
+- **`clj_equals`/`clj_hash` cannot throw**, so a lazy seq whose thunk throws compares unequal /
+  hashes what it yielded and the exception is dropped (`drop_thrown` in coll.c); Clojure throws
+  out of `=`. Trigger: user code relying on that exception. Fix: fallible equals/hash slots.
+- **`apply` spreads its whole last argument** (`clj_seq_items`), so `(apply f infinite-seq)` never
+  returns even for a variadic f; Clojure hands the rest seq to a variadic fn lazily. core.clj avoids
+  `(apply concat ...)` for that reason (`mapcat`). Trigger: a library doing `(apply concat (map ...))`
+  on a lazy source. Fix: `clj_apply` passing a seq as the rest argument of a variadic closure.
+- **Forcing a shared lazy seq spins** (`sched_yield`) while another thread runs the thunk; a thunk
+  reaching its own object throws "Recursive realization" (thread-local forcing stack). Trigger: a
+  thunk that blocks for long with other threads waiting; then park on a condition variable.
+- **A cons is `list?`** (CLJ_CORE_LIST) so reader lists, which are cons chains, satisfy the
+  predicate; Clojure's `Cons` is not `IPersistentList`. Goes away with the `clj_list` wrapper below.
+- **`nth` special-cases strings by type** rather than a slot: a string has `lookup`/`count` slots
+  but no ILookup/Indexed bits, as `RT.get`/`RT.nth` special-case `String`.
+
 ## RC (Sources/CljCore/rc.c, object.h)
 
 - **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow
@@ -48,9 +79,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## List (Sources/CljCore/list.c, cons.c)
 
-- **`clj_list_count` is O(n)** and a cons cell caches no hash, so hashing a list walks it every time.
-  Trigger: lists as map keys or `count` on long lists in a profile. Fix: a `clj_list` wrapper with
-  count and hash cache, as Clojure's PersistentList; cons stays the 32-byte cell for `cons`/lazy seqs.
+- **A cons chain has no count slot** (`count` walks it) and no hash cache, so hashing a list walks it
+  every time. Trigger: lists as map keys or `count` on long lists in a profile. Fix: a `clj_list`
+  wrapper with count and hash cache, as Clojure's PersistentList; cons stays the 32-byte cell for
+  `cons`/lazy seqs and loses CLJ_CORE_LIST then.
 - **Hash and equality recurse on nesting depth** (`clj_hash` → element hash). Reading and printing are
   iterative, so a 200k-deep literal reads and prints but crashes when hashed. Trigger: untrusted input
   used as a map key. Fix: an explicit stack in `clj_seq_hash`/`clj_seq_equals`, or a depth cap.
@@ -133,18 +165,19 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - **Coverage is the minimum for the evaluator tests and core.clj**: arithmetic and comparison, type
   predicates, `get assoc dissoc contains? count conj nth first rest next cons list list* vector
-  hash-map seq concat into second last butlast reverse empty?`, `symbol keyword name namespace gensym`,
-  `str pr-str pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info throw`. No
-  `map`, `reduce`, `keys`, `vals`, `max`, `mod`, ... Most of the rest belongs in core.clj now that
-  macros exist.
-- **`seq` and `concat` are eager**: `seq` of a vector or map copies it into a list, `concat` builds
-  the whole list, and neither works on strings or infinite sources. Every macro expansion goes through
-  them, which is fine for code-sized data. Trigger: `(take 5 (concat big ...))` or `(seq "abc")`.
-  Needs the lazy-seq/chunked-seq protocol from the design.
-- **`seq?` is `list?`**: there is no ISeq type beyond cons cells and `()`.
-- **`rest`/`next` on a vector copy the remainder into a list** (O(n) per step, so walking a vector
-  by `rest` is O(n²)); `nth` on a list walks it. Trigger: seq-style loops over big vectors. Fix:
-  chunked/indexed seqs.
+  hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash`,
+  the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative? indexed? list?
+  vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str pr prn print
+  println identity apply`, `macroexpand-1 macroexpand ex-info throw`. No `keys`, `vals`, `max`,
+  `mod`, `sort`, `reduced`, ... Most of the rest belongs in core.clj.
+- **`seq` on a map is an eager list of `[k v]` vectors** (no O(1) view, no first/next fast path):
+  `(first m)` builds the whole entry list. Trigger: `first`/`some` over big maps in a profile. Fix:
+  a map-seq cursor over the CHAMP trie and a map-entry type instead of 2-vectors.
+- **`range` handles fixnums in C** (`range*`, an O(1) view); doubles and step 0 go through
+  `take-while`/`iterate`/`repeat` in core.clj. No `Range` for BigInts until those exist.
+- **Printing realizes lazy seqs and can throw**: `clj_pr_str` returns CLJ_THROWN, which `str`,
+  `pr-str`, `print*` and the error-message callers propagate; `Value.description` on the Swift side
+  substitutes the exception text.
 - **Output hook is process-wide** (`clj_set_output`), not per thread or per runtime. Trigger: two
   hosts printing concurrently.
 - **Error messages are Clojure-like, not Clojure-identical**: type names are the runtime's
@@ -157,10 +190,18 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   binary, so it is a build bug, not a user error.
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
-- **Contents**: `when when-not if-not cond destructure let loop fn defn and or -> ->> comment dotimes
-  if-let when-let assert declare`, plus the helpers `check-bindings`, `maybe-destructured` (public
-  vars; Clojure keeps the second private). Not yet: `defn-`, `doto`, `condp`, `case`, `while`, `letfn`,
-  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`. `assert` throws through the `throw` native
+- **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn and or -> ->>
+  comment dotimes if-let when-let assert declare`, the seq library `complement nthrest some every?
+  not-any? not-every? reduce map filter remove keep take drop take-while drop-while iterate repeat
+  range interleave interpose mapcat dorun doall vec partition zipmap`, plus the helpers
+  `check-bindings`, `maybe-destructured` (public vars; Clojure keeps the second private). Not yet:
+  `defn-`, `doto`, `condp`, `case`, `while`, `letfn`, `for`, `doseq`, `fn` literals, `some->`, `as->`,
+  `cond->`, `reduced` (so `reduce` cannot stop early), `sort`, `group-by`, `frequencies`, transducers.
+- **`concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only**: syntax-quote expands `~@` to
+  `(seq (concat ...))`, so every macro expansion runs through it. A macro's output is therefore a
+  cons chain with lazy tails, which the analyzer realizes while collecting items; code-sized data,
+  but each splice costs a closure and a lazy seq per element. Trigger: macro expansion in a profile.
+  Fix: a C `concat` over already-realized arguments when every argument is counted. `assert` throws through the `throw` native
   and is always on (no `*assert*`). `dotimes` does not coerce its count to a long.
 - **`destructure` follows clojure.core with these gaps.** A keyword as a binding form (`[:a 1]`) and a
   map key that is a keyword other than `:as`/`:or`/`:keys`/`:strs`/`:syms` (`{:foo x}`) are
@@ -195,7 +236,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - Numbers drift between sessions (thermal, background load). Compare only within one run; use
   `CLJ_SYSTEM_ALLOC=1` on the same binary as the control.
 - Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
-  cross-thread free, cost of `clj_share` on a large graph.
+  cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
+  threads (the CAS claim path).
 
 ## Open decisions
 

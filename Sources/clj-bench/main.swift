@@ -237,6 +237,69 @@ func aPopReuse(_ n: Int) -> UInt64 {
 	return UInt64(a.count)
 }
 
+// MARK: - Seqs through the interpreter
+
+// Reads and evaluates every form; the last value is owned by the caller.
+func cljEval(_ source: String) -> clj_value {
+	var bytes = Array(source.utf8)
+	var last: clj_value = CLJ_NIL
+	bytes.withUnsafeMutableBufferPointer { buf in
+		buf.withMemoryRebound(to: CChar.self) { chars in
+			var reader = clj_reader()
+			clj_reader_init(&reader, chars.baseAddress, chars.count)
+			reader.resolve = clj_syntax_quote_resolve
+			var form: clj_value = CLJ_NIL
+			while clj_read(&reader, &form) == CLJ_READ_OK {
+				clj_release(last)
+				last = clj_eval(form, nil)
+				clj_release(form)
+				if last == CLJ_THROWN {
+					let ex = clj_take_pending()
+					let text = clj_pr_str(ex)
+					fatalError("bench eval failed: \(String(cString: clj_string_bytes(text)))")
+				}
+			}
+		}
+	}
+	return last
+}
+
+func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
+	var a = arg
+	let r = withUnsafePointer(to: &a) { clj_invoke(f, $0, 1) }
+	if r == CLJ_THROWN { fatalError("bench call threw") }
+	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+	clj_release(r)
+	return v
+}
+
+// (reduce + (map inc (range n))): a lazy pipeline realized one element at a time.
+func cReduceMapRange(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
+
+// Over a materialized array: a range loop folds to a closed form under -O.
+func aReduceMapRange(_ a: [Int]) -> UInt64 {
+	var sum = 0
+	for x in a { sum &+= x + 1 }
+	return UInt64(sum)
+}
+
+// first/next over (seq v) in an interpreted loop, and the same walk through the C iterator.
+func cSeqWalkInterpreted(_ f: clj_value, _ v: clj_value) -> UInt64 { cljCall(f, v) }
+
+func cSeqWalkIterator(_ v: clj_value) -> UInt64 {
+	var it = clj_seq_iter_start(v)
+	var item: clj_value = CLJ_NIL
+	var sum = 0
+	while clj_seq_iter_next(&it, &item) { sum &+= clj_fixnum_val(item) }
+	return UInt64(sum)
+}
+
+func aSeqWalk(_ a: [Int]) -> UInt64 {
+	var sum = 0
+	for x in a { sum &+= x }
+	return UInt64(sum)
+}
+
 // MARK: - Driver
 
 struct Row {
@@ -333,3 +396,43 @@ for r in vectorRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.array)) | \(r.array.map { ratio(r.c, $0) } ?? "—") |")
 }
 print("\nns per op; Array is mutable and in place, the persistent column copies the buffer per version")
+
+clj_init()
+let sumFn = cljEval("(fn [n] (reduce + (map inc (range n))))")
+let walkFn = cljEval("(fn [v] (loop [s (seq v) acc 0] (if s (recur (next s) (+ acc (first s))) acc)))")
+
+struct SeqRow {
+	let scenario: String
+	let n: Int
+	let c: Double
+	let iterator: Double?
+	let swift: Double
+}
+
+var seqRows: [SeqRow] = []
+for n in [1_000, 100_000] {
+	let a = aBuild(n)
+	seqRows.append(SeqRow(scenario: "reduce + map inc range", n: n,
+		c: measure(ops: n) { cReduceMapRange(sumFn, n) },
+		iterator: nil,
+		swift: measure(ops: n) { aReduceMapRange(a) }))
+}
+do {
+	let n = 1_000
+	let v = cVecBuild(n)
+	let a = aBuild(n)
+	seqRows.append(SeqRow(scenario: "seq walk of a vector", n: n,
+		c: measure(ops: n) { cSeqWalkInterpreted(walkFn, v) },
+		iterator: measure(ops: n) { cSeqWalkIterator(v) },
+		swift: measure(ops: n) { aSeqWalk(a) }))
+	clj_release(v)
+}
+clj_release(sumFn)
+clj_release(walkFn)
+
+print("\n| scenario | n | interpreted | C iterator | Swift for | interpreted / Swift |")
+print("|---|---:|---:|---:|---:|---:|")
+for r in seqRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.iterator)) | \(fmt(r.swift)) | \(ratio(r.swift, r.c)) |")
+}
+print("\nns per element; interpreted = a core.clj fn called through clj_invoke, C iterator = clj_seq_iter over the same vector")
