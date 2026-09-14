@@ -96,6 +96,21 @@ extension Value {
 	public var isFn: Bool { clj_is_fn(raw) }
 	/// Any error value: an `ex-info` or a host error.
 	public var isException: Bool { clj_is_exception(raw) }
+
+	/// Clojure `meta`: the metadata map, or nil for a value without one (or without a meta slot).
+	public var meta: Value {
+		withExtendedLifetime(self) { Value(owning: clj_meta(raw)) }
+	}
+
+	/// Clojure `with-meta`: the same value carrying `m` (a map or nil) as its metadata. Throws `ClojureError`
+	/// for a value that does not support metadata (a string, a keyword, a number, a seq view, a var).
+	public func withMeta(_ m: Value) throws -> Value {
+		try withExtendedLifetime((self, m)) {
+			let result = clj_with_meta(clj_retain(raw), m.raw)
+			if result == CLJ_THROWN { throw ClojureError.takePending() }
+			return Value(owning: result)
+		}
+	}
 }
 
 // Payload of a host error made from a Swift error.
