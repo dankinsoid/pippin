@@ -238,6 +238,9 @@ extension CoreTests {
 				var counts = [Int](repeating: 0, count: threads)
 				sums.withUnsafeMutableBufferPointer { sp in
 					counts.withUnsafeMutableBufferPointer { cp in
+						// Each iteration writes its own index; the closure outlives nothing.
+						nonisolated(unsafe) let sp = sp
+						nonisolated(unsafe) let cp = cp
 						DispatchQueue.concurrentPerform(iterations: threads) { i in
 							var it = clj_seq_iter_start(s.raw)
 							var item: clj_value = CLJ_NIL
