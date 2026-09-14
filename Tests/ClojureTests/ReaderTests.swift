@@ -73,10 +73,17 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("#:a{:b 1}", 1, 1, "Namespaced map literals are not supported yet"),
 	("#?(:clj 1)", 1, 1, "Reader conditionals are not supported yet"),
 	("#=(+ 1 2)", 1, 1, "Read-eval is not supported yet"),
-	("#^{} x", 1, 1, "Metadata is not supported yet"),
+	("^1 x", 1, 1, "Metadata must be Symbol,Keyword,String or Map"),
+	("(a ^[] x)", 1, 4, "Metadata must be Symbol,Keyword,String or Map"),
+	("^:a 1", 1, 1, "Metadata can only be applied to IMetas"),
+	("^:a \"s\"", 1, 1, "Metadata can only be applied to IMetas"),
+	("^:a :k", 1, 1, "Metadata can only be applied to IMetas"),
+	("^:a nil", 1, 1, "Metadata can only be applied to IMetas"),
+	("(^:a)", 1, 5, "Unmatched delimiter: )"),
+	("^:a", 1, 1, "EOF while reading"),
+	("^:a ^:b", 1, 5, "EOF while reading"),
 	("#<x>", 1, 1, "Unreadable form"),
 	("#inst \"2020\"", 1, 1, "Tagged literals are not supported yet"),
-	("^:a x", 1, 1, "Metadata is not supported yet"),
 	("`~@x", 1, 1, "splice not in list"),
 	("`(a `~@b)", 1, 5, "splice not in list"),
 	("~x", 1, 1, "Unquote outside syntax-quote"),
@@ -218,6 +225,52 @@ extension CoreTests {
 			clj_init()
 			let before = clj_debug_live_objects()
 			#expect(readError(text) == ReaderError(message: message, line: line, column: column), "\(text.debugDescription)")
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// @ai-generated(guided)
+		@Test func metadata() throws {
+			for k in ["a", "b", "tag", "line", "column", "k"] { _ = kw(k) }
+			let before = clj_debug_live_objects()
+			do {
+				func meta(_ text: String) throws -> Value { try read(text).meta }
+				#expect(try meta("^{:a 1} x") == read("{:a 1}"))
+				#expect(try meta("^:a x") == read("{:a true}"))
+				#expect(try meta("^Sym x") == read("{:tag Sym}"))
+				#expect(try meta("^\"str\" x") == read("{:tag \"str\"}"))
+				#expect(try meta("#^:a x") == read("{:a true}"))
+				#expect(try read("^:a x") == sym("x"))
+				#expect(try meta("^:a [1 2]") == read("{:a true}"))
+				#expect(try meta("^:a {}") == read("{:a true}"))
+				#expect(try meta("^:a ()") == read("{:a true}"))
+				#expect(try meta("^:a (fn)") == read("{:a true :line 1 :column 5}"))
+				#expect(try read("^:a (fn)") == list(sym("fn")))
+				// Stacked: the outer keys win, as in LispReader.
+				#expect(try meta("^:a ^:b x") == read("{:a true :b true}"))
+				#expect(try meta("^{:a 1} ^{:a 2 :b 2} x") == read("{:a 1 :b 2}"))
+				#expect(try meta("^{:a 1} ^:b ^Sym x") == read("{:a 1 :b true :tag Sym}"))
+				#expect(try meta("^:a #_(x) y") == read("{:a true}"))
+				#expect(try read("'^:a x") == list(sym("quote"), sym("x")))
+				#expect(try read("'^:a x").list?[1].meta == read("{:a true}"))
+				#expect(try meta("[^:a x]").isNil == true)
+				#expect(try read("[^:a x]").array?[0].meta == read("{:a true}"))
+				// Every non-empty list carries the position of its opening paren; an explicit :line overrides it.
+				#expect(try meta("(a b)") == read("{:line 1 :column 1}"))
+				#expect(try meta("\n  (a)") == read("{:line 2 :column 3}"))
+				#expect(try read("(a\n (b\n  (c)))").list?[1].meta == read("{:line 2 :column 2}"))
+				#expect(try read("(a\n (b\n  (c)))").list?[1].list?[1].meta == read("{:line 3 :column 3}"))
+				#expect(try meta("^{:line 9} (a)") == read("{:line 9 :column 12}"))
+				#expect(try meta("()").isNil == true)
+				#expect(try meta("[a]").isNil == true)
+				#expect(try meta("x").isNil == true)
+				#expect(try meta("'x").isNil == true)
+				#expect(try read("'x").list?[1].meta.isNil == true)
+				#expect(try read("(1 2)") == read("(1 2)"))
+				#expect(try read("(1 2)").hashValue == read("\n\n (1 2)").hashValue)
+				#expect(try read("(1 2)").description == "(1 2)")
+				#expect(try read("(a b)").list?.map(\.meta) == [nil, nil])
+				#expect(try read("`(a b)").meta.isNil == true)
+			}
 			#expect(clj_debug_live_objects() == before)
 		}
 

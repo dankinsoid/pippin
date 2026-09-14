@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,13 +7,23 @@
 
 #include "clj/core.h"
 
-typedef enum { F_LIST, F_VECTOR, F_MAP, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING } frame_kind;
+typedef enum { F_LIST, F_VECTOR, F_MAP, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META } frame_kind;
 
 typedef struct {
 	frame_kind kind;
 	size_t     start; // index into the value stack where this collection's items begin
 	uint32_t   line, col;
+	clj_value  meta; // F_META: the map read after ^, owned; CLJ_UNBOUND until then
 } frame;
+
+static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
+static clj_value      kw_line, kw_column, kw_tag;
+
+static void intern_keywords(void) {
+	kw_line = clj_keyword_from_cstr("line");
+	kw_column = clj_keyword_from_cstr("column");
+	kw_tag = clj_keyword_from_cstr("tag");
+}
 
 // Explicit stacks: nesting depth is bounded by memory, not by the C stack.
 typedef struct {
@@ -157,7 +168,7 @@ static void push_frame(parser *p, frame_kind kind, uint32_t line, uint32_t col) 
 		p->frames = realloc(p->frames, p->fcap * sizeof *p->frames);
 		if (!p->frames) clj_fatal("out of memory");
 	}
-	p->frames[p->nframes++] = (frame){kind, p->nvals, line, col};
+	p->frames[p->nframes++] = (frame){kind, p->nvals, line, col, CLJ_UNBOUND};
 }
 
 static void push_raw(parser *p, clj_value v) {
@@ -394,11 +405,65 @@ static clj_read_status syntax_quote(parser *p, const frame *f, clj_value form, c
 	return st;
 }
 
+// ^:kw is {:kw true}, ^Sym and ^"str" are {:tag ...}, a map is itself. Consumes v; nil with the error set otherwise.
+// @ai-generated(guided)
+static clj_value meta_map_of(parser *p, const frame *f, clj_value v) {
+	clj_value m;
+	if (is_map(v)) return v;
+	if (clj_is_keyword(v)) m = clj_map_assoc(clj_map_empty(), v, CLJ_TRUE);
+	else if (clj_is_symbol(v) || clj_is_string(v)) m = clj_map_assoc(clj_map_empty(), kw_tag, v);
+	else {
+		fail(p, f->line, f->col, "Metadata must be Symbol,Keyword,String or Map");
+		m = CLJ_NIL;
+	}
+	clj_release(v);
+	return m;
+}
+
+// Consumes v and m: v carrying m's entries over its own meta, as LispReader stacks ^a ^b x with a winning.
+// @ai-generated(guided)
+static clj_read_status apply_meta(parser *p, const frame *f, clj_value v, clj_value m, clj_value *out) {
+	if (!clj_is_ptr(v) || !clj_type_of(v)->with_meta) {
+		clj_release(v);
+		clj_release(m);
+		return fail(p, f->line, f->col, "Metadata can only be applied to IMetas");
+	}
+	clj_value existing = clj_meta(v);
+	if (!clj_is_nil(existing)) {
+		size_t     n;
+		clj_value *entries = coll_items(m, &n);
+		for (size_t i = 0; i < n; i += 2) existing = clj_map_assoc(existing, entries[i], entries[i + 1]);
+		free(entries);
+		clj_release(m);
+		m = existing;
+	}
+	*out = clj_with_meta(v, m);
+	clj_release(m);
+	if (*out == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return fail(p, f->line, f->col, "Metadata can only be applied to IMetas");
+	}
+	return CLJ_READ_OK;
+}
+
 // Consumes v: applies pending prefix frames (quote, deref, discard, ...), then stores it.
 static clj_read_status push_value(parser *p, clj_value v) {
 	while (p->nframes) {
 		frame *f = &p->frames[p->nframes - 1];
 		switch (f->kind) {
+		case F_META: {
+			if (f->meta == CLJ_UNBOUND) {
+				f->meta = meta_map_of(p, f, v);
+				return clj_is_nil(f->meta) ? CLJ_READ_ERROR : CLJ_READ_OK;
+			}
+			clj_value       tagged;
+			clj_value       m = f->meta;
+			f->meta = CLJ_UNBOUND;
+			clj_read_status st = apply_meta(p, f, v, m, &tagged);
+			if (st != CLJ_READ_OK) return st;
+			v = tagged;
+			break;
+		}
 		case F_QUOTE: v = wrap(clj_symbol_from_cstr("quote"), v); break;
 		case F_DEREF: v = wrap(clj_symbol_from_cstr("clojure.core/deref"), v); break;
 		case F_VAR: v = wrap(clj_symbol_from_cstr("var"), v); break;
@@ -727,7 +792,10 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 	case ':': return fail(p, line, col, "Namespaced map literals are not supported yet");
 	case '?': return fail(p, line, col, "Reader conditionals are not supported yet");
 	case '=': return fail(p, line, col, "Read-eval is not supported yet");
-	case '^': return fail(p, line, col, "Metadata is not supported yet");
+	case '^':
+		advance(r);
+		push_frame(p, F_META, line, col);
+		return CLJ_READ_OK;
 	case '<': return fail(p, line, col, "Unreadable form");
 	default: return fail(p, line, col, "Tagged literals are not supported yet");
 	}
@@ -759,8 +827,15 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 	size_t n = p->nvals - f.start;
 	const clj_value *items = n ? p->vals + f.start : NULL;
 	clj_value v;
-	if (f.kind == F_LIST) {
-		v = clj_list_from_array(items, n);
+	if (f.kind == F_LIST && n) {
+		// Clojure attaches the opening paren's position to lists only; the head cell carries it.
+		clj_value pos = clj_map_assoc(clj_map_assoc(clj_map_empty(), kw_line, clj_fixnum(f.line)), kw_column, clj_fixnum(f.col));
+		clj_value tail = clj_list_from_array(items + 1, n - 1);
+		v = clj_cons_new_meta(items[0], tail, pos);
+		clj_release(tail);
+		clj_release(pos);
+	} else if (f.kind == F_LIST) {
+		v = clj_list_empty();
 	} else if (f.kind == F_VECTOR) {
 		if (n > UINT32_MAX) return fail(p, f.line, f.col, "Vector literal too long");
 		v = clj_vector_from_array(items, (uint32_t)n);
@@ -800,7 +875,10 @@ static clj_read_status read_form(parser *p) {
 	case '"': return read_string(p, line, col);
 	case '\\': return read_char(p, line, col);
 	case '#': return read_dispatch(p, line, col);
-	case '^': return fail(p, line, col, "Metadata is not supported yet");
+	case '^':
+		advance(r);
+		push_frame(p, F_META, line, col);
+		return CLJ_READ_OK;
 	case '`':
 		advance(r);
 		push_frame(p, F_SYNTAX_QUOTE, line, col);
@@ -828,6 +906,7 @@ void clj_reader_init(clj_reader *r, const char *bytes, size_t len) {
 const char *clj_reader_message(const clj_reader *r) { return r->message; }
 
 clj_read_status clj_read(clj_reader *r, clj_value *out) {
+	pthread_once(&keywords_once, intern_keywords);
 	parser p = {.r = r};
 	clj_read_status st;
 	for (;;) {
@@ -854,6 +933,9 @@ clj_read_status clj_read(clj_reader *r, clj_value *out) {
 		}
 	}
 	for (size_t i = 0; i < p.nvals; i++) clj_release(p.vals[i]);
+	for (size_t i = 0; i < p.nframes; i++) {
+		if (p.frames[i].meta != CLJ_UNBOUND) clj_release(p.frames[i].meta);
+	}
 	free(p.vals);
 	free(p.frames);
 	return st;
