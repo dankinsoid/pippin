@@ -152,6 +152,23 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   under many threads. Fix: per-thread counters summed on read.
 - **Copy path retains every child and then replaces one slot**: one spare retain/release pair per
   level. Trigger: profiling the "all versions kept" benchmark scenario.
+- **The "children of a shared object are shared" invariant is unchecked in debug builds.** A violation
+  is a shared parent over an unshared child: the child looks like any unshared object, so the check
+  belongs where the edge is visible. (1) In `free_object`'s child walk, a shared parent asserts every
+  pointer child is shared or immortal — one flag read on a header already loaded. (2) At the cutoff in
+  `clj_share` (`continue` on an already-shared node), `clj_debug_all_shared` of that subtree: the one
+  place the walk relies on the invariant. Trigger: the next code that stores into an object in place
+  (transients, reuse) or the first spawn primitive.
+- **No owner check on the non-atomic path.** "An unshared object is touched only by its allocating
+  thread" holds literally today; a debug-only allocating-thread id (side table or debug header
+  extension) asserted in the inline retain/release catches the actual cross-thread race regardless of
+  how the invariant broke. Handoffs (park/resume, a channel move) will need an explicit
+  `clj_debug_reown` at each transfer point, which documents them. Trigger: the first spawn primitive.
+- **Share of retain/release on shared objects is unmeasured.** The flag is monotone, so app state in
+  an atom is atomic for everyone forever (design §4, "Представление значений"); whether that is most of the RC traffic or
+  a background decides whether BRC is worth its header word. Count on `clj_retain_slow`/`clj_release_slow`
+  versus the inline path under `CLJ_DEBUG`, on a workload with state in an atom, after the +0/+1
+  convention lands (a +1 `get` inflates the share).
 
 ## Map (Sources/CljCore/map.c)
 
@@ -353,6 +370,13 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   more than once under contention, as Clojure's). Redefinition is a dev-time operation until the
   epoch/inline-cache design (var inline cache, §6) lands; until then evaluate on one thread at a
   time. Same for `clj_ns_current` vs `clj_init` ordering: call `clj_init` before any evaluation.
+- **A side cell of an exec node is a shared mutable cell** (any slot written at run time: an inline
+  cache, a cached transducer composition, specialization state, profile counters). It must hold an
+  immortal value (filled once via CAS, `CLJ_FLAG_IMMORTAL` set before publishing, the loser freed before
+  publishing; the leak is bounded by the number of forms, as with vars), be per-thread, or hold a shared
+  value released through the epoch. An ordinary object with an ordinary release there is the concurrent
+  `def`/`deref` race again. No cell violates this yet: INTRINSIC keeps a retained (immortal) var and reads
+  the root at evaluation. Trigger: the transducer-composition cache (design §6b, "Интерпретатор до компилятора", item 6).
 - **Var lookup is a root load on every evaluation** of a var node (an acquire load; an intrinsic's guard
   is a relaxed one), no inline cache. Trigger for the cache (`{epoch, fn}` in `exec_node`, design §6b
   item 5): the guard and the root load showing in a profile of calls through user vars.

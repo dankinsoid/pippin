@@ -25,10 +25,12 @@ typedef struct {
 	const clj_type  *type;
 } clj_header;
 
-// Set on the whole reachable graph once it crosses a thread or is exported to the host;
-// from then on RC is atomic. Only the owning thread sets it, before publishing, so a plain write suffices.
-// Invariant: every child of a shared object is shared. In-place reuse of a shared object
-// (rc == 1) must clj_share any new child before storing it.
+// Set on the whole reachable graph once it is published: stored into a cell another thread can read
+// (var, atom, channel, lazy-seq cell), captured by a spawn, or exported to the host; from then on RC is
+// atomic. A handoff (park/resume, a channel move) is not a publication: one side touches the object at
+// a time. An unshared object is reachable from one stack only, so the owner sets the flag with a plain
+// write before publishing. Invariant: every child of a shared object is shared, so clj_share stops at
+// a shared node. In-place reuse of a shared object (rc == 1) must clj_share any new child before storing it.
 #define CLJ_FLAG_SHARED   ((uint32_t)1 << 0)
 // Static objects (builtin type descriptors): retain/release are no-ops.
 #define CLJ_FLAG_IMMORTAL ((uint32_t)1 << 1)
