@@ -217,8 +217,15 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   is `const` to eval.c and fn.c; the analyzer numbers a finished tree in pre-order (`id`, `nnodes` = subtree
   size, so a subtree's ids are contiguous). `clj_exec_new` builds `exec_node[nnodes]` in one walk when a
   tree first runs and every child dispatch goes through `frame->exec->nodes[id]`: one extra indirection
-  per node, 1–3 % on the seq benchmarks. The table holds only the eval pointer. Trigger for widening it:
-  the var inline cache / profile counters from the design.
+  per node, 1–3 % on the seq benchmarks. The table holds the eval pointer and a hit counter (16 bytes per
+  node). Trigger for widening it further: the var inline cache from the design.
+- **Exec rewrites: `clj_exec_count` is the first.** It swaps every node's eval for a wrapper that bumps
+  `exec_node.hits` and calls `clj_node_eval_fn(kind)`, and back; off, nothing in `eval_child` changes.
+  Only the mechanism and a test exist: nothing reads the counters yet (the PGO / hot-branch data source
+  of the design). A rewrite while the tree runs takes effect at the next child dispatch.
+- **Every node carries `line`/`col`** of the innermost enclosing list the reader positioned (0 when none:
+  a list a macro rebuilt reports the list the macro call sat in); the codec writes them as a trailing
+  `line column` pair and omits them when unknown. Only traces and the profiler read them.
 - **A closure retains its whole top-level tree** through the exec, not only its fn subtree: a fn defined
   inside a large top-level `let` keeps every sibling constant alive, and tests that count live objects
   across a redefinition must repeat the exact defining form. Trigger: memory of a large loaded program;
@@ -243,8 +250,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   call through a var pays an atomic pair on the shared root plus `clj_invoke` dispatch.
 - **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
   are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
-  vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and reader positions are
-  dropped). Anything else — a fn or protocol a macro embedded as a constant, a deftype descriptor, a host
+  vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and the reader positions on
+  constant lists are dropped, the node's own position is kept). Anything else — a fn or protocol a macro embedded as a constant, a deftype descriptor, a host
   value — makes `to_data` throw "not serializable: <type>". Vars travel as qualified symbols and are
   interned on read; `from_data` checks the shape and slot bounds, not that `recur` sits in a tail
   position. Trigger: a tree cache on disk / AOT; then a binary form and a `recur` placement check.
@@ -277,10 +284,48 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   clojure.core and refuses a qualified reference from another namespace; `(var ns/x)`, `#'ns/x`,
   `resolve` of the qualified symbol and a `clj_ns_refer` still reach it (Clojure refuses the refer).
 - **Exceptions unwind by return code, not by `longjmp`**: `try` sees `CLJ_THROWN` from its body and
-  takes the pending value; every C frame in between releases its own temporaries on the way out. No
-  stack trace is captured, so an uncaught exception reports only the top-level form's position.
-  Trigger: debugging a deep failure; then the shadow stack of frames from the design (also the crash
-  trace) records the Clojure frames at throw time.
+  takes the pending value; every C frame in between releases its own temporaries on the way out.
+  `clj_throw` captures the shadow stack (below) as a vector of `{:fn :line :column}` maps, innermost
+  first, at most 256 frames: an `ex-info` stores it at its first throw and keeps it through catch and
+  rethrow (`ex-trace`, `ClojureError.trace`); any other thrown value (a string, a host error, a deftype
+  error) carries it only in the pending state, so a handler that rethrows it records the handler's
+  frames. A frame's position is the call site that entered the fn, or the fn's own position when the
+  call came from a native or the host (`apply`, `map`, a Swift `callAsFunction`). The trace is built
+  at throw time, so a throw from deep in a loop allocates a vector and a map per frame; nothing is
+  captured for exceptions that are never thrown. `clj_take_pending` drops the pending trace: a host
+  that wants it takes it first (`clj_take_pending_trace`), as `ClojureError.takePending` does.
+- **Shadow stack** (shadow.c): a per-thread ring of `{fn node, call site}` pushed and popped around
+  every closure body (natives are leaves), 8192 frames, calloc'd on the thread's first push (128 KB)
+  and freed when the thread exits. Deeper than that, the innermost frames are kept and
+  `clj_shadow_stack_dropped` counts the outermost ones overwritten; a test shrinks the capacity with
+  `clj_debug_shadow_stack_set_capacity` since Swift Testing's stacks overflow the C stack long before
+  8192 (the main thread of a release build can reach it). `clj_shadow_stack_snapshot` is
+  async-signal-safe: it reads through a pthread key rather than the `_Thread_local`, because a first
+  touch of a `_Thread_local` on a thread that never ran Clojure allocates under dyld. Cost per call:
+  one TLS load, a null check, two stores and an increment, plus one load and branch on the
+  instrumentation byte (bench/RESULTS.md: ~1 ns on the closure-call scenario, within its noise). The
+  C stack is still what limits recursion depth; the shadow stack does not replace it.
+- **Crash handler** (`clj_crash_handler_install`) is opt-in: a host with its own crash reporter
+  (Crashlytics, MetricKit) must not have its handlers replaced, and calls `clj_shadow_stack_snapshot`
+  from its own instead. Installed, it writes the frames with `write(2)` only (names are borrowed from
+  the fn node's symbol, numbers formatted by hand) and re-raises with the default disposition. No
+  alternate signal stack is set up, so a C stack overflow gets no report unless the host installs
+  one. Tested on SIGUSR1 through a pipe on a plain pthread: `raise` on a dispatch worker thread
+  cannot `pthread_kill` itself and delivers the signal to whichever thread has it unblocked.
+- **Signposts** (`clj_signposts_enable`, `Runtime.signposts`) are Apple-only and process-wide: an
+  `os_signpost` interval named `invoke` with the fn name per closure call, off by default; elsewhere
+  the call is a no-op. Enabling it costs a signpost id and two `os_signpost` calls per invocation.
+- **Fn profiler** (`profile-start!`/`profile-stop!`, the `profile` macro): inclusive wall time and
+  call count per fn node, aggregated at pop into one global table under a mutex, reported as
+  `{:fns [...]}` sorted by time. It does not measure natives (`+`, `first`, a Swift fn: they are
+  leaves without frames), self time, or a call already running when it starts. Macro expansion runs
+  closures, so a form analyzed while the profiler is on shows core.clj's macros in the report; the
+  `profile` macro expands to a `let`, not a top-level `do`, so its body is analyzed before
+  `profile-start!` runs. Entries retain their fn node until the stop. Trigger for a sampling
+  profiler: a workload where the mutex per return shows.
+- **Debug live counts are per type as well** (`clj_debug_live_objects_of`, `clj_debug_live_report`
+  prints `type: count` for non-zero types): a 1024-slot table keyed by descriptor pointer, slots
+  never freed, so a dead deftype descriptor keeps its slot and a reused address inherits its count.
 - **`catch` knows five class names and no hierarchy**: `:default`, `Throwable`, `Exception` and
   `Object` take every thrown value, `ExceptionInfo` takes values whose type has `CLJ_CORE_ERROR`;
   anything else is "Unable to resolve classname". Trigger: catching a host error by its Swift type
@@ -312,9 +357,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **C stack per Clojure call is large.** Each call is ~5 C frames with slot and argument buffers on the
   stack: ~0.6 KB in a debug build, ~2.3 KB under ASan, ~3.7 KB under UBSan. On Swift Testing's 512 KB
   threads that is ~600 / ~170 / ~100 nested non-tail calls before the guard throws "Stack overflow"
-  (the guard reads the thread's real bounds on Apple platforms; elsewhere it assumes 512 KB). Fix: a
-  heap-allocated shadow stack of frames (also the crash-report trace from the design) and fewer C
-  frames per call. Tests keep non-tail recursion depth ≤ 50.
+  (the guard reads the thread's real bounds on Apple platforms; elsewhere it assumes 512 KB). Fix:
+  frames on the heap and fewer C frames per call (the shadow stack records frames, it does not hold
+  them). Tests keep non-tail recursion depth ≤ 50.
 - **The stack guard has no host fallback.** `pthread_get_stackaddr_np` is Apple/BSD; other platforms
   get a fixed 512 KB assumption measured from the first call. Trigger: a Linux port.
 - **Vars are immortal.** Every `def` of a new name leaks a var, its name symbol and string for the
@@ -358,7 +403,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
 - **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn defn-
-  vary-meta and or -> ->> comment dotimes if-let when-let assert declare doc`, the seq library
+  vary-meta and or -> ->> comment profile dotimes if-let when-let assert declare doc`, the seq library
   `complement nthrest some every? not-any? not-every? reduce map filter remove keep take drop
   take-while drop-while iterate repeat range interleave interpose mapcat dorun doall vec partition
   zipmap`, plus the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`
@@ -409,8 +454,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **The Swift body of a host fn is not `Sendable`-checked** and runs on whichever thread invokes the
   fn; the runtime evaluates on one thread at a time (NOTES, evaluator). Trigger: multi-threaded
   evaluation.
-- **`ClojureError` has no Clojure stack trace** (`clojureTrace` in the design): only the innermost
-  positioned list's `:line`/`:column` in `data`. Same trigger as the shadow stack above.
+- **`ClojureError.trace` is the frames at the throw**, innermost first, and `description` appends
+  them Clojure-style (`at user/f (line:col)`); a `ClojureError` rethrown from a host fn hands the
+  same frames back to the core, so a non-error value keeps them across the boundary.
 
 ## Printer (Sources/CljCore/printer.c)
 

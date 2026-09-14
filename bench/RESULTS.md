@@ -122,3 +122,12 @@ counting loop 29.7 → 30.4; closure call in a loop 45.8 → 44.7. All within th
 a retain/release pair on a non-shared object is five plain instructions, so the reads it removes were
 not where the time goes. The remaining per-call cost is the var deref (an atomic pair on the shared
 root, kept deliberately) and `clj_invoke` dispatch.
+
+### Shadow stack and instrumentation (after ef146b8), pool only, three alternating runs each
+
+Every closure call pushes and pops a shadow frame and reads one instrumentation byte (profiler,
+signposts); traces, the crash handler and the profiler read the frames (NOTES.md). Medians, before →
+after: reduce + map inc range 224.2 → 228.8 (1k), 225.1 → 231.0 (100k); seq walk of a vector
+56.1 → 56.3; counting loop 29.0 → 29.6; closure call in a loop 44.4 → 45.8. The closure-call row moves
+by ~1.4 ns per call (3 %), at the edge of the ±3 % run-to-run spread; the rows without closure calls
+move within it.
