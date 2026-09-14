@@ -54,11 +54,17 @@ typedef void (*clj_visitor)(clj_value child, void *ctx);
 #define CLJ_CORE_VECTOR      0x400 // IPersistentVector
 #define CLJ_CORE_MAP         0x800 // IPersistentMap
 #define CLJ_CORE_ERROR       0x1000 // IExceptionInfo: ex_message/ex_data/ex_cause slots; what (catch ExceptionInfo e) takes
+// Only a deftype/reify overriding hash or equals carries these; builtins answer (satisfies? IHashEq x) false.
+#define CLJ_CORE_HASHEQ      0x2000 // IHashEq: hasheq method behind the hash slot
+#define CLJ_CORE_EQUIV       0x4000 // IEquiv: equiv method behind the equals slot
+
+// A count slot returning this has thrown, the exception pending; only a deftype trampoline does.
+#define CLJ_COUNT_THROWN SIZE_MAX
 
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.
-// Builtin descriptors are write-once: a builtin type never gains or loses a core interface
-// (the extend-type boundary in the design); user protocols will hang off user_protos instead.
+// Core-interface slots are write-once: a builtin's are static, a deftype's are filled at creation from
+// the interfaces its form names (the extend-type boundary in the design); protocols hang off user_protos.
 // Slot convention as for every function: arguments borrowed, results owned or CLJ_THROWN;
 // conj is the exception and consumes self, so a unique collection can be updated in place.
 struct clj_type {
@@ -79,7 +85,7 @@ struct clj_type {
 	clj_value (*next)(clj_value self);
 	// ISeq.more: NULL means next, or () when that is nil. A cons overrides it to hand out an unrealized tail.
 	clj_value (*rest)(clj_value self);
-	// NULL: count walks the seq.
+	// NULL: count walks the seq. CLJ_COUNT_THROWN with the exception pending (deftype only).
 	size_t (*count)(clj_value self);
 	clj_value (*lookup)(clj_value self, clj_value key, clj_value not_found);
 	clj_value (*conj)(clj_value self, clj_value x);

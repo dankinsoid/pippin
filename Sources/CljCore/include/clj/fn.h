@@ -50,5 +50,7 @@ clj_value clj_invoke(clj_value f, const clj_value *args, size_t n);
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n);
 // "Wrong number of args (n) passed to: f" for any invokable; invoke slots share it.
 clj_value clj_arity_error(clj_value f, size_t n);
+// Whether a fn takes n arguments; true for any other invokable, which checks on the call.
+bool clj_fn_accepts(clj_value f, size_t n);
 
 #endif

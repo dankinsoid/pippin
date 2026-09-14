@@ -38,11 +38,30 @@ clj_value clj_proto_extends(clj_value proto, clj_value type);
 
 // ---- deftype
 
+// The methods a deftype/reify form may give for the core interfaces, one per slot (table in NOTES.md).
+typedef enum {
+	CLJ_CM_SEQ,
+	CLJ_CM_FIRST,
+	CLJ_CM_NEXT,
+	CLJ_CM_REST,
+	CLJ_CM_COUNT,
+	CLJ_CM_LOOKUP,
+	CLJ_CM_CONJ,
+	CLJ_CM_INVOKE,
+	CLJ_CM_EX_MESSAGE,
+	CLJ_CM_EX_DATA,
+	CLJ_CM_EX_CAUSE,
+	CLJ_CM_HASH,
+	CLJ_CM_EQUALS,
+	CLJ_CORE_METHOD_COUNT
+} clj_core_method;
+
 typedef struct {
 	clj_type  t;
 	clj_value name;   // string; t.name points into it
 	clj_value fields; // vector of symbols
 	uint32_t  nfields;
+	clj_value core_fns[CLJ_CORE_METHOD_COUNT]; // the fn behind each core slot, nil where not given; written at creation only
 } clj_user_type;
 
 // Identity equality and hash, as Clojure's deftype.
@@ -51,8 +70,9 @@ typedef struct {
 	clj_value  fields[];
 } clj_instance;
 
-// name is a bare symbol, qualified as ns.Name.
-clj_value clj_user_type_new(clj_value name, clj_value fields);
+// name is a bare symbol, qualified as ns.Name. impls alternates a protocol or core interface with a method map
+// ({:method fn}, nil for none): core interfaces fill the type's slots and bits, protocols extend it.
+clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls);
 static inline bool clj_is_type(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_type_type; }
 static inline bool clj_is_user_type(clj_value v) { return clj_is_type(v) && !(clj_header_of(v)->flags & CLJ_FLAG_IMMORTAL); }
 // n must equal the type's nfields; fields are retained.

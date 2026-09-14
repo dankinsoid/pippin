@@ -122,6 +122,8 @@ static core_interface interfaces[] = {
 	IFACE("Sequential", CLJ_CORE_SEQUENTIAL),
 	IFACE("IPersistentCollection", CLJ_CORE_COLL),
 	IFACE("IFn", CLJ_CORE_FN),
+	IFACE("IHashEq", CLJ_CORE_HASHEQ),
+	IFACE("IEquiv", CLJ_CORE_EQUIV),
 	IFACE("Seqable", CLJ_CORE_SEQABLE),
 };
 
@@ -515,6 +517,7 @@ static void type_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_user_type *ut = self;
 	visit(ut->name, ctx);
 	visit(ut->fields, ctx);
+	for (int m = 0; m < CLJ_CORE_METHOD_COUNT; m++) visit(ut->core_fns[m], ctx);
 	reader      *r = window_open();
 	proto_table *tbl = __atomic_load_n((void *const *)&ut->t.user_protos, __ATOMIC_SEQ_CST);
 	for (uint32_t i = 0; tbl && i < tbl->n; i++) {
@@ -536,12 +539,264 @@ const clj_type clj_type_type = {
 	.equals = identity_equals,
 };
 
-clj_value clj_user_type_new(clj_value name, clj_value fields) {
+// ---- core-interface slots of a user type: trampolines into the method fns
+
+static const char *const core_method_names[CLJ_CORE_METHOD_COUNT] = {
+	"seq", "first", "next", "more", "count", "valAt", "cons", "invoke", "ex-message", "ex-data", "ex-cause", "hasheq", "equiv",
+};
+
+// Which method names a core interface accepts; JVM names so Clojure code reads as is, `rest` and the
+// ex-* names as aliases. Object-level methods (empty, applyTo) have no slot and are refused by name.
+typedef struct {
+	uint64_t        iface;
+	const char     *name;
+	clj_core_method method;
+} method_row;
+
+static const method_row method_rows[] = {
+	{CLJ_CORE_SEQABLE, "seq", CLJ_CM_SEQ},
+	{CLJ_CORE_SEQ, "seq", CLJ_CM_SEQ},         {CLJ_CORE_SEQ, "first", CLJ_CM_FIRST},     {CLJ_CORE_SEQ, "next", CLJ_CM_NEXT},
+	{CLJ_CORE_SEQ, "more", CLJ_CM_REST},       {CLJ_CORE_SEQ, "rest", CLJ_CM_REST},       {CLJ_CORE_SEQ, "cons", CLJ_CM_CONJ},
+	{CLJ_CORE_SEQ, "count", CLJ_CM_COUNT},     {CLJ_CORE_SEQ, "equiv", CLJ_CM_EQUALS},
+	{CLJ_CORE_COLL, "seq", CLJ_CM_SEQ},        {CLJ_CORE_COLL, "cons", CLJ_CM_CONJ},      {CLJ_CORE_COLL, "count", CLJ_CM_COUNT},
+	{CLJ_CORE_COLL, "equiv", CLJ_CM_EQUALS},
+	{CLJ_CORE_COUNTED, "count", CLJ_CM_COUNT},
+	{CLJ_CORE_LOOKUP, "valAt", CLJ_CM_LOOKUP},
+	{CLJ_CORE_FN, "invoke", CLJ_CM_INVOKE},
+	{CLJ_CORE_HASHEQ, "hasheq", CLJ_CM_HASH},
+	{CLJ_CORE_EQUIV, "equiv", CLJ_CM_EQUALS},
+	{CLJ_CORE_ERROR, "ex-message", CLJ_CM_EX_MESSAGE}, {CLJ_CORE_ERROR, "getMessage", CLJ_CM_EX_MESSAGE},
+	{CLJ_CORE_ERROR, "ex-data", CLJ_CM_EX_DATA},       {CLJ_CORE_ERROR, "getData", CLJ_CM_EX_DATA},
+	{CLJ_CORE_ERROR, "ex-cause", CLJ_CM_EX_CAUSE},     {CLJ_CORE_ERROR, "getCause", CLJ_CM_EX_CAUSE},
+};
+
+// The bits an interface gives a type: ISeq and IPersistentCollection carry their Clojure superinterfaces.
+// 0 for interfaces with no slots behind them (Associative, Indexed, the IPersistent* ones).
+static uint64_t implied_bits(uint64_t iface) {
+	switch (iface) {
+	case CLJ_CORE_SEQ: return CLJ_CORE_SEQ | CLJ_CORE_SEQABLE | CLJ_CORE_COLL;
+	case CLJ_CORE_COLL: return CLJ_CORE_COLL | CLJ_CORE_SEQABLE;
+	case CLJ_CORE_SEQABLE:
+	case CLJ_CORE_SEQUENTIAL:
+	case CLJ_CORE_COUNTED:
+	case CLJ_CORE_LOOKUP:
+	case CLJ_CORE_FN:
+	case CLJ_CORE_HASHEQ:
+	case CLJ_CORE_EQUIV:
+	case CLJ_CORE_ERROR: return iface;
+	default: return 0;
+	}
+}
+
+static const clj_user_type *user_type_of(clj_value self) { return (const clj_user_type *)clj_type_of(self); }
+
+static clj_value no_core_impl(clj_value self, clj_core_method m) {
+	return clj_throw_msg("No implementation of method: :%s found for type: %s", core_method_names[m], clj_type_name(self));
+}
+
+// (method self rest...) through the fn the type holds for m; the type outlives the call because self does.
+static clj_value call_core(clj_value self, clj_core_method m, const clj_value *rest, size_t nrest) {
+	clj_value f = user_type_of(self)->core_fns[m];
+	if (clj_is_nil(f)) return no_core_impl(self, m);
+	clj_value args[4];
+	CLJ_ASSERT(nrest < sizeof args / sizeof *args, "core method arity");
+	args[0] = self;
+	for (size_t i = 0; i < nrest; i++) args[i + 1] = rest[i];
+	return clj_invoke(f, args, nrest + 1);
+}
+
+// A method result that the slot contract types: seq/next yield a seq or nil, more a seq, ex-* their field types.
+static clj_value checked(clj_value self, clj_core_method m, clj_value r, bool ok, const char *expected) {
+	if (r == CLJ_THROWN || ok) return r;
+	clj_value e = clj_throw_msg("%s of %s must return %s, got: %s", core_method_names[m], clj_type_name(self), expected, clj_type_name(r));
+	clj_release(r);
+	return e;
+}
+
+static clj_value user_seq(clj_value self) {
+	clj_value r = call_core(self, CLJ_CM_SEQ, NULL, 0);
+	return checked(self, CLJ_CM_SEQ, r, clj_is_nil(r) || clj_is_seq(r), "a seq or nil");
+}
+
+static clj_value user_first(clj_value self) { return call_core(self, CLJ_CM_FIRST, NULL, 0); }
+
+static clj_value user_rest(clj_value self) {
+	clj_value r = call_core(self, CLJ_CM_REST, NULL, 0);
+	return checked(self, CLJ_CM_REST, r, clj_is_seq(r), "a seq");
+}
+
+// Without next, more's result is seq'd, as Cons.next() does on the JVM.
+static clj_value user_next(clj_value self) {
+	const clj_user_type *ut = user_type_of(self);
+	if (clj_is_nil(ut->core_fns[CLJ_CM_NEXT]) && !clj_is_nil(ut->core_fns[CLJ_CM_REST])) {
+		clj_value more = user_rest(self);
+		if (more == CLJ_THROWN) return more;
+		clj_value s = clj_seq(more);
+		clj_release(more);
+		return s;
+	}
+	clj_value r = call_core(self, CLJ_CM_NEXT, NULL, 0);
+	return checked(self, CLJ_CM_NEXT, r, clj_is_nil(r) || clj_is_seq(r), "a seq or nil");
+}
+
+static size_t user_count(clj_value self) {
+	clj_value r = call_core(self, CLJ_CM_COUNT, NULL, 0);
+	r = checked(self, CLJ_CM_COUNT, r, clj_is_fixnum(r) && clj_fixnum_val(r) >= 0, "a non-negative integer");
+	return r == CLJ_THROWN ? CLJ_COUNT_THROWN : (size_t)clj_fixnum_val(r);
+}
+
+// (get x k) reaches valAt with 2 args when the fn has no 3-arity, as RT.get on the JVM; a not-found needs the 3-arity.
+static clj_value user_lookup(clj_value self, clj_value key, clj_value not_found) {
+	clj_value f = user_type_of(self)->core_fns[CLJ_CM_LOOKUP];
+	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_LOOKUP);
+	clj_value args[3] = {self, key, not_found};
+	return clj_invoke(f, args, !clj_is_nil(not_found) || clj_fn_accepts(f, 3) ? 3 : 2);
+}
+
+static clj_value user_conj(clj_value self, clj_value x) {
+	clj_value r = call_core(self, CLJ_CM_CONJ, &x, 1);
+	clj_release(self);
+	return r;
+}
+
+static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
+	clj_value f = user_type_of(self)->core_fns[CLJ_CM_INVOKE];
+	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_INVOKE);
+	if (!clj_fn_accepts(f, n + 1)) return clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_type_name(self));
+	clj_value  small[8];
+	clj_value *all = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *all);
+	if (!all) clj_fatal("out of memory");
+	all[0] = self;
+	for (size_t i = 0; i < n; i++) all[i + 1] = args[i];
+	clj_value r = clj_invoke(f, all, n + 1);
+	if (all != small) free(all);
+	return r;
+}
+
+// Throwable's getMessage/getCause default to null; nil here for all three when the form gives none.
+static clj_value user_ex_field(clj_value self, clj_core_method m, bool (*ok)(clj_value), const char *expected) {
+	if (clj_is_nil(user_type_of(self)->core_fns[m])) return CLJ_NIL;
+	clj_value r = call_core(self, m, NULL, 0);
+	return checked(self, m, r, clj_is_nil(r) || ok(r), expected);
+}
+
+static bool is_string_value(clj_value v) { return clj_is_string(v); }
+static bool is_map_value(clj_value v) { return clj_is_map(v); }
+static bool is_error_value(clj_value v) { return clj_is_exception(v); }
+
+static clj_value user_ex_message(clj_value self) { return user_ex_field(self, CLJ_CM_EX_MESSAGE, is_string_value, "a string or nil"); }
+static clj_value user_ex_data(clj_value self) { return user_ex_field(self, CLJ_CM_EX_DATA, is_map_value, "a map or nil"); }
+static clj_value user_ex_cause(clj_value self) { return user_ex_field(self, CLJ_CM_EX_CAUSE, is_error_value, "an error or nil"); }
+
+// hash/equals cannot throw (NOTES.md drop_thrown): a hasheq that throws or yields a non-integer hashes 0,
+// an equiv that throws compares unequal, the exception dropped.
+static uint32_t user_hash(void *self) {
+	clj_value r = call_core(clj_from_ptr(self), CLJ_CM_HASH, NULL, 0);
+	if (r == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return 0;
+	}
+	uint32_t h = clj_is_fixnum(r) ? (uint32_t)clj_fixnum_val(r) : 0;
+	clj_release(r);
+	return h;
+}
+
+static bool user_equals(void *self, clj_value other) {
+	clj_value r = call_core(clj_from_ptr(self), CLJ_CM_EQUALS, &other, 1);
+	if (r == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return false;
+	}
+	bool eq = clj_truthy(r);
+	clj_release(r);
+	return eq;
+}
+
+// Slots follow the bits, as for builtins: a slot behind a declared interface always exists and throws
+// "No implementation" when the form gave no method. Sequential without equiv/hasheq gets the ASeq trait.
+static void fill_slots(clj_user_type *ut) {
+	clj_type        *t = &ut->t;
+	uint64_t         bits = t->core_bits;
+	const clj_value *m = ut->core_fns;
+	if (bits & CLJ_CORE_SEQABLE) t->seq = user_seq;
+	if (bits & CLJ_CORE_SEQ) {
+		t->first = user_first;
+		t->next = user_next;
+	}
+	if (!clj_is_nil(m[CLJ_CM_REST])) t->rest = user_rest;
+	if ((bits & CLJ_CORE_COUNTED) || !clj_is_nil(m[CLJ_CM_COUNT])) t->count = user_count;
+	if (bits & CLJ_CORE_LOOKUP) t->lookup = user_lookup;
+	if (bits & CLJ_CORE_COLL) t->conj = user_conj;
+	if (bits & CLJ_CORE_FN) t->invoke = user_invoke;
+	if (bits & CLJ_CORE_ERROR) {
+		t->ex_message = user_ex_message;
+		t->ex_data = user_ex_data;
+		t->ex_cause = user_ex_cause;
+	}
+	if (!clj_is_nil(m[CLJ_CM_HASH])) t->hash = user_hash;
+	else if (bits & CLJ_CORE_SEQUENTIAL) t->hash = clj_aseq_hash;
+	if (!clj_is_nil(m[CLJ_CM_EQUALS])) t->equals = user_equals;
+	else if (bits & CLJ_CORE_SEQUENTIAL) t->equals = clj_aseq_equals;
+}
+
+typedef struct {
+	clj_user_type      *ut;
+	const clj_protocol *iface;
+	clj_value           thrown; // CLJ_THROWN once an entry was refused
+} core_collect_ctx;
+
+static clj_value refuse_method(const core_collect_ctx *c, clj_value key, const char *why) {
+	clj_value text = clj_pr_str(key);
+	if (text == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_throw_msg("%s %s in interface %s", why, clj_string_bytes(text), clj_string_bytes(clj_symbol_name(c->iface->name)));
+	clj_release(text);
+	return r;
+}
+
+static bool collect_core_method(clj_value key, clj_value val, void *ctx) {
+	core_collect_ctx *c = ctx;
+	if (clj_is_nil(val)) return true;
+	if (!clj_is_keyword(key)) {
+		c->thrown = refuse_method(c, key, "No method");
+		return false;
+	}
+	const char *name = clj_string_bytes(clj_keyword_name(key));
+	for (size_t i = 0; i < sizeof method_rows / sizeof *method_rows; i++) {
+		if (method_rows[i].iface != c->iface->core_bits || strcmp(method_rows[i].name, name) != 0) continue;
+		if (!clj_has_core(val, CLJ_CORE_FN)) {
+			c->thrown = clj_throw_msg("Method implementation must be a fn, got: %s", clj_type_name(val));
+			return false;
+		}
+		if (!clj_is_nil(c->ut->core_fns[method_rows[i].method])) {
+			c->thrown = refuse_method(c, key, "Duplicate method");
+			return false;
+		}
+		c->ut->core_fns[method_rows[i].method] = clj_retain(val);
+		return true;
+	}
+	bool known = strcmp(name, "empty") == 0 || strcmp(name, "applyTo") == 0;
+	c->thrown = refuse_method(c, key, known ? "No slot for method" : "No method");
+	return false;
+}
+
+// Fills the slots and bits a core interface gives the type from its method map; the type is not yet published.
+static clj_value implement_interface(clj_user_type *ut, clj_value iface, clj_value method_map) {
+	const clj_protocol *p = clj_protocol_of(iface);
+	uint64_t            implied = implied_bits(p->core_bits);
+	if (!implied) return clj_throw_msg("%s cannot be implemented by deftype: no slots behind it", clj_string_bytes(clj_symbol_name(p->name)));
+	ut->t.core_bits |= implied;
+	core_collect_ctx c = {ut, p, CLJ_NIL};
+	if (!clj_is_nil(method_map)) clj_map_each(method_map, collect_core_method, &c);
+	return c.thrown;
+}
+
+clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
 	if (!is_unqualified_symbol(name)) return clj_throw_msg("deftype name must be an unqualified symbol, got: %s", clj_type_name(name));
 	if (!clj_is_vector(fields)) return clj_throw_msg("deftype fields must be a vector, got: %s", clj_type_name(fields));
 	for (uint32_t i = 0; i < clj_vector_count(fields); i++) {
 		if (!is_unqualified_symbol(clj_vector_nth(fields, i))) return clj_throw_msg("deftype fields must be symbols");
 	}
+	if (nimpls % 2) return clj_throw_msg("deftype* expects protocol and method-map pairs");
 	const char *ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	const char *bare = clj_string_bytes(clj_symbol_name(name));
 	size_t      len = strlen(ns) + 1 + strlen(bare);
@@ -557,7 +812,24 @@ clj_value clj_user_type_new(clj_value name, clj_value fields) {
 	ut->t.each_child = instance_each_child;
 	ut->t.hash = identity_hash;
 	ut->t.equals = identity_equals;
-	return clj_from_ptr(ut);
+	clj_value type = clj_from_ptr(ut);
+	for (size_t i = 0; i < nimpls; i += 2) {
+		clj_value p = impls[i], mm = impls[i + 1];
+		clj_value r;
+		if (!clj_is_protocol(p)) r = clj_throw_msg("%s is not a protocol", clj_type_name(p));
+		else if (!clj_is_nil(mm) && !clj_is_map(mm)) r = clj_throw_msg("deftype* expects a map of method fns, got: %s", clj_type_name(mm));
+		else if (clj_protocol_of(p)->core_bits) r = implement_interface(ut, p, mm);
+		else r = clj_proto_extend(type, p, mm);
+		if (r == CLJ_THROWN) {
+			clj_release(type);
+			return CLJ_THROWN;
+		}
+	}
+	// Methods given under an ISeq/IPersistentCollection group mark the override as IHashEq/IEquiv would.
+	if (!clj_is_nil(ut->core_fns[CLJ_CM_HASH])) ut->t.core_bits |= CLJ_CORE_HASHEQ;
+	if (!clj_is_nil(ut->core_fns[CLJ_CM_EQUALS])) ut->t.core_bits |= CLJ_CORE_EQUIV;
+	fill_slots(ut);
+	return type;
 }
 
 clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
@@ -598,10 +870,7 @@ static clj_value b_protocol_method(const clj_value *args, size_t n) {
 	return clj_protocol_method(args[0], (uint32_t)clj_fixnum_val(args[1]));
 }
 
-static clj_value b_deftype(const clj_value *args, size_t n) {
-	(void)n;
-	return clj_user_type_new(args[0], args[1]);
-}
+static clj_value b_deftype(const clj_value *args, size_t n) { return clj_user_type_new(args[0], args[1], args + 2, n - 2); }
 
 static clj_value b_new(const clj_value *args, size_t n) { return clj_instance_new(args[0], args + 1, n - 1); }
 
@@ -676,7 +945,7 @@ void clj_proto_install(void) {
 		clj_native_fn fn;
 		uint32_t      min, max;
 	} fns[] = {
-		{"protocol*", b_protocol, 2, 2},       {"protocol-method*", b_protocol_method, 2, 2}, {"deftype*", b_deftype, 2, 2},
+		{"protocol*", b_protocol, 2, 2},       {"protocol-method*", b_protocol_method, 2, 2}, {"deftype*", b_deftype, 2, CLJ_ARITY_ANY},
 		{"new*", b_new, 1, CLJ_ARITY_ANY},     {"field*", b_field, 2, 2},                     {"trampoline*", b_trampoline, 1, 1},
 		{"extend*", b_extend, 3, 3},           {"satisfies?", b_satisfies, 2, 2},             {"extends?", b_extends, 2, 2},
 		{"instance?", b_instance, 2, 2},       {"type", b_type, 1, 1},                        {"identical?", b_identical, 2, 2},

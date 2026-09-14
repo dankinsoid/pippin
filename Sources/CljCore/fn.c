@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/analyzer.h"
 #include "clj/coll.h"
 #include "clj/core.h"
 #include "clj/error.h"
@@ -92,6 +93,16 @@ clj_value clj_arity_error(clj_value f, size_t n) {
 	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
 	clj_release(text);
 	return r;
+}
+
+// @ai-generated(guided)
+bool clj_fn_accepts(clj_value f, size_t n) {
+	if (!clj_is_fn(f)) return true;
+	const clj_fn *fn = clj_fn_of(f);
+	if (fn->kind != CLJ_FN_CLOSURE) return n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity);
+	const clj_node *code = clj_node_of(fn->code);
+	if (n <= CLJ_FN_MAX_FIXED && code->u.fn.fixed[n]) return true;
+	return code->u.fn.variadic && n >= code->u.fn.variadic->nparams;
 }
 
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
