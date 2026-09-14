@@ -25,8 +25,8 @@ clj_value clj_ns_find_or_create(clj_value name);
 // The var mapped to sym in ns, created unbound when missing. sym must be unqualified.
 clj_value clj_ns_intern(clj_value ns, clj_value sym);
 void      clj_ns_refer(clj_value ns, clj_value sym, clj_value var);
-// Unqualified: own mappings, then refers, then clojure.core. Qualified: the named namespace's own mappings.
-// nil when unresolved.
+// Unqualified: own mappings, then refers, then clojure.core minus its private vars. Qualified: the named
+// namespace's own mappings, private or not (the analyzer refuses the private ones). nil when unresolved.
 clj_value clj_ns_resolve(clj_value ns, clj_value sym);
 
 // Per thread; `user` until set.

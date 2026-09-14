@@ -53,6 +53,8 @@ typedef enum {
 	CLJ_CM_EX_CAUSE,
 	CLJ_CM_HASH,
 	CLJ_CM_EQUALS,
+	CLJ_CM_META,
+	CLJ_CM_WITH_META,
 	CLJ_CORE_METHOD_COUNT
 } clj_core_method;
 

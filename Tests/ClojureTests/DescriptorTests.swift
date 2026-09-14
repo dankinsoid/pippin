@@ -23,25 +23,26 @@ private let SEQABLE = UInt64(CLJ_CORE_SEQABLE), SEQ = UInt64(CLJ_CORE_SEQ), SEQU
 private let COLL = UInt64(CLJ_CORE_COLL), COUNTED = UInt64(CLJ_CORE_COUNTED), LOOKUP = UInt64(CLJ_CORE_LOOKUP)
 private let ASSOCIATIVE = UInt64(CLJ_CORE_ASSOCIATIVE), INDEXED = UInt64(CLJ_CORE_INDEXED), FN = UInt64(CLJ_CORE_FN)
 private let LIST = UInt64(CLJ_CORE_LIST), VECTOR = UInt64(CLJ_CORE_VECTOR), MAP = UInt64(CLJ_CORE_MAP)
-private let ERROR = UInt64(CLJ_CORE_ERROR)
+private let ERROR = UInt64(CLJ_CORE_ERROR), META = UInt64(CLJ_CORE_META), OBJ = UInt64(CLJ_CORE_OBJ)
 private let ASEQ = SEQABLE | SEQ | SEQUENTIAL | COLL
+private let IOBJ = META | OBJ
 
 extension CoreTests {
 	@Suite struct DescriptorTests {
 		// Every builtin heap type with the interfaces it implements.
 		private func samples() throws -> [(String, Value, UInt64)] {
 			[
-				("cons", Value(list: [1]), ASEQ | LIST),
-				("empty-list", Value(list: []), ASEQ | LIST | COUNTED),
-				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR),
-				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP),
+				("cons", Value(list: [1]), ASEQ | LIST | IOBJ),
+				("empty-list", Value(list: []), ASEQ | LIST | COUNTED | IOBJ),
+				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR | IOBJ),
+				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP | IOBJ),
 				("string", "ab", SEQABLE),
 				("keyword", Value(keyword: "k"), FN),
-				("symbol", Value(symbol: "s"), 0),
-				("fn", try eval("inc"), FN),
+				("symbol", Value(symbol: "s"), IOBJ),
+				("fn", try eval("inc"), FN | IOBJ),
 				("double", 1.5, 0),
 				("exception", try eval("(ex-info \"x\" {})"), ERROR),
-				("var", try eval("#'inc"), FN),
+				("var", try eval("#'inc"), FN | META),
 				("namespace", Value(borrowing: clj_ns_user()), 0),
 				("type", Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(Value(list: []).raw).pointee.type))), 0),
 				("lazy-seq", try eval("(lazy-seq [1])"), ASEQ),
@@ -72,6 +73,8 @@ extension CoreTests {
 				if bits & LOOKUP != 0 { #expect(t.lookup != nil, "\(name) lookup slot") }
 				if bits & COLL != 0 { #expect(t.conj != nil, "\(name) conj slot") }
 				#expect((t.ex_message != nil && t.ex_data != nil && t.ex_cause != nil) == (bits & ERROR != 0), "\(name) error slots")
+				#expect((t.meta != nil) == (bits & META != 0), "\(name) meta slot")
+				#expect((t.with_meta != nil) == (bits & OBJ != 0), "\(name) with_meta slot")
 				#expect(t.user_protos == nil)
 			}
 			#expect(clj_core_bits(CLJ_NIL) == 0)

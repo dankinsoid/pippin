@@ -27,7 +27,8 @@ typedef struct {
 			void (*release)(void *ctx); // NULL when ctx needs no cleanup
 		} native_ctx;
 	} u;
-	clj_value code; // fn node (analyzer.h) of a closure; a native parks a value its ctx borrows here (a protocol method: its protocol)
+	clj_value code; // fn node (analyzer.h) of a closure; a native parks a value its ctx borrows here (a protocol method: its protocol, a with-meta copy: the original)
+	clj_value meta; // map or nil
 	uint32_t  nenv;
 	clj_value env[]; // captured values, owned
 } clj_fn;

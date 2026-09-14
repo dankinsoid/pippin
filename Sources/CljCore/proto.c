@@ -125,6 +125,8 @@ static core_interface interfaces[] = {
 	IFACE("IHashEq", CLJ_CORE_HASHEQ),
 	IFACE("IEquiv", CLJ_CORE_EQUIV),
 	IFACE("Seqable", CLJ_CORE_SEQABLE),
+	IFACE("IObj", CLJ_CORE_OBJ),
+	IFACE("IMeta", CLJ_CORE_META),
 };
 
 enum { NINTERFACES = sizeof interfaces / sizeof *interfaces };
@@ -543,6 +545,7 @@ const clj_type clj_type_type = {
 
 static const char *const core_method_names[CLJ_CORE_METHOD_COUNT] = {
 	"seq", "first", "next", "more", "count", "valAt", "cons", "invoke", "ex-message", "ex-data", "ex-cause", "hasheq", "equiv",
+	"meta", "withMeta",
 };
 
 // Which method names a core interface accepts; JVM names so Clojure code reads as is, `rest` and the
@@ -568,6 +571,8 @@ static const method_row method_rows[] = {
 	{CLJ_CORE_ERROR, "ex-message", CLJ_CM_EX_MESSAGE}, {CLJ_CORE_ERROR, "getMessage", CLJ_CM_EX_MESSAGE},
 	{CLJ_CORE_ERROR, "ex-data", CLJ_CM_EX_DATA},       {CLJ_CORE_ERROR, "getData", CLJ_CM_EX_DATA},
 	{CLJ_CORE_ERROR, "ex-cause", CLJ_CM_EX_CAUSE},     {CLJ_CORE_ERROR, "getCause", CLJ_CM_EX_CAUSE},
+	{CLJ_CORE_META, "meta", CLJ_CM_META},
+	{CLJ_CORE_OBJ, "meta", CLJ_CM_META},               {CLJ_CORE_OBJ, "withMeta", CLJ_CM_WITH_META},
 };
 
 // The bits an interface gives a type: ISeq and IPersistentCollection carry their Clojure superinterfaces.
@@ -576,6 +581,7 @@ static uint64_t implied_bits(uint64_t iface) {
 	switch (iface) {
 	case CLJ_CORE_SEQ: return CLJ_CORE_SEQ | CLJ_CORE_SEQABLE | CLJ_CORE_COLL;
 	case CLJ_CORE_COLL: return CLJ_CORE_COLL | CLJ_CORE_SEQABLE;
+	case CLJ_CORE_OBJ: return CLJ_CORE_OBJ | CLJ_CORE_META;
 	case CLJ_CORE_SEQABLE:
 	case CLJ_CORE_SEQUENTIAL:
 	case CLJ_CORE_COUNTED:
@@ -583,6 +589,7 @@ static uint64_t implied_bits(uint64_t iface) {
 	case CLJ_CORE_FN:
 	case CLJ_CORE_HASHEQ:
 	case CLJ_CORE_EQUIV:
+	case CLJ_CORE_META:
 	case CLJ_CORE_ERROR: return iface;
 	default: return 0;
 	}
@@ -687,6 +694,17 @@ static clj_value user_ex_message(clj_value self) { return user_ex_field(self, CL
 static clj_value user_ex_data(clj_value self) { return user_ex_field(self, CLJ_CM_EX_DATA, is_map_value, "a map or nil"); }
 static clj_value user_ex_cause(clj_value self) { return user_ex_field(self, CLJ_CM_EX_CAUSE, is_error_value, "an error or nil"); }
 
+static clj_value user_meta(clj_value self) {
+	clj_value r = call_core(self, CLJ_CM_META, NULL, 0);
+	return checked(self, CLJ_CM_META, r, clj_is_nil(r) || clj_is_map(r), "a map or nil");
+}
+
+static clj_value user_with_meta(clj_value self, clj_value m) {
+	clj_value r = call_core(self, CLJ_CM_WITH_META, &m, 1);
+	clj_release(self);
+	return r;
+}
+
 // hash/equals cannot throw (NOTES.md drop_thrown): a hasheq that throws or yields a non-integer hashes 0,
 // an equiv that throws compares unequal, the exception dropped.
 static uint32_t user_hash(void *self) {
@@ -732,6 +750,8 @@ static void fill_slots(clj_user_type *ut) {
 		t->ex_data = user_ex_data;
 		t->ex_cause = user_ex_cause;
 	}
+	if (bits & CLJ_CORE_META) t->meta = user_meta;
+	if (bits & CLJ_CORE_OBJ) t->with_meta = user_with_meta;
 	if (!clj_is_nil(m[CLJ_CM_HASH])) t->hash = user_hash;
 	else if (bits & CLJ_CORE_SEQUENTIAL) t->hash = clj_aseq_hash;
 	if (!clj_is_nil(m[CLJ_CM_EQUALS])) t->equals = user_equals;

@@ -5,6 +5,7 @@
 #include "clj/core.h"
 #include "clj/error.h"
 #include "clj/list.h"
+#include "clj/map.h"
 #include "clj/seq.h"
 #include "clj/string.h"
 #include "clj/vector.h"
@@ -154,6 +155,23 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 	}
 	if (has_not_found) return clj_retain(not_found);
 	return clj_throw_msg("Index %lld out of bounds for length %zu", (long long)i, count);
+}
+
+// @ai-generated(guided)
+clj_value clj_meta(clj_value v) {
+	const clj_type *t = type_or_null(v);
+	return t && t->meta ? t->meta(v) : CLJ_NIL;
+}
+
+// @ai-generated(guided)
+clj_value clj_with_meta(clj_value v, clj_value m) {
+	const clj_type *t = type_or_null(v);
+	clj_value       r;
+	if (!t || !t->with_meta) r = clj_throw_msg("with-meta: %s does not support metadata", clj_type_name(v));
+	else if (!clj_is_nil(m) && !clj_is_map(m)) r = clj_throw_msg("with-meta: metadata must be a map, got: %s", clj_type_name(m));
+	else return t->with_meta(v, m);
+	clj_release(v);
+	return r;
 }
 
 // ---- iterator

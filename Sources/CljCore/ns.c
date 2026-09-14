@@ -94,7 +94,10 @@ clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 		clj_ns *n = clj_ns_of(ns);
 		var = clj_map_get(n->mappings, sym, CLJ_NIL);
 		if (clj_is_nil(var)) var = clj_map_get(n->refers, sym, CLJ_NIL);
-		if (clj_is_nil(var) && !clj_is_nil(core_ns) && core_ns != ns) var = clj_map_get(clj_ns_of(core_ns)->mappings, sym, CLJ_NIL);
+		if (clj_is_nil(var) && !clj_is_nil(core_ns) && core_ns != ns) {
+			var = clj_map_get(clj_ns_of(core_ns)->mappings, sym, CLJ_NIL);
+			if (!clj_is_nil(var) && clj_var_is_private(var)) var = CLJ_NIL;
+		}
 	} else {
 		clj_value ns_name = clj_symbol_new(CLJ_NIL, clj_symbol_ns(sym));
 		clj_value target = find_locked(ns_name);

@@ -732,6 +732,57 @@ static clj_value b_deref(const clj_value *args, size_t n) {
 	return clj_var_deref(args[0]);
 }
 
+// ---- metadata
+
+static clj_value b_meta(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_meta(args[0]);
+}
+
+static clj_value b_with_meta(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_with_meta(clj_retain(args[0]), args[1]);
+}
+
+static clj_value not_a_reference(const char *what, clj_value v) {
+	return clj_throw_msg("%s expects a var, got: %s", what, clj_type_name(v));
+}
+
+static clj_value b_reset_meta(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_var(args[0])) return not_a_reference("reset-meta!", args[0]);
+	if (!clj_is_nil(args[1]) && !clj_is_map(args[1])) return clj_throw_msg("reset-meta! expects a map, got: %s", clj_type_name(args[1]));
+	clj_var_set_meta(args[0], args[1]);
+	return clj_retain(args[1]);
+}
+
+// (alter-meta! var f & args): a CAS loop, so f may run more than once under contention.
+// @ai-generated(guided)
+static clj_value b_alter_meta(const clj_value *args, size_t n) {
+	if (!clj_is_var(args[0])) return not_a_reference("alter-meta!", args[0]);
+	clj_value  small[8];
+	clj_value *call = n <= sizeof small / sizeof *small ? small : malloc(n * sizeof *call);
+	if (!call) clj_fatal("out of memory");
+	memcpy(call + 1, args + 2, (n - 2) * sizeof *call);
+	clj_value m;
+	for (;;) {
+		clj_value old = clj_var_meta(args[0]);
+		call[0] = old;
+		m = clj_invoke(args[1], call, n - 1);
+		if (m == CLJ_THROWN) break;
+		if (!clj_is_nil(m) && !clj_is_map(m)) {
+			clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));
+			clj_release(m);
+			m = e;
+			break;
+		}
+		if (clj_var_cas_meta(args[0], old, m)) break;
+		clj_release(m);
+	}
+	if (call != small) free(call);
+	return m;
+}
+
 // ---- registration
 
 typedef struct {
@@ -764,7 +815,8 @@ static const entry entries[] = {
 	{"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
-	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 1},
+	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 1},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
+	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},
 };
 
 void clj_builtins_install(void) {

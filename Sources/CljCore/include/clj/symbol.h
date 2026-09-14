@@ -4,12 +4,13 @@
 
 #include "object.h"
 
-// Not interned. No metadata slot yet (NOTES.md).
+// Not interned.
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
 	clj_value        ns;   // string or nil
 	clj_value        name; // string
+	clj_value        meta; // map or nil; equality and hash ignore it
 } clj_symbol;
 
 extern const clj_type clj_symbol_type;

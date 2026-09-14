@@ -20,6 +20,7 @@ static void fn_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_fn *f = self;
 	visit(f->name, ctx);
 	visit(f->code, ctx);
+	visit(f->meta, ctx);
 	for (uint32_t i = 0; i < f->nenv; i++) visit(f->env[i], ctx);
 }
 
@@ -40,15 +41,49 @@ static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
 	return fn->u.native(args, n);
 }
 
+static clj_value fn_meta(clj_value self) { return clj_retain(clj_fn_of(self)->meta); }
+
+// A shared copy keeps the original alive through code and borrows its ctx: a ctx has one release callback,
+// so it cannot be owned twice.
+// @ai-generated(guided)
+static clj_value fn_with_meta(clj_value self, clj_value m) {
+	clj_fn *f = clj_fn_of(self);
+	if (clj_is_nil(m) && clj_is_nil(f->meta)) return self;
+	if (!clj_is_unique(self)) {
+		size_t  size = sizeof *f + f->nenv * sizeof *f->env;
+		clj_fn *c = clj_alloc(&clj_fn_type, size);
+		memcpy((char *)c + sizeof c->h, (const char *)f + sizeof f->h, size - sizeof f->h);
+		clj_retain(c->name);
+		clj_retain(c->code);
+		c->meta = CLJ_NIL;
+		for (uint32_t i = 0; i < c->nenv; i++) clj_retain(c->env[i]);
+		if (c->kind == CLJ_FN_NATIVE_CTX && c->u.native_ctx.release) {
+			c->u.native_ctx.release = NULL;
+			clj_release(c->code);
+			c->code = clj_retain(self);
+		}
+		clj_release(self);
+		f = c;
+	} else if (f->h.flags & CLJ_FLAG_SHARED) {
+		clj_share(m);
+	}
+	clj_value old = f->meta;
+	f->meta = clj_retain(m);
+	clj_release(old);
+	return clj_from_ptr(f);
+}
+
 const clj_type clj_fn_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "fn",
-	.core_bits = CLJ_CORE_FN,
+	.core_bits = CLJ_CORE_FN | CLJ_CORE_META | CLJ_CORE_OBJ,
 	.each_child = fn_each_child,
 	.finalize = fn_finalize,
 	.hash = fn_hash,
 	.equals = fn_equals,
 	.invoke = fn_invoke,
+	.meta = fn_meta,
+	.with_meta = fn_with_meta,
 };
 
 static clj_fn *native_new(clj_value name, clj_fn_kind kind, uint32_t min_arity, uint32_t max_arity) {

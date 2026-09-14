@@ -34,6 +34,9 @@ typedef struct {
 #define CLJ_FLAG_IMMORTAL ((uint32_t)1 << 1)
 // Lives in the system allocator, not a pool slab: too big for a size class, or CLJ_SYSTEM_ALLOC=1.
 #define CLJ_FLAG_LARGE    ((uint32_t)1 << 2)
+// The object carries one extra trailing clj_value word holding its metadata (cons, empty list): only
+// with-meta'd and reader-produced lists pay for the slot, a plain cons stays 32 bytes.
+#define CLJ_FLAG_META     ((uint32_t)1 << 3)
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
 
@@ -57,6 +60,8 @@ typedef void (*clj_visitor)(clj_value child, void *ctx);
 // Only a deftype/reify overriding hash or equals carries these; builtins answer (satisfies? IHashEq x) false.
 #define CLJ_CORE_HASHEQ      0x2000 // IHashEq: hasheq method behind the hash slot
 #define CLJ_CORE_EQUIV       0x4000 // IEquiv: equiv method behind the equals slot
+#define CLJ_CORE_META        0x8000 // IMeta: meta slot
+#define CLJ_CORE_OBJ         0x10000 // IObj: with_meta slot (implies IMeta)
 
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.
@@ -88,6 +93,9 @@ struct clj_type {
 	clj_value (*conj)(clj_value self, clj_value x);
 	// Arity is checked by the object (a fn carries its arity table), not the type.
 	clj_value (*invoke)(clj_value self, const clj_value *args, size_t n);
+	// IMeta: a map or nil. IObj: consumes self like conj, m is a map or nil. Equality, hash and printing ignore meta.
+	clj_value (*meta)(clj_value self);
+	clj_value (*with_meta)(clj_value self, clj_value m);
 	// IExceptionInfo: a string or nil, a map or nil, a thrown value or nil. Mandatory on CLJ_CORE_ERROR types.
 	clj_value (*ex_message)(clj_value self);
 	clj_value (*ex_data)(clj_value self);

@@ -10,6 +10,7 @@ typedef struct {
 	uint32_t         count;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
 	clj_value        root; // trie node, never nil
+	clj_value        meta; // map or nil; kept across assoc/dissoc, ignored by equality and hash
 } clj_map;
 
 extern const clj_type clj_map_type;

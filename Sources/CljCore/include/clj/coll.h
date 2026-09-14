@@ -26,6 +26,10 @@ clj_value clj_conj(clj_value coll, clj_value x);
 clj_value clj_get(clj_value coll, clj_value key, clj_value not_found);
 // Indexed types, strings (code points) and sequential seqs (walked). Out of range throws, or yields not_found when has_not_found.
 clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value not_found);
+// Owned metadata map, nil for anything without a meta slot (numbers, keywords, strings, nil).
+clj_value clj_meta(clj_value v);
+// Consumes v (+1 in); m is a map or nil, else throws. "does not support metadata" without a with_meta slot.
+clj_value clj_with_meta(clj_value v, clj_value m);
 
 // Walks any seqable: nil, (), a cons chain, a vector, a string and the seq types of seq.h inline, and any
 // other type (a deftype/reify seq, a map) through its slots. Items are borrowed and stay valid while the

@@ -418,6 +418,7 @@ static bool node_each(clj_value node, clj_map_entry_fn fn, void *ctx) {
 
 static void map_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(((clj_map *)self)->root, ctx);
+	visit(((clj_map *)self)->meta, ctx);
 }
 
 static bool hash_entry(clj_value key, clj_value val, void *ctx) {
@@ -518,10 +519,31 @@ static clj_value map_invoke(clj_value self, const clj_value *args, size_t n) {
 	return map_lookup(self, args[0], n == 2 ? args[1] : CLJ_NIL);
 }
 
+static clj_value map_meta(clj_value self) { return clj_retain(clj_map_of(self)->meta); }
+
+// @ai-generated(guided)
+static clj_value map_with_meta(clj_value self, clj_value m) {
+	clj_map *map = clj_map_of(self);
+	if (clj_is_nil(m) && clj_is_nil(map->meta)) return self;
+	if (!clj_is_unique(self)) {
+		clj_map *c = clj_alloc(&clj_map_type, sizeof *c);
+		c->count = map->count;
+		atomic_store_explicit(&c->hash, clj_hash_cache_load(&map->hash), memory_order_relaxed);
+		c->root = clj_retain(map->root);
+		clj_release(self);
+		map = c;
+	}
+	clj_value old = map->meta;
+	store(&map->h, &map->meta, clj_retain(m));
+	clj_release(old);
+	return clj_from_ptr(map);
+}
+
 const clj_type clj_map_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "map",
-	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP,
+	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP |
+	             CLJ_CORE_META | CLJ_CORE_OBJ,
 	.each_child = map_each_child,
 	.hash = map_hash,
 	.equals = map_equals,
@@ -530,6 +552,8 @@ const clj_type clj_map_type = {
 	.lookup = map_lookup,
 	.conj = map_conj,
 	.invoke = map_invoke,
+	.meta = map_meta,
+	.with_meta = map_with_meta,
 };
 
 static bnode   empty_root = {.h = {1, CLJ_FLAG_IMMORTAL, &bnode_type}};
@@ -560,6 +584,7 @@ static clj_value map_commit(clj_value map, bool unique, clj_value root, edit e, 
 	if (!unique) {
 		clj_map *c = clj_alloc(&clj_map_type, sizeof *c);
 		c->count = m->count;
+		c->meta = clj_retain(m->meta);
 		clj_release(map);
 		m = c;
 	} else {

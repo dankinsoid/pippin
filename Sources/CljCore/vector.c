@@ -27,6 +27,7 @@ typedef struct {
 	_Atomic uint32_t hash; // see clj_hash_cache_load
 	clj_value        root;
 	clj_value        tail;
+	clj_value        meta; // map or nil; kept across conj/assoc/pop, ignored by equality and hash
 } clj_vector;
 
 static void node_each_child(void *self, clj_visitor visit, void *ctx) {
@@ -173,6 +174,7 @@ static void vector_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_vector *v = self;
 	visit(v->root, ctx);
 	visit(v->tail, ctx);
+	visit(v->meta, ctx);
 }
 
 static uint32_t vector_hash(void *self) {
@@ -221,11 +223,25 @@ static clj_value vector_invoke(clj_value self, const clj_value *args, size_t n) 
 	return clj_nth(self, args[0], false, CLJ_NIL);
 }
 
+static clj_value vector_meta(clj_value self) { return clj_retain(vector_of(self)->meta); }
+
+static clj_vector *vector_own(clj_value vec);
+
+// @ai-generated(guided)
+static clj_value vector_with_meta(clj_value self, clj_value m) {
+	if (clj_is_nil(m) && clj_is_nil(vector_of(self)->meta)) return self;
+	clj_vector *v = vector_own(self);
+	clj_value   old = v->meta;
+	store(&v->h, &v->meta, clj_retain(m));
+	clj_release(old);
+	return clj_from_ptr(v);
+}
+
 const clj_type clj_vector_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "vector",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_SEQUENTIAL | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP |
-	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR,
+	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR | CLJ_CORE_META | CLJ_CORE_OBJ,
 	.each_child = vector_each_child,
 	.hash = vector_hash,
 	.equals = vector_equals,
@@ -236,6 +252,8 @@ const clj_type clj_vector_type = {
 	.lookup = vector_lookup,
 	.conj = clj_vector_conj,
 	.invoke = vector_invoke,
+	.meta = vector_meta,
+	.with_meta = vector_with_meta,
 };
 
 static clj_vector empty_vector = {
@@ -272,6 +290,7 @@ static clj_vector *vector_own(clj_value vec) {
 	c->shift = v->shift;
 	c->root = clj_retain(v->root);
 	c->tail = clj_retain(v->tail);
+	c->meta = clj_retain(v->meta);
 	clj_release(vec);
 	return c;
 }
@@ -323,11 +342,19 @@ clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val) {
 clj_value clj_vector_pop(clj_value vec) {
 	uint32_t count = vector_of(vec)->count;
 	if (count == 0) clj_fatal("pop of an empty vector");
-	if (count == 1) {
+	if (count == 1 && clj_is_nil(vector_of(vec)->meta)) {
 		clj_release(vec);
 		return clj_vector_empty();
 	}
 	clj_vector *v = vector_own(vec);
+	if (count == 1) {
+		clj_release(v->root);
+		clj_release(v->tail);
+		v->root = v->tail = clj_from_ptr(&empty_node);
+		v->shift = BITS;
+		v->count = 0;
+		return clj_from_ptr(v);
+	}
 	uint32_t tail_len = count - tail_off(count);
 	if (tail_len > 1) {
 		node *t = node_own(v->tail);
