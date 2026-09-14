@@ -47,6 +47,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   | `IHashEq` | `hasheq` | hash | HASHEQ |
   | `IEquiv` | `equiv` | equals | EQUIV |
   | `IExceptionInfo` | `ex-message ex-data ex-cause` (`getMessage getData getCause`) | ex_message ex_data ex_cause | ERROR |
+  | `IMeta` | `meta` | meta | META |
+  | `IObj` | `meta withMeta` | meta with_meta | OBJ, META |
 
   `count` under `ISeq` fills the slot without the Counted bit; `equiv`/`hasheq` given anywhere set
   EQUIV/HASHEQ (bits only user types carry: `(satisfies? IHashEq [1])` is false). A declared
@@ -55,10 +57,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `Throwable.getMessage` does; `next` missing but `more` given derives next as `(seq (more x))`.
   `(get x k)` reaches a `valAt` that has only the 2-arity, a not-found needs the 3-arity (a `reify`
   trampoline accepts any arity, so its `valAt` always gets 3 args). The trampolines type-check what
-  comes back (`seq`/`next` a seq or nil, `more` a seq, `count` a non-negative integer, ex-* their
-  field types) and throw otherwise. Limitations: `empty` and `applyTo` have no slot and are
-  refused by name; `Associative`, `Indexed`, `IPersistentMap/Vector/List` cannot be implemented (no
-  assoc/nth slots — trigger: the first user map or vector type); `Object` methods
+  comes back (`seq`/`next` a seq or nil, `more` a seq, `count` a non-negative integer, `meta` a map
+  or nil, ex-* their field types) and throw otherwise; `withMeta` may return anything. Limitations:
+  `empty` and `applyTo` have no slot and are refused by name; `Associative`, `Indexed`,
+  `IPersistentMap/Vector/List` cannot be implemented (no assoc/nth slots — trigger: the first user
+  map or vector type); `Object` methods
   (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
   arity error inside a method says `fn` and counts `this`, except `IFn`'s, which the trampoline
   checks first and reports with the type name; no chunked/`IReduce` fast paths, so every element
@@ -70,12 +73,13 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   Shape when it lands: the call node keeps `{type, fn, epoch}` and skips the window and the scan on
   a hit. The cached fn must be retained by the node, not borrowed from the snapshot: a retired
   snapshot releases its impls once every window has closed, and a cached path opens no window.
-- **No `defrecord`, no `.-field` access, no protocol inheritance, no deftype metadata.** A deftype's
-  fields are positional slots read through `field*`, visible as locals inside its own method bodies
-  only; from outside there is no accessor. A protocol cannot extend another. `extend-type` on a
-  core interface as the *type* (`(extend-type ISeq P ...)`) covers every type with those bits, on
-  the concrete type missing; a user protocol cannot be a type designator. Trigger: the first
-  record-shaped state (then a shape descriptor with map slots) or the first `(.-x o)`.
+- **No `defrecord`, no `.-field` access, no protocol inheritance.** A deftype's fields are positional
+  slots read through `field*`, visible as locals inside its own method bodies only; from outside
+  there is no accessor. A deftype carries meta only by implementing `IObj` itself (a field for it).
+  A protocol cannot extend another. `extend-type` on a core interface as the *type*
+  (`(extend-type ISeq P ...)`) covers every type with those bits, on the concrete type missing; a
+  user protocol cannot be a type designator. Trigger: the first record-shaped state (then a shape
+  descriptor with map slots) or the first `(.-x o)`.
 - **`reify` creates its type, slots and protocol tables at macro expansion**, so `macroexpand` of a
   reify form makes a throwaway type (freed with the expansion) and bumps the epoch. Its closures
   live in the instance's fields; the type's slots and tables hold trampolines into them. `deftype`
@@ -85,8 +89,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentList`/`Cons`,
   `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,
   `Protocol`, `Type`, `Object`; the core interfaces `Seqable ISeq Sequential IPersistentCollection
-  Counted ILookup Associative Indexed IFn IHashEq IEquiv IPersistentList IPersistentVector
-  IPersistentMap IExceptionInfo`) holding descriptors; `(type x)` reaches every other one and `nil` is the literal.
+  Counted ILookup Associative Indexed IFn IHashEq IEquiv IMeta IObj IPersistentList
+  IPersistentVector IPersistentMap IExceptionInfo`) holding descriptors; `(type x)` reaches every
+  other one and `nil` is the literal.
   A user `(def String ...)` shadows the name. `Number` does not exist: fixnum and double are two
   descriptors, extend both.
 - **`clj_seq_iter` walks builtin seq types inline** (cons, (), vector, string, the seq.h types) and
@@ -116,6 +121,19 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   thunk that blocks for long with other threads waiting; then park on a condition variable.
 - **A cons is `list?`** (CLJ_CORE_LIST) so reader lists, which are cons chains, satisfy the
   predicate; Clojure's `Cons` is not `IPersistentList`. Goes away with the `clj_list` wrapper below.
+- **Meta lives in per-type fields, not the header** (design, "Дескриптор типа"): symbol, vector, map
+  and fn have a `meta` field; a cons or `()` grows a trailing word under `CLJ_FLAG_META` (the flag
+  survives the dead-link in rc.c so the free path still visits it), so only with-meta'd and
+  reader-produced lists pay 8 bytes; a var has an atomic `meta`. `with-meta` on a unique root sets
+  the field in place, on a shared one copies the root (a fn copy shares code and env; a copy of a
+  native-with-context fn keeps the original alive through `code` and borrows its context, since a
+  context has one release callback). `conj`/`assoc`/`dissoc`/`pop` keep a vector's or map's meta;
+  `conj` on a cons drops it (Clojure's `PersistentList` keeps it, `Cons` does not — the `clj_list`
+  wrapper below fixes that too). Equality, hash and the printer ignore meta (no `*print-meta*`).
+- **The seq views carry no meta slot**: `with-meta` on a vector-seq, string-seq, range or lazy-seq
+  throws "does not support metadata", where Clojure's `IObj` seqs copy themselves with the map.
+  Trigger: a library calling `(with-meta (seq x) ...)` or `(vary-meta (lazy-seq ...) ...)`. Fix: a
+  meta field on each view, or the CLJ_FLAG_META trailing word as for cons.
 - **`nth` special-cases strings by type** rather than a slot: a string has `lookup`/`count` slots
   but no ILookup/Indexed bits, as `RT.get`/`RT.nth` special-case `String`.
 
@@ -159,19 +177,25 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Reader (Sources/CljCore/reader.c)
 
-- **Not supported, reported as errors**: sets `#{}`, metadata `^`, `#(`, regex, namespaced maps `#:`,
-  reader conditionals, tagged literals, `::kw` (needs the current ns), bigint/BigDecimal/ratio/hex/
+- **Not supported, reported as errors**: sets `#{}`, `#(`, regex, namespaced maps `#:`, reader
+  conditionals, tagged literals, `::kw` (needs the current ns), bigint/BigDecimal/ratio/hex/
   radix/octal numbers. Each is a `switch` arm in `read_dispatch`/`parse_number` to replace when the
   feature lands.
+- **Every non-empty list read costs a `{:line :column}` map** (map wrapper plus one node) on its head
+  cons, as Clojure attaches positions to lists only; `'x`, `@x`, `#'x` and the syntax-quote output
+  are built by the reader without one. Syntax-quote drops the meta of the forms it rebuilds where
+  LispReader keeps everything but the position keys. Trigger: `^:once`-style meta inside a
+  syntax-quoted template. Fix: `sq_pop` wrapping the rebuilt collection in `with-meta` when the source
+  had non-position keys.
 - **Syntax-quote resolves through `clj_syntax_quote_resolve` in the thread's current namespace**, not
   the `clj_env.ns` the host later analyzes in; `resolve_ctx` is unused. The two agree while the host
   never calls `clj_ns_set_current`. Trigger: an `ns` form or a per-runtime namespace. Also no ns
   aliases, so `alias/x` is never rewritten, and no Java class heuristic (`foo.Bar` gets qualified).
 - **`~`/`~@` outside syntax-quote are reader errors**, where Clojure reads `(clojure.core/unquote x)`
   and fails later. A literal `(clojure.core/unquote x)` inside a syntax-quote is still an unquote.
-- **No metadata on forms.** `form_line`/`form_col` expose the start of the last top-level form only;
-  nested forms carry no position, so every analysis error reports the top-level form's `:line`/`:column`.
-  Trigger: error messages inside a long `defn`. Needs the symbol/list meta slot.
+- **Only lists carry positions**, so an error on a bare symbol or vector reports the innermost
+  enclosing list, or `form_line`/`form_col` of the top-level form for a top-level symbol; a form
+  built by a macro reports the list the macro call sat in. Clojure does the same.
 - **Input is not validated as UTF-8** except inside a character literal; malformed bytes pass through
   into strings and symbols, and a column counts every non-continuation byte. Trigger: a non-Swift host
   feeding raw bytes.
@@ -193,8 +217,15 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   macros defined in core.clj above the `fn` macro (`when`, `cond`, ...) cannot destructure their
   params. Trigger: a `[bindings & body]`-style macro that wants `[[x y] & body]` up there; move it
   below `fn` or write the `first`/`second` by hand.
-- **No metadata, so no docstrings.** `defn`/`defmacro` accept a docstring and drop it; `^:private`,
-  `^:dynamic`, attr-maps and `(doc x)` need a meta slot on symbols, vars and collections.
+- **Var meta follows Clojure minus `:file`**, and `:ns` is the namespace's *symbol*, not a Namespace
+  object (there is no `ns-name`; `(str (:ns m))` prints the same). `def` evaluates the symbol's meta
+  map as a form, so `^{:tag String}` resolves `String` to the descriptor and an unresolvable symbol in
+  it is an analysis error, as in Clojure. The C builtins (`first`, `meta`, ...) carry no `:doc` or
+  `:arglists`: `(doc first)` prints only the name. Trigger: a doc browser; then a doc column in the
+  `entries` table of builtins.c.
+- **Privacy is a resolve-time rule only.** `^:private` hides a var from the unqualified fallback into
+  clojure.core and refuses a qualified reference from another namespace; `(var ns/x)`, `#'ns/x`,
+  `resolve` of the qualified symbol and a `clj_ns_refer` still reach it (Clojure refuses the refer).
 - **Exceptions unwind by return code, not by `longjmp`**: `try` sees `CLJ_THROWN` from its body and
   takes the pending value; every C frame in between releases its own temporaries on the way out. No
   stack trace is captured, so an uncaught exception reports only the top-level form's position.
@@ -216,14 +247,16 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   analyzed), as `def` does: the name resolves afterwards to an unbound var. Same as Clojure.
 - **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
   "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
-- **`def` is eager and vars are plain roots.** No lazy thunk state, no `^:dynamic`/binding, no
-  `*ns*` var (the current namespace is a thread-local pointer, `user` by default). Trigger: the first
-  ns whose load-time cost shows, or the first `binding`.
-- **Concurrent `def` against `deref` is unsafe.** `clj_var_root` returns a borrowed pointer and a
-  racing `clj_var_bind_root` releases the old root, so a reader may retain a freed value.
-  Redefinition is a dev-time operation until the epoch/inline-cache design (var inline cache, §6)
-  lands; until then evaluate on one thread at a time. Same for `clj_ns_current` vs `clj_init`
-  ordering: call `clj_init` before any evaluation.
+- **`def` is eager and vars are plain roots.** No lazy thunk state, no `binding` (`^:dynamic` only
+  sets `clj_var.dynamic`, which nothing consumes yet), no `*ns*` var (the current namespace is a
+  thread-local pointer, `user` by default). Trigger: the first ns whose load-time cost shows, or the
+  first `binding`.
+- **Concurrent `def` against `deref` is unsafe**, and `alter-meta!`/`reset-meta!` against `meta` the
+  same way: `clj_var_root`/`clj_var_meta` return a borrowed pointer and a racing writer releases the
+  old value, so a reader may retain a freed one (`alter-meta!` is a CAS loop, so its `f` may run
+  more than once under contention, as Clojure's). Redefinition is a dev-time operation until the
+  epoch/inline-cache design (var inline cache, §6) lands; until then evaluate on one thread at a
+  time. Same for `clj_ns_current` vs `clj_init` ordering: call `clj_init` before any evaluation.
 - **Var lookup is a root load on every evaluation** of a var node, no inline cache or epoch check.
   Trigger: profiling a hot loop over core fns.
 - **C stack per Clojure call is large.** Each call is ~5 C frames with slot and argument buffers on the
@@ -248,7 +281,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Coverage is the minimum for the evaluator tests and core.clj**: arithmetic and comparison, type
   predicates, `get assoc dissoc contains? count conj nth first rest next cons list list* vector
   hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
-  resolve deref identical? type instance? satisfies? extends?` (`deref` takes vars only: no atoms),
+  resolve deref identical? type instance? satisfies? extends? meta with-meta alter-meta!
+  reset-meta!` (`deref` takes vars only: no atoms; `alter-meta!`/`reset-meta!` take vars only),
   the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative? indexed? list?
   vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str pr prn print
   println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data ex-cause`. No `keys`, `vals`, `max`,
@@ -273,18 +307,23 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   binary, so it is a build bug, not a user error.
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
-- **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn and or -> ->>
-  comment dotimes if-let when-let assert declare`, the seq library `complement nthrest some every?
-  not-any? not-every? reduce map filter remove keep take drop take-while drop-while iterate repeat
-  range interleave interpose mapcat dorun doall vec partition zipmap`, plus the helpers
-  `check-bindings`, `maybe-destructured` (public vars; Clojure keeps the second private). Not yet:
-  `defn-`, `doto`, `condp`, `case`, `while`, `letfn`, `for`, `doseq`, `fn` literals, `some->`, `as->`,
-  `cond->`, `reduced` (so `reduce` cannot stop early), `sort`, `group-by`, `frequencies`, transducers.
-- **Protocol macros keep their helpers public** (`group-impls`, `form-uses?`, `method-fn`,
-  `method-map`, `body-as-is`), as `destructure` does. `defprotocol` drops docstrings and takes no
-  options (`:extend-via-metadata`, `:on-interface`). `extend` rejects a key that names no method
-  where Clojure ignores it. Method fns are unnamed, so an arity error inside an impl says `fn`; the
-  dispatching fn checks the declared arities first and names the method.
+- **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn defn-
+  vary-meta and or -> ->> comment dotimes if-let when-let assert declare doc`, the seq library
+  `complement nthrest some every? not-any? not-every? reduce map filter remove keep take drop
+  take-while drop-while iterate repeat range interleave interpose mapcat dorun doall vec partition
+  zipmap`, plus the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`
+  (`destructure` is public, as in Clojure). Not yet: `doto`, `condp`, `case`, `while`, `letfn`,
+  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`, `reduced` (so `reduce` cannot stop
+  early), `sort`, `group-by`, `frequencies`, transducers.
+- **`defn` follows clojure.core's** `name docstring? attr-map? ([params] body)+ attr-map?` but has no
+  `:inline`/`:tag` handling and no `:pre`/`:post` map in `sigs` (a map after the params is a body
+  form, see `fn` below). `doc` handles vars only: no special forms, no namespaces.
+- **Protocol macro helpers are private** (`group-impls`, `form-uses?`, `method-fn`, `method-map`,
+  `body-as-is`); they run at expansion time inside clojure.core, so user code never resolves them.
+  `defprotocol` puts its docstrings in `:doc` (the protocol's on its var, a method's on the method's)
+  and takes no options (`:extend-via-metadata`, `:on-interface`). `extend` rejects a key that names
+  no method where Clojure ignores it. Method fns are unnamed, so an arity error inside an impl says
+  `fn`; the dispatching fn checks the declared arities first and names the method.
 - **`concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only**: syntax-quote expands `~@` to
   `(seq (concat ...))`, so every macro expansion runs through it. A macro's output is therefore a
   cons chain with lazy tails, which the analyzer realizes while collecting items; code-sized data,
@@ -320,8 +359,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **The Swift body of a host fn is not `Sendable`-checked** and runs on whichever thread invokes the
   fn; the runtime evaluates on one thread at a time (NOTES, evaluator). Trigger: multi-threaded
   evaluation.
-- **`ClojureError` has no Clojure stack trace** (`clojureTrace` in the design): only the top-level
-  form's `:line`/`:column` in `data`. Same trigger as the shadow stack above.
+- **`ClojureError` has no Clojure stack trace** (`clojureTrace` in the design): only the innermost
+  positioned list's `:line`/`:column` in `data`. Same trigger as the shadow stack above.
 
 ## Printer (Sources/CljCore/printer.c)
 
@@ -332,8 +371,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)
 
-- **Symbols carry no metadata slot.** Trigger: the reader attaching `:line`/`:column`, or `with-meta`
-  on a symbol. Add a `meta` value slot (nil by default) and visit it in `each_child`.
+- **A symbol's meta survives `with-meta` copies only**: `symbol`/`name`/`namespace` and the analyzer
+  work on the fields, and `def` interns a bare copy of a meta-carrying name so the mapping key never
+  holds the var's meta twice.
 - **Interning a keyword is permanent and shows in `clj_debug_live_objects`** (keyword, symbol,
   string, intern-table nodes); tests intern the keywords they use before taking a baseline.
 - **Keyword intern table is one global map under one mutex**, and interning allocates a temporary
@@ -345,6 +385,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - Numbers drift between sessions (thermal, background load). Compare only within one run; use
   `CLJ_SYSTEM_ALLOC=1` on the same binary as the control.
+- The "C iterator" number (3.8 ns/element) moves to 4.3 with identical machine code when the linker
+  places `clj_seq_iter_next`/`clj_vector_nth` differently; `aligned(64)` on both brings it back.
+  Compare that row across builds only with the alignment forced, or read it as ±0.5 ns.
 - Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
