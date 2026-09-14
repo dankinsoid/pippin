@@ -181,3 +181,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `CLJ_SYSTEM_ALLOC=1` on the same binary as the control.
 - Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
   cross-thread free, cost of `clj_share` on a large graph.
+
+## Open decisions
+
+- **File extension and reader-conditional key.** Source stays `.clj` (`.cljc` for portable user
+  code) until the project has a name; the key in `#?(:key …)` and the extension are the same word
+  and permanent, and they should name the runtime (portable C core), not Apple or Swift. Decide when
+  reader conditionals land in the reader.
