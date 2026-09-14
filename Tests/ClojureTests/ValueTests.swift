@@ -103,6 +103,60 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		@Test func mapsRoundTrip() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let m: Value = [Value(keyword: "a"): 1, "b": [2, 3], nil: nil]
+				let read = try Value(reading: "{:a 1 \"b\" [2 3] nil nil}")
+				#expect(m.typeName == "map")
+				#expect(m.dictionary == [Value(keyword: "a"): 1, "b": [2, 3], nil: nil])
+				#expect(m == read)
+				#expect(Value(1).dictionary == nil)
+				#expect(Value([:] as [Value: Value]).dictionary == [:])
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func kindSwitch() throws {
+			func describe(_ v: Value) -> String {
+				switch v.kind {
+				case .nil: "nil"
+				case .bool(let b): "bool \(b)"
+				case .int(let n): "int \(n)"
+				case .char(let c): "char \(c)"
+				case .double(let d): "double \(d)"
+				case .string(let s): "string \(s)"
+				case .keyword("user/name"): "the keyword"
+				case .keyword(let k): "keyword \(k)"
+				case .symbol(let s): "symbol \(s)"
+				case .vector(let xs): "vector of \(xs.count)"
+				case .list(let xs): "list of \(xs.count)"
+				case .map(let m): "map of \(m.count)"
+				case .object(let o): "object \(o.typeName)"
+				}
+			}
+			#expect(describe(nil) == "nil")
+			#expect(describe(true) == "bool true")
+			#expect(describe(-7) == "int -7")
+			#expect(describe(Value("x" as Unicode.Scalar)) == "char x")
+			#expect(describe(1.5) == "double 1.5")
+			#expect(describe("s") == "string s")
+			#expect(describe(Value(keyword: "user/name")) == "the keyword")
+			#expect(describe(Value(keyword: "k")) == "keyword k")
+			#expect(describe(Value(symbol: "clojure.core/if")) == "symbol clojure.core/if")
+			#expect(describe([1, 2]) == "vector of 2")
+			let list = try Value(reading: "(1 2 3)")
+			let empty = try Value(reading: "()")
+			let map = try Value(reading: "{:a 1}")
+			let varQuote = try Value(reading: "#'user/x")
+			let fn = try Runtime().eval("(fn [x] x)")
+			#expect(describe(list) == "list of 3")
+			#expect(describe(empty) == "list of 0")
+			#expect(describe(map) == "map of 1")
+			#expect(describe(varQuote) == "list of 2")
+			#expect(describe(fn) == "object fn")
+		}
+
 		@Test func tagsAreDisjoint() {
 			let samples: [Value] = [nil, false, true, 0, -1, Value("a" as Unicode.Scalar), "a", 1.0]
 			let kinds = samples.map { v in

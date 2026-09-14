@@ -29,6 +29,7 @@ clj_value clj_map_dissoc(clj_value map, clj_value key);
 typedef bool (*clj_map_entry_fn)(clj_value key, clj_value val, void *ctx);
 void clj_map_each(clj_value map, clj_map_entry_fn fn, void *ctx);
 
+static inline bool     clj_is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type; }
 static inline clj_map *clj_map_of(clj_value v) { return (clj_map *)clj_to_ptr(v); }
 
 // Structural comparison of the tries; collision nodes compare as sets.
