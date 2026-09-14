@@ -16,10 +16,13 @@ public struct ClojureError: Error, CustomStringConvertible {
 	public init(thrown: Value) {
 		self.thrown = thrown
 		if thrown.isException {
+			// A deftype error's slots run Clojure code and may throw; that exception's text stands in for the field.
+			func field(_ slot: (clj_value) -> clj_value) -> Value {
+				let raw = slot(thrown.raw)
+				return raw == CLJ_THROWN ? Value(ClojureError(thrown: Value(owning: clj_take_pending())).message) : Value(owning: raw)
+			}
 			(message, data, cause) = withExtendedLifetime(thrown) {
-				(Value(owning: clj_ex_message(thrown.raw)).string ?? "",
-				 Value(owning: clj_ex_data(thrown.raw)),
-				 Value(owning: clj_ex_cause(thrown.raw)))
+				(field(clj_ex_message).string ?? "", field(clj_ex_data), field(clj_ex_cause))
 			}
 		} else {
 			message = "Thrown value: \(thrown)"

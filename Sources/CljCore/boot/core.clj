@@ -684,6 +684,8 @@
 
 ;; Fields are read through field* at the top of each method body, only those the body names and no
 ;; param shadows: a positional slot per field, no (.-field x) access (NOTES.md).
+;; The type is made with every impl in one deftype* call: core interfaces fill its slots at creation.
+;; Name and ->Name are declared first so a method body can construct or test for its own type.
 (defmacro deftype
   "(deftype Name [field ...] proto (m [this a] ...) ...): a type, its ->Name constructor and the impls."
   [nm fields & impls]
@@ -703,13 +705,13 @@
                                     acc))]
                    (if (seq bindings) (list `(let ~bindings ~@body)) body))))]
     `(do
-       (def ~nm (deftype* '~nm '~fields))
+       (declare ~nm)
        (def ~ctor (fn [~@fields] (new* ~nm ~@fields)))
-       ~@(map (fn [g] `(extend* ~nm ~(first g) ~(method-map (second g) wrap))) groups)
+       (def ~nm (deftype* '~nm '~fields ~@(mapcat (fn [g] [(first g) (method-map (second g) wrap)]) groups)))
        ~nm)))
 
-;; The type is made and extended once, at expansion: its slots hold trampolines into the instance's
-;; fields, one per method, which the expansion fills with closures over the site's locals.
+;; The type is made once, at expansion: its slots and protocol tables hold trampolines into the
+;; instance's fields, one per method, which the expansion fills with closures over the site's locals.
 (defmacro reify
   "(reify proto (m [this a] ...) ...): an instance of an anonymous type closing over the locals in scope."
   [& impls]
@@ -723,17 +725,16 @@
                                  (recur (next ms) (conj acc [p (first (first ms)) (second (first ms)) (count acc)]))
                                  acc))))
                     acc))
-        t (deftype* (gensym "reify__") (vec (map (fn [e] (nth e 1)) entries)))
         proto-value (fn [p]
                       (if (symbol? p)
                         (let [v (resolve p)]
                           (if v (deref v) (throw (ex-info (str "Unable to resolve protocol: " p) nil))))
-                        p))]
-    (dorun (map (fn [g]
-                  (extend* t (proto-value (first g))
-                           (loop [es (seq (filter (fn [e] (= (nth e 0) (first g))) entries)) m {}]
-                             (if es
-                               (recur (next es) (assoc m (keyword (name (nth (first es) 1))) (trampoline* (nth (first es) 3))))
-                               m))))
-                groups))
+                        p))
+        trampolines (fn [g]
+                      (loop [es (seq (filter (fn [e] (= (nth e 0) (first g))) entries)) m {}]
+                        (if es
+                          (recur (next es) (assoc m (keyword (name (nth (first es) 1))) (trampoline* (nth (first es) 3))))
+                          m)))
+        t (apply deftype* (gensym "reify__") (vec (map (fn [e] (nth e 1)) entries))
+                 (mapcat (fn [g] [(proto-value (first g)) (trampolines g)]) groups))]
     `(new* ~t ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))
