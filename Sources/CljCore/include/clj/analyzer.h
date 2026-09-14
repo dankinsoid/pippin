@@ -5,11 +5,11 @@
 #include "object.h"
 
 // Forms become a tree of nodes; every symbol is resolved here, so evaluation never looks a name up.
-// Nodes are heap objects: a closure retains its fn node, which keeps the bodies alive past the form.
+// A tree is the program only: immutable once analyzed and free of interpreter state, so an evaluator (eval.h)
+// and an emitter read the same nodes. Per-node execution state lives in a side table indexed by node id.
+// Nodes are heap objects: a closure retains the tree it was created in, which keeps its bodies alive past the form.
 
-typedef struct clj_node  clj_node;
-typedef struct clj_frame clj_frame;
-typedef clj_value (*clj_eval_fn)(const clj_node *node, clj_frame *frame);
+typedef struct clj_node clj_node;
 
 typedef enum {
 	CLJ_NODE_CONST,
@@ -37,8 +37,8 @@ typedef struct {
 	uint32_t  nparams;  // fixed parameters, in slots 0..nparams-1; the rest parameter follows in slot nparams
 	bool      variadic;
 	int32_t   self_slot; // the fn's own name, -1 when anonymous
-	uint32_t  nslots;
-	clj_node *body;
+	uint32_t        nslots;
+	const clj_node *body;
 } clj_fn_arity;
 
 // Which thrown values a catch clause takes. There is no class hierarchy: :default, Throwable, Exception and
@@ -47,8 +47,8 @@ typedef enum { CLJ_CATCH_ALL, CLJ_CATCH_ERROR } clj_catch_kind;
 
 typedef struct {
 	clj_catch_kind kind;
-	uint32_t       slot; // the binding, a frame slot as for let*
-	clj_node      *handler;
+	uint32_t        slot; // the binding, a frame slot as for let*
+	const clj_node *handler;
 } clj_catch;
 
 // Where a closure takes a captured value from in the frame that creates it.
@@ -60,28 +60,29 @@ typedef struct {
 struct clj_node {
 	clj_header    h;
 	clj_node_kind kind;
-	clj_eval_fn   eval;
+	uint32_t      id;     // pre-order index within its tree; the root is 0
+	uint32_t      nnodes; // size of the subtree: it holds the ids id .. id + nnodes - 1
 	union {
 		clj_value value; // const
 		uint32_t  index; // local, captured
 		clj_value var;   // var
 		struct {
-			clj_node *test, *then, *else_; // else_ is NULL for a two-armed if
+			const clj_node *test, *then, *else_; // else_ is NULL for a two-armed if
 		} if_;
 		struct {
-			clj_node **items; // do, vector; map alternates key, value
-			uint32_t   n;
+			const clj_node **items; // do, vector; map alternates key, value
+			uint32_t         n;
 		} seq;
 		struct {
-			uint32_t  *slots; // let, loop
-			clj_node **inits;
-			uint32_t   n;
-			clj_node  *body;
+			uint32_t        *slots; // let, loop
+			const clj_node **inits;
+			uint32_t         n;
+			const clj_node  *body;
 		} let;
 		struct {
-			clj_node **args;
-			uint32_t  *slots; // the target's binding slots, in order
-			uint32_t   n;
+			const clj_node **args;
+			uint32_t        *slots; // the target's binding slots, in order
+			uint32_t         n;
 		} recur;
 		struct {
 			clj_value      name; // symbol or nil
@@ -91,40 +92,52 @@ struct clj_node {
 			uint32_t       ncaptures;
 		} fn;
 		struct {
-			clj_node  *fn;
-			clj_node **args;
-			uint32_t   n;
+			const clj_node  *fn;
+			const clj_node **args;
+			uint32_t         n;
 		} invoke;
 		struct {
-			clj_value var;
-			clj_node *init;    // NULL for (def x)
-			clj_node *meta;    // the var's meta: the symbol's meta plus :ns :name :line :column, evaluated at def time
-			bool      macro;   // defmacro
-			bool      dynamic; // :dynamic in the symbol's meta
+			clj_value       var;
+			const clj_node *init;    // NULL for (def x)
+			const clj_node *meta;    // the var's meta: the symbol's meta plus :ns :name :line :column, evaluated at def time
+			bool            macro;   // defmacro
+			bool            dynamic; // :dynamic in the symbol's meta
 		} def;
 		struct {
-			clj_node  *body;
-			clj_catch *catches; // tried in order
-			uint32_t   ncatches;
-			clj_node  *finally_; // NULL when absent
+			const clj_node *body;
+			clj_catch      *catches; // tried in order
+			uint32_t        ncatches;
+			const clj_node *finally_; // NULL when absent
 		} try_;
-		clj_node *throw_; // the value to throw
+		const clj_node *throw_; // the value to throw
 	} u;
 };
 
 extern const clj_type clj_node_type;
 
-static inline clj_node *clj_node_of(clj_value v) { return (clj_node *)clj_to_ptr(v); }
+static inline const clj_node *clj_node_of(clj_value v) { return (const clj_node *)clj_to_ptr(v); }
+
+// The child nodes of n in id order, each once: the walk a numbering, an exec table or an emitter follows.
+typedef void (*clj_node_visitor)(const clj_node *child, void *ctx);
+void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx);
 
 typedef struct {
 	clj_value ns;        // namespace to resolve in; nil means the current one
 	uint32_t  line, col; // position of the top-level form for error data, 0 when unknown
 } clj_env;
 
-// Owned node, or NULL with the exception pending. *nslots is the number of frame slots the tree needs.
+// Owned tree, or NULL with the exception pending. Top-level let/loop/catch slots are numbered from 0, so the
+// frame a tree needs is one past its highest slot (clj_exec_new counts them).
 // An error reports the :line/:column of the innermost enclosing list that carries them (the reader puts
 // them on every list), falling back to env's position.
-clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots);
+clj_node *clj_analyze(clj_value form, const clj_env *env);
+
+// EDN-shaped encoding of a tree (the grammar heads node_data.c): owned data, or CLJ_THROWN "not serializable:
+// <type>" for a constant that would not read back (a protocol, a deftype descriptor, a host value, a fn).
+clj_value clj_node_to_data(const clj_node *root);
+// Owned tree from that data with fresh ids, or NULL with the exception pending on a malformed shape. A var
+// resolves by its qualified symbol and is interned when missing, so the tree never dangles.
+clj_node *clj_node_from_data(clj_value data);
 
 // The :line/:column a form's meta carries (the reader puts them on lists); false without both.
 bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col);

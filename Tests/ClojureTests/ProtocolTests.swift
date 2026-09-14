@@ -245,7 +245,8 @@ extension CoreTests {
 
 		@Test func concurrentDispatchWhileExtending() throws {
 			try declare("Hit", "hit", "H", "->H")
-			_ = try rt.eval("(defprotocol Hit (hit [this])) (deftype H [n] Hit (hit [this] n)) (extend-type Long Hit (hit [n] n))")
+			// A closure keeps its whole top-level tree alive, so the restore below repeats these exact forms.
+			_ = try rt.eval("(defprotocol Hit (hit [this])) (deftype H [n]) (extend-type Long Hit (hit [n] n)) (extend-type H Hit (hit [this] (field* this 0)))")
 			let before = clj_debug_live_objects()
 			do {
 				let call = try rt.eval("(fn [x] (hit x))")
@@ -278,7 +279,7 @@ extension CoreTests {
 					#expect(sums[i] >= 8 * rounds && sums[i] <= 10 * rounds, "\(sums[i])")
 				}
 				// Back to the original impls, in their original shape, for the live count.
-				_ = try rt.eval("(extend-type Long Hit (hit [n] n)) (extend-type H Hit (hit [this] (let [n (field* this 0)] n)))")
+				_ = try rt.eval("(extend-type Long Hit (hit [n] n)) (extend-type H Hit (hit [this] (field* this 0)))")
 				#expect(try rt.eval("[(hit 5) (hit (->H 3))]") == [5, 3])
 			}
 			#expect(clj_debug_live_objects() == before)

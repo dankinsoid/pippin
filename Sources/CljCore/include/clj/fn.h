@@ -4,6 +4,8 @@
 
 #include "object.h"
 
+typedef struct clj_node clj_node;
+
 // args are borrowed; the result is owned or CLJ_THROWN.
 typedef clj_value (*clj_native_fn)(const clj_value *args, size_t n);
 // The same with a context: how a host closure (a Swift block) becomes a fn. ctx is borrowed from the fn.
@@ -26,8 +28,9 @@ typedef struct {
 			void             *ctx;
 			void (*release)(void *ctx); // NULL when ctx needs no cleanup
 		} native_ctx;
+		const clj_node *node; // closure: its fn node, borrowed from the exec in code
 	} u;
-	clj_value code; // fn node (analyzer.h) of a closure; a native parks a value its ctx borrows here (a protocol method: its protocol, a with-meta copy: the original)
+	clj_value code; // exec (eval.h) of a closure's tree; a native parks a value its ctx borrows here (a protocol method: its protocol, a with-meta copy: the original)
 	clj_value meta; // map or nil
 	uint32_t  nenv;
 	clj_value env[]; // captured values, owned
@@ -38,8 +41,8 @@ extern const clj_type clj_fn_type;
 clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity);
 // The fn owns ctx: release runs once, when the fn dies, on whatever thread drops the last reference.
 clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, void (*release)(void *ctx), uint32_t min_arity, uint32_t max_arity);
-// env items are borrowed and retained.
-clj_value clj_fn_closure(clj_value code, clj_value name, const clj_value *env, uint32_t nenv);
+// node is a fn node of exec's tree; env items are borrowed and retained.
+clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, const clj_value *env, uint32_t nenv);
 
 static inline bool    clj_is_fn(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_fn_type; }
 static inline clj_fn *clj_fn_of(clj_value v) { return (clj_fn *)clj_to_ptr(v); }

@@ -8,7 +8,6 @@
 #include "clj/analyzer.h"
 #include "clj/coll.h"
 #include "clj/error.h"
-#include "clj/eval.h"
 #include "clj/fn.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
@@ -19,12 +18,13 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "node.h"
 
-static void visit_node(clj_node *n, clj_visitor visit, void *ctx) {
-	if (n) visit(clj_from_ptr(n), ctx);
+static void visit_node(const clj_node *n, clj_visitor visit, void *ctx) {
+	if (n) visit(clj_from_ptr((void *)n), ctx);
 }
 
-static void visit_nodes(clj_node **nodes, uint32_t n, clj_visitor visit, void *ctx) {
+static void visit_nodes(const clj_node **nodes, uint32_t n, clj_visitor visit, void *ctx) {
 	for (uint32_t i = 0; i < n; i++) visit_node(nodes[i], visit, ctx);
 }
 
@@ -238,11 +238,79 @@ static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
 	return r;
 }
 
-static clj_node *node_new(clj_node_kind kind) {
+clj_node *clj_node_alloc(clj_node_kind kind) {
 	clj_node *n = clj_alloc(&clj_node_type, sizeof *n);
 	n->kind = kind;
-	n->eval = clj_node_eval_fn(kind);
 	return n;
+}
+
+static clj_node *node_new(clj_node_kind kind) { return clj_node_alloc(kind); }
+
+static void child(const clj_node *n, clj_node_visitor visit, void *ctx) {
+	if (n) visit(n, ctx);
+}
+
+static void children(const clj_node *const *nodes, uint32_t n, clj_node_visitor visit, void *ctx) {
+	for (uint32_t i = 0; i < n; i++) child(nodes[i], visit, ctx);
+}
+
+// Same order as node_each_child minus the values; the codec and the exec table rely on it matching ids.
+// @ai-generated(guided)
+void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
+	switch (n->kind) {
+	case CLJ_NODE_CONST:
+	case CLJ_NODE_LOCAL:
+	case CLJ_NODE_CAPTURED:
+	case CLJ_NODE_VAR: break;
+	case CLJ_NODE_IF:
+		child(n->u.if_.test, visit, ctx);
+		child(n->u.if_.then, visit, ctx);
+		child(n->u.if_.else_, visit, ctx);
+		break;
+	case CLJ_NODE_DO:
+	case CLJ_NODE_VECTOR:
+	case CLJ_NODE_MAP: children(n->u.seq.items, n->u.seq.n, visit, ctx); break;
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		children(n->u.let.inits, n->u.let.n, visit, ctx);
+		child(n->u.let.body, visit, ctx);
+		break;
+	case CLJ_NODE_RECUR: children(n->u.recur.args, n->u.recur.n, visit, ctx); break;
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+			if (n->u.fn.fixed[i]) child(n->u.fn.fixed[i]->body, visit, ctx);
+		}
+		if (n->u.fn.variadic) child(n->u.fn.variadic->body, visit, ctx);
+		break;
+	case CLJ_NODE_INVOKE:
+		child(n->u.invoke.fn, visit, ctx);
+		children(n->u.invoke.args, n->u.invoke.n, visit, ctx);
+		break;
+	case CLJ_NODE_DEF:
+		child(n->u.def.init, visit, ctx);
+		child(n->u.def.meta, visit, ctx);
+		break;
+	case CLJ_NODE_TRY:
+		child(n->u.try_.body, visit, ctx);
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) child(n->u.try_.catches[i].handler, visit, ctx);
+		child(n->u.try_.finally_, visit, ctx);
+		break;
+	case CLJ_NODE_THROW: child(n->u.throw_, visit, ctx); break;
+	}
+}
+
+// The tree is still the analyzer's own here: the const on the visitor's argument is dropped once.
+static void number(const clj_node *n, void *ctx) {
+	uint32_t *counter = ctx;
+	clj_node *m = (clj_node *)n;
+	m->id = (*counter)++;
+	clj_node_children(m, number, counter);
+	m->nnodes = *counter - m->id;
+}
+
+void clj_node_number(clj_node *root) {
+	uint32_t counter = 0;
+	number(root, &counter);
 }
 
 static clj_node *node_const(clj_value v) {
@@ -467,7 +535,7 @@ clj_value clj_macroexpand(clj_value form, const clj_env *env) {
 	return r;
 }
 
-static bool all_const(clj_node *const *nodes, uint32_t n) {
+static bool all_const(const clj_node *const *nodes, uint32_t n) {
 	for (uint32_t i = 0; i < n; i++) {
 		if (nodes[i]->kind != CLJ_NODE_CONST) return false;
 	}
@@ -475,7 +543,7 @@ static bool all_const(clj_node *const *nodes, uint32_t n) {
 }
 
 // A literal whose elements all analyzed to constants folds into one constant.
-static clj_node *fold_or_keep(clj_node *node, clj_value (*build)(clj_node *const *, uint32_t)) {
+static clj_node *fold_or_keep(clj_node *node, clj_value (*build)(const clj_node *const *, uint32_t)) {
 	if (!all_const(node->u.seq.items, node->u.seq.n)) return node;
 	clj_value v = build(node->u.seq.items, node->u.seq.n);
 	clj_node *c = node_const(v);
@@ -484,7 +552,7 @@ static clj_node *fold_or_keep(clj_node *node, clj_value (*build)(clj_node *const
 	return c;
 }
 
-static clj_value build_vector(clj_node *const *items, uint32_t n) {
+static clj_value build_vector(const clj_node *const *items, uint32_t n) {
 	clj_value *vals = zalloc(n, sizeof *vals);
 	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value;
 	clj_value v = clj_vector_from_array(vals, n);
@@ -492,13 +560,13 @@ static clj_value build_vector(clj_node *const *items, uint32_t n) {
 	return v;
 }
 
-static clj_value build_map(clj_node *const *items, uint32_t n) {
+static clj_value build_map(const clj_node *const *items, uint32_t n) {
 	clj_value m = clj_map_empty();
 	for (uint32_t i = 0; i < n; i += 2) m = clj_map_assoc(m, items[i]->u.value, items[i + 1]->u.value);
 	return m;
 }
 
-static bool analyze_into(analyzer *a, scope *s, clj_node **out, const clj_value *forms, uint32_t n, bool tail_last) {
+static bool analyze_into(analyzer *a, scope *s, const clj_node **out, const clj_value *forms, uint32_t n, bool tail_last) {
 	for (uint32_t i = 0; i < n; i++) {
 		out[i] = analyze(a, s, forms[i], tail_last && i + 1 == n);
 		if (!out[i]) return false;
@@ -809,13 +877,13 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 		return NULL;
 	}
 	if (n == 3) {
-		node->u.def.init = analyze(a, s, items[2], false);
-		if (!node->u.def.init) {
+		clj_node *init = analyze(a, s, items[2], false);
+		node->u.def.init = init;
+		if (!init) {
 			clj_release(clj_from_ptr(node));
 			return NULL;
 		}
 		// (def f (fn ...)) names the fn after the var, as Clojure does, so arity errors can say who.
-		clj_node *init = node->u.def.init;
 		if (init->kind == CLJ_NODE_FN && clj_is_nil(init->u.fn.name)) init->u.fn.name = clj_symbol_new(ns_name, clj_symbol_name(sym));
 	}
 	return node;
@@ -1026,7 +1094,7 @@ static bool analyze_catch(analyzer *a, scope *s, clj_catch *c, clj_value clause)
 }
 
 // @ai-generated(guided)
-static bool analyze_finally(analyzer *a, scope *s, clj_node **out, clj_value clause) {
+static bool analyze_finally(analyzer *a, scope *s, const clj_node **out, clj_value clause) {
 	uint32_t   n;
 	clj_value *items = seq_items(a, clause, &n);
 	if (!items) return false;
@@ -1134,12 +1202,12 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	return node_const(form);
 }
 
-clj_node *clj_analyze(clj_value form, const clj_env *env, uint32_t *nslots) {
+clj_node *clj_analyze(clj_value form, const clj_env *env) {
 	analyzer  a = analyzer_for(env);
 	scope     top = {0};
 	clj_node *node = analyze(&a, &top, form, false);
 	free(top.locals);
 	clj_release(a.keeps);
-	*nslots = top.nslots;
+	if (node) clj_node_number(node);
 	return node;
 }

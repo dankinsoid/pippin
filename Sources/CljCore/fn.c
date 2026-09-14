@@ -111,12 +111,14 @@ clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, voi
 	return clj_from_ptr(f);
 }
 
-clj_value clj_fn_closure(clj_value code, clj_value name, const clj_value *env, uint32_t nenv) {
+clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, const clj_value *env, uint32_t nenv) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
+	CLJ_ASSERT(node->kind == CLJ_NODE_FN, "closure code must be a fn node");
 	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
 	f->name = clj_retain(name);
 	f->kind = CLJ_FN_CLOSURE;
-	f->code = clj_retain(code);
+	f->u.node = node;
+	f->code = clj_retain(exec);
 	f->nenv = nenv;
 	for (uint32_t i = 0; i < nenv; i++) f->env[i] = clj_retain(env[i]);
 	return clj_from_ptr(f);
@@ -135,7 +137,7 @@ bool clj_fn_accepts(clj_value f, size_t n) {
 	if (!clj_is_fn(f)) return true;
 	const clj_fn *fn = clj_fn_of(f);
 	if (fn->kind != CLJ_FN_CLOSURE) return n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity);
-	const clj_node *code = clj_node_of(fn->code);
+	const clj_node *code = fn->u.node;
 	if (n <= CLJ_FN_MAX_FIXED && code->u.fn.fixed[n]) return true;
 	return code->u.fn.variadic && n >= code->u.fn.variadic->nparams;
 }

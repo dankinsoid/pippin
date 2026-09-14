@@ -34,6 +34,8 @@ static void buf_free(clj_value *small, clj_value *p) {
 	if (p != small) free(p);
 }
 
+static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
+
 static void slot_set(clj_frame *f, uint32_t i, clj_value v) {
 	clj_value old = f->slots[i];
 	f->slots[i] = v;
@@ -41,9 +43,9 @@ static void slot_set(clj_frame *f, uint32_t i, clj_value v) {
 }
 
 // Evaluates nodes into out; on failure releases what was already evaluated.
-static bool eval_all(clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out) {
+static bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out) {
 	for (uint32_t i = 0; i < n; i++) {
-		clj_value v = nodes[i]->eval(nodes[i], f);
+		clj_value v = eval_child(nodes[i], f);
 		if (v == CLJ_THROWN) {
 			for (uint32_t j = 0; j < i; j++) clj_release(out[j]);
 			return false;
@@ -68,27 +70,27 @@ static clj_value eval_var(const clj_node *n, clj_frame *f) {
 }
 
 static clj_value eval_if(const clj_node *n, clj_frame *f) {
-	clj_value test = n->u.if_.test->eval(n->u.if_.test, f);
+	clj_value test = eval_child(n->u.if_.test, f);
 	if (test == CLJ_THROWN) return CLJ_THROWN;
 	bool truthy = clj_truthy(test);
 	clj_release(test);
 	const clj_node *branch = truthy ? n->u.if_.then : n->u.if_.else_;
-	return branch ? branch->eval(branch, f) : CLJ_NIL;
+	return branch ? eval_child(branch, f) : CLJ_NIL;
 }
 
 static clj_value eval_do(const clj_node *n, clj_frame *f) {
 	uint32_t last = n->u.seq.n - 1;
 	for (uint32_t i = 0; i < last; i++) {
-		clj_value v = n->u.seq.items[i]->eval(n->u.seq.items[i], f);
+		clj_value v = eval_child(n->u.seq.items[i], f);
 		if (v == CLJ_THROWN) return CLJ_THROWN;
 		clj_release(v);
 	}
-	return n->u.seq.items[last]->eval(n->u.seq.items[last], f);
+	return eval_child(n->u.seq.items[last], f);
 }
 
 static bool bind_all(const clj_node *n, clj_frame *f) {
 	for (uint32_t i = 0; i < n->u.let.n; i++) {
-		clj_value v = n->u.let.inits[i]->eval(n->u.let.inits[i], f);
+		clj_value v = eval_child(n->u.let.inits[i], f);
 		if (v == CLJ_THROWN) return false;
 		slot_set(f, n->u.let.slots[i], v);
 	}
@@ -97,14 +99,14 @@ static bool bind_all(const clj_node *n, clj_frame *f) {
 
 static clj_value eval_let(const clj_node *n, clj_frame *f) {
 	if (!bind_all(n, f)) return CLJ_THROWN;
-	return n->u.let.body->eval(n->u.let.body, f);
+	return eval_child(n->u.let.body, f);
 }
 
 // recur has already rebound the slots when the body yields CLJ_RECUR; the loop is a C loop, not a call.
 static clj_value eval_loop(const clj_node *n, clj_frame *f) {
 	if (!bind_all(n, f)) return CLJ_THROWN;
 	for (;;) {
-		clj_value v = n->u.let.body->eval(n->u.let.body, f);
+		clj_value v = eval_child(n->u.let.body, f);
 		if (v != CLJ_RECUR) return v;
 	}
 }
@@ -128,13 +130,13 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 		const clj_capture *c = &n->u.fn.captures[i];
 		env[i] = c->from_captured ? f->captured[c->index] : f->slots[c->index];
 	}
-	clj_value fn = clj_fn_closure(clj_from_ptr((void *)n), n->u.fn.name, env, n->u.fn.ncaptures);
+	clj_value fn = clj_fn_closure(clj_from_ptr((void *)f->exec), n, n->u.fn.name, env, n->u.fn.ncaptures);
 	buf_free(small, env);
 	return fn;
 }
 
 static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
-	clj_value fn = n->u.invoke.fn->eval(n->u.invoke.fn, f);
+	clj_value fn = eval_child(n->u.invoke.fn, f);
 	if (fn == CLJ_THROWN) return CLJ_THROWN;
 	clj_value  small[SMALL_ARGS];
 	clj_value *args = buf_alloc(small, n->u.invoke.n);
@@ -151,12 +153,12 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 // Root first, then meta, then the flags, as DefExpr.eval does.
 static clj_value eval_def(const clj_node *n, clj_frame *f) {
 	if (n->u.def.init) {
-		clj_value v = n->u.def.init->eval(n->u.def.init, f);
+		clj_value v = eval_child(n->u.def.init, f);
 		if (v == CLJ_THROWN) return CLJ_THROWN;
 		clj_var_bind_root(n->u.def.var, v);
 		clj_release(v);
 	}
-	clj_value m = n->u.def.meta->eval(n->u.def.meta, f);
+	clj_value m = eval_child(n->u.def.meta, f);
 	if (m == CLJ_THROWN) return CLJ_THROWN;
 	if (!clj_is_map(m)) {
 		clj_value e = clj_throw_msg("def metadata must be a map, got: %s", clj_type_name(m));
@@ -206,7 +208,7 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 
 // @ai-generated(guided)
 static clj_value eval_throw(const clj_node *n, clj_frame *f) {
-	clj_value v = n->u.throw_->eval(n->u.throw_, f);
+	clj_value v = eval_child(n->u.throw_, f);
 	if (v == CLJ_THROWN) return CLJ_THROWN;
 	return clj_throw(v);
 }
@@ -219,7 +221,7 @@ static bool catch_matches(const clj_catch *c, clj_value ex) {
 // arrives here. finally runs on both paths; when it throws, its exception replaces the in-flight one.
 // @ai-generated(guided)
 static clj_value eval_try(const clj_node *n, clj_frame *f) {
-	clj_value v = n->u.try_.body->eval(n->u.try_.body, f);
+	clj_value v = eval_child(n->u.try_.body, f);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped a try body");
 	if (v == CLJ_THROWN && n->u.try_.ncatches) {
 		clj_value ex = clj_take_pending();
@@ -228,7 +230,7 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 			const clj_catch *c = &n->u.try_.catches[i];
 			if (!catch_matches(c, ex)) continue;
 			slot_set(f, c->slot, ex);
-			v = c->handler->eval(c->handler, f);
+			v = eval_child(c->handler, f);
 			handled = true;
 		}
 		if (!handled) clj_throw(ex);
@@ -236,7 +238,7 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 	if (n->u.try_.finally_) {
 		// The pending slot is free while finally runs; the in-flight exception is parked here.
 		clj_value parked = v == CLJ_THROWN ? clj_take_pending() : CLJ_NIL;
-		clj_value fv = n->u.try_.finally_->eval(n->u.try_.finally_, f);
+		clj_value fv = eval_child(n->u.try_.finally_, f);
 		if (fv == CLJ_THROWN) {
 			clj_release(v == CLJ_THROWN ? parked : v);
 			return CLJ_THROWN;
@@ -247,7 +249,7 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 	return v;
 }
 
-clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
+static clj_eval_fn eval_fn_of(clj_node_kind kind) {
 	switch (kind) {
 	case CLJ_NODE_CONST: return eval_const;
 	case CLJ_NODE_LOCAL: return eval_local;
@@ -267,6 +269,58 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_THROW: return eval_throw;
 	}
 	clj_fatal("unknown node kind");
+}
+
+static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
+	const clj_exec *e = self;
+	visit(clj_from_ptr((void *)e->root), ctx);
+}
+
+const clj_type clj_exec_type = {
+	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.name = "exec",
+	.each_child = exec_each_child,
+};
+
+typedef struct {
+	clj_exec *exec;
+	bool      top; // outside every fn: these slots belong to the root's frame
+} build_ctx;
+
+static void note_slot(build_ctx *b, uint32_t slot) {
+	if (b->top && slot >= b->exec->nslots) b->exec->nslots = slot + 1;
+}
+
+// @ai-generated(guided)
+static void build(const clj_node *n, void *ctx) {
+	build_ctx *b = ctx;
+	b->exec->nodes[n->id].eval = eval_fn_of(n->kind);
+	switch (n->kind) {
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		for (uint32_t i = 0; i < n->u.let.n; i++) note_slot(b, n->u.let.slots[i]);
+		break;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) note_slot(b, n->u.try_.catches[i].slot);
+		break;
+	case CLJ_NODE_FN: {
+		build_ctx inner = {b->exec, false};
+		clj_node_children(n, build, &inner);
+		return;
+	}
+	default: break;
+	}
+	clj_node_children(n, build, b);
+}
+
+clj_value clj_exec_new(const clj_node *root) {
+	CLJ_ASSERT(root->id == 0, "exec needs the root of a tree");
+	clj_exec *e = clj_alloc(&clj_exec_type, sizeof *e + root->nnodes * sizeof *e->nodes);
+	clj_retain(clj_from_ptr((void *)root));
+	e->root = root;
+	build_ctx b = {e, true};
+	build(root, &b);
+	return clj_from_ptr(e);
 }
 
 // Lowest address the interpreter may still use on this thread; computed once per thread.
@@ -300,7 +354,7 @@ static clj_value arity_error(clj_value f, size_t n) {
 
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) {
 	const clj_fn       *fn = clj_fn_of(f);
-	const clj_node     *code = clj_node_of(fn->code);
+	const clj_node     *code = fn->u.node;
 	const clj_fn_arity *arity = NULL;
 	if (n <= CLJ_FN_MAX_FIXED) arity = code->u.fn.fixed[n];
 	if (!arity && code->u.fn.variadic && n >= code->u.fn.variadic->nparams) arity = code->u.fn.variadic;
@@ -318,10 +372,10 @@ clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) {
 	if (arity->variadic) slots[arity->nparams] = n > arity->nparams ? clj_list_from_array(args + arity->nparams, n - arity->nparams) : CLJ_NIL;
 	if (arity->self_slot >= 0) slots[arity->self_slot] = clj_retain(f);
 
-	clj_frame frame = {slots, (clj_value *)fn->env};
+	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code)};
 	clj_value v;
 	for (;;) {
-		v = arity->body->eval(arity->body, &frame);
+		v = eval_child(arity->body, &frame);
 		if (v != CLJ_RECUR) break;
 	}
 	for (uint32_t i = 0; i < arity->nslots; i++) clj_release(slots[i]);
@@ -329,19 +383,28 @@ clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) {
 	return v;
 }
 
-clj_value clj_eval_node(const clj_node *node, uint32_t nslots) {
-	clj_value  small[SMALL_SLOTS];
-	clj_value *slots = small;
+clj_value clj_exec_run(clj_value exec) {
+	const clj_exec *e = clj_exec_of(exec);
+	uint32_t        nslots = e->nslots;
+	clj_value       small[SMALL_SLOTS];
+	clj_value      *slots = small;
 	if (nslots > SMALL_SLOTS) {
 		slots = malloc(nslots * sizeof *slots);
 		if (!slots) clj_fatal("out of memory");
 	}
 	memset(slots, 0, nslots * sizeof *slots);
-	clj_frame frame = {slots, NULL};
-	clj_value v = node->eval(node, &frame);
+	clj_frame frame = {slots, NULL, e};
+	clj_value v = eval_child(e->root, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
 	for (uint32_t i = 0; i < nslots; i++) clj_release(slots[i]);
 	if (slots != small) free(slots);
+	return v;
+}
+
+clj_value clj_eval_node(const clj_node *node) {
+	clj_value exec = clj_exec_new(node);
+	clj_value v = clj_exec_run(exec);
+	clj_release(exec);
 	return v;
 }
 
@@ -379,10 +442,9 @@ clj_value clj_eval(clj_value form, const clj_env *given) {
 			v = CLJ_THROWN;
 		}
 	} else {
-		uint32_t  nslots;
-		clj_node *node = clj_analyze(expanded, env, &nslots);
-		v = node ? clj_eval_node(node, nslots) : CLJ_THROWN;
-		if (node) clj_release(clj_from_ptr(node));
+		const clj_node *node = clj_analyze(expanded, env);
+		v = node ? clj_eval_node(node) : CLJ_THROWN;
+		if (node) clj_release(clj_from_ptr((void *)node));
 	}
 	clj_release(expanded);
 	return v;
