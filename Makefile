@@ -1,7 +1,11 @@
-.PHONY: build bench test test-pool test-ubsan
+.PHONY: build boot bench test test-pool test-ubsan
 
 build:
 	swift build
+
+# Re-embeds boot/core.clj; a test checks the embedded bytes against the file, so commit both.
+boot:
+	sh scripts/embed-core.sh
 
 # ASan sees object boundaries only with the system allocator.
 test:

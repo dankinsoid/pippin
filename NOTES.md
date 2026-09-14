@@ -57,10 +57,16 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Reader (Sources/CljCore/reader.c)
 
-- **Not supported, reported as errors**: sets `#{}`, metadata `^`, syntax-quote and unquote, `#(`,
-  regex, var quote, namespaced maps `#:`, reader conditionals, tagged literals, `::kw` (needs the
-  current ns), bigint/BigDecimal/ratio/hex/radix/octal numbers. Each is a `switch` arm in
-  `read_dispatch`/`parse_number` to replace when the feature lands.
+- **Not supported, reported as errors**: sets `#{}`, metadata `^`, `#(`, regex, namespaced maps `#:`,
+  reader conditionals, tagged literals, `::kw` (needs the current ns), bigint/BigDecimal/ratio/hex/
+  radix/octal numbers. Each is a `switch` arm in `read_dispatch`/`parse_number` to replace when the
+  feature lands.
+- **Syntax-quote resolves through `clj_syntax_quote_resolve` in the thread's current namespace**, not
+  the `clj_env.ns` the host later analyzes in; `resolve_ctx` is unused. The two agree while the host
+  never calls `clj_ns_set_current`. Trigger: an `ns` form or a per-runtime namespace. Also no ns
+  aliases, so `alias/x` is never rewritten, and no Java class heuristic (`foo.Bar` gets qualified).
+- **`~`/`~@` outside syntax-quote are reader errors**, where Clojure reads `(clojure.core/unquote x)`
+  and fails later. A literal `(clojure.core/unquote x)` inside a syntax-quote is still an unquote.
 - **No metadata on forms.** `form_line`/`form_col` expose the start of the last top-level form only;
   nested forms carry no position, so every analysis error reports the top-level form's `:line`/`:column`.
   Trigger: error messages inside a long `defn`. Needs the symbol/list meta slot.
@@ -72,18 +78,28 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Analyzer and evaluator (Sources/CljCore/analyzer.c, eval.c, fn.c)
 
-- **No macros.** Special forms are `def if do let fn loop recur quote` (plus `let*`/`fn*`/`loop*`);
-  `defn`, `when`, `cond`, `->` and the rest of core.clj need `defmacro` and macroexpand in the pipeline.
-  Trigger: the first attempt to load core.clj.
-- **No destructuring.** `let`/`fn`/`loop` bind vectors of plain symbols only. Comes with macros
-  (`destructure` is a macro-time function in Clojure).
+- **Macros expand in the analyzer, in `analyze_list`**, not in a separate pass: a list whose head
+  resolves to a macro var (and is not a local or a special form) is expanded until it is not, then
+  analyzed. `&env` is always nil: locals are slot indices, not a map. Trigger: a macro that inspects
+  `&env` (`clojure.tools.macro`-style, `binding`-aware macros). Arity errors count `&form`/`&env`
+  (`Wrong number of args (2)` for `(when)`); Clojure subtracts 2.
+- **No destructuring.** `let`/`fn`/`loop` bind vectors of plain symbols only; `defn`/`if-let`/
+  `when-let` in core.clj inherit that. Needs `destructure` written in core.clj (it is a plain
+  function called at macro time) plus `let` becoming a macro over `let*`.
+- **No metadata, so no docstrings.** `defn`/`defmacro` accept a docstring and drop it; `^:private`,
+  `^:dynamic`, attr-maps and `(doc x)` need a meta slot on symbols, vars and collections.
+- **No `try`/`catch`/`finally`; `throw` is a native fn.** `(throw ex)` works as a call, and
+  syntax-quote already keeps `throw`/`try`/`catch`/`finally` unqualified so macros written now survive
+  the switch to special forms. Trigger: error handling in Clojure code.
+- **No `ns` form.** Everything the host evaluates lands in `user`; core.clj is loaded with the current
+  namespace set to `clojure.core` by `clj_init`. `clj_ns_set_current` is the only way to move.
+- **`defmacro` on a failing body still interns the var** (analysis creates it before the fn is
+  analyzed), as `def` does: the name resolves afterwards to an unbound var. Same as Clojure.
 - **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
   "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
 - **`def` is eager and vars are plain roots.** No lazy thunk state, no `^:dynamic`/binding, no
   `*ns*` var (the current namespace is a thread-local pointer, `user` by default). Trigger: the first
   ns whose load-time cost shows, or the first `binding`.
-- **No `try`/`catch`/`throw` forms.** Exceptions propagate as `CLJ_THROWN` to the host; `ex-info`
-  exists only in C (`clj_ex_info`). Trigger: error handling in Clojure code.
 - **Concurrent `def` against `deref` is unsafe.** `clj_var_root` returns a borrowed pointer and a
   racing `clj_var_bind_root` releases the old root, so a reader may retain a freed value.
   Redefinition is a dev-time operation until the epoch/inline-cache design (var inline cache, §6)
@@ -110,11 +126,17 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Builtins (Sources/CljCore/builtins.c)
 
-- **Coverage is the minimum for the evaluator tests**: arithmetic and comparison, type predicates,
-  `get assoc dissoc contains? count conj nth first rest next cons list vector hash-map`, `str pr-str
-  pr prn print println identity apply`. No `seq`, `map`, `reduce`, `keys`, `vals`, `max`, `mod`, ...
-  Most of the rest belongs in core.clj once macros exist; the seq protocol (lazy seqs, `seq` on
-  maps and strings) is a runtime feature.
+- **Coverage is the minimum for the evaluator tests and core.clj**: arithmetic and comparison, type
+  predicates, `get assoc dissoc contains? count conj nth first rest next cons list list* vector
+  hash-map seq concat into second last butlast reverse empty?`, `symbol keyword name namespace gensym`,
+  `str pr-str pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info throw`. No
+  `map`, `reduce`, `keys`, `vals`, `max`, `mod`, ... Most of the rest belongs in core.clj now that
+  macros exist.
+- **`seq` and `concat` are eager**: `seq` of a vector or map copies it into a list, `concat` builds
+  the whole list, and neither works on strings or infinite sources. Every macro expansion goes through
+  them, which is fine for code-sized data. Trigger: `(take 5 (concat big ...))` or `(seq "abc")`.
+  Needs the lazy-seq/chunked-seq protocol from the design.
+- **`seq?` is `list?`**: there is no ISeq type beyond cons cells and `()`.
 - **`rest`/`next` on a vector copy the remainder into a list** (O(n) per step, so walking a vector
   by `rest` is O(n²)); `nth` on a list walks it. Trigger: seq-style loops over big vectors. Fix:
   chunked/indexed seqs.
@@ -122,6 +144,18 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   hosts printing concurrently.
 - **Error messages are Clojure-like, not Clojure-identical**: type names are the runtime's
   (`string cannot be cast to a number`, not `java.lang.String ... java.lang.Number`).
+
+## core.clj (Sources/CljCore/boot/core.clj)
+
+- **Embedded as a byte array** (`core_clj.inc`, regenerated by `make boot`); `CoreCljTests` fails when
+  the two drift. A boot error is `clj_fatal` with the form's position: core.clj is part of the
+  binary, so it is a build bug, not a user error.
+- **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
+  process and sit under every test baseline taken after `clj_init`.
+- **Contents**: `defn when when-not if-not cond and or -> ->> comment dotimes if-let when-let assert
+  declare`. Not yet: `defn-`, `doto`, `condp`, `case`, `while`, `letfn`, `for`, `doseq`, `fn` literals,
+  `some->`, `as->`, `cond->`. `assert` throws through the `throw` native and is always on (no
+  `*assert*`). `dotimes` does not coerce its count to a long.
 
 ## Printer (Sources/CljCore/printer.c)
 

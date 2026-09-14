@@ -3,9 +3,14 @@
 #include <stdio.h>
 
 #include "clj/analyzer.h"
+#include "clj/error.h"
+#include "clj/eval.h"
 #include "clj/keyword.h"
 #include "clj/ns.h"
+#include "clj/printer.h"
+#include "clj/reader.h"
 #include "clj/runtime.h"
+#include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
 
@@ -14,12 +19,49 @@ static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 static clj_output_fn out_fn;
 static void         *out_ctx;
 
+#include "core_clj.inc"
+
+const char *clj_core_source(size_t *len) {
+	*len = core_clj_len;
+	return (const char *)core_clj;
+}
+
+static void boot_failed(const char *what, uint32_t line, uint32_t col, const char *detail) {
+	char msg[640];
+	snprintf(msg, sizeof msg, "core.clj failed to load: %s at %u:%u: %s", what, line, col, detail);
+	clj_fatal(msg);
+}
+
+// Evaluates core.clj in clojure.core; the caller has made it the current namespace for the resolver.
+static void load_core(void) {
+	clj_reader r;
+	clj_reader_init(&r, (const char *)core_clj, core_clj_len);
+	r.resolve = clj_syntax_quote_resolve;
+	for (;;) {
+		clj_value form;
+		clj_read_status st = clj_read(&r, &form);
+		if (st == CLJ_READ_EOF) return;
+		if (st == CLJ_READ_ERROR) boot_failed("reader error", r.error_line, r.error_col, clj_reader_message(&r));
+		clj_env   env = {clj_ns_core(), r.form_line, r.form_col};
+		clj_value v = clj_eval(form, &env);
+		clj_release(form);
+		if (v == CLJ_THROWN) {
+			clj_value ex = clj_take_pending();
+			clj_value text = clj_pr_str(ex);
+			boot_failed("exception", r.form_line, r.form_col, clj_string_bytes(text));
+		}
+		clj_release(v);
+	}
+}
+
 static void init(void) {
-	clj_ns_core();
-	clj_ns_user();
+	clj_value core = clj_ns_core();
 	// Interned up front so printing an error or an analysis position allocates nothing lasting later.
 	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_builtins_install();
+	clj_ns_set_current(core);
+	load_core();
+	clj_ns_set_current(clj_ns_user());
 }
 
 void clj_init(void) { pthread_once(&init_once, init); }

@@ -6,8 +6,11 @@
 
 #include "value.h"
 
-// Creates clojure.core and user and installs the builtins. Once per process; later calls return at once.
+// Bootstraps clojure.core (builtins, then the embedded core.clj) and user. Once per process; a boot failure is fatal.
 void clj_init(void);
+
+// The embedded boot/core.clj, borrowed for the life of the process.
+const char *clj_core_source(size_t *len);
 
 // Where println/prn write. Process-wide; NULL restores stdout.
 typedef void (*clj_output_fn)(const char *bytes, size_t len, void *ctx);
