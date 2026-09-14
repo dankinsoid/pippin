@@ -1,9 +1,11 @@
 ;; @ai-generated(guided)
 ;; Order matters: a macro must be defined before the first form that uses it.
-;; Docstrings are dropped: no metadata slot to keep them in yet (NOTES.md).
+;; Docstrings are dropped: no metadata slot to keep them in yet (NOTES.md). def takes none at all,
+;; so the helpers it defines carry a comment instead.
 ;; Up to the `fn` macro only let*/loop*/fn* and the macros above a form are available;
 ;; defmacro emits fn* until `fn` is a macro, so those macro params cannot destructure.
 
+;; A lazy seq of the elements of every coll, left to right.
 ;; Syntax-quote expands ~@ to (seq (concat ...)), so concat precedes every macro and is written
 ;; without any. Lazy as in Clojure: each step realizes one element of the first live argument.
 (def concat
@@ -27,20 +29,30 @@
                           nil))))))]
        (cat (concat x y) zs)))))
 
-(defmacro lazy-seq [& body]
+(defmacro lazy-seq
+  "Yields a seq that evaluates body on its first realization and caches the result."
+  [& body]
   `(lazy-seq* (fn* [] ~@body)))
 
-(defmacro when [test & body]
+(defmacro when
+  "Evaluates body in an implicit do when test is logical true, else nil."
+  [test & body]
   `(if ~test (do ~@body)))
 
-(defmacro when-not [test & body]
+(defmacro when-not
+  "Evaluates body in an implicit do when test is logical false, else nil."
+  [test & body]
   `(if ~test nil (do ~@body)))
 
 (defmacro if-not
+  "Like if with the branches swapped: then is evaluated when test is logical false."
   ([test then] `(if-not ~test ~then nil))
   ([test then else] `(if ~test ~else ~then)))
 
-(defmacro cond [& clauses]
+(defmacro cond
+  "Takes test/expr pairs and yields the expr of the first logical-true test, or nil
+  when none passes. :else is the conventional last test."
+  [& clauses]
   (when clauses
     `(if ~(first clauses)
        ~(if (next clauses)
@@ -147,6 +159,7 @@
             (recur (+ i 2) (pb ret (nth bindings i) (nth bindings (inc i))))
             ret))))))
 
+;; Throws unless bindings is a vector of an even number of forms; what names the form in the message.
 (def check-bindings
   (fn* [what bindings]
     (if (vector? bindings)
@@ -156,12 +169,17 @@
       (throw (ex-info (str what " requires an even number of forms in binding vector") nil))
       nil)))
 
-(defmacro let [bindings & body]
+(defmacro let
+  "binding => binding-form init-expr. Evaluates body with every binding-form
+  destructured against its init-expr, each visible to the ones after it."
+  [bindings & body]
   (check-bindings "let" bindings)
   `(let* ~(destructure bindings) ~@body))
 
 ;; Destructured bindings are re-bound to gensyms so recur still targets the loop.
-(defmacro loop [bindings & body]
+(defmacro loop
+  "Like let, and a recursion point that recur rebinds with as many args as there are bindings."
+  [bindings & body]
   (check-bindings "loop" bindings)
   (let* [db (destructure bindings)]
     (if (= db bindings)
@@ -177,6 +195,7 @@
                    (conj bs b g)))
           `(let ~bfs (loop* ~gs (let ~bs ~@body))))))))
 
+;; Params with every non-symbol replaced by a gensym, destructured by a let wrapped around body.
 (def maybe-destructured
   (fn* [params body]
     (loop* [i 0 new-params [] lets []]
@@ -190,7 +209,10 @@
           (list* new-params body)
           (list new-params `(let ~lets ~@body)))))))
 
-(defmacro fn [& sigs]
+(defmacro fn
+  "(fn name? [params*] body) or (fn name? ([params*] body)+). fn* plus destructuring
+  in the parameter vectors; name, when given, is in scope in the body."
+  [& sigs]
   (let* [name (if (symbol? (first sigs)) (first sigs) nil)
          sigs (if name (next sigs) sigs)
          sigs (if (vector? (first sigs))
@@ -219,12 +241,15 @@
       (list* 'fn* new-sigs))))
 
 (defmacro defn
-  "(defn name docstring? [params] body...) or (defn name docstring? ([params] body...)...)"
+  "(defn name docstring? [params] body...) or (defn name docstring? ([params] body...)...).
+  Defines name as the fn. The docstring is read and discarded: there is no metadata yet."
   [name & fdecl]
   (let [fdecl (if (string? (first fdecl)) (next fdecl) fdecl)]
     `(def ~name (fn ~@fdecl))))
 
 (defmacro and
+  "Evaluates its args left to right and returns the first logical-false one, or the
+  last. The rest go unevaluated; (and) is true."
   ([] true)
   ([x] x)
   ([x & next]
@@ -232,13 +257,17 @@
       (if and# (and ~@next) and#))))
 
 (defmacro or
+  "Evaluates its args left to right and returns the first logical-true one, or the
+  last. The rest go unevaluated; (or) is nil."
   ([] nil)
   ([x] x)
   ([x & next]
    `(let [or# ~x]
       (if or# or# (or ~@next)))))
 
-(defmacro -> [x & forms]
+(defmacro ->
+  "Threads x into each form as its first argument: (-> x (f a) g) is (g (f x a))."
+  [x & forms]
   (loop [x x forms forms]
     (if forms
       (let [form (first forms)
@@ -248,7 +277,9 @@
         (recur threaded (next forms)))
       x)))
 
-(defmacro ->> [x & forms]
+(defmacro ->>
+  "Threads x into each form as its last argument: (->> x (f a) g) is (g (f a x))."
+  [x & forms]
   (loop [x x forms forms]
     (if forms
       (let [form (first forms)
@@ -258,9 +289,14 @@
         (recur threaded (next forms)))
       x)))
 
-(defmacro comment [& body])
+(defmacro comment
+  "Ignores body and yields nil. The forms are still read, so they must be readable."
+  [& body])
 
-(defmacro dotimes [bindings & body]
+(defmacro dotimes
+  "binding => name n. Evaluates body once for each integer from 0 below n, with
+  name bound to it. Returns nil."
+  [bindings & body]
   (let [i (first bindings)
         n (second bindings)]
     `(let [n# ~n]
@@ -270,6 +306,8 @@
            (recur (inc ~i)))))))
 
 (defmacro if-let
+  "binding => binding-form test. Evaluates then with binding-form bound to the value
+  of test when that value is logical true, else evaluates else without the binding."
   ([bindings then] `(if-let ~bindings ~then nil))
   ([bindings then else]
    (let [form (first bindings)
@@ -279,7 +317,9 @@
           (let [~form temp#] ~then)
           ~else)))))
 
-(defmacro when-let [bindings & body]
+(defmacro when-let
+  "Like if-let with body in an implicit do and no else branch."
+  [bindings & body]
   (let [form (first bindings)
         tst (second bindings)]
     `(let [temp# ~tst]
@@ -287,6 +327,8 @@
          (let [~form temp#] ~@body)))))
 
 (defmacro assert
+  "Throws when x is logical false, reporting the form and the message when given.
+  Always evaluated: there is no flag to elide it."
   ([x]
    `(when-not ~x
       (throw (ex-info (str "Assert failed: " (pr-str '~x)) {}))))
@@ -294,7 +336,9 @@
    `(when-not ~x
       (throw (ex-info (str "Assert failed: " ~message "\n" (pr-str '~x)) {})))))
 
-(defmacro declare [& names]
+(defmacro declare
+  "Interns each name unbound, so forms written above its definition can refer to it."
+  [& names]
   `(do ~@(loop [names (seq (reverse names)) defs nil]
            (if names
              (recur (next names) (cons `(def ~(first names)) defs))
@@ -302,32 +346,48 @@
 
 ;; ---- seqs. Lazy where Clojure is lazy; eager walks use loop/recur so long seqs cost no stack.
 
-(defn complement [f]
+(defn complement
+  "Returns a fn taking the same args as f and returning the opposite truth value."
+  [f]
   (fn [& args] (not (apply f args))))
 
-(defn nthrest [coll n]
+(defn nthrest
+  "Returns coll without its first n items: coll itself when n is not positive,
+  otherwise a seq, empty rather than nil once coll runs out."
+  [coll n]
   (loop [n n xs coll]
     (if (and (pos? n) (seq xs))
       (recur (dec n) (rest xs))
       xs)))
 
-(defn some [pred coll]
+(defn some
+  "Returns the first logical-true (pred x) over coll, or nil when there is none."
+  [pred coll]
   (loop [s (seq coll)]
     (when s
       (or (pred (first s)) (recur (next s))))))
 
-(defn every? [pred coll]
+(defn every?
+  "Returns true when (pred x) is logical true for every x in coll, and for an empty coll."
+  [pred coll]
   (loop [s (seq coll)]
     (cond
       (nil? s) true
       (pred (first s)) (recur (next s))
       :else false)))
 
-(defn not-any? [pred coll] (not (some pred coll)))
+(defn not-any?
+  "Returns true when no (pred x) over coll is logical true."
+  [pred coll] (not (some pred coll)))
 
-(defn not-every? [pred coll] (not (every? pred coll)))
+(defn not-every?
+  "Returns true when some (pred x) over coll is logical false."
+  [pred coll] (not (every? pred coll)))
 
 (defn reduce
+  "Feeds the accumulator and each item of coll to f in turn and returns the last
+  accumulator. Without val the first item seeds it and (f) answers an empty coll.
+  There is no reduced, so the walk always runs to the end."
   ([f coll]
    (let [s (seq coll)]
      (if s
@@ -340,6 +400,8 @@
        acc))))
 
 (defn map
+  "Returns a lazy seq of f applied to the items of the colls in parallel, ending
+  with the shortest."
   ([f coll]
    (lazy-seq
      (when-let [s (seq coll)]
@@ -362,7 +424,9 @@
                       (cons (map first ss) (step (map rest ss)))))))]
      (map (fn [xs] (apply f xs)) (step (conj colls c3 c2 c1))))))
 
-(defn filter [pred coll]
+(defn filter
+  "Returns a lazy seq of the items of coll for which (pred item) is logical true."
+  [pred coll]
   (lazy-seq
     (when-let [s (seq coll)]
       (let [f (first s) r (rest s)]
@@ -370,10 +434,14 @@
           (cons f (filter pred r))
           (filter pred r))))))
 
-(defn remove [pred coll]
+(defn remove
+  "Returns a lazy seq of the items of coll for which (pred item) is logical false."
+  [pred coll]
   (filter (complement pred) coll))
 
-(defn keep [f coll]
+(defn keep
+  "Returns a lazy seq of the non-nil results of (f item); false is kept."
+  [f coll]
   (lazy-seq
     (when-let [s (seq coll)]
       (let [x (f (first s))]
@@ -381,13 +449,17 @@
           (keep f (rest s))
           (cons x (keep f (rest s))))))))
 
-(defn take [n coll]
+(defn take
+  "Returns a lazy seq of the first n items of coll, or all of them when there are fewer."
+  [n coll]
   (lazy-seq
     (when (pos? n)
       (when-let [s (seq coll)]
         (cons (first s) (take (dec n) (rest s)))))))
 
-(defn drop [n coll]
+(defn drop
+  "Returns a lazy seq of the items of coll past the first n."
+  [n coll]
   (let [step (fn [n coll]
                (let [s (seq coll)]
                  (if (and (pos? n) s)
@@ -395,13 +467,18 @@
                    s)))]
     (lazy-seq (step n coll))))
 
-(defn take-while [pred coll]
+(defn take-while
+  "Returns a lazy seq of the leading items of coll while (pred item) is logical true."
+  [pred coll]
   (lazy-seq
     (when-let [s (seq coll)]
       (when (pred (first s))
         (cons (first s) (take-while pred (rest s)))))))
 
-(defn drop-while [pred coll]
+(defn drop-while
+  "Returns a lazy seq of the items of coll from the first one for which (pred item)
+  is logical false."
+  [pred coll]
   (let [step (fn [pred coll]
                (let [s (seq coll)]
                  (if (and s (pred (first s)))
@@ -409,15 +486,20 @@
                    s)))]
     (lazy-seq (step pred coll))))
 
-(defn iterate [f x]
+(defn iterate
+  "Returns an infinite seq of x, (f x), (f (f x)) ... f must be free of side effects."
+  [f x]
   (cons x (lazy-seq (iterate f (f x)))))
 
 (defn repeat
+  "Returns a lazy seq of x, endlessly or n times."
   ([x] (lazy-seq (cons x (repeat x))))
   ([n x] (take n (repeat x))))
 
 ;; Fixnum ranges are the O(1) range type; step 0 repeats as Clojure's does; doubles walk a lazy seq.
 (defn range
+  "Returns a seq of numbers from start (default 0) below end by step (default 1),
+  counting down when step is negative; with no args an infinite seq from 0."
   ([] (iterate inc 0))
   ([end] (range 0 end 1))
   ([start end] (range start end 1))
@@ -429,6 +511,8 @@
              (take-while (fn [x] (cmp x end)) (iterate (fn [x] (+ x step)) start))))))
 
 (defn interleave
+  "Returns a lazy seq of the first item of each coll, then the second, ending with
+  the shortest."
   ([] ())
   ([c1] (lazy-seq c1))
   ([c1 c2]
@@ -442,11 +526,16 @@
        (when (every? identity ss)
          (concat (map first ss) (apply interleave (map rest ss))))))))
 
-(defn interpose [sep coll]
+(defn interpose
+  "Returns a lazy seq of the items of coll separated by sep."
+  [sep coll]
   (drop 1 (interleave (repeat sep) coll)))
 
 ;; Not (apply concat ...): apply spreads its whole seq here (NOTES.md), which would realize an infinite input.
-(defn mapcat [f & colls]
+(defn mapcat
+  "Returns a lazy seq of the concatenated results of applying f to the items of the
+  colls in parallel."
+  [f & colls]
   (let [step (fn step [ss]
                (lazy-seq
                  (when-let [s (seq ss)]
@@ -454,6 +543,7 @@
     (step (apply map f colls))))
 
 (defn dorun
+  "Walks coll for its side effects and returns nil; the 2-arity stops after n items."
   ([coll]
    (loop [s (seq coll)]
      (when s (recur (next s)))))
@@ -463,12 +553,17 @@
        (recur (dec n) (next s))))))
 
 (defn doall
+  "Realizes coll and returns it; the 2-arity realizes only its first n items."
   ([coll] (dorun coll) coll)
   ([n coll] (dorun n coll) coll))
 
-(defn vec [coll] (into [] coll))
+(defn vec
+  "Returns a vector of the items of coll."
+  [coll] (into [] coll))
 
 (defn partition
+  "Returns a lazy seq of n-item seqs, starting step apart (default n), dropping a
+  short trailing partition."
   ([n coll] (partition n n coll))
   ([n step coll]
    (lazy-seq
@@ -477,7 +572,9 @@
          (when (= n (count p))
            (cons p (partition n step (nthrest s step)))))))))
 
-(defn zipmap [keys vals]
+(defn zipmap
+  "Returns a map of the keys to the corresponding vals, ending with the shorter."
+  [keys vals]
   (loop [m {} ks (seq keys) vs (seq vals)]
     (if (and ks vs)
       (recur (assoc m (first ks) (first vs)) (next ks) (next vs))
