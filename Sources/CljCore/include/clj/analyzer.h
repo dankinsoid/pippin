@@ -78,7 +78,11 @@ struct clj_node {
 	uint32_t      site;      // INVOKE: ordinal among the tree's invoke nodes, the index of its call-site cache in the exec (eval.h)
 	union {
 		clj_value value; // const
-		uint32_t  index; // local, captured
+		uint32_t  index; // captured
+		struct {
+			uint32_t index;
+			bool     last; // the last use of the slot on its path (optimizer.c): the frame's reference goes to the consumer
+		} local;
 		clj_value var;   // var
 		struct {
 			uint32_t depth, index; // outer: depth >= 1

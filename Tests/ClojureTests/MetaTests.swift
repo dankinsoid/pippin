@@ -50,7 +50,8 @@ extension CoreTests {
 					// A fn compares by identity, and a with-meta copy of a shared fn is a new object, as in Clojure.
 					let identity = form.hasPrefix("(fn") || form == "+"
 					#expect(try rt.eval("(let [x \(form)] (= x (with-meta x {:a 1})))") == Value(!identity), "\(form)")
-					#expect(try rt.eval("(let [x \(form)] (= (hash x) (hash (with-meta x {:a 1}))))") == Value(!identity), "\(form)")
+					// x is still read after the with-meta, so the copy is real; a last-use x would be re-labelled in place.
+					#expect(try rt.eval("(let [x \(form) y (with-meta x {:a 1})] (= (hash x) (hash y)))") == Value(!identity), "\(form)")
 					#expect(try rt.eval("(let [x \(form)] (= (pr-str (with-meta x {:a 1})) (pr-str x)))") == true, "\(form)")
 				}
 				// Collection operations keep the meta of the root they rebuild.

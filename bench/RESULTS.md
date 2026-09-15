@@ -466,3 +466,55 @@ element or iteration — reduce + map inc range 30.4 → 31.1 (1k), 30.1 → 30.
 into [] (map inc) range 94.1 → 95.7 (1k), 96.0 → 96.9 (100k); seq walk of a vector 38.2 → 36.9; counting loop
 15.9 → 16.0; closure call in a loop 22.2 → 22.5; let-bound fn 21.2 → 20.9; local helper 36.5 → 36.8. All
 within the ±3 % run-to-run spread.
+
+## Last-use reuse — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+A local read that is the last use of its slot on its path hands the frame's reference to the consumer instead
+of borrowing it, and a consuming intrinsic (`conj`, `assoc`, `dissoc`, `with-meta`) called with a collection the
+site owns calls the consuming core directly, so a unique collection is updated in place; `reduce`'s slots and
+the fusion drivers hand their own accumulator to a consuming native reducing fn the same way, and `into` with
+an xform runs through the `fused-into*` driver (NOTES.md, "Last-use reuse"). Medians of three alternating runs
+of each binary (12f8771 vs this commit), ns per element or iteration; the map and vector tables matched within
+their noise.
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| into [] (map inc) range | 1000 | 93.2 | 36.4 | −61 % |
+| into [] (map inc) range | 100000 | 96.5 | 36.1 | −63 % |
+| reduce + map inc range | 10 | 59.1 | 63.3 | +7 % |
+| reduce + map inc range | 1000 | 30.1 | 31.8 | +6 % |
+| reduce + map inc range | 100000 | 29.8 | 31.6 | +6 % |
+| reduce + map inc (filter even?) range | 1000 | 32.6 | 33.9 | +4 % |
+| reduce + map inc (filter even?) range | 100000 | 31.9 | 33.5 | +5 % |
+| vec (map inc range) | 1000 | 35.6 | 36.2 | +2 % |
+| vec (map inc range) | 100000 | 35.4 | 35.9 | +1 % |
+| transduce (map inc) + range | 1000 | 28.2 | 27.5 | −2 % |
+| transduce (map inc) + range | 100000 | 27.2 | 27.4 | +1 % |
+| reduce + range | 1000 | 5.5 | 5.8 | +5 % |
+| reduce + range | 100000 | 5.4 | 5.8 | +7 % |
+| reduce + vector | 1000 | 5.4 | 5.6 | +4 % |
+| reduce + vector | 100000 | 5.3 | 5.6 | +6 % |
+| seq walk of a vector | 1000 | 38.4 | 36.2 | −6 % |
+| counting loop | 100000 | 15.7 | 15.4 | −2 % |
+| closure call in a loop | 100000 | 21.9 | 21.9 | +0 % |
+| let-bound fn called in a loop | 100000 | 20.9 | 21.5 | +3 % |
+| loop with a local helper | 100000 | 36.5 | 36.4 | −0 % |
+| protocol call, deftype receiver | 100000 | 35.6 | 35.8 | +1 % |
+
+- **`into [] (map inc) range`, 93 → 36 ns**, now the same as `vec (map inc range)` computing the same vector:
+  the ~60 ns of tail copying per element are gone, since the driver's accumulator is held by the driver alone
+  and `conj` appends in place. What remains is the transduce part (~28) and the driver's step (~8).
+- **The counting loop, the closure call and the walk are unchanged.** Three variants of the read were measured
+  on the way (three alternating runs each, the counting loop row): a distinct node kind dispatched through the
+  exec table for the last-use read, +3 ns per iteration (the `i` of `(inc i)` is a last use, and an indirect
+  call replaced an inlined load); the flag inside the LOCAL case of `eval_borrowed` with the function left to
+  the compiler's inlining, +5.5 ns (it stopped inlining and emitted a call per borrowed read); the flag with the
+  function force-inlined and every last use marked, +2.5 ns (the hand-over itself — the slot write, the mask
+  bit, the release loop — on a fixnum nobody consumes). Kept: the flag, force-inlined, marked only where the
+  consumer can own the value (the collection of a consuming intrinsic, a let init, a recur argument, a body's
+  value), 15.7 → 15.4. Marking call arguments as well (the callee's frame owns them, so `(f v)` lets `f` conj in
+  place) cost ~2 ns per call on fixnum arguments — closure call 22.0 → 24.2, let-bound fn 21.0 → 22.7, local
+  helper 36.1 → 39.0 — and is not kept; trigger: a profile with a collection built through a helper per element.
+- **The reduce-driven rows pay ~0.3 ns per element** (`reduce + range` 5.5 → 5.8): the reducer's step and the
+  fusion bottom check for a consuming reducing fn once per element, and every borrowed local read tests the
+  flag. The fused pipeline (`map`'s transducer arity reads four locals per element) shows it as ~1.5 ns.

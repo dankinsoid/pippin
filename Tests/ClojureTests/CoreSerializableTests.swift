@@ -66,7 +66,7 @@ extension CoreTests {
 		}
 
 		private static func internKeywords() {
-			for k in ["const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
+			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
 			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call"] {
 				_ = Value(keyword: k)
 			}

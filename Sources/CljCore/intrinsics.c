@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+#include <stdatomic.h>
 #include <string.h>
 
 #include "clj/coll.h"
@@ -9,9 +10,12 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 
-#define I1(nm, f, p) {"clojure.core/" nm, 1, CLJ_INTRINSIC_1, {.f1 = f}, p}
-#define I2(nm, f, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, p}
-#define I3(nm, f, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, p}
+#define I1(nm, f, p) {"clojure.core/" nm, 1, CLJ_INTRINSIC_1, {.f1 = f}, p, {.f2 = NULL}}
+#define I2(nm, f, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, p, {.f2 = NULL}}
+#define I3(nm, f, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, p, {.f2 = NULL}}
+// The entry's function retains the collection before c, its consuming form.
+#define C2(nm, f, c, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, p, {.f2 = c}}
+#define C3(nm, f, c, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, p, {.f3 = c}}
 
 static const clj_intrinsic table[] = {
 	I2("+", clj_add, true),
@@ -63,8 +67,10 @@ static const clj_intrinsic table[] = {
 	I3("get", clj_get, true),
 	I2("nth", clj_nth2, true),
 	I3("nth", clj_nth3, true),
-	I2("conj", clj_conj2, true),
-	I3("assoc", clj_assoc3, true),
+	C2("conj", clj_conj2, clj_conj, true),
+	C3("assoc", clj_assoc3, clj_assoc_owned, true),
+	C2("dissoc", clj_dissoc2, clj_dissoc_owned, true),
+	C2("with-meta", clj_with_meta2, clj_with_meta, false),
 	I2("contains?", clj_contains_p, true),
 };
 
@@ -109,6 +115,34 @@ clj_value clj_intrinsic_call(const clj_intrinsic *op, const clj_value *args) {
 	case CLJ_INTRINSIC_3: return op->fn.f3(args[0], args[1], args[2]);
 	}
 	clj_fatal("unknown intrinsic kind");
+}
+
+#if CLJ_DEBUG
+static _Atomic int64_t consuming_calls;
+#endif
+
+int64_t clj_debug_consuming_calls(void) {
+#if CLJ_DEBUG
+	return atomic_load_explicit(&consuming_calls, memory_order_relaxed);
+#else
+	return -1;
+#endif
+}
+
+clj_value clj_intrinsic_call_consuming(const clj_intrinsic *op, const clj_value *args) {
+	CLJ_ASSERT(clj_intrinsic_consumes(op), "intrinsic does not consume");
+#if CLJ_DEBUG
+	atomic_fetch_add_explicit(&consuming_calls, 1, memory_order_relaxed);
+#endif
+	if (op->kind == CLJ_INTRINSIC_3) return op->consume.f3(args[0], args[1], args[2]);
+	return op->consume.f2(args[0], args[1]);
+}
+
+const clj_intrinsic *clj_intrinsic_consuming(clj_value fn, uint32_t arity) {
+	for (size_t i = 0; i < N; i++) {
+		if (builtins[i] == fn && table[i].arity == arity && clj_intrinsic_consumes(&table[i])) return &table[i];
+	}
+	return NULL;
 }
 
 void clj_intrinsics_install(void) {

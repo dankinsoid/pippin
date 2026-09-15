@@ -11,9 +11,10 @@ clj_reducer clj_reducer_start(clj_value f, clj_value init, size_t nargs) {
 	return (clj_reducer){clj_call_prepare(f, nargs), init == CLJ_UNBOUND ? CLJ_UNBOUND : clj_retain(init), {CLJ_NIL, CLJ_NIL, CLJ_NIL}};
 }
 
-// The result of one step replaces acc; a reduced one is unwrapped and ends the walk.
-static bool take(clj_reducer *r, clj_value v) {
-	clj_release(r->acc);
+// The result of one step replaces acc; a reduced one is unwrapped and ends the walk. A consuming step took acc
+// with it, so there is nothing left to release.
+static bool take(clj_reducer *r, clj_value v, bool consumed) {
+	if (!consumed) clj_release(r->acc);
 	if (v == CLJ_THROWN) {
 		r->acc = CLJ_THROWN;
 		return false;
@@ -27,6 +28,13 @@ static bool take(clj_reducer *r, clj_value v) {
 	return true;
 }
 
+// args[0] is acc: a consuming rf (conj as the fn of a reduce) takes the reducer's own reference, so a unique
+// accumulator is updated in place; any other fn sees it at +0.
+static bool step(clj_reducer *r) {
+	if (r->call.consuming) return take(r, clj_intrinsic_call_consuming(r->call.consuming, r->args), true);
+	return take(r, clj_call_invoke(&r->call, r->args), false);
+}
+
 // The first element seeds as an ordinary value, a reduced box included: only step results end the walk.
 bool clj_reducer_step(clj_reducer *r, clj_value item) {
 	if (r->acc == CLJ_UNBOUND) {
@@ -35,7 +43,7 @@ bool clj_reducer_step(clj_reducer *r, clj_value item) {
 	}
 	r->args[0] = r->acc;
 	r->args[1] = item;
-	return take(r, clj_call_invoke(&r->call, r->args));
+	return step(r);
 }
 
 bool clj_reducer_step_kv(clj_reducer *r, clj_value key, clj_value val) {
@@ -43,7 +51,7 @@ bool clj_reducer_step_kv(clj_reducer *r, clj_value key, clj_value val) {
 	r->args[0] = r->acc;
 	r->args[1] = key;
 	r->args[2] = val;
-	return take(r, clj_call_invoke(&r->call, r->args));
+	return step(r);
 }
 
 clj_value clj_reducer_finish(clj_reducer *r) {

@@ -2,7 +2,8 @@
 // Tree <-> data. Ids are not encoded: from_data renumbers in the analyzer's pre-order, so a round trip
 // through pr-str and read yields the same data again. Grammar:
 //   node    = [:const value]              value prints and reads back as itself (see serializable)
-//           | [:local slot] | [:captured index] | [:outer [depth slot]]   a slot of the frame depth links up
+//           | [:local slot] | [:local slot :last] | [:captured index] | [:outer [depth slot]]
+//                                        a frame slot, one whose read is the last use on its path, a slot of the frame depth links up
 //           | [:var ns/name]              a var reference, resolved or interned on read
 //           | [:the-var ns/name]          the var itself, from (var x)
 //           | [:if test then else?]
@@ -45,12 +46,13 @@
 #include "node.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_const, kw_local, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
+static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
 	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_try, kw_throw, kw_all, kw_error;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
 	kw_local = clj_keyword_from_cstr("local");
+	kw_last = clj_keyword_from_cstr("last");
 	kw_captured = clj_keyword_from_cstr("captured");
 	kw_outer = clj_keyword_from_cstr("outer");
 	kw_direct_fn = clj_keyword_from_cstr("direct-fn");
@@ -295,7 +297,9 @@ static clj_value encode_kind(const clj_node *n) {
 		if (clj_is_var(n->u.value)) return vec2(kw_the_var, qualified(n->u.value));
 		if (!serializable(n->u.value)) return CLJ_THROWN;
 		return vec2(kw_const, clj_retain(n->u.value));
-	case CLJ_NODE_LOCAL: return vec2(kw_local, clj_fixnum(n->u.index));
+	case CLJ_NODE_LOCAL:
+		if (n->u.local.last) return vec3(kw_local, clj_fixnum(n->u.local.index), kw_last);
+		return vec2(kw_local, clj_fixnum(n->u.local.index));
 	case CLJ_NODE_CAPTURED: return vec2(kw_captured, clj_fixnum(n->u.index));
 	case CLJ_NODE_OUTER: return vec2(kw_outer, vec2(clj_fixnum(n->u.outer.depth), clj_fixnum(n->u.outer.index)));
 	case CLJ_NODE_VAR: return vec2(kw_var, qualified(n->u.var));
@@ -598,10 +602,17 @@ static clj_node *decode_try(clj_value data, dframe *fr) {
 }
 
 static clj_node *decode_leaf(clj_node_kind kind, clj_value data) {
-	uint32_t index;
-	if (clj_vector_count(data) != 2 || !as_u32(clj_vector_nth(data, 1), &index)) return fail_data(data, "expected a slot number");
+	uint32_t index, count = clj_vector_count(data);
+	bool     last = kind == CLJ_NODE_LOCAL && count == 3 && clj_vector_nth(data, 2) == kw_last;
+	if (last) count = 2;
+	if (count != 2 || !as_u32(clj_vector_nth(data, 1), &index)) return fail_data(data, "expected a slot number");
 	clj_node *n = clj_node_alloc(kind);
-	n->u.index = index;
+	if (kind == CLJ_NODE_LOCAL) {
+		n->u.local.index = index;
+		n->u.local.last = last;
+	} else {
+		n->u.index = index;
+	}
 	return n;
 }
 
@@ -765,7 +776,7 @@ static void check_bounds(const clj_node *n, void *ctx) {
 	bounds *b = ctx;
 	if (!b->ok) return;
 	switch (n->kind) {
-	case CLJ_NODE_LOCAL: in_range(b, n->u.index); break;
+	case CLJ_NODE_LOCAL: in_range(b, n->u.local.index); break;
 	case CLJ_NODE_OUTER: outer_in_range(b, n->u.outer.depth, n->u.outer.index); break;
 	case CLJ_NODE_CAPTURED:
 		if (n->u.index >= b->ncaptures) {

@@ -10,6 +10,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
+#include "clj/intrinsics.h"
 #include "clj/ns.h"
 #include "clj/number.h"
 #include "clj/reduce.h"
@@ -104,6 +105,15 @@ typedef struct {
 	bool        done;
 } bottom;
 
+// The step of a reduce whose rf consumes: the driver's own reference is what the rf takes, and the result is
+// the driver's new one. Nothing a consuming core returns is a `reduced` box.
+static clj_value step_consuming(bottom *b, clj_value x) {
+	clj_value in[2] = {b->acc, x};
+	clj_value r = clj_intrinsic_call_consuming(b->call.consuming, in);
+	b->acc = r == CLJ_THROWN ? CLJ_NIL : r;
+	return r == CLJ_THROWN ? CLJ_THROWN : CLJ_NIL;
+}
+
 static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 	bottom *b = ctx;
 	if (n == 1) return CLJ_NIL;
@@ -123,6 +133,7 @@ static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 			b->acc = clj_retain(x);
 			return CLJ_NIL;
 		}
+		if (b->call.consuming) return step_consuming(b, x);
 		clj_value in[2] = {b->acc, x};
 		clj_value r = clj_call_invoke(&b->call, in);
 		if (r == CLJ_THROWN) return CLJ_THROWN;
@@ -198,6 +209,15 @@ clj_value clj_fused_into(const clj_value *args, size_t n) {
 	bottom *b = bottom_new(BOTTOM_INTO);
 	b->acc = clj_retain(args[0]);
 	return drive(b, args[1], args[2]);
+}
+
+clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll) {
+	bottom   *b = bottom_new(BOTTOM_INTO);
+	clj_value xfs = clj_vector_from_array(&xform, 1);
+	b->acc = clj_retain(to);
+	clj_value r = drive(b, coll, xfs);
+	clj_release(xfs);
+	return r;
 }
 
 clj_value clj_fused_count(const clj_value *args, size_t n) {

@@ -180,7 +180,7 @@ extension CoreTests {
 					("(cond false 1 :else 2)", "[:const 2 1 1]"),
 					("(if true (if false 1 2) 3)", "[:const 2 1 10]"),
 					("(let [x 1] (if true (inc x) x))", "[:let [[0 [:const 1 1 1]]] [:intrinsic clojure.core/inc [:local 0 1 21] 1 21] 1 1]"),
-					("(let [x 1] (if false (inc x) x))", "[:let [[0 [:const 1 1 1]]] [:local 0 1 12] 1 1]"),
+					("(let [x 1] (if false (inc x) x))", "[:let [[0 [:const 1 1 1]]] [:local 0 :last 1 12] 1 1]"),
 				]
 				for (source, expected) in cases {
 					let tree = try Tree(source)

@@ -463,7 +463,8 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 		uint32_t index;
 		if (resolve_local(s, sym, &captured, &index)) {
 			clj_node *n = node_new(a, captured ? CLJ_NODE_CAPTURED : CLJ_NODE_LOCAL);
-			n->u.index = index;
+			if (captured) n->u.index = index;
+			else n->u.local.index = index;
 			return n;
 		}
 	}

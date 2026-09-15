@@ -37,6 +37,8 @@ bool clj_fusion_enabled(void);
 clj_value clj_fused_reduce(const clj_value *args, size_t n);
 // (fused-into* to coll xfs)
 clj_value clj_fused_into(const clj_value *args, size_t n);
+// (into to xform coll): the same driver under one transducer, so the accumulator is the driver's own.
+clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll);
 // (fused-count* coll xfs)
 clj_value clj_fused_count(const clj_value *args, size_t n);
 

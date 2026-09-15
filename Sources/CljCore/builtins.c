@@ -296,9 +296,11 @@ static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
 	return e;
 }
 
-clj_value clj_assoc3(clj_value coll, clj_value key, clj_value val) {
-	return assoc_one(clj_is_nil(coll) ? clj_map_empty() : clj_retain(coll), key, val);
+clj_value clj_assoc_owned(clj_value coll, clj_value key, clj_value val) {
+	return assoc_one(clj_is_nil(coll) ? clj_map_empty() : coll, key, val);
 }
+
+clj_value clj_assoc3(clj_value coll, clj_value key, clj_value val) { return clj_assoc_owned(clj_retain(coll), key, val); }
 
 static clj_value b_assoc(const clj_value *args, size_t n) {
 	if (n % 2 == 0) return clj_throw_msg("assoc expects even number of arguments after map/vector, found odd number");
@@ -307,12 +309,22 @@ static clj_value b_assoc(const clj_value *args, size_t n) {
 	return coll;
 }
 
-static clj_value b_dissoc(const clj_value *args, size_t n) {
-	clj_value coll = args[0];
+static clj_value dissoc_type_error(clj_value coll) { return clj_throw_msg("dissoc not supported on this type: %s", clj_type_name(coll)); }
+
+clj_value clj_dissoc_owned(clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_NIL;
-	if (!clj_is_map(coll)) return clj_throw_msg("dissoc not supported on this type: %s", clj_type_name(coll));
-	coll = clj_retain(coll);
-	for (size_t i = 1; i < n; i++) coll = clj_map_dissoc(coll, args[i]);
+	if (clj_is_map(coll)) return clj_map_dissoc(coll, key);
+	clj_value e = dissoc_type_error(coll);
+	clj_release(coll);
+	return e;
+}
+
+clj_value clj_dissoc2(clj_value coll, clj_value key) { return clj_dissoc_owned(clj_retain(coll), key); }
+
+static clj_value b_dissoc(const clj_value *args, size_t n) {
+	if (n == 1) return clj_is_nil(args[0]) || clj_is_map(args[0]) ? clj_retain(args[0]) : dissoc_type_error(args[0]);
+	clj_value coll = clj_dissoc2(args[0], args[1]);
+	for (size_t i = 2; i < n && coll != CLJ_THROWN; i++) coll = clj_dissoc_owned(coll, args[i]);
 	return coll;
 }
 
@@ -466,24 +478,10 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 	return r;
 }
 
-// The root of clojure.core/conj, the reducing fn of (into to xform from); bound by clj_builtins_install.
-static clj_value conj_fn;
-
-// (into to from) conj's every item in C; (into to xform from) is (transduce xform conj to from) without the
-// core.clj round trip, so a call from destructure (above the fn macro) still works.
+// (into to from) conj's every item in C; (into to xform from) runs the fused-into* driver under the xform, so the
+// accumulator is the driver's own and a vector grows in place (fusion.c).
 static clj_value b_into(const clj_value *args, size_t n) {
-	if (n == 3) {
-		clj_value rf = clj_invoke(args[1], &conj_fn, 1);
-		if (rf == CLJ_THROWN) return CLJ_THROWN;
-		clj_value acc = clj_reduce(rf, args[0], args[2]);
-		if (acc != CLJ_THROWN) {
-			clj_value done = clj_invoke(rf, &acc, 1);
-			clj_release(acc);
-			acc = done;
-		}
-		clj_release(rf);
-		return acc;
-	}
+	if (n == 3) return clj_into_xform(args[0], args[1], args[2]);
 	clj_value s = clj_seq(args[1]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
@@ -846,9 +844,11 @@ static clj_value b_meta(const clj_value *args, size_t n) {
 	return clj_meta(args[0]);
 }
 
+clj_value clj_with_meta2(clj_value v, clj_value m) { return clj_with_meta(clj_retain(v), m); }
+
 static clj_value b_with_meta(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_with_meta(clj_retain(args[0]), args[1]);
+	return clj_with_meta2(args[0], args[1]);
 }
 
 static clj_value not_a_reference(const char *what, clj_value v) {
@@ -941,7 +941,6 @@ void clj_builtins_install(void) {
 		clj_value    qualified = clj_symbol_new(core_name, name);
 		clj_value    fn = clj_fn_native(qualified, e->fn, e->min, e->max);
 		clj_var_bind_root(clj_ns_intern(core, sym), fn);
-		if (e->fn == b_conj) conj_fn = fn;
 		clj_release(fn);
 		clj_release(qualified);
 		clj_release(sym);

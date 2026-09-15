@@ -124,8 +124,12 @@ static void drain_retired(void) {
 size_t clj_debug_retired_roots(void) { return retired.n; }
 
 // A local, captured or constant read without a retain: its home (the frame, the closure's env, the tree)
-// outlives the consumer. An OUTER read stays owned: a fifth case here turns the switch into a jump table
-// in every inlined copy and cost ~3 ns per iteration of the counting loop, more than the pair it saves.
+// outlives the consumer. A local's last use (optimizer.c) hands the frame's own reference over instead: the
+// slot is niled so teardown, a rebind and a debug reader see nothing there, and the consumer gets a +1 it may
+// update in place; a slot the frame only borrows (a fixed param, the self slot) is borrowed on as before. The
+// mark is a flag inside the LOCAL case, not a case of its own: a fifth case turns the switch into a jump table
+// in every inlined copy and cost ~3 ns per iteration of the counting loop (so does dispatching the read through
+// the exec table). An OUTER read stays owned for the same reason.
 // A var's root is borrowed when immortal (every root bound by boot) or a fn (a rebind
 // parks the old fn until the thread is idle, clj_eval_retire_root); a data root is retained, since a rebind
 // releases it at once. Every other kind evaluates owned.
@@ -136,10 +140,27 @@ static inline const clj_frame *outer_frame(const clj_frame *f, uint32_t depth) {
 	return f;
 }
 
+static inline bool slot_owned(const clj_frame *f, uint32_t i) { return i >= 64 || (f->owned >> i) & 1; }
+
+// Forced inline in optimized builds only: with the hand-over in the LOCAL case the compiler stopped inlining it
+// on its own, and the call it emitted cost the counting loop 5 ns per iteration; at -O0 a forced copy per
+// eval_all site grows the sanitizer frames past the 50 nested calls the tests rely on.
+#ifdef __OPTIMIZE__
+__attribute__((always_inline))
+#endif
 static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *owned) {
 	*owned = false;
 	switch (n->kind) {
-	case CLJ_NODE_LOCAL: return f->slots[n->u.index];
+	case CLJ_NODE_LOCAL: {
+		uint32_t  i = n->u.local.index;
+		clj_value v = f->slots[i];
+		if (__builtin_expect(n->u.local.last, 0) && slot_owned(f, i)) {
+			f->slots[i] = CLJ_NIL;
+			if (i < 64) f->owned &= ~((uint64_t)1 << i);
+			*owned = true;
+		}
+		return v;
+	}
 	case CLJ_NODE_CAPTURED: return f->captured[n->u.index];
 	case CLJ_NODE_CONST: return n->u.value;
 	case CLJ_NODE_VAR: {
@@ -161,8 +182,6 @@ static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *own
 		return eval_child(n, f);
 	}
 }
-
-static inline bool slot_owned(const clj_frame *f, uint32_t i) { return i >= 64 || (f->owned >> i) & 1; }
 
 // Stores an owned value; the old one is released only when the frame owned it.
 static inline void slot_set(clj_frame *f, uint32_t i, clj_value v) {
@@ -221,7 +240,17 @@ static clj_value eval_const(const clj_node *n, clj_frame *f) {
 	return clj_retain(n->u.value);
 }
 
-static clj_value eval_local(const clj_node *n, clj_frame *f) { return clj_retain(f->slots[n->u.index]); }
+// An owned read: the last use of an owned slot is a hand-over, as in eval_borrowed, and retains nothing.
+static clj_value eval_local(const clj_node *n, clj_frame *f) {
+	uint32_t  i = n->u.local.index;
+	clj_value v = f->slots[i];
+	if (n->u.local.last && slot_owned(f, i)) {
+		f->slots[i] = CLJ_NIL;
+		if (i < 64) f->owned &= ~((uint64_t)1 << i);
+		return v;
+	}
+	return clj_retain(v);
+}
 
 static clj_value eval_captured(const clj_node *n, clj_frame *f) { return clj_retain(f->captured[n->u.index]); }
 
@@ -607,7 +636,14 @@ static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
 	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned)) return CLJ_THROWN;
 	clj_value result;
 	if (__builtin_expect(clj_var_root_relaxed(n->u.intrinsic.var) == clj_intrinsic_builtin(op), 1)) {
-		result = clj_intrinsic_call(op, args);
+		// A collection this site owns (a last-use local, a nested conj) goes to the consuming core as is: at rc 1
+		// it is updated in place, and the bit leaves the mask since the core took the reference.
+		if (__builtin_expect(clj_intrinsic_consumes(op), 0) && (owned & 1)) {
+			result = clj_intrinsic_call_consuming(op, args);
+			owned &= ~(uint64_t)1;
+		} else {
+			result = clj_intrinsic_call(op, args);
+		}
 	} else {
 		clj_value fn = clj_var_deref(n->u.intrinsic.var);
 		result = fn == CLJ_THROWN ? CLJ_THROWN : invoke_at(fn, args, n->u.intrinsic.n, n);
@@ -944,11 +980,15 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 }
 
 clj_call clj_call_prepare(clj_value f, size_t n) {
-	clj_call c = {f, n, NULL, NULL};
+	clj_call c = {f, n, NULL, NULL, NULL};
 	if (!clj_is_fn(f)) return c;
 	const clj_fn *fn = clj_fn_of(f);
-	if (fn->kind == CLJ_FN_CLOSURE) c.arity = arity_for(fn->u.node, n);
-	else if (fn->kind == CLJ_FN_NATIVE && n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity)) c.native = fn->u.native;
+	if (fn->kind == CLJ_FN_CLOSURE) {
+		c.arity = arity_for(fn->u.node, n);
+	} else if (fn->kind == CLJ_FN_NATIVE && n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity)) {
+		c.native = fn->u.native;
+		c.consuming = clj_intrinsic_consuming(f, (uint32_t)n);
+	}
 	return c;
 }
 

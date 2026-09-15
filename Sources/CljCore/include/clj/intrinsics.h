@@ -62,7 +62,13 @@ clj_value clj_nth2(clj_value coll, clj_value index);
 clj_value clj_nth3(clj_value coll, clj_value index, clj_value not_found);
 clj_value clj_conj2(clj_value coll, clj_value x);
 clj_value clj_assoc3(clj_value coll, clj_value key, clj_value val);
+clj_value clj_dissoc2(clj_value coll, clj_value key);
+clj_value clj_with_meta2(clj_value v, clj_value m);
 clj_value clj_contains_p(clj_value coll, clj_value key);
+// The consuming forms of the four above: the collection at +1 (nil included), the rest borrowed; clj_conj and
+// clj_with_meta of coll.h are the other two. What a site that owns the collection calls instead.
+clj_value clj_assoc_owned(clj_value coll, clj_value key, clj_value val);
+clj_value clj_dissoc_owned(clj_value coll, clj_value key);
 
 // ---- the table
 
@@ -87,7 +93,15 @@ typedef struct {
 	// still holds the boot fn). A fold that throws leaves the call to throw at run time, so nth out of bounds
 	// or a non-number qualifies; realizing a lazy seq would not, but a lazy seq is never such an argument.
 	bool pure;
+	// The same operation with its first argument at +1, for a caller that owns it: conj, assoc, dissoc and
+	// with-meta consume their collection at the core, and a unique one is updated in place. Zero otherwise.
+	union {
+		clj_intrinsic_2 f2;
+		clj_intrinsic_3 f3;
+	} consume;
 } clj_intrinsic;
+
+static inline bool clj_intrinsic_consumes(const clj_intrinsic *op) { return op->consume.f2 != NULL; }
 
 // The whole table, in its own order; the array is what clj_intrinsic_builtin indexes by pointer.
 const clj_intrinsic *clj_intrinsic_table(size_t *n);
@@ -102,6 +116,13 @@ clj_value clj_intrinsic_var(const clj_intrinsic *op);
 clj_value clj_intrinsic_builtin(const clj_intrinsic *op);
 // Calls op with exactly op->arity borrowed arguments.
 clj_value clj_intrinsic_call(const clj_intrinsic *op, const clj_value *args);
+// The consuming form: args[0] at +1, the rest borrowed. Only for an entry that consumes.
+clj_value clj_intrinsic_call_consuming(const clj_intrinsic *op, const clj_value *args);
+// Consuming calls made so far (a site that owned its collection, a driver's step), counted in debug builds only (-1 otherwise).
+int64_t clj_debug_consuming_calls(void);
+// The consuming entry whose boot builtin is fn at this arity, or NULL: what a driver that owns its accumulator
+// hands it to instead of calling fn.
+const clj_intrinsic *clj_intrinsic_consuming(clj_value fn, uint32_t arity);
 
 // Resolves every entry's var and boot fn; clj_init calls it after the builtins are interned, before core.clj.
 void clj_intrinsics_install(void);

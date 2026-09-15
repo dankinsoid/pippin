@@ -4,6 +4,7 @@
 
 #include "analyzer.h"
 #include "fn.h"
+#include "intrinsics.h"
 
 typedef struct clj_frame clj_frame;
 typedef clj_value (*clj_eval_fn)(const clj_node *node, clj_frame *frame);
@@ -80,10 +81,12 @@ size_t clj_debug_retired_roots(void);
 // arity resolved and enters its body directly, a plain native skips its arity check. f is borrowed and must
 // outlive the calls; a fn that takes no n arguments still goes through clj_invoke, which reports it.
 typedef struct {
-	clj_value           f;
-	size_t              n;
-	const clj_fn_arity *arity;  // of a closure for n, else NULL
-	clj_native_fn       native; // of a plain native accepting n, else NULL
+	clj_value            f;
+	size_t               n;
+	const clj_fn_arity  *arity;     // of a closure for n, else NULL
+	clj_native_fn        native;    // of a plain native accepting n, else NULL
+	const clj_intrinsic *consuming; // the consuming entry when f is its boot builtin (conj, assoc, ...), else NULL: a
+	                                // driver that owns its accumulator hands it over through clj_intrinsic_call_consuming
 } clj_call;
 
 clj_call  clj_call_prepare(clj_value f, size_t n);

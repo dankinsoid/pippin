@@ -95,7 +95,7 @@ static clj_node *node_at(clj_node_kind kind, position at) {
 
 static clj_node *local_node(uint32_t index, position at) {
 	clj_node *n = node_at(CLJ_NODE_LOCAL, at);
-	n->u.index = index;
+	n->u.local.index = index;
 	return n;
 }
 
@@ -249,7 +249,7 @@ typedef struct {
 } direct_scan;
 
 static bool refers(const clj_node *n, uint32_t depth, uint32_t slot) {
-	if (n->kind == CLJ_NODE_LOCAL) return depth == 0 && n->u.index == slot;
+	if (n->kind == CLJ_NODE_LOCAL) return depth == 0 && n->u.local.index == slot;
 	if (n->kind == CLJ_NODE_OUTER) return n->u.outer.depth == depth && n->u.outer.index == slot;
 	return false;
 }
@@ -522,7 +522,205 @@ static void optimize(const clj_node *n, void *ctx) {
 	else if (m->kind == CLJ_NODE_IF) fold_if(m);
 }
 
+// ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path
+// is flagged `last`, and the evaluator hands the frame's reference to the consumer instead of borrowing it,
+// so a conj/assoc on a local nobody else holds runs in place. Backward liveness over the evaluation order of
+// one frame (the top level, a fn arity, a direct fn arity), bitsets of the first 64 slots (a higher slot is
+// never marked). A loop or a fn body with a recur is a fixpoint: a recur's live-out is the body's live-in minus
+// the slots it rebinds, so a value only the next iteration reads is live across the recur and dead on the exit
+// path. A try body keeps everything its handlers and finally read live at every point, since any point may
+// throw. A slot a direct fn body reads through the static link is pinned live for the whole frame: the body
+// runs whenever the fn is called. Marking happens in one final pass per frame with the converged sets.
+
+typedef struct {
+	uint64_t slots;   // rebound by a recur of this target
+	uint64_t body_in; // live at the target body's entry, from the fixpoint
+} live_target;
+
+typedef struct {
+	uint64_t     held;  // never marked, whatever the live sets say: pinned by a direct fn body, or borrowed by an earlier operand
+	live_target *recur; // innermost loop or the arity
+	bool         mark;
+} live_ctx;
+
+// Whether a read's value is one the consumer can own: an owned position (a let init, a recur argument, a body's
+// value: eval_child) or the collection of a consuming intrinsic. A borrowed operand elsewhere (an `inc`
+// argument, a literal item, an `if` test) is marked nothing: the hand-over would cost the slot write and the
+// release for a +1 nobody uses. Call arguments are borrowed too: handing them into the callee's frame let a
+// callee update in place but cost ~2 ns per call on fixnum arguments (bench/RESULTS.md, "Last-use reuse").
+typedef enum { LIVE_BORROWED, LIVE_OWNED } live_use;
+
+static uint64_t slot_bit(uint32_t slot) { return slot < 64 ? (uint64_t)1 << slot : 0; }
+
+static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use);
+
+// Evaluated left to right, so the live sets flow from the last one back.
+static uint64_t live_seq(const clj_node *const *nodes, uint32_t n, uint64_t out, live_ctx *c, live_use use) {
+	while (n-- > 0) out = live(nodes[n], out, c, use);
+	return out;
+}
+
+static bool is_local(const clj_node *n) { return n->kind == CLJ_NODE_LOCAL; }
+
+// The operands of a call or a literal (eval_all with borrowing): a direct local operand is read at +0 and used
+// only once every later operand has run, so nothing inside a later operand may hand its slot over — that would
+// free what the earlier operand still points at. Held, not live: the sets stay exact, only the mark is withheld.
+// `head` is the fn position of an invoke, evaluated first; the first `owned` operands go to a consumer.
+static uint64_t live_args(const clj_node *head, const clj_node *const *nodes, uint32_t n, uint32_t owned, uint64_t out, live_ctx *c) {
+	uint64_t  small[16];
+	uint64_t *before = n <= 16 ? small : zalloc(n, sizeof *before);
+	uint64_t  borrowed = head && is_local(head) ? slot_bit(head->u.local.index) : 0, held = c->held;
+	for (uint32_t i = 0; i < n; i++) {
+		before[i] = borrowed;
+		if (is_local(nodes[i])) borrowed |= slot_bit(nodes[i]->u.local.index);
+	}
+	for (uint32_t i = n; i-- > 0;) {
+		c->held = held | before[i];
+		out = live(nodes[i], out, c, i < owned ? LIVE_OWNED : LIVE_BORROWED);
+	}
+	c->held = held;
+	if (before != small) free(before);
+	return head ? live(head, out, c, LIVE_BORROWED) : out;
+}
+
+// The body as often as it takes for its live-in to settle, with marking off; the caller marks in one more pass.
+static uint64_t live_fixpoint(const clj_node *body, uint64_t out, live_target *t, live_ctx *c) {
+	live_target *saved = c->recur;
+	bool         mark = c->mark;
+	c->recur = t;
+	c->mark = false;
+	for (;;) {
+		uint64_t in = live(body, out, c, LIVE_OWNED);
+		if (in == t->body_in) break;
+		t->body_in = in;
+	}
+	c->mark = mark;
+	uint64_t in = mark ? live(body, out, c, LIVE_OWNED) : t->body_in;
+	c->recur = saved;
+	return in;
+}
+
+static uint64_t live_bindings(const clj_node *n, uint64_t in, live_ctx *c) {
+	for (uint32_t i = n->u.let.n; i-- > 0;) {
+		in &= ~slot_bit(n->u.let.slots[i]);
+		in = live(n->u.let.inits[i], in, c, LIVE_OWNED);
+	}
+	return in;
+}
+
+// @ai-generated(guided)
+static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use) {
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL: {
+		uint64_t b = slot_bit(n->u.local.index);
+		if (c->mark && use == LIVE_OWNED && b && !(out & b) && !(c->held & b)) ((clj_node *)n)->u.local.last = true;
+		return out | b;
+	}
+	case CLJ_NODE_IF: {
+		uint64_t then = live(n->u.if_.then, out, c, use);
+		uint64_t else_ = n->u.if_.else_ ? live(n->u.if_.else_, out, c, use) : out;
+		return live(n->u.if_.test, then | else_, c, LIVE_BORROWED);
+	}
+	case CLJ_NODE_DO: {
+		uint32_t last = n->u.seq.n - 1;
+		out = live(n->u.seq.items[last], out, c, use);
+		return live_seq(n->u.seq.items, last, out, c, LIVE_BORROWED);
+	}
+	case CLJ_NODE_VECTOR:
+	case CLJ_NODE_MAP: return live_args(NULL, n->u.seq.items, n->u.seq.n, 0, out, c);
+	case CLJ_NODE_LET: return live_bindings(n, live(n->u.let.body, out, c, use), c);
+	case CLJ_NODE_LOOP: {
+		live_target t = {0, 0};
+		for (uint32_t i = 0; i < n->u.let.n; i++) t.slots |= slot_bit(n->u.let.slots[i]);
+		return live_bindings(n, live_fixpoint(n->u.let.body, out, &t, c), c);
+	}
+	case CLJ_NODE_RECUR: return live_seq(n->u.recur.args, n->u.recur.n, c->recur->body_in & ~c->recur->slots, c, LIVE_OWNED);
+	case CLJ_NODE_INVOKE: return live_args(n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, 0, out, c);
+	case CLJ_NODE_INTRINSIC: return live_args(NULL, n->u.intrinsic.args, n->u.intrinsic.n, clj_intrinsic_consumes(n->u.intrinsic.op) ? 1 : 0, out, c);
+	case CLJ_NODE_DIRECT_CALL: return live_args(NULL, n->u.direct.args, n->u.direct.n, 0, out, c);
+	case CLJ_NODE_FUSED: return live_args(NULL, n->u.fused.args, n->u.fused.nargs, 0, out, c); // the programs read a frame of their own
+	case CLJ_NODE_DEF: {
+		out = live(n->u.def.meta, out, c, LIVE_OWNED);
+		return n->u.def.init ? live(n->u.def.init, out, c, LIVE_OWNED) : out;
+	}
+	case CLJ_NODE_THROW: return live(n->u.throw_, out, c, LIVE_OWNED);
+	case CLJ_NODE_TRY: {
+		uint64_t after = n->u.try_.finally_ ? live(n->u.try_.finally_, out, c, LIVE_BORROWED) : out;
+		uint64_t handlers = 0;
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			const clj_catch *k = &n->u.try_.catches[i];
+			handlers |= live(k->handler, after, c, use) & ~slot_bit(k->slot);
+		}
+		return live(n->u.try_.body, after | handlers, c, use);
+	}
+	case CLJ_NODE_FN: // a capture reads the slot when the closure is made; the body is a frame of its own
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			if (n->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.fn.captures[i].index);
+		}
+		return out;
+	case CLJ_NODE_CONST:
+	case CLJ_NODE_CAPTURED:
+	case CLJ_NODE_OUTER:
+	case CLJ_NODE_VAR:
+	case CLJ_NODE_DIRECT_FN: return out;
+	}
+	clj_fatal("unknown node kind");
+}
+
+typedef struct {
+	uint32_t  depth; // direct fn bodies entered below the frame
+	uint64_t *pinned;
+} pin_ctx;
+
+// Slots of the frame that a direct fn body below it reads through the static link, or a closure made there captures.
+static void pin_scan(const clj_node *n, void *ctx) {
+	pin_ctx *p = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_OUTER:
+		if (n->u.outer.depth == p->depth) *p->pinned |= slot_bit(n->u.outer.index);
+		return;
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			const clj_capture *cap = &n->u.fn.captures[i];
+			if (cap->kind == CLJ_CAPTURE_OUTER && cap->depth == p->depth) *p->pinned |= slot_bit(cap->index);
+		}
+		return;
+	case CLJ_NODE_DIRECT_FN: {
+		pin_ctx inner = {p->depth + 1, p->pinned};
+		clj_node_children(n, pin_scan, &inner);
+		return;
+	}
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) pin_scan(n->u.fused.args[i], ctx);
+		return;
+	default: clj_node_children(n, pin_scan, ctx);
+	}
+}
+
+// One frame: its body's live-out is empty (the value is owned by whoever evaluates the body).
+static void live_frame(const clj_node *body, uint64_t recur_slots) {
+	live_target self = {recur_slots, 0};
+	uint64_t    pinned = 0;
+	pin_ctx     p = {0, &pinned};
+	pin_scan(body, &p);
+	live_ctx c = {pinned, &self, true};
+	live_fixpoint(body, 0, &self, &c);
+}
+
+// Every fn arity below the root is a frame of its own; the walk finds them, live() does not enter them.
+static void live_fns(const clj_node *n, void *ctx) {
+	if (n->kind == CLJ_NODE_FN || n->kind == CLJ_NODE_DIRECT_FN) {
+		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
+			const clj_fn_arity *a = i <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[i] : n->u.fn.variadic;
+			if (a) live_frame(a->body, (a->nparams + (a->variadic ? 1 : 0)) >= 64 ? UINT64_MAX : ((uint64_t)1 << (a->nparams + (a->variadic ? 1 : 0))) - 1);
+		}
+	}
+	clj_node_children(n, live_fns, ctx);
+}
+
 void clj_optimize(clj_node *root) {
 	direct_pass(root, NULL);
 	optimize(root, NULL);
+	live_frame(root, 0);
+	live_fns(root, NULL);
 }

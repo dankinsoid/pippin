@@ -58,7 +58,7 @@ extension CoreTests {
 	@Suite struct NodeDataTests {
 		init() {
 			clj_init()
-			for k in ["const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
+			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
 			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope"] {
 				_ = Value(keyword: k)
 			}
@@ -112,7 +112,7 @@ extension CoreTests {
 				let tree = try Tree.analyze("(let [x 1] (if x (inc x) [x]))")
 				#expect(try tree.data() == Value(reading: "[:let [[0 [:const 1 1 1]]] [:if [:local 0 1 12] [:intrinsic clojure.core/inc [:local 0 1 18] 1 18] [:vector [:local 0 1 12] 1 12] 1 12] 1 1]"))
 				let fn = try Tree.analyze("(let [a 1] (fn ([] a) ([x & r] (recur x r))))")
-				#expect(try fn.data() == Value(reading: "[:let [[0 [:const 1 1 1]]] [:fn nil [[0 false nil 0 [:captured 0 1 12]] [1 true nil 2 [:recur [0 1] [[:local 0 1 32] [:local 1 1 32]] 1 32]]] [[:local 0]] 1 12] 1 1]"))
+				#expect(try fn.data() == Value(reading: "[:let [[0 [:const 1 1 1]]] [:fn nil [[0 false nil 0 [:captured 0 1 12]] [1 true nil 2 [:recur [0 1] [[:local 0 :last 1 32] [:local 1 :last 1 32]] 1 32]]] [[:local 0]] 1 12] 1 1]"))
 				let bare = try Tree.read(Value(reading: "[:let [[0 [:const 1]]] [:if [:local 0] [:invoke [:var clojure.core/inc] [:local 0]] [:vector [:local 0]]]]"))
 				#expect(try bare.data() == Value(reading: "[:let [[0 [:const 1]]] [:if [:local 0] [:invoke [:var clojure.core/inc] [:local 0]] [:vector [:local 0]]]]"))
 				#expect(bare.node.pointee.line == 0)
