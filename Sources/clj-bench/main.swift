@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 import CljCore
+import Clojure
 import Dispatch
 import Foundation
 import HashTreeCollections
@@ -515,6 +516,13 @@ let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (
 
 // The same call with the fn bound by a let around the loop, and a helper bound inside the loop body that
 // reads a loop variable: a closure per iteration unless the optimizer calls it directly.
+// The same call through a var bound to a C builtin (`inc`, a plain native called from the site) and to a fn
+// made by Runtime.define (a context native through clj_invoke and the Value bridge): the Swift↔C transition.
+let rt = Runtime()
+rt.define("bench-host-inc", arity: 1...1) { args in Value(args[0].int! + 1) }
+let nativeCallFn = cljEval("(def bench-c-inc inc) (fn [n] (loop [i 0] (if (< i n) (recur (bench-c-inc i)) i)))")
+let hostCallFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (bench-host-inc i)) i)))")
+
 let letFn = cljEval("(fn [n] (let [f (fn [x] (inc x))] (loop [i 0] (if (< i n) (recur (f i)) i))))")
 let helperFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (let [add (fn [x] (+ acc x))] (recur (inc i) (add i))) acc)))")
 
@@ -540,6 +548,8 @@ do {
 	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
 		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
 		swift: measure(ops: n) { aClosureCallLoop(n) }))
+	callRows.append(CallRow(scenario: "C builtin call in a loop", n: n, c: measure(ops: n) { cClosureCallLoop(nativeCallFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "host fn call in a loop", n: n, c: measure(ops: n) { cClosureCallLoop(hostCallFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "let-bound fn called in a loop", n: n, c: measure(ops: n) { cClosureCallLoop(letFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "loop with a local helper", n: n, c: measure(ops: n) { cClosureCallLoop(helperFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "protocol call, deftype receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoTypeFn, n) }, swift: nil))
@@ -548,11 +558,39 @@ do {
 }
 clj_release(countFn)
 clj_release(callFn)
+clj_release(nativeCallFn)
+clj_release(hostCallFn)
 clj_release(letFn)
 clj_release(helperFn)
 clj_release(protoTypeFn)
 clj_release(protoBuiltinFn)
 clj_release(protoBiFn)
+
+// (sort v) over shuffled fixnums: the Swift primitive, the Clojure merge sort that is its specification, and
+// Swift's own sort of the same numbers.
+_ = cljEval("(def bench-sort-spec \(Runtime.sortSpecification))")
+let sortFn = cljEval("(fn [v] (first (sort v)))")
+let sortSpecFn = cljEval("(fn [v] (first (bench-sort-spec v)))")
+
+struct SortRow {
+	let n: Int
+	let primitive: Double
+	let spec: Double
+	let swift: Double
+}
+
+var sortRows: [SortRow] = []
+for n in [1_000] {
+	let a = shuffled(n, seed: 6)
+	let v = a.map(clj_fixnum).withUnsafeBufferPointer { clj_vector_from_array($0.baseAddress, UInt32($0.count)) }
+	sortRows.append(SortRow(n: n,
+		primitive: measure(ops: n) { cljCall(sortFn, v) },
+		spec: measure(ops: n) { cljCall(sortSpecFn, v) },
+		swift: measure(ops: n) { UInt64(a.sorted()[0]) }))
+	clj_release(v)
+}
+clj_release(sortFn)
+clj_release(sortSpecFn)
 
 print("\n| scenario | n | interpreted | C iterator | Swift for | interpreted / Swift |")
 print("|---|---:|---:|---:|---:|---:|")
@@ -566,4 +604,11 @@ print("|---|---:|---:|---:|---:|")
 for r in callRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
 }
-print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x))), let-bound = f bound by a let around the loop, local helper = (let [add (fn [x] (+ acc x))] ...) inside the loop body, protocol call = the same with (+ i (m x)) for a one-method protocol extended to a deftype and to Long")
+print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x))), C builtin call = (def f inc), host fn call = f made by Runtime.define, let-bound = f bound by a let around the loop, local helper = (let [add (fn [x] (+ acc x))] ...) inside the loop body, protocol call = the same with (+ i (m x)) for a one-method protocol extended to a deftype and to Long")
+
+print("\n| scenario | n | Swift primitive | Clojure spec | Swift sorted | spec / primitive |")
+print("|---|---:|---:|---:|---:|---:|")
+for r in sortRows {
+	print("| sort, shuffled fixnums | \(r.n) | \(fmt(r.primitive)) | \(fmt(r.spec)) | \(fmt(r.swift)) | \(ratio(r.primitive, r.spec)) |")
+}
+print("\nns per element; Swift primitive = (sort v) bound by Runtime.define, Clojure spec = Runtime.sortSpecification evaluated in user, Swift sorted = [Int].sorted()")

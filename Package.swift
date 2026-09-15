@@ -39,6 +39,7 @@ let package = Package(
 			name: "clj-bench",
 			dependencies: [
 				"CljCore",
+				"Clojure",
 				.product(name: "HashTreeCollections", package: "swift-collections"),
 			]
 		),

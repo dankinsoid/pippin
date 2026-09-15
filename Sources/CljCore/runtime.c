@@ -98,6 +98,7 @@ static void init(void) {
 	clj_fusion_install();
 	clj_map_each(clj_ns_of(core)->mappings, immortalize_root, NULL);
 	clj_ns_set_current(clj_ns_user());
+	if (clj_host_boot) clj_host_boot();
 }
 
 void clj_init(void) { pthread_once(&init_once, init); }

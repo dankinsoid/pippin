@@ -718,6 +718,56 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   them Clojure-style (`at user/f (line:col)`); a `ClojureError` rethrown from a host fn hands the
   same frames back to the core, so a non-error value keeps them across the boundary.
 
+### Host-defined vars and primitives (Runtime.swift `define`, Differential.swift, Primitives.swift)
+
+- **`Runtime.define(name, in:, arity:, doc:, body)`** interns the var (the namespace is created when
+  missing) and binds a `Value(function:)` as its root through the calls `eval_def` makes —
+  `clj_var_bind_root` (epoch bump, a replaced fn root parked until the thread is idle), then
+  `clj_var_set_meta` with `{:ns :name}` plus `:doc`, then the macro and dynamic flags cleared — so a
+  `def` and a `define` of the same var take turns freely and a site warmed on the boot fn (an INTRINSIC
+  or FUSED node) falls back through its guard (DefineTests, `clojure.core/+`). The fn is named
+  `ns/name`, so arity errors read as a `defn`'s. No `:line`/`:column`, no `:arglists`; `(doc x)` prints
+  the doc. Nothing new in C: the entries existed. Returns the var, as `def` does.
+- **A primitive never exists without its specification and the differential test** (design §6b item 1,
+  the intrinsics rule of intrinsics.h from the other side of the bridge): the Swift implementation of
+  something Clojure already says how to compute lives next to the Clojure implementation that stays its
+  specification, and `Runtime.differential(primitive:spec:samples:messages:)` runs both over the samples
+  and returns the divergent ones — a value must be `=`, a throw must meet a throw, the messages agree only
+  with `messages:` (a spec in Clojure rarely throws the primitive's text; the sort spec meets a mixed pair
+  in another argument order). It is public API, not a test helper: the escape hatch is for host libraries
+  (hiccup diff, JSON, sorting) whose own tests cannot import ours, and it returns data, so it binds to no
+  test framework.
+- **`compare` and `sort` are the first residents** (Primitives.swift). They bind into `clojure.core` from
+  `clj_host_boot`, a weak C hook `clj_init` calls last, defined by the Swift module with `@_cdecl`: a raw
+  `clj_init()` and `Runtime()` boot the same core, tests take baselines after either. Their roots are
+  ordinary (not immortal, read owned). `sort` is a bottom-up merge sort over the retained items of any
+  seqable, stable, returning a list; `Runtime.sortSpecification` is the top-down merge sort in Clojure in
+  the same file, evaluated by PrimitiveTests and the bench. `compare` is the leaf without a Clojure spec:
+  nothing in Clojure here orders two strings or chars (no `int` of a char, no `subs`), so a Clojure
+  `compare` cannot be written; it is checked by table. Trigger: char/int conversion landing, then the
+  Clojure spec and `compare` in the differential too.
+- **Deviations from Clojure's `compare`**: −1/0/1 always (the JVM returns the char or length difference
+  for strings); strings order by code point, the JVM by UTF-16 unit (they differ only between an astral
+  char and U+E000–U+FFFF); vectors are not ordered here ("vector cannot be cast to Comparable"; Clojure
+  orders them by count, then items); the mixed-type message names the runtime's types (`fixnum cannot be
+  cast to a string`). `sort` has the one-argument arity only; trigger: the first `(sort cmp coll)`, then
+  the comparator called through `clj_invoke` and the spec taking `cmp`.
+- **Limits.** Varargs are `arity: nil` plus a check in the body, as with `Value(function:)`. core.clj
+  cannot call a primitive at load time and cannot reference one without `(declare ...)`: the hook runs
+  after core.clj. A C-only host has neither `compare` nor `sort`. Meta is `:doc` only; `:private`,
+  `:dynamic`, `:arglists`, `:tag` need a `def` afterwards. `define` on another thread against a running
+  call is the concurrent-`def` race of the evaluator section.
+- **Cost** (bench/RESULTS.md, "Host-defined fns"): a host fn call is ~64 ns over a C builtin at the same
+  site and ~60 over a closure — the `clj_invoke` path for context natives plus the bridge's `[Value]`
+  array, per-argument wrapping and the box retain; the design's "tens of ns" at the upper end. `sort` of
+  1k fixnums: 83 ns per element against 4960 through its Clojure spec. Trigger for a cheaper crossing: a
+  host fn in a per-element position of a profile; then an argument-buffer body signature.
+- **Triggers.** Many primitives → a registration table and a generated differential suite over it, the
+  design's one-table shape for intrinsics; a primitive core.clj needs at boot → a C builtin under the
+  intrinsics rule, or a second hook before core.clj; a host wanting a Clojure protocol implemented in
+  Swift → the `extend` entry above; `Runtime.define` of a macro → `:macro` meta and `clj_var_set_macro`,
+  when a host has a reason.
+
 ## Printer (Sources/CljCore/printer.c)
 
 - **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.

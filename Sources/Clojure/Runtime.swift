@@ -118,10 +118,46 @@ public final class Runtime: Sendable {
 	}
 }
 
+extension Runtime {
+	/// `(def name (fn ...))` with a Swift body: interns `name` in `namespace` (created when missing) and binds
+	/// the fn as the var's root through the path `def` takes — the definition epoch is bumped, a fn root still
+	/// running on this thread is parked until it returns, the meta becomes `{:ns ns :name name}` plus `:doc`
+	/// when given. Arity errors name the var (`ns/name`); a thrown Swift error reaches Clojure as a host error
+	/// and comes back to Swift as itself, as with `Value(function:arity:_:)`. Returns the var. Redefining a
+	/// core var works, and a call site warmed on the boot fn falls back to the new root (NOTES.md, host bridge).
+	@discardableResult
+	public func define(_ name: String, in namespace: String = "user", arity: ClosedRange<Int>? = nil, doc: String? = nil,
+	                   _ body: @escaping ([Value]) throws -> Value) -> Value {
+		Self.bind(name, in: namespace, doc: doc, Value(function: "\(namespace)/\(name)", arity: arity, body))
+	}
+
+	// Root first, then meta, then the flags, as eval_def does.
+	@discardableResult
+	static func bind(_ name: String, in namespace: String, doc: String?, _ fn: Value) -> Value {
+		precondition(!namespace.contains("/"), "namespace must be unqualified")
+		precondition(name == "/" || !name.contains("/"), "name must be unqualified")
+		let ns = Value(symbol: namespace), sym = Value(symbol: name)
+		let v = withExtendedLifetime((ns, sym)) { clj_ns_intern(clj_ns_find_or_create(ns.raw), sym.raw) }
+		var meta: [Value: Value] = [Value(keyword: "ns"): Value(borrowing: clj_var_ns(v)), Value(keyword: "name"): Value(borrowing: clj_var_name(v))]
+		if let doc { meta[Value(keyword: "doc")] = Value(doc) }
+		let m = Value(meta)
+		withExtendedLifetime((fn, m)) {
+			clj_var_bind_root(v, fn.raw)
+			clj_var_set_meta(v, m.raw)
+		}
+		clj_var_set_macro(v, false)
+		clj_var_set_dynamic(v, false)
+		return Value(borrowing: v)
+	}
+}
+
 extension Value {
 	/// Invokes a fn, keyword, map or vector as Clojure does. Throws what the call threw: the Swift error a
 	/// host fn failed with, or `ClojureError` for anything thrown by Clojure code.
-	public func callAsFunction(_ args: Value...) throws -> Value {
+	public func callAsFunction(_ args: Value...) throws -> Value { try apply(args) }
+
+	/// `callAsFunction` over an argument array.
+	public func apply(_ args: [Value]) throws -> Value {
 		try withExtendedLifetime((self, args)) {
 			let result = args.map(\.raw).withUnsafeBufferPointer { clj_invoke(raw, $0.baseAddress, $0.count) }
 			if result == CLJ_THROWN { throw ClojureError.takePending() }
@@ -169,6 +205,13 @@ extension Value {
 		self.init(owning: withExtendedLifetime(message) {
 			clj_host_error_new(message.raw, payload) { Unmanaged<HostErrorBox>.fromOpaque($0!).release() }
 		})
+	}
+
+	/// An `ex-info` with `message` and `data` (a map or nil): what a Swift primitive throws, wrapped in
+	/// `ClojureError(thrown:)`, when the failure is Clojure's rather than the host's.
+	public init(exInfo message: String, data: Value = nil) {
+		let text = Value(message)
+		self.init(owning: withExtendedLifetime((text, data)) { clj_ex_info(text.raw, data.raw) })
 	}
 
 	/// The Swift error inside a host error; nil for every other value.

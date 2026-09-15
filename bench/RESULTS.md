@@ -426,3 +426,32 @@ section above, so compare within the table.
 - The rows without a local fn move within the run-to-run spread, on the better side here because
   the base binary ran first in a warmer minute; nothing in their path changed.
 
+## Host-defined fns and the sort primitive — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+`Runtime.define` binds a Swift closure as a var root (NOTES.md, host bridge). Two rows in the call table
+put the Swift↔C transition next to a C builtin called from the same site, and one row puts the `sort`
+primitive next to the Clojure merge sort that is its specification. Clean `--scratch-path` release build,
+three runs of the same binary, ns per iteration (calls) or per element (sort).
+
+| scenario | n | run 1 | run 2 | run 3 | median |
+|---|---:|---:|---:|---:|---:|
+| counting loop | 100000 | 17.1 | 15.8 | 16.3 | 16.3 |
+| C builtin call in a loop | 100000 | 17.9 | 17.9 | 17.9 | 17.9 |
+| closure call in a loop | 100000 | 22.2 | 23.0 | 22.3 | 22.3 |
+| host fn call in a loop | 100000 | 81.5 | 82.0 | 81.1 | 81.5 |
+| sort, shuffled fixnums, Swift primitive | 1000 | 82.9 | 83.5 | 83.5 | 83.5 |
+| sort, shuffled fixnums, Clojure spec | 1000 | 4898 | 4962 | 5002 | 4962 |
+| sort, shuffled fixnums, `[Int].sorted()` | 1000 | 13.3 | 13.4 | 13.5 | 13.4 |
+
+- **A host fn call costs ~64 ns over a C builtin at the same site** (81.5 − 17.9); a closure costs ~4.5.
+  The builtin (`(def f inc)`, a plain native) is called from the site's argument buffer; the host fn is a
+  context native through `clj_invoke`, then the bridge: an `[Value]` array per call (a heap allocation and
+  its release), a `Value(borrowing:)` per argument, the `NativeBody` box through `Unmanaged`, the Swift
+  closure, the result retained back. The design's "tens of ns" for the transition holds at the upper end;
+  the array is the likely bulk, not measured apart. Trigger: a host fn in a per-element position of a
+  profile; then a body signature over an argument buffer, or a fixed-arity variant without the array.
+- **`sort` of 1k fixnums: 83 ns per element in Swift, 4960 through the Clojure spec, 13 in
+  `[Int].sorted()`.** The primitive pays ~10k `compare` calls through a throwing Swift function, a retain
+  per item, the cons list it returns and the `clj_share` of what crosses; the spec pays an interpreted
+  `compare` var call, `nth`, `conj` and a vector copy per merge step. 59× is the escape hatch's payoff on
+  coarse-grained work, against the 64 ns every crossing costs.
