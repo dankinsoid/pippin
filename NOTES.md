@@ -491,6 +491,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   a `letfn` (falls out as a `let*` of direct fns once forward references are allowed in the scan);
   a self-referencing `step` under `lazy-seq` in a profile (the thunk would need to reach the frame,
   which it outlives — that is a real closure).
+  Decision: kept although no core.clj helper qualifies today (the gain is on synthetic rows only).
+  Revisit when `for`/`doseq`/`letfn` exist: if their helpers fail the escape rule as the `step`s do,
+  roll it back — the pass, the three node kinds and the frame link are self-contained (optimizer.c
+  `direct_pass`, eval.c `eval_direct_call`/`eval_outer`, the codec forms), so the rollback is cheap.
 - **The definition epoch** (epoch.h) is one process-wide counter bumped by every root bind (`def`,
   `defmacro`, boot, a host bind), every `extend`, every type creation (`deftype`, a reify site's first
   evaluation) and every `deftype` descriptor's death; `protocol-epoch*` returns it. The protocol call
