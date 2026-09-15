@@ -933,6 +933,38 @@
       (recur (assoc m (first ks) (first vs)) (next ks) (next vs))
       m)))
 
+(defn get-in
+  "Returns the value at the path of keys, or not-found (default nil) where a step is missing."
+  ([m ks] (reduce get m ks))
+  ([m ks not-found]
+   (loop [m m ks (seq ks)]
+     (if ks
+       (let [v (get m (first ks) :clojure.core/not-found)]
+         (if (identical? v :clojure.core/not-found) not-found (recur v (next ks))))
+       m))))
+
+(defn assoc-in
+  "Associates v at the path of keys, creating nested maps where a step is missing."
+  [m [k & ks] v]
+  (if ks (assoc m k (assoc-in (get m k) ks v)) (assoc m k v)))
+
+(defn update
+  "Replaces the value at k with (f current args...)."
+  ([m k f] (assoc m k (f (get m k))))
+  ([m k f x] (assoc m k (f (get m k) x)))
+  ([m k f x y] (assoc m k (f (get m k) x y)))
+  ([m k f x y & more] (assoc m k (apply f (get m k) x y more))))
+
+(defn update-in
+  "Replaces the value at the path of keys with (f current args...), creating nested maps where a step is missing."
+  [m ks f & args]
+  (let [up (fn up [m ks f args]
+             (let [[k & ks] ks]
+               (if ks
+                 (assoc m k (up (get m k) ks f args))
+                 (assoc m k (apply f (get m k) args)))))]
+    (up m ks f args)))
+
 ;; ---- protocols and types. Dispatch lives in C (proto.c); these macros only shape the forms.
 
 ;; (P (m [this] ...) (m [this a] ...) Q (n [x] ...)) → [[P [[m [([this] ...) ([this a] ...)]]]] [Q [[n [([x] ...)]]]],

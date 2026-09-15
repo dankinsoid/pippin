@@ -274,6 +274,69 @@ func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
 	return v
 }
 
+// CLJ_BENCH_ONLY=rc-share on a debug binary: the share of retain/release pairs on the shared (atomic) path
+// with the application state in one atom (design §4, "Проверка, закрывающая вопрос"); release builds count nothing.
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
+	clj_init()
+	func rcOps() -> [Int64] {
+		var out = [Int64](repeating: 0, count: 3)
+		clj_debug_rc_ops(&out)
+		return out
+	}
+	if rcOps()[0] < 0 {
+		print("rc-share needs a debug build (swift build --product clj-bench)")
+		exit(1)
+	}
+	// One tick: two nested writes through swap! and two reads through deref + get-in/get, the shape of a UI
+	// state update; the same over a local map (never published) is the non-shared baseline.
+	let tickAtom = cljEval("""
+	(fn [n]
+	  (let [state (atom {:users {} :counter 0})]
+	    (loop [i 0 s 0]
+	      (if (< i n)
+	        (do (swap! state assoc-in [:users i] {:id i :name "x"})
+	            (swap! state update :counter inc)
+	            (recur (inc i) (+ s (count (get-in @state [:users (- i 1) :name] "")) (get @state :counter))))
+	        s))))
+	""")
+	let tickWatched = cljEval("""
+	(fn [n]
+	  (let [state (atom {:users {} :counter 0})]
+	    (add-watch state :k (fn [k r o n] nil))
+	    (loop [i 0 s 0]
+	      (if (< i n)
+	        (do (swap! state assoc-in [:users i] {:id i :name "x"})
+	            (swap! state update :counter inc)
+	            (recur (inc i) (+ s (count (get-in @state [:users (- i 1) :name] "")) (get @state :counter))))
+	        s))))
+	""")
+	let tickLocal = cljEval("""
+	(fn [n]
+	  (loop [i 0 s 0 state {:users {} :counter 0}]
+	    (if (< i n)
+	      (let [state (assoc-in state [:users i] {:id i :name "x"})
+	            state (update state :counter inc)]
+	        (recur (inc i) (+ s (count (get-in state [:users (- i 1) :name] "")) (get state :counter)) state))
+	      s)))
+	""")
+	print("| workload | n | plain | shared | immortal | shared share |")
+	print("|---|---:|---:|---:|---:|---:|")
+	for (name, fn) in [("state in an atom", tickAtom), ("state in a watched atom", tickWatched), ("state in a loop local", tickLocal)] {
+		for n in [1_000, 10_000] {
+			_ = cljCall(fn, clj_fixnum(n))
+			let before = rcOps()
+			_ = cljCall(fn, clj_fixnum(n))
+			let after = rcOps()
+			let plain = after[0] - before[0], shared = after[1] - before[1], immortal = after[2] - before[2]
+			let share = Double(shared) / Double(plain + shared) * 100
+			print("| \(name) | \(n) | \(plain) | \(shared) | \(immortal) | \(String(format: "%.1f", share)) % |")
+		}
+	}
+	print("\nretain+release ops per run of n ticks; shared share = shared / (plain + shared), immortal ops (keywords, core roots) aside")
+	for fn in [tickAtom, tickWatched, tickLocal] { clj_release(fn) }
+	exit(0)
+}
+
 // (reduce + (map inc (range n))), (reduce + (map inc (filter even? (range n)))), (count (vec (map inc (range n)))):
 // pipelines the optimizer fuses into their transducer form.
 func cReduceMapRange(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
@@ -646,3 +709,113 @@ for r in sortRows {
 	print("| sort, shuffled fixnums | \(r.n) | \(fmt(r.primitive)) | \(fmt(r.spec)) | \(fmt(r.swift)) | \(ratio(r.primitive, r.spec)) |")
 }
 print("\nns per element; Swift primitive = (sort v) bound by Runtime.define, Clojure spec = Runtime.sortSpecification evaluated in user, Swift sorted = [Int].sorted()")
+
+// MARK: - Atoms
+
+// (swap! a assoc i i) in a loop: the atom's reference goes to assoc, in place; the same with a deref'd copy
+// held across the swap (a second holder: a path copy per swap); the same on an atom with a no-op watch (the
+// old value is kept for the watch: the copy, plus the watch call); (swap! a inc); (get @a :k) per iteration
+// against the same through a volatile; and four threads doing (swap! a inc) / (swap! a assoc k i) on one atom.
+let atomAssocFn = cljEval("(fn [n] (let [a (atom {})] (loop [i 0] (if (< i n) (do (swap! a assoc i i) (recur (inc i))) (count @a)))))")
+let atomAssocHolderFn = cljEval("(fn [n] (let [a (atom {})] (loop [i 0] (if (< i n) (let [old @a] (swap! a assoc i i) (recur (inc i))) (count @a)))))")
+let atomAssocWatchedFn = cljEval("(fn [n] (let [a (atom {})] (add-watch a :k (fn [k r o n] nil)) (loop [i 0] (if (< i n) (do (swap! a assoc i i) (recur (inc i))) (count @a)))))")
+let atomIncFn = cljEval("(fn [n] (let [a (atom 0)] (loop [i 0] (if (< i n) (do (swap! a inc) (recur (inc i))) @a))))")
+let atomDerefFn = cljEval("(fn [n] (let [a (atom {:k 1})] (loop [i 0 s 0] (if (< i n) (recur (inc i) (+ s (get @a :k))) s))))")
+let volatileDerefFn = cljEval("(fn [n] (let [v (volatile! {:k 1})] (loop [i 0 s 0] (if (< i n) (recur (inc i) (+ s (get @v :k))) s))))")
+let loopAssocRefFn = cljEval("(fn [n] (count (loop [m {} i 0] (if (< i n) (recur (assoc m i i) (inc i)) m))))")
+let countRefFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))")
+let contended = cljEval("(let [a (atom 0) m (atom {})] [(fn [n] (dotimes [i n] (swap! a inc)) @a) (fn [t] (dotimes [i 25000] (swap! m assoc (+ (* t 1000000) i) i)) (count @m)) a m])")
+clj_share(contended)
+let contendedIncFn = clj_vector_nth(contended, 0), contendedAssocFn = clj_vector_nth(contended, 1)
+let contendedAssocAtom = clj_vector_nth(contended, 3)
+
+// Swift under an os_unfair_lock: a Dictionary insert and an Int increment, alone and on four threads.
+final class LockedState: @unchecked Sendable {
+	var lock = os_unfair_lock()
+	var dict: [Int: Int] = [:]
+	var count = 0
+}
+
+func cContended(_ f: clj_value, threads: Int, each: clj_value) -> UInt64 {
+	let s = LockedState()
+	DispatchQueue.concurrentPerform(iterations: threads) { t in
+		let r = cljCall(f, each == CLJ_NIL ? clj_fixnum(t) : each)
+		os_unfair_lock_lock(&s.lock)
+		s.count &+= Int(truncatingIfNeeded: r)
+		os_unfair_lock_unlock(&s.lock)
+	}
+	return UInt64(bitPattern: Int64(s.count))
+}
+
+func aLockedInsert(_ n: Int) -> UInt64 {
+	let s = LockedState()
+	for i in 0..<n {
+		os_unfair_lock_lock(&s.lock)
+		s.dict[i] = i
+		os_unfair_lock_unlock(&s.lock)
+	}
+	return UInt64(s.dict.count)
+}
+
+func aLockedInc(_ n: Int, threads: Int) -> UInt64 {
+	let s = LockedState()
+	DispatchQueue.concurrentPerform(iterations: threads) { _ in
+		for _ in 0..<(n / threads) {
+			os_unfair_lock_lock(&s.lock)
+			s.count += 1
+			os_unfair_lock_unlock(&s.lock)
+		}
+	}
+	return UInt64(s.count)
+}
+
+func aLockedRead(_ n: Int) -> UInt64 {
+	let s = LockedState()
+	s.dict[1] = 1
+	var sum = 0
+	for _ in 0..<n {
+		os_unfair_lock_lock(&s.lock)
+		sum &+= s.dict[1]!
+		os_unfair_lock_unlock(&s.lock)
+	}
+	return UInt64(sum)
+}
+
+struct AtomRow {
+	let scenario: String
+	let n: Int
+	let c: Double
+	let swift: Double?
+}
+
+var atomRows: [AtomRow] = []
+do {
+	let n = 100_000
+	atomRows.append(AtomRow(scenario: "swap! assoc, in place", n: n, c: measure(ops: n) { cljCall(atomAssocFn, clj_fixnum(n)) }, swift: measure(ops: n) { aLockedInsert(n) }))
+	atomRows.append(AtomRow(scenario: "swap! assoc, second holder", n: n, c: measure(ops: n) { cljCall(atomAssocHolderFn, clj_fixnum(n)) }, swift: nil))
+	atomRows.append(AtomRow(scenario: "swap! assoc, watched", n: n, c: measure(ops: n) { cljCall(atomAssocWatchedFn, clj_fixnum(n)) }, swift: nil))
+	atomRows.append(AtomRow(scenario: "loop assoc into a map (no atom)", n: n, c: measure(ops: n) { cGrowLoop(loopAssocRefFn, n) }, swift: nil))
+	atomRows.append(AtomRow(scenario: "swap! inc", n: n, c: measure(ops: n) { cljCall(atomIncFn, clj_fixnum(n)) }, swift: measure(ops: n) { aLockedInc(n, threads: 1) }))
+	atomRows.append(AtomRow(scenario: "get @atom :k", n: n, c: measure(ops: n) { cljCall(atomDerefFn, clj_fixnum(n)) }, swift: measure(ops: n) { aLockedRead(n) }))
+	atomRows.append(AtomRow(scenario: "get @volatile :k", n: n, c: measure(ops: n) { cljCall(volatileDerefFn, clj_fixnum(n)) }, swift: nil))
+	atomRows.append(AtomRow(scenario: "counting loop", n: n, c: measure(ops: n) { cCountLoop(countRefFn, n) }, swift: nil))
+	atomRows.append(AtomRow(scenario: "swap! inc, 4 threads", n: n, c: measure(ops: n) { cContended(contendedIncFn, threads: 4, each: clj_fixnum(n / 4)) }, swift: measure(ops: n) { aLockedInc(n, threads: 4) }))
+	atomRows.append(AtomRow(scenario: "swap! assoc, 4 threads", n: n, c: measure(ops: n) { cContended(contendedAssocFn, threads: 4, each: CLJ_NIL) }, swift: nil))
+}
+clj_release(atomAssocFn)
+clj_release(atomAssocHolderFn)
+clj_release(atomAssocWatchedFn)
+clj_release(atomIncFn)
+clj_release(atomDerefFn)
+clj_release(volatileDerefFn)
+clj_release(loopAssocRefFn)
+clj_release(countRefFn)
+clj_release(contended)
+_ = contendedAssocAtom
+
+print("\n| scenario | n | interpreted | Swift locked | interpreted / Swift |")
+print("|---|---:|---:|---:|---:|")
+for r in atomRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
+}
+print("\nns per iteration; swap! assoc = (swap! a assoc i i) in a loop, second holder = the same with (let [old @a] ...) around it, watched = the same on an atom with a no-op watch, swap! inc / get @atom :k = the same loops, 4 threads = four DispatchQueue.concurrentPerform workers sharing one atom (n ops in total); Swift locked = an os_unfair_lock around a Dictionary insert / an Int increment / a Dictionary read")

@@ -140,11 +140,10 @@ clj_value clj_intrinsic_call_consuming(const clj_intrinsic *op, const clj_value 
 	return op->consume.f2(args[0], args[1]);
 }
 
+// One load off the fn: a per-call caller (swap!) cannot afford the table scan.
 const clj_intrinsic *clj_intrinsic_consuming(clj_value fn, uint32_t arity) {
-	for (size_t i = 0; i < N; i++) {
-		if (builtins[i] == fn && table[i].arity == arity && clj_intrinsic_consumes(&table[i])) return &table[i];
-	}
-	return NULL;
+	const clj_intrinsic *op = clj_fn_of(fn)->u.native.consuming;
+	return op && op->arity == arity ? op : NULL;
 }
 
 void clj_intrinsics_install(void) {
@@ -159,5 +158,6 @@ void clj_intrinsics_install(void) {
 		if (!clj_is_fn(fn) || clj_fn_of(fn)->kind != CLJ_FN_NATIVE) clj_fatal("intrinsic names a core var with no builtin root");
 		vars[i] = var;
 		builtins[i] = clj_retain(fn);
+		if (clj_intrinsic_consumes(&table[i])) clj_fn_of(fn)->u.native.consuming = &table[i];
 	}
 }

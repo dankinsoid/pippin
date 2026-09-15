@@ -211,11 +211,14 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   extension) asserted in the inline retain/release catches the actual cross-thread race regardless of
   how the invariant broke. Handoffs (park/resume, a channel move) will need an explicit
   `clj_debug_reown` at each transfer point, which documents them. Trigger: the first spawn primitive.
-- **Share of retain/release on shared objects is unmeasured.** The flag is monotone, so app state in
-  an atom is atomic for everyone forever (design §4, "Представление значений"); whether that is most of the RC traffic or
-  a background decides whether BRC is worth its header word. Count on `clj_retain_slow`/`clj_release_slow`
-  versus the inline path under `CLJ_DEBUG`, on a workload with state in an atom, after the +0/+1
-  convention lands (a +1 `get` inflates the share).
+- **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
+  "Atoms"; `clj_debug_rc_ops` counts the plain, shared and immortal paths in debug builds, one relaxed
+  atomic add per retain/release, the same process-wide-counter caveat as the live count above). The flag
+  is monotone, so the first `reset!` puts the whole domain on the atomic path, ~80 pairs per state tick,
+  on the order of 300 ns — the same order as one in-place `swap! assoc` (140) and a fifth of a copied one
+  (765). BRC is not taken: the in-place hand-over recovers more per swap than the owner-bias could on the
+  pairs, and the copy path is dominated by node copies, not their retains. Trigger: a profile of a real
+  app-state loop where the atomic pairs show next to the interpreter's per-node cost.
 
 ## Map (Sources/CljCore/map.c)
 
@@ -562,7 +565,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   native fn. The rule, kept by structure: the builtin bound to the same var calls the same function —
   single-arity builtins forward, variadic ones fold (`b_add` is a loop over `clj_add`), and the five that
   consume their collection at the core (`conj`, `assoc`, `dissoc`, `disj`, `with-meta`) list that core as their
-  `consume` form, the table function being the same call after one retain. Consequences: `(+ a b c)` boxes a double at every step where the
+  `consume` form, the table function being the same call after one retain (the builtin fn object points
+  back at its consuming entry, `clj_fn.u.native.consuming`, so `clj_call_prepare` finds it in one load: `swap!`
+  prepares per call). Consequences: `(+ a b c)` boxes a double at every step where the
   old accumulator did not, and a fixnum fold that overflows mid-way throws where the old one could
   recover (`(+ MAX MAX (- MAX))`); Clojure promotes both. `IntrinsicsTests` crosses every entry with
   sample values of every type against `clj_invoke` and pins that core.clj rebinds none of them. `==`

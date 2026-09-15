@@ -38,7 +38,7 @@ static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
 	if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
 	if (n < fn->min_arity || (fn->max_arity != CLJ_ARITY_ANY && n > fn->max_arity)) return clj_arity_error(f, n);
 	if (fn->kind == CLJ_FN_NATIVE_CTX) return fn->u.native_ctx.fn(fn->u.native_ctx.ctx, args, n);
-	return fn->u.native(args, n);
+	return fn->u.native.fn(args, n);
 }
 
 static clj_value fn_meta(clj_value self) { return clj_retain(clj_fn_of(self)->meta); }
@@ -98,7 +98,7 @@ static clj_fn *native_new(clj_value name, clj_fn_kind kind, uint32_t min_arity, 
 
 clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity) {
 	clj_fn *f = native_new(name, CLJ_FN_NATIVE, min_arity, max_arity);
-	f->u.native = fn;
+	f->u.native.fn = fn;
 	return clj_from_ptr(f);
 }
 

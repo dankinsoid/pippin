@@ -22,7 +22,10 @@ typedef struct {
 	clj_fn_kind kind;
 	uint32_t    min_arity, max_arity; // natives; a closure dispatches on its code's arity table
 	union {
-		clj_native_fn native;
+		struct {
+			clj_native_fn fn;
+			const void   *consuming; // the consuming intrinsics entry whose boot builtin this is, else NULL (intrinsics.c)
+		} native;
 		struct {
 			clj_native_ctx_fn fn;
 			void             *ctx;

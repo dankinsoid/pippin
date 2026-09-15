@@ -22,7 +22,7 @@ extension CoreTests {
 	@Suite struct AtomTests {
 		init() {
 			clj_init()
-			for k in ["a", "b", "k", "k2", "meta", "validator", "x", "y", "other", "bad", "none", "v", "items", "fresh", "n"] { _ = kw(k) }
+			for k in ["a", "b", "c", "k", "k2", "meta", "validator", "x", "y", "other", "bad", "none", "v", "items", "fresh", "n", "nf", "clojure.core/not-found"] { _ = kw(k) }
 		}
 
 		private func declare(_ names: String...) throws {
@@ -130,6 +130,19 @@ extension CoreTests {
 				#expect(message("(alter-meta! (atom 1) (fn [m] 1))") == "alter-meta! fn must return a map, got: fixnum")
 				#expect(message("(reset-meta! (atom 1) 1)") == "reset-meta! expects a map, got: fixnum")
 				#expect(message("(let [a (atom 1)] (alter-meta! a (fn [m] (deref a))))") == "deref " + trap)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func nestedUpdateHelpers() throws {
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try eval("[(get-in {:a {:b 1}} [:a :b]) (get-in {:a {:b 1}} [:a :x]) (get-in {:a {:b 1}} [:a :x] :nf) (get-in {:a nil} [:a :b] :nf) (get-in {:a {:b nil}} [:a :b] :nf) (get-in {} []) (get-in nil [:a])]") == [1, nil, kw("nf"), kw("nf"), nil, m([:]), nil])
+				#expect(try eval("(assoc-in {} [:a :b] 1)") == m(["a": m(["b": 1])]))
+				#expect(try eval("(assoc-in {:a {:b 1 :c 2}} [:a :b] 9)") == m(["a": m(["b": 9, "c": 2])]))
+				#expect(try eval("(assoc-in [1 2] [0] 3)") == [3, 2])
+				#expect(try eval("[(update {:a 1} :a inc) (update {} :a (fn [x] [x])) (update {:a 1} :a + 1) (update {:a 1} :a + 1 2) (update {:a 1} :a + 1 2 3 4)]") == [m(["a": 2]), m(["a": [nil]]), m(["a": 2]), m(["a": 4]), m(["a": 11])])
+				#expect(try eval("[(update-in {:a {:b 1}} [:a :b] inc) (update-in {} [:a :b] (fn [x] 1)) (update-in {:a {:b 1}} [:a :b] + 10 20) (update-in {:a [1 2]} [:a 1] inc)]") == [m(["a": m(["b": 2])]), m(["a": m(["b": 1])]), m(["a": m(["b": 31])]), m(["a": [1, 3]])])
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

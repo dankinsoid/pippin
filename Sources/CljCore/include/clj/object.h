@@ -150,19 +150,28 @@ size_t clj_debug_cell_size(size_t size);
 void clj_debug_set_hash_override(uint32_t (*fn)(clj_value v));
 extern uint32_t (*clj_debug_hash_override)(clj_value v);
 
+// Retains and releases per path, debug builds only: the share measurement of design §4 (bench/RESULTS.md, "Atoms").
+enum { CLJ_RC_PLAIN, CLJ_RC_SHARED, CLJ_RC_IMMORTAL };
+void clj_debug_rc_ops(int64_t out[3]);
+
 #if CLJ_DEBUG
 #define CLJ_ASSERT(cond, msg) do { if (!(cond)) clj_fatal(msg); } while (0)
+extern _Atomic uint64_t clj_debug_rc_counters[3];
+#define CLJ_RC_COUNT(path) atomic_fetch_add_explicit(&clj_debug_rc_counters[path], 1, memory_order_relaxed)
 #else
 #define CLJ_ASSERT(cond, msg) ((void)0)
+#define CLJ_RC_COUNT(path) ((void)0)
 #endif
 
 static inline clj_value clj_retain(clj_value v) {
 	if (!clj_is_ptr(v)) return v;
 	clj_header *h = clj_header_of(v);
 	if (__builtin_expect(h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL), 0)) {
+		CLJ_RC_COUNT(h->flags & CLJ_FLAG_IMMORTAL ? CLJ_RC_IMMORTAL : CLJ_RC_SHARED);
 		clj_retain_slow(h);
 		return v;
 	}
+	CLJ_RC_COUNT(CLJ_RC_PLAIN);
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	CLJ_ASSERT(rc > 0, "retain of a freed object");
 	atomic_store_explicit(&h->rc, rc + 1, memory_order_relaxed);
@@ -173,9 +182,11 @@ static inline void clj_release(clj_value v) {
 	if (!clj_is_ptr(v)) return;
 	clj_header *h = clj_header_of(v);
 	if (__builtin_expect(h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL), 0)) {
+		CLJ_RC_COUNT(h->flags & CLJ_FLAG_IMMORTAL ? CLJ_RC_IMMORTAL : CLJ_RC_SHARED);
 		clj_release_slow(h);
 		return;
 	}
+	CLJ_RC_COUNT(CLJ_RC_PLAIN);
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
 	if (rc == 1) {

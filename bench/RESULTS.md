@@ -564,3 +564,77 @@ promised, on a session with one warmer run in the "after" set.
 - The rows without a growing collection moved +2–6 % in this session; the previous section's cleaner run put
   the counting loop, the closure call and the walk within ±2 %, and the reduce-driven rows at +0.3 ns per
   element for the consuming-fn check, which is where the difference lives.
+
+## Atoms — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The atom of design §4 ("Атомы"): one `clj_lock` (os_unfair_lock) per atom, `f` once under it, watches after
+it, `deref` under it; without watches or a validator `swap!` hands the atom's own reference to `f`, so
+`(swap! a assoc i i)` edits the map in place (NOTES.md, "Atoms"). Medians of five runs, ns per iteration;
+the Swift column is an `os_unfair_lock` around a `Dictionary` insert, an `Int` increment or a `Dictionary`
+read, the closest thing to what the atom does.
+
+| scenario | n | interpreted | Swift locked | interpreted / Swift |
+|---|---:|---:|---:|---:|
+| swap! assoc, in place | 100000 | 140.5 | 53.1 | 2.6× |
+| swap! assoc, second holder | 100000 | 765.2 | — | — |
+| swap! assoc, watched | 100000 | 762.2 | — | — |
+| loop assoc into a map (no atom) | 100000 | 102.6 | — | — |
+| swap! inc | 100000 | 41.0 | 1.8 | 23.1× |
+| get @atom :k | 100000 | 55.4 | 15.4 | 3.6× |
+| get @volatile :k | 100000 | 49.6 | — | — |
+| counting loop | 100000 | 15.9 | — | — |
+| swap! inc, 4 threads | 100000 | 71.7 | 8.7 | 8.2× |
+| swap! assoc, 4 threads | 100000 | 241.3 | — | — |
+
+- **`swap! assoc` in place, 140 ns against 103 for the same `assoc` loop over a local map**: the ~38 ns are
+  the `swap!` call (a 4-argument native through the var, ~9), `clj_call_prepare` on `assoc` (the consuming
+  entry is now one load off the fn object: the table scan it replaced cost 15 ns per swap, `swap! inc` 56
+  → 41), the lock pair (~2), `clj_share` of the result (stops at the shared root) and the retain of the
+  new value for the caller. The Swift row is a `Dictionary` insert under the same lock kind.
+- **A second holder costs 5×** (765): `(let [old @a] (swap! a assoc i i))` keeps the previous version
+  alive across the swap, so `assoc` copies the path from the root to the leaf — the map table's "assoc,
+  all versions kept" row at 100k is 674 — with an atomic retain per child of every copied node, since the
+  whole map is shared. A watched atom takes the same path (762) because the watch must see `old` intact;
+  the watch call itself is in the noise at this size.
+- **`swap! inc`, 41 ns; `deref` + `get`, 55 against 50 through a volatile**: the lock pair, the owner-id
+  store and the atomic retain/release of the shared value cost ~5 ns per `deref` over the unlocked cell;
+  the rest is the interpreted loop (16) and the calls.
+- **Four threads on one atom: 72 ns per `swap! inc` and 241 per `swap! assoc`** (total throughput, four
+  workers each doing a quarter): 1.7× the single-thread cost per op for the counter, the lock handing
+  off between cores at every op; the map case adds the cache-line traffic of a trie four cores edit in
+  turn. Swift's locked increment goes 1.8 → 8.7 the same way.
+
+### The share of the atomic path with state in an atom
+
+Design §4 deferred one question to this point: with the application state in an atom, what share of the
+retain/release traffic takes the atomic path? Debug builds now count every retain and release by path
+(`clj_debug_rc_ops`: plain, shared, immortal; `CLJ_BENCH_ONLY=rc-share` on a debug `clj-bench` runs the
+workload). One tick of the workload: `(swap! state assoc-in [:users i] {:id i :name "x"})`, `(swap! state
+update :counter inc)`, then `(get-in @state [:users (- i 1) :name] "")` and `(get @state :counter)`; the
+same tick over a `loop` local that is never published is the baseline.
+
+| workload | n | plain | shared | immortal | shared share |
+|---|---:|---:|---:|---:|---:|
+| state in an atom | 1000 | 21001 | 78965 | 26006 | 79.0 % |
+| state in an atom | 10000 | 210001 | 1033571 | 260006 | 83.1 % |
+| state in a watched atom | 1000 | 21002 | 82969 | 26010 | 79.8 % |
+| state in a watched atom | 10000 | 210002 | 1073575 | 260010 | 83.6 % |
+| state in a loop local | 1000 | 91966 | 0 | 26006 | 0.0 % |
+| state in a loop local | 10000 | 1163572 | 0 | 260006 | 0.0 % |
+
+- **79–83 % of the pairs are atomic once the state lives in an atom**, and every one of them is on an object
+  the *owner* thread made and only the owner touches: the flag is monotone, so the first `reset!` puts the
+  whole domain on the atomic path forever, exactly as the design's worst case says. The 21 plain pairs per
+  tick are the fresh values before they are stored (the `[:users i]` path vector, the `{:id i :name "x"}`
+  literal, `assoc-in`'s intermediate maps); the immortal ones (26 per tick, keywords and core roots) are
+  no-ops either way. A watch changes nothing here: the copy path retains the same children.
+- **Interpretation.** An atomic pair on Apple silicon is ~5 ns against ~1 for the plain one, so at ~80
+  pairs per tick the flag costs the atom workload on the order of 300 ns per tick — the same order as
+  one `swap! assoc` (140 in place, 765 copied). That is the baseline Swift ARC pays everywhere; the
+  design's promise was "no loss against it, a win on transients", and the win is the in-place row above.
+  Whether BRC (Choi 2018: the owner keeps the plain path on published objects) earns its header word is
+  now a number: at most ~4 ns × 80 pairs per tick of this shape, against 8 bytes on every object (cons 32
+  → 40, a size-class step) and the merge protocol. Decision: not now — the in-place hand-over recovers
+  more per swap than BRC could, and the copy path (a second holder, a watch) is dominated by the node
+  copies, not by their retains. Trigger: a profile of a real app-state loop where the atomic pairs are a
+  visible fraction next to the interpreter's own per-node cost (~10–15 ns per node today).

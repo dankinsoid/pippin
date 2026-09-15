@@ -344,7 +344,7 @@ static inline clj_value invoke_at(clj_value fn, const clj_value *args, uint32_t 
 // are leaves of the shadow stack, so a throw inside reports the same frames as through clj_invoke.
 static inline clj_value call_native(const clj_fn *nf, clj_value fn, const clj_value *args, uint32_t n) {
 	if (n < nf->min_arity || (nf->max_arity != CLJ_ARITY_ANY && n > nf->max_arity)) return clj_arity_error(fn, n);
-	return nf->u.native(args, n);
+	return nf->u.native.fn(args, n);
 }
 
 // The guard reads its limit from the shadow stack, the one thread-local a call touches; the limit is computed
@@ -1015,7 +1015,7 @@ clj_call clj_call_prepare(clj_value f, size_t n) {
 	if (fn->kind == CLJ_FN_CLOSURE) {
 		c.arity = arity_for(fn->u.node, n);
 	} else if (fn->kind == CLJ_FN_NATIVE && n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity)) {
-		c.native = fn->u.native;
+		c.native = fn->u.native.fn;
 		c.consuming = clj_intrinsic_consuming(f, (uint32_t)n);
 	}
 	return c;

@@ -63,6 +63,18 @@ static void free_object(clj_header *dead) {
 	}
 }
 
+#if CLJ_DEBUG
+_Atomic uint64_t clj_debug_rc_counters[3];
+
+void clj_debug_rc_ops(int64_t out[3]) {
+	for (int i = 0; i < 3; i++) out[i] = (int64_t)atomic_load_explicit(&clj_debug_rc_counters[i], memory_order_relaxed);
+}
+#else
+void clj_debug_rc_ops(int64_t out[3]) {
+	for (int i = 0; i < 3; i++) out[i] = -1;
+}
+#endif
+
 void clj_retain_slow(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return;
 	uint32_t prev = atomic_fetch_add_explicit(&h->rc, 1, memory_order_relaxed);
