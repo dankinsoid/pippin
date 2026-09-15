@@ -49,6 +49,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   | `IExceptionInfo` | `ex-message ex-data ex-cause` (`getMessage getData getCause`) | ex_message ex_data ex_cause | ERROR |
   | `IMeta` | `meta` | meta | META |
   | `IObj` | `meta withMeta` | meta with_meta | OBJ, META |
+  | `IReduceInit` | `reduce` (`[this f init]`) | reduce | REDUCE |
 
   `count` under `ISeq` fills the slot without the Counted bit; `equiv`/`hasheq` given anywhere set
   EQUIV/HASHEQ (bits only user types carry: `(satisfies? IHashEq [1])` is false). A declared
@@ -64,9 +65,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   map or vector type); `Object` methods
   (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
   arity error inside a method says `fn` and counts `this`, except `IFn`'s, which the trampoline
-  checks first and reports with the type name; no chunked/`IReduce` fast paths, so every element
-  of a user seq costs two Clojure calls (`first`, `next`) and usually an instance allocation, and
-  `count` without `Counted` walks it.
+  checks first and reports with the type name; no chunked seqs, so every element of a user seq
+  walked by `map`/`filter` costs two Clojure calls (`first`, `next`) and usually an instance
+  allocation, and `count` without `Counted` walks it; `reduce` over a user type goes through its
+  `IReduceInit` slot when it declares one (the trampoline seeds the 2-arity with `(f)`, as
+  `CollReduce`'s extension to `IReduceInit` does on the JVM) and otherwise through `clj_seq_iter`.
 - **Protocol dispatch is cached per call site** (eval.c, `proto_ic`; bench/RESULTS.md, "Call-site
   caches"): an INVOKE node whose head evaluates to a method fn keeps, in its exec's side array, the
   method's serial (a counter on `clj_method_ctx`, never reused), the definition epoch of the fill and
@@ -109,9 +112,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Builtin type names are vars in clojure.core** (`String`, `Long`/`Integer`, `Double`, `Boolean`,
   `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentList`/`Cons`,
   `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,
-  `Protocol`, `Type`, `Object`; the core interfaces `Seqable ISeq Sequential IPersistentCollection
-  Counted ILookup Associative Indexed IFn IHashEq IEquiv IMeta IObj IPersistentList
-  IPersistentVector IPersistentMap IExceptionInfo`) holding descriptors; `(type x)` reaches every
+  `Protocol`, `Type`, `Reduced`, `Volatile`, `Object`; the core interfaces `Seqable ISeq Sequential
+  IPersistentCollection Counted ILookup Associative Indexed IFn IHashEq IEquiv IMeta IObj
+  IReduceInit IPersistentList IPersistentVector IPersistentMap IExceptionInfo`) holding descriptors; `(type x)` reaches every
   other one and `nil` is the literal.
   A user `(def String ...)` shadows the name. `Number` does not exist: fixnum and double are two
   descriptors, extend both.
@@ -124,10 +127,30 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   back a vector as `keep`, and the analyzer holds such vectors (`analyzer.keeps`) until the
   analysis ends. Trigger for a faster path: a user seq in a profile (chunking, or a slot walk that
   batches).
+- **`reduce` is a `reduce` slot on the descriptor** (`IReduceInit`; reduce.h): `(*reduce)(self, f, init)`
+  walks the elements calling `(f acc x)` through a `clj_call` prepared once (eval.h: a closure's
+  arity resolved and its body entered without `clj_invoke`, a plain native called directly), stops
+  at a `reduced` result and returns it unwrapped, or `CLJ_THROWN`. `init == CLJ_UNBOUND` is the
+  2-arity: the first element seeds, `(f)` answers an empty coll, and a reduced seed (the init, or
+  the first element) is its value at once — JVM Clojure feeds a reduced init to `f` unchecked; the
+  unwrap here is deliberate. Slots: vector and vector-seq (leaf by leaf), range (arithmetic),
+  map (`[k v]` vectors built per entry, and `reduce-kv` on the trie in place; `reduce-kv` on a
+  vector passes the index), `()`, and cons / lazy-seq / string / string-seq through
+  `clj_reduce_iter`, which is `clj_seq_iter` closed on the early stop. The `CLJ_CORE_REDUCE` bit
+  (`satisfies? IReduceInit`) sits on vector, vector-seq, range, map and user types; cons, `()`,
+  string and lazy-seq have the slot without the bit, as string has `lookup` without `ILookup`.
+  Anything else (a `reify ISeq`, a `Seqable` deftype) is `seq`'d and walked by the iterator: two
+  Clojure calls per element. A walk holds the head: `(reduce + (map inc (range n)))` keeps the
+  realized chain alive until it returns, as the caller's argument array holds the lazy seq (the
+  JVM clears the local). Not reducible through the slot: a map's `seq` is still the eager entry
+  list, so `(reduce f (seq m))` builds it first; `reduce-kv` on a list throws. Trigger for
+  `IKVReduce`/`IReduce` as distinct interfaces: a deftype that needs `reduce-kv`.
 - **No chunked seqs.** `seq` on a vector is a view that allocates one 32-byte object per `next`
-  (bench/RESULTS.md: 50 ns per element interpreted, 3.5 ns through the iterator). Trigger: seq
+  (bench/RESULTS.md: 37 ns per element interpreted, 3.5 ns through the iterator); `reduce` and
+  `transduce` over a vector or range take the reduce slot and allocate nothing per element, so
+  chunking only matters for the lazy `map`/`filter`/`first`/`next` walks. Trigger: seq
   walks of big vectors in a profile; Clojure's chunked seqs batch 32 elements per allocation and
-  need `chunk-first`/`chunk-rest` in `map`/`filter`/`reduce`.
+  need `chunk-first`/`chunk-rest` in `map`/`filter`.
 - **`clj_equals`/`clj_hash` cannot throw**, so a lazy seq whose thunk throws compares unequal /
   hashes what it yielded and the exception is dropped (`drop_thrown` in coll.c); a deftype `equiv`
   that throws compares unequal and a `hasheq` that throws or yields a non-integer hashes 0, the
@@ -411,6 +434,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   within the run-to-run noise now. The generic path (`closure_run`) takes a variadic arity (the rest
   list is built from the buffer), a frame past 16 slots (heap) or 64 (every param retained), a native,
   a protocol method (its cache) and every call from a native or the host (`clj_closure_invoke_at`).
+  A native that calls one fn per element (`reduce` and the slots behind it) prepares a `clj_call`
+  once — a closure's arity, or a plain native's function pointer after its arity check — and enters
+  `closure_run` per element without the type dispatch, the fn-kind switch and the arity search; a
+  fn that does not take the count still goes through `clj_invoke`, which reports it (measured
+  against `clj_invoke` per element in bench/RESULTS.md, "IReduce").
   Debug builds count per site the calls that took a fast path (`clj_debug_exec_ic_hits`) against the
   generic ones (`..._misses`); release builds count nothing. The site array is indexed by
   `clj_node.site`, the node's ordinal among the tree's INVOKE nodes, assigned with the ids (it fills
@@ -491,11 +519,25 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   predicates, `get assoc dissoc contains? count conj nth first rest next cons list list* vector
   hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
   resolve deref identical? type instance? satisfies? extends? meta with-meta alter-meta!
-  reset-meta!` (`deref` takes vars only: no atoms; `alter-meta!`/`reset-meta!` take vars only),
-  the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative? indexed? list?
-  vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str pr prn print
-  println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data ex-cause`. No `keys`, `vals`, `max`,
-  `mod`, `sort`, `reduced`, ... Most of the rest belongs in core.clj.
+  reset-meta! reduce reduce-kv reduced reduced? unreduced ensure-reduced volatile! volatile?
+  vreset!` (`deref` takes vars, reduced boxes and volatiles: no atoms; `alter-meta!`/`reset-meta!`
+  take vars only), the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative?
+  indexed? list? vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str
+  pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data
+  ex-cause`. No `keys`, `vals`, `max`, `mod`, `sort`, ... Most of the rest belongs in core.clj.
+- **`into` is C in both arities**: `(into to from)` conj's through `clj_seq_iter`, `(into to xform
+  from)` is `transduce` with `conj` written out in C (the `conj` root kept at install), because
+  `destructure` calls `into` above the `fn` macro, where a core.clj `into` could not be defined.
+  Neither uses transients (there are none): the reducing `conj` receives the accumulator at +0
+  while the reducer holds it at +1, so every step copies the vector's tail (bench/RESULTS.md,
+  "IReduce"). Trigger: the ownership-transferring reduce of the design's auto-transient item.
+- **Volatiles are single-thread cells by contract** (`volatile!`, `vreset!`, `vswap!`; box.c): a
+  read returns the value retained, a write retains the new value, shares it when the cell is
+  shared (so a volatile published through a var keeps the RC invariant) and releases the old one
+  with no ordering — a concurrent reader may retain a freed value, the `def`/`deref` race of the
+  evaluator section. Transducer state (`take`, `partition-all`, `dedupe`, ...) lives in volatiles,
+  so one transducer application (one `(xf rf)`) belongs to one thread. Trigger: a transducer
+  shared across threads; Clojure's contract is the same.
 - **`seq` on a map is an eager list of `[k v]` vectors** (no O(1) view, no first/next fast path):
   `(first m)` builds the whole entry list. Trigger: `first`/`some` over big maps in a profile. Fix:
   a map-seq cursor over the CHAMP trie and a map-entry type instead of 2-vectors.
@@ -517,13 +559,28 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
 - **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn defn-
-  vary-meta and or -> ->> comment profile dotimes if-let when-let assert declare doc`, the seq library
-  `complement nthrest some every? not-any? not-every? reduce map filter remove keep take drop
-  take-while drop-while iterate repeat range interleave interpose mapcat dorun doall vec partition
-  zipmap`, plus the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`
+  vary-meta and or -> ->> comment profile dotimes if-let when-let assert declare doc vswap!`, the seq
+  library `complement comp partial constantly completing transduce cat nthrest some every?
+  not-any? not-every? map filter remove keep take drop take-while drop-while iterate repeat range
+  interleave interpose mapcat dorun doall vec partition partition-all map-indexed keep-indexed
+  sequence dedupe zipmap eduction` (`reduce` and `into` are C), plus the private helpers
+  `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`, `preserving-reduced`
   (`destructure` is public, as in Clojure). Not yet: `doto`, `condp`, `case`, `while`, `letfn`,
-  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`, `reduced` (so `reduce` cannot stop
-  early), `sort`, `group-by`, `frequencies`, transducers.
+  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`, `sort`, `group-by`, `frequencies`,
+  `distinct` (needs sets; trigger: the reader's `#{}` or `hash-set` landing, then `distinct` is the
+  `dedupe` shape over a set in a volatile).
+- **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
+  partition-all dedupe map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
+  `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
+  seq that pulls one input per realization into the transformed rf, whose bottom parks outputs in
+  a volatile vector, so an infinite source stays lazy; each realization costs a vector copy per
+  output (`vswap! ... conj` on a cell that also holds the vector: rc 2). `eduction` is a
+  `deftype` implementing `Seqable` (through `sequence`) and `IReduceInit` (through `transduce`),
+  not a C type: the slot trampoline already existed, so the type is four lines, and it prints as
+  `#object[clojure.core.Eduction]` where Clojure prints the items. `vswap!` is a macro over
+  `vreset!`/`deref`, as Clojure's. A transducer's stateful step (`partition-all`'s buffer) copies
+  its vector per input for the same rc-2 reason. No `halt-when`, `random-sample`, `distinct`
+  (sets), `partition-by`; trigger: first use.
 - **`defn` follows clojure.core's** `name docstring? attr-map? ([params] body)+ attr-map?` but has no
   `:inline`/`:tag` handling and no `:pre`/`:post` map in `sigs` (a map after the params is a body
   form, see `fn` below). `doc` handles vars only: no special forms, no namespaces.
