@@ -299,7 +299,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   root is retained, since `clj_var_bind_root` releases the old root at once and that +1 is what keeps
   it alive through the call. Measured effect of borrowing locals alone was nil (a non-shared pair is
   five plain instructions); borrowing the core roots removed the atomic pair every call through a
-  core var paid, borrowing user fn roots the same pair on every user call (bench/RESULTS.md).
+  core var paid, borrowing user fn roots the same pair on every user call (bench/RESULTS.md). A local's
+  last use is the one read that hands the frame's reference over instead (the last-use entry below).
 - **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
   are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
   vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and the reader positions on
@@ -527,15 +528,16 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   when the head resolved to the var an intrinsics entry names and the arity is listed, and a consumer
   over a nest of lazy stages becomes a FUSED node (the fusion entry below). Both are keyed by the
   var, so a local `(let [+ -] ...)`, a user namespace's own `+` or `(apply + ...)` are untouched; a
-  `(clojure.core/+ a b)` anywhere is rewritten. Not yet: folding of pure intrinsics on constant
-  arguments (the `pure` flag is set, nothing reads it), any rewrite that needs liveness.
-- **Intrinsics table** (intrinsics.h/.c): `{qualified name, arity, kind INTRINSIC_1/2/3, C function, pure}`
-  for `+ - * /` (2 args), `inc dec`, `< <= > >= = not= identical?` (2 args), `not nil? zero? pos? neg?
-  even? odd?`, the type predicates, `empty? first rest next seq count`, `cons get(2,3) nth(2,3) conj(2)
-  assoc(3) contains?`; a side table resolved at boot holds each entry's var and native fn. The rule,
-  kept by structure: the builtin bound to the same var calls the same function — single-arity builtins
-  forward, variadic ones fold (`b_add` is a loop over `clj_add`), `conj`/`assoc` differ only by the
-  retain before their consuming core. Consequences: `(+ a b c)` boxes a double at every step where the
+  `(clojure.core/+ a b)` anywhere is rewritten. Then constant folding and the last-use marks (the two
+  entries after the intrinsics table).
+- **Intrinsics table** (intrinsics.h/.c): `{qualified name, arity, kind INTRINSIC_1/2/3, C function, pure,
+  consume}` for `+ - * /` (2 args), `inc dec`, `< <= > >= = not= identical?` (2 args), `not nil? zero? pos?
+  neg? even? odd?`, the type predicates, `empty? first rest next seq count`, `cons get(2,3) nth(2,3) conj(2)
+  assoc(3) dissoc(2) with-meta(2) contains?`; a side table resolved at boot holds each entry's var and
+  native fn. The rule, kept by structure: the builtin bound to the same var calls the same function —
+  single-arity builtins forward, variadic ones fold (`b_add` is a loop over `clj_add`), and the four that
+  consume their collection at the core (`conj`, `assoc`, `dissoc`, `with-meta`) list that core as their
+  `consume` form, the table function being the same call after one retain. Consequences: `(+ a b c)` boxes a double at every step where the
   old accumulator did not, and a fixnum fold that overflows mid-way throws where the old one could
   recover (`(+ MAX MAX (- MAX))`); Clojure promotes both. `IntrinsicsTests` crosses every entry with
   sample values of every type against `clj_invoke` and pins that core.clj rebinds none of them. `==`
@@ -546,7 +548,78 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `(def + ...)` in clojure.core or a host rebind is semantically invisible, and binding the boot fn back
   restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
   guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
-  call — no frame, no arity table, no var deref.
+  call — no frame, no arity table, no var deref, plus a load and a branch on the entry's `consume` form.
+- **Constant folding** (optimizer.c `fold_intrinsic`/`fold_if`; design §6b item 4): after the intrinsic
+  rewrite, children first, an INTRINSIC whose entry is `pure`, whose arguments are all CONST and whose var
+  still holds the boot fn is called at analysis and becomes a CONST; an IF whose test is a CONST becomes
+  its taken branch (the branch's contents move into the IF node, which the parent already points at; a
+  missing else is nil). Every accessor entry is pure (`empty? first rest next seq count cons get nth conj
+  assoc contains?`): on the data a fold admits they realize nothing and consume nothing (`conj`/`assoc`
+  see a constant at rc ≥ 2 and copy). What folds is bounded by the codec twice over: the arguments must be
+  values the codec reads back as the same type (`clj_node_foldable`: nil, booleans, numbers, chars,
+  strings, keywords, symbols, vectors, maps and lists of those — a lazy seq, a vector seq, a fn or a var
+  embedded by a macro is no input), and so must the result (`(seq [1 2])`, `(rest [1 2])`, `(seq "ab")`
+  keep the call: a vector seq or a string seq would read back as a list). A fold that throws (`(/ 1 0)`,
+  `(nth [1] 5)`, `(+ 1 "a")`, an overflow) drops the exception and leaves the node, so the program throws
+  at run time from the same node with the same message. A var rebound *before* analysis keeps the guarded
+  INTRINSIC; a rebind *after* it does not unfold, the same speculation Clojure's `:inline` makes and the
+  guard on the unfolded calls does not cover. `with-meta` is not pure (its result carries meta the codec
+  drops, and on a unique value it is the value). The var meta of `(def x (+ 1 2))` and the frames of a
+  runtime error come from nodes folding never touches (FoldingTests). Trigger for more: a fold rule over
+  `str`, `list`, `vector` (variadic builtins are not intrinsics), or `let`-bound constants (needs a
+  substitution pass, not a local rewrite).
+- **Last-use reuse** (optimizer.c, the liveness pass; eval.c `eval_borrowed`/`eval_local`; design §6b
+  item 4, the auto-transient; bench/RESULTS.md, "Last-use reuse" and "Growing a collection per step"): the
+  last pass of `clj_optimize` flags a LOCAL read after which its slot is dead on every path
+  (`clj_node.u.local.last`, serialized `[:local slot :last]`), and the evaluator then hands the frame's own
+  reference to the consumer instead of borrowing it: the value enters the argument array with its owned
+  bit set, the slot is niled and its owned bit cleared, so teardown, a recur's rebind and a debug reader
+  see nothing there; a slot the frame only borrows (a fixed param, the self slot) reads as before. A
+  consuming intrinsic whose collection the site owns — a last-use local, or a nested result such as the
+  inner `(conj (conj v 1) 2)` — calls the entry's `consume` form and drops the bit from the mask, so
+  `clj_conj`/`clj_assoc_owned`/`clj_dissoc_owned`/`clj_with_meta` see rc 1 and update in place (this is
+  the first in-place store reachable from interpreted code: the RC entry's unchecked "children of a shared
+  object are shared" trigger has fired). Liveness is backward over the evaluation order of one frame (the
+  top level, each fn arity, each direct fn arity), on bitsets of the first 64 slots (a higher slot is
+  never marked), with these rules: a `loop` body and a fn body with a `recur` are a fixpoint, a recur's
+  live-out being the body's live-in minus the slots it rebinds, so a loop var is a last use where nothing
+  reads it later on its path — the recur arguments included, `(recur (conj v x) (inc i))` — and a local
+  bound outside the loop is live across the recur and dead only on the exit path; `if` branches are
+  separate paths (`(if t (conj v 1) v)`: both last); a `let` kills its slot before its init (a shadowing
+  `let` is another slot); a closure capture is a read at the closure's creation and its body a frame of
+  its own (a captured value is at rc ≥ 2 by the time the definer's last use runs, so the core copies); a
+  direct fn body reads the definer's slots through the static link whenever it is called, so every such
+  slot is pinned live for the whole defining frame (the definer never hands one over, `(let [v [1] f (fn
+  [] (count v))] (let [w (conj v 2)] [(f) w]))`); a `try` body keeps everything its handlers and `finally`
+  read live at every point, since any point may throw, and the catch slot is a frame slot like any other;
+  a direct local operand of a call or a literal is borrowed until the call completes, so nothing inside a
+  later operand may hand that slot over (`(assoc acc i (conj (nth acc i) x))` reads `acc` at +0 in the
+  first operand and must not free it in the third: the slot is *held*, not live, so the sets stay exact
+  and only the mark is withheld). Only reads whose consumer can own the value are marked: the collection
+  of a consuming intrinsic, a let init, a recur argument, a body's value; an `inc` argument, a literal
+  item, an `if` test or a call argument is marked nothing, since the hand-over costs the slot write, the
+  mask bit and the release loop for a +1 nobody uses (measured on the counting loop: every last use marked
+  cost +2.5 ns per iteration, call arguments alone ~2 ns per call). The mark is a flag inside the LOCAL
+  case of `eval_borrowed`, force-inlined in optimized builds: a node kind of its own dispatched through
+  the exec table cost +3 ns per iteration, and the flag with the inlining left to the compiler +5.5 (it
+  stopped inlining and emitted a call per borrowed read). Marking is one final pass per frame with the
+  converged sets; each loop's fixpoint re-runs the loops inside it, ~3^depth passes over a body.
+  The drivers: `clj_call_prepare` records the consuming entry when the fn is its boot builtin, and
+  `clj_reducer_step`/`step_kv` and the fusion bottom hand their own +1 to it and take the result back as
+  the new one (`(reduce conj [] xs)`, `(reduce-kv assoc {} m)`, `(reduce conj [] (map f xs))` fused), so
+  the accumulator grows in place from the second element on (the init and a seed are shared with whoever
+  passed them: one copy). `(into to xform coll)` runs through the `fused-into*` driver under `[xform]`, so
+  it matches `(vec (map ...))`. Still copied, each with a reason: a user fn as the reducing fn (its param
+  is borrowed from the reducer: `(reduce (fn [a x] (conj a x)) [] xs)` copies every step — a hand-over
+  there would need the callee's frame to own the param, the call-argument variant above); `conj` through
+  `apply` or any native other than the builtin itself (`clj_apply`'s `all[]` is +0); a collection held by a
+  var (`(def v [1])`, `(conj v 2)`: the var's root is read owned at rc ≥ 2); a `(conj v x)` inside a `try`
+  whose handler reads `v`; a call argument (`(f v)` then `(conj x 1)` in `f`: the param is borrowed); the
+  `to` of a fused `(into to P)` (the driver retains it once: one copy per form, then in place); a
+  captured or var-held value, by rc. Triggers: a profile with a collection built through a helper fn per
+  element (mark call arguments, ~2 ns per call); `transduce` with a user rf over a collection (the same
+  +0 rule); sets (`disj` joins the consuming four); a frame past 64 slots growing a collection (the
+  bitset).
 - **The fusion pass** (optimizer.c, fusion.c, `CLJ_NODE_FUSED`; bench/RESULTS.md, "Fusion"): `(reduce
   f [init] P)`, `(into to P)`, `(vec P)` and `(count P)`, where `P` is a nest of `map keep filter
   remove take drop take-while drop-while mapcat map-indexed keep-indexed interpose dedupe` calls — each
@@ -563,7 +636,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   intrinsics table — relaxed loads, no exec-side state, no epoch, and nothing to recompute for an exec
   built after a rebind; `(def map ...)` in clojure.core or a host bind sends the site down the original
   program, binding the boot root back fuses it again. The drivers keep the accumulator in C and hand
-  the transducers `nil` as `result`, so the seq rules of `reduce` hold exactly: a 2-arity seeds with
+  the transducers `nil` as `result` (and `(into to xform coll)` runs the same driver, above), so the seq rules of `reduce` hold exactly: a 2-arity seeds with
   the first *output* and answers `(f)` when there is none (an `eduction` would seed with `(f)` and
   break `(reduce (fn [a x] ...) (map ...))`), a reduced init or first element is data, only `f`'s own
   reduced result stops the walk (a `(reduced nil)` the stack passes up); `fused-into*` conj's an
@@ -615,11 +688,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data
   ex-cause`. No `keys`, `vals`, `max`, `mod`, `sort`, ... Most of the rest belongs in core.clj.
 - **`into` is C in both arities**: `(into to from)` conj's through `clj_seq_iter`, `(into to xform
-  from)` is `transduce` with `conj` written out in C (the `conj` root kept at install), because
+  from)` runs the `fused-into*` driver under `[xform]` (fusion.c `clj_into_xform`), because
   `destructure` calls `into` above the `fn` macro, where a core.clj `into` could not be defined.
-  Neither uses transients (there are none): the reducing `conj` receives the accumulator at +0
-  while the reducer holds it at +1, so every step copies the vector's tail (bench/RESULTS.md,
-  "IReduce"). Trigger: the ownership-transferring reduce of the design's auto-transient item.
+  Both hold the accumulator alone and conj in place; the transducers see `nil` as `result`, as under a
+  fused pipeline (the fusion entry of the evaluator section).
 - **Volatiles are single-thread cells by contract** (`volatile!`, `vreset!`, `vswap!`; box.c): a
   read returns the value retained, a write retains the new value, shares it when the cell is
   shared (so a volatile published through a var keeps the RC invariant) and releases the old one
