@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "clj/coll.h"
+#include "clj/cons.h"
 #include "clj/core.h"
 #include "clj/error.h"
 #include "clj/keyword.h"
@@ -140,6 +141,37 @@ static bool serializable(clj_value v) {
 		if (it.thrown) return false;
 	} else {
 		not_serializable(v);
+		return false;
+	}
+	return ok;
+}
+
+static bool foldable_item(clj_value item, void *ctx) {
+	bool *ok = ctx;
+	*ok = clj_node_foldable(item);
+	return *ok;
+}
+
+static bool foldable_entry(clj_value key, clj_value val, void *ctx) {
+	return foldable_item(key, ctx) && foldable_item(val, ctx);
+}
+
+// Stricter than serializable(): a seq that is not a list comes back as a list, a change of type a fold must not make.
+// @ai-generated(guided)
+bool clj_node_foldable(clj_value v) {
+	if (!clj_is_ptr(v) || clj_is_double(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v)) return true;
+	bool ok = true;
+	if (clj_is_vector(v)) {
+		clj_vector_each(v, foldable_item, &ok);
+	} else if (clj_is_map(v)) {
+		clj_map_each(v, foldable_entry, &ok);
+	} else if (clj_is_list(v)) {
+		// By cell, not through the iterator: a cons over a lazy tail must not be realized here.
+		for (; ok && !clj_is_empty_list(v); v = clj_cons_of(v)->rest) {
+			if (!clj_is_ptr(v) || clj_header_of(v)->type != &clj_cons_type) return clj_is_nil(v);
+			ok = clj_node_foldable(clj_cons_of(v)->first);
+		}
+	} else {
 		return false;
 	}
 	return ok;

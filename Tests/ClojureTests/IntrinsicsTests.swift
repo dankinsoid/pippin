@@ -111,18 +111,20 @@ extension CoreTests {
 			_ = withExtendedLifetime(plus) { clj_ns_intern(ns, plus.raw) }
 			let before = clj_debug_live_objects()
 			do {
-				#expect(try Tree("(+ 1 2)").data() == Value(reading: "[:intrinsic clojure.core/+ [:const 1 1 1] [:const 2 1 1] 1 1]"))
-				#expect(try Tree("(clojure.core/+ 1 2)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				// Constant arguments fold (FoldingTests); a local argument keeps the intrinsic.
+				#expect(try Tree("(+ 1 2)").data() == Value(reading: "[:const 3 1 1]"))
+				#expect(try Tree("(let [a 1] (+ a 2))").data() == Value(reading: "[:let [[0 [:const 1 1 1]]] [:intrinsic clojure.core/+ [:local 0 1 12] [:const 2 1 12] 1 12] 1 1]"))
+				#expect(try Tree("(fn [a] (clojure.core/+ a 2))").kinds == [CLJ_NODE_FN, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_CONST])
 				#expect(try Tree("(+ 1 2)").run() == 3)
 				#expect(try Tree("(let [+ -] (+ 1 2))").kinds == [CLJ_NODE_LET, CLJ_NODE_VAR, CLJ_NODE_INVOKE, CLJ_NODE_LOCAL, CLJ_NODE_CONST, CLJ_NODE_CONST])
 				#expect(try Tree("(let [+ -] (+ 1 2))").run() == -1)
 				#expect(try Tree("(+ 1 2)", ns: ns).kinds == [CLJ_NODE_INVOKE, CLJ_NODE_VAR, CLJ_NODE_CONST, CLJ_NODE_CONST])
-				#expect(try Tree("(clojure.core/+ 1 2)", ns: ns).kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(fn [a] (clojure.core/+ a 2))", ns: ns).kinds == [CLJ_NODE_FN, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_CONST])
 				#expect(try Tree("(+ 1 2 3)").kinds == [CLJ_NODE_INVOKE, CLJ_NODE_VAR, CLJ_NODE_CONST, CLJ_NODE_CONST, CLJ_NODE_CONST])
 				#expect(try Tree("(+ 1 2 3)").run() == 6)
 				#expect(try Tree("(apply + [1 2])").kinds == [CLJ_NODE_INVOKE, CLJ_NODE_VAR, CLJ_NODE_VAR, CLJ_NODE_CONST])
-				#expect(try Tree("(get {:a 1} :a)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
-				#expect(try Tree("(get {:a 1} :b 2)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST, CLJ_NODE_CONST])
+				#expect(try Tree("(fn [m] (get m :a))").kinds == [CLJ_NODE_FN, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_CONST])
+				#expect(try Tree("(fn [m] (get m :b 2))").kinds == [CLJ_NODE_FN, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_CONST, CLJ_NODE_CONST])
 				#expect(try Tree("(get {:a 1} :b 2)").run() == 2)
 				#expect(try Tree("(fn [x] (if (< x 1) (inc x) (dec x)))").kinds == [CLJ_NODE_FN, CLJ_NODE_IF, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_CONST,
 				                                                                     CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL, CLJ_NODE_INTRINSIC, CLJ_NODE_LOCAL])

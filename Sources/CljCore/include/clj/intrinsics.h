@@ -82,8 +82,10 @@ typedef struct {
 		clj_intrinsic_2 f2;
 		clj_intrinsic_3 f3;
 	} fn;
-	// No effect and no identity the result exposes (arithmetic, predicates, comparisons): a call on constant
-	// arguments may be folded at analysis. Accessors stay impure until folding lands and reads this.
+	// No effect and no identity the result exposes beyond what its arguments carry: the optimizer folds a call on
+	// constant arguments at analysis (optimizer.c, on data the codec reads back as the same type, while the var
+	// still holds the boot fn). A fold that throws leaves the call to throw at run time, so nth out of bounds
+	// or a non-number qualifies; realizing a lazy seq would not, but a lazy seq is never such an argument.
 	bool pure;
 } clj_intrinsic;
 

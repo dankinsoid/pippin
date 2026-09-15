@@ -455,3 +455,14 @@ three runs of the same binary, ns per iteration (calls) or per element (sort).
   per item, the cons list it returns and the `clj_share` of what crosses; the spec pays an interpreted
   `compare` var call, `nth`, `conj` and a vector copy per merge step. 59× is the escape hatch's payoff on
   coarse-grained work, against the 64 ns every crossing costs.
+
+## Constant folding — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The optimizer folds a pure intrinsic on constant arguments and an `if` on a constant test into what they
+yield (NOTES.md, "Constant folding"). No evaluator path changed and no bench form has a constant call in its
+loop, so this is a control: medians of three alternating runs of each binary (2a89bb2 vs this commit), ns per
+element or iteration — reduce + map inc range 30.4 → 31.1 (1k), 30.1 → 30.7 (100k); vec (map inc range)
+36.5 → 37.3 (1k), 35.6 → 36.7 (100k); transduce (map inc) + range 27.9 → 27.7 (1k), 27.8 → 27.6 (100k);
+into [] (map inc) range 94.1 → 95.7 (1k), 96.0 → 96.9 (100k); seq walk of a vector 38.2 → 36.9; counting loop
+15.9 → 16.0; closure call in a loop 22.2 → 22.5; let-bound fn 21.2 → 20.9; local helper 36.5 → 36.8. All
+within the ±3 % run-to-run spread.

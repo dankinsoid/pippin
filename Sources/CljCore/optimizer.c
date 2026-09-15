@@ -4,9 +4,11 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/error.h"
 #include "clj/fusion.h"
 #include "clj/intrinsics.h"
 #include "clj/symbol.h"
+#include "clj/var.h"
 #include "clj/vector.h"
 #include "node.h"
 
@@ -442,7 +444,67 @@ static void direct_pass(const clj_node *n, void *ctx) {
 	for (uint32_t i = n->u.let.n; i-- > 0;) try_direct((clj_node *)n, i);
 }
 
-// The tree is still the analyzer's own here: the const on the visitor's argument is dropped once.
+// ---- constant folding (design §6b item 4): a pure intrinsic on constant arguments, an `if` on a constant test
+
+static bool const_arg(const clj_node *n, clj_value *out) {
+	if (n->kind != CLJ_NODE_CONST || !clj_node_foldable(n->u.value)) return false;
+	*out = n->u.value;
+	return true;
+}
+
+// A var rebound before analysis keeps the guarded call; a rebind after it does not unfold (Clojure's :inline
+// speculates the same way). A fold that throws leaves the node, so the program throws where it would have.
+// @ai-generated(guided)
+static void fold_intrinsic(clj_node *n) {
+	const clj_intrinsic *op = n->u.intrinsic.op;
+	clj_value            vals[3];
+	if (!op->pure || clj_var_root(n->u.intrinsic.var) != clj_intrinsic_builtin(op)) return;
+	for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
+		if (!const_arg(n->u.intrinsic.args[i], &vals[i])) return;
+	}
+	clj_value r = clj_intrinsic_call(op, vals);
+	if (r == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return;
+	}
+	if (!clj_node_foldable(r)) {
+		clj_release(r);
+		return;
+	}
+	for (uint32_t i = 0; i < n->u.intrinsic.n; i++) clj_release(clj_from_ptr((void *)n->u.intrinsic.args[i]));
+	free(n->u.intrinsic.args);
+	clj_release(n->u.intrinsic.var);
+	n->kind = CLJ_NODE_CONST;
+	n->u.value = r;
+}
+
+// The taken branch's contents move into n, which the parent points at (only a DIRECT_FN is referenced by
+// pointer, and one never sits in a branch); the emptied branch dies as a nil constant.
+// @ai-generated(guided)
+static void fold_if(clj_node *n) {
+	const clj_node *test = n->u.if_.test;
+	if (test->kind != CLJ_NODE_CONST) return;
+	bool      truthy = clj_truthy(test->u.value);
+	clj_node *taken = (clj_node *)(truthy ? n->u.if_.then : n->u.if_.else_);
+	clj_node *dropped = (clj_node *)(truthy ? n->u.if_.else_ : n->u.if_.then);
+	clj_release(clj_from_ptr((void *)test));
+	if (dropped) clj_release(clj_from_ptr(dropped));
+	if (!taken) {
+		n->kind = CLJ_NODE_CONST;
+		n->u.value = CLJ_NIL;
+		return;
+	}
+	n->kind = taken->kind;
+	n->u = taken->u;
+	n->line = taken->line;
+	n->col = taken->col;
+	taken->kind = CLJ_NODE_CONST;
+	taken->u.value = CLJ_NIL;
+	clj_release(clj_from_ptr(taken));
+}
+
+// The tree is still the analyzer's own here: the const on the visitor's argument is dropped once. Children
+// first, so a fold sees folded arguments.
 static void optimize(const clj_node *n, void *ctx) {
 	clj_node *m = (clj_node *)n;
 	if (m->kind == CLJ_NODE_INVOKE && !rewrite_fused(m)) rewrite_invoke(m);
@@ -456,6 +518,8 @@ static void optimize(const clj_node *n, void *ctx) {
 		return;
 	}
 	clj_node_children(m, optimize, ctx);
+	if (m->kind == CLJ_NODE_INTRINSIC) fold_intrinsic(m);
+	else if (m->kind == CLJ_NODE_IF) fold_if(m);
 }
 
 void clj_optimize(clj_node *root) {
