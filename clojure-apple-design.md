@@ -360,6 +360,11 @@ struct clj_type {
 - **Логи:** `swift-log` через стаб, Logger на ns, Clojure-мапа → `Logger.Metadata` напрямую.
 - Крэши рантайма: debug-сборка с ассертами на счётчиках, canary в заголовках, ASan (на C работает из коробки).
 
+**Локация в коде — для логов, аналитики, трейсов.** Clojure наполовину умеет: `(meta &form)` в макросе даёт `:line`/`:column` места вызова, `*file*` и `*ns*` связаны при загрузке — так работает timbre. Дыры: в функции локацию вызывающего взять негде; `:file` в мете формы нет; имени охватывающей функции нет; вложенные раскрытия теряют позицию — у формы из syntax-quote нет `:line`, ошибка показывает на сгенерированный код. Три аддитивных решения, принцип один: **локация — место в исходнике пользователя, а не в ближайшем слое обёрток; обёртки прозрачны по умолчанию.**
+- **Мета формы богаче** (как в CLJS): `:file :line :column :end-line :end-column :ns :fn` (охватывающий top-level вар). Аналитор ведёт цепочку `:origin` через раскрытия (Racket syntax objects, Rust `Span`): каждая раскрытая форма помнит, из какой получена. Закрывает вложенные макросы и даёт LSP отображение диагностики из глубины раскрытия на строку исходника.
+- **`(location)` — макрос в core**, не reader-тег: `#location` без namespace зарезервирован за Clojure, а `.cljc` с ним не прочитается на JVM. Раскрывается в литеральную shape-мапу — singleton в решётке, hash-consed, ноль аллокаций; `#line` в C из него же. Идёт по `:origin` до ближайшей формы, написанной пользователем; `(location :expansion)` — сырая позиция, для отладки макросов.
+- **`^:track-caller` на `defn`** — аналог Rust `#[track_caller]` и Swift `line: Int = #line`: функция получает локацию вызывающего без обёртки в макрос, внутри читается `(caller-location)`. Аналитор на прямых вызовах подкладывает скрытый аргумент-константу. Транзитивность по правилу Rust: track-caller-функция, зовущая track-caller-функцию, передаёт *свой* скрытый аргумент, а не текущий сайт — враппер прозрачен без ручного проброса `file:`/`line:`, как приходится в Swift. Через `apply` или как значение — `nil`. На JVM мета игнорируется, `(caller-location)` → `nil`, `.cljc` не ломается.
+
 ---
 
 ## 5. Интероп
@@ -652,6 +657,8 @@ Escaping — главная проблема для *потока управле
 | Свой LSP с нуля вместо clojure-lsp | синтаксический слой готов; свой — только семантика из решётки |
 | Хуки для макросов в LSP (модель clj-kondo) | аналитор раскрывает макросы интерпретатором; загрузка проекта в режиме анализа по эффектам форм |
 | Интерпретатор в прод-сборке | 2.5.2 + честная проверка полноты компилятора |
+| Reader-тег `#location` | ненамespace'нные теги зарезервированы; `.cljc` не прочитается на JVM; макрос `(location)` делает то же |
+| Неявная локация у всех функций | стоимость на каждом вызове и утечка в ABI; Swift и Rust тоже opt-in — `^:track-caller` |
 | Swift-протоколы для core-интерфейсов | недоступны из C; слоты дескриптора |
 | `invoke[N_ARITIES]` в дескрипторе | арность — свойство объекта |
 | `extend-type` встроенного типа на core-интерфейс | write-once; разрешено только на пользовательские протоколы |
@@ -724,4 +731,5 @@ Escaping — главная проблема для *потока управле
 - **Оптимизации:** Truffle self-optimizing AST interpreters (Würthinger et al.), specializing adaptive interpreter в CPython (PEP 659), egg (Willsey et al. 2021), copy-and-patch (Xu & Kjølstad 2021), проекции Футамуры, MLIR, BOLT, conditions/restarts в Common Lisp, miniKanren/core.logic, Datascript.
 - **Циклы и дескрипторы:** Bacon & Rajan «Concurrent Cycle Collection in Reference Counted Systems» (2001), CPython gc, Nim ORC, Swift `weak`/`unowned`; CPython `tp_*`-слоты, Lua metatables, Racket CS record-type descriptors, Clojure `RT.first`.
 - **Тесты:** `clojure/test_clojure`, core-test (кроссплатформенный набор для clojure.core), ClojureCLR (core.clj поверх реализованных `clojure.lang.*`).
+- **Локация:** Swift `#file`/`#line`/`#fileID`/`#column`, Rust `#[track_caller]` и `Location::caller()`, Racket syntax objects (srcloc + origin), timbre (`(meta &form)`).
 - **Инструментарий:** clojure-lsp / clj-kondo, nREPL (bencode), Calva/CIDER/Conjure, Julia `@code_warntype` (для inlay hints).
