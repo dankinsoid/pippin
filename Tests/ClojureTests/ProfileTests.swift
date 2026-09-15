@@ -134,7 +134,7 @@ extension CoreTests {
 			do {
 				let tree = try Tree("(let [f (fn [x] (if (< x 3) :a :b))] [(f 0) (f 1) (f 2) (f 5)])")
 				let fn = tree.node.pointee.u.let.inits[0]!
-				#expect(fn.pointee.kind == CLJ_NODE_FN)
+				#expect(fn.pointee.kind == CLJ_NODE_DIRECT_FN)
 				let body = fn.pointee.u.fn.fixed.1!.pointee.body!
 				#expect(body.pointee.kind == CLJ_NODE_IF)
 				let then = body.pointee.u.if_.then!, else_ = body.pointee.u.if_.else_!

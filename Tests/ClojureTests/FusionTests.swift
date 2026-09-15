@@ -142,7 +142,7 @@ extension CoreTests {
 	@Suite struct FusionTests {
 		init() {
 			clj_init()
-			for k in ["k", "const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "intrinsic", "fused",
+			for k in ["k", "const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "intrinsic", "fused", "outer", "direct-fn", "direct-call",
 			          "def", "vector", "map", "try", "throw", "all", "error", "f", "init", "g", "p", "coll", "redefined", "local", "mine", "e", "done", "a", "b", "two", "three"] {
 				_ = Value(keyword: k)
 			}

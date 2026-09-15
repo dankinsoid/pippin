@@ -18,6 +18,7 @@ typedef enum {
 	CLJ_NODE_CONST,
 	CLJ_NODE_LOCAL,    // a slot of the running frame
 	CLJ_NODE_CAPTURED, // a slot of the closure's environment
+	CLJ_NODE_OUTER,    // a slot of the frame `depth` static links up: a free variable of a direct fn body
 	CLJ_NODE_VAR,
 	CLJ_NODE_IF,
 	CLJ_NODE_DO,
@@ -33,6 +34,8 @@ typedef enum {
 	CLJ_NODE_THROW,
 	CLJ_NODE_INTRINSIC, // a call of a core var the intrinsics table lists, at a listed arity (optimizer.c)
 	CLJ_NODE_FUSED,     // a consumer over lazy stages with its transducer form beside the original (optimizer.c)
+	CLJ_NODE_DIRECT_FN, // a let/loop-bound fn only ever called: no closure, its slot holds nil (optimizer.c)
+	CLJ_NODE_DIRECT_CALL, // a call of a direct fn's arity in a fresh frame linked to the defining one
 } clj_node_kind;
 
 // Clojure's limit; more parameters go through the rest argument.
@@ -56,10 +59,14 @@ typedef struct {
 	const clj_node *handler;
 } clj_catch;
 
-// Where a closure takes a captured value from in the frame that creates it.
+// Where a closure takes a captured value from in the frame that creates it: its slots, its environment, or
+// a slot of the frame `depth` static links up when the closure is made inside a direct fn body.
+typedef enum { CLJ_CAPTURE_LOCAL, CLJ_CAPTURE_CAPTURED, CLJ_CAPTURE_OUTER } clj_capture_kind;
+
 typedef struct {
-	bool     from_captured;
-	uint32_t index;
+	clj_capture_kind kind;
+	uint32_t         depth; // OUTER only
+	uint32_t         index;
 } clj_capture;
 
 struct clj_node {
@@ -73,6 +80,9 @@ struct clj_node {
 		clj_value value; // const
 		uint32_t  index; // local, captured
 		clj_value var;   // var
+		struct {
+			uint32_t depth, index; // outer: depth >= 1
+		} outer;
 		struct {
 			const clj_node *test, *then, *else_; // else_ is NULL for a two-armed if
 		} if_;
@@ -94,10 +104,19 @@ struct clj_node {
 		struct {
 			clj_value      name; // symbol or nil
 			clj_fn_arity  *fixed[CLJ_FN_MAX_FIXED + 1];
-			clj_fn_arity  *variadic;
-			clj_capture   *captures;
+			clj_fn_arity  *variadic; // NULL on a direct fn
+			clj_capture   *captures; // none on a direct fn: its body reads the defining frame through OUTER nodes
 			uint32_t       ncaptures;
-		} fn;
+		} fn; // fn, direct fn
+		// fn is the DIRECT_FN node bound at `slot` of the frame `depth` static links up from the calling one,
+		// borrowed from the let/loop that owns it (the same tree); arity is its arity for n args.
+		struct {
+			const clj_node     *fn;
+			const clj_fn_arity *arity;
+			const clj_node    **args;
+			uint32_t            n;
+			uint32_t            slot, depth;
+		} direct;
 		struct {
 			const clj_node  *fn;
 			const clj_node **args;

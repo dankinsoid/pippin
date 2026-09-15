@@ -59,7 +59,7 @@ extension CoreTests {
 		init() {
 			clj_init()
 			for k in ["const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
-			          "try", "throw", "all", "error", "intrinsic", "fused", "default", "k", "code", "kw", "yes", "no", "nope"] {
+			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope"] {
 				_ = Value(keyword: k)
 			}
 		}

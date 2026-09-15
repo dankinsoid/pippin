@@ -124,10 +124,18 @@ static void drain_retired(void) {
 size_t clj_debug_retired_roots(void) { return retired.n; }
 
 // A local, captured or constant read without a retain: its home (the frame, the closure's env, the tree)
-// outlives the consumer. A var's root is borrowed when immortal (every root bound by boot) or a fn (a rebind
+// outlives the consumer. An OUTER read stays owned: a fifth case here turns the switch into a jump table
+// in every inlined copy and cost ~3 ns per iteration of the counting loop, more than the pair it saves.
+// A var's root is borrowed when immortal (every root bound by boot) or a fn (a rebind
 // parks the old fn until the thread is idle, clj_eval_retire_root); a data root is retained, since a rebind
 // releases it at once. Every other kind evaluates owned.
 // @ai-generated(guided)
+// The frame `depth` static links up; a direct fn's frame links to its defining one, alive for the call.
+static inline const clj_frame *outer_frame(const clj_frame *f, uint32_t depth) {
+	while (depth--) f = f->outer;
+	return f;
+}
+
 static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *owned) {
 	*owned = false;
 	switch (n->kind) {
@@ -217,6 +225,8 @@ static clj_value eval_local(const clj_node *n, clj_frame *f) { return clj_retain
 
 static clj_value eval_captured(const clj_node *n, clj_frame *f) { return clj_retain(f->captured[n->u.index]); }
 
+static clj_value eval_outer(const clj_node *n, clj_frame *f) { return clj_retain(outer_frame(f, n->u.outer.depth)->slots[n->u.outer.index]); }
+
 static clj_value eval_var(const clj_node *n, clj_frame *f) {
 	(void)f;
 	return clj_var_deref(n->u.var);
@@ -283,7 +293,11 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 	clj_value *env = buf_alloc(small, n->u.fn.ncaptures);
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
 		const clj_capture *c = &n->u.fn.captures[i];
-		env[i] = c->from_captured ? f->captured[c->index] : f->slots[c->index];
+		switch (c->kind) {
+		case CLJ_CAPTURE_LOCAL: env[i] = f->slots[c->index]; break;
+		case CLJ_CAPTURE_CAPTURED: env[i] = f->captured[c->index]; break;
+		case CLJ_CAPTURE_OUTER: env[i] = outer_frame(f, c->depth)->slots[c->index]; break;
+		}
 	}
 	clj_value fn = clj_fn_closure(clj_from_ptr((void *)f->exec), n, n->u.fn.name, env, n->u.fn.ncaptures);
 	buf_free(small, env);
@@ -320,19 +334,17 @@ static char *stack_limit_of(clj_shadow_stack *s) {
 	return s->stack_limit;
 }
 
-// Runs arity's body over slots the caller filled: the fixed params (and the self slot) borrowed, the rest
-// owned as `owned` says; every owned slot is released after. The frame's exec is the closure's own.
+// Runs arity's body of the fn node `code` (a fn or a direct fn) in a frame the caller filled: every owned slot
+// is released after. The guard, the shadow frame, the instrumentation and the recur loop of every call.
 // @ai-generated(guided)
-static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, const clj_fn_arity *arity, clj_value *slots, uint64_t owned, const clj_node *site) {
-	const clj_fn     *fn = clj_fn_of(f);
-	const clj_node   *code = fn->u.node;
+static inline __attribute__((always_inline)) clj_value run_body(const clj_node *code, const clj_fn_arity *arity, clj_frame *frame, const clj_node *site) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
 	char *limit = s->stack_limit;
 	if (__builtin_expect(!limit, 0)) limit = stack_limit_of(s);
-	clj_frame frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned};
-	if (__builtin_expect((char *)&frame < limit, 0)) {
-		slots_release(&frame, arity->nslots);
+	char here;
+	if (__builtin_expect(&here < limit, 0)) {
+		slots_release(frame, arity->nslots);
 		return clj_throw_msg("Stack overflow");
 	}
 	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site};
@@ -346,12 +358,12 @@ static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, co
 	if (__builtin_expect(instrument, 0)) {
 		if (instrument & CLJ_INSTRUMENT_PROFILE) t0 = clj_profile_now();
 #ifdef __APPLE__
-		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(fn->name);
+		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(code->u.fn.name);
 #endif
 	}
 	clj_value v;
 	for (;;) {
-		v = eval_child(arity->body, &frame);
+		v = eval_child(arity->body, frame);
 		if (v != CLJ_RECUR) break;
 	}
 	if (__builtin_expect(instrument, 0)) {
@@ -361,8 +373,16 @@ static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, co
 		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
 	}
 	if (__builtin_expect(--s->depth == 0, 0) && retired.n) drain_retired();
-	slots_release(&frame, arity->nslots);
+	slots_release(frame, arity->nslots);
 	return v;
+}
+
+// A closure call: the fixed params (and the self slot) borrowed, the rest owned as `owned` says; the frame's
+// exec and environment are the closure's own.
+static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, const clj_fn_arity *arity, clj_value *slots, uint64_t owned, const clj_node *site) {
+	const clj_fn *fn = clj_fn_of(f);
+	clj_frame     frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned, NULL};
+	return run_body(fn->u.node, arity, &frame, site);
 }
 
 // A call with the arguments already in a buffer: the frame copies them. Frames past SMALL_SLOTS live on the
@@ -522,6 +542,60 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+#if CLJ_DEBUG
+static _Atomic int64_t direct_calls;
+#define DIRECT_COUNT() atomic_fetch_add_explicit(&direct_calls, 1, memory_order_relaxed)
+#else
+#define DIRECT_COUNT() ((void)0)
+#endif
+
+int64_t clj_debug_direct_calls(void) {
+#if CLJ_DEBUG
+	return atomic_load_explicit(&direct_calls, memory_order_relaxed);
+#else
+	return -1;
+#endif
+}
+
+// A direct fn's slot is a placeholder: every use of the binding is a DIRECT_CALL.
+static clj_value eval_direct_fn(const clj_node *n, clj_frame *f) {
+	(void)n;
+	(void)f;
+	return CLJ_NIL;
+}
+
+// The arguments are evaluated straight into a fresh frame, as for a closure with a small frame, and the frame
+// links to the defining one `depth` links up: a free variable of the body is a slot there, alive for the call
+// and unchanged during it (only a recur of an enclosing loop rebinds it, and that re-evaluates the let).
+// Recursion gets a frame per activation. Past 64 slots every param is retained, as closure_run does.
+// @ai-generated(guided)
+static clj_value eval_direct_call(const clj_node *n, clj_frame *f) {
+	const clj_fn_arity *arity = n->u.direct.arity;
+	uint32_t            nargs = n->u.direct.n;
+	clj_value           small[SMALL_SLOTS];
+	clj_value          *slots = small;
+	if (arity->nslots > SMALL_SLOTS) {
+		slots = malloc(arity->nslots * sizeof *slots);
+		if (!slots) clj_fatal("out of memory");
+	}
+	uint64_t  owned;
+	clj_value result = CLJ_THROWN;
+	if (eval_all(n->u.direct.args, nargs, f, slots, &owned)) {
+		if (arity->nslots > 64) {
+			for (uint32_t i = 0; i < nargs; i++) {
+				if (!((owned >> i) & 1)) clj_retain(slots[i]);
+			}
+			owned = UINT64_MAX;
+		}
+		for (uint32_t i = nargs; i < arity->nslots; i++) slots[i] = CLJ_NIL;
+		clj_frame frame = {slots, f->captured, f->exec, owned, outer_frame(f, n->u.direct.depth)};
+		DIRECT_COUNT();
+		result = run_body(n->u.direct.fn, arity, &frame, n);
+	}
+	if (slots != small) free(slots);
+	return result;
+}
+
 // The var's root is compared with the fn the table resolved at boot before every call: a rebound var
 // ((def + ...) in clojure.core, with-redefs) takes the generic path, so the rewrite is invisible to the
 // program. A relaxed load suffices: a match calls a C function that reads nothing the bind published.
@@ -554,7 +628,7 @@ static clj_value eval_fused(const clj_node *n, clj_frame *f) {
 	clj_value  result = CLJ_THROWN;
 	if (eval_all(n->u.fused.args, nargs, f, vals, &owned)) {
 		bool      fuse = clj_fusion_guard(n->u.fused.guards, n->u.fused.nguards);
-		clj_frame inner = {vals, NULL, f->exec, 0};
+		clj_frame inner = {vals, NULL, f->exec, 0, NULL};
 		result = eval_child(fuse ? n->u.fused.fused : n->u.fused.original, &inner);
 		release_owned(vals, nargs, owned);
 	}
@@ -687,6 +761,9 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_THROW: return eval_throw;
 	case CLJ_NODE_INTRINSIC: return eval_intrinsic;
 	case CLJ_NODE_FUSED: return eval_fused;
+	case CLJ_NODE_OUTER: return eval_outer;
+	case CLJ_NODE_DIRECT_FN: return eval_direct_fn;
+	case CLJ_NODE_DIRECT_CALL: return eval_direct_call;
 	}
 	clj_fatal("unknown node kind");
 }
@@ -824,7 +901,8 @@ static void build(const clj_node *n, void *ctx) {
 	case CLJ_NODE_TRY:
 		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) note_slot(b, n->u.try_.catches[i].slot);
 		break;
-	case CLJ_NODE_FN: {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: {
 		build_ctx inner = {b->exec, false};
 		clj_node_children(n, build, &inner);
 		return;
@@ -889,7 +967,7 @@ clj_value clj_exec_run(clj_value exec) {
 		if (!slots) clj_fatal("out of memory");
 	}
 	memset(slots, 0, nslots * sizeof *slots);
-	clj_frame frame = {slots, NULL, e, 0};
+	clj_frame frame = {slots, NULL, e, 0, NULL};
 	retired.exec_depth++;
 	clj_value v = eval_child(e->root, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");

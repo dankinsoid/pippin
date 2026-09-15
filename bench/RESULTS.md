@@ -385,3 +385,44 @@ commit), ns per element or iteration; the map and vector tables matched within t
 - The rows without a native at a local head (the walk, the loops, the protocol calls) move within the
   run-to-run spread; the two 5 ns rows are the ±0.3 ns placement swing described above.
 
+## Direct local fns — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+A let/loop-bound fn whose binding is only ever the head of a call is a DIRECT_FN node: the let stores
+nil, each call evaluates its arguments into a fresh frame linked to the defining one and runs the body
+there — no closure allocated, no capture retained, no arity lookup (NOTES.md, "Direct local fns";
+design §6b item 7). Two new rows against the var-headed closure call: the same loop with `f` bound
+by a let around it, and a helper bound *inside* the loop body over a loop variable, which was a
+closure allocation with one capture per iteration. Medians of three alternating runs of each binary
+(2f91f17 vs this commit), ns per element or iteration; the machine ran ~1 ns warmer than in the
+section above, so compare within the table.
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| loop with a local helper | 100000 | 54.8 | 38.8 | −29 % |
+| let-bound fn called in a loop | 100000 | 22.8 | 20.8 | −9 % |
+| closure call in a loop | 100000 | 23.8 | 22.6 | −5 % |
+| counting loop | 100000 | 16.8 | 15.8 | −6 % |
+| reduce + map inc range | 1000 | 32.5 | 31.2 | −4 % |
+| reduce + map inc range | 100000 | 31.9 | 30.1 | −6 % |
+| transduce (map inc) + range | 100000 | 29.0 | 27.4 | −6 % |
+| into [] (map inc) range | 100000 | 102.6 | 96.6 | −6 % |
+| seq walk of a vector | 1000 | 39.8 | 38.4 | −4 % |
+| protocol call, deftype receiver | 100000 | 38.9 | 36.2 | −7 % |
+| protocol call, bi-morphic | 100000 | 55.7 | 52.1 | −6 % |
+
+- **Local helper, 55 → 39 ns.** The iteration paid a closure per `let` (a pool object, the capture of
+  `acc` retained and released, the exec retained) and then the closure call; now the let stores nil and
+  the call is the frame setup, the guard, the shadow frame and the body. What remains is the loop (12),
+  `<`/`inc`/`+` (~9) and the call itself (~7: the same mechanics as a closure entry, the fn value load
+  and the three loads to its arity gone, the static link stored instead).
+- **Let-bound fn, 23 → 21 ns.** The closure was created once per call of the enclosing fn, so only the
+  call changed: the arity lookup on the live fn (three dependent loads) against the arity pointer the
+  node carries.
+- **The free-variable read stays owned.** A borrowed OUTER read (a fifth case in `eval_borrowed`)
+  turned that switch into a jump table in every inlined copy and cost ~3 ns per iteration of the
+  counting loop and every other row — more than the retain/release pair it saves, which on a fixnum
+  (`acc` above) is nothing and on an unshared object five plain instructions. Measured in three
+  variants (inline, out of line, folded into the default branch): all +3 ns; the case is gone.
+- The rows without a local fn move within the run-to-run spread, on the better side here because
+  the base binary ran first in a warmer minute; nothing in their path changed.
+

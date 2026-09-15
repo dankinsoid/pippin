@@ -35,10 +35,11 @@ static inline clj_exec *clj_exec_of(clj_value v) { return (clj_exec *)clj_to_ptr
 // per slot for the first 64; a frame with more slots retains every param at entry and treats every slot
 // as owned, so a slot index >= 64 is owned by definition.
 struct clj_frame {
-	clj_value      *slots;
-	clj_value      *captured; // borrowed from the running closure
-	const clj_exec *exec;     // of the tree the running node belongs to
-	uint64_t        owned;
+	clj_value       *slots;
+	clj_value       *captured; // borrowed from the running closure; a direct fn's frame shares its definer's
+	const clj_exec  *exec;     // of the tree the running node belongs to
+	uint64_t         owned;
+	const clj_frame *outer;    // the defining frame of a direct fn body, alive for the whole call; else NULL
 };
 
 // Builds the table in one walk of the tree. Owned.
@@ -58,6 +59,8 @@ int64_t clj_debug_exec_ic_misses(clj_value exec, uint32_t id);
 uint32_t clj_debug_exec_ic_proto_entries(clj_value exec, uint32_t id);
 // The id of the tree's invoke node number `site` in pre-order (its clj_node.site); aborts past the last.
 uint32_t clj_debug_exec_invoke_id(clj_value exec, uint32_t site);
+// Direct calls of let/loop-bound fns run on this thread, counted in debug builds only (-1 otherwise).
+int64_t clj_debug_direct_calls(void);
 #define CLJ_PROTO_IC_ENTRIES 4
 // Evaluates the root in a fresh frame. Owned result or CLJ_THROWN.
 clj_value clj_exec_run(clj_value exec);

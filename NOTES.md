@@ -449,11 +449,48 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `clj_invoke`; measured from the site too, the context native gained nothing, and an intrinsic-by-value
   variant (a reverse index from the builtin fn object to its table entries, the fixed-arity C function
   called without the `(args, n)` convention) was within noise or worse — the builtins already forward
-  in one call. `apply` and every call from a native or the host are unchanged (`clj_invoke`).
+  in one call. `apply` and every call from a native or the host are unchanged (`clj_invoke`). A let/loop-bound fn
+  called only as a head takes none of these paths (next entry).
   Debug builds count per site the calls that took a fast path (`clj_debug_exec_ic_hits`) against the
   generic ones (`..._misses`); release builds count nothing. The site array is indexed by
   `clj_node.site`, the node's ordinal among the tree's INVOKE nodes, assigned with the ids (it fills
   the padding after `col`, so a node grew by nothing; `from_data` renumbers it too).
+- **Direct local fns** (optimizer.c `direct_pass`, eval.c `eval_direct_call`; design §6b item 7;
+  bench/RESULTS.md, "Direct local fns"): a `let*`/`loop*`-bound `fn*` whose binding is referenced only
+  as the head of INVOKE nodes — in the body, in later inits of the same binding vector, inside inner
+  *direct* fn bodies (through the static link), and through its own name inside its arities — becomes
+  a `DIRECT_FN` node: the let stores nil in its slot, every such INVOKE becomes a `DIRECT_CALL` that
+  evaluates its arguments straight into a fresh frame (as the closure fast path does), links the frame
+  to the defining one (`clj_frame.outer`, `depth` links up from the caller: 0 from the let body, 1 from
+  the fn's own body, deeper from nested direct fns) and runs the body through the same `run_body` as a
+  closure — guard, shadow frame (the DIRECT_FN node, so traces and the profiler name it as before),
+  instrumentation, recur loop, owned-slot release. The body's free variables were analyzed as
+  captures; the rewrite turns each `CAPTURED` read into an `OUTER {depth, slot}` read of the defining
+  frame (a captured value of the definer stays `CAPTURED`: the direct frame shares its environment) and
+  remaps the capture sources of closures made inside the body the same way (`clj_capture` has a kind
+  and a depth). Decided in the optimizer on the analyzed tree, not on forms: macros decide what a use
+  is (`(m (f 1))` may expand to `(map f ...)`), and not in the analyzer, which would have to analyze the
+  init before seeing the uses. Escapes, each keeping the closure and its behaviour: the binding as an
+  argument, a return value, a recur argument, a later init's value, a `loop*` slot any recur of that
+  loop rebinds, a capture of an inner closure (including a `lazy-seq` thunk), a call with an argument
+  count the fn has no fixed arity for (the runtime arity error stays), a variadic fn. Frame model: a
+  frame per activation with a static link, chosen over "params as extra slots of the enclosing frame"
+  because that grows the enclosing arity past 16 slots (heap frame, no direct entry for the enclosing
+  closure) or 64 (every param retained) and needs a save/restore of the helper's slot range around
+  every recursive call; the link costs one pointer per frame and an indirection per free-variable read,
+  and recursion gets its own slots for free. An `OUTER` read is owned (retain/release), not borrowed:
+  a fifth case in `eval_borrowed` made the switch a jump table in every inlined copy, +3 ns on every
+  row. Serialized as `[:direct-fn name [arity+]]` (only as a let/loop init), `[:direct-call [slot
+  depth] args*]` resolved by the decoder through a chain of binding frames, `[:outer [depth slot]]`;
+  `from_data` checks the link depth and the slot against the chain's frames. In core.clj only `psig`
+  in the `fn` macro qualifies; the `step` helpers of `drop`, `drop-while`, `mapcat`, `map` (4+ colls)
+  and `sequence` are called inside a `lazy-seq` thunk (an inner closure captures them) or reference
+  themselves from one, and `destructure`'s `pvec`/`pmap` are passed `pb` as an argument and called from
+  inside it, so all stay closures. Debug builds count direct calls (`clj_debug_direct_calls`).
+  Triggers: a variadic helper in a profile (build the rest list from a buffer as `closure_run` does);
+  a `letfn` (falls out as a `let*` of direct fns once forward references are allowed in the scan);
+  a self-referencing `step` under `lazy-seq` in a profile (the thunk would need to reach the frame,
+  which it outlives — that is a real closure).
 - **The definition epoch** (epoch.h) is one process-wide counter bumped by every root bind (`def`,
   `defmacro`, boot, a host bind), every `extend`, every type creation (`deftype`, a reify site's first
   evaluation) and every `deftype` descriptor's death; `protocol-epoch*` returns it. The protocol call

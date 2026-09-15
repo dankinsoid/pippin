@@ -225,6 +225,223 @@ static bool rewrite_fused(clj_node *n) {
 	return true;
 }
 
+// ---- direct local fns (design §6b item 7): a let/loop-bound fn whose binding is only ever the head of a
+// call runs without a closure. The rule is decided here, on the analyzed tree, because macros decide what
+// a use is: a syntactic scan of the forms would take `(m (f 1))` for a head use before `m` expands it.
+//
+// The binding at `slot` of the defining frame escapes when any reference to it is not the head of an
+// INVOKE with an arity the fn has as fixed: an argument, a value returned, a recur argument or target, an
+// init of a later binding, a capture of a closure. A reference inside an inner *direct* fn body reaches
+// the slot through the static link (`depth` frames up) and is a head use like any other, so helpers may
+// call helpers; a self-reference through the fn's own name is the same rule on the fn's self slot. A
+// variadic arity keeps the closure (the rest list would need a buffer), and so does a call past
+// CLJ_FN_MAX_FIXED arguments.
+
+typedef struct {
+	uint32_t   slot;
+	uint32_t   base; // added to a head's depth: 1 when scanning the fn's own body for its self slot
+	clj_node **heads;
+	uint32_t  *depths;
+	uint32_t   nheads, cap;
+	bool       escapes;
+} direct_scan;
+
+static bool refers(const clj_node *n, uint32_t depth, uint32_t slot) {
+	if (n->kind == CLJ_NODE_LOCAL) return depth == 0 && n->u.index == slot;
+	if (n->kind == CLJ_NODE_OUTER) return n->u.outer.depth == depth && n->u.outer.index == slot;
+	return false;
+}
+
+static void record_head(direct_scan *d, const clj_node *invoke, uint32_t depth) {
+	if (d->nheads == d->cap) {
+		d->cap = d->cap ? d->cap * 2 : 8;
+		d->heads = realloc(d->heads, d->cap * sizeof *d->heads);
+		d->depths = realloc(d->depths, d->cap * sizeof *d->depths);
+		if (!d->heads || !d->depths) clj_fatal("out of memory");
+	}
+	d->heads[d->nheads] = (clj_node *)invoke;
+	d->depths[d->nheads++] = depth + d->base;
+}
+
+typedef struct {
+	direct_scan    *d;
+	const clj_node *fn;
+	uint32_t        depth;
+} scan_ctx;
+
+static void scan(const clj_node *n, void *ctx);
+
+static void scan_at(const clj_node *n, const scan_ctx *c, uint32_t depth) {
+	scan_ctx inner = {c->d, c->fn, depth};
+	scan(n, &inner);
+}
+
+static void scan_arities(const clj_node *fn, const scan_ctx *c, uint32_t depth) {
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		if (fn->u.fn.fixed[i]) scan_at(fn->u.fn.fixed[i]->body, c, depth);
+	}
+	if (fn->u.fn.variadic) scan_at(fn->u.fn.variadic->body, c, depth);
+}
+
+// @ai-generated(guided)
+static void scan(const clj_node *n, void *ctx) {
+	const scan_ctx *c = ctx;
+	direct_scan    *d = c->d;
+	if (d->escapes) return;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL:
+	case CLJ_NODE_OUTER:
+		if (refers(n, c->depth, d->slot)) d->escapes = true;
+		return;
+	case CLJ_NODE_INVOKE:
+		if (refers(n->u.invoke.fn, c->depth, d->slot)) {
+			if (n->u.invoke.n > CLJ_FN_MAX_FIXED || !c->fn->u.fn.fixed[n->u.invoke.n]) {
+				d->escapes = true;
+				return;
+			}
+			record_head(d, n, c->depth);
+		} else {
+			scan(n->u.invoke.fn, ctx);
+		}
+		for (uint32_t i = 0; i < n->u.invoke.n && !d->escapes; i++) scan(n->u.invoke.args[i], ctx);
+		return;
+	case CLJ_NODE_RECUR:
+		if (c->depth == 0) {
+			for (uint32_t i = 0; i < n->u.recur.n; i++) {
+				if (n->u.recur.slots[i] == d->slot) d->escapes = true;
+			}
+		}
+		break;
+	case CLJ_NODE_FN:
+		// A closure's body reads its own environment: a reference to the slot shows up as a capture.
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			const clj_capture *cap = &n->u.fn.captures[i];
+			if ((cap->kind == CLJ_CAPTURE_LOCAL && c->depth == 0) || (cap->kind == CLJ_CAPTURE_OUTER && cap->depth == c->depth)) {
+				if (cap->index == d->slot) d->escapes = true;
+			}
+		}
+		return;
+	case CLJ_NODE_DIRECT_FN: scan_arities(n, c, c->depth + 1); return;
+	case CLJ_NODE_FUSED:
+		// The two programs read a frame of their own; only the args run in this one.
+		for (uint32_t i = 0; i < n->u.fused.nargs && !d->escapes; i++) scan(n->u.fused.args[i], ctx);
+		return;
+	default: break;
+	}
+	clj_node_children(n, scan, ctx);
+}
+
+// ---- conversion: the body was analyzed as a closure over `captures`; every read of that environment
+// becomes a read of the defining frame through the static link (a captured value of the definer stays a
+// captured read: the direct frame shares the definer's environment). Inner closures keep their bodies and
+// have their capture sources remapped the same way; inner direct fns are one link deeper.
+
+typedef struct {
+	const clj_capture *captures;
+	uint32_t           depth;
+} remap_ctx;
+
+static clj_capture remap_capture(const clj_capture *table, uint32_t depth, const clj_capture *c) {
+	if (c->kind != CLJ_CAPTURE_CAPTURED) return *c;
+	const clj_capture *t = &table[c->index];
+	switch (t->kind) {
+	case CLJ_CAPTURE_LOCAL: return (clj_capture){CLJ_CAPTURE_OUTER, depth + 1, t->index};
+	case CLJ_CAPTURE_CAPTURED: return (clj_capture){CLJ_CAPTURE_CAPTURED, 0, t->index};
+	case CLJ_CAPTURE_OUTER: return (clj_capture){CLJ_CAPTURE_OUTER, depth + 1 + t->depth, t->index};
+	}
+	clj_fatal("unknown capture kind");
+}
+
+static void remap(const clj_node *n, void *ctx);
+
+static void remap_arities(const clj_node *fn, const remap_ctx *c, uint32_t depth) {
+	remap_ctx inner = {c->captures, depth};
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		if (fn->u.fn.fixed[i]) remap(fn->u.fn.fixed[i]->body, &inner);
+	}
+	if (fn->u.fn.variadic) remap(fn->u.fn.variadic->body, &inner);
+}
+
+// @ai-generated(guided)
+static void remap(const clj_node *n, void *ctx) {
+	const remap_ctx *c = ctx;
+	clj_node        *m = (clj_node *)n;
+	switch (n->kind) {
+	case CLJ_NODE_CAPTURED: {
+		clj_capture from = {CLJ_CAPTURE_CAPTURED, 0, n->u.index};
+		clj_capture to = remap_capture(c->captures, c->depth, &from);
+		if (to.kind == CLJ_CAPTURE_OUTER) {
+			m->kind = CLJ_NODE_OUTER;
+			m->u.outer.depth = to.depth;
+			m->u.outer.index = to.index;
+		} else {
+			m->u.index = to.index;
+		}
+		return;
+	}
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) m->u.fn.captures[i] = remap_capture(c->captures, c->depth, &n->u.fn.captures[i]);
+		return;
+	case CLJ_NODE_DIRECT_FN: remap_arities(n, c, c->depth + 1); return;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) remap(n->u.fused.args[i], ctx);
+		return;
+	default: break;
+	}
+	clj_node_children(n, remap, ctx);
+}
+
+static void rewrite_direct_call(clj_node *invoke, const clj_node *fn, uint32_t slot, uint32_t depth) {
+	const clj_node **args = invoke->u.invoke.args;
+	uint32_t         nargs = invoke->u.invoke.n;
+	clj_release(clj_from_ptr((void *)invoke->u.invoke.fn));
+	invoke->kind = CLJ_NODE_DIRECT_CALL;
+	invoke->u.direct.fn = fn;
+	invoke->u.direct.arity = fn->u.fn.fixed[nargs];
+	invoke->u.direct.args = args;
+	invoke->u.direct.n = nargs;
+	invoke->u.direct.slot = slot;
+	invoke->u.direct.depth = depth;
+}
+
+// Binding i of a let/loop: its later inits and the body at depth 0, each arity's body for the self slot.
+// @ai-generated(guided)
+static void try_direct(clj_node *let, uint32_t i) {
+	clj_node *fn = (clj_node *)let->u.let.inits[i];
+	if (fn->kind != CLJ_NODE_FN || fn->u.fn.variadic) return;
+	uint32_t    slot = let->u.let.slots[i];
+	direct_scan d = {.slot = slot};
+	scan_ctx    c = {&d, fn, 0};
+	for (uint32_t k = i + 1; k < let->u.let.n && !d.escapes; k++) scan(let->u.let.inits[k], &c);
+	if (!d.escapes) scan(let->u.let.body, &c);
+	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED && !d.escapes; k++) {
+		const clj_fn_arity *a = fn->u.fn.fixed[k];
+		if (!a || a->self_slot < 0) continue;
+		d.slot = (uint32_t)a->self_slot;
+		d.base = 1;
+		scan(a->body, &c);
+	}
+	if (!d.escapes) {
+		remap_ctx c = {fn->u.fn.captures, 0};
+		remap_arities(fn, &c, 0);
+		for (uint32_t k = 0; k < d.nheads; k++) rewrite_direct_call(d.heads[k], fn, slot, d.depths[k]);
+		fn->kind = CLJ_NODE_DIRECT_FN;
+		free(fn->u.fn.captures);
+		fn->u.fn.captures = NULL;
+		fn->u.fn.ncaptures = 0;
+	}
+	free(d.heads);
+	free(d.depths);
+}
+
+// Children first, so an inner binding is decided before the outer one whose fn it may call; the bindings
+// of one let from the last to the first, since a later one may reference an earlier one.
+static void direct_pass(const clj_node *n, void *ctx) {
+	clj_node_children(n, direct_pass, ctx);
+	if (n->kind != CLJ_NODE_LET && n->kind != CLJ_NODE_LOOP) return;
+	for (uint32_t i = n->u.let.n; i-- > 0;) try_direct((clj_node *)n, i);
+}
+
 // The tree is still the analyzer's own here: the const on the visitor's argument is dropped once.
 static void optimize(const clj_node *n, void *ctx) {
 	clj_node *m = (clj_node *)n;
@@ -241,4 +458,7 @@ static void optimize(const clj_node *n, void *ctx) {
 	clj_node_children(m, optimize, ctx);
 }
 
-void clj_optimize(clj_node *root) { optimize(root, NULL); }
+void clj_optimize(clj_node *root) {
+	direct_pass(root, NULL);
+	optimize(root, NULL);
+}

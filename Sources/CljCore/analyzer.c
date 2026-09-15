@@ -51,6 +51,7 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_RECUR: visit_nodes(n->u.recur.args, n->u.recur.n, visit, ctx); break;
 	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
 		visit(n->u.fn.name, ctx);
 		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 			if (n->u.fn.fixed[i]) visit_node(n->u.fn.fixed[i]->body, visit, ctx);
@@ -61,6 +62,8 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit_node(n->u.invoke.fn, visit, ctx);
 		visit_nodes(n->u.invoke.args, n->u.invoke.n, visit, ctx);
 		break;
+	case CLJ_NODE_DIRECT_CALL: visit_nodes(n->u.direct.args, n->u.direct.n, visit, ctx); break;
+	case CLJ_NODE_OUTER: break;
 	case CLJ_NODE_DEF:
 		visit(n->u.def.var, ctx);
 		visit_node(n->u.def.init, visit, ctx);
@@ -100,11 +103,13 @@ static void node_finalize(void *self) {
 		free(n->u.recur.slots);
 		break;
 	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
 		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) free(n->u.fn.fixed[i]);
 		free(n->u.fn.variadic);
 		free(n->u.fn.captures);
 		break;
 	case CLJ_NODE_INVOKE: free(n->u.invoke.args); break;
+	case CLJ_NODE_DIRECT_CALL: free(n->u.direct.args); break;
 	case CLJ_NODE_INTRINSIC: free(n->u.intrinsic.args); break;
 	case CLJ_NODE_FUSED:
 		free(n->u.fused.guards);
@@ -280,6 +285,7 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_LOCAL:
 	case CLJ_NODE_CAPTURED:
+	case CLJ_NODE_OUTER:
 	case CLJ_NODE_VAR: break;
 	case CLJ_NODE_IF:
 		child(n->u.if_.test, visit, ctx);
@@ -296,6 +302,7 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_RECUR: children(n->u.recur.args, n->u.recur.n, visit, ctx); break;
 	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
 		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 			if (n->u.fn.fixed[i]) child(n->u.fn.fixed[i]->body, visit, ctx);
 		}
@@ -305,6 +312,7 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		child(n->u.invoke.fn, visit, ctx);
 		children(n->u.invoke.args, n->u.invoke.n, visit, ctx);
 		break;
+	case CLJ_NODE_DIRECT_CALL: children(n->u.direct.args, n->u.direct.n, visit, ctx); break;
 	case CLJ_NODE_DEF:
 		child(n->u.def.init, visit, ctx);
 		child(n->u.def.meta, visit, ctx);
@@ -375,7 +383,7 @@ static bool resolve_local(scope *s, clj_value sym, bool *captured, uint32_t *ind
 	if (!resolve_local(s->parent, sym, &outer_captured, &outer_index)) return false;
 	capture_list *c = s->captures;
 	for (uint32_t i = 0; i < c->n; i++) {
-		if (c->items[i].from_captured == outer_captured && c->items[i].index == outer_index) {
+		if ((c->items[i].kind == CLJ_CAPTURE_CAPTURED) == outer_captured && c->items[i].index == outer_index) {
 			*captured = true;
 			*index = i;
 			return true;
@@ -386,7 +394,7 @@ static bool resolve_local(scope *s, clj_value sym, bool *captured, uint32_t *ind
 		c->items = realloc(c->items, c->cap * sizeof *c->items);
 		if (!c->items) clj_fatal("out of memory");
 	}
-	c->items[c->n] = (clj_capture){outer_captured, outer_index};
+	c->items[c->n] = (clj_capture){outer_captured ? CLJ_CAPTURE_CAPTURED : CLJ_CAPTURE_LOCAL, 0, outer_index};
 	*captured = true;
 	*index = c->n++;
 	return true;
