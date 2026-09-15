@@ -1,0 +1,51 @@
+// @ai-generated(guided)
+#ifndef CLJ_ATOM_H
+#define CLJ_ATOM_H
+
+#include "lock.h"
+#include "object.h"
+
+// A publication point: everything stored into it is shared first (design §4, "Атомы").
+typedef struct {
+	clj_header       h;
+	clj_lock         lock;
+	_Atomic uintptr_t owner; // thread holding the lock, 0 when none: the nested-swap trap reads it
+	clj_value        value;
+	clj_value        meta;      // map or nil
+	clj_value        validator; // fn or nil
+	clj_value        watches;   // map key -> fn, or nil
+} clj_atom;
+
+extern const clj_type clj_atom_type;
+
+// value, meta and validator are shared and retained; a validator that rejects value throws "Invalid reference state".
+clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator);
+
+static inline bool      clj_is_atom(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_atom_type; }
+static inline clj_atom *clj_atom_of(clj_value v) { return (clj_atom *)clj_to_ptr(v); }
+
+// Owned current value, taken under the lock.
+clj_value clj_atom_deref(clj_value atom);
+// (reset! a v): validates, stores v shared, notifies the watches; returns v owned.
+clj_value clj_atom_reset(clj_value atom, clj_value value);
+// f runs once under the lock. Without validator and watches it takes the atom's own reference to the old
+// value, so a unique one is updated in place; a throw out of f then leaves the atom at nil.
+clj_value clj_atom_swap(clj_value atom, clj_value f, const clj_value *args, size_t nargs);
+// [old new] as a vector; the old value stays intact (no hand-over).
+clj_value clj_atom_swap_vals(clj_value atom, clj_value f, const clj_value *args, size_t nargs);
+clj_value clj_atom_reset_vals(clj_value atom, clj_value value);
+// true when the current value is identical to expected and was replaced.
+clj_value clj_atom_compare_and_set(clj_value atom, clj_value expected, clj_value value);
+// (f key atom old new) after every change; key by equality. Return the atom owned.
+clj_value clj_atom_add_watch(clj_value atom, clj_value key, clj_value f);
+clj_value clj_atom_remove_watch(clj_value atom, clj_value key);
+// fn or nil; setting validates the current value first. Return nil owned.
+clj_value clj_atom_set_validator(clj_value atom, clj_value f);
+clj_value clj_atom_get_validator(clj_value atom);
+// Owned meta; setting shares and retains the map (or nil) under the lock and returns it owned.
+clj_value clj_atom_meta(clj_value atom);
+clj_value clj_atom_reset_meta(clj_value atom, clj_value m);
+// (alter-meta! a f args...): f runs once under the lock on the current meta; returns the new meta owned.
+clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args, size_t nargs);
+
+#endif

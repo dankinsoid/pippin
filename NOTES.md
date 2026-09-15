@@ -706,16 +706,46 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   hash-map hash-set set empty seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
   resolve deref identical? type instance? satisfies? extends? meta with-meta alter-meta!
   reset-meta! reduce reduce-kv reduced reduced? unreduced ensure-reduced volatile! volatile?
-  vreset! fused-reduce* fused-into* fused-count*` (`deref` takes vars, reduced boxes and volatiles: no atoms; `alter-meta!`/`reset-meta!`
-  take vars only), the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative?
+  vreset! fused-reduce* fused-into* fused-count*` (`deref` takes vars, reduced boxes, volatiles and atoms; `alter-meta!`/`reset-meta!`
+  take vars and atoms), the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative?
   indexed? list? vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str
   pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data
-  ex-cause`. No `keys`, `vals`, `max`, `mod`, `sort`, ... Most of the rest belongs in core.clj.
+  ex-cause`, the atom API below. No `keys`, `vals`, `max`, `mod`, `sort`, ... Most of the rest belongs in core.clj.
 - **`into` is C in both arities**: `(into to from)` conj's through `clj_seq_iter`, `(into to xform
   from)` runs the `fused-into*` driver under `[xform]` (fusion.c `clj_into_xform`), because
   `destructure` calls `into` above the `fn` macro, where a core.clj `into` could not be defined.
   Both hold the accumulator alone and conj in place; the transducers see `nil` as `result`, as under a
   fused pipeline (the fusion entry of the evaluator section).
+- **Atoms** (atom.c; design §4 "Атомы"): `atom` (with `:meta`/`:validator`), `deref`/`@`, `reset!`,
+  `swap!` (any arity), `swap-vals!`, `reset-vals!`, `compare-and-set!` (`identical?`), `add-watch`/
+  `remove-watch`, `set-validator!`/`get-validator`, `atom?`, `meta`/`alter-meta!`/`reset-meta!`; the
+  type name `Atom`. One `clj_lock` per atom; `f` runs *exactly once* under it (no CAS retry loop, so an
+  `f` with side effects runs them once), the validator runs under it too, watches run after it with
+  `(f key atom old new)` (a watch may deref and swap the atom; a throwing watch propagates after the
+  store, the remaining watches are skipped), `deref` takes the lock (a load and an atomic retain, ~2 ns
+  more than a volatile). The lock is not recursive: a nested `swap!`/`reset!`/`deref`/`alter-meta!` on
+  the *same* atom from inside `f`, a validator or an `alter-meta!` fn throws "<op> on an atom this
+  thread is already swapping (nested swap! trap)" (the owner thread id lives in the atom; the JVM
+  retries forever). **Publication:** everything stored into an atom — value, meta, validator, watches —
+  is `clj_share`d before the store, whether or not the atom itself is shared: the atom is a publication
+  point, so a value read on another thread is on the atomic path from its first store. **The uniqueness
+  trick:** with no validator and no watches, `swap!` hands the atom's own reference to `f` — a
+  consuming native (`assoc`, `conj`, `dissoc`, `disj`, `with-meta`) through `clj_call`'s consuming
+  hand-over, a closure through `clj_call_invoke_owning` (its frame owns param 0, so a last-use read of
+  the param inside the body hands it on) — and the atom holds nil meanwhile, so `(swap! a assoc :k v)`
+  and `(swap! a (fn [m] (assoc m :k v)))` both update in place when nothing else holds the map
+  (bench/RESULTS.md, "Atoms"). Consequences: a throw out of such an `f` leaves the atom at **nil** (the
+  value went with the frame; the JVM keeps the old one) — a watched or validated atom keeps the old
+  value across a throw, since watches need `old` intact (the design's path diff `new[k] === old[k]`
+  needs it too) and a validator may reject `new`, so those atoms take the copying path (a second
+  holder: one path copy per swap, the "second holder" bench row); `swap-vals!` keeps the old value the
+  same way. A big frame (> 64 slots), a variadic `f` taking the value in its rest list and a
+  non-consuming native are called at +0 and the reference released after. Triggers: a profile showing
+  the copying path on a watched app-state atom (then a watch-aware hand-over: hold `old` only while
+  watches exist and pass it +0 — the same as today, so the real trigger is the throw-to-nil
+  semantics: if a user hits it, retain `old` when `f` is a closure and measure the loss); `IRef`/`IAtom`
+  as interfaces (a deftype implementing `deref`); `agent`/`ref` (no); `swap!` returning a
+  `reduced`-style early exit (no).
 - **Volatiles are single-thread cells by contract** (`volatile!`, `vreset!`, `vswap!`; box.c): a
   read returns the value retained, a write retains the new value, shares it when the cell is
   shared (so a volatile published through a var keeps the RC invariant) and releases the old one

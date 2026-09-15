@@ -598,6 +598,90 @@ static clj_value b_vreset(const clj_value *args, size_t n) {
 	return clj_volatile_reset(args[0], args[1]);
 }
 
+// ---- atoms
+
+static clj_value not_an_atom(const char *what, clj_value v) { return clj_throw_msg("%s expects an atom, got: %s", what, clj_type_name(v)); }
+
+// (atom x & {:keys [meta validator]}): other keys are ignored, as Clojure's setup-reference does.
+static clj_value b_atom(const clj_value *args, size_t n) {
+	if (n % 2 == 0) {
+		clj_value text = clj_pr_str(args[n - 1]);
+		if (text == CLJ_THROWN) return CLJ_THROWN;
+		clj_value r = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
+		clj_release(text);
+		return r;
+	}
+	clj_value meta = CLJ_NIL, validator = CLJ_NIL;
+	for (size_t i = 1; i < n; i += 2) {
+		if (!clj_is_keyword(args[i])) continue;
+		const char *name = clj_string_bytes(clj_keyword_name(args[i]));
+		if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "meta") == 0) meta = args[i + 1];
+		else if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "validator") == 0) validator = args[i + 1];
+	}
+	if (!clj_is_nil(meta) && !clj_is_map(meta)) return clj_throw_msg("atom :meta must be a map, got: %s", clj_type_name(meta));
+	if (!clj_is_nil(validator) && !clj_has_core(validator, CLJ_CORE_FN)) return clj_throw_msg("atom :validator must be a fn, got: %s", clj_type_name(validator));
+	return clj_atom_new(args[0], meta, validator);
+}
+
+static clj_value b_atom_p(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_bool(clj_is_atom(args[0]));
+}
+
+static clj_value b_reset(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("reset!", args[0]);
+	return clj_atom_reset(args[0], args[1]);
+}
+
+static clj_value b_reset_vals(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("reset-vals!", args[0]);
+	return clj_atom_reset_vals(args[0], args[1]);
+}
+
+static clj_value b_swap(const clj_value *args, size_t n) {
+	if (!clj_is_atom(args[0])) return not_an_atom("swap!", args[0]);
+	return clj_atom_swap(args[0], args[1], args + 2, n - 2);
+}
+
+static clj_value b_swap_vals(const clj_value *args, size_t n) {
+	if (!clj_is_atom(args[0])) return not_an_atom("swap-vals!", args[0]);
+	return clj_atom_swap_vals(args[0], args[1], args + 2, n - 2);
+}
+
+static clj_value b_compare_and_set(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("compare-and-set!", args[0]);
+	return clj_atom_compare_and_set(args[0], args[1], args[2]);
+}
+
+static clj_value b_add_watch(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("add-watch", args[0]);
+	if (!clj_has_core(args[2], CLJ_CORE_FN)) return clj_throw_msg("add-watch expects a fn, got: %s", clj_type_name(args[2]));
+	return clj_atom_add_watch(args[0], args[1], args[2]);
+}
+
+static clj_value b_remove_watch(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("remove-watch", args[0]);
+	return clj_atom_remove_watch(args[0], args[1]);
+}
+
+static clj_value b_set_validator(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("set-validator!", args[0]);
+	if (!clj_is_nil(args[1]) && !clj_has_core(args[1], CLJ_CORE_FN)) return clj_throw_msg("set-validator! expects a fn or nil, got: %s", clj_type_name(args[1]));
+	return clj_atom_set_validator(args[0], args[1]);
+}
+
+static clj_value b_get_validator(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_atom(args[0])) return not_an_atom("get-validator", args[0]);
+	return clj_atom_get_validator(args[0]);
+}
+
 // ---- names
 
 // Splits "ns/name" at the first slash, as the reader does; "/" alone is a name.
@@ -888,6 +972,7 @@ static clj_value b_resolve(const clj_value *args, size_t n) {
 
 static clj_value b_deref(const clj_value *args, size_t n) {
 	(void)n;
+	if (clj_is_atom(args[0])) return clj_atom_deref(args[0]);
 	if (clj_is_var(args[0])) return clj_var_deref(args[0]);
 	if (clj_is_reduced(args[0])) return clj_retain(clj_reduced_value(args[0]));
 	if (clj_is_volatile(args[0])) return clj_volatile_deref(args[0]);
@@ -909,20 +994,23 @@ static clj_value b_with_meta(const clj_value *args, size_t n) {
 }
 
 static clj_value not_a_reference(const char *what, clj_value v) {
-	return clj_throw_msg("%s expects a var, got: %s", what, clj_type_name(v));
+	return clj_throw_msg("%s expects a var or an atom, got: %s", what, clj_type_name(v));
 }
 
 static clj_value b_reset_meta(const clj_value *args, size_t n) {
 	(void)n;
-	if (!clj_is_var(args[0])) return not_a_reference("reset-meta!", args[0]);
 	if (!clj_is_nil(args[1]) && !clj_is_map(args[1])) return clj_throw_msg("reset-meta! expects a map, got: %s", clj_type_name(args[1]));
+	if (clj_is_atom(args[0])) return clj_atom_reset_meta(args[0], args[1]);
+	if (!clj_is_var(args[0])) return not_a_reference("reset-meta!", args[0]);
 	clj_var_set_meta(args[0], args[1]);
 	return clj_retain(args[1]);
 }
 
-// (alter-meta! var f & args): a CAS loop, so f may run more than once under contention.
+// (alter-meta! var f & args): a CAS loop, so f may run more than once under contention; on an atom f runs
+// once under its lock.
 // @ai-generated(guided)
 static clj_value b_alter_meta(const clj_value *args, size_t n) {
+	if (clj_is_atom(args[0])) return clj_atom_alter_meta(args[0], args[1], args + 2, n - 2);
 	if (!clj_is_var(args[0])) return not_a_reference("alter-meta!", args[0]);
 	clj_value  small[8];
 	clj_value *call = n <= sizeof small / sizeof *small ? small : malloc(n * sizeof *call);
@@ -987,6 +1075,10 @@ static const entry entries[] = {
 	{"fused-reduce*", clj_fused_reduce, 3, 4}, {"fused-into*", clj_fused_into, 3, 3}, {"fused-count*", clj_fused_count, 2, 2},
 	{"unreduced", b_unreduced, 1, 1}, {"ensure-reduced", b_ensure_reduced, 1, 1}, {"volatile!", b_volatile, 1, 1},
 	{"volatile?", b_volatile_p, 1, 1}, {"vreset!", b_vreset, 2, 2},
+	{"atom", b_atom, 1, ANY},      {"atom?", b_atom_p, 1, 1},     {"reset!", b_reset, 2, 2},     {"reset-vals!", b_reset_vals, 2, 2},
+	{"swap!", b_swap, 2, ANY},     {"swap-vals!", b_swap_vals, 2, ANY}, {"compare-and-set!", b_compare_and_set, 3, 3},
+	{"add-watch", b_add_watch, 3, 3}, {"remove-watch", b_remove_watch, 2, 2}, {"set-validator!", b_set_validator, 2, 2},
+	{"get-validator", b_get_validator, 1, 1},
 };
 
 void clj_builtins_install(void) {
