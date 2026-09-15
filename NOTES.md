@@ -783,7 +783,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   library `complement comp partial constantly completing transduce cat nthrest some every?
   not-any? not-every? map filter remove keep take drop take-while drop-while iterate repeat range
   interleave interpose mapcat dorun doall vec partition partition-all map-indexed keep-indexed
-  sequence dedupe distinct group-by frequencies zipmap eduction` (`reduce` and `into` are C), the
+  sequence dedupe distinct group-by frequencies zipmap get-in assoc-in update update-in eduction`
+  (`reduce` and `into` are C; `assoc-in`/`update-in` read the map in the first operand of their `assoc`,
+  so a nested update copies the path — trigger for a consuming core: a profile with nested state updates),
+  the
   `clojure.set` basics `union intersection difference subset? superset?` (in `clojure.core`, since no
   other namespace exists yet: trigger for moving them is the `ns` form; `index`/`rename-keys`/`select`/
   `project`/`join` wait for a user), plus the private helpers
