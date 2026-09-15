@@ -691,6 +691,13 @@ Escaping — главная проблема для *потока управле
 9. UI: реконсилер над hiccup + UIKit-бэкенд из ~10 тегов + Yoga. Критерий: экран списка с подписками на курсоры перерисовывает только изменившиеся строки.
 10. Свой LSP над аналитором (§5c) — после того, как решётка фактов заработает.
 
+**Критерий приёмки ядра — чужие тесты, своя память.** `core.clj` из репозитория Clojure взять нельзя: он написан против `clojure.lang.*` и Java-интеропа (`(. clojure.lang.RT (first coll))`, `proxy`, `gen-class`, `Thread`), так его не взял ни один альтернативный хост; ClojureCLR держит его дословно только потому, что реализовал сами классы — shim такого рода привязал бы core к боксовому JVM-API и не дал бы нести в ней факты. Тесты — другое дело:
+- переносимая часть `test/clojure/test_clojure/*` (`sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`, `string`, частично `numbers`) через наш `clojure.test`; JVM-специфичные (`java_interop`, `reflection`, агенты на `Thread`) — вон;
+- **core-test** — кроссплатформенный набор для clojure.core, которым проверяются ClojureDart, Basilisp, jank;
+- дифференциальный фаззинг против JVM-Clojure как оракула: случайные выражения над core-функциями и сгенерированными коллекциями, сравнение через EDN. Попутно решить, совпадать ли с JVM по значениям `hash` (CLJS совпадает намеренно).
+- полное соответствие публичного API `clojure.core`: механический дифф `(ns-publics 'clojure.core)` JVM-Clojure против нашего — имя, арности из `:arglists`, макрос/функция. Не «похожий core», а тот же: чужой код и библиотеки должны грузиться без правок. Исключения — только JVM-по-природе (`proxy`, `gen-class`, `definterface`, `bean`, `monitor-enter`), каждое со строкой в §8; `future`, `agent`, `pmap`, `locking` — реализуются на корутинах, не исключаются.
+Один прогон — через оба бэкенда: это и есть дифференциальный тест интерпретатор/компилятор. После каждого теста — 0 живых объектов (свой аллокатор делает это бесплатным) + ASan; иначе тесты проверяют поведение, но не память. Тест, падающий по дизайну (ленивые `def`, hoisting, write-once core-слоты, отсутствие `<!!`, trap на вложенном `swap!`), попадает в allowlist только со ссылкой на строку §8; allowlist без строки в §8 — запрещён.
+
 **Forcing function: приложение в App Store.** Небольшое приложение целиком на языке в сторе — самый сильный экспонат (проверяемо, чужие телефоны, ревью Apple) и самый жёсткий тест дизайна: заставляет пройти прод-путь, который откладывался за интерпретатором.
 - Тип: список с бэкендом — JSON → shapes, подписки на курсоры → перерисовка строк, core.async на сети, UIKit-бэкенд из десятка тегов. Там, где Clojure-модель должна быть удобнее Swift. Не Metal/аудио/WKWebView — это работа хоста, язык ни при чём.
 - Guideline 2.5.2: интерпретатор в бинаре легален без загрузки кода извне, но в прод-сборке его нет вообще — только скомпилированный C. Это и есть проверка, что компилятор покрывает язык целиком.
@@ -713,4 +720,5 @@ Escaping — главная проблема для *потока управле
 - **UI:** React Native (reconciler + host components), react-reconciler, Reagent/hicada/uix, Yoga, Elm Html.
 - **Оптимизации:** Truffle self-optimizing AST interpreters (Würthinger et al.), specializing adaptive interpreter в CPython (PEP 659), egg (Willsey et al. 2021), copy-and-patch (Xu & Kjølstad 2021), проекции Футамуры, MLIR, BOLT, conditions/restarts в Common Lisp, miniKanren/core.logic, Datascript.
 - **Циклы и дескрипторы:** Bacon & Rajan «Concurrent Cycle Collection in Reference Counted Systems» (2001), CPython gc, Nim ORC, Swift `weak`/`unowned`; CPython `tp_*`-слоты, Lua metatables, Racket CS record-type descriptors, Clojure `RT.first`.
+- **Тесты:** `clojure/test_clojure`, core-test (кроссплатформенный набор для clojure.core), ClojureCLR (core.clj поверх реализованных `clojure.lang.*`).
 - **Инструментарий:** clojure-lsp / clj-kondo, nREPL (bencode), Calva/CIDER/Conjure, Julia `@code_warntype` (для inlay hints).
