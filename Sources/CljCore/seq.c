@@ -6,6 +6,7 @@
 #include "clj/error.h"
 #include "clj/fn.h"
 #include "clj/list.h"
+#include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/string.h"
 #include "clj/vector.h"
@@ -29,15 +30,21 @@ static clj_value vector_seq_count(clj_value self) {
 	return clj_fixnum(clj_vector_count(s->vec) - s->i);
 }
 
+static clj_value vector_seq_reduce(clj_value self, clj_value f, clj_value init) {
+	const clj_vector_seq *s = clj_vector_seq_of(self);
+	return clj_vector_reduce_from(s->vec, s->i, f, init);
+}
+
 const clj_type clj_vector_seq_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "vector-seq",
-	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE),
 	.each_child = vector_seq_each_child,
 	.seq = clj_aseq_seq,
 	.first = vector_seq_first,
 	.next = vector_seq_next,
 	.count = vector_seq_count,
+	.reduce = vector_seq_reduce,
 };
 
 clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
@@ -83,6 +90,7 @@ const clj_type clj_string_seq_type = {
 	.first = string_seq_first,
 	.next = string_seq_next,
 	.count = string_seq_count,
+	.reduce = clj_reduce_iter,
 };
 
 clj_value clj_string_seq_new(clj_value str, uint32_t pos) {
@@ -110,14 +118,24 @@ static clj_value range_count(clj_value self) {
 	return clj_fixnum(span / step + (span % step != 0));
 }
 
+static clj_value range_reduce(clj_value self, clj_value f, clj_value init) {
+	const clj_range *r = clj_range_of(self);
+	clj_reducer      red = clj_reducer_start(f, init, 2);
+	for (intptr_t at = r->start; r->step > 0 ? at < r->end : at > r->end; at += r->step) {
+		if (!clj_reducer_step(&red, clj_fixnum(at))) break;
+	}
+	return clj_reducer_finish(&red);
+}
+
 const clj_type clj_range_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "range",
-	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE),
 	.seq = clj_aseq_seq,
 	.first = range_first,
 	.next = range_next,
 	.count = range_count,
+	.reduce = range_reduce,
 };
 
 clj_value clj_range_new(intptr_t start, intptr_t end, intptr_t step) {
@@ -151,6 +169,7 @@ const clj_type clj_lazy_seq_type = {
 	CLJ_ASEQ_TRAIT(0),
 	.each_child = lazy_seq_each_child,
 	.seq = lazy_seq_seq,
+	.reduce = clj_reduce_iter,
 };
 
 clj_value clj_lazy_seq_new(clj_value fn) {

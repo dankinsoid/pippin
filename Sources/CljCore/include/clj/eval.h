@@ -3,6 +3,7 @@
 #define CLJ_EVAL_H
 
 #include "analyzer.h"
+#include "fn.h"
 
 typedef struct clj_frame clj_frame;
 typedef clj_value (*clj_eval_fn)(const clj_node *node, clj_frame *frame);
@@ -70,6 +71,24 @@ clj_value clj_eval(clj_value form, const clj_env *env);
 bool clj_eval_retire_root(clj_value old);
 // Parked roots on this thread, for tests.
 size_t clj_debug_retired_roots(void);
+
+// A call of f with a fixed argument count prepared once, for a native that calls f per element: a closure has its
+// arity resolved and enters its body directly, a plain native skips its arity check. f is borrowed and must
+// outlive the calls; a fn that takes no n arguments still goes through clj_invoke, which reports it.
+typedef struct {
+	clj_value           f;
+	size_t              n;
+	const clj_fn_arity *arity;  // of a closure for n, else NULL
+	clj_native_fn       native; // of a plain native accepting n, else NULL
+} clj_call;
+
+clj_call  clj_call_prepare(clj_value f, size_t n);
+clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args);
+// args: n of them, borrowed. Owned result or CLJ_THROWN.
+static inline clj_value clj_call_invoke(const clj_call *c, const clj_value *args) {
+	if (c->native) return c->native(args, c->n);
+	return clj_call_invoke_slow(c, args);
+}
 
 // Arity dispatch and body evaluation of a closure; clj_invoke calls it.
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n);

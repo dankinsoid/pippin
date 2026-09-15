@@ -16,6 +16,7 @@
 #include "clj/ns.h"
 #include "clj/number.h"
 #include "clj/printer.h"
+#include "clj/reduce.h"
 #include "clj/proto.h"
 #include "proto_internal.h"
 #include "clj/seq.h"
@@ -117,6 +118,7 @@ static core_interface interfaces[] = {
 	IFACE("IFn", CLJ_CORE_FN),
 	IFACE("IHashEq", CLJ_CORE_HASHEQ),
 	IFACE("IEquiv", CLJ_CORE_EQUIV),
+	IFACE("IReduceInit", CLJ_CORE_REDUCE),
 	IFACE("Seqable", CLJ_CORE_SEQABLE),
 	IFACE("IObj", CLJ_CORE_OBJ),
 	IFACE("IMeta", CLJ_CORE_META),
@@ -543,7 +545,7 @@ const clj_type clj_type_type = {
 
 static const char *const core_method_names[CLJ_CORE_METHOD_COUNT] = {
 	"seq", "first", "next", "more", "count", "valAt", "cons", "invoke", "ex-message", "ex-data", "ex-cause", "hasheq", "equiv",
-	"meta", "withMeta",
+	"meta", "withMeta", "reduce",
 };
 
 // Which method names a core interface accepts; JVM names so Clojure code reads as is, `rest` and the
@@ -571,6 +573,7 @@ static const method_row method_rows[] = {
 	{CLJ_CORE_ERROR, "ex-cause", CLJ_CM_EX_CAUSE},     {CLJ_CORE_ERROR, "getCause", CLJ_CM_EX_CAUSE},
 	{CLJ_CORE_META, "meta", CLJ_CM_META},
 	{CLJ_CORE_OBJ, "meta", CLJ_CM_META},               {CLJ_CORE_OBJ, "withMeta", CLJ_CM_WITH_META},
+	{CLJ_CORE_REDUCE, "reduce", CLJ_CM_REDUCE},
 };
 
 // The bits an interface gives a type: ISeq and IPersistentCollection carry their Clojure superinterfaces.
@@ -588,6 +591,7 @@ static uint64_t implied_bits(uint64_t iface) {
 	case CLJ_CORE_HASHEQ:
 	case CLJ_CORE_EQUIV:
 	case CLJ_CORE_META:
+	case CLJ_CORE_REDUCE:
 	case CLJ_CORE_ERROR: return iface;
 	default: return 0;
 	}
@@ -703,6 +707,22 @@ static clj_value user_with_meta(clj_value self, clj_value m) {
 	return r;
 }
 
+// IReduceInit has only (reduce this f init); the 2-arity seeds with (f), as CollReduce's extension to it does on
+// the JVM. The slot contract unwraps a reduced result the method returned.
+static clj_value user_reduce(clj_value self, clj_value f, clj_value init) {
+	clj_value seed = init == CLJ_UNBOUND ? clj_invoke(f, NULL, 0) : clj_retain(init);
+	if (seed == CLJ_THROWN) return seed;
+	clj_value args[2] = {f, seed};
+	clj_value r = call_core(self, CLJ_CM_REDUCE, args, 2);
+	clj_release(seed);
+	if (r != CLJ_THROWN && clj_is_reduced(r)) {
+		clj_value v = clj_retain(clj_reduced_value(r));
+		clj_release(r);
+		return v;
+	}
+	return r;
+}
+
 // hash/equals cannot throw (NOTES.md drop_thrown): a hasheq that throws or yields a non-integer hashes 0,
 // an equiv that throws compares unequal, the exception dropped.
 static uint32_t user_hash(void *self) {
@@ -750,6 +770,7 @@ static void fill_slots(clj_user_type *ut) {
 	}
 	if (bits & CLJ_CORE_META) t->meta = user_meta;
 	if (bits & CLJ_CORE_OBJ) t->with_meta = user_with_meta;
+	if (bits & CLJ_CORE_REDUCE) t->reduce = user_reduce;
 	if (!clj_is_nil(m[CLJ_CM_HASH])) t->hash = user_hash;
 	else if (bits & CLJ_CORE_SEQUENTIAL) t->hash = clj_aseq_hash;
 	if (!clj_is_nil(m[CLJ_CM_EQUALS])) t->equals = user_equals;
@@ -1053,6 +1074,7 @@ void clj_proto_install(void) {
 		{"PersistentList", &clj_cons_type}, {"Cons", &clj_cons_type},      {"EmptyList", &clj_empty_list_type}, {"LazySeq", &clj_lazy_seq_type},
 		{"Range", &clj_range_type},        {"Fn", &clj_fn_type},           {"Var", &clj_var_type},           {"Namespace", &clj_ns_type},
 		{"ExceptionInfo", &clj_exception_type}, {"HostError", &clj_host_error_type}, {"Protocol", &clj_protocol_type}, {"Type", &clj_type_type},
+		{"Reduced", &clj_reduced_type},    {"Volatile", &clj_volatile_type},
 	};
 	for (size_t i = 0; i < sizeof types / sizeof *types; i++) bind_core(types[i].name, clj_from_ptr((void *)types[i].type));
 	clj_value empty = clj_vector_empty();

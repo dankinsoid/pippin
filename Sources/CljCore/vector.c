@@ -2,6 +2,7 @@
 #include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/fn.h"
+#include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/vector.h"
 
@@ -210,6 +211,37 @@ static clj_value vector_next(clj_value self) { return vector_of(self)->count > 1
 
 static clj_value vector_count(clj_value self) { return clj_fixnum(vector_of(self)->count); }
 
+// Leaf by leaf: one trie descent per 32 elements.
+clj_value clj_vector_reduce_from(clj_value vec, uint32_t from, clj_value f, clj_value init) {
+	const clj_vector *v = vector_of(vec);
+	clj_reducer       r = clj_reducer_start(f, init, 2);
+	uint32_t          i = from, count = v->count;
+	while (i < count) {
+		const node *leaf = leaf_for(v, i);
+		uint32_t    end = (i | MASK) + 1 < count ? (i | MASK) + 1 : count;
+		for (; i < end; i++) {
+			if (!clj_reducer_step(&r, leaf->slots[i & MASK])) return clj_reducer_finish(&r);
+		}
+	}
+	return clj_reducer_finish(&r);
+}
+
+clj_value clj_vector_reduce_kv(clj_value vec, clj_value f, clj_value init) {
+	const clj_vector *v = vector_of(vec);
+	clj_reducer       r = clj_reducer_start(f, init, 3);
+	uint32_t          i = 0, count = v->count;
+	while (i < count) {
+		const node *leaf = leaf_for(v, i);
+		uint32_t    end = (i | MASK) + 1 < count ? (i | MASK) + 1 : count;
+		for (; i < end; i++) {
+			if (!clj_reducer_step_kv(&r, clj_fixnum(i), leaf->slots[i & MASK])) return clj_reducer_finish(&r);
+		}
+	}
+	return clj_reducer_finish(&r);
+}
+
+static clj_value vector_reduce(clj_value self, clj_value f, clj_value init) { return clj_vector_reduce_from(self, 0, f, init); }
+
 static clj_value vector_lookup(clj_value self, clj_value key, clj_value not_found) {
 	if (clj_is_fixnum(key)) {
 		intptr_t i = clj_fixnum_val(key);
@@ -241,7 +273,7 @@ const clj_type clj_vector_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "vector",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_SEQUENTIAL | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP |
-	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR | CLJ_CORE_META | CLJ_CORE_OBJ,
+	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR | CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE,
 	.each_child = vector_each_child,
 	.hash = vector_hash,
 	.equals = vector_equals,
@@ -251,6 +283,7 @@ const clj_type clj_vector_type = {
 	.count = vector_count,
 	.lookup = vector_lookup,
 	.conj = clj_vector_conj,
+	.reduce = vector_reduce,
 	.invoke = vector_invoke,
 	.meta = vector_meta,
 	.with_meta = vector_with_meta,

@@ -26,6 +26,7 @@ private let LIST = UInt64(CLJ_CORE_LIST), VECTOR = UInt64(CLJ_CORE_VECTOR), MAP 
 private let ERROR = UInt64(CLJ_CORE_ERROR), META = UInt64(CLJ_CORE_META), OBJ = UInt64(CLJ_CORE_OBJ)
 private let ASEQ = SEQABLE | SEQ | SEQUENTIAL | COLL
 private let IOBJ = META | OBJ
+private let REDUCE = UInt64(CLJ_CORE_REDUCE)
 
 extension CoreTests {
 	@Suite struct DescriptorTests {
@@ -34,8 +35,8 @@ extension CoreTests {
 			[
 				("cons", Value(list: [1]), ASEQ | LIST | IOBJ),
 				("empty-list", Value(list: []), ASEQ | LIST | COUNTED | IOBJ),
-				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR | IOBJ),
-				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP | IOBJ),
+				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR | IOBJ | REDUCE),
+				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP | IOBJ | REDUCE),
 				("string", "ab", SEQABLE),
 				("keyword", Value(keyword: "k"), FN),
 				("symbol", Value(symbol: "s"), IOBJ),
@@ -46,9 +47,11 @@ extension CoreTests {
 				("namespace", Value(borrowing: clj_ns_user()), 0),
 				("type", Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(Value(list: []).raw).pointee.type))), 0),
 				("lazy-seq", try eval("(lazy-seq [1])"), ASEQ),
-				("vector-seq", try eval("(seq [1 2])"), ASEQ | COUNTED),
+				("vector-seq", try eval("(seq [1 2])"), ASEQ | COUNTED | REDUCE),
 				("string-seq", try eval("(seq \"ab\")"), ASEQ),
-				("range", try eval("(range 3)"), ASEQ | COUNTED),
+				("range", try eval("(range 3)"), ASEQ | COUNTED | REDUCE),
+				("reduced", try eval("(reduced 1)"), 0),
+				("volatile", try eval("(volatile! 1)"), 0),
 			]
 		}
 

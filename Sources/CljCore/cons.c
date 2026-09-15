@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include "clj/cons.h"
 #include "clj/list.h"
+#include "clj/reduce.h"
 
 static clj_value *meta_slot(clj_cons *c) { return clj_meta_slot_at(c, sizeof *c); }
 
@@ -56,6 +57,7 @@ const clj_type clj_cons_type = {
 	.first = cons_first,
 	.next = cons_next,
 	.rest = cons_rest,
+	.reduce = clj_reduce_iter,
 	.meta = cons_meta,
 	.with_meta = cons_with_meta,
 };

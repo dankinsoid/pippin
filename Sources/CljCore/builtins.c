@@ -7,6 +7,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/intrinsics.h"
+#include "clj/reduce.h"
 #include "clj/runtime.h"
 #include "clj/seq.h"
 
@@ -464,17 +465,81 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 	return r;
 }
 
+// The root of clojure.core/conj, the reducing fn of (into to xform from); bound by clj_builtins_install.
+static clj_value conj_fn;
+
+// (into to from) conj's every item in C; (into to xform from) is (transduce xform conj to from) without the
+// core.clj round trip, so a call from destructure (above the fn macro) still works.
 static clj_value b_into(const clj_value *args, size_t n) {
-	(void)n;
-	size_t     count;
-	clj_value  keep;
-	clj_value *items = clj_seq_items(args[1], &count, &keep);
-	if (!items) return CLJ_THROWN;
-	clj_value r = clj_retain(args[0]);
-	for (size_t i = 0; i < count && r != CLJ_THROWN; i++) r = clj_conj(r, items[i]);
-	free(items);
-	clj_release(keep);
+	if (n == 3) {
+		clj_value rf = clj_invoke(args[1], &conj_fn, 1);
+		if (rf == CLJ_THROWN) return CLJ_THROWN;
+		clj_value acc = clj_reduce(rf, args[0], args[2]);
+		if (acc != CLJ_THROWN) {
+			clj_value done = clj_invoke(rf, &acc, 1);
+			clj_release(acc);
+			acc = done;
+		}
+		clj_release(rf);
+		return acc;
+	}
+	clj_value s = clj_seq(args[1]);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_seq_iter it = clj_seq_iter_start(s);
+	clj_value    item, r = clj_retain(args[0]);
+	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) r = clj_conj(r, item);
+	clj_seq_iter_close(&it);
+	clj_release(s);
+	if (it.thrown) {
+		clj_release(r);
+		return CLJ_THROWN;
+	}
 	return r;
+}
+
+static clj_value b_reduce(const clj_value *args, size_t n) {
+	return n == 3 ? clj_reduce(args[0], args[1], args[2]) : clj_reduce(args[0], CLJ_UNBOUND, args[1]);
+}
+
+static clj_value b_reduce_kv(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_reduce_kv(args[0], args[1], args[2]);
+}
+
+static clj_value b_reduced(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_reduced_new(args[0]);
+}
+
+static clj_value b_reduced_p(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_bool(clj_is_reduced(args[0]));
+}
+
+static clj_value b_unreduced(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_retain(clj_is_reduced(args[0]) ? clj_reduced_value(args[0]) : args[0]);
+}
+
+static clj_value b_ensure_reduced(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_is_reduced(args[0]) ? clj_retain(args[0]) : clj_reduced_new(args[0]);
+}
+
+static clj_value b_volatile(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_volatile_new(args[0]);
+}
+
+static clj_value b_volatile_p(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_bool(clj_is_volatile(args[0]));
+}
+
+static clj_value b_vreset(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_volatile(args[0])) return clj_throw_msg("vreset! expects a volatile, got: %s", clj_type_name(args[0]));
+	return clj_volatile_reset(args[0], args[1]);
 }
 
 // ---- names
@@ -639,6 +704,8 @@ typedef struct {
 } buf;
 
 static void buf_put(buf *b, const char *s, size_t n) {
+	// memcpy from or to NULL is undefined even for 0 bytes, and an untouched buf has no data yet.
+	if (n == 0) return;
 	if (b->len + n > b->cap) {
 		size_t cap = b->cap ? b->cap : 64;
 		while (cap < b->len + n) cap *= 2;
@@ -765,8 +832,10 @@ static clj_value b_resolve(const clj_value *args, size_t n) {
 
 static clj_value b_deref(const clj_value *args, size_t n) {
 	(void)n;
-	if (!clj_is_var(args[0])) return clj_throw_msg("deref not supported on this type: %s", clj_type_name(args[0]));
-	return clj_var_deref(args[0]);
+	if (clj_is_var(args[0])) return clj_var_deref(args[0]);
+	if (clj_is_reduced(args[0])) return clj_retain(clj_reduced_value(args[0]));
+	if (clj_is_volatile(args[0])) return clj_volatile_deref(args[0]);
+	return clj_throw_msg("deref not supported on this type: %s", clj_type_name(args[0]));
 }
 
 // ---- metadata
@@ -849,12 +918,15 @@ static const entry entries[] = {
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", b_lazy_seq_star, 1, 1},
 	{"realized?", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
 	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1},
-	{"into", b_into, 2, 2},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
+	{"into", b_into, 2, 3},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 	{"ex-trace", b_ex_trace, 1, 1}, {"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 1},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
 	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},
+	{"reduce", b_reduce, 2, 3},    {"reduce-kv", b_reduce_kv, 3, 3}, {"reduced", b_reduced, 1, 1}, {"reduced?", b_reduced_p, 1, 1},
+	{"unreduced", b_unreduced, 1, 1}, {"ensure-reduced", b_ensure_reduced, 1, 1}, {"volatile!", b_volatile, 1, 1},
+	{"volatile?", b_volatile_p, 1, 1}, {"vreset!", b_vreset, 2, 2},
 };
 
 void clj_builtins_install(void) {
@@ -867,6 +939,7 @@ void clj_builtins_install(void) {
 		clj_value    qualified = clj_symbol_new(core_name, name);
 		clj_value    fn = clj_fn_native(qualified, e->fn, e->min, e->max);
 		clj_var_bind_root(clj_ns_intern(core, sym), fn);
+		if (e->fn == b_conj) conj_fn = fn;
 		clj_release(fn);
 		clj_release(qualified);
 		clj_release(sym);

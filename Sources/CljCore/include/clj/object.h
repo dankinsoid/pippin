@@ -64,6 +64,7 @@ typedef void (*clj_visitor)(clj_value child, void *ctx);
 #define CLJ_CORE_EQUIV       0x4000 // IEquiv: equiv method behind the equals slot
 #define CLJ_CORE_META        0x8000 // IMeta: meta slot
 #define CLJ_CORE_OBJ         0x10000 // IObj: with_meta slot (implies IMeta)
+#define CLJ_CORE_REDUCE      0x20000 // IReduceInit: reduce slot (cons, (), string and lazy-seq have the slot without the bit)
 
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.
@@ -93,6 +94,9 @@ struct clj_type {
 	clj_value (*count)(clj_value self);
 	clj_value (*lookup)(clj_value self, clj_value key, clj_value not_found);
 	clj_value (*conj)(clj_value self, clj_value x);
+	// IReduceInit: (f acc item) over the elements, stopping at a `reduced` result, which comes back unwrapped;
+	// init CLJ_UNBOUND seeds with the first element and answers (f) when empty (coll.h, clj_reducer). NULL walks the seq.
+	clj_value (*reduce)(clj_value self, clj_value f, clj_value init);
 	// Arity is checked by the object (a fn carries its arity table), not the type.
 	clj_value (*invoke)(clj_value self, const clj_value *args, size_t n);
 	// IMeta: a map or nil. IObj: consumes self like conj, m is a map or nil. Equality, hash and printing ignore meta.

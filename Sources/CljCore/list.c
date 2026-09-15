@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 #include "clj/list.h"
+#include "clj/reduce.h"
 
 static clj_value *meta_slot(clj_header *h) { return clj_meta_slot_at(h, sizeof *h); }
 
@@ -11,6 +12,11 @@ static clj_value empty_list_nil(clj_value self) {
 static clj_value empty_list_count(clj_value self) {
 	(void)self;
 	return clj_fixnum(0);
+}
+
+static clj_value empty_list_reduce(clj_value self, clj_value f, clj_value init) {
+	(void)self;
+	return clj_reduce_empty(f, init);
 }
 
 // Only the 24-byte with-meta variant reaches each_child: the singleton is immortal.
@@ -51,6 +57,7 @@ const clj_type clj_empty_list_type = {
 	.first = empty_list_nil,
 	.next = empty_list_nil,
 	.count = empty_list_count,
+	.reduce = empty_list_reduce,
 	.meta = empty_list_meta,
 	.with_meta = empty_list_with_meta,
 };

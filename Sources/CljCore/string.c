@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include <string.h>
 
+#include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/string.h"
 
@@ -91,6 +92,7 @@ const clj_type clj_string_type = {
 	.next = string_next,
 	.count = string_count,
 	.lookup = string_lookup,
+	.reduce = clj_reduce_iter,
 };
 
 clj_value clj_string_new(const char *bytes, size_t len) {

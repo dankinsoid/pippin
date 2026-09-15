@@ -26,6 +26,10 @@ clj_value clj_vector_pop(clj_value vec);
 // Items are borrowed; the array may be freed after the call.
 clj_value clj_vector_from_array(const clj_value *items, uint32_t n);
 
+// The reduce slot from index `from` (reduce.h); the vector-seq view shares it. (f acc i x) for reduce-kv.
+clj_value clj_vector_reduce_from(clj_value vec, uint32_t from, clj_value f, clj_value init);
+clj_value clj_vector_reduce_kv(clj_value vec, clj_value f, clj_value init);
+
 // Return false to stop. Items are borrowed and visited in order.
 typedef bool (*clj_vector_item_fn)(clj_value item, void *ctx);
 void clj_vector_each(clj_value vec, clj_vector_item_fn fn, void *ctx);

@@ -834,6 +834,20 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 	return closure_run(f, arity, args, n, site);
 }
 
+clj_call clj_call_prepare(clj_value f, size_t n) {
+	clj_call c = {f, n, NULL, NULL};
+	if (!clj_is_fn(f)) return c;
+	const clj_fn *fn = clj_fn_of(f);
+	if (fn->kind == CLJ_FN_CLOSURE) c.arity = arity_for(fn->u.node, n);
+	else if (fn->kind == CLJ_FN_NATIVE && n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity)) c.native = fn->u.native;
+	return c;
+}
+
+clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args) {
+	if (c->arity) return closure_run(c->f, c->arity, args, c->n, NULL);
+	return clj_invoke(c->f, args, c->n);
+}
+
 clj_value clj_exec_run(clj_value exec) {
 	const clj_exec *e = clj_exec_of(exec);
 	uint32_t        nslots = e->nslots;

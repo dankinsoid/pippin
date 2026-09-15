@@ -23,7 +23,7 @@ static const clj_value CLJ_FALSE = (1 << 3) | 0x2;
 static const clj_value CLJ_TRUE  = (2 << 3) | 0x2;
 // Returned by a function that failed; the exception is pending in the thread (error.h). Never stored.
 static const clj_value CLJ_THROWN = (3 << 3) | 0x2;
-// Root of a var before its first def (var.h). Never stored anywhere else.
+// Root of a var before its first def (var.h), and the "no init" argument of a reduce slot (object.h). Never stored anywhere else.
 static const clj_value CLJ_UNBOUND = (4 << 3) | 0x2;
 // Returned by a recur node after rebinding its target's slots (eval.h). Never stored.
 static const clj_value CLJ_RECUR = (5 << 3) | 0x2;

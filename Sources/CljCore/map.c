@@ -7,6 +7,7 @@
 #include "clj/fn.h"
 #include "clj/list.h"
 #include "clj/map.h"
+#include "clj/reduce.h"
 #include "clj/vector.h"
 
 enum { BITS = 5, MASK = 31 };
@@ -495,6 +496,29 @@ static clj_value map_seq(clj_value self) {
 
 static clj_value map_count(clj_value self) { return clj_fixnum(clj_map_count(self)); }
 
+static bool reduce_entry(clj_value key, clj_value val, void *ctx) {
+	clj_value pair[2] = {key, val};
+	clj_value entry = clj_vector_from_array(pair, 2);
+	bool      more = clj_reducer_step(ctx, entry);
+	clj_release(entry);
+	return more;
+}
+
+// (reduce f init map) feeds [k v] entries, one vector per entry, without the eager entry list of map_seq.
+static clj_value map_reduce(clj_value self, clj_value f, clj_value init) {
+	clj_reducer r = clj_reducer_start(f, init, 2);
+	clj_map_each(self, reduce_entry, &r);
+	return clj_reducer_finish(&r);
+}
+
+static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_kv(ctx, key, val); }
+
+clj_value clj_map_reduce_kv(clj_value map, clj_value f, clj_value init) {
+	clj_reducer r = clj_reducer_start(f, init, 3);
+	clj_map_each(map, reduce_kv_entry, &r);
+	return clj_reducer_finish(&r);
+}
+
 static clj_value map_lookup(clj_value self, clj_value key, clj_value not_found) {
 	return clj_retain(clj_map_get(self, key, not_found));
 }
@@ -543,7 +567,7 @@ const clj_type clj_map_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "map",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP |
-	             CLJ_CORE_META | CLJ_CORE_OBJ,
+	             CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE,
 	.each_child = map_each_child,
 	.hash = map_hash,
 	.equals = map_equals,
@@ -551,6 +575,7 @@ const clj_type clj_map_type = {
 	.count = map_count,
 	.lookup = map_lookup,
 	.conj = map_conj,
+	.reduce = map_reduce,
 	.invoke = map_invoke,
 	.meta = map_meta,
 	.with_meta = map_with_meta,

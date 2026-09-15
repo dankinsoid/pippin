@@ -402,6 +402,72 @@
   [f]
   (fn [& args] (not (apply f args))))
 
+(defn comp
+  "Composes fns right to left: ((comp f g) x) is (f (g x)); (comp) is identity."
+  ([] identity)
+  ([f] f)
+  ([f g]
+   (fn
+     ([] (f (g)))
+     ([x] (f (g x)))
+     ([x y] (f (g x y)))
+     ([x y z] (f (g x y z)))
+     ([x y z & args] (f (apply g x y z args)))))
+  ([f g & fs]
+   (reduce comp (list* f g fs))))
+
+(defn partial
+  "Returns a fn that calls f with args followed by the args of the call."
+  ([f] f)
+  ([f arg1] (fn [& args] (apply f arg1 args)))
+  ([f arg1 arg2] (fn [& args] (apply f arg1 arg2 args)))
+  ([f arg1 arg2 arg3] (fn [& args] (apply f arg1 arg2 arg3 args)))
+  ([f arg1 arg2 arg3 & more] (fn [& args] (apply f arg1 arg2 arg3 (concat more args)))))
+
+(defn constantly
+  "Returns a fn that takes any number of args and returns x."
+  [x]
+  (fn [& args] x))
+
+;; ---- transducers. A transducer is (fn [rf] rf'); reduce, transduce, into and sequence drive them.
+
+(defn completing
+  "Wraps f as a reducing fn whose completion arity is cf, identity by default."
+  ([f] (completing f identity))
+  ([f cf]
+   (fn
+     ([] (f))
+     ([x] (cf x))
+     ([x y] (f x y)))))
+
+(defn transduce
+  "Reduces coll with (xform f), seeding with (f) when init is not given, and passes
+  the result through the completion arity of the transformed f."
+  ([xform f coll] (transduce xform f (f) coll))
+  ([xform f init coll]
+   (let [f (xform f)]
+     (f (reduce f init coll)))))
+
+;; A reduced result is boxed once more so the inner reduce of cat stops without unwrapping it.
+(defn- preserving-reduced [rf]
+  (fn [a b]
+    (let [ret (rf a b)]
+      (if (reduced? ret) (reduced ret) ret))))
+
+(defn cat
+  "A transducer that concatenates the contents of each input, which must be reducible."
+  [rf]
+  (let [rrf (preserving-reduced rf)]
+    (fn
+      ([] (rf))
+      ([result] (rf result))
+      ([result input] (reduce rrf result input)))))
+
+(defmacro vswap!
+  "Sets the value of the volatile to (apply f current-value args) and returns it."
+  [vol f & args]
+  `(vreset! ~vol (~f (deref ~vol) ~@args)))
+
 (defn nthrest
   "Returns coll without its first n items: coll itself when n is not positive,
   otherwise a seq, empty rather than nil once coll runs out."
@@ -435,24 +501,16 @@
   "Returns true when some (pred x) over coll is logical false."
   [pred coll] (not (every? pred coll)))
 
-(defn reduce
-  "Feeds the accumulator and each item of coll to f in turn and returns the last
-  accumulator. Without val the first item seeds it and (f) answers an empty coll.
-  There is no reduced, so the walk always runs to the end."
-  ([f coll]
-   (let [s (seq coll)]
-     (if s
-       (reduce f (first s) (next s))
-       (f))))
-  ([f val coll]
-   (loop [acc val s (seq coll)]
-     (if s
-       (recur (f acc (first s)) (next s))
-       acc))))
-
 (defn map
   "Returns a lazy seq of f applied to the items of the colls in parallel, ending
-  with the shortest."
+  with the shortest; with f alone, the transducer of the same."
+  ([f]
+   (fn [rf]
+     (fn
+       ([] (rf))
+       ([result] (rf result))
+       ([result input] (rf result (f input)))
+       ([result input & inputs] (rf result (apply f input inputs))))))
   ([f coll]
    (lazy-seq
      (when-let [s (seq coll)]
@@ -476,66 +534,123 @@
      (map (fn [xs] (apply f xs)) (step (conj colls c3 c2 c1))))))
 
 (defn filter
-  "Returns a lazy seq of the items of coll for which (pred item) is logical true."
-  [pred coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (let [f (first s) r (rest s)]
-        (if (pred f)
-          (cons f (filter pred r))
-          (filter pred r))))))
+  "Returns a lazy seq of the items of coll for which (pred item) is logical true,
+  or the transducer of the same."
+  ([pred]
+   (fn [rf]
+     (fn
+       ([] (rf))
+       ([result] (rf result))
+       ([result input] (if (pred input) (rf result input) result)))))
+  ([pred coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [f (first s) r (rest s)]
+         (if (pred f)
+           (cons f (filter pred r))
+           (filter pred r)))))))
 
 (defn remove
-  "Returns a lazy seq of the items of coll for which (pred item) is logical false."
-  [pred coll]
-  (filter (complement pred) coll))
+  "Returns a lazy seq of the items of coll for which (pred item) is logical false,
+  or the transducer of the same."
+  ([pred] (filter (complement pred)))
+  ([pred coll] (filter (complement pred) coll)))
 
 (defn keep
-  "Returns a lazy seq of the non-nil results of (f item); false is kept."
-  [f coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (let [x (f (first s))]
-        (if (nil? x)
-          (keep f (rest s))
-          (cons x (keep f (rest s))))))))
+  "Returns a lazy seq of the non-nil results of (f item), false kept, or the
+  transducer of the same."
+  ([f]
+   (fn [rf]
+     (fn
+       ([] (rf))
+       ([result] (rf result))
+       ([result input]
+        (let [v (f input)]
+          (if (nil? v) result (rf result v)))))))
+  ([f coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [x (f (first s))]
+         (if (nil? x)
+           (keep f (rest s))
+           (cons x (keep f (rest s)))))))))
 
 (defn take
-  "Returns a lazy seq of the first n items of coll, or all of them when there are fewer."
-  [n coll]
-  (lazy-seq
-    (when (pos? n)
-      (when-let [s (seq coll)]
-        (cons (first s) (take (dec n) (rest s)))))))
+  "Returns a lazy seq of the first n items of coll, or all of them when there are
+  fewer; with n alone, the transducer of the same."
+  ([n]
+   (fn [rf]
+     (let [nv (volatile! n)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [n @nv
+                nn (vswap! nv dec)
+                result (if (pos? n) (rf result input) result)]
+            (if (not (pos? nn)) (ensure-reduced result) result)))))))
+  ([n coll]
+   (lazy-seq
+     (when (pos? n)
+       (when-let [s (seq coll)]
+         (cons (first s) (take (dec n) (rest s))))))))
 
 (defn drop
-  "Returns a lazy seq of the items of coll past the first n."
-  [n coll]
-  (let [step (fn [n coll]
-               (let [s (seq coll)]
-                 (if (and (pos? n) s)
-                   (recur (dec n) (rest s))
-                   s)))]
-    (lazy-seq (step n coll))))
+  "Returns a lazy seq of the items of coll past the first n, or the transducer of the same."
+  ([n]
+   (fn [rf]
+     (let [nv (volatile! n)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [n @nv]
+            (vswap! nv dec)
+            (if (pos? n) result (rf result input))))))))
+  ([n coll]
+   (let [step (fn [n coll]
+                (let [s (seq coll)]
+                  (if (and (pos? n) s)
+                    (recur (dec n) (rest s))
+                    s)))]
+     (lazy-seq (step n coll)))))
 
 (defn take-while
-  "Returns a lazy seq of the leading items of coll while (pred item) is logical true."
-  [pred coll]
-  (lazy-seq
-    (when-let [s (seq coll)]
-      (when (pred (first s))
-        (cons (first s) (take-while pred (rest s)))))))
+  "Returns a lazy seq of the leading items of coll while (pred item) is logical
+  true, or the transducer of the same."
+  ([pred]
+   (fn [rf]
+     (fn
+       ([] (rf))
+       ([result] (rf result))
+       ([result input] (if (pred input) (rf result input) (reduced result))))))
+  ([pred coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (when (pred (first s))
+         (cons (first s) (take-while pred (rest s))))))))
 
 (defn drop-while
   "Returns a lazy seq of the items of coll from the first one for which (pred item)
-  is logical false."
-  [pred coll]
-  (let [step (fn [pred coll]
-               (let [s (seq coll)]
-                 (if (and s (pred (first s)))
-                   (recur pred (rest s))
-                   s)))]
-    (lazy-seq (step pred coll))))
+  is logical false, or the transducer of the same."
+  ([pred]
+   (fn [rf]
+     (let [dv (volatile! true)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [drop? @dv]
+            (if (and drop? (pred input))
+              result
+              (do (vreset! dv nil) (rf result input)))))))))
+  ([pred coll]
+   (let [step (fn [pred coll]
+                (let [s (seq coll)]
+                  (if (and s (pred (first s)))
+                    (recur pred (rest s))
+                    s)))]
+     (lazy-seq (step pred coll)))))
 
 (defn iterate
   "Returns an infinite seq of x, (f x), (f (f x)) ... f must be free of side effects."
@@ -578,20 +693,31 @@
          (concat (map first ss) (apply interleave (map rest ss))))))))
 
 (defn interpose
-  "Returns a lazy seq of the items of coll separated by sep."
-  [sep coll]
-  (drop 1 (interleave (repeat sep) coll)))
+  "Returns a lazy seq of the items of coll separated by sep, or the transducer of the same."
+  ([sep]
+   (fn [rf]
+     (let [started (volatile! false)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if @started
+            (let [sepr (rf result sep)]
+              (if (reduced? sepr) sepr (rf sepr input)))
+            (do (vreset! started true) (rf result input))))))))
+  ([sep coll] (drop 1 (interleave (repeat sep) coll))))
 
 ;; Not (apply concat ...): apply spreads its whole seq here (NOTES.md), which would realize an infinite input.
 (defn mapcat
   "Returns a lazy seq of the concatenated results of applying f to the items of the
-  colls in parallel."
-  [f & colls]
-  (let [step (fn step [ss]
-               (lazy-seq
-                 (when-let [s (seq ss)]
-                   (concat (first s) (step (rest s))))))]
-    (step (apply map f colls))))
+  colls in parallel; with f alone, the transducer of the same."
+  ([f] (comp (map f) cat))
+  ([f & colls]
+   (let [step (fn step [ss]
+                (lazy-seq
+                  (when-let [s (seq ss)]
+                    (concat (first s) (step (rest s))))))]
+     (step (apply map f colls)))))
 
 (defn dorun
   "Walks coll for its side effects and returns nil; the 2-arity stops after n items."
@@ -622,6 +748,109 @@
        (let [p (doall (take n s))]
          (when (= n (count p))
            (cons p (partition n step (nthrest s step)))))))))
+
+(defn partition-all
+  "Returns a lazy seq of n-item seqs like partition, keeping a short trailing one;
+  the transducer flushes it on completion."
+  ([n]
+   (fn [rf]
+     (let [a (volatile! [])]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (empty? @a)
+                         result
+                         (let [v @a]
+                           (vreset! a [])
+                           (unreduced (rf result v))))]
+            (rf result)))
+         ([result input]
+          (vswap! a conj input)
+          (if (= n (count @a))
+            (let [v @a]
+              (vreset! a [])
+              (rf result v))
+            result))))))
+  ([n coll] (partition-all n n coll))
+  ([n step coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [seg (doall (take n s))]
+         (cons seg (partition-all n step (nthrest s step))))))))
+
+(defn map-indexed
+  "Returns a lazy seq of (f index item) over coll, or the transducer of the same."
+  ([f]
+   (fn [rf]
+     (let [i (volatile! -1)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input] (rf result (f (vswap! i inc) input)))))))
+  ([f coll]
+   (let [mapi (fn mapi [idx coll]
+                (lazy-seq
+                  (when-let [s (seq coll)]
+                    (cons (f idx (first s)) (mapi (inc idx) (rest s))))))]
+     (mapi 0 coll))))
+
+(defn keep-indexed
+  "Returns a lazy seq of the non-nil results of (f index item), or the transducer of the same."
+  ([f]
+   (fn [rf]
+     (let [iv (volatile! -1)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [i (vswap! iv inc)
+                v (f i input)]
+            (if (nil? v) result (rf result v))))))))
+  ([f coll]
+   (let [keepi (fn keepi [idx coll]
+                 (lazy-seq
+                   (when-let [s (seq coll)]
+                     (let [x (f idx (first s))]
+                       (if (nil? x)
+                         (keepi (inc idx) (rest s))
+                         (cons x (keepi (inc idx) (rest s))))))))]
+     (keepi 0 coll))))
+
+;; Push-based transducers over a pull-based seq: each realization feeds one input to xf, whose rf parks the
+;; outputs in buf, and the outputs come out as the next items, so an infinite source stays lazy.
+(defn sequence
+  "Coerces coll to a seq, () when empty; with xform, a lazy seq of the transformed items."
+  ([coll] (if (seq? coll) coll (or (seq coll) ())))
+  ([xform coll]
+   (let [buf (volatile! [])
+         xf (xform (fn ([] nil) ([acc] acc) ([acc x] (vswap! buf conj x) nil)))
+         drain (fn [] (let [out @buf] (vreset! buf []) out))
+         step (fn step [s]
+                (lazy-seq
+                  (loop [s (seq s)]
+                    (if s
+                      (let [r (xf nil (first s))
+                            out (drain)]
+                        (cond
+                          (reduced? r) (do (xf nil) (concat out (drain)))
+                          (seq out) (concat out (step (rest s)))
+                          :else (recur (next s))))
+                      (do (xf nil) (seq (drain)))))))]
+     (step coll))))
+
+(defn dedupe
+  "Removes consecutive duplicates: a lazy seq over coll, or the transducer of the same."
+  ([]
+   (fn [rf]
+     (let [pv (volatile! :clojure.core/none)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [prior @pv]
+            (vreset! pv input)
+            (if (= prior input) result (rf result input))))))))
+  ([coll] (sequence (dedupe) coll)))
 
 (defn zipmap
   "Returns a map of the keys to the corresponding vals, ending with the shorter."
@@ -798,3 +1027,17 @@
     `(new* (reify-type* '~(gensym "reify__") '~(vec (map (fn [e] (nth e 1)) entries))
                         ~@(mapcat (fn [g] [(check-proto (first g)) (slots g)]) groups))
            ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))
+
+;; A deftype, not a C type: the IReduceInit slot trampoline (proto.c) makes this four lines, and reduce on
+;; it reaches the source through the source's own slot with no seq in between.
+(deftype Eduction [xform coll]
+  Seqable
+  (seq [_] (seq (sequence xform coll)))
+  IReduceInit
+  (reduce [_ f init] (transduce xform (completing f) init coll)))
+
+(defn eduction
+  "Returns a reducible and seqable application of the transducers to coll; the
+  transformation runs anew on every reduce or seq."
+  [& xforms]
+  (->Eduction (apply comp (butlast xforms)) (last xforms)))

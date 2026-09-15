@@ -7,7 +7,7 @@ import Testing
 // A compiler reads the same trees: no core.clj macro may embed a constant that does not print and read back.
 extension CoreTests {
 	@Suite struct CoreSerializableTests {
-		private static let formCount = 66
+		private static let formCount = 80
 
 		private final class Tree {
 			let node: UnsafeMutablePointer<clj_node>

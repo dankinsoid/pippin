@@ -26,6 +26,9 @@ bool      clj_map_contains(clj_value map, clj_value key);
 clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val);
 clj_value clj_map_dissoc(clj_value map, clj_value key);
 
+// (reduce-kv f init map): (f acc k v) over the trie in place, stopping at a reduced result (reduce.h).
+clj_value clj_map_reduce_kv(clj_value map, clj_value f, clj_value init);
+
 // Return false to stop. Entries are borrowed. Order is unspecified.
 typedef bool (*clj_map_entry_fn)(clj_value key, clj_value val, void *ctx);
 void clj_map_each(clj_value map, clj_map_entry_fn fn, void *ctx);
