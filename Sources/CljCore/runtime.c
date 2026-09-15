@@ -5,6 +5,7 @@
 #include "clj/analyzer.h"
 #include "clj/error.h"
 #include "clj/eval.h"
+#include "clj/fusion.h"
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
@@ -94,6 +95,7 @@ static void init(void) {
 	clj_intrinsics_install();
 	clj_ns_set_current(core);
 	load_core();
+	clj_fusion_install();
 	clj_map_each(clj_ns_of(core)->mappings, immortalize_root, NULL);
 	clj_ns_set_current(clj_ns_user());
 }

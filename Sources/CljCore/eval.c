@@ -532,6 +532,25 @@ static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+// The arguments become the frame of whichever program runs, at +0 for its whole evaluation: the programs
+// hold only local reads, calls and literals, so nothing in them stores to a slot.
+// @ai-generated(guided)
+static clj_value eval_fused(const clj_node *n, clj_frame *f) {
+	clj_value  small[SMALL_ARGS];
+	uint32_t   nargs = n->u.fused.nargs;
+	clj_value *vals = buf_alloc(small, nargs);
+	uint64_t   owned;
+	clj_value  result = CLJ_THROWN;
+	if (eval_all(n->u.fused.args, nargs, f, vals, &owned)) {
+		bool      fuse = clj_fusion_guard(n->u.fused.guards, n->u.fused.nguards);
+		clj_frame inner = {vals, NULL, f->exec, 0};
+		result = eval_child(fuse ? n->u.fused.fused : n->u.fused.original, &inner);
+		release_owned(vals, nargs, owned);
+	}
+	buf_free(small, vals);
+	return result;
+}
+
 // Root first, then meta, then the flags, as DefExpr.eval does.
 static clj_value eval_def(const clj_node *n, clj_frame *f) {
 	if (n->u.def.init) {
@@ -656,6 +675,7 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_TRY: return eval_try;
 	case CLJ_NODE_THROW: return eval_throw;
 	case CLJ_NODE_INTRINSIC: return eval_intrinsic;
+	case CLJ_NODE_FUSED: return eval_fused;
 	}
 	clj_fatal("unknown node kind");
 }

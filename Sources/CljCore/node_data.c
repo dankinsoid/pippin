@@ -12,6 +12,8 @@
 //           | [:fn name-or-nil [arity+] [capture*]]
 //           | [:invoke f arg*]
 //           | [:intrinsic ns/name arg*]     a listed core var at the arity of the args; unknown pairs are refused
+//           | [:fused [ns/name+] [arg*] fused original]   guard vars of the fusion table; the programs read the
+//                                                          args as locals 0..n-1 (optimizer.c)
 //           | [:def ns/name init-or-nil meta macro dynamic]
 //           | [:try body [catch*] finally-or-nil]
 //           | [:throw node]
@@ -41,7 +43,7 @@
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_captured, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
-	kw_invoke, kw_intrinsic, kw_def, kw_vector, kw_map, kw_try, kw_throw, kw_all, kw_error;
+	kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_try, kw_throw, kw_all, kw_error;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
@@ -57,6 +59,7 @@ static void intern_keywords(void) {
 	kw_fn = clj_keyword_from_cstr("fn");
 	kw_invoke = clj_keyword_from_cstr("invoke");
 	kw_intrinsic = clj_keyword_from_cstr("intrinsic");
+	kw_fused = clj_keyword_from_cstr("fused");
 	kw_def = clj_keyword_from_cstr("def");
 	kw_vector = clj_keyword_from_cstr("vector");
 	kw_map = clj_keyword_from_cstr("map");
@@ -209,6 +212,15 @@ static clj_value encode_try(const clj_node *n) {
 	return v;
 }
 
+static clj_value encode_fused(const clj_node *n) {
+	clj_value *names = zalloc(n->u.fused.nguards, sizeof *names);
+	for (uint32_t i = 0; i < n->u.fused.nguards; i++) names[i] = clj_symbol_from_cstr(n->u.fused.guards[i]->name);
+	clj_value items[5] = {kw_fused, vec_take(names, n->u.fused.nguards), encode_all(n->u.fused.args, n->u.fused.nargs), encode(n->u.fused.fused),
+	                      encode(n->u.fused.original)};
+	free(names);
+	return vec_take(items, 5);
+}
+
 static clj_value encode_kind(const clj_node *n);
 
 // @ai-generated(guided)
@@ -264,6 +276,7 @@ static clj_value encode_kind(const clj_node *n) {
 		free(items);
 		return v;
 	}
+	case CLJ_NODE_FUSED: return encode_fused(n);
 	}
 	clj_fatal("unknown node kind");
 }
@@ -502,6 +515,26 @@ static clj_node *decode_intrinsic(clj_value data) {
 	return decode_into(n->u.intrinsic.args, data, 2, nargs) ? n : drop(n);
 }
 
+static clj_node *decode_fused(clj_value data) {
+	if (clj_vector_count(data) != 5 || !is_vector_of(clj_vector_nth(data, 1), 1) || !clj_is_vector(clj_vector_nth(data, 2)))
+		return fail_data(data, "expected [guards args fused original]");
+	clj_value guards = clj_vector_nth(data, 1), args = clj_vector_nth(data, 2);
+	clj_node *n = clj_node_alloc(CLJ_NODE_FUSED);
+	n->u.fused.nguards = clj_vector_count(guards);
+	n->u.fused.guards = zalloc(n->u.fused.nguards, sizeof *n->u.fused.guards);
+	for (uint32_t i = 0; i < n->u.fused.nguards; i++) {
+		if (!(n->u.fused.guards[i] = clj_fusion_find_named(clj_vector_nth(guards, i)))) {
+			fail_data(guards, "unknown fusion var");
+			return drop(n);
+		}
+	}
+	n->u.fused.nargs = clj_vector_count(args);
+	n->u.fused.args = zalloc(n->u.fused.nargs, sizeof *n->u.fused.args);
+	if (!decode_into(n->u.fused.args, args, 0, n->u.fused.nargs)) return drop(n);
+	if (!(n->u.fused.fused = decode(clj_vector_nth(data, 3)))) return drop(n);
+	return (n->u.fused.original = decode(clj_vector_nth(data, 4))) ? n : drop(n);
+}
+
 static clj_node *decode_kind(clj_value data);
 
 // @ai-generated(guided)
@@ -538,6 +571,7 @@ static clj_node *decode_kind(clj_value data) {
 	if (head == kw_fn) return decode_fn(data);
 	if (head == kw_invoke) return decode_invoke(data);
 	if (head == kw_intrinsic) return decode_intrinsic(data);
+	if (head == kw_fused) return decode_fused(data);
 	if (head == kw_def) return decode_def(data);
 	if (head == kw_try) return decode_try(data);
 	if (head == kw_throw) return decode_single(CLJ_NODE_THROW, data);
@@ -600,6 +634,14 @@ static void check_bounds(const clj_node *n, void *ctx) {
 			check_bounds(a->body, &inner);
 			b->ok = inner.ok;
 		}
+		return;
+	}
+	case CLJ_NODE_FUSED: {
+		for (uint32_t i = 0; i < n->u.fused.nargs && b->ok; i++) check_bounds(n->u.fused.args[i], b);
+		bounds inner = {n->u.fused.nargs, 0, b->ok};
+		if (inner.ok) check_bounds(n->u.fused.fused, &inner);
+		if (inner.ok) check_bounds(n->u.fused.original, &inner);
+		b->ok = inner.ok;
 		return;
 	}
 	default: break;

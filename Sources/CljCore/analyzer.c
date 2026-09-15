@@ -76,6 +76,11 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit(n->u.intrinsic.var, ctx);
 		visit_nodes(n->u.intrinsic.args, n->u.intrinsic.n, visit, ctx);
 		break;
+	case CLJ_NODE_FUSED:
+		visit_nodes(n->u.fused.args, n->u.fused.nargs, visit, ctx);
+		visit_node(n->u.fused.fused, visit, ctx);
+		visit_node(n->u.fused.original, visit, ctx);
+		break;
 	}
 }
 
@@ -101,6 +106,10 @@ static void node_finalize(void *self) {
 		break;
 	case CLJ_NODE_INVOKE: free(n->u.invoke.args); break;
 	case CLJ_NODE_INTRINSIC: free(n->u.intrinsic.args); break;
+	case CLJ_NODE_FUSED:
+		free(n->u.fused.guards);
+		free(n->u.fused.args);
+		break;
 	case CLJ_NODE_TRY: free(n->u.try_.catches); break;
 	default: break;
 	}
@@ -307,6 +316,11 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_THROW: child(n->u.throw_, visit, ctx); break;
 	case CLJ_NODE_INTRINSIC: children(n->u.intrinsic.args, n->u.intrinsic.n, visit, ctx); break;
+	case CLJ_NODE_FUSED:
+		children(n->u.fused.args, n->u.fused.nargs, visit, ctx);
+		child(n->u.fused.fused, visit, ctx);
+		child(n->u.fused.original, visit, ctx);
+		break;
 	}
 }
 

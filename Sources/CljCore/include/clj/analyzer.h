@@ -2,6 +2,7 @@
 #ifndef CLJ_ANALYZER_H
 #define CLJ_ANALYZER_H
 
+#include "fusion.h"
 #include "intrinsics.h"
 #include "object.h"
 
@@ -31,6 +32,7 @@ typedef enum {
 	CLJ_NODE_TRY,
 	CLJ_NODE_THROW,
 	CLJ_NODE_INTRINSIC, // a call of a core var the intrinsics table lists, at a listed arity (optimizer.c)
+	CLJ_NODE_FUSED,     // a consumer over lazy stages with its transducer form beside the original (optimizer.c)
 } clj_node_kind;
 
 // Clojure's limit; more parameters go through the rest argument.
@@ -121,6 +123,15 @@ struct clj_node {
 			const clj_node     **args; // n == op->arity
 			uint32_t             n;
 		} intrinsic;
+		// args are evaluated once, in the original order, into a frame of their own; fused and original read them as
+		// locals 0..nargs-1 and nothing else. fused runs while every guard var holds its boot root (clj_fusion_guard).
+		struct {
+			const clj_fusion_var **guards;
+			uint32_t               nguards;
+			const clj_node       **args;
+			uint32_t               nargs;
+			const clj_node        *fused, *original;
+		} fused;
 	} u;
 };
 

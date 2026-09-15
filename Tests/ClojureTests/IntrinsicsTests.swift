@@ -101,7 +101,7 @@ extension CoreTests {
 			clj_init()
 			// The codec interns its node-kind keywords on first use; a baseline taken before that would drift.
 			for k in ["k", "a", "b", "const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "intrinsic",
-			          "def", "vector", "map", "try", "throw", "all", "error"] { _ = Value(keyword: k) }
+			          "def", "vector", "map", "try", "throw", "all", "error", "fused"] { _ = Value(keyword: k) }
 		}
 
 		// The optimizer keys on the var: only a call through the core var at a listed arity becomes an intrinsic.
