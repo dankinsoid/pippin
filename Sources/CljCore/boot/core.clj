@@ -852,6 +852,79 @@
             (if (= prior input) result (rf result input))))))))
   ([coll] (sequence (dedupe) coll)))
 
+(defn distinct
+  "Removes duplicates: a lazy seq over coll, or the transducer of the same. Sets carry the seen elements."
+  ([]
+   (fn [rf]
+     (let [seen (volatile! #{})]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (contains? @seen input)
+            result
+            (do (vswap! seen conj input)
+                (rf result input))))))))
+  ([coll]
+   (let [step (fn step [xs seen]
+                (lazy-seq
+                  (loop [s (seq xs) seen seen]
+                    (when s
+                      (let [f (first s)]
+                        (if (contains? seen f)
+                          (recur (next s) seen)
+                          (cons f (step (rest s) (conj seen f)))))))))]
+     (step coll #{}))))
+
+(defn group-by
+  "Returns a map from each (f x) to the vector of the xs with that key, in order."
+  [f coll]
+  (reduce (fn [ret x]
+            (let [k (f x)]
+              (assoc ret k (conj (get ret k []) x))))
+          {} coll))
+
+(defn frequencies
+  "Returns a map from each distinct item of coll to the number of times it appears."
+  [coll]
+  (reduce (fn [counts x] (assoc counts x (inc (get counts x 0)))) {} coll))
+
+;; clojure.set's basics live here until namespaces beyond user and clojure.core exist (NOTES.md).
+(defn union
+  "Returns a set of the elements of every set."
+  ([] #{})
+  ([s1] s1)
+  ([s1 s2] (if (< (count s1) (count s2)) (reduce conj s2 s1) (reduce conj s1 s2)))
+  ([s1 s2 & sets] (reduce union (union s1 s2) sets)))
+
+(defn intersection
+  "Returns a set of the elements every set holds."
+  ([s1] s1)
+  ([s1 s2]
+   (if (< (count s2) (count s1))
+     (recur s2 s1)
+     (reduce (fn [result item] (if (contains? s2 item) result (disj result item))) s1 s1)))
+  ([s1 s2 & sets] (reduce intersection (intersection s1 s2) sets)))
+
+(defn difference
+  "Returns a set of the elements of s1 that no other set holds."
+  ([s1] s1)
+  ([s1 s2]
+   (if (< (count s1) (count s2))
+     (reduce (fn [result item] (if (contains? s2 item) (disj result item) result)) s1 s1)
+     (reduce disj s1 s2)))
+  ([s1 s2 & sets] (reduce difference (difference s1 s2) sets)))
+
+(defn subset?
+  "Is every element of set1 in set2?"
+  [set1 set2]
+  (and (<= (count set1) (count set2)) (every? (fn [item] (contains? set2 item)) set1)))
+
+(defn superset?
+  "Is every element of set2 in set1?"
+  [set1 set2]
+  (and (>= (count set1) (count set2)) (every? (fn [item] (contains? set1 item)) set2)))
+
 (defn zipmap
   "Returns a map of the keys to the corresponding vals, ending with the shorter."
   [keys vals]

@@ -225,7 +225,7 @@ extension CoreTests {
 			_ = try cljEval("(def DiffBox) (def ->DiffBox) (deftype DiffBox [v])")
 			let samples = try cljEval("""
 			[nil true false 0 1 -1 7 \(Int.max >> 1) \(Int.min >> 1) 1.5 -0.5 0.0 1e300 \\a "" "str" :k :ns/k 'sym 'ns/sym
-			 [] [1 2 3] {} {:a 1 :b 2} '() '(1 2) (let [l (lazy-seq [1 2])] (seq l) l) (range 3) inc (->DiffBox 1)]
+			 [] [1 2 3] {} {:a 1 :b 2} #{} #{1 2} '() '(1 2) (let [l (lazy-seq [1 2])] (seq l) l) (range 3) inc (->DiffBox 1)]
 			""")
 			let before = clj_debug_live_objects()
 			do {

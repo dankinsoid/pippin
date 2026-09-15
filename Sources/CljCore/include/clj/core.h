@@ -25,6 +25,7 @@
 #include "reduce.h"  // IWYU pragma: export
 #include "runtime.h" // IWYU pragma: export
 #include "seq.h"     // IWYU pragma: export
+#include "set.h"     // IWYU pragma: export
 #include "shadow.h"  // IWYU pragma: export
 #include "string.h"  // IWYU pragma: export
 #include "symbol.h"  // IWYU pragma: export

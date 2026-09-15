@@ -7,7 +7,7 @@
 //           | [:var ns/name]              a var reference, resolved or interned on read
 //           | [:the-var ns/name]          the var itself, from (var x)
 //           | [:if test then else?]
-//           | [:do node+] | [:vector node*] | [:map node*]      map alternates key, value
+//           | [:do node+] | [:vector node*] | [:map node*] | [:set node*]     map alternates key, value
 //           | [:let bindings body] | [:loop bindings body]     bindings = [[slot init]*]
 //           | [:recur [slot*] [arg*]]
 //           | [:fn name-or-nil [arity+] [capture*]]
@@ -39,6 +39,7 @@
 #include "clj/ns.h"
 #include "clj/number.h"
 #include "clj/printer.h"
+#include "clj/set.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
@@ -47,7 +48,7 @@
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
-	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_try, kw_throw, kw_all, kw_error;
+	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_set, kw_try, kw_throw, kw_all, kw_error;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
@@ -71,6 +72,7 @@ static void intern_keywords(void) {
 	kw_def = clj_keyword_from_cstr("def");
 	kw_vector = clj_keyword_from_cstr("vector");
 	kw_map = clj_keyword_from_cstr("map");
+	kw_set = clj_keyword_from_cstr("set");
 	kw_try = clj_keyword_from_cstr("try");
 	kw_throw = clj_keyword_from_cstr("throw");
 	kw_all = clj_keyword_from_cstr("all");
@@ -135,6 +137,8 @@ static bool serializable(clj_value v) {
 		clj_vector_each(v, serializable_item, &ok);
 	} else if (clj_is_map(v)) {
 		clj_map_each(v, serializable_entry, &ok);
+	} else if (clj_is_set(v)) {
+		clj_set_each(v, serializable_item, &ok);
 	} else if (clj_is_seq(v)) {
 		clj_seq_iter it = clj_seq_iter_start(v);
 		clj_value    item;
@@ -167,6 +171,8 @@ bool clj_node_foldable(clj_value v) {
 		clj_vector_each(v, foldable_item, &ok);
 	} else if (clj_is_map(v)) {
 		clj_map_each(v, foldable_entry, &ok);
+	} else if (clj_is_set(v)) {
+		clj_set_each(v, foldable_item, &ok);
 	} else if (clj_is_list(v)) {
 		// By cell, not through the iterator: a cons over a lazy tail must not be realized here.
 		for (; ok && !clj_is_empty_list(v); v = clj_cons_of(v)->rest) {
@@ -310,6 +316,7 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_DO: return tagged(kw_do, n->u.seq.items, n->u.seq.n);
 	case CLJ_NODE_VECTOR: return tagged(kw_vector, n->u.seq.items, n->u.seq.n);
 	case CLJ_NODE_MAP: return tagged(kw_map, n->u.seq.items, n->u.seq.n);
+	case CLJ_NODE_SET: return tagged(kw_set, n->u.seq.items, n->u.seq.n);
 	case CLJ_NODE_LET: return vec3(kw_let, encode_bindings(n), encode(n->u.let.body));
 	case CLJ_NODE_LOOP: return vec3(kw_loop, encode_bindings(n), encode(n->u.let.body));
 	case CLJ_NODE_RECUR: return vec3(kw_recur, encode_slots(n->u.recur.slots, n->u.recur.n), encode_all(n->u.recur.args, n->u.recur.n));
@@ -731,6 +738,7 @@ static clj_node *decode_kind(clj_value data, dframe *fr, uint32_t slot) {
 	if (head == kw_do) return decode_seq(CLJ_NODE_DO, data, 2, fr);
 	if (head == kw_vector) return decode_seq(CLJ_NODE_VECTOR, data, 1, fr);
 	if (head == kw_map) return decode_seq(CLJ_NODE_MAP, data, 1, fr);
+	if (head == kw_set) return decode_seq(CLJ_NODE_SET, data, 1, fr);
 	if (head == kw_let) return decode_let(CLJ_NODE_LET, data, fr);
 	if (head == kw_loop) return decode_let(CLJ_NODE_LOOP, data, fr);
 	if (head == kw_recur) return decode_recur(data, fr);

@@ -14,6 +14,7 @@
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/printer.h"
+#include "clj/set.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
@@ -43,7 +44,8 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_DO:
 	case CLJ_NODE_VECTOR:
-	case CLJ_NODE_MAP: visit_nodes(n->u.seq.items, n->u.seq.n, visit, ctx); break;
+	case CLJ_NODE_MAP:
+	case CLJ_NODE_SET: visit_nodes(n->u.seq.items, n->u.seq.n, visit, ctx); break;
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
 		visit_nodes(n->u.let.inits, n->u.let.n, visit, ctx);
@@ -92,7 +94,8 @@ static void node_finalize(void *self) {
 	switch (n->kind) {
 	case CLJ_NODE_DO:
 	case CLJ_NODE_VECTOR:
-	case CLJ_NODE_MAP: free(n->u.seq.items); break;
+	case CLJ_NODE_MAP:
+	case CLJ_NODE_SET: free(n->u.seq.items); break;
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
 		free(n->u.let.slots);
@@ -294,7 +297,8 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_DO:
 	case CLJ_NODE_VECTOR:
-	case CLJ_NODE_MAP: children(n->u.seq.items, n->u.seq.n, visit, ctx); break;
+	case CLJ_NODE_MAP:
+	case CLJ_NODE_SET: children(n->u.seq.items, n->u.seq.n, visit, ctx); break;
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
 		children(n->u.let.inits, n->u.let.n, visit, ctx);
@@ -605,6 +609,12 @@ static clj_value build_map(const clj_node *const *items, uint32_t n) {
 	return m;
 }
 
+static clj_value build_set(const clj_node *const *items, uint32_t n) {
+	clj_value s = clj_set_empty();
+	for (uint32_t i = 0; i < n; i++) s = clj_set_conj(s, items[i]->u.value);
+	return s;
+}
+
 static bool analyze_into(analyzer *a, scope *s, const clj_node **out, const clj_value *forms, uint32_t n, bool tail_last) {
 	for (uint32_t i = 0; i < n; i++) {
 		out[i] = analyze(a, s, forms[i], tail_last && i + 1 == n);
@@ -656,6 +666,29 @@ static clj_node *analyze_map(analyzer *a, scope *s, clj_value form) {
 		return NULL;
 	}
 	return fold_or_keep(a, node, build_map);
+}
+
+static bool collect_item(clj_value item, void *ctx) {
+	collect_ctx *c = ctx;
+	c->entries[c->n++] = item;
+	return true;
+}
+
+static clj_node *analyze_set(analyzer *a, scope *s, clj_value form) {
+	uint32_t    n = clj_set_count(form);
+	clj_value  *items = zalloc(n, sizeof *items);
+	collect_ctx c = {items, 0};
+	clj_set_each(form, collect_item, &c);
+	clj_node *node = node_new(a, CLJ_NODE_SET);
+	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
+	node->u.seq.n = n;
+	bool ok = analyze_into(a, s, node->u.seq.items, items, n, false);
+	free(items);
+	if (!ok) {
+		clj_release(clj_from_ptr(node));
+		return NULL;
+	}
+	return fold_or_keep(a, node, build_set);
 }
 
 // Zero forms is nil, one is itself, more is a do.
@@ -1238,6 +1271,7 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	}
 	if (clj_is_vector(form)) return analyze_vector(a, s, form);
 	if (is_map(form)) return analyze_map(a, s, form);
+	if (clj_is_set(form)) return analyze_set(a, s, form);
 	return node_const(a, form);
 }
 

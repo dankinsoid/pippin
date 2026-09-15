@@ -30,6 +30,7 @@ typedef enum {
 	CLJ_NODE_DEF,
 	CLJ_NODE_VECTOR, // literal with non-constant elements
 	CLJ_NODE_MAP,
+	CLJ_NODE_SET,
 	CLJ_NODE_TRY,
 	CLJ_NODE_THROW,
 	CLJ_NODE_INTRINSIC, // a call of a core var the intrinsics table lists, at a listed arity (optimizer.c)

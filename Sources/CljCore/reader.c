@@ -7,7 +7,7 @@
 
 #include "clj/core.h"
 
-typedef enum { F_LIST, F_VECTOR, F_MAP, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META } frame_kind;
+typedef enum { F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META } frame_kind;
 
 typedef struct {
 	frame_kind kind;
@@ -281,8 +281,21 @@ static bool collect_entry(clj_value key, clj_value val, void *ctx) {
 	return true;
 }
 
-// Borrowed items of a list, a vector or a map (flattened to key value ...).
+static bool collect_item(clj_value item, void *ctx) {
+	collect_ctx *c = ctx;
+	c->entries[c->n++] = item;
+	return true;
+}
+
+// Borrowed items of a list, a vector, a set or a map (flattened to key value ...).
 static clj_value *coll_items(clj_value coll, size_t *n) {
+	if (clj_is_set(coll)) {
+		collect_ctx c = {calloc((size_t)clj_set_count(coll) + 1, sizeof(clj_value)), 0};
+		if (!c.entries) clj_fatal("out of memory");
+		clj_set_each(coll, collect_item, &c);
+		*n = c.n;
+		return c.entries;
+	}
 	if (is_map(coll)) {
 		collect_ctx c = {calloc(2 * (size_t)clj_map_count(coll) + 1, sizeof(clj_value)), 0};
 		if (!c.entries) clj_fatal("out of memory");
@@ -300,7 +313,7 @@ static clj_value *coll_items(clj_value coll, size_t *n) {
 	return items;
 }
 
-static bool is_sq_coll(clj_value v) { return (clj_is_list(v) && !clj_is_empty_list(v)) || clj_is_vector(v) || is_map(v); }
+static bool is_sq_coll(clj_value v) { return (clj_is_list(v) && !clj_is_empty_list(v)) || clj_is_vector(v) || is_map(v) || clj_is_set(v); }
 
 // Everything but a non-empty collection.
 static clj_value sq_atom(sq *q, clj_value form) {
@@ -354,6 +367,7 @@ static clj_value sq_pop(sq_stack *s) {
 	clj_value v;
 	if (clj_is_vector(f->form)) v = apply_to("vector", f->args, f->n);
 	else if (is_map(f->form)) v = apply_to("hash-map", f->args, f->n);
+	else if (clj_is_set(f->form)) v = apply_to("hash-set", f->args, f->n);
 	else v = seq_concat(f->args, f->n);
 	free(f->args);
 	free(f->items);
@@ -782,7 +796,10 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 	case '!':
 		skip_line(r);
 		return CLJ_READ_OK;
-	case '{': return fail(p, line, col, "Set literals are not supported yet");
+	case '{':
+		advance(r);
+		push_frame(p, F_SET, line, col);
+		return CLJ_READ_OK;
 	case '(': return fail(p, line, col, "Anonymous function literals are not supported yet");
 	case '"': return fail(p, line, col, "Regex literals are not supported yet");
 	case '\'':
@@ -820,9 +837,27 @@ static clj_read_status close_map(parser *p, const frame *f, clj_value *out) {
 	return CLJ_READ_OK;
 }
 
+static clj_read_status close_set(parser *p, const frame *f, clj_value *out) {
+	clj_value s = clj_set_empty();
+	for (size_t i = f->start; i < p->nvals; i++) {
+		clj_value item = p->vals[i];
+		if (clj_set_contains(s, item)) {
+			clj_value text = clj_pr_str(item);
+			clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+			clj_release(text);
+			clj_release(s);
+			return st;
+		}
+		s = clj_set_conj(s, item);
+	}
+	*out = s;
+	return CLJ_READ_OK;
+}
+
 static clj_read_status close_collection(parser *p, unsigned char closer, uint32_t line, uint32_t col) {
 	frame_kind expected = closer == ')' ? F_LIST : closer == ']' ? F_VECTOR : F_MAP;
-	if (!p->nframes || p->frames[p->nframes - 1].kind != expected) return fail(p, line, col, "Unmatched delimiter: %c", closer);
+	frame_kind top = p->nframes ? p->frames[p->nframes - 1].kind : F_QUOTE;
+	if (top != expected && !(expected == F_MAP && top == F_SET)) return fail(p, line, col, "Unmatched delimiter: %c", closer);
 	frame f = p->frames[--p->nframes];
 	size_t n = p->nvals - f.start;
 	const clj_value *items = n ? p->vals + f.start : NULL;
@@ -840,7 +875,7 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 		if (n > UINT32_MAX) return fail(p, f.line, f.col, "Vector literal too long");
 		v = clj_vector_from_array(items, (uint32_t)n);
 	} else {
-		clj_read_status st = close_map(p, &f, &v);
+		clj_read_status st = f.kind == F_SET ? close_set(p, &f, &v) : close_map(p, &f, &v);
 		if (st != CLJ_READ_OK) return st;
 	}
 	for (size_t i = f.start; i < p->nvals; i++) clj_release(p->vals[i]);

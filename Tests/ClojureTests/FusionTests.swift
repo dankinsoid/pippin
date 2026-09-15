@@ -251,8 +251,8 @@ extension CoreTests {
 		                   "(take 6 (iterate inc 1))", "(concat [1 2] (lazy-seq [2 3]))"]
 			let stages = ["(map inc %)", "(keep (fn [x] (when (odd? x) (* x x))) %)", "(filter odd? %)", "(remove odd? %)", "(take 3 %)", "(take 0 %)", "(drop 2 %)",
 		                  "(take-while (fn [x] (< x 3)) %)", "(drop-while (fn [x] (< x 3)) %)", "(mapcat (fn [x] [x x]) %)", "(map-indexed vector %)",
-		                  "(keep-indexed (fn [i x] (when (odd? i) x)) %)", "(interpose 0 %)", "(dedupe %)", "(map str %)", "(map identity %)",
-		                  "(take 2 (map inc (filter odd? %)))", "(interpose :k (dedupe (drop 1 %)))", "(mapcat identity (partition-all 2 %))"]
+		                  "(keep-indexed (fn [i x] (when (odd? i) x)) %)", "(interpose 0 %)", "(dedupe %)", "(distinct %)", "(map str %)", "(map identity %)",
+		                  "(take 2 (map inc (filter odd? %)))", "(interpose :k (dedupe (drop 1 %)))", "(mapcat identity (partition-all 2 %))", "(distinct (mapcat (fn [x] [x x]) %))"]
 			let consumers = ["(reduce + %)", "(reduce + 10 %)", "(reduce conj [] %)", "(reduce conj %)", "(reduce (fn [a x] (conj a x)) %)", "(reduce (fn [a x] [a x]) %)",
 		                     "(reduce (fn [a x] (if (= x 3) (reduced a) [a x])) [] %)", "(reduce (fn [] :e) %)", "(reduce (fn [a b] (if (> a b) a b)) %)", "(vec %)", "(count %)", "(into () %)",
 		                     "(into [0] %)", "(into nil %)", "(into {} %)", "(reduce str %)", "(reduce str \"\" %)"]

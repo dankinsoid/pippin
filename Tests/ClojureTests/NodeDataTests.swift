@@ -58,7 +58,7 @@ extension CoreTests {
 	@Suite struct NodeDataTests {
 		init() {
 			clj_init()
-			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
+			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map", "set",
 			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope"] {
 				_ = Value(keyword: k)
 			}

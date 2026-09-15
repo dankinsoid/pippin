@@ -65,6 +65,7 @@ typedef void (*clj_visitor)(clj_value child, void *ctx);
 #define CLJ_CORE_META        0x8000 // IMeta: meta slot
 #define CLJ_CORE_OBJ         0x10000 // IObj: with_meta slot (implies IMeta)
 #define CLJ_CORE_REDUCE      0x20000 // IReduceInit: reduce slot (cons, (), string and lazy-seq have the slot without the bit)
+#define CLJ_CORE_SET         0x40000 // IPersistentSet (set? x); a set has lookup without ILookup, as RT.get special-cases it
 
 // Type descriptors are heap objects themselves: deftype creates them at runtime
 // and builtin types must be indistinguishable from user ones.

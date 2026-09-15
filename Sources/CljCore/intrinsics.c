@@ -47,6 +47,7 @@ static const clj_intrinsic table[] = {
 	I1("fn?", clj_fn_p, true),
 	I1("vector?", clj_vector_p, true),
 	I1("map?", clj_map_p, true),
+	I1("set?", clj_set_p, true),
 	I1("list?", clj_list_p, true),
 	I1("seq?", clj_seq_p, true),
 	I1("seqable?", clj_seqable_p, true),
@@ -70,6 +71,7 @@ static const clj_intrinsic table[] = {
 	C2("conj", clj_conj2, clj_conj, true),
 	C3("assoc", clj_assoc3, clj_assoc_owned, true),
 	C2("dissoc", clj_dissoc2, clj_dissoc_owned, true),
+	C2("disj", clj_disj2, clj_disj_owned, true),
 	C2("with-meta", clj_with_meta2, clj_with_meta, false),
 	I2("contains?", clj_contains_p, true),
 };

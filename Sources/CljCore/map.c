@@ -582,9 +582,9 @@ const clj_type clj_map_type = {
 };
 
 static bnode   empty_root = {.h = {1, CLJ_FLAG_IMMORTAL, &bnode_type}};
-static clj_map empty_map = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .root = (clj_value)&empty_root};
+clj_map clj_map_empty_object = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .root = (clj_value)&empty_root};
 
-clj_value clj_map_empty(void) { return clj_from_ptr(&empty_map); }
+clj_value clj_map_empty(void) { return clj_from_ptr(&clj_map_empty_object); }
 
 uint32_t clj_map_count(clj_value map) { return clj_map_of(map)->count; }
 

@@ -26,7 +26,7 @@ static const clj_fusion_var table[] = {
 	STAGE("map", 2),         STAGE("keep", 2),          STAGE("filter", 2),       STAGE("remove", 2),
 	STAGE("take", 2),        STAGE("drop", 2),          STAGE("take-while", 2),   STAGE("drop-while", 2),
 	STAGE("mapcat", 2),      STAGE("map-indexed", 2),   STAGE("keep-indexed", 2), STAGE("interpose", 2),
-	STAGE("dedupe", 1),
+	STAGE("dedupe", 1),      STAGE("distinct", 1),
 	OTHER("reduce", CLJ_FUSION_CONSUMER),      OTHER("into", CLJ_FUSION_CONSUMER),       OTHER("vec", CLJ_FUSION_CONSUMER),
 	OTHER("count", CLJ_FUSION_CONSUMER),       OTHER("fused-reduce*", CLJ_FUSION_DRIVER), OTHER("fused-into*", CLJ_FUSION_DRIVER),
 	OTHER("fused-count*", CLJ_FUSION_DRIVER),

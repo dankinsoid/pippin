@@ -44,6 +44,7 @@ clj_value clj_symbol_p(clj_value v);
 clj_value clj_fn_p(clj_value v);
 clj_value clj_vector_p(clj_value v);
 clj_value clj_map_p(clj_value v);
+clj_value clj_set_p(clj_value v);
 clj_value clj_list_p(clj_value v);
 clj_value clj_seq_p(clj_value v);
 clj_value clj_seqable_p(clj_value v);
@@ -63,12 +64,14 @@ clj_value clj_nth3(clj_value coll, clj_value index, clj_value not_found);
 clj_value clj_conj2(clj_value coll, clj_value x);
 clj_value clj_assoc3(clj_value coll, clj_value key, clj_value val);
 clj_value clj_dissoc2(clj_value coll, clj_value key);
+clj_value clj_disj2(clj_value coll, clj_value key);
 clj_value clj_with_meta2(clj_value v, clj_value m);
 clj_value clj_contains_p(clj_value coll, clj_value key);
-// The consuming forms of the four above: the collection at +1 (nil included), the rest borrowed; clj_conj and
+// The consuming forms of the five above: the collection at +1 (nil included), the rest borrowed; clj_conj and
 // clj_with_meta of coll.h are the other two. What a site that owns the collection calls instead.
 clj_value clj_assoc_owned(clj_value coll, clj_value key, clj_value val);
 clj_value clj_dissoc_owned(clj_value coll, clj_value key);
+clj_value clj_disj_owned(clj_value coll, clj_value key);
 
 // ---- the table
 

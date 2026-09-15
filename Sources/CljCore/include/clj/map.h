@@ -15,7 +15,8 @@ typedef struct {
 
 extern const clj_type clj_map_type;
 
-// Immortal singleton.
+// Immortal singleton; the object is named so another static initializer (the empty set) can point at it.
+extern clj_map clj_map_empty_object;
 clj_value clj_map_empty(void);
 uint32_t  clj_map_count(clj_value map);
 // Borrowed (+0): valid while map is.

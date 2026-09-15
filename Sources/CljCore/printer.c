@@ -180,7 +180,7 @@ static void put_symbol_text(buf *b, clj_value ns, clj_value name) {
 	put_bytes(b, clj_string_bytes(name), clj_string_len(name));
 }
 
-typedef enum { F_SEQ, F_VECTOR, F_MAP } frame_kind;
+typedef enum { F_SEQ, F_VECTOR, F_MAP, F_SET } frame_kind;
 
 typedef struct {
 	frame_kind   kind;
@@ -220,6 +220,12 @@ static bool collect_entry(clj_value key, clj_value val, void *ctx) {
 	collect_ctx *c = ctx;
 	c->entries[c->n++] = key;
 	c->entries[c->n++] = val;
+	return true;
+}
+
+static bool collect_item(clj_value item, void *ctx) {
+	collect_ctx *c = ctx;
+	c->entries[c->n++] = item;
 	return true;
 }
 
@@ -299,6 +305,15 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		collect_ctx c = {f->entries, 0};
 		clj_map_each(v, collect_entry, &c);
 		f->n = n;
+	} else if (clj_is_set(v)) {
+		put_cstr(b, "#{");
+		frame *f = push_frame(stack, F_SET);
+		size_t n = clj_set_count(v);
+		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
+		if (n && !f->entries) clj_fatal("out of memory");
+		collect_ctx c = {f->entries, 0};
+		clj_set_each(v, collect_item, &c);
+		f->n = n;
 	} else if (clj_is_type(v)) {
 		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);
 	} else if (clj_is_protocol(v)) {
@@ -347,6 +362,15 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 		put_char(b, '}');
 		free(f->entries);
 		break;
+	case F_SET:
+		if (f->i < f->n) {
+			if (f->i) put_char(b, ' ');
+			*out = f->entries[f->i++];
+			return true;
+		}
+		put_char(b, '}');
+		free(f->entries);
+		break;
 	}
 	stack->count--;
 	return false;
@@ -364,7 +388,7 @@ static clj_value print_to_string(clj_value root, bool readably) {
 		pending = next_child(&b, &stack, &v, &thrown);
 	}
 	for (size_t i = stack.count; i > 0; i--) {
-		if (stack.items[i - 1].kind == F_MAP) free(stack.items[i - 1].entries);
+		if (stack.items[i - 1].kind == F_MAP || stack.items[i - 1].kind == F_SET) free(stack.items[i - 1].entries);
 		if (stack.items[i - 1].kind == F_SEQ) clj_seq_iter_close(&stack.items[i - 1].it);
 	}
 	free(stack.items);

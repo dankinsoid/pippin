@@ -15,6 +15,7 @@
 #include "clj/map.h"
 #include "clj/printer.h"
 #include "clj/proto.h"
+#include "clj/set.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
@@ -730,6 +731,29 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+static clj_value eval_set(const clj_node *n, clj_frame *f) {
+	clj_value  small[SMALL_ARGS];
+	clj_value *items = buf_alloc(small, n->u.seq.n);
+	clj_value  result = CLJ_THROWN;
+	uint64_t   owned;
+	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned)) {
+		result = clj_set_empty();
+		for (uint32_t i = 0; i < n->u.seq.n; i++) {
+			if (clj_set_contains(result, items[i])) {
+				clj_value text = clj_pr_str(items[i]);
+				clj_release(result);
+				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
+				clj_release(text);
+				break;
+			}
+			result = clj_set_conj(result, items[i]);
+		}
+		release_owned(items, n->u.seq.n, owned);
+	}
+	buf_free(small, items);
+	return result;
+}
+
 // @ai-generated(guided)
 static clj_value eval_throw(const clj_node *n, clj_frame *f) {
 	clj_value v = eval_child(n->u.throw_, f);
@@ -793,6 +817,7 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_DEF: return eval_def;
 	case CLJ_NODE_VECTOR: return eval_vector;
 	case CLJ_NODE_MAP: return eval_map;
+	case CLJ_NODE_SET: return eval_set;
 	case CLJ_NODE_TRY: return eval_try;
 	case CLJ_NODE_THROW: return eval_throw;
 	case CLJ_NODE_INTRINSIC: return eval_intrinsic;

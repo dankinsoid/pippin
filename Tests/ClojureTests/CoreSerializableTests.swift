@@ -7,7 +7,7 @@ import Testing
 // A compiler reads the same trees: no core.clj macro may embed a constant that does not print and read back.
 extension CoreTests {
 	@Suite struct CoreSerializableTests {
-		private static let formCount = 80
+		private static let formCount = 88
 
 		private final class Tree {
 			let node: UnsafeMutablePointer<clj_node>
@@ -66,7 +66,7 @@ extension CoreTests {
 		}
 
 		private static func internKeywords() {
-			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map",
+			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map", "set",
 			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call"] {
 				_ = Value(keyword: k)
 			}

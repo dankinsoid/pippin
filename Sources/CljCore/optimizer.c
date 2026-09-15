@@ -627,7 +627,8 @@ static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use)
 		return live_seq(n->u.seq.items, last, out, c, LIVE_BORROWED);
 	}
 	case CLJ_NODE_VECTOR:
-	case CLJ_NODE_MAP: return live_args(NULL, n->u.seq.items, n->u.seq.n, 0, out, c);
+	case CLJ_NODE_MAP:
+	case CLJ_NODE_SET: return live_args(NULL, n->u.seq.items, n->u.seq.n, 0, out, c);
 	case CLJ_NODE_LET: return live_bindings(n, live(n->u.let.body, out, c, use), c);
 	case CLJ_NODE_LOOP: {
 		live_target t = {0, 0};

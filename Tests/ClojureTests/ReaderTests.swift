@@ -67,7 +67,6 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("1.2.3", 1, 1, "Invalid number: 1.2.3"),
 	("1a", 1, 1, "Invalid number: 1a"),
 	("1/a", 1, 1, "Invalid number: 1/a"),
-	("(1\n  #{2})", 2, 3, "Set literals are not supported yet"),
 	("#(+ 1 %)", 1, 1, "Anonymous function literals are not supported yet"),
 	("#\"re\"", 1, 1, "Regex literals are not supported yet"),
 	("#:a{:b 1}", 1, 1, "Namespaced map literals are not supported yet"),

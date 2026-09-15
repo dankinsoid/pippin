@@ -227,6 +227,7 @@ clj_value clj_odd_p(clj_value v) {
 static bool is_number(clj_value v) { return clj_is_fixnum(v) || clj_is_double(v); }
 static bool is_not(clj_value v) { return !clj_truthy(v); }
 static bool is_map_p(clj_value v) { return clj_has_core(v, CLJ_CORE_MAP); }
+static bool is_set_p(clj_value v) { return clj_has_core(v, CLJ_CORE_SET); }
 static bool is_vector_p(clj_value v) { return clj_has_core(v, CLJ_CORE_VECTOR); }
 static bool is_list_p(clj_value v) { return clj_has_core(v, CLJ_CORE_LIST); }
 static bool is_sequential(clj_value v) { return clj_has_core(v, CLJ_CORE_SEQUENTIAL); }
@@ -244,6 +245,7 @@ PREDICATE(clj_keyword_p, b_keyword, clj_is_keyword)
 PREDICATE(clj_symbol_p, b_symbol, clj_is_symbol)
 PREDICATE(clj_vector_p, b_vector_p, is_vector_p)
 PREDICATE(clj_map_p, b_map, is_map_p)
+PREDICATE(clj_set_p, b_set_p, is_set_p)
 PREDICATE(clj_list_p, b_list_p, is_list_p)
 PREDICATE(clj_fn_p, b_fn, clj_is_fn)
 PREDICATE(clj_seq_p, b_seq_p, clj_is_seq)
@@ -331,6 +333,7 @@ static clj_value b_dissoc(const clj_value *args, size_t n) {
 clj_value clj_contains_p(clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_FALSE;
 	if (clj_is_map(coll)) return clj_bool(clj_map_contains(coll, key));
+	if (clj_is_set(coll)) return clj_bool(clj_set_contains(coll, key));
 	if (clj_is_vector(coll)) return clj_bool(clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && (uintptr_t)clj_fixnum_val(key) < clj_vector_count(coll));
 	return clj_throw_msg("contains? not supported on type: %s", clj_type_name(coll));
 }
@@ -338,6 +341,60 @@ clj_value clj_contains_p(clj_value coll, clj_value key) {
 static clj_value b_contains(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_contains_p(args[0], args[1]);
+}
+
+static clj_value disj_type_error(clj_value coll) { return clj_throw_msg("disj not supported on this type: %s", clj_type_name(coll)); }
+
+clj_value clj_disj_owned(clj_value coll, clj_value key) {
+	if (clj_is_nil(coll)) return CLJ_NIL;
+	if (clj_is_set(coll)) return clj_set_disj(coll, key);
+	clj_value e = disj_type_error(coll);
+	clj_release(coll);
+	return e;
+}
+
+clj_value clj_disj2(clj_value coll, clj_value key) { return clj_disj_owned(clj_retain(coll), key); }
+
+static clj_value b_disj(const clj_value *args, size_t n) {
+	if (n == 1) return clj_is_nil(args[0]) || clj_is_set(args[0]) ? clj_retain(args[0]) : disj_type_error(args[0]);
+	clj_value coll = clj_disj2(args[0], args[1]);
+	for (size_t i = 2; i < n && coll != CLJ_THROWN; i++) coll = clj_disj_owned(coll, args[i]);
+	return coll;
+}
+
+static clj_value b_hash_set(const clj_value *args, size_t n) { return clj_set_from_array(args, n); }
+
+// (set coll): a set comes back without its meta, as Clojure's does; anything else is conj'd through its seq.
+static clj_value b_set(const clj_value *args, size_t n) {
+	(void)n;
+	if (clj_is_set(args[0])) return clj_with_meta(clj_retain(args[0]), CLJ_NIL);
+	clj_value s = clj_seq(args[0]);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_seq_iter it = clj_seq_iter_start(s);
+	clj_value    item, r = clj_set_empty();
+	while (clj_seq_iter_next(&it, &item)) r = clj_set_conj(r, item);
+	clj_release(s);
+	if (it.thrown) {
+		clj_release(r);
+		return CLJ_THROWN;
+	}
+	return r;
+}
+
+// (empty coll): the empty collection of coll's kind with coll's meta; nil for anything that is no collection.
+static clj_value b_empty_coll(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value coll = args[0], e;
+	if (clj_is_vector(coll)) e = clj_vector_empty();
+	else if (clj_is_map(coll)) e = clj_map_empty();
+	else if (clj_is_set(coll)) e = clj_set_empty();
+	else if (clj_has_core(coll, CLJ_CORE_COLL)) e = clj_list_empty();
+	else return CLJ_NIL;
+	clj_value m = clj_meta(coll);
+	if (clj_is_nil(m)) return e;
+	clj_value r = clj_with_meta(e, m);
+	clj_release(m);
+	return r;
 }
 
 static clj_value b_conj(const clj_value *args, size_t n) {
@@ -907,14 +964,15 @@ static const entry entries[] = {
 	{"not", b_not, 1, 1},          {"nil?", b_nil, 1, 1},        {"zero?", b_zero, 1, 1},       {"pos?", b_pos, 1, 1},
 	{"neg?", b_neg, 1, 1},         {"even?", b_even, 1, 1},      {"odd?", b_odd, 1, 1},         {"number?", b_number, 1, 1},
 	{"string?", b_string, 1, 1},   {"keyword?", b_keyword, 1, 1}, {"symbol?", b_symbol, 1, 1},  {"vector?", b_vector_p, 1, 1},
-	{"map?", b_map, 1, 1},         {"list?", b_list_p, 1, 1},    {"fn?", b_fn, 1, 1},           {"char?", b_char_p, 1, 1},
+	{"map?", b_map, 1, 1},         {"set?", b_set_p, 1, 1},      {"list?", b_list_p, 1, 1},    {"fn?", b_fn, 1, 1},           {"char?", b_char_p, 1, 1},
 	{"integer?", b_integer_p, 1, 1},
 	{"seq?", b_seq_p, 1, 1},       {"seqable?", b_seqable_p, 1, 1}, {"sequential?", b_sequential_p, 1, 1}, {"coll?", b_coll_p, 1, 1},
 	{"counted?", b_counted_p, 1, 1}, {"ifn?", b_ifn_p, 1, 1},    {"associative?", b_associative_p, 1, 1}, {"indexed?", b_indexed_p, 1, 1},
 	{"get", b_get, 2, 3},          {"assoc", b_assoc, 3, ANY},   {"dissoc", b_dissoc, 1, ANY},  {"contains?", b_contains, 2, 2},
 	{"count", b_count, 1, 1},      {"conj", b_conj, 0, ANY},     {"nth", b_nth, 2, 3},          {"first", b_first, 1, 1},
 	{"rest", b_rest, 1, 1},        {"next", b_next, 1, 1},       {"cons", b_cons, 2, 2},        {"list", b_list, 0, ANY},
-	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},
+	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
+	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", b_lazy_seq_star, 1, 1},
 	{"realized?", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},

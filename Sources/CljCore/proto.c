@@ -104,6 +104,7 @@ typedef struct {
 
 // Most specific first: the order a miss on the concrete type falls back through.
 static core_interface interfaces[] = {
+	IFACE("IPersistentSet", CLJ_CORE_SET),
 	IFACE("IPersistentMap", CLJ_CORE_MAP),
 	IFACE("IPersistentVector", CLJ_CORE_VECTOR),
 	IFACE("IPersistentList", CLJ_CORE_LIST),
@@ -1070,7 +1071,7 @@ void clj_proto_install(void) {
 	} types[] = {
 		{"Object", &object_type},          {"Long", &fixnum_type},         {"Integer", &fixnum_type},        {"Double", &clj_double_type},
 		{"Boolean", &boolean_type},        {"Character", &char_type},      {"String", &clj_string_type},     {"Keyword", &clj_keyword_type},
-		{"Symbol", &clj_symbol_type},      {"PersistentVector", &clj_vector_type}, {"PersistentHashMap", &clj_map_type},
+		{"Symbol", &clj_symbol_type},      {"PersistentVector", &clj_vector_type}, {"PersistentHashMap", &clj_map_type}, {"PersistentHashSet", &clj_set_type},
 		{"PersistentList", &clj_cons_type}, {"Cons", &clj_cons_type},      {"EmptyList", &clj_empty_list_type}, {"LazySeq", &clj_lazy_seq_type},
 		{"Range", &clj_range_type},        {"Fn", &clj_fn_type},           {"Var", &clj_var_type},           {"Namespace", &clj_ns_type},
 		{"ExceptionInfo", &clj_exception_type}, {"HostError", &clj_host_error_type}, {"Protocol", &clj_protocol_type}, {"Type", &clj_type_type},
