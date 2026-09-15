@@ -222,3 +222,60 @@ second entry in the scan: 60 → 50.
 The pipeline row moves only 4 %: of its three closure calls per element only `map`'s recursion takes
 the direct path (`(f (first s))` and `(f acc x)` call the natives `inc` and `+` through the generic
 invoke, the `lazy-seq` thunk is forced from a native), and none is a protocol call.
+
+## IReduce, transducers — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+`reduce` is a native over a `reduce` slot on the descriptor (vector, vector-seq and range walk their
+storage with no seq objects; cons, lazy-seq and string go through `clj_seq_iter`), calls its fn
+through a `clj_call` prepared once (a closure's arity resolved, its body entered without
+`clj_invoke`), and stops at `reduced`; `map`/`filter`/... carry transducer arities, `transduce`,
+`into` with an xform, `sequence` and `eduction` drive them (NOTES.md, "`reduce` is a `reduce` slot"
+and "Transducers"). Four new rows next to the lazy pipeline; the "before" of the two transducer rows is
+the lazy pipeline computing the same thing (`(reduce + (map inc (range n)))`, `(count (into []
+(map inc (range n))))`) on the base binary, since the forms did not exist there. Medians of three
+alternating runs of each binary (7e66f30 with this harness vs this commit), ns per element; the
+map, vector and call tables matched within their noise.
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| reduce + map inc range | 1000 | 183.6 | 155.2 | −15 % |
+| reduce + map inc range | 100000 | 180.5 | 158.7 | −12 % |
+| transduce (map inc) + range | 1000 | 181.4 | 30.0 | −83 % |
+| transduce (map inc) + range | 100000 | 179.8 | 28.9 | −84 % |
+| reduce + range | 1000 | 35.9 | 7.0 | −81 % |
+| reduce + range | 100000 | 35.9 | 6.5 | −82 % |
+| reduce + vector | 1000 | 37.5 | 6.6 | −82 % |
+| reduce + vector | 100000 | 38.8 | 7.2 | −81 % |
+| into [] (map inc) range | 1000 | 159.5 | 96.1 | −40 % |
+| into [] (map inc) range | 100000 | 163.4 | 97.7 | −40 % |
+| seq walk of a vector | 1000 | 37.7 | 37.2 | −1 % |
+
+- **`reduce +` over a range or a vector, 36 → 7 ns.** The `loop*`/`first`/`next` walk with its
+  vector-seq (or range) allocation per step is gone; what remains per element is the slot's loop
+  (a trie leaf lookup or an add), the native call of `+` (`b_add` → `arith_fold` → `clj_add`, ~3 ns)
+  and the reducer's release of the old accumulator and `reduced` check. The C iterator over the same
+  vector (`clj_seq_iter`, no call) is 4–5 ns, so the fn call is about half of the 7.
+- **`transduce (map inc) + range`, 29 ns**, against 181 for the lazy pipeline computing the same sum:
+  the range step and the reducer bookkeeping (~3 ns), the entry into the transducer's `[result input]`
+  arity through the prepared `clj_call` (~7: `closure_run` fills a 16-slot frame, the stack guard,
+  the shadow frame), then its body `(rf result (f input))` — two calls of natives held in captured
+  slots (`f` = `inc`, `rf` = `+`) through the generic `eval_invoke` path at ~8–9 ns each, since the
+  intrinsic rewrite only applies to a core var at the head, not a local. Those two calls are the next
+  target (design §6b item 6's optimizer pass, or an intrinsic-by-value guard on captured natives).
+- **`clj_call` against `clj_invoke` per element** (a scratch build whose `clj_call_prepare` resolves
+  nothing, three alternating runs): transduce 30.0 → 33.2 (1k) and 28.9 → 33.4 (100k), so the
+  direct closure entry saves ~3–4 ns of the ~10 a `clj_invoke` → `fn_invoke` → `clj_closure_invoke`
+  → `arity_for` → `closure_run` chain costs; on the native path (`reduce + range`, 7.0 → 7.2 and
+  6.5 → 6.9) the saving is the fn-kind switch and the arity check, ~0.3 ns. Kept for the closure path.
+- **`into [] (map inc) range`, 160 → 97 ns.** The transduce part is ~29; the other ~65 is `conj`
+  called as the reducing fn: `b_conj` retains the accumulator before `clj_vector_conj` (the +0
+  argument convention: the reducer still holds it), so the vector is shared at every step and each
+  conj copies the tail node (up to 32 slots) and the wrapper, then the old version is freed. A
+  transient, or a reduce that transfers ownership of the accumulator to the rf, is what removes it
+  (NOTES.md, "`into` is C in both arities").
+- **`reduce + map inc range`, 182 → 156 ns.** Only the consumer changed: the `loop*` body (a closure
+  call, `first`/`next`, the rebind) became the iterator walk with one native call of `+`. The lazy
+  `map` stays: the thunk call, `seq`/`first`/`rest`, `(f (first s))` through the generic invoke, and
+  the cons, lazy-seq and thunk-closure allocations per element — the reason `transduce` is 5× faster
+  on the same work.
+

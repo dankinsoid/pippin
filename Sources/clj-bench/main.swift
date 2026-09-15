@@ -276,6 +276,23 @@ func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
 // (reduce + (map inc (range n))): a lazy pipeline realized one element at a time.
 func cReduceMapRange(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
 
+// (transduce (map inc) + (range n)), (reduce + (range n)), (reduce + v), (into [] (map inc) (range n)): the
+// range and the vector through their reduce slots, no seq objects.
+func cReduceFn(_ f: clj_value, _ arg: clj_value) -> UInt64 { cljCall(f, arg) }
+
+func aReduceRange(_ a: [Int]) -> UInt64 {
+	var sum = 0
+	for x in a { sum &+= x }
+	return UInt64(sum)
+}
+
+func aIntoMapRange(_ a: [Int]) -> UInt64 {
+	var out: [Int] = []
+	out.reserveCapacity(0)
+	for x in a { out.append(x + 1) }
+	return UInt64(out.count)
+}
+
 // Over a materialized array: a range loop folds to a closed form under -O.
 func aReduceMapRange(_ a: [Int]) -> UInt64 {
 	var sum = 0
@@ -399,6 +416,10 @@ print("\nns per op; Array is mutable and in place, the persistent column copies 
 
 clj_init()
 let sumFn = cljEval("(fn [n] (reduce + (map inc (range n))))")
+let transduceFn = cljEval("(fn [n] (transduce (map inc) + (range n)))")
+let reduceRangeFn = cljEval("(fn [n] (reduce + (range n)))")
+let reduceVecFn = cljEval("(fn [v] (reduce + v))")
+let intoFn = cljEval("(fn [n] (count (into [] (map inc) (range n))))")
 let walkFn = cljEval("(fn [v] (loop [s (seq v) acc 0] (if s (recur (next s) (+ acc (first s))) acc)))")
 
 struct SeqRow {
@@ -416,6 +437,24 @@ for n in [1_000, 100_000] {
 		c: measure(ops: n) { cReduceMapRange(sumFn, n) },
 		iterator: nil,
 		swift: measure(ops: n) { aReduceMapRange(a) }))
+	seqRows.append(SeqRow(scenario: "transduce (map inc) + range", n: n,
+		c: measure(ops: n) { cReduceFn(transduceFn, clj_fixnum(n)) },
+		iterator: nil,
+		swift: measure(ops: n) { aReduceMapRange(a) }))
+	seqRows.append(SeqRow(scenario: "reduce + range", n: n,
+		c: measure(ops: n) { cReduceFn(reduceRangeFn, clj_fixnum(n)) },
+		iterator: nil,
+		swift: measure(ops: n) { aReduceRange(a) }))
+	let v = cVecBuild(n)
+	seqRows.append(SeqRow(scenario: "reduce + vector", n: n,
+		c: measure(ops: n) { cReduceFn(reduceVecFn, v) },
+		iterator: measure(ops: n) { cSeqWalkIterator(v) },
+		swift: measure(ops: n) { aReduceRange(a) }))
+	clj_release(v)
+	seqRows.append(SeqRow(scenario: "into [] (map inc) range", n: n,
+		c: measure(ops: n) { cReduceFn(intoFn, clj_fixnum(n)) },
+		iterator: nil,
+		swift: measure(ops: n) { aIntoMapRange(a) }))
 }
 do {
 	let n = 1_000
@@ -428,6 +467,10 @@ do {
 	clj_release(v)
 }
 clj_release(sumFn)
+clj_release(transduceFn)
+clj_release(reduceRangeFn)
+clj_release(reduceVecFn)
+clj_release(intoFn)
 clj_release(walkFn)
 
 // (loop [i 0] (if (< i n) (recur (inc i)) i)): one rebind, a comparison and an increment per iteration.
