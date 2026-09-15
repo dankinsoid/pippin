@@ -415,7 +415,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   value released through the epoch. An ordinary object with an ordinary release there is the concurrent
   `def`/`deref` race again. INTRINSIC keeps a retained (immortal) var and reads the root at evaluation;
   the protocol cache (type descriptor entry above) is the third kind: borrowed impls that only an epoch
-  bump retires, a seqlock around the fill. Trigger: the transducer-composition cache (design §6b, "Интерпретатор до компилятора", item 6).
+  bump retires, a seqlock around the fill. The fusion pass (below) keeps nothing in a side cell: its
+  per-form work measured too small to cache. Trigger: the var inline cache of the design.
 - **Var lookup is a root load on every evaluation** of a var node (an acquire load; an intrinsic's guard
   is a relaxed one), no inline cache, and no closure cache either: a closure's fn node carries its arity
   table, so the call path reads `fixed[nargs]` off the live closure — one load — where a cache keyed on
@@ -471,8 +472,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **The optimizer pass** (optimizer.c, `clj_optimize`) runs inside `clj_analyze` after analysis and before
   numbering: it is where "immutable after analysis" begins, so what it produces is what serializes and
   what every evaluator and emitter sees; `clj_node_from_data` does not run it (its input is already
-  optimized). One rewrite so far: `INVOKE(VAR core-var, args...)` becomes `INTRINSIC {op, var, args}`
-  when the head resolved to the var an intrinsics entry names and the arity is listed. Keyed by the
+  optimized). Two rewrites: `INVOKE(VAR core-var, args...)` becomes `INTRINSIC {op, var, args}`
+  when the head resolved to the var an intrinsics entry names and the arity is listed, and a consumer
+  over a nest of lazy stages becomes a FUSED node (the fusion entry below). Both are keyed by the
   var, so a local `(let [+ -] ...)`, a user namespace's own `+` or `(apply + ...)` are untouched; a
   `(clojure.core/+ a b)` anywhere is rewritten. Not yet: folding of pure intrinsics on constant
   arguments (the `pure` flag is set, nothing reads it), any rewrite that needs liveness.
@@ -494,6 +496,42 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
   guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
   call — no frame, no arity table, no var deref.
+- **The fusion pass** (optimizer.c, fusion.c, `CLJ_NODE_FUSED`; bench/RESULTS.md, "Fusion"): `(reduce
+  f [init] P)`, `(into to P)`, `(vec P)` and `(count P)`, where `P` is a nest of `map keep filter
+  remove take drop take-while drop-while mapcat map-indexed keep-indexed interpose dedupe` calls — each
+  at its lazy arity, `map`/`mapcat` with one coll, every head resolved to the `clojure.core` var — over
+  any source, become one FUSED node: the argument expressions (the consumer's, then each stage's own
+  from the consumer outwards, then the source) evaluated once in the original order into a frame of
+  their own, a guard, and two programs over those locals — the fused one calls a driver native with
+  the stages' transducer arities in a vector literal (`(fused-reduce* f coll [(map g) (filter p)])`,
+  `fused-into*`, `fused-count*`; `vec` is `fused-into*` onto `[]`), the original one is the consumer
+  call as written. Serialized as `[:fused [vars] [args] fused original]`; the two programs' slots are
+  bounds-checked against the args, not the enclosing frame. The guard: every core var the two programs
+  name (consumer, stages, driver) still holds the root it had when core.clj finished loading, recorded
+  by `clj_fusion_install` in a static table the node points into, as an INTRINSIC points into the
+  intrinsics table — relaxed loads, no exec-side state, no epoch, and nothing to recompute for an exec
+  built after a rebind; `(def map ...)` in clojure.core or a host bind sends the site down the original
+  program, binding the boot root back fuses it again. The drivers keep the accumulator in C and hand
+  the transducers `nil` as `result`, so the seq rules of `reduce` hold exactly: a 2-arity seeds with
+  the first *output* and answers `(f)` when there is none (an `eduction` would seed with `(f)` and
+  break `(reduce (fn [a x] ...) (map ...))`), a reduced init or first element is data, only `f`'s own
+  reduced result stops the walk (a `(reduced nil)` the stack passes up); `fused-into*` conj's an
+  accumulator only it holds, so a vector grows in place. Deviations from the lazy form, both in
+  `FusionTests`: the driver seqs the source up front, so `(reduce + (take 0 5))` throws where the lazy
+  `take` never touched the `5`; and `partition-all` is not a stage, because its transducer emits
+  vectors where the lazy arity emits seqs and `conj` on a 2-arity seed tells them apart (trigger: a
+  `(map seq)` tail behind it once `counted?` and the type name in error messages may differ). Not
+  fused: a multi-coll `map`/`mapcat`, a head that is a local or another namespace's var, a pipeline
+  consumed by anything else (`first`, `seq`, `doall`, a value position), a consumer whose coll is not
+  a stage call; a pipeline as the source of another is fused on its own. core.clj itself is analyzed
+  before the table exists, so nothing inside it is fused (the validator re-analyzes it after boot and
+  sees FUSED nodes; they round-trip). No composition cache: the transducer stack is rebuilt per
+  evaluation and the whole per-form cost is ~0.3 µs at n = 10, of which building `(map g)` is ~15 ns —
+  the `(xf rf)` application must be fresh per run anyway (stateful transducers) — so the design's
+  exec-cell cache (CAS fill, immortal winner) has nothing worth its guard. Triggers: a profile with
+  fused forms in a hot loop over tiny collections (the per-form cost); consumers `some`/`every?`/
+  `run!`/`doseq` (a reduce with early exit); the barriers `sort`/`group-by` (cut a pipeline today);
+  multi-coll `map` (a multi-source driver); `partition-all` (above).
 - **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
   the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
   callee's frame; the generic path adds `closure_run` with its own 16 slots): on the order of 0.6 KB
@@ -520,7 +558,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
   resolve deref identical? type instance? satisfies? extends? meta with-meta alter-meta!
   reset-meta! reduce reduce-kv reduced reduced? unreduced ensure-reduced volatile! volatile?
-  vreset!` (`deref` takes vars, reduced boxes and volatiles: no atoms; `alter-meta!`/`reset-meta!`
+  vreset! fused-reduce* fused-into* fused-count*` (`deref` takes vars, reduced boxes and volatiles: no atoms; `alter-meta!`/`reset-meta!`
   take vars only), the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative?
   indexed? list? vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str
   pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data
