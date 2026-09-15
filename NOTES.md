@@ -110,11 +110,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   shadow a field with a param, as in Clojure; fields a body names are bound at the top of that body
   (one `field*` call each), whether or not the reference is under a `quote`.
 - **Builtin type names are vars in clojure.core** (`String`, `Long`/`Integer`, `Double`, `Boolean`,
-  `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentList`/`Cons`,
+  `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentHashSet`, `PersistentList`/`Cons`,
   `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,
   `Protocol`, `Type`, `Reduced`, `Volatile`, `Object`; the core interfaces `Seqable ISeq Sequential
   IPersistentCollection Counted ILookup Associative Indexed IFn IHashEq IEquiv IMeta IObj
-  IReduceInit IPersistentList IPersistentVector IPersistentMap IExceptionInfo`) holding descriptors; `(type x)` reaches every
+  IReduceInit IPersistentList IPersistentVector IPersistentMap IPersistentSet IExceptionInfo`) holding descriptors; `(type x)` reaches every
   other one and `nil` is the literal.
   A user `(def String ...)` shadows the name. `Number` does not exist: fixnum and double are two
   descriptors, extend both.
@@ -135,7 +135,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `reduced`: a reduced init or first element reaches `f` as an ordinary value and comes back as is
   over an empty coll, as on the JVM. Slots: vector and vector-seq (leaf by leaf), range (arithmetic),
   map (`[k v]` vectors built per entry, and `reduce-kv` on the trie in place; `reduce-kv` on a
-  vector passes the index), `()`, and cons / lazy-seq / string / string-seq through
+  vector passes the index), set (elements in trie order), `()`, and cons / lazy-seq / string / string-seq through
   `clj_reduce_iter`, which is `clj_seq_iter` closed on the early stop. The `CLJ_CORE_REDUCE` bit
   (`satisfies? IReduceInit`) sits on vector, vector-seq, range, map and user types; cons, `()`,
   string and lazy-seq have the slot without the bit, as string has `lookup` without `ILookup`.
@@ -226,6 +226,19 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   identity. Trigger: a second map representation (shapes) behind the same functions; then replace both
   uses with accessors like `clj_debug_vector_root`.
 
+## Set (Sources/CljCore/set.c)
+
+- **A set is a wrapper over a map** (`clj_set.impl`, element → element), as Clojure's PersistentHashSet
+  over PersistentHashMap: two objects per set, 16 bytes per element in the trie for a value nobody
+  reads. `conj`/`disj` hand the wrapper's own trie reference to `clj_map_assoc`/`dissoc`, so a unique
+  set edits its trie in place (the consuming `disj` intrinsic and the reduce drivers reach it as they
+  reach `conj`); a present element is kept as it is (`(conj #{[1]} [1])` returns the same set). `seq`
+  is an eager list of the elements, printing collects them into an array, `get` returns the stored
+  element. Triggers: the ≤8-element linear-array set of the design ("Представление по наблюдению";
+  the same trigger as the array map: small literal sets in a profile); a set-shaped trie without the
+  value slots (memory of big sets); `sorted-set` (a user); `clojure.set` as a namespace (the `ns`
+  form, see core.clj).
+
 ## Vector (Sources/CljCore/vector.c)
 
 - **`clj_vector_from_array` is a conj loop**: the leaf grows through `clj_realloc` one slot at a time,
@@ -250,7 +263,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Reader (Sources/CljCore/reader.c)
 
-- **Not supported, reported as errors**: sets `#{}`, `#(`, regex, namespaced maps `#:`, reader
+- **Not supported, reported as errors**: `#(`, regex, namespaced maps `#:`, reader
   conditionals, tagged literals, `::kw` (needs the current ns), bigint/BigDecimal/ratio/hex/
   radix/octal numbers. Each is a `switch` arm in `read_dispatch`/`parse_number` to replace when the
   feature lands.
@@ -545,10 +558,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Intrinsics table** (intrinsics.h/.c): `{qualified name, arity, kind INTRINSIC_1/2/3, C function, pure,
   consume}` for `+ - * /` (2 args), `inc dec`, `< <= > >= = not= identical?` (2 args), `not nil? zero? pos?
   neg? even? odd?`, the type predicates, `empty? first rest next seq count`, `cons get(2,3) nth(2,3) conj(2)
-  assoc(3) dissoc(2) with-meta(2) contains?`; a side table resolved at boot holds each entry's var and
+  assoc(3) dissoc(2) disj(2) with-meta(2) contains? set?`; a side table resolved at boot holds each entry's var and
   native fn. The rule, kept by structure: the builtin bound to the same var calls the same function —
-  single-arity builtins forward, variadic ones fold (`b_add` is a loop over `clj_add`), and the four that
-  consume their collection at the core (`conj`, `assoc`, `dissoc`, `with-meta`) list that core as their
+  single-arity builtins forward, variadic ones fold (`b_add` is a loop over `clj_add`), and the five that
+  consume their collection at the core (`conj`, `assoc`, `dissoc`, `disj`, `with-meta`) list that core as their
   `consume` form, the table function being the same call after one retain. Consequences: `(+ a b c)` boxes a double at every step where the
   old accumulator did not, and a fixnum fold that overflows mid-way throws where the old one could
   recover (`(+ MAX MAX (- MAX))`); Clojure promotes both. `IntrinsicsTests` crosses every entry with
@@ -589,7 +602,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   see nothing there; a slot the frame only borrows (a fixed param, the self slot) reads as before. A
   consuming intrinsic whose collection the site owns — a last-use local, or a nested result such as the
   inner `(conj (conj v 1) 2)` — calls the entry's `consume` form and drops the bit from the mask, so
-  `clj_conj`/`clj_assoc_owned`/`clj_dissoc_owned`/`clj_with_meta` see rc 1 and update in place (this is
+  `clj_conj`/`clj_assoc_owned`/`clj_dissoc_owned`/`clj_disj_owned`/`clj_with_meta` see rc 1 and update in place (this is
   the first in-place store reachable from interpreted code: the RC entry's unchecked "children of a shared
   object are shared" trigger has fired). Liveness is backward over the evaluation order of one frame (the
   top level, each fn arity, each direct fn arity), on bitsets of the first 64 slots (a higher slot is
@@ -630,11 +643,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `to` of a fused `(into to P)` (the driver retains it once: one copy per form, then in place); a
   captured or var-held value, by rc. Triggers: a profile with a collection built through a helper fn per
   element (mark call arguments, ~2 ns per call); `transduce` with a user rf over a collection (the same
-  +0 rule); sets (`disj` joins the consuming four); a frame past 64 slots growing a collection (the
-  bitset).
+  +0 rule); a frame past 64 slots growing a collection (the bitset).
 - **The fusion pass** (optimizer.c, fusion.c, `CLJ_NODE_FUSED`; bench/RESULTS.md, "Fusion"): `(reduce
   f [init] P)`, `(into to P)`, `(vec P)` and `(count P)`, where `P` is a nest of `map keep filter
-  remove take drop take-while drop-while mapcat map-indexed keep-indexed interpose dedupe` calls — each
+  remove take drop take-while drop-while mapcat map-indexed keep-indexed interpose dedupe distinct` calls — each
   at its lazy arity, `map`/`mapcat` with one coll, every head resolved to the `clojure.core` var — over
   any source, become one FUSED node: the argument expressions (the consumer's, then each stage's own
   from the consumer outwards, then the source) evaluated once in the original order into a frame of
@@ -690,8 +702,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 ## Builtins (Sources/CljCore/builtins.c)
 
 - **Coverage is the minimum for the evaluator tests and core.clj**: arithmetic and comparison, type
-  predicates, `get assoc dissoc contains? count conj nth first rest next cons list list* vector
-  hash-map seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
+  predicates, `get assoc dissoc disj contains? count conj nth first rest next cons list list* vector
+  hash-map hash-set set empty seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
   resolve deref identical? type instance? satisfies? extends? meta with-meta alter-meta!
   reset-meta! reduce reduce-kv reduced reduced? unreduced ensure-reduced volatile! volatile?
   vreset! fused-reduce* fused-into* fused-count*` (`deref` takes vars, reduced boxes and volatiles: no atoms; `alter-meta!`/`reset-meta!`
@@ -736,14 +748,15 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   library `complement comp partial constantly completing transduce cat nthrest some every?
   not-any? not-every? map filter remove keep take drop take-while drop-while iterate repeat range
   interleave interpose mapcat dorun doall vec partition partition-all map-indexed keep-indexed
-  sequence dedupe zipmap eduction` (`reduce` and `into` are C), plus the private helpers
+  sequence dedupe distinct group-by frequencies zipmap eduction` (`reduce` and `into` are C), the
+  `clojure.set` basics `union intersection difference subset? superset?` (in `clojure.core`, since no
+  other namespace exists yet: trigger for moving them is the `ns` form; `index`/`rename-keys`/`select`/
+  `project`/`join` wait for a user), plus the private helpers
   `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`, `preserving-reduced`
   (`destructure` is public, as in Clojure). Not yet: `doto`, `condp`, `case`, `while`, `letfn`,
-  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`, `sort`, `group-by`, `frequencies`,
-  `distinct` (needs sets; trigger: the reader's `#{}` or `hash-set` landing, then `distinct` is the
-  `dedupe` shape over a set in a volatile).
+  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`, `sort-by`, `partition-by`.
 - **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
-  partition-all dedupe map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
+  partition-all dedupe distinct map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
   `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
   seq that pulls one input per realization into the transformed rf, whose bottom parks outputs in
   a volatile vector, so an infinite source stays lazy; each realization costs a vector copy per
@@ -752,8 +765,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   not a C type: the slot trampoline already existed, so the type is four lines, and it prints as
   `#object[clojure.core.Eduction]` where Clojure prints the items. `vswap!` is a macro over
   `vreset!`/`deref`, as Clojure's. A transducer's stateful step (`partition-all`'s buffer) copies
-  its vector per input for the same rc-2 reason. No `halt-when`, `random-sample`, `distinct`
-  (sets), `partition-by`; trigger: first use.
+  its vector per input for the same rc-2 reason, and `distinct`'s seen-set is conj'd at rc 2 the same
+  way (a path copy per new element). No `halt-when`, `random-sample`, `partition-by`; trigger: first use.
 - **`defn` follows clojure.core's** `name docstring? attr-map? ([params] body)+ attr-map?` but has no
   `:inline`/`:tag` handling and no `:pre`/`:post` map in `sigs` (a map after the params is a body
   form, see `fn` below). `doc` handles vars only: no special forms, no namespaces.
