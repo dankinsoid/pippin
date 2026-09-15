@@ -181,6 +181,18 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **`nth` special-cases strings by type** rather than a slot: a string has `lookup`/`count` slots
   but no ILookup/Indexed bits, as `RT.get`/`RT.nth` special-case `String`.
 
+## Locks (include/clj/lock.h)
+
+- **Every mutex of the core is a `clj_lock`**: `os_unfair_lock` under `__APPLE__`, `pthread_mutex_t`
+  elsewhere, one interface (`clj_lock_init/lock/unlock/destroy`, `CLJ_LOCK_INIT`), the one `#ifdef` of its
+  kind (measured on an M3 Pro, a lock+unlock pair: 2.1 vs 4.6 ns, 4 vs 64 bytes; unfair passes priority to
+  the owner under contention). Holders: the keyword table, the namespace registry, the protocol tables and
+  the reify registry (proto.c), the profiler table, and every atom. Not recursive, so a path that reaches
+  the same lock twice deadlocks (an atom's `swap!` from inside its own `f` is detected before the lock,
+  see "Atoms" under Builtins). No rwlock anywhere, by design §4: a read lock is an RMW on the shared
+  count, so readers contend like writers; reads in the core go through immutability and the epoch instead.
+  Trigger for `os_unfair_lock_trylock`/a fair variant: a profile showing a starved thread on one lock.
+
 ## RC (Sources/CljCore/rc.c, object.h)
 
 - **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow

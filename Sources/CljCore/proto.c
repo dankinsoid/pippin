@@ -1,5 +1,4 @@
 // @ai-generated(guided)
-#include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +11,7 @@
 #include "clj/fn.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
+#include "clj/lock.h"
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/number.h"
@@ -48,7 +48,7 @@ typedef struct {
 } side_table;
 
 // One writer at a time; readers never take it.
-static pthread_mutex_t       lock = PTHREAD_MUTEX_INITIALIZER;
+static clj_lock       lock = CLJ_LOCK_INIT;
 static _Atomic(side_table *) side;
 static _Atomic uint32_t      next_proto_id;
 
@@ -61,10 +61,10 @@ clj_proto_reader *clj_proto_reader_init(void) {
 	reader *r = malloc(sizeof *r);
 	if (!r) clj_fatal("out of memory");
 	atomic_init(&r->active, 0);
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	r->next = readers;
 	readers = r;
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	clj_proto_reader_tls = r;
 	return r;
 }
@@ -467,7 +467,7 @@ clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map
 	clj_share(fns);
 	clj_share(proto);
 
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	bool         immortal = (t->h.flags & CLJ_FLAG_IMMORTAL) != 0;
 	side_table  *old_side = immortal ? atomic_load_explicit(&side, memory_order_relaxed) : NULL;
 	proto_table *old = immortal ? side_find(old_side, t) : __atomic_load_n((void *const *)&t->user_protos, __ATOMIC_RELAXED);
@@ -476,7 +476,7 @@ clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map
 	else __atomic_store_n(&((clj_type *)t)->user_protos, fresh, __ATOMIC_SEQ_CST);
 	clj_epoch_bump();
 	wait_readers();
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 
 	table_free(old);
 	free(old_side);
@@ -932,7 +932,7 @@ static clj_value trampoline_invoke(void *ctx, const clj_value *args, size_t n) {
 
 // ---- reify types: one per expansion site for the life of the process, keyed by the site's gensym'd name
 
-static pthread_mutex_t reify_lock = PTHREAD_MUTEX_INITIALIZER;
+static clj_lock reify_lock = CLJ_LOCK_INIT;
 static clj_value       reify_types; // map symbol -> type; nil until the first site
 
 typedef struct {
@@ -986,19 +986,19 @@ static clj_value reify_type_new(clj_value name, clj_value fields, const clj_valu
 static clj_value reify_type(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
 	if (!is_unqualified_symbol(name)) return clj_throw_msg("reify-type* expects a symbol, got: %s", clj_type_name(name));
 	if (!clj_is_vector(fields)) return clj_throw_msg("reify-type* expects a field vector, got: %s", clj_type_name(fields));
-	pthread_mutex_lock(&reify_lock);
+	clj_lock_lock(&reify_lock);
 	clj_value type = clj_is_nil(reify_types) ? CLJ_NIL : clj_map_get(reify_types, name, CLJ_NIL);
 	if (!clj_is_nil(type)) {
 		// Gensym names are unique per process; a tree loaded from elsewhere may reuse one for another site.
 		if (((clj_user_type *)clj_to_ptr(type))->nfields != clj_vector_count(fields)) {
-			pthread_mutex_unlock(&reify_lock);
+			clj_lock_unlock(&reify_lock);
 			return clj_throw_msg("reify type %s already exists with a different shape", clj_string_bytes(clj_symbol_name(name)));
 		}
 		clj_retain(type);
 	} else if ((type = reify_type_new(name, fields, impls, nimpls)) != CLJ_THROWN) {
 		reify_types = clj_map_assoc(clj_is_nil(reify_types) ? clj_map_empty() : reify_types, name, type);
 	}
-	pthread_mutex_unlock(&reify_lock);
+	clj_lock_unlock(&reify_lock);
 	return type;
 }
 

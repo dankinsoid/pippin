@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "clj/keyword.h"
+#include "clj/lock.h"
 #include "clj/map.h"
 #include "clj/vector.h"
 #include "profile_internal.h"
@@ -53,7 +54,7 @@ typedef struct {
 	uint64_t        calls, ns;
 } profile_entry;
 
-static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+static clj_lock lock = CLJ_LOCK_INIT;
 static profile_entry  *table;
 static size_t          cap, used;
 
@@ -87,13 +88,13 @@ static profile_entry *entry_for(const clj_node *node) {
 }
 
 void clj_profile_record(const clj_node *fn_node, uint64_t ns) {
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	if (clj_profile_running()) {
 		profile_entry *e = entry_for(fn_node);
 		e->calls++;
 		e->ns += ns;
 	}
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 }
 
 static void clear(void) {
@@ -106,10 +107,10 @@ static void clear(void) {
 }
 
 void clj_profile_start(void) {
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	clear();
 	set_instrument(CLJ_INSTRUMENT_PROFILE, true);
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 }
 
 bool clj_profile_running(void) { return (clj_instrument & CLJ_INSTRUMENT_PROFILE) != 0; }
@@ -133,7 +134,7 @@ static void intern_keywords(void) {
 
 clj_value clj_profile_stop(void) {
 	pthread_once(&keywords_once, intern_keywords);
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	set_instrument(CLJ_INSTRUMENT_PROFILE, false);
 	profile_entry *entries = calloc(used ? used : 1, sizeof *entries);
 	if (!entries) clj_fatal("out of memory");
@@ -155,7 +156,7 @@ clj_value clj_profile_stop(void) {
 	}
 	free(entries);
 	clear();
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	clj_value data = clj_map_assoc(clj_map_empty(), kw_fns, fns);
 	clj_release(fns);
 	return data;

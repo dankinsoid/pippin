@@ -1,13 +1,12 @@
 // @ai-generated(solo)
-#include <pthread.h>
-
 #include "clj/coll.h"
 #include "clj/fn.h"
 #include "clj/keyword.h"
+#include "clj/lock.h"
 #include "clj/map.h"
 
-static pthread_mutex_t table_lock = PTHREAD_MUTEX_INITIALIZER;
-static clj_value       table; // symbol -> keyword; nil until the first intern
+static clj_lock  table_lock = CLJ_LOCK_INIT;
+static clj_value table; // symbol -> keyword; nil until the first intern
 
 static void keyword_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(((clj_keyword *)self)->sym, ctx);
@@ -39,7 +38,7 @@ const clj_type clj_keyword_type = {
 
 // Consumes sym: a new keyword takes it over, an existing one drops it.
 static clj_value intern(clj_value sym) {
-	pthread_mutex_lock(&table_lock);
+	clj_lock_lock(&table_lock);
 	if (clj_is_nil(table)) table = clj_map_empty();
 	clj_value kw = clj_map_get(table, sym, CLJ_NIL);
 	if (clj_is_nil(kw)) {
@@ -52,7 +51,7 @@ static clj_value intern(clj_value sym) {
 	} else {
 		clj_release(sym);
 	}
-	pthread_mutex_unlock(&table_lock);
+	clj_lock_unlock(&table_lock);
 	return kw;
 }
 

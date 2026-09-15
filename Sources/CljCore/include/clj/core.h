@@ -12,6 +12,7 @@
 #include "fn.h"      // IWYU pragma: export
 #include "intrinsics.h" // IWYU pragma: export
 #include "keyword.h" // IWYU pragma: export
+#include "lock.h"    // IWYU pragma: export
 #include "list.h"    // IWYU pragma: export
 #include "map.h"     // IWYU pragma: export
 #include "ns.h"      // IWYU pragma: export

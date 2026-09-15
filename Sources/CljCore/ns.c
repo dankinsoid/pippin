@@ -1,14 +1,13 @@
 // @ai-generated(guided)
-#include <pthread.h>
-
+#include "clj/lock.h"
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
 
-static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static clj_value       registry; // symbol → ns; nil until the first namespace
+static clj_lock  lock = CLJ_LOCK_INIT;
+static clj_value registry; // symbol → ns; nil until the first namespace
 static clj_value       core_ns, user_ns;
 
 static _Thread_local clj_value current_ns;
@@ -53,43 +52,43 @@ static clj_value find_or_create_locked(clj_value name) {
 
 clj_value clj_ns_find(clj_value name) {
 	CLJ_ASSERT(clj_is_symbol(name), "namespace name must be a symbol");
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	clj_value ns = find_locked(name);
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	return ns;
 }
 
 clj_value clj_ns_find_or_create(clj_value name) {
 	CLJ_ASSERT(clj_is_symbol(name) && clj_is_nil(clj_symbol_ns(name)), "namespace name must be an unqualified symbol");
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	clj_value ns = find_or_create_locked(name);
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	return ns;
 }
 
 clj_value clj_ns_intern(clj_value ns, clj_value sym) {
 	CLJ_ASSERT(clj_is_symbol(sym) && clj_is_nil(clj_symbol_ns(sym)), "interned symbol must be unqualified");
 	clj_ns *n = clj_ns_of(ns);
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	clj_value var = clj_map_get(n->mappings, sym, CLJ_NIL);
 	if (clj_is_nil(var)) {
 		var = clj_var_new(n->name, sym);
 		store_map(&n->mappings, clj_map_assoc(n->mappings, sym, var));
 	}
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	return var;
 }
 
 void clj_ns_refer(clj_value ns, clj_value sym, clj_value var) {
 	clj_ns *n = clj_ns_of(ns);
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	store_map(&n->refers, clj_map_assoc(n->refers, sym, var));
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 }
 
 clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 	clj_value var = CLJ_NIL;
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	if (clj_is_nil(clj_symbol_ns(sym))) {
 		clj_ns *n = clj_ns_of(ns);
 		var = clj_map_get(n->mappings, sym, CLJ_NIL);
@@ -108,19 +107,19 @@ clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 			clj_release(name);
 		}
 	}
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	return var;
 }
 
 static clj_value named(clj_value *slot, const char *name) {
-	pthread_mutex_lock(&lock);
+	clj_lock_lock(&lock);
 	if (clj_is_nil(*slot)) {
 		clj_value sym = clj_symbol_from_cstr(name);
 		*slot = find_or_create_locked(sym);
 		clj_release(sym);
 	}
 	clj_value ns = *slot;
-	pthread_mutex_unlock(&lock);
+	clj_lock_unlock(&lock);
 	return ns;
 }
 
