@@ -279,3 +279,62 @@ map, vector and call tables matched within their noise.
   the cons, lazy-seq and thunk-closure allocations per element — the reason `transduce` is 5× faster
   on the same work.
 
+
+## Fusion — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The optimizer rewrites `(reduce f [init] P)`, `(into to P)`, `(vec P)` and `(count P)` over a nest of
+lazy stages into a FUSED node: the argument expressions evaluated once, then, while every core var
+involved holds its boot root, a driver native fed the stages' transducer arities (NOTES.md, "The
+fusion pass"). Three rows at n = 10, 1k and 100k: `(reduce + (map inc (range n)))` (the same form as
+before, now fused), `(reduce + (map inc (filter even? (range n))))` and `(count (vec (map inc (range
+n))))`; n = 10 shows the per-form cost. Medians of three alternating runs of each binary (2e765b2 with
+this harness vs this commit), ns per element; the map, vector and call tables matched within their
+noise (±5 %).
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| reduce + map inc range | 10 | 175.5 | 63.8 | −64 % |
+| reduce + map inc range | 1000 | 152.0 | 33.3 | −78 % |
+| reduce + map inc range | 100000 | 151.7 | 31.4 | −79 % |
+| reduce + map inc (filter even?) range | 10 | 245.3 | 73.8 | −70 % |
+| reduce + map inc (filter even?) range | 1000 | 212.6 | 34.2 | −84 % |
+| reduce + map inc (filter even?) range | 100000 | 216.3 | 33.9 | −84 % |
+| vec (map inc range) | 10 | 190.4 | 76.6 | −60 % |
+| vec (map inc range) | 1000 | 157.2 | 38.4 | −76 % |
+| vec (map inc range) | 100000 | 158.5 | 37.1 | −77 % |
+| transduce (map inc) + range | 1000 | 29.5 | 28.6 | −3 % |
+| transduce (map inc) + range | 100000 | 30.6 | 29.6 | −3 % |
+| into [] (map inc) range | 1000 | 95.2 | 91.8 | −4 % |
+| into [] (map inc) range | 100000 | 94.7 | 93.4 | −1 % |
+| reduce + range | 1000 | 5.4 | 5.7 | +6 % |
+| reduce + vector | 1000 | 5.2 | 5.5 | +6 % |
+| seq walk of a vector | 1000 | 36.6 | 36.3 | −1 % |
+| counting loop | 100000 | 15.5 | 15.7 | +1 % |
+| closure call in a loop | 100000 | 22.1 | 22.2 | +0 % |
+
+- **`reduce + map inc range`, 152 → 33 ns**: the `transduce (map inc) + range` row (29) plus ~3 ns for
+  the driver's reducing fn under the transducer (a native with a context, entered through the generic
+  invoke, then `+` through a prepared `clj_call`). What remains per element is what the transduce row
+  already listed: the range step and the reducer bookkeeping (~3), the entry into `map`'s `[result
+  input]` arity (~7), and its body `(rf result (f input))` — two calls of fns held in captured slots
+  (`f` = `inc`, `rf` = the driver's fn) through the generic `eval_invoke` at ~8–9 each. Those two calls
+  are the next target: an intrinsic-by-value guard on a captured native, or the direct call of local
+  fns (design §6b item 7).
+- **With `filter even?`, 213 → 34**: per source element the filter stage's entry and `(pred input)`
+  (~16), and on the half that passes the map stage, `inc`, the driver and `+` (~30 / 2); the lazy
+  version paid a thunk, a cons and a lazy seq per element per stage.
+- **`vec (map inc range)`, 157 → 38**, against 92 for `(into [] (map inc) (range n))` computing the
+  same vector: the driver's accumulator is held by the driver alone, so `clj_conj` appends to the
+  vector in place (~5 ns per element) where the C `into` retains the accumulator before every conj
+  and copies the tail node each time. The same ownership transfer is what `into` with an xform still
+  needs (NOTES.md, "`into` is C in both arities").
+- **n = 10: ~310 ns per form** (64 ns per element minus ten elements at 33): the driver's fn and its
+  context (one pool object, one `calloc`), the vector literal, the `(map g)` call building the
+  transducer (~15), the `(xf rf)` application (a closure call and a closure per stage), the reduce
+  slot dispatch, the completion call and the guard (three relaxed loads). The lazy form's fixed cost
+  was ~230 ns (its first thunk, cons and lazy seq), so a tiny pipeline still gains 2.7×. Nothing here
+  is worth an exec-side cache: only the ~15 ns of transducer construction could be shared between
+  evaluations, the application must be fresh per run (NOTES.md).
+- The unfused rows (`transduce`, `into` with an xform, `reduce` over a range or a vector, the walks
+  and calls) move within the ±5 % run-to-run spread; the +6 % on the two 5 ns rows is 0.3 ns of code
+  placement, as the "C iterator" note above describes.
