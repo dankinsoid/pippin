@@ -518,3 +518,49 @@ their noise.
 - **The reduce-driven rows pay ~0.3 ns per element** (`reduce + range` 5.5 → 5.8): the reducer's step and the
   fusion bottom check for a consuming reducing fn once per element, and every borrowed local read tests the
   flag. The fused pipeline (`map`'s transducer arity reads four locals per element) shows it as ~1.5 ns.
+
+## Growing a collection per step — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Three rows for the last-use hand-over (NOTES.md, "Last-use reuse"): `(loop [v [] i 0] (if (< i n) (recur
+(conj v i) (inc i)) v))`, the same with `(assoc m i i)` into a map, and `(reduce conj [] (range n))`, each
+counted at the end; the Swift columns are an `Array.append` loop and a `Dictionary` insert loop. The "before"
+binary is the C core of 12f8771 (before the hand-over) with this harness, "after" is this commit; medians of
+three alternating runs, ns per element or iteration. The other rows are the re-measurement the section above
+promised, on a session with one warmer run in the "after" set.
+
+| scenario | n | before | after | change | Swift |
+|---|---:|---:|---:|---:|---:|
+| loop conj into a vector | 1000 | 89.3 | 33.8 | −62 % | 1.3 |
+| loop conj into a vector | 100000 | 92.8 | 34.6 | −63 % | 1.9 |
+| loop assoc into a map | 1000 | 216.9 | 83.0 | −62 % | 20.5 |
+| loop assoc into a map | 100000 | 369.1 | 109.3 | −70 % | 39.2 |
+| reduce conj [] range | 1000 | 67.8 | 11.8 | −83 % | 1.3 |
+| reduce conj [] range | 100000 | 69.8 | 12.1 | −83 % | 1.8 |
+| into [] (map inc) range | 1000 | 92.7 | 36.3 | −61 % | 2.7 |
+| into [] (map inc) range | 100000 | 96.0 | 36.5 | −62 % | 2.8 |
+| vec (map inc range) | 1000 | 36.1 | 37.8 | +5 % | 2.8 |
+| vec (map inc range) | 100000 | 36.2 | 36.3 | +0 % | 3.0 |
+| reduce + map inc range | 1000 | 30.6 | 32.3 | +6 % | 0.3 |
+| reduce + map inc range | 100000 | 31.3 | 31.8 | +2 % | 0.3 |
+| transduce (map inc) + range | 100000 | 27.0 | 27.8 | +3 % | 0.3 |
+| reduce + range | 100000 | 5.4 | 5.7 | +6 % | 0.1 |
+| seq walk of a vector | 1000 | 36.3 | 37.9 | +4 % | 0.1 |
+| counting loop | 100000 | 15.5 | 16.0 | +3 % | — |
+| closure call in a loop | 100000 | 21.9 | 22.8 | +4 % | 0.8 |
+| let-bound fn called in a loop | 100000 | 20.8 | 21.7 | +4 % | — |
+| loop with a local helper | 100000 | 35.7 | 37.1 | +4 % | — |
+
+- **`loop conj`, 89 → 34 ns per element.** The `conj` was a copy of the tail node per step (up to 32 slots)
+  plus the wrapper, then the old version freed; now `v`'s read in `(conj v i)` is its last use, the frame's
+  reference goes to `clj_conj`, and at rc 1 the tail is appended in place (~5 ns, the "conj, old version
+  dropped" row of the vector table is 8). What remains is the loop itself (~16: `<`, `inc`, the `if`, the
+  recur rebind of two slots) and the intrinsic's guard and call. `Array.append` is 1.3.
+- **`loop assoc` into a map, 217 → 83 (1k), 369 → 109 (100k).** Same mechanism on the HAMT: the path from
+  the root to the leaf was copied per step (deeper at 100k), now it is edited in place; the map table's
+  "assoc, old version dropped" row (25 / 78 ns) is the floor, the rest is the loop.
+- **`reduce conj [] range`, 68 → 12.** The reducer's own accumulator goes to `clj_conj` per element (the driver
+  hand-over); the row is the range step, the reducer bookkeeping and the in-place append. Against `(reduce +
+  (range n))` at 5.7, the conj costs ~6 ns per element.
+- The rows without a growing collection moved +2–6 % in this session; the previous section's cleaner run put
+  the counting loop, the closure call and the walk within ±2 %, and the reduce-driven rows at +0.3 ns per
+  element for the consuming-fn check, which is where the difference lives.

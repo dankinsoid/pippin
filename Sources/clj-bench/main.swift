@@ -295,6 +295,22 @@ func aIntoMapRange(_ a: [Int]) -> UInt64 {
 	return UInt64(out.count)
 }
 
+// (loop [v [] i 0] (if (< i n) (recur (conj v i) (inc i)) v)), the same with (assoc m i i) into a map, and
+// (reduce conj [] (range n)): a collection grown one element per step, in place when the step owns it.
+func cGrowLoop(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
+
+func aAppendLoop(_ n: Int) -> UInt64 {
+	var out: [Int] = []
+	for i in 0..<n { out.append(i) }
+	return UInt64(out.count)
+}
+
+func dInsertLoop(_ n: Int) -> UInt64 {
+	var out: [Int: Int] = [:]
+	for i in 0..<n { out[i] = i }
+	return UInt64(out.count)
+}
+
 // Over a materialized array: a range loop folds to a closed form under -O.
 func aReduceMapRange(_ a: [Int]) -> UInt64 {
 	var sum = 0
@@ -430,6 +446,9 @@ let transduceFn = cljEval("(fn [n] (transduce (map inc) + (range n)))")
 let reduceRangeFn = cljEval("(fn [n] (reduce + (range n)))")
 let reduceVecFn = cljEval("(fn [v] (reduce + v))")
 let intoFn = cljEval("(fn [n] (count (into [] (map inc) (range n))))")
+let loopConjFn = cljEval("(fn [n] (count (loop [v [] i 0] (if (< i n) (recur (conj v i) (inc i)) v))))")
+let loopAssocFn = cljEval("(fn [n] (count (loop [m {} i 0] (if (< i n) (recur (assoc m i i) (inc i)) m))))")
+let reduceConjFn = cljEval("(fn [n] (count (reduce conj [] (range n))))")
 let walkFn = cljEval("(fn [v] (loop [s (seq v) acc 0] (if s (recur (next s) (+ acc (first s))) acc)))")
 
 struct SeqRow {
@@ -477,6 +496,18 @@ for n in [1_000, 100_000] {
 		c: measure(ops: n) { cReduceFn(intoFn, clj_fixnum(n)) },
 		iterator: nil,
 		swift: measure(ops: n) { aIntoMapRange(a) }))
+	seqRows.append(SeqRow(scenario: "loop conj into a vector", n: n,
+		c: measure(ops: n) { cGrowLoop(loopConjFn, n) },
+		iterator: nil,
+		swift: measure(ops: n) { aAppendLoop(n) }))
+	seqRows.append(SeqRow(scenario: "loop assoc into a map", n: n,
+		c: measure(ops: n) { cGrowLoop(loopAssocFn, n) },
+		iterator: nil,
+		swift: measure(ops: n) { dInsertLoop(n) }))
+	seqRows.append(SeqRow(scenario: "reduce conj [] range", n: n,
+		c: measure(ops: n) { cGrowLoop(reduceConjFn, n) },
+		iterator: nil,
+		swift: measure(ops: n) { aAppendLoop(n) }))
 }
 do {
 	let n = 1_000
@@ -495,6 +526,9 @@ clj_release(transduceFn)
 clj_release(reduceRangeFn)
 clj_release(reduceVecFn)
 clj_release(intoFn)
+clj_release(loopConjFn)
+clj_release(loopAssocFn)
+clj_release(reduceConjFn)
 clj_release(walkFn)
 
 // (loop [i 0] (if (< i n) (recur (inc i)) i)): one rebind, a comparison and an increment per iteration.
