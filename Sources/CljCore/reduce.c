@@ -27,10 +27,11 @@ static bool take(clj_reducer *r, clj_value v) {
 	return true;
 }
 
+// The first element seeds as an ordinary value, a reduced box included: only step results end the walk.
 bool clj_reducer_step(clj_reducer *r, clj_value item) {
 	if (r->acc == CLJ_UNBOUND) {
-		r->acc = CLJ_NIL;
-		return take(r, clj_retain(item));
+		r->acc = clj_retain(item);
+		return true;
 	}
 	r->args[0] = r->acc;
 	r->args[1] = item;
@@ -76,7 +77,6 @@ clj_value clj_reduce_iter(clj_value coll, clj_value f, clj_value init) {
 }
 
 clj_value clj_reduce(clj_value f, clj_value init, clj_value coll) {
-	if (clj_is_reduced(init)) return clj_retain(clj_reduced_value(init));
 	if (clj_is_nil(coll)) return clj_reduce_empty(f, init);
 	const clj_type *t = clj_is_ptr(coll) ? clj_type_of(coll) : NULL;
 	if (t && t->reduce) return t->reduce(coll, f, init);

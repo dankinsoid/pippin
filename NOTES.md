@@ -131,9 +131,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   walks the elements calling `(f acc x)` through a `clj_call` prepared once (eval.h: a closure's
   arity resolved and its body entered without `clj_invoke`, a plain native called directly), stops
   at a `reduced` result and returns it unwrapped, or `CLJ_THROWN`. `init == CLJ_UNBOUND` is the
-  2-arity: the first element seeds, `(f)` answers an empty coll, and a reduced seed (the init, or
-  the first element) is its value at once — JVM Clojure feeds a reduced init to `f` unchecked; the
-  unwrap here is deliberate. Slots: vector and vector-seq (leaf by leaf), range (arithmetic),
+  2-arity: the first element seeds, `(f)` answers an empty coll. Only step results are checked for
+  `reduced`: a reduced init or first element reaches `f` as an ordinary value and comes back as is
+  over an empty coll, as on the JVM. Slots: vector and vector-seq (leaf by leaf), range (arithmetic),
   map (`[k v]` vectors built per entry, and `reduce-kv` on the trie in place; `reduce-kv` on a
   vector passes the index), `()`, and cons / lazy-seq / string / string-seq through
   `clj_reduce_iter`, which is `clj_seq_iter` closed on the early stop. The `CLJ_CORE_REDUCE` bit

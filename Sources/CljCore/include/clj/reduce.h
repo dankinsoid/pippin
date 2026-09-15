@@ -24,8 +24,9 @@ clj_value clj_reducer_finish(clj_reducer *r);
 // Releases the accumulator of a walk the caller abandons (its source threw).
 void clj_reducer_drop(clj_reducer *r);
 
-// (reduce f init coll): through the type's reduce slot, else over its seq with clj_seq_iter; a `reduced` init
-// is its value at once. init CLJ_UNBOUND is the 2-arity: the first element seeds, (f) answers an empty coll.
+// (reduce f init coll): through the type's reduce slot, else over its seq with clj_seq_iter. Only a step's result
+// is checked for `reduced`: a reduced init (or first element) reaches f as a value and comes back as is over an
+// empty coll, as on the JVM. init CLJ_UNBOUND is the 2-arity: the first element seeds, (f) answers an empty coll.
 // Owned result or CLJ_THROWN ("Don't know how to create ISeq from" for a non-seqable).
 clj_value clj_reduce(clj_value f, clj_value init, clj_value coll);
 // (reduce-kv f init coll) for a map (f acc k v) or a vector (f acc i x); nil yields init.

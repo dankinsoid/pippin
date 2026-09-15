@@ -71,8 +71,13 @@ extension CoreTests {
 				#expect(try eval("(reduce (fn [[k1 v1] [k2 v2]] [k1 (+ v1 v2)]) {:a 1})") == [kw("a"), 1])
 				#expect(try eval("[(reduce (fn [] :empty) []) (reduce (fn [] :empty) nil) (reduce (fn [] :empty) ()) (reduce (fn [] :empty) (range 0))]") == [kw("empty"), kw("empty"), kw("empty"), kw("empty")])
 				#expect(try eval("[(reduce + [5]) (reduce (fn [a b] (throw (ex-info \"never\" {}))) [5])]") == [5, 5])
-				// A reduced seed is its value at once, in either arity.
-				#expect(try eval("[(reduce + (reduced 7) [1 2]) (reduce + [(reduced 5) 1 2]) (reduce + (reduced 7) nil) (reduce conj (reduced [0]) (range))]") == [7, 5, 7, [0]])
+				// Only a step's result is checked for reduced: a reduced init or first element is an ordinary value to f
+				// and comes back as is over an empty coll.
+				#expect(try eval("[(reduced? (reduce + (reduced 7) nil)) (reduced? (reduce + (reduced 7) [])) (reduced? (reduce + [(reduced 5)])) @(reduce + [(reduced 5)])]") == [true, true, true, 5])
+				#expect(try eval("(reduce (fn [a x] (if (reduced? a) (+ @a x) (+ a x))) (reduced 7) [1 2])") == 10)
+				#expect(try eval("(reduce (fn [a x] [a x]) [(reduced 5) 1])").description == "[#object[reduced] 1]")
+				#expect(message("(reduce + (reduced 7) [1 2])") == "reduced cannot be cast to a number")
+				#expect(message("(reduce conj (reduced [0]) (range))") == "conj not supported on this type: reduced")
 				#expect(try eval("(apply reduce + [[1 2]])") == 3)
 				#expect(message("(reduce + 5)") == "Don't know how to create ISeq from: fixnum")
 				#expect(message("(reduce + 0 :a)") == "Don't know how to create ISeq from: keyword")
