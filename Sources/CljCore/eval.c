@@ -416,9 +416,9 @@ static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, co
 }
 
 // A call with the arguments already in a buffer: the frame copies them. Frames past SMALL_SLOTS live on the
-// heap, past 64 slots they retain every param (eval.h). With own_first the frame owns param 0 (the caller's +1).
+// heap, past 64 slots they retain every param (eval.h).
 // @ai-generated(guided)
-static clj_value closure_run_mask(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site, bool own_first) {
+static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
 	clj_value  small[SMALL_SLOTS];
 	clj_value *slots = small;
 	if (arity->nslots > SMALL_SLOTS) {
@@ -426,7 +426,7 @@ static clj_value closure_run_mask(clj_value f, const clj_fn_arity *arity, const 
 		if (!slots) clj_fatal("out of memory");
 	}
 	bool     big = arity->nslots > 64;
-	uint64_t owned = big ? UINT64_MAX : own_first ? 1 : 0;
+	uint64_t owned = big ? UINT64_MAX : 0;
 	uint32_t filled = arity->nparams;
 	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big ? clj_retain(args[i]) : args[i];
 	if (arity->variadic) {
@@ -438,10 +438,6 @@ static clj_value closure_run_mask(clj_value f, const clj_fn_arity *arity, const 
 	clj_value v = run_frame(f, arity, slots, owned, site);
 	if (slots != small) free(slots);
 	return v;
-}
-
-static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
-	return closure_run_mask(f, arity, args, n, site, false);
 }
 
 static clj_value call_impl(clj_value impl, const clj_fn_arity *arity, const clj_value *args, uint32_t n, const clj_node *at) {
@@ -1024,15 +1020,6 @@ clj_call clj_call_prepare(clj_value f, size_t n) {
 clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args) {
 	if (c->arity) return closure_run(c->f, c->arity, args, c->n, NULL);
 	return clj_invoke(c->f, args, c->n);
-}
-
-// A big frame retains every param itself, and a rest list retains what it takes: those keep the +0 call.
-clj_value clj_call_invoke_owning(const clj_call *c, const clj_value *args) {
-	if (c->consuming) return clj_intrinsic_call_consuming(c->consuming, args);
-	if (c->arity && c->arity->nparams >= 1 && c->arity->nslots <= 64) return closure_run_mask(c->f, c->arity, args, c->n, NULL, true);
-	clj_value r = clj_call_invoke(c, args);
-	clj_release(args[0]);
-	return r;
 }
 
 clj_value clj_exec_run(clj_value exec) {

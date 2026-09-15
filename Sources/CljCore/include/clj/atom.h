@@ -24,14 +24,14 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator);
 static inline bool      clj_is_atom(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_atom_type; }
 static inline clj_atom *clj_atom_of(clj_value v) { return (clj_atom *)clj_to_ptr(v); }
 
-// Owned current value, taken under the lock.
+// Owned current value, taken under the lock; the thread holding it (inside f) reads without waiting.
 clj_value clj_atom_deref(clj_value atom);
 // (reset! a v): validates, stores v shared, notifies the watches; returns v owned.
 clj_value clj_atom_reset(clj_value atom, clj_value value);
-// f runs once under the lock. Without validator and watches it takes the atom's own reference to the old
-// value, so a unique one is updated in place; a throw out of f then leaves the atom at nil.
+// f runs once under the lock on the value borrowed from the atom; a throw from f or a rejecting
+// validator leaves the value as it was.
 clj_value clj_atom_swap(clj_value atom, clj_value f, const clj_value *args, size_t nargs);
-// [old new] as a vector; the old value stays intact (no hand-over).
+// [old new] as a vector.
 clj_value clj_atom_swap_vals(clj_value atom, clj_value f, const clj_value *args, size_t nargs);
 clj_value clj_atom_reset_vals(clj_value atom, clj_value value);
 // true when the current value is identical to expected and was replaced.

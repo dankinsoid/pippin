@@ -96,9 +96,6 @@ static inline clj_value clj_call_invoke(const clj_call *c, const clj_value *args
 	if (c->native) return c->native(args, c->n);
 	return clj_call_invoke_slow(c, args);
 }
-// The same with args[0] at +1: a consuming native takes it, a closure's frame owns its first param (so the
-// param's last-use read hands it over), anything else is called at +0 and args[0] released after.
-clj_value clj_call_invoke_owning(const clj_call *c, const clj_value *args);
 
 // Arity dispatch and body evaluation of a closure; clj_invoke calls it.
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n);

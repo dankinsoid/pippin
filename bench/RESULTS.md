@@ -569,7 +569,8 @@ promised, on a session with one warmer run in the "after" set.
 
 The atom of design §4 ("Атомы"): one `clj_lock` (os_unfair_lock) per atom, `f` once under it, watches after
 it, `deref` under it; without watches or a validator `swap!` hands the atom's own reference to `f`, so
-`(swap! a assoc i i)` edits the map in place (NOTES.md, "Atoms"). Medians of five runs, ns per iteration;
+`(swap! a assoc i i)` edits the map in place (the hand-over is removed since: the dated subsection at the end
+of this section). Medians of five runs, ns per iteration;
 the Swift column is an `os_unfair_lock` around a `Dictionary` insert, an `Int` increment or a `Dictionary`
 read, the closest thing to what the atom does.
 
@@ -638,3 +639,44 @@ same tick over a `loop` local that is never published is the baseline.
   more per swap than BRC could, and the copy path (a second holder, a watch) is dominated by the node
   copies, not by their retains. Trigger: a profile of a real app-state loop where the atomic pairs are a
   visible fraction next to the interpreter's own per-node cost (~10–15 ns per node today).
+
+### swap! without the hand-over — 2026-09-15, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The uniqueness trick is gone (NOTES.md, "Atoms"): `swap!` keeps the atom's reference and hands `f` the value
+at +0, so a throw out of `f` leaves the state as it was (the JVM contract), and every `assoc` inside a
+`swap!` copies the root-to-leaf path. The "in place" / "second holder" rows above are replaced by
+`(swap! a assoc k v)` over a map of 16, 1000 and 100000 keys that the atom alone holds, `k` cycling through
+the keys and `v` new on every call — an assoc of the value already there copies nothing, and the first cut
+of this row measured that no-op at 100000 keys (130 ns in both binaries). "Before" is the commit before this
+change with the same bench file, so its three sized rows are the in-place path; both binaries built clean
+with `--scratch-path`, run one after the other on an idle machine (the `counting loop`, `swap! inc`, `deref`
+and 4-thread rows reproduce the table above within 3 %). Medians of five runs, ns per iteration.
+
+| scenario | n | before (hand-over) | after | after / before | Swift locked |
+|---|---:|---:|---:|---:|---:|
+| swap! assoc, map of 16 keys | 100000 | 90.7 | 288.4 | 3.2× | 29.1 |
+| swap! assoc, map of 1000 keys | 100000 | 100.5 | 612.6 | 6.1× | 27.3 |
+| swap! assoc, map of 100000 keys | 100000 | 130.7 | 904.3 | 6.9× | 27.7 |
+| swap! assoc, watched | 100000 | 774.7 | 786.4 | 1.0× | — |
+| loop assoc into a map (no atom) | 100000 | 106.5 | 104.9 | — | — |
+| swap! inc | 100000 | 40.7 | 42.6 | 1.0× | 1.9 |
+| get @atom :k | 100000 | 54.9 | 54.3 | 1.0× | 15.7 |
+| get @volatile :k | 100000 | 50.2 | 50.6 | — | — |
+| counting loop | 100000 | 16.1 | 15.5 | — | — |
+| swap! inc, 4 threads | 100000 | 73.0 | 69.8 | 1.0× | 9.8 |
+| swap! assoc, 4 threads | 100000 | 240.7 | 253.2 | 1.1× | — |
+
+- **The cost of the decision is one path copy per swap, plus the atomic retain/release of every child of
+  the copied nodes** (the whole map is shared): +200 ns at 16 keys (one root node), +510 at 1000 (two
+  levels, the second one nearly full), +770 at 100000 (four levels). A scratch binary running only this
+  loop over 16, 100, 300, 1k, 3k, 10k, 30k and 100k keys grows monotonically — ~260, 390, 435, 525, 600,
+  650, 755, 907 — with trie depth and node fill, no cliff; the in-place path in the same sweep goes 90 → 134.
+  A run with a load spike measured 1396 at 100000 keys; the runs reported bracket the sweep number.
+- **Everything else is unchanged**: the watched atom always took the copying path (775 → 786, noise); the
+  4-thread assoc (241 → 253) is a growing map contended by four cores, the lock hand-off and the
+  cache-line traffic, not the copy; `swap! inc`, `deref` and the counter under contention are the lock pair
+  and the interpreted loop as before.
+- **Against Swift**: a locked `Dictionary` write of an existing key is 27–29 ns at every size, so the
+  persistent copy path is 10–33× a mutable write here, against 3–5× with the hand-over. Trigger to bring the
+  trick back is in NOTES.md ("Atoms"): a profile with `swap!` on a large map hot, and then a proven
+  no-throw `f` or an undo journal, whichever is cheaper.

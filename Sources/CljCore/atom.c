@@ -39,15 +39,16 @@ const clj_type clj_atom_type = {
 
 static uintptr_t self_id(void) { return (uintptr_t)pthread_self(); }
 
+static bool held_by_me(const clj_atom *a) { return atomic_load_explicit(&a->owner, memory_order_relaxed) == self_id(); }
+
 // The lock is not recursive, so a thread that already holds it must not wait on it: throw instead.
 static bool enter(clj_atom *a, const char *op) {
-	uintptr_t me = self_id();
-	if (atomic_load_explicit(&a->owner, memory_order_relaxed) == me) {
+	if (held_by_me(a)) {
 		clj_throw_msg("%s on an atom this thread is already swapping (nested swap! trap)", op);
 		return false;
 	}
 	clj_lock_lock(&a->lock);
-	atomic_store_explicit(&a->owner, me, memory_order_relaxed);
+	atomic_store_explicit(&a->owner, self_id(), memory_order_relaxed);
 	return true;
 }
 
@@ -114,11 +115,13 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	return clj_from_ptr(a);
 }
 
+// Inside f, a validator or an alter-meta! fn the lock holder reads its own atom: the value f was given.
 clj_value clj_atom_deref(clj_value atom) {
 	clj_atom *a = clj_atom_of(atom);
-	if (!enter(a, "deref")) return CLJ_THROWN;
+	if (held_by_me(a)) return clj_retain(a->value);
+	clj_lock_lock(&a->lock);
 	clj_value v = clj_retain(a->value);
-	leave(a);
+	clj_lock_unlock(&a->lock);
 	return v;
 }
 
@@ -165,7 +168,8 @@ clj_value clj_atom_reset_vals(clj_value atom, clj_value value) {
 	return r;
 }
 
-// A caller wanting *old (owned) forgoes the hand-over: the old value must survive f.
+// f sees the value at +0 while the atom keeps its reference: a throw from f or a validator leaves the
+// state as it was, the JVM's contract.
 static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *args, size_t nargs, clj_value *old, const char *op) {
 	clj_atom  *a = clj_atom_of(atom);
 	clj_value  small[8];
@@ -177,34 +181,15 @@ static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *
 		if (call != small) free(call);
 		return CLJ_THROWN;
 	}
-	clj_value new;
-	bool      handover = !old && clj_is_nil(a->validator) && clj_is_nil(a->watches);
 	call[0] = a->value;
-	if (handover) {
-		a->value = CLJ_NIL;
-		new = clj_call_invoke_owning(&c, call);
-	} else {
-		if (old) *old = clj_retain(a->value);
-		new = clj_call_invoke(&c, call);
-	}
+	clj_value new = clj_call_invoke(&c, call);
 	if (call != small) free(call);
-	if (new == CLJ_THROWN) {
-		if (old) clj_release(*old);
+	if (new == CLJ_THROWN || !validate_with(a->validator, new)) {
+		if (new != CLJ_THROWN) clj_release(new);
 		leave(a);
 		return CLJ_THROWN;
 	}
-	if (handover) {
-		clj_share(new);
-		a->value = clj_retain(new);
-		leave(a);
-		return new;
-	}
-	if (!validate_with(a->validator, new)) {
-		if (old) clj_release(*old);
-		clj_release(new);
-		leave(a);
-		return CLJ_THROWN;
-	}
+	if (old) *old = clj_retain(a->value);
 	if (!commit(atom, new)) {
 		if (old) clj_release(*old);
 		clj_release(new);

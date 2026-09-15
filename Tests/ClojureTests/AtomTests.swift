@@ -22,7 +22,7 @@ extension CoreTests {
 	@Suite struct AtomTests {
 		init() {
 			clj_init()
-			for k in ["a", "b", "c", "k", "k2", "meta", "validator", "x", "y", "other", "bad", "none", "v", "items", "fresh", "n", "nf", "clojure.core/not-found"] { _ = kw(k) }
+			for k in ["a", "b", "c", "k", "k2", "meta", "validator", "x", "y", "other", "bad", "none", "v", "items", "fresh", "n", "nf", "users", "name", "xs", "clojure.core/not-found"] { _ = kw(k) }
 		}
 
 		private func declare(_ names: String...) throws {
@@ -50,9 +50,43 @@ extension CoreTests {
 				#expect(message("(atom 1 :meta 2)") == "atom :meta must be a map, got: fixnum")
 				#expect(message("(atom 1 :validator 2)") == "atom :validator must be a fn, got: fixnum")
 				#expect(try eval("(let [a (atom 1 :other 2)] @a)") == 1)
-				// A throw inside f propagates; the atom keeps its value when a second holder kept the old one.
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A throw out of f propagates and the atom keeps the value f was given, whatever f did with it first.
+		@Test func throwFromFLeavesTheStateUnchanged() throws {
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try eval("(let [a (atom 5)] [(try (swap! a (fn [x] (throw (ex-info \"boom\" {})))) (catch :default e (ex-message e))) @a])") == ["boom", 5])
 				#expect(try eval("(let [a (atom 5) w (add-watch a :k (fn [k r o n] nil))] [(try (swap! a (fn [x] (throw (ex-info \"boom\" {})))) (catch :default e (ex-message e))) @a])") == ["boom", 5])
-				#expect(try eval("(let [a (atom 5)] [(try (swap! a (fn [x] (throw (ex-info \"boom\" {})))) (catch :default e (ex-message e))) @a])") == ["boom", nil])
+				// A native f that throws: inc on a map.
+				#expect(try eval("(let [a (atom {:a {:b [1 2]} :c #{3}}) old @a] [(try (swap! a inc) (catch :default e (nil? e))) (identical? old @a) (= @a {:a {:b [1 2]} :c #{3}})])") == [false, true, true])
+				// The rejection idiom: f edits a nested structure, then throws instead of returning it.
+				#expect(try eval("""
+				(let [a (atom {:users {1 {:name "x"}} :n 1}) old @a
+				      reject (fn [s] (let [s (assoc-in s [:users 2] {:name "y"}) s (update s :n inc)] (if (< (:n s) 2) s (throw (ex-info "rejected" {:n (:n s)})))))]
+				  [(try (swap! a reject) (catch :default e [(ex-message e) (ex-data e)])) (identical? old @a) @a
+				   (try (swap-vals! a reject) (catch :default e (ex-message e))) (identical? old @a)])
+				""") == [["rejected", Value([Value(keyword: "n"): 2])], true, Value([Value(keyword: "users"): Value([Value(1): m(["name": "x"])]), Value(keyword: "n"): 1]), "rejected", true])
+				// A throw from a variadic f, and from one past the small argument buffer.
+				#expect(try eval("(let [a (atom [1])] [(try (swap! a (fn [v & xs] (throw (ex-info \"v\" {}))) 1 2) (catch :default e (ex-message e))) (try (swap! a (fn [v a b c d e f g h] (throw (ex-info \"big\" {}))) 1 2 3 4 5 6 7 8) (catch :default e (ex-message e))) @a])") == ["v", "big", [1]])
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Inside f (and a validator, and an alter-meta! fn) the atom still holds the value f was given.
+		@Test func derefInsideFSeesTheOldValue() throws {
+			try declare("at-val")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try eval("(let [a (atom 1)] [(swap! a (fn [x] (+ x @a))) @a])") == [2, 2])
+				#expect(try eval("(let [a (atom {:k 1}) seen (volatile! nil)] (swap! a (fn [m] (vreset! seen [(identical? m @a) (:k @a)]) (assoc m :k 2))) [@seen @a])") == [[true, 1], m(["k": 2])])
+				#expect(try eval("(let [a (atom {:k 1})] [(swap-vals! a (fn [m] (assoc m :k (inc (:k @a))))) @a])") == [[m(["k": 1]), m(["k": 2])], m(["k": 2])])
+				// A validator derefs the atom (through a var: a validator capturing its own atom is a cycle): the value before the change.
+				#expect(try eval("(def at-val (atom 1)) (let [seen (volatile! [])] (set-validator! at-val (fn [v] (vswap! seen conj [v @at-val]) true)) (swap! at-val inc) (reset! at-val 7) (set-validator! at-val nil) [@seen @at-val])") == [[[1, 1], [2, 1], [7, 2]], 7])
+				#expect(try eval("(let [a (atom 1 :meta {})] [(alter-meta! a (fn [m] (assoc m :v @a))) (meta a)])") == [m(["v": 1]), m(["v": 1])])
+				try unbind("at-val")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -89,12 +123,17 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				#expect(message("(let [a (atom 0)] (swap! a (fn [x] (swap! a inc))))") == "swap! " + trap)
-				#expect(message("(let [a (atom 0)] (swap! a (fn [x] @a)))") == "deref " + trap)
 				#expect(message("(let [a (atom 0)] (swap! a (fn [x] (reset! a 1))))") == "reset! " + trap)
+				#expect(message("(let [a (atom 0)] (swap! a (fn [x] (swap-vals! a inc))))") == "swap-vals! " + trap)
+				#expect(message("(let [a (atom 0)] (swap! a (fn [x] (compare-and-set! a 0 1))))") == "compare-and-set! " + trap)
+				#expect(message("(let [a (atom 0)] (swap-vals! a (fn [x] (swap! a inc))))") == "swap! " + trap)
+				#expect(message("(let [a (atom 0)] (reset! a (swap! a (fn [x] (reset! a 1)))))") == "reset! " + trap)
 				#expect(try eval("(let [a (atom 0)] (try (set-validator! a (fn [v] (swap! a inc))) (catch :default e [(ex-message e) (ex-message (ex-cause e))])))") == ["Invalid reference state", Value("swap! " + trap)])
 				#expect(message("(let [a (atom 0)] (set-validator! a (fn [v] (nil? @a))) (swap! a inc))") == "Invalid reference state")
-				// The trap fires inside f, which already took the value: the atom is left at nil and usable again.
-				#expect(try eval("(let [a (atom 0) b (atom 0)] (try (swap! a (fn [x] (swap! a inc))) (catch :default e nil)) [@a (reset! a 0) (swap! a inc) (swap! a (fn [x] (swap! b inc))) @b])") == [nil, 0, 1, 1, 1])
+				// The trap is a throw out of f: the atom keeps its value and is usable again.
+				#expect(try eval("(let [a (atom 0) b (atom 0)] (try (swap! a (fn [x] (swap! a inc))) (catch :default e nil)) [@a (swap! a inc) (swap! a (fn [x] (swap! b inc))) @b])") == [0, 1, 1, 1])
+				// A swap of a different atom inside f is not nested.
+				#expect(try eval("(let [a (atom 0)] (swap! a (fn [x] (swap! (atom x) inc))))") == 1)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -104,6 +143,8 @@ extension CoreTests {
 			do {
 				#expect(try eval("(let [a (atom 1 :validator pos?)] [(swap! a inc) (try (reset! a -1) (catch :default e (ex-message e))) (try (swap! a - 5) (catch :default e (ex-message e))) @a (identical? pos? (get-validator a))])") == [2, "Invalid reference state", "Invalid reference state", 2, true])
 				#expect(message("(atom -1 :validator pos?)") == "Invalid reference state")
+				// A rejected swap leaves the very same value in place, whatever f built from it.
+				#expect(try eval("(let [a (atom {:n 1 :xs [1]} :validator (fn [m] (< (:n m) 2))) old @a] [(try (swap! a (fn [m] (-> m (update :n inc) (update :xs conj 2)))) (catch :default e (ex-message e))) (identical? old @a) (try (swap-vals! a update :n + 5) (catch :default e (ex-message e))) (identical? old @a)])") == ["Invalid reference state", true, "Invalid reference state", true])
 				#expect(try eval("(let [a (atom 1)] [(get-validator a) (set-validator! a pos?) (try (set-validator! a neg?) (catch :default e (ex-message e))) (identical? pos? (get-validator a)) (set-validator! a nil) (get-validator a) (reset! a -1)])") == [nil, nil, "Invalid reference state", true, nil, nil, -1])
 				#expect(try eval("(let [a (atom 1 :validator (fn [v] (if (neg? v) (throw (ex-info \"neg\" {:v v})) true)))] (try (reset! a -2) (catch :default e [(ex-message e) (ex-message (ex-cause e)) (ex-data (ex-cause e)) @a])))") == ["Invalid reference state", "neg", m(["v": -2]), 1])
 				#expect(try eval("(let [a (atom 1 :validator pos?)] [(compare-and-set! a 1 2) (try (compare-and-set! a 2 -1) (catch :default e (ex-message e))) @a])") == [true, "Invalid reference state", 2])
@@ -129,7 +170,8 @@ extension CoreTests {
 				#expect(try eval("(meta (atom 1))") == nil)
 				#expect(message("(alter-meta! (atom 1) (fn [m] 1))") == "alter-meta! fn must return a map, got: fixnum")
 				#expect(message("(reset-meta! (atom 1) 1)") == "reset-meta! expects a map, got: fixnum")
-				#expect(message("(let [a (atom 1)] (alter-meta! a (fn [m] (deref a))))") == "deref " + trap)
+				#expect(message("(let [a (atom 1)] (alter-meta! a (fn [m] (swap! a inc))))") == "swap! " + trap)
+				#expect(message("(let [a (atom 1)] (alter-meta! a (fn [m] (alter-meta! a assoc :k 1))))") == "alter-meta! " + trap)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -147,8 +189,8 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		// In place only while nothing else holds the value; a second holder forces the copy.
-		@Test func publicationAndInPlace() throws {
+		// Everything stored into an atom is shared first; a swap leaves the old version to whoever holds it.
+		@Test func publication() throws {
 			try declare("at-state")
 			let before = clj_debug_live_objects()
 			do {
@@ -156,24 +198,17 @@ extension CoreTests {
 				let atom = try eval("at-state")
 				let value = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
 				#expect(clj_debug_all_shared(value))
-				let consuming = clj_debug_consuming_calls()
 				_ = try eval("(swap! at-state assoc :k 1)")
 				let afterNative = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
-				#expect(afterNative == value)
-				_ = try eval("(swap! at-state (fn [m] (assoc m :k2 2)))")
-				let afterClosure = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
-				#expect(afterClosure == value)
+				#expect(afterNative != value)
+				#expect(clj_debug_all_shared(afterNative))
 				_ = try eval("(swap! at-state (fn [m] (let [items (get m :items)] (assoc m :items (conj items 3)))))")
-				let afterLet = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
-				#expect(afterLet == value)
-				if consuming >= 0 { #expect(clj_debug_consuming_calls() - consuming >= 3) }
+				let afterClosure = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
+				#expect(afterClosure != afterNative)
 				#expect(clj_debug_all_shared(afterClosure))
-				#expect(try eval("@at-state") == m(["items": [1, [2], 3], "k": 1, "k2": 2]))
-				// A second holder of the old value forces a copy, and keeps its version.
+				#expect(try eval("@at-state") == m(["items": [1, [2], 3], "k": 1]))
+				// A holder of the old value keeps its version.
 				#expect(try eval("(let [old @at-state] (swap! at-state assoc :k 10) [(:k old) (:k @at-state)])") == [1, 10])
-				let afterCopy = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
-				#expect(afterCopy != value)
-				#expect(clj_debug_all_shared(afterCopy))
 				// A value stored by reset! is shared before the store, with everything it reaches.
 				_ = try eval("(reset! at-state {:fresh [[1] {:n #{2}}]})")
 				let fresh = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }

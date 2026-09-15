@@ -712,12 +712,12 @@ print("\nns per element; Swift primitive = (sort v) bound by Runtime.define, Clo
 
 // MARK: - Atoms
 
-// (swap! a assoc i i) in a loop: the atom's reference goes to assoc, in place; the same with a deref'd copy
-// held across the swap (a second holder: a path copy per swap); the same on an atom with a no-op watch (the
-// old value is kept for the watch: the copy, plus the watch call); (swap! a inc); (get @a :k) per iteration
+// (swap! a assoc k v) over an atom holding a map of K keys, k cycling through them and v new every call (an
+// assoc of the value already there copies nothing); the atom is the map's only holder, so the row measures
+// swap!'s own handling of the value (NOTES.md, "Atoms");
+// (swap! a assoc i i) growing a map on an atom with a no-op watch; (swap! a inc); (get @a :k) per iteration
 // against the same through a volatile; and four threads doing (swap! a inc) / (swap! a assoc k i) on one atom.
-let atomAssocFn = cljEval("(fn [n] (let [a (atom {})] (loop [i 0] (if (< i n) (do (swap! a assoc i i) (recur (inc i))) (count @a)))))")
-let atomAssocHolderFn = cljEval("(fn [n] (let [a (atom {})] (loop [i 0] (if (< i n) (let [old @a] (swap! a assoc i i) (recur (inc i))) (count @a)))))")
+let atomAssocSizedFn = cljEval("(fn [a n K salt] (loop [i 0 k 0] (if (< i n) (do (swap! a assoc k (+ i salt)) (recur (inc i) (if (< (inc k) K) (inc k) 0))) (count @a))))")
 let atomAssocWatchedFn = cljEval("(fn [n] (let [a (atom {})] (add-watch a :k (fn [k r o n] nil)) (loop [i 0] (if (< i n) (do (swap! a assoc i i) (recur (inc i))) (count @a)))))")
 let atomIncFn = cljEval("(fn [n] (let [a (atom 0)] (loop [i 0] (if (< i n) (do (swap! a inc) (recur (inc i))) @a))))")
 let atomDerefFn = cljEval("(fn [n] (let [a (atom {:k 1})] (loop [i 0 s 0] (if (< i n) (recur (inc i) (+ s (get @a :k))) s))))")
@@ -747,12 +747,22 @@ func cContended(_ f: clj_value, threads: Int, each: clj_value) -> UInt64 {
 	return UInt64(bitPattern: Int64(s.count))
 }
 
-func aLockedInsert(_ n: Int) -> UInt64 {
-	let s = LockedState()
+func cAtomAssocSized(_ a: clj_value, n: Int, keys: Int, salt: Int) -> UInt64 {
+	let args = [a, clj_fixnum(n), clj_fixnum(keys), clj_fixnum(salt)]
+	let r = args.withUnsafeBufferPointer { clj_invoke(atomAssocSizedFn, $0.baseAddress, 4) }
+	if r == CLJ_THROWN { fatalError("bench call threw") }
+	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+	clj_release(r)
+	return v
+}
+
+func aLockedInsert(_ s: LockedState, n: Int, keys: Int, salt: Int) -> UInt64 {
+	var k = 0
 	for i in 0..<n {
 		os_unfair_lock_lock(&s.lock)
-		s.dict[i] = i
+		s.dict[k] = i + salt
 		os_unfair_lock_unlock(&s.lock)
+		k = k + 1 < keys ? k + 1 : 0
 	}
 	return UInt64(s.dict.count)
 }
@@ -791,8 +801,14 @@ struct AtomRow {
 var atomRows: [AtomRow] = []
 do {
 	let n = 100_000
-	atomRows.append(AtomRow(scenario: "swap! assoc, in place", n: n, c: measure(ops: n) { cljCall(atomAssocFn, clj_fixnum(n)) }, swift: measure(ops: n) { aLockedInsert(n) }))
-	atomRows.append(AtomRow(scenario: "swap! assoc, second holder", n: n, c: measure(ops: n) { cljCall(atomAssocHolderFn, clj_fixnum(n)) }, swift: nil))
+	for keys in [16, 1_000, 100_000] {
+		let m = cBuild(Array(0..<keys)), a = clj_atom_new(m, CLJ_NIL, CLJ_NIL), s = LockedState()
+		clj_release(m)
+		for i in 0..<keys { s.dict[i] = i }
+		var salt = 0
+		atomRows.append(AtomRow(scenario: "swap! assoc, map of \(keys) keys", n: n, c: measure(ops: n) { salt += 1; return cAtomAssocSized(a, n: n, keys: keys, salt: salt) }, swift: measure(ops: n) { salt += 1; return aLockedInsert(s, n: n, keys: keys, salt: salt) }))
+		clj_release(a)
+	}
 	atomRows.append(AtomRow(scenario: "swap! assoc, watched", n: n, c: measure(ops: n) { cljCall(atomAssocWatchedFn, clj_fixnum(n)) }, swift: nil))
 	atomRows.append(AtomRow(scenario: "loop assoc into a map (no atom)", n: n, c: measure(ops: n) { cGrowLoop(loopAssocRefFn, n) }, swift: nil))
 	atomRows.append(AtomRow(scenario: "swap! inc", n: n, c: measure(ops: n) { cljCall(atomIncFn, clj_fixnum(n)) }, swift: measure(ops: n) { aLockedInc(n, threads: 1) }))
@@ -802,8 +818,7 @@ do {
 	atomRows.append(AtomRow(scenario: "swap! inc, 4 threads", n: n, c: measure(ops: n) { cContended(contendedIncFn, threads: 4, each: clj_fixnum(n / 4)) }, swift: measure(ops: n) { aLockedInc(n, threads: 4) }))
 	atomRows.append(AtomRow(scenario: "swap! assoc, 4 threads", n: n, c: measure(ops: n) { cContended(contendedAssocFn, threads: 4, each: CLJ_NIL) }, swift: nil))
 }
-clj_release(atomAssocFn)
-clj_release(atomAssocHolderFn)
+clj_release(atomAssocSizedFn)
 clj_release(atomAssocWatchedFn)
 clj_release(atomIncFn)
 clj_release(atomDerefFn)
@@ -818,4 +833,4 @@ print("|---|---:|---:|---:|---:|")
 for r in atomRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
 }
-print("\nns per iteration; swap! assoc = (swap! a assoc i i) in a loop, second holder = the same with (let [old @a] ...) around it, watched = the same on an atom with a no-op watch, swap! inc / get @atom :k = the same loops, 4 threads = four DispatchQueue.concurrentPerform workers sharing one atom (n ops in total); Swift locked = an os_unfair_lock around a Dictionary insert / an Int increment / a Dictionary read")
+print("\nns per iteration; swap! assoc, map of K keys = (swap! a assoc k v) with k cycling through the keys of a prebuilt map the atom alone holds and v new every call, watched = (swap! a assoc i i) growing a map on an atom with a no-op watch, swap! inc / get @atom :k = the same loops, 4 threads = four DispatchQueue.concurrentPerform workers sharing one atom (n ops in total); Swift locked = an os_unfair_lock around a Dictionary insert / an Int increment / a Dictionary read")

@@ -215,10 +215,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   "Atoms"; `clj_debug_rc_ops` counts the plain, shared and immortal paths in debug builds, one relaxed
   atomic add per retain/release, the same process-wide-counter caveat as the live count above). The flag
   is monotone, so the first `reset!` puts the whole domain on the atomic path, ~80 pairs per state tick,
-  on the order of 300 ns — the same order as one in-place `swap! assoc` (140) and a fifth of a copied one
-  (765). BRC is not taken: the in-place hand-over recovers more per swap than the owner-bias could on the
-  pairs, and the copy path is dominated by node copies, not their retains. Trigger: a profile of a real
-  app-state loop where the atomic pairs show next to the interpreter's per-node cost.
+  on the order of 300 ns — the same order as one `swap! assoc` (288–904 ns at 16–100000 keys, the path
+  copy of the "Atoms" entry under Builtins). BRC is not taken: the copy path is dominated by the node
+  copies, not by their retains (measured while the hand-over existed: 140 in place against 765 copied).
+  Trigger: a profile of a real app-state loop where the atomic pairs show next to the interpreter's
+  per-node cost.
 
 ## Map (Sources/CljCore/map.c)
 
@@ -725,32 +726,32 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `swap!` (any arity), `swap-vals!`, `reset-vals!`, `compare-and-set!` (`identical?`), `add-watch`/
   `remove-watch`, `set-validator!`/`get-validator`, `atom?`, `meta`/`alter-meta!`/`reset-meta!`; the
   type name `Atom`. One `clj_lock` per atom; `f` runs *exactly once* under it (no CAS retry loop, so an
-  `f` with side effects runs them once), the validator runs under it too, watches run after it with
+  `f` with side effects runs them once) on the value borrowed from the atom — the atom keeps its
+  reference, `f` sees it at +0 — the validator runs under it too, watches run after it with
   `(f key atom old new)` (a watch may deref and swap the atom; a throwing watch propagates after the
   store, the remaining watches are skipped), `deref` takes the lock (a load and an atomic retain, ~2 ns
-  more than a volatile). The lock is not recursive: a nested `swap!`/`reset!`/`deref`/`alter-meta!` on
-  the *same* atom from inside `f`, a validator or an `alter-meta!` fn throws "<op> on an atom this
-  thread is already swapping (nested swap! trap)" (the owner thread id lives in the atom; the JVM
-  retries forever). **Publication:** everything stored into an atom — value, meta, validator, watches —
-  is `clj_share`d before the store, whether or not the atom itself is shared: the atom is a publication
-  point, so a value read on another thread is on the atomic path from its first store. **The uniqueness
-  trick:** with no validator and no watches, `swap!` hands the atom's own reference to `f` — a
-  consuming native (`assoc`, `conj`, `dissoc`, `disj`, `with-meta`) through `clj_call`'s consuming
-  hand-over, a closure through `clj_call_invoke_owning` (its frame owns param 0, so a last-use read of
-  the param inside the body hands it on) — and the atom holds nil meanwhile, so `(swap! a assoc :k v)`
-  and `(swap! a (fn [m] (assoc m :k v)))` both update in place when nothing else holds the map
-  (bench/RESULTS.md, "Atoms"). Consequences: a throw out of such an `f` leaves the atom at **nil** (the
-  value went with the frame; the JVM keeps the old one) — a watched or validated atom keeps the old
-  value across a throw, since watches need `old` intact (the design's path diff `new[k] === old[k]`
-  needs it too) and a validator may reject `new`, so those atoms take the copying path (a second
-  holder: one path copy per swap, the "second holder" bench row); `swap-vals!` keeps the old value the
-  same way. A big frame (> 64 slots), a variadic `f` taking the value in its rest list and a
-  non-consuming native are called at +0 and the reference released after. Triggers: a profile showing
-  the copying path on a watched app-state atom (then a watch-aware hand-over: hold `old` only while
-  watches exist and pass it +0 — the same as today, so the real trigger is the throw-to-nil
-  semantics: if a user hits it, retain `old` when `f` is a closure and measure the loss); `IRef`/`IAtom`
-  as interfaces (a deftype implementing `deref`); `agent`/`ref` (no); `swap!` returning a
-  `reduced`-style early exit (no).
+  more than a volatile). **JVM semantics on a throw:** a throw out of `f`, a validator rejection or the
+  nested-op trap leaves the state exactly as it was; `(swap! a (fn [s] (if ok (assoc s …) (throw …))))`
+  is a rejection idiom and code relies on it. There is no hand-over of the atom's reference to `f`: the
+  uniqueness trick (the atom at nil while `f` ran, `assoc` in place through a consuming native or a frame
+  owning param 0, `clj_call_invoke_owning`) was tried and removed, because a throw after an in-place step
+  cannot restore a version that no longer exists, and an undo journal was judged too complex for the gain.
+  The price is one root-to-leaf path copy per `swap! assoc` on a shared map: 91 → 288 ns at 16 keys, 101 →
+  613 at 1000, 131 → 904 at 100000 (bench/RESULTS.md, "Atoms", the dated subsection); `swap! inc`, `deref`,
+  the watched and the 4-thread rows did not move. `deref` of the same atom from inside `f`, a validator or
+  an `alter-meta!` fn returns the current (old) value, as on the JVM: the lock holder reads its own atom
+  without taking the lock again (`held_by_me`, the owner thread id in the atom). The lock is not recursive,
+  so the trap stays for every op that would take it — a nested `swap!`, `swap-vals!`, `reset!`,
+  `reset-vals!`, `compare-and-set!`, `add-watch`, `set-validator!`, `alter-meta!`, `meta`, ... on the
+  *same* atom from inside `f`, a validator or an `alter-meta!` fn throws "<op> on an atom this thread is
+  already swapping (nested swap! trap)" (the JVM retries forever). **Publication:** everything stored into
+  an atom — value, meta, validator, watches — is `clj_share`d before the store, whether or not the atom
+  itself is shared: the atom is a publication point, so a value read on another thread is on the atomic
+  path from its first store. Triggers: the uniqueness trick returns only for atoms without watches or a
+  validator (both need `old` intact), and only with either a proven no-throw `f` (the `throws` fact of the
+  design's lattice, §3) or an undo journal, whichever is cheaper — when a profile shows `swap!` on a large
+  map hot (the 100000-key row is a 4-level trie, not a typical atom); `IRef`/`IAtom` as interfaces (a
+  deftype implementing `deref`); `agent`/`ref` (no); `swap!` returning a `reduced`-style early exit (no).
 - **Volatiles are single-thread cells by contract** (`volatile!`, `vreset!`, `vswap!`; box.c): a
   read returns the value retained, a write retains the new value, shares it when the cell is
   shared (so a volatile published through a var keeps the RC invariant) and releases the old one
