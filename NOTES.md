@@ -440,6 +440,16 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `closure_run` per element without the type dispatch, the fn-kind switch and the arity search; a
   fn that does not take the count still goes through `clj_invoke`, which reports it (measured
   against `clj_invoke` per element in bench/RESULTS.md, "IReduce").
+  A plain native (`CLJ_FN_NATIVE`) at the head — a builtin in a local, a captured slot, a param or a
+  user var — is called from the site's borrowed argument buffer after the arity check `fn_invoke`
+  would make (`call_native`): no protocol probe first, no `clj_invoke`, no type slot, no kind switch
+  (~2 ns of the ~9 such a call cost; bench/RESULTS.md, "Direct native call"). Natives are leaves of
+  the shadow stack, so a throw inside reports the same frames either way. A native with a context (a
+  host fn, the fusion drivers' reducing fn), a keyword, a map or a vector at the head still go through
+  `clj_invoke`; measured from the site too, the context native gained nothing, and an intrinsic-by-value
+  variant (a reverse index from the builtin fn object to its table entries, the fixed-arity C function
+  called without the `(args, n)` convention) was within noise or worse — the builtins already forward
+  in one call. `apply` and every call from a native or the host are unchanged (`clj_invoke`).
   Debug builds count per site the calls that took a fast path (`clj_debug_exec_ic_hits`) against the
   generic ones (`..._misses`); release builds count nothing. The site array is indexed by
   `clj_node.site`, the node's ordinal among the tree's INVOKE nodes, assigned with the ids (it fills

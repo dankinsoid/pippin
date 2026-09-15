@@ -338,3 +338,50 @@ noise (±5 %).
 - The unfused rows (`transduce`, `into` with an xform, `reduce` over a range or a vector, the walks
   and calls) move within the ±5 % run-to-run spread; the +6 % on the two 5 ns rows is 0.3 ns of code
   placement, as the "C iterator" note above describes.
+
+## Direct native call at invoke sites — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+A plain native (`CLJ_FN_NATIVE`) at the head of an invoke — a builtin held in a local, a captured slot,
+a param or a user var — is called from the site's borrowed argument buffer after the arity check
+`fn_invoke` would make (`call_native`, eval.c): no `clj_is_protocol_method` probe first, no `clj_invoke`,
+no type slot, no fn-kind switch. Medians of three alternating runs of each binary (0503945 vs this
+commit), ns per element or iteration; the map and vector tables matched within their noise.
+
+| scenario | n | before | after | change |
+|---|---:|---:|---:|---:|
+| reduce + map inc range | 10 | 65.4 | 60.9 | −7 % |
+| reduce + map inc range | 1000 | 31.9 | 30.9 | −3 % |
+| reduce + map inc range | 100000 | 31.6 | 29.9 | −5 % |
+| reduce + map inc (filter even?) range | 1000 | 35.4 | 33.2 | −6 % |
+| reduce + map inc (filter even?) range | 100000 | 33.7 | 32.0 | −5 % |
+| vec (map inc range) | 1000 | 38.9 | 36.4 | −6 % |
+| vec (map inc range) | 100000 | 38.0 | 35.9 | −6 % |
+| transduce (map inc) + range | 1000 | 29.1 | 27.2 | −7 % |
+| transduce (map inc) + range | 100000 | 30.0 | 27.1 | −10 % |
+| into [] (map inc) range | 1000 | 96.6 | 93.5 | −3 % |
+| into [] (map inc) range | 100000 | 101.3 | 96.9 | −4 % |
+| reduce + range | 1000 | 5.8 | 5.5 | −5 % |
+| reduce + vector | 1000 | 5.6 | 5.3 | −5 % |
+| seq walk of a vector | 1000 | 39.1 | 37.9 | −3 % |
+| counting loop | 100000 | 15.9 | 15.6 | −2 % |
+| closure call in a loop | 100000 | 23.0 | 22.1 | −4 % |
+| protocol call, deftype receiver | 100000 | 35.7 | 36.1 | +1 % |
+| protocol call, fixnum receiver | 100000 | 37.0 | 36.8 | −1 % |
+| protocol call, bi-morphic | 100000 | 51.6 | 51.6 | 0 % |
+
+- **Fused pipeline and transduce, ~2–3 ns per element.** Of the two calls of fns held in captured slots
+  in `map`'s `[result input]` arity, `(f input)` with `f` = `inc` is a plain native and takes the new
+  path; `(rf result x)` with the driver's reducing fn is a native with a context (`clj_fn_native_ctx`)
+  and still goes through `clj_invoke`. The saving per native call is the protocol probe, the
+  `invoke_at` → `clj_invoke` → `fn_invoke` chain and its kind switch: ~2 ns of the ~9 the call cost.
+- **Two variants measured against this one and not kept**, three alternating runs each. *Intrinsic by
+  value*: a reverse index from the boot builtin fn object to its intrinsics entries (two bytes filled by
+  `clj_intrinsics_install`), the site calling the fixed-arity C function without the `(args, n)`
+  convention or the native's arity check — fused rows 30.9 → 31.5 (1k), 29.9 → 30.5 (100k), transduce
+  27.2 → 27.9, i.e. within noise or slightly worse: the builtins forward to the same function in one
+  call already, and the lookup is a branch and two loads on every native call. *Context natives from
+  the site too* (a host fn, the driver's rf): fused rows 30.4 → 31.0, transduce 27.1 → 27.1, nothing
+  measurable, so the path stays the narrow one the code can explain.
+- The rows without a native at a local head (the walk, the loops, the protocol calls) move within the
+  run-to-run spread; the two 5 ns rows are the ±0.3 ns placement swing described above.
+

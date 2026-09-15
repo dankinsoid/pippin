@@ -199,8 +199,8 @@ extension CoreTests {
 			_ = try rt.eval(names.map { "(def \($0) nil)" }.joined(separator: " "))
 		}
 
-		// Two closures of different code through one site both take the direct path; a native, a variadic
-		// closure and a closure whose frame is past the stack buffer go through the generic invoke.
+		// Two closures of different code through one site both take the direct path, a native is called from
+		// the site; a variadic closure and a closure whose frame is past the stack buffer go through the generic invoke.
 		@Test func closureSitesHitNativesAndVariadicsMiss() throws {
 			let before = clj_debug_live_objects()
 			do {
@@ -217,7 +217,7 @@ extension CoreTests {
 				 ((fn ([] :none) ([x] x)) 5) ((fn [x] (let [a 1 b 2] (+ x a b))) 1)]
 				""")
 				#expect(try generic.run() == [1, Value(list: [1, 2]), 17, 5, 4])
-				#expect(generic.hits(0) == 0 && generic.misses(0) == 1)
+				#expect(generic.hits(0) == 1 && generic.misses(0) == 0)
 				#expect(generic.hits(1) == 0 && generic.misses(1) == 1)
 				#expect(generic.hits(2) == 0 && generic.misses(2) == 1)
 				#expect(generic.hits(3) == 1 && generic.misses(3) == 0)
@@ -239,19 +239,19 @@ extension CoreTests {
 				#expect(try tree.run() == 1)
 				_ = try rt.eval("(def cs-v identity)")
 				#expect(try tree.run() == 1)
-				#expect(tree.hits() == 3 && tree.misses() == 1)
+				#expect(tree.hits() == 4 && tree.misses() == 0)
 				try unbind("cs-v")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		// A local head: the site inside `call` sees a closure, another closure, then a native.
+		// A local head: the site inside `call` sees a closure, another closure, then a native; every one a hit.
 		@Test func localHeadWithDifferentFns() throws {
 			let before = clj_debug_live_objects()
 			do {
 				let tree = try Tree("(let [call (fn [f x] (f x))] [(call (fn [x] (* x 2)) 2) (call (fn [y] (- y)) 3) (call inc 1)])")
 				#expect(try tree.run() == [4, -3, 2])
-				#expect(tree.hits(0) == 2 && tree.misses(0) == 1)
+				#expect(tree.hits(0) == 3 && tree.misses(0) == 0)
 				#expect(try rt.eval("[(map (fn [x] (* x 2)) [1 2]) (map (fn [x] (- x)) [1 2]) (map inc [1 2])]") == [Value(list: [2, 4]), Value(list: [-1, -2]), Value(list: [2, 3])])
 			}
 			#expect(clj_debug_live_objects() == before)

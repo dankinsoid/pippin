@@ -296,6 +296,13 @@ static inline clj_value invoke_at(clj_value fn, const clj_value *args, uint32_t 
 	return clj_invoke(fn, args, n);
 }
 
+// A plain native straight from the site: the arity check fn_invoke would make, then its C function. Natives
+// are leaves of the shadow stack, so a throw inside reports the same frames as through clj_invoke.
+static inline clj_value call_native(const clj_fn *nf, clj_value fn, const clj_value *args, uint32_t n) {
+	if (n < nf->min_arity || (nf->max_arity != CLJ_ARITY_ANY && n > nf->max_arity)) return clj_arity_error(fn, n);
+	return nf->u.native(args, n);
+}
+
 // The guard reads its limit from the shadow stack, the one thread-local a call touches; the limit is computed
 // on the thread's first call.
 static char *stack_limit_of(clj_shadow_stack *s) {
@@ -473,7 +480,7 @@ static clj_value invoke_protocol(clj_call_site *site, clj_value method, const cl
 
 // A closure with a fixed arity for the call and a small frame gets its arguments evaluated straight into its
 // slots: no argument buffer, no copy, and the owned mask of the evaluation is the frame's. Everything else
-// evaluates into a buffer and dispatches from there.
+// evaluates into a buffer: a plain native is called from it directly, the rest dispatches through the slot.
 // @ai-generated(guided)
 static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	bool      fn_owned;
@@ -484,7 +491,8 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	clj_value           result = CLJ_THROWN;
 	uint64_t            owned;
 	const clj_fn_arity *arity = NULL;
-	if (__builtin_expect(clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_CLOSURE && nargs <= CLJ_FN_MAX_FIXED, 1)) arity = clj_fn_of(fn)->u.node->u.fn.fixed[nargs];
+	const clj_fn       *fnp = clj_is_fn(fn) ? clj_fn_of(fn) : NULL;
+	if (__builtin_expect(fnp && fnp->kind == CLJ_FN_CLOSURE && nargs <= CLJ_FN_MAX_FIXED, 1)) arity = fnp->u.node->u.fn.fixed[nargs];
 	if (__builtin_expect(arity != NULL, 1) && arity->nslots <= SMALL_SLOTS) {
 		IC_COUNT(site, hits);
 		clj_value slots[SMALL_SLOTS];
@@ -497,7 +505,10 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 		clj_value  small[SMALL_ARGS];
 		clj_value *args = buf_alloc(small, nargs);
 		if (eval_all(n->u.invoke.args, nargs, f, args, &owned)) {
-			if (nargs && clj_is_protocol_method(fn)) {
+			if (fnp && fnp->kind == CLJ_FN_NATIVE) {
+				IC_COUNT(site, hits);
+				result = call_native(fnp, fn, args, nargs);
+			} else if (nargs && clj_is_protocol_method(fn)) {
 				result = invoke_protocol(site, fn, args, nargs, n);
 			} else {
 				IC_COUNT(site, misses);

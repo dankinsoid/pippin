@@ -49,8 +49,9 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind);
 void     clj_exec_count(clj_value exec, bool on);
 uint64_t clj_exec_hits(clj_value exec, uint32_t id);
 // Call-site counters of the invoke node with this id, counted in debug builds only (-1 otherwise): a hit
-// entered a closure body directly or called a cached protocol impl, a miss went through the generic invoke
-// (a native, a variadic or large-frame closure, a protocol dispatch through the tables, which refills).
+// entered a closure body directly, called a plain native from the site or called a cached protocol impl, a
+// miss went through the generic invoke (a host fn, a variadic or large-frame closure, a keyword or a
+// collection at the head, a protocol dispatch through the tables, which refills).
 int64_t clj_debug_exec_ic_hits(clj_value exec, uint32_t id);
 int64_t clj_debug_exec_ic_misses(clj_value exec, uint32_t id);
 // Receiver types the protocol cache of that node holds, at most CLJ_PROTO_IC_ENTRIES.
