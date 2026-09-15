@@ -513,6 +513,11 @@ func aClosureCallLoop(_ n: Int) -> UInt64 {
 let countFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))")
 let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (< i n) (recur (bench-inc i)) i)))")
 
+// The same call with the fn bound by a let around the loop, and a helper bound inside the loop body that
+// reads a loop variable: a closure per iteration unless the optimizer calls it directly.
+let letFn = cljEval("(fn [n] (let [f (fn [x] (inc x))] (loop [i 0] (if (< i n) (recur (f i)) i))))")
+let helperFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (let [add (fn [x] (+ acc x))] (recur (inc i) (add i))) acc)))")
+
 // The same loop with a protocol method call per iteration: the receiver is a deftype instance held in a
 // local (mono), a fixnum (mono, a builtin type's table), or alternating between the two (bi-morphic).
 _ = cljEval("(defprotocol BenchP (bench-m [x])) (deftype BenchT [] BenchP (bench-m [x] 1)) (extend-type Long BenchP (bench-m [x] 1))")
@@ -535,12 +540,16 @@ do {
 	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
 		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
 		swift: measure(ops: n) { aClosureCallLoop(n) }))
+	callRows.append(CallRow(scenario: "let-bound fn called in a loop", n: n, c: measure(ops: n) { cClosureCallLoop(letFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "loop with a local helper", n: n, c: measure(ops: n) { cClosureCallLoop(helperFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "protocol call, deftype receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoTypeFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "protocol call, fixnum receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoBuiltinFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "protocol call, bi-morphic", n: n, c: measure(ops: n) { cClosureCallLoop(protoBiFn, n) }, swift: nil))
 }
 clj_release(countFn)
 clj_release(callFn)
+clj_release(letFn)
+clj_release(helperFn)
 clj_release(protoTypeFn)
 clj_release(protoBuiltinFn)
 clj_release(protoBiFn)
@@ -557,4 +566,4 @@ print("|---|---:|---:|---:|---:|")
 for r in callRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
 }
-print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x))), protocol call = the same with (+ i (m x)) for a one-method protocol extended to a deftype and to Long")
+print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x))), let-bound = f bound by a let around the loop, local helper = (let [add (fn [x] (+ acc x))] ...) inside the loop body, protocol call = the same with (+ i (m x)) for a one-method protocol extended to a deftype and to Long")
