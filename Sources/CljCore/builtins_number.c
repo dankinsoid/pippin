@@ -9,12 +9,13 @@
 // ---- promoting operators: only a fixnum overflow reaches the bigint, everything else is the plain tower
 
 static clj_value promote2(clj_value a, clj_value b, clj_num_op op) {
-	if (clj_is_fixnum(a) && clj_is_fixnum(b)) {
-		intptr_t r;
-		bool     overflow = op == CLJ_OP_ADD   ? __builtin_add_overflow(clj_fixnum_val(a), clj_fixnum_val(b), &r)
-		                    : op == CLJ_OP_SUB ? __builtin_sub_overflow(clj_fixnum_val(a), clj_fixnum_val(b), &r)
-		                                       : __builtin_mul_overflow(clj_fixnum_val(a), clj_fixnum_val(b), &r);
-		if (!overflow && r <= CLJ_FIXNUM_MAX && r >= CLJ_FIXNUM_MIN) return clj_fixnum(r);
+	int64_t x, y;
+	if (clj_int64_of(a, &x) && clj_int64_of(b, &y)) {
+		int64_t r;
+		bool    overflow = op == CLJ_OP_ADD   ? __builtin_add_overflow(x, y, &r)
+		                   : op == CLJ_OP_SUB ? __builtin_sub_overflow(x, y, &r)
+		                                      : __builtin_mul_overflow(x, y, &r);
+		if (!overflow) return clj_long_new(r);
 		switch (op) {
 		case CLJ_OP_ADD: return clj_bigint_add(a, b);
 		case CLJ_OP_SUB: return clj_bigint_sub(a, b);
@@ -75,7 +76,10 @@ static clj_value b_num_eq(const clj_value *args, size_t n) {
 
 static bool is_rational(clj_value v) { return clj_is_integer(v) || clj_is_ratio(v) || clj_is_decimal(v); }
 
-PRED(b_int_p, clj_is_fixnum)
+// A long in either representation; a bigint is not an int? on the JVM either.
+static bool is_long(clj_value v) { return clj_is_fixnum(v) || clj_is_long(v); }
+
+PRED(b_int_p, is_long)
 PRED(b_double_p, clj_is_double)
 PRED(b_ratio_p, clj_is_ratio)
 PRED(b_decimal_p, clj_is_decimal)
@@ -110,28 +114,28 @@ static clj_value not_a_number(clj_value v) { return clj_throw_msg("%s cannot be 
 
 // RT.intCast(double) rejects before truncating, so 2147483647.000001 is out of range for int.
 static clj_value int_cast(clj_value v, const char *what, int64_t lo, int64_t hi, bool chars) {
-	if (clj_is_fixnum(v)) {
-		int64_t i = clj_fixnum_val(v);
-		return i < lo || i > hi ? range_error(what, v) : clj_fixnum((intptr_t)i);
-	}
+	int64_t i;
+	if (clj_int64_of(v, &i)) return i < lo || i > hi ? range_error(what, v) : clj_long_new(i);
 	if (chars && clj_is_char(v)) return clj_fixnum(clj_char_val(v));
 	if (clj_is_double(v)) {
 		double d = clj_double_val(v);
-		if (!(d >= (double)lo && d <= (double)hi)) return range_error(what, v);
-		int64_t i = (int64_t)trunc(d);
-		return i < lo || i > hi ? range_error(what, v) : clj_fixnum((intptr_t)i);
+		// (double)INT64_MAX rounds up to 2^63, which no int64_t holds, so the long bound is exclusive.
+		bool in_range = hi == INT64_MAX ? d >= (double)lo && d < 9223372036854775808.0 : d >= (double)lo && d <= (double)hi;
+		if (!in_range) return range_error(what, v);
+		i = (int64_t)trunc(d);
+		return i < lo || i > hi ? range_error(what, v) : clj_long_new(i);
 	}
 	if (!clj_is_number(v)) return not_a_number(v);
 	clj_value t = clj_num_truncate(v);
-	int64_t   i = 0;
-	bool      ok = clj_bigint_to_i64(t, &i) && i >= lo && i <= hi;
+	i = 0;
+	bool ok = clj_bigint_to_i64(t, &i) && i >= lo && i <= hi;
 	clj_release(t);
-	return ok ? clj_fixnum((intptr_t)i) : range_error(what, v);
+	return ok ? clj_long_new(i) : range_error(what, v);
 }
 
 static clj_value b_long(const clj_value *args, size_t n) {
 	(void)n;
-	return int_cast(args[0], "long", CLJ_FIXNUM_MIN, CLJ_FIXNUM_MAX, true);
+	return int_cast(args[0], "long", INT64_MIN, INT64_MAX, true);
 }
 
 static clj_value b_int(const clj_value *args, size_t n) {
@@ -229,13 +233,13 @@ static clj_value b_rationalize(const clj_value *args, size_t n) {
 static clj_value b_numerator(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_ratio(args[0])) return clj_throw_msg("%s cannot be cast to a ratio", clj_type_name(args[0]));
-	return clj_retain(clj_ratio_num(args[0]));
+	return clj_bigint_demote(clj_ratio_num(args[0]));
 }
 
 static clj_value b_denominator(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_ratio(args[0])) return clj_throw_msg("%s cannot be cast to a ratio", clj_type_name(args[0]));
-	return clj_retain(clj_ratio_den(args[0]));
+	return clj_bigint_demote(clj_ratio_den(args[0]));
 }
 
 // ---- parsing, nil on a text that is not the whole number (the JVM contract)
@@ -253,9 +257,9 @@ static clj_value b_parse_long(const clj_value *args, size_t n) {
 	clj_value big = clj_bigint_parse(s, len, 10);
 	if (clj_is_nil(big)) return CLJ_NIL;
 	int64_t v;
-	bool    fits = clj_bigint_to_i64(big, &v) && v >= CLJ_FIXNUM_MIN && v <= CLJ_FIXNUM_MAX;
+	bool    fits = clj_bigint_to_i64(big, &v);
 	clj_release(big);
-	return fits ? clj_fixnum((intptr_t)v) : CLJ_NIL;
+	return fits ? clj_long_new(v) : CLJ_NIL;
 }
 
 static bool all_digits(const char *s, size_t from, size_t to) {
@@ -299,13 +303,14 @@ static clj_value b_parse_double(const clj_value *args, size_t n) {
 	return clj_double_new(strtod(buf, NULL));
 }
 
-// ---- unchecked arithmetic, wrapping at the 63-bit fixnum rather than the JVM's 64-bit long (NOTES.md)
+// ---- unchecked arithmetic: two's-complement wrap at 64 bits, as on the JVM
 
 static clj_value unchecked2(const clj_value *args, clj_num_op op) {
-	if (!clj_is_fixnum(args[0]) || !clj_is_fixnum(args[1])) return clj_num_arith(args[0], args[1], op);
-	uint64_t x = (uint64_t)(int64_t)clj_fixnum_val(args[0]), y = (uint64_t)(int64_t)clj_fixnum_val(args[1]);
+	int64_t a, b;
+	if (!clj_int64_of(args[0], &a) || !clj_int64_of(args[1], &b)) return clj_num_arith(args[0], args[1], op);
+	uint64_t x = (uint64_t)a, y = (uint64_t)b;
 	uint64_t r = op == CLJ_OP_ADD ? x + y : op == CLJ_OP_SUB ? x - y : x * y;
-	return clj_fixnum((intptr_t)r);
+	return clj_long_new((int64_t)r);
 }
 
 static clj_value b_unchecked_add(const clj_value *args, size_t n) { (void)n; return unchecked2(args, CLJ_OP_ADD); }
@@ -313,13 +318,14 @@ static clj_value b_unchecked_subtract(const clj_value *args, size_t n) { (void)n
 static clj_value b_unchecked_multiply(const clj_value *args, size_t n) { (void)n; return unchecked2(args, CLJ_OP_MUL); }
 
 static clj_value unchecked1(clj_value v, int64_t delta, bool negate) {
-	if (!clj_is_fixnum(v)) {
+	int64_t i;
+	if (!clj_int64_of(v, &i)) {
 		if (negate) return clj_num_arith(clj_fixnum(0), v, CLJ_OP_SUB);
 		return clj_num_arith(v, clj_fixnum(delta), CLJ_OP_ADD);
 	}
-	uint64_t x = (uint64_t)(int64_t)clj_fixnum_val(v);
+	uint64_t x = (uint64_t)i;
 	uint64_t r = negate ? 0u - x : x + (uint64_t)delta;
-	return clj_fixnum((intptr_t)r);
+	return clj_long_new((int64_t)r);
 }
 
 static clj_value b_unchecked_inc(const clj_value *args, size_t n) { (void)n; return unchecked1(args[0], 1, false); }

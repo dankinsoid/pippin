@@ -37,8 +37,7 @@ public struct Value: Sendable {
 	}
 
 	public init(_ n: Int) {
-		precondition(Self.fixnumRange.contains(n), "fixnum out of range")
-		self.init(owning: clj_fixnum(n))
+		self.init(owning: clj_long_new(Int64(n)))
 	}
 
 	public init(_ c: Unicode.Scalar) {
@@ -88,7 +87,10 @@ public struct Value: Sendable {
 	public var isNil: Bool { clj_is_nil(raw) }
 	public var isTruthy: Bool { clj_truthy(raw) }
 
-	public var int: Int? { clj_is_fixnum(raw) ? clj_fixnum_val(raw) : nil }
+	public var int: Int? {
+		var i: Int64 = 0
+		return withExtendedLifetime(self) { clj_int64_of(raw, &i) ? Int(i) : nil }
+	}
 	public var bool: Bool? { clj_is_bool(raw) ? raw == CLJ_TRUE : nil }
 	public var scalar: Unicode.Scalar? { clj_is_char(raw) ? Unicode.Scalar(clj_char_val(raw)) : nil }
 	public var double: Double? { clj_is_double(raw) ? clj_double_val(raw) : nil }

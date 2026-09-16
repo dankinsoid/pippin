@@ -34,7 +34,7 @@ extension CoreTests {
 				#expect(try eval("[(unreduced (reduced 1)) (unreduced 2) (reduced? (ensure-reduced 1)) (reduced? (ensure-reduced (reduced 1))) @(ensure-reduced (reduced 3))]") == [1, 2, true, true, 3])
 				#expect(try eval("(let [r (reduced 1)] (identical? r (ensure-reduced r)))") == true)
 				#expect(try eval("[(= (reduced 1) (reduced 1)) (let [r (reduced 1)] (= r r)) (pr-str (reduced 1)) (instance? Reduced (reduced 1))]") == [false, true, "#object[reduced]", true])
-				#expect(message("(deref 1)") == "deref not supported on this type: fixnum")
+				#expect(message("(deref 1)") == "deref not supported on this type: long")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -47,7 +47,7 @@ extension CoreTests {
 				#expect(try eval("(let [v (volatile! 1)] [(volatile? v) @v (vreset! v 2) @v (vswap! v + 10) (deref v)])") == [true, 1, 2, 2, 12, 12])
 				#expect(try eval("[(volatile? 1) (pr-str (volatile! nil)) (instance? Volatile (volatile! 1))]") == [false, "#object[volatile]", true])
 				#expect(try eval("(macroexpand-1 '(vswap! v f a b))").description == "(clojure.core/vreset! v (f (clojure.core/deref v) a b))")
-				#expect(message("(vreset! 1 2)") == "vreset! expects a volatile, got: fixnum")
+				#expect(message("(vreset! 1 2)") == "vreset! expects a volatile, got: long")
 				// A value stored into a published volatile joins the shared graph.
 				_ = try eval("(def tx-shared (volatile! nil)) (vreset! tx-shared [1 [2]])")
 				let stored = try eval("@tx-shared")
@@ -79,7 +79,7 @@ extension CoreTests {
 				#expect(message("(reduce + (reduced 7) [1 2])") == "reduced cannot be cast to a number")
 				#expect(message("(reduce conj (reduced [0]) (range))") == "conj not supported on this type: reduced")
 				#expect(try eval("(apply reduce + [[1 2]])") == 3)
-				#expect(message("(reduce + 5)") == "Don't know how to create ISeq from: fixnum")
+				#expect(message("(reduce + 5)") == "Don't know how to create ISeq from: long")
 				#expect(message("(reduce + 0 :a)") == "Don't know how to create ISeq from: keyword")
 				#expect(message("(reduce)") == "Wrong number of args (0) passed to: clojure.core/reduce")
 				#expect(message("(reduce (fn [a x] (throw (ex-info \"in f\" {}))) 0 [1])") == "in f")
@@ -163,7 +163,7 @@ extension CoreTests {
 				#expect(message("(doall (sequence (map inc) (lazy-seq (throw (ex-info \"seq\" {})))))") == "seq")
 				#expect(message("(reduce + (eduction (map inc) (lazy-seq (throw (ex-info \"ed\" {})))))") == "ed")
 				#expect(message("(into [] (map (fn [x] (throw (ex-info \"in xf\" {})))) [1])") == "in xf")
-				#expect(message("(into [] (map inc) 5)") == "Don't know how to create ISeq from: fixnum")
+				#expect(message("(into [] (map inc) 5)") == "Don't know how to create ISeq from: long")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -239,7 +239,7 @@ extension CoreTests {
 				#expect(try eval("(into [] (take 2) (eduction (map inc) (range)))") == [1, 2])
 				#expect(message("(into [] (map inc) (lazy-seq (throw (ex-info \"x\" {}))))") == "x")
 				#expect(message("(into [] (lazy-seq (throw (ex-info \"y\" {}))))") == "y")
-				#expect(message("(into 1 [2])") == "conj not supported on this type: fixnum")
+				#expect(message("(into 1 [2])") == "conj not supported on this type: long")
 				#expect(message("(into)") == "Wrong number of args (0) passed to: clojure.core/into")
 			}
 			#expect(clj_debug_live_objects() == before)

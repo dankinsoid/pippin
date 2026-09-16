@@ -27,7 +27,7 @@ clj_value clj_bigint_parse(const char *s, size_t n, unsigned radix);
 bool      clj_bigint_to_i64(clj_value v, int64_t *out);
 // ±HUGE_VAL past the double range.
 double    clj_bigint_to_double(clj_value v);
-// A fixnum when the value fits one, else v retained: what a fixnum-domain operation returns.
+// The canonical integer: a fixnum, else a boxed long, else v retained.
 clj_value clj_bigint_demote(clj_value v);
 
 clj_value clj_bigint_add(clj_value a, clj_value b);

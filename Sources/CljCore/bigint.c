@@ -4,9 +4,10 @@
 #include <string.h>
 
 #include "clj/bigint.h"
+#include "clj/long.h"
 #include "clj/string.h"
 
-// Every entry point takes a fixnum or a bigint and returns a bigint; only clj_bigint_demote narrows.
+// Every entry point takes a long (fixnum or box) or a bigint and returns a bigint; only clj_bigint_demote narrows.
 typedef struct {
 	const uint32_t *limbs;
 	uint32_t        n;
@@ -15,8 +16,8 @@ typedef struct {
 } view;
 
 static void view_of(clj_value v, view *out) {
-	if (clj_is_fixnum(v)) {
-		int64_t  x = clj_fixnum_val(v);
+	int64_t x;
+	if (clj_int64_of(v, &x)) {
 		uint64_t m = x < 0 ? -(uint64_t)x : (uint64_t)x;
 		out->tmp[0] = (uint32_t)m;
 		out->tmp[1] = (uint32_t)(m >> 32);
@@ -133,9 +134,10 @@ static uint32_t bigint_hash(void *self) {
 
 static bool bigint_equals(void *self, clj_value other) {
 	clj_value v = clj_from_ptr(self);
-	if (clj_is_fixnum(other)) {
+	int64_t   x;
+	if (clj_int64_of(other, &x)) {
 		int64_t i;
-		return clj_bigint_to_i64(v, &i) && i == (int64_t)clj_fixnum_val(other);
+		return clj_bigint_to_i64(v, &i) && i == x;
 	}
 	return clj_is_bigint(other) && clj_bigint_cmp(v, other) == 0;
 }
@@ -244,7 +246,7 @@ double clj_bigint_to_double(clj_value v) {
 
 clj_value clj_bigint_demote(clj_value v) {
 	int64_t i;
-	if (clj_bigint_to_i64(v, &i) && i >= CLJ_FIXNUM_MIN && i <= CLJ_FIXNUM_MAX) return clj_fixnum((intptr_t)i);
+	if (clj_bigint_to_i64(v, &i)) return clj_long_new(i);
 	return clj_retain(v);
 }
 

@@ -66,7 +66,7 @@ extension CoreTests {
 				#expect(try rt.eval("(pr-str (type (->Rect 1 2)))") == "user.Rect")
 				#expect(try rt.eval("(identical? (type (->Rect 1 2)) Rect)") == true)
 				#expect(message(rt, "(perimeter (->Circle 1))") == "No implementation of method: :perimeter of protocol: #'user/Shape found for type: user.Circle")
-				#expect(message(rt, "(area 42)") == "No implementation of method: :area of protocol: #'user/Shape found for type: fixnum")
+				#expect(message(rt, "(area 42)") == "No implementation of method: :area of protocol: #'user/Shape found for type: long")
 				#expect(message(rt, "(area nil)") == "No implementation of method: :area of protocol: #'user/Shape found for type: nil")
 				#expect(message(rt, "(area)") == "Wrong number of args (0) passed to: user/area")
 				#expect(message(rt, "(area (->Rect 1 1) 2)") == "Wrong number of args (2) passed to: user/area")

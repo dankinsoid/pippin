@@ -307,7 +307,7 @@ extension CoreTests {
 				#expect(try rt.eval("(let [v (vector 0)] (into v (map inc) (range 3)))") == [0, 1, 2, 3])
 				#expect(try rt.eval("[(into [] (map inc) nil) (into nil (map inc) [1])]") == [[], Value(list: [2])])
 				#expect(message { try rt.eval("(into [] (map (fn [x] (throw (ex-info \"xf\" {})))) [1])") } == "xf")
-				#expect(message { try rt.eval("(into [] (map inc) 1)") } == "Don't know how to create ISeq from: fixnum")
+				#expect(message { try rt.eval("(into [] (map inc) 1)") } == "Don't know how to create ISeq from: long")
 				#expect(try rt.eval("(= (into [] (map inc) (range 5)) (transduce (map inc) conj [] (range 5)))") == true)
 			}
 			#expect(clj_debug_live_objects() == before)

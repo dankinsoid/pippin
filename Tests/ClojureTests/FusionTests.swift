@@ -269,7 +269,7 @@ extension CoreTests {
 							clj_fusion_set_enabled(was)
 							let nonSeqable = source == "5" || source == ":k"
 							if nonSeqable && stage == "(take 0 %)" {
-								#expect(on == .thrown("#error {:message \"Don't know how to create ISeq from: \(source == "5" ? "fixnum" : "keyword")\", :data nil}"), Comment(rawValue: form))
+								#expect(on == .thrown("#error {:message \"Don't know how to create ISeq from: \(source == "5" ? "long" : "keyword")\", :data nil}"), Comment(rawValue: form))
 							} else {
 								#expect(on == off, Comment(rawValue: form))
 							}
@@ -355,8 +355,8 @@ extension CoreTests {
 				#expect(source.message == "source" && source.trace.last?.fn == "user/fu-source" && source.trace.last?.line == 1)
 				let f = try #require(clojureError("(fu-f)"))
 				#expect(f.message == "f" && f.trace.first?.fn == nil && f.trace.last?.fn == "user/fu-f")
-				#expect(clojureError("(fu-into)")?.message == "conj not supported on this type: fixnum")
-				#expect(evalMessage("(reduce + (map inc 5))") == "Don't know how to create ISeq from: fixnum")
+				#expect(clojureError("(fu-into)")?.message == "conj not supported on this type: long")
+				#expect(evalMessage("(reduce + (map inc 5))") == "Don't know how to create ISeq from: long")
 				#expect(evalMessage("(reduce + (map inc [1 :k]))") == "keyword cannot be cast to a number")
 				#expect(evalMessage("(vec (take :k [1]))") == "keyword cannot be cast to a number")
 				#expect(evalMessage("(count (map 1 [1]))") == "1 cannot be invoked")
@@ -453,7 +453,7 @@ extension CoreTests {
 				#expect(try cljEval("[(fused-into* [] (range 3) [(filter odd?)]) (fused-into* () [1 2] []) (fused-count* (range 5) [(take 2)]) (fused-count* nil [])]") == [[1], Value(list: [2, 1]), 2, 0])
 				#expect(try cljEval("(fused-reduce* (fn [a x] (reduced [a x])) [1 2 3] [(map inc)])") == [2, 3])
 				#expect(try cljEval("(let [seen (volatile! [])] (fused-reduce* + 0 [1 2] [(fn [rf] (fn ([r] (rf r)) ([r x] (vswap! seen conj r) (rf r x))))]) @seen)") == [nil, nil])
-				#expect(evalMessage("(fused-count* [1] 5)") == "fused driver expects a vector of transducers, got: fixnum")
+				#expect(evalMessage("(fused-count* [1] 5)") == "fused driver expects a vector of transducers, got: long")
 				#expect(evalMessage("(fused-reduce* + [1] [inc])") == "fn cannot be cast to a number")
 				#expect(evalMessage("(fused-reduce* + [1 :k] [(map inc)])") == "keyword cannot be cast to a number")
 				#expect(evalMessage("(fused-into* [] [1] [(map (fn [x] (throw (ex-info \"xf\" {}))))])") == "xf")

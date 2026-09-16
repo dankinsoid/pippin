@@ -65,8 +65,8 @@ static clj_value arith2(clj_value a, clj_value b, clj_num_op op) {
 		if (!overflow) r = x.i / y.i;
 		break;
 	}
-	if (overflow || r > CLJ_FIXNUM_MAX || r < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
-	return clj_fixnum(r);
+	if (overflow) return clj_throw_msg("integer overflow");
+	return clj_long_new(r);
 }
 
 clj_value clj_add(clj_value a, clj_value b) { return arith2(a, b, CLJ_OP_ADD); }
@@ -198,15 +198,16 @@ clj_value clj_pos_p(clj_value v) { return sign_test(v, CMP_GT); }
 clj_value clj_neg_p(clj_value v) { return sign_test(v, CMP_LT); }
 
 static clj_value parity(clj_value v, bool want_even) {
-	bool even;
-	if (clj_is_fixnum(v)) {
-		even = clj_fixnum_val(v) % 2 == 0;
+	bool    even;
+	int64_t i;
+	if (clj_int64_of(v, &i)) {
+		even = i % 2 == 0;
 	} else if (clj_is_bigint(v)) {
 		clj_bigint *b = clj_bigint_of(v);
 		even = b->n == 0 || (b->limbs[0] & 1) == 0;
 	} else {
-		intptr_t i;
-		return int_arg(v, &i);
+		intptr_t n;
+		return int_arg(v, &n);
 	}
 	return clj_bool(even == want_even);
 }
@@ -1093,10 +1094,9 @@ typedef struct {
 
 #define ANY CLJ_ARITY_ANY
 
-static clj_value int_args(const char *what, const clj_value *args, size_t n, intptr_t *out) {
+static clj_value int_args(const char *what, const clj_value *args, size_t n, int64_t *out) {
 	for (size_t i = 0; i < n; i++) {
-		if (!clj_is_fixnum(args[i])) return clj_throw_msg("%s: %s cannot be cast to an integer", what, clj_type_name(args[i]));
-		out[i] = clj_fixnum_val(args[i]);
+		if (!clj_int64_of(args[i], &out[i])) return clj_throw_msg("%s: %s cannot be cast to an integer", what, clj_type_name(args[i]));
 	}
 	return CLJ_NIL;
 }
@@ -1112,8 +1112,7 @@ static clj_value b_quot(const clj_value *args, size_t n) {
 		return clj_double_new(q < 0 ? __builtin_ceil(q) : __builtin_floor(q));
 	}
 	if (y.i == 0) return clj_throw_msg("Divide by zero");
-	if (x.i == CLJ_FIXNUM_MIN && y.i == -1) return clj_throw_msg("integer overflow");
-	return clj_fixnum(x.i / y.i);
+	return clj_long_new(x.i / y.i);
 }
 
 static clj_value b_rem(const clj_value *args, size_t n) {
@@ -1134,11 +1133,11 @@ static clj_value b_rem(const clj_value *args, size_t n) {
 typedef enum { BIT_AND, BIT_OR, BIT_XOR, BIT_AND_NOT } bit_op;
 
 static clj_value bitwise(const char *what, const clj_value *args, size_t n, bit_op op) {
-	intptr_t v[2];
+	int64_t v[2];
 	if (int_args(what, args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
-	intptr_t r = v[0];
+	int64_t r = v[0];
 	for (size_t i = 1; i < n; i++) {
-		intptr_t y;
+		int64_t y;
 		if (int_args(what, args + i, 1, &y) == CLJ_THROWN) return CLJ_THROWN;
 		switch (op) {
 		case BIT_AND: r &= y; break;
@@ -1147,7 +1146,7 @@ static clj_value bitwise(const char *what, const clj_value *args, size_t n, bit_
 		case BIT_AND_NOT: r &= ~y; break;
 		}
 	}
-	return clj_fixnum(r);
+	return clj_long_new(r);
 }
 
 static clj_value b_bit_and(const clj_value *args, size_t n) { return bitwise("bit-and", args, n, BIT_AND); }
@@ -1157,29 +1156,21 @@ static clj_value b_bit_and_not(const clj_value *args, size_t n) { return bitwise
 
 static clj_value b_bit_not(const clj_value *args, size_t n) {
 	(void)n;
-	intptr_t v;
+	int64_t v;
 	if (int_args("bit-not", args, 1, &v) == CLJ_THROWN) return CLJ_THROWN;
-	return clj_fixnum(~v);
+	return clj_long_new(~v);
 }
 
-// Shifts act on the 63-bit fixnum payload as if it were a 64-bit long: a shift of a value that leaves the
-// fixnum range throws rather than wrapping (NOTES.md).
 static clj_value shift(const char *what, const clj_value *args, int dir) {
-	intptr_t v[2];
+	int64_t v[2];
 	if (int_args(what, args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
-	int64_t x = v[0];
+	int64_t  x = v[0];
 	unsigned s = (unsigned)(v[1] & 63);
 	int64_t  r;
-	if (dir > 0) {
-		r = (int64_t)((uint64_t)x << s);
-		if (r > CLJ_FIXNUM_MAX || r < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
-	} else if (dir < 0) {
-		r = x >> s;
-	} else {
-		r = (int64_t)((uint64_t)x >> s);
-		if (r > CLJ_FIXNUM_MAX) return clj_throw_msg("integer overflow");
-	}
-	return clj_fixnum((intptr_t)r);
+	if (dir > 0) r = (int64_t)((uint64_t)x << s);
+	else if (dir < 0) r = x >> s;
+	else r = (int64_t)((uint64_t)x >> s);
+	return clj_long_new(r);
 }
 
 static clj_value b_bit_shift_left(const clj_value *args, size_t n) { (void)n; return shift("bit-shift-left", args, 1); }
@@ -1188,19 +1179,18 @@ static clj_value b_unsigned_bit_shift_right(const clj_value *args, size_t n) { (
 
 static clj_value b_bit_test(const clj_value *args, size_t n) {
 	(void)n;
-	intptr_t v[2];
+	int64_t v[2];
 	if (int_args("bit-test", args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
 	return clj_bool(((uint64_t)v[0] >> (v[1] & 63)) & 1);
 }
 
 static clj_value bit_set_op(const char *what, const clj_value *args, int op) {
-	intptr_t v[2];
+	int64_t v[2];
 	if (int_args(what, args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
 	uint64_t mask = (uint64_t)1 << (v[1] & 63);
 	uint64_t x = (uint64_t)v[0];
 	uint64_t r = op > 0 ? x | mask : op < 0 ? x & ~mask : x ^ mask;
-	if ((int64_t)r > CLJ_FIXNUM_MAX || (int64_t)r < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
-	return clj_fixnum((intptr_t)r);
+	return clj_long_new((int64_t)r);
 }
 
 static clj_value b_bit_set(const clj_value *args, size_t n) { (void)n; return bit_set_op("bit-set", args, 1); }

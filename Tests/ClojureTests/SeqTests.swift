@@ -44,11 +44,11 @@ extension CoreTests {
 				#expect(try eval("(seq? (rest (cons 1 [2 3])))") == true)
 				#expect(try eval("[(conj nil 1) (conj (range 2) 5) (conj (seq [1]) 0) (conj (map inc [1]) 0)]") == [list([1]), list([5, 0, 1]), list([0, 1]), list([0, 2])])
 				#expect(try eval("(empty? (map inc []))") == true)
-				#expect(message("(first 1)") == "Don't know how to create ISeq from: fixnum")
+				#expect(message("(first 1)") == "Don't know how to create ISeq from: long")
 				#expect(message("(seq :a)") == "Don't know how to create ISeq from: keyword")
 				#expect(message("(next 1.5)") == "Don't know how to create ISeq from: double")
-				#expect(message("(cons 1 2)") == "Don't know how to create ISeq from: fixnum")
-				#expect(message("(doall (map inc 1))") == "Don't know how to create ISeq from: fixnum")
+				#expect(message("(cons 1 2)") == "Don't know how to create ISeq from: long")
+				#expect(message("(doall (map inc 1))") == "Don't know how to create ISeq from: long")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

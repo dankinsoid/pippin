@@ -721,10 +721,10 @@ static clj_read_status push_value(parser *p, clj_value v) {
 	return CLJ_READ_OK;
 }
 
-// Digits of tok in `radix`: a fixnum when they fit one, a bigint otherwise.
+// Digits of tok in `radix`: a long when they fit 64 bits, a bigint otherwise.
 static clj_read_status parse_radix(parser *p, const char *tok, size_t n, size_t body, size_t start, int radix, bool neg, bool force_big, uint32_t line, uint32_t col) {
 	if (start == body) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
-	uint64_t limit = neg ? (uint64_t)1 << 62 : ((uint64_t)1 << 62) - 1;
+	uint64_t limit = neg ? (uint64_t)1 << 63 : ((uint64_t)1 << 63) - 1;
 	uint64_t v = 0;
 	bool     wide = force_big;
 	for (size_t j = start; j < body; j++) {
@@ -734,7 +734,8 @@ static clj_read_status parse_radix(parser *p, const char *tok, size_t n, size_t 
 		if (!wide && v > (limit - (uint64_t)d) / (uint64_t)radix) wide = true;
 		if (!wide) v = v * (uint64_t)radix + (uint64_t)d;
 	}
-	if (!wide) return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
+	// Negated in uint64: Long/MIN_VALUE's magnitude is 2^63, which no int64_t holds.
+	if (!wide) return push_value(p, clj_long_new((int64_t)(neg ? 0u - v : v)));
 	clj_value mag = clj_bigint_parse(tok + start, body - start, (unsigned)radix);
 	if (clj_is_nil(mag)) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
 	clj_value big = neg ? clj_bigint_neg(mag) : clj_retain(mag);

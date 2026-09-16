@@ -46,8 +46,8 @@ extension CoreTests {
 				(map (fn [[a b]] (try (compare a b) (catch ExceptionInfo e (ex-message e))))
 				     [[1 "a"] ["a" 1] [:a "a"] [true 1] ['a :a] [\\a "a"] [[1] :a] [{:a 1} {:b 2}] [(fn []) (fn [])]])
 				""")
-				#expect(messages == Value(list: ["string cannot be cast to a number", "fixnum cannot be cast to a string", "string cannot be cast to a keyword",
-				                                  "fixnum cannot be cast to a boolean", "keyword cannot be cast to a symbol", "string cannot be cast to a char",
+				#expect(messages == Value(list: ["string cannot be cast to a number", "long cannot be cast to a string", "string cannot be cast to a keyword",
+				                                  "long cannot be cast to a boolean", "keyword cannot be cast to a symbol", "string cannot be cast to a char",
 				                                  "keyword cannot be cast to a vector", "map cannot be cast to Comparable", "fn cannot be cast to Comparable"]))
 				#expect(throws: ClojureError.self) { try Runtime.compare(1, "a") }
 				#expect(try rt.eval("(try (compare 1 \"a\") (catch ExceptionInfo e (instance? HostError e)))") == false)
@@ -80,7 +80,7 @@ extension CoreTests {
 				#expect(try rt.eval("[(sort []) (sort nil) (list? (sort [2 1]))]") == [Value(list: []), Value(list: []), true])
 				#expect(try rt.eval("(sort [1 1.0 0 0.0])").description == "(0 0.0 1 1.0)")
 				#expect(try rt.eval("(try (sort [1 \"a\"]) (catch ExceptionInfo e (ex-message e)))") == "string cannot be cast to a number")
-				#expect(try rt.eval("(try (sort 1) (catch ExceptionInfo e (ex-message e)))") == "Don't know how to create ISeq from: fixnum")
+				#expect(try rt.eval("(try (sort 1) (catch ExceptionInfo e (ex-message e)))") == "Don't know how to create ISeq from: long")
 				#expect(try Runtime.sort([2, 1]) == Value(list: [1, 2]))
 			}
 			#expect(clj_debug_live_objects() == before)

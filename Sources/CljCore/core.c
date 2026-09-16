@@ -3,7 +3,7 @@
 
 const char *clj_type_name(clj_value v) {
 	if (clj_is_nil(v)) return "nil";
-	if (clj_is_fixnum(v)) return "fixnum";
+	if (clj_is_fixnum(v)) return "long";
 	if (clj_is_bool(v)) return "boolean";
 	if (clj_is_char(v)) return "char";
 	if (!clj_is_ptr(v)) return "special";

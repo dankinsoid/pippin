@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/decimal.h"
+#include "clj/long.h"
 #include "clj/string.h"
 
 static void decimal_each_child(void *self, clj_visitor visit, void *ctx) {
@@ -77,7 +78,8 @@ const clj_type clj_decimal_type = {
 
 clj_value clj_decimal_new(clj_value unscaled, int32_t scale) {
 	clj_decimal *d = clj_alloc(&clj_decimal_type, sizeof *d);
-	d->unscaled = clj_is_bigint(unscaled) ? clj_retain(unscaled) : clj_bigint_from_i64(clj_fixnum_val(unscaled));
+	int64_t      i = 0;
+	d->unscaled = clj_int64_of(unscaled, &i) ? clj_bigint_from_i64(i) : clj_retain(unscaled);
 	d->scale = scale;
 	return clj_from_ptr(d);
 }
@@ -170,7 +172,8 @@ static clj_value pow_small(uint32_t base, uint32_t e) {
 }
 
 clj_value clj_decimal_from_fraction(clj_value p, clj_value q) {
-	if (clj_is_bigint(q) ? clj_bigint_is_zero(q) : clj_fixnum_val(q) == 0) return CLJ_NIL;
+	int64_t qi = 0;
+	if (clj_int64_of(q, &qi) ? qi == 0 : clj_bigint_is_zero(q)) return CLJ_NIL;
 	clj_value g = clj_bigint_gcd(p, q);
 	if (clj_bigint_is_zero(g)) {
 		clj_release(g);

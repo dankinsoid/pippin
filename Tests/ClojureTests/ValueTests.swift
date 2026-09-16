@@ -18,7 +18,7 @@ extension CoreTests {
 			for n in [0, 1, -1, 42, Value.fixnumRange.upperBound, Value.fixnumRange.lowerBound] {
 				let v = Value(n)
 				#expect(v.int == n)
-				#expect(v.typeName == "fixnum")
+				#expect(v.typeName == "long")
 				#expect(v.isTruthy)
 			}
 		}

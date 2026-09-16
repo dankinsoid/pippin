@@ -38,6 +38,7 @@ clj_value clj_double_new(double d) {
 double clj_num_to_double(clj_value v) {
 	switch (clj_num_kind_of(v)) {
 	case CLJ_NUM_FIXNUM: return (double)clj_fixnum_val(v);
+	case CLJ_NUM_LONG: return (double)clj_long_val(v);
 	case CLJ_NUM_DOUBLE: return clj_double_val(v);
 	case CLJ_NUM_BIGINT: return clj_bigint_to_double(v);
 	case CLJ_NUM_RATIO: return clj_ratio_to_double(v);
@@ -53,6 +54,7 @@ int clj_num_sign(clj_value v) {
 		intptr_t i = clj_fixnum_val(v);
 		return i < 0 ? -1 : i > 0 ? 1 : 0;
 	}
+	case CLJ_NUM_LONG: return clj_long_val(v) < 0 ? -1 : 1;
 	case CLJ_NUM_DOUBLE: {
 		double d = clj_double_val(v);
 		return d < 0 ? -1 : d > 0 ? 1 : 0;
@@ -76,6 +78,10 @@ void clj_num_as_fraction(clj_value v, clj_value *num, clj_value *den) {
 		*num = clj_bigint_from_i64(clj_fixnum_val(v));
 		*den = clj_bigint_from_i64(1);
 		return;
+	case CLJ_NUM_LONG:
+		*num = clj_bigint_from_i64(clj_long_val(v));
+		*den = clj_bigint_from_i64(1);
+		return;
 	case CLJ_NUM_BIGINT:
 		*num = clj_retain(v);
 		*den = clj_bigint_from_i64(1);
@@ -88,6 +94,7 @@ void clj_num_as_fraction(clj_value v, clj_value *num, clj_value *den) {
 clj_value clj_num_truncate(clj_value v) {
 	switch (clj_num_kind_of(v)) {
 	case CLJ_NUM_FIXNUM: return clj_bigint_from_i64(clj_fixnum_val(v));
+	case CLJ_NUM_LONG: return clj_bigint_from_i64(clj_long_val(v));
 	case CLJ_NUM_BIGINT: return clj_retain(v);
 	case CLJ_NUM_DOUBLE: return clj_bigint_from_double(clj_double_val(v));
 	case CLJ_NUM_DECIMAL: return clj_decimal_truncate(v);
@@ -140,6 +147,45 @@ static clj_value integer_arith(clj_value a, clj_value b, clj_num_op op, bool dem
 	clj_value narrow = clj_bigint_demote(r);
 	clj_release(r);
 	return narrow;
+}
+
+// Checked 64-bit, the JVM's long; a promoting operator intercepts its operands before they reach here.
+static clj_value long_arith(clj_value a, clj_value b, clj_num_op op) {
+	int64_t x = 0, y = 0, r = 0;
+	clj_int64_of(a, &x);
+	clj_int64_of(b, &y);
+	bool overflow = false;
+	switch (op) {
+	case CLJ_OP_ADD: overflow = __builtin_add_overflow(x, y, &r); break;
+	case CLJ_OP_SUB: overflow = __builtin_sub_overflow(x, y, &r); break;
+	case CLJ_OP_MUL: overflow = __builtin_mul_overflow(x, y, &r); break;
+	case CLJ_OP_DIV:
+		if (y == 0) return clj_throw_msg("Divide by zero");
+		// -1 apart, so INT64_MIN reaches neither / nor % undefined.
+		if (y == -1) {
+			overflow = x == INT64_MIN;
+			r = overflow ? 0 : -x;
+			break;
+		}
+		if (x % y != 0) return integer_arith(a, b, CLJ_OP_DIV, true);
+		r = x / y;
+		break;
+	case CLJ_OP_QUOT:
+		if (y == 0) return clj_throw_msg("Divide by zero");
+		if (y == -1) {
+			overflow = x == INT64_MIN;
+			r = overflow ? 0 : -x;
+			break;
+		}
+		r = x / y;
+		break;
+	case CLJ_OP_REM:
+		if (y == 0) return clj_throw_msg("Divide by zero");
+		r = y == -1 ? 0 : x % y;
+		break;
+	}
+	if (overflow) return clj_throw_msg("integer overflow");
+	return clj_long_new(r);
 }
 
 static clj_value ratio_arith(clj_value a, clj_value b, clj_num_op op) {
@@ -279,6 +325,7 @@ clj_value clj_num_arith(clj_value a, clj_value b, clj_num_op op) {
 	case CLJ_NUM_RATIO: return ratio_arith(a, b, op);
 	case CLJ_NUM_DECIMAL: return decimal_arith(a, b, op);
 	case CLJ_NUM_BIGINT: return integer_arith(a, b, op, false);
+	case CLJ_NUM_LONG: return long_arith(a, b, op);
 	default: return integer_arith(a, b, op, true);
 	}
 }
@@ -307,6 +354,14 @@ clj_value clj_num_cmp(clj_value a, clj_value b, int *out) {
 		clj_release(ad);
 		clj_release(bn);
 		clj_release(bd);
+		return CLJ_NIL;
+	}
+	case CLJ_NUM_LONG:
+	case CLJ_NUM_FIXNUM: {
+		int64_t x = 0, y = 0;
+		clj_int64_of(a, &x);
+		clj_int64_of(b, &y);
+		*out = x < y ? -1 : x > y ? 1 : 0;
 		return CLJ_NIL;
 	}
 	default: *out = clj_bigint_cmp(a, b); return CLJ_NIL;

@@ -132,7 +132,7 @@ extension CoreTests {
 				#expect(message("(let [:a 1] 1)") == "Unsupported binding form: :a")
 				#expect(message("(let [{:foo x} {}] x)") == "Unsupported binding key: :foo")
 				#expect(message("(let [[a & b c] [1]] a)") == "Unsupported binding form, only :as can follow & parameter")
-				#expect(message("(let [[a] 1] a)") == "nth not supported on this type: fixnum")
+				#expect(message("(let [[a] 1] a)") == "nth not supported on this type: long")
 				#expect(message("(let [{a :a} 1] a)") == nil)
 				#expect(message("(let (a 1) a)") == "let requires a vector for its binding")
 				#expect(message("(let [a] a)") == "let requires an even number of forms in binding vector")

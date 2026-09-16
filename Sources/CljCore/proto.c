@@ -84,11 +84,9 @@ static void wait_readers(void) {
 #define PSEUDO(nm) {.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type}, .name = nm}
 
 const clj_type clj_nil_dispatch_type = PSEUDO("nil");
-const clj_type clj_fixnum_dispatch_type = PSEUDO("fixnum");
 const clj_type clj_boolean_dispatch_type = PSEUDO("boolean");
 const clj_type clj_char_dispatch_type = PSEUDO("char");
 #define nil_type     clj_nil_dispatch_type
-#define fixnum_type  clj_fixnum_dispatch_type
 #define boolean_type clj_boolean_dispatch_type
 #define char_type    clj_char_dispatch_type
 static const clj_type object_type = PSEUDO("Object");
@@ -1069,7 +1067,7 @@ void clj_proto_install(void) {
 		const char     *name;
 		const clj_type *type;
 	} types[] = {
-		{"Object", &object_type},          {"Long", &fixnum_type},         {"Integer", &fixnum_type},        {"Double", &clj_double_type},
+		{"Object", &object_type},          {"Long", &clj_long_type},       {"Integer", &clj_long_type},        {"Double", &clj_double_type},
 		{"Boolean", &boolean_type},        {"Character", &char_type},      {"String", &clj_string_type},     {"Keyword", &clj_keyword_type},
 		{"Symbol", &clj_symbol_type},      {"PersistentVector", &clj_vector_type}, {"PersistentHashMap", &clj_map_type}, {"PersistentHashSet", &clj_set_type},
 		{"PersistentList", &clj_cons_type}, {"Cons", &clj_cons_type},      {"EmptyList", &clj_empty_list_type}, {"LazySeq", &clj_lazy_seq_type},

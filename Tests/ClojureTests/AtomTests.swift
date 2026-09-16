@@ -42,13 +42,13 @@ extension CoreTests {
 				#expect(try eval("(let [a (atom 0)] [(swap-vals! a inc) (swap-vals! a + 10) (reset-vals! a 7) @a])") == [[0, 1], [1, 11], [11, 7], 7])
 				#expect(try eval("[(instance? Atom (atom 1)) (= (type (atom 1)) Atom) (pr-str (atom 1)) (let [a (atom 1)] (= a a)) (= (atom 1) (atom 1)) (satisfies? IMeta (atom 1))]") == [true, true, "#object[atom]", true, false, true])
 				#expect(try eval("(let [a (atom nil)] [@a (swap! a (fn [x] [x])) @a])") == [nil, [nil], [nil]])
-				#expect(message("(swap! 1 inc)") == "swap! expects an atom, got: fixnum")
+				#expect(message("(swap! 1 inc)") == "swap! expects an atom, got: long")
 				#expect(message("(reset! [] 1)") == "reset! expects an atom, got: vector")
 				#expect(message("(swap! (atom 1) str 1 2 3 4 5 6 7 8 9)") == nil)
 				#expect(try eval("(swap! (atom \"a\") str 1 2 3 4 5 6 7 8 9)") == "a123456789")
 				#expect(message("(atom 1 :meta)") == "No value supplied for key: :meta")
-				#expect(message("(atom 1 :meta 2)") == "atom :meta must be a map, got: fixnum")
-				#expect(message("(atom 1 :validator 2)") == "atom :validator must be a fn, got: fixnum")
+				#expect(message("(atom 1 :meta 2)") == "atom :meta must be a map, got: long")
+				#expect(message("(atom 1 :validator 2)") == "atom :validator must be a fn, got: long")
 				#expect(try eval("(let [a (atom 1 :other 2)] @a)") == 1)
 			}
 			#expect(clj_debug_live_objects() == before)
@@ -112,7 +112,7 @@ extension CoreTests {
 				  [@n (try (swap! a inc) (catch :default e (ex-message e))) @a])
 				""") == [110, "watch", 2])
 				#expect(try eval("(let [a (atom 0)] [(identical? a (add-watch a :k identity)) (identical? a (remove-watch a :k)) (identical? a (remove-watch a :none))])") == [true, true, true])
-				#expect(message("(add-watch (atom 1) :k 1)") == "add-watch expects a fn, got: fixnum")
+				#expect(message("(add-watch (atom 1) :k 1)") == "add-watch expects a fn, got: long")
 				// A watch runs after the lock is released: it may deref and swap the atom.
 				#expect(try eval("(let [a (atom 0) seen (atom nil)] (add-watch a :k (fn [k r o n] (when (< n 3) (swap! r inc)) (reset! seen @r))) (swap! a inc) [@a @seen])") == [3, 3])
 			}
@@ -148,7 +148,7 @@ extension CoreTests {
 				#expect(try eval("(let [a (atom 1)] [(get-validator a) (set-validator! a pos?) (try (set-validator! a neg?) (catch :default e (ex-message e))) (identical? pos? (get-validator a)) (set-validator! a nil) (get-validator a) (reset! a -1)])") == [nil, nil, "Invalid reference state", true, nil, nil, -1])
 				#expect(try eval("(let [a (atom 1 :validator (fn [v] (if (neg? v) (throw (ex-info \"neg\" {:v v})) true)))] (try (reset! a -2) (catch :default e [(ex-message e) (ex-message (ex-cause e)) (ex-data (ex-cause e)) @a])))") == ["Invalid reference state", "neg", m(["v": -2]), 1])
 				#expect(try eval("(let [a (atom 1 :validator pos?)] [(compare-and-set! a 1 2) (try (compare-and-set! a 2 -1) (catch :default e (ex-message e))) @a])") == [true, "Invalid reference state", 2])
-				#expect(message("(set-validator! (atom 1) 2)") == "set-validator! expects a fn or nil, got: fixnum")
+				#expect(message("(set-validator! (atom 1) 2)") == "set-validator! expects a fn or nil, got: long")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -168,8 +168,8 @@ extension CoreTests {
 			do {
 				#expect(try eval("(let [a (atom 1 :meta {:a 1})] [(meta a) (alter-meta! a assoc :b 2) (meta a) (reset-meta! a {:x 1}) (meta a) (reset-meta! a nil) (meta a)])") == [m(["a": 1]), m(["a": 1, "b": 2]), m(["a": 1, "b": 2]), m(["x": 1]), m(["x": 1]), nil, nil])
 				#expect(try eval("(meta (atom 1))") == nil)
-				#expect(message("(alter-meta! (atom 1) (fn [m] 1))") == "alter-meta! fn must return a map, got: fixnum")
-				#expect(message("(reset-meta! (atom 1) 1)") == "reset-meta! expects a map, got: fixnum")
+				#expect(message("(alter-meta! (atom 1) (fn [m] 1))") == "alter-meta! fn must return a map, got: long")
+				#expect(message("(reset-meta! (atom 1) 1)") == "reset-meta! expects a map, got: long")
 				#expect(message("(let [a (atom 1)] (alter-meta! a (fn [m] (swap! a inc))))") == "swap! " + trap)
 				#expect(message("(let [a (atom 1)] (alter-meta! a (fn [m] (alter-meta! a assoc :k 1))))") == "alter-meta! " + trap)
 			}

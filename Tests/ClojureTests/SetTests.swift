@@ -69,9 +69,9 @@ extension CoreTests {
 				#expect(try eval("(let [x 1 y 2] (= #{x y (+ x y)} #{1 2 3}))") == true)
 				#expect(message("(let [x 1 y 1] #{x y})") == "Duplicate key: 1")
 				#expect(try eval("(let [x 1] (count #{x #{x} [x]}))") == 3)
-				#expect(message("(disj 1 2)") == "disj not supported on this type: fixnum")
+				#expect(message("(disj 1 2)") == "disj not supported on this type: long")
 				#expect(message("(disj [1])") == "disj not supported on this type: vector")
-				#expect(message("(set 1)") == "Don't know how to create ISeq from: fixnum")
+				#expect(message("(set 1)") == "Don't know how to create ISeq from: long")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

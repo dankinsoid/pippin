@@ -3,6 +3,7 @@
 #define CLJ_NUMBER_H
 
 #include "decimal.h"
+#include "long.h"
 #include "object.h"
 #include "ratio.h"
 
@@ -24,6 +25,7 @@ static inline double      clj_double_val(clj_value v) { return clj_double_of(v)-
 typedef enum {
 	CLJ_NUM_NONE = 0,
 	CLJ_NUM_FIXNUM,
+	CLJ_NUM_LONG,
 	CLJ_NUM_BIGINT,
 	CLJ_NUM_RATIO,
 	CLJ_NUM_DECIMAL,
@@ -35,6 +37,7 @@ static inline clj_num_kind clj_num_kind_of(clj_value v) {
 	if (!clj_is_ptr(v)) return CLJ_NUM_NONE;
 	const clj_type *t = clj_header_of(v)->type;
 	if (t == &clj_double_type) return CLJ_NUM_DOUBLE;
+	if (t == &clj_long_type) return CLJ_NUM_LONG;
 	if (t == &clj_bigint_type) return CLJ_NUM_BIGINT;
 	if (t == &clj_ratio_type) return CLJ_NUM_RATIO;
 	if (t == &clj_decimal_type) return CLJ_NUM_DECIMAL;
@@ -42,7 +45,7 @@ static inline clj_num_kind clj_num_kind_of(clj_value v) {
 }
 
 static inline bool clj_is_number(clj_value v) { return clj_num_kind_of(v) != CLJ_NUM_NONE; }
-static inline bool clj_is_integer(clj_value v) { return clj_is_fixnum(v) || clj_is_bigint(v); }
+static inline bool clj_is_integer(clj_value v) { return clj_is_fixnum(v) || clj_is_long(v) || clj_is_bigint(v); }
 
 typedef enum { CLJ_OP_ADD, CLJ_OP_SUB, CLJ_OP_MUL, CLJ_OP_DIV, CLJ_OP_QUOT, CLJ_OP_REM } clj_num_op;
 

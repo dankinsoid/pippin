@@ -191,9 +191,9 @@ extension CoreTests {
 				#expect(try printed("[0/2 12/12 -12/12]") == "[0 1 -1]")
 				#expect(try printed("[0.0M 1.5M -123.456M 1M 440M]") == "[0.0M 1.5M -123.456M 1M 440M]")
 				#expect(try printed("10000000000000000000000000N") == "10000000000000000000000000N")
-				// A literal past the 63-bit fixnum is a bigint, whatever the radix.
+				// A literal is a long while it fits 64 bits, whatever the radix, and a bigint past them.
 				#expect(try printed("[0x7FFFFFFFFFFFFFFF -0x8000000000000000 9223372036854775807]")
-					== "[9223372036854775807N -9223372036854775808N 9223372036854775807N]")
+					== "[9223372036854775807 -9223372036854775808 9223372036854775807]")
 				#expect(try printed("[0xFFN 2r1011 -9223372036854775809]") == "[255N 11 -9223372036854775809N]")
 				#expect(try printed("[1e10M 1E-10M]") == "[1E+10M 1E-10M]")
 				#expect(try eval("[(type 1N) (type 1/2) (type 1.0M)]").description == "[bigint ratio decimal]")
@@ -248,12 +248,12 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try eval("[(+' 1 2) (*' 2 3) (-' 5 1) (inc' 1) (dec' 1)]") == [3, 6, 4, 2, 0])
-				#expect(try printed("[(+' 4611686018427387903 1) (inc' 4611686018427387903) (dec' -4611686018427387904)]")
-					== "[4611686018427387904N 4611686018427387904N -4611686018427387905N]")
+				#expect(try printed("[(+' 9223372036854775807 1) (inc' 9223372036854775807) (dec' -9223372036854775808)]")
+					== "[9223372036854775808N 9223372036854775808N -9223372036854775809N]")
 				#expect(try printed("(*' 4611686018427387903 4611686018427387903)") == "21267647932558653957237540927630737409N")
-				#expect(message("(+ 4611686018427387903 1)") == "integer overflow")
-				#expect(message("(inc 4611686018427387903)") == "integer overflow")
-				#expect(try eval("[(type (+' 1 1)) (type (+' 1N 1))]").description == "[fixnum bigint]")
+				#expect(message("(+ 9223372036854775807 1)") == "integer overflow")
+				#expect(message("(inc 9223372036854775807)") == "integer overflow")
+				#expect(try eval("[(type (+' 1 1)) (type (+' 1N 1))]").description == "[long bigint]")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -280,9 +280,9 @@ extension CoreTests {
 				#expect(try printed("[(+ 1/2 1/3) (- 1/2 1/3) (* 1/2 2/3) (/ 1/2 2/3)]") == "[5/6 1/6 1/3 3/4]")
 				#expect(try printed("[(+ 1/2 1/2) (* 2/3 3) (+ 1/2 1)]") == "[1N 2N 3/2]")
 				#expect(try printed("[(+ 1/2 0.5) (quot 7/2 1/2) (rem 7/2 1/2)]") == "[1.0 7N 0N]")
-				#expect(try printed("[(numerator 1/2) (denominator 1/2) (numerator -3/4)]") == "[1N 2N -3N]")
+				#expect(try printed("[(numerator 1/2) (denominator 1/2) (numerator -3/4)]") == "[1 2 -3]")
 				#expect(try eval("[(ratio? 1/2) (ratio? 0/2) (rational? 1/2) (integer? 1/2)]") == [true, false, true, false])
-				#expect(message("(numerator 1)") == "fixnum cannot be cast to a ratio")
+				#expect(message("(numerator 1)") == "long cannot be cast to a ratio")
 				// A ratio whose arithmetic overflows the fixnum stays exact.
 				#expect(try printed("(* 4611686018427387903/2 4611686018427387903)") == "21267647932558653957237540927630737409/2")
 			}
@@ -364,15 +364,18 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		@Test func uncheckedWrapsAtTheFixnum() throws {
+		@Test func uncheckedWrapsAtSixtyFourBits() throws {
 			clj_init()
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try eval("[(unchecked-add 1 2) (unchecked-subtract 5 1) (unchecked-multiply 3 4) (unchecked-inc 1) (unchecked-dec 1) (unchecked-negate 3)]")
 					== [3, 4, 12, 2, 0, -3])
-				// 63-bit payload, so the wrap point is the fixnum's, not the JVM's 64-bit long (NOTES.md).
-				#expect(try eval("[(unchecked-inc 4611686018427387903) (unchecked-negate -4611686018427387904)]")
-					== [-4611686018427387904, -4611686018427387904])
+				#expect(try printed("[(unchecked-inc 9223372036854775807) (unchecked-negate -9223372036854775808) (unchecked-dec -9223372036854775808)]")
+					== "[-9223372036854775808 -9223372036854775808 9223372036854775807]")
+				#expect(try printed("[(unchecked-add 9223372036854775807 1) (unchecked-subtract -9223372036854775808 1) (unchecked-multiply 4611686018427387904 2)]")
+					== "[-9223372036854775808 9223372036854775807 -9223372036854775808]")
+				// The fixnum boundary is a representation change, not a wrap point.
+				#expect(try printed("(unchecked-inc 4611686018427387903)") == "4611686018427387904")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

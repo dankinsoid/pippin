@@ -182,7 +182,7 @@ extension CoreTests {
 			do {
 				#expect(try rt.eval("[(count (->Sized 7)) (counted? (->Sized 7)) (satisfies? Counted (->Sized 7)) (seqable? (->Sized 7))]") == [7, true, true, false])
 				#expect(message(rt, "(count (->Bad :x))") == "count of user.Bad must return a non-negative integer, got: keyword")
-				#expect(message(rt, "(count (->Bad -1))") == "count of user.Bad must return a non-negative integer, got: fixnum")
+				#expect(message(rt, "(count (->Bad -1))") == "count of user.Bad must return a non-negative integer, got: long")
 				#expect(message(rt, "(seq (->Sized 1))") == "Don't know how to create ISeq from: user.Sized")
 			}
 			#expect(clj_debug_live_objects() == before)

@@ -52,7 +52,7 @@ extension CoreTests {
 				#expect(try rt.eval("(pr-str (/ 7 2))") == "7/2")
 				#expect(try rt.eval("(/ 8 2)") == 4)
 				#expect(try rt.eval("(* 1.5 2)") == 3.0)
-				#expect(message(rt, "(* 4611686018427387903 2)") == "integer overflow")
+				#expect(message(rt, "(* 9223372036854775807 2)") == "integer overflow")
 				#expect(message(rt, "(+ 1 nil)") == "nil cannot be cast to a number")
 				#expect(try rt.eval("(if nil :t :f)") == kw("f"))
 				#expect(try rt.eval("(if false :t :f)") == kw("f"))

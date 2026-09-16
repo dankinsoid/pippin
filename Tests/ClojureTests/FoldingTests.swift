@@ -157,8 +157,8 @@ extension CoreTests {
 				#expect(try Tree("(nth [1] 5)").kinds == [CLJ_NODE_INTRINSIC, CLJ_NODE_CONST, CLJ_NODE_CONST])
 				#expect(message { try Tree("(nth [1] 5)").run() } == "Index 5 out of bounds for length 1")
 				#expect(message { try Tree("(+ 1 \"a\")").run() } == "string cannot be cast to a number")
-				#expect(message { try Tree("(+ 4611686018427387903 1)").run() } == "integer overflow")
-				#expect(message { try Tree("(first 1)").run() } == "Don't know how to create ISeq from: fixnum")
+				#expect(message { try Tree("(+ 9223372036854775807 1)").run() } == "integer overflow")
+				#expect(message { try Tree("(first 1)").run() } == "Don't know how to create ISeq from: long")
 				// Inside an if, the throwing branch is what remains.
 				#expect(try Tree("(if true (/ 1 0) 2)").data() == Value(reading: "[:intrinsic clojure.core// [:const 1 1 10] [:const 0 1 10] 1 10]"))
 			}

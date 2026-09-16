@@ -57,7 +57,7 @@ extension CoreTests {
 				#expect(try eval("(= (sorted-map) {})") == true)
 				#expect(try eval("(= (sorted-set) #{})") == true)
 				#expect(message("(sorted-map :a)") == "No value supplied for key: :a")
-				#expect(message("(sorted-map-by 7 :a 1)") == "comparator must be a function, got: fixnum")
+				#expect(message("(sorted-map-by 7 :a 1)") == "comparator must be a function, got: long")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
