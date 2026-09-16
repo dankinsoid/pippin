@@ -60,21 +60,53 @@ private func ednString(_ s: String) -> String { Value(s).description }
 
 private func kw(_ s: String) -> Value { Value(keyword: s) }
 
-// Progress on stderr: a hanging namespace is found by the last line printed.
+// Progress with the elapsed seconds, on stderr and to CLJ_CORPUS_LOG when it is set: the test runner's pipe
+// drops what it has not forwarded when a run is killed, the file keeps it.
+private let progressStart = Date()
+private let progressLog: FileHandle? = {
+	guard let path = ProcessInfo.processInfo.environment["CLJ_CORPUS_LOG"] else { return nil }
+	FileManager.default.createFile(atPath: path, contents: nil)
+	let h = FileHandle(forWritingAtPath: path)
+	h?.seekToEndOfFile()
+	return h
+}()
+
 private func progress(_ text: String) {
-	FileHandle.standardError.write(Data((text + "\n").utf8))
+	let line = Data((String(format: "[%8.2f] ", Date().timeIntervalSince(progressStart)) + text + "\n").utf8)
+	FileHandle.standardError.write(line)
+	progressLog?.write(line)
 }
 
 // The harness side of the run, in Clojure: test-ns under a collecting reporter, folded into [var status reason].
 private let harnessSource = """
 (ns corpus-harness (:require [clojure.test]))
-(defn run-ns [ns-sym]
-  (let [events (atom [])]
-    (binding [clojure.test/report (fn [m] (when (= :begin-test-var (:type m)) (corpus-progress* (str (:var m)))) (swap! events conj m))]
-      (clojure.test/test-ns ns-sym))
+
+(def timeout-msg "Execution timed out")
+
+(defn- reason-of [m] (or (ex-message (:actual m)) (pr-str (:actual m))))
+
+;; A deadline per deftest: the runtime throws timeout-msg at the first call or loop turn past it and re-arms
+;; with a short grace, so clojure.test's own handler runs and the test unwinds instead of spinning on.
+(defn run-ns [ns-sym budget-ms]
+  (let [events (atom [])
+        escaped (atom nil)]
+    (binding [clojure.test/report
+              (fn [m]
+                (let [t (:type m)]
+                  (swap! events conj m)
+                  (cond
+                    (= t :begin-test-var) (do (corpus-progress* (str (:var m))) (corpus-deadline* budget-ms))
+                    (= t :end-test-var) (corpus-deadline* 0))))]
+      (try
+        (clojure.test/test-ns ns-sym)
+        (catch :default e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
+        (finally (corpus-deadline* 0))))
     (loop [es (seq @events) cur nil out []]
       (if-not es
-        out
+        (cond
+          cur (conj out cur)
+          @escaped (conj out [(str ns-sym) (if (= @escaped timeout-msg) :timeout :error) @escaped])
+          :else out)
         (let [m (first es) t (:type m)]
           (cond
             (= t :begin-test-var)
@@ -82,9 +114,12 @@ private let harnessSource = """
               (recur (next es) [(str (:ns mt) "/" (:name mt)) :pass nil] out))
             (= t :end-test-var) (recur (next es) nil (conj out cur))
             (and cur (= t :error))
-            (recur (next es)
-                   (if (= :error (nth cur 1)) cur [(nth cur 0) :error (or (ex-message (:actual m)) (pr-str (:actual m)))])
-                   out)
+            (let [r (reason-of m)]
+              (recur (next es)
+                     (if (or (= :pass (nth cur 1)) (= r timeout-msg))
+                       [(nth cur 0) (if (= r timeout-msg) :timeout :error) r]
+                       cur)
+                     out))
             (and cur (= t :fail))
             (recur (next es)
                    (if (= :pass (nth cur 1)) [(nth cur 0) :fail (pr-str (:expected m))] cur)
@@ -123,6 +158,9 @@ private struct Library {
 		path.hasPrefix(dir.path + "/") ? String(path.dropFirst(dir.path.count + 1)) : path
 	}
 }
+
+// The watchdog's budget per deftest; a test past it is :timeout and counts as a failure.
+private let testBudgetMs = ProcessInfo.processInfo.environment["CLJ_CORPUS_TIMEOUT_MS"].flatMap(Int.init) ?? 5000
 
 private struct RunResult {
 	var forms: [FormFailure] = []
@@ -169,7 +207,7 @@ extension CoreTests {
 					let loaded = try cljEval("(some? (find-ns '\(ns)))")
 					if loaded != true { continue }
 					progress("corpus: testing \(ns)")
-					let rows = try cljEval("(corpus-harness/run-ns '\(ns))")
+					let rows = try cljEval("(corpus-harness/run-ns '\(ns) \(testBudgetMs))")
 					for row in rows.array ?? [] {
 						let cells = row.array ?? []
 						result.tests.append(TestOutcome(name: cells[0].string ?? "?", status: String(cells[1].description.dropFirst()),
@@ -284,6 +322,10 @@ extension CoreTests {
 			clj_init()
 			Runtime().define("corpus-progress*", in: "clojure.core", arity: 1...1) { args in
 				progress("corpus: test \(args[0].description)")
+				return nil
+			}
+			Runtime().define("corpus-deadline*", in: "clojure.core", arity: 1...1) { args in
+				clj_deadline_set_ms(UInt64(max(0, args[0].int ?? 0)))
 				return nil
 			}
 			_ = try cljEval(harnessSource)

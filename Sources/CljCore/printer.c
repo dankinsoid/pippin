@@ -377,19 +377,28 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 }
 
 // Realizes lazy seqs on the way; a thunk that throws makes the whole print throw, as in Clojure.
-static clj_value print_to_string(clj_value root, bool readably) {
+// max > 0 stops once that many bytes are written and closes the open collections after "...", so an
+// unbounded seq realizes only what the text shows.
+static clj_value print_to_string(clj_value root, bool readably, size_t max) {
 	buf         b = {0};
 	frame_stack stack = {0};
 	clj_value   v = root;
-	bool        pending = true, thrown = false;
+	bool        pending = true, thrown = false, truncated = false;
 	for (;;) {
 		if (pending) emit(&b, &stack, v, readably);
 		if (!stack.count || thrown) break;
+		if (max && b.len >= max) {
+			truncated = true;
+			break;
+		}
 		pending = next_child(&b, &stack, &v, &thrown);
 	}
+	if (truncated) put_cstr(&b, " ...");
 	for (size_t i = stack.count; i > 0; i--) {
-		if (stack.items[i - 1].kind == F_MAP || stack.items[i - 1].kind == F_SET) free(stack.items[i - 1].entries);
-		if (stack.items[i - 1].kind == F_SEQ) clj_seq_iter_close(&stack.items[i - 1].it);
+		frame *f = &stack.items[i - 1];
+		if (truncated) put_char(&b, f->kind == F_SEQ ? ')' : f->kind == F_VECTOR ? ']' : '}');
+		if (f->kind == F_MAP || f->kind == F_SET) free(f->entries);
+		if (f->kind == F_SEQ) clj_seq_iter_close(&f->it);
 	}
 	free(stack.items);
 	clj_value s = thrown ? CLJ_THROWN : clj_string_new(b.data, b.len);
@@ -397,6 +406,8 @@ static clj_value print_to_string(clj_value root, bool readably) {
 	return s;
 }
 
-clj_value clj_pr_str(clj_value v) { return print_to_string(v, true); }
+clj_value clj_pr_str(clj_value v) { return print_to_string(v, true, 0); }
 
-clj_value clj_print_str(clj_value v) { return print_to_string(v, false); }
+clj_value clj_pr_str_max(clj_value v, size_t max) { return print_to_string(v, true, max); }
+
+clj_value clj_print_str(clj_value v) { return print_to_string(v, false, 0); }

@@ -70,6 +70,23 @@ clj_value clj_eval_node(const clj_node *node);
 // Analyze and evaluate one form; env NULL means the current namespace and no position.
 clj_value clj_eval(clj_value form, const clj_env *env);
 
+// ---- cooperative deadline
+// The message a timed-out call throws; a host tells a timeout from any other error by it.
+#define CLJ_DEADLINE_MESSAGE "Execution timed out"
+// Bounds the wall time of what this thread runs next: the first closure call or loop turn past the deadline
+// throws CLJ_DEADLINE_MESSAGE, and so does every one after it until the deadline is cleared, each after an
+// unwind budget of calls that lets a handler run; past a fixed number of those budgets every check throws, so
+// code that catches the timeout inside a loop of its own still stops. ms == 0 clears it, which is what a
+// handler that must run unbounded does first.
+// Cooperative: a native that loops for ever without calling back into Clojure is not interrupted, and the
+// clock is read once per 1024 calls, so the overshoot is one such batch.
+void     clj_deadline_set_ms(uint64_t ms);
+// The absolute deadline (monotonic ns, 0 when none) and its restore: a host callback that must not be timed
+// holds it for its own length.
+uint64_t clj_deadline_get(void);
+void     clj_deadline_restore(uint64_t deadline);
+bool     clj_deadline_expired(void);
+
 // Takes an old fn root a rebind replaced while this thread evaluates (a closure frame or clj_exec_run is up)
 // and releases it once the thread is idle; false when the caller releases it itself. Only fn roots are read
 // at +0 by the evaluator, so only they are parked.

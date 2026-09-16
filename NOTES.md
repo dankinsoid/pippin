@@ -917,6 +917,14 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
   merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
   Trigger: a library relying on the trailing-map call style.
+- **A cooperative deadline bounds what a thread runs** (`clj_deadline_set_ms`): a closure call (`run_body`)
+  and a `loop` turn check it, the clock is read once per 1024 of them, and past it the check throws
+  `CLJ_DEADLINE_MESSAGE`. The fields live in the shadow stack, which those paths already load, so off it
+  costs one predictable branch. A caught timeout keeps the deadline: the handler gets an unwind budget of
+  calls and, after a fixed number of those budgets, every check throws, so a loop that catches the timeout
+  still stops. Cooperative only: a native that loops without calling back into Clojure is not interrupted
+  (`(hash (range))` is such a loop). The corpus watchdog is the one user so far; an untrusted-code host is
+  the other.
 - **`fn` has no `:pre`/`:post` conditions**: a map as the first body form is evaluated and discarded
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
@@ -938,12 +946,16 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `:missing` (the symbols the runtime lacks, extracted from the message) or `:design-line` (a line of
   design §8). Entries the generator cannot classify carry an empty `:missing` and the reason text: those are
   wrong-result failures, backlog items to fix or to annotate by hand.
-- **Not on by default because the full suite run hangs**: the run over clojure-test-suite stops at
-  100 % CPU inside a test (`clojure.core-test.fnil/fnil-test` in the last run, `bit-or` in an earlier
-  one; each namespace runs fine in isolation, so the hang depends on what ran before). Until it is found
-  (the next step: bisect with the per-test progress lines on stderr, then a watchdog per namespace on a
-  thread), the allowlist and the numbers exist for medley only. Trigger for a per-test timeout in the
-  harness: this.
+- **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
+  reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
+  section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run
+  with it. `CLJ_CORPUS_LOG=<file>` writes the progress lines to a file as well as stderr: the test runner
+  forwards stderr through a pipe and drops what it has not flushed when a killed run dies, which is why the
+  earlier hang appeared to be in a different test each time.
+- **What the earlier hang was**: `((juxt (range)))` in `clojure.core-test.juxt` — calling a value that is not
+  a fn built the "%s cannot be invoked" message with `clj_pr_str`, which realized the infinite lazy seq. The
+  fix is `clj_pr_str_max` (printer section) in every error message that quotes a runtime value. It was never
+  state-dependent: the namespace hangs in isolation too.
 - **Known reader gaps the suite hits**: a tagged literal (`#cpp`, `#inst`, `#uuid`) anywhere in a file,
   even inside an unselected `#?` branch, is a reader error that ends the file (Clojure reads unselected
   branches with tags suppressed; fix: an F_TAG frame that drops the tag inside a `#?` and errors outside);
@@ -1031,6 +1043,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.
   Trigger: printing huge maps in a profile. Fix: a resumable map iterator.
+- **An error message quotes a value through `clj_pr_str_max`** (`CLJ_ERROR_PRINT_MAX` bytes, then `...` and
+  the closers of what is still open), so a message about an unbounded lazy seq does not realize it. Every
+  error path that prints arbitrary runtime data uses it — "cannot be invoked", the arity error, "No value
+  supplied for key", "Duplicate key", the protocol and node-data messages; `pr-str` itself is unbounded, as
+  Clojure's is with `*print-length*` nil.
 - **Control characters print as `\uXXXX`** inside strings and as char literals; Clojure prints them raw.
   Readable by both, but `(pr-str "\u0001")` differs from the JVM byte for byte.
 

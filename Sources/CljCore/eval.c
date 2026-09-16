@@ -45,6 +45,65 @@ static void buf_free(clj_value *small, clj_value *p) {
 
 static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
 
+// ---- cooperative deadline
+// Checked at a closure call and at a loop turn, one clock read per DEADLINE_CHECK_EVERY of them.
+enum {
+	DEADLINE_CHECK_EVERY = 1024,
+	// Calls a handler gets before the expired deadline throws again: enough for clojure.test's reporting.
+	DEADLINE_UNWIND_CALLS = 1 << 16,
+	// Unwind budgets one deadline hands out. Past them every check throws, so a handler that catches the
+	// timeout inside a loop of its own runs at most this many turns instead of for ever.
+	DEADLINE_MAX_UNWINDS = 64,
+};
+
+static inline bool deadline_reached(clj_shadow_stack *s) {
+	if (--s->countdown) return false;
+	s->countdown = DEADLINE_CHECK_EVERY;
+	return clj_profile_now() >= s->deadline;
+}
+
+// The branch every call pays when no deadline is set.
+static inline bool deadline_hit(clj_shadow_stack *s) {
+	return __builtin_expect(s->deadline != 0, 0) && deadline_reached(s);
+}
+
+// The deadline stays set, so code that catches the throw (clojure.test does, per assertion) is stopped again.
+static clj_value deadline_throw(clj_shadow_stack *s) {
+	if (s->unwinds) {
+		s->unwinds--;
+		s->countdown = DEADLINE_UNWIND_CALLS;
+	} else {
+		s->countdown = 1;
+	}
+	return clj_throw_msg(CLJ_DEADLINE_MESSAGE);
+}
+
+void clj_deadline_set_ms(uint64_t ms) {
+	clj_shadow_stack *s = clj_shadow_tls;
+	if (!s) s = clj_shadow_stack_init();
+	s->deadline = ms ? clj_profile_now() + ms * 1000000u : 0;
+	s->countdown = DEADLINE_CHECK_EVERY;
+	s->unwinds = DEADLINE_MAX_UNWINDS;
+}
+
+uint64_t clj_deadline_get(void) {
+	clj_shadow_stack *s = clj_shadow_tls;
+	return s ? s->deadline : 0;
+}
+
+void clj_deadline_restore(uint64_t deadline) {
+	clj_shadow_stack *s = clj_shadow_tls;
+	if (!s) s = clj_shadow_stack_init();
+	s->deadline = deadline;
+	s->countdown = DEADLINE_CHECK_EVERY;
+	s->unwinds = DEADLINE_MAX_UNWINDS;
+}
+
+bool clj_deadline_expired(void) {
+	clj_shadow_stack *s = clj_shadow_tls;
+	return s && s->deadline && clj_profile_now() >= s->deadline;
+}
+
 // ---- call-site caches
 
 typedef struct {
@@ -304,9 +363,11 @@ static clj_value eval_let(const clj_node *n, clj_frame *f) {
 // recur has already rebound the slots when the body yields CLJ_RECUR; the loop is a C loop, not a call.
 static clj_value eval_loop(const clj_node *n, clj_frame *f) {
 	if (!bind_all(n, f)) return CLJ_THROWN;
+	clj_shadow_stack *s = clj_shadow_tls;
 	for (;;) {
 		clj_value v = eval_child(n->u.let.body, f);
 		if (v != CLJ_RECUR) return v;
+		if (s && deadline_hit(s)) return deadline_throw(s);
 	}
 }
 
@@ -380,6 +441,10 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 	if (__builtin_expect(&here < limit, 0)) {
 		slots_release(frame, arity->nslots);
 		return clj_throw_msg("Stack overflow");
+	}
+	if (deadline_hit(s)) {
+		slots_release(frame, arity->nslots);
+		return deadline_throw(s);
 	}
 	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site};
 	s->depth++;
@@ -721,7 +786,7 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 		result = clj_map_empty();
 		for (uint32_t i = 0; i < n->u.seq.n; i += 2) {
 			if (clj_map_contains(result, items[i])) {
-				clj_value text = clj_pr_str(items[i]);
+				clj_value text = clj_pr_str_max(items[i], CLJ_ERROR_PRINT_MAX);
 				clj_release(result);
 				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
 				clj_release(text);
@@ -744,7 +809,7 @@ static clj_value eval_set(const clj_node *n, clj_frame *f) {
 		result = clj_set_empty();
 		for (uint32_t i = 0; i < n->u.seq.n; i++) {
 			if (clj_set_contains(result, items[i])) {
-				clj_value text = clj_pr_str(items[i]);
+				clj_value text = clj_pr_str_max(items[i], CLJ_ERROR_PRINT_MAX);
 				clj_release(result);
 				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
 				clj_release(text);

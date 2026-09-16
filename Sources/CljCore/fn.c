@@ -125,7 +125,7 @@ clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, c
 }
 
 clj_value clj_arity_error(clj_value f, size_t n) {
-	clj_value text = clj_pr_str(clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : f);
+	clj_value text = clj_pr_str_max(clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
 	clj_release(text);
@@ -144,7 +144,7 @@ bool clj_fn_accepts(clj_value f, size_t n) {
 
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
-	clj_value text = clj_pr_str(f);
+	clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("%s cannot be invoked", clj_string_bytes(text));
 	clj_release(text);

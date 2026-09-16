@@ -2,6 +2,8 @@
 #ifndef CLJ_SHADOW_INTERNAL_H
 #define CLJ_SHADOW_INTERNAL_H
 
+#include <stdint.h>
+
 #include "clj/shadow.h"
 
 // A ring: past the capacity the oldest frame is overwritten, so the innermost ones survive.
@@ -9,6 +11,9 @@ typedef struct {
 	size_t           depth;
 	size_t           mask;
 	char            *stack_limit; // lowest C stack address the interpreter may still use; eval.c fills it on the first call
+	uint64_t         deadline;    // monotonic ns the running code must not pass, 0 when none (eval.c)
+	uint32_t         countdown;   // calls and loop turns left before the next clock read
+	uint32_t         unwinds;     // unwind budgets a caught timeout may still spend before every check throws
 	clj_shadow_frame frames[CLJ_SHADOW_CAPACITY];
 } clj_shadow_stack;
 

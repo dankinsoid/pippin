@@ -171,7 +171,7 @@ static clj_value b_hash(const clj_value *args, size_t n) {
 
 static clj_value int_arg(clj_value v, intptr_t *out) {
 	if (!clj_is_fixnum(v)) {
-		clj_value text = clj_pr_str(v);
+		clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("Argument must be an integer: %s", clj_string_bytes(text));
 		clj_release(text);
@@ -425,7 +425,7 @@ static clj_value b_vector(const clj_value *args, size_t n) {
 
 static clj_value b_hash_map(const clj_value *args, size_t n) {
 	if (n % 2) {
-		clj_value text = clj_pr_str(args[n - 1]);
+		clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
 		clj_release(text);
@@ -605,7 +605,7 @@ static clj_value not_an_atom(const char *what, clj_value v) { return clj_throw_m
 // (atom x & {:keys [meta validator]}): other keys are ignored, as Clojure's setup-reference does.
 static clj_value b_atom(const clj_value *args, size_t n) {
 	if (n % 2 == 0) {
-		clj_value text = clj_pr_str(args[n - 1]);
+		clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
 		clj_release(text);

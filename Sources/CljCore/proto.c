@@ -444,7 +444,7 @@ static clj_value impl_vector(clj_value proto, clj_value method_map) {
 	if (!clj_is_nil(method_map)) clj_map_each(method_map, collect_method, &c);
 	clj_value r;
 	if (c.bad_key != CLJ_UNBOUND || c.bad_val != CLJ_UNBOUND) {
-		clj_value text = clj_pr_str(c.bad_key != CLJ_UNBOUND ? c.bad_key : c.bad_val);
+		clj_value text = clj_pr_str_max(c.bad_key != CLJ_UNBOUND ? c.bad_key : c.bad_val, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) r = CLJ_THROWN;
 		else if (c.bad_key != CLJ_UNBOUND) r = clj_throw_msg("No method %s in protocol %s", clj_string_bytes(text), clj_string_bytes(clj_symbol_name(p->name)));
 		else r = clj_throw_msg("Method implementation must be a fn, got: %s", clj_string_bytes(text));
@@ -785,7 +785,7 @@ typedef struct {
 } core_collect_ctx;
 
 static clj_value refuse_method(const core_collect_ctx *c, clj_value key, const char *why) {
-	clj_value text = clj_pr_str(key);
+	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("%s %s in interface %s", why, clj_string_bytes(text), clj_string_bytes(clj_symbol_name(c->iface->name)));
 	clj_release(text);
