@@ -59,7 +59,8 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("1.2.3", 1, 1, "Invalid number: 1.2.3"),
 	("1a", 1, 1, "Invalid number: 1a"),
 	("1/a", 1, 1, "Invalid number: 1/a"),
-	("#\"re\"", 1, 1, "Regex literals are not supported yet"),
+	("#\"a(\"", 1, 1, "Unclosed group near index 2\na("),
+	("#\"a", 1, 1, "EOF while reading regex"),
 	("::no-such/a", 1, 1, "Invalid token: ::no-such/a"),
 	("#(#(%))", 1, 3, "Nested #()s are not allowed"),
 	("#(%0)", 1, 1, "arg literal must be %, %& or %integer"),
@@ -76,7 +77,6 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("#:a{:b 1}", 1, 1, "Namespaced map literals are not supported yet"),
 	("#cpp x", 1, 1, "Tagged literals are not supported yet"),
 	("#?(:default #cpp x :jank 1)", 1, 13, "Tagged literals are not supported yet"),
-	("#?(:default #\"re\" :jank 1)", 1, 13, "Regex literals are not supported yet"),
 	("#=(+ 1 2)", 1, 1, "Read-eval is not supported yet"),
 	("^1 x", 1, 1, "Metadata must be Symbol,Keyword,String or Map"),
 	("(a ^[] x)", 1, 4, "Metadata must be Symbol,Keyword,String or Map"),
@@ -286,6 +286,8 @@ extension CoreTests {
 
 		@Test(arguments: errorCases) func errors(text: String, line: Int, column: Int, message: String) {
 			clj_init()
+			// A pattern's syntax error carries them in its ex-data, and interning is permanent.
+			for k in ["pattern", "offset"] { _ = kw(k) }
 			let before = clj_debug_live_objects()
 			#expect(readError(text) == ReaderError(message: message, line: line, column: column), "\(text.debugDescription)")
 			#expect(clj_debug_live_objects() == before)

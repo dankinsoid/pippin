@@ -994,6 +994,48 @@ static clj_read_status read_string(parser *p, uint32_t line, uint32_t col) {
 	return st;
 }
 
+// #"..." keeps its text verbatim: only \" fails to close, and the backslash stays in the pattern.
+static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col) {
+	clj_reader     *r = p->r;
+	buf             b = {0};
+	clj_read_status st = CLJ_READ_OK;
+	advance(r);
+	for (;;) {
+		if (at_eof(r)) {
+			st = fail(p, line, col, "EOF while reading regex");
+			break;
+		}
+		unsigned char c = peek(r);
+		if (c == '"') {
+			advance(r);
+			break;
+		}
+		buf_put(&b, r->bytes + r->pos, 1);
+		advance(r);
+		if (c != '\\') continue;
+		if (at_eof(r)) {
+			st = fail(p, line, col, "EOF while reading regex");
+			break;
+		}
+		buf_put(&b, r->bytes + r->pos, 1);
+		advance(r);
+	}
+	if (st == CLJ_READ_OK) {
+		clj_value text = clj_string_new(b.data, b.len);
+		clj_value re = clj_regex_new(text);
+		clj_release(text);
+		if (re == CLJ_THROWN) {
+			clj_value ex = clj_take_pending();
+			clj_value msg = clj_ex_message(ex);
+			st = fail(p, line, col, "%s", clj_is_string(msg) ? clj_string_bytes(msg) : "Invalid pattern");
+			clj_release(msg);
+			clj_release(ex);
+		} else st = push_value(p, re);
+	}
+	free(b.data);
+	return st;
+}
+
 static clj_read_status read_char(parser *p, uint32_t line, uint32_t col) {
 	clj_reader *r = p->r;
 	advance(r);
@@ -1086,7 +1128,7 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 		return CLJ_READ_OK;
 	case '"':
 		if (in_unselected_branch(p)) return read_string(p, line, col); // a discarded branch keeps the pattern text
-		return fail(p, line, col, "Regex literals are not supported yet");
+		return read_regex(p, line, col);
 	case '\'':
 		advance(r);
 		push_frame(p, F_VAR, line, col);

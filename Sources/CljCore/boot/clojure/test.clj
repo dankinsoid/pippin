@@ -171,7 +171,6 @@
                         :expected '~form, :actual e#})
             e#))))
 
-;; The pattern is a string the message must contain: regex literals do not read here (NOTES.md).
 (defmethod assert-expr 'thrown-with-msg? [msg form]
   (let [klass (nth form 1)
         re (nth form 2)
@@ -180,7 +179,7 @@
           (do-report {:type :fail, :message ~msg, :expected '~form, :actual nil})
           (catch ~klass e#
             (let [m# (ex-message e#)]
-              (if (and (string? ~re) (string? m#) (some? (str-index-of* m# ~re)))
+              (if (and (string? m#) (some? (re-find ~re m#)))
                 (do-report {:type :pass, :message ~msg,
                             :expected '~form, :actual e#})
                 (do-report {:type :fail, :message ~msg,
@@ -197,7 +196,7 @@
 
 (defmacro is
   "Generic assertion macro. 'form' is any predicate test. 'msg' is an optional message to attach.
-  Special forms: (is (thrown? c body)), (is (thrown-with-msg? c \"text\" body))."
+  Special forms: (is (thrown? c body)), (is (thrown-with-msg? c re body))."
   ([form] (with-meta `(is ~form nil) (meta &form)))
   ([form msg]
    (let [{:keys [line column]} (meta &form)]
@@ -340,10 +339,12 @@
      summary)))
 
 (defn run-all-tests
-  "Runs all tests in all namespaces; prints results. Optional argument is a predicate on the namespace
-  name (Clojure takes a regex, which does not read here)."
+  "Runs all tests in all namespaces; prints results. Optional argument is a regex or a predicate
+  matched against each namespace name."
   ([] (apply run-tests (all-ns)))
-  ([pred] (apply run-tests (filter (fn [ns] (pred (str (ns-name ns)))) (all-ns)))))
+  ([re-or-pred]
+   (let [match? (if (regex? re-or-pred) (fn [name] (re-find re-or-pred name)) re-or-pred)]
+     (apply run-tests (filter (fn [ns] (match? (str (ns-name ns)))) (all-ns))))))
 
 (defn run-test-var
   "Runs the tests for a single var, with fixtures executed around the test, and summarizes the results."

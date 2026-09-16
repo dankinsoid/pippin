@@ -1345,6 +1345,17 @@
 
 (defn array-map "Returns a map of the key/value pairs; the same map type as hash-map here." [& kvs] (apply hash-map kvs))
 
+;; One matcher drives the whole seq, so two consumers of the same re-seq share its position, as in Clojure.
+(defn re-seq
+  "Returns a lazy seq of successive matches of re in s, each as re-find returns it."
+  [re s]
+  (let [m (re-matcher re s)
+        step (fn step []
+               (lazy-seq
+                 (when-let [found (re-find m)]
+                   (cons found (step)))))]
+    (step)))
+
 ;; Transients are the persistent operations themselves: no separate mutable phase (NOTES.md).
 (defn transient "Returns coll itself: persistent operations stand in for transients here." [coll] coll)
 (defn persistent! "Returns coll itself (see transient)." [coll] coll)

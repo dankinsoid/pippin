@@ -7,6 +7,7 @@
 #include "clj/list.h"
 #include "clj/long.h"
 #include "clj/map.h"
+#include "clj/regex.h"
 #include "clj/seq.h"
 #include "clj/string.h"
 #include "clj/vector.h"
@@ -146,6 +147,10 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		uint32_t cp;
 		if (i >= 0 && string_nth(coll, (size_t)i, &cp)) return clj_char(cp);
 		count = clj_string_count(coll);
+	} else if (t == &clj_matcher_type) {
+		// RT.nth indexes a Matcher by group, which no interface of its own carries.
+		count = clj_regex_group_count(clj_matcher_of(coll)->re) + 1;
+		if (i >= 0 && (size_t)i < count) return clj_matcher_group(coll, i);
 	} else if (t && (t->core_bits & CLJ_CORE_SEQUENTIAL) && t->seq) {
 		clj_value s = t->seq(coll);
 		if (s == CLJ_THROWN) return s;

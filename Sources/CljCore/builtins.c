@@ -12,6 +12,7 @@
 #include "clj/intrinsics.h"
 #include "clj/record.h"
 #include "clj/reduce.h"
+#include "clj/regex.h"
 #include "clj/runtime.h"
 #include "clj/seq.h"
 #include "clj/sorted.h"
@@ -1344,4 +1345,5 @@ void clj_builtins_install(void) {
 	clj_string_builtins_install();
 	clj_number_builtins_install();
 	clj_array_builtins_install();
+	clj_regex_builtins_install();
 }

@@ -131,7 +131,7 @@ static bool serializable_entry(clj_value key, clj_value val, void *ctx) {
 
 // What the printer writes and the reader hands back as an equal value; a seq comes back as a list.
 static bool serializable(clj_value v) {
-	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v)) return true;
+	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v) || clj_is_regex(v)) return true;
 	bool ok = true;
 	if (clj_is_vector(v)) {
 		clj_vector_each(v, serializable_item, &ok);
@@ -165,7 +165,7 @@ static bool foldable_entry(clj_value key, clj_value val, void *ctx) {
 // Stricter than serializable(): a seq that is not a list comes back as a list, a change of type a fold must not make.
 // @ai-generated(guided)
 bool clj_node_foldable(clj_value v) {
-	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v)) return true;
+	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v) || clj_is_regex(v)) return true;
 	bool ok = true;
 	if (clj_is_vector(v)) {
 		clj_vector_each(v, foldable_item, &ok);

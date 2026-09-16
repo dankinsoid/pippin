@@ -26,6 +26,7 @@
 #include "proto.h"   // IWYU pragma: export
 #include "reader.h"  // IWYU pragma: export
 #include "reduce.h"  // IWYU pragma: export
+#include "regex.h"   // IWYU pragma: export
 #include "runtime.h" // IWYU pragma: export
 #include "seq.h"     // IWYU pragma: export
 #include "set.h"     // IWYU pragma: export

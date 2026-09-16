@@ -270,6 +270,12 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 	} else if (clj_is_string(v)) {
 		if (readably) put_string_literal(b, v);
 		else put_bytes(b, clj_string_bytes(v), clj_string_len(v));
+	} else if (clj_is_regex(v)) {
+		// The text is verbatim in both directions: the reader applies no string escapes inside #"".
+		clj_value p = clj_regex_pattern(v);
+		if (readably) put_cstr(b, "#\"");
+		put_bytes(b, clj_string_bytes(p), clj_string_len(p));
+		if (readably) put_char(b, '"');
 	} else if (clj_is_keyword(v)) {
 		put_char(b, ':');
 		put_symbol_text(b, clj_keyword_ns(v), clj_keyword_name(v));
