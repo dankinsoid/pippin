@@ -48,7 +48,6 @@
   {:name clojure.core-test.double-qmark/test-double? :status :fail :reason "(= false (double? (float 0.0)))" :missing [] :note "there is no float type: (float x) returns a double, so (double? (float 0.0)) is true (NOTES.md, numeric tower)"}
   {:name clojure.core-test.drop-last/test-drop-last :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.drop-while/test-drop-while :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
-  {:name clojure.core-test.group-by/test-group-by :status :fail :reason "(= {:foo true} (-> g (get [1]) first first meta))" :missing [] :note "bug: reader metadata on a collection literal is dropped by the analyzer. (meta ^:foo [1]) is nil here, {:foo true} on the JVM"}
   {:name clojure.core-test.ifn-qmark/test-ifn? :status :fail :reason "(ifn? (quote symbol))" :missing [] :note "a symbol is not invokable here, so (ifn? 'x) is false; Clojure's symbols implement IFn as a map lookup"}
   {:name clojure.core-test.key/test-key :status :fail :reason "(p/thrown? (key [1 2]))" :missing [] :note "a map entry is a two-element vector here (map-entry?), so (key [1 2]) cannot throw"}
   {:name clojure.core-test.lazy-seq/test-lazy-seq :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}

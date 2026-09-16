@@ -84,6 +84,27 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A literal's reader metadata is a with-meta call, so the value is rebuilt with it per evaluation.
+		@Test func readerMetaOnCollectionLiterals() throws {
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("[(meta ^:a [1]) (meta ^:a {:b 1}) (meta ^:a #{1}) (meta ^:a ())]")
+					== Value([m(["a": true]), m(["a": true]), m(["a": true]), m(["a": true])]))
+				#expect(try rt.eval("(meta ^{:a 1 :b 2} [])") == m(["a": 1, "b": 2]))
+				#expect(try rt.eval("(let [x 1] (meta ^:a [x]))") == m(["a": true]))
+				// The metadata map is analyzed, not quoted.
+				#expect(try rt.eval("(let [x 7] (meta ^{:a x} [1]))") == m(["a": 7]))
+				#expect(try rt.eval("(-> (group-by first [[^:a [1] [2]]]) (get [1]) first first meta)") == m(["a": true]))
+				// Meta never joins the value: equality, hashing and printing ignore it.
+				#expect(try rt.eval("[(= ^:a [1] [1]) (= (hash ^:a [1]) (hash [1])) (pr-str ^:a [1])]") == [true, true, "[1]"])
+				#expect(try rt.eval("(let [f (fn [] ^:a [1])] [(meta (f)) (identical? (f) (f))])") == Value([m(["a": true]), false]))
+				// ^ on a quote form lands on that form, which the analyzer consumes; only the reader's position survives.
+				#expect(try rt.eval("(:a (meta (quote ^:a (1 2))))") == true)
+				#expect(try rt.eval("(:a (meta ^:a (quote (1 2))))") == nil)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func withMetaReusesUniqueRootsAndSharesChildren() throws {
 			let before = clj_debug_live_objects()
 			do {

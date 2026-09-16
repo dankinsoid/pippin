@@ -165,9 +165,10 @@ typedef struct {
 } analyzer;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_arglists, kw_macro, kw_dynamic, kw_file;
+static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_arglists, kw_macro, kw_dynamic, kw_file, sym_with_meta;
 
 static void intern_keywords(void) {
+	sym_with_meta = clj_symbol_from_cstr("with-meta");
 	kw_file = clj_keyword_from_cstr("file");
 	kw_line = clj_keyword_from_cstr("line");
 	kw_column = clj_keyword_from_cstr("column");
@@ -622,6 +623,28 @@ static clj_value build_set(const clj_node *const *items, uint32_t n) {
 	return s;
 }
 
+// Clojure's MetaExpr: a literal's reader metadata is a with-meta call, not part of the constant.
+static clj_node *literal_with_meta(analyzer *a, scope *s, clj_value form, clj_node *node) {
+	if (!node) return NULL;
+	clj_value m = clj_meta(form);
+	if (clj_is_nil(m)) return node;
+	clj_node *meta_node = analyze(a, s, m, false);
+	clj_release(m);
+	if (!meta_node) {
+		clj_release(clj_from_ptr(node));
+		return NULL;
+	}
+	clj_node *fn = node_new(a, CLJ_NODE_VAR);
+	fn->u.var = clj_retain(clj_ns_intern(clj_ns_core(), sym_with_meta));
+	clj_node *call = node_new(a, CLJ_NODE_INVOKE);
+	call->u.invoke.fn = fn;
+	call->u.invoke.args = zalloc(2, sizeof *call->u.invoke.args);
+	call->u.invoke.n = 2;
+	call->u.invoke.args[0] = node;
+	call->u.invoke.args[1] = meta_node;
+	return call;
+}
+
 static bool analyze_into(analyzer *a, scope *s, const clj_node **out, const clj_value *forms, uint32_t n, bool tail_last) {
 	for (uint32_t i = 0; i < n; i++) {
 		out[i] = analyze(a, s, forms[i], tail_last && i + 1 == n);
@@ -643,7 +666,7 @@ static clj_node *analyze_vector(analyzer *a, scope *s, clj_value form) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	return fold_or_keep(a, node, build_vector);
+	return literal_with_meta(a, s, form, fold_or_keep(a, node, build_vector));
 }
 
 typedef struct {
@@ -672,7 +695,7 @@ static clj_node *analyze_map(analyzer *a, scope *s, clj_value form) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	return fold_or_keep(a, node, build_map);
+	return literal_with_meta(a, s, form, fold_or_keep(a, node, build_map));
 }
 
 static bool collect_item(clj_value item, void *ctx) {
@@ -695,7 +718,7 @@ static clj_node *analyze_set(analyzer *a, scope *s, clj_value form) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	return fold_or_keep(a, node, build_set);
+	return literal_with_meta(a, s, form, fold_or_keep(a, node, build_set));
 }
 
 // Zero forms is nil, one is itself, more is a do.
@@ -1305,7 +1328,7 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	if (clj_is_seq(form)) {
 		clj_value seq = clj_seq(form);
 		if (seq == CLJ_THROWN) return NULL;
-		if (clj_is_nil(seq)) return node_const(a, clj_list_empty());
+		if (clj_is_nil(seq)) return literal_with_meta(a, s, form, node_const(a, clj_list_empty()));
 		clj_node *node = analyze_list(a, s, seq, tail);
 		clj_release(seq);
 		return node;
