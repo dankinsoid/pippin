@@ -13,13 +13,13 @@
   {:file "test/clojure/core_test/binding.cljc" :line 5 :reason "Unable to resolve symbol: future in this context" :missing [future]}
   {:file "test/clojure/core_test/bound_fn.cljc" :line 7 :reason "Unable to resolve symbol: future in this context" :missing [future]}
   {:file "test/clojure/core_test/bound_fn_star.cljc" :line 9 :reason "Unable to resolve symbol: future in this context" :missing [future]}
-  {:file "test/clojure/core_test/descendants.cljc" :line 5 :reason "Unable to resolve symbol: defrecord in this context" :missing [defrecord]}
+  {:file "test/clojure/core_test/dissoc.cljc" :line 8 :reason "Unable to resolve symbol: TestDissocRecord. in this context" :missing [TestDissocRecord.]}
   {:file "test/clojure/core_test/eq.cljc" :line 88 :reason "Regex literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/identity.cljc" :line 30 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/not_eq.cljc" :line 7 :reason "Unable to resolve symbol: eq/tests in this context" :missing [eq/tests]}
   {:file "test/clojure/core_test/nth.cljc" :line 54 :reason "Regex literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/num.cljc" :line 122 :reason "Regex literals are not supported yet" :missing []}
-  {:file "test/clojure/core_test/parents.cljc" :line 5 :reason "Unable to resolve symbol: defrecord in this context" :missing [defrecord]}
+  {:file "test/clojure/core_test/parents.cljc" :line 5 :reason "Unable to resolve symbol: clojure.core_test.parents.TestParentsProtocol in this context" :missing [clojure.core_test.parents.TestParentsProtocol]}
   {:file "test/clojure/core_test/parse_uuid.cljc" :line 23 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/portability.cljc" :line 38 :name lazy-seq? :reason "Unable to resolve symbol: clojure.lang.LazySeq in this context" :missing [clojure.lang.LazySeq]}
   {:file "test/clojure/core_test/random_uuid.cljc" :line 14 :reason "Regex literals are not supported yet" :missing []}
@@ -42,6 +42,7 @@
   {:name clojure.core-test.concat/test-concat :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.conj-bang/test-conj! :status :fail :reason "(p/thrown? (conj! coll 0))" :missing [] :note "transient is identity here, so (conj! {} 0) cannot throw"}
   {:name clojure.core-test.cycle/test-cycle :status :fail :reason "(p/thrown? (cycle :k))" :missing [] :note "cycle is lazy here, so (cycle :k) throws only once the seq is realized and p/thrown? never realizes it; Clojure's Cycle/create seqs its argument eagerly"}
+  {:name clojure.core-test.descendants/test-descendants :status :fail :reason "(p/thrown? (descendants Object))" :missing [] :note "Object is a type descriptor here, not a class, and hierarchies know tags only, so (descendants Object) answers nil where the JVM refuses a class (docs/jvm-differences.md)"}
   {:name clojure.core-test.disj-bang/test-disj! :status :fail :reason "(p/thrown? (disj! t 1))" :missing [] :note "transient is identity here, so disj! on a persistent set cannot throw"}
   {:name clojure.core-test.dissoc-bang/test-dissoc! :status :fail :reason "(p/thrown? (dissoc! t :a))" :missing [] :note "transient is identity here, so dissoc! on a persistent map cannot throw"}
   {:name clojure.core-test.distinct/test-distinct :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
@@ -68,4 +69,4 @@
   {:name clojure.core-test.vec/test-vec :status :fail :reason "(= [-1 2 3] v)" :missing [] :note "(vec array) copies here; the JVM aliases the array, so a later aset shows through the vector (docs/jvm-differences.md)"}
  ]
  :skipped
- [add-tap boolean? defrecord format parse-boolean random-sample reversible? with-precision]}
+ [add-tap boolean? format parse-boolean random-sample reversible? with-precision]}

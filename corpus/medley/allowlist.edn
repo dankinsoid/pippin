@@ -7,8 +7,6 @@
 {:second-run-live-objects 0
  :forms
  [
-  {:file "src/medley/core.cljc" :line 40 :name editable? :reason "Unable to resolve symbol: clojure.lang.IEditableCollection in this context" :missing [clojure.lang.IEditableCollection]}
-  {:file "src/medley/core.cljc" :line 96 :name reduce-map :reason "Unable to resolve symbol: record? in this context" :missing [record?]}
   {:file "src/medley/core.cljc" :line 102 :name map-entry :reason "Unable to resolve symbol: clojure.lang.MapEntry. in this context" :missing [clojure.lang.MapEntry.]}
   {:file "src/medley/core.cljc" :line 185 :name queue :reason "Unable to resolve symbol: clojure.lang.PersistentQueue/EMPTY in this context" :missing [clojure.lang.PersistentQueue/EMPTY]}
   {:file "src/medley/core.cljc" :line 191 :name queue? :reason "Unable to resolve symbol: clojure.lang.PersistentQueue in this context" :missing [clojure.lang.PersistentQueue]}
@@ -21,19 +19,12 @@
   {:file "src/medley/core.cljc" :line 699 :name random-uuid :reason "Unable to resolve symbol: java.util.UUID/randomUUID in this context" :missing [java.util.UUID/randomUUID]}
   {:file "src/medley/core.cljc" :line 707 :name regexp? :reason "Unable to resolve symbol: java.util.regex.Pattern in this context" :missing [java.util.regex.Pattern]}
   {:file "src/medley/core.cljc" :line 715 :name index-of :reason "Unable to resolve symbol: .indexOf in this context" :missing [.indexOf]}
-  {:file "test/medley/core_test.cljc" :line 71 :name MyRecord :reason "Unable to resolve symbol: defrecord in this context" :missing [defrecord]}
-  {:file "test/medley/core_test.cljc" :line 73 :name test-map-kv :reason "Unable to resolve symbol: ->MyRecord in this context" :missing [->MyRecord]}
-  {:file "test/medley/core_test.cljc" :line 83 :name test-map-keys :reason "Unable to resolve symbol: ->MyRecord in this context" :missing [->MyRecord]}
-  {:file "test/medley/core_test.cljc" :line 91 :name test-map-vals :reason "Unable to resolve symbol: ->MyRecord in this context" :missing [->MyRecord]}
-  {:file "test/medley/core_test.cljc" :line 112 :name test-map-kv-keys :reason "Unable to resolve symbol: ->MyRecord in this context" :missing [->MyRecord]}
-  {:file "test/medley/core_test.cljc" :line 120 :name test-map-kv-vals :reason "Unable to resolve symbol: ->MyRecord in this context" :missing [->MyRecord]}
   {:file "test/medley/core_test.cljc" :line 137 :reason "Regex literals are not supported yet" :missing []}
  ]
  :tests
  [
-  {:name medley.core-test/test-assoc-some :status :error :reason "Unbound var: #'medley.core/editable?" :missing [medley.core/editable?]}
-  {:name medley.core-test/test-filter-kv :status :error :reason "Unbound var: #'medley.core/reduce-map" :missing [medley.core/reduce-map]}
   {:name medley.core-test/test-map-entry :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
+  {:name medley.core-test/test-map-kv :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
  ]
  :skipped
  []}
