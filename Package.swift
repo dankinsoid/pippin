@@ -36,6 +36,10 @@ let package = Package(
 			dependencies: ["Clojure", "CljCore"]
 		),
 		.executableTarget(
+			name: "clj-api-dump",
+			dependencies: ["CljCore", "Clojure"]
+		),
+		.executableTarget(
 			name: "clj-bench",
 			dependencies: [
 				"CljCore",

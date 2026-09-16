@@ -1001,9 +1001,16 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   selected branch; a tagged literal (`#cpp`, `#inst`, `#uuid`) outside a `#?` — inside an unselected branch it
   is suppressed (reader section). Symbols the suite needs from the JVM:
   `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in `catch` works, `instance?` of JVM classes does not.
-- **scripts/api-diff.clj** is the JVM side of step 5 (dump `(ns-publics 'clojure.core)`, diff against a
-  dump of ours, weight by corpus uses, write docs/api-parity.md); written, not yet run: the runtime-side
-  dump executable and the `make api-diff` target do not exist.
+- **`make api-diff`** runs the parity report: `scripts/api-diff.clj dump-jvm` on JVM Clojure, the
+  `clj-api-dump` executable for ours (it evaluates `ns-publics` and prints the EDN — name from the map key,
+  not the meta, so a var whose meta lost its `:name` still appears), then the diff, weighted by symbol
+  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 466 of the JVM's 679
+  public vars exist, 316 missing, 78 of those used by the corpus; `sorted-map`, `derive`/`isa?`'s hierarchy
+  fns, `sorted-set`, `float`/`double`/`long`/`byte`/`short` coercions and the array fns lead the weighted
+  list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
+  mismatch (`pr` is `^:dynamic` on the JVM) and 13 arity mismatches, of which `partition`'s
+  `[n step pad coll]`, `sequence`'s multi-coll arity and `disj!`'s 1-arity are real gaps rather than
+  differently-written variadics.
 
 ## Host bridge (Sources/Clojure, error.c host-error, fn.c context natives)
 

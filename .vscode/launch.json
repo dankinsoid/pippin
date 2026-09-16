@@ -19,6 +19,26 @@
       "target": "clj-bench",
       "configuration": "release",
       "preLaunchTask": "swift: Build Release clj-bench"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:ClojureSwift}",
+      "name": "Debug clj-api-dump",
+      "target": "clj-api-dump",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug clj-api-dump"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:ClojureSwift}",
+      "name": "Release clj-api-dump",
+      "target": "clj-api-dump",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release clj-api-dump"
     }
   ]
 }

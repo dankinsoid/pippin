@@ -25,6 +25,14 @@ corpus:
 corpus-update:
 	CLJ_CORPUS_UPDATE=1 swift test --filter CorpusTests
 
+# clojure.core parity: the JVM's ns-publics, ours, and the diff weighted by the corpus (scripts/api-diff.clj).
+# Needs JVM Clojure on PATH; writes docs/api-parity.md, which is committed.
+api-diff:
+	@mkdir -p .build/api
+	clojure -M scripts/api-diff.clj dump-jvm > .build/api/jvm.edn
+	swift run clj-api-dump > .build/api/ours.edn
+	clojure -M scripts/api-diff.clj diff .build/api/jvm.edn .build/api/ours.edn corpus docs/api-parity.md
+
 # Same binary twice: pool, then system malloc as the control. Compare only within one invocation.
 bench:
 	swift build -c release --product clj-bench
