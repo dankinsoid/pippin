@@ -338,6 +338,13 @@ clj_value clj_contains_p(clj_value coll, clj_value key) {
 	if (clj_is_map(coll)) return clj_bool(clj_map_contains(coll, key));
 	if (clj_is_set(coll)) return clj_bool(clj_set_contains(coll, key));
 	if (clj_is_vector(coll)) return clj_bool(clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && (uintptr_t)clj_fixnum_val(key) < clj_vector_count(coll));
+	// RT.contains indexes an array or a String and casts the key to a number first, so a nil key throws.
+	if (clj_is_array(coll) || clj_is_string(coll)) {
+		if (!clj_is_fixnum(key)) return clj_throw_msg("%s cannot be cast to a number", clj_type_name(key));
+		intptr_t i = clj_fixnum_val(key);
+		size_t   n = clj_is_array(coll) ? clj_array_count(coll) : clj_string_count(coll);
+		return clj_bool(i >= 0 && (size_t)i < n);
+	}
 	// Any other IPersistentMap/Set answers through its lookup; CLJ_UNBOUND is never a stored value.
 	if (clj_has_core(coll, CLJ_CORE_MAP) || clj_has_core(coll, CLJ_CORE_SET)) {
 		clj_value v = clj_get(coll, key, CLJ_UNBOUND);
@@ -1337,4 +1344,5 @@ void clj_builtins_install(void) {
 	clj_ns_builtins_install();
 	clj_string_builtins_install();
 	clj_number_builtins_install();
+	clj_array_builtins_install();
 }

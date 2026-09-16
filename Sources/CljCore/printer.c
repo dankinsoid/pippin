@@ -180,7 +180,7 @@ static void put_symbol_text(buf *b, clj_value ns, clj_value name) {
 	put_bytes(b, clj_string_bytes(name), clj_string_len(name));
 }
 
-typedef enum { F_SEQ, F_VECTOR, F_MAP, F_SET } frame_kind;
+typedef enum { F_SEQ, F_VECTOR, F_MAP, F_SET, F_ARRAY } frame_kind;
 
 typedef struct {
 	frame_kind   kind;
@@ -227,6 +227,14 @@ static bool collect_item(clj_value item, void *ctx) {
 	collect_ctx *c = ctx;
 	c->entries[c->n++] = item;
 	return true;
+}
+
+// An array frame owns its entries: the elements are boxed on the way out, not borrowed.
+static void free_entries(frame *f) {
+	if (f->kind == F_ARRAY) {
+		for (size_t i = 0; i < f->n; i++) clj_release(f->entries[i]);
+	}
+	free(f->entries);
 }
 
 static bool collect_sorted_item(clj_value key, clj_value val, void *ctx) {
@@ -335,6 +343,16 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		collect_ctx c = {f->entries, 0};
 		clj_sorted_each(v, set ? collect_sorted_item : collect_entry, &c);
 		f->n = n;
+	} else if (clj_is_array(v)) {
+		// The JVM prints an address; the elements are more use (docs/jvm-differences.md).
+		put_cstr(b, "#array[:");
+		put_cstr(b, clj_array_kind_name(clj_array_kind_of(v)));
+		frame *f = push_frame(stack, F_ARRAY);
+		size_t n = clj_array_count(v);
+		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
+		if (n && !f->entries) clj_fatal("out of memory");
+		for (size_t i = 0; i < n; i++) f->entries[i] = clj_array_get(v, (uint32_t)i);
+		f->n = n;
 	} else if (clj_is_type(v)) {
 		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);
 	} else if (clj_is_protocol(v)) {
@@ -381,7 +399,7 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 			return true;
 		}
 		put_char(b, '}');
-		free(f->entries);
+		free_entries(f);
 		break;
 	case F_SET:
 		if (f->i < f->n) {
@@ -390,7 +408,16 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 			return true;
 		}
 		put_char(b, '}');
-		free(f->entries);
+		free_entries(f);
+		break;
+	case F_ARRAY:
+		if (f->i < f->n) {
+			put_char(b, ' ');
+			*out = f->entries[f->i++];
+			return true;
+		}
+		put_char(b, ']');
+		free_entries(f);
 		break;
 	}
 	stack->count--;
@@ -417,8 +444,8 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max) {
 	if (truncated) put_cstr(&b, " ...");
 	for (size_t i = stack.count; i > 0; i--) {
 		frame *f = &stack.items[i - 1];
-		if (truncated) put_char(&b, f->kind == F_SEQ ? ')' : f->kind == F_VECTOR ? ']' : '}');
-		if (f->kind == F_MAP || f->kind == F_SET) free(f->entries);
+		if (truncated) put_char(&b, f->kind == F_SEQ ? ')' : f->kind == F_VECTOR || f->kind == F_ARRAY ? ']' : '}');
+		if (f->kind != F_SEQ && f->kind != F_VECTOR) free_entries(f);
 		if (f->kind == F_SEQ) clj_seq_iter_close(&f->it);
 	}
 	free(stack.items);

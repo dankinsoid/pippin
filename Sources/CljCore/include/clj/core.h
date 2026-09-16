@@ -3,6 +3,7 @@
 
 // Umbrella header: re-exports the public core API.
 #include "analyzer.h" // IWYU pragma: export
+#include "array.h"    // IWYU pragma: export
 #include "atom.h"    // IWYU pragma: export
 #include "box.h"     // IWYU pragma: export
 #include "coll.h"    // IWYU pragma: export

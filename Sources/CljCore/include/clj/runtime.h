@@ -31,6 +31,7 @@ void clj_builtin_bind(const char *name, clj_native_fn fn, uint32_t min_arity, ui
 void clj_ns_builtins_install(void);
 void clj_string_builtins_install(void);
 void clj_number_builtins_install(void);
+void clj_array_builtins_install(void);
 
 // clj_reader.resolve: qualifies in the current namespace, or the var's own; an alias prefix is expanded. ctx unused.
 clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx);

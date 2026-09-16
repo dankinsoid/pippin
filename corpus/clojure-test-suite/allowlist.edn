@@ -9,25 +9,13 @@
  [
   {:file "test/clojure/core_test/add_watch.cljc" :line 5 :reason "Unable to resolve classname: e" :missing [e]}
   {:file "test/clojure/core_test/ancestors.cljc" :line 5 :reason "Unable to resolve symbol: clojure.lang.PersistentHashSet in this context" :missing [clojure.lang.PersistentHashSet]}
-  {:file "test/clojure/core_test/associative_qmark.cljc" :line 5 :reason "Unable to resolve symbol: to-array in this context" :missing [to-array]}
   {:file "test/clojure/core_test/bigint.cljc" :line 6 :reason "Unable to resolve symbol: clojure.lang.BigInt in this context" :missing [clojure.lang.BigInt]}
   {:file "test/clojure/core_test/binding.cljc" :line 5 :reason "Unable to resolve symbol: future in this context" :missing [future]}
   {:file "test/clojure/core_test/bound_fn.cljc" :line 7 :reason "Unable to resolve symbol: future in this context" :missing [future]}
   {:file "test/clojure/core_test/bound_fn_star.cljc" :line 9 :reason "Unable to resolve symbol: future in this context" :missing [future]}
-  {:file "test/clojure/core_test/butlast.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
-  {:file "test/clojure/core_test/coll_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
-  {:file "test/clojure/core_test/contains_qmark.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
-  {:file "test/clojure/core_test/counted_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
   {:file "test/clojure/core_test/descendants.cljc" :line 5 :reason "Unable to resolve symbol: defrecord in this context" :missing [defrecord]}
-  {:file "test/clojure/core_test/drop_last.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
-  {:file "test/clojure/core_test/drop_while.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
   {:file "test/clojure/core_test/eq.cljc" :line 88 :reason "Regex literals are not supported yet" :missing []}
-  {:file "test/clojure/core_test/first.cljc" :line 5 :reason "Unable to resolve symbol: to-array in this context" :missing [to-array]}
-  {:file "test/clojure/core_test/get.cljc" :line 5 :reason "Unable to resolve symbol: to-array in this context" :missing [to-array]}
   {:file "test/clojure/core_test/identity.cljc" :line 30 :reason "Tagged literals are not supported yet" :missing []}
-  {:file "test/clojure/core_test/list_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
-  {:file "test/clojure/core_test/map_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
-  {:file "test/clojure/core_test/next.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
   {:file "test/clojure/core_test/not_eq.cljc" :line 7 :reason "Unable to resolve symbol: eq/tests in this context" :missing [eq/tests]}
   {:file "test/clojure/core_test/nth.cljc" :line 54 :reason "Regex literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/num.cljc" :line 122 :reason "Regex literals are not supported yet" :missing []}
@@ -35,23 +23,12 @@
   {:file "test/clojure/core_test/parse_uuid.cljc" :line 23 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/portability.cljc" :line 38 :name lazy-seq? :reason "Unable to resolve symbol: clojure.lang.LazySeq in this context" :missing [clojure.lang.LazySeq]}
   {:file "test/clojure/core_test/random_uuid.cljc" :line 14 :reason "Regex literals are not supported yet" :missing []}
-  {:file "test/clojure/core_test/reduce.cljc" :line 7 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
   {:file "test/clojure/core_test/remove.cljc" :line 31 :reason "Regex literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/remove_watch.cljc" :line 5 :reason "Unable to resolve symbol: ref in this context" :missing [ref]}
   {:file "test/clojure/core_test/repeatedly.cljc" :line 55 :reason "Regex literals are not supported yet" :missing []}
-  {:file "test/clojure/core_test/rest.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
-  {:file "test/clojure/core_test/seq.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
-  {:file "test/clojure/core_test/seq_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
-  {:file "test/clojure/core_test/seqable_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
-  {:file "test/clojure/core_test/sequential_qmark.cljc" :line 5 :reason "Unable to resolve symbol: to-array in this context" :missing [to-array]}
-  {:file "test/clojure/core_test/set_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
   {:file "test/clojure/core_test/short.cljc" :line 5 :reason "Index 2 out of bounds for length 2" :missing []}
-  {:file "test/clojure/core_test/some.cljc" :line 5 :reason "Unable to resolve symbol: int-array in this context" :missing [int-array]}
-  {:file "test/clojure/core_test/sorted_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
   {:file "test/clojure/core_test/uuid_qmark.cljc" :line 10 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/var_qmark.cljc" :line 17 :reason "Unable to resolve var: *assert* in this context" :missing [*assert*]}
-  {:file "test/clojure/core_test/vec.cljc" :line 5 :reason "Unable to resolve symbol: to-array in this context" :missing [to-array]}
-  {:file "test/clojure/core_test/vector_qmark.cljc" :line 5 :reason "Unable to resolve symbol: object-array in this context" :missing [object-array]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 1 :reason "Could not locate clojure/edn.cljc or clojure/edn.clj on load path." :missing [clojure/edn]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 16 :name epoch-millis :reason "Unable to resolve symbol: .getTime in this context" :missing [.getTime]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 304 :reason "Tagged literals are not supported yet" :missing []}
@@ -75,12 +52,15 @@
   {:name clojure.core-test.dissoc-bang/test-dissoc! :status :fail :reason "(p/thrown? (dissoc! t :a))" :missing [] :note "transient is identity here, so dissoc! on a persistent map cannot throw"}
   {:name clojure.core-test.distinct/test-distinct :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.double-qmark/test-double? :status :fail :reason "(= false (double? (float 0.0)))" :missing [] :note "there is no float type: (float x) returns a double, so (double? (float 0.0)) is true (NOTES.md, numeric tower)"}
+  {:name clojure.core-test.drop-last/test-drop-last :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
+  {:name clojure.core-test.drop-while/test-drop-while :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.group-by/test-group-by :status :fail :reason "(= {:foo true} (-> g (get [1]) first first meta))" :missing [] :note "bug: reader metadata on a collection literal is dropped by the analyzer. (meta ^:foo [1]) is nil here, {:foo true} on the JVM"}
   {:name clojure.core-test.ifn-qmark/test-ifn? :status :fail :reason "(ifn? (quote symbol))" :missing [] :note "a symbol is not invokable here, so (ifn? 'x) is false; Clojure's symbols implement IFn as a map lookup"}
   {:name clojure.core-test.inc/test-inc :status :fail :reason "(p/thrown? (inc max-int))" :missing [] :note "the fixnum is 63-bit, so the suite's max-int reads as a bigint and (inc max-int) promotes where the JVM overflows (NOTES.md, numeric tower)"}
   {:name clojure.core-test.int-qmark/test-int? :status :fail :reason "(= true (int? r/max-int))" :missing [] :note "int? is the 63-bit fixnum, and the suite's r/max-int is past it and reads as a bigint (NOTES.md, numeric tower)"}
   {:name clojure.core-test.key/test-key :status :fail :reason "(p/thrown? (key [1 2]))" :missing [] :note "a map entry is a two-element vector here (map-entry?), so (key [1 2]) cannot throw"}
   {:name clojure.core-test.lazy-seq/test-lazy-seq :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
+  {:name clojure.core-test.list-qmark/test-list? :status :fail :reason "(= false (list? (range)))" :missing [] :note "a cons chain is list? here, and the suite reaches it through a realized range (NOTES.md, list)"}
   {:name clojure.core-test.long/test-long :status :error :reason "Value out of range for long: -9223372036854775808N" :missing [] :note "long range-checks against the 63-bit fixnum, so (long r/min-int) throws where the JVM returns a 64-bit long (NOTES.md, numeric tower)"}
   {:name clojure.core-test.map/test-map :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.mapcat/test-mapcat :status :fail :reason "(= [:a 1 :b 2 :c 3] (mapcat identity {:c 3, :a 1, :b 2}))" :missing [] :note "map seq order is the HAMT's, where the JVM's array map keeps insertion order: (mapcat identity {:a 1 :b 2 :c 3}). Clojure does not specify the order"}
@@ -102,6 +82,7 @@
   {:name clojure.core-test.take/test-take :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.transient/test-transient :status :fail :reason "(p/thrown? (assoc (transient avec) 0 5))" :missing [] :note "transient is identity here, so (assoc (transient v) 0 5) updates the vector where the JVM throws"}
   {:name clojure.core-test.val/test-val :status :fail :reason "(p/thrown? (val [1 2]))" :missing [] :note "a map entry is a two-element vector here (map-entry?), so (val [1 2]) cannot throw"}
+  {:name clojure.core-test.vec/test-vec :status :fail :reason "(= [-1 2 3] v)" :missing [] :note "(vec array) copies here; the JVM aliases the array, so a later aset shows through the vector (docs/jvm-differences.md)"}
  ]
  :skipped
- [aclone add-tap boolean? defrecord format parse-boolean random-sample reversible? with-precision]}
+ [add-tap boolean? defrecord format parse-boolean random-sample reversible? with-precision]}

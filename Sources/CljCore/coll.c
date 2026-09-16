@@ -136,6 +136,9 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		clj_value n = t->count(coll);
 		if (n == CLJ_THROWN) return n;
 		count = (size_t)clj_fixnum_val(n);
+	} else if (t == &clj_array_type) {
+		if (i >= 0 && (uintptr_t)i < clj_array_count(coll)) return clj_array_get(coll, (uint32_t)i);
+		count = clj_array_count(coll);
 	} else if (t == &clj_string_type) {
 		uint32_t cp;
 		if (i >= 0 && string_nth(coll, (size_t)i, &cp)) return clj_char(cp);

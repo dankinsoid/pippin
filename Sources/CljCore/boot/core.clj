@@ -1237,6 +1237,27 @@
   [& ks]
   (apply sorted-set* ks))
 
+;; Arrays are mutable, so amap clones before writing and areduce only reads (NOTES.md, "Arrays").
+(defmacro amap
+  "Maps expr over array a, binding idx to each index and ret to a clone of a; returns ret."
+  [a idx ret expr]
+  `(let [arr# ~a
+         ~ret (aclone arr#)]
+     (loop [~idx 0]
+       (if (< ~idx (alength arr#))
+         (do (aset ~ret ~idx ~expr)
+             (recur (inc ~idx)))
+         ~ret))))
+
+(defmacro areduce
+  "Reduces expr over array a, binding idx to each index and ret to the accumulator, seeded with init."
+  [a idx ret init expr]
+  `(let [arr# ~a]
+     (loop [~idx 0 ~ret ~init]
+       (if (< ~idx (alength arr#))
+         (recur (inc ~idx) ~expr)
+         ~ret))))
+
 ;; The collection's own comparator orders the bound, so a custom one bounds subseq as it orders the tree.
 (defn- mk-bound-fn [sc test k]
   (let [entry-key (if (map? sc) (fn [e] (nth e 0)) identity)]
