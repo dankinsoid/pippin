@@ -4,7 +4,7 @@
 ;; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.
 ;; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the
 ;; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.
-{:second-run-live-objects 0
+{:second-run-live-objects 32
  :forms
  [
   {:file "src/medley/core.cljc" :line 102 :name map-entry :reason "Unable to resolve symbol: clojure.lang.MapEntry. in this context" :missing [clojure.lang.MapEntry.]}
@@ -19,12 +19,21 @@
   {:file "src/medley/core.cljc" :line 699 :name random-uuid :reason "Unable to resolve symbol: java.util.UUID/randomUUID in this context" :missing [java.util.UUID/randomUUID]}
   {:file "src/medley/core.cljc" :line 707 :name regexp? :reason "Unable to resolve symbol: java.util.regex.Pattern in this context" :missing [java.util.regex.Pattern]}
   {:file "src/medley/core.cljc" :line 715 :name index-of :reason "Unable to resolve symbol: .indexOf in this context" :missing [.indexOf]}
-  {:file "test/medley/core_test.cljc" :line 137 :reason "Regex literals are not supported yet" :missing []}
+  {:file "test/medley/core_test.cljc" :line 164 :name test-queue :reason "Unable to resolve symbol: clojure.lang.PersistentQueue in this context" :missing [clojure.lang.PersistentQueue]}
+  {:file "test/medley/core_test.cljc" :line 174 :name test-queue? :reason "Unable to resolve symbol: clojure.lang.PersistentQueue/EMPTY in this context" :missing [clojure.lang.PersistentQueue/EMPTY]}
+  {:file "test/medley/core_test.cljc" :line 235 :name test-mapply :reason "Unable to resolve classname: IllegalArgumentException" :missing [IllegalArgumentException]}
+  {:file "test/medley/core_test.cljc" :line 499 :name test-ex-message :reason "Unable to resolve symbol: new in this context" :missing [new]}
+  {:file "test/medley/core_test.cljc" :line 504 :name test-ex-cause :reason "Unable to resolve symbol: new in this context" :missing [new]}
+  {:file "test/medley/core_test.cljc" :line 511 :reason "Tagged literals are not supported yet" :missing []}
  ]
  :tests
  [
   {:name medley.core-test/test-map-entry :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-map-kv :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
+  {:name medley.core-test/test-partition-after :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
+  {:name medley.core-test/test-partition-before :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
+  {:name medley.core-test/test-partition-between :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
+  {:name medley.core-test/test-window :status :error :reason "Unbound var: #'medley.core/window" :missing [medley.core/window]}
  ]
  :skipped
  []}
