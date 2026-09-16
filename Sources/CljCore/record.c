@@ -164,7 +164,8 @@ static bool record_equals(void *self, clj_value other) {
 	clj_value me = clj_from_ptr(self);
 	if (me == other) return true;
 	if (!clj_is_ptr(other) || clj_type_of(other) != clj_type_of(me)) return false;
-	for (uint32_t i = 0; i < nfields_of(me); i++) {
+	uint32_t nf = nfields_of(me);
+	for (uint32_t i = 0; i < nf; i++) {
 		if (!clj_equals(rec_of(me)->slots[i], rec_of(other)->slots[i])) return false;
 	}
 	clj_value a = *ext_slot(me), b = *ext_slot(other);
