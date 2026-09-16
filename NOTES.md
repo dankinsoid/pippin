@@ -858,6 +858,20 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   namespaces loaded on the first `require`. Not yet: `defrecord`, `defstruct`, `proxy`, `reify`-style
   `IDeref`, `sorted-map`/`sorted-set`, `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
   `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`.
+- **clojure.test** (boot/clojure/test.clj) covers `deftest deftest- set-test with-test is are testing
+  thrown? thrown-with-msg? use-fixtures (:each/:once) compose-fixtures join-fixtures test-var test-vars
+  test-all-vars test-ns run-tests run-all-tests run-test run-test-var successful? report do-report
+  assert-expr assert-predicate assert-any function? *load-tests* *stack-trace-depth* *report-counters*
+  *testing-vars* *testing-contexts* *initial-report-counters* inc-report-counter testing-vars-str
+  testing-contexts-str with-test-out`. `report` and `assert-expr` are multimethods, so a library adds
+  its own heads (`(defmethod t/assert-expr 'p/thrown? ...)`). A failure's `:file`/`:line` come from the
+  `is` form's reader position and `*file*` at expansion (`*assertion-pos*`), the var's own position when the
+  error is outside an assertion; there is no stack trace to read them from, and `*file*` is nil for
+  source the host evaluates. `thrown-with-msg?` takes a string the message must contain (a regex literal
+  does not read). Fixtures live in an atom keyed by namespace name (namespaces carry no meta);
+  `run-all-tests` takes a predicate on the namespace name, not a regex; no `*test-out*` (output goes to
+  the process hook, `with-out-str` captures it); test vars run in `:line` order. Deviation: `is` binds
+  `*assertion-pos*` per assertion (a frame push and pop, ~200 ns), where Clojure's reads the stack.
 - **Semantics that differ from Clojure**, each kept for a reason: `case` compiles to `cond` over `=`
   (O(clauses), no jump table); `letfn` rebinds every name from a volatile at each body's entry (closures
   copy their captures when made, so a forward reference must be read at call time); `transient`,

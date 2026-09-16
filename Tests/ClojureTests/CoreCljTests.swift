@@ -38,6 +38,16 @@ extension CoreTests {
 				let embedded = Data(bytes: bytes!, count: len)
 				#expect(embedded == expected, "core_clj.inc is stale: run `make boot` and commit it")
 				#expect(len > 0)
+				let libs = file.deletingLastPathComponent().appendingPathComponent("clojure")
+				let names = try FileManager.default.contentsOfDirectory(atPath: libs.path).filter { $0.hasSuffix(".clj") }.sorted()
+				#expect(names == ["set.clj", "string.clj", "template.clj", "test.clj", "walk.clj"])
+				for name in names {
+					let source = try Data(contentsOf: libs.appendingPathComponent(name))
+					var libLen = 0
+					let bytes = clj_embedded_source("clojure/" + name.dropLast(4), &libLen)
+					#expect(bytes != nil && Data(bytes: bytes!, count: libLen) == source, "libs_clj.inc is stale for \(name): run `make boot` and commit it")
+				}
+				#expect(clj_embedded_source("clojure/nope", &len) == nil)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

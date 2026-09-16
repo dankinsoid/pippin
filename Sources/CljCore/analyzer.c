@@ -910,9 +910,10 @@ static clj_value quoted(clj_value v) {
 // ((def ^{:doc (str ..)} x)), then :line/:column of the def form, then :ns and :name, which always win.
 // :name is the var's own symbol, so a redefinition allocates nothing new for it.
 // @ai-generated(guided)
-static clj_value def_meta_form(const analyzer *a, clj_value sym, clj_value var) {
+static clj_value def_meta_form(const analyzer *a, clj_value sym, clj_value var, clj_value doc) {
 	clj_value m = clj_meta(sym);
 	if (clj_is_nil(m)) m = clj_map_empty();
+	if (!clj_is_nil(doc)) m = clj_map_assoc(m, kw_doc, doc);
 	if (a->line) {
 		m = clj_map_assoc(m, kw_line, clj_fixnum(a->line));
 		m = clj_map_assoc(m, kw_column, clj_fixnum(a->col));
@@ -927,9 +928,17 @@ static clj_value def_meta_form(const analyzer *a, clj_value sym, clj_value var) 
 	return m;
 }
 
+// (def sym), (def sym init), (def sym "doc" init).
 static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
 	if (n < 2) return fail(a, "Too few arguments to def");
-	if (n > 3) return fail(a, "Too many arguments to def");
+	clj_value doc = CLJ_NIL;
+	uint32_t  init_at = 2;
+	if (n == 4 && clj_is_string(items[2])) {
+		doc = items[2];
+		init_at = 3;
+	} else if (n > 3) {
+		return fail(a, "Too many arguments to def");
+	}
 	clj_value sym = items[1];
 	if (!clj_is_symbol(sym)) return fail(a, "First argument to def must be a Symbol");
 	clj_value ns_name = clj_symbol_name(clj_ns_name(a->env.ns));
@@ -946,15 +955,15 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	node->u.def.dynamic = !clj_is_nil(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_dynamic, CLJ_NIL));
 	clj_release(sym_meta);
 	if (name != sym) clj_release(name);
-	clj_value meta_form = def_meta_form(a, sym, node->u.def.var);
+	clj_value meta_form = def_meta_form(a, sym, node->u.def.var, doc);
 	node->u.def.meta = analyze(a, s, meta_form, false);
 	clj_release(meta_form);
 	if (!node->u.def.meta) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	if (n == 3) {
-		clj_node *init = analyze(a, s, items[2], false);
+	if (n > init_at) {
+		clj_node *init = analyze(a, s, items[init_at], false);
 		node->u.def.init = init;
 		if (!init) {
 			clj_release(clj_from_ptr(node));
