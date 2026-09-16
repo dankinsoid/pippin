@@ -6,6 +6,7 @@
 #include "clj/error.h"
 #include "clj/fn.h"
 #include "clj/list.h"
+#include "clj/long.h"
 #include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/string.h"
@@ -103,26 +104,36 @@ clj_value clj_string_seq_new(clj_value str, uint32_t pos) {
 
 // ---- range
 
-static clj_value range_first(clj_value self) { return clj_fixnum(clj_range_of(self)->start); }
+static clj_value range_first(clj_value self) { return clj_long_new(clj_range_of(self)->start); }
 
 static clj_value range_next(clj_value self) {
 	const clj_range *r = clj_range_of(self);
-	intptr_t         next = r->start + r->step;
-	if (r->step > 0 ? next >= r->end : next <= r->end) return CLJ_NIL;
-	return clj_range_new(next, r->end, r->step);
+	int64_t          next;
+	// An overflowing step leaves the range: every end lies inside the int64, so there is nothing past it.
+	if (clj_range_step(r->start, r->step, &next) && (r->step > 0 ? next < r->end : next > r->end)) return clj_range_new(next, r->end, r->step);
+	return CLJ_NIL;
 }
 
 static clj_value range_count(clj_value self) {
 	const clj_range *r = clj_range_of(self);
-	intptr_t         span = r->end - r->start, step = r->step;
-	return clj_fixnum(span / step + (span % step != 0));
+	// The span of Long/MIN_VALUE..Long/MAX_VALUE needs all 64 unsigned bits, so it is counted there.
+	uint64_t span = r->step > 0 ? (uint64_t)r->end - (uint64_t)r->start : (uint64_t)r->start - (uint64_t)r->end;
+	uint64_t step = r->step > 0 ? (uint64_t)r->step : 0u - (uint64_t)r->step;
+	uint64_t count = span / step + (span % step != 0);
+	if (count > (uint64_t)INT64_MAX) return clj_throw_msg("range count exceeds Long/MAX_VALUE");
+	return clj_long_new((int64_t)count);
 }
 
 static clj_value range_reduce(clj_value self, clj_value f, clj_value init) {
 	const clj_range *r = clj_range_of(self);
 	clj_reducer      red = clj_reducer_start(f, init, 2);
-	for (intptr_t at = r->start; r->step > 0 ? at < r->end : at > r->end; at += r->step) {
-		if (!clj_reducer_step(&red, clj_fixnum(at))) break;
+	for (int64_t at = r->start;;) {
+		clj_value item = clj_long_new(at);
+		bool      more = clj_reducer_step(&red, item);
+		clj_release(item);
+		int64_t next;
+		if (!more || !clj_range_step(at, r->step, &next) || (r->step > 0 ? next >= r->end : next <= r->end)) break;
+		at = next;
 	}
 	return clj_reducer_finish(&red);
 }
@@ -138,7 +149,7 @@ const clj_type clj_range_type = {
 	.reduce = range_reduce,
 };
 
-clj_value clj_range_new(intptr_t start, intptr_t end, intptr_t step) {
+clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
 	if (step == 0) clj_fatal("range with step 0");
 	if (step > 0 ? start >= end : start <= end) return clj_list_empty();
 	clj_range *r = clj_alloc(&clj_range_type, sizeof *r);

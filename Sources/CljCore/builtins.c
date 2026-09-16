@@ -286,11 +286,11 @@ static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
 	const clj_type *t = clj_is_ptr(coll) ? clj_type_of(coll) : NULL;
 	if (t && t->assoc) return t->assoc(coll, key, val);
 	if (clj_is_vector(coll)) {
-		if (!clj_is_fixnum(key)) {
+		intptr_t idx;
+		if (!clj_index_arg(key, &idx)) {
 			clj_release(coll);
 			return clj_throw_msg("Key must be integer");
 		}
-		intptr_t idx = clj_fixnum_val(key);
 		if (idx < 0 || (uintptr_t)idx > clj_vector_count(coll)) {
 			uint32_t count = clj_vector_count(coll);
 			clj_release(coll);
@@ -339,12 +339,12 @@ clj_value clj_contains_p(clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_FALSE;
 	if (clj_is_map(coll)) return clj_bool(clj_map_contains(coll, key));
 	if (clj_is_set(coll)) return clj_bool(clj_set_contains(coll, key));
-	if (clj_is_vector(coll)) return clj_bool(clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && (uintptr_t)clj_fixnum_val(key) < clj_vector_count(coll));
+	intptr_t i;
+	if (clj_is_vector(coll)) return clj_bool(clj_index_arg(key, &i) && i >= 0 && (uintptr_t)i < clj_vector_count(coll));
 	// RT.contains indexes an array or a String and casts the key to a number first, so a nil key throws.
 	if (clj_is_array(coll) || clj_is_string(coll)) {
-		if (!clj_is_fixnum(key)) return clj_throw_msg("%s cannot be cast to a number", clj_type_name(key));
-		intptr_t i = clj_fixnum_val(key);
-		size_t   n = clj_is_array(coll) ? clj_array_count(coll) : clj_string_count(coll);
+		if (!clj_index_arg(key, &i)) return clj_throw_msg("%s cannot be cast to a number", clj_type_name(key));
+		size_t n = clj_is_array(coll) ? clj_array_count(coll) : clj_string_count(coll);
 		return clj_bool(i >= 0 && (size_t)i < n);
 	}
 	// Any other IPersistentMap/Set answers through its lookup; CLJ_UNBOUND is never a stored value.
@@ -472,12 +472,18 @@ static clj_value b_realized_p(const clj_value *args, size_t n) {
 	return clj_bool(clj_lazy_seq_realized(args[0]));
 }
 
-// (range* start end step) over fixnums; core.clj's range handles the other arities and doubles.
+// (range* start end step) over the whole int64; core.clj's range handles the other arities and doubles.
 static clj_value b_range_star(const clj_value *args, size_t n) {
 	(void)n;
-	intptr_t v[3];
+	int64_t v[3];
 	for (size_t i = 0; i < 3; i++) {
-		if (int_arg(args[i], &v[i]) == CLJ_THROWN) return CLJ_THROWN;
+		if (!clj_int64_of(args[i], &v[i])) {
+			clj_value text = clj_pr_str_max(args[i], CLJ_ERROR_PRINT_MAX);
+			if (text == CLJ_THROWN) return CLJ_THROWN;
+			clj_value e = clj_throw_msg("range bound outside the 64-bit long: %s", clj_string_bytes(text));
+			clj_release(text);
+			return e;
+		}
 	}
 	if (v[2] == 0) return clj_throw_msg("range* step must not be 0");
 	return clj_range_new(v[0], v[1], v[2]);

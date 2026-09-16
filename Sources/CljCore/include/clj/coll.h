@@ -2,7 +2,20 @@
 #ifndef CLJ_COLL_H
 #define CLJ_COLL_H
 
+#include "long.h"
 #include "object.h"
+
+_Static_assert(sizeof(intptr_t) >= sizeof(int64_t), "an index argument is a 64-bit long");
+
+// Every index argument goes through this: a fixnum or a boxed long, both widened to the same intptr_t. A
+// boxed value is out of bounds for every collection here, so the bounds check that follows turns what would
+// be a cast error into the index error the JVM reports. False for anything that is no long.
+static inline bool clj_index_arg(clj_value v, intptr_t *out) {
+	int64_t i;
+	if (!clj_int64_of(v, &i)) return false;
+	*out = (intptr_t)i;
+	return true;
+}
 
 // Polymorphic collection operations with Clojure semantics, dispatched through the descriptor slots:
 // arguments borrowed, results owned or CLJ_THROWN.
@@ -39,7 +52,8 @@ clj_value clj_with_meta(clj_value v, clj_value m);
 // collection — except that an item a first slot yielded lives only until the next step or close (`slots`).
 typedef struct {
 	clj_value cur;    // borrowed
-	uintptr_t pos;    // index into a vector, byte offset into a string, or the current value of a range
+	uintptr_t pos;    // index into a vector or byte offset into a string
+	int64_t   at;     // the current value of a range, which spans the whole int64
 	bool      thrown; // a lazy seq's thunk or a slot threw; the exception is pending and the walk is over
 	bool      slots;  // set once a first/next slot was used: from then on items are owned by the iterator
 	bool      yielded; // cur's first is out; the next step calls its next slot

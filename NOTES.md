@@ -949,6 +949,15 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   (`0x7FFFFFFFFFFFFFFF`, `-0x8000000000000000`, `2r1011`, octal, `NrDDD`) — a long while the digits fit 64
   bits, a bigint past them, with the `N` suffix forcing a bigint. A ratio is normalised at read through the same divide as `/`, so `12/12` reads
   as `1` and `0/2` as `0`, as LispReader's `reduceBigInt` does; `1/0` is a read error.
+- **`range` and every index argument span the whole int64** (`clj_range`, `clj_index_arg` in coll.h): a
+  range's bounds and step are `int64_t`, its elements come out of `clj_long_new`, and the step is guarded by
+  `__builtin_add_overflow` so `(range Long/MAX_VALUE)` and `(take 3 (range (- Long/MAX_VALUE 1) Long/MAX_VALUE))`
+  walk instead of wrapping; `count` divides an unsigned span, so `Long/MIN_VALUE`..`Long/MAX_VALUE` does not
+  overflow, and a count past `Long/MAX_VALUE` throws rather than lying. The iterator's range fast path owns a
+  boxed element (`it->item`, `it->slots`) where a fixnum element is an immediate. An index argument is a fixnum
+  or a box widened to the same `intptr_t`: a box is out of bounds for every collection, so the bounds check
+  that follows reports the index error the JVM reports instead of a cast error. A bigint bound names itself
+  ("range bound outside the 64-bit long"), as `range*` takes a long.
 - **The 63-bit fixnum is a representation, not the contract** (long.c). A value outside it is a boxed
   `int64_t` of kind `CLJ_NUM_LONG`, so `9223372036854775807` reads as an integer, `(int? Long/MAX_VALUE)`
   is true, `(+ Long/MAX_VALUE 1)` throws "integer overflow", `(long 9223372036854775807)` returns it and

@@ -15,8 +15,8 @@ static clj_value bad_index(intptr_t i, uint32_t count) {
 // The one bounds check aget and aset share; the kind switch behind it is the whole dispatch.
 static clj_value element_index(const char *what, const clj_value *args, uint32_t *out) {
 	if (!clj_is_array(args[0])) return not_an_array(what, args[0]);
-	if (!clj_is_fixnum(args[1])) return clj_throw_msg("%s: %s cannot be cast to an integer", what, clj_type_name(args[1]));
-	intptr_t i = clj_fixnum_val(args[1]);
+	intptr_t i;
+	if (!clj_index_arg(args[1], &i)) return clj_throw_msg("%s: %s cannot be cast to an integer", what, clj_type_name(args[1]));
 	uint32_t n = clj_array_count(args[0]);
 	if (i < 0 || (uintptr_t)i >= n) return bad_index(i, n);
 	*out = (uint32_t)i;

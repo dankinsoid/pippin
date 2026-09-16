@@ -33,16 +33,20 @@ extern const clj_type clj_string_seq_type;
 // pos < len, at a code point boundary. str is retained.
 clj_value clj_string_seq_new(clj_value str, uint32_t pos);
 
-// [start, end) by step, all fixnums. Never empty and step never 0: the constructor returns () instead.
+// [start, end) by step over the whole int64, so Long/MAX_VALUE is a bound like any other. Never empty and
+// step never 0: the constructor returns () instead.
 typedef struct {
 	clj_header h;
-	intptr_t   start, end, step;
+	int64_t    start, end, step;
 } clj_range;
 
 extern const clj_type clj_range_type;
 
 // () when the range is empty. Aborts on step 0; the caller maps that to Clojure's infinite repeat.
-clj_value clj_range_new(intptr_t start, intptr_t end, intptr_t step);
+clj_value clj_range_new(int64_t start, int64_t end, int64_t step);
+
+// at + step, false when it leaves the int64: the range is then over, as every bound lies inside it.
+static inline bool clj_range_step(int64_t at, int64_t step, int64_t *out) { return !__builtin_add_overflow(at, step, out); }
 
 // A thunk forced at most once; the realized seq is cached for the object's life, so a walk may borrow
 // it. Nested lazy seqs are unwrapped iteratively (a thunk returning a lazy seq does not recurse).

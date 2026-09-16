@@ -41,9 +41,8 @@ static intptr_t cp_index(clj_value s, size_t pos) {
 
 static clj_value b_subs(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return not_a_string("subs", args[0]);
-	if (!clj_is_fixnum(args[1]) || (n == 3 && !clj_is_fixnum(args[2]))) return clj_throw_msg("subs expects integer indices");
-	intptr_t start = clj_fixnum_val(args[1]);
-	intptr_t end = n == 3 ? clj_fixnum_val(args[2]) : (intptr_t)clj_string_count(args[0]);
+	intptr_t start, end = (intptr_t)clj_string_count(args[0]);
+	if (!clj_index_arg(args[1], &start) || (n == 3 && !clj_index_arg(args[2], &end))) return clj_throw_msg("subs expects integer indices");
 	intptr_t from = cp_offset(args[0], start), to = end < start ? -1 : cp_offset(args[0], end);
 	if (from < 0 || to < 0) return clj_throw_msg("String index out of range: %ld", (long)(from < 0 ? start : end));
 	return clj_string_new(clj_string_bytes(args[0]) + from, (size_t)(to - from));
@@ -91,11 +90,10 @@ static clj_value b_index_of(const clj_value *args, size_t n) {
 	if (needle == CLJ_THROWN) return CLJ_THROWN;
 	intptr_t from = 0;
 	if (n == 3 && !clj_is_nil(args[2])) {
-		if (!clj_is_fixnum(args[2])) {
+		if (!clj_index_arg(args[2], &from)) {
 			clj_release(needle);
 			return clj_throw_msg("index-of expects an integer index");
 		}
-		from = clj_fixnum_val(args[2]);
 		if (from < 0) from = 0;
 	}
 	const char *hay = clj_string_bytes(args[0]), *nd = clj_string_bytes(needle);
@@ -122,11 +120,11 @@ static clj_value b_last_index_of(const clj_value *args, size_t n) {
 	size_t      hlen = clj_string_len(args[0]), nlen = clj_string_len(needle);
 	intptr_t    last = (intptr_t)hlen;
 	if (n == 3 && !clj_is_nil(args[2])) {
-		if (!clj_is_fixnum(args[2])) {
+		intptr_t from;
+		if (!clj_index_arg(args[2], &from)) {
 			clj_release(needle);
 			return clj_throw_msg("last-index-of expects an integer index");
 		}
-		intptr_t from = clj_fixnum_val(args[2]);
 		intptr_t off = from < 0 ? -1 : cp_offset(args[0], from);
 		last = off < 0 ? (from < 0 ? -1 : (intptr_t)hlen) : off;
 	}

@@ -24,7 +24,7 @@ extension CoreTests {
 		// Interning is permanent and shows in clj_debug_live_objects, so it happens before any baseline.
 		init() {
 			clj_init()
-			for k in ["a", "k"] { _ = Value(keyword: k) }
+			for k in ["a", "k", "none", "x"] { _ = Value(keyword: k) }
 		}
 
 		@Test func boxRoundTrip() {
@@ -166,6 +166,54 @@ extension CoreTests {
 				#expect(try eval("((fn [] \(minLong)))").description == minLong)
 				#expect(try printed("[(let [x \(maxLong)] x) (first [\(minLong)]) (get {:k \(maxLong)} :k)]")
 					== "[\(maxLong) \(minLong) \(maxLong)]")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func rangeSpansTheWholeInt64() throws {
+			clj_init()
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try printed("(take 3 (range (- \(maxLong) 1) \(maxLong)))") == "(9223372036854775806)")
+				#expect(try printed("(take 2 (range \(maxLong)))") == "(0 1)")
+				#expect(try printed("(take 3 (range \(minLong) 0))") == "(\(minLong) -9223372036854775807 -9223372036854775806)")
+				#expect(try printed("(take 3 (range \(maxLong) 0 -1))") == "(\(maxLong) 9223372036854775806 9223372036854775805)")
+				#expect(try printed("(vec (range (- \(maxLong) 3) \(maxLong)))")
+					== "[9223372036854775804 9223372036854775805 9223372036854775806]")
+				// Stepping past Long/MAX_VALUE ends the range instead of wrapping.
+				#expect(try printed("(vec (range (- \(maxLong) 1) \(maxLong) 4))") == "[9223372036854775806]")
+				#expect(try printed("(vec (range \(minLong) (+ \(minLong) 2) -1))") == "[]")
+				#expect(try eval("(count (range (- \(maxLong) 2) \(maxLong)))") == 2)
+				#expect(try eval("(count (range \(minLong) -1))") == 9223372036854775807)
+				#expect(message("(count (range \(minLong) \(maxLong)))") == "range count exceeds Long/MAX_VALUE")
+				#expect(try printed("(reduce +' 0 (range (- \(maxLong) 3) \(maxLong)))") == "27670116110564327415N")
+				#expect(try printed("(last (range (- \(maxLong) 3) \(maxLong)))") == "9223372036854775806")
+				#expect(try eval("(int? (first (range \(maxLong))))") == true)
+				// A bigint bound names itself rather than reporting a missing integer.
+				#expect(message("(range 0 9223372036854775808N)") == "range bound outside the 64-bit long: 9223372036854775808N")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func aBoxedIndexIsOutOfBounds() throws {
+			clj_init()
+			let before = clj_debug_live_objects()
+			do {
+				#expect(message("(nth [1 2] \(maxLong))") == "Index \(maxLong) out of bounds for length 2")
+				#expect(message("(nth \"ab\" \(maxLong))") == "Index \(maxLong) out of bounds for length 2")
+				#expect(message("(nth (list 1 2) \(minLong))") == "Index \(minLong) out of bounds for length 2")
+				#expect(message("([1 2] \(maxLong))") == "Index \(maxLong) out of bounds for length 2")
+				#expect(message("(assoc [1 2] \(maxLong) :x)") == "Index \(maxLong) out of bounds for length 2")
+				#expect(message("(aget (long-array 2) \(maxLong))") == "Index \(maxLong) out of bounds for length 2")
+				#expect(message("(aset (long-array 2) \(minLong) 1)") == "Index \(minLong) out of bounds for length 2")
+				#expect(message("(subs \"ab\" 0 \(maxLong))") == "String index out of range: \(maxLong)")
+				#expect(message("(subvec [1 2] 0 \(maxLong))") == "Index out of bounds: subvec 0 \(maxLong)")
+				// get and contains? answer instead of throwing, as they do for any index past the end.
+				#expect(try eval("[(nth [1 2] \(maxLong) :none) (get [1 2] \(maxLong)) (contains? [1 2] \(maxLong))]").description
+					== "[:none nil false]")
+				#expect(try eval("[(contains? (long-array 2) \(maxLong)) (contains? \"ab\" \(minLong))]") == [false, false])
+				#expect(try eval("(nthnext [1 2] \(maxLong))") == nil)
+				#expect(try eval("(str-index-of* \"ab\" \"b\" \(maxLong))") == nil)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

@@ -5,6 +5,7 @@
 #include "clj/core.h"
 #include "clj/error.h"
 #include "clj/list.h"
+#include "clj/long.h"
 #include "clj/map.h"
 #include "clj/seq.h"
 #include "clj/string.h"
@@ -126,9 +127,9 @@ static bool string_nth(clj_value s, size_t i, uint32_t *out) {
 }
 
 clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value not_found) {
-	if (!clj_is_fixnum(index)) return clj_throw_msg("Key must be integer");
-	intptr_t i = clj_fixnum_val(index);
-	size_t   count;
+	intptr_t i;
+	if (!clj_index_arg(index, &i)) return clj_throw_msg("Key must be integer");
+	size_t count;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (t && (t->core_bits & CLJ_CORE_INDEXED)) {
@@ -192,12 +193,13 @@ clj_value clj_with_meta(clj_value v, clj_value m) {
 static void iter_enter(clj_seq_iter *it, clj_value v) {
 	it->cur = v;
 	it->pos = 0;
+	it->at = 0;
 	it->yielded = false;
 	if (!clj_is_ptr(v)) return;
 	const clj_type *t = clj_type_of(v);
 	if (t == &clj_vector_seq_type) it->pos = clj_vector_seq_of(v)->i;
 	else if (t == &clj_string_seq_type) it->pos = clj_string_seq_of(v)->pos;
-	else if (t == &clj_range_type) it->pos = (uintptr_t)clj_range_of(v)->start;
+	else if (t == &clj_range_type) it->at = clj_range_of(v)->start;
 }
 
 clj_seq_iter clj_seq_iter_start(clj_value seq) {
@@ -256,10 +258,18 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 		}
 		if (t == &clj_range_type) {
 			const clj_range *r = clj_range_of(cur);
-			intptr_t         at = (intptr_t)it->pos;
+			int64_t          at = it->at, next;
 			if (r->step > 0 ? at >= r->end : at <= r->end) return done(it, false);
-			*out = clj_fixnum(at);
-			it->pos = (uintptr_t)(at + r->step);
+			if (at >= CLJ_FIXNUM_MIN && at <= CLJ_FIXNUM_MAX) {
+				*out = clj_fixnum((intptr_t)at);
+			} else {
+				// A boxed element has to be owned by someone: the iterator holds it, as it does a slot's.
+				clj_release(it->item);
+				it->item = clj_long_box(at);
+				it->slots = true;
+				*out = it->item;
+			}
+			it->at = clj_range_step(at, r->step, &next) ? next : r->end;
 			return true;
 		}
 		if (t == &clj_lazy_seq_type) {
