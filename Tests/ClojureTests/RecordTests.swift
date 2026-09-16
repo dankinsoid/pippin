@@ -230,8 +230,8 @@ extension CoreTests {
 			try dropPoint()
 		}
 
-		// Storing into a shared record has to share the new child: every child of a shared object is shared.
-		@Test func sharedRecordKeepsChildrenShared() throws {
+		// Every child of a shared object is shared; -DCLJ_NO_REUSE copies, and a copy is not shared.
+		@Test(.enabled(if: clj_reuse_enabled())) func sharedRecordKeepsChildrenShared() throws {
 			try definePoint()
 			let before = clj_debug_live_objects()
 			do {
