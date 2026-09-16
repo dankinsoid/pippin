@@ -157,11 +157,14 @@ extension CoreTests {
 			  (sized [this k] [n (get this k) (:factor this)])
 			  (scaled-by [_] (* n factor)))
 			""")
+			// IDeref is a defprotocol here, so a record reaches @ the way a deftype does; extend outlives the baseline.
+			_ = try rt.eval("(extend-type Scaled IDeref (-deref [_] :one))")
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try rt.eval("(scaled-by (->Scaled 3 4))") == 12)
 				#expect(try rt.eval("(sized (->Scaled 3 4) :n)") == [3, 3, 4])
 				#expect(try rt.eval("[(satisfies? Sizer (->Scaled 1 1)) (satisfies? Sizer {:n 1})]") == [true, false])
+				#expect(try rt.eval("@(->Scaled 1 1)") == kw("one"))
 				// A core interface in the body is refused: the map slots are the record's own.
 				#expect(message(rt, "(defrecord Bad [x] Counted (count [_] 1))")
 					== "Counted cannot be implemented by defrecord: the map interfaces are the record's own")
