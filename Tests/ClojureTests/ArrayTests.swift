@@ -135,6 +135,15 @@ extension CoreTests {
 				#expect(try eval("(let [a (int-array [1])] [(= a a) (= a (aclone a)) (= a [1])])") == [true, false, false])
 				#expect(try eval("(let [a (int-array [1]) b (aclone a)] (get (assoc {a 1} b 2) a))") == 1)
 				#expect(try eval("(let [a (int-array [1])] (= (hash a) (hash a)))") == true)
+				// RT.get and RT.contains index an array; RT.contains casts the key, so a nil one throws.
+				#expect(try eval("(let [a (int-array [5 6])] [(get a 1) (get a 9) (get a 9 :a) (get a :k)])") == Value([6, nil, kw("a"), nil]))
+				#expect(try eval("(let [a (int-array [5])] [(contains? a 0) (contains? a 1) (contains? a -1)])") == [true, false, false])
+				#expect(message("(contains? (int-array [1]) nil)") == "nil cannot be cast to a number")
+				// An array implements no collection interface, so these reach nothing.
+				#expect(try eval("(empty (int-array 1))") == nil)
+				#expect(message("(conj (int-array 1) 2)") == "conj not supported on this type: array")
+				#expect(message("(with-meta (int-array 1) {})") == "with-meta: array does not support metadata")
+				#expect(try eval("(apply aget [(int-array [1 2]) 1])") == 2)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
