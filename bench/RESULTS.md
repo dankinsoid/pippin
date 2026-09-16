@@ -812,3 +812,29 @@ of the same binary; one run measured the whole section at ~2× and is dropped as
 - **`reduce` shows the box**: 6.8 against the vector's 5.5. The vector's slot hands out the stored word; the
   array's reads the element and boxes it, which is free for a fixnum and an allocation for an `f64` — a
   `double-array` would pay `clj_double_new` per element, which is the trigger for an unboxed reduce path.
+## Boxed 64-bit long — 2026-09-16, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The rows a slower `+` would show, before the boxed long kind (`9cf00fd`) and after it. `clj_add`'s fixnum
+path pays the same three tests as before — one overflow check and the two range comparisons that used to
+throw and now pick the representation — so no row should move. Three separate `clj-bench` invocations,
+each after its own release build; "after, again" is the same binary as "after" and gives the spread.
+
+| scenario | n | before | after | after, again |
+|---|---:|---:|---:|---:|
+| counting loop | 100000 | 16.1 / 16.3 | 15.5 / 15.8 | 16.3 / 16.6 |
+| reduce + range | 1000 | 5.6 | 5.9 | 6.0 |
+| reduce + range | 100000 | 5.4 | 5.9 | 5.8 |
+| reduce + vector | 1000 | 5.4 | 5.7 | 5.7 |
+| reduce + vector | 100000 | 5.4 | 5.9 | 6.1 |
+| reduce + map inc range | 1000 | 31.8 | 32.9 | 34.9 |
+| reduce + map inc range | 100000 | 32.1 | 32.9 | 33.6 |
+| swap! inc | 100000 | 43.6 | 44.6 | 43.2 |
+| swap! inc, 4 threads | 100000 | 72.6 | 74.1 | 70.5 |
+
+- **Nothing regressed**: two runs of the identical binary differ by as much as before and after do, and in
+  both directions — the counting loop is 15.5 in one and 16.3 in the other. The Swift reference column of
+  `reduce + vector` (unchanged code) moved 5.4 → 5.9 → 5.9 across the same three runs, which is the drift
+  this file warns about.
+- **The fixnum path gained no branch**: `to_num` still decides on two tag checks, and only a pair that is
+  neither a fixnum nor a double reaches `clj_num_arith`, where the new `CLJ_NUM_LONG` arm sits between the
+  fixnum and the bigint. A boxed long is an allocation, but only for a value no fixnum can hold.
