@@ -121,7 +121,7 @@ static clj_value double_arith(double p, double q, clj_num_op op) {
 	clj_fatal("unknown arithmetic op");
 }
 
-// Fixnum rank reaches here only from a promoting operator, so an integral result narrows back.
+// demote is set for a long-rank pair, whose integral result narrows back to the canonical integer.
 static clj_value integer_arith(clj_value a, clj_value b, clj_num_op op, bool demote) {
 	clj_value r;
 	switch (op) {

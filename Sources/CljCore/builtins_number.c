@@ -6,7 +6,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 
-// ---- promoting operators: only a fixnum overflow reaches the bigint, everything else is the plain tower
+// ---- promoting operators: only a 64-bit overflow reaches the bigint, everything else is the plain tower
 
 static clj_value promote2(clj_value a, clj_value b, clj_num_op op) {
 	int64_t x, y;

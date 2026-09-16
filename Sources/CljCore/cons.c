@@ -103,8 +103,6 @@ clj_value clj_cons_alloc(const clj_type *type, clj_value first, clj_value rest, 
 
 clj_value clj_cons_new(clj_value first, clj_value rest) { return clj_cons_alloc(&clj_cons_type, first, rest, CLJ_NIL, false); }
 
-clj_value clj_cons_new_meta(clj_value first, clj_value rest, clj_value m) { return clj_cons_alloc(&clj_cons_type, first, rest, m, true); }
-
 clj_value clj_list_new(clj_value first, clj_value rest) { return clj_cons_alloc(&clj_list_type, first, rest, CLJ_NIL, false); }
 
 clj_value clj_list_new_meta(clj_value first, clj_value rest, clj_value m) { return clj_cons_alloc(&clj_list_type, first, rest, m, true); }
