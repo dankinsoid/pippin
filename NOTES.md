@@ -61,8 +61,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   comes back (`seq`/`next` a seq or nil, `more` a seq, `count` a non-negative integer, `meta` a map
   or nil, ex-* their field types) and throw otherwise; `withMeta` may return anything. Limitations:
   `empty` and `applyTo` have no slot and are refused by name; `Associative`, `Indexed`,
-  `IPersistentMap/Vector/List` cannot be implemented (no assoc/nth slots — trigger: the first user
-  map or vector type); `Object` methods
+  `IPersistentMap/Vector/List` cannot be implemented (the `assoc`/`dissoc` slots sorted.c added are
+  C-only, there is no `nth` slot, and no trampoline names them — trigger: the first user map or
+  vector type); `Object` methods
   (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
   arity error inside a method says `fn` and counts `this`, except `IFn`'s, which the trampoline
   checks first and reports with the type name; no chunked seqs, so every element of a user seq
@@ -165,6 +166,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   thunk that blocks for long with other threads waiting; then park on a condition variable.
 - **A cons is `list?`** (CLJ_CORE_LIST) so reader lists, which are cons chains, satisfy the
   predicate; Clojure's `Cons` is not `IPersistentList`. Goes away with the `clj_list` wrapper below.
+- **Metadata is any IPersistentMap**, a sorted map included, and so is `ex-info`'s data map. The three
+  places that read a flag out of metadata with `clj_map_get` — a form's reader position, `def`'s
+  `:dynamic`, a var's `:private` — first test the hash-map representation and treat any other as absent;
+  nothing but the reader and `def` ever writes those keys. Trigger for reading them generically: a library
+  that puts a position or `:private` in a sorted map.
 - **Meta lives in per-type fields, not the header** (design, "Дескриптор типа"): symbol, vector, map
   and fn have a `meta` field; a cons or `()` grows a trailing word under `CLJ_FLAG_META` (the flag
   survives the dead-link in rc.c so the free path still visits it), so only with-meta'd and
@@ -315,8 +321,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 ## Reader (Sources/CljCore/reader.c)
 
 - **Not supported, reported as errors**: regex literals (no engine; `clojure.string` takes literal
-  patterns), namespaced maps `#:`, tagged literals, read-eval, bigint/BigDecimal/ratio numbers. Each is a
-  `switch` arm in `read_dispatch`/`parse_number` to replace when the feature lands; inside an unselected
+  patterns), namespaced maps `#:`, tagged literals, read-eval. Each is a
+  `switch` arm in `read_dispatch` to replace when the feature lands; inside an unselected
   `#?` branch each reads as data instead (below). Trigger for tagged literals: `#inst`/`#uuid` in EDN from a
   backend — a `*data-readers*` map consulted by `read_dispatch`'s default arm, with the built-in tags on top.
 - **`#(...)` rewrites its body after the list is read** (`fn_literal`): `%`, `%N` (1–20), `%&` become
@@ -327,8 +333,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   are read and dropped) instead of ending the file, as Clojure's suppressed read does; in the selected branch
   each is the error it is outside one. Which branch is selected is known while reading: the body list's items
   so far are on the value stack, features at the even indexes. Suppression follows the enclosing conditionals,
-  so a selected inner branch inside an unselected outer one is suppressed too. Numbers are not suppressed —
-  `0x7FFFFFFFFFFFFFFF` in a branch nobody selects is still the bigint error.
+  so a selected inner branch inside an unselected outer one is suppressed too. Numbers need no suppression:
+  every literal the reader takes now reads in either branch (numeric tower).
 - **Reader conditionals** `#?`/`#?@` select the first branch whose feature is in `clj_reader.features`
   (a set of keywords copied from the process-wide `clj_reader_set_features` at init; `:default` always
   matches; nil means `:default` alone). No branch → the form reads as nothing (an EOF at top level, a
@@ -338,8 +344,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   both keywords, and the suite's `(keyword "0")` round-trip needs it.
 - **`::kw` and `::alias/kw`** resolve through `clj_reader.resolve_ns` (`clj_reader_resolve_ns`: the
   current namespace or one of its aliases); with the hook NULL they are reader errors, an unknown alias
-  is "Invalid token". Hex, octal and `NrDDD` radix integers read into fixnums; out of range is the
-  bigint error.
+  is "Invalid token". Hex, octal and `NrDDD` radix integers read into fixnums, or into bigints past the
+  63-bit range (numeric tower).
 - **Every non-empty list read costs a `{:line :column}` map** (map wrapper plus one node) on its head
   cons, as Clojure attaches positions to lists only; `'x`, `@x`, `#'x` and the syntax-quote output
   are built by the reader without one. Syntax-quote drops the meta of the forms it rebuilds where
@@ -811,16 +817,64 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   get a fixed 512 KB assumption measured from the first call. Trigger: a Linux port.
 - **Vars are immortal.** Every `def` of a new name leaks a var, its name symbol and string for the
   life of the process, as do namespaces; tests declare their vars before taking live-object baselines.
-- **No ratio, no bigint.** Fixnum overflow throws "integer overflow"; `/` of fixnums yields a fixnum
-  only when exact and a double otherwise. Trigger: any arithmetic that expects promotion — in the corpus
-  it is 47 suite forms, the largest single gap there: `0N`/`1N` literals, `1/2` ratios, `0.0M` decimals and
-  `0x7FFFFFFFFFFFFFFF` past the 63-bit fixnum. Both are a boxed heap number with its own arm in
-  `clj_number_*` and in the reader's `parse_number`, plus `+'`/`-'`/`*'` and `bigint`/`numerator`/
-  `denominator`/`ratio?`; the fixnum fast path must stay a tag check.
 - **Analysis error messages are capped at 512 bytes** (`fail` formats into a fixed buffer): a huge
   unresolved form is truncated in the message.
 - **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
   Trigger: memory of a large loaded program. Fix: per-kind sizes via `clj_alloc(size)`.
+
+## Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)
+
+- **Five kinds, one ladder.** `clj_num_kind_of` answers fixnum < bigint < ratio < decimal < double, the
+  order of Clojure's `Ops.combine`, and the larger kind of a pair decides the result (`clj_num_arith`,
+  `clj_num_cmp` in number.c). The fixnum/fixnum and double-with-fixnum paths stay in builtins.c ahead of
+  it, so `+` on two fixnums is still two tag checks and an overflow-checked add (bench/RESULTS.md: the
+  counting loop, `reduce +` and `swap! inc` rows did not move). A bigint is sign + magnitude in
+  little-endian base 2^32 limbs (bigint.c, no external library); a ratio holds two bigints, gcd-reduced
+  with a positive denominator and never an integer; a decimal is a bigint unscaled value and an `int32`
+  scale, as `java.math.BigDecimal`.
+- **JVM promotion rules, exactly.** A bigint result stays a bigint (`(type (+' 1N 1))` is BigInt), so
+  `(= 1N 1)` and `(== 1N 1)` are true and `(hash 1N)` equals `(hash 1)` — map keys of the two agree.
+  Plain `+ - * inc dec` still throw "integer overflow" on a fixnum overflow; only `+' -' *' inc' dec'`
+  promote. `=` keeps Clojure's category rule (integer / ratio / decimal / floating never equal across
+  kinds), while `==` and `compare` compare numerically across all five.
+- **What the reader takes**: `0N`, `1/2`, `0.0M`, `1M`, `1e10M`, and any integer literal past the 63-bit
+  fixnum in every radix (`0x7FFFFFFFFFFFFFFF`, `-0x8000000000000000`, `2r1011`, octal, `NrDDD`), the `N`
+  suffix forcing a bigint. A ratio is normalised at read through the same divide as `/`, so `12/12` reads
+  as `1` and `0/2` as `0`, as LispReader's `reduceBigInt` does; `1/0` is a read error.
+- **The 63-bit fixnum is the visible deviation.** `Long/MAX_VALUE` and `Long/MIN_VALUE` do not fit one, so
+  `9223372036854775807` reads as a bigint: `(int? Long/MAX_VALUE)` is false, `(+ Long/MAX_VALUE 1)`
+  promotes instead of throwing, `(long 9223372036854775807)` throws "Value out of range for long", and the
+  bit ops, which take a fixnum, refuse a 64-bit mask. Ten suite tests fail only for this
+  (corpus/clojure-test-suite/allowlist.edn, the `:note`s citing the 63-bit fixnum). Fix, when it matters:
+  a boxed 64-bit long kind between fixnum and bigint.
+- **`unchecked-add`/`-subtract`/`-multiply`/`-inc`/`-dec`/`-negate` wrap at 63 bits**, not the JVM's 64:
+  the wrap is the fixnum tag shift itself, so `(unchecked-inc 4611686018427387903)` is
+  `-4611686018427387904`. Chosen over "wrap at 64 and promote", which would cost a range check and an
+  allocation on a path whose whole point is having neither.
+- **No float and no `*math-context*`.** `float` range-checks against `Float` and narrows through it
+  (`(float Double/MIN_VALUE)` is `0.0`) but returns a double box, so `(double? (float 0.0))` is true where
+  the JVM says false. `with-precision` and rounding modes do not exist: decimal `+ - *` are exact, and `/`
+  succeeds only when the quotient terminates, else it throws "Non-terminating decimal expansion;
+  with-precision is not supported". `(/ 1M 3M)` is that throw; `(/ 1M 2M)` is `0.5M`.
+- **Division is shift-subtract**, quadratic in the bit length (`mag_divmod`), and `gcd` is Euclid over it.
+  Every bigint the runtime meets is a few limbs, so the constant factors never showed. Trigger: a profile
+  with `quot`/`rem`/`gcd` on thousand-bit values; the fix is Knuth D and a binary gcd.
+- **Printing follows `print-method`, not `toString`**: `pr-str` appends the tag (`1N`, `1.5M`, `1/2`), `str`
+  does not (`"1"`, `"1.5"`, `"1/2"`), and `str` of a non-finite double is Java's `Infinity`/`-Infinity`/`NaN`
+  where `pr-str` writes `##Inf`. A decimal prints by `BigDecimal.toString`'s rule (plain notation while the
+  scale is non-negative and the adjusted exponent is above -7, scientific otherwise), so `1e10M` prints
+  `1E+10M`. `numerator`/`denominator` hand back the ratio's bigints, which print as `1N`/`2N` where the JVM
+  prints a `BigInteger` as `1`/`2`: there is one bigint type here, not two.
+- **`clj_bigint_to_double` and `clj_decimal_to_double` round through the decimal text** (`strtod`), which
+  is correct and slow, rather than reimplementing correct rounding over the limbs. Trigger: a profile with
+  bigint-to-double in a loop.
+- **A decimal built from a double keeps `Double.toString`'s scale** (`BigDecimal.valueOf`), so
+  `(bigdec 0.1)` is `0.1M`; a value at or past 1e7 takes the scientific branch, where the JVM's
+  `Double.toString` switches too, but our scale can differ from the JVM's by the trailing zero it keeps.
+  Equality and hashing ignore trailing zeros, so only the printed form differs.
+- **Every bigint carries at least one spare limb**: results are sized by the worst case and the count is
+  trimmed without a `clj_realloc`, so a one-limb value can occupy two. Four bytes per bigint; trigger is
+  a heap profile with many of them.
 
 ## Builtins (Sources/CljCore/builtins.c)
 
@@ -833,7 +887,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   take vars and atoms), the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative?
   indexed? list? vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str
   pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data
-  ex-cause`, the atom API below. No `keys`, `vals`, `max`, `mod`, `sort`, ... Most of the rest belongs in core.clj.
+  ex-cause`, the atom API below, and the numeric tower's own file (builtins_number.c: `+' -' *' inc' dec'
+  == int? double? ratio? decimal? rational? NaN? infinite? long int short byte float double num bigint
+  biginteger bigdec rationalize numerator denominator parse-long parse-double unchecked-*`).
+  No `keys`, `vals`, `sort`, ... Most of the rest belongs in core.clj.
 - **`into` is C in both arities**: `(into to from)` conj's through `clj_seq_iter`, `(into to xform
   from)` runs the `fused-into*` driver under `[xform]` (fusion.c `clj_into_xform`), because
   `destructure` calls `into` above the `fn` macro, where a core.clj `into` could not be defined.
