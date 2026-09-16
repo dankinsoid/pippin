@@ -841,7 +841,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   fixnum in every radix (`0x7FFFFFFFFFFFFFFF`, `-0x8000000000000000`, `2r1011`, octal, `NrDDD`), the `N`
   suffix forcing a bigint. A ratio is normalised at read through the same divide as `/`, so `12/12` reads
   as `1` and `0/2` as `0`, as LispReader's `reduceBigInt` does; `1/0` is a read error.
-- **The 63-bit fixnum is the visible deviation.** `Long/MAX_VALUE` and `Long/MIN_VALUE` do not fit one, so
+- **The 63-bit fixnum is the visible deviation** (classed as a fix in docs/jvm-differences.md, the one page that lists every known difference from JVM Clojure with its decision). `Long/MAX_VALUE` and `Long/MIN_VALUE` do not fit one, so
   `9223372036854775807` reads as a bigint: `(int? Long/MAX_VALUE)` is false, `(+ Long/MAX_VALUE 1)`
   promotes instead of throwing, `(long 9223372036854775807)` throws "Value out of range for long", and the
   bit ops, which take a fixnum, refuse a 64-bit mask. Ten suite tests fail only for this

@@ -1,0 +1,70 @@
+# Differences from JVM Clojure
+
+The language contract is JVM Clojure's, checked by the corpus (`docs/corpus.md`). Every known
+difference is listed here in one of three classes, so that a deliberate choice is never mistaken for
+an unfinished one. NOTES.md carries the mechanism behind each entry; this page carries the decision.
+
+- **Fix** — visible to portable core-only code; the gap is against the contract and closes when its
+  trigger fires or sooner.
+- **Deliberate** — an artifact of the Java type system or of Java semantics that Clojure inherited and
+  nobody relies on on purpose. Not replicated, as ClojureScript does not replicate it.
+- **Deferred** — a missing feature or a slower algorithm with the same result; waits for its trigger.
+
+## Numbers
+
+| Difference | Class | Decision |
+|---|---|---|
+| Integers are 63-bit fixnums; `Long/MAX_VALUE` reads as a bigint, `(+ Long/MAX_VALUE 1)` promotes instead of throwing, bit ops refuse a 64-bit mask | **Fix** | The contract is a 64-bit `long`; the fixnum is the interpreter's representation of it (design §4: fixnum plus a boxed int64 for the range the tag cannot hold). Hash-function ports, UUIDs and 64-bit masks depend on it; ten suite tests fail on it. |
+| `unchecked-*` wrap at 63 bits, not 64 | **Fix** | Same contract: wrap in 64 bits, box the result when it leaves the fixnum range. Only the unchecked path pays the range check; the checked path already has one. |
+| `numerator`/`denominator` return bigints that print `1N` | **Fix** | Normalise to a fixnum when the value fits; `(= (numerator 1/2) 1)` then behaves as expected. |
+| No `Float`: `(float x)` range-checks through `Float` but returns a double, so `(= (float 0.1) 0.1)` is true where the JVM says false | Deliberate | A separate 32-bit float value type serves nobody in Clojure code; `Float32` is a boundary concern (Metal, Accelerate, Core ML) and the bridge converts by the Swift parameter type. |
+| `(long ##NaN)` throws; the JVM returns 0 | Deliberate | Java cast semantics; Swift traps on the same conversion. Failing loudly wins. |
+| One bigint type where the JVM has `BigInt` and `BigInteger` | Deliberate | The second type exists only because of `java.math`. |
+| `with-precision`, `*math-context*`, rounding modes; decimal `/` succeeds only when the quotient terminates | Deferred | Trigger: a library that uses them. Money code on mobile rarely needs a context. |
+| Bigint division is shift-subtract, gcd is Euclid | Deferred | Same results; trigger: a profile with thousand-bit values. Fix is Knuth D and binary gcd. |
+
+## Collections
+
+| Difference | Class | Decision |
+|---|---|---|
+| `transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error | Deliberate | The in-place path on a unique value is the transient (design §6b); a transient-shaped code path works unchanged. |
+| `seq` of a map, set or sorted collection is an eager list | Deferred | Trigger: `first` on a big map in a profile. |
+| Sorted `dissoc` walks the tree twice | Deferred | LLRB deletion needs a present key; trigger: a delete-heavy profile. |
+| `compare` returns −1/0/1 only, orders strings by code point, does not order vectors | Deliberate for the first two, **Fix** for vectors | The JVM's char or length difference is an implementation leak. Vectors do order in Clojure (by count, then items); trigger fired by the corpus. |
+| `(list? (cons 1 '()))` is true | **Fix** | A cons is not an `IPersistentList` in Clojure. |
+| Metadata on a collection literal is dropped by the analyzer; `conj` on a list drops meta | **Fix** | Plain bugs with repros in the corpus allowlist. |
+
+## Multimethods and hierarchies
+
+| Difference | Class | Decision |
+|---|---|---|
+| `isa?` knows tags only, no host superclass or protocol conformance | Deferred | Part of interop (design §4 "Мультиметоды"); trigger: an `instance?`-shaped dispatch in a corpus library. |
+| `prefers` walks the multimethod's own hierarchy; Clojure's walks the global one regardless of `:hierarchy` | Deliberate | A JVM quirk, not a documented rule. |
+| `case` is `cond` over `=`, no jump table | Deferred | Trigger: a `case` in a profile. |
+
+## Namespaces, vars, errors
+
+| Difference | Class | Decision |
+|---|---|---|
+| No hoisting: a forward reference in a file is an error | Deferred | Design §4 pre-pass; no corpus library needed it. |
+| `def` is eager | Deferred | Design §4 lazy `def`; trigger: load-time cost of a namespace. |
+| `catch` knows five class names (`:default`, `Throwable`, `Exception`, …) and no class hierarchy | Deliberate | There is no Java class hierarchy; `ex-info` and host errors are the two kinds. |
+| Error messages are Clojure-like, not identical; type names are the runtime's | Deliberate | Tests that match on message text are the corpus's problem, not the runtime's. |
+| `^:private` is a resolve-time rule only; `#'ns/x` and `resolve` still reach the var | Deliberate | Same as JVM Clojure in practice. |
+| `letfn` leaves a reference cycle per call | Deferred | Closed by design §7 trial deletion. |
+
+## Strings and the reader
+
+| Difference | Class | Decision |
+|---|---|---|
+| No regex engine: regex literals are read errors, `clojure.string` takes literal strings | Deferred | Trigger fired by the corpus; the engine is its own task. |
+| `upper-case`/`lower-case`/`capitalize` map ASCII letters only | Deferred | Trigger: non-ASCII case in a corpus library; then Unicode case tables. |
+| No tagged literals (`#inst`, `#uuid`), no `#:ns{}` maps, no `#=` | Deferred | Trigger fired by the corpus for `#uuid`. |
+| `thrown-with-msg?` takes a substring, not a regex | Deferred | Follows from the missing regex engine. |
+
+## Concurrency
+
+| Difference | Class | Decision |
+|---|---|---|
+| `swap!` inside its own `f` on the same atom traps; `deref` inside `f` returns the old value | Deliberate | A nested `swap!` on the same atom is a bug on the JVM too (it spins or double-applies); trapping is the loud version. |
+| No `ref`/`dosync`, `agent`, `future`, `pmap`, `promise` | Deferred | Design §4: `agent` as a library over a serial executor, `ref` as two-phase locking; `future` waits for core.async's carriers. |
