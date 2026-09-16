@@ -712,12 +712,10 @@ print("\nns per element; Swift primitive = (sort v) bound by Runtime.define, Clo
 
 // MARK: - Sorted collections and multimethods
 
-// The red-black tree of sorted.c against the CHAMT of map.c, same keys and probes; every comparison is a
-// call of clojure.core/compare, a host fn, so the row carries one Swift↔C transition per tree level.
-let benchCompare = cljEval("compare")
-
+// The red-black tree of sorted.c against the CHAMT of map.c, same keys and probes. The comparator is the
+// default one, so every comparison is clj_compare in C — what (sorted-map) builds with.
 func sBuild(_ keys: [Int]) -> clj_value {
-	var m = clj_sorted_map_new(benchCompare)
+	var m = clj_sorted_map_new(CLJ_NIL)
 	for k in keys { m = clj_sorted_assoc(m, clj_fixnum(k), clj_fixnum(k)) }
 	return m
 }
@@ -759,7 +757,6 @@ for n in sizes {
 	clj_release(sm)
 	clj_release(hm)
 }
-clj_release(benchCompare)
 
 // One multimethod call per iteration: the dispatch value is the method's own key (the = hit the cache
 // answers), a child of it through the global hierarchy (the isa? hit, cached the same way), and a value
@@ -813,7 +810,7 @@ print("|---|---:|---:|---:|---:|")
 for r in sortedRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.sorted)) | \(fmt(r.hash)) | \(ratio(r.hash, r.sorted)) |")
 }
-print("\nns per op; sorted map = clj_sorted_assoc / clj_sorted_get with clojure.core/compare as the comparator, hash map = clj_map_assoc / clj_map_get over the same keys")
+print("\nns per op; sorted map = clj_sorted_assoc / clj_sorted_get with the default C comparator, hash map = clj_map_assoc / clj_map_get over the same keys")
 
 print("\n| scenario | n | ns/op |")
 print("|---|---:|---:|")
