@@ -12,7 +12,8 @@ typedef struct {
 	_Atomic clj_value root; // CLJ_UNBOUND until the first def
 	_Atomic clj_value meta; // map or nil; published like root
 	bool              macro; // set by defmacro, cleared by def; the analyzer expands calls through such vars
-	bool              dynamic; // :dynamic true in the def's meta; nothing consumes it until `binding` exists
+	bool              dynamic; // :dynamic true in the def's meta: deref looks at the thread's bindings first
+	_Atomic uint32_t  thread_bound; // live thread bindings across all threads; 0 lets deref skip the frame lookup
 } clj_var;
 
 extern const clj_type clj_var_type;
@@ -33,8 +34,21 @@ static inline bool clj_var_is_bound(clj_value var) { return clj_var_root(var) !=
 // Shares and retains val (a var is reachable from every thread), releases the previous root (a fn root once the
 // thread is idle: clj_eval_retire_root).
 void clj_var_bind_root(clj_value var, clj_value val);
-// Owned root; throws when unbound.
+// Owned: the thread's binding of a dynamic var, else the root; throws when unbound.
 clj_value clj_var_deref(clj_value var);
+
+// ---- thread bindings (binding, set!): a per-thread stack of frames, each a map var → box (a volatile).
+// Pushes bindings (map var → value); every var must be dynamic, or "Can't dynamically bind non-dynamic var".
+clj_value clj_var_push_bindings(clj_value bindings);
+// Pops the frame this thread pushed last; throws "Pop without matching push" when none.
+clj_value clj_var_pop_bindings(void);
+// map var → value of every binding visible on this thread, owned.
+clj_value clj_var_get_thread_bindings(void);
+// Borrowed box (a volatile) of var on this thread, nil when it has no binding here.
+clj_value clj_var_thread_binding(clj_value var);
+// set!: stores into the thread's binding; throws "Can't change/establish root binding of: x with set" without one.
+clj_value clj_var_set(clj_value var, clj_value val);
+static inline bool clj_var_is_thread_bound(clj_value var) { return !clj_is_nil(clj_var_thread_binding(var)); }
 
 static inline bool clj_var_is_macro(clj_value var) { return clj_var_of(var)->macro; }
 static inline void clj_var_set_macro(clj_value var, bool macro) { clj_var_of(var)->macro = macro; }

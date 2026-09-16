@@ -188,16 +188,25 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// clojure.set is an embedded namespace loaded on the first require, so the load precedes the baseline.
 		@Test func setOperations() throws {
 			clj_init()
+			_ = try eval("(require '[clojure.set :as cset]) [:id :n :v :x :a :b]")
 			let before = clj_debug_live_objects()
 			do {
-				#expect(try eval("[(= (union) #{}) (= (union #{1}) #{1}) (= (union #{1 2} #{2 3}) #{1 2 3}) (= (union #{1} #{2} #{3} #{1}) #{1 2 3}) (= (union #{} #{1 2 3}) #{1 2 3}) (= (union #{1 2 3} #{}) #{1 2 3})]") == [true, true, true, true, true, true])
-				#expect(try eval("[(= (intersection #{1 2 3} #{2 3 4}) #{2 3}) (= (intersection #{1} #{2}) #{}) (= (intersection #{1 2 3} #{2 3 4} #{3}) #{3}) (= (intersection #{1 2 3 4 5} #{5 1}) #{1 5}) (= (intersection #{1}) #{1})]") == [true, true, true, true, true])
-				#expect(try eval("[(= (difference #{1 2 3} #{2}) #{1 3}) (= (difference #{1 2 3} #{1 2 3 4 5}) #{}) (= (difference #{1 2 3} #{2} #{3}) #{1}) (= (difference #{1 2 3 4 5} #{2 3}) #{1 4 5}) (= (difference #{1}) #{1})]") == [true, true, true, true, true])
-				#expect(try eval("[(subset? #{1} #{1 2}) (subset? #{1 3} #{1 2}) (subset? #{} #{}) (subset? #{1 2} #{1}) (superset? #{1 2} #{1}) (superset? #{1} #{1 2}) (superset? #{1 2} #{1 2})]") == [true, false, true, false, true, false, true])
+				#expect(try eval("[(= (cset/union) #{}) (= (cset/union #{1}) #{1}) (= (cset/union #{1 2} #{2 3}) #{1 2 3}) (= (cset/union #{1} #{2} #{3} #{1}) #{1 2 3}) (= (cset/union #{} #{1 2 3}) #{1 2 3}) (= (cset/union #{1 2 3} #{}) #{1 2 3})]") == [true, true, true, true, true, true])
+				#expect(try eval("[(= (cset/intersection #{1 2 3} #{2 3 4}) #{2 3}) (= (cset/intersection #{1} #{2}) #{}) (= (cset/intersection #{1 2 3} #{2 3 4} #{3}) #{3}) (= (cset/intersection #{1 2 3 4 5} #{5 1}) #{1 5}) (= (cset/intersection #{1}) #{1})]") == [true, true, true, true, true])
+				#expect(try eval("[(= (cset/difference #{1 2 3} #{2}) #{1 3}) (= (cset/difference #{1 2 3} #{1 2 3 4 5}) #{}) (= (cset/difference #{1 2 3} #{2} #{3}) #{1}) (= (cset/difference #{1 2 3 4 5} #{2 3}) #{1 4 5}) (= (cset/difference #{1}) #{1})]") == [true, true, true, true, true])
+				#expect(try eval("[(cset/subset? #{1} #{1 2}) (cset/subset? #{1 3} #{1 2}) (cset/subset? #{} #{}) (cset/subset? #{1 2} #{1}) (cset/superset? #{1 2} #{1}) (cset/superset? #{1} #{1 2}) (cset/superset? #{1 2} #{1 2})]") == [true, false, true, false, true, false, true])
 				// The set that comes back keeps the first argument's meta, as clojure.set's do.
-				#expect(try eval("(meta (union (with-meta #{1} {:a 1}) #{2}))") == m(["a": 1]))
+				#expect(try eval("(meta (cset/union (with-meta #{1} {:a 1}) #{2}))") == m(["a": 1]))
+				#expect(try eval("(= (cset/select even? #{1 2 3 4}) #{2 4})") == true)
+				#expect(try eval("(= (cset/rename-keys {:a 1 :b 2} {:a :x}) {:x 1 :b 2})") == true)
+				#expect(try eval("(= (cset/map-invert {:a 1 :b 2}) {1 :a 2 :b})") == true)
+				#expect(try eval("(= (cset/project #{{:a 1 :b 2} {:a 3 :b 4}} [:a]) #{{:a 1} {:a 3}})") == true)
+				#expect(try eval("(= (cset/index #{{:a 1 :b 2} {:a 1 :b 3}} [:a]) {{:a 1} #{{:a 1 :b 2} {:a 1 :b 3}}})") == true)
+				#expect(try eval("(= (cset/join #{{:id 1 :n \"a\"}} #{{:id 1 :v 2}}) #{{:id 1 :n \"a\" :v 2}})") == true)
+				#expect(try eval("(= (cset/rename #{{:a 1}} {:a :b}) #{{:b 1}})") == true)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

@@ -1,6 +1,8 @@
 // @ai-generated(guided)
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "clj/analyzer.h"
 #include "clj/error.h"
@@ -23,6 +25,32 @@ static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
 static clj_output_fn out_fn;
 static void         *out_ctx;
+
+// with-out-str: a per-thread stack of byte buffers the output hook writes into while one is open.
+typedef struct capture {
+	char           *data;
+	size_t          len, cap;
+	struct capture *prev;
+} capture;
+
+static _Thread_local capture *captures;
+
+void clj_output_push_capture(void) {
+	capture *c = calloc(1, sizeof *c);
+	if (!c) clj_fatal("out of memory");
+	c->prev = captures;
+	captures = c;
+}
+
+clj_value clj_output_pop_capture(void) {
+	capture *c = captures;
+	CLJ_ASSERT(c, "output capture pop without push");
+	captures = c->prev;
+	clj_value s = clj_string_new(c->data, c->len);
+	free(c->data);
+	free(c);
+	return s;
+}
 
 #include "core_clj.inc"
 
@@ -53,7 +81,7 @@ static void print_trace(clj_value trace) {
 static void load_core(void) {
 	clj_reader r;
 	clj_reader_init(&r, (const char *)core_clj, core_clj_len);
-	r.resolve = clj_syntax_quote_resolve;
+	clj_reader_use_namespaces(&r);
 	for (;;) {
 		clj_value form;
 		clj_read_status st = clj_read(&r, &form);
@@ -90,6 +118,8 @@ static void init(void) {
 	// Interned up front so printing an error, an analysis position or a trace allocates nothing lasting later.
 	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", "tag", "ns", "name", "doc", "arglists",
 	                                                    "macro", "dynamic", "private", "fn", "fns", "calls", NULL}; *k; k++) clj_keyword_from_cstr(*k);
+	clj_ns_var();
+	clj_load_file_var();
 	clj_builtins_install();
 	clj_proto_install();
 	clj_intrinsics_install();
@@ -110,14 +140,49 @@ void clj_set_output(clj_output_fn fn, void *ctx) {
 
 clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx) {
 	(void)ctx;
-	if (!clj_is_nil(clj_symbol_ns(sym)) || clj_is_special_symbol(sym)) return clj_retain(sym);
+	if (clj_is_special_symbol(sym)) return clj_retain(sym);
 	clj_value ns = clj_ns_current();
+	if (!clj_is_nil(clj_symbol_ns(sym))) {
+		clj_value alias = clj_symbol_new(CLJ_NIL, clj_symbol_ns(sym));
+		clj_value target = clj_ns_resolve_ns(ns, alias);
+		clj_release(alias);
+		if (clj_is_nil(target) || clj_equals(clj_symbol_name(clj_ns_name(target)), clj_symbol_ns(sym))) return clj_retain(sym);
+		return clj_symbol_new(clj_symbol_name(clj_ns_name(target)), clj_symbol_name(sym));
+	}
 	clj_value var = clj_ns_resolve(ns, sym);
 	clj_value ns_name = clj_is_nil(var) ? clj_ns_name(ns) : clj_var_ns(var);
 	return clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(sym));
 }
 
+clj_value clj_reader_resolve_ns(clj_value alias, void *ctx) {
+	(void)ctx;
+	clj_value ns = clj_ns_current();
+	if (clj_is_nil(alias)) return clj_retain(clj_symbol_name(clj_ns_name(ns)));
+	clj_value sym = clj_symbol_new(CLJ_NIL, alias);
+	clj_value target = clj_ns_resolve_ns(ns, sym);
+	clj_release(sym);
+	return clj_is_nil(target) ? CLJ_NIL : clj_retain(clj_symbol_name(clj_ns_name(target)));
+}
+
+void clj_reader_use_namespaces(clj_reader *r) {
+	r->resolve = clj_syntax_quote_resolve;
+	r->resolve_ns = clj_reader_resolve_ns;
+}
+
 void clj_output(const char *bytes, size_t len) {
+	capture *c = captures;
+	if (c) {
+		if (c->len + len > c->cap) {
+			size_t cap = c->cap ? c->cap : 256;
+			while (cap < c->len + len) cap *= 2;
+			c->data = realloc(c->data, cap);
+			if (!c->data) clj_fatal("out of memory");
+			c->cap = cap;
+		}
+		memcpy(c->data + c->len, bytes, len);
+		c->len += len;
+		return;
+	}
 	if (out_fn) out_fn(bytes, len, out_ctx);
 	else fwrite(bytes, 1, len, stdout);
 }

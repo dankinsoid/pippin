@@ -13,8 +13,8 @@ extension Runtime {
 	static func installPrimitives() {
 		bind("compare", in: "clojure.core", doc: "Comparator. Returns -1, 0 or 1 as x is less than, equal to or greater than y; nil is less than everything.",
 		     Value(function: "clojure.core/compare", arity: 2...2) { args in try Value(compare(args[0], args[1])) })
-		bind("sort", in: "clojure.core", doc: "Returns a sorted sequence of the items in coll, by compare.",
-		     Value(function: "clojure.core/sort", arity: 1...1) { args in try sort(args[0]) })
+		bind("sort", in: "clojure.core", doc: "Returns a sorted sequence of the items in coll, by compare or the comparator comp.",
+		     Value(function: "clojure.core/sort", arity: 1...2) { args in args.count == 1 ? try sort(args[0]) : try sort(args[1], by: args[0]) })
 	}
 
 	/// Clojure `compare` for nil, booleans, numbers, chars, strings, keywords and symbols: -1, 0 or 1. nil is
@@ -90,13 +90,28 @@ extension Runtime {
 	public static func sort(_ coll: Value) throws -> Value {
 		let items = try coll.retainedItems()
 		defer { items.forEach(clj_release) }
-		let sorted = try mergeSort(items)
+		let sorted = try mergeSort(items) { try compare($0, $1) }
+		return Value(owning: sorted.withUnsafeBufferPointer { clj_list_from_array($0.baseAddress, $0.count) })
+	}
+
+	/// `(sort comp coll)`: comp returns a number (its sign orders) or, as a predicate, logical true when the
+	/// first argument sorts before the second, as Clojure's AFunction.compare reads a fn comparator.
+	public static func sort(_ coll: Value, by comparator: Value) throws -> Value {
+		let items = try coll.retainedItems()
+		defer { items.forEach(clj_release) }
+		let sorted = try mergeSort(items) { a, b in
+			let r = try comparator(Value(borrowing: a), Value(borrowing: b))
+			if let n = r.int { return n }
+			if let d = r.double { return d < 0 ? -1 : d > 0 ? 1 : 0 }
+			if r.isTruthy { return -1 }
+			return try comparator(Value(borrowing: b), Value(borrowing: a)).isTruthy ? 1 : 0
+		}
 		return Value(owning: sorted.withUnsafeBufferPointer { clj_list_from_array($0.baseAddress, $0.count) })
 	}
 
 	// Bottom-up and stable; `compare` sees (earlier, later), so a mixed pair throws about the later item's type.
 	// `items` is never touched: a throw leaves the caller's words to release.
-	private static func mergeSort(_ items: [clj_value]) throws -> [clj_value] {
+	private static func mergeSort(_ items: [clj_value], _ compare: (clj_value, clj_value) throws -> Int) throws -> [clj_value] {
 		var src = items, dst = items
 		var width = 1
 		while width < src.count {

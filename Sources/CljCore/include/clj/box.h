@@ -34,6 +34,8 @@ clj_value clj_volatile_new(clj_value value);
 static inline bool clj_is_volatile(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_volatile_type; }
 // Owned current value.
 clj_value clj_volatile_deref(clj_value vol);
+// Borrowed: valid until the next reset.
+static inline clj_value clj_volatile_value(clj_value vol) { return ((clj_volatile *)clj_to_ptr(vol))->value; }
 // Stores value (retained, shared when the cell is) and returns it owned; the previous value is released.
 clj_value clj_volatile_reset(clj_value vol, clj_value value);
 

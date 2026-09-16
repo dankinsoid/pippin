@@ -165,6 +165,10 @@ static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *own
 	case CLJ_NODE_CAPTURED: return f->captured[n->u.index];
 	case CLJ_NODE_CONST: return n->u.value;
 	case CLJ_NODE_VAR: {
+		if (__builtin_expect(clj_var_of(n->u.var)->dynamic, 0)) {
+			*owned = true;
+			return clj_var_deref(n->u.var);
+		}
 		clj_value root = clj_var_root(n->u.var);
 		if (!clj_is_ptr(root)) {
 			if (root == CLJ_UNBOUND) {

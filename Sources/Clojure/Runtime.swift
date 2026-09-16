@@ -73,12 +73,45 @@ public struct ClojureError: Error, CustomStringConvertible {
 	}
 }
 
-/// Reads and evaluates Clojure source in the `user` namespace.
+/// Reads and evaluates Clojure source in the current namespace (`user` until an `ns` or `in-ns` form).
 ///
 /// The core is bootstrapped once per process; every instance shares it, so definitions made through one
 /// are visible through all. Concurrent evaluation on several threads is not supported yet (NOTES.md).
 public final class Runtime: Sendable {
 	public init() { clj_init() }
+
+	/// Directories `require` searches for `a.b-c` as `a/b_c.cljc` then `a/b_c.clj`. Process-wide; the
+	/// namespaces embedded in the binary (clojure.set, clojure.string, clojure.walk, clojure.test) need none.
+	public static var loadPath: [String] {
+		get { loadPathStorage }
+		set {
+			loadPathStorage = newValue
+			var cstrings = newValue.map { strdup($0) }
+			defer { cstrings.forEach { free($0) } }
+			cstrings.withUnsafeMutableBufferPointer { buf in
+				buf.withMemoryRebound(to: UnsafePointer<CChar>?.self) { clj_load_path_set($0.baseAddress, $0.count) }
+			}
+		}
+	}
+
+	// Written by the host before evaluation starts; the C side holds the copy the loader reads.
+	nonisolated(unsafe) private static var loadPathStorage: [String] = []
+
+	/// The keywords `#?(...)` selects on, `:default` always matching; empty by default. Process-wide.
+	public static var readerFeatures: Set<String> {
+		get {
+			let set = Value(borrowing: clj_reader_features())
+			let items = withExtendedLifetime(set) { Value(owning: clj_seq(set.raw)) }
+			return Set((items.list ?? []).map { String($0.description.dropFirst()) })
+		}
+		set {
+			let set = Value(owning: newValue.reduce(clj_set_empty()) { acc, name in
+				let k = Value(keyword: name)
+				return withExtendedLifetime(k) { clj_set_conj(acc, k.raw) }
+			})
+			withExtendedLifetime(set) { clj_reader_set_features(set.raw) }
+		}
+	}
 
 	/// Instruments signposts (subsystem `clj`, name `invoke`) around every Clojure fn call. Process-wide.
 	public static var signposts: Bool {
@@ -88,33 +121,55 @@ public final class Runtime: Sendable {
 
 	/// Evaluates every form in order and returns the last value; nil for empty input.
 	/// Throws `ReaderError` for syntax errors and `ClojureError` for analysis and runtime errors.
+	/// `*ns*` is bound around the call, as Clojure's `load` does: an `ns` form inside moves the rest of
+	/// this source, not the caller's thread.
 	public func eval(_ source: String) throws -> Value {
 		var bytes = Array(source.utf8)
 		return try bytes.withUnsafeMutableBufferPointer { buf in
 			try buf.withMemoryRebound(to: CChar.self) { chars in
 				var reader = clj_reader()
 				clj_reader_init(&reader, chars.baseAddress, chars.count)
-				reader.resolve = clj_syntax_quote_resolve
-				var last: Value = nil
-				while true {
-					var raw: clj_value = CLJ_NIL
-					switch clj_read(&reader, &raw) {
-					case CLJ_READ_EOF:
-						return last
-					case CLJ_READ_ERROR:
-						throw ReaderError(
-							message: String(cString: clj_reader_message(&reader)),
-							line: Int(reader.error_line), column: Int(reader.error_col))
-					default:
-						let form = Value(owning: raw)
-						var env = clj_env(ns: clj_ns_user(), line: reader.form_line, col: reader.form_col)
-						let result = withExtendedLifetime(form) { clj_eval(form.raw, &env) }
-						if result == CLJ_THROWN { throw ClojureError.takePending() }
-						last = Value(owning: result)
+				clj_reader_use_namespaces(&reader)
+				return try Self.bindingCurrentNamespace {
+					var last: Value = nil
+					while true {
+						var raw: clj_value = CLJ_NIL
+						switch clj_read(&reader, &raw) {
+						case CLJ_READ_EOF:
+							return last
+						case CLJ_READ_ERROR:
+							throw ReaderError(
+								message: String(cString: clj_reader_message(&reader)),
+								line: Int(reader.error_line), column: Int(reader.error_col))
+						default:
+							let form = Value(owning: raw)
+							var env = clj_env(ns: CLJ_NIL, line: reader.form_line, col: reader.form_col)
+							let result = withExtendedLifetime(form) { clj_eval(form.raw, &env) }
+							if result == CLJ_THROWN { throw ClojureError.takePending() }
+							last = Value(owning: result)
+						}
 					}
 				}
 			}
 		}
+	}
+
+	/// The namespace evaluation resolves in on this thread: `*ns*`.
+	public var currentNamespace: String {
+		get { Value(borrowing: clj_ns_name(clj_ns_current())).description }
+		set {
+			let sym = Value(symbol: newValue)
+			withExtendedLifetime(sym) { clj_ns_set_current(clj_ns_find_or_create(sym.raw)) }
+		}
+	}
+
+	// Pushes {*ns* (current)} around body, so the thread's namespace is what it was afterwards.
+	static func bindingCurrentNamespace<T>(_ body: () throws -> T) throws -> T {
+		let bindings = Value(owning: clj_map_assoc(clj_map_empty(), clj_ns_var(), clj_ns_current()))
+		let pushed = withExtendedLifetime(bindings) { clj_var_push_bindings(bindings.raw) }
+		if pushed == CLJ_THROWN { throw ClojureError.takePending() }
+		defer { clj_release(clj_var_pop_bindings()) }
+		return try body()
 	}
 }
 

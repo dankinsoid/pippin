@@ -7,7 +7,7 @@
 
 #include "clj/core.h"
 
-typedef enum { F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META } frame_kind;
+typedef enum { F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META, F_FN, F_COND, F_COND_SPLICING } frame_kind;
 
 typedef struct {
 	frame_kind kind;
@@ -17,12 +17,33 @@ typedef struct {
 } frame;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_line, kw_column, kw_tag;
+static clj_value      kw_line, kw_column, kw_tag, kw_default;
 
 static void intern_keywords(void) {
 	kw_line = clj_keyword_from_cstr("line");
 	kw_column = clj_keyword_from_cstr("column");
 	kw_tag = clj_keyword_from_cstr("tag");
+	kw_default = clj_keyword_from_cstr("default");
+}
+
+static clj_lock  features_lock = CLJ_LOCK_INIT;
+static clj_value features;
+
+void clj_reader_set_features(clj_value f) {
+	CLJ_ASSERT(clj_is_nil(f) || clj_is_set(f), "reader features must be a set or nil");
+	clj_share(f);
+	clj_lock_lock(&features_lock);
+	clj_value old = features;
+	features = clj_retain(f);
+	clj_lock_unlock(&features_lock);
+	clj_release(old);
+}
+
+clj_value clj_reader_features(void) {
+	clj_lock_lock(&features_lock);
+	clj_value f = features;
+	clj_lock_unlock(&features_lock);
+	return f;
 }
 
 // Explicit stacks: nesting depth is bounded by memory, not by the C stack.
@@ -33,6 +54,7 @@ typedef struct {
 	frame      *frames;
 	size_t      nframes, fcap;
 	size_t      sq_depth; // open syntax-quote frames, so ~ knows whether it is inside one
+	size_t      fn_depth; // open #( frames; Clojure refuses nesting
 } parser;
 
 typedef struct {
@@ -460,6 +482,161 @@ static clj_read_status apply_meta(parser *p, const frame *f, clj_value v, clj_va
 	return CLJ_READ_OK;
 }
 
+// ---- #(...): the body's %, %N and %& become the parameters of a fn*.
+
+typedef struct {
+	uint32_t max_arg; // highest %N seen
+	bool     rest;    // %& seen
+	uint64_t id;      // suffix shared by every parameter of one literal
+	char     error[96];
+} fn_args;
+
+static clj_value fn_param(const fn_args *a, uint32_t i) {
+	char text[48];
+	if (i) snprintf(text, sizeof text, "p%u__%llu#", i, (unsigned long long)a->id);
+	else snprintf(text, sizeof text, "rest__%llu#", (unsigned long long)a->id);
+	return clj_symbol_from_cstr(text);
+}
+
+// Owned rewrite of form; nil with a->error set on a bad arg literal. Recursive over the literal's own nesting.
+static clj_value fn_walk(fn_args *a, clj_value form) {
+	if (clj_is_symbol(form) && clj_is_nil(clj_symbol_ns(form)) && clj_string_bytes(clj_symbol_name(form))[0] == '%') {
+		const char *text = clj_string_bytes(clj_symbol_name(form)) + 1;
+		uint32_t    i;
+		if (*text == '\0') i = 1;
+		else if (strcmp(text, "&") == 0) i = 0;
+		else {
+			char *end;
+			long  n = strtol(text, &end, 10);
+			if (*end || n < 1 || n > 20) {
+				snprintf(a->error, sizeof a->error, "arg literal must be %%, %%& or %%integer");
+				return CLJ_NIL;
+			}
+			i = (uint32_t)n;
+		}
+		if (i) {
+			if (i > a->max_arg) a->max_arg = i;
+		} else {
+			a->rest = true;
+		}
+		return fn_param(a, i);
+	}
+	if (!is_sq_coll(form)) return clj_retain(form);
+	size_t     n;
+	clj_value *items = coll_items(form, &n);
+	clj_value *out = calloc(n + 1, sizeof *out);
+	if (!out) clj_fatal("out of memory");
+	bool ok = true;
+	for (size_t i = 0; i < n && ok; i++) {
+		out[i] = fn_walk(a, items[i]);
+		if (a->error[0]) ok = false;
+	}
+	clj_value v = CLJ_NIL;
+	if (ok) {
+		if (clj_is_vector(form)) {
+			v = clj_vector_from_array(out, (uint32_t)n);
+		} else if (is_map(form)) {
+			v = clj_map_empty();
+			for (size_t i = 0; i < n; i += 2) v = clj_map_assoc(v, out[i], out[i + 1]);
+		} else if (clj_is_set(form)) {
+			v = clj_set_from_array(out, n);
+		} else {
+			v = clj_list_from_array(out, n);
+			clj_value m = clj_meta(form);
+			if (!clj_is_nil(m)) v = clj_with_meta(v, m);
+			clj_release(m);
+		}
+	}
+	for (size_t i = 0; i < n; i++) clj_release(out[i]);
+	free(out);
+	free(items);
+	return v;
+}
+
+// Consumes body: (fn* [p1__N# ... & rest__N#] body).
+static clj_read_status fn_literal(parser *p, const frame *f, clj_value body, clj_value *out) {
+	fn_args   a = {0, false, clj_next_id(), {0}};
+	clj_value walked = fn_walk(&a, body);
+	clj_release(body);
+	if (a.error[0]) return fail(p, f->line, f->col, "%s", a.error);
+	clj_value *params = calloc(a.max_arg + 3, sizeof *params);
+	if (!params) clj_fatal("out of memory");
+	uint32_t np = 0;
+	for (uint32_t i = 1; i <= a.max_arg; i++) params[np++] = fn_param(&a, i);
+	if (a.rest) {
+		params[np++] = clj_symbol_from_cstr("&");
+		params[np++] = fn_param(&a, 0);
+	}
+	clj_value vec = clj_vector_from_array(params, np);
+	for (uint32_t i = 0; i < np; i++) clj_release(params[i]);
+	free(params);
+	clj_value items[3] = {clj_symbol_from_cstr("fn*"), vec, walked};
+	*out = list_owning(items, 3);
+	return CLJ_READ_OK;
+}
+
+// ---- #?(...): the first branch whose feature the reader has, :default matching always.
+
+static bool has_feature(const parser *p, clj_value kw) {
+	if (kw == kw_default) return true;
+	return !clj_is_nil(p->r->features) && clj_set_contains(p->r->features, kw);
+}
+
+// Consumes body. *out is the owned chosen form, or CLJ_UNBOUND when no branch matches.
+static clj_read_status read_cond(parser *p, const frame *f, clj_value body, clj_value *out) {
+	*out = CLJ_UNBOUND;
+	if (!clj_is_list(body)) {
+		clj_release(body);
+		return fail(p, f->line, f->col, "read-cond body must be a list");
+	}
+	size_t          n;
+	clj_value      *items = coll_items(body, &n);
+	clj_read_status st = CLJ_READ_OK;
+	if (n % 2) st = fail(p, f->line, f->col, "read-cond requires an even number of forms");
+	for (size_t i = 0; st == CLJ_READ_OK && i < n; i += 2) {
+		if (!clj_is_keyword(items[i])) {
+			st = fail(p, f->line, f->col, "Feature should be a keyword");
+			break;
+		}
+		if (*out == CLJ_UNBOUND && has_feature(p, items[i])) *out = clj_retain(items[i + 1]);
+	}
+	if (st != CLJ_READ_OK && *out != CLJ_UNBOUND) {
+		clj_release(*out);
+		*out = CLJ_UNBOUND;
+	}
+	free(items);
+	clj_release(body);
+	return st;
+}
+
+typedef struct {
+	uint32_t line, col;
+} line_col;
+
+static line_col line_col_of(const parser *p) {
+	return (line_col){p->r->form_line, p->r->form_col};
+}
+
+// Consumes chosen: its items join the enclosing collection.
+static clj_read_status splice(parser *p, clj_value chosen, line_col at) {
+	frame_kind enclosing = p->nframes ? p->frames[p->nframes - 1].kind : F_QUOTE;
+	if (enclosing != F_LIST && enclosing != F_VECTOR && enclosing != F_MAP && enclosing != F_SET && enclosing != F_FN) {
+		clj_release(chosen);
+		return fail(p, at.line, at.col, "Reader conditional splicing not allowed at the top level.");
+	}
+	if (!clj_is_list(chosen) && !clj_is_vector(chosen)) {
+		clj_read_status st = fail(p, at.line, at.col, "Spliced form list in read-cond-splicing must implement ISequential");
+		clj_release(chosen);
+		return st;
+	}
+	size_t     n;
+	clj_value *items = coll_items(chosen, &n);
+	for (size_t i = 0; i < n; i++) push_raw(p, clj_retain(items[i]));
+	free(items);
+	clj_release(chosen);
+	return CLJ_READ_OK;
+}
+
 // Consumes v: applies pending prefix frames (quote, deref, discard, ...), then stores it.
 static clj_read_status push_value(parser *p, clj_value v) {
 	while (p->nframes) {
@@ -495,6 +672,20 @@ static clj_read_status push_value(parser *p, clj_value v) {
 			clj_release(v);
 			p->nframes--;
 			return CLJ_READ_OK;
+		case F_COND:
+		case F_COND_SPLICING: {
+			clj_value       chosen;
+			frame_kind      kind = f->kind;
+			clj_read_status st = read_cond(p, f, v, &chosen);
+			p->nframes--;
+			if (st != CLJ_READ_OK) return st;
+			if (chosen == CLJ_UNBOUND) return CLJ_READ_OK;
+			if (kind == F_COND) {
+				v = chosen;
+				continue;
+			}
+			return splice(p, chosen, line_col_of(p));
+		}
 		default:
 			push_raw(p, v);
 			return CLJ_READ_OK;
@@ -503,6 +694,21 @@ static clj_read_status push_value(parser *p, clj_value v) {
 	}
 	push_raw(p, v);
 	return CLJ_READ_OK;
+}
+
+// Digits of tok from `start` in `radix`, into a fixnum.
+static clj_read_status parse_radix(parser *p, const char *tok, size_t n, size_t start, int radix, bool neg, uint32_t line, uint32_t col) {
+	if (start == n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	uint64_t limit = neg ? (uint64_t)1 << 62 : ((uint64_t)1 << 62) - 1;
+	uint64_t v = 0;
+	for (size_t j = start; j < n; j++) {
+		unsigned char c = (unsigned char)tok[j];
+		int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'z' ? c - 'a' + 10 : c >= 'A' && c <= 'Z' ? c - 'A' + 10 : 99;
+		if (d >= radix) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		if (v > (limit - (uint64_t)d) / (uint64_t)radix) return fail(p, line, col, "Integer out of fixnum range, bigint is not supported yet: %.*s", (int)n, tok);
+		v = v * (uint64_t)radix + (uint64_t)d;
+	}
+	return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
 }
 
 static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
@@ -515,9 +721,13 @@ static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32
 	size_t digits = i;
 	while (digits < n && is_digit((unsigned char)tok[digits])) digits++;
 	if (tok[i] == '0' && digits - i == 1 && digits < n && (tok[digits] == 'x' || tok[digits] == 'X'))
-		return fail(p, line, col, "Hex literals are not supported yet: %.*s", (int)n, tok);
-	if (digits < n && (tok[digits] == 'r' || tok[digits] == 'R') && digits - i <= 2)
-		return fail(p, line, col, "Radix literals are not supported yet: %.*s", (int)n, tok);
+		return parse_radix(p, tok, n, digits + 1, 16, neg, line, col);
+	if (digits < n && (tok[digits] == 'r' || tok[digits] == 'R') && digits - i <= 2 && digits > i) {
+		int radix = 0;
+		for (size_t j = i; j < digits; j++) radix = radix * 10 + (tok[j] - '0');
+		if (radix < 2 || radix > 36) return fail(p, line, col, "Radix out of range: %.*s", (int)n, tok);
+		return parse_radix(p, tok, n, digits + 1, radix, neg, line, col);
+	}
 	if (digits < n && tok[digits] == '/') {
 		size_t j = digits + 1;
 		while (j < n && is_digit((unsigned char)tok[j])) j++;
@@ -550,7 +760,7 @@ static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32
 	}
 	if (digits + 1 == n && tok[digits] == 'N') return fail(p, line, col, "BigInt literals (N suffix) are not supported yet: %.*s", (int)n, tok);
 	if (digits != n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
-	if (tok[i] == '0' && digits - i > 1) return fail(p, line, col, "Octal literals are not supported yet: %.*s", (int)n, tok);
+	if (tok[i] == '0' && digits - i > 1) return parse_radix(p, tok, n, i + 1, 8, neg, line, col);
 	uint64_t limit = neg ? (uint64_t)1 << 62 : ((uint64_t)1 << 62) - 1;
 	uint64_t v = 0;
 	for (size_t j = i; j < n; j++) {
@@ -579,10 +789,10 @@ static bool valid_symbol_text(const char *s, size_t n) {
 
 static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
 	bool keyword = tok[0] == ':';
-	if (keyword && n > 1 && tok[1] == ':')
-		return fail(p, line, col, "Auto-resolved keywords (::) need a current namespace, not supported yet: %.*s", (int)n, tok);
-	const char *s = tok + keyword;
-	size_t len = n - keyword;
+	bool auto_ns = keyword && n > 1 && tok[1] == ':';
+	if (auto_ns && !p->r->resolve_ns) return fail(p, line, col, "Auto-resolved keywords (::) need a current namespace: %.*s", (int)n, tok);
+	const char *s = tok + keyword + auto_ns;
+	size_t len = n - keyword - auto_ns;
 	if (len == 0 || !valid_symbol_text(s, len)) return fail(p, line, col, "Invalid token: %.*s", (int)n, tok);
 	clj_value ns = CLJ_NIL, name;
 	const char *slash = memchr(s, '/', len);
@@ -591,6 +801,15 @@ static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32
 	} else {
 		ns = clj_string_new(s, (size_t)(slash - s));
 		name = clj_string_new(slash + 1, len - (size_t)(slash - s) - 1);
+	}
+	if (auto_ns) {
+		clj_value resolved = p->r->resolve_ns(ns, p->r->resolve_ctx);
+		clj_release(ns);
+		if (clj_is_nil(resolved)) {
+			clj_release(name);
+			return fail(p, line, col, "Invalid token: %.*s", (int)n, tok);
+		}
+		ns = resolved;
 	}
 	clj_value v = keyword ? clj_keyword_intern(ns, name) : clj_symbol_new(ns, name);
 	clj_release(ns);
@@ -800,14 +1019,27 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 		advance(r);
 		push_frame(p, F_SET, line, col);
 		return CLJ_READ_OK;
-	case '(': return fail(p, line, col, "Anonymous function literals are not supported yet");
+	case '(':
+		if (p->fn_depth) return fail(p, line, col, "Nested #()s are not allowed");
+		advance(r);
+		p->fn_depth++;
+		push_frame(p, F_FN, line, col);
+		return CLJ_READ_OK;
 	case '"': return fail(p, line, col, "Regex literals are not supported yet");
 	case '\'':
 		advance(r);
 		push_frame(p, F_VAR, line, col);
 		return CLJ_READ_OK;
 	case ':': return fail(p, line, col, "Namespaced map literals are not supported yet");
-	case '?': return fail(p, line, col, "Reader conditionals are not supported yet");
+	case '?': {
+		advance(r);
+		bool splicing = !at_eof(r) && peek(r) == '@';
+		if (splicing) advance(r);
+		skip_blank(r);
+		if (at_eof(r) || peek(r) != '(') return fail(p, line, col, "read-cond body must be a list");
+		push_frame(p, splicing ? F_COND_SPLICING : F_COND, line, col);
+		return CLJ_READ_OK;
+	}
 	case '=': return fail(p, line, col, "Read-eval is not supported yet");
 	case '^':
 		advance(r);
@@ -857,11 +1089,20 @@ static clj_read_status close_set(parser *p, const frame *f, clj_value *out) {
 static clj_read_status close_collection(parser *p, unsigned char closer, uint32_t line, uint32_t col) {
 	frame_kind expected = closer == ')' ? F_LIST : closer == ']' ? F_VECTOR : F_MAP;
 	frame_kind top = p->nframes ? p->frames[p->nframes - 1].kind : F_QUOTE;
-	if (top != expected && !(expected == F_MAP && top == F_SET)) return fail(p, line, col, "Unmatched delimiter: %c", closer);
+	if (top != expected && !(expected == F_MAP && top == F_SET) && !(expected == F_LIST && top == F_FN)) return fail(p, line, col, "Unmatched delimiter: %c", closer);
 	frame f = p->frames[--p->nframes];
 	size_t n = p->nvals - f.start;
 	const clj_value *items = n ? p->vals + f.start : NULL;
 	clj_value v;
+	if (f.kind == F_FN) {
+		p->fn_depth--;
+		clj_value body = n ? clj_list_from_array(items, n) : clj_list_empty();
+		for (size_t i = f.start; i < p->nvals; i++) clj_release(p->vals[i]);
+		p->nvals = f.start;
+		clj_read_status st = fn_literal(p, &f, body, &v);
+		if (st != CLJ_READ_OK) return st;
+		return push_value(p, v);
+	}
 	if (f.kind == F_LIST && n) {
 		// Clojure attaches the opening paren's position to lists only; the head cell carries it.
 		clj_value pos = clj_map_assoc(clj_map_assoc(clj_map_empty(), kw_line, clj_fixnum(f.line)), kw_column, clj_fixnum(f.col));
@@ -936,6 +1177,7 @@ void clj_reader_init(clj_reader *r, const char *bytes, size_t len) {
 	r->bytes = bytes;
 	r->len = len;
 	r->line = r->col = 1;
+	r->features = clj_reader_features();
 }
 
 const char *clj_reader_message(const clj_reader *r) { return r->message; }

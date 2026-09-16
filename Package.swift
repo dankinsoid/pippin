@@ -19,8 +19,8 @@ let package = Package(
 		// everything else host-specific goes through the Swift target.
 		.target(
 			name: "CljCore",
-			// boot/core.clj reaches the binary through the generated core_clj.inc (make boot).
-			exclude: ["boot", "core_clj.inc"],
+			// boot/core.clj and boot/clojure/*.clj reach the binary through the generated .inc files (make boot).
+			exclude: ["boot", "core_clj.inc", "libs_clj.inc"],
 			cSettings: [
 				// unsafeFlags makes the package unusable as a dependency; fine while it is a root package.
 				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),

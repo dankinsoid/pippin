@@ -6,19 +6,37 @@ struct CljEvalFailure: Error {
 	let message: String
 }
 
-// Evaluates every form in the current namespace through the C API and returns the last value.
+// Evaluates every form in the current namespace through the C API and returns the last value. Forms are
+// read one at a time, so an in-ns earlier in the source governs how the reader resolves the later ones.
 func cljEval(_ source: String) throws -> Value {
 	clj_init()
-	var last: Value = nil
-	for form in try Value.readAll(source) {
-		let raw = withExtendedLifetime(form) { clj_eval(form.raw, nil) }
-		if raw == CLJ_THROWN {
-			let ex = Value(owning: clj_take_pending())
-			throw CljEvalFailure(message: ex.description)
+	var bytes = Array(source.utf8)
+	return try bytes.withUnsafeMutableBufferPointer { buf in
+		try buf.withMemoryRebound(to: CChar.self) { chars in
+			var reader = clj_reader()
+			clj_reader_init(&reader, chars.baseAddress, chars.count)
+			clj_reader_use_namespaces(&reader)
+			var last: Value = nil
+			while true {
+				var raw: clj_value = CLJ_NIL
+				switch clj_read(&reader, &raw) {
+				case CLJ_READ_EOF:
+					return last
+				case CLJ_READ_ERROR:
+					throw ReaderError(message: String(cString: clj_reader_message(&reader)), line: Int(reader.error_line), column: Int(reader.error_col))
+				default:
+					let form = Value(owning: raw)
+					var env = clj_env(ns: CLJ_NIL, line: reader.form_line, col: reader.form_col)
+					let result = withExtendedLifetime(form) { clj_eval(form.raw, &env) }
+					if result == CLJ_THROWN {
+						let ex = Value(owning: clj_take_pending())
+						throw CljEvalFailure(message: ex.description)
+					}
+					last = Value(owning: result)
+				}
+			}
 		}
-		last = Value(owning: raw)
 	}
-	return last
 }
 
 // The printed exception, or nil when the source evaluates.

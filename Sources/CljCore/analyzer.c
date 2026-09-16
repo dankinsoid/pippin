@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/box.h"
 #include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/fn.h"
@@ -14,6 +15,7 @@
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/printer.h"
+#include "clj/runtime.h"
 #include "clj/set.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
@@ -163,9 +165,10 @@ typedef struct {
 } analyzer;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_arglists, kw_macro, kw_dynamic;
+static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_arglists, kw_macro, kw_dynamic, kw_file;
 
 static void intern_keywords(void) {
+	kw_file = clj_keyword_from_cstr("file");
 	kw_line = clj_keyword_from_cstr("line");
 	kw_column = clj_keyword_from_cstr("column");
 	kw_ns = clj_keyword_from_cstr("ns");
@@ -412,7 +415,7 @@ static bool symbol_is(clj_value sym, const char *name) {
 
 typedef enum {
 	SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_DEFMACRO, SP_RECUR, SP_VAR, SP_TRY, SP_THROW,
-	SP_CATCH, SP_FINALLY, SP_RESERVED
+	SP_SET, SP_CATCH, SP_FINALLY, SP_RESERVED
 } special;
 
 static const struct {
@@ -422,7 +425,7 @@ static const struct {
 	// let/loop/fn are core.clj macros over the starred forms (destructuring).
 	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let*", SP_LET},    {"loop*", SP_LOOP},
 	{"fn*", SP_FN},      {"def", SP_DEF},   {"defmacro", SP_DEFMACRO}, {"recur", SP_RECUR}, {"var", SP_VAR},
-	{"try", SP_TRY},     {"throw", SP_THROW},
+	{"try", SP_TRY},     {"throw", SP_THROW},  {"set!", SP_SET},
 	// Clause heads and `&` in params: not forms of their own, but syntax-quote must keep them unqualified.
 	{"catch", SP_CATCH}, {"finally", SP_FINALLY}, {"&", SP_RESERVED},
 };
@@ -914,6 +917,8 @@ static clj_value def_meta_form(const analyzer *a, clj_value sym, clj_value var) 
 		m = clj_map_assoc(m, kw_line, clj_fixnum(a->line));
 		m = clj_map_assoc(m, kw_column, clj_fixnum(a->col));
 	}
+	clj_value file = clj_var_thread_binding(clj_load_file_var());
+	if (!clj_is_nil(file) && clj_is_string(clj_volatile_value(file))) m = clj_map_assoc(m, kw_file, clj_volatile_value(file));
 	clj_value ns = quoted(clj_var_ns(var)), nm = quoted(clj_var_name(var));
 	m = clj_map_assoc(m, kw_ns, ns);
 	m = clj_map_assoc(m, kw_name, nm);
@@ -1211,6 +1216,28 @@ static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
 	return node_const(a, var);
 }
 
+// (set! sym expr) on a var: (clojure.core/var-set (var sym) expr). Locals and fields are not assignable.
+// @ai-generated(guided)
+static clj_node *analyze_set_bang(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
+	if (n != 3) return fail(a, "Malformed assignment, expecting (set! target val)");
+	if (!clj_is_symbol(items[1])) return fail_form(a, "Invalid assignment target: %s", items[1]);
+	if (clj_is_nil(clj_symbol_ns(items[1]))) {
+		bool     captured;
+		uint32_t index;
+		if (resolve_local(s, items[1], &captured, &index)) return fail_form(a, "Cannot assign to non-mutable: %s", items[1]);
+	}
+	clj_value var_items[2] = {clj_symbol_from_cstr("var"), clj_retain(items[1])};
+	clj_value var_form = clj_list_from_array(var_items, 2);
+	clj_release(var_items[0]);
+	clj_release(var_items[1]);
+	clj_value call_items[3] = {clj_symbol_from_cstr("clojure.core/var-set"), var_form, clj_retain(items[2])};
+	clj_value call = clj_list_from_array(call_items, 3);
+	for (int i = 0; i < 3; i++) clj_release(call_items[i]);
+	clj_node *node = analyze(a, s, call, false);
+	clj_release(call);
+	return node;
+}
+
 static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tail);
 
 // Errors inside the list report its own position when the reader gave it one.
@@ -1249,6 +1276,7 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_VAR: node = analyze_var(a, items, n); break;
 	case SP_TRY: node = analyze_try(a, s, items, n); break;
 	case SP_THROW: node = analyze_throw(a, s, items, n); break;
+	case SP_SET: node = analyze_set_bang(a, s, items, n); break;
 	case SP_CATCH: node = fail(a, "catch outside try"); break;
 	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:

@@ -44,7 +44,6 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("{:a 1 :b}", 1, 1, "Map literal must contain an even number of forms"),
 	("\n {:a 1, :a 2}", 2, 2, "Duplicate key: :a"),
 	("{[1 2] 1 (1 2) 2}", 1, 1, "Duplicate key: (1 2)"),
-	("::a", 1, 1, "Auto-resolved keywords (::) need a current namespace, not supported yet: ::a"),
 	(":", 1, 1, "Invalid token: :"),
 	("a:", 1, 1, "Invalid token: a:"),
 	("a::b", 1, 1, "Invalid token: a::b"),
@@ -56,21 +55,29 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("4611686018427387904", 1, 1, "Integer out of fixnum range, bigint is not supported yet: 4611686018427387904"),
 	("-4611686018427387905", 1, 1, "Integer out of fixnum range, bigint is not supported yet: -4611686018427387905"),
 	("99999999999999999999999", 1, 1, "Integer out of fixnum range, bigint is not supported yet: 99999999999999999999999"),
-	("0x1F", 1, 1, "Hex literals are not supported yet: 0x1F"),
-	("2r101", 1, 1, "Radix literals are not supported yet: 2r101"),
-	("36rZZ", 1, 1, "Radix literals are not supported yet: 36rZZ"),
 	("1/2", 1, 1, "Ratios are not supported yet: 1/2"),
 	("42N", 1, 1, "BigInt literals (N suffix) are not supported yet: 42N"),
 	("1.5M", 1, 1, "BigDecimal literals (M suffix) are not supported yet: 1.5M"),
-	("017", 1, 1, "Octal literals are not supported yet: 017"),
 	("1e", 1, 1, "Invalid number: 1e"),
 	("1.2.3", 1, 1, "Invalid number: 1.2.3"),
 	("1a", 1, 1, "Invalid number: 1a"),
 	("1/a", 1, 1, "Invalid number: 1/a"),
-	("#(+ 1 %)", 1, 1, "Anonymous function literals are not supported yet"),
 	("#\"re\"", 1, 1, "Regex literals are not supported yet"),
+	("::no-such/a", 1, 1, "Invalid token: ::no-such/a"),
+	("#(#(%))", 1, 3, "Nested #()s are not allowed"),
+	("#(%0)", 1, 1, "arg literal must be %, %& or %integer"),
+	("#(%x)", 1, 1, "arg literal must be %, %& or %integer"),
+	("#?[:clj 1]", 1, 1, "read-cond body must be a list"),
+	("#?(:clj)", 1, 1, "read-cond requires an even number of forms"),
+	("#?(clj 1)", 1, 1, "Feature should be a keyword"),
+	("#?@(:default [1])", 1, 1, "Reader conditional splicing not allowed at the top level."),
+	("[#?@(:default 1)]", 1, 1, "Spliced form list in read-cond-splicing must implement ISequential"),
+	("0x", 1, 1, "Invalid number: 0x"),
+	("0x1G", 1, 1, "Invalid number: 0x1G"),
+	("08", 1, 1, "Invalid number: 08"),
+	("1r1", 1, 1, "Radix out of range: 1r1"),
+	("0x7FFFFFFFFFFFFFFF", 1, 1, "Integer out of fixnum range, bigint is not supported yet: 0x7FFFFFFFFFFFFFFF"),
 	("#:a{:b 1}", 1, 1, "Namespaced map literals are not supported yet"),
-	("#?(:clj 1)", 1, 1, "Reader conditionals are not supported yet"),
 	("#=(+ 1 2)", 1, 1, "Read-eval is not supported yet"),
 	("^1 x", 1, 1, "Metadata must be Symbol,Keyword,String or Map"),
 	("(a ^[] x)", 1, 4, "Metadata must be Symbol,Keyword,String or Map"),
@@ -102,6 +109,51 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 
 extension CoreTests {
 	@Suite struct ReaderTests {
+		// @ai-generated(guided)
+		@Test func fnLiteralsConditionalsAndRadixNumbers() throws {
+			clj_init()
+			for k in ["default", "nested", "user/a", "clojure.core/x", "clj", "cljs"] { _ = kw(k) }
+			_ = try cljEval("(alias 'rt-alias 'clojure.core)")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try read("#(+ 1 %)").description.hasPrefix("(fn* [p1__"))
+				#expect(try read("#(+ 1 %)").description.contains("] (+ 1 p1__"))
+				#expect(try read("#(%2 %1)").list![1].array!.count == 2)
+				#expect(try read("#(apply + % %&)").list![1].array!.map(\.description).joined(separator: " ").contains("& rest__"))
+				#expect(try read("#()").description.hasSuffix(" ())"))
+				#expect(try read("#([%] {%2 %} #{%})").list![1].array!.count == 2)
+				#expect(try cljEval("(#(+ % 10) 5)") == 15)
+				#expect(try cljEval("(#(vector %1 %2) 1 2)") == [1, 2])
+				#expect(try cljEval("(#(apply + %&) 1 2 3)") == 6)
+				#expect(try cljEval("(map #(* % %) [1 2 3])") == Value(list: [1, 4, 9]))
+				#expect(try read("#?(:clj 1 :default 2)") == 2)
+				#expect(try read("#?(:cljs 1) 7") == 7)
+				#expect(readError("#?(:cljs 1)")?.message == "EOF while reading")
+				#expect(try read("[1 #?(:cljs 2) 3]") == [1, 3])
+				#expect(try read("[1 #?@(:default [2 3]) 4]") == [1, 2, 3, 4])
+				#expect(try read("(a #?@(:cljs [x]) b)") == list(sym("a"), sym("b")))
+				#expect(try read("[#?@(:default ()) 1]") == [1])
+				#expect(try read("#?(:default #?(:default :nested))") == kw("nested"))
+				Runtime.readerFeatures = ["clj"]
+				#expect(try read("#?(:cljs 1 :clj 2 :default 3)") == 2)
+				#expect(Runtime.readerFeatures == ["clj"])
+				clj_reader_set_features(CLJ_NIL)
+				#expect(try read("#?(:cljs 1 :clj 2 :default 3)") == 3)
+				#expect(try read("::a") == kw("user/a"))
+				#expect(try read("::rt-alias/x") == kw("clojure.core/x"))
+				#expect(try read("::clojure.core/x") == kw("clojure.core/x"))
+				#expect(try read("0x1F") == 31)
+				#expect(try read("-0x10") == -16)
+				#expect(try read("2r101") == 5)
+				#expect(try read("36rZZ") == 1295)
+				#expect(try read("017") == 15)
+				#expect(try read("-017") == -15)
+				#expect(try read("0") == 0)
+				#expect(try read("00") == 0)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func scalars() throws {
 			for k in ["a", "ns/a", "a.b/c-d?", "/"] { _ = kw(k) }
 			let before = clj_debug_live_objects()

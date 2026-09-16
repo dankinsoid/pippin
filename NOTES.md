@@ -267,20 +267,34 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Reader (Sources/CljCore/reader.c)
 
-- **Not supported, reported as errors**: `#(`, regex, namespaced maps `#:`, reader
-  conditionals, tagged literals, `::kw` (needs the current ns), bigint/BigDecimal/ratio/hex/
-  radix/octal numbers. Each is a `switch` arm in `read_dispatch`/`parse_number` to replace when the
-  feature lands.
+- **Not supported, reported as errors**: regex literals (no engine; `clojure.string` takes literal
+  patterns), namespaced maps `#:`, tagged literals, read-eval, bigint/BigDecimal/ratio numbers. Each is a
+  `switch` arm in `read_dispatch`/`parse_number` to replace when the feature lands.
+- **`#(...)` rewrites its body after the list is read** (`fn_literal`): `%`, `%N` (1–20), `%&` become
+  `p1__N#`/`rest__N#` params of a `fn*`, with one recursive walk over the literal's own nesting (the
+  reader is otherwise iterative). Nested `#(` is refused, as LispReader does.
+- **Reader conditionals** `#?`/`#?@` select the first branch whose feature is in `clj_reader.features`
+  (a set of keywords copied from the process-wide `clj_reader_set_features` at init; `:default` always
+  matches; nil means `:default` alone). No branch → the form reads as nothing (an EOF at top level, a
+  missing item inside a collection); `#?@` splices only into an enclosing collection. Which key names
+  this runtime is still open (Open decisions); the corpus harness sets `#{:clj}` per library.
+- **`::kw` and `::alias/kw`** resolve through `clj_reader.resolve_ns` (`clj_reader_resolve_ns`: the
+  current namespace or one of its aliases); with the hook NULL they are reader errors, an unknown alias
+  is "Invalid token". Hex, octal and `NrDDD` radix integers read into fixnums; out of range is the
+  bigint error.
 - **Every non-empty list read costs a `{:line :column}` map** (map wrapper plus one node) on its head
   cons, as Clojure attaches positions to lists only; `'x`, `@x`, `#'x` and the syntax-quote output
   are built by the reader without one. Syntax-quote drops the meta of the forms it rebuilds where
   LispReader keeps everything but the position keys. Trigger: `^:once`-style meta inside a
   syntax-quoted template. Fix: `sq_pop` wrapping the rebuilt collection in `with-meta` when the source
   had non-position keys.
-- **Syntax-quote resolves through `clj_syntax_quote_resolve` in the thread's current namespace**, not
-  the `clj_env.ns` the host later analyzes in; `resolve_ctx` is unused. The two agree while the host
-  never calls `clj_ns_set_current`. Trigger: an `ns` form or a per-runtime namespace. Also no ns
-  aliases, so `alias/x` is never rewritten, and no Java class heuristic (`foo.Bar` gets qualified).
+- **Syntax-quote resolves through `clj_syntax_quote_resolve` in the thread's current namespace** (`*ns*`),
+  not the `clj_env.ns` the host later analyzes in; `resolve_ctx` is unused. The two agree because every
+  loader evaluates with `env.ns` nil (the current one) and reads one form before evaluating it, so an
+  `in-ns` governs the forms after it; a host that reads a whole file first (`Value.readAll`) resolves
+  everything in the namespace current at read time. `alias/x` is rewritten to the aliased namespace,
+  a qualified symbol whose prefix is no alias stays as written; no Java class heuristic (`foo.Bar` is
+  treated as a namespace prefix and left alone).
 - **`~`/`~@` outside syntax-quote are reader errors**, where Clojure reads `(clojure.core/unquote x)`
   and fails later. A literal `(clojure.core/unquote x)` inside a syntax-quote is still an unquote.
 - **Only lists carry positions**, so an error on a bare symbol or vector reports the innermost
@@ -363,8 +377,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `:arglists`: `(doc first)` prints only the name. Trigger: a doc browser; then a doc column in the
   `entries` table of builtins.c.
 - **Privacy is a resolve-time rule only.** `^:private` hides a var from the unqualified fallback into
-  clojure.core and refuses a qualified reference from another namespace; `(var ns/x)`, `#'ns/x`,
-  `resolve` of the qualified symbol and a `clj_ns_refer` still reach it (Clojure refuses the refer).
+  clojure.core, refuses a qualified reference from another namespace (through an alias too) and is
+  refused by `refer` ("x is not public"); `(var ns/x)`, `#'ns/x`, `resolve` of the qualified symbol and
+  a raw `clj_ns_refer` still reach it.
 - **Exceptions unwind by return code, not by `longjmp`**: `try` sees `CLJ_THROWN` from its body and
   takes the pending value; every C frame in between releases its own temporaries on the way out.
   `clj_throw` captures the shadow stack (below) as a vector of `{:fn :line :column}` maps, innermost
@@ -419,16 +434,42 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   so a `:default` handler reads `(throw "m")` like an ex-info; a string is still no error for
   `ExceptionInfo` or `ex-data`. Trigger: the analyzer's `:strict` mode, which should warn on "throw of
   a non-error value" (JVM/Swift strictness as a lint, not a runtime rule).
-- **No `ns` form.** Everything the host evaluates lands in `user`; core.clj is loaded with the current
-  namespace set to `clojure.core` by `clj_init`. `clj_ns_set_current` is the only way to move.
+- **Namespaces** (ns.c, builtins_ns.c, the tail of core.clj). `*ns*` is a dynamic var in clojure.core whose
+  root is `user`; `clj_ns_current`/`clj_ns_set_current` read and write the thread's binding when it has
+  one, else the root, so `in-ns` inside a load moves only that load. `Runtime.eval`, `load-file`,
+  `load-string` and `require` push `{*ns* (current) *file* path}` around their forms, as Clojure's `load`
+  does; `cljEval` in the tests does not, and a test that moves must come back (`inUser`). A namespace
+  holds mappings, refers, aliases and an `excludes` set: unqualified resolution is mappings → refers →
+  clojure.core minus its private vars and the excludes (so `:refer-clojure :exclude/:only/:rename` are
+  the excludes plus refers under the new names, and core stays implicitly visible: a core var defined
+  later is visible too, where Clojure's refer snapshot would miss it); a qualified symbol resolves its
+  prefix through the aliases first, then the registry, and reads the target's own mappings only (a var
+  referred into `b` is no `b/x`). `require` (core.clj `load-libs`) takes symbols, `[lib :as a :refer
+  [..] :refer :all :as-alias a]`, prefix lists and the `:reload`/`:reload-all` flags (both reload the
+  one lib: no dependency tracking), looks the lib up as `a/b_c.cljc` then `.clj` under the roots of
+  `clj_load_path_set` / `Runtime.loadPath` after the embedded libs (`<embedded>/clojure/set.clj` and
+  friends, `libs_clj.inc`), records it in `*loaded-libs*` (an atom, not a ref) after a successful load,
+  and fails with "namespace 'x' not found after loading" when the file defines no such ns. `ns` handles
+  `:refer-clojure`, `:require`, `:use`; `:import` and `:gen-class` name JVM classes and expand to nothing,
+  so a class shows up as "Unable to resolve symbol" where it is used; `:load` throws. No ns metadata
+  (the docstring and attr-map are dropped), no `ns-unalias`, no `remove-ns`, no `*loaded-libs*` as a
+  sorted set, no `load` of a classpath resource by path. A load error is rethrown as
+  "Syntax error compiling at (file:line:col). <message>" with `{:file :line :column}` data and the original
+  as the cause, like CompilerException. Namespaces are immortal like vars: tests create theirs before
+  taking a baseline.
+- **Var meta carries `:file`** when `*file*` is bound (a load); the host's `eval` and the tests bind none.
+- **`set!` is a rewrite**, not a node: `(set! sym v)` becomes `(clojure.core/var-set (var sym) v)` in the
+  analyzer, so it serializes as an invoke. A local target is "Cannot assign to non-mutable"; deftype
+  fields are not assignable (no mutable fields).
+- **Lenient loading** (`clj_load_set_lenient`) is the corpus harness's mode: a top-level form that fails to
+  read or evaluate is recorded (`clj_load_take_failures`: `{:file :line :column :name :message}`) and
+  skipped, so one missing function does not hide the rest of a library's gaps. Never on for a user.
 - **`defmacro` on a failing body still interns the var** (analysis creates it before the fn is
   analyzed), as `def` does: the name resolves afterwards to an unbound var. Same as Clojure.
 - **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
   "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
-- **`def` is eager and vars are plain roots.** No lazy thunk state, no `binding` (`^:dynamic` only
-  sets `clj_var.dynamic`, which nothing consumes yet), no `*ns*` var (the current namespace is a
-  thread-local pointer, `user` by default). Trigger: the first ns whose load-time cost shows, or the
-  first `binding`.
+- **`def` is eager and vars are plain roots.** No lazy thunk state (design §4 "Var и ленивые def").
+  Trigger: the first ns whose load-time cost shows.
 - **Concurrent `def` against `deref` is unsafe**, and `alter-meta!`/`reset-meta!` against `meta` the
   same way: `clj_var_root`/`clj_var_meta` return a borrowed pointer and a racing writer releases the
   old value, so a reader may retain a freed one (`alter-meta!` is a CAS loop, so its `f` may run
@@ -774,8 +815,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## core.clj (Sources/CljCore/boot/core.clj)
 
-- **Embedded as a byte array** (`core_clj.inc`, regenerated by `make boot`); `CoreCljTests` fails when
-  the two drift. A boot error is `clj_fatal` with the form's position: core.clj is part of the
+- **Embedded as a byte array** (`core_clj.inc`, regenerated by `make boot`, as are `boot/clojure/*.clj`
+  into `libs_clj.inc`); `CoreCljTests` fails when the two drift. A boot error is `clj_fatal` with the form's position: core.clj is part of the
   binary, so it is a build bug, not a user error.
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
@@ -787,13 +828,34 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   sequence dedupe distinct group-by frequencies zipmap get-in assoc-in update update-in eduction`
   (`reduce` and `into` are C; `assoc-in`/`update-in` read the map in the first operand of their `assoc`,
   so a nested update copies the path — trigger for a consuming core: a profile with nested state updates),
-  the
-  `clojure.set` basics `union intersection difference subset? superset?` (in `clojure.core`, since no
-  other namespace exists yet: trigger for moving them is the `ns` form; `index`/`rename-keys`/`select`/
-  `project`/`join` wait for a user), plus the private helpers
-  `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`, `preserving-reduced`
-  (`destructure` is public, as in Clojure). Not yet: `doto`, `condp`, `case`, `while`, `letfn`,
-  `for`, `doseq`, `fn` literals, `some->`, `as->`, `cond->`, `sort-by`, `partition-by`.
+  the predicates `boolean true? false? some? any? ident? simple-/qualified-ident?/symbol?/keyword? int?
+  nat-int? pos-int? neg-int? double? float? NaN? infinite? distinct? map-entry?`, numbers `max min abs mod
+  max-key min-key rand rand-int` (`quot rem bit-* rand*` are C), seqs and maps `ffirst nfirst fnext nnext
+  nthnext not-empty peek pop subvec rseq keys vals key val find select-keys merge merge-with juxt some-fn
+  every-pred fnil cycle repeatedly take-last take-nth drop-last split-at split-with flatten mapv filterv
+  run! sort-by partition-by tree-seq shuffle rand-nth array-map`, the control macros `when-first if-some
+  when-some while doto cond-> cond->> as-> some-> some->> case condp letfn doseq for defonce locking
+  with-out-str` plus `memoize trampoline print-str println-str prn-str newline flush`, `delay`/`force`/
+  `delay?` (a deftype over an atom), the multimethods `defmulti defmethod methods get-method remove-method
+  remove-all-methods`, the namespace functions `require use refer refer-clojure loaded-libs` and the `ns`
+  macro, and the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`,
+  `preserving-reduced`, `load-one`, `load-lib`, `load-libs`, `libspec?` (`destructure` is public, as in
+  Clojure). `clojure.set`, `clojure.string`, `clojure.walk`, `clojure.template` are separate embedded
+  namespaces loaded on the first `require`. Not yet: `defrecord`, `defstruct`, `proxy`, `reify`-style
+  `IDeref`, `sorted-map`/`sorted-set`, `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
+  `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`.
+- **Semantics that differ from Clojure**, each kept for a reason: `case` compiles to `cond` over `=`
+  (O(clauses), no jump table); `letfn` rebinds every name from a volatile at each body's entry (closures
+  copy their captures when made, so a forward reference must be read at call time); `transient`,
+  `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!`, `pop!` are the persistent operations themselves
+  (the in-place path is the auto-transient of design §6b, so a code path written for transients just
+  works; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`; multimethods
+  dispatch by `=` with a `:default` fallback and no `isa?` hierarchy or `prefer-method`; `delay` is
+  not `realized?`; `rand` is SplitMix64 seeded per thread from the id counter; `upper-case`/`lower-case`
+  map ASCII letters only (no Unicode case tables in the core); `subs`/`index-of` count code points where
+  Java counts UTF-16 units; `clojure.string/split` and `replace` take a literal string or char pattern,
+  never a regex (`split` on a string is a deviation: Clojure's takes only a regex). Triggers: a corpus
+  test failing on any of these.
 - **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
   partition-all dedupe distinct map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
   `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
@@ -805,7 +867,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `#object[clojure.core.Eduction]` where Clojure prints the items. `vswap!` is a macro over
   `vreset!`/`deref`, as Clojure's. A transducer's stateful step (`partition-all`'s buffer) copies
   its vector per input for the same rc-2 reason, and `distinct`'s seen-set is conj'd at rc 2 the same
-  way (a path copy per new element). No `halt-when`, `random-sample`, `partition-by`; trigger: first use.
+  way (a path copy per new element). No `halt-when`, `random-sample`; trigger: first use.
 - **`defn` follows clojure.core's** `name docstring? attr-map? ([params] body)+ attr-map?` but has no
   `:inline`/`:tag` handling and no `:pre`/`:post` map in `sigs` (a map after the params is a body
   form, see `fn` below). `doc` handles vars only: no special forms, no namespaces.
@@ -938,5 +1000,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - **File extension and reader-conditional key.** Source stays `.clj` (`.cljc` for portable user
   code) until the project has a name; the key in `#?(:key …)` and the extension are the same word
-  and permanent, and they should name the runtime (portable C core), not Apple or Swift. Decide when
-  reader conditionals land in the reader.
+  and permanent, and they should name the runtime (portable C core), not Apple or Swift. Reader
+  conditionals are in (the reader takes any feature set), so the default set is `#{:default}` alone until
+  the key exists; the corpus harness reads medley with `#{:clj}` so its JVM branches surface as
+  resolution errors in the backlog rather than as silently empty bodies.

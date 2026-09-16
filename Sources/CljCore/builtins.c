@@ -970,12 +970,28 @@ static clj_value b_resolve(const clj_value *args, size_t n) {
 	return clj_ns_resolve(clj_ns_current(), args[0]);
 }
 
+// A core.clj protocol method (clojure.core/name) applied to v, for a builtin's fallback on user types.
+static clj_value core_method(const char *name, clj_value v) {
+	clj_value sym = clj_symbol_from_cstr(name);
+	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	clj_release(sym);
+	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
+	clj_value f = clj_var_deref(var);
+	clj_value r = clj_invoke(f, &v, 1);
+	clj_release(f);
+	return r;
+}
+
 static clj_value b_deref(const clj_value *args, size_t n) {
 	(void)n;
 	if (clj_is_atom(args[0])) return clj_atom_deref(args[0]);
 	if (clj_is_var(args[0])) return clj_var_deref(args[0]);
 	if (clj_is_reduced(args[0])) return clj_retain(clj_reduced_value(args[0]));
 	if (clj_is_volatile(args[0])) return clj_volatile_deref(args[0]);
+	if (clj_is_instance(args[0])) {
+		clj_value r = core_method("-deref", args[0]);
+		if (r != CLJ_UNBOUND) return r;
+	}
 	return clj_throw_msg("deref not supported on this type: %s", clj_type_name(args[0]));
 }
 
@@ -1045,7 +1061,135 @@ typedef struct {
 
 #define ANY CLJ_ARITY_ANY
 
+static clj_value int_args(const char *what, const clj_value *args, size_t n, intptr_t *out) {
+	for (size_t i = 0; i < n; i++) {
+		if (!clj_is_fixnum(args[i])) return clj_throw_msg("%s: %s cannot be cast to an integer", what, clj_type_name(args[i]));
+		out[i] = clj_fixnum_val(args[i]);
+	}
+	return CLJ_NIL;
+}
+
+static clj_value b_quot(const clj_value *args, size_t n) {
+	(void)n;
+	num x, y;
+	if (!to_num(args[0], &x)) return not_a_number(args[0]);
+	if (!to_num(args[1], &y)) return not_a_number(args[1]);
+	if (x.is_double || y.is_double) {
+		double q = as_double(&x) / as_double(&y);
+		return clj_double_new(q < 0 ? __builtin_ceil(q) : __builtin_floor(q));
+	}
+	if (y.i == 0) return clj_throw_msg("Divide by zero");
+	if (x.i == CLJ_FIXNUM_MIN && y.i == -1) return clj_throw_msg("integer overflow");
+	return clj_fixnum(x.i / y.i);
+}
+
+static clj_value b_rem(const clj_value *args, size_t n) {
+	(void)n;
+	num x, y;
+	if (!to_num(args[0], &x)) return not_a_number(args[0]);
+	if (!to_num(args[1], &y)) return not_a_number(args[1]);
+	if (x.is_double || y.is_double) return clj_double_new(__builtin_fmod(as_double(&x), as_double(&y)));
+	if (y.i == 0) return clj_throw_msg("Divide by zero");
+	if (y.i == -1) return clj_fixnum(0);
+	return clj_fixnum(x.i % y.i);
+}
+
+typedef enum { BIT_AND, BIT_OR, BIT_XOR, BIT_AND_NOT } bit_op;
+
+static clj_value bitwise(const char *what, const clj_value *args, size_t n, bit_op op) {
+	intptr_t v[2];
+	if (int_args(what, args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
+	intptr_t r = v[0];
+	for (size_t i = 1; i < n; i++) {
+		intptr_t y;
+		if (int_args(what, args + i, 1, &y) == CLJ_THROWN) return CLJ_THROWN;
+		switch (op) {
+		case BIT_AND: r &= y; break;
+		case BIT_OR: r |= y; break;
+		case BIT_XOR: r ^= y; break;
+		case BIT_AND_NOT: r &= ~y; break;
+		}
+	}
+	return clj_fixnum(r);
+}
+
+static clj_value b_bit_and(const clj_value *args, size_t n) { return bitwise("bit-and", args, n, BIT_AND); }
+static clj_value b_bit_or(const clj_value *args, size_t n) { return bitwise("bit-or", args, n, BIT_OR); }
+static clj_value b_bit_xor(const clj_value *args, size_t n) { return bitwise("bit-xor", args, n, BIT_XOR); }
+static clj_value b_bit_and_not(const clj_value *args, size_t n) { return bitwise("bit-and-not", args, n, BIT_AND_NOT); }
+
+static clj_value b_bit_not(const clj_value *args, size_t n) {
+	(void)n;
+	intptr_t v;
+	if (int_args("bit-not", args, 1, &v) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_fixnum(~v);
+}
+
+// Shifts act on the 63-bit fixnum payload as if it were a 64-bit long: a shift of a value that leaves the
+// fixnum range throws rather than wrapping (NOTES.md).
+static clj_value shift(const char *what, const clj_value *args, int dir) {
+	intptr_t v[2];
+	if (int_args(what, args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
+	int64_t x = v[0];
+	unsigned s = (unsigned)(v[1] & 63);
+	int64_t  r;
+	if (dir > 0) {
+		r = (int64_t)((uint64_t)x << s);
+		if (r > CLJ_FIXNUM_MAX || r < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
+	} else if (dir < 0) {
+		r = x >> s;
+	} else {
+		r = (int64_t)((uint64_t)x >> s);
+		if (r > CLJ_FIXNUM_MAX) return clj_throw_msg("integer overflow");
+	}
+	return clj_fixnum((intptr_t)r);
+}
+
+static clj_value b_bit_shift_left(const clj_value *args, size_t n) { (void)n; return shift("bit-shift-left", args, 1); }
+static clj_value b_bit_shift_right(const clj_value *args, size_t n) { (void)n; return shift("bit-shift-right", args, -1); }
+static clj_value b_unsigned_bit_shift_right(const clj_value *args, size_t n) { (void)n; return shift("unsigned-bit-shift-right", args, 0); }
+
+static clj_value b_bit_test(const clj_value *args, size_t n) {
+	(void)n;
+	intptr_t v[2];
+	if (int_args("bit-test", args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_bool(((uint64_t)v[0] >> (v[1] & 63)) & 1);
+}
+
+static clj_value bit_set_op(const char *what, const clj_value *args, int op) {
+	intptr_t v[2];
+	if (int_args(what, args, 2, v) == CLJ_THROWN) return CLJ_THROWN;
+	uint64_t mask = (uint64_t)1 << (v[1] & 63);
+	uint64_t x = (uint64_t)v[0];
+	uint64_t r = op > 0 ? x | mask : op < 0 ? x & ~mask : x ^ mask;
+	if ((int64_t)r > CLJ_FIXNUM_MAX || (int64_t)r < CLJ_FIXNUM_MIN) return clj_throw_msg("integer overflow");
+	return clj_fixnum((intptr_t)r);
+}
+
+static clj_value b_bit_set(const clj_value *args, size_t n) { (void)n; return bit_set_op("bit-set", args, 1); }
+static clj_value b_bit_clear(const clj_value *args, size_t n) { (void)n; return bit_set_op("bit-clear", args, -1); }
+static clj_value b_bit_flip(const clj_value *args, size_t n) { (void)n; return bit_set_op("bit-flip", args, 0); }
+
+// SplitMix64 seeded from the clock once per thread: no cryptographic claims.
+static clj_value b_rand_star(const clj_value *args, size_t n) {
+	(void)args;
+	(void)n;
+	static _Thread_local uint64_t state;
+	if (!state) state = (uint64_t)clj_next_id() * 0x9E3779B97F4A7C15ull ^ (uint64_t)(uintptr_t)&state;
+	state += 0x9E3779B97F4A7C15ull;
+	uint64_t z = state;
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+	z ^= z >> 31;
+	return clj_double_new((double)(z >> 11) * (1.0 / 9007199254740992.0));
+}
+
 static const entry entries[] = {
+	{"quot", b_quot, 2, 2},        {"rem", b_rem, 2, 2},         {"bit-and", b_bit_and, 2, ANY}, {"bit-or", b_bit_or, 2, ANY},
+	{"bit-xor", b_bit_xor, 2, ANY}, {"bit-and-not", b_bit_and_not, 2, ANY}, {"bit-not", b_bit_not, 1, 1},
+	{"bit-shift-left", b_bit_shift_left, 2, 2}, {"bit-shift-right", b_bit_shift_right, 2, 2},
+	{"unsigned-bit-shift-right", b_unsigned_bit_shift_right, 2, 2}, {"bit-test", b_bit_test, 2, 2}, {"bit-set", b_bit_set, 2, 2},
+	{"bit-clear", b_bit_clear, 2, 2}, {"bit-flip", b_bit_flip, 2, 2}, {"rand*", b_rand_star, 0, 0},
 	{"+", b_add, 0, ANY},          {"-", b_sub, 1, ANY},         {"*", b_mul, 0, ANY},          {"/", b_div, 1, ANY},
 	{"<", b_lt, 1, ANY},           {"<=", b_le, 1, ANY},         {">", b_gt, 1, ANY},           {">=", b_ge, 1, ANY},
 	{"=", b_eq, 1, ANY},           {"not=", b_neq, 1, ANY},      {"identical?", b_identical, 2, 2},      {"hash", b_hash, 1, 1},      {"inc", b_inc, 1, 1},          {"dec", b_dec, 1, 1},
@@ -1081,19 +1225,21 @@ static const entry entries[] = {
 	{"get-validator", b_get_validator, 1, 1},
 };
 
-void clj_builtins_install(void) {
+void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uint32_t max) {
 	clj_value core = clj_ns_core();
-	clj_value core_name = clj_symbol_name(clj_ns_name(core));
-	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) {
-		const entry *e = &entries[i];
-		clj_value    name = clj_string_from_cstr(e->name);
-		clj_value    sym = clj_symbol_new(CLJ_NIL, name);
-		clj_value    qualified = clj_symbol_new(core_name, name);
-		clj_value    fn = clj_fn_native(qualified, e->fn, e->min, e->max);
-		clj_var_bind_root(clj_ns_intern(core, sym), fn);
-		clj_release(fn);
-		clj_release(qualified);
-		clj_release(sym);
-		clj_release(name);
-	}
+	clj_value name = clj_string_from_cstr(name_text);
+	clj_value sym = clj_symbol_new(CLJ_NIL, name);
+	clj_value qualified = clj_symbol_new(clj_symbol_name(clj_ns_name(core)), name);
+	clj_value f = clj_fn_native(qualified, fn, min, max);
+	clj_var_bind_root(clj_ns_intern(core, sym), f);
+	clj_release(f);
+	clj_release(qualified);
+	clj_release(sym);
+	clj_release(name);
+}
+
+void clj_builtins_install(void) {
+	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
+	clj_ns_builtins_install();
+	clj_string_builtins_install();
 }
