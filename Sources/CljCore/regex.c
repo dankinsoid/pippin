@@ -303,10 +303,10 @@ static re_class *property_class(const char *name, size_t n) {
 	for (size_t i = 0; i < sizeof table / sizeof *table; i++) {
 		if (strlen(table[i].name) != n || memcmp(table[i].name, name, n) != 0) continue;
 		re_class *c = class_new();
-		for (size_t k = 0; k < 3 && (table[i].hi[k] || table[i].lo[k] == 0) && (k == 0 || table[i].hi[k]); k++) {
-			class_range(c, table[i].lo[k], table[i].hi[k]);
-		}
-		// Punct's backtick range sits between @ and {, which the three-slot table cannot hold.
+		class_range(c, table[i].lo[0], table[i].hi[0]);
+		// A zero hi is an unused slot: no property here ends at U+0000.
+		for (size_t k = 1; k < 3 && table[i].hi[k]; k++) class_range(c, table[i].lo[k], table[i].hi[k]);
+		// Punct's fourth range sits between @ and {, which the three slots cannot hold.
 		if (n == 5 && memcmp(name, "Punct", 5) == 0) class_range(c, '[', '`');
 		return c;
 	}
@@ -548,9 +548,16 @@ static bool parse_flags(comp *c, uint32_t *on, uint32_t *off, char *terminator) 
 
 static void save_group(re_prog *p, uint32_t slot) { emit(p, RE_SAVE, 0)->a = slot; }
 
-static bool parse_group(comp *c, re_width *w) {
-	re_prog *p = c->p;
-	uint32_t saved = c->flags;
+typedef struct {
+	uint32_t at; // where the atom's instructions start
+	re_width w;
+	bool     quantifiable;
+} atom;
+
+static bool parse_group(comp *c, atom *a) {
+	re_width *w = &a->w;
+	re_prog  *p = c->p;
+	uint32_t  saved = c->flags;
 	if (!eat(c, '?')) {
 		uint32_t g = ++c->ngroups;
 		save_group(p, 2 * g);
@@ -613,21 +620,17 @@ static bool parse_group(comp *c, re_width *w) {
 	char     term = 0;
 	if (!parse_flags(c, &on, &off, &term)) return false;
 	c->flags = (saved | on) & ~off;
+	// A flag group emits nothing, so a quantifier after it has no atom to repeat, as Java reports.
 	if (term == ')') {
 		w->min = 0;
 		w->max = 0;
+		a->quantifiable = false;
 		return true;
 	}
 	if (!parse_alt(c, w)) return false;
 	c->flags = saved;
 	return eat(c, ')') ? true : fail(c, "Unclosed group", c->pos);
 }
-
-typedef struct {
-	uint32_t at; // where the atom's instructions start
-	re_width w;
-	bool     quantifiable;
-} atom;
 
 static bool zero_width(comp *c, atom *a, uint8_t op, uint8_t flags) {
 	emit(c->p, op, flags);
@@ -743,7 +746,7 @@ static bool parse_atom(comp *c, atom *a) {
 	switch (ch) {
 	case '(':
 		c->pos++;
-		return parse_group(c, &a->w);
+		return parse_group(c, a);
 	case '[': {
 		c->pos++;
 		re_class *cls = parse_class_body(c, true);

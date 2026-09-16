@@ -250,6 +250,9 @@ extension CoreTests {
 				#expect(message("(re-pattern \"(?<=a+)b\")") == "Look-behind group does not have an obvious maximum length near index 7\\n(?<=a+)b")
 				#expect(message("(re-pattern \"\\\\k<none>\")") == "Unknown group name near index 3\\n\\\\k<none>")
 				#expect(message("(re-pattern \"\\\\1\")") == "No such group near index 0\\n\\\\1")
+				#expect(message("(re-pattern \"(?i)*\")") == "Dangling meta character near index 5\\n(?i)*")
+				#expect(message("(re-pattern \"a{5001}\")") == "Repetition count too large near index 1\\na{5001}")
+				#expect(message("(re-pattern \"(?z)a\")") == "Unknown inline modifier near index 2\\n(?z)a")
 				#expect(try eval("(ex-data (try (re-pattern \"a(b\") (catch :default e e)))").description
 					== "{:offset 3, :pattern \"a(b\"}")
 				#expect(message("(re-pattern 1)") == "long cannot be cast to a pattern")
