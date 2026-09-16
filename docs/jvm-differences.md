@@ -69,11 +69,14 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 
 | Difference | Class | Decision |
 |---|---|---|
-| No regex engine: regex literals are read errors, `clojure.string` takes literal strings | Deferred | Trigger fired by the corpus; the engine is its own task. |
-| `upper-case`/`lower-case`/`capitalize` map ASCII letters only | Deferred | Trigger: non-ASCII case in a corpus library; then Unicode case tables. |
+| `upper-case`/`lower-case`/`capitalize` and a pattern's `(?i)`, `\w`, `\p{L}` map ASCII letters only | Deferred | One missing table serves all of them: trigger is non-ASCII case or a non-ASCII class in a corpus library, and the fix is the Unicode case and category data, not a range table. |
 | No tagged literals (`#inst`, `#uuid`), no `#:ns{}` maps, no `#=` | Deferred | Trigger fired by the corpus for `#uuid`. |
 | A record prints `#ns.Name{…}` and does not read back | Deferred | The printed form matches the JVM's; reading one needs the reader to resolve a type name, which is the tagged-literal machinery. Trigger: EDN with record literals. |
-| `thrown-with-msg?` takes a substring, not a regex | Deferred | Follows from the missing regex engine. |
+| Two patterns with the same text are `=` and hash alike, where the JVM compares `Pattern` by identity | Deliberate | A pattern is a value written as a literal, so identity equality only ever surprises; ClojureScript's `RegExp` is no better. The corpus's own `eq` test calls the JVM behaviour out for three other runtimes. |
+| A lookbehind body must be fixed-width: `(?<=a+)b` is a compile error | Deferred | Java walks a variable-length body backwards from every candidate length; the fixed width is one subtraction. Trigger: such a pattern in a corpus library. |
+| `\p{…}` knows a dozen POSIX names and answers them over ASCII, so `\p{L}` refuses `é`; `\p{InGreek}`, `\p{Sc}` and the block and script names are compile errors | Deferred | Same missing Unicode data as the case functions above. |
+| No `\G`, `\R`, `\X`, `\N{…}`, `\b{g}`, `\h`, `\v`, no `(?u)`/`(?U)`/`(?d)` flags and no `CANON_EQ` | Deferred | Nothing in the corpus uses them; each is a `switch` arm in regex.c's parser to fill. |
+| A pattern that backtracks catastrophically is stopped by the host's deadline, not refused | Deferred | The cooperative deadline of eval.h is checked every 4096 backtracks (NOTES.md, "Regex"); a memo table would bound the work instead, at a table per match. Trigger: a host that cannot set a deadline. |
 
 ## Concurrency
 

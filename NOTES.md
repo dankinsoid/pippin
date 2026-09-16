@@ -421,18 +421,21 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Reader (Sources/CljCore/reader.c)
 
-- **Not supported, reported as errors**: regex literals (no engine; `clojure.string` takes literal
-  patterns), namespaced maps `#:`, tagged literals, read-eval. Each is a
+- **Not supported, reported as errors**: namespaced maps `#:`, tagged literals, read-eval. Each is a
   `switch` arm in `read_dispatch` to replace when the feature lands; inside an unselected
   `#?` branch each reads as data instead (below). Trigger for tagged literals: `#inst`/`#uuid` in EDN from a
   backend — a `*data-readers*` map consulted by `read_dispatch`'s default arm, with the built-in tags on top.
+- **`#"..."` keeps its text verbatim** (`read_regex`): the string escapes are *not* applied, so a backslash
+  reaches the pattern as written and only `\"` fails to close the literal, as LispReader's RegexReader does.
+  The pattern compiles at read time, so a syntax error is a reader error at the literal's position.
 - **`#(...)` rewrites its body after the list is read** (`fn_literal`): `%`, `%N` (1–20), `%&` become
   `p1__N#`/`rest__N#` params of a `fn*`, with one recursive walk over the literal's own nesting (the
   reader is otherwise iterative). Nested `#(` is refused, as LispReader does.
 - **An unselected `#?` branch reads as data whatever it contains** (`in_unselected_branch`, `F_SUPPRESSED`):
-  a tagged literal, a regex, a `#:ns{}` map or a `#=` there reads as nil (the tag's form and the pattern text
-  are read and dropped) instead of ending the file, as Clojure's suppressed read does; in the selected branch
-  each is the error it is outside one. Which branch is selected is known while reading: the body list's items
+  a tagged literal, a `#:ns{}` map or a `#=` there reads as nil (the tag's form is read and dropped) instead
+  of ending the file, as Clojure's suppressed read does; in the selected branch each is the error it is
+  outside one. A `#"..."` there reads as the plain string of its text and is never compiled, so a pattern
+  meant for another runtime's engine cannot fail the read. Which branch is selected is known while reading: the body list's items
   so far are on the value stack, features at the even indexes. Suppression follows the enclosing conditionals,
   so a selected inner branch inside an unselected outer one is suppressed too. Numbers need no suppression:
   every literal the reader takes now reads in either branch (numeric tower).
@@ -470,6 +473,59 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   feeding raw bytes.
 - **`strtod`/`snprintf` in reader and printer follow the C locale**, which the runtime never changes;
   a host calling `setlocale` with a comma decimal point would break doubles.
+
+## Regex (Sources/CljCore/regex.c)
+
+- **One file, no library, a java.util.regex subset.** `clj_regex_new` parses the pattern into an
+  instruction array once (`re_prog`) and `re_run` walks it with an explicit backtrack stack, so nesting
+  a quantifier costs heap, not C stack. Only a lookaround or an atomic group recurses into `re_run`, and
+  the pattern's own nesting bounds that depth.
+- **Jumps are relative to the instruction's own index**, which is what makes the compiler simple: a
+  quantifier inserts its `SPLIT` *before* the block it repeats (`prog_insert`) and a counted repeat copies
+  the block with `memcpy` (`repeat_block`), and neither has to fix up a target. `{n,m}` expands to `n`
+  copies plus `m - n` optional ones, capped at `RE_MAX_REP` and `RE_MAX_PROG` so a pattern cannot ask for
+  an unbounded program.
+- **The matcher works on code points, not bytes** (`re_text`: the input decoded once into a code point
+  array plus a byte offset per index), as `subs` and `index-of` do. A matcher object keeps its `re_text`,
+  so `re-seq` over one input is linear in it rather than quadratic; `split` and `replace` keep one
+  `re_ctx` across the matches of a scan, so only the first match allocates (bench/RESULTS.md).
+- **A group's bounds live in an int32 slot array with an undo log.** Every `SAVE` records the old value,
+  and a backtrack point holds the log's height, so restoring a group is popping the log. The same array
+  holds the loop marks an unbounded quantifier needs: `MARK`/`PROGRESS` refuse an iteration that consumed
+  nothing, which is what keeps `(a*)*` from spinning. Mark slots sit past the group bounds, whose count is
+  only known once the pattern is parsed, so the compiler patches their indexes at the end.
+- **Case-insensitivity is folded inside the range test**, not applied to the class's answer: `(?i)[^a]`
+  must still refuse `A`, which an OR over both cases would accept. ASCII only, as the rest of the runtime's
+  case handling is (docs/jvm-differences.md).
+- **A negated predefined class is a nested class, a positive one is merged**: `\d` adds its ranges to the
+  enclosing class, `\D` hangs off it as a sub-class with `negate`, and `&&` makes the rest of the class
+  body the intersection operand, so `[a-z&&[^aeiou]]` is one recursive `class_member` call.
+- **Catastrophic backtracking is the host's deadline, not a memo table**: `re_run` reads the clock once per
+  4096 backtracks through `clj_deadline_expired` and unwinds with "Execution timed out". Without a deadline
+  set, `#"(a+)+b"` against a long string of `a`s runs until the host gives up. A memo table would bound the
+  work instead, at the cost of a table per match; trigger is a host that cannot set a deadline.
+- **`=` and `hash` read the pattern text**, so `#"ab"` equals `#"ab"` and the two are one set element,
+  where the JVM compares `Pattern` by identity (docs/jvm-differences.md). That also makes a pattern a
+  serializable node constant: it prints as `#"..."` and reads back equal, so `node_data.c` needs no arm
+  of its own for it.
+- **`re-find` scans every start position**, since the program carries no first-character filter; the
+  leftmost-first rule and `re-matches`' whole-input rule are the same `re_run` with one flag. Trigger for a
+  first-set bitmap: a `re-find` in a profile's inner loop (bench/RESULTS.md).
+- **`nth` on a matcher is its group**, as `RT.nth` special-cases `Matcher`; the type carries `lookup` for
+  the same reason and no core interface bit, so it is not a collection.
+- **The `$`-expansion follows `appendReplacement`**: the first digit is always the group and the following
+  digits extend it while the group exists, `${name}` names one, and a backslash quotes the next character.
+  A group the pattern does not have is an error, not an empty string.
+- **The syntax the parser takes**: literals and the escapes `\\ \t \n \r \f \a \e \0nnn \xhh \x{...}
+  \uXXXX` and `\Q...\E`, `.`, classes with ranges, negation, nesting and `&&`, `\d \D \w \W \s \S \b \B`,
+  `\A \z \Z`, `^ $`, groups (capturing, `(?:)`, `(?<name>)`, `(?=) (?!) (?<=) (?<!)`, atomic `(?>)`),
+  alternation, `* + ? {n} {n,} {n,m}` greedy, lazy `?` and possessive `+`, backreferences `\1` and
+  `\k<name>`, a dozen `\p{...}` names, and the flags `i s m x` inline and scoped. Everything else is a
+  compile error naming the offset, in an `ex-info` whose data carries `:pattern` and `:offset`
+  (docs/jvm-differences.md lists what is missing).
+- **`re-seq` is a lazy seq over one matcher**, as Clojure's is, so two consumers of the same seq share its
+  position; `clojure.string/split` and `replace` scan in C instead (`re-split*`, `re-replace*`), which keeps
+  the literal-separator fast path of builtins_string.c untouched for a string or char separator.
 
 ## Analyzer and evaluator (Sources/CljCore/analyzer.c, eval.c, fn.c, node_data.c)
 
@@ -1125,9 +1181,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   its own heads (`(defmethod t/assert-expr 'p/thrown? ...)`). A failure's `:file`/`:line` come from the
   `is` form's reader position and `*file*` at expansion (`*assertion-pos*`), the var's own position when the
   error is outside an assertion; there is no stack trace to read them from, and `*file*` is nil for
-  source the host evaluates. `thrown-with-msg?` takes a string the message must contain (a regex literal
-  does not read). Fixtures live in an atom keyed by namespace name (namespaces carry no meta);
-  `run-all-tests` takes a predicate on the namespace name, not a regex; no `*test-out*` (output goes to
+  source the host evaluates. `thrown-with-msg?` matches the message with `re-find`, as Clojure's does.
+  Fixtures live in an atom keyed by namespace name (namespaces carry no meta);
+  `run-all-tests` takes a pattern or a predicate on the namespace name; no `*test-out*` (output goes to
   the process hook, `with-out-str` captures it); test vars run in `:line` order. Deviation: `is` binds
   `*assertion-pos*` per assertion (a frame push and pop, ~200 ns), where Clojure's reads the stack.
 - **Semantics that differ from Clojure**, each kept for a reason: `case` compiles to `cond` over `=`
@@ -1147,10 +1203,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   stringify any non-nil argument (`(str/lower-case :a)` is `":a"`) and map ASCII letters only — trigger for
   Unicode case tables: a corpus test on a non-ASCII case change, which needs the full SpecialCasing data,
   not a range table; `subs`/`index-of` count code points where
-  Java counts UTF-16 units; `clojure.string/split` and `replace` take a literal string or char pattern,
-  never a regex (`split` on a string is a deviation: Clojure's takes only a regex; trigger for a regex engine:
-  `re-find`/`re-seq`/`re-matches` in a corpus library, or `split` on a pattern — a backtracking matcher over
-  code points, its own file, with the literal-pattern fast path kept); a map entry is a two-element vector, so `(key [1 2])`
+  Java counts UTF-16 units; `clojure.string/split` also takes a literal string or char, where Clojure's takes
+  only a pattern (the deviation keeps the literal fast path of builtins_string.c: no matcher and no code point
+  array for the common separator); a map entry is a two-element vector, so `(key [1 2])`
   cannot throw; a symbol is not invokable, so `(ifn? 'x)` is false; a char is a Unicode scalar, so
   `(char 65895)` is in range; map and set seq order is the HAMT's, where the JVM's small collections keep
   insertion order (Clojure does not specify it). Triggers: a corpus test failing on any of these.
@@ -1240,7 +1295,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   a fn built the "%s cannot be invoked" message with `clj_pr_str`, which realized the infinite lazy seq. The
   fix is `clj_pr_str_max` (printer section) in every error message that quotes a runtime value. It was never
   state-dependent: the namespace hangs in isolation too.
-- **Known reader gaps the suite hits**: regex literals and `#:ns{}` maps in a
+- **Known reader gaps the suite hits**: `#:ns{}` maps in a
   selected branch; a tagged literal (`#cpp`, `#inst`, `#uuid`) outside a `#?` — inside an unselected branch it
   is suppressed (reader section). Symbols the suite needs from the JVM:
   `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in `catch` works, `instance?` of JVM classes does not.
