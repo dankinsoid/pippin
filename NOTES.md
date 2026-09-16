@@ -111,14 +111,14 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   shadow a field with a param, as in Clojure; fields a body names are bound at the top of that body
   (one `field*` call each), whether or not the reference is under a `quote`.
 - **Builtin type names are vars in clojure.core** (`String`, `Long`/`Integer`, `Double`, `Boolean`,
-  `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentHashSet`, `PersistentList`/`Cons`,
+  `Character`, `Keyword`, `Symbol`, `PersistentVector`, `PersistentHashMap`, `PersistentHashSet`, `PersistentList`, `Cons`,
   `EmptyList`, `LazySeq`, `Range`, `Fn`, `Var`, `Namespace`, `ExceptionInfo`, `HostError`,
   `Protocol`, `Type`, `Reduced`, `Volatile`, `Object`; the core interfaces `Seqable ISeq Sequential
   IPersistentCollection Counted ILookup Associative Indexed IFn IHashEq IEquiv IMeta IObj
   IReduceInit IPersistentList IPersistentVector IPersistentMap IPersistentSet IExceptionInfo`) holding descriptors; `(type x)` reaches every
   other one and `nil` is the literal.
-  A user `(def String ...)` shadows the name. `Number` does not exist: fixnum and double are two
-  descriptors, extend both.
+  A user `(def String ...)` shadows the name. `Long` is the fixnum's descriptor and the boxed long's, one
+  value. `Number` does not exist: long and double are two descriptors, extend both.
 - **`clj_seq_iter` walks builtin seq types inline** (cons, (), vector, string, the seq.h types) and
   everything else through its slots: a seqable that is no seq is `seq`'d, a seq's `first`/`next`
   hand out owned values the iterator holds (`held`, `item`) until the next step or
@@ -359,10 +359,17 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## List (Sources/CljCore/list.c, cons.c)
 
+- **PersistentList and Cons are two descriptors over one 32-byte cell** (`clj_list_type`,
+  `clj_cons_type`), differing only in name, the `CLJ_CORE_LIST` bit and `conj`. `list?` reads the bit, so
+  `(list? (cons 1 '()))` is false while `seq?` stays true, and `(peek (cons 1 '()))` throws as on the JVM.
+  Reader lists, `list`, `list*`'s tail, `reverse`, `rest` of a list and `(cons x nil)` (RT.cons's own rule)
+  are PersistentLists; `cons` onto a seq, a lazy seq and `conj` on any other seq give a Cons.
+  `conj` on a list or on `()` carries the collection's meta onto the new head, as `PersistentList.cons`
+  does, and `pop` of the last cell hands the empty list that meta; `ASeq.cons` (a Cons, a lazy seq) does
+  not. A Cons constant is not foldable: the codec reads it back as a list, and a fold must not change a type.
 - **A cons chain has no count slot** (`count` walks it) and no hash cache, so hashing a list walks it
-  every time. Trigger: lists as map keys or `count` on long lists in a profile. Fix: a `clj_list`
-  wrapper with count and hash cache, as Clojure's PersistentList; cons stays the 32-byte cell for
-  `cons`/lazy seqs and loses CLJ_CORE_LIST then.
+  every time. Trigger: lists as map keys or `count` on long lists in a profile. Fix: a count and a hash
+  cache on the list cell, as Clojure's PersistentList has.
 - **Hash and equality recurse on nesting depth** (`clj_hash` → element hash). Reading and printing are
   iterative, so a 200k-deep literal reads and prints but crashes when hashed. Trigger: untrusted input
   used as a map key. Fix: an explicit stack in `clj_seq_hash`/`clj_seq_equals`, or a depth cap.
@@ -393,8 +400,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   both keywords, and the suite's `(keyword "0")` round-trip needs it.
 - **`::kw` and `::alias/kw`** resolve through `clj_reader.resolve_ns` (`clj_reader_resolve_ns`: the
   current namespace or one of its aliases); with the hook NULL they are reader errors, an unknown alias
-  is "Invalid token". Hex, octal and `NrDDD` radix integers read into fixnums, or into bigints past the
-  63-bit range (numeric tower).
+  is "Invalid token". Hex, octal and `NrDDD` radix integers read into longs, or into bigints past 64 bits
+  (numeric tower).
 - **Every non-empty list read costs a `{:line :column}` map** (map wrapper plus one node) on its head
   cons, as Clojure attaches positions to lists only; `'x`, `@x`, `#'x` and the syntax-quote output
   are built by the reader without one. Syntax-quote drops the meta of the forms it rebuilds where
@@ -464,6 +471,13 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   value — makes `to_data` throw "not serializable: <type>". Vars travel as qualified symbols and are
   interned on read; `from_data` checks the shape and slot bounds, not that `recur` sits in a tail
   position. Trigger: a tree cache on disk / AOT; then a binary form and a `recur` placement check.
+- **A literal's reader metadata is a `with-meta` call**, as Clojure's `MetaExpr` is: `^:foo [1]` analyzes
+  to an invoke of `clojure.core/with-meta` over the vector node and the analyzed metadata map, so
+  `^{:a x}` sees the local `x` and the value is rebuilt per evaluation. Folding the metadata into the
+  constant would break the codec, which writes a constant through `pr-str` and reads it back: `pr-str`
+  does not write metadata. `with-meta` is not a pure intrinsic, so the call is never folded either.
+  Vectors, maps, sets and `()` carry it; `^m` on a quote form lands on the quote form, which the analyzer
+  consumes, exactly as on the JVM.
 - **Every core.clj form and every type-macro expansion must serialize** (`CoreSerializableTests`):
   each top-level form is analyzed in `clojure.core` and round-tripped through `to_data`, `pr-str`,
   read, `from_data`; the test pins the form count so an empty run cannot pass. core.clj defines
@@ -873,7 +887,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 ## Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)
 
-- **Five kinds, one ladder.** `clj_num_kind_of` answers fixnum < bigint < ratio < decimal < double, the
+- **Six kinds, one ladder.** `clj_num_kind_of` answers fixnum < long < bigint < ratio < decimal < double, the
   order of Clojure's `Ops.combine`, and the larger kind of a pair decides the result (`clj_num_arith`,
   `clj_num_cmp` in number.c). The fixnum/fixnum and double-with-fixnum paths stay in builtins.c ahead of
   it, so `+` on two fixnums is still two tag checks and an overflow-checked add (bench/RESULTS.md: the
@@ -886,20 +900,23 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   Plain `+ - * inc dec` still throw "integer overflow" on a fixnum overflow; only `+' -' *' inc' dec'`
   promote. `=` keeps Clojure's category rule (integer / ratio / decimal / floating never equal across
   kinds), while `==` and `compare` compare numerically across all five.
-- **What the reader takes**: `0N`, `1/2`, `0.0M`, `1M`, `1e10M`, and any integer literal past the 63-bit
-  fixnum in every radix (`0x7FFFFFFFFFFFFFFF`, `-0x8000000000000000`, `2r1011`, octal, `NrDDD`), the `N`
-  suffix forcing a bigint. A ratio is normalised at read through the same divide as `/`, so `12/12` reads
+- **What the reader takes**: `0N`, `1/2`, `0.0M`, `1M`, `1e10M`, and any integer literal in every radix
+  (`0x7FFFFFFFFFFFFFFF`, `-0x8000000000000000`, `2r1011`, octal, `NrDDD`) — a long while the digits fit 64
+  bits, a bigint past them, with the `N` suffix forcing a bigint. A ratio is normalised at read through the same divide as `/`, so `12/12` reads
   as `1` and `0/2` as `0`, as LispReader's `reduceBigInt` does; `1/0` is a read error.
-- **The 63-bit fixnum is the visible deviation** (classed as a fix in docs/jvm-differences.md, the one page that lists every known difference from JVM Clojure with its decision). `Long/MAX_VALUE` and `Long/MIN_VALUE` do not fit one, so
-  `9223372036854775807` reads as a bigint: `(int? Long/MAX_VALUE)` is false, `(+ Long/MAX_VALUE 1)`
-  promotes instead of throwing, `(long 9223372036854775807)` throws "Value out of range for long", and the
-  bit ops, which take a fixnum, refuse a 64-bit mask. Ten suite tests fail only for this
-  (corpus/clojure-test-suite/allowlist.edn, the `:note`s citing the 63-bit fixnum). Fix, when it matters:
-  a boxed 64-bit long kind between fixnum and bigint.
-- **`unchecked-add`/`-subtract`/`-multiply`/`-inc`/`-dec`/`-negate` wrap at 63 bits**, not the JVM's 64:
-  the wrap is the fixnum tag shift itself, so `(unchecked-inc 4611686018427387903)` is
-  `-4611686018427387904`. Chosen over "wrap at 64 and promote", which would cost a range check and an
-  allocation on a path whose whole point is having neither.
+- **The 63-bit fixnum is a representation, not the contract** (long.c). A value outside it is a boxed
+  `int64_t` of kind `CLJ_NUM_LONG`, so `9223372036854775807` reads as an integer, `(int? Long/MAX_VALUE)`
+  is true, `(+ Long/MAX_VALUE 1)` throws "integer overflow", `(long 9223372036854775807)` returns it and
+  the bit ops cover all 64 bits (`(bit-shift-left 1 63)` is `Long/MIN_VALUE`). **The box is canonical**:
+  `clj_long_new` hands back a fixnum whenever one fits and `clj_long_box` asserts the value is outside the
+  range, so `=`, `hash` and `clj_compare` never cross-check the two representations; the box's hash is the
+  fixnum hash widened to 64 bits, so a fixnum, a box and a bigint of one value agree. `clj_int64_of` is the
+  accessor that takes either. One descriptor serves both, named `long`, so `(type 1)` and
+  `(type Long/MAX_VALUE)` are one value and `Long` is bound to it.
+- **`unchecked-add`/`-subtract`/`-multiply`/`-inc`/`-dec`/`-negate` wrap at 64 bits**, as on the JVM:
+  the arithmetic is done in `uint64_t` and `clj_long_new` is the one range check on the way out, boxing
+  when the result leaves the fixnum. `(unchecked-inc 4611686018427387903)` is `4611686018427387904`,
+  `(unchecked-inc Long/MAX_VALUE)` is `Long/MIN_VALUE`.
 - **No float and no `*math-context*`.** `float` range-checks against `Float` and narrows through it
   (`(float Double/MIN_VALUE)` is `0.0`) but returns a double box, so `(double? (float 0.0))` is true where
   the JVM says false. `with-precision` and rounding modes do not exist: decimal `+ - *` are exact, and `/`
@@ -912,8 +929,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   does not (`"1"`, `"1.5"`, `"1/2"`), and `str` of a non-finite double is Java's `Infinity`/`-Infinity`/`NaN`
   where `pr-str` writes `##Inf`. A decimal prints by `BigDecimal.toString`'s rule (plain notation while the
   scale is non-negative and the adjusted exponent is above -7, scientific otherwise), so `1e10M` prints
-  `1E+10M`. `numerator`/`denominator` hand back the ratio's bigints, which print as `1N`/`2N` where the JVM
-  prints a `BigInteger` as `1`/`2`: there is one bigint type here, not two.
+  `1E+10M`. `numerator`/`denominator` demote to the canonical
+  integer, so `(numerator 1/2)` is `1` and only a value past 64 bits stays a bigint.
 - **`clj_bigint_to_double` and `clj_decimal_to_double` round through the decimal text** (`strtod`), which
   is correct and slow, rather than reimplementing correct rounding over the limbs. Trigger: a profile with
   bigint-to-double in a loop.
@@ -1076,13 +1093,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   Java counts UTF-16 units; `clojure.string/split` and `replace` take a literal string or char pattern,
   never a regex (`split` on a string is a deviation: Clojure's takes only a regex; trigger for a regex engine:
   `re-find`/`re-seq`/`re-matches` in a corpus library, or `split` on a pattern — a backtracking matcher over
-  code points, its own file, with the literal-pattern fast path kept); `list?` is true for a cons, so
-  `(peek (cons 1 '()))` works where Clojure throws; a map entry is a two-element vector, so `(key [1 2])`
+  code points, its own file, with the literal-pattern fast path kept); a map entry is a two-element vector, so `(key [1 2])`
   cannot throw; a symbol is not invokable, so `(ifn? 'x)` is false; a char is a Unicode scalar, so
   `(char 65895)` is in range; map and set seq order is the HAMT's, where the JVM's small collections keep
   insertion order (Clojure does not specify it). Triggers: a corpus test failing on any of these.
-- **`conj` on a list drops the collection's meta** (`(meta (conj (with-meta '() {:m 1}) 2))` is nil, `{:m 1}`
-  on the JVM); vectors, maps and sets keep it. A bug, not a decision: cons has the meta flag already.
 - **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
   partition-all dedupe distinct map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
   `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
@@ -1239,7 +1253,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   and the differential can take the C builtin as its subject.
 - **Deviations from Clojure's `compare`**: −1/0/1 always (the JVM returns the char or length difference
   for strings); strings order by code point, the JVM by UTF-16 unit (they differ only between an astral
-  char and U+E000–U+FFFF); the mixed-type message names the runtime's types (`fixnum cannot be cast to a
+  char and U+E000–U+FFFF); the mixed-type message names the runtime's types (`long cannot be cast to a
   string`) and an unordered type says `cannot be cast to Comparable`. A nil comparator is the default one
   inside the core, so the 2-arity `(sort nil coll)` refuses it by hand, the way invoking nil would.
 - **Limits.** Varargs are `arity: nil` plus a check in the body, as with `Value(function:)`. core.clj

@@ -98,6 +98,10 @@ extension CoreTests {
 				#expect(try eval("[(first (sorted-map :b 2 :a 1)) (last (sorted-map :b 2 :a 1))]") == Value([Value([kw("a"), 1]), Value([kw("b"), 2])]))
 				#expect(try eval("[(first (sorted-set 3 1 2)) (last (sorted-set 3 1 2))]") == [1, 3])
 				#expect(try eval("(seq (apply sorted-set (reverse (range 40))))") == Value(Array(0..<40).map { Value($0) }))
+				// APersistentVector.compareTo: by count first, then item by item.
+				#expect(try eval("(pr-str (sorted-set [1 2] [2] [1 1] []))") == "#{[] [2] [1 1] [1 2]}")
+				#expect(try eval("(pr-str (sort [[1 2] [2] [1 1] []]))") == "([] [2] [1 1] [1 2])")
+				#expect(try eval("(pr-str (sorted-map [1 :a] 1 [0] 2))") == "{[0] 2, [1 :a] 1}")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
