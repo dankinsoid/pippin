@@ -1674,6 +1674,72 @@
   (->Eduction (apply comp (butlast xforms)) (last xforms)))
 
 
+;; ---- dynamic vars: binding frames live in C (var.c); these macros shape the push/pop pairs.
+
+(defmacro binding
+  "binding => var-symbol init-expr. Binds the dynamic vars to the values on this thread for the
+  extent of body, then restores the previous bindings."
+  [bindings & body]
+  (check-bindings "binding" bindings)
+  (let [var-ize (fn [var-vals]
+                  (loop [ret [] vvs (seq var-vals)]
+                    (if vvs
+                      (recur (conj (conj ret `(var ~(first vvs))) (second vvs)) (next (next vvs)))
+                      (seq ret))))]
+    `(do
+       (push-thread-bindings (hash-map ~@(var-ize bindings)))
+       (try
+         ~@body
+         (finally
+           (pop-thread-bindings))))))
+
+(defn with-bindings*
+  "Calls f with the supplied arguments under the thread bindings of binding-map (var → value)."
+  [binding-map f & args]
+  (push-thread-bindings binding-map)
+  (try
+    (apply f args)
+    (finally
+      (pop-thread-bindings))))
+
+(defmacro with-bindings
+  "Evaluates body under the thread bindings of binding-map (var → value)."
+  [binding-map & body]
+  `(with-bindings* ~binding-map (fn [] ~@body)))
+
+(defn bound-fn*
+  "Returns a fn that calls f with the thread bindings in effect when bound-fn* was called."
+  [f]
+  (let [bindings (get-thread-bindings)]
+    (fn [& args]
+      (apply with-bindings* bindings f args))))
+
+(defmacro bound-fn
+  "Returns a fn (fntail as for fn) that runs with the thread bindings in effect where it was made."
+  [& fntail]
+  `(bound-fn* (fn ~@fntail)))
+
+(defn with-redefs-fn
+  "Temporarily rebinds the roots of the vars in binding-map (var → value) while calling func, then
+  restores them. The roots are process-wide: every thread sees the change."
+  [binding-map func]
+  (let [root-bind (fn [m] (doseq [[a-var a-val] m] (alter-var-root a-var (fn [_] a-val))))
+        old-vals (zipmap (keys binding-map) (map deref (keys binding-map)))]
+    (try
+      (root-bind binding-map)
+      (func)
+      (finally
+        (root-bind old-vals)))))
+
+(defmacro with-redefs
+  "binding => var-symbol temp-value-expr. Rebinds the vars' roots for the extent of body, dynamic or
+  not, and restores them afterwards. For tests and REPL work, not for production code."
+  [bindings & body]
+  (check-bindings "with-redefs" bindings)
+  `(with-redefs-fn ~(zipmap (map (fn [v] `(var ~v)) (take-nth 2 bindings))
+                            (take-nth 2 (drop 1 bindings)))
+     (fn [] ~@body)))
+
 ;; ---- delays and multimethods: deftypes over protocols, since C knows neither.
 
 (defprotocol IDeref

@@ -470,6 +470,20 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
 - **`def` is eager and vars are plain roots.** No lazy thunk state (design §4 "Var и ленивые def").
   Trigger: the first ns whose load-time cost shows.
+- **Dynamic vars** (var.c): a per-thread stack of frames, each a persistent map var → box (a volatile)
+  merged with the frame below, pushed by `push-thread-bindings` and popped by `pop-thread-bindings`
+  (`binding` is the `try`/`finally` pair over them, `with-bindings*`, `bound-fn*` and `with-redefs-fn` are
+  core.clj). `clj_var.thread_bound` counts live bindings across all threads, so a deref of a dynamic var
+  looks a frame up only while someone binds it; a non-dynamic var's deref is unchanged except for one byte
+  load and a predicted branch in `eval_borrowed` (bench: counting loop and closure call within noise,
+  bench/RESULTS.md). Binding a non-dynamic var throws "Can't dynamically bind non-dynamic var: ns/x",
+  `set!` on a var without a thread binding "Can't change/establish root binding of: ns/x with set". A
+  binding's value is stored unshared: the frame belongs to one thread. Deviations: `with-redefs` swaps
+  roots process-wide with no lock, as Clojure's does; the bound value is not shared, so a binding handed
+  to another thread through `bound-fn` shares it only when that thread's frame stores it (a value
+  published this way must be treated as shared by the caller — trigger: `bound-fn` across threads with a
+  mutable graph, then `clj_share` in `push_entry`). No `*print-length*`, `*out*`, `*assert*`, `*flush-on-newline*`
+  or the other printer vars; `with-out-str` captures the output hook per thread instead.
 - **Concurrent `def` against `deref` is unsafe**, and `alter-meta!`/`reset-meta!` against `meta` the
   same way: `clj_var_root`/`clj_var_meta` return a borrowed pointer and a racing writer releases the
   old value, so a reader may retain a freed one (`alter-meta!` is a CAS loop, so its `f` may run

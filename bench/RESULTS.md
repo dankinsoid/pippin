@@ -680,3 +680,19 @@ and 4-thread rows reproduce the table above within 3 %). Medians of five runs, n
   persistent copy path is 10–33× a mutable write here, against 3–5× with the hand-over. Trigger to bring the
   trick back is in NOTES.md ("Atoms"): a profile with `swap!` on a large map hot, and then a proven
   no-throw `f` or an undo journal, whichever is cheaper.
+
+## Dynamic vars — 2026-09-16, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+A var read in `eval_borrowed` now tests the var's `dynamic` byte before the root load (a bound dynamic var
+derefs through the thread's binding frame). The two rows that read a var per iteration, from one run of the
+full bench after the change, against the last recorded ones:
+
+| scenario | n | before, ns/op | after, ns/op |
+|---|---|---|---|
+| counting loop | 100000 | 15.5–16.1 | 14.3 / 15.3 (two rows of the same run) |
+| closure call in a loop | 100000 | 21.9–22.8 | 20.8 |
+| C builtin call in a loop | 100000 | — | 16.3 |
+| let-bound fn called in a loop | 100000 | 20.9–21.2 | 19.9 |
+
+Within the run-to-run noise: the byte sits in the var's own cache line next to the root, and the branch is
+never taken for a non-dynamic var.
