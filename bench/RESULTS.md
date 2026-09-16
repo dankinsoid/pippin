@@ -737,3 +737,29 @@ variadic `invoke` — as a deftype in the bench, so both rows come from the same
   `invoke` arities up to three remove the rest seq and the two `apply`s, which cost more than the lookup.
 - **Still 6× a protocol call and 9× a plain call**: what a protocol call has and a multimethod has not is
   the call-site cache of eval.c. Trigger for one here is a profile with multimethod dispatch hot.
+
+## Numeric tower — 2026-09-16, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The rows that would show a slower `+`, taken before the tower (fixnum and double only, `/` of fixnums
+yielding a double) and after it (five kinds behind `clj_num_arith`, the fixnum and double paths still in
+builtins.c ahead of the ladder). Two separate `clj-bench` invocations, so the spread between them is the
+session-to-session drift the file warns about; the counting-loop row appears twice per run because two
+sections measure it.
+
+| scenario | n | before | after |
+|---|---:|---:|---:|
+| counting loop | 100000 | 17.1 / 17.3 | 15.4 / 15.9 |
+| reduce + range | 1000 | 6.0 | 5.5 |
+| reduce + range | 100000 | 6.0 | 5.3 |
+| reduce + vector | 1000 | 5.7 | 5.2 |
+| reduce + vector | 100000 | 5.8 | 5.2 |
+| reduce + map inc range | 1000 | 33.4 | 32.3 |
+| reduce + map inc range | 100000 | 33.1 | 30.9 |
+| swap! inc | 100000 | 44.8 | 43.6 |
+| swap! inc, 4 threads | 100000 | 70.1 | 70.8 |
+
+- **Nothing regressed**: every row is equal or slightly faster, which is the drift, not the change.
+  `clj_add` still starts with `to_num` on both arguments — a tag check each — and only a pair that is
+  neither a fixnum nor a double reaches `clj_num_arith`, so the hot path gained no branch.
+- **`clj_num_kind_of` is a type-pointer compare chain**, not a slot on the header, and it runs only where
+  the fast paths already failed; `number?` and `integer?` pay it, which no benchmark row exercises.

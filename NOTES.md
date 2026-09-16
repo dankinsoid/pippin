@@ -937,7 +937,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `(first m)` builds the whole entry list. Trigger: `first`/`some` over big maps in a profile. Fix:
   a map-seq cursor over the CHAMP trie and a map-entry type instead of 2-vectors.
 - **`range` handles fixnums in C** (`range*`, an O(1) view); doubles and step 0 go through
-  `take-while`/`iterate`/`repeat` in core.clj. No `Range` for BigInts until those exist.
+  `take-while`/`iterate`/`repeat` in core.clj. A bigint bound falls to the same core.clj path, so
+  `(range 0 1N)` has no O(1) view.
 - **Printing realizes lazy seqs and can throw**: `clj_pr_str` returns CLJ_THROWN, which `str`,
   `pr-str`, `print*` and the error-message callers propagate; `Value.description` on the Swift side
   substitutes the exception text.
@@ -1119,8 +1120,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   a fn built the "%s cannot be invoked" message with `clj_pr_str`, which realized the infinite lazy seq. The
   fix is `clj_pr_str_max` (printer section) in every error message that quotes a runtime value. It was never
   state-dependent: the namespace hangs in isolation too.
-- **Known reader gaps the suite hits**: `0x7FFFFFFFFFFFFFFF` and friends in `number-range` exceed the 63-bit
-  fixnum, so every `r/max-int`-style constant is missing (bigint); regex literals and `#:ns{}` maps in a
+- **Known reader gaps the suite hits**: regex literals and `#:ns{}` maps in a
   selected branch; a tagged literal (`#cpp`, `#inst`, `#uuid`) outside a `#?` — inside an unselected branch it
   is suppressed (reader section). Symbols the suite needs from the JVM:
   `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in `catch` works, `instance?` of JVM classes does not.
