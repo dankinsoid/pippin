@@ -1244,7 +1244,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   inside the core, so the 2-arity `(sort nil coll)` refuses it by hand, the way invoking nil would.
 - **Limits.** Varargs are `arity: nil` plus a check in the body, as with `Value(function:)`. core.clj
   cannot call a primitive at load time and cannot reference one without `(declare ...)`: the hook runs
-  after core.clj. A C-only host has neither `compare` nor `sort`. Meta is `:doc` only; `:private`,
+  after core.clj. A C-only host has neither `compare` nor `sort` as vars, though `sort-by` and the sorted
+  collections reach the same C functions. Meta is `:doc` only; `:private`,
   `:dynamic`, `:arglists`, `:tag` need a `def` afterwards. `define` on another thread against a running
   call is the concurrent-`def` race of the evaluator section.
 - **Cost** (bench/RESULTS.md, "Host-defined fns"): a host fn call is ~64 ns over a C builtin at the same
