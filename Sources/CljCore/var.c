@@ -101,7 +101,8 @@ bool clj_var_is_private(clj_value var) {
 	clj_value m = clj_var_meta(var);
 	if (clj_is_nil(m)) return false;
 	pthread_once(&private_once, intern_private);
-	return clj_truthy(clj_map_get(m, kw_private, CLJ_NIL));
+	// `def` only ever stores a hash map, and reading another representation as one would be a type confusion.
+	return clj_is_map(m) && clj_truthy(clj_map_get(m, kw_private, CLJ_NIL));
 }
 
 // A frame holds the bindings visible while it is on top (its own over the previous frame's) and its own alone,

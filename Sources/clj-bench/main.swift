@@ -710,6 +710,118 @@ for r in sortRows {
 }
 print("\nns per element; Swift primitive = (sort v) bound by Runtime.define, Clojure spec = Runtime.sortSpecification evaluated in user, Swift sorted = [Int].sorted()")
 
+// MARK: - Sorted collections and multimethods
+
+// The red-black tree of sorted.c against the CHAMT of map.c, same keys and probes; every comparison is a
+// call of clojure.core/compare, a host fn, so the row carries one Swift↔C transition per tree level.
+let benchCompare = cljEval("compare")
+
+func sBuild(_ keys: [Int]) -> clj_value {
+	var m = clj_sorted_map_new(benchCompare)
+	for k in keys { m = clj_sorted_assoc(m, clj_fixnum(k), clj_fixnum(k)) }
+	return m
+}
+
+func sAssocReuse(_ keys: [Int]) -> UInt64 {
+	let m = sBuild(keys)
+	let c = clj_sorted_count(m)
+	clj_release(m)
+	return UInt64(c)
+}
+
+func sGet(_ m: clj_value, _ probes: [Int]) -> UInt64 {
+	var sum: UInt64 = 0
+	for k in probes {
+		let v = clj_sorted_get(m, clj_fixnum(k), CLJ_NIL)
+		if clj_is_fixnum(v) { sum &+= UInt64(bitPattern: Int64(clj_fixnum_val(v))) }
+	}
+	return sum
+}
+
+struct SortedRow {
+	let scenario: String
+	let n: Int
+	let sorted: Double
+	let hash: Double
+}
+
+var sortedRows: [SortedRow] = []
+for n in sizes {
+	let keys = shuffled(n, seed: 11)
+	let hits = randomKeys(lookups, below: n, seed: 12)
+	sortedRows.append(SortedRow(scenario: "assoc, old version dropped", n: n,
+		sorted: measure(ops: n) { sAssocReuse(keys) },
+		hash: measure(ops: n) { cAssocReuse(keys) }))
+	let sm = sBuild(keys), hm = cBuild(keys)
+	sortedRows.append(SortedRow(scenario: "get, hit", n: n,
+		sorted: measure(ops: hits.count) { sGet(sm, hits) },
+		hash: measure(ops: hits.count) { cGet(hm, hits) }))
+	clj_release(sm)
+	clj_release(hm)
+}
+clj_release(benchCompare)
+
+// One multimethod call per iteration: the dispatch value is the method's own key (the = hit the cache
+// answers), a child of it through the global hierarchy (the isa? hit, cached the same way), and a value
+// only :default matches. The last two rows are the same loop through a one-method protocol and a plain fn.
+_ = cljEval("""
+(defmulti bench-mm identity)
+(defmethod bench-mm :bench/leaf [_] 1)
+(defmethod bench-mm :default [_] 1)
+(derive :bench/child :bench/leaf)
+(def bench-plain-fn (fn [_] 1))
+(defprotocol BenchMP (bench-mp [x]))
+(extend-type Keyword BenchMP (bench-mp [x] 1))
+(deftype BenchOldMF [dispatch-fn default table]
+  IFn
+  (invoke [_ & args]
+    (let [dv (apply dispatch-fn args) m @table f (get m dv (get m default))] (apply f args))))
+(def bench-old-mm (->BenchOldMF identity :default (atom {:bench/leaf (fn [_] 1)})))
+""")
+let mmEqFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-mm :bench/leaf))) i)))")
+let mmIsaFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-mm :bench/child))) i)))")
+let mmDefaultFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-mm :bench/other))) i)))")
+let mmProtoFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-mp :bench/leaf))) i)))")
+let mmPlainFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-plain-fn :bench/leaf))) i)))")
+let mmOldFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-old-mm :bench/leaf))) i)))")
+
+struct DispatchRow {
+	let scenario: String
+	let n: Int
+	let c: Double
+}
+
+var dispatchRows: [DispatchRow] = []
+do {
+	let n = 100_000
+	dispatchRows.append(DispatchRow(scenario: "multimethod, = hit", n: n, c: measure(ops: n) { cljCall(mmEqFn, clj_fixnum(n)) }))
+	dispatchRows.append(DispatchRow(scenario: "multimethod, = hit, pre-hierarchy shape", n: n, c: measure(ops: n) { cljCall(mmOldFn, clj_fixnum(n)) }))
+	dispatchRows.append(DispatchRow(scenario: "multimethod, isa? hit", n: n, c: measure(ops: n) { cljCall(mmIsaFn, clj_fixnum(n)) }))
+	dispatchRows.append(DispatchRow(scenario: "multimethod, :default hit", n: n, c: measure(ops: n) { cljCall(mmDefaultFn, clj_fixnum(n)) }))
+	dispatchRows.append(DispatchRow(scenario: "protocol call, keyword receiver", n: n, c: measure(ops: n) { cljCall(mmProtoFn, clj_fixnum(n)) }))
+	dispatchRows.append(DispatchRow(scenario: "plain fn call through a var", n: n, c: measure(ops: n) { cljCall(mmPlainFn, clj_fixnum(n)) }))
+}
+clj_release(mmEqFn)
+clj_release(mmIsaFn)
+clj_release(mmDefaultFn)
+clj_release(mmProtoFn)
+clj_release(mmPlainFn)
+clj_release(mmOldFn)
+
+print("\n| scenario | n | sorted map | hash map | sorted / hash |")
+print("|---|---:|---:|---:|---:|")
+for r in sortedRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.sorted)) | \(fmt(r.hash)) | \(ratio(r.hash, r.sorted)) |")
+}
+print("\nns per op; sorted map = clj_sorted_assoc / clj_sorted_get with clojure.core/compare as the comparator, hash map = clj_map_assoc / clj_map_get over the same keys")
+
+print("\n| scenario | n | ns/op |")
+print("|---|---:|---:|")
+for r in dispatchRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) |")
+}
+print("\nns per iteration; one call per iteration inside an interpreted loop, the dispatch fn is `identity`")
+
 // MARK: - Atoms
 
 // (swap! a assoc k v) over an atom holding a map of K keys, k cycling through them and v new every call (an

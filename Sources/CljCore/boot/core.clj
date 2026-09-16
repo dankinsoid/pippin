@@ -952,14 +952,10 @@
 (defn qualified-symbol? "Returns true when x is a qualified symbol." [x] (boolean (and (symbol? x) (namespace x) true)))
 (defn simple-keyword? "Returns true when x is an unqualified keyword." [x] (and (keyword? x) (nil? (namespace x))))
 (defn qualified-keyword? "Returns true when x is a qualified keyword." [x] (boolean (and (keyword? x) (namespace x) true)))
-(defn int? "Returns true when x is a fixed-precision integer." [x] (integer? x))
-(defn nat-int? "Returns true when x is a non-negative integer." [x] (and (integer? x) (not (neg? x))))
-(defn pos-int? "Returns true when x is a positive integer." [x] (and (integer? x) (pos? x)))
-(defn neg-int? "Returns true when x is a negative integer." [x] (and (integer? x) (neg? x)))
-(defn double? "Returns true when x is a double." [x] (and (number? x) (not (integer? x))))
+(defn nat-int? "Returns true when x is a non-negative fixed-precision integer." [x] (and (int? x) (not (neg? x))))
+(defn pos-int? "Returns true when x is a positive fixed-precision integer." [x] (and (int? x) (pos? x)))
+(defn neg-int? "Returns true when x is a negative fixed-precision integer." [x] (and (int? x) (neg? x)))
 (defn float? "Returns true when x is a floating point number." [x] (double? x))
-(defn NaN? "Returns true when x is a NaN double." [x] (and (double? x) (not (= x x))))
-(defn infinite? "Returns true when x is positive or negative infinity." [x] (or (= x ##Inf) (= x ##-Inf)))
 (defn distinct?
   "Returns true when no two of the arguments are equal."
   ([x] true)
@@ -973,15 +969,15 @@
      false)))
 
 (defn max
-  "Returns the greatest of the nums."
+  "Returns the greatest of the nums; a NaN argument wins, as clojure.lang.Numbers/max does."
   ([x] x)
-  ([x y] (if (> x y) x y))
+  ([x y] (cond (NaN? x) x (NaN? y) y (> x y) x :else y))
   ([x y & more] (reduce max (max x y) more)))
 
 (defn min
-  "Returns the least of the nums."
+  "Returns the least of the nums; a NaN argument wins, as clojure.lang.Numbers/min does."
   ([x] x)
-  ([x y] (if (< x y) x y))
+  ([x y] (cond (NaN? x) x (NaN? y) y (< x y) x :else y))
   ([x y & more] (reduce min (min x y) more)))
 
 (defn abs "Returns the absolute value of a." [a] (if (neg? a) (- a) a))
@@ -1066,11 +1062,12 @@
        (if (< i end) (recur (inc i) (conj acc (nth v i))) acc)))))
 
 (defn rseq
-  "Returns a seq of the items of a vector in reverse order, nil when empty."
+  "Returns a seq of the items of a vector or sorted collection in reverse order, nil when empty."
   [v]
-  (if (vector? v)
-    (seq (reverse v))
-    (throw (ex-info (str "rseq not supported on this type: " (type v)) {}))))
+  (cond
+    (sorted? v) (sorted-seq* v false)
+    (vector? v) (seq (reverse v))
+    :else (throw (ex-info (str "rseq not supported on this type: " (type v)) {}))))
 
 (defn keys "Returns a seq of the map's keys." [m] (seq (map (fn [e] (nth e 0)) m)))
 (defn vals "Returns a seq of the map's values." [m] (seq (map (fn [e] (nth e 1)) m)))
@@ -1228,6 +1225,47 @@
   "Returns a sorted sequence of the items in coll, by (compare (keyfn a) (keyfn b)) or comp on the keys."
   ([keyfn coll] (sort-by keyfn compare coll))
   ([keyfn comp coll] (sort (fn [x y] (comp (keyfn x) (keyfn y))) coll)))
+
+(defn sorted-map
+  "Returns a sorted map of the key/value pairs, ordered by compare."
+  [& keyvals]
+  (apply sorted-map-by compare keyvals))
+
+(defn sorted-set
+  "Returns a sorted set of the keys, ordered by compare."
+  [& ks]
+  (apply sorted-set-by compare ks))
+
+;; The collection's own comparator orders the bound, so a custom one bounds subseq as it orders the tree.
+(defn- mk-bound-fn [sc test k]
+  (let [entry-key (if (map? sc) (fn [e] (nth e 0)) identity)]
+    (fn [e] (test (sorted-compare* sc (entry-key e) k) 0))))
+
+(defn subseq
+  "Ascending seq of the entries of a sorted collection whose keys pass the test(s): <, <=, > or >=."
+  ([sc test k]
+   (let [include (mk-bound-fn sc test k)]
+     (if (or (identical? test >) (identical? test >=))
+       (when-let [s (sorted-seq-from* sc k true)]
+         (if (include (first s)) s (next s)))
+       (take-while include (sorted-seq* sc true)))))
+  ([sc start-test start end-test end]
+   (when-let [s (sorted-seq-from* sc start true)]
+     (take-while (mk-bound-fn sc end-test end)
+                 (if ((mk-bound-fn sc start-test start) (first s)) s (next s))))))
+
+(defn rsubseq
+  "Descending seq of the entries of a sorted collection whose keys pass the test(s): <, <=, > or >=."
+  ([sc test k]
+   (let [include (mk-bound-fn sc test k)]
+     (if (or (identical? test <) (identical? test <=))
+       (when-let [s (sorted-seq-from* sc k false)]
+         (if (include (first s)) s (next s)))
+       (take-while include (sorted-seq* sc false)))))
+  ([sc start-test start end-test end]
+   (when-let [s (sorted-seq-from* sc end false)]
+     (take-while (mk-bound-fn sc start-test start)
+                 (if ((mk-bound-fn sc end-test end) (first s)) s (next s))))))
 
 (defn partition-by
   "Returns a lazy seq of partitions, splitting each time (f item) changes; or the transducer of the same."
@@ -1769,6 +1807,88 @@
                             (take-nth 2 (drop 1 bindings)))
      (fn [] ~@body)))
 
+;; ---- hierarchies: keyword and symbol tags; no host-type superclass lookup (NOTES.md).
+
+(defn make-hierarchy "Creates a new, empty hierarchy." [] {:parents {} :descendants {} :ancestors {}})
+
+(def ^{:private true} global-hierarchy (make-hierarchy))
+
+(defn isa?
+  "Returns true when child is parent or derives from it; vectors of tags are compared elementwise."
+  ([child parent] (isa? global-hierarchy child parent))
+  ([h child parent]
+   (boolean
+    (or (= child parent)
+        (contains? (get (:ancestors h) child) parent)
+        (and (vector? parent) (vector? child) (= (count parent) (count child))
+             (loop [ret true i 0]
+               (if (or (not ret) (= i (count parent)))
+                 ret
+                 (recur (isa? h (nth child i) (nth parent i)) (inc i)))))))))
+
+(defn parents
+  "The immediate parents of tag, or nil."
+  ([tag] (parents global-hierarchy tag))
+  ([h tag] (not-empty (get (:parents h) tag))))
+
+(defn ancestors
+  "The transitive parents of tag, or nil."
+  ([tag] (ancestors global-hierarchy tag))
+  ([h tag] (not-empty (get (:ancestors h) tag))))
+
+(defn descendants
+  "The transitive children of tag, or nil."
+  ([tag] (descendants global-hierarchy tag))
+  ([h tag] (not-empty (get (:descendants h) tag))))
+
+(defn- tag?
+  "A dispatch tag is a keyword, a symbol or a type; isa? treats a type as a plain key, with no supertypes."
+  [x]
+  (or (ident? x) (identical? Type (type x))))
+
+(defn derive
+  "Makes parent a parent of tag. Without a hierarchy, alters the global one and returns nil."
+  ([tag parent]
+   (assert (namespace parent))
+   (assert (or (and (ident? tag) (namespace tag)) (identical? Type (type tag))))
+   (alter-var-root #'global-hierarchy derive tag parent)
+   nil)
+  ([h tag parent]
+   (assert (not= tag parent))
+   (assert (tag? tag))
+   (assert (ident? parent))
+   ;; The maps are called, not `get`-ed: an h that lacks one of the three keys must fail, as on the JVM.
+   (let [tp (:parents h) td (:descendants h) ta (:ancestors h)
+         tf (fn [m source sources target targets]
+              (reduce (fn [ret k]
+                        (assoc ret k (reduce conj (targets k #{}) (cons target (targets target)))))
+                      m (cons source (sources source))))]
+     (or
+      (when-not (contains? (tp tag) parent)
+        (when (contains? (ta tag) parent)
+          (throw (ex-info (str tag " already has " parent " as ancestor") {})))
+        (when (contains? (ta parent) tag)
+          (throw (ex-info (str "Cyclic derivation: " parent " has " tag " as ancestor") {})))
+        {:parents (assoc tp tag (conj (tp tag #{}) parent))
+         :ancestors (tf ta tag td parent ta)
+         :descendants (tf td parent ta tag td)})
+      h))))
+
+(defn underive
+  "Removes parent as a parent of tag. Without a hierarchy, alters the global one and returns nil."
+  ([tag parent]
+   (alter-var-root #'global-hierarchy underive tag parent)
+   nil)
+  ([h tag parent]
+   (let [parent-map (:parents h)
+         childs-parents (if (parent-map tag) (disj (parent-map tag) parent) #{})
+         new-parents (if (not-empty childs-parents) (assoc parent-map tag childs-parents) (dissoc parent-map tag))
+         ;; child p1 child p2 ... for every remaining edge: the hierarchy is rebuilt from them.
+         deriv-seq (flatten (map (fn [e] (cons (key e) (interpose (key e) (val e)))) (seq new-parents)))]
+     (if (contains? (parent-map tag) parent)
+       (reduce (fn [acc pair] (apply derive acc pair)) (make-hierarchy) (partition 2 deriv-seq))
+       h))))
+
 ;; ---- delays and multimethods: deftypes over protocols, since C knows neither.
 
 (defprotocol IDeref
@@ -1807,26 +1927,92 @@
   (-add-method [mf dispatch-val f])
   (-remove-method [mf dispatch-val])
   (-remove-all-methods [mf])
-  (-methods [mf]))
+  (-methods [mf])
+  (-get-method [mf dispatch-val])
+  (-prefer-method [mf x y])
+  (-prefers [mf]))
 
-;; Dispatch values compare with = and fall back to the default; no isa? hierarchy (NOTES.md).
-(deftype MultiFn [mname dispatch-fn default table]
+(defn- mf-prefers?
+  [h prefers x y]
+  (or (contains? (get prefers x) y)
+      (boolean (some (fn [p] (mf-prefers? h prefers x p)) (parents h y)))
+      (boolean (some (fn [p] (mf-prefers? h prefers p y)) (parents h x)))))
+
+(defn- mf-dominates? [h prefers x y] (or (mf-prefers? h prefers x y) (isa? h x y)))
+
+;; ::none, not nil: nil is a legal dispatch value, so it cannot mark "no match yet".
+(defn- mf-best-method
+  [mname h table prefers dv default]
+  (let [best (reduce-kv
+              (fn [best k _]
+                (if (isa? h dv k)
+                  (cond
+                    (= best ::none) k
+                    (mf-dominates? h prefers k best) k
+                    (mf-dominates? h prefers best k) best
+                    :else (throw (ex-info (str "Multiple methods in multimethod '" mname "' match dispatch value: "
+                                               (pr-str dv) " -> " (pr-str k) " and " (pr-str best)
+                                               ", and neither is preferred")
+                                          {:multifn mname :dispatch-val dv})))
+                  best))
+              ::none table)]
+    (get table (if (= best ::none) default best))))
+
+;; The cache is [hierarchy-value {dispatch-val method}], as Clojure keys its method cache by the hierarchy
+;; it was built from: a derive that replaces the value invalidates every entry at once.
+(defn- mf-method [mf mname hierarchy cache dv]
+  (or (let [c @cache] (when (identical? (nth c 0) @hierarchy) (get (nth c 1) dv)))
+      (-get-method mf dv)
+      (throw (ex-info (str "No method in multimethod '" mname "' for dispatch value: " (pr-str dv))
+                      {:multifn mname :dispatch-val dv}))))
+
+(deftype MultiFn [mname dispatch-fn default hierarchy table prefers cache]
   IMultiFn
-  (-add-method [_ dispatch-val f] (swap! table assoc dispatch-val f) nil)
-  (-remove-method [_ dispatch-val] (swap! table dissoc dispatch-val) nil)
-  (-remove-all-methods [_] (reset! table {}) nil)
+  (-add-method [_ dispatch-val f]
+    (swap! table assoc dispatch-val f)
+    (reset! cache [::none {}])
+    nil)
+  (-remove-method [_ dispatch-val]
+    (swap! table dissoc dispatch-val)
+    (reset! cache [::none {}])
+    nil)
+  (-remove-all-methods [_]
+    (reset! table {})
+    (reset! cache [::none {}])
+    nil)
   (-methods [_] @table)
+  (-prefers [_] @prefers)
+  (-prefer-method [this x y]
+    (when (mf-prefers? @hierarchy @prefers y x)
+      (throw (ex-info (str "Preference conflict in multimethod '" mname "': " (pr-str y)
+                           " is already preferred to " (pr-str x))
+                      {:multifn mname})))
+    (swap! prefers (fn [p] (assoc p x (conj (get p x #{}) y))))
+    (reset! cache [::none {}])
+    this)
+  (-get-method [_ dispatch-val]
+    (let [hv @hierarchy
+          c @cache
+          entries (if (identical? (nth c 0) hv) (nth c 1) {})]
+      (or (get entries dispatch-val)
+          (let [f (mf-best-method mname hv @table @prefers dispatch-val default)]
+            (when f (reset! cache [hv (assoc entries dispatch-val f)]))
+            f))))
   IFn
-  (invoke [_ & args]
-    (let [dv (apply dispatch-fn args)
-          m @table
-          f (get m dv (get m default))]
-      (if f
-        (apply f args)
-        (throw (ex-info (str "No method in multimethod '" mname "' for dispatch value: " (pr-str dv)) {}))))))
+  ;; Fixed arities up to three, as Clojure's MultiFn has them: a rest seq and two applies cost more than
+  ;; the dispatch itself.
+  (invoke
+    ([this] ((mf-method this mname hierarchy cache (dispatch-fn))))
+    ([this a] ((mf-method this mname hierarchy cache (dispatch-fn a)) a))
+    ([this a b] ((mf-method this mname hierarchy cache (dispatch-fn a b)) a b))
+    ([this a b c] ((mf-method this mname hierarchy cache (dispatch-fn a b c)) a b c))
+    ([this a b c & more]
+     (let [args (list* a b c more)]
+       (apply (mf-method this mname hierarchy cache (apply dispatch-fn args)) args)))))
 
 (defmacro defmulti
-  "(defmulti name docstring? attr-map? dispatch-fn & options): a multimethod var; :default names the fallback dispatch value."
+  "(defmulti name docstring? attr-map? dispatch-fn & options): a multimethod var. :default names the
+  fallback dispatch value, :hierarchy the var holding the hierarchy isa? dispatch reads."
   [mm-name & options]
   (let [docstring (when (string? (first options)) (first options))
         options (if docstring (next options) options)
@@ -1835,9 +2021,10 @@
         dispatch-fn (first options)
         opts (apply hash-map (next options))
         default (get opts :default :default)
+        hierarchy (get opts :hierarchy `#'global-hierarchy)
         m (if docstring (assoc m :doc docstring) m)]
     `(defonce ~(with-meta mm-name (merge (meta mm-name) m))
-       (->MultiFn '~mm-name ~dispatch-fn ~default (atom {})))))
+       (->MultiFn '~mm-name ~dispatch-fn ~default ~hierarchy (atom {}) (atom {}) (atom [::none {}])))))
 
 (defmacro defmethod
   "Adds a method for dispatch-val to the multimethod."
@@ -1845,9 +2032,11 @@
   `(do (-add-method ~multifn ~dispatch-val (fn ~@fn-tail)) ~multifn))
 
 (defn methods "Returns a map of dispatch values to methods." [multifn] (-methods multifn))
-(defn get-method "Returns the method for dispatch-val, or the default." [multifn dispatch-val] (get (-methods multifn) dispatch-val))
+(defn get-method "Returns the method isa? dispatch picks for dispatch-val, or the default one." [multifn dispatch-val] (-get-method multifn dispatch-val))
 (defn remove-method "Removes the method for dispatch-val." [multifn dispatch-val] (-remove-method multifn dispatch-val) multifn)
 (defn remove-all-methods "Removes every method." [multifn] (-remove-all-methods multifn) multifn)
+(defn prefer-method "Makes dispatch-val-x win over dispatch-val-y when both match." [multifn dispatch-val-x dispatch-val-y] (-prefer-method multifn dispatch-val-x dispatch-val-y))
+(defn prefers "Returns the multimethod's preference table." [multifn] (-prefers multifn))
 
 ;; ---- namespaces: ns, require, refer, use over the C namespace API (in-ns, alias, ns-publics, load-file, ...).
 

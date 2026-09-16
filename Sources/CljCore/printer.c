@@ -229,6 +229,11 @@ static bool collect_item(clj_value item, void *ctx) {
 	return true;
 }
 
+static bool collect_sorted_item(clj_value key, clj_value val, void *ctx) {
+	(void)val;
+	return collect_item(key, ctx);
+}
+
 // Scalars are written outright; a collection writes its opener and pushes a frame.
 // Not readably (Clojure's *print-readably* false): strings and chars as their text.
 static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
@@ -245,6 +250,12 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		else put_utf8(b, clj_char_val(v));
 	} else if (clj_is_double(v)) {
 		put_double(b, clj_double_val(v));
+	} else if (clj_is_bigint(v) || clj_is_ratio(v) || clj_is_decimal(v)) {
+		// (str 1N) is "1" and (pr-str 1N) is "1N", as the JVM's print-method appends the tag.
+		clj_value text = clj_is_bigint(v) ? clj_bigint_to_string(v) : clj_is_ratio(v) ? clj_ratio_to_string(v) : clj_decimal_to_string(v);
+		put_bytes(b, clj_string_bytes(text), clj_string_len(text));
+		if (readably && !clj_is_ratio(v)) put_char(b, clj_is_bigint(v) ? 'N' : 'M');
+		clj_release(text);
 	} else if (clj_is_string(v)) {
 		if (readably) put_string_literal(b, v);
 		else put_bytes(b, clj_string_bytes(v), clj_string_len(v));
@@ -313,6 +324,16 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		if (n && !f->entries) clj_fatal("out of memory");
 		collect_ctx c = {f->entries, 0};
 		clj_set_each(v, collect_item, &c);
+		f->n = n;
+	} else if (clj_is_sorted(v)) {
+		bool set = clj_is_sorted_set(v);
+		put_cstr(b, set ? "#{" : "{");
+		frame *f = push_frame(stack, set ? F_SET : F_MAP);
+		size_t n = (set ? 1 : 2) * (size_t)clj_sorted_count(v);
+		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
+		if (n && !f->entries) clj_fatal("out of memory");
+		collect_ctx c = {f->entries, 0};
+		clj_sorted_each(v, set ? collect_sorted_item : collect_entry, &c);
 		f->n = n;
 	} else if (clj_is_type(v)) {
 		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);

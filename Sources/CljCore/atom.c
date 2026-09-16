@@ -307,7 +307,7 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 	call[0] = a->meta;
 	clj_value m = clj_invoke(f, call, nargs + 1);
 	if (call != small) free(call);
-	if (m != CLJ_THROWN && !clj_is_nil(m) && !clj_is_map(m)) {
+	if (m != CLJ_THROWN && !clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
 		clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));
 		clj_release(m);
 		m = e;

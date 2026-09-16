@@ -95,6 +95,9 @@ struct clj_type {
 	clj_value (*count)(clj_value self);
 	clj_value (*lookup)(clj_value self, clj_value key, clj_value not_found);
 	clj_value (*conj)(clj_value self, clj_value x);
+	// Associative/IPersistentMap; consume self like conj. A set's dissoc is its disj: both remove a key.
+	clj_value (*assoc)(clj_value self, clj_value key, clj_value val);
+	clj_value (*dissoc)(clj_value self, clj_value key);
 	// IReduceInit: (f acc item) over the elements, stopping at a `reduced` result, which comes back unwrapped;
 	// init CLJ_UNBOUND seeds with the first element and answers (f) when empty (coll.h, clj_reducer). NULL walks the seq.
 	clj_value (*reduce)(clj_value self, clj_value f, clj_value init);

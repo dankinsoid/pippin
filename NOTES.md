@@ -244,8 +244,51 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   is an eager list of the elements, printing collects them into an array, `get` returns the stored
   element. Triggers: the ≤8-element linear-array set of the design ("Представление по наблюдению";
   the same trigger as the array map: small literal sets in a profile); a set-shaped trie without the
-  value slots (memory of big sets); `sorted-set` (a user); `clojure.set` as a namespace (the `ns`
+  value slots (memory of big sets); `clojure.set` as a namespace (the `ns`
   form, see core.clj).
+
+## Sorted (Sources/CljCore/sorted.c)
+
+- **A left-leaning red-black tree, not a B-tree.** Sedgewick's LLRB is the smallest balanced tree that
+  still has a deletion: red links lean left, so insert and delete have one rebalance case where the
+  classic algorithm has two, and `fix_up` is three lines shared by both. Path copying is one node per
+  level (48 bytes, one pool size class) and depth is at most 2·log₂(n+1); a B-tree with 16–32 slots per
+  node would be shallower but copy the whole node on every `assoc` and share less of the old version,
+  which is the operation this runtime optimizes for. The tree is checked by
+  `clj_debug_sorted_valid` (no right-leaning red link, no two reds in a row, equal black height, keys in
+  order, count matches) after every step of a randomized insert/delete run in SortedTests.
+- **Sorted map and sorted set are two descriptors over one wrapper and one tree** (`clj_sorted`): the set
+  stores its element as the key and leaves the value nil, so `clj_sorted_assoc`/`dissoc`/`conj` serve both
+  and only the seq, reduce and print sites branch on which type it is. The bits are the hash map's and the
+  hash set's (`CLJ_CORE_MAP`/`CLJ_CORE_SET`, `IPersistentMap`/`IPersistentSet`), so `assoc dissoc get
+  contains? conj disj count seq reduce reduce-kv keys vals into empty` and the consuming intrinsics reach
+  them unchanged. `clj_type` grew two slots for that: `assoc` and `dissoc`, consuming self like `conj`; a
+  set's `dissoc` slot is its `disj`, since the operation is the same.
+- **A unique collection is edited in place, as map.c and set.c do.** `node_own` copies only when
+  `clj_is_unique` is false, the wrapper hands its own root reference down, and a child is taken out of
+  its slot (`take_child`) before the recursive call, so a comparator that throws mid-descent leaves
+  nothing dangling. Rotations own both nodes they touch, so a rotation over a shared child copies it.
+- **The comparator is a Clojure fn, and `compare` is a host primitive** (Primitives.swift), so every
+  comparison of a default sorted collection is a Swift↔C transition: ~70 ns, which is the whole
+  difference in bench/RESULTS.md (a `get` is 16–83× the hash map's, an `assoc` 10–19×). A `clj_compare`
+  in C with the host one delegating to it would remove it. Trigger: a sorted collection in a profile.
+  A comparator may answer a number or, as a predicate, logical true when its first argument sorts first,
+  the way `AFunction.compare` reads a fn comparator; `sorted-map-by`/`sorted-set-by` keep it, `empty`,
+  `assoc`, `dissoc` and `with-meta` carry it over, and `(sorted-map)` is therefore not a singleton.
+- **`dissoc` walks the tree twice**: `node_find` first, because the LLRB deletion is only correct for a
+  key that is present and because the count must not move when it is not. Trigger: a delete-heavy profile.
+- **Equality and hash cross representations**: `(= (sorted-map :a 1) {:a 1})` and the reverse are true and
+  the hashes match, so a sorted map and a hash map of the same content are the same key in a third map.
+  `map_equals`/`set_equals` now test the `CLJ_CORE_MAP`/`CLJ_CORE_SET` bit instead of the concrete type and
+  look a foreign representation's entries up through `clj_equals_lookup`, which drops a comparator's
+  exception — `clj_equals` cannot throw.
+- **`seq` is an eager list** as the hash map's and hash set's are, so `first` on a big sorted map builds
+  the whole list; `subseq`/`rsubseq` go through `sorted-seq-from*`, which prunes the subtrees outside the
+  bound and is O(log n + k), and then `take-while` in core.clj as Clojure does it. `rseq` walks the tree
+  in reverse. Trigger for an O(1) view: a `first`/`next` walk of a sorted map in a profile; then a stack
+  of parents per seq object.
+- **No sorted collection reaches the tree codec** (node_data.c): there is no literal for one, so it can
+  never be a constant in an analyzed tree. Trigger: a compiler that wants to emit one.
 
 ## Vector (Sources/CljCore/vector.c)
 
@@ -870,17 +913,28 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   when-some while doto cond-> cond->> as-> some-> some->> case condp letfn doseq for defonce locking
   with-out-str` plus `memoize trampoline print-str println-str prn-str newline flush`, `delay`/`force`/
   `delay?` (a deftype over an atom), the multimethods `defmulti defmethod methods get-method remove-method
-  remove-all-methods`, the namespace functions `require use refer refer-clojure loaded-libs` and the `ns`
+  remove-all-methods prefer-method prefers` and the hierarchy fns `make-hierarchy derive underive isa?
+  parents ancestors descendants`, the namespace functions `require use refer refer-clojure loaded-libs` and the `ns`
   macro, and the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`,
   `preserving-reduced`, `load-one`, `load-lib`, `load-libs`, `libspec?` (`destructure` is public, as in
   Clojure). `clojure.set`, `clojure.string`, `clojure.walk`, `clojure.template` are separate embedded
   namespaces loaded on the first `require`. Not yet: `defrecord` (trigger: medley's `record?` and the
   suite's skip list — a deftype with a map behind it, `assoc` returning the record until a key leaves the
   basis), `defstruct`, `proxy`, `reify`-style
-  `IDeref`, `sorted-map`/`sorted-set` (trigger: the 15 suite forms and 6 medley tests that need them — a
-  persistent red-black or B-tree keyed by `compare`, its own file, with `rseq`/`subseq`/`rsubseq` on top),
-  `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
+  `IDeref`, `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
   `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`.
+- **Hierarchies and multimethod dispatch are core.clj, not C** (~line 1848). The global hierarchy is the
+  root of `#'clojure.core/global-hierarchy`, a `{:parents :ancestors :descendants}` map that `derive` and
+  `underive` replace through `alter-var-root`, as Clojure does; `underive` rebuilds from the remaining
+  edges. `isa?` is `=`, then the ancestor set, then elementwise over two vectors. A `MultiFn` is a
+  `deftype` over `IMultiFn` and `IFn` holding the method table, the prefer table and the cache in three
+  atoms; `defmulti`'s `:hierarchy` is a var, `#'global-hierarchy` by default, and the cache is
+  `[hierarchy-value {dispatch-val method}]` — keyed by the hierarchy it was built from, so a `derive`
+  invalidates every entry at once, as Clojure's `cachedHierarchy` check does, and a table or preference
+  change resets it outright. `invoke` has fixed arities up to three plus a variadic tail, which is what
+  makes the `=` hit *cheaper* than the pre-hierarchy `=`-only dispatch (222 vs 306 ns, bench/RESULTS.md):
+  the rest seq and the two `apply`s cost more than the lookup. Still 6× a protocol call, which is a
+  call-site cache; trigger for one here: multimethod dispatch in a profile.
 - **clojure.test** (boot/clojure/test.clj) covers `deftest deftest- set-test with-test is are testing
   thrown? thrown-with-msg? use-fixtures (:each/:once) compose-fixtures join-fixtures test-var test-vars
   test-all-vars test-ns run-tests run-all-tests run-test run-test-var successful? report do-report
@@ -902,10 +956,12 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   §7's trial deletion exists; `transient`,
   `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!`, `pop!` are the persistent operations themselves
   (the in-place path is the auto-transient of design §6b, so a code path written for transients just
-  works; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`; multimethods
-  dispatch by `=` with a `:default` fallback and no `isa?` hierarchy or `prefer-method` (trigger:
-  a `derive`/`isa?`-based dispatch in a corpus library; the hierarchy lives in an atom of
-  `{:parents :ancestors :descendants}` as Clojure's does, and `defmulti` grows a `prefer-table`);
+  works; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`;
+  `isa?` knows tags only, never host types — there is no superclass to read (trigger: `(isa? String
+  CharSequence)` or an `instance?`-shaped dispatch in a corpus library; then `class_getSuperclass` and
+  `swift_conformsToProtocol`, design §4);
+  `MultiFn.prefers` walks the *multimethod's* hierarchy, where Clojure's walks the global one whatever
+  the multimethod's `:hierarchy` says (a JVM quirk, not a documented rule);
   `rand` is SplitMix64 seeded per thread from the id counter; `upper-case`/`lower-case`/`capitalize`
   stringify any non-nil argument (`(str/lower-case :a)` is `":a"`) and map ASCII letters only — trigger for
   Unicode case tables: a corpus test on a non-ASCII case change, which needs the full SpecialCasing data,
@@ -1014,10 +1070,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **`make api-diff`** runs the parity report: `scripts/api-diff.clj dump-jvm` on JVM Clojure, the
   `clj-api-dump` executable for ours (it evaluates `ns-publics` and prints the EDN — name from the map key,
   not the meta, so a var whose meta lost its `:name` still appears), then the diff, weighted by symbol
-  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 466 of the JVM's 679
-  public vars exist, 316 missing, 78 of those used by the corpus; `sorted-map`, `derive`/`isa?`'s hierarchy
-  fns, `sorted-set`, `float`/`double`/`long`/`byte`/`short` coercions and the array fns lead the weighted
-  list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
+  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 519 of the JVM's 679
+  public vars exist, 271 missing, 45 of those used by the corpus; the array fns, `ref`, `with-precision`,
+  `random-sample` and `future` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
   mismatch (`pr` is `^:dynamic` on the JVM) and 13 arity mismatches, of which `partition`'s
   `[n step pad coll]`, `sequence`'s multi-coll arity and `disj!`'s 1-arity are real gaps rather than
   differently-written variadics.

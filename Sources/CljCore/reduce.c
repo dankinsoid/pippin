@@ -98,6 +98,7 @@ clj_value clj_reduce(clj_value f, clj_value init, clj_value coll) {
 clj_value clj_reduce_kv(clj_value f, clj_value init, clj_value coll) {
 	if (clj_is_nil(coll)) return clj_retain(init);
 	if (clj_is_map(coll)) return clj_map_reduce_kv(coll, f, init);
+	if (clj_is_sorted_map(coll)) return clj_sorted_map_reduce_kv(coll, f, init);
 	if (clj_is_vector(coll)) return clj_vector_reduce_kv(coll, f, init);
 	return clj_throw_msg("reduce-kv not supported on this type: %s", clj_type_name(coll));
 }

@@ -696,3 +696,44 @@ full bench after the change, against the last recorded ones:
 
 Within the run-to-run noise: the byte sits in the var's own cache line next to the root, and the branch is
 never taken for a non-dynamic var.
+
+## Sorted collections, multimethod dispatch — 2026-09-16, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The left-leaning red-black tree of sorted.c against the CHAMT of map.c over the same keys and probes.
+Every comparison is a call of `clojure.core/compare`, which is a host primitive (Primitives.swift), so
+each tree level costs one Swift↔C transition; the ratio column is that transition, not the tree.
+
+| scenario | n | sorted map | hash map | sorted / hash |
+|---|---:|---:|---:|---:|
+| assoc, old version dropped | 10 | 230.4 | 22.7 | 10.1× |
+| get, hit | 10 | 227.6 | 2.7 | 83.3× |
+| assoc, old version dropped | 1000 | 742.6 | 38.0 | 19.5× |
+| get, hit | 1000 | 699.2 | 13.0 | 53.6× |
+| assoc, old version dropped | 100000 | 1318.7 | 78.1 | 16.9× |
+| get, hit | 100000 | 1207.9 | 18.0 | 67.1× |
+
+- **A `get` is one host call per level**: 227 ns at 10 keys (~4 levels), 699 at 1000 (~10), 1208 at
+  100000 (~17) — ~70 ns each, flat in the key count, which is the transition and not the comparison.
+  A `clj_compare` in C with the Swift primitive delegating to it is the fix (NOTES.md, "Sorted").
+- **`assoc` adds the node copies** on top of the same walk: 230 → 743 → 1319 against the trie's 23 → 38 → 78.
+
+One multimethod call per iteration inside an interpreted loop, dispatch fn `identity`. "pre-hierarchy
+shape" is the dispatch this replaced — `=` against the method table with a `:default` fallback, one
+variadic `invoke` — as a deftype in the bench, so both rows come from the same run.
+
+| scenario | n | ns/op |
+|---|---:|---:|
+| multimethod, = hit | 100000 | 229.1 |
+| multimethod, = hit, pre-hierarchy shape | 100000 | 319.7 |
+| multimethod, isa? hit | 100000 | 225.8 |
+| multimethod, :default hit | 100000 | 222.0 |
+| protocol call, keyword receiver | 100000 | 35.0 |
+| plain fn call through a var | 100000 | 26.1 |
+
+- **`isa?` dispatch costs what `=` dispatch costs**: both are a hit in the `[hierarchy-value {dv method}]`
+  cache, so the hierarchy walk happens once per dispatch value and never again until the hierarchy or the
+  table changes.
+- **The new shape is 28 % faster than the one it replaces**, although it does strictly more work: fixed
+  `invoke` arities up to three remove the rest seq and the two `apply`s, which cost more than the lookup.
+- **Still 6× a protocol call and 9× a plain call**: what a protocol call has and a multimethod has not is
+  the call-site cache of eval.c. Trigger for one here is a profile with multimethod dispatch hot.

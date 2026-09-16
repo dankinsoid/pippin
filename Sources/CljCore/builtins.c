@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +12,7 @@
 #include "clj/reduce.h"
 #include "clj/runtime.h"
 #include "clj/seq.h"
+#include "clj/sorted.h"
 
 // ---- numbers
 
@@ -36,32 +38,28 @@ static double as_double(const num *n) { return n->is_double ? n->d : (double)n->
 
 static clj_value not_a_number(clj_value v) { return clj_throw_msg("%s cannot be cast to a number", clj_type_name(v)); }
 
-typedef enum { OP_ADD, OP_SUB, OP_MUL, OP_DIV } arith_op;
-
-static clj_value arith2(clj_value a, clj_value b, arith_op op) {
+static clj_value arith2(clj_value a, clj_value b, clj_num_op op) {
 	num x, y;
-	if (!to_num(a, &x)) return not_a_number(a);
-	if (!to_num(b, &y)) return not_a_number(b);
+	if (!to_num(a, &x) || !to_num(b, &y)) return clj_num_arith(a, b, op);
 	if (x.is_double || y.is_double) {
 		double p = as_double(&x), q = as_double(&y), r = 0;
 		switch (op) {
-		case OP_ADD: r = p + q; break;
-		case OP_SUB: r = p - q; break;
-		case OP_MUL: r = p * q; break;
-		case OP_DIV: r = p / q; break;
+		case CLJ_OP_ADD: r = p + q; break;
+		case CLJ_OP_SUB: r = p - q; break;
+		case CLJ_OP_MUL: r = p * q; break;
+		default: r = p / q; break;
 		}
 		return clj_double_new(r);
 	}
 	intptr_t r = 0;
 	bool     overflow = false;
 	switch (op) {
-	case OP_ADD: overflow = __builtin_add_overflow(x.i, y.i, &r); break;
-	case OP_SUB: overflow = __builtin_sub_overflow(x.i, y.i, &r); break;
-	case OP_MUL: overflow = __builtin_mul_overflow(x.i, y.i, &r); break;
-	case OP_DIV:
+	case CLJ_OP_ADD: overflow = __builtin_add_overflow(x.i, y.i, &r); break;
+	case CLJ_OP_SUB: overflow = __builtin_sub_overflow(x.i, y.i, &r); break;
+	case CLJ_OP_MUL: overflow = __builtin_mul_overflow(x.i, y.i, &r); break;
+	default:
 		if (y.i == 0) return clj_throw_msg("Divide by zero");
-		// An inexact quotient is a double until ratios exist (NOTES.md).
-		if (x.i % y.i != 0) return clj_double_new((double)x.i / (double)y.i);
+		if (x.i % y.i != 0) return clj_num_arith(a, b, CLJ_OP_DIV);
 		overflow = (x.i == INTPTR_MIN && y.i == -1);
 		if (!overflow) r = x.i / y.i;
 		break;
@@ -70,10 +68,10 @@ static clj_value arith2(clj_value a, clj_value b, arith_op op) {
 	return clj_fixnum(r);
 }
 
-clj_value clj_add(clj_value a, clj_value b) { return arith2(a, b, OP_ADD); }
-clj_value clj_sub(clj_value a, clj_value b) { return arith2(a, b, OP_SUB); }
-clj_value clj_mul(clj_value a, clj_value b) { return arith2(a, b, OP_MUL); }
-clj_value clj_div(clj_value a, clj_value b) { return arith2(a, b, OP_DIV); }
+clj_value clj_add(clj_value a, clj_value b) { return arith2(a, b, CLJ_OP_ADD); }
+clj_value clj_sub(clj_value a, clj_value b) { return arith2(a, b, CLJ_OP_SUB); }
+clj_value clj_mul(clj_value a, clj_value b) { return arith2(a, b, CLJ_OP_MUL); }
+clj_value clj_div(clj_value a, clj_value b) { return arith2(a, b, CLJ_OP_DIV); }
 clj_value clj_inc(clj_value v) { return clj_add(v, clj_fixnum(1)); }
 clj_value clj_dec(clj_value v) { return clj_sub(v, clj_fixnum(1)); }
 
@@ -82,8 +80,7 @@ clj_value clj_dec(clj_value v) { return clj_sub(v, clj_fixnum(1)); }
 static clj_value arith_fold(const clj_value *args, size_t n, clj_intrinsic_2 op, intptr_t identity, bool unary_is_self) {
 	if (n == 0) return clj_fixnum(identity);
 	if (n == 1) {
-		num x;
-		if (!to_num(args[0], &x)) return not_a_number(args[0]);
+		if (!clj_is_number(args[0])) return not_a_number(args[0]);
 		return unary_is_self ? clj_retain(args[0]) : op(clj_fixnum(identity), args[0]);
 	}
 	clj_value acc = op(args[0], args[1]);
@@ -104,8 +101,13 @@ typedef enum { CMP_LT, CMP_LE, CMP_GT, CMP_GE } cmp_op;
 
 static clj_value compare2(clj_value a, clj_value b, cmp_op op) {
 	num x, y;
-	if (!to_num(a, &x)) return not_a_number(a);
-	if (!to_num(b, &y)) return not_a_number(b);
+	if (!to_num(a, &x) || !to_num(b, &y)) {
+		int c;
+		if (clj_num_cmp(a, b, &c) == CLJ_THROWN) return CLJ_THROWN;
+		// 2 is a NaN against a bigint or a decimal: unordered, so every operator is false.
+		if (c == 2) return CLJ_FALSE;
+		return clj_bool(op == CMP_LT ? c < 0 : op == CMP_LE ? c <= 0 : op == CMP_GT ? c > 0 : c >= 0);
+	}
 	bool ok;
 	if (x.is_double || y.is_double) {
 		double p = as_double(&x), q = as_double(&y);
@@ -122,12 +124,9 @@ clj_value clj_le(clj_value a, clj_value b) { return compare2(a, b, CMP_LE); }
 clj_value clj_gt(clj_value a, clj_value b) { return compare2(a, b, CMP_GT); }
 clj_value clj_ge(clj_value a, clj_value b) { return compare2(a, b, CMP_GE); }
 
-// (op a b c ...) is true when every adjacent pair is; (op a) is true for a number.
+// (op a b c ...) is true when every adjacent pair is; the 1-arity is true for anything, as on the JVM.
 static clj_value compare_fold(const clj_value *args, size_t n, clj_intrinsic_2 op) {
-	if (n == 1) {
-		num x;
-		return to_num(args[0], &x) ? CLJ_TRUE : not_a_number(args[0]);
-	}
+	if (n == 1) return CLJ_TRUE;
 	for (size_t i = 1; i < n; i++) {
 		clj_value r = op(args[i - 1], args[i]);
 		if (r != CLJ_TRUE) return r;
@@ -181,35 +180,38 @@ static clj_value int_arg(clj_value v, intptr_t *out) {
 	return CLJ_NIL;
 }
 
-clj_value clj_zero_p(clj_value v) {
+// NaN is neither zero, positive nor negative, which the double arm keeps and clj_num_sign cannot express.
+static clj_value sign_test(clj_value v, cmp_op op) {
 	num x;
-	if (!to_num(v, &x)) return not_a_number(v);
-	return clj_bool(as_double(&x) == 0);
+	if (to_num(v, &x)) {
+		double d = as_double(&x);
+		return clj_bool(op == CMP_LT ? d < 0 : op == CMP_GT ? d > 0 : d == 0);
+	}
+	if (!clj_is_number(v)) return not_a_number(v);
+	int s = clj_num_sign(v);
+	return clj_bool(op == CMP_LT ? s < 0 : op == CMP_GT ? s > 0 : s == 0);
 }
 
-clj_value clj_pos_p(clj_value v) {
-	num x;
-	if (!to_num(v, &x)) return not_a_number(v);
-	return clj_bool(as_double(&x) > 0);
+clj_value clj_zero_p(clj_value v) { return sign_test(v, CMP_LE); }
+clj_value clj_pos_p(clj_value v) { return sign_test(v, CMP_GT); }
+clj_value clj_neg_p(clj_value v) { return sign_test(v, CMP_LT); }
+
+static clj_value parity(clj_value v, bool want_even) {
+	bool even;
+	if (clj_is_fixnum(v)) {
+		even = clj_fixnum_val(v) % 2 == 0;
+	} else if (clj_is_bigint(v)) {
+		clj_bigint *b = clj_bigint_of(v);
+		even = b->n == 0 || (b->limbs[0] & 1) == 0;
+	} else {
+		intptr_t i;
+		return int_arg(v, &i);
+	}
+	return clj_bool(even == want_even);
 }
 
-clj_value clj_neg_p(clj_value v) {
-	num x;
-	if (!to_num(v, &x)) return not_a_number(v);
-	return clj_bool(as_double(&x) < 0);
-}
-
-clj_value clj_even_p(clj_value v) {
-	intptr_t i;
-	if (int_arg(v, &i) == CLJ_THROWN) return CLJ_THROWN;
-	return clj_bool(i % 2 == 0);
-}
-
-clj_value clj_odd_p(clj_value v) {
-	intptr_t i;
-	if (int_arg(v, &i) == CLJ_THROWN) return CLJ_THROWN;
-	return clj_bool(i % 2 != 0);
-}
+clj_value clj_even_p(clj_value v) { return parity(v, true); }
+clj_value clj_odd_p(clj_value v) { return parity(v, false); }
 
 // ---- predicates
 
@@ -224,7 +226,6 @@ clj_value clj_odd_p(clj_value v) {
 		return cname(args[0]); \
 	}
 
-static bool is_number(clj_value v) { return clj_is_fixnum(v) || clj_is_double(v); }
 static bool is_not(clj_value v) { return !clj_truthy(v); }
 static bool is_map_p(clj_value v) { return clj_has_core(v, CLJ_CORE_MAP); }
 static bool is_set_p(clj_value v) { return clj_has_core(v, CLJ_CORE_SET); }
@@ -239,7 +240,7 @@ static bool is_indexed(clj_value v) { return clj_has_core(v, CLJ_CORE_INDEXED); 
 
 PREDICATE(clj_not, b_not, is_not)
 PREDICATE(clj_nil_p, b_nil, clj_is_nil)
-PREDICATE(clj_number_p, b_number, is_number)
+PREDICATE(clj_number_p, b_number, clj_is_number)
 PREDICATE(clj_string_p, b_string, clj_is_string)
 PREDICATE(clj_keyword_p, b_keyword, clj_is_keyword)
 PREDICATE(clj_symbol_p, b_symbol, clj_is_symbol)
@@ -257,7 +258,7 @@ PREDICATE(clj_ifn_p, b_ifn_p, is_ifn)
 PREDICATE(clj_associative_p, b_associative_p, is_associative)
 PREDICATE(clj_indexed_p, b_indexed_p, is_indexed)
 PREDICATE(clj_char_p, b_char_p, clj_is_char)
-PREDICATE(clj_integer_p, b_integer_p, clj_is_fixnum)
+PREDICATE(clj_integer_p, b_integer_p, clj_is_integer)
 FORWARD1(clj_inc, b_inc)
 FORWARD1(clj_dec, b_dec)
 FORWARD1(clj_zero_p, b_zero)
@@ -279,7 +280,8 @@ static clj_value b_nth(const clj_value *args, size_t n) { return n == 3 ? clj_nt
 
 // Consumes coll (+1 in), as clj_conj does.
 static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
-	if (clj_is_map(coll)) return clj_map_assoc(coll, key, val);
+	const clj_type *t = clj_is_ptr(coll) ? clj_type_of(coll) : NULL;
+	if (t && t->assoc) return t->assoc(coll, key, val);
 	if (clj_is_vector(coll)) {
 		if (!clj_is_fixnum(key)) {
 			clj_release(coll);
@@ -315,7 +317,7 @@ static clj_value dissoc_type_error(clj_value coll) { return clj_throw_msg("disso
 
 clj_value clj_dissoc_owned(clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_NIL;
-	if (clj_is_map(coll)) return clj_map_dissoc(coll, key);
+	if (clj_has_core(coll, CLJ_CORE_MAP)) return clj_type_of(coll)->dissoc(coll, key);
 	clj_value e = dissoc_type_error(coll);
 	clj_release(coll);
 	return e;
@@ -324,7 +326,7 @@ clj_value clj_dissoc_owned(clj_value coll, clj_value key) {
 clj_value clj_dissoc2(clj_value coll, clj_value key) { return clj_dissoc_owned(clj_retain(coll), key); }
 
 static clj_value b_dissoc(const clj_value *args, size_t n) {
-	if (n == 1) return clj_is_nil(args[0]) || clj_is_map(args[0]) ? clj_retain(args[0]) : dissoc_type_error(args[0]);
+	if (n == 1) return clj_is_nil(args[0]) || clj_has_core(args[0], CLJ_CORE_MAP) ? clj_retain(args[0]) : dissoc_type_error(args[0]);
 	clj_value coll = clj_dissoc2(args[0], args[1]);
 	for (size_t i = 2; i < n && coll != CLJ_THROWN; i++) coll = clj_dissoc_owned(coll, args[i]);
 	return coll;
@@ -335,6 +337,13 @@ clj_value clj_contains_p(clj_value coll, clj_value key) {
 	if (clj_is_map(coll)) return clj_bool(clj_map_contains(coll, key));
 	if (clj_is_set(coll)) return clj_bool(clj_set_contains(coll, key));
 	if (clj_is_vector(coll)) return clj_bool(clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && (uintptr_t)clj_fixnum_val(key) < clj_vector_count(coll));
+	// Any other IPersistentMap/Set answers through its lookup; CLJ_UNBOUND is never a stored value.
+	if (clj_has_core(coll, CLJ_CORE_MAP) || clj_has_core(coll, CLJ_CORE_SET)) {
+		clj_value v = clj_get(coll, key, CLJ_UNBOUND);
+		if (v == CLJ_THROWN) return CLJ_THROWN;
+		clj_release(v);
+		return clj_bool(v != CLJ_UNBOUND);
+	}
 	return clj_throw_msg("contains? not supported on type: %s", clj_type_name(coll));
 }
 
@@ -347,7 +356,7 @@ static clj_value disj_type_error(clj_value coll) { return clj_throw_msg("disj no
 
 clj_value clj_disj_owned(clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_NIL;
-	if (clj_is_set(coll)) return clj_set_disj(coll, key);
+	if (clj_has_core(coll, CLJ_CORE_SET)) return clj_type_of(coll)->dissoc(coll, key);
 	clj_value e = disj_type_error(coll);
 	clj_release(coll);
 	return e;
@@ -356,7 +365,7 @@ clj_value clj_disj_owned(clj_value coll, clj_value key) {
 clj_value clj_disj2(clj_value coll, clj_value key) { return clj_disj_owned(clj_retain(coll), key); }
 
 static clj_value b_disj(const clj_value *args, size_t n) {
-	if (n == 1) return clj_is_nil(args[0]) || clj_is_set(args[0]) ? clj_retain(args[0]) : disj_type_error(args[0]);
+	if (n == 1) return clj_is_nil(args[0]) || clj_has_core(args[0], CLJ_CORE_SET) ? clj_retain(args[0]) : disj_type_error(args[0]);
 	clj_value coll = clj_disj2(args[0], args[1]);
 	for (size_t i = 2; i < n && coll != CLJ_THROWN; i++) coll = clj_disj_owned(coll, args[i]);
 	return coll;
@@ -388,6 +397,7 @@ static clj_value b_empty_coll(const clj_value *args, size_t n) {
 	if (clj_is_vector(coll)) e = clj_vector_empty();
 	else if (clj_is_map(coll)) e = clj_map_empty();
 	else if (clj_is_set(coll)) e = clj_set_empty();
+	else if (clj_is_sorted(coll)) e = clj_sorted_empty(coll);
 	else if (clj_has_core(coll, CLJ_CORE_COLL)) e = clj_list_empty();
 	else return CLJ_NIL;
 	clj_value m = clj_meta(coll);
@@ -618,7 +628,7 @@ static clj_value b_atom(const clj_value *args, size_t n) {
 		if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "meta") == 0) meta = args[i + 1];
 		else if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "validator") == 0) validator = args[i + 1];
 	}
-	if (!clj_is_nil(meta) && !clj_is_map(meta)) return clj_throw_msg("atom :meta must be a map, got: %s", clj_type_name(meta));
+	if (!clj_is_nil(meta) && !clj_has_core(meta, CLJ_CORE_MAP)) return clj_throw_msg("atom :meta must be a map, got: %s", clj_type_name(meta));
 	if (!clj_is_nil(validator) && !clj_has_core(validator, CLJ_CORE_FN)) return clj_throw_msg("atom :validator must be a fn, got: %s", clj_type_name(validator));
 	return clj_atom_new(args[0], meta, validator);
 }
@@ -795,7 +805,7 @@ static clj_value b_macroexpand(const clj_value *args, size_t n) {
 
 static clj_value b_ex_info(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return clj_throw_msg("ex-info message must be a string, got: %s", clj_type_name(args[0]));
-	if (!clj_is_nil(args[1]) && !clj_is_map(args[1])) return clj_throw_msg("ex-info data must be a map, got: %s", clj_type_name(args[1]));
+	if (!clj_is_nil(args[1]) && !clj_has_core(args[1], CLJ_CORE_MAP)) return clj_throw_msg("ex-info data must be a map, got: %s", clj_type_name(args[1]));
 	clj_value cause = n == 3 ? args[2] : CLJ_NIL;
 	if (!clj_is_nil(cause) && !clj_is_exception(cause)) return clj_throw_msg("ex-info cause must be an exception, got: %s", clj_type_name(cause));
 	return clj_ex_info_cause(args[0], args[1], cause);
@@ -865,6 +875,19 @@ static bool put_str(buf *b, clj_value v) {
 	if (clj_is_nil(v)) return true;
 	if (clj_is_string(v)) {
 		buf_put(b, clj_string_bytes(v), clj_string_len(v));
+		return true;
+	}
+	if (clj_is_double(v) && !isfinite(clj_double_val(v))) {
+		double d = clj_double_val(v);
+		const char *text = d != d ? "NaN" : d < 0 ? "-Infinity" : "Infinity";
+		buf_put(b, text, strlen(text));
+		return true;
+	}
+	// BigInt.toString and BigDecimal.toString carry no tag, where print-method appends N and M.
+	if (clj_is_bigint(v) || clj_is_decimal(v)) {
+		clj_value t = clj_is_bigint(v) ? clj_bigint_to_string(v) : clj_decimal_to_string(v);
+		buf_put(b, clj_string_bytes(t), clj_string_len(t));
+		clj_release(t);
 		return true;
 	}
 	if (clj_is_char(v)) {
@@ -1016,7 +1039,7 @@ static clj_value not_a_reference(const char *what, clj_value v) {
 
 static clj_value b_reset_meta(const clj_value *args, size_t n) {
 	(void)n;
-	if (!clj_is_nil(args[1]) && !clj_is_map(args[1])) return clj_throw_msg("reset-meta! expects a map, got: %s", clj_type_name(args[1]));
+	if (!clj_is_nil(args[1]) && !clj_has_core(args[1], CLJ_CORE_MAP)) return clj_throw_msg("reset-meta! expects a map, got: %s", clj_type_name(args[1]));
 	if (clj_is_atom(args[0])) return clj_atom_reset_meta(args[0], args[1]);
 	if (!clj_is_var(args[0])) return not_a_reference("reset-meta!", args[0]);
 	clj_var_set_meta(args[0], args[1]);
@@ -1039,7 +1062,7 @@ static clj_value b_alter_meta(const clj_value *args, size_t n) {
 		call[0] = old;
 		m = clj_invoke(args[1], call, n - 1);
 		if (m == CLJ_THROWN) break;
-		if (!clj_is_nil(m) && !clj_is_map(m)) {
+		if (!clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
 			clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));
 			clj_release(m);
 			m = e;
@@ -1073,10 +1096,11 @@ static clj_value int_args(const char *what, const clj_value *args, size_t n, int
 static clj_value b_quot(const clj_value *args, size_t n) {
 	(void)n;
 	num x, y;
-	if (!to_num(args[0], &x)) return not_a_number(args[0]);
-	if (!to_num(args[1], &y)) return not_a_number(args[1]);
+	if (!to_num(args[0], &x) || !to_num(args[1], &y)) return clj_num_arith(args[0], args[1], CLJ_OP_QUOT);
 	if (x.is_double || y.is_double) {
 		double q = as_double(&x) / as_double(&y);
+		// Numbers.quotient rounds through BigDecimal past the long range, which rejects an infinity or a NaN.
+		if (!isfinite(q)) return clj_throw_msg(as_double(&y) == 0 ? "Divide by zero" : "Infinite or NaN");
 		return clj_double_new(q < 0 ? __builtin_ceil(q) : __builtin_floor(q));
 	}
 	if (y.i == 0) return clj_throw_msg("Divide by zero");
@@ -1087,9 +1111,13 @@ static clj_value b_quot(const clj_value *args, size_t n) {
 static clj_value b_rem(const clj_value *args, size_t n) {
 	(void)n;
 	num x, y;
-	if (!to_num(args[0], &x)) return not_a_number(args[0]);
-	if (!to_num(args[1], &y)) return not_a_number(args[1]);
-	if (x.is_double || y.is_double) return clj_double_new(__builtin_fmod(as_double(&x), as_double(&y)));
+	if (!to_num(args[0], &x) || !to_num(args[1], &y)) return clj_num_arith(args[0], args[1], CLJ_OP_REM);
+	if (x.is_double || y.is_double) {
+		double p = as_double(&x), d = as_double(&y), q = p / d;
+		if (!isfinite(q)) return clj_throw_msg(d == 0 ? "Divide by zero" : "Infinite or NaN");
+		// Numbers.remainder is n - trunc(n/d)*d, not fmod: (rem 1 ##Inf) is NaN, not 1.0.
+		return clj_double_new(p - __builtin_trunc(q) * d);
+	}
 	if (y.i == 0) return clj_throw_msg("Divide by zero");
 	if (y.i == -1) return clj_fixnum(0);
 	return clj_fixnum(x.i % y.i);
@@ -1185,6 +1213,52 @@ static clj_value b_rand_star(const clj_value *args, size_t n) {
 	return clj_double_new((double)(z >> 11) * (1.0 / 9007199254740992.0));
 }
 
+// ---- sorted collections
+
+static clj_value sorted_from_args(bool map, const clj_value *args, size_t n) {
+	if (!clj_has_core(args[0], CLJ_CORE_FN)) return clj_throw_msg("comparator must be a function, got: %s", clj_type_name(args[0]));
+	if (map && (n - 1) % 2) {
+		clj_value text = clj_pr_str(args[n - 1]);
+		clj_value e = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
+		clj_release(text);
+		return e;
+	}
+	clj_value c = map ? clj_sorted_map_new(args[0]) : clj_sorted_set_new(args[0]);
+	for (size_t i = 1; i < n && c != CLJ_THROWN; i += map ? 2 : 1) c = clj_sorted_assoc(c, args[i], map ? args[i + 1] : CLJ_NIL);
+	return c;
+}
+
+static clj_value b_sorted_map_by(const clj_value *args, size_t n) { return sorted_from_args(true, args, n); }
+static clj_value b_sorted_set_by(const clj_value *args, size_t n) { return sorted_from_args(false, args, n); }
+
+static clj_value b_sorted_p(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_bool(clj_is_sorted(args[0]));
+}
+
+static clj_value sorted_arg(const char *name, clj_value v) {
+	if (clj_is_sorted(v)) return CLJ_NIL;
+	return clj_throw_msg("%s not supported on this type: %s", name, clj_type_name(v));
+}
+
+static clj_value b_sorted_seq(const clj_value *args, size_t n) {
+	(void)n;
+	if (sorted_arg("rseq", args[0]) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_sorted_seq(args[0], clj_truthy(args[1]));
+}
+
+static clj_value b_sorted_seq_from(const clj_value *args, size_t n) {
+	(void)n;
+	if (sorted_arg("subseq", args[0]) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_sorted_seq_from(args[0], args[1], clj_truthy(args[2]));
+}
+
+static clj_value b_sorted_compare(const clj_value *args, size_t n) {
+	(void)n;
+	if (sorted_arg("subseq", args[0]) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_sorted_compare(args[0], args[1], args[2]);
+}
+
 static const entry entries[] = {
 	{"quot", b_quot, 2, 2},        {"rem", b_rem, 2, 2},         {"bit-and", b_bit_and, 2, ANY}, {"bit-or", b_bit_or, 2, ANY},
 	{"bit-xor", b_bit_xor, 2, ANY}, {"bit-and-not", b_bit_and_not, 2, ANY}, {"bit-not", b_bit_not, 1, 1},
@@ -1206,6 +1280,8 @@ static const entry entries[] = {
 	{"rest", b_rest, 1, 1},        {"next", b_next, 1, 1},       {"cons", b_cons, 2, 2},        {"list", b_list, 0, ANY},
 	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
 	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},
+	{"sorted-map-by", b_sorted_map_by, 1, ANY}, {"sorted-set-by", b_sorted_set_by, 1, ANY}, {"sorted?", b_sorted_p, 1, 1},
+	{"sorted-seq*", b_sorted_seq, 2, 2}, {"sorted-seq-from*", b_sorted_seq_from, 3, 3}, {"sorted-compare*", b_sorted_compare, 3, 3},
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", b_lazy_seq_star, 1, 1},
 	{"lazy-seq-realized?*", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
@@ -1243,4 +1319,5 @@ void clj_builtins_install(void) {
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
 	clj_ns_builtins_install();
 	clj_string_builtins_install();
+	clj_number_builtins_install();
 }

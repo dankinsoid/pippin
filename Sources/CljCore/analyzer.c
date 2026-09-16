@@ -197,7 +197,11 @@ static clj_value with_position(const analyzer *a, clj_value data) {
 bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value m = clj_meta(form);
-	if (clj_is_nil(m)) return false;
+	// Only the reader writes a position, and it writes a hash map.
+	if (!clj_is_map(m)) {
+		clj_release(m);
+		return false;
+	}
 	clj_value l = clj_map_get(m, kw_line, CLJ_NIL), c = clj_map_get(m, kw_column, CLJ_NIL);
 	bool      ok = clj_is_fixnum(l) && clj_is_fixnum(c) && clj_fixnum_val(l) > 0;
 	if (ok) {
@@ -952,7 +956,7 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	if (!clj_is_nil(clj_symbol_ns(sym)) || !clj_is_nil(sym_meta)) name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
 	clj_node *node = node_new(a, CLJ_NODE_DEF);
 	node->u.def.var = clj_retain(clj_ns_intern(a->env.ns, name));
-	node->u.def.dynamic = !clj_is_nil(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_dynamic, CLJ_NIL));
+	node->u.def.dynamic = clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_dynamic, CLJ_NIL));
 	clj_release(sym_meta);
 	if (name != sym) clj_release(name);
 	clj_value meta_form = def_meta_form(a, sym, node->u.def.var, doc);

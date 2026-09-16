@@ -24,6 +24,8 @@ clj_value clj_count(clj_value coll);
 clj_value clj_conj(clj_value coll, clj_value x);
 // not_found for nil and for types without lookup.
 clj_value clj_get(clj_value coll, clj_value key, clj_value not_found);
+// The same for equality across map representations: a sorted lookup's comparator throw is dropped, as clj_equals cannot throw.
+clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found);
 // Indexed types, strings (code points) and sequential seqs (walked). Out of range throws, or yields not_found when has_not_found.
 clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value not_found);
 // Owned metadata map, nil for anything without a meta slot (numbers, keywords, strings, nil).

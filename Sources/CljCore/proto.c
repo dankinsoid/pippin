@@ -1076,6 +1076,7 @@ void clj_proto_install(void) {
 		{"Range", &clj_range_type},        {"Fn", &clj_fn_type},           {"Var", &clj_var_type},           {"Namespace", &clj_ns_type},
 		{"ExceptionInfo", &clj_exception_type}, {"HostError", &clj_host_error_type}, {"Protocol", &clj_protocol_type}, {"Type", &clj_type_type},
 		{"Reduced", &clj_reduced_type},    {"Volatile", &clj_volatile_type},  {"Atom", &clj_atom_type},
+		{"PersistentTreeMap", &clj_sorted_map_type}, {"PersistentTreeSet", &clj_sorted_set_type},
 	};
 	for (size_t i = 0; i < sizeof types / sizeof *types; i++) bind_core(types[i].name, clj_from_ptr((void *)types[i].type));
 	clj_value empty = clj_vector_empty();

@@ -449,12 +449,26 @@ static bool equals_entry(clj_value key, clj_value val, void *ctx) {
 	return ec->equal;
 }
 
+// Another IPersistentMap representation (a sorted map) is equal by content, so the entries go through its lookup.
+static bool equals_foreign_entry(clj_value key, clj_value val, void *ctx) {
+	equals_ctx *ec = ctx;
+	clj_value   found = clj_equals_lookup(ec->other, key, CLJ_UNBOUND);
+	ec->equal = found != CLJ_UNBOUND && clj_equals(found, val);
+	clj_release(found);
+	return ec->equal;
+}
+
 static bool map_equals(void *self, clj_value other) {
-	if (!clj_is_ptr(other) || clj_header_of(other)->type != &clj_map_type) return false;
+	if (!clj_has_core(other, CLJ_CORE_MAP)) return false;
 	clj_map *m = self;
-	if (m->count != clj_map_of(other)->count) return false;
+	clj_value n = clj_count(other);
+	if (n == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return false;
+	}
+	if (m->count != (uint32_t)clj_fixnum_val(n)) return false;
 	equals_ctx ec = {other, true};
-	clj_map_each(clj_from_ptr(m), equals_entry, &ec);
+	clj_map_each(clj_from_ptr(m), clj_is_map(other) ? equals_entry : equals_foreign_entry, &ec);
 	return ec.equal;
 }
 
@@ -575,6 +589,8 @@ const clj_type clj_map_type = {
 	.count = map_count,
 	.lookup = map_lookup,
 	.conj = map_conj,
+	.assoc = clj_map_assoc,
+	.dissoc = clj_map_dissoc,
 	.reduce = map_reduce,
 	.invoke = map_invoke,
 	.meta = map_meta,

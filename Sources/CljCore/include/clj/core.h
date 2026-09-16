@@ -28,6 +28,7 @@
 #include "seq.h"     // IWYU pragma: export
 #include "set.h"     // IWYU pragma: export
 #include "shadow.h"  // IWYU pragma: export
+#include "sorted.h"  // IWYU pragma: export
 #include "string.h"  // IWYU pragma: export
 #include "symbol.h"  // IWYU pragma: export
 #include "value.h"   // IWYU pragma: export

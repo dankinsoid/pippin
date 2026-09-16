@@ -60,12 +60,26 @@ static bool equals_item(clj_value item, void *ctx) {
 	return ec->equal;
 }
 
+// Another IPersistentSet representation (a sorted set) is equal by content, so the elements go through its lookup.
+static bool equals_foreign_item(clj_value item, void *ctx) {
+	equals_ctx *ec = ctx;
+	clj_value   found = clj_equals_lookup(ec->other, item, CLJ_UNBOUND);
+	ec->equal = found != CLJ_UNBOUND;
+	clj_release(found);
+	return ec->equal;
+}
+
 static bool set_equals(void *self, clj_value other) {
-	if (!clj_is_set(other)) return false;
+	if (!clj_has_core(other, CLJ_CORE_SET)) return false;
 	clj_value me = clj_from_ptr(self);
-	if (clj_set_count(me) != clj_set_count(other)) return false;
+	clj_value n = clj_count(other);
+	if (n == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return false;
+	}
+	if (clj_set_count(me) != (uint32_t)clj_fixnum_val(n)) return false;
 	equals_ctx ec = {other, true};
-	clj_set_each(me, equals_item, &ec);
+	clj_set_each(me, clj_is_set(other) ? equals_item : equals_foreign_item, &ec);
 	return ec.equal;
 }
 
@@ -156,6 +170,7 @@ const clj_type clj_set_type = {
 	.count = set_count,
 	.lookup = set_lookup,
 	.conj = clj_set_conj,
+	.dissoc = clj_set_disj,
 	.reduce = set_reduce,
 	.invoke = set_invoke,
 	.meta = set_meta,

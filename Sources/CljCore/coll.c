@@ -104,6 +104,13 @@ clj_value clj_get(clj_value coll, clj_value key, clj_value not_found) {
 	return clj_retain(not_found);
 }
 
+clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found) {
+	clj_value v = clj_get(coll, key, not_found);
+	if (v != CLJ_THROWN) return v;
+	clj_release(clj_take_pending());
+	return clj_retain(not_found);
+}
+
 // Code point at index i, or false past the end.
 static bool string_nth(clj_value s, size_t i, uint32_t *out) {
 	const char *p = clj_string_bytes(s);
@@ -168,7 +175,7 @@ clj_value clj_with_meta(clj_value v, clj_value m) {
 	const clj_type *t = type_or_null(v);
 	clj_value       r;
 	if (!t || !t->with_meta) r = clj_throw_msg("with-meta: %s does not support metadata", clj_type_name(v));
-	else if (!clj_is_nil(m) && !clj_is_map(m)) r = clj_throw_msg("with-meta: metadata must be a map, got: %s", clj_type_name(m));
+	else if (!clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) r = clj_throw_msg("with-meta: metadata must be a map, got: %s", clj_type_name(m));
 	else return t->with_meta(v, m);
 	clj_release(v);
 	return r;
