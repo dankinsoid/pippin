@@ -1169,37 +1169,49 @@ static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 }
 
 // 1 on a match, 0 on none, -1 with the deadline exception pending.
-static int re_exec(clj_value re, const re_text *t, uint32_t from, bool whole, int32_t *groups) {
+// A scan keeps one context across matches: its three buffers are the only allocation a match needs.
+static void ctx_start(re_ctx *c, clj_value re, const re_text *t) {
+	memset(c, 0, sizeof *c);
+	c->t = t;
+	c->p = clj_regex_of(re)->prog;
+	c->slots = malloc(c->p->nslots * sizeof *c->slots);
+	if (!c->slots) clj_fatal("out of memory");
+}
+
+static void ctx_done(re_ctx *c) {
+	free(c->slots);
+	free(c->undo);
+	free(c->bt);
+}
+
+static int re_exec_in(re_ctx *c, clj_value re, uint32_t from, bool whole, int32_t *groups) {
 	const clj_regex *r = clj_regex_of(re);
-	const re_prog   *p = r->prog;
-	re_ctx           c = {0};
-	c.t = t;
-	c.p = p;
-	c.whole = whole;
-	c.budget = RE_DEADLINE_EVERY;
-	c.slots = malloc(p->nslots * sizeof *c.slots);
-	if (!c.slots) clj_fatal("out of memory");
-	int result = 0;
-	for (uint32_t start = from; start <= t->n; start++) {
-		for (uint32_t i = 0; i < p->nslots; i++) c.slots[i] = -1;
-		c.undo_n = 0;
-		c.bt_n = 0;
+	c->whole = whole;
+	c->budget = RE_DEADLINE_EVERY;
+	c->timeout = false;
+	for (uint32_t start = from; start <= c->t->n; start++) {
+		for (uint32_t i = 0; i < c->p->nslots; i++) c->slots[i] = -1;
+		c->undo_n = 0;
+		c->bt_n = 0;
 		uint32_t end;
-		if (re_run(&c, 0, start, &end)) {
-			memcpy(groups, c.slots, 2 * (r->ngroups + 1) * sizeof *groups);
-			result = 1;
-			break;
+		if (re_run(c, 0, start, &end)) {
+			memcpy(groups, c->slots, 2 * (r->ngroups + 1) * sizeof *groups);
+			return 1;
 		}
-		if (c.timeout) {
+		if (c->timeout) {
 			clj_throw_msg(CLJ_DEADLINE_MESSAGE);
-			result = -1;
-			break;
+			return -1;
 		}
 		if (whole) break;
 	}
-	free(c.slots);
-	free(c.undo);
-	free(c.bt);
+	return 0;
+}
+
+static int re_exec(clj_value re, const re_text *t, uint32_t from, bool whole, int32_t *groups) {
+	re_ctx c;
+	ctx_start(&c, re, t);
+	int result = re_exec_in(&c, re, from, whole, groups);
+	ctx_done(&c);
 	return result;
 }
 
@@ -1434,8 +1446,10 @@ clj_value clj_regex_split(clj_value re, clj_value s, intptr_t limit) {
 	clj_value parts = clj_vector_empty();
 	uint32_t  index = 0, at = 0;
 	bool      thrown = false, none = true;
+	re_ctx    ctx;
+	ctx_start(&ctx, re, &t);
 	while (at <= t.n) {
-		int hit = re_exec(re, &t, at, false, g);
+		int hit = re_exec_in(&ctx, re, at, false, g);
 		if (hit < 0) {
 			thrown = true;
 			break;
@@ -1478,6 +1492,7 @@ clj_value clj_regex_split(clj_value re, clj_value s, intptr_t limit) {
 			while (clj_vector_count(parts) > n) parts = clj_vector_pop(parts);
 		}
 	}
+	ctx_done(&ctx);
 	free(g);
 	text_free(&t);
 	return parts;
@@ -1550,8 +1565,10 @@ static clj_value replace_scan(clj_value re, clj_value s, clj_value repl, clj_val
 	buf      b = {0};
 	uint32_t at = 0, copied = 0;
 	bool     thrown = false;
+	re_ctx   ctx;
+	ctx_start(&ctx, re, &t);
 	while (at <= t.n) {
-		int hit = re_exec(re, &t, at, false, g);
+		int hit = re_exec_in(&ctx, re, at, false, g);
 		if (hit < 0) {
 			thrown = true;
 			break;
@@ -1591,6 +1608,7 @@ static clj_value replace_scan(clj_value re, clj_value s, clj_value repl, clj_val
 		buf_slice(&b, &t, s, copied, t.n);
 		out = clj_string_new(b.data, b.len);
 	}
+	ctx_done(&ctx);
 	free(b.data);
 	free(g);
 	text_free(&t);

@@ -869,3 +869,24 @@ unique writes and ±4 on the shared `assoc`.
 - **The record is 1.5–2.3× the hash map everywhere**, which is the whole claim of the representation: no key
   hashing on the read, no node copy on the write. It is the floor for what shapes will do for a plain
   `{:id 1 :name "x"}`, since a shape is this layout with a shared descriptor instead of a named type.
+## Regex — 66f6491, Apple M3 Pro, 36 GB, Swift 6.2.4
+
+The backtracking matcher of regex.c through the `clojure.core` surface: the pattern is compiled once
+outside the measured fn, which is interpreted, so each row is one interpreted call plus the match.
+`split` and `replace` keep one matcher context across the matches of a scan, so a match past the first
+allocates nothing.
+
+| scenario | C pool | C malloc |
+|---|---:|---:|
+| `re-find` of `#"\d+"` over a 40-char string | 397.4 | 444.9 |
+| `split` on `#","` of a 10-field line | 750.7 | 1224.3 |
+| `replace` with `#"(\w+)@"` and `$1`, two matches | 2140.9 | 2143.0 |
+
+- **`re-find` is 400 ns for one match in 40 code points**, most of it the leftmost scan: the matcher
+  retries at every start position, as the program carries no first-character or prefix filter. Trigger
+  for one: a `re-find` in a profile's inner loop; the fix is a first-set bitmap read before each start.
+- **`split` of ten fields is 75 ns per field.** Reusing the context across the matches of one scan took
+  it from 1256 to 751 ns (three malloc/free pairs per match gone), which is why the malloc control is
+  still 1.6×.
+- **`replace` is the slowest row**: each match re-scans from the end of the last one, so the work is
+  quadratic in the gaps between matches, and the `$1` expansion walks the replacement again per match.

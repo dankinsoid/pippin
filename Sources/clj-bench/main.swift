@@ -1070,3 +1070,27 @@ for r in atomRows {
 	print("| \(r.scenario) | \(r.n) | \(fmt(r.c)) | \(fmt(r.swift)) | \(r.swift.map { ratio($0, r.c) } ?? "—") |")
 }
 print("\nns per iteration; swap! assoc, map of K keys = (swap! a assoc k v) with k cycling through the keys of a prebuilt map the atom alone holds and v new every call, watched = (swap! a assoc i i) growing a map on an atom with a no-op watch, swap! inc / get @atom :k = the same loops, 4 threads = four DispatchQueue.concurrentPerform workers sharing one atom (n ops in total); Swift locked = an os_unfair_lock around a Dictionary insert / an Int increment / a Dictionary read")
+
+// MARK: - Regex
+
+// The pattern is compiled once outside the measured fn, as a literal in a closure is.
+let reFindFn = cljEval(#"(let [p #"\d+"] (fn [s] (count (re-find p s))))"#)
+let reSplitFn = cljEval(#"(do (require 'clojure.string) (let [p #","] (fn [s] (count (clojure.string/split s p)))))"#)
+let reReplaceFn = cljEval(#"(let [p #"(\w+)@"] (fn [s] (count (clojure.string/replace s p "$1 at "))))"#)
+let reFindArg = cljEval(#""order 1147 shipped on 2026-09-16 by van 7""#)
+let reSplitArg = cljEval(#""a,bb,ccc,dddd,e,ff,ggg,h,ii,jjj""#)
+let reReplaceArg = cljEval(#""ann@example.com and bob@example.com""#)
+
+let regexRows: [(String, Double)] = [
+	("re-find #\"\\d+\" over a 40-char string", measure(ops: 1) { cljCall(reFindFn, reFindArg) }),
+	("split #\",\" of a 10-field line", measure(ops: 1) { cljCall(reSplitFn, reSplitArg) }),
+	("replace #\"(\\w+)@\" with $1", measure(ops: 1) { cljCall(reReplaceFn, reReplaceArg) }),
+]
+for v in [reFindFn, reSplitFn, reReplaceFn, reFindArg, reSplitArg, reReplaceArg] { clj_release(v) }
+
+print("\n| scenario | ns/op |")
+print("|---|---:|")
+for r in regexRows {
+	print("| \(r.0) | \(fmt(r.1)) |")
+}
+print("\nns per call; the measured fn is interpreted and the pattern is already compiled")
