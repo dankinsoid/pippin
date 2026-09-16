@@ -347,6 +347,8 @@
   of test when that value is logical true, else evaluates else without the binding."
   ([bindings then] `(if-let ~bindings ~then nil))
   ([bindings then else]
+   (when-not (and (vector? bindings) (= 2 (count bindings)))
+     (throw (ex-info "if-let requires a vector of exactly 2 forms in binding" {})))
    (let [form (first bindings)
          tst (second bindings)]
      `(let [temp# ~tst]
@@ -357,6 +359,8 @@
 (defmacro when-let
   "Like if-let with body in an implicit do and no else branch."
   [bindings & body]
+  (when-not (and (vector? bindings) (= 2 (count bindings)))
+    (throw (ex-info "when-let requires a vector of exactly 2 forms in binding" {})))
   (let [form (first bindings)
         tst (second bindings)]
     `(let [temp# ~tst]
@@ -473,8 +477,8 @@
   otherwise a seq, empty rather than nil once coll runs out."
   [coll n]
   (loop [n n xs coll]
-    (if (and (pos? n) (seq xs))
-      (recur (dec n) (rest xs))
+    (if (pos? n)
+      (if (seq xs) (recur (dec n) (rest xs)) (rest xs))
       xs)))
 
 (defn some
@@ -660,7 +664,8 @@
 (defn repeat
   "Returns a lazy seq of x, endlessly or n times."
   ([x] (lazy-seq (cons x (repeat x))))
-  ([n x] (take n (repeat x))))
+  ;; quot truncates a fractional count, as Repeat.create's long cast does; take alone would round up.
+  ([n x] (take (quot n 1) (repeat x))))
 
 ;; Fixnum ranges are the O(1) range type; step 0 repeats as Clojure's does; doubles walk a lazy seq.
 (defn range
@@ -1038,7 +1043,8 @@
   [coll]
   (cond (nil? coll) nil
         (vector? coll) (when (pos? (count coll)) (nth coll (dec (count coll))))
-        :else (first coll)))
+        (list? coll) (first coll)
+        :else (throw (ex-info (str "peek not supported on this type: " (type coll)) {}))))
 
 (defn pop
   "For a list, without its first item; for a vector, without its last. Throws on an empty collection."
@@ -1047,7 +1053,8 @@
         (vector? coll) (if (pos? (count coll))
                          (into [] (take (dec (count coll)) coll))
                          (throw (ex-info "Can't pop empty vector" {})))
-        :else (if (seq coll) (rest coll) (throw (ex-info "Can't pop empty list" {})))))
+        (list? coll) (if (seq coll) (rest coll) (throw (ex-info "Can't pop empty list" {})))
+        :else (throw (ex-info (str "pop not supported on this type: " (type coll)) {}))))
 
 (defn subvec
   "Returns a vector of the items of v from start (inclusive) to end (exclusive, default count)."
@@ -1060,13 +1067,22 @@
 
 (defn rseq
   "Returns a seq of the items of a vector in reverse order, nil when empty."
-  [v] (seq (reverse v)))
+  [v]
+  (if (vector? v)
+    (seq (reverse v))
+    (throw (ex-info (str "rseq not supported on this type: " (type v)) {}))))
 
 (defn keys "Returns a seq of the map's keys." [m] (seq (map (fn [e] (nth e 0)) m)))
 (defn vals "Returns a seq of the map's values." [m] (seq (map (fn [e] (nth e 1)) m)))
-(defn key "Returns the key of the map entry." [e] (nth e 0))
-(defn val "Returns the value of the map entry." [e] (nth e 1))
 (defn map-entry? "Returns true when x is a map entry (a two-element vector here)." [x] (and (vector? x) (= 2 (count x))))
+(defn key
+  "Returns the key of the map entry."
+  [e]
+  (if (map-entry? e) (nth e 0) (throw (ex-info (str (type e) " cannot be cast to a map entry") {}))))
+(defn val
+  "Returns the value of the map entry."
+  [e]
+  (if (map-entry? e) (nth e 1) (throw (ex-info (str (type e) " cannot be cast to a map entry") {}))))
 
 (defn find
   "Returns the map entry for key, or nil when absent."
@@ -1108,14 +1124,25 @@
      (fn [& args] (reduce (fn [acc f] (conj acc (apply f args))) [] fs)))))
 
 (defn some-fn
-  "Returns a fn that returns the first logical-true value of any p applied to its args, else nil."
-  [& ps]
-  (fn [& args] (some (fn [p] (some p args)) ps)))
+  "Returns a fn that returns the first logical-true value of any p applied to its args, else the last
+  falsey one: ((some-fn even?) 1) is false, not nil, as Clojure's is."
+  [p & more]
+  (fn [& args]
+    (loop [ps (cons p more) falsey nil]
+      (if-not ps
+        falsey
+        (let [v (loop [as (seq args) falsey nil]
+                  (if-not as
+                    falsey
+                    (let [r ((first ps) (first as))]
+                      (if r r (recur (next as) r)))))]
+          (if v v (recur (next ps) v)))))))
 
 (defn every-pred
   "Returns a fn that returns true when every p is logical true of every arg."
-  [& ps]
-  (fn [& args] (every? (fn [p] (every? p args)) ps)))
+  [p & more]
+  (let [ps (cons p more)]
+    (fn [& args] (every? (fn [p] (every? p args)) ps))))
 
 (defn fnil
   "Returns a fn calling f with nil leading arguments replaced by the defaults."
@@ -1191,7 +1218,7 @@
 (defn run!
   "Runs (proc x) over every item of coll for its side effects; returns nil."
   [proc coll]
-  (reduce (fn [_ x] (proc x) nil) nil coll)
+  (reduce (fn [_ x] (proc x)) nil coll)
   nil)
 
 ;; compare and sort are host primitives bound after boot (Primitives.swift).
@@ -1243,6 +1270,8 @@
 (defn shuffle
   "Returns a vector of the items of coll in random order."
   [coll]
+  (when-not (or (vector? coll) (list? coll) (seq? coll) (set? coll))
+    (throw (ex-info (str "shuffle not supported on this type: " (type coll)) {})))
   (loop [v (vec coll) i (dec (count v))]
     (if (pos? i)
       (let [j (rand-int (inc i)) x (nth v i)]
@@ -1760,6 +1789,11 @@
           v))))
   IPending
   (-realized? [_] (boolean (:realized @state))))
+
+(defn realized?
+  "Returns true when a pending value (a lazy seq, a delay) has been forced."
+  [x]
+  (if (satisfies? IPending x) (-realized? x) (lazy-seq-realized?* x)))
 
 (defmacro delay
   "Yields a Delay: body runs on the first deref or force, and its value is cached."

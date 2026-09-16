@@ -24,15 +24,23 @@
        (recur (str sb (if first? "" separator) (first more)) (next more) false)
        sb))))
 
+(defn- text
+  "Clojure's (.toString s): any value stringifies, nil throws as the JVM's NPE does."
+  [s]
+  (if (nil? s)
+    (throw (ex-info "Cannot convert nil to a string" {}))
+    (if (string? s) s (str s))))
+
 (defn capitalize
   "Converts the first character of s to upper-case and the rest to lower-case."
   [s]
-  (if (< (count s) 2)
-    (str-upper* s)
-    (str (str-upper* (subs s 0 1)) (str-lower* (subs s 1)))))
+  (let [s (text s)]
+    (if (< (count s) 2)
+      (str-upper* s)
+      (str (str-upper* (subs s 0 1)) (str-lower* (subs s 1))))))
 
-(defn upper-case "Converts s to upper-case (ASCII letters only, NOTES.md)." [s] (str-upper* s))
-(defn lower-case "Converts s to lower-case (ASCII letters only, NOTES.md)." [s] (str-lower* s))
+(defn upper-case "Converts s to upper-case (ASCII letters only, NOTES.md)." [s] (str-upper* (text s)))
+(defn lower-case "Converts s to lower-case (ASCII letters only, NOTES.md)." [s] (str-lower* (text s)))
 
 (defn split
   "Splits s on separator, a literal string (not a regex, NOTES.md); limit caps the number of parts."
@@ -65,6 +73,7 @@
 (defn escape
   "Returns s with each character mapped by cmap (char → replacement) replaced; other characters stay."
   [s cmap]
+  (when-not (string? s) (throw (ex-info (str "escape expects a string, got: " (type s)) {})))
   (loop [index 0 buffer ""]
     (if (= (count s) index)
       buffer
@@ -86,11 +95,17 @@
 
 (defn starts-with?
   "True when s starts with substr."
-  [s substr] (and (<= (count substr) (count s)) (= substr (subs s 0 (count substr)))))
+  [s substr]
+  (let [s (text s)]
+    (when-not (string? substr) (throw (ex-info (str "starts-with? expects a string, got: " (type substr)) {})))
+    (and (<= (count substr) (count s)) (= substr (subs s 0 (count substr))))))
 
 (defn ends-with?
   "True when s ends with substr."
-  [s substr] (and (<= (count substr) (count s)) (= substr (subs s (- (count s) (count substr))))))
+  [s substr]
+  (let [s (text s)]
+    (when-not (string? substr) (throw (ex-info (str "ends-with? expects a string, got: " (type substr)) {})))
+    (and (<= (count substr) (count s)) (= substr (subs s (- (count s) (count substr)))))))
 
 (defn includes?
   "True when s includes substr."

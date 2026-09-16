@@ -1,4 +1,4 @@
-.PHONY: build boot bench test test-pool test-ubsan
+.PHONY: build boot bench test test-pool test-ubsan test-all corpus corpus-update api-diff
 
 build:
 	swift build
@@ -16,6 +16,14 @@ test-pool:
 
 test-ubsan:
 	swift test --sanitize=undefined
+
+# The acceptance corpus alone (it is part of every test run; CLJ_CORPUS=0 skips it there).
+corpus:
+	swift test --filter CorpusTests
+
+# Rewrites corpus/*/allowlist.edn and docs/corpus.md from the run; review the diff before committing.
+corpus-update:
+	CLJ_CORPUS_UPDATE=1 swift test --filter CorpusTests
 
 # Same binary twice: pool, then system malloc as the control. Compare only within one invocation.
 bench:

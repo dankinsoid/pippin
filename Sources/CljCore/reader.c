@@ -796,10 +796,11 @@ static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32
 	return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
 }
 
-// Clojure's symbolPat: `(P/)?(/|N)` with P and N starting with a non-digit, N without slashes.
-static bool valid_symbol_text(const char *s, size_t n) {
+// Clojure's symbolPat: `(P/)?(/|N)` with P and N starting with a non-digit, N without slashes. A keyword's
+// parts may start with a digit (`:0`, `:1/2`), which Clojure reads and prints back.
+static bool valid_symbol_text(const char *s, size_t n, bool keyword) {
 	if (n == 1 && s[0] == '/') return true;
-	if (is_digit((unsigned char)s[0]) || s[0] == '/') return false;
+	if ((!keyword && is_digit((unsigned char)s[0])) || s[0] == '/') return false;
 	if (s[n - 1] == ':') return false;
 	size_t last = n;
 	for (size_t i = 0; i < n; i++) {
@@ -809,7 +810,7 @@ static bool valid_symbol_text(const char *s, size_t n) {
 	if (last == n) return true;
 	if (s[last - 1] == ':') return false;
 	if (last + 1 == n) return last >= 2 && s[last - 1] == '/';
-	return !is_digit((unsigned char)s[last + 1]);
+	return keyword || !is_digit((unsigned char)s[last + 1]);
 }
 
 static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
@@ -818,7 +819,7 @@ static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32
 	if (auto_ns && !p->r->resolve_ns) return fail(p, line, col, "Auto-resolved keywords (::) need a current namespace: %.*s", (int)n, tok);
 	const char *s = tok + keyword + auto_ns;
 	size_t len = n - keyword - auto_ns;
-	if (len == 0 || !valid_symbol_text(s, len)) return fail(p, line, col, "Invalid token: %.*s", (int)n, tok);
+	if (len == 0 || !valid_symbol_text(s, len, keyword)) return fail(p, line, col, "Invalid token: %.*s", (int)n, tok);
 	clj_value ns = CLJ_NIL, name;
 	const char *slash = memchr(s, '/', len);
 	if (!slash || len == 1) {

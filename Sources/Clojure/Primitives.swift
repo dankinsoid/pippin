@@ -56,7 +56,22 @@ extension Runtime {
 			guard clj_is_symbol(b) else { throw cast(b, "a symbol") }
 			return compareNamed(clj_symbol_ns(a), clj_symbol_name(a), clj_symbol_ns(b), clj_symbol_name(b))
 		}
+		if clj_is_vector(a) {
+			guard clj_is_vector(b) else { throw cast(b, "a vector") }
+			return try compareVectors(a, b)
+		}
 		throw cast(a, "Comparable")
+	}
+
+	// Clojure's APersistentVector.compareTo: the shorter vector is less, then element by element.
+	private static func compareVectors(_ a: clj_value, _ b: clj_value) throws -> Int {
+		let na = clj_vector_count(a), nb = clj_vector_count(b)
+		if na != nb { return na < nb ? -1 : 1 }
+		for i in 0..<na {
+			let r = try compare(clj_vector_nth(a, i), clj_vector_nth(b, i))
+			if r != 0 { return r }
+		}
+		return 0
 	}
 
 	private static func order<T: Comparable>(_ x: T, _ y: T) -> Int { x < y ? -1 : x > y ? 1 : 0 }

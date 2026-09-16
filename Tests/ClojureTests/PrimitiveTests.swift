@@ -24,14 +24,18 @@ extension CoreTests {
 				 (compare \\a \\b) (compare \\b \\a) (compare \\a \\a)
 				 (compare "a" "b") (compare "b" "a") (compare "ab" "a") (compare "a" "ab") (compare "a" "a") (compare "" "a") (compare "é" "z")
 				 (compare :a :b) (compare :b :a) (compare :a :a) (compare :a :a/b) (compare :b/a :a) (compare :a/x :a/y) (compare :b/a :a/y)
-				 (compare 'a 'b) (compare 'x 'x) (compare 'a 'a/b) (compare 'a/x 'a/y)]
+				 (compare 'a 'b) (compare 'x 'x) (compare 'a 'a/b) (compare 'a/x 'a/y)
+				 (compare [1 2] [1 3]) (compare [1 3] [1 2]) (compare [1 2] [1 2]) (compare [1] [1 2]) (compare [1 2] [1]) (compare [] [])
+				 (compare [[1] 2] [[1] 3]) (compare [nil] [1])]
 				""") == [-1, 1, 0, 1, 0, 1, -1, 0,
 				         0, -1, 1, -1,
 				         -1, 1, 0,
 				         -1, 1, 0,
 				         -1, 1, 1, -1, 0, -1, 1,
 				         -1, 1, 0, -1, 1, -1, 1,
-				         -1, 0, -1, -1])
+				         -1, 0, -1, -1,
+				         -1, 1, 0, -1, 1, 0,
+				         -1, -1])
 				// NaN orders as equal to any number, as Numbers.compare does.
 				#expect(try rt.eval("(let [nan (/ 0.0 0.0)] [(compare nan 1) (compare 1 nan) (compare nan nan)])") == [0, 0, 0])
 				#expect(try Runtime.compare("b", "a") == 1)
@@ -40,11 +44,11 @@ extension CoreTests {
 				#expect(try rt.eval("(let [f (fn [])] (compare f f))") == 0)
 				let messages = try rt.eval("""
 				(map (fn [[a b]] (try (compare a b) (catch ExceptionInfo e (ex-message e))))
-				     [[1 "a"] ["a" 1] [:a "a"] [true 1] ['a :a] [\\a "a"] [[1] [2]] [{:a 1} {:b 2}] [(fn []) (fn [])]])
+				     [[1 "a"] ["a" 1] [:a "a"] [true 1] ['a :a] [\\a "a"] [[1] :a] [{:a 1} {:b 2}] [(fn []) (fn [])]])
 				""")
 				#expect(messages == Value(list: ["string cannot be cast to a number", "fixnum cannot be cast to a string", "string cannot be cast to a keyword",
 				                                  "fixnum cannot be cast to a boolean", "keyword cannot be cast to a symbol", "string cannot be cast to a char",
-				                                  "vector cannot be cast to Comparable", "map cannot be cast to Comparable", "fn cannot be cast to Comparable"]))
+				                                  "keyword cannot be cast to a vector", "map cannot be cast to Comparable", "fn cannot be cast to Comparable"]))
 				#expect(throws: ClojureError.self) { try Runtime.compare(1, "a") }
 				#expect(try rt.eval("(try (compare 1 \"a\") (catch ExceptionInfo e (instance? HostError e)))") == false)
 			}

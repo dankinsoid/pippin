@@ -285,6 +285,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   matches; nil means `:default` alone). No branch → the form reads as nothing (an EOF at top level, a
   missing item inside a collection); `#?@` splices only into an enclosing collection. Which key names
   this runtime is still open (Open decisions); the corpus harness sets `#{:clj}` per library.
+- **A keyword's parts may start with a digit** (`:0`, `:1/2`), a symbol's may not: Clojure reads and prints
+  both keywords, and the suite's `(keyword "0")` round-trip needs it.
 - **`::kw` and `::alias/kw`** resolve through `clj_reader.resolve_ns` (`clj_reader_resolve_ns`: the
   current namespace or one of its aliases); with the hook NULL they are reader errors, an unknown alias
   is "Invalid token". Hex, octal and `NrDDD` radix integers read into fixnums; out of range is the
@@ -862,8 +864,12 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   macro, and the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`,
   `preserving-reduced`, `load-one`, `load-lib`, `load-libs`, `libspec?` (`destructure` is public, as in
   Clojure). `clojure.set`, `clojure.string`, `clojure.walk`, `clojure.template` are separate embedded
-  namespaces loaded on the first `require`. Not yet: `defrecord`, `defstruct`, `proxy`, `reify`-style
-  `IDeref`, `sorted-map`/`sorted-set`, `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
+  namespaces loaded on the first `require`. Not yet: `defrecord` (trigger: medley's `record?` and the
+  suite's skip list — a deftype with a map behind it, `assoc` returning the record until a key leaves the
+  basis), `defstruct`, `proxy`, `reify`-style
+  `IDeref`, `sorted-map`/`sorted-set` (trigger: the 15 suite forms and 6 medley tests that need them — a
+  persistent red-black or B-tree keyed by `compare`, its own file, with `rseq`/`subseq`/`rsubseq` on top),
+  `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
   `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`.
 - **clojure.test** (boot/clojure/test.clj) covers `deftest deftest- set-test with-test is are testing
   thrown? thrown-with-msg? use-fixtures (:each/:once) compose-fixtures join-fixtures test-var test-vars
@@ -881,16 +887,29 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `*assertion-pos*` per assertion (a frame push and pop, ~200 ns), where Clojure's reads the stack.
 - **Semantics that differ from Clojure**, each kept for a reason: `case` compiles to `cond` over `=`
   (O(clauses), no jump table); `letfn` rebinds every name from a volatile at each body's entry (closures
-  copy their captures when made, so a forward reference must be read at call time); `transient`,
+  copy their captures when made, so a forward reference must be read at call time) — the cell holds the fn
+  and the fn's body reads the cell, so every `letfn` call leaks the cycle (2 objects for one fn) until design
+  §7's trial deletion exists; `transient`,
   `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!`, `pop!` are the persistent operations themselves
   (the in-place path is the auto-transient of design §6b, so a code path written for transients just
   works; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`; multimethods
-  dispatch by `=` with a `:default` fallback and no `isa?` hierarchy or `prefer-method`; `delay` is
-  not `realized?`; `rand` is SplitMix64 seeded per thread from the id counter; `upper-case`/`lower-case`
-  map ASCII letters only (no Unicode case tables in the core); `subs`/`index-of` count code points where
+  dispatch by `=` with a `:default` fallback and no `isa?` hierarchy or `prefer-method` (trigger:
+  a `derive`/`isa?`-based dispatch in a corpus library; the hierarchy lives in an atom of
+  `{:parents :ancestors :descendants}` as Clojure's does, and `defmulti` grows a `prefer-table`);
+  `rand` is SplitMix64 seeded per thread from the id counter; `upper-case`/`lower-case`/`capitalize`
+  stringify any non-nil argument (`(str/lower-case :a)` is `":a"`) and map ASCII letters only — trigger for
+  Unicode case tables: a corpus test on a non-ASCII case change, which needs the full SpecialCasing data,
+  not a range table; `subs`/`index-of` count code points where
   Java counts UTF-16 units; `clojure.string/split` and `replace` take a literal string or char pattern,
-  never a regex (`split` on a string is a deviation: Clojure's takes only a regex). Triggers: a corpus
-  test failing on any of these.
+  never a regex (`split` on a string is a deviation: Clojure's takes only a regex; trigger for a regex engine:
+  `re-find`/`re-seq`/`re-matches` in a corpus library, or `split` on a pattern — a backtracking matcher over
+  code points, its own file, with the literal-pattern fast path kept); `list?` is true for a cons, so
+  `(peek (cons 1 '()))` works where Clojure throws; a map entry is a two-element vector, so `(key [1 2])`
+  cannot throw; a symbol is not invokable, so `(ifn? 'x)` is false; a char is a Unicode scalar, so
+  `(char 65895)` is in range; map and set seq order is the HAMT's, where the JVM's small collections keep
+  insertion order (Clojure does not specify it). Triggers: a corpus test failing on any of these.
+- **`conj` on a list drops the collection's meta** (`(meta (conj (with-meta '() {:m 1}) 2))` is nil, `{:m 1}`
+  on the JVM); vectors, maps and sets keep it. A bug, not a decision: cons has the meta flag already.
 - **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
   partition-all dedupe distinct map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
   `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
@@ -924,6 +943,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
   merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
   Trigger: a library relying on the trailing-map call style.
+- **Reader metadata on a collection literal is dropped**: `^:foo [1]` reads as a vector with meta, and the
+  analyzer then builds a fresh vector node from the items and loses it, so `(meta ^:foo [1])` is nil where
+  Clojure's is `{:foo true}` (its compiler emits the `with-meta`). A bug; the fix is a meta child on the
+  vector/map/set nodes, applied after the collection is built. Trigger: `^:const`, `^{:doc}` or any
+  annotation on a literal, and the corpus `group-by` test.
 - **A cooperative deadline bounds what a thread runs** (`clj_deadline_set_ms`): a closure call (`run_body`)
   and a `loop` turn check it, the clock is read once per 1024 of them, and past it the check throws
   `CLJ_DEADLINE_MESSAGE`. The fields live in the shadow stack, which those paths already load, so off it
@@ -950,9 +974,18 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   reporter and folds the events into pass/fail/error per var; a second run over the loaded namespaces is
   the memory check (baseline after the first). Allowlist rule: a failing form, test or skip not in the
   allowlist fails; a listed one that now loads, passes or runs fails too (stale); an entry carries
-  `:missing` (the symbols the runtime lacks, extracted from the message) or `:design-line` (a line of
-  design §8). Entries the generator cannot classify carry an empty `:missing` and the reason text: those are
-  wrong-result failures, backlog items to fix or to annotate by hand.
+  `:missing` (the symbols the runtime lacks, extracted from the message), `:design-line` (a line of design §8)
+  or `:note` — a hand-written sentence saying whether the failure is an accepted deviation or a runtime bug
+  still open, with the repro. A test entry with none of the three fails the check, and a regeneration carries
+  `:design-line` and `:note` over, so the review is not lost. Forms are not annotated: a form's reason is its
+  own classification (a reader gap or an unresolved symbol). `:second-run-live-objects` is what a second run
+  of the same tests leaves alive; a different number fails.
+- **On by default** (`CLJ_CORPUS=0` skips it): the whole corpus is about a second of a debug run, three under
+  ASan. `make corpus` runs it alone, `make corpus-update` regenerates the allowlists and docs/corpus.md.
+- **`:second-run-live-objects` is not always zero**: the suite's own `letfn` leaves a reference cycle per call
+  (the volatile cell holds the fn, the fn's body derefs the cell), which RC cannot free — 2 objects per
+  `letfn` call, 4 for the two namespaces that use one. The number is recorded per library and checked, so a
+  runtime leak still fails; design §7's trial deletion is what would collect it.
 - **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
   reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
   section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run
