@@ -16,6 +16,7 @@
 #include "clj/ns.h"
 #include "clj/number.h"
 #include "clj/printer.h"
+#include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/proto.h"
 #include "proto_internal.h"
@@ -102,10 +103,12 @@ typedef struct {
 
 // Most specific first: the order a miss on the concrete type falls back through.
 static core_interface interfaces[] = {
+	IFACE("IRecord", CLJ_CORE_RECORD),
 	IFACE("IPersistentSet", CLJ_CORE_SET),
 	IFACE("IPersistentMap", CLJ_CORE_MAP),
 	IFACE("IPersistentVector", CLJ_CORE_VECTOR),
 	IFACE("IPersistentList", CLJ_CORE_LIST),
+	IFACE("IEditableCollection", CLJ_CORE_EDITABLE),
 	IFACE("IExceptionInfo", CLJ_CORE_ERROR),
 	IFACE("Indexed", CLJ_CORE_INDEXED),
 	IFACE("Associative", CLJ_CORE_ASSOCIATIVE),
@@ -827,20 +830,27 @@ static clj_value implement_interface(clj_user_type *ut, clj_value iface, clj_val
 	return c.thrown;
 }
 
-clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+static clj_value user_type_shape(clj_value name, clj_value fields, size_t nimpls) {
 	if (!is_unqualified_symbol(name)) return clj_throw_msg("deftype name must be an unqualified symbol, got: %s", clj_type_name(name));
 	if (!clj_is_vector(fields)) return clj_throw_msg("deftype fields must be a vector, got: %s", clj_type_name(fields));
 	for (uint32_t i = 0; i < clj_vector_count(fields); i++) {
 		if (!is_unqualified_symbol(clj_vector_nth(fields, i))) return clj_throw_msg("deftype fields must be symbols");
 	}
 	if (nimpls % 2) return clj_throw_msg("deftype* expects protocol and method-map pairs");
+	return CLJ_NIL;
+}
+
+clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+	if (user_type_shape(name, fields, nimpls) == CLJ_THROWN) {
+		clj_release(clj_from_ptr(ut));
+		return CLJ_THROWN;
+	}
 	const char *ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	const char *bare = clj_string_bytes(clj_symbol_name(name));
 	size_t      len = strlen(ns) + 1 + strlen(bare);
 	char       *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
 	snprintf(text, len + 1, "%s.%s", ns, bare);
-	clj_user_type *ut = clj_alloc(&clj_type_type, sizeof *ut);
 	ut->name = clj_string_new(text, len);
 	free(text);
 	ut->fields = clj_retain(fields);
@@ -868,6 +878,11 @@ clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *i
 	fill_slots(ut);
 	clj_epoch_bump();
 	return type;
+}
+
+clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+	if (user_type_shape(name, fields, nimpls) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_user_type_init(clj_alloc(&clj_type_type, sizeof(clj_user_type)), name, fields, impls, nimpls);
 }
 
 clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
@@ -910,7 +925,10 @@ static clj_value b_protocol_method(const clj_value *args, size_t n) {
 
 static clj_value b_deftype(const clj_value *args, size_t n) { return clj_user_type_new(args[0], args[1], args + 2, n - 2); }
 
-static clj_value b_new(const clj_value *args, size_t n) { return clj_instance_new(args[0], args + 1, n - 1); }
+static clj_value b_new(const clj_value *args, size_t n) {
+	if (clj_is_record_type(args[0])) return clj_record_new(args[0], args + 1, n - 1);
+	return clj_instance_new(args[0], args + 1, n - 1);
+}
 
 static clj_value b_field(const clj_value *args, size_t n) {
 	(void)n;
@@ -1083,6 +1101,9 @@ void clj_proto_install(void) {
 		clj_value qualified = clj_symbol_new(core_name, name);
 		interfaces[i].proto = protocol_alloc(qualified, empty, empty, interfaces[i].bits);
 		bind_core(interfaces[i].name, interfaces[i].proto);
+		// Libraries spell the marker interfaces of instance? out in full; the bare name is ours.
+		if (interfaces[i].bits == CLJ_CORE_EDITABLE) bind_core("clojure.lang.IEditableCollection", interfaces[i].proto);
+		if (interfaces[i].bits == CLJ_CORE_RECORD) bind_core("clojure.lang.IRecord", interfaces[i].proto);
 		clj_release(qualified);
 		clj_release(name);
 	}

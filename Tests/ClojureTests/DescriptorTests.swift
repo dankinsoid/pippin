@@ -26,7 +26,7 @@ private let LIST = UInt64(CLJ_CORE_LIST), VECTOR = UInt64(CLJ_CORE_VECTOR), MAP 
 private let ERROR = UInt64(CLJ_CORE_ERROR), META = UInt64(CLJ_CORE_META), OBJ = UInt64(CLJ_CORE_OBJ)
 private let ASEQ = SEQABLE | SEQ | SEQUENTIAL | COLL
 private let IOBJ = META | OBJ
-private let REDUCE = UInt64(CLJ_CORE_REDUCE)
+private let REDUCE = UInt64(CLJ_CORE_REDUCE), EDITABLE = UInt64(CLJ_CORE_EDITABLE)
 
 extension CoreTests {
 	@Suite struct DescriptorTests {
@@ -36,8 +36,8 @@ extension CoreTests {
 				("list", Value(list: [1]), ASEQ | LIST | IOBJ),
 				("cons", try eval("(cons 1 [2])"), ASEQ | IOBJ),
 				("empty-list", Value(list: []), ASEQ | LIST | COUNTED | IOBJ),
-				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR | IOBJ | REDUCE),
-				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP | IOBJ | REDUCE),
+				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR | IOBJ | REDUCE | EDITABLE),
+				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP | IOBJ | REDUCE | EDITABLE),
 				("string", "ab", SEQABLE),
 				("keyword", Value(keyword: "k"), FN),
 				("symbol", Value(symbol: "s"), IOBJ),

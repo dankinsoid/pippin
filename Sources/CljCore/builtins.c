@@ -10,6 +10,7 @@
 #include "clj/fn.h"
 #include "clj/fusion.h"
 #include "clj/intrinsics.h"
+#include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/runtime.h"
 #include "clj/seq.h"
@@ -403,6 +404,8 @@ static clj_value b_set(const clj_value *args, size_t n) {
 static clj_value b_empty_coll(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value coll = args[0], e;
+	// A record has no empty: its basis keys cannot be dropped, as on the JVM.
+	if (clj_is_record(coll)) return clj_throw_msg("Can't create empty: %s", clj_type_name(coll));
 	if (clj_is_vector(coll)) e = clj_vector_empty();
 	else if (clj_is_map(coll)) e = clj_map_empty();
 	else if (clj_is_set(coll)) e = clj_set_empty();

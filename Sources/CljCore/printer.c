@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "clj/record.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_message, kw_data, kw_cause;
@@ -344,6 +345,17 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		if (n && !f->entries) clj_fatal("out of memory");
 		collect_ctx c = {f->entries, 0};
 		clj_sorted_each(v, set ? collect_sorted_item : collect_entry, &c);
+		f->n = n;
+	} else if (clj_is_record(v)) {
+		put_char(b, '#');
+		put_cstr(b, clj_type_of(v)->name);
+		put_char(b, '{');
+		frame *f = push_frame(stack, F_MAP);
+		size_t n = 2 * (size_t)clj_record_count(v);
+		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
+		if (n && !f->entries) clj_fatal("out of memory");
+		collect_ctx c = {f->entries, 0};
+		clj_record_each(v, collect_entry, &c);
 		f->n = n;
 	} else if (clj_is_array(v)) {
 		// The JVM prints an address; the elements are more use (docs/jvm-differences.md).

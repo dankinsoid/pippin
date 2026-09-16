@@ -27,6 +27,9 @@ bool      clj_map_contains(clj_value map, clj_value key);
 clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val);
 clj_value clj_map_dissoc(clj_value map, clj_value key);
 
+// One entry's share of an unordered map hash; the sum of them mixed with the count is the map hash.
+uint32_t clj_map_entry_hash(clj_value key, clj_value val);
+
 // (reduce-kv f init map): (f acc k v) over the trie in place, stopping at a reduced result (reduce.h).
 clj_value clj_map_reduce_kv(clj_value map, clj_value f, clj_value init);
 

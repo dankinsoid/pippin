@@ -97,6 +97,8 @@ typedef struct {
 // name is a bare symbol, qualified as ns.Name. impls alternates a protocol or core interface with a method map
 // ({:method fn}, nil for none): core interfaces fill the type's slots and bits, protocols extend it.
 clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls);
+// The caller's descriptor, zero-filled under clj_type_type; record.c allocates a longer one.
+clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls);
 static inline bool clj_is_type(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_type_type; }
 static inline bool clj_is_user_type(clj_value v) { return clj_is_type(v) && !(clj_header_of(v)->flags & CLJ_FLAG_IMMORTAL); }
 // n must equal the type's nfields; fields are retained.

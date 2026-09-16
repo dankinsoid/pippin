@@ -1693,32 +1693,51 @@
                    acc))]
     `(do ~@(map (fn [g] `(extend-type ~(first g) ~p ~@(next g))) groups))))
 
-;; Fields are read through field* at the top of each method body, only those the body names and no
-;; param shadows: a positional slot per field, no (.-field x) access (NOTES.md).
-;; The type is made with every impl in one deftype* call: core interfaces fill its slots at creation.
-;; Name and ->Name are declared first so a method body can construct or test for its own type.
+;; A positional slot per field, no (.-field x) access; a record keeps its basis in the same slots (NOTES.md).
+(defn- field-wrap
+  "The method wrap of deftype and defrecord: the fields a body names become locals over field*."
+  [fields]
+  (fn [params body]
+    (let [this (first params)]
+      (when-not (symbol? this)
+        (throw (ex-info (str "deftype method params must start with this, got: " params) nil)))
+      (let [bindings (loop [i 0 acc []]
+                       (if (< i (count fields))
+                         (let [f (nth fields i)]
+                           (recur (inc i)
+                                  (if (and (form-uses? body f) (not-any? (fn [p] (= p f)) params))
+                                    (conj acc f `(field* ~this ~i))
+                                    acc)))
+                         acc))]
+        (if (seq bindings) (list `(let ~bindings ~@body)) body)))))
+
+;; Name and ->Name come first so a method body can construct or test for its own type.
 (defmacro deftype
   "(deftype Name [field ...] proto (m [this a] ...) ...): a type, its ->Name constructor and the impls."
   [nm fields & impls]
   (let [groups (group-impls impls)
         ctor (symbol (str "->" (name nm)))
-        wrap (fn [params body]
-               (let [this (first params)]
-                 (when-not (symbol? this)
-                   (throw (ex-info (str "deftype method params must start with this, got: " params) nil)))
-                 (let [bindings (loop [i 0 acc []]
-                                  (if (< i (count fields))
-                                    (let [f (nth fields i)]
-                                      (recur (inc i)
-                                             (if (and (form-uses? body f) (not-any? (fn [p] (= p f)) params))
-                                               (conj acc f `(field* ~this ~i))
-                                               acc)))
-                                    acc))]
-                   (if (seq bindings) (list `(let ~bindings ~@body)) body))))]
+        wrap (field-wrap fields)]
     `(do
        (declare ~nm)
        (def ~ctor (fn [~@fields] (new* ~nm ~@fields)))
        (def ~nm (deftype* '~nm '~fields ~@(mapcat (fn [g] [(first g) (method-map (second g) wrap)]) groups)))
+       ~nm)))
+
+;; The map bits and slots are the record's own, so the body may add protocols only (record.c).
+(defmacro defrecord
+  "(defrecord Name [field ...] proto (m [this a] ...) ...): a record type, its ->Name and map->Name
+  constructors and the impls."
+  [nm fields & impls]
+  (let [groups (group-impls impls)
+        ctor (symbol (str "->" (name nm)))
+        from-map (symbol (str "map->" (name nm)))
+        wrap (field-wrap fields)]
+    `(do
+       (declare ~nm)
+       (def ~ctor (fn [~@fields] (new* ~nm ~@fields)))
+       (def ~from-map (fn [m#] (record-map* ~nm m#)))
+       (def ~nm (record* '~nm '~fields ~@(mapcat (fn [g] [(first g) (method-map (second g) wrap)]) groups)))
        ~nm)))
 
 ;; The expansion is data and var references only, so the tree serializes: the type is made on the

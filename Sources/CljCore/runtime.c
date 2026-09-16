@@ -15,6 +15,7 @@
 #include "clj/printer.h"
 #include "clj/proto.h"
 #include "clj/reader.h"
+#include "clj/record.h"
 #include "clj/runtime.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
@@ -122,6 +123,7 @@ static void init(void) {
 	clj_load_file_var();
 	clj_builtins_install();
 	clj_proto_install();
+	clj_record_install();
 	clj_intrinsics_install();
 	clj_ns_set_current(core);
 	load_core();

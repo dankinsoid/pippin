@@ -7,7 +7,7 @@ import Testing
 // A compiler reads the same trees: no core.clj macro may embed a constant that does not print and read back.
 extension CoreTests {
 	@Suite struct CoreSerializableTests {
-		private static let formCount = 240
+		private static let formCount = 242
 
 		private final class Tree {
 			let node: UnsafeMutablePointer<clj_node>
@@ -86,7 +86,7 @@ extension CoreTests {
 			clj_init()
 			Self.internKeywords()
 			for k in ["cs-m", "cs-n", "seq", "first", "next", "count", "invoke"] { _ = Value(keyword: k) }
-			_ = try cljEval("(def cs-P) (def cs-m) (def cs-Q) (def cs-n) (def cs-T) (def ->cs-T)")
+			_ = try cljEval("(def cs-P) (def cs-m) (def cs-Q) (def cs-n) (def cs-T) (def ->cs-T) (def cs-R) (def ->cs-R) (def map->cs-R)")
 			let before = clj_debug_live_objects()
 			do {
 				let forms = try Value.readAll("""
@@ -94,12 +94,13 @@ extension CoreTests {
 				(defprotocol cs-Q (cs-n [this]))
 				(deftype cs-T [a b] cs-P (cs-m ([this] a) ([this x] (+ b x))) cs-Q (cs-n [this] b))
 				(deftype cs-T [k] ISeq (seq [this] this) (first [_] k) (next [_] nil) Counted (count [_] 1))
+				(defrecord cs-R [a b] cs-P (cs-m ([this] a) ([this x] (+ b x))) cs-Q (cs-n [this] b))
 				(extend-type String cs-P (cs-m ([this] this) ([this a] a)))
 				(extend-protocol cs-P Long (cs-m [this] this) nil (cs-m [this] 0))
 				(let [x 1] (reify cs-P (cs-m [this] x) (cs-m [this a] (+ x a)) cs-Q (cs-n [this] this)))
 				(fn [k] (reify ISeq (seq [this] this) (first [_] k) (next [_] nil) Counted (count [_] 1) IFn (invoke [_ y] y)))
 				""")
-				#expect(forms.count == 8)
+				#expect(forms.count == 9)
 				for form in forms { try Self.roundTrip(form, env: nil) }
 			}
 			#expect(clj_debug_live_objects() == before)

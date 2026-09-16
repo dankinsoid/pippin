@@ -8,6 +8,7 @@
 #include "clj/fn.h"
 #include "clj/list.h"
 #include "clj/number.h"
+#include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/sorted.h"
 #include "clj/vector.h"
@@ -620,7 +621,7 @@ static bool equals_element(clj_value key, clj_value val, void *ctx) {
 static bool sorted_equals(void *self, clj_value other) {
 	clj_value me = clj_from_ptr(self);
 	bool      set = clj_is_sorted_set(me);
-	if (!clj_has_core(other, set ? CLJ_CORE_SET : CLJ_CORE_MAP)) return false;
+	if (!clj_has_core(other, set ? CLJ_CORE_SET : CLJ_CORE_MAP) || clj_is_record(other)) return false;
 	clj_value n = clj_count(other);
 	if (n == CLJ_THROWN) {
 		clj_release(clj_take_pending());

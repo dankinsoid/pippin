@@ -7,6 +7,7 @@
 #include "clj/fn.h"
 #include "clj/list.h"
 #include "clj/map.h"
+#include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/vector.h"
 
@@ -422,9 +423,13 @@ static void map_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(((clj_map *)self)->meta, ctx);
 }
 
+uint32_t clj_map_entry_hash(clj_value key, clj_value val) {
+	return clj_mix_coll_hash(31 * (31 + clj_hash(key)) + clj_hash(val), 2);
+}
+
 static bool hash_entry(clj_value key, clj_value val, void *ctx) {
 	uint32_t *sum = ctx;
-	*sum += clj_mix_coll_hash(31 * (31 + clj_hash(key)) + clj_hash(val), 2);
+	*sum += clj_map_entry_hash(key, val);
 	return true;
 }
 
@@ -458,8 +463,9 @@ static bool equals_foreign_entry(clj_value key, clj_value val, void *ctx) {
 	return ec->equal;
 }
 
+// A record is no map's equal, in either direction, as on the JVM.
 static bool map_equals(void *self, clj_value other) {
-	if (!clj_has_core(other, CLJ_CORE_MAP)) return false;
+	if (!clj_has_core(other, CLJ_CORE_MAP) || clj_is_record(other)) return false;
 	clj_map *m = self;
 	clj_value n = clj_count(other);
 	if (n == CLJ_THROWN) {
@@ -548,6 +554,23 @@ static clj_value map_conj(clj_value self, clj_value item) {
 		free(entries);
 		return self;
 	}
+	// Another IPersistentMap representation (a sorted map, a record) hands its entries over through its seq.
+	if (clj_has_core(item, CLJ_CORE_MAP)) {
+		clj_value s = clj_seq(item);
+		if (s == CLJ_THROWN) {
+			clj_release(self);
+			return CLJ_THROWN;
+		}
+		clj_seq_iter it = clj_seq_iter_start(s);
+		clj_value    entry;
+		while (clj_seq_iter_next(&it, &entry)) self = clj_map_assoc(self, clj_vector_nth(entry, 0), clj_vector_nth(entry, 1));
+		clj_release(s);
+		if (it.thrown) {
+			clj_release(self);
+			return CLJ_THROWN;
+		}
+		return self;
+	}
 	clj_release(self);
 	return clj_throw_msg("Vector arg to map conj must be a pair");
 }
@@ -581,7 +604,7 @@ const clj_type clj_map_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "map",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP |
-	             CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE,
+	             CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE | CLJ_CORE_EDITABLE,
 	.each_child = map_each_child,
 	.hash = map_hash,
 	.equals = map_equals,
