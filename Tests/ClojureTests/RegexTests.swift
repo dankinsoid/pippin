@@ -143,6 +143,7 @@ private let cases: [RegexCase] = [
 	c(#"(count (set [#"a" #"a" #"b"]))"#, "2"),
 	c(#"(type #"a")"#, "regex"),
 	c(#"(= Pattern (type #"a"))"#, "true"),
+	c(#"[(instance? Pattern #"a") (instance? Pattern "a")]"#, "[true false]"),
 	// clojure.string
 	c(#"(str/split "a,b,c" #",")"#, #"["a" "b" "c"]"#),
 	c(#"(str/split "a1b22c" #"\d+")"#, #"["a" "b" "c"]"#),
