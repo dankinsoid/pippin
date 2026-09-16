@@ -62,8 +62,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   or nil, ex-* their field types) and throw otherwise; `withMeta` may return anything. Limitations:
   `empty` and `applyTo` have no slot and are refused by name; `Associative`, `Indexed`,
   `IPersistentMap/Vector/List` cannot be implemented (the `assoc`/`dissoc` slots sorted.c added are
-  C-only, there is no `nth` slot, and no trampoline names them — trigger: the first user map or
-  vector type); `Object` methods
+  C-only, there is no `nth` slot, and no trampoline names them — a record fills the map slots from C
+  instead, see "Records"; trigger: the first user vector type); `Object` methods
   (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
   arity error inside a method says `fn` and counts `this`, except `IFn`'s, which the trampoline
   checks first and reports with the type name; no chunked seqs, so every element of a user seq
@@ -89,13 +89,13 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   the shared impl, then the closure entry; ~9 ns less than the table walk. Not cached: a method
   called through `apply` or from a native (no INVOKE node), a nil impl (the error path). Trigger for
   a megamorphic cutoff: a site cycling through more than four receivers in a profile.
-- **No `defrecord`, no `.-field` access, no protocol inheritance.** A deftype's fields are positional
+- **No `.-field` access, no protocol inheritance.** A deftype's fields are positional
   slots read through `field*`, visible as locals inside its own method bodies only; from outside
-  there is no accessor. A deftype carries meta only by implementing `IObj` itself (a field for it).
+  there is no accessor. A deftype carries meta only by implementing `IObj` itself (a field for it);
+  a record has the slot (see "Records").
   A protocol cannot extend another. `extend-type` on a core interface as the *type*
   (`(extend-type ISeq P ...)`) covers every type with those bits, on the concrete type missing; a
-  user protocol cannot be a type designator. Trigger: the first record-shaped state (then a shape
-  descriptor with map slots) or the first `(.-x o)`.
+  user protocol cannot be a type designator. Trigger: the first `(.-x o)`.
 - **`reify` expands to data and var references only**: `(new* (reify-type* 'reify__N '[m ...] P {:m 0}
   ...) closures...)`. `reify-type*` makes the type on the site's first evaluation and keeps it in a
   process-wide registry under the gensym'd name (its own mutex, taken before the protocol one), so a
@@ -295,6 +295,53 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   of parents per seq object.
 - **No sorted collection reaches the tree codec** (node_data.c): there is no literal for one, so it can
   never be a constant in an analyzed tree. Trigger: a compiler that wants to emit one.
+
+## Records (Sources/CljCore/record.c)
+
+- **A record type is the first half of design §4's shapes**: a `clj_user_type` descriptor with the basis
+  field keywords in a trailing C array, the hash map's `core_bits` (minus `IEditableCollection`) and the
+  map slots filled from C. `clj_record_type_new` allocates the longer descriptor and hands it to
+  `clj_user_type_init`, the half of `clj_user_type_new` that fills a descriptor the caller allocated, so a
+  record gets the deftype name, field vector and `user_protos` without a second copy of that code. What is
+  still missing for a shape is the sharing (one descriptor per key set, not per name), the transition tree
+  and the call-site cache; the layout and the write path are the same.
+- **An instance is one allocation**: header, the basis values inline, then `extmap` and `meta`. The basis
+  comes first on purpose — that prefix *is* a `clj_instance`, so `field*` and the whole `deftype` macro
+  body machinery (`method-map`, the groups, the `let` over `field*`) read a record's fields unchanged and
+  `defrecord` shares `field-wrap` with `deftype` in core.clj. `clj_is_instance` is therefore true for a
+  record; only `new*` has to tell them apart, by the `CLJ_CORE_RECORD` bit, because the sizes differ.
+- **Lookup is a linear pointer scan over the interned basis keywords**, which is what `condp identical?`
+  compiles to in Clojure's own `defrecord`; `assoc` of a basis key writes the slot in place when
+  `clj_is_unique`, like the hash map's consuming path, and of any other key goes to the extmap.
+  bench/RESULTS.md, "Records": 1.8 ns for the first field, 2.8 for the third, 4.8 for a unique `assoc`.
+  ≤8 fields is the design's expectation; past that the scan is the cost and the fix is the inline cache,
+  not a hash.
+- **An empty extmap is normalized to nil**, so two records of equal content are equal whatever route built
+  them: `(= (dissoc (assoc r :z 1) :z) r)`. Equality needs the same descriptor pointer and compares the
+  basis slots and the extmaps; `(= record map)` is false in both directions, which map.c and sorted.c
+  enforce by rejecting a record in their own `equals`.
+- **`hash` is the map hash of the same content**, not Clojure's `(bit-xor (hash classname) (mapHasheq
+  this))`. Equal hashes across representations cost collisions only — `=` still separates them — and the
+  entry mix comes from map.c (`clj_map_entry_hash`) so the two cannot drift. There is no hash cache on a
+  record yet; trigger: records as map keys in a profile.
+- **`dissoc` of a basis key gives up the shape** and answers a plain hash map of everything, with the
+  record's meta, as the JVM's generated `without` does; of an ext key it stays a record. `empty` throws
+  "Can't create empty", `conj`/`merge`/`reduce-kv`/`into`/`select-keys` behave as for a map, and
+  `select-keys` returns a map because it builds onto `{}`.
+- **The body may implement protocols only.** A core interface in a `defrecord` form is refused by name:
+  every slot behind one — `seq`, `count`, `valAt`, `invoke`, `meta`, `reduce`, `hasheq`, `equiv` — is the
+  record's own, and a trampoline over it would break the map contract that `record?` promises. A record
+  reaches `IDeref` and every other `defprotocol` exactly as a deftype does, through `extend`. Trigger for
+  opening it up: a library that puts `IExceptionInfo` or `IFn` on a record.
+- **`record*` is a builtin call in the expansion, so the descriptor is runtime state**, never a node
+  constant: a record instance is as unserializable as a deftype instance (node_data.c refuses both), and a
+  macro that embeds one fails the same way. `#ns.Name{…}` prints but does not read back
+  (docs/jvm-differences.md).
+- **`IEditableCollection` is a bit, not interop.** medley's `editable?` is
+  `(instance? clojure.lang.IEditableCollection coll)`; `CLJ_CORE_EDITABLE` sits on the hash map, the
+  vector and the hash set — exactly the types the JVM answers true for — and the interface is bound under
+  both its bare name and the dotted one libraries spell out. Transients are the persistent operations
+  here, so the bit answers the predicate and nothing else.
 
 ## Arrays (Sources/CljCore/array.c, builtins_array.c)
 

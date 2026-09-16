@@ -26,10 +26,13 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 
 | Difference | Class | Decision |
 |---|---|---|
-| `transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error | Deliberate | The in-place path on a unique value is the transient (design §6b); a transient-shaped code path works unchanged. |
+| `transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error | Deliberate | The in-place path on a unique value is the transient (design §6b); a transient-shaped code path works unchanged. `(instance? clojure.lang.IEditableCollection x)` still answers as on the JVM — a core bit on the hash map, the vector and the hash set — because libraries branch on it. |
 | `seq` of a map, set or sorted collection is an eager list | Deferred | Trigger: `first` on a big map in a profile. |
 | Sorted `dissoc` walks the tree twice | Deferred | LLRB deletion needs a present key; trigger: a delete-heavy profile. |
 | `compare` returns −1/0/1 only and orders strings by code point | Deliberate | The JVM's char or length difference is an implementation leak, and UTF-16 unit order differs from code point order only between an astral char and U+E000–U+FFFF. |
+| `(hash record)` is the map hash of its content, not xor'd with the type name | Deliberate | `=` already separates a record from a map and from another record type, so sharing a hash costs collisions and never an answer; one entry mix (map.c) serves both representations. |
+| A `defrecord` body implements protocols only; a core interface in it is refused | Deferred | Every slot behind a core interface is the record's own, and a trampoline over it would break the map contract `record?` promises. Trigger: a library putting `IFn` or `IExceptionInfo` on a record. |
+| No `Name/create`, no `->Name`/`map->Name` overload for a partial basis | Deferred | `map->Name` covers the map-shaped constructor; trigger: a library that calls `Name/create`. |
 
 ## Arrays
 
@@ -69,6 +72,7 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 | No regex engine: regex literals are read errors, `clojure.string` takes literal strings | Deferred | Trigger fired by the corpus; the engine is its own task. |
 | `upper-case`/`lower-case`/`capitalize` map ASCII letters only | Deferred | Trigger: non-ASCII case in a corpus library; then Unicode case tables. |
 | No tagged literals (`#inst`, `#uuid`), no `#:ns{}` maps, no `#=` | Deferred | Trigger fired by the corpus for `#uuid`. |
+| A record prints `#ns.Name{…}` and does not read back | Deferred | The printed form matches the JVM's; reading one needs the reader to resolve a type name, which is the tagged-literal machinery. Trigger: EDN with record literals. |
 | `thrown-with-msg?` takes a substring, not a regex | Deferred | Follows from the missing regex engine. |
 
 ## Concurrency
