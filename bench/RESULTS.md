@@ -714,7 +714,7 @@ each tree level costs one Swift↔C transition; the ratio column is that transit
 
 - **A `get` is one host call per level**: 227 ns at 10 keys (~4 levels), 699 at 1000 (~10), 1208 at
   100000 (~17) — ~70 ns each, flat in the key count, which is the transition and not the comparison.
-  A `clj_compare` in C with the Swift primitive delegating to it is the fix (NOTES.md, "Sorted").
+  The section below is the same table after `clj_compare` landed.
 - **`assoc` adds the node copies** on top of the same walk: 230 → 743 → 1319 against the trie's 23 → 38 → 78.
 
 One multimethod call per iteration inside an interpreted loop, dispatch fn `identity`. "pre-hierarchy
@@ -763,3 +763,52 @@ sections measure it.
   neither a fixnum nor a double reaches `clj_num_arith`, so the hot path gained no branch.
 - **`clj_num_kind_of` is a type-pointer compare chain**, not a slot on the header, and it runs only where
   the fast paths already failed; `number?` and `integer?` pay it, which no benchmark row exercises.
+
+## compare in C, typed arrays — 2026-09-16, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+`clj_compare` (compare.c) replaced the Swift `compare` primitive inside the core: a nil comparator on a
+sorted collection means the C one, `sort`/`sort-by` merge in C, and the Swift primitives are one call each
+(NOTES.md, "Sorted"). Before and after are two invocations of the same release build, so the hash-map column
+is the control: 24.4 / 40.6 / 77.6 before against 24.2 / 42.0 / 82.1 after.
+
+| scenario | n | sorted map before | sorted map after | before / hash | after / hash |
+|---|---:|---:|---:|---:|---:|
+| assoc, old version dropped | 10 | 246.6 | 49.8 | 10.1× | 2.1× |
+| get, hit | 10 | 241.1 | 18.5 | 85.3× | 6.5× |
+| assoc, old version dropped | 1000 | 797.0 | 132.3 | 19.6× | 3.2× |
+| get, hit | 1000 | 765.1 | 42.1 | 56.3× | 3.1× |
+| assoc, old version dropped | 100000 | 1421.9 | 305.6 | 18.3× | 3.7× |
+| get, hit | 100000 | 1401.4 | 158.1 | 71.3× | 8.3× |
+
+| scenario | n | before | after |
+|---|---:|---:|---:|
+| sort, shuffled fixnums, Swift primitive | 1000 | 82.7 | 59.9 |
+| sort, shuffled fixnums, Clojure spec | 1000 | 4913.3 | 4766.4 |
+
+- **The ratio column was the bridge, not the tree.** A `get` at 1000 keys walks ~10 levels: 765 ns before is
+  ten crossings at ~70 ns, 42 after is ten C comparisons plus the walk, and what is left over the hash map
+  (3.1×) is the tree itself. The 100000-key `get` keeps a wider ratio (8.3×) because 17 levels of pointer
+  chasing miss the cache where the trie's 4 do.
+- **`sort` of 1k fixnums: 82.7 → 59.9 ns per element.** The remaining cost is the interpreted `clj_invoke`
+  entry, the list it builds and `clj_share` of what crosses; the ~10k comparisons themselves no longer
+  cross the bridge, and the items are borrowed from the iterator's keep instead of retained one by one. The
+  Clojure spec moved with the drift, as it should: it calls the `compare` var either way.
+
+Typed arrays (array.c) against the vector, same 1000 fixnums, the loops interpreted. Medians of four runs
+of the same binary; one run measured the whole section at ~2× and is dropped as thermal.
+
+| scenario | n | ns/element |
+|---|---:|---:|
+| loop + aget over a long-array | 1000 | 45.2 |
+| loop + nth over a vector | 1000 | 45.4 |
+| reduce + over a long-array | 1000 | 6.8 |
+| reduce + over a vector | 1000 | 5.5 |
+
+- **`aget` and `nth` are indistinguishable inside an interpreted loop**: ~45 ns per element is the loop —
+  two INTRINSIC nodes, a `recur` and the `+` — and both reads are intrinsics behind it (`aget` was 5 ns
+  slower until it joined the table, which is the plain-native call it used to pay). The array's advantage is
+  memory, not the read: 8 bytes per element against a trie leaf's 8 plus the node overhead, and a `u8` array
+  is one byte per element where a vector is eight plus a box for anything that is not a fixnum.
+- **`reduce` shows the box**: 6.8 against the vector's 5.5. The vector's slot hands out the stored word; the
+  array's reads the element and boxes it, which is free for a fixnum and an allocation for an `f64` — a
+  `double-array` would pay `clj_double_new` per element, which is the trigger for an unboxed reduce path.

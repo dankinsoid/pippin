@@ -74,6 +74,10 @@ static const clj_intrinsic table[] = {
 	C2("disj", clj_disj2, clj_disj_owned, true),
 	C2("with-meta", clj_with_meta2, clj_with_meta, false),
 	I2("contains?", clj_contains_p, true),
+	// Not pure: an array is mutable, so a call on the same arguments need not answer the same.
+	I2("aget", clj_aget, false),
+	I3("aset", clj_aset, false),
+	I1("alength", clj_alength, false),
 };
 
 enum { N = sizeof table / sizeof *table };

@@ -67,6 +67,11 @@ clj_value clj_dissoc2(clj_value coll, clj_value key);
 clj_value clj_disj2(clj_value coll, clj_value key);
 clj_value clj_with_meta2(clj_value v, clj_value m);
 clj_value clj_contains_p(clj_value coll, clj_value key);
+
+// ---- arrays (array.h): a read and a write of one element, and the length
+clj_value clj_aget(clj_value arr, clj_value index);
+clj_value clj_aset(clj_value arr, clj_value index, clj_value val);
+clj_value clj_alength(clj_value arr);
 // The consuming forms of the five above: the collection at +1 (nil included), the rest borrowed; clj_conj and
 // clj_with_meta of coll.h are the other two. What a site that owns the collection calls instead.
 clj_value clj_assoc_owned(clj_value coll, clj_value key, clj_value val);

@@ -136,7 +136,8 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `reduced`: a reduced init or first element reaches `f` as an ordinary value and comes back as is
   over an empty coll, as on the JVM. Slots: vector and vector-seq (leaf by leaf), range (arithmetic),
   map (`[k v]` vectors built per entry, and `reduce-kv` on the trie in place; `reduce-kv` on a
-  vector passes the index), set (elements in trie order), `()`, and cons / lazy-seq / string / string-seq through
+  vector passes the index), set (elements in trie order), `()`, array and array-seq (boxing per element),
+  and cons / lazy-seq / string / string-seq through
   `clj_reduce_iter`, which is `clj_seq_iter` closed on the early stop. The `CLJ_CORE_REDUCE` bit
   (`satisfies? IReduceInit`) sits on vector, vector-seq, range, map and user types; cons, `()`,
   string and lazy-seq have the slot without the bit, as string has `lookup` without `ILookup`.
@@ -274,13 +275,14 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `clj_is_unique` is false, the wrapper hands its own root reference down, and a child is taken out of
   its slot (`take_child`) before the recursive call, so a comparator that throws mid-descent leaves
   nothing dangling. Rotations own both nodes they touch, so a rotation over a shared child copies it.
-- **The comparator is a Clojure fn, and `compare` is a host primitive** (Primitives.swift), so every
-  comparison of a default sorted collection is a Swift↔C transition: ~70 ns, which is the whole
-  difference in bench/RESULTS.md (a `get` is 16–83× the hash map's, an `assoc` 10–19×). A `clj_compare`
-  in C with the host one delegating to it would remove it. Trigger: a sorted collection in a profile.
-  A comparator may answer a number or, as a predicate, logical true when its first argument sorts first,
-  the way `AFunction.compare` reads a fn comparator; `sorted-map-by`/`sorted-set-by` keep it, `empty`,
-  `assoc`, `dissoc` and `with-meta` carry it over, and `(sorted-map)` is therefore not a singleton.
+- **A nil comparator means `clj_compare`** (compare.h), which is what `sorted-map`/`sorted-set` build with,
+  so the default collection compares in C: a `get` is 3–8× the hash map's and an `assoc` 2–4×
+  (bench/RESULTS.md), where passing `clojure.core/compare` as the fn made every tree level a Swift↔C
+  transition of ~70 ns and the ratios 10–83×. `sorted-map-by`/`sorted-set-by` take a fn comparator and go
+  through `clj_call_invoke` per comparison; it may answer a number or, as a predicate, logical true when its
+  first argument sorts first, the way `AFunction.compare` reads a fn comparator. `empty`, `assoc`, `dissoc`
+  and `with-meta` carry the comparator over, and `(sorted-map)` is therefore still not a singleton. Trigger
+  for a cheaper fn comparator: a `sorted-map-by` in a profile.
 - **`dissoc` walks the tree twice**: `node_find` first, because the LLRB deletion is only correct for a
   key that is present and because the count must not move when it is not. Trigger: a delete-heavy profile.
 - **Equality and hash cross representations**: `(= (sorted-map :a 1) {:a 1})` and the reverse are true and
@@ -295,6 +297,53 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   of parents per seq object.
 - **No sorted collection reaches the tree codec** (node_data.c): there is no literal for one, so it can
   never be a constant in an analyzed tree. Trigger: a compiler that wants to emit one.
+
+## Arrays (Sources/CljCore/array.c, builtins_array.c)
+
+- **Elements live inline, after the header**, not behind a pointer: `{rc, flags, type, kind, count, data[]}`,
+  one allocation, one load to reach an element and a fixed offset from the object to the first byte. An array
+  is fixed-length and never `clj_realloc`'d, so that address is stable for its life, which is what a zero-copy
+  handoff needs — a `u8` or `f32` array can become a `Data`/`UnsafeBufferPointer` over `clj_array_data`
+  without a copy. The cost of inline is that the whole object goes through the size classes, so a big array
+  lands in the system allocator (`CLJ_FLAG_LARGE`) and there is no resize and no page-aligned buffer; an
+  external buffer would give both and cost an indirection on every `aget`. Trigger for the pointer form:
+  a Metal buffer that must be page-aligned, or `MTLBuffer`-backed storage the array only views.
+- **Ten element kinds, one type.** `i8 u8 i16 i32 i64 f32 f64 bool char object`; Clojure's constructors name
+  seven of them (`byte short int long float double` plus `boolean`/`char`/`object`) and `u8` exists for the
+  bridge. A kind is named by keyword in either spelling (`:int` and `:i32`), and `make-array`/`into-array`
+  take that keyword where the JVM takes `Integer/TYPE` — a class object is interop and has no representation
+  here. `char` elements are 4-byte Unicode scalars, not UTF-16 units, so a `char-array` is twice the JVM's.
+- **Reads box, writes range-check.** `aget` returns a fixnum, a double, a bool, a char or the stored value;
+  an `i64` past the fixnum range promotes to a bigint, as the rest of the tower does. `aset` casts the way
+  `RT.byteCast`/`intCast`/`floatCast`/`booleanCast` do — an integer kind truncates a double toward zero and
+  refuses what leaves its range ("Value out of range for byte: 300"), `bool` takes truthiness, `char` takes
+  a char or a scalar. `aget`/`aset`/`alength` are intrinsics (intrinsics.h) and impure ones: an array is
+  mutable, so the optimizer may not fold them.
+- **An array is mutable, so it is outside the reuse analysis.** `clj_is_unique` is never consulted: `aset` is
+  a plain write into the object the caller already holds, and `aclone` is the only copy. An `:object` slot
+  retains what goes in and releases what it replaces, and a write into a *shared* array shares the new value
+  first, keeping the invariant that every child of a shared object is shared. Two threads writing one shared
+  array race, as they do on the JVM; nothing in the core makes that safe.
+- **Seqable and nothing else.** `core_bits` is `CLJ_CORE_SEQABLE` alone, as a JVM array is no
+  `IPersistentCollection`: `(coll? a)`, `(counted? a)`, `(indexed? a)` and `(sequential? a)` are all false,
+  while `count`, `lookup` and `reduce` are slots without their bits and `nth`/`contains?` special-case the
+  type by hand, the way `RT.get`/`RT.nth`/`RT.contains` special-case `String`. `seq` is an O(1) view
+  (`clj_array_seq`, 32 bytes per `next`) that the iterator walks through its slots, not inline. `=` and
+  `hash` are identity, as on the JVM, so an array is a map key by address and never equal to its clone.
+- **Printing writes the elements**, `#array[:int 1 2 3]`, where the JVM prints `#object["[I" 0x… "[I@…"]`
+  (docs/jvm-differences.md). The printer boxes every element into a frame of owned entries, so printing a
+  big array allocates the whole row; and an `:object` array that holds itself prints forever, the same
+  hazard a self-referential lazy seq already has (no `*print-length*`).
+- **`vector-of` is a normal persistent vector** whose elements went through the kind's cast, so
+  `(vector-of :byte 300)` throws and `(vector-of :float 0.1)` holds `0.10000000149011612` as on the JVM, but
+  the storage is boxed `clj_value`s and `conj` onto it forgets the kind. An unboxed persistent vector needs
+  the trie to carry an element kind and every leaf to be typed, which is the "elements kinds" item of design
+  §4; the typed array is the piece that item stands on. Trigger: a `vector-of` in a profile, or the first
+  code that wants `(vector-of :f32)` handed to Metal.
+- **No multi-dimensional arrays**: `make-array` takes one dimension and `aget`/`aset` one index, where the
+  JVM nests. An array of arrays is written out by hand. Trigger: a library indexing `(aget m i j)`.
+- **`aset-int` and its siblings are aliases of `aset`**: the array's kind decides the cast, so `aset-int`
+  into a `double-array` stores a double where the JVM would refuse the array type at compile time.
 
 ## Vector (Sources/CljCore/vector.c)
 
@@ -1176,21 +1225,23 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   in another argument order). It is public API, not a test helper: the escape hatch is for host libraries
   (hiccup diff, JSON, sorting) whose own tests cannot import ours, and it returns data, so it binds to no
   test framework.
-- **`compare` and `sort` are the first residents** (Primitives.swift). They bind into `clojure.core` from
-  `clj_host_boot`, a weak C hook `clj_init` calls last, defined by the Swift module with `@_cdecl`: a raw
-  `clj_init()` and `Runtime()` boot the same core, tests take baselines after either. Their roots are
-  ordinary (not immortal, read owned). `sort` is a bottom-up merge sort over the retained items of any
-  seqable, stable, returning a list; `Runtime.sortSpecification` is the top-down merge sort in Clojure in
-  the same file, evaluated by PrimitiveTests and the bench. `compare` is the leaf without a Clojure spec:
-  nothing in Clojure here orders two strings or chars (no `int` of a char, no `subs`), so a Clojure
-  `compare` cannot be written; it is checked by table. Trigger: char/int conversion landing, then the
-  Clojure spec and `compare` in the differential too.
+- **`compare` and `sort` are the first residents** (Primitives.swift), and both bodies are now one C call
+  each: `clj_compare` and `clj_sort` (compare.c) do the work, the Swift fns are the vars. They bind into
+  `clojure.core` from `clj_host_boot`, a weak C hook `clj_init` calls last, defined by the Swift module with
+  `@_cdecl`: a raw `clj_init()` and `Runtime()` boot the same core, tests take baselines after either. Their
+  roots are ordinary (not immortal, read owned). `Runtime.sortSpecification` is the top-down merge sort in
+  Clojure in the same file, evaluated by PrimitiveTests and the bench; `compare` is the leaf without a
+  Clojure spec, since nothing in Clojure here orders two strings or chars (no `int` of a char, no `subs`),
+  and it is checked by table. A `(sort ...)` call from Clojure therefore costs one crossing, not one per
+  comparison; `sort-by` reaches `clj_sort_by` directly through a builtin and never crosses at all. A C-only
+  host has `sort-by` and the sorted collections but not `compare` or `sort` as vars. Trigger for dropping
+  the Swift residents entirely: char/int conversion landing, so a Clojure `compare` spec becomes writable
+  and the differential can take the C builtin as its subject.
 - **Deviations from Clojure's `compare`**: −1/0/1 always (the JVM returns the char or length difference
   for strings); strings order by code point, the JVM by UTF-16 unit (they differ only between an astral
-  char and U+E000–U+FFFF); vectors are not ordered here ("vector cannot be cast to Comparable"; Clojure
-  orders them by count, then items); the mixed-type message names the runtime's types (`fixnum cannot be
-  cast to a string`). `sort` has the one-argument arity only; trigger: the first `(sort cmp coll)`, then
-  the comparator called through `clj_invoke` and the spec taking `cmp`.
+  char and U+E000–U+FFFF); the mixed-type message names the runtime's types (`fixnum cannot be cast to a
+  string`) and an unordered type says `cannot be cast to Comparable`. A nil comparator is the default one
+  inside the core, so the 2-arity `(sort nil coll)` refuses it by hand, the way invoking nil would.
 - **Limits.** Varargs are `arity: nil` plus a check in the body, as with `Value(function:)`. core.clj
   cannot call a primitive at load time and cannot reference one without `(declare ...)`: the hook runs
   after core.clj. A C-only host has neither `compare` nor `sort`. Meta is `:doc` only; `:private`,

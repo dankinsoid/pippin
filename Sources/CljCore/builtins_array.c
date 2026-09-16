@@ -23,25 +23,39 @@ static clj_value element_index(const char *what, const clj_value *args, uint32_t
 	return CLJ_NIL;
 }
 
+clj_value clj_aget(clj_value arr, clj_value index) {
+	clj_value args[2] = {arr, index};
+	uint32_t  i;
+	if (element_index("aget", args, &i) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_array_get(arr, i);
+}
+
+clj_value clj_aset(clj_value arr, clj_value index, clj_value val) {
+	clj_value args[2] = {arr, index};
+	uint32_t  i;
+	if (element_index("aset", args, &i) == CLJ_THROWN) return CLJ_THROWN;
+	if (clj_array_set(arr, i, val) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_retain(val);
+}
+
+clj_value clj_alength(clj_value arr) {
+	if (!clj_is_array(arr)) return not_an_array("alength", arr);
+	return clj_fixnum(clj_array_count(arr));
+}
+
 static clj_value b_aget(const clj_value *args, size_t n) {
 	(void)n;
-	uint32_t i;
-	if (element_index("aget", args, &i) == CLJ_THROWN) return CLJ_THROWN;
-	return clj_array_get(args[0], i);
+	return clj_aget(args[0], args[1]);
 }
 
 static clj_value b_aset(const clj_value *args, size_t n) {
 	(void)n;
-	uint32_t i;
-	if (element_index("aset", args, &i) == CLJ_THROWN) return CLJ_THROWN;
-	if (clj_array_set(args[0], i, args[2]) == CLJ_THROWN) return CLJ_THROWN;
-	return clj_retain(args[2]);
+	return clj_aset(args[0], args[1], args[2]);
 }
 
 static clj_value b_alength(const clj_value *args, size_t n) {
 	(void)n;
-	if (!clj_is_array(args[0])) return not_an_array("alength", args[0]);
-	return clj_fixnum(clj_array_count(args[0]));
+	return clj_alength(args[0]);
 }
 
 static clj_value b_aclone(const clj_value *args, size_t n) {
@@ -166,7 +180,7 @@ static const struct {
 	{"alength", b_alength, 1, 1},           {"aclone", b_aclone, 1, 1},
 	{"aset-byte", b_aset, 3, 3},            {"aset-short", b_aset, 3, 3},           {"aset-int", b_aset, 3, 3},
 	{"aset-long", b_aset, 3, 3},            {"aset-float", b_aset, 3, 3},           {"aset-double", b_aset, 3, 3},
-	{"aset-boolean", b_aset, 3, 3},         {"aset-char", b_aset, 3, 3},            {"aset-object", b_aset, 3, 3},
+	{"aset-boolean", b_aset, 3, 3},         {"aset-char", b_aset, 3, 3},
 	{"into-array", b_into_array, 1, 2},     {"to-array", b_to_array, 1, 1},         {"vector-of", b_vector_of, 1, ANY},
 };
 

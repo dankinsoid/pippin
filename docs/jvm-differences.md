@@ -30,9 +30,21 @@ an unfinished one. NOTES.md carries the mechanism behind each entry; this page c
 | `transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error | Deliberate | The in-place path on a unique value is the transient (design §6b); a transient-shaped code path works unchanged. |
 | `seq` of a map, set or sorted collection is an eager list | Deferred | Trigger: `first` on a big map in a profile. |
 | Sorted `dissoc` walks the tree twice | Deferred | LLRB deletion needs a present key; trigger: a delete-heavy profile. |
-| `compare` returns −1/0/1 only, orders strings by code point, does not order vectors | Deliberate for the first two, **Fix** for vectors | The JVM's char or length difference is an implementation leak. Vectors do order in Clojure (by count, then items); trigger fired by the corpus. |
+| `compare` returns −1/0/1 only and orders strings by code point | Deliberate | The JVM's char or length difference is an implementation leak, and UTF-16 unit order differs from code point order only between an astral char and U+E000–U+FFFF. |
 | `(list? (cons 1 '()))` is true | **Fix** | A cons is not an `IPersistentList` in Clojure. |
 | Metadata on a collection literal is dropped by the analyzer; `conj` on a list drops meta | **Fix** | Plain bugs with repros in the corpus allowlist. |
+
+## Arrays
+
+| Difference | Class | Decision |
+|---|---|---|
+| An array prints its elements, `#array[:int 1 2 3]` | Deliberate | The JVM prints `#object["[I" 0x… "[I@…"]`: a class name and an address, neither of which a reader or a test can use. Neither form reads back, so nothing is lost. |
+| `(type (int-array 1))` is `array`, not `[I`; kinds are keywords (`:int`, `:i32`), not `Integer/TYPE` | Deliberate | A class object is interop (design §5); one descriptor with an element kind is the representation, and the kind keyword is the only name it needs. |
+| `char` elements are 4-byte Unicode scalars, not UTF-16 units | Deliberate | Same choice as the char value itself: there are no surrogates in this runtime. |
+| `(vec array)` copies; the JVM aliases the array, so a later `aset` shows through the vector | Deliberate | Aliasing a mutable buffer from a persistent vector is a JVM leak; the corpus's own test calls it out for three other runtimes. |
+| `aset-int` and its siblings are aliases of `aset`; the array's kind decides the cast | Deliberate | The typed variants exist on the JVM to pick a bytecode; here the kind is on the object. |
+| `vector-of` returns an ordinary vector of cast elements, not unboxed storage | Deferred | The elements go through the kind's cast, so values and range errors match; only the memory does not. Trigger: a `vector-of` in a profile (NOTES.md, "Arrays"). |
+| No multi-dimensional arrays: `make-array` takes one dimension, `aget`/`aset` one index | Deferred | Trigger: a library indexing `(aget m i j)`. |
 
 ## Multimethods and hierarchies
 

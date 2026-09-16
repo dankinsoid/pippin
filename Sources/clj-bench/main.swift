@@ -819,6 +819,34 @@ for r in dispatchRows {
 }
 print("\nns per iteration; one call per iteration inside an interpreted loop, the dispatch fn is `identity`")
 
+// MARK: - Arrays
+
+// The same summing loop over 1000 elements: aget on a long-array, nth on a vector, and the reduce slot of
+// each, so the row separates the element read from the loop around it.
+let arrayRows: [(String, Double)] = {
+	let n = 1000
+	let agetLoop = cljEval("(fn [a] (loop [i 0 s 0] (if (< i (alength a)) (recur (inc i) (+ s (aget a i))) s)))")
+	let nthLoop = cljEval("(fn [v] (loop [i 0 s 0] (if (< i (count v)) (recur (inc i) (+ s (nth v i))) s)))")
+	let reduceCall = cljEval("(fn [c] (reduce + c))")
+	let arr = cljEval("(long-array (range 1000))")
+	let vec = cljEval("(vec (range 1000))")
+	let rows: [(String, Double)] = [
+		("loop + aget over a long-array", measure(ops: n) { cljCall(agetLoop, arr) }),
+		("loop + nth over a vector", measure(ops: n) { cljCall(nthLoop, vec) }),
+		("reduce + over a long-array", measure(ops: n) { cljCall(reduceCall, arr) }),
+		("reduce + over a vector", measure(ops: n) { cljCall(reduceCall, vec) }),
+	]
+	for v in [agetLoop, nthLoop, reduceCall, arr, vec] { clj_release(v) }
+	return rows
+}()
+
+print("\n| scenario | n | ns/element |")
+print("|---|---:|---:|")
+for r in arrayRows {
+	print("| \(r.0) | 1000 | \(fmt(r.1)) |")
+}
+print("\nns per element; the loops are interpreted, the arrays and vectors hold the same 1000 fixnums")
+
 // MARK: - Atoms
 
 // (swap! a assoc k v) over an atom holding a map of K keys, k cycling through them and v new every call (an
