@@ -230,6 +230,7 @@ typedef struct {
 } buf;
 
 static void put(buf *b, const char *s, size_t n) {
+	if (!n) return;
 	if (b->len + n > b->cap) {
 		size_t cap = b->cap ? b->cap : 64;
 		while (cap < b->len + n) cap *= 2;

@@ -527,10 +527,18 @@ static clj_value b_last(const clj_value *args, size_t n) {
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, last = CLJ_NIL;
-	while (clj_seq_iter_next(&it, &item)) last = item;
-	clj_retain(last);
+	// An item the iterator owns dies at the next step, so each one is retained as it arrives.
+	while (clj_seq_iter_next(&it, &item)) {
+		clj_retain(item);
+		clj_release(last);
+		last = item;
+	}
 	clj_release(s);
-	return it.thrown ? CLJ_THROWN : last;
+	if (it.thrown) {
+		clj_release(last);
+		return CLJ_THROWN;
+	}
+	return last;
 }
 
 static clj_value b_butlast(const clj_value *args, size_t n) {
