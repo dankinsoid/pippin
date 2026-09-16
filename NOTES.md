@@ -194,7 +194,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   Trigger for `os_unfair_lock_trylock`/a fair variant: a profile showing a starved thread on one lock.
 
 ## RC (Sources/CljCore/rc.c, object.h)
-
+- **`-DCLJ_NO_REUSE` makes `clj_is_unique` always false** (`make test-noreuse`, `clj_reuse_enabled()` says
+  which build this is), and every suite passes in it: the §7 invariant that nothing outside the RC entry
+  points depends on the counter is now enforced, not just written down. Off, the flag costs nothing — one
+  `#ifdef` arm. Four tests assert that an address survives an in-place step and are gated on
+  `clj_reuse_enabled()`; the rest degrade to a copy with the same values, which is what the mode checks.
 - **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow
   under many threads. Fix: per-thread counters summed on read.
 - **Copy path retains every child and then replaces one slot**: one spare retain/release pair per

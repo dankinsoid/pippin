@@ -153,10 +153,11 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		@Test func uniqueMapIsUpdatedInPlace() {
+		// Reuse at rc == 1 is what keeps the address: -DCLJ_NO_REUSE turns every step below into a copy.
+		@Test(.enabled(if: clj_reuse_enabled())) func uniqueMapIsUpdatedInPlace() {
 			let before = clj_debug_live_objects()
 			var m = clj_map_assoc(clj_map_empty(), clj_fixnum(1), clj_fixnum(1))
-			#expect(clj_is_unique(m))
+			#expect(clj_is_unique(m) == clj_reuse_enabled())
 			let wrapper = m
 			let root = clj_map_of(m).pointee.root
 			let live = clj_debug_live_objects()
@@ -181,12 +182,13 @@ extension CoreTests {
 			#expect(clj_map_get(m, clj_fixnum(1), missing) == clj_fixnum(2))
 			#expect(clj_map_get(copy, clj_fixnum(1), missing) == clj_fixnum(3))
 			clj_release(copy)
-			#expect(clj_is_unique(m))
+			#expect(clj_is_unique(m) == clj_reuse_enabled())
 			clj_release(m)
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		@Test func sharedMapKeepsChildrenShared() {
+		// Reuse at rc == 1 is what keeps the address: -DCLJ_NO_REUSE turns every step below into a copy.
+		@Test(.enabled(if: clj_reuse_enabled())) func sharedMapKeepsChildrenShared() {
 			let before = clj_debug_live_objects()
 			var m = clj_map_empty()
 			for i in 0..<50 { m = clj_map_assoc(m, clj_fixnum(i), clj_fixnum(i)) }
@@ -305,7 +307,7 @@ extension CoreTests {
 			var m = clj_map_assoc(clj_map_empty(), clj_fixnum(1), v)
 			#expect(!clj_is_unique(v))
 			clj_release(v)
-			#expect(clj_is_unique(v))
+			#expect(clj_is_unique(v) == clj_reuse_enabled())
 			#expect(clj_map_get(m, clj_fixnum(1), missing) == v)
 			let live = clj_debug_live_objects()
 			m = clj_map_assoc(m, clj_fixnum(1), CLJ_NIL)

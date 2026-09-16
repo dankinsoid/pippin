@@ -17,6 +17,13 @@ test-pool:
 test-ubsan:
 	swift test --sanitize=undefined
 
+# The §7 invariant: clj_is_unique always false, so every in-place path degrades to a copy (NOTES.md, RC).
+test-noreuse:
+	swift test -Xcc -DCLJ_NO_REUSE
+
+# Every mode; each rebuilds, so this is the slow one.
+test-all: test test-pool test-ubsan test-noreuse
+
 # The acceptance corpus alone (it is part of every test run; CLJ_CORPUS=0 skips it there).
 corpus:
 	swift test --filter CorpusTests

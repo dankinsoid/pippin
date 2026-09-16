@@ -9,14 +9,14 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			let c = clj_cons_new(clj_fixnum(1), CLJ_NIL)
 			#expect(clj_debug_live_objects() == before + 1)
-			#expect(clj_is_unique(c))
+			#expect(clj_is_unique(c) == clj_reuse_enabled())
 			#expect(!clj_is_shared(c))
 			#expect(String(cString: clj_type_name(c)) == "cons")
 
 			_ = clj_retain(c)
 			#expect(!clj_is_unique(c))
 			clj_release(c)
-			#expect(clj_is_unique(c))
+			#expect(clj_is_unique(c) == clj_reuse_enabled())
 
 			clj_release(c)
 			#expect(clj_debug_live_objects() == before)
@@ -28,7 +28,7 @@ extension CoreTests {
 			let outer = clj_cons_new(inner, CLJ_NIL)
 			#expect(!clj_is_unique(inner))
 			clj_release(inner)
-			#expect(clj_is_unique(inner))
+			#expect(clj_is_unique(inner) == clj_reuse_enabled())
 			#expect(clj_debug_live_objects() == before + 2)
 			clj_release(outer)
 			#expect(clj_debug_live_objects() == before)
@@ -83,7 +83,7 @@ extension CoreTests {
 			_ = clj_retain(root)
 			#expect(!clj_is_unique(root))
 			clj_release(root)
-			#expect(clj_is_unique(root))
+			#expect(clj_is_unique(root) == clj_reuse_enabled())
 			clj_release(root)
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -93,7 +93,7 @@ extension CoreTests {
 			func roundTrip() -> Bool {
 				let v = Value(owning: clj_cons_new(clj_fixnum(1), CLJ_NIL))
 				let copy = v
-				return clj_is_shared(copy.raw) && clj_is_unique(v.raw) && v.typeName == "cons"
+				return clj_is_shared(copy.raw) && clj_is_unique(v.raw) == clj_reuse_enabled() && v.typeName == "cons"
 			}
 			#expect(roundTrip())
 			#expect(clj_debug_live_objects() == before)
@@ -107,7 +107,7 @@ extension CoreTests {
 				return !clj_is_unique(v.raw)
 			}
 			#expect(hold())
-			#expect(clj_is_unique(c))
+			#expect(clj_is_unique(c) == clj_reuse_enabled())
 			clj_release(c)
 			#expect(clj_debug_live_objects() == before)
 		}

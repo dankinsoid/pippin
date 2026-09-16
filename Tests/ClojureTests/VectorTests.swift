@@ -141,10 +141,11 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		@Test func uniqueVectorIsUpdatedInPlace() {
+		// Reuse at rc == 1 is what keeps the address: -DCLJ_NO_REUSE turns every step below into a copy.
+		@Test(.enabled(if: clj_reuse_enabled())) func uniqueVectorIsUpdatedInPlace() {
 			let before = clj_debug_live_objects()
 			var v = build(40)
-			#expect(clj_is_unique(v))
+			#expect(clj_is_unique(v) == clj_reuse_enabled())
 			let wrapper = v
 			let root = clj_debug_vector_root(v)
 			let tail = clj_debug_vector_tail(v)
@@ -187,12 +188,13 @@ extension CoreTests {
 			clj_release(copy)
 			clj_release(copy2)
 			clj_release(copy3)
-			#expect(clj_is_unique(v))
+			#expect(clj_is_unique(v) == clj_reuse_enabled())
 			clj_release(v)
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		@Test func sharedVectorKeepsChildrenShared() {
+		// Reuse at rc == 1 is what keeps the address: -DCLJ_NO_REUSE turns every step below into a copy.
+		@Test(.enabled(if: clj_reuse_enabled())) func sharedVectorKeepsChildrenShared() {
 			let before = clj_debug_live_objects()
 			var v = build(50)
 			clj_share(v)
@@ -298,7 +300,7 @@ extension CoreTests {
 			var v = clj_vector_conj(clj_vector_empty(), cell)
 			#expect(!clj_is_unique(cell))
 			clj_release(cell)
-			#expect(clj_is_unique(cell))
+			#expect(clj_is_unique(cell) == clj_reuse_enabled())
 			#expect(clj_vector_nth(v, 0) == cell)
 			let live = clj_debug_live_objects()
 			v = clj_vector_assoc(v, 0, CLJ_NIL)

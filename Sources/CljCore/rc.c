@@ -87,11 +87,26 @@ void clj_release_slow(clj_header *h) {
 }
 
 bool clj_is_unique(clj_value v) {
+#ifdef CLJ_NO_REUSE
+	// The §7 invariant: nothing outside the RC entry points may depend on the counter, so a build that
+	// answers "not unique" everywhere must still pass every suite — a copy, never a wrong result.
+	(void)v;
+	return false;
+#else
 	if (!clj_is_ptr(v)) return false;
 	clj_header *h = clj_header_of(v);
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
 	return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
+#endif
+}
+
+bool clj_reuse_enabled(void) {
+#ifdef CLJ_NO_REUSE
+	return false;
+#else
+	return true;
+#endif
 }
 
 bool clj_is_shared(clj_value v) {

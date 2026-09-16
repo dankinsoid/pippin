@@ -126,6 +126,11 @@ void *clj_alloc(const clj_type *type, size_t size);
 // Children are untouched; bytes beyond the old size are uninitialized. Same size class keeps the address.
 void *clj_realloc(void *obj, size_t size);
 
+// False in a -DCLJ_NO_REUSE build, where clj_is_unique always answers "not unique" (make test-noreuse): the
+// §7 invariant that only clj_is_unique reads the counter, so the suites pass with reuse off. A test that
+// asserts an address survived an in-place operation gates on this.
+bool      clj_reuse_enabled(void);
+
 void      clj_retain_slow(clj_header *h);
 void      clj_release_slow(clj_header *h);
 bool      clj_is_unique(clj_value v);

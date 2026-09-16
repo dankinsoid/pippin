@@ -94,7 +94,7 @@ extension CoreTests {
 			for size in [200, 2000, 100, 4000, 1024, 32, 5000, 64] {
 				v = clj_from_ptr(clj_realloc(clj_to_ptr(v), size))
 				#expect(check(v, words: 2..<4), "size \(size)")
-				#expect(clj_is_unique(v))
+				#expect(clj_is_unique(v) == clj_reuse_enabled())
 			}
 			clj_release(v)
 			#expect(clj_debug_live_objects() == before)

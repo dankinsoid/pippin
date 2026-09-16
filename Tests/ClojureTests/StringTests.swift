@@ -16,7 +16,7 @@ extension CoreTests {
 			#expect(String(cString: clj_type_name(s)) == "string")
 			#expect(clj_string_len(s) == 5)
 			#expect(String(cString: clj_string_bytes(s)) == "hello")
-			#expect(clj_is_unique(s))
+			#expect(clj_is_unique(s) == clj_reuse_enabled())
 			#expect(clj_debug_live_objects() == before + 1)
 			clj_release(s)
 			#expect(clj_debug_live_objects() == before)

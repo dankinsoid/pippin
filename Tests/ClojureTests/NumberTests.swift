@@ -12,7 +12,7 @@ extension CoreTests {
 				#expect(clj_is_double(v))
 				#expect(String(cString: clj_type_name(v)) == "double")
 				#expect(clj_double_val(v) == d)
-				#expect(clj_is_unique(v))
+				#expect(clj_is_unique(v) == clj_reuse_enabled())
 				clj_release(v)
 			}
 			let nan = clj_double_new(.nan)

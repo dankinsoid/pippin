@@ -92,12 +92,14 @@ extension CoreTests {
 			_ = try rt.eval("(def lu-ptr) (def lu-v)")
 			define("lu-ptr", Value(function: "lu-ptr", arity: 1...1) { args in Value(Int(bitPattern: UInt(args[0].raw))) })
 			let before = clj_debug_live_objects()
+			// The address is kept only where reuse is on; -DCLJ_NO_REUSE copies and the values stay the same.
+			let inPlace: Value = clj_reuse_enabled() ? true : false
 			do {
 				// v is unique: the last read hands it over and conj grows it where it is.
-				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [true, [1, 2]])
-				#expect(try rt.eval("(let [m (hash-map :a 1) p (lu-ptr m) n (assoc m :b 2)] [(= p (lu-ptr n)) n])") == [true, Value(reading: "{:a 1 :b 2}")])
-				#expect(try rt.eval("(let [m (hash-map :a 1 :b 2) p (lu-ptr m) n (dissoc m :b)] [(= p (lu-ptr n)) n])") == [true, Value(reading: "{:a 1}")])
-				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (with-meta v {:a 1})] [(= p (lu-ptr w)) (meta w)])") == [true, Value(reading: "{:a 1}")])
+				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [inPlace, [1, 2]])
+				#expect(try rt.eval("(let [m (hash-map :a 1) p (lu-ptr m) n (assoc m :b 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{:a 1 :b 2}")])
+				#expect(try rt.eval("(let [m (hash-map :a 1 :b 2) p (lu-ptr m) n (dissoc m :b)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{:a 1}")])
+				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (with-meta v {:a 1})] [(= p (lu-ptr w)) (meta w)])") == [inPlace, Value(reading: "{:a 1}")])
 				// A read that is not the last stays a borrow: v is unchanged and the result is a copy.
 				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) v w])") == [false, [1], [1, 2]])
 				#expect(try rt.eval("(let [v (vector 1)] (conj v 2) v)") == [1])
