@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "clj/coll.h"
+#include "clj/compare.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -140,37 +141,10 @@ static tnode *move_red_right(tnode *h) {
 
 // ---- comparator
 
-// -1, 0 or 1 into *out; false with the exception pending.
-static bool compare_call(const clj_call *call, clj_value a, clj_value b, int *out) {
-	clj_value args[2] = {a, b};
-	clj_value r = clj_call_invoke(call, args);
-	if (r == CLJ_THROWN) return false;
-	if (clj_is_fixnum(r)) {
-		intptr_t n = clj_fixnum_val(r);
-		*out = n < 0 ? -1 : n > 0 ? 1 : 0;
-	} else if (clj_is_double(r)) {
-		double d = clj_double_val(r);
-		*out = d < 0 ? -1 : d > 0 ? 1 : 0;
-	} else if (clj_truthy(r)) {
-		*out = -1;
-	} else {
-		// A predicate comparator answers only "a first": ask the other way round to tell equal from above.
-		clj_release(r);
-		clj_value swapped[2] = {b, a};
-		clj_value back = clj_call_invoke(call, swapped);
-		if (back == CLJ_THROWN) return false;
-		*out = clj_truthy(back) ? 1 : 0;
-		clj_release(back);
-		return true;
-	}
-	clj_release(r);
-	return true;
-}
-
 clj_value clj_sorted_compare(clj_value c, clj_value a, clj_value b) {
 	clj_call call = clj_call_prepare(clj_sorted_of(c)->cmp, 2);
 	int      r;
-	if (!compare_call(&call, a, b, &r)) return CLJ_THROWN;
+	if (!clj_compare_with(&call, a, b, &r)) return CLJ_THROWN;
 	return clj_fixnum(r);
 }
 
@@ -178,7 +152,7 @@ clj_value clj_sorted_compare(clj_value c, clj_value a, clj_value b) {
 static clj_value node_find(clj_value node, clj_value key, const clj_call *call) {
 	while (!clj_is_nil(node)) {
 		int c;
-		if (!compare_call(call, key, tnode_of(node)->key, &c)) return CLJ_THROWN;
+		if (!clj_compare_with(call, key, tnode_of(node)->key, &c)) return CLJ_THROWN;
 		if (c == 0) return node;
 		node = c < 0 ? tnode_of(node)->left : tnode_of(node)->right;
 	}
@@ -199,7 +173,7 @@ static clj_value node_assoc(clj_value node, clj_value key, clj_value val, const 
 		return node_new(key, val);
 	}
 	int c;
-	if (!compare_call(call, key, tnode_of(node)->key, &c)) {
+	if (!clj_compare_with(call, key, tnode_of(node)->key, &c)) {
 		clj_release(node);
 		return CLJ_THROWN;
 	}
@@ -252,7 +226,7 @@ static clj_value node_delete_min(clj_value node) {
 static clj_value node_delete(clj_value node, clj_value key, const clj_call *call) {
 	tnode *h = node_own(node);
 	int    c;
-	if (!compare_call(call, key, h->key, &c)) {
+	if (!clj_compare_with(call, key, h->key, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
 	}
@@ -267,7 +241,7 @@ static clj_value node_delete(clj_value node, clj_value key, const clj_call *call
 		return clj_from_ptr(fix_up(h));
 	}
 	if (is_red(h->left)) h = rotate_right(h);
-	if (!compare_call(call, key, h->key, &c)) {
+	if (!clj_compare_with(call, key, h->key, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
 	}
@@ -276,7 +250,7 @@ static clj_value node_delete(clj_value node, clj_value key, const clj_call *call
 		return CLJ_NIL;
 	}
 	if (!is_red(h->right) && !is_red(left_of(h->right))) h = move_red_right(h);
-	if (!compare_call(call, key, h->key, &c)) {
+	if (!clj_compare_with(call, key, h->key, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
 	}
@@ -329,7 +303,7 @@ static bool walk_from(clj_value node, clj_value key, const clj_call *call, bool 
 	if (clj_is_nil(node)) return true;
 	tnode *n = tnode_of(node);
 	int    r;
-	if (!compare_call(call, key, n->key, &r)) {
+	if (!clj_compare_with(call, key, n->key, &r)) {
 		*thrown = true;
 		return false;
 	}
@@ -738,14 +712,14 @@ static int check_node(clj_value node, check_ctx *cc) {
 	// max(left) < key < min(right) at every node is the whole ordering, since the subtrees are checked too.
 	int c;
 	if (!clj_is_nil(n->left)) {
-		if (!compare_call(cc->call, tnode_of(max_node(n->left))->key, n->key, &c)) {
+		if (!clj_compare_with(cc->call, tnode_of(max_node(n->left))->key, n->key, &c)) {
 			clj_release(clj_take_pending());
 			return -1;
 		}
 		if (c >= 0) return -1;
 	}
 	if (!clj_is_nil(n->right)) {
-		if (!compare_call(cc->call, n->key, tnode_of(min_node(n->right))->key, &c)) {
+		if (!clj_compare_with(cc->call, n->key, tnode_of(min_node(n->right))->key, &c)) {
 			clj_release(clj_take_pending());
 			return -1;
 		}

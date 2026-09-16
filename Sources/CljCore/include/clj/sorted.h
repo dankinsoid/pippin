@@ -10,14 +10,15 @@ typedef struct {
 	uint32_t         count;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
 	clj_value        root;  // tree node or nil
-	clj_value        cmp;   // comparator fn, never nil; kept by empty/assoc/dissoc/with-meta
+	clj_value        cmp;   // comparator fn, nil for clj_compare; kept by empty/assoc/dissoc/with-meta
 	clj_value        meta;  // map or nil; ignored by equality and hash
 } clj_sorted;
 
 extern const clj_type clj_sorted_map_type;
 extern const clj_type clj_sorted_set_type;
 
-// cmp may answer a number or, as a predicate, logical true when a sorts first, as AFunction.compare reads a fn.
+// cmp nil is clj_compare in C, which is what (sorted-map) and (sorted-set) build with. A fn comparator may
+// answer a number or, as a predicate, logical true when a sorts first, as AFunction.compare reads a fn.
 clj_value clj_sorted_map_new(clj_value cmp);
 clj_value clj_sorted_set_new(clj_value cmp);
 
@@ -27,7 +28,7 @@ static inline bool        clj_is_sorted(clj_value v) { return clj_is_sorted_map(
 static inline clj_sorted *clj_sorted_of(clj_value v) { return (clj_sorted *)clj_to_ptr(v); }
 
 static inline uint32_t clj_sorted_count(clj_value c) { return clj_sorted_of(c)->count; }
-// Borrowed.
+// Borrowed; nil for the default comparator.
 static inline clj_value clj_sorted_comparator(clj_value c) { return clj_sorted_of(c)->cmp; }
 
 // -1, 0 or 1 as a is below, equal to or above b; CLJ_THROWN when the comparator throws.

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/coll.h"
+#include "clj/compare.h"
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/fusion.h"
@@ -1215,21 +1216,36 @@ static clj_value b_rand_star(const clj_value *args, size_t n) {
 
 // ---- sorted collections
 
-static clj_value sorted_from_args(bool map, const clj_value *args, size_t n) {
-	if (!clj_has_core(args[0], CLJ_CORE_FN)) return clj_throw_msg("comparator must be a function, got: %s", clj_type_name(args[0]));
-	if (map && (n - 1) % 2) {
+// cmp nil is the C comparator (compare.h), which is what sorted-map and sorted-set build with.
+static clj_value sorted_from_args(bool map, clj_value cmp, const clj_value *args, size_t n) {
+	if (map && n % 2) {
 		clj_value text = clj_pr_str(args[n - 1]);
 		clj_value e = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
 		clj_release(text);
 		return e;
 	}
-	clj_value c = map ? clj_sorted_map_new(args[0]) : clj_sorted_set_new(args[0]);
-	for (size_t i = 1; i < n && c != CLJ_THROWN; i += map ? 2 : 1) c = clj_sorted_assoc(c, args[i], map ? args[i + 1] : CLJ_NIL);
+	clj_value c = map ? clj_sorted_map_new(cmp) : clj_sorted_set_new(cmp);
+	for (size_t i = 0; i < n && c != CLJ_THROWN; i += map ? 2 : 1) c = clj_sorted_assoc(c, args[i], map ? args[i + 1] : CLJ_NIL);
 	return c;
 }
 
-static clj_value b_sorted_map_by(const clj_value *args, size_t n) { return sorted_from_args(true, args, n); }
-static clj_value b_sorted_set_by(const clj_value *args, size_t n) { return sorted_from_args(false, args, n); }
+static clj_value sorted_by_args(bool map, const clj_value *args, size_t n) {
+	if (!clj_has_core(args[0], CLJ_CORE_FN)) return clj_throw_msg("comparator must be a function, got: %s", clj_type_name(args[0]));
+	return sorted_from_args(map, args[0], args + 1, n - 1);
+}
+
+static clj_value b_sorted_map_by(const clj_value *args, size_t n) { return sorted_by_args(true, args, n); }
+static clj_value b_sorted_set_by(const clj_value *args, size_t n) { return sorted_by_args(false, args, n); }
+static clj_value b_sorted_map(const clj_value *args, size_t n) { return sorted_from_args(true, CLJ_NIL, args, n); }
+static clj_value b_sorted_set(const clj_value *args, size_t n) { return sorted_from_args(false, CLJ_NIL, args, n); }
+
+// (sort-by keyfn coll) takes the C comparator; the 3-arity needs a real fn, as a nil comparator is a
+// NullPointerException on the JVM and the suite tests for the throw.
+static clj_value b_sort_by(const clj_value *args, size_t n) {
+	if (n == 2) return clj_sort_by(args[1], args[0], CLJ_NIL);
+	if (!clj_has_core(args[1], CLJ_CORE_FN)) return clj_throw_msg("comparator must be a function, got: %s", clj_type_name(args[1]));
+	return clj_sort_by(args[2], args[0], args[1]);
+}
 
 static clj_value b_sorted_p(const clj_value *args, size_t n) {
 	(void)n;
@@ -1281,6 +1297,7 @@ static const entry entries[] = {
 	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
 	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},
 	{"sorted-map-by", b_sorted_map_by, 1, ANY}, {"sorted-set-by", b_sorted_set_by, 1, ANY}, {"sorted?", b_sorted_p, 1, 1},
+	{"sorted-map*", b_sorted_map, 0, ANY}, {"sorted-set*", b_sorted_set, 0, ANY}, {"sort-by*", b_sort_by, 2, 3},
 	{"sorted-seq*", b_sorted_seq, 2, 2}, {"sorted-seq-from*", b_sorted_seq_from, 3, 3}, {"sorted-compare*", b_sorted_compare, 3, 3},
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", b_lazy_seq_star, 1, 1},

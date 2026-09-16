@@ -1218,23 +1218,24 @@
   (reduce (fn [_ x] (proc x)) nil coll)
   nil)
 
-;; compare and sort are host primitives bound after boot (Primitives.swift).
+;; compare and sort are host primitives bound after boot (Primitives.swift); both delegate to the C
+;; comparator (compare.h), which sort-by* and the sorted collections reach without the host at all.
 (declare compare sort)
 
 (defn sort-by
   "Returns a sorted sequence of the items in coll, by (compare (keyfn a) (keyfn b)) or comp on the keys."
-  ([keyfn coll] (sort-by keyfn compare coll))
-  ([keyfn comp coll] (sort (fn [x y] (comp (keyfn x) (keyfn y))) coll)))
+  ([keyfn coll] (sort-by* keyfn coll))
+  ([keyfn comp coll] (sort-by* keyfn comp coll)))
 
 (defn sorted-map
   "Returns a sorted map of the key/value pairs, ordered by compare."
   [& keyvals]
-  (apply sorted-map-by compare keyvals))
+  (apply sorted-map* keyvals))
 
 (defn sorted-set
   "Returns a sorted set of the keys, ordered by compare."
   [& ks]
-  (apply sorted-set-by compare ks))
+  (apply sorted-set* ks))
 
 ;; The collection's own comparator orders the bound, so a custom one bounds subseq as it orders the tree.
 (defn- mk-bound-fn [sc test k]

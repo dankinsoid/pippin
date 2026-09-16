@@ -6,6 +6,7 @@
 #include "atom.h"    // IWYU pragma: export
 #include "box.h"     // IWYU pragma: export
 #include "coll.h"    // IWYU pragma: export
+#include "compare.h" // IWYU pragma: export
 #include "cons.h"    // IWYU pragma: export
 #include "epoch.h"   // IWYU pragma: export
 #include "error.h"   // IWYU pragma: export
