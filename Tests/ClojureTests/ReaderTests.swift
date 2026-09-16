@@ -78,6 +78,9 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("1r1", 1, 1, "Radix out of range: 1r1"),
 	("0x7FFFFFFFFFFFFFFF", 1, 1, "Integer out of fixnum range, bigint is not supported yet: 0x7FFFFFFFFFFFFFFF"),
 	("#:a{:b 1}", 1, 1, "Namespaced map literals are not supported yet"),
+	("#cpp x", 1, 1, "Tagged literals are not supported yet"),
+	("#?(:default #cpp x :jank 1)", 1, 13, "Tagged literals are not supported yet"),
+	("#?(:default #\"re\" :jank 1)", 1, 13, "Regex literals are not supported yet"),
 	("#=(+ 1 2)", 1, 1, "Read-eval is not supported yet"),
 	("^1 x", 1, 1, "Metadata must be Symbol,Keyword,String or Map"),
 	("(a ^[] x)", 1, 4, "Metadata must be Symbol,Keyword,String or Map"),
@@ -112,7 +115,7 @@ extension CoreTests {
 		// @ai-generated(guided)
 		@Test func fnLiteralsConditionalsAndRadixNumbers() throws {
 			clj_init()
-			for k in ["default", "nested", "user/a", "clojure.core/x", "clj", "cljs"] { _ = kw(k) }
+			for k in ["default", "nested", "user/a", "clojure.core/x", "clj", "cljs", "jank", "ok", "a", "ns"] { _ = kw(k) }
 			_ = try cljEval("(alias 'rt-alias 'clojure.core)")
 			let before = clj_debug_live_objects()
 			do {
@@ -134,9 +137,22 @@ extension CoreTests {
 				#expect(try read("(a #?@(:cljs [x]) b)") == list(sym("a"), sym("b")))
 				#expect(try read("[#?@(:default ()) 1]") == [1])
 				#expect(try read("#?(:default #?(:default :nested))") == kw("nested"))
+				// An unselected branch is data whatever it contains: a dispatch macro this reader has no support
+				// for reads as nil there, as Clojure's suppressed read does.
+				#expect(try read("#?(:jank #cpp (a b) :default 7)") == 7)
+				#expect(try read("#?(:jank [#cpp x #js {:a 1}] :default [1 2])") == [1, 2])
+				#expect(try read("#?(:jank #\"[a-z]+\" :default :ok)") == kw("ok"))
+				#expect(try read("#?(:jank #:ns{:a 1} :default :ok)") == kw("ok"))
+				#expect(try read("#?(:jank #=(+ 1 2) :default :ok)") == kw("ok"))
+				#expect(try read("#?(:jank #?(:default #cpp x) :default :ok)") == kw("ok"))
+				#expect(try read("[#?@(:jank [#cpp x 3] :default [1 2]) 9]") == [1, 2, 9])
+				#expect(try read("#?(:jank #cpp x :default 2)") == 2)
 				Runtime.readerFeatures = ["clj"]
 				#expect(try read("#?(:cljs 1 :clj 2 :default 3)") == 2)
 				#expect(Runtime.readerFeatures == ["clj"])
+				// The branch a won feature makes unselected is suppressed too, even though its own feature matches.
+				Runtime.readerFeatures = ["clj", "jank"]
+				#expect(try read("#?(:clj 1 :jank #cpp x)") == 1)
 				clj_reader_set_features(CLJ_NIL)
 				#expect(try read("#?(:cljs 1 :clj 2 :default 3)") == 3)
 				#expect(try read("::a") == kw("user/a"))

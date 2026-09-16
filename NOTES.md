@@ -273,6 +273,13 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **`#(...)` rewrites its body after the list is read** (`fn_literal`): `%`, `%N` (1–20), `%&` become
   `p1__N#`/`rest__N#` params of a `fn*`, with one recursive walk over the literal's own nesting (the
   reader is otherwise iterative). Nested `#(` is refused, as LispReader does.
+- **An unselected `#?` branch reads as data whatever it contains** (`in_unselected_branch`, `F_SUPPRESSED`):
+  a tagged literal, a regex, a `#:ns{}` map or a `#=` there reads as nil (the tag's form and the pattern text
+  are read and dropped) instead of ending the file, as Clojure's suppressed read does; in the selected branch
+  each is the error it is outside one. Which branch is selected is known while reading: the body list's items
+  so far are on the value stack, features at the even indexes. Suppression follows the enclosing conditionals,
+  so a selected inner branch inside an unselected outer one is suppressed too. Numbers are not suppressed —
+  `0x7FFFFFFFFFFFFFFF` in a branch nobody selects is still the bigint error.
 - **Reader conditionals** `#?`/`#?@` select the first branch whose feature is in `clj_reader.features`
   (a set of keywords copied from the process-wide `clj_reader_set_features` at init; `:default` always
   matches; nil means `:default` alone). No branch → the form reads as nothing (an EOF at top level, a
@@ -956,11 +963,10 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   a fn built the "%s cannot be invoked" message with `clj_pr_str`, which realized the infinite lazy seq. The
   fix is `clj_pr_str_max` (printer section) in every error message that quotes a runtime value. It was never
   state-dependent: the namespace hangs in isolation too.
-- **Known reader gaps the suite hits**: a tagged literal (`#cpp`, `#inst`, `#uuid`) anywhere in a file,
-  even inside an unselected `#?` branch, is a reader error that ends the file (Clojure reads unselected
-  branches with tags suppressed; fix: an F_TAG frame that drops the tag inside a `#?` and errors outside);
-  `0x7FFFFFFFFFFFFFFF` and friends in `number-range` exceed the 63-bit fixnum, so every `r/max-int`-style
-  constant is missing (bigint); regex literals; `#:ns{}` maps. Symbols the suite needs from the JVM:
+- **Known reader gaps the suite hits**: `0x7FFFFFFFFFFFFFFF` and friends in `number-range` exceed the 63-bit
+  fixnum, so every `r/max-int`-style constant is missing (bigint); regex literals and `#:ns{}` maps in a
+  selected branch; a tagged literal (`#cpp`, `#inst`, `#uuid`) outside a `#?` — inside an unselected branch it
+  is suppressed (reader section). Symbols the suite needs from the JVM:
   `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in `catch` works, `instance?` of JVM classes does not.
 - **scripts/api-diff.clj** is the JVM side of step 5 (dump `(ns-publics 'clojure.core)`, diff against a
   dump of ours, weight by corpus uses, write docs/api-parity.md); written, not yet run: the runtime-side

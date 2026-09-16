@@ -7,7 +7,7 @@
 
 #include "clj/core.h"
 
-typedef enum { F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META, F_FN, F_COND, F_COND_SPLICING } frame_kind;
+typedef enum { F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META, F_FN, F_COND, F_COND_SPLICING, F_SUPPRESSED } frame_kind;
 
 typedef struct {
 	frame_kind kind;
@@ -582,6 +582,27 @@ static bool has_feature(const parser *p, clj_value kw) {
 	return !clj_is_nil(p->r->features) && clj_set_contains(p->r->features, kw);
 }
 
+// True while the form being read belongs to a #? branch no feature selected: its value is discarded, so a
+// dispatch macro the reader has no support for reads as nil there instead of ending the file, as Clojure's
+// suppressed read does. The body list read so far is on the value stack: features at even indexes, the value
+// being read under the last one.
+static bool in_unselected_branch(const parser *p) {
+	for (size_t n = p->nframes; n-- > 0;) {
+		if (p->frames[n].kind != F_COND && p->frames[n].kind != F_COND_SPLICING) continue;
+		if (n + 1 >= p->nframes || p->frames[n + 1].kind != F_LIST) continue; // the body list is not open yet
+		// Only the body list's own items: a frame opened inside it starts where its last item ended.
+		size_t start = p->frames[n + 1].start;
+		size_t items = (n + 2 < p->nframes ? p->frames[n + 2].start : p->nvals) - start;
+		if (items % 2 == 0) continue; // a feature keyword, not a branch value
+		bool selected = has_feature(p, p->vals[start + items - 1]);
+		for (size_t i = 0; selected && i + 2 < items; i += 2) {
+			if (has_feature(p, p->vals[start + i])) selected = false; // an earlier branch already won
+		}
+		if (!selected) return true;
+	}
+	return false;
+}
+
 // Consumes body. *out is the owned chosen form, or CLJ_UNBOUND when no branch matches.
 static clj_read_status read_cond(parser *p, const frame *f, clj_value body, clj_value *out) {
 	*out = CLJ_UNBOUND;
@@ -672,6 +693,10 @@ static clj_read_status push_value(parser *p, clj_value v) {
 			clj_release(v);
 			p->nframes--;
 			return CLJ_READ_OK;
+		case F_SUPPRESSED:
+			clj_release(v);
+			v = CLJ_NIL;
+			break;
 		case F_COND:
 		case F_COND_SPLICING: {
 			clj_value       chosen;
@@ -1025,12 +1050,19 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 		p->fn_depth++;
 		push_frame(p, F_FN, line, col);
 		return CLJ_READ_OK;
-	case '"': return fail(p, line, col, "Regex literals are not supported yet");
+	case '"':
+		if (in_unselected_branch(p)) return read_string(p, line, col); // a discarded branch keeps the pattern text
+		return fail(p, line, col, "Regex literals are not supported yet");
 	case '\'':
 		advance(r);
 		push_frame(p, F_VAR, line, col);
 		return CLJ_READ_OK;
-	case ':': return fail(p, line, col, "Namespaced map literals are not supported yet");
+	case ':':
+		if (in_unselected_branch(p)) {
+			read_token_tail(r); // the prefix; the map that follows reads as a plain one
+			return CLJ_READ_OK;
+		}
+		return fail(p, line, col, "Namespaced map literals are not supported yet");
 	case '?': {
 		advance(r);
 		bool splicing = !at_eof(r) && peek(r) == '@';
@@ -1040,13 +1072,25 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 		push_frame(p, splicing ? F_COND_SPLICING : F_COND, line, col);
 		return CLJ_READ_OK;
 	}
-	case '=': return fail(p, line, col, "Read-eval is not supported yet");
+	case '=':
+		if (in_unselected_branch(p)) {
+			advance(r);
+			push_frame(p, F_SUPPRESSED, line, col);
+			return CLJ_READ_OK;
+		}
+		return fail(p, line, col, "Read-eval is not supported yet");
 	case '^':
 		advance(r);
 		push_frame(p, F_META, line, col);
 		return CLJ_READ_OK;
 	case '<': return fail(p, line, col, "Unreadable form");
-	default: return fail(p, line, col, "Tagged literals are not supported yet");
+	default:
+		if (in_unselected_branch(p)) {
+			read_token_tail(r); // the tag; the form it applies to reads as itself and becomes nil
+			push_frame(p, F_SUPPRESSED, line, col);
+			return CLJ_READ_OK;
+		}
+		return fail(p, line, col, "Tagged literals are not supported yet");
 	}
 }
 
