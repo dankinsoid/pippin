@@ -935,6 +935,12 @@ static bool put_str(buf *b, clj_value v) {
 		buf_put(b, u, n);
 		return true;
 	}
+	// Pattern.toString is the pattern text, where print-method wraps it in #"".
+	if (clj_is_regex(v)) {
+		clj_value p = clj_regex_pattern(v);
+		buf_put(b, clj_string_bytes(p), clj_string_len(p));
+		return true;
+	}
 	return put_pr(b, v);
 }
 

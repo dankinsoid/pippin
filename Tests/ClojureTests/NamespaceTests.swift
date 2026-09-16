@@ -211,7 +211,7 @@ extension CoreTests {
 				#expect(try eval("[(subs \"héllo\" 1) (subs \"héllo\" 1 3) (subs \"abc\" 3) (subs \"abc\" 0 0)]") == ["éllo", "él", "", ""])
 				#expect(message("(subs \"abc\" 4)") == "String index out of range: 4")
 				#expect(message("(subs \"abc\" 2 1)") == "String index out of range: 1")
-				#expect(message("(str/split \"a\" 1)") == "split needs a string separator; regex patterns are not supported (NOTES.md)")
+				#expect(message("(str/split \"a\" 1)") == "expected a string or char, got: long")
 				#expect(try eval("[(char 97) (int \\a) (int 3.9) (int -3.9) (int 7)]") == [Value(Unicode.Scalar(97)), 97, 3, -3, 7])
 			}
 			#expect(clj_debug_live_objects() == before)

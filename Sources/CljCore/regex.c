@@ -1520,12 +1520,17 @@ static bool expand(buf *b, clj_value re, clj_value s, const re_text *t, const in
 				clj_throw_msg("Illegal group reference");
 				return false;
 			}
-			group = 0;
+			// The first digit is always the group, as appendReplacement reads it; the rest extend it while legal.
+			group = (uint32_t)(r[j++] - '0');
 			while (j < n && r[j] >= '0' && r[j] <= '9') {
 				uint32_t next = group * 10 + (uint32_t)(r[j] - '0');
 				if (next > count) break;
 				group = next;
 				j++;
+			}
+			if (group > count) {
+				clj_throw_msg("No group %u", group);
+				return false;
 			}
 			i = j - 1;
 		}

@@ -336,16 +336,18 @@ static clj_value finish_split(parts *p, intptr_t limit) {
 
 static clj_value b_split(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return not_a_string("split", args[0]);
-	if (!clj_is_string(args[1])) return clj_throw_msg("split needs a string separator; regex patterns are not supported (NOTES.md)");
+	clj_value needle = needle_of(args[1]);
+	if (needle == CLJ_THROWN) return CLJ_THROWN;
 	intptr_t limit = 0;
-	if (n == 3) {
-		if (!clj_is_fixnum(args[2])) return clj_throw_msg("split expects an integer limit");
-		limit = clj_fixnum_val(args[2]);
+	if (n == 3 && !clj_index_arg(args[2], &limit)) {
+		clj_release(needle);
+		return clj_throw_msg("split expects an integer limit");
 	}
-	const char *hay = clj_string_bytes(args[0]), *sep = clj_string_bytes(args[1]);
-	size_t      hlen = clj_string_len(args[0]), slen = clj_string_len(args[1]);
+	const char *hay = clj_string_bytes(args[0]), *sep = clj_string_bytes(needle);
+	size_t      hlen = clj_string_len(args[0]), slen = clj_string_len(needle);
 	parts       p = {0};
 	if (hlen == 0) {
+		clj_release(needle);
 		add_part(&p, "", 0);
 		return finish_split(&p, -1);
 	}
@@ -369,6 +371,7 @@ static clj_value b_split(const clj_value *args, size_t n) {
 		}
 	}
 	add_part(&p, hay + start, hlen - start);
+	clj_release(needle);
 	return finish_split(&p, limit);
 }
 

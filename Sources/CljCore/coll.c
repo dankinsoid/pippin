@@ -131,7 +131,8 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 	intptr_t i;
 	if (!clj_index_arg(index, &i)) return clj_throw_msg("Key must be integer");
 	size_t count;
-	if (clj_is_nil(coll)) return CLJ_NIL;
+	// RT.nth of nil answers not_found, where the 2-arity answers nil.
+	if (clj_is_nil(coll)) return has_not_found ? clj_retain(not_found) : CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (t && (t->core_bits & CLJ_CORE_INDEXED)) {
 		// CLJ_UNBOUND is never an element, so it tells a miss from a stored value.
