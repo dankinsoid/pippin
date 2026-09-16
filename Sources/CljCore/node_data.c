@@ -176,7 +176,7 @@ bool clj_node_foldable(clj_value v) {
 	} else if (clj_is_list(v)) {
 		// By cell, not through the iterator: a cons over a lazy tail must not be realized here.
 		for (; ok && !clj_is_empty_list(v); v = clj_cons_of(v)->rest) {
-			if (!clj_is_ptr(v) || clj_header_of(v)->type != &clj_cons_type) return clj_is_nil(v);
+			if (!clj_is_ptr(v) || clj_header_of(v)->type != &clj_list_type) return clj_is_nil(v);
 			ok = clj_node_foldable(clj_cons_of(v)->first);
 		}
 	} else {

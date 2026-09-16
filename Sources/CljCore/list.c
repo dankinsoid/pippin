@@ -48,10 +48,20 @@ static clj_value empty_list_with_meta(clj_value self, clj_value m) {
 	return clj_from_ptr(e);
 }
 
+// EmptyList.cons: a PersistentList carrying the empty list's own meta.
+static clj_value empty_list_conj(clj_value self, clj_value x) {
+	clj_header *h = clj_header_of(self);
+	clj_value   m = h->flags & CLJ_FLAG_META ? *meta_slot(h) : CLJ_NIL;
+	clj_value   r = clj_cons_alloc(&clj_list_type, x, CLJ_NIL, m, !clj_is_nil(m));
+	clj_release(self);
+	return r;
+}
+
 const clj_type clj_empty_list_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "empty-list",
-	CLJ_ASEQ_TRAIT(CLJ_CORE_LIST | CLJ_CORE_COUNTED | CLJ_CORE_META | CLJ_CORE_OBJ),
+	CLJ_ASEQ_TRAIT_BASE(CLJ_CORE_LIST | CLJ_CORE_COUNTED | CLJ_CORE_META | CLJ_CORE_OBJ),
+	.conj = empty_list_conj,
 	.each_child = empty_list_each_child,
 	.seq = empty_list_nil,
 	.first = empty_list_nil,
@@ -69,7 +79,7 @@ clj_value clj_list_empty(void) { return clj_from_ptr(&empty_list); }
 clj_value clj_list_from_array(const clj_value *items, size_t n) {
 	clj_value rest = clj_list_empty();
 	for (size_t i = n; i > 0; i--) {
-		clj_cons *c = clj_alloc(&clj_cons_type, sizeof *c);
+		clj_cons *c = clj_alloc(&clj_list_type, sizeof *c);
 		c->first = clj_retain(items[i - 1]);
 		c->rest = rest;
 		rest = clj_from_ptr(c);

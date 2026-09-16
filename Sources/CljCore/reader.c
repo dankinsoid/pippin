@@ -1185,7 +1185,7 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 		// Clojure attaches the opening paren's position to lists only; the head cell carries it.
 		clj_value pos = clj_map_assoc(clj_map_assoc(clj_map_empty(), kw_line, clj_fixnum(f.line)), kw_column, clj_fixnum(f.col));
 		clj_value tail = clj_list_from_array(items + 1, n - 1);
-		v = clj_cons_new_meta(items[0], tail, pos);
+		v = clj_list_new_meta(items[0], tail, pos);
 		clj_release(tail);
 		clj_release(pos);
 	} else if (f.kind == F_LIST) {

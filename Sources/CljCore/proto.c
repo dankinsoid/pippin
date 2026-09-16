@@ -1070,7 +1070,7 @@ void clj_proto_install(void) {
 		{"Object", &object_type},          {"Long", &clj_long_type},       {"Integer", &clj_long_type},        {"Double", &clj_double_type},
 		{"Boolean", &boolean_type},        {"Character", &char_type},      {"String", &clj_string_type},     {"Keyword", &clj_keyword_type},
 		{"Symbol", &clj_symbol_type},      {"PersistentVector", &clj_vector_type}, {"PersistentHashMap", &clj_map_type}, {"PersistentHashSet", &clj_set_type},
-		{"PersistentList", &clj_cons_type}, {"Cons", &clj_cons_type},      {"EmptyList", &clj_empty_list_type}, {"LazySeq", &clj_lazy_seq_type},
+		{"PersistentList", &clj_list_type}, {"Cons", &clj_cons_type},      {"EmptyList", &clj_empty_list_type}, {"LazySeq", &clj_lazy_seq_type},
 		{"Range", &clj_range_type},        {"Fn", &clj_fn_type},           {"Var", &clj_var_type},           {"Namespace", &clj_ns_type},
 		{"ExceptionInfo", &clj_exception_type}, {"HostError", &clj_host_error_type}, {"Protocol", &clj_protocol_type}, {"Type", &clj_type_type},
 		{"Reduced", &clj_reduced_type},    {"Volatile", &clj_volatile_type},  {"Atom", &clj_atom_type},

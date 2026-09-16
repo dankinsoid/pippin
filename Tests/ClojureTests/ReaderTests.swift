@@ -246,7 +246,7 @@ extension CoreTests {
 				#expect(try read("()") == Value(list: []))
 				#expect(try read("()").raw == clj_list_empty())
 				#expect(try read("(1 2 3)") == list(1, 2, 3))
-				#expect(try read("(1 2 3)").typeName == "cons")
+				#expect(try read("(1 2 3)").typeName == "list")
 				#expect(try read("[]") == Value([]))
 				#expect(try read("[1 [2 [3]]]") == [1, [2, [3]]])
 				#expect(try read("[1 [2 [3]]]").typeName == "vector")

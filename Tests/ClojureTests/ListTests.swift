@@ -50,7 +50,7 @@ extension CoreTests {
 			let l = list(raw)
 			#expect(clj_is_list(l))
 			#expect(!clj_is_empty_list(l))
-			#expect(String(cString: clj_type_name(l)) == "cons")
+			#expect(String(cString: clj_type_name(l)) == "list")
 			#expect(clj_list_count(l) == 5)
 			#expect(items(l) == raw)
 			#expect(clj_cons_of(l).pointee.first == clj_fixnum(1))
@@ -120,7 +120,7 @@ extension CoreTests {
 			do {
 				let l = Value(list: [1, "two", nil, [3.0, true]])
 				withExtendedLifetime(l) {
-					#expect(l.typeName == "cons")
+					#expect(l.typeName == "list")
 					#expect(clj_debug_all_shared(l.raw))
 					#expect(l.list == [1, "two", nil, [3.0, true]])
 					#expect(l.array == nil)
@@ -136,6 +136,42 @@ extension CoreTests {
 				d[[1, 2]] = 1
 				d[Value(list: [1, 2])] = 2
 				#expect(d.count == 1 && d[[1, 2]] == 2)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A Cons is not an IPersistentList; RT.cons over nil and PersistentList.cons are.
+		@Test func consIsNotAList() throws {
+			clj_init()
+			_ = Value(keyword: "m")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try cljEval("[(list? (cons 1 '())) (seq? (cons 1 '())) (sequential? (cons 1 '()))]") == [false, true, true])
+				#expect(try cljEval("[(list? (cons 1 nil)) (list? (cons 1 [2])) (list? (cons 1 (lazy-seq [2])))]") == [true, false, false])
+				#expect(try cljEval("[(list? '(1 2)) (list? ()) (list? (list 1)) (list? (rest '(1 2))) (list? (pop '(1 2)))]") == [true, true, true, true, true])
+				#expect(try cljEval("[(list? (conj '(1) 2)) (list? (reverse [1 2])) (list? (seq '(1 2)))]") == [true, true, true])
+				#expect(try cljEval("[(list? (map inc [1])) (list? (range 2)) (list? [1]) (list? nil)]") == [false, false, false, false])
+				#expect(try cljEval("[(type (cons 1 '())) (type '(1 2))]").description == "[cons list]")
+				#expect(try cljEval("[(instance? Cons (cons 1 '())) (instance? PersistentList '(1 2))]") == [true, true])
+				#expect(cljEvalError("(peek (cons 1 '()))") != nil)
+				#expect(try cljEval("[(= (cons 1 '()) '(1)) (= (hash (cons 1 '())) (hash '(1)))]") == [true, true])
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// PersistentList.cons carries the list's meta onto the new head; pop of the last cell keeps it too.
+		@Test func conjOnAListKeepsMeta() throws {
+			clj_init()
+			_ = Value(keyword: "m")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try cljEval("(meta (conj (with-meta '() {:m 1}) 2))").description == "{:m 1}")
+				#expect(try cljEval("(meta (conj (with-meta '(1) {:m 1}) 2))").description == "{:m 1}")
+				#expect(try cljEval("(meta (conj (conj (with-meta '() {:m 1}) 2) 3))").description == "{:m 1}")
+				#expect(try cljEval("(conj (with-meta '(1) {:m 1}) 2)").description == "(2 1)")
+				#expect(try cljEval("(meta (pop (with-meta '(1) {:m 1})))").description == "{:m 1}")
+				// ASeq.cons drops meta, so conj onto a Cons or a lazy seq does not carry it.
+				#expect(try cljEval("[(meta (conj (with-meta (cons 1 '()) {:m 1}) 2)) (meta (rest (with-meta '(1 2) {:m 1})))]") == [nil, nil])
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

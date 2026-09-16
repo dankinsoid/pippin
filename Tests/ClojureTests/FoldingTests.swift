@@ -102,7 +102,6 @@ extension CoreTests {
 					("(first '(1 2))", "[:const 1 1 1]"),
 					("(rest '(1 2))", "[:const (2) 1 1]"),
 					("(next '(1))", "[:const nil 1 1]"),
-					("(cons 1 '(2))", "[:const (1 2) 1 1]"),
 					("(conj [1] 2)", "[:const [1 2] 1 1]"),
 					("(conj nil 1)", "[:const (1) 1 1]"),
 					("(assoc {} :a 1)", "[:const {:a 1} 1 1]"),
@@ -131,7 +130,7 @@ extension CoreTests {
 			_ = try rt.eval("(defmacro fold-fns [] [inc])")
 			let before = clj_debug_live_objects()
 			do {
-				for source in ["(seq [1 2])", "(rest [1 2])", "(seq \"ab\")", "(next [1 2 3])", "(cons 1 [2])"] {
+				for source in ["(seq [1 2])", "(rest [1 2])", "(seq \"ab\")", "(next [1 2 3])", "(cons 1 [2])", "(cons 1 '(2))"] {
 					let kinds = try Tree(source).kinds
 					#expect(kinds.first == CLJ_NODE_INTRINSIC && kinds.dropFirst().allSatisfy { $0 == CLJ_NODE_CONST }, Comment(rawValue: source))
 				}

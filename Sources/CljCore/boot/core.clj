@@ -1049,7 +1049,10 @@
         (vector? coll) (if (pos? (count coll))
                          (into [] (take (dec (count coll)) coll))
                          (throw (ex-info "Can't pop empty vector" {})))
-        (list? coll) (if (seq coll) (rest coll) (throw (ex-info "Can't pop empty list" {})))
+        ;; PersistentList.pop hands the empty list the popped list's meta.
+        (list? coll) (cond (next coll) (rest coll)
+                           (seq coll) (with-meta () (meta coll))
+                           :else (throw (ex-info "Can't pop empty list" {})))
         :else (throw (ex-info (str "pop not supported on this type: " (type coll)) {}))))
 
 (defn subvec

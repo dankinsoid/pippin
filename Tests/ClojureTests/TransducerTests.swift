@@ -99,7 +99,7 @@ extension CoreTests {
 				#expect(try eval("(reduce-kv (fn [acc i x] (if (= i 2) (reduced acc) (+ acc x))) 0 [10 20 30 40])") == 30)
 				#expect(try eval("(reduce-kv (fn [acc k v] (reduced k)) nil {:a 1})") == kw("a"))
 				#expect(try eval("(reduce-kv (fn [acc i x] (+ acc (* i x))) 0 (vec (range 40)))") == 20540)
-				#expect(message("(reduce-kv + 0 '(1))") == "reduce-kv not supported on this type: cons")
+				#expect(message("(reduce-kv + 0 '(1))") == "reduce-kv not supported on this type: list")
 				#expect(message("(reduce-kv (fn [a k v] (throw (ex-info \"kv\" {}))) 0 {:a 1})") == "kv")
 			}
 			#expect(clj_debug_live_objects() == before)

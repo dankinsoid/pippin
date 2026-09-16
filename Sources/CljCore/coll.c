@@ -64,7 +64,9 @@ clj_value clj_rest(clj_value coll) {
 }
 
 clj_value clj_seq_cons(clj_value x, clj_value coll) {
-	if (clj_is_nil(coll) || clj_is_seq(coll)) return clj_cons_new(x, coll);
+	// RT.cons: a nil tail makes a PersistentList, an ISeq tail a Cons.
+	if (clj_is_nil(coll)) return clj_list_new(x, coll);
+	if (clj_is_seq(coll)) return clj_cons_new(x, coll);
 	clj_value s = clj_seq(coll);
 	if (s == CLJ_THROWN) return s;
 	clj_value r = clj_cons_new(x, s);
@@ -230,7 +232,7 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 		clj_value cur = it->cur;
 		if (!clj_is_ptr(cur)) return done(it, false);
 		const clj_type *t = clj_type_of(cur);
-		if (t == &clj_cons_type) {
+		if (t == &clj_cons_type || t == &clj_list_type) {
 			const clj_cons *c = clj_cons_of(cur);
 			*out = c->first;
 			iter_enter(it, c->rest);

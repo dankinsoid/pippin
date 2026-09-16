@@ -68,7 +68,8 @@ clj_value clj_aseq_conj(clj_value self, clj_value x);
 clj_value clj_aseq_seq(clj_value self);
 
 #define CLJ_ASEQ_BITS (CLJ_CORE_SEQABLE | CLJ_CORE_SEQ | CLJ_CORE_SEQUENTIAL | CLJ_CORE_COLL)
-#define CLJ_ASEQ_TRAIT(bits) .core_bits = CLJ_ASEQ_BITS | (bits), .hash = clj_aseq_hash, .equals = clj_aseq_equals, .conj = clj_aseq_conj
+#define CLJ_ASEQ_TRAIT_BASE(bits) .core_bits = CLJ_ASEQ_BITS | (bits), .hash = clj_aseq_hash, .equals = clj_aseq_equals
+#define CLJ_ASEQ_TRAIT(bits) CLJ_ASEQ_TRAIT_BASE(bits), .conj = clj_aseq_conj
 
 // Test hooks: first/next taken through the seq slot, bypassing a type's fast path.
 clj_value clj_debug_first_via_seq(clj_value coll);

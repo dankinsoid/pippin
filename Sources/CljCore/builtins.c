@@ -486,7 +486,7 @@ static clj_value b_list_star(const clj_value *args, size_t n) {
 	clj_value r = clj_is_seq(tail) ? clj_retain(tail) : clj_seq(tail);
 	if (r == CLJ_THROWN) return CLJ_THROWN;
 	for (size_t i = n - 1; i > 0; i--) {
-		clj_value c = clj_cons_new(args[i - 1], r);
+		clj_value c = clj_seq_cons(args[i - 1], r);
 		clj_release(r);
 		r = c;
 	}
@@ -542,7 +542,7 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, r = clj_list_empty();
 	while (clj_seq_iter_next(&it, &item)) {
-		clj_value c = clj_cons_new(item, r);
+		clj_value c = clj_list_new(item, r);
 		clj_release(r);
 		r = c;
 	}

@@ -33,7 +33,8 @@ extension CoreTests {
 		// Every builtin heap type with the interfaces it implements.
 		private func samples() throws -> [(String, Value, UInt64)] {
 			[
-				("cons", Value(list: [1]), ASEQ | LIST | IOBJ),
+				("list", Value(list: [1]), ASEQ | LIST | IOBJ),
+				("cons", try eval("(cons 1 [2])"), ASEQ | IOBJ),
 				("empty-list", Value(list: []), ASEQ | LIST | COUNTED | IOBJ),
 				("vector", [1, 2], SEQABLE | SEQUENTIAL | COLL | COUNTED | LOOKUP | ASSOCIATIVE | INDEXED | FN | VECTOR | IOBJ | REDUCE),
 				("map", try Value(reading: "{:a 1}"), SEQABLE | COLL | COUNTED | LOOKUP | ASSOCIATIVE | FN | MAP | IOBJ | REDUCE),
@@ -86,11 +87,11 @@ extension CoreTests {
 
 		@Test func fastPathsOnlyWhereSeqIsAView() throws {
 			clj_init()
-			let fast = ["vector", "string", "range", "vector-seq", "string-seq", "cons", "empty-list"]
+			let fast = ["vector", "string", "range", "vector-seq", "string-seq", "list", "cons", "empty-list"]
 			for (name, value, _) in try samples() {
 				let t = clj_type_of(value.raw).pointee
 				#expect((t.first != nil && t.next != nil) == fast.contains(name), "\(name)")
-				#expect((t.rest != nil) == (name == "cons"), "\(name)")
+				#expect((t.rest != nil) == (name == "cons" || name == "list"), "\(name)")
 			}
 		}
 
@@ -117,7 +118,11 @@ extension CoreTests {
 				try check("(seq \"a\")", [true, true, true, true, false, false, false, false, false, false, false, false])
 				try check("(range 2)", [true, true, true, true, true, false, false, false, false, false, false, false])
 				try check("(map inc [1])", [true, true, true, true, false, false, false, false, false, false, false, false])
-				try check("(cons 1 [2])", [true, true, true, true, false, false, false, false, true, false, false, false])
+				try check("(cons 1 [2])", [true, true, true, true, false, false, false, false, false, false, false, false])
+				// A Cons is not an IPersistentList, so list? is false while seq? stays true.
+				try check("(cons 1 '())", [true, true, true, true, false, false, false, false, false, false, false, false])
+				try check("(cons 1 nil)", [true, true, true, true, false, false, false, false, true, false, false, false])
+				try check("(conj '(1) 2)", [true, true, true, true, false, false, false, false, true, false, false, false])
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
