@@ -921,6 +921,39 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
 
+## Corpus (corpus/, Tests/ClojureTests/CorpusTests.swift, docs/corpus.md)
+
+- **What is vendored**: `corpus/medley` (medley.core and its test, EPL) and `corpus/clojure-test-suite`
+  (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0), each with a `SOURCE`
+  (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
+  namespaces or `:test-dirs` to scan). No submodules.
+- **The harness** (`CorpusTests`) is opt-in: `CLJ_CORPUS=1 swift test --filter CorpusTests`, `CLJ_CORPUS_LIB=medley`
+  for one library, `CLJ_CORPUS_UPDATE=1` to rewrite `corpus/<lib>/allowlist.edn` and `docs/corpus.md` from the
+  run. It sets the load path and reader features from the manifest, requires every test namespace under
+  lenient loading (a failing top-level form is recorded, not fatal), captures the suite's own `SKIP - x`
+  lines (`when-var-exists`), runs each namespace through `clojure.test/test-ns` under a collecting
+  reporter and folds the events into pass/fail/error per var; a second run over the loaded namespaces is
+  the memory check (baseline after the first). Allowlist rule: a failing form, test or skip not in the
+  allowlist fails; a listed one that now loads, passes or runs fails too (stale); an entry carries
+  `:missing` (the symbols the runtime lacks, extracted from the message) or `:design-line` (a line of
+  design §8). Entries the generator cannot classify carry an empty `:missing` and the reason text: those are
+  wrong-result failures, backlog items to fix or to annotate by hand.
+- **Not on by default because the full suite run hangs**: the run over clojure-test-suite stops at
+  100 % CPU inside a test (`clojure.core-test.fnil/fnil-test` in the last run, `bit-or` in an earlier
+  one; each namespace runs fine in isolation, so the hang depends on what ran before). Until it is found
+  (the next step: bisect with the per-test progress lines on stderr, then a watchdog per namespace on a
+  thread), the allowlist and the numbers exist for medley only. Trigger for a per-test timeout in the
+  harness: this.
+- **Known reader gaps the suite hits**: a tagged literal (`#cpp`, `#inst`, `#uuid`) anywhere in a file,
+  even inside an unselected `#?` branch, is a reader error that ends the file (Clojure reads unselected
+  branches with tags suppressed; fix: an F_TAG frame that drops the tag inside a `#?` and errors outside);
+  `0x7FFFFFFFFFFFFFFF` and friends in `number-range` exceed the 63-bit fixnum, so every `r/max-int`-style
+  constant is missing (bigint); regex literals; `#:ns{}` maps. Symbols the suite needs from the JVM:
+  `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in `catch` works, `instance?` of JVM classes does not.
+- **scripts/api-diff.clj** is the JVM side of step 5 (dump `(ns-publics 'clojure.core)`, diff against a
+  dump of ours, weight by corpus uses, write docs/api-parity.md); written, not yet run: the runtime-side
+  dump executable and the `make api-diff` target do not exist.
+
 ## Host bridge (Sources/Clojure, error.c host-error, fn.c context natives)
 
 - **A host error keeps the Swift `Error` boxed as an opaque payload** and captures

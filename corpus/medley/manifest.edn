@@ -1,0 +1,6 @@
+;; medley is written for the JVM and CLJS: :clj reads its JVM branches, so an interop form fails where it is
+;; used instead of reading as an empty body.
+{:name "medley"
+ :load-path ["src" "test"]
+ :features #{:clj}
+ :test-namespaces [medley.core-test]}

@@ -1,0 +1,10 @@
+clojure-test-suite — the cross-dialect test suite for clojure.core and friends (jank-lang)
+
+Repository: https://github.com/jank-lang/clojure-test-suite
+Commit:     95d4a9112cfc5fe6629be3d14bb99080ea00af2f (2026-08-18)
+License:    Mozilla Public License 2.0 (LICENSE)
+
+Files taken, unmodified: the whole test/ tree (test/clojure/core_test/*.cljc,
+test/clojure/string_test/*.cljc, test/clojure/edn_test/read_string.cljc), which the
+suite's own runners load as the namespaces clojure.core-test.*, clojure.string-test.*
+and clojure.edn-test.*.

@@ -1,0 +1,9 @@
+medley — a lightweight library of useful, mostly pure functions (weavejester)
+
+Repository: https://github.com/weavejester/medley
+Commit:     5dd8b6848be90c73312b09baeee693a53536e719 (2026-08-18, version 1.10.0)
+License:    Eclipse Public License 1.0 (LICENSE, copied from LICENSE.txt)
+
+Files taken, unmodified:
+  src/medley/core.cljc        -> src/medley/core.cljc
+  test/medley/core_test.cljc  -> test/medley/core_test.cljc

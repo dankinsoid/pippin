@@ -1,0 +1,6 @@
+;; The suite conditionalizes on :cljs, :cljr, :lpy, :bb, :jank, :phel and puts JVM Clojure under :default,
+;; so no feature is set: :default is the JVM behaviour the suite characterizes.
+{:name "clojure-test-suite"
+ :load-path ["test"]
+ :features #{}
+ :test-dirs ["test"]}
