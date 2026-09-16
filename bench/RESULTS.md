@@ -838,3 +838,34 @@ each after its own release build; "after, again" is the same binary as "after" a
 - **The fixnum path gained no branch**: `to_num` still decides on two tag checks, and only a pair that is
   neither a fixnum nor a double reaches `clj_num_arith`, where the new `CLJ_NUM_LONG` arm sits between the
   fixnum and the bigint. A boxed long is an allocation, but only for a value no fixnum can hold.
+
+## Records — 2026-09-16, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The §10 step 1b targets on the first half of shapes-by-observation: a `defrecord` of five keyword fields
+against a hash map of the same five keywords and values. The record reads a field by scanning the
+descriptor's interned basis keywords by pointer and loading the slot; the hash map hashes the keyword and
+walks the trie. `assoc` of a basis key writes the slot, in place when the record is the only reference.
+Four runs of the same release binary; the spread between them is ±0.1 ns on the read rows, ±0.3 on the
+unique writes and ±4 on the shared `assoc`.
+
+| scenario | n | record | hash map | map / record |
+|---|---:|---:|---:|---:|
+| (:count r), field 3 of 5 | 100000 | 2.8 | 4.2 | 1.5× |
+| (:id r), field 1 of 5 | 100000 | 1.8 | 4.2 | 2.3× |
+| (assoc r :count v), unique | 100000 | 4.8 | 7.9 | 1.7× |
+| (assoc r :count v), shared | 100000 | 29.9 | 57.2 | 1.9× |
+| (update r :count inc), unique | 100000 | 7.3 | 11.7 | 1.6× |
+
+- **Field access hits the ≤2 ns target at the front of the basis and misses it in the middle**: 1.8 ns for
+  field 1, 2.8 ns for field 3. The scan costs ~0.5 ns per skipped keyword, so a record's read cost is its
+  field position. The design's answer is not a faster scan but the inline cache on the call site (§4,
+  "Inline cache на call site"), which turns any position into one guard and one load; a record has the
+  layout and not yet the cache.
+- **The unique update is 7.3 ns, inside the ≤10 ns target**: 1.8 for the read, 4.8 for the `assoc`, the rest
+  the `inc`. Nothing is allocated — the same object comes back with one word changed.
+- **The shared `assoc` is six times the unique one** because it copies the header, the five values, the
+  extmap and the meta and retains each: one 80-byte pool cell and eight retains. The hash map pays 57 ns for
+  the same over two trie nodes.
+- **The record is 1.5–2.3× the hash map everywhere**, which is the whole claim of the representation: no key
+  hashing on the read, no node copy on the write. It is the floor for what shapes will do for a plain
+  `{:id 1 :name "x"}`, since a shape is this layout with a shared descriptor instead of a named type.

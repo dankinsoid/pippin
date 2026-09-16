@@ -819,6 +819,105 @@ for r in dispatchRows {
 }
 print("\nns per iteration; one call per iteration inside an interpreted loop, the dispatch fn is `identity`")
 
+// MARK: - Records
+
+// The §10 step 1b targets: field access ≤2 ns, unique update ≤10 ns.
+_ = cljEval("(defrecord BenchPoint [id name count x y])")
+let benchPointType = cljEval("BenchPoint")
+let benchKeys = ["id", "name", "count", "x", "y"].map { name in name.withCString { clj_keyword_from_cstr($0) } }
+let benchCountKey = benchKeys[2]
+
+func recBuild() -> clj_value {
+	let vals = (0..<5).map { clj_fixnum($0) }
+	return vals.withUnsafeBufferPointer { clj_record_new(benchPointType, $0.baseAddress, 5) }
+}
+
+func mapBuild5() -> clj_value {
+	var m = clj_map_empty()
+	for (i, k) in benchKeys.enumerated() { m = clj_map_assoc(m, k, clj_fixnum(i)) }
+	return m
+}
+
+func recGet(_ coll: clj_value, _ k: clj_value, _ n: Int) -> UInt64 {
+	var sum: UInt64 = 0
+	for _ in 0..<n {
+		let v = clj_get(coll, k, CLJ_NIL)
+		sum &+= UInt64(bitPattern: Int64(clj_fixnum_val(v)))
+		clj_release(v)
+	}
+	return sum
+}
+
+// The assoc slot consumes its collection, so a unique one is rewritten in place.
+func assocUnique(_ build: () -> clj_value, _ n: Int) -> UInt64 {
+	var c = build()
+	for i in 0..<n { c = clj_type_of(c).pointee.assoc(c, benchCountKey, clj_fixnum(i)) }
+	let r = clj_count(c)
+	clj_release(c)
+	return UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+}
+
+func assocShared(_ base: clj_value, _ n: Int) -> UInt64 {
+	var sum: UInt64 = 0
+	for i in 0..<n {
+		let out = clj_assoc3(base, benchCountKey, clj_fixnum(i))
+		sum &+= UInt64(clj_is_ptr(out) ? 1 : 0)
+		clj_release(out)
+	}
+	return sum
+}
+
+func updateUnique(_ build: () -> clj_value, _ n: Int) -> UInt64 {
+	var c = build()
+	for _ in 0..<n {
+		let v = clj_get(c, benchCountKey, CLJ_NIL)
+		c = clj_type_of(c).pointee.assoc(c, benchCountKey, clj_fixnum(clj_fixnum_val(v) + 1))
+		clj_release(v)
+	}
+	let r = clj_get(c, benchCountKey, CLJ_NIL)
+	clj_release(c)
+	let out = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+	clj_release(r)
+	return out
+}
+
+struct RecordRow {
+	let scenario: String
+	let record: Double
+	let map: Double
+}
+
+var recordRows: [RecordRow] = []
+do {
+	let n = 100_000
+	let rec = recBuild(), hmap = mapBuild5()
+	let recShared = clj_retain(rec), mapShared = clj_retain(hmap)
+	recordRows.append(RecordRow(scenario: "(:count r), field 3 of 5",
+		record: measure(ops: n) { recGet(rec, benchCountKey, n) },
+		map: measure(ops: n) { recGet(hmap, benchCountKey, n) }))
+	recordRows.append(RecordRow(scenario: "(:id r), field 1 of 5",
+		record: measure(ops: n) { recGet(rec, benchKeys[0], n) },
+		map: measure(ops: n) { recGet(hmap, benchKeys[0], n) }))
+	recordRows.append(RecordRow(scenario: "(assoc r :count v), unique",
+		record: measure(ops: n) { assocUnique(recBuild, n) },
+		map: measure(ops: n) { assocUnique(mapBuild5, n) }))
+	recordRows.append(RecordRow(scenario: "(assoc r :count v), shared",
+		record: measure(ops: n) { assocShared(recShared, n) },
+		map: measure(ops: n) { assocShared(mapShared, n) }))
+	recordRows.append(RecordRow(scenario: "(update r :count inc), unique",
+		record: measure(ops: n) { updateUnique(recBuild, n) },
+		map: measure(ops: n) { updateUnique(mapBuild5, n) }))
+	for v in [rec, hmap, recShared, mapShared] { clj_release(v) }
+}
+clj_release(benchPointType)
+
+print("\n| scenario | n | record | hash map | map / record |")
+print("|---|---:|---:|---:|---:|")
+for r in recordRows {
+	print("| \(r.scenario) | 100000 | \(fmt(r.record)) | \(fmt(r.map)) | \(ratio(r.record, r.map)) |")
+}
+print("\nns per op; record = a 5-field defrecord through clj_get and the assoc slot, hash map = the same five keywords and values through clj_map_get / clj_map_assoc; unique = the only reference, shared = a second one held so every assoc copies")
+
 // MARK: - Arrays
 
 // The same summing loop over 1000 elements: aget on a long-array, nth on a vector, and the reduce slot of
