@@ -444,7 +444,7 @@ Swift ABI руками не трогаем; понадобится только 
 - диагностика: ⊥-конфликты с двумя точками, `:strict`-предупреждения, «всегда nil»;
 - hover: выведенный тип, shape, nullability, эффекты, owned/borrowed;
 - semantic tokens: подсветка «может ждать», `^:unsafe`-зон;
-- inlay hints: бокс/unboxed — `@code_warntype` в редакторе;
+- inlay hints: бокс/unboxed — `@code_warntype` в редакторе; призрачный префикс `await`/`try` перед вызовом неявно async/throws-функции — убедительнее одной подсветки, т.к. текст, а не только цвет;
 - автодополнение из `defdsl`-реестров (теги и атрибуты hiccup) и из `.swiftinterface` для стабов;
 - go-to в host-код: от `(.string formatter)` к Swift-декларации.
 
