@@ -32,9 +32,12 @@ extension Runtime {
 		if clj_is_nil(a) { return -1 }
 		if clj_is_nil(b) { return 1 }
 		if clj_is_fixnum(a) && clj_is_fixnum(b) { return order(clj_fixnum_val(a), clj_fixnum_val(b)) }
-		if clj_is_fixnum(a) || clj_is_double(a) {
-			guard clj_is_fixnum(b) || clj_is_double(b) else { throw cast(b, "a number") }
-			return order(asDouble(a), asDouble(b))
+		if clj_is_number(a) {
+			guard clj_is_number(b) else { throw cast(b, "a number") }
+			var c: Int32 = 0
+			_ = clj_num_cmp(a, b, &c)
+			// 2 is unordered (a NaN); Clojure's compare answers 0 for it.
+			return c == 2 ? 0 : Int(c)
 		}
 		if clj_is_bool(a) {
 			guard clj_is_bool(b) else { throw cast(b, "a boolean") }

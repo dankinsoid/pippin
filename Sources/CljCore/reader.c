@@ -351,7 +351,7 @@ static clj_value sq_atom(sq *q, clj_value form) {
 		clj_value head = core_sym("list");
 		return list_owning(&head, 1);
 	}
-	if (clj_is_keyword(form) || clj_is_fixnum(form) || clj_is_double(form) || clj_is_char(form) || clj_is_string(form)) return clj_retain(form);
+	if (clj_is_keyword(form) || clj_is_char(form) || clj_is_string(form) || clj_is_number(form)) return clj_retain(form);
 	clj_value pair[2] = {clj_symbol_from_cstr("quote"), clj_retain(form)};
 	return list_owning(pair, 2);
 }
@@ -721,79 +721,111 @@ static clj_read_status push_value(parser *p, clj_value v) {
 	return CLJ_READ_OK;
 }
 
-// Digits of tok from `start` in `radix`, into a fixnum.
-static clj_read_status parse_radix(parser *p, const char *tok, size_t n, size_t start, int radix, bool neg, uint32_t line, uint32_t col) {
-	if (start == n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+// Digits of tok in `radix`: a fixnum when they fit one, a bigint otherwise.
+static clj_read_status parse_radix(parser *p, const char *tok, size_t n, size_t body, size_t start, int radix, bool neg, bool force_big, uint32_t line, uint32_t col) {
+	if (start == body) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
 	uint64_t limit = neg ? (uint64_t)1 << 62 : ((uint64_t)1 << 62) - 1;
 	uint64_t v = 0;
-	for (size_t j = start; j < n; j++) {
+	bool     wide = force_big;
+	for (size_t j = start; j < body; j++) {
 		unsigned char c = (unsigned char)tok[j];
 		int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'z' ? c - 'a' + 10 : c >= 'A' && c <= 'Z' ? c - 'A' + 10 : 99;
 		if (d >= radix) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
-		if (v > (limit - (uint64_t)d) / (uint64_t)radix) return fail(p, line, col, "Integer out of fixnum range, bigint is not supported yet: %.*s", (int)n, tok);
-		v = v * (uint64_t)radix + (uint64_t)d;
+		if (!wide && v > (limit - (uint64_t)d) / (uint64_t)radix) wide = true;
+		if (!wide) v = v * (uint64_t)radix + (uint64_t)d;
 	}
-	return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
+	if (!wide) return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
+	clj_value mag = clj_bigint_parse(tok + start, body - start, (unsigned)radix);
+	if (clj_is_nil(mag)) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	clj_value big = neg ? clj_bigint_neg(mag) : clj_retain(mag);
+	clj_release(mag);
+	return push_value(p, big);
+}
+
+static clj_read_status parse_decimal(parser *p, const char *tok, size_t n, size_t body, uint32_t line, uint32_t col) {
+	clj_value d = clj_decimal_parse(tok, body);
+	if (clj_is_nil(d)) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	return push_value(p, d);
+}
+
+// LispReader hands Numbers.divide two longs whenever they fit, so 12/12 reads as 1 and 1/2 as a Ratio.
+static clj_read_status parse_ratio(parser *p, const char *tok, size_t n, size_t body, size_t slash, uint32_t line, uint32_t col) {
+	clj_value nv = clj_bigint_parse(tok, slash, 10);
+	clj_value dv = clj_bigint_parse(tok + slash + 1, body - slash - 1, 10);
+	if (clj_is_nil(nv) || clj_is_nil(dv) || clj_bigint_is_zero(dv)) {
+		clj_release(nv);
+		clj_release(dv);
+		return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	}
+	clj_value nn = clj_bigint_demote(nv), dd = clj_bigint_demote(dv);
+	clj_release(nv);
+	clj_release(dv);
+	clj_value r = clj_num_arith(nn, dd, CLJ_OP_DIV);
+	clj_release(nn);
+	clj_release(dd);
+	if (r == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	}
+	return push_value(p, r);
 }
 
 static clj_read_status parse_number(parser *p, const char *tok, size_t n, uint32_t line, uint32_t col) {
 	size_t i = 0;
-	bool neg = false;
+	bool   neg = false;
 	if (tok[0] == '+' || tok[0] == '-') {
 		neg = tok[0] == '-';
 		i = 1;
 	}
+	char   suffix = n > i + 1 && (tok[n - 1] == 'N' || tok[n - 1] == 'M') ? tok[n - 1] : 0;
+	size_t body = suffix ? n - 1 : n;
 	size_t digits = i;
-	while (digits < n && is_digit((unsigned char)tok[digits])) digits++;
-	if (tok[i] == '0' && digits - i == 1 && digits < n && (tok[digits] == 'x' || tok[digits] == 'X'))
-		return parse_radix(p, tok, n, digits + 1, 16, neg, line, col);
-	if (digits < n && (tok[digits] == 'r' || tok[digits] == 'R') && digits - i <= 2 && digits > i) {
+	while (digits < body && is_digit((unsigned char)tok[digits])) digits++;
+	if (tok[i] == '0' && digits - i == 1 && digits < body && (tok[digits] == 'x' || tok[digits] == 'X')) {
+		if (suffix == 'M') return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		return parse_radix(p, tok, n, body, digits + 1, 16, neg, suffix == 'N', line, col);
+	}
+	if (digits < body && (tok[digits] == 'r' || tok[digits] == 'R') && digits - i <= 2 && digits > i) {
+		if (suffix == 'M') return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
 		int radix = 0;
 		for (size_t j = i; j < digits; j++) radix = radix * 10 + (tok[j] - '0');
 		if (radix < 2 || radix > 36) return fail(p, line, col, "Radix out of range: %.*s", (int)n, tok);
-		return parse_radix(p, tok, n, digits + 1, radix, neg, line, col);
+		return parse_radix(p, tok, n, body, digits + 1, radix, neg, suffix == 'N', line, col);
 	}
-	if (digits < n && tok[digits] == '/') {
+	if (digits < body && tok[digits] == '/') {
 		size_t j = digits + 1;
-		while (j < n && is_digit((unsigned char)tok[j])) j++;
-		if (j == n && j > digits + 1) return fail(p, line, col, "Ratios are not supported yet: %.*s", (int)n, tok);
-		return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		while (j < body && is_digit((unsigned char)tok[j])) j++;
+		if (j != body || j == digits + 1 || suffix || digits == i) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		return parse_ratio(p, tok, n, body, digits, line, col);
 	}
-	if (digits < n && (tok[digits] == '.' || tok[digits] == 'e' || tok[digits] == 'E')) {
+	if (digits < body && (tok[digits] == '.' || tok[digits] == 'e' || tok[digits] == 'E')) {
 		size_t j = digits;
 		if (tok[j] == '.') {
 			j++;
-			while (j < n && is_digit((unsigned char)tok[j])) j++;
+			while (j < body && is_digit((unsigned char)tok[j])) j++;
 		}
-		if (j < n && (tok[j] == 'e' || tok[j] == 'E')) {
+		if (j < body && (tok[j] == 'e' || tok[j] == 'E')) {
 			j++;
-			if (j < n && (tok[j] == '+' || tok[j] == '-')) j++;
+			if (j < body && (tok[j] == '+' || tok[j] == '-')) j++;
 			size_t exp_start = j;
-			while (j < n && is_digit((unsigned char)tok[j])) j++;
+			while (j < body && is_digit((unsigned char)tok[j])) j++;
 			if (j == exp_start) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
 		}
-		if (j + 1 == n && tok[j] == 'M') return fail(p, line, col, "BigDecimal literals (M suffix) are not supported yet: %.*s", (int)n, tok);
-		if (j != n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
-		char *copy = malloc(n + 1);
+		if (j != body || suffix == 'N') return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+		if (suffix == 'M') return parse_decimal(p, tok, n, body, line, col);
+		char *copy = malloc(body + 1);
 		if (!copy) clj_fatal("out of memory");
-		memcpy(copy, tok, n);
-		copy[n] = '\0';
+		memcpy(copy, tok, body);
+		copy[body] = '\0';
 		// Locale-dependent; the runtime never calls setlocale.
 		double d = strtod(copy, NULL);
 		free(copy);
 		return push_value(p, clj_double_new(d));
 	}
-	if (digits + 1 == n && tok[digits] == 'N') return fail(p, line, col, "BigInt literals (N suffix) are not supported yet: %.*s", (int)n, tok);
-	if (digits != n) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
-	if (tok[i] == '0' && digits - i > 1) return parse_radix(p, tok, n, i + 1, 8, neg, line, col);
-	uint64_t limit = neg ? (uint64_t)1 << 62 : ((uint64_t)1 << 62) - 1;
-	uint64_t v = 0;
-	for (size_t j = i; j < n; j++) {
-		uint64_t d = (uint64_t)(tok[j] - '0');
-		if (v > (limit - d) / 10) return fail(p, line, col, "Integer out of fixnum range, bigint is not supported yet: %.*s", (int)n, tok);
-		v = v * 10 + d;
-	}
-	return push_value(p, clj_fixnum(neg ? -(intptr_t)v : (intptr_t)v));
+	if (digits != body || digits == i) return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
+	if (suffix == 'M') return parse_decimal(p, tok, n, body, line, col);
+	if (tok[i] == '0' && digits - i > 1) return parse_radix(p, tok, n, body, i + 1, 8, neg, suffix == 'N', line, col);
+	return parse_radix(p, tok, n, body, i, 10, neg, suffix == 'N', line, col);
 }
 
 // Clojure's symbolPat: `(P/)?(/|N)` with P and N starting with a non-digit, N without slashes. A keyword's

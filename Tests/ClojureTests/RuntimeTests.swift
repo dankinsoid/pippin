@@ -49,7 +49,7 @@ extension CoreTests {
 			do {
 				#expect(try rt.eval("(+ 1 2)") == 3)
 				#expect(try rt.eval("(+ 1 2.5)") == 3.5)
-				#expect(try rt.eval("(/ 7 2)") == 3.5)
+				#expect(try rt.eval("(pr-str (/ 7 2))") == "7/2")
 				#expect(try rt.eval("(/ 8 2)") == 4)
 				#expect(try rt.eval("(* 1.5 2)") == 3.0)
 				#expect(message(rt, "(* 4611686018427387903 2)") == "integer overflow")

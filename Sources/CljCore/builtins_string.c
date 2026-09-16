@@ -406,18 +406,6 @@ static clj_value b_char(const clj_value *args, size_t n) {
 	return clj_throw_msg("%s cannot be cast to a char", clj_type_name(args[0]));
 }
 
-static clj_value b_int(const clj_value *args, size_t n) {
-	(void)n;
-	if (clj_is_fixnum(args[0])) return args[0];
-	if (clj_is_char(args[0])) return clj_fixnum(clj_char_val(args[0]));
-	if (clj_is_double(args[0])) {
-		double d = clj_double_val(args[0]);
-		if (d >= 4611686018427387904.0 || d <= -4611686018427387905.0) return clj_throw_msg("Value out of range for int: %f", d);
-		return clj_fixnum((intptr_t)d);
-	}
-	return clj_throw_msg("%s cannot be cast to a number", clj_type_name(args[0]));
-}
-
 #define ANY CLJ_ARITY_ANY
 
 static const struct {
@@ -430,7 +418,7 @@ static const struct {
 	{"str-triml*", b_triml, 1, 1},           {"str-trimr*", b_trimr, 1, 1},             {"str-blank?*", b_blank_p, 1, 1},
 	{"str-whitespace?*", b_whitespace_p, 1, 1}, {"str-reverse*", b_reverse_str, 1, 1},  {"str-replace*", b_replace, 3, 3},
 	{"str-replace-first*", b_replace_first, 3, 3}, {"str-split*", b_split, 2, 3},       {"str-split-lines*", b_split_lines, 1, 1},
-	{"char", b_char, 1, 1},                  {"int", b_int, 1, 1},
+	{"char", b_char, 1, 1},
 };
 
 void clj_string_builtins_install(void) {
