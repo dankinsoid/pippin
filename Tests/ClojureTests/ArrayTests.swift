@@ -107,8 +107,9 @@ extension CoreTests {
 				#expect(try eval("(let [a (byte-array 2)] (aset a 0 127) (aset a 1 -128) (pr-str a))") == "#array[:byte 127 -128]")
 				#expect(try eval("(let [a (int-array 1)] (aset a 0 2.9) (aget a 0))") == 2)
 				#expect(try eval("(let [a (int-array 1)] (aset a 0 -2.9) (aget a 0))") == -2)
-				// A long outside the fixnum range round-trips through a bigint.
-				#expect(try eval("(let [a (long-array 1)] (aset a 0 9000000000000000000N) (pr-str (aget a 0)))") == "9000000000000000000N")
+				// A long outside the fixnum range reads back as a long, whatever kind went in.
+				#expect(try eval("(let [a (long-array 1)] (aset a 0 9000000000000000000N) (pr-str (aget a 0)))") == "9000000000000000000")
+				#expect(try eval("(let [a (long-array 1)] (aset a 0 9223372036854775807) (pr-str (aget a 0)))") == "9223372036854775807")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

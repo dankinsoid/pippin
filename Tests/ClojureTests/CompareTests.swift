@@ -66,7 +66,7 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				#expect(message("(compare 1 \"a\")") == "string cannot be cast to a number")
-				#expect(message("(compare \"a\" 1)") == "fixnum cannot be cast to a string")
+				#expect(message("(compare \"a\" 1)") == "long cannot be cast to a string")
 				#expect(message("(compare :a \"a\")") == "string cannot be cast to a keyword")
 				#expect(message("(compare [1] :a)") == "keyword cannot be cast to a vector")
 				#expect(message("(compare {:a 1} {:b 2})") == "map cannot be cast to Comparable")

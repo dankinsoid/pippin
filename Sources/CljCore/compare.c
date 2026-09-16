@@ -102,8 +102,8 @@ bool clj_compare_with(const clj_call *call, clj_value a, clj_value b, int *out) 
 	clj_value args[2] = {a, b};
 	clj_value r = clj_call_invoke(call, args);
 	if (r == CLJ_THROWN) return false;
-	if (clj_is_fixnum(r)) {
-		intptr_t n = clj_fixnum_val(r);
+	int64_t n;
+	if (clj_int64_of(r, &n)) {
 		*out = n < 0 ? -1 : n > 0 ? 1 : 0;
 	} else if (clj_is_double(r)) {
 		double d = clj_double_val(r);

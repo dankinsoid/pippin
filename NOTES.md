@@ -165,8 +165,6 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Forcing a shared lazy seq spins** (`sched_yield`) while another thread runs the thunk; a thunk
   reaching its own object throws "Recursive realization" (thread-local forcing stack). Trigger: a
   thunk that blocks for long with other threads waiting; then park on a condition variable.
-- **A cons is `list?`** (CLJ_CORE_LIST) so reader lists, which are cons chains, satisfy the
-  predicate; Clojure's `Cons` is not `IPersistentList`. Goes away with the `clj_list` wrapper below.
 - **Metadata is any IPersistentMap**, a sorted map included, and so is `ex-info`'s data map. The three
   places that read a flag out of metadata with `clj_map_get` — a form's reader position, `def`'s
   `:dynamic`, a var's `:private` — first test the hash-map representation and treat any other as absent;

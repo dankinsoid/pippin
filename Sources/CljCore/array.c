@@ -46,10 +46,7 @@ static clj_value out_of_range(clj_array_kind kind, clj_value v) {
 
 // Truncated toward zero, as RT.longCast does; false when v is outside the int64 range.
 static bool as_i64(clj_value v, int64_t *out) {
-	if (clj_is_fixnum(v)) {
-		*out = clj_fixnum_val(v);
-		return true;
-	}
+	if (clj_int64_of(v, out)) return true;
 	if (clj_is_bigint(v)) return clj_bigint_to_i64(v, out);
 	if (clj_is_double(v)) {
 		double d = clj_double_val(v);
@@ -123,12 +120,7 @@ static clj_value box(clj_array_kind kind, const void *slot) {
 	case CLJ_ARRAY_U8: return clj_fixnum(*(const uint8_t *)slot);
 	case CLJ_ARRAY_I16: return clj_fixnum(*(const int16_t *)slot);
 	case CLJ_ARRAY_I32: return clj_fixnum(*(const int32_t *)slot);
-	case CLJ_ARRAY_I64: {
-		int64_t n = *(const int64_t *)slot;
-		// A long the tag cannot hold promotes, as the rest of the tower does.
-		if (n > CLJ_FIXNUM_MAX || n < CLJ_FIXNUM_MIN) return clj_bigint_from_i64(n);
-		return clj_fixnum((intptr_t)n);
-	}
+	case CLJ_ARRAY_I64: return clj_long_new(*(const int64_t *)slot);
 	case CLJ_ARRAY_F32: return clj_double_new((double)*(const float *)slot);
 	case CLJ_ARRAY_F64: return clj_double_new(*(const double *)slot);
 	case CLJ_ARRAY_BOOL: return clj_bool(*(const uint8_t *)slot != 0);
