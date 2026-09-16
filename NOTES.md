@@ -1003,8 +1003,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `(first m)` builds the whole entry list. Trigger: `first`/`some` over big maps in a profile. Fix:
   a map-seq cursor over the CHAMP trie and a map-entry type instead of 2-vectors.
 - **`range` handles fixnums in C** (`range*`, an O(1) view); doubles and step 0 go through
-  `take-while`/`iterate`/`repeat` in core.clj. A bigint bound falls to the same core.clj path, so
-  `(range 0 1N)` has no O(1) view.
+  `take-while`/`iterate`/`repeat` in core.clj. A bound that is an integer but not a fixnum — a boxed long
+  or a bigint — reaches `range*` and throws "Argument must be an integer" rather than falling to that path,
+  because `range`'s guard is `integer?` and there is no fixnum predicate to guard with
+  (docs/jvm-differences.md, deferred). The same holds for the fixnum index of `nth`, `assoc` on a vector,
+  `subvec` and `subs`.
 - **Printing realizes lazy seqs and can throw**: `clj_pr_str` returns CLJ_THROWN, which `str`,
   `pr-str`, `print*` and the error-message callers propagate; `Value.description` on the Swift side
   substitutes the exception text.

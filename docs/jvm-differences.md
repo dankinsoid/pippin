@@ -20,6 +20,7 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 | One bigint type where the JVM has `BigInt` and `BigInteger` | Deliberate | The second type exists only because of `java.math`. |
 | `with-precision`, `*math-context*`, rounding modes; decimal `/` succeeds only when the quotient terminates | Deferred | Trigger: a library that uses them. Money code on mobile rarely needs a context. |
 | Bigint division is shift-subtract, gcd is Euclid | Deferred | Same results; trigger: a profile with thousand-bit values. Fix is Knuth D and binary gcd. |
+| An index or bound outside the 63-bit fixnum is refused: `(range 0 Long/MAX_VALUE)`, `(nth v Long/MAX_VALUE)`, `(subs s 0 Long/MAX_VALUE)` throw where the JVM answers or reports an index error | Deferred | `range`'s O(1) view and the index arguments take a fixnum; the same values threw as bigints before the boxed long existed. Trigger: a corpus test or a profile that needs a 64-bit index; then int64 bounds on `clj_range` and on the index paths. |
 
 ## Collections
 
