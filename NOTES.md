@@ -273,7 +273,9 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 
 - **Not supported, reported as errors**: regex literals (no engine; `clojure.string` takes literal
   patterns), namespaced maps `#:`, tagged literals, read-eval, bigint/BigDecimal/ratio numbers. Each is a
-  `switch` arm in `read_dispatch`/`parse_number` to replace when the feature lands.
+  `switch` arm in `read_dispatch`/`parse_number` to replace when the feature lands; inside an unselected
+  `#?` branch each reads as data instead (below). Trigger for tagged literals: `#inst`/`#uuid` in EDN from a
+  backend — a `*data-readers*` map consulted by `read_dispatch`'s default arm, with the built-in tags on top.
 - **`#(...)` rewrites its body after the list is read** (`fn_literal`): `%`, `%N` (1–20), `%&` become
   `p1__N#`/`rest__N#` params of a `fn*`, with one recursive walk over the literal's own nesting (the
   reader is otherwise iterative). Nested `#(` is refused, as LispReader does.
@@ -767,7 +769,11 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
 - **Vars are immortal.** Every `def` of a new name leaks a var, its name symbol and string for the
   life of the process, as do namespaces; tests declare their vars before taking live-object baselines.
 - **No ratio, no bigint.** Fixnum overflow throws "integer overflow"; `/` of fixnums yields a fixnum
-  only when exact and a double otherwise. Trigger: any arithmetic that expects promotion.
+  only when exact and a double otherwise. Trigger: any arithmetic that expects promotion — in the corpus
+  it is 47 suite forms, the largest single gap there: `0N`/`1N` literals, `1/2` ratios, `0.0M` decimals and
+  `0x7FFFFFFFFFFFFFFF` past the 63-bit fixnum. Both are a boxed heap number with its own arm in
+  `clj_number_*` and in the reader's `parse_number`, plus `+'`/`-'`/`*'` and `bigint`/`numerator`/
+  `denominator`/`ratio?`; the fixnum fast path must stay a tag check.
 - **Analysis error messages are capped at 512 bytes** (`fail` formats into a fixed buffer): a huge
   unresolved form is truncated in the message.
 - **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
