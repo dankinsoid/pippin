@@ -201,6 +201,58 @@ extension CoreTests {
 			try dropPoint()
 		}
 
+		@Test func recordsMixWithTheOtherMapRepresentations() throws {
+			try definePoint()
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("(conj {} (->Point 1 2))") == Value([kw("x"): 1, kw("y"): 2]))
+				#expect(try rt.eval("(conj {} (assoc (->Point 1 2) :z 3))") == Value([kw("x"): 1, kw("y"): 2, kw("z"): 3]))
+				#expect(try rt.eval("(:x (merge (->Point 1 2) (sorted-map :x 9)))") == 9)
+				#expect(try rt.eval("(= (map->Point (sorted-map :x 1 :y 2)) (->Point 1 2))") == true)
+				#expect(try rt.eval("(pr-str (conj (sorted-map) (->Point 1 2)))") == "{:x 1, :y 2}")
+			}
+			#expect(clj_debug_live_objects() == before)
+			try dropPoint()
+		}
+
+		// extend on a core interface is never retired here, so the table lives past the baseline.
+		@Test func protocolOnTheMapInterfaceReachesARecord() throws {
+			try definePoint()
+			try declare("Mapper", "mapped")
+			_ = try rt.eval("(defprotocol Mapper (mapped [x]))")
+			_ = try rt.eval("(extend-type IPersistentMap Mapper (mapped [x] (count x)))")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("[(mapped (->Point 1 2)) (mapped {:a 1})]") == [2, 1])
+				#expect(try rt.eval("(satisfies? Mapper (->Point 1 2))") == true)
+			}
+			#expect(clj_debug_live_objects() == before)
+			try dropPoint()
+		}
+
+		// Storing into a shared record has to share the new child: every child of a shared object is shared.
+		@Test func sharedRecordKeepsChildrenShared() throws {
+			try definePoint()
+			let before = clj_debug_live_objects()
+			do {
+				let type = try rt.eval("Point")
+				let vals = [clj_fixnum(1), clj_fixnum(2)]
+				var cur = vals.withUnsafeBufferPointer { clj_record_new(type.raw, $0.baseAddress, 2) }
+				clj_share(cur)
+				#expect(clj_debug_all_shared(cur))
+				// rc stays 1, so every step below rewrites the shared record in place.
+				for i in 0..<20 {
+					let value = clj_cons_new(clj_fixnum(i), CLJ_NIL)
+					cur = clj_type_of(cur).pointee.assoc(cur, Value(keyword: i % 2 == 0 ? "z" : "x").raw, value)
+					clj_release(value)
+					#expect(clj_debug_all_shared(cur))
+				}
+				clj_release(cur)
+			}
+			#expect(clj_debug_live_objects() == before)
+			try dropPoint()
+		}
+
 		// Reuse at rc == 1 is what keeps the address: -DCLJ_NO_REUSE turns every step below into a copy.
 		@Test(.enabled(if: clj_reuse_enabled())) func uniqueRecordIsUpdatedInPlace() throws {
 			try definePoint()

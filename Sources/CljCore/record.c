@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include <stddef.h>
 #include <stdlib.h>
 
 #include "clj/coll.h"
@@ -17,6 +18,9 @@
 #define RECORD_BITS                                                                                          \
 	(CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE |          \
 	 CLJ_CORE_FN | CLJ_CORE_MAP | CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE | CLJ_CORE_RECORD)
+
+// field* and the deftype method bodies reach a record's basis through clj_instance_field.
+_Static_assert(offsetof(clj_record, slots) == offsetof(clj_instance, fields), "a record's basis must sit where a deftype instance's fields do");
 
 static const clj_record_type *rtype_of(clj_value v) { return (const clj_record_type *)clj_type_of(v); }
 static clj_record            *rec_of(clj_value v) { return clj_to_ptr(v); }
