@@ -82,6 +82,7 @@ static void print_trace(clj_value trace) {
 	}
 }
 
+#ifndef CLJ_COMPILED_CORE
 // Evaluates core.clj in clojure.core; the caller has made it the current namespace for the resolver.
 // The load hook sees every form under this path, which is what the compiler names in its #line directives.
 static void load_core(void) {
@@ -111,6 +112,7 @@ static void load_core(void) {
 	}
 	clj_release(file);
 }
+#endif
 
 // Every root bound by boot outlives the process, so a read of it needs no retain (eval_borrowed): what a
 // later rebind of the var "releases" is a no-op, a bounded leak per redefinition. Type descriptors are left
@@ -139,11 +141,18 @@ static void init(void) {
 	clj_ns_set_current(core);
 #ifdef CLJ_COMPILED_CORE
 	if (clj_compiled_core_init() == CLJ_THROWN) {
+		clj_value trace = clj_take_pending_trace();
 		clj_value ex = clj_take_pending();
 		clj_value text = clj_pr_str(ex);
+		print_trace(trace);
 		boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : clj_string_bytes(text));
 	}
 	clj_compiled_libs_register();
+	// The interpreter's lazily interned names are made during an interpreted boot; tests baseline after clj_init.
+	clj_env   warm = {core, 0, 0};
+	clj_value warmed = clj_eval(CLJ_NIL, &warm);
+	if (warmed == CLJ_THROWN) clj_fatal("warm-up eval failed");
+	clj_release(warmed);
 #else
 	load_core();
 #endif

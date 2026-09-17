@@ -21,3 +21,5 @@
 
 (println (shapes) (multis) (reified) (record-ops))
 (println (let [c (->Circle 3)] [(area c)]) (type (->Circle 1)) (map area [1 2 nil]) (methods speak) (str/join "," (map label [nil 1])))
+;; The global hierarchy is process state other tests baseline against.
+(underive ::puppy ::dog)

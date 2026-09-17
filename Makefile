@@ -3,9 +3,12 @@
 build:
 	swift build
 
-# Re-embeds boot/core.clj; a test checks the embedded bytes against the file, so commit both.
+# Re-embeds boot/core.clj and regenerates the compiled core (boot/core.c, boot/libs_*.c) from an interpreted
+# boot; a test checks the embedded bytes against the file, so commit all of them.
 boot:
 	sh scripts/embed-core.sh
+	swift build --product clj-compile
+	./.build/debug/clj-compile --core --out Sources/CljCore/boot
 
 # ASan sees object boundaries only with the system allocator.
 test:
