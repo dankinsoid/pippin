@@ -745,14 +745,59 @@
 
 (defn partition
   "Returns a lazy seq of n-item seqs, starting step apart (default n), dropping a
-  short trailing partition."
+  short trailing partition, or filling it from pad (at most n items) when given."
   ([n coll] (partition n n coll))
   ([n step coll]
    (lazy-seq
      (when-let [s (seq coll)]
        (let [p (doall (take n s))]
          (when (= n (count p))
-           (cons p (partition n step (nthrest s step)))))))))
+           (cons p (partition n step (nthrest s step))))))))
+  ([n step pad coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [p (doall (take n s))]
+         (if (= n (count p))
+           (cons p (partition n step pad (nthrest s step)))
+           (list (take n (concat p pad)))))))))
+
+(defn partitionv
+  "partition with vector partitions."
+  ([n coll] (partitionv n n coll))
+  ([n step coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [p (into [] (take n) s)]
+         (when (= n (count p))
+           (cons p (partitionv n step (nthrest s step))))))))
+  ([n step pad coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [p (into [] (take n) s)]
+         (if (= n (count p))
+           (cons p (partitionv n step pad (nthrest s step)))
+           (list (into [] (take n) (concat p pad)))))))))
+
+(defn splitv-at
+  "Returns [(into [] (take n) coll) (drop n coll)]"
+  [n coll]
+  [(into [] (take n) coll) (drop n coll)])
+
+(defn reductions
+  "Returns a lazy seq of the intermediate values of the reduction (as per reduce) of coll by f,
+  starting with init."
+  ([f coll]
+   (lazy-seq
+     (if-let [s (seq coll)]
+       (reductions f (first s) (rest s))
+       (list (f)))))
+  ([f init coll]
+   (if (reduced? init)
+     (list @init)
+     (cons init
+           (lazy-seq
+             (when-let [s (seq coll)]
+               (reductions f (f init (first s)) (rest s))))))))
 
 (defn partition-all
   "Returns a lazy seq of n-item seqs like partition, keeping a short trailing one;
@@ -782,6 +827,16 @@
      (when-let [s (seq coll)]
        (let [seg (doall (take n s))]
          (cons seg (partition-all n step (nthrest s step))))))))
+
+(defn partitionv-all
+  "partition-all with vector partitions; the transducer is partition-all's."
+  ([n] (partition-all n))
+  ([n coll] (partitionv-all n n coll))
+  ([n step coll]
+   (lazy-seq
+     (when-let [s (seq coll)]
+       (let [seg (into [] (take n) s)]
+         (cons seg (partitionv-all n step (drop step s))))))))
 
 (defn map-indexed
   "Returns a lazy seq of (f index item) over coll, or the transducer of the same."
@@ -842,6 +897,24 @@
                           :else (recur (next s))))
                       (do (xf nil) (seq (drain)))))))]
      (step coll))))
+
+(defn halt-when
+  "Returns a transducer that ends transduction when pred is true for an input. When retf is
+  supplied it must be a fn of 2 arguments: the (completed) result so far and the input that
+  triggered the predicate; its return value becomes the result. Without retf the input is."
+  ([pred] (halt-when pred nil))
+  ([pred retf]
+   (fn [rf]
+     (fn
+       ([] (rf))
+       ([result]
+        (if (and (map? result) (contains? result ::halt))
+          (::halt result)
+          (rf result)))
+       ([result input]
+        (if (pred input)
+          (reduced {::halt (if retf (retf (rf result) input) input)})
+          (rf result input)))))))
 
 (defn dedupe
   "Removes consecutive duplicates: a lazy seq over coll, or the transducer of the same."
@@ -944,6 +1017,13 @@
 (defn true? "Returns true when x is the value true." [x] (identical? x true))
 (defn false? "Returns true when x is the value false." [x] (identical? x false))
 (defn some? "Returns true when x is not nil." [x] (not (nil? x)))
+(defn boolean? "Returns true when x is a boolean." [x] (or (true? x) (false? x)))
+(defn parse-boolean
+  "Parses \"true\" or \"false\" to the boolean; nil for any other string, a throw for a non-string."
+  [s]
+  (if (string? s)
+    (cond (= s "true") true (= s "false") false :else nil)
+    (throw (ex-info (str (type s) " cannot be cast to a string") {}))))
 (defn any? "Returns true given any argument." [x] true)
 (defn ident? "Returns true when x is a symbol or keyword." [x] (or (keyword? x) (symbol? x)))
 (defn simple-ident? "Returns true when x is an unqualified symbol or keyword." [x] (and (ident? x) (nil? (namespace x))))
@@ -1020,6 +1100,11 @@
   ([n] (* n (rand*))))
 
 (defn rand-int "Returns a random integer in [0, n)." [n] (int (rand n)))
+
+(defn random-sample
+  "Returns items from coll with random probability of prob (0.0 - 1.0), or the transducer of the same."
+  ([prob] (filter (fn [_] (< (rand) prob))))
+  ([prob coll] (filter (fn [_] (< (rand) prob)) coll)))
 
 (defn ffirst "Same as (first (first x))" [x] (first (first x)))
 (defn nfirst "Same as (next (first x))" [x] (next (first x)))
@@ -1193,6 +1278,23 @@
 
 (defn split-at "Returns [(take n coll) (drop n coll)]" [n coll] [(take n coll) (drop n coll)])
 (defn split-with "Returns [(take-while pred coll) (drop-while pred coll)]" [pred coll] [(take-while pred coll) (drop-while pred coll)])
+(defn replicate "DEPRECATED: Use 'repeat' instead. Returns a lazy seq of n xs." [n x] (take n (repeat x)))
+(defmacro lazy-cat
+  "Expands to (concat (lazy-seq e1) (lazy-seq e2) ...): each argument is evaluated only as it is reached."
+  [& colls]
+  `(concat ~@(map (fn [c] `(lazy-seq ~c)) colls)))
+(defn reversible? "Returns true when rseq is supported: vectors and the sorted collections." [coll] (or (vector? coll) (sorted? coll)))
+
+(defn bounded-count
+  "The count of a counted coll, else at most n items of its seq, walked."
+  [n coll]
+  (if (counted? coll)
+    (count coll)
+    (loop [i 0 s (seq coll)]
+      (if (and s (< i n))
+        (recur (inc i) (next s))
+        i))))
+
 
 (defn flatten
   "Returns a lazy seq of the leaves of a nested sequential collection; () for anything else."
@@ -1367,6 +1469,22 @@
 (defn dissoc! "dissoc on a transient (see transient)." ([m k] (dissoc m k)) ([m k & ks] (apply dissoc m k ks)))
 (defn disj! "disj on a transient (see transient)." ([s k] (disj s k)) ([s k & ks] (apply disj s k ks)))
 (defn pop! "pop on a transient (see transient)." [coll] (pop coll))
+
+(defn update-keys
+  "m with f applied to each key, keeping m's meta; f must produce distinct keys."
+  [m f]
+  (let [ret (persistent! (reduce-kv (fn [acc k v] (assoc! acc (f k) v)) (transient {}) m))]
+    (with-meta ret (meta m))))
+
+(defn update-vals
+  "m with f applied to each value, keeping m's meta and, for an editable map, its type."
+  [m f]
+  (with-meta
+    (persistent!
+      (reduce-kv (fn [acc k v] (assoc! acc k (f v)))
+                 (if (instance? IEditableCollection m) (transient m) (transient {}))
+                 m))
+    (meta m)))
 
 ;; ---- control macros
 
@@ -1802,6 +1920,32 @@
   transformation runs anew on every reduce or seq."
   [& xforms]
   (->Eduction (apply comp (butlast xforms)) (last xforms)))
+
+(defn iteration
+  "Creates a seqable/reducible given step, a function of some (opaque continuation data) k.
+  step returns a (possibly nil) return value, ret; (somef ret) tells whether ret is a value,
+  (vf ret) is the value to yield, (kf ret) the next k or nil when done. initk is the first k."
+  [step & {:keys [somef vf kf initk] :or {vf identity kf identity somef some? initk nil}}]
+  (reify
+    Seqable
+    (seq [_]
+      ((fn next [ret]
+         (when (somef ret)
+           (cons (vf ret)
+                 (when-some [k (kf ret)]
+                   (lazy-seq (next (step k)))))))
+       (step initk)))
+    IReduceInit
+    (reduce [_ rf init]
+      (loop [acc init ret (step initk)]
+        (if (somef ret)
+          (let [acc (rf acc (vf ret))]
+            (if (reduced? acc)
+              @acc
+              (if-some [k (kf ret)]
+                (recur acc (step k))
+                acc)))
+          acc)))))
 
 
 ;; ---- dynamic vars: binding frames live in C (var.c); these macros shape the push/pop pairs.

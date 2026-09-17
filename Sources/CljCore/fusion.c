@@ -114,9 +114,10 @@ static clj_value step_consuming(bottom *b, clj_value x) {
 	return r == CLJ_THROWN ? CLJ_THROWN : CLJ_NIL;
 }
 
+// The completion arity answers the accumulator, as transduce's rf does: halt-when's retf reads it there.
 static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 	bottom *b = ctx;
-	if (n == 1) return CLJ_NIL;
+	if (n == 1) return b->kind == BOTTOM_COUNT ? clj_fixnum((intptr_t)b->count) : b->acc == CLJ_UNBOUND ? CLJ_NIL : clj_retain(b->acc);
 	if (b->done) return clj_throw_msg("reducing fn called after its reduce finished");
 	clj_value x = args[1];
 	switch (b->kind) {
@@ -150,8 +151,11 @@ static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 	clj_fatal("unknown bottom kind");
 }
 
-// The caller keeps bot alive across the walk to read its state after; false with the exception pending.
-static bool run(clj_value bot, clj_value coll, clj_value xfs) {
+// The caller keeps bot alive across the walk to read its state after; false with the exception pending. The
+// transducers see nil as the result, so a non-nil one is theirs (halt-when's reduced map) and completes as
+// on the JVM: *done is the completion's answer, owned, which replaces the accumulator.
+static bool run(clj_value bot, clj_value coll, clj_value xfs, clj_value *done) {
+	*done = CLJ_NIL;
 	if (!clj_is_vector(xfs)) {
 		clj_throw_msg("fused driver expects a vector of transducers, got: %s", clj_type_name(xfs));
 		return false;
@@ -166,10 +170,10 @@ static bool run(clj_value bot, clj_value coll, clj_value xfs) {
 	clj_value r = clj_reduce(rf, CLJ_NIL, coll);
 	bool      ok = r != CLJ_THROWN;
 	if (ok) {
+		*done = clj_invoke(rf, &r, 1);
 		clj_release(r);
-		clj_value nil = CLJ_NIL, done = clj_invoke(rf, &nil, 1);
-		ok = done != CLJ_THROWN;
-		if (ok) clj_release(done);
+		ok = *done != CLJ_THROWN;
+		if (!ok) *done = CLJ_NIL;
 	}
 	clj_release(rf);
 	return ok;
@@ -186,14 +190,19 @@ static bottom *bottom_new(bottom_kind kind) {
 // Runs the walk and hands back the accumulator (owned) or CLJ_THROWN; the fn owns b from here on.
 static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
-	bool      ok = run(bot, coll, xfs);
+	clj_value done;
+	bool      ok = run(bot, coll, xfs, &done);
 	b->done = true;
 	clj_value acc = b->acc;
 	b->acc = CLJ_NIL;
 	clj_release(bot);
-	if (ok) return acc;
+	if (!ok) {
+		if (acc != CLJ_UNBOUND) clj_release(acc);
+		return CLJ_THROWN;
+	}
+	if (acc == CLJ_UNBOUND && clj_is_nil(done)) return acc;
 	if (acc != CLJ_UNBOUND) clj_release(acc);
-	return CLJ_THROWN;
+	return done;
 }
 
 clj_value clj_fused_reduce(const clj_value *args, size_t n) {
@@ -222,11 +231,13 @@ clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll) {
 
 clj_value clj_fused_count(const clj_value *args, size_t n) {
 	(void)n;
-	bottom  *b = bottom_new(BOTTOM_COUNT);
+	bottom   *b = bottom_new(BOTTOM_COUNT);
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
-	bool      ok = run(bot, args[0], args[1]);
+	clj_value done;
+	bool      ok = run(bot, args[0], args[1], &done);
 	b->done = true;
 	int64_t count = b->count;
 	clj_release(bot);
+	clj_release(done);
 	return ok ? clj_fixnum(count) : CLJ_THROWN;
 }
