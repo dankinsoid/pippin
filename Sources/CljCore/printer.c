@@ -243,9 +243,25 @@ static bool collect_sorted_item(clj_value key, clj_value val, void *ctx) {
 	return collect_item(key, ctx);
 }
 
-// Scalars are written outright; a collection writes its opener and pushes a frame.
+// *print-length* and *print-level* as fixnums, -1 when unbound; read once per print.
+typedef struct {
+	int64_t length, level;
+} limits;
+
+// What *print-level* counts: everything printed through a frame except the #error map.
+static bool is_collection(clj_value v) {
+	if (!clj_is_ptr(v)) return false;
+	return clj_is_seq(v) || clj_is_queue(v) || clj_is_vector(v) || clj_type_of(v) == &clj_map_type || clj_is_set(v) || clj_is_sorted(v) || clj_is_record(v) ||
+	       clj_is_array(v);
+}
+
+// Scalars are written outright; a collection writes its opener and pushes a frame, or `#` past *print-level*.
 // Not readably (Clojure's *print-readably* false): strings and chars as their text.
-static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
+static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const limits *lim) {
+	if (lim->level >= 0 && (int64_t)stack->count >= lim->level && is_collection(v)) {
+		put_char(b, '#');
+		return;
+	}
 	if (clj_is_nil(v)) {
 		put_cstr(b, "nil");
 	} else if (v == CLJ_TRUE) {
@@ -396,22 +412,33 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 	}
 }
 
+// True once `printed` items are out and *print-length* allows no more: writes the separator and `...`, as print-sequential does.
+static bool elide(buf *b, const limits *lim, size_t printed, const char *sep) {
+	if (lim->length < 0 || (int64_t)printed < lim->length) return false;
+	if (printed) put_cstr(b, sep);
+	put_cstr(b, "...");
+	return true;
+}
+
 // Yields the next child of the top frame, or closes it. false when the frame is done.
-static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown) {
+static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown, const limits *lim) {
 	frame *f = &stack->items[stack->count - 1];
 	switch (f->kind) {
 	case F_SEQ:
 	case F_QUEUE:
 		if (clj_seq_iter_next(&f->it, out)) {
-			if (!f->first) put_char(b, ' ');
-			f->first = false;
-			return true;
+			if (!elide(b, lim, f->idx, " ")) {
+				if (f->idx) put_char(b, ' ');
+				f->idx++;
+				return true;
+			}
+			clj_seq_iter_close(&f->it);
 		}
 		if (f->it.thrown) *thrown = true;
 		put_char(b, f->kind == F_SEQ ? ')' : ']');
 		break;
 	case F_VECTOR:
-		if (f->idx < f->count) {
+		if (f->idx < f->count && !elide(b, lim, f->idx, " ")) {
 			if (f->idx) put_char(b, ' ');
 			*out = clj_vector_nth(f->vec, f->idx++);
 			return true;
@@ -425,7 +452,7 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 			*out = f->entries[f->i++];
 			return true;
 		}
-		if (f->i < f->n) {
+		if (f->i < f->n && !elide(b, lim, f->i / 2, ", ")) {
 			if (f->i) put_cstr(b, ", ");
 			f->value_next = true;
 			*out = f->entries[f->i++];
@@ -435,7 +462,7 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 		free_entries(f);
 		break;
 	case F_SET:
-		if (f->i < f->n) {
+		if (f->i < f->n && !elide(b, lim, f->i, " ")) {
 			if (f->i) put_char(b, ' ');
 			*out = f->entries[f->i++];
 			return true;
@@ -446,6 +473,11 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 	case F_ARRAY:
 		if (f->i < f->n) {
 			put_char(b, ' ');
+			if (elide(b, lim, f->i, "")) {
+				put_char(b, ']');
+				free_entries(f);
+				break;
+			}
 			*out = f->entries[f->i++];
 			return true;
 		}
@@ -460,19 +492,19 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 // Realizes lazy seqs on the way; a thunk that throws makes the whole print throw, as in Clojure.
 // max > 0 stops once that many bytes are written and closes the open collections after "...", so an
 // unbounded seq realizes only what the text shows.
-static clj_value print_to_string(clj_value root, bool readably, size_t max) {
+static clj_value print_to_string(clj_value root, bool readably, size_t max, const limits *lim) {
 	buf         b = {0};
 	frame_stack stack = {0};
 	clj_value   v = root;
 	bool        pending = true, thrown = false, truncated = false;
 	for (;;) {
-		if (pending) emit(&b, &stack, v, readably);
+		if (pending) emit(&b, &stack, v, readably, lim);
 		if (!stack.count || thrown) break;
 		if (max && b.len >= max) {
 			truncated = true;
 			break;
 		}
-		pending = next_child(&b, &stack, &v, &thrown);
+		pending = next_child(&b, &stack, &v, &thrown, lim);
 	}
 	if (truncated) put_cstr(&b, " ...");
 	for (size_t i = stack.count; i > 0; i--) {
@@ -488,8 +520,45 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max) {
 	return s;
 }
 
-clj_value clj_pr_str(clj_value v) { return print_to_string(v, true, 0); }
+static const limits unlimited = {-1, -1};
 
-clj_value clj_pr_str_max(clj_value v, size_t max) { return print_to_string(v, true, max); }
+clj_value clj_pr_str(clj_value v) { return print_to_string(v, true, 0, &unlimited); }
 
-clj_value clj_print_str(clj_value v) { return print_to_string(v, false, 0); }
+clj_value clj_pr_str_max(clj_value v, size_t max) { return print_to_string(v, true, max, &unlimited); }
+
+clj_value clj_print_str(clj_value v) { return print_to_string(v, false, 0, &unlimited); }
+
+// The var is looked up on each call until core.clj has defined it; vars are immortal, so the cache never goes stale.
+static clj_value print_var(clj_value *slot, const char *name) {
+	if (clj_is_nil(*slot)) {
+		clj_value sym = clj_symbol_from_cstr(name);
+		*slot = clj_ns_resolve(clj_ns_core(), sym);
+		clj_release(sym);
+	}
+	return *slot;
+}
+
+// nil is -1; a negative *print-length* prints everything and a negative *print-level* nothing, as on the JVM.
+static bool read_limit(clj_value *slot, const char *name, bool level, int64_t *out) {
+	clj_value var = print_var(slot, name);
+	*out = -1;
+	if (clj_is_nil(var) || !clj_var_is_bound(var)) return true;
+	clj_value v = clj_var_deref(var);
+	if (clj_is_nil(v)) return true;
+	int64_t n;
+	if (!clj_int64_of(v, &n)) {
+		clj_throw_msg("%s cannot be cast to a number", clj_type_name(v));
+		clj_release(v);
+		return false;
+	}
+	clj_release(v);
+	*out = level ? (n < 0 ? 0 : n) : n;
+	return true;
+}
+
+clj_value clj_pr_str_dynamic(clj_value v, bool readably) {
+	static clj_value length_var, level_var;
+	limits           lim;
+	if (!read_limit(&length_var, "*print-length*", false, &lim.length) || !read_limit(&level_var, "*print-level*", true, &lim.level)) return CLJ_THROWN;
+	return print_to_string(v, readably, 0, &lim);
+}

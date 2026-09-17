@@ -153,5 +153,42 @@ extension CoreTests {
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
+
+		// *print-length* and *print-level* bound the pr and print families as print-sequential does; str and error
+		// messages ignore them.
+		@Test func printLengthAndLevel() throws {
+			clj_init()
+			for k in ["a", "b", "c", "d", "nope", "object", "int"] { _ = Value(keyword: k) }
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try cljEval("(binding [*print-length* 2] [(pr-str [1 2 3]) (pr-str [1 2]) (pr-str '(1 2 3)) (pr-str #{1}) (pr-str (range 10))])") == ["[1 2 ...]", "[1 2]", "(1 2 ...)", "#{1}", "(0 1 ...)"])
+				#expect(try cljEval("(binding [*print-length* 0] [(pr-str [1 2 3]) (pr-str []) (pr-str '()) (pr-str (list 1)) (pr-str {:a 1}) (pr-str {})])") == ["[...]", "[]", "()", "(...)", "{...}", "{}"])
+				#expect(try cljEval("(binding [*print-length* 1] (pr-str (sorted-map :a 1 :b 2 :c 3)))") == "{:a 1, ...}")
+				#expect(try cljEval("(binding [*print-length* 1] (pr-str [[1 2] [3 4]]))") == "[[1 ...] ...]")
+				#expect(try cljEval("(binding [*print-length* 3] (pr-str (range)))") == "(0 1 2 ...)")
+				#expect(try cljEval("(binding [*print-length* 3] (pr-str (iterate inc 0)))") == "(0 1 2 ...)")
+				#expect(try cljEval("(binding [*print-length* 2] (pr-str (int-array [1 2 3])))") == "#array[:int 1 2 ...]")
+				#expect(try cljEval("(binding [*print-length* 2] (pr-str (into clojure.lang.PersistentQueue/EMPTY [1 2 3])))") == "#queue [1 2 ...]")
+				#expect(try cljEval("(binding [*print-length* -1] (pr-str [1 2 3]))") == "[1 2 3]")
+				#expect(try cljEval("(binding [*print-level* 1] [(pr-str [1 [2] {:a [3]}]) (pr-str 1) (pr-str \"s\") (pr-str {:a {:b 1}}) (pr-str #{#{1}})])") == ["[1 # #]", "1", "\"s\"", "{:a #}", "#{#}"])
+				#expect(try cljEval("(binding [*print-level* 0] [(pr-str [1]) (pr-str []) (pr-str :a) (pr-str '(1)) (pr-str (range 3))])") == ["#", "#", ":a", "#", "#"])
+				#expect(try cljEval("(binding [*print-level* 2] (pr-str [1 [2 [3 [4]]]]))") == "[1 [2 #]]")
+				#expect(try cljEval("(binding [*print-level* -1] (pr-str [1]))") == "#")
+				#expect(try cljEval("(binding [*print-level* 1 *print-length* 1] (pr-str [[1 2] [3 4] [5]]))") == "[# ...]")
+				// A self-referential object array is finite under a level, an infinite seq under a length. The cycle is
+				// broken by hand afterwards: RC would keep it alive.
+				#expect(try cljEval("(let [a (object-array 1)] (aset a 0 a) (let [s (binding [*print-level* 2] (pr-str a))] (aset a 0 nil) s))") == "#array[:object #array[:object #]]")
+				#expect(try cljEval("(binding [*print-length* 2] (with-out-str (prn [1 2 3]) (print [1 2 3]) (println '(1 2 3))))") == "[1 2 ...]\n[1 2 ...](1 2 ...)\n")
+				#expect(try cljEval("(binding [*print-length* 2] [(print-str [1 2 3]) (println-str [1 2 3]) (prn-str [1 2 3])])") == ["[1 2 ...]", "[1 2 ...]\n", "[1 2 ...]\n"])
+				#expect(try cljEval("(binding [*print-length* 1 *print-level* 1] [(str [1 2 3]) (str [[1]]) (str {:a 1 :b 2}) (pr-str [1 2 3])])") == ["[1 2 3]", "[[1]]", "{:a 1, :b 2}", "[1 ...]"])
+				#expect(try cljEval("(binding [*print-length* 1] (try ([1 2 3] :nope) (catch :default e (ex-message e))))") == "Key must be integer")
+				#expect(try cljEval("(binding [*print-length* 1] (try ((range 5)) (catch :default e (ex-message e))))") == "(0 1 2 3 4) cannot be invoked")
+				#expect(try cljEval("(binding [*print-level* 0] (pr-str (ex-info \"m\" {:a 1})))") == "#error {:message \"m\", :data #}")
+				#expect(try cljEval("[(pr-str [1 2 3]) *print-length* *print-level*]") == ["[1 2 3]", nil, nil])
+				#expect(cljEvalError("(binding [*print-length* \"2\"] (pr-str [1]))")?.contains("string cannot be cast to a number") == true)
+				#expect(cljEvalError("(binding [*print-level* 1.5] (pr-str [1]))")?.contains("double cannot be cast to a number") == true)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
 	}
 }

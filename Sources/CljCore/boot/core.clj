@@ -1597,6 +1597,10 @@
 (defn newline "Writes a newline." [] (print "\n") nil)
 (defn flush "Nothing to flush: output goes straight to the host hook." [] nil)
 
+;; The pr and print families read these (printer.c); str and error messages do not.
+(def ^:dynamic *print-length* "Items of a collection pr and print show before `...`; nil for all of them." nil)
+(def ^:dynamic *print-level* "Nesting depth pr and print show; a collection deeper prints as `#`. nil for no limit." nil)
+
 ;; ---- protocols and types. Dispatch lives in C (proto.c); these macros only shape the forms.
 
 ;; (P (m [this] ...) (m [this a] ...) Q (n [x] ...)) → [[P [[m [([this] ...) ([this a] ...)]]]] [Q [[n [([x] ...)]]]],

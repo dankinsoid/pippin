@@ -896,7 +896,13 @@ static void buf_put(buf *b, const char *s, size_t n) {
 	b->len += n;
 }
 
-static bool put_pr(buf *b, clj_value v);
+// Consumes an owned string, or CLJ_THROWN.
+static bool put_text(buf *b, clj_value s) {
+	if (s == CLJ_THROWN) return false;
+	buf_put(b, clj_string_bytes(s), clj_string_len(s));
+	clj_release(s);
+	return true;
+}
 
 // Clojure `str`: strings raw, nil empty, everything else as pr-str (a char as its text).
 static bool put_str(buf *b, clj_value v) {
@@ -963,25 +969,13 @@ static bool put_str(buf *b, clj_value v) {
 		buf_put(b, clj_string_bytes(p), clj_string_len(p));
 		return true;
 	}
-	return put_pr(b, v);
+	return put_text(b, clj_pr_str(v));
 }
 
 // Printing realizes lazy seqs, so it can throw.
-static bool put_print(buf *b, clj_value v) {
-	clj_value s = clj_print_str(v);
-	if (s == CLJ_THROWN) return false;
-	buf_put(b, clj_string_bytes(s), clj_string_len(s));
-	clj_release(s);
-	return true;
-}
+static bool put_print(buf *b, clj_value v) { return put_text(b, clj_pr_str_dynamic(v, false)); }
 
-static bool put_pr(buf *b, clj_value v) {
-	clj_value s = clj_pr_str(v);
-	if (s == CLJ_THROWN) return false;
-	buf_put(b, clj_string_bytes(s), clj_string_len(s));
-	clj_release(s);
-	return true;
-}
+static bool put_pr(buf *b, clj_value v) { return put_text(b, clj_pr_str_dynamic(v, true)); }
 
 static bool join(buf *b, const clj_value *args, size_t n, bool (*put)(buf *, clj_value), bool spaces) {
 	for (size_t i = 0; i < n; i++) {
