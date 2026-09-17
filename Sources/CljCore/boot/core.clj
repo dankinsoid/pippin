@@ -1035,20 +1035,23 @@
 (defn not-empty "Returns coll when it has items, else nil." [coll] (when (seq coll) coll))
 
 (defn peek
-  "For a list, the first item; for a vector, the last. nil for an empty collection."
+  "For a list or a queue, the first item; for a vector, the last. nil for an empty collection."
   [coll]
   (cond (nil? coll) nil
         (vector? coll) (when (pos? (count coll)) (nth coll (dec (count coll))))
+        (instance? PersistentQueue coll) (first coll)
         (list? coll) (first coll)
         :else (throw (ex-info (str "peek not supported on this type: " (type coll)) {}))))
 
 (defn pop
-  "For a list, without its first item; for a vector, without its last. Throws on an empty collection."
+  "For a list or a queue, without its first item; for a vector, without its last. Throws on an empty
+  list or vector; an empty queue pops to itself."
   [coll]
   (cond (nil? coll) nil
         (vector? coll) (if (pos? (count coll))
                          (into [] (take (dec (count coll)) coll))
                          (throw (ex-info "Can't pop empty vector" {})))
+        (instance? PersistentQueue coll) (queue-pop* coll)
         ;; PersistentList.pop hands the empty list the popped list's meta.
         (list? coll) (cond (next coll) (rest coll)
                            (seq coll) (with-meta () (meta coll))

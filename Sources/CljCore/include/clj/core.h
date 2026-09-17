@@ -25,6 +25,7 @@
 #include "printer.h" // IWYU pragma: export
 #include "profile.h" // IWYU pragma: export
 #include "proto.h"   // IWYU pragma: export
+#include "queue.h"   // IWYU pragma: export
 #include "reader.h"  // IWYU pragma: export
 #include "reduce.h"  // IWYU pragma: export
 #include "regex.h"   // IWYU pragma: export

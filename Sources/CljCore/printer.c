@@ -181,7 +181,7 @@ static void put_symbol_text(buf *b, clj_value ns, clj_value name) {
 	put_bytes(b, clj_string_bytes(name), clj_string_len(name));
 }
 
-typedef enum { F_SEQ, F_VECTOR, F_MAP, F_SET, F_ARRAY } frame_kind;
+typedef enum { F_SEQ, F_QUEUE, F_VECTOR, F_MAP, F_SET, F_ARRAY } frame_kind;
 
 typedef struct {
 	frame_kind   kind;
@@ -327,6 +327,10 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 	} else if (clj_is_seq(v)) {
 		put_char(b, '(');
 		push_frame(stack, F_SEQ)->it = clj_seq_iter_start(v);
+	} else if (clj_is_queue(v)) {
+		// The JVM prints an address; the items read back through into, which is more use.
+		put_cstr(b, "#queue [");
+		push_frame(stack, F_QUEUE)->it = clj_seq_iter_start(v);
 	} else if (clj_is_vector(v)) {
 		put_char(b, '[');
 		frame *f = push_frame(stack, F_VECTOR);
@@ -397,13 +401,14 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown)
 	frame *f = &stack->items[stack->count - 1];
 	switch (f->kind) {
 	case F_SEQ:
+	case F_QUEUE:
 		if (clj_seq_iter_next(&f->it, out)) {
 			if (!f->first) put_char(b, ' ');
 			f->first = false;
 			return true;
 		}
 		if (f->it.thrown) *thrown = true;
-		put_char(b, ')');
+		put_char(b, f->kind == F_SEQ ? ')' : ']');
 		break;
 	case F_VECTOR:
 		if (f->idx < f->count) {
@@ -472,9 +477,10 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max) {
 	if (truncated) put_cstr(&b, " ...");
 	for (size_t i = stack.count; i > 0; i--) {
 		frame *f = &stack.items[i - 1];
-		if (truncated) put_char(&b, f->kind == F_SEQ ? ')' : f->kind == F_VECTOR || f->kind == F_ARRAY ? ']' : '}');
-		if (f->kind != F_SEQ && f->kind != F_VECTOR) free_entries(f);
-		if (f->kind == F_SEQ) clj_seq_iter_close(&f->it);
+		bool seq = f->kind == F_SEQ || f->kind == F_QUEUE;
+		if (truncated) put_char(&b, f->kind == F_SEQ ? ')' : f->kind == F_VECTOR || f->kind == F_ARRAY || f->kind == F_QUEUE ? ']' : '}');
+		if (!seq && f->kind != F_VECTOR) free_entries(f);
+		if (seq) clj_seq_iter_close(&f->it);
 	}
 	free(stack.items);
 	clj_value s = thrown ? CLJ_THROWN : clj_string_new(b.data, b.len);

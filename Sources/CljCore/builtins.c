@@ -411,6 +411,7 @@ static clj_value b_empty_coll(const clj_value *args, size_t n) {
 	else if (clj_is_map(coll)) e = clj_map_empty();
 	else if (clj_is_set(coll)) e = clj_set_empty();
 	else if (clj_is_sorted(coll)) e = clj_sorted_empty(coll);
+	else if (clj_is_queue(coll)) e = clj_queue_empty();
 	else if (clj_has_core(coll, CLJ_CORE_COLL)) e = clj_list_empty();
 	else return CLJ_NIL;
 	clj_value m = clj_meta(coll);
