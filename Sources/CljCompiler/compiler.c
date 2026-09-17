@@ -205,8 +205,13 @@ static unit *unit_new(const char *file) {
 	if (u->has_file) {
 		clj_value str = clj_string_from_cstr(file);
 		clj_value text = clj_pr_str(str);
-		bool      fresh;
-		pool_intern(&u->consts, "file", clj_string_bytes(text), &fresh);
+		sb        init = {0};
+		sb_puts(&init, "clj_c_const(");
+		sb_c_string(&init, clj_string_bytes(text), clj_string_len(text));
+		sb_printf(&init, ", %u)", clj_string_len(text));
+		bool fresh;
+		pool_intern(&u->consts, "file", init.s, &fresh);
+		sb_free(&init);
 		clj_release(text);
 		clj_release(str);
 	}
@@ -299,6 +304,7 @@ typedef struct fnctx {
 	const char    *ns;          // current namespace name, for anonymous fn names
 	uint32_t       last_line;
 	const clj_load_form *form;
+	bool                 top; // the top-level form's own context, where a def names its fn after itself
 } fnctx;
 
 static void fn_line(fnctx *f, const clj_node *n) {
@@ -382,23 +388,84 @@ static void check_thrown(fnctx *f, const char *name) {
 
 // ---- pools from nodes
 
-static size_t const_index(fnctx *f, clj_value v, bool *ok) {
-	*ok = true;
-	if (clj_is_var(v)) clj_fatal("compiler: a var is not a printed constant");
-	clj_value text = clj_pr_str(v);
-	if (text == CLJ_THROWN) {
-		clj_release(clj_take_pending());
-		*ok = false;
-		return 0;
+static size_t var_index(unit *u, clj_value var);
+static bool   const_ok(clj_value v);
+
+// A pool entry's init is a C expression: the reader over the printed form, or, for a collection holding vars (the
+// codec refuses those, a `[#'a #'b]` literal has them), the constructor over its items' own entries.
+static bool const_expr(fnctx *f, clj_value v, sb *out);
+
+typedef struct {
+	fnctx *f;
+	sb    *out;
+	bool   ok;
+	size_t n;
+} items_ctx;
+
+static bool const_item(clj_value item, void *ctx) {
+	items_ctx *c = ctx;
+	if (c->n++) sb_puts(c->out, ", ");
+	c->ok = const_expr(c->f, item, c->out);
+	return c->ok;
+}
+
+static bool const_entry(clj_value k, clj_value v, void *ctx) { return const_item(k, ctx) && const_item(v, ctx); }
+
+static bool const_expr(fnctx *f, clj_value v, sb *out) {
+	if (clj_is_var(v)) {
+		sb_printf(out, "V[%zu]", var_index(f->u, v));
+		return true;
 	}
+	if (const_ok(v)) {
+		clj_value text = clj_pr_str(v);
+		if (text == CLJ_THROWN) {
+			clj_release(clj_take_pending());
+			return false;
+		}
+		sb_puts(out, "clj_c_const(");
+		sb_c_string(out, clj_string_bytes(text), clj_string_len(text));
+		sb_printf(out, ", %u)", clj_string_len(text));
+		clj_release(text);
+		return true;
+	}
+	const char *ctor = clj_is_vector(v) ? "clj_vector_from_array" : clj_is_map(v) ? "clj_c_map_literal" : clj_is_set(v) ? "clj_c_set_literal" : clj_is_list(v) ? "clj_list_from_array" : NULL;
+	if (!ctor) return false;
+	sb_printf(out, "%s((clj_value[]){", ctor);
+	items_ctx c = {f, out, true, 0};
+	if (clj_is_vector(v)) clj_vector_each(v, const_item, &c);
+	else if (clj_is_map(v)) clj_map_each(v, const_entry, &c);
+	else if (clj_is_set(v)) clj_set_each(v, const_item, &c);
+	else {
+		clj_seq_iter it = clj_seq_iter_start(v);
+		clj_value    item;
+		while (c.ok && clj_seq_iter_next(&it, &item)) const_item(item, &c);
+		clj_seq_iter_close(&it);
+		if (it.thrown) {
+			clj_release(clj_take_pending());
+			c.ok = false;
+		}
+	}
+	if (c.n == 0) sb_puts(out, "CLJ_NIL");
+	sb_printf(out, "}, %zu)", c.n);
+	return c.ok;
+}
+
+static size_t const_index(fnctx *f, clj_value v, bool *ok) {
+	if (clj_is_var(v)) clj_fatal("compiler: a var is not a pool constant");
 	// Keyed by identity within the form, not by text: two literals the reader made separately stay two objects
 	// (a NaN is only = to its own box), while a value a macro copied into two nodes stays one, as it is for the interpreter.
+	sb   init = {0};
+	*ok = const_expr(f, v, &init);
+	if (!*ok) {
+		sb_free(&init);
+		return 0;
+	}
 	char key[64];
 	if (clj_is_ptr(v)) snprintf(key, sizeof key, "%llu@%p", (unsigned long long)(f->form ? f->form->serial : 0), (void *)v);
-	else snprintf(key, sizeof key, "%s", clj_string_bytes(text));
+	else snprintf(key, sizeof key, "%s", init.s);
 	bool   fresh;
-	size_t i = pool_intern(&f->u->consts, key, clj_string_bytes(text), &fresh);
-	clj_release(text);
+	size_t i = pool_intern(&f->u->consts, key, init.s, &fresh);
+	sb_free(&init);
 	return i;
 }
 
@@ -497,10 +564,13 @@ static temp emit_const(fnctx *f, const clj_node *n, bool borrowed) {
 		live_push(f, t);
 		return t;
 	}
-	if (!const_ok(v)) return emit_refused(f, n, "constant is not printable and readable (a fn, a type, a host value)");
 	bool   ok;
 	size_t ki = const_index(f, v, &ok);
-	if (!ok) return emit_refused(f, n, "constant does not print");
+	if (!ok) {
+		char reason[200];
+		snprintf(reason, sizeof reason, "constant of type %s does not print and read back", clj_type_name(v));
+		return emit_refused(f, n, reason);
+	}
 	temp t = new_temp(f, borrowed ? OWN_NO : OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s = %sK[%zu]%s;\n", t.name, borrowed ? "" : "clj_retain(", ki, borrowed ? "" : ")");
 	live_push(f, t);
@@ -783,7 +853,7 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 static temp emit_def(fnctx *f, const clj_node *n) {
 	size_t vi = var_index(f->u, n->u.def.var);
 	if (n->u.def.init) {
-		bool named = n->u.def.init->kind == CLJ_NODE_FN && f->nhandlers == 1 && f->fn_counter && *f->fn_counter == 0;
+		bool named = n->u.def.init->kind == CLJ_NODE_FN && f->top && *f->fn_counter == 0;
 		if (named) fn_line(f, n->u.def.init);
 		temp init = named ? emit_fn_as(f, n->u.def.init, f->base) : emit(f, n->u.def.init);
 		sb_printf(&f->out, "\tclj_var_bind_root(V[%zu], %s);\n", vi, init.name);
@@ -1124,7 +1194,7 @@ static void emit_fn_functions(fnctx *parent, const clj_node *n, const char *base
 	unit    *u = parent->u;
 	uint32_t stub = stub_new(u, parent, n->u.fn.name, n->line, n->col);
 	// A top-level (def name (fn ...)) is a direct-call target of closed units; its base is the def's own symbol.
-	bool exported = strcmp(base, parent->base) == 0 && parent->nhandlers == 1;
+	bool exported = strcmp(base, parent->base) == 0 && parent->top;
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (n->u.fn.fixed[i]) emit_closure_arity(parent, n, n->u.fn.fixed[i], base, stub, exported);
 	}
@@ -1298,6 +1368,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	f.fn_counter = &counter;
 	f.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	f.form = form;
+	f.top = true;
 	open_form(c, u, &f, form);
 	char *base = form_base(c, u, n);
 	f.base = base;
@@ -1452,11 +1523,6 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	sb_put(&out, u->fns.s ? u->fns.s : "", u->fns.len);
 	// The pools are filled before any form runs: reading a constant or interning a var has no effect on the program.
 	sb_puts(&out, "static bool pools_filled;\n\nstatic void unit_pools(void) {\n\t(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;\n\tpools_filled = true;\n");
-	for (size_t k = 0; k < u->consts.n; k++) {
-		sb_printf(&out, "\tK[%zu] = clj_c_const(", k);
-		sb_c_string(&out, u->consts.extra[k], strlen(u->consts.extra[k]));
-		sb_printf(&out, ", %zu);\n", strlen(u->consts.extra[k]));
-	}
 	for (size_t k = 0; k < u->vars.n; k++) {
 		const char *slash = strchr(u->vars.keys[k], '/');
 		if (slash == u->vars.keys[k] || !slash) slash = strrchr(u->vars.keys[k], '/');
@@ -1466,6 +1532,7 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 		sb_c_string(&out, slash + 1, strlen(slash + 1));
 		sb_puts(&out, ");\n");
 	}
+	for (size_t k = 0; k < u->consts.n; k++) sb_printf(&out, "\tK[%zu] = %s;\n", k, u->consts.extra[k]);
 	for (size_t k = 0; k < u->ops.n; k++) {
 		sb_printf(&out, "\tOP[%zu] = clj_c_intrinsic(", k);
 		sb_c_string(&out, u->ops.keys[k], strlen(u->ops.keys[k]));

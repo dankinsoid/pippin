@@ -192,8 +192,24 @@ private func compileLibrary(_ lib: Library) throws {
 	let errText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 	proc.waitUntilExit()
 	progress("corpus: clj-compile \(lib.name) took \(String(format: "%.2f", Date().timeIntervalSince(started))) s")
-	if proc.terminationStatus != 0 {
-		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(proc.terminationStatus):\n\(errText)"))
+	// A refused form fails unless corpus/<lib>/refused.edn lists its file and line with a :note saying why.
+	var allowed: Set<String> = []
+	if let text = try? String(contentsOf: lib.dir.appendingPathComponent("refused.edn"), encoding: .utf8) {
+		for e in (try? Value(reading: text))?.array ?? [] {
+			let d = e.dictionary ?? [:]
+			if d[kw("note")] != nil { allowed.insert("\(d[kw("file")]?.string ?? ""):\(d[kw("line")]?.int ?? 0)") }
+		}
+	}
+	var unlisted: [String] = []
+	for line in errText.split(separator: "\n") where line.hasPrefix("refused: ") {
+		let position = line.dropFirst("refused: ".count).split(separator: " ", maxSplits: 1)[0]
+		let parts = position.split(separator: ":")
+		guard parts.count >= 3 else { continue }
+		let file = lib.relative(parts[..<(parts.count - 2)].joined(separator: ":"))
+		if !allowed.contains("\(file):\(parts[parts.count - 2])") { unlisted.append(String(line)) }
+	}
+	if !unlisted.isEmpty || (proc.terminationStatus != 0 && proc.terminationStatus != 2) {
+		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(proc.terminationStatus):\n\(unlisted.joined(separator: "\n"))\n\(errText.contains("refused:") ? "" : errText)"))
 	}
 	let manifest = try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8)
 	let root = strdup(packageRoot.path), dir = strdup(out.path)

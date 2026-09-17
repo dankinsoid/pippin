@@ -1558,16 +1558,15 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   the pool and ASan modes. `make corpus-compiled`: `clj-compile --lenient` per library in a child process,
   clang per file, `dlopen`, `clj_compiled_register` by path so the harness's `require`s run the units, and
   the per-line report (`CLJ_CORPUS_REPORT`) diffed against the interpreter's — identical for both corpora;
-  `CLJ_CORPUS_CLOSED=1` compiles them `--closed`, where only the suite's `eval` test differs, by the refusal.
+  `CLJ_CORPUS_CLOSED=1` compiles them `--closed`, where only the suite's `eval` test differs, by the refusal;
+  a refused form is a failure unless `corpus/<lib>/refused.edn` lists its file and line with a `:note`.
   `make test-eval-compiled`: the whole suite with every host eval compiled (`CLJ_EVAL=compiled`, the weak
   `clj_compiled_eval_boot` `clj_init` calls); each unit's pool objects are taken out of the live count
   (`clj_debug_live_objects_exclude`) because they live for the process by design.
 - **Deviations and skips, each with its trigger.** No call-site caches: a protocol call from compiled
   code goes through the method's tables on every call (compiled core's own protocol calls, `-deref` on a
   delay, are the ones this touches; user protocol calls from interpreted code keep their cache), trigger: a
-  compiled-core row moving on it, then a `static` cache cell per site under the side-cell rule. A compiled
-  fn's arity set is a min/max range to `clj_fn_accepts` (gaps are caught at the call by the dispatcher).
-  Trace positions as above; trigger: a host wanting caller lines from compiled code, then a pending-site
+  compiled-core row moving on it, then a `static` cache cell per site under the side-cell rule. Trace positions as above; trigger: a host wanting caller lines from compiled code, then a pending-site
   word on the shadow stack written by compiled callers. A closed unit binds a direct call to the *first*
   loaded definition of a symbol, so redefining a var across compiled-eval forms under `CLJ_EVAL_CLOSED` is
   wrong by design (a bench tool). Dev units export their top-level fns' arity functions as globals (dylibs

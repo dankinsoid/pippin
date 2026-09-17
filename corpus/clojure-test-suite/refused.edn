@@ -1,0 +1,6 @@
+;; Forms the compiler refuses under --closed (CLJ_CORPUS_CLOSED=1), each with a :note saying why that is by design.
+[{:file "test/clojure/core_test/eval.cljc" :line 13 :note "eval needs the interpreter: refused in a closed unit by design (design §6, NOTES \"Compiler\")"}
+ {:file "test/clojure/core_test/eval.cljc" :line 32 :note "eval, as above"}
+ {:file "test/clojure/core_test/eval.cljc" :line 33 :note "eval, as above"}
+ {:file "test/clojure/core_test/eval.cljc" :line 35 :note "eval, as above"}
+ {:file "test/clojure/core_test/eval.cljc" :line 36 :note "eval, as above"}]
