@@ -1,6 +1,6 @@
 // @ai-generated(solo)
 import CljCore
-import Clojure
+import Pippin
 import Dispatch
 import Foundation
 import HashTreeCollections

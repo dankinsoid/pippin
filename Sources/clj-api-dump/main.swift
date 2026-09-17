@@ -1,6 +1,6 @@
 // @ai-generated(guided)
 import CljCore
-import Clojure
+import Pippin
 import Foundation
 
 // Dumps this runtime's clojure.core to stdout as the EDN scripts/api-diff.clj reads: a vector of

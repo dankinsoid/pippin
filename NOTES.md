@@ -1,7 +1,7 @@
 # Engineering notes
 
 Known simplifications in the runtime, each with the event that makes it worth fixing.
-Delete an entry when it is done. Architecture-level decisions live in clojure-apple-design.md.
+Delete an entry when it is done. Architecture-level decisions live in docs/design.md.
 
 ## Allocator (Sources/CljCore/alloc.c)
 
@@ -1259,7 +1259,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
 
-## Corpus (corpus/, Tests/ClojureTests/CorpusTests.swift, docs/corpus.md)
+## Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)
 
 - **What is vendored**: `corpus/medley` (medley.core and its test, EPL) and `corpus/clojure-test-suite`
   (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0), each with a `SOURCE`
@@ -1309,7 +1309,7 @@ Delete an entry when it is done. Architecture-level decisions live in clojure-ap
   `[n step pad coll]`, `sequence`'s multi-coll arity and `disj!`'s 1-arity are real gaps rather than
   differently-written variadics.
 
-## Host bridge (Sources/Clojure, error.c host-error, fn.c context natives)
+## Host bridge (Sources/Pippin, error.c host-error, fn.c context natives)
 
 - **A host error keeps the Swift `Error` boxed as an opaque payload** and captures
   `String(describing:)` as its message when made; `ex-data` builds `{:host/error e}` on every call

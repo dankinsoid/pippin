@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-	name: "Clojure",
+	name: "Pippin",
 	platforms: [
 		.macOS(.v14),
 		.iOS(.v17),
 	],
 	products: [
-		.library(name: "Clojure", targets: ["Clojure"]),
+		.library(name: "Pippin", targets: ["Pippin"]),
 	],
 	dependencies: [
 		// Bench-only: TreeDictionary is the reference persistent map on Swift classes.
@@ -28,22 +28,22 @@ let package = Package(
 			]
 		),
 		.target(
-			name: "Clojure",
+			name: "Pippin",
 			dependencies: ["CljCore"]
 		),
 		.testTarget(
-			name: "ClojureTests",
-			dependencies: ["Clojure", "CljCore"]
+			name: "PippinTests",
+			dependencies: ["Pippin", "CljCore"]
 		),
 		.executableTarget(
 			name: "clj-api-dump",
-			dependencies: ["CljCore", "Clojure"]
+			dependencies: ["CljCore", "Pippin"]
 		),
 		.executableTarget(
 			name: "clj-bench",
 			dependencies: [
 				"CljCore",
-				"Clojure",
+				"Pippin",
 				.product(name: "HashTreeCollections", package: "swift-collections"),
 			]
 		),
