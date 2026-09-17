@@ -113,11 +113,12 @@ clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, voi
 }
 
 // @ai-generated(solo)
-clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t min_arity, uint32_t max_arity) {
+clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
 	f->name = clj_retain(name);
 	f->kind = CLJ_FN_NATIVE_CTX;
+	f->arities = arities;
 	f->min_arity = min_arity;
 	f->max_arity = max_arity;
 	f->u.native_ctx.fn = fn;
@@ -153,6 +154,7 @@ clj_value clj_arity_error(clj_value f, size_t n) {
 bool clj_fn_accepts(clj_value f, size_t n) {
 	if (!clj_is_fn(f)) return true;
 	const clj_fn *fn = clj_fn_of(f);
+	if (fn->arities) return (n <= CLJ_FN_MAX_FIXED && ((fn->arities >> n) & 1)) || (fn->max_arity == CLJ_ARITY_ANY && n >= fn->min_arity);
 	if (fn->kind != CLJ_FN_CLOSURE) return n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity);
 	const clj_node *code = fn->u.node;
 	if (n <= CLJ_FN_MAX_FIXED && code->u.fn.fixed[n]) return true;

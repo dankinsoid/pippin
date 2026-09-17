@@ -215,7 +215,7 @@ static clj_value top_3(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 5 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[6], clojure_string_reverse, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[6], clojure_string_reverse, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[2], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[7]);
@@ -280,7 +280,7 @@ static clj_value top_4(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 9 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[9], clojure_string_re_quote_replacement, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[9], clojure_string_re_quote_replacement, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[4], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[10]);
@@ -410,7 +410,7 @@ static clj_value top_5(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 13 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[12], clojure_string_text, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[12], clojure_string_text, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[6], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[15]);
@@ -781,7 +781,7 @@ static clj_value top_6(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 21 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[17], clojure_string_replace_with, NULL, 0, 5, 5);
+	clj_value t0 = clj_c_closure(K[17], clojure_string_replace_with, NULL, 0, 0x20, 5, 5);
 	clj_var_bind_root(V[11], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[21]);
@@ -861,7 +861,7 @@ static clj_value top_7(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 33 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[23], clojure_string_replace, NULL, 0, 3, 3);
+	clj_value t0 = clj_c_closure(K[23], clojure_string_replace, NULL, 0, 0x8, 3, 3);
 	clj_var_bind_root(V[18], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[26]);
@@ -941,7 +941,7 @@ static clj_value top_8(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 38 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[28], clojure_string_replace_first, NULL, 0, 3, 3);
+	clj_value t0 = clj_c_closure(K[28], clojure_string_replace_first, NULL, 0, 0x8, 3, 3);
 	clj_var_bind_root(V[19], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[31]);
@@ -1131,7 +1131,7 @@ static clj_value top_9(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 42 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[33], clojure_string_join, NULL, 0, 1, 2);
+	clj_value t0 = clj_c_closure(K[33], clojure_string_join, NULL, 0, 0x6, 1, 2);
 	clj_var_bind_root(V[20], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[36]);
@@ -1345,7 +1345,7 @@ static clj_value top_10(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 51 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[38], clojure_string_capitalize, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[38], clojure_string_capitalize, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[25], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[42]);
@@ -1430,7 +1430,7 @@ static clj_value top_11(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 59 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[44], clojure_string_upper_case, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[44], clojure_string_upper_case, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[31], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[45]);
@@ -1515,7 +1515,7 @@ static clj_value top_12(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 60 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[47], clojure_string_lower_case, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[47], clojure_string_lower_case, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[32], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[48]);
@@ -1700,7 +1700,7 @@ static clj_value top_13(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 63 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[50], clojure_string_split, NULL, 0, 2, 3);
+	clj_value t0 = clj_c_closure(K[50], clojure_string_split, NULL, 0, 0xc, 2, 3);
 	clj_var_bind_root(V[33], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[51]);
@@ -1765,7 +1765,7 @@ static clj_value top_14(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 68 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[53], clojure_string_split_lines, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[53], clojure_string_split_lines, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[36], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[54]);
@@ -1830,7 +1830,7 @@ static clj_value top_15(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 72 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[56], clojure_string_trim, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[56], clojure_string_trim, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[38], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[57]);
@@ -1895,7 +1895,7 @@ static clj_value top_16(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 73 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[59], clojure_string_triml, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[59], clojure_string_triml, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[40], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[60]);
@@ -1960,7 +1960,7 @@ static clj_value top_17(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 74 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[62], clojure_string_trimr, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[62], clojure_string_trimr, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[42], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[63]);
@@ -2168,7 +2168,7 @@ static clj_value top_18(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 76 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[65], clojure_string_trim_newline, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[65], clojure_string_trim_newline, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[44], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[69]);
@@ -2233,7 +2233,7 @@ static clj_value top_19(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 87 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[71], clojure_string_blank_QMARK_, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[71], clojure_string_blank_QMARK_, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[49], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[72]);
@@ -2507,7 +2507,7 @@ static clj_value top_20(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 91 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[74], clojure_string_escape, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[74], clojure_string_escape, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[51], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[78]);
@@ -2614,7 +2614,7 @@ static clj_value top_21(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 104 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[80], clojure_string_index_of, NULL, 0, 2, 3);
+	clj_value t0 = clj_c_closure(K[80], clojure_string_index_of, NULL, 0, 0xc, 2, 3);
 	clj_var_bind_root(V[54], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[81]);
@@ -2721,7 +2721,7 @@ static clj_value top_22(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 109 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[83], clojure_string_last_index_of, NULL, 0, 2, 3);
+	clj_value t0 = clj_c_closure(K[83], clojure_string_last_index_of, NULL, 0, 0xc, 2, 3);
 	clj_var_bind_root(V[56], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[84]);
@@ -2969,7 +2969,7 @@ static clj_value top_23(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 114 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[86], clojure_string_starts_with_QMARK_, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[86], clojure_string_starts_with_QMARK_, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[58], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[89]);
@@ -3244,7 +3244,7 @@ static clj_value top_24(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 121 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[91], clojure_string_ends_with_QMARK_, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[91], clojure_string_ends_with_QMARK_, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[60], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[94]);
@@ -3332,7 +3332,7 @@ static clj_value top_25(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 128 "<embedded>/clojure/string.clj"
-	clj_value t0 = clj_c_closure(K[96], clojure_string_includes_QMARK_, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[96], clojure_string_includes_QMARK_, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[62], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[97]);

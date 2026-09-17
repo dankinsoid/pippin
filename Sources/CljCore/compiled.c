@@ -58,8 +58,8 @@ const clj_fusion_var *clj_c_fusion_var(const char *qualified) {
 	return fv;
 }
 
-clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t min_arity, uint32_t max_arity) {
-	return clj_fn_native_env(name, fn, env, nenv, min_arity, max_arity);
+clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity) {
+	return clj_fn_native_env(name, fn, env, nenv, arities, min_arity, max_arity);
 }
 
 clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic) {

@@ -43,7 +43,7 @@ clj_value clj_c_var(const char *ns, const char *name);
 const clj_intrinsic  *clj_c_intrinsic(const char *qualified, uint32_t arity);
 const clj_fusion_var *clj_c_fusion_var(const char *qualified);
 // A compiled closure over env (borrowed, retained): a context native whose ctx is the fn itself (clj_fn_native_env).
-clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t min_arity, uint32_t max_arity);
+clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity);
 // The rest of a def after its root is bound: meta (borrowed, a map), the flags; returns the var retained.
 clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic);
 // Map and set literals from borrowed items (a map alternates key, value), with the duplicate-key check of the evaluator.

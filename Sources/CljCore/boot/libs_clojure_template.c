@@ -384,7 +384,7 @@ static clj_value top_4(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 6 "<embedded>/clojure/template.clj"
-	clj_value t0 = clj_c_closure(K[5], clojure_template_apply_template, NULL, 0, 3, 3);
+	clj_value t0 = clj_c_closure(K[5], clojure_template_apply_template, NULL, 0, 0x8, 3, 3);
 	clj_var_bind_root(V[3], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[10]);
@@ -510,7 +510,7 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	goto L2;
 	}
 	clj_value c5[2] = {fr.slots[2], fr.slots[3]};
-	clj_value t7 = clj_c_closure(CLJ_NIL, clojure_template_do_template__0, c5, 2, 1, 1);
+	clj_value t7 = clj_c_closure(CLJ_NIL, clojure_template_do_template__0, c5, 2, 0x2, 1, 1);
 	bool o8;
 	clj_value t8 = clj_c_var_borrow(V[18], &o8);
 	if (t8 == CLJ_THROWN) {
@@ -607,7 +607,7 @@ static clj_value top_5(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 14 "<embedded>/clojure/template.clj"
-	clj_value t0 = clj_c_closure(K[12], clojure_template_do_template, NULL, 0, 4, CLJ_ARITY_ANY);
+	clj_value t0 = clj_c_closure(K[12], clojure_template_do_template, NULL, 0, 0x0, 4, CLJ_ARITY_ANY);
 	clj_var_bind_root(V[12], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[14]);

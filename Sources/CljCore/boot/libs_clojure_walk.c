@@ -489,7 +489,7 @@ static clj_value top_3(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 5 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[4], clojure_walk_walk, NULL, 0, 3, 3);
+	clj_value t0 = clj_c_closure(K[4], clojure_walk_walk, NULL, 0, 0x8, 3, 3);
 	clj_var_bind_root(V[2], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[5]);
@@ -592,7 +592,7 @@ static clj_value top_4(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 14 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[7], clojure_walk_postwalk, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[7], clojure_walk_postwalk, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[13], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[8]);
@@ -713,7 +713,7 @@ static clj_value top_5(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 19 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[10], clojure_walk_prewalk, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[10], clojure_walk_prewalk, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[15], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[11]);
@@ -1013,7 +1013,7 @@ clj_value clojure_walk_keywordize_keys_a1(clj_value self, const clj_value *captu
 	clj_ccall cc;
 	if (!clj_c_enter(&S[3], &cc)) goto L1;
 #line 27 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_walk_keywordize_keys__0, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_walk_keywordize_keys__0, NULL, 0, 0x2, 1, 1);
 	clj_c_set(&fr, 1, t0);
 #line 28 "<embedded>/clojure/walk.clj"
 	bool o1;
@@ -1022,7 +1022,7 @@ clj_value clojure_walk_keywordize_keys_a1(clj_value self, const clj_value *captu
 	goto L2;
 	}
 	clj_value c1[1] = {fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_walk_keywordize_keys__1, c1, 1, 1, 1);
+	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_walk_keywordize_keys__1, c1, 1, 0x2, 1, 1);
 	clj_value t3 = fr.slots[0];
 	clj_value a0[2] = {t2, t3};
 	(void)a0;
@@ -1063,7 +1063,7 @@ static clj_value top_6(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 24 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[13], clojure_walk_keywordize_keys, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[13], clojure_walk_keywordize_keys, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[17], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[17]);
@@ -1363,7 +1363,7 @@ clj_value clojure_walk_stringify_keys_a1(clj_value self, const clj_value *captur
 	clj_ccall cc;
 	if (!clj_c_enter(&S[6], &cc)) goto L1;
 #line 33 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_walk_stringify_keys__0, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_walk_stringify_keys__0, NULL, 0, 0x2, 1, 1);
 	clj_c_set(&fr, 1, t0);
 #line 34 "<embedded>/clojure/walk.clj"
 	bool o1;
@@ -1372,7 +1372,7 @@ clj_value clojure_walk_stringify_keys_a1(clj_value self, const clj_value *captur
 	goto L2;
 	}
 	clj_value c1[1] = {fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_walk_stringify_keys__1, c1, 1, 1, 1);
+	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_walk_stringify_keys__1, c1, 1, 0x2, 1, 1);
 	clj_value t3 = fr.slots[0];
 	clj_value a0[2] = {t2, t3};
 	(void)a0;
@@ -1413,7 +1413,7 @@ static clj_value top_7(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 30 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[19], clojure_walk_stringify_keys, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[19], clojure_walk_stringify_keys, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[22], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[21]);
@@ -1507,7 +1507,7 @@ clj_value clojure_walk_prewalk_replace_a2(clj_value self, const clj_value *captu
 	goto L2;
 	}
 	clj_value c1[1] = {fr.slots[0]};
-	clj_value t1 = clj_c_closure(CLJ_NIL, clojure_walk_prewalk_replace__0, c1, 1, 1, 1);
+	clj_value t1 = clj_c_closure(CLJ_NIL, clojure_walk_prewalk_replace__0, c1, 1, 0x2, 1, 1);
 	clj_value t2 = fr.slots[1];
 	clj_value a0[2] = {t1, t2};
 	(void)a0;
@@ -1548,7 +1548,7 @@ static clj_value top_8(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 36 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[23], clojure_walk_prewalk_replace, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[23], clojure_walk_prewalk_replace, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[25], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[24]);
@@ -1642,7 +1642,7 @@ clj_value clojure_walk_postwalk_replace_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value c1[1] = {fr.slots[0]};
-	clj_value t1 = clj_c_closure(CLJ_NIL, clojure_walk_postwalk_replace__0, c1, 1, 1, 1);
+	clj_value t1 = clj_c_closure(CLJ_NIL, clojure_walk_postwalk_replace__0, c1, 1, 0x2, 1, 1);
 	clj_value t2 = fr.slots[1];
 	clj_value a0[2] = {t1, t2};
 	(void)a0;
@@ -1683,7 +1683,7 @@ static clj_value top_9(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 41 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[26], clojure_walk_postwalk_replace, NULL, 0, 2, 2);
+	clj_value t0 = clj_c_closure(K[26], clojure_walk_postwalk_replace, NULL, 0, 0x4, 2, 2);
 	clj_var_bind_root(V[27], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[27]);
@@ -1777,7 +1777,7 @@ clj_value clojure_walk_macroexpand_all_a1(clj_value self, const clj_value *captu
 	if (t0 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t1 = clj_c_closure(CLJ_NIL, clojure_walk_macroexpand_all__0, NULL, 0, 1, 1);
+	clj_value t1 = clj_c_closure(CLJ_NIL, clojure_walk_macroexpand_all__0, NULL, 0, 0x2, 1, 1);
 	clj_value t2 = fr.slots[0];
 	clj_value a0[2] = {t1, t2};
 	(void)a0;
@@ -1818,7 +1818,7 @@ static clj_value top_10(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 46 "<embedded>/clojure/walk.clj"
-	clj_value t0 = clj_c_closure(K[29], clojure_walk_macroexpand_all, NULL, 0, 1, 1);
+	clj_value t0 = clj_c_closure(K[29], clojure_walk_macroexpand_all, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[28], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[30]);

@@ -665,11 +665,13 @@ static temp emit_recur(fnctx *f, const clj_node *n) {
 	return r;
 }
 
-static void fn_arity_bounds(const clj_node *n, uint32_t *min, uint32_t *max) {
+static void fn_arity_bounds(const clj_node *n, uint32_t *mask, uint32_t *min, uint32_t *max) {
 	*min = UINT32_MAX;
 	*max = 0;
+	*mask = 0;
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (!n->u.fn.fixed[i]) continue;
+		*mask |= (uint32_t)1 << i;
 		if (i < *min) *min = i;
 		if (i > *max) *max = i;
 	}
@@ -698,8 +700,8 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 		}
 		sb_puts(&f->out, "};\n");
 	}
-	uint32_t min, max;
-	fn_arity_bounds(n, &min, &max);
+	uint32_t mask, min, max;
+	fn_arity_bounds(n, &mask, &min, &max);
 	char name[64] = "CLJ_NIL", maxs[32] = "CLJ_ARITY_ANY";
 	if (!clj_is_nil(n->u.fn.name)) {
 		bool ok;
@@ -707,7 +709,7 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 	}
 	if (max != CLJ_ARITY_ANY) snprintf(maxs, sizeof maxs, "%u", max);
 	temp t = new_temp(f, OWN_YES);
-	sb_printf(&f->out, "\tclj_value %s = clj_c_closure(%s, %s, %s, %u, %u, %s);\n", t.name, name, base, caps, nc, min, maxs);
+	sb_printf(&f->out, "\tclj_value %s = clj_c_closure(%s, %s, %s, %u, 0x%x, %u, %s);\n", t.name, name, base, caps, nc, mask, min, maxs);
 	live_push(f, t);
 	return t;
 }
