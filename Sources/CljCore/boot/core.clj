@@ -2093,6 +2093,12 @@
 (defn prefer-method "Makes dispatch-val-x win over dispatch-val-y when both match." [multifn dispatch-val-x dispatch-val-y] (-prefer-method multifn dispatch-val-x dispatch-val-y))
 (defn prefers "Returns the multimethod's preference table." [multifn] (-prefers multifn))
 
+;; ---- data readers: what `#tag form` resolves through, in this order (runtime.c reads the vars while reading).
+
+(def ^:dynamic *data-readers* "Map of tag symbol to reader fn, consulted before default-data-readers." {})
+(def ^:dynamic *default-data-reader-fn* "When set, (f tag value) reads a tag no table names; nil makes it a reader error." nil)
+(def default-data-readers "The built-in tags, #inst and #uuid." {'inst read-inst* 'uuid read-uuid*})
+
 ;; ---- namespaces: ns, require, refer, use over the C namespace API (in-ns, alias, ns-publics, load-file, ...).
 
 (def ^:dynamic *loaded-libs* (atom #{'clojure.core}))

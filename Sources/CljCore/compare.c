@@ -94,6 +94,18 @@ clj_value clj_compare(clj_value a, clj_value b, int *out) {
 		if (!clj_is_vector(b)) return cast_error(b, "a vector");
 		return compare_vectors(a, b, out);
 	}
+	if (clj_is_uuid(a)) {
+		if (!clj_is_uuid(b)) return cast_error(b, "a UUID");
+		const clj_uuid *x = clj_uuid_of(a), *y = clj_uuid_of(b);
+		*out = x->hi < y->hi ? -1 : x->hi > y->hi ? 1 : x->lo < y->lo ? -1 : x->lo > y->lo ? 1 : 0;
+		return CLJ_NIL;
+	}
+	if (clj_is_inst(a)) {
+		if (!clj_is_inst(b)) return cast_error(b, "a Date");
+		int64_t x = clj_inst_ms(a), y = clj_inst_ms(b);
+		*out = x < y ? -1 : x > y ? 1 : 0;
+		return CLJ_NIL;
+	}
 	return cast_error(a, "Comparable");
 }
 

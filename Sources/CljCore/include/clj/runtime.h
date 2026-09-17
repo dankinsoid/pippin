@@ -37,7 +37,9 @@ void clj_array_builtins_install(void);
 clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx);
 // clj_reader.resolve_ns: the current namespace's name, or the one an alias reaches. ctx unused.
 clj_value clj_reader_resolve_ns(clj_value alias, void *ctx);
-// Sets both resolvers on a reader: how a host reads code for the current namespace.
+// clj_reader.read_tag: record literals, *data-readers*, the built-in tags, *default-data-reader-fn*. ctx unused.
+clj_value clj_reader_read_tag(clj_value tag, clj_value form, void *ctx);
+// Sets the resolvers and the tag reader on a reader: how a host reads code for the current namespace.
 void clj_reader_use_namespaces(clj_reader *r);
 
 // println/prn go to the innermost capture on this thread while one is open (with-out-str).

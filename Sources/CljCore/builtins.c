@@ -943,6 +943,19 @@ static bool put_str(buf *b, clj_value v) {
 		buf_put(b, u, n);
 		return true;
 	}
+	if (clj_is_uuid(v)) {
+		char text[37];
+		clj_uuid_format(v, text);
+		buf_put(b, text, 36);
+		return true;
+	}
+	// Date.toString would be "Fri Apr 12 ..." in the host zone; the printed form is the useful one (docs/jvm-differences.md).
+	if (clj_is_inst(v)) {
+		char text[40];
+		clj_inst_format(v, text, sizeof text);
+		buf_put(b, text, strlen(text));
+		return true;
+	}
 	// Pattern.toString is the pattern text, where print-method wraps it in #"".
 	if (clj_is_regex(v)) {
 		clj_value p = clj_regex_pattern(v);
@@ -1360,4 +1373,6 @@ void clj_builtins_install(void) {
 	clj_number_builtins_install();
 	clj_array_builtins_install();
 	clj_regex_builtins_install();
+	clj_uuid_builtins_install();
+	clj_inst_builtins_install();
 }

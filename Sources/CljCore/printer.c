@@ -276,6 +276,14 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably) {
 		if (readably) put_cstr(b, "#\"");
 		put_bytes(b, clj_string_bytes(p), clj_string_len(p));
 		if (readably) put_char(b, '"');
+	} else if (clj_is_uuid(v)) {
+		char text[37];
+		clj_uuid_format(v, text);
+		put_fmt(b, "#uuid \"%s\"", text);
+	} else if (clj_is_inst(v)) {
+		char text[40];
+		clj_inst_format(v, text, sizeof text);
+		put_fmt(b, "#inst \"%s\"", text);
 	} else if (clj_is_keyword(v)) {
 		put_char(b, ':');
 		put_symbol_text(b, clj_keyword_ns(v), clj_keyword_name(v));

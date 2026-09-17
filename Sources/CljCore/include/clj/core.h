@@ -13,6 +13,7 @@
 #include "error.h"   // IWYU pragma: export
 #include "eval.h"    // IWYU pragma: export
 #include "fn.h"      // IWYU pragma: export
+#include "inst.h"    // IWYU pragma: export
 #include "intrinsics.h" // IWYU pragma: export
 #include "keyword.h" // IWYU pragma: export
 #include "lock.h"    // IWYU pragma: export
@@ -33,6 +34,7 @@
 #include "shadow.h"  // IWYU pragma: export
 #include "sorted.h"  // IWYU pragma: export
 #include "string.h"  // IWYU pragma: export
+#include "uuid.h"    // IWYU pragma: export
 #include "symbol.h"  // IWYU pragma: export
 #include "value.h"   // IWYU pragma: export
 #include "var.h"     // IWYU pragma: export

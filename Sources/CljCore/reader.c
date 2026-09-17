@@ -7,13 +7,16 @@
 
 #include "clj/core.h"
 
-typedef enum { F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META, F_FN, F_COND, F_COND_SPLICING, F_SUPPRESSED } frame_kind;
+typedef enum {
+	F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META, F_FN, F_COND,
+	F_COND_SPLICING, F_SUPPRESSED, F_TAG, F_NS_MAP
+} frame_kind;
 
 typedef struct {
 	frame_kind kind;
 	size_t     start; // index into the value stack where this collection's items begin
 	uint32_t   line, col;
-	clj_value  meta; // F_META: the map read after ^, owned; CLJ_UNBOUND until then
+	clj_value  meta; // F_META: the map read after ^; F_TAG: the tag symbol; F_NS_MAP: the namespace string. Owned; CLJ_UNBOUND until read
 } frame;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
@@ -658,6 +661,68 @@ static clj_read_status splice(parser *p, clj_value chosen, line_col at) {
 	return CLJ_READ_OK;
 }
 
+clj_value clj_default_data_reader(clj_value tag, clj_value form) {
+	if (!clj_is_nil(clj_symbol_ns(tag))) return CLJ_UNBOUND;
+	const char *name = clj_string_bytes(clj_symbol_name(tag));
+	if (strcmp(name, "inst") == 0) return clj_inst_read(form);
+	if (strcmp(name, "uuid") == 0) return clj_uuid_read(form);
+	return CLJ_UNBOUND;
+}
+
+// Consumes tag and form: the tag fn's value, or CLJ_UNBOUND with the error set. A throw out of the fn is a
+// reader error with the exception's message at the literal's position, so read-time evaluation stays inside clj_read.
+static clj_value read_tagged(parser *p, const frame *f, clj_value tag, clj_value form) {
+	clj_value v = p->r->read_tag ? p->r->read_tag(tag, form, p->r->resolve_ctx) : clj_default_data_reader(tag, form);
+	if (v == CLJ_THROWN) {
+		clj_value ex = clj_take_pending();
+		clj_value msg = clj_ex_message(ex);
+		fail(p, f->line, f->col, "%s", clj_is_string(msg) ? clj_string_bytes(msg) : "tag reader threw");
+		clj_release(msg);
+		clj_release(ex);
+		v = CLJ_UNBOUND;
+	} else if (v == CLJ_UNBOUND) {
+		fail(p, f->line, f->col, "No reader function for tag %s", clj_string_bytes(clj_symbol_name(tag)));
+	}
+	clj_release(tag);
+	clj_release(form);
+	return v;
+}
+
+// A key with no namespace takes ns, one in `_` loses its own, any other stays as it is; owned.
+static clj_value namespaced_key(clj_value key, clj_value ns) {
+	bool kw = clj_is_keyword(key);
+	if (!kw && !clj_is_symbol(key)) return clj_retain(key);
+	clj_value kns = kw ? clj_keyword_ns(key) : clj_symbol_ns(key), name = kw ? clj_keyword_name(key) : clj_symbol_name(key);
+	if (clj_is_nil(kns)) kns = ns;
+	else if (clj_string_len(kns) == 1 && clj_string_bytes(kns)[0] == '_') kns = CLJ_NIL;
+	else return clj_retain(key);
+	return kw ? clj_keyword_intern(kns, name) : clj_symbol_new(kns, name);
+}
+
+// Consumes m: the map with its keys rewritten under ns; CLJ_UNBOUND with the error set on a key collision.
+static clj_value namespaced_map(parser *p, const frame *f, clj_value m, clj_value ns) {
+	size_t     n;
+	clj_value *entries = coll_items(m, &n);
+	clj_value  out = clj_map_empty();
+	for (size_t i = 0; i < n; i += 2) {
+		clj_value key = namespaced_key(entries[i], ns);
+		if (clj_map_contains(out, key)) {
+			clj_value text = clj_pr_str(key);
+			fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+			clj_release(text);
+			clj_release(key);
+			clj_release(out);
+			out = CLJ_UNBOUND;
+			break;
+		}
+		out = clj_map_assoc(out, key, entries[i + 1]);
+		clj_release(key);
+	}
+	free(entries);
+	clj_release(m);
+	return out;
+}
+
 // Consumes v: applies pending prefix frames (quote, deref, discard, ...), then stores it.
 static clj_read_status push_value(parser *p, clj_value v) {
 	while (p->nframes) {
@@ -697,6 +762,34 @@ static clj_read_status push_value(parser *p, clj_value v) {
 			clj_release(v);
 			v = CLJ_NIL;
 			break;
+		case F_TAG: {
+			if (f->meta == CLJ_UNBOUND) {
+				if (!clj_is_symbol(v)) {
+					clj_release(v);
+					return fail(p, f->line, f->col, "Reader tag must be a symbol");
+				}
+				f->meta = v;
+				return CLJ_READ_OK;
+			}
+			clj_value tag = f->meta;
+			f->meta = CLJ_UNBOUND;
+			v = read_tagged(p, f, tag, v);
+			if (v == CLJ_UNBOUND) return CLJ_READ_ERROR;
+			break;
+		}
+		case F_NS_MAP: {
+			clj_value ns = f->meta;
+			f->meta = CLJ_UNBOUND;
+			if (!is_map(v)) {
+				clj_release(v);
+				clj_release(ns);
+				return fail(p, f->line, f->col, "Namespaced map must specify a map");
+			}
+			v = namespaced_map(p, f, v, ns);
+			clj_release(ns);
+			if (v == CLJ_UNBOUND) return CLJ_READ_ERROR;
+			break;
+		}
 		case F_COND:
 		case F_COND_SPLICING: {
 			clj_value       chosen;
@@ -1100,6 +1193,38 @@ static clj_read_status read_symbolic_value(parser *p, uint32_t line, uint32_t co
 	return push_value(p, clj_double_new(d));
 }
 
+// The prefix of a namespaced map, then a `{` must follow; the map is read as usual and rewritten under F_NS_MAP.
+static clj_read_status read_ns_map_prefix(parser *p, uint32_t line, uint32_t col) {
+	clj_reader *r = p->r;
+	size_t      start = r->pos;
+	read_token_tail(r);
+	const char *tok = r->bytes + start;
+	size_t      n = r->pos - start;
+	bool        auto_ns = n > 1 && tok[1] == ':';
+	const char *name = tok + 1 + auto_ns;
+	size_t      len = n - 1 - auto_ns;
+	if (!auto_ns && len == 0) return fail(p, line, col, "Namespaced map must specify a namespace");
+	if (memchr(name, '/', len)) return fail(p, line, col, "Namespaced map must specify a valid namespace: %.*s", (int)len, name);
+	clj_value ns;
+	if (auto_ns) {
+		if (!r->resolve_ns) return fail(p, line, col, "Auto-resolved namespaced maps (#::) need a current namespace");
+		clj_value alias = len ? clj_string_new(name, len) : CLJ_NIL;
+		ns = r->resolve_ns(alias, r->resolve_ctx);
+		clj_release(alias);
+		if (clj_is_nil(ns)) return fail(p, line, col, "Unknown auto-resolved namespace alias: %.*s", (int)len, name);
+	} else {
+		ns = clj_string_new(name, len);
+	}
+	skip_blank(r);
+	if (at_eof(r) || peek(r) != '{') {
+		clj_release(ns);
+		return fail(p, line, col, "Namespaced map must specify a map");
+	}
+	push_frame(p, F_NS_MAP, line, col);
+	p->frames[p->nframes - 1].meta = ns;
+	return CLJ_READ_OK;
+}
+
 static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 	clj_reader *r = p->r;
 	advance(r);
@@ -1138,7 +1263,7 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 			read_token_tail(r); // the prefix; the map that follows reads as a plain one
 			return CLJ_READ_OK;
 		}
-		return fail(p, line, col, "Namespaced map literals are not supported yet");
+		return read_ns_map_prefix(p, line, col);
 	case '?': {
 		advance(r);
 		bool splicing = !at_eof(r) && peek(r) == '@';
@@ -1161,12 +1286,15 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 		return CLJ_READ_OK;
 	case '<': return fail(p, line, col, "Unreadable form");
 	default:
+		if (is_ws(c) || is_terminating(c)) return fail(p, line, col, "No dispatch macro for: %c", c);
 		if (in_unselected_branch(p)) {
 			read_token_tail(r); // the tag; the form it applies to reads as itself and becomes nil
 			push_frame(p, F_SUPPRESSED, line, col);
 			return CLJ_READ_OK;
 		}
-		return fail(p, line, col, "Tagged literals are not supported yet");
+		// The tag symbol and then the form arrive through push_value; the tag fn runs when the form does.
+		push_frame(p, F_TAG, line, col);
+		return CLJ_READ_OK;
 	}
 }
 

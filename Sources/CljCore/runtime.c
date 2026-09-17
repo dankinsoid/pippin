@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fusion.h"
@@ -166,9 +167,72 @@ clj_value clj_reader_resolve_ns(clj_value alias, void *ctx) {
 	return clj_is_nil(target) ? CLJ_NIL : clj_retain(clj_symbol_name(clj_ns_name(target)));
 }
 
+// Owned value of a clojure.core var, nil while core.clj has not defined it yet.
+static clj_value core_var_value(const char *name) {
+	clj_value sym = clj_symbol_from_cstr(name);
+	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	clj_release(sym);
+	return clj_is_nil(var) || !clj_var_is_bound(var) ? CLJ_NIL : clj_var_deref(var);
+}
+
+// #ns.Name{...} and #ns.Name[...]: the record type behind the var Name of namespace ns, as LispReader's CtorReader.
+static clj_value read_record_literal(clj_value tag, clj_value form) {
+	const char *text = clj_string_bytes(clj_symbol_name(tag));
+	const char *dot = strrchr(text, '.');
+	clj_value   ns_name = clj_string_new(text, (size_t)(dot - text));
+	clj_value   ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
+	clj_value   ns = clj_ns_find(ns_sym);
+	clj_value   var = CLJ_NIL;
+	if (!clj_is_nil(ns)) {
+		clj_value name = clj_symbol_from_cstr(dot + 1);
+		var = clj_ns_resolve(ns, name);
+		clj_release(name);
+	}
+	clj_release(ns_sym);
+	clj_release(ns_name);
+	if (clj_is_nil(var) || !clj_var_is_bound(var) || !clj_is_record_type(clj_var_root(var))) return clj_throw_msg("Unable to resolve classname: %s", text);
+	clj_value type = clj_var_root(var);
+	if (clj_is_map(form)) return clj_record_from_map(type, form);
+	if (clj_is_vector(form)) {
+		size_t     n;
+		clj_value  keep;
+		clj_value *items = clj_seq_items(form, &n, &keep);
+		if (!items) return CLJ_THROWN;
+		clj_value r = clj_record_new(type, items, n);
+		free(items);
+		clj_release(keep);
+		return r;
+	}
+	return clj_throw_msg("Unreadable constructor form starting with \"#%s\"", text);
+}
+
+// LispReader's order: a dotted tag is a constructor, then *data-readers*, default-data-readers, *default-data-reader-fn*.
+clj_value clj_reader_read_tag(clj_value tag, clj_value form, void *ctx) {
+	(void)ctx;
+	if (clj_is_nil(clj_symbol_ns(tag)) && strchr(clj_string_bytes(clj_symbol_name(tag)), '.')) return read_record_literal(tag, form);
+	clj_value readers = core_var_value("*data-readers*");
+	clj_value f = clj_is_nil(readers) ? CLJ_NIL : clj_get(readers, tag, CLJ_NIL);
+	clj_release(readers);
+	if (f == CLJ_THROWN) return CLJ_THROWN;
+	if (!clj_is_nil(f)) {
+		clj_value r = clj_invoke(f, &form, 1);
+		clj_release(f);
+		return r;
+	}
+	clj_value r = clj_default_data_reader(tag, form);
+	if (r != CLJ_UNBOUND) return r;
+	clj_value fallback = core_var_value("*default-data-reader-fn*");
+	if (clj_is_nil(fallback)) return CLJ_UNBOUND;
+	clj_value args[2] = {tag, form};
+	r = clj_invoke(fallback, args, 2);
+	clj_release(fallback);
+	return r;
+}
+
 void clj_reader_use_namespaces(clj_reader *r) {
 	r->resolve = clj_syntax_quote_resolve;
 	r->resolve_ns = clj_reader_resolve_ns;
+	r->read_tag = clj_reader_read_tag;
 }
 
 void clj_output(const char *bytes, size_t len) {
