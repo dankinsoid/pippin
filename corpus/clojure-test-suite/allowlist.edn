@@ -14,17 +14,13 @@
   {:file "test/clojure/core_test/bound_fn.cljc" :line 7 :reason "Unable to resolve symbol: future in this context" :missing [future]}
   {:file "test/clojure/core_test/bound_fn_star.cljc" :line 9 :reason "Unable to resolve symbol: future in this context" :missing [future]}
   {:file "test/clojure/core_test/dissoc.cljc" :line 8 :reason "Unable to resolve symbol: TestDissocRecord. in this context" :missing [TestDissocRecord.]}
-  {:file "test/clojure/core_test/identity.cljc" :line 30 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/parents.cljc" :line 5 :reason "Unable to resolve symbol: clojure.core_test.parents.TestParentsProtocol in this context" :missing [clojure.core_test.parents.TestParentsProtocol]}
-  {:file "test/clojure/core_test/parse_uuid.cljc" :line 23 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/portability.cljc" :line 38 :name lazy-seq? :reason "Unable to resolve symbol: clojure.lang.LazySeq in this context" :missing [clojure.lang.LazySeq]}
   {:file "test/clojure/core_test/remove_watch.cljc" :line 5 :reason "Unable to resolve symbol: ref in this context" :missing [ref]}
   {:file "test/clojure/core_test/short.cljc" :line 5 :reason "Index 2 out of bounds for length 2" :missing []}
-  {:file "test/clojure/core_test/uuid_qmark.cljc" :line 10 :reason "Tagged literals are not supported yet" :missing []}
   {:file "test/clojure/core_test/var_qmark.cljc" :line 17 :reason "Unable to resolve var: *assert* in this context" :missing [*assert*]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 1 :reason "Could not locate clojure/edn.cljc or clojure/edn.clj on load path." :missing [clojure/edn]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 16 :name epoch-millis :reason "Unable to resolve symbol: .getTime in this context" :missing [.getTime]}
-  {:file "test/clojure/edn_test/read_string.cljc" :line 304 :reason "Tagged literals are not supported yet" :missing []}
  ]
  :tests
  [
@@ -50,6 +46,7 @@
   {:name clojure.core-test.mapcat/test-mapcat :status :fail :reason "(= [:a 1 :b 2 :c 3] (mapcat identity {:c 3, :a 1, :b 2}))" :missing [] :note "map seq order is the HAMT's, where the JVM's array map keeps insertion order: (mapcat identity {:a 1 :b 2 :c 3}). Clojure does not specify the order"}
   {:name clojure.core-test.nnext/test-nnext :status :fail :reason "(= (quote ([:c 3] [:d 4])) (nnext {:c 3, :a 1, :b 2, :d 4}))" :missing [] :note "map seq order is the HAMT's, where the JVM's array map keeps insertion order. Clojure does not specify the order"}
   {:name clojure.core-test.not-eq/test-not-eq :status :fail :reason "(not (eq #\"my regex\" #\"my regex\"))" :missing [] :note "patterns are equal by pattern string here, where the JVM compares them by identity (docs/jvm-differences.md)"}
+  {:name clojure.core-test.parse-uuid/test-parse-uuid :status :fail :reason "(= nil (parse-uuid \"0-0-0-0-0\"))" :missing [] :note "the suite puts UUID.fromString's lenient grouping under :clj and nil under :default, and the manifest sets no features; parse-uuid is lenient here, as on the JVM: (parse-uuid \"0-0-0-0-0\")"}
   {:name clojure.core-test.partition/test-partition :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.persistent-bang/test-persistent! :status :fail :reason "(p/thrown? (persistent! coll))" :missing [] :note "transient is identity here, so (persistent! {}) cannot throw"}
   {:name clojure.core-test.pop-bang/test-pop! :status :fail :reason "(p/thrown? (pop! t))" :missing [] :note "transient is identity here, so pop! on a persistent vector cannot throw"}
@@ -64,4 +61,4 @@
   {:name clojure.core-test.vec/test-vec :status :fail :reason "(= [-1 2 3] v)" :missing [] :note "(vec array) copies here; the JVM aliases the array, so a later aset shows through the vector (docs/jvm-differences.md)"}
  ]
  :skipped
- [add-tap boolean? format parse-boolean random-sample random-uuid reversible? with-precision]}
+ [add-tap clojure.edn/read-string with-precision]}

@@ -8,31 +8,29 @@
  :forms
  [
   {:file "src/medley/core.cljc" :line 102 :name map-entry :reason "Unable to resolve symbol: clojure.lang.MapEntry. in this context" :missing [clojure.lang.MapEntry.]}
-  {:file "src/medley/core.cljc" :line 185 :name queue :reason "Unable to resolve symbol: clojure.lang.PersistentQueue/EMPTY in this context" :missing [clojure.lang.PersistentQueue/EMPTY]}
-  {:file "src/medley/core.cljc" :line 191 :name queue? :reason "Unable to resolve symbol: clojure.lang.PersistentQueue in this context" :missing [clojure.lang.PersistentQueue]}
   {:file "src/medley/core.cljc" :line 451 :name partition-between :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
   {:file "src/medley/core.cljc" :line 515 :name window :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
   {:file "src/medley/core.cljc" :line 666 :name ex-message :reason "Unable to resolve symbol: Throwable in this context" :missing [Throwable]}
   {:file "src/medley/core.cljc" :line 675 :name ex-cause :reason "Unable to resolve symbol: Throwable in this context" :missing [Throwable]}
-  {:file "src/medley/core.cljc" :line 684 :name uuid? :reason "Unable to resolve symbol: java.util.UUID in this context" :missing [java.util.UUID]}
   {:file "src/medley/core.cljc" :line 691 :name uuid :reason "Unable to resolve symbol: java.util.UUID/fromString in this context" :missing [java.util.UUID/fromString]}
   {:file "src/medley/core.cljc" :line 699 :name random-uuid :reason "Unable to resolve symbol: java.util.UUID/randomUUID in this context" :missing [java.util.UUID/randomUUID]}
   {:file "src/medley/core.cljc" :line 707 :name regexp? :reason "Unable to resolve symbol: java.util.regex.Pattern in this context" :missing [java.util.regex.Pattern]}
   {:file "src/medley/core.cljc" :line 715 :name index-of :reason "Unable to resolve symbol: .indexOf in this context" :missing [.indexOf]}
-  {:file "test/medley/core_test.cljc" :line 164 :name test-queue :reason "Unable to resolve symbol: clojure.lang.PersistentQueue in this context" :missing [clojure.lang.PersistentQueue]}
-  {:file "test/medley/core_test.cljc" :line 174 :name test-queue? :reason "Unable to resolve symbol: clojure.lang.PersistentQueue/EMPTY in this context" :missing [clojure.lang.PersistentQueue/EMPTY]}
   {:file "test/medley/core_test.cljc" :line 235 :name test-mapply :reason "Unable to resolve classname: IllegalArgumentException" :missing [IllegalArgumentException]}
   {:file "test/medley/core_test.cljc" :line 499 :name test-ex-message :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/medley/core_test.cljc" :line 504 :name test-ex-cause :reason "Unable to resolve symbol: new in this context" :missing [new]}
-  {:file "test/medley/core_test.cljc" :line 511 :reason "Tagged literals are not supported yet" :missing []}
  ]
  :tests
  [
+  {:name medley.core-test/test-index-of :status :error :reason "Unbound var: #'medley.core/index-of" :missing [medley.core/index-of]}
   {:name medley.core-test/test-map-entry :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-map-kv :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-partition-after :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
   {:name medley.core-test/test-partition-before :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
   {:name medley.core-test/test-partition-between :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
+  {:name medley.core-test/test-random-uuid :status :error :reason "Unbound var: #'medley.core/random-uuid" :missing [medley.core/random-uuid]}
+  {:name medley.core-test/test-regexp? :status :error :reason "Unbound var: #'medley.core/regexp?" :missing [medley.core/regexp?]}
+  {:name medley.core-test/test-uuid :status :error :reason "Unbound var: #'medley.core/uuid" :missing [medley.core/uuid]}
   {:name medley.core-test/test-window :status :error :reason "Unbound var: #'medley.core/window" :missing [medley.core/window]}
  ]
  :skipped

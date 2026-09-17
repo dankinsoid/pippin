@@ -1094,6 +1094,8 @@ void clj_proto_install(void) {
 		{"Reduced", &clj_reduced_type},    {"Volatile", &clj_volatile_type},  {"Atom", &clj_atom_type},
 		{"PersistentTreeMap", &clj_sorted_map_type}, {"PersistentTreeSet", &clj_sorted_set_type},
 		{"Pattern", &clj_regex_type},      {"Matcher", &clj_matcher_type},    {"UUID", &clj_uuid_type},         {"Date", &clj_inst_type},
+		// The JVM class names libraries spell out in an instance? check; the static methods stay interop.
+		{"java.util.UUID", &clj_uuid_type}, {"java.util.Date", &clj_inst_type},
 	};
 	for (size_t i = 0; i < sizeof types / sizeof *types; i++) bind_core(types[i].name, clj_from_ptr((void *)types[i].type));
 	clj_value empty = clj_vector_empty();
