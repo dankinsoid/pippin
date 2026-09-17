@@ -4,8 +4,8 @@ import PackageDescription
 let package = Package(
 	name: "Pippin",
 	platforms: [
-		.macOS(.v14),
-		.iOS(.v17),
+		.macOS(.v12),
+		.iOS(.v15),
 	],
 	products: [
 		.library(name: "Pippin", targets: ["Pippin"]),

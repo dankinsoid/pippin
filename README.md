@@ -20,4 +20,4 @@ make test-all   # every sanitizer and allocator mode
 make bench
 ```
 
-Requires Swift 6 and macOS 14 / iOS 17.
+Requires Swift 6 and macOS 12 / iOS 15.
