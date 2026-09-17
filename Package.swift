@@ -49,7 +49,8 @@ let package = Package(
 		),
 		.testTarget(
 			name: "PippinTests",
-			dependencies: ["Pippin", "CljCore", "CljCompiler"]
+			dependencies: ["Pippin", "CljCore", "CljCompiler"],
+			exclude: ["Fixtures"]
 		),
 		.executableTarget(
 			name: "clj-api-dump",

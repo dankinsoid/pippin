@@ -17,7 +17,7 @@
 extern char **environ;
 
 static cljc_eval_options options;
-static char             *root_copy, *dir_copy, *clang_copy;
+static char             *root_copy, *dir_copy, *clang_copy, *opt_copy;
 static cljc_compiler    *compiler;
 static uint64_t          forms, clang_ns, seq;
 static int64_t           pool_objects;
@@ -49,8 +49,7 @@ static bool run_clang(const cljc_eval_options *o, const char *cfile, const char 
 	if (!o->clang) argv[n++] = "clang";
 	argv[n++] = "-shared";
 	argv[n++] = "-std=c17";
-	argv[n++] = "-O1";
-	argv[n++] = "-g";
+	argv[n++] = o->opt ? o->opt : "-O0";
 	argv[n++] = "-Wall";
 	argv[n++] = "-Wextra";
 	argv[n++] = "-Wpedantic";
@@ -158,10 +157,12 @@ bool cljc_eval_enable(const cljc_eval_options *o) {
 	root_copy = strdup(o->root);
 	dir_copy = strdup(o->dir);
 	clang_copy = o->clang ? strdup(o->clang) : NULL;
+	opt_copy = o->opt ? strdup(o->opt) : NULL;
 	options = *o;
 	options.root = root_copy;
 	options.dir = dir_copy;
 	options.clang = clang_copy;
+	options.opt = opt_copy;
 	cljc_options co = {.closed = o->closed, .line = true, .toplevel = true, .eval_result = true};
 	compiler = cljc_new(&co);
 	clj_load_hook h = {on_form, NULL, NULL, true};
@@ -177,7 +178,8 @@ void cljc_eval_disable(void) {
 	free(root_copy);
 	free(dir_copy);
 	free(clang_copy);
-	root_copy = dir_copy = clang_copy = NULL;
+	free(opt_copy);
+	root_copy = dir_copy = clang_copy = opt_copy = NULL;
 }
 
 uint64_t cljc_eval_count(void) { return forms; }
@@ -196,6 +198,6 @@ void clj_compiled_eval_boot(void) {
 	}
 	char default_dir[1200];
 	snprintf(default_dir, sizeof default_dir, "%s/.build/compiled-eval", root);
-	cljc_eval_options o = {root, dir ? dir : default_dir, NULL, getenv("CLJ_EVAL_CLOSED") != NULL, getenv("CLJ_EVAL_KEEP") != NULL};
+	cljc_eval_options o = {root, dir ? dir : default_dir, NULL, getenv("CLJ_EVAL_OPT"), getenv("CLJ_EVAL_CLOSED") != NULL, getenv("CLJ_EVAL_KEEP") != NULL};
 	cljc_eval_enable(&o);
 }

@@ -1,0 +1,5 @@
+:zero [:one 1] [:two 1 2] [:many 1 2 (3 4)] 15 3628800
+2 [1 2 3 4] [0 10 20]
+:zero Wrong number of args (1) passed to: fn Wrong number of args (0) passed to: named nil 42 cannot be invoked 1 2 20 3
+[:many 1 2 (3)] 10 (2 3 4) true true {:m 1}
+6 [1 2] [1 2 3]

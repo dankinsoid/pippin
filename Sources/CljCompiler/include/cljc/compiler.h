@@ -60,6 +60,7 @@ typedef struct {
 	const char *root;    // the package root: Sources/CljCore/include and Sources/CljCore are under it
 	const char *dir;     // where the C files and dylibs go
 	const char *clang;   // NULL: "xcrun clang"
+	const char *opt;     // the optimization flag, NULL: -O0 (no -g either: dsymutil doubles the clang time)
 	bool        closed;
 	bool        keep;    // keep the C files
 } cljc_eval_options;

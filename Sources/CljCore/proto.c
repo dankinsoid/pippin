@@ -998,6 +998,14 @@ static clj_value reify_type_new(clj_value name, clj_value fields, const clj_valu
 	return type;
 }
 
+// Whether every protocol the site names is one the type's tables hold.
+static bool reify_type_current(clj_value type, const clj_value *impls, size_t nimpls) {
+	for (size_t i = 0; i < nimpls; i += 2) {
+		if (clj_is_protocol(impls[i]) && !clj_truthy(clj_proto_extends(impls[i], type))) return false;
+	}
+	return true;
+}
+
 // The type behind a reify site: made on the first call, a lookup after. Creation runs under the
 // registry lock so a racing first call of one site cannot make two types.
 static clj_value reify_type(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
@@ -1005,6 +1013,8 @@ static clj_value reify_type(clj_value name, clj_value fields, const clj_value *i
 	if (!clj_is_vector(fields)) return clj_throw_msg("reify-type* expects a field vector, got: %s", clj_type_name(fields));
 	clj_lock_lock(&reify_lock);
 	clj_value type = clj_is_nil(reify_types) ? CLJ_NIL : clj_map_get(reify_types, name, CLJ_NIL);
+	// A protocol redefined since the type was made leaves it implementing the old one: the site gets a new type.
+	if (!clj_is_nil(type) && !reify_type_current(type, impls, nimpls)) type = CLJ_NIL;
 	if (!clj_is_nil(type)) {
 		// Gensym names are unique per process; a tree loaded from elsewhere may reuse one for another site.
 		if (((clj_user_type *)clj_to_ptr(type))->nfields != clj_vector_count(fields)) {

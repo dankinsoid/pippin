@@ -721,7 +721,7 @@ static temp *emit_args(fnctx *f, const clj_node *const *args, uint32_t n, const 
 	if (n) {
 		sb_printf(&f->out, "\tclj_value %s[%u] = {", array, n);
 		for (uint32_t i = 0; i < n; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", ts[i].name);
-		sb_puts(&f->out, "};\n");
+		sb_printf(&f->out, "};\n\t(void)%s;\n", array);
 	} else {
 		sb_printf(&f->out, "\tconst clj_value *%s = NULL;\n", array);
 	}

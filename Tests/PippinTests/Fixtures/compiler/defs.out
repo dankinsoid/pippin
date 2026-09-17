@@ -1,0 +1,6 @@
+1 :root 2 42 6 documented true plain fixture.defs
+[:bound :bound] :root Can't dynamically bind non-dynamic var: fixture.defs/plain
+Unbound var: #'fixture.defs/never-bound false 3 true 1
+10 :first :second :redef :second
+(clojure.core/+ 1 1) true [#'fixture.defs/inside-let 5]
+#'fixture.defs/from-fn 7 2 :root
