@@ -206,7 +206,7 @@ static unit *unit_new(const char *file) {
 		clj_value str = clj_string_from_cstr(file);
 		clj_value text = clj_pr_str(str);
 		bool      fresh;
-		pool_intern(&u->consts, clj_string_bytes(text), NULL, &fresh);
+		pool_intern(&u->consts, "file", clj_string_bytes(text), &fresh);
 		clj_release(text);
 		clj_release(str);
 	}
@@ -391,8 +391,13 @@ static size_t const_index(fnctx *f, clj_value v, bool *ok) {
 		*ok = false;
 		return 0;
 	}
+	// Keyed by identity within the form, not by text: two literals the reader made separately stay two objects
+	// (a NaN is only = to its own box), while a value a macro copied into two nodes stays one, as it is for the interpreter.
+	char key[64];
+	if (clj_is_ptr(v)) snprintf(key, sizeof key, "%llu@%p", (unsigned long long)(f->form ? f->form->serial : 0), (void *)v);
+	else snprintf(key, sizeof key, "%s", clj_string_bytes(text));
 	bool   fresh;
-	size_t i = pool_intern(&f->u->consts, clj_string_bytes(text), NULL, &fresh);
+	size_t i = pool_intern(&f->u->consts, key, clj_string_bytes(text), &fresh);
 	clj_release(text);
 	return i;
 }
@@ -1448,8 +1453,8 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	sb_puts(&out, "static bool pools_filled;\n\nstatic void unit_pools(void) {\n\t(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;\n\tpools_filled = true;\n");
 	for (size_t k = 0; k < u->consts.n; k++) {
 		sb_printf(&out, "\tK[%zu] = clj_c_const(", k);
-		sb_c_string(&out, u->consts.keys[k], strlen(u->consts.keys[k]));
-		sb_printf(&out, ", %zu);\n", strlen(u->consts.keys[k]));
+		sb_c_string(&out, u->consts.extra[k], strlen(u->consts.extra[k]));
+		sb_printf(&out, ", %zu);\n", strlen(u->consts.extra[k]));
 	}
 	for (size_t k = 0; k < u->vars.n; k++) {
 		const char *slash = strchr(u->vars.keys[k], '/');

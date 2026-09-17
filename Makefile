@@ -1,4 +1,4 @@
-.PHONY: build boot bench test test-pool test-ubsan test-all corpus corpus-update api-diff
+.PHONY: build boot bench test test-pool test-ubsan test-noreuse test-all corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
 
 build:
 	swift build
@@ -31,6 +31,26 @@ corpus:
 # Rewrites corpus/*/allowlist.edn and docs/corpus.md from the run; review the diff before committing.
 corpus-update:
 	CLJ_CORPUS_UPDATE=1 swift test --filter CorpusTests
+
+# ---- the compiler (Sources/CljCompiler, NOTES.md "Compiler")
+
+# The whole suite on the compiled core.clj (boot/core.c, boot/libs_*.c): pool and ASan modes.
+test-compiled:
+	swift test -Xcc -DCLJ_COMPILED_CORE
+	CLJ_SYSTEM_ALLOC=1 swift test -Xcc -DCLJ_COMPILED_CORE --sanitize=address
+
+# Both corpora through compiled user code: clj-compile per library, clang per file, dlopen; the per-test report
+# must match the interpreter's line by line.
+corpus-compiled:
+	swift build --product clj-compile
+	rm -rf .build/corpus-report
+	CLJ_CORPUS_REPORT=.build/corpus-report/interpreted swift test --filter CorpusTests
+	CLJ_CORPUS_COMPILED=1 CLJ_CORPUS_REPORT=.build/corpus-report/compiled swift test --filter CorpusTests
+	diff -ru .build/corpus-report/interpreted .build/corpus-report/compiled && echo "corpus: compiled == interpreted"
+
+# Every rt.eval of the suite through emit, clang and dlopen: slow, opt-in; CLJ_EVAL_CLOSED=1 for --closed.
+test-eval-compiled:
+	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 swift test
 
 # clojure.core parity: the JVM's ns-publics, ours, and the diff weighted by the corpus (scripts/api-diff.clj).
 # Needs JVM Clojure on PATH; writes docs/api-parity.md, which is committed.

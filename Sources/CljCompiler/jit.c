@@ -14,8 +14,6 @@
 #include "clj/core.h"
 #include "cljc/compiler.h"
 
-extern char **environ;
-
 static cljc_eval_options options;
 static char             *root_copy, *dir_copy, *clang_copy, *opt_copy;
 static cljc_compiler    *compiler;
@@ -36,17 +34,41 @@ static bool write_file(const char *path, const char *text) {
 	return fclose(f) == 0 && ok;
 }
 
-// clang through xcrun with the package's flags; the output of a failed run is left in <dylib>.log.
+// xcrun costs a toolchain lookup per run; what it finds is cached for the process.
+static void xcrun_line(const char *command, char *out, size_t cap, const char *fallback) {
+	if (out[0]) return;
+	FILE *p = popen(command, "r");
+	if (p) {
+		if (fgets(out, cap, p)) out[strcspn(out, "\n")] = '\0';
+		pclose(p);
+	}
+	if (!out[0]) snprintf(out, cap, "%s", fallback);
+}
+
+static const char *resolved_clang(void) {
+	static char path[1024];
+	xcrun_line("xcrun -f clang", path, sizeof path, "clang");
+	return path;
+}
+
+static const char *resolved_sdk(void) {
+	static char path[1024];
+	xcrun_line("xcrun --show-sdk-path", path, sizeof path, "/");
+	return path;
+}
+
+// clang with the package's flags; the output of a failed run is left in <dylib>.log.
 static bool run_clang(const cljc_eval_options *o, const char *cfile, const char *dylib, char *err, size_t errcap) {
 	char inc1[1024], inc2[1024], log[1100];
 	snprintf(inc1, sizeof inc1, "-I%s/Sources/CljCore/include", o->root);
 	snprintf(inc2, sizeof inc2, "-I%s/Sources/CljCore", o->root);
 	snprintf(log, sizeof log, "%s.log", dylib);
-	const char *clang = o->clang ? o->clang : "xcrun";
+	const char *clang = o->clang;
 	const char *argv[32];
 	int         n = 0;
 	argv[n++] = clang;
-	if (!o->clang) argv[n++] = "clang";
+	argv[n++] = "-isysroot";
+	argv[n++] = resolved_sdk();
 	argv[n++] = "-shared";
 	argv[n++] = "-std=c17";
 	argv[n++] = o->opt ? o->opt : "-O0";
@@ -69,8 +91,15 @@ static bool run_clang(const cljc_eval_options *o, const char *cfile, const char 
 	posix_spawn_file_actions_init(&fa);
 	posix_spawn_file_actions_addopen(&fa, 2, log, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	posix_spawn_file_actions_adddup2(&fa, 2, 1);
+	// A minimal environment: the test runner's DYLD_* variables make every library clang loads a search.
+	char        path_env[2048], home_env[1200], tmp_env[1200];
+	const char *path = getenv("PATH"), *home = getenv("HOME"), *tmp = getenv("TMPDIR");
+	snprintf(path_env, sizeof path_env, "PATH=%s", path ? path : "/usr/bin:/bin");
+	snprintf(home_env, sizeof home_env, "HOME=%s", home ? home : "/");
+	snprintf(tmp_env, sizeof tmp_env, "TMPDIR=%s", tmp ? tmp : "/tmp");
+	char *const envp[] = {path_env, home_env, tmp_env, NULL};
 	pid_t pid;
-	int   rc = posix_spawnp(&pid, clang, &fa, NULL, (char *const *)argv, environ);
+	int   rc = posix_spawnp(&pid, clang, &fa, NULL, (char *const *)argv, envp);
 	posix_spawn_file_actions_destroy(&fa);
 	if (rc != 0) {
 		snprintf(err, errcap, "cannot spawn %s: %s", clang, strerror(rc));
@@ -104,7 +133,10 @@ const clj_compiled_unit *cljc_open_dylib(const char *path) {
 	return unit;
 }
 
-const clj_compiled_unit *cljc_load_dylib(const cljc_eval_options *o, const char *cname, const char *text) {
+const clj_compiled_unit *cljc_load_dylib(const cljc_eval_options *given, const char *cname, const char *text) {
+	cljc_eval_options with_clang = *given;
+	if (!with_clang.clang) with_clang.clang = resolved_clang();
+	const cljc_eval_options *o = &with_clang;
 	char cfile[1200], dylib[1200], err[2048];
 	mkdir(o->dir, 0755);
 	snprintf(cfile, sizeof cfile, "%s/%s.c", o->dir, cname);

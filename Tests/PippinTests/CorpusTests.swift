@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+import CljCompiler
 import CljCore
 import Foundation
 import Testing
@@ -162,6 +163,68 @@ private struct Library {
 
 // The watchdog's budget per deftest; a test past it is :timeout and counts as a failure.
 private let testBudgetMs = ProcessInfo.processInfo.environment["CLJ_CORPUS_TIMEOUT_MS"].flatMap(Int.init) ?? 5000
+
+private let packageRoot = corpusRoot.deletingLastPathComponent()
+
+// CLJ_CORPUS_COMPILED=1: every corpus file goes through clj-compile in a child process (the compile evaluates the
+// forms itself, so it cannot share this process), then clang, dlopen and the unit registry, so the requires below
+// run the compiled units instead of reading the sources (NOTES.md, "Compiler").
+private let compiledMode = ProcessInfo.processInfo.environment["CLJ_CORPUS_COMPILED"] != nil
+
+private func compileLibrary(_ lib: Library) throws {
+	let out = packageRoot.appendingPathComponent(".build/corpus-compiled/\(lib.name)")
+	try? FileManager.default.removeItem(at: out)
+	try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+	let tool = packageRoot.appendingPathComponent(".build/debug/clj-compile")
+	var args = ["--lenient", "--out", out.path]
+	if ProcessInfo.processInfo.environment["CLJ_CORPUS_CLOSED"] != nil { args.append("--closed") }
+	for p in lib.loadPath { args += ["--load-path", p] }
+	if !lib.features.isEmpty { args += ["--features", lib.features.sorted().joined(separator: ",")] }
+	for ns in lib.namespaces { args += ["--ns", ns] }
+	let proc = Process()
+	proc.executableURL = tool
+	proc.arguments = args
+	let stderr = Pipe()
+	proc.standardError = stderr
+	proc.standardOutput = FileHandle.nullDevice
+	let started = Date()
+	try proc.run()
+	let errText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+	proc.waitUntilExit()
+	progress("corpus: clj-compile \(lib.name) took \(String(format: "%.2f", Date().timeIntervalSince(started))) s")
+	if proc.terminationStatus != 0 {
+		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(proc.terminationStatus):\n\(errText)"))
+	}
+	let manifest = try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8)
+	let root = strdup(packageRoot.path), dir = strdup(out.path)
+	defer { free(root); free(dir) }
+	for line in manifest.split(separator: "\n") {
+		let cells = line.split(separator: "\t", maxSplits: 1).map(String.init)
+		let cname = cells[0], path = cells[1]
+		let text = try String(contentsOf: out.appendingPathComponent("\(cname).c"), encoding: .utf8)
+		var o = cljc_eval_options()
+		o.root = UnsafePointer(root)
+		o.dir = UnsafePointer(dir)
+		o.keep = true
+		let t0 = Date()
+		guard let unit = cljc_load_dylib(&o, cname, text) else { throw ClojureError.takePending() }
+		progress("corpus: clang \(lib.relative(path)) took \(String(format: "%.2f", Date().timeIntervalSince(t0))) s")
+		#expect(String(cString: unit.pointee.path) == path)
+		clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
+	}
+}
+
+// CLJ_CORPUS_REPORT=<dir>: one line per form failure and per test, so two modes compare line by line.
+private func writeReport(_ lib: Library, _ r: RunResult) throws {
+	guard let dir = ProcessInfo.processInfo.environment["CLJ_CORPUS_REPORT"] else { return }
+	try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+	var lines: [String] = []
+	for f in r.forms.sorted(by: { ($0.file, $0.line) < ($1.file, $1.line) }) { lines.append("form \(f.file):\(f.line) \(f.name ?? "-") \(truncated(f.reason))") }
+	for (ns, m) in r.loadErrors.sorted(by: { $0.key < $1.key }) { lines.append("load \(ns) \(truncated(m))") }
+	for t in r.tests { lines.append("test \(t.name) \(t.status) \(truncated(t.reason ?? ""))") }
+	for s in r.skipped.sorted() { lines.append("skip \(s)") }
+	try (lines.joined(separator: "\n") + "\n").write(toFile: "\(dir)/\(lib.name).txt", atomically: true, encoding: .utf8)
+}
 
 private struct RunResult {
 	var forms: [FormFailure] = []
@@ -360,7 +423,9 @@ extension CoreTests {
 			var problems: [String] = []
 			for dir in dirs {
 				let lib = try Library(dir: dir)
+				if compiledMode { try compileLibrary(lib) }
 				let first = try Self.run(lib)
+				try writeReport(lib, first)
 				// Loading interns vars and keywords for the process; the second run over the loaded namespaces is the memory check.
 				let before = clj_debug_live_objects()
 				let second = try Self.run(lib)
