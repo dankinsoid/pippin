@@ -32,6 +32,9 @@ void clj_ns_builtins_install(void);
 void clj_string_builtins_install(void);
 void clj_number_builtins_install(void);
 void clj_array_builtins_install(void);
+void clj_format_builtins_install(void);
+// (str v) of one value, owned; CLJ_THROWN when printing it throws.
+clj_value clj_str_value(clj_value v);
 
 // clj_reader.resolve: qualifies in the current namespace, or the var's own; an alias prefix is expanded. ctx unused.
 clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx);

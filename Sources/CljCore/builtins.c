@@ -996,6 +996,8 @@ static clj_value b_str(const clj_value *args, size_t n) {
 	return s;
 }
 
+clj_value clj_str_value(clj_value v) { return b_str(&v, 1); }
+
 static clj_value b_pr_str(const clj_value *args, size_t n) {
 	buf b = {0};
 	if (!join(&b, args, n, put_pr, true)) return CLJ_THROWN;
@@ -1370,4 +1372,5 @@ void clj_builtins_install(void) {
 	clj_regex_builtins_install();
 	clj_uuid_builtins_install();
 	clj_inst_builtins_install();
+	clj_format_builtins_install();
 }

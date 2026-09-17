@@ -1594,6 +1594,7 @@
 (defn print-str "print to a string, returning it." [& xs] (with-out-str (apply print xs)))
 (defn println-str "println to a string, returning it." [& xs] (with-out-str (apply println xs)))
 (defn prn-str "prn to a string, returning it." [& xs] (with-out-str (apply prn xs)))
+(defn printf "Prints formatted output, as per format." [fmt & args] (print (apply format fmt args)))
 (defn newline "Writes a newline." [] (print "\n") nil)
 (defn flush "Nothing to flush: output goes straight to the host hook." [] nil)
 
