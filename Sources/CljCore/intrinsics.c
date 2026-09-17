@@ -10,12 +10,12 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 
-#define I1(nm, f, p) {"clojure.core/" nm, 1, CLJ_INTRINSIC_1, {.f1 = f}, p, {.f2 = NULL}}
-#define I2(nm, f, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, p, {.f2 = NULL}}
-#define I3(nm, f, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, p, {.f2 = NULL}}
+#define I1(nm, f, p) {"clojure.core/" nm, 1, CLJ_INTRINSIC_1, {.f1 = f}, #f, NULL, p, {.f2 = NULL}}
+#define I2(nm, f, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, #f, NULL, p, {.f2 = NULL}}
+#define I3(nm, f, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, #f, NULL, p, {.f2 = NULL}}
 // The entry's function retains the collection before c, its consuming form.
-#define C2(nm, f, c, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, p, {.f2 = c}}
-#define C3(nm, f, c, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, p, {.f3 = c}}
+#define C2(nm, f, c, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, #f, #c, p, {.f2 = c}}
+#define C3(nm, f, c, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, #f, #c, p, {.f3 = c}}
 
 static const clj_intrinsic table[] = {
 	I2("+", clj_add, true),

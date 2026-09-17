@@ -93,6 +93,11 @@ bool     clj_deadline_expired(void);
 bool clj_eval_retire_root(clj_value old);
 // Parked roots on this thread, for tests.
 size_t clj_debug_retired_roots(void);
+// What clj_exec_run brackets a top-level form with: a compiled unit's form does the same so a def inside parks fn roots.
+void clj_eval_top_enter(void);
+void clj_eval_top_leave(void);
+// Releases parked roots once the thread is idle; a compiled closure calls it where the shadow depth returns to zero.
+void clj_eval_drain_retired(void);
 
 // A call of f with a fixed argument count prepared once, for a native that calls f per element: a closure has its
 // arity resolved and enters its body directly, a plain native skips its arity check. f is borrowed and must

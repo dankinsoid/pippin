@@ -96,6 +96,8 @@ typedef struct {
 		clj_intrinsic_2 f2;
 		clj_intrinsic_3 f3;
 	} fn;
+	const char *cname;    // the C name of fn, what a compiler emits as a direct call
+	const char *cconsume; // the same for the consuming form, NULL when none
 	// No effect and no identity the result exposes beyond what its arguments carry: the optimizer folds a call on
 	// constant arguments at analysis (optimizer.c, on data the codec reads back as the same type, while the var
 	// still holds the boot fn). A fold that throws leaves the call to throw at run time, so nth out of bounds

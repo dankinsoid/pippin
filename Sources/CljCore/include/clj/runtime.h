@@ -14,6 +14,8 @@ void clj_init(void);
 // Runs at the end of clj_init, after core.clj, when the host defines it: where a host binds its own vars into
 // clojure.core (the Swift module binds its primitives here). Weak, so a C-only host needs nothing.
 void clj_host_boot(void) __attribute__((weak));
+// Runs last in clj_init; the compiler library's strong definition replaces the empty weak one here (CLJ_EVAL=compiled).
+void clj_compiled_eval_boot(void);
 
 // The embedded boot/core.clj, borrowed for the life of the process.
 const char *clj_core_source(size_t *len);
@@ -68,5 +70,41 @@ void      clj_load_set_lenient(bool on);
 clj_value clj_load_take_failures(void);
 // clojure.core/*file*: the path being loaded, bound by load.
 clj_value clj_load_file_var(void);
+// Records a failure of a top-level form (lenient loading), or wraps the pending exception as Clojure's CompilerException
+// and leaves it pending: true when loading may go on. What a compiled unit's init calls where the loader would.
+bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value name);
+
+// ---- the load hook: what a compiler plugs in to see every top-level tree the loader analyzes
+typedef struct clj_node clj_node;
+
+typedef struct {
+	clj_value file;      // *file* at the time, a string or nil
+	uint32_t  line, col; // of the top-level form the node came from
+	clj_value name;      // the symbol a (def... name) form defines, else nil
+	uint64_t  serial;    // one per top-level form: the nodes of a (do ...) share it
+} clj_load_form;
+
+// Called with the optimized tree of a top-level form before it runs, the node borrowed for the call. A hook that
+// runs the form itself sets *handled and returns its owned result (or CLJ_THROWN); else the interpreter runs it.
+typedef clj_value (*clj_load_hook_form)(const clj_load_form *form, const clj_node *node, void *ctx, bool *handled);
+// A form that failed to read or analyze under lenient loading, after the nodes of its serial that did analyze.
+typedef void (*clj_load_hook_failed)(const clj_load_form *form, clj_value message, void *ctx);
+
+typedef struct {
+	clj_load_hook_form   form;
+	clj_load_hook_failed failed; // may be NULL
+	void                *ctx;
+	// Fires on every top-level clj_eval a host makes while nothing runs on the thread, not only on loads.
+	bool toplevel;
+} clj_load_hook;
+
+// Process-wide; NULL clears it. The hook sees loads (clj_load_source, core.clj at boot) and, with toplevel, host evals.
+void clj_load_set_hook(const clj_load_hook *hook);
+const clj_load_hook *clj_load_hook_get(void);
+
+// ---- compiled units (compiled.h): a unit registered for a path replaces reading its source in clj_load_file
+typedef clj_value (*clj_compiled_init)(void);
+void clj_compiled_register(const char *path, clj_compiled_init init);
+clj_compiled_init clj_compiled_find(const char *path);
 
 #endif

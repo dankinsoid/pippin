@@ -21,6 +21,7 @@
 #include "clj/var.h"
 #include "clj/vector.h"
 #include "epoch_internal.h"
+#include "load_internal.h"
 #include "profile_internal.h"
 #include "proto_internal.h"
 #include "shadow_internal.h"
@@ -1129,21 +1130,56 @@ static bool is_do_form(clj_value form, clj_seq_iter *it) {
 	return false;
 }
 
+char *clj_eval_stack_limit(void *shadow_stack) { return stack_limit_of(shadow_stack); }
+
+bool clj_eval_deadline_hit(void *shadow_stack) {
+	clj_shadow_stack *s = shadow_stack;
+	if (!deadline_reached(s)) return false;
+	deadline_throw(s);
+	return true;
+}
+
+void clj_eval_top_enter(void) { retired.exec_depth++; }
+
+void clj_eval_top_leave(void) {
+	if (--retired.exec_depth == 0 && retired.n) drain_retired();
+}
+
+void clj_eval_drain_retired(void) {
+	if (retired.n) drain_retired();
+}
+
 // A top-level (do ...) is a sequence of top-level forms: a defmacro in it is visible to the next form.
 // Without a position in env the form's own :line/:column stand in, so the expansion's errors keep them.
 clj_value clj_eval(clj_value form, const clj_env *given) {
 	clj_env local = given ? *given : (clj_env){0};
 	if (!local.line) clj_form_position(form, &local.line, &local.col);
-	const clj_env *env = &local;
-	clj_value      expanded = clj_macroexpand(form, env);
-	if (expanded == CLJ_THROWN) return CLJ_THROWN;
+	const clj_env       *env = &local;
+	clj_load_arm         arm = clj_load_arm_tls;
+	const clj_load_hook *hook = clj_load_hook_get();
+	bool                 file_owned = false;
+	clj_load_arm_tls.armed = false;
+	if (!hook) arm.armed = false;
+	if (hook && !arm.armed && hook->toplevel && !in_flight()) {
+		arm.armed = true;
+		arm.form = (clj_load_form){clj_var_deref(clj_load_file_var()), local.line, local.col, clj_load_form_name(form), clj_load_next_serial()};
+		file_owned = true;
+	}
+	clj_load_analysis_failed = true;
+	clj_value expanded = clj_macroexpand(form, env);
+	if (expanded == CLJ_THROWN) {
+		if (file_owned) clj_release(arm.form.file);
+		return CLJ_THROWN;
+	}
 	clj_value    v = CLJ_NIL;
 	clj_seq_iter it;
 	if (is_do_form(expanded, &it)) {
 		clj_value item;
 		while (clj_seq_iter_next(&it, &item)) {
 			clj_release(v);
+			clj_load_arm_tls = arm;
 			v = clj_eval(item, env);
+			clj_load_arm_tls.armed = false;
 			if (v == CLJ_THROWN) break;
 		}
 		clj_seq_iter_close(&it);
@@ -1153,9 +1189,17 @@ clj_value clj_eval(clj_value form, const clj_env *given) {
 		}
 	} else {
 		const clj_node *node = clj_analyze(expanded, env);
-		v = node ? clj_eval_node(node) : CLJ_THROWN;
-		if (node) clj_release(clj_from_ptr((void *)node));
+		if (node) {
+			clj_load_analysis_failed = false;
+			bool handled = false;
+			if (arm.armed) v = hook->form(&arm.form, node, hook->ctx, &handled);
+			if (!handled) v = clj_eval_node(node);
+			clj_release(clj_from_ptr((void *)node));
+		} else {
+			v = CLJ_THROWN;
+		}
 	}
+	if (file_owned) clj_release(arm.form.file);
 	clj_release(expanded);
 	return v;
 }

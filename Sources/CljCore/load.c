@@ -20,6 +20,7 @@
 #include "clj/vector.h"
 
 #include "libs_clj.inc"
+#include "load_internal.h"
 
 static const char embedded_prefix[] = "<embedded>/";
 
@@ -31,6 +32,63 @@ static clj_value failures; // vector or nil
 
 static pthread_once_t file_var_once = PTHREAD_ONCE_INIT;
 static clj_value      file_var;
+
+_Thread_local clj_load_arm clj_load_arm_tls;
+_Thread_local bool         clj_load_analysis_failed;
+
+static clj_load_hook    hook;
+static bool             hook_set;
+static _Atomic uint64_t serial;
+
+void clj_load_set_hook(const clj_load_hook *h) {
+	hook_set = h != NULL;
+	if (h) hook = *h;
+}
+
+const clj_load_hook *clj_load_hook_get(void) { return hook_set ? &hook : NULL; }
+
+uint64_t clj_load_next_serial(void) { return atomic_fetch_add_explicit(&serial, 1, memory_order_relaxed) + 1; }
+
+// ---- compiled units, keyed by the path clj_load_file is given
+typedef struct {
+	char             *path;
+	clj_compiled_init init;
+} unit_entry;
+
+static unit_entry *units;
+static size_t      nunits, units_cap;
+
+// @ai-generated(solo)
+void clj_compiled_register(const char *path, clj_compiled_init init) {
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < nunits; i++) {
+		if (strcmp(units[i].path, path) == 0) {
+			units[i].init = init;
+			clj_lock_unlock(&lock);
+			return;
+		}
+	}
+	if (nunits == units_cap) {
+		units_cap = units_cap ? units_cap * 2 : 8;
+		units = realloc(units, units_cap * sizeof *units);
+		if (!units) clj_fatal("out of memory");
+	}
+	units[nunits].path = strdup(path);
+	if (!units[nunits].path) clj_fatal("out of memory");
+	units[nunits].init = init;
+	nunits++;
+	clj_lock_unlock(&lock);
+}
+
+clj_compiled_init clj_compiled_find(const char *path) {
+	clj_compiled_init found = NULL;
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < nunits && !found; i++) {
+		if (strcmp(units[i].path, path) == 0) found = units[i].init;
+	}
+	clj_lock_unlock(&lock);
+	return found;
+}
 
 static void make_file_var(void) {
 	clj_value sym = clj_symbol_from_cstr("*file*");
@@ -115,8 +173,7 @@ clj_value clj_load_take_failures(void) {
 	return v;
 }
 
-// The name a (def… name …) form defines, or nil.
-static clj_value form_name(clj_value form) {
+clj_value clj_load_form_name(clj_value form) {
 	if (!clj_is_list(form) || clj_is_empty_list(form)) return CLJ_NIL;
 	clj_value head = clj_cons_of(form)->first;
 	if (!clj_is_symbol(head) || strncmp(clj_string_bytes(clj_symbol_name(head)), "def", 3) != 0) return CLJ_NIL;
@@ -163,6 +220,41 @@ static clj_value wrap_pending(clj_value file, uint32_t line, uint32_t col) {
 	return clj_throw_traced(ex, trace);
 }
 
+// @ai-generated(solo)
+bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value name) {
+	if (!lenient) {
+		wrap_pending(file, line, col);
+		return false;
+	}
+	clj_value ex = clj_take_pending();
+	clj_value msg = clj_ex_message(ex);
+	if (!clj_is_string(msg)) {
+		clj_release(msg);
+		msg = clj_pr_str(ex);
+		if (msg == CLJ_THROWN) msg = clj_string_from_cstr("unprintable exception");
+	}
+	record_failure(file, line, col, name, msg);
+	clj_release(msg);
+	clj_release(ex);
+	return true;
+}
+
+// A registered unit runs under the bindings a source load has: its init sees the same *ns* and *file*.
+static clj_value run_unit(clj_compiled_init init, clj_value file) {
+	clj_value bindings = clj_map_empty();
+	bindings = clj_map_assoc(bindings, clj_ns_var(), clj_ns_current());
+	bindings = clj_map_assoc(bindings, clj_load_file_var(), file);
+	clj_value pushed = clj_var_push_bindings(bindings);
+	clj_release(bindings);
+	if (pushed == CLJ_THROWN) return CLJ_THROWN;
+	clj_release(pushed);
+	clj_value r = init();
+	if (clj_var_pop_bindings() == CLJ_THROWN) clj_fatal("load bindings vanished");
+	if (r == CLJ_THROWN) return r;
+	clj_release(r);
+	return CLJ_NIL;
+}
+
 clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 	clj_value bindings = clj_map_empty();
 	bindings = clj_map_assoc(bindings, clj_ns_var(), clj_ns_current());
@@ -182,6 +274,10 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 			clj_value msg = clj_string_from_cstr(clj_reader_message(&r));
 			if (lenient) {
 				record_failure(file, r.error_line, r.error_col, CLJ_NIL, msg);
+				if (hook_set && hook.failed) {
+					clj_load_form f = {file, r.error_line, r.error_col, CLJ_NIL, clj_load_next_serial()};
+					hook.failed(&f, msg, hook.ctx);
+				}
 				clj_release(msg);
 				break;
 			}
@@ -192,8 +288,11 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 			result = clj_throw(ex);
 			break;
 		}
-		clj_env   env = {CLJ_NIL, r.form_line, r.form_col};
+		clj_env      env = {CLJ_NIL, r.form_line, r.form_col};
+		clj_load_arm arm = {hook_set, {file, r.form_line, r.form_col, clj_load_form_name(form), clj_load_next_serial()}};
+		clj_load_arm_tls = arm;
 		clj_value v = clj_eval(form, &env);
+		clj_load_arm_tls.armed = false;
 		if (v == CLJ_THROWN) {
 			if (lenient) {
 				clj_value ex = clj_take_pending();
@@ -203,7 +302,8 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 					msg = clj_pr_str(ex);
 					if (msg == CLJ_THROWN) msg = clj_string_from_cstr("unprintable exception");
 				}
-				record_failure(file, r.form_line, r.form_col, form_name(form), msg);
+				record_failure(file, r.form_line, r.form_col, clj_load_form_name(form), msg);
+				if (hook_set && hook.failed && clj_load_analysis_failed) hook.failed(&arm.form, msg, hook.ctx);
 				clj_release(msg);
 				clj_release(ex);
 				clj_release(form);
@@ -223,6 +323,8 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 clj_value clj_load_file(clj_value path) {
 	if (!clj_is_string(path)) return clj_throw_msg("load-file expects a path string, got: %s", clj_type_name(path));
 	const char *text = clj_string_bytes(path);
+	clj_compiled_init unit = nunits ? clj_compiled_find(text) : NULL;
+	if (unit) return run_unit(unit, path);
 	if (strncmp(text, embedded_prefix, sizeof embedded_prefix - 1) == 0) {
 		const char *lib = text + sizeof embedded_prefix - 1;
 		size_t      lib_len = strlen(lib);

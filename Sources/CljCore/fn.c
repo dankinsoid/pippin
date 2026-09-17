@@ -57,6 +57,7 @@ static clj_value fn_with_meta(clj_value self, clj_value m) {
 		clj_retain(c->code);
 		c->meta = CLJ_NIL;
 		for (uint32_t i = 0; i < c->nenv; i++) clj_retain(c->env[i]);
+		if (c->kind == CLJ_FN_NATIVE_CTX && c->u.native_ctx.ctx == f) c->u.native_ctx.ctx = c;
 		if (c->kind == CLJ_FN_NATIVE_CTX && c->u.native_ctx.release) {
 			c->u.native_ctx.release = NULL;
 			clj_release(c->code);
@@ -111,6 +112,21 @@ clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, voi
 	return clj_from_ptr(f);
 }
 
+// @ai-generated(solo)
+clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t min_arity, uint32_t max_arity) {
+	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
+	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
+	f->name = clj_retain(name);
+	f->kind = CLJ_FN_NATIVE_CTX;
+	f->min_arity = min_arity;
+	f->max_arity = max_arity;
+	f->u.native_ctx.fn = fn;
+	f->u.native_ctx.ctx = f;
+	f->nenv = nenv;
+	for (uint32_t i = 0; i < nenv; i++) f->env[i] = clj_retain(env[i]);
+	return clj_from_ptr(f);
+}
+
 clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, const clj_value *env, uint32_t nenv) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	CLJ_ASSERT(node->kind == CLJ_NODE_FN, "closure code must be a fn node");
@@ -125,6 +141,7 @@ clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, c
 }
 
 clj_value clj_arity_error(clj_value f, size_t n) {
+	if (clj_is_fn(f) && clj_is_nil(clj_fn_of(f)->name)) return clj_throw_msg("Wrong number of args (%zu) passed to: fn", n);
 	clj_value text = clj_pr_str_max(clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));

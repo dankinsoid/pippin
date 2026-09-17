@@ -23,6 +23,8 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/compiled.h"
+#include "load_internal.h"
 
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
@@ -81,17 +83,22 @@ static void print_trace(clj_value trace) {
 }
 
 // Evaluates core.clj in clojure.core; the caller has made it the current namespace for the resolver.
+// The load hook sees every form under this path, which is what the compiler names in its #line directives.
 static void load_core(void) {
 	clj_reader r;
 	clj_reader_init(&r, (const char *)core_clj, core_clj_len);
 	clj_reader_use_namespaces(&r);
+	bool      hooked = clj_load_hook_get() != NULL;
+	clj_value file = hooked ? clj_string_from_cstr(CLJ_CORE_CLJ_PATH) : CLJ_NIL;
 	for (;;) {
 		clj_value form;
 		clj_read_status st = clj_read(&r, &form);
-		if (st == CLJ_READ_EOF) return;
+		if (st == CLJ_READ_EOF) break;
 		if (st == CLJ_READ_ERROR) boot_failed("reader error", r.error_line, r.error_col, clj_reader_message(&r));
-		clj_env   env = {clj_ns_core(), r.form_line, r.form_col};
+		clj_env env = {clj_ns_core(), r.form_line, r.form_col};
+		clj_load_arm_tls = (clj_load_arm){hooked, {file, r.form_line, r.form_col, clj_load_form_name(form), clj_load_next_serial()}};
 		clj_value v = clj_eval(form, &env);
+		clj_load_arm_tls.armed = false;
 		clj_release(form);
 		if (v == CLJ_THROWN) {
 			clj_value trace = clj_take_pending_trace();
@@ -102,6 +109,7 @@ static void load_core(void) {
 		}
 		clj_release(v);
 	}
+	clj_release(file);
 }
 
 // Every root bound by boot outlives the process, so a read of it needs no retain (eval_borrowed): what a
@@ -129,12 +137,24 @@ static void init(void) {
 	clj_record_install();
 	clj_intrinsics_install();
 	clj_ns_set_current(core);
+#ifdef CLJ_COMPILED_CORE
+	if (clj_compiled_core_init() == CLJ_THROWN) {
+		clj_value ex = clj_take_pending();
+		clj_value text = clj_pr_str(ex);
+		boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : clj_string_bytes(text));
+	}
+	clj_compiled_libs_register();
+#else
 	load_core();
+#endif
 	clj_fusion_install();
 	clj_map_each(clj_ns_of(core)->mappings, immortalize_root, NULL);
 	clj_ns_set_current(clj_ns_user());
 	if (clj_host_boot) clj_host_boot();
+	clj_compiled_eval_boot();
 }
+
+__attribute__((weak)) void clj_compiled_eval_boot(void) {}
 
 void clj_init(void) { pthread_once(&init_once, init); }
 

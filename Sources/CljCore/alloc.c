@@ -45,6 +45,7 @@ static _Thread_local heap *tls_heap;
 // One process-wide counter, contended across threads; debug-only, so acceptable until profiles say otherwise.
 static _Atomic int64_t live_objects;
 int64_t clj_debug_live_objects(void) { return atomic_load(&live_objects); }
+void    clj_debug_live_objects_exclude(int64_t n) { atomic_fetch_sub_explicit(&live_objects, n, memory_order_relaxed); }
 
 // Per-type counts in a fixed open-addressing table keyed by descriptor; a slot is claimed once and never
 // freed, so a dead deftype descriptor keeps its slot (and a reused address its history).
@@ -86,6 +87,7 @@ void clj_debug_live_report(void) {
 #define LIVE_ADD(type, n) live_add((type), (n))
 #else
 int64_t clj_debug_live_objects(void) { return -1; }
+void    clj_debug_live_objects_exclude(int64_t n) { (void)n; }
 int64_t clj_debug_live_objects_of(const clj_type *type) {
 	(void)type;
 	return -1;
