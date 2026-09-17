@@ -1577,8 +1577,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   is a linear scan of registered paths. The compiled eval costs ~0.6 s per form on macOS 15: clang ~0.14 s and
   `dlopen` ~0.3 s, the latter the system's first-load assessment of every new code signature (a second load
   of the same dylib is 1 ms, and 30 fresh trivial dylibs take 9 s from a C program too); the whole suite is
-  hours, which is why the gate is opt-in. Trigger: the machine granting the test runner Developer Tools
-  access, or batching a host eval's forms into one unit where no form defines a macro or moves the namespace. Compiling a file evaluates it (the hook cannot skip
+  hours, which is why the gate is opt-in. The wait is syspolicyd's YARA scan of every first-loaded image on macOS 14+, cached by hash, so no
+  signing or permission avoids it; a compiling eval is not a goal (design §9), and if it ever is, the fix is loading the
+  object into `MAP_JIT` memory (own Mach-O loader, tcc or ORC), not a file per form. Compiling a file evaluates it (the hook cannot skip
   evaluation without losing macros), so `clj-compile` runs the program once. Nothing checks that
   `boot/core.c` matches `boot/core.clj` the way `CoreCljTests` checks `core_clj.inc`: the generator needs an
   interpreted boot with the hook armed, which a test process past `clj_init` cannot redo; trigger: a stale
