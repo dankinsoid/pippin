@@ -190,12 +190,9 @@ static decimal_digits shortest(double x) {
 }
 
 // Keeps the first `keep` digits, rounding half up on the next one; a carry out of the top adds a digit.
+// Digits past n read as zeros, so a precision beyond them pads nothing here.
 static void round_to(decimal_digits *d, int keep) {
-	if (keep >= d->n) {
-		while (d->n < keep) d->digits[d->n++] = '0';
-		d->digits[d->n] = '\0';
-		return;
-	}
+	if (keep >= d->n) return;
 	bool up = keep >= 0 && d->digits[keep] >= '5';
 	if (keep < 0) {
 		d->digits[0] = '0';
