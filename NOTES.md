@@ -390,6 +390,23 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **`aset-int` and its siblings are aliases of `aset`**: the array's kind decides the cast, so `aset-int`
   into a `double-array` stores a double where the JVM would refuse the array type at compile time.
 
+## Queue (Sources/CljCore/queue.c)
+
+- **Clojure's shape: a front seq and a rear vector**, with `count` stored. `conj` grows the rear in place when
+  the queue and the vector are unique (a shared owner shares the new child), `pop` is the front's `next`, and
+  when that runs out the rear becomes the front through `seq` (a vector-seq view, so the old vector lives on
+  behind it) and the rear starts over. A single vector with an offset would keep every popped element until
+  the queue emptied; this drops them as they go. Invariant: `count > 0` means the front is non-empty, so
+  `peek` and `pop` never read the rear, and the empty singleton pops to itself as on the JVM.
+- **`seq` is eager**: the front's items followed by the rear's as one list (`queue_seq`), which `=`, `hash`
+  and printing walk; `first` is the front's first and `reduce` walks front then rear without the copy.
+  Trigger for a lazy view: a large queue seq'd in a profile.
+- **The JVM's spelling resolves**: `clojure.lang.PersistentQueue` and `PersistentQueue` name the type in core,
+  and a namespace `clojure.lang.PersistentQueue` holds the var `EMPTY`, so `clojure.lang.PersistentQueue/EMPTY`
+  reads as any `ns/var` does (medley's `queue`). It shows in `all-ns`. `peek`/`pop` in core.clj branch on
+  `(instance? PersistentQueue coll)` ahead of `list?`, which is true for a queue as it is on the JVM
+  (`IPersistentList`); `pop` reaches `queue-pop*`.
+
 ## Vector (Sources/CljCore/vector.c)
 
 - **`clj_vector_from_array` is a conj loop**: the leaf grows through `clj_realloc` one slot at a time,
@@ -421,10 +438,27 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 
 ## Reader (Sources/CljCore/reader.c)
 
-- **Not supported, reported as errors**: namespaced maps `#:`, tagged literals, read-eval. Each is a
-  `switch` arm in `read_dispatch` to replace when the feature lands; inside an unselected
-  `#?` branch each reads as data instead (below). Trigger for tagged literals: `#inst`/`#uuid` in EDN from a
-  backend — a `*data-readers*` map consulted by `read_dispatch`'s default arm, with the built-in tags on top.
+- **Tagged literals run their tag fn at read time, inside `clj_read`** (`F_TAG`, `read_tagged`): the tag symbol
+  and then the form arrive through `push_value`, and the frame applies `clj_reader.read_tag` to them, so the
+  value a literal reads as is a constant to the analyzer like any other. The hook is the runtime's
+  (`clj_reader_read_tag`, runtime.c): a dotted tag is a record constructor (`#ns.Name{…}` through
+  `clj_record_from_map`, `#ns.Name[…]` positional, LispReader's CtorReader order), then `*data-readers*`, then
+  the built-in `inst` and `uuid` (`clj_default_data_reader`, which a reader with no hook also gets), then
+  `*default-data-reader-fn*`, else "No reader function for tag". A throw out of the fn is a reader error with
+  the exception's message at the literal's position. `default-data-readers` is a plain map of the two native
+  fns (`read-inst*`, `read-uuid*`), so a library can merge its own into `*data-readers*`. Not here:
+  `tagged-literal`/`reader-conditional` values and `#=` (docs/jvm-differences.md).
+- **`#uuid` and `#inst` are value types** (uuid.c, inst.c): a boxed pair of signed longs with `UUID.hashCode`,
+  `fromString`'s lenient grouping for `parse-uuid` and `arc4random_buf` for `random-uuid`; a boxed
+  millisecond count named `Date` with `Date.hashCode`, read by clojure.instant's grammar (every field
+  range-checked, the fraction taken as nanoseconds) through proleptic-Gregorian day arithmetic
+  (`days_from_civil`) and printed `yyyy-MM-ddTHH:mm:ss.SSS-00:00` in UTC as the JVM does. Both compare, so
+  they sort, and both are node constants: the codec reads them back from their printed form. `str` of a Date
+  is that text, not `Date.toString` (docs/jvm-differences.md).
+- **Namespaced maps** `#:ns{…}`, `#::{…}` and `#::alias{…}` (`F_NS_MAP`, `read_ns_map_prefix`): the prefix
+  token is read, a `{` must follow after optional whitespace, and the map's keys are rewritten as it closes
+  (a keyword or symbol with no namespace takes `ns`, one in `_` loses its own, the rest stay); `#::` resolves
+  through `resolve_ns` like `::kw`. A collision after the rewrite is "Duplicate key".
 - **`#"..."` keeps its text verbatim** (`read_regex`): the string escapes are *not* applied, so a backslash
   reaches the pattern as written and only `\"` fails to close the literal, as LispReader's RegexReader does.
   The pattern compiles at read time, so a syntax error is a reader error at the literal's position.
@@ -432,9 +466,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `p1__N#`/`rest__N#` params of a `fn*`, with one recursive walk over the literal's own nesting (the
   reader is otherwise iterative). Nested `#(` is refused, as LispReader does.
 - **An unselected `#?` branch reads as data whatever it contains** (`in_unselected_branch`, `F_SUPPRESSED`):
-  a tagged literal, a `#:ns{}` map or a `#=` there reads as nil (the tag's form is read and dropped) instead
-  of ending the file, as Clojure's suppressed read does; in the selected branch each is the error it is
-  outside one. A `#"..."` there reads as the plain string of its text and is never compiled, so a pattern
+  a tagged literal there reads as nil without running its tag fn (the tag's form is read and dropped), a
+  `#:ns{}` map as a plain one and a `#=` as nil, instead of ending the file, as Clojure's suppressed read
+  does; in the selected branch a tag runs and `#=` is the error it is outside one. A `#"..."` there reads as the plain string of its text and is never compiled, so a pattern
   meant for another runtime's engine cannot fail the read. Which branch is selected is known while reading: the body list's items
   so far are on the value stack, features at the even indexes. Suppression follows the enclosing conditionals,
   so a selected inner branch inside an unselected outer one is suppressed too. Numbers need no suppression:
@@ -1158,8 +1192,13 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   namespaces loaded on the first `require`. Not yet: `defrecord` (trigger: medley's `record?` and the
   suite's skip list — a deftype with a map behind it, `assoc` returning the record until a key leaves the
   basis), `defstruct`, `proxy`, `reify`-style
-  `IDeref`, `format`, `re-*`, `future`/`pmap`/`agent`, `ref`, `dosync`,
-  `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`.
+  `IDeref`, `future`/`pmap`/`agent`, `ref`, `dosync`,
+  `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`. The 1.11/1.12 tail is in:
+  `partition`'s pad arity, `partitionv`, `partitionv-all`, `splitv-at`, `reductions`, `halt-when`,
+  `random-sample`, `bounded-count`, `boolean?`, `parse-boolean`, `reversible?` (vectors and the sorted
+  collections), `replicate`, `lazy-cat`, `update-keys`, `update-vals`, `iteration` (a `reify` over `Seqable`
+  and `IReduceInit`, whose type is made on the first call and cached for the process), `printf`, the data
+  reader vars and `*print-length*`/`*print-level*`.
 - **Hierarchies and multimethod dispatch are core.clj, not C** (~line 1848). The global hierarchy is the
   root of `#'clojure.core/global-hierarchy`, a `{:parents :ancestors :descendants}` map that `derive` and
   `underive` replace through `alter-var-root`, as Clojure does; `underive` rebuilds from the remaining
@@ -1220,7 +1259,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `#object[clojure.core.Eduction]` where Clojure prints the items. `vswap!` is a macro over
   `vreset!`/`deref`, as Clojure's. A transducer's stateful step (`partition-all`'s buffer) copies
   its vector per input for the same rc-2 reason, and `distinct`'s seen-set is conj'd at rc 2 the same
-  way (a path copy per new element). No `halt-when`, `random-sample`; trigger: first use.
+  way (a path copy per new element). `halt-when` substitutes the result with its `{::halt v}` map, which the
+  fused `into`/`reduce` drivers (fusion.c) could not see while their bottom fn ignored `result`: the walk's
+  final result now goes through the completion arity, whose answer replaces the accumulator, and the bottom's
+  completion answers the accumulator so `retf` gets it, as `transduce`'s rf does. `sequence` drops the
+  substituted result, as the JVM's TransformerIterator does.
 - **`defn` follows clojure.core's** `name docstring? attr-map? ([params] body)+ attr-map?` but has no
   `:inline`/`:tag` handling and no `:pre`/`:post` map in `sigs` (a map after the params is a body
   form, see `fn` below). `doc` handles vars only: no special forms, no namespaces.
@@ -1295,19 +1338,20 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   a fn built the "%s cannot be invoked" message with `clj_pr_str`, which realized the infinite lazy seq. The
   fix is `clj_pr_str_max` (printer section) in every error message that quotes a runtime value. It was never
   state-dependent: the namespace hangs in isolation too.
-- **Known reader gaps the suite hits**: `#:ns{}` maps in a
-  selected branch; a tagged literal (`#cpp`, `#inst`, `#uuid`) outside a `#?` — inside an unselected branch it
-  is suppressed (reader section). Symbols the suite needs from the JVM:
-  `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in `catch` works, `instance?` of JVM classes does not.
+- **Symbols the suite and medley need from the JVM**: `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in
+  `catch` works, `instance?` of a JVM class works only for the names bound in core (`clojure.lang.IEditableCollection`,
+  `clojure.lang.IRecord`, `clojure.lang.PersistentQueue`, `java.util.UUID`, `java.util.Date`); a static call
+  such as `java.util.UUID/fromString` is interop and stays unresolved. The suite's parse-uuid test expects
+  `fromString`'s lenient grouping under `:clj` and nil under `:default`; with no features set it fails
+  here for answering as the JVM does (allowlist note).
 - **`make api-diff`** runs the parity report: `scripts/api-diff.clj dump-jvm` on JVM Clojure, the
   `clj-api-dump` executable for ours (it evaluates `ns-publics` and prints the EDN — name from the map key,
   not the meta, so a var whose meta lost its `:name` still appears), then the diff, weighted by symbol
-  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 519 of the JVM's 679
-  public vars exist, 271 missing, 45 of those used by the corpus; the array fns, `ref`, `with-precision`,
-  `random-sample` and `future` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
-  mismatch (`pr` is `^:dynamic` on the JVM) and 13 arity mismatches, of which `partition`'s
-  `[n step pad coll]`, `sequence`'s multi-coll arity and `disj!`'s 1-arity are real gaps rather than
-  differently-written variadics.
+  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 470 of the JVM's 679
+  public vars exist, 209 missing, 21 of those used by the corpus; `ref`, `with-precision`, `future`, the
+  agents and `tap>` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
+  mismatch (`pr` is `^:dynamic` on the JVM) and 12 arity mismatches, of which `sequence`'s multi-coll arity
+  and `disj!`'s 1-arity are real gaps rather than differently-written variadics.
 
 ## Host bridge (Sources/Pippin, error.c host-error, fn.c context natives)
 
@@ -1396,6 +1440,26 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   Clojure's is with `*print-length*` nil.
 - **Control characters print as `\uXXXX`** inside strings and as char literals; Clojure prints them raw.
   Readable by both, but `(pr-str "\u0001")` differs from the JVM byte for byte.
+- **`*print-length*` and `*print-level*` are read by `clj_pr_str_dynamic`**, the entry `pr`, `prn`, `print`,
+  `println` and `pr-str` use, once per print into a `limits` pair; `clj_pr_str` (`str`, `Value.description`,
+  the codec) and `clj_pr_str_max` (error messages) never read them, so an error message stays the same
+  under any binding. The rules are print-sequential's: after `length` items a frame writes its separator and
+  `...` (`elide`), which for a seq realizes one more element as the JVM's `[x & xs]` does; a collection
+  about to open at depth `stack.count >= level` prints as `#` (`is_collection`: every kind that gets a frame,
+  the `#error` map excepted). A negative length prints everything and a negative level nothing, as on the
+  JVM; a non-integer throws "cannot be cast to a number". The vars are looked up by name on each call until
+  core.clj has defined them (vars are immortal, so the cache never goes stale).
+- **`#queue [1 2 3]`** for a PersistentQueue (queue.c): the JVM prints an address. The `F_QUEUE` frame is the seq
+  frame with `]` as its closer; nothing reads the form back (docs/jvm-differences.md).
+- **`format` is java.util.Formatter's subset** (builtins_format.c): `%s %S %b %B %c %C %d %o %x %X %e %E %f %g
+  %G %n %%`, the flags `- + space 0 ,`, width, precision and `n$` positions, with the ordinary argument index
+  independent of explicit ones as Formatter's is. `%s` is `str` with `null` for nil (`clj_str_value`,
+  builtins.c); `%d` takes a long or a bigint and `%x`/`%o` a long (two's complement, as `Long`); `%f`/`%e`/`%g`
+  take a double or a decimal and refuse an integer, as the JVM's `f != java.lang.Long` does. Floats round the
+  shortest round-trip digits HALF_UP (`shortest`, `round_to`), because Formatter does — `(format "%.2f" 1.005)` is
+  `1.01`, which C's printf would print as `1.00` — and `%g` follows Formatter's rule (decimal within
+  `[1e-4, 10^precision)`, trailing zeros kept). Anything else (`%h`, `%t`, `%a`, the `#` and `(` flags, a
+  precision on `%d`, a bigint under `%x`) is an error naming the spec.
 
 ## Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)
 

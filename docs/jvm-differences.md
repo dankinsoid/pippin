@@ -70,13 +70,22 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 | Difference | Class | Decision |
 |---|---|---|
 | `upper-case`/`lower-case`/`capitalize` and a pattern's `(?i)`, `\w`, `\p{L}` map ASCII letters only | Deferred | One missing table serves all of them: trigger is non-ASCII case or a non-ASCII class in a corpus library, and the fix is the Unicode case and category data, not a range table. |
-| No tagged literals (`#inst`, `#uuid`), no `#:ns{}` maps, no `#=` | Deferred | Trigger fired by the corpus for `#uuid`. |
-| A record prints `#ns.Name{…}` and does not read back | Deferred | The printed form matches the JVM's; reading one needs the reader to resolve a type name, which is the tagged-literal machinery. Trigger: EDN with record literals. |
+| No `#=` read-eval, no `tagged-literal`/`reader-conditional` values | Deferred | `#=` is a code-loading hole nobody wants on a phone; a tag without a reader is an error here as on the JVM unless `*default-data-reader-fn*` says otherwise, and a library that wants the unresolved tag kept as data binds its own fn. Trigger: a corpus library using `tagged-literal`. |
+| `str` of a `#inst` is its `#inst` text without the tag; `Date.toString` is `Thu Jan 01 … UTC 1970` in the host zone | Deliberate | The JVM's text is locale- and zone-dependent and reads back as nothing; the printed form is what a log or a test wants. |
+| An `#inst` before 1582 is proleptic Gregorian; `GregorianCalendar` switches to the Julian calendar there | Deliberate | Thirty lines of day arithmetic against the whole of java.util.Calendar; no date a mobile app handles falls before the cutover. |
+| A PersistentQueue prints `#queue [1 2 3]` | Deliberate | Same reason as arrays: the JVM prints an address, and the items are what a test can read. Nothing reads the form back. |
 | Two patterns with the same text are `=` and hash alike, where the JVM compares `Pattern` by identity | Deliberate | A pattern is a value written as a literal, so identity equality only ever surprises; ClojureScript's `RegExp` is no better. The corpus's own `eq` test calls the JVM behaviour out for three other runtimes. |
 | A lookbehind body must be fixed-width: `(?<=a+)b` is a compile error | Deferred | Java walks a variable-length body backwards from every candidate length; the fixed width is one subtraction. Trigger: such a pattern in a corpus library. |
 | `\p{…}` knows a dozen POSIX names and answers them over ASCII, so `\p{L}` refuses `é`; `\p{InGreek}`, `\p{Sc}` and the block and script names are compile errors | Deferred | Same missing Unicode data as the case functions above. |
 | No `\G`, `\R`, `\X`, `\N{…}`, `\b{g}`, `\h`, `\v`, no `(?u)`/`(?U)`/`(?d)` flags and no `CANON_EQ` | Deferred | Nothing in the corpus uses them; each is a `switch` arm in regex.c's parser to fill. |
 | A pattern that backtracks catastrophically is stopped by the host's deadline, not refused | Deferred | The cooperative deadline of eval.h is checked every 4096 backtracks (NOTES.md, "Regex"); a memo table would bound the work instead, at a table per match. Trigger: a host that cannot set a deadline. |
+
+## Printing and formatting
+
+| Difference | Class | Decision |
+|---|---|---|
+| `str` of a collection ignores `*print-length*` and `*print-level*`; on the JVM `toString` runs through `RT.printString` and honours them | Deliberate | `str` builds keys, messages and output that must not change under a debugging binding; only the `pr` and `print` families read the vars. |
+| `format` knows `%s %b %c %d %o %x %e %f %g %n %%` with the `- + space 0 ,` flags; `%h`, `%t`, `%a`, the `#` and `(` flags and `%x` of a bigint are errors naming the spec | Deferred | The subset libraries use; each missing conversion is a `switch` arm in builtins_format.c. Trigger: a corpus library formatting a date or a hash. |
 
 ## Concurrency
 
