@@ -71,6 +71,7 @@ void cljc_eval_disable(void);
 // Forms compiled and run so far, and the clang time spent, for reports.
 uint64_t cljc_eval_count(void);
 uint64_t cljc_eval_clang_ns(void);
+uint64_t cljc_eval_dlopen_ns(void);
 // Objects the units' constant pools hold for the process: what a live-object count under compiled eval includes.
 int64_t cljc_eval_pool_objects(void);
 

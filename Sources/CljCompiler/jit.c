@@ -17,7 +17,7 @@
 static cljc_eval_options options;
 static char             *root_copy, *dir_copy, *clang_copy, *opt_copy;
 static cljc_compiler    *compiler;
-static uint64_t          forms, clang_ns, seq;
+static uint64_t          forms, clang_ns, dlopen_ns, seq;
 static int64_t           pool_objects;
 
 static uint64_t now_ns(void) {
@@ -155,7 +155,10 @@ const clj_compiled_unit *cljc_load_dylib(const cljc_eval_options *given, const c
 		return NULL;
 	}
 	if (!o->keep) unlink(cfile);
-	return cljc_open_dylib(dylib);
+	uint64_t t1 = now_ns();
+	const clj_compiled_unit *u = cljc_open_dylib(dylib);
+	dlopen_ns += now_ns() - t1;
+	return u;
 }
 
 // Each host form becomes a unit of its own: emitted, built, loaded and run in place of the interpreter.
@@ -219,6 +222,7 @@ void cljc_eval_disable(void) {
 uint64_t cljc_eval_count(void) { return forms; }
 int64_t  cljc_eval_pool_objects(void) { return pool_objects; }
 uint64_t cljc_eval_clang_ns(void) { return clang_ns; }
+uint64_t cljc_eval_dlopen_ns(void) { return dlopen_ns; }
 
 // clj_init's weak hook: CLJ_EVAL=compiled turns the compiled eval on for the process (the tests' opt-in gate).
 void clj_compiled_eval_boot(void) {

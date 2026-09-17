@@ -1574,8 +1574,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   latest entry at its first call and never again, so redefining a var across compiled-eval forms under
   `CLJ_EVAL_CLOSED` is wrong by design (a bench tool). Every unit exports its top-level fns' arity functions
   as globals; with `RTLD_LOCAL` loads they clash with nothing. `clj_compiled_find`
-  is a linear scan of registered paths. Inside a test process clang takes ~2× what it takes from a shell
-  (~0.5 s for a 5 k-line unit), not investigated. Compiling a file evaluates it (the hook cannot skip
+  is a linear scan of registered paths. The compiled eval costs ~0.6 s per form on macOS 15: clang ~0.14 s and
+  `dlopen` ~0.3 s, the latter the system's first-load assessment of every new code signature (a second load
+  of the same dylib is 1 ms, and 30 fresh trivial dylibs take 9 s from a C program too); the whole suite is
+  hours, which is why the gate is opt-in. Trigger: the machine granting the test runner Developer Tools
+  access, or batching a host eval's forms into one unit where no form defines a macro or moves the namespace. Compiling a file evaluates it (the hook cannot skip
   evaluation without losing macros), so `clj-compile` runs the program once. Nothing checks that
   `boot/core.c` matches `boot/core.clj` the way `CoreCljTests` checks `core_clj.inc`: the generator needs an
   interpreted boot with the hook armed, which a test process past `clj_init` cannot redo; trigger: a stale
