@@ -174,7 +174,8 @@ typedef struct {
 	sb    init;   // the init statements in form order
 	pool  consts, vars, ops, fusion;
 	pool  names;    // C symbol bases handed out, to number redefinitions
-	pool  externs;  // direct-call targets referenced (closed mode): "base_aN"
+	pool  externs;  // direct-call targets referenced: "base_aN"
+	pool  defined;  // bases of the vars this unit defines with a fn init, with their qualified names
 	uint32_t nstubs, ntops, nforms;
 	uint64_t last_serial; // of the last form whose statements were emitted
 	bool     serial_open; // the failure label of the current form is still reachable
@@ -244,6 +245,7 @@ static void unit_free(unit *u) {
 	pool_free(&u->fusion);
 	pool_free(&u->names);
 	pool_free(&u->externs);
+	pool_free(&u->defined);
 	free(u);
 }
 
@@ -838,7 +840,9 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		bool fresh;
 		pool_intern(&f->u->externs, target, NULL, &fresh);
 		sb_printf(&f->out, "\tclj_value %s;\n#ifdef CLJC_DIRECT_%s\n", r.name, target);
-		sb_printf(&f->out, "\t%s = %s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u);\n#else\n", r.name, target, var_index(f->u, head->u.var), array, nargs);
+		sb_printf(&f->out, "\tif (!CLJC_FN_%s) CLJC_FN_%s = clj_compiled_symbol(\"%s\");\n", target, target, target);
+		sb_printf(&f->out, "\t%s = CLJC_FN_%s ? CLJC_FN_%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n#else\n", r.name, target, target,
+		          var_index(f->u, head->u.var), array, nargs, fn.name, array, nargs);
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n#endif\n", r.name, fn.name, array, nargs);
 	} else {
 		sb_printf(&f->out, "\tclj_value %s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
@@ -1338,11 +1342,13 @@ static void open_form(cljc_compiler *c, unit *u, fnctx *scratch, const clj_load_
 	          form->line, form->col, name, u->nforms);
 }
 
-static void record_direct(cljc_compiler *c, const clj_node *n, const char *base) {
+static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const char *base) {
 	if (n->kind != CLJ_NODE_DEF || !n->u.def.init) return;
 	char key[600];
 	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var))));
 	direct_entry *d = direct_add(c, key);
+	bool          fresh;
+	if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.init->u.fn.ncaptures) pool_intern(&u->defined, base, key, &fresh);
 	d->defs++;
 	d->dynamic = d->dynamic || n->u.def.dynamic;
 	free(d->base);
@@ -1372,7 +1378,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	open_form(c, u, &f, form);
 	char *base = form_base(c, u, n);
 	f.base = base;
-	record_direct(c, n, base);
+	record_direct(c, u, n, base);
 	slot_count sc = {0};
 	count_slots(n, &sc);
 	uint32_t top = u->ntops++;
@@ -1486,7 +1492,8 @@ char *cljc_unit_cname(const cljc_compiler *c, size_t i) {
 size_t              cljc_refusal_count(const cljc_compiler *c) { return c->nrefusals; }
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i) { return &c->refusals[i]; }
 
-// The direct-call symbols a unit may bind to: every var defined exactly once in the compiled set, per arity.
+// The direct-call targets a unit binds to: every var defined exactly once in the compiled set, per arity. A target
+// of this unit is a pointer to the function itself; another unit's is looked up in the symbol registry at first use.
 static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 	for (size_t i = 0; i < u->externs.n; i++) {
 		const char *target = u->externs.keys[i];
@@ -1498,7 +1505,19 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 		for (size_t j = 0; j < c->ndirects; j++) {
 			const direct_entry *d = &c->directs[j];
 			if (d->defs != 1 || d->dynamic || strcmp(d->base, base) != 0 || !((d->fixed >> arity) & 1)) continue;
-			sb_printf(out, "#define CLJC_DIRECT_%s 1\nextern clj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", target, target);
+			bool local = false;
+			for (size_t k = 0; k < u->defined.n && !local; k++) local = strcmp(u->defined.keys[k], base) == 0;
+			sb_printf(out, "#define CLJC_DIRECT_%s 1\nstatic clj_compiled_fn CLJC_FN_%s%s%s;\n", target, target, local ? " = " : "", local ? target : "");
+		}
+	}
+}
+
+static void emit_direct_registrations(cljc_compiler *c, unit *u, sb *out) {
+	for (size_t k = 0; k < u->defined.n; k++) {
+		const direct_entry *d = direct_find(c, u->defined.extra[k]);
+		if (!d || d->defs != 1 || d->dynamic || strcmp(d->base, u->defined.keys[k]) != 0) continue;
+		for (uint32_t a = 0; a <= CLJ_FN_MAX_FIXED; a++) {
+			if ((d->fixed >> a) & 1) sb_printf(out, "\tclj_compiled_register_symbol(\"%s_a%u\", %s_a%u);\n", d->base, a, d->base, a);
 		}
 	}
 }
@@ -1514,12 +1533,11 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	sb_printf(&out, "static clj_value K[%zu];\nstatic clj_value V[%zu];\nstatic clj_value B[%zu];\nstatic const clj_intrinsic *OP[%zu];\nstatic const clj_fusion_var *F[%zu];\nstatic clj_node S[%u];\n",
 	          u->consts.n ? u->consts.n : 1, u->vars.n ? u->vars.n : 1, u->ops.n ? u->ops.n : 1, u->ops.n ? u->ops.n : 1, u->fusion.n ? u->fusion.n : 1, u->nstubs ? u->nstubs : 1);
 	sb_puts(&out, "static void unit_pools(void);\n");
-	sb_puts(&out, "#ifdef CLJ_CLOSED\n");
-	emit_direct_prelude(c, u, &out);
-	sb_puts(&out, "#endif\n");
 	sb_puts(&out, "\n");
 	sb_put(&out, u->protos.s ? u->protos.s : "", u->protos.len);
-	sb_puts(&out, "\n");
+	sb_puts(&out, "\n#ifdef CLJ_CLOSED\n");
+	emit_direct_prelude(c, u, &out);
+	sb_puts(&out, "#endif\n\n");
 	sb_put(&out, u->fns.s ? u->fns.s : "", u->fns.len);
 	// The pools are filled before any form runs: reading a constant or interning a var has no effect on the program.
 	sb_puts(&out, "static bool pools_filled;\n\nstatic void unit_pools(void) {\n\t(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;\n\tpools_filled = true;\n");
@@ -1545,7 +1563,9 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	}
 	sb_puts(&out, "}\n\n");
 	const char *iname = init_name ? init_name : "unit_init";
-	sb_printf(&out, "%sclj_value %s(void) {\n\tclj_value r;\n\t(void)r;\n\tif (!pools_filled) unit_pools();\n", init_name ? "" : "static ", iname);
+	sb_printf(&out, "%sclj_value %s(void) {\n\tclj_value r;\n\t(void)r;\n\tif (!pools_filled) unit_pools();\n#ifdef CLJ_CLOSED\n", init_name ? "" : "static ", iname);
+	emit_direct_registrations(c, u, &out);
+	sb_puts(&out, "#endif\n");
 	sb_put(&out, u->init.s ? u->init.s : "", u->init.len);
 	if (c->opts.eval_result && u->ntops) sb_puts(&out, "\treturn r;\n");
 	else sb_puts(&out, "\treturn CLJ_NIL;\n");

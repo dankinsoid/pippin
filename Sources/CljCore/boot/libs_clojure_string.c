@@ -10,14 +10,6 @@ static const clj_intrinsic *OP[15];
 static const clj_fusion_var *F[1];
 static clj_node S[23];
 static void unit_pools(void);
-#ifdef CLJ_CLOSED
-#define CLJC_DIRECT_clojure_string_text_a1 1
-extern clj_value clojure_string_text_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_string_replace_with_a5 1
-extern clj_value clojure_string_replace_with_a5(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_some_QMARK__a1 1
-extern clj_value clojure_core_some_QMARK__a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#endif
 
 static clj_value top_0(void);
 static clj_value top_1(void);
@@ -95,6 +87,15 @@ static clj_value clojure_string_ends_with_QMARK_(void *ctx, const clj_value *arg
 static clj_value top_25(void);
 clj_value clojure_string_includes_QMARK__a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_string_includes_QMARK_(void *ctx, const clj_value *args, size_t n);
+
+#ifdef CLJ_CLOSED
+#define CLJC_DIRECT_clojure_string_text_a1 1
+static clj_compiled_fn CLJC_FN_clojure_string_text_a1 = clojure_string_text_a1;
+#define CLJC_DIRECT_clojure_string_replace_with_a5 1
+static clj_compiled_fn CLJC_FN_clojure_string_replace_with_a5 = clojure_string_replace_with_a5;
+#define CLJC_DIRECT_clojure_core_some_QMARK__a1 1
+static clj_compiled_fn CLJC_FN_clojure_core_some_QMARK__a1;
+#endif
 
 static clj_value top_0(void) {
 	clj_value s[1];
@@ -451,7 +452,8 @@ clj_value clojure_string_replace_with_a5(clj_value self, const clj_value *captur
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_string_text_a1
-	t2 = clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_string_text_a1) CLJC_FN_clojure_string_text_a1 = clj_compiled_symbol("clojure_string_text_a1");
+	t2 = CLJC_FN_clojure_string_text_a1 ? CLJC_FN_clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -823,7 +825,8 @@ clj_value clojure_string_replace_a3(clj_value self, const clj_value *captured, c
 	(void)a0;
 	clj_value t6;
 #ifdef CLJC_DIRECT_clojure_string_replace_with_a5
-	t6 = clojure_string_replace_with_a5(clj_var_root_relaxed(V[11]), NULL, a0, 5);
+	if (!CLJC_FN_clojure_string_replace_with_a5) CLJC_FN_clojure_string_replace_with_a5 = clj_compiled_symbol("clojure_string_replace_with_a5");
+	t6 = CLJC_FN_clojure_string_replace_with_a5 ? CLJC_FN_clojure_string_replace_with_a5(clj_var_root_relaxed(V[11]), NULL, a0, 5) : clj_c_invoke(t0, a0, 5);
 #else
 	t6 = clj_c_invoke(t0, a0, 5);
 #endif
@@ -903,7 +906,8 @@ clj_value clojure_string_replace_first_a3(clj_value self, const clj_value *captu
 	(void)a0;
 	clj_value t6;
 #ifdef CLJC_DIRECT_clojure_string_replace_with_a5
-	t6 = clojure_string_replace_with_a5(clj_var_root_relaxed(V[11]), NULL, a0, 5);
+	if (!CLJC_FN_clojure_string_replace_with_a5) CLJC_FN_clojure_string_replace_with_a5 = clj_compiled_symbol("clojure_string_replace_with_a5");
+	t6 = CLJC_FN_clojure_string_replace_with_a5 ? CLJC_FN_clojure_string_replace_with_a5(clj_var_root_relaxed(V[11]), NULL, a0, 5) : clj_c_invoke(t0, a0, 5);
 #else
 	t6 = clj_c_invoke(t0, a0, 5);
 #endif
@@ -1168,7 +1172,8 @@ clj_value clojure_string_capitalize_a1(clj_value self, const clj_value *captured
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_string_text_a1
-	t2 = clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_string_text_a1) CLJC_FN_clojure_string_text_a1 = clj_compiled_symbol("clojure_string_text_a1");
+	t2 = CLJC_FN_clojure_string_text_a1 ? CLJC_FN_clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -1387,7 +1392,8 @@ clj_value clojure_string_upper_case_a1(clj_value self, const clj_value *captured
 	(void)a1;
 	clj_value t3;
 #ifdef CLJC_DIRECT_clojure_string_text_a1
-	t3 = clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a1, 1);
+	if (!CLJC_FN_clojure_string_text_a1) CLJC_FN_clojure_string_text_a1 = clj_compiled_symbol("clojure_string_text_a1");
+	t3 = CLJC_FN_clojure_string_text_a1 ? CLJC_FN_clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a1, 1) : clj_c_invoke(t1, a1, 1);
 #else
 	t3 = clj_c_invoke(t1, a1, 1);
 #endif
@@ -1472,7 +1478,8 @@ clj_value clojure_string_lower_case_a1(clj_value self, const clj_value *captured
 	(void)a1;
 	clj_value t3;
 #ifdef CLJC_DIRECT_clojure_string_text_a1
-	t3 = clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a1, 1);
+	if (!CLJC_FN_clojure_string_text_a1) CLJC_FN_clojure_string_text_a1 = clj_compiled_symbol("clojure_string_text_a1");
+	t3 = CLJC_FN_clojure_string_text_a1 ? CLJC_FN_clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a1, 1) : clj_c_invoke(t1, a1, 1);
 #else
 	t3 = clj_c_invoke(t1, a1, 1);
 #endif
@@ -2759,7 +2766,8 @@ clj_value clojure_string_starts_with_QMARK__a2(clj_value self, const clj_value *
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_string_text_a1
-	t2 = clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_string_text_a1) CLJC_FN_clojure_string_text_a1 = clj_compiled_symbol("clojure_string_text_a1");
+	t2 = CLJC_FN_clojure_string_text_a1 ? CLJC_FN_clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -3007,7 +3015,8 @@ clj_value clojure_string_ends_with_QMARK__a2(clj_value self, const clj_value *ca
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_string_text_a1
-	t2 = clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_string_text_a1) CLJC_FN_clojure_string_text_a1 = clj_compiled_symbol("clojure_string_text_a1");
+	t2 = CLJC_FN_clojure_string_text_a1 ? CLJC_FN_clojure_string_text_a1(clj_var_root_relaxed(V[6]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -3298,7 +3307,8 @@ clj_value clojure_string_includes_QMARK__a2(clj_value self, const clj_value *cap
 	(void)a0;
 	clj_value t5;
 #ifdef CLJC_DIRECT_clojure_core_some_QMARK__a1
-	t5 = clojure_core_some_QMARK__a1(clj_var_root_relaxed(V[63]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_core_some_QMARK__a1) CLJC_FN_clojure_core_some_QMARK__a1 = clj_compiled_symbol("clojure_core_some_QMARK__a1");
+	t5 = CLJC_FN_clojure_core_some_QMARK__a1 ? CLJC_FN_clojure_core_some_QMARK__a1(clj_var_root_relaxed(V[63]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t5 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -3355,6 +3365,70 @@ static bool pools_filled;
 static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
+	V[0] = clj_c_var("clojure.core", "in-ns");
+	V[1] = clj_c_var("clojure.core", "refer-clojure");
+	V[2] = clj_c_var("clojure.string", "reverse");
+	V[3] = clj_c_var("clojure.core", "str-reverse*");
+	V[4] = clj_c_var("clojure.string", "re-quote-replacement");
+	V[5] = clj_c_var("clojure.core", "re-quote-replacement*");
+	V[6] = clj_c_var("clojure.string", "text");
+	V[7] = clj_c_var("clojure.core", "nil?");
+	V[8] = clj_c_var("clojure.core", "ex-info");
+	V[9] = clj_c_var("clojure.core", "string?");
+	V[10] = clj_c_var("clojure.core", "str");
+	V[11] = clj_c_var("clojure.string", "replace-with");
+	V[12] = clj_c_var("clojure.core", "str-replace-first*");
+	V[13] = clj_c_var("clojure.core", "str-replace*");
+	V[14] = clj_c_var("clojure.core", "regex?");
+	V[15] = clj_c_var("clojure.core", "re-replace*");
+	V[16] = clj_c_var("clojure.core", "char?");
+	V[17] = clj_c_var("clojure.core", "pr-str");
+	V[18] = clj_c_var("clojure.string", "replace");
+	V[19] = clj_c_var("clojure.string", "replace-first");
+	V[20] = clj_c_var("clojure.string", "join");
+	V[21] = clj_c_var("clojure.core", "apply");
+	V[22] = clj_c_var("clojure.core", "seq");
+	V[23] = clj_c_var("clojure.core", "first");
+	V[24] = clj_c_var("clojure.core", "next");
+	V[25] = clj_c_var("clojure.string", "capitalize");
+	V[26] = clj_c_var("clojure.core", "<");
+	V[27] = clj_c_var("clojure.core", "count");
+	V[28] = clj_c_var("clojure.core", "str-upper*");
+	V[29] = clj_c_var("clojure.core", "subs");
+	V[30] = clj_c_var("clojure.core", "str-lower*");
+	V[31] = clj_c_var("clojure.string", "upper-case");
+	V[32] = clj_c_var("clojure.string", "lower-case");
+	V[33] = clj_c_var("clojure.string", "split");
+	V[34] = clj_c_var("clojure.core", "re-split*");
+	V[35] = clj_c_var("clojure.core", "str-split*");
+	V[36] = clj_c_var("clojure.string", "split-lines");
+	V[37] = clj_c_var("clojure.core", "str-split-lines*");
+	V[38] = clj_c_var("clojure.string", "trim");
+	V[39] = clj_c_var("clojure.core", "str-trim*");
+	V[40] = clj_c_var("clojure.string", "triml");
+	V[41] = clj_c_var("clojure.core", "str-triml*");
+	V[42] = clj_c_var("clojure.string", "trimr");
+	V[43] = clj_c_var("clojure.core", "str-trimr*");
+	V[44] = clj_c_var("clojure.string", "trim-newline");
+	V[45] = clj_c_var("clojure.core", "zero?");
+	V[46] = clj_c_var("clojure.core", "nth");
+	V[47] = clj_c_var("clojure.core", "dec");
+	V[48] = clj_c_var("clojure.core", "=");
+	V[49] = clj_c_var("clojure.string", "blank?");
+	V[50] = clj_c_var("clojure.core", "str-blank?*");
+	V[51] = clj_c_var("clojure.string", "escape");
+	V[52] = clj_c_var("clojure.core", "type");
+	V[53] = clj_c_var("clojure.core", "inc");
+	V[54] = clj_c_var("clojure.string", "index-of");
+	V[55] = clj_c_var("clojure.core", "str-index-of*");
+	V[56] = clj_c_var("clojure.string", "last-index-of");
+	V[57] = clj_c_var("clojure.core", "str-last-index-of*");
+	V[58] = clj_c_var("clojure.string", "starts-with?");
+	V[59] = clj_c_var("clojure.core", "<=");
+	V[60] = clj_c_var("clojure.string", "ends-with?");
+	V[61] = clj_c_var("clojure.core", "-");
+	V[62] = clj_c_var("clojure.string", "includes?");
+	V[63] = clj_c_var("clojure.core", "some?");
 	K[0] = clj_c_const("\"<embedded>/clojure/string.clj\"", 31);
 	K[1] = clj_c_const("clojure.string", 14);
 	K[2] = clj_c_const(":exclude", 8);
@@ -3453,70 +3527,6 @@ static void unit_pools(void) {
 	K[95] = clj_c_const("includes?", 9);
 	K[96] = clj_c_const("clojure.string/includes?", 24);
 	K[97] = clj_c_const("{:ns clojure.string, :file \"<embedded>/clojure/string.clj\", :arglists ([s substr]), :doc \"True when s includes substr.\", :name includes?, :line 128, :column 1}", 159);
-	V[0] = clj_c_var("clojure.core", "in-ns");
-	V[1] = clj_c_var("clojure.core", "refer-clojure");
-	V[2] = clj_c_var("clojure.string", "reverse");
-	V[3] = clj_c_var("clojure.core", "str-reverse*");
-	V[4] = clj_c_var("clojure.string", "re-quote-replacement");
-	V[5] = clj_c_var("clojure.core", "re-quote-replacement*");
-	V[6] = clj_c_var("clojure.string", "text");
-	V[7] = clj_c_var("clojure.core", "nil?");
-	V[8] = clj_c_var("clojure.core", "ex-info");
-	V[9] = clj_c_var("clojure.core", "string?");
-	V[10] = clj_c_var("clojure.core", "str");
-	V[11] = clj_c_var("clojure.string", "replace-with");
-	V[12] = clj_c_var("clojure.core", "str-replace-first*");
-	V[13] = clj_c_var("clojure.core", "str-replace*");
-	V[14] = clj_c_var("clojure.core", "regex?");
-	V[15] = clj_c_var("clojure.core", "re-replace*");
-	V[16] = clj_c_var("clojure.core", "char?");
-	V[17] = clj_c_var("clojure.core", "pr-str");
-	V[18] = clj_c_var("clojure.string", "replace");
-	V[19] = clj_c_var("clojure.string", "replace-first");
-	V[20] = clj_c_var("clojure.string", "join");
-	V[21] = clj_c_var("clojure.core", "apply");
-	V[22] = clj_c_var("clojure.core", "seq");
-	V[23] = clj_c_var("clojure.core", "first");
-	V[24] = clj_c_var("clojure.core", "next");
-	V[25] = clj_c_var("clojure.string", "capitalize");
-	V[26] = clj_c_var("clojure.core", "<");
-	V[27] = clj_c_var("clojure.core", "count");
-	V[28] = clj_c_var("clojure.core", "str-upper*");
-	V[29] = clj_c_var("clojure.core", "subs");
-	V[30] = clj_c_var("clojure.core", "str-lower*");
-	V[31] = clj_c_var("clojure.string", "upper-case");
-	V[32] = clj_c_var("clojure.string", "lower-case");
-	V[33] = clj_c_var("clojure.string", "split");
-	V[34] = clj_c_var("clojure.core", "re-split*");
-	V[35] = clj_c_var("clojure.core", "str-split*");
-	V[36] = clj_c_var("clojure.string", "split-lines");
-	V[37] = clj_c_var("clojure.core", "str-split-lines*");
-	V[38] = clj_c_var("clojure.string", "trim");
-	V[39] = clj_c_var("clojure.core", "str-trim*");
-	V[40] = clj_c_var("clojure.string", "triml");
-	V[41] = clj_c_var("clojure.core", "str-triml*");
-	V[42] = clj_c_var("clojure.string", "trimr");
-	V[43] = clj_c_var("clojure.core", "str-trimr*");
-	V[44] = clj_c_var("clojure.string", "trim-newline");
-	V[45] = clj_c_var("clojure.core", "zero?");
-	V[46] = clj_c_var("clojure.core", "nth");
-	V[47] = clj_c_var("clojure.core", "dec");
-	V[48] = clj_c_var("clojure.core", "=");
-	V[49] = clj_c_var("clojure.string", "blank?");
-	V[50] = clj_c_var("clojure.core", "str-blank?*");
-	V[51] = clj_c_var("clojure.string", "escape");
-	V[52] = clj_c_var("clojure.core", "type");
-	V[53] = clj_c_var("clojure.core", "inc");
-	V[54] = clj_c_var("clojure.string", "index-of");
-	V[55] = clj_c_var("clojure.core", "str-index-of*");
-	V[56] = clj_c_var("clojure.string", "last-index-of");
-	V[57] = clj_c_var("clojure.core", "str-last-index-of*");
-	V[58] = clj_c_var("clojure.string", "starts-with?");
-	V[59] = clj_c_var("clojure.core", "<=");
-	V[60] = clj_c_var("clojure.string", "ends-with?");
-	V[61] = clj_c_var("clojure.core", "-");
-	V[62] = clj_c_var("clojure.string", "includes?");
-	V[63] = clj_c_var("clojure.core", "some?");
 	OP[0] = clj_c_intrinsic("clojure.core/nil?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/string?", 1);
@@ -3553,6 +3563,35 @@ clj_value clj_compiled_lib_init_clojure_string(void) {
 	clj_value r;
 	(void)r;
 	if (!pools_filled) unit_pools();
+#ifdef CLJ_CLOSED
+	clj_compiled_register_symbol("clojure_string_reverse_a1", clojure_string_reverse_a1);
+	clj_compiled_register_symbol("clojure_string_re_quote_replacement_a1", clojure_string_re_quote_replacement_a1);
+	clj_compiled_register_symbol("clojure_string_text_a1", clojure_string_text_a1);
+	clj_compiled_register_symbol("clojure_string_replace_with_a5", clojure_string_replace_with_a5);
+	clj_compiled_register_symbol("clojure_string_replace_a3", clojure_string_replace_a3);
+	clj_compiled_register_symbol("clojure_string_replace_first_a3", clojure_string_replace_first_a3);
+	clj_compiled_register_symbol("clojure_string_join_a1", clojure_string_join_a1);
+	clj_compiled_register_symbol("clojure_string_join_a2", clojure_string_join_a2);
+	clj_compiled_register_symbol("clojure_string_capitalize_a1", clojure_string_capitalize_a1);
+	clj_compiled_register_symbol("clojure_string_upper_case_a1", clojure_string_upper_case_a1);
+	clj_compiled_register_symbol("clojure_string_lower_case_a1", clojure_string_lower_case_a1);
+	clj_compiled_register_symbol("clojure_string_split_a2", clojure_string_split_a2);
+	clj_compiled_register_symbol("clojure_string_split_a3", clojure_string_split_a3);
+	clj_compiled_register_symbol("clojure_string_split_lines_a1", clojure_string_split_lines_a1);
+	clj_compiled_register_symbol("clojure_string_trim_a1", clojure_string_trim_a1);
+	clj_compiled_register_symbol("clojure_string_triml_a1", clojure_string_triml_a1);
+	clj_compiled_register_symbol("clojure_string_trimr_a1", clojure_string_trimr_a1);
+	clj_compiled_register_symbol("clojure_string_trim_newline_a1", clojure_string_trim_newline_a1);
+	clj_compiled_register_symbol("clojure_string_blank_QMARK__a1", clojure_string_blank_QMARK__a1);
+	clj_compiled_register_symbol("clojure_string_escape_a2", clojure_string_escape_a2);
+	clj_compiled_register_symbol("clojure_string_index_of_a2", clojure_string_index_of_a2);
+	clj_compiled_register_symbol("clojure_string_index_of_a3", clojure_string_index_of_a3);
+	clj_compiled_register_symbol("clojure_string_last_index_of_a2", clojure_string_last_index_of_a2);
+	clj_compiled_register_symbol("clojure_string_last_index_of_a3", clojure_string_last_index_of_a3);
+	clj_compiled_register_symbol("clojure_string_starts_with_QMARK__a2", clojure_string_starts_with_QMARK__a2);
+	clj_compiled_register_symbol("clojure_string_ends_with_QMARK__a2", clojure_string_ends_with_QMARK__a2);
+	clj_compiled_register_symbol("clojure_string_includes_QMARK__a2", clojure_string_includes_QMARK__a2);
+#endif
 	// form 1 at 2:1
 	if (0) {
 F1: ;

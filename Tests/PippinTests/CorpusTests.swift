@@ -197,7 +197,8 @@ private func compileLibrary(_ lib: Library) throws {
 	if let text = try? String(contentsOf: lib.dir.appendingPathComponent("refused.edn"), encoding: .utf8) {
 		for e in (try? Value(reading: text))?.array ?? [] {
 			let d = e.dictionary ?? [:]
-			if d[kw("note")] != nil { allowed.insert("\(d[kw("file")]?.string ?? ""):\(d[kw("line")]?.int ?? 0)") }
+			// An entry without :line covers the whole file.
+			if d[kw("note")] != nil { allowed.insert("\(d[kw("file")]?.string ?? ""):\(d[kw("line")].map { $0.isNil ? "*" : "\($0.int ?? 0)" } ?? "*")") }
 		}
 	}
 	var unlisted: [String] = []
@@ -206,7 +207,7 @@ private func compileLibrary(_ lib: Library) throws {
 		let parts = position.split(separator: ":")
 		guard parts.count >= 3 else { continue }
 		let file = lib.relative(parts[..<(parts.count - 2)].joined(separator: ":"))
-		if !allowed.contains("\(file):\(parts[parts.count - 2])") { unlisted.append(String(line)) }
+		if !allowed.contains("\(file):\(parts[parts.count - 2])") && !allowed.contains("\(file):*") { unlisted.append(String(line)) }
 	}
 	if !unlisted.isEmpty || (proc.terminationStatus != 0 && proc.terminationStatus != 2) {
 		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(proc.terminationStatus):\n\(unlisted.joined(separator: "\n"))\n\(errText.contains("refused:") ? "" : errText)"))
@@ -400,7 +401,8 @@ extension CoreTests {
 			let failingForms = Set(r.forms.map(\.key)).union(r.loadErrors.keys.map { "\($0):0" })
 			for key in failingForms.sorted() where allow.forms[key] == nil { problems.append("\(lib.name): form fails to load and is not allowlisted: \(key)") }
 			for key in allow.forms.keys.sorted() where !failingForms.contains(key) { problems.append("\(lib.name): stale allowlist form entry, it loads now: \(key)") }
-			let failingTests = Dictionary(r.tests.filter { $0.status != "pass" }.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+			// A test that fails on an allowlisted refusal (refused.edn) is that refusal's consequence, not a new failure.
+			let failingTests = Dictionary(r.tests.filter { $0.status != "pass" && !(compiledMode && ($0.reason ?? "").hasPrefix("compiler refused")) }.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
 			for name in failingTests.keys.sorted() where allow.tests[name] == nil { problems.append("\(lib.name): test fails and is not allowlisted: \(name) — \(truncated(failingTests[name]?.reason ?? "", 100))") }
 			for name in allow.tests.keys.sorted() where failingTests[name] == nil { problems.append("\(lib.name): stale allowlist test entry, it passes now: \(name)") }
 			for name in r.skipped.sorted() where !allow.skipped.contains(name) { problems.append("\(lib.name): skipped var not allowlisted: \(name)") }

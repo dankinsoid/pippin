@@ -1532,7 +1532,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   CLJC_DIRECT_<base>_a<n>` direct call / `#else` `clj_c_invoke` `#endif`, and the unit's prelude, under
   `#ifdef CLJ_CLOSED`, defines the macro and the `extern` for each target whose var is defined exactly once
   in the set and is not `^:dynamic` (a second definition anywhere turns the sites back into generic calls at
-  write time). A user unit compiled with `--closed` defines `CLJ_CLOSED` at its top; `core.c` leaves it to
+  write time). A target defined in the same unit is a static function pointer initialized to the function
+  (LLVM folds it to a direct call); one from another unit is a pointer filled at the first call from the
+  symbol registry (`clj_compiled_register_symbol`, which each closed unit's init fills for its own defs), so
+  units load `RTLD_LOCAL`: a global image costs dyld ~200 ms per `dlopen` and grows with the loaded count. A user unit compiled with `--closed` defines `CLJ_CLOSED` at its top; `core.c` leaves it to
   the build (`-DCLJ_CLOSED` on top of `-DCLJ_COMPILED_CORE`, the closed bench variant), since a closed core
   cannot be `with-redefs`'d and the test suite needs that. Under `--closed` a user unit refuses `eval` and
   `load-string` (design §6); core.clj may name them. Dev keeps every var, `with-redefs`, `def` at run time,
@@ -1567,13 +1570,16 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   code goes through the method's tables on every call (compiled core's own protocol calls, `-deref` on a
   delay, are the ones this touches; user protocol calls from interpreted code keep their cache), trigger: a
   compiled-core row moving on it, then a `static` cache cell per site under the side-cell rule. Trace positions as above; trigger: a host wanting caller lines from compiled code, then a pending-site
-  word on the shadow stack written by compiled callers. A closed unit binds a direct call to the *first*
-  loaded definition of a symbol, so redefining a var across compiled-eval forms under `CLJ_EVAL_CLOSED` is
-  wrong by design (a bench tool). Dev units export their top-level fns' arity functions as globals (dylibs
-  are loaded `RTLD_GLOBAL` for closed units), harmless duplicates under the flat namespace. `clj_compiled_find`
+  word on the shadow stack written by compiled callers. A closed unit binds a direct call to the registry's
+  latest entry at its first call and never again, so redefining a var across compiled-eval forms under
+  `CLJ_EVAL_CLOSED` is wrong by design (a bench tool). Every unit exports its top-level fns' arity functions
+  as globals; with `RTLD_LOCAL` loads they clash with nothing. `clj_compiled_find`
   is a linear scan of registered paths. Inside a test process clang takes ~2× what it takes from a shell
   (~0.5 s for a 5 k-line unit), not investigated. Compiling a file evaluates it (the hook cannot skip
-  evaluation without losing macros), so `clj-compile` runs the program once. A `reify` site keyed by its
+  evaluation without losing macros), so `clj-compile` runs the program once. Nothing checks that
+  `boot/core.c` matches `boot/core.clj` the way `CoreCljTests` checks `core_clj.inc`: the generator needs an
+  interpreted boot with the hook armed, which a test process past `clj_init` cannot redo; trigger: a stale
+  `core.c` slipping through, then a CI step diffing `make boot`'s output. A `reify` site keyed by its
   gensym makes a new type when the protocol it names was redefined (proto.c `reify_type_current`): the
   fixture reloads showed a stale type implementing the old protocol, which the interpreter has on any
   re-evaluation of a `defprotocol` too.

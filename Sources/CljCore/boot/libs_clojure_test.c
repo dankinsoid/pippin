@@ -10,60 +10,6 @@ static const clj_intrinsic *OP[21];
 static const clj_fusion_var *F[1];
 static clj_node S[56];
 static void unit_pools(void);
-#ifdef CLJ_CLOSED
-#define CLJC_DIRECT_clojure_core_concat_a2 1
-extern clj_value clojure_core_concat_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_map_a2 1
-extern clj_value clojure_core_map_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_interpose_a2 1
-extern clj_value clojure_core_interpose_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_fnil_a2 1
-extern clj_value clojure_core_fnil_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core___GT_MultiFn_a7 1
-extern clj_value clojure_core___GT_MultiFn_a7(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_take_a2 1
-extern clj_value clojure_core_take_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_inc_report_counter_a1 1
-extern clj_value clojure_test_inc_report_counter_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_testing_vars_str_a1 1
-extern clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_testing_contexts_str_a0 1
-extern clj_value clojure_test_testing_contexts_str_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_print_trace_a1 1
-extern clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_function_QMARK__a1 1
-extern clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_assert_predicate_a2 1
-extern clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_assert_any_a2 1
-extern clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_nthnext_a2 1
-extern clj_value clojure_core_nthnext_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_mod_a2 1
-extern clj_value clojure_core_mod_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_concat_a0 1
-extern clj_value clojure_core_concat_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_do_report_a1 1
-extern clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_comp_a2 1
-extern clj_value clojure_core_comp_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_group_by_a2 1
-extern clj_value clojure_core_group_by_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_join_fixtures_a1 1
-extern clj_value clojure_test_join_fixtures_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_test_var_a1 1
-extern clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_vals_a1 1
-extern clj_value clojure_core_vals_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_sort_by_a2 1
-extern clj_value clojure_core_sort_by_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_test_vars_a1 1
-extern clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_test_test_all_vars_a1 1
-extern clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_filter_a2 1
-extern clj_value clojure_core_filter_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#endif
 
 static clj_value top_0(void);
 static clj_value top_1(void);
@@ -257,6 +203,61 @@ static clj_value clojure_test_run_test(void *ctx, const clj_value *args, size_t 
 static clj_value top_76(void);
 clj_value clojure_test_successful_QMARK__a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_test_successful_QMARK_(void *ctx, const clj_value *args, size_t n);
+
+#ifdef CLJ_CLOSED
+#define CLJC_DIRECT_clojure_core_concat_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_concat_a2;
+#define CLJC_DIRECT_clojure_core_map_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_map_a2;
+#define CLJC_DIRECT_clojure_core_interpose_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_interpose_a2;
+#define CLJC_DIRECT_clojure_core_fnil_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_fnil_a2;
+#define CLJC_DIRECT_clojure_core___GT_MultiFn_a7 1
+static clj_compiled_fn CLJC_FN_clojure_core___GT_MultiFn_a7;
+#define CLJC_DIRECT_clojure_core_take_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_take_a2;
+#define CLJC_DIRECT_clojure_test_inc_report_counter_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_inc_report_counter_a1 = clojure_test_inc_report_counter_a1;
+#define CLJC_DIRECT_clojure_test_testing_vars_str_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_testing_vars_str_a1 = clojure_test_testing_vars_str_a1;
+#define CLJC_DIRECT_clojure_test_testing_contexts_str_a0 1
+static clj_compiled_fn CLJC_FN_clojure_test_testing_contexts_str_a0 = clojure_test_testing_contexts_str_a0;
+#define CLJC_DIRECT_clojure_test_print_trace_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_print_trace_a1 = clojure_test_print_trace_a1;
+#define CLJC_DIRECT_clojure_test_function_QMARK__a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_function_QMARK__a1 = clojure_test_function_QMARK__a1;
+#define CLJC_DIRECT_clojure_test_assert_predicate_a2 1
+static clj_compiled_fn CLJC_FN_clojure_test_assert_predicate_a2 = clojure_test_assert_predicate_a2;
+#define CLJC_DIRECT_clojure_test_assert_any_a2 1
+static clj_compiled_fn CLJC_FN_clojure_test_assert_any_a2 = clojure_test_assert_any_a2;
+#define CLJC_DIRECT_clojure_core_nthnext_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_nthnext_a2;
+#define CLJC_DIRECT_clojure_core_mod_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_mod_a2;
+#define CLJC_DIRECT_clojure_core_concat_a0 1
+static clj_compiled_fn CLJC_FN_clojure_core_concat_a0;
+#define CLJC_DIRECT_clojure_test_do_report_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_do_report_a1 = clojure_test_do_report_a1;
+#define CLJC_DIRECT_clojure_core_comp_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_comp_a2;
+#define CLJC_DIRECT_clojure_core_group_by_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_group_by_a2;
+#define CLJC_DIRECT_clojure_test_join_fixtures_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_join_fixtures_a1 = clojure_test_join_fixtures_a1;
+#define CLJC_DIRECT_clojure_test_test_var_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_test_var_a1 = clojure_test_test_var_a1;
+#define CLJC_DIRECT_clojure_core_vals_a1 1
+static clj_compiled_fn CLJC_FN_clojure_core_vals_a1;
+#define CLJC_DIRECT_clojure_core_sort_by_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_sort_by_a2;
+#define CLJC_DIRECT_clojure_test_test_vars_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_test_vars_a1 = clojure_test_test_vars_a1;
+#define CLJC_DIRECT_clojure_test_test_all_vars_a1 1
+static clj_compiled_fn CLJC_FN_clojure_test_test_all_vars_a1 = clojure_test_test_all_vars_a1;
+#define CLJC_DIRECT_clojure_core_filter_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_filter_a2;
+#endif
 
 static clj_value top_0(void) {
 	clj_value s[1];
@@ -579,7 +580,8 @@ clj_value clojure_test_with_test_out_v2(clj_value self, const clj_value *capture
 	(void)a1;
 	clj_value t5;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t5 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t5 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a1, 2) : clj_c_invoke(t0, a1, 2);
 #else
 	t5 = clj_c_invoke(t0, a1, 2);
 #endif
@@ -870,7 +872,8 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	(void)a9;
 	clj_value t32;
 #ifdef CLJC_DIRECT_clojure_core_map_a2
-	t32 = clojure_core_map_a2(clj_var_root_relaxed(V[23]), NULL, a9, 2);
+	if (!CLJC_FN_clojure_core_map_a2) CLJC_FN_clojure_core_map_a2 = clj_compiled_symbol("clojure_core_map_a2");
+	t32 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[23]), NULL, a9, 2) : clj_c_invoke(t29, a9, 2);
 #else
 	t32 = clj_c_invoke(t29, a9, 2);
 #endif
@@ -1024,7 +1027,8 @@ clj_value clojure_test_testing_contexts_str_a0(clj_value self, const clj_value *
 	(void)a1;
 	clj_value t7;
 #ifdef CLJC_DIRECT_clojure_core_interpose_a2
-	t7 = clojure_core_interpose_a2(clj_var_root_relaxed(V[26]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_interpose_a2) CLJC_FN_clojure_core_interpose_a2 = clj_compiled_symbol("clojure_core_interpose_a2");
+	t7 = CLJC_FN_clojure_core_interpose_a2 ? CLJC_FN_clojure_core_interpose_a2(clj_var_root_relaxed(V[26]), NULL, a1, 2) : clj_c_invoke(t2, a1, 2);
 #else
 	t7 = clj_c_invoke(t2, a1, 2);
 #endif
@@ -1147,7 +1151,8 @@ clj_value clojure_test_inc_report_counter_a1(clj_value self, const clj_value *ca
 	(void)a1;
 	clj_value t10;
 #ifdef CLJC_DIRECT_clojure_core_fnil_a2
-	t10 = clojure_core_fnil_a2(clj_var_root_relaxed(V[30]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_fnil_a2) CLJC_FN_clojure_core_fnil_a2 = clj_compiled_symbol("clojure_core_fnil_a2");
+	t10 = CLJC_FN_clojure_core_fnil_a2 ? CLJC_FN_clojure_core_fnil_a2(clj_var_root_relaxed(V[30]), NULL, a1, 2) : clj_c_invoke(t7, a1, 2);
 #else
 	t10 = clj_c_invoke(t7, a1, 2);
 #endif
@@ -1320,7 +1325,8 @@ static clj_value top_15(void) {
 	(void)a1;
 	clj_value t22;
 #ifdef CLJC_DIRECT_clojure_core___GT_MultiFn_a7
-	t22 = clojure_core___GT_MultiFn_a7(clj_var_root_relaxed(V[34]), NULL, a1, 7);
+	if (!CLJC_FN_clojure_core___GT_MultiFn_a7) CLJC_FN_clojure_core___GT_MultiFn_a7 = clj_compiled_symbol("clojure_core___GT_MultiFn_a7");
+	t22 = CLJC_FN_clojure_core___GT_MultiFn_a7 ? CLJC_FN_clojure_core___GT_MultiFn_a7(clj_var_root_relaxed(V[34]), NULL, a1, 7) : clj_c_invoke(t8, a1, 7);
 #else
 	t22 = clj_c_invoke(t8, a1, 7);
 #endif
@@ -1411,7 +1417,8 @@ clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured,
 	(void)a2;
 	clj_value t13;
 #ifdef CLJC_DIRECT_clojure_core_take_a2
-	t13 = clojure_core_take_a2(clj_var_root_relaxed(V[39]), NULL, a2, 2);
+	if (!CLJC_FN_clojure_core_take_a2) CLJC_FN_clojure_core_take_a2 = clj_compiled_symbol("clojure_core_take_a2");
+	t13 = CLJC_FN_clojure_core_take_a2 ? CLJC_FN_clojure_core_take_a2(clj_var_root_relaxed(V[39]), NULL, a2, 2) : clj_c_invoke(t10, a2, 2);
 #else
 	t13 = clj_c_invoke(t10, a2, 2);
 #endif
@@ -1738,7 +1745,8 @@ static clj_value clojure_test_form19__0_a1(clj_value self, const clj_value *capt
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_test_inc_report_counter_a1
-	t2 = clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_test_inc_report_counter_a1) CLJC_FN_clojure_test_inc_report_counter_a1 = clj_compiled_symbol("clojure_test_inc_report_counter_a1");
+	t2 = CLJC_FN_clojure_test_inc_report_counter_a1 ? CLJC_FN_clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -1843,7 +1851,8 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_test_inc_report_counter_a1
-	t2 = clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_test_inc_report_counter_a1) CLJC_FN_clojure_test_inc_report_counter_a1 = clj_compiled_symbol("clojure_test_inc_report_counter_a1");
+	t2 = CLJC_FN_clojure_test_inc_report_counter_a1 ? CLJC_FN_clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -1871,7 +1880,8 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	(void)a2;
 	clj_value t7;
 #ifdef CLJC_DIRECT_clojure_test_testing_vars_str_a1
-	t7 = clojure_test_testing_vars_str_a1(clj_var_root_relaxed(V[14]), NULL, a2, 1);
+	if (!CLJC_FN_clojure_test_testing_vars_str_a1) CLJC_FN_clojure_test_testing_vars_str_a1 = clj_compiled_symbol("clojure_test_testing_vars_str_a1");
+	t7 = CLJC_FN_clojure_test_testing_vars_str_a1 ? CLJC_FN_clojure_test_testing_vars_str_a1(clj_var_root_relaxed(V[14]), NULL, a2, 1) : clj_c_invoke(t5, a2, 1);
 #else
 	t7 = clj_c_invoke(t5, a2, 1);
 #endif
@@ -1927,7 +1937,8 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	const clj_value *a5 = NULL;
 	clj_value t15;
 #ifdef CLJC_DIRECT_clojure_test_testing_contexts_str_a0
-	t15 = clojure_test_testing_contexts_str_a0(clj_var_root_relaxed(V[25]), NULL, a5, 0);
+	if (!CLJC_FN_clojure_test_testing_contexts_str_a0) CLJC_FN_clojure_test_testing_contexts_str_a0 = clj_compiled_symbol("clojure_test_testing_contexts_str_a0");
+	t15 = CLJC_FN_clojure_test_testing_contexts_str_a0 ? CLJC_FN_clojure_test_testing_contexts_str_a0(clj_var_root_relaxed(V[25]), NULL, a5, 0) : clj_c_invoke(t14, a5, 0);
 #else
 	t15 = clj_c_invoke(t14, a5, 0);
 #endif
@@ -2170,7 +2181,8 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_test_inc_report_counter_a1
-	t2 = clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_test_inc_report_counter_a1) CLJC_FN_clojure_test_inc_report_counter_a1 = clj_compiled_symbol("clojure_test_inc_report_counter_a1");
+	t2 = CLJC_FN_clojure_test_inc_report_counter_a1 ? CLJC_FN_clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -2198,7 +2210,8 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	(void)a2;
 	clj_value t7;
 #ifdef CLJC_DIRECT_clojure_test_testing_vars_str_a1
-	t7 = clojure_test_testing_vars_str_a1(clj_var_root_relaxed(V[14]), NULL, a2, 1);
+	if (!CLJC_FN_clojure_test_testing_vars_str_a1) CLJC_FN_clojure_test_testing_vars_str_a1 = clj_compiled_symbol("clojure_test_testing_vars_str_a1");
+	t7 = CLJC_FN_clojure_test_testing_vars_str_a1 ? CLJC_FN_clojure_test_testing_vars_str_a1(clj_var_root_relaxed(V[14]), NULL, a2, 1) : clj_c_invoke(t5, a2, 1);
 #else
 	t7 = clj_c_invoke(t5, a2, 1);
 #endif
@@ -2254,7 +2267,8 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	const clj_value *a5 = NULL;
 	clj_value t15;
 #ifdef CLJC_DIRECT_clojure_test_testing_contexts_str_a0
-	t15 = clojure_test_testing_contexts_str_a0(clj_var_root_relaxed(V[25]), NULL, a5, 0);
+	if (!CLJC_FN_clojure_test_testing_contexts_str_a0) CLJC_FN_clojure_test_testing_contexts_str_a0 = clj_compiled_symbol("clojure_test_testing_contexts_str_a0");
+	t15 = CLJC_FN_clojure_test_testing_contexts_str_a0 ? CLJC_FN_clojure_test_testing_contexts_str_a0(clj_var_root_relaxed(V[25]), NULL, a5, 0) : clj_c_invoke(t14, a5, 0);
 #else
 	t15 = clj_c_invoke(t14, a5, 0);
 #endif
@@ -2423,7 +2437,8 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	(void)a14;
 	clj_value t47;
 #ifdef CLJC_DIRECT_clojure_test_print_trace_a1
-	t47 = clojure_test_print_trace_a1(clj_var_root_relaxed(V[37]), NULL, a14, 1);
+	if (!CLJC_FN_clojure_test_print_trace_a1) CLJC_FN_clojure_test_print_trace_a1 = clj_compiled_symbol("clojure_test_print_trace_a1");
+	t47 = CLJC_FN_clojure_test_print_trace_a1 ? CLJC_FN_clojure_test_print_trace_a1(clj_var_root_relaxed(V[37]), NULL, a14, 1) : clj_c_invoke(t43, a14, 1);
 #else
 	t47 = clj_c_invoke(t43, a14, 1);
 #endif
@@ -3805,7 +3820,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a12;
 	clj_value t21;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t21 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a12, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t21 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a12, 2) : clj_c_invoke(t16, a12, 2);
 #else
 	t21 = clj_c_invoke(t16, a12, 2);
 #endif
@@ -4520,7 +4536,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a37;
 	clj_value t73;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t73 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a37, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t73 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a37, 2) : clj_c_invoke(t66, a37, 2);
 #else
 	t73 = clj_c_invoke(t66, a37, 2);
 #endif
@@ -5031,7 +5048,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a49;
 	clj_value t98;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t98 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a49, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t98 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a49, 2) : clj_c_invoke(t91, a49, 2);
 #else
 	t98 = clj_c_invoke(t91, a49, 2);
 #endif
@@ -5483,7 +5501,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a28;
 	clj_value t117;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t117 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a28, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t117 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a28, 2) : clj_c_invoke(t54, a28, 2);
 #else
 	t117 = clj_c_invoke(t54, a28, 2);
 #endif
@@ -5860,7 +5879,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a66;
 	clj_value t140;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t140 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a66, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t140 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a66, 2) : clj_c_invoke(t133, a66, 2);
 #else
 	t140 = clj_c_invoke(t133, a66, 2);
 #endif
@@ -6390,7 +6410,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a78;
 	clj_value t165;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t165 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a78, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t165 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a78, 2) : clj_c_invoke(t158, a78, 2);
 #else
 	t165 = clj_c_invoke(t158, a78, 2);
 #endif
@@ -6831,7 +6852,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a87;
 	clj_value t181;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t181 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a87, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t181 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a87, 2) : clj_c_invoke(t174, a87, 2);
 #else
 	t181 = clj_c_invoke(t174, a87, 2);
 #endif
@@ -7423,7 +7445,8 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	(void)a57;
 	clj_value t203;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t203 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a57, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t203 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a57, 2) : clj_c_invoke(t121, a57, 2);
 #else
 	t203 = clj_c_invoke(t121, a57, 2);
 #endif
@@ -7731,7 +7754,8 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	(void)a6;
 	clj_value t14;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t14 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a6, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t14 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a6, 2) : clj_c_invoke(t7, a6, 2);
 #else
 	t14 = clj_c_invoke(t7, a6, 2);
 #endif
@@ -8160,7 +8184,8 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	(void)a25;
 	clj_value t46;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t46 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a25, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t46 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a25, 2) : clj_c_invoke(t39, a25, 2);
 #else
 	t46 = clj_c_invoke(t39, a25, 2);
 #endif
@@ -8638,7 +8663,8 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	(void)a16;
 	clj_value t71;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t71 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a16, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t71 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a16, 2) : clj_c_invoke(t27, a16, 2);
 #else
 	t71 = clj_c_invoke(t27, a16, 2);
 #endif
@@ -9015,7 +9041,8 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	(void)a45;
 	clj_value t94;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t94 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a45, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t94 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a45, 2) : clj_c_invoke(t87, a45, 2);
 #else
 	t94 = clj_c_invoke(t87, a45, 2);
 #endif
@@ -9512,7 +9539,8 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	(void)a36;
 	clj_value t119;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t119 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a36, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t119 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a36, 2) : clj_c_invoke(t75, a36, 2);
 #else
 	t119 = clj_c_invoke(t75, a36, 2);
 #endif
@@ -9897,7 +9925,8 @@ static clj_value top_39(void) {
 	(void)a1;
 	clj_value t22;
 #ifdef CLJC_DIRECT_clojure_core___GT_MultiFn_a7
-	t22 = clojure_core___GT_MultiFn_a7(clj_var_root_relaxed(V[34]), NULL, a1, 7);
+	if (!CLJC_FN_clojure_core___GT_MultiFn_a7) CLJC_FN_clojure_core___GT_MultiFn_a7 = clj_compiled_symbol("clojure_core___GT_MultiFn_a7");
+	t22 = CLJC_FN_clojure_core___GT_MultiFn_a7 ? CLJC_FN_clojure_core___GT_MultiFn_a7(clj_var_root_relaxed(V[34]), NULL, a1, 7) : clj_c_invoke(t8, a1, 7);
 #else
 	t22 = clj_c_invoke(t8, a1, 7);
 #endif
@@ -10170,7 +10199,8 @@ static clj_value clojure_test_form40__0_a2(clj_value self, const clj_value *capt
 	(void)a1;
 	clj_value t24;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t24 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t24 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a1, 2) : clj_c_invoke(t0, a1, 2);
 #else
 	t24 = clj_c_invoke(t0, a1, 2);
 #endif
@@ -10320,7 +10350,8 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	(void)a1;
 	clj_value t8;
 #ifdef CLJC_DIRECT_clojure_test_function_QMARK__a1
-	t8 = clojure_test_function_QMARK__a1(clj_var_root_relaxed(V[50]), NULL, a1, 1);
+	if (!CLJC_FN_clojure_test_function_QMARK__a1) CLJC_FN_clojure_test_function_QMARK__a1 = clj_compiled_symbol("clojure_test_function_QMARK__a1");
+	t8 = CLJC_FN_clojure_test_function_QMARK__a1 ? CLJC_FN_clojure_test_function_QMARK__a1(clj_var_root_relaxed(V[50]), NULL, a1, 1) : clj_c_invoke(t5, a1, 1);
 #else
 	t8 = clj_c_invoke(t5, a1, 1);
 #endif
@@ -10350,7 +10381,8 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	(void)a3;
 	clj_value t15;
 #ifdef CLJC_DIRECT_clojure_test_assert_predicate_a2
-	t15 = clojure_test_assert_predicate_a2(clj_var_root_relaxed(V[56]), NULL, a3, 2);
+	if (!CLJC_FN_clojure_test_assert_predicate_a2) CLJC_FN_clojure_test_assert_predicate_a2 = clj_compiled_symbol("clojure_test_assert_predicate_a2");
+	t15 = CLJC_FN_clojure_test_assert_predicate_a2 ? CLJC_FN_clojure_test_assert_predicate_a2(clj_var_root_relaxed(V[56]), NULL, a3, 2) : clj_c_invoke(t12, a3, 2);
 #else
 	t15 = clj_c_invoke(t12, a3, 2);
 #endif
@@ -10374,7 +10406,8 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	(void)a4;
 	clj_value t19;
 #ifdef CLJC_DIRECT_clojure_test_assert_any_a2
-	t19 = clojure_test_assert_any_a2(clj_var_root_relaxed(V[59]), NULL, a4, 2);
+	if (!CLJC_FN_clojure_test_assert_any_a2) CLJC_FN_clojure_test_assert_any_a2 = clj_compiled_symbol("clojure_test_assert_any_a2");
+	t19 = CLJC_FN_clojure_test_assert_any_a2 ? CLJC_FN_clojure_test_assert_any_a2(clj_var_root_relaxed(V[59]), NULL, a4, 2) : clj_c_invoke(t16, a4, 2);
 #else
 	t19 = clj_c_invoke(t16, a4, 2);
 #endif
@@ -11100,7 +11133,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a20;
 	clj_value t54;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t54 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a20, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t54 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a20, 2) : clj_c_invoke(t36, a20, 2);
 #else
 	t54 = clj_c_invoke(t36, a20, 2);
 #endif
@@ -11633,7 +11667,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a44;
 	clj_value t86;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t86 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a44, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t86 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a44, 2) : clj_c_invoke(t79, a44, 2);
 #else
 	t86 = clj_c_invoke(t79, a44, 2);
 #endif
@@ -12081,7 +12116,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a52;
 	clj_value t106;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t106 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a52, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t106 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a52, 2) : clj_c_invoke(t99, a52, 2);
 #else
 	t106 = clj_c_invoke(t99, a52, 2);
 #endif
@@ -12419,7 +12455,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a35;
 	clj_value t119;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t119 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a35, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t119 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a35, 2) : clj_c_invoke(t67, a35, 2);
 #else
 	t119 = clj_c_invoke(t67, a35, 2);
 #endif
@@ -12872,7 +12909,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a68;
 	clj_value t142;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t142 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a68, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t142 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a68, 2) : clj_c_invoke(t135, a68, 2);
 #else
 	t142 = clj_c_invoke(t135, a68, 2);
 #endif
@@ -13335,7 +13373,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a76;
 	clj_value t162;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t162 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a76, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t162 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a76, 2) : clj_c_invoke(t155, a76, 2);
 #else
 	t162 = clj_c_invoke(t155, a76, 2);
 #endif
@@ -13684,7 +13723,8 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	(void)a59;
 	clj_value t175;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t175 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a59, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t175 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a59, 2) : clj_c_invoke(t123, a59, 2);
 #else
 	t175 = clj_c_invoke(t123, a59, 2);
 #endif
@@ -14013,7 +14053,8 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	(void)a1;
 	clj_value t6;
 #ifdef CLJC_DIRECT_clojure_core_nthnext_a2
-	t6 = clojure_core_nthnext_a2(clj_var_root_relaxed(V[64]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_nthnext_a2) CLJC_FN_clojure_core_nthnext_a2 = clj_compiled_symbol("clojure_core_nthnext_a2");
+	t6 = CLJC_FN_clojure_core_nthnext_a2 ? CLJC_FN_clojure_core_nthnext_a2(clj_var_root_relaxed(V[64]), NULL, a1, 2) : clj_c_invoke(t3, a1, 2);
 #else
 	t6 = clj_c_invoke(t3, a1, 2);
 #endif
@@ -14275,7 +14316,8 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	(void)a16;
 	clj_value t32;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t32 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a16, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t32 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a16, 2) : clj_c_invoke(t25, a16, 2);
 #else
 	t32 = clj_c_invoke(t25, a16, 2);
 #endif
@@ -14658,7 +14700,8 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	(void)a7;
 	clj_value t57;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t57 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a7, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t57 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a7, 2) : clj_c_invoke(t13, a7, 2);
 #else
 	t57 = clj_c_invoke(t13, a7, 2);
 #endif
@@ -15115,7 +15158,8 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	(void)a42;
 	clj_value t91;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t91 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a42, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t91 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a42, 2) : clj_c_invoke(t84, a42, 2);
 #else
 	t91 = clj_c_invoke(t84, a42, 2);
 #endif
@@ -15612,7 +15656,8 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	(void)a33;
 	clj_value t116;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t116 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a33, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t116 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a33, 2) : clj_c_invoke(t72, a33, 2);
 #else
 	t116 = clj_c_invoke(t72, a33, 2);
 #endif
@@ -15897,7 +15942,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a2;
 	clj_value t9;
 #ifdef CLJC_DIRECT_clojure_core_nthnext_a2
-	t9 = clojure_core_nthnext_a2(clj_var_root_relaxed(V[64]), NULL, a2, 2);
+	if (!CLJC_FN_clojure_core_nthnext_a2) CLJC_FN_clojure_core_nthnext_a2 = clj_compiled_symbol("clojure_core_nthnext_a2");
+	t9 = CLJC_FN_clojure_core_nthnext_a2 ? CLJC_FN_clojure_core_nthnext_a2(clj_var_root_relaxed(V[64]), NULL, a2, 2) : clj_c_invoke(t6, a2, 2);
 #else
 	t9 = clj_c_invoke(t6, a2, 2);
 #endif
@@ -16159,7 +16205,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a17;
 	clj_value t35;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t35 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a17, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t35 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a17, 2) : clj_c_invoke(t28, a17, 2);
 #else
 	t35 = clj_c_invoke(t28, a17, 2);
 #endif
@@ -16542,7 +16589,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a8;
 	clj_value t60;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t60 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a8, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t60 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a8, 2) : clj_c_invoke(t16, a8, 2);
 #else
 	t60 = clj_c_invoke(t16, a8, 2);
 #endif
@@ -16999,7 +17047,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a43;
 	clj_value t94;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t94 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a43, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t94 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a43, 2) : clj_c_invoke(t87, a43, 2);
 #else
 	t94 = clj_c_invoke(t87, a43, 2);
 #endif
@@ -17083,7 +17132,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a39;
 	clj_value t97;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t97 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a39, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t97 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a39, 2) : clj_c_invoke(t82, a39, 2);
 #else
 	t97 = clj_c_invoke(t82, a39, 2);
 #endif
@@ -17500,7 +17550,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a56;
 	clj_value t119;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t119 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a56, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t119 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a56, 2) : clj_c_invoke(t112, a56, 2);
 #else
 	t119 = clj_c_invoke(t112, a56, 2);
 #endif
@@ -18040,7 +18091,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a61;
 	clj_value t141;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t141 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a61, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t141 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a61, 2) : clj_c_invoke(t123, a61, 2);
 #else
 	t141 = clj_c_invoke(t123, a61, 2);
 #endif
@@ -18658,7 +18710,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a80;
 	clj_value t167;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t167 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a80, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t167 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a80, 2) : clj_c_invoke(t160, a80, 2);
 #else
 	t167 = clj_c_invoke(t160, a80, 2);
 #endif
@@ -19307,7 +19360,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a71;
 	clj_value t192;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t192 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a71, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t192 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a71, 2) : clj_c_invoke(t148, a71, 2);
 #else
 	t192 = clj_c_invoke(t148, a71, 2);
 #endif
@@ -19855,7 +19909,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a100;
 	clj_value t215;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t215 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a100, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t215 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a100, 2) : clj_c_invoke(t208, a100, 2);
 #else
 	t215 = clj_c_invoke(t208, a100, 2);
 #endif
@@ -20523,7 +20578,8 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	(void)a91;
 	clj_value t240;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t240 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a91, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t240 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a91, 2) : clj_c_invoke(t196, a91, 2);
 #else
 	t240 = clj_c_invoke(t196, a91, 2);
 #endif
@@ -21397,7 +21453,8 @@ clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, co
 	(void)a22;
 	clj_value t41;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t41 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a22, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t41 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a22, 2) : clj_c_invoke(t34, a22, 2);
 #else
 	t41 = clj_c_invoke(t34, a22, 2);
 #endif
@@ -21894,7 +21951,8 @@ clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, co
 	(void)a13;
 	clj_value t66;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t66 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a13, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t66 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a13, 2) : clj_c_invoke(t22, a13, 2);
 #else
 	t66 = clj_c_invoke(t22, a13, 2);
 #endif
@@ -22825,7 +22883,8 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	(void)a14;
 	clj_value t66;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t66 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a14, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t66 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a14, 2) : clj_c_invoke(t36, a14, 2);
 #else
 	t66 = clj_c_invoke(t36, a14, 2);
 #endif
@@ -23248,7 +23307,8 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	(void)a7;
 	clj_value t29;
 #ifdef CLJC_DIRECT_clojure_core_mod_a2
-	t29 = clojure_core_mod_a2(clj_var_root_relaxed(V[74]), NULL, a7, 2);
+	if (!CLJC_FN_clojure_core_mod_a2) CLJC_FN_clojure_core_mod_a2 = clj_compiled_symbol("clojure_core_mod_a2");
+	t29 = CLJC_FN_clojure_core_mod_a2 ? CLJC_FN_clojure_core_mod_a2(clj_var_root_relaxed(V[74]), NULL, a7, 2) : clj_c_invoke(t24, a7, 2);
 #else
 	t29 = clj_c_invoke(t24, a7, 2);
 #endif
@@ -23397,7 +23457,8 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	(void)a16;
 	clj_value t50;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t50 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a16, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t50 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a16, 2) : clj_c_invoke(t43, a16, 2);
 #else
 	t50 = clj_c_invoke(t43, a16, 2);
 #endif
@@ -23807,7 +23868,8 @@ clj_value clojure_test_testing_v3(clj_value self, const clj_value *captured, con
 	(void)a6;
 	clj_value t25;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t25 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a6, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t25 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a6, 2) : clj_c_invoke(t7, a6, 2);
 #else
 	t25 = clj_c_invoke(t7, a6, 2);
 #endif
@@ -24216,7 +24278,8 @@ clj_value clojure_test_with_test_v3(clj_value self, const clj_value *captured, c
 	const clj_value *a17 = NULL;
 	clj_value t30;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
-	t30 = clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a17, 0);
+	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
+	t30 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a17, 0) : clj_c_invoke(t29, a17, 0);
 #else
 	t30 = clj_c_invoke(t29, a17, 0);
 #endif
@@ -24635,7 +24698,8 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	const clj_value *a11 = NULL;
 	clj_value t20;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
-	t20 = clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a11, 0);
+	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
+	t20 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a11, 0) : clj_c_invoke(t19, a11, 0);
 #else
 	t20 = clj_c_invoke(t19, a11, 0);
 #endif
@@ -24859,7 +24923,8 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	const clj_value *a19 = NULL;
 	clj_value t38;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
-	t38 = clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a19, 0);
+	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
+	t38 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a19, 0) : clj_c_invoke(t37, a19, 0);
 #else
 	t38 = clj_c_invoke(t37, a19, 0);
 #endif
@@ -25097,7 +25162,8 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	(void)a26;
 	clj_value t55;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t55 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a26, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t55 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a26, 2) : clj_c_invoke(t48, a26, 2);
 #else
 	t55 = clj_c_invoke(t48, a26, 2);
 #endif
@@ -25163,7 +25229,8 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	(void)a22;
 	clj_value t58;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t58 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a22, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t58 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a22, 2) : clj_c_invoke(t43, a22, 2);
 #else
 	t58 = clj_c_invoke(t43, a22, 2);
 #endif
@@ -25488,7 +25555,8 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	const clj_value *a11 = NULL;
 	clj_value t20;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
-	t20 = clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a11, 0);
+	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
+	t20 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a11, 0) : clj_c_invoke(t19, a11, 0);
 #else
 	t20 = clj_c_invoke(t19, a11, 0);
 #endif
@@ -25716,7 +25784,8 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	const clj_value *a19 = NULL;
 	clj_value t40;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
-	t40 = clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a19, 0);
+	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
+	t40 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a19, 0) : clj_c_invoke(t39, a19, 0);
 #else
 	t40 = clj_c_invoke(t39, a19, 0);
 #endif
@@ -25954,7 +26023,8 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	(void)a26;
 	clj_value t57;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t57 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a26, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t57 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a26, 2) : clj_c_invoke(t50, a26, 2);
 #else
 	t57 = clj_c_invoke(t50, a26, 2);
 #endif
@@ -26020,7 +26090,8 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	(void)a22;
 	clj_value t60;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t60 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a22, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t60 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a22, 2) : clj_c_invoke(t45, a22, 2);
 #else
 	t60 = clj_c_invoke(t45, a22, 2);
 #endif
@@ -26290,7 +26361,8 @@ clj_value clojure_test_set_test_v3(clj_value self, const clj_value *captured, co
 	(void)a5;
 	clj_value t15;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t15 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a5, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t15 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a5, 2) : clj_c_invoke(t8, a5, 2);
 #else
 	t15 = clj_c_invoke(t8, a5, 2);
 #endif
@@ -26480,7 +26552,8 @@ clj_value clojure_test_set_test_v3(clj_value self, const clj_value *captured, co
 	const clj_value *a17 = NULL;
 	clj_value t33;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
-	t33 = clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a17, 0);
+	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
+	t33 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[13]), NULL, a17, 0) : clj_c_invoke(t32, a17, 0);
 #else
 	t33 = clj_c_invoke(t32, a17, 0);
 #endif
@@ -26850,7 +26923,8 @@ static clj_value top_59(void) {
 	(void)a1;
 	clj_value t22;
 #ifdef CLJC_DIRECT_clojure_core___GT_MultiFn_a7
-	t22 = clojure_core___GT_MultiFn_a7(clj_var_root_relaxed(V[34]), NULL, a1, 7);
+	if (!CLJC_FN_clojure_core___GT_MultiFn_a7) CLJC_FN_clojure_core___GT_MultiFn_a7 = clj_compiled_symbol("clojure_core___GT_MultiFn_a7");
+	t22 = CLJC_FN_clojure_core___GT_MultiFn_a7 ? CLJC_FN_clojure_core___GT_MultiFn_a7(clj_var_root_relaxed(V[34]), NULL, a1, 7) : clj_c_invoke(t8, a1, 7);
 #else
 	t22 = clj_c_invoke(t8, a1, 7);
 #endif
@@ -27673,7 +27747,8 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	(void)a6;
 	clj_value t24;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t24 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a6, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t24 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a6, 1) : clj_c_invoke(t18, a6, 1);
 #else
 	t24 = clj_c_invoke(t18, a6, 1);
 #endif
@@ -27694,7 +27769,8 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	(void)a8;
 	clj_value t27;
 #ifdef CLJC_DIRECT_clojure_test_inc_report_counter_a1
-	t27 = clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a8, 1);
+	if (!CLJC_FN_clojure_test_inc_report_counter_a1) CLJC_FN_clojure_test_inc_report_counter_a1 = clj_compiled_symbol("clojure_test_inc_report_counter_a1");
+	t27 = CLJC_FN_clojure_test_inc_report_counter_a1 ? CLJC_FN_clojure_test_inc_report_counter_a1(clj_var_root_relaxed(V[27]), NULL, a8, 1) : clj_c_invoke(t25, a8, 1);
 #else
 	t27 = clj_c_invoke(t25, a8, 1);
 #endif
@@ -27758,7 +27834,8 @@ L7: ;
 	(void)a11;
 	clj_value t41;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t41 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a11, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t41 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a11, 1) : clj_c_invoke(t31, a11, 1);
 #else
 	t41 = clj_c_invoke(t31, a11, 1);
 #endif
@@ -27805,7 +27882,8 @@ L9: ;
 	(void)a13;
 	clj_value t49;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t49 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a13, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t49 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a13, 1) : clj_c_invoke(t43, a13, 1);
 #else
 	t49 = clj_c_invoke(t43, a13, 1);
 #endif
@@ -27909,7 +27987,8 @@ static clj_value clojure_test_test_vars__0__1_a0(clj_value self, const clj_value
 	(void)a0;
 	clj_value t2;
 #ifdef CLJC_DIRECT_clojure_test_test_var_a1
-	t2 = clojure_test_test_var_a1(clj_var_root_relaxed(V[92]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_test_test_var_a1) CLJC_FN_clojure_test_test_var_a1 = clj_compiled_symbol("clojure_test_test_var_a1");
+	t2 = CLJC_FN_clojure_test_test_var_a1 ? CLJC_FN_clojure_test_test_var_a1(clj_var_root_relaxed(V[92]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t2 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -28099,7 +28178,8 @@ clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *captured, c
 	(void)a2;
 	clj_value t4;
 #ifdef CLJC_DIRECT_clojure_core_comp_a2
-	t4 = clojure_core_comp_a2(clj_var_root_relaxed(V[98]), NULL, a2, 2);
+	if (!CLJC_FN_clojure_core_comp_a2) CLJC_FN_clojure_core_comp_a2 = clj_compiled_symbol("clojure_core_comp_a2");
+	t4 = CLJC_FN_clojure_core_comp_a2 ? CLJC_FN_clojure_core_comp_a2(clj_var_root_relaxed(V[98]), NULL, a2, 2) : clj_c_invoke(t1, a2, 2);
 #else
 	t4 = clj_c_invoke(t1, a2, 2);
 #endif
@@ -28115,7 +28195,8 @@ clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *captured, c
 	(void)a1;
 	clj_value t6;
 #ifdef CLJC_DIRECT_clojure_core_group_by_a2
-	t6 = clojure_core_group_by_a2(clj_var_root_relaxed(V[97]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_group_by_a2) CLJC_FN_clojure_core_group_by_a2 = clj_compiled_symbol("clojure_core_group_by_a2");
+	t6 = CLJC_FN_clojure_core_group_by_a2 ? CLJC_FN_clojure_core_group_by_a2(clj_var_root_relaxed(V[97]), NULL, a1, 2) : clj_c_invoke(t0, a1, 2);
 #else
 	t6 = clj_c_invoke(t0, a1, 2);
 #endif
@@ -28250,7 +28331,8 @@ L4: ;
 	(void)a8;
 	clj_value t30;
 #ifdef CLJC_DIRECT_clojure_test_join_fixtures_a1
-	t30 = clojure_test_join_fixtures_a1(clj_var_root_relaxed(V[89]), NULL, a8, 1);
+	if (!CLJC_FN_clojure_test_join_fixtures_a1) CLJC_FN_clojure_test_join_fixtures_a1 = clj_compiled_symbol("clojure_test_join_fixtures_a1");
+	t30 = CLJC_FN_clojure_test_join_fixtures_a1 ? CLJC_FN_clojure_test_join_fixtures_a1(clj_var_root_relaxed(V[89]), NULL, a8, 1) : clj_c_invoke(t26, a8, 1);
 #else
 	t30 = clj_c_invoke(t26, a8, 1);
 #endif
@@ -28281,7 +28363,8 @@ L4: ;
 	(void)a10;
 	clj_value t35;
 #ifdef CLJC_DIRECT_clojure_test_join_fixtures_a1
-	t35 = clojure_test_join_fixtures_a1(clj_var_root_relaxed(V[89]), NULL, a10, 1);
+	if (!CLJC_FN_clojure_test_join_fixtures_a1) CLJC_FN_clojure_test_join_fixtures_a1 = clj_compiled_symbol("clojure_test_join_fixtures_a1");
+	t35 = CLJC_FN_clojure_test_join_fixtures_a1 ? CLJC_FN_clojure_test_join_fixtures_a1(clj_var_root_relaxed(V[89]), NULL, a10, 1) : clj_c_invoke(t31, a10, 1);
 #else
 	t35 = clj_c_invoke(t31, a10, 1);
 #endif
@@ -28489,7 +28572,8 @@ clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *capture
 	(void)a2;
 	clj_value t7;
 #ifdef CLJC_DIRECT_clojure_core_vals_a1
-	t7 = clojure_core_vals_a1(clj_var_root_relaxed(V[101]), NULL, a2, 1);
+	if (!CLJC_FN_clojure_core_vals_a1) CLJC_FN_clojure_core_vals_a1 = clj_compiled_symbol("clojure_core_vals_a1");
+	t7 = CLJC_FN_clojure_core_vals_a1 ? CLJC_FN_clojure_core_vals_a1(clj_var_root_relaxed(V[101]), NULL, a2, 1) : clj_c_invoke(t3, a2, 1);
 #else
 	t7 = clj_c_invoke(t3, a2, 1);
 #endif
@@ -28505,7 +28589,8 @@ clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *capture
 	(void)a1;
 	clj_value t8;
 #ifdef CLJC_DIRECT_clojure_core_sort_by_a2
-	t8 = clojure_core_sort_by_a2(clj_var_root_relaxed(V[100]), NULL, a1, 2);
+	if (!CLJC_FN_clojure_core_sort_by_a2) CLJC_FN_clojure_core_sort_by_a2 = clj_compiled_symbol("clojure_core_sort_by_a2");
+	t8 = CLJC_FN_clojure_core_sort_by_a2 ? CLJC_FN_clojure_core_sort_by_a2(clj_var_root_relaxed(V[100]), NULL, a1, 2) : clj_c_invoke(t1, a1, 2);
 #else
 	t8 = clj_c_invoke(t1, a1, 2);
 #endif
@@ -28520,7 +28605,8 @@ clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *capture
 	(void)a0;
 	clj_value t9;
 #ifdef CLJC_DIRECT_clojure_test_test_vars_a1
-	t9 = clojure_test_test_vars_a1(clj_var_root_relaxed(V[96]), NULL, a0, 1);
+	if (!CLJC_FN_clojure_test_test_vars_a1) CLJC_FN_clojure_test_test_vars_a1 = clj_compiled_symbol("clojure_test_test_vars_a1");
+	t9 = CLJC_FN_clojure_test_test_vars_a1 ? CLJC_FN_clojure_test_test_vars_a1(clj_var_root_relaxed(V[96]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
 	t9 = clj_c_invoke(t0, a0, 1);
 #endif
@@ -28679,7 +28765,8 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	(void)a5;
 	clj_value t18;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t18 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a5, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t18 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a5, 1) : clj_c_invoke(t12, a5, 1);
 #else
 	t18 = clj_c_invoke(t12, a5, 1);
 #endif
@@ -28760,7 +28847,8 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	(void)a11;
 	clj_value t34;
 #ifdef CLJC_DIRECT_clojure_test_test_all_vars_a1
-	t34 = clojure_test_test_all_vars_a1(clj_var_root_relaxed(V[99]), NULL, a11, 1);
+	if (!CLJC_FN_clojure_test_test_all_vars_a1) CLJC_FN_clojure_test_test_all_vars_a1 = clj_compiled_symbol("clojure_test_test_all_vars_a1");
+	t34 = CLJC_FN_clojure_test_test_all_vars_a1 ? CLJC_FN_clojure_test_test_all_vars_a1(clj_var_root_relaxed(V[99]), NULL, a11, 1) : clj_c_invoke(t32, a11, 1);
 #else
 	t34 = clj_c_invoke(t32, a11, 1);
 #endif
@@ -28797,7 +28885,8 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	(void)a12;
 	clj_value t41;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t41 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a12, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t41 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a12, 1) : clj_c_invoke(t35, a12, 1);
 #else
 	t41 = clj_c_invoke(t35, a12, 1);
 #endif
@@ -28986,7 +29075,8 @@ clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *captured, c
 	(void)a2;
 	clj_value t6;
 #ifdef CLJC_DIRECT_clojure_core_map_a2
-	t6 = clojure_core_map_a2(clj_var_root_relaxed(V[23]), NULL, a2, 2);
+	if (!CLJC_FN_clojure_core_map_a2) CLJC_FN_clojure_core_map_a2 = clj_compiled_symbol("clojure_core_map_a2");
+	t6 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[23]), NULL, a2, 2) : clj_c_invoke(t3, a2, 2);
 #else
 	t6 = clj_c_invoke(t3, a2, 2);
 #endif
@@ -29037,7 +29127,8 @@ clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *captured, c
 	(void)a3;
 	clj_value t13;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t13 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a3, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t13 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a3, 1) : clj_c_invoke(t11, a3, 1);
 #else
 	t13 = clj_c_invoke(t11, a3, 1);
 #endif
@@ -29332,7 +29423,8 @@ clj_value clojure_test_run_all_tests_a1(clj_value self, const clj_value *capture
 	(void)a3;
 	clj_value t13;
 #ifdef CLJC_DIRECT_clojure_core_filter_a2
-	t13 = clojure_core_filter_a2(clj_var_root_relaxed(V[112]), NULL, a3, 2);
+	if (!CLJC_FN_clojure_core_filter_a2) CLJC_FN_clojure_core_filter_a2 = clj_compiled_symbol("clojure_core_filter_a2");
+	t13 = CLJC_FN_clojure_core_filter_a2 ? CLJC_FN_clojure_core_filter_a2(clj_var_root_relaxed(V[112]), NULL, a3, 2) : clj_c_invoke(t9, a3, 2);
 #else
 	t13 = clj_c_invoke(t9, a3, 2);
 #endif
@@ -29482,7 +29574,8 @@ clj_value clojure_test_run_test_var_a1(clj_value self, const clj_value *captured
 	(void)a4;
 	clj_value t12;
 #ifdef CLJC_DIRECT_clojure_test_test_vars_a1
-	t12 = clojure_test_test_vars_a1(clj_var_root_relaxed(V[96]), NULL, a4, 1);
+	if (!CLJC_FN_clojure_test_test_vars_a1) CLJC_FN_clojure_test_test_vars_a1 = clj_compiled_symbol("clojure_test_test_vars_a1");
+	t12 = CLJC_FN_clojure_test_test_vars_a1 ? CLJC_FN_clojure_test_test_vars_a1(clj_var_root_relaxed(V[96]), NULL, a4, 1) : clj_c_invoke(t9, a4, 1);
 #else
 	t12 = clj_c_invoke(t9, a4, 1);
 #endif
@@ -29540,7 +29633,8 @@ clj_value clojure_test_run_test_var_a1(clj_value self, const clj_value *captured
 	(void)a8;
 	clj_value t21;
 #ifdef CLJC_DIRECT_clojure_test_do_report_a1
-	t21 = clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a8, 1);
+	if (!CLJC_FN_clojure_test_do_report_a1) CLJC_FN_clojure_test_do_report_a1 = clj_compiled_symbol("clojure_test_do_report_a1");
+	t21 = CLJC_FN_clojure_test_do_report_a1 ? CLJC_FN_clojure_test_do_report_a1(clj_var_root_relaxed(V[46]), NULL, a8, 1) : clj_c_invoke(t19, a8, 1);
 #else
 	t21 = clj_c_invoke(t19, a8, 1);
 #endif
@@ -29836,7 +29930,8 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	(void)a10;
 	clj_value t39;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t39 = clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a10, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t39 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a10, 2) : clj_c_invoke(t32, a10, 2);
 #else
 	t39 = clj_c_invoke(t32, a10, 2);
 #endif
@@ -30023,6 +30118,122 @@ static bool pools_filled;
 static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
+	V[0] = clj_c_var("clojure.core", "in-ns");
+	V[1] = clj_c_var("clojure.core", "refer-clojure");
+	V[2] = clj_c_var("clojure.core", "require");
+	V[3] = clj_c_var("clojure.test", "*load-tests*");
+	V[4] = clj_c_var("clojure.test", "*stack-trace-depth*");
+	V[5] = clj_c_var("clojure.test", "*report-counters*");
+	V[6] = clj_c_var("clojure.test", "*initial-report-counters*");
+	V[7] = clj_c_var("clojure.test", "*testing-vars*");
+	V[8] = clj_c_var("clojure.core", "list");
+	V[9] = clj_c_var("clojure.test", "*testing-contexts*");
+	V[10] = clj_c_var("clojure.test", "*assertion-pos*");
+	V[11] = clj_c_var("clojure.test", "with-test-out");
+	V[12] = clj_c_var("clojure.core", "seq");
+	V[13] = clj_c_var("clojure.core", "concat");
+	V[14] = clj_c_var("clojure.test", "testing-vars-str");
+	V[15] = clj_c_var("clojure.core", "seq?");
+	V[16] = clj_c_var("clojure.core", "next");
+	V[17] = clj_c_var("clojure.core", "apply");
+	V[18] = clj_c_var("clojure.core", "hash-map");
+	V[19] = clj_c_var("clojure.core", "first");
+	V[20] = clj_c_var("clojure.core", "get");
+	V[21] = clj_c_var("clojure.core", "str");
+	V[22] = clj_c_var("clojure.core", "reverse");
+	V[23] = clj_c_var("clojure.core", "map");
+	V[24] = clj_c_var("clojure.core", "meta");
+	V[25] = clj_c_var("clojure.test", "testing-contexts-str");
+	V[26] = clj_c_var("clojure.core", "interpose");
+	V[27] = clj_c_var("clojure.test", "inc-report-counter");
+	V[28] = clj_c_var("clojure.core", "swap!");
+	V[29] = clj_c_var("clojure.core", "update");
+	V[30] = clj_c_var("clojure.core", "fnil");
+	V[31] = clj_c_var("clojure.core", "inc");
+	V[32] = clj_c_var("clojure.test", "report");
+	V[33] = clj_c_var("clojure.core", "bound?");
+	V[34] = clj_c_var("clojure.core", "->MultiFn");
+	V[35] = clj_c_var("clojure.core", "global-hierarchy");
+	V[36] = clj_c_var("clojure.core", "atom");
+	V[37] = clj_c_var("clojure.test", "print-trace");
+	V[38] = clj_c_var("clojure.core", "ex-trace");
+	V[39] = clj_c_var("clojure.core", "take");
+	V[40] = clj_c_var("clojure.core", "println");
+	V[41] = clj_c_var("clojure.core", "-add-method");
+	V[42] = clj_c_var("clojure.core", "prn");
+	V[43] = clj_c_var("clojure.core", "pr-str");
+	V[44] = clj_c_var("clojure.core", "+");
+	V[45] = clj_c_var("clojure.core", "ns-name");
+	V[46] = clj_c_var("clojure.test", "do-report");
+	V[47] = clj_c_var("clojure.core", "=");
+	V[48] = clj_c_var("clojure.core", "nil?");
+	V[49] = clj_c_var("clojure.core", "merge");
+	V[50] = clj_c_var("clojure.test", "function?");
+	V[51] = clj_c_var("clojure.core", "symbol?");
+	V[52] = clj_c_var("clojure.core", "resolve");
+	V[53] = clj_c_var("clojure.core", "not");
+	V[54] = clj_c_var("clojure.core", "fn?");
+	V[55] = clj_c_var("clojure.core", "deref");
+	V[56] = clj_c_var("clojure.test", "assert-predicate");
+	V[57] = clj_c_var("clojure.core", "rest");
+	V[58] = clj_c_var("clojure.core", "vector");
+	V[59] = clj_c_var("clojure.test", "assert-any");
+	V[60] = clj_c_var("clojure.test", "assert-expr");
+	V[61] = clj_c_var("clojure.core", "sequential?");
+	V[62] = clj_c_var("clojure.core", "nth");
+	V[63] = clj_c_var("clojure.core", "second");
+	V[64] = clj_c_var("clojure.core", "nthnext");
+	V[65] = clj_c_var("clojure.test", "try-expr");
+	V[66] = clj_c_var("clojure.test", "is");
+	V[67] = clj_c_var("clojure.core", "with-meta");
+	V[68] = clj_c_var("clojure.core", "*file*");
+	V[69] = clj_c_var("clojure.test", "are");
+	V[70] = clj_c_var("clojure.core", "empty?");
+	V[71] = clj_c_var("clojure.core", "pos?");
+	V[72] = clj_c_var("clojure.core", "count");
+	V[73] = clj_c_var("clojure.core", "zero?");
+	V[74] = clj_c_var("clojure.core", "mod");
+	V[75] = clj_c_var("clojure.core", "ex-info");
+	V[76] = clj_c_var("clojure.test", "testing");
+	V[77] = clj_c_var("clojure.test", "with-test");
+	V[78] = clj_c_var("clojure.test", "deftest");
+	V[79] = clj_c_var("clojure.core", "vary-meta");
+	V[80] = clj_c_var("clojure.core", "assoc");
+	V[81] = clj_c_var("clojure.test", "deftest-");
+	V[82] = clj_c_var("clojure.test", "set-test");
+	V[83] = clj_c_var("clojure.test", "fixtures");
+	V[84] = clj_c_var("clojure.test", "use-fixtures");
+	V[85] = clj_c_var("clojure.core", "assoc-in");
+	V[86] = clj_c_var("clojure.core", "*ns*");
+	V[87] = clj_c_var("clojure.test", "default-fixture");
+	V[88] = clj_c_var("clojure.test", "compose-fixtures");
+	V[89] = clj_c_var("clojure.test", "join-fixtures");
+	V[90] = clj_c_var("clojure.core", "reduce");
+	V[91] = clj_c_var("clojure.test", "ns-key");
+	V[92] = clj_c_var("clojure.test", "test-var");
+	V[93] = clj_c_var("clojure.core", "push-thread-bindings");
+	V[94] = clj_c_var("clojure.core", "conj");
+	V[95] = clj_c_var("clojure.core", "pop-thread-bindings");
+	V[96] = clj_c_var("clojure.test", "test-vars");
+	V[97] = clj_c_var("clojure.core", "group-by");
+	V[98] = clj_c_var("clojure.core", "comp");
+	V[99] = clj_c_var("clojure.test", "test-all-vars");
+	V[100] = clj_c_var("clojure.core", "sort-by");
+	V[101] = clj_c_var("clojure.core", "vals");
+	V[102] = clj_c_var("clojure.core", "ns-interns");
+	V[103] = clj_c_var("clojure.test", "test-ns");
+	V[104] = clj_c_var("clojure.core", "the-ns");
+	V[105] = clj_c_var("clojure.core", "var-get");
+	V[106] = clj_c_var("clojure.test", "run-tests");
+	V[107] = clj_c_var("clojure.core", "merge-with");
+	V[108] = clj_c_var("clojure.test", "run-all-tests");
+	V[109] = clj_c_var("clojure.core", "all-ns");
+	V[110] = clj_c_var("clojure.core", "regex?");
+	V[111] = clj_c_var("clojure.core", "re-find");
+	V[112] = clj_c_var("clojure.core", "filter");
+	V[113] = clj_c_var("clojure.test", "run-test-var");
+	V[114] = clj_c_var("clojure.test", "run-test");
+	V[115] = clj_c_var("clojure.test", "successful?");
 	K[0] = clj_c_const("\"<embedded>/clojure/test.clj\"", 29);
 	K[1] = clj_c_const("clojure.test", 12);
 	K[2] = clj_c_const("[clojure.template :as temp]", 27);
@@ -30416,122 +30627,6 @@ static void unit_pools(void) {
 	K[390] = clj_c_const(":fail", 5);
 	K[391] = clj_c_const(":error", 6);
 	K[392] = clj_c_const("{:ns clojure.test, :file \"<embedded>/clojure/test.clj\", :arglists ([summary]), :doc \"Returns true if the given test summary indicates all tests were successful, false otherwise.\", :name successful?, :line 367, :column 1}", 220);
-	V[0] = clj_c_var("clojure.core", "in-ns");
-	V[1] = clj_c_var("clojure.core", "refer-clojure");
-	V[2] = clj_c_var("clojure.core", "require");
-	V[3] = clj_c_var("clojure.test", "*load-tests*");
-	V[4] = clj_c_var("clojure.test", "*stack-trace-depth*");
-	V[5] = clj_c_var("clojure.test", "*report-counters*");
-	V[6] = clj_c_var("clojure.test", "*initial-report-counters*");
-	V[7] = clj_c_var("clojure.test", "*testing-vars*");
-	V[8] = clj_c_var("clojure.core", "list");
-	V[9] = clj_c_var("clojure.test", "*testing-contexts*");
-	V[10] = clj_c_var("clojure.test", "*assertion-pos*");
-	V[11] = clj_c_var("clojure.test", "with-test-out");
-	V[12] = clj_c_var("clojure.core", "seq");
-	V[13] = clj_c_var("clojure.core", "concat");
-	V[14] = clj_c_var("clojure.test", "testing-vars-str");
-	V[15] = clj_c_var("clojure.core", "seq?");
-	V[16] = clj_c_var("clojure.core", "next");
-	V[17] = clj_c_var("clojure.core", "apply");
-	V[18] = clj_c_var("clojure.core", "hash-map");
-	V[19] = clj_c_var("clojure.core", "first");
-	V[20] = clj_c_var("clojure.core", "get");
-	V[21] = clj_c_var("clojure.core", "str");
-	V[22] = clj_c_var("clojure.core", "reverse");
-	V[23] = clj_c_var("clojure.core", "map");
-	V[24] = clj_c_var("clojure.core", "meta");
-	V[25] = clj_c_var("clojure.test", "testing-contexts-str");
-	V[26] = clj_c_var("clojure.core", "interpose");
-	V[27] = clj_c_var("clojure.test", "inc-report-counter");
-	V[28] = clj_c_var("clojure.core", "swap!");
-	V[29] = clj_c_var("clojure.core", "update");
-	V[30] = clj_c_var("clojure.core", "fnil");
-	V[31] = clj_c_var("clojure.core", "inc");
-	V[32] = clj_c_var("clojure.test", "report");
-	V[33] = clj_c_var("clojure.core", "bound?");
-	V[34] = clj_c_var("clojure.core", "->MultiFn");
-	V[35] = clj_c_var("clojure.core", "global-hierarchy");
-	V[36] = clj_c_var("clojure.core", "atom");
-	V[37] = clj_c_var("clojure.test", "print-trace");
-	V[38] = clj_c_var("clojure.core", "ex-trace");
-	V[39] = clj_c_var("clojure.core", "take");
-	V[40] = clj_c_var("clojure.core", "println");
-	V[41] = clj_c_var("clojure.core", "-add-method");
-	V[42] = clj_c_var("clojure.core", "prn");
-	V[43] = clj_c_var("clojure.core", "pr-str");
-	V[44] = clj_c_var("clojure.core", "+");
-	V[45] = clj_c_var("clojure.core", "ns-name");
-	V[46] = clj_c_var("clojure.test", "do-report");
-	V[47] = clj_c_var("clojure.core", "=");
-	V[48] = clj_c_var("clojure.core", "nil?");
-	V[49] = clj_c_var("clojure.core", "merge");
-	V[50] = clj_c_var("clojure.test", "function?");
-	V[51] = clj_c_var("clojure.core", "symbol?");
-	V[52] = clj_c_var("clojure.core", "resolve");
-	V[53] = clj_c_var("clojure.core", "not");
-	V[54] = clj_c_var("clojure.core", "fn?");
-	V[55] = clj_c_var("clojure.core", "deref");
-	V[56] = clj_c_var("clojure.test", "assert-predicate");
-	V[57] = clj_c_var("clojure.core", "rest");
-	V[58] = clj_c_var("clojure.core", "vector");
-	V[59] = clj_c_var("clojure.test", "assert-any");
-	V[60] = clj_c_var("clojure.test", "assert-expr");
-	V[61] = clj_c_var("clojure.core", "sequential?");
-	V[62] = clj_c_var("clojure.core", "nth");
-	V[63] = clj_c_var("clojure.core", "second");
-	V[64] = clj_c_var("clojure.core", "nthnext");
-	V[65] = clj_c_var("clojure.test", "try-expr");
-	V[66] = clj_c_var("clojure.test", "is");
-	V[67] = clj_c_var("clojure.core", "with-meta");
-	V[68] = clj_c_var("clojure.core", "*file*");
-	V[69] = clj_c_var("clojure.test", "are");
-	V[70] = clj_c_var("clojure.core", "empty?");
-	V[71] = clj_c_var("clojure.core", "pos?");
-	V[72] = clj_c_var("clojure.core", "count");
-	V[73] = clj_c_var("clojure.core", "zero?");
-	V[74] = clj_c_var("clojure.core", "mod");
-	V[75] = clj_c_var("clojure.core", "ex-info");
-	V[76] = clj_c_var("clojure.test", "testing");
-	V[77] = clj_c_var("clojure.test", "with-test");
-	V[78] = clj_c_var("clojure.test", "deftest");
-	V[79] = clj_c_var("clojure.core", "vary-meta");
-	V[80] = clj_c_var("clojure.core", "assoc");
-	V[81] = clj_c_var("clojure.test", "deftest-");
-	V[82] = clj_c_var("clojure.test", "set-test");
-	V[83] = clj_c_var("clojure.test", "fixtures");
-	V[84] = clj_c_var("clojure.test", "use-fixtures");
-	V[85] = clj_c_var("clojure.core", "assoc-in");
-	V[86] = clj_c_var("clojure.core", "*ns*");
-	V[87] = clj_c_var("clojure.test", "default-fixture");
-	V[88] = clj_c_var("clojure.test", "compose-fixtures");
-	V[89] = clj_c_var("clojure.test", "join-fixtures");
-	V[90] = clj_c_var("clojure.core", "reduce");
-	V[91] = clj_c_var("clojure.test", "ns-key");
-	V[92] = clj_c_var("clojure.test", "test-var");
-	V[93] = clj_c_var("clojure.core", "push-thread-bindings");
-	V[94] = clj_c_var("clojure.core", "conj");
-	V[95] = clj_c_var("clojure.core", "pop-thread-bindings");
-	V[96] = clj_c_var("clojure.test", "test-vars");
-	V[97] = clj_c_var("clojure.core", "group-by");
-	V[98] = clj_c_var("clojure.core", "comp");
-	V[99] = clj_c_var("clojure.test", "test-all-vars");
-	V[100] = clj_c_var("clojure.core", "sort-by");
-	V[101] = clj_c_var("clojure.core", "vals");
-	V[102] = clj_c_var("clojure.core", "ns-interns");
-	V[103] = clj_c_var("clojure.test", "test-ns");
-	V[104] = clj_c_var("clojure.core", "the-ns");
-	V[105] = clj_c_var("clojure.core", "var-get");
-	V[106] = clj_c_var("clojure.test", "run-tests");
-	V[107] = clj_c_var("clojure.core", "merge-with");
-	V[108] = clj_c_var("clojure.test", "run-all-tests");
-	V[109] = clj_c_var("clojure.core", "all-ns");
-	V[110] = clj_c_var("clojure.core", "regex?");
-	V[111] = clj_c_var("clojure.core", "re-find");
-	V[112] = clj_c_var("clojure.core", "filter");
-	V[113] = clj_c_var("clojure.test", "run-test-var");
-	V[114] = clj_c_var("clojure.test", "run-test");
-	V[115] = clj_c_var("clojure.test", "successful?");
 	OP[0] = clj_c_intrinsic("clojure.core/seq", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/seq?", 1);
@@ -30580,6 +30675,33 @@ clj_value clj_compiled_lib_init_clojure_test(void) {
 	clj_value r;
 	(void)r;
 	if (!pools_filled) unit_pools();
+#ifdef CLJ_CLOSED
+	clj_compiled_register_symbol("clojure_test_testing_vars_str_a1", clojure_test_testing_vars_str_a1);
+	clj_compiled_register_symbol("clojure_test_testing_contexts_str_a0", clojure_test_testing_contexts_str_a0);
+	clj_compiled_register_symbol("clojure_test_inc_report_counter_a1", clojure_test_inc_report_counter_a1);
+	clj_compiled_register_symbol("clojure_test_print_trace_a1", clojure_test_print_trace_a1);
+	clj_compiled_register_symbol("clojure_test_do_report_a1", clojure_test_do_report_a1);
+	clj_compiled_register_symbol("clojure_test_function_QMARK__a1", clojure_test_function_QMARK__a1);
+	clj_compiled_register_symbol("clojure_test_assert_predicate_a2", clojure_test_assert_predicate_a2);
+	clj_compiled_register_symbol("clojure_test_assert_any_a2", clojure_test_assert_any_a2);
+	clj_compiled_register_symbol("clojure_test_try_expr_a4", clojure_test_try_expr_a4);
+	clj_compiled_register_symbol("clojure_test_is_a3", clojure_test_is_a3);
+	clj_compiled_register_symbol("clojure_test_is_a4", clojure_test_is_a4);
+	clj_compiled_register_symbol("clojure_test_default_fixture_a1", clojure_test_default_fixture_a1);
+	clj_compiled_register_symbol("clojure_test_compose_fixtures_a2", clojure_test_compose_fixtures_a2);
+	clj_compiled_register_symbol("clojure_test_join_fixtures_a1", clojure_test_join_fixtures_a1);
+	clj_compiled_register_symbol("clojure_test_ns_key_a1", clojure_test_ns_key_a1);
+	clj_compiled_register_symbol("clojure_test_test_var_a1", clojure_test_test_var_a1);
+	clj_compiled_register_symbol("clojure_test_test_vars_a1", clojure_test_test_vars_a1);
+	clj_compiled_register_symbol("clojure_test_test_all_vars_a1", clojure_test_test_all_vars_a1);
+	clj_compiled_register_symbol("clojure_test_test_ns_a1", clojure_test_test_ns_a1);
+	clj_compiled_register_symbol("clojure_test_run_tests_a0", clojure_test_run_tests_a0);
+	clj_compiled_register_symbol("clojure_test_run_all_tests_a0", clojure_test_run_all_tests_a0);
+	clj_compiled_register_symbol("clojure_test_run_all_tests_a1", clojure_test_run_all_tests_a1);
+	clj_compiled_register_symbol("clojure_test_run_test_var_a1", clojure_test_run_test_var_a1);
+	clj_compiled_register_symbol("clojure_test_run_test_a3", clojure_test_run_test_a3);
+	clj_compiled_register_symbol("clojure_test_successful_QMARK__a1", clojure_test_successful_QMARK__a1);
+#endif
 	// form 1 at 3:1
 	if (0) {
 F1: ;

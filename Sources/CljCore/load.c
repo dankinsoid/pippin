@@ -80,6 +80,45 @@ void clj_compiled_register(const char *path, clj_compiled_init init) {
 	clj_lock_unlock(&lock);
 }
 
+typedef struct {
+	char           *name;
+	clj_compiled_fn fn;
+} symbol_entry;
+
+static symbol_entry *symbols;
+static size_t        nsymbols, symbols_cap;
+
+void clj_compiled_register_symbol(const char *name, clj_compiled_fn fn) {
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < nsymbols; i++) {
+		if (strcmp(symbols[i].name, name) == 0) {
+			symbols[i].fn = fn;
+			clj_lock_unlock(&lock);
+			return;
+		}
+	}
+	if (nsymbols == symbols_cap) {
+		symbols_cap = symbols_cap ? symbols_cap * 2 : 256;
+		symbols = realloc(symbols, symbols_cap * sizeof *symbols);
+		if (!symbols) clj_fatal("out of memory");
+	}
+	symbols[nsymbols].name = strdup(name);
+	if (!symbols[nsymbols].name) clj_fatal("out of memory");
+	symbols[nsymbols].fn = fn;
+	nsymbols++;
+	clj_lock_unlock(&lock);
+}
+
+clj_compiled_fn clj_compiled_symbol(const char *name) {
+	clj_compiled_fn found = NULL;
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < nsymbols && !found; i++) {
+		if (strcmp(symbols[i].name, name) == 0) found = symbols[i].fn;
+	}
+	clj_lock_unlock(&lock);
+	return found;
+}
+
 clj_compiled_init clj_compiled_find(const char *path) {
 	clj_compiled_init found = NULL;
 	clj_lock_lock(&lock);

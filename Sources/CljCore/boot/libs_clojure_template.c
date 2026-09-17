@@ -10,22 +10,6 @@ static const clj_intrinsic *OP[3];
 static const clj_fusion_var *F[1];
 static clj_node S[3];
 static void unit_pools(void);
-#ifdef CLJ_CLOSED
-#define CLJC_DIRECT_clojure_core_every_QMARK__a2 1
-extern clj_value clojure_core_every_QMARK__a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_zipmap_a2 1
-extern clj_value clojure_core_zipmap_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_walk_postwalk_replace_a2 1
-extern clj_value clojure_walk_postwalk_replace_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_template_apply_template_a3 1
-extern clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_partition_a2 1
-extern clj_value clojure_core_partition_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_map_a2 1
-extern clj_value clojure_core_map_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#define CLJC_DIRECT_clojure_core_concat_a2 1
-extern clj_value clojure_core_concat_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-#endif
 
 static clj_value top_0(void);
 static clj_value top_1(void);
@@ -39,6 +23,23 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 static clj_value clojure_template_do_template__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_template_do_template__0(void *ctx, const clj_value *args, size_t n);
 static clj_value clojure_template_do_template(void *ctx, const clj_value *args, size_t n);
+
+#ifdef CLJ_CLOSED
+#define CLJC_DIRECT_clojure_core_every_QMARK__a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_every_QMARK__a2;
+#define CLJC_DIRECT_clojure_core_zipmap_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_zipmap_a2;
+#define CLJC_DIRECT_clojure_walk_postwalk_replace_a2 1
+static clj_compiled_fn CLJC_FN_clojure_walk_postwalk_replace_a2;
+#define CLJC_DIRECT_clojure_template_apply_template_a3 1
+static clj_compiled_fn CLJC_FN_clojure_template_apply_template_a3 = clojure_template_apply_template_a3;
+#define CLJC_DIRECT_clojure_core_partition_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_partition_a2;
+#define CLJC_DIRECT_clojure_core_map_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_map_a2;
+#define CLJC_DIRECT_clojure_core_concat_a2 1
+static clj_compiled_fn CLJC_FN_clojure_core_concat_a2;
+#endif
 
 static clj_value top_0(void) {
 	clj_value s[1];
@@ -241,7 +242,8 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	(void)a4;
 	clj_value t18;
 #ifdef CLJC_DIRECT_clojure_core_every_QMARK__a2
-	t18 = clojure_core_every_QMARK__a2(clj_var_root_relaxed(V[8]), NULL, a4, 2);
+	if (!CLJC_FN_clojure_core_every_QMARK__a2) CLJC_FN_clojure_core_every_QMARK__a2 = clj_compiled_symbol("clojure_core_every_QMARK__a2");
+	t18 = CLJC_FN_clojure_core_every_QMARK__a2 ? CLJC_FN_clojure_core_every_QMARK__a2(clj_var_root_relaxed(V[8]), NULL, a4, 2) : clj_c_invoke(t15, a4, 2);
 #else
 	t18 = clj_c_invoke(t15, a4, 2);
 #endif
@@ -333,7 +335,8 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	(void)a9;
 	clj_value t36;
 #ifdef CLJC_DIRECT_clojure_core_zipmap_a2
-	t36 = clojure_core_zipmap_a2(clj_var_root_relaxed(V[11]), NULL, a9, 2);
+	if (!CLJC_FN_clojure_core_zipmap_a2) CLJC_FN_clojure_core_zipmap_a2 = clj_compiled_symbol("clojure_core_zipmap_a2");
+	t36 = CLJC_FN_clojure_core_zipmap_a2 ? CLJC_FN_clojure_core_zipmap_a2(clj_var_root_relaxed(V[11]), NULL, a9, 2) : clj_c_invoke(t33, a9, 2);
 #else
 	t36 = clj_c_invoke(t33, a9, 2);
 #endif
@@ -349,7 +352,8 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	(void)a8;
 	clj_value t38;
 #ifdef CLJC_DIRECT_clojure_walk_postwalk_replace_a2
-	t38 = clojure_walk_postwalk_replace_a2(clj_var_root_relaxed(V[10]), NULL, a8, 2);
+	if (!CLJC_FN_clojure_walk_postwalk_replace_a2) CLJC_FN_clojure_walk_postwalk_replace_a2 = clj_compiled_symbol("clojure_walk_postwalk_replace_a2");
+	t38 = CLJC_FN_clojure_walk_postwalk_replace_a2 ? CLJC_FN_clojure_walk_postwalk_replace_a2(clj_var_root_relaxed(V[10]), NULL, a8, 2) : clj_c_invoke(t32, a8, 2);
 #else
 	t38 = clj_c_invoke(t32, a8, 2);
 #endif
@@ -422,7 +426,8 @@ static clj_value clojure_template_do_template__0_a1(clj_value self, const clj_va
 	(void)a0;
 	clj_value t4;
 #ifdef CLJC_DIRECT_clojure_template_apply_template_a3
-	t4 = clojure_template_apply_template_a3(clj_var_root_relaxed(V[3]), NULL, a0, 3);
+	if (!CLJC_FN_clojure_template_apply_template_a3) CLJC_FN_clojure_template_apply_template_a3 = clj_compiled_symbol("clojure_template_apply_template_a3");
+	t4 = CLJC_FN_clojure_template_apply_template_a3 ? CLJC_FN_clojure_template_apply_template_a3(clj_var_root_relaxed(V[3]), NULL, a0, 3) : clj_c_invoke(t0, a0, 3);
 #else
 	t4 = clj_c_invoke(t0, a0, 3);
 #endif
@@ -526,7 +531,8 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	(void)a6;
 	clj_value t11;
 #ifdef CLJC_DIRECT_clojure_core_partition_a2
-	t11 = clojure_core_partition_a2(clj_var_root_relaxed(V[18]), NULL, a6, 2);
+	if (!CLJC_FN_clojure_core_partition_a2) CLJC_FN_clojure_core_partition_a2 = clj_compiled_symbol("clojure_core_partition_a2");
+	t11 = CLJC_FN_clojure_core_partition_a2 ? CLJC_FN_clojure_core_partition_a2(clj_var_root_relaxed(V[18]), NULL, a6, 2) : clj_c_invoke(t8, a6, 2);
 #else
 	t11 = clj_c_invoke(t8, a6, 2);
 #endif
@@ -544,7 +550,8 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	(void)a4;
 	clj_value t12;
 #ifdef CLJC_DIRECT_clojure_core_map_a2
-	t12 = clojure_core_map_a2(clj_var_root_relaxed(V[17]), NULL, a4, 2);
+	if (!CLJC_FN_clojure_core_map_a2) CLJC_FN_clojure_core_map_a2 = clj_compiled_symbol("clojure_core_map_a2");
+	t12 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[17]), NULL, a4, 2) : clj_c_invoke(t6, a4, 2);
 #else
 	t12 = clj_c_invoke(t6, a4, 2);
 #endif
@@ -560,7 +567,8 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	(void)a2;
 	clj_value t13;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
-	t13 = clojure_core_concat_a2(clj_var_root_relaxed(V[15]), NULL, a2, 2);
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t13 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[15]), NULL, a2, 2) : clj_c_invoke(t2, a2, 2);
 #else
 	t13 = clj_c_invoke(t2, a2, 2);
 #endif
@@ -630,21 +638,6 @@ static bool pools_filled;
 static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
-	K[0] = clj_c_const("\"<embedded>/clojure/template.clj\"", 33);
-	K[1] = clj_c_const("clojure.template", 16);
-	K[2] = clj_c_const("[clojure.walk :as walk]", 23);
-	K[3] = clj_c_const("nil", 3);
-	K[4] = clj_c_const("apply-template", 14);
-	K[5] = clj_c_const("clojure.template/apply-template", 31);
-	K[6] = clj_c_const("\"Assert failed: \"", 17);
-	K[7] = clj_c_const("(vector? argv)", 14);
-	K[8] = clj_c_const("{}", 2);
-	K[9] = clj_c_const("(every? symbol? argv)", 21);
-	K[10] = clj_c_const("{:ns clojure.template, :file \"<embedded>/clojure/template.clj\", :arglists ([argv expr values]), :doc \"For use in macros. argv is an argument list as in defn; expr is a quoted expression using the\\n  symbols in argv; values is a sequence of values for them. Returns expr with the values substituted.\", :name apply-template, :line 6, :column 1}", 342);
-	K[11] = clj_c_const("do-template", 11);
-	K[12] = clj_c_const("clojure.template/do-template", 28);
-	K[13] = clj_c_const("do", 2);
-	K[14] = clj_c_const("{:ns clojure.template, :file \"<embedded>/clojure/template.clj\", :arglists ([argv expr & values]), :macro true, :doc \"Repeatedly copies expr (in a do block) for each group of arguments in values, substituting them for argv.\", :name do-template, :line 14, :column 1}", 264);
 	V[0] = clj_c_var("clojure.core", "in-ns");
 	V[1] = clj_c_var("clojure.core", "refer-clojure");
 	V[2] = clj_c_var("clojure.core", "require");
@@ -664,6 +657,21 @@ static void unit_pools(void) {
 	V[16] = clj_c_var("clojure.core", "list");
 	V[17] = clj_c_var("clojure.core", "map");
 	V[18] = clj_c_var("clojure.core", "partition");
+	K[0] = clj_c_const("\"<embedded>/clojure/template.clj\"", 33);
+	K[1] = clj_c_const("clojure.template", 16);
+	K[2] = clj_c_const("[clojure.walk :as walk]", 23);
+	K[3] = clj_c_const("nil", 3);
+	K[4] = clj_c_const("apply-template", 14);
+	K[5] = clj_c_const("clojure.template/apply-template", 31);
+	K[6] = clj_c_const("\"Assert failed: \"", 17);
+	K[7] = clj_c_const("(vector? argv)", 14);
+	K[8] = clj_c_const("{}", 2);
+	K[9] = clj_c_const("(every? symbol? argv)", 21);
+	K[10] = clj_c_const("{:ns clojure.template, :file \"<embedded>/clojure/template.clj\", :arglists ([argv expr values]), :doc \"For use in macros. argv is an argument list as in defn; expr is a quoted expression using the\\n  symbols in argv; values is a sequence of values for them. Returns expr with the values substituted.\", :name apply-template, :line 6, :column 1}", 342);
+	K[11] = clj_c_const("do-template", 11);
+	K[12] = clj_c_const("clojure.template/do-template", 28);
+	K[13] = clj_c_const("do", 2);
+	K[14] = clj_c_const("{:ns clojure.template, :file \"<embedded>/clojure/template.clj\", :arglists ([argv expr & values]), :macro true, :doc \"Repeatedly copies expr (in a do block) for each group of arguments in values, substituting them for argv.\", :name do-template, :line 14, :column 1}", 264);
 	OP[0] = clj_c_intrinsic("clojure.core/vector?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/count", 1);
@@ -676,6 +684,9 @@ clj_value clj_compiled_lib_init_clojure_template(void) {
 	clj_value r;
 	(void)r;
 	if (!pools_filled) unit_pools();
+#ifdef CLJ_CLOSED
+	clj_compiled_register_symbol("clojure_template_apply_template_a3", clojure_template_apply_template_a3);
+#endif
 	// form 1 at 3:1
 	if (0) {
 F1: ;

@@ -106,5 +106,9 @@ const clj_load_hook *clj_load_hook_get(void);
 typedef clj_value (*clj_compiled_init)(void);
 void clj_compiled_register(const char *path, clj_compiled_init init);
 clj_compiled_init clj_compiled_find(const char *path);
+// The direct-call symbols of closed units, by their C name: units load RTLD_LOCAL and bind through this at first use.
+typedef clj_value (*clj_compiled_fn)(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+void            clj_compiled_register_symbol(const char *name, clj_compiled_fn fn);
+clj_compiled_fn clj_compiled_symbol(const char *name);
 
 #endif
