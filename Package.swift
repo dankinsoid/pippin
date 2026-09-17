@@ -60,6 +60,7 @@ let package = Package(
 			name: "clj-bench",
 			dependencies: [
 				"CljCore",
+				"CljCompiler",
 				"Pippin",
 				.product(name: "HashTreeCollections", package: "swift-collections"),
 			]

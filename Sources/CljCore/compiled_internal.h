@@ -20,6 +20,15 @@
 
 // Every helper mirrors one step of eval.c so that a compiled body and the interpreter agree on ownership.
 
+// The closed world (CLJ_CLOSED, design §6): no var can be rebound, so the intrinsic and fusion guards are constant.
+#ifdef CLJ_CLOSED
+#define CLJC_GUARD(var, boot) 1
+#define CLJC_FUSED(guards, n) 1
+#else
+#define CLJC_GUARD(var, boot) (clj_var_root_relaxed(var) == (boot))
+#define CLJC_FUSED(guards, n) clj_fusion_guard(guards, n)
+#endif
+
 static inline bool clj_c_slot_owned(const clj_cframe *f, uint32_t i) { return i >= 64 || (f->owned >> i) & 1; }
 
 static inline void clj_c_set(clj_cframe *f, uint32_t i, clj_value v) {

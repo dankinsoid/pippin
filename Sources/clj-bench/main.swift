@@ -274,6 +274,20 @@ func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
 	return v
 }
 
+// CLJ_BENCH_ONLY=boot: clj_init wall time, peak resident memory and live objects after it; the compiled core
+// against the interpreted one (bench/RESULTS.md, "Compiler v0").
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "boot" {
+	var before = rusage()
+	getrusage(RUSAGE_SELF, &before)
+	let t0 = DispatchTime.now().uptimeNanoseconds
+	clj_init()
+	let t1 = DispatchTime.now().uptimeNanoseconds
+	var after = rusage()
+	getrusage(RUSAGE_SELF, &after)
+	print("boot: clj_init \(String(format: "%.2f", Double(t1 - t0) / 1e6)) ms, peak rss \(after.ru_maxrss / 1024 / 1024) MB (\(before.ru_maxrss / 1024 / 1024) MB before), live objects \(clj_debug_live_objects())")
+	exit(0)
+}
+
 // CLJ_BENCH_ONLY=rc-share on a debug binary: the share of retain/release pairs on the shared (atomic) path
 // with the application state in one atom (design §4, "Проверка, закрывающая вопрос"); release builds count nothing.
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {

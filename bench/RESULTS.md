@@ -890,3 +890,74 @@ allocates nothing.
   still 1.6×.
 - **`replace` is the slowest row**: each match re-scans from the end of the last one, so the work is
   quadratic in the gaps between matches, and the `$1` expansion walks the replacement again per match.
+
+## Compiler v0 — d78374e, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+`clj-bench` built three ways: the interpreted core (`core_clj.inc`), the compiled core (`-DCLJ_COMPILED_CORE`,
+`boot/core.c` from `make boot`) in dev mode, and the compiled core closed (`-DCLJ_CLOSED` on top: no intrinsic
+or fusion guards, direct calls between core fns). The fourth column runs the closed binary with every bench
+form itself compiled (`CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`): the loops are C at `-O2` with
+direct calls to `(def f ...)`, which is what the user-code rows need to move. One run each, back to back,
+so the closed column is the warmest; treat ±2 ns as noise (the sorted `get` row is the C map either way).
+
+### Boot and size
+
+| | interpreted core | compiled core | compiled, closed |
+|---|---:|---:|---:|
+| `clj_init` (median of 3) | 14.9 ms | 2.7 ms | 2.9 ms |
+| peak RSS after `clj_init` (2 MB before) | 7 MB | 4 MB | 4 MB |
+| `clj-bench` release binary | 1 919 880 B | 3 894 024 B | 3 738 424 B |
+
+The compiled binaries still embed `core_clj.inc` (94 KB of source, `clj_core_source` and the serializable
+test read it) and the interpreter; the 2 MB delta is `core.c` and the libs (109 k + 41 k lines of C from
+2 366 + 1 000 lines of Clojure, `#line` included). Boot no longer reads, analyzes or evaluates macros: it
+interns constants and vars, binds roots and runs the top-level forms.
+
+### The existing rows
+
+ns per iteration or element, `n` = 100000 unless noted.
+
+| scenario | interpreted core | compiled core, dev | compiled core, closed | loops compiled `--closed` |
+|---|---:|---:|---:|---:|
+| counting loop | 15.3 | 15.0 | 15.1 | 7.3 |
+| closure call in a loop | 21.9 | 21.5 | 21.6 | 8.4 |
+| C builtin call in a loop | 17.4 | 17.6 | 17.3 | 5.3 |
+| let-bound fn called in a loop | 21.0 | 20.9 | 20.5 | 4.0 |
+| loop with a local helper (direct fn) | 36.8 | 35.3 | 36.0 | 6.9 |
+| protocol call, deftype receiver | 35.3 | 35.7 | 35.5 | 17.9 |
+| protocol call, fixnum receiver | 36.1 | 36.3 | 36.0 | 17.6 |
+| protocol call, bi-morphic | 51.7 | 51.8 | 50.7 | 20.9 |
+| plain fn call through a var | 26.6 | 26.4 | 26.2 | 8.0 |
+| multimethod, = hit | 238.6 | 131.2 | 126.3 | 102.8 |
+| fused reduce: reduce + map inc range | 31.0 | 16.3 | 16.3 | 16.8 |
+| transduce (map inc) + range | 26.9 | 11.8 | 12.0 | 11.7 |
+| swap! inc | 41.0 | 41.6 | 41.5 | 23.0 |
+| swap! assoc, map of 16 keys | 272.4 | 255.4 | 255.3 | 206.5 |
+| sorted map get, hit, n = 1000 | 40.3 | 41.5 | 52.4 | 52.3 |
+| record field `(:id r)` | 1.9 | 1.7 | 1.7 | 2.0 |
+| record `(assoc r :count v)`, unique | 4.9 | 4.6 | 4.6 | 4.5 |
+
+- **The compiled core moves what runs core.clj code per element**: the transducer stack behind a fused
+  `reduce` (31 → 16), `transduce` (27 → 12) and multimethod dispatch (239 → 131, `MultiFn.invoke` and the
+  cache lookup are core.clj). Rows whose per-iteration work is the interpreted bench loop plus C (counting
+  loop, closure call, protocol call, `swap!`, the collections) do not move, as expected.
+- **Closed adds nothing measurable over dev on these rows**: the guards it removes are one relaxed load and
+  a compare per intrinsic call, and core-to-core direct calls sit behind the seq machinery the rows measure.
+- **The loops compiled through `--closed`** halve the counting loop (15 → 7: the boxed `<`, `inc` and the
+  slot writes remain), take a closure call from 22 to 8 (a direct C call of `user_f_a1` with the frame
+  setup, guard and shadow frame of `clj_c_enter`), a let-bound or direct-fn call to 4–7, a protocol call to
+  18 (the method fn's table lookup per call: compiled sites have no inline cache in v0) and `swap! inc` to
+  23 (the atom's lock and the boxed `inc` are what is left).
+
+### clang per namespace
+
+| unit | Clojure lines | C lines | `-O0` | `-O2` |
+|---|---:|---:|---:|---:|
+| core.clj (`boot/core.c`) | 2 366 | 109 582 | 0.98 s | 8.1 s (7.2 s closed) |
+| medley.core | 781 | 14 936 | 0.21 s | 1.36 s |
+| medley.core-test | 626 | 107 027 | 1.02 s | — |
+| one compiled-eval form (the fixture and test forms) | — | 100–700 | 0.12–0.17 s | — |
+
+The test file is bigger than the library it tests: every `is` expands into clojure.test's reporting, and
+each expansion is emitted in full. Inside a test process the same clang takes ~2× (0.5 s for `abs.cljc`,
+5 k lines); not investigated.

@@ -200,7 +200,7 @@ static unit *unit_new(const char *file) {
 	u->file = xstrdup(file);
 	const char *base = strrchr(file, '/');
 	u->cfile = cljc_mangle(NULL, base ? base + 1 : file);
-	u->embedded = strncmp(file, "<embedded>/", 11) == 0;
+	u->embedded = strncmp(file, "<embedded>/", 11) == 0 || strcmp(file, CLJ_CORE_CLJ_PATH) == 0;
 	u->has_file = strcmp(file, "<host>") != 0;
 	if (u->has_file) {
 		clj_value str = clj_string_from_cstr(file);
@@ -469,7 +469,7 @@ static void refuse(fnctx *f, const clj_node *n, const char *reason) {
 		if (!c->refusals) clj_fatal("out of memory");
 	}
 	uint32_t line = n->line ? n->line : f->form->line, col = n->line ? n->col : f->form->col;
-	c->refusals[c->nrefusals++] = (cljc_refusal){f->u->file, line, col, kind_name(n->kind), xstrdup(reason)};
+	c->refusals[c->nrefusals++] = (cljc_refusal){xstrdup(f->u->file), line, col, kind_name(n->kind), xstrdup(reason)};
 }
 
 // ---- expressions
@@ -745,7 +745,7 @@ static bool var_named(clj_value var, const char *ns, const char *name) {
 static temp emit_invoke(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
-	if (f->c->opts.closed && head->kind == CLJ_NODE_VAR && (var_named(head->u.var, "clojure.core", "eval") || var_named(head->u.var, "clojure.core", "load-string"))) {
+	if (f->c->opts.closed && !f->u->embedded && head->kind == CLJ_NODE_VAR && (var_named(head->u.var, "clojure.core", "eval") || var_named(head->u.var, "clojure.core", "load-string"))) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}
 	temp fn = emit_borrowed(f, head);
@@ -754,7 +754,7 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 	temp *args = emit_args(f, n->u.invoke.args, nargs, array);
 	temp  r = new_temp(f, OWN_YES);
 	direct_entry *d = NULL;
-	if (f->c->opts.closed && head->kind == CLJ_NODE_VAR && nargs <= CLJ_FN_MAX_FIXED) {
+	if (head->kind == CLJ_NODE_VAR && nargs <= CLJ_FN_MAX_FIXED) {
 		char key[600];
 		snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var))));
 		d = direct_find(f->c, key);
@@ -888,7 +888,7 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	temp  r = new_temp(f, OWN_YES);
 	bool  consuming = clj_intrinsic_consumes(op) && args[0].own != OWN_NO;
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
-	if (!f->c->opts.closed) sb_printf(&f->out, "\tif (clj_var_root_relaxed(V[%zu]) == B[%zu]) {\n", vi, oi);
+	sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", vi, oi);
 	if (consuming && args[0].own == OWN_YES) {
 		emit_intrinsic_call(f, op, op->cconsume, args, r.name);
 	} else if (consuming) {
@@ -900,11 +900,9 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	} else {
 		emit_intrinsic_call(f, op, op->cname, args, r.name);
 	}
-	if (!f->c->opts.closed) {
-		sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n", r.name, vi, array, n->u.intrinsic.n);
-		if (consuming && args[0].own == OWN_YES) sb_printf(&f->out, "\tclj_release(%s);\n", args[0].name);
-		sb_puts(&f->out, "\t}\n");
-	}
+	sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n", r.name, vi, array, n->u.intrinsic.n);
+	if (consuming && args[0].own == OWN_YES) sb_printf(&f->out, "\tclj_release(%s);\n", args[0].name);
+	sb_puts(&f->out, "\t}\n");
 	if (consuming && args[0].own == OWN_YES) live_forget(f, &args[0]);
 	for (uint32_t i = n->u.intrinsic.n; i-- > 0;) {
 		if (i == 0 && consuming && args[0].own == OWN_YES) continue;
@@ -927,21 +925,17 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	const char *saved_frame = f->frame;
 	f->frame = frame;
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
-	if (!f->c->opts.closed) {
-		sb_printf(&f->out, "\t{\n\tconst clj_fusion_var *g%d[%u] = {", k, n->u.fused.nguards);
-		for (uint32_t i = 0; i < n->u.fused.nguards; i++) sb_printf(&f->out, "%sF[%zu]", i ? ", " : "", fusion_index(f->u, n->u.fused.guards[i]));
-		sb_printf(&f->out, "};\n\tif (clj_fusion_guard(g%d, %u)) {\n", k, n->u.fused.nguards);
-	}
+	sb_printf(&f->out, "\t{\n\tconst clj_fusion_var *g%d[%u] = {", k, n->u.fused.nguards);
+	for (uint32_t i = 0; i < n->u.fused.nguards; i++) sb_printf(&f->out, "%sF[%zu]", i ? ", " : "", fusion_index(f->u, n->u.fused.guards[i]));
+	sb_printf(&f->out, "};\n\t(void)g%d;\n\tif (CLJC_FUSED(g%d, %u)) {\n", k, k, n->u.fused.nguards);
 	temp a = emit(f, n->u.fused.fused);
 	sb_printf(&f->out, "\t%s = %s;\n", r.name, a.name);
 	live_forget(f, &a);
-	if (!f->c->opts.closed) {
-		sb_puts(&f->out, "\t} else {\n");
-		temp b = emit(f, n->u.fused.original);
-		sb_printf(&f->out, "\t%s = %s;\n", r.name, b.name);
-		live_forget(f, &b);
-		sb_puts(&f->out, "\t}\n\t}\n");
-	}
+	sb_puts(&f->out, "\t} else {\n");
+	temp b = emit(f, n->u.fused.original);
+	sb_printf(&f->out, "\t%s = %s;\n", r.name, b.name);
+	live_forget(f, &b);
+	sb_puts(&f->out, "\t}\n\t}\n");
 	f->frame = saved_frame;
 	release_args(f, args, n->u.fused.nargs);
 	live_push(f, r);
@@ -1127,11 +1121,8 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 static void emit_fn_functions(fnctx *parent, const clj_node *n, const char *base) {
 	unit    *u = parent->u;
 	uint32_t stub = stub_new(u, parent, n->u.fn.name, n->line, n->col);
-	bool     exported = false;
-	if (parent->c->opts.closed) {
-		// A top-level (def name (fn ...)) is a direct-call target; its base is the def's own symbol.
-		exported = strcmp(base, parent->base) == 0;
-	}
+	// A top-level (def name (fn ...)) is a direct-call target of closed units; its base is the def's own symbol.
+	bool exported = strcmp(base, parent->base) == 0 && parent->nhandlers == 1;
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (n->u.fn.fixed[i]) emit_closure_arity(parent, n, n->u.fn.fixed[i], base, stub, exported);
 	}
@@ -1296,6 +1287,7 @@ static void record_direct(cljc_compiler *c, const clj_node *n, const char *base)
 
 static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n) {
 	uint32_t counter = 0;
+	ndirect_names = 0;
 	fnctx    f;
 	memset(&f, 0, sizeof f);
 	f.c = c;
@@ -1307,7 +1299,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	open_form(c, u, &f, form);
 	char *base = form_base(c, u, n);
 	f.base = base;
-	if (c->opts.closed) record_direct(c, n, base);
+	record_direct(c, n, base);
 	slot_count sc = {0};
 	count_slots(n, &sc);
 	uint32_t top = u->ntops++;
@@ -1386,7 +1378,10 @@ void cljc_free(cljc_compiler *c) {
 	if (c->installed) cljc_end(c);
 	for (size_t i = 0; i < c->nunits; i++) unit_free(c->units[i]);
 	free(c->units);
-	for (size_t i = 0; i < c->nrefusals; i++) free((char *)c->refusals[i].reason);
+	for (size_t i = 0; i < c->nrefusals; i++) {
+		free((char *)c->refusals[i].file);
+		free((char *)c->refusals[i].reason);
+	}
 	free(c->refusals);
 	for (size_t i = 0; i < c->ndirects; i++) {
 		free(c->directs[i].qualified);
@@ -1438,13 +1433,17 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	close_form(u);
 	sb out = {0};
-	sb_printf(&out, "// Generated by clj-compile from %s; do not edit.\n#include \"compiled_internal.h\"\n\n", u->file);
+	sb_printf(&out, "// Generated by clj-compile from %s; do not edit.\n", u->file);
+	if (c->opts.closed && !c->opts.guard_macro) sb_puts(&out, "#define CLJ_CLOSED 1\n");
+	sb_puts(&out, "#include \"compiled_internal.h\"\n\n");
 	sb_printf(&out, "#define FILE_STR %s\n", u->has_file ? "(K[0])" : "CLJ_NIL");
 	if (c->opts.guard_macro) sb_printf(&out, "#ifdef %s\n", c->opts.guard_macro);
 	sb_printf(&out, "static clj_value K[%zu];\nstatic clj_value V[%zu];\nstatic clj_value B[%zu];\nstatic const clj_intrinsic *OP[%zu];\nstatic const clj_fusion_var *F[%zu];\nstatic clj_node S[%u];\n",
 	          u->consts.n ? u->consts.n : 1, u->vars.n ? u->vars.n : 1, u->ops.n ? u->ops.n : 1, u->ops.n ? u->ops.n : 1, u->fusion.n ? u->fusion.n : 1, u->nstubs ? u->nstubs : 1);
 	sb_puts(&out, "static void unit_pools(void);\n");
-	if (c->opts.closed) emit_direct_prelude(c, u, &out);
+	sb_puts(&out, "#ifdef CLJ_CLOSED\n");
+	emit_direct_prelude(c, u, &out);
+	sb_puts(&out, "#endif\n");
 	sb_puts(&out, "\n");
 	sb_put(&out, u->protos.s ? u->protos.s : "", u->protos.len);
 	sb_puts(&out, "\n");

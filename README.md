@@ -14,10 +14,15 @@ Design decisions live in [docs/design.md](docs/design.md) (Russian), known simpl
 mechanism behind each in [NOTES.md](NOTES.md).
 
 ```sh
-make build      # swift build
-make test       # ASan run with the system allocator
-make test-all   # every sanitizer and allocator mode
+make build           # swift build
+make test            # ASan run with the system allocator
+make test-all        # every sanitizer and allocator mode
+make test-compiled   # the suite on the compiled core.clj (-DCLJ_COMPILED_CORE)
+make corpus-compiled # the corpora through compiled user code, compared with the interpreter line by line
 make bench
 ```
+
+`Sources/CljCompiler` is the C generator over the analyzer's trees and `clj-compile` its tool; `make boot`
+regenerates the embedded core and its compiled form (NOTES.md, "Compiler").
 
 Requires Swift 6 and macOS 12 / iOS 15.

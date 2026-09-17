@@ -119,8 +119,9 @@ static bool run_clang(const cljc_eval_options *o, const char *cfile, const char 
 	return false;
 }
 
+// Lazy: a closed unit binds to symbols of units it requires, which load after it in dependency order.
 const clj_compiled_unit *cljc_open_dylib(const char *path) {
-	void *h = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+	void *h = dlopen(path, RTLD_LAZY | RTLD_GLOBAL);
 	if (!h) {
 		clj_throw_msg("dlopen failed: %s", dlerror());
 		return NULL;
