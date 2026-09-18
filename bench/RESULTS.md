@@ -1179,3 +1179,41 @@ bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`, befo
 - The dot product moves 38 → 36 by the `let`'s split alone (`n` typed, `(< i n)` unboxed); the products and the
   sum are the boxed calls they were, as in the interpreter.
 - The rows without a double or an entry-checked frame are unchanged within the session's spread.
+
+## Compiled protocol calls — 2026-09-18, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The closed compiled-core binary with every bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1
+CLJ_EVAL_OPT=-O2`, before (e6243aa: a compiled site calls the method fn, which walks the tables) and after (NOTES.md
+"Compiler", protocol calls: direct arms from the receiver fact under a per-epoch cell, a per-thread inline cache for
+the rest); two runs each. Two new rows define the loop as a def'd fn whose only caller passes a deftype of a
+one-implementor protocol (the join names the receiver, the arm resolves) and as a closure over the receiver (top
+inside the body: the cache). The last two compile the deftype and its caller as *one unit from a file* in-process,
+the way `clj-compile` emits a namespace: there the arm is a static call in the same translation unit; a compiled-eval
+form's arm reaches the deftype's unit through the registry, a pointer call. Interpreted forms do not move (their sites
+keep the interpreter's cache), nor do the compiled-core columns without the compiled eval.
+
+ns per iteration, `n` = 100000.
+
+| scenario | before | after |
+|---|---:|---:|
+| protocol call, deftype receiver | 16.8 / 19.2 | 8.9 / 9.1 |
+| protocol call, fixnum receiver | 17.9 / 17.9 | 8.8 / 9.1 |
+| protocol call, bi-morphic | 21.6 / 21.8 | 12.2 / 12.4 |
+| protocol call, receiver known from the caller | 17.1 / 17.2 | 8.7 / 8.8 |
+| protocol call, captured receiver | 16.9 / 17.2 | 8.8 / 9.0 |
+| protocol call, known receiver, one closed unit | 17.4 / 17.4 | 8.5 / 8.5 |
+| protocol call, known receiver, one dev unit | 18.9 / 19.1 | 9.3 / 9.3 |
+| protocol call, keyword receiver (dispatch section) | 17.3 / 17.4 | 8.6 / 9.0 |
+| plain fn call through a var | 8.1 / 8.1 | 7.9 / 8.0 |
+
+- **Every monomorphic row lands on the plain fn call** (8–9 ns against 8.0): what the table walk, the method fn's
+  own `clj_invoke` layers and the impl's dispatcher cost (~9 ns) is gone; what is left is the callee itself — the
+  argument array, `clj_c_enter`/`clj_c_leave` (the shadow frame, the deadline, the instrumentation byte) and the
+  loop, the same ~7 ns a direct call of a `(def f …)` pays in the "closure call in a loop" row. The design's "≈ a
+  direct C call, ~5 ns when the body inlines" would need the entry protocol to inline away too; trigger: a profile
+  where the shadow frame of a method body shows, then a leaf-fn entry without it.
+- **The arm and the cache cost the same within noise** (8.5 vs 9.3 in one unit; 8.7 vs 8.8 across units): a hit
+  of either is two loads and two compares before the call; the arm saves the impl's dispatcher (a switch on the
+  arity) and the indirect branch, and buys clang the option of inlining a static body, which the entry protocol
+  above keeps it from cashing.
+- **Bi-morphic 22 → 12**: two arms under one `pt` load; the rest of the row is `(even? i)` and the `if`.
