@@ -203,6 +203,23 @@ static clj_value impl_of(clj_value proto, uint32_t idx, clj_value v) {
 	return f;
 }
 
+void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx) {
+	reader     *r = window_open();
+	side_table *s = atomic_load_explicit(&side, memory_order_seq_cst);
+	for (uint32_t i = 0; s && i < s->cap; i++) {
+		const side_slot *slot = &s->slots[i];
+		if (slot->key && !clj_is_nil(table_find(slot->table, proto))) visit(slot->key, ctx);
+	}
+	window_close(r);
+}
+
+bool clj_proto_is_interface_type(const clj_type *t) {
+	for (size_t i = 0; i < NINTERFACES; i++) {
+		if (t == &interfaces[i].type) return true;
+	}
+	return false;
+}
+
 static bool type_satisfies(const clj_type *t, clj_value proto) {
 	reader   *r = window_open();
 	clj_value fns = find_fns(t, proto);
@@ -475,7 +492,11 @@ clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map
 	proto_table *old = immortal ? side_find(old_side, t) : __atomic_load_n((void *const *)&t->user_protos, __ATOMIC_RELAXED);
 	proto_table *fresh = table_with(old, proto, fns);
 	if (immortal) atomic_store_explicit(&side, side_with(old_side, t, fresh), memory_order_seq_cst);
-	else __atomic_store_n(&((clj_type *)t)->user_protos, fresh, __ATOMIC_SEQ_CST);
+	else {
+		__atomic_store_n(&((clj_type *)t)->user_protos, fresh, __ATOMIC_SEQ_CST);
+		_Atomic uint32_t *counter = (t->core_bits & CLJ_CORE_RECORD) ? &clj_protocol_of(proto)->user_records : &clj_protocol_of(proto)->user_types;
+		atomic_fetch_add_explicit(counter, 1, memory_order_relaxed);
+	}
 	clj_epoch_bump();
 	wait_readers();
 	clj_lock_unlock(&lock);

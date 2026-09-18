@@ -9,6 +9,7 @@
 
 #include "clj/core.h"
 #include "clj/facts.h"
+#include "clj/summary.h"
 
 #define MAX_FILES 512
 #define MAX_LIBS 16
@@ -30,12 +31,27 @@ typedef struct {
 	uint64_t proto_calls, proto_known;
 	uint64_t kw_lookups, kw_shaped, kw_record;
 	uint64_t conflicts, widenings, bottom_unexplained;
+	uint64_t call_conflicts, hits, narrowed; // pass 2 only
 	double   analyze_ms, facts_ms;
 	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
 } stats;
 
-static stats libs[MAX_LIBS];
+// Every form is measured twice: pass 1 alone (before) and with the summaries (after).
+static stats libs[MAX_LIBS], before[MAX_LIBS];
 static int   nlibs;
+
+static clj_summaries *sums;
+
+#define MAX_MESSAGES 64
+static char messages[MAX_MESSAGES][512];
+static int  nmessages;
+
+static void note_conflict(const char *path, const clj_call_conflict *c) {
+	if (nmessages == MAX_MESSAGES) return;
+	char text[400];
+	clj_call_conflict_message(c, text, sizeof text);
+	snprintf(messages[nmessages++], sizeof messages[0], "%s: %s", strrchr(path, '/') ? strrchr(path, '/') + 1 : path, text);
+}
 
 static double now_ms(void) {
 	struct timespec ts;
@@ -195,6 +211,9 @@ static void tally(stats *s, const clj_node *root, const clj_facts *f) {
 	s->bytes += clj_facts_bytes(f);
 	s->conflicts += clj_facts_conflicts(f);
 	s->widenings += clj_facts_widenings(f);
+	s->call_conflicts += clj_facts_ncall_conflicts(f);
+	s->hits += clj_facts_summary_hits(f);
+	s->narrowed += clj_facts_narrowed_args(f);
 }
 
 typedef struct {
@@ -210,7 +229,30 @@ static void find_node(const clj_node *n, void *ctx) {
 
 // ---- one source file: read it back after the load, analyze every form, build its facts
 
-static void measure_file(stats *s, const char *path, const char *ns_name) {
+// One table of a form into its stats; reports the dead branches and, with summaries, the call conflicts.
+static void measure_table(stats *s, const char *path, clj_node *root, clj_facts *f) {
+	if (clj_facts_bytes(f) > s->peak_bytes) s->peak_bytes = clj_facts_bytes(f);
+	if (clj_facts_conflicts(f) > 0 && s == &libs[s - libs] && (size_t)(s - libs) < MAX_LIBS) {
+		find_ctx fc = {clj_facts_conflict_node(f), NULL};
+		find_node(root, &fc);
+		const char *what = "?";
+		if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC) what = fc.found->u.intrinsic.op->name;
+		else if (fc.found && fc.found->kind == CLJ_NODE_INVOKE && fc.found->u.invoke.fn->kind == CLJ_NODE_VAR)
+			what = clj_string_bytes(clj_symbol_name(clj_var_name(fc.found->u.invoke.fn->u.var)));
+		else if (fc.found && fc.found->kind == CLJ_NODE_LOCAL) what = "local";
+		uint32_t argtypes = 0;
+		if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC && fc.found->u.intrinsic.n == 1) {
+			const clj_fact *a = clj_facts_node(f, fc.found->u.intrinsic.args[0]->id);
+			if (a) argtypes = a->types;
+		}
+		fprintf(stderr, "clj-facts: %u dead branch(es) in %s, first at %u:%u on %s, argument %#x\n", clj_facts_conflicts(f), path,
+		        fc.found ? fc.found->line : root->line, fc.found ? fc.found->col : 0, what, argtypes);
+	}
+	for (uint32_t i = 0; i < clj_facts_ncall_conflicts(f); i++) note_conflict(path, clj_facts_call_conflict(f, i));
+	tally(s, root, f);
+}
+
+static void measure_file(stats *s, stats *b, const char *path, const char *ns_name) {
 	size_t len = 0;
 	char  *src = read_file(path, &len);
 	if (!src) {
@@ -243,30 +285,20 @@ static void measure_file(stats *s, const char *path, const char *ns_name) {
 			continue;
 		}
 		s->analyze_ms += t1 - t0;
+		b->analyze_ms += t1 - t0;
 		s->forms++;
+		b->forms++;
 		double     t2 = now_ms();
-		clj_facts *f = clj_facts_of(root);
+		clj_facts *f1 = clj_facts_of(root);
 		double     t3 = now_ms();
-		s->facts_ms += t3 - t2;
-		if (clj_facts_bytes(f) > s->peak_bytes) s->peak_bytes = clj_facts_bytes(f);
-		if (clj_facts_conflicts(f) > 0) {
-			find_ctx fc = {clj_facts_conflict_node(f), NULL};
-			find_node(root, &fc);
-			const char *what = "?";
-			if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC) what = fc.found->u.intrinsic.op->name;
-			else if (fc.found && fc.found->kind == CLJ_NODE_INVOKE && fc.found->u.invoke.fn->kind == CLJ_NODE_VAR)
-				what = clj_string_bytes(clj_symbol_name(clj_var_name(fc.found->u.invoke.fn->u.var)));
-			else if (fc.found && fc.found->kind == CLJ_NODE_LOCAL) what = "local";
-			uint32_t argtypes = 0;
-			if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC && fc.found->u.intrinsic.n == 1) {
-				const clj_fact *a = clj_facts_node(f, fc.found->u.intrinsic.args[0]->id);
-				if (a) argtypes = a->types;
-			}
-			fprintf(stderr, "clj-facts: %u dead branch(es) in %s, first at %u:%u on %s, argument %#x\n", clj_facts_conflicts(f),
-			        path, fc.found ? fc.found->line : root->line, fc.found ? fc.found->col : 0, what, argtypes);
-		}
-		tally(s, root, f);
-		clj_facts_free(f);
+		clj_facts *f2 = clj_facts_of_with(root, sums);
+		double     t4 = now_ms();
+		b->facts_ms += t3 - t2;
+		s->facts_ms += t4 - t3;
+		measure_table(b, path, root, f1);
+		measure_table(s, path, root, f2);
+		clj_facts_free(f1);
+		clj_facts_free(f2);
 		clj_release(clj_from_ptr(root));
 	}
 	clj_ns_set_current(previous);
@@ -349,12 +381,13 @@ static clj_value manifest_of(const char *lib_root) {
 static clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
 
 static void run_library(const char *name, const char *root, const char *const *roots, size_t nroots, clj_value features) {
-	stats *s = &libs[nlibs++];
+	stats *s = &libs[nlibs], *b = &before[nlibs++];
 	snprintf(s->name, sizeof s->name, "%s", name);
 	s->tests_only = nroots > 0;
 	for (size_t i = 0; i < nroots; i++) {
 		if (strcmp(roots[i], "test") != 0) s->tests_only = false;
 	}
+	*b = *s;
 	nfiles = 0;
 	for (size_t i = 0; i < nroots; i++) {
 		char dir[512];
@@ -377,7 +410,7 @@ static void run_library(const char *name, const char *root, const char *const *r
 		eval_string(form);
 	}
 	clj_release(clj_load_take_failures());
-	for (int i = 0; i < nfiles; i++) measure_file(s, files[i].path, files[i].ns);
+	for (int i = 0; i < nfiles; i++) measure_file(s, b, files[i].path, files[i].ns);
 	clj_load_set_lenient(false);
 	clj_reader_set_features(CLJ_NIL);
 	clj_load_path_set(NULL, 0);
@@ -419,23 +452,33 @@ static void add(stats *total, const stats *s) {
 	total->conflicts += s->conflicts;
 	total->widenings += s->widenings;
 	total->bottom_unexplained += s->bottom_unexplained;
+	total->call_conflicts += s->call_conflicts;
+	total->hits += s->hits;
+	total->narrowed += s->narrowed;
 	total->analyze_ms += s->analyze_ms;
 	total->facts_ms += s->facts_ms;
 }
 
-static void row_types(FILE *out, const stats *s) {
-	fprintf(out, "| %s | %llu | %llu | %.1f %% | %.1f %% | %.1f %% | %.1f %% | %llu | %.1f %% |\n", s->name,
-	        (unsigned long long)s->forms, (unsigned long long)s->value_nodes, pct(s->type_known, s->value_nodes),
-	        pct(s->type_union, s->value_nodes), pct(s->type_top, s->value_nodes), pct(s->null_known, s->value_nodes),
-	        (unsigned long long)s->computed, pct(s->computed_known, s->computed));
+static void row_types(FILE *out, const stats *b, const stats *s) {
+	fprintf(out, "| %s | %llu | %llu | %.1f → %.1f %% | %.1f → %.1f %% | %.1f → %.1f %% | %.1f → %.1f %% | %llu | %.1f → %.1f %% |\n",
+	        s->name, (unsigned long long)s->forms, (unsigned long long)s->value_nodes, pct(b->type_known, b->value_nodes),
+	        pct(s->type_known, s->value_nodes), pct(b->type_union, b->value_nodes), pct(s->type_union, s->value_nodes),
+	        pct(b->type_top, b->value_nodes), pct(s->type_top, s->value_nodes), pct(b->null_known, b->value_nodes),
+	        pct(s->null_known, s->value_nodes), (unsigned long long)s->computed, pct(b->computed_known, b->computed),
+	        pct(s->computed_known, s->computed));
 }
 
-static void row_positions(FILE *out, const stats *s) {
-	fprintf(out, "| %s | %llu / %.1f %% | %llu / %.1f %% | %llu / %.1f %% | %llu / %.1f %% | %llu / %.1f %% | %llu / %.1f %% |\n", s->name,
-	        (unsigned long long)s->arith, pct(s->arith_fixnum, s->arith), (unsigned long long)s->loops,
-	        pct(s->loops_numeric, s->loops), (unsigned long long)s->slots, pct(s->slots_local, s->slots),
-	        (unsigned long long)s->proto_calls, pct(s->proto_known, s->proto_calls), (unsigned long long)s->kw_lookups,
-	        pct(s->kw_shaped, s->kw_lookups), (unsigned long long)s->arith, pct(s->arith_int, s->arith));
+static void row_positions(FILE *out, const stats *b, const stats *s) {
+	fprintf(out,
+	        "| %s | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | "
+	        "%llu / %llu → %llu | %llu / %.1f → %.1f %% |\n",
+	        s->name, (unsigned long long)s->arith, pct(b->arith_fixnum, b->arith), pct(s->arith_fixnum, s->arith),
+	        (unsigned long long)s->loops, pct(b->loops_numeric, b->loops), pct(s->loops_numeric, s->loops), (unsigned long long)s->slots,
+	        pct(b->slots_local, b->slots), pct(s->slots_local, s->slots), (unsigned long long)s->proto_calls,
+	        pct(b->proto_known, b->proto_calls), pct(s->proto_known, s->proto_calls), (unsigned long long)s->kw_lookups,
+	        pct(b->kw_shaped, b->kw_lookups), pct(s->kw_shaped, s->kw_lookups), (unsigned long long)s->kw_lookups,
+	        (unsigned long long)b->kw_record, (unsigned long long)s->kw_record, (unsigned long long)s->arith, pct(b->arith_int, b->arith),
+	        pct(s->arith_int, s->arith));
 }
 
 static void write_report(const char *path) {
@@ -444,102 +487,115 @@ static void write_report(const char *path) {
 		fprintf(stderr, "clj-facts: cannot write %s\n", path);
 		exit(1);
 	}
-	stats total = {0}, code = {0};
+	stats total = {0}, code = {0}, btotal = {0}, bcode = {0};
 	snprintf(total.name, sizeof total.name, "**all**");
 	snprintf(code.name, sizeof code.name, "**library code**");
 	for (int i = 0; i < nlibs; i++) {
 		add(&total, &libs[i]);
-		if (!libs[i].tests_only) add(&code, &libs[i]);
+		add(&btotal, &before[i]);
+		if (!libs[i].tests_only) {
+			add(&code, &libs[i]);
+			add(&bcode, &before[i]);
+		}
 	}
 
 	fprintf(out, "# Type-fact coverage\n\n");
 	fprintf(out, "Generated by `make facts-report` (`Sources/clj-facts`): every library is loaded, then every top-level\n"
-	             "form of every file is analyzed again and `clj_facts_of` is run over its optimized tree. Pass 1 is local\n"
-	             "only — a call of anything but a known intrinsic or C builtin is ⊤ — so these are the numbers before any\n"
-	             "interprocedural summary exists (design §10 step 3b, NOTES.md \"Facts\").\n\n");
+	             "form of every file is analyzed again and its optimized tree is measured twice — pass 1 alone (`clj_facts_of`,\n"
+	             "the *before* of every cell) and with function summaries consulted at call sites (`clj_facts_of_with`, the\n"
+	             "*after*: pass 1 bottom-up summaries and pass 2 top-down refinement, design §3, NOTES.md \"Facts\"). One summary\n"
+	             "store serves the whole run, so the corpus is measured as a closed world.\n\n");
 	fprintf(out, "## What the numbers mean\n\n");
 	fprintf(out, "A *value-producing node* is every node but `recur`, `throw` and the direct-fn init. *Known* is a fact of\n"
 	             "exactly one kind, *union* two to four, ⊤ everything else — the lattice widens past four members, so the ⊤\n"
 	             "column is \"nothing useful\", not \"five kinds\". *Computed nodes* leave the constants out: a literal knows its\n"
 	             "own type, so the share over computed nodes is what an optimizer actually gains. A library whose every\n"
 	             "load-path root is named `test` is counted apart, because assertion expansions are mostly literals.\n\n");
-	fprintf(out, "- Over library code: **%.1f %%** of value nodes have a known type and **%.1f %%** are ⊤, but only **%.1f %%**\n"
-	             "  of *computed* nodes are known — every call of anything but an intrinsic or an annotated C builtin is ⊤,\n"
-	             "  and that is the whole cost of having no interprocedural pass.\n",
-	        pct(code.type_known, code.value_nodes), pct(code.type_top, code.value_nodes), pct(code.computed_known, code.computed));
-	fprintf(out, "- Nullability is decided for **%.1f %%** of value nodes over library code, and it survives where the type\n"
-	             "  does not: removing nil from ⊤ leaves 26 kinds, which the union cap sends straight back to ⊤.\n",
-	        pct(code.null_known, code.value_nodes));
+	fprintf(out, "- Over library code: **%.1f → %.1f %%** of value nodes have a known type and **%.1f → %.1f %%** are ⊤; over\n"
+	             "  *computed* nodes **%.1f → %.1f %%** are known. What the summaries add is every call of a var whose root is a\n"
+	             "  closure with a walkable body or an annotated builtin, every var read (the kind of its root, epoch-guarded)\n"
+	             "  and every direct call.\n",
+	        pct(bcode.type_known, bcode.value_nodes), pct(code.type_known, code.value_nodes), pct(bcode.type_top, bcode.value_nodes),
+	        pct(code.type_top, code.value_nodes), pct(bcode.computed_known, bcode.computed), pct(code.computed_known, code.computed));
+	fprintf(out, "- Nullability is decided for **%.1f → %.1f %%** of value nodes over library code.\n",
+	        pct(bcode.null_known, bcode.value_nodes), pct(code.null_known, code.value_nodes));
 	fprintf(out, "- **Local slots** (the register prize): %llu slots over library code, **%.1f %%** of which never escape and\n"
-	             "  are never captured. This is the one position with both a large population and a large known share.\n",
+	             "  are never captured; escaping is pass 1's and the summaries do not move it.\n",
 	        (unsigned long long)code.slots, pct(code.slots_local, code.slots));
-	fprintf(out, "- **Intrinsic arithmetic** (the unboxing prize): %llu two-argument sites over library code, **%.1f %%** with\n"
-	             "  both arguments known-fixnum and **%.1f %%** with both known to be int64-representable (fixnum or boxed long).\n",
-	        (unsigned long long)code.arith, pct(code.arith_fixnum, code.arith), pct(code.arith_int, code.arith));
-	fprintf(out, "- **Loops**: %llu over library code, **%.1f %%** with every variable of one numeric domain.\n",
-	        (unsigned long long)code.loops, pct(code.loops_numeric, code.loops));
-	fprintf(out, "- **Protocol receivers** (the inline-cache prize): %llu sites, **%.1f %%** with a known type — a receiver is\n"
-	             "  a parameter, and a parameter is ⊤ until function summaries exist.\n",
-	        (unsigned long long)total.proto_calls, pct(total.proto_known, total.proto_calls));
-	fprintf(out, "- **`(:k m)` lookups**: %llu sites, **%.1f %%** on a value known to be a map of some kind and %llu on a record.\n"
-	             "  Pass 1 learns a record type only from an `instance?` check against a builtin type name: a `defrecord` type is\n"
-	             "  a var, and reading a var's root is runtime state the pass refuses.\n",
-	        (unsigned long long)total.kw_lookups, pct(total.kw_shaped, total.kw_lookups), (unsigned long long)total.kw_record);
-	fprintf(out, "- Cost: %.0f ms of facts against %.0f ms of analysis over the same forms (%.2f×); the largest single table is\n"
-	             "  %.0f KB for one top-level form.\n",
-	        total.facts_ms, total.analyze_ms, total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0,
-	        (double)total.peak_bytes / 1024);
-	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu, every one of them a branch a literal makes unreachable\n"
-	             "  (`(and false true)`, `(when-let [x [0]] …)`, `(= 1 x)` before `(ratio? x)`). Value nodes at ⊥: %llu, of which\n"
-	             "  %llu neither unreachable nor explained by a throw — the lattice is wrong wherever that is not zero.\n"
-	             "  Loop variables the widening rule cut short: %llu.\n\n",
-	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom,
-	        (unsigned long long)total.bottom_unexplained, (unsigned long long)total.widenings);
-	fprintf(out, "**What to build first.** By population and by known share the answer is escaping, not types: %.1f %% of local\n"
-	             "slots over library code provably never leave their frame, against %llu arithmetic sites in total of which\n"
-	             "%.1f %% have both arguments known-fixnum, and %llu protocol receivers of which none has a known type. Registers\n"
-	             "and stack allocation are worth building on pass 1 alone; unboxing and inline caches are waiting on the\n"
-	             "interprocedural pass, not on a consumer.\n\n",
-	        pct(code.slots_local, code.slots), (unsigned long long)total.arith, pct(total.arith_fixnum, total.arith),
-	        (unsigned long long)total.proto_calls);
+	fprintf(out, "- **Intrinsic arithmetic** (the unboxing prize): %llu two-argument sites over library code, **%.1f → %.1f %%**\n"
+	             "  with both arguments known-fixnum and **%.1f → %.1f %%** with both known to be int64-representable.\n",
+	        (unsigned long long)code.arith, pct(bcode.arith_fixnum, bcode.arith), pct(code.arith_fixnum, code.arith),
+	        pct(bcode.arith_int, bcode.arith), pct(code.arith_int, code.arith));
+	fprintf(out, "- **Loops**: %llu over library code, **%.1f → %.1f %%** with every variable of one numeric domain.\n",
+	        (unsigned long long)code.loops, pct(bcode.loops_numeric, bcode.loops), pct(code.loops_numeric, code.loops));
+	fprintf(out, "- **Protocol receivers** (the inline-cache prize): %llu sites, **%.1f → %.1f %%** with a known type. A receiver\n"
+	             "  that is a var read (`defmethod` expands to `(-add-method mf …)` on the multimethod's var) takes the kind of\n"
+	             "  the root; a receiver that is a parameter meets the method's requirement, the join of the kinds in the\n"
+	             "  protocol's tables (one deftype implementor: known).\n",
+	        (unsigned long long)total.proto_calls, pct(btotal.proto_known, btotal.proto_calls), pct(total.proto_known, total.proto_calls));
+	fprintf(out, "- **`(:k m)` lookups**: %llu sites, **%.1f → %.1f %%** on a value known to be a map of some kind and\n"
+	             "  %llu → %llu on a record. A record type is known where the value comes from `->Foo` or `map->Foo`, whose\n"
+	             "  summaries answer the record kind with its descriptor (`new*`/`record-map*` on the type's var).\n",
+	        (unsigned long long)total.kw_lookups, pct(btotal.kw_shaped, btotal.kw_lookups), pct(total.kw_shaped, total.kw_lookups),
+	        (unsigned long long)btotal.kw_record, (unsigned long long)total.kw_record);
+	fprintf(out, "- Cost: pass 1 alone %.0f ms, with the summaries %.0f ms, against %.0f ms of analysis over the same forms\n"
+	             "  (%.2f× → %.2f×); the largest single table is %.0f KB. The store holds %u summaries, ran %u fixpoint rounds\n"
+	             "  beyond the first, widened %u, and recomputed %u after a redefinition.\n",
+	        btotal.facts_ms, total.facts_ms, total.analyze_ms, total.analyze_ms > 0 ? btotal.facts_ms / total.analyze_ms : 0.0,
+	        total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0, (double)total.peak_bytes / 1024, clj_summaries_count(sums),
+	        clj_summaries_rounds(sums), clj_summaries_widenings(sums), clj_summaries_invalidated(sums));
+	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu, every one a branch a literal makes unreachable. Value nodes\n"
+	             "  at ⊥: %llu, of which %llu neither unreachable nor explained by a throw — the lattice is wrong wherever that is\n"
+	             "  not zero. Loop variables the widening rule cut short: %llu.\n",
+	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.bottom_unexplained,
+	        (unsigned long long)total.widenings);
+	fprintf(out, "- Pass 2: %llu call sites took a summary, %llu arguments were narrowed by a requirement, %llu proven conflicts\n"
+	             "  (an argument met a requirement down to ⊥; listed below, reported here only — no strictness mode is on).\n\n",
+	        (unsigned long long)total.hits, (unsigned long long)total.narrowed, (unsigned long long)total.call_conflicts);
 	fprintf(out, "## Types and nullability\n\n");
+	fprintf(out, "Each percentage is before → after the summaries.\n\n");
 	fprintf(out, "| library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |\n");
 	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|\n");
-	for (int i = 0; i < nlibs; i++) row_types(out, &libs[i]);
-	row_types(out, &code);
-	row_types(out, &total);
+	for (int i = 0; i < nlibs; i++) row_types(out, &before[i], &libs[i]);
+	row_types(out, &bcode, &code);
+	row_types(out, &btotal, &total);
 
 	fprintf(out, "\n## The positions that pay\n\n");
-	fprintf(out, "Each cell is the population and the share of it that is known.\n\n");
+	fprintf(out, "Each cell is the population and the share of it that is known, before → after.\n\n");
 	fprintf(out, "| library | arith sites / both fixnum | loops / all vars one numeric kind | local slots / never leave the frame | "
-	             "protocol receivers / known type | `(:k m)` / known map shape | arith sites / both integer |\n");
-	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|\n");
-	for (int i = 0; i < nlibs; i++) row_positions(out, &libs[i]);
-	row_positions(out, &code);
-	row_positions(out, &total);
+	             "protocol receivers / known type | `(:k m)` / known map shape | `(:k m)` / on a record | arith sites / both integer |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|\n");
+	for (int i = 0; i < nlibs; i++) row_positions(out, &before[i], &libs[i]);
+	row_positions(out, &bcode, &code);
+	row_positions(out, &btotal, &total);
 
 	fprintf(out, "\n## Local slots\n\n");
 	fprintf(out, "| library | slots | local | captured | escapes |\n");
 	fprintf(out, "|---|---:|---:|---:|---:|\n");
 	for (int i = 0; i <= nlibs + 1; i++) {
 		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
-		fprintf(out, "| %s | %llu | %.1f %% | %.1f %% | %.1f %% |\n", s->name, (unsigned long long)s->slots,
-		        pct(s->slots_local, s->slots), pct(s->slots_captured, s->slots), pct(s->slots_escapes, s->slots));
+		fprintf(out, "| %s | %llu | %.1f %% | %.1f %% | %.1f %% |\n", s->name, (unsigned long long)s->slots, pct(s->slots_local, s->slots),
+		        pct(s->slots_captured, s->slots), pct(s->slots_escapes, s->slots));
 	}
 
 	fprintf(out, "\n## Cost per library\n\n");
-	fprintf(out, "| library | forms | nodes | analysis, ms | facts, ms | facts / analysis | tables, KB | largest table, KB |\n");
-	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|\n");
+	fprintf(out, "| library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | facts / analysis | tables, KB | largest table, KB |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|\n");
 	for (int i = 0; i <= nlibs + 1; i++) {
 		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
-		fprintf(out, "| %s | %llu | %llu | %.1f | %.1f | %.2f× | %.0f | %.0f |\n", s->name, (unsigned long long)s->forms,
-		        (unsigned long long)s->nodes, s->analyze_ms, s->facts_ms, s->analyze_ms > 0 ? s->facts_ms / s->analyze_ms : 0.0,
-		        (double)s->bytes / 1024, (double)s->peak_bytes / 1024);
+		const stats *b = i < nlibs ? &before[i] : (i == nlibs ? &bcode : &btotal);
+		fprintf(out, "| %s | %llu | %llu | %.1f | %.1f | %.1f | %.2f× → %.2f× | %.0f | %.0f |\n", s->name, (unsigned long long)s->forms,
+		        (unsigned long long)s->nodes, s->analyze_ms, b->facts_ms, s->facts_ms, s->analyze_ms > 0 ? b->facts_ms / s->analyze_ms : 0.0,
+		        s->analyze_ms > 0 ? s->facts_ms / s->analyze_ms : 0.0, (double)s->bytes / 1024, (double)s->peak_bytes / 1024);
 	}
-	fprintf(out, "\n`(:k m)` records specifically: %llu of %llu lookups sit on a value known to be a record — pass 1 learns a\n"
-	             "record type only from an `instance?` check against a builtin type name, and a `defrecord` type is a var whose\n"
-	             "root the pass may not read.\n",
-	        (unsigned long long)total.kw_record, (unsigned long long)total.kw_lookups);
+
+	fprintf(out, "\n## Proven conflicts\n\n");
+	if (nmessages == 0) fprintf(out, "None.\n");
+	else {
+		fprintf(out, "Pass 2 reports a call whose argument meets the callee's requirement down to ⊥, with both positions; the\n"
+		             "argument keeps the caller's fact. Nothing warns outside this report.\n\n");
+		for (int i = 0; i < nmessages; i++) fprintf(out, "- %s\n", messages[i]);
+	}
 	fclose(out);
 	fprintf(stderr, "clj-facts: wrote %s\n", path);
 }
@@ -548,19 +604,22 @@ int main(int argc, char **argv) {
 	const char *repo = argc > 1 ? argv[1] : ".";
 	const char *out = argc > 2 ? argv[2] : "docs/facts-coverage.md";
 	clj_init();
+	sums = clj_summaries_new();
 
 	char boot[512];
 	snprintf(boot, sizeof boot, "%s/Sources/CljCore/boot", repo);
 	// core.clj is loaded by clj_init and its embedded libs by require; both are read back from boot/.
 	eval_string("(require 'clojure.set 'clojure.string 'clojure.walk 'clojure.template 'clojure.test)");
-	stats *core = &libs[nlibs++];
+	stats *core = &libs[nlibs], *bcore = &before[nlibs++];
 	snprintf(core->name, sizeof core->name, "core.clj");
+	*bcore = *core;
 	char core_path[512];
 	snprintf(core_path, sizeof core_path, "%s/core.clj", boot);
-	measure_file(core, core_path, "clojure.core");
+	measure_file(core, bcore, core_path, "clojure.core");
 
-	stats *embedded = &libs[nlibs++];
+	stats *embedded = &libs[nlibs], *bembedded = &before[nlibs++];
 	snprintf(embedded->name, sizeof embedded->name, "embedded libs");
+	*bembedded = *embedded;
 	nfiles = 0;
 	char clojure_dir[512];
 	snprintf(clojure_dir, sizeof clojure_dir, "%s/clojure", boot);
@@ -569,7 +628,7 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < nfiles; i++) {
 		char ns[256];
 		snprintf(ns, sizeof ns, "clojure.%s", files[i].ns);
-		measure_file(embedded, files[i].path, ns);
+		measure_file(embedded, bembedded, files[i].path, ns);
 	}
 
 	char corpus[512];
@@ -617,11 +676,19 @@ int main(int argc, char **argv) {
 	}
 	write_report(out);
 	uint64_t unexplained = 0;
-	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained;
+	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained + before[i].bottom_unexplained;
+	int status = 0;
 	if (unexplained > 0) {
 		fprintf(stderr, "clj-facts: %llu value node(s) at ⊥ with no throw or recur: the lattice is wrong\n",
 		        (unsigned long long)unexplained);
-		return 1;
+		status = 1;
 	}
-	return 0;
+	// an annotation the body contradicts is an error: one of them is wrong
+	for (uint32_t i = 0; i < clj_summaries_nannotation_conflicts(sums); i++) {
+		char text[512];
+		fprintf(stderr, "clj-facts: %s\n", clj_annotation_conflict_message(clj_summaries_annotation_conflict(sums, i), text, sizeof text));
+		status = 1;
+	}
+	clj_summaries_free(sums);
+	return status;
 }

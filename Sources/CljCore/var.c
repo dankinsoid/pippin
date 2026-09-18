@@ -67,6 +67,7 @@ void clj_var_bind_root(clj_value var, clj_value val) {
 	clj_share(val);
 	clj_value old = atomic_exchange_explicit(&clj_var_of(var)->root, clj_retain(val), memory_order_acq_rel);
 	if (old != CLJ_UNBOUND && !clj_eval_retire_root(old)) clj_release(old);
+	atomic_fetch_add_explicit(&clj_var_of(var)->epoch, 1, memory_order_release);
 	clj_epoch_bump();
 }
 

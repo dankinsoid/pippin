@@ -79,9 +79,21 @@ typedef struct {
 } clj_facts_loop;
 
 typedef struct clj_facts clj_facts;
+typedef struct clj_summaries clj_summaries;
+
+// A call whose argument met the callee's requirement down to BOTTOM: a proven conflict with both positions (design §3).
+typedef struct {
+	uint32_t  line, col;         // the argument at the call site
+	uint32_t  use_line, use_col; // the use inside the callee that imposed the requirement; 0 for an annotation
+	clj_value callee;            // var, or nil for a direct fn
+	uint32_t  arg;
+	clj_fact  passed, required;
+} clj_call_conflict;
 
 // Owned; the root is retained, so a singleton stays valid for the table's life. Pure: same tree, same table.
 clj_facts *clj_facts_of(const clj_node *root);
+// The same with summaries consulted at call sites (pass 2): the table then depends on var roots, see clj_facts_valid.
+clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums);
 void       clj_facts_free(clj_facts *f);
 size_t     clj_facts_bytes(const clj_facts *f);
 
@@ -105,6 +117,17 @@ uint32_t clj_facts_conflicts(const clj_facts *f);
 uint32_t clj_facts_conflict_node(const clj_facts *f);
 // Loop variables the widening rule sent to TOP before the fixpoint reached it.
 uint32_t clj_facts_widenings(const clj_facts *f);
+
+uint32_t                 clj_facts_ncall_conflicts(const clj_facts *f);
+const clj_call_conflict *clj_facts_call_conflict(const clj_facts *f, uint32_t i);
+// "used as a map at 12:3, a vector is passed at 40:7" into buf; returns buf.
+const char *clj_call_conflict_message(const clj_call_conflict *c, char *buf, size_t n);
+// Call sites that took a result or a requirement from a summary, and arguments a requirement narrowed.
+uint32_t clj_facts_summary_hits(const clj_facts *f);
+uint32_t clj_facts_narrowed_args(const clj_facts *f);
+// Vars whose root or summary the table rests on; false once any was rebound since (its epoch moved).
+uint32_t clj_facts_ndeps(const clj_facts *f);
+bool     clj_facts_valid(const clj_facts *f);
 
 // ---- the lattice
 

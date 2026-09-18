@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 // Pass 1 of the facts lattice: one forward walk per frame over an optimized tree (NOTES.md, "Facts").
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,6 +29,8 @@
 #include "clj/uuid.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/proto.h"
+#include "facts_internal.h"
 
 // A loop variable that has not settled after this many rounds goes straight to TOP.
 #define WIDEN_ROUNDS 3
@@ -50,6 +53,13 @@ struct clj_facts {
 	uint8_t         *escape;
 	clj_facts_loop  *loops;
 	clj_fact        *vars;
+	clj_summaries   *sums; // borrowed; NULL is pass 1 alone
+	clj_call_conflict *calls;
+	uint32_t         ncalls, ccalls;
+	uint32_t         hits, narrowed;
+	clj_value       *dep_vars;
+	uint32_t        *dep_epochs;
+	uint32_t         ndeps, cdeps;
 };
 
 static void *xalloc(size_t n, size_t size) {
@@ -138,13 +148,10 @@ clj_fact clj_fact_meet(clj_fact a, clj_fact b, uint32_t *conflicts) {
 	return clj_fact_cap(r);
 }
 
-uint32_t clj_fact_kind_of_value(clj_value v) {
-	if (clj_is_nil(v)) return CLJ_T_NIL;
-	if (clj_is_bool(v)) return CLJ_T_BOOL;
-	if (clj_is_fixnum(v)) return CLJ_T_FIXNUM;
-	if (clj_is_char(v)) return CLJ_T_CHAR;
-	if (!clj_is_ptr(v)) return CLJ_T_HOST;
-	const clj_type *t = clj_header_of(v)->type;
+uint32_t clj_facts_kind_of_type(const clj_type *t) {
+	if (t == &clj_nil_dispatch_type) return CLJ_T_NIL;
+	if (t == &clj_boolean_dispatch_type) return CLJ_T_BOOL;
+	if (t == &clj_char_dispatch_type) return CLJ_T_CHAR;
 	if (t == &clj_long_type) return CLJ_T_LONG;
 	if (t == &clj_bigint_type) return CLJ_T_BIGINT;
 	if (t == &clj_ratio_type) return CLJ_T_RATIO;
@@ -165,10 +172,21 @@ uint32_t clj_fact_kind_of_value(clj_value v) {
 	if (t == &clj_inst_type) return CLJ_T_INST;
 	if (t == &clj_regex_type) return CLJ_T_REGEX;
 	if (t->core_bits & CLJ_CORE_RECORD) return CLJ_T_RECORD;
+	// a deftype is host whatever interfaces it implements: (fn? x) is false on one that implements IFn
+	if (!(t->h.flags & CLJ_FLAG_IMMORTAL)) return CLJ_T_HOST;
 	if (t->core_bits & (CLJ_CORE_SEQ | CLJ_CORE_LIST)) return CLJ_T_LIST;
 	if (t == &clj_empty_list_type || t == &clj_lazy_seq_type) return CLJ_T_LIST;
 	if (t->core_bits & CLJ_CORE_FN) return CLJ_T_FN;
 	return CLJ_T_HOST;
+}
+
+uint32_t clj_fact_kind_of_value(clj_value v) {
+	if (clj_is_nil(v)) return CLJ_T_NIL;
+	if (clj_is_bool(v)) return CLJ_T_BOOL;
+	if (clj_is_fixnum(v)) return CLJ_T_FIXNUM;
+	if (clj_is_char(v)) return CLJ_T_CHAR;
+	if (!clj_is_ptr(v)) return CLJ_T_HOST;
+	return clj_facts_kind_of_type(clj_header_of(v)->type);
 }
 
 clj_fact clj_fact_of_value(clj_value v) {
@@ -360,6 +378,8 @@ typedef struct {
 typedef struct {
 	clj_fact   *slots;
 	refinement *pred; // per slot, the refinement its value carries
+	clj_fact   *req;  // per slot, what the uses so far require of its value (TOP: nothing)
+	uint32_t   *req_line, *req_col; // the use that last narrowed req
 	uint32_t    n;
 } env;
 
@@ -384,6 +404,7 @@ typedef struct {
 	bool          dead; // inside a branch a refinement proved unreachable
 	uint32_t     *alias_from, *alias_to;
 	uint32_t      nalias, calias;
+	uint32_t      effects; // of the frame being walked
 } pass;
 
 typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
@@ -391,24 +412,47 @@ typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use);
 
 static env env_new(uint32_t n) {
-	env e = {xalloc(n, sizeof(clj_fact)), xalloc(n, sizeof(refinement)), n};
+	env e = {xalloc(n, sizeof(clj_fact)), xalloc(n, sizeof(refinement)), xalloc(n, sizeof(clj_fact)),
+	         xalloc(n, sizeof(uint32_t)),  xalloc(n, sizeof(uint32_t)),   n};
 	for (uint32_t i = 0; i < n; i++) {
 		e.slots[i] = clj_fact_top();
 		e.pred[i].slot = UINT32_MAX;
+		e.req[i] = clj_fact_top();
 	}
 	return e;
 }
 
+static void env_copy(env *dst, const env *src) {
+	memcpy(dst->slots, src->slots, src->n * sizeof(clj_fact));
+	memcpy(dst->pred, src->pred, src->n * sizeof(refinement));
+	memcpy(dst->req, src->req, src->n * sizeof(clj_fact));
+	memcpy(dst->req_line, src->req_line, src->n * sizeof(uint32_t));
+	memcpy(dst->req_col, src->req_col, src->n * sizeof(uint32_t));
+}
+
 static env env_clone(const env *src) {
-	env e = {xalloc(src->n, sizeof(clj_fact)), xalloc(src->n, sizeof(refinement)), src->n};
-	memcpy(e.slots, src->slots, src->n * sizeof(clj_fact));
-	memcpy(e.pred, src->pred, src->n * sizeof(refinement));
+	env e = env_new(src->n);
+	env_copy(&e, src);
 	return e;
 }
 
 static void env_free(env *e) {
 	free(e->slots);
 	free(e->pred);
+	free(e->req);
+	free(e->req_line);
+	free(e->req_col);
+}
+
+// A branch's requirement holds only on its path: the two are joined, which keeps what the entry already had.
+static void env_join_req(env *e, const env *yes, const env *no) {
+	for (uint32_t i = 0; i < e->n; i++) {
+		clj_fact j = clj_fact_join(yes->req[i], no->req[i]);
+		e->req[i] = j;
+		bool from_yes = clj_fact_eq(j, yes->req[i]);
+		e->req_line[i] = from_yes ? yes->req_line[i] : no->req_line[i];
+		e->req_col[i] = from_yes ? yes->req_col[i] : no->req_col[i];
+	}
 }
 
 // Rebinding a slot retires both its own refinement and every one that was taken over its old value.
@@ -416,6 +460,8 @@ static void env_bind(env *e, uint32_t slot, clj_fact f, refinement r) {
 	if (slot >= e->n) return;
 	e->slots[slot] = f;
 	e->pred[slot] = r;
+	e->req[slot] = clj_fact_top();
+	e->req_line[slot] = e->req_col[slot] = 0;
 	for (uint32_t i = 0; i < e->n; i++) {
 		if (i != slot && e->pred[i].slot == slot) e->pred[i].slot = UINT32_MAX;
 	}
@@ -513,9 +559,9 @@ static uint32_t push_frame(pass *p, uint32_t owner, uint32_t arity, const clj_no
 	return f->nframes++;
 }
 
-// One frame: parameters and free variables are TOP, the body's value leaves the frame.
+// One frame: parameters and free variables are TOP, the body's value leaves the frame; out takes the summary of an arity.
 static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_node *body, const clj_fact *captured,
-                      uint32_t ncaptured, const clj_fact *self) {
+                      uint32_t ncaptured, const clj_fact *self, clj_summary *out) {
 	uint32_t nslots = a ? a->nslots : 0;
 	max_slot(body, &nslots);
 	uint32_t  fi = push_frame(p, owner, a ? a->nparams : 0, body, nslots);
@@ -541,12 +587,27 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 		if (np > nslots) np = nslots;
 	}
 	recur_target t = {pf, params, np, false};
+	uint32_t     effects = p->effects;
 	p->frame = &fc;
 	p->recur = &t;
-	infer(p, body, &e, USE_ESCAPE);
+	p->effects = 0;
+	clj_fact ret = infer(p, body, &e, USE_ESCAPE);
 	resolve_aliases(p, base);
+	if (out && a) {
+		out->nparams = a->nparams;
+		out->variadic = a->variadic;
+		out->inferred = true;
+		out->effects = p->effects;
+		out->ret = ret;
+		for (uint32_t i = 0; i < np; i++) {
+			out->params[i] = e.req[i];
+			out->param_line[i] = e.req_line[i];
+			out->param_col[i] = e.req_col[i];
+		}
+	}
 	p->frame = saved_frame;
 	p->recur = saved_recur;
+	p->effects = effects; // a closure body's effects are its own, not the definer's
 	env_free(&e);
 }
 
@@ -554,7 +615,7 @@ static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_
 	clj_fact self = fact_of(CLJ_T_FN);
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
 		const clj_fn_arity *a = i <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[i] : n->u.fn.variadic;
-		if (a) run_frame(p, n->id, a, a->body, captured, ncaptured, &self);
+		if (a) run_frame(p, n->id, a, a->body, captured, ncaptured, &self, NULL);
 	}
 }
 
@@ -726,15 +787,115 @@ static clj_fact sig_result(const fact_sig *s, const clj_fact *args, uint32_t n) 
 	return clj_fact_cap(r);
 }
 
-static clj_fact infer_call(pass *p, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s) {
-	clj_fact fs[4];
-	use_kind use = (s && !s->keeps) ? USE_NONE : USE_ESCAPE;
+// ---- pass 2: summaries at call sites (design §3)
+
+static void add_dep(clj_facts *f, clj_value var) {
+	for (uint32_t i = 0; i < f->ndeps; i++) {
+		if (f->dep_vars[i] == var) return;
+	}
+	if (f->ndeps == f->cdeps) {
+		f->cdeps = f->cdeps ? f->cdeps * 2 : 16;
+		f->dep_vars = xgrow(f->dep_vars, f->cdeps, sizeof(clj_value));
+		f->dep_epochs = xgrow(f->dep_epochs, f->cdeps, sizeof(uint32_t));
+	}
+	f->dep_vars[f->ndeps] = var;
+	f->dep_epochs[f->ndeps] = clj_var_epoch(var);
+	f->ndeps++;
+}
+
+static const clj_summary *summary_of(pass *p, clj_value var, uint32_t nargs) {
+	if (!p->f->sums || !clj_is_var(var)) return NULL;
+	const clj_summary *s = clj_summary_of_var(p->f->sums, var, nargs);
+	add_dep(p->f, var);
+	return s;
+}
+
+static void add_call_conflict(pass *p, const clj_node *arg, uint32_t use_line, uint32_t use_col, clj_value callee, uint32_t i,
+                              clj_fact have, clj_fact req) {
+	clj_facts *f = p->f;
+	if (f->ncalls == f->ccalls) {
+		f->ccalls = f->ccalls ? f->ccalls * 2 : 8;
+		f->calls = xgrow(f->calls, f->ccalls, sizeof(clj_call_conflict));
+	}
+	clj_call_conflict c = {arg->line, arg->col, use_line, use_col, callee, i, have, req};
+	f->calls[f->ncalls++] = c;
+}
+
+// A conflict is reported and not stored, so a ⊥ node keeps meaning "the lattice is wrong".
+static void require_arg(pass *p, env *e, const clj_node *arg, clj_fact have, clj_fact req, uint32_t use_line, uint32_t use_col,
+                        clj_value callee, uint32_t i) {
+	if (clj_fact_is_top(req) || have.types == CLJ_T_BOTTOM) return;
+	uint32_t dummy = 0;
+	clj_fact m = clj_fact_meet(have, req, &dummy);
+	if (m.types == CLJ_T_BOTTOM) {
+		if (p->record && !p->dead) add_call_conflict(p, arg, use_line, use_col, callee, i, have, req);
+		return;
+	}
+	if (p->record && arg->id < p->f->nnodes && !clj_fact_eq(m, have)) {
+		uint8_t dead = p->f->nodes[arg->id].unreachable;
+		p->f->nodes[arg->id] = m;
+		p->f->nodes[arg->id].unreachable = dead;
+		p->f->narrowed++;
+	}
+	if (arg->kind != CLJ_NODE_LOCAL || arg->u.local.index >= e->n) return;
+	uint32_t slot = arg->u.local.index;
+	e->slots[slot] = m;
+	clj_fact rq = clj_fact_meet(e->req[slot], req, &dummy);
+	if (rq.types != CLJ_T_BOTTOM && !clj_fact_eq(rq, e->req[slot])) {
+		e->req[slot] = rq;
+		e->req_line[slot] = arg->line;
+		e->req_col[slot] = arg->col;
+	}
+}
+
+static void apply_summary(pass *p, env *e, const clj_summary *sum, const clj_node *const *args, uint32_t n, const clj_fact *have,
+                          clj_value callee) {
+	if (!sum) return;
+	if (p->record) p->f->hits++;
+	p->effects |= sum->effects;
+	// the rest parameter's requirement is on the seq, not on one element
+	for (uint32_t i = 0; i < n && i < sum->nparams; i++) {
+		require_arg(p, e, args[i], have[i], sum->params[i], sum->param_line[i], sum->param_col[i], callee, i);
+	}
+}
+
+static clj_fact result_with_summary(clj_fact r, const clj_summary *sum) {
+	if (!sum) return r;
+	uint32_t dummy = 0;
+	clj_fact m = clj_fact_meet(r, sum->ret, &dummy);
+	// a signature and a summary that disagree is a bug in one of them; the signature has the differential test behind it
+	return m.types == CLJ_T_BOTTOM ? r : m;
+}
+
+// (new* T ...) and (record-map* T m): the constructor bodies defrecord and deftype expand to.
+static clj_fact construct_result(pass *p, const char *name, const clj_node *const *args, uint32_t n) {
+	if (!p->f->sums || n < 1 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var)) return clj_fact_top();
+	if (strcmp(name, "new*") != 0 && strcmp(name, "record-map*") != 0) return clj_fact_top();
+	clj_value root = clj_var_root(args[0]->u.var);
+	add_dep(p->f, args[0]->u.var);
+	if (root == CLJ_UNBOUND || !clj_is_user_type(root)) return clj_fact_top();
+	const clj_type *t = (const clj_type *)clj_to_ptr(root);
+	clj_fact        r = fact_of((t->core_bits & CLJ_CORE_RECORD) ? CLJ_T_RECORD : CLJ_T_HOST);
+	r.desc = t;
+	return r;
+}
+
+static clj_fact infer_call(pass *p, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s, clj_value var) {
+	clj_fact  fs[4];
+	clj_fact *have = xalloc(n + 1, sizeof(clj_fact));
+	use_kind  use = (s && !s->keeps) ? USE_NONE : USE_ESCAPE;
 	for (uint32_t i = 0; i < n; i++) {
 		clj_fact a = infer(p, args[i], e, use);
+		have[i] = a;
 		if (i < 4) fs[i] = a;
 	}
-	if (!s) return clj_fact_top();
-	return sig_result(s, fs, n < 4 ? n : 4);
+	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
+	p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
+	const clj_summary *sum = summary_of(p, var, n);
+	apply_summary(p, e, sum, args, n, have, var);
+	free(have);
+	clj_fact r = s ? sig_result(s, fs, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
+	return result_with_summary(r, sum);
 }
 
 static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
@@ -752,8 +913,7 @@ static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
 	p->record = false;
 	for (uint32_t round = 0;; round++) {
 		t.changed = false;
-		memcpy(scratch.slots, e->slots, e->n * sizeof(clj_fact));
-		memcpy(scratch.pred, e->pred, e->n * sizeof(refinement));
+		env_copy(&scratch, e);
 		for (uint32_t i = 0; i < nb; i++) env_bind(&scratch, n->u.let.slots[i], vars[i], no_refinement());
 		infer(p, n->u.let.body, &scratch, use);
 		if (!t.changed) break;
@@ -767,10 +927,18 @@ static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
 		}
 	}
 	p->record = rec;
-	memcpy(scratch.slots, e->slots, e->n * sizeof(clj_fact));
-	memcpy(scratch.pred, e->pred, e->n * sizeof(refinement));
+	env_copy(&scratch, e);
 	for (uint32_t i = 0; i < nb; i++) env_bind(&scratch, n->u.let.slots[i], vars[i], no_refinement());
 	clj_fact r = infer(p, n->u.let.body, &scratch, use);
+	// The body ran at least once, so what it required of the outer slots on its way to the loop's exit holds.
+	memcpy(e->req, scratch.req, e->n * sizeof(clj_fact));
+	memcpy(e->req_line, scratch.req_line, e->n * sizeof(uint32_t));
+	memcpy(e->req_col, scratch.req_col, e->n * sizeof(uint32_t));
+	for (uint32_t i = 0; i < nb; i++) {
+		if (n->u.let.slots[i] < e->n) {
+			e->req[n->u.let.slots[i]] = clj_fact_top();
+		}
+	}
 	p->recur = saved;
 	if (rec) {
 		clj_facts *f = p->f;
@@ -798,6 +966,10 @@ static clj_fact infer_try(pass *p, const clj_node *n, env *e, use_kind use) {
 		env_free(&ce);
 	}
 	if (n->u.try_.finally_) infer(p, n->u.try_.finally_, e, USE_NONE);
+	// a throw skips the rest of the body, so nothing it required is required
+	memcpy(e->req, entry.req, e->n * sizeof(clj_fact));
+	memcpy(e->req_line, entry.req_line, e->n * sizeof(uint32_t));
+	memcpy(e->req_col, entry.req_col, e->n * sizeof(uint32_t));
 	env_free(&entry);
 	return r;
 }
@@ -846,8 +1018,15 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_CAPTURED:
 		r = p->frame->captured && n->u.index < p->frame->ncaptured ? p->frame->captured[n->u.index] : clj_fact_top();
 		break;
-	case CLJ_NODE_OUTER:
-	case CLJ_NODE_VAR: r = clj_fact_top(); break; // no interprocedural pass: a var's root is not read
+	case CLJ_NODE_OUTER: r = clj_fact_top(); break;
+	case CLJ_NODE_VAR:
+		// pass 1 alone reads no root; with a store the read is guarded by the var's epoch (clj_facts_valid)
+		r = clj_fact_top();
+		if (p->f->sums && clj_is_var(n->u.var)) {
+			r = clj_summary_var_fact(p->f->sums, n->u.var);
+			add_dep(p->f, n->u.var);
+		}
+		break;
 	case CLJ_NODE_IF: {
 		infer(p, n->u.if_.test, e, USE_NONE);
 		env      yes = env_clone(e), no = env_clone(e);
@@ -861,6 +1040,7 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		clj_fact b = n->u.if_.else_ ? infer(p, n->u.if_.else_, &no, use) : fact_of(CLJ_T_NIL);
 		p->dead = outer;
 		for (uint32_t i = 0; i < e->n; i++) e->slots[i] = clj_fact_join(yes.slots[i], no.slots[i]);
+		env_join_req(e, &yes, &no);
 		env_free(&yes);
 		env_free(&no);
 		r = clj_fact_join(a, b);
@@ -913,6 +1093,7 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		}
 		if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures);
 		free(caps);
+		p->effects |= CLJ_EFFECT_ALLOC;
 		r = fact_of(CLJ_T_FN);
 		break;
 	}
@@ -923,34 +1104,56 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		break;
 	case CLJ_NODE_INVOKE: {
 		infer(p, n->u.invoke.fn, e, USE_NONE);
-		const fact_sig *s = n->u.invoke.fn->kind == CLJ_NODE_VAR ? sig_of_var(n->u.invoke.fn->u.var, n->u.invoke.n) : NULL;
-		r = infer_call(p, n->u.invoke.args, n->u.invoke.n, e, s);
+		const clj_node *head = n->u.invoke.fn;
+		if (head->kind == CLJ_NODE_VAR) {
+			r = infer_call(p, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var, n->u.invoke.n), head->u.var);
+		}
+		else if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
+			// (:k m) answers nil rather than throwing on anything, so it requires nothing (design §3)
+			infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
+			r = clj_fact_top();
+		}
+		else {
+			r = infer_call(p, n->u.invoke.args, n->u.invoke.n, e, NULL, CLJ_NIL);
+		}
 		break;
 	}
-	case CLJ_NODE_DIRECT_CALL:
-		infer_args(p, n->u.direct.args, n->u.direct.n, e, NULL, NULL);
-		r = clj_fact_top();
+	case CLJ_NODE_DIRECT_CALL: {
+		clj_fact *have = xalloc(n->u.direct.n + 1, sizeof(clj_fact));
+		for (uint32_t i = 0; i < n->u.direct.n; i++) have[i] = infer(p, n->u.direct.args[i], e, USE_ESCAPE);
+		const clj_summary *sum = p->f->sums ? clj_summary_of_arity(p->f->sums, n->u.direct.fn, n->u.direct.arity) : NULL;
+		if (!sum) p->effects |= CLJ_EFFECT_ANY;
+		apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL);
+		free(have);
+		r = result_with_summary(clj_fact_top(), sum);
 		break;
+	}
 	case CLJ_NODE_INTRINSIC:
-		r = infer_call(p, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op));
+		r = infer_call(p, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.var);
 		break;
 	case CLJ_NODE_DEF:
 		if (n->u.def.init) infer(p, n->u.def.init, e, USE_ESCAPE);
 		if (n->u.def.meta) infer(p, n->u.def.meta, e, USE_ESCAPE);
+		p->effects |= CLJ_EFFECT_ANY; // registration: a root bind moves epochs
 		r = fact_of(CLJ_T_VAR);
 		break;
 	case CLJ_NODE_VECTOR:
 	case CLJ_NODE_MAP:
 	case CLJ_NODE_SET:
 		for (uint32_t i = 0; i < n->u.seq.n; i++) infer(p, n->u.seq.items[i], e, USE_ESCAPE);
+		p->effects |= CLJ_EFFECT_ALLOC;
 		r = fact_of(n->kind == CLJ_NODE_VECTOR ? CLJ_T_VECTOR : n->kind == CLJ_NODE_MAP ? CLJ_T_MAP : CLJ_T_SET);
 		break;
 	case CLJ_NODE_TRY: r = infer_try(p, n, e, use); break;
 	case CLJ_NODE_THROW:
 		infer(p, n->u.throw_, e, USE_ESCAPE);
+		p->effects |= CLJ_EFFECT_THROW;
 		r = clj_fact_bottom();
 		break;
-	case CLJ_NODE_FUSED: r = infer_fused(p, n, e); break;
+	case CLJ_NODE_FUSED:
+		p->effects |= CLJ_EFFECT_ANY;
+		r = infer_fused(p, n, e);
+		break;
 	default: clj_fatal("unknown node kind");
 	}
 	if (p->record && n->id < p->f->nnodes) {
@@ -969,11 +1172,44 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0};
-	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL);
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0};
+	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
 	return f;
+}
+
+clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
+	clj_facts *f = xalloc(1, sizeof *f);
+	f->root = (const clj_node *)clj_to_ptr(clj_retain(clj_from_ptr((void *)root)));
+	f->nnodes = root->nnodes;
+	f->conflict_node = UINT32_MAX;
+	f->sums = sums;
+	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
+	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0};
+	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
+	free(p.alias_from);
+	free(p.alias_to);
+	return f;
+}
+
+void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summaries *sums, clj_summary *out) {
+	clj_facts f = {0};
+	f.conflict_node = UINT32_MAX;
+	f.sums = sums;
+	pass     p = {&f, NULL, NULL, false, false, NULL, NULL, 0, 0, 0};
+	clj_fact self = fact_of(CLJ_T_FN);
+	run_frame(&p, fn->id, a, a->body, NULL, 0, &self, out);
+	free(p.alias_from);
+	free(p.alias_to);
+	free(f.frames);
+	free(f.escape);
+	free(f.loops);
+	free(f.vars);
+	free(f.calls);
+	free(f.dep_vars);
+	free(f.dep_epochs);
 }
 
 void clj_facts_free(clj_facts *f) {
@@ -984,6 +1220,9 @@ void clj_facts_free(clj_facts *f) {
 	free(f->escape);
 	free(f->loops);
 	free(f->vars);
+	free(f->calls);
+	free(f->dep_vars);
+	free(f->dep_epochs);
 	free(f);
 }
 
@@ -1027,3 +1266,82 @@ const clj_fact *clj_facts_loop_var(const clj_facts *f, uint32_t loop, uint32_t i
 uint32_t clj_facts_conflicts(const clj_facts *f) { return f->conflicts; }
 uint32_t clj_facts_widenings(const clj_facts *f) { return f->widenings; }
 uint32_t clj_facts_conflict_node(const clj_facts *f) { return f->conflict_node; }
+
+uint32_t                 clj_facts_ncall_conflicts(const clj_facts *f) { return f->ncalls; }
+const clj_call_conflict *clj_facts_call_conflict(const clj_facts *f, uint32_t i) { return i < f->ncalls ? &f->calls[i] : NULL; }
+uint32_t                 clj_facts_summary_hits(const clj_facts *f) { return f->hits; }
+uint32_t                 clj_facts_narrowed_args(const clj_facts *f) { return f->narrowed; }
+uint32_t                 clj_facts_ndeps(const clj_facts *f) { return f->ndeps; }
+
+bool clj_facts_valid(const clj_facts *f) {
+	for (uint32_t i = 0; i < f->ndeps; i++) {
+		if (clj_var_epoch(f->dep_vars[i]) != f->dep_epochs[i]) return false;
+	}
+	return true;
+}
+
+// "map|record" for a set, the kind name for one member.
+static void fact_text(clj_fact f, char *buf, size_t n) {
+	size_t k = 0;
+	if (f.types == CLJ_T_TOP) {
+		snprintf(buf, n, "anything");
+		return;
+	}
+	for (uint32_t bit = 0; bit < 27 && k + 1 < n; bit++) {
+		if (!(f.types & (1u << bit))) continue;
+		k += (size_t)snprintf(buf + k, n - k, "%s%s", k ? "|" : "", kind_names[bit]);
+	}
+	if (k == 0) snprintf(buf, n, "nothing");
+}
+
+const char *clj_call_conflict_message(const clj_call_conflict *c, char *buf, size_t n) {
+	char req[256], have[256];
+	fact_text(c->required, req, sizeof req);
+	fact_text(c->passed, have, sizeof have);
+	const char *callee = clj_is_var(c->callee) ? clj_string_bytes(clj_symbol_name(clj_var_name(c->callee))) : "a direct fn";
+	if (c->use_line) {
+		snprintf(buf, n, "%s uses argument %u as %s at %u:%u, %s is passed at %u:%u", callee, c->arg, req, c->use_line, c->use_col, have,
+		         c->line, c->col);
+	}
+	else {
+		snprintf(buf, n, "%s requires argument %u to be %s, %s is passed at %u:%u", callee, c->arg, req, have, c->line, c->col);
+	}
+	return buf;
+}
+
+// ---- effects of the core calls the walk names
+
+static const char *const pure_names[] = {
+	"nil?", "some?", "number?", "integer?", "int?", "nat-int?", "pos-int?", "neg-int?", "double?", "float?", "ratio?", "decimal?",
+	"rational?", "string?", "keyword?", "symbol?", "char?", "boolean?", "true?", "false?", "map?", "set?", "vector?", "record?",
+	"list?", "seq?", "sequential?", "coll?", "seqable?", "associative?", "fn?", "var?", "uuid?", "inst?", "ident?", "simple-ident?",
+	"qualified-ident?", "qualified-keyword?", "simple-keyword?", "qualified-symbol?", "simple-symbol?", "not", "identical?",
+	"identity", "boolean", "ifn?", "counted?", "indexed?", "instance?", "satisfies?", "type", "meta", "name", "namespace",
+	"new*", "record-map*", "field*", "first", "next", "rest", "seq", "count", "nth", "get", "hash", "keyword", "symbol", "str",
+	"=", "not=", "==", "<", "<=", ">", ">=", "compare", "vector", "list", "hash-map", "hash-set", "conj", "assoc", "dissoc",
+	"cons", "inc", "dec", "+", "-", "*", "/", "quot", "rem", "mod", "min", "max", "zero?", "pos?", "neg?", "even?", "odd?",
+	"empty?", "contains?", "keys", "vals", "vec", "set", "into", "with-meta", "subs", "long", "int", "double", "char",
+};
+static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "read-line", "load", "require"};
+static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset-vals!", "compare-and-set!", "vreset!", "vswap!",
+                                         "alter-var-root", "set-validator!", "add-watch", "remove-watch", "alter-meta!", "reset-meta!"};
+
+static bool named_in(const char *name, const char *const *list, size_t n) {
+	for (size_t i = 0; i < n; i++) {
+		if (strcmp(list[i], name) == 0) return true;
+	}
+	return false;
+}
+
+// A predicate neither allocates nor throws; the rest of the pure list allocates or throws on a wrong argument but no more.
+uint32_t clj_facts_core_effects(const char *name) {
+	if (named_in(name, io_names, sizeof io_names / sizeof *io_names)) return CLJ_EFFECT_ANY;
+	if (named_in(name, atom_names, sizeof atom_names / sizeof *atom_names)) return CLJ_EFFECT_ATOM | CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
+	if (named_in(name, pure_names, sizeof pure_names / sizeof *pure_names)) {
+		static const char *const total[] = {"not", "identity", "boolean", "meta", "type"};
+		size_t                   len = strlen(name);
+		if ((len > 1 && name[len - 1] == '?') || named_in(name, total, sizeof total / sizeof *total)) return 0;
+		return CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
+	}
+	return CLJ_EFFECT_ANY;
+}

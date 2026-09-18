@@ -14,6 +14,7 @@ typedef struct {
 	bool              macro; // set by defmacro, cleared by def; the analyzer expands calls through such vars
 	bool              dynamic; // :dynamic true in the def's meta: deref looks at the thread's bindings first
 	_Atomic uint32_t  thread_bound; // live thread bindings across all threads; 0 lets deref skip the frame lookup
+	_Atomic uint32_t  epoch; // 0 until the first root bind, then bumped by every one: the guard a cached summary holds (facts.h)
 } clj_var;
 
 extern const clj_type clj_var_type;
@@ -26,6 +27,8 @@ static inline clj_var *clj_var_of(clj_value v) { return (clj_var *)clj_to_ptr(v)
 static inline clj_value clj_var_ns(clj_value var) { return clj_var_of(var)->ns; }
 static inline clj_value clj_var_name(clj_value var) { return clj_var_of(var)->name; }
 
+// Counts root binds of this var alone, 0 while it has never been bound: what invalidates a summary of its root.
+static inline uint32_t clj_var_epoch(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->epoch, memory_order_acquire); }
 // Borrowed root, CLJ_UNBOUND when unbound. Not safe against a concurrent def (NOTES.md).
 clj_value clj_var_root(clj_value var);
 // The same without ordering: for a guard that only compares the root against a known immortal object.

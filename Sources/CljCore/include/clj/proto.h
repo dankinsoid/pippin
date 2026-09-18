@@ -13,6 +13,7 @@ typedef struct {
 	clj_value  name;      // qualified symbol
 	clj_value  methods;   // vector of unqualified symbols
 	clj_value  sigs;      // vector, per method, of param vectors
+	_Atomic uint32_t user_types, user_records; // extends by deftypes and by records ever, since those types have no registry (facts)
 } clj_protocol;
 
 extern const clj_type clj_protocol_type;
@@ -49,6 +50,11 @@ clj_value clj_protocol_no_impl(clj_value method, clj_value v);
 
 // Pseudo-descriptors stand in for nil, fixnums, booleans and chars.
 const clj_type *clj_dispatch_type(clj_value v);
+extern const clj_type clj_nil_dispatch_type, clj_boolean_dispatch_type, clj_char_dispatch_type;
+// Every immortal type (builtins, pseudo-descriptors, core interfaces, Object) with an entry for proto, in no order.
+void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx);
+// One of the core-interface pseudo-descriptors an extend-type on an interface name designates.
+bool clj_proto_is_interface_type(const clj_type *t);
 // The fallback every type reaches: (extend-type Object ...).
 const clj_type *clj_object_type(void);
 
