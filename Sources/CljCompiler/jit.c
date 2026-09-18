@@ -77,6 +77,8 @@ static bool run_clang(const cljc_eval_options *o, const char *cfile, const char 
 	argv[n++] = "-Wpedantic";
 	argv[n++] = "-Werror";
 	argv[n++] = "-fno-common";
+	// Traces walk the real stack by frame pointers (trace.c); Apple keeps them by default, this makes it explicit.
+	argv[n++] = "-fno-omit-frame-pointer";
 #if CLJ_DEBUG
 	argv[n++] = "-DCLJ_DEBUG=1";
 #endif

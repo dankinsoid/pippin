@@ -1291,8 +1291,6 @@ static bool is_do_form(clj_value form, clj_seq_iter *it) {
 	return false;
 }
 
-char *clj_eval_stack_limit(void *shadow_stack) { return stack_limit_of(shadow_stack); }
-
 bool clj_eval_deadline_hit(void *shadow_stack) {
 	clj_shadow_stack *s = shadow_stack;
 	if (!deadline_reached(s)) return false;
@@ -1325,9 +1323,6 @@ void clj_eval_top_leave(void) {
 	if (--retired.exec_depth == 0 && retired.n) drain_retired();
 }
 
-void clj_eval_drain_retired(void) {
-	if (retired.n) drain_retired();
-}
 
 static clj_value eval_form(clj_value form, const clj_env *given);
 

@@ -95,8 +95,8 @@ clj_value clj_eval(clj_value form, const clj_env *env);
 // ---- cooperative deadline
 // The message a timed-out call throws; a host tells a timeout from any other error by it.
 #define CLJ_DEADLINE_MESSAGE "Execution timed out"
-// Bounds the wall time of what this thread runs next: the first closure call or loop turn past the deadline
-// throws CLJ_DEADLINE_MESSAGE, and so does every one after it until the deadline is cleared, each after an
+// Bounds the wall time of what this thread runs next: the first interpreted call, loop turn, lazy-seq cell or
+// reduce past the deadline throws CLJ_DEADLINE_MESSAGE, and so does every one after it until the deadline is cleared, each after an
 // unwind budget of calls that lets a handler run; past a fixed number of those budgets every check throws, so
 // code that catches the timeout inside a loop of its own still stops. ms == 0 clears it, which is what a
 // handler that must run unbounded does first.
@@ -118,8 +118,6 @@ size_t clj_debug_retired_roots(void);
 // What clj_exec_run brackets a top-level form with: a compiled unit's form does the same so a def inside parks fn roots.
 void clj_eval_top_enter(void);
 void clj_eval_top_leave(void);
-// Releases parked roots once the thread is idle.
-void clj_eval_drain_retired(void);
 // clj_invoke from the host: a recovery point for a stack overflow in compiled code (guard.h) and a top-level bracket.
 clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n);
 

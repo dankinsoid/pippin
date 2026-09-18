@@ -654,8 +654,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   at throw time, so a throw from deep in a loop allocates a vector and a map per frame; nothing is
   captured for exceptions that are never thrown. `clj_take_pending` drops the pending trace: a host
   that wants it takes it first (`clj_take_pending_trace`), as `ClojureError.takePending` does.
-- **Shadow stack** (shadow.c): a per-thread ring of `{fn node, call site}` pushed and popped around
-  every closure body (natives are leaves), 8192 frames, calloc'd on the thread's first push (128 KB)
+- **Shadow stack** (shadow.c): a per-thread ring of `{fn node, call site, sp}` pushed and popped around
+  every interpreted closure body (natives are leaves; a compiled fn pushes nothing and is found on the real
+  stack instead — "Compiler", frames and traces), 8192 frames, calloc'd on the thread's first push (128 KB)
   and freed when the thread exits. Deeper than that, the innermost frames are kept and
   `clj_shadow_stack_dropped` counts the outermost ones overwritten; a test shrinks the capacity with
   `clj_debug_shadow_stack_set_capacity` since Swift Testing's stacks overflow the C stack long before
@@ -663,16 +664,20 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   async-signal-safe: it reads through a pthread key rather than the `_Thread_local`, because a first
   touch of a `_Thread_local` on a thread that never ran Clojure allocates under dyld. The stack guard's
   limit lives in the same struct, so a call pays one TLS load for both. Cost per call: that load, a
-  null check, two stores, an increment and a decrement with a compare, plus one load and branch on the
-  instrumentation byte (bench/RESULTS.md: within the run-to-run noise of the closure-call scenario). The
-  C stack is still what limits recursion depth; the shadow stack does not replace it.
+  null check, three stores (`sp` is the frame's address, what orders it among compiled frames), an
+  increment and a decrement with a compare, plus one load and branch on the instrumentation byte
+  (bench/RESULTS.md: within the run-to-run noise of the closure-call scenario). The C stack is still what
+  limits recursion depth; the shadow stack does not replace it. `clj_shadow_stack_trace` is the merged
+  trace (trace.c), not the ring alone.
 - **Crash handler** (`clj_crash_handler_install`) is opt-in: a host with its own crash reporter
   (Crashlytics, MetricKit) must not have its handlers replaced, and calls `clj_shadow_stack_snapshot`
   from its own instead. Installed, it writes the frames with `write(2)` only (names are borrowed from
-  the fn node's symbol, numbers formatted by hand) and re-raises with the default disposition. No
-  alternate signal stack is set up, so a C stack overflow gets no report unless the host installs
-  one. Tested on SIGUSR1 through a pipe on a plain pthread: `raise` on a dispatch worker thread
-  cannot `pthread_kill` itself and delivers the signal to whichever thread has it unblocked.
+  the fn node's symbol, numbers formatted by hand) and re-raises with the default disposition. The
+  frames are the merged trace walked from the signal's context (trace.c), on the alternate signal stack
+  every thread that ran Clojure has (guard.c); for SIGSEGV and SIGBUS the guard page check runs first, so
+  a stack overflow in compiled code is an error, not a report. Tested on SIGUSR1 through a pipe on a
+  plain pthread: `raise` on a dispatch worker thread cannot `pthread_kill` itself and delivers the
+  signal to whichever thread has it unblocked.
 - **Signposts** (`clj_signposts_enable`, `Runtime.signposts`) are Apple-only and process-wide: an
   `os_signpost` interval named `invoke` with the fn name per closure call, off by default; elsewhere
   the call is a no-op. Enabling it costs a signpost id and two `os_signpost` calls per invocation.
@@ -1062,7 +1067,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   512 KB). Fix: frames on the heap and fewer C frames per call (the shadow stack records frames, it
   does not hold them). Tests keep non-tail recursion depth ≤ 50.
 - **The stack guard has no host fallback.** `pthread_get_stackaddr_np` is Apple/BSD; other platforms
-  get a fixed 512 KB assumption measured from the first call. Trigger: a Linux port.
+  get a fixed 512 KB assumption measured from the first call, and the guard page of compiled code
+  (guard.c, `getsectiondata`, the Mach-O `__cljframe` section) is Apple-only outright: elsewhere a
+  compiled overflow is a plain crash and traces carry no compiled frames. Trigger: a Linux port.
 - **Vars are immortal.** Every `def` of a new name leaks a var, its name symbol and string for the
   life of the process, as do namespaces; tests declare their vars before taking live-object baselines.
 - **Analysis error messages are capped at 512 bytes** (`fail` formats into a fixed buffer): a huge
@@ -1646,10 +1653,14 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   Clojure's is `{:foo true}` (its compiler emits the `with-meta`). A bug; the fix is a meta child on the
   vector/map/set nodes, applied after the collection is built. Trigger: `^:const`, `^{:doc}` or any
   annotation on a literal, and the corpus `group-by` test.
-- **A cooperative deadline bounds what a thread runs** (`clj_deadline_set_ms`): a closure call (`run_body`)
-  and a `loop` turn check it, the clock is read once per 1024 of them, and past it the check throws
-  `CLJ_DEADLINE_MESSAGE`. The fields live in the shadow stack, which those paths already load, so off it
-  costs one predictable branch. A caught timeout keeps the deadline: the handler gets an unwind budget of
+- **A cooperative deadline bounds what a thread runs** (`clj_deadline_set_ms`): an interpreted closure call
+  (`run_body`), a `loop` turn in both backends, a lazy-seq cell's realization (`run_thunk`), `clj_reduce_iter`
+  and a fusion driver's entry check it (`clj_deadline_tick`), the clock is read once per 1024 of them, and
+  past it the check throws `CLJ_DEADLINE_MESSAGE`. A compiled fn's entry does not check (its prologue is
+  empty, "Compiler"): an endless recursion runs into the guard page, an endless loop into the tick, and an
+  endless lazy seq or reduce into the driver's check — `(count (iterate inc 0))` on the compiled core is the
+  test. The fields live in the shadow stack, which those paths already load, so off it costs one
+  predictable branch. A caught timeout keeps the deadline: the handler gets an unwind budget of
   calls and, after a fixed number of those budgets, every check throws, so a loop that catches the timeout
   still stops. Cooperative only: a native that loops without calling back into Clojure is not interrupted
   (`(hash (range))` is such a loop). The corpus watchdog is the one user so far; an untrusted-code host is
@@ -1730,7 +1741,14 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   evaluation.
 - **`ClojureError.trace` is the frames at the throw**, innermost first, and `description` appends
   them Clojure-style (`at user/f (line:col)`); a `ClojureError` rethrown from a host fn hands the
-  same frames back to the core, so a non-error value keeps them across the boundary.
+  same frames back to the core, so a non-error value keeps them across the boundary. Compiled frames
+  come from the real stack and interpreted ones from the shadow stack, merged by stack order (trace.c):
+  the same frames either way, a compiled one at its fn's own position.
+- **`Value.apply` is a recovery point** (`clj_host_invoke`): a stack overflow in compiled code called
+  from Swift lands there as the "Stack overflow" `ClojureError` (guard.c, "Compiler"), and the call is a
+  top-level bracket, so a `def` inside parks the fn roots the caller may still borrow. `Runtime.eval` has
+  the same through `clj_eval`. Other host entries that run Clojure code (a lazy seq realized through
+  `Value`, a deftype's `equals`) have none: an overflow there is fatal with the trace on stderr.
 
 ### Host-defined vars and primitives (Runtime.swift `define`, Differential.swift, Primitives.swift)
 
@@ -1868,8 +1886,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   can throw. The frame is `clj_cframe` — the interpreter's frame without the exec: a C array of slots, the
   captured pointer, the owned bitmask, the static link — and every step of a body is the corresponding step
   of eval.c through the inline helpers (`clj_c_set` is `slot_set`, `clj_c_take` the last-use hand-over,
-  `clj_c_var_borrow` the var case of `eval_borrowed`, `clj_c_enter`/`clj_c_leave` the guard, deadline, shadow
-  frame and instrumentation of `run_body`, `clj_c_loop_tick` the deadline check of a loop turn). Expressions
+  `clj_c_var_borrow` the var case of `eval_borrowed`, `clj_c_loop_tick` the deadline check of a loop turn;
+  `run_body`'s guard, deadline, shadow frame and instrumentation have no counterpart on the call path — the
+  next entry). Expressions
   are emitted into temps with a static ownership (`t5` owned, borrowed, or owned-if-`o5`); the emitter keeps
   the list of live owned temps and every throw site releases those above the enclosing handler's mark and
   jumps to it, so `try` is the interpreter's `eval_try` with labels and the function's `fail` label releases
@@ -1880,11 +1899,103 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (with the duplicate-key check). A top-level form is `top_N(void)` under `clj_eval_top_enter/leave`, the
   bracket `clj_exec_run` puts around a form so a def inside parks fn roots; the unit's `init` runs them in
   file order, each behind `clj_load_form_failed` (lenient: record and go on; else the CompilerException wrap
-  of the loader). Compiled fns push a shadow frame with their stub node and no call site, so a trace names
-  the fn at its own position rather than the caller's line: the one visible deviation of compiled frames.
+  of the loader). A trace names a compiled fn at its own position rather than the caller's line: the one
+  visible deviation of compiled frames.
+- **An empty prologue: frames, traces, the guard page, the deadline, instrumentation** (design §4 "Пролог
+  скомпилированной функции — ноль на горячем пути"; trace.c, guard.c, compiled_internal.h `CLJC_FRAME`,
+  `CLJC_SITE`, `CLJC_ENTER`/`CLJC_LEAVE`). A compiled arity function is an ordinary C function: no shadow frame,
+  no stack check, no deadline, no instrumentation byte; its epilogue is the release of the promoted owned
+  slots. Each check moved. *Traces from the real stack.* Every frame function (an arity, a direct fn body)
+  carries `CLJC_FRAME`: `noinline`, `disable_tail_calls`, and the `__TEXT,__cljframe` section, so the unit's
+  frame functions are contiguous and nothing else is among them; the unit's `FR[]` table pairs each with its
+  stub (`S[k]`) and `unit_pools` registers it once (`clj_c_register_frames`). trace.c keeps one sorted table of
+  every unit's function starts and one record per image (its `__TEXT` bounds and the `__cljframe` section's, from
+  `getsectiondata`), so a fn's code runs to the next entry's start or the section's end: no sentinel, whatever
+  order clang emits static functions in. A throw (`clj_throw_traced` → `clj_shadow_stack_trace` →
+  `clj_trace_collect`) walks the frame-pointer chain from the throw site to the thread's stack top (bounds from
+  `pthread_get_stackaddr_np`, kept in the shadow stack; return addresses stripped of pointer authentication where
+  the target signs them) and maps each return address through the table; addresses in the runtime, in a
+  dispatcher, in a `top_N` or in the host are skipped. *The merge rule*: an interpreted frame records the frame
+  address of the function that runs its body at the push (`run_body`, `__builtin_frame_address(0)`), a compiled
+  frame's key is the frame pointer of the frame that holds its return address, and the two lists, each
+  innermost first with ascending keys, merge by key — lower is deeper, and a compiled fn called from an
+  interpreted body is below it while the interpreter it calls is below that. The corpus reports, the fixtures
+  (`seqs.clj`'s `[inner outer fixture.seqs/trace-names]` in dev and closed), `HostErrorTests` and `TraceTests`
+  pin the frames as they were. *Markers for inlined bodies* (`CLJC_SITE(&S[k])`, after every call the emitter
+  checks for `CLJ_THROWN` and after every direct throw): an `asm volatile` that writes `{address after the call,
+  stub}` as two self-relative 32-bit offsets into `__TEXT,__cljsite` — data only, no instruction, no runtime
+  relocation — and travels with the body when clang inlines it. For a return address inside frame fn F, the
+  first marker at or past it within F's range names the fn whose body made the call; a marker naming another
+  fn than F is an inlined callee, and the trace shows `[callee, F]`. The marker sits in the call's own basic
+  block, so block reordering (a cold throw path moved to the function's end) cannot separate them, and every
+  call site being marked is what makes "first marker at or past" the right one. *Inlining is one level deep by
+  construction* (below), so the chain never needs a third name. *The guard page.* A thread's stack ends in the
+  system's guard page; `clj_init` installs SIGSEGV and SIGBUS handlers (`clj_guard_install`, chaining to the
+  previous action — the sanitizer's — for any other fault) and every thread that makes a shadow stack gets a
+  256 KB alternate signal stack (`sigaltstack`, an `mmap` of its own: a sanitizer's thread teardown unmaps
+  whatever stack it finds installed, and only the stack still installed is ours to unmap). A fault whose
+  address lies within 1 MB below the stack's low end, or whose stack pointer is within 64 KB of it, is an
+  overflow. The handler collects the merged trace from the interrupted registers (`pc`, `lr`, `fp`, `sp`; a
+  fault in a prologue or a leaf has the caller's frame pointer and the return address still in `lr`) into
+  the shadow stack's buffer and then, if it can, lands at the thread's innermost **recovery point**
+  (`clj_recovery`, guard.h): `clj_eval` pushes one per top-level form, `clj_host_invoke` per host call,
+  `run_unit` (load.c) around a compiled unit's init. The landing is not a `siglongjmp` from the handler: the
+  handler rewrites the interrupted context so that its return resumes in `land()` on the alternate stack's
+  memory used as a plain stack, which `siglongjmp`s to the point — a jump straight out of the handler leaves
+  XNU believing the thread is still on the signal stack, and the next overflow's frame then lands on the
+  overflowed stack, which the kernel answers with SIGILL. At the point (`clj_recovery_throw`) the thread's
+  state is restored to what the push saw — shadow depth, `clj_exec_run` nesting, the dynamic binding frames
+  (popped down to the mark) — the sanitizer is told the frames are gone (`__asan_handle_no_return`), and
+  "Stack overflow" is thrown as an `ex-info` carrying the collected trace, so the host sees the same error
+  the interpreter's own check produces. What the landing abandons: the C frames between the point and the
+  fault, so their owned temporaries leak, a lazy seq being realized stays claimed (its next force throws
+  "Recursive realization"), and a `try` between them never sees the error — the point is the host boundary,
+  not the nearest handler (trigger: a compiled `try` around deep compiled recursion in real code, then a
+  recovery point per `try`, one `sigsetjmp` each). *What cannot be converted* is fatal instead, with the trace
+  on stderr (`clj: fatal stack overflow (…)`) and the default disposition: no recovery point on the thread (a
+  thread that entered compiled code some other way), the faulting `pc` outside the runtime's own image and the
+  registered units' (`libsystem`, `malloc`, dyld: a lock may be held there), or a `clj_lock` held by the thread
+  (`clj_locks_held`, counted in lock.h: an atom's `swap!` runs its fn under the atom's lock). Under ASan the
+  sanitizer's runtime image counts as the runtime's own, since every instrumented entry calls into it
+  (`__asan_stack_malloc`) and the fault lands there as often as in ours; `make test`, `test-ubsan` and
+  `test-compiled` need nothing else. The interpreter keeps its own check (`run_body`, `STACK_MARGIN`), so an
+  interpreted recursion, and any mixed one whose compiled stretches stay under the margin, still unwinds
+  frame by frame with no leak; the guard page is for compiled-only recursion, which
+  `CompilerFixtureTests.endlessRecursionAndLoopAreStopped` exercises in dev (through the dispatcher) and closed
+  (direct calls) mode, in every sanitizer mode. A tail call turned into a jump would hide such a recursion from
+  the guard page for ever: `disable_tail_calls` on every frame function keeps the stack growing, as on the JVM.
+  *The deadline* left the prologue for the loop tick and the drivers (evaluator section). *Instrumentation*
+  is decided at build time: `clj-compile --instrument` defines `CLJC_INSTRUMENT` at the unit's top and `core.c`
+  takes `-DCLJC_INSTRUMENT` from the build, and only then `CLJC_ENTER`/`CLJC_LEAVE` expand to the profiler and
+  signpost hooks of `run_body`, which still read the runtime byte; a plain unit has no hook and its fns are
+  absent from `profile-start!`'s report (`clj_core_instrumented`, which `ProfileTests` consults for the compiled
+  core's macros). *Parked fn roots*: `in_flight()` (the guard of `clj_eval_retire_root` and the drain) can no
+  longer count compiled frames, so it walks the real stack for one when the shadow depth and the exec nesting
+  are both zero — paid at a fn-root rebind and at a drain, never on a call. *Leaf inlining* (design §6 "маленькие
+  чистые — always_inline"): an arity whose body makes no direct call (no `CLJC_DIRECT` site, no direct fn) and
+  emits under 3000 bytes of C is written as `<name>_i` (`CLJC_INLINE`, `always_inline`) with the frame function a
+  wrapper around it; the closed prelude defines `CLJC_LOCAL_<target>` and `CLJC_CALL_<target>` (the twin, or the
+  frame function when the target is no leaf) for every direct target defined in the unit, and such a site calls
+  it by name, skipping the var read (`#ifndef CLJC_LOCAL_…` around the head's borrow, which only the fallback
+  of a cross-unit call needs) and passing nil as `self` when the arity binds no self slot; a cross-unit target
+  keeps the registry pointer, a top-level form keeps calling the frame function (it is no frame itself, so the
+  callee's frame must be the callee's own). A direct fn under a frame fn is inlined the same way, without a
+  wrapper: its definer is its only caller. One level deep by construction: a leaf calls nothing directly, so
+  what a marker names inside a frame is at most the leaf inside the frame. `otool -v -s __TEXT __cljframe` of
+  the bench's `bench_sq_closed.dylib`: `bench_sq_to_a1` holds the `mul`/`smulh` of `(* x x)` and no `bl` to
+  `bench_sq_a1`, whose only reference is the dispatcher's `b`; the standalone `bench_sq_a1` is 22
+  instructions — frame record, the tag check, the multiply with its overflow check, the fixnum range check,
+  the box. Measured (bench/RESULTS.md, "An empty prologue"): the accumulating loop calling `(defn sq [x] (* x
+  x))` 8.3 ns per iteration as a dev unit (the var, the dispatcher, the wrapper) and 4.0 as a closed unit,
+  against 1.4 with the square written out — what the inlined call still pays is the boxed calling convention:
+  the argument boxed, unboxed behind a tag check, the result boxed, unboxed again by `+`. Trigger: a primitive
+  entry beside the boxed one (design §6, worker/wrapper). The call rows themselves moved little — the plain fn
+  call through a var 7.6 → 7.2, the closure call in a loop 6.9 → 5.6, the protocol call 8.2 → 7.6 — because the
+  prologue was about 1 ns of them; what is left is the loop's own boxed compare, the var read and the registry
+  pointer of a cross-unit direct call.
 - **Pools.** A unit has `K[]` constants, `V[]` vars, `OP[]`/`B[]` intrinsic entries and their boot builtins,
   `F[]` fusion vars and `S[]` fn stubs — immortal static `clj_node`s of kind FN carrying only a name and a
-  position, what the shadow stack, the profiler and signposts read. `unit_pools` fills them before any form
+  position, what traces, the profiler and signposts read — and `FR[]`, the frame table (above). `unit_pools` fills them before any form
   runs: a constant is `clj_c_const` over its printed form (`pr-str` at emit time, the reader with the
   namespace hooks at init, so keywords, symbols, strings, numbers, regexes, `#uuid`, `#inst` and collection
   literals all travel one way), a var `clj_c_var` (find-or-create the namespace, intern), the entries by
@@ -2089,10 +2200,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   other, since what is left is the callee's entry. Triggers: a multimethod call is `MultiFn`'s `invoke` slot
   through core.clj, untouched — a static hierarchy switch is the design's next step; the caller join keeping the
   descriptor under the type's epoch would give arms to a parameter of a protocol with several deftype
-  implementors, which today only a constructor-derived fact reaches; a leaf-fn entry without the shadow frame is
-  what stands between 8.5 and the design's 5.
-- **Deviations and skips, each with its trigger.** Trace positions as above; trigger: a host wanting caller lines from compiled code, then a pending-site
-  word on the shadow stack written by compiled callers. A closed unit binds a direct call to the registry's
+  implementors, which today only a constructor-derived fact reaches; the entry protocol is gone (the empty
+  prologue entry) and the row sits at 7.6–7.8: what stands between that and the design's 5 is the boxed
+  argument array and the loop around the call.
+- **Deviations and skips, each with its trigger.** Trace positions as above; trigger: a host wanting caller lines from compiled code, then a line
+  in each `CLJC_SITE` marker (the emitter knows the call's position) read by the walk in place of the fn's own. A closed unit binds a direct call to the registry's
   latest entry at its first call and never again, so redefining a var across compiled-eval forms under
   `CLJ_EVAL_CLOSED` is wrong by design (a bench tool). Every unit exports its top-level fns' arity functions
   as globals; with `RTLD_LOCAL` loads they clash with nothing. `clj_compiled_find`

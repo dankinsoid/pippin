@@ -1217,3 +1217,57 @@ ns per iteration, `n` = 100000.
   arity) and the indirect branch, and buys clang the option of inlining a static body, which the entry protocol
   above keeps it from cashing.
 - **Bi-morphic 22 → 12**: two arms under one `pt` load; the rest of the row is `(even? i)` and the `if`.
+
+## An empty prologue — 2026-09-19, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The closed compiled-core binary with every bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1
+CLJ_EVAL_OPT=-O2`, before (f774f40: `clj_c_enter`/`clj_c_leave` at every compiled entry — the thread-local, the
+stack-limit compare, the deadline branch, the shadow frame, the instrumentation byte) and after (NOTES.md "Compiler",
+"An empty prologue": traces walked from the real stack through the unit's frame table, a guard page under the C
+stack for the overflow, the deadline in the loop tick and the seq drivers, instrumentation only under
+`--instrument`, and leaf arities inlined into same-unit direct calls). One run before, two after. Two new rows: the
+accumulating loop calling `(defn sq [x] (* x x))` compiled as one unit from a file (`compileUnitRow`), closed — a
+direct call by name whose body clang inlines — and dev — the var read, the dispatcher, the frame function —,
+against the same loop with `(* i i)` written out.
+
+ns per iteration, `n` = 100000.
+
+| scenario | before | after |
+|---|---:|---:|
+| counting loop | 5.9 | 5.1 / 5.7 |
+| accumulating loop, bound known from the caller | 1.4 | 1.3 / 1.4 |
+| accumulating loop with `(* i i)` written out | — | 1.4 / 1.4 |
+| accumulating loop calling `(defn sq [x] (* x x))`, one closed unit | — | 4.0 / 4.0 |
+| accumulating loop calling `(defn sq [x] (* x x))`, one dev unit | — | 8.3 / 8.1 |
+| closure call in a loop | 6.9 | 5.6 / 5.9 |
+| C builtin call in a loop | 5.3 | 5.2 / 5.3 |
+| let-bound fn called in a loop | 3.7 | 3.5 / 3.7 |
+| loop with a local helper | 6.0 | 6.1 / 6.2 |
+| protocol call, deftype receiver | 8.2 | 7.6 / 8.0 |
+| protocol call, fixnum receiver | 8.2 | 7.9 / 8.0 |
+| protocol call, bi-morphic | 11.7 | 11.7 / 11.6 |
+| protocol call, receiver known from the caller | 8.6 | 8.3 / 8.3 |
+| protocol call, known receiver, one closed unit | 8.1 | 7.8 / 7.7 |
+| protocol call, known receiver, one dev unit | 8.9 | 8.6 / 8.5 |
+| plain fn call through a var | 7.6 | 7.2 / 7.2 |
+| swap! inc | 22.3 | 23.0 / 22.1 |
+
+- **The prologue was about 1 ns of a call, not 7**: the closure call 6.9 → 5.6–5.9, the plain fn call through a var
+  7.6 → 7.2, the monomorphic protocol calls 8.2 → 7.6–8.0. The rest of those rows is the loop around the call —
+  `(< i n)` boxed because `n` comes from the host, the var read of the head, the registry pointer of a cross-unit
+  direct call with its null check — and the callee's boxed argument array. The design's estimate counted the
+  whole entry as prologue; the measurement says the shadow frame, the limit compare and the deadline branch
+  cost what the notes on the shadow stack always said they cost, one to two nanoseconds together.
+- **What inlining buys and what it does not.** `otool -v -s __TEXT __cljframe` of `bench_sq_closed.dylib`:
+  `bench_sq_to_a1` contains the `mul x0, x8, x8` / `smulh x8, x8, x8` of `(* x x)` and no `bl` to `bench_sq_a1`;
+  the standalone `bench_sq_a1` is 22 instructions (frame record, tag check, multiply and overflow check, fixnum
+  range check, box) — an ordinary C function, which is what the design asked for. The inlined call still costs
+  2.6 ns over the written-out square (4.0 against 1.4): the argument is boxed for the calling convention
+  (`clj_long_new`, the fixnum path inline), unboxed behind a tag check, the result boxed and unboxed again by
+  the `+`. That is the calling convention, not the call; trigger: a primitive entry beside the boxed one
+  (design §6, worker/wrapper), which would take this row to the written-out one.
+- **The dev unit at 8.1–8.3** is the same call through the var, `clj_c_invoke`, `clj_invoke`, the dispatcher
+  and the frame function: what a call costs when nothing is known statically, and the reference for the
+  `--closed` figure.
+- **Unchanged within noise**: `swap! inc` (the lock pair), the counting loop (its tick stayed), the local helper
+  (a direct fn whose frame the static link pins), the bi-morphic protocol call.

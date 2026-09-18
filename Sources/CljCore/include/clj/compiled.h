@@ -64,10 +64,6 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 void clj_c_register_frames(const clj_frame_entry *entries, size_t n);
 // Whether core.clj's fns report to the profiler: the interpreted core, or the compiled one built with CLJC_INSTRUMENT.
 bool clj_core_instrumented(void);
-// The C stack limit of this thread's shadow stack, computed on first use (eval.c).
-char *clj_eval_stack_limit(void *shadow_stack);
-// Called with the deadline set: true when the deadline throw is now pending.
-bool clj_eval_deadline_hit(void *shadow_stack);
 // Hits of compiled protocol sites' direct arms and inline caches; -1 outside CLJ_DEBUG builds.
 int64_t clj_debug_proto_arm_hits(void);
 int64_t clj_debug_proto_cache_hits(void);

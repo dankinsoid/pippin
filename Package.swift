@@ -26,6 +26,8 @@ let package = Package(
 				.headerSearchPath("."),
 				// unsafeFlags makes the package unusable as a dependency; fine while it is a root package.
 				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),
+				// Traces walk the real stack by frame pointers through the runtime's own frames (trace.c).
+				.unsafeFlags(["-fno-omit-frame-pointer"]),
 				.unsafeFlags(["-DCLJ_DEBUG=1"], .when(configuration: .debug)),
 			]
 		),
