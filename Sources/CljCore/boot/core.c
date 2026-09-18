@@ -78780,10 +78780,12 @@ static clj_value clojure_core_group_impls__2(void *ctx, const clj_value *args, s
 
 clj_value clojure_core_group_impls_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_cframe fr = {NULL, captured, 0, NULL};
+	clj_value s[10];
+	clj_cframe fr = {s, captured, 0, NULL};
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	for (uint32_t i = 1; i < 10; i++) s[i] = CLJ_NIL;
 	clj_value l1 = CLJ_NIL;
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
@@ -78791,8 +78793,6 @@ clj_value clojure_core_group_impls_a1(clj_value self, const clj_value *captured,
 	clj_value l5 = CLJ_NIL;
 	clj_value l6 = CLJ_NIL;
 	clj_value l7 = CLJ_NIL;
-	clj_value l8 = CLJ_NIL;
-	clj_value l9 = CLJ_NIL;
 	clj_value l10 = CLJ_NIL;
 	clj_value l11 = CLJ_NIL;
 	clj_ccall cc;
@@ -78997,7 +78997,7 @@ L4: ;
 	if (t39 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l8, t39);
+	clj_c_set(&fr, 8, t39);
 #line 1739 "Sources/CljCore/boot/core.clj"
 	bool o40;
 	clj_value t40 = clj_c_var_borrow(V[15], &o40);
@@ -79086,7 +79086,7 @@ L4: ;
 	}
 	t45 = t52;
 	}
-	clj_c_rebind(&l9, t45);
+	clj_c_set(&fr, 9, t45);
 #line 1736 "Sources/CljCore/boot/core.clj"
 #line 1740 "Sources/CljCore/boot/core.clj"
 	bool o53;
@@ -79095,7 +79095,7 @@ L4: ;
 	goto L2;
 	}
 	clj_value t54 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__0, NULL, 0, 0x2, 1, 1);
-	clj_value t55 = l9;
+	clj_value t55 = fr.slots[9];
 	clj_value a17[2] = {t54, t55};
 	(void)a17;
 	clj_value t56;
@@ -79131,7 +79131,7 @@ L4: ;
 	goto L2;
 	}
 	clj_value t62 = K[985];
-	clj_value t63 = l8;
+	clj_value t63 = fr.slots[8];
 	clj_value t64 = K[986];
 	clj_value a19[3] = {t62, t63, t64};
 	(void)a19;
@@ -79277,8 +79277,8 @@ L4: ;
 #line 1746 "Sources/CljCore/boot/core.clj"
 	clj_value t87 = l7;
 	l7 = CLJ_NIL;
-	clj_value t88 = l8;
-	clj_value t89 = l9;
+	clj_value t88 = fr.slots[8];
+	clj_value t89 = fr.slots[9];
 	clj_value a29[2] = {t88, t89};
 	(void)a29;
 	clj_value t90 = clj_vector_from_array(a29, 2);
@@ -79578,10 +79578,9 @@ L5: ;
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
-	clj_release(l8);
-	clj_release(l9);
 	clj_release(l10);
 	clj_release(l11);
+	clj_c_release_slots(&fr, 10);
 	return t6;
 L2: ;
 	clj_c_leave(&S[354], &cc);
@@ -79593,10 +79592,9 @@ L1: ;
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
-	clj_release(l8);
-	clj_release(l9);
 	clj_release(l10);
 	clj_release(l11);
+	clj_c_release_slots(&fr, 10);
 	return CLJ_THROWN;
 }
 
@@ -83350,16 +83348,17 @@ static clj_value clojure_core_field_wrap__0__1(void *ctx, const clj_value *args,
 
 static clj_value clojure_core_field_wrap__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_cframe fr = {NULL, captured, 0, NULL};
+	clj_value s[6];
+	clj_cframe fr = {s, captured, 0, NULL};
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	for (uint32_t i = 2; i < 6; i++) s[i] = CLJ_NIL;
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
-	clj_value l5 = CLJ_NIL;
 	clj_value l6 = CLJ_NIL;
 	clj_value l7 = CLJ_NIL;
 	clj_ccall cc;
@@ -83495,7 +83494,7 @@ L4: ;
 	if (t25 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l5, t25);
+	clj_c_set(&fr, 5, t25);
 #line 1844 "Sources/CljCore/boot/core.clj"
 	clj_value t26 = l3;
 	clj_value a7[1] = {t26};
@@ -83518,7 +83517,7 @@ L4: ;
 	goto L2;
 	}
 	clj_value t29 = l1;
-	clj_value t30 = l5;
+	clj_value t30 = fr.slots[5];
 	clj_value a8[2] = {t29, t30};
 	(void)a8;
 	clj_value t31;
@@ -83583,7 +83582,7 @@ L4: ;
 	goto L2;
 	}
 	clj_value t43 = l4;
-	clj_value t44 = l5;
+	clj_value t44 = fr.slots[5];
 	bool o45;
 	clj_value t45 = clj_c_var_borrow(V[0], &o45);
 	if (t45 == CLJ_THROWN) {
@@ -83825,9 +83824,9 @@ L4: ;
 	clj_release(l2);
 	clj_release(l3);
 	clj_release(l4);
-	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
+	clj_c_release_slots(&fr, 6);
 	return t64;
 L2: ;
 	clj_c_leave(&S[377], &cc);
@@ -83835,9 +83834,9 @@ L1: ;
 	clj_release(l2);
 	clj_release(l3);
 	clj_release(l4);
-	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
+	clj_c_release_slots(&fr, 6);
 	return CLJ_THROWN;
 }
 

@@ -298,6 +298,7 @@ typedef struct fnctx {
 	const clj_facts *facts;    // of the top-level tree being emitted
 	uint64_t         promoted; // slots of the running frame that are C variables l<i>, not fr.slots[i]
 	uint64_t         borrowed; // the promoted slots that hold a +0 value for the whole call: never released, never rebound
+	const struct fnctx *definer; // the context of the frame a direct fn body links to, for the promotion check of OUTER reads
 	temp          *live;
 	int            nlive, live_cap;
 	handler       *handlers;
@@ -417,7 +418,8 @@ static void pin_walk(const clj_node *n, void *ctx) {
 		for (uint32_t i = 0; p->level == 0 && i < n->u.recur.n; i++) {
 			if (n->u.recur.slots[i] < 64) p->rebound |= (uint64_t)1 << n->u.recur.slots[i];
 		}
-		break;
+		clj_node_children(n, pin_walk, p);
+		return;
 	case CLJ_NODE_FN:
 		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
 			const clj_capture *cp = &n->u.fn.captures[i];
@@ -748,7 +750,15 @@ static temp emit_captured(fnctx *f, const clj_node *n, bool borrowed) {
 	return t;
 }
 
+// A slot read through the array must not be a C variable: the scan that decides promotion has to have seen this read.
+static void check_array_slot(const fnctx *f, uint32_t depth, uint32_t index) {
+	for (; depth && f; depth--) f = f->definer;
+	if (!f) clj_fatal("compiler: no frame that many links up");
+	if (promoted(f, index)) clj_fatal("compiler: a promoted slot is read through the frame");
+}
+
 static temp emit_outer(fnctx *f, const clj_node *n) {
+	check_array_slot(f, n->u.outer.depth, n->u.outer.index);
 	temp t = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s = clj_retain(clj_c_outer(&%s, %u)->slots[%u]);\n", t.name, f->frame, n->u.outer.depth, n->u.outer.index);
 	live_push(f, t);
@@ -908,9 +918,15 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 			const clj_capture *cp = &n->u.fn.captures[i];
 			if (i) sb_puts(&f->out, ", ");
 			switch (cp->kind) {
-			case CLJ_CAPTURE_LOCAL: sb_printf(&f->out, "%s.slots[%u]", f->frame, cp->index); break;
+			case CLJ_CAPTURE_LOCAL:
+				check_array_slot(f, 0, cp->index);
+				sb_printf(&f->out, "%s.slots[%u]", f->frame, cp->index);
+				break;
 			case CLJ_CAPTURE_CAPTURED: sb_printf(&f->out, "%s.captured[%u]", f->frame, cp->index); break;
-			case CLJ_CAPTURE_OUTER: sb_printf(&f->out, "clj_c_outer(&%s, %u)->slots[%u]", f->frame, cp->depth, cp->index); break;
+			case CLJ_CAPTURE_OUTER:
+				check_array_slot(f, cp->depth, cp->index);
+				sb_printf(&f->out, "clj_c_outer(&%s, %u)->slots[%u]", f->frame, cp->depth, cp->index);
+				break;
 			}
 		}
 		sb_puts(&f->out, "};\n");
@@ -1399,6 +1415,7 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	sb_printf(&f.u->protos, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned);\n", name);
 	sb_printf(&f.out, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned) {\n", name);
 	sb_puts(&f.out, "\tclj_cframe fr = {slots, captured, owned, outer};\n\t(void)fr;\n");
+	f.definer = parent;
 	// the array is the caller's, sized by its nslots: a promoted entry is simply never touched
 	promote_slots(&f, n, a, false, a->body, a->nslots);
 	emit_promoted_decls(&f);
