@@ -9,6 +9,8 @@
 void clj_exec_derive(clj_value exec);
 // Drops the exec's sites from the reverse index and frees its derivation: the exec's finalizer.
 void clj_exec_forget(clj_exec *e);
+// Re-derives every exec whose derivation read the var's root; clj_var_bind_root calls it after the epoch bump.
+void clj_exec_root_rebound(clj_value var);
 // Puts the specialized entries back after clj_exec_count restored the generic ones.
 void clj_exec_reapply(clj_value exec);
 // What the facts said every argument of a specialized node is; the mixed kinds name the two positions in order.

@@ -89,6 +89,32 @@ extension CoreTests {
 			#expect(try specialized(rt, "sp-add", "+"))
 		}
 
+		// A redefined operator loses its entries at the def, not at the next join change, and gets them back the same way.
+		@Test func rootRebindPushes() throws {
+			_ = try rt.eval("(defn sp-use-mul-2 [] (sp-mul 6 7))")
+			let exec = try execOf(rt, "sp-mul")
+			#expect(try specialized(rt, "sp-mul", "*"))
+			let rounds = clj_exec_derivations(exec)
+			_ = try rt.eval("(in-ns 'clojure.core) (def sp-boot-mul *) (def * (fn [a b] (+ a b))) (in-ns 'user)")
+			#expect(!(try specialized(rt, "sp-mul", "*")))
+			#expect(clj_exec_derivations(exec) == rounds + 1)
+			#expect(clj_exec_derivation_valid(exec))
+			#expect(try rt.eval("(sp-mul 6 7)").int == 13)
+			// the specialized entry of a fn whose operator is rebound mid-flight still sees the rebinding
+			#expect(try rt.eval("(with-redefs [* clojure.core/sp-boot-mul] (sp-mul 6 7))").int == 42)
+			#expect(try rt.eval("(sp-mul 6 7)").int == 13)
+			// each rebind of with-redefs pushed one more
+			#expect(clj_exec_derivations(exec) == rounds + 3)
+			_ = try rt.eval("(in-ns 'clojure.core) (def * sp-boot-mul) (in-ns 'user)")
+			#expect(try specialized(rt, "sp-mul", "*"))
+			#expect(clj_exec_derivations(exec) == rounds + 4)
+			#expect(clj_exec_derivation_valid(exec))
+			#expect(try rt.eval("(sp-mul 6 7)").int == 42)
+			#expect(try rt.eval("(with-redefs [* -] (sp-mul 6 7))").int == -1)
+			#expect(try specialized(rt, "sp-mul", "*"))
+			#expect(try rt.eval("(sp-mul 6 7)").int == 42)
+		}
+
 		// A dynamic var and a loop whose variable turns double are never specialized; the predicates are.
 		@Test func neverAndAlways() throws {
 			_ = try rt.eval("(defn sp-use-dyn [] (sp-dyn 1)) (defn sp-use-preds [] (sp-preds 1))")

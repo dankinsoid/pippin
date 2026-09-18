@@ -13,6 +13,7 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
+#include "specialize_internal.h"
 
 static void var_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_var *v = self;
@@ -69,6 +70,7 @@ void clj_var_bind_root(clj_value var, clj_value val) {
 	if (old != CLJ_UNBOUND && !clj_eval_retire_root(old)) clj_release(old);
 	atomic_fetch_add_explicit(&clj_var_of(var)->epoch, 1, memory_order_release);
 	clj_epoch_bump();
+	clj_exec_root_rebound(var);
 }
 
 clj_value clj_var_meta(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->meta, memory_order_acquire); }

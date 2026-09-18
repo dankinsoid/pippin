@@ -77,11 +77,87 @@ static void free_derivation(clj_derivation *d) {
 	free(d);
 }
 
+// ---- the dependents index: var -> the execs whose derivation read its root, what a root rebind pushes to
+
+typedef struct {
+	clj_value  var;
+	clj_exec **execs;
+	uint32_t   n, cap;
+} dependents;
+
+static dependents **dtable; // open addressing on the var pointer, grown at 3/4; a var is immortal, so no deletion
+static uint32_t     dcap, dcount;
+
+static dependents **dslot(dependents **slots, uint32_t cap, clj_value var) {
+	uint64_t h = (uint64_t)var >> 4;
+	h *= 0xff51afd7ed558ccdull;
+	uint32_t mask = cap - 1;
+	for (uint32_t i = (uint32_t)(h >> 32) & mask;; i = (i + 1) & mask) {
+		if (!slots[i] || slots[i]->var == var) return &slots[i];
+	}
+}
+
+static dependents *dependents_find(clj_value var) { return dcap ? *dslot(dtable, dcap, var) : NULL; }
+
+static dependents *dependents_for(clj_value var) {
+	if (!dcap) {
+		dcap = 64;
+		dtable = xalloc(dcap, sizeof *dtable);
+	}
+	dependents **slot = dslot(dtable, dcap, var);
+	if (*slot) return *slot;
+	if ((dcount + 1) * 4 > dcap * 3) {
+		uint32_t     cap = dcap * 2;
+		dependents **fresh = xalloc(cap, sizeof *fresh);
+		for (uint32_t i = 0; i < dcap; i++) {
+			if (dtable[i]) *dslot(fresh, cap, dtable[i]->var) = dtable[i];
+		}
+		free(dtable);
+		dtable = fresh;
+		dcap = cap;
+		slot = dslot(dtable, dcap, var);
+	}
+	dependents *d = xalloc(1, sizeof *d);
+	d->var = var;
+	*slot = d;
+	dcount++;
+	return d;
+}
+
+static void dependents_add(clj_value var, clj_exec *e) {
+	dependents *d = dependents_for(var);
+	if (d->n == d->cap) {
+		d->cap = d->cap ? d->cap * 2 : 4;
+		d->execs = realloc(d->execs, d->cap * sizeof *d->execs);
+		if (!d->execs) clj_fatal("out of memory");
+	}
+	d->execs[d->n++] = e;
+}
+
+static void dependents_remove(clj_value var, clj_exec *e) {
+	dependents *d = dependents_find(var);
+	for (uint32_t i = 0; d && i < d->n; i++) {
+		if (d->execs[i] == e) {
+			d->execs[i] = d->execs[--d->n];
+			return;
+		}
+	}
+}
+
+static void forget_locked(clj_exec *e) {
+	clj_derivation *d = e->derived;
+	if (!d) return;
+	for (uint32_t i = 0; i < d->ndeps; i++) dependents_remove(d->dep_vars[i], e);
+	clj_callers_forget(e);
+	free_derivation(d);
+	e->derived = NULL;
+}
+
 void clj_exec_forget(clj_exec *e) {
 	if (!e->derived) return;
-	clj_callers_forget(e);
-	free_derivation(e->derived);
-	e->derived = NULL;
+	clj_lock_lock(&lock);
+	forget_locked(e);
+	clj_lock_unlock(&lock);
 }
 
 // ---- reading the table into the exec
@@ -226,8 +302,9 @@ static void derive(clj_exec *e, uint32_t trigger) {
 	install_ctx ic = {e, f, d, 0};
 	install(e->root, &ic);
 	// the old sites go before the new ones so that a site the re-derivation narrowed is replaced, not joined
-	clj_exec_forget(e);
+	forget_locked(e);
 	e->derived = d;
+	for (uint32_t i = 0; i < d->ndeps; i++) dependents_add(d->dep_vars[i], e);
 	clj_value touched[64];
 	uint32_t  ntouched = 0;
 	// only what a fn body does is a fact about the program: the rest of a form runs once, as a host call does
@@ -258,21 +335,47 @@ static void derive(clj_exec *e, uint32_t trigger) {
 	for (uint32_t k = 0; k < ntouched; k++) enqueue_if_stale(touched[k], e);
 }
 
-void clj_exec_derive(clj_value exec) {
-	if (!enabled) return;
-	clj_lock_lock(&lock);
-	uint32_t trigger = ++trigger_serial;
-	derive(clj_exec_of(exec), trigger);
-	uint32_t done = 1;
+// The queue's references are dropped after the unlock: an exec dying there forgets itself under the lock.
+static void drain_and_unlock(uint32_t trigger, uint32_t done) {
+	clj_exec **spent = NULL;
+	uint32_t   nspent = 0, cspent = 0;
 	while (nwork) {
 		clj_exec *e = work[--nwork];
 		if (done < MAX_PER_TRIGGER) {
 			derive(e, trigger);
 			done++;
 		}
-		clj_release(clj_from_ptr(e));
+		if (nspent == cspent) {
+			cspent = cspent ? cspent * 2 : 8;
+			spent = realloc(spent, cspent * sizeof *spent);
+			if (!spent) clj_fatal("out of memory");
+		}
+		spent[nspent++] = e;
 	}
 	clj_lock_unlock(&lock);
+	for (uint32_t i = 0; i < nspent; i++) clj_release(clj_from_ptr(spent[i]));
+	free(spent);
+}
+
+void clj_exec_derive(clj_value exec) {
+	if (!enabled) return;
+	clj_lock_lock(&lock);
+	uint32_t trigger = ++trigger_serial;
+	derive(clj_exec_of(exec), trigger);
+	drain_and_unlock(trigger, 1);
+}
+
+// A rebound operator's entries would fail their guard on every call; a redefined callee has a new summary.
+void clj_exec_root_rebound(clj_value var) {
+	if (!enabled || !dcap) return;
+	clj_lock_lock(&lock);
+	dependents *d = dependents_find(var);
+	if (!d || !d->n) {
+		clj_lock_unlock(&lock);
+		return;
+	}
+	for (uint32_t i = 0; i < d->n; i++) push_work(d->execs[i]);
+	drain_and_unlock(++trigger_serial, 0);
 }
 
 void clj_exec_reapply(clj_value exec) {
