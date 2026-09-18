@@ -1,4 +1,4 @@
-.PHONY: build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
+.PHONY: port-audit build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
 
 build:
 	swift build
@@ -83,3 +83,7 @@ bench:
 	./.build/release/clj-bench
 	@echo
 	CLJ_SYSTEM_ALLOC=1 ./.build/release/clj-bench
+
+# Every file using a platform-specific API must have a row in docs/portability.md (other platforms are the last goal).
+port-audit:
+	sh scripts/port-audit.sh
