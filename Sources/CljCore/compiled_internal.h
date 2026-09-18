@@ -11,6 +11,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/list.h"
+#include "clj/long.h"
 #include "clj/map.h"
 #include "clj/set.h"
 #include "clj/var.h"

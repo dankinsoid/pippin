@@ -4198,12 +4198,20 @@ L5: ;
 	}
 #line 94 "Sources/CljCore/boot/core.clj"
 	clj_value t129 = l11;
-	clj_value a32[1] = {t129};
-	(void)a32;
 	clj_value t130;
+	clj_value a32[1];
 	if (CLJC_GUARD(V[21], B[6])) {
-	t130 = clj_inc(t129);
+	if (1 && clj_is_fixnum(t129)) {
+	int64_t i131 = clj_fixnum_val(t129);
+	int64_t i132;
+	if (__builtin_expect(__builtin_add_overflow(i131, INT64_C(1), &i132), 0)) t130 = clj_throw_msg("integer overflow");
+	else t130 = clj_long_new(i132);
 	} else {
+	a32[0] = t129;
+	t130 = clj_inc(a32[0]);
+	}
+	} else {
+	a32[0] = t129;
 	t130 = clj_c_intrinsic_fallback(V[21], a32, 1);
 	}
 	(void)t129;
@@ -4212,34 +4220,34 @@ L5: ;
 	goto L2;
 	}
 #line 95 "Sources/CljCore/boot/core.clj"
-	clj_value t131 = l12;
-	clj_value a33[1] = {t131};
+	clj_value t133 = l12;
+	clj_value a33[1] = {t133};
 	(void)a33;
-	clj_value t132;
+	clj_value t134;
 	if (CLJC_GUARD(V[6], B[4])) {
-	t132 = clj_next(t131);
+	t134 = clj_next(t133);
 	} else {
-	t132 = clj_c_intrinsic_fallback(V[6], a33, 1);
+	t134 = clj_c_intrinsic_fallback(V[6], a33, 1);
 	}
-	(void)t131;
-	if (t132 == CLJ_THROWN) {
+	(void)t133;
+	if (t134 == CLJ_THROWN) {
 	clj_release(t130);
 	clj_release(t128);
 	goto L2;
 	}
 #line 89 "Sources/CljCore/boot/core.clj"
-	clj_value t133 = l13;
+	clj_value t135 = l13;
 	l13 = CLJ_NIL;
 	clj_c_rebind(&l10, t128);
 	clj_c_rebind(&l11, t130);
-	clj_c_rebind(&l12, t132);
-	clj_c_rebind(&l13, t133);
+	clj_c_rebind(&l12, t134);
+	clj_c_rebind(&l13, t135);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L5;
-	clj_value t134 = CLJ_NIL;
-	t83 = t134;
+	clj_value t136 = CLJ_NIL;
+	t83 = t136;
 	}
 	t73 = t83;
 	}
@@ -4248,9 +4256,9 @@ L5: ;
 	t48 = t55;
 	} else {
 #line 82 "Sources/CljCore/boot/core.clj"
-	clj_value t135 = l10;
+	clj_value t137 = l10;
 	l10 = CLJ_NIL;
-	t48 = t135;
+	t48 = t137;
 	}
 	clj_c_leave(&S[12], &cc);
 	clj_release(l4);
@@ -7198,12 +7206,21 @@ L4: ;
 	if (t7 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a2[2] = {t5, t7};
-	(void)a2;
 	clj_value t8;
+	clj_value a2[2];
 	if (CLJC_GUARD(V[36], B[15])) {
-	t8 = clj_lt(t5, t7);
+	if (1 && clj_is_fixnum(t5) && clj_is_fixnum(t7)) {
+	int64_t i9 = clj_fixnum_val(t5);
+	int64_t i10 = clj_fixnum_val(t7);
+	t8 = clj_bool(i9 < i10);
 	} else {
+	a2[0] = t5;
+	a2[1] = t7;
+	t8 = clj_lt(a2[0], a2[1]);
+	}
+	} else {
+	a2[0] = t5;
+	a2[1] = t7;
 	t8 = clj_c_intrinsic_fallback(V[36], a2, 2);
 	}
 	clj_release(t7);
@@ -7211,211 +7228,250 @@ L4: ;
 	if (t8 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t9 = clj_truthy(t8);
+	bool t11 = clj_truthy(t8);
 	clj_release(t8);
-	clj_value t10;
-	if (t9) {
+	clj_value t12;
+	if (t11) {
 #line 153 "Sources/CljCore/boot/core.clj"
-	clj_value t11 = l0;
-	clj_value t12 = l5;
-	clj_value a5[2] = {t11, t12};
+	clj_value t13 = l0;
+	clj_value t14 = l5;
+	clj_value a5[2] = {t13, t14};
 	(void)a5;
-	clj_value t13;
+	clj_value t15;
 	if (CLJC_GUARD(V[24], B[9])) {
-	t13 = clj_nth2(t11, t12);
+	t15 = clj_nth2(t13, t14);
 	} else {
-	t13 = clj_c_intrinsic_fallback(V[24], a5, 2);
+	t15 = clj_c_intrinsic_fallback(V[24], a5, 2);
 	}
-	(void)t12;
-	(void)t11;
-	if (t13 == CLJ_THROWN) {
+	(void)t14;
+	(void)t13;
+	if (t15 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a4[1] = {t13};
+	clj_value a4[1] = {t15};
 	(void)a4;
-	clj_value t14;
-	if (CLJC_GUARD(V[32], B[11])) {
-	t14 = clj_symbol_p(t13);
-	} else {
-	t14 = clj_c_intrinsic_fallback(V[32], a4, 1);
-	}
-	clj_release(t13);
-	if (t14 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t15 = clj_truthy(t14);
-	clj_release(t14);
 	clj_value t16;
-	if (t15) {
-	clj_value t17 = l5;
-	clj_value t18 = K[71];
-	clj_value a6[2] = {t17, t18};
-	(void)a6;
-	clj_value t19;
-	if (CLJC_GUARD(V[38], B[17])) {
-	t19 = clj_add(t17, t18);
+	if (CLJC_GUARD(V[32], B[11])) {
+	t16 = clj_symbol_p(t15);
 	} else {
-	t19 = clj_c_intrinsic_fallback(V[38], a6, 2);
+	t16 = clj_c_intrinsic_fallback(V[32], a4, 1);
 	}
-	(void)t18;
-	(void)t17;
-	if (t19 == CLJ_THROWN) {
+	clj_release(t15);
+	if (t16 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l5, t19);
+	bool t17 = clj_truthy(t16);
+	clj_release(t16);
+	clj_value t18;
+	if (t17) {
+	clj_value t19 = l5;
+	clj_value t20 = K[71];
+	clj_value t21;
+	clj_value a6[2];
+	if (CLJC_GUARD(V[38], B[17])) {
+	if (1 && clj_is_fixnum(t19) && clj_is_fixnum(t20)) {
+	int64_t i22 = clj_fixnum_val(t19);
+	int64_t i23 = clj_fixnum_val(t20);
+	int64_t i24;
+	if (__builtin_expect(__builtin_add_overflow(i22, i23, &i24), 0)) t21 = clj_throw_msg("integer overflow");
+	else t21 = clj_long_new(i24);
+	} else {
+	a6[0] = t19;
+	a6[1] = t20;
+	t21 = clj_add(a6[0], a6[1]);
+	}
+	} else {
+	a6[0] = t19;
+	a6[1] = t20;
+	t21 = clj_c_intrinsic_fallback(V[38], a6, 2);
+	}
+	(void)t20;
+	(void)t19;
+	if (t21 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_c_rebind(&l5, t21);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t20 = CLJ_NIL;
-	t16 = t20;
+	clj_value t25 = CLJ_NIL;
+	t18 = t25;
 	} else {
-	clj_value t21 = clj_retain(K[40]);
-	t16 = t21;
+	clj_value t26 = clj_retain(K[40]);
+	t18 = t26;
 	}
-	t10 = t16;
+	t12 = t18;
 	} else {
 #line 152 "Sources/CljCore/boot/core.clj"
-	clj_value t22 = clj_retain(K[39]);
-	t10 = t22;
+	clj_value t27 = clj_retain(K[39]);
+	t12 = t27;
 	}
-	bool t23 = clj_truthy(t10);
-	clj_release(t10);
-	clj_value t24;
-	if (t23) {
+	bool t28 = clj_truthy(t12);
+	clj_release(t12);
+	clj_value t29;
+	if (t28) {
 #line 151 "Sources/CljCore/boot/core.clj"
-	clj_value t25 = clj_retain(l0);
-	t24 = t25;
+	clj_value t30 = clj_retain(l0);
+	t29 = t30;
 	} else {
 #line 156 "Sources/CljCore/boot/core.clj"
-	clj_value t26 = clj_retain(K[42]);
-	clj_c_rebind(&l6, t26);
-	clj_value t27 = clj_retain(K[49]);
-	clj_c_rebind(&l7, t27);
+	clj_value t31 = clj_retain(K[42]);
+	clj_c_rebind(&l6, t31);
+	clj_value t32 = clj_retain(K[49]);
+	clj_c_rebind(&l7, t32);
 L5: ;
 #line 157 "Sources/CljCore/boot/core.clj"
-	clj_value t28 = l6;
-	clj_value t29 = l0;
-	clj_value a8[1] = {t29};
+	clj_value t33 = l6;
+	clj_value t34 = l0;
+	clj_value a8[1] = {t34};
 	(void)a8;
-	clj_value t30;
+	clj_value t35;
 	if (CLJC_GUARD(V[37], B[16])) {
-	t30 = clj_count(t29);
+	t35 = clj_count(t34);
 	} else {
-	t30 = clj_c_intrinsic_fallback(V[37], a8, 1);
+	t35 = clj_c_intrinsic_fallback(V[37], a8, 1);
 	}
-	(void)t29;
-	if (t30 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a7[2] = {t28, t30};
-	(void)a7;
-	clj_value t31;
-	if (CLJC_GUARD(V[36], B[15])) {
-	t31 = clj_lt(t28, t30);
-	} else {
-	t31 = clj_c_intrinsic_fallback(V[36], a7, 2);
-	}
-	clj_release(t30);
-	(void)t28;
-	if (t31 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t32 = clj_truthy(t31);
-	clj_release(t31);
-	clj_value t33;
-	if (t32) {
-#line 158 "Sources/CljCore/boot/core.clj"
-	clj_value t34 = l6;
-	clj_value t35 = K[71];
-	clj_value a9[2] = {t34, t35};
-	(void)a9;
-	clj_value t36;
-	if (CLJC_GUARD(V[38], B[17])) {
-	t36 = clj_add(t34, t35);
-	} else {
-	t36 = clj_c_intrinsic_fallback(V[38], a9, 2);
-	}
-	(void)t35;
 	(void)t34;
+	if (t35 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value t36;
+	clj_value a7[2];
+	if (CLJC_GUARD(V[36], B[15])) {
+	if (1 && clj_is_fixnum(t33) && clj_is_fixnum(t35)) {
+	int64_t i37 = clj_fixnum_val(t33);
+	int64_t i38 = clj_fixnum_val(t35);
+	t36 = clj_bool(i37 < i38);
+	} else {
+	a7[0] = t33;
+	a7[1] = t35;
+	t36 = clj_lt(a7[0], a7[1]);
+	}
+	} else {
+	a7[0] = t33;
+	a7[1] = t35;
+	t36 = clj_c_intrinsic_fallback(V[36], a7, 2);
+	}
+	clj_release(t35);
+	(void)t33;
 	if (t36 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t37 = l4;
-	clj_value t38 = l7;
-	clj_value t39 = l0;
-	clj_value t40 = l6;
-	clj_value a11[2] = {t39, t40};
-	(void)a11;
-	clj_value t41;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t41 = clj_nth2(t39, t40);
-	} else {
-	t41 = clj_c_intrinsic_fallback(V[24], a11, 2);
-	}
-	(void)t40;
-	(void)t39;
-	if (t41 == CLJ_THROWN) {
+	bool t39 = clj_truthy(t36);
 	clj_release(t36);
-	goto L2;
-	}
-	clj_value t42 = l0;
-	clj_value t43 = l6;
-	clj_value a13[1] = {t43};
-	(void)a13;
-	clj_value t44;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t44 = clj_inc(t43);
+	clj_value t40;
+	if (t39) {
+#line 158 "Sources/CljCore/boot/core.clj"
+	clj_value t41 = l6;
+	clj_value t42 = K[71];
+	clj_value t43;
+	clj_value a9[2];
+	if (CLJC_GUARD(V[38], B[17])) {
+	if (1 && clj_is_fixnum(t41) && clj_is_fixnum(t42)) {
+	int64_t i44 = clj_fixnum_val(t41);
+	int64_t i45 = clj_fixnum_val(t42);
+	int64_t i46;
+	if (__builtin_expect(__builtin_add_overflow(i44, i45, &i46), 0)) t43 = clj_throw_msg("integer overflow");
+	else t43 = clj_long_new(i46);
 	} else {
-	t44 = clj_c_intrinsic_fallback(V[21], a13, 1);
+	a9[0] = t41;
+	a9[1] = t42;
+	t43 = clj_add(a9[0], a9[1]);
 	}
-	(void)t43;
-	if (t44 == CLJ_THROWN) {
-	clj_release(t41);
-	clj_release(t36);
-	goto L2;
-	}
-	clj_value a12[2] = {t42, t44};
-	(void)a12;
-	clj_value t45;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t45 = clj_nth2(t42, t44);
 	} else {
-	t45 = clj_c_intrinsic_fallback(V[24], a12, 2);
+	a9[0] = t41;
+	a9[1] = t42;
+	t43 = clj_c_intrinsic_fallback(V[38], a9, 2);
 	}
-	clj_release(t44);
 	(void)t42;
-	if (t45 == CLJ_THROWN) {
-	clj_release(t41);
-	clj_release(t36);
+	(void)t41;
+	if (t43 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a10[3] = {t38, t41, t45};
+	clj_value t47 = l4;
+	clj_value t48 = l7;
+	clj_value t49 = l0;
+	clj_value t50 = l6;
+	clj_value a11[2] = {t49, t50};
+	(void)a11;
+	clj_value t51;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t51 = clj_nth2(t49, t50);
+	} else {
+	t51 = clj_c_intrinsic_fallback(V[24], a11, 2);
+	}
+	(void)t50;
+	(void)t49;
+	if (t51 == CLJ_THROWN) {
+	clj_release(t43);
+	goto L2;
+	}
+	clj_value t52 = l0;
+	clj_value t53 = l6;
+	clj_value t54;
+	clj_value a13[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t53)) {
+	int64_t i55 = clj_fixnum_val(t53);
+	int64_t i56;
+	if (__builtin_expect(__builtin_add_overflow(i55, INT64_C(1), &i56), 0)) t54 = clj_throw_msg("integer overflow");
+	else t54 = clj_long_new(i56);
+	} else {
+	a13[0] = t53;
+	t54 = clj_inc(a13[0]);
+	}
+	} else {
+	a13[0] = t53;
+	t54 = clj_c_intrinsic_fallback(V[21], a13, 1);
+	}
+	(void)t53;
+	if (t54 == CLJ_THROWN) {
+	clj_release(t51);
+	clj_release(t43);
+	goto L2;
+	}
+	clj_value a12[2] = {t52, t54};
+	(void)a12;
+	clj_value t57;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t57 = clj_nth2(t52, t54);
+	} else {
+	t57 = clj_c_intrinsic_fallback(V[24], a12, 2);
+	}
+	clj_release(t54);
+	(void)t52;
+	if (t57 == CLJ_THROWN) {
+	clj_release(t51);
+	clj_release(t43);
+	goto L2;
+	}
+	clj_value a10[3] = {t48, t51, t57};
 	(void)a10;
-	clj_value t46 = clj_c_invoke(t37, a10, 3);
-	clj_release(t45);
-	clj_release(t41);
-	(void)t38;
-	(void)t37;
-	if (t46 == CLJ_THROWN) {
-	clj_release(t36);
+	clj_value t58 = clj_c_invoke(t47, a10, 3);
+	clj_release(t57);
+	clj_release(t51);
+	(void)t48;
+	(void)t47;
+	if (t58 == CLJ_THROWN) {
+	clj_release(t43);
 	goto L2;
 	}
-	clj_c_rebind(&l6, t36);
-	clj_c_rebind(&l7, t46);
+	clj_c_rebind(&l6, t43);
+	clj_c_rebind(&l7, t58);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L5;
-	clj_value t47 = CLJ_NIL;
-	t33 = t47;
+	clj_value t59 = CLJ_NIL;
+	t40 = t59;
 	} else {
 #line 157 "Sources/CljCore/boot/core.clj"
-	clj_value t48 = l7;
+	clj_value t60 = l7;
 	l7 = CLJ_NIL;
-	t33 = t48;
+	t40 = t60;
 	}
-	t24 = t33;
+	t29 = t40;
 	}
 	clj_c_leave(&S[11], &cc);
 	clj_release(l4);
@@ -7423,7 +7479,7 @@ L5: ;
 	clj_release(l6);
 	clj_release(l7);
 	clj_c_release_slots(&fr, 4);
-	return t24;
+	return t29;
 L2: ;
 	clj_c_leave(&S[11], &cc);
 L1: ;
@@ -8001,12 +8057,21 @@ L4: ;
 	if (t28 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a7[2] = {t26, t28};
-	(void)a7;
 	clj_value t29;
+	clj_value a7[2];
 	if (CLJC_GUARD(V[36], B[15])) {
-	t29 = clj_lt(t26, t28);
+	if (1 && clj_is_fixnum(t26) && clj_is_fixnum(t28)) {
+	int64_t i30 = clj_fixnum_val(t26);
+	int64_t i31 = clj_fixnum_val(t28);
+	t29 = clj_bool(i30 < i31);
 	} else {
+	a7[0] = t26;
+	a7[1] = t28;
+	t29 = clj_lt(a7[0], a7[1]);
+	}
+	} else {
+	a7[0] = t26;
+	a7[1] = t28;
 	t29 = clj_c_intrinsic_fallback(V[36], a7, 2);
 	}
 	clj_release(t28);
@@ -8014,551 +8079,570 @@ L4: ;
 	if (t29 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t30 = clj_truthy(t29);
+	bool t32 = clj_truthy(t29);
 	clj_release(t29);
-	clj_value t31;
-	if (t30) {
+	clj_value t33;
+	if (t32) {
 #line 188 "Sources/CljCore/boot/core.clj"
-	clj_value t32 = l2;
-	clj_value t33 = l5;
-	clj_value a9[2] = {t32, t33};
+	clj_value t34 = l2;
+	clj_value t35 = l5;
+	clj_value a9[2] = {t34, t35};
 	(void)a9;
-	clj_value t34;
+	clj_value t36;
 	if (CLJC_GUARD(V[24], B[9])) {
-	t34 = clj_nth2(t32, t33);
+	t36 = clj_nth2(t34, t35);
 	} else {
-	t34 = clj_c_intrinsic_fallback(V[24], a9, 2);
+	t36 = clj_c_intrinsic_fallback(V[24], a9, 2);
 	}
-	(void)t33;
-	(void)t32;
-	if (t34 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_c_rebind(&l9, t34);
-#line 189 "Sources/CljCore/boot/core.clj"
-	clj_value t35 = l2;
-	clj_value t36 = l5;
-	clj_value a11[1] = {t36};
-	(void)a11;
-	clj_value t37;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t37 = clj_inc(t36);
-	} else {
-	t37 = clj_c_intrinsic_fallback(V[21], a11, 1);
-	}
-	(void)t36;
-	if (t37 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a10[2] = {t35, t37};
-	(void)a10;
-	clj_value t38;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t38 = clj_nth2(t35, t37);
-	} else {
-	t38 = clj_c_intrinsic_fallback(V[24], a10, 2);
-	}
-	clj_release(t37);
 	(void)t35;
-	if (t38 == CLJ_THROWN) {
+	(void)t34;
+	if (t36 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l10, t38);
-#line 190 "Sources/CljCore/boot/core.clj"
-	clj_value t39 = l9;
-	clj_value a12[1] = {t39};
-	(void)a12;
-	clj_value t40;
-	if (CLJC_GUARD(V[32], B[11])) {
-	t40 = clj_symbol_p(t39);
+	clj_c_rebind(&l9, t36);
+#line 189 "Sources/CljCore/boot/core.clj"
+	clj_value t37 = l2;
+	clj_value t38 = l5;
+	clj_value t39;
+	clj_value a11[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t38)) {
+	int64_t i40 = clj_fixnum_val(t38);
+	int64_t i41;
+	if (__builtin_expect(__builtin_add_overflow(i40, INT64_C(1), &i41), 0)) t39 = clj_throw_msg("integer overflow");
+	else t39 = clj_long_new(i41);
 	} else {
-	t40 = clj_c_intrinsic_fallback(V[32], a12, 1);
+	a11[0] = t38;
+	t39 = clj_inc(a11[0]);
 	}
-	(void)t39;
-	if (t40 == CLJ_THROWN) {
+	} else {
+	a11[0] = t38;
+	t39 = clj_c_intrinsic_fallback(V[21], a11, 1);
+	}
+	(void)t38;
+	if (t39 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t41 = clj_truthy(t40);
-	clj_release(t40);
+	clj_value a10[2] = {t37, t39};
+	(void)a10;
 	clj_value t42;
-	if (t41) {
-	clj_value t43 = clj_retain(l9);
-	t42 = t43;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t42 = clj_nth2(t37, t39);
 	} else {
-	bool o44;
-	clj_value t44 = clj_c_var_borrow(V[18], &o44);
+	t42 = clj_c_intrinsic_fallback(V[24], a10, 2);
+	}
+	clj_release(t39);
+	(void)t37;
+	if (t42 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_c_rebind(&l10, t42);
+#line 190 "Sources/CljCore/boot/core.clj"
+	clj_value t43 = l9;
+	clj_value a12[1] = {t43};
+	(void)a12;
+	clj_value t44;
+	if (CLJC_GUARD(V[32], B[11])) {
+	t44 = clj_symbol_p(t43);
+	} else {
+	t44 = clj_c_intrinsic_fallback(V[32], a12, 1);
+	}
+	(void)t43;
 	if (t44 == CLJ_THROWN) {
 	goto L2;
 	}
-	const clj_value *a13 = NULL;
-	clj_value t45 = clj_c_invoke(t44, a13, 0);
-	if (o44) clj_release(t44);
-	if (t45 == CLJ_THROWN) {
-	goto L2;
-	}
-	t42 = t45;
-	}
-	clj_c_rebind(&l11, t42);
-#line 191 "Sources/CljCore/boot/core.clj"
-	clj_value t46 = l5;
-	clj_value t47 = K[71];
-	clj_value a14[2] = {t46, t47};
-	(void)a14;
-	clj_value t48;
-	if (CLJC_GUARD(V[38], B[17])) {
-	t48 = clj_add(t46, t47);
+	bool t45 = clj_truthy(t44);
+	clj_release(t44);
+	clj_value t46;
+	if (t45) {
+	clj_value t47 = clj_retain(l9);
+	t46 = t47;
 	} else {
-	t48 = clj_c_intrinsic_fallback(V[38], a14, 2);
-	}
-	(void)t47;
-	(void)t46;
+	bool o48;
+	clj_value t48 = clj_c_var_borrow(V[18], &o48);
 	if (t48 == CLJ_THROWN) {
 	goto L2;
 	}
-#line 192 "Sources/CljCore/boot/core.clj"
-	clj_value t49 = l9;
-	clj_value a15[1] = {t49};
-	(void)a15;
-	clj_value t50;
-	if (CLJC_GUARD(V[32], B[11])) {
-	t50 = clj_symbol_p(t49);
-	} else {
-	t50 = clj_c_intrinsic_fallback(V[32], a15, 1);
-	}
-	(void)t49;
-	if (t50 == CLJ_THROWN) {
-	clj_release(t48);
+	const clj_value *a13 = NULL;
+	clj_value t49 = clj_c_invoke(t48, a13, 0);
+	if (o48) clj_release(t48);
+	if (t49 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t51 = clj_truthy(t50);
-	clj_release(t50);
+	t46 = t49;
+	}
+	clj_c_rebind(&l11, t46);
+#line 191 "Sources/CljCore/boot/core.clj"
+	clj_value t50 = l5;
+	clj_value t51 = K[71];
 	clj_value t52;
-	if (t51) {
-	bool o53;
-	clj_value t53 = clj_c_var_borrow(V[20], &o53);
-	if (t53 == CLJ_THROWN) {
-	clj_release(t48);
-	goto L2;
-	}
-	clj_value t54 = l6;
-	clj_value t55 = l11;
-	clj_value t56 = l10;
-	clj_value a16[3] = {t54, t55, t56};
-	(void)a16;
-	clj_value t57 = clj_c_invoke(t53, a16, 3);
-	(void)t56;
-	(void)t55;
-	(void)t54;
-	if (o53) clj_release(t53);
-	if (t57 == CLJ_THROWN) {
-	clj_release(t48);
-	goto L2;
-	}
-	t52 = t57;
+	clj_value a14[2];
+	if (CLJC_GUARD(V[38], B[17])) {
+	if (1 && clj_is_fixnum(t50) && clj_is_fixnum(t51)) {
+	int64_t i53 = clj_fixnum_val(t50);
+	int64_t i54 = clj_fixnum_val(t51);
+	int64_t i55;
+	if (__builtin_expect(__builtin_add_overflow(i53, i54, &i55), 0)) t52 = clj_throw_msg("integer overflow");
+	else t52 = clj_long_new(i55);
 	} else {
-	bool o58;
-	clj_value t58 = clj_c_var_borrow(V[20], &o58);
-	if (t58 == CLJ_THROWN) {
-	clj_release(t48);
+	a14[0] = t50;
+	a14[1] = t51;
+	t52 = clj_add(a14[0], a14[1]);
+	}
+	} else {
+	a14[0] = t50;
+	a14[1] = t51;
+	t52 = clj_c_intrinsic_fallback(V[38], a14, 2);
+	}
+	(void)t51;
+	(void)t50;
+	if (t52 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t59 = l6;
-	clj_value t60 = l11;
-	clj_value t61 = l10;
-	clj_value t62 = l9;
-	clj_value t63 = l11;
-	clj_value a17[5] = {t59, t60, t61, t62, t63};
-	(void)a17;
-	clj_value t64 = clj_c_invoke(t58, a17, 5);
+#line 192 "Sources/CljCore/boot/core.clj"
+	clj_value t56 = l9;
+	clj_value a15[1] = {t56};
+	(void)a15;
+	clj_value t57;
+	if (CLJC_GUARD(V[32], B[11])) {
+	t57 = clj_symbol_p(t56);
+	} else {
+	t57 = clj_c_intrinsic_fallback(V[32], a15, 1);
+	}
+	(void)t56;
+	if (t57 == CLJ_THROWN) {
+	clj_release(t52);
+	goto L2;
+	}
+	bool t58 = clj_truthy(t57);
+	clj_release(t57);
+	clj_value t59;
+	if (t58) {
+	bool o60;
+	clj_value t60 = clj_c_var_borrow(V[20], &o60);
+	if (t60 == CLJ_THROWN) {
+	clj_release(t52);
+	goto L2;
+	}
+	clj_value t61 = l6;
+	clj_value t62 = l11;
+	clj_value t63 = l10;
+	clj_value a16[3] = {t61, t62, t63};
+	(void)a16;
+	clj_value t64 = clj_c_invoke(t60, a16, 3);
 	(void)t63;
 	(void)t62;
 	(void)t61;
-	(void)t60;
-	(void)t59;
-	if (o58) clj_release(t58);
+	if (o60) clj_release(t60);
 	if (t64 == CLJ_THROWN) {
-	clj_release(t48);
+	clj_release(t52);
 	goto L2;
 	}
-	t52 = t64;
-	}
-#line 193 "Sources/CljCore/boot/core.clj"
+	t59 = t64;
+	} else {
 	bool o65;
 	clj_value t65 = clj_c_var_borrow(V[20], &o65);
 	if (t65 == CLJ_THROWN) {
 	clj_release(t52);
-	clj_release(t48);
 	goto L2;
 	}
-	clj_value t66 = l7;
+	clj_value t66 = l6;
 	clj_value t67 = l11;
-	clj_value t68 = l11;
-	clj_value a18[3] = {t66, t67, t68};
-	(void)a18;
-	clj_value t69 = clj_c_invoke(t65, a18, 3);
+	clj_value t68 = l10;
+	clj_value t69 = l9;
+	clj_value t70 = l11;
+	clj_value a17[5] = {t66, t67, t68, t69, t70};
+	(void)a17;
+	clj_value t71 = clj_c_invoke(t65, a17, 5);
+	(void)t70;
+	(void)t69;
 	(void)t68;
 	(void)t67;
 	(void)t66;
 	if (o65) clj_release(t65);
-	if (t69 == CLJ_THROWN) {
+	if (t71 == CLJ_THROWN) {
 	clj_release(t52);
-	clj_release(t48);
+	goto L2;
+	}
+	t59 = t71;
+	}
+#line 193 "Sources/CljCore/boot/core.clj"
+	bool o72;
+	clj_value t72 = clj_c_var_borrow(V[20], &o72);
+	if (t72 == CLJ_THROWN) {
+	clj_release(t59);
+	clj_release(t52);
+	goto L2;
+	}
+	clj_value t73 = l7;
+	clj_value t74 = l11;
+	clj_value t75 = l11;
+	clj_value a18[3] = {t73, t74, t75};
+	(void)a18;
+	clj_value t76 = clj_c_invoke(t72, a18, 3);
+	(void)t75;
+	(void)t74;
+	(void)t73;
+	if (o72) clj_release(t72);
+	if (t76 == CLJ_THROWN) {
+	clj_release(t59);
+	clj_release(t52);
 	goto L2;
 	}
 #line 194 "Sources/CljCore/boot/core.clj"
-	bool o70;
-	clj_value t70 = clj_c_var_borrow(V[20], &o70);
-	if (t70 == CLJ_THROWN) {
-	clj_release(t69);
+	bool o77;
+	clj_value t77 = clj_c_var_borrow(V[20], &o77);
+	if (t77 == CLJ_THROWN) {
+	clj_release(t76);
+	clj_release(t59);
 	clj_release(t52);
-	clj_release(t48);
 	goto L2;
 	}
-	clj_value t71 = l8;
-	clj_value t72 = l9;
-	clj_value t73 = l11;
-	clj_value a19[3] = {t71, t72, t73};
+	clj_value t78 = l8;
+	clj_value t79 = l9;
+	clj_value t80 = l11;
+	clj_value a19[3] = {t78, t79, t80};
 	(void)a19;
-	clj_value t74 = clj_c_invoke(t70, a19, 3);
-	(void)t73;
-	(void)t72;
-	(void)t71;
-	if (o70) clj_release(t70);
-	if (t74 == CLJ_THROWN) {
-	clj_release(t69);
+	clj_value t81 = clj_c_invoke(t77, a19, 3);
+	(void)t80;
+	(void)t79;
+	(void)t78;
+	if (o77) clj_release(t77);
+	if (t81 == CLJ_THROWN) {
+	clj_release(t76);
+	clj_release(t59);
 	clj_release(t52);
-	clj_release(t48);
 	goto L2;
 	}
-	clj_c_rebind(&l5, t48);
-	clj_c_rebind(&l6, t52);
-	clj_c_rebind(&l7, t69);
-	clj_c_rebind(&l8, t74);
+	clj_c_rebind(&l5, t52);
+	clj_c_rebind(&l6, t59);
+	clj_c_rebind(&l7, t76);
+	clj_c_rebind(&l8, t81);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t75 = CLJ_NIL;
-	t31 = t75;
+	clj_value t82 = CLJ_NIL;
+	t33 = t82;
 	} else {
 #line 187 "Sources/CljCore/boot/core.clj"
-	bool o76;
-	clj_value t76 = clj_c_var_borrow(V[0], &o76);
-	if (t76 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o77;
-	clj_value t77 = clj_c_var_borrow(V[8], &o77);
-	if (t77 == CLJ_THROWN) {
-	if (o76) clj_release(t76);
-	goto L2;
-	}
-	clj_value t78 = K[88];
-	clj_value a22[1] = {t78};
-	(void)a22;
-	clj_value t79 = clj_c_invoke(t77, a22, 1);
-	(void)t78;
-	if (o77) clj_release(t77);
-	if (t79 == CLJ_THROWN) {
-	if (o76) clj_release(t76);
-	goto L2;
-	}
-	bool o80;
-	clj_value t80 = clj_c_var_borrow(V[8], &o80);
-	if (t80 == CLJ_THROWN) {
-	clj_release(t79);
-	if (o76) clj_release(t76);
-	goto L2;
-	}
-	clj_value t81 = l6;
-	clj_value a23[1] = {t81};
-	(void)a23;
-	clj_value t82 = clj_c_invoke(t80, a23, 1);
-	(void)t81;
-	if (o80) clj_release(t80);
-	if (t82 == CLJ_THROWN) {
-	clj_release(t79);
-	if (o76) clj_release(t76);
-	goto L2;
-	}
 	bool o83;
-	clj_value t83 = clj_c_var_borrow(V[8], &o83);
+	clj_value t83 = clj_c_var_borrow(V[0], &o83);
 	if (t83 == CLJ_THROWN) {
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
 	bool o84;
-	clj_value t84 = clj_c_var_borrow(V[0], &o84);
+	clj_value t84 = clj_c_var_borrow(V[8], &o84);
 	if (t84 == CLJ_THROWN) {
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	bool o85;
-	clj_value t85 = clj_c_var_borrow(V[8], &o85);
-	if (t85 == CLJ_THROWN) {
+	clj_value t85 = K[88];
+	clj_value a22[1] = {t85};
+	(void)a22;
+	clj_value t86 = clj_c_invoke(t84, a22, 1);
+	(void)t85;
 	if (o84) clj_release(t84);
+	if (t86 == CLJ_THROWN) {
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value t86 = K[89];
-	clj_value a27[1] = {t86};
-	(void)a27;
-	clj_value t87 = clj_c_invoke(t85, a27, 1);
-	(void)t86;
-	if (o85) clj_release(t85);
+	bool o87;
+	clj_value t87 = clj_c_var_borrow(V[8], &o87);
 	if (t87 == CLJ_THROWN) {
-	if (o84) clj_release(t84);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	bool o88;
-	clj_value t88 = clj_c_var_borrow(V[8], &o88);
-	if (t88 == CLJ_THROWN) {
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	clj_value t88 = l6;
+	clj_value a23[1] = {t88};
+	(void)a23;
+	clj_value t89 = clj_c_invoke(t87, a23, 1);
+	(void)t88;
+	if (o87) clj_release(t87);
+	if (t89 == CLJ_THROWN) {
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value t89 = l7;
-	clj_value a28[1] = {t89};
-	(void)a28;
-	clj_value t90 = clj_c_invoke(t88, a28, 1);
-	(void)t89;
-	if (o88) clj_release(t88);
+	bool o90;
+	clj_value t90 = clj_c_var_borrow(V[8], &o90);
 	if (t90 == CLJ_THROWN) {
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
 	bool o91;
-	clj_value t91 = clj_c_var_borrow(V[8], &o91);
+	clj_value t91 = clj_c_var_borrow(V[0], &o91);
 	if (t91 == CLJ_THROWN) {
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
 	bool o92;
-	clj_value t92 = clj_c_var_borrow(V[0], &o92);
+	clj_value t92 = clj_c_var_borrow(V[8], &o92);
 	if (t92 == CLJ_THROWN) {
 	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	bool o93;
-	clj_value t93 = clj_c_var_borrow(V[8], &o93);
-	if (t93 == CLJ_THROWN) {
+	clj_value t93 = K[89];
+	clj_value a27[1] = {t93};
+	(void)a27;
+	clj_value t94 = clj_c_invoke(t92, a27, 1);
+	(void)t93;
 	if (o92) clj_release(t92);
+	if (t94 == CLJ_THROWN) {
 	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value t94 = K[90];
-	clj_value a32[1] = {t94};
-	(void)a32;
-	clj_value t95 = clj_c_invoke(t93, a32, 1);
-	(void)t94;
-	if (o93) clj_release(t93);
+	bool o95;
+	clj_value t95 = clj_c_var_borrow(V[8], &o95);
 	if (t95 == CLJ_THROWN) {
-	if (o92) clj_release(t92);
+	clj_release(t94);
 	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	bool o96;
-	clj_value t96 = clj_c_var_borrow(V[8], &o96);
-	if (t96 == CLJ_THROWN) {
-	clj_release(t95);
-	if (o92) clj_release(t92);
+	clj_value t96 = l7;
+	clj_value a28[1] = {t96};
+	(void)a28;
+	clj_value t97 = clj_c_invoke(t95, a28, 1);
+	(void)t96;
+	if (o95) clj_release(t95);
+	if (t97 == CLJ_THROWN) {
+	clj_release(t94);
 	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value t97 = l8;
-	clj_value a33[1] = {t97};
-	(void)a33;
-	clj_value t98 = clj_c_invoke(t96, a33, 1);
-	(void)t97;
-	if (o96) clj_release(t96);
+	bool o98;
+	clj_value t98 = clj_c_var_borrow(V[8], &o98);
 	if (t98 == CLJ_THROWN) {
-	clj_release(t95);
-	if (o92) clj_release(t92);
+	clj_release(t97);
+	clj_release(t94);
 	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value t99 = l3;
-	clj_value a31[3] = {t95, t98, t99};
-	(void)a31;
-	clj_value t100 = clj_c_invoke(t92, a31, 3);
-	(void)t99;
-	clj_release(t98);
-	clj_release(t95);
-	if (o92) clj_release(t92);
+	bool o99;
+	clj_value t99 = clj_c_var_borrow(V[0], &o99);
+	if (t99 == CLJ_THROWN) {
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	goto L2;
+	}
+	bool o100;
+	clj_value t100 = clj_c_var_borrow(V[8], &o100);
 	if (t100 == CLJ_THROWN) {
+	if (o99) clj_release(t99);
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
 	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value a30[1] = {t100};
-	(void)a30;
-	clj_value t101;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t101 = clj_seq(t100);
-	} else {
-	t101 = clj_c_intrinsic_fallback(V[2], a30, 1);
-	}
-	clj_release(t100);
-	if (t101 == CLJ_THROWN) {
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
-	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
-	goto L2;
-	}
-	clj_value a29[1] = {t101};
-	(void)a29;
-	clj_value t102 = clj_c_invoke(t91, a29, 1);
-	clj_release(t101);
-	if (o91) clj_release(t91);
+	clj_value t101 = K[90];
+	clj_value a32[1] = {t101};
+	(void)a32;
+	clj_value t102 = clj_c_invoke(t100, a32, 1);
+	(void)t101;
+	if (o100) clj_release(t100);
 	if (t102 == CLJ_THROWN) {
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	if (o99) clj_release(t99);
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value a26[3] = {t87, t90, t102};
-	(void)a26;
-	clj_value t103 = clj_c_invoke(t84, a26, 3);
-	clj_release(t102);
-	clj_release(t90);
-	clj_release(t87);
-	if (o84) clj_release(t84);
+	bool o103;
+	clj_value t103 = clj_c_var_borrow(V[8], &o103);
 	if (t103 == CLJ_THROWN) {
+	clj_release(t102);
+	if (o99) clj_release(t99);
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
 	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
 	goto L2;
 	}
-	clj_value a25[1] = {t103};
-	(void)a25;
-	clj_value t104;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t104 = clj_seq(t103);
-	} else {
-	t104 = clj_c_intrinsic_fallback(V[2], a25, 1);
-	}
-	clj_release(t103);
-	if (t104 == CLJ_THROWN) {
-	if (o83) clj_release(t83);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
-	goto L2;
-	}
-	clj_value a24[1] = {t104};
-	(void)a24;
-	clj_value t105 = clj_c_invoke(t83, a24, 1);
-	clj_release(t104);
-	if (o83) clj_release(t83);
+	clj_value t104 = l8;
+	clj_value a33[1] = {t104};
+	(void)a33;
+	clj_value t105 = clj_c_invoke(t103, a33, 1);
+	(void)t104;
+	if (o103) clj_release(t103);
 	if (t105 == CLJ_THROWN) {
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
+	clj_release(t102);
+	if (o99) clj_release(t99);
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
 	goto L2;
 	}
-	clj_value a21[3] = {t79, t82, t105};
-	(void)a21;
-	clj_value t106 = clj_c_invoke(t76, a21, 3);
+	clj_value t106 = l3;
+	clj_value a31[3] = {t102, t105, t106};
+	(void)a31;
+	clj_value t107 = clj_c_invoke(t99, a31, 3);
+	(void)t106;
 	clj_release(t105);
-	clj_release(t82);
-	clj_release(t79);
-	if (o76) clj_release(t76);
-	if (t106 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a20[1] = {t106};
-	(void)a20;
-	clj_value t107;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t107 = clj_seq(t106);
-	} else {
-	t107 = clj_c_intrinsic_fallback(V[2], a20, 1);
-	}
-	clj_release(t106);
+	clj_release(t102);
+	if (o99) clj_release(t99);
 	if (t107 == CLJ_THROWN) {
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
 	goto L2;
 	}
-	t31 = t107;
+	clj_value a30[1] = {t107};
+	(void)a30;
+	clj_value t108;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t108 = clj_seq(t107);
+	} else {
+	t108 = clj_c_intrinsic_fallback(V[2], a30, 1);
 	}
-	t11 = t31;
+	clj_release(t107);
+	if (t108 == CLJ_THROWN) {
+	if (o98) clj_release(t98);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	goto L2;
+	}
+	clj_value a29[1] = {t108};
+	(void)a29;
+	clj_value t109 = clj_c_invoke(t98, a29, 1);
+	clj_release(t108);
+	if (o98) clj_release(t98);
+	if (t109 == CLJ_THROWN) {
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	goto L2;
+	}
+	clj_value a26[3] = {t94, t97, t109};
+	(void)a26;
+	clj_value t110 = clj_c_invoke(t91, a26, 3);
+	clj_release(t109);
+	clj_release(t97);
+	clj_release(t94);
+	if (o91) clj_release(t91);
+	if (t110 == CLJ_THROWN) {
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	goto L2;
+	}
+	clj_value a25[1] = {t110};
+	(void)a25;
+	clj_value t111;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t111 = clj_seq(t110);
+	} else {
+	t111 = clj_c_intrinsic_fallback(V[2], a25, 1);
+	}
+	clj_release(t110);
+	if (t111 == CLJ_THROWN) {
+	if (o90) clj_release(t90);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	goto L2;
+	}
+	clj_value a24[1] = {t111};
+	(void)a24;
+	clj_value t112 = clj_c_invoke(t90, a24, 1);
+	clj_release(t111);
+	if (o90) clj_release(t90);
+	if (t112 == CLJ_THROWN) {
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	goto L2;
+	}
+	clj_value a21[3] = {t86, t89, t112};
+	(void)a21;
+	clj_value t113 = clj_c_invoke(t83, a21, 3);
+	clj_release(t112);
+	clj_release(t89);
+	clj_release(t86);
+	if (o83) clj_release(t83);
+	if (t113 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value a20[1] = {t113};
+	(void)a20;
+	clj_value t114;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t114 = clj_seq(t113);
+	} else {
+	t114 = clj_c_intrinsic_fallback(V[2], a20, 1);
+	}
+	clj_release(t113);
+	if (t114 == CLJ_THROWN) {
+	goto L2;
+	}
+	t33 = t114;
+	}
+	t11 = t33;
 	}
 	clj_c_leave(&S[20], &cc);
 	clj_release(l3);
@@ -8654,12 +8738,21 @@ L4: ;
 	if (t5 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a0[2] = {t3, t5};
-	(void)a0;
 	clj_value t6;
+	clj_value a0[2];
 	if (CLJC_GUARD(V[36], B[15])) {
-	t6 = clj_lt(t3, t5);
+	if (1 && clj_is_fixnum(t3) && clj_is_fixnum(t5)) {
+	int64_t i7 = clj_fixnum_val(t3);
+	int64_t i8 = clj_fixnum_val(t5);
+	t6 = clj_bool(i7 < i8);
 	} else {
+	a0[0] = t3;
+	a0[1] = t5;
+	t6 = clj_lt(a0[0], a0[1]);
+	}
+	} else {
+	a0[0] = t3;
+	a0[1] = t5;
 	t6 = clj_c_intrinsic_fallback(V[36], a0, 2);
 	}
 	clj_release(t5);
@@ -8667,294 +8760,310 @@ L4: ;
 	if (t6 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t7 = clj_truthy(t6);
+	bool t9 = clj_truthy(t6);
 	clj_release(t6);
-	clj_value t8;
-	if (t7) {
+	clj_value t10;
+	if (t9) {
 #line 202 "Sources/CljCore/boot/core.clj"
-	clj_value t9 = l0;
-	clj_value t10 = l2;
-	clj_value a2[2] = {t9, t10};
+	clj_value t11 = l0;
+	clj_value t12 = l2;
+	clj_value a2[2] = {t11, t12};
 	(void)a2;
-	clj_value t11;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t11 = clj_nth2(t9, t10);
-	} else {
-	t11 = clj_c_intrinsic_fallback(V[24], a2, 2);
-	}
-	(void)t10;
-	(void)t9;
-	if (t11 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_c_rebind(&l5, t11);
-#line 203 "Sources/CljCore/boot/core.clj"
-	clj_value t12 = l5;
-	clj_value a3[1] = {t12};
-	(void)a3;
 	clj_value t13;
-	if (CLJC_GUARD(V[32], B[11])) {
-	t13 = clj_symbol_p(t12);
+	if (CLJC_GUARD(V[24], B[9])) {
+	t13 = clj_nth2(t11, t12);
 	} else {
-	t13 = clj_c_intrinsic_fallback(V[32], a3, 1);
+	t13 = clj_c_intrinsic_fallback(V[24], a2, 2);
 	}
 	(void)t12;
+	(void)t11;
 	if (t13 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t14 = clj_truthy(t13);
-	clj_release(t13);
+	clj_c_rebind(&l5, t13);
+#line 203 "Sources/CljCore/boot/core.clj"
+	clj_value t14 = l5;
+	clj_value a3[1] = {t14};
+	(void)a3;
 	clj_value t15;
-	if (t14) {
-#line 204 "Sources/CljCore/boot/core.clj"
-	clj_value t16 = l2;
-	clj_value a4[1] = {t16};
-	(void)a4;
+	if (CLJC_GUARD(V[32], B[11])) {
+	t15 = clj_symbol_p(t14);
+	} else {
+	t15 = clj_c_intrinsic_fallback(V[32], a3, 1);
+	}
+	(void)t14;
+	if (t15 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool t16 = clj_truthy(t15);
+	clj_release(t15);
 	clj_value t17;
+	if (t16) {
+#line 204 "Sources/CljCore/boot/core.clj"
+	clj_value t18 = l2;
+	clj_value t19;
+	clj_value a4[1];
 	if (CLJC_GUARD(V[21], B[6])) {
-	t17 = clj_inc(t16);
+	if (1 && clj_is_fixnum(t18)) {
+	int64_t i20 = clj_fixnum_val(t18);
+	int64_t i21;
+	if (__builtin_expect(__builtin_add_overflow(i20, INT64_C(1), &i21), 0)) t19 = clj_throw_msg("integer overflow");
+	else t19 = clj_long_new(i21);
 	} else {
-	t17 = clj_c_intrinsic_fallback(V[21], a4, 1);
+	a4[0] = t18;
+	t19 = clj_inc(a4[0]);
 	}
-	(void)t16;
-	if (t17 == CLJ_THROWN) {
+	} else {
+	a4[0] = t18;
+	t19 = clj_c_intrinsic_fallback(V[21], a4, 1);
+	}
+	(void)t18;
+	if (t19 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t18 = l3;
+	clj_value t22 = l3;
 	l3 = CLJ_NIL;
-	clj_value t19 = l5;
-	clj_value a5[2] = {t18, t19};
+	clj_value t23 = l5;
+	clj_value a5[2] = {t22, t23};
 	(void)a5;
-	clj_value t20;
+	clj_value t24;
 	if (CLJC_GUARD(V[20], B[7])) {
-	t20 = clj_conj(t18, t19);
+	t24 = clj_conj(t22, t23);
 	} else {
-	t20 = clj_c_intrinsic_fallback(V[20], a5, 2);
-	clj_release(t18);
+	t24 = clj_c_intrinsic_fallback(V[20], a5, 2);
+	clj_release(t22);
 	}
-	(void)t19;
-	if (t20 == CLJ_THROWN) {
-	clj_release(t17);
+	(void)t23;
+	if (t24 == CLJ_THROWN) {
+	clj_release(t19);
 	goto L2;
 	}
-	clj_value t21 = l4;
+	clj_value t25 = l4;
 	l4 = CLJ_NIL;
-	clj_c_rebind(&l2, t17);
-	clj_c_rebind(&l3, t20);
-	clj_c_rebind(&l4, t21);
+	clj_c_rebind(&l2, t19);
+	clj_c_rebind(&l3, t24);
+	clj_c_rebind(&l4, t25);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t22 = CLJ_NIL;
-	t15 = t22;
+	clj_value t26 = CLJ_NIL;
+	t17 = t26;
 	} else {
 #line 205 "Sources/CljCore/boot/core.clj"
-	bool o23;
-	clj_value t23 = clj_c_var_borrow(V[18], &o23);
-	if (t23 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t24 = K[95];
-	clj_value a6[1] = {t24};
-	(void)a6;
-	clj_value t25 = clj_c_invoke(t23, a6, 1);
-	(void)t24;
-	if (o23) clj_release(t23);
-	if (t25 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_c_rebind(&l6, t25);
-#line 206 "Sources/CljCore/boot/core.clj"
-	clj_value t26 = l2;
-	clj_value a7[1] = {t26};
-	(void)a7;
-	clj_value t27;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t27 = clj_inc(t26);
-	} else {
-	t27 = clj_c_intrinsic_fallback(V[21], a7, 1);
-	}
-	(void)t26;
+	bool o27;
+	clj_value t27 = clj_c_var_borrow(V[18], &o27);
 	if (t27 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t28 = l3;
-	l3 = CLJ_NIL;
-	clj_value t29 = l6;
-	clj_value a8[2] = {t28, t29};
-	(void)a8;
-	clj_value t30;
-	if (CLJC_GUARD(V[20], B[7])) {
-	t30 = clj_conj(t28, t29);
+	clj_value t28 = K[95];
+	clj_value a6[1] = {t28};
+	(void)a6;
+	clj_value t29 = clj_c_invoke(t27, a6, 1);
+	(void)t28;
+	if (o27) clj_release(t27);
+	if (t29 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_c_rebind(&l6, t29);
+#line 206 "Sources/CljCore/boot/core.clj"
+	clj_value t30 = l2;
+	clj_value t31;
+	clj_value a7[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t30)) {
+	int64_t i32 = clj_fixnum_val(t30);
+	int64_t i33;
+	if (__builtin_expect(__builtin_add_overflow(i32, INT64_C(1), &i33), 0)) t31 = clj_throw_msg("integer overflow");
+	else t31 = clj_long_new(i33);
 	} else {
-	t30 = clj_c_intrinsic_fallback(V[20], a8, 2);
-	clj_release(t28);
+	a7[0] = t30;
+	t31 = clj_inc(a7[0]);
 	}
-	(void)t29;
-	if (t30 == CLJ_THROWN) {
-	clj_release(t27);
-	goto L2;
+	} else {
+	a7[0] = t30;
+	t31 = clj_c_intrinsic_fallback(V[21], a7, 1);
 	}
-	bool o31;
-	clj_value t31 = clj_c_var_borrow(V[20], &o31);
+	(void)t30;
 	if (t31 == CLJ_THROWN) {
-	clj_release(t30);
-	clj_release(t27);
 	goto L2;
 	}
-	clj_value t32 = l4;
-	clj_value t33 = l5;
-	clj_value t34 = l6;
-	clj_value a9[3] = {t32, t33, t34};
+	clj_value t34 = l3;
+	l3 = CLJ_NIL;
+	clj_value t35 = l6;
+	clj_value a8[2] = {t34, t35};
+	(void)a8;
+	clj_value t36;
+	if (CLJC_GUARD(V[20], B[7])) {
+	t36 = clj_conj(t34, t35);
+	} else {
+	t36 = clj_c_intrinsic_fallback(V[20], a8, 2);
+	clj_release(t34);
+	}
+	(void)t35;
+	if (t36 == CLJ_THROWN) {
+	clj_release(t31);
+	goto L2;
+	}
+	bool o37;
+	clj_value t37 = clj_c_var_borrow(V[20], &o37);
+	if (t37 == CLJ_THROWN) {
+	clj_release(t36);
+	clj_release(t31);
+	goto L2;
+	}
+	clj_value t38 = l4;
+	clj_value t39 = l5;
+	clj_value t40 = l6;
+	clj_value a9[3] = {t38, t39, t40};
 	(void)a9;
-	clj_value t35 = clj_c_invoke(t31, a9, 3);
-	(void)t34;
-	(void)t33;
-	(void)t32;
-	if (o31) clj_release(t31);
-	if (t35 == CLJ_THROWN) {
-	clj_release(t30);
-	clj_release(t27);
+	clj_value t41 = clj_c_invoke(t37, a9, 3);
+	(void)t40;
+	(void)t39;
+	(void)t38;
+	if (o37) clj_release(t37);
+	if (t41 == CLJ_THROWN) {
+	clj_release(t36);
+	clj_release(t31);
 	goto L2;
 	}
-	clj_c_rebind(&l2, t27);
-	clj_c_rebind(&l3, t30);
-	clj_c_rebind(&l4, t35);
+	clj_c_rebind(&l2, t31);
+	clj_c_rebind(&l3, t36);
+	clj_c_rebind(&l4, t41);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t36 = CLJ_NIL;
-	t15 = t36;
+	clj_value t42 = CLJ_NIL;
+	t17 = t42;
 	}
-	t8 = t15;
+	t10 = t17;
 	} else {
 #line 207 "Sources/CljCore/boot/core.clj"
-	clj_value t37 = l4;
-	clj_value a10[1] = {t37};
+	clj_value t43 = l4;
+	clj_value a10[1] = {t43};
 	(void)a10;
-	clj_value t38;
+	clj_value t44;
 	if (CLJC_GUARD(V[44], B[19])) {
-	t38 = clj_empty_p(t37);
+	t44 = clj_empty_p(t43);
 	} else {
-	t38 = clj_c_intrinsic_fallback(V[44], a10, 1);
+	t44 = clj_c_intrinsic_fallback(V[44], a10, 1);
 	}
-	(void)t37;
-	if (t38 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t39 = clj_truthy(t38);
-	clj_release(t38);
-	clj_value t40;
-	if (t39) {
-#line 208 "Sources/CljCore/boot/core.clj"
-	bool o41;
-	clj_value t41 = clj_c_var_borrow(V[45], &o41);
-	if (t41 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t42 = l3;
-	clj_value t43 = l1;
-	clj_value a11[2] = {t42, t43};
-	(void)a11;
-	clj_value t44 = clj_c_invoke(t41, a11, 2);
 	(void)t43;
-	(void)t42;
-	if (o41) clj_release(t41);
 	if (t44 == CLJ_THROWN) {
 	goto L2;
 	}
-	t40 = t44;
+	bool t45 = clj_truthy(t44);
+	clj_release(t44);
+	clj_value t46;
+	if (t45) {
+#line 208 "Sources/CljCore/boot/core.clj"
+	bool o47;
+	clj_value t47 = clj_c_var_borrow(V[45], &o47);
+	if (t47 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value t48 = l3;
+	clj_value t49 = l1;
+	clj_value a11[2] = {t48, t49};
+	(void)a11;
+	clj_value t50 = clj_c_invoke(t47, a11, 2);
+	(void)t49;
+	(void)t48;
+	if (o47) clj_release(t47);
+	if (t50 == CLJ_THROWN) {
+	goto L2;
+	}
+	t46 = t50;
 	} else {
 #line 209 "Sources/CljCore/boot/core.clj"
-	bool o45;
-	clj_value t45 = clj_c_var_borrow(V[8], &o45);
-	if (t45 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t46 = l3;
-	bool o47;
-	clj_value t47 = clj_c_var_borrow(V[0], &o47);
-	if (t47 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	goto L2;
-	}
-	bool o48;
-	clj_value t48 = clj_c_var_borrow(V[8], &o48);
-	if (t48 == CLJ_THROWN) {
-	if (o47) clj_release(t47);
-	if (o45) clj_release(t45);
-	goto L2;
-	}
-	clj_value t49 = K[96];
-	clj_value a15[1] = {t49};
-	(void)a15;
-	clj_value t50 = clj_c_invoke(t48, a15, 1);
-	(void)t49;
-	if (o48) clj_release(t48);
-	if (t50 == CLJ_THROWN) {
-	if (o47) clj_release(t47);
-	if (o45) clj_release(t45);
-	goto L2;
-	}
 	bool o51;
 	clj_value t51 = clj_c_var_borrow(V[8], &o51);
 	if (t51 == CLJ_THROWN) {
-	clj_release(t50);
-	if (o47) clj_release(t47);
-	if (o45) clj_release(t45);
 	goto L2;
 	}
-	clj_value t52 = l4;
-	clj_value a16[1] = {t52};
+	clj_value t52 = l3;
+	bool o53;
+	clj_value t53 = clj_c_var_borrow(V[0], &o53);
+	if (t53 == CLJ_THROWN) {
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	bool o54;
+	clj_value t54 = clj_c_var_borrow(V[8], &o54);
+	if (t54 == CLJ_THROWN) {
+	if (o53) clj_release(t53);
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	clj_value t55 = K[96];
+	clj_value a15[1] = {t55};
+	(void)a15;
+	clj_value t56 = clj_c_invoke(t54, a15, 1);
+	(void)t55;
+	if (o54) clj_release(t54);
+	if (t56 == CLJ_THROWN) {
+	if (o53) clj_release(t53);
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	bool o57;
+	clj_value t57 = clj_c_var_borrow(V[8], &o57);
+	if (t57 == CLJ_THROWN) {
+	clj_release(t56);
+	if (o53) clj_release(t53);
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	clj_value t58 = l4;
+	clj_value a16[1] = {t58};
 	(void)a16;
-	clj_value t53 = clj_c_invoke(t51, a16, 1);
+	clj_value t59 = clj_c_invoke(t57, a16, 1);
+	(void)t58;
+	if (o57) clj_release(t57);
+	if (t59 == CLJ_THROWN) {
+	clj_release(t56);
+	if (o53) clj_release(t53);
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	clj_value t60 = l1;
+	clj_value a14[3] = {t56, t59, t60};
+	(void)a14;
+	clj_value t61 = clj_c_invoke(t53, a14, 3);
+	(void)t60;
+	clj_release(t59);
+	clj_release(t56);
+	if (o53) clj_release(t53);
+	if (t61 == CLJ_THROWN) {
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	clj_value a13[1] = {t61};
+	(void)a13;
+	clj_value t62;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t62 = clj_seq(t61);
+	} else {
+	t62 = clj_c_intrinsic_fallback(V[2], a13, 1);
+	}
+	clj_release(t61);
+	if (t62 == CLJ_THROWN) {
+	if (o51) clj_release(t51);
+	goto L2;
+	}
+	clj_value a12[2] = {t52, t62};
+	(void)a12;
+	clj_value t63 = clj_c_invoke(t51, a12, 2);
+	clj_release(t62);
 	(void)t52;
 	if (o51) clj_release(t51);
-	if (t53 == CLJ_THROWN) {
-	clj_release(t50);
-	if (o47) clj_release(t47);
-	if (o45) clj_release(t45);
+	if (t63 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t54 = l1;
-	clj_value a14[3] = {t50, t53, t54};
-	(void)a14;
-	clj_value t55 = clj_c_invoke(t47, a14, 3);
-	(void)t54;
-	clj_release(t53);
-	clj_release(t50);
-	if (o47) clj_release(t47);
-	if (t55 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	goto L2;
+	t46 = t63;
 	}
-	clj_value a13[1] = {t55};
-	(void)a13;
-	clj_value t56;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t56 = clj_seq(t55);
-	} else {
-	t56 = clj_c_intrinsic_fallback(V[2], a13, 1);
-	}
-	clj_release(t55);
-	if (t56 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	goto L2;
-	}
-	clj_value a12[2] = {t46, t56};
-	(void)a12;
-	clj_value t57 = clj_c_invoke(t45, a12, 2);
-	clj_release(t56);
-	(void)t46;
-	if (o45) clj_release(t45);
-	if (t57 == CLJ_THROWN) {
-	goto L2;
-	}
-	t40 = t57;
-	}
-	t8 = t40;
+	t10 = t46;
 	}
 	clj_c_leave(&S[21], &cc);
 	clj_release(l2);
@@ -8962,7 +9071,7 @@ L4: ;
 	clj_release(l4);
 	clj_release(l5);
 	clj_release(l6);
-	return t8;
+	return t10;
 L2: ;
 	clj_c_leave(&S[21], &cc);
 L1: ;
@@ -15712,12 +15821,21 @@ clj_value clojure_core_if_let_a5(clj_value self, const clj_value *captured, cons
 	if (t7 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a1[2] = {t5, t7};
-	(void)a1;
 	clj_value t8;
+	clj_value a1[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t8 = clj_eq(t5, t7);
+	if (1 && clj_is_fixnum(t5) && clj_is_fixnum(t7)) {
+	int64_t i9 = clj_fixnum_val(t5);
+	int64_t i10 = clj_fixnum_val(t7);
+	t8 = clj_bool(i9 == i10);
 	} else {
+	a1[0] = t5;
+	a1[1] = t7;
+	t8 = clj_eq(a1[0], a1[1]);
+	}
+	} else {
+	a1[0] = t5;
+	a1[1] = t7;
 	t8 = clj_c_intrinsic_fallback(V[19], a1, 2);
 	}
 	clj_release(t7);
@@ -15727,795 +15845,795 @@ clj_value clojure_core_if_let_a5(clj_value self, const clj_value *captured, cons
 	}
 	t4 = t8;
 	} else {
-	clj_value t9 = clj_retain(l5);
-	t4 = t9;
+	clj_value t11 = clj_retain(l5);
+	t4 = t11;
 	}
-	bool t10 = clj_truthy(t4);
+	bool t12 = clj_truthy(t4);
 	clj_release(t4);
-	clj_value t11;
-	if (t10) {
-	clj_value t12 = clj_retain(K[3]);
-	t11 = t12;
+	clj_value t13;
+	if (t12) {
+	clj_value t14 = clj_retain(K[3]);
+	t13 = t14;
 	} else {
 #line 351 "Sources/CljCore/boot/core.clj"
-	bool o13;
-	clj_value t13 = clj_c_var_borrow(V[16], &o13);
-	if (t13 == CLJ_THROWN) {
+	bool o15;
+	clj_value t15 = clj_c_var_borrow(V[16], &o15);
+	if (t15 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t14 = K[187];
-	clj_value t15 = K[188];
-	clj_value a3[2] = {t14, t15};
+	clj_value t16 = K[187];
+	clj_value t17 = K[188];
+	clj_value a3[2] = {t16, t17};
 	(void)a3;
-	clj_value t16 = clj_c_invoke(t13, a3, 2);
-	(void)t15;
-	(void)t14;
-	if (o13) clj_release(t13);
-	if (t16 == CLJ_THROWN) {
+	clj_value t18 = clj_c_invoke(t15, a3, 2);
+	(void)t17;
+	(void)t16;
+	if (o15) clj_release(t15);
+	if (t18 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t17 = clj_throw(t16);
-	if (t17 == CLJ_THROWN) {
-	goto L2;
-	}
-	t11 = t17;
-	}
-	clj_release(t11);
-#line 352 "Sources/CljCore/boot/core.clj"
-	clj_value t18 = l2;
-	clj_value a4[1] = {t18};
-	(void)a4;
-	clj_value t19;
-	if (CLJC_GUARD(V[4], B[2])) {
-	t19 = clj_first(t18);
-	} else {
-	t19 = clj_c_intrinsic_fallback(V[4], a4, 1);
-	}
-	(void)t18;
+	clj_value t19 = clj_throw(t18);
 	if (t19 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l6, t19);
-#line 353 "Sources/CljCore/boot/core.clj"
-	bool o20;
-	clj_value t20 = clj_c_var_borrow(V[15], &o20);
-	if (t20 == CLJ_THROWN) {
+	t13 = t19;
+	}
+	clj_release(t13);
+#line 352 "Sources/CljCore/boot/core.clj"
+	clj_value t20 = l2;
+	clj_value a4[1] = {t20};
+	(void)a4;
+	clj_value t21;
+	if (CLJC_GUARD(V[4], B[2])) {
+	t21 = clj_first(t20);
+	} else {
+	t21 = clj_c_intrinsic_fallback(V[4], a4, 1);
+	}
+	(void)t20;
+	if (t21 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t21 = l2;
-	clj_value a5[1] = {t21};
-	(void)a5;
-	clj_value t22 = clj_c_invoke(t20, a5, 1);
-	(void)t21;
-	if (o20) clj_release(t20);
+	clj_c_rebind(&l6, t21);
+#line 353 "Sources/CljCore/boot/core.clj"
+	bool o22;
+	clj_value t22 = clj_c_var_borrow(V[15], &o22);
 	if (t22 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l7, t22);
-#line 352 "Sources/CljCore/boot/core.clj"
-	bool o23;
-	clj_value t23 = clj_c_var_borrow(V[0], &o23);
-	if (t23 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o24;
-	clj_value t24 = clj_c_var_borrow(V[8], &o24);
+	clj_value t23 = l2;
+	clj_value a5[1] = {t23};
+	(void)a5;
+	clj_value t24 = clj_c_invoke(t22, a5, 1);
+	(void)t23;
+	if (o22) clj_release(t22);
 	if (t24 == CLJ_THROWN) {
-	if (o23) clj_release(t23);
 	goto L2;
 	}
-	clj_value t25 = K[189];
-	clj_value a8[1] = {t25};
-	(void)a8;
-	clj_value t26 = clj_c_invoke(t24, a8, 1);
-	(void)t25;
-	if (o24) clj_release(t24);
+	clj_c_rebind(&l7, t24);
+#line 352 "Sources/CljCore/boot/core.clj"
+	bool o25;
+	clj_value t25 = clj_c_var_borrow(V[0], &o25);
+	if (t25 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool o26;
+	clj_value t26 = clj_c_var_borrow(V[8], &o26);
 	if (t26 == CLJ_THROWN) {
-	if (o23) clj_release(t23);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o27;
-	clj_value t27 = clj_c_var_borrow(V[8], &o27);
-	if (t27 == CLJ_THROWN) {
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	bool o28;
-	clj_value t28 = clj_c_var_borrow(V[9], &o28);
+	clj_value t27 = K[189];
+	clj_value a8[1] = {t27};
+	(void)a8;
+	clj_value t28 = clj_c_invoke(t26, a8, 1);
+	(void)t27;
+	if (o26) clj_release(t26);
 	if (t28 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o29;
-	clj_value t29 = clj_c_var_borrow(V[10], &o29);
+	clj_value t29 = clj_c_var_borrow(V[8], &o29);
 	if (t29 == CLJ_THROWN) {
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o30;
-	clj_value t30 = clj_c_var_borrow(V[0], &o30);
+	clj_value t30 = clj_c_var_borrow(V[9], &o30);
 	if (t30 == CLJ_THROWN) {
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o31;
-	clj_value t31 = clj_c_var_borrow(V[8], &o31);
+	clj_value t31 = clj_c_var_borrow(V[10], &o31);
 	if (t31 == CLJ_THROWN) {
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t32 = K[190];
-	clj_value a13[1] = {t32};
-	(void)a13;
-	clj_value t33 = clj_c_invoke(t31, a13, 1);
-	(void)t32;
+	bool o32;
+	clj_value t32 = clj_c_var_borrow(V[0], &o32);
+	if (t32 == CLJ_THROWN) {
 	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o33;
+	clj_value t33 = clj_c_var_borrow(V[8], &o33);
 	if (t33 == CLJ_THROWN) {
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o34;
-	clj_value t34 = clj_c_var_borrow(V[8], &o34);
-	if (t34 == CLJ_THROWN) {
-	clj_release(t33);
+	clj_value t34 = K[190];
+	clj_value a13[1] = {t34};
+	(void)a13;
+	clj_value t35 = clj_c_invoke(t33, a13, 1);
+	(void)t34;
+	if (o33) clj_release(t33);
+	if (t35 == CLJ_THROWN) {
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t35 = l7;
-	clj_value a14[1] = {t35};
-	(void)a14;
-	clj_value t36 = clj_c_invoke(t34, a14, 1);
-	(void)t35;
-	if (o34) clj_release(t34);
+	bool o36;
+	clj_value t36 = clj_c_var_borrow(V[8], &o36);
 	if (t36 == CLJ_THROWN) {
-	clj_release(t33);
+	clj_release(t35);
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a12[2] = {t33, t36};
+	clj_value t37 = l7;
+	clj_value a14[1] = {t37};
+	(void)a14;
+	clj_value t38 = clj_c_invoke(t36, a14, 1);
+	(void)t37;
+	if (o36) clj_release(t36);
+	if (t38 == CLJ_THROWN) {
+	clj_release(t35);
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a12[2] = {t35, t38};
 	(void)a12;
-	clj_value t37;
+	clj_value t39;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t37 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a12, 2) : clj_c_invoke(t30, a12, 2);
+	t39 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a12, 2) : clj_c_invoke(t32, a12, 2);
 #else
-	t37 = clj_c_invoke(t30, a12, 2);
+	t39 = clj_c_invoke(t32, a12, 2);
 #endif
-	clj_release(t36);
-	clj_release(t33);
-	if (o30) clj_release(t30);
-	if (t37 == CLJ_THROWN) {
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a11[1] = {t37};
-	(void)a11;
-	clj_value t38;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t38 = clj_seq(t37);
-	} else {
-	t38 = clj_c_intrinsic_fallback(V[2], a11, 1);
-	}
-	clj_release(t37);
-	if (t38 == CLJ_THROWN) {
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a10[2] = {t29, t38};
-	(void)a10;
-	clj_value t39 = clj_c_invoke(t28, a10, 2);
 	clj_release(t38);
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
+	clj_release(t35);
+	if (o32) clj_release(t32);
 	if (t39 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a9[1] = {t39};
-	(void)a9;
-	clj_value t40 = clj_c_invoke(t27, a9, 1);
+	clj_value a11[1] = {t39};
+	(void)a11;
+	clj_value t40;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t40 = clj_seq(t39);
+	} else {
+	t40 = clj_c_intrinsic_fallback(V[2], a11, 1);
+	}
 	clj_release(t39);
-	if (o27) clj_release(t27);
 	if (t40 == CLJ_THROWN) {
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o41;
-	clj_value t41 = clj_c_var_borrow(V[8], &o41);
+	clj_value a10[2] = {t31, t40};
+	(void)a10;
+	clj_value t41 = clj_c_invoke(t30, a10, 2);
+	clj_release(t40);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
 	if (t41 == CLJ_THROWN) {
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o42;
-	clj_value t42 = clj_c_var_borrow(V[0], &o42);
+	clj_value a9[1] = {t41};
+	(void)a9;
+	clj_value t42 = clj_c_invoke(t29, a9, 1);
+	clj_release(t41);
+	if (o29) clj_release(t29);
 	if (t42 == CLJ_THROWN) {
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o43;
 	clj_value t43 = clj_c_var_borrow(V[8], &o43);
 	if (t43 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t44 = K[191];
-	clj_value a18[1] = {t44};
-	(void)a18;
-	clj_value t45 = clj_c_invoke(t43, a18, 1);
-	(void)t44;
+	bool o44;
+	clj_value t44 = clj_c_var_borrow(V[0], &o44);
+	if (t44 == CLJ_THROWN) {
 	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o45;
+	clj_value t45 = clj_c_var_borrow(V[8], &o45);
 	if (t45 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o46;
-	clj_value t46 = clj_c_var_borrow(V[8], &o46);
-	if (t46 == CLJ_THROWN) {
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_value t46 = K[191];
+	clj_value a18[1] = {t46};
+	(void)a18;
+	clj_value t47 = clj_c_invoke(t45, a18, 1);
+	(void)t46;
+	if (o45) clj_release(t45);
+	if (t47 == CLJ_THROWN) {
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t47 = K[190];
-	clj_value a19[1] = {t47};
-	(void)a19;
-	clj_value t48 = clj_c_invoke(t46, a19, 1);
-	(void)t47;
-	if (o46) clj_release(t46);
+	bool o48;
+	clj_value t48 = clj_c_var_borrow(V[8], &o48);
 	if (t48 == CLJ_THROWN) {
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o49;
-	clj_value t49 = clj_c_var_borrow(V[8], &o49);
-	if (t49 == CLJ_THROWN) {
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	bool o50;
-	clj_value t50 = clj_c_var_borrow(V[0], &o50);
+	clj_value t49 = K[190];
+	clj_value a19[1] = {t49};
+	(void)a19;
+	clj_value t50 = clj_c_invoke(t48, a19, 1);
+	(void)t49;
+	if (o48) clj_release(t48);
 	if (t50 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o51;
 	clj_value t51 = clj_c_var_borrow(V[8], &o51);
 	if (t51 == CLJ_THROWN) {
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t52 = K[192];
-	clj_value a23[1] = {t52};
-	(void)a23;
-	clj_value t53 = clj_c_invoke(t51, a23, 1);
-	(void)t52;
+	bool o52;
+	clj_value t52 = clj_c_var_borrow(V[0], &o52);
+	if (t52 == CLJ_THROWN) {
 	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o53;
+	clj_value t53 = clj_c_var_borrow(V[8], &o53);
 	if (t53 == CLJ_THROWN) {
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o54;
-	clj_value t54 = clj_c_var_borrow(V[8], &o54);
-	if (t54 == CLJ_THROWN) {
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	bool o55;
-	clj_value t55 = clj_c_var_borrow(V[9], &o55);
+	clj_value t54 = K[192];
+	clj_value a23[1] = {t54};
+	(void)a23;
+	clj_value t55 = clj_c_invoke(t53, a23, 1);
+	(void)t54;
+	if (o53) clj_release(t53);
 	if (t55 == CLJ_THROWN) {
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o56;
-	clj_value t56 = clj_c_var_borrow(V[10], &o56);
+	clj_value t56 = clj_c_var_borrow(V[8], &o56);
 	if (t56 == CLJ_THROWN) {
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o57;
-	clj_value t57 = clj_c_var_borrow(V[0], &o57);
+	clj_value t57 = clj_c_var_borrow(V[9], &o57);
 	if (t57 == CLJ_THROWN) {
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o58;
-	clj_value t58 = clj_c_var_borrow(V[8], &o58);
+	clj_value t58 = clj_c_var_borrow(V[10], &o58);
 	if (t58 == CLJ_THROWN) {
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t59 = l6;
-	clj_value a28[1] = {t59};
-	(void)a28;
-	clj_value t60 = clj_c_invoke(t58, a28, 1);
-	(void)t59;
+	bool o59;
+	clj_value t59 = clj_c_var_borrow(V[0], &o59);
+	if (t59 == CLJ_THROWN) {
 	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o60;
+	clj_value t60 = clj_c_var_borrow(V[8], &o60);
 	if (t60 == CLJ_THROWN) {
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o61;
-	clj_value t61 = clj_c_var_borrow(V[8], &o61);
-	if (t61 == CLJ_THROWN) {
-	clj_release(t60);
+	clj_value t61 = l6;
+	clj_value a28[1] = {t61};
+	(void)a28;
+	clj_value t62 = clj_c_invoke(t60, a28, 1);
+	(void)t61;
+	if (o60) clj_release(t60);
+	if (t62 == CLJ_THROWN) {
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t62 = K[190];
-	clj_value a29[1] = {t62};
-	(void)a29;
-	clj_value t63 = clj_c_invoke(t61, a29, 1);
-	(void)t62;
-	if (o61) clj_release(t61);
+	bool o63;
+	clj_value t63 = clj_c_var_borrow(V[8], &o63);
 	if (t63 == CLJ_THROWN) {
-	clj_release(t60);
+	clj_release(t62);
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a27[2] = {t60, t63};
+	clj_value t64 = K[190];
+	clj_value a29[1] = {t64};
+	(void)a29;
+	clj_value t65 = clj_c_invoke(t63, a29, 1);
+	(void)t64;
+	if (o63) clj_release(t63);
+	if (t65 == CLJ_THROWN) {
+	clj_release(t62);
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a27[2] = {t62, t65};
 	(void)a27;
-	clj_value t64;
+	clj_value t66;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t64 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a27, 2) : clj_c_invoke(t57, a27, 2);
+	t66 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a27, 2) : clj_c_invoke(t59, a27, 2);
 #else
-	t64 = clj_c_invoke(t57, a27, 2);
+	t66 = clj_c_invoke(t59, a27, 2);
 #endif
-	clj_release(t63);
-	clj_release(t60);
-	if (o57) clj_release(t57);
-	if (t64 == CLJ_THROWN) {
-	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a26[1] = {t64};
-	(void)a26;
-	clj_value t65;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t65 = clj_seq(t64);
-	} else {
-	t65 = clj_c_intrinsic_fallback(V[2], a26, 1);
-	}
-	clj_release(t64);
-	if (t65 == CLJ_THROWN) {
-	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a25[2] = {t56, t65};
-	(void)a25;
-	clj_value t66 = clj_c_invoke(t55, a25, 2);
 	clj_release(t65);
-	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
+	clj_release(t62);
+	if (o59) clj_release(t59);
 	if (t66 == CLJ_THROWN) {
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a24[1] = {t66};
-	(void)a24;
-	clj_value t67 = clj_c_invoke(t54, a24, 1);
+	clj_value a26[1] = {t66};
+	(void)a26;
+	clj_value t67;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t67 = clj_seq(t66);
+	} else {
+	t67 = clj_c_intrinsic_fallback(V[2], a26, 1);
+	}
 	clj_release(t66);
-	if (o54) clj_release(t54);
 	if (t67 == CLJ_THROWN) {
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o68;
-	clj_value t68 = clj_c_var_borrow(V[8], &o68);
+	clj_value a25[2] = {t58, t67};
+	(void)a25;
+	clj_value t68 = clj_c_invoke(t57, a25, 2);
+	clj_release(t67);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
 	if (t68 == CLJ_THROWN) {
-	clj_release(t67);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t69 = l3;
-	clj_value a30[1] = {t69};
-	(void)a30;
-	clj_value t70 = clj_c_invoke(t68, a30, 1);
-	(void)t69;
-	if (o68) clj_release(t68);
+	clj_value a24[1] = {t68};
+	(void)a24;
+	clj_value t69 = clj_c_invoke(t56, a24, 1);
+	clj_release(t68);
+	if (o56) clj_release(t56);
+	if (t69 == CLJ_THROWN) {
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o70;
+	clj_value t70 = clj_c_var_borrow(V[8], &o70);
 	if (t70 == CLJ_THROWN) {
-	clj_release(t67);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t69);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a22[3] = {t53, t67, t70};
-	(void)a22;
-	clj_value t71 = clj_c_invoke(t50, a22, 3);
-	clj_release(t70);
-	clj_release(t67);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (t71 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a21[1] = {t71};
-	(void)a21;
-	clj_value t72;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t72 = clj_seq(t71);
-	} else {
-	t72 = clj_c_intrinsic_fallback(V[2], a21, 1);
-	}
-	clj_release(t71);
+	clj_value t71 = l3;
+	clj_value a30[1] = {t71};
+	(void)a30;
+	clj_value t72 = clj_c_invoke(t70, a30, 1);
+	(void)t71;
+	if (o70) clj_release(t70);
 	if (t72 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t69);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a20[1] = {t72};
-	(void)a20;
-	clj_value t73 = clj_c_invoke(t49, a20, 1);
+	clj_value a22[3] = {t55, t69, t72};
+	(void)a22;
+	clj_value t73 = clj_c_invoke(t52, a22, 3);
 	clj_release(t72);
-	if (o49) clj_release(t49);
+	clj_release(t69);
+	clj_release(t55);
+	if (o52) clj_release(t52);
 	if (t73 == CLJ_THROWN) {
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o74;
-	clj_value t74 = clj_c_var_borrow(V[8], &o74);
+	clj_value a21[1] = {t73};
+	(void)a21;
+	clj_value t74;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t74 = clj_seq(t73);
+	} else {
+	t74 = clj_c_intrinsic_fallback(V[2], a21, 1);
+	}
+	clj_release(t73);
 	if (t74 == CLJ_THROWN) {
-	clj_release(t73);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t75 = l4;
-	clj_value a31[1] = {t75};
-	(void)a31;
-	clj_value t76 = clj_c_invoke(t74, a31, 1);
-	(void)t75;
-	if (o74) clj_release(t74);
+	clj_value a20[1] = {t74};
+	(void)a20;
+	clj_value t75 = clj_c_invoke(t51, a20, 1);
+	clj_release(t74);
+	if (o51) clj_release(t51);
+	if (t75 == CLJ_THROWN) {
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o76;
+	clj_value t76 = clj_c_var_borrow(V[8], &o76);
 	if (t76 == CLJ_THROWN) {
-	clj_release(t73);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t75);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a17[4] = {t45, t48, t73, t76};
-	(void)a17;
-	clj_value t77 = clj_c_invoke(t42, a17, 4);
-	clj_release(t76);
-	clj_release(t73);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (t77 == CLJ_THROWN) {
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a16[1] = {t77};
-	(void)a16;
-	clj_value t78;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t78 = clj_seq(t77);
-	} else {
-	t78 = clj_c_intrinsic_fallback(V[2], a16, 1);
-	}
-	clj_release(t77);
+	clj_value t77 = l4;
+	clj_value a31[1] = {t77};
+	(void)a31;
+	clj_value t78 = clj_c_invoke(t76, a31, 1);
+	(void)t77;
+	if (o76) clj_release(t76);
 	if (t78 == CLJ_THROWN) {
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t75);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a15[1] = {t78};
-	(void)a15;
-	clj_value t79 = clj_c_invoke(t41, a15, 1);
+	clj_value a17[4] = {t47, t50, t75, t78};
+	(void)a17;
+	clj_value t79 = clj_c_invoke(t44, a17, 4);
 	clj_release(t78);
-	if (o41) clj_release(t41);
+	clj_release(t75);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
 	if (t79 == CLJ_THROWN) {
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a7[3] = {t26, t40, t79};
-	(void)a7;
-	clj_value t80 = clj_c_invoke(t23, a7, 3);
-	clj_release(t79);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	if (t80 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a6[1] = {t80};
-	(void)a6;
-	clj_value t81;
+	clj_value a16[1] = {t79};
+	(void)a16;
+	clj_value t80;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t81 = clj_seq(t80);
+	t80 = clj_seq(t79);
 	} else {
-	t81 = clj_c_intrinsic_fallback(V[2], a6, 1);
+	t80 = clj_c_intrinsic_fallback(V[2], a16, 1);
 	}
+	clj_release(t79);
+	if (t80 == CLJ_THROWN) {
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a15[1] = {t80};
+	(void)a15;
+	clj_value t81 = clj_c_invoke(t43, a15, 1);
 	clj_release(t80);
+	if (o43) clj_release(t43);
 	if (t81 == CLJ_THROWN) {
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a7[3] = {t28, t42, t81};
+	(void)a7;
+	clj_value t82 = clj_c_invoke(t25, a7, 3);
+	clj_release(t81);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	if (t82 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value a6[1] = {t82};
+	(void)a6;
+	clj_value t83;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t83 = clj_seq(t82);
+	} else {
+	t83 = clj_c_intrinsic_fallback(V[2], a6, 1);
+	}
+	clj_release(t82);
+	if (t83 == CLJ_THROWN) {
 	goto L2;
 	}
 	clj_c_leave(&S[35], &cc);
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
-	return t81;
+	return t83;
 L2: ;
 	clj_c_leave(&S[35], &cc);
 L1: ;
@@ -16608,12 +16726,21 @@ clj_value clojure_core_when_let_v3(clj_value self, const clj_value *captured, co
 	if (t7 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a1[2] = {t5, t7};
-	(void)a1;
 	clj_value t8;
+	clj_value a1[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t8 = clj_eq(t5, t7);
+	if (1 && clj_is_fixnum(t5) && clj_is_fixnum(t7)) {
+	int64_t i9 = clj_fixnum_val(t5);
+	int64_t i10 = clj_fixnum_val(t7);
+	t8 = clj_bool(i9 == i10);
 	} else {
+	a1[0] = t5;
+	a1[1] = t7;
+	t8 = clj_eq(a1[0], a1[1]);
+	}
+	} else {
+	a1[0] = t5;
+	a1[1] = t7;
 	t8 = clj_c_intrinsic_fallback(V[19], a1, 2);
 	}
 	clj_release(t7);
@@ -16623,722 +16750,722 @@ clj_value clojure_core_when_let_v3(clj_value self, const clj_value *captured, co
 	}
 	t4 = t8;
 	} else {
-	clj_value t9 = clj_retain(l4);
-	t4 = t9;
+	clj_value t11 = clj_retain(l4);
+	t4 = t11;
 	}
-	bool t10 = clj_truthy(t4);
+	bool t12 = clj_truthy(t4);
 	clj_release(t4);
-	clj_value t11;
-	if (t10) {
-	clj_value t12 = clj_retain(K[3]);
-	t11 = t12;
+	clj_value t13;
+	if (t12) {
+	clj_value t14 = clj_retain(K[3]);
+	t13 = t14;
 	} else {
 #line 363 "Sources/CljCore/boot/core.clj"
-	bool o13;
-	clj_value t13 = clj_c_var_borrow(V[16], &o13);
-	if (t13 == CLJ_THROWN) {
+	bool o15;
+	clj_value t15 = clj_c_var_borrow(V[16], &o15);
+	if (t15 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t14 = K[196];
-	clj_value t15 = K[197];
-	clj_value a3[2] = {t14, t15};
+	clj_value t16 = K[196];
+	clj_value t17 = K[197];
+	clj_value a3[2] = {t16, t17};
 	(void)a3;
-	clj_value t16 = clj_c_invoke(t13, a3, 2);
-	(void)t15;
-	(void)t14;
-	if (o13) clj_release(t13);
-	if (t16 == CLJ_THROWN) {
+	clj_value t18 = clj_c_invoke(t15, a3, 2);
+	(void)t17;
+	(void)t16;
+	if (o15) clj_release(t15);
+	if (t18 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t17 = clj_throw(t16);
-	if (t17 == CLJ_THROWN) {
-	goto L2;
-	}
-	t11 = t17;
-	}
-	clj_release(t11);
-#line 364 "Sources/CljCore/boot/core.clj"
-	clj_value t18 = l2;
-	clj_value a4[1] = {t18};
-	(void)a4;
-	clj_value t19;
-	if (CLJC_GUARD(V[4], B[2])) {
-	t19 = clj_first(t18);
-	} else {
-	t19 = clj_c_intrinsic_fallback(V[4], a4, 1);
-	}
-	(void)t18;
+	clj_value t19 = clj_throw(t18);
 	if (t19 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l5, t19);
-#line 365 "Sources/CljCore/boot/core.clj"
-	bool o20;
-	clj_value t20 = clj_c_var_borrow(V[15], &o20);
-	if (t20 == CLJ_THROWN) {
+	t13 = t19;
+	}
+	clj_release(t13);
+#line 364 "Sources/CljCore/boot/core.clj"
+	clj_value t20 = l2;
+	clj_value a4[1] = {t20};
+	(void)a4;
+	clj_value t21;
+	if (CLJC_GUARD(V[4], B[2])) {
+	t21 = clj_first(t20);
+	} else {
+	t21 = clj_c_intrinsic_fallback(V[4], a4, 1);
+	}
+	(void)t20;
+	if (t21 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t21 = l2;
-	clj_value a5[1] = {t21};
-	(void)a5;
-	clj_value t22 = clj_c_invoke(t20, a5, 1);
-	(void)t21;
-	if (o20) clj_release(t20);
+	clj_c_rebind(&l5, t21);
+#line 365 "Sources/CljCore/boot/core.clj"
+	bool o22;
+	clj_value t22 = clj_c_var_borrow(V[15], &o22);
 	if (t22 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l6, t22);
-#line 364 "Sources/CljCore/boot/core.clj"
-	bool o23;
-	clj_value t23 = clj_c_var_borrow(V[0], &o23);
-	if (t23 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o24;
-	clj_value t24 = clj_c_var_borrow(V[8], &o24);
+	clj_value t23 = l2;
+	clj_value a5[1] = {t23};
+	(void)a5;
+	clj_value t24 = clj_c_invoke(t22, a5, 1);
+	(void)t23;
+	if (o22) clj_release(t22);
 	if (t24 == CLJ_THROWN) {
-	if (o23) clj_release(t23);
 	goto L2;
 	}
-	clj_value t25 = K[198];
-	clj_value a8[1] = {t25};
-	(void)a8;
-	clj_value t26 = clj_c_invoke(t24, a8, 1);
-	(void)t25;
-	if (o24) clj_release(t24);
+	clj_c_rebind(&l6, t24);
+#line 364 "Sources/CljCore/boot/core.clj"
+	bool o25;
+	clj_value t25 = clj_c_var_borrow(V[0], &o25);
+	if (t25 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool o26;
+	clj_value t26 = clj_c_var_borrow(V[8], &o26);
 	if (t26 == CLJ_THROWN) {
-	if (o23) clj_release(t23);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o27;
-	clj_value t27 = clj_c_var_borrow(V[8], &o27);
-	if (t27 == CLJ_THROWN) {
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	bool o28;
-	clj_value t28 = clj_c_var_borrow(V[9], &o28);
+	clj_value t27 = K[198];
+	clj_value a8[1] = {t27};
+	(void)a8;
+	clj_value t28 = clj_c_invoke(t26, a8, 1);
+	(void)t27;
+	if (o26) clj_release(t26);
 	if (t28 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o29;
-	clj_value t29 = clj_c_var_borrow(V[10], &o29);
+	clj_value t29 = clj_c_var_borrow(V[8], &o29);
 	if (t29 == CLJ_THROWN) {
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o30;
-	clj_value t30 = clj_c_var_borrow(V[0], &o30);
+	clj_value t30 = clj_c_var_borrow(V[9], &o30);
 	if (t30 == CLJ_THROWN) {
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o31;
-	clj_value t31 = clj_c_var_borrow(V[8], &o31);
+	clj_value t31 = clj_c_var_borrow(V[10], &o31);
 	if (t31 == CLJ_THROWN) {
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t32 = K[199];
-	clj_value a13[1] = {t32};
-	(void)a13;
-	clj_value t33 = clj_c_invoke(t31, a13, 1);
-	(void)t32;
+	bool o32;
+	clj_value t32 = clj_c_var_borrow(V[0], &o32);
+	if (t32 == CLJ_THROWN) {
 	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o33;
+	clj_value t33 = clj_c_var_borrow(V[8], &o33);
 	if (t33 == CLJ_THROWN) {
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o34;
-	clj_value t34 = clj_c_var_borrow(V[8], &o34);
-	if (t34 == CLJ_THROWN) {
-	clj_release(t33);
+	clj_value t34 = K[199];
+	clj_value a13[1] = {t34};
+	(void)a13;
+	clj_value t35 = clj_c_invoke(t33, a13, 1);
+	(void)t34;
+	if (o33) clj_release(t33);
+	if (t35 == CLJ_THROWN) {
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t35 = l6;
-	clj_value a14[1] = {t35};
-	(void)a14;
-	clj_value t36 = clj_c_invoke(t34, a14, 1);
-	(void)t35;
-	if (o34) clj_release(t34);
+	bool o36;
+	clj_value t36 = clj_c_var_borrow(V[8], &o36);
 	if (t36 == CLJ_THROWN) {
-	clj_release(t33);
+	clj_release(t35);
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (o30) clj_release(t30);
 	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a12[2] = {t33, t36};
+	clj_value t37 = l6;
+	clj_value a14[1] = {t37};
+	(void)a14;
+	clj_value t38 = clj_c_invoke(t36, a14, 1);
+	(void)t37;
+	if (o36) clj_release(t36);
+	if (t38 == CLJ_THROWN) {
+	clj_release(t35);
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a12[2] = {t35, t38};
 	(void)a12;
-	clj_value t37;
+	clj_value t39;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t37 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a12, 2) : clj_c_invoke(t30, a12, 2);
+	t39 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a12, 2) : clj_c_invoke(t32, a12, 2);
 #else
-	t37 = clj_c_invoke(t30, a12, 2);
+	t39 = clj_c_invoke(t32, a12, 2);
 #endif
-	clj_release(t36);
-	clj_release(t33);
-	if (o30) clj_release(t30);
-	if (t37 == CLJ_THROWN) {
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a11[1] = {t37};
-	(void)a11;
-	clj_value t38;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t38 = clj_seq(t37);
-	} else {
-	t38 = clj_c_intrinsic_fallback(V[2], a11, 1);
-	}
-	clj_release(t37);
-	if (t38 == CLJ_THROWN) {
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a10[2] = {t29, t38};
-	(void)a10;
-	clj_value t39 = clj_c_invoke(t28, a10, 2);
 	clj_release(t38);
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
+	clj_release(t35);
+	if (o32) clj_release(t32);
 	if (t39 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a9[1] = {t39};
-	(void)a9;
-	clj_value t40 = clj_c_invoke(t27, a9, 1);
+	clj_value a11[1] = {t39};
+	(void)a11;
+	clj_value t40;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t40 = clj_seq(t39);
+	} else {
+	t40 = clj_c_intrinsic_fallback(V[2], a11, 1);
+	}
 	clj_release(t39);
-	if (o27) clj_release(t27);
 	if (t40 == CLJ_THROWN) {
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o41;
-	clj_value t41 = clj_c_var_borrow(V[8], &o41);
+	clj_value a10[2] = {t31, t40};
+	(void)a10;
+	clj_value t41 = clj_c_invoke(t30, a10, 2);
+	clj_release(t40);
+	if (o31) clj_release(t31);
+	if (o30) clj_release(t30);
 	if (t41 == CLJ_THROWN) {
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o29) clj_release(t29);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o42;
-	clj_value t42 = clj_c_var_borrow(V[0], &o42);
+	clj_value a9[1] = {t41};
+	(void)a9;
+	clj_value t42 = clj_c_invoke(t29, a9, 1);
+	clj_release(t41);
+	if (o29) clj_release(t29);
 	if (t42 == CLJ_THROWN) {
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o43;
 	clj_value t43 = clj_c_var_borrow(V[8], &o43);
 	if (t43 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t44 = K[200];
-	clj_value a18[1] = {t44};
-	(void)a18;
-	clj_value t45 = clj_c_invoke(t43, a18, 1);
-	(void)t44;
+	bool o44;
+	clj_value t44 = clj_c_var_borrow(V[0], &o44);
+	if (t44 == CLJ_THROWN) {
 	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o45;
+	clj_value t45 = clj_c_var_borrow(V[8], &o45);
 	if (t45 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o46;
-	clj_value t46 = clj_c_var_borrow(V[8], &o46);
-	if (t46 == CLJ_THROWN) {
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_value t46 = K[200];
+	clj_value a18[1] = {t46};
+	(void)a18;
+	clj_value t47 = clj_c_invoke(t45, a18, 1);
+	(void)t46;
+	if (o45) clj_release(t45);
+	if (t47 == CLJ_THROWN) {
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t47 = K[199];
-	clj_value a19[1] = {t47};
-	(void)a19;
-	clj_value t48 = clj_c_invoke(t46, a19, 1);
-	(void)t47;
-	if (o46) clj_release(t46);
+	bool o48;
+	clj_value t48 = clj_c_var_borrow(V[8], &o48);
 	if (t48 == CLJ_THROWN) {
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o49;
-	clj_value t49 = clj_c_var_borrow(V[8], &o49);
-	if (t49 == CLJ_THROWN) {
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	bool o50;
-	clj_value t50 = clj_c_var_borrow(V[0], &o50);
+	clj_value t49 = K[199];
+	clj_value a19[1] = {t49};
+	(void)a19;
+	clj_value t50 = clj_c_invoke(t48, a19, 1);
+	(void)t49;
+	if (o48) clj_release(t48);
 	if (t50 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o51;
 	clj_value t51 = clj_c_var_borrow(V[8], &o51);
 	if (t51 == CLJ_THROWN) {
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t52 = K[201];
-	clj_value a23[1] = {t52};
-	(void)a23;
-	clj_value t53 = clj_c_invoke(t51, a23, 1);
-	(void)t52;
+	bool o52;
+	clj_value t52 = clj_c_var_borrow(V[0], &o52);
+	if (t52 == CLJ_THROWN) {
 	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o53;
+	clj_value t53 = clj_c_var_borrow(V[8], &o53);
 	if (t53 == CLJ_THROWN) {
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o54;
-	clj_value t54 = clj_c_var_borrow(V[8], &o54);
-	if (t54 == CLJ_THROWN) {
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	bool o55;
-	clj_value t55 = clj_c_var_borrow(V[9], &o55);
+	clj_value t54 = K[201];
+	clj_value a23[1] = {t54};
+	(void)a23;
+	clj_value t55 = clj_c_invoke(t53, a23, 1);
+	(void)t54;
+	if (o53) clj_release(t53);
 	if (t55 == CLJ_THROWN) {
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o56;
-	clj_value t56 = clj_c_var_borrow(V[10], &o56);
+	clj_value t56 = clj_c_var_borrow(V[8], &o56);
 	if (t56 == CLJ_THROWN) {
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o57;
-	clj_value t57 = clj_c_var_borrow(V[0], &o57);
+	clj_value t57 = clj_c_var_borrow(V[9], &o57);
 	if (t57 == CLJ_THROWN) {
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
 	bool o58;
-	clj_value t58 = clj_c_var_borrow(V[8], &o58);
+	clj_value t58 = clj_c_var_borrow(V[10], &o58);
 	if (t58 == CLJ_THROWN) {
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t59 = l5;
-	clj_value a28[1] = {t59};
-	(void)a28;
-	clj_value t60 = clj_c_invoke(t58, a28, 1);
-	(void)t59;
+	bool o59;
+	clj_value t59 = clj_c_var_borrow(V[0], &o59);
+	if (t59 == CLJ_THROWN) {
 	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	bool o60;
+	clj_value t60 = clj_c_var_borrow(V[8], &o60);
 	if (t60 == CLJ_THROWN) {
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	bool o61;
-	clj_value t61 = clj_c_var_borrow(V[8], &o61);
-	if (t61 == CLJ_THROWN) {
-	clj_release(t60);
+	clj_value t61 = l5;
+	clj_value a28[1] = {t61};
+	(void)a28;
+	clj_value t62 = clj_c_invoke(t60, a28, 1);
+	(void)t61;
+	if (o60) clj_release(t60);
+	if (t62 == CLJ_THROWN) {
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t62 = K[199];
-	clj_value a29[1] = {t62};
-	(void)a29;
-	clj_value t63 = clj_c_invoke(t61, a29, 1);
-	(void)t62;
-	if (o61) clj_release(t61);
+	bool o63;
+	clj_value t63 = clj_c_var_borrow(V[8], &o63);
 	if (t63 == CLJ_THROWN) {
-	clj_release(t60);
+	clj_release(t62);
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
 	if (o57) clj_release(t57);
 	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a27[2] = {t60, t63};
+	clj_value t64 = K[199];
+	clj_value a29[1] = {t64};
+	(void)a29;
+	clj_value t65 = clj_c_invoke(t63, a29, 1);
+	(void)t64;
+	if (o63) clj_release(t63);
+	if (t65 == CLJ_THROWN) {
+	clj_release(t62);
+	if (o59) clj_release(t59);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a27[2] = {t62, t65};
 	(void)a27;
-	clj_value t64;
+	clj_value t66;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t64 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a27, 2) : clj_c_invoke(t57, a27, 2);
+	t66 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a27, 2) : clj_c_invoke(t59, a27, 2);
 #else
-	t64 = clj_c_invoke(t57, a27, 2);
+	t66 = clj_c_invoke(t59, a27, 2);
 #endif
-	clj_release(t63);
-	clj_release(t60);
-	if (o57) clj_release(t57);
-	if (t64 == CLJ_THROWN) {
-	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a26[1] = {t64};
-	(void)a26;
-	clj_value t65;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t65 = clj_seq(t64);
-	} else {
-	t65 = clj_c_intrinsic_fallback(V[2], a26, 1);
-	}
-	clj_release(t64);
-	if (t65 == CLJ_THROWN) {
-	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a25[2] = {t56, t65};
-	(void)a25;
-	clj_value t66 = clj_c_invoke(t55, a25, 2);
 	clj_release(t65);
-	if (o56) clj_release(t56);
-	if (o55) clj_release(t55);
+	clj_release(t62);
+	if (o59) clj_release(t59);
 	if (t66 == CLJ_THROWN) {
-	if (o54) clj_release(t54);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a24[1] = {t66};
-	(void)a24;
-	clj_value t67 = clj_c_invoke(t54, a24, 1);
+	clj_value a26[1] = {t66};
+	(void)a26;
+	clj_value t67;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t67 = clj_seq(t66);
+	} else {
+	t67 = clj_c_intrinsic_fallback(V[2], a26, 1);
+	}
 	clj_release(t66);
-	if (o54) clj_release(t54);
 	if (t67 == CLJ_THROWN) {
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value t68 = l3;
-	clj_value a22[3] = {t53, t67, t68};
-	(void)a22;
-	clj_value t69 = clj_c_invoke(t50, a22, 3);
-	(void)t68;
+	clj_value a25[2] = {t58, t67};
+	(void)a25;
+	clj_value t68 = clj_c_invoke(t57, a25, 2);
 	clj_release(t67);
-	clj_release(t53);
-	if (o50) clj_release(t50);
+	if (o58) clj_release(t58);
+	if (o57) clj_release(t57);
+	if (t68 == CLJ_THROWN) {
+	if (o56) clj_release(t56);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a24[1] = {t68};
+	(void)a24;
+	clj_value t69 = clj_c_invoke(t56, a24, 1);
+	clj_release(t68);
+	if (o56) clj_release(t56);
 	if (t69 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a21[1] = {t69};
-	(void)a21;
-	clj_value t70;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t70 = clj_seq(t69);
-	} else {
-	t70 = clj_c_intrinsic_fallback(V[2], a21, 1);
-	}
+	clj_value t70 = l3;
+	clj_value a22[3] = {t55, t69, t70};
+	(void)a22;
+	clj_value t71 = clj_c_invoke(t52, a22, 3);
+	(void)t70;
 	clj_release(t69);
-	if (t70 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	goto L2;
-	}
-	clj_value a20[1] = {t70};
-	(void)a20;
-	clj_value t71 = clj_c_invoke(t49, a20, 1);
-	clj_release(t70);
-	if (o49) clj_release(t49);
+	clj_release(t55);
+	if (o52) clj_release(t52);
 	if (t71 == CLJ_THROWN) {
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a17[3] = {t45, t48, t71};
-	(void)a17;
-	clj_value t72 = clj_c_invoke(t42, a17, 3);
+	clj_value a21[1] = {t71};
+	(void)a21;
+	clj_value t72;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t72 = clj_seq(t71);
+	} else {
+	t72 = clj_c_intrinsic_fallback(V[2], a21, 1);
+	}
 	clj_release(t71);
-	clj_release(t48);
-	clj_release(t45);
-	if (o42) clj_release(t42);
 	if (t72 == CLJ_THROWN) {
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a16[1] = {t72};
-	(void)a16;
-	clj_value t73;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t73 = clj_seq(t72);
-	} else {
-	t73 = clj_c_intrinsic_fallback(V[2], a16, 1);
-	}
+	clj_value a20[1] = {t72};
+	(void)a20;
+	clj_value t73 = clj_c_invoke(t51, a20, 1);
 	clj_release(t72);
+	if (o51) clj_release(t51);
 	if (t73 == CLJ_THROWN) {
-	if (o41) clj_release(t41);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a15[1] = {t73};
-	(void)a15;
-	clj_value t74 = clj_c_invoke(t41, a15, 1);
+	clj_value a17[3] = {t47, t50, t73};
+	(void)a17;
+	clj_value t74 = clj_c_invoke(t44, a17, 3);
 	clj_release(t73);
-	if (o41) clj_release(t41);
+	clj_release(t50);
+	clj_release(t47);
+	if (o44) clj_release(t44);
 	if (t74 == CLJ_THROWN) {
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
 	goto L2;
 	}
-	clj_value a7[3] = {t26, t40, t74};
-	(void)a7;
-	clj_value t75 = clj_c_invoke(t23, a7, 3);
-	clj_release(t74);
-	clj_release(t40);
-	clj_release(t26);
-	if (o23) clj_release(t23);
-	if (t75 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a6[1] = {t75};
-	(void)a6;
-	clj_value t76;
+	clj_value a16[1] = {t74};
+	(void)a16;
+	clj_value t75;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t76 = clj_seq(t75);
+	t75 = clj_seq(t74);
 	} else {
-	t76 = clj_c_intrinsic_fallback(V[2], a6, 1);
+	t75 = clj_c_intrinsic_fallback(V[2], a16, 1);
 	}
+	clj_release(t74);
+	if (t75 == CLJ_THROWN) {
+	if (o43) clj_release(t43);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a15[1] = {t75};
+	(void)a15;
+	clj_value t76 = clj_c_invoke(t43, a15, 1);
 	clj_release(t75);
+	if (o43) clj_release(t43);
 	if (t76 == CLJ_THROWN) {
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	goto L2;
+	}
+	clj_value a7[3] = {t28, t42, t76};
+	(void)a7;
+	clj_value t77 = clj_c_invoke(t25, a7, 3);
+	clj_release(t76);
+	clj_release(t42);
+	clj_release(t28);
+	if (o25) clj_release(t25);
+	if (t77 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value a6[1] = {t77};
+	(void)a6;
+	clj_value t78;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t78 = clj_seq(t77);
+	} else {
+	t78 = clj_c_intrinsic_fallback(V[2], a6, 1);
+	}
+	clj_release(t77);
+	if (t78 == CLJ_THROWN) {
 	goto L2;
 	}
 	clj_c_leave(&S[36], &cc);
@@ -17346,7 +17473,7 @@ clj_value clojure_core_when_let_v3(clj_value self, const clj_value *captured, co
 	clj_release(l4);
 	clj_release(l5);
 	clj_release(l6);
-	return t76;
+	return t78;
 L2: ;
 	clj_c_leave(&S[36], &cc);
 L1: ;
@@ -27584,245 +27711,257 @@ clj_value clojure_core_range_a3(clj_value self, const clj_value *captured, const
 #line 678 "Sources/CljCore/boot/core.clj"
 #line 679 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = fr.slots[2];
-	clj_value a0[1] = {t0};
-	(void)a0;
 	clj_value t1;
+	clj_value a0[1];
 	if (CLJC_GUARD(V[112], B[28])) {
-	t1 = clj_zero_p(t0);
+	if (1 && clj_is_fixnum(t0)) {
+	int64_t i2 = clj_fixnum_val(t0);
+	t1 = clj_bool(i2 == INT64_C(0));
 	} else {
+	a0[0] = t0;
+	t1 = clj_zero_p(a0[0]);
+	}
+	} else {
+	a0[0] = t0;
 	t1 = clj_c_intrinsic_fallback(V[112], a0, 1);
 	}
 	(void)t0;
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t2 = clj_truthy(t1);
+	bool t3 = clj_truthy(t1);
 	clj_release(t1);
-	clj_value t3;
-	if (t2) {
-	clj_value t4 = l0;
-	clj_value t5 = fr.slots[1];
-	clj_value a1[2] = {t4, t5};
+	clj_value t4;
+	if (t3) {
+	clj_value t5 = l0;
+	clj_value t6 = fr.slots[1];
+	clj_value a1[2] = {t5, t6};
 	(void)a1;
-	clj_value t6;
+	clj_value t7;
 	if (CLJC_GUARD(V[36], B[15])) {
-	t6 = clj_lt(t4, t5);
+	t7 = clj_lt(t5, t6);
 	} else {
-	t6 = clj_c_intrinsic_fallback(V[36], a1, 2);
+	t7 = clj_c_intrinsic_fallback(V[36], a1, 2);
 	}
+	(void)t6;
 	(void)t5;
-	(void)t4;
-	if (t6 == CLJ_THROWN) {
+	if (t7 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t7 = clj_truthy(t6);
-	clj_release(t6);
-	clj_value t8;
-	if (t7) {
-	bool o9;
-	clj_value t9 = clj_c_var_borrow(V[109], &o9);
-	if (t9 == CLJ_THROWN) {
+	bool t8 = clj_truthy(t7);
+	clj_release(t7);
+	clj_value t9;
+	if (t8) {
+	bool o10;
+	clj_value t10 = clj_c_var_borrow(V[109], &o10);
+	if (t10 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t10 = l0;
-	clj_value a2[1] = {t10};
+	clj_value t11 = l0;
+	clj_value a2[1] = {t11};
 	(void)a2;
-	clj_value t11;
+	clj_value t12;
 #ifdef CLJC_DIRECT_clojure_core_repeat_a1
 	if (!CLJC_FN_clojure_core_repeat_a1) CLJC_FN_clojure_core_repeat_a1 = clj_compiled_symbol("clojure_core_repeat_a1");
-	t11 = CLJC_FN_clojure_core_repeat_a1 ? CLJC_FN_clojure_core_repeat_a1(clj_var_root_relaxed(V[109]), NULL, a2, 1) : clj_c_invoke(t9, a2, 1);
+	t12 = CLJC_FN_clojure_core_repeat_a1 ? CLJC_FN_clojure_core_repeat_a1(clj_var_root_relaxed(V[109]), NULL, a2, 1) : clj_c_invoke(t10, a2, 1);
 #else
-	t11 = clj_c_invoke(t9, a2, 1);
+	t12 = clj_c_invoke(t10, a2, 1);
 #endif
-	(void)t10;
-	if (o9) clj_release(t9);
-	if (t11 == CLJ_THROWN) {
+	(void)t11;
+	if (o10) clj_release(t10);
+	if (t12 == CLJ_THROWN) {
 	goto L2;
 	}
-	t8 = t11;
+	t9 = t12;
 	} else {
-	clj_value t12 = clj_retain(K[322]);
-	t8 = t12;
+	clj_value t13 = clj_retain(K[322]);
+	t9 = t13;
 	}
-	t3 = t8;
+	t4 = t9;
 	} else {
 #line 678 "Sources/CljCore/boot/core.clj"
 #line 680 "Sources/CljCore/boot/core.clj"
-	clj_value t13 = l0;
-	clj_value a3[1] = {t13};
+	clj_value t14 = l0;
+	clj_value a3[1] = {t14};
 	(void)a3;
-	clj_value t14;
+	clj_value t15;
 	if (CLJC_GUARD(V[113], B[29])) {
-	t14 = clj_integer_p(t13);
+	t15 = clj_integer_p(t14);
 	} else {
-	t14 = clj_c_intrinsic_fallback(V[113], a3, 1);
+	t15 = clj_c_intrinsic_fallback(V[113], a3, 1);
 	}
-	(void)t13;
-	if (t14 == CLJ_THROWN) {
+	(void)t14;
+	if (t15 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l3, t14);
-	clj_value t15 = l3;
-	bool t16 = clj_truthy(t15);
-	(void)t15;
-	clj_value t17;
-	if (t16) {
-	clj_value t18 = fr.slots[1];
-	clj_value a4[1] = {t18};
+	clj_c_rebind(&l3, t15);
+	clj_value t16 = l3;
+	bool t17 = clj_truthy(t16);
+	(void)t16;
+	clj_value t18;
+	if (t17) {
+	clj_value t19 = fr.slots[1];
+	clj_value a4[1] = {t19};
 	(void)a4;
-	clj_value t19;
+	clj_value t20;
 	if (CLJC_GUARD(V[113], B[29])) {
-	t19 = clj_integer_p(t18);
+	t20 = clj_integer_p(t19);
 	} else {
-	t19 = clj_c_intrinsic_fallback(V[113], a4, 1);
+	t20 = clj_c_intrinsic_fallback(V[113], a4, 1);
 	}
-	(void)t18;
-	if (t19 == CLJ_THROWN) {
+	(void)t19;
+	if (t20 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l4, t19);
-	clj_value t20 = l4;
-	bool t21 = clj_truthy(t20);
-	(void)t20;
-	clj_value t22;
-	if (t21) {
-	clj_value t23 = fr.slots[2];
-	clj_value a5[1] = {t23};
+	clj_c_rebind(&l4, t20);
+	clj_value t21 = l4;
+	bool t22 = clj_truthy(t21);
+	(void)t21;
+	clj_value t23;
+	if (t22) {
+	clj_value t24 = fr.slots[2];
+	clj_value a5[1] = {t24};
 	(void)a5;
-	clj_value t24;
+	clj_value t25;
 	if (CLJC_GUARD(V[113], B[29])) {
-	t24 = clj_integer_p(t23);
+	t25 = clj_integer_p(t24);
 	} else {
-	t24 = clj_c_intrinsic_fallback(V[113], a5, 1);
+	t25 = clj_c_intrinsic_fallback(V[113], a5, 1);
 	}
-	(void)t23;
-	if (t24 == CLJ_THROWN) {
+	(void)t24;
+	if (t25 == CLJ_THROWN) {
 	goto L2;
 	}
-	t22 = t24;
+	t23 = t25;
 	} else {
-	clj_value t25 = clj_retain(l4);
-	t22 = t25;
+	clj_value t26 = clj_retain(l4);
+	t23 = t26;
 	}
-	t17 = t22;
+	t18 = t23;
 	} else {
-	clj_value t26 = clj_retain(l3);
-	t17 = t26;
+	clj_value t27 = clj_retain(l3);
+	t18 = t27;
 	}
-	bool t27 = clj_truthy(t17);
-	clj_release(t17);
-	clj_value t28;
-	if (t27) {
-	bool o29;
-	clj_value t29 = clj_c_var_borrow(V[114], &o29);
-	if (t29 == CLJ_THROWN) {
+	bool t28 = clj_truthy(t18);
+	clj_release(t18);
+	clj_value t29;
+	if (t28) {
+	bool o30;
+	clj_value t30 = clj_c_var_borrow(V[114], &o30);
+	if (t30 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t30 = l0;
-	clj_value t31 = fr.slots[1];
-	clj_value t32 = fr.slots[2];
-	clj_value a6[3] = {t30, t31, t32};
+	clj_value t31 = l0;
+	clj_value t32 = fr.slots[1];
+	clj_value t33 = fr.slots[2];
+	clj_value a6[3] = {t31, t32, t33};
 	(void)a6;
-	clj_value t33 = clj_c_invoke(t29, a6, 3);
+	clj_value t34 = clj_c_invoke(t30, a6, 3);
+	(void)t33;
 	(void)t32;
 	(void)t31;
-	(void)t30;
-	if (o29) clj_release(t29);
-	if (t33 == CLJ_THROWN) {
+	if (o30) clj_release(t30);
+	if (t34 == CLJ_THROWN) {
 	goto L2;
 	}
-	t28 = t33;
+	t29 = t34;
 	} else {
 #line 681 "Sources/CljCore/boot/core.clj"
-	clj_value t34 = fr.slots[2];
-	clj_value a7[1] = {t34};
-	(void)a7;
-	clj_value t35;
+	clj_value t35 = fr.slots[2];
+	clj_value t36;
+	clj_value a7[1];
 	if (CLJC_GUARD(V[89], B[25])) {
-	t35 = clj_pos_p(t34);
+	if (1 && clj_is_fixnum(t35)) {
+	int64_t i37 = clj_fixnum_val(t35);
+	t36 = clj_bool(i37 > INT64_C(0));
 	} else {
-	t35 = clj_c_intrinsic_fallback(V[89], a7, 1);
+	a7[0] = t35;
+	t36 = clj_pos_p(a7[0]);
 	}
-	(void)t34;
-	if (t35 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t36 = clj_truthy(t35);
-	clj_release(t35);
-	clj_value t37;
-	if (t36) {
-	clj_value t38 = clj_var_deref(V[36]);
-	if (t38 == CLJ_THROWN) {
-	goto L2;
-	}
-	t37 = t38;
 	} else {
-	clj_value t39 = clj_var_deref(V[115]);
-	if (t39 == CLJ_THROWN) {
+	a7[0] = t35;
+	t36 = clj_c_intrinsic_fallback(V[89], a7, 1);
+	}
+	(void)t35;
+	if (t36 == CLJ_THROWN) {
 	goto L2;
 	}
-	t37 = t39;
-	}
-	clj_c_set(&fr, 5, t37);
-#line 682 "Sources/CljCore/boot/core.clj"
-	bool o40;
-	clj_value t40 = clj_c_var_borrow(V[106], &o40);
+	bool t38 = clj_truthy(t36);
+	clj_release(t36);
+	clj_value t39;
+	if (t38) {
+	clj_value t40 = clj_var_deref(V[36]);
 	if (t40 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value c9[2] = {fr.slots[5], fr.slots[1]};
-	clj_value t41 = clj_c_closure(CLJ_NIL, clojure_core_range__0, c9, 2, 0x2, 1, 1);
+	t39 = t40;
+	} else {
+	clj_value t41 = clj_var_deref(V[115]);
+	if (t41 == CLJ_THROWN) {
+	goto L2;
+	}
+	t39 = t41;
+	}
+	clj_c_set(&fr, 5, t39);
+#line 682 "Sources/CljCore/boot/core.clj"
 	bool o42;
-	clj_value t42 = clj_c_var_borrow(V[108], &o42);
+	clj_value t42 = clj_c_var_borrow(V[106], &o42);
 	if (t42 == CLJ_THROWN) {
-	clj_release(t41);
-	if (o40) clj_release(t40);
+	goto L2;
+	}
+	clj_value c9[2] = {fr.slots[5], fr.slots[1]};
+	clj_value t43 = clj_c_closure(CLJ_NIL, clojure_core_range__0, c9, 2, 0x2, 1, 1);
+	bool o44;
+	clj_value t44 = clj_c_var_borrow(V[108], &o44);
+	if (t44 == CLJ_THROWN) {
+	clj_release(t43);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
 	clj_value c11[1] = {fr.slots[2]};
-	clj_value t43 = clj_c_closure(CLJ_NIL, clojure_core_range__1, c11, 1, 0x2, 1, 1);
-	clj_value t44 = l0;
-	clj_value a10[2] = {t43, t44};
+	clj_value t45 = clj_c_closure(CLJ_NIL, clojure_core_range__1, c11, 1, 0x2, 1, 1);
+	clj_value t46 = l0;
+	clj_value a10[2] = {t45, t46};
 	(void)a10;
-	clj_value t45;
+	clj_value t47;
 #ifdef CLJC_DIRECT_clojure_core_iterate_a2
 	if (!CLJC_FN_clojure_core_iterate_a2) CLJC_FN_clojure_core_iterate_a2 = clj_compiled_symbol("clojure_core_iterate_a2");
-	t45 = CLJC_FN_clojure_core_iterate_a2 ? CLJC_FN_clojure_core_iterate_a2(clj_var_root_relaxed(V[108]), NULL, a10, 2) : clj_c_invoke(t42, a10, 2);
+	t47 = CLJC_FN_clojure_core_iterate_a2 ? CLJC_FN_clojure_core_iterate_a2(clj_var_root_relaxed(V[108]), NULL, a10, 2) : clj_c_invoke(t44, a10, 2);
 #else
-	t45 = clj_c_invoke(t42, a10, 2);
+	t47 = clj_c_invoke(t44, a10, 2);
 #endif
-	(void)t44;
+	(void)t46;
+	clj_release(t45);
+	if (o44) clj_release(t44);
+	if (t47 == CLJ_THROWN) {
 	clj_release(t43);
 	if (o42) clj_release(t42);
-	if (t45 == CLJ_THROWN) {
-	clj_release(t41);
-	if (o40) clj_release(t40);
 	goto L2;
 	}
-	clj_value a8[2] = {t41, t45};
+	clj_value a8[2] = {t43, t47};
 	(void)a8;
-	clj_value t46;
+	clj_value t48;
 #ifdef CLJC_DIRECT_clojure_core_take_while_a2
 	if (!CLJC_FN_clojure_core_take_while_a2) CLJC_FN_clojure_core_take_while_a2 = clj_compiled_symbol("clojure_core_take_while_a2");
-	t46 = CLJC_FN_clojure_core_take_while_a2 ? CLJC_FN_clojure_core_take_while_a2(clj_var_root_relaxed(V[106]), NULL, a8, 2) : clj_c_invoke(t40, a8, 2);
+	t48 = CLJC_FN_clojure_core_take_while_a2 ? CLJC_FN_clojure_core_take_while_a2(clj_var_root_relaxed(V[106]), NULL, a8, 2) : clj_c_invoke(t42, a8, 2);
 #else
-	t46 = clj_c_invoke(t40, a8, 2);
+	t48 = clj_c_invoke(t42, a8, 2);
 #endif
-	clj_release(t45);
-	clj_release(t41);
-	if (o40) clj_release(t40);
-	if (t46 == CLJ_THROWN) {
+	clj_release(t47);
+	clj_release(t43);
+	if (o42) clj_release(t42);
+	if (t48 == CLJ_THROWN) {
 	goto L2;
 	}
-	t28 = t46;
+	t29 = t48;
 	}
-	t3 = t28;
+	t4 = t29;
 	}
 	clj_c_leave(&S[105], &cc);
 	clj_release(l3);
 	clj_release(l4);
 	clj_c_release_slots(&fr, 6);
-	return t3;
+	return t4;
 L2: ;
 	clj_c_leave(&S[105], &cc);
 L1: ;
@@ -38033,12 +38172,18 @@ clj_value clojure_core_nat_int_QMARK__a1(clj_value self, const clj_value *captur
 	clj_value t5;
 	if (t4) {
 	clj_value t6 = l0;
-	clj_value a2[1] = {t6};
-	(void)a2;
 	clj_value t7;
+	clj_value a2[1];
 	if (CLJC_GUARD(V[160], B[32])) {
-	t7 = clj_neg_p(t6);
+	if (1 && clj_is_fixnum(t6)) {
+	int64_t i8 = clj_fixnum_val(t6);
+	t7 = clj_bool(i8 < INT64_C(0));
 	} else {
+	a2[0] = t6;
+	t7 = clj_neg_p(a2[0]);
+	}
+	} else {
+	a2[0] = t6;
 	t7 = clj_c_intrinsic_fallback(V[160], a2, 1);
 	}
 	(void)t6;
@@ -38047,21 +38192,21 @@ clj_value clojure_core_nat_int_QMARK__a1(clj_value self, const clj_value *captur
 	}
 	clj_value a1[1] = {t7};
 	(void)a1;
-	clj_value t8;
+	clj_value t9;
 	if (CLJC_GUARD(V[75], B[24])) {
-	t8 = clj_not(t7);
+	t9 = clj_not(t7);
 	} else {
-	t8 = clj_c_intrinsic_fallback(V[75], a1, 1);
+	t9 = clj_c_intrinsic_fallback(V[75], a1, 1);
 	}
 	clj_release(t7);
-	if (t8 == CLJ_THROWN) {
+	if (t9 == CLJ_THROWN) {
 	goto L2;
 	}
-	t5 = t8;
-	} else {
-	clj_value t9 = l1;
-	l1 = CLJ_NIL;
 	t5 = t9;
+	} else {
+	clj_value t10 = l1;
+	l1 = CLJ_NIL;
+	t5 = t10;
 	}
 	clj_c_leave(&S[187], &cc);
 	clj_release(l1);
@@ -38134,12 +38279,18 @@ clj_value clojure_core_pos_int_QMARK__a1(clj_value self, const clj_value *captur
 	clj_value t5;
 	if (t4) {
 	clj_value t6 = l0;
-	clj_value a1[1] = {t6};
-	(void)a1;
 	clj_value t7;
+	clj_value a1[1];
 	if (CLJC_GUARD(V[89], B[25])) {
-	t7 = clj_pos_p(t6);
+	if (1 && clj_is_fixnum(t6)) {
+	int64_t i8 = clj_fixnum_val(t6);
+	t7 = clj_bool(i8 > INT64_C(0));
 	} else {
+	a1[0] = t6;
+	t7 = clj_pos_p(a1[0]);
+	}
+	} else {
+	a1[0] = t6;
 	t7 = clj_c_intrinsic_fallback(V[89], a1, 1);
 	}
 	(void)t6;
@@ -38148,9 +38299,9 @@ clj_value clojure_core_pos_int_QMARK__a1(clj_value self, const clj_value *captur
 	}
 	t5 = t7;
 	} else {
-	clj_value t8 = l1;
+	clj_value t9 = l1;
 	l1 = CLJ_NIL;
-	t5 = t8;
+	t5 = t9;
 	}
 	clj_c_leave(&S[188], &cc);
 	clj_release(l1);
@@ -38223,12 +38374,18 @@ clj_value clojure_core_neg_int_QMARK__a1(clj_value self, const clj_value *captur
 	clj_value t5;
 	if (t4) {
 	clj_value t6 = l0;
-	clj_value a1[1] = {t6};
-	(void)a1;
 	clj_value t7;
+	clj_value a1[1];
 	if (CLJC_GUARD(V[160], B[32])) {
-	t7 = clj_neg_p(t6);
+	if (1 && clj_is_fixnum(t6)) {
+	int64_t i8 = clj_fixnum_val(t6);
+	t7 = clj_bool(i8 < INT64_C(0));
 	} else {
+	a1[0] = t6;
+	t7 = clj_neg_p(a1[0]);
+	}
+	} else {
+	a1[0] = t6;
 	t7 = clj_c_intrinsic_fallback(V[160], a1, 1);
 	}
 	(void)t6;
@@ -38237,9 +38394,9 @@ clj_value clojure_core_neg_int_QMARK__a1(clj_value self, const clj_value *captur
 	}
 	t5 = t7;
 	} else {
-	clj_value t8 = l1;
+	clj_value t9 = l1;
 	l1 = CLJ_NIL;
-	t5 = t8;
+	t5 = t9;
 	}
 	clj_c_leave(&S[189], &cc);
 	clj_release(l1);
@@ -39160,76 +39317,88 @@ clj_value clojure_core_mod_a2(clj_value self, const clj_value *captured, const c
 	t8 = t9;
 	} else {
 	clj_value t10 = l0;
-	clj_value a3[1] = {t10};
-	(void)a3;
 	clj_value t11;
+	clj_value a3[1];
 	if (CLJC_GUARD(V[89], B[25])) {
-	t11 = clj_pos_p(t10);
+	if (1 && clj_is_fixnum(t10)) {
+	int64_t i12 = clj_fixnum_val(t10);
+	t11 = clj_bool(i12 > INT64_C(0));
 	} else {
+	a3[0] = t10;
+	t11 = clj_pos_p(a3[0]);
+	}
+	} else {
+	a3[0] = t10;
 	t11 = clj_c_intrinsic_fallback(V[89], a3, 1);
 	}
 	(void)t10;
 	if (t11 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t12 = l1;
-	clj_value a4[1] = {t12};
-	(void)a4;
-	clj_value t13;
-	if (CLJC_GUARD(V[89], B[25])) {
-	t13 = clj_pos_p(t12);
-	} else {
-	t13 = clj_c_intrinsic_fallback(V[89], a4, 1);
-	}
-	(void)t12;
-	if (t13 == CLJ_THROWN) {
-	clj_release(t11);
-	goto L2;
-	}
-	clj_value a2[2] = {t11, t13};
-	(void)a2;
+	clj_value t13 = l1;
 	clj_value t14;
-	if (CLJC_GUARD(V[19], B[5])) {
-	t14 = clj_eq(t11, t13);
+	clj_value a4[1];
+	if (CLJC_GUARD(V[89], B[25])) {
+	if (1 && clj_is_fixnum(t13)) {
+	int64_t i15 = clj_fixnum_val(t13);
+	t14 = clj_bool(i15 > INT64_C(0));
 	} else {
-	t14 = clj_c_intrinsic_fallback(V[19], a2, 2);
+	a4[0] = t13;
+	t14 = clj_pos_p(a4[0]);
 	}
-	clj_release(t13);
-	clj_release(t11);
+	} else {
+	a4[0] = t13;
+	t14 = clj_c_intrinsic_fallback(V[89], a4, 1);
+	}
+	(void)t13;
 	if (t14 == CLJ_THROWN) {
+	clj_release(t11);
 	goto L2;
 	}
-	t8 = t14;
-	}
-	bool t15 = clj_truthy(t8);
-	clj_release(t8);
+	clj_value a2[2] = {t11, t14};
+	(void)a2;
 	clj_value t16;
-	if (t15) {
-	clj_value t17 = l2;
-	l2 = CLJ_NIL;
-	t16 = t17;
+	if (CLJC_GUARD(V[19], B[5])) {
+	t16 = clj_eq(t11, t14);
 	} else {
-	clj_value t18 = l2;
-	clj_value t19 = l1;
-	clj_value a5[2] = {t18, t19};
-	(void)a5;
-	clj_value t20;
-	if (CLJC_GUARD(V[38], B[17])) {
-	t20 = clj_add(t18, t19);
-	} else {
-	t20 = clj_c_intrinsic_fallback(V[38], a5, 2);
+	t16 = clj_c_intrinsic_fallback(V[19], a2, 2);
 	}
-	(void)t19;
-	(void)t18;
-	if (t20 == CLJ_THROWN) {
+	clj_release(t14);
+	clj_release(t11);
+	if (t16 == CLJ_THROWN) {
 	goto L2;
 	}
-	t16 = t20;
+	t8 = t16;
+	}
+	bool t17 = clj_truthy(t8);
+	clj_release(t8);
+	clj_value t18;
+	if (t17) {
+	clj_value t19 = l2;
+	l2 = CLJ_NIL;
+	t18 = t19;
+	} else {
+	clj_value t20 = l2;
+	clj_value t21 = l1;
+	clj_value a5[2] = {t20, t21};
+	(void)a5;
+	clj_value t22;
+	if (CLJC_GUARD(V[38], B[17])) {
+	t22 = clj_add(t20, t21);
+	} else {
+	t22 = clj_c_intrinsic_fallback(V[38], a5, 2);
+	}
+	(void)t21;
+	(void)t20;
+	if (t22 == CLJ_THROWN) {
+	goto L2;
+	}
+	t18 = t22;
 	}
 	clj_c_leave(&S[195], &cc);
 	clj_release(l2);
 	clj_release(l3);
-	return t16;
+	return t18;
 L2: ;
 	clj_c_leave(&S[195], &cc);
 L1: ;
@@ -40810,12 +40979,18 @@ L4: ;
 	clj_value t6;
 	if (t5) {
 	clj_value t7 = l2;
-	clj_value a1[1] = {t7};
-	(void)a1;
 	clj_value t8;
+	clj_value a1[1];
 	if (CLJC_GUARD(V[89], B[25])) {
-	t8 = clj_pos_p(t7);
+	if (1 && clj_is_fixnum(t7)) {
+	int64_t i9 = clj_fixnum_val(t7);
+	t8 = clj_bool(i9 > INT64_C(0));
 	} else {
+	a1[0] = t7;
+	t8 = clj_pos_p(a1[0]);
+	}
+	} else {
+	a1[0] = t7;
 	t8 = clj_c_intrinsic_fallback(V[89], a1, 1);
 	}
 	(void)t7;
@@ -40824,58 +40999,66 @@ L4: ;
 	}
 	t6 = t8;
 	} else {
-	clj_value t9 = clj_retain(l4);
-	t6 = t9;
+	clj_value t10 = clj_retain(l4);
+	t6 = t10;
 	}
-	bool t10 = clj_truthy(t6);
+	bool t11 = clj_truthy(t6);
 	clj_release(t6);
-	clj_value t11;
-	if (t10) {
-	clj_value t12 = l2;
-	clj_value a2[1] = {t12};
-	(void)a2;
-	clj_value t13;
+	clj_value t12;
+	if (t11) {
+	clj_value t13 = l2;
+	clj_value t14;
+	clj_value a2[1];
 	if (CLJC_GUARD(V[90], B[26])) {
-	t13 = clj_dec(t12);
+	if (1 && clj_is_fixnum(t13)) {
+	int64_t i15 = clj_fixnum_val(t13);
+	int64_t i16;
+	if (__builtin_expect(__builtin_sub_overflow(i15, INT64_C(1), &i16), 0)) t14 = clj_throw_msg("integer overflow");
+	else t14 = clj_long_new(i16);
 	} else {
-	t13 = clj_c_intrinsic_fallback(V[90], a2, 1);
+	a2[0] = t13;
+	t14 = clj_dec(a2[0]);
 	}
-	(void)t12;
-	if (t13 == CLJ_THROWN) {
+	} else {
+	a2[0] = t13;
+	t14 = clj_c_intrinsic_fallback(V[90], a2, 1);
+	}
+	(void)t13;
+	if (t14 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t14 = l3;
-	clj_value a3[1] = {t14};
+	clj_value t17 = l3;
+	clj_value a3[1] = {t17};
 	(void)a3;
-	clj_value t15;
+	clj_value t18;
 	if (CLJC_GUARD(V[6], B[4])) {
-	t15 = clj_next(t14);
+	t18 = clj_next(t17);
 	} else {
-	t15 = clj_c_intrinsic_fallback(V[6], a3, 1);
+	t18 = clj_c_intrinsic_fallback(V[6], a3, 1);
 	}
-	(void)t14;
-	if (t15 == CLJ_THROWN) {
-	clj_release(t13);
+	(void)t17;
+	if (t18 == CLJ_THROWN) {
+	clj_release(t14);
 	goto L2;
 	}
-	clj_c_rebind(&l2, t13);
-	clj_c_rebind(&l3, t15);
+	clj_c_rebind(&l2, t14);
+	clj_c_rebind(&l3, t18);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t16 = CLJ_NIL;
-	t11 = t16;
+	clj_value t19 = CLJ_NIL;
+	t12 = t19;
 	} else {
-	clj_value t17 = l3;
+	clj_value t20 = l3;
 	l3 = CLJ_NIL;
-	t11 = t17;
+	t12 = t20;
 	}
 	clj_c_leave(&S[207], &cc);
 	clj_release(l2);
 	clj_release(l3);
 	clj_release(l4);
-	return t11;
+	return t12;
 L2: ;
 	clj_c_leave(&S[207], &cc);
 L1: ;
@@ -41044,203 +41227,217 @@ clj_value clojure_core_peek_a1(clj_value self, const clj_value *captured, const 
 	if (t10 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a2[1] = {t10};
-	(void)a2;
 	clj_value t11;
+	clj_value a2[1];
 	if (CLJC_GUARD(V[89], B[25])) {
-	t11 = clj_pos_p(t10);
+	if (1 && clj_is_fixnum(t10)) {
+	int64_t i12 = clj_fixnum_val(t10);
+	t11 = clj_bool(i12 > INT64_C(0));
 	} else {
+	a2[0] = t10;
+	t11 = clj_pos_p(a2[0]);
+	}
+	} else {
+	a2[0] = t10;
 	t11 = clj_c_intrinsic_fallback(V[89], a2, 1);
 	}
 	clj_release(t10);
 	if (t11 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t12 = clj_truthy(t11);
+	bool t13 = clj_truthy(t11);
 	clj_release(t11);
-	clj_value t13;
-	if (t12) {
-	clj_value t14 = l0;
+	clj_value t14;
+	if (t13) {
 	clj_value t15 = l0;
-	clj_value a6[1] = {t15};
+	clj_value t16 = l0;
+	clj_value a6[1] = {t16};
 	(void)a6;
-	clj_value t16;
-	if (CLJC_GUARD(V[37], B[16])) {
-	t16 = clj_count(t15);
-	} else {
-	t16 = clj_c_intrinsic_fallback(V[37], a6, 1);
-	}
-	(void)t15;
-	if (t16 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a5[1] = {t16};
-	(void)a5;
 	clj_value t17;
-	if (CLJC_GUARD(V[90], B[26])) {
-	t17 = clj_dec(t16);
+	if (CLJC_GUARD(V[37], B[16])) {
+	t17 = clj_count(t16);
 	} else {
-	t17 = clj_c_intrinsic_fallback(V[90], a5, 1);
+	t17 = clj_c_intrinsic_fallback(V[37], a6, 1);
 	}
-	clj_release(t16);
+	(void)t16;
 	if (t17 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a4[2] = {t14, t17};
-	(void)a4;
 	clj_value t18;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t18 = clj_nth2(t14, t17);
+	clj_value a5[1];
+	if (CLJC_GUARD(V[90], B[26])) {
+	if (1 && clj_is_fixnum(t17)) {
+	int64_t i19 = clj_fixnum_val(t17);
+	int64_t i20;
+	if (__builtin_expect(__builtin_sub_overflow(i19, INT64_C(1), &i20), 0)) t18 = clj_throw_msg("integer overflow");
+	else t18 = clj_long_new(i20);
 	} else {
-	t18 = clj_c_intrinsic_fallback(V[24], a4, 2);
+	a5[0] = t17;
+	t18 = clj_dec(a5[0]);
+	}
+	} else {
+	a5[0] = t17;
+	t18 = clj_c_intrinsic_fallback(V[90], a5, 1);
 	}
 	clj_release(t17);
-	(void)t14;
 	if (t18 == CLJ_THROWN) {
 	goto L2;
 	}
-	t13 = t18;
+	clj_value a4[2] = {t15, t18};
+	(void)a4;
+	clj_value t21;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t21 = clj_nth2(t15, t18);
 	} else {
-	t13 = CLJ_NIL;
+	t21 = clj_c_intrinsic_fallback(V[24], a4, 2);
 	}
-	t8 = t13;
+	clj_release(t18);
+	(void)t15;
+	if (t21 == CLJ_THROWN) {
+	goto L2;
+	}
+	t14 = t21;
+	} else {
+	t14 = CLJ_NIL;
+	}
+	t8 = t14;
 	} else {
 #line 1126 "Sources/CljCore/boot/core.clj"
 #line 1128 "Sources/CljCore/boot/core.clj"
-	bool o19;
-	clj_value t19 = clj_c_var_borrow(V[191], &o19);
-	if (t19 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o20;
-	clj_value t20 = clj_c_var_borrow(V[192], &o20);
-	if (t20 == CLJ_THROWN) {
-	if (o19) clj_release(t19);
-	goto L2;
-	}
-	clj_value t21 = l0;
-	clj_value a7[2] = {t20, t21};
-	(void)a7;
-	clj_value t22 = clj_c_invoke(t19, a7, 2);
-	(void)t21;
-	if (o20) clj_release(t20);
-	if (o19) clj_release(t19);
+	bool o22;
+	clj_value t22 = clj_c_var_borrow(V[191], &o22);
 	if (t22 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t23 = clj_truthy(t22);
-	clj_release(t22);
-	clj_value t24;
-	if (t23) {
-	clj_value t25 = l0;
-	clj_value a8[1] = {t25};
-	(void)a8;
-	clj_value t26;
-	if (CLJC_GUARD(V[4], B[2])) {
-	t26 = clj_first(t25);
-	} else {
-	t26 = clj_c_intrinsic_fallback(V[4], a8, 1);
-	}
-	(void)t25;
-	if (t26 == CLJ_THROWN) {
+	bool o23;
+	clj_value t23 = clj_c_var_borrow(V[192], &o23);
+	if (t23 == CLJ_THROWN) {
+	if (o22) clj_release(t22);
 	goto L2;
 	}
-	t24 = t26;
+	clj_value t24 = l0;
+	clj_value a7[2] = {t23, t24};
+	(void)a7;
+	clj_value t25 = clj_c_invoke(t22, a7, 2);
+	(void)t24;
+	if (o23) clj_release(t23);
+	if (o22) clj_release(t22);
+	if (t25 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool t26 = clj_truthy(t25);
+	clj_release(t25);
+	clj_value t27;
+	if (t26) {
+	clj_value t28 = l0;
+	clj_value a8[1] = {t28};
+	(void)a8;
+	clj_value t29;
+	if (CLJC_GUARD(V[4], B[2])) {
+	t29 = clj_first(t28);
+	} else {
+	t29 = clj_c_intrinsic_fallback(V[4], a8, 1);
+	}
+	(void)t28;
+	if (t29 == CLJ_THROWN) {
+	goto L2;
+	}
+	t27 = t29;
 	} else {
 #line 1126 "Sources/CljCore/boot/core.clj"
 #line 1129 "Sources/CljCore/boot/core.clj"
-	clj_value t27 = l0;
-	clj_value a9[1] = {t27};
+	clj_value t30 = l0;
+	clj_value a9[1] = {t30};
 	(void)a9;
-	clj_value t28;
+	clj_value t31;
 	if (CLJC_GUARD(V[193], B[39])) {
-	t28 = clj_list_p(t27);
+	t31 = clj_list_p(t30);
 	} else {
-	t28 = clj_c_intrinsic_fallback(V[193], a9, 1);
+	t31 = clj_c_intrinsic_fallback(V[193], a9, 1);
 	}
-	(void)t27;
-	if (t28 == CLJ_THROWN) {
+	(void)t30;
+	if (t31 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t29 = clj_truthy(t28);
-	clj_release(t28);
-	clj_value t30;
-	if (t29) {
-	clj_value t31 = l0;
-	clj_value a10[1] = {t31};
+	bool t32 = clj_truthy(t31);
+	clj_release(t31);
+	clj_value t33;
+	if (t32) {
+	clj_value t34 = l0;
+	clj_value a10[1] = {t34};
 	(void)a10;
-	clj_value t32;
+	clj_value t35;
 	if (CLJC_GUARD(V[4], B[2])) {
-	t32 = clj_first(t31);
+	t35 = clj_first(t34);
 	} else {
-	t32 = clj_c_intrinsic_fallback(V[4], a10, 1);
+	t35 = clj_c_intrinsic_fallback(V[4], a10, 1);
 	}
-	(void)t31;
-	if (t32 == CLJ_THROWN) {
+	(void)t34;
+	if (t35 == CLJ_THROWN) {
 	goto L2;
 	}
-	t30 = t32;
+	t33 = t35;
 	} else {
 #line 1130 "Sources/CljCore/boot/core.clj"
-	bool o33;
-	clj_value t33 = clj_c_var_borrow(V[16], &o33);
-	if (t33 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o34;
-	clj_value t34 = clj_c_var_borrow(V[31], &o34);
-	if (t34 == CLJ_THROWN) {
-	if (o33) clj_release(t33);
-	goto L2;
-	}
-	clj_value t35 = K[530];
 	bool o36;
-	clj_value t36 = clj_c_var_borrow(V[149], &o36);
+	clj_value t36 = clj_c_var_borrow(V[16], &o36);
 	if (t36 == CLJ_THROWN) {
-	if (o34) clj_release(t34);
-	if (o33) clj_release(t33);
 	goto L2;
 	}
-	clj_value t37 = l0;
-	clj_value a13[1] = {t37};
-	(void)a13;
-	clj_value t38 = clj_c_invoke(t36, a13, 1);
-	(void)t37;
+	bool o37;
+	clj_value t37 = clj_c_var_borrow(V[31], &o37);
+	if (t37 == CLJ_THROWN) {
 	if (o36) clj_release(t36);
-	if (t38 == CLJ_THROWN) {
-	if (o34) clj_release(t34);
-	if (o33) clj_release(t33);
 	goto L2;
 	}
-	clj_value a12[2] = {t35, t38};
-	(void)a12;
-	clj_value t39 = clj_c_invoke(t34, a12, 2);
-	clj_release(t38);
-	(void)t35;
-	if (o34) clj_release(t34);
+	clj_value t38 = K[530];
+	bool o39;
+	clj_value t39 = clj_c_var_borrow(V[149], &o39);
 	if (t39 == CLJ_THROWN) {
-	if (o33) clj_release(t33);
+	if (o37) clj_release(t37);
+	if (o36) clj_release(t36);
 	goto L2;
 	}
-	clj_value t40 = K[531];
-	clj_value a11[2] = {t39, t40};
-	(void)a11;
-	clj_value t41 = clj_c_invoke(t33, a11, 2);
+	clj_value t40 = l0;
+	clj_value a13[1] = {t40};
+	(void)a13;
+	clj_value t41 = clj_c_invoke(t39, a13, 1);
 	(void)t40;
-	clj_release(t39);
-	if (o33) clj_release(t33);
+	if (o39) clj_release(t39);
 	if (t41 == CLJ_THROWN) {
+	if (o37) clj_release(t37);
+	if (o36) clj_release(t36);
 	goto L2;
 	}
-	clj_value t42 = clj_throw(t41);
+	clj_value a12[2] = {t38, t41};
+	(void)a12;
+	clj_value t42 = clj_c_invoke(t37, a12, 2);
+	clj_release(t41);
+	(void)t38;
+	if (o37) clj_release(t37);
 	if (t42 == CLJ_THROWN) {
+	if (o36) clj_release(t36);
 	goto L2;
 	}
-	t30 = t42;
+	clj_value t43 = K[531];
+	clj_value a11[2] = {t42, t43};
+	(void)a11;
+	clj_value t44 = clj_c_invoke(t36, a11, 2);
+	(void)t43;
+	clj_release(t42);
+	if (o36) clj_release(t36);
+	if (t44 == CLJ_THROWN) {
+	goto L2;
 	}
-	t24 = t30;
+	clj_value t45 = clj_throw(t44);
+	if (t45 == CLJ_THROWN) {
+	goto L2;
 	}
-	t8 = t24;
+	t33 = t45;
+	}
+	t27 = t33;
+	}
+	t8 = t27;
 	}
 	t3 = t8;
 	}
@@ -41342,346 +41539,360 @@ clj_value clojure_core_pop_a1(clj_value self, const clj_value *captured, const c
 	if (t10 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a2[1] = {t10};
-	(void)a2;
 	clj_value t11;
+	clj_value a2[1];
 	if (CLJC_GUARD(V[89], B[25])) {
-	t11 = clj_pos_p(t10);
+	if (1 && clj_is_fixnum(t10)) {
+	int64_t i12 = clj_fixnum_val(t10);
+	t11 = clj_bool(i12 > INT64_C(0));
 	} else {
+	a2[0] = t10;
+	t11 = clj_pos_p(a2[0]);
+	}
+	} else {
+	a2[0] = t10;
 	t11 = clj_c_intrinsic_fallback(V[89], a2, 1);
 	}
 	clj_release(t10);
 	if (t11 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t12 = clj_truthy(t11);
+	bool t13 = clj_truthy(t11);
 	clj_release(t11);
-	clj_value t13;
-	if (t12) {
+	clj_value t14;
+	if (t13) {
 #line 1138 "Sources/CljCore/boot/core.clj"
-	bool o14;
-	clj_value t14 = clj_c_var_borrow(V[28], &o14);
-	if (t14 == CLJ_THROWN) {
+	bool o15;
+	clj_value t15 = clj_c_var_borrow(V[28], &o15);
+	if (t15 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t15 = K[535];
-	bool o16;
-	clj_value t16 = clj_c_var_borrow(V[100], &o16);
-	if (t16 == CLJ_THROWN) {
-	if (o14) clj_release(t14);
+	clj_value t16 = K[535];
+	bool o17;
+	clj_value t17 = clj_c_var_borrow(V[100], &o17);
+	if (t17 == CLJ_THROWN) {
+	if (o15) clj_release(t15);
 	goto L2;
 	}
-	clj_value t17 = l0;
-	clj_value a7[1] = {t17};
+	clj_value t18 = l0;
+	clj_value a7[1] = {t18};
 	(void)a7;
-	clj_value t18;
-	if (CLJC_GUARD(V[37], B[16])) {
-	t18 = clj_count(t17);
-	} else {
-	t18 = clj_c_intrinsic_fallback(V[37], a7, 1);
-	}
-	(void)t17;
-	if (t18 == CLJ_THROWN) {
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	goto L2;
-	}
-	clj_value a6[1] = {t18};
-	(void)a6;
 	clj_value t19;
-	if (CLJC_GUARD(V[90], B[26])) {
-	t19 = clj_dec(t18);
+	if (CLJC_GUARD(V[37], B[16])) {
+	t19 = clj_count(t18);
 	} else {
-	t19 = clj_c_intrinsic_fallback(V[90], a6, 1);
+	t19 = clj_c_intrinsic_fallback(V[37], a7, 1);
 	}
-	clj_release(t18);
+	(void)t18;
 	if (t19 == CLJ_THROWN) {
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
 	goto L2;
 	}
-	clj_value t20 = l0;
-	clj_value a5[2] = {t19, t20};
+	clj_value t20;
+	clj_value a6[1];
+	if (CLJC_GUARD(V[90], B[26])) {
+	if (1 && clj_is_fixnum(t19)) {
+	int64_t i21 = clj_fixnum_val(t19);
+	int64_t i22;
+	if (__builtin_expect(__builtin_sub_overflow(i21, INT64_C(1), &i22), 0)) t20 = clj_throw_msg("integer overflow");
+	else t20 = clj_long_new(i22);
+	} else {
+	a6[0] = t19;
+	t20 = clj_dec(a6[0]);
+	}
+	} else {
+	a6[0] = t19;
+	t20 = clj_c_intrinsic_fallback(V[90], a6, 1);
+	}
+	clj_release(t19);
+	if (t20 == CLJ_THROWN) {
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	goto L2;
+	}
+	clj_value t23 = l0;
+	clj_value a5[2] = {t20, t23};
 	(void)a5;
-	clj_value t21;
+	clj_value t24;
 #ifdef CLJC_DIRECT_clojure_core_take_a2
 	if (!CLJC_FN_clojure_core_take_a2) CLJC_FN_clojure_core_take_a2 = clj_compiled_symbol("clojure_core_take_a2");
-	t21 = CLJC_FN_clojure_core_take_a2 ? CLJC_FN_clojure_core_take_a2(clj_var_root_relaxed(V[100]), NULL, a5, 2) : clj_c_invoke(t16, a5, 2);
+	t24 = CLJC_FN_clojure_core_take_a2 ? CLJC_FN_clojure_core_take_a2(clj_var_root_relaxed(V[100]), NULL, a5, 2) : clj_c_invoke(t17, a5, 2);
 #else
-	t21 = clj_c_invoke(t16, a5, 2);
+	t24 = clj_c_invoke(t17, a5, 2);
 #endif
-	(void)t20;
-	clj_release(t19);
-	if (o16) clj_release(t16);
-	if (t21 == CLJ_THROWN) {
-	if (o14) clj_release(t14);
+	(void)t23;
+	clj_release(t20);
+	if (o17) clj_release(t17);
+	if (t24 == CLJ_THROWN) {
+	if (o15) clj_release(t15);
 	goto L2;
 	}
-	clj_value a4[2] = {t15, t21};
+	clj_value a4[2] = {t16, t24};
 	(void)a4;
-	clj_value t22 = clj_c_invoke(t14, a4, 2);
-	clj_release(t21);
-	(void)t15;
-	if (o14) clj_release(t14);
-	if (t22 == CLJ_THROWN) {
+	clj_value t25 = clj_c_invoke(t15, a4, 2);
+	clj_release(t24);
+	(void)t16;
+	if (o15) clj_release(t15);
+	if (t25 == CLJ_THROWN) {
 	goto L2;
 	}
-	t13 = t22;
+	t14 = t25;
 	} else {
 #line 1139 "Sources/CljCore/boot/core.clj"
-	bool o23;
-	clj_value t23 = clj_c_var_borrow(V[16], &o23);
-	if (t23 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t24 = K[536];
-	clj_value t25 = K[537];
-	clj_value a8[2] = {t24, t25};
-	(void)a8;
-	clj_value t26 = clj_c_invoke(t23, a8, 2);
-	(void)t25;
-	(void)t24;
-	if (o23) clj_release(t23);
+	bool o26;
+	clj_value t26 = clj_c_var_borrow(V[16], &o26);
 	if (t26 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t27 = clj_throw(t26);
-	if (t27 == CLJ_THROWN) {
+	clj_value t27 = K[536];
+	clj_value t28 = K[537];
+	clj_value a8[2] = {t27, t28};
+	(void)a8;
+	clj_value t29 = clj_c_invoke(t26, a8, 2);
+	(void)t28;
+	(void)t27;
+	if (o26) clj_release(t26);
+	if (t29 == CLJ_THROWN) {
 	goto L2;
 	}
-	t13 = t27;
+	clj_value t30 = clj_throw(t29);
+	if (t30 == CLJ_THROWN) {
+	goto L2;
 	}
-	t8 = t13;
+	t14 = t30;
+	}
+	t8 = t14;
 	} else {
 #line 1136 "Sources/CljCore/boot/core.clj"
 #line 1140 "Sources/CljCore/boot/core.clj"
-	bool o28;
-	clj_value t28 = clj_c_var_borrow(V[191], &o28);
-	if (t28 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o29;
-	clj_value t29 = clj_c_var_borrow(V[192], &o29);
-	if (t29 == CLJ_THROWN) {
-	if (o28) clj_release(t28);
-	goto L2;
-	}
-	clj_value t30 = l0;
-	clj_value a9[2] = {t29, t30};
-	(void)a9;
-	clj_value t31 = clj_c_invoke(t28, a9, 2);
-	(void)t30;
-	if (o29) clj_release(t29);
-	if (o28) clj_release(t28);
+	bool o31;
+	clj_value t31 = clj_c_var_borrow(V[191], &o31);
 	if (t31 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t32 = clj_truthy(t31);
-	clj_release(t31);
-	clj_value t33;
-	if (t32) {
-	bool o34;
-	clj_value t34 = clj_c_var_borrow(V[195], &o34);
+	bool o32;
+	clj_value t32 = clj_c_var_borrow(V[192], &o32);
+	if (t32 == CLJ_THROWN) {
+	if (o31) clj_release(t31);
+	goto L2;
+	}
+	clj_value t33 = l0;
+	clj_value a9[2] = {t32, t33};
+	(void)a9;
+	clj_value t34 = clj_c_invoke(t31, a9, 2);
+	(void)t33;
+	if (o32) clj_release(t32);
+	if (o31) clj_release(t31);
 	if (t34 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t35 = l0;
-	clj_value a10[1] = {t35};
-	(void)a10;
-	clj_value t36 = clj_c_invoke(t34, a10, 1);
-	(void)t35;
-	if (o34) clj_release(t34);
-	if (t36 == CLJ_THROWN) {
+	bool t35 = clj_truthy(t34);
+	clj_release(t34);
+	clj_value t36;
+	if (t35) {
+	bool o37;
+	clj_value t37 = clj_c_var_borrow(V[195], &o37);
+	if (t37 == CLJ_THROWN) {
 	goto L2;
 	}
-	t33 = t36;
+	clj_value t38 = l0;
+	clj_value a10[1] = {t38};
+	(void)a10;
+	clj_value t39 = clj_c_invoke(t37, a10, 1);
+	(void)t38;
+	if (o37) clj_release(t37);
+	if (t39 == CLJ_THROWN) {
+	goto L2;
+	}
+	t36 = t39;
 	} else {
 #line 1136 "Sources/CljCore/boot/core.clj"
 #line 1142 "Sources/CljCore/boot/core.clj"
-	clj_value t37 = l0;
-	clj_value a11[1] = {t37};
+	clj_value t40 = l0;
+	clj_value a11[1] = {t40};
 	(void)a11;
-	clj_value t38;
+	clj_value t41;
 	if (CLJC_GUARD(V[193], B[39])) {
-	t38 = clj_list_p(t37);
+	t41 = clj_list_p(t40);
 	} else {
-	t38 = clj_c_intrinsic_fallback(V[193], a11, 1);
+	t41 = clj_c_intrinsic_fallback(V[193], a11, 1);
 	}
-	(void)t37;
-	if (t38 == CLJ_THROWN) {
+	(void)t40;
+	if (t41 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t39 = clj_truthy(t38);
-	clj_release(t38);
-	clj_value t40;
-	if (t39) {
-	clj_value t41 = l0;
-	clj_value a12[1] = {t41};
+	bool t42 = clj_truthy(t41);
+	clj_release(t41);
+	clj_value t43;
+	if (t42) {
+	clj_value t44 = l0;
+	clj_value a12[1] = {t44};
 	(void)a12;
-	clj_value t42;
+	clj_value t45;
 	if (CLJC_GUARD(V[6], B[4])) {
-	t42 = clj_next(t41);
+	t45 = clj_next(t44);
 	} else {
-	t42 = clj_c_intrinsic_fallback(V[6], a12, 1);
+	t45 = clj_c_intrinsic_fallback(V[6], a12, 1);
 	}
-	(void)t41;
-	if (t42 == CLJ_THROWN) {
+	(void)t44;
+	if (t45 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t43 = clj_truthy(t42);
-	clj_release(t42);
-	clj_value t44;
-	if (t43) {
-	clj_value t45 = l0;
-	clj_value a13[1] = {t45};
+	bool t46 = clj_truthy(t45);
+	clj_release(t45);
+	clj_value t47;
+	if (t46) {
+	clj_value t48 = l0;
+	clj_value a13[1] = {t48};
 	(void)a13;
-	clj_value t46;
+	clj_value t49;
 	if (CLJC_GUARD(V[5], B[3])) {
-	t46 = clj_rest(t45);
+	t49 = clj_rest(t48);
 	} else {
-	t46 = clj_c_intrinsic_fallback(V[5], a13, 1);
+	t49 = clj_c_intrinsic_fallback(V[5], a13, 1);
 	}
-	(void)t45;
-	if (t46 == CLJ_THROWN) {
+	(void)t48;
+	if (t49 == CLJ_THROWN) {
 	goto L2;
 	}
-	t44 = t46;
+	t47 = t49;
 	} else {
 #line 1143 "Sources/CljCore/boot/core.clj"
-	clj_value t47 = l0;
-	clj_value a14[1] = {t47};
+	clj_value t50 = l0;
+	clj_value a14[1] = {t50};
 	(void)a14;
-	clj_value t48;
+	clj_value t51;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t48 = clj_seq(t47);
+	t51 = clj_seq(t50);
 	} else {
-	t48 = clj_c_intrinsic_fallback(V[2], a14, 1);
+	t51 = clj_c_intrinsic_fallback(V[2], a14, 1);
 	}
-	(void)t47;
-	if (t48 == CLJ_THROWN) {
+	(void)t50;
+	if (t51 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t49 = clj_truthy(t48);
-	clj_release(t48);
-	clj_value t50;
-	if (t49) {
-	clj_value t51 = K[538];
-	bool o52;
-	clj_value t52 = clj_c_var_borrow(V[53], &o52);
-	if (t52 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t53 = l0;
-	clj_value a16[1] = {t53};
-	(void)a16;
-	clj_value t54 = clj_c_invoke(t52, a16, 1);
-	(void)t53;
-	if (o52) clj_release(t52);
-	if (t54 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a15[2] = {t51, t54};
-	(void)a15;
-	clj_value t55;
-	if (CLJC_GUARD(V[54], B[22])) {
-	t55 = clj_with_meta2(t51, t54);
-	} else {
-	t55 = clj_c_intrinsic_fallback(V[54], a15, 2);
-	}
-	clj_release(t54);
-	(void)t51;
+	bool t52 = clj_truthy(t51);
+	clj_release(t51);
+	clj_value t53;
+	if (t52) {
+	clj_value t54 = K[538];
+	bool o55;
+	clj_value t55 = clj_c_var_borrow(V[53], &o55);
 	if (t55 == CLJ_THROWN) {
 	goto L2;
 	}
-	t50 = t55;
-	} else {
-#line 1144 "Sources/CljCore/boot/core.clj"
-	bool o56;
-	clj_value t56 = clj_c_var_borrow(V[16], &o56);
-	if (t56 == CLJ_THROWN) {
+	clj_value t56 = l0;
+	clj_value a16[1] = {t56};
+	(void)a16;
+	clj_value t57 = clj_c_invoke(t55, a16, 1);
+	(void)t56;
+	if (o55) clj_release(t55);
+	if (t57 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t57 = K[539];
-	clj_value t58 = K[537];
-	clj_value a17[2] = {t57, t58};
-	(void)a17;
-	clj_value t59 = clj_c_invoke(t56, a17, 2);
-	(void)t58;
-	(void)t57;
-	if (o56) clj_release(t56);
+	clj_value a15[2] = {t54, t57};
+	(void)a15;
+	clj_value t58;
+	if (CLJC_GUARD(V[54], B[22])) {
+	t58 = clj_with_meta2(t54, t57);
+	} else {
+	t58 = clj_c_intrinsic_fallback(V[54], a15, 2);
+	}
+	clj_release(t57);
+	(void)t54;
+	if (t58 == CLJ_THROWN) {
+	goto L2;
+	}
+	t53 = t58;
+	} else {
+#line 1144 "Sources/CljCore/boot/core.clj"
+	bool o59;
+	clj_value t59 = clj_c_var_borrow(V[16], &o59);
 	if (t59 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t60 = clj_throw(t59);
-	if (t60 == CLJ_THROWN) {
+	clj_value t60 = K[539];
+	clj_value t61 = K[537];
+	clj_value a17[2] = {t60, t61};
+	(void)a17;
+	clj_value t62 = clj_c_invoke(t59, a17, 2);
+	(void)t61;
+	(void)t60;
+	if (o59) clj_release(t59);
+	if (t62 == CLJ_THROWN) {
 	goto L2;
 	}
-	t50 = t60;
+	clj_value t63 = clj_throw(t62);
+	if (t63 == CLJ_THROWN) {
+	goto L2;
 	}
-	t44 = t50;
+	t53 = t63;
 	}
-	t40 = t44;
+	t47 = t53;
+	}
+	t43 = t47;
 	} else {
 #line 1145 "Sources/CljCore/boot/core.clj"
-	bool o61;
-	clj_value t61 = clj_c_var_borrow(V[16], &o61);
-	if (t61 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o62;
-	clj_value t62 = clj_c_var_borrow(V[31], &o62);
-	if (t62 == CLJ_THROWN) {
-	if (o61) clj_release(t61);
-	goto L2;
-	}
-	clj_value t63 = K[540];
 	bool o64;
-	clj_value t64 = clj_c_var_borrow(V[149], &o64);
+	clj_value t64 = clj_c_var_borrow(V[16], &o64);
 	if (t64 == CLJ_THROWN) {
-	if (o62) clj_release(t62);
-	if (o61) clj_release(t61);
 	goto L2;
 	}
-	clj_value t65 = l0;
-	clj_value a20[1] = {t65};
-	(void)a20;
-	clj_value t66 = clj_c_invoke(t64, a20, 1);
-	(void)t65;
+	bool o65;
+	clj_value t65 = clj_c_var_borrow(V[31], &o65);
+	if (t65 == CLJ_THROWN) {
 	if (o64) clj_release(t64);
-	if (t66 == CLJ_THROWN) {
-	if (o62) clj_release(t62);
-	if (o61) clj_release(t61);
 	goto L2;
 	}
-	clj_value a19[2] = {t63, t66};
-	(void)a19;
-	clj_value t67 = clj_c_invoke(t62, a19, 2);
-	clj_release(t66);
-	(void)t63;
-	if (o62) clj_release(t62);
+	clj_value t66 = K[540];
+	bool o67;
+	clj_value t67 = clj_c_var_borrow(V[149], &o67);
 	if (t67 == CLJ_THROWN) {
-	if (o61) clj_release(t61);
+	if (o65) clj_release(t65);
+	if (o64) clj_release(t64);
 	goto L2;
 	}
-	clj_value t68 = K[537];
-	clj_value a18[2] = {t67, t68};
-	(void)a18;
-	clj_value t69 = clj_c_invoke(t61, a18, 2);
+	clj_value t68 = l0;
+	clj_value a20[1] = {t68};
+	(void)a20;
+	clj_value t69 = clj_c_invoke(t67, a20, 1);
 	(void)t68;
-	clj_release(t67);
-	if (o61) clj_release(t61);
+	if (o67) clj_release(t67);
 	if (t69 == CLJ_THROWN) {
+	if (o65) clj_release(t65);
+	if (o64) clj_release(t64);
 	goto L2;
 	}
-	clj_value t70 = clj_throw(t69);
+	clj_value a19[2] = {t66, t69};
+	(void)a19;
+	clj_value t70 = clj_c_invoke(t65, a19, 2);
+	clj_release(t69);
+	(void)t66;
+	if (o65) clj_release(t65);
 	if (t70 == CLJ_THROWN) {
+	if (o64) clj_release(t64);
 	goto L2;
 	}
-	t40 = t70;
+	clj_value t71 = K[537];
+	clj_value a18[2] = {t70, t71};
+	(void)a18;
+	clj_value t72 = clj_c_invoke(t64, a18, 2);
+	(void)t71;
+	clj_release(t70);
+	if (o64) clj_release(t64);
+	if (t72 == CLJ_THROWN) {
+	goto L2;
 	}
-	t33 = t40;
+	clj_value t73 = clj_throw(t72);
+	if (t73 == CLJ_THROWN) {
+	goto L2;
 	}
-	t8 = t33;
+	t43 = t73;
+	}
+	t36 = t43;
+	}
+	t8 = t36;
 	}
 	t3 = t8;
 	}
@@ -41832,12 +42043,21 @@ clj_value clojure_core_subvec_a3(clj_value self, const clj_value *captured, cons
 	if (t8 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a1[2] = {t6, t8};
-	(void)a1;
 	clj_value t9;
+	clj_value a1[2];
 	if (CLJC_GUARD(V[115], B[34])) {
-	t9 = clj_gt(t6, t8);
+	if (1 && clj_is_fixnum(t6) && clj_is_fixnum(t8)) {
+	int64_t i10 = clj_fixnum_val(t6);
+	int64_t i11 = clj_fixnum_val(t8);
+	t9 = clj_bool(i10 > i11);
 	} else {
+	a1[0] = t6;
+	a1[1] = t8;
+	t9 = clj_gt(a1[0], a1[1]);
+	}
+	} else {
+	a1[0] = t6;
+	a1[1] = t8;
 	t9 = clj_c_intrinsic_fallback(V[115], a1, 2);
 	}
 	clj_release(t8);
@@ -41846,174 +42066,174 @@ clj_value clojure_core_subvec_a3(clj_value self, const clj_value *captured, cons
 	goto L2;
 	}
 	clj_c_rebind(&l4, t9);
-	clj_value t10 = l4;
-	bool t11 = clj_truthy(t10);
-	(void)t10;
-	clj_value t12;
-	if (t11) {
-	clj_value t13 = clj_retain(l4);
-	t12 = t13;
+	clj_value t12 = l4;
+	bool t13 = clj_truthy(t12);
+	(void)t12;
+	clj_value t14;
+	if (t13) {
+	clj_value t15 = clj_retain(l4);
+	t14 = t15;
 	} else {
-	clj_value t14 = l1;
-	clj_value t15 = l2;
-	clj_value a3[2] = {t14, t15};
+	clj_value t16 = l1;
+	clj_value t17 = l2;
+	clj_value a3[2] = {t16, t17};
 	(void)a3;
-	clj_value t16;
-	if (CLJC_GUARD(V[115], B[34])) {
-	t16 = clj_gt(t14, t15);
-	} else {
-	t16 = clj_c_intrinsic_fallback(V[115], a3, 2);
-	}
-	(void)t15;
-	(void)t14;
-	if (t16 == CLJ_THROWN) {
-	goto L2;
-	}
-	t12 = t16;
-	}
-	t4 = t12;
-	}
-	bool t17 = clj_truthy(t4);
-	clj_release(t4);
 	clj_value t18;
-	if (t17) {
+	if (CLJC_GUARD(V[115], B[34])) {
+	t18 = clj_gt(t16, t17);
+	} else {
+	t18 = clj_c_intrinsic_fallback(V[115], a3, 2);
+	}
+	(void)t17;
+	(void)t16;
+	if (t18 == CLJ_THROWN) {
+	goto L2;
+	}
+	t14 = t18;
+	}
+	t4 = t14;
+	}
+	bool t19 = clj_truthy(t4);
+	clj_release(t4);
+	clj_value t20;
+	if (t19) {
 #line 1152 "Sources/CljCore/boot/core.clj"
-	bool o19;
-	clj_value t19 = clj_c_var_borrow(V[16], &o19);
-	if (t19 == CLJ_THROWN) {
+	bool o21;
+	clj_value t21 = clj_c_var_borrow(V[16], &o21);
+	if (t21 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool o20;
-	clj_value t20 = clj_c_var_borrow(V[31], &o20);
-	if (t20 == CLJ_THROWN) {
-	if (o19) clj_release(t19);
+	bool o22;
+	clj_value t22 = clj_c_var_borrow(V[31], &o22);
+	if (t22 == CLJ_THROWN) {
+	if (o21) clj_release(t21);
 	goto L2;
 	}
-	clj_value t21 = K[544];
-	clj_value t22 = l1;
-	clj_value t23 = K[545];
-	clj_value t24 = l2;
-	clj_value a5[4] = {t21, t22, t23, t24};
+	clj_value t23 = K[544];
+	clj_value t24 = l1;
+	clj_value t25 = K[545];
+	clj_value t26 = l2;
+	clj_value a5[4] = {t23, t24, t25, t26};
 	(void)a5;
-	clj_value t25 = clj_c_invoke(t20, a5, 4);
+	clj_value t27 = clj_c_invoke(t22, a5, 4);
+	(void)t26;
+	(void)t25;
 	(void)t24;
 	(void)t23;
-	(void)t22;
-	(void)t21;
-	if (o20) clj_release(t20);
-	if (t25 == CLJ_THROWN) {
-	if (o19) clj_release(t19);
-	goto L2;
-	}
-	clj_value t26 = K[546];
-	clj_value a4[2] = {t25, t26};
-	(void)a4;
-	clj_value t27 = clj_c_invoke(t19, a4, 2);
-	(void)t26;
-	clj_release(t25);
-	if (o19) clj_release(t19);
+	if (o22) clj_release(t22);
 	if (t27 == CLJ_THROWN) {
+	if (o21) clj_release(t21);
 	goto L2;
 	}
-	clj_value t28 = clj_throw(t27);
-	if (t28 == CLJ_THROWN) {
+	clj_value t28 = K[546];
+	clj_value a4[2] = {t27, t28};
+	(void)a4;
+	clj_value t29 = clj_c_invoke(t21, a4, 2);
+	(void)t28;
+	clj_release(t27);
+	if (o21) clj_release(t21);
+	if (t29 == CLJ_THROWN) {
 	goto L2;
 	}
-	t18 = t28;
+	clj_value t30 = clj_throw(t29);
+	if (t30 == CLJ_THROWN) {
+	goto L2;
+	}
+	t20 = t30;
 	} else {
 #line 1153 "Sources/CljCore/boot/core.clj"
-	clj_value t29 = clj_retain(l1);
-	clj_c_rebind(&l5, t29);
-	clj_value t30 = clj_retain(K[547]);
-	clj_c_rebind(&l6, t30);
+	clj_value t31 = clj_retain(l1);
+	clj_c_rebind(&l5, t31);
+	clj_value t32 = clj_retain(K[547]);
+	clj_c_rebind(&l6, t32);
 L4: ;
 #line 1154 "Sources/CljCore/boot/core.clj"
-	clj_value t31 = l5;
-	clj_value t32 = l2;
-	clj_value a6[2] = {t31, t32};
+	clj_value t33 = l5;
+	clj_value t34 = l2;
+	clj_value a6[2] = {t33, t34};
 	(void)a6;
-	clj_value t33;
-	if (CLJC_GUARD(V[36], B[15])) {
-	t33 = clj_lt(t31, t32);
-	} else {
-	t33 = clj_c_intrinsic_fallback(V[36], a6, 2);
-	}
-	(void)t32;
-	(void)t31;
-	if (t33 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t34 = clj_truthy(t33);
-	clj_release(t33);
 	clj_value t35;
-	if (t34) {
-	clj_value t36 = l5;
-	clj_value a7[1] = {t36};
-	(void)a7;
+	if (CLJC_GUARD(V[36], B[15])) {
+	t35 = clj_lt(t33, t34);
+	} else {
+	t35 = clj_c_intrinsic_fallback(V[36], a6, 2);
+	}
+	(void)t34;
+	(void)t33;
+	if (t35 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool t36 = clj_truthy(t35);
+	clj_release(t35);
 	clj_value t37;
+	if (t36) {
+	clj_value t38 = l5;
+	clj_value a7[1] = {t38};
+	(void)a7;
+	clj_value t39;
 	if (CLJC_GUARD(V[21], B[6])) {
-	t37 = clj_inc(t36);
+	t39 = clj_inc(t38);
 	} else {
-	t37 = clj_c_intrinsic_fallback(V[21], a7, 1);
+	t39 = clj_c_intrinsic_fallback(V[21], a7, 1);
 	}
-	(void)t36;
-	if (t37 == CLJ_THROWN) {
+	(void)t38;
+	if (t39 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t38 = l6;
+	clj_value t40 = l6;
 	l6 = CLJ_NIL;
-	clj_value t39 = l0;
-	clj_value t40 = l5;
-	clj_value a9[2] = {t39, t40};
+	clj_value t41 = l0;
+	clj_value t42 = l5;
+	clj_value a9[2] = {t41, t42};
 	(void)a9;
-	clj_value t41;
+	clj_value t43;
 	if (CLJC_GUARD(V[24], B[9])) {
-	t41 = clj_nth2(t39, t40);
+	t43 = clj_nth2(t41, t42);
 	} else {
-	t41 = clj_c_intrinsic_fallback(V[24], a9, 2);
+	t43 = clj_c_intrinsic_fallback(V[24], a9, 2);
 	}
-	(void)t40;
-	(void)t39;
-	if (t41 == CLJ_THROWN) {
-	clj_release(t38);
-	clj_release(t37);
+	(void)t42;
+	(void)t41;
+	if (t43 == CLJ_THROWN) {
+	clj_release(t40);
+	clj_release(t39);
 	goto L2;
 	}
-	clj_value a8[2] = {t38, t41};
+	clj_value a8[2] = {t40, t43};
 	(void)a8;
-	clj_value t42;
+	clj_value t44;
 	if (CLJC_GUARD(V[20], B[7])) {
-	t42 = clj_conj(t38, t41);
+	t44 = clj_conj(t40, t43);
 	} else {
-	t42 = clj_c_intrinsic_fallback(V[20], a8, 2);
-	clj_release(t38);
+	t44 = clj_c_intrinsic_fallback(V[20], a8, 2);
+	clj_release(t40);
 	}
-	clj_release(t41);
-	if (t42 == CLJ_THROWN) {
-	clj_release(t37);
+	clj_release(t43);
+	if (t44 == CLJ_THROWN) {
+	clj_release(t39);
 	goto L2;
 	}
-	clj_c_rebind(&l5, t37);
-	clj_c_rebind(&l6, t42);
+	clj_c_rebind(&l5, t39);
+	clj_c_rebind(&l6, t44);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t43 = CLJ_NIL;
-	t35 = t43;
+	clj_value t45 = CLJ_NIL;
+	t37 = t45;
 	} else {
-	clj_value t44 = l6;
+	clj_value t46 = l6;
 	l6 = CLJ_NIL;
-	t35 = t44;
+	t37 = t46;
 	}
-	t18 = t35;
+	t20 = t37;
 	}
 	clj_c_leave(&S[211], &cc);
 	clj_release(l3);
 	clj_release(l4);
 	clj_release(l5);
 	clj_release(l6);
-	return t18;
+	return t20;
 L2: ;
 	clj_c_leave(&S[211], &cc);
 L1: ;
@@ -42532,12 +42752,21 @@ clj_value clojure_core_map_entry_QMARK__a1(clj_value self, const clj_value *capt
 	if (t7 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a1[2] = {t5, t7};
-	(void)a1;
 	clj_value t8;
+	clj_value a1[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t8 = clj_eq(t5, t7);
+	if (1 && clj_is_fixnum(t5) && clj_is_fixnum(t7)) {
+	int64_t i9 = clj_fixnum_val(t5);
+	int64_t i10 = clj_fixnum_val(t7);
+	t8 = clj_bool(i9 == i10);
 	} else {
+	a1[0] = t5;
+	a1[1] = t7;
+	t8 = clj_eq(a1[0], a1[1]);
+	}
+	} else {
+	a1[0] = t5;
+	a1[1] = t7;
 	t8 = clj_c_intrinsic_fallback(V[19], a1, 2);
 	}
 	clj_release(t7);
@@ -42547,9 +42776,9 @@ clj_value clojure_core_map_entry_QMARK__a1(clj_value self, const clj_value *capt
 	}
 	t4 = t8;
 	} else {
-	clj_value t9 = l1;
+	clj_value t11 = l1;
 	l1 = CLJ_NIL;
-	t4 = t9;
+	t4 = t11;
 	}
 	clj_c_leave(&S[217], &cc);
 	clj_release(l1);
@@ -46990,45 +47219,53 @@ L4: ;
 	if (t17) {
 #line 1296 "Sources/CljCore/boot/core.clj"
 	clj_value t19 = l2;
-	clj_value a4[1] = {t19};
-	(void)a4;
 	clj_value t20;
+	clj_value a4[1];
 	if (CLJC_GUARD(V[21], B[6])) {
-	t20 = clj_inc(t19);
+	if (1 && clj_is_fixnum(t19)) {
+	int64_t i21 = clj_fixnum_val(t19);
+	int64_t i22;
+	if (__builtin_expect(__builtin_add_overflow(i21, INT64_C(1), &i22), 0)) t20 = clj_throw_msg("integer overflow");
+	else t20 = clj_long_new(i22);
 	} else {
+	a4[0] = t19;
+	t20 = clj_inc(a4[0]);
+	}
+	} else {
+	a4[0] = t19;
 	t20 = clj_c_intrinsic_fallback(V[21], a4, 1);
 	}
 	(void)t19;
 	if (t20 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t21 = l3;
-	clj_value a5[1] = {t21};
+	clj_value t23 = l3;
+	clj_value a5[1] = {t23};
 	(void)a5;
-	clj_value t22;
+	clj_value t24;
 	if (CLJC_GUARD(V[6], B[4])) {
-	t22 = clj_next(t21);
+	t24 = clj_next(t23);
 	} else {
-	t22 = clj_c_intrinsic_fallback(V[6], a5, 1);
+	t24 = clj_c_intrinsic_fallback(V[6], a5, 1);
 	}
-	(void)t21;
-	if (t22 == CLJ_THROWN) {
+	(void)t23;
+	if (t24 == CLJ_THROWN) {
 	clj_release(t20);
 	goto L2;
 	}
 	clj_c_rebind(&l2, t20);
-	clj_c_rebind(&l3, t22);
+	clj_c_rebind(&l3, t24);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t23 = CLJ_NIL;
-	t18 = t23;
+	clj_value t25 = CLJ_NIL;
+	t18 = t25;
 	} else {
 #line 1295 "Sources/CljCore/boot/core.clj"
-	clj_value t24 = l2;
+	clj_value t26 = l2;
 	l2 = CLJ_NIL;
-	t18 = t24;
+	t18 = t26;
 	}
 	t3 = t18;
 	}
@@ -54293,12 +54530,20 @@ clj_value clojure_core_shuffle_a1(clj_value self, const clj_value *captured, con
 	if (t37 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a8[1] = {t37};
-	(void)a8;
 	clj_value t38;
+	clj_value a8[1];
 	if (CLJC_GUARD(V[90], B[26])) {
-	t38 = clj_dec(t37);
+	if (1 && clj_is_fixnum(t37)) {
+	int64_t i39 = clj_fixnum_val(t37);
+	int64_t i40;
+	if (__builtin_expect(__builtin_sub_overflow(i39, INT64_C(1), &i40), 0)) t38 = clj_throw_msg("integer overflow");
+	else t38 = clj_long_new(i40);
 	} else {
+	a8[0] = t37;
+	t38 = clj_dec(a8[0]);
+	}
+	} else {
+	a8[0] = t37;
 	t38 = clj_c_intrinsic_fallback(V[90], a8, 1);
 	}
 	clj_release(t37);
@@ -54308,149 +54553,171 @@ clj_value clojure_core_shuffle_a1(clj_value self, const clj_value *captured, con
 	clj_c_rebind(&l5, t38);
 L4: ;
 #line 1445 "Sources/CljCore/boot/core.clj"
-	clj_value t39 = l5;
-	clj_value a10[1] = {t39};
-	(void)a10;
-	clj_value t40;
-	if (CLJC_GUARD(V[89], B[25])) {
-	t40 = clj_pos_p(t39);
-	} else {
-	t40 = clj_c_intrinsic_fallback(V[89], a10, 1);
-	}
-	(void)t39;
-	if (t40 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t41 = clj_truthy(t40);
-	clj_release(t40);
+	clj_value t41 = l5;
 	clj_value t42;
-	if (t41) {
-#line 1446 "Sources/CljCore/boot/core.clj"
-	bool o43;
-	clj_value t43 = clj_c_var_borrow(V[181], &o43);
-	if (t43 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t44 = l5;
-	clj_value a12[1] = {t44};
-	(void)a12;
-	clj_value t45;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t45 = clj_inc(t44);
+	clj_value a10[1];
+	if (CLJC_GUARD(V[89], B[25])) {
+	if (1 && clj_is_fixnum(t41)) {
+	int64_t i43 = clj_fixnum_val(t41);
+	t42 = clj_bool(i43 > INT64_C(0));
 	} else {
-	t45 = clj_c_intrinsic_fallback(V[21], a12, 1);
+	a10[0] = t41;
+	t42 = clj_pos_p(a10[0]);
 	}
-	(void)t44;
-	if (t45 == CLJ_THROWN) {
-	if (o43) clj_release(t43);
+	} else {
+	a10[0] = t41;
+	t42 = clj_c_intrinsic_fallback(V[89], a10, 1);
+	}
+	(void)t41;
+	if (t42 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a11[1] = {t45};
-	(void)a11;
-	clj_value t46;
-#ifdef CLJC_DIRECT_clojure_core_rand_int_a1
-	if (!CLJC_FN_clojure_core_rand_int_a1) CLJC_FN_clojure_core_rand_int_a1 = clj_compiled_symbol("clojure_core_rand_int_a1");
-	t46 = CLJC_FN_clojure_core_rand_int_a1 ? CLJC_FN_clojure_core_rand_int_a1(clj_var_root_relaxed(V[181]), NULL, a11, 1) : clj_c_invoke(t43, a11, 1);
-#else
-	t46 = clj_c_invoke(t43, a11, 1);
-#endif
-	clj_release(t45);
-	if (o43) clj_release(t43);
+	bool t44 = clj_truthy(t42);
+	clj_release(t42);
+	clj_value t45;
+	if (t44) {
+#line 1446 "Sources/CljCore/boot/core.clj"
+	bool o46;
+	clj_value t46 = clj_c_var_borrow(V[181], &o46);
 	if (t46 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l6, t46);
-	clj_value t47 = l4;
-	clj_value t48 = l5;
-	clj_value a13[2] = {t47, t48};
-	(void)a13;
-	clj_value t49;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t49 = clj_nth2(t47, t48);
+	clj_value t47 = l5;
+	clj_value t48;
+	clj_value a12[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t47)) {
+	int64_t i49 = clj_fixnum_val(t47);
+	int64_t i50;
+	if (__builtin_expect(__builtin_add_overflow(i49, INT64_C(1), &i50), 0)) t48 = clj_throw_msg("integer overflow");
+	else t48 = clj_long_new(i50);
 	} else {
-	t49 = clj_c_intrinsic_fallback(V[24], a13, 2);
+	a12[0] = t47;
+	t48 = clj_inc(a12[0]);
 	}
-	(void)t48;
+	} else {
+	a12[0] = t47;
+	t48 = clj_c_intrinsic_fallback(V[21], a12, 1);
+	}
 	(void)t47;
-	if (t49 == CLJ_THROWN) {
+	if (t48 == CLJ_THROWN) {
+	if (o46) clj_release(t46);
 	goto L2;
 	}
-	clj_c_rebind(&l7, t49);
-#line 1447 "Sources/CljCore/boot/core.clj"
-	clj_value t50 = l4;
-	clj_value t51 = l5;
+	clj_value a11[1] = {t48};
+	(void)a11;
+	clj_value t51;
+#ifdef CLJC_DIRECT_clojure_core_rand_int_a1
+	if (!CLJC_FN_clojure_core_rand_int_a1) CLJC_FN_clojure_core_rand_int_a1 = clj_compiled_symbol("clojure_core_rand_int_a1");
+	t51 = CLJC_FN_clojure_core_rand_int_a1 ? CLJC_FN_clojure_core_rand_int_a1(clj_var_root_relaxed(V[181]), NULL, a11, 1) : clj_c_invoke(t46, a11, 1);
+#else
+	t51 = clj_c_invoke(t46, a11, 1);
+#endif
+	clj_release(t48);
+	if (o46) clj_release(t46);
+	if (t51 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_c_rebind(&l6, t51);
 	clj_value t52 = l4;
-	clj_value t53 = l6;
-	clj_value a16[2] = {t52, t53};
-	(void)a16;
+	clj_value t53 = l5;
+	clj_value a13[2] = {t52, t53};
+	(void)a13;
 	clj_value t54;
 	if (CLJC_GUARD(V[24], B[9])) {
 	t54 = clj_nth2(t52, t53);
 	} else {
-	t54 = clj_c_intrinsic_fallback(V[24], a16, 2);
+	t54 = clj_c_intrinsic_fallback(V[24], a13, 2);
 	}
 	(void)t53;
 	(void)t52;
 	if (t54 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a15[3] = {t50, t51, t54};
-	(void)a15;
-	clj_value t55;
-	if (CLJC_GUARD(V[58], B[23])) {
-	t55 = clj_assoc3(t50, t51, t54);
+	clj_c_rebind(&l7, t54);
+#line 1447 "Sources/CljCore/boot/core.clj"
+	clj_value t55 = l4;
+	clj_value t56 = l5;
+	clj_value t57 = l4;
+	clj_value t58 = l6;
+	clj_value a16[2] = {t57, t58};
+	(void)a16;
+	clj_value t59;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t59 = clj_nth2(t57, t58);
 	} else {
-	t55 = clj_c_intrinsic_fallback(V[58], a15, 3);
+	t59 = clj_c_intrinsic_fallback(V[24], a16, 2);
 	}
-	clj_release(t54);
-	(void)t51;
-	(void)t50;
-	if (t55 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t56 = l6;
-	clj_value t57 = l7;
-	clj_value a14[3] = {t55, t56, t57};
-	(void)a14;
-	clj_value t58;
-	if (CLJC_GUARD(V[58], B[23])) {
-	t58 = clj_assoc_owned(t55, t56, t57);
-	} else {
-	t58 = clj_c_intrinsic_fallback(V[58], a14, 3);
-	clj_release(t55);
-	}
+	(void)t58;
 	(void)t57;
-	(void)t56;
-	if (t58 == CLJ_THROWN) {
+	if (t59 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t59 = l5;
-	clj_value a17[1] = {t59};
-	(void)a17;
+	clj_value a15[3] = {t55, t56, t59};
+	(void)a15;
 	clj_value t60;
-	if (CLJC_GUARD(V[90], B[26])) {
-	t60 = clj_dec(t59);
+	if (CLJC_GUARD(V[58], B[23])) {
+	t60 = clj_assoc3(t55, t56, t59);
 	} else {
-	t60 = clj_c_intrinsic_fallback(V[90], a17, 1);
+	t60 = clj_c_intrinsic_fallback(V[58], a15, 3);
 	}
-	(void)t59;
+	clj_release(t59);
+	(void)t56;
+	(void)t55;
 	if (t60 == CLJ_THROWN) {
-	clj_release(t58);
 	goto L2;
 	}
-	clj_c_rebind(&l4, t58);
-	clj_c_rebind(&l5, t60);
+	clj_value t61 = l6;
+	clj_value t62 = l7;
+	clj_value a14[3] = {t60, t61, t62};
+	(void)a14;
+	clj_value t63;
+	if (CLJC_GUARD(V[58], B[23])) {
+	t63 = clj_assoc_owned(t60, t61, t62);
+	} else {
+	t63 = clj_c_intrinsic_fallback(V[58], a14, 3);
+	clj_release(t60);
+	}
+	(void)t62;
+	(void)t61;
+	if (t63 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value t64 = l5;
+	clj_value t65;
+	clj_value a17[1];
+	if (CLJC_GUARD(V[90], B[26])) {
+	if (1 && clj_is_fixnum(t64)) {
+	int64_t i66 = clj_fixnum_val(t64);
+	int64_t i67;
+	if (__builtin_expect(__builtin_sub_overflow(i66, INT64_C(1), &i67), 0)) t65 = clj_throw_msg("integer overflow");
+	else t65 = clj_long_new(i67);
+	} else {
+	a17[0] = t64;
+	t65 = clj_dec(a17[0]);
+	}
+	} else {
+	a17[0] = t64;
+	t65 = clj_c_intrinsic_fallback(V[90], a17, 1);
+	}
+	(void)t64;
+	if (t65 == CLJ_THROWN) {
+	clj_release(t63);
+	goto L2;
+	}
+	clj_c_rebind(&l4, t63);
+	clj_c_rebind(&l5, t65);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t61 = CLJ_NIL;
-	t42 = t61;
+	clj_value t68 = CLJ_NIL;
+	t45 = t68;
 	} else {
 #line 1445 "Sources/CljCore/boot/core.clj"
-	clj_value t62 = l4;
+	clj_value t69 = l4;
 	l4 = CLJ_NIL;
-	t42 = t62;
+	t45 = t69;
 	}
 	clj_c_leave(&S[290], &cc);
 	clj_release(l1);
@@ -54460,7 +54727,7 @@ L4: ;
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
-	return t42;
+	return t45;
 L2: ;
 	clj_c_leave(&S[290], &cc);
 L1: ;
@@ -65230,12 +65497,21 @@ static clj_value clojure_core_condp__0_a3(const clj_cframe *outer, const clj_val
 #line 1594 "Sources/CljCore/boot/core.clj"
 	clj_value t35 = K[42];
 	clj_value t36 = l11;
-	clj_value a9[2] = {t35, t36};
-	(void)a9;
 	clj_value t37;
+	clj_value a9[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t37 = clj_eq(t35, t36);
+	if (1 && clj_is_fixnum(t35) && clj_is_fixnum(t36)) {
+	int64_t i38 = clj_fixnum_val(t35);
+	int64_t i39 = clj_fixnum_val(t36);
+	t37 = clj_bool(i38 == i39);
 	} else {
+	a9[0] = t35;
+	a9[1] = t36;
+	t37 = clj_eq(a9[0], a9[1]);
+	}
+	} else {
+	a9[0] = t35;
+	a9[1] = t36;
 	t37 = clj_c_intrinsic_fallback(V[19], a9, 2);
 	}
 	(void)t36;
@@ -65243,1187 +65519,1205 @@ static clj_value clojure_core_condp__0_a3(const clj_cframe *outer, const clj_val
 	if (t37 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t38 = clj_truthy(t37);
+	bool t40 = clj_truthy(t37);
 	clj_release(t37);
-	clj_value t39;
-	if (t38) {
+	clj_value t41;
+	if (t40) {
 #line 1593 "Sources/CljCore/boot/core.clj"
-	bool o40;
-	clj_value t40 = clj_c_var_borrow(V[0], &o40);
-	if (t40 == CLJ_THROWN) {
+	bool o42;
+	clj_value t42 = clj_c_var_borrow(V[0], &o42);
+	if (t42 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool o41;
-	clj_value t41 = clj_c_var_borrow(V[8], &o41);
-	if (t41 == CLJ_THROWN) {
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	clj_value t42 = K[846];
-	clj_value a12[1] = {t42};
-	(void)a12;
-	clj_value t43 = clj_c_invoke(t41, a12, 1);
-	(void)t42;
-	if (o41) clj_release(t41);
+	bool o43;
+	clj_value t43 = clj_c_var_borrow(V[8], &o43);
 	if (t43 == CLJ_THROWN) {
-	if (o40) clj_release(t40);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	bool o44;
-	clj_value t44 = clj_c_var_borrow(V[8], &o44);
-	if (t44 == CLJ_THROWN) {
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	bool o45;
-	clj_value t45 = clj_c_var_borrow(V[0], &o45);
+	clj_value t44 = K[846];
+	clj_value a12[1] = {t44};
+	(void)a12;
+	clj_value t45 = clj_c_invoke(t43, a12, 1);
+	(void)t44;
+	if (o43) clj_release(t43);
 	if (t45 == CLJ_THROWN) {
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
 	bool o46;
 	clj_value t46 = clj_c_var_borrow(V[8], &o46);
 	if (t46 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value t47 = K[847];
-	clj_value a16[1] = {t47};
-	(void)a16;
-	clj_value t48 = clj_c_invoke(t46, a16, 1);
-	(void)t47;
+	bool o47;
+	clj_value t47 = clj_c_var_borrow(V[0], &o47);
+	if (t47 == CLJ_THROWN) {
 	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	bool o48;
+	clj_value t48 = clj_c_var_borrow(V[8], &o48);
 	if (t48 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	bool o49;
-	clj_value t49 = clj_c_var_borrow(V[8], &o49);
-	if (t49 == CLJ_THROWN) {
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	bool o50;
-	clj_value t50 = clj_c_var_borrow(V[0], &o50);
+	clj_value t49 = K[847];
+	clj_value a16[1] = {t49};
+	(void)a16;
+	clj_value t50 = clj_c_invoke(t48, a16, 1);
+	(void)t49;
+	if (o48) clj_release(t48);
 	if (t50 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
 	bool o51;
 	clj_value t51 = clj_c_var_borrow(V[8], &o51);
 	if (t51 == CLJ_THROWN) {
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value t52 = K[848];
-	clj_value a20[1] = {t52};
-	(void)a20;
-	clj_value t53 = clj_c_invoke(t51, a20, 1);
-	(void)t52;
+	bool o52;
+	clj_value t52 = clj_c_var_borrow(V[0], &o52);
+	if (t52 == CLJ_THROWN) {
 	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	bool o53;
+	clj_value t53 = clj_c_var_borrow(V[8], &o53);
 	if (t53 == CLJ_THROWN) {
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	bool o54;
-	clj_value t54 = clj_c_var_borrow(V[8], &o54);
-	if (t54 == CLJ_THROWN) {
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_value t54 = K[848];
+	clj_value a20[1] = {t54};
+	(void)a20;
+	clj_value t55 = clj_c_invoke(t53, a20, 1);
+	(void)t54;
+	if (o53) clj_release(t53);
+	if (t55 == CLJ_THROWN) {
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value t55 = K[849];
-	clj_value a21[1] = {t55};
-	(void)a21;
-	clj_value t56 = clj_c_invoke(t54, a21, 1);
-	(void)t55;
-	if (o54) clj_release(t54);
+	bool o56;
+	clj_value t56 = clj_c_var_borrow(V[8], &o56);
 	if (t56 == CLJ_THROWN) {
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	bool o57;
-	clj_value t57 = clj_c_var_borrow(V[8], &o57);
-	if (t57 == CLJ_THROWN) {
-	clj_release(t56);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_value t57 = K[849];
+	clj_value a21[1] = {t57};
+	(void)a21;
+	clj_value t58 = clj_c_invoke(t56, a21, 1);
+	(void)t57;
+	if (o56) clj_release(t56);
+	if (t58 == CLJ_THROWN) {
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value t58 = fr.slots[1];
-	clj_value a22[1] = {t58};
-	(void)a22;
-	clj_value t59 = clj_c_invoke(t57, a22, 1);
-	(void)t58;
-	if (o57) clj_release(t57);
+	bool o59;
+	clj_value t59 = clj_c_var_borrow(V[8], &o59);
 	if (t59 == CLJ_THROWN) {
-	clj_release(t56);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t58);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value a19[3] = {t53, t56, t59};
-	(void)a19;
-	clj_value t60 = clj_c_invoke(t50, a19, 3);
-	clj_release(t59);
-	clj_release(t56);
-	clj_release(t53);
-	if (o50) clj_release(t50);
-	if (t60 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	clj_value a18[1] = {t60};
-	(void)a18;
-	clj_value t61;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t61 = clj_seq(t60);
-	} else {
-	t61 = clj_c_intrinsic_fallback(V[2], a18, 1);
-	}
-	clj_release(t60);
+	clj_value t60 = fr.slots[1];
+	clj_value a22[1] = {t60};
+	(void)a22;
+	clj_value t61 = clj_c_invoke(t59, a22, 1);
+	(void)t60;
+	if (o59) clj_release(t59);
 	if (t61 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t58);
+	clj_release(t55);
+	if (o52) clj_release(t52);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value a17[1] = {t61};
-	(void)a17;
-	clj_value t62 = clj_c_invoke(t49, a17, 1);
+	clj_value a19[3] = {t55, t58, t61};
+	(void)a19;
+	clj_value t62 = clj_c_invoke(t52, a19, 3);
 	clj_release(t61);
-	if (o49) clj_release(t49);
+	clj_release(t58);
+	clj_release(t55);
+	if (o52) clj_release(t52);
 	if (t62 == CLJ_THROWN) {
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	bool o63;
-	clj_value t63 = clj_c_var_borrow(V[8], &o63);
+	clj_value a18[1] = {t62};
+	(void)a18;
+	clj_value t63;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t63 = clj_seq(t62);
+	} else {
+	t63 = clj_c_intrinsic_fallback(V[2], a18, 1);
+	}
+	clj_release(t62);
 	if (t63 == CLJ_THROWN) {
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o51) clj_release(t51);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	bool o64;
-	clj_value t64 = clj_c_var_borrow(V[9], &o64);
+	clj_value a17[1] = {t63};
+	(void)a17;
+	clj_value t64 = clj_c_invoke(t51, a17, 1);
+	clj_release(t63);
+	if (o51) clj_release(t51);
 	if (t64 == CLJ_THROWN) {
-	if (o63) clj_release(t63);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
 	bool o65;
-	clj_value t65 = clj_c_var_borrow(V[23], &o65);
+	clj_value t65 = clj_c_var_borrow(V[8], &o65);
 	if (t65 == CLJ_THROWN) {
-	if (o64) clj_release(t64);
-	if (o63) clj_release(t63);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
 	bool o66;
-	clj_value t66 = clj_c_var_borrow(V[0], &o66);
+	clj_value t66 = clj_c_var_borrow(V[9], &o66);
 	if (t66 == CLJ_THROWN) {
 	if (o65) clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o63) clj_release(t63);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	bool o67;
+	clj_value t67 = clj_c_var_borrow(V[23], &o67);
+	if (t67 == CLJ_THROWN) {
+	if (o66) clj_release(t66);
+	if (o65) clj_release(t65);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	bool o68;
+	clj_value t68 = clj_c_var_borrow(V[0], &o68);
+	if (t68 == CLJ_THROWN) {
+	if (o67) clj_release(t67);
+	if (o66) clj_release(t66);
+	if (o65) clj_release(t65);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
 	const clj_value *a26 = NULL;
-	clj_value t67;
+	clj_value t69;
 #ifdef CLJC_DIRECT_clojure_core_concat_a0
 	if (!CLJC_FN_clojure_core_concat_a0) CLJC_FN_clojure_core_concat_a0 = clj_compiled_symbol("clojure_core_concat_a0");
-	t67 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[0]), NULL, a26, 0) : clj_c_invoke(t66, a26, 0);
+	t69 = CLJC_FN_clojure_core_concat_a0 ? CLJC_FN_clojure_core_concat_a0(clj_var_root_relaxed(V[0]), NULL, a26, 0) : clj_c_invoke(t68, a26, 0);
 #else
-	t67 = clj_c_invoke(t66, a26, 0);
+	t69 = clj_c_invoke(t68, a26, 0);
 #endif
-	if (o66) clj_release(t66);
-	if (t67 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o63) clj_release(t63);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	clj_value a25[1] = {t67};
-	(void)a25;
-	clj_value t68;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t68 = clj_seq(t67);
-	} else {
-	t68 = clj_c_intrinsic_fallback(V[2], a25, 1);
-	}
-	clj_release(t67);
-	if (t68 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o63) clj_release(t63);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	clj_value a24[2] = {t65, t68};
-	(void)a24;
-	clj_value t69 = clj_c_invoke(t64, a24, 2);
-	clj_release(t68);
-	if (o65) clj_release(t65);
-	if (o64) clj_release(t64);
+	if (o68) clj_release(t68);
 	if (t69 == CLJ_THROWN) {
-	if (o63) clj_release(t63);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o67) clj_release(t67);
+	if (o66) clj_release(t66);
+	if (o65) clj_release(t65);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value a23[1] = {t69};
-	(void)a23;
-	clj_value t70 = clj_c_invoke(t63, a23, 1);
-	clj_release(t69);
-	if (o63) clj_release(t63);
-	if (t70 == CLJ_THROWN) {
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	clj_value a15[3] = {t48, t62, t70};
-	(void)a15;
-	clj_value t71 = clj_c_invoke(t45, a15, 3);
-	clj_release(t70);
-	clj_release(t62);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (t71 == CLJ_THROWN) {
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	goto L2;
-	}
-	clj_value a14[1] = {t71};
-	(void)a14;
-	clj_value t72;
+	clj_value a25[1] = {t69};
+	(void)a25;
+	clj_value t70;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t72 = clj_seq(t71);
+	t70 = clj_seq(t69);
 	} else {
-	t72 = clj_c_intrinsic_fallback(V[2], a14, 1);
+	t70 = clj_c_intrinsic_fallback(V[2], a25, 1);
 	}
+	clj_release(t69);
+	if (t70 == CLJ_THROWN) {
+	if (o67) clj_release(t67);
+	if (o66) clj_release(t66);
+	if (o65) clj_release(t65);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	clj_value a24[2] = {t67, t70};
+	(void)a24;
+	clj_value t71 = clj_c_invoke(t66, a24, 2);
+	clj_release(t70);
+	if (o67) clj_release(t67);
+	if (o66) clj_release(t66);
+	if (t71 == CLJ_THROWN) {
+	if (o65) clj_release(t65);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	clj_value a23[1] = {t71};
+	(void)a23;
+	clj_value t72 = clj_c_invoke(t65, a23, 1);
 	clj_release(t71);
+	if (o65) clj_release(t65);
 	if (t72 == CLJ_THROWN) {
-	if (o44) clj_release(t44);
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value a13[1] = {t72};
-	(void)a13;
-	clj_value t73 = clj_c_invoke(t44, a13, 1);
+	clj_value a15[3] = {t50, t64, t72};
+	(void)a15;
+	clj_value t73 = clj_c_invoke(t47, a15, 3);
 	clj_release(t72);
-	if (o44) clj_release(t44);
+	clj_release(t64);
+	clj_release(t50);
+	if (o47) clj_release(t47);
 	if (t73 == CLJ_THROWN) {
-	clj_release(t43);
-	if (o40) clj_release(t40);
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
 	goto L2;
 	}
-	clj_value a11[2] = {t43, t73};
-	(void)a11;
+	clj_value a14[1] = {t73};
+	(void)a14;
 	clj_value t74;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t74 = clj_seq(t73);
+	} else {
+	t74 = clj_c_intrinsic_fallback(V[2], a14, 1);
+	}
+	clj_release(t73);
+	if (t74 == CLJ_THROWN) {
+	if (o46) clj_release(t46);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	clj_value a13[1] = {t74};
+	(void)a13;
+	clj_value t75 = clj_c_invoke(t46, a13, 1);
+	clj_release(t74);
+	if (o46) clj_release(t46);
+	if (t75 == CLJ_THROWN) {
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	goto L2;
+	}
+	clj_value a11[2] = {t45, t75};
+	(void)a11;
+	clj_value t76;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t74 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a11, 2) : clj_c_invoke(t40, a11, 2);
+	t76 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a11, 2) : clj_c_invoke(t42, a11, 2);
 #else
-	t74 = clj_c_invoke(t40, a11, 2);
+	t76 = clj_c_invoke(t42, a11, 2);
 #endif
-	clj_release(t73);
-	clj_release(t43);
-	if (o40) clj_release(t40);
-	if (t74 == CLJ_THROWN) {
+	clj_release(t75);
+	clj_release(t45);
+	if (o42) clj_release(t42);
+	if (t76 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a10[1] = {t74};
+	clj_value a10[1] = {t76};
 	(void)a10;
-	clj_value t75;
+	clj_value t77;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t75 = clj_seq(t74);
+	t77 = clj_seq(t76);
 	} else {
-	t75 = clj_c_intrinsic_fallback(V[2], a10, 1);
+	t77 = clj_c_intrinsic_fallback(V[2], a10, 1);
 	}
-	clj_release(t74);
-	if (t75 == CLJ_THROWN) {
+	clj_release(t76);
+	if (t77 == CLJ_THROWN) {
 	goto L2;
 	}
-	t39 = t75;
+	t41 = t77;
 	} else {
 #line 1595 "Sources/CljCore/boot/core.clj"
-	clj_value t76 = K[61];
-	clj_value t77 = l11;
-	clj_value a27[2] = {t76, t77};
-	(void)a27;
-	clj_value t78;
+	clj_value t78 = K[61];
+	clj_value t79 = l11;
+	clj_value t80;
+	clj_value a27[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t78 = clj_eq(t76, t77);
+	if (1 && clj_is_fixnum(t78) && clj_is_fixnum(t79)) {
+	int64_t i81 = clj_fixnum_val(t78);
+	int64_t i82 = clj_fixnum_val(t79);
+	t80 = clj_bool(i81 == i82);
 	} else {
-	t78 = clj_c_intrinsic_fallback(V[19], a27, 2);
+	a27[0] = t78;
+	a27[1] = t79;
+	t80 = clj_eq(a27[0], a27[1]);
 	}
-	(void)t77;
-	(void)t76;
-	if (t78 == CLJ_THROWN) {
+	} else {
+	a27[0] = t78;
+	a27[1] = t79;
+	t80 = clj_c_intrinsic_fallback(V[19], a27, 2);
+	}
+	(void)t79;
+	(void)t78;
+	if (t80 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t79 = clj_truthy(t78);
-	clj_release(t78);
-	clj_value t80;
-	if (t79) {
+	bool t83 = clj_truthy(t80);
+	clj_release(t80);
+	clj_value t84;
+	if (t83) {
 #line 1593 "Sources/CljCore/boot/core.clj"
-	clj_value t81 = l6;
+	clj_value t85 = l6;
 	l6 = CLJ_NIL;
-	t80 = t81;
+	t84 = t85;
 	} else {
 #line 1596 "Sources/CljCore/boot/core.clj"
-	clj_value t82 = K[71];
-	clj_value t83 = l11;
-	clj_value a28[2] = {t82, t83};
-	(void)a28;
-	clj_value t84;
+	clj_value t86 = K[71];
+	clj_value t87 = l11;
+	clj_value t88;
+	clj_value a28[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t84 = clj_eq(t82, t83);
+	if (1 && clj_is_fixnum(t86) && clj_is_fixnum(t87)) {
+	int64_t i89 = clj_fixnum_val(t86);
+	int64_t i90 = clj_fixnum_val(t87);
+	t88 = clj_bool(i89 == i90);
 	} else {
-	t84 = clj_c_intrinsic_fallback(V[19], a28, 2);
+	a28[0] = t86;
+	a28[1] = t87;
+	t88 = clj_eq(a28[0], a28[1]);
 	}
-	(void)t83;
-	(void)t82;
-	if (t84 == CLJ_THROWN) {
-	goto L2;
+	} else {
+	a28[0] = t86;
+	a28[1] = t87;
+	t88 = clj_c_intrinsic_fallback(V[19], a28, 2);
 	}
-	bool t85 = clj_truthy(t84);
-	clj_release(t84);
-	clj_value t86;
-	if (t85) {
-#line 1593 "Sources/CljCore/boot/core.clj"
-	bool o87;
-	clj_value t87 = clj_c_var_borrow(V[0], &o87);
-	if (t87 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o88;
-	clj_value t88 = clj_c_var_borrow(V[8], &o88);
+	(void)t87;
+	(void)t86;
 	if (t88 == CLJ_THROWN) {
-	if (o87) clj_release(t87);
 	goto L2;
 	}
-	clj_value t89 = K[850];
-	clj_value a31[1] = {t89};
-	(void)a31;
-	clj_value t90 = clj_c_invoke(t88, a31, 1);
-	(void)t89;
-	if (o88) clj_release(t88);
-	if (t90 == CLJ_THROWN) {
-	if (o87) clj_release(t87);
-	goto L2;
-	}
-	bool o91;
-	clj_value t91 = clj_c_var_borrow(V[8], &o91);
-	if (t91 == CLJ_THROWN) {
-	clj_release(t90);
-	if (o87) clj_release(t87);
-	goto L2;
-	}
-	bool o92;
-	clj_value t92 = clj_c_var_borrow(V[0], &o92);
-	if (t92 == CLJ_THROWN) {
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
-	goto L2;
-	}
+	bool t91 = clj_truthy(t88);
+	clj_release(t88);
+	clj_value t92;
+	if (t91) {
+#line 1593 "Sources/CljCore/boot/core.clj"
 	bool o93;
-	clj_value t93 = clj_c_var_borrow(V[8], &o93);
+	clj_value t93 = clj_c_var_borrow(V[0], &o93);
 	if (t93 == CLJ_THROWN) {
-	if (o92) clj_release(t92);
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
 	goto L2;
 	}
-	clj_value t94 = fr.slots[0];
-	clj_value a35[1] = {t94};
-	(void)a35;
-	clj_value t95 = clj_c_invoke(t93, a35, 1);
-	(void)t94;
+	bool o94;
+	clj_value t94 = clj_c_var_borrow(V[8], &o94);
+	if (t94 == CLJ_THROWN) {
 	if (o93) clj_release(t93);
-	if (t95 == CLJ_THROWN) {
-	if (o92) clj_release(t92);
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
 	goto L2;
 	}
-	bool o96;
-	clj_value t96 = clj_c_var_borrow(V[8], &o96);
+	clj_value t95 = K[850];
+	clj_value a31[1] = {t95};
+	(void)a31;
+	clj_value t96 = clj_c_invoke(t94, a31, 1);
+	(void)t95;
+	if (o94) clj_release(t94);
 	if (t96 == CLJ_THROWN) {
-	clj_release(t95);
-	if (o92) clj_release(t92);
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	clj_value t97 = l6;
-	clj_value a36[1] = {t97};
-	(void)a36;
-	clj_value t98 = clj_c_invoke(t96, a36, 1);
-	(void)t97;
-	if (o96) clj_release(t96);
+	bool o97;
+	clj_value t97 = clj_c_var_borrow(V[8], &o97);
+	if (t97 == CLJ_THROWN) {
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	bool o98;
+	clj_value t98 = clj_c_var_borrow(V[0], &o98);
 	if (t98 == CLJ_THROWN) {
-	clj_release(t95);
-	if (o92) clj_release(t92);
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
 	bool o99;
 	clj_value t99 = clj_c_var_borrow(V[8], &o99);
 	if (t99 == CLJ_THROWN) {
-	clj_release(t98);
-	clj_release(t95);
-	if (o92) clj_release(t92);
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	if (o98) clj_release(t98);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	clj_value t100 = fr.slots[1];
-	clj_value a37[1] = {t100};
-	(void)a37;
-	clj_value t101 = clj_c_invoke(t99, a37, 1);
+	clj_value t100 = fr.slots[0];
+	clj_value a35[1] = {t100};
+	(void)a35;
+	clj_value t101 = clj_c_invoke(t99, a35, 1);
 	(void)t100;
 	if (o99) clj_release(t99);
 	if (t101 == CLJ_THROWN) {
-	clj_release(t98);
-	clj_release(t95);
-	if (o92) clj_release(t92);
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	if (o98) clj_release(t98);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	clj_value a34[3] = {t95, t98, t101};
-	(void)a34;
-	clj_value t102 = clj_c_invoke(t92, a34, 3);
-	clj_release(t101);
-	clj_release(t98);
-	clj_release(t95);
-	if (o92) clj_release(t92);
+	bool o102;
+	clj_value t102 = clj_c_var_borrow(V[8], &o102);
 	if (t102 == CLJ_THROWN) {
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	clj_release(t101);
+	if (o98) clj_release(t98);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	clj_value a33[1] = {t102};
-	(void)a33;
-	clj_value t103;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t103 = clj_seq(t102);
-	} else {
-	t103 = clj_c_intrinsic_fallback(V[2], a33, 1);
-	}
-	clj_release(t102);
-	if (t103 == CLJ_THROWN) {
-	if (o91) clj_release(t91);
-	clj_release(t90);
-	if (o87) clj_release(t87);
-	goto L2;
-	}
-	clj_value a32[1] = {t103};
-	(void)a32;
-	clj_value t104 = clj_c_invoke(t91, a32, 1);
-	clj_release(t103);
-	if (o91) clj_release(t91);
+	clj_value t103 = l6;
+	clj_value a36[1] = {t103};
+	(void)a36;
+	clj_value t104 = clj_c_invoke(t102, a36, 1);
+	(void)t103;
+	if (o102) clj_release(t102);
 	if (t104 == CLJ_THROWN) {
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	clj_release(t101);
+	if (o98) clj_release(t98);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
 	bool o105;
 	clj_value t105 = clj_c_var_borrow(V[8], &o105);
 	if (t105 == CLJ_THROWN) {
 	clj_release(t104);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	clj_release(t101);
+	if (o98) clj_release(t98);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	clj_value t106 = l7;
-	clj_value a38[1] = {t106};
-	(void)a38;
-	clj_value t107 = clj_c_invoke(t105, a38, 1);
+	clj_value t106 = fr.slots[1];
+	clj_value a37[1] = {t106};
+	(void)a37;
+	clj_value t107 = clj_c_invoke(t105, a37, 1);
 	(void)t106;
 	if (o105) clj_release(t105);
 	if (t107 == CLJ_THROWN) {
 	clj_release(t104);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	clj_release(t101);
+	if (o98) clj_release(t98);
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	bool o108;
-	clj_value t108 = clj_c_var_borrow(V[8], &o108);
-	if (t108 == CLJ_THROWN) {
+	clj_value a34[3] = {t101, t104, t107};
+	(void)a34;
+	clj_value t108 = clj_c_invoke(t98, a34, 3);
 	clj_release(t107);
 	clj_release(t104);
-	clj_release(t90);
-	if (o87) clj_release(t87);
+	clj_release(t101);
+	if (o98) clj_release(t98);
+	if (t108 == CLJ_THROWN) {
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	clj_value a33[1] = {t108};
+	(void)a33;
+	clj_value t109;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t109 = clj_seq(t108);
+	} else {
+	t109 = clj_c_intrinsic_fallback(V[2], a33, 1);
+	}
+	clj_release(t108);
+	if (t109 == CLJ_THROWN) {
+	if (o97) clj_release(t97);
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	clj_value a32[1] = {t109};
+	(void)a32;
+	clj_value t110 = clj_c_invoke(t97, a32, 1);
+	clj_release(t109);
+	if (o97) clj_release(t97);
+	if (t110 == CLJ_THROWN) {
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	bool o111;
+	clj_value t111 = clj_c_var_borrow(V[8], &o111);
+	if (t111 == CLJ_THROWN) {
+	clj_release(t110);
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	clj_value t112 = l7;
+	clj_value a38[1] = {t112};
+	(void)a38;
+	clj_value t113 = clj_c_invoke(t111, a38, 1);
+	(void)t112;
+	if (o111) clj_release(t111);
+	if (t113 == CLJ_THROWN) {
+	clj_release(t110);
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	bool o114;
+	clj_value t114 = clj_c_var_borrow(V[8], &o114);
+	if (t114 == CLJ_THROWN) {
+	clj_release(t113);
+	clj_release(t110);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
 #line 1596 "Sources/CljCore/boot/core.clj"
-	clj_value t109 = fr.slots[0];
-	clj_value t110 = fr.slots[1];
-	clj_value t111 = l10;
-	clj_value ds40[12] = {t109, t110, t111};
+	clj_value t115 = fr.slots[0];
+	clj_value t116 = fr.slots[1];
+	clj_value t117 = l10;
+	clj_value ds40[12] = {t115, t116, t117};
 	uint64_t dm40 = 0;
-	clj_value t112 = clojure_core_condp__0_a3(clj_c_outer(&fr, 1), fr.captured, ds40, dm40);
-	if (t112 == CLJ_THROWN) {
-	if (o108) clj_release(t108);
-	clj_release(t107);
-	clj_release(t104);
-	clj_release(t90);
-	if (o87) clj_release(t87);
-	goto L2;
-	}
-	clj_value a39[1] = {t112};
-	(void)a39;
-	clj_value t113 = clj_c_invoke(t108, a39, 1);
-	clj_release(t112);
-	if (o108) clj_release(t108);
-	if (t113 == CLJ_THROWN) {
-	clj_release(t107);
-	clj_release(t104);
-	clj_release(t90);
-	if (o87) clj_release(t87);
-	goto L2;
-	}
-	clj_value a30[4] = {t90, t104, t107, t113};
-	(void)a30;
-	clj_value t114 = clj_c_invoke(t87, a30, 4);
+	clj_value t118 = clojure_core_condp__0_a3(clj_c_outer(&fr, 1), fr.captured, ds40, dm40);
+	if (t118 == CLJ_THROWN) {
+	if (o114) clj_release(t114);
 	clj_release(t113);
-	clj_release(t107);
-	clj_release(t104);
-	clj_release(t90);
-	if (o87) clj_release(t87);
-	if (t114 == CLJ_THROWN) {
+	clj_release(t110);
+	clj_release(t96);
+	if (o93) clj_release(t93);
 	goto L2;
 	}
-	clj_value a29[1] = {t114};
+	clj_value a39[1] = {t118};
+	(void)a39;
+	clj_value t119 = clj_c_invoke(t114, a39, 1);
+	clj_release(t118);
+	if (o114) clj_release(t114);
+	if (t119 == CLJ_THROWN) {
+	clj_release(t113);
+	clj_release(t110);
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	goto L2;
+	}
+	clj_value a30[4] = {t96, t110, t113, t119};
+	(void)a30;
+	clj_value t120 = clj_c_invoke(t93, a30, 4);
+	clj_release(t119);
+	clj_release(t113);
+	clj_release(t110);
+	clj_release(t96);
+	if (o93) clj_release(t93);
+	if (t120 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value a29[1] = {t120};
 	(void)a29;
-	clj_value t115;
+	clj_value t121;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t115 = clj_seq(t114);
+	t121 = clj_seq(t120);
 	} else {
-	t115 = clj_c_intrinsic_fallback(V[2], a29, 1);
+	t121 = clj_c_intrinsic_fallback(V[2], a29, 1);
 	}
-	clj_release(t114);
-	if (t115 == CLJ_THROWN) {
+	clj_release(t120);
+	if (t121 == CLJ_THROWN) {
 	goto L2;
 	}
-	t86 = t115;
+	t92 = t121;
 	} else {
 #line 1593 "Sources/CljCore/boot/core.clj"
-	bool o116;
-	clj_value t116 = clj_c_var_borrow(V[0], &o116);
-	if (t116 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o117;
-	clj_value t117 = clj_c_var_borrow(V[8], &o117);
-	if (t117 == CLJ_THROWN) {
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value t118 = K[851];
-	clj_value a43[1] = {t118};
-	(void)a43;
-	clj_value t119 = clj_c_invoke(t117, a43, 1);
-	(void)t118;
-	if (o117) clj_release(t117);
-	if (t119 == CLJ_THROWN) {
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	bool o120;
-	clj_value t120 = clj_c_var_borrow(V[8], &o120);
-	if (t120 == CLJ_THROWN) {
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	bool o121;
-	clj_value t121 = clj_c_var_borrow(V[9], &o121);
-	if (t121 == CLJ_THROWN) {
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
 	bool o122;
-	clj_value t122 = clj_c_var_borrow(V[10], &o122);
+	clj_value t122 = clj_c_var_borrow(V[0], &o122);
 	if (t122 == CLJ_THROWN) {
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
 	bool o123;
-	clj_value t123 = clj_c_var_borrow(V[0], &o123);
+	clj_value t123 = clj_c_var_borrow(V[8], &o123);
 	if (t123 == CLJ_THROWN) {
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	bool o124;
-	clj_value t124 = clj_c_var_borrow(V[8], &o124);
-	if (t124 == CLJ_THROWN) {
+	clj_value t124 = K[851];
+	clj_value a43[1] = {t124};
+	(void)a43;
+	clj_value t125 = clj_c_invoke(t123, a43, 1);
+	(void)t124;
 	if (o123) clj_release(t123);
+	if (t125 == CLJ_THROWN) {
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value t125 = K[852];
-	clj_value a48[1] = {t125};
-	(void)a48;
-	clj_value t126 = clj_c_invoke(t124, a48, 1);
-	(void)t125;
-	if (o124) clj_release(t124);
+	bool o126;
+	clj_value t126 = clj_c_var_borrow(V[8], &o126);
 	if (t126 == CLJ_THROWN) {
-	if (o123) clj_release(t123);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
 	bool o127;
-	clj_value t127 = clj_c_var_borrow(V[8], &o127);
+	clj_value t127 = clj_c_var_borrow(V[9], &o127);
 	if (t127 == CLJ_THROWN) {
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
 	bool o128;
-	clj_value t128 = clj_c_var_borrow(V[0], &o128);
+	clj_value t128 = clj_c_var_borrow(V[10], &o128);
 	if (t128 == CLJ_THROWN) {
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
 	bool o129;
-	clj_value t129 = clj_c_var_borrow(V[8], &o129);
+	clj_value t129 = clj_c_var_borrow(V[0], &o129);
 	if (t129 == CLJ_THROWN) {
 	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value t130 = fr.slots[0];
-	clj_value a52[1] = {t130};
-	(void)a52;
-	clj_value t131 = clj_c_invoke(t129, a52, 1);
-	(void)t130;
+	bool o130;
+	clj_value t130 = clj_c_var_borrow(V[8], &o130);
+	if (t130 == CLJ_THROWN) {
 	if (o129) clj_release(t129);
-	if (t131 == CLJ_THROWN) {
 	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	bool o132;
-	clj_value t132 = clj_c_var_borrow(V[8], &o132);
+	clj_value t131 = K[852];
+	clj_value a48[1] = {t131};
+	(void)a48;
+	clj_value t132 = clj_c_invoke(t130, a48, 1);
+	(void)t131;
+	if (o130) clj_release(t130);
 	if (t132 == CLJ_THROWN) {
-	clj_release(t131);
+	if (o129) clj_release(t129);
 	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value t133 = l6;
-	clj_value a53[1] = {t133};
-	(void)a53;
-	clj_value t134 = clj_c_invoke(t132, a53, 1);
-	(void)t133;
-	if (o132) clj_release(t132);
-	if (t134 == CLJ_THROWN) {
-	clj_release(t131);
+	bool o133;
+	clj_value t133 = clj_c_var_borrow(V[8], &o133);
+	if (t133 == CLJ_THROWN) {
+	clj_release(t132);
+	if (o129) clj_release(t129);
 	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	goto L2;
+	}
+	bool o134;
+	clj_value t134 = clj_c_var_borrow(V[0], &o134);
+	if (t134 == CLJ_THROWN) {
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
 	bool o135;
 	clj_value t135 = clj_c_var_borrow(V[8], &o135);
 	if (t135 == CLJ_THROWN) {
-	clj_release(t134);
-	clj_release(t131);
+	if (o134) clj_release(t134);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
 	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value t136 = fr.slots[1];
-	clj_value a54[1] = {t136};
-	(void)a54;
-	clj_value t137 = clj_c_invoke(t135, a54, 1);
+	clj_value t136 = fr.slots[0];
+	clj_value a52[1] = {t136};
+	(void)a52;
+	clj_value t137 = clj_c_invoke(t135, a52, 1);
 	(void)t136;
 	if (o135) clj_release(t135);
 	if (t137 == CLJ_THROWN) {
-	clj_release(t134);
-	clj_release(t131);
+	if (o134) clj_release(t134);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
 	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value a51[3] = {t131, t134, t137};
-	(void)a51;
-	clj_value t138 = clj_c_invoke(t128, a51, 3);
-	clj_release(t137);
-	clj_release(t134);
-	clj_release(t131);
-	if (o128) clj_release(t128);
+	bool o138;
+	clj_value t138 = clj_c_var_borrow(V[8], &o138);
 	if (t138 == CLJ_THROWN) {
+	clj_release(t137);
+	if (o134) clj_release(t134);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
 	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value a50[1] = {t138};
-	(void)a50;
-	clj_value t139;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t139 = clj_seq(t138);
-	} else {
-	t139 = clj_c_intrinsic_fallback(V[2], a50, 1);
-	}
-	clj_release(t138);
-	if (t139 == CLJ_THROWN) {
-	if (o127) clj_release(t127);
-	clj_release(t126);
-	if (o123) clj_release(t123);
-	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value a49[1] = {t139};
-	(void)a49;
-	clj_value t140 = clj_c_invoke(t127, a49, 1);
-	clj_release(t139);
-	if (o127) clj_release(t127);
+	clj_value t139 = l6;
+	clj_value a53[1] = {t139};
+	(void)a53;
+	clj_value t140 = clj_c_invoke(t138, a53, 1);
+	(void)t139;
+	if (o138) clj_release(t138);
 	if (t140 == CLJ_THROWN) {
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	clj_release(t137);
+	if (o134) clj_release(t134);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value a47[2] = {t126, t140};
-	(void)a47;
-	clj_value t141;
-#ifdef CLJC_DIRECT_clojure_core_concat_a2
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t141 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a47, 2) : clj_c_invoke(t123, a47, 2);
-#else
-	t141 = clj_c_invoke(t123, a47, 2);
-#endif
-	clj_release(t140);
-	clj_release(t126);
-	if (o123) clj_release(t123);
+	bool o141;
+	clj_value t141 = clj_c_var_borrow(V[8], &o141);
 	if (t141 == CLJ_THROWN) {
+	clj_release(t140);
+	clj_release(t137);
+	if (o134) clj_release(t134);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
 	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
 	goto L2;
 	}
-	clj_value a46[1] = {t141};
-	(void)a46;
-	clj_value t142;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t142 = clj_seq(t141);
-	} else {
-	t142 = clj_c_intrinsic_fallback(V[2], a46, 1);
-	}
-	clj_release(t141);
-	if (t142 == CLJ_THROWN) {
-	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value a45[2] = {t122, t142};
-	(void)a45;
-	clj_value t143 = clj_c_invoke(t121, a45, 2);
-	clj_release(t142);
-	if (o122) clj_release(t122);
-	if (o121) clj_release(t121);
+	clj_value t142 = fr.slots[1];
+	clj_value a54[1] = {t142};
+	(void)a54;
+	clj_value t143 = clj_c_invoke(t141, a54, 1);
+	(void)t142;
+	if (o141) clj_release(t141);
 	if (t143 == CLJ_THROWN) {
-	if (o120) clj_release(t120);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	clj_release(t140);
+	clj_release(t137);
+	if (o134) clj_release(t134);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	clj_value a44[1] = {t143};
-	(void)a44;
-	clj_value t144 = clj_c_invoke(t120, a44, 1);
+	clj_value a51[3] = {t137, t140, t143};
+	(void)a51;
+	clj_value t144 = clj_c_invoke(t134, a51, 3);
 	clj_release(t143);
-	if (o120) clj_release(t120);
+	clj_release(t140);
+	clj_release(t137);
+	if (o134) clj_release(t134);
 	if (t144 == CLJ_THROWN) {
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	bool o145;
-	clj_value t145 = clj_c_var_borrow(V[8], &o145);
+	clj_value a50[1] = {t144};
+	(void)a50;
+	clj_value t145;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t145 = clj_seq(t144);
+	} else {
+	t145 = clj_c_intrinsic_fallback(V[2], a50, 1);
+	}
+	clj_release(t144);
 	if (t145 == CLJ_THROWN) {
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	if (o133) clj_release(t133);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	bool o146;
-	clj_value t146 = clj_c_var_borrow(V[0], &o146);
+	clj_value a49[1] = {t145};
+	(void)a49;
+	clj_value t146 = clj_c_invoke(t133, a49, 1);
+	clj_release(t145);
+	if (o133) clj_release(t133);
 	if (t146 == CLJ_THROWN) {
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	bool o147;
-	clj_value t147 = clj_c_var_borrow(V[8], &o147);
-	if (t147 == CLJ_THROWN) {
-	if (o146) clj_release(t146);
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value t148 = l8;
-	clj_value a58[1] = {t148};
-	(void)a58;
-	clj_value t149 = clj_c_invoke(t147, a58, 1);
-	(void)t148;
-	if (o147) clj_release(t147);
-	if (t149 == CLJ_THROWN) {
-	if (o146) clj_release(t146);
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	bool o150;
-	clj_value t150 = clj_c_var_borrow(V[8], &o150);
-	if (t150 == CLJ_THROWN) {
-	clj_release(t149);
-	if (o146) clj_release(t146);
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value t151 = K[852];
-	clj_value a59[1] = {t151};
-	(void)a59;
-	clj_value t152 = clj_c_invoke(t150, a59, 1);
-	(void)t151;
-	if (o150) clj_release(t150);
-	if (t152 == CLJ_THROWN) {
-	clj_release(t149);
-	if (o146) clj_release(t146);
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value a57[2] = {t149, t152};
-	(void)a57;
-	clj_value t153;
+	clj_value a47[2] = {t132, t146};
+	(void)a47;
+	clj_value t147;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t153 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a57, 2) : clj_c_invoke(t146, a57, 2);
+	t147 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a47, 2) : clj_c_invoke(t129, a47, 2);
 #else
-	t153 = clj_c_invoke(t146, a57, 2);
+	t147 = clj_c_invoke(t129, a47, 2);
 #endif
-	clj_release(t152);
-	clj_release(t149);
-	if (o146) clj_release(t146);
-	if (t153 == CLJ_THROWN) {
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	clj_release(t146);
+	clj_release(t132);
+	if (o129) clj_release(t129);
+	if (t147 == CLJ_THROWN) {
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	clj_value a56[1] = {t153};
-	(void)a56;
-	clj_value t154;
+	clj_value a46[1] = {t147};
+	(void)a46;
+	clj_value t148;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t154 = clj_seq(t153);
+	t148 = clj_seq(t147);
 	} else {
-	t154 = clj_c_intrinsic_fallback(V[2], a56, 1);
+	t148 = clj_c_intrinsic_fallback(V[2], a46, 1);
 	}
-	clj_release(t153);
-	if (t154 == CLJ_THROWN) {
-	if (o145) clj_release(t145);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	clj_release(t147);
+	if (t148 == CLJ_THROWN) {
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	clj_value a55[1] = {t154};
-	(void)a55;
-	clj_value t155 = clj_c_invoke(t145, a55, 1);
-	clj_release(t154);
-	if (o145) clj_release(t145);
+	clj_value a45[2] = {t128, t148};
+	(void)a45;
+	clj_value t149 = clj_c_invoke(t127, a45, 2);
+	clj_release(t148);
+	if (o128) clj_release(t128);
+	if (o127) clj_release(t127);
+	if (t149 == CLJ_THROWN) {
+	if (o126) clj_release(t126);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value a44[1] = {t149};
+	(void)a44;
+	clj_value t150 = clj_c_invoke(t126, a44, 1);
+	clj_release(t149);
+	if (o126) clj_release(t126);
+	if (t150 == CLJ_THROWN) {
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	bool o151;
+	clj_value t151 = clj_c_var_borrow(V[8], &o151);
+	if (t151 == CLJ_THROWN) {
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	bool o152;
+	clj_value t152 = clj_c_var_borrow(V[0], &o152);
+	if (t152 == CLJ_THROWN) {
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	bool o153;
+	clj_value t153 = clj_c_var_borrow(V[8], &o153);
+	if (t153 == CLJ_THROWN) {
+	if (o152) clj_release(t152);
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value t154 = l8;
+	clj_value a58[1] = {t154};
+	(void)a58;
+	clj_value t155 = clj_c_invoke(t153, a58, 1);
+	(void)t154;
+	if (o153) clj_release(t153);
 	if (t155 == CLJ_THROWN) {
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	if (o152) clj_release(t152);
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
 	bool o156;
 	clj_value t156 = clj_c_var_borrow(V[8], &o156);
 	if (t156 == CLJ_THROWN) {
 	clj_release(t155);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
+	if (o152) clj_release(t152);
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value t157 = K[852];
+	clj_value a59[1] = {t157};
+	(void)a59;
+	clj_value t158 = clj_c_invoke(t156, a59, 1);
+	(void)t157;
+	if (o156) clj_release(t156);
+	if (t158 == CLJ_THROWN) {
+	clj_release(t155);
+	if (o152) clj_release(t152);
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value a57[2] = {t155, t158};
+	(void)a57;
+	clj_value t159;
+#ifdef CLJC_DIRECT_clojure_core_concat_a2
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t159 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a57, 2) : clj_c_invoke(t152, a57, 2);
+#else
+	t159 = clj_c_invoke(t152, a57, 2);
+#endif
+	clj_release(t158);
+	clj_release(t155);
+	if (o152) clj_release(t152);
+	if (t159 == CLJ_THROWN) {
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value a56[1] = {t159};
+	(void)a56;
+	clj_value t160;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t160 = clj_seq(t159);
+	} else {
+	t160 = clj_c_intrinsic_fallback(V[2], a56, 1);
+	}
+	clj_release(t159);
+	if (t160 == CLJ_THROWN) {
+	if (o151) clj_release(t151);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value a55[1] = {t160};
+	(void)a55;
+	clj_value t161 = clj_c_invoke(t151, a55, 1);
+	clj_release(t160);
+	if (o151) clj_release(t151);
+	if (t161 == CLJ_THROWN) {
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	bool o162;
+	clj_value t162 = clj_c_var_borrow(V[8], &o162);
+	if (t162 == CLJ_THROWN) {
+	clj_release(t161);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
 #line 1597 "Sources/CljCore/boot/core.clj"
-	clj_value t157 = fr.slots[0];
-	clj_value t158 = fr.slots[1];
-	clj_value t159 = l10;
-	clj_value ds61[12] = {t157, t158, t159};
+	clj_value t163 = fr.slots[0];
+	clj_value t164 = fr.slots[1];
+	clj_value t165 = l10;
+	clj_value ds61[12] = {t163, t164, t165};
 	uint64_t dm61 = 0;
-	clj_value t160 = clojure_core_condp__0_a3(clj_c_outer(&fr, 1), fr.captured, ds61, dm61);
-	if (t160 == CLJ_THROWN) {
-	if (o156) clj_release(t156);
-	clj_release(t155);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value a60[1] = {t160};
-	(void)a60;
-	clj_value t161 = clj_c_invoke(t156, a60, 1);
-	clj_release(t160);
-	if (o156) clj_release(t156);
-	if (t161 == CLJ_THROWN) {
-	clj_release(t155);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	goto L2;
-	}
-	clj_value a42[4] = {t119, t144, t155, t161};
-	(void)a42;
-	clj_value t162 = clj_c_invoke(t116, a42, 4);
+	clj_value t166 = clojure_core_condp__0_a3(clj_c_outer(&fr, 1), fr.captured, ds61, dm61);
+	if (t166 == CLJ_THROWN) {
+	if (o162) clj_release(t162);
 	clj_release(t161);
-	clj_release(t155);
-	clj_release(t144);
-	clj_release(t119);
-	if (o116) clj_release(t116);
-	if (t162 == CLJ_THROWN) {
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
 	goto L2;
 	}
-	clj_value a41[1] = {t162};
+	clj_value a60[1] = {t166};
+	(void)a60;
+	clj_value t167 = clj_c_invoke(t162, a60, 1);
+	clj_release(t166);
+	if (o162) clj_release(t162);
+	if (t167 == CLJ_THROWN) {
+	clj_release(t161);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	goto L2;
+	}
+	clj_value a42[4] = {t125, t150, t161, t167};
+	(void)a42;
+	clj_value t168 = clj_c_invoke(t122, a42, 4);
+	clj_release(t167);
+	clj_release(t161);
+	clj_release(t150);
+	clj_release(t125);
+	if (o122) clj_release(t122);
+	if (t168 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value a41[1] = {t168};
 	(void)a41;
-	clj_value t163;
+	clj_value t169;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t163 = clj_seq(t162);
+	t169 = clj_seq(t168);
 	} else {
-	t163 = clj_c_intrinsic_fallback(V[2], a41, 1);
+	t169 = clj_c_intrinsic_fallback(V[2], a41, 1);
 	}
-	clj_release(t162);
-	if (t163 == CLJ_THROWN) {
+	clj_release(t168);
+	if (t169 == CLJ_THROWN) {
 	goto L2;
 	}
-	t86 = t163;
+	t92 = t169;
 	}
-	t80 = t86;
+	t84 = t92;
 	}
-	t39 = t80;
+	t41 = t84;
 	}
 	clj_c_leave(&S[327], &cc);
 	clj_release(l4);
@@ -66435,7 +66729,7 @@ static clj_value clojure_core_condp__0_a3(const clj_cframe *outer, const clj_val
 	clj_release(l10);
 	clj_release(l11);
 	clj_c_release_slots(&fr, 12);
-	return t39;
+	return t41;
 L2: ;
 	clj_c_leave(&S[327], &cc);
 L1: ;
@@ -78856,717 +79150,740 @@ L4: ;
 	if (t11) {
 #line 1735 "Sources/CljCore/boot/core.clj"
 	clj_value t13 = l2;
-	clj_value a3[1] = {t13};
-	(void)a3;
 	clj_value t14;
+	clj_value a3[1];
 	if (CLJC_GUARD(V[160], B[32])) {
-	t14 = clj_neg_p(t13);
+	if (1 && clj_is_fixnum(t13)) {
+	int64_t i15 = clj_fixnum_val(t13);
+	t14 = clj_bool(i15 < INT64_C(0));
 	} else {
+	a3[0] = t13;
+	t14 = clj_neg_p(a3[0]);
+	}
+	} else {
+	a3[0] = t13;
 	t14 = clj_c_intrinsic_fallback(V[160], a3, 1);
 	}
 	(void)t13;
 	if (t14 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t15 = clj_truthy(t14);
+	bool t16 = clj_truthy(t14);
 	clj_release(t14);
-	clj_value t16;
-	if (t15) {
+	clj_value t17;
+	if (t16) {
 #line 1736 "Sources/CljCore/boot/core.clj"
-	bool o17;
-	clj_value t17 = clj_c_var_borrow(V[16], &o17);
-	if (t17 == CLJ_THROWN) {
-	goto L2;
-	}
 	bool o18;
-	clj_value t18 = clj_c_var_borrow(V[31], &o18);
+	clj_value t18 = clj_c_var_borrow(V[16], &o18);
 	if (t18 == CLJ_THROWN) {
-	if (o17) clj_release(t17);
 	goto L2;
 	}
-	clj_value t19 = K[983];
-	clj_value t20 = l4;
-	clj_value a6[1] = {t20};
+	bool o19;
+	clj_value t19 = clj_c_var_borrow(V[31], &o19);
+	if (t19 == CLJ_THROWN) {
+	if (o18) clj_release(t18);
+	goto L2;
+	}
+	clj_value t20 = K[983];
+	clj_value t21 = l4;
+	clj_value a6[1] = {t21};
 	(void)a6;
-	clj_value t21;
+	clj_value t22;
 	if (CLJC_GUARD(V[4], B[2])) {
-	t21 = clj_first(t20);
+	t22 = clj_first(t21);
 	} else {
-	t21 = clj_c_intrinsic_fallback(V[4], a6, 1);
+	t22 = clj_c_intrinsic_fallback(V[4], a6, 1);
 	}
-	(void)t20;
-	if (t21 == CLJ_THROWN) {
+	(void)t21;
+	if (t22 == CLJ_THROWN) {
+	if (o19) clj_release(t19);
 	if (o18) clj_release(t18);
-	if (o17) clj_release(t17);
 	goto L2;
 	}
-	clj_value t22 = K[984];
-	clj_value a5[3] = {t19, t21, t22};
+	clj_value t23 = K[984];
+	clj_value a5[3] = {t20, t22, t23};
 	(void)a5;
-	clj_value t23 = clj_c_invoke(t18, a5, 3);
-	(void)t22;
-	clj_release(t21);
-	(void)t19;
+	clj_value t24 = clj_c_invoke(t19, a5, 3);
+	(void)t23;
+	clj_release(t22);
+	(void)t20;
+	if (o19) clj_release(t19);
+	if (t24 == CLJ_THROWN) {
 	if (o18) clj_release(t18);
-	if (t23 == CLJ_THROWN) {
-	if (o17) clj_release(t17);
 	goto L2;
 	}
-	clj_value t24 = K[3];
-	clj_value a4[2] = {t23, t24};
+	clj_value t25 = K[3];
+	clj_value a4[2] = {t24, t25};
 	(void)a4;
-	clj_value t25 = clj_c_invoke(t17, a4, 2);
-	(void)t24;
-	clj_release(t23);
-	if (o17) clj_release(t17);
-	if (t25 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t26 = clj_throw(t25);
+	clj_value t26 = clj_c_invoke(t18, a4, 2);
+	(void)t25;
+	clj_release(t24);
+	if (o18) clj_release(t18);
 	if (t26 == CLJ_THROWN) {
 	goto L2;
 	}
-	t16 = t26;
+	clj_value t27 = clj_throw(t26);
+	if (t27 == CLJ_THROWN) {
+	goto L2;
+	}
+	t17 = t27;
 	} else {
 #line 1737 "Sources/CljCore/boot/core.clj"
-	clj_value t27 = l3;
-	clj_value t28 = l2;
-	clj_value a7[2] = {t27, t28};
+	clj_value t28 = l3;
+	clj_value t29 = l2;
+	clj_value a7[2] = {t28, t29};
 	(void)a7;
-	clj_value t29;
+	clj_value t30;
 	if (CLJC_GUARD(V[24], B[9])) {
-	t29 = clj_nth2(t27, t28);
+	t30 = clj_nth2(t28, t29);
 	} else {
-	t29 = clj_c_intrinsic_fallback(V[24], a7, 2);
+	t30 = clj_c_intrinsic_fallback(V[24], a7, 2);
 	}
+	(void)t29;
 	(void)t28;
-	(void)t27;
-	if (t29 == CLJ_THROWN) {
+	if (t30 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l5, t29);
-	clj_value t30 = l5;
-	clj_value t31 = K[42];
-	clj_value t32 = K[3];
-	clj_value a8[3] = {t30, t31, t32};
+	clj_c_rebind(&l5, t30);
+	clj_value t31 = l5;
+	clj_value t32 = K[42];
+	clj_value t33 = K[3];
+	clj_value a8[3] = {t31, t32, t33};
 	(void)a8;
-	clj_value t33;
+	clj_value t34;
 	if (CLJC_GUARD(V[24], B[35])) {
-	t33 = clj_nth3(t30, t31, t32);
+	t34 = clj_nth3(t31, t32, t33);
 	} else {
-	t33 = clj_c_intrinsic_fallback(V[24], a8, 3);
+	t34 = clj_c_intrinsic_fallback(V[24], a8, 3);
 	}
+	(void)t33;
 	(void)t32;
 	(void)t31;
-	(void)t30;
-	if (t33 == CLJ_THROWN) {
+	if (t34 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l6, t33);
-	clj_value t34 = l5;
-	clj_value t35 = K[61];
-	clj_value t36 = K[3];
-	clj_value a9[3] = {t34, t35, t36};
+	clj_c_rebind(&l6, t34);
+	clj_value t35 = l5;
+	clj_value t36 = K[61];
+	clj_value t37 = K[3];
+	clj_value a9[3] = {t35, t36, t37};
 	(void)a9;
-	clj_value t37;
+	clj_value t38;
 	if (CLJC_GUARD(V[24], B[35])) {
-	t37 = clj_nth3(t34, t35, t36);
+	t38 = clj_nth3(t35, t36, t37);
 	} else {
-	t37 = clj_c_intrinsic_fallback(V[24], a9, 3);
+	t38 = clj_c_intrinsic_fallback(V[24], a9, 3);
 	}
+	(void)t37;
 	(void)t36;
 	(void)t35;
-	(void)t34;
-	if (t37 == CLJ_THROWN) {
+	if (t38 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l7, t37);
+	clj_c_rebind(&l7, t38);
 #line 1738 "Sources/CljCore/boot/core.clj"
-	clj_value t38 = l4;
-	clj_value a10[1] = {t38};
+	clj_value t39 = l4;
+	clj_value a10[1] = {t39};
 	(void)a10;
-	clj_value t39;
+	clj_value t40;
 	if (CLJC_GUARD(V[4], B[2])) {
-	t39 = clj_first(t38);
+	t40 = clj_first(t39);
 	} else {
-	t39 = clj_c_intrinsic_fallback(V[4], a10, 1);
+	t40 = clj_c_intrinsic_fallback(V[4], a10, 1);
 	}
-	(void)t38;
-	if (t39 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_c_set(&fr, 8, t39);
-#line 1740 "Sources/CljCore/boot/core.clj"
-	bool o40;
-	clj_value t40 = clj_c_var_borrow(V[15], &o40);
+	(void)t39;
 	if (t40 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t41 = l4;
-	clj_value a12[1] = {t41};
-	(void)a12;
-	clj_value t42 = clj_c_invoke(t40, a12, 1);
-	(void)t41;
-	if (o40) clj_release(t40);
-	if (t42 == CLJ_THROWN) {
+	clj_c_set(&fr, 8, t40);
+#line 1740 "Sources/CljCore/boot/core.clj"
+	bool o41;
+	clj_value t41 = clj_c_var_borrow(V[15], &o41);
+	if (t41 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a11[1] = {t42};
-	(void)a11;
-	clj_value t43;
-	if (CLJC_GUARD(V[34], B[13])) {
-	t43 = clj_vector_p(t42);
-	} else {
-	t43 = clj_c_intrinsic_fallback(V[34], a11, 1);
-	}
-	clj_release(t42);
+	clj_value t42 = l4;
+	clj_value a12[1] = {t42};
+	(void)a12;
+	clj_value t43 = clj_c_invoke(t41, a12, 1);
+	(void)t42;
+	if (o41) clj_release(t41);
 	if (t43 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t44 = clj_truthy(t43);
-	clj_release(t43);
-	clj_value t45;
-	if (t44) {
-	clj_value t46 = l4;
-	clj_value a14[1] = {t46};
-	(void)a14;
-	clj_value t47;
-	if (CLJC_GUARD(V[6], B[4])) {
-	t47 = clj_next(t46);
+	clj_value a11[1] = {t43};
+	(void)a11;
+	clj_value t44;
+	if (CLJC_GUARD(V[34], B[13])) {
+	t44 = clj_vector_p(t43);
 	} else {
-	t47 = clj_c_intrinsic_fallback(V[6], a14, 1);
+	t44 = clj_c_intrinsic_fallback(V[34], a11, 1);
 	}
-	(void)t46;
-	if (t47 == CLJ_THROWN) {
+	clj_release(t43);
+	if (t44 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a13[1] = {t47};
-	(void)a13;
-	clj_value t48 = clj_vector_from_array(a13, 1);
-	clj_release(t47);
+	bool t45 = clj_truthy(t44);
+	clj_release(t44);
+	clj_value t46;
+	if (t45) {
+	clj_value t47 = l4;
+	clj_value a14[1] = {t47};
+	(void)a14;
+	clj_value t48;
+	if (CLJC_GUARD(V[6], B[4])) {
+	t48 = clj_next(t47);
+	} else {
+	t48 = clj_c_intrinsic_fallback(V[6], a14, 1);
+	}
+	(void)t47;
 	if (t48 == CLJ_THROWN) {
 	goto L2;
 	}
-	t45 = t48;
-	} else {
-	bool o49;
-	clj_value t49 = clj_c_var_borrow(V[121], &o49);
+	clj_value a13[1] = {t48};
+	(void)a13;
+	clj_value t49 = clj_vector_from_array(a13, 1);
+	clj_release(t48);
 	if (t49 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t50 = l4;
-	clj_value a16[1] = {t50};
-	(void)a16;
-	clj_value t51;
-	if (CLJC_GUARD(V[6], B[4])) {
-	t51 = clj_next(t50);
+	t46 = t49;
 	} else {
-	t51 = clj_c_intrinsic_fallback(V[6], a16, 1);
-	}
-	(void)t50;
-	if (t51 == CLJ_THROWN) {
-	if (o49) clj_release(t49);
+	bool o50;
+	clj_value t50 = clj_c_var_borrow(V[121], &o50);
+	if (t50 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a15[1] = {t51};
-	(void)a15;
+	clj_value t51 = l4;
+	clj_value a16[1] = {t51};
+	(void)a16;
 	clj_value t52;
+	if (CLJC_GUARD(V[6], B[4])) {
+	t52 = clj_next(t51);
+	} else {
+	t52 = clj_c_intrinsic_fallback(V[6], a16, 1);
+	}
+	(void)t51;
+	if (t52 == CLJ_THROWN) {
+	if (o50) clj_release(t50);
+	goto L2;
+	}
+	clj_value a15[1] = {t52};
+	(void)a15;
+	clj_value t53;
 #ifdef CLJC_DIRECT_clojure_core_vec_a1
 	if (!CLJC_FN_clojure_core_vec_a1) CLJC_FN_clojure_core_vec_a1 = clj_compiled_symbol("clojure_core_vec_a1");
-	t52 = CLJC_FN_clojure_core_vec_a1 ? CLJC_FN_clojure_core_vec_a1(clj_var_root_relaxed(V[121]), NULL, a15, 1) : clj_c_invoke(t49, a15, 1);
+	t53 = CLJC_FN_clojure_core_vec_a1 ? CLJC_FN_clojure_core_vec_a1(clj_var_root_relaxed(V[121]), NULL, a15, 1) : clj_c_invoke(t50, a15, 1);
 #else
-	t52 = clj_c_invoke(t49, a15, 1);
+	t53 = clj_c_invoke(t50, a15, 1);
 #endif
-	clj_release(t51);
-	if (o49) clj_release(t49);
-	if (t52 == CLJ_THROWN) {
-	goto L2;
-	}
-	t45 = t52;
-	}
-	clj_c_set(&fr, 9, t45);
-#line 1737 "Sources/CljCore/boot/core.clj"
-#line 1741 "Sources/CljCore/boot/core.clj"
-	bool o53;
-	clj_value t53 = clj_c_var_borrow(V[92], &o53);
+	clj_release(t52);
+	if (o50) clj_release(t50);
 	if (t53 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t54 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__0, NULL, 0, 0x2, 1, 1);
-	clj_value t55 = fr.slots[9];
-	clj_value a17[2] = {t54, t55};
+	t46 = t53;
+	}
+	clj_c_set(&fr, 9, t46);
+#line 1737 "Sources/CljCore/boot/core.clj"
+#line 1741 "Sources/CljCore/boot/core.clj"
+	bool o54;
+	clj_value t54 = clj_c_var_borrow(V[92], &o54);
+	if (t54 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value t55 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__0, NULL, 0, 0x2, 1, 1);
+	clj_value t56 = fr.slots[9];
+	clj_value a17[2] = {t55, t56};
 	(void)a17;
-	clj_value t56;
+	clj_value t57;
 #ifdef CLJC_DIRECT_clojure_core_every_QMARK__a2
 	if (!CLJC_FN_clojure_core_every_QMARK__a2) CLJC_FN_clojure_core_every_QMARK__a2 = clj_compiled_symbol("clojure_core_every_QMARK__a2");
-	t56 = CLJC_FN_clojure_core_every_QMARK__a2 ? CLJC_FN_clojure_core_every_QMARK__a2(clj_var_root_relaxed(V[92]), NULL, a17, 2) : clj_c_invoke(t53, a17, 2);
+	t57 = CLJC_FN_clojure_core_every_QMARK__a2 ? CLJC_FN_clojure_core_every_QMARK__a2(clj_var_root_relaxed(V[92]), NULL, a17, 2) : clj_c_invoke(t54, a17, 2);
 #else
-	t56 = clj_c_invoke(t53, a17, 2);
+	t57 = clj_c_invoke(t54, a17, 2);
 #endif
-	(void)t55;
-	clj_release(t54);
-	if (o53) clj_release(t53);
-	if (t56 == CLJ_THROWN) {
+	(void)t56;
+	clj_release(t55);
+	if (o54) clj_release(t54);
+	if (t57 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t57 = clj_truthy(t56);
-	clj_release(t56);
-	clj_value t58;
-	if (t57) {
-	clj_value t59 = clj_retain(K[3]);
-	t58 = t59;
+	bool t58 = clj_truthy(t57);
+	clj_release(t57);
+	clj_value t59;
+	if (t58) {
+	clj_value t60 = clj_retain(K[3]);
+	t59 = t60;
 	} else {
 #line 1742 "Sources/CljCore/boot/core.clj"
-	bool o60;
-	clj_value t60 = clj_c_var_borrow(V[16], &o60);
-	if (t60 == CLJ_THROWN) {
-	goto L2;
-	}
 	bool o61;
-	clj_value t61 = clj_c_var_borrow(V[31], &o61);
+	clj_value t61 = clj_c_var_borrow(V[16], &o61);
 	if (t61 == CLJ_THROWN) {
-	if (o60) clj_release(t60);
 	goto L2;
 	}
-	clj_value t62 = K[985];
-	clj_value t63 = fr.slots[8];
-	clj_value t64 = K[986];
-	clj_value a19[3] = {t62, t63, t64};
+	bool o62;
+	clj_value t62 = clj_c_var_borrow(V[31], &o62);
+	if (t62 == CLJ_THROWN) {
+	if (o61) clj_release(t61);
+	goto L2;
+	}
+	clj_value t63 = K[985];
+	clj_value t64 = fr.slots[8];
+	clj_value t65 = K[986];
+	clj_value a19[3] = {t63, t64, t65};
 	(void)a19;
-	clj_value t65 = clj_c_invoke(t61, a19, 3);
+	clj_value t66 = clj_c_invoke(t62, a19, 3);
+	(void)t65;
 	(void)t64;
 	(void)t63;
-	(void)t62;
+	if (o62) clj_release(t62);
+	if (t66 == CLJ_THROWN) {
 	if (o61) clj_release(t61);
-	if (t65 == CLJ_THROWN) {
-	if (o60) clj_release(t60);
 	goto L2;
 	}
-	clj_value t66 = K[3];
-	clj_value a18[2] = {t65, t66};
+	clj_value t67 = K[3];
+	clj_value a18[2] = {t66, t67};
 	(void)a18;
-	clj_value t67 = clj_c_invoke(t60, a18, 2);
-	(void)t66;
-	clj_release(t65);
-	if (o60) clj_release(t60);
-	if (t67 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t68 = clj_throw(t67);
+	clj_value t68 = clj_c_invoke(t61, a18, 2);
+	(void)t67;
+	clj_release(t66);
+	if (o61) clj_release(t61);
 	if (t68 == CLJ_THROWN) {
 	goto L2;
 	}
-	t58 = t68;
-	}
-	clj_release(t58);
-#line 1743 "Sources/CljCore/boot/core.clj"
-	clj_value t69 = l1;
-	clj_value a20[1] = {t69};
-	(void)a20;
-	clj_value t70;
-	if (CLJC_GUARD(V[6], B[4])) {
-	t70 = clj_next(t69);
-	} else {
-	t70 = clj_c_intrinsic_fallback(V[6], a20, 1);
-	}
-	(void)t69;
-	if (t70 == CLJ_THROWN) {
+	clj_value t69 = clj_throw(t68);
+	if (t69 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t71 = clj_retain(l2);
+	t59 = t69;
+	}
+	clj_release(t59);
+#line 1743 "Sources/CljCore/boot/core.clj"
+	clj_value t70 = l1;
+	clj_value a20[1] = {t70};
+	(void)a20;
+	clj_value t71;
+	if (CLJC_GUARD(V[6], B[4])) {
+	t71 = clj_next(t70);
+	} else {
+	t71 = clj_c_intrinsic_fallback(V[6], a20, 1);
+	}
+	(void)t70;
+	if (t71 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value t72 = clj_retain(l2);
 #line 1744 "Sources/CljCore/boot/core.clj"
-	clj_value t72 = l3;
+	clj_value t73 = l3;
 	l3 = CLJ_NIL;
-	clj_value t73 = l2;
-	clj_value t74 = l6;
+	clj_value t74 = l2;
+	clj_value t75 = l6;
 #line 1745 "Sources/CljCore/boot/core.clj"
-	bool o75;
-	clj_value t75 = clj_c_var_borrow(V[91], &o75);
-	if (t75 == CLJ_THROWN) {
+	bool o76;
+	clj_value t76 = clj_c_var_borrow(V[91], &o76);
+	if (t76 == CLJ_THROWN) {
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
 	clj_value c24[1] = {fr.slots[8]};
-	clj_value t76 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__1, c24, 1, 0x2, 1, 1);
-	clj_value t77 = l7;
-	clj_value a23[2] = {t76, t77};
+	clj_value t77 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__1, c24, 1, 0x2, 1, 1);
+	clj_value t78 = l7;
+	clj_value a23[2] = {t77, t78};
 	(void)a23;
-	clj_value t78;
+	clj_value t79;
 #ifdef CLJC_DIRECT_clojure_core_some_a2
 	if (!CLJC_FN_clojure_core_some_a2) CLJC_FN_clojure_core_some_a2 = clj_compiled_symbol("clojure_core_some_a2");
-	t78 = CLJC_FN_clojure_core_some_a2 ? CLJC_FN_clojure_core_some_a2(clj_var_root_relaxed(V[91]), NULL, a23, 2) : clj_c_invoke(t75, a23, 2);
+	t79 = CLJC_FN_clojure_core_some_a2 ? CLJC_FN_clojure_core_some_a2(clj_var_root_relaxed(V[91]), NULL, a23, 2) : clj_c_invoke(t76, a23, 2);
 #else
-	t78 = clj_c_invoke(t75, a23, 2);
+	t79 = clj_c_invoke(t76, a23, 2);
 #endif
-	(void)t77;
-	clj_release(t76);
-	if (o75) clj_release(t75);
-	if (t78 == CLJ_THROWN) {
+	(void)t78;
+	clj_release(t77);
+	if (o76) clj_release(t76);
+	if (t79 == CLJ_THROWN) {
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
-	bool t79 = clj_truthy(t78);
-	clj_release(t78);
-	clj_value t80;
-	if (t79) {
+	bool t80 = clj_truthy(t79);
+	clj_release(t79);
+	clj_value t81;
+	if (t80) {
 #line 1746 "Sources/CljCore/boot/core.clj"
-	bool o81;
-	clj_value t81 = clj_c_var_borrow(V[121], &o81);
-	if (t81 == CLJ_THROWN) {
+	bool o82;
+	clj_value t82 = clj_c_var_borrow(V[121], &o82);
+	if (t82 == CLJ_THROWN) {
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
-	bool o82;
-	clj_value t82 = clj_c_var_borrow(V[96], &o82);
-	if (t82 == CLJ_THROWN) {
-	if (o81) clj_release(t81);
+	bool o83;
+	clj_value t83 = clj_c_var_borrow(V[96], &o83);
+	if (t83 == CLJ_THROWN) {
+	if (o82) clj_release(t82);
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
 	clj_value c27[2] = {fr.slots[8], fr.slots[9]};
-	clj_value t83 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__2, c27, 2, 0x2, 1, 1);
-	clj_value t84 = l7;
-	clj_value a26[2] = {t83, t84};
+	clj_value t84 = clj_c_closure(CLJ_NIL, clojure_core_group_impls__2, c27, 2, 0x2, 1, 1);
+	clj_value t85 = l7;
+	clj_value a26[2] = {t84, t85};
 	(void)a26;
-	clj_value t85;
+	clj_value t86;
 #ifdef CLJC_DIRECT_clojure_core_map_a2
 	if (!CLJC_FN_clojure_core_map_a2) CLJC_FN_clojure_core_map_a2 = clj_compiled_symbol("clojure_core_map_a2");
-	t85 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[96]), NULL, a26, 2) : clj_c_invoke(t82, a26, 2);
+	t86 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[96]), NULL, a26, 2) : clj_c_invoke(t83, a26, 2);
 #else
-	t85 = clj_c_invoke(t82, a26, 2);
+	t86 = clj_c_invoke(t83, a26, 2);
 #endif
-	(void)t84;
-	clj_release(t83);
+	(void)t85;
+	clj_release(t84);
+	if (o83) clj_release(t83);
+	if (t86 == CLJ_THROWN) {
 	if (o82) clj_release(t82);
-	if (t85 == CLJ_THROWN) {
-	if (o81) clj_release(t81);
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
-	clj_value a25[1] = {t85};
+	clj_value a25[1] = {t86};
 	(void)a25;
-	clj_value t86;
+	clj_value t87;
 #ifdef CLJC_DIRECT_clojure_core_vec_a1
 	if (!CLJC_FN_clojure_core_vec_a1) CLJC_FN_clojure_core_vec_a1 = clj_compiled_symbol("clojure_core_vec_a1");
-	t86 = CLJC_FN_clojure_core_vec_a1 ? CLJC_FN_clojure_core_vec_a1(clj_var_root_relaxed(V[121]), NULL, a25, 1) : clj_c_invoke(t81, a25, 1);
+	t87 = CLJC_FN_clojure_core_vec_a1 ? CLJC_FN_clojure_core_vec_a1(clj_var_root_relaxed(V[121]), NULL, a25, 1) : clj_c_invoke(t82, a25, 1);
 #else
-	t86 = clj_c_invoke(t81, a25, 1);
+	t87 = clj_c_invoke(t82, a25, 1);
 #endif
-	clj_release(t85);
-	if (o81) clj_release(t81);
-	if (t86 == CLJ_THROWN) {
+	clj_release(t86);
+	if (o82) clj_release(t82);
+	if (t87 == CLJ_THROWN) {
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
-	t80 = t86;
+	t81 = t87;
 	} else {
 #line 1747 "Sources/CljCore/boot/core.clj"
-	clj_value t87 = l7;
+	clj_value t88 = l7;
 	l7 = CLJ_NIL;
-	clj_value t88 = fr.slots[8];
-	clj_value t89 = fr.slots[9];
-	clj_value a29[2] = {t88, t89};
+	clj_value t89 = fr.slots[8];
+	clj_value t90 = fr.slots[9];
+	clj_value a29[2] = {t89, t90};
 	(void)a29;
-	clj_value t90 = clj_vector_from_array(a29, 2);
+	clj_value t91 = clj_vector_from_array(a29, 2);
+	(void)t90;
 	(void)t89;
-	(void)t88;
-	if (t90 == CLJ_THROWN) {
-	clj_release(t87);
-	clj_release(t72);
-	clj_release(t71);
-	clj_release(t70);
-	goto L2;
-	}
-	clj_value a28[2] = {t87, t90};
-	(void)a28;
-	clj_value t91;
-	if (CLJC_GUARD(V[20], B[7])) {
-	t91 = clj_conj(t87, t90);
-	} else {
-	t91 = clj_c_intrinsic_fallback(V[20], a28, 2);
-	clj_release(t87);
-	}
-	clj_release(t90);
 	if (t91 == CLJ_THROWN) {
+	clj_release(t88);
+	clj_release(t73);
 	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
-	t80 = t91;
-	}
-	clj_value a22[2] = {t74, t80};
-	(void)a22;
-	clj_value t92 = clj_vector_from_array(a22, 2);
-	clj_release(t80);
-	(void)t74;
-	if (t92 == CLJ_THROWN) {
-	clj_release(t72);
-	clj_release(t71);
-	clj_release(t70);
-	goto L2;
-	}
-	clj_value a21[3] = {t72, t73, t92};
-	(void)a21;
-	clj_value t93;
-	if (CLJC_GUARD(V[58], B[23])) {
-	t93 = clj_assoc_owned(t72, t73, t92);
+	clj_value a28[2] = {t88, t91};
+	(void)a28;
+	clj_value t92;
+	if (CLJC_GUARD(V[20], B[7])) {
+	t92 = clj_conj(t88, t91);
 	} else {
-	t93 = clj_c_intrinsic_fallback(V[58], a21, 3);
-	clj_release(t72);
+	t92 = clj_c_intrinsic_fallback(V[20], a28, 2);
+	clj_release(t88);
 	}
-	clj_release(t92);
-	(void)t73;
-	if (t93 == CLJ_THROWN) {
+	clj_release(t91);
+	if (t92 == CLJ_THROWN) {
+	clj_release(t73);
+	clj_release(t72);
 	clj_release(t71);
-	clj_release(t70);
 	goto L2;
 	}
-	clj_c_rebind(&l1, t70);
-	clj_c_rebind(&l2, t71);
-	clj_c_rebind(&l3, t93);
+	t81 = t92;
+	}
+	clj_value a22[2] = {t75, t81};
+	(void)a22;
+	clj_value t93 = clj_vector_from_array(a22, 2);
+	clj_release(t81);
+	(void)t75;
+	if (t93 == CLJ_THROWN) {
+	clj_release(t73);
+	clj_release(t72);
+	clj_release(t71);
+	goto L2;
+	}
+	clj_value a21[3] = {t73, t74, t93};
+	(void)a21;
+	clj_value t94;
+	if (CLJC_GUARD(V[58], B[23])) {
+	t94 = clj_assoc_owned(t73, t74, t93);
+	} else {
+	t94 = clj_c_intrinsic_fallback(V[58], a21, 3);
+	clj_release(t73);
+	}
+	clj_release(t93);
+	(void)t74;
+	if (t94 == CLJ_THROWN) {
+	clj_release(t72);
+	clj_release(t71);
+	goto L2;
+	}
+	clj_c_rebind(&l1, t71);
+	clj_c_rebind(&l2, t72);
+	clj_c_rebind(&l3, t94);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t94 = CLJ_NIL;
-	t16 = t94;
+	clj_value t95 = CLJ_NIL;
+	t17 = t95;
 	}
-	t12 = t16;
+	t12 = t17;
 	} else {
 #line 1748 "Sources/CljCore/boot/core.clj"
-	clj_value t95 = clj_retain(K[42]);
-	clj_c_rebind(&l10, t95);
+	clj_value t96 = clj_retain(K[42]);
+	clj_c_rebind(&l10, t96);
 L5: ;
-	clj_value t96 = l10;
-	clj_value t97 = l3;
-	clj_value a31[1] = {t97};
+	clj_value t97 = l10;
+	clj_value t98 = l3;
+	clj_value a31[1] = {t98};
 	(void)a31;
-	clj_value t98;
-	if (CLJC_GUARD(V[37], B[16])) {
-	t98 = clj_count(t97);
-	} else {
-	t98 = clj_c_intrinsic_fallback(V[37], a31, 1);
-	}
-	(void)t97;
-	if (t98 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a30[2] = {t96, t98};
-	(void)a30;
 	clj_value t99;
-	if (CLJC_GUARD(V[19], B[5])) {
-	t99 = clj_eq(t96, t98);
+	if (CLJC_GUARD(V[37], B[16])) {
+	t99 = clj_count(t98);
 	} else {
-	t99 = clj_c_intrinsic_fallback(V[19], a30, 2);
+	t99 = clj_c_intrinsic_fallback(V[37], a31, 1);
 	}
-	clj_release(t98);
-	(void)t96;
+	(void)t98;
 	if (t99 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t100 = clj_truthy(t99);
-	clj_release(t99);
-	clj_value t101;
-	if (t100) {
-	clj_value t102 = clj_retain(K[3]);
-	t101 = t102;
-	} else {
-	clj_value t103 = l3;
-	clj_value t104 = l10;
-	clj_value a34[2] = {t103, t104};
-	(void)a34;
-	clj_value t105;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t105 = clj_nth2(t103, t104);
-	} else {
-	t105 = clj_c_intrinsic_fallback(V[24], a34, 2);
-	}
-	(void)t104;
-	(void)t103;
-	if (t105 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value a33[1] = {t105};
-	(void)a33;
-	clj_value t106;
-	if (CLJC_GUARD(V[4], B[2])) {
-	t106 = clj_first(t105);
-	} else {
-	t106 = clj_c_intrinsic_fallback(V[4], a33, 1);
-	}
-	clj_release(t105);
-	if (t106 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_value t107 = l4;
-	clj_value a32[2] = {t106, t107};
-	(void)a32;
-	clj_value t108;
+	clj_value t100;
+	clj_value a30[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t108 = clj_eq(t106, t107);
+	if (1 && clj_is_fixnum(t97) && clj_is_fixnum(t99)) {
+	int64_t i101 = clj_fixnum_val(t97);
+	int64_t i102 = clj_fixnum_val(t99);
+	t100 = clj_bool(i101 == i102);
 	} else {
-	t108 = clj_c_intrinsic_fallback(V[19], a32, 2);
+	a30[0] = t97;
+	a30[1] = t99;
+	t100 = clj_eq(a30[0], a30[1]);
+	}
+	} else {
+	a30[0] = t97;
+	a30[1] = t99;
+	t100 = clj_c_intrinsic_fallback(V[19], a30, 2);
+	}
+	clj_release(t99);
+	(void)t97;
+	if (t100 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool t103 = clj_truthy(t100);
+	clj_release(t100);
+	clj_value t104;
+	if (t103) {
+	clj_value t105 = clj_retain(K[3]);
+	t104 = t105;
+	} else {
+	clj_value t106 = l3;
+	clj_value t107 = l10;
+	clj_value a34[2] = {t106, t107};
+	(void)a34;
+	clj_value t108;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t108 = clj_nth2(t106, t107);
+	} else {
+	t108 = clj_c_intrinsic_fallback(V[24], a34, 2);
 	}
 	(void)t107;
-	clj_release(t106);
+	(void)t106;
 	if (t108 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t109 = clj_truthy(t108);
-	clj_release(t108);
-	clj_value t110;
-	if (t109) {
-	clj_value t111 = l10;
-	l10 = CLJ_NIL;
-	t110 = t111;
+	clj_value a33[1] = {t108};
+	(void)a33;
+	clj_value t109;
+	if (CLJC_GUARD(V[4], B[2])) {
+	t109 = clj_first(t108);
 	} else {
-	clj_value t112 = l10;
-	clj_value a35[1] = {t112};
-	(void)a35;
-	clj_value t113;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t113 = clj_inc(t112);
-	} else {
-	t113 = clj_c_intrinsic_fallback(V[21], a35, 1);
+	t109 = clj_c_intrinsic_fallback(V[4], a33, 1);
 	}
-	(void)t112;
-	if (t113 == CLJ_THROWN) {
+	clj_release(t108);
+	if (t109 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_rebind(&l10, t113);
+	clj_value t110 = l4;
+	clj_value a32[2] = {t109, t110};
+	(void)a32;
+	clj_value t111;
+	if (CLJC_GUARD(V[19], B[5])) {
+	t111 = clj_eq(t109, t110);
+	} else {
+	t111 = clj_c_intrinsic_fallback(V[19], a32, 2);
+	}
+	(void)t110;
+	clj_release(t109);
+	if (t111 == CLJ_THROWN) {
+	goto L2;
+	}
+	bool t112 = clj_truthy(t111);
+	clj_release(t111);
+	clj_value t113;
+	if (t112) {
+	clj_value t114 = l10;
+	l10 = CLJ_NIL;
+	t113 = t114;
+	} else {
+	clj_value t115 = l10;
+	clj_value t116;
+	clj_value a35[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t115)) {
+	int64_t i117 = clj_fixnum_val(t115);
+	int64_t i118;
+	if (__builtin_expect(__builtin_add_overflow(i117, INT64_C(1), &i118), 0)) t116 = clj_throw_msg("integer overflow");
+	else t116 = clj_long_new(i118);
+	} else {
+	a35[0] = t115;
+	t116 = clj_inc(a35[0]);
+	}
+	} else {
+	a35[0] = t115;
+	t116 = clj_c_intrinsic_fallback(V[21], a35, 1);
+	}
+	(void)t115;
+	if (t116 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_c_rebind(&l10, t116);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L5;
-	clj_value t114 = CLJ_NIL;
-	t110 = t114;
+	clj_value t119 = CLJ_NIL;
+	t113 = t119;
 	}
-	t101 = t110;
+	t104 = t113;
 	}
-	clj_c_rebind(&l11, t101);
+	clj_c_rebind(&l11, t104);
 #line 1749 "Sources/CljCore/boot/core.clj"
-	clj_value t115 = l11;
-	bool t116 = clj_truthy(t115);
-	(void)t115;
-	clj_value t117;
-	if (t116) {
-#line 1750 "Sources/CljCore/boot/core.clj"
-	clj_value t118 = l1;
-	clj_value a36[1] = {t118};
-	(void)a36;
-	clj_value t119;
-	if (CLJC_GUARD(V[6], B[4])) {
-	t119 = clj_next(t118);
-	} else {
-	t119 = clj_c_intrinsic_fallback(V[6], a36, 1);
-	}
-	(void)t118;
-	if (t119 == CLJ_THROWN) {
-	goto L2;
-	}
 	clj_value t120 = l11;
-	l11 = CLJ_NIL;
-	clj_value t121 = l3;
-	l3 = CLJ_NIL;
-	clj_c_rebind(&l1, t119);
-	clj_c_rebind(&l2, t120);
-	clj_c_rebind(&l3, t121);
-	if (clj_c_loop_tick()) {
-	goto L2;
-	}
-	goto L4;
-	clj_value t122 = CLJ_NIL;
-	t117 = t122;
-	} else {
-#line 1751 "Sources/CljCore/boot/core.clj"
+	bool t121 = clj_truthy(t120);
+	(void)t120;
+	clj_value t122;
+	if (t121) {
+#line 1750 "Sources/CljCore/boot/core.clj"
 	clj_value t123 = l1;
-	clj_value a37[1] = {t123};
-	(void)a37;
+	clj_value a36[1] = {t123};
+	(void)a36;
 	clj_value t124;
 	if (CLJC_GUARD(V[6], B[4])) {
 	t124 = clj_next(t123);
 	} else {
-	t124 = clj_c_intrinsic_fallback(V[6], a37, 1);
+	t124 = clj_c_intrinsic_fallback(V[6], a36, 1);
 	}
 	(void)t123;
 	if (t124 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t125 = l3;
-	clj_value a38[1] = {t125};
-	(void)a38;
-	clj_value t126;
-	if (CLJC_GUARD(V[37], B[16])) {
-	t126 = clj_count(t125);
-	} else {
-	t126 = clj_c_intrinsic_fallback(V[37], a38, 1);
-	}
-	(void)t125;
-	if (t126 == CLJ_THROWN) {
-	clj_release(t124);
-	goto L2;
-	}
-	clj_value t127 = l3;
+	clj_value t125 = l11;
+	l11 = CLJ_NIL;
+	clj_value t126 = l3;
 	l3 = CLJ_NIL;
-	clj_value t128 = l4;
-	clj_value t129 = K[982];
-	clj_value a40[2] = {t128, t129};
-	(void)a40;
-	clj_value t130 = clj_vector_from_array(a40, 2);
-	(void)t129;
-	(void)t128;
-	if (t130 == CLJ_THROWN) {
-	clj_release(t127);
-	clj_release(t126);
-	clj_release(t124);
-	goto L2;
-	}
-	clj_value a39[2] = {t127, t130};
-	(void)a39;
-	clj_value t131;
-	if (CLJC_GUARD(V[20], B[7])) {
-	t131 = clj_conj(t127, t130);
-	} else {
-	t131 = clj_c_intrinsic_fallback(V[20], a39, 2);
-	clj_release(t127);
-	}
-	clj_release(t130);
-	if (t131 == CLJ_THROWN) {
-	clj_release(t126);
-	clj_release(t124);
-	goto L2;
-	}
 	clj_c_rebind(&l1, t124);
-	clj_c_rebind(&l2, t126);
-	clj_c_rebind(&l3, t131);
+	clj_c_rebind(&l2, t125);
+	clj_c_rebind(&l3, t126);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t132 = CLJ_NIL;
-	t117 = t132;
+	clj_value t127 = CLJ_NIL;
+	t122 = t127;
+	} else {
+#line 1751 "Sources/CljCore/boot/core.clj"
+	clj_value t128 = l1;
+	clj_value a37[1] = {t128};
+	(void)a37;
+	clj_value t129;
+	if (CLJC_GUARD(V[6], B[4])) {
+	t129 = clj_next(t128);
+	} else {
+	t129 = clj_c_intrinsic_fallback(V[6], a37, 1);
 	}
-	t12 = t117;
+	(void)t128;
+	if (t129 == CLJ_THROWN) {
+	goto L2;
+	}
+	clj_value t130 = l3;
+	clj_value a38[1] = {t130};
+	(void)a38;
+	clj_value t131;
+	if (CLJC_GUARD(V[37], B[16])) {
+	t131 = clj_count(t130);
+	} else {
+	t131 = clj_c_intrinsic_fallback(V[37], a38, 1);
+	}
+	(void)t130;
+	if (t131 == CLJ_THROWN) {
+	clj_release(t129);
+	goto L2;
+	}
+	clj_value t132 = l3;
+	l3 = CLJ_NIL;
+	clj_value t133 = l4;
+	clj_value t134 = K[982];
+	clj_value a40[2] = {t133, t134};
+	(void)a40;
+	clj_value t135 = clj_vector_from_array(a40, 2);
+	(void)t134;
+	(void)t133;
+	if (t135 == CLJ_THROWN) {
+	clj_release(t132);
+	clj_release(t131);
+	clj_release(t129);
+	goto L2;
+	}
+	clj_value a39[2] = {t132, t135};
+	(void)a39;
+	clj_value t136;
+	if (CLJC_GUARD(V[20], B[7])) {
+	t136 = clj_conj(t132, t135);
+	} else {
+	t136 = clj_c_intrinsic_fallback(V[20], a39, 2);
+	clj_release(t132);
+	}
+	clj_release(t135);
+	if (t136 == CLJ_THROWN) {
+	clj_release(t131);
+	clj_release(t129);
+	goto L2;
+	}
+	clj_c_rebind(&l1, t129);
+	clj_c_rebind(&l2, t131);
+	clj_c_rebind(&l3, t136);
+	if (clj_c_loop_tick()) {
+	goto L2;
+	}
+	goto L4;
+	clj_value t137 = CLJ_NIL;
+	t122 = t137;
+	}
+	t12 = t122;
 	}
 	t6 = t12;
 	} else {
 #line 1732 "Sources/CljCore/boot/core.clj"
-	clj_value t133 = l3;
+	clj_value t138 = l3;
 	l3 = CLJ_NIL;
-	t6 = t133;
+	t6 = t138;
 	}
 	clj_c_leave(&S[354], &cc);
 	clj_release(l1);
@@ -83031,12 +83348,20 @@ L4: ;
 	if (t27 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a7[1] = {t27};
-	(void)a7;
 	clj_value t28;
+	clj_value a7[1];
 	if (CLJC_GUARD(V[90], B[26])) {
-	t28 = clj_dec(t27);
+	if (1 && clj_is_fixnum(t27)) {
+	int64_t i29 = clj_fixnum_val(t27);
+	int64_t i30;
+	if (__builtin_expect(__builtin_sub_overflow(i29, INT64_C(1), &i30), 0)) t28 = clj_throw_msg("integer overflow");
+	else t28 = clj_long_new(i30);
 	} else {
+	a7[0] = t27;
+	t28 = clj_dec(a7[0]);
+	}
+	} else {
+	a7[0] = t27;
 	t28 = clj_c_intrinsic_fallback(V[90], a7, 1);
 	}
 	clj_release(t27);
@@ -83045,210 +83370,210 @@ L4: ;
 	}
 	clj_c_rebind(&l7, t28);
 #line 1829 "Sources/CljCore/boot/core.clj"
-	clj_value t29 = l4;
-	clj_value a9[1] = {t29};
+	clj_value t31 = l4;
+	clj_value a9[1] = {t31};
 	(void)a9;
-	clj_value t30;
+	clj_value t32;
 	if (CLJC_GUARD(V[6], B[4])) {
-	t30 = clj_next(t29);
+	t32 = clj_next(t31);
 	} else {
-	t30 = clj_c_intrinsic_fallback(V[6], a9, 1);
+	t32 = clj_c_intrinsic_fallback(V[6], a9, 1);
 	}
-	(void)t29;
-	if (t30 == CLJ_THROWN) {
+	(void)t31;
+	if (t32 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t31 = l5;
-	clj_value t32 = l7;
 	clj_value t33 = l5;
 	clj_value t34 = l7;
-	clj_value a12[2] = {t33, t34};
+	clj_value t35 = l5;
+	clj_value t36 = l7;
+	clj_value a12[2] = {t35, t36};
 	(void)a12;
-	clj_value t35;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t35 = clj_nth2(t33, t34);
-	} else {
-	t35 = clj_c_intrinsic_fallback(V[24], a12, 2);
-	}
-	(void)t34;
-	(void)t33;
-	if (t35 == CLJ_THROWN) {
-	clj_release(t30);
-	goto L2;
-	}
-	clj_value t36 = l6;
-	clj_value a11[2] = {t35, t36};
-	(void)a11;
 	clj_value t37;
-	if (CLJC_GUARD(V[20], B[7])) {
-	t37 = clj_conj(t35, t36);
+	if (CLJC_GUARD(V[24], B[9])) {
+	t37 = clj_nth2(t35, t36);
 	} else {
-	t37 = clj_c_intrinsic_fallback(V[20], a11, 2);
-	clj_release(t35);
+	t37 = clj_c_intrinsic_fallback(V[24], a12, 2);
 	}
 	(void)t36;
+	(void)t35;
 	if (t37 == CLJ_THROWN) {
-	clj_release(t30);
+	clj_release(t32);
 	goto L2;
 	}
-	clj_value a10[3] = {t31, t32, t37};
-	(void)a10;
-	clj_value t38;
-	if (CLJC_GUARD(V[58], B[23])) {
-	t38 = clj_assoc3(t31, t32, t37);
+	clj_value t38 = l6;
+	clj_value a11[2] = {t37, t38};
+	(void)a11;
+	clj_value t39;
+	if (CLJC_GUARD(V[20], B[7])) {
+	t39 = clj_conj(t37, t38);
 	} else {
-	t38 = clj_c_intrinsic_fallback(V[58], a10, 3);
-	}
+	t39 = clj_c_intrinsic_fallback(V[20], a11, 2);
 	clj_release(t37);
-	(void)t32;
-	(void)t31;
-	if (t38 == CLJ_THROWN) {
-	clj_release(t30);
+	}
+	(void)t38;
+	if (t39 == CLJ_THROWN) {
+	clj_release(t32);
 	goto L2;
 	}
-	clj_c_rebind(&l4, t30);
-	clj_c_rebind(&l5, t38);
+	clj_value a10[3] = {t33, t34, t39};
+	(void)a10;
+	clj_value t40;
+	if (CLJC_GUARD(V[58], B[23])) {
+	t40 = clj_assoc3(t33, t34, t39);
+	} else {
+	t40 = clj_c_intrinsic_fallback(V[58], a10, 3);
+	}
+	clj_release(t39);
+	(void)t34;
+	(void)t33;
+	if (t40 == CLJ_THROWN) {
+	clj_release(t32);
+	goto L2;
+	}
+	clj_c_rebind(&l4, t32);
+	clj_c_rebind(&l5, t40);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t39 = CLJ_NIL;
-	t15 = t39;
+	clj_value t41 = CLJ_NIL;
+	t15 = t41;
 	}
 	t11 = t15;
 	} else {
 #line 1830 "Sources/CljCore/boot/core.clj"
-	clj_value t40 = l4;
-	clj_value a13[1] = {t40};
+	clj_value t42 = l4;
+	clj_value a13[1] = {t42};
 	(void)a13;
-	clj_value t41;
+	clj_value t43;
 	if (CLJC_GUARD(V[6], B[4])) {
-	t41 = clj_next(t40);
+	t43 = clj_next(t42);
 	} else {
-	t41 = clj_c_intrinsic_fallback(V[6], a13, 1);
+	t43 = clj_c_intrinsic_fallback(V[6], a13, 1);
 	}
-	(void)t40;
-	if (t41 == CLJ_THROWN) {
+	(void)t42;
+	if (t43 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t42 = l5;
+	clj_value t44 = l5;
 	l5 = CLJ_NIL;
-	clj_value t43 = l6;
-	clj_value a15[1] = {t43};
+	clj_value t45 = l6;
+	clj_value a15[1] = {t45};
 	(void)a15;
-	clj_value t44 = clj_vector_from_array(a15, 1);
-	(void)t43;
-	if (t44 == CLJ_THROWN) {
-	clj_release(t42);
-	clj_release(t41);
-	goto L2;
-	}
-	clj_value a14[2] = {t42, t44};
-	(void)a14;
-	clj_value t45;
-	if (CLJC_GUARD(V[20], B[7])) {
-	t45 = clj_conj(t42, t44);
-	} else {
-	t45 = clj_c_intrinsic_fallback(V[20], a14, 2);
-	clj_release(t42);
-	}
+	clj_value t46 = clj_vector_from_array(a15, 1);
+	(void)t45;
+	if (t46 == CLJ_THROWN) {
 	clj_release(t44);
-	if (t45 == CLJ_THROWN) {
-	clj_release(t41);
+	clj_release(t43);
 	goto L2;
 	}
-	clj_c_rebind(&l4, t41);
-	clj_c_rebind(&l5, t45);
+	clj_value a14[2] = {t44, t46};
+	(void)a14;
+	clj_value t47;
+	if (CLJC_GUARD(V[20], B[7])) {
+	t47 = clj_conj(t44, t46);
+	} else {
+	t47 = clj_c_intrinsic_fallback(V[20], a14, 2);
+	clj_release(t44);
+	}
+	clj_release(t46);
+	if (t47 == CLJ_THROWN) {
+	clj_release(t43);
+	goto L2;
+	}
+	clj_c_rebind(&l4, t43);
+	clj_c_rebind(&l5, t47);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t46 = CLJ_NIL;
-	t11 = t46;
+	clj_value t48 = CLJ_NIL;
+	t11 = t48;
 	}
 	t5 = t11;
 	} else {
 #line 1823 "Sources/CljCore/boot/core.clj"
-	clj_value t47 = l5;
+	clj_value t49 = l5;
 	l5 = CLJ_NIL;
-	t5 = t47;
+	t5 = t49;
 	}
 	clj_c_rebind(&l8, t5);
 #line 1822 "Sources/CljCore/boot/core.clj"
-	bool o48;
-	clj_value t48 = clj_c_var_borrow(V[0], &o48);
-	if (t48 == CLJ_THROWN) {
+	bool o50;
+	clj_value t50 = clj_c_var_borrow(V[0], &o50);
+	if (t50 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool o49;
-	clj_value t49 = clj_c_var_borrow(V[8], &o49);
-	if (t49 == CLJ_THROWN) {
-	if (o48) clj_release(t48);
-	goto L2;
-	}
-	clj_value t50 = K[1029];
-	clj_value a18[1] = {t50};
-	(void)a18;
-	clj_value t51 = clj_c_invoke(t49, a18, 1);
-	(void)t50;
-	if (o49) clj_release(t49);
+	bool o51;
+	clj_value t51 = clj_c_var_borrow(V[8], &o51);
 	if (t51 == CLJ_THROWN) {
-	if (o48) clj_release(t48);
+	if (o50) clj_release(t50);
+	goto L2;
+	}
+	clj_value t52 = K[1029];
+	clj_value a18[1] = {t52};
+	(void)a18;
+	clj_value t53 = clj_c_invoke(t51, a18, 1);
+	(void)t52;
+	if (o51) clj_release(t51);
+	if (t53 == CLJ_THROWN) {
+	if (o50) clj_release(t50);
 	goto L2;
 	}
 #line 1832 "Sources/CljCore/boot/core.clj"
-	bool o52;
-	clj_value t52 = clj_c_var_borrow(V[96], &o52);
-	if (t52 == CLJ_THROWN) {
-	clj_release(t51);
-	if (o48) clj_release(t48);
+	bool o54;
+	clj_value t54 = clj_c_var_borrow(V[96], &o54);
+	if (t54 == CLJ_THROWN) {
+	clj_release(t53);
+	if (o50) clj_release(t50);
 	goto L2;
 	}
 	clj_value c20[1] = {fr.slots[2]};
-	clj_value t53 = clj_c_closure(CLJ_NIL, clojure_core_extend_protocol__0, c20, 1, 0x2, 1, 1);
-	clj_value t54 = l8;
-	clj_value a19[2] = {t53, t54};
+	clj_value t55 = clj_c_closure(CLJ_NIL, clojure_core_extend_protocol__0, c20, 1, 0x2, 1, 1);
+	clj_value t56 = l8;
+	clj_value a19[2] = {t55, t56};
 	(void)a19;
-	clj_value t55;
+	clj_value t57;
 #ifdef CLJC_DIRECT_clojure_core_map_a2
 	if (!CLJC_FN_clojure_core_map_a2) CLJC_FN_clojure_core_map_a2 = clj_compiled_symbol("clojure_core_map_a2");
-	t55 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[96]), NULL, a19, 2) : clj_c_invoke(t52, a19, 2);
+	t57 = CLJC_FN_clojure_core_map_a2 ? CLJC_FN_clojure_core_map_a2(clj_var_root_relaxed(V[96]), NULL, a19, 2) : clj_c_invoke(t54, a19, 2);
 #else
-	t55 = clj_c_invoke(t52, a19, 2);
+	t57 = clj_c_invoke(t54, a19, 2);
 #endif
-	(void)t54;
+	(void)t56;
+	clj_release(t55);
+	if (o54) clj_release(t54);
+	if (t57 == CLJ_THROWN) {
 	clj_release(t53);
-	if (o52) clj_release(t52);
-	if (t55 == CLJ_THROWN) {
-	clj_release(t51);
-	if (o48) clj_release(t48);
+	if (o50) clj_release(t50);
 	goto L2;
 	}
-	clj_value a17[2] = {t51, t55};
+	clj_value a17[2] = {t53, t57};
 	(void)a17;
-	clj_value t56;
+	clj_value t58;
 #ifdef CLJC_DIRECT_clojure_core_concat_a2
 	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t56 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a17, 2) : clj_c_invoke(t48, a17, 2);
+	t58 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[0]), NULL, a17, 2) : clj_c_invoke(t50, a17, 2);
 #else
-	t56 = clj_c_invoke(t48, a17, 2);
+	t58 = clj_c_invoke(t50, a17, 2);
 #endif
-	clj_release(t55);
-	clj_release(t51);
-	if (o48) clj_release(t48);
-	if (t56 == CLJ_THROWN) {
+	clj_release(t57);
+	clj_release(t53);
+	if (o50) clj_release(t50);
+	if (t58 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a16[1] = {t56};
+	clj_value a16[1] = {t58};
 	(void)a16;
-	clj_value t57;
+	clj_value t59;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t57 = clj_seq(t56);
+	t59 = clj_seq(t58);
 	} else {
-	t57 = clj_c_intrinsic_fallback(V[2], a16, 1);
+	t59 = clj_c_intrinsic_fallback(V[2], a16, 1);
 	}
-	clj_release(t56);
-	if (t57 == CLJ_THROWN) {
+	clj_release(t58);
+	if (t59 == CLJ_THROWN) {
 	goto L2;
 	}
 	clj_c_leave(&S[374], &cc);
@@ -83259,7 +83584,7 @@ L4: ;
 	clj_release(l7);
 	clj_release(l8);
 	clj_c_release_slots(&fr, 3);
-	return t57;
+	return t59;
 L2: ;
 	clj_c_leave(&S[374], &cc);
 L1: ;
@@ -83459,12 +83784,21 @@ L4: ;
 	if (t19 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value a4[2] = {t17, t19};
-	(void)a4;
 	clj_value t20;
+	clj_value a4[2];
 	if (CLJC_GUARD(V[36], B[15])) {
-	t20 = clj_lt(t17, t19);
+	if (1 && clj_is_fixnum(t17) && clj_is_fixnum(t19)) {
+	int64_t i21 = clj_fixnum_val(t17);
+	int64_t i22 = clj_fixnum_val(t19);
+	t20 = clj_bool(i21 < i22);
 	} else {
+	a4[0] = t17;
+	a4[1] = t19;
+	t20 = clj_lt(a4[0], a4[1]);
+	}
+	} else {
+	a4[0] = t17;
+	a4[1] = t19;
 	t20 = clj_c_intrinsic_fallback(V[36], a4, 2);
 	}
 	clj_release(t19);
@@ -83472,351 +83806,359 @@ L4: ;
 	if (t20 == CLJ_THROWN) {
 	goto L2;
 	}
-	bool t21 = clj_truthy(t20);
+	bool t23 = clj_truthy(t20);
 	clj_release(t20);
-	clj_value t22;
-	if (t21) {
+	clj_value t24;
+	if (t23) {
 #line 1844 "Sources/CljCore/boot/core.clj"
-	clj_value t23 = fr.captured[0];
-	clj_value t24 = l3;
-	clj_value a6[2] = {t23, t24};
-	(void)a6;
-	clj_value t25;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t25 = clj_nth2(t23, t24);
-	} else {
-	t25 = clj_c_intrinsic_fallback(V[24], a6, 2);
-	}
-	(void)t24;
-	(void)t23;
-	if (t25 == CLJ_THROWN) {
-	goto L2;
-	}
-	clj_c_set(&fr, 5, t25);
-#line 1845 "Sources/CljCore/boot/core.clj"
+	clj_value t25 = fr.captured[0];
 	clj_value t26 = l3;
-	clj_value a7[1] = {t26};
-	(void)a7;
+	clj_value a6[2] = {t25, t26};
+	(void)a6;
 	clj_value t27;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t27 = clj_inc(t26);
+	if (CLJC_GUARD(V[24], B[9])) {
+	t27 = clj_nth2(t25, t26);
 	} else {
-	t27 = clj_c_intrinsic_fallback(V[21], a7, 1);
+	t27 = clj_c_intrinsic_fallback(V[24], a6, 2);
 	}
 	(void)t26;
+	(void)t25;
 	if (t27 == CLJ_THROWN) {
 	goto L2;
 	}
-#line 1846 "Sources/CljCore/boot/core.clj"
-	bool o28;
-	clj_value t28 = clj_c_var_borrow(V[305], &o28);
-	if (t28 == CLJ_THROWN) {
-	clj_release(t27);
+	clj_c_set(&fr, 5, t27);
+#line 1845 "Sources/CljCore/boot/core.clj"
+	clj_value t28 = l3;
+	clj_value t29;
+	clj_value a7[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t28)) {
+	int64_t i30 = clj_fixnum_val(t28);
+	int64_t i31;
+	if (__builtin_expect(__builtin_add_overflow(i30, INT64_C(1), &i31), 0)) t29 = clj_throw_msg("integer overflow");
+	else t29 = clj_long_new(i31);
+	} else {
+	a7[0] = t28;
+	t29 = clj_inc(a7[0]);
+	}
+	} else {
+	a7[0] = t28;
+	t29 = clj_c_intrinsic_fallback(V[21], a7, 1);
+	}
+	(void)t28;
+	if (t29 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t29 = l1;
-	clj_value t30 = fr.slots[5];
-	clj_value a8[2] = {t29, t30};
+#line 1846 "Sources/CljCore/boot/core.clj"
+	bool o32;
+	clj_value t32 = clj_c_var_borrow(V[305], &o32);
+	if (t32 == CLJ_THROWN) {
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value t33 = l1;
+	clj_value t34 = fr.slots[5];
+	clj_value a8[2] = {t33, t34};
 	(void)a8;
-	clj_value t31;
+	clj_value t35;
 #ifdef CLJC_DIRECT_clojure_core_form_uses_QMARK__a2
 	if (!CLJC_FN_clojure_core_form_uses_QMARK__a2) CLJC_FN_clojure_core_form_uses_QMARK__a2 = clj_compiled_symbol("clojure_core_form_uses_QMARK__a2");
-	t31 = CLJC_FN_clojure_core_form_uses_QMARK__a2 ? CLJC_FN_clojure_core_form_uses_QMARK__a2(clj_var_root_relaxed(V[305]), NULL, a8, 2) : clj_c_invoke(t28, a8, 2);
+	t35 = CLJC_FN_clojure_core_form_uses_QMARK__a2 ? CLJC_FN_clojure_core_form_uses_QMARK__a2(clj_var_root_relaxed(V[305]), NULL, a8, 2) : clj_c_invoke(t32, a8, 2);
 #else
-	t31 = clj_c_invoke(t28, a8, 2);
+	t35 = clj_c_invoke(t32, a8, 2);
 #endif
-	(void)t30;
-	(void)t29;
-	if (o28) clj_release(t28);
-	if (t31 == CLJ_THROWN) {
-	clj_release(t27);
+	(void)t34;
+	(void)t33;
+	if (o32) clj_release(t32);
+	if (t35 == CLJ_THROWN) {
+	clj_release(t29);
 	goto L2;
 	}
-	clj_c_rebind(&l6, t31);
-	clj_value t32 = l6;
-	bool t33 = clj_truthy(t32);
-	(void)t32;
-	clj_value t34;
-	if (t33) {
-	bool o35;
-	clj_value t35 = clj_c_var_borrow(V[94], &o35);
-	if (t35 == CLJ_THROWN) {
-	clj_release(t27);
+	clj_c_rebind(&l6, t35);
+	clj_value t36 = l6;
+	bool t37 = clj_truthy(t36);
+	(void)t36;
+	clj_value t38;
+	if (t37) {
+	bool o39;
+	clj_value t39 = clj_c_var_borrow(V[94], &o39);
+	if (t39 == CLJ_THROWN) {
+	clj_release(t29);
 	goto L2;
 	}
 	clj_value c10[1] = {fr.slots[5]};
-	clj_value t36 = clj_c_closure(CLJ_NIL, clojure_core_field_wrap__0__1, c10, 1, 0x2, 1, 1);
-	clj_value t37 = l0;
-	clj_value a9[2] = {t36, t37};
+	clj_value t40 = clj_c_closure(CLJ_NIL, clojure_core_field_wrap__0__1, c10, 1, 0x2, 1, 1);
+	clj_value t41 = l0;
+	clj_value a9[2] = {t40, t41};
 	(void)a9;
-	clj_value t38;
+	clj_value t42;
 #ifdef CLJC_DIRECT_clojure_core_not_any_QMARK__a2
 	if (!CLJC_FN_clojure_core_not_any_QMARK__a2) CLJC_FN_clojure_core_not_any_QMARK__a2 = clj_compiled_symbol("clojure_core_not_any_QMARK__a2");
-	t38 = CLJC_FN_clojure_core_not_any_QMARK__a2 ? CLJC_FN_clojure_core_not_any_QMARK__a2(clj_var_root_relaxed(V[94]), NULL, a9, 2) : clj_c_invoke(t35, a9, 2);
+	t42 = CLJC_FN_clojure_core_not_any_QMARK__a2 ? CLJC_FN_clojure_core_not_any_QMARK__a2(clj_var_root_relaxed(V[94]), NULL, a9, 2) : clj_c_invoke(t39, a9, 2);
 #else
-	t38 = clj_c_invoke(t35, a9, 2);
+	t42 = clj_c_invoke(t39, a9, 2);
 #endif
-	(void)t37;
-	clj_release(t36);
-	if (o35) clj_release(t35);
-	if (t38 == CLJ_THROWN) {
-	clj_release(t27);
-	goto L2;
-	}
-	t34 = t38;
-	} else {
-	clj_value t39 = clj_retain(l6);
-	t34 = t39;
-	}
-	bool t40 = clj_truthy(t34);
-	clj_release(t34);
-	clj_value t41;
-	if (t40) {
-#line 1847 "Sources/CljCore/boot/core.clj"
-	bool o42;
-	clj_value t42 = clj_c_var_borrow(V[20], &o42);
+	(void)t41;
+	clj_release(t40);
+	if (o39) clj_release(t39);
 	if (t42 == CLJ_THROWN) {
-	clj_release(t27);
+	clj_release(t29);
 	goto L2;
 	}
-	clj_value t43 = l4;
-	clj_value t44 = fr.slots[5];
-	bool o45;
-	clj_value t45 = clj_c_var_borrow(V[0], &o45);
-	if (t45 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
+	t38 = t42;
+	} else {
+	clj_value t43 = clj_retain(l6);
+	t38 = t43;
 	}
+	bool t44 = clj_truthy(t38);
+	clj_release(t38);
+	clj_value t45;
+	if (t44) {
+#line 1847 "Sources/CljCore/boot/core.clj"
 	bool o46;
-	clj_value t46 = clj_c_var_borrow(V[8], &o46);
+	clj_value t46 = clj_c_var_borrow(V[20], &o46);
 	if (t46 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	if (o42) clj_release(t42);
-	clj_release(t27);
+	clj_release(t29);
 	goto L2;
 	}
-	clj_value t47 = K[1036];
-	clj_value a14[1] = {t47};
+	clj_value t47 = l4;
+	clj_value t48 = fr.slots[5];
+	bool o49;
+	clj_value t49 = clj_c_var_borrow(V[0], &o49);
+	if (t49 == CLJ_THROWN) {
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	bool o50;
+	clj_value t50 = clj_c_var_borrow(V[8], &o50);
+	if (t50 == CLJ_THROWN) {
+	if (o49) clj_release(t49);
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value t51 = K[1036];
+	clj_value a14[1] = {t51};
 	(void)a14;
-	clj_value t48 = clj_c_invoke(t46, a14, 1);
+	clj_value t52 = clj_c_invoke(t50, a14, 1);
+	(void)t51;
+	if (o50) clj_release(t50);
+	if (t52 == CLJ_THROWN) {
+	if (o49) clj_release(t49);
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	bool o53;
+	clj_value t53 = clj_c_var_borrow(V[8], &o53);
+	if (t53 == CLJ_THROWN) {
+	clj_release(t52);
+	if (o49) clj_release(t49);
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value t54 = l2;
+	clj_value a15[1] = {t54};
+	(void)a15;
+	clj_value t55 = clj_c_invoke(t53, a15, 1);
+	(void)t54;
+	if (o53) clj_release(t53);
+	if (t55 == CLJ_THROWN) {
+	clj_release(t52);
+	if (o49) clj_release(t49);
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	bool o56;
+	clj_value t56 = clj_c_var_borrow(V[8], &o56);
+	if (t56 == CLJ_THROWN) {
+	clj_release(t55);
+	clj_release(t52);
+	if (o49) clj_release(t49);
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value t57 = l3;
+	clj_value a16[1] = {t57};
+	(void)a16;
+	clj_value t58 = clj_c_invoke(t56, a16, 1);
+	(void)t57;
+	if (o56) clj_release(t56);
+	if (t58 == CLJ_THROWN) {
+	clj_release(t55);
+	clj_release(t52);
+	if (o49) clj_release(t49);
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value a13[3] = {t52, t55, t58};
+	(void)a13;
+	clj_value t59 = clj_c_invoke(t49, a13, 3);
+	clj_release(t58);
+	clj_release(t55);
+	clj_release(t52);
+	if (o49) clj_release(t49);
+	if (t59 == CLJ_THROWN) {
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value a12[1] = {t59};
+	(void)a12;
+	clj_value t60;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t60 = clj_seq(t59);
+	} else {
+	t60 = clj_c_intrinsic_fallback(V[2], a12, 1);
+	}
+	clj_release(t59);
+	if (t60 == CLJ_THROWN) {
+	if (o46) clj_release(t46);
+	clj_release(t29);
+	goto L2;
+	}
+	clj_value a11[3] = {t47, t48, t60};
+	(void)a11;
+	clj_value t61 = clj_c_invoke(t46, a11, 3);
+	clj_release(t60);
+	(void)t48;
 	(void)t47;
 	if (o46) clj_release(t46);
-	if (t48 == CLJ_THROWN) {
-	if (o45) clj_release(t45);
-	if (o42) clj_release(t42);
-	clj_release(t27);
+	if (t61 == CLJ_THROWN) {
+	clj_release(t29);
 	goto L2;
 	}
-	bool o49;
-	clj_value t49 = clj_c_var_borrow(V[8], &o49);
-	if (t49 == CLJ_THROWN) {
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
-	}
-	clj_value t50 = l2;
-	clj_value a15[1] = {t50};
-	(void)a15;
-	clj_value t51 = clj_c_invoke(t49, a15, 1);
-	(void)t50;
-	if (o49) clj_release(t49);
-	if (t51 == CLJ_THROWN) {
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
-	}
-	bool o52;
-	clj_value t52 = clj_c_var_borrow(V[8], &o52);
-	if (t52 == CLJ_THROWN) {
-	clj_release(t51);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
-	}
-	clj_value t53 = l3;
-	clj_value a16[1] = {t53};
-	(void)a16;
-	clj_value t54 = clj_c_invoke(t52, a16, 1);
-	(void)t53;
-	if (o52) clj_release(t52);
-	if (t54 == CLJ_THROWN) {
-	clj_release(t51);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
-	}
-	clj_value a13[3] = {t48, t51, t54};
-	(void)a13;
-	clj_value t55 = clj_c_invoke(t45, a13, 3);
-	clj_release(t54);
-	clj_release(t51);
-	clj_release(t48);
-	if (o45) clj_release(t45);
-	if (t55 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
-	}
-	clj_value a12[1] = {t55};
-	(void)a12;
-	clj_value t56;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t56 = clj_seq(t55);
-	} else {
-	t56 = clj_c_intrinsic_fallback(V[2], a12, 1);
-	}
-	clj_release(t55);
-	if (t56 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	clj_release(t27);
-	goto L2;
-	}
-	clj_value a11[3] = {t43, t44, t56};
-	(void)a11;
-	clj_value t57 = clj_c_invoke(t42, a11, 3);
-	clj_release(t56);
-	(void)t44;
-	(void)t43;
-	if (o42) clj_release(t42);
-	if (t57 == CLJ_THROWN) {
-	clj_release(t27);
-	goto L2;
-	}
-	t41 = t57;
+	t45 = t61;
 	} else {
 #line 1846 "Sources/CljCore/boot/core.clj"
-	clj_value t58 = l4;
+	clj_value t62 = l4;
 	l4 = CLJ_NIL;
-	t41 = t58;
+	t45 = t62;
 	}
-	clj_c_rebind(&l3, t27);
-	clj_c_rebind(&l4, t41);
+	clj_c_rebind(&l3, t29);
+	clj_c_rebind(&l4, t45);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
 	goto L4;
-	clj_value t59 = CLJ_NIL;
-	t22 = t59;
+	clj_value t63 = CLJ_NIL;
+	t24 = t63;
 	} else {
 #line 1843 "Sources/CljCore/boot/core.clj"
-	clj_value t60 = l4;
+	clj_value t64 = l4;
 	l4 = CLJ_NIL;
-	t22 = t60;
+	t24 = t64;
 	}
-	clj_c_rebind(&l7, t22);
+	clj_c_rebind(&l7, t24);
 #line 1850 "Sources/CljCore/boot/core.clj"
-	clj_value t61 = l7;
-	clj_value a17[1] = {t61};
+	clj_value t65 = l7;
+	clj_value a17[1] = {t65};
 	(void)a17;
-	clj_value t62;
+	clj_value t66;
 	if (CLJC_GUARD(V[2], B[0])) {
-	t62 = clj_seq(t61);
+	t66 = clj_seq(t65);
 	} else {
-	t62 = clj_c_intrinsic_fallback(V[2], a17, 1);
+	t66 = clj_c_intrinsic_fallback(V[2], a17, 1);
 	}
-	(void)t61;
-	if (t62 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool t63 = clj_truthy(t62);
-	clj_release(t62);
-	clj_value t64;
-	if (t63) {
-	bool o65;
-	clj_value t65 = clj_c_var_borrow(V[8], &o65);
-	if (t65 == CLJ_THROWN) {
-	goto L2;
-	}
-	bool o66;
-	clj_value t66 = clj_c_var_borrow(V[0], &o66);
+	(void)t65;
 	if (t66 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
 	goto L2;
 	}
-	bool o67;
-	clj_value t67 = clj_c_var_borrow(V[8], &o67);
-	if (t67 == CLJ_THROWN) {
-	if (o66) clj_release(t66);
-	if (o65) clj_release(t65);
-	goto L2;
-	}
-	clj_value t68 = K[1037];
-	clj_value a21[1] = {t68};
-	(void)a21;
-	clj_value t69 = clj_c_invoke(t67, a21, 1);
-	(void)t68;
-	if (o67) clj_release(t67);
+	bool t67 = clj_truthy(t66);
+	clj_release(t66);
+	clj_value t68;
+	if (t67) {
+	bool o69;
+	clj_value t69 = clj_c_var_borrow(V[8], &o69);
 	if (t69 == CLJ_THROWN) {
-	if (o66) clj_release(t66);
-	if (o65) clj_release(t65);
 	goto L2;
 	}
 	bool o70;
-	clj_value t70 = clj_c_var_borrow(V[8], &o70);
+	clj_value t70 = clj_c_var_borrow(V[0], &o70);
 	if (t70 == CLJ_THROWN) {
-	clj_release(t69);
-	if (o66) clj_release(t66);
-	if (o65) clj_release(t65);
+	if (o69) clj_release(t69);
 	goto L2;
 	}
-	clj_value t71 = l7;
-	clj_value a22[1] = {t71};
-	(void)a22;
-	clj_value t72 = clj_c_invoke(t70, a22, 1);
-	(void)t71;
+	bool o71;
+	clj_value t71 = clj_c_var_borrow(V[8], &o71);
+	if (t71 == CLJ_THROWN) {
 	if (o70) clj_release(t70);
-	if (t72 == CLJ_THROWN) {
-	clj_release(t69);
-	if (o66) clj_release(t66);
-	if (o65) clj_release(t65);
+	if (o69) clj_release(t69);
 	goto L2;
 	}
-	clj_value t73 = l1;
-	clj_value a20[3] = {t69, t72, t73};
-	(void)a20;
-	clj_value t74 = clj_c_invoke(t66, a20, 3);
-	(void)t73;
-	clj_release(t72);
-	clj_release(t69);
-	if (o66) clj_release(t66);
+	clj_value t72 = K[1037];
+	clj_value a21[1] = {t72};
+	(void)a21;
+	clj_value t73 = clj_c_invoke(t71, a21, 1);
+	(void)t72;
+	if (o71) clj_release(t71);
+	if (t73 == CLJ_THROWN) {
+	if (o70) clj_release(t70);
+	if (o69) clj_release(t69);
+	goto L2;
+	}
+	bool o74;
+	clj_value t74 = clj_c_var_borrow(V[8], &o74);
 	if (t74 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
+	clj_release(t73);
+	if (o70) clj_release(t70);
+	if (o69) clj_release(t69);
 	goto L2;
 	}
-	clj_value a19[1] = {t74};
-	(void)a19;
-	clj_value t75;
-	if (CLJC_GUARD(V[2], B[0])) {
-	t75 = clj_seq(t74);
-	} else {
-	t75 = clj_c_intrinsic_fallback(V[2], a19, 1);
-	}
-	clj_release(t74);
-	if (t75 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
-	goto L2;
-	}
-	clj_value a18[1] = {t75};
-	(void)a18;
-	clj_value t76 = clj_c_invoke(t65, a18, 1);
-	clj_release(t75);
-	if (o65) clj_release(t65);
+	clj_value t75 = l7;
+	clj_value a22[1] = {t75};
+	(void)a22;
+	clj_value t76 = clj_c_invoke(t74, a22, 1);
+	(void)t75;
+	if (o74) clj_release(t74);
 	if (t76 == CLJ_THROWN) {
+	clj_release(t73);
+	if (o70) clj_release(t70);
+	if (o69) clj_release(t69);
 	goto L2;
 	}
-	t64 = t76;
+	clj_value t77 = l1;
+	clj_value a20[3] = {t73, t76, t77};
+	(void)a20;
+	clj_value t78 = clj_c_invoke(t70, a20, 3);
+	(void)t77;
+	clj_release(t76);
+	clj_release(t73);
+	if (o70) clj_release(t70);
+	if (t78 == CLJ_THROWN) {
+	if (o69) clj_release(t69);
+	goto L2;
+	}
+	clj_value a19[1] = {t78};
+	(void)a19;
+	clj_value t79;
+	if (CLJC_GUARD(V[2], B[0])) {
+	t79 = clj_seq(t78);
 	} else {
-	clj_value t77 = clj_retain(l1);
-	t64 = t77;
+	t79 = clj_c_intrinsic_fallback(V[2], a19, 1);
+	}
+	clj_release(t78);
+	if (t79 == CLJ_THROWN) {
+	if (o69) clj_release(t69);
+	goto L2;
+	}
+	clj_value a18[1] = {t79};
+	(void)a18;
+	clj_value t80 = clj_c_invoke(t69, a18, 1);
+	clj_release(t79);
+	if (o69) clj_release(t69);
+	if (t80 == CLJ_THROWN) {
+	goto L2;
+	}
+	t68 = t80;
+	} else {
+	clj_value t81 = clj_retain(l1);
+	t68 = t81;
 	}
 	clj_c_leave(&S[377], &cc);
 	clj_release(l2);
@@ -83825,7 +84167,7 @@ L4: ;
 	clj_release(l6);
 	clj_release(l7);
 	clj_c_release_slots(&fr, 6);
-	return t64;
+	return t68;
 L2: ;
 	clj_c_leave(&S[377], &cc);
 L1: ;
@@ -93634,12 +93976,21 @@ clj_value clojure_core_isa_QMARK__a3(clj_value self, const clj_value *captured, 
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value a7[2] = {t30, t32};
-	(void)a7;
 	clj_value t33;
+	clj_value a7[2];
 	if (CLJC_GUARD(V[19], B[5])) {
-	t33 = clj_eq(t30, t32);
+	if (1 && clj_is_fixnum(t30) && clj_is_fixnum(t32)) {
+	int64_t i34 = clj_fixnum_val(t30);
+	int64_t i35 = clj_fixnum_val(t32);
+	t33 = clj_bool(i34 == i35);
 	} else {
+	a7[0] = t30;
+	a7[1] = t32;
+	t33 = clj_eq(a7[0], a7[1]);
+	}
+	} else {
+	a7[0] = t30;
+	a7[1] = t32;
 	t33 = clj_c_intrinsic_fallback(V[19], a7, 2);
 	}
 	clj_release(t32);
@@ -93650,179 +94001,196 @@ clj_value clojure_core_isa_QMARK__a3(clj_value self, const clj_value *captured, 
 	}
 	clj_c_rebind(&l7, t33);
 #line 2029 "Sources/CljCore/boot/core.clj"
-	clj_value t34 = l7;
-	bool t35 = clj_truthy(t34);
-	(void)t34;
-	clj_value t36;
-	if (t35) {
-	clj_value t37 = clj_retain(K[39]);
-	clj_c_rebind(&l8, t37);
-	clj_value t38 = clj_retain(K[42]);
-	clj_c_rebind(&l9, t38);
+	clj_value t36 = l7;
+	bool t37 = clj_truthy(t36);
+	(void)t36;
+	clj_value t38;
+	if (t37) {
+	clj_value t39 = clj_retain(K[39]);
+	clj_c_rebind(&l8, t39);
+	clj_value t40 = clj_retain(K[42]);
+	clj_c_rebind(&l9, t40);
 L4: ;
 #line 2033 "Sources/CljCore/boot/core.clj"
-	clj_value t39 = l8;
-	clj_value a10[1] = {t39};
+	clj_value t41 = l8;
+	clj_value a10[1] = {t41};
 	(void)a10;
-	clj_value t40;
+	clj_value t42;
 	if (CLJC_GUARD(V[75], B[24])) {
-	t40 = clj_not(t39);
+	t42 = clj_not(t41);
 	} else {
-	t40 = clj_c_intrinsic_fallback(V[75], a10, 1);
+	t42 = clj_c_intrinsic_fallback(V[75], a10, 1);
 	}
-	(void)t39;
-	if (t40 == CLJ_THROWN) {
-	if (o0) clj_release(t0);
-	goto L2;
-	}
-	clj_c_rebind(&l10, t40);
-	clj_value t41 = l10;
-	bool t42 = clj_truthy(t41);
 	(void)t41;
-	clj_value t43;
-	if (t42) {
-	clj_value t44 = clj_retain(l10);
-	t43 = t44;
+	if (t42 == CLJ_THROWN) {
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	clj_c_rebind(&l10, t42);
+	clj_value t43 = l10;
+	bool t44 = clj_truthy(t43);
+	(void)t43;
+	clj_value t45;
+	if (t44) {
+	clj_value t46 = clj_retain(l10);
+	t45 = t46;
 	} else {
-	clj_value t45 = l9;
-	clj_value t46 = l2;
-	clj_value a12[1] = {t46};
+	clj_value t47 = l9;
+	clj_value t48 = l2;
+	clj_value a12[1] = {t48};
 	(void)a12;
-	clj_value t47;
+	clj_value t49;
 	if (CLJC_GUARD(V[37], B[16])) {
-	t47 = clj_count(t46);
+	t49 = clj_count(t48);
 	} else {
-	t47 = clj_c_intrinsic_fallback(V[37], a12, 1);
+	t49 = clj_c_intrinsic_fallback(V[37], a12, 1);
 	}
-	(void)t46;
-	if (t47 == CLJ_THROWN) {
+	(void)t48;
+	if (t49 == CLJ_THROWN) {
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value a11[2] = {t45, t47};
-	(void)a11;
-	clj_value t48;
-	if (CLJC_GUARD(V[19], B[5])) {
-	t48 = clj_eq(t45, t47);
-	} else {
-	t48 = clj_c_intrinsic_fallback(V[19], a11, 2);
-	}
-	clj_release(t47);
-	(void)t45;
-	if (t48 == CLJ_THROWN) {
-	if (o0) clj_release(t0);
-	goto L2;
-	}
-	t43 = t48;
-	}
-	bool t49 = clj_truthy(t43);
-	clj_release(t43);
 	clj_value t50;
-	if (t49) {
-	clj_value t51 = l8;
+	clj_value a11[2];
+	if (CLJC_GUARD(V[19], B[5])) {
+	if (1 && clj_is_fixnum(t47) && clj_is_fixnum(t49)) {
+	int64_t i51 = clj_fixnum_val(t47);
+	int64_t i52 = clj_fixnum_val(t49);
+	t50 = clj_bool(i51 == i52);
+	} else {
+	a11[0] = t47;
+	a11[1] = t49;
+	t50 = clj_eq(a11[0], a11[1]);
+	}
+	} else {
+	a11[0] = t47;
+	a11[1] = t49;
+	t50 = clj_c_intrinsic_fallback(V[19], a11, 2);
+	}
+	clj_release(t49);
+	(void)t47;
+	if (t50 == CLJ_THROWN) {
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	t45 = t50;
+	}
+	bool t53 = clj_truthy(t45);
+	clj_release(t45);
+	clj_value t54;
+	if (t53) {
+	clj_value t55 = l8;
 	l8 = CLJ_NIL;
-	t50 = t51;
+	t54 = t55;
 	} else {
 #line 2035 "Sources/CljCore/boot/core.clj"
-	bool o52;
-	clj_value t52 = clj_c_var_borrow(V[342], &o52);
-	if (t52 == CLJ_THROWN) {
-	if (o0) clj_release(t0);
-	goto L2;
-	}
-	clj_value t53 = l0;
-	clj_value t54 = l1;
-	clj_value t55 = l9;
-	clj_value a14[2] = {t54, t55};
-	(void)a14;
-	clj_value t56;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t56 = clj_nth2(t54, t55);
-	} else {
-	t56 = clj_c_intrinsic_fallback(V[24], a14, 2);
-	}
-	(void)t55;
-	(void)t54;
+	bool o56;
+	clj_value t56 = clj_c_var_borrow(V[342], &o56);
 	if (t56 == CLJ_THROWN) {
-	if (o52) clj_release(t52);
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t57 = l2;
-	clj_value t58 = l9;
-	clj_value a15[2] = {t57, t58};
-	(void)a15;
-	clj_value t59;
-	if (CLJC_GUARD(V[24], B[9])) {
-	t59 = clj_nth2(t57, t58);
-	} else {
-	t59 = clj_c_intrinsic_fallback(V[24], a15, 2);
-	}
-	(void)t58;
-	(void)t57;
-	if (t59 == CLJ_THROWN) {
-	clj_release(t56);
-	if (o52) clj_release(t52);
-	if (o0) clj_release(t0);
-	goto L2;
-	}
-	clj_value a13[3] = {t53, t56, t59};
-	(void)a13;
+	clj_value t57 = l0;
+	clj_value t58 = l1;
+	clj_value t59 = l9;
+	clj_value a14[2] = {t58, t59};
+	(void)a14;
 	clj_value t60;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t60 = clj_nth2(t58, t59);
+	} else {
+	t60 = clj_c_intrinsic_fallback(V[24], a14, 2);
+	}
+	(void)t59;
+	(void)t58;
+	if (t60 == CLJ_THROWN) {
+	if (o56) clj_release(t56);
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	clj_value t61 = l2;
+	clj_value t62 = l9;
+	clj_value a15[2] = {t61, t62};
+	(void)a15;
+	clj_value t63;
+	if (CLJC_GUARD(V[24], B[9])) {
+	t63 = clj_nth2(t61, t62);
+	} else {
+	t63 = clj_c_intrinsic_fallback(V[24], a15, 2);
+	}
+	(void)t62;
+	(void)t61;
+	if (t63 == CLJ_THROWN) {
+	clj_release(t60);
+	if (o56) clj_release(t56);
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	clj_value a13[3] = {t57, t60, t63};
+	(void)a13;
+	clj_value t64;
 #ifdef CLJC_DIRECT_clojure_core_isa_QMARK__a3
 	if (!CLJC_FN_clojure_core_isa_QMARK__a3) CLJC_FN_clojure_core_isa_QMARK__a3 = clj_compiled_symbol("clojure_core_isa_QMARK__a3");
-	t60 = CLJC_FN_clojure_core_isa_QMARK__a3 ? CLJC_FN_clojure_core_isa_QMARK__a3(clj_var_root_relaxed(V[342]), NULL, a13, 3) : clj_c_invoke(t52, a13, 3);
+	t64 = CLJC_FN_clojure_core_isa_QMARK__a3 ? CLJC_FN_clojure_core_isa_QMARK__a3(clj_var_root_relaxed(V[342]), NULL, a13, 3) : clj_c_invoke(t56, a13, 3);
 #else
-	t60 = clj_c_invoke(t52, a13, 3);
+	t64 = clj_c_invoke(t56, a13, 3);
 #endif
-	clj_release(t59);
-	clj_release(t56);
-	(void)t53;
-	if (o52) clj_release(t52);
-	if (t60 == CLJ_THROWN) {
-	if (o0) clj_release(t0);
-	goto L2;
-	}
-	clj_value t61 = l9;
-	clj_value a16[1] = {t61};
-	(void)a16;
-	clj_value t62;
-	if (CLJC_GUARD(V[21], B[6])) {
-	t62 = clj_inc(t61);
-	} else {
-	t62 = clj_c_intrinsic_fallback(V[21], a16, 1);
-	}
-	(void)t61;
-	if (t62 == CLJ_THROWN) {
+	clj_release(t63);
 	clj_release(t60);
+	(void)t57;
+	if (o56) clj_release(t56);
+	if (t64 == CLJ_THROWN) {
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_c_rebind(&l8, t60);
-	clj_c_rebind(&l9, t62);
+	clj_value t65 = l9;
+	clj_value t66;
+	clj_value a16[1];
+	if (CLJC_GUARD(V[21], B[6])) {
+	if (1 && clj_is_fixnum(t65)) {
+	int64_t i67 = clj_fixnum_val(t65);
+	int64_t i68;
+	if (__builtin_expect(__builtin_add_overflow(i67, INT64_C(1), &i68), 0)) t66 = clj_throw_msg("integer overflow");
+	else t66 = clj_long_new(i68);
+	} else {
+	a16[0] = t65;
+	t66 = clj_inc(a16[0]);
+	}
+	} else {
+	a16[0] = t65;
+	t66 = clj_c_intrinsic_fallback(V[21], a16, 1);
+	}
+	(void)t65;
+	if (t66 == CLJ_THROWN) {
+	clj_release(t64);
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	clj_c_rebind(&l8, t64);
+	clj_c_rebind(&l9, t66);
 	if (clj_c_loop_tick()) {
 	if (o0) clj_release(t0);
 	goto L2;
 	}
 	goto L4;
-	clj_value t63 = CLJ_NIL;
-	t50 = t63;
+	clj_value t69 = CLJ_NIL;
+	t54 = t69;
 	}
-	t36 = t50;
+	t38 = t54;
 	} else {
 #line 2029 "Sources/CljCore/boot/core.clj"
-	clj_value t64 = clj_retain(l7);
-	t36 = t64;
+	clj_value t70 = clj_retain(l7);
+	t38 = t70;
 	}
-	t28 = t36;
+	t28 = t38;
 	} else {
-	clj_value t65 = clj_retain(l6);
-	t28 = t65;
+	clj_value t71 = clj_retain(l6);
+	t28 = t71;
 	}
 	t23 = t28;
 	} else {
-	clj_value t66 = clj_retain(l5);
-	t23 = t66;
+	clj_value t72 = clj_retain(l5);
+	t23 = t72;
 	}
 	t17 = t23;
 	}
@@ -93830,16 +94198,16 @@ L4: ;
 	}
 	clj_value a0[1] = {t6};
 	(void)a0;
-	clj_value t67;
+	clj_value t73;
 #ifdef CLJC_DIRECT_clojure_core_boolean_a1
 	if (!CLJC_FN_clojure_core_boolean_a1) CLJC_FN_clojure_core_boolean_a1 = clj_compiled_symbol("clojure_core_boolean_a1");
-	t67 = CLJC_FN_clojure_core_boolean_a1 ? CLJC_FN_clojure_core_boolean_a1(clj_var_root_relaxed(V[143]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
+	t73 = CLJC_FN_clojure_core_boolean_a1 ? CLJC_FN_clojure_core_boolean_a1(clj_var_root_relaxed(V[143]), NULL, a0, 1) : clj_c_invoke(t0, a0, 1);
 #else
-	t67 = clj_c_invoke(t0, a0, 1);
+	t73 = clj_c_invoke(t0, a0, 1);
 #endif
 	clj_release(t6);
 	if (o0) clj_release(t0);
-	if (t67 == CLJ_THROWN) {
+	if (t73 == CLJ_THROWN) {
 	goto L2;
 	}
 	clj_c_leave(&S[412], &cc);
@@ -93851,7 +94219,7 @@ L4: ;
 	clj_release(l8);
 	clj_release(l9);
 	clj_release(l10);
-	return t67;
+	return t73;
 L2: ;
 	clj_c_leave(&S[412], &cc);
 L1: ;

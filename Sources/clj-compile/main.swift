@@ -24,7 +24,7 @@ func usage() -> Never {
 	FileHandle.standardError.write(Data("""
 	usage: clj-compile [--out DIR] [--closed] [--no-line] [--lenient] [--load-path P]... [--features k,...]
 	                   [--core] [--with-embedded] [--allow-refused] [--stats] (--file F | --ns NS)...
-	--stats reports per unit the frame slots the facts pass calls local and the ones emitted as C variables.
+	--stats reports per unit the frame slots the facts pass calls local, the ones emitted as C variables and as int64_t, and the arithmetic nodes emitted unboxed or behind a tag check.
 	--core writes <out>/core.c and <out>/libs_*.c (the embedded libs) for -DCLJ_COMPILED_CORE builds; otherwise
 	one <out>/<munged path>.c per loaded file plus <out>/units.txt (cname<TAB>path per line, in load order).
 
@@ -110,7 +110,8 @@ if opts.stats {
 		let file = String(cString: cljc_unit_file(compiler, i))
 		FileHandle.standardError.write(Data("""
 		slots: \(file): \(st.slots) slots, local \(st.local) (\(pct(st.local, st.slots))), promoted \(st.promoted) (\(pct(st.promoted, st.slots))) \
-		of which local \(st.promoted_local); local not promoted: param \(st.local_param), pinned \(st.local_pinned), fused \(st.local_fused)
+		of which local \(st.promoted_local); local not promoted: param \(st.local_param), pinned \(st.local_pinned), fused \(st.local_fused); \
+		int64 slots \(st.int_slots), arithmetic nodes unboxed \(st.unboxed), tag-checked \(st.tag_checked)
 
 		""".utf8))
 	}

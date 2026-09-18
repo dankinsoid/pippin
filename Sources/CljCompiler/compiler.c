@@ -5,7 +5,9 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "clj/eval.h"
 #include "clj/facts.h"
+#include "clj/summary.h"
 #include "cljc/compiler.h"
 
 // ---- string builder
@@ -186,6 +188,16 @@ typedef struct {
 	bool     eval_result;
 } unit;
 
+// What the hook saw, kept until cljc_end: emission waits for the whole set, so that every fn is emitted under the
+// caller join of every caller the load defined (the compiler's closed-world round over the dev store, NOTES.md).
+typedef struct {
+	unit          *u;
+	clj_load_form  form;    // file and name retained
+	const clj_node *node;   // retained; NULL for a failure
+	clj_value      ns;      // the current namespace at the hook
+	clj_value      message; // of a failure, retained
+} pending_form;
+
 struct cljc_compiler {
 	cljc_options  opts;
 	unit        **units;
@@ -194,6 +206,8 @@ struct cljc_compiler {
 	size_t        nrefusals, refusals_cap;
 	direct_entry *directs;
 	size_t        ndirects, directs_cap;
+	pending_form *pending;
+	size_t        npending, pending_cap;
 	bool          installed;
 };
 
@@ -298,6 +312,7 @@ typedef struct fnctx {
 	const clj_facts *facts;    // of the top-level tree being emitted
 	uint64_t         promoted; // slots of the running frame that are C variables l<i>, not fr.slots[i]
 	uint64_t         borrowed; // the promoted slots that hold a +0 value for the whole call: never released, never rebound
+	uint64_t         ints;     // the promoted slots that are int64_t variables: every binding is an unboxed expression
 	const struct fnctx *definer; // the context of the frame a direct fn body links to, for the promotion check of OUTER reads
 	temp          *live;
 	int            nlive, live_cap;
@@ -456,9 +471,11 @@ static uint32_t facts_frame(const clj_facts *facts, const clj_node *owner, const
 
 // Sets f->promoted and f->borrowed. A promoted slot is owned-or-nil for its whole life, or (a closure's param or
 // self slot no recur rebinds) borrowed for its whole life; a direct fn's params are owned by the caller's mask.
+static void select_int_slots(fnctx *f, const clj_node *body);
+
 static void promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
 	cljc_slot_stats *st = &f->u->slots;
-	f->promoted = f->borrowed = 0;
+	f->promoted = f->borrowed = f->ints = 0;
 	if (!f->facts || nslots == 0) return;
 	uint32_t fi = facts_frame(f->facts, owner, body);
 	if (fi == UINT32_MAX) return;
@@ -483,10 +500,131 @@ static void promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 		st->promoted++;
 		if (e == CLJ_ESCAPE_LOCAL) st->promoted_local++;
 	}
+	select_int_slots(f, body);
 }
 
 static bool promoted(const fnctx *f, uint32_t i) { return i < 64 && ((f->promoted >> i) & 1); }
 static bool borrowed_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->borrowed >> i) & 1); }
+static bool int_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->ints >> i) & 1); }
+
+// ---- unboxed arithmetic (NOTES.md, "Compiler": unboxed arithmetic and int64 loop variables)
+
+typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG } unbox_op;
+
+static unbox_op unbox_op_of(const clj_intrinsic *op) {
+	static const struct {
+		const char *name;
+		uint32_t    arity;
+		unbox_op    op;
+	} table[] = {
+		{"clojure.core/+", 2, UNBOX_ADD},   {"clojure.core/-", 2, UNBOX_SUB},   {"clojure.core/*", 2, UNBOX_MUL},
+		{"clojure.core/inc", 1, UNBOX_INC}, {"clojure.core/dec", 1, UNBOX_DEC}, {"clojure.core/<", 2, UNBOX_LT},
+		{"clojure.core/<=", 2, UNBOX_LE},   {"clojure.core/>", 2, UNBOX_GT},    {"clojure.core/>=", 2, UNBOX_GE},
+		{"clojure.core/=", 2, UNBOX_EQ},    {"clojure.core/zero?", 1, UNBOX_ZERO}, {"clojure.core/pos?", 1, UNBOX_POS},
+		{"clojure.core/neg?", 1, UNBOX_NEG},
+	};
+	for (size_t i = 0; i < sizeof table / sizeof *table; i++) {
+		if (table[i].arity == op->arity && strcmp(table[i].name, op->name) == 0) return table[i].op;
+	}
+	return UNBOX_NONE;
+}
+
+static bool unbox_yields_int64(unbox_op op) { return op >= UNBOX_ADD && op <= UNBOX_DEC; }
+
+// The node's fact is a fixnum or a boxed long, the two representations of a long.
+static bool int64_fact(const fnctx *f, const clj_node *n) {
+	const clj_fact *a = f->facts ? clj_facts_node(f->facts, n->id) : NULL;
+	return a && a->types != CLJ_T_BOTTOM && (a->types & ~(uint32_t)(CLJ_T_FIXNUM | CLJ_T_LONG)) == 0;
+}
+
+// An expression the emitter computes as an int64_t with no path that yields a boxed value: a fixnum literal, an
+// int64 variable, or int64 arithmetic over those. Only where the intrinsic guard is constant (closed): elsewhere a
+// rebound operator would need the generic path, whose result is a box.
+static bool unboxable(const fnctx *f, const clj_node *n) {
+	if (!f->c->opts.closed) return false;
+	switch (n->kind) {
+	case CLJ_NODE_CONST: return clj_is_fixnum(n->u.value);
+	case CLJ_NODE_LOCAL: return int_slot(f, n->u.local.index);
+	case CLJ_NODE_INTRINSIC: {
+		if (!unbox_yields_int64(unbox_op_of(n->u.intrinsic.op))) return false;
+		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
+			if (!unboxable(f, n->u.intrinsic.args[i])) return false;
+		}
+		return true;
+	}
+	default: return false;
+	}
+}
+
+// Every binding of the frame's own slots: let and loop inits, recur arguments. Other frames are not entered.
+typedef struct {
+	uint32_t        *slots;
+	const clj_node **inits;
+	uint32_t         n, cap;
+} bind_list;
+
+static void bind_add(bind_list *b, uint32_t slot, const clj_node *init) {
+	if (b->n == b->cap) {
+		b->cap = b->cap ? b->cap * 2 : 16;
+		b->slots = realloc(b->slots, b->cap * sizeof *b->slots);
+		b->inits = realloc(b->inits, b->cap * sizeof *b->inits);
+		if (!b->slots || !b->inits) clj_fatal("out of memory");
+	}
+	b->slots[b->n] = slot;
+	b->inits[b->n++] = init;
+}
+
+static void bind_walk(const clj_node *n, void *ctx) {
+	bind_list *b = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		for (uint32_t i = 0; i < n->u.let.n; i++) bind_add(b, n->u.let.slots[i], n->u.let.inits[i]);
+		break;
+	case CLJ_NODE_RECUR:
+		for (uint32_t i = 0; i < n->u.recur.n; i++) bind_add(b, n->u.recur.slots[i], n->u.recur.args[i]);
+		break;
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: return;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) bind_walk(n->u.fused.args[i], ctx);
+		return;
+	default: break;
+	}
+	clj_node_children(n, bind_walk, ctx);
+}
+
+// A promoted owned slot is an int64_t when it is bound at least once and every binding is unboxable, which may
+// rest on other int64 slots: the candidates shrink to a fixpoint.
+static void select_int_slots(fnctx *f, const clj_node *body) {
+	f->ints = 0;
+	if (!f->c->opts.closed || !f->facts) return;
+	bind_list b = {NULL, NULL, 0, 0};
+	bind_walk(body, &b);
+	uint64_t bound = 0, candidates = 0;
+	for (uint32_t i = 0; i < b.n; i++) {
+		if (b.slots[i] < 64) bound |= (uint64_t)1 << b.slots[i];
+	}
+	for (uint32_t i = 0; i < 64; i++) {
+		if (promoted(f, i) && !borrowed_slot(f, i) && ((bound >> i) & 1)) candidates |= (uint64_t)1 << i;
+	}
+	for (uint32_t i = 0; i < b.n; i++) {
+		if (b.slots[i] < 64 && b.inits[i]->kind != CLJ_NODE_DIRECT_FN && !int64_fact(f, b.inits[i])) candidates &= ~((uint64_t)1 << b.slots[i]);
+	}
+	f->ints = candidates;
+	for (bool again = true; again;) {
+		again = false;
+		for (uint32_t i = 0; i < b.n; i++) {
+			if (b.slots[i] >= 64 || !int_slot(f, b.slots[i])) continue;
+			if (unboxable(f, b.inits[i])) continue;
+			f->ints &= ~((uint64_t)1 << b.slots[i]);
+			again = true;
+		}
+	}
+	free(b.slots);
+	free(b.inits);
+	f->u->slots.int_slots += (uint64_t)__builtin_popcountll(f->ints);
+}
 
 // The slot array keeps the slots that are not promoted, up to the highest one.
 static uint32_t array_slots(const fnctx *f, uint32_t nslots) {
@@ -497,13 +635,14 @@ static uint32_t array_slots(const fnctx *f, uint32_t nslots) {
 // The owned promoted slots start at nil; a borrowed one is declared where its value arrives.
 static void emit_promoted_decls(fnctx *f) {
 	for (uint32_t i = 0; i < 64; i++) {
-		if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
+		if (int_slot(f, i)) sb_printf(&f->out, "\tint64_t l%u = 0;\n", i);
+		else if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
 	}
 }
 
 static void emit_promoted_releases(fnctx *f) {
 	for (uint32_t i = 0; i < 64; i++) {
-		if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_release(l%u);\n", i);
+		if (promoted(f, i) && !borrowed_slot(f, i) && !int_slot(f, i)) sb_printf(&f->out, "\tclj_release(l%u);\n", i);
 	}
 }
 
@@ -516,8 +655,65 @@ static void emit_slot_arrival(fnctx *f, uint32_t slot, const char *value) {
 // The store of an owned value into a slot: slot_set of eval.c, or the rebind of a C variable.
 static void emit_set(fnctx *f, uint32_t slot, const char *value) {
 	if (borrowed_slot(f, slot)) clj_fatal("compiler: a borrowed slot is rebound");
+	if (int_slot(f, slot)) clj_fatal("compiler: an int64 slot takes a boxed value");
 	if (promoted(f, slot)) sb_printf(&f->out, "\tclj_c_rebind(&l%u, %s);\n", slot, value);
 	else sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, slot, value);
+}
+
+// An int64_t temp.
+typedef struct {
+	char name[24];
+} itemp;
+
+static itemp new_itemp(fnctx *f) {
+	itemp t;
+	snprintf(t.name, sizeof t.name, "i%d", f->ntemp++);
+	return t;
+}
+
+static void emit_unwind(fnctx *f);
+
+// r = a op b with the overflow check of arith2; an overflow throws where the interpreter would.
+static void emit_int64_arith(fnctx *f, unbox_op op, const char *a, const char *b, const char *r) {
+	const char *builtin = (op == UNBOX_ADD || op == UNBOX_INC) ? "__builtin_add_overflow" : (op == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
+	sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n\tclj_throw_msg(\"integer overflow\");\n", r, builtin, a, b, r);
+	emit_unwind(f);
+	sb_puts(&f->out, "\t}\n");
+}
+
+// n as an int64_t: only for an unboxable node.
+static itemp emit_int64(fnctx *f, const clj_node *n) {
+	fn_line(f, n);
+	itemp t = new_itemp(f);
+	switch (n->kind) {
+	case CLJ_NODE_CONST: sb_printf(&f->out, "\tint64_t %s = INT64_C(%lld);\n", t.name, (long long)clj_fixnum_val(n->u.value)); return t;
+	case CLJ_NODE_LOCAL: sb_printf(&f->out, "\tint64_t %s = l%u;\n", t.name, n->u.local.index); return t;
+	case CLJ_NODE_INTRINSIC: {
+		unbox_op op = unbox_op_of(n->u.intrinsic.op);
+		itemp    a = emit_int64(f, n->u.intrinsic.args[0]);
+		char     b[24] = "INT64_C(1)";
+		if (n->u.intrinsic.n == 2) snprintf(b, sizeof b, "%s", emit_int64(f, n->u.intrinsic.args[1]).name);
+		emit_int64_arith(f, op, a.name, b, t.name);
+		f->u->slots.unboxed++;
+		return t;
+	}
+	default: clj_fatal("compiler: not an unboxable node");
+	}
+}
+
+// The C comparison of a predicate or comparison op over untagged values.
+static const char *unbox_compare(unbox_op op) {
+	switch (op) {
+	case UNBOX_LT: return "<";
+	case UNBOX_LE: return "<=";
+	case UNBOX_GT: return ">";
+	case UNBOX_GE: return ">=";
+	case UNBOX_EQ: return "==";
+	case UNBOX_ZERO: return "==";
+	case UNBOX_POS: return ">";
+	case UNBOX_NEG: return "<";
+	default: clj_fatal("compiler: not a comparison");
+	}
 }
 
 // ---- pools from nodes
@@ -713,6 +909,13 @@ static temp emit_const(fnctx *f, const clj_node *n, bool borrowed) {
 
 static temp emit_local(fnctx *f, const clj_node *n, bool borrowed) {
 	uint32_t i = n->u.local.index;
+	if (int_slot(f, i)) {
+		// a box outside the fixnum range is an allocation, so the read is owned either way
+		temp t = new_temp(f, OWN_YES);
+		sb_printf(&f->out, "\tclj_value %s = clj_long_new(l%u);\n", t.name, i);
+		live_push(f, t);
+		return t;
+	}
 	if (promoted(f, i)) {
 		bool taken = n->u.local.last && !borrowed_slot(f, i);
 		if (borrowed && !taken) {
@@ -830,6 +1033,11 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 			if (!promoted(f, n->u.let.slots[i])) emit_set(f, n->u.let.slots[i], "CLJ_NIL");
 			continue;
 		}
+		if (int_slot(f, n->u.let.slots[i])) {
+			itemp t = emit_int64(f, init);
+			sb_printf(&f->out, "\tl%u = %s;\n", n->u.let.slots[i], t.name);
+			continue;
+		}
 		temp t = emit(f, init);
 		emit_set(f, n->u.let.slots[i], t.name);
 		live_forget(f, &t);
@@ -870,8 +1078,20 @@ static temp emit_loop(fnctx *f, const clj_node *n) {
 static temp emit_recur(fnctx *f, const clj_node *n) {
 	temp *vals = calloc(n->u.recur.n ? n->u.recur.n : 1, sizeof *vals);
 	if (!vals) clj_fatal("out of memory");
-	for (uint32_t i = 0; i < n->u.recur.n; i++) vals[i] = emit(f, n->u.recur.args[i]);
 	for (uint32_t i = 0; i < n->u.recur.n; i++) {
+		if (int_slot(f, n->u.recur.slots[i])) {
+			itemp t = emit_int64(f, n->u.recur.args[i]);
+			snprintf(vals[i].name, sizeof vals[i].name, "%s", t.name);
+			vals[i].own = OWN_NO;
+		} else {
+			vals[i] = emit(f, n->u.recur.args[i]);
+		}
+	}
+	for (uint32_t i = 0; i < n->u.recur.n; i++) {
+		if (int_slot(f, n->u.recur.slots[i])) {
+			sb_printf(&f->out, "\tl%u = %s;\n", n->u.recur.slots[i], vals[i].name);
+			continue;
+		}
 		emit_set(f, n->u.recur.slots[i], vals[i].name);
 		live_forget(f, &vals[i]);
 	}
@@ -1118,10 +1338,111 @@ static void emit_intrinsic_call(fnctx *f, const clj_intrinsic *op, const char *c
 	sb_puts(&f->out, ");\n");
 }
 
-static temp emit_intrinsic(fnctx *f, const clj_node *n) {
+// Every argument is an unboxable expression: the operation runs on int64_t values and only the result is boxed.
+static temp emit_unboxed(fnctx *f, const clj_node *n, unbox_op uop) {
+	if (unbox_yields_int64(uop)) {
+		itemp r = emit_int64(f, n);
+		temp  t = new_temp(f, OWN_YES);
+		sb_printf(&f->out, "\tclj_value %s = clj_long_new(%s);\n", t.name, r.name);
+		live_push(f, t);
+		return t;
+	}
+	itemp a = emit_int64(f, n->u.intrinsic.args[0]);
+	char  b[24] = "INT64_C(0)";
+	if (n->u.intrinsic.n == 2) snprintf(b, sizeof b, "%s", emit_int64(f, n->u.intrinsic.args[1]).name);
+	temp t = new_temp(f, OWN_NO);
+	sb_printf(&f->out, "\tclj_value %s = clj_bool(%s %s %s);\n", t.name, a.name, unbox_compare(uop), b);
+	f->u->slots.unboxed++;
+	return t;
+}
+
+// Every argument's fact is int64 but some come boxed: the fixnum tags of those decide at run time between the
+// inline operation and the table's function, so a stale fact costs the check and never the result. An unboxable
+// argument is computed as an int64_t and boxed only for the generic path.
+static temp emit_tag_checked(fnctx *f, const clj_node *n, unbox_op uop) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
 	size_t               oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var);
+	uint32_t             nargs = n->u.intrinsic.n;
 	char                 array[24];
+	snprintf(array, sizeof array, "a%d", f->naux++);
+	bool  raw[2] = {false, false};
+	itemp it[2];
+	temp  bt[2];
+	for (uint32_t i = 0; i < nargs; i++) {
+		raw[i] = unboxable(f, n->u.intrinsic.args[i]);
+		if (raw[i]) it[i] = emit_int64(f, n->u.intrinsic.args[i]);
+		else bt[i] = emit_borrowed(f, n->u.intrinsic.args[i]);
+	}
+	temp r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
+	// the generic paths take the boxed form of every argument
+	sb_printf(&f->out, "\tclj_value %s[%u];\n", array, nargs);
+	sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\tif (1", vi, oi);
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (!raw[i]) sb_printf(&f->out, " && clj_is_fixnum(%s)", bt[i].name);
+	}
+	sb_puts(&f->out, ") {\n");
+	char x[2][24];
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (raw[i]) snprintf(x[i], sizeof x[i], "%s", it[i].name);
+		else {
+			itemp v = new_itemp(f);
+			sb_printf(&f->out, "\tint64_t %s = clj_fixnum_val(%s);\n", v.name, bt[i].name);
+			snprintf(x[i], sizeof x[i], "%s", v.name);
+		}
+	}
+	if (nargs == 1) snprintf(x[1], sizeof x[1], "%s", unbox_yields_int64(uop) ? "INT64_C(1)" : "INT64_C(0)");
+	if (unbox_yields_int64(uop)) {
+		const char *builtin = (uop == UNBOX_ADD || uop == UNBOX_INC) ? "__builtin_add_overflow" : (uop == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
+		itemp z = new_itemp(f);
+		sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) %s = clj_throw_msg(\"integer overflow\");\n\telse %s = clj_long_new(%s);\n", z.name, builtin, x[0], x[1], z.name,
+		          r.name, r.name, z.name);
+	} else {
+		sb_printf(&f->out, "\t%s = clj_bool(%s %s %s);\n", r.name, x[0], unbox_compare(uop), x[1]);
+	}
+	sb_puts(&f->out, "\t} else {\n");
+	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, "\t%s[%u] = %s;\n", array, i, raw[i] ? "CLJ_NIL" : bt[i].name);
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (raw[i]) sb_printf(&f->out, "\t%s[%u] = clj_long_new(%s);\n", array, i, it[i].name);
+	}
+	if (nargs == 2) sb_printf(&f->out, "\t%s = %s(%s[0], %s[1]);\n", r.name, op->cname, array, array);
+	else sb_printf(&f->out, "\t%s = %s(%s[0]);\n", r.name, op->cname, array);
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (raw[i]) sb_printf(&f->out, "\tclj_release(%s[%u]);\n", array, i);
+	}
+	sb_puts(&f->out, "\t}\n\t} else {\n");
+	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, "\t%s[%u] = %s;\n", array, i, raw[i] ? "CLJ_NIL" : bt[i].name);
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (raw[i]) sb_printf(&f->out, "\t%s[%u] = clj_long_new(%s);\n", array, i, it[i].name);
+	}
+	sb_printf(&f->out, "\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n", r.name, vi, array, nargs);
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (raw[i]) sb_printf(&f->out, "\tclj_release(%s[%u]);\n", array, i);
+	}
+	sb_puts(&f->out, "\t}\n");
+	for (uint32_t i = nargs; i-- > 0;) {
+		if (!raw[i]) release_temp(f, &bt[i]);
+	}
+	check_thrown(f, r.name);
+	live_push(f, r);
+	f->u->slots.tag_checked++;
+	return r;
+}
+
+static temp emit_intrinsic(fnctx *f, const clj_node *n) {
+	const clj_intrinsic *op = n->u.intrinsic.op;
+	unbox_op             uop = unbox_op_of(op);
+	if (uop != UNBOX_NONE) {
+		bool all_unboxable = true, all_int64 = true;
+		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
+			all_unboxable = all_unboxable && unboxable(f, n->u.intrinsic.args[i]);
+			all_int64 = all_int64 && int64_fact(f, n->u.intrinsic.args[i]);
+		}
+		if (all_unboxable) return emit_unboxed(f, n, uop);
+		if (all_int64) return emit_tag_checked(f, n, uop);
+	}
+	size_t oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var);
+	char   array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
 	temp *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
 	temp  r = new_temp(f, OWN_YES);
@@ -1573,6 +1894,33 @@ static void count_facts_slots(unit *u, const clj_facts *facts) {
 	}
 }
 
+// The facts a form is emitted under: the dev store's summaries and caller join. A form compiled on its own
+// (compiled eval) records its fn bodies' sites first, so a callee defined in the same form sees its callers;
+// a file's forms were evaluated by the interpreter, whose execs recorded every live fn body already.
+static clj_facts *form_facts(cljc_compiler *c, const clj_node *n) {
+	clj_summaries *store = clj_specialize_store();
+	if (!c->opts.eval_result) return clj_facts_of_with(n, store);
+	clj_facts *first = clj_facts_of_with(n, store);
+	const void *owner = n;
+	for (uint32_t i = 0; i < clj_facts_nsites(first); i++) {
+		uint32_t        node, nargs;
+		clj_value       var;
+		const clj_fact *args;
+		bool            in_fn;
+		clj_facts_site(first, i, &node, &var, &nargs, &args, &in_fn);
+		if (in_fn) clj_callers_add_site(owner, var, nargs, args);
+	}
+	for (uint32_t i = 0; i < clj_facts_nvalue_reads(first); i++) {
+		bool      in_fn;
+		clj_value var = clj_facts_value_read(first, i, &in_fn);
+		if (in_fn) clj_callers_add_value_read(owner, var);
+	}
+	clj_facts_free(first);
+	clj_facts *facts = clj_facts_of_with(n, store);
+	clj_callers_forget(owner);
+	return facts;
+}
+
 static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n) {
 	uint32_t counter = 0;
 	ndirect_names = 0;
@@ -1591,7 +1939,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	record_direct(c, u, n, base);
 	slot_count sc = {0};
 	count_slots(n, &sc);
-	clj_facts *facts = clj_facts_of(n);
+	clj_facts *facts = form_facts(c, n);
 	f.facts = facts;
 	count_facts_slots(u, facts);
 	promote_slots(&f, NULL, NULL, false, n, sc.nslots);
@@ -1627,6 +1975,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 // ---- the hook
 
 static char *unit_text(cljc_compiler *c, unit *u, const char *init_name);
+static void  emit_failed(cljc_compiler *c, unit *u, const clj_load_form *form, clj_value message);
 
 // core.clj and the embedded libs are units only for the boot build; a file compile leaves them to the interpreter.
 static bool skipped(const cljc_compiler *c, const char *file) {
@@ -1634,14 +1983,49 @@ static bool skipped(const cljc_compiler *c, const char *file) {
 	return strncmp(file, "<embedded>/", 11) == 0 || strcmp(file, CLJ_CORE_CLJ_PATH) == 0;
 }
 
+static pending_form *pend(cljc_compiler *c, unit *u, const clj_load_form *form) {
+	if (c->npending == c->pending_cap) {
+		c->pending_cap = c->pending_cap ? c->pending_cap * 2 : 64;
+		c->pending = realloc(c->pending, c->pending_cap * sizeof *c->pending);
+		if (!c->pending) clj_fatal("out of memory");
+	}
+	pending_form *p = &c->pending[c->npending++];
+	memset(p, 0, sizeof *p);
+	p->u = u;
+	p->form = *form;
+	clj_retain(form->file);
+	clj_retain(form->name);
+	p->ns = clj_ns_current();
+	return p;
+}
+
 static clj_value on_form(const clj_load_form *form, const clj_node *node, void *ctx, bool *handled) {
 	cljc_compiler *c = ctx;
 	*handled = false;
 	const char *file = clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>";
 	if (skipped(c, file)) return CLJ_NIL;
-	unit *u = unit_for(c, file);
-	emit_top(c, u, form, node);
+	unit         *u = unit_for(c, file);
+	pending_form *p = pend(c, u, form);
+	p->node = node;
+	clj_retain(clj_from_ptr((void *)node));
 	return CLJ_NIL;
+}
+
+// Emits every pending form in load order, each in the namespace the hook saw it in.
+static void flush_pending(cljc_compiler *c) {
+	clj_value previous = clj_ns_current();
+	for (size_t i = 0; i < c->npending; i++) {
+		pending_form *p = &c->pending[i];
+		clj_ns_set_current(p->ns);
+		if (p->node) emit_top(c, p->u, &p->form, p->node);
+		else emit_failed(c, p->u, &p->form, p->message);
+		clj_release(clj_from_ptr((void *)p->node));
+		clj_release(p->message);
+		clj_release(p->form.file);
+		clj_release(p->form.name);
+	}
+	clj_ns_set_current(previous);
+	c->npending = 0;
 }
 
 char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node *node) {
@@ -1657,7 +2041,11 @@ static void on_failed(const clj_load_form *form, clj_value message, void *ctx) {
 	cljc_compiler *c = ctx;
 	const char    *file = clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>";
 	if (skipped(c, file)) return;
-	unit *u = unit_for(c, file);
+	pending_form *p = pend(c, unit_for(c, file), form);
+	p->message = clj_retain(message);
+}
+
+static void emit_failed(cljc_compiler *c, unit *u, const clj_load_form *form, clj_value message) {
 	fnctx scratch;
 	memset(&scratch, 0, sizeof scratch);
 	scratch.c = c;
@@ -1679,6 +2067,7 @@ cljc_compiler *cljc_new(const cljc_options *opts) {
 
 void cljc_free(cljc_compiler *c) {
 	if (c->installed) cljc_end(c);
+	free(c->pending);
 	for (size_t i = 0; i < c->nunits; i++) unit_free(c->units[i]);
 	free(c->units);
 	for (size_t i = 0; i < c->nrefusals; i++) {
@@ -1703,6 +2092,7 @@ void cljc_begin(cljc_compiler *c) {
 void cljc_end(cljc_compiler *c) {
 	clj_load_set_hook(NULL);
 	c->installed = false;
+	flush_pending(c);
 }
 
 size_t      cljc_unit_count(const cljc_compiler *c) { return c->nunits; }

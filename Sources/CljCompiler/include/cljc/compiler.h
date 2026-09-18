@@ -62,6 +62,9 @@ typedef struct {
 	uint64_t local_param;    // `local` but a parameter or the self slot: ownership is the caller's
 	uint64_t local_pinned;   // `local` but read through the slot array: a capture, an OUTER read, a frame past 64 slots
 	uint64_t local_fused;    // `local` but a fused node's argument frame, which is the argument array itself
+	uint64_t int_slots;      // promoted slots emitted as int64_t (closed only)
+	uint64_t unboxed;        // arithmetic nodes computed on int64_t values with no boxed path
+	uint64_t tag_checked;    // arithmetic nodes with the inline operation behind the fixnum tags of their arguments
 } cljc_slot_stats;
 
 void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out);

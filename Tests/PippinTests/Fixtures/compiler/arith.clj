@@ -1,0 +1,23 @@
+;; Unboxed arithmetic and int64 loop variables: overflow, boxed longs, a variable that turns double, the caller join.
+(ns fixture.arith)
+
+(defn count-to [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))
+(defn acc-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc)))
+(defn count-down [n] (loop [i n k 0] (if (pos? i) (recur (dec i) (inc k)) k)))
+(defn mul-up [n] (loop [i 1 k 0] (if (< k n) (recur (* i 2) (inc k)) i)))
+(defn mixed [] (loop [i 0] (if (< i 3) (recur (+ i 0.5)) i)))
+(defn preds [n] [(zero? n) (pos? n) (neg? n) (= n 1) (<= n 1) (>= n 1) (> n 1) (dec n) (- n 1) (* n n)])
+(defn near-max [start k] (loop [i start n 0] (if (< n k) (recur (inc i) (inc n)) i)))
+(defn from-max [k] (loop [i 4611686018427387900 n 0] (if (< n k) (recur (inc i) (inc n)) i)))
+(defn until-double [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (if (= i 3) 0.5 1))) acc)))
+(defn run [] [(count-to 10) (acc-to 10) (count-down 5) (mul-up 10) (preds 1) (preds 0) (preds -1)])
+
+(println (run) (mixed) (near-max 4611686018427387900 3) (near-max 4611686018427387900 8) (from-max 3) (from-max 8) (until-double 6))
+(println (count-to 1.5) (acc-to 2.5) (count-down 2.5) (preds 1.5) (preds 3037000499) (preds -3037000499))
+(println (try (mul-up 70) (catch :default e (ex-message e)))
+         (try (near-max 9223372036854775800 8) (catch :default e (ex-message e)))
+         (try (mul-up 64) (catch :default e (ex-message e)))
+         (try (preds "a") (catch :default e (ex-message e)))
+         (try (preds 4611686018427387903) (catch :default e (ex-message e)))
+         (try (count-to nil) (catch :default e (ex-message e))))
+(println (apply count-to [7]) (apply acc-to [2.5]) (map count-to [1 2 3]) (reduce + (map acc-to [3 4])))

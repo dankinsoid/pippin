@@ -51,10 +51,11 @@ private func evalOptions() -> cljc_eval_options {
 
 // The file as one unit, the way clj-compile emits it: the load evaluates every form (its output is dropped) and the
 // unit built from what the hook saw is registered for the path, so clj_load_file runs it in place of the source.
-private func compileAsUnit(_ source: String, file: String, name: String) throws {
+private func compileAsUnit(_ source: String, file: String, name: String, closed: Bool = false) throws {
 	var opts = cljc_options()
 	opts.line = true
 	opts.skip_embedded = true
+	opts.closed = closed
 	let c = cljc_new(&opts)!
 	defer { cljc_free(c) }
 	cljc_begin(c)
@@ -105,6 +106,13 @@ extension CoreTests {
 			let again = try runUnit(file)
 			#expect(again == expected, "second compiled output of \(name)")
 			#expect(clj_debug_live_objects() - live1 <= interpretedGrowth, "compiled run of \(name) leaks")
+			// closed: no guards, direct calls, int64 loop variables; a fixture that rebinds vars or evals stays dev-only
+			guard !source.contains("with-redefs") && !source.contains("(eval ") && !source.contains("load-string") else { return }
+			try compileAsUnit(source, file: file, name: name + "_closed", closed: true)
+			#expect(try runUnit(file) == expected, "closed compiled output of \(name)")
+			let live2 = clj_debug_live_objects()
+			#expect(try runUnit(file) == expected, "second closed compiled output of \(name)")
+			#expect(clj_debug_live_objects() - live2 <= interpretedGrowth, "closed compiled run of \(name) leaks")
 		}
 
 		// Under --closed a form the generator refuses is an error naming the node and its position, not a fallback.
