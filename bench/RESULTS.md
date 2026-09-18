@@ -1054,3 +1054,66 @@ first — is inside the "with summaries" column of whichever form asked first.
   and a `memcmp` before the requirement join took back most of the rest.
 - The summaries add 15 % on top of pass 1 for the whole corpus and up to 60 % for the small forms of the
   embedded libs, where a form's walk is short and its callees' summaries are computed on its behalf.
+
+## Specialized arithmetic — 2026-09-18, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The first consumer of the caller join in both backends (NOTES.md "Facts", "Analyzer and evaluator", "Compiler").
+Two new rows define the same two loops as def'd fns whose only caller is another def'd fn in the same form, so the
+loop bound has a fact (the join); the older rows take the bound from the host and it has none.
+
+**Interpreted**, the same release binary with the specialization on and, as the control, off
+(`CLJ_BENCH_NO_SPECIALIZE=1`), two alternating runs each; ns per iteration or element, `n` = 100000.
+
+| scenario | control | specialized |
+|---|---:|---:|
+| counting loop | 15.3 / 16.2 | 12.6 / 12.6 |
+| loop accumulating into a local | 25.2 / 24.9 | 17.9 / 18.1 |
+| counting loop, bound known from the caller | 15.4 / 16.2 | 10.3 / 10.3 |
+| accumulating loop, bound known from the caller | 24.9 / 24.9 | 15.1 / 15.2 |
+| reduce + range | 5.6 / 5.6 | 5.6 / 5.7 |
+| reduce + vector | 5.2 / 5.3 | 5.3 / 5.3 |
+| closure call in a loop | 21.7 / 22.0 | 21.8 / 22.1 |
+| C builtin call in a loop | 17.6 / 17.3 | 17.4 / 17.4 |
+| swap! inc | 42.0 / 41.9 | 38.1 / 37.8 |
+
+- The counting loop with the bound from the host specializes `(inc i)` alone (`i` is int64 by pass 1; `n` is ⊤) and
+  gains 3 ns; with the bound known from a def'd caller `(< i n)` goes too and it gains 5–6. The accumulating loop
+  gains 7 and 10 the same way. `swap! inc` moves by its loop's `(inc i)`.
+- `reduce +` does not move: the reducer calls `clj_add` from C per element, there is no node to specialize.
+- What a specialized node saves is the indirect call, the kind switch and the two `to_num` conversions of the
+  table's function; the argument evaluation, the exec dispatch and the loop's slot rebind stay, which is the
+  design's "in the interpreter it gives little" — a third of the iteration here.
+- Boot: the derivation of every exec at creation costs +3–4 ms on the ~15 ms interpreted `clj_init` (the compiled
+  core pays nothing); the pool test suite moves within a second of its 26 s.
+
+**Compiled `--closed -O2`**, the "loops compiled `--closed`" column: the closed compiled-core binary with every
+bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`, before (5c6cdc0, the reverse index
+without a consumer) and after, two runs each. The first `counting loop` row is the bimodal one (the Compiler v0
+notes on `syspolicyd`); the second row, the same source measured later, is the number to read.
+
+| scenario | before | after |
+|---|---:|---:|
+| counting loop (first row) | 6.9 / 7.9 | 5.6 / 5.9 |
+| counting loop (second row, same source) | 3.6 / 3.7 | 2.9 / 2.9 |
+| loop accumulating into a local | 6.9 / 7.1 | 3.9 / 3.9 |
+| counting loop, bound known from the caller | — | 1.3 / 1.3 |
+| accumulating loop, bound known from the caller | — | 1.3 / 1.3 |
+| closure call in a loop | 7.0 / 7.0 | 7.0 / 7.0 |
+| C builtin call in a loop | 5.2 / 5.3 | 5.3 / 5.3 |
+| let-bound fn called in a loop | 4.0 / 4.0 | 4.0 / 4.0 |
+| loop with a local helper | 6.2 / 6.4 | 6.4 / 6.4 |
+| plain fn call through a var | 8.0 / 8.0 | 8.0 / 8.0 |
+| swap! inc | 25.2 / 22.2 | 21.4 / 21.4 |
+| fused reduce: reduce + map inc range | 16.8 / 16.8 | 16.8 / 16.8 |
+| transduce (map inc) + range | 11.7 / 11.7 | 11.7 / 11.7 |
+| reduce + range | 5.4 / 5.6 | 5.6 / 5.6 |
+
+- **The counting loop, 3.7 → 2.9**: `i` is an `int64_t` C variable, `(inc i)` an add with an overflow branch, no
+  `clj_release` of the old fixnum. What remains is `(< i n)` boxing `i` and calling `clj_lt` — `n` comes from the
+  host and has no fact — and the deadline tick per turn. **With the bound known from the caller, 1.3 ns**: the
+  comparison is `clj_is_fixnum(n)` and a compare of untagged values, the whole iteration a compare, an add with its
+  overflow branch and the tick; clang does not hoist the tag check past the tick's TLS load.
+- **The accumulating loop, 7 → 3.9**: both variables are `int64_t`, the `+` and the `inc` inline; the `<` as above.
+  With the bound known: 1.3, the same shape with one more add.
+- `swap! inc` moves by the loop's `(inc i)` as in the interpreter; the calls, the protocol rows and the reducer
+  rows are untouched, as expected: nothing in them is an arithmetic node over int64 facts.

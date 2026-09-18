@@ -897,6 +897,41 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
   guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
   call — no frame, no arity table, no var deref, plus a load and a branch on the entry's `consume` form.
+- **The specialized arithmetic node** (specialize.c, eval.c `eval_fix_*`; design §6b item 8, the first
+  self-optimizing node; bench/RESULTS.md, "Specialized arithmetic"). `clj_exec_new` ends by deriving its
+  tree under the process-wide dev store (`clj_specialize_store`: summaries with the caller join on, one
+  lock, made on first use) and rewriting the exec entry of every INTRINSIC `+ - * inc dec < <= > >= =
+  zero? pos? neg?` whose arguments are all int64 by fact — fixnum or boxed long, never "fixnum" alone,
+  which no loop variable is (the Facts entry above) — to a fixnum entry: the fixnum tag of every argument
+  and the boot-root guard are the whole check, then the operation runs inline on the untagged values with
+  `arith2`'s overflow check and `clj_long_new`'s canonical re-tag; anything else, a boxed long included,
+  takes `intrinsic_apply`, the generic path the plain entry runs. Two guards, each for a reason: the tag
+  check makes a wrong or stale fact *slower, never wrong* — the host passes a double to a fn whose
+  recorded callers pass fixnums, a caller at the REPL does, a `def` moved a join a moment ago — and the
+  root guard keeps `(with-redefs [+ -] …)` visible, exactly as the plain entry does. The epoch the fact was
+  derived under lives on the exec (`clj_exec_derivation_valid`: every var epoch the table read and every
+  caller join it took, `clj_facts_valid`'s check) and is what re-derivation is *decided* by, not what a call
+  checks: a call pays the tag bit and the root compare, nothing per epoch. The derivation also records the
+  tree's fn-body sites in the reverse index; a var whose join that moved has its root closure's exec — or
+  the recording exec itself, when it defines the var and the def has not run yet, or calls it recursively —
+  re-derived from a worklist, at most 3 times per exec and 64 per trigger (the incremental interprocedural
+  fixpoint: `(defn f [n] (f (dec n)))` settles in two, fixnum then int64), and the re-derivation writes
+  every arithmetic entry afresh, which is how a stale specialization goes back to the generic entry: the
+  fixture is a fn whose callers pass fixnums until a later `def` adds one passing a double, and
+  `SpecializeTests` checks the entry and the results either side. What a root rebind does *not* do: push;
+  the dependents' specializations stay, guarded by the tag, until a join change re-derives them —
+  trigger: a profile with failed tag checks after a redefinition. A rewrite from a re-derivation lands in
+  a running exec as `clj_exec_count`'s does, at the next child dispatch, and `clj_exec_count(off)` puts the
+  specialized entries back. Cost: the facts pass per exec, +3–4 ms on the 15 ms interpreted boot (the
+  compiled core has no execs and pays nothing), under a second on the 26 s pool test suite; `clj_specialize_enable`
+  turns it off (`CLJ_BENCH_NO_SPECIALIZE=1` is the bench's control). Measured, interpreted: the counting
+  loop 15.3–16.2 → 12.6 ns per iteration with `(inc i)` alone specialized — `n` comes from the host and has
+  no fact — and → 10.3 with the bound known from a def'd caller (`(< i n)` too); the accumulating loop
+  24.9–25.2 → 18.0 and → 15.1; `swap! inc` 42 → 38 (the loop's `(inc i)`). `reduce +` does not move (5.6
+  ns): the reducer calls `clj_add` from C, there is no node. What remains per iteration is the dispatch and
+  the frame work the design names; the tag check is ~1 ns of the ~3 an intrinsic call cost. Doubles are
+  the next trigger: the same entries with `clj_is_double` and a `clj_double_new` result, once a profile
+  shows a double loop.
 - **Constant folding** (optimizer.c `fold_intrinsic`/`fold_if`; design §6b item 4): after the intrinsic
   rewrite, children first, an INTRINSIC whose entry is `pure`, whose arguments are all CONST and whose var
   still holds the boot fn is called at analysis and becomes a CONST; an IF whose test is a CONST becomes
@@ -1091,9 +1126,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   direct calls (over library code known types go 50 → 69 % of value nodes, 30 → 57 % of computed ones,
   docs/facts-coverage.md). What stays ⊤ after them: a **parameter's own fact** — a summary constrains a
   parameter by requirement (what the body needs), never by what callers pass, so `(inc n)` on a parameter is
-  "a number", not a fixnum, and the arithmetic rows (19 % both-fixnum, 45 % both-int64) do not move; joining
-  callers' arguments into a callee is a closed-world pass the compiler may run over the whole set and the
-  interpreter may not (a new caller invalidates nothing it can check), so it is not here. `OUTER` reads,
+  "a number", not a fixnum; the caller join below is what closes that from the other side. `OUTER` reads,
   captured slots of a callee (⊤ inside its body), a `(:k m)` on a parameter, and everything behind `deref`.
 - **⊥ means one of two things, and they are told apart.** A meet that contradicts bumps `clj_facts_conflicts`
   and the branch below it is marked `unreachable` on every node; a node is legitimately ⊥ when a `throw` or a
@@ -1268,9 +1301,53 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (docs/facts-coverage.md, "declarations alone"): they move no known-type percentage, they take pass 2's
   narrowed arguments from 9 to 99 and its proven throws from 0 to 35, because inference alone has no
   requirements at the leaves.
-- **Deliberately not here, each with its trigger.** No join of callers' arguments into a callee's parameters
-  (the closed-world direction; what the arithmetic rows wait on) — trigger: the compiler's `-O2` whole-set
-  run, where it is one more round over the same store. No shape facts (the design's key sets) — trigger: a
+- **The reverse index and the caller join (callers.c): the closed-world direction as a dev-mode fact under
+  an epoch** (design §3 "Проход 2"). The recording walk lists every call site of a var with the facts of what
+  it passes (`clj_facts_site`, before the callee's requirement narrows them) and every read of a var as a
+  value (`clj_facts_value_read`: an argument, a capture, `#'f`, the fn of `apply`), each flagged `in_fn` when
+  it sits in a fn body. A consumer puts them into the process-wide index under an *owner* — the exec of the
+  tree for the interpreter, a token per form for the report tool — and the owner's death takes them out
+  (`clj_callers_forget`, from the exec's finalizer), so the index is what the *live program* passes: a tree
+  that ran once and died is gone with its sites, a redefined fn's old body with its. The interpreter records
+  only `in_fn` sites: a call at the top level of a form runs once, like a call from the host, and a fact
+  about the program must not flip with every REPL line (the first version recorded everything, and reading
+  `f` as a value at the REPL de-specialized `f` for good). Every change bumps the var's **callers epoch**
+  (`clj_var_callers_epoch`), the second epoch beside the root epoch: redefining `f` bumps its root epoch,
+  which invalidates every summary and table that read `f`'s root; adding or losing a caller of `f` bumps its
+  callers epoch, which invalidates only the join `f`'s own body was derived under. A table built with a store
+  that has `clj_summaries_use_callers` on enters the parameters of a `(def f (fn …))` at the **join** over
+  the recorded sites that resolve to that arity (`clj_callers_join`, the evaluator's own arity choice: a
+  site with n arguments feeds the fixed arity n, else the variadic one, whose rest parameter takes nothing),
+  kinds and nullability only — no singleton, which would borrow a caller's constant, and no descriptor,
+  which may die — and records the join with the epoch it was read under (`clj_facts_join_at`, checked by
+  `clj_facts_valid` beside the var deps). The **⊤ rules**, each a reason the join reports: *no site*
+  recorded (a fn nobody calls yet: unknown, not ⊥, or every use in its body would be a false error); a site
+  passing *⊤ at that position* (the other positions keep their join); the var *read as a value* anywhere
+  live (it may be called from a place the index cannot see); `^:dynamic` (a binding may put anything
+  behind the var). The host boundary is a fifth, unrecorded caller, which is why no consumer trusts the join
+  without a runtime check (the tag checks of the two consumers below); the join's job is to decide *where*
+  a fast path is worth emitting. Over the corpus (`make facts-report`, which records every site of every
+  library first and then re-derives every table for 3 rounds, so a parameter narrowed by its callers narrows
+  the sites in its own body for the next round) 865 arities asked, 140 came back narrower than ⊤ at some
+  parameter, 147 of 1102 parameters narrowed and every one to a single kind; the reasons over every ask:
+  576 no site, 444 a ⊤ site, 1221 first-class (`map`, `partial`, `comp`, `concat`, `min`, `max` and the
+  `deftest` vars are the population: a fn passed around is called from anywhere), 0 dynamic, 354 clean.
+  Arithmetic over library code: 18.8 → 22.4 % of sites with every argument fixnum and 44.7 → 49.4 % with
+  every argument int64 (medley 6.7 → 26.7 %). The gap between the two shares was never parameters: a
+  fixnum stays exactly a fixnum only until the first `inc`, since the signature table answers fixnum|long
+  for arithmetic (an overflow past the 63-bit tag boxes), so every loop variable is int64 and not fixnum,
+  and the 22 sites between the shares are loop variables and vars holding a boxed long. What the join
+  moves are the parameters, which sat at ⊤ or "a number" in neither share; what it leaves (43 of 85 sites):
+  18 with an argument that is "a number" and no narrower — a parameter whose callers pass mixed numerics or
+  are unrecorded, a captured parameter (⊤ inside a closure body: no join reaches a capture), the result of
+  `quot`/`rem`/`/` or of a fn whose summary says number —, 14 with a parameter the ⊤ rules left at ⊤ (a
+  helper used first-class, no live caller), 2 comparisons against a double. **A conflict inside a joined
+  frame is a warning**, `CLJ_DIAG_CALLERS_CONFLICT`, never an error: `(name s)` with every recorded caller
+  passing a fixnum says no recorded call takes that path, not that a call throws — the site itself already
+  carries the site diagnostic, and a join-derived error would be a false one for a caller the index does
+  not see. So the join adds no ⊥ to any table (the entry meet is skipped when it would be ⊥ and the site
+  diagnostics stand) and the corpus gate stays at zero errors.
+- **Deliberately not here, each with its trigger.** No shape facts (the design's key sets) — trigger: a
   record fact reaching a consumer, which the constructor summaries now make possible. No ownership, thread
   affinity or the rest of the design's fact kinds — each is a field and a transfer rule on the shared walk;
   trigger: a consumer. No refinement on `CAPTURED` or `OUTER` reads, only on frame slots — trigger: a profile
@@ -1738,16 +1815,19 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `compiled.h`/`compiled_internal.h`/`compiled.c` are the runtime side the generated code calls; `boot/core.c`
   and `boot/libs_*.c` are core.clj and the embedded libs as units, regenerated by `make boot` and linked by a
   `-DCLJ_COMPILED_CORE` build (`make test-compiled`), where `clj_init` runs `clj_compiled_core_init` in place of
-  reading `core_clj.inc` and registers the libs by their `<embedded>/...` paths. Every value stays a boxed
-  `clj_value`; the one fact consumed is the escape classification (promoted slots, below), there is no unboxing
-  and no tree shaking: v0 is the contract and the coverage.
+  reading `core_clj.inc` and registers the libs by their `<embedded>/...` paths. Two facts are consumed: the
+  escape classification (promoted slots, below) and the int64 kind of arithmetic arguments and loop variables
+  (unboxed arithmetic, below); everything else stays a boxed `clj_value`, and there is no tree shaking.
 - **The load hook** (`clj_load_set_hook`, load.c/eval.c) is how the compiler sees the program: a loader
   (`clj_load_source`, `load_core`) arms the hook before each top-level `clj_eval`, which fires it with the
   optimized `const clj_node *` of every tree the form yields (a top-level `do` fires once per item, all with
   the form's serial), and in `toplevel` mode it also fires on host evals made while nothing runs on the thread,
   which is the compiled eval. A hook that runs the form itself sets `handled`; the file compiler leaves it to
   the interpreter, so a compile *evaluates* the file — macros must exist to expand the next form — and the
-  unit runs in another process. Under lenient loading a form that failed to read or analyze reaches
+  unit runs in another process. What the hook sees is kept (the node retained, the form and the namespace
+  of the moment) and emitted at `cljc_end`, in load order: by then the interpreter has run every form, so
+  every fn is emitted under the caller join of every caller the load defined (the Facts entry: the compiler's
+  closed-world round is the same store the interpreter fed). Under lenient loading a form that failed to read or analyze reaches
   `failed` and the unit throws the same message at that point; a form whose evaluation failed is emitted as
   is and fails at run time by itself. The analyzer is untouched: the hook is one thread-local arm plus one
   call in `clj_eval`.
@@ -1833,8 +1913,50 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   which is a direct call (the static link) and nothing else; the "loop with a local helper" row moves 7.0 → 6.4
   and the rest is noise (bench/RESULTS.md). Direct-fn callers still size `ds[]` by the callee's `nslots`, not by
   its kept slots — trigger: a stack-depth profile. A param a fn-body `recur` rebinds could be promoted with a
-  runtime owned flag — trigger: a hot self-recursive fn showing the array store in a profile; the boxed `<`/`inc`
-  are what the counting loop pays now, and that is the facts consumer after this one.
+  runtime owned flag — trigger: a hot self-recursive fn showing the array store in a profile. The boxed `<`/`inc`
+  the counting loop paid are the next entry's.
+- **Unboxed arithmetic and int64 loop variables** (`emit_unboxed`, `emit_tag_checked`, `select_int_slots`;
+  bench/RESULTS.md, "Specialized arithmetic"). `emit_top` builds the tree's table with the dev store
+  (`clj_facts_of_with`, the join included, the store read without its lock since a compile is one thread; a
+  compiled-eval form records its own fn-body sites first and reads the table again, so a callee defined in
+  the same form sees its callers). An arithmetic INTRINSIC of the
+  interpreter's list is emitted in one of three forms. *Unboxed*: every argument is an **unboxable**
+  expression — a fixnum literal, an int64 slot, or such arithmetic over those — so the operation runs on
+  `int64_t` with `__builtin_*_overflow` and only the result is boxed (`clj_long_new`; a comparison yields
+  `clj_bool`, no allocation); an overflow throws "integer overflow" and unwinds where the interpreter would.
+  Only under `--closed`: an unboxable expression has *no path that yields a box*, which needs the intrinsic
+  guard to be constant; in dev a rebound `+` would have to take the generic path, whose result is a box.
+  *Tag-checked*: every argument's fact is int64 but some come boxed (a parameter the join narrowed, a
+  `count`) — the inline operation runs behind `clj_is_fixnum` of the boxed ones, the table's function
+  otherwise, under `CLJC_GUARD` as before; an unboxable argument is computed as an `int64_t` and boxed only
+  on the generic path. Both forms in dev and closed. *Generic*: the call as in v0. The int64 slots: a
+  promoted owned slot is an `int64_t l<i>` when it is bound at least once and every binding — let init, loop
+  init, recur argument — is unboxable, which may rest on other int64 slots, so the candidates shrink to a
+  fixpoint; a read in a boxed position is `clj_long_new(l<i>)`, owned, since a value outside the fixnum
+  range allocates; the slot is never released, and a fused node's argument frame has none (its locals are the
+  argument array, not the enclosing frame's variables — the first version read them as such and passed a
+  long where a seq was due). Why the tag check and not the epoch: the join is a fact about the recorded
+  callers, and a closed unit is still called from the host and from top-level forms the index does not
+  record; the design's "closed removes the guard" holds for the var-root guard, which `CLJ_CLOSED` folds, and
+  for the loop variables, whose every binding the unit itself computes. A wrong fact therefore costs a
+  failed tag check and never a result; the differential gates (`corpus-compiled` dev and closed, the fixtures
+  dev and closed, `test-compiled`) are what keep that true, and `arith.clj` is the fixture that tries to break
+  it: overflow at the fixnum edge and at the int64 edge in unboxed and tag-checked nodes, a loop variable that
+  turns double, a double and a string through every specialized fn, `apply`, `map` over the fn, a direct fn
+  with an int64 loop, a fused node under one. `core.c` is one text for dev and closed, emitted without
+  `--closed`, so the closed core gets the tag-checked nodes (46 in core.clj) and no int64 slots. `clj-compile
+  --stats` counts the three per unit: `arith.clj` closed, 10 int64 slots, 11 unboxed, 15 tag-checked; dev, 26
+  tag-checked. Measured (the "loops compiled `--closed -O2`" column): the counting loop 3.6–3.7 → 2.9 ns per
+  iteration — `i` is an `int64_t`, `(inc i)` an add with an overflow branch, and what remains is `(< i n)`
+  boxing `i` for a `clj_lt` call, since `n` comes from the host and has no fact, plus the deadline tick —,
+  the accumulating loop 6.9–7.2 → 3.9, and both **1.3 ns** with the bound known from a def'd caller in the
+  same form: the loop is a compare against the untagged parameter behind one tag check, an add, the tick.
+  `swap! inc` 22–25 → 21. What remains and its trigger: a loop variable fed by a boxed value with an int64
+  fact (`(loop [i (count v)] …)`, a parameter) stays boxed, because the conversion at entry could fail on a
+  wrong fact and the sound answer is a boxed copy of the loop — trigger: such a loop in a profile, then the
+  two-program form the FUSED node already has; doubles, the same three forms over `clj_is_double` and
+  `clj_double_new` with a `double` C variable — trigger: a double loop in a profile, and the fact "double"
+  is already what the table answers for `(+ x 0.5)`.
 - **Refused** (reported with the node kind and position, the unit throws at the form, `clj-compile` exits 2
   unless `--allow-refused`): a constant that does not print and read back; `eval`/`load-string` in a
   `--closed` user unit. Every node kind is expressible; nothing in core.clj, the embedded libs, medley or the
