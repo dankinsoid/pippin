@@ -27716,7 +27716,7 @@ clj_value clojure_core_range_a3(clj_value self, const clj_value *captured, const
 	if (CLJC_GUARD(V[112], B[28])) {
 	if (1 && clj_is_fixnum(t0)) {
 	int64_t i2 = clj_fixnum_val(t0);
-	t1 = clj_bool(i2 == INT64_C(0));
+	t1 = clj_bool(i2 == 0);
 	} else {
 	a0[0] = t0;
 	t1 = clj_zero_p(a0[0]);
@@ -27873,7 +27873,7 @@ clj_value clojure_core_range_a3(clj_value self, const clj_value *captured, const
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t35)) {
 	int64_t i37 = clj_fixnum_val(t35);
-	t36 = clj_bool(i37 > INT64_C(0));
+	t36 = clj_bool(i37 > 0);
 	} else {
 	a7[0] = t35;
 	t36 = clj_pos_p(a7[0]);
@@ -38177,7 +38177,7 @@ clj_value clojure_core_nat_int_QMARK__a1(clj_value self, const clj_value *captur
 	if (CLJC_GUARD(V[160], B[32])) {
 	if (1 && clj_is_fixnum(t6)) {
 	int64_t i8 = clj_fixnum_val(t6);
-	t7 = clj_bool(i8 < INT64_C(0));
+	t7 = clj_bool(i8 < 0);
 	} else {
 	a2[0] = t6;
 	t7 = clj_neg_p(a2[0]);
@@ -38284,7 +38284,7 @@ clj_value clojure_core_pos_int_QMARK__a1(clj_value self, const clj_value *captur
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t6)) {
 	int64_t i8 = clj_fixnum_val(t6);
-	t7 = clj_bool(i8 > INT64_C(0));
+	t7 = clj_bool(i8 > 0);
 	} else {
 	a1[0] = t6;
 	t7 = clj_pos_p(a1[0]);
@@ -38379,7 +38379,7 @@ clj_value clojure_core_neg_int_QMARK__a1(clj_value self, const clj_value *captur
 	if (CLJC_GUARD(V[160], B[32])) {
 	if (1 && clj_is_fixnum(t6)) {
 	int64_t i8 = clj_fixnum_val(t6);
-	t7 = clj_bool(i8 < INT64_C(0));
+	t7 = clj_bool(i8 < 0);
 	} else {
 	a1[0] = t6;
 	t7 = clj_neg_p(a1[0]);
@@ -39322,7 +39322,7 @@ clj_value clojure_core_mod_a2(clj_value self, const clj_value *captured, const c
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t10)) {
 	int64_t i12 = clj_fixnum_val(t10);
-	t11 = clj_bool(i12 > INT64_C(0));
+	t11 = clj_bool(i12 > 0);
 	} else {
 	a3[0] = t10;
 	t11 = clj_pos_p(a3[0]);
@@ -39341,7 +39341,7 @@ clj_value clojure_core_mod_a2(clj_value self, const clj_value *captured, const c
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t13)) {
 	int64_t i15 = clj_fixnum_val(t13);
-	t14 = clj_bool(i15 > INT64_C(0));
+	t14 = clj_bool(i15 > 0);
 	} else {
 	a4[0] = t13;
 	t14 = clj_pos_p(a4[0]);
@@ -40984,7 +40984,7 @@ L4: ;
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t7)) {
 	int64_t i9 = clj_fixnum_val(t7);
-	t8 = clj_bool(i9 > INT64_C(0));
+	t8 = clj_bool(i9 > 0);
 	} else {
 	a1[0] = t7;
 	t8 = clj_pos_p(a1[0]);
@@ -41232,7 +41232,7 @@ clj_value clojure_core_peek_a1(clj_value self, const clj_value *captured, const 
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t10)) {
 	int64_t i12 = clj_fixnum_val(t10);
-	t11 = clj_bool(i12 > INT64_C(0));
+	t11 = clj_bool(i12 > 0);
 	} else {
 	a2[0] = t10;
 	t11 = clj_pos_p(a2[0]);
@@ -41544,7 +41544,7 @@ clj_value clojure_core_pop_a1(clj_value self, const clj_value *captured, const c
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t10)) {
 	int64_t i12 = clj_fixnum_val(t10);
-	t11 = clj_bool(i12 > INT64_C(0));
+	t11 = clj_bool(i12 > 0);
 	} else {
 	a2[0] = t10;
 	t11 = clj_pos_p(a2[0]);
@@ -54559,7 +54559,7 @@ L4: ;
 	if (CLJC_GUARD(V[89], B[25])) {
 	if (1 && clj_is_fixnum(t41)) {
 	int64_t i43 = clj_fixnum_val(t41);
-	t42 = clj_bool(i43 > INT64_C(0));
+	t42 = clj_bool(i43 > 0);
 	} else {
 	a10[0] = t41;
 	t42 = clj_pos_p(a10[0]);
@@ -79155,7 +79155,7 @@ L4: ;
 	if (CLJC_GUARD(V[160], B[32])) {
 	if (1 && clj_is_fixnum(t13)) {
 	int64_t i15 = clj_fixnum_val(t13);
-	t14 = clj_bool(i15 < INT64_C(0));
+	t14 = clj_bool(i15 < 0);
 	} else {
 	a3[0] = t13;
 	t14 = clj_neg_p(a3[0]);

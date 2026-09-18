@@ -23169,7 +23169,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (CLJC_GUARD(V[71], B[15])) {
 	if (1 && clj_is_fixnum(t13)) {
 	int64_t i15 = clj_fixnum_val(t13);
-	t14 = clj_bool(i15 > INT64_C(0));
+	t14 = clj_bool(i15 > 0);
 	} else {
 	a2[0] = t13;
 	t14 = clj_pos_p(a2[0]);
@@ -23208,7 +23208,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (CLJC_GUARD(V[71], B[15])) {
 	if (1 && clj_is_fixnum(t20)) {
 	int64_t i22 = clj_fixnum_val(t20);
-	t21 = clj_bool(i22 > INT64_C(0));
+	t21 = clj_bool(i22 > 0);
 	} else {
 	a4[0] = t20;
 	t21 = clj_pos_p(a4[0]);

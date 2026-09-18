@@ -1989,7 +1989,7 @@ L4: ;
 	if (CLJC_GUARD(V[45], B[8])) {
 	if (1 && clj_is_fixnum(t2)) {
 	int64_t i4 = clj_fixnum_val(t2);
-	t3 = clj_bool(i4 == INT64_C(0));
+	t3 = clj_bool(i4 == 0);
 	} else {
 	a1[0] = t2;
 	t3 = clj_zero_p(a1[0]);
