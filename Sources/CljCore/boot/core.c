@@ -108601,9 +108601,10 @@ L1: ;
 
 static clj_value clojure_core_form286__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[470], &cc)) goto L1;
 #line 2369 "Sources/CljCore/boot/core.clj"
@@ -108625,7 +108626,7 @@ static clj_value clojure_core_form286__0_a1(clj_value self, const clj_value *cap
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a2[1] = {t3};
 	(void)a2;
 	clj_value t4;
@@ -108667,7 +108668,7 @@ static clj_value clojure_core_form286__0_a1(clj_value self, const clj_value *cap
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t9 = fr.slots[0];
+	clj_value t9 = l0;
 	clj_value a3[1] = {t9};
 	(void)a3;
 	clj_value t10;
@@ -108697,12 +108698,10 @@ static clj_value clojure_core_form286__0_a1(clj_value self, const clj_value *cap
 	goto L2;
 	}
 	clj_c_leave(&S[470], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t11;
 L2: ;
 	clj_c_leave(&S[470], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -108716,8 +108715,7 @@ static clj_value clojure_core_form286__0(void *ctx, const clj_value *args, size_
 }
 
 static clj_value top_286(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 2369 "Sources/CljCore/boot/core.clj"
@@ -108743,11 +108741,9 @@ static clj_value top_286(void) {
 	if (t3 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t3;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
