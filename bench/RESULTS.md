@@ -1010,10 +1010,12 @@ ns per iteration or element, `n` = 100000 unless noted.
 | protocol call, bi-morphic | 21.5 / 21.4 | 21.6 / 21.0 / 21.9 |
 | plain fn call through a var | 8.0 / 8.1 | 8.1 / 8.1 |
 | multimethod, = hit | 105.7 / 109.7 | 106.9 / 106.7 |
-| fused reduce: reduce + map inc range | 16.8 | 16.8 |
+| fused reduce: reduce + map inc range | 19.0 / 16.7 | 18.0 / 18.0 / 18.6 |
 | transduce (map inc) + range | 11.9 / 11.9 | 11.9 / 11.9 |
 | swap! inc | 22.4 / 22.7 | 22.6 / 22.3 |
 | swap! assoc, map of 16 keys | 208.4 / 217.0 | 215.7 / 213.2 |
+| record field `(:id r)` | 1.9 / 1.8 | 1.8 / 1.8 / 1.8 |
+| record `(assoc r :count v)`, unique | 4.5 / 4.9 | 4.6 / 4.9 / 5.0 |
 
 - **What moved**: the loop with a local helper, 7.0 → 6.4. Its frame is passed as the static link of the
   direct fn (`clj_c_outer(&fr, 0)`), so before, `&fr` escaping kept the whole slot array in memory and the loop
