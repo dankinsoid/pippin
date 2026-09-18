@@ -1144,13 +1144,18 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   "a number", not a fixnum; the caller join below is what closes that from the other side. `OUTER` reads,
   captured slots of a callee (⊤ inside its body), a `(:k m)` on a parameter, and everything behind `deref`.
 - **⊥ means one of two things, and they are told apart.** A meet that contradicts bumps `clj_facts_conflicts`
-  and the branch below it is marked `unreachable` on every node; a node is legitimately ⊥ when a `throw` or a
-  `recur` is the only way out of it. Anything else — a ⊥ value node that is neither — is a wrong signature in
-  this file, and both `make facts-report` and `FactsTests.noContradictionOverCore` fail on it. That counter is
-  what found the two bugs this pass shipped with: the complement of a `maybe` nullability subtracted
-  everything, and a loop's fixpoint rounds counted conflicts against variables not yet widened. Over the
-  corpus the remaining 63 conflicts are all branches a literal makes unreachable (`(and false true)`,
-  `(when-let [x [0 1 2]] …)`, `(ratio? x)` after `(= 1 x)`).
+  and the branch below it is marked `unreachable` on every node with the cause (`clj_dead`): `CLJ_DEAD_LITERAL`
+  when the test decides on a pinned value (`literal_test`: the slot it reads or refines holds a singleton or is
+  exactly nil — a let-bound literal, an `and`/`or` temporary, a var whose root is nil —, or the test is `(= x
+  <const>)`), `CLJ_DEAD_REFINED` when two refinements alone exclude each other; a node is legitimately ⊥ when a
+  `throw` or a `recur` is the only way out of it. Anything else — a ⊥ value node that is neither in a literal's
+  dead branch nor behind an exit — is a wrong signature in this file: `make facts-report` counts it per library
+  ("Dead branches" in docs/facts-coverage.md, the unexplained column computed by the pass's own class, not by a
+  list of known sites) and fails on any, as does `FactsTests.noContradictionOverCore`. That counter is what
+  found the two bugs this pass shipped with: the complement of a `maybe` nullability subtracted everything, and
+  a loop's fixpoint rounds counted conflicts against variables not yet widened. Over the corpus the 64 conflicts
+  are all `dead-branch` (`(and nil true)`, `(when-let [x [0 1 2]] …)`, `(ratio? x)` after `(= 1 x)`, `(or
+  *assertion-pos* …)` with the root nil).
 - **Signatures live in facts.c, not in the intrinsics table.** `clj_intrinsic` is the C-call contract the
   compiler emits against and the differential test crosses; hanging a lattice column on it would tie the ABI
   to the fact kinds and force every future fact into that struct. More decisively, half of what is worth

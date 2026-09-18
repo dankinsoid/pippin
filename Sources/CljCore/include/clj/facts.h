@@ -53,11 +53,15 @@ typedef enum {
 // Per local slot: join is the larger value.
 typedef enum { CLJ_ESCAPE_LOCAL = 0, CLJ_ESCAPE_CAPTURED = 1, CLJ_ESCAPE_ESCAPES = 2 } clj_escape;
 
+// Why a node sits in a dead branch: the test's refinement met a slot down to ⊥ where one side was a pinned value (a
+// let-bound literal, a `(= x 1)`), or where neither was (two predicates that exclude each other, or a wrong signature).
+typedef enum { CLJ_DEAD_NONE = 0, CLJ_DEAD_REFINED = 1, CLJ_DEAD_LITERAL = 2 } clj_dead;
+
 typedef struct {
 	uint32_t        types;     // clj_type_kind bitset
 	uint8_t         null;      // clj_null
 	uint8_t         elem;      // array kind + 1 when types is exactly CLJ_T_ARRAY and it is known, else 0
-	uint8_t         unreachable; // the node sits in a branch a refinement proved dead; not part of the lattice
+	uint8_t         unreachable; // clj_dead: the node sits in a branch a refinement proved dead; not part of the lattice
 	clj_value       singleton; // the pinned value when types names one kind, else CLJ_UNBOUND
 	const clj_type *desc;      // record or host descriptor when known, else NULL
 } clj_fact;

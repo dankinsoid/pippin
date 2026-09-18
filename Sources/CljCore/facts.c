@@ -434,7 +434,7 @@ typedef struct {
 	frame_ctx    *frame;
 	recur_target *recur;
 	bool          record;
-	bool          dead; // inside a branch a refinement proved unreachable
+	uint8_t       dead; // clj_dead: inside a branch a refinement proved unreachable
 	uint32_t     *alias_from, *alias_to;
 	uint32_t      nalias, calias;
 	uint32_t      effects; // of the frame being walked
@@ -1221,16 +1221,34 @@ static void warm_summaries(const clj_node *root, clj_summaries *sums) {
 	free(l.nargs);
 }
 
+// A fact of one value: a singleton, or exactly nil (a var whose root is nil reads as nil without a singleton).
+static bool pinned(clj_fact f) { return f.singleton != CLJ_UNBOUND || f.types == CLJ_T_NIL; }
+
+// Whether the test decides on a pinned value: the slot it reads or refines (through the predicate a let init
+// carried) is pinned, or the test is `(= x <const>)`. A branch such a test kills is dead by a literal.
+static bool literal_test(const clj_node *test, const env *e) {
+	bool       negated = false;
+	refinement r = test->kind == CLJ_NODE_LOCAL ? no_refinement() : predicate_of(test, &negated);
+	uint32_t   slots[2] = {test->kind == CLJ_NODE_LOCAL ? test->u.local.index : r.slot, UINT32_MAX};
+	if (slots[0] < e->n && test->kind == CLJ_NODE_LOCAL) slots[1] = e->pred[slots[0]].slot;
+	if (r.slot != UINT32_MAX && r.narrow.singleton != CLJ_UNBOUND) return true;
+	for (uint32_t i = 0; i < 2; i++) {
+		if (slots[i] < e->n && pinned(e->slots[slots[i]])) return true;
+	}
+	return false;
+}
+
 static clj_fact infer_if(pass *p, const clj_node *n, env *e, use_kind use) {
 	infer(p, n->u.if_.test, e, USE_NONE);
 	env      yes = env_clone(e), no = env_clone(e);
 	uint32_t before = p->f->conflicts;
+	uint8_t  cause = literal_test(n->u.if_.test, e) ? CLJ_DEAD_LITERAL : CLJ_DEAD_REFINED;
 	refine(p, n->u.if_.test, &yes, &no);
 	if (p->f->conflicts > before && p->f->conflict_node == UINT32_MAX) p->f->conflict_node = n->u.if_.test->id;
-	bool     outer = p->dead;
-	p->dead = outer || env_bottom(&yes);
+	uint8_t  outer = p->dead;
+	p->dead = outer ? outer : env_bottom(&yes) ? cause : CLJ_DEAD_NONE;
 	clj_fact a = infer(p, n->u.if_.then, &yes, use);
-	p->dead = outer || env_bottom(&no);
+	p->dead = outer ? outer : env_bottom(&no) ? cause : CLJ_DEAD_NONE;
 	clj_fact b = n->u.if_.else_ ? infer(p, n->u.if_.else_, &no, use) : fact_of(CLJ_T_NIL);
 	p->dead = outer;
 	for (uint32_t i = 0; i < e->n; i++) e->slots[i] = clj_fact_join(yes.slots[i], no.slots[i]);

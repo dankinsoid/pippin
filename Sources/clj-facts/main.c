@@ -30,7 +30,7 @@ typedef struct {
 	uint64_t slots, slots_local, slots_captured, slots_escapes;
 	uint64_t proto_calls, proto_known;
 	uint64_t kw_lookups, kw_shaped, kw_record, kw_on_local;
-	uint64_t conflicts, widenings, bottom_unexplained;
+	uint64_t conflicts, widenings, bottom_dead_branch, bottom_exit, bottom_unexplained;
 	uint64_t call_conflicts, caught_conflicts, top_warnings, callers_conflicts, hits, narrowed; // pass 2 only
 	uint64_t joins, joins_narrowed, join_params, join_params_known; // the caller join: asks, asks that narrowed a parameter, parameters
 	double   analyze_ms, facts_ms;
@@ -99,6 +99,7 @@ static char *read_file(const char *path, size_t *len) {
 typedef struct {
 	const clj_facts *f;
 	stats           *s;
+	const char      *path;
 } counter;
 
 static bool is_arith(const char *name) {
@@ -189,7 +190,13 @@ static void count_node(const clj_node *n, void *ctx) {
 		uint32_t size = clj_fact_union_size(*f);
 		if (size == 0) {
 			c->s->type_bottom++;
-			if (!f->unreachable && !has_exit(n)) c->s->bottom_unexplained++;
+			if (f->unreachable == CLJ_DEAD_LITERAL) c->s->bottom_dead_branch++;
+			else if (has_exit(n)) c->s->bottom_exit++;
+			else {
+				c->s->bottom_unexplained++;
+				fprintf(stderr, "clj-facts: unexplained ⊥ at %s:%u:%u, %s\n", c->path, n->line, n->col,
+				        f->unreachable == CLJ_DEAD_REFINED ? "in a branch two refinements killed" : "reachable");
+			}
 		}
 		else if (f->types == CLJ_T_TOP) c->s->type_top++;
 		else if (size == 1) c->s->type_known++;
@@ -211,8 +218,8 @@ static void count_node(const clj_node *n, void *ctx) {
 	clj_node_children(n, count_node, ctx);
 }
 
-static void tally(stats *s, const clj_node *root, const clj_facts *f) {
-	counter c = {f, s};
+static void tally(stats *s, const char *path, const clj_node *root, const clj_facts *f) {
+	counter c = {f, s, path};
 	count_node(root, &c);
 	for (uint32_t i = 0; i < clj_facts_nframes(f); i++) {
 		const clj_facts_frame *fr = clj_facts_frame_at(f, i);
@@ -303,7 +310,7 @@ static void measure_table(stats *s, const char *path, clj_node *root, clj_facts 
 		        fc.found ? fc.found->line : root->line, fc.found ? fc.found->col : 0, what, argtypes);
 	}
 	for (uint32_t i = 0; i < clj_facts_ndiagnostics(f); i++) note_diagnostic(path, clj_facts_diagnostic(f, i));
-	tally(s, root, f);
+	tally(s, path, root, f);
 }
 
 static void measure_file(stats *s, stats *b, stats *na, const char *path, const char *ns_name) {
@@ -595,6 +602,8 @@ static void add(stats *total, const stats *s) {
 	total->kw_on_local += s->kw_on_local;
 	total->conflicts += s->conflicts;
 	total->widenings += s->widenings;
+	total->bottom_dead_branch += s->bottom_dead_branch;
+	total->bottom_exit += s->bottom_exit;
 	total->bottom_unexplained += s->bottom_unexplained;
 	total->call_conflicts += s->call_conflicts;
 	total->caught_conflicts += s->caught_conflicts;
@@ -733,11 +742,12 @@ static void write_report(const char *path) {
 	        btotal.facts_ms, total.facts_ms, total.analyze_ms, total.analyze_ms > 0 ? btotal.facts_ms / total.analyze_ms : 0.0,
 	        total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0, (double)total.peak_bytes / 1024, clj_summaries_count(sums),
 	        clj_summaries_rounds(sums), clj_summaries_widenings(sums), clj_summaries_invalidated(sums));
-	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu, every one a branch a literal makes unreachable. Value nodes\n"
-	             "  at ⊥: %llu, of which %llu neither unreachable nor explained by a throw — the lattice is wrong wherever that is\n"
-	             "  not zero. Loop variables the widening rule cut short: %llu.\n",
-	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.bottom_unexplained,
-	        (unsigned long long)total.widenings);
+	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu. Value nodes at ⊥: %llu, of which %llu `dead-branch` (the pass's\n"
+	             "  own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), %llu with a throw or recur as the only\n"
+	             "  way out, and %llu unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening\n"
+	             "  rule cut short: %llu.\n",
+	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.bottom_dead_branch,
+	        (unsigned long long)total.bottom_exit, (unsigned long long)total.bottom_unexplained, (unsigned long long)total.widenings);
 	fprintf(out, "- Pass 2: %llu call sites took a summary, %llu arguments were narrowed by a requirement. Diagnostics (design §3\n"
 	             "  \"Строгость\"): **%llu errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate\n"
 	             "  this report fails on; %llu proven throws inside a `try` with a handler (`thrown?` assertions), warnings; %llu\n"
@@ -777,6 +787,19 @@ static void write_report(const char *path) {
 		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
 		fprintf(out, "| %s | %llu | %.1f %% | %.1f %% | %.1f %% |\n", s->name, (unsigned long long)s->slots, pct(s->slots_local, s->slots),
 		        pct(s->slots_captured, s->slots), pct(s->slots_escapes, s->slots));
+	}
+
+	fprintf(out, "\n## Dead branches\n\n");
+	fprintf(out, "A conflict is a refinement that met a slot down to ⊥. A value node at ⊥ is `dead-branch` when the pass put it in a\n"
+	             "branch a test on a pinned value killed (`CLJ_DEAD_LITERAL`: a let-bound literal, a `(= x <const>)`, a var whose\n"
+	             "root is nil), `exit` when a throw or a recur is the only way out of it; unexplained is the rest, and the watchdog\n"
+	             "fails on any.\n\n");
+	fprintf(out, "| library | conflicts | ⊥ value nodes | dead-branch | exit | unexplained |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|---:|\n");
+	for (int i = 0; i <= nlibs + 1; i++) {
+		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
+		fprintf(out, "| %s | %llu | %llu | %llu | %llu | %llu |\n", s->name, (unsigned long long)s->conflicts, (unsigned long long)s->type_bottom,
+		        (unsigned long long)s->bottom_dead_branch, (unsigned long long)s->bottom_exit, (unsigned long long)s->bottom_unexplained);
 	}
 
 	fprintf(out, "\n## Cost per library\n\n");
@@ -916,7 +939,7 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained + before[i].bottom_unexplained + joined[i].bottom_unexplained;
 	int status = 0;
 	if (unexplained > 0) {
-		fprintf(stderr, "clj-facts: %llu value node(s) at ⊥ with no throw or recur: the lattice is wrong\n",
+		fprintf(stderr, "clj-facts: %llu value node(s) at ⊥ neither in a dead branch nor behind a throw or recur: the lattice is wrong\n",
 		        (unsigned long long)unexplained);
 		status = 1;
 	}

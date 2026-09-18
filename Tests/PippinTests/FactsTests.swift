@@ -299,11 +299,17 @@ extension CoreTests {
 				#expect(try Facts("(try 1 (catch :default e e))").fact(CLJ_NODE_LOCAL) == "⊤/maybe")
 				#expect(try Facts("(fn [] (throw 1))").fact(CLJ_NODE_THROW) == "⊥/⊥")
 				#expect(try Facts("(fn [x] (if x 1 (throw x)))").fact(CLJ_NODE_IF) == "fixnum/never=1")
-				// a refinement that contradicts marks the branch unreachable rather than the program wrong
+				// a contradicting refinement marks the branch dead, by the pinned literal or by the predicates alone
 				let dead = try Facts("(let [x [1]] (if (nil? x) (count x) 1))")
 				#expect(dead.conflicts == 1)
 				#expect(dead.fact(CLJ_NODE_INTRINSIC, 1) == "fixnum/never")
-				#expect(clj_facts_node(dead.table, dead.id(CLJ_NODE_INTRINSIC, 1)!)!.pointee.unreachable == 1)
+				#expect(clj_facts_node(dead.table, dead.id(CLJ_NODE_INTRINSIC, 1)!)!.pointee.unreachable == UInt8(CLJ_DEAD_LITERAL.rawValue))
+				let refined = try Facts("(fn [x] (if (string? x) (if (number? x) (inc x) 1) 2))")
+				#expect(refined.conflicts == 1)
+				#expect(clj_facts_node(refined.table, refined.id(CLJ_NODE_INTRINSIC, 2)!)!.pointee.unreachable == UInt8(CLJ_DEAD_REFINED.rawValue))
+				let pinned = try Facts("(fn [x] (if (= x 1) (if (string? x) (count x) 1) 2))")
+				#expect(pinned.conflicts == 1)
+				#expect(clj_facts_node(pinned.table, pinned.id(CLJ_NODE_INTRINSIC, 2)!)!.pointee.unreachable == UInt8(CLJ_DEAD_LITERAL.rawValue))
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

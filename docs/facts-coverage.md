@@ -50,13 +50,14 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 62 ms, with the summaries 69 ms, against 371 ms of analysis over the same forms
+- Cost: pass 1 alone 58 ms, with the summaries 66 ms, against 342 ms of analysis over the same forms
   (0.17× → 0.19×); the largest single table is 262 KB. The store holds 743 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 33 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
-- Refinement conflicts (a meet down to ⊥): 64, every one a branch a literal makes unreachable. Value nodes
-  at ⊥: 137, of which 0 neither unreachable nor explained by a throw — the lattice is wrong wherever that is
-  not zero. Loop variables the widening rule cut short: 0.
+- Refinement conflicts (a meet down to ⊥): 64. Value nodes at ⊥: 137, of which 39 `dead-branch` (the pass's
+  own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), 98 with a throw or recur as the only
+  way out, and 0 unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening
+  rule cut short: 0.
 - Pass 2: 26879 call sites took a summary, 99 arguments were narrowed by a requirement. Diagnostics (design §3
   "Строгость"): **0 errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate
   this report fails on; 35 proven throws inside a `try` with a handler (`thrown?` assertions), warnings; 82
@@ -104,18 +105,34 @@ cells add the share with the caller join as a third number.
 | **library code** | 3539 | 23.3 % | 10.1 % | 66.6 % |
 | **all** | 22914 | 27.9 % | 1.6 % | 70.5 % |
 
+## Dead branches
+
+A conflict is a refinement that met a slot down to ⊥. A value node at ⊥ is `dead-branch` when the pass put it in a
+branch a test on a pinned value killed (`CLJ_DEAD_LITERAL`: a let-bound literal, a `(= x <const>)`, a var whose
+root is nil), `exit` when a throw or a recur is the only way out of it; unexplained is the rest, and the watchdog
+fails on any.
+
+| library | conflicts | ⊥ value nodes | dead-branch | exit | unexplained |
+|---|---:|---:|---:|---:|---:|
+| core.clj | 0 | 43 | 0 | 43 | 0 |
+| embedded libs | 1 | 8 | 1 | 7 | 0 |
+| clojure-test-suite | 63 | 81 | 38 | 43 | 0 |
+| medley | 0 | 5 | 0 | 5 | 0 |
+| **library code** | 1 | 56 | 1 | 55 | 0 |
+| **all** | 64 | 137 | 39 | 98 | 0 |
+
 ## Cost per library
 
 The join column is one round's tables over the whole library, summaries already cached.
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12466 | 6.7 | 3.0 | 3.7 | 4.0 | 0.44× → 0.55× | 367 | 13 |
-| embedded libs | 108 | 3710 | 1.8 | 0.8 | 1.1 | 1.1 | 0.42× → 0.61× | 114 | 6 |
-| clojure-test-suite | 516 | 415781 | 346.1 | 56.1 | 61.4 | 61.9 | 0.16× → 0.18× | 9889 | 262 |
-| medley | 104 | 22661 | 16.4 | 2.4 | 3.1 | 3.0 | 0.15× → 0.19× | 562 | 23 |
-| **library code** | 477 | 38837 | 24.9 | 6.2 | 7.9 | 8.1 | 0.25× → 0.32× | 1043 | 23 |
-| **all** | 993 | 454618 | 371.0 | 62.2 | 69.3 | 69.9 | 0.17× → 0.19× | 10932 | 262 |
+| core.clj | 265 | 12466 | 6.3 | 2.9 | 3.6 | 3.8 | 0.46× → 0.57× | 367 | 13 |
+| embedded libs | 108 | 3710 | 1.7 | 0.7 | 1.1 | 1.1 | 0.41× → 0.62× | 114 | 6 |
+| clojure-test-suite | 516 | 415781 | 319.6 | 52.1 | 58.0 | 55.7 | 0.16× → 0.18× | 9889 | 262 |
+| medley | 104 | 22661 | 14.6 | 2.2 | 2.9 | 2.7 | 0.15× → 0.20× | 562 | 23 |
+| **library code** | 477 | 38837 | 22.7 | 5.8 | 7.6 | 7.6 | 0.26× → 0.33× | 1043 | 23 |
+| **all** | 993 | 454618 | 342.2 | 57.9 | 65.6 | 63.4 | 0.17× → 0.19× | 10932 | 262 |
 
 ## Errors
 
