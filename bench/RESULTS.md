@@ -982,3 +982,52 @@ macOS assesses every new code signature on its first load (NOTES.md, "Compiler")
   "tables" column is the sum over a whole library and the peak is the "largest table" column.
 - Nothing calls the pass: `clj_analyze`, `clj_exec_new` and the compiler are unchanged, so this cost is paid
   only by a caller of `clj_facts_of` (NOTES.md, "Facts").
+
+## Compiler v0, promoted slots — aa26129, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The "loops compiled `--closed`" column of the Compiler v0 table, re-measured before and after non-escaping
+slots became C variables (NOTES.md "Compiler", promoted slots): the closed compiled-core binary with every
+bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`. Two runs per side, back to back
+in one session; the pairs show the session's own spread. The first `counting loop` row is bimodal on both
+sides (3.8–4.8 or 7.7–8.0) with byte-identical machine code in the form's dylib: it is the first hot row
+after twelve fresh `dlopen`s, and the system's first-load scan of those images is still running (the
+Compiler v0 notes on `syspolicyd`); the second `counting loop` row, the same source measured later, is the
+number to read.
+
+ns per iteration or element, `n` = 100000 unless noted.
+
+| scenario | before | after |
+|---|---:|---:|
+| counting loop (first row) | 4.8 / 7.7 | 8.0 / 7.7 / 3.8 |
+| counting loop (second row, same source) | 3.6 / 3.8 | 3.9 / 3.7 / 3.8 |
+| loop accumulating into a local | 6.0 / 7.2 | 7.1 / 7.2 / 6.0 |
+| closure call in a loop | 6.9 / 6.9 | 7.0 / 6.9 / 7.0 |
+| C builtin call in a loop | 5.3 / 5.2 | 5.3 / 5.3 / 5.4 |
+| let-bound fn called in a loop | 4.0 / 4.0 | 4.0 / 4.0 / 4.1 |
+| loop with a local helper (direct fn) | 7.0 / 6.8 | 6.4 / 6.4 / 6.5 |
+| protocol call, deftype receiver | 17.1 / 17.2 | 16.6 / 16.5 / 16.9 |
+| protocol call, fixnum receiver | 17.9 / 17.9 | 17.6 / 17.7 / 18.0 |
+| protocol call, bi-morphic | 21.5 / 21.4 | 21.6 / 21.0 / 21.9 |
+| plain fn call through a var | 8.0 / 8.1 | 8.1 / 8.1 |
+| multimethod, = hit | 105.7 / 109.7 | 106.9 / 106.7 |
+| fused reduce: reduce + map inc range | 16.8 | 16.8 |
+| transduce (map inc) + range | 11.9 / 11.9 | 11.9 / 11.9 |
+| swap! inc | 22.4 / 22.7 | 22.6 / 22.3 |
+| swap! assoc, map of 16 keys | 208.4 / 217.0 | 215.7 / 213.2 |
+
+- **What moved**: the loop with a local helper, 7.0 → 6.4. Its frame is passed as the static link of the
+  direct fn (`clj_c_outer(&fr, 0)`), so before, `&fr` escaping kept the whole slot array in memory and the loop
+  variable `i` was a store and a load per iteration; now `i` is a C variable and only `acc`, which the helper
+  reads through `OUTER`, stays in the array.
+- **What did not**: the counting loop and the accumulating loop. Their generated C changed as intended
+  (`clj_value l1 = CLJ_NIL; … clj_c_rebind(&l1, t7)` in place of `s[3]`, `fr.owned` and `clj_c_set`), but the
+  `-O2` machine code is identical before and after: nothing took the frame's address, so clang's SROA had
+  already split the array into registers and folded the owned-bit updates. What those loops pay is the boxed
+  `<`, `inc` and `+` (a call each, with the fixnum tag checks), `clj_release` on the old fixnum, the deadline
+  tick and `clj_c_enter`/`leave` per call — none of it slot traffic. The slot promotion is the precondition for
+  unboxing those variables, not a speed-up on its own at `-O2`; at `-O0` (test builds, `-DCLJ_COMPILED_CORE`
+  in debug) every promoted slot is a stack store and load fewer.
+- **Census** (`clj-compile --stats`): core.clj 1813 frame slots, 22.9 % `local` by the facts pass, 83.4 %
+  promoted; medley 1347 slots, 25.2 % `local`, 91.8 % promoted. The promoted share exceeds the `local` share
+  because `escapes` (the value leaves the frame) does not bar a C variable; what bars it is a capture, a
+  static-link read, a param a fn-body `recur` rebinds, a direct fn's param, a frame past 64 slots.
