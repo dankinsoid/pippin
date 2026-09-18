@@ -2113,10 +2113,12 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	return r;
 }
 
-// The name a direct fn's C functions got when its let emitted it: numbered like closures, found again by node.
+// The name a direct fn's C functions got when its let emitted it: numbered like closures, found again by node,
+// and per arity the slot array its promotion left (UINT32_MAX until that arity's body is emitted).
 typedef struct {
 	const clj_node *fn;
 	char            base[256];
+	uint32_t        arr[CLJ_FN_MAX_FIXED + 1];
 } direct_name;
 
 static direct_name *direct_names;
@@ -2130,14 +2132,24 @@ static void direct_name_add(const clj_node *fn, const char *base) {
 	}
 	direct_names[ndirect_names].fn = fn;
 	snprintf(direct_names[ndirect_names].base, sizeof direct_names[ndirect_names].base, "%s", base);
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) direct_names[ndirect_names].arr[i] = UINT32_MAX;
 	ndirect_names++;
 }
 
-static const char *direct_name_of(const clj_node *fn) {
+static direct_name *direct_name_entry(const clj_node *fn) {
 	for (size_t i = ndirect_names; i-- > 0;) {
-		if (direct_names[i].fn == fn) return direct_names[i].base;
+		if (direct_names[i].fn == fn) return &direct_names[i];
 	}
 	clj_fatal("compiler: direct call before its fn");
+}
+
+static const char *direct_name_of(const clj_node *fn) { return direct_name_entry(fn)->base; }
+
+// The slots a caller must give the arity: what its promotion left in the array (its params are always there), or
+// the whole frame while the arity is not emitted yet (a call from an earlier arity of the same fn).
+static uint32_t direct_array_slots(const clj_node *fn, const clj_fn_arity *a) {
+	uint32_t arr = direct_name_entry(fn)->arr[a->nparams];
+	return arr == UINT32_MAX ? a->nslots : arr;
 }
 
 static temp emit_direct_call(fnctx *f, const clj_node *n) {
@@ -2147,7 +2159,11 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 	temp               *args = calloc(nargs ? nargs : 1, sizeof *args);
 	if (!args) clj_fatal("out of memory");
 	for (uint32_t i = 0; i < nargs; i++) args[i] = emit_borrowed(f, n->u.direct.args[i]);
-	uint32_t nslots = arity->nslots ? arity->nslots : 1;
+	uint32_t nslots = direct_array_slots(n->u.direct.fn, arity);
+	f->u->slots.direct_slots += arity->nslots;
+	f->u->slots.direct_array += nslots;
+	if (nslots < nargs) clj_fatal("compiler: a direct fn's params outside its array");
+	if (nslots == 0) nslots = 1;
 	sb_printf(&f->out, "\tclj_value ds%d[%u] = {", k, nslots);
 	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", args[i].name);
 	if (!nargs) sb_puts(&f->out, "CLJ_NIL");
@@ -2340,8 +2356,10 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	sb_printf(&f.out, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned) {\n", name);
 	sb_puts(&f.out, "\tclj_cframe fr = {slots, captured, owned, outer};\n\t(void)fr;\n");
 	f.definer = parent;
-	// the array is the caller's, sized by its nslots: a promoted entry is simply never touched
+	// the array is the caller's, sized by what promotion leaves in it: a promoted entry is simply never touched
 	promote_slots(&f, n, a, false, a->body, a->nslots);
+	uint32_t arr = array_slots(&f, a->nslots);
+	direct_name_entry(n)->arr[a->nparams] = arr;
 	emit_promoted_decls(&f);
 	if (a->nslots > 64) sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
 	int noenter = new_label(&f), fail = new_label(&f);
@@ -2360,11 +2378,11 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	}
 	handler h = pop_handler(&f);
 	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n", stub);
-	emit_frame_teardown(&f, a->nslots);
+	emit_frame_teardown(&f, arr);
 	sb_printf(&f.out, "\treturn %s;\n", r.name);
 	if (h.used) sb_printf(&f.out, "L%d: ;\n\tclj_c_leave(&S[%u], &cc);\n", fail, stub);
 	sb_printf(&f.out, "L%d: ;\n", noenter);
-	emit_frame_teardown(&f, a->nslots);
+	emit_frame_teardown(&f, arr);
 	sb_puts(&f.out, "\treturn CLJ_THROWN;\n}\n\n");
 	sb_put(&f.u->fns, f.out.s, f.out.len);
 	fnctx_free(&f);

@@ -1935,8 +1935,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   nothing takes the frame's address, clang's SROA already kept the array in registers — the counting loop's
   machine code is byte-identical before and after — and the array is only pinned to memory where `&fr` escapes,
   which is a direct call (the static link) and nothing else; the "loop with a local helper" row moves 7.0 → 6.4
-  and the rest is noise (bench/RESULTS.md). Direct-fn callers still size `ds[]` by the callee's `nslots`, not by
-  its kept slots — trigger: a stack-depth profile. A param a fn-body `recur` rebinds could be promoted with a
+  and the rest is noise (bench/RESULTS.md). A direct-fn caller sizes `ds[]` by what the callee's promotion left in
+  the array (`direct_array_slots`: the entry the callee's arity recorded when its body was emitted — its params
+  are always in it —, or the whole frame when an earlier arity of the same fn calls one not emitted yet), and the
+  callee's teardown releases over the same count; `--stats` prints it as "direct-call arrays N of M callee slots":
+  core.clj 103 of 194. A param a fn-body `recur` rebinds could be promoted with a
   runtime owned flag — trigger: a hot self-recursive fn showing the array store in a profile. The boxed `<`/`inc`
   the counting loop paid are the next entry's.
 - **Unboxed arithmetic, int64 and double slots, entry-checked frames** (`emit_unboxed`, `emit_tag_checked`,

@@ -71,6 +71,8 @@ typedef struct {
 	uint64_t proto_switch;   // sites with several arms, or one beside kinds the cache keeps
 	uint64_t proto_cache;    // sites with the inline cache alone
 	uint64_t proto_folded;   // satisfies?/extends? sites answered by a verified constant (closed)
+	uint64_t direct_slots;   // frame slots of the callees of direct call sites, summed per site
+	uint64_t direct_array;   // of those, the entries the caller's ds[] holds: what the callee's promotion left in the array
 } cljc_slot_stats;
 
 void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out);
