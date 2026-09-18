@@ -304,7 +304,10 @@ static void derive(clj_exec *e, uint32_t trigger) {
 	// the old sites go before the new ones so that a site the re-derivation narrowed is replaced, not joined
 	forget_locked(e);
 	e->derived = d;
-	for (uint32_t i = 0; i < d->ndeps; i++) dependents_add(d->dep_vars[i], e);
+	// a dynamic var's root is no fact to rest on (a thread binding is invisible to the epoch): *ns* moves per form
+	for (uint32_t i = 0; i < d->ndeps; i++) {
+		if (!clj_var_is_dynamic(d->dep_vars[i])) dependents_add(d->dep_vars[i], e);
+	}
 	clj_value touched[64];
 	uint32_t  ntouched = 0;
 	// only what a fn body does is a fact about the program: the rest of a form runs once, as a host call does
