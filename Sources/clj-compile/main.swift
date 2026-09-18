@@ -111,7 +111,7 @@ if opts.stats {
 		FileHandle.standardError.write(Data("""
 		slots: \(file): \(st.slots) slots, local \(st.local) (\(pct(st.local, st.slots))), promoted \(st.promoted) (\(pct(st.promoted, st.slots))) \
 		of which local \(st.promoted_local); local not promoted: param \(st.local_param), pinned \(st.local_pinned), fused \(st.local_fused); \
-		int64 slots \(st.int_slots), arithmetic nodes unboxed \(st.unboxed), tag-checked \(st.tag_checked)
+		int64 slots \(st.int_slots), double slots \(st.double_slots), arithmetic nodes unboxed \(st.unboxed), tag-checked \(st.tag_checked), entry-checked frames \(st.entry_checked)
 
 		""".utf8))
 	}

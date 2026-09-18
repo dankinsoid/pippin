@@ -1,4 +1,4 @@
-;; Unboxed arithmetic and int64 loop variables: overflow, boxed longs, a variable that turns double, the caller join.
+;; Unboxed arithmetic, int64 and double loop variables, entry-checked frames: overflow, boxed longs, a variable that turns double, the caller join.
 (ns fixture.arith)
 
 (defn count-to [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))
@@ -14,6 +14,22 @@
 (defn direct-int [n] (let [f (fn [k] (loop [i 0 s 0] (if (< i k) (recur (inc i) (+ s i)) s)))] [(f n) (f (* n 2))]))
 (defn run [] [(count-to 10) (acc-to 10) (count-down 5) (mul-up 10) (preds 1) (preds 0) (preds -1) (fused-int 3) (direct-int 4)])
 
+;; doubles: a double loop variable, every operator over doubles, a fixnum beside a double, literals of every kind
+(defn dbl-acc [n] (loop [i 0 x 0.0] (if (< i n) (recur (inc i) (+ x 0.5)) x)))
+(defn dbl-ops [a b] [(+ a b) (- a b) (* a b) (/ a b) (< a b) (<= a b) (> a b) (>= a b) (= a b) (zero? a) (pos? a) (neg? a) (inc a) (dec a)])
+(defn dbl-mixed [i d] [(+ i d) (- d i) (* i d) (/ d i) (/ i d) (< i d) (>= d i) (= i d) (= d i)])
+(defn dbl-lit [n] (loop [i 0 x 1.0 y -0.0] (if (< i n) (recur (inc i) (* x 2) (- y 0.25)) [x y (= x 8.0) (< y -0.5) (/ x 0.0) (- x ##Inf) (* y ##NaN)])))
+(defn nan-loop [n] (loop [i 0 x ##NaN] (if (< i n) (recur (inc i) (+ x 1.0)) [x (= x x) (< x 1.0) (zero? x)])))
+(defn dbl-halve [x n] (loop [i 0 s x] (if (< i n) (recur (inc i) (/ s 2.0)) s)))
+(defn run-dbl [] [(dbl-acc 4) (dbl-ops 1.5 0.5) (dbl-mixed 3 0.5) (dbl-lit 3) (nan-loop 2) (dbl-halve 12.0 2)])
+
+;; entry-checked frames: a loop fed by a count, by a parameter the join typed, a let-bound count as the bound
+(defn count-bound [v] (loop [i (count v) acc 0] (if (pos? i) (recur (dec i) (+ acc i)) acc)))
+(defn let-bound [v] (let [n (count v)] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc))))
+(defn double-up [n] (loop [i n k 0] (if (< k 3) (recur (* i 2) (inc k)) i)))
+(defn dbl-scale [x n] (loop [i 0 s x] (if (< i n) (recur (inc i) (* s 2.0)) s)))
+(defn run-entry [] [(count-bound [1 2 3 4]) (let-bound [1 2 3 4]) (double-up 5) (dbl-scale 1.5 3)])
+
 (println (run) (mixed) (near-max 4611686018427387900 3) (near-max 4611686018427387900 8) (from-max 3) (from-max 8) (until-double 6))
 (println (count-to 1.5) (acc-to 2.5) (count-down 2.5) (preds 1.5) (preds 3037000499) (preds -3037000499))
 (println (try (mul-up 70) (catch :default e (ex-message e)))
@@ -23,3 +39,11 @@
          (try (preds 4611686018427387903) (catch :default e (ex-message e)))
          (try (count-to nil) (catch :default e (ex-message e))))
 (println (apply count-to [7]) (apply acc-to [2.5]) (map count-to [1 2 3]) (reduce + (map acc-to [3 4])))
+(println (run-dbl))
+(println (dbl-ops 1.0 0.0) (dbl-ops ##NaN ##NaN) (dbl-ops -0.0 ##Inf) (dbl-ops ##Inf ##Inf))
+(println (dbl-ops 3 2) (dbl-ops 1/2 0.5) (dbl-mixed 1.5 2) (dbl-mixed 9223372036854775807 0.5) (dbl-mixed 3 1) (dbl-halve 12 2) (dbl-halve 5N 1)
+         (try (dbl-ops "a" 1.0) (catch :default e (ex-message e))) (try (dbl-halve nil 1) (catch :default e (ex-message e))))
+(println (run-entry) (double-up 10000000000000000000000) (double-up 4611686018427387900N) (double-up 1152921504606846975) (double-up 1.5) (dbl-scale 2 2) (dbl-scale 1/4 1)
+         (count-bound []) (let-bound (range 5))
+         (try (double-up 4611686018427387900) (catch :default e (ex-message e)))
+         (try (double-up "a") (catch :default e (ex-message e))))
