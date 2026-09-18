@@ -136,6 +136,8 @@ clj_fact clj_fact_bottom(void);
 clj_fact clj_fact_join(clj_fact a, clj_fact b);
 // Refinement; conflicts is bumped when the result is BOTTOM and neither input was.
 clj_fact clj_fact_meet(clj_fact a, clj_fact b, uint32_t *conflicts);
+// The meet without the union cap: for a requirement, which is never stored on a node (summary.h).
+clj_fact clj_fact_meet_wide(clj_fact a, clj_fact b);
 // Widens a set past CLJ_FACT_UNION_MAX members to TOP, the numeric kinds counting as one (facts.c).
 clj_fact clj_fact_cap(clj_fact f);
 bool     clj_fact_eq(clj_fact a, clj_fact b);

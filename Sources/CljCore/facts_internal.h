@@ -11,5 +11,7 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *arity, clj_sum
 uint32_t clj_facts_core_effects(const char *name);
 // The kind bit of a value of this descriptor, the dispatch pseudo-types included; HOST for anything unnamed.
 uint32_t clj_facts_kind_of_type(const clj_type *t);
+// Drops the direct-fn entries: keyed by a pointer into a tree, they must not outlive the table built over it.
+void clj_summaries_forget_arities(clj_summaries *s);
 
 #endif

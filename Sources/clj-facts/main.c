@@ -42,7 +42,7 @@ static int   nlibs;
 
 static clj_summaries *sums;
 
-#define MAX_MESSAGES 64
+#define MAX_MESSAGES 256
 static char messages[MAX_MESSAGES][512];
 static int  nmessages;
 
@@ -137,6 +137,10 @@ static void count_invoke(counter *c, const clj_node *n) {
 		const clj_fact *m = clj_facts_node(c->f, n->u.invoke.args[0]->id);
 		if (m && clj_fact_union_size(*m) == 1 && (m->types & T_MAP_SET)) c->s->kw_shaped++;
 		if (m && m->types == CLJ_T_RECORD) c->s->kw_record++;
+		if (getenv("CLJ_FACTS_DUMP") && m) {
+			fprintf(stderr, "kw-lookup %s %u:%u receiver %s %#x\n", c->s->name, n->line, n->col,
+			        n->u.invoke.args[0]->kind == CLJ_NODE_LOCAL ? "local" : n->u.invoke.args[0]->kind == CLJ_NODE_VAR ? "var" : "expr", m->types);
+		}
 		return;
 	}
 	// The receiver of a protocol method: the tool reads the var's root, which the pass itself may not.

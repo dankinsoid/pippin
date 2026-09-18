@@ -372,6 +372,7 @@ clj_value clj_record_type_new(clj_value name, clj_value fields, const clj_value 
 		if (!clj_is_symbol(f)) break; // clj_user_type_init reports it
 		rt->basis[i] = clj_keyword_intern(CLJ_NIL, clj_symbol_name(f));
 	}
+	rt->ut.t.core_bits = CLJ_CORE_RECORD; // the extends in init count the type as a record (proto.c user_records)
 	clj_value type = clj_user_type_init(&rt->ut, name, fields, impls, nimpls);
 	if (type == CLJ_THROWN) return CLJ_THROWN;
 	record_slots(&rt->ut);

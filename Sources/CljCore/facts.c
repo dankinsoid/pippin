@@ -148,6 +148,12 @@ clj_fact clj_fact_meet(clj_fact a, clj_fact b, uint32_t *conflicts) {
 	return clj_fact_cap(r);
 }
 
+// A requirement of ten kinds ("seqable") is still a requirement: the cap bounds what a node stores, not what a use asks.
+clj_fact clj_fact_meet_wide(clj_fact a, clj_fact b) {
+	clj_fact r = {a.types & b.types, (uint8_t)(a.null & b.null), 0, 0, CLJ_UNBOUND, NULL};
+	return normalize(r);
+}
+
 uint32_t clj_facts_kind_of_type(const clj_type *t) {
 	if (t == &clj_nil_dispatch_type) return CLJ_T_NIL;
 	if (t == &clj_boolean_dispatch_type) return CLJ_T_BOOL;
@@ -840,7 +846,7 @@ static void require_arg(pass *p, env *e, const clj_node *arg, clj_fact have, clj
 	if (arg->kind != CLJ_NODE_LOCAL || arg->u.local.index >= e->n) return;
 	uint32_t slot = arg->u.local.index;
 	e->slots[slot] = m;
-	clj_fact rq = clj_fact_meet(e->req[slot], req, &dummy);
+	clj_fact rq = clj_fact_meet_wide(e->req[slot], req);
 	if (rq.types != CLJ_T_BOTTOM && !clj_fact_eq(rq, e->req[slot])) {
 		e->req[slot] = rq;
 		e->req_line[slot] = arg->line;
@@ -859,8 +865,10 @@ static void apply_summary(pass *p, env *e, const clj_summary *sum, const clj_nod
 	}
 }
 
-static clj_fact result_with_summary(clj_fact r, const clj_summary *sum) {
+static clj_fact result_with_summary(const pass *p, clj_fact r, const clj_summary *sum) {
 	if (!sum) return r;
+	// the optimistic start of a fixpoint in flight; a finished summary never answers BOTTOM (summary.c)
+	if (sum->ret.types == CLJ_T_BOTTOM) return p->record ? r : sum->ret;
 	uint32_t dummy = 0;
 	clj_fact m = clj_fact_meet(r, sum->ret, &dummy);
 	// a signature and a summary that disagree is a bug in one of them; the signature has the differential test behind it
@@ -890,12 +898,12 @@ static clj_fact infer_call(pass *p, const clj_node *const *args, uint32_t n, env
 		if (i < 4) fs[i] = a;
 	}
 	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
-	p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
 	const clj_summary *sum = summary_of(p, var, n);
+	if (!sum) p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
 	apply_summary(p, e, sum, args, n, have, var);
 	free(have);
 	clj_fact r = s ? sig_result(s, fs, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
-	return result_with_summary(r, sum);
+	return result_with_summary(p, r, sum);
 }
 
 static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
@@ -1125,7 +1133,7 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		if (!sum) p->effects |= CLJ_EFFECT_ANY;
 		apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL);
 		free(have);
-		r = result_with_summary(clj_fact_top(), sum);
+		r = result_with_summary(p, clj_fact_top(), sum);
 		break;
 	}
 	case CLJ_NODE_INTRINSIC:
@@ -1191,6 +1199,7 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
+	if (sums) clj_summaries_forget_arities(sums);
 	return f;
 }
 

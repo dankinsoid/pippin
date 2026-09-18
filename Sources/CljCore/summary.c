@@ -41,11 +41,13 @@ typedef struct {
 typedef struct {
 	const void *key;   // clj_var, or the clj_fn_arity of a direct fn
 	uint32_t    arity; // argument count the entry answers for
+	bool        is_var;
 	state       state;
 	uint32_t    world;     // clj_epoch() at computation: the guard once deps overflow, and for a protocol's implementors
 	bool        overflow;  // more than MAX_DEPS vars were read: validity falls back to world
 	bool        by_world;  // the entry rests on the protocol tables, not on var roots
 	bool        unknown;   // nothing could be said; holds while world stands
+	bool        in_cycle;  // computed above a fixpoint in flight: its result is transient and recomputed each round
 	dep         deps[MAX_DEPS];
 	uint32_t    ndeps;
 	clj_summary s;
@@ -187,7 +189,7 @@ bool clj_fact_of_spec(clj_value spec, clj_fact *out) {
 	clj_fact f = clj_fact_top();
 	f.types = types;
 	f.null = (types & CLJ_T_NIL) ? (types == CLJ_T_NIL ? CLJ_NULL_ALWAYS : CLJ_NULL_MAYBE) : CLJ_NULL_NEVER;
-	*out = clj_fact_cap(f);
+	*out = clj_fact_meet_wide(f, f); // a requirement keeps every kind it names (facts.h)
 	return true;
 }
 
@@ -247,7 +249,7 @@ static void apply_annotation(clj_summaries *s, clj_value var, const annotation *
 		sum->nparams = a->nargs;
 	}
 	for (uint32_t i = 0; i < a->nargs; i++) {
-		clj_fact m = clj_fact_meet(sum->params[i], a->args[i], &dummy);
+		clj_fact m = clj_fact_meet_wide(sum->params[i], a->args[i]);
 		if (m.types == CLJ_T_BOTTOM && sum->params[i].types != CLJ_T_BOTTOM) {
 			add_conflict(s, var, i, sum->param_line[i], sum->param_col[i], a->args[i], sum->params[i]);
 			continue;
@@ -347,10 +349,27 @@ static void walk_fixpoint(clj_summaries *s, entry *e, const clj_node *fn, const 
 	}
 }
 
+// The entry at depth k is running; everything computed above it rests on its optimistic value.
+static void mark_cycle(clj_summaries *s, const entry *hit) {
+	for (uint32_t d = 0; d < s->depth; d++) {
+		if (s->stack[d] != hit) continue;
+		for (uint32_t k = d + 1; k < s->depth; k++) s->stack[k]->in_cycle = true;
+		return;
+	}
+}
+
 static void finish(entry *e) {
 	// a body that never returns normally has a BOTTOM result; a call node must not inherit it
 	if (e->s.ret.types == CLJ_T_BOTTOM) e->s.ret = clj_fact_top();
-	e->state = STATE_DONE;
+	// a singleton borrows a constant of the callee's tree, which only the callee's root keeps alive
+	e->s.ret.singleton = CLJ_UNBOUND;
+	e->state = e->in_cycle ? STATE_EMPTY : STATE_DONE;
+}
+
+static uint32_t core_effects_of(clj_value var) {
+	clj_value ns = clj_var_ns(var);
+	if (!clj_is_symbol(ns) || strcmp(clj_string_bytes(clj_symbol_name(ns)), "clojure.core") != 0) return CLJ_EFFECT_ANY;
+	return clj_facts_core_effects(clj_string_bytes(clj_symbol_name(clj_var_name(var))));
 }
 
 static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var, uint32_t nargs) {
@@ -360,6 +379,7 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 	e->ndeps = 0;
 	e->overflow = false;
 	e->by_world = false;
+	e->in_cycle = false;
 	e->world = clj_epoch();
 	s->stack[s->depth++] = e;
 	note_dep(s, var);
@@ -384,7 +404,7 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 	if (!inferred) {
 		summary_reset(&e->s, nargs, false);
 		e->s.ret = clj_fact_top();
-		e->s.effects = CLJ_EFFECT_ANY;
+		e->s.effects = core_effects_of(var);
 	}
 	apply_annotation(s, var, &a, &e->s);
 	s->depth--;
@@ -399,8 +419,10 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t nargs) {
 	if (!clj_is_var(var)) return NULL;
 	entry *e = entry_for(s, clj_to_ptr(var), nargs);
+	e->is_var = true;
 	if (e->state == STATE_RUNNING) {
 		e->s.recursive = true;
+		mark_cycle(s, e);
 		note_dep(s, var);
 		return &e->s;
 	}
@@ -419,6 +441,7 @@ const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, co
 	entry *e = entry_for(s, a, a->nparams);
 	if (e->state == STATE_RUNNING) {
 		e->s.recursive = true;
+		mark_cycle(s, e);
 		return &e->s;
 	}
 	if (e->state == STATE_DONE && entry_valid(e)) return &e->s;
@@ -427,12 +450,31 @@ const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, co
 	e->ndeps = 0;
 	e->overflow = false;
 	e->by_world = false;
+	e->in_cycle = false;
 	e->world = clj_epoch();
 	s->stack[s->depth++] = e;
 	walk_fixpoint(s, e, fn, a);
 	s->depth--;
 	finish(e);
 	return &e->s;
+}
+
+void clj_summaries_forget_arities(clj_summaries *s) {
+	if (s->depth) return;
+	entry **fresh = xalloc(s->cap, sizeof(entry *));
+	uint32_t count = 0;
+	for (uint32_t i = 0; i < s->cap; i++) {
+		entry *e = s->slots[i];
+		if (!e) continue;
+		if (e->is_var) {
+			*slot_for(fresh, s->cap, e->key, e->arity) = e;
+			count++;
+		}
+		else free(e);
+	}
+	free(s->slots);
+	s->slots = fresh;
+	s->count = count;
 }
 
 clj_fact clj_summary_var_fact(clj_summaries *s, clj_value var) {
