@@ -1117,3 +1117,65 @@ notes on `syspolicyd`); the second row, the same source measured later, is the n
   With the bound known: 1.3, the same shape with one more add.
 - `swap! inc` moves by the loop's `(inc i)` as in the interpreter; the calls, the protocol rows and the reducer
   rows are untouched, as expected: nothing in them is an arithmetic node over int64 facts.
+
+## Specialized arithmetic over doubles, entry-checked frames, the root-rebind push — 2026-09-18, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The double entries of the specialized node in both backends and the two-program form of a let or loop whose typed
+slots are fed by boxed values (NOTES.md "Analyzer and evaluator", "Compiler"). Four new rows: a loop with a double
+accumulator, a dot product over two vectors of doubles through `nth`, and the accumulating loop with its bound from
+`(count v)` — in a `let` around the loop and as the loop variable itself, counting down. `n` = 100000 throughout.
+
+**Interpreted**, the same release binary with the specialization on and, as the control, off
+(`CLJ_BENCH_NO_SPECIALIZE=1`), two alternating runs each; ns per iteration.
+
+| scenario | control | specialized |
+|---|---:|---:|
+| counting loop | 16.3 / 16.7 | 12.8 / 13.1 |
+| loop accumulating into a local | 26.1 / 27.7 | 18.5 / 18.8 |
+| counting loop, bound known from the caller | 17.1 / 17.0 | 10.5 / 10.4 |
+| accumulating loop, bound known from the caller | 26.4 / 26.2 | 15.3 / 15.5 |
+| double accumulating loop | 36.8 / 35.9 | 28.0 / 28.2 |
+| dot product of two double vectors via nth | 82.2 / 82.9 | 74.5 / 74.9 |
+| accumulating loop, bound (count v) in a let | 26.7 / 26.4 | 15.7 / 15.9 |
+| accumulating loop down from (count v) | 24.3 / 24.5 | 13.4 / 13.9 |
+| swap! inc | 42.2 / 42.6 | 38.9 / 39.3 |
+
+- **The double accumulating loop, 36 → 28**: `(+ x 0.5)` runs on the untagged doubles behind two `clj_is_double`
+  checks and `(inc i)` on the fixnum; the 10 ns over the int64 loop is `clj_double_new` per iteration, the box a
+  double result always is in the interpreter. `(< i n)` stays generic, `n` coming from the host.
+- **The dot product, 82 → 75**: only `(inc i)` and `(< i n)` specialize (`n` is a `let` slot bound to a `count`, a
+  fixnum fact). `nth` answers ⊤, so the products are generic calls and the sum with them is "a number" after the
+  loop's widening: nothing there is a double by fact. Trigger: an element fact for `nth` over a vector, which the
+  lattice does not carry.
+- **The bound from `(count v)`, 26 → 16 and 24 → 13**: the same as the accumulating loop with the bound known
+  from the caller — a `count` is a fixnum fact, so every node of the loop specializes.
+
+**Compiled `--closed -O2`**, the "loops compiled `--closed`" column: the closed compiled-core binary with every
+bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`, before (e6243aa) and after, two runs each.
+
+| scenario | before | after |
+|---|---:|---:|
+| counting loop (second row, same source) | 2.8 / 3.0 | 2.9 / 3.0 |
+| loop accumulating into a local | 3.0 / 3.0 | 3.0 / 3.0 |
+| counting loop, bound known from the caller | 1.1 / 1.1 | 1.1 / 1.1 |
+| accumulating loop, bound known from the caller | 1.2 / 1.2 | 1.2 / 1.2 |
+| double accumulating loop | 13.8 / 13.8 | 3.0 / 3.0 |
+| dot product of two double vectors via nth | 38.4 / 38.7 | 35.6 / 35.8 |
+| accumulating loop, bound (count v) in a let | 1.2 / 1.2 | 0.5 / 0.6 |
+| accumulating loop down from (count v) | 2.2 / 2.2 | 0.5 / 0.5 |
+| closure call in a loop | 7.1 / 7.1 | 7.2 / 7.2 |
+| C builtin call in a loop | 5.4 / 5.4 | 5.6 / 5.6 |
+| swap! inc | 21.1 / 21.7 | 21.4 / 21.7 |
+| reduce + range | 5.5 / 5.5 | 5.7 / 5.7 |
+
+- **The double accumulating loop, 13.8 → 3.0**: `x` is a `double` C variable and `(+ x 0.5)` one addition; before,
+  every iteration allocated the box `(+ x 0.5)` returned and released the old one. What remains is the same as the
+  int64 loop's: `(< i n)` boxing `i` for `clj_lt`, the tick.
+- **The bound from `(count v)`, 1.2 → 0.5 and 2.2 → 0.5**: the let and the loop are emitted twice, and the
+  fast branch — `clj_is_fixnum` of the count at entry, then `int64_t` variables throughout — is a compare, an
+  add with its overflow branch and the tick per iteration, with no tag check left inside the loop. Before, the
+  `let`-bound `n` was tag-checked at every `(< i n)` (1.2) and the loop variable fed by the count stayed boxed,
+  `(pos? i)` and `(dec i)` behind tag checks and `clj_long_new` per iteration (2.2).
+- The dot product moves 38 → 36 by the `let`'s split alone (`n` typed, `(< i n)` unboxed); the products and the
+  sum are the boxed calls they were, as in the interpreter.
+- The rows without a double or an entry-checked frame are unchanged within the session's spread.
