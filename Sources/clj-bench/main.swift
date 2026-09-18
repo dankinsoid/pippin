@@ -668,6 +668,9 @@ let joinedCountFn = cljEval(
 	"(let [] (defn bench-count-to [n] (loop [i 0] (if (< i n) (recur (inc i)) i))) (defn bench-count-run [] (bench-count-to 100000))) bench-count-run")
 let joinedAccFn = cljEval(
 	"(let [] (defn bench-acc-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc))) (defn bench-acc-run [] (bench-acc-to 100000))) bench-acc-run")
+// The accumulating loop with the square written out, the reference for the helper rows below (compileUnitRow).
+let sqInlineFn = cljEval(
+	"(let [] (defn bench-sqi-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (* i i))) acc))) (defn bench-sqi-run [] (bench-sqi-to 100000))) bench-sqi-run")
 // A double accumulator per iteration, and a dot product over two vectors of doubles through nth (whose element has
 // no fact: the products stay generic and the sum with them).
 let dblAccFn = cljEval("(fn [n] (loop [i 0 x 0.0] (if (< i n) (recur (inc i) (+ x 0.5)) x)))")
@@ -706,17 +709,16 @@ let protoTopFn = cljEval("(let [t (->BenchKT)] (fn [n] (loop [i 0] (if (< i n) (
 // The deftype and its caller compiled as one unit from a file, the way clj-compile emits a namespace: the arm is a
 // static call clang inlines, which a compiled-eval form cannot be (it is compiled before its deftype runs). Only
 // under CLJ_EVAL_ROOT, since building the unit needs clang and the package root; the JIT hook is re-armed after.
-func compileUnitRow(name: String, closed: Bool) -> clj_value? {
-	guard let root = ProcessInfo.processInfo.environment["CLJ_EVAL_ROOT"] else { return nil }
-	let dir = "\(root)/.build/compiled-eval"
-	let ns = "bench.\(name)"
-	let source = """
-	(ns \(ns))
+func compileUnitRow(name: String, closed: Bool, body: String = """
 	(defprotocol BenchUP (bench-um [x]))
 	(deftype BenchUT [] BenchUP (bench-um [x] 1))
 	(defn bench-unit-to [t n] (loop [i 0] (if (< i n) (recur (+ i (bench-um t))) i)))
 	(defn bench-unit-run [] (bench-unit-to (->BenchUT) 100000))
-	"""
+	""") -> clj_value? {
+	guard let root = ProcessInfo.processInfo.environment["CLJ_EVAL_ROOT"] else { return nil }
+	let dir = "\(root)/.build/compiled-eval"
+	let ns = "bench.\(name)"
+	let source = "(ns \(ns))\n" + body
 	let path = "\(dir)/\(name).clj"
 	try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 	try? source.write(toFile: path, atomically: true, encoding: .utf8)
@@ -753,6 +755,15 @@ func compileUnitRow(name: String, closed: Bool) -> clj_value? {
 
 let protoUnitClosedFn = compileUnitRow(name: "unit_closed", closed: true)
 let protoUnitDevFn = compileUnitRow(name: "unit_dev", closed: false)
+// The accumulating loop calling a tiny pure helper def'd in the same unit: the closed unit calls it by name and
+// inlines its body (NOTES.md "Compiler", leaf inlining); the dev unit goes through the var and the dispatcher.
+let sqUnit = """
+	(defn bench-sq [x] (* x x))
+	(defn bench-sq-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (bench-sq i))) acc)))
+	(defn bench-unit-run [] (bench-sq-to 100000))
+	"""
+let sqUnitClosedFn = compileUnitRow(name: "sq_closed", closed: true, body: sqUnit)
+let sqUnitDevFn = compileUnitRow(name: "sq_dev", closed: false, body: sqUnit)
 
 struct CallRow {
 	let scenario: String
@@ -769,6 +780,9 @@ do {
 	callRows.append(CallRow(scenario: "loop accumulating into a local", n: n, c: measure(ops: n) { cCountLoop(accFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "counting loop, bound known from the caller", n: n, c: measure(ops: n) { cljCall0(joinedCountFn) }, swift: nil))
 	callRows.append(CallRow(scenario: "accumulating loop, bound known from the caller", n: n, c: measure(ops: n) { cljCall0(joinedAccFn) }, swift: nil))
+	callRows.append(CallRow(scenario: "accumulating loop with (* i i) written out", n: n, c: measure(ops: n) { cljCall0(sqInlineFn) }, swift: nil))
+	if let f = sqUnitClosedFn { callRows.append(CallRow(scenario: "accumulating loop calling (defn sq [x] (* x x)), one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = sqUnitDevFn { callRows.append(CallRow(scenario: "accumulating loop calling (defn sq [x] (* x x)), one dev unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
 	let fixnums = cVecBuild(n), da = cDoubleVecBuild(n), db = cDoubleVecBuild(n)
 	callRows.append(CallRow(scenario: "double accumulating loop", n: n, c: measure(ops: n) { cCountLoop(dblAccFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "dot product of two double vectors via nth", n: n, c: measure(ops: n) { cljCall2(dotFn, da, db) }, swift: nil))
@@ -796,6 +810,7 @@ clj_release(countFn)
 clj_release(accFn)
 clj_release(joinedCountFn)
 clj_release(joinedAccFn)
+clj_release(sqInlineFn)
 clj_release(dblAccFn)
 clj_release(dotFn)
 clj_release(countBoundFn)

@@ -166,6 +166,7 @@ typedef struct {
 	char    *base;      // C symbol base of its latest definition
 	uint32_t defs;      // definitions seen; only a unique one is called directly
 	uint32_t fixed;     // bit n: fixed arity n exists
+	uint32_t self_used; // bit n: fixed arity n binds its self slot, so a direct call must pass the fn
 	int32_t  variadic;  // nparams of the variadic arity, -1 when none
 	bool     dynamic;
 } direct_entry;
@@ -182,6 +183,7 @@ typedef struct {
 	pool  defined;  // bases of the vars this unit defines with a fn init, with their qualified names
 	pool  impl_regs; // fn bases a closed init registers as protocol impls, with the arity mask a direct arm may call
 	pool  frames;    // the frame functions with their stub index, in emission order (the unit's range table)
+	pool  leaves;    // the arity functions with an always_inline twin <name>_i: small bodies without direct calls
 	uint32_t nstubs, ntops, nforms;
 	cljc_slot_stats slots;
 	struct proto_site *psites; // the protocol call sites, classified for --stats once every arm's target is resolved
@@ -365,6 +367,7 @@ static void unit_free(unit *u) {
 	pool_free(&u->defined);
 	pool_free(&u->impl_regs);
 	pool_free(&u->frames);
+	pool_free(&u->leaves);
 	free(u);
 }
 
@@ -435,6 +438,7 @@ typedef struct fnctx {
 	const clj_load_form *form;
 	bool                 top; // the top-level form's own context, where a def names its fn after itself
 	int32_t              stub; // S[] index of the frame fn being emitted, -1 in a top-level form
+	bool                 has_direct; // the body calls a compiled fn directly: not a leaf (NOTES.md "Compiler", inlining)
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -1803,17 +1807,31 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}
 	mark_impl_candidates(f, n);
-	temp fn = emit_borrowed(f, head);
-	char array[24];
-	snprintf(array, sizeof array, "a%d", f->naux++);
-	temp *args = emit_args(f, n->u.invoke.args, nargs, array);
-	temp  r = new_temp(f, OWN_YES);
 	direct_entry *d = NULL;
 	if (head->kind == CLJ_NODE_VAR && nargs <= CLJ_FN_MAX_FIXED) {
 		char key[600];
 		snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var))));
 		d = direct_find(f->c, key);
 	}
+	bool direct = d && !d->dynamic && ((d->fixed >> nargs) & 1);
+	char target[300];
+	if (direct) snprintf(target, sizeof target, "%s_a%u", d->base, nargs);
+	temp fn;
+	if (direct) {
+		// A target of this unit is called by name: its var is read only where the call may fall back to it.
+		fn_line(f, head);
+		fn = new_temp(f, OWN_DYN);
+		sb_printf(&f->out, "\tbool %s = false;\n\tclj_value %s = CLJ_NIL;\n#ifndef CLJC_LOCAL_%s\n\t%s = clj_c_var_borrow(V[%zu], &%s);\n", fn.flag, fn.name, target, fn.name, var_index(f->u, head->u.var), fn.flag);
+		check_thrown(f, fn.name);
+		sb_puts(&f->out, "#endif\n");
+		live_push(f, fn);
+	} else {
+		fn = emit_borrowed(f, head);
+	}
+	char array[24];
+	snprintf(array, sizeof array, "a%d", f->naux++);
+	temp *args = emit_args(f, n->u.invoke.args, nargs, array);
+	temp  r = new_temp(f, OWN_YES);
 	// a var of the set may hold a protocol method (defprotocol's def) or a builtin (a (def satisfies? ...) shadows it)
 	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
 	bool      folded = false;
@@ -1821,16 +1839,21 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
 	if (!folded && !clj_is_nil(method)) {
 		emit_proto_call(f, n, method, &fn, array, &r);
-	} else if (!folded && d && !d->dynamic && ((d->fixed >> nargs) & 1)) {
-		// The definition may still be superseded: the prelude decides at write time (CLJC_DIRECT_*).
-		char target[300];
-		snprintf(target, sizeof target, "%s_a%u", d->base, nargs);
+	} else if (!folded && direct) {
+		// The definition may still be superseded: the prelude decides at write time (CLJC_LOCAL_*, CLJC_DIRECT_*).
 		bool fresh;
 		pool_intern(&f->u->externs, target, NULL, &fresh);
-		sb_printf(&f->out, "\tclj_value %s;\n#ifdef CLJC_DIRECT_%s\n", r.name, target);
+		f->has_direct = true;
+		size_t vi = var_index(f->u, head->u.var);
+		// A top-level form is no frame: its callee stays a call, so the frame it makes is the callee's own.
+		const char *callee = f->stub >= 0 ? "CLJC_CALL_" : "";
+		sb_printf(&f->out, "\tclj_value %s;\n#ifdef CLJC_LOCAL_%s\n", r.name, target);
+		if ((d->self_used >> nargs) & 1) sb_printf(&f->out, "\t%s = %s%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u);\n", r.name, callee, target, vi, array, nargs);
+		else sb_printf(&f->out, "\t%s = %s%s(CLJ_NIL, NULL, %s, %u);\n", r.name, callee, target, array, nargs);
+		sb_printf(&f->out, "#elif defined(CLJC_DIRECT_%s)\n", target);
 		sb_printf(&f->out, "\tif (!CLJC_FN_%s) CLJC_FN_%s = clj_compiled_symbol(\"%s\");\n", target, target, target);
-		sb_printf(&f->out, "\t%s = CLJC_FN_%s ? CLJC_FN_%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n#else\n", r.name, target, target,
-		          var_index(f->u, head->u.var), array, nargs, fn.name, array, nargs);
+		sb_printf(&f->out, "\t%s = CLJC_FN_%s ? CLJC_FN_%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n#else\n", r.name, target, target, vi, array, nargs,
+		          fn.name, array, nargs);
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n#endif\n", r.name, fn.name, array, nargs);
 	} else if (!folded) {
 		sb_printf(&f->out, "\tclj_value %s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
@@ -2203,6 +2226,7 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 	}
 	sb_puts(&f->out, ";\n");
 	temp r = new_temp(f, OWN_YES);
+	f->has_direct = true;
 	sb_printf(&f->out, "\tclj_value %s = %s_a%u(clj_c_outer(&%s, %u), %s.captured, ds%d, dm%d);\n", r.name, direct_name_of(n->u.direct.fn), arity->nparams, f->frame,
 	          n->u.direct.depth, f->frame, k, k);
 	for (uint32_t i = nargs; i-- > 0;) live_forget(f, &args[i]);
@@ -2304,6 +2328,12 @@ static void emit_frame_teardown(fnctx *f, uint32_t arr) {
 	if (arr) sb_printf(&f->out, "\tclj_c_release_slots(&fr, %u);\n", arr);
 }
 
+// Small enough to inline at every direct call site and free of direct calls of its own, so that a trace through the
+// inlined copy is the marker's fn inside the caller's frame, never deeper (trace.c).
+enum { LEAF_BODY_MAX = 3000 };
+
+static bool leaf_body(const fnctx *f) { return !f->has_direct && f->out.len <= LEAF_BODY_MAX; }
+
 // One arity of a closure: the frame, the body under a recur label, teardown.
 static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, bool exported) {
 	fnctx f = fnctx_child(parent, base);
@@ -2312,7 +2342,6 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	f.stub = (int32_t)stub;
 	frame_add(f.u, name, stub);
 	sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", name);
-	sb_printf(&f.out, "%sCLJC_FRAME clj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {\n", exported ? "" : "static ", name);
 	sb_puts(&f.out, "\t(void)self; (void)captured; (void)args; (void)nargs;\n");
 	promote_slots(&f, n, a, true, a->body, a->nslots);
 	uint32_t arr = array_slots(&f, a->nslots);
@@ -2361,7 +2390,19 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		sb_puts(&f.out, "\treturn CLJ_THROWN;\n");
 	}
 	sb_puts(&f.out, "}\n\n");
-	sb_put(&f.u->fns, f.out.s, f.out.len);
+	// A leaf gets an always_inline twin that same-unit direct calls take; the frame function wraps it.
+	static const char params[] = "(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs)";
+	if (!a->variadic && leaf_body(&f)) {
+		bool fresh;
+		pool_intern(&f.u->leaves, name, NULL, &fresh);
+		sb_printf(&f.u->protos, "CLJC_INLINE clj_value %s_i%s;\n", name, params);
+		sb_printf(&f.u->fns, "CLJC_INLINE clj_value %s_i%s {\n", name, params);
+		sb_put(&f.u->fns, f.out.s, f.out.len);
+		sb_printf(&f.u->fns, "%sCLJC_FRAME clj_value %s%s { return %s_i(self, captured, args, nargs); }\n\n", exported ? "" : "static ", name, params, name);
+	} else {
+		sb_printf(&f.u->fns, "%sCLJC_FRAME clj_value %s%s {\n", exported ? "" : "static ", name, params);
+		sb_put(&f.u->fns, f.out.s, f.out.len);
+	}
 	fnctx_free(&f);
 }
 
@@ -2395,9 +2436,6 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	char  name[300];
 	snprintf(name, sizeof name, "%s_a%u", base, a->nparams);
 	f.stub = (int32_t)stub;
-	frame_add(f.u, name, stub);
-	sb_printf(&f.u->protos, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned);\n", name);
-	sb_printf(&f.out, "static CLJC_FRAME clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned) {\n", name);
 	sb_puts(&f.out, "\tclj_cframe fr = {slots, captured, owned, outer};\n\t(void)fr;\n");
 	f.definer = parent;
 	// the array is the caller's, sized by what promotion leaves in it: a promoted entry is simply never touched
@@ -2430,6 +2468,16 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 		sb_puts(&f.out, "\treturn CLJ_THROWN;\n");
 	}
 	sb_puts(&f.out, "}\n\n");
+	// Its only callers are its definer's body: a leaf under a frame fn is inlined there and needs no frame of its own.
+	static const char params[] = "(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned)";
+	if (parent->stub >= 0 && leaf_body(&f)) {
+		sb_printf(&f.u->protos, "CLJC_INLINE clj_value %s%s;\n", name, params);
+		sb_printf(&f.u->fns, "CLJC_INLINE clj_value %s%s {\n", name, params);
+	} else {
+		frame_add(f.u, name, stub);
+		sb_printf(&f.u->protos, "static clj_value %s%s;\n", name, params);
+		sb_printf(&f.u->fns, "static CLJC_FRAME clj_value %s%s {\n", name, params);
+	}
 	sb_put(&f.u->fns, f.out.s, f.out.len);
 	fnctx_free(&f);
 }
@@ -2540,11 +2588,13 @@ static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const ch
 	free(d->base);
 	d->base = xstrdup(base);
 	d->fixed = 0;
+	d->self_used = 0;
 	d->variadic = -1;
 	const clj_node *init = n->u.def.init;
 	if (init->kind != CLJ_NODE_FN || init->u.fn.ncaptures) return;
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (init->u.fn.fixed[i]) d->fixed |= (uint32_t)1 << i;
+		if (init->u.fn.fixed[i] && init->u.fn.fixed[i]->self_slot >= 0) d->self_used |= (uint32_t)1 << i;
 	}
 	if (init->u.fn.variadic) d->variadic = (int32_t)init->u.fn.variadic->nparams;
 }
@@ -2598,6 +2648,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	f.fn_counter = &counter;
 	f.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	f.form = form;
+	f.stub = -1;
 	f.top = true;
 	c->emitting = n;
 	open_form(c, u, &f, form);
@@ -2729,6 +2780,7 @@ static void emit_failed(cljc_compiler *c, unit *u, const clj_load_form *form, cl
 	memset(&scratch, 0, sizeof scratch);
 	scratch.c = c;
 	scratch.u = u;
+	scratch.stub = -1;
 	open_form(c, u, &scratch, form);
 	sb_puts(&u->init, "\tr = clj_throw_msg(\"%s\", ");
 	sb_c_string(&u->init, clj_string_bytes(message), clj_string_len(message));
@@ -2805,9 +2857,11 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 		for (size_t j = 0; j < c->ndirects; j++) {
 			const direct_entry *d = &c->directs[j];
 			if (d->defs != 1 || d->dynamic || strcmp(d->base, base) != 0 || !((d->fixed >> arity) & 1)) continue;
-			bool local = false;
+			bool local = false, leaf = false;
 			for (size_t k = 0; k < u->defined.n && !local; k++) local = strcmp(u->defined.keys[k], base) == 0;
-			sb_printf(out, "#define CLJC_DIRECT_%s 1\nstatic clj_compiled_fn CLJC_FN_%s%s%s;\n", target, target, local ? " = " : "", local ? target : "");
+			for (size_t k = 0; k < u->leaves.n && !leaf; k++) leaf = strcmp(u->leaves.keys[k], target) == 0;
+			if (local) sb_printf(out, "#define CLJC_LOCAL_%s 1\n#define CLJC_CALL_%s %s%s\n", target, target, target, leaf ? "_i" : "");
+			else sb_printf(out, "#define CLJC_DIRECT_%s 1\nstatic clj_compiled_fn CLJC_FN_%s;\n", target, target);
 		}
 	}
 }
