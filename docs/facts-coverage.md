@@ -13,12 +13,12 @@ column is "nothing useful", not "five kinds". *Computed nodes* leave the constan
 own type, so the share over computed nodes is what an optimizer actually gains. A library whose every
 load-path root is named `test` is counted apart, because assertion expansions are mostly literals.
 
-- Over library code: **49.6 %** of value nodes have a known type and **46.0 %** are ⊤, but only **30.4 %**
+- Over library code: **49.7 %** of value nodes have a known type and **45.8 %** are ⊤, but only **30.4 %**
   of *computed* nodes are known — every call of anything but an intrinsic or an annotated C builtin is ⊤,
   and that is the whole cost of having no interprocedural pass.
-- Nullability is decided for **50.8 %** of value nodes over library code, and it survives where the type
+- Nullability is decided for **50.9 %** of value nodes over library code, and it survives where the type
   does not: removing nil from ⊤ leaves 26 kinds, which the union cap sends straight back to ⊤.
-- **Local slots** (the register prize): 3538 slots over library code, **23.0 %** of which never escape and
+- **Local slots** (the register prize): 3538 slots over library code, **23.4 %** of which never escape and
   are never captured. This is the one position with both a large population and a large known share.
 - **Intrinsic arithmetic** (the unboxing prize): 85 two-argument sites over library code, **18.8 %** with
   both arguments known-fixnum and **44.7 %** with both known to be int64-representable (fixnum or boxed long).
@@ -28,13 +28,14 @@ load-path root is named `test` is counted apart, because assertion expansions ar
 - **`(:k m)` lookups**: 69 sites, **1.4 %** on a value known to be a map of some kind and 0 on a record.
   Pass 1 learns a record type only from an `instance?` check against a builtin type name: a `defrecord` type is
   a var, and reading a var's root is runtime state the pass refuses.
-- Cost: 54 ms of facts against 1406 ms of analysis over the same forms (0.04×); the largest single table is
+- Cost: 41 ms of facts against 345 ms of analysis over the same forms (0.12×); the largest single table is
   262 KB for one top-level form.
-- Refinement conflicts (a meet down to ⊥): 47, every one of them a branch a literal makes unreachable
-  (`(and false true)`, `(when-let [x [0]] …)`). Value nodes at ⊥: 125, all of them a throw in tail position.
+- Refinement conflicts (a meet down to ⊥): 63, every one of them a branch a literal makes unreachable
+  (`(and false true)`, `(when-let [x [0]] …)`, `(= 1 x)` before `(ratio? x)`). Value nodes at ⊥: 136, of which
+  0 neither unreachable nor explained by a throw — the lattice is wrong wherever that is not zero.
   Loop variables the widening rule cut short: 0.
 
-**What to build first.** By population and by known share the answer is escaping, not types: 23.0 % of local
+**What to build first.** By population and by known share the answer is escaping, not types: 23.4 % of local
 slots over library code provably never leave their frame, against 211 arithmetic sites in total of which
 9.5 % have both arguments known-fixnum, and 26 protocol receivers of which none has a known type. Registers
 and stack allocation are worth building on pass 1 alone; unboxing and inline caches are waiting on the
@@ -44,12 +45,12 @@ interprocedural pass, not on a consumer.
 
 | library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 264 | 12295 | 40.0 % | 10.1 % | 49.6 % | 42.3 % | 10993 | 32.9 % |
-| embedded libs | 108 | 3692 | 42.4 % | 6.2 % | 51.2 % | 44.9 % | 3145 | 32.4 % |
-| clojure-test-suite | 516 | 415736 | 59.1 % | 0.3 % | 40.6 % | 59.5 % | 239182 | 28.9 % |
+| core.clj | 264 | 12295 | 40.2 % | 10.3 % | 49.2 % | 42.5 % | 10993 | 33.1 % |
+| embedded libs | 108 | 3692 | 42.4 % | 6.2 % | 51.1 % | 44.9 % | 3145 | 32.4 % |
+| clojure-test-suite | 516 | 415736 | 59.1 % | 0.5 % | 40.3 % | 59.5 % | 239182 | 29.0 % |
 | medley | 104 | 22651 | 56.0 % | 0.8 % | 43.2 % | 56.4 % | 13824 | 27.9 % |
-| **library code** | 476 | 38638 | 49.6 % | 4.2 % | 46.0 % | 50.8 % | 27962 | 30.4 % |
-| **all** | 992 | 454374 | 58.3 % | 0.7 % | 41.0 % | 58.8 % | 267144 | 29.1 % |
+| **library code** | 476 | 38638 | 49.7 % | 4.4 % | 45.8 % | 50.9 % | 27962 | 30.4 % |
+| **all** | 992 | 454374 | 58.3 % | 0.8 % | 40.8 % | 58.8 % | 267144 | 29.1 % |
 
 ## The positions that pay
 
@@ -57,34 +58,34 @@ Each cell is the population and the share of it that is known.
 
 | library | arith sites / both fixnum | loops / all vars one numeric kind | local slots / never leave the frame | protocol receivers / known type | `(:k m)` / known map shape | arith sites / both integer |
 |---|---:|---:|---:|---:|---:|---:|
-| core.clj | 56 / 7.1 % | 50 / 4.0 % | 1826 / 22.2 % | 8 / 0.0 % | 31 / 0.0 % | 56 / 41.1 % |
-| embedded libs | 14 / 78.6 % | 6 / 16.7 % | 365 / 19.5 % | 16 / 0.0 % | 32 / 0.0 % | 14 / 100.0 % |
-| clojure-test-suite | 126 / 3.2 % | 18 / 0.0 % | 19375 / 28.7 % | 2 / 0.0 % | 6 / 16.7 % | 126 / 3.2 % |
-| medley | 15 / 6.7 % | 5 / 0.0 % | 1347 / 24.9 % | 0 / 0.0 % | 0 / 0.0 % | 15 / 6.7 % |
-| **library code** | 85 / 18.8 % | 61 / 4.9 % | 3538 / 23.0 % | 24 / 0.0 % | 63 / 0.0 % | 85 / 44.7 % |
-| **all** | 211 / 9.5 % | 79 / 3.8 % | 22913 / 27.8 % | 26 / 0.0 % | 69 / 1.4 % | 211 / 19.9 % |
+| core.clj | 56 / 7.1 % | 50 / 4.0 % | 1826 / 22.8 % | 8 / 0.0 % | 31 / 0.0 % | 56 / 41.1 % |
+| embedded libs | 14 / 78.6 % | 6 / 16.7 % | 365 / 19.7 % | 16 / 0.0 % | 32 / 0.0 % | 14 / 100.0 % |
+| clojure-test-suite | 126 / 3.2 % | 18 / 0.0 % | 19375 / 28.8 % | 2 / 0.0 % | 6 / 16.7 % | 126 / 3.2 % |
+| medley | 15 / 6.7 % | 5 / 0.0 % | 1347 / 25.2 % | 0 / 0.0 % | 0 / 0.0 % | 15 / 6.7 % |
+| **library code** | 85 / 18.8 % | 61 / 4.9 % | 3538 / 23.4 % | 24 / 0.0 % | 63 / 0.0 % | 85 / 44.7 % |
+| **all** | 211 / 9.5 % | 79 / 3.8 % | 22913 / 27.9 % | 26 / 0.0 % | 69 / 1.4 % | 211 / 19.9 % |
 
 ## Local slots
 
 | library | slots | local | captured | escapes |
 |---|---:|---:|---:|---:|
-| core.clj | 1826 | 22.2 % | 13.1 % | 64.6 % |
-| embedded libs | 365 | 19.5 % | 5.8 % | 74.8 % |
-| clojure-test-suite | 19375 | 28.7 % | 0.1 % | 71.3 % |
-| medley | 1347 | 24.9 % | 7.0 % | 68.1 % |
-| **library code** | 3538 | 23.0 % | 10.0 % | 67.0 % |
-| **all** | 22913 | 27.8 % | 1.6 % | 70.6 % |
+| core.clj | 1826 | 22.8 % | 13.1 % | 64.1 % |
+| embedded libs | 365 | 19.7 % | 5.8 % | 74.5 % |
+| clojure-test-suite | 19375 | 28.8 % | 0.1 % | 71.2 % |
+| medley | 1347 | 25.2 % | 7.0 % | 67.8 % |
+| **library code** | 3538 | 23.4 % | 10.0 % | 66.6 % |
+| **all** | 22913 | 27.9 % | 1.6 % | 70.5 % |
 
 ## Cost per library
 
 | library | forms | nodes | analysis, ms | facts, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 264 | 12416 | 22.1 | 2.5 | 0.11× | 337 | 13 |
-| embedded libs | 108 | 3710 | 5.8 | 0.6 | 0.10× | 102 | 6 |
-| clojure-test-suite | 516 | 415781 | 1316.4 | 48.5 | 0.04× | 9833 | 262 |
-| medley | 104 | 22661 | 61.9 | 2.2 | 0.04× | 551 | 23 |
-| **library code** | 476 | 38787 | 89.8 | 5.3 | 0.06× | 990 | 23 |
-| **all** | 992 | 454568 | 1406.2 | 53.9 | 0.04× | 10822 | 262 |
+| core.clj | 264 | 12416 | 8.2 | 2.5 | 0.31× | 337 | 13 |
+| embedded libs | 108 | 3710 | 2.0 | 0.5 | 0.27× | 102 | 6 |
+| clojure-test-suite | 516 | 415781 | 320.0 | 36.7 | 0.11× | 9833 | 262 |
+| medley | 104 | 22661 | 14.9 | 1.5 | 0.10× | 551 | 23 |
+| **library code** | 476 | 38787 | 25.2 | 4.6 | 0.18× | 990 | 23 |
+| **all** | 992 | 454568 | 345.2 | 41.3 | 0.12× | 10822 | 262 |
 
 `(:k m)` records specifically: 0 of 69 lookups sit on a value known to be a record — pass 1 learns a
 record type only from an `instance?` check against a builtin type name, and a `defrecord` type is a var whose

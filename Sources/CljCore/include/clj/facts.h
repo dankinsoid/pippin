@@ -36,8 +36,9 @@ typedef enum {
 	CLJ_T_HOST    = 1u << 26, // a deftype instance, a host value, anything else
 } clj_type_kind;
 
-#define CLJ_T_BOTTOM 0u
-#define CLJ_T_TOP    ((1u << 27) - 1u)
+#define CLJ_T_BOTTOM 0
+// Every kind bit, (1 << 27) - 1, spelled out so Swift imports it.
+#define CLJ_T_TOP 0x7ffffff
 // Beyond this many kinds a fact widens to TOP (design §3, "полиморфизм ≤4 shape'ов").
 #define CLJ_FACT_UNION_MAX 4
 
@@ -56,6 +57,7 @@ typedef struct {
 	uint32_t        types;     // clj_type_kind bitset
 	uint8_t         null;      // clj_null
 	uint8_t         elem;      // array kind + 1 when types is exactly CLJ_T_ARRAY and it is known, else 0
+	uint8_t         unreachable; // the node sits in a branch a refinement proved dead; not part of the lattice
 	clj_value       singleton; // the pinned value when types names one kind, else CLJ_UNBOUND
 	const clj_type *desc;      // record or host descriptor when known, else NULL
 } clj_fact;
@@ -111,7 +113,7 @@ clj_fact clj_fact_bottom(void);
 clj_fact clj_fact_join(clj_fact a, clj_fact b);
 // Refinement; conflicts is bumped when the result is BOTTOM and neither input was.
 clj_fact clj_fact_meet(clj_fact a, clj_fact b, uint32_t *conflicts);
-// Widens a set past CLJ_FACT_UNION_MAX kinds to TOP; the bounded height is what makes the fixpoint cheap.
+// Widens a set past CLJ_FACT_UNION_MAX members to TOP, the numeric kinds counting as one (facts.c).
 clj_fact clj_fact_cap(clj_fact f);
 bool     clj_fact_eq(clj_fact a, clj_fact b);
 

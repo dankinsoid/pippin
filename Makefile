@@ -1,4 +1,4 @@
-.PHONY: build boot bench test test-pool test-ubsan test-noreuse test-all corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
+.PHONY: build boot bench facts-report test test-pool test-ubsan test-noreuse test-all corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
 
 build:
 	swift build
@@ -54,6 +54,12 @@ corpus-compiled:
 # Every rt.eval of the suite through emit, clang and dlopen: slow, opt-in; CLJ_EVAL_CLOSED=1 for --closed.
 test-eval-compiled:
 	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 swift test
+
+# The type-coverage metric of design §10 step 3b: loads core.clj, the embedded libs and every corpus library,
+# analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed.
+facts-report:
+	swift build -c release --product clj-facts
+	./.build/release/clj-facts . docs/facts-coverage.md
 
 # clojure.core parity: the JVM's ns-publics, ours, and the diff weighted by the corpus (scripts/api-diff.clj).
 # Needs JVM Clojure on PATH; writes docs/api-parity.md, which is committed.

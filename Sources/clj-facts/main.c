@@ -29,7 +29,7 @@ typedef struct {
 	uint64_t slots, slots_local, slots_captured, slots_escapes;
 	uint64_t proto_calls, proto_known;
 	uint64_t kw_lookups, kw_shaped, kw_record;
-	uint64_t conflicts, widenings;
+	uint64_t conflicts, widenings, bottom_unexplained;
 	double   analyze_ms, facts_ms;
 	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
 } stats;
@@ -134,13 +134,29 @@ static void count_invoke(counter *c, const clj_node *n) {
 	}
 }
 
+static void scan_exit(const clj_node *n, void *ctx) {
+	bool *found = ctx;
+	if (n->kind == CLJ_NODE_THROW || n->kind == CLJ_NODE_RECUR) *found = true;
+	if (!*found) clj_node_children(n, scan_exit, ctx);
+}
+
+// A ⊥ value node is expected only where a throw or a recur is the only way out of its subtree.
+static bool has_exit(const clj_node *n) {
+	bool found = false;
+	scan_exit(n, &found);
+	return found;
+}
+
 static void count_node(const clj_node *n, void *ctx) {
 	counter        *c = ctx;
 	const clj_fact *f = clj_facts_node(c->f, n->id);
 	if (f && clj_facts_value_node(n->kind)) {
 		c->s->value_nodes++;
 		uint32_t size = clj_fact_union_size(*f);
-		if (size == 0) c->s->type_bottom++;
+		if (size == 0) {
+			c->s->type_bottom++;
+			if (!f->unreachable && !has_exit(n)) c->s->bottom_unexplained++;
+		}
 		else if (f->types == CLJ_T_TOP) c->s->type_top++;
 		else if (size == 1) c->s->type_known++;
 		else c->s->type_union++;
@@ -402,6 +418,7 @@ static void add(stats *total, const stats *s) {
 	total->kw_record += s->kw_record;
 	total->conflicts += s->conflicts;
 	total->widenings += s->widenings;
+	total->bottom_unexplained += s->bottom_unexplained;
 	total->analyze_ms += s->analyze_ms;
 	total->facts_ms += s->facts_ms;
 }
@@ -473,9 +490,11 @@ static void write_report(const char *path) {
 	        total.facts_ms, total.analyze_ms, total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0,
 	        (double)total.peak_bytes / 1024);
 	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu, every one of them a branch a literal makes unreachable\n"
-	             "  (`(and false true)`, `(when-let [x [0]] …)`). Value nodes at ⊥: %llu, all of them a throw in tail position.\n"
+	             "  (`(and false true)`, `(when-let [x [0]] …)`, `(= 1 x)` before `(ratio? x)`). Value nodes at ⊥: %llu, of which\n"
+	             "  %llu neither unreachable nor explained by a throw — the lattice is wrong wherever that is not zero.\n"
 	             "  Loop variables the widening rule cut short: %llu.\n\n",
-	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.widenings);
+	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom,
+	        (unsigned long long)total.bottom_unexplained, (unsigned long long)total.widenings);
 	fprintf(out, "**What to build first.** By population and by known share the answer is escaping, not types: %.1f %% of local\n"
 	             "slots over library code provably never leave their frame, against %llu arithmetic sites in total of which\n"
 	             "%.1f %% have both arguments known-fixnum, and %llu protocol receivers of which none has a known type. Registers\n"
@@ -597,5 +616,12 @@ int main(int argc, char **argv) {
 		}
 	}
 	write_report(out);
+	uint64_t unexplained = 0;
+	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained;
+	if (unexplained > 0) {
+		fprintf(stderr, "clj-facts: %llu value node(s) at ⊥ with no throw or recur: the lattice is wrong\n",
+		        (unsigned long long)unexplained);
+		return 1;
+	}
 	return 0;
 }

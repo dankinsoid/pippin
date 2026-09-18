@@ -71,12 +71,12 @@ static uint32_t popcount(uint32_t x) { return (uint32_t)__builtin_popcount(x); }
 uint32_t clj_fact_union_size(clj_fact f) { return popcount(f.types); }
 
 clj_fact clj_fact_top(void) {
-	clj_fact f = {CLJ_T_TOP, CLJ_NULL_MAYBE, 0, CLJ_UNBOUND, NULL};
+	clj_fact f = {CLJ_T_TOP, CLJ_NULL_MAYBE, 0, 0, CLJ_UNBOUND, NULL};
 	return f;
 }
 
 clj_fact clj_fact_bottom(void) {
-	clj_fact f = {CLJ_T_BOTTOM, CLJ_NULL_BOTTOM, 0, CLJ_UNBOUND, NULL};
+	clj_fact f = {CLJ_T_BOTTOM, CLJ_NULL_BOTTOM, 0, 0, CLJ_UNBOUND, NULL};
 	return f;
 }
 
@@ -93,14 +93,17 @@ static clj_fact normalize(clj_fact f) {
 	return f;
 }
 
+// The numeric kinds count as one member: the design's ladder is int/double/number/⊤, so "a number" must survive
+// a cap that exists to bound polymorphism, not arithmetic.
 clj_fact clj_fact_cap(clj_fact f) {
 	f = normalize(f);
-	if (popcount(f.types) > CLJ_FACT_UNION_MAX) f.types = CLJ_T_TOP;
+	uint32_t members = popcount(f.types & ~(uint32_t)T_NUM) + ((f.types & T_NUM) ? 1u : 0u);
+	if (members > CLJ_FACT_UNION_MAX) f.types = CLJ_T_TOP;
 	return f;
 }
 
 static clj_fact fact(uint32_t types, clj_null null) {
-	clj_fact f = {types, (uint8_t)null, 0, CLJ_UNBOUND, NULL};
+	clj_fact f = {types, (uint8_t)null, 0, 0, CLJ_UNBOUND, NULL};
 	return clj_fact_cap(f);
 }
 
@@ -117,7 +120,7 @@ bool clj_fact_eq(clj_fact a, clj_fact b) {
 clj_fact clj_fact_join(clj_fact a, clj_fact b) {
 	if (a.types == CLJ_T_BOTTOM) return b;
 	if (b.types == CLJ_T_BOTTOM) return a;
-	clj_fact r = {a.types | b.types, (uint8_t)(a.null | b.null), 0, CLJ_UNBOUND, NULL};
+	clj_fact r = {a.types | b.types, (uint8_t)(a.null | b.null), 0, 0, CLJ_UNBOUND, NULL};
 	// Identity, not clj_equals: two constants the reader made separately are two objects, as the codec keeps them.
 	if (a.singleton == b.singleton) r.singleton = a.singleton;
 	if (a.desc == b.desc) r.desc = a.desc;
@@ -126,7 +129,7 @@ clj_fact clj_fact_join(clj_fact a, clj_fact b) {
 }
 
 clj_fact clj_fact_meet(clj_fact a, clj_fact b, uint32_t *conflicts) {
-	clj_fact r = {a.types & b.types, (uint8_t)(a.null & b.null), 0, CLJ_UNBOUND, NULL};
+	clj_fact r = {a.types & b.types, (uint8_t)(a.null & b.null), 0, 0, CLJ_UNBOUND, NULL};
 	r.singleton = a.singleton == CLJ_UNBOUND ? b.singleton : (b.singleton == CLJ_UNBOUND || a.singleton == b.singleton ? a.singleton : CLJ_UNBOUND);
 	r.desc = a.desc ? a.desc : b.desc;
 	r.elem = a.elem ? a.elem : b.elem;
@@ -213,14 +216,16 @@ typedef struct {
 #define F(nm, ar, res) {nm, ar, SIG_FIXED, res, 0, 0, 0, false, false, 0}
 #define FK(nm, ar, res) {nm, ar, SIG_FIXED, res, 0, 0, 0, false, true, 0}
 #define R(nm, ar, rl, res) {nm, ar, rl, res, 0, 0, 0, false, true, 0}
+// Arithmetic stores nothing, so its arguments do not escape.
+#define RA(nm, ar, rl) {nm, ar, rl, 0, 0, 0, 0, false, false, 0}
 #define P(nm, ref, ex) {nm, 1, SIG_FIXED, CLJ_T_BOOL, ref, CLJ_NULL_MAYBE, 0, ex, false, 0}
 #define PN(nm, ref, rnul, ex) {nm, 1, SIG_FIXED, CLJ_T_BOOL, ref, rnul, 0, ex, false, 0}
 #define ARR(nm, k) {nm, 0, SIG_FIXED, CLJ_T_ARRAY, 0, 0, 0, false, true, (uint8_t)(k) + 1}
 
 static const fact_sig sigs[] = {
 	// arithmetic and comparison
-	R("+", 2, SIG_ARITH, 0), R("-", 2, SIG_ARITH, 0), R("*", 2, SIG_ARITH, 0), R("/", 2, SIG_DIV, 0),
-	R("inc", 1, SIG_ARITH, 0), R("dec", 1, SIG_ARITH, 0),
+	RA("+", 2, SIG_ARITH), RA("-", 2, SIG_ARITH), RA("*", 2, SIG_ARITH), RA("/", 2, SIG_DIV),
+	RA("inc", 1, SIG_ARITH), RA("dec", 1, SIG_ARITH),
 	F("<", 2, CLJ_T_BOOL), F("<=", 2, CLJ_T_BOOL), F(">", 2, CLJ_T_BOOL), F(">=", 2, CLJ_T_BOOL),
 	F("=", 0, CLJ_T_BOOL), F("not=", 0, CLJ_T_BOOL), F("==", 0, CLJ_T_BOOL), F("identical?", 2, CLJ_T_BOOL),
 	F("compare", 2, CLJ_T_FIXNUM), F("hash", 1, CLJ_T_FIXNUM), F("count", 1, CLJ_T_FIXNUM), F("alength", 1, CLJ_T_FIXNUM),
@@ -345,9 +350,17 @@ static uint32_t arith_result(uint32_t a, uint32_t b, bool div) {
 
 // ---- the walk
 
+// What a truthy value tells about another slot: how (and (map? x) ...) reaches x through the macro's temporary.
 typedef struct {
-	clj_fact *slots;
-	uint32_t  n;
+	uint32_t slot; // UINT32_MAX when the value is no predicate over a local
+	clj_fact narrow;
+	bool     exact; // the false branch may subtract it
+} refinement;
+
+typedef struct {
+	clj_fact   *slots;
+	refinement *pred; // per slot, the refinement its value carries
+	uint32_t    n;
 } env;
 
 typedef struct {
@@ -368,6 +381,7 @@ typedef struct {
 	frame_ctx    *frame;
 	recur_target *recur;
 	bool          record;
+	bool          dead; // inside a branch a refinement proved unreachable
 	uint32_t     *alias_from, *alias_to;
 	uint32_t      nalias, calias;
 } pass;
@@ -377,18 +391,43 @@ typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use);
 
 static env env_new(uint32_t n) {
-	env e = {xalloc(n, sizeof(clj_fact)), n};
-	for (uint32_t i = 0; i < n; i++) e.slots[i] = clj_fact_top();
+	env e = {xalloc(n, sizeof(clj_fact)), xalloc(n, sizeof(refinement)), n};
+	for (uint32_t i = 0; i < n; i++) {
+		e.slots[i] = clj_fact_top();
+		e.pred[i].slot = UINT32_MAX;
+	}
 	return e;
 }
 
 static env env_clone(const env *src) {
-	env e = {xalloc(src->n, sizeof(clj_fact)), src->n};
+	env e = {xalloc(src->n, sizeof(clj_fact)), xalloc(src->n, sizeof(refinement)), src->n};
 	memcpy(e.slots, src->slots, src->n * sizeof(clj_fact));
+	memcpy(e.pred, src->pred, src->n * sizeof(refinement));
 	return e;
 }
 
-static void env_free(env *e) { free(e->slots); }
+static void env_free(env *e) {
+	free(e->slots);
+	free(e->pred);
+}
+
+// Rebinding a slot retires both its own refinement and every one that was taken over its old value.
+static void env_bind(env *e, uint32_t slot, clj_fact f, refinement r) {
+	if (slot >= e->n) return;
+	e->slots[slot] = f;
+	e->pred[slot] = r;
+	for (uint32_t i = 0; i < e->n; i++) {
+		if (i != slot && e->pred[i].slot == slot) e->pred[i].slot = UINT32_MAX;
+	}
+}
+
+// A slot at ⊥ holds no value, so nothing below can run.
+static bool env_bottom(const env *e) {
+	for (uint32_t i = 0; i < e->n; i++) {
+		if (e->slots[i].types == CLJ_T_BOTTOM) return true;
+	}
+	return false;
+}
 
 static void mark_escape(pass *p, uint32_t slot, clj_escape level) {
 	const clj_facts_frame *fr = &p->f->frames[p->frame->index];
@@ -524,14 +563,13 @@ static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_
 // A round of a loop's fixpoint sees the variables before they are widened, so only the recording pass counts.
 static uint32_t *conflict_sink(pass *p) { return p->record ? &p->f->conflicts : NULL; }
 
-static void refine_slot(pass *p, env *e, uint32_t slot, uint32_t types, clj_null null, bool subtract) {
+static void refine_slot(pass *p, env *e, uint32_t slot, clj_fact narrow, bool subtract) {
 	if (slot >= e->n) return;
-	clj_fact narrow = {types, (uint8_t)null, 0, CLJ_UNBOUND, NULL};
 	if (subtract) {
 		clj_fact cur = e->slots[slot];
-		cur.types &= ~types;
+		cur.types &= ~narrow.types;
 		// MAYBE is "says nothing about nil", so its complement must subtract nothing
-		if (null != CLJ_NULL_MAYBE) cur.null = (uint8_t)(cur.null & ~null);
+		if (narrow.null != CLJ_NULL_MAYBE) cur.null = (uint8_t)(cur.null & ~narrow.null);
 		if (cur.types == CLJ_T_BOTTOM && e->slots[slot].types != CLJ_T_BOTTOM && p->record) p->f->conflicts++;
 		e->slots[slot] = clj_fact_cap(cur);
 		return;
@@ -539,81 +577,108 @@ static void refine_slot(pass *p, env *e, uint32_t slot, uint32_t types, clj_null
 	e->slots[slot] = clj_fact_meet(e->slots[slot], narrow, conflict_sink(p));
 }
 
-static void refine_singleton(pass *p, env *e, uint32_t slot, clj_value v) {
-	if (slot >= e->n) return;
-	e->slots[slot] = clj_fact_meet(e->slots[slot], clj_fact_of_value(v), conflict_sink(p));
+static refinement no_refinement(void) {
+	refinement r = {UINT32_MAX, clj_fact_top(), false};
+	return r;
 }
 
-static void refine(pass *p, const clj_node *test, env *yes, env *no);
-
-static void refine_call(pass *p, const clj_node *test, const fact_sig *s, const clj_node *const *args, uint32_t nargs, env *yes,
-                        env *no) {
-	(void)test;
-	if (!s || !s->refine || s->refine_arg >= nargs) return;
-	const clj_node *arg = args[s->refine_arg];
-	if (arg->kind != CLJ_NODE_LOCAL) return;
-	refine_slot(p, yes, arg->u.local.index, s->refine, (clj_null)s->refine_null, false);
-	if (s->exact) refine_slot(p, no, arg->u.local.index, s->refine, (clj_null)s->refine_null, true);
+static refinement refinement_at(const clj_node *arg, uint32_t types, clj_null null, bool exact) {
+	refinement r = no_refinement();
+	if (arg->kind != CLJ_NODE_LOCAL) return r;
+	clj_fact narrow = {types, (uint8_t)null, 0, 0, CLJ_UNBOUND, NULL};
+	r.slot = arg->u.local.index;
+	r.narrow = narrow;
+	r.exact = exact;
+	return r;
 }
 
-// (= x <const>) pins x to that constant in the true branch; the false branch learns nothing.
-static void refine_equality(pass *p, const clj_node *const *args, uint32_t nargs, env *yes) {
-	if (nargs != 2) return;
-	for (uint32_t i = 0; i < 2; i++) {
-		const clj_node *a = args[i], *b = args[1 - i];
-		if (a->kind == CLJ_NODE_LOCAL && b->kind == CLJ_NODE_CONST) refine_singleton(p, yes, a->u.local.index, b->u.value);
+// (= x <const>) pins x to that constant when true and says nothing when false.
+static refinement refinement_equality(const clj_node *const *args, uint32_t nargs) {
+	if (nargs == 2) {
+		for (uint32_t i = 0; i < 2; i++) {
+			const clj_node *a = args[i], *b = args[1 - i];
+			if (a->kind != CLJ_NODE_LOCAL || b->kind != CLJ_NODE_CONST) continue;
+			refinement r = {a->u.local.index, clj_fact_of_value(b->u.value), false};
+			return r;
+		}
 	}
+	return no_refinement();
 }
 
-static void refine_instance(pass *p, const clj_node *const *args, uint32_t nargs, env *yes, env *no) {
-	if (nargs != 2 || args[0]->kind != CLJ_NODE_VAR || args[1]->kind != CLJ_NODE_LOCAL) return;
-	if (!is_core_var(args[0]->u.var)) return;
+static refinement refinement_instance(const clj_node *const *args, uint32_t nargs) {
+	if (nargs != 2 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var) || !is_core_var(args[0]->u.var))
+		return no_refinement();
 	const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(args[0]->u.var)));
 	for (size_t i = 0; i < sizeof type_names / sizeof *type_names; i++) {
-		if (strcmp(type_names[i].name, name) != 0) continue;
-		refine_slot(p, yes, args[1]->u.local.index, type_names[i].types, CLJ_NULL_NEVER, false);
-		if (type_names[i].exact) refine_slot(p, no, args[1]->u.local.index, type_names[i].types, CLJ_NULL_BOTTOM, true);
-		return;
+		if (strcmp(type_names[i].name, name) == 0)
+			return refinement_at(args[1], type_names[i].types, CLJ_NULL_NEVER, type_names[i].exact);
 	}
+	return no_refinement();
+}
+
+static refinement refinement_call(const fact_sig *s, const clj_node *const *args, uint32_t nargs) {
+	if (!s || !s->refine || s->refine_arg >= nargs) return no_refinement();
+	return refinement_at(args[s->refine_arg], s->refine, (clj_null)s->refine_null, s->exact);
+}
+
+// The refinement a value carries when it is truthy; `negated` flips through a `not`.
+static refinement predicate_of(const clj_node *n, bool *negated) {
+	*negated = false;
+	switch (n->kind) {
+	case CLJ_NODE_INTRINSIC: {
+		const char *name = strchr(n->u.intrinsic.op->name, '/') + 1;
+		if (strcmp(name, "not") == 0 && n->u.intrinsic.n == 1) {
+			refinement r = predicate_of(n->u.intrinsic.args[0], negated);
+			*negated = !*negated;
+			return r;
+		}
+		if (strcmp(name, "=") == 0 || strcmp(name, "identical?") == 0)
+			return refinement_equality(n->u.intrinsic.args, n->u.intrinsic.n);
+		return refinement_call(sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.args, n->u.intrinsic.n);
+	}
+	case CLJ_NODE_INVOKE: {
+		if (n->u.invoke.fn->kind != CLJ_NODE_VAR || !clj_is_var(n->u.invoke.fn->u.var) || !is_core_var(n->u.invoke.fn->u.var))
+			return no_refinement();
+		const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(n->u.invoke.fn->u.var)));
+		if (strcmp(name, "not") == 0 && n->u.invoke.n == 1) {
+			refinement r = predicate_of(n->u.invoke.args[0], negated);
+			*negated = !*negated;
+			return r;
+		}
+		if (strcmp(name, "=") == 0) return refinement_equality(n->u.invoke.args, n->u.invoke.n);
+		if (strcmp(name, "instance?") == 0) return refinement_instance(n->u.invoke.args, n->u.invoke.n);
+		return refinement_call(sig_of_var(n->u.invoke.fn->u.var, n->u.invoke.n), n->u.invoke.args, n->u.invoke.n);
+	}
+	default: return no_refinement();
+	}
+}
+
+static void apply_refinement(pass *p, refinement r, env *yes, env *no) {
+	if (r.slot == UINT32_MAX) return;
+	refine_slot(p, yes, r.slot, r.narrow, false);
+	if (r.exact) refine_slot(p, no, r.slot, r.narrow, true);
+}
+
+// What a let binding remembers about its init, so the temporary `and`/`or` expand to carries the predicate on.
+static refinement refinement_of_init(const clj_node *init) {
+	bool       negated = false;
+	refinement r = predicate_of(init, &negated);
+	return negated ? no_refinement() : r;
 }
 
 static void refine(pass *p, const clj_node *test, env *yes, env *no) {
-	switch (test->kind) {
-	case CLJ_NODE_LOCAL:
-		// only nil and false are falsy, so the true branch is non-nil and the false branch is one of the two
-		refine_slot(p, yes, test->u.local.index, CLJ_T_TOP & ~CLJ_T_NIL, CLJ_NULL_NEVER, false);
-		refine_slot(p, no, test->u.local.index, CLJ_T_NIL | CLJ_T_BOOL, CLJ_NULL_MAYBE, false);
-		return;
-	case CLJ_NODE_INTRINSIC: {
-		const fact_sig *s = sig_of_intrinsic(test->u.intrinsic.op);
-		const char     *name = strchr(test->u.intrinsic.op->name, '/') + 1;
-		if (strcmp(name, "not") == 0 && test->u.intrinsic.n == 1) {
-			refine(p, test->u.intrinsic.args[0], no, yes);
-			return;
-		}
-		if (strcmp(name, "=") == 0 || strcmp(name, "identical?") == 0) refine_equality(p, test->u.intrinsic.args, test->u.intrinsic.n, yes);
-		refine_call(p, test, s, test->u.intrinsic.args, test->u.intrinsic.n, yes, no);
+	if (test->kind == CLJ_NODE_LOCAL) {
+		uint32_t slot = test->u.local.index;
+		clj_fact truthy = {CLJ_T_TOP & ~(uint32_t)CLJ_T_NIL, CLJ_NULL_NEVER, 0, 0, CLJ_UNBOUND, NULL};
+		clj_fact falsy = {CLJ_T_NIL | CLJ_T_BOOL, CLJ_NULL_MAYBE, 0, 0, CLJ_UNBOUND, NULL};
+		refine_slot(p, yes, slot, truthy, false);
+		refine_slot(p, no, slot, falsy, false);
+		if (slot < yes->n) apply_refinement(p, yes->pred[slot], yes, no);
 		return;
 	}
-	case CLJ_NODE_INVOKE: {
-		if (test->u.invoke.fn->kind != CLJ_NODE_VAR || !clj_is_var(test->u.invoke.fn->u.var)) return;
-		clj_value var = test->u.invoke.fn->u.var;
-		if (!is_core_var(var)) return;
-		const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(var)));
-		if (strcmp(name, "not") == 0 && test->u.invoke.n == 1) {
-			refine(p, test->u.invoke.args[0], no, yes);
-			return;
-		}
-		if (strcmp(name, "instance?") == 0) {
-			refine_instance(p, test->u.invoke.args, test->u.invoke.n, yes, no);
-			return;
-		}
-		if (strcmp(name, "=") == 0) refine_equality(p, test->u.invoke.args, test->u.invoke.n, yes);
-		refine_call(p, test, sig_of_var(var, test->u.invoke.n), test->u.invoke.args, test->u.invoke.n, yes, no);
-		return;
-	}
-	default: return;
-	}
+	bool       negated = false;
+	refinement r = predicate_of(test, &negated);
+	apply_refinement(p, r, negated ? no : yes, negated ? yes : no);
 }
 
 // ---- transfer functions
@@ -688,9 +753,8 @@ static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
 	for (uint32_t round = 0;; round++) {
 		t.changed = false;
 		memcpy(scratch.slots, e->slots, e->n * sizeof(clj_fact));
-		for (uint32_t i = 0; i < nb; i++) {
-			if (n->u.let.slots[i] < scratch.n) scratch.slots[n->u.let.slots[i]] = vars[i];
-		}
+		memcpy(scratch.pred, e->pred, e->n * sizeof(refinement));
+		for (uint32_t i = 0; i < nb; i++) env_bind(&scratch, n->u.let.slots[i], vars[i], no_refinement());
 		infer(p, n->u.let.body, &scratch, use);
 		if (!t.changed) break;
 		if (round + 1 >= WIDEN_ROUNDS) {
@@ -704,9 +768,8 @@ static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
 	}
 	p->record = rec;
 	memcpy(scratch.slots, e->slots, e->n * sizeof(clj_fact));
-	for (uint32_t i = 0; i < nb; i++) {
-		if (n->u.let.slots[i] < scratch.n) scratch.slots[n->u.let.slots[i]] = vars[i];
-	}
+	memcpy(scratch.pred, e->pred, e->n * sizeof(refinement));
+	for (uint32_t i = 0; i < nb; i++) env_bind(&scratch, n->u.let.slots[i], vars[i], no_refinement());
 	clj_fact r = infer(p, n->u.let.body, &scratch, use);
 	p->recur = saved;
 	if (rec) {
@@ -730,7 +793,7 @@ static clj_fact infer_try(pass *p, const clj_node *n, env *e, use_kind use) {
 	for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 		const clj_catch *k = &n->u.try_.catches[i];
 		env              ce = env_clone(&entry);
-		if (k->slot < ce.n) ce.slots[k->slot] = clj_fact_top();
+		env_bind(&ce, k->slot, clj_fact_top(), no_refinement());
 		r = clj_fact_join(r, infer(p, k->handler, &ce, use));
 		env_free(&ce);
 	}
@@ -791,8 +854,12 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		uint32_t before = p->f->conflicts;
 		refine(p, n->u.if_.test, &yes, &no);
 		if (p->f->conflicts > before && p->f->conflict_node == UINT32_MAX) p->f->conflict_node = n->u.if_.test->id;
+		bool     outer = p->dead;
+		p->dead = outer || env_bottom(&yes);
 		clj_fact a = infer(p, n->u.if_.then, &yes, use);
+		p->dead = outer || env_bottom(&no);
 		clj_fact b = n->u.if_.else_ ? infer(p, n->u.if_.else_, &no, use) : fact_of(CLJ_T_NIL);
+		p->dead = outer;
 		for (uint32_t i = 0; i < e->n; i++) e->slots[i] = clj_fact_join(yes.slots[i], no.slots[i]);
 		env_free(&yes);
 		env_free(&no);
@@ -809,7 +876,7 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		for (uint32_t i = 0; i < n->u.let.n; i++) {
 			clj_fact f = infer(p, n->u.let.inits[i], e, USE_NONE);
 			alias(p, n->u.let.inits[i], n->u.let.slots[i]);
-			if (n->u.let.slots[i] < e->n) e->slots[n->u.let.slots[i]] = f;
+			env_bind(e, n->u.let.slots[i], f, refinement_of_init(n->u.let.inits[i]));
 		}
 		r = infer(p, n->u.let.body, e, use);
 		break;
@@ -886,7 +953,10 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_FUSED: r = infer_fused(p, n, e); break;
 	default: clj_fatal("unknown node kind");
 	}
-	if (p->record && n->id < p->f->nnodes) p->f->nodes[n->id] = r;
+	if (p->record && n->id < p->f->nnodes) {
+		r.unreachable = p->dead;
+		p->f->nodes[n->id] = r;
+	}
 	return r;
 }
 
@@ -899,7 +969,7 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, NULL, NULL, 0, 0};
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0};
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
