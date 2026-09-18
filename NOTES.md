@@ -2076,7 +2076,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   no method at emit time (a protocol defined in the same compiled-eval form), an impl that is a native or a
   reify trampoline or captures, a variadic impl, past four descriptors, and a receiver whose kind has many
   descriptors — all of these through the cache, whose miss is the method's own tables. `clj-compile --stats` counts
-  the sites: core.clj 8 direct (the multimethod API on `MultiFn`, `-realized?` on `Delay`), clojure.test 16 direct,
+  the sites as written — each site keeps its arms' ids and `cljc_unit_slots` classifies them after `cljc_end`
+  with the prelude's own `pimpl_defined`, so an arm compiled out is a cache site: core.clj 8 direct (the multimethod API on `MultiFn`, `-realized?` on `Delay`), clojure.test 16 direct,
   medley none, the test suite 2 cache (`defmethod` expansions whose impl is the interpreted core's closure, not of
   the set; under the compiled core they resolve). Measured (bench, closed compiled `-O2`): every monomorphic row
   17–19 → 8.5–9 ns, the plain fn call's 8; the bi-morphic 22 → 12; arm and cache within a nanosecond of each

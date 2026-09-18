@@ -69,12 +69,13 @@ typedef struct {
 	uint64_t entry_checked;  // lets and loops emitted twice, typed behind the tags of their entry values (closed only)
 	uint64_t proto_direct;   // protocol call sites with one direct arm covering the whole receiver fact (closed)
 	uint64_t proto_switch;   // sites with several arms, or one beside kinds the cache keeps
-	uint64_t proto_cache;    // sites with the inline cache alone
+	uint64_t proto_cache;    // sites with the inline cache alone; an arm whose target no unit emitted counts here, as written
 	uint64_t proto_folded;   // satisfies?/extends? sites answered by a verified constant (closed)
 	uint64_t direct_slots;   // frame slots of the callees of direct call sites, summed per site
 	uint64_t direct_array;   // of those, the entries the caller's ds[] holds: what the callee's promotion left in the array
 } cljc_slot_stats;
 
+// After cljc_end: the protocol counters are resolved against the set as the units' text is.
 void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out);
 
 // The C identifier of a Clojure name (NOTES.md, the demangling rule); owned by the caller.

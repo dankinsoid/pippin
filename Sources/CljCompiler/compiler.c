@@ -183,6 +183,8 @@ typedef struct {
 	pool  impl_regs; // fn bases a closed init registers as protocol impls, with the arity mask a direct arm may call
 	uint32_t nstubs, ntops, nforms;
 	cljc_slot_stats slots;
+	struct proto_site *psites; // the protocol call sites, classified for --stats once every arm's target is resolved
+	size_t             npsites, psites_cap;
 	uint64_t last_serial; // of the last form whose statements were emitted
 	bool     serial_open; // the failure label of the current form is still reachable
 	bool     embedded;
@@ -347,6 +349,7 @@ static unit *unit_for(cljc_compiler *c, const char *file) {
 }
 
 static void unit_free(unit *u) {
+	free(u->psites);
 	free(u->file);
 	free(u->cfile);
 	sb_free(&u->protos);
@@ -1699,19 +1702,32 @@ static clj_value protocol_method_root(const clj_node *head) {
 	return clj_is_protocol_method(root) ? root : CLJ_NIL;
 }
 
+// A protocol call site as --stats classifies it: the arms' pimpl ids, whose definition is known only at write time.
+typedef struct proto_site {
+	uint32_t pimpl[PROTO_ARMS_MAX];
+	uint32_t n;
+	bool     partial;
+} proto_site;
+
+static void proto_site_add(unit *u, const proto_arms *a) {
+	if (u->npsites == u->psites_cap) {
+		u->psites_cap = u->psites_cap ? u->psites_cap * 2 : 16;
+		u->psites = realloc(u->psites, u->psites_cap * sizeof *u->psites);
+		if (!u->psites) clj_fatal("out of memory");
+	}
+	proto_site *s = &u->psites[u->npsites++];
+	s->n = a->n;
+	s->partial = a->partial;
+	for (uint32_t i = 0; i < a->n; i++) s->pimpl[i] = a->arms[i].pimpl;
+}
+
 // A protocol method call: the arms the fact allows, under CLJC_PIMPL_<id> (a closed unit's prelude defines it when the
 // target resolved), then the per-thread inline cache for every other receiver.
 static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const temp *fn, const char *array, const temp *r) {
 	uint32_t   nargs = n->u.invoke.n;
 	proto_arms a = receiver_arms(f, n->u.invoke.args[0], clj_method_ctx_of(method)->proto);
-	uint32_t   direct = 0;
-	for (uint32_t i = 0; i < a.n; i++) {
-		a.arms[i].pimpl = arm_target(f, a.arms[i].type, method, nargs);
-		if (a.arms[i].pimpl != UINT32_MAX) direct++;
-	}
-	if (direct == 0) f->u->slots.proto_cache++;
-	else if (direct == 1 && a.n == 1 && !a.partial) f->u->slots.proto_direct++;
-	else f->u->slots.proto_switch++;
+	for (uint32_t i = 0; i < a.n; i++) a.arms[i].pimpl = arm_target(f, a.arms[i].type, method, nargs);
+	proto_site_add(f->u, &a);
 	int k = f->naux++;
 	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s[0]);\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Thread_local clj_cproto_ic PC%d;\n", r->name, array, k);
 	for (uint32_t i = 0; i < a.n; i++) {
@@ -2742,7 +2758,6 @@ char *cljc_unit_cname(const cljc_compiler *c, size_t i) {
 	return xstrdup(name);
 }
 
-void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out) { *out = c->units[i]->slots; }
 
 size_t              cljc_refusal_count(const cljc_compiler *c) { return c->nrefusals; }
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i) { return &c->refusals[i]; }
@@ -2767,18 +2782,52 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 	}
 }
 
+// Whether CLJC_PIMPL_<id> gets defined: a named impl always, a node's once some unit emitted that arity of it.
+static bool pimpl_defined(const cljc_compiler *c, const pimpl *p) {
+	if (!p->node) return true;
+	const fn_base *fb = fn_base_of(c, p->node);
+	return fb && ((fb->arities >> p->nargs) & 1);
+}
+
+static const pimpl *pimpl_by_id(const cljc_compiler *c, uint32_t id) {
+	for (size_t i = 0; i < c->npimpls; i++) {
+		if (c->pimpls[i].id == id) return &c->pimpls[i];
+	}
+	return NULL;
+}
+
+// The --stats classification of a unit's protocol sites, by the arms that are actually written.
+static void count_proto_sites(const cljc_compiler *c, const unit *u, cljc_slot_stats *st) {
+	st->proto_direct = st->proto_switch = st->proto_cache = 0;
+	for (size_t k = 0; k < u->npsites; k++) {
+		const proto_site *s = &u->psites[k];
+		uint32_t          direct = 0;
+		for (uint32_t i = 0; i < s->n; i++) {
+			const pimpl *p = s->pimpl[i] == UINT32_MAX ? NULL : pimpl_by_id(c, s->pimpl[i]);
+			if (p && pimpl_defined(c, p)) direct++;
+		}
+		if (direct == 0) st->proto_cache++;
+		else if (direct == 1 && s->n == 1 && !s->partial) st->proto_direct++;
+		else st->proto_switch++;
+	}
+}
+
+void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out) {
+	*out = c->units[i]->slots;
+	count_proto_sites(c, c->units[i], out);
+}
+
 // The direct arms of a unit's protocol sites: CLJC_PIMPL_<id> names the impl's dispatcher (what a fill verifies the
 // tables against) and its arity function (what a hit calls); a static of this unit by symbol, another unit's through
 // the registry at the first fill. An unresolved arm stays undefined and its site keeps the cache alone.
 static void emit_pimpl_prelude(cljc_compiler *c, unit *u, sb *out) {
 	for (size_t i = 0; i < c->npimpls; i++) {
 		const pimpl *p = &c->pimpls[i];
-		if (p->u != u) continue;
+		if (p->u != u || !pimpl_defined(c, p)) continue;
 		const char *base = p->name;
 		bool        local = false;
 		if (p->node) {
 			const fn_base *fb = fn_base_of(c, p->node);
-			if (!fb || !((fb->arities >> p->nargs) & 1)) continue;
 			base = fb->base;
 			local = fb->u == u;
 		}
