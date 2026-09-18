@@ -187,6 +187,15 @@ extension CoreTests {
 				#expect(cljEvalError("(cp-a 0)")?.hasPrefix("#error {:message \"Stack overflow\"") == true, "closed: \(closed)")
 				#expect(clj_shadow_stack_depth() == 0 && clj_debug_retired_roots() == 0)
 				#expect(cljEvalError("(try (cp-a 0) (catch :default e :caught))")?.hasPrefix("#error {:message \"Stack overflow\"") == true)
+				// the same from Swift: Value.apply is a recovery point of its own
+				let f = try cljEval("cp-a")
+				do {
+					_ = try f(0)
+					Issue.record("no overflow through Value.apply")
+				} catch let e as ClojureError {
+					#expect(e.message == "Stack overflow" && e.trace.count == 256 && e.trace.allSatisfy { $0.fn == "cp.stop/cp-a" || $0.fn == "cp.stop/cp-b" })
+				}
+				#expect(clj_shadow_stack_depth() == 0 && clj_debug_retired_roots() == 0)
 				clj_deadline_set_ms(100)
 				#expect(cljEvalError("(cp-spin)")?.contains("Execution timed out") == true, "closed: \(closed)")
 				clj_deadline_set_ms(0)

@@ -1305,15 +1305,13 @@ uint32_t clj_eval_exec_depth(void) { return retired.exec_depth; }
 void clj_eval_exec_depth_set(uint32_t depth) { retired.exec_depth = depth; }
 
 clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
+	// The bracket opens before the point is pushed, so a landing restores the depth to the open bracket.
+	retired.exec_depth++;
 	clj_recovery r;
 	clj_recovery_push(&r);
 	clj_value v;
-	if (sigsetjmp(r.buf, 0)) {
-		v = clj_recovery_throw(&r);
-	} else {
-		retired.exec_depth++;
-		v = clj_invoke(f, args, n);
-	}
+	if (sigsetjmp(r.buf, 0)) v = clj_recovery_throw(&r);
+	else v = clj_invoke(f, args, n);
 	clj_recovery_pop(&r);
 	if (--retired.exec_depth == 0 && retired.n) drain_retired();
 	return v;
