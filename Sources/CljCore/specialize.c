@@ -370,7 +370,7 @@ void clj_exec_derive(clj_value exec) {
 
 // A rebound operator's entries would fail their guard on every call; a redefined callee has a new summary.
 void clj_exec_root_rebound(clj_value var) {
-	if (!enabled || !dcap) return;
+	if (!enabled) return;
 	clj_lock_lock(&lock);
 	dependents *d = dependents_find(var);
 	if (!d || !d->n) {

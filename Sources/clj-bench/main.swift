@@ -288,6 +288,26 @@ func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
 	return v
 }
 
+func cljCall2(_ f: clj_value, _ a: clj_value, _ b: clj_value) -> UInt64 {
+	let args = [a, b]
+	let r = args.withUnsafeBufferPointer { clj_invoke(f, $0.baseAddress, 2) }
+	if r == CLJ_THROWN { benchThrew() }
+	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+	clj_release(r)
+	return v
+}
+
+// A vector of n doubles, i + 0.5 each.
+func cDoubleVecBuild(_ n: Int) -> clj_value {
+	var v = clj_vector_empty()
+	for i in 0..<n {
+		let d = clj_double_new(Double(i) + 0.5)
+		v = clj_vector_conj(v, d)
+		clj_release(d)
+	}
+	return v
+}
+
 // CLJ_BENCH_ONLY=boot: clj_init wall time, peak resident memory and live objects after it; the compiled core
 // against the interpreted one (bench/RESULTS.md, "Compiler v0").
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "boot" {
@@ -647,6 +667,14 @@ let joinedCountFn = cljEval(
 	"(let [] (defn bench-count-to [n] (loop [i 0] (if (< i n) (recur (inc i)) i))) (defn bench-count-run [] (bench-count-to 100000))) bench-count-run")
 let joinedAccFn = cljEval(
 	"(let [] (defn bench-acc-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc))) (defn bench-acc-run [] (bench-acc-to 100000))) bench-acc-run")
+// A double accumulator per iteration, and a dot product over two vectors of doubles through nth (whose element has
+// no fact: the products stay generic and the sum with them).
+let dblAccFn = cljEval("(fn [n] (loop [i 0 x 0.0] (if (< i n) (recur (inc i) (+ x 0.5)) x)))")
+let dotFn = cljEval("(fn [a b] (let [n (count a)] (loop [i 0 s 0.0] (if (< i n) (recur (inc i) (+ s (* (nth a i) (nth b i)))) s))))")
+// The bound from (count v): a let around the loop, and the loop variable itself fed by the count (NOTES.md
+// "Compiler", entry-checked frames).
+let countBoundFn = cljEval("(fn [v] (let [n (count v)] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc))))")
+let countDownFn = cljEval("(fn [v] (loop [i (count v) acc 0] (if (pos? i) (recur (dec i) (+ acc i)) acc)))")
 let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (< i n) (recur (bench-inc i)) i)))")
 
 // The same call with the fn bound by a let around the loop, and a helper bound inside the loop body that
@@ -683,6 +711,14 @@ do {
 	callRows.append(CallRow(scenario: "loop accumulating into a local", n: n, c: measure(ops: n) { cCountLoop(accFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "counting loop, bound known from the caller", n: n, c: measure(ops: n) { cljCall0(joinedCountFn) }, swift: nil))
 	callRows.append(CallRow(scenario: "accumulating loop, bound known from the caller", n: n, c: measure(ops: n) { cljCall0(joinedAccFn) }, swift: nil))
+	let fixnums = cVecBuild(n), da = cDoubleVecBuild(n), db = cDoubleVecBuild(n)
+	callRows.append(CallRow(scenario: "double accumulating loop", n: n, c: measure(ops: n) { cCountLoop(dblAccFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "dot product of two double vectors via nth", n: n, c: measure(ops: n) { cljCall2(dotFn, da, db) }, swift: nil))
+	callRows.append(CallRow(scenario: "accumulating loop, bound (count v) in a let", n: n, c: measure(ops: n) { cljCall(countBoundFn, fixnums) }, swift: nil))
+	callRows.append(CallRow(scenario: "accumulating loop down from (count v)", n: n, c: measure(ops: n) { cljCall(countDownFn, fixnums) }, swift: nil))
+	clj_release(fixnums)
+	clj_release(da)
+	clj_release(db)
 	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
 		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
 		swift: measure(ops: n) { aClosureCallLoop(n) }))
@@ -698,6 +734,10 @@ clj_release(countFn)
 clj_release(accFn)
 clj_release(joinedCountFn)
 clj_release(joinedAccFn)
+clj_release(dblAccFn)
+clj_release(dotFn)
+clj_release(countBoundFn)
+clj_release(countDownFn)
 clj_release(callFn)
 clj_release(nativeCallFn)
 clj_release(hostCallFn)
