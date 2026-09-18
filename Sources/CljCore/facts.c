@@ -44,6 +44,13 @@
 #define T_COLL (T_MAPS | T_SETS | CLJ_T_VECTOR | CLJ_T_LIST)
 #define T_SEQABLE (T_COLL | CLJ_T_STRING | CLJ_T_ARRAY | CLJ_T_NIL)
 
+typedef struct {
+	uint32_t  node;
+	clj_value var;
+	uint32_t  nargs;
+	clj_fact *args;
+} facts_site;
+
 struct clj_facts {
 	const clj_node  *root; // retained: a singleton borrows from a constant of the tree
 	uint32_t         nnodes;
@@ -63,6 +70,12 @@ struct clj_facts {
 	clj_value       *dep_vars;
 	uint32_t        *dep_epochs;
 	uint32_t         ndeps, cdeps;
+	facts_site      *sites;
+	uint32_t         nsites, csites;
+	clj_value       *value_reads;
+	uint32_t         nvalue_reads, cvalue_reads;
+	clj_facts_join  *joins;
+	uint32_t         njoins, cjoins;
 };
 
 static void *xalloc(size_t n, size_t size) {
@@ -420,6 +433,9 @@ typedef struct {
 	uint32_t      nalias, calias;
 	uint32_t      effects; // of the frame being walked
 	uint32_t      caught;  // try bodies with a handler the walk is inside of
+	clj_value     def_var; // the var whose def's init is the fn about to be walked, else nil
+	bool          head;    // the node being inferred is the head of a call, not a value read
+	uint32_t      joined;  // frames whose parameters came from a caller join the walk is inside of
 } pass;
 
 typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
@@ -592,18 +608,46 @@ static uint32_t push_frame(pass *p, uint32_t owner, uint32_t arity, const clj_no
 	return f->nframes++;
 }
 
+// The parameters of a def'd fn's arity enter at the join of what every recorded caller passes (summary.h); true when
+// some position is narrower than TOP, so the frame's conflicts are reported against the recorded callers, not proven.
+static bool enter_join(pass *p, clj_value var, const clj_node *fn, const clj_fn_arity *a, env *e) {
+	clj_facts *f = p->f;
+	if (!p->record || !f->sums || !clj_summaries_callers_on(f->sums) || !clj_is_var(var)) return false;
+	if (f->njoins == f->cjoins) {
+		f->cjoins = f->cjoins ? f->cjoins * 2 : 4;
+		f->joins = xgrow(f->joins, f->cjoins, sizeof(clj_facts_join));
+	}
+	clj_facts_join *j = &f->joins[f->njoins++];
+	memset(j, 0, sizeof *j);
+	j->var = var;
+	j->epoch = clj_var_callers_epoch(var);
+	j->fn = fn->id;
+	j->arity = a->variadic ? CLJ_FN_MAX_FIXED + 1 : a->nparams;
+	j->nparams = a->nparams;
+	j->reason = clj_callers_join(var, fn, a, j->params);
+	bool narrowed = false;
+	for (uint32_t i = 0; i < a->nparams && i < e->n; i++) {
+		if (clj_fact_is_top(j->params[i])) continue;
+		e->slots[i] = j->params[i];
+		narrowed = true;
+	}
+	return narrowed;
+}
+
 // One frame: parameters and free variables are TOP, the body's value leaves the frame; out takes the summary of an arity.
 static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_node *body, const clj_fact *captured,
-                      uint32_t ncaptured, const clj_fact *self, clj_summary *out) {
+                      uint32_t ncaptured, const clj_fact *self, clj_summary *out, const clj_node *fn, clj_value join_var) {
 	uint32_t nslots = a ? a->nslots : 0;
 	max_slot(body, &nslots);
 	uint32_t  fi = push_frame(p, owner, a ? a->nparams : 0, body, nslots);
 	env       e = env_new(nslots);
 	frame_ctx fc = {captured, ncaptured, fi, p->frame};
+	bool      joined = false;
 	if (a) {
 		// the rest parameter is the seq of the extra arguments, or nil when there are none
 		if (a->variadic && a->nparams < nslots) e.slots[a->nparams] = fact_of(CLJ_T_LIST | CLJ_T_NIL);
 		if (a->self_slot >= 0 && (uint32_t)a->self_slot < nslots && self) e.slots[a->self_slot] = *self;
+		if (fn) joined = enter_join(p, join_var, fn, a, &e);
 	}
 	frame_ctx    *saved_frame = p->frame;
 	recur_target *saved_recur = p->recur;
@@ -624,7 +668,9 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 	p->frame = &fc;
 	p->recur = &t;
 	p->effects = 0;
+	p->joined += joined;
 	clj_fact ret = infer(p, body, &e, USE_ESCAPE);
+	p->joined -= joined;
 	resolve_aliases(p, base);
 	if (out && a) {
 		out->nparams = a->nparams;
@@ -644,11 +690,12 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 	env_free(&e);
 }
 
-static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_t ncaptured) {
+// join_var is the var when the fn is the init of its def: the parameters may enter at the caller join.
+static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_t ncaptured, clj_value join_var) {
 	clj_fact self = fact_of(CLJ_T_FN);
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
 		const clj_fn_arity *a = i <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[i] : n->u.fn.variadic;
-		if (a) run_frame(p, n->id, a, a->body, captured, ncaptured, &self, NULL);
+		if (a) run_frame(p, n->id, a, a->body, captured, ncaptured, &self, NULL, n, join_var);
 	}
 }
 
@@ -862,7 +909,10 @@ static void add_diagnostic(pass *p, clj_diag_kind kind, const clj_node *arg, uin
 		f->cdiags = f->cdiags ? f->cdiags * 2 : 8;
 		f->diags = xgrow(f->diags, f->cdiags, sizeof(clj_diagnostic));
 	}
-	bool           caught = p->caught > 0;
+	bool caught = p->caught > 0;
+	// inside a frame entered at a caller join the argument's fact may rest on the join: a conflict says no recorded
+	// call takes this path, which is not a proof that a call throws
+	if (kind == CLJ_DIAG_CALL_CONFLICT && p->joined) kind = CLJ_DIAG_CALLERS_CONFLICT;
 	clj_diagnostic d = {kind, kind == CLJ_DIAG_CALL_CONFLICT && !caught ? CLJ_DIAG_ERROR : CLJ_DIAG_WARNING,
 	                    arg->line, arg->col, use_line, use_col, callee, i, have, req, caught};
 	if (d.severity == CLJ_DIAG_ERROR) f->nerrors++;
@@ -948,11 +998,41 @@ bool clj_facts_signature(uint32_t i, const char **name, uint32_t *arity, clj_fac
 	return true;
 }
 
-static clj_fact infer_call(pass *p, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s, clj_value var) {
+// What the call passes, before the callee's requirement narrows it: a site of the reverse index (summary.h).
+static void record_site(pass *p, const clj_node *site, clj_value var, uint32_t n, const clj_fact *have) {
+	clj_facts *f = p->f;
+	if (!p->record || !clj_is_var(var)) return;
+	if (f->nsites == f->csites) {
+		f->csites = f->csites ? f->csites * 2 : 16;
+		f->sites = xgrow(f->sites, f->csites, sizeof(facts_site));
+	}
+	facts_site *st = &f->sites[f->nsites++];
+	st->node = site->id;
+	st->var = var;
+	st->nargs = n;
+	st->args = xalloc(n, sizeof(clj_fact));
+	memcpy(st->args, have, n * sizeof(clj_fact));
+}
+
+static void record_value_read(pass *p, clj_value var) {
+	clj_facts *f = p->f;
+	if (!p->record || !clj_is_var(var)) return;
+	for (uint32_t i = 0; i < f->nvalue_reads; i++) {
+		if (f->value_reads[i] == var) return;
+	}
+	if (f->nvalue_reads == f->cvalue_reads) {
+		f->cvalue_reads = f->cvalue_reads ? f->cvalue_reads * 2 : 8;
+		f->value_reads = xgrow(f->value_reads, f->cvalue_reads, sizeof(clj_value));
+	}
+	f->value_reads[f->nvalue_reads++] = var;
+}
+
+static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s, clj_value var) {
 	clj_fact  inline_have[ARGS_INLINE];
 	clj_fact *have = n <= ARGS_INLINE ? inline_have : xalloc(n, sizeof(clj_fact));
 	use_kind  use = (s && !s->keeps) ? USE_NONE : USE_ESCAPE;
 	for (uint32_t i = 0; i < n; i++) have[i] = infer(p, args[i], e, use);
+	record_site(p, site, var, n, have);
 	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
 	if (!sum) p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
@@ -1166,22 +1246,26 @@ static clj_fact infer_fn(pass *p, const clj_node *n, env *e) {
 			caps[i] = clj_fact_top();
 		}
 	}
-	if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures);
+	clj_value join_var = p->def_var;
+	p->def_var = CLJ_NIL; // the fns nested in the body are not the def's
+	if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures, join_var);
 	free(caps);
 	p->effects |= CLJ_EFFECT_ALLOC;
 	return fact_of(CLJ_T_FN);
 }
 
 static clj_fact infer_invoke(pass *p, const clj_node *n, env *e) {
-	infer(p, n->u.invoke.fn, e, USE_NONE);
 	const clj_node *head = n->u.invoke.fn;
-	if (head->kind == CLJ_NODE_VAR) return infer_call(p, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var, n->u.invoke.n), head->u.var);
+	p->head = head->kind == CLJ_NODE_VAR;
+	infer(p, head, e, USE_NONE);
+	p->head = false;
+	if (head->kind == CLJ_NODE_VAR) return infer_call(p, n, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var, n->u.invoke.n), head->u.var);
 	if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
 		// (:k m) answers nil rather than throwing on anything, so it requires nothing (design §3)
 		infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
 		return clj_fact_top();
 	}
-	return infer_call(p, n->u.invoke.args, n->u.invoke.n, e, NULL, CLJ_NIL);
+	return infer_call(p, n, n->u.invoke.args, n->u.invoke.n, e, NULL, CLJ_NIL);
 }
 
 static clj_fact infer_direct_call(pass *p, const clj_node *n, env *e) {
@@ -1198,7 +1282,10 @@ static clj_fact infer_direct_call(pass *p, const clj_node *n, env *e) {
 static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	clj_fact r;
 	switch (n->kind) {
-	case CLJ_NODE_CONST: r = clj_fact_of_value(n->u.value); break;
+	case CLJ_NODE_CONST:
+		r = clj_fact_of_value(n->u.value);
+		if (clj_is_var(n->u.value)) record_value_read(p, n->u.value);
+		break;
 	case CLJ_NODE_LOCAL: {
 		uint32_t i = n->u.local.index;
 		if (use == USE_ESCAPE) mark_escape(p, i, CLJ_ESCAPE_ESCAPES);
@@ -1215,6 +1302,7 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_VAR:
 		// pass 1 alone reads no root; with a store the read is guarded by the var's epoch (clj_facts_valid)
 		r = clj_fact_top();
+		if (!p->head) record_value_read(p, n->u.var);
 		if (p->f->sums && clj_is_var(n->u.var)) {
 			r = clj_summary_var_fact(p->f->sums, n->u.var);
 			add_dep(p->f, n->u.var);
@@ -1254,16 +1342,21 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_FN: r = infer_fn(p, n, e); break;
 	case CLJ_NODE_DIRECT_FN:
 		// its slot holds nil at run time and nothing reads it as a value; the node still denotes the function
-		if (p->record) run_fn(p, n, p->frame->captured, p->frame->ncaptured);
+		if (p->record) run_fn(p, n, p->frame->captured, p->frame->ncaptured, CLJ_NIL);
 		r = fact_of(CLJ_T_FN);
 		break;
 	case CLJ_NODE_INVOKE: r = infer_invoke(p, n, e); break;
 	case CLJ_NODE_DIRECT_CALL: r = infer_direct_call(p, n, e); break;
 	case CLJ_NODE_INTRINSIC:
-		r = infer_call(p, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.var);
+		r = infer_call(p, n, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.var);
 		break;
 	case CLJ_NODE_DEF:
-		if (n->u.def.init) infer(p, n->u.def.init, e, USE_ESCAPE);
+		if (n->u.def.init) {
+			// a dynamic var may be bound to anything: its fn's parameters take no caller join
+			if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.dynamic) p->def_var = n->u.def.var;
+			infer(p, n->u.def.init, e, USE_ESCAPE);
+			p->def_var = CLJ_NIL;
+		}
 		if (n->u.def.meta) infer(p, n->u.def.meta, e, USE_ESCAPE);
 		p->effects |= CLJ_EFFECT_ANY; // registration: a root bind moves epochs
 		r = fact_of(CLJ_T_VAR);
@@ -1303,8 +1396,8 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0};
-	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0, CLJ_NIL, false, 0};
+	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL);
 	free(p.alias_from);
 	free(p.alias_to);
 	return f;
@@ -1319,22 +1412,29 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	f->warn = clj_facts_warnings_enabled(clj_ns_current());
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0};
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0, CLJ_NIL, false, 0};
 	if (sums) warm_summaries(root, sums);
-	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
+	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL);
 	free(p.alias_from);
 	free(p.alias_to);
 	if (sums) clj_summaries_forget_arities(sums);
 	return f;
 }
 
+static void free_sites(clj_facts *f) {
+	for (uint32_t i = 0; i < f->nsites; i++) free(f->sites[i].args);
+	free(f->sites);
+	free(f->value_reads);
+	free(f->joins);
+}
+
 void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summaries *sums, clj_summary *out) {
 	clj_facts f = {0};
 	f.conflict_node = UINT32_MAX;
 	f.sums = sums;
-	pass     p = {&f, NULL, NULL, false, false, NULL, NULL, 0, 0, 0, 0};
+	pass     p = {&f, NULL, NULL, false, false, NULL, NULL, 0, 0, 0, 0, CLJ_NIL, false, 0};
 	clj_fact self = fact_of(CLJ_T_FN);
-	run_frame(&p, fn->id, a, a->body, NULL, 0, &self, out);
+	run_frame(&p, fn->id, a, a->body, NULL, 0, &self, out, NULL, CLJ_NIL);
 	free(p.alias_from);
 	free(p.alias_to);
 	free(f.frames);
@@ -1344,11 +1444,13 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	free(f.diags);
 	free(f.dep_vars);
 	free(f.dep_epochs);
+	free_sites(&f);
 }
 
 void clj_facts_free(clj_facts *f) {
 	if (!f) return;
 	clj_release(clj_from_ptr((void *)f->root));
+	free_sites(f);
 	free(f->nodes);
 	free(f->frames);
 	free(f->escape);
@@ -1422,12 +1524,38 @@ bool clj_facts_warnings_enabled(clj_value ns) {
 uint32_t                 clj_facts_narrowed_args(const clj_facts *f) { return f->narrowed; }
 uint32_t                 clj_facts_ndeps(const clj_facts *f) { return f->ndeps; }
 
+clj_value clj_facts_dep(const clj_facts *f, uint32_t i, uint32_t *epoch) {
+	if (i >= f->ndeps) return CLJ_NIL;
+	*epoch = f->dep_epochs[i];
+	return f->dep_vars[i];
+}
+
 bool clj_facts_valid(const clj_facts *f) {
 	for (uint32_t i = 0; i < f->ndeps; i++) {
 		if (clj_var_epoch(f->dep_vars[i]) != f->dep_epochs[i]) return false;
 	}
+	for (uint32_t i = 0; i < f->njoins; i++) {
+		if (clj_var_callers_epoch(f->joins[i].var) != f->joins[i].epoch) return false;
+	}
 	return true;
 }
+
+uint32_t clj_facts_nsites(const clj_facts *f) { return f->nsites; }
+
+bool clj_facts_site(const clj_facts *f, uint32_t i, uint32_t *node, clj_value *var, uint32_t *nargs, const clj_fact **args) {
+	if (i >= f->nsites) return false;
+	*node = f->sites[i].node;
+	*var = f->sites[i].var;
+	*nargs = f->sites[i].nargs;
+	*args = f->sites[i].args;
+	return true;
+}
+
+uint32_t  clj_facts_nvalue_reads(const clj_facts *f) { return f->nvalue_reads; }
+clj_value clj_facts_value_read(const clj_facts *f, uint32_t i) { return i < f->nvalue_reads ? f->value_reads[i] : CLJ_NIL; }
+
+uint32_t              clj_facts_njoins(const clj_facts *f) { return f->njoins; }
+const clj_facts_join *clj_facts_join_at(const clj_facts *f, uint32_t i) { return i < f->njoins ? &f->joins[i] : NULL; }
 
 // "map|record" for a set, the kind name for one member.
 static void fact_text(clj_fact f, char *buf, size_t n) {
@@ -1469,6 +1597,10 @@ const char *clj_diagnostic_message(const clj_diagnostic *d, char *buf, size_t n)
 		snprintf(buf, n, "%s declares argument %u as %s, nothing is known about what is passed at %u:%u", name, d->arg, req, d->line, d->col);
 		break;
 	case CLJ_DIAG_TOP_RESULT: snprintf(buf, n, "%s: the declaration says the result is %s, nothing is known about what the body answers", name, req); break;
+	case CLJ_DIAG_CALLERS_CONFLICT:
+		snprintf(buf, n, "%s requires argument %u to be %s, %s is passed at %u:%u under what the recorded callers pass", name, d->arg, req, have,
+		         d->line, d->col);
+		break;
 	}
 	return buf;
 }

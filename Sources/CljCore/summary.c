@@ -61,6 +61,7 @@ struct clj_summaries {
 	uint32_t depth;
 	uint32_t invalidated, rounds, widenings;
 	bool     no_annotations;
+	bool     callers; // a table built with the store enters def'd fns at the caller join
 	clj_diagnostic *diags;
 	uint32_t        ndiags, cdiags, nerrors;
 };
@@ -79,6 +80,8 @@ clj_summaries *clj_summaries_new(void) {
 }
 
 void clj_summaries_use_annotations(clj_summaries *s, bool on) { s->no_annotations = !on; }
+void clj_summaries_use_callers(clj_summaries *s, bool on) { s->callers = on; }
+bool clj_summaries_callers_on(const clj_summaries *s) { return s->callers; }
 
 void clj_summaries_free(clj_summaries *s) {
 	if (!s) return;

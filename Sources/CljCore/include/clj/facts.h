@@ -88,6 +88,7 @@ typedef enum {
 	CLJ_DIAG_DECL_CONFLICT, // a :=> declaration met the summary inferred from the body down to BOTTOM
 	CLJ_DIAG_TOP_INTO_DECL, // TOP passed where a declaration requires something
 	CLJ_DIAG_TOP_RESULT,    // a body answers TOP where its declaration promises something
+	CLJ_DIAG_CALLERS_CONFLICT, // a use met what every recorded caller passes down to BOTTOM: no recorded call takes this path
 } clj_diag_kind;
 
 typedef struct {
@@ -140,9 +141,31 @@ bool clj_facts_warnings_enabled(clj_value ns);
 // Call sites that took a result or a requirement from a summary, and arguments a requirement narrowed.
 uint32_t clj_facts_summary_hits(const clj_facts *f);
 uint32_t clj_facts_narrowed_args(const clj_facts *f);
-// Vars whose root or summary the table rests on; false once any was rebound since (its epoch moved).
-uint32_t clj_facts_ndeps(const clj_facts *f);
-bool     clj_facts_valid(const clj_facts *f);
+// Vars whose root or summary the table rests on; false once any was rebound since (its epoch moved), or a caller
+// join it took moved (the var's callers epoch).
+uint32_t  clj_facts_ndeps(const clj_facts *f);
+clj_value clj_facts_dep(const clj_facts *f, uint32_t i, uint32_t *epoch);
+bool      clj_facts_valid(const clj_facts *f);
+
+// ---- the caller join (design §3 "Проход 2", the closed-world direction; NOTES.md "Facts": the reverse index)
+// Call sites of vars the walk saw, with what they pass: what a consumer records in the reverse index (summary.h).
+uint32_t clj_facts_nsites(const clj_facts *f);
+bool     clj_facts_site(const clj_facts *f, uint32_t i, uint32_t *node, clj_value *var, uint32_t *nargs, const clj_fact **args);
+// Vars read as a value (not as the head of a call): first-class uses.
+uint32_t  clj_facts_nvalue_reads(const clj_facts *f);
+clj_value clj_facts_value_read(const clj_facts *f, uint32_t i);
+// A join the table entered a def'd fn's parameters at, with the callers epoch it was read under.
+typedef struct {
+	clj_value var;
+	uint32_t  epoch;   // the var's callers epoch then
+	uint32_t  fn;      // id of the FN node
+	uint32_t  arity;   // its fixed parameter count; CLJ_FN_MAX_FIXED + 1 names the variadic arity
+	uint32_t  nparams;
+	uint32_t  reason;  // clj_join_reason
+	clj_fact  params[CLJ_FN_MAX_FIXED + 1];
+} clj_facts_join;
+uint32_t              clj_facts_njoins(const clj_facts *f);
+const clj_facts_join *clj_facts_join_at(const clj_facts *f, uint32_t i);
 
 // ---- the lattice
 

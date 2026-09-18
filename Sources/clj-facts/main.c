@@ -31,15 +31,29 @@ typedef struct {
 	uint64_t proto_calls, proto_known;
 	uint64_t kw_lookups, kw_shaped, kw_record, kw_on_local;
 	uint64_t conflicts, widenings, bottom_unexplained;
-	uint64_t call_conflicts, caught_conflicts, top_warnings, hits, narrowed; // pass 2 only
+	uint64_t call_conflicts, caught_conflicts, top_warnings, callers_conflicts, hits, narrowed; // pass 2 only
+	uint64_t joins, joins_narrowed, join_params, join_params_known; // the caller join: asks, asks that narrowed a parameter, parameters
 	double   analyze_ms, facts_ms;
 	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
 } stats;
 
-// Every form is measured three times: pass 1 alone (before), with inferred summaries only (noann), with the
-// annotations too (after); the report's cells are before → after, noann feeds one line.
-static stats libs[MAX_LIBS], before[MAX_LIBS], noann[MAX_LIBS];
+// Every form is measured four times: pass 1 alone (before), with inferred summaries only (noann), with the
+// annotations too (after), and, once every site of the corpus is in the reverse index, with the caller join
+// (joined); the report's cells are before → after → joined, noann feeds one line.
+static stats libs[MAX_LIBS], before[MAX_LIBS], noann[MAX_LIBS], joined[MAX_LIBS];
 static int   nlibs;
+
+// Every file measured, for the join rounds that re-analyze it after the whole corpus has been recorded.
+typedef struct {
+	int       lib;
+	char      path[512];
+	char      ns[256];
+	clj_value features; // retained
+} measured_file;
+
+#define MAX_MEASURED 1024
+static measured_file measured[MAX_MEASURED];
+static int           nmeasured;
 
 static clj_summaries *sums, *sums_noann;
 
@@ -217,13 +231,40 @@ static void tally(stats *s, const clj_node *root, const clj_facts *f) {
 	s->widenings += clj_facts_widenings(f);
 	for (uint32_t i = 0; i < clj_facts_ndiagnostics(f); i++) {
 		const clj_diagnostic *d = clj_facts_diagnostic(f, i);
-		if (d->kind != CLJ_DIAG_CALL_CONFLICT) s->top_warnings++;
+		if (d->kind == CLJ_DIAG_CALLERS_CONFLICT) s->callers_conflicts++;
+		else if (d->kind != CLJ_DIAG_CALL_CONFLICT) s->top_warnings++;
 		else if (d->caught) s->caught_conflicts++;
 		else s->call_conflicts++;
 	}
 	s->hits += clj_facts_summary_hits(f);
 	s->narrowed += clj_facts_narrowed_args(f);
+	for (uint32_t i = 0; i < clj_facts_njoins(f); i++) {
+		const clj_facts_join *j = clj_facts_join_at(f, i);
+		bool                  narrowed = false;
+		s->joins++;
+		for (uint32_t k = 0; k < j->nparams; k++) {
+			s->join_params++;
+			if (clj_fact_is_top(j->params[k])) continue;
+			narrowed = true;
+			if (clj_fact_union_size(j->params[k]) == 1) s->join_params_known++;
+		}
+		s->joins_narrowed += narrowed;
+	}
 }
+
+// The table's sites and value reads into the reverse index under one owner per form (summary.h).
+static void record_sites(const void *owner, const clj_facts *f) {
+	for (uint32_t i = 0; i < clj_facts_nsites(f); i++) {
+		uint32_t        node, nargs;
+		clj_value       var;
+		const clj_fact *args;
+		clj_facts_site(f, i, &node, &var, &nargs, &args);
+		clj_callers_add_site(owner, var, nargs, args);
+	}
+	for (uint32_t i = 0; i < clj_facts_nvalue_reads(f); i++) clj_callers_add_value_read(owner, clj_facts_value_read(f, i));
+}
+
+static const void *form_owner(int file, int form) { return (const void *)(uintptr_t)(((uint64_t)file << 24) + (uint64_t)form + 1); }
 
 typedef struct {
 	uint32_t        id;
@@ -282,6 +323,14 @@ static void measure_file(stats *s, stats *b, stats *na, const char *path, const 
 	clj_reader_use_namespaces(&r);
 	clj_env   env = {ns, 0, 0};
 	clj_value form = CLJ_NIL;
+	int       file = nmeasured, nform = 0;
+	if (nmeasured < MAX_MEASURED) {
+		measured_file *m = &measured[nmeasured++];
+		m->lib = (int)(s - libs);
+		snprintf(m->path, sizeof m->path, "%s", path);
+		snprintf(m->ns, sizeof m->ns, "%s", ns_name);
+		m->features = clj_retain(clj_reader_features());
+	}
 	for (;;) {
 		clj_read_status st = clj_read(&r, &form);
 		if (st != CLJ_READ_OK) break;
@@ -306,6 +355,7 @@ static void measure_file(stats *s, stats *b, stats *na, const char *path, const 
 		s->facts_ms += t4 - t3;
 		measure_table(b, path, root, f1);
 		measure_table(s, path, root, f2);
+		record_sites(form_owner(file, nform++), f2);
 		clj_facts_free(f1);
 		clj_facts_free(f2);
 		int saved = nmessages, saved_warnings = nwarnings;
@@ -319,6 +369,74 @@ static void measure_file(stats *s, stats *b, stats *na, const char *path, const 
 	}
 	clj_ns_set_current(previous);
 	free(src);
+}
+
+// One round over a measured file with the caller join on: every form re-analyzed, its sites re-recorded, and on the
+// last round measured into the library's joined stats.
+static void join_file(int file, bool last) {
+	const measured_file *m = &measured[file];
+	size_t               len = 0;
+	char                *src = read_file(m->path, &len);
+	if (!src) return;
+	clj_value sym = clj_symbol_from_cstr(m->ns);
+	clj_value ns = clj_ns_find(sym);
+	clj_release(sym);
+	if (clj_is_nil(ns)) {
+		free(src);
+		return;
+	}
+	stats    *j = &joined[m->lib];
+	clj_value previous = clj_ns_current();
+	clj_ns_set_current(ns);
+	clj_reader_set_features(m->features);
+	clj_reader r;
+	clj_reader_init(&r, src, len);
+	clj_reader_use_namespaces(&r);
+	clj_env   env = {ns, 0, 0};
+	clj_value form = CLJ_NIL;
+	int       nform = 0;
+	for (;;) {
+		clj_read_status st = clj_read(&r, &form);
+		if (st != CLJ_READ_OK) break;
+		clj_node *root = clj_analyze(form, &env);
+		clj_release(form);
+		if (!root) {
+			clj_release(clj_take_pending());
+			continue;
+		}
+		const void *owner = form_owner(file, nform++);
+		double      t0 = now_ms();
+		clj_facts  *f = clj_facts_of_with(root, sums);
+		double      t1 = now_ms();
+		clj_callers_forget(owner);
+		record_sites(owner, f);
+		if (last) {
+			j->forms++;
+			j->facts_ms += t1 - t0;
+			int saved = nmessages, saved_warnings = nwarnings;
+			measure_table(j, m->path, root, f);
+			nmessages = saved;
+			nwarnings = saved_warnings;
+		}
+		clj_facts_free(f);
+		clj_release(clj_from_ptr(root));
+	}
+	clj_reader_set_features(CLJ_NIL);
+	clj_ns_set_current(previous);
+	free(src);
+}
+
+// The closed-world rounds: with every site of the corpus recorded, each round re-derives every table at the join and
+// re-records what it passes, so a parameter narrowed by its callers narrows the sites inside its body for the next.
+#define JOIN_ROUNDS 3
+
+static void join_rounds(void) {
+	clj_summaries_use_callers(sums, true);
+	for (int round = 0; round < JOIN_ROUNDS; round++) {
+		for (int i = 0; i < nmeasured; i++) join_file(i, round == JOIN_ROUNDS - 1);
+	}
+	clj_summaries_use_callers(sums, false);
+	for (int i = 0; i < nmeasured; i++) clj_release(measured[i].features);
 }
 
 // ---- walking a library
@@ -397,7 +515,7 @@ static clj_value manifest_of(const char *lib_root) {
 static clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
 
 static void run_library(const char *name, const char *root, const char *const *roots, size_t nroots, clj_value features) {
-	stats *s = &libs[nlibs], *b = &before[nlibs], *na = &noann[nlibs++];
+	stats *s = &libs[nlibs], *b = &before[nlibs], *na = &noann[nlibs], *j = &joined[nlibs++];
 	snprintf(s->name, sizeof s->name, "%s", name);
 	s->tests_only = nroots > 0;
 	for (size_t i = 0; i < nroots; i++) {
@@ -405,6 +523,7 @@ static void run_library(const char *name, const char *root, const char *const *r
 	}
 	*b = *s;
 	*na = *s;
+	*j = *s;
 	nfiles = 0;
 	for (size_t i = 0; i < nroots; i++) {
 		char dir[512];
@@ -473,32 +592,38 @@ static void add(stats *total, const stats *s) {
 	total->call_conflicts += s->call_conflicts;
 	total->caught_conflicts += s->caught_conflicts;
 	total->top_warnings += s->top_warnings;
+	total->callers_conflicts += s->callers_conflicts;
 	total->hits += s->hits;
 	total->narrowed += s->narrowed;
+	total->joins += s->joins;
+	total->joins_narrowed += s->joins_narrowed;
+	total->join_params += s->join_params;
+	total->join_params_known += s->join_params_known;
 	total->analyze_ms += s->analyze_ms;
 	total->facts_ms += s->facts_ms;
 }
 
-static void row_types(FILE *out, const stats *b, const stats *s) {
-	fprintf(out, "| %s | %llu | %llu | %.1f → %.1f %% | %.1f → %.1f %% | %.1f → %.1f %% | %.1f → %.1f %% | %llu | %.1f → %.1f %% |\n",
+static void row_types(FILE *out, const stats *b, const stats *s, const stats *j) {
+	fprintf(out, "| %s | %llu | %llu | %.1f → %.1f → %.1f %% | %.1f → %.1f %% | %.1f → %.1f → %.1f %% | %.1f → %.1f %% | %llu | %.1f → %.1f → %.1f %% |\n",
 	        s->name, (unsigned long long)s->forms, (unsigned long long)s->value_nodes, pct(b->type_known, b->value_nodes),
-	        pct(s->type_known, s->value_nodes), pct(b->type_union, b->value_nodes), pct(s->type_union, s->value_nodes),
-	        pct(b->type_top, b->value_nodes), pct(s->type_top, s->value_nodes), pct(b->null_known, b->value_nodes),
-	        pct(s->null_known, s->value_nodes), (unsigned long long)s->computed, pct(b->computed_known, b->computed),
-	        pct(s->computed_known, s->computed));
+	        pct(s->type_known, s->value_nodes), pct(j->type_known, j->value_nodes), pct(b->type_union, b->value_nodes),
+	        pct(s->type_union, s->value_nodes), pct(b->type_top, b->value_nodes), pct(s->type_top, s->value_nodes),
+	        pct(j->type_top, j->value_nodes), pct(b->null_known, b->value_nodes), pct(s->null_known, s->value_nodes),
+	        (unsigned long long)s->computed, pct(b->computed_known, b->computed), pct(s->computed_known, s->computed),
+	        pct(j->computed_known, j->computed));
 }
 
-static void row_positions(FILE *out, const stats *b, const stats *s) {
+static void row_positions(FILE *out, const stats *b, const stats *s, const stats *j) {
 	fprintf(out,
-	        "| %s | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | "
-	        "%llu / %llu → %llu | %llu / %.1f → %.1f %% |\n",
-	        s->name, (unsigned long long)s->arith, pct(b->arith_fixnum, b->arith), pct(s->arith_fixnum, s->arith),
-	        (unsigned long long)s->loops, pct(b->loops_numeric, b->loops), pct(s->loops_numeric, s->loops), (unsigned long long)s->slots,
-	        pct(b->slots_local, b->slots), pct(s->slots_local, s->slots), (unsigned long long)s->proto_calls,
+	        "| %s | %llu / %.1f → %.1f → %.1f %% | %llu / %.1f → %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | %llu / %.1f → %.1f %% | "
+	        "%llu / %llu → %llu | %llu / %.1f → %.1f → %.1f %% |\n",
+	        s->name, (unsigned long long)s->arith, pct(b->arith_fixnum, b->arith), pct(s->arith_fixnum, s->arith), pct(j->arith_fixnum, j->arith),
+	        (unsigned long long)s->loops, pct(b->loops_numeric, b->loops), pct(s->loops_numeric, s->loops), pct(j->loops_numeric, j->loops),
+	        (unsigned long long)s->slots, pct(b->slots_local, b->slots), pct(s->slots_local, s->slots), (unsigned long long)s->proto_calls,
 	        pct(b->proto_known, b->proto_calls), pct(s->proto_known, s->proto_calls), (unsigned long long)s->kw_lookups,
 	        pct(b->kw_shaped, b->kw_lookups), pct(s->kw_shaped, s->kw_lookups), (unsigned long long)s->kw_lookups,
 	        (unsigned long long)b->kw_record, (unsigned long long)s->kw_record, (unsigned long long)s->arith, pct(b->arith_int, b->arith),
-	        pct(s->arith_int, s->arith));
+	        pct(s->arith_int, s->arith), pct(j->arith_int, j->arith));
 }
 
 static uint32_t annotated_vars;
@@ -509,26 +634,33 @@ static void write_report(const char *path) {
 		fprintf(stderr, "clj-facts: cannot write %s\n", path);
 		exit(1);
 	}
-	stats total = {0}, code = {0}, btotal = {0}, bcode = {0}, ntotal = {0}, ncode = {0};
+	stats total = {0}, code = {0}, btotal = {0}, bcode = {0}, ntotal = {0}, ncode = {0}, jtotal = {0}, jcode = {0};
 	snprintf(total.name, sizeof total.name, "**all**");
 	snprintf(code.name, sizeof code.name, "**library code**");
 	for (int i = 0; i < nlibs; i++) {
 		add(&total, &libs[i]);
 		add(&btotal, &before[i]);
 		add(&ntotal, &noann[i]);
+		add(&jtotal, &joined[i]);
 		if (!libs[i].tests_only) {
 			add(&code, &libs[i]);
 			add(&bcode, &before[i]);
 			add(&ncode, &noann[i]);
+			add(&jcode, &joined[i]);
 		}
 	}
+	uint64_t reasons[5] = {0};
+	clj_callers_stats(reasons);
 
 	fprintf(out, "# Type-fact coverage\n\n");
 	fprintf(out, "Generated by `make facts-report` (`Sources/clj-facts`): every library is loaded, then every top-level\n"
-	             "form of every file is analyzed again and its optimized tree is measured twice — pass 1 alone (`clj_facts_of`,\n"
-	             "the *before* of every cell) and with function summaries consulted at call sites (`clj_facts_of_with`, the\n"
-	             "*after*: pass 1 bottom-up summaries and pass 2 top-down refinement, design §3, NOTES.md \"Facts\"). One summary\n"
-	             "store serves the whole run, so the corpus is measured as a closed world.\n\n");
+	             "form of every file is analyzed again and its optimized tree is measured three times — pass 1 alone (`clj_facts_of`,\n"
+	             "the *before* of every cell), with function summaries consulted at call sites (`clj_facts_of_with`, the\n"
+	             "*after*: pass 1 bottom-up summaries and pass 2 top-down refinement, design §3, NOTES.md \"Facts\"), and, where a\n"
+	             "cell has a third number, with the *caller join*: every call site of the whole corpus recorded in the reverse\n"
+	             "index first, then %d rounds in which each def'd fn's parameters enter at the join of what its recorded callers\n"
+	             "pass and the sites inside its body are re-recorded (the closed-world direction of design §3 \"Проход 2\"). One\n"
+	             "summary store serves the whole run, so the corpus is measured as a closed world.\n\n", JOIN_ROUNDS);
 	fprintf(out, "## What the numbers mean\n\n");
 	fprintf(out, "A *value-producing node* is every node but `recur`, `throw` and the direct-fn init. *Known* is a fact of\n"
 	             "exactly one kind, *union* two to four, ⊤ everything else — the lattice widens past four members, so the ⊤\n"
@@ -546,12 +678,31 @@ static void write_report(const char *path) {
 	fprintf(out, "- **Local slots** (the register prize): %llu slots over library code, **%.1f %%** of which never escape and\n"
 	             "  are never captured; escaping is pass 1's and the summaries do not move it.\n",
 	        (unsigned long long)code.slots, pct(code.slots_local, code.slots));
-	fprintf(out, "- **Intrinsic arithmetic** (the unboxing prize): %llu two-argument sites over library code, **%.1f → %.1f %%**\n"
-	             "  with both arguments known-fixnum and **%.1f → %.1f %%** with both known to be int64-representable.\n",
+	fprintf(out, "- **Intrinsic arithmetic** (the unboxing prize): %llu sites over library code, **%.1f → %.1f → %.1f %%**\n"
+	             "  with every argument known-fixnum and **%.1f → %.1f → %.1f %%** with every argument known to be int64-representable\n"
+	             "  (fixnum or boxed long: what the specialized arithmetic node and the compiler's unboxed `int64_t` consume, NOTES.md\n"
+	             "  \"Analyzer and evaluator\" and \"Compiler\"). A fixnum stays exactly a fixnum only until the first `inc`: the signature\n"
+	             "  table answers fixnum|long for arithmetic, since an overflow past the 63-bit tag boxes, so a loop variable is int64,\n"
+	             "  never fixnum, and the gap between the two shares is loop variables and vars holding a boxed long — the join moves\n"
+	             "  parameters, which sat at ⊤ or \"a number\" in neither share.\n",
 	        (unsigned long long)code.arith, pct(bcode.arith_fixnum, bcode.arith), pct(code.arith_fixnum, code.arith),
-	        pct(bcode.arith_int, bcode.arith), pct(code.arith_int, code.arith));
-	fprintf(out, "- **Loops**: %llu over library code, **%.1f → %.1f %%** with every variable of one numeric domain.\n",
-	        (unsigned long long)code.loops, pct(bcode.loops_numeric, bcode.loops), pct(code.loops_numeric, code.loops));
+	        pct(jcode.arith_fixnum, jcode.arith), pct(bcode.arith_int, bcode.arith), pct(code.arith_int, code.arith),
+	        pct(jcode.arith_int, jcode.arith));
+	fprintf(out, "- **Loops**: %llu over library code, **%.1f → %.1f → %.1f %%** with every variable of one numeric domain.\n",
+	        (unsigned long long)code.loops, pct(bcode.loops_numeric, bcode.loops), pct(code.loops_numeric, code.loops),
+	        pct(jcode.loops_numeric, jcode.loops));
+	fprintf(out, "- **The caller join** (the third number of a cell): %llu arities of def'd fns asked for it over the whole corpus, %llu\n"
+	             "  came back narrower than ⊤ at some parameter; of %llu parameters %llu are narrowed and %llu to one kind. Why a join\n"
+	             "  answered ⊤, over every ask of the run (the rounds included): %llu with no recorded site, %llu with a site passing ⊤ at\n"
+	             "  some position (the join keeps the other positions), %llu with the var read as a value somewhere (an argument, a\n"
+	             "  capture, `#'f`, `apply`: it may be called from anywhere), %llu `^:dynamic`; %llu answered without a ⊤ rule. Known\n"
+	             "  types over library code with the join: %.1f %% of value nodes, %.1f %% of computed nodes. Conflicts a use raised\n"
+	             "  against what the recorded callers pass: %llu, warnings (no recorded call takes that path; not a proof).\n",
+	        (unsigned long long)jtotal.joins, (unsigned long long)jtotal.joins_narrowed, (unsigned long long)jtotal.join_params,
+	        (unsigned long long)(jtotal.join_params - (jtotal.join_params - jtotal.join_params_known)), (unsigned long long)jtotal.join_params_known,
+	        (unsigned long long)reasons[CLJ_JOIN_NO_SITES], (unsigned long long)reasons[CLJ_JOIN_TOP_ARG], (unsigned long long)reasons[CLJ_JOIN_FIRST_CLASS],
+	        (unsigned long long)reasons[CLJ_JOIN_DYNAMIC], (unsigned long long)reasons[CLJ_JOIN_OK], pct(jcode.type_known, jcode.value_nodes),
+	        pct(jcode.computed_known, jcode.computed), (unsigned long long)jtotal.callers_conflicts);
 	fprintf(out, "- **Protocol receivers** (the inline-cache prize): %llu sites, **%.1f → %.1f %%** with a known type. A receiver\n"
 	             "  that is a var read (`defmethod` expands to `(-add-method mf …)` on the multimethod's var) takes the kind of\n"
 	             "  the root; a receiver that is a parameter meets the method's requirement, the join of the kinds in the\n"
@@ -593,21 +744,22 @@ static void write_report(const char *path) {
 	        (unsigned long long)total.narrowed, (unsigned long long)(ntotal.call_conflicts + ntotal.caught_conflicts),
 	        (unsigned long long)(total.call_conflicts + total.caught_conflicts));
 	fprintf(out, "## Types and nullability\n\n");
-	fprintf(out, "Each percentage is before → after the summaries.\n\n");
+	fprintf(out, "Each percentage is before → after the summaries; a third number is with the caller join.\n\n");
 	fprintf(out, "| library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |\n");
 	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|\n");
-	for (int i = 0; i < nlibs; i++) row_types(out, &before[i], &libs[i]);
-	row_types(out, &bcode, &code);
-	row_types(out, &btotal, &total);
+	for (int i = 0; i < nlibs; i++) row_types(out, &before[i], &libs[i], &joined[i]);
+	row_types(out, &bcode, &code, &jcode);
+	row_types(out, &btotal, &total, &jtotal);
 
 	fprintf(out, "\n## The positions that pay\n\n");
-	fprintf(out, "Each cell is the population and the share of it that is known, before → after.\n\n");
-	fprintf(out, "| library | arith sites / both fixnum | loops / all vars one numeric kind | local slots / never leave the frame | "
-	             "protocol receivers / known type | `(:k m)` / known map shape | `(:k m)` / on a record | arith sites / both integer |\n");
+	fprintf(out, "Each cell is the population and the share of it that is known, before → after; the arithmetic and loop cells add\n"
+	             "the share with the caller join as a third number.\n\n");
+	fprintf(out, "| library | arith sites / all args fixnum | loops / all vars one numeric kind | local slots / never leave the frame | "
+	             "protocol receivers / known type | `(:k m)` / known map shape | `(:k m)` / on a record | arith sites / all args int64 |\n");
 	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|\n");
-	for (int i = 0; i < nlibs; i++) row_positions(out, &before[i], &libs[i]);
-	row_positions(out, &bcode, &code);
-	row_positions(out, &btotal, &total);
+	for (int i = 0; i < nlibs; i++) row_positions(out, &before[i], &libs[i], &joined[i]);
+	row_positions(out, &bcode, &code, &jcode);
+	row_positions(out, &btotal, &total, &jtotal);
 
 	fprintf(out, "\n## Local slots\n\n");
 	fprintf(out, "| library | slots | local | captured | escapes |\n");
@@ -619,13 +771,15 @@ static void write_report(const char *path) {
 	}
 
 	fprintf(out, "\n## Cost per library\n\n");
-	fprintf(out, "| library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | facts / analysis | tables, KB | largest table, KB |\n");
-	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+	fprintf(out, "The join column is one round's tables over the whole library, summaries already cached.\n\n");
+	fprintf(out, "| library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
 	for (int i = 0; i <= nlibs + 1; i++) {
 		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
 		const stats *b = i < nlibs ? &before[i] : (i == nlibs ? &bcode : &btotal);
-		fprintf(out, "| %s | %llu | %llu | %.1f | %.1f | %.1f | %.2f× → %.2f× | %.0f | %.0f |\n", s->name, (unsigned long long)s->forms,
-		        (unsigned long long)s->nodes, s->analyze_ms, b->facts_ms, s->facts_ms, s->analyze_ms > 0 ? b->facts_ms / s->analyze_ms : 0.0,
+		const stats *j = i < nlibs ? &joined[i] : (i == nlibs ? &jcode : &jtotal);
+		fprintf(out, "| %s | %llu | %llu | %.1f | %.1f | %.1f | %.1f | %.2f× → %.2f× | %.0f | %.0f |\n", s->name, (unsigned long long)s->forms,
+		        (unsigned long long)s->nodes, s->analyze_ms, b->facts_ms, s->facts_ms, j->facts_ms, s->analyze_ms > 0 ? b->facts_ms / s->analyze_ms : 0.0,
 		        s->analyze_ms > 0 ? s->facts_ms / s->analyze_ms : 0.0, (double)s->bytes / 1024, (double)s->peak_bytes / 1024);
 	}
 
@@ -679,18 +833,20 @@ int main(int argc, char **argv) {
 	snprintf(boot, sizeof boot, "%s/Sources/CljCore/boot", repo);
 	// core.clj is loaded by clj_init and its embedded libs by require; both are read back from boot/.
 	eval_string("(require 'clojure.set 'clojure.string 'clojure.walk 'clojure.template 'clojure.test)");
-	stats *core = &libs[nlibs], *bcore = &before[nlibs], *ncore = &noann[nlibs++];
+	stats *core = &libs[nlibs], *bcore = &before[nlibs], *ncore = &noann[nlibs], *jcore = &joined[nlibs++];
 	snprintf(core->name, sizeof core->name, "core.clj");
 	*bcore = *core;
 	*ncore = *core;
+	*jcore = *core;
 	char core_path[512];
 	snprintf(core_path, sizeof core_path, "%s/core.clj", boot);
 	measure_file(core, bcore, ncore, core_path, "clojure.core");
 
-	stats *embedded = &libs[nlibs], *bembedded = &before[nlibs], *nembedded = &noann[nlibs++];
+	stats *embedded = &libs[nlibs], *bembedded = &before[nlibs], *nembedded = &noann[nlibs], *jembedded = &joined[nlibs++];
 	snprintf(embedded->name, sizeof embedded->name, "embedded libs");
 	*bembedded = *embedded;
 	*nembedded = *embedded;
+	*jembedded = *embedded;
 	nfiles = 0;
 	char clojure_dir[512];
 	snprintf(clojure_dir, sizeof clojure_dir, "%s/clojure", boot);
@@ -745,9 +901,10 @@ int main(int argc, char **argv) {
 			clj_release(m);
 		}
 	}
+	join_rounds();
 	write_report(out);
 	uint64_t unexplained = 0;
-	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained + before[i].bottom_unexplained;
+	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained + before[i].bottom_unexplained + joined[i].bottom_unexplained;
 	int status = 0;
 	if (unexplained > 0) {
 		fprintf(stderr, "clj-facts: %llu value node(s) at ⊥ with no throw or recur: the lattice is wrong\n",
@@ -756,7 +913,7 @@ int main(int argc, char **argv) {
 	}
 	// the gate: a proven runtime failure, or a declaration its body contradicts, anywhere in the corpus
 	uint64_t errors = clj_summaries_nerrors(sums);
-	for (int i = 0; i < nlibs; i++) errors += libs[i].call_conflicts;
+	for (int i = 0; i < nlibs; i++) errors += libs[i].call_conflicts + joined[i].call_conflicts;
 	if (errors > 0) {
 		fprintf(stderr, "clj-facts: %llu error(s): a ⊥ the corpus does not catch, see the report\n", (unsigned long long)errors);
 		status = 1;
