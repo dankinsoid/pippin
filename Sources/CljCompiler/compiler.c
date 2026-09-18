@@ -563,6 +563,7 @@ static ukind fact_kind(const fnctx *f, const clj_node *n) {
 }
 
 static ukind slot_kind(const fnctx *f, uint32_t i) { return int_slot(f, i) ? UK_INT : dbl_slot(f, i) ? UK_DBL : UK_NONE; }
+static bool  in_typed(const fnctx *f, uint32_t i) { return slot_kind(f, i) != UK_NONE; }
 
 // Closed only: in dev a rebound operator needs the generic path, whose result is a box.
 static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
@@ -585,18 +586,27 @@ static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 typedef struct {
 	uint32_t        *slots;
 	const clj_node **inits;
+	const clj_node **binders; // the let, loop or recur node of each
 	uint32_t         n, cap;
 } bind_list;
 
-static void bind_add(bind_list *b, uint32_t slot, const clj_node *init) {
+static void bind_add(bind_list *b, uint32_t slot, const clj_node *init, const clj_node *binder) {
 	if (b->n == b->cap) {
 		b->cap = b->cap ? b->cap * 2 : 16;
 		b->slots = realloc(b->slots, b->cap * sizeof *b->slots);
 		b->inits = realloc(b->inits, b->cap * sizeof *b->inits);
-		if (!b->slots || !b->inits) clj_fatal("out of memory");
+		b->binders = realloc(b->binders, b->cap * sizeof *b->binders);
+		if (!b->slots || !b->inits || !b->binders) clj_fatal("out of memory");
 	}
 	b->slots[b->n] = slot;
-	b->inits[b->n++] = init;
+	b->inits[b->n] = init;
+	b->binders[b->n++] = binder;
+}
+
+static void bind_free(bind_list *b) {
+	free(b->slots);
+	free(b->inits);
+	free(b->binders);
 }
 
 static void bind_walk(const clj_node *n, void *ctx) {
@@ -604,10 +614,10 @@ static void bind_walk(const clj_node *n, void *ctx) {
 	switch (n->kind) {
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
-		for (uint32_t i = 0; i < n->u.let.n; i++) bind_add(b, n->u.let.slots[i], n->u.let.inits[i]);
+		for (uint32_t i = 0; i < n->u.let.n; i++) bind_add(b, n->u.let.slots[i], n->u.let.inits[i], n);
 		break;
 	case CLJ_NODE_RECUR:
-		for (uint32_t i = 0; i < n->u.recur.n; i++) bind_add(b, n->u.recur.slots[i], n->u.recur.args[i]);
+		for (uint32_t i = 0; i < n->u.recur.n; i++) bind_add(b, n->u.recur.slots[i], n->u.recur.args[i], n);
 		break;
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN: return;
@@ -619,21 +629,24 @@ static void bind_walk(const clj_node *n, void *ctx) {
 	clj_node_children(n, bind_walk, ctx);
 }
 
-static bool is_init_of(const clj_node *let, const clj_node *init) {
-	for (uint32_t i = 0; let && i < let->u.let.n; i++) {
-		if (let->u.let.inits[i] == init) return true;
-	}
-	return false;
-}
+static bool inside(const clj_node *n, const clj_node *sub) { return sub->id >= n->id && sub->id < n->id + n->nnodes; }
 
-// A fixpoint: a binding may rest on other typed slots. The exempt inits of `split` are converted by an entry check.
+// A fixpoint: a binding may rest on other typed slots. The entry check of `split` converts the exempt inits.
 static void typed_masks(fnctx *f, const clj_node *body, const clj_node *split, uint64_t exempt, uint64_t *ints, uint64_t *dbls) {
 	uint64_t saved_ints = f->ints, saved_dbls = f->dbls;
 	*ints = *dbls = 0;
 	if (!f->c->opts.closed || !f->facts) return;
-	bind_list b = {NULL, NULL, 0, 0};
+	bind_list b = {NULL, NULL, NULL, 0, 0};
 	bind_walk(body, &b);
 	uint64_t bound = 0, want_int = 0, want_dbl = 0, bad = 0;
+	// a binding outside the branch would write the boxed variable while the shadow is read, or the reverse
+	if (split) {
+		for (uint32_t i = 0; i < b.n; i++) {
+			if (b.slots[i] >= 64 || b.binders[i] == split || inside(split, b.binders[i])) continue;
+			uint64_t bit = (uint64_t)1 << b.slots[i];
+			if (!in_typed(f, b.slots[i]) && !(exempt & bit)) bad |= bit;
+		}
+	}
 	for (uint32_t i = 0; i < b.n; i++) {
 		if (b.slots[i] >= 64) continue;
 		uint64_t bit = (uint64_t)1 << b.slots[i];
@@ -656,15 +669,14 @@ static void typed_masks(fnctx *f, const clj_node *body, const clj_node *split, u
 			uint64_t bit = (uint64_t)1 << b.slots[i];
 			ukind    k = slot_kind(f, b.slots[i]);
 			if (k == UK_NONE) continue;
-			if ((exempt & bit) && is_init_of(split, b.inits[i])) continue;
+			if ((exempt & bit) && b.binders[i]->kind != CLJ_NODE_RECUR) continue;
 			if (unboxable_kind(f, b.inits[i]) == k) continue;
 			f->ints &= ~bit;
 			f->dbls &= ~bit;
 			again = true;
 		}
 	}
-	free(b.slots);
-	free(b.inits);
+	bind_free(&b);
 	// the outputs may alias the masks
 	uint64_t ri = f->ints, rd = f->dbls;
 	f->ints = saved_ints;
@@ -679,52 +691,60 @@ static void select_typed_slots(fnctx *f, const clj_node *body) {
 	f->u->slots.double_slots += (uint64_t)__builtin_popcountll(f->dbls);
 }
 
-typedef struct {
-	uint64_t slots;
-	bool     found;
-} arith_read;
-
-// Whether an arithmetic node of the body reads one of the slots directly.
-static void arith_read_walk(const clj_node *n, void *ctx) {
-	arith_read *r = ctx;
-	if (r->found) return;
+// The slots an arithmetic node of the body reads directly, fns and fused programs excepted.
+static void arith_reads(const clj_node *n, void *ctx) {
+	uint64_t *reads = ctx;
 	switch (n->kind) {
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN: return;
 	case CLJ_NODE_FUSED:
-		for (uint32_t i = 0; i < n->u.fused.nargs; i++) arith_read_walk(n->u.fused.args[i], ctx);
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) arith_reads(n->u.fused.args[i], ctx);
 		return;
 	case CLJ_NODE_INTRINSIC:
 		if (unbox_op_of(n->u.intrinsic.op) != UNBOX_NONE) {
 			for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
 				const clj_node *a = n->u.intrinsic.args[i];
-				if (a->kind == CLJ_NODE_LOCAL && a->u.local.index < 64 && ((r->slots >> a->u.local.index) & 1)) r->found = true;
+				if (a->kind == CLJ_NODE_LOCAL && a->u.local.index < 64) *reads |= (uint64_t)1 << a->u.local.index;
 			}
 		}
 		break;
 	default: break;
 	}
-	clj_node_children(n, arith_read_walk, ctx);
+	clj_node_children(n, arith_reads, ctx);
+}
+
+// Promoted, owned, untyped, and holding a boxed value of a typed fact: what an entry check can convert.
+static bool entry_candidate(const fnctx *f, uint32_t s, const clj_node *init) {
+	if (s >= 64 || !promoted(f, s) || borrowed_slot(f, s) || in_typed(f, s)) return false;
+	if (init->kind == CLJ_NODE_DIRECT_FN) return false;
+	return fact_kind(f, init) != UK_NONE && unboxable_kind(f, init) == UK_NONE;
 }
 
 // The fast branch's masks (NOTES.md, "Compiler": entry-checked frames); one split per frame, or the body doubles again.
-static bool select_split(fnctx *f, const clj_node *n, uint64_t *ints, uint64_t *dbls) {
+static bool select_split(fnctx *f, const clj_node *n, uint64_t *checked, uint64_t *ints, uint64_t *dbls) {
 	if (!f->c->opts.closed || !f->facts || f->in_split || !f->body) return false;
+	uint64_t reads = 0;
+	arith_reads(n->u.let.body, &reads);
 	uint64_t exempt = 0;
 	for (uint32_t k = 0; k < n->u.let.n; k++) {
-		uint32_t        s = n->u.let.slots[k];
-		const clj_node *init = n->u.let.inits[k];
-		if (s >= 64 || !promoted(f, s) || borrowed_slot(f, s) || slot_kind(f, s) != UK_NONE) continue;
-		if (init->kind == CLJ_NODE_DIRECT_FN || fact_kind(f, init) == UK_NONE || unboxable_kind(f, init) != UK_NONE) continue;
-		exempt |= (uint64_t)1 << s;
+		if (entry_candidate(f, n->u.let.slots[k], n->u.let.inits[k])) exempt |= (uint64_t)1 << n->u.let.slots[k];
 	}
+	bind_list b = {NULL, NULL, NULL, 0, 0};
+	bind_walk(f->body, &b);
+	for (uint32_t i = 0; i < b.n; i++) {
+		uint32_t s = b.slots[i];
+		if (s >= 64 || b.binders[i] == n || inside(n, b.binders[i]) || b.binders[i]->kind == CLJ_NODE_RECUR) continue;
+		if (!((reads >> s) & 1) || !entry_candidate(f, s, b.inits[i])) continue;
+		bool once = true;
+		for (uint32_t j = 0; j < b.n && once; j++) once = j == i || b.slots[j] != s;
+		if (once) exempt |= (uint64_t)1 << s;
+	}
+	bind_free(&b);
 	if (!exempt) return false;
 	typed_masks(f, f->body, n, exempt, ints, dbls);
 	uint64_t fresh = (*ints | *dbls) & ~(f->ints | f->dbls);
-	if (!(fresh & exempt)) return false;
-	arith_read r = {fresh, false};
-	arith_read_walk(n->u.let.body, &r);
-	return r.found;
+	*checked = fresh & exempt;
+	return (*checked & reads) != 0;
 }
 
 // The slot array keeps the slots that are not promoted, up to the highest one.
@@ -1197,17 +1217,13 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 
 static temp emit_loop_body(fnctx *f, const clj_node *n);
 
-// The two-program form of a let or loop whose typed slots are fed by boxed values (NOTES.md, "Compiler": entry-checked
-// frames): the tag checks at entry choose the branch with the typed C variables, which shadow the boxed ones, or the
-// generic branch; a stale fact costs the check and never the result.
+// The two-program form of a loop fed by boxed values (NOTES.md, "Compiler": entry-checked frames): the tag checks at
+// entry choose the branch whose typed C variables shadow the boxed ones, or the generic one.
 static bool in_mask(uint64_t m, uint32_t i) { return (m >> i) & 1; }
 
-static temp emit_split(fnctx *f, const clj_node *n, uint64_t ints, uint64_t dbls, bool loop) {
-	uint64_t fresh_ints = ints & ~f->ints, fresh_dbls = dbls & ~f->dbls, own = 0;
-	for (uint32_t k = 0; k < n->u.let.n; k++) {
-		if (n->u.let.slots[k] < 64) own |= (uint64_t)1 << n->u.let.slots[k];
-	}
-	temp r = new_temp(f, OWN_YES);
+static temp emit_split(fnctx *f, const clj_node *n, uint64_t own, uint64_t ints, uint64_t dbls) {
+	uint64_t fresh_ints = ints & ~f->ints, fresh_dbls = dbls & ~f->dbls;
+	temp     r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (1", r.name);
 	for (uint32_t i = 0; i < 64; i++) {
 		if (in_mask(fresh_ints & own, i)) sb_printf(&f->out, " && clj_is_fixnum(l%u)", i);
@@ -1230,12 +1246,12 @@ static temp emit_split(fnctx *f, const clj_node *n, uint64_t ints, uint64_t dbls
 	f->ints = ints;
 	f->dbls = dbls;
 	f->in_split = true;
-	temp a = loop ? emit_loop_body(f, n) : emit(f, n->u.let.body);
+	temp a = emit_loop_body(f, n);
 	sb_printf(&f->out, "\t%s = %s;\n\t}\n\t} else {\n", r.name, a.name);
 	live_forget(f, &a);
 	f->ints = saved_ints;
 	f->dbls = saved_dbls;
-	temp b = loop ? emit_loop_body(f, n) : emit(f, n->u.let.body);
+	temp b = emit_loop_body(f, n);
 	sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, b.name);
 	live_forget(f, &b);
 	f->in_split = saved_split;
@@ -1246,15 +1262,13 @@ static temp emit_split(fnctx *f, const clj_node *n, uint64_t ints, uint64_t dbls
 
 static temp emit_let(fnctx *f, const clj_node *n) {
 	emit_bindings(f, n);
-	uint64_t ints, dbls;
-	if (select_split(f, n, &ints, &dbls)) return emit_split(f, n, ints, dbls, false);
 	return emit(f, n->u.let.body);
 }
 
 static temp emit_loop(fnctx *f, const clj_node *n) {
 	emit_bindings(f, n);
-	uint64_t ints, dbls;
-	if (select_split(f, n, &ints, &dbls)) return emit_split(f, n, ints, dbls, true);
+	uint64_t checked, ints, dbls;
+	if (select_split(f, n, &checked, &ints, &dbls)) return emit_split(f, n, checked, ints, dbls);
 	return emit_loop_body(f, n);
 }
 

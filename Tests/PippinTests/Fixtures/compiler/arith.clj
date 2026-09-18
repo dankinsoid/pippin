@@ -28,7 +28,10 @@
 (defn let-bound [v] (let [n (count v)] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc))))
 (defn double-up [n] (loop [i n k 0] (if (< k 3) (recur (* i 2) (inc k)) i)))
 (defn dbl-scale [x n] (loop [i 0 s x] (if (< i n) (recur (inc i) (* s 2.0)) s)))
-(defn run-entry [] [(count-bound [1 2 3 4]) (let-bound [1 2 3 4]) (double-up 5) (dbl-scale 1.5 3)])
+(defn nested [v k] (loop [j 0 total 0] (if (< j k) (recur (inc j) (let [n (count v)] (loop [i 0 acc total] (if (< i n) (recur (inc i) (+ acc i)) acc)))) total)))
+(defn outer-recur [v] (loop [j 0 s 0] (if (< j 3) (let [n (count v)] (recur (inc j) (+ s (loop [i 0] (if (< i n) (recur (inc i)) i)) n))) s)))
+(defn after-loop [v] (let [n (count v)] (+ (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc)) n)))
+(defn run-entry [] [(count-bound [1 2 3 4]) (let-bound [1 2 3 4]) (double-up 5) (dbl-scale 1.5 3) (nested [1 2 3] 4) (outer-recur [1 2]) (after-loop [1 2 3])])
 
 (println (run) (mixed) (near-max 4611686018427387900 3) (near-max 4611686018427387900 8) (from-max 3) (from-max 8) (until-double 6))
 (println (count-to 1.5) (acc-to 2.5) (count-down 2.5) (preds 1.5) (preds 3037000499) (preds -3037000499))

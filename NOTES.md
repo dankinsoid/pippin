@@ -1956,15 +1956,18 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   argument frame has none (its locals are the argument array, not the enclosing frame's variables — the first
   version read them as such and passed a long where a seq was due). A loop whose variable turns double
   (`(recur (+ i 0.5))` from `0`) has bindings of two kinds and stays boxed. **Entry-checked frames**, the
-  two-program form the FUSED node has: a let or loop whose own slot is fed by a *boxed* value of a typed fact —
-  `(loop [i (count v)] …)`, `(let [n (count v)] …)`, a parameter the join typed — is emitted twice. The inits run
-  once, boxed; then `clj_is_fixnum`/`clj_is_double` of every such value chooses the fast branch, where the typed
-  C variables shadow the boxed ones for the extent of the body (with whatever the fixpoint types beside them once
-  those are typed: the accumulator whose recur argument adds the count), or the generic branch, the body as it
-  would be emitted without the split. A wrong fact — a bigint at entry, a call from the host with a string —
-  costs the check and takes the generic branch. One split per frame, the outermost, never inside a branch: a split
-  in a split doubles the body again, and a `let` at the top of a fn body would double the whole fn; and only when
-  an arithmetic node of the body reads a slot it would type, since otherwise the check buys nothing. Why the tag
+  two-program form the FUSED node has: a loop whose own slot is fed by a *boxed* value of a typed fact —
+  `(loop [i (count v)] …)`, a parameter the join typed — or whose body reads such a value bound once by a `let` in
+  scope (`(let [n (count v)] (loop … (< i n)))`) is emitted twice. The inits run once, boxed; then
+  `clj_is_fixnum`/`clj_is_double` of every such value chooses the fast branch, where the typed C variables shadow
+  the boxed ones for the extent of the loop (with whatever the fixpoint types beside them once those are typed:
+  the accumulator whose recur argument adds the count, the accumulator fed by an outer loop's variable), or the
+  generic branch, the loop as it would be emitted without the split. A slot typed only in the fast branch is
+  bound only inside the loop or checked at its entry — a sibling's binding of the index would write the boxed
+  variable while the shadow is read —, and a read after the loop is of the boxed one. A wrong fact — a bigint at
+  entry, a call from the host with a string — costs the check and takes the generic branch. One split per frame,
+  the outermost loop, never inside a branch: a split in a split doubles the body again; and only when an
+  arithmetic node of the body reads a slot it would type, since otherwise the check buys nothing. Why the tag
   check and not the epoch: the join is a fact about the recorded callers, and a closed unit is still called from
   the host and from top-level forms the index does not record; the design's "closed removes the guard" holds for
   the var-root guard, which `CLJ_CLOSED` folds, and for the typed slots whose every binding the unit itself
@@ -1974,11 +1977,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   and tag-checked nodes, a loop variable that turns double, a double and a string through every specialized fn,
   `apply`, `map` over the fn, a direct fn with an int64 loop, a fused node under one, every operator over doubles
   and over a fixnum beside a double with `##Inf`, `##NaN` and `-0.0` through them, a NaN loop variable, a loop fed
-  by a `count`, by a let-bound `count`, by a parameter the join typed, and the same entered with a bigint, a
-  double and a string; `rebind.clj` (dev only, it rebinds `*`) is the root-rebind case. `core.c` is one text for
+  by a `count`, by a let-bound `count`, by a parameter the join typed, by an outer loop's variable, a `count` read
+  after its loop, and the same entered with a bigint, a double and a string; `rebind.clj` (dev only, it rebinds `*`) is the root-rebind case. `core.c` is one text for
   dev and closed, emitted without `--closed`, so the closed core gets the tag-checked nodes (46 in core.clj) and no
-  typed slots. `clj-compile --stats` counts the forms per unit: `arith.clj` closed, 21 int64 slots, 4 double
-  slots, 51 unboxed, 52 tag-checked, 6 entry-checked frames; dev, 85 tag-checked; the closed test suite has 8
+  typed slots. `clj-compile --stats` counts the forms per unit: `arith.clj` closed, 27 int64 slots, 4 double
+  slots, 66 unboxed, 58 tag-checked, 9 entry-checked frames; dev, 98 tag-checked; the closed test suite has 8
   int64 slots and 2 entry-checked frames, medley none — the corpus has few loops, and the fixture and the bench
   are where the forms are exercised. Measured (the "loops compiled `--closed -O2`" column): the counting loop
   3.6–3.7 → 2.9 ns per iteration — `i` is an `int64_t`, `(inc i)` an add with an overflow branch, and what
@@ -1992,9 +1995,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   its counter (38 → 36): `nth` answers ⊤ — trigger: an element fact for `nth`, which the lattice does not carry.
   What remains and its trigger: a parameter used directly in the loop's arithmetic is tag-checked at every use
   (`(< i n)` above), since a parameter is bound by the caller and cannot be a C variable — trigger: a profile
-  with a hot loop over a parameter, then the parameter as an entry-checked slot of the fn body, the same split
-  at the arity; a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a
-  profile.
+  with a hot loop over a parameter, then the parameter as a checked slot of the split (it is bound once, like a
+  let's); a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a profile;
+  a `let` without a loop, whose typed reads stay tag-checked — trigger: a hot straight-line body in a profile.
 - **Refused** (reported with the node kind and position, the unit throws at the form, `clj-compile` exits 2
   unless `--allow-refused`): a constant that does not print and read back; `eval`/`load-string` in a
   `--closed` user unit. Every node kind is expressible; nothing in core.clj, the embedded libs, medley or the
