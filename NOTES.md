@@ -1052,8 +1052,13 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   records each with its body's id range, so `clj_facts_frame_of(id)` finds the innermost. A slot escapes when
   it is an argument of any call the signature table does not mark as storing nothing, an item of a vector,
   map or set literal, a `def` init, a thrown value, a fused argument, or the value of its frame's body
-  (returned). A closure capture marks it `captured`. `(let [b a] …)` records an alias edge and the escape
-  of `b` flows back to `a` at the end of the frame. Unknown is `escapes`.
+  (returned). A closure capture marks it `captured`, and so does a read through the static link (an `OUTER`
+  node in a direct fn body, or a closure made there capturing an outer slot): the slot is read by address,
+  which is what bars its promotion to a C variable, so the definer's frame is charged, `depth` links up.
+  `(let [b a] …)` records an alias edge and the escape of `b` flows back to `a` at the end of the frame.
+  Unknown is `escapes`. The three levels are joined by max, so a consumer cannot tell "the value leaves"
+  from "the slot is read by address" once both happened; a bitset would, and the trigger for it is the
+  compiler needing the distinction (it does not today: `escapes` bars promotion as well).
 - **Sources of a type fact.** Constants (a singleton of their kind, by pointer identity, so two literals the
   reader made separately stay two singletons, exactly as the codec keeps them); vector/map/set literals and
   fn literals; the signature table below, for intrinsics and for named C builtins; `let` bindings; `loop`

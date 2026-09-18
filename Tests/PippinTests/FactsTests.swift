@@ -276,6 +276,15 @@ extension CoreTests {
 				// an alias carries the escape back: y leaves, so x does too
 				let aliased = try Facts("(fn [] (let [x 1 y x] y))")
 				#expect(aliased.escape(CLJ_NODE_LET, 0, slot: 0) == CLJ_ESCAPE_ESCAPES)
+				// a direct fn reads the defining frame's slot through the static link: read by address, so captured
+				let outer = try Facts("(fn [] (let [x 1 f (fn [] (+ x 1))] (f)))")
+				#expect(outer.id(CLJ_NODE_DIRECT_FN, 0) != nil && outer.id(CLJ_NODE_OUTER, 0) != nil)
+				#expect(outer.escape(CLJ_NODE_LET, 0, slot: 0) == CLJ_ESCAPE_CAPTURED)
+				// two links up, and a closure made inside the direct fn body capturing the slot
+				let deep = try Facts("(fn [] (let [x 1 f (fn [] (let [g (fn [] (+ x 1))] (g)))] (f)))")
+				#expect(deep.escape(CLJ_NODE_LET, 0, slot: 0) == CLJ_ESCAPE_CAPTURED)
+				let closed = try Facts("(fn [] (let [x 1 f (fn [] (fn [] x))] (f)))")
+				#expect(closed.escape(CLJ_NODE_LET, 0, slot: 0) == CLJ_ESCAPE_CAPTURED)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

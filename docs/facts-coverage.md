@@ -19,7 +19,7 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   closure with a walkable body or an annotated builtin, every var read (the kind of its root, epoch-guarded)
   and every direct call.
 - Nullability is decided for **50.9 → 70.1 %** of value nodes over library code.
-- **Local slots** (the register prize): 3539 slots over library code, **23.4 %** of which never escape and
+- **Local slots** (the register prize): 3539 slots over library code, **23.3 %** of which never escape and
   are never captured; escaping is pass 1's and the summaries do not move it.
 - **Intrinsic arithmetic** (the unboxing prize): 85 two-argument sites over library code, **18.8 → 18.8 %**
   with both arguments known-fixnum and **44.7 → 44.7 %** with both known to be int64-representable.
@@ -34,7 +34,7 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   69 receivers are locals — parameters mostly, which a summary constrains by requirement only, and `(:k m)`
   requires nothing (design §3); what callers pass is not joined into a callee's parameters. The rest are
   derefs and other calls answering ⊤. No lookup in the corpus sits below a record constructor.
-- Cost: pass 1 alone 55 ms, with the summaries 63 ms, against 354 ms of analysis over the same forms
+- Cost: pass 1 alone 55 ms, with the summaries 63 ms, against 343 ms of analysis over the same forms
   (0.16× → 0.18×); the largest single table is 262 KB. The store holds 743 summaries, ran 9 fixpoint rounds
   beyond the first, widened 0, and recomputed 3 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
@@ -67,34 +67,34 @@ Each cell is the population and the share of it that is known, before → after.
 
 | library | arith sites / both fixnum | loops / all vars one numeric kind | local slots / never leave the frame | protocol receivers / known type | `(:k m)` / known map shape | `(:k m)` / on a record | arith sites / both integer |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 56 / 7.1 → 7.1 % | 50 / 4.0 → 4.0 % | 1827 / 22.8 → 22.8 % | 8 / 0.0 → 100.0 % | 31 / 0.0 → 0.0 % | 31 / 0 → 0 | 56 / 41.1 → 41.1 % |
+| core.clj | 56 / 7.1 → 7.1 % | 50 / 4.0 → 4.0 % | 1827 / 22.6 → 22.6 % | 8 / 0.0 → 100.0 % | 31 / 0.0 → 0.0 % | 31 / 0 → 0 | 56 / 41.1 → 41.1 % |
 | embedded libs | 14 / 78.6 → 78.6 % | 6 / 16.7 → 16.7 % | 365 / 19.7 → 19.7 % | 16 / 0.0 → 100.0 % | 32 / 0.0 → 0.0 % | 32 / 0 → 0 | 14 / 100.0 → 100.0 % |
 | clojure-test-suite | 126 / 3.2 → 3.2 % | 18 / 0.0 → 0.0 % | 19375 / 28.8 → 28.8 % | 2 / 0.0 → 100.0 % | 6 / 16.7 → 16.7 % | 6 / 0 → 0 | 126 / 3.2 → 16.7 % |
 | medley | 15 / 6.7 → 6.7 % | 5 / 0.0 → 0.0 % | 1347 / 25.2 → 25.2 % | 0 / 0.0 → 0.0 % | 0 / 0.0 → 0.0 % | 0 / 0 → 0 | 15 / 6.7 → 6.7 % |
-| **library code** | 85 / 18.8 → 18.8 % | 61 / 4.9 → 4.9 % | 3539 / 23.4 → 23.4 % | 24 / 0.0 → 100.0 % | 63 / 0.0 → 0.0 % | 63 / 0 → 0 | 85 / 44.7 → 44.7 % |
+| **library code** | 85 / 18.8 → 18.8 % | 61 / 4.9 → 4.9 % | 3539 / 23.3 → 23.3 % | 24 / 0.0 → 100.0 % | 63 / 0.0 → 0.0 % | 63 / 0 → 0 | 85 / 44.7 → 44.7 % |
 | **all** | 211 / 9.5 → 9.5 % | 79 / 3.8 → 3.8 % | 22914 / 27.9 → 27.9 % | 26 / 0.0 → 100.0 % | 69 / 1.4 → 1.4 % | 69 / 0 → 0 | 211 / 19.9 → 28.0 % |
 
 ## Local slots
 
 | library | slots | local | captured | escapes |
 |---|---:|---:|---:|---:|
-| core.clj | 1827 | 22.8 % | 13.1 % | 64.0 % |
+| core.clj | 1827 | 22.6 % | 13.4 % | 64.0 % |
 | embedded libs | 365 | 19.7 % | 5.8 % | 74.5 % |
 | clojure-test-suite | 19375 | 28.8 % | 0.1 % | 71.2 % |
 | medley | 1347 | 25.2 % | 7.0 % | 67.8 % |
-| **library code** | 3539 | 23.4 % | 10.0 % | 66.5 % |
+| **library code** | 3539 | 23.3 % | 10.1 % | 66.5 % |
 | **all** | 22914 | 27.9 % | 1.6 % | 70.5 % |
 
 ## Cost per library
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12432 | 6.8 | 2.9 | 3.7 | 0.44× → 0.54× | 352 | 13 |
-| embedded libs | 108 | 3710 | 1.8 | 0.7 | 1.1 | 0.38× → 0.61× | 108 | 6 |
-| clojure-test-suite | 516 | 415781 | 329.4 | 49.6 | 55.7 | 0.15× → 0.17× | 9861 | 262 |
-| medley | 104 | 22661 | 16.2 | 2.2 | 2.9 | 0.14× → 0.18× | 556 | 23 |
-| **library code** | 477 | 38803 | 24.7 | 5.8 | 7.7 | 0.24× → 0.31× | 1016 | 23 |
-| **all** | 993 | 454584 | 354.1 | 55.4 | 63.4 | 0.16× → 0.18× | 10877 | 262 |
+| core.clj | 265 | 12432 | 8.3 | 3.7 | 4.5 | 0.44× → 0.54× | 352 | 13 |
+| embedded libs | 108 | 3710 | 2.0 | 0.8 | 1.2 | 0.38× → 0.59× | 108 | 6 |
+| clojure-test-suite | 516 | 415781 | 313.7 | 48.0 | 53.5 | 0.15× → 0.17× | 9861 | 262 |
+| medley | 104 | 22661 | 18.5 | 2.5 | 3.5 | 0.13× → 0.19× | 556 | 23 |
+| **library code** | 477 | 38803 | 28.8 | 6.9 | 9.2 | 0.24× → 0.32× | 1016 | 23 |
+| **all** | 993 | 454584 | 342.5 | 54.9 | 62.7 | 0.16× → 0.18× | 10877 | 262 |
 
 ## Proven conflicts
 

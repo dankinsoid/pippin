@@ -389,11 +389,13 @@ typedef struct {
 	uint32_t    n;
 } env;
 
-typedef struct {
-	const clj_fact *captured;
-	uint32_t        ncaptured;
-	uint32_t        index; // into facts->frames
-} frame_ctx;
+typedef struct frame_ctx frame_ctx;
+struct frame_ctx {
+	const clj_fact  *captured;
+	uint32_t         ncaptured;
+	uint32_t         index;  // into facts->frames
+	const frame_ctx *parent; // the defining frame of a direct fn body, what an OUTER read climbs
+};
 
 typedef struct {
 	clj_fact       *slots; // joined with every recur argument
@@ -490,11 +492,20 @@ static bool env_bottom(const env *e) {
 	return false;
 }
 
-static void mark_escape(pass *p, uint32_t slot, clj_escape level) {
-	const clj_facts_frame *fr = &p->f->frames[p->frame->index];
+static void mark_escape_in(pass *p, const frame_ctx *frame, uint32_t slot, clj_escape level) {
+	const clj_facts_frame *fr = &p->f->frames[frame->index];
 	if (slot >= fr->nslots) return;
 	uint8_t *cell = &p->f->escape[fr->slot + slot];
 	if (level > *cell) *cell = (uint8_t)level;
+}
+
+static void mark_escape(pass *p, uint32_t slot, clj_escape level) { mark_escape_in(p, p->frame, slot, level); }
+
+// A read through the static link is a read of the slot by address: the defining frame's slot is captured.
+static void mark_outer(pass *p, uint32_t depth, uint32_t slot) {
+	const frame_ctx *frame = p->frame;
+	for (uint32_t d = 0; d < depth && frame; d++) frame = frame->parent;
+	if (frame) mark_escape_in(p, frame, slot, CLJ_ESCAPE_CAPTURED);
 }
 
 // (let [b a] ...): whatever b does to the value, a does too.
@@ -581,7 +592,7 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 	max_slot(body, &nslots);
 	uint32_t  fi = push_frame(p, owner, a ? a->nparams : 0, body, nslots);
 	env       e = env_new(nslots);
-	frame_ctx fc = {captured, ncaptured, fi};
+	frame_ctx fc = {captured, ncaptured, fi, p->frame};
 	if (a) {
 		// the rest parameter is the seq of the extra arguments, or nil when there are none
 		if (a->variadic && a->nparams < nslots) e.slots[a->nparams] = fact_of(CLJ_T_LIST | CLJ_T_NIL);
@@ -999,7 +1010,7 @@ static clj_fact infer_fused(pass *p, const clj_node *n, env *e) {
 		max_slot(n->u.fused.original, &nslots);
 		uint32_t  fi = push_frame(p, n->id, n->u.fused.nargs, n->u.fused.fused, nslots);
 		env       fe = env_new(nslots);
-		frame_ctx fc = {NULL, 0, fi};
+		frame_ctx fc = {NULL, 0, fi, p->frame};
 		for (uint32_t i = 0; i < n->u.fused.nargs && i < nslots; i++) fe.slots[i] = args[i];
 		frame_ctx    *saved_frame = p->frame;
 		recur_target *saved_recur = p->recur;
@@ -1110,7 +1121,9 @@ static clj_fact infer_fn(pass *p, const clj_node *n, env *e) {
 		case CLJ_CAPTURE_CAPTURED:
 			caps[i] = p->frame->captured && c->index < p->frame->ncaptured ? p->frame->captured[c->index] : clj_fact_top();
 			break;
-		default: caps[i] = clj_fact_top();
+		default:
+			mark_outer(p, c->depth, c->index);
+			caps[i] = clj_fact_top();
 		}
 	}
 	if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures);
@@ -1155,7 +1168,10 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_CAPTURED:
 		r = p->frame->captured && n->u.index < p->frame->ncaptured ? p->frame->captured[n->u.index] : clj_fact_top();
 		break;
-	case CLJ_NODE_OUTER: r = clj_fact_top(); break;
+	case CLJ_NODE_OUTER:
+		mark_outer(p, n->u.outer.depth, n->u.outer.index);
+		r = clj_fact_top();
+		break;
 	case CLJ_NODE_VAR:
 		// pass 1 alone reads no root; with a store the read is guarded by the var's epoch (clj_facts_valid)
 		r = clj_fact_top();
