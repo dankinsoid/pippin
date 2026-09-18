@@ -13,10 +13,12 @@
 #include "clj/facts.h"
 #include "clj/fn.h"
 #include "clj/inst.h"
+#include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/long.h"
 #include "clj/map.h"
+#include "clj/ns.h"
 #include "clj/number.h"
 #include "clj/queue.h"
 #include "clj/ratio.h"
@@ -54,8 +56,9 @@ struct clj_facts {
 	clj_facts_loop  *loops;
 	clj_fact        *vars;
 	clj_summaries   *sums; // borrowed; NULL is pass 1 alone
-	clj_call_conflict *calls;
-	uint32_t         ncalls, ccalls;
+	clj_diagnostic  *diags;
+	uint32_t         ndiags, cdiags, nerrors;
+	bool             warn; // the namespace's :facts/warnings switch, read once
 	uint32_t         hits, narrowed;
 	clj_value       *dep_vars;
 	uint32_t        *dep_epochs;
@@ -222,11 +225,12 @@ bool clj_facts_value_node(clj_node_kind kind) {
 
 // ---- signatures of the C builtins and intrinsics (why a table of its own: NOTES.md, "Facts")
 
-typedef enum { SIG_FIXED, SIG_ARITH, SIG_DIV, SIG_CONJ, SIG_ASSOC, SIG_SAME } sig_rule;
+typedef enum { SIG_FIXED, SIG_ARITH, SIG_DIV, SIG_CONJ, SIG_ASSOC, SIG_SAME, SIG_DISSOC, SIG_EMPTY } sig_rule;
 
 typedef struct {
 	const char *name; // unqualified, in clojure.core
-	uint32_t    arity; // 0: any
+	uint32_t    arity; // 0: any; with at_least, this many or more
+	bool        at_least;
 	uint8_t     rule;
 	uint32_t    result;
 	uint32_t    refine; // the argument's type set when the result is truthy, 0 when the entry refines nothing
@@ -237,14 +241,16 @@ typedef struct {
 	uint8_t     elem;  // array kind + 1 for the array constructors
 } fact_sig;
 
-#define F(nm, ar, res) {nm, ar, SIG_FIXED, res, 0, 0, 0, false, false, 0}
-#define FK(nm, ar, res) {nm, ar, SIG_FIXED, res, 0, 0, 0, false, true, 0}
-#define R(nm, ar, rl, res) {nm, ar, rl, res, 0, 0, 0, false, true, 0}
+#define F(nm, ar, res) {nm, ar, false, SIG_FIXED, res, 0, 0, 0, false, false, 0}
+#define FK(nm, ar, res) {nm, ar, false, SIG_FIXED, res, 0, 0, 0, false, true, 0}
+// The seq arities of a stage whose one-argument call is a transducer.
+#define FKN(nm, ar, res) {nm, ar, true, SIG_FIXED, res, 0, 0, 0, false, true, 0}
+#define R(nm, ar, rl, res) {nm, ar, false, rl, res, 0, 0, 0, false, true, 0}
 // Arithmetic stores nothing, so its arguments do not escape.
-#define RA(nm, ar, rl) {nm, ar, rl, 0, 0, 0, 0, false, false, 0}
-#define P(nm, ref, ex) {nm, 1, SIG_FIXED, CLJ_T_BOOL, ref, CLJ_NULL_MAYBE, 0, ex, false, 0}
-#define PN(nm, ref, rnul, ex) {nm, 1, SIG_FIXED, CLJ_T_BOOL, ref, rnul, 0, ex, false, 0}
-#define ARR(nm, k) {nm, 0, SIG_FIXED, CLJ_T_ARRAY, 0, 0, 0, false, true, (uint8_t)(k) + 1}
+#define RA(nm, ar, rl) {nm, ar, false, rl, 0, 0, 0, 0, false, false, 0}
+#define P(nm, ref, ex) {nm, 1, false, SIG_FIXED, CLJ_T_BOOL, ref, CLJ_NULL_MAYBE, 0, ex, false, 0}
+#define PN(nm, ref, rnul, ex) {nm, 1, false, SIG_FIXED, CLJ_T_BOOL, ref, rnul, 0, ex, false, 0}
+#define ARR(nm, k) {nm, 0, false, SIG_FIXED, CLJ_T_ARRAY, 0, 0, 0, false, true, (uint8_t)(k) + 1}
 
 static const fact_sig sigs[] = {
 	// arithmetic and comparison
@@ -260,14 +266,14 @@ static const fact_sig sigs[] = {
 	F("parse-long", 1, T_INT | CLJ_T_NIL), F("parse-double", 1, CLJ_T_DOUBLE | CLJ_T_NIL),
 	// predicates, with the refinement they carry into the branches of an if
 	PN("nil?", CLJ_T_NIL, CLJ_NULL_ALWAYS, true), PN("some?", CLJ_T_TOP & ~CLJ_T_NIL, CLJ_NULL_NEVER, true),
-	P("number?", T_NUM, true), P("integer?", T_INT, true), P("int?", T_INT, true), P("nat-int?", T_INT, false),
+	P("number?", T_NUM, true), P("integer?", T_INT, true), P("int?", CLJ_T_FIXNUM | CLJ_T_LONG, true), P("nat-int?", T_INT, false),
 	P("pos-int?", T_INT, false), P("neg-int?", T_INT, false), P("double?", CLJ_T_DOUBLE, true), P("float?", CLJ_T_DOUBLE, true),
 	P("ratio?", CLJ_T_RATIO, true), P("decimal?", CLJ_T_DECIMAL, true), P("rational?", T_INT | CLJ_T_RATIO | CLJ_T_DECIMAL, true),
 	P("string?", CLJ_T_STRING, true), P("keyword?", CLJ_T_KEYWORD, true), P("symbol?", CLJ_T_SYMBOL, true),
 	P("char?", CLJ_T_CHAR, true), P("boolean?", CLJ_T_BOOL, true), P("true?", CLJ_T_BOOL, false), P("false?", CLJ_T_BOOL, false),
 	P("map?", T_MAPS, true), P("set?", T_SETS, true), P("vector?", CLJ_T_VECTOR, true), P("record?", CLJ_T_RECORD, true),
-	P("list?", CLJ_T_LIST, false), P("seq?", CLJ_T_LIST, false), P("sequential?", CLJ_T_LIST | CLJ_T_VECTOR, true),
-	P("coll?", T_COLL, true), P("seqable?", T_SEQABLE, false), P("associative?", T_MAPS | CLJ_T_VECTOR, true),
+	P("list?", CLJ_T_LIST, false), P("seq?", CLJ_T_LIST, false), P("sequential?", CLJ_T_LIST | CLJ_T_VECTOR, false),
+	P("coll?", T_COLL, false), P("seqable?", T_SEQABLE, false), P("associative?", T_MAPS | CLJ_T_VECTOR, true),
 	P("fn?", CLJ_T_FN, true), P("var?", CLJ_T_VAR, true), P("uuid?", CLJ_T_UUID, true), P("inst?", CLJ_T_INST, true),
 	P("ident?", CLJ_T_KEYWORD | CLJ_T_SYMBOL, true), P("simple-ident?", CLJ_T_KEYWORD | CLJ_T_SYMBOL, false),
 	P("qualified-ident?", CLJ_T_KEYWORD | CLJ_T_SYMBOL, false), P("qualified-keyword?", CLJ_T_KEYWORD, false),
@@ -280,10 +286,10 @@ static const fact_sig sigs[] = {
 	// sequences: every lazy stage answers a seq or nil, the eager ones a seq
 	F("seq", 1, CLJ_T_LIST | CLJ_T_NIL), F("next", 1, CLJ_T_LIST | CLJ_T_NIL), F("keys", 1, CLJ_T_LIST | CLJ_T_NIL),
 	F("vals", 1, CLJ_T_LIST | CLJ_T_NIL), F("rest", 1, CLJ_T_LIST), FK("cons", 2, CLJ_T_LIST), FK("list", 0, CLJ_T_LIST),
-	FK("list*", 0, CLJ_T_LIST), FK("map", 0, CLJ_T_LIST), FK("filter", 2, CLJ_T_LIST), FK("remove", 2, CLJ_T_LIST),
-	FK("keep", 2, CLJ_T_LIST), FK("mapcat", 0, CLJ_T_LIST), FK("concat", 0, CLJ_T_LIST), FK("take", 2, CLJ_T_LIST),
+	FK("list*", 0, CLJ_T_LIST | CLJ_T_NIL), FKN("map", 2, CLJ_T_LIST), FK("filter", 2, CLJ_T_LIST), FK("remove", 2, CLJ_T_LIST),
+	FK("keep", 2, CLJ_T_LIST), FKN("mapcat", 2, CLJ_T_LIST), FK("concat", 0, CLJ_T_LIST), FK("take", 2, CLJ_T_LIST),
 	FK("drop", 2, CLJ_T_LIST), FK("take-while", 2, CLJ_T_LIST), FK("drop-while", 2, CLJ_T_LIST), FK("partition", 0, CLJ_T_LIST),
-	FK("partition-all", 0, CLJ_T_LIST), FK("interpose", 2, CLJ_T_LIST), FK("interleave", 0, CLJ_T_LIST),
+	FKN("partition-all", 2, CLJ_T_LIST), FK("interpose", 2, CLJ_T_LIST), FK("interleave", 0, CLJ_T_LIST),
 	FK("repeat", 0, CLJ_T_LIST), FK("iterate", 2, CLJ_T_LIST), FK("range", 0, CLJ_T_LIST), FK("reverse", 1, CLJ_T_LIST),
 	FK("sort", 0, CLJ_T_LIST), FK("sort-by", 0, CLJ_T_LIST), FK("distinct", 1, CLJ_T_LIST), FK("flatten", 1, CLJ_T_LIST),
 	FK("map-indexed", 2, CLJ_T_LIST), FK("keep-indexed", 2, CLJ_T_LIST), FK("dedupe", 1, CLJ_T_LIST), FK("shuffle", 1, CLJ_T_VECTOR),
@@ -295,9 +301,9 @@ static const fact_sig sigs[] = {
 	FK("merge-with", 0, T_MAPS | CLJ_T_NIL), FK("hash-set", 0, CLJ_T_SET), FK("set", 1, CLJ_T_SET),
 	FK("sorted-map", 0, CLJ_T_SORTED_MAP), FK("sorted-map-by", 0, CLJ_T_SORTED_MAP), FK("sorted-set", 0, CLJ_T_SORTED_SET),
 	FK("sorted-set-by", 0, CLJ_T_SORTED_SET), FK("update-keys", 2, T_MAPS), FK("update-vals", 2, T_MAPS),
-	R("conj", 0, SIG_CONJ, 0), R("assoc", 0, SIG_ASSOC, 0), R("into", 0, SIG_SAME, 0), R("with-meta", 2, SIG_SAME, 0),
-	R("vary-meta", 0, SIG_SAME, 0), R("dissoc", 0, SIG_SAME, 0), R("disj", 0, SIG_SAME, 0), R("empty", 1, SIG_SAME, 0),
-	FK("assoc-in", 3, T_MAPS), FK("update", 0, T_MAPS | CLJ_T_VECTOR), FK("update-in", 0, T_MAPS | CLJ_T_VECTOR),
+	R("conj", 0, SIG_CONJ, 0), R("assoc", 0, SIG_ASSOC, 0), R("into", 0, SIG_CONJ, 0), R("with-meta", 2, SIG_SAME, 0),
+	R("vary-meta", 0, SIG_SAME, 0), R("dissoc", 0, SIG_DISSOC, 0), R("disj", 0, SIG_SAME, 0), R("empty", 1, SIG_EMPTY, 0),
+	FK("assoc-in", 3, T_MAPS | CLJ_T_VECTOR), FK("update", 0, T_MAPS | CLJ_T_VECTOR), FK("update-in", 0, T_MAPS | CLJ_T_VECTOR),
 	F("find", 2, CLJ_T_VECTOR | CLJ_T_NIL), F("key", 1, CLJ_T_TOP), F("val", 1, CLJ_T_TOP),
 	// strings, names, identifiers
 	F("str", 0, CLJ_T_STRING), F("pr-str", 0, CLJ_T_STRING), F("print-str", 0, CLJ_T_STRING), F("println-str", 0, CLJ_T_STRING),
@@ -342,7 +348,7 @@ static bool is_core_var(clj_value var) {
 static const fact_sig *sig_named(const char *name, uint32_t arity) {
 	for (uint32_t i = 0; i < NSIGS; i++) {
 		if (strcmp(sigs[i].name, name) != 0) continue;
-		if (sigs[i].arity == arity || sigs[i].arity == 0) return &sigs[i];
+		if (sigs[i].arity == arity || sigs[i].arity == 0 || (sigs[i].at_least && arity >= sigs[i].arity)) return &sigs[i];
 	}
 	return NULL;
 }
@@ -413,6 +419,7 @@ typedef struct {
 	uint32_t     *alias_from, *alias_to;
 	uint32_t      nalias, calias;
 	uint32_t      effects; // of the frame being walked
+	uint32_t      caught;  // try bodies with a handler the walk is inside of
 } pass;
 
 typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
@@ -803,6 +810,18 @@ static clj_fact sig_result(const fact_sig *s, const clj_fact *args, uint32_t n) 
 		r.singleton = CLJ_UNBOUND;
 		return r;
 	}
+	case SIG_DISSOC: {
+		// a record loses its kind with a basis key and keeps it with any other
+		uint32_t a = n > 0 ? args[0].types : CLJ_T_TOP;
+		return fact_of((a & CLJ_T_RECORD) ? a | CLJ_T_MAP : a);
+	}
+	case SIG_EMPTY: {
+		// nil for whatever is not a collection, a string included
+		uint32_t a = n > 0 ? args[0].types : CLJ_T_TOP;
+		uint32_t r = a & T_COLL;
+		if (a & ~(uint32_t)T_COLL) r |= CLJ_T_NIL;
+		return fact_of(r);
+	}
 	default: break;
 	}
 	clj_fact r = fact_of(s->result);
@@ -836,27 +855,33 @@ static const clj_summary *summary_of(pass *p, clj_value var, uint32_t nargs) {
 	return s;
 }
 
-static void add_call_conflict(pass *p, const clj_node *arg, uint32_t use_line, uint32_t use_col, clj_value callee, uint32_t i,
-                              clj_fact have, clj_fact req) {
+static void add_diagnostic(pass *p, clj_diag_kind kind, const clj_node *arg, uint32_t use_line, uint32_t use_col, clj_value callee,
+                           uint32_t i, clj_fact have, clj_fact req) {
 	clj_facts *f = p->f;
-	if (f->ncalls == f->ccalls) {
-		f->ccalls = f->ccalls ? f->ccalls * 2 : 8;
-		f->calls = xgrow(f->calls, f->ccalls, sizeof(clj_call_conflict));
+	if (f->ndiags == f->cdiags) {
+		f->cdiags = f->cdiags ? f->cdiags * 2 : 8;
+		f->diags = xgrow(f->diags, f->cdiags, sizeof(clj_diagnostic));
 	}
-	clj_call_conflict c = {arg->line, arg->col, use_line, use_col, callee, i, have, req};
-	f->calls[f->ncalls++] = c;
+	bool           caught = p->caught > 0;
+	clj_diagnostic d = {kind, kind == CLJ_DIAG_CALL_CONFLICT && !caught ? CLJ_DIAG_ERROR : CLJ_DIAG_WARNING,
+	                    arg->line, arg->col, use_line, use_col, callee, i, have, req, caught};
+	if (d.severity == CLJ_DIAG_ERROR) f->nerrors++;
+	f->diags[f->ndiags++] = d;
 }
 
 // A conflict is reported and not stored, so a ⊥ node keeps meaning "the lattice is wrong".
 static void require_arg(pass *p, env *e, const clj_node *arg, clj_fact have, clj_fact req, uint32_t use_line, uint32_t use_col,
-                        clj_value callee, uint32_t i) {
+                        clj_value callee, uint32_t i, bool declared) {
 	if (clj_fact_is_top(req) || have.types == CLJ_T_BOTTOM) return;
 	uint32_t dummy = 0;
 	clj_fact m = clj_fact_meet(have, req, &dummy);
 	if (m.types == CLJ_T_BOTTOM) {
-		if (p->record && !p->dead) add_call_conflict(p, arg, use_line, use_col, callee, i, have, req);
+		if (p->record && !p->dead) add_diagnostic(p, CLJ_DIAG_CALL_CONFLICT, arg, use_line, use_col, callee, i, have, req);
 		return;
 	}
+	// a declaration is an explicit ask to be typed here: TOP at its door is what was asked to be told (design §3)
+	if (declared && p->f->warn && p->record && !p->dead && clj_fact_is_top(have))
+		add_diagnostic(p, CLJ_DIAG_TOP_INTO_DECL, arg, 0, 0, callee, i, have, req);
 	if (p->record && arg->id < p->f->nnodes && !clj_fact_eq(m, have)) {
 		uint8_t dead = p->f->nodes[arg->id].unreachable;
 		p->f->nodes[arg->id] = m;
@@ -881,7 +906,8 @@ static void apply_summary(pass *p, env *e, const clj_summary *sum, const clj_nod
 	p->effects |= sum->effects;
 	// the rest parameter's requirement is on the seq, not on one element
 	for (uint32_t i = 0; i < n && i < sum->nparams; i++) {
-		require_arg(p, e, args[i], have[i], sum->params[i], sum->param_line[i], sum->param_col[i], callee, i);
+		bool declared = sum->annotated && sum->param_line[i] == 0;
+		require_arg(p, e, args[i], have[i], sum->params[i], sum->param_line[i], sum->param_col[i], callee, i, declared);
 	}
 }
 
@@ -909,6 +935,18 @@ static clj_fact construct_result(pass *p, const char *name, const clj_node *cons
 }
 
 #define ARGS_INLINE 8
+
+uint32_t clj_facts_nsignatures(void) { return NSIGS; }
+
+bool clj_facts_signature(uint32_t i, const char **name, uint32_t *arity, clj_fact *result, bool *transfer) {
+	if (i >= NSIGS) return false;
+	const fact_sig *s = &sigs[i];
+	*name = s->name;
+	*arity = s->arity;
+	*transfer = s->rule != SIG_FIXED;
+	*result = *transfer ? clj_fact_top() : sig_result(s, NULL, 0);
+	return true;
+}
 
 static clj_fact infer_call(pass *p, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s, clj_value var) {
 	clj_fact  inline_have[ARGS_INLINE];
@@ -982,8 +1020,10 @@ static clj_fact infer_loop(pass *p, const clj_node *n, env *e, use_kind use) {
 
 static clj_fact infer_try(pass *p, const clj_node *n, env *e, use_kind use) {
 	// No recur leaves a try body and no binding made inside is in scope in a handler: the entry environment holds.
-	env      entry = env_clone(e);
+	env entry = env_clone(e);
+	if (n->u.try_.ncatches) p->caught++;
 	clj_fact r = infer(p, n->u.try_.body, e, use);
+	if (n->u.try_.ncatches) p->caught--;
 	for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 		const clj_catch *k = &n->u.try_.catches[i];
 		env              ce = env_clone(&entry);
@@ -1263,7 +1303,7 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0};
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0};
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
@@ -1276,9 +1316,10 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	f->nnodes = root->nnodes;
 	f->conflict_node = UINT32_MAX;
 	f->sums = sums;
+	f->warn = clj_facts_warnings_enabled(clj_ns_current());
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0};
+	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0};
 	if (sums) warm_summaries(root, sums);
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
 	free(p.alias_from);
@@ -1291,7 +1332,7 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	clj_facts f = {0};
 	f.conflict_node = UINT32_MAX;
 	f.sums = sums;
-	pass     p = {&f, NULL, NULL, false, false, NULL, NULL, 0, 0, 0};
+	pass     p = {&f, NULL, NULL, false, false, NULL, NULL, 0, 0, 0, 0};
 	clj_fact self = fact_of(CLJ_T_FN);
 	run_frame(&p, fn->id, a, a->body, NULL, 0, &self, out);
 	free(p.alias_from);
@@ -1300,7 +1341,7 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	free(f.escape);
 	free(f.loops);
 	free(f.vars);
-	free(f.calls);
+	free(f.diags);
 	free(f.dep_vars);
 	free(f.dep_epochs);
 }
@@ -1313,7 +1354,7 @@ void clj_facts_free(clj_facts *f) {
 	free(f->escape);
 	free(f->loops);
 	free(f->vars);
-	free(f->calls);
+	free(f->diags);
 	free(f->dep_vars);
 	free(f->dep_epochs);
 	free(f);
@@ -1360,9 +1401,24 @@ uint32_t clj_facts_conflicts(const clj_facts *f) { return f->conflicts; }
 uint32_t clj_facts_widenings(const clj_facts *f) { return f->widenings; }
 uint32_t clj_facts_conflict_node(const clj_facts *f) { return f->conflict_node; }
 
-uint32_t                 clj_facts_ncall_conflicts(const clj_facts *f) { return f->ncalls; }
-const clj_call_conflict *clj_facts_call_conflict(const clj_facts *f, uint32_t i) { return i < f->ncalls ? &f->calls[i] : NULL; }
-uint32_t                 clj_facts_summary_hits(const clj_facts *f) { return f->hits; }
+uint32_t              clj_facts_ndiagnostics(const clj_facts *f) { return f->ndiags; }
+const clj_diagnostic *clj_facts_diagnostic(const clj_facts *f, uint32_t i) { return i < f->ndiags ? &f->diags[i] : NULL; }
+uint32_t              clj_facts_nerrors(const clj_facts *f) { return f->nerrors; }
+uint32_t              clj_facts_summary_hits(const clj_facts *f) { return f->hits; }
+
+bool clj_facts_warnings_enabled(clj_value ns) {
+	if (!clj_is_ns(ns)) return true;
+	clj_value meta = clj_ns_meta(ns);
+	if (clj_is_nil(meta) || !clj_has_core(meta, CLJ_CORE_MAP)) return true;
+	clj_value v = clj_get2(meta, clj_keyword_from_cstr("facts/warnings"));
+	if (v == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return true;
+	}
+	bool on = v != CLJ_FALSE;
+	clj_release(v);
+	return on;
+}
 uint32_t                 clj_facts_narrowed_args(const clj_facts *f) { return f->narrowed; }
 uint32_t                 clj_facts_ndeps(const clj_facts *f) { return f->ndeps; }
 
@@ -1387,17 +1443,32 @@ static void fact_text(clj_fact f, char *buf, size_t n) {
 	if (k == 0) snprintf(buf, n, "nothing");
 }
 
-const char *clj_call_conflict_message(const clj_call_conflict *c, char *buf, size_t n) {
-	char req[256], have[256];
-	fact_text(c->required, req, sizeof req);
-	fact_text(c->passed, have, sizeof have);
-	const char *callee = clj_is_var(c->callee) ? clj_string_bytes(clj_symbol_name(clj_var_name(c->callee))) : "a direct fn";
-	if (c->use_line) {
-		snprintf(buf, n, "%s uses argument %u as %s at %u:%u, %s is passed at %u:%u", callee, c->arg, req, c->use_line, c->use_col, have,
-		         c->line, c->col);
+const char *clj_diagnostic_message(const clj_diagnostic *d, char *buf, size_t n) {
+	char req[256], have[256], name[256];
+	fact_text(d->required, req, sizeof req);
+	fact_text(d->passed, have, sizeof have);
+	if (clj_is_var(d->callee)) {
+		snprintf(name, sizeof name, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(d->callee))),
+		         clj_string_bytes(clj_symbol_name(clj_var_name(d->callee))));
 	}
-	else {
-		snprintf(buf, n, "%s requires argument %u to be %s, %s is passed at %u:%u", callee, c->arg, req, have, c->line, c->col);
+	else snprintf(name, sizeof name, "a direct fn");
+	const char *tail = d->caught ? ", caught by the enclosing try" : "";
+	switch (d->kind) {
+	case CLJ_DIAG_CALL_CONFLICT:
+		if (d->use_line) {
+			snprintf(buf, n, "%s uses argument %u as %s at %u:%u, %s is passed at %u:%u%s", name, d->arg, req, d->use_line, d->use_col, have,
+			         d->line, d->col, tail);
+		}
+		else snprintf(buf, n, "%s requires argument %u to be %s, %s is passed at %u:%u%s", name, d->arg, req, have, d->line, d->col, tail);
+		break;
+	case CLJ_DIAG_DECL_CONFLICT:
+		if (d->arg == UINT32_MAX) snprintf(buf, n, "%s: the declaration says the result is %s, the body answers %s", name, req, have);
+		else snprintf(buf, n, "%s: the declaration says argument %u is %s, the body uses it as %s at %u:%u", name, d->arg, req, have, d->use_line, d->use_col);
+		break;
+	case CLJ_DIAG_TOP_INTO_DECL:
+		snprintf(buf, n, "%s declares argument %u as %s, nothing is known about what is passed at %u:%u", name, d->arg, req, d->line, d->col);
+		break;
+	case CLJ_DIAG_TOP_RESULT: snprintf(buf, n, "%s: the declaration says the result is %s, nothing is known about what the body answers", name, req); break;
 	}
 	return buf;
 }

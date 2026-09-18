@@ -81,14 +81,25 @@ typedef struct {
 typedef struct clj_facts clj_facts;
 typedef struct clj_summaries clj_summaries;
 
-// A call whose argument met the callee's requirement down to BOTTOM: a proven conflict with both positions (design §3).
+// Design §3 "Строгость": BOTTOM is an error in every mode, TOP into a declaration a warning a namespace may turn off.
+typedef enum { CLJ_DIAG_ERROR, CLJ_DIAG_WARNING } clj_diag_severity;
+typedef enum {
+	CLJ_DIAG_CALL_CONFLICT, // an argument met the callee's requirement down to BOTTOM: the call is proven to throw
+	CLJ_DIAG_DECL_CONFLICT, // a :=> declaration met the summary inferred from the body down to BOTTOM
+	CLJ_DIAG_TOP_INTO_DECL, // TOP passed where a declaration requires something
+	CLJ_DIAG_TOP_RESULT,    // a body answers TOP where its declaration promises something
+} clj_diag_kind;
+
 typedef struct {
-	uint32_t  line, col;         // the argument at the call site
-	uint32_t  use_line, use_col; // the use inside the callee that imposed the requirement; 0 for an annotation
-	clj_value callee;            // var, or nil for a direct fn
-	uint32_t  arg;
-	clj_fact  passed, required;
-} clj_call_conflict;
+	clj_diag_kind     kind;
+	clj_diag_severity severity;
+	uint32_t          line, col;         // the argument at the call site; 0 for a declaration
+	uint32_t          use_line, use_col; // the use inside the callee the requirement rests on; 0 for a declaration
+	clj_value         callee;            // var, or nil for a direct fn
+	uint32_t          arg;               // UINT32_MAX for the result
+	clj_fact          passed, required;
+	bool              caught; // the site sits in a try body with a handler: the throw it proves is caught, so a warning
+} clj_diagnostic;
 
 // Owned; the root is retained, so a singleton stays valid for the table's life. Pure: same tree, same table.
 clj_facts *clj_facts_of(const clj_node *root);
@@ -118,10 +129,14 @@ uint32_t clj_facts_conflict_node(const clj_facts *f);
 // Loop variables the widening rule sent to TOP before the fixpoint reached it.
 uint32_t clj_facts_widenings(const clj_facts *f);
 
-uint32_t                 clj_facts_ncall_conflicts(const clj_facts *f);
-const clj_call_conflict *clj_facts_call_conflict(const clj_facts *f, uint32_t i);
-// "used as a map at 12:3, a vector is passed at 40:7" into buf; returns buf.
-const char *clj_call_conflict_message(const clj_call_conflict *c, char *buf, size_t n);
+// The site diagnostics of pass 2; nothing warns or halts on its own, a consumer reads them (design §3, NOTES.md).
+uint32_t              clj_facts_ndiagnostics(const clj_facts *f);
+const clj_diagnostic *clj_facts_diagnostic(const clj_facts *f, uint32_t i);
+uint32_t              clj_facts_nerrors(const clj_facts *f);
+// "f uses argument 0 as map at 12:3, a vector is passed at 40:7" into buf; returns buf.
+const char *clj_diagnostic_message(const clj_diagnostic *d, char *buf, size_t n);
+// The :facts/warnings switch of a namespace's meta: false turns the TOP warnings off there.
+bool clj_facts_warnings_enabled(clj_value ns);
 // Call sites that took a result or a requirement from a summary, and arguments a requirement narrowed.
 uint32_t clj_facts_summary_hits(const clj_facts *f);
 uint32_t clj_facts_narrowed_args(const clj_facts *f);
@@ -148,6 +163,10 @@ uint32_t           clj_fact_union_size(clj_fact f);
 // Exactly one kind: what a consumer can specialize on without a guard per member.
 static inline bool clj_fact_known(clj_fact f) { return clj_fact_union_size(f) == 1; }
 
+// The signature table's entries, for the round trip against the schema vocabulary (summary.h): a transfer entry
+// computes its result from the arguments (arithmetic, conj, assoc, into) and has no fixed result to project.
+uint32_t clj_facts_nsignatures(void);
+bool     clj_facts_signature(uint32_t i, const char **name, uint32_t *arity, clj_fact *result, bool *transfer);
 // The fact of a constant: a singleton of its kind.
 clj_fact clj_fact_of_value(clj_value v);
 // The kind bit a value has.

@@ -31,7 +31,7 @@ typedef struct {
 	uint64_t proto_calls, proto_known;
 	uint64_t kw_lookups, kw_shaped, kw_record, kw_on_local;
 	uint64_t conflicts, widenings, bottom_unexplained;
-	uint64_t call_conflicts, hits, narrowed; // pass 2 only
+	uint64_t call_conflicts, caught_conflicts, top_warnings, hits, narrowed; // pass 2 only
 	double   analyze_ms, facts_ms;
 	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
 } stats;
@@ -44,14 +44,16 @@ static int   nlibs;
 static clj_summaries *sums, *sums_noann;
 
 #define MAX_MESSAGES 256
-static char messages[MAX_MESSAGES][512];
-static int  nmessages;
+static char messages[MAX_MESSAGES][512], warnings[MAX_MESSAGES][512];
+static int  nmessages, nwarnings;
 
-static void note_conflict(const char *path, const clj_call_conflict *c) {
-	if (nmessages == MAX_MESSAGES) return;
-	char text[400];
-	clj_call_conflict_message(c, text, sizeof text);
-	snprintf(messages[nmessages++], sizeof messages[0], "%s: %s", strrchr(path, '/') ? strrchr(path, '/') + 1 : path, text);
+static void note_diagnostic(const char *path, const clj_diagnostic *d) {
+	char   text[400];
+	char (*out)[512] = d->severity == CLJ_DIAG_ERROR ? messages : warnings;
+	int   *n = d->severity == CLJ_DIAG_ERROR ? &nmessages : &nwarnings;
+	if (*n == MAX_MESSAGES) return;
+	clj_diagnostic_message(d, text, sizeof text);
+	snprintf(out[(*n)++], sizeof out[0], "%s: %s", strrchr(path, '/') ? strrchr(path, '/') + 1 : path, text);
 }
 
 static double now_ms(void) {
@@ -213,7 +215,12 @@ static void tally(stats *s, const clj_node *root, const clj_facts *f) {
 	s->bytes += clj_facts_bytes(f);
 	s->conflicts += clj_facts_conflicts(f);
 	s->widenings += clj_facts_widenings(f);
-	s->call_conflicts += clj_facts_ncall_conflicts(f);
+	for (uint32_t i = 0; i < clj_facts_ndiagnostics(f); i++) {
+		const clj_diagnostic *d = clj_facts_diagnostic(f, i);
+		if (d->kind != CLJ_DIAG_CALL_CONFLICT) s->top_warnings++;
+		else if (d->caught) s->caught_conflicts++;
+		else s->call_conflicts++;
+	}
 	s->hits += clj_facts_summary_hits(f);
 	s->narrowed += clj_facts_narrowed_args(f);
 }
@@ -250,7 +257,7 @@ static void measure_table(stats *s, const char *path, clj_node *root, clj_facts 
 		fprintf(stderr, "clj-facts: %u dead branch(es) in %s, first at %u:%u on %s, argument %#x\n", clj_facts_conflicts(f), path,
 		        fc.found ? fc.found->line : root->line, fc.found ? fc.found->col : 0, what, argtypes);
 	}
-	for (uint32_t i = 0; i < clj_facts_ncall_conflicts(f); i++) note_conflict(path, clj_facts_call_conflict(f, i));
+	for (uint32_t i = 0; i < clj_facts_ndiagnostics(f); i++) note_diagnostic(path, clj_facts_diagnostic(f, i));
 	tally(s, root, f);
 }
 
@@ -301,12 +308,13 @@ static void measure_file(stats *s, stats *b, stats *na, const char *path, const 
 		measure_table(s, path, root, f2);
 		clj_facts_free(f1);
 		clj_facts_free(f2);
-		int saved = nmessages;
+		int saved = nmessages, saved_warnings = nwarnings;
 		clj_facts *f3 = clj_facts_of_with(root, sums_noann);
 		na->forms++;
 		measure_table(na, path, root, f3);
 		clj_facts_free(f3);
 		nmessages = saved;
+		nwarnings = saved_warnings;
 		clj_release(clj_from_ptr(root));
 	}
 	clj_ns_set_current(previous);
@@ -463,6 +471,8 @@ static void add(stats *total, const stats *s) {
 	total->widenings += s->widenings;
 	total->bottom_unexplained += s->bottom_unexplained;
 	total->call_conflicts += s->call_conflicts;
+	total->caught_conflicts += s->caught_conflicts;
+	total->top_warnings += s->top_warnings;
 	total->hits += s->hits;
 	total->narrowed += s->narrowed;
 	total->analyze_ms += s->analyze_ms;
@@ -568,16 +578,20 @@ static void write_report(const char *path) {
 	             "  not zero. Loop variables the widening rule cut short: %llu.\n",
 	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.bottom_unexplained,
 	        (unsigned long long)total.widenings);
-	fprintf(out, "- Pass 2: %llu call sites took a summary, %llu arguments were narrowed by a requirement, %llu proven conflicts\n"
-	             "  (an argument met a requirement down to ⊥; listed below, reported here only — no strictness mode is on).\n",
-	        (unsigned long long)total.hits, (unsigned long long)total.narrowed, (unsigned long long)total.call_conflicts);
-	fprintf(out, "- The annotations alone (the :clj/facts table at the end of core.clj, %u vars; inference without them is the\n"
-	             "  third measurement): known types over library code %.1f → %.1f %%, computed nodes known %.1f → %.1f %%, arguments\n"
-	             "  narrowed %llu → %llu, proven conflicts %llu → %llu. They add requirements, which inference alone has none of at\n"
-	             "  the leaves: every builtin is a native without a body.\n\n",
+	fprintf(out, "- Pass 2: %llu call sites took a summary, %llu arguments were narrowed by a requirement. Diagnostics (design §3\n"
+	             "  \"Строгость\"): **%llu errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate\n"
+	             "  this report fails on; %llu proven throws inside a `try` with a handler (`thrown?` assertions), warnings; %llu\n"
+	             "  warnings for ⊤ meeting a declaration. Declarations the bodies contradict: %u errors. Listed below.\n",
+	        (unsigned long long)total.hits, (unsigned long long)total.narrowed, (unsigned long long)total.call_conflicts,
+	        (unsigned long long)total.caught_conflicts, (unsigned long long)total.top_warnings, clj_summaries_nerrors(sums));
+	fprintf(out, "- The declarations alone (`:=>` metas on %u core vars: the table at the end of core.clj and three defn attr-maps;\n"
+	             "  inference without them is the third measurement): known types over library code %.1f → %.1f %%, computed nodes\n"
+	             "  known %.1f → %.1f %%, arguments narrowed %llu → %llu, proven throws %llu → %llu. They add requirements, which\n"
+	             "  inference alone has none of at the leaves: every builtin is a native without a body.\n\n",
 	        annotated_vars, pct(ncode.type_known, ncode.value_nodes), pct(code.type_known, code.value_nodes),
 	        pct(ncode.computed_known, ncode.computed), pct(code.computed_known, code.computed), (unsigned long long)ntotal.narrowed,
-	        (unsigned long long)total.narrowed, (unsigned long long)ntotal.call_conflicts, (unsigned long long)total.call_conflicts);
+	        (unsigned long long)total.narrowed, (unsigned long long)(ntotal.call_conflicts + ntotal.caught_conflicts),
+	        (unsigned long long)(total.call_conflicts + total.caught_conflicts));
 	fprintf(out, "## Types and nullability\n\n");
 	fprintf(out, "Each percentage is before → after the summaries.\n\n");
 	fprintf(out, "| library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |\n");
@@ -615,12 +629,26 @@ static void write_report(const char *path) {
 		        s->analyze_ms > 0 ? s->facts_ms / s->analyze_ms : 0.0, (double)s->bytes / 1024, (double)s->peak_bytes / 1024);
 	}
 
-	fprintf(out, "\n## Proven conflicts\n\n");
-	if (nmessages == 0) fprintf(out, "None.\n");
-	else {
-		fprintf(out, "Pass 2 reports a call whose argument meets the callee's requirement down to ⊥, with both positions; the\n"
-		             "argument keeps the caller's fact. Nothing warns outside this report.\n\n");
-		for (int i = 0; i < nmessages; i++) fprintf(out, "- %s\n", messages[i]);
+	fprintf(out, "\n## Errors\n\n");
+	fprintf(out, "A ⊥ at a call site outside any try that catches it, or a `:=>` declaration the body contradicts: a runtime\n"
+	             "failure shown early. `make facts-report` exits non-zero on any (the corpus gate); nothing halts a load or a\n"
+	             "compile yet (NOTES.md, \"Facts\").\n\n");
+	if (nmessages == 0 && clj_summaries_nerrors(sums) == 0) fprintf(out, "None.\n");
+	for (int i = 0; i < nmessages; i++) fprintf(out, "- %s\n", messages[i]);
+	for (uint32_t i = 0; i < clj_summaries_ndiagnostics(sums); i++) {
+		const clj_diagnostic *d = clj_summaries_diagnostic(sums, i);
+		char                  text[512];
+		if (d->severity == CLJ_DIAG_ERROR) fprintf(out, "- %s\n", clj_diagnostic_message(d, text, sizeof text));
+	}
+	fprintf(out, "\n## Warnings\n\n");
+	fprintf(out, "A proven throw inside a `try` that catches it (the negative tests of the corpus), and ⊤ meeting a declaration\n"
+	             "(on by default, `{:facts/warnings false}` in the ns meta turns it off). Reported here only.\n\n");
+	if (nwarnings == 0) fprintf(out, "None.\n");
+	for (int i = 0; i < nwarnings; i++) fprintf(out, "- %s\n", warnings[i]);
+	for (uint32_t i = 0; i < clj_summaries_ndiagnostics(sums); i++) {
+		const clj_diagnostic *d = clj_summaries_diagnostic(sums, i);
+		char                  text[512];
+		if (d->severity == CLJ_DIAG_WARNING) fprintf(out, "- %s\n", clj_diagnostic_message(d, text, sizeof text));
 	}
 	fclose(out);
 	fprintf(stderr, "clj-facts: wrote %s\n", path);
@@ -634,7 +662,7 @@ int main(int argc, char **argv) {
 	sums_noann = clj_summaries_new();
 	clj_summaries_use_annotations(sums_noann, false);
 	{
-		const char *count_form = "(count (filter (fn [v] (:clj/facts (meta v))) (vals (ns-publics 'clojure.core))))";
+		const char *count_form = "(count (filter (fn [v] (:=> (meta v))) (vals (ns-publics 'clojure.core))))";
 		clj_reader  r;
 		clj_reader_init(&r, count_form, strlen(count_form));
 		clj_value form = CLJ_NIL;
@@ -726,10 +754,11 @@ int main(int argc, char **argv) {
 		        (unsigned long long)unexplained);
 		status = 1;
 	}
-	// an annotation the body contradicts is an error: one of them is wrong
-	for (uint32_t i = 0; i < clj_summaries_nannotation_conflicts(sums); i++) {
-		char text[512];
-		fprintf(stderr, "clj-facts: %s\n", clj_annotation_conflict_message(clj_summaries_annotation_conflict(sums, i), text, sizeof text));
+	// the gate: a proven runtime failure, or a declaration its body contradicts, anywhere in the corpus
+	uint64_t errors = clj_summaries_nerrors(sums);
+	for (int i = 0; i < nlibs; i++) errors += libs[i].call_conflicts;
+	if (errors > 0) {
+		fprintf(stderr, "clj-facts: %llu error(s): a ⊥ the corpus does not catch, see the report\n", (unsigned long long)errors);
 		status = 1;
 	}
 	clj_summaries_free(sums);

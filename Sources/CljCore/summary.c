@@ -10,6 +10,7 @@
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
+#include "clj/ns.h"
 #include "clj/proto.h"
 #include "clj/string.h"
 #include "clj/summary.h"
@@ -60,8 +61,8 @@ struct clj_summaries {
 	uint32_t depth;
 	uint32_t invalidated, rounds, widenings;
 	bool     no_annotations;
-	clj_annotation_conflict *conflicts;
-	uint32_t                 nconflicts, cconflicts;
+	clj_diagnostic *diags;
+	uint32_t        ndiags, cdiags, nerrors;
 };
 
 static void *xalloc(size_t n, size_t size) {
@@ -83,7 +84,7 @@ void clj_summaries_free(clj_summaries *s) {
 	if (!s) return;
 	for (uint32_t i = 0; i < s->cap; i++) free(s->slots[i]);
 	free(s->slots);
-	free(s->conflicts);
+	free(s->diags);
 	free(s);
 }
 
@@ -147,54 +148,161 @@ static bool entry_valid(const entry *e) {
 	return true;
 }
 
-// ---- annotations: {:args [spec ...] :ret spec} under :clj/facts in the var's meta
+// ---- schemas: the fixed vocabulary of design §3, each tag's abstract interpretation (schema → fact)
 
-static const struct {
-	const char *name;
+typedef struct {
+	const char *tag;
 	uint32_t    types;
-} aggregates[] = {
-	{"any", CLJ_T_TOP},   {"int", T_INT},         {"number", T_NUM},   {"coll", T_COLL},
-	{"maps", T_MAPS},     {"sets", T_SETS},       {"seqable", T_SEQABLE}, {"ident", CLJ_T_KEYWORD | CLJ_T_SYMBOL},
-	{"assoc", T_MAPS | CLJ_T_VECTOR}, {"indexed", CLJ_T_VECTOR | CLJ_T_LIST | CLJ_T_STRING | CLJ_T_ARRAY},
+} tag_types;
+
+// The value tags; :nil goes through the null lattice, :any is TOP.
+static const tag_types value_tags[] = {
+	{"int", T_INT},      {"double", CLJ_T_DOUBLE},  {"number", T_NUM},     {"string", CLJ_T_STRING}, {"keyword", CLJ_T_KEYWORD},
+	{"symbol", CLJ_T_SYMBOL}, {"boolean", CLJ_T_BOOL}, {"map", T_MAPS},    {"vector", CLJ_T_VECTOR}, {"set", T_SETS},
+	{"seq", CLJ_T_LIST}, {"fn", CLJ_T_FN},          {"tuple", CLJ_T_VECTOR}, {"=>", CLJ_T_FN},
 };
 
-static bool types_of_keyword(clj_value k, uint32_t *out) {
-	if (!clj_is_keyword(k) || !clj_is_nil(clj_keyword_ns(k))) return false;
-	const char *name = clj_string_bytes(clj_keyword_name(k));
-	for (size_t i = 0; i < sizeof aggregates / sizeof *aggregates; i++) {
-		if (strcmp(aggregates[i].name, name) == 0) {
-			*out = aggregates[i].types;
+static bool tag_is(clj_value v, const char *name) {
+	return clj_is_keyword(v) && clj_is_nil(clj_keyword_ns(v)) && strcmp(clj_string_bytes(clj_keyword_name(v)), name) == 0;
+}
+
+static clj_fact fact_of_types(uint32_t types) {
+	clj_fact f = clj_fact_top();
+	f.types = types;
+	f.null = (types & CLJ_T_NIL) ? (types == CLJ_T_NIL ? CLJ_NULL_ALWAYS : CLJ_NULL_MAYBE) : CLJ_NULL_NEVER;
+	return clj_fact_meet_wide(f, f);
+}
+
+// A singleton is kept only for a value that no tree owns: an immediate or an interned keyword.
+static clj_fact fact_of_constant(clj_value v) {
+	clj_fact f = clj_fact_of_value(v);
+	if (clj_is_ptr(v) && !clj_is_keyword(v)) f.singleton = CLJ_UNBOUND;
+	return f;
+}
+
+// The children of a vector schema past the tag and an optional properties map.
+static uint32_t schema_children(clj_value v, uint32_t *first) {
+	uint32_t n = clj_vector_count(v);
+	*first = n > 1 && clj_has_core(clj_vector_nth(v, 1), CLJ_CORE_MAP) ? 2 : 1;
+	return n;
+}
+
+bool clj_fact_of_schema(clj_value schema, clj_fact *out) {
+	*out = clj_fact_top();
+	if (clj_is_keyword(schema)) {
+		if (tag_is(schema, "any")) return true;
+		if (tag_is(schema, "nil")) {
+			*out = fact_of_types(CLJ_T_NIL);
 			return true;
 		}
+		for (size_t i = 0; i < sizeof value_tags / sizeof *value_tags; i++) {
+			if (tag_is(schema, value_tags[i].tag)) {
+				*out = fact_of_types(value_tags[i].types);
+				return true;
+			}
+		}
+		return false; // an unknown tag is TOP, never an error (design §3)
 	}
-	for (uint32_t bit = 0; bit < 27; bit++) {
-		if (strcmp(clj_fact_kind_name(1u << bit), name) == 0) {
-			*out = 1u << bit;
+	if (!clj_is_vector(schema) || clj_vector_count(schema) == 0) return false;
+	clj_value tag = clj_vector_nth(schema, 0);
+	uint32_t  first = 0, n = schema_children(schema, &first);
+	bool      whole = true;
+	if (tag_is(tag, "maybe") || tag_is(tag, "?") || tag_is(tag, "*")) {
+		clj_fact x;
+		if (n <= first) return false;
+		whole = clj_fact_of_schema(clj_vector_nth(schema, first), &x);
+		*out = tag_is(tag, "maybe") ? clj_fact_join(x, fact_of_types(CLJ_T_NIL)) : x;
+		return whole;
+	}
+	if (tag_is(tag, "or") || tag_is(tag, "enum")) {
+		bool     is_enum = tag_is(tag, "enum");
+		clj_fact r = clj_fact_bottom();
+		for (uint32_t i = first; i < n; i++) {
+			clj_fact x;
+			if (is_enum) x = fact_of_constant(clj_vector_nth(schema, i));
+			else whole = clj_fact_of_schema(clj_vector_nth(schema, i), &x) && whole;
+			r = clj_fact_join(r, x);
+		}
+		*out = r;
+		return whole;
+	}
+	if (tag_is(tag, "and")) {
+		clj_fact r = clj_fact_top();
+		for (uint32_t i = first; i < n; i++) {
+			clj_fact x;
+			whole = clj_fact_of_schema(clj_vector_nth(schema, i), &x) && whole;
+			r = clj_fact_meet_wide(r, x);
+		}
+		*out = r;
+		return whole;
+	}
+	if (tag_is(tag, "=")) {
+		if (n <= first) return false;
+		*out = fact_of_constant(clj_vector_nth(schema, first));
+		return true;
+	}
+	if (tag_is(tag, "fn")) return true; // [:fn pred]: whatever the predicate accepts
+	// the structural tags name their kind; their children describe elements, which no fact holds yet
+	for (size_t i = 0; i < sizeof value_tags / sizeof *value_tags; i++) {
+		if (tag_is(tag, value_tags[i].tag)) {
+			*out = fact_of_types(value_tags[i].types);
 			return true;
 		}
 	}
 	return false;
 }
 
-bool clj_fact_of_spec(clj_value spec, clj_fact *out) {
-	uint32_t types = 0;
-	if (clj_is_keyword(spec)) {
-		if (!types_of_keyword(spec, &types)) return false;
+static clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
+
+// conj retains the item, so an immortal keyword and a borrowed singleton go in as they are.
+static clj_value vec_push(clj_value v, clj_value item) { return clj_vector_conj(v, item); }
+
+// The total embedding fact → schema: a kind set as [:or …] of the widest tags that fit, then whatever is
+// left as a tag of its own name (which the vocabulary does not read back: the gap the round trip reports).
+clj_value clj_fact_to_schema(clj_fact f) {
+	if (f.types == CLJ_T_TOP) return kw("any");
+	if (f.singleton != CLJ_UNBOUND && clj_fact_union_size(f) == 1) {
+		clj_value v = vec_push(clj_vector_empty(), kw("="));
+		return vec_push(v, f.singleton);
 	}
-	else if (clj_is_vector(spec)) {
-		for (uint32_t i = 0; i < clj_vector_count(spec); i++) {
-			uint32_t t = 0;
-			if (!types_of_keyword(clj_vector_nth(spec, i), &t)) return false;
-			types |= t;
+	uint32_t  types = f.types & ~(uint32_t)CLJ_T_NIL;
+	clj_value members = clj_vector_empty();
+	static const tag_types by_width[] = {
+		{"number", T_NUM},        {"int", T_INT},          {"double", CLJ_T_DOUBLE}, {"map", T_MAPS},          {"set", T_SETS},
+		{"string", CLJ_T_STRING}, {"keyword", CLJ_T_KEYWORD}, {"symbol", CLJ_T_SYMBOL}, {"boolean", CLJ_T_BOOL}, {"vector", CLJ_T_VECTOR},
+		{"seq", CLJ_T_LIST},      {"fn", CLJ_T_FN},
+	};
+	for (size_t i = 0; i < sizeof by_width / sizeof *by_width; i++) {
+		if ((types & by_width[i].types) == by_width[i].types) {
+			members = vec_push(members, kw(by_width[i].tag));
+			types &= ~by_width[i].types;
 		}
 	}
-	else return false;
-	clj_fact f = clj_fact_top();
-	f.types = types;
-	f.null = (types & CLJ_T_NIL) ? (types == CLJ_T_NIL ? CLJ_NULL_ALWAYS : CLJ_NULL_MAYBE) : CLJ_NULL_NEVER;
-	*out = clj_fact_meet_wide(f, f); // a requirement keeps every kind it names (facts.h)
-	return true;
+	for (uint32_t bit = 0; bit < 27; bit++) {
+		if (types & (1u << bit)) members = vec_push(members, kw(clj_fact_kind_name(1u << bit)));
+	}
+	clj_value r;
+	if (clj_vector_count(members) == 1) {
+		r = clj_retain(clj_vector_nth(members, 0));
+		clj_release(members);
+	}
+	else {
+		r = vec_push(clj_vector_empty(), kw("or"));
+		for (uint32_t i = 0; i < clj_vector_count(members); i++) r = vec_push(r, clj_vector_nth(members, i));
+		clj_release(members);
+	}
+	if (f.types == CLJ_T_NIL) {
+		clj_release(r);
+		return kw("nil");
+	}
+	if (f.types & CLJ_T_NIL) {
+		clj_value m = vec_push(clj_vector_empty(), kw("maybe"));
+		return vec_push(m, r);
+	}
+	return r;
 }
+
+// ---- annotations: [:=> [:cat arg-schema …] ret-schema] under :=> in the var's meta (design §3, anchor 1)
 
 typedef struct {
 	bool     present;
@@ -215,31 +323,43 @@ static annotation annotation_of(clj_value var) {
 	annotation a = {0};
 	clj_value  meta = clj_var_meta(var);
 	if (clj_is_nil(meta)) return a;
-	clj_value facts = lookup(meta, "clj/facts");
-	if (clj_is_nil(facts)) return a;
-	clj_value args = lookup(facts, "args"), ret = lookup(facts, "ret");
-	clj_release(facts);
-	a.present = true;
-	if (clj_is_vector(args)) {
-		for (uint32_t i = 0; i < clj_vector_count(args) && i <= CLJ_FN_MAX_FIXED; i++) {
-			if (!clj_fact_of_spec(clj_vector_nth(args, i), &a.args[i])) a.args[i] = clj_fact_top();
-			a.nargs = i + 1;
+	clj_value schema = lookup(meta, "=>");
+	if (clj_is_nil(schema)) return a;
+	if (clj_is_vector(schema) && clj_vector_count(schema) >= 3 && tag_is(clj_vector_nth(schema, 0), "=>")) {
+		clj_value in = clj_vector_nth(schema, 1), out = clj_vector_nth(schema, 2);
+		a.present = true;
+		if (clj_is_vector(in) && clj_vector_count(in) > 0 && tag_is(clj_vector_nth(in, 0), "cat")) {
+			uint32_t first = 0, n = schema_children(in, &first);
+			for (uint32_t i = first; i < n && a.nargs <= CLJ_FN_MAX_FIXED; i++) {
+				clj_value item = clj_vector_nth(in, i);
+				// the rest of the arguments: no requirement on any one element
+				if (clj_is_vector(item) && clj_vector_count(item) > 0 && tag_is(clj_vector_nth(item, 0), "*")) break;
+				clj_fact_of_schema(item, &a.args[a.nargs++]);
+			}
 		}
+		a.has_ret = true;
+		clj_fact_of_schema(out, &a.ret);
 	}
-	if (!clj_is_nil(ret)) a.has_ret = clj_fact_of_spec(ret, &a.ret);
-	clj_release(args);
-	clj_release(ret);
+	clj_release(schema);
 	return a;
 }
 
-static void add_conflict(clj_summaries *s, clj_value var, uint32_t arg, uint32_t line, uint32_t col, clj_fact annotated, clj_fact inferred) {
-	if (s->nconflicts == s->cconflicts) {
-		s->cconflicts = s->cconflicts ? s->cconflicts * 2 : 8;
-		clj_annotation_conflict *fresh = realloc(s->conflicts, s->cconflicts * sizeof *fresh);
+static void add_diagnostic(clj_summaries *s, clj_diag_kind kind, clj_value var, uint32_t arg, uint32_t line, uint32_t col, clj_fact declared,
+                           clj_fact inferred) {
+	if (s->ndiags == s->cdiags) {
+		s->cdiags = s->cdiags ? s->cdiags * 2 : 8;
+		clj_diagnostic *fresh = realloc(s->diags, s->cdiags * sizeof *fresh);
 		if (!fresh) clj_fatal("out of memory");
-		s->conflicts = fresh;
+		s->diags = fresh;
 	}
-	s->conflicts[s->nconflicts++] = (clj_annotation_conflict){var, arg, line, col, annotated, inferred};
+	clj_diag_severity severity = kind == CLJ_DIAG_DECL_CONFLICT ? CLJ_DIAG_ERROR : CLJ_DIAG_WARNING;
+	if (severity == CLJ_DIAG_ERROR) s->nerrors++;
+	s->diags[s->ndiags++] = (clj_diagnostic){kind, severity, 0, 0, line, col, var, arg, inferred, declared, false};
+}
+
+static bool warnings_on(clj_value var) {
+	clj_value ns = clj_ns_find(clj_var_ns(var));
+	return clj_is_nil(ns) || clj_facts_warnings_enabled(ns);
 }
 
 // The annotation meets the inferred summary; a meet down to BOTTOM means one of them is wrong and is reported, not stored.
@@ -254,16 +374,21 @@ static void apply_annotation(clj_summaries *s, clj_value var, const annotation *
 	for (uint32_t i = 0; i < a->nargs; i++) {
 		clj_fact m = clj_fact_meet_wide(sum->params[i], a->args[i]);
 		if (m.types == CLJ_T_BOTTOM && sum->params[i].types != CLJ_T_BOTTOM) {
-			add_conflict(s, var, i, sum->param_line[i], sum->param_col[i], a->args[i], sum->params[i]);
+			add_diagnostic(s, CLJ_DIAG_DECL_CONFLICT, var, i, sum->param_line[i], sum->param_col[i], a->args[i], sum->params[i]);
 			continue;
 		}
-		if (clj_fact_is_top(sum->params[i])) sum->param_line[i] = sum->param_col[i] = 0;
+		// a position the declaration decides is reported as declared (a TOP argument there warns at the site)
+		if (!clj_fact_is_top(a->args[i])) sum->param_line[i] = sum->param_col[i] = 0;
 		sum->params[i] = m;
 	}
 	if (a->has_ret && sum->ret.types != CLJ_T_BOTTOM) {
 		clj_fact m = clj_fact_meet(sum->ret, a->ret, &dummy);
-		if (m.types == CLJ_T_BOTTOM) add_conflict(s, var, UINT32_MAX, 0, 0, a->ret, sum->ret);
-		else sum->ret = m;
+		if (m.types == CLJ_T_BOTTOM) add_diagnostic(s, CLJ_DIAG_DECL_CONFLICT, var, UINT32_MAX, 0, 0, a->ret, sum->ret);
+		else {
+			if (sum->inferred && clj_fact_is_top(sum->ret) && !clj_fact_is_top(a->ret) && warnings_on(var))
+				add_diagnostic(s, CLJ_DIAG_TOP_RESULT, var, UINT32_MAX, 0, 0, a->ret, sum->ret);
+			sum->ret = m;
+		}
 	}
 }
 
@@ -506,34 +631,9 @@ uint32_t clj_summaries_epoch_seen(const clj_summaries *s, clj_value var) {
 	return UINT32_MAX;
 }
 
-uint32_t clj_summaries_nannotation_conflicts(const clj_summaries *s) { return s->nconflicts; }
-const clj_annotation_conflict *clj_summaries_annotation_conflict(const clj_summaries *s, uint32_t i) {
-	return i < s->nconflicts ? &s->conflicts[i] : NULL;
-}
-
-static void fact_text(clj_fact f, char *buf, size_t n) {
-	size_t k = 0;
-	if (f.types == CLJ_T_TOP) {
-		snprintf(buf, n, "anything");
-		return;
-	}
-	for (uint32_t bit = 0; bit < 27 && k + 1 < n; bit++) {
-		if (!(f.types & (1u << bit))) continue;
-		k += (size_t)snprintf(buf + k, n - k, "%s%s", k ? "|" : "", clj_fact_kind_name(1u << bit));
-	}
-	if (k == 0) snprintf(buf, n, "nothing");
-}
-
-const char *clj_annotation_conflict_message(const clj_annotation_conflict *c, char *buf, size_t n) {
-	char ann[256], inf[256];
-	fact_text(c->annotated, ann, sizeof ann);
-	fact_text(c->inferred, inf, sizeof inf);
-	const char *ns = clj_string_bytes(clj_symbol_name(clj_var_ns(c->var)));
-	const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(c->var)));
-	if (c->arg == UINT32_MAX) snprintf(buf, n, "%s/%s: annotation says the result is %s, the body answers %s", ns, name, ann, inf);
-	else snprintf(buf, n, "%s/%s: annotation says argument %u is %s, the body uses it as %s at %u:%u", ns, name, c->arg, ann, inf, c->use_line, c->use_col);
-	return buf;
-}
+uint32_t              clj_summaries_ndiagnostics(const clj_summaries *s) { return s->ndiags; }
+const clj_diagnostic *clj_summaries_diagnostic(const clj_summaries *s, uint32_t i) { return i < s->ndiags ? &s->diags[i] : NULL; }
+uint32_t              clj_summaries_nerrors(const clj_summaries *s) { return s->nerrors; }
 
 uint32_t clj_summaries_count(const clj_summaries *s) { return s->count; }
 uint32_t clj_summaries_invalidated(const clj_summaries *s) { return s->invalidated; }

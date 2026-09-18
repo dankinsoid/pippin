@@ -741,6 +741,7 @@
 
 (defn vec
   "Returns a vector of the items of coll."
+  {:=> [:=> [:cat :any] :vector]}
   [coll] (into [] coll))
 
 (defn partition
@@ -1160,8 +1161,8 @@
     (vector? v) (seq (reverse v))
     :else (throw (ex-info (str "rseq not supported on this type: " (type v)) {}))))
 
-(defn keys "Returns a seq of the map's keys." [m] (seq (map (fn [e] (nth e 0)) m)))
-(defn vals "Returns a seq of the map's values." [m] (seq (map (fn [e] (nth e 1)) m)))
+(defn keys "Returns a seq of the map's keys." {:=> [:=> [:cat [:maybe :map]] [:maybe :seq]]} [m] (seq (map (fn [e] (nth e 0)) m)))
+(defn vals "Returns a seq of the map's values." {:=> [:=> [:cat [:maybe :map]] [:maybe :seq]]} [m] (seq (map (fn [e] (nth e 1)) m)))
 (defn map-entry? "Returns true when x is a map entry (a two-element vector here)." [x] (and (vector? x) (= 2 (count x))))
 (defn key
   "Returns the key of the map entry."
@@ -2361,28 +2362,25 @@
         refers-clojure? (some (fn [r] (= :refer-clojure (first r))) references)]
     `(do
        (in-ns '~name)
+       ~@(when attr-map [`(alter-meta! (the-ns '~name) merge ~attr-map)])
        ~@(when-not refers-clojure? [`(refer-clojure)])
        ~@(map process references)
        nil)))
 
-;; Provisional facts annotations, internal: the placeholder spelling that lets the mechanism be measured (NOTES.md, "Facts").
-(run! (fn [e] (alter-meta! (resolve (key e)) assoc :clj/facts (val e)))
-      {'count     {:args [:seqable] :ret :fixnum}
-       'nth       {:args [[:indexed :nil] :int]}
-       'get       {:args [[:assoc :sets :string :array :nil]]}
-       'first     {:args [:seqable]}
-       'next      {:args [:seqable] :ret [:seq :nil]}
-       'rest      {:args [:seqable] :ret :seq}
-       'seq       {:args [:seqable] :ret [:seq :nil]}
-       'inc       {:args [:number] :ret :number}
-       'dec       {:args [:number] :ret :number}
-       'name      {:args [[:ident :string]] :ret :string}
-       'namespace {:args [:ident] :ret [:string :nil]}
-       'keys      {:args [[:maps :nil]] :ret [:seq :nil]}
-       'vals      {:args [[:maps :nil]] :ret [:seq :nil]}
-       'vec       {:args [:seqable] :ret :vector}
-       'conj      {:args [[:coll :nil]] :ret :coll}
-       'assoc     {:args [[:assoc :nil]] :ret :assoc}
-       'zero?     {:args [:number] :ret :bool}
-       'pos?      {:args [:number] :ret :bool}
-       'neg?      {:args [:number] :ret :bool}})
+;; The :=> declarations of C builtins (design §3, anchor 1): what a defn carries in its attr-map, set here because a builtin has none.
+;; :any where the true argument is "seqable": arrays have no tag in the vocabulary yet (NOTES.md, "Facts").
+(run! (fn [e] (alter-meta! (resolve (key e)) assoc :=> (val e)))
+      {'count     [:=> [:cat :any] :int]
+       'nth       [:=> [:cat :any :int] :any]
+       'next      [:=> [:cat :any] [:maybe :seq]]
+       'rest      [:=> [:cat :any] :seq]
+       'seq       [:=> [:cat :any] [:maybe :seq]]
+       'inc       [:=> [:cat :number] :number]
+       'dec       [:=> [:cat :number] :number]
+       'name      [:=> [:cat [:or :keyword :symbol :string]] :string]
+       'namespace [:=> [:cat [:or :keyword :symbol]] [:maybe :string]]
+       'conj      [:=> [:cat [:maybe [:or :seq :vector :map :set]] [:* :any]] [:or :seq :vector :map :set]]
+       'assoc     [:=> [:cat [:maybe [:or :map :vector]] :any :any [:* :any]] [:or :map :vector]]
+       'zero?     [:=> [:cat :number] :boolean]
+       'pos?      [:=> [:cat :number] :boolean]
+       'neg?      [:=> [:cat :number] :boolean]})

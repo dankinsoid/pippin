@@ -14,11 +14,11 @@ column is "nothing useful", not "five kinds". *Computed nodes* leave the constan
 own type, so the share over computed nodes is what an optimizer actually gains. A library whose every
 load-path root is named `test` is counted apart, because assertion expansions are mostly literals.
 
-- Over library code: **49.6 → 68.7 %** of value nodes have a known type and **45.8 → 26.4 %** are ⊤; over
-  *computed* nodes **30.4 → 56.8 %** are known. What the summaries add is every call of a var whose root is a
+- Over library code: **49.6 → 68.7 %** of value nodes have a known type and **45.9 → 26.4 %** are ⊤; over
+  *computed* nodes **30.3 → 56.7 %** are known. What the summaries add is every call of a var whose root is a
   closure with a walkable body or an annotated builtin, every var read (the kind of its root, epoch-guarded)
   and every direct call.
-- Nullability is decided for **50.9 → 70.1 %** of value nodes over library code.
+- Nullability is decided for **50.8 → 70.1 %** of value nodes over library code.
 - **Local slots** (the register prize): 3539 slots over library code, **23.3 %** of which never escape and
   are never captured; escaping is pass 1's and the summaries do not move it.
 - **Intrinsic arithmetic** (the unboxing prize): 85 two-argument sites over library code, **18.8 → 18.8 %**
@@ -34,19 +34,21 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   69 receivers are locals — parameters mostly, which a summary constrains by requirement only, and `(:k m)`
   requires nothing (design §3); what callers pass is not joined into a callee's parameters. The rest are
   derefs and other calls answering ⊤. No lookup in the corpus sits below a record constructor.
-- Cost: pass 1 alone 55 ms, with the summaries 63 ms, against 343 ms of analysis over the same forms
+- Cost: pass 1 alone 57 ms, with the summaries 65 ms, against 357 ms of analysis over the same forms
   (0.16× → 0.18×); the largest single table is 262 KB. The store holds 743 summaries, ran 9 fixpoint rounds
   beyond the first, widened 0, and recomputed 3 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 64, every one a branch a literal makes unreachable. Value nodes
   at ⊥: 137, of which 0 neither unreachable nor explained by a throw — the lattice is wrong wherever that is
   not zero. Loop variables the widening rule cut short: 0.
-- Pass 2: 27209 call sites took a summary, 99 arguments were narrowed by a requirement, 82 proven conflicts
-  (an argument met a requirement down to ⊥; listed below, reported here only — no strictness mode is on).
-- The annotations alone (the :clj/facts table at the end of core.clj, 19 vars; inference without them is the
-  third measurement): known types over library code 68.7 → 68.7 %, computed nodes known 56.8 → 56.8 %, arguments
-  narrowed 9 → 99, proven conflicts 0 → 82. They add requirements, which inference alone has none of at
-  the leaves: every builtin is a native without a body.
+- Pass 2: 26879 call sites took a summary, 99 arguments were narrowed by a requirement. Diagnostics (design §3
+  "Строгость"): **0 errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate
+  this report fails on; 35 proven throws inside a `try` with a handler (`thrown?` assertions), warnings; 82
+  warnings for ⊤ meeting a declaration. Declarations the bodies contradict: 0 errors. Listed below.
+- The declarations alone (`:=>` metas on 17 core vars: the table at the end of core.clj and three defn attr-maps;
+  inference without them is the third measurement): known types over library code 68.7 → 68.7 %, computed nodes
+  known 56.7 → 56.7 %, arguments narrowed 9 → 99, proven throws 0 → 35. They add requirements, which
+  inference alone has none of at the leaves: every builtin is a native without a body.
 
 ## Types and nullability
 
@@ -54,12 +56,12 @@ Each percentage is before → after the summaries.
 
 | library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12311 | 40.1 → 60.2 % | 10.3 → 11.1 % | 49.2 → 28.3 % | 42.5 → 63.2 % | 11007 | 33.0 → 55.5 % |
-| embedded libs | 108 | 3692 | 42.4 → 69.0 % | 6.2 → 6.7 % | 51.1 → 24.1 % | 44.9 → 71.3 % | 3145 | 32.4 → 63.6 % |
+| core.clj | 265 | 12345 | 40.0 → 60.1 % | 10.5 → 11.2 % | 49.2 → 28.3 % | 42.3 → 63.1 % | 11037 | 32.9 → 55.4 % |
+| embedded libs | 108 | 3692 | 42.4 → 69.0 % | 6.2 → 6.7 % | 51.2 → 24.1 % | 44.8 → 71.2 % | 3145 | 32.3 → 63.6 % |
 | clojure-test-suite | 516 | 415736 | 59.1 → 75.9 % | 0.5 → 0.4 % | 40.3 → 23.7 % | 59.5 → 76.1 % | 239182 | 29.0 → 58.1 % |
-| medley | 104 | 22651 | 56.0 → 73.3 % | 0.8 → 1.0 % | 43.2 → 25.7 % | 56.4 → 73.7 % | 13824 | 27.9 → 56.2 % |
-| **library code** | 477 | 38654 | 49.6 → 68.7 % | 4.4 → 4.8 % | 45.8 → 26.4 % | 50.9 → 70.1 % | 27976 | 30.4 → 56.8 % |
-| **all** | 993 | 454390 | 58.3 → 75.3 % | 0.8 → 0.8 % | 40.8 → 23.9 % | 58.8 → 75.6 % | 267158 | 29.1 → 57.9 % |
+| medley | 104 | 22651 | 56.0 → 73.3 % | 0.8 → 1.0 % | 43.2 → 25.7 % | 56.4 → 73.7 % | 13824 | 27.8 → 56.2 % |
+| **library code** | 477 | 38688 | 49.6 → 68.7 % | 4.4 → 4.8 % | 45.9 → 26.4 % | 50.8 → 70.1 % | 28006 | 30.3 → 56.7 % |
+| **all** | 993 | 454424 | 58.3 → 75.3 % | 0.8 → 0.8 % | 40.8 → 23.9 % | 58.8 → 75.6 % | 267188 | 29.1 → 57.9 % |
 
 ## The positions that pay
 
@@ -78,108 +80,151 @@ Each cell is the population and the share of it that is known, before → after.
 
 | library | slots | local | captured | escapes |
 |---|---:|---:|---:|---:|
-| core.clj | 1827 | 22.6 % | 13.4 % | 64.0 % |
+| core.clj | 1827 | 22.6 % | 13.4 % | 64.1 % |
 | embedded libs | 365 | 19.7 % | 5.8 % | 74.5 % |
 | clojure-test-suite | 19375 | 28.8 % | 0.1 % | 71.2 % |
 | medley | 1347 | 25.2 % | 7.0 % | 67.8 % |
-| **library code** | 3539 | 23.3 % | 10.1 % | 66.5 % |
+| **library code** | 3539 | 23.3 % | 10.1 % | 66.6 % |
 | **all** | 22914 | 27.9 % | 1.6 % | 70.5 % |
 
 ## Cost per library
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12432 | 8.3 | 3.7 | 4.5 | 0.44× → 0.54× | 352 | 13 |
-| embedded libs | 108 | 3710 | 2.0 | 0.8 | 1.2 | 0.38× → 0.59× | 108 | 6 |
-| clojure-test-suite | 516 | 415781 | 313.7 | 48.0 | 53.5 | 0.15× → 0.17× | 9861 | 262 |
-| medley | 104 | 22661 | 18.5 | 2.5 | 3.5 | 0.13× → 0.19× | 556 | 23 |
-| **library code** | 477 | 38803 | 28.8 | 6.9 | 9.2 | 0.24× → 0.32× | 1016 | 23 |
-| **all** | 993 | 454584 | 342.5 | 54.9 | 62.7 | 0.16× → 0.18× | 10877 | 262 |
+| core.clj | 265 | 12466 | 8.5 | 3.8 | 4.7 | 0.44× → 0.54× | 355 | 13 |
+| embedded libs | 108 | 3710 | 2.0 | 0.8 | 1.2 | 0.38× → 0.61× | 109 | 6 |
+| clojure-test-suite | 516 | 415781 | 331.1 | 50.4 | 56.3 | 0.15× → 0.17× | 9865 | 262 |
+| medley | 104 | 22661 | 15.6 | 2.2 | 2.8 | 0.14× → 0.18× | 557 | 23 |
+| **library code** | 477 | 38837 | 26.1 | 6.7 | 8.7 | 0.26× → 0.33× | 1021 | 23 |
+| **all** | 993 | 454618 | 357.2 | 57.1 | 64.9 | 0.16× → 0.18× | 10885 | 262 |
 
-## Proven conflicts
+## Errors
 
-Pass 2 reports a call whose argument meets the callee's requirement down to ⊥, with both positions; the
-argument keeps the caller's fact. Nothing warns outside this report.
+A ⊥ at a call site outside any try that catches it, or a `:=>` declaration the body contradicts: a runtime
+failure shown early. `make facts-report` exits non-zero on any (the corpus gate); nothing halts a load or a
+compile yet (NOTES.md, "Facts").
 
-- abs.cljc: abs uses argument 0 as fixnum|long|bigint|ratio|decimal|double at 1063:54, nil is passed at 33:33
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, seq is passed at 83:9
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, set is passed at 83:9
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, bool is passed at 83:9
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, bool is passed at 83:9
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, keyword is passed at 83:9
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, fixnum is passed at 83:9
-- assoc.cljc: assoc requires argument 0 to be nil|vector|map|sorted-map|record, double is passed at 83:9
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, seq is passed at 64:7
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, set is passed at 64:7
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, bool is passed at 64:7
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, bool is passed at 64:7
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, keyword is passed at 64:7
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, fixnum is passed at 64:7
-- assoc_bang.cljc: assoc! uses argument 0 as nil|vector|map|sorted-map|record at 1468:66, double is passed at 64:7
-- conj.cljc: conj requires argument 0 to be nil|seq|vector|map|set|sorted-map|sorted-set|record, string is passed at 33:36
-- conj.cljc: conj requires argument 0 to be nil|seq|vector|map|set|sorted-map|sorted-set|record, char is passed at 34:36
-- conj.cljc: conj requires argument 0 to be nil|seq|vector|map|set|sorted-map|sorted-set|record, fixnum is passed at 35:36
-- conj.cljc: conj requires argument 0 to be nil|seq|vector|map|set|sorted-map|sorted-set|record, keyword is passed at 36:36
-- conj_bang.cljc: conj! uses argument 0 as nil|seq|vector|map|set|sorted-map|sorted-set|record at 1467:96, string is passed at 69:7
-- conj_bang.cljc: conj! uses argument 0 as nil|seq|vector|map|set|sorted-map|sorted-set|record at 1467:96, bool is passed at 69:7
-- conj_bang.cljc: conj! uses argument 0 as nil|seq|vector|map|set|sorted-map|sorted-set|record at 1467:96, fixnum is passed at 69:7
-- count.cljc: count requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 26:5
-- count.cljc: count requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, keyword is passed at 26:5
-- count.cljc: count requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, symbol is passed at 26:5
-- count.cljc: count requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, char is passed at 26:5
-- dec.cljc: dec requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 35:34
-- derive.cljc: derive uses argument 1 as keyword|symbol at 2059:12, nil is passed at 59:9
-- derive.cljc: derive uses argument 1 as keyword|symbol at 2059:12, nil is passed at 59:9
-- derive.cljc: derive uses argument 1 as keyword|symbol at 2059:12, host is passed at 80:9
-- derive.cljc: derive uses argument 1 as keyword|symbol at 2059:12, fixnum is passed at 80:9
-- derive.cljc: derive uses argument 1 as keyword|symbol at 2059:12, string is passed at 80:9
-- fnext.cljc: fnext uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1111:51, fixnum is passed at 36:27
-- fnext.cljc: fnext uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1111:51, char is passed at 37:27
-- inc.cljc: inc requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 38:34
-- keys.cljc: keys requires argument 0 to be nil|map|sorted-map|record, vector is passed at 10:18
-- keys.cljc: keys requires argument 0 to be nil|map|sorted-map|record, seq is passed at 11:18
-- keys.cljc: keys requires argument 0 to be nil|map|sorted-map|record, set is passed at 12:18
-- keys.cljc: keys requires argument 0 to be nil|map|sorted-map|record, string is passed at 13:18
-- keys.cljc: keys requires argument 0 to be nil|map|sorted-map|record, fixnum is passed at 21:36
-- name.cljc: name requires argument 0 to be string|keyword|symbol, nil is passed at 32:20
-- namespace.cljc: namespace requires argument 0 to be keyword|symbol, nil is passed at 14:19
-- neg_qmark.cljc: neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 46:25
-- neg_qmark.cljc: neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 47:25
-- neg_qmark.cljc: neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 48:25
-- next.cljc: next requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 44:22
-- next.cljc: next requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, keyword is passed at 45:22
-- not_empty.cljc: not-empty uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1120:74, char is passed at 27:36
-- not_empty.cljc: not-empty uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1120:74, fixnum is passed at 28:36
-- not_empty.cljc: not-empty uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1120:74, double is passed at 29:36
-- nth.cljc: nth requires argument 0 to be nil|string|seq|vector|array, map is passed at 142:22
-- nth.cljc: nth requires argument 0 to be nil|string|seq|vector|array, set is passed at 143:22
-- nth.cljc: nth requires argument 1 to be fixnum|long|bigint, nil is passed at 148:22
-- nth.cljc: nth requires argument 1 to be fixnum|long|bigint, nil is passed at 158:27
-- pos_qmark.cljc: pos? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 48:25
-- pos_qmark.cljc: pos? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 49:25
-- pos_qmark.cljc: pos? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 50:25
-- rand_nth.cljc: rand-nth uses argument 0 as nil|string|seq|vector|array at 1449:56, fixnum is passed at 21:22
-- rest.cljc: rest requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 43:22
-- rest.cljc: rest requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, keyword is passed at 44:22
-- seq.cljc: seq requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 36:21
-- seq.cljc: seq requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fn is passed at 37:26
-- subvec.cljc: subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1150:12, nil is passed at 58:9
-- subvec.cljc: subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1150:12, keyword is passed at 72:21
-- subvec.cljc: subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1150:12, symbol is passed at 72:21
-- subvec.cljc: subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1150:12, string is passed at 72:21
-- subvec.cljc: subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1150:12, vector is passed at 72:21
-- vals.cljc: vals requires argument 0 to be nil|map|sorted-map|record, vector is passed at 10:18
-- vals.cljc: vals requires argument 0 to be nil|map|sorted-map|record, seq is passed at 11:18
-- vals.cljc: vals requires argument 0 to be nil|map|sorted-map|record, set is passed at 12:18
-- vals.cljc: vals requires argument 0 to be nil|map|sorted-map|record, fixnum is passed at 20:36
-- vec.cljc: vec requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 36:7
-- vec.cljc: vec requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, double is passed at 36:7
-- vec.cljc: vec requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, bool is passed at 36:7
-- vec.cljc: vec requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, keyword is passed at 36:7
-- zero_qmark.cljc: zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 39:34
-- zero_qmark.cljc: zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 42:34
-- zero_qmark.cljc: zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 45:34
-- ends_with_qmark.cljc: ends-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 126:14, keyword is passed at 17:32
-- ends_with_qmark.cljc: ends-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 126:14, symbol is passed at 20:32
-- starts_with_qmark.cljc: starts-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 119:14, keyword is passed at 19:32
-- starts_with_qmark.cljc: starts-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 119:14, symbol is passed at 21:32
+None.
+
+## Warnings
+
+A proven throw inside a `try` that catches it (the negative tests of the corpus), and ⊤ meeting a declaration
+(on by default, `{:facts/warnings false}` in the ns meta turns it off). Reported here only.
+
+- core.clj: clojure.core/namespace declares argument 0 as keyword|symbol, nothing is known about what is passed at 125:113
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 125:128
+- core.clj: clojure.core/namespace declares argument 0 as keyword|symbol, nothing is known about what is passed at 126:125
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 126:140
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 135:86
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 480:9
+- core.clj: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 593:20
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 594:28
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 595:22
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 598:12
+- core.clj: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 600:32
+- core.clj: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 612:13
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 613:17
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 617:28
+- core.clj: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 679:6
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 734:19
+- core.clj: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 735:15
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 850:40
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 855:51
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 867:19
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 876:33
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 877:41
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 969:47
+- core.clj: clojure.core/neg? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1064:54
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1070:26
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1070:37
+- core.clj: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1119:17
+- core.clj: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1119:34
+- core.clj: clojure.core/neg? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1151:12
+- core.clj: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1268:19
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 1608:41
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 1776:44
+- core.clj: clojure.core/nth declares argument 1 as fixnum|long|bigint, nothing is known about what is passed at 1793:45
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 1857:32
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 1871:32
+- core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 1905:62
+- core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2002:26
+- core.clj: clojure.core/namespace declares argument 0 as keyword|symbol, nothing is known about what is passed at 2060:12
+- core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2283:24
+- core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2293:90
+- set.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 70:22
+- set.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 97:40
+- set.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 97:66
+- set.clj: clojure.core/vals declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 113:23
+- test.clj: clojure.core/vals declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 316:62
+- test.clj: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 370:15
+- test.clj: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 371:15
+- abs.cljc: clojure.core/abs uses argument 0 as fixnum|long|bigint|ratio|decimal|double at 1064:54, nil is passed at 33:33, caught by the enclosing try
+- and.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 26:27
+- dec.cljc: clojure.core/dec requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 35:34, caught by the enclosing try
+- derive.cljc: clojure.core/derive uses argument 1 as keyword|symbol at 2060:12, nil is passed at 59:9, caught by the enclosing try
+- derive.cljc: clojure.core/derive uses argument 1 as keyword|symbol at 2060:12, nil is passed at 59:9, caught by the enclosing try
+- derive.cljc: clojure.core/derive uses argument 1 as keyword|symbol at 2060:12, host is passed at 80:9, caught by the enclosing try
+- derive.cljc: clojure.core/derive uses argument 1 as keyword|symbol at 2060:12, fixnum is passed at 80:9, caught by the enclosing try
+- derive.cljc: clojure.core/derive uses argument 1 as keyword|symbol at 2060:12, string is passed at 80:9, caught by the enclosing try
+- doseq.cljc: clojure.core/pos? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 63:23
+- inc.cljc: clojure.core/inc requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 38:34, caught by the enclosing try
+- keys.cljc: clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, vector is passed at 10:18, caught by the enclosing try
+- keys.cljc: clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, seq is passed at 11:18, caught by the enclosing try
+- keys.cljc: clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, set is passed at 12:18, caught by the enclosing try
+- keys.cljc: clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, string is passed at 13:18, caught by the enclosing try
+- keys.cljc: clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, fixnum is passed at 21:36, caught by the enclosing try
+- lazy_seq.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 12:49
+- lazy_seq.cljc: clojure.core/neg? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 20:18
+- name.cljc: clojure.core/name requires argument 0 to be string|keyword|symbol, nil is passed at 32:20, caught by the enclosing try
+- namespace.cljc: clojure.core/namespace requires argument 0 to be keyword|symbol, nil is passed at 14:19, caught by the enclosing try
+- neg_qmark.cljc: clojure.core/neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 46:25, caught by the enclosing try
+- neg_qmark.cljc: clojure.core/neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 47:25, caught by the enclosing try
+- neg_qmark.cljc: clojure.core/neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 48:25, caught by the enclosing try
+- nth.cljc: clojure.core/nth requires argument 1 to be fixnum|long|bigint, nil is passed at 148:22, caught by the enclosing try
+- nth.cljc: clojure.core/nth requires argument 1 to be fixnum|long|bigint, nil is passed at 158:27, caught by the enclosing try
+- or.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 25:20
+- or.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 29:23
+- pos_qmark.cljc: clojure.core/pos? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 48:25, caught by the enclosing try
+- pos_qmark.cljc: clojure.core/pos? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 49:25, caught by the enclosing try
+- pos_qmark.cljc: clojure.core/pos? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 50:25, caught by the enclosing try
+- realized_qmark.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 66:63
+- run_bang.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 17:31
+- run_bang.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 47:21
+- run_bang.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 55:21
+- subvec.cljc: clojure.core/subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1151:12, nil is passed at 58:9, caught by the enclosing try
+- subvec.cljc: clojure.core/subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1151:12, keyword is passed at 72:21, caught by the enclosing try
+- subvec.cljc: clojure.core/subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1151:12, symbol is passed at 72:21, caught by the enclosing try
+- subvec.cljc: clojure.core/subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1151:12, string is passed at 72:21, caught by the enclosing try
+- subvec.cljc: clojure.core/subvec uses argument 1 as fixnum|long|bigint|ratio|decimal|double at 1151:12, vector is passed at 72:21, caught by the enclosing try
+- vals.cljc: clojure.core/vals requires argument 0 to be nil|map|sorted-map|record, vector is passed at 10:18, caught by the enclosing try
+- vals.cljc: clojure.core/vals requires argument 0 to be nil|map|sorted-map|record, seq is passed at 11:18, caught by the enclosing try
+- vals.cljc: clojure.core/vals requires argument 0 to be nil|map|sorted-map|record, set is passed at 12:18, caught by the enclosing try
+- vals.cljc: clojure.core/vals requires argument 0 to be nil|map|sorted-map|record, fixnum is passed at 20:36, caught by the enclosing try
+- zero_qmark.cljc: clojure.core/zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 39:34, caught by the enclosing try
+- zero_qmark.cljc: clojure.core/zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 42:34, caught by the enclosing try
+- zero_qmark.cljc: clojure.core/zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 45:34, caught by the enclosing try
+- core.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 563:23
+- core.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 574:27
+- core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 582:22
+- core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 582:22
+- core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 587:9
+- core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 590:40
+- core.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 599:27
+- core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 604:22
+- core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 604:22
+- core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 609:9
+- core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 612:40
+- core.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 621:27
+- core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 626:22
+- core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 626:22
+- core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 631:9
+- core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 634:41
+- core.cljc: clojure.core/neg? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 639:7
+- core_test.cljc: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 74:31
+- core_test.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 74:40
+- core_test.cljc: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 76:31
+- core_test.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 76:40
+- core_test.cljc: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 78:43
+- core_test.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 78:52
+- core_test.cljc: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 81:45
+- core_test.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 81:54

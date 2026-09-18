@@ -1077,16 +1077,39 @@ static clj_value b_with_meta(const clj_value *args, size_t n) {
 }
 
 static clj_value not_a_reference(const char *what, clj_value v) {
-	return clj_throw_msg("%s expects a var or an atom, got: %s", what, clj_type_name(v));
+	return clj_throw_msg("%s expects a var, an atom or a namespace, got: %s", what, clj_type_name(v));
 }
 
 static clj_value b_reset_meta(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_nil(args[1]) && !clj_has_core(args[1], CLJ_CORE_MAP)) return clj_throw_msg("reset-meta! expects a map, got: %s", clj_type_name(args[1]));
 	if (clj_is_atom(args[0])) return clj_atom_reset_meta(args[0], args[1]);
+	if (clj_is_ns(args[0])) {
+		clj_ns_set_meta(args[0], args[1]);
+		return clj_retain(args[1]);
+	}
 	if (!clj_is_var(args[0])) return not_a_reference("reset-meta!", args[0]);
 	clj_var_set_meta(args[0], args[1]);
 	return clj_retain(args[1]);
+}
+
+// A namespace's meta is written under the namespace lock, so f runs once and a concurrent alter-meta! is lost.
+static clj_value ns_alter_meta(clj_value ns, clj_value f, const clj_value *args, size_t n) {
+	clj_value  small[8];
+	clj_value *call = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *call);
+	if (!call) clj_fatal("out of memory");
+	call[0] = clj_ns_meta(ns);
+	memcpy(call + 1, args, n * sizeof *call);
+	clj_value m = clj_invoke(f, call, n + 1);
+	if (call != small) free(call);
+	if (m == CLJ_THROWN) return m;
+	if (!clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
+		clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));
+		clj_release(m);
+		return e;
+	}
+	clj_ns_set_meta(ns, m);
+	return m;
 }
 
 // (alter-meta! var f & args): a CAS loop, so f may run more than once under contention; on an atom f runs
@@ -1094,6 +1117,7 @@ static clj_value b_reset_meta(const clj_value *args, size_t n) {
 // @ai-generated(guided)
 static clj_value b_alter_meta(const clj_value *args, size_t n) {
 	if (clj_is_atom(args[0])) return clj_atom_alter_meta(args[0], args[1], args + 2, n - 2);
+	if (clj_is_ns(args[0])) return ns_alter_meta(args[0], args[1], args + 2, n - 2);
 	if (!clj_is_var(args[0])) return not_a_reference("alter-meta!", args[0]);
 	clj_value  small[8];
 	clj_value *call = n <= sizeof small / sizeof *small ? small : malloc(n * sizeof *call);

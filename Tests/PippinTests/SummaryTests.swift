@@ -58,13 +58,17 @@ private final class Summarized {
 		return fact(calls[occurrence].pointee.u.invoke.args[i]!.pointee.id)
 	}
 
-	var conflicts: [String] {
-		(0..<clj_facts_ncall_conflicts(table)).map { i in
+	// Every diagnostic as "E " or "W " plus its message.
+	var diagnostics: [String] {
+		(0..<clj_facts_ndiagnostics(table)).map { i in
+			let d = clj_facts_diagnostic(table, i)!
 			var buf = [CChar](repeating: 0, count: 512)
-			_ = clj_call_conflict_message(clj_facts_call_conflict(table, i), &buf, buf.count)
-			return String(cString: buf)
+			_ = clj_diagnostic_message(d, &buf, buf.count)
+			return (d.pointee.severity == CLJ_DIAG_ERROR ? "E " : "W ") + String(cString: buf)
 		}
 	}
+
+	var errors: Int { Int(clj_facts_nerrors(table)) }
 
 	deinit {
 		clj_facts_free(table)
@@ -114,7 +118,9 @@ extension CoreTests {
 		// Vars, their names and the keywords the pass interns live for the process: made before any live-object window.
 		init() {
 			_ = try? rt.eval("""
-			(do :clj/facts :args :ret
+			(do :=> :cat :maybe :or :and :enum := :any :nil :int :double :number :string :keyword :symbol :boolean :map :vector :set :seq :fn
+			    :fixnum :long :bigint :ratio :decimal :char :sorted-map :sorted-set :record :array :var :atom :uuid :inst :regex :host :tuple :*
+			    :sequential :seqable :x :k :min :facts/warnings
 			    (defn sum-inc [x] (inc x))
 			    (defn sum-len [xs] (count xs))
 			    (defn sum-pred [x] (nil? x))
@@ -126,9 +132,9 @@ extension CoreTests {
 			    (defn sum-odd [n] (if (zero? n) false (sum-even (dec n))))
 			    (defn sum-either [x flag] (if flag (inc x) (name x)))
 			    (defn sum-ann [x] (inc x))
-			    (alter-meta! #'sum-ann assoc :clj/facts {:args [:int] :ret :int})
-			    (defn sum-bad [x] (inc x))
-			    (alter-meta! #'sum-bad assoc :clj/facts {:args [:string]})
+			    (alter-meta! #'sum-ann assoc :=> [:=> [:cat :int] :int])
+			    (defn sum-bad {:=> [:=> [:cat :string] :any]} [x] (inc x))
+			    (defn sum-decl {:=> [:=> [:cat [:maybe :map] [:enum :a :b]] [:or :string :nil]]} [m k] (get m k))
 			    (defn sum-redef [x] (inc x))
 			    (defn sum-need [m] (keys m))
 			    (def sum-atom (atom 1))
@@ -158,7 +164,8 @@ extension CoreTests {
 				let s_sum_inc_1 = try summary(store, "sum-inc", 1)
 				#expect(s_sum_inc_1 == "[fixnum|long|bigint|ratio|decimal|double/never] -> fixnum|long|bigint|ratio|decimal|double/never at")
 				let s_sum_len_1 = try summary(store, "sum-len", 1)
-				#expect(s_sum_len_1 == "[nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array/maybe] -> fixnum/never at")
+				// count declares :any for its argument: the vocabulary has no tag for arrays (NOTES.md)
+				#expect(s_sum_len_1 == "[⊤/maybe] -> fixnum/never at")
 				let s_sum_pred_1 = try summary(store, "sum-pred", 1)
 				#expect(s_sum_pred_1 == "[⊤/maybe] -> bool/never pure")
 				let s_sum_box_1 = try summary(store, "sum-box", 1)
@@ -173,7 +180,7 @@ extension CoreTests {
 				#expect(s_sum_inc_2 == "<none>")
 				// an annotated builtin has a summary although it has no body
 				let s_count_1 = try summary(store, "count", 1)
-				#expect(s_count_1 == "[nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array/maybe] -> fixnum/never at")
+				#expect(s_count_1 == "[⊤/maybe] -> fixnum|long|bigint/never at")
 				// an unannotated builtin has none
 				let s_str_1 = try summary(store, "str", 1)
 				#expect(s_str_1 == "<none>")
@@ -204,7 +211,7 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		// An annotation meets the inferred summary; a contradiction is an error that names both.
+		// A :=> declaration meets the inferred summary; a contradiction is a diagnostic that names both, never a failure.
 		@Test func annotationMeetsInference() throws {
 			let before = clj_debug_live_objects()
 			do {
@@ -214,16 +221,19 @@ extension CoreTests {
 				let s = clj_summary_of_var(store, v.raw, 1)!
 				#expect(describe(s) == "[fixnum|long|bigint/never] -> fixnum|long|bigint/never at")
 				#expect(s.pointee.inferred && s.pointee.annotated)
-				#expect(clj_summaries_nannotation_conflicts(store) == 0)
+				#expect(clj_summaries_ndiagnostics(store) == 0)
 				_ = try summary(store, "sum-bad", 1)
-				#expect(clj_summaries_nannotation_conflicts(store) == 1)
+				#expect(clj_summaries_ndiagnostics(store) == 1 && clj_summaries_nerrors(store) == 1)
 				var buf = [CChar](repeating: 0, count: 512)
-				_ = clj_annotation_conflict_message(clj_summaries_annotation_conflict(store, 0), &buf, buf.count)
+				_ = clj_diagnostic_message(clj_summaries_diagnostic(store, 0), &buf, buf.count)
 				let message = String(cString: buf)
-				#expect(message.hasPrefix("user/sum-bad: annotation says argument 0 is string, the body uses it as fixnum|long|bigint|ratio|decimal|double at "))
+				#expect(message.hasPrefix("user/sum-bad: the declaration says argument 0 is string, the body uses it as fixnum|long|bigint|ratio|decimal|double at "))
 				// a conflicting annotation is dropped, the inferred requirement stands
 				let s_sum_bad_1 = try summary(store, "sum-bad", 1)
 				#expect(s_sum_bad_1 == "[fixnum|long|bigint|ratio|decimal|double/never] -> fixnum|long|bigint|ratio|decimal|double/never at")
+				// the vocabulary: :maybe, :enum singletons joined, :or with :nil; an opaque body is the declaration alone
+				let s_sum_decl_2 = try summary(store, "sum-decl", 2)
+				#expect(s_sum_decl_2 == "[nil|map|sorted-map|record/maybe, keyword/never] -> nil|string/maybe at")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -317,18 +327,119 @@ extension CoreTests {
 				let store = clj_summaries_new()!
 				defer { clj_summaries_free(store) }
 				let t = try Summarized("(fn [] (sum-need [1 2]))", store: store)
-				#expect(t.conflicts.count == 1)
-				let message = t.conflicts.first ?? ""
-				#expect(message.hasPrefix("sum-need uses argument 0 as nil|map|sorted-map|record at "))
+				#expect(t.diagnostics.count == 1 && t.errors == 1)
+				let message = t.diagnostics.first ?? ""
+				#expect(message.hasPrefix("E user/sum-need uses argument 0 as nil|map|sorted-map|record at "))
 				#expect(message.hasSuffix(", vector is passed at 1:8"))
 				#expect(t.argument(of: "user/sum-need", 0) == "vector/never=[1 2]")
 				#expect(clj_facts_narrowed_args(t.table) == 0)
 				// the same argument on a dead branch is no conflict
-				#expect(try Summarized("(fn [x] (if (nil? x) (if (string? x) (sum-need [1 2]) 1) 2))", store: store).conflicts.isEmpty)
-				// a requirement wider than the union cap is still a requirement: (count 1) is proven to throw
-				#expect(try Summarized("(fn [] (count 1))", store: store).conflicts == ["count requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 1:8"])
+				#expect(try Summarized("(fn [x] (if (nil? x) (if (string? x) (sum-need [1 2]) 1) 2))", store: store).diagnostics.isEmpty)
+				// a requirement wider than the union cap is still a requirement: (keys 1) is proven to throw
+				#expect(try Summarized("(fn [] (keys 1))", store: store).diagnostics == ["E clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, fixnum is passed at 1:8"])
+				// inside a try that catches, the proven throw is what the code expects: a warning, not the gate's error
+				let caught = try Summarized("(fn [] (try (keys 1) (catch Exception e nil)))", store: store)
+				#expect(caught.errors == 0)
+				#expect(caught.diagnostics == ["W clojure.core/keys requires argument 0 to be nil|map|sorted-map|record, fixnum is passed at 1:13, caught by the enclosing try"])
+				#expect(try Summarized("(fn [] (try (keys 1) (finally nil)))", store: store).errors == 1)
 			}
 			#expect(clj_debug_live_objects() == before)
+		}
+
+		// ⊤ meeting a declaration is a warning, on by default and off under {:facts/warnings false} in the ns meta;
+		// ⊤ meeting an inferred requirement is silent.
+		@Test func topIntoDeclarationWarns() throws {
+			let store = clj_summaries_new()!
+			defer { clj_summaries_free(store) }
+			let warned = try Summarized("(fn [x] (inc x))", store: store)
+			#expect(warned.errors == 0)
+			#expect(warned.diagnostics == ["W clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 1:9"])
+			// an inferred requirement: sum-inc requires a number of x because inc does, and says nothing about TOP
+			#expect(try Summarized("(fn [x] (sum-inc x))", store: store).diagnostics.isEmpty)
+			// something is known: no warning
+			#expect(try Summarized("(fn [x] (when (some? x) (inc x)))", store: store).diagnostics.isEmpty)
+			// the switch lives in the namespace's meta and the ns form's attr-map sets it
+			_ = try rt.eval("(alter-meta! (the-ns 'user) assoc :facts/warnings false)")
+			#expect(try rt.eval("(:facts/warnings (meta (the-ns 'user)))") == Value(false))
+			#expect(try Summarized("(fn [x] (inc x))", store: store).diagnostics.isEmpty)
+			_ = try rt.eval("(alter-meta! (the-ns 'user) dissoc :facts/warnings)")
+			#expect(try Summarized("(fn [x] (inc x))", store: store).diagnostics.count == 1)
+			_ = try rt.eval("(ns sum-quiet {:facts/warnings false}) (in-ns 'user)")
+			#expect(try rt.eval("(meta (the-ns 'sum-quiet))") == Value(reading: "{:facts/warnings false}"))
+			#expect(!clj_facts_warnings_enabled(try rt.eval("(the-ns 'sum-quiet)").raw))
+			// a declared result the body leaves at TOP
+			_ = try rt.eval("(defn sum-top {:=> [:=> [:cat :any] :int]} [x] (get x :n))")
+			_ = try summary(store, "sum-top", 1)
+			#expect(clj_summaries_ndiagnostics(store) == 1 && clj_summaries_nerrors(store) == 0)
+		}
+
+		// schema → fact for the vocabulary; an unknown tag is TOP and reported as not whole, never an error.
+		@Test func schemaProjection() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let rows: [(String, String, Bool)] = [
+					(":any", "⊤/maybe", true),
+					(":nil", "nil/always", true),
+					(":int", "fixnum|long|bigint/never", true),
+					(":number", "fixnum|long|bigint|ratio|decimal|double/never", true),
+					(":boolean", "bool/never", true),
+					(":map", "map|sorted-map|record/never", true),
+					(":set", "set|sorted-set/never", true),
+					(":seq", "seq/never", true),
+					("[:maybe :string]", "nil|string/maybe", true),
+					("[:or :keyword :symbol]", "keyword|symbol/never", true),
+					("[:and :number :int]", "fixnum|long|bigint/never", true),
+					("[:= 3]", "fixnum/never=3", true),
+					("[:= :k]", "keyword/never=:k", true),
+					("[:= \"s\"]", "string/never", true),
+					("[:enum 1 2]", "fixnum/never", true),
+					("[:vector {:min 4} :int]", "vector/never", true),
+					("[:tuple :int :int]", "vector/never", true),
+					("[:=> [:cat :int] :int]", "fn/never", true),
+					("[:fn :x]", "⊤/maybe", true),
+					(":array", "⊤/maybe", false),
+					("[:or :int :array]", "⊤/maybe", false),
+					("[:maybe :seqable]", "⊤/maybe", false),
+					("[:sequential :int]", "⊤/maybe", false),
+				]
+				for (source, expected, whole) in rows {
+					let schema = try Value(reading: source)
+					var f = clj_fact()
+					let ok = clj_fact_of_schema(schema.raw, &f)
+					#expect(describe(f) == expected, Comment(rawValue: source))
+					#expect(ok == whole, Comment(rawValue: source))
+				}
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// The signature table is the AOT form of :=> metas (design §3): every entry projects to the vocabulary and
+		// back, or is a listed gap — a kind without a tag, or a transfer function, which is out of scope.
+		@Test func signatureTableRoundTrips() throws {
+			var expressible = 0, transfer: [String] = [], gaps: [String: [String]] = [:]
+			for i in 0..<clj_facts_nsignatures() {
+				var name: UnsafePointer<CChar>? = nil
+				var arity: UInt32 = 0, result = clj_fact(), isTransfer = false
+				#expect(clj_facts_signature(i, &name, &arity, &result, &isTransfer))
+				let entry = String(cString: name!)
+				if isTransfer {
+					transfer.append(entry)
+					continue
+				}
+				let schema = Value(owning: clj_fact_to_schema(result))
+				var back = clj_fact()
+				let whole = clj_fact_of_schema(schema.raw, &back)
+				if whole && clj_fact_eq(back, result) { expressible += 1 } else { gaps[describe(result), default: []].append(entry) }
+			}
+			let total = Int(clj_facts_nsignatures())
+			#expect(expressible == total - transfer.count - gaps.values.reduce(0) { $0 + $1.count })
+			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (156, 201, 14, 31),
+			        Comment(rawValue: "\(expressible) of \(total), \(transfer.count) transfer, gaps \(gaps.values.reduce(0) { $0 + $1.count })"))
+			#expect(Set(transfer) == ["+", "-", "*", "/", "inc", "dec", "conj", "assoc", "into", "with-meta", "vary-meta", "dissoc", "disj", "empty"])
+			// the kinds the vocabulary has no tag for (NOTES.md "Facts" lists them): design §3's vocabulary gap, not a second mechanism
+			let gapFacts = Set(gaps.keys)
+			#expect(gapFacts == ["array/never", "atom/never", "char/never", "fixnum/never", "map/never", "regex/never", "set/never",
+			                     "sorted-map/never", "sorted-set/never", "uuid/never"], Comment(rawValue: gaps.sorted { $0.key < $1.key }.description))
 		}
 
 		// Every form of core.clj with the summaries: no ⊥ that a throw, a recur or a dead branch does not explain.
@@ -340,7 +451,7 @@ extension CoreTests {
 			var env = clj_env(ns: ns.raw, line: 0, col: 0)
 			let store = clj_summaries_new()!
 			defer { clj_summaries_free(store) }
-			var forms = 0, bottoms = 0, hits: UInt32 = 0, narrowed: UInt32 = 0
+			var forms = 0, bottoms = 0, errors = 0, hits: UInt32 = 0, narrowed: UInt32 = 0
 			var reader = clj_reader()
 			try source.withCString { cstr in
 				clj_reader_init(&reader, cstr, strlen(cstr))
@@ -357,6 +468,7 @@ extension CoreTests {
 					let table = clj_facts_of_with(node, store)!
 					hits += clj_facts_summary_hits(table)
 					narrowed += clj_facts_narrowed_args(table)
+					errors += Int(clj_facts_nerrors(table))
 					var all: [UnsafePointer<clj_node>] = []
 					Summarized.collect(node, &all)
 					for n in all where clj_facts_value_node(n.pointee.kind) {
@@ -375,8 +487,9 @@ extension CoreTests {
 			}
 			#expect(forms > 250)
 			#expect(bottoms == 0)
+			#expect(errors == 0)
 			#expect(hits > 100)
-			#expect(clj_summaries_nannotation_conflicts(store) == 0)
+			#expect(clj_summaries_nerrors(store) == 0)
 			#expect(clj_summaries_widenings(store) == 0)
 		}
 	}

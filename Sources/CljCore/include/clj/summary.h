@@ -32,7 +32,7 @@ typedef struct clj_summaries clj_summaries;
 // Runtime state: every entry is cached with the epoch of each var its walk read and recomputed when one moved. Not thread-safe.
 clj_summaries *clj_summaries_new(void);
 void           clj_summaries_free(clj_summaries *s);
-// Off, the :clj/facts metas are ignored: what inference alone gives, for the report. On by default.
+// Off, the :=> metas are ignored: what inference alone gives, for the report. On by default.
 void clj_summaries_use_annotations(clj_summaries *s, bool on);
 
 // NULL for an unbound var, a native without an annotation or no arity for nargs. Borrowed until the next call into the store.
@@ -45,18 +45,10 @@ clj_fact clj_summary_var_fact(clj_summaries *s, clj_value var);
 // The var's epoch as the store last read it; UINT32_MAX when it never did.
 uint32_t clj_summaries_epoch_seen(const clj_summaries *s, clj_value var);
 
-// An annotation that contradicts the inferred summary: either the annotation or the body is wrong.
-typedef struct {
-	clj_value var;
-	uint32_t  arg;               // UINT32_MAX for the result
-	uint32_t  use_line, use_col; // the use in the body the inference rests on
-	clj_fact  annotated, inferred;
-} clj_annotation_conflict;
-
-uint32_t                       clj_summaries_nannotation_conflicts(const clj_summaries *s);
-const clj_annotation_conflict *clj_summaries_annotation_conflict(const clj_summaries *s, uint32_t i);
-// "clojure.core/vec: annotation says vector, the body answers seq at 12:4" into buf; returns buf.
-const char *clj_annotation_conflict_message(const clj_annotation_conflict *c, char *buf, size_t n);
+// The declaration diagnostics: a :=> meta the body contradicts (an error) or leaves at TOP (a warning).
+uint32_t              clj_summaries_ndiagnostics(const clj_summaries *s);
+const clj_diagnostic *clj_summaries_diagnostic(const clj_summaries *s, uint32_t i);
+uint32_t              clj_summaries_nerrors(const clj_summaries *s);
 
 // For the report: entries held, entries recomputed after a redefinition, fixpoint rounds run, summaries widened.
 uint32_t clj_summaries_count(const clj_summaries *s);
@@ -64,7 +56,9 @@ uint32_t clj_summaries_invalidated(const clj_summaries *s);
 uint32_t clj_summaries_rounds(const clj_summaries *s);
 uint32_t clj_summaries_widenings(const clj_summaries *s);
 
-// A kind keyword (the names of clj_fact_kind_name), an aggregate (:any :int :number :coll :maps :sets :seqable :ident :assoc :indexed) or a vector of them.
-bool clj_fact_of_spec(clj_value spec, clj_fact *out);
+// The abstract interpretation of a schema of the design §3 vocabulary; false when a tag it does not know made a part TOP.
+bool clj_fact_of_schema(clj_value schema, clj_fact *out);
+// The total embedding back: owned data; a kind the vocabulary has no tag for comes out under its own name.
+clj_value clj_fact_to_schema(clj_fact f);
 
 #endif

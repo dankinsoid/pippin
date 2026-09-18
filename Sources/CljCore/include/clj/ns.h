@@ -12,6 +12,7 @@ typedef struct {
 	clj_value  refers;   // map symbol → var referred from other namespaces
 	clj_value  aliases;  // map symbol → namespace
 	clj_value  excludes; // set of clojure.core names this namespace does not see unqualified, or nil
+	clj_value  meta;     // map or nil: the ns form's attr-map, alter-meta!; the facts pass reads :facts/warnings
 } clj_ns;
 
 extern const clj_type clj_ns_type;
@@ -33,6 +34,9 @@ void      clj_ns_refer(clj_value ns, clj_value sym, clj_value var);
 void      clj_ns_unmap(clj_value ns, clj_value sym);
 // alias → target; replaces a previous alias of the same name.
 void      clj_ns_alias(clj_value ns, clj_value alias, clj_value target);
+// Borrowed meta, nil when none; set shares m like every other slot.
+clj_value clj_ns_meta(clj_value ns);
+void      clj_ns_set_meta(clj_value ns, clj_value m);
 // Borrowed snapshots of the maps, valid until the next mutation of the namespace on any thread; retain to keep.
 clj_value clj_ns_mappings(clj_value ns);
 clj_value clj_ns_refers(clj_value ns);

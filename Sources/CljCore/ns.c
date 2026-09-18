@@ -22,12 +22,16 @@ static void ns_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(n->refers, ctx);
 	visit(n->aliases, ctx);
 	visit(n->excludes, ctx);
+	visit(n->meta, ctx);
 }
+
+static clj_value ns_meta(clj_value self) { return clj_retain(clj_ns_of(self)->meta); }
 
 const clj_type clj_ns_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "namespace",
 	.each_child = ns_each_child,
+	.meta = ns_meta,
 };
 
 // Replaces a slot of a shared owner: the new value must be shared before it becomes reachable.
@@ -50,6 +54,7 @@ static clj_value find_or_create_locked(clj_value name) {
 	n->mappings = clj_map_empty();
 	n->refers = clj_map_empty();
 	n->aliases = clj_map_empty();
+	n->meta = CLJ_NIL;
 	ns = clj_from_ptr(n);
 	if (clj_is_nil(registry)) registry = clj_map_empty();
 	store(&registry, clj_map_assoc(registry, name, ns));
@@ -212,4 +217,16 @@ void clj_ns_set_current(clj_value ns) {
 	clj_value box = clj_var_thread_binding(var);
 	if (clj_is_nil(box)) clj_var_bind_root(var, ns);
 	else clj_release(clj_volatile_reset(box, ns));
+}
+
+clj_value clj_ns_meta(clj_value ns) { return clj_ns_of(ns)->meta; }
+
+// Retained like a var's meta, and the old one released: a borrowed clj_ns_meta has the var's caveat against a writer.
+void clj_ns_set_meta(clj_value ns, clj_value m) {
+	clj_share(m);
+	clj_lock_lock(&lock);
+	clj_value old = clj_ns_of(ns)->meta;
+	clj_ns_of(ns)->meta = clj_retain(m);
+	clj_lock_unlock(&lock);
+	clj_release(old);
 }

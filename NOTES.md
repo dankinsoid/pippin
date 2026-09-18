@@ -1163,17 +1163,41 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   shallow for everything a tree names directly.
 - **Pass 2: at every call site the caller's fact meets the callee's requirement.** The meet is the argument
   node's fact from then on (and the slot's, when the argument is a local), which is how a receiver, a
-  `(count x)` and a `(keys m)` narrow the parameter behind them for the rest of the body. A meet down to ⊥ is
-  a *proven conflict*: recorded on the table as a `clj_call_conflict` with both positions — the argument at
-  the call site and the use inside the callee that imposed the requirement (or "requires", when it came from
-  an annotation or a protocol table) — rendered by `clj_call_conflict_message` as "sum-need uses argument 0
+  `(keys m)` and a `(zero? n)` narrow the parameter behind them for the rest of the body. A meet down to ⊥ is
+  a *proven conflict*: recorded on the table as a `clj_diagnostic` with both positions — the argument at the
+  call site and the use inside the callee that imposed the requirement (or "requires", when it came from a
+  declaration or a protocol table) — rendered by `clj_diagnostic_message` as "user/sum-need uses argument 0
   as nil|map|sorted-map|record at 3:14, vector is passed at 1:8". The argument keeps the caller's fact:
-  storing ⊥ would trip the watchdog, and the watchdog is worth more. Nothing warns anywhere: `make facts-report`
-  lists them (75 over the corpus at this writing, every one inside a `thrown?` assertion — `(nth [0] nil)`,
-  `(keys 0)`, `(derive nil nil)` — a `:warn` strictness is a later task and a false positive costs trust).
-  The same meet joins an annotation with the inferred summary, and there ⊥ is an *error* naming both
-  (`clj_annotation_conflict_message`): either the annotation or the body is wrong, and `make facts-report`
-  fails on it.
+  storing ⊥ would trip the watchdog, and the watchdog is worth more.
+- **Diagnostics: the ladder of design §3 "Строгость", by strength of knowledge.** One struct, two severities.
+  *Errors:* a call-site ⊥ (`CLJ_DIAG_CALL_CONFLICT`) and a `:=>` declaration the body contradicts
+  (`CLJ_DIAG_DECL_CONFLICT`) — a runtime failure shown early, in every mode. One refinement of the rule: a
+  site ⊥ inside a `try` body with a handler is the failure the code expects, not one it suffers (`(is
+  (thrown? (keys 1)))` is the corpus's whole population, 35 sites), so it is reported at warning severity with
+  `caught` set. *Warnings, on by default, off per namespace:* ⊤ meeting a *declared* requirement
+  (`CLJ_DIAG_TOP_INTO_DECL`) and a body answering ⊤ where its declaration promises something
+  (`CLJ_DIAG_TOP_RESULT`) — a declaration is an explicit ask to be told this. ⊤ against an *inferred*
+  requirement is silent (`:strict` would turn it on; not built). The switch is the namespace's meta:
+  `{:facts/warnings false}`, which the `ns` form's attr-map sets (`(ns app.core {:facts/warnings false} …)`)
+  and `alter-meta!`/`reset-meta!` on a namespace object change; namespaces got a meta slot for it, as they
+  have in Clojure. Over the corpus the declarations on 17 core vars raise 82 such warnings — `(inc x)` on a
+  parameter is "nothing is known about what is passed" — which is the cost the design names of declaring a
+  builtin: the ask is the core author's, the warning lands on the caller; the per-ns switch is the answer it
+  gives. Nothing halts on any of this: `make facts-report` exits non-zero on an error (the corpus gate) and
+  that is all; wiring an error to stop a load or a compile is a later trigger, once the gate has been green
+  long enough to trust the lattice. The table's `clj_facts_nerrors` and the store's `clj_summaries_nerrors`
+  are what a consumer would gate on.
+- **The signature table must be sound, not merely precise: a false ⊥ is now a false error.** Audited with
+  that eye, these entries were weakened: `list*` answers seq or nil (`(list* nil)` is nil); `map`, `mapcat`
+  and `partition-all` are seqs at two arguments or more only (one argument is a transducer, a fn); `into`
+  follows the conj rule (`(into nil xs)` is a list, not nil); `dissoc` on a record answers record or map (a
+  basis key drops the record); `empty` answers nil for anything that is not a collection, a string included;
+  `assoc-in` answers a map or a vector; `int?` is exact on fixnum and long only (`(int? 1N)` is false, so the
+  false branch must not subtract bigint); `sequential?` and `coll?` are no longer exact (a queue is both and
+  is kind seq). Everything else stood: the numeric rules already promote through ratio and decimal, `/` on
+  integers may answer a ratio, and the kind of a deftype that implements `IFn` is host, not fn, so `fn?`'s
+  exact refinement holds. The corpus gate (`make facts-report`, `noContradictionOverCoreWithSummaries`) is
+  what keeps this true from here on: zero errors over core.clj, the embedded libs and both corpora.
 - **Var reads and roots, guarded by a var epoch.** `clj_var` counts its root binds (`clj_var_epoch`, 0 while
   never bound, bumped by `clj_var_bind_root`); the summary layer reads roots and metas freely and records
   every var it read, with the epoch it saw, on the entry being computed and on every entry in flight below it
@@ -1215,19 +1239,35 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   alloc|throw for the rest of the named list; everything for anything unnamed — and a callee with a summary
   takes the summary's. A closure body's effects are its own, not its definer's. Nothing reads them yet; they
   cost one `|=` per node.
-- **Annotations — provisional and internal.** A var may carry `{:clj/facts {:args [spec …] :ret spec}}` in
-  its meta, a spec being a kind keyword (the names of `clj_fact_kind_name`), an aggregate (`:any :int :number
-  :coll :maps :sets :seqable :ident :assoc :indexed`) or a vector of them (a union); `:args` constrains a
-  prefix of the arguments at any arity. The pass meets it with the inferred summary (above); the inferred one
-  is still computed. The spelling is not a language commitment: the vocabulary will most likely be Clojure's
-  own `^long`/`^double`/`^String` hints for the cheap cases and Malli's `m/=>` for the rich ones (design §3),
-  and this annotation is the placeholder that lets the mechanism be measured. It is plain metadata set by one
-  `alter-meta!` table at the end of core.clj — 19 vars, `count nth get first next rest seq inc dec name
-  namespace keys vals vec conj assoc zero? pos? neg?`, chosen for the requirements they carry, since a native
-  has no body to infer from — in one place so it is easy to rewrite when the real design lands; nothing in the
-  embedded libs or in user-facing docs. Measured (docs/facts-coverage.md, "annotations alone"): they move no
-  known-type percentage, they take pass 2's narrowed arguments from 9 to 99 and its proven conflicts from 0 to
-  75, because inference alone has no requirements at the leaves.
+- **Declarations: `:=>` meta on the var, the vocabulary of design §3, one mechanism.** A var may carry
+  `{:=> [:=> [:cat arg-schema …] ret-schema]}` in its meta — the value is a complete Malli function schema, the
+  same data `m/=>` takes, spelled either in a defn's attr-map (`(defn vec {:=> [:=> [:cat :any] :vector]}
+  [coll] …)`, three of core.clj's defns carry one) or set by `alter-meta!` for a builtin that has no defn
+  (the one table at the end of core.clj, 14 vars). `clj_fact_of_schema` is each tag's abstract
+  interpretation: `:int` → {fixnum, long, bigint}, `:number` all six, `:map` map|sorted-map|record, `:set`
+  both sets, `:seq` seq, `:boolean`, `:string`, `:keyword`, `:symbol`, `:vector`, `:fn`, `:nil`, `:any` ⊤;
+  `[:maybe X]` X ∪ nil, `[:or …]` join, `[:and …]` meet, `[:= x]` and `[:enum …]` singletons (kept only for
+  an immediate or a keyword, which no tree owns), `[:vector …]`/`[:tuple …]`/`[:map …]`/`[:set …]` their kind
+  (the children describe elements no fact holds yet), `[:fn pred]` ⊤, `[:=> …]` fn; a properties map after the
+  tag is skipped; `[:* X]` in the `:cat` ends the fixed arguments. An unknown tag is ⊤ and never an error,
+  so a schema the vocabulary outgrows degrades, it does not break. The declaration meets the inferred
+  summary; the inferred one is still computed and, for a visible body, decides — for an opaque one (a native,
+  a compiled closure) the declaration is trusted. `clj_fact_to_schema` is the total embedding back (a kind
+  set as `[:or …]` of the widest tags that fit, nullability as `[:maybe …]`, a singleton as `[:= x]`), and
+  `signatureTableRoundTrips` projects every entry of the signature table through it and back: 156 of the
+  201 entries round-trip, 14 are transfer functions (`+ - * / inc dec conj assoc into with-meta vary-meta
+  dissoc disj empty`: the result is computed from the arguments, which is a function in the result position
+  of `:=>` — out of scope here, the trigger is the comptime evaluator of design §3), and the rest name the
+  **vocabulary gaps**, kinds without a tag: *array* (the twelve array constructors, `aclone`, `to-array`,
+  and the reason `count`, `nth`, `next`, `rest`, `seq`, `vec` declare `:any` where they mean "seqable" — a
+  narrower declaration would be a false error on `(count (int-array 3))`); *fixnum alone* (`count`, `hash`,
+  `compare`, `alength`: `:int` reads back as three kinds, so the unboxing prize cannot be declared, only
+  inferred); *a plain map or set alone* (`hash-map`, `zipmap`, `frequencies`, `group-by`, `hash-set`, `set`:
+  `:map` and `:set` read back with the sorted kinds and records); *sorted-map*, *sorted-set*, *atom*, *char*,
+  *regex*, *uuid* — 31 entries. Each is a tag the vocabulary would need, not a second mechanism. Measured
+  (docs/facts-coverage.md, "declarations alone"): they move no known-type percentage, they take pass 2's
+  narrowed arguments from 9 to 99 and its proven throws from 0 to 35, because inference alone has no
+  requirements at the leaves.
 - **Deliberately not here, each with its trigger.** No join of callers' arguments into a callee's parameters
   (the closed-world direction; what the arithmetic rows wait on) — trigger: the compiler's `-O2` whole-set
   run, where it is one more round over the same store. No shape facts (the design's key sets) — trigger: a
