@@ -2366,23 +2366,23 @@
        nil)))
 
 ;; Provisional facts annotations, internal: the placeholder spelling that lets the mechanism be measured (NOTES.md, "Facts").
-(run! (fn [e] (alter-meta! (key e) assoc :clj/facts (val e)))
-      {#'count     {:args [:seqable] :ret :fixnum}
-       #'nth       {:args [[:indexed :nil] :int]}
-       #'get       {:args [[:assoc :sets :string :array :nil]]}
-       #'first     {:args [:seqable]}
-       #'next      {:args [:seqable] :ret [:seq :nil]}
-       #'rest      {:args [:seqable] :ret :seq}
-       #'seq       {:args [:seqable] :ret [:seq :nil]}
-       #'inc       {:args [:number] :ret :number}
-       #'dec       {:args [:number] :ret :number}
-       #'name      {:args [[:ident :string]] :ret :string}
-       #'namespace {:args [:ident] :ret [:string :nil]}
-       #'keys      {:args [[:maps :nil]] :ret [:seq :nil]}
-       #'vals      {:args [[:maps :nil]] :ret [:seq :nil]}
-       #'vec       {:args [:seqable] :ret :vector}
-       #'conj      {:args [[:coll :nil]] :ret :coll}
-       #'assoc     {:args [[:assoc :nil]] :ret :assoc}
-       #'zero?     {:args [:number] :ret :bool}
-       #'pos?      {:args [:number] :ret :bool}
-       #'neg?      {:args [:number] :ret :bool}})
+(run! (fn [e] (alter-meta! (resolve (key e)) assoc :clj/facts (val e)))
+      {'count     {:args [:seqable] :ret :fixnum}
+       'nth       {:args [[:indexed :nil] :int]}
+       'get       {:args [[:assoc :sets :string :array :nil]]}
+       'first     {:args [:seqable]}
+       'next      {:args [:seqable] :ret [:seq :nil]}
+       'rest      {:args [:seqable] :ret :seq}
+       'seq       {:args [:seqable] :ret [:seq :nil]}
+       'inc       {:args [:number] :ret :number}
+       'dec       {:args [:number] :ret :number}
+       'name      {:args [[:ident :string]] :ret :string}
+       'namespace {:args [:ident] :ret [:string :nil]}
+       'keys      {:args [[:maps :nil]] :ret [:seq :nil]}
+       'vals      {:args [[:maps :nil]] :ret [:seq :nil]}
+       'vec       {:args [:seqable] :ret :vector}
+       'conj      {:args [[:coll :nil]] :ret :coll}
+       'assoc     {:args [[:assoc :nil]] :ret :assoc}
+       'zero?     {:args [:number] :ret :bool}
+       'pos?      {:args [:number] :ret :bool}
+       'neg?      {:args [:number] :ret :bool}})

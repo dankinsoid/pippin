@@ -108613,75 +108613,92 @@ static clj_value clojure_core_form286__0_a1(clj_value self, const clj_value *cap
 	goto L2;
 	}
 	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[203], &o1);
+	clj_value t1 = clj_c_var_borrow(V[318], &o1);
 	if (t1 == CLJ_THROWN) {
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t2 = fr.slots[0];
-	clj_value a1[1] = {t2};
-	(void)a1;
-	clj_value t3;
+	bool o2;
+	clj_value t2 = clj_c_var_borrow(V[203], &o2);
+	if (t2 == CLJ_THROWN) {
+	if (o1) clj_release(t1);
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	clj_value t3 = fr.slots[0];
+	clj_value a2[1] = {t3};
+	(void)a2;
+	clj_value t4;
 #ifdef CLJC_DIRECT_clojure_core_key_a1
 	if (!CLJC_FN_clojure_core_key_a1) CLJC_FN_clojure_core_key_a1 = clj_compiled_symbol("clojure_core_key_a1");
-	t3 = CLJC_FN_clojure_core_key_a1 ? CLJC_FN_clojure_core_key_a1(clj_var_root_relaxed(V[203]), NULL, a1, 1) : clj_c_invoke(t1, a1, 1);
+	t4 = CLJC_FN_clojure_core_key_a1 ? CLJC_FN_clojure_core_key_a1(clj_var_root_relaxed(V[203]), NULL, a2, 1) : clj_c_invoke(t2, a2, 1);
 #else
-	t3 = clj_c_invoke(t1, a1, 1);
+	t4 = clj_c_invoke(t2, a2, 1);
 #endif
-	(void)t2;
-	if (o1) clj_release(t1);
-	if (t3 == CLJ_THROWN) {
-	if (o0) clj_release(t0);
-	goto L2;
-	}
-	bool o4;
-	clj_value t4 = clj_c_var_borrow(V[58], &o4);
+	(void)t3;
+	if (o2) clj_release(t2);
 	if (t4 == CLJ_THROWN) {
-	clj_release(t3);
+	if (o1) clj_release(t1);
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t5 = K[1420];
+	clj_value a1[1] = {t4};
+	(void)a1;
+	clj_value t5 = clj_c_invoke(t1, a1, 1);
+	clj_release(t4);
+	if (o1) clj_release(t1);
+	if (t5 == CLJ_THROWN) {
+	if (o0) clj_release(t0);
+	goto L2;
+	}
 	bool o6;
-	clj_value t6 = clj_c_var_borrow(V[204], &o6);
+	clj_value t6 = clj_c_var_borrow(V[58], &o6);
 	if (t6 == CLJ_THROWN) {
-	if (o4) clj_release(t4);
-	clj_release(t3);
+	clj_release(t5);
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t7 = fr.slots[0];
-	clj_value a2[1] = {t7};
-	(void)a2;
-	clj_value t8;
+	clj_value t7 = K[1420];
+	bool o8;
+	clj_value t8 = clj_c_var_borrow(V[204], &o8);
+	if (t8 == CLJ_THROWN) {
+	if (o6) clj_release(t6);
+	clj_release(t5);
+	if (o0) clj_release(t0);
+	goto L2;
+	}
+	clj_value t9 = fr.slots[0];
+	clj_value a3[1] = {t9};
+	(void)a3;
+	clj_value t10;
 #ifdef CLJC_DIRECT_clojure_core_val_a1
 	if (!CLJC_FN_clojure_core_val_a1) CLJC_FN_clojure_core_val_a1 = clj_compiled_symbol("clojure_core_val_a1");
-	t8 = CLJC_FN_clojure_core_val_a1 ? CLJC_FN_clojure_core_val_a1(clj_var_root_relaxed(V[204]), NULL, a2, 1) : clj_c_invoke(t6, a2, 1);
+	t10 = CLJC_FN_clojure_core_val_a1 ? CLJC_FN_clojure_core_val_a1(clj_var_root_relaxed(V[204]), NULL, a3, 1) : clj_c_invoke(t8, a3, 1);
 #else
-	t8 = clj_c_invoke(t6, a2, 1);
+	t10 = clj_c_invoke(t8, a3, 1);
 #endif
-	(void)t7;
+	(void)t9;
+	if (o8) clj_release(t8);
+	if (t10 == CLJ_THROWN) {
 	if (o6) clj_release(t6);
-	if (t8 == CLJ_THROWN) {
-	if (o4) clj_release(t4);
-	clj_release(t3);
+	clj_release(t5);
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value a0[4] = {t3, t4, t5, t8};
+	clj_value a0[4] = {t5, t6, t7, t10};
 	(void)a0;
-	clj_value t9 = clj_c_invoke(t0, a0, 4);
-	clj_release(t8);
-	(void)t5;
-	if (o4) clj_release(t4);
-	clj_release(t3);
+	clj_value t11 = clj_c_invoke(t0, a0, 4);
+	clj_release(t10);
+	(void)t7;
+	if (o6) clj_release(t6);
+	clj_release(t5);
 	if (o0) clj_release(t0);
-	if (t9 == CLJ_THROWN) {
+	if (t11 == CLJ_THROWN) {
 	goto L2;
 	}
 	clj_c_leave(&S[470], &cc);
 	clj_c_release_slots(&fr, 1);
-	return t9;
+	return t11;
 L2: ;
 	clj_c_leave(&S[470], &cc);
 L1: ;
@@ -110578,7 +110595,7 @@ static void unit_pools(void) {
 	K[1418] = clj_c_const("clojure.core/refer-clojure", 26);
 	K[1419] = clj_c_const("{:ns clojure.core, :arglists ([name & references]), :macro true, :doc \"(ns name docstring? attr-map? references*): sets the current namespace, creating it when needed, and\\n  processes (:refer-clojure ...), (:require ...) and (:use ...). (:import ...) and (:gen-class) name JVM\\n  classes and are ignored; a class named later fails to resolve where it is used (NOTES.md).\", :name ns, :line 2343, :column 1}", 406);
 	K[1420] = clj_c_const(":clj/facts", 10);
-	K[1421] = clj_c_map_literal((clj_value[]){V[160], clj_c_const("{:args [:number], :ret :bool}", 29), V[90], clj_c_const("{:args [:number], :ret :number}", 31), V[89], clj_c_const("{:args [:number], :ret :bool}", 29), V[20], clj_c_const("{:args [[:coll :nil]], :ret :coll}", 34), V[37], clj_c_const("{:args [:seqable], :ret :fixnum}", 32), V[26], clj_c_const("{:args [[:ident :string]], :ret :string}", 40), V[200], clj_c_const("{:args [[:maps :nil]], :ret [:seq :nil]}", 40), V[58], clj_c_const("{:args [[:assoc :nil]], :ret :assoc}", 36), V[201], clj_c_const("{:args [[:maps :nil]], :ret [:seq :nil]}", 40), V[4], clj_c_const("{:args [:seqable]}", 18), V[22], clj_c_const("{:args [[:assoc :sets :string :array :nil]]}", 44), V[24], clj_c_const("{:args [[:indexed :nil] :int]}", 30), V[121], clj_c_const("{:args [:seqable], :ret :vector}", 32), V[2], clj_c_const("{:args [:seqable], :ret [:seq :nil]}", 36), V[6], clj_c_const("{:args [:seqable], :ret [:seq :nil]}", 36), V[21], clj_c_const("{:args [:number], :ret :number}", 31), V[5], clj_c_const("{:args [:seqable], :ret :seq}", 29), V[27], clj_c_const("{:args [:ident], :ret [:string :nil]}", 37), V[112], clj_c_const("{:args [:number], :ret :bool}", 29)}, 38);
+	K[1421] = clj_c_const("{vals {:args [[:maps :nil]], :ret [:seq :nil]}, vec {:args [:seqable], :ret :vector}, get {:args [[:assoc :sets :string :array :nil]]}, namespace {:args [:ident], :ret [:string :nil]}, first {:args [:seqable]}, neg? {:args [:number], :ret :bool}, seq {:args [:seqable], :ret [:seq :nil]}, count {:args [:seqable], :ret :fixnum}, zero? {:args [:number], :ret :bool}, next {:args [:seqable], :ret [:seq :nil]}, conj {:args [[:coll :nil]], :ret :coll}, rest {:args [:seqable], :ret :seq}, assoc {:args [[:assoc :nil]], :ret :assoc}, dec {:args [:number], :ret :number}, inc {:args [:number], :ret :number}, nth {:args [[:indexed :nil] :int]}, keys {:args [[:maps :nil]], :ret [:seq :nil]}, name {:args [[:ident :string]], :ret :string}, pos? {:args [:number], :ret :bool}}", 769);
 	OP[0] = clj_c_intrinsic("clojure.core/seq", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/cons", 2);
