@@ -733,19 +733,19 @@ static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
-// The specialized arithmetic entries (specialize.c installs one where the facts say every argument is an int64):
-// the fixnum tag of every argument and the boot-root guard are the whole check, then the operation runs inline
-// on the untagged values with the overflow check of arith2 and the canonical re-tag of clj_long_new; anything
-// else, a boxed long included, takes the generic path above. A fact that went stale is therefore slower here,
-// never wrong.
+// The specialized arithmetic entries (specialize.c installs one where the facts say what every argument is): the
+// tag of every argument and the boot-root guard are the whole check, then the operation runs inline on the untagged
+// values — for fixnums with the overflow check of arith2 and the canonical re-tag of clj_long_new, for doubles as
+// IEEE arithmetic into a fresh box, for a fixnum beside a double as arith2 converts —; anything else, a boxed long
+// included, takes the generic path above. A fact that went stale is therefore slower here, never wrong.
 // @ai-generated(solo)
-#define FIXNUM_ENTRY(name, nargs, tagged, body)                                                                 \
+#define SPEC_ENTRY(name, nargs, check, body)                                                                    \
 	static clj_value name(const clj_node *n, clj_frame *f) {                                                   \
 		clj_value args[nargs];                                                                                 \
 		uint64_t  owned;                                                                                       \
 		if (!eval_all(n->u.intrinsic.args, nargs, f, args, &owned)) return CLJ_THROWN;                         \
 		clj_value result;                                                                                      \
-		if (__builtin_expect(((tagged) & 1) && intrinsic_guard(n), 1)) {                                       \
+		if (__builtin_expect((check) && intrinsic_guard(n), 1)) {                                              \
 			body                                                                                               \
 		} else {                                                                                               \
 			result = intrinsic_apply(n, args, &owned);                                                         \
@@ -754,44 +754,125 @@ static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
 		return result;                                                                                         \
 	}
 
-#define FIXNUM_ARITH(name, nargs, tagged, op, a, b)                                                            \
-	FIXNUM_ENTRY(name, nargs, tagged, {                                                                        \
+#define FIXNUM_ARITH(name, nargs, check, op, a, b)                                                             \
+	SPEC_ENTRY(name, nargs, check, {                                                                           \
 		int64_t r;                                                                                             \
 		if (__builtin_expect(op((a), (b), &r), 0)) result = clj_throw_msg("integer overflow");                \
 		else result = clj_long_new(r);                                                                         \
 	})
 
-FIXNUM_ARITH(eval_fix_add, 2, args[0] & args[1], __builtin_add_overflow, clj_fixnum_val(args[0]), clj_fixnum_val(args[1]))
-FIXNUM_ARITH(eval_fix_sub, 2, args[0] & args[1], __builtin_sub_overflow, clj_fixnum_val(args[0]), clj_fixnum_val(args[1]))
-FIXNUM_ARITH(eval_fix_mul, 2, args[0] & args[1], __builtin_mul_overflow, clj_fixnum_val(args[0]), clj_fixnum_val(args[1]))
-FIXNUM_ARITH(eval_fix_inc, 1, args[0], __builtin_add_overflow, clj_fixnum_val(args[0]), (int64_t)1)
-FIXNUM_ARITH(eval_fix_dec, 1, args[0], __builtin_sub_overflow, clj_fixnum_val(args[0]), (int64_t)1)
-FIXNUM_ENTRY(eval_fix_lt, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) < clj_fixnum_val(args[1])); })
-FIXNUM_ENTRY(eval_fix_le, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) <= clj_fixnum_val(args[1])); })
-FIXNUM_ENTRY(eval_fix_gt, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) > clj_fixnum_val(args[1])); })
-FIXNUM_ENTRY(eval_fix_ge, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) >= clj_fixnum_val(args[1])); })
-FIXNUM_ENTRY(eval_fix_eq, 2, args[0] & args[1], { result = clj_bool(args[0] == args[1]); })
-FIXNUM_ENTRY(eval_fix_zero, 1, args[0], { result = clj_bool(args[0] == clj_fixnum(0)); })
-FIXNUM_ENTRY(eval_fix_pos, 1, args[0], { result = clj_bool(clj_fixnum_val(args[0]) > 0); })
-FIXNUM_ENTRY(eval_fix_neg, 1, args[0], { result = clj_bool(clj_fixnum_val(args[0]) < 0); })
+#define FIX1 (args[0] & 1)
+#define FIX2 ((args[0] & args[1]) & 1)
+#define DBL1 clj_is_double(args[0])
+#define DBL2 (clj_is_double(args[0]) && clj_is_double(args[1]))
+#define FIX_DBL ((args[0] & 1) && clj_is_double(args[1]))
+#define DBL_FIX (clj_is_double(args[0]) && (args[1] & 1))
+#define F0 clj_fixnum_val(args[0])
+#define F1 clj_fixnum_val(args[1])
+#define D0 clj_double_val(args[0])
+#define D1 clj_double_val(args[1])
+
+FIXNUM_ARITH(eval_fix_add, 2, FIX2, __builtin_add_overflow, F0, F1)
+FIXNUM_ARITH(eval_fix_sub, 2, FIX2, __builtin_sub_overflow, F0, F1)
+FIXNUM_ARITH(eval_fix_mul, 2, FIX2, __builtin_mul_overflow, F0, F1)
+FIXNUM_ARITH(eval_fix_inc, 1, FIX1, __builtin_add_overflow, F0, (int64_t)1)
+FIXNUM_ARITH(eval_fix_dec, 1, FIX1, __builtin_sub_overflow, F0, (int64_t)1)
+SPEC_ENTRY(eval_fix_lt, 2, FIX2, { result = clj_bool(F0 < F1); })
+SPEC_ENTRY(eval_fix_le, 2, FIX2, { result = clj_bool(F0 <= F1); })
+SPEC_ENTRY(eval_fix_gt, 2, FIX2, { result = clj_bool(F0 > F1); })
+SPEC_ENTRY(eval_fix_ge, 2, FIX2, { result = clj_bool(F0 >= F1); })
+SPEC_ENTRY(eval_fix_eq, 2, FIX2, { result = clj_bool(args[0] == args[1]); })
+SPEC_ENTRY(eval_fix_zero, 1, FIX1, { result = clj_bool(args[0] == clj_fixnum(0)); })
+SPEC_ENTRY(eval_fix_pos, 1, FIX1, { result = clj_bool(F0 > 0); })
+SPEC_ENTRY(eval_fix_neg, 1, FIX1, { result = clj_bool(F0 < 0); })
+
+// IEEE semantics as arith2 and compare2: (/ 1.0 0.0) is ##Inf, every comparison with a NaN is false, = included.
+SPEC_ENTRY(eval_dbl_add, 2, DBL2, { result = clj_double_new(D0 + D1); })
+SPEC_ENTRY(eval_dbl_sub, 2, DBL2, { result = clj_double_new(D0 - D1); })
+SPEC_ENTRY(eval_dbl_mul, 2, DBL2, { result = clj_double_new(D0 * D1); })
+SPEC_ENTRY(eval_dbl_div, 2, DBL2, { result = clj_double_new(D0 / D1); })
+SPEC_ENTRY(eval_dbl_inc, 1, DBL1, { result = clj_double_new(D0 + 1.0); })
+SPEC_ENTRY(eval_dbl_dec, 1, DBL1, { result = clj_double_new(D0 - 1.0); })
+SPEC_ENTRY(eval_dbl_lt, 2, DBL2, { result = clj_bool(D0 < D1); })
+SPEC_ENTRY(eval_dbl_le, 2, DBL2, { result = clj_bool(D0 <= D1); })
+SPEC_ENTRY(eval_dbl_gt, 2, DBL2, { result = clj_bool(D0 > D1); })
+SPEC_ENTRY(eval_dbl_ge, 2, DBL2, { result = clj_bool(D0 >= D1); })
+SPEC_ENTRY(eval_dbl_eq, 2, DBL2, { result = clj_bool(D0 == D1); })
+SPEC_ENTRY(eval_dbl_zero, 1, DBL1, { result = clj_bool(D0 == 0); })
+SPEC_ENTRY(eval_dbl_pos, 1, DBL1, { result = clj_bool(D0 > 0); })
+SPEC_ENTRY(eval_dbl_neg, 1, DBL1, { result = clj_bool(D0 < 0); })
+
+// A fixnum beside a double: the Numbers ladder makes the result a double and the fixnum converts as arith2 does.
+SPEC_ENTRY(eval_fd_add, 2, FIX_DBL, { result = clj_double_new((double)F0 + D1); })
+SPEC_ENTRY(eval_fd_sub, 2, FIX_DBL, { result = clj_double_new((double)F0 - D1); })
+SPEC_ENTRY(eval_fd_mul, 2, FIX_DBL, { result = clj_double_new((double)F0 * D1); })
+SPEC_ENTRY(eval_fd_div, 2, FIX_DBL, { result = clj_double_new((double)F0 / D1); })
+SPEC_ENTRY(eval_fd_lt, 2, FIX_DBL, { result = clj_bool((double)F0 < D1); })
+SPEC_ENTRY(eval_fd_le, 2, FIX_DBL, { result = clj_bool((double)F0 <= D1); })
+SPEC_ENTRY(eval_fd_gt, 2, FIX_DBL, { result = clj_bool((double)F0 > D1); })
+SPEC_ENTRY(eval_fd_ge, 2, FIX_DBL, { result = clj_bool((double)F0 >= D1); })
+SPEC_ENTRY(eval_df_add, 2, DBL_FIX, { result = clj_double_new(D0 + (double)F1); })
+SPEC_ENTRY(eval_df_sub, 2, DBL_FIX, { result = clj_double_new(D0 - (double)F1); })
+SPEC_ENTRY(eval_df_mul, 2, DBL_FIX, { result = clj_double_new(D0 * (double)F1); })
+SPEC_ENTRY(eval_df_div, 2, DBL_FIX, { result = clj_double_new(D0 / (double)F1); })
+SPEC_ENTRY(eval_df_lt, 2, DBL_FIX, { result = clj_bool(D0 < (double)F1); })
+SPEC_ENTRY(eval_df_le, 2, DBL_FIX, { result = clj_bool(D0 <= (double)F1); })
+SPEC_ENTRY(eval_df_gt, 2, DBL_FIX, { result = clj_bool(D0 > (double)F1); })
+SPEC_ENTRY(eval_df_ge, 2, DBL_FIX, { result = clj_bool(D0 >= (double)F1); })
 
 #undef FIXNUM_ARITH
-#undef FIXNUM_ENTRY
+#undef SPEC_ENTRY
+#undef FIX1
+#undef FIX2
+#undef DBL1
+#undef DBL2
+#undef FIX_DBL
+#undef DBL_FIX
+#undef F0
+#undef F1
+#undef D0
+#undef D1
 
-clj_eval_fn clj_eval_fixnum_entry(const clj_intrinsic *op) {
-	static const struct {
-		const char *name;
-		uint32_t    arity;
-		clj_eval_fn fn;
-	} entries[] = {
-		{"clojure.core/+", 2, eval_fix_add},    {"clojure.core/-", 2, eval_fix_sub},    {"clojure.core/*", 2, eval_fix_mul},
-		{"clojure.core/inc", 1, eval_fix_inc},  {"clojure.core/dec", 1, eval_fix_dec},  {"clojure.core/<", 2, eval_fix_lt},
-		{"clojure.core/<=", 2, eval_fix_le},    {"clojure.core/>", 2, eval_fix_gt},     {"clojure.core/>=", 2, eval_fix_ge},
-		{"clojure.core/=", 2, eval_fix_eq},     {"clojure.core/zero?", 1, eval_fix_zero}, {"clojure.core/pos?", 1, eval_fix_pos},
-		{"clojure.core/neg?", 1, eval_fix_neg},
-	};
-	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) {
-		if (entries[i].arity == op->arity && strcmp(entries[i].name, op->name) == 0) return entries[i].fn;
+typedef struct {
+	const char *name;
+	uint32_t    arity;
+	clj_eval_fn fix, dbl, fd, df;
+} spec_entry;
+
+static const spec_entry spec_entries[] = {
+	{"clojure.core/+", 2, eval_fix_add, eval_dbl_add, eval_fd_add, eval_df_add},
+	{"clojure.core/-", 2, eval_fix_sub, eval_dbl_sub, eval_fd_sub, eval_df_sub},
+	{"clojure.core/*", 2, eval_fix_mul, eval_dbl_mul, eval_fd_mul, eval_df_mul},
+	// an integer quotient may be a ratio: only the double forms
+	{"clojure.core//", 2, NULL, eval_dbl_div, eval_fd_div, eval_df_div},
+	{"clojure.core/inc", 1, eval_fix_inc, eval_dbl_inc, NULL, NULL},
+	{"clojure.core/dec", 1, eval_fix_dec, eval_dbl_dec, NULL, NULL},
+	{"clojure.core/<", 2, eval_fix_lt, eval_dbl_lt, eval_fd_lt, eval_df_lt},
+	{"clojure.core/<=", 2, eval_fix_le, eval_dbl_le, eval_fd_le, eval_df_le},
+	{"clojure.core/>", 2, eval_fix_gt, eval_dbl_gt, eval_fd_gt, eval_df_gt},
+	{"clojure.core/>=", 2, eval_fix_ge, eval_dbl_ge, eval_fd_ge, eval_df_ge},
+	// = between a fixnum and a double is false by type: the generic path answers it
+	{"clojure.core/=", 2, eval_fix_eq, eval_dbl_eq, NULL, NULL},
+	{"clojure.core/zero?", 1, eval_fix_zero, eval_dbl_zero, NULL, NULL},
+	{"clojure.core/pos?", 1, eval_fix_pos, eval_dbl_pos, NULL, NULL},
+	{"clojure.core/neg?", 1, eval_fix_neg, eval_dbl_neg, NULL, NULL},
+};
+
+static const spec_entry *spec_entry_of(const clj_intrinsic *op) {
+	for (size_t i = 0; i < sizeof spec_entries / sizeof *spec_entries; i++) {
+		if (spec_entries[i].arity == op->arity && strcmp(spec_entries[i].name, op->name) == 0) return &spec_entries[i];
+	}
+	return NULL;
+}
+
+clj_eval_fn clj_eval_specialized_entry(const clj_intrinsic *op, clj_spec_kind kind) {
+	const spec_entry *e = spec_entry_of(op);
+	if (!e) return NULL;
+	switch (kind) {
+	case CLJ_SPEC_FIXNUM: return e->fix;
+	case CLJ_SPEC_DOUBLE: return e->dbl;
+	case CLJ_SPEC_FIXNUM_DOUBLE: return e->fd;
+	case CLJ_SPEC_DOUBLE_FIXNUM: return e->df;
 	}
 	return NULL;
 }

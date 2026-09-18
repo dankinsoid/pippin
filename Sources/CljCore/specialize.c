@@ -104,8 +104,30 @@ static const clj_node *node_by_id(const clj_node *root, uint32_t id) {
 	return c.found;
 }
 
-static bool int64_fact(const clj_fact *a) {
-	return a && a->types != CLJ_T_BOTTOM && (a->types & ~(uint32_t)(CLJ_T_FIXNUM | CLJ_T_LONG)) == 0;
+typedef enum { ARG_OTHER, ARG_INT64, ARG_DOUBLE } arg_kind;
+
+// A fixnum or a boxed long, the two representations of a long; a double; anything else.
+static arg_kind arg_kind_of(const clj_fact *a) {
+	if (!a || a->types == CLJ_T_BOTTOM) return ARG_OTHER;
+	if ((a->types & ~(uint32_t)(CLJ_T_FIXNUM | CLJ_T_LONG)) == 0) return ARG_INT64;
+	if (a->types == CLJ_T_DOUBLE) return ARG_DOUBLE;
+	return ARG_OTHER;
+}
+
+// The entry the argument kinds select, NULL when they select none.
+static clj_eval_fn entry_for(const clj_node *n, const clj_facts *f) {
+	uint32_t nargs = n->u.intrinsic.n;
+	arg_kind k[2];
+	if (nargs < 1 || nargs > 2) return NULL;
+	for (uint32_t i = 0; i < nargs; i++) k[i] = arg_kind_of(clj_facts_node(f, n->u.intrinsic.args[i]->id));
+	if (nargs == 1) k[1] = k[0];
+	clj_spec_kind kind;
+	if (k[0] == ARG_INT64 && k[1] == ARG_INT64) kind = CLJ_SPEC_FIXNUM;
+	else if (k[0] == ARG_DOUBLE && k[1] == ARG_DOUBLE) kind = CLJ_SPEC_DOUBLE;
+	else if (k[0] == ARG_INT64 && k[1] == ARG_DOUBLE) kind = CLJ_SPEC_FIXNUM_DOUBLE;
+	else if (k[0] == ARG_DOUBLE && k[1] == ARG_INT64) kind = CLJ_SPEC_DOUBLE_FIXNUM;
+	else return NULL;
+	return clj_eval_specialized_entry(n->u.intrinsic.op, kind);
 }
 
 typedef struct {
@@ -119,10 +141,9 @@ typedef struct {
 static void install(const clj_node *n, void *ctx) {
 	install_ctx *c = ctx;
 	if (n->kind == CLJ_NODE_INTRINSIC) {
-		clj_eval_fn fast = clj_eval_fixnum_entry(n->u.intrinsic.op);
-		bool        all = fast != NULL;
-		for (uint32_t i = 0; all && i < n->u.intrinsic.n; i++) all = int64_fact(clj_facts_node(c->f, n->u.intrinsic.args[i]->id));
-		if (all) {
+		// a rebound operator fails the entry's root guard on every call: the generic entry until the var's next bind
+		clj_eval_fn fast = clj_var_root(n->u.intrinsic.var) == clj_intrinsic_builtin(n->u.intrinsic.op) ? entry_for(n, c->f) : NULL;
+		if (fast) {
 			if (c->d->nspec == c->cap) {
 				c->cap = c->cap ? c->cap * 2 : 8;
 				c->d->spec_ids = realloc(c->d->spec_ids, c->cap * sizeof *c->d->spec_ids);

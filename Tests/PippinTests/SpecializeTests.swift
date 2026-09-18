@@ -29,7 +29,11 @@ extension CoreTests {
 			    (defn sp-mul [a b] (* a b))
 			    (defn ^:dynamic sp-dyn [n] (inc n))
 			    (defn sp-mixed [] (loop [i 0] (if (< i 3) (recur (+ i 0.5)) i)))
-			    (defn sp-preds [n] [(zero? n) (pos? n) (neg? n) (= n 1) (<= n 1) (>= n 1) (> n 1) (dec n) (- n 1)]))
+			    (defn sp-preds [n] [(zero? n) (pos? n) (neg? n) (= n 1) (<= n 1) (>= n 1) (> n 1) (dec n) (- n 1)])
+			    (defn sp-dbl [n] (loop [i 0 x 0.0] (if (< i n) (recur (inc i) (+ x 0.5)) x)))
+			    (defn sp-dbl-ops [a b] [(+ a b) (- a b) (* a b) (/ a b) (< a b) (<= a b) (> a b) (>= a b) (= a b) (zero? a) (pos? a) (neg? a) (inc a) (dec a)])
+			    (defn sp-fd [i d] [(+ i d) (- i d) (* i d) (/ i d) (< i d) (<= i d) (> i d) (>= i d) (= i d)])
+			    (defn sp-df [d i] [(+ d i) (- d i) (* d i) (/ d i) (< d i) (<= d i) (> d i) (>= d i)]))
 			""")
 		}
 
@@ -97,6 +101,34 @@ extension CoreTests {
 			#expect(try rt.eval("(sp-preds 1)").description == "[false true false true true true false 0 0]")
 			#expect(try rt.eval("(sp-preds 0)").description == "[true false false false true false false -1 -1]")
 			#expect(try rt.eval("(sp-preds -1.5)").description == "[false false true false true false false -2.5 -2.5]")
+		}
+
+		// Every double entry, the mixed ones and the IEEE edges: ##Inf from (/ 1.0 0.0), NaN unordered and unequal.
+		@Test func doublesAndMixed() throws {
+			_ = try rt.eval("(defn sp-use-dbl [] [(sp-dbl 4) (sp-dbl-ops 1.5 0.5) (sp-fd 3 0.5) (sp-df 0.5 3)])")
+			#expect(try specialized(rt, "sp-dbl", "+"))
+			#expect(try specialized(rt, "sp-dbl", "inc"))
+			#expect(try specialized(rt, "sp-dbl", "<"))
+			for op in ["+", "-", "*", "/", "<", "<=", ">", ">=", "=", "zero?", "pos?", "neg?", "inc", "dec"] {
+				#expect(try specialized(rt, "sp-dbl-ops", op), Comment(rawValue: op))
+			}
+			for op in ["+", "-", "*", "/", "<", "<=", ">", ">="] {
+				#expect(try specialized(rt, "sp-fd", op), Comment(rawValue: op))
+				#expect(try specialized(rt, "sp-df", op), Comment(rawValue: op))
+			}
+			#expect(!(try specialized(rt, "sp-fd", "=")))
+			#expect(try rt.eval("(sp-dbl 4)").double == 2.0)
+			#expect(try rt.eval("(sp-dbl-ops 1.5 0.5)").description == "[2.0 1.0 0.75 3.0 false false true true false false true false 2.5 0.5]")
+			#expect(try rt.eval("(sp-fd 3 0.5)").description == "[3.5 2.5 1.5 6.0 false false true true false]")
+			#expect(try rt.eval("(sp-df 0.5 3)").description == "[3.5 -2.5 1.5 0.16666666666666666 true true false false]")
+			#expect(try rt.eval("(sp-dbl-ops 1.0 0.0)").description == "[1.0 1.0 0.0 ##Inf false false true true false false true false 2.0 0.0]")
+			#expect(try rt.eval("(sp-dbl-ops ##NaN ##NaN)").description == "[##NaN ##NaN ##NaN ##NaN false false false false false false false false ##NaN ##NaN]")
+			#expect(try rt.eval("(sp-dbl-ops -0.0 ##Inf)").description == "[##Inf ##-Inf ##NaN -0.0 true true false false false true false false 1.0 -1.0]")
+			// a wrong fact at the host boundary: every entry falls to the generic path
+			#expect(try rt.eval("(sp-dbl-ops 3 2)").description == "[5 1 6 3/2 false false true true false false true false 4 2]")
+			#expect(try rt.eval("(sp-fd 1.5 2)").description == "[3.5 -0.5 3.0 0.75 true true false false false]")
+			#expect(try rt.eval("(sp-fd 9223372036854775807 0.5)").description == "[9.223372036854776E18 9.223372036854776E18 4.611686018427388E18 1.8446744073709552E19 false false true true false]")
+			#expect(cljEvalError("(sp-dbl-ops \"a\" 1.0)")?.contains("string cannot be cast to a number") == true)
 		}
 
 		// The hit counter's wrapper and the specialization coexist: counting off puts the fast path back.
