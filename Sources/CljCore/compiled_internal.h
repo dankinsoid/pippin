@@ -38,6 +38,13 @@ static inline void clj_c_set(clj_cframe *f, uint32_t i, clj_value v) {
 	else f->owned |= (uint64_t)1 << i;
 }
 
+// A slot the generator keeps in a C variable holds nil or an owned reference, never a borrowed one (NOTES.md, "Compiler").
+static inline void clj_c_rebind(clj_value *slot, clj_value v) {
+	clj_value old = *slot;
+	*slot = v;
+	clj_release(old);
+}
+
 // An owned read of a slot; a last use hands the frame's reference over.
 static inline clj_value clj_c_local(clj_cframe *f, uint32_t i, bool last) {
 	clj_value v = f->slots[i];

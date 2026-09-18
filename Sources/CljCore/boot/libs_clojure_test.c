@@ -260,8 +260,7 @@ static clj_compiled_fn CLJC_FN_clojure_core_filter_a2;
 #endif
 
 static clj_value top_0(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/test.clj"
@@ -279,18 +278,15 @@ static clj_value top_0(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_1(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/test.clj"
@@ -305,18 +301,15 @@ static clj_value top_1(void) {
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t1;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_2(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/test.clj"
@@ -334,30 +327,25 @@ static clj_value top_2(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_3(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[3]);
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 }
 
 static clj_value top_4(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 6 "<embedded>/clojure/test.clj"
@@ -370,18 +358,15 @@ static clj_value top_4(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_5(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 10 "<embedded>/clojure/test.clj"
@@ -394,18 +379,15 @@ static clj_value top_5(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_6(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 12 "<embedded>/clojure/test.clj"
@@ -418,18 +400,15 @@ static clj_value top_6(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_7(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 14 "<embedded>/clojure/test.clj"
@@ -442,18 +421,15 @@ static clj_value top_7(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_8(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 16 "<embedded>/clojure/test.clj"
@@ -476,18 +452,15 @@ static clj_value top_8(void) {
 	if (t3 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t3;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_9(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 18 "<embedded>/clojure/test.clj"
@@ -510,18 +483,15 @@ static clj_value top_9(void) {
 	if (t3 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t3;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_10(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 20 "<embedded>/clojure/test.clj"
@@ -534,23 +504,23 @@ static clj_value top_10(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_with_test_out_v2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[3];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 2;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = CLJ_NIL;
+	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[0], &cc)) goto L1;
 #line 24 "<embedded>/clojure/test.clj"
@@ -575,7 +545,7 @@ clj_value clojure_test_with_test_out_v2(clj_value self, const clj_value *capture
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t4 = fr.slots[2];
+	clj_value t4 = l2;
 	clj_value a1[2] = {t3, t4};
 	(void)a1;
 	clj_value t5;
@@ -604,12 +574,12 @@ clj_value clojure_test_with_test_out_v2(clj_value self, const clj_value *capture
 	goto L2;
 	}
 	clj_c_leave(&S[0], &cc);
-	clj_c_release_slots(&fr, 3);
+	clj_release(l2);
 	return t6;
 L2: ;
 	clj_c_leave(&S[0], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 3);
+	clj_release(l2);
 	return CLJ_THROWN;
 }
 
@@ -623,8 +593,7 @@ static clj_value clojure_test_with_test_out(void *ctx, const clj_value *args, si
 }
 
 static clj_value top_11(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 24 "<embedded>/clojure/test.clj"
@@ -637,20 +606,19 @@ static clj_value top_11(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_testing_vars_str__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[2], &cc)) goto L1;
 #line 33 "<embedded>/clojure/test.clj"
@@ -660,7 +628,7 @@ static clj_value clojure_test_testing_vars_str__0_a1(clj_value self, const clj_v
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t2 = fr.slots[0];
+	clj_value t2 = l0;
 	clj_value a1[1] = {t2};
 	(void)a1;
 	clj_value t3 = clj_c_invoke(t1, a1, 1);
@@ -678,12 +646,10 @@ static clj_value clojure_test_testing_vars_str__0_a1(clj_value self, const clj_v
 	goto L2;
 	}
 	clj_c_leave(&S[2], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t4;
 L2: ;
 	clj_c_leave(&S[2], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -698,16 +664,21 @@ static clj_value clojure_test_testing_vars_str__0(void *ctx, const clj_value *ar
 
 clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[6];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 6; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[1], &cc)) goto L1;
 #line 32 "<embedded>/clojure/test.clj"
-	clj_value t0 = clj_c_local(&fr, 0, true);
-	clj_c_set(&fr, 1, t0);
-	clj_value t1 = fr.slots[1];
+	clj_value t0 = clj_retain(l0);
+	clj_c_rebind(&l1, t0);
+	clj_value t1 = l1;
 	clj_value a0[1] = {t1};
 	(void)a0;
 	clj_value t2;
@@ -724,7 +695,7 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	clj_release(t2);
 	clj_value t4;
 	if (t3) {
-	clj_value t5 = fr.slots[1];
+	clj_value t5 = l1;
 	clj_value a1[1] = {t5};
 	(void)a1;
 	clj_value t6;
@@ -752,7 +723,7 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	if (o9) clj_release(t9);
 	goto L2;
 	}
-	clj_value t11 = fr.slots[1];
+	clj_value t11 = l1;
 	clj_value a2[2] = {t10, t11};
 	(void)a2;
 	clj_value t12 = clj_c_invoke(t9, a2, 2);
@@ -764,7 +735,7 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	}
 	t8 = t12;
 	} else {
-	clj_value t13 = fr.slots[1];
+	clj_value t13 = l1;
 	clj_value a3[1] = {t13};
 	(void)a3;
 	clj_value t14;
@@ -781,7 +752,7 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	clj_release(t14);
 	clj_value t16;
 	if (t15) {
-	clj_value t17 = fr.slots[1];
+	clj_value t17 = l1;
 	clj_value a4[1] = {t17};
 	(void)a4;
 	clj_value t18;
@@ -803,11 +774,12 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	}
 	t4 = t8;
 	} else {
-	clj_value t20 = clj_c_local(&fr, 1, true);
+	clj_value t20 = l1;
+	l1 = CLJ_NIL;
 	t4 = t20;
 	}
-	clj_c_set(&fr, 2, t4);
-	clj_value t21 = fr.slots[2];
+	clj_c_rebind(&l2, t4);
+	clj_value t21 = l2;
 	clj_value t22 = K[27];
 	clj_value a5[2] = {t21, t22};
 	(void)a5;
@@ -822,8 +794,8 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	if (t23 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t23);
-	clj_value t24 = fr.slots[2];
+	clj_c_rebind(&l3, t23);
+	clj_value t24 = l2;
 	clj_value t25 = K[28];
 	clj_value a6[2] = {t24, t25};
 	(void)a6;
@@ -838,7 +810,7 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	if (t26 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 4, t26);
+	clj_c_rebind(&l4, t26);
 #line 33 "<embedded>/clojure/test.clj"
 	bool o27;
 	clj_value t27 = clj_c_var_borrow(V[21], &o27);
@@ -896,14 +868,15 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	}
 	clj_value t34 = K[30];
 #line 34 "<embedded>/clojure/test.clj"
-	clj_value t35 = clj_c_local(&fr, 3, true);
-	clj_c_set(&fr, 5, t35);
-	clj_value t36 = fr.slots[5];
+	clj_value t35 = l3;
+	l3 = CLJ_NIL;
+	clj_c_rebind(&l5, t35);
+	clj_value t36 = l5;
 	bool t37 = clj_truthy(t36);
 	(void)t36;
 	clj_value t38;
 	if (t37) {
-	clj_value t39 = clj_c_local(&fr, 5, false);
+	clj_value t39 = clj_retain(l5);
 	t38 = t39;
 	} else {
 	clj_value t40 = clj_retain(K[31]);
@@ -911,7 +884,7 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	}
 #line 33 "<embedded>/clojure/test.clj"
 	clj_value t41 = K[32];
-	clj_value t42 = fr.slots[4];
+	clj_value t42 = l4;
 	clj_value t43 = K[33];
 	clj_value a7[6] = {t33, t34, t38, t41, t42, t43};
 	(void)a7;
@@ -927,12 +900,20 @@ clj_value clojure_test_testing_vars_str_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[1], &cc);
-	clj_c_release_slots(&fr, 6);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
+	clj_release(l5);
 	return t44;
 L2: ;
 	clj_c_leave(&S[1], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 6);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
+	clj_release(l5);
 	return CLJ_THROWN;
 }
 
@@ -946,8 +927,7 @@ static clj_value clojure_test_testing_vars_str(void *ctx, const clj_value *args,
 }
 
 static clj_value top_12(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 29 "<embedded>/clojure/test.clj"
@@ -960,19 +940,17 @@ static clj_value top_12(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_testing_contexts_str_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[3], &cc)) goto L1;
 #line 39 "<embedded>/clojure/test.clj"
@@ -1050,12 +1028,10 @@ clj_value clojure_test_testing_contexts_str_a0(clj_value self, const clj_value *
 	goto L2;
 	}
 	clj_c_leave(&S[3], &cc);
-	clj_c_release_slots(&fr, 0);
 	return t8;
 L2: ;
 	clj_c_leave(&S[3], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	return CLJ_THROWN;
 }
 
@@ -1069,8 +1045,7 @@ static clj_value clojure_test_testing_contexts_str(void *ctx, const clj_value *a
 }
 
 static clj_value top_13(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 36 "<embedded>/clojure/test.clj"
@@ -1083,20 +1058,19 @@ static clj_value top_13(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_inc_report_counter_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[4], &cc)) goto L1;
 #line 44 "<embedded>/clojure/test.clj"
@@ -1128,7 +1102,7 @@ clj_value clojure_test_inc_report_counter_a1(clj_value self, const clj_value *ca
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t6 = fr.slots[0];
+	clj_value t6 = l0;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[30], &o7);
 	if (t7 == CLJ_THROWN) {
@@ -1181,12 +1155,10 @@ clj_value clojure_test_inc_report_counter_a1(clj_value self, const clj_value *ca
 	t2 = CLJ_NIL;
 	}
 	clj_c_leave(&S[4], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t2;
 L2: ;
 	clj_c_leave(&S[4], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -1200,8 +1172,7 @@ static clj_value clojure_test_inc_report_counter(void *ctx, const clj_value *arg
 }
 
 static clj_value top_14(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 41 "<embedded>/clojure/test.clj"
@@ -1214,20 +1185,17 @@ static clj_value top_14(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_15(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
-	for (uint32_t i = 0; i < 1; i++) s[i] = CLJ_NIL;
+	clj_value l0 = CLJ_NIL;
 	clj_eval_top_enter();
 #line 47 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[44]);
@@ -1236,13 +1204,13 @@ static clj_value top_15(void) {
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_set(&fr, 0, t1);
+	clj_c_rebind(&l0, t1);
 	bool o2;
 	clj_value t2 = clj_c_var_borrow(V[33], &o2);
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a0[1] = {t3};
 	(void)a0;
 	clj_value t4 = clj_c_invoke(t2, a0, 1);
@@ -1351,21 +1319,26 @@ static clj_value top_15(void) {
 	}
 	t6 = t24;
 	}
-	clj_c_release_slots(&fr, 1);
+	clj_release(l0);
 	clj_eval_top_leave();
 	return t6;
 L1: ;
-	clj_c_release_slots(&fr, 1);
+	clj_release(l0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[6];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 6; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[5], &cc)) goto L1;
 #line 52 "<embedded>/clojure/test.clj"
@@ -1374,7 +1347,7 @@ clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured,
 	if (t0 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t1 = fr.slots[0];
+	clj_value t1 = l0;
 	clj_value a0[1] = {t1};
 	(void)a0;
 	clj_value t2 = clj_c_invoke(t0, a0, 1);
@@ -1383,14 +1356,15 @@ clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured,
 	if (t2 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t2);
-	clj_value t3 = fr.slots[1];
+	clj_c_rebind(&l1, t2);
+	clj_value t3 = l1;
 	bool t4 = clj_truthy(t3);
 	(void)t3;
 	clj_value t5;
 	if (t4) {
-	clj_value t6 = clj_c_local(&fr, 1, true);
-	clj_c_set(&fr, 2, t6);
+	clj_value t6 = l1;
+	l1 = CLJ_NIL;
+	clj_c_rebind(&l2, t6);
 #line 53 "<embedded>/clojure/test.clj"
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[4], &o7);
@@ -1412,7 +1386,7 @@ clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured,
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t12 = fr.slots[2];
+	clj_value t12 = l2;
 	clj_value a2[2] = {t11, t12};
 	(void)a2;
 	clj_value t13;
@@ -1430,7 +1404,7 @@ clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured,
 	}
 	t9 = t13;
 	} else {
-	clj_value t14 = clj_c_local(&fr, 2, false);
+	clj_value t14 = clj_retain(l2);
 	t9 = t14;
 	}
 	clj_value a1[1] = {t9};
@@ -1445,14 +1419,14 @@ clj_value clojure_test_print_trace_a1(clj_value self, const clj_value *captured,
 	if (t15 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t15);
+	clj_c_rebind(&l3, t15);
 L4: ;
-	clj_value t16 = fr.slots[3];
+	clj_value t16 = l3;
 	bool t17 = clj_truthy(t16);
 	(void)t16;
 	clj_value t18;
 	if (t17) {
-	clj_value t19 = fr.slots[3];
+	clj_value t19 = l3;
 	clj_value a3[1] = {t19};
 	(void)a3;
 	clj_value t20;
@@ -1465,7 +1439,7 @@ L4: ;
 	if (t20 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 4, t20);
+	clj_c_rebind(&l4, t20);
 #line 54 "<embedded>/clojure/test.clj"
 	bool o21;
 	clj_value t21 = clj_c_var_borrow(V[40], &o21);
@@ -1474,7 +1448,7 @@ L4: ;
 	}
 	clj_value t22 = K[52];
 	clj_value t23 = K[53];
-	clj_value t24 = fr.slots[4];
+	clj_value t24 = l4;
 	clj_value a5[1] = {t24};
 	(void)a5;
 	clj_value t25 = clj_c_invoke(t23, a5, 1);
@@ -1484,13 +1458,13 @@ L4: ;
 	if (o21) clj_release(t21);
 	goto L2;
 	}
-	clj_c_set(&fr, 5, t25);
-	clj_value t26 = fr.slots[5];
+	clj_c_rebind(&l5, t25);
+	clj_value t26 = l5;
 	bool t27 = clj_truthy(t26);
 	(void)t26;
 	clj_value t28;
 	if (t27) {
-	clj_value t29 = clj_c_local(&fr, 5, false);
+	clj_value t29 = clj_retain(l5);
 	t28 = t29;
 	} else {
 	clj_value t30 = clj_retain(K[54]);
@@ -1505,7 +1479,7 @@ L4: ;
 	}
 	clj_value t32 = K[55];
 	clj_value t33 = K[56];
-	clj_value t34 = fr.slots[4];
+	clj_value t34 = l4;
 	clj_value a7[1] = {t34};
 	(void)a7;
 	clj_value t35 = clj_c_invoke(t33, a7, 1);
@@ -1519,7 +1493,7 @@ L4: ;
 	}
 	clj_value t36 = K[57];
 	clj_value t37 = K[58];
-	clj_value t38 = fr.slots[4];
+	clj_value t38 = l4;
 	clj_value a8[1] = {t38};
 	(void)a8;
 	clj_value t39 = clj_c_invoke(t37, a8, 1);
@@ -1559,7 +1533,7 @@ L4: ;
 	}
 	clj_release(t42);
 #line 53 "<embedded>/clojure/test.clj"
-	clj_value t43 = fr.slots[3];
+	clj_value t43 = l3;
 	clj_value a9[1] = {t43};
 	(void)a9;
 	clj_value t44;
@@ -1572,7 +1546,7 @@ L4: ;
 	if (t44 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t44);
+	clj_c_rebind(&l3, t44);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
@@ -1587,12 +1561,20 @@ L4: ;
 	t5 = CLJ_NIL;
 	}
 	clj_c_leave(&S[5], &cc);
-	clj_c_release_slots(&fr, 6);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
+	clj_release(l5);
 	return t5;
 L2: ;
 	clj_c_leave(&S[5], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 6);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
+	clj_release(l5);
 	return CLJ_THROWN;
 }
 
@@ -1606,8 +1588,7 @@ static clj_value clojure_test_print_trace(void *ctx, const clj_value *args, size
 }
 
 static clj_value top_16(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 51 "<embedded>/clojure/test.clj"
@@ -1620,20 +1601,19 @@ static clj_value top_16(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form17__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[6], &cc)) goto L1;
 #line 57 "<embedded>/clojure/test.clj"
@@ -1642,7 +1622,7 @@ static clj_value clojure_test_form17__0_a1(clj_value self, const clj_value *capt
 	if (t0 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t1 = fr.slots[0];
+	clj_value t1 = l0;
 	clj_value a0[1] = {t1};
 	(void)a0;
 	clj_value t2 = clj_c_invoke(t0, a0, 1);
@@ -1652,12 +1632,10 @@ static clj_value clojure_test_form17__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[6], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t2;
 L2: ;
 	clj_c_leave(&S[6], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -1671,8 +1649,7 @@ static clj_value clojure_test_form17__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_17(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 56 "<embedded>/clojure/test.clj"
@@ -1699,18 +1676,15 @@ static clj_value top_17(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_18(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 56 "<embedded>/clojure/test.clj"
@@ -1718,20 +1692,19 @@ static clj_value top_18(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form19__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[7], &cc)) goto L1;
 #line 60 "<embedded>/clojure/test.clj"
@@ -1756,12 +1729,10 @@ static clj_value clojure_test_form19__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[7], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t2;
 L2: ;
 	clj_c_leave(&S[7], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -1775,8 +1746,7 @@ static clj_value clojure_test_form19__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_19(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 59 "<embedded>/clojure/test.clj"
@@ -1803,18 +1773,15 @@ static clj_value top_19(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_20(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 59 "<embedded>/clojure/test.clj"
@@ -1822,21 +1789,21 @@ static clj_value top_20(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[3];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 3; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[8], &cc)) goto L1;
 #line 62 "<embedded>/clojure/test.clj"
@@ -1875,7 +1842,7 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t6 = fr.slots[0];
+	clj_value t6 = l0;
 	clj_value a2[1] = {t6};
 	(void)a2;
 	clj_value t7;
@@ -1962,7 +1929,7 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	clj_release(t12);
 #line 66 "<embedded>/clojure/test.clj"
 	clj_value t17 = K[68];
-	clj_value t18 = fr.slots[0];
+	clj_value t18 = l0;
 	clj_value a6[1] = {t18};
 	(void)a6;
 	clj_value t19 = clj_c_invoke(t17, a6, 1);
@@ -1971,20 +1938,21 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	if (t19 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t19);
-	clj_value t20 = fr.slots[1];
+	clj_c_rebind(&l1, t19);
+	clj_value t20 = l1;
 	bool t21 = clj_truthy(t20);
 	(void)t20;
 	clj_value t22;
 	if (t21) {
-	clj_value t23 = clj_c_local(&fr, 1, true);
-	clj_c_set(&fr, 2, t23);
+	clj_value t23 = l1;
+	l1 = CLJ_NIL;
+	clj_c_rebind(&l2, t23);
 	bool o24;
 	clj_value t24 = clj_c_var_borrow(V[40], &o24);
 	if (t24 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t25 = fr.slots[2];
+	clj_value t25 = l2;
 	clj_value a7[1] = {t25};
 	(void)a7;
 	clj_value t26 = clj_c_invoke(t24, a7, 1);
@@ -2012,7 +1980,7 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t30 = K[70];
-	clj_value t31 = fr.slots[0];
+	clj_value t31 = l0;
 	clj_value a10[1] = {t31};
 	(void)a10;
 	clj_value t32 = clj_c_invoke(t30, a10, 1);
@@ -2056,7 +2024,7 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t38 = K[72];
-	clj_value t39 = fr.slots[0];
+	clj_value t39 = l0;
 	clj_value a13[1] = {t39};
 	(void)a13;
 	clj_value t40 = clj_c_invoke(t38, a13, 1);
@@ -2086,12 +2054,14 @@ static clj_value clojure_test_form21__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[8], &cc);
-	clj_c_release_slots(&fr, 3);
+	clj_release(l1);
+	clj_release(l2);
 	return t42;
 L2: ;
 	clj_c_leave(&S[8], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 3);
+	clj_release(l1);
+	clj_release(l2);
 	return CLJ_THROWN;
 }
 
@@ -2105,8 +2075,7 @@ static clj_value clojure_test_form21__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_21(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 62 "<embedded>/clojure/test.clj"
@@ -2133,18 +2102,15 @@ static clj_value top_21(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_22(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 62 "<embedded>/clojure/test.clj"
@@ -2152,21 +2118,21 @@ static clj_value top_22(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[3];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 3; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[9], &cc)) goto L1;
 #line 70 "<embedded>/clojure/test.clj"
@@ -2205,7 +2171,7 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t6 = fr.slots[0];
+	clj_value t6 = l0;
 	clj_value a2[1] = {t6};
 	(void)a2;
 	clj_value t7;
@@ -2292,7 +2258,7 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	clj_release(t12);
 #line 74 "<embedded>/clojure/test.clj"
 	clj_value t17 = K[76];
-	clj_value t18 = fr.slots[0];
+	clj_value t18 = l0;
 	clj_value a6[1] = {t18};
 	(void)a6;
 	clj_value t19 = clj_c_invoke(t17, a6, 1);
@@ -2301,20 +2267,21 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	if (t19 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t19);
-	clj_value t20 = fr.slots[1];
+	clj_c_rebind(&l1, t19);
+	clj_value t20 = l1;
 	bool t21 = clj_truthy(t20);
 	(void)t20;
 	clj_value t22;
 	if (t21) {
-	clj_value t23 = clj_c_local(&fr, 1, true);
-	clj_c_set(&fr, 2, t23);
+	clj_value t23 = l1;
+	l1 = CLJ_NIL;
+	clj_c_rebind(&l2, t23);
 	bool o24;
 	clj_value t24 = clj_c_var_borrow(V[40], &o24);
 	if (t24 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t25 = fr.slots[2];
+	clj_value t25 = l2;
 	clj_value a7[1] = {t25};
 	(void)a7;
 	clj_value t26 = clj_c_invoke(t24, a7, 1);
@@ -2342,7 +2309,7 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t30 = K[78];
-	clj_value t31 = fr.slots[0];
+	clj_value t31 = l0;
 	clj_value a10[1] = {t31};
 	(void)a10;
 	clj_value t32 = clj_c_invoke(t30, a10, 1);
@@ -2386,7 +2353,7 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t38 = K[80];
-	clj_value t39 = fr.slots[0];
+	clj_value t39 = l0;
 	clj_value a13[1] = {t39};
 	(void)a13;
 	clj_value t40 = clj_c_invoke(t38, a13, 1);
@@ -2423,7 +2390,7 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t44 = K[80];
-	clj_value t45 = fr.slots[0];
+	clj_value t45 = l0;
 	clj_value a15[1] = {t45};
 	(void)a15;
 	clj_value t46 = clj_c_invoke(t44, a15, 1);
@@ -2448,12 +2415,14 @@ static clj_value clojure_test_form23__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[9], &cc);
-	clj_c_release_slots(&fr, 3);
+	clj_release(l1);
+	clj_release(l2);
 	return t47;
 L2: ;
 	clj_c_leave(&S[9], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 3);
+	clj_release(l1);
+	clj_release(l2);
 	return CLJ_THROWN;
 }
 
@@ -2467,8 +2436,7 @@ static clj_value clojure_test_form23__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_23(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 70 "<embedded>/clojure/test.clj"
@@ -2495,18 +2463,15 @@ static clj_value top_23(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_24(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 70 "<embedded>/clojure/test.clj"
@@ -2514,20 +2479,19 @@ static clj_value top_24(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[10], &cc)) goto L1;
 #line 79 "<embedded>/clojure/test.clj"
@@ -2539,7 +2503,7 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	}
 	clj_value t1 = K[83];
 	clj_value t2 = K[84];
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a1[1] = {t3};
 	(void)a1;
 	clj_value t4 = clj_c_invoke(t2, a1, 1);
@@ -2559,7 +2523,7 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t7 = K[86];
-	clj_value t8 = fr.slots[0];
+	clj_value t8 = l0;
 	clj_value a3[1] = {t8};
 	(void)a3;
 	clj_value t9 = clj_c_invoke(t7, a3, 1);
@@ -2572,7 +2536,7 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t10 = K[87];
-	clj_value t11 = fr.slots[0];
+	clj_value t11 = l0;
 	clj_value a4[1] = {t11};
 	(void)a4;
 	clj_value t12 = clj_c_invoke(t10, a4, 1);
@@ -2586,7 +2550,7 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t13 = K[88];
-	clj_value t14 = fr.slots[0];
+	clj_value t14 = l0;
 	clj_value a5[1] = {t14};
 	(void)a5;
 	clj_value t15 = clj_c_invoke(t13, a5, 1);
@@ -2634,7 +2598,7 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t20 = K[87];
-	clj_value t21 = fr.slots[0];
+	clj_value t21 = l0;
 	clj_value a7[1] = {t21};
 	(void)a7;
 	clj_value t22 = clj_c_invoke(t20, a7, 1);
@@ -2646,7 +2610,7 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	}
 	clj_value t23 = K[90];
 	clj_value t24 = K[88];
-	clj_value t25 = fr.slots[0];
+	clj_value t25 = l0;
 	clj_value a8[1] = {t25};
 	(void)a8;
 	clj_value t26 = clj_c_invoke(t24, a8, 1);
@@ -2670,12 +2634,10 @@ static clj_value clojure_test_form25__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[10], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t28;
 L2: ;
 	clj_c_leave(&S[10], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -2689,8 +2651,7 @@ static clj_value clojure_test_form25__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_25(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 79 "<embedded>/clojure/test.clj"
@@ -2717,18 +2678,15 @@ static clj_value top_25(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_26(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 79 "<embedded>/clojure/test.clj"
@@ -2736,20 +2694,19 @@ static clj_value top_26(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form27__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[11], &cc)) goto L1;
 #line 85 "<embedded>/clojure/test.clj"
@@ -2766,7 +2723,7 @@ static clj_value clojure_test_form27__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_value t3 = K[95];
-	clj_value t4 = fr.slots[0];
+	clj_value t4 = l0;
 	clj_value a2[1] = {t4};
 	(void)a2;
 	clj_value t5 = clj_c_invoke(t3, a2, 1);
@@ -2796,12 +2753,10 @@ static clj_value clojure_test_form27__0_a1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[11], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t7;
 L2: ;
 	clj_c_leave(&S[11], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -2815,8 +2770,7 @@ static clj_value clojure_test_form27__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_27(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 84 "<embedded>/clojure/test.clj"
@@ -2843,18 +2797,15 @@ static clj_value top_27(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_28(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 84 "<embedded>/clojure/test.clj"
@@ -2862,29 +2813,26 @@ static clj_value top_28(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form29__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[12], &cc)) goto L1;
 #line 87 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[3]);
 	clj_c_leave(&S[12], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -2898,8 +2846,7 @@ static clj_value clojure_test_form29__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_29(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 87 "<embedded>/clojure/test.clj"
@@ -2926,18 +2873,15 @@ static clj_value top_29(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_30(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 87 "<embedded>/clojure/test.clj"
@@ -2945,29 +2889,26 @@ static clj_value top_30(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form31__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[13], &cc)) goto L1;
 #line 88 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[3]);
 	clj_c_leave(&S[13], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -2981,8 +2922,7 @@ static clj_value clojure_test_form31__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_31(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 88 "<embedded>/clojure/test.clj"
@@ -3009,18 +2949,15 @@ static clj_value top_31(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_32(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 88 "<embedded>/clojure/test.clj"
@@ -3028,29 +2965,26 @@ static clj_value top_32(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form33__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[14], &cc)) goto L1;
 #line 89 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[3]);
 	clj_c_leave(&S[14], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -3064,8 +2998,7 @@ static clj_value clojure_test_form33__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_33(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 89 "<embedded>/clojure/test.clj"
@@ -3092,18 +3025,15 @@ static clj_value top_33(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_34(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 89 "<embedded>/clojure/test.clj"
@@ -3111,21 +3041,23 @@ static clj_value top_34(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[5];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 5; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[15], &cc)) goto L1;
 #line 94 "<embedded>/clojure/test.clj"
@@ -3137,7 +3069,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 #line 95 "<embedded>/clojure/test.clj"
 	clj_value t1 = K[104];
 	clj_value t2 = K[105];
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a2[1] = {t3};
 	(void)a2;
 	clj_value t4 = clj_c_invoke(t2, a2, 1);
@@ -3161,18 +3093,19 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t5);
-	clj_value t6 = fr.slots[1];
+	clj_c_rebind(&l1, t5);
+	clj_value t6 = l1;
 	bool t7 = clj_truthy(t6);
 	(void)t6;
 	clj_value t8;
 	if (t7) {
-	clj_value t9 = clj_c_local(&fr, 1, true);
+	clj_value t9 = l1;
+	l1 = CLJ_NIL;
 	t8 = t9;
 	} else {
 	clj_value t10 = K[106];
 	clj_value t11 = K[105];
-	clj_value t12 = fr.slots[0];
+	clj_value t12 = l0;
 	clj_value a4[1] = {t12};
 	(void)a4;
 	clj_value t13 = clj_c_invoke(t11, a4, 1);
@@ -3198,14 +3131,14 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	}
 	t8 = t14;
 	}
-	clj_c_set(&fr, 2, t8);
-	clj_value t15 = fr.slots[2];
+	clj_c_rebind(&l2, t8);
+	clj_value t15 = l2;
 	bool t16 = clj_truthy(t15);
 	(void)t15;
 	clj_value t17;
 	if (t16) {
 	clj_value t18 = K[107];
-	clj_value t19 = fr.slots[0];
+	clj_value t19 = l0;
 	clj_value a6[1] = {t19};
 	(void)a6;
 	clj_value t20 = clj_c_invoke(t18, a6, 1);
@@ -3230,7 +3163,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	}
 	t17 = t21;
 	} else {
-	clj_value t22 = clj_c_local(&fr, 2, false);
+	clj_value t22 = clj_retain(l2);
 	t17 = t22;
 	}
 	bool t23 = clj_truthy(t17);
@@ -3257,7 +3190,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t26);
+	clj_c_rebind(&l3, t26);
 #line 97 "<embedded>/clojure/test.clj"
 	bool o27;
 	clj_value t27 = clj_c_var_borrow(V[49], &o27);
@@ -3271,13 +3204,13 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_c_set(&fr, 4, t28);
-	clj_value t29 = fr.slots[4];
+	clj_c_rebind(&l4, t28);
+	clj_value t29 = l4;
 	bool t30 = clj_truthy(t29);
 	(void)t29;
 	clj_value t31;
 	if (t30) {
-	clj_value t32 = clj_c_local(&fr, 4, false);
+	clj_value t32 = clj_retain(l4);
 	t31 = t32;
 	} else {
 	clj_value t33 = K[107];
@@ -3289,7 +3222,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t36 = fr.slots[3];
+	clj_value t36 = l3;
 	clj_value a11[1] = {t36};
 	(void)a11;
 	clj_value t37 = clj_c_invoke(t35, a11, 1);
@@ -3320,7 +3253,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t42 = fr.slots[3];
+	clj_value t42 = l3;
 	clj_value a13[1] = {t42};
 	(void)a13;
 	clj_value t43 = clj_c_invoke(t41, a13, 1);
@@ -3357,7 +3290,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	}
 	t31 = t45;
 	}
-	clj_value t46 = fr.slots[0];
+	clj_value t46 = l0;
 	clj_value a8[2] = {t31, t46};
 	(void)a8;
 	clj_value t47 = clj_c_invoke(t27, a8, 2);
@@ -3371,7 +3304,7 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	t24 = t47;
 	} else {
 #line 95 "<embedded>/clojure/test.clj"
-	clj_value t48 = clj_c_local(&fr, 0, false);
+	clj_value t48 = clj_retain(l0);
 	t24 = t48;
 	}
 	clj_value a0[1] = {t24};
@@ -3383,12 +3316,18 @@ clj_value clojure_test_do_report_a1(clj_value self, const clj_value *captured, c
 	goto L2;
 	}
 	clj_c_leave(&S[15], &cc);
-	clj_c_release_slots(&fr, 5);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
 	return t49;
 L2: ;
 	clj_c_leave(&S[15], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 5);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
 	return CLJ_THROWN;
 }
 
@@ -3402,8 +3341,7 @@ static clj_value clojure_test_do_report(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_35(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 91 "<embedded>/clojure/test.clj"
@@ -3416,25 +3354,27 @@ static clj_value top_35(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[5];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 5; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[16], &cc)) goto L1;
 #line 105 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[0];
+	clj_value t0 = l0;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -3457,7 +3397,7 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	if (t4 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t5 = fr.slots[0];
+	clj_value t5 = l0;
 	clj_value a1[1] = {t5};
 	(void)a1;
 	clj_value t6 = clj_c_invoke(t4, a1, 1);
@@ -3466,21 +3406,22 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	if (t6 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t6);
-	clj_value t7 = fr.slots[1];
+	clj_c_rebind(&l1, t6);
+	clj_value t7 = l1;
 	bool t8 = clj_truthy(t7);
 	(void)t7;
 	clj_value t9;
 	if (t8) {
-	clj_value t10 = clj_c_local(&fr, 1, true);
-	clj_c_set(&fr, 2, t10);
+	clj_value t10 = l1;
+	l1 = CLJ_NIL;
+	clj_c_rebind(&l2, t10);
 #line 107 "<embedded>/clojure/test.clj"
 	bool o11;
 	clj_value t11 = clj_c_var_borrow(V[33], &o11);
 	if (t11 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t12 = fr.slots[2];
+	clj_value t12 = l2;
 	clj_value a2[1] = {t12};
 	(void)a2;
 	clj_value t13 = clj_c_invoke(t11, a2, 1);
@@ -3489,8 +3430,8 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	if (t13 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t13);
-	clj_value t14 = fr.slots[3];
+	clj_c_rebind(&l3, t13);
+	clj_value t14 = l3;
 	bool t15 = clj_truthy(t14);
 	(void)t14;
 	clj_value t16;
@@ -3501,7 +3442,7 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	if (t18 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t19 = fr.slots[2];
+	clj_value t19 = l2;
 	clj_value a5[1] = {t19};
 	(void)a5;
 	clj_value t20 = clj_c_invoke(t18, a5, 1);
@@ -3530,8 +3471,8 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	if (t22 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 4, t22);
-	clj_value t23 = fr.slots[4];
+	clj_c_rebind(&l4, t22);
+	clj_value t23 = l4;
 	bool t24 = clj_truthy(t23);
 	(void)t23;
 	clj_value t25;
@@ -3541,7 +3482,7 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	if (t26 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t27 = fr.slots[2];
+	clj_value t27 = l2;
 	clj_value a7[1] = {t27};
 	(void)a7;
 	clj_value t28 = clj_c_invoke(t26, a7, 1);
@@ -3564,12 +3505,14 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	}
 	t25 = t29;
 	} else {
-	clj_value t30 = clj_c_local(&fr, 4, true);
+	clj_value t30 = l4;
+	l4 = CLJ_NIL;
 	t25 = t30;
 	}
 	t16 = t25;
 	} else {
-	clj_value t31 = clj_c_local(&fr, 3, true);
+	clj_value t31 = l3;
+	l3 = CLJ_NIL;
 	t16 = t31;
 	}
 	t9 = t16;
@@ -3579,7 +3522,7 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	t3 = t9;
 	} else {
 #line 108 "<embedded>/clojure/test.clj"
-	clj_value t32 = fr.slots[0];
+	clj_value t32 = l0;
 	clj_value a8[1] = {t32};
 	(void)a8;
 	clj_value t33;
@@ -3595,12 +3538,18 @@ clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_value *captu
 	t3 = t33;
 	}
 	clj_c_leave(&S[16], &cc);
-	clj_c_release_slots(&fr, 5);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
 	return t3;
 L2: ;
 	clj_c_leave(&S[16], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 5);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
 	return CLJ_THROWN;
 }
 
@@ -3614,8 +3563,7 @@ static clj_value clojure_test_function_QMARK_(void *ctx, const clj_value *args, 
 }
 
 static clj_value top_36(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 102 "<embedded>/clojure/test.clj"
@@ -3628,26 +3576,27 @@ static clj_value top_36(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	for (uint32_t i = 2; i < 4; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[17], &cc)) goto L1;
 #line 114 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[1];
+	clj_value t0 = l1;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -3660,9 +3609,9 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 2, t1);
+	clj_c_rebind(&l2, t1);
 #line 115 "<embedded>/clojure/test.clj"
-	clj_value t2 = fr.slots[1];
+	clj_value t2 = l1;
 	clj_value a1[1] = {t2};
 	(void)a1;
 	clj_value t3;
@@ -3675,7 +3624,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (t3 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t3);
+	clj_c_rebind(&l3, t3);
 #line 114 "<embedded>/clojure/test.clj"
 	bool o4;
 	clj_value t4 = clj_c_var_borrow(V[13], &o4);
@@ -3815,7 +3764,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t20 = fr.slots[2];
+	clj_value t20 = l2;
 	clj_value a12[2] = {t19, t20};
 	(void)a12;
 	clj_value t21;
@@ -3986,7 +3935,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t33 = fr.slots[3];
+	clj_value t33 = l3;
 	clj_value a19[1] = {t33};
 	(void)a19;
 	clj_value t34 = clj_c_invoke(t32, a19, 1);
@@ -4505,7 +4454,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t71 = fr.slots[1];
+	clj_value t71 = l1;
 	clj_value a39[1] = {t71};
 	(void)a39;
 	clj_value t72 = clj_c_invoke(t70, a39, 1);
@@ -5010,7 +4959,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t96 = fr.slots[3];
+	clj_value t96 = l3;
 	clj_value a51[1] = {t96};
 	(void)a51;
 	clj_value t97 = clj_c_invoke(t95, a51, 1);
@@ -5376,7 +5325,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t111 = fr.slots[0];
+	clj_value t111 = l0;
 	clj_value a54[1] = {t111};
 	(void)a54;
 	clj_value t112 = clj_c_invoke(t110, a54, 1);
@@ -5847,7 +5796,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t138 = fr.slots[1];
+	clj_value t138 = l1;
 	clj_value a68[1] = {t138};
 	(void)a68;
 	clj_value t139 = clj_c_invoke(t137, a68, 1);
@@ -6809,7 +6758,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t179 = fr.slots[3];
+	clj_value t179 = l3;
 	clj_value a89[1] = {t179};
 	(void)a89;
 	clj_value t180 = clj_c_invoke(t178, a89, 1);
@@ -7315,7 +7264,7 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	if (o4) clj_release(t4);
 	goto L2;
 	}
-	clj_value t197 = fr.slots[0];
+	clj_value t197 = l0;
 	clj_value a92[1] = {t197};
 	(void)a92;
 	clj_value t198 = clj_c_invoke(t196, a92, 1);
@@ -7590,12 +7539,14 @@ clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[17], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l2);
+	clj_release(l3);
 	return t213;
 L2: ;
 	clj_c_leave(&S[17], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l2);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -7609,8 +7560,7 @@ static clj_value clojure_test_assert_predicate(void *ctx, const clj_value *args,
 }
 
 static clj_value top_37(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 110 "<embedded>/clojure/test.clj"
@@ -7623,21 +7573,21 @@ static clj_value top_37(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[18], &cc)) goto L1;
 #line 125 "<embedded>/clojure/test.clj"
@@ -7734,7 +7684,7 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t12 = fr.slots[1];
+	clj_value t12 = l1;
 	clj_value a8[1] = {t12};
 	(void)a8;
 	clj_value t13 = clj_c_invoke(t11, a8, 1);
@@ -8153,7 +8103,7 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t44 = fr.slots[1];
+	clj_value t44 = l1;
 	clj_value a27[1] = {t44};
 	(void)a27;
 	clj_value t45 = clj_c_invoke(t43, a27, 1);
@@ -8538,7 +8488,7 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t65 = fr.slots[0];
+	clj_value t65 = l0;
 	clj_value a33[1] = {t65};
 	(void)a33;
 	clj_value t66 = clj_c_invoke(t64, a33, 1);
@@ -9009,7 +8959,7 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t92 = fr.slots[1];
+	clj_value t92 = l1;
 	clj_value a47[1] = {t92};
 	(void)a47;
 	clj_value t93 = clj_c_invoke(t91, a47, 1);
@@ -9409,7 +9359,7 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t113 = fr.slots[0];
+	clj_value t113 = l0;
 	clj_value a53[1] = {t113};
 	(void)a53;
 	clj_value t114 = clj_c_invoke(t112, a53, 1);
@@ -9684,12 +9634,10 @@ clj_value clojure_test_assert_any_a2(clj_value self, const clj_value *captured, 
 	goto L2;
 	}
 	clj_c_leave(&S[18], &cc);
-	clj_c_release_slots(&fr, 2);
 	return t129;
 L2: ;
 	clj_c_leave(&S[18], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
 
@@ -9703,8 +9651,7 @@ static clj_value clojure_test_assert_any(void *ctx, const clj_value *args, size_
 }
 
 static clj_value top_38(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 125 "<embedded>/clojure/test.clj"
@@ -9717,26 +9664,26 @@ static clj_value top_38(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form39__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[19], &cc)) goto L1;
 #line 139 "<embedded>/clojure/test.clj"
 #line 140 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[1];
+	clj_value t0 = l1;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -9758,7 +9705,7 @@ static clj_value clojure_test_form39__0_a2(clj_value self, const clj_value *capt
 	t3 = t4;
 	} else {
 #line 141 "<embedded>/clojure/test.clj"
-	clj_value t5 = fr.slots[1];
+	clj_value t5 = l1;
 	clj_value a1[1] = {t5};
 	(void)a1;
 	clj_value t6;
@@ -9775,7 +9722,7 @@ static clj_value clojure_test_form39__0_a2(clj_value self, const clj_value *capt
 	clj_release(t6);
 	clj_value t8;
 	if (t7) {
-	clj_value t9 = fr.slots[1];
+	clj_value t9 = l1;
 	clj_value a2[1] = {t9};
 	(void)a2;
 	clj_value t10;
@@ -9797,12 +9744,10 @@ static clj_value clojure_test_form39__0_a2(clj_value self, const clj_value *capt
 	t3 = t8;
 	}
 	clj_c_leave(&S[19], &cc);
-	clj_c_release_slots(&fr, 2);
 	return t3;
 L2: ;
 	clj_c_leave(&S[19], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
 
@@ -9816,10 +9761,9 @@ static clj_value clojure_test_form39__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_39(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
-	for (uint32_t i = 0; i < 1; i++) s[i] = CLJ_NIL;
+	clj_value l0 = CLJ_NIL;
 	clj_eval_top_enter();
 #line 136 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[157]);
@@ -9828,13 +9772,13 @@ static clj_value top_39(void) {
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_set(&fr, 0, t1);
+	clj_c_rebind(&l0, t1);
 	bool o2;
 	clj_value t2 = clj_c_var_borrow(V[33], &o2);
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a0[1] = {t3};
 	(void)a0;
 	clj_value t4 = clj_c_invoke(t2, a0, 1);
@@ -9951,21 +9895,23 @@ static clj_value top_39(void) {
 	}
 	t6 = t24;
 	}
-	clj_c_release_slots(&fr, 1);
+	clj_release(l0);
 	clj_eval_top_leave();
 	return t6;
 L1: ;
-	clj_c_release_slots(&fr, 1);
+	clj_release(l0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form40__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[20], &cc)) goto L1;
 #line 144 "<embedded>/clojure/test.clj"
@@ -10122,7 +10068,7 @@ static clj_value clojure_test_form40__0_a2(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t18 = fr.slots[0];
+	clj_value t18 = l0;
 	clj_value a10[1] = {t18};
 	(void)a10;
 	clj_value t19 = clj_c_invoke(t17, a10, 1);
@@ -10223,12 +10169,10 @@ static clj_value clojure_test_form40__0_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[20], &cc);
-	clj_c_release_slots(&fr, 2);
 	return t25;
 L2: ;
 	clj_c_leave(&S[20], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
 
@@ -10242,8 +10186,7 @@ static clj_value clojure_test_form40__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_40(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 144 "<embedded>/clojure/test.clj"
@@ -10270,18 +10213,15 @@ static clj_value top_40(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_41(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 144 "<embedded>/clojure/test.clj"
@@ -10289,26 +10229,26 @@ static clj_value top_41(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[3];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	for (uint32_t i = 2; i < 3; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[21], &cc)) goto L1;
 #line 148 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[1];
+	clj_value t0 = l1;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -10321,8 +10261,8 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 2, t1);
-	clj_value t2 = fr.slots[2];
+	clj_c_rebind(&l2, t1);
+	clj_value t2 = l2;
 	bool t3 = clj_truthy(t2);
 	(void)t2;
 	clj_value t4;
@@ -10332,7 +10272,7 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	if (t5 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t6 = fr.slots[1];
+	clj_value t6 = l1;
 	clj_value a2[1] = {t6};
 	(void)a2;
 	clj_value t7;
@@ -10362,7 +10302,7 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	}
 	t4 = t8;
 	} else {
-	clj_value t9 = clj_c_local(&fr, 2, false);
+	clj_value t9 = clj_retain(l2);
 	t4 = t9;
 	}
 	bool t10 = clj_truthy(t4);
@@ -10375,8 +10315,8 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	if (t12 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t13 = fr.slots[0];
-	clj_value t14 = fr.slots[1];
+	clj_value t13 = l0;
+	clj_value t14 = l1;
 	clj_value a3[2] = {t13, t14};
 	(void)a3;
 	clj_value t15;
@@ -10400,8 +10340,8 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	if (t16 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t17 = fr.slots[0];
-	clj_value t18 = fr.slots[1];
+	clj_value t17 = l0;
+	clj_value t18 = l1;
 	clj_value a4[2] = {t17, t18};
 	(void)a4;
 	clj_value t19;
@@ -10420,12 +10360,12 @@ static clj_value clojure_test_form42__0_a2(clj_value self, const clj_value *capt
 	t11 = t19;
 	}
 	clj_c_leave(&S[21], &cc);
-	clj_c_release_slots(&fr, 3);
+	clj_release(l2);
 	return t11;
 L2: ;
 	clj_c_leave(&S[21], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 3);
+	clj_release(l2);
 	return CLJ_THROWN;
 }
 
@@ -10439,8 +10379,7 @@ static clj_value clojure_test_form42__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_42(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 147 "<embedded>/clojure/test.clj"
@@ -10467,18 +10406,15 @@ static clj_value top_42(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_43(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 147 "<embedded>/clojure/test.clj"
@@ -10486,21 +10422,21 @@ static clj_value top_43(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[22], &cc)) goto L1;
 #line 152 "<embedded>/clojure/test.clj"
@@ -10598,7 +10534,7 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 #line 153 "<embedded>/clojure/test.clj"
-	clj_value t12 = fr.slots[1];
+	clj_value t12 = l1;
 	clj_value t13 = K[175];
 	clj_value a9[2] = {t12, t13};
 	(void)a9;
@@ -10682,7 +10618,7 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 #line 154 "<embedded>/clojure/test.clj"
-	clj_value t20 = fr.slots[1];
+	clj_value t20 = l1;
 	clj_value t21 = K[177];
 	clj_value a12[2] = {t20, t21};
 	(void)a12;
@@ -11632,7 +11568,7 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t84 = fr.slots[1];
+	clj_value t84 = l1;
 	clj_value a46[1] = {t84};
 	(void)a46;
 	clj_value t85 = clj_c_invoke(t83, a46, 1);
@@ -12310,7 +12246,7 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t113 = fr.slots[0];
+	clj_value t113 = l0;
 	clj_value a56[1] = {t113};
 	(void)a56;
 	clj_value t114 = clj_c_invoke(t112, a56, 1);
@@ -12873,7 +12809,7 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t140 = fr.slots[1];
+	clj_value t140 = l1;
 	clj_value a70[1] = {t140};
 	(void)a70;
 	clj_value t141 = clj_c_invoke(t139, a70, 1);
@@ -13573,7 +13509,7 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t169 = fr.slots[0];
+	clj_value t169 = l0;
 	clj_value a80[1] = {t169};
 	(void)a80;
 	clj_value t170 = clj_c_invoke(t168, a80, 1);
@@ -13941,12 +13877,10 @@ static clj_value clojure_test_form44__0_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[22], &cc);
-	clj_c_release_slots(&fr, 2);
 	return t188;
 L2: ;
 	clj_c_leave(&S[22], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
 
@@ -13960,8 +13894,7 @@ static clj_value clojure_test_form44__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_44(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 152 "<embedded>/clojure/test.clj"
@@ -13988,18 +13921,15 @@ static clj_value top_44(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_45(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 152 "<embedded>/clojure/test.clj"
@@ -14007,22 +13937,23 @@ static clj_value top_45(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	for (uint32_t i = 2; i < 4; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[23], &cc)) goto L1;
 #line 164 "<embedded>/clojure/test.clj"
@@ -14031,7 +13962,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (t0 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t1 = fr.slots[1];
+	clj_value t1 = l1;
 	clj_value a0[1] = {t1};
 	(void)a0;
 	clj_value t2 = clj_c_invoke(t0, a0, 1);
@@ -14040,14 +13971,14 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (t2 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 2, t2);
+	clj_c_rebind(&l2, t2);
 #line 165 "<embedded>/clojure/test.clj"
 	bool o3;
 	clj_value t3 = clj_c_var_borrow(V[64], &o3);
 	if (t3 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t4 = fr.slots[1];
+	clj_value t4 = l1;
 	clj_value t5 = K[177];
 	clj_value a1[2] = {t4, t5};
 	(void)a1;
@@ -14064,7 +13995,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (t6 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t6);
+	clj_c_rebind(&l3, t6);
 #line 164 "<embedded>/clojure/test.clj"
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[13], &o7);
@@ -14087,7 +14018,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (o7) clj_release(t7);
 	goto L2;
 	}
-	clj_value t11 = fr.slots[3];
+	clj_value t11 = l3;
 	bool o12;
 	clj_value t12 = clj_c_var_borrow(V[8], &o12);
 	if (t12 == CLJ_THROWN) {
@@ -14290,7 +14221,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (o7) clj_release(t7);
 	goto L2;
 	}
-	clj_value t30 = fr.slots[1];
+	clj_value t30 = l1;
 	clj_value a18[1] = {t30};
 	(void)a18;
 	clj_value t31 = clj_c_invoke(t29, a18, 1);
@@ -14600,7 +14531,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (o7) clj_release(t7);
 	goto L2;
 	}
-	clj_value t51 = fr.slots[0];
+	clj_value t51 = l0;
 	clj_value a24[1] = {t51};
 	(void)a24;
 	clj_value t52 = clj_c_invoke(t50, a24, 1);
@@ -14791,7 +14722,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (o7) clj_release(t7);
 	goto L2;
 	}
-	clj_value t66 = fr.slots[2];
+	clj_value t66 = l2;
 	clj_value a29[1] = {t66};
 	(void)a29;
 	clj_value t67 = clj_c_invoke(t65, a29, 1);
@@ -15126,7 +15057,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (o7) clj_release(t7);
 	goto L2;
 	}
-	clj_value t89 = fr.slots[1];
+	clj_value t89 = l1;
 	clj_value a44[1] = {t89};
 	(void)a44;
 	clj_value t90 = clj_c_invoke(t88, a44, 1);
@@ -15526,7 +15457,7 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	if (o7) clj_release(t7);
 	goto L2;
 	}
-	clj_value t110 = fr.slots[0];
+	clj_value t110 = l0;
 	clj_value a50[1] = {t110};
 	(void)a50;
 	clj_value t111 = clj_c_invoke(t109, a50, 1);
@@ -15812,12 +15743,14 @@ static clj_value clojure_test_form46__0_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[23], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l2);
+	clj_release(l3);
 	return t126;
 L2: ;
 	clj_c_leave(&S[23], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l2);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -15831,8 +15764,7 @@ static clj_value clojure_test_form46__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_46(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 163 "<embedded>/clojure/test.clj"
@@ -15859,18 +15791,15 @@ static clj_value top_46(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_47(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 163 "<embedded>/clojure/test.clj"
@@ -15878,26 +15807,28 @@ static clj_value top_47(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[5];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	for (uint32_t i = 2; i < 5; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[24], &cc)) goto L1;
 #line 175 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[1];
+	clj_value t0 = l1;
 	clj_value t1 = K[175];
 	clj_value a0[2] = {t0, t1};
 	(void)a0;
@@ -15912,9 +15843,9 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (t2 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 2, t2);
+	clj_c_rebind(&l2, t2);
 #line 176 "<embedded>/clojure/test.clj"
-	clj_value t3 = fr.slots[1];
+	clj_value t3 = l1;
 	clj_value t4 = K[177];
 	clj_value a1[2] = {t3, t4};
 	(void)a1;
@@ -15929,14 +15860,14 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (t5 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t5);
+	clj_c_rebind(&l3, t5);
 #line 177 "<embedded>/clojure/test.clj"
 	bool o6;
 	clj_value t6 = clj_c_var_borrow(V[64], &o6);
 	if (t6 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t7 = fr.slots[1];
+	clj_value t7 = l1;
 	clj_value t8 = K[211];
 	clj_value a2[2] = {t7, t8};
 	(void)a2;
@@ -15953,7 +15884,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (t9 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 4, t9);
+	clj_c_rebind(&l4, t9);
 #line 175 "<embedded>/clojure/test.clj"
 	bool o10;
 	clj_value t10 = clj_c_var_borrow(V[13], &o10);
@@ -15976,7 +15907,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t14 = fr.slots[4];
+	clj_value t14 = l4;
 	bool o15;
 	clj_value t15 = clj_c_var_borrow(V[8], &o15);
 	if (t15 == CLJ_THROWN) {
@@ -16179,7 +16110,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t33 = fr.slots[1];
+	clj_value t33 = l1;
 	clj_value a19[1] = {t33};
 	(void)a19;
 	clj_value t34 = clj_c_invoke(t32, a19, 1);
@@ -16489,7 +16420,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t54 = fr.slots[0];
+	clj_value t54 = l0;
 	clj_value a25[1] = {t54};
 	(void)a25;
 	clj_value t55 = clj_c_invoke(t53, a25, 1);
@@ -16680,7 +16611,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t69 = fr.slots[2];
+	clj_value t69 = l2;
 	clj_value a30[1] = {t69};
 	(void)a30;
 	clj_value t70 = clj_c_invoke(t68, a30, 1);
@@ -17889,7 +17820,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t133 = fr.slots[3];
+	clj_value t133 = l3;
 	clj_value a67[1] = {t133};
 	(void)a67;
 	clj_value t134 = clj_c_invoke(t132, a67, 1);
@@ -18670,7 +18601,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t165 = fr.slots[1];
+	clj_value t165 = l1;
 	clj_value a82[1] = {t165};
 	(void)a82;
 	clj_value t166 = clj_c_invoke(t164, a82, 1);
@@ -19190,7 +19121,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t186 = fr.slots[0];
+	clj_value t186 = l0;
 	clj_value a88[1] = {t186};
 	(void)a88;
 	clj_value t187 = clj_c_invoke(t185, a88, 1);
@@ -19868,7 +19799,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t213 = fr.slots[1];
+	clj_value t213 = l1;
 	clj_value a102[1] = {t213};
 	(void)a102;
 	clj_value t214 = clj_c_invoke(t212, a102, 1);
@@ -20403,7 +20334,7 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	if (o10) clj_release(t10);
 	goto L2;
 	}
-	clj_value t234 = fr.slots[0];
+	clj_value t234 = l0;
 	clj_value a108[1] = {t234};
 	(void)a108;
 	clj_value t235 = clj_c_invoke(t233, a108, 1);
@@ -20886,12 +20817,16 @@ static clj_value clojure_test_form48__0_a2(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[24], &cc);
-	clj_c_release_slots(&fr, 5);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
 	return t256;
 L2: ;
 	clj_c_leave(&S[24], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 5);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l4);
 	return CLJ_THROWN;
 }
 
@@ -20905,8 +20840,7 @@ static clj_value clojure_test_form48__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_48(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 174 "<embedded>/clojure/test.clj"
@@ -20933,18 +20867,15 @@ static clj_value top_48(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_49(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 174 "<embedded>/clojure/test.clj"
@@ -20952,23 +20883,25 @@ static clj_value top_49(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = args[3];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = args[3];
+	(void)l3;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[25], &cc)) goto L1;
 #line 189 "<embedded>/clojure/test.clj"
@@ -21009,8 +20942,8 @@ clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, co
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t6 = fr.slots[2];
-	clj_value t7 = fr.slots[3];
+	clj_value t6 = l2;
+	clj_value t7 = l3;
 	clj_value a4[2] = {t6, t7};
 	(void)a4;
 	clj_value t8 = clj_c_invoke(t5, a4, 2);
@@ -21421,7 +21354,7 @@ clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, co
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t39 = fr.slots[3];
+	clj_value t39 = l3;
 	clj_value a24[1] = {t39};
 	(void)a24;
 	clj_value t40 = clj_c_invoke(t38, a24, 1);
@@ -21821,7 +21754,7 @@ clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, co
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t60 = fr.slots[2];
+	clj_value t60 = l2;
 	clj_value a30[1] = {t60};
 	(void)a30;
 	clj_value t61 = clj_c_invoke(t59, a30, 1);
@@ -22073,12 +22006,10 @@ clj_value clojure_test_try_expr_a4(clj_value self, const clj_value *captured, co
 	goto L2;
 	}
 	clj_c_leave(&S[25], &cc);
-	clj_c_release_slots(&fr, 4);
 	return t73;
 L2: ;
 	clj_c_leave(&S[25], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
 	return CLJ_THROWN;
 }
 
@@ -22092,8 +22023,7 @@ static clj_value clojure_test_try_expr(void *ctx, const clj_value *args, size_t 
 }
 
 static clj_value top_50(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 189 "<embedded>/clojure/test.clj"
@@ -22106,22 +22036,23 @@ static clj_value top_50(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_is_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[3];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[26], &cc)) goto L1;
 #line 200 "<embedded>/clojure/test.clj"
@@ -22153,7 +22084,7 @@ clj_value clojure_test_is_a3(clj_value self, const clj_value *captured, const cl
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t5 = fr.slots[2];
+	clj_value t5 = l2;
 	clj_value a4[1] = {t5};
 	(void)a4;
 	clj_value t6 = clj_c_invoke(t4, a4, 1);
@@ -22212,7 +22143,7 @@ clj_value clojure_test_is_a3(clj_value self, const clj_value *captured, const cl
 	clj_release(t11);
 	goto L2;
 	}
-	clj_value t13 = fr.slots[0];
+	clj_value t13 = l0;
 	clj_value a6[1] = {t13};
 	(void)a6;
 	clj_value t14 = clj_c_invoke(t12, a6, 1);
@@ -22236,24 +22167,29 @@ clj_value clojure_test_is_a3(clj_value self, const clj_value *captured, const cl
 	goto L2;
 	}
 	clj_c_leave(&S[26], &cc);
-	clj_c_release_slots(&fr, 3);
 	return t15;
 L2: ;
 	clj_c_leave(&S[26], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 3);
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[8];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = args[3];
-	for (uint32_t i = 4; i < 8; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = args[3];
+	(void)l3;
+	clj_value l4 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
+	clj_value l6 = CLJ_NIL;
+	clj_value l7 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[26], &cc)) goto L1;
 #line 202 "<embedded>/clojure/test.clj"
@@ -22262,7 +22198,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (t0 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t1 = fr.slots[0];
+	clj_value t1 = l0;
 	clj_value a0[1] = {t1};
 	(void)a0;
 	clj_value t2 = clj_c_invoke(t0, a0, 1);
@@ -22271,8 +22207,8 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (t2 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 4, t2);
-	clj_value t3 = fr.slots[4];
+	clj_c_rebind(&l4, t2);
+	clj_value t3 = l4;
 	clj_value a1[1] = {t3};
 	(void)a1;
 	clj_value t4;
@@ -22289,7 +22225,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	clj_release(t4);
 	clj_value t6;
 	if (t5) {
-	clj_value t7 = fr.slots[4];
+	clj_value t7 = l4;
 	clj_value a2[1] = {t7};
 	(void)a2;
 	clj_value t8;
@@ -22317,7 +22253,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (o11) clj_release(t11);
 	goto L2;
 	}
-	clj_value t13 = fr.slots[4];
+	clj_value t13 = l4;
 	clj_value a3[2] = {t12, t13};
 	(void)a3;
 	clj_value t14 = clj_c_invoke(t11, a3, 2);
@@ -22329,7 +22265,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	}
 	t10 = t14;
 	} else {
-	clj_value t15 = fr.slots[4];
+	clj_value t15 = l4;
 	clj_value a4[1] = {t15};
 	(void)a4;
 	clj_value t16;
@@ -22346,7 +22282,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	clj_release(t16);
 	clj_value t18;
 	if (t17) {
-	clj_value t19 = fr.slots[4];
+	clj_value t19 = l4;
 	clj_value a5[1] = {t19};
 	(void)a5;
 	clj_value t20;
@@ -22368,11 +22304,12 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	}
 	t6 = t10;
 	} else {
-	clj_value t22 = clj_c_local(&fr, 4, true);
+	clj_value t22 = l4;
+	l4 = CLJ_NIL;
 	t6 = t22;
 	}
-	clj_c_set(&fr, 5, t6);
-	clj_value t23 = fr.slots[5];
+	clj_c_rebind(&l5, t6);
+	clj_value t23 = l5;
 	clj_value t24 = K[253];
 	clj_value a6[2] = {t23, t24};
 	(void)a6;
@@ -22387,8 +22324,8 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (t25 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 6, t25);
-	clj_value t26 = fr.slots[5];
+	clj_c_rebind(&l6, t25);
+	clj_value t26 = l5;
 	clj_value t27 = K[254];
 	clj_value a7[2] = {t26, t27};
 	(void)a7;
@@ -22403,7 +22340,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (t28 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 7, t28);
+	clj_c_rebind(&l7, t28);
 	bool o29;
 	clj_value t29 = clj_c_var_borrow(V[13], &o29);
 	if (t29 == CLJ_THROWN) {
@@ -22689,7 +22626,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (o29) clj_release(t29);
 	goto L2;
 	}
-	clj_value t54 = fr.slots[6];
+	clj_value t54 = l6;
 	clj_value a23[1] = {t54};
 	(void)a23;
 	clj_value t55 = clj_c_invoke(t53, a23, 1);
@@ -22777,7 +22714,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (o29) clj_release(t29);
 	goto L2;
 	}
-	clj_value t60 = fr.slots[7];
+	clj_value t60 = l7;
 	clj_value a25[1] = {t60};
 	(void)a25;
 	clj_value t61 = clj_c_invoke(t59, a25, 1);
@@ -22990,7 +22927,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (o29) clj_release(t29);
 	goto L2;
 	}
-	clj_value t76 = fr.slots[3];
+	clj_value t76 = l3;
 	clj_value a30[1] = {t76};
 	(void)a30;
 	clj_value t77 = clj_c_invoke(t75, a30, 1);
@@ -23017,7 +22954,7 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	if (o29) clj_release(t29);
 	goto L2;
 	}
-	clj_value t79 = fr.slots[2];
+	clj_value t79 = l2;
 	clj_value a31[1] = {t79};
 	(void)a31;
 	clj_value t80 = clj_c_invoke(t78, a31, 1);
@@ -23097,12 +23034,18 @@ clj_value clojure_test_is_a4(clj_value self, const clj_value *captured, const cl
 	goto L2;
 	}
 	clj_c_leave(&S[26], &cc);
-	clj_c_release_slots(&fr, 8);
+	clj_release(l4);
+	clj_release(l5);
+	clj_release(l6);
+	clj_release(l7);
 	return t85;
 L2: ;
 	clj_c_leave(&S[26], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 8);
+	clj_release(l4);
+	clj_release(l5);
+	clj_release(l6);
+	clj_release(l7);
 	return CLJ_THROWN;
 }
 
@@ -23117,8 +23060,7 @@ static clj_value clojure_test_is(void *ctx, const clj_value *args, size_t n) {
 }
 
 static clj_value top_51(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 197 "<embedded>/clojure/test.clj"
@@ -23131,31 +23073,36 @@ static clj_value top_51(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[9];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = args[3];
-	s[4] = nargs > 4 ? clj_list_from_array(args + 4, nargs - 4) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 4;
-	for (uint32_t i = 5; i < 9; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = args[3];
+	(void)l3;
+	clj_value l4 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
+	clj_value l6 = CLJ_NIL;
+	clj_value l7 = CLJ_NIL;
+	clj_value l8 = CLJ_NIL;
+	l4 = nargs > 4 ? clj_list_from_array(args + 4, nargs - 4) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[27], &cc)) goto L1;
 #line 209 "<embedded>/clojure/test.clj"
 #line 210 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[2];
+	clj_value t0 = l2;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -23168,13 +23115,13 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 5, t1);
-	clj_value t2 = fr.slots[5];
+	clj_c_rebind(&l5, t1);
+	clj_value t2 = l5;
 	bool t3 = clj_truthy(t2);
 	(void)t2;
 	clj_value t4;
 	if (t3) {
-	clj_value t5 = fr.slots[4];
+	clj_value t5 = l4;
 	clj_value a1[1] = {t5};
 	(void)a1;
 	clj_value t6;
@@ -23189,21 +23136,22 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	}
 	t4 = t6;
 	} else {
-	clj_value t7 = clj_c_local(&fr, 5, true);
+	clj_value t7 = l5;
+	l5 = CLJ_NIL;
 	t4 = t7;
 	}
-	clj_c_set(&fr, 6, t4);
+	clj_c_rebind(&l6, t4);
 #line 209 "<embedded>/clojure/test.clj"
-	clj_value t8 = fr.slots[6];
+	clj_value t8 = l6;
 	bool t9 = clj_truthy(t8);
 	(void)t8;
 	clj_value t10;
 	if (t9) {
-	clj_value t11 = clj_c_local(&fr, 6, false);
+	clj_value t11 = clj_retain(l6);
 	t10 = t11;
 	} else {
 #line 211 "<embedded>/clojure/test.clj"
-	clj_value t12 = fr.slots[2];
+	clj_value t12 = l2;
 	clj_value a3[1] = {t12};
 	(void)a3;
 	clj_value t13;
@@ -23228,15 +23176,15 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (t14 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 7, t14);
+	clj_c_rebind(&l7, t14);
 #line 209 "<embedded>/clojure/test.clj"
-	clj_value t15 = fr.slots[7];
+	clj_value t15 = l7;
 	bool t16 = clj_truthy(t15);
 	(void)t15;
 	clj_value t17;
 	if (t16) {
 #line 212 "<embedded>/clojure/test.clj"
-	clj_value t18 = fr.slots[4];
+	clj_value t18 = l4;
 	clj_value a5[1] = {t18};
 	(void)a5;
 	clj_value t19;
@@ -23261,9 +23209,9 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (t20 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 8, t20);
+	clj_c_rebind(&l8, t20);
 #line 209 "<embedded>/clojure/test.clj"
-	clj_value t21 = fr.slots[8];
+	clj_value t21 = l8;
 	bool t22 = clj_truthy(t21);
 	(void)t21;
 	clj_value t23;
@@ -23274,7 +23222,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (t24 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t25 = fr.slots[4];
+	clj_value t25 = l4;
 	clj_value a8[1] = {t25};
 	(void)a8;
 	clj_value t26;
@@ -23288,7 +23236,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (o24) clj_release(t24);
 	goto L2;
 	}
-	clj_value t27 = fr.slots[2];
+	clj_value t27 = l2;
 	clj_value a9[1] = {t27};
 	(void)a9;
 	clj_value t28;
@@ -23333,12 +23281,12 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	t23 = t30;
 	} else {
 #line 209 "<embedded>/clojure/test.clj"
-	clj_value t31 = clj_c_local(&fr, 8, false);
+	clj_value t31 = clj_retain(l8);
 	t23 = t31;
 	}
 	t17 = t23;
 	} else {
-	clj_value t32 = clj_c_local(&fr, 7, false);
+	clj_value t32 = clj_retain(l7);
 	t17 = t32;
 	}
 	t10 = t17;
@@ -23375,7 +23323,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (o35) clj_release(t35);
 	goto L2;
 	}
-	clj_value t40 = fr.slots[2];
+	clj_value t40 = l2;
 	clj_value a13[1] = {t40};
 	(void)a13;
 	clj_value t41 = clj_c_invoke(t39, a13, 1);
@@ -23438,7 +23386,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (o35) clj_release(t35);
 	goto L2;
 	}
-	clj_value t48 = fr.slots[3];
+	clj_value t48 = l3;
 	clj_value a18[1] = {t48};
 	(void)a18;
 	clj_value t49 = clj_c_invoke(t47, a18, 1);
@@ -23499,7 +23447,7 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	if (o35) clj_release(t35);
 	goto L2;
 	}
-	clj_value t53 = fr.slots[4];
+	clj_value t53 = l4;
 	clj_value a11[4] = {t38, t41, t52, t53};
 	(void)a11;
 	clj_value t54 = clj_c_invoke(t35, a11, 4);
@@ -23549,12 +23497,20 @@ clj_value clojure_test_are_v4(clj_value self, const clj_value *captured, const c
 	t34 = t60;
 	}
 	clj_c_leave(&S[27], &cc);
-	clj_c_release_slots(&fr, 9);
+	clj_release(l4);
+	clj_release(l5);
+	clj_release(l6);
+	clj_release(l7);
+	clj_release(l8);
 	return t34;
 L2: ;
 	clj_c_leave(&S[27], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 9);
+	clj_release(l4);
+	clj_release(l5);
+	clj_release(l6);
+	clj_release(l7);
+	clj_release(l8);
 	return CLJ_THROWN;
 }
 
@@ -23568,8 +23524,7 @@ static clj_value clojure_test_are(void *ctx, const clj_value *args, size_t n) {
 }
 
 static clj_value top_52(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 206 "<embedded>/clojure/test.clj"
@@ -23582,24 +23537,25 @@ static clj_value top_52(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_testing_v3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 3;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[28], &cc)) goto L1;
 #line 217 "<embedded>/clojure/test.clj"
@@ -23791,7 +23747,7 @@ clj_value clojure_test_testing_v3(clj_value self, const clj_value *captured, con
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t20 = fr.slots[2];
+	clj_value t20 = l2;
 	clj_value a13[1] = {t20};
 	(void)a13;
 	clj_value t21 = clj_c_invoke(t19, a13, 1);
@@ -23923,7 +23879,7 @@ clj_value clojure_test_testing_v3(clj_value self, const clj_value *captured, con
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t29 = fr.slots[3];
+	clj_value t29 = l3;
 	clj_value a1[3] = {t3, t28, t29};
 	(void)a1;
 	clj_value t30 = clj_c_invoke(t0, a1, 3);
@@ -23947,12 +23903,12 @@ clj_value clojure_test_testing_v3(clj_value self, const clj_value *captured, con
 	goto L2;
 	}
 	clj_c_leave(&S[28], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return t31;
 L2: ;
 	clj_c_leave(&S[28], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -23966,8 +23922,7 @@ static clj_value clojure_test_testing(void *ctx, const clj_value *args, size_t n
 }
 
 static clj_value top_53(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 217 "<embedded>/clojure/test.clj"
@@ -23980,24 +23935,25 @@ static clj_value top_53(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_with_test_v3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 3;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[29], &cc)) goto L1;
 #line 228 "<embedded>/clojure/test.clj"
@@ -24038,7 +23994,7 @@ clj_value clojure_test_with_test_v3(clj_value self, const clj_value *captured, c
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t8 = fr.slots[2];
+	clj_value t8 = l2;
 	clj_value a3[1] = {t8};
 	(void)a3;
 	clj_value t9 = clj_c_invoke(t7, a3, 1);
@@ -24367,7 +24323,7 @@ clj_value clojure_test_with_test_v3(clj_value self, const clj_value *captured, c
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t34 = fr.slots[3];
+	clj_value t34 = l3;
 	clj_value a12[3] = {t25, t33, t34};
 	(void)a12;
 	clj_value t35 = clj_c_invoke(t22, a12, 3);
@@ -24490,16 +24446,16 @@ clj_value clojure_test_with_test_v3(clj_value self, const clj_value *captured, c
 	}
 	t2 = t42;
 	} else {
-	clj_value t43 = clj_c_local(&fr, 2, true);
+	clj_value t43 = clj_retain(l2);
 	t2 = t43;
 	}
 	clj_c_leave(&S[29], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return t2;
 L2: ;
 	clj_c_leave(&S[29], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -24513,8 +24469,7 @@ static clj_value clojure_test_with_test(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_54(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 225 "<embedded>/clojure/test.clj"
@@ -24527,24 +24482,25 @@ static clj_value top_54(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 3;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[30], &cc)) goto L1;
 #line 235 "<embedded>/clojure/test.clj"
@@ -24594,7 +24550,7 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t9 = fr.slots[2];
+	clj_value t9 = l2;
 	bool o10;
 	clj_value t10 = clj_c_var_borrow(V[80], &o10);
 	if (t10 == CLJ_THROWN) {
@@ -24771,7 +24727,7 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t24 = fr.slots[3];
+	clj_value t24 = l3;
 	clj_value a6[3] = {t15, t23, t24};
 	(void)a6;
 	clj_value t25 = clj_c_invoke(t12, a6, 3);
@@ -25136,7 +25092,7 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t53 = fr.slots[2];
+	clj_value t53 = l2;
 	clj_value a28[1] = {t53};
 	(void)a28;
 	clj_value t54 = clj_c_invoke(t52, a28, 1);
@@ -25351,12 +25307,12 @@ clj_value clojure_test_deftest_v3(clj_value self, const clj_value *captured, con
 	t2 = CLJ_NIL;
 	}
 	clj_c_leave(&S[30], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return t2;
 L2: ;
 	clj_c_leave(&S[30], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -25370,8 +25326,7 @@ static clj_value clojure_test_deftest(void *ctx, const clj_value *args, size_t n
 }
 
 static clj_value top_55(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 232 "<embedded>/clojure/test.clj"
@@ -25384,24 +25339,25 @@ static clj_value top_55(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 3;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[31], &cc)) goto L1;
 #line 242 "<embedded>/clojure/test.clj"
@@ -25451,7 +25407,7 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t9 = fr.slots[2];
+	clj_value t9 = l2;
 	bool o10;
 	clj_value t10 = clj_c_var_borrow(V[80], &o10);
 	if (t10 == CLJ_THROWN) {
@@ -25628,7 +25584,7 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t24 = fr.slots[3];
+	clj_value t24 = l3;
 	clj_value a6[3] = {t15, t23, t24};
 	(void)a6;
 	clj_value t25 = clj_c_invoke(t12, a6, 3);
@@ -25997,7 +25953,7 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t55 = fr.slots[2];
+	clj_value t55 = l2;
 	clj_value a28[1] = {t55};
 	(void)a28;
 	clj_value t56 = clj_c_invoke(t54, a28, 1);
@@ -26212,12 +26168,12 @@ clj_value clojure_test_deftest__v3(clj_value self, const clj_value *captured, co
 	t2 = CLJ_NIL;
 	}
 	clj_c_leave(&S[31], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return t2;
 L2: ;
 	clj_c_leave(&S[31], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -26231,8 +26187,7 @@ static clj_value clojure_test_deftest_(void *ctx, const clj_value *args, size_t 
 }
 
 static clj_value top_56(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 239 "<embedded>/clojure/test.clj"
@@ -26245,24 +26200,25 @@ static clj_value top_56(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_set_test_v3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	s[3] = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 3;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[32], &cc)) goto L1;
 #line 249 "<embedded>/clojure/test.clj"
@@ -26343,7 +26299,7 @@ clj_value clojure_test_set_test_v3(clj_value self, const clj_value *captured, co
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t13 = fr.slots[2];
+	clj_value t13 = l2;
 	clj_value a7[1] = {t13};
 	(void)a7;
 	clj_value t14 = clj_c_invoke(t12, a7, 1);
@@ -26629,7 +26585,7 @@ clj_value clojure_test_set_test_v3(clj_value self, const clj_value *captured, co
 	if (o3) clj_release(t3);
 	goto L2;
 	}
-	clj_value t37 = fr.slots[3];
+	clj_value t37 = l3;
 	clj_value a12[3] = {t28, t36, t37};
 	(void)a12;
 	clj_value t38 = clj_c_invoke(t25, a12, 3);
@@ -26706,12 +26662,12 @@ clj_value clojure_test_set_test_v3(clj_value self, const clj_value *captured, co
 	t2 = CLJ_NIL;
 	}
 	clj_c_leave(&S[32], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return t2;
 L2: ;
 	clj_c_leave(&S[32], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -26725,8 +26681,7 @@ static clj_value clojure_test_set_test(void *ctx, const clj_value *args, size_t 
 }
 
 static clj_value top_57(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 246 "<embedded>/clojure/test.clj"
@@ -26739,18 +26694,15 @@ static clj_value top_57(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_58(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 254 "<embedded>/clojure/test.clj"
@@ -26776,31 +26728,30 @@ static clj_value top_58(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form59__0_v1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 1;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[33], &cc)) goto L1;
 #line 259 "<embedded>/clojure/test.clj"
-	clj_value t0 = clj_c_local(&fr, 0, true);
+	clj_value t0 = clj_retain(l0);
 	clj_c_leave(&S[33], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -26814,10 +26765,9 @@ static clj_value clojure_test_form59__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_59(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
-	for (uint32_t i = 0; i < 1; i++) s[i] = CLJ_NIL;
+	clj_value l0 = CLJ_NIL;
 	clj_eval_top_enter();
 #line 256 "<embedded>/clojure/test.clj"
 	clj_value t0 = clj_retain(K[313]);
@@ -26826,13 +26776,13 @@ static clj_value top_59(void) {
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_set(&fr, 0, t1);
+	clj_c_rebind(&l0, t1);
 	bool o2;
 	clj_value t2 = clj_c_var_borrow(V[33], &o2);
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a0[1] = {t3};
 	(void)a0;
 	clj_value t4 = clj_c_invoke(t2, a0, 1);
@@ -26949,22 +26899,23 @@ static clj_value top_59(void) {
 	}
 	t6 = t24;
 	}
-	clj_c_release_slots(&fr, 1);
+	clj_release(l0);
 	clj_eval_top_leave();
 	return t6;
 L1: ;
-	clj_c_release_slots(&fr, 1);
+	clj_release(l0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form60__0_v1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 1;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[34], &cc)) goto L1;
 #line 262 "<embedded>/clojure/test.clj"
@@ -27026,7 +26977,7 @@ static clj_value clojure_test_form60__0_v1(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t8 = fr.slots[1];
+	clj_value t8 = l1;
 	clj_value a0[4] = {t1, t2, t7, t8};
 	(void)a0;
 	clj_value t9 = clj_c_invoke(t0, a0, 4);
@@ -27039,12 +26990,12 @@ static clj_value clojure_test_form60__0_v1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[34], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return t9;
 L2: ;
 	clj_c_leave(&S[34], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -27058,8 +27009,7 @@ static clj_value clojure_test_form60__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_60(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 261 "<embedded>/clojure/test.clj"
@@ -27086,18 +27036,15 @@ static clj_value top_60(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_61(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 261 "<embedded>/clojure/test.clj"
@@ -27105,22 +27052,21 @@ static clj_value top_61(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_form62__0_v1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 1;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[35], &cc)) goto L1;
 #line 265 "<embedded>/clojure/test.clj"
@@ -27182,7 +27128,7 @@ static clj_value clojure_test_form62__0_v1(clj_value self, const clj_value *capt
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t8 = fr.slots[1];
+	clj_value t8 = l1;
 	clj_value a0[4] = {t1, t2, t7, t8};
 	(void)a0;
 	clj_value t9 = clj_c_invoke(t0, a0, 4);
@@ -27195,12 +27141,12 @@ static clj_value clojure_test_form62__0_v1(clj_value self, const clj_value *capt
 	goto L2;
 	}
 	clj_c_leave(&S[35], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return t9;
 L2: ;
 	clj_c_leave(&S[35], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -27214,8 +27160,7 @@ static clj_value clojure_test_form62__0(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_62(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 264 "<embedded>/clojure/test.clj"
@@ -27242,18 +27187,15 @@ static clj_value top_62(void) {
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t4;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_63(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 264 "<embedded>/clojure/test.clj"
@@ -27261,24 +27203,23 @@ static clj_value top_63(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_default_fixture_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[36], &cc)) goto L1;
 #line 270 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[0];
+	clj_value t0 = l0;
 	const clj_value *a0 = NULL;
 	clj_value t1 = clj_c_invoke(t0, a0, 0);
 	(void)t0;
@@ -27286,12 +27227,10 @@ clj_value clojure_test_default_fixture_a1(clj_value self, const clj_value *captu
 	goto L2;
 	}
 	clj_c_leave(&S[36], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t1;
 L2: ;
 	clj_c_leave(&S[36], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -27305,8 +27244,7 @@ static clj_value clojure_test_default_fixture(void *ctx, const clj_value *args, 
 }
 
 static clj_value top_64(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 267 "<embedded>/clojure/test.clj"
@@ -27319,19 +27257,17 @@ static clj_value top_64(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_compose_fixtures__0__1_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[39], &cc)) goto L1;
 #line 275 "<embedded>/clojure/test.clj"
@@ -27346,12 +27282,10 @@ static clj_value clojure_test_compose_fixtures__0__1_a0(clj_value self, const cl
 	goto L2;
 	}
 	clj_c_leave(&S[39], &cc);
-	clj_c_release_slots(&fr, 0);
 	return t2;
 L2: ;
 	clj_c_leave(&S[39], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	return CLJ_THROWN;
 }
 
@@ -27368,6 +27302,7 @@ static clj_value clojure_test_compose_fixtures__0_a1(clj_value self, const clj_v
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[1];
 	clj_cframe fr = {s, captured, 0, NULL};
+	(void)fr;
 	s[0] = args[0];
 	clj_ccall cc;
 	if (!clj_c_enter(&S[38], &cc)) goto L1;
@@ -27406,6 +27341,7 @@ clj_value clojure_test_compose_fixtures_a2(clj_value self, const clj_value *capt
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[2];
 	clj_cframe fr = {s, captured, 0, NULL};
+	(void)fr;
 	s[0] = args[0];
 	s[1] = args[1];
 	clj_ccall cc;
@@ -27431,8 +27367,7 @@ static clj_value clojure_test_compose_fixtures(void *ctx, const clj_value *args,
 }
 
 static clj_value top_65(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 272 "<embedded>/clojure/test.clj"
@@ -27445,20 +27380,19 @@ static clj_value top_65(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_join_fixtures_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[40], &cc)) goto L1;
 #line 280 "<embedded>/clojure/test.clj"
@@ -27480,7 +27414,7 @@ clj_value clojure_test_join_fixtures_a1(clj_value self, const clj_value *capture
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a0[3] = {t1, t2, t3};
 	(void)a0;
 	clj_value t4 = clj_c_invoke(t0, a0, 3);
@@ -27492,12 +27426,10 @@ clj_value clojure_test_join_fixtures_a1(clj_value self, const clj_value *capture
 	goto L2;
 	}
 	clj_c_leave(&S[40], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t4;
 L2: ;
 	clj_c_leave(&S[40], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -27511,8 +27443,7 @@ static clj_value clojure_test_join_fixtures(void *ctx, const clj_value *args, si
 }
 
 static clj_value top_66(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 277 "<embedded>/clojure/test.clj"
@@ -27525,24 +27456,23 @@ static clj_value top_66(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_ns_key_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[41], &cc)) goto L1;
 #line 282 "<embedded>/clojure/test.clj"
-	clj_value t0 = fr.slots[0];
+	clj_value t0 = l0;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -27559,7 +27489,7 @@ clj_value clojure_test_ns_key_a1(clj_value self, const clj_value *captured, cons
 	clj_release(t1);
 	clj_value t3;
 	if (t2) {
-	clj_value t4 = clj_c_local(&fr, 0, true);
+	clj_value t4 = clj_retain(l0);
 	t3 = t4;
 	} else {
 	bool o5;
@@ -27567,7 +27497,7 @@ clj_value clojure_test_ns_key_a1(clj_value self, const clj_value *captured, cons
 	if (t5 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t6 = fr.slots[0];
+	clj_value t6 = l0;
 	clj_value a1[1] = {t6};
 	(void)a1;
 	clj_value t7 = clj_c_invoke(t5, a1, 1);
@@ -27579,12 +27509,10 @@ clj_value clojure_test_ns_key_a1(clj_value self, const clj_value *captured, cons
 	t3 = t7;
 	}
 	clj_c_leave(&S[41], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t3;
 L2: ;
 	clj_c_leave(&S[41], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -27598,8 +27526,7 @@ static clj_value clojure_test_ns_key(void *ctx, const clj_value *args, size_t n)
 }
 
 static clj_value top_67(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 282 "<embedded>/clojure/test.clj"
@@ -27612,21 +27539,22 @@ static clj_value top_67(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 4; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[42], &cc)) goto L1;
 #line 289 "<embedded>/clojure/test.clj"
@@ -27636,7 +27564,7 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t2 = fr.slots[0];
+	clj_value t2 = l0;
 	clj_value a1[1] = {t2};
 	(void)a1;
 	clj_value t3 = clj_c_invoke(t1, a1, 1);
@@ -27653,14 +27581,15 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	if (t4 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t4);
-	clj_value t5 = fr.slots[1];
+	clj_c_rebind(&l1, t4);
+	clj_value t5 = l1;
 	bool t6 = clj_truthy(t5);
 	(void)t5;
 	clj_value t7;
 	if (t6) {
-	clj_value t8 = clj_c_local(&fr, 1, true);
-	clj_c_set(&fr, 2, t8);
+	clj_value t8 = l1;
+	l1 = CLJ_NIL;
+	clj_c_rebind(&l2, t8);
 #line 290 "<embedded>/clojure/test.clj"
 	bool o9;
 	clj_value t9 = clj_c_var_borrow(V[93], &o9);
@@ -27681,7 +27610,7 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	if (o9) clj_release(t9);
 	goto L2;
 	}
-	clj_value t13 = fr.slots[0];
+	clj_value t13 = l0;
 	clj_value a4[2] = {t12, t13};
 	(void)a4;
 	clj_value t14;
@@ -27729,7 +27658,7 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	goto L4;
 	}
 	clj_value t19 = K[337];
-	clj_value t20 = fr.slots[0];
+	clj_value t20 = l0;
 	clj_value t21 = K[338];
 	clj_value t22 = K[339];
 	clj_value a7[4] = {t19, t20, t21, t22};
@@ -27782,7 +27711,7 @@ clj_value clojure_test_test_var_a1(clj_value self, const clj_value *captured, co
 	clj_release(t27);
 #line 293 "<embedded>/clojure/test.clj"
 	clj_value t28;
-	clj_value t29 = fr.slots[2];
+	clj_value t29 = l2;
 	const clj_value *a10 = NULL;
 	clj_value t30 = clj_c_invoke(t29, a10, 0);
 	(void)t29;
@@ -27799,7 +27728,7 @@ L7: ;
 	clj_value ex9 = clj_take_pending();
 	bool h9 = false;
 	if (true) {
-	clj_c_set(&fr, 3, ex9);
+	clj_c_rebind(&l3, ex9);
 	h9 = true;
 #line 295 "<embedded>/clojure/test.clj"
 	bool o31;
@@ -27812,7 +27741,7 @@ L7: ;
 	clj_value t34 = K[338];
 	clj_value t35 = K[341];
 	clj_value t36 = K[342];
-	clj_value t37 = fr.slots[3];
+	clj_value t37 = l3;
 	clj_value t38 = K[343];
 	clj_value t39 = K[344];
 	clj_value a12[8] = {t32, t33, t34, t35, t36, t37, t38, t39};
@@ -27864,7 +27793,7 @@ L9: ;
 	goto L4;
 	}
 	clj_value t44 = K[337];
-	clj_value t45 = fr.slots[0];
+	clj_value t45 = l0;
 	clj_value t46 = K[338];
 	clj_value t47 = K[345];
 	clj_value a14[4] = {t44, t45, t46, t47};
@@ -27928,12 +27857,16 @@ L11: ;
 	t7 = CLJ_NIL;
 	}
 	clj_c_leave(&S[42], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
 	return t7;
 L2: ;
 	clj_c_leave(&S[42], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -27947,8 +27880,7 @@ static clj_value clojure_test_test_var(void *ctx, const clj_value *args, size_t 
 }
 
 static clj_value top_68(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 286 "<embedded>/clojure/test.clj"
@@ -27961,19 +27893,17 @@ static clj_value top_68(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_test_vars__0__1_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[45], &cc)) goto L1;
 #line 311 "<embedded>/clojure/test.clj"
@@ -27998,12 +27928,10 @@ static clj_value clojure_test_test_vars__0__1_a0(clj_value self, const clj_value
 	goto L2;
 	}
 	clj_c_leave(&S[45], &cc);
-	clj_c_release_slots(&fr, 0);
 	return t2;
 L2: ;
 	clj_c_leave(&S[45], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	return CLJ_THROWN;
 }
 
@@ -28020,7 +27948,9 @@ static clj_value clojure_test_test_vars__0_a0(clj_value self, const clj_value *c
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[2];
 	clj_cframe fr = {s, captured, 0, NULL};
+	(void)fr;
 	for (uint32_t i = 0; i < 2; i++) s[i] = CLJ_NIL;
+	clj_value l0 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[44], &cc)) goto L1;
 #line 309 "<embedded>/clojure/test.clj"
@@ -28037,14 +27967,14 @@ static clj_value clojure_test_test_vars__0_a0(clj_value self, const clj_value *c
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 0, t1);
+	clj_c_rebind(&l0, t1);
 L4: ;
-	clj_value t2 = fr.slots[0];
+	clj_value t2 = l0;
 	bool t3 = clj_truthy(t2);
 	(void)t2;
 	clj_value t4;
 	if (t3) {
-	clj_value t5 = fr.slots[0];
+	clj_value t5 = l0;
 	clj_value a1[1] = {t5};
 	(void)a1;
 	clj_value t6;
@@ -28104,7 +28034,7 @@ L4: ;
 	}
 	clj_release(t13);
 #line 309 "<embedded>/clojure/test.clj"
-	clj_value t17 = fr.slots[0];
+	clj_value t17 = l0;
 	clj_value a6[1] = {t17};
 	(void)a6;
 	clj_value t18;
@@ -28117,7 +28047,7 @@ L4: ;
 	if (t18 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 0, t18);
+	clj_c_rebind(&l0, t18);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
@@ -28128,11 +28058,13 @@ L4: ;
 	t4 = CLJ_NIL;
 	}
 	clj_c_leave(&S[44], &cc);
+	clj_release(l0);
 	clj_c_release_slots(&fr, 2);
 	return t4;
 L2: ;
 	clj_c_leave(&S[44], &cc);
 L1: ;
+	clj_release(l0);
 	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
@@ -28150,8 +28082,15 @@ clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *captured, c
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[8];
 	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	for (uint32_t i = 1; i < 8; i++) s[i] = CLJ_NIL;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
+	clj_value l6 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[43], &cc)) goto L1;
 #line 303 "<embedded>/clojure/test.clj"
@@ -28190,7 +28129,7 @@ clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t5 = fr.slots[0];
+	clj_value t5 = l0;
 	clj_value a1[2] = {t4, t5};
 	(void)a1;
 	clj_value t6;
@@ -28218,14 +28157,14 @@ clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *captured, c
 	if (t7 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t7);
+	clj_c_rebind(&l1, t7);
 L4: ;
-	clj_value t8 = fr.slots[1];
+	clj_value t8 = l1;
 	bool t9 = clj_truthy(t8);
 	(void)t8;
 	clj_value t10;
 	if (t9) {
-	clj_value t11 = fr.slots[1];
+	clj_value t11 = l1;
 	clj_value a3[1] = {t11};
 	(void)a3;
 	clj_value t12;
@@ -28238,8 +28177,8 @@ L4: ;
 	if (t12 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 2, t12);
-	clj_value t13 = fr.slots[2];
+	clj_c_rebind(&l2, t12);
+	clj_value t13 = l2;
 	clj_value t14 = K[41];
 	clj_value t15 = K[3];
 	clj_value a4[3] = {t13, t14, t15};
@@ -28256,8 +28195,8 @@ L4: ;
 	if (t16 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t16);
-	clj_value t17 = fr.slots[2];
+	clj_c_rebind(&l3, t16);
+	clj_value t17 = l2;
 	clj_value t18 = K[175];
 	clj_value t19 = K[3];
 	clj_value a5[3] = {t17, t18, t19};
@@ -28295,7 +28234,7 @@ L4: ;
 	if (t23 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t24 = fr.slots[3];
+	clj_value t24 = l3;
 	clj_value a6[2] = {t23, t24};
 	(void)a6;
 	clj_value t25;
@@ -28309,7 +28248,7 @@ L4: ;
 	if (t25 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 5, t25);
+	clj_c_rebind(&l5, t25);
 #line 305 "<embedded>/clojure/test.clj"
 	bool o26;
 	clj_value t26 = clj_c_var_borrow(V[89], &o26);
@@ -28317,7 +28256,7 @@ L4: ;
 	goto L2;
 	}
 	clj_value t27 = K[350];
-	clj_value t28 = fr.slots[5];
+	clj_value t28 = l5;
 	clj_value a9[1] = {t28};
 	(void)a9;
 	clj_value t29 = clj_c_invoke(t27, a9, 1);
@@ -28341,7 +28280,7 @@ L4: ;
 	if (t30 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 6, t30);
+	clj_c_rebind(&l6, t30);
 #line 306 "<embedded>/clojure/test.clj"
 	bool o31;
 	clj_value t31 = clj_c_var_borrow(V[89], &o31);
@@ -28349,7 +28288,7 @@ L4: ;
 	goto L2;
 	}
 	clj_value t32 = K[351];
-	clj_value t33 = fr.slots[5];
+	clj_value t33 = l5;
 	clj_value a11[1] = {t33};
 	(void)a11;
 	clj_value t34 = clj_c_invoke(t32, a11, 1);
@@ -28375,7 +28314,7 @@ L4: ;
 	}
 	clj_c_set(&fr, 7, t35);
 #line 307 "<embedded>/clojure/test.clj"
-	clj_value t36 = fr.slots[6];
+	clj_value t36 = l6;
 #line 308 "<embedded>/clojure/test.clj"
 	clj_value c13[2] = {fr.slots[4], fr.slots[7]};
 	clj_value t37 = clj_c_closure(CLJ_NIL, clojure_test_test_vars__0, c13, 2, 0x1, 0, 0);
@@ -28389,7 +28328,7 @@ L4: ;
 	}
 	clj_release(t38);
 #line 303 "<embedded>/clojure/test.clj"
-	clj_value t39 = fr.slots[1];
+	clj_value t39 = l1;
 	clj_value a14[1] = {t39};
 	(void)a14;
 	clj_value t40;
@@ -28402,7 +28341,7 @@ L4: ;
 	if (t40 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t40);
+	clj_c_rebind(&l1, t40);
 	if (clj_c_loop_tick()) {
 	goto L2;
 	}
@@ -28413,11 +28352,21 @@ L4: ;
 	t10 = CLJ_NIL;
 	}
 	clj_c_leave(&S[43], &cc);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l5);
+	clj_release(l6);
 	clj_c_release_slots(&fr, 8);
 	return t10;
 L2: ;
 	clj_c_leave(&S[43], &cc);
 L1: ;
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
+	clj_release(l5);
+	clj_release(l6);
 	clj_c_release_slots(&fr, 8);
 	return CLJ_THROWN;
 }
@@ -28432,8 +28381,7 @@ static clj_value clojure_test_test_vars(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_69(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 299 "<embedded>/clojure/test.clj"
@@ -28446,21 +28394,20 @@ static clj_value top_69(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_test_all_vars__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 2; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[47], &cc)) goto L1;
 #line 316 "<embedded>/clojure/test.clj"
@@ -28470,7 +28417,7 @@ static clj_value clojure_test_test_all_vars__0_a1(clj_value self, const clj_valu
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t2 = fr.slots[0];
+	clj_value t2 = l0;
 	clj_value a1[1] = {t2};
 	(void)a1;
 	clj_value t3 = clj_c_invoke(t1, a1, 1);
@@ -28487,25 +28434,26 @@ static clj_value clojure_test_test_all_vars__0_a1(clj_value self, const clj_valu
 	if (t4 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t4);
-	clj_value t5 = fr.slots[1];
+	clj_c_rebind(&l1, t4);
+	clj_value t5 = l1;
 	bool t6 = clj_truthy(t5);
 	(void)t5;
 	clj_value t7;
 	if (t6) {
-	clj_value t8 = clj_c_local(&fr, 1, true);
+	clj_value t8 = l1;
+	l1 = CLJ_NIL;
 	t7 = t8;
 	} else {
 	clj_value t9 = clj_retain(K[41]);
 	t7 = t9;
 	}
 	clj_c_leave(&S[47], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return t7;
 L2: ;
 	clj_c_leave(&S[47], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -28520,9 +28468,10 @@ static clj_value clojure_test_test_all_vars__0(void *ctx, const clj_value *args,
 
 clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[46], &cc)) goto L1;
 #line 316 "<embedded>/clojure/test.clj"
@@ -28555,7 +28504,7 @@ clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *capture
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t5 = fr.slots[0];
+	clj_value t5 = l0;
 	clj_value a3[1] = {t5};
 	(void)a3;
 	clj_value t6 = clj_c_invoke(t4, a3, 1);
@@ -28616,12 +28565,10 @@ clj_value clojure_test_test_all_vars_a1(clj_value self, const clj_value *capture
 	goto L2;
 	}
 	clj_c_leave(&S[46], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t9;
 L2: ;
 	clj_c_leave(&S[46], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -28635,8 +28582,7 @@ static clj_value clojure_test_test_all_vars(void *ctx, const clj_value *args, si
 }
 
 static clj_value top_70(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 313 "<embedded>/clojure/test.clj"
@@ -28649,21 +28595,22 @@ static clj_value top_70(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 4; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
+	clj_value l2 = CLJ_NIL;
+	clj_value l3 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[48], &cc)) goto L1;
 #line 322 "<embedded>/clojure/test.clj"
@@ -28730,7 +28677,7 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	if (t9 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_value t10 = fr.slots[0];
+	clj_value t10 = l0;
 	clj_value a4[1] = {t10};
 	(void)a4;
 	clj_value t11 = clj_c_invoke(t9, a4, 1);
@@ -28739,7 +28686,7 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	if (t11 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_c_set(&fr, 1, t11);
+	clj_c_rebind(&l1, t11);
 #line 324 "<embedded>/clojure/test.clj"
 	bool o12;
 	clj_value t12 = clj_c_var_borrow(V[46], &o12);
@@ -28747,7 +28694,7 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	goto L4;
 	}
 	clj_value t13 = K[360];
-	clj_value t14 = fr.slots[1];
+	clj_value t14 = l1;
 	clj_value t15 = K[361];
 	clj_value t16 = K[362];
 	clj_value a6[4] = {t13, t14, t15, t16};
@@ -28782,7 +28729,7 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	if (t19 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_value t20 = fr.slots[1];
+	clj_value t20 = l1;
 	clj_value a8[1] = {t20};
 	(void)a8;
 	clj_value t21 = clj_c_invoke(t19, a8, 1);
@@ -28805,21 +28752,22 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	if (t23 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_c_set(&fr, 2, t23);
-	clj_value t24 = fr.slots[2];
+	clj_c_rebind(&l2, t23);
+	clj_value t24 = l2;
 	bool t25 = clj_truthy(t24);
 	(void)t24;
 	clj_value t26;
 	if (t25) {
-	clj_value t27 = clj_c_local(&fr, 2, true);
-	clj_c_set(&fr, 3, t27);
+	clj_value t27 = l2;
+	l2 = CLJ_NIL;
+	clj_c_rebind(&l3, t27);
 #line 326 "<embedded>/clojure/test.clj"
 	bool o28;
 	clj_value t28 = clj_c_var_borrow(V[105], &o28);
 	if (t28 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_value t29 = fr.slots[3];
+	clj_value t29 = l3;
 	clj_value a9[1] = {t29};
 	(void)a9;
 	clj_value t30 = clj_c_invoke(t28, a9, 1);
@@ -28842,7 +28790,7 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	if (t32 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_value t33 = fr.slots[1];
+	clj_value t33 = l1;
 	clj_value a11[1] = {t33};
 	(void)a11;
 	clj_value t34;
@@ -28867,7 +28815,7 @@ clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *captured, con
 	goto L4;
 	}
 	clj_value t36 = K[360];
-	clj_value t37 = fr.slots[1];
+	clj_value t37 = l1;
 	clj_value t38 = K[361];
 	clj_value t39 = K[364];
 	clj_value a13[4] = {t36, t37, t38, t39};
@@ -28947,12 +28895,16 @@ L7: ;
 	goto L2;
 	}
 	clj_c_leave(&S[48], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
 	return t47;
 L2: ;
 	clj_c_leave(&S[48], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l1);
+	clj_release(l2);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -28966,8 +28918,7 @@ static clj_value clojure_test_test_ns(void *ctx, const clj_value *args, size_t n
 }
 
 static clj_value top_71(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 318 "<embedded>/clojure/test.clj"
@@ -28980,19 +28931,17 @@ static clj_value top_71(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_run_tests_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[49], &cc)) goto L1;
 #line 334 "<embedded>/clojure/test.clj"
@@ -29016,22 +28965,20 @@ clj_value clojure_test_run_tests_a0(clj_value self, const clj_value *captured, c
 	goto L2;
 	}
 	clj_c_leave(&S[49], &cc);
-	clj_c_release_slots(&fr, 0);
 	return t2;
 L2: ;
 	clj_c_leave(&S[49], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = nargs > 0 ? clj_list_from_array(args + 0, nargs - 0) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 0;
-	for (uint32_t i = 1; i < 2; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = CLJ_NIL;
+	clj_value l1 = CLJ_NIL;
+	l0 = nargs > 0 ? clj_list_from_array(args + 0, nargs - 0) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[49], &cc)) goto L1;
 #line 336 "<embedded>/clojure/test.clj"
@@ -29070,7 +29017,7 @@ clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *captured, c
 	if (o0) clj_release(t0);
 	goto L2;
 	}
-	clj_value t5 = fr.slots[0];
+	clj_value t5 = l0;
 	clj_value a2[2] = {t4, t5};
 	(void)a2;
 	clj_value t6;
@@ -29115,14 +29062,14 @@ clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *captured, c
 	if (t10 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t10);
+	clj_c_rebind(&l1, t10);
 #line 338 "<embedded>/clojure/test.clj"
 	bool o11;
 	clj_value t11 = clj_c_var_borrow(V[46], &o11);
 	if (t11 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t12 = fr.slots[1];
+	clj_value t12 = l1;
 	clj_value a3[1] = {t12};
 	(void)a3;
 	clj_value t13;
@@ -29139,14 +29086,17 @@ clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *captured, c
 	}
 	clj_release(t13);
 #line 336 "<embedded>/clojure/test.clj"
-	clj_value t14 = clj_c_local(&fr, 1, true);
+	clj_value t14 = l1;
+	l1 = CLJ_NIL;
 	clj_c_leave(&S[49], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l0);
+	clj_release(l1);
 	return t14;
 L2: ;
 	clj_c_leave(&S[49], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l0);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -29161,8 +29111,7 @@ static clj_value clojure_test_run_tests(void *ctx, const clj_value *args, size_t
 }
 
 static clj_value top_72(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 331 "<embedded>/clojure/test.clj"
@@ -29175,19 +29124,17 @@ static clj_value top_72(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_run_all_tests_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[50], &cc)) goto L1;
 #line 344 "<embedded>/clojure/test.clj"
@@ -29227,20 +29174,19 @@ clj_value clojure_test_run_all_tests_a0(clj_value self, const clj_value *capture
 	goto L2;
 	}
 	clj_c_leave(&S[50], &cc);
-	clj_c_release_slots(&fr, 0);
 	return t4;
 L2: ;
 	clj_c_leave(&S[50], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_test_run_all_tests__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[51], &cc)) goto L1;
 #line 346 "<embedded>/clojure/test.clj"
@@ -29250,7 +29196,7 @@ static clj_value clojure_test_run_all_tests__0_a1(clj_value self, const clj_valu
 	goto L2;
 	}
 	clj_value t1 = fr.captured[0];
-	clj_value t2 = fr.slots[0];
+	clj_value t2 = l0;
 	clj_value a0[2] = {t1, t2};
 	(void)a0;
 	clj_value t3 = clj_c_invoke(t0, a0, 2);
@@ -29261,12 +29207,10 @@ static clj_value clojure_test_run_all_tests__0_a1(clj_value self, const clj_valu
 	goto L2;
 	}
 	clj_c_leave(&S[51], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t3;
 L2: ;
 	clj_c_leave(&S[51], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -29281,9 +29225,10 @@ static clj_value clojure_test_run_all_tests__0(void *ctx, const clj_value *args,
 
 static clj_value clojure_test_run_all_tests__1_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[52], &cc)) goto L1;
 #line 347 "<embedded>/clojure/test.clj"
@@ -29299,7 +29244,7 @@ static clj_value clojure_test_run_all_tests__1_a1(clj_value self, const clj_valu
 	if (o1) clj_release(t1);
 	goto L2;
 	}
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a2[1] = {t3};
 	(void)a2;
 	clj_value t4 = clj_c_invoke(t2, a2, 1);
@@ -29326,12 +29271,10 @@ static clj_value clojure_test_run_all_tests__1_a1(clj_value self, const clj_valu
 	goto L2;
 	}
 	clj_c_leave(&S[52], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t6;
 L2: ;
 	clj_c_leave(&S[52], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -29348,6 +29291,7 @@ clj_value clojure_test_run_all_tests_a1(clj_value self, const clj_value *capture
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[2];
 	clj_cframe fr = {s, captured, 0, NULL};
+	(void)fr;
 	s[0] = args[0];
 	for (uint32_t i = 1; i < 2; i++) s[i] = CLJ_NIL;
 	clj_ccall cc;
@@ -29466,8 +29410,7 @@ static clj_value clojure_test_run_all_tests(void *ctx, const clj_value *args, si
 }
 
 static clj_value top_73(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 341 "<embedded>/clojure/test.clj"
@@ -29480,21 +29423,20 @@ static clj_value top_73(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_run_test_var_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 2; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[53], &cc)) goto L1;
 #line 352 "<embedded>/clojure/test.clj"
@@ -29561,7 +29503,7 @@ clj_value clojure_test_run_test_var_a1(clj_value self, const clj_value *captured
 	if (t9 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_value t10 = fr.slots[0];
+	clj_value t10 = l0;
 	clj_value a5[1] = {t10};
 	(void)a5;
 	clj_value t11 = clj_vector_from_array(a5, 1);
@@ -29621,14 +29563,14 @@ clj_value clojure_test_run_test_var_a1(clj_value self, const clj_value *captured
 	if (t18 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_c_set(&fr, 1, t18);
+	clj_c_rebind(&l1, t18);
 #line 355 "<embedded>/clojure/test.clj"
 	bool o19;
 	clj_value t19 = clj_c_var_borrow(V[46], &o19);
 	if (t19 == CLJ_THROWN) {
 	goto L4;
 	}
-	clj_value t20 = fr.slots[1];
+	clj_value t20 = l1;
 	clj_value a8[1] = {t20};
 	(void)a8;
 	clj_value t21;
@@ -29645,7 +29587,8 @@ clj_value clojure_test_run_test_var_a1(clj_value self, const clj_value *captured
 	}
 	clj_release(t21);
 #line 354 "<embedded>/clojure/test.clj"
-	clj_value t22 = clj_c_local(&fr, 1, true);
+	clj_value t22 = l1;
+	l1 = CLJ_NIL;
 	t8 = t22;
 	goto L5;
 L4: ;
@@ -29678,12 +29621,12 @@ L7: ;
 	goto L2;
 	}
 	clj_c_leave(&S[53], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return t25;
 L2: ;
 	clj_c_leave(&S[53], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -29697,8 +29640,7 @@ static clj_value clojure_test_run_test_var(void *ctx, const clj_value *args, siz
 }
 
 static clj_value top_74(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 349 "<embedded>/clojure/test.clj"
@@ -29711,23 +29653,24 @@ static clj_value top_74(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[4];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
-	for (uint32_t i = 3; i < 4; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
+	clj_value l3 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[54], &cc)) goto L1;
 #line 361 "<embedded>/clojure/test.clj"
@@ -29736,7 +29679,7 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	if (t0 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t1 = fr.slots[2];
+	clj_value t1 = l2;
 	clj_value a0[1] = {t1};
 	(void)a0;
 	clj_value t2 = clj_c_invoke(t0, a0, 1);
@@ -29745,10 +29688,10 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	if (t2 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 3, t2);
+	clj_c_rebind(&l3, t2);
 #line 362 "<embedded>/clojure/test.clj"
 #line 363 "<embedded>/clojure/test.clj"
-	clj_value t3 = fr.slots[3];
+	clj_value t3 = l3;
 	clj_value a1[1] = {t3};
 	(void)a1;
 	clj_value t4;
@@ -29777,7 +29720,7 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	goto L2;
 	}
 	clj_value t9 = K[381];
-	clj_value t10 = fr.slots[2];
+	clj_value t10 = l2;
 	clj_value t11 = K[382];
 	clj_value a3[3] = {t9, t10, t11};
 	(void)a3;
@@ -29814,7 +29757,7 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	if (t17 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_value t18 = fr.slots[3];
+	clj_value t18 = l3;
 	clj_value a6[1] = {t18};
 	(void)a6;
 	clj_value t19 = clj_c_invoke(t17, a6, 1);
@@ -29858,7 +29801,7 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	if (o24) clj_release(t24);
 	goto L2;
 	}
-	clj_value t26 = fr.slots[2];
+	clj_value t26 = l2;
 	clj_value t27 = K[385];
 	clj_value a8[2] = {t26, t27};
 	(void)a8;
@@ -29915,7 +29858,7 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	if (o32) clj_release(t32);
 	goto L2;
 	}
-	clj_value t37 = fr.slots[3];
+	clj_value t37 = l3;
 	clj_value a12[1] = {t37};
 	(void)a12;
 	clj_value t38 = clj_c_invoke(t36, a12, 1);
@@ -29958,12 +29901,12 @@ clj_value clojure_test_run_test_a3(clj_value self, const clj_value *captured, co
 	t6 = t23;
 	}
 	clj_c_leave(&S[54], &cc);
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return t6;
 L2: ;
 	clj_c_leave(&S[54], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 4);
+	clj_release(l3);
 	return CLJ_THROWN;
 }
 
@@ -29977,8 +29920,7 @@ static clj_value clojure_test_run_test(void *ctx, const clj_value *args, size_t 
 }
 
 static clj_value top_75(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 358 "<embedded>/clojure/test.clj"
@@ -29991,26 +29933,25 @@ static clj_value top_75(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 clj_value clojure_test_successful_QMARK__a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[2];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	for (uint32_t i = 1; i < 2; i++) s[i] = CLJ_NIL;
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[55], &cc)) goto L1;
 #line 370 "<embedded>/clojure/test.clj"
 	clj_value t0 = K[390];
-	clj_value t1 = fr.slots[0];
+	clj_value t1 = l0;
 	clj_value t2 = K[41];
 	clj_value a1[2] = {t1, t2};
 	(void)a1;
@@ -30033,15 +29974,15 @@ clj_value clojure_test_successful_QMARK__a1(clj_value self, const clj_value *cap
 	if (t4 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 1, t4);
-	clj_value t5 = fr.slots[1];
+	clj_c_rebind(&l1, t4);
+	clj_value t5 = l1;
 	bool t6 = clj_truthy(t5);
 	(void)t5;
 	clj_value t7;
 	if (t6) {
 #line 371 "<embedded>/clojure/test.clj"
 	clj_value t8 = K[391];
-	clj_value t9 = fr.slots[0];
+	clj_value t9 = l0;
 	clj_value t10 = K[41];
 	clj_value a3[2] = {t9, t10};
 	(void)a3;
@@ -30067,16 +30008,17 @@ clj_value clojure_test_successful_QMARK__a1(clj_value self, const clj_value *cap
 	t7 = t12;
 	} else {
 #line 370 "<embedded>/clojure/test.clj"
-	clj_value t13 = clj_c_local(&fr, 1, true);
+	clj_value t13 = l1;
+	l1 = CLJ_NIL;
 	t7 = t13;
 	}
 	clj_c_leave(&S[55], &cc);
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return t7;
 L2: ;
 	clj_c_leave(&S[55], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 2);
+	clj_release(l1);
 	return CLJ_THROWN;
 }
 
@@ -30090,8 +30032,7 @@ static clj_value clojure_test_successful_QMARK_(void *ctx, const clj_value *args
 }
 
 static clj_value top_76(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 367 "<embedded>/clojure/test.clj"
@@ -30104,11 +30045,9 @@ static clj_value top_76(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }

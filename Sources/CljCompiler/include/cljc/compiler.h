@@ -52,6 +52,20 @@ char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node
 size_t              cljc_refusal_count(const cljc_compiler *c);
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i);
 
+// Frame slots of a unit's trees against the facts pass's escape classification (NOTES.md, "Compiler": promoted
+// slots). `slots` counts every slot of every frame as docs/facts-coverage.md does; the rest partition it.
+typedef struct {
+	uint64_t slots;
+	uint64_t local;          // escape fact `local`
+	uint64_t promoted;       // emitted as C variables
+	uint64_t promoted_local; // of those, `local` by the fact
+	uint64_t local_param;    // `local` but a parameter or the self slot: ownership is the caller's
+	uint64_t local_pinned;   // `local` but read through the slot array: a capture, an OUTER read, a frame past 64 slots
+	uint64_t local_fused;    // `local` but a fused node's argument frame, which is the argument array itself
+} cljc_slot_stats;
+
+void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out);
+
 // The C identifier of a Clojure name (NOTES.md, the demangling rule); owned by the caller.
 char *cljc_mangle(const char *ns, const char *name);
 

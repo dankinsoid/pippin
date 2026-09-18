@@ -623,6 +623,8 @@ func aClosureCallLoop(_ n: Int) -> UInt64 {
 }
 
 let countFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))")
+// The counting loop with a second variable it adds into: two slot rebinds per iteration.
+let accFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc)))")
 let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (< i n) (recur (bench-inc i)) i)))")
 
 // The same call with the fn bound by a let around the loop, and a helper bound inside the loop body that
@@ -656,6 +658,7 @@ do {
 	let n = 100_000
 	// A Swift counting loop folds to a closed form under -O, so it has no reference column.
 	callRows.append(CallRow(scenario: "counting loop", n: n, c: measure(ops: n) { cCountLoop(countFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "loop accumulating into a local", n: n, c: measure(ops: n) { cCountLoop(accFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
 		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
 		swift: measure(ops: n) { aClosureCallLoop(n) }))
@@ -668,6 +671,7 @@ do {
 	callRows.append(CallRow(scenario: "protocol call, bi-morphic", n: n, c: measure(ops: n) { cClosureCallLoop(protoBiFn, n) }, swift: nil))
 }
 clj_release(countFn)
+clj_release(accFn)
 clj_release(callFn)
 clj_release(nativeCallFn)
 clj_release(hostCallFn)

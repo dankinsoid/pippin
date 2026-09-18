@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "clj/facts.h"
 #include "cljc/compiler.h"
 
 // ---- string builder
@@ -177,6 +178,7 @@ typedef struct {
 	pool  externs;  // direct-call targets referenced: "base_aN"
 	pool  defined;  // bases of the vars this unit defines with a fn init, with their qualified names
 	uint32_t nstubs, ntops, nforms;
+	cljc_slot_stats slots;
 	uint64_t last_serial; // of the last form whose statements were emitted
 	bool     serial_open; // the failure label of the current form is still reachable
 	bool     embedded;
@@ -293,6 +295,9 @@ typedef struct fnctx {
 	sb             out;
 	int            ntemp, nlabel, naux; // temps, labels, and the arrays and scratch names beside them
 	const char    *frame;  // C name of the clj_cframe
+	const clj_facts *facts;    // of the top-level tree being emitted
+	uint64_t         promoted; // slots of the running frame that are C variables l<i>, not fr.slots[i]
+	uint64_t         borrowed; // the promoted slots that hold a +0 value for the whole call: never released, never rebound
 	temp          *live;
 	int            nlive, live_cap;
 	handler       *handlers;
@@ -386,6 +391,131 @@ static void check_thrown(fnctx *f, const char *name) {
 	sb_printf(&f->out, "\tif (%s == CLJ_THROWN) {\n", name);
 	emit_unwind(f);
 	sb_puts(&f->out, "\t}\n");
+}
+
+// ---- slot promotion (NOTES.md, "Compiler": promoted slots)
+
+// Slots read through fr.slots by a capture or an OUTER node; the facts pass does not charge OUTER reads to the definer.
+typedef struct {
+	uint32_t level; // direct-fn frames entered below the scanned frame
+	uint64_t pinned;
+	uint64_t rebound; // recur targets of the scanned frame's own body: a param among them changes owner
+} pin_scan;
+
+static void pin_walk(const clj_node *n, void *ctx);
+
+// A deeper read names an ancestor frame, which pins it in its own scan.
+static void pin_index(pin_scan *p, uint32_t depth, uint32_t index) {
+	if (depth == p->level && index < 64) p->pinned |= (uint64_t)1 << index;
+}
+
+static void pin_walk(const clj_node *n, void *ctx) {
+	pin_scan *p = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_OUTER: pin_index(p, n->u.outer.depth, n->u.outer.index); return;
+	case CLJ_NODE_RECUR:
+		for (uint32_t i = 0; p->level == 0 && i < n->u.recur.n; i++) {
+			if (n->u.recur.slots[i] < 64) p->rebound |= (uint64_t)1 << n->u.recur.slots[i];
+		}
+		break;
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			const clj_capture *cp = &n->u.fn.captures[i];
+			if (cp->kind == CLJ_CAPTURE_LOCAL) pin_index(p, 0, cp->index);
+			else if (cp->kind == CLJ_CAPTURE_OUTER) pin_index(p, cp->depth, cp->index);
+		}
+		return; // its arities are frames without a static link
+	case CLJ_NODE_DIRECT_FN:
+		p->level++;
+		clj_node_children(n, pin_walk, p);
+		p->level--;
+		return;
+	case CLJ_NODE_FUSED:
+		// the argument frame links to nothing, so an OUTER inside it is over-counted, never missed
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) pin_walk(n->u.fused.args[i], p);
+		p->level++;
+		pin_walk(n->u.fused.fused, p);
+		pin_walk(n->u.fused.original, p);
+		p->level--;
+		return;
+	default: clj_node_children(n, pin_walk, p);
+	}
+}
+
+// The facts frame whose body this is; UINT32_MAX when the table has none.
+static uint32_t facts_frame(const clj_facts *facts, const clj_node *owner, const clj_node *body) {
+	uint32_t id = owner ? owner->id : UINT32_MAX;
+	for (uint32_t i = 0; i < clj_facts_nframes(facts); i++) {
+		const clj_facts_frame *fr = clj_facts_frame_at(facts, i);
+		if (fr->owner == id && fr->first == body->id) return i;
+	}
+	return UINT32_MAX;
+}
+
+// Sets f->promoted and f->borrowed. A promoted slot is owned-or-nil for its whole life, or (a closure's param or
+// self slot no recur rebinds) borrowed for its whole life; a direct fn's params are owned by the caller's mask.
+static void promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
+	cljc_slot_stats *st = &f->u->slots;
+	f->promoted = f->borrowed = 0;
+	if (!f->facts || nslots == 0) return;
+	uint32_t fi = facts_frame(f->facts, owner, body);
+	if (fi == UINT32_MAX) return;
+	pin_scan p = {0, 0, 0};
+	pin_walk(body, &p);
+	for (uint32_t i = 0; i < nslots; i++) {
+		clj_escape e = clj_facts_escape(f->facts, fi, i);
+		bool       param = a && (i < a->nparams || (int32_t)i == a->self_slot);
+		// a frame past 64 slots retains every param and releases every array entry
+		bool pinned = nslots > 64 || i >= 64 || ((p.pinned >> i) & 1);
+		if (param && (!closure || ((p.rebound >> i) & 1))) {
+			if (e == CLJ_ESCAPE_LOCAL) st->local_param++;
+			continue;
+		}
+		if (pinned) {
+			if (e == CLJ_ESCAPE_LOCAL) st->local_pinned++;
+			continue;
+		}
+		if (e == CLJ_ESCAPE_CAPTURED) continue;
+		f->promoted |= (uint64_t)1 << i;
+		if (param) f->borrowed |= (uint64_t)1 << i;
+		st->promoted++;
+		if (e == CLJ_ESCAPE_LOCAL) st->promoted_local++;
+	}
+}
+
+static bool promoted(const fnctx *f, uint32_t i) { return i < 64 && ((f->promoted >> i) & 1); }
+static bool borrowed_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->borrowed >> i) & 1); }
+
+// The slot array keeps the slots that are not promoted, up to the highest one.
+static uint32_t array_slots(const fnctx *f, uint32_t nslots) {
+	while (nslots > 0 && promoted(f, nslots - 1)) nslots--;
+	return nslots;
+}
+
+// The owned promoted slots start at nil; a borrowed one is declared where its value arrives.
+static void emit_promoted_decls(fnctx *f) {
+	for (uint32_t i = 0; i < 64; i++) {
+		if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
+	}
+}
+
+static void emit_promoted_releases(fnctx *f) {
+	for (uint32_t i = 0; i < 64; i++) {
+		if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_release(l%u);\n", i);
+	}
+}
+
+// A param or self value arriving in a closure arity: into its C variable or its array entry.
+static void emit_slot_arrival(fnctx *f, uint32_t slot, const char *value) {
+	if (promoted(f, slot)) sb_printf(&f->out, "\tclj_value l%u = %s;\n\t(void)l%u;\n", slot, value, slot);
+	else sb_printf(&f->out, "\ts[%u] = %s;\n", slot, value);
+}
+
+// The store of an owned value into a slot: slot_set of eval.c, or the rebind of a C variable.
+static void emit_set(fnctx *f, uint32_t slot, const char *value) {
+	if (borrowed_slot(f, slot)) clj_fatal("compiler: a borrowed slot is rebound");
+	if (promoted(f, slot)) sb_printf(&f->out, "\tclj_c_rebind(&l%u, %s);\n", slot, value);
+	else sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, slot, value);
 }
 
 // ---- pools from nodes
@@ -581,6 +711,19 @@ static temp emit_const(fnctx *f, const clj_node *n, bool borrowed) {
 
 static temp emit_local(fnctx *f, const clj_node *n, bool borrowed) {
 	uint32_t i = n->u.local.index;
+	if (promoted(f, i)) {
+		bool taken = n->u.local.last && !borrowed_slot(f, i);
+		if (borrowed && !taken) {
+			temp t = new_temp(f, OWN_NO);
+			sb_printf(&f->out, "\tclj_value %s = l%u;\n", t.name, i);
+			return t;
+		}
+		temp t = new_temp(f, OWN_YES);
+		if (taken) sb_printf(&f->out, "\tclj_value %s = l%u;\n\tl%u = CLJ_NIL;\n", t.name, i, i);
+		else sb_printf(&f->out, "\tclj_value %s = clj_retain(l%u);\n", t.name, i);
+		live_push(f, t);
+		return t;
+	}
 	if (borrowed && !n->u.local.last) {
 		temp t = new_temp(f, OWN_NO);
 		sb_printf(&f->out, "\tclj_value %s = %s.slots[%u];\n", t.name, f->frame, i);
@@ -673,11 +816,11 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 			for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
 				if (init->u.fn.fixed[k]) sb_printf(&f->out, "\t(void)%s_a%u;\n", base, k);
 			}
-			sb_printf(&f->out, "\tclj_c_set(&%s, %u, CLJ_NIL);\n", f->frame, n->u.let.slots[i]);
+			emit_set(f, n->u.let.slots[i], "CLJ_NIL");
 			continue;
 		}
 		temp t = emit(f, init);
-		sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, n->u.let.slots[i], t.name);
+		emit_set(f, n->u.let.slots[i], t.name);
 		live_forget(f, &t);
 	}
 }
@@ -718,7 +861,7 @@ static temp emit_recur(fnctx *f, const clj_node *n) {
 	if (!vals) clj_fatal("out of memory");
 	for (uint32_t i = 0; i < n->u.recur.n; i++) vals[i] = emit(f, n->u.recur.args[i]);
 	for (uint32_t i = 0; i < n->u.recur.n; i++) {
-		sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, n->u.recur.slots[i], vals[i].name);
+		emit_set(f, n->u.recur.slots[i], vals[i].name);
 		live_forget(f, &vals[i]);
 	}
 	free(vals);
@@ -920,7 +1063,10 @@ static temp emit_try(fnctx *f, const clj_node *n) {
 			const clj_catch *c = &n->u.try_.catches[i];
 			if (c->kind == CLJ_CATCH_ALL) sb_printf(&f->out, "\t%sif (true) {\n", i ? "else " : "");
 			else sb_printf(&f->out, "\t%sif (clj_is_exception(ex%d)) {\n", i ? "else " : "", k);
-			sb_printf(&f->out, "\tclj_c_set(&%s, %u, ex%d);\n\th%d = true;\n", f->frame, c->slot, k, k);
+			char ex[16];
+			snprintf(ex, sizeof ex, "ex%d", k);
+			emit_set(f, c->slot, ex);
+			sb_printf(&f->out, "\th%d = true;\n", k);
 			temp hv = emit(f, c->handler);
 			sb_printf(&f->out, "\t%s = %s;\n\t}\n", v.name, hv.name);
 			live_forget(f, &hv);
@@ -999,7 +1145,16 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	sb_printf(&f->out, "\tclj_cframe %s = {(clj_value *)%s, NULL, 0, NULL};\n\t(void)%s;\n", frame, array, frame);
 	temp        r = new_temp(f, OWN_YES);
 	const char *saved_frame = f->frame;
+	uint64_t    saved_promoted = f->promoted, saved_borrowed = f->borrowed;
 	f->frame = frame;
+	f->promoted = f->borrowed = 0;
+	if (f->facts) {
+		uint32_t fi = facts_frame(f->facts, n, n->u.fused.fused);
+		const clj_facts_frame *ff = fi == UINT32_MAX ? NULL : clj_facts_frame_at(f->facts, fi);
+		for (uint32_t i = 0; ff && i < ff->nslots; i++) {
+			if (clj_facts_escape(f->facts, fi, i) == CLJ_ESCAPE_LOCAL) f->u->slots.local_fused++;
+		}
+	}
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
 	sb_printf(&f->out, "\t{\n\tconst clj_fusion_var *g%d[%u] = {", k, n->u.fused.nguards);
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) sb_printf(&f->out, "%sF[%zu]", i ? ", " : "", fusion_index(f->u, n->u.fused.guards[i]));
@@ -1013,6 +1168,8 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	live_forget(f, &b);
 	sb_puts(&f->out, "\t}\n\t}\n");
 	f->frame = saved_frame;
+	f->promoted = saved_promoted;
+	f->borrowed = saved_borrowed;
 	release_args(f, args, n->u.fused.nargs);
 	live_push(f, r);
 	return r;
@@ -1135,6 +1292,7 @@ static fnctx fnctx_child(fnctx *parent, const char *base) {
 	f.c = parent->c;
 	f.u = parent->u;
 	f.frame = "fr";
+	f.facts = parent->facts;
 	f.base = base;
 	f.fn_counter = parent->fn_counter;
 	f.ns = parent->ns;
@@ -1148,24 +1306,38 @@ static void fnctx_free(fnctx *f) {
 	free(f->handlers);
 }
 
+// The releases at a frame's exit: the promoted slots, then the owned entries of the array.
+static void emit_frame_teardown(fnctx *f, uint32_t arr) {
+	emit_promoted_releases(f);
+	if (arr) sb_printf(&f->out, "\tclj_c_release_slots(&fr, %u);\n", arr);
+}
+
 // One arity of a closure: the frame, the guard and shadow frame, the body under a recur label, teardown.
 static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, bool exported) {
-	fnctx    f = fnctx_child(parent, base);
-	uint32_t nslots = a->nslots ? a->nslots : 1;
-	char     name[300];
+	fnctx f = fnctx_child(parent, base);
+	char  name[300];
 	snprintf(name, sizeof name, "%s_%c%u", base, a->variadic ? 'v' : 'a', a->nparams);
 	sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", name);
 	sb_printf(&f.out, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {\n", exported ? "" : "static ", name);
 	sb_puts(&f.out, "\t(void)self; (void)captured; (void)args; (void)nargs;\n");
-	sb_printf(&f.out, "\tclj_value s[%u];\n\tclj_cframe fr = {s, captured, 0, NULL};\n", nslots);
-	for (uint32_t i = 0; i < a->nparams; i++) sb_printf(&f.out, "\ts[%u] = args[%u];\n", i, i);
-	uint32_t filled = a->nparams;
-	if (a->variadic) {
-		sb_printf(&f.out, "\ts[%u] = nargs > %u ? clj_list_from_array(args + %u, nargs - %u) : CLJ_NIL;\n\tfr.owned |= (uint64_t)1 << %u;\n", filled, filled, filled, filled, filled);
-		filled++;
+	promote_slots(&f, n, a, true, a->body, a->nslots);
+	uint32_t arr = array_slots(&f, a->nslots);
+	if (arr) sb_printf(&f.out, "\tclj_value s[%u];\n\tclj_cframe fr = {s, captured, 0, NULL};\n", arr);
+	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, captured, 0, NULL};\n");
+	sb_puts(&f.out, "\t(void)fr;\n");
+	for (uint32_t i = 0; i < a->nparams; i++) {
+		char arg[24];
+		snprintf(arg, sizeof arg, "args[%u]", i);
+		emit_slot_arrival(&f, i, arg);
 	}
-	if (filled < a->nslots) sb_printf(&f.out, "\tfor (uint32_t i = %u; i < %u; i++) s[i] = CLJ_NIL;\n", filled, a->nslots);
-	if (a->self_slot >= 0) sb_printf(&f.out, "\ts[%d] = self;\n", a->self_slot);
+	if (a->nparams < arr) sb_printf(&f.out, "\tfor (uint32_t i = %u; i < %u; i++) s[i] = CLJ_NIL;\n", a->nparams, arr);
+	emit_promoted_decls(&f);
+	if (a->variadic) {
+		uint32_t r = a->nparams;
+		if (promoted(&f, r)) sb_printf(&f.out, "\tl%u = nargs > %u ? clj_list_from_array(args + %u, nargs - %u) : CLJ_NIL;\n", r, r, r, r);
+		else sb_printf(&f.out, "\ts[%u] = nargs > %u ? clj_list_from_array(args + %u, nargs - %u) : CLJ_NIL;\n\tfr.owned |= (uint64_t)1 << %u;\n", r, r, r, r, r);
+	}
+	if (a->self_slot >= 0) emit_slot_arrival(&f, (uint32_t)a->self_slot, "self");
 	if (a->nslots > 64) {
 		sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
 		if (a->self_slot >= 0) sb_puts(&f.out, "\tclj_retain(self);\n");
@@ -1186,11 +1358,14 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		memcpy(f.out.s + at, label, strlen(label));
 	}
 	handler h = pop_handler(&f);
-	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n\tclj_c_release_slots(&fr, %u);\n\treturn %s;\n", stub, a->nslots, r.name);
+	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n", stub);
+	emit_frame_teardown(&f, arr);
+	sb_printf(&f.out, "\treturn %s;\n", r.name);
 	if (h.used) sb_printf(&f.out, "L%d: ;\n\tclj_c_leave(&S[%u], &cc);\n", fail, stub);
-	sb_printf(&f.out, "L%d: ;\n\tclj_c_release_slots(&fr, %u);\n\treturn CLJ_THROWN;\n}\n\n", noenter, a->nslots);
+	sb_printf(&f.out, "L%d: ;\n", noenter);
+	emit_frame_teardown(&f, arr);
+	sb_puts(&f.out, "\treturn CLJ_THROWN;\n}\n\n");
 	sb_put(&f.u->fns, f.out.s, f.out.len);
-	(void)n;
 	fnctx_free(&f);
 }
 
@@ -1223,7 +1398,10 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	snprintf(name, sizeof name, "%s_a%u", base, a->nparams);
 	sb_printf(&f.u->protos, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned);\n", name);
 	sb_printf(&f.out, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned) {\n", name);
-	sb_puts(&f.out, "\tclj_cframe fr = {slots, captured, owned, outer};\n");
+	sb_puts(&f.out, "\tclj_cframe fr = {slots, captured, owned, outer};\n\t(void)fr;\n");
+	// the array is the caller's, sized by its nslots: a promoted entry is simply never touched
+	promote_slots(&f, n, a, false, a->body, a->nslots);
+	emit_promoted_decls(&f);
 	if (a->nslots > 64) sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
 	int noenter = new_label(&f), fail = new_label(&f);
 	sb_printf(&f.out, "\tclj_ccall cc;\n\tif (!clj_c_enter(&S[%u], &cc)) goto L%d;\n", stub, noenter);
@@ -1240,11 +1418,14 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 		memcpy(f.out.s + at, label, strlen(label));
 	}
 	handler h = pop_handler(&f);
-	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n\tclj_c_release_slots(&fr, %u);\n\treturn %s;\n", stub, a->nslots, r.name);
+	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n", stub);
+	emit_frame_teardown(&f, a->nslots);
+	sb_printf(&f.out, "\treturn %s;\n", r.name);
 	if (h.used) sb_printf(&f.out, "L%d: ;\n\tclj_c_leave(&S[%u], &cc);\n", fail, stub);
-	sb_printf(&f.out, "L%d: ;\n\tclj_c_release_slots(&fr, %u);\n\treturn CLJ_THROWN;\n}\n\n", noenter, a->nslots);
+	sb_printf(&f.out, "L%d: ;\n", noenter);
+	emit_frame_teardown(&f, a->nslots);
+	sb_puts(&f.out, "\treturn CLJ_THROWN;\n}\n\n");
 	sb_put(&f.u->fns, f.out.s, f.out.len);
-	(void)n;
 	fnctx_free(&f);
 }
 
@@ -1363,6 +1544,17 @@ static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const ch
 	if (init->u.fn.variadic) d->variadic = (int32_t)init->u.fn.variadic->nparams;
 }
 
+// The population docs/facts-coverage.md counts: every slot of every frame of the tree.
+static void count_facts_slots(unit *u, const clj_facts *facts) {
+	for (uint32_t i = 0; i < clj_facts_nframes(facts); i++) {
+		const clj_facts_frame *fr = clj_facts_frame_at(facts, i);
+		u->slots.slots += fr->nslots;
+		for (uint32_t k = 0; k < fr->nslots; k++) {
+			if (clj_facts_escape(facts, i, k) == CLJ_ESCAPE_LOCAL) u->slots.local++;
+		}
+	}
+}
+
 static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n) {
 	uint32_t counter = 0;
 	ndirect_names = 0;
@@ -1381,19 +1573,33 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	record_direct(c, u, n, base);
 	slot_count sc = {0};
 	count_slots(n, &sc);
+	clj_facts *facts = clj_facts_of(n);
+	f.facts = facts;
+	count_facts_slots(u, facts);
+	promote_slots(&f, NULL, NULL, false, n, sc.nslots);
+	uint32_t arr = array_slots(&f, sc.nslots);
 	uint32_t top = u->ntops++;
 	sb_printf(&u->protos, "static clj_value top_%u(void);\n", top);
-	sb_printf(&f.out, "static clj_value top_%u(void) {\n\tclj_value s[%u];\n\tclj_cframe fr = {s, NULL, 0, NULL};\n\t(void)fr;\n", top, sc.nslots ? sc.nslots : 1);
-	if (sc.nslots) sb_printf(&f.out, "\tfor (uint32_t i = 0; i < %u; i++) s[i] = CLJ_NIL;\n", sc.nslots);
+	sb_printf(&f.out, "static clj_value top_%u(void) {\n", top);
+	if (arr) sb_printf(&f.out, "\tclj_value s[%u];\n\tclj_cframe fr = {s, NULL, 0, NULL};\n\tfor (uint32_t i = 0; i < %u; i++) s[i] = CLJ_NIL;\n", arr, arr);
+	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, NULL, 0, NULL};\n");
+	sb_puts(&f.out, "\t(void)fr;\n");
+	emit_promoted_decls(&f);
 	sb_puts(&f.out, "\tclj_eval_top_enter();\n");
 	int fail = new_label(&f);
 	push_handler(&f, fail);
 	temp    r = emit(&f, n);
 	handler h = pop_handler(&f);
-	sb_printf(&f.out, "\tclj_c_release_slots(&fr, %u);\n\tclj_eval_top_leave();\n\treturn %s;\n", sc.nslots, r.name);
-	if (h.used) sb_printf(&f.out, "L%d: ;\n\tclj_c_release_slots(&fr, %u);\n\tclj_eval_top_leave();\n\treturn CLJ_THROWN;\n", fail, sc.nslots);
+	emit_frame_teardown(&f, arr);
+	sb_printf(&f.out, "\tclj_eval_top_leave();\n\treturn %s;\n", r.name);
+	if (h.used) {
+		sb_printf(&f.out, "L%d: ;\n", fail);
+		emit_frame_teardown(&f, arr);
+		sb_puts(&f.out, "\tclj_eval_top_leave();\n\treturn CLJ_THROWN;\n");
+	}
 	sb_puts(&f.out, "}\n\n");
 	sb_put(&u->fns, f.out.s, f.out.len);
+	clj_facts_free(facts);
 	if (c->opts.eval_result) sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto fail;\n", top);
 	else sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto F%u;\n\tclj_release(r);\n", top, u->nforms);
 	free(base);
@@ -1488,6 +1694,8 @@ char *cljc_unit_cname(const cljc_compiler *c, size_t i) {
 	snprintf(name, sizeof name, "u%zu_%s", i, c->units[i]->cfile);
 	return xstrdup(name);
 }
+
+void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out) { *out = c->units[i]->slots; }
 
 size_t              cljc_refusal_count(const cljc_compiler *c) { return c->nrefusals; }
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i) { return &c->refusals[i]; }

@@ -42,8 +42,7 @@ static clj_compiled_fn CLJC_FN_clojure_core_concat_a2;
 #endif
 
 static clj_value top_0(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/template.clj"
@@ -61,18 +60,15 @@ static clj_value top_0(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_1(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/template.clj"
@@ -87,18 +83,15 @@ static clj_value top_1(void) {
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t1;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_2(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/template.clj"
@@ -116,39 +109,38 @@ static clj_value top_2(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value top_3(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 3 "<embedded>/clojure/template.clj"
 	clj_value t0 = clj_retain(K[3]);
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t0;
 }
 
 clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[3];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
-	s[2] = args[2];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
+	clj_value l2 = args[2];
+	(void)l2;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[0], &cc)) goto L1;
 #line 6 "<embedded>/clojure/template.clj"
 #line 10 "<embedded>/clojure/template.clj"
-	clj_value t0 = fr.slots[0];
+	clj_value t0 = l0;
 	clj_value a0[1] = {t0};
 	(void)a0;
 	clj_value t1;
@@ -237,7 +229,7 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	if (o15) clj_release(t15);
 	goto L2;
 	}
-	clj_value t17 = fr.slots[0];
+	clj_value t17 = l0;
 	clj_value a4[2] = {t16, t17};
 	(void)a4;
 	clj_value t18;
@@ -329,8 +321,8 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	if (o32) clj_release(t32);
 	goto L2;
 	}
-	clj_value t34 = fr.slots[0];
-	clj_value t35 = fr.slots[2];
+	clj_value t34 = l0;
+	clj_value t35 = l2;
 	clj_value a9[2] = {t34, t35};
 	(void)a9;
 	clj_value t36;
@@ -347,7 +339,7 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	if (o32) clj_release(t32);
 	goto L2;
 	}
-	clj_value t37 = fr.slots[1];
+	clj_value t37 = l1;
 	clj_value a8[2] = {t36, t37};
 	(void)a8;
 	clj_value t38;
@@ -364,12 +356,10 @@ clj_value clojure_template_apply_template_a3(clj_value self, const clj_value *ca
 	goto L2;
 	}
 	clj_c_leave(&S[0], &cc);
-	clj_c_release_slots(&fr, 3);
 	return t38;
 L2: ;
 	clj_c_leave(&S[0], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 3);
 	return CLJ_THROWN;
 }
 
@@ -383,8 +373,7 @@ static clj_value clojure_template_apply_template(void *ctx, const clj_value *arg
 }
 
 static clj_value top_4(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 6 "<embedded>/clojure/template.clj"
@@ -397,20 +386,19 @@ static clj_value top_4(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }
 
 static clj_value clojure_template_do_template__0_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[1];
-	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
+	clj_cframe fr = {NULL, captured, 0, NULL};
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[2], &cc)) goto L1;
 #line 18 "<embedded>/clojure/template.clj"
@@ -421,7 +409,7 @@ static clj_value clojure_template_do_template__0_a1(clj_value self, const clj_va
 	}
 	clj_value t1 = fr.captured[0];
 	clj_value t2 = fr.captured[1];
-	clj_value t3 = fr.slots[0];
+	clj_value t3 = l0;
 	clj_value a0[3] = {t1, t2, t3};
 	(void)a0;
 	clj_value t4;
@@ -439,12 +427,10 @@ static clj_value clojure_template_do_template__0_a1(clj_value self, const clj_va
 	goto L2;
 	}
 	clj_c_leave(&S[2], &cc);
-	clj_c_release_slots(&fr, 1);
 	return t4;
 L2: ;
 	clj_c_leave(&S[2], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }
 
@@ -459,15 +445,18 @@ static clj_value clojure_template_do_template__0(void *ctx, const clj_value *arg
 
 clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
-	clj_value s[6];
+	clj_value s[4];
 	clj_cframe fr = {s, captured, 0, NULL};
-	s[0] = args[0];
-	s[1] = args[1];
+	(void)fr;
+	clj_value l0 = args[0];
+	(void)l0;
+	clj_value l1 = args[1];
+	(void)l1;
 	s[2] = args[2];
 	s[3] = args[3];
-	s[4] = nargs > 4 ? clj_list_from_array(args + 4, nargs - 4) : CLJ_NIL;
-	fr.owned |= (uint64_t)1 << 4;
-	for (uint32_t i = 5; i < 6; i++) s[i] = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
+	l4 = nargs > 4 ? clj_list_from_array(args + 4, nargs - 4) : CLJ_NIL;
 	clj_ccall cc;
 	if (!clj_c_enter(&S[1], &cc)) goto L1;
 #line 17 "<embedded>/clojure/template.clj"
@@ -484,7 +473,7 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	if (t1 == CLJ_THROWN) {
 	goto L2;
 	}
-	clj_c_set(&fr, 5, t1);
+	clj_c_rebind(&l5, t1);
 	bool o2;
 	clj_value t2 = clj_c_var_borrow(V[15], &o2);
 	if (t2 == CLJ_THROWN) {
@@ -525,8 +514,8 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	if (o2) clj_release(t2);
 	goto L2;
 	}
-	clj_value t9 = fr.slots[5];
-	clj_value t10 = fr.slots[4];
+	clj_value t9 = l5;
+	clj_value t10 = l4;
 	clj_value a6[2] = {t9, t10};
 	(void)a6;
 	clj_value t11;
@@ -591,12 +580,16 @@ clj_value clojure_template_do_template_v4(clj_value self, const clj_value *captu
 	goto L2;
 	}
 	clj_c_leave(&S[1], &cc);
-	clj_c_release_slots(&fr, 6);
+	clj_release(l4);
+	clj_release(l5);
+	clj_c_release_slots(&fr, 4);
 	return t14;
 L2: ;
 	clj_c_leave(&S[1], &cc);
 L1: ;
-	clj_c_release_slots(&fr, 6);
+	clj_release(l4);
+	clj_release(l5);
+	clj_c_release_slots(&fr, 4);
 	return CLJ_THROWN;
 }
 
@@ -610,8 +603,7 @@ static clj_value clojure_template_do_template(void *ctx, const clj_value *args, 
 }
 
 static clj_value top_5(void) {
-	clj_value s[1];
-	clj_cframe fr = {s, NULL, 0, NULL};
+	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
 #line 14 "<embedded>/clojure/template.clj"
@@ -624,11 +616,9 @@ static clj_value top_5(void) {
 	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return t2;
 L1: ;
-	clj_c_release_slots(&fr, 0);
 	clj_eval_top_leave();
 	return CLJ_THROWN;
 }

@@ -17,12 +17,14 @@ struct Options {
 	var withEmbedded = false
 	var inputs: [(kind: String, value: String)] = []
 	var allowRefused = false
+	var stats = false
 }
 
 func usage() -> Never {
 	FileHandle.standardError.write(Data("""
 	usage: clj-compile [--out DIR] [--closed] [--no-line] [--lenient] [--load-path P]... [--features k,...]
-	                   [--core] [--with-embedded] [--allow-refused] (--file F | --ns NS)...
+	                   [--core] [--with-embedded] [--allow-refused] [--stats] (--file F | --ns NS)...
+	--stats reports per unit the frame slots the facts pass calls local and the ones emitted as C variables.
 	--core writes <out>/core.c and <out>/libs_*.c (the embedded libs) for -DCLJ_COMPILED_CORE builds; otherwise
 	one <out>/<munged path>.c per loaded file plus <out>/units.txt (cname<TAB>path per line, in load order).
 
@@ -48,6 +50,7 @@ while !args.isEmpty {
 	case "--core": opts.core = true
 	case "--with-embedded": opts.withEmbedded = true
 	case "--allow-refused": opts.allowRefused = true
+	case "--stats": opts.stats = true
 	case "--file": opts.inputs.append(("file", need()))
 	case "--ns": opts.inputs.append(("ns", need()))
 	default: usage()
@@ -98,6 +101,20 @@ for i in 0..<refusals {
 	FileHandle.standardError.write(Data("refused: \(String(cString: r.file)):\(r.line):\(r.col) \(String(cString: r.kind)) — \(String(cString: r.reason))\n".utf8))
 }
 if refusals > 0 && !opts.allowRefused { status = 2 }
+
+if opts.stats {
+	func pct(_ a: UInt64, _ b: UInt64) -> String { b == 0 ? "-" : String(format: "%.1f %%", 100 * Double(a) / Double(b)) }
+	for i in 0..<cljc_unit_count(compiler) {
+		var st = cljc_slot_stats()
+		cljc_unit_slots(compiler, i, &st)
+		let file = String(cString: cljc_unit_file(compiler, i))
+		FileHandle.standardError.write(Data("""
+		slots: \(file): \(st.slots) slots, local \(st.local) (\(pct(st.local, st.slots))), promoted \(st.promoted) (\(pct(st.promoted, st.slots))) \
+		of which local \(st.promoted_local); local not promoted: param \(st.local_param), pinned \(st.local_pinned), fused \(st.local_fused)
+
+		""".utf8))
+	}
+}
 
 func write(_ text: String, to path: String) {
 	do {
