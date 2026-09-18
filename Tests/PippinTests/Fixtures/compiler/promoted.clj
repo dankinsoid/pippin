@@ -56,6 +56,12 @@
 (println (capture-one 5) (outer-read 2) (handler-reads 1) (handler-reads 0) (catch-slot 7))
 (println (hand-over 4) (swap-vars :a :b 3) (swap-vars :a :b 4) (fused-inside 5))
 (println (try (throw-mid 3) (catch :default e (ex-data e))) (throw-mid 0) (rest-param 1) (rest-param 1 2 3))
-(println (direct-with-let 10) (loop-in-try 3))
+(defn rest-recur [acc & more]
+  (if (seq more) (recur (conj acc (first more)) (next more)) [acc more]))
+
+(defn self-named [n]
+  ((fn walk [k seen] (if (pos? k) (walk (dec k) (conj seen k)) [n seen])) n []))
+
+(println (direct-with-let 10) (loop-in-try 3) (rest-recur [] 1 2 3) (rest-recur [0]) (self-named 3))
 (let [top-a (vector 1) top-b (str "b") top-c (fn [] top-b)]
   (println top-a (top-c) (let [x (conj top-a 2)] x)))
