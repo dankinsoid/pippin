@@ -29,18 +29,19 @@ typedef struct {
 	uint64_t loops, loops_numeric;
 	uint64_t slots, slots_local, slots_captured, slots_escapes;
 	uint64_t proto_calls, proto_known;
-	uint64_t kw_lookups, kw_shaped, kw_record;
+	uint64_t kw_lookups, kw_shaped, kw_record, kw_on_local;
 	uint64_t conflicts, widenings, bottom_unexplained;
 	uint64_t call_conflicts, hits, narrowed; // pass 2 only
 	double   analyze_ms, facts_ms;
 	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
 } stats;
 
-// Every form is measured twice: pass 1 alone (before) and with the summaries (after).
-static stats libs[MAX_LIBS], before[MAX_LIBS];
+// Every form is measured three times: pass 1 alone (before), with inferred summaries only (noann), with the
+// annotations too (after); the report's cells are before → after, noann feeds one line.
+static stats libs[MAX_LIBS], before[MAX_LIBS], noann[MAX_LIBS];
 static int   nlibs;
 
-static clj_summaries *sums;
+static clj_summaries *sums, *sums_noann;
 
 #define MAX_MESSAGES 256
 static char messages[MAX_MESSAGES][512];
@@ -137,10 +138,7 @@ static void count_invoke(counter *c, const clj_node *n) {
 		const clj_fact *m = clj_facts_node(c->f, n->u.invoke.args[0]->id);
 		if (m && clj_fact_union_size(*m) == 1 && (m->types & T_MAP_SET)) c->s->kw_shaped++;
 		if (m && m->types == CLJ_T_RECORD) c->s->kw_record++;
-		if (getenv("CLJ_FACTS_DUMP") && m) {
-			fprintf(stderr, "kw-lookup %s %u:%u receiver %s %#x\n", c->s->name, n->line, n->col,
-			        n->u.invoke.args[0]->kind == CLJ_NODE_LOCAL ? "local" : n->u.invoke.args[0]->kind == CLJ_NODE_VAR ? "var" : "expr", m->types);
-		}
+		if (n->u.invoke.args[0]->kind == CLJ_NODE_LOCAL) c->s->kw_on_local++;
 		return;
 	}
 	// The receiver of a protocol method: the tool reads the var's root, which the pass itself may not.
@@ -256,7 +254,7 @@ static void measure_table(stats *s, const char *path, clj_node *root, clj_facts 
 	tally(s, root, f);
 }
 
-static void measure_file(stats *s, stats *b, const char *path, const char *ns_name) {
+static void measure_file(stats *s, stats *b, stats *na, const char *path, const char *ns_name) {
 	size_t len = 0;
 	char  *src = read_file(path, &len);
 	if (!src) {
@@ -303,6 +301,12 @@ static void measure_file(stats *s, stats *b, const char *path, const char *ns_na
 		measure_table(s, path, root, f2);
 		clj_facts_free(f1);
 		clj_facts_free(f2);
+		int saved = nmessages;
+		clj_facts *f3 = clj_facts_of_with(root, sums_noann);
+		na->forms++;
+		measure_table(na, path, root, f3);
+		clj_facts_free(f3);
+		nmessages = saved;
 		clj_release(clj_from_ptr(root));
 	}
 	clj_ns_set_current(previous);
@@ -385,13 +389,14 @@ static clj_value manifest_of(const char *lib_root) {
 static clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
 
 static void run_library(const char *name, const char *root, const char *const *roots, size_t nroots, clj_value features) {
-	stats *s = &libs[nlibs], *b = &before[nlibs++];
+	stats *s = &libs[nlibs], *b = &before[nlibs], *na = &noann[nlibs++];
 	snprintf(s->name, sizeof s->name, "%s", name);
 	s->tests_only = nroots > 0;
 	for (size_t i = 0; i < nroots; i++) {
 		if (strcmp(roots[i], "test") != 0) s->tests_only = false;
 	}
 	*b = *s;
+	*na = *s;
 	nfiles = 0;
 	for (size_t i = 0; i < nroots; i++) {
 		char dir[512];
@@ -414,7 +419,7 @@ static void run_library(const char *name, const char *root, const char *const *r
 		eval_string(form);
 	}
 	clj_release(clj_load_take_failures());
-	for (int i = 0; i < nfiles; i++) measure_file(s, b, files[i].path, files[i].ns);
+	for (int i = 0; i < nfiles; i++) measure_file(s, b, na, files[i].path, files[i].ns);
 	clj_load_set_lenient(false);
 	clj_reader_set_features(CLJ_NIL);
 	clj_load_path_set(NULL, 0);
@@ -453,6 +458,7 @@ static void add(stats *total, const stats *s) {
 	total->kw_lookups += s->kw_lookups;
 	total->kw_shaped += s->kw_shaped;
 	total->kw_record += s->kw_record;
+	total->kw_on_local += s->kw_on_local;
 	total->conflicts += s->conflicts;
 	total->widenings += s->widenings;
 	total->bottom_unexplained += s->bottom_unexplained;
@@ -485,21 +491,25 @@ static void row_positions(FILE *out, const stats *b, const stats *s) {
 	        pct(s->arith_int, s->arith));
 }
 
+static uint32_t annotated_vars;
+
 static void write_report(const char *path) {
 	FILE *out = fopen(path, "w");
 	if (!out) {
 		fprintf(stderr, "clj-facts: cannot write %s\n", path);
 		exit(1);
 	}
-	stats total = {0}, code = {0}, btotal = {0}, bcode = {0};
+	stats total = {0}, code = {0}, btotal = {0}, bcode = {0}, ntotal = {0}, ncode = {0};
 	snprintf(total.name, sizeof total.name, "**all**");
 	snprintf(code.name, sizeof code.name, "**library code**");
 	for (int i = 0; i < nlibs; i++) {
 		add(&total, &libs[i]);
 		add(&btotal, &before[i]);
+		add(&ntotal, &noann[i]);
 		if (!libs[i].tests_only) {
 			add(&code, &libs[i]);
 			add(&bcode, &before[i]);
+			add(&ncode, &noann[i]);
 		}
 	}
 
@@ -538,13 +548,18 @@ static void write_report(const char *path) {
 	             "  protocol's tables (one deftype implementor: known).\n",
 	        (unsigned long long)total.proto_calls, pct(btotal.proto_known, btotal.proto_calls), pct(total.proto_known, total.proto_calls));
 	fprintf(out, "- **`(:k m)` lookups**: %llu sites, **%.1f → %.1f %%** on a value known to be a map of some kind and\n"
-	             "  %llu → %llu on a record. A record type is known where the value comes from `->Foo` or `map->Foo`, whose\n"
-	             "  summaries answer the record kind with its descriptor (`new*`/`record-map*` on the type's var).\n",
+	             "  %llu → %llu on a record. The record kind is known below `->Foo` or `map->Foo`, whose summaries answer it with\n"
+	             "  the descriptor (`new*`/`record-map*` on the type's var; `SummaryTests.recordConstructorResult`). %llu of the\n"
+	             "  %llu receivers are locals — parameters mostly, which a summary constrains by requirement only, and `(:k m)`\n"
+	             "  requires nothing (design §3); what callers pass is not joined into a callee's parameters. The rest are\n"
+	             "  derefs and other calls answering ⊤. No lookup in the corpus sits below a record constructor.\n",
 	        (unsigned long long)total.kw_lookups, pct(btotal.kw_shaped, btotal.kw_lookups), pct(total.kw_shaped, total.kw_lookups),
-	        (unsigned long long)btotal.kw_record, (unsigned long long)total.kw_record);
+	        (unsigned long long)btotal.kw_record, (unsigned long long)total.kw_record, (unsigned long long)total.kw_on_local,
+	        (unsigned long long)total.kw_lookups);
 	fprintf(out, "- Cost: pass 1 alone %.0f ms, with the summaries %.0f ms, against %.0f ms of analysis over the same forms\n"
 	             "  (%.2f× → %.2f×); the largest single table is %.0f KB. The store holds %u summaries, ran %u fixpoint rounds\n"
-	             "  beyond the first, widened %u, and recomputed %u after a redefinition.\n",
+	             "  beyond the first, widened %u, and recomputed %u after an epoch moved (a protocol method's rests on the\n"
+	             "  definition epoch, which every load bumps).\n",
 	        btotal.facts_ms, total.facts_ms, total.analyze_ms, total.analyze_ms > 0 ? btotal.facts_ms / total.analyze_ms : 0.0,
 	        total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0, (double)total.peak_bytes / 1024, clj_summaries_count(sums),
 	        clj_summaries_rounds(sums), clj_summaries_widenings(sums), clj_summaries_invalidated(sums));
@@ -554,8 +569,15 @@ static void write_report(const char *path) {
 	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.bottom_unexplained,
 	        (unsigned long long)total.widenings);
 	fprintf(out, "- Pass 2: %llu call sites took a summary, %llu arguments were narrowed by a requirement, %llu proven conflicts\n"
-	             "  (an argument met a requirement down to ⊥; listed below, reported here only — no strictness mode is on).\n\n",
+	             "  (an argument met a requirement down to ⊥; listed below, reported here only — no strictness mode is on).\n",
 	        (unsigned long long)total.hits, (unsigned long long)total.narrowed, (unsigned long long)total.call_conflicts);
+	fprintf(out, "- The annotations alone (the :clj/facts table at the end of core.clj, %u vars; inference without them is the\n"
+	             "  third measurement): known types over library code %.1f → %.1f %%, computed nodes known %.1f → %.1f %%, arguments\n"
+	             "  narrowed %llu → %llu, proven conflicts %llu → %llu. They add requirements, which inference alone has none of at\n"
+	             "  the leaves: every builtin is a native without a body.\n\n",
+	        annotated_vars, pct(ncode.type_known, ncode.value_nodes), pct(code.type_known, code.value_nodes),
+	        pct(ncode.computed_known, ncode.computed), pct(code.computed_known, code.computed), (unsigned long long)ntotal.narrowed,
+	        (unsigned long long)total.narrowed, (unsigned long long)ntotal.call_conflicts, (unsigned long long)total.call_conflicts);
 	fprintf(out, "## Types and nullability\n\n");
 	fprintf(out, "Each percentage is before → after the summaries.\n\n");
 	fprintf(out, "| library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |\n");
@@ -609,21 +631,38 @@ int main(int argc, char **argv) {
 	const char *out = argc > 2 ? argv[2] : "docs/facts-coverage.md";
 	clj_init();
 	sums = clj_summaries_new();
+	sums_noann = clj_summaries_new();
+	clj_summaries_use_annotations(sums_noann, false);
+	{
+		const char *count_form = "(count (filter (fn [v] (:clj/facts (meta v))) (vals (ns-publics 'clojure.core))))";
+		clj_reader  r;
+		clj_reader_init(&r, count_form, strlen(count_form));
+		clj_value form = CLJ_NIL;
+		if (clj_read(&r, &form) == CLJ_READ_OK) {
+			clj_env   env = {CLJ_NIL, 0, 0};
+			clj_value n = clj_eval(form, &env);
+			if (n == CLJ_THROWN) clj_release(clj_take_pending());
+			else if (clj_is_fixnum(n)) annotated_vars = (uint32_t)clj_fixnum_val(n);
+			clj_release(form);
+		}
+	}
 
 	char boot[512];
 	snprintf(boot, sizeof boot, "%s/Sources/CljCore/boot", repo);
 	// core.clj is loaded by clj_init and its embedded libs by require; both are read back from boot/.
 	eval_string("(require 'clojure.set 'clojure.string 'clojure.walk 'clojure.template 'clojure.test)");
-	stats *core = &libs[nlibs], *bcore = &before[nlibs++];
+	stats *core = &libs[nlibs], *bcore = &before[nlibs], *ncore = &noann[nlibs++];
 	snprintf(core->name, sizeof core->name, "core.clj");
 	*bcore = *core;
+	*ncore = *core;
 	char core_path[512];
 	snprintf(core_path, sizeof core_path, "%s/core.clj", boot);
-	measure_file(core, bcore, core_path, "clojure.core");
+	measure_file(core, bcore, ncore, core_path, "clojure.core");
 
-	stats *embedded = &libs[nlibs], *bembedded = &before[nlibs++];
+	stats *embedded = &libs[nlibs], *bembedded = &before[nlibs], *nembedded = &noann[nlibs++];
 	snprintf(embedded->name, sizeof embedded->name, "embedded libs");
 	*bembedded = *embedded;
+	*nembedded = *embedded;
 	nfiles = 0;
 	char clojure_dir[512];
 	snprintf(clojure_dir, sizeof clojure_dir, "%s/clojure", boot);
@@ -632,7 +671,7 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < nfiles; i++) {
 		char ns[256];
 		snprintf(ns, sizeof ns, "clojure.%s", files[i].ns);
-		measure_file(embedded, bembedded, files[i].path, ns);
+		measure_file(embedded, bembedded, nembedded, files[i].path, ns);
 	}
 
 	char corpus[512];
@@ -694,5 +733,6 @@ int main(int argc, char **argv) {
 		status = 1;
 	}
 	clj_summaries_free(sums);
+	clj_summaries_free(sums_noann);
 	return status;
 }

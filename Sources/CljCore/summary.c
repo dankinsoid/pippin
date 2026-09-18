@@ -59,6 +59,7 @@ struct clj_summaries {
 	entry   *stack[MAX_DEPTH + 1]; // entries being computed, innermost last
 	uint32_t depth;
 	uint32_t invalidated, rounds, widenings;
+	bool     no_annotations;
 	clj_annotation_conflict *conflicts;
 	uint32_t                 nconflicts, cconflicts;
 };
@@ -75,6 +76,8 @@ clj_summaries *clj_summaries_new(void) {
 	s->slots = xalloc(s->cap, sizeof(entry *));
 	return s;
 }
+
+void clj_summaries_use_annotations(clj_summaries *s, bool on) { s->no_annotations = !on; }
 
 void clj_summaries_free(clj_summaries *s) {
 	if (!s) return;
@@ -388,7 +391,7 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 	note_dep(s, var);
 	summary_reset(&e->s, nargs, false);
 	clj_value  root = clj_var_root(var);
-	annotation a = annotation_of(var);
+	annotation a = s->no_annotations ? (annotation){0} : annotation_of(var);
 	bool       inferred = false;
 	if (root != CLJ_UNBOUND && clj_is_fn(root)) {
 		clj_fn *f = clj_fn_of(root);

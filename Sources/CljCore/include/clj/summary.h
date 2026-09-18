@@ -32,6 +32,8 @@ typedef struct clj_summaries clj_summaries;
 // Runtime state: every entry is cached with the epoch of each var its walk read and recomputed when one moved. Not thread-safe.
 clj_summaries *clj_summaries_new(void);
 void           clj_summaries_free(clj_summaries *s);
+// Off, the :clj/facts metas are ignored: what inference alone gives, for the report. On by default.
+void clj_summaries_use_annotations(clj_summaries *s, bool on);
 
 // NULL for an unbound var, a native without an annotation or no arity for nargs. Borrowed until the next call into the store.
 const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t nargs);
