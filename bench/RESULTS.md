@@ -1033,3 +1033,24 @@ ns per iteration or element, `n` = 100000 unless noted.
   promoted; medley 1347 slots, 25.2 % `local`, 91.8 % promoted. The promoted share exceeds the `local` share
   because `escapes` (the value leaves the frame) does not bar a C variable; what bars it is a capture, a
   static-link read, a param a fn-body `recur` rebinds, a direct fn's param, a frame past 64 slots.
+
+## Facts pass with summaries — 5ccace3, Apple M3 Pro, 36 GB, Swift 6.2.4 (release, pool only)
+
+The same run measured twice per form: `clj_facts_of` (pass 1, whose environments now carry a requirement per
+slot) and `clj_facts_of_with` over one summary store for the whole corpus (pass 1 bottom-up summaries and
+pass 2 at call sites, NOTES.md "Facts"). The store's own work — 743 summaries, 9 fixpoint rounds beyond the
+first — is inside the "with summaries" column of whichever form asked first.
+
+| input | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | facts / analysis |
+|---|---:|---:|---:|---:|---:|---:|
+| core.clj | 265 | 12 432 | 6.8 | 2.9 | 3.7 | 0.44× → 0.54× |
+| embedded libs | 108 | 3 710 | 1.8 | 0.7 | 1.1 | 0.38× → 0.61× |
+| medley (src + test) | 104 | 22 661 | 16.2 | 2.2 | 2.9 | 0.14× → 0.18× |
+| clojure-test-suite | 516 | 415 781 | 329.4 | 49.6 | 55.7 | 0.15× → 0.17× |
+| all | 993 | 454 584 | 354.1 | 55.4 | 63.4 | 0.16× → 0.18× |
+
+- Pass 1 alone went from 41 to 55 ms over the corpus: the requirement per slot is 56 more bytes in every
+  environment an `if` clones, and the test suite's frames have hundreds of slots. One block per environment
+  and a `memcmp` before the requirement join took back most of the rest.
+- The summaries add 15 % on top of pass 1 for the whole corpus and up to 60 % for the small forms of the
+  embedded libs, where a form's walk is short and its callees' summaries are computed on its behalf.

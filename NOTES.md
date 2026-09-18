@@ -1020,7 +1020,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
   Trigger: memory of a large loaded program. Fix: per-kind sizes via `clj_alloc(size)`.
 
-## Facts (Sources/CljCore/facts.c, include/clj/facts.h)
+## Facts (Sources/CljCore/facts.c, summary.c, include/clj/facts.h, summary.h)
 
 - **A side table, built on request, never on the way through.** `clj_facts_of(root)` walks the analyzer's
   optimized tree and returns `clj_facts`, `nnodes` entries indexed by node id exactly as `clj_exec` is.
@@ -1028,9 +1028,12 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   until a consumer asks. The tree stays `const` — no fact is written into a `clj_node` — and the table is
   plain `malloc`, not a pool object, so building facts never perturbs the allocator a test is counting.
   The root is retained, because a singleton fact borrows the constant it names.
-- **Pure by construction.** The pass reads no var root, no epoch, no protocol table and no thread state, so
-  the same tree always yields the same table (`pureAndSideTableOnly`). That is what makes a fact cacheable
+- **Pure by construction.** `clj_facts_of` reads no var root, no epoch, no protocol table and no thread state,
+  so the same tree always yields the same table (`pureAndSideTableOnly`). That is what makes a fact cacheable
   beside a serialized tree later, and it is also the one rule that decides every "⊤ or not" question below.
+  `clj_facts_of_with(root, store)` is the same walk with a summary store consulted at call sites and var reads
+  (the bullets from "Summaries" on); such a table is runtime state, records every var it rested on with its
+  epoch, and `clj_facts_valid` answers false once any of them was rebound.
 - **The lattice.** A type fact is a set of 27 kinds — nil, bool, fixnum, boxed long, bigint, ratio, decimal,
   double, char, string, keyword, symbol, seq, vector, map, set, sorted-map, sorted-set, record, array, fn,
   var, atom, uuid, inst, regex, host — plus an optional singleton (the constant itself), an array element
@@ -1077,16 +1080,16 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   three passes over a body — the same order as the liveness fixpoint next door in optimizer.c. Anything still
   moving after the third round goes straight to ⊤, which terminates by construction. Over the whole corpus
   the rule fires on nothing; the test that exercises it rotates four values of four kinds through one loop.
-- **What is ⊤, and why.** Every `INVOKE` whose head is not a core var the signature table names, every
-  `DIRECT_CALL`, every var read, every `OUTER` read, every fn parameter. All of it for the same reason: pass 1
-  has no function summaries and may not read a var's root. This is the whole gap, and the metric says where
-  it costs: **protocol receivers** (26 sites in the corpus, 0 % with a known type — a receiver is always a
-  parameter, so the inline-cache consumer has nothing to work with until a summary says what callers pass);
-  **`(:k m)` on records** (63 sites over library code, none on a value known to be a record — `defrecord`
-  binds the type to a var and the `->Foo` constructor is an ordinary call, so the record kind is unreachable
-  without either a summary or reading a root); **arithmetic over helper results** (`(+ (count xs) 1)` is a
-  number rather than a fixnum, which is why only 19 % of arithmetic sites have both arguments known-fixnum
-  while 45 % have both known to be int64-representable).
+- **What pass 1 alone leaves at ⊤, and why.** Every `INVOKE` whose head is not a core var the signature
+  table names, every `DIRECT_CALL`, every var read, every `OUTER` read, every fn parameter — pass 1 has no
+  function summaries and may not read a var's root. The summaries below take the calls, the var reads and the
+  direct calls (over library code known types go 50 → 69 % of value nodes, 30 → 57 % of computed ones,
+  docs/facts-coverage.md). What stays ⊤ after them: a **parameter's own fact** — a summary constrains a
+  parameter by requirement (what the body needs), never by what callers pass, so `(inc n)` on a parameter is
+  "a number", not a fixnum, and the arithmetic rows (19 % both-fixnum, 45 % both-int64) do not move; joining
+  callers' arguments into a callee is a closed-world pass the compiler may run over the whole set and the
+  interpreter may not (a new caller invalidates nothing it can check), so it is not here. `OUTER` reads,
+  captured slots of a callee (⊤ inside its body), a `(:k m)` on a parameter, and everything behind `deref`.
 - **⊥ means one of two things, and they are told apart.** A meet that contradicts bumps `clj_facts_conflicts`
   and the branch below it is marked `unreachable` on every node; a node is legitimately ⊥ when a `throw` or a
   `recur` is the only way out of it. Anything else — a ⊥ value node that is neither — is a wrong signature in
@@ -1114,16 +1117,121 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (a `deftest` with hundreds of assertions). Building it costs 0.31× the analysis of the same forms for
   core.clj and 0.10× for medley (bench/RESULTS.md, "Facts pass"); the ratio falls as forms grow because
   analysis pays for macroexpansion and the facts pass does not.
-- **Deliberately not in pass 1, each with its trigger.** No interprocedural summaries and no fixed point
-  across functions (design §3, pass 2) — trigger: the first consumer that needs a parameter's type, which by
-  the metric is the protocol inline cache. No shape facts (the design's key sets) — trigger: a record fact
-  that is ever known, which needs the summaries first. No effects, throws, ownership, thread affinity or the
-  rest of the design's fact kinds — the lattice and the traversal are shared, so each is a field and a
-  transfer rule, not another pass; trigger: a consumer for one of them. No refinement on `CAPTURED` or
-  `OUTER` reads, only on frame slots — trigger: a profile where a closure body re-tests what its definer
-  already knew. No `case`/`condp` refinement beyond what their expansion into `if` gives. A `DIRECT_FN`
-  node is recorded as a fn although its slot holds nil at run time: nothing reads that slot as a value, and
-  the useful fact is that the name denotes a function.
+- **Summaries (summary.c): pass 1 bottom-up over var roots.** A `clj_summary` is one arity of one function:
+  what the body *requires* of each parameter, the result fact, the effect set, and where each requirement
+  came from (the line and column of the use, for the two-position message). It is computed by walking the
+  arity's body once with the parameters at ⊤ (`clj_facts_walk_arity`, the same walk with recording off, so
+  nested closures are not entered and nothing is stored) and is keyed by the var for a var-bound fn — the root
+  is read, and a closure root carries its fn node — and by the arity's node identity for a direct fn (a
+  let-bound fn only ever called). A native without an annotation has no summary; a compiled closure
+  (`-DCLJ_COMPILED_CORE`) is a native too, so under the compiled core every core fn's summary is its annotation
+  alone. Summaries are borrowed from the store and valid until the next call into it; direct-fn entries are
+  dropped at the end of every table (`clj_summaries_forget_arities`), because a pointer into a tree must not
+  outlive the table built over that tree.
+- **Requirements: the meet of the uses along a path, the join across branches.** The environment carries a
+  `req` per slot beside the fact. A call whose callee has a requirement for the position meets it into the
+  argument's slot; `(if t a b)` joins the two branches' requirements, so `(if flag (inc x) (name x))` requires
+  "a number or an ident or a string" of x and `(defn f [x] (if (string? x) (subs x 1) (inc x)))` requires
+  nothing that the refinement did not already prove — the join, not the meet, is what keeps a use inside one
+  branch from becoming a false conflict for the other. A `try` body requires nothing past the try (a throw
+  skips the rest), a loop body's requirements on the outer slots hold (it runs at least once), a rebound slot
+  forgets. A requirement keeps every kind it names — `clj_fact_meet_wide`, no union cap — because "seqable"
+  is ten kinds and would widen to ⊤ as a fact; it is never stored on a node, only met against one, and the
+  meet's result is capped as usual. So `(count 1)` is a proven conflict although no node can hold "seqable".
+- **The fixpoint and its bound.** A call of a var whose entry is being computed answers the entry's optimistic
+  value (result ⊥, no requirement, no effects) and marks it recursive; the root of the cycle then re-walks
+  until the summary stops changing, at most N = 3 rounds, then widens (parameters ⊤, result ⊤, effects
+  everything). N is the loop rule's N for the loop rule's reason: the height a fact can climb is singleton →
+  one kind → two → three → four → ⊤, so one round settles the common recursion (`(fact (dec n))`: the result
+  is a number on round one and stays), and three bound the work at three walks of a body. Entries computed
+  *above* a fixpoint in flight (mutual recursion: `odd?` inside `even?`'s round) rest on an optimistic value
+  and are transient — not cached, recomputed by the root's next round — or `odd?` would be cached as
+  "always false" from the round that saw `even?` at ⊥. A finished summary never answers ⊥ (a body that never
+  returns normally is ⊤ at call sites, so the ⊥ watchdog keeps meaning "the lattice is wrong") and never a
+  singleton (it would borrow a constant of the callee's tree, which only the callee's root keeps alive).
+- **Budget: the walk depth, not only the nesting.** A nested summary walk shares the C stack with the walk that
+  asked, and a sanitizer build's frames are large (UBSan overflowed at ~45 nested nodes over the 512 KB of a
+  test thread). So: every var a tree calls is summarized *before* its walk, at the top of the stack
+  (`warm_summaries`), at most 6 summary computations nest, and a summary walk stops descending past 40 nodes
+  of total depth (`CLJ_FACTS_MAX_WALK_DEPTH`) and answers ⊤ for the subtree — the recording walk is never cut.
+  A summary can therefore depend on how deep it was first asked for; the warm phase makes the first ask
+  shallow for everything a tree names directly.
+- **Pass 2: at every call site the caller's fact meets the callee's requirement.** The meet is the argument
+  node's fact from then on (and the slot's, when the argument is a local), which is how a receiver, a
+  `(count x)` and a `(keys m)` narrow the parameter behind them for the rest of the body. A meet down to ⊥ is
+  a *proven conflict*: recorded on the table as a `clj_call_conflict` with both positions — the argument at
+  the call site and the use inside the callee that imposed the requirement (or "requires", when it came from
+  an annotation or a protocol table) — rendered by `clj_call_conflict_message` as "sum-need uses argument 0
+  as nil|map|sorted-map|record at 3:14, vector is passed at 1:8". The argument keeps the caller's fact:
+  storing ⊥ would trip the watchdog, and the watchdog is worth more. Nothing warns anywhere: `make facts-report`
+  lists them (75 over the corpus at this writing, every one inside a `thrown?` assertion — `(nth [0] nil)`,
+  `(keys 0)`, `(derive nil nil)` — a `:warn` strictness is a later task and a false positive costs trust).
+  The same meet joins an annotation with the inferred summary, and there ⊥ is an *error* naming both
+  (`clj_annotation_conflict_message`): either the annotation or the body is wrong, and `make facts-report`
+  fails on it.
+- **Var reads and roots, guarded by a var epoch.** `clj_var` counts its root binds (`clj_var_epoch`, 0 while
+  never bound, bumped by `clj_var_bind_root`); the summary layer reads roots and metas freely and records
+  every var it read, with the epoch it saw, on the entry being computed and on every entry in flight below it
+  (a caller's summary rests on what its callees read), and on the facts table. `clj_summary_of_var` recomputes
+  an entry when any of its recorded vars moved; `clj_facts_valid` answers false for a table in the same case.
+  A var read in a walk with a store answers the *kind* of its root and its descriptor, never the singleton —
+  the root may be rebound and only the epoch guards it, and a consumer that constant-folds a root is a bigger
+  speculation than the design's inline-cache-with-epoch. What invalidation does today, exactly: a `def` bumps
+  the var's epoch and the process epoch, nothing else; no store is told, no table is told. The next lookup of
+  that var (or of a summary that read it) recomputes that entry alone; a table built before is still readable
+  and `clj_facts_valid` is what a consumer must check before trusting it. The interpreter therefore stays
+  incremental (a `def` costs one increment), and there is no whole-program recompute anywhere yet — the
+  compiler's closed world would run the same store over the whole set once. Past 24 recorded vars an entry
+  falls back to "valid while the process epoch stands", which every `def` moves; a protocol method's entry
+  rests on the process epoch by construction.
+- **Protocol receivers: the requirement is the join of the implementors' kinds.** A protocol method's summary
+  requires of its receiver the join of the kinds of every type in the protocol's tables: the immortal ones are
+  enumerated from proto.c's side table (`clj_proto_each_immortal`), and user types — which have no registry —
+  are two counters on the protocol (`user_types`, `user_records`, bumped by every extend of a deftype or a
+  record, defrecord's initial extends included; record.c sets the record bit before those extends so they
+  count right). One deftype implementor is therefore "host", one kind: known. `Object` or a core interface
+  extended, or nothing found (a reify-only protocol: its types are user types too, but the counter is what
+  keeps them), makes the requirement ⊤. The corpus's 26 receiver sites all go known this way, 16 of them
+  `defmethod` expansions where the receiver is the multimethod's var (a var read: host, MultiFn's descriptor)
+  and the rest parameters narrowed by the method's requirement (`(-add-method mf …)` inside a `defmulti` helper).
+  `clj_facts_kind_of_type` says host for any deftype whatever interfaces it implements: `(fn? x)` is false on
+  a deftype with `IFn`, so it must not be a fn.
+- **Records: `(new* T …)` and `(record-map* T m)` on a type's var answer the kind with the descriptor.** The
+  constructor bodies `defrecord` and `deftype` expand to; with a store the walk reads the var's root, and when
+  it is a user type the result is record (or host) with `desc` set. `->Foo`'s summary is thus "a Foo", and
+  `(let [m (->Foo 1)] (:k m))` sits on a known record (`SummaryTests.recordConstructorResult`). The corpus has
+  no such lookup — its 69 `(:k m)` sites are 58 on locals (parameters, constrained by requirement only, and
+  `(:k m)` requires nothing) and 11 below derefs and other calls — so the report's record row stays 0 → 0 for
+  want of a site, not of a mechanism.
+- **Effects, as far as they fall out.** Four bits, `alloc`, `throw`, `io`, `atom` (atom-write), joined up the
+  walk: a vector, map, set or fn literal allocates; `throw` throws; a `def` is everything (registration); a
+  known core call takes `clj_facts_core_effects` — nothing for a predicate, `not`, `identity`, `boolean`,
+  `meta`, `type`; io for `print`/`println`/`slurp`/…; atom for `swap!`/`reset!`/`alter-var-root`/…;
+  alloc|throw for the rest of the named list; everything for anything unnamed — and a callee with a summary
+  takes the summary's. A closure body's effects are its own, not its definer's. Nothing reads them yet; they
+  cost one `|=` per node.
+- **Annotations — provisional and internal.** A var may carry `{:clj/facts {:args [spec …] :ret spec}}` in
+  its meta, a spec being a kind keyword (the names of `clj_fact_kind_name`), an aggregate (`:any :int :number
+  :coll :maps :sets :seqable :ident :assoc :indexed`) or a vector of them (a union); `:args` constrains a
+  prefix of the arguments at any arity. The pass meets it with the inferred summary (above); the inferred one
+  is still computed. The spelling is not a language commitment: the vocabulary will most likely be Clojure's
+  own `^long`/`^double`/`^String` hints for the cheap cases and Malli's `m/=>` for the rich ones (design §3),
+  and this annotation is the placeholder that lets the mechanism be measured. It is plain metadata set by one
+  `alter-meta!` table at the end of core.clj — 19 vars, `count nth get first next rest seq inc dec name
+  namespace keys vals vec conj assoc zero? pos? neg?`, chosen for the requirements they carry, since a native
+  has no body to infer from — in one place so it is easy to rewrite when the real design lands; nothing in the
+  embedded libs or in user-facing docs. Measured (docs/facts-coverage.md, "annotations alone"): they move no
+  known-type percentage, they take pass 2's narrowed arguments from 9 to 99 and its proven conflicts from 0 to
+  75, because inference alone has no requirements at the leaves.
+- **Deliberately not here, each with its trigger.** No join of callers' arguments into a callee's parameters
+  (the closed-world direction; what the arithmetic rows wait on) — trigger: the compiler's `-O2` whole-set
+  run, where it is one more round over the same store. No shape facts (the design's key sets) — trigger: a
+  record fact reaching a consumer, which the constructor summaries now make possible. No ownership, thread
+  affinity or the rest of the design's fact kinds — each is a field and a transfer rule on the shared walk;
+  trigger: a consumer. No refinement on `CAPTURED` or `OUTER` reads, only on frame slots — trigger: a profile
+  where a closure body re-tests what its definer already knew. No `case`/`condp` refinement beyond what their
+  expansion into `if` gives. A `DIRECT_FN` node is recorded as a fn although its slot holds nil at run time:
+  nothing reads that slot as a value, and the useful fact is that the name denotes a function.
 
 ## Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)
 

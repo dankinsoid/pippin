@@ -34,18 +34,18 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   69 receivers are locals — parameters mostly, which a summary constrains by requirement only, and `(:k m)`
   requires nothing (design §3); what callers pass is not joined into a callee's parameters. The rest are
   derefs and other calls answering ⊤. No lookup in the corpus sits below a record constructor.
-- Cost: pass 1 alone 77 ms, with the summaries 86 ms, against 358 ms of analysis over the same forms
-  (0.22× → 0.24×); the largest single table is 262 KB. The store holds 743 summaries, ran 9 fixpoint rounds
+- Cost: pass 1 alone 55 ms, with the summaries 63 ms, against 354 ms of analysis over the same forms
+  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 743 summaries, ran 9 fixpoint rounds
   beyond the first, widened 0, and recomputed 3 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 64, every one a branch a literal makes unreachable. Value nodes
   at ⊥: 137, of which 0 neither unreachable nor explained by a throw — the lattice is wrong wherever that is
   not zero. Loop variables the widening rule cut short: 0.
-- Pass 2: 27209 call sites took a summary, 99 arguments were narrowed by a requirement, 75 proven conflicts
+- Pass 2: 27209 call sites took a summary, 99 arguments were narrowed by a requirement, 82 proven conflicts
   (an argument met a requirement down to ⊥; listed below, reported here only — no strictness mode is on).
 - The annotations alone (the :clj/facts table at the end of core.clj, 19 vars; inference without them is the
   third measurement): known types over library code 68.7 → 68.7 %, computed nodes known 56.8 → 56.8 %, arguments
-  narrowed 9 → 99, proven conflicts 0 → 75. They add requirements, which inference alone has none of at
+  narrowed 9 → 99, proven conflicts 0 → 82. They add requirements, which inference alone has none of at
   the leaves: every builtin is a native without a body.
 
 ## Types and nullability
@@ -89,12 +89,12 @@ Each cell is the population and the share of it that is known, before → after.
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12432 | 6.2 | 3.4 | 4.2 | 0.54× → 0.67× | 352 | 13 |
-| embedded libs | 108 | 3710 | 1.7 | 0.8 | 1.2 | 0.47× → 0.69× | 108 | 6 |
-| clojure-test-suite | 516 | 415781 | 333.9 | 70.4 | 76.7 | 0.21× → 0.23× | 9861 | 262 |
-| medley | 104 | 22661 | 16.0 | 2.8 | 3.5 | 0.17× → 0.22× | 556 | 23 |
-| **library code** | 477 | 38803 | 23.9 | 6.9 | 8.9 | 0.29× → 0.37× | 1016 | 23 |
-| **all** | 993 | 454584 | 357.8 | 77.4 | 85.6 | 0.22× → 0.24× | 10877 | 262 |
+| core.clj | 265 | 12432 | 6.8 | 2.9 | 3.7 | 0.44× → 0.54× | 352 | 13 |
+| embedded libs | 108 | 3710 | 1.8 | 0.7 | 1.1 | 0.38× → 0.61× | 108 | 6 |
+| clojure-test-suite | 516 | 415781 | 329.4 | 49.6 | 55.7 | 0.15× → 0.17× | 9861 | 262 |
+| medley | 104 | 22661 | 16.2 | 2.2 | 2.9 | 0.14× → 0.18× | 556 | 23 |
+| **library code** | 477 | 38803 | 24.7 | 5.8 | 7.7 | 0.24× → 0.31× | 1016 | 23 |
+| **all** | 993 | 454584 | 354.1 | 55.4 | 63.4 | 0.16× → 0.18× | 10877 | 262 |
 
 ## Proven conflicts
 
@@ -148,6 +148,9 @@ argument keeps the caller's fact. Nothing warns outside this report.
 - neg_qmark.cljc: neg? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 48:25
 - next.cljc: next requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, fixnum is passed at 44:22
 - next.cljc: next requires argument 0 to be nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array, keyword is passed at 45:22
+- not_empty.cljc: not-empty uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1120:74, char is passed at 27:36
+- not_empty.cljc: not-empty uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1120:74, fixnum is passed at 28:36
+- not_empty.cljc: not-empty uses argument 0 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 1120:74, double is passed at 29:36
 - nth.cljc: nth requires argument 0 to be nil|string|seq|vector|array, map is passed at 142:22
 - nth.cljc: nth requires argument 0 to be nil|string|seq|vector|array, set is passed at 143:22
 - nth.cljc: nth requires argument 1 to be fixnum|long|bigint, nil is passed at 148:22
@@ -176,3 +179,7 @@ argument keeps the caller's fact. Nothing warns outside this report.
 - zero_qmark.cljc: zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, nil is passed at 39:34
 - zero_qmark.cljc: zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 42:34
 - zero_qmark.cljc: zero? requires argument 0 to be fixnum|long|bigint|ratio|decimal|double, bool is passed at 45:34
+- ends_with_qmark.cljc: ends-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 126:14, keyword is passed at 17:32
+- ends_with_qmark.cljc: ends-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 126:14, symbol is passed at 20:32
+- starts_with_qmark.cljc: starts-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 119:14, keyword is passed at 19:32
+- starts_with_qmark.cljc: starts-with? uses argument 1 as nil|string|seq|vector|map|set|sorted-map|sorted-set|record|array at 119:14, symbol is passed at 21:32

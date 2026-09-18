@@ -417,9 +417,22 @@ typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
 
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use);
 
+// One block per environment: an if clones two, so the count of allocations is what the pass's cost is made of.
+static size_t env_bytes(uint32_t n) { return (size_t)n * (2 * sizeof(clj_fact) + sizeof(refinement) + 2 * sizeof(uint32_t)); }
+
+static env env_layout(void *block, uint32_t n) {
+	env e;
+	e.slots = block;
+	e.req = e.slots + n;
+	e.pred = (refinement *)(e.req + n);
+	e.req_line = (uint32_t *)(e.pred + n);
+	e.req_col = e.req_line + n;
+	e.n = n;
+	return e;
+}
+
 static env env_new(uint32_t n) {
-	env e = {xalloc(n, sizeof(clj_fact)), xalloc(n, sizeof(refinement)), xalloc(n, sizeof(clj_fact)),
-	         xalloc(n, sizeof(uint32_t)),  xalloc(n, sizeof(uint32_t)),   n};
+	env e = env_layout(xalloc(1, env_bytes(n) + 1), n);
 	for (uint32_t i = 0; i < n; i++) {
 		e.slots[i] = clj_fact_top();
 		e.pred[i].slot = UINT32_MAX;
@@ -428,30 +441,26 @@ static env env_new(uint32_t n) {
 	return e;
 }
 
-static void env_copy(env *dst, const env *src) {
-	memcpy(dst->slots, src->slots, src->n * sizeof(clj_fact));
-	memcpy(dst->pred, src->pred, src->n * sizeof(refinement));
-	memcpy(dst->req, src->req, src->n * sizeof(clj_fact));
-	memcpy(dst->req_line, src->req_line, src->n * sizeof(uint32_t));
-	memcpy(dst->req_col, src->req_col, src->n * sizeof(uint32_t));
-}
+static void env_copy(env *dst, const env *src) { memcpy(dst->slots, src->slots, env_bytes(src->n)); }
 
 static env env_clone(const env *src) {
-	env e = env_new(src->n);
+	void *block = malloc(env_bytes(src->n) + 1);
+	if (!block) clj_fatal("out of memory");
+	env e = env_layout(block, src->n);
 	env_copy(&e, src);
 	return e;
 }
 
-static void env_free(env *e) {
-	free(e->slots);
-	free(e->pred);
-	free(e->req);
-	free(e->req_line);
-	free(e->req_col);
-}
+static void env_free(env *e) { free(e->slots); }
 
 // A branch's requirement holds only on its path: the two are joined, which keeps what the entry already had.
 static void env_join_req(env *e, const env *yes, const env *no) {
+	if (memcmp(yes->req, no->req, e->n * sizeof(clj_fact)) == 0) {
+		memcpy(e->req, yes->req, e->n * sizeof(clj_fact));
+		memcpy(e->req_line, yes->req_line, e->n * sizeof(uint32_t));
+		memcpy(e->req_col, yes->req_col, e->n * sizeof(uint32_t));
+		return;
+	}
 	for (uint32_t i = 0; i < e->n; i++) {
 		clj_fact j = clj_fact_join(yes->req[i], no->req[i]);
 		e->req[i] = j;
@@ -888,21 +897,19 @@ static clj_fact construct_result(pass *p, const char *name, const clj_node *cons
 	return r;
 }
 
+#define ARGS_INLINE 8
+
 static clj_fact infer_call(pass *p, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s, clj_value var) {
-	clj_fact  fs[4];
-	clj_fact *have = xalloc(n + 1, sizeof(clj_fact));
+	clj_fact  inline_have[ARGS_INLINE];
+	clj_fact *have = n <= ARGS_INLINE ? inline_have : xalloc(n, sizeof(clj_fact));
 	use_kind  use = (s && !s->keeps) ? USE_NONE : USE_ESCAPE;
-	for (uint32_t i = 0; i < n; i++) {
-		clj_fact a = infer(p, args[i], e, use);
-		have[i] = a;
-		if (i < 4) fs[i] = a;
-	}
+	for (uint32_t i = 0; i < n; i++) have[i] = infer(p, args[i], e, use);
 	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
 	if (!sum) p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
 	apply_summary(p, e, sum, args, n, have, var);
-	free(have);
-	clj_fact r = s ? sig_result(s, fs, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
+	clj_fact r = s ? sig_result(s, have, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
+	if (have != inline_have) free(have);
 	return result_with_summary(p, r, sum);
 }
 
@@ -1125,12 +1132,13 @@ static clj_fact infer_invoke(pass *p, const clj_node *n, env *e) {
 }
 
 static clj_fact infer_direct_call(pass *p, const clj_node *n, env *e) {
-	clj_fact *have = xalloc(n->u.direct.n + 1, sizeof(clj_fact));
+	clj_fact  inline_have[ARGS_INLINE];
+	clj_fact *have = n->u.direct.n <= ARGS_INLINE ? inline_have : xalloc(n->u.direct.n, sizeof(clj_fact));
 	for (uint32_t i = 0; i < n->u.direct.n; i++) have[i] = infer(p, n->u.direct.args[i], e, USE_ESCAPE);
 	const clj_summary *sum = p->f->sums ? clj_summary_of_arity(p->f->sums, n->u.direct.fn, n->u.direct.arity) : NULL;
 	if (!sum) p->effects |= CLJ_EFFECT_ANY;
 	apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL);
-	free(have);
+	if (have != inline_have) free(have);
 	return result_with_summary(p, clj_fact_top(), sum);
 }
 
