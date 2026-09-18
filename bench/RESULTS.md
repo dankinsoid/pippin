@@ -962,3 +962,23 @@ ns per iteration or element, `n` = 100000 unless noted.
 The test file is bigger than the library it tests: every `is` expands into clojure.test's reporting, and
 each expansion is emitted in full. A compiled-eval form costs ~0.6 s end to end, of which `dlopen` is ~0.3 s:
 macOS assesses every new code signature on its first load (NOTES.md, "Compiler").
+
+## Facts pass — b1b9b2f, Apple M3 Pro, 36 GB, Swift 6.2.4 (release, pool only)
+
+`make facts-report` loads every library, then reads each file back and times `clj_analyze` and
+`clj_facts_of` over the same top-level forms; one run, totals per library (docs/facts-coverage.md).
+
+| input | forms | nodes | analysis, ms | facts, ms | facts / analysis | tables, KB | largest table, KB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| core.clj | 264 | 12 416 | 8.2 | 2.5 | 0.31× | 337 | 13 |
+| embedded libs | 108 | 3 710 | 2.0 | 0.5 | 0.27× | 102 | 6 |
+| medley (src + test) | 104 | 22 661 | 14.9 | 1.5 | 0.10× | 551 | 23 |
+| clojure-test-suite | 516 | 415 781 | 320.0 | 36.7 | 0.11× | 9 833 | 262 |
+| all | 992 | 454 568 | 345.2 | 41.3 | 0.12× | 10 822 | 262 |
+
+- The pass is a fraction of analysis everywhere, and the fraction falls as forms grow: analysis pays for
+  macroexpansion and the facts pass does not, so core.clj's small forms are its worst case at 0.31×.
+- Memory is 24 bytes per node plus one byte per frame slot; a table lives only as long as its form, so the
+  "tables" column is the sum over a whole library and the peak is the "largest table" column.
+- Nothing calls the pass: `clj_analyze`, `clj_exec_new` and the compiler are unchanged, so this cost is paid
+  only by a caller of `clj_facts_of` (NOTES.md, "Facts").

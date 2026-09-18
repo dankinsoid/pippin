@@ -1020,6 +1020,111 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
   Trigger: memory of a large loaded program. Fix: per-kind sizes via `clj_alloc(size)`.
 
+## Facts (Sources/CljCore/facts.c, include/clj/facts.h)
+
+- **A side table, built on request, never on the way through.** `clj_facts_of(root)` walks the analyzer's
+  optimized tree and returns `clj_facts`, `nnodes` entries indexed by node id exactly as `clj_exec` is.
+  Nothing calls it: `clj_analyze`, `clj_exec_new` and the compiler are untouched, so the pass costs zero
+  until a consumer asks. The tree stays `const` — no fact is written into a `clj_node` — and the table is
+  plain `malloc`, not a pool object, so building facts never perturbs the allocator a test is counting.
+  The root is retained, because a singleton fact borrows the constant it names.
+- **Pure by construction.** The pass reads no var root, no epoch, no protocol table and no thread state, so
+  the same tree always yields the same table (`pureAndSideTableOnly`). That is what makes a fact cacheable
+  beside a serialized tree later, and it is also the one rule that decides every "⊤ or not" question below.
+- **The lattice.** A type fact is a set of 27 kinds — nil, bool, fixnum, boxed long, bigint, ratio, decimal,
+  double, char, string, keyword, symbol, seq, vector, map, set, sorted-map, sorted-set, record, array, fn,
+  var, atom, uuid, inst, regex, host — plus an optional singleton (the constant itself), an array element
+  kind and a record/host descriptor. ⊤ is every bit, ⊥ none; `join` is `|`, `meet` is `&`. Sorted maps and
+  sets are separate bits so that the false branch of `(map? x)` may subtract exactly what `map?` answers
+  true for. A set of more than four members widens to ⊤ (design §3, "полиморфизм ≤4 shape'ов"), the six
+  numeric kinds counting as one member — the design's ladder is int/double/number/⊤, so `(+ a b)` must be
+  able to say "a number" rather than collapse.
+- **Nullability is its own two-bit lattice** (`never`, `always`, `maybe` = ⊤, ⊥), joined and met alongside
+  the type. It is not derived from the nil bit because the union cap destroys that bit: `(if x …)` leaves
+  the true branch with ⊤ minus nil, which is 26 kinds and widens straight back to ⊤, while the separate
+  nullability survives as `never`. Over library code the type is known for 50 % of value nodes and
+  nullability for 51 %, and the second number is the one that holds up where the first does not.
+- **Escaping is per local slot, per frame**, three values joined by max: `local`, `captured`, `escapes`.
+  A frame is the top level, one fn arity, one direct fn arity or a fused node's argument frame; the table
+  records each with its body's id range, so `clj_facts_frame_of(id)` finds the innermost. A slot escapes when
+  it is an argument of any call the signature table does not mark as storing nothing, an item of a vector,
+  map or set literal, a `def` init, a thrown value, a fused argument, or the value of its frame's body
+  (returned). A closure capture marks it `captured`. `(let [b a] …)` records an alias edge and the escape
+  of `b` flows back to `a` at the end of the frame. Unknown is `escapes`.
+- **Sources of a type fact.** Constants (a singleton of their kind, by pointer identity, so two literals the
+  reader made separately stay two singletons, exactly as the codec keeps them); vector/map/set literals and
+  fn literals; the signature table below, for intrinsics and for named C builtins; `let` bindings; `loop`
+  variables (the widened join of the init and every recur argument); `try` (the join of the body and every
+  handler); a variadic rest parameter (a seq or nil); a closure capture (the fact of the captured slot at
+  the moment the closure is made, which is sound because a capture happens once); the self slot of a
+  named fn (a fn). Everything else is ⊤.
+- **Refinement is on predicates, not on `if`** (design §3, occurrence typing). A predicate call over a local
+  yields a `refinement` — the target slot, the narrowed fact and whether the predicate is true for *exactly*
+  that set, which is what lets the false branch subtract rather than only the true branch meet. `nil?`,
+  `some?`, `string?`, `map?`, `set?`, `vector?`, `number?`, `integer?`, `fn?`, `record?` and the rest carry
+  one; `not` flips it; `=` against a constant pins the singleton; `instance?` refines against the canonical
+  builtin type names of proto.c. A bare local as the test refines on truthiness alone (only nil and false
+  are falsy). `when`, `cond`, `and`, `or`, `if-let`, `when-let` are macros over `if` and `let*`, so they need
+  no rule of their own — with one catch that cost a bug: `(and (map? x) …)` expands to `(let [t (map? x)]
+  (if t …))`, so the test of the `if` is the temporary. A `let` binding therefore records the refinement its
+  init carries, and a test that reads such a slot applies it; rebinding a slot retires every refinement taken
+  over its old value.
+- **Loops: fixpoint, then widening after N = 3 rounds.** A loop variable starts at its init and joins every
+  recur argument; the body is re-run with recording off until nothing changes. N is 3 because the height a
+  variable can climb without widening is singleton → one kind → two → three → four → ⊤, and the loops that
+  matter settle in one: `(loop [i 0] … (recur (inc i)))` reaches fixnum|long on the first round and stops on
+  the second. Three rounds leave one round of headroom for a join that alternates, and bound the work at
+  three passes over a body — the same order as the liveness fixpoint next door in optimizer.c. Anything still
+  moving after the third round goes straight to ⊤, which terminates by construction. Over the whole corpus
+  the rule fires on nothing; the test that exercises it rotates four values of four kinds through one loop.
+- **What is ⊤, and why.** Every `INVOKE` whose head is not a core var the signature table names, every
+  `DIRECT_CALL`, every var read, every `OUTER` read, every fn parameter. All of it for the same reason: pass 1
+  has no function summaries and may not read a var's root. This is the whole gap, and the metric says where
+  it costs: **protocol receivers** (26 sites in the corpus, 0 % with a known type — a receiver is always a
+  parameter, so the inline-cache consumer has nothing to work with until a summary says what callers pass);
+  **`(:k m)` on records** (63 sites over library code, none on a value known to be a record — `defrecord`
+  binds the type to a var and the `->Foo` constructor is an ordinary call, so the record kind is unreachable
+  without either a summary or reading a root); **arithmetic over helper results** (`(+ (count xs) 1)` is a
+  number rather than a fixnum, which is why only 19 % of arithmetic sites have both arguments known-fixnum
+  while 45 % have both known to be int64-representable).
+- **⊥ means one of two things, and they are told apart.** A meet that contradicts bumps `clj_facts_conflicts`
+  and the branch below it is marked `unreachable` on every node; a node is legitimately ⊥ when a `throw` or a
+  `recur` is the only way out of it. Anything else — a ⊥ value node that is neither — is a wrong signature in
+  this file, and both `make facts-report` and `FactsTests.noContradictionOverCore` fail on it. That counter is
+  what found the two bugs this pass shipped with: the complement of a `maybe` nullability subtracted
+  everything, and a loop's fixpoint rounds counted conflicts against variables not yet widened. Over the
+  corpus the remaining 63 conflicts are all branches a literal makes unreachable (`(and false true)`,
+  `(when-let [x [0 1 2]] …)`, `(ratio? x)` after `(= 1 x)`).
+- **Signatures live in facts.c, not in the intrinsics table.** `clj_intrinsic` is the C-call contract the
+  compiler emits against and the differential test crosses; hanging a lattice column on it would tie the ABI
+  to the fact kinds and force every future fact into that struct. More decisively, half of what is worth
+  annotating — `str`, `keys`, `vec`, `re-pattern`, `int-array` — has no intrinsics entry at all, so only a
+  table of its own can hold both. It is keyed by the unqualified name in `clojure.core` plus the arity, with
+  rules for arithmetic (`fixnum + fixnum` is fixnum|long, since an overflow throws rather than promoting;
+  a ratio operation may normalize back to an integer; `/` on integers may answer a ratio), for `conj`/`assoc`
+  (the collection's own kind, `nil` included), and for the identity-on-type calls (`into`, `with-meta`,
+  `empty`). Matching on the *var* rather than its root is a speculation: `(def str …)` in `clojure.core` would
+  make `(str x)` no longer a string, where an intrinsic node has a runtime guard and this has none. Nothing
+  reads the table yet, so the speculation costs nothing today; trigger for fixing it: the first consumer that
+  changes generated code on a builtin signature, which then needs the same boot-root guard `eval_intrinsic`
+  makes.
+- **The table's shape and cost.** 24 bytes per node (type set, nullability, array element kind, unreachable
+  flag, singleton, descriptor) plus one byte per frame slot and one `clj_fact` per loop variable: 337 KB for
+  all 264 forms of core.clj, 13 KB for its largest single form, 262 KB for the largest form in the corpus
+  (a `deftest` with hundreds of assertions). Building it costs 0.31× the analysis of the same forms for
+  core.clj and 0.10× for medley (bench/RESULTS.md, "Facts pass"); the ratio falls as forms grow because
+  analysis pays for macroexpansion and the facts pass does not.
+- **Deliberately not in pass 1, each with its trigger.** No interprocedural summaries and no fixed point
+  across functions (design §3, pass 2) — trigger: the first consumer that needs a parameter's type, which by
+  the metric is the protocol inline cache. No shape facts (the design's key sets) — trigger: a record fact
+  that is ever known, which needs the summaries first. No effects, throws, ownership, thread affinity or the
+  rest of the design's fact kinds — the lattice and the traversal are shared, so each is a field and a
+  transfer rule, not another pass; trigger: a consumer for one of them. No refinement on `CAPTURED` or
+  `OUTER` reads, only on frame slots — trigger: a profile where a closure body re-tests what its definer
+  already knew. No `case`/`condp` refinement beyond what their expansion into `if` gives. A `DIRECT_FN`
+  node is recorded as a fn although its slot holds nil at run time: nothing reads that slot as a value, and
+  the useful fact is that the name denotes a function.
+
 ## Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)
 
 - **Six kinds, one ladder.** `clj_num_kind_of` answers fixnum < long < bigint < ratio < decimal < double, the
