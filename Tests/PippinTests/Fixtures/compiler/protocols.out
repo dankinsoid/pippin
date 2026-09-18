@@ -1,0 +1,3 @@
+[9 16] [4 2] 25 6 [1 :a 1 3 5 :empty :nil k 42] [1 :nil b 8 8 9] [1 :nil b 8 8 9]
+[true true false true true true true false] [true true true true false false] 42 [9 5 No implementation of method: :firstish of protocol: #'fixture.protocols/Firstish found for type: symbol No implementation of method: :area of protocol: #'fixture.protocols/Shape found for type: string No implementation of method: :firstish of protocol: #'fixture.protocols/Firstish found for type: double No implementation of method: :area of protocol: #'fixture.protocols/Shape found for type: long Wrong number of args (0) passed to: fixture.protocols/area]
+[[4 7 true true] :sq-again :sq-again :sq-again 8 true true] [:sq-again :sq-again] :sq-again 8

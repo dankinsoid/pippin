@@ -119,6 +119,55 @@ clj_compiled_fn clj_compiled_symbol(const char *name) {
 	return found;
 }
 
+typedef struct {
+	char             *name;
+	clj_native_ctx_fn fn;
+} impl_entry;
+
+static impl_entry *impls;
+static size_t      nimpls, impls_cap;
+
+void clj_compiled_register_impl(const char *name, clj_native_ctx_fn fn) {
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < nimpls; i++) {
+		if (strcmp(impls[i].name, name) == 0) {
+			impls[i].fn = fn;
+			clj_lock_unlock(&lock);
+			return;
+		}
+	}
+	if (nimpls == impls_cap) {
+		impls_cap = impls_cap ? impls_cap * 2 : 64;
+		impls = realloc(impls, impls_cap * sizeof *impls);
+		if (!impls) clj_fatal("out of memory");
+	}
+	impls[nimpls].name = strdup(name);
+	if (!impls[nimpls].name) clj_fatal("out of memory");
+	impls[nimpls].fn = fn;
+	nimpls++;
+	clj_lock_unlock(&lock);
+}
+
+clj_native_ctx_fn clj_compiled_impl(const char *name) {
+	clj_native_ctx_fn found = NULL;
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < nimpls && !found; i++) {
+		if (strcmp(impls[i].name, name) == 0) found = impls[i].fn;
+	}
+	clj_lock_unlock(&lock);
+	return found;
+}
+
+const char *clj_compiled_impl_name(clj_native_ctx_fn fn) {
+	const char *found = NULL;
+	clj_lock_lock(&lock);
+	for (size_t i = nimpls; i-- > 0 && !found;) {
+		if (impls[i].fn == fn) found = impls[i].name;
+	}
+	clj_lock_unlock(&lock);
+	return found;
+}
+
 clj_compiled_init clj_compiled_find(const char *path) {
 	clj_compiled_init found = NULL;
 	clj_lock_lock(&lock);

@@ -53,6 +53,11 @@ const clj_type *clj_dispatch_type(clj_value v);
 extern const clj_type clj_nil_dispatch_type, clj_boolean_dispatch_type, clj_char_dispatch_type;
 // Every immortal type (builtins, pseudo-descriptors, core interfaces, Object) with an entry for proto, in no order.
 void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx);
+// Every live user type (deftype, record, reify) with its own entry for proto; visit runs under the registry's lock
+// with the descriptor borrowed, so it must neither release values nor make or free a type.
+void clj_proto_each_user(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx);
+// Owned impl of method for a receiver of type t (nil, boolean and char through their pseudo-descriptors), or nil.
+clj_value clj_proto_impl_for_type(clj_value method, const clj_type *t);
 // One of the core-interface pseudo-descriptors an extend-type on an interface name designates.
 bool clj_proto_is_interface_type(const clj_type *t);
 // The fallback every type reaches: (extend-type Object ...).

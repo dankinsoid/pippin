@@ -70,6 +70,35 @@ clj_proto_reader *clj_proto_reader_init(void) {
 	return r;
 }
 
+// Live user descriptors (deftype, record, reify), borrowed: what a consumer enumerates when a protocol's user
+// implementors are counted but not named (the compiler's CHA). The proto lock is never held here, so a descriptor
+// dying inside an extend's releases can unregister without nesting.
+static clj_lock          users_lock = CLJ_LOCK_INIT;
+static const clj_type  **users;
+static uint32_t          nusers, users_cap;
+
+static void users_add(const clj_type *t) {
+	clj_lock_lock(&users_lock);
+	if (nusers == users_cap) {
+		users_cap = users_cap ? users_cap * 2 : 64;
+		users = realloc(users, users_cap * sizeof *users);
+		if (!users) clj_fatal("out of memory");
+	}
+	users[nusers++] = t;
+	clj_lock_unlock(&users_lock);
+}
+
+static void users_remove(const clj_type *t) {
+	clj_lock_lock(&users_lock);
+	for (uint32_t i = 0; i < nusers; i++) {
+		if (users[i] == t) {
+			users[i] = users[--nusers];
+			break;
+		}
+	}
+	clj_lock_unlock(&users_lock);
+}
+
 static reader *window_open(void) { return clj_proto_window_open_inline(); }
 
 static void window_close(reader *r) { clj_proto_window_close_inline(r); }
@@ -211,6 +240,25 @@ void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, v
 		if (slot->key && !clj_is_nil(table_find(slot->table, proto))) visit(slot->key, ctx);
 	}
 	window_close(r);
+}
+
+void clj_proto_each_user(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx) {
+	clj_lock_lock(&users_lock);
+	reader *r = window_open();
+	for (uint32_t i = 0; i < nusers; i++) {
+		if (!clj_is_nil(table_find(table_of(users[i]), proto))) visit(users[i], ctx);
+	}
+	window_close(r);
+	clj_lock_unlock(&users_lock);
+}
+
+clj_value clj_proto_impl_for_type(clj_value method, const clj_type *t) {
+	const clj_method_ctx *m = clj_method_ctx_of(method);
+	reader               *r = window_open();
+	clj_value             fns = find_fns(t, m->proto);
+	clj_value             f = clj_is_nil(fns) ? CLJ_NIL : clj_retain(clj_vector_nth(fns, m->idx));
+	window_close(r);
+	return f;
 }
 
 bool clj_proto_is_interface_type(const clj_type *t) {
@@ -550,6 +598,7 @@ static void type_each_child(void *self, clj_visitor visit, void *ctx) {
 // A dying type retires its table without an extend: the bump invalidates every call-site cache that borrows
 // an impl from it.
 static void type_finalize(void *self) {
+	users_remove(self);
 	free(((clj_user_type *)self)->t.user_protos);
 	clj_epoch_bump();
 }
@@ -862,6 +911,7 @@ static clj_value user_type_shape(clj_value name, clj_value fields, size_t nimpls
 }
 
 clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+	users_add(&ut->t);
 	if (user_type_shape(name, fields, nimpls) == CLJ_THROWN) {
 		clj_release(clj_from_ptr(ut));
 		return CLJ_THROWN;

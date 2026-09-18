@@ -110,5 +110,10 @@ clj_compiled_init clj_compiled_find(const char *path);
 typedef clj_value (*clj_compiled_fn)(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 void            clj_compiled_register_symbol(const char *name, clj_compiled_fn fn);
 clj_compiled_fn clj_compiled_symbol(const char *name);
+// The dispatchers of a closed unit's protocol method impls, by C name: what a site's fill compares an impl's code
+// against, and what the compiler names an impl from another unit by (its name is never freed).
+void              clj_compiled_register_impl(const char *name, clj_native_ctx_fn fn);
+clj_native_ctx_fn clj_compiled_impl(const char *name);
+const char       *clj_compiled_impl_name(clj_native_ctx_fn fn);
 
 #endif

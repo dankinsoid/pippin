@@ -67,6 +67,10 @@ typedef struct {
 	uint64_t unboxed;        // arithmetic nodes computed on untagged values with no boxed path
 	uint64_t tag_checked;    // arithmetic nodes with the inline operation behind the tags of their boxed arguments
 	uint64_t entry_checked;  // lets and loops emitted twice, typed behind the tags of their entry values (closed only)
+	uint64_t proto_direct;   // protocol call sites with one direct arm covering the whole receiver fact (closed)
+	uint64_t proto_switch;   // sites with several arms, or one beside kinds the cache keeps
+	uint64_t proto_cache;    // sites with the inline cache alone
+	uint64_t proto_folded;   // satisfies?/extends? sites answered by a verified constant (closed)
 } cljc_slot_stats;
 
 void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out);

@@ -180,6 +180,7 @@ typedef struct {
 	pool  names;    // C symbol bases handed out, to number redefinitions
 	pool  externs;  // direct-call targets referenced: "base_aN"
 	pool  defined;  // bases of the vars this unit defines with a fn init, with their qualified names
+	pool  impl_regs; // fn bases a closed init registers as protocol impls, with the arity mask a direct arm may call
 	uint32_t nstubs, ntops, nforms;
 	cljc_slot_stats slots;
 	uint64_t last_serial; // of the last form whose statements were emitted
@@ -199,6 +200,24 @@ typedef struct {
 	clj_value      message; // of a failure, retained
 } pending_form;
 
+// A closure fn node the compiler emitted: how a protocol impl found in the tables as an interpreted closure is named.
+// arities: the fixed arities a direct arm may enter without the closure object (no captures, no self slot, <= 64 slots).
+typedef struct {
+	const clj_node *node;
+	char           *base;
+	unit           *u;
+	uint32_t        arities;
+} fn_base;
+
+// A direct arm's target, resolved at write time into CLJC_PIMPL_<id>: an emitted node, or a registered impl name.
+typedef struct {
+	uint32_t        id;
+	unit           *u;    // the requesting unit
+	const clj_node *node; // NULL when named
+	char           *name;
+	uint32_t        nargs;
+} pimpl;
+
 struct cljc_compiler {
 	cljc_options  opts;
 	unit        **units;
@@ -209,8 +228,73 @@ struct cljc_compiler {
 	size_t        ndirects, directs_cap;
 	pending_form *pending;
 	size_t        npending, pending_cap;
+	fn_base      *fn_bases;
+	size_t        nfn_bases, fn_bases_cap;
+	pimpl        *pimpls;
+	size_t        npimpls, pimpls_cap;
+	uint32_t      next_pimpl;
+	const clj_node **candidates; // fn nodes given as method impls to deftype*, record* and extend: registered by a closed init
+	size_t           ncandidates, candidates_cap;
 	bool          installed;
 };
+
+static void fn_base_add(cljc_compiler *c, const clj_node *node, const char *base, unit *u, uint32_t arities) {
+	for (size_t i = 0; i < c->nfn_bases; i++) {
+		if (c->fn_bases[i].node != node) continue;
+		// the address of a dead tree's node reused by a live one: the newer mapping is the true one
+		free(c->fn_bases[i].base);
+		c->fn_bases[i] = (fn_base){node, xstrdup(base), u, arities};
+		return;
+	}
+	if (c->nfn_bases == c->fn_bases_cap) {
+		c->fn_bases_cap = c->fn_bases_cap ? c->fn_bases_cap * 2 : 64;
+		c->fn_bases = realloc(c->fn_bases, c->fn_bases_cap * sizeof *c->fn_bases);
+		if (!c->fn_bases) clj_fatal("out of memory");
+	}
+	c->fn_bases[c->nfn_bases++] = (fn_base){node, xstrdup(base), u, arities};
+}
+
+static const fn_base *fn_base_of(const cljc_compiler *c, const clj_node *node) {
+	for (size_t i = 0; i < c->nfn_bases; i++) {
+		if (c->fn_bases[i].node == node) return &c->fn_bases[i];
+	}
+	return NULL;
+}
+
+static bool candidate(const cljc_compiler *c, const clj_node *node) {
+	for (size_t i = 0; i < c->ncandidates; i++) {
+		if (c->candidates[i] == node) return true;
+	}
+	return false;
+}
+
+static void candidate_add(cljc_compiler *c, const clj_node *node) {
+	if (candidate(c, node)) return;
+	if (c->ncandidates == c->candidates_cap) {
+		c->candidates_cap = c->candidates_cap ? c->candidates_cap * 2 : 64;
+		c->candidates = realloc(c->candidates, c->candidates_cap * sizeof *c->candidates);
+		if (!c->candidates) clj_fatal("out of memory");
+	}
+	c->candidates[c->ncandidates++] = node;
+}
+
+static uint32_t pimpl_add(cljc_compiler *c, unit *u, const clj_node *node, const char *name, uint32_t nargs) {
+	if (c->npimpls == c->pimpls_cap) {
+		c->pimpls_cap = c->pimpls_cap ? c->pimpls_cap * 2 : 64;
+		c->pimpls = realloc(c->pimpls, c->pimpls_cap * sizeof *c->pimpls);
+		if (!c->pimpls) clj_fatal("out of memory");
+	}
+	pimpl *p = &c->pimpls[c->npimpls++];
+	*p = (pimpl){c->next_pimpl++, u, node, name ? xstrdup(name) : NULL, nargs};
+	return p->id;
+}
+
+static void impl_reg_add(unit *u, const char *base, uint32_t arities) {
+	char mask[16];
+	snprintf(mask, sizeof mask, "%u", arities);
+	bool fresh;
+	pool_intern(&u->impl_regs, base, mask, &fresh);
+}
 
 static unit *unit_new(const char *file) {
 	unit *u = calloc(1, sizeof *u);
@@ -263,6 +347,7 @@ static void unit_free(unit *u) {
 	pool_free(&u->names);
 	pool_free(&u->externs);
 	pool_free(&u->defined);
+	pool_free(&u->impl_regs);
 	free(u);
 }
 
@@ -1418,12 +1503,266 @@ static bool var_named(clj_value var, const char *ns, const char *name) {
 	return strcmp(clj_string_bytes(clj_symbol_name(clj_var_ns(var))), ns) == 0 && strcmp(clj_string_bytes(clj_symbol_name(clj_var_name(var))), name) == 0;
 }
 
+// ---- protocol call sites: CHA arms from the receiver fact, the per-site inline cache (NOTES.md "Compiler")
+
+// The fixed arities a direct protocol arm may enter with no closure object: nothing in them reads self or captured.
+static uint32_t entry_arities(const clj_node *n) {
+	if (n->u.fn.ncaptures) return 0;
+	uint32_t mask = 0;
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		const clj_fn_arity *a = n->u.fn.fixed[i];
+		if (a && a->self_slot < 0 && a->nslots <= 64) mask |= (uint32_t)1 << i;
+	}
+	return mask;
+}
+
+#define PROTO_ARMS_MAX 4
+
+typedef struct {
+	const clj_type *type;
+	char            guard[80]; // C expression for the descriptor
+	uint32_t        pimpl;     // CLJC_PIMPL id of the direct target, UINT32_MAX when the arm has none
+	bool            answer;    // satisfies? for the arm's descriptor
+} proto_arm;
+
+typedef struct {
+	proto_arm arms[PROTO_ARMS_MAX];
+	uint32_t  n;
+	bool      partial; // a kind of the fact resolved to no descriptor: the cache stays the fallback for it
+} proto_arms;
+
+// The one builtin descriptor a kind bit dispatches through, as a C expression; NULL for a kind of many descriptors.
+static const char *kind_type_expr(uint32_t bit, const clj_type **type) {
+	switch (bit) {
+	case CLJ_T_NIL: *type = &clj_nil_dispatch_type; return "&clj_nil_dispatch_type";
+	case CLJ_T_BOOL: *type = &clj_boolean_dispatch_type; return "&clj_boolean_dispatch_type";
+	case CLJ_T_FIXNUM:
+	case CLJ_T_LONG: *type = &clj_long_type; return "&clj_long_type";
+	case CLJ_T_BIGINT: *type = &clj_bigint_type; return "&clj_bigint_type";
+	case CLJ_T_RATIO: *type = &clj_ratio_type; return "&clj_ratio_type";
+	case CLJ_T_DECIMAL: *type = &clj_decimal_type; return "&clj_decimal_type";
+	case CLJ_T_DOUBLE: *type = &clj_double_type; return "&clj_double_type";
+	case CLJ_T_CHAR: *type = &clj_char_dispatch_type; return "&clj_char_dispatch_type";
+	case CLJ_T_STRING: *type = &clj_string_type; return "&clj_string_type";
+	case CLJ_T_KEYWORD: *type = &clj_keyword_type; return "&clj_keyword_type";
+	case CLJ_T_SYMBOL: *type = &clj_symbol_type; return "&clj_symbol_type";
+	case CLJ_T_VECTOR: *type = &clj_vector_type; return "&clj_vector_type";
+	case CLJ_T_MAP: *type = &clj_map_type; return "&clj_map_type";
+	case CLJ_T_SET: *type = &clj_set_type; return "&clj_set_type";
+	case CLJ_T_SORTED_MAP: *type = &clj_sorted_map_type; return "&clj_sorted_map_type";
+	case CLJ_T_SORTED_SET: *type = &clj_sorted_set_type; return "&clj_sorted_set_type";
+	case CLJ_T_ARRAY: *type = &clj_array_type; return "&clj_array_type";
+	case CLJ_T_FN: *type = &clj_fn_type; return "&clj_fn_type";
+	case CLJ_T_VAR: *type = &clj_var_type; return "&clj_var_type";
+	case CLJ_T_ATOM: *type = &clj_atom_type; return "&clj_atom_type";
+	case CLJ_T_UUID: *type = &clj_uuid_type; return "&clj_uuid_type";
+	case CLJ_T_INST: *type = &clj_inst_type; return "&clj_inst_type";
+	case CLJ_T_REGEX: *type = &clj_regex_type; return "&clj_regex_type";
+	default: return NULL;
+	}
+}
+
+// The var whose root is the user type, found by the type's ns.Name; nil for a reify or a type no var holds.
+static clj_value user_type_var(const clj_type *t) {
+	const char *name = t->name;
+	const char *dot = strrchr(name, '.');
+	if (!dot) return CLJ_NIL;
+	clj_value nsname = clj_string_new(name, (size_t)(dot - name));
+	clj_value nssym = clj_symbol_new(CLJ_NIL, nsname);
+	clj_value ns = clj_ns_find(nssym);
+	clj_release(nssym);
+	clj_release(nsname);
+	if (clj_is_nil(ns)) return CLJ_NIL;
+	clj_value sym = clj_symbol_from_cstr(dot + 1);
+	clj_value var = clj_ns_resolve(ns, sym);
+	clj_release(sym);
+	if (clj_is_nil(var) || clj_var_of(var)->dynamic || clj_var_root(var) != clj_from_ptr((void *)t)) return CLJ_NIL;
+	return var;
+}
+
+typedef struct {
+	uint32_t        kind; // CLJ_T_RECORD or CLJ_T_HOST
+	const clj_type *found;
+	uint32_t        n;
+} single_user;
+
+static void visit_single_user(const clj_type *t, void *ctx) {
+	single_user *s = ctx;
+	bool         record = (t->core_bits & CLJ_CORE_RECORD) != 0;
+	if (record != (s->kind == CLJ_T_RECORD)) return;
+	s->found = t;
+	s->n++;
+}
+
+static bool arms_add(proto_arms *a, const clj_type *t, const char *guard) {
+	for (uint32_t i = 0; i < a->n; i++) {
+		if (a->arms[i].type == t) return true;
+	}
+	if (a->n == PROTO_ARMS_MAX) return false;
+	proto_arm *arm = &a->arms[a->n++];
+	arm->type = t;
+	snprintf(arm->guard, sizeof arm->guard, "%s", guard);
+	arm->pimpl = UINT32_MAX;
+	arm->answer = false;
+	return true;
+}
+
+// The descriptors a receiver fact names: one per kind that a single descriptor dispatches through, a deftype or record
+// by its var's root; the protocol's user implementors stand in for a `host`/`record` fact without a descriptor when
+// there is exactly one. Empty for TOP, a seq (many descriptors) and anything past the cap.
+static proto_arms receiver_arms(fnctx *f, const clj_node *receiver, clj_value proto) {
+	proto_arms      a = {{{0}}, 0, false};
+	const clj_fact *fact = clj_facts_node(f->facts, receiver->id);
+	if (clj_fact_is_top(*fact) || fact->types == CLJ_T_TOP || fact->types == CLJ_T_BOTTOM) return a;
+	uint32_t types = fact->types;
+	while (types) {
+		uint32_t        bit = types & (0u - types);
+		const clj_type *t = NULL;
+		const char     *expr = kind_type_expr(bit, &t);
+		char            guard[80];
+		types &= types - 1;
+		if (!expr && (bit == CLJ_T_RECORD || bit == CLJ_T_HOST)) {
+			t = fact->desc;
+			if (!t) {
+				single_user s = {bit, NULL, 0};
+				clj_proto_each_user(proto, visit_single_user, &s);
+				if (s.n == 1) t = s.found;
+			}
+			clj_value var = t && !(t->h.flags & CLJ_FLAG_IMMORTAL) ? user_type_var(t) : CLJ_NIL;
+			if (!clj_is_nil(var)) {
+				snprintf(guard, sizeof guard, "clj_c_var_type(V[%zu])", var_index(f->u, var));
+				expr = guard;
+			}
+		}
+		if (!expr) {
+			a.partial = true;
+			continue;
+		}
+		if (!arms_add(&a, t, expr)) {
+			a.n = 0;
+			a.partial = true;
+			return a;
+		}
+	}
+	return a;
+}
+
+// The direct target of an arm: the impl the tables hold for the descriptor, when it is a closure of the compiled set
+// (an emitted node, or a compiled closure whose dispatcher a closed unit registered) with a fixed arity a direct
+// arm may enter. UINT32_MAX otherwise.
+static uint32_t arm_target(fnctx *f, const clj_type *t, clj_value method, uint32_t nargs) {
+	clj_value impl = clj_proto_impl_for_type(method, t);
+	uint32_t  id = UINT32_MAX;
+	if (clj_is_fn(impl)) {
+		const clj_fn *fn = clj_fn_of(impl);
+		if (fn->kind == CLJ_FN_CLOSURE && (entry_arities(fn->u.node) >> nargs) & 1) {
+			id = pimpl_add(f->c, f->u, fn->u.node, NULL, nargs);
+		} else if (fn->kind == CLJ_FN_NATIVE_CTX && fn->u.native_ctx.ctx == fn && fn->nenv == 0 && (fn->arities >> nargs) & 1) {
+			const char *name = clj_compiled_impl_name(fn->u.native_ctx.fn);
+			if (name) id = pimpl_add(f->c, f->u, NULL, name, nargs);
+		}
+	}
+	clj_release(impl);
+	return id;
+}
+
+// Method impls a closed init registers, so that a later unit's arm can name them: the fn values of the method maps.
+static void mark_impl_candidates(fnctx *f, const clj_node *n) {
+	const clj_node *head = n->u.invoke.fn;
+	if (head->kind != CLJ_NODE_VAR) return;
+	clj_value var = head->u.var;
+	if (!var_named(var, "clojure.core", "deftype*") && !var_named(var, "clojure.core", "record*") && !var_named(var, "clojure.core", "extend") && !var_named(var, "clojure.core", "extend*")) return;
+	for (uint32_t i = 0; i < n->u.invoke.n; i++) {
+		const clj_node *arg = n->u.invoke.args[i];
+		if (arg->kind != CLJ_NODE_MAP) continue;
+		for (uint32_t k = 1; k < arg->u.seq.n; k += 2) {
+			if (arg->u.seq.items[k]->kind == CLJ_NODE_FN) candidate_add(f->c, arg->u.seq.items[k]);
+		}
+	}
+}
+
+static clj_value protocol_method_root(const clj_node *head) {
+	if (head->kind != CLJ_NODE_VAR || clj_var_of(head->u.var)->dynamic) return CLJ_NIL;
+	clj_value root = clj_var_root(head->u.var);
+	return clj_is_protocol_method(root) ? root : CLJ_NIL;
+}
+
+// A protocol method call: the arms the fact allows, under CLJC_PIMPL_<id> (a closed unit's prelude defines it when the
+// target resolved), then the per-thread inline cache for every other receiver.
+static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const temp *fn, const char *array, const temp *r) {
+	uint32_t   nargs = n->u.invoke.n;
+	proto_arms a = receiver_arms(f, n->u.invoke.args[0], clj_method_ctx_of(method)->proto);
+	uint32_t   direct = 0;
+	for (uint32_t i = 0; i < a.n; i++) {
+		a.arms[i].pimpl = arm_target(f, a.arms[i].type, method, nargs);
+		if (a.arms[i].pimpl != UINT32_MAX) direct++;
+	}
+	if (direct == 0) f->u->slots.proto_cache++;
+	else if (direct == 1 && a.n == 1 && !a.partial) f->u->slots.proto_direct++;
+	else f->u->slots.proto_switch++;
+	int k = f->naux++;
+	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s[0]);\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Thread_local clj_cproto_ic PC%d;\n", r->name, array, k);
+	for (uint32_t i = 0; i < a.n; i++) {
+		if (a.arms[i].pimpl != UINT32_MAX) sb_printf(&f->out, "#ifdef CLJC_PIMPL_%u\n\t\tstatic _Atomic uint64_t PA%u;\n#endif\n", a.arms[i].pimpl, a.arms[i].pimpl);
+	}
+	for (uint32_t i = 0; i < a.n; i++) {
+		const proto_arm *arm = &a.arms[i];
+		if (arm->pimpl == UINT32_MAX) continue;
+		sb_printf(&f->out, "#ifdef CLJC_PIMPL_%u\n\t\tif (pt == %s && (clj_c_arm_hit(&PA%u, pe) || clj_c_arm_fill(&PA%u, %s, %s, %u, CLJC_PIMPL_%u_CODE, CLJC_PIMPL_%u_FN, pe))) %s = CLJC_PIMPL_%u_FN(CLJ_NIL, NULL, %s, %u);\n\t\telse\n#endif\n",
+		          arm->pimpl, arm->guard, arm->pimpl, arm->pimpl, fn->name, array, nargs, arm->pimpl, arm->pimpl, r->name, arm->pimpl, array, nargs);
+	}
+	sb_printf(&f->out, "\t\t%s = clj_c_proto_ic_call(&PC%d, %s, %s, %u, pt, pe);\n\t}\n", r->name, k, fn->name, array, nargs);
+}
+
+// (satisfies? P x) with a known receiver under --closed: the answer per descriptor, verified once per epoch.
+static bool emit_satisfies(fnctx *f, const clj_node *n, const temp *fn, const temp *args, const char *array, const temp *r) {
+	const clj_node *pnode = n->u.invoke.args[0];
+	if (pnode->kind != CLJ_NODE_VAR || clj_var_of(pnode->u.var)->dynamic) return false;
+	clj_value proto = clj_var_root(pnode->u.var);
+	if (!clj_is_protocol(proto)) return false;
+	proto_arms a = receiver_arms(f, n->u.invoke.args[1], proto);
+	if (a.n == 0) return false;
+	for (uint32_t i = 0; i < a.n; i++) {
+		const clj_type *t = a.arms[i].type;
+		clj_value       type = t == &clj_nil_dispatch_type ? CLJ_NIL : clj_from_ptr((void *)t);
+		a.arms[i].answer = clj_truthy(clj_proto_extends(proto, type));
+	}
+	f->u->slots.proto_folded++;
+	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s);\n\t\tuint64_t pe = clj_epoch_load();\n", r->name, args[1].name);
+	int k = f->naux;
+	f->naux += (int)a.n;
+	for (uint32_t i = 0; i < a.n; i++) sb_printf(&f->out, "\t\tstatic _Atomic uint64_t PS%d;\n", k + (int)i);
+	for (uint32_t i = 0; i < a.n; i++) {
+		const proto_arm *arm = &a.arms[i];
+		const char      *answer = arm->answer ? "CLJ_TRUE" : "CLJ_FALSE";
+		sb_printf(&f->out, "\t\tif (pt == %s) %s = (clj_c_arm_hit(&PS%d, pe) || clj_c_satisfies_fill(&PS%d, %s, %s, %s, pe)) ? %s : clj_c_invoke(%s, %s, 2);\n\t\telse\n",
+		          arm->guard, r->name, k + (int)i, k + (int)i, args[0].name, args[1].name, answer, answer, fn->name, array);
+	}
+	sb_printf(&f->out, "\t\t%s = clj_c_invoke(%s, %s, 2);\n\t}\n", r->name, fn->name, array);
+	return true;
+}
+
+// (extends? P T) with T a var holding a type under --closed: the answer, verified once per epoch (a rebind of T bumps it).
+static bool emit_extends(fnctx *f, const clj_node *n, const temp *fn, const temp *args, const char *array, const temp *r) {
+	const clj_node *pnode = n->u.invoke.args[0], *tnode = n->u.invoke.args[1];
+	if (pnode->kind != CLJ_NODE_VAR || clj_var_of(pnode->u.var)->dynamic || tnode->kind != CLJ_NODE_VAR || clj_var_of(tnode->u.var)->dynamic) return false;
+	clj_value proto = clj_var_root(pnode->u.var), type = clj_var_root(tnode->u.var);
+	if (!clj_is_protocol(proto) || !(clj_is_nil(type) || clj_is_type(type))) return false;
+	const char *answer = clj_truthy(clj_proto_extends(proto, type)) ? "CLJ_TRUE" : "CLJ_FALSE";
+	int         k = f->naux++;
+	f->u->slots.proto_folded++;
+	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Atomic uint64_t PE%d;\n", r->name, k);
+	sb_printf(&f->out, "\t\t%s = (clj_c_arm_hit(&PE%d, pe) || clj_c_extends_fill(&PE%d, %s, %s, %s, pe)) ? %s : clj_c_invoke(%s, %s, 2);\n\t}\n", r->name, k, k, args[0].name, args[1].name, answer, answer, fn->name, array);
+	return true;
+}
+
 static temp emit_invoke(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
 	if (f->c->opts.closed && !f->u->embedded && head->kind == CLJ_NODE_VAR && (var_named(head->u.var, "clojure.core", "eval") || var_named(head->u.var, "clojure.core", "load-string"))) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}
+	mark_impl_candidates(f, n);
 	temp fn = emit_borrowed(f, head);
 	char array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
@@ -1435,7 +1774,14 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var))));
 		d = direct_find(f->c, key);
 	}
-	if (d && !d->dynamic && ((d->fixed >> nargs) & 1)) {
+	// a var of the set may hold a protocol method (defprotocol's def) or a builtin (a (def satisfies? ...) shadows it)
+	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
+	bool      folded = false;
+	if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var, "clojure.core", "satisfies?")) folded = emit_satisfies(f, n, &fn, args, array, &r);
+	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
+	if (!folded && !clj_is_nil(method)) {
+		emit_proto_call(f, n, method, &fn, array, &r);
+	} else if (!folded && d && !d->dynamic && ((d->fixed >> nargs) & 1)) {
 		// The definition may still be superseded: the prelude decides at write time (CLJC_DIRECT_*).
 		char target[300];
 		snprintf(target, sizeof target, "%s_a%u", d->base, nargs);
@@ -1446,7 +1792,7 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		sb_printf(&f->out, "\t%s = CLJC_FN_%s ? CLJC_FN_%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n#else\n", r.name, target, target,
 		          var_index(f->u, head->u.var), array, nargs, fn.name, array, nargs);
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n#endif\n", r.name, fn.name, array, nargs);
-	} else {
+	} else if (!folded) {
 		sb_printf(&f->out, "\tclj_value %s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
 	}
 	release_args(f, args, nargs);
@@ -1954,6 +2300,8 @@ static void emit_fn_functions(fnctx *parent, const clj_node *n, const char *base
 	uint32_t stub = stub_new(u, parent, n->u.fn.name, n->line, n->col);
 	// A top-level (def name (fn ...)) is a direct-call target of closed units; its base is the def's own symbol.
 	bool exported = strcmp(base, parent->base) == 0 && parent->top;
+	fn_base_add(parent->c, n, base, u, entry_arities(n));
+	if (candidate(parent->c, n) && entry_arities(n)) impl_reg_add(u, base, entry_arities(n));
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (n->u.fn.fixed[i]) emit_closure_arity(parent, n, n->u.fn.fixed[i], base, stub, exported);
 	}
@@ -2218,6 +2566,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 
 static char *unit_text(cljc_compiler *c, unit *u, const char *init_name);
 static void  emit_failed(cljc_compiler *c, unit *u, const clj_load_form *form, clj_value message);
+static void  mark_cross_unit_impls(cljc_compiler *c);
 
 // core.clj and the embedded libs are units only for the boot build; a file compile leaves them to the interpreter.
 static bool skipped(const cljc_compiler *c, const char *file) {
@@ -2322,6 +2671,11 @@ void cljc_free(cljc_compiler *c) {
 		free(c->directs[i].base);
 	}
 	free(c->directs);
+	for (size_t i = 0; i < c->nfn_bases; i++) free(c->fn_bases[i].base);
+	free(c->fn_bases);
+	for (size_t i = 0; i < c->npimpls; i++) free(c->pimpls[i].name);
+	free(c->pimpls);
+	free(c->candidates);
 	free(c);
 }
 
@@ -2335,6 +2689,7 @@ void cljc_end(cljc_compiler *c) {
 	clj_load_set_hook(NULL);
 	c->installed = false;
 	flush_pending(c);
+	mark_cross_unit_impls(c);
 }
 
 size_t      cljc_unit_count(const cljc_compiler *c) { return c->nunits; }
@@ -2370,6 +2725,52 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 	}
 }
 
+// The direct arms of a unit's protocol sites: CLJC_PIMPL_<id> names the impl's dispatcher (what a fill verifies the
+// tables against) and its arity function (what a hit calls); a static of this unit by symbol, another unit's through
+// the registry at the first fill. An unresolved arm stays undefined and its site keeps the cache alone.
+static void emit_pimpl_prelude(cljc_compiler *c, unit *u, sb *out) {
+	for (size_t i = 0; i < c->npimpls; i++) {
+		const pimpl *p = &c->pimpls[i];
+		if (p->u != u) continue;
+		const char *base = p->name;
+		bool        local = false;
+		if (p->node) {
+			const fn_base *fb = fn_base_of(c, p->node);
+			if (!fb || !((fb->arities >> p->nargs) & 1)) continue;
+			base = fb->base;
+			local = fb->u == u;
+		}
+		sb_printf(out, "#define CLJC_PIMPL_%u 1\n", p->id);
+		if (local) {
+			sb_printf(out, "#define CLJC_PIMPL_%u_CODE %s\n#define CLJC_PIMPL_%u_FN %s_a%u\n", p->id, base, p->id, base, p->nargs);
+		} else {
+			sb_printf(out, "static clj_cproto_impl PI%u = {\"%s\", \"%s_a%u\", NULL, NULL};\n", p->id, base, base, p->nargs);
+			sb_printf(out, "#define CLJC_PIMPL_%u_CODE clj_c_impl_code(&PI%u)\n#define CLJC_PIMPL_%u_FN clj_c_impl_fn(&PI%u)\n", p->id, p->id, p->id, p->id);
+		}
+	}
+}
+
+// Every impl another unit of the set names by node registers here: known once every unit is emitted.
+static void mark_cross_unit_impls(cljc_compiler *c) {
+	for (size_t i = 0; i < c->npimpls; i++) {
+		const pimpl *p = &c->pimpls[i];
+		if (!p->node) continue;
+		const fn_base *fb = fn_base_of(c, p->node);
+		if (fb && fb->u != p->u && fb->arities) impl_reg_add(fb->u, fb->base, fb->arities);
+	}
+}
+
+static void emit_impl_registrations(unit *u, sb *out) {
+	for (size_t k = 0; k < u->impl_regs.n; k++) {
+		const char *base = u->impl_regs.keys[k];
+		uint32_t    arities = (uint32_t)strtoul(u->impl_regs.extra[k], NULL, 10);
+		sb_printf(out, "\tclj_compiled_register_impl(\"%s\", %s);\n", base, base);
+		for (uint32_t a = 0; a <= CLJ_FN_MAX_FIXED; a++) {
+			if ((arities >> a) & 1) sb_printf(out, "\tclj_compiled_register_symbol(\"%s_a%u\", %s_a%u);\n", base, a, base, a);
+		}
+	}
+}
+
 static void emit_direct_registrations(cljc_compiler *c, unit *u, sb *out) {
 	for (size_t k = 0; k < u->defined.n; k++) {
 		const direct_entry *d = direct_find(c, u->defined.extra[k]);
@@ -2395,6 +2796,7 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	sb_put(&out, u->protos.s ? u->protos.s : "", u->protos.len);
 	sb_puts(&out, "\n#ifdef CLJ_CLOSED\n");
 	emit_direct_prelude(c, u, &out);
+	emit_pimpl_prelude(c, u, &out);
 	sb_puts(&out, "#endif\n\n");
 	sb_put(&out, u->fns.s ? u->fns.s : "", u->fns.len);
 	// The pools are filled before any form runs: reading a constant or interning a var has no effect on the program.
@@ -2423,6 +2825,7 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	const char *iname = init_name ? init_name : "unit_init";
 	sb_printf(&out, "%sclj_value %s(void) {\n\tclj_value r;\n\t(void)r;\n\tif (!pools_filled) unit_pools();\n#ifdef CLJ_CLOSED\n", init_name ? "" : "static ", iname);
 	emit_direct_registrations(c, u, &out);
+	emit_impl_registrations(u, &out);
 	sb_puts(&out, "#endif\n");
 	sb_put(&out, u->init.s ? u->init.s : "", u->init.len);
 	if (c->opts.eval_result && u->ntops) sb_puts(&out, "\treturn r;\n");

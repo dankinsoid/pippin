@@ -14,6 +14,7 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
+#include "compiled_internal.h"
 #include "node.h"
 
 clj_value clj_c_const(const char *edn, size_t len) {
@@ -115,4 +116,58 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 	stub->line = line;
 	stub->col = col;
 	stub->u.fn.name = clj_retain(name);
+}
+
+// ---- protocol call sites (compiled_internal.h)
+
+static bool method_accepts(clj_value method, size_t n) {
+	const clj_fn *mf = clj_fn_of(method);
+	return n >= mf->min_arity && (mf->max_arity == CLJ_ARITY_ANY || n <= mf->max_arity);
+}
+
+// The tables under their window, as the interpreter's miss; the cell takes the impl when the epoch read before the
+// lookup still stands, releasing the previous one through the retire list, since a call on this thread may be in it.
+// @ai-generated(solo)
+clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value *args, size_t n, const clj_type *t, uint64_t epoch) {
+	if (!clj_is_protocol_method(method)) return clj_c_invoke(method, args, n);
+	if (!method_accepts(method, n)) return clj_arity_error(method, n);
+	clj_value impl = clj_protocol_method_impl(method, args[0]);
+	if (clj_is_nil(impl)) return clj_protocol_no_impl(method, args[0]);
+	if (clj_is_fn(impl) && clj_epoch_load() == epoch) {
+		clj_value old = ic->impl;
+		ic->method = method;
+		ic->type = t;
+		ic->impl = clj_retain(impl);
+		ic->epoch = epoch;
+		if (!clj_is_nil(old) && !clj_eval_retire_root(old)) clj_release(old);
+	}
+	clj_value r = clj_c_call_impl(impl, args, n);
+	clj_release(impl);
+	return r;
+}
+
+// @ai-generated(solo)
+bool clj_c_arm_fill(_Atomic uint64_t *cell, clj_value method, const clj_value *args, size_t n, clj_native_ctx_fn code, clj_compiled_fn fn, uint64_t epoch) {
+	if (!code || !fn || !clj_is_protocol_method(method) || !method_accepts(method, n)) return false;
+	clj_value impl = clj_protocol_method_impl(method, args[0]);
+	bool      ok = clj_is_fn(impl) && clj_fn_of(impl)->kind == CLJ_FN_NATIVE_CTX && clj_fn_of(impl)->u.native_ctx.fn == code;
+	if (ok && clj_epoch_load() == epoch) atomic_store_explicit(cell, epoch, memory_order_relaxed);
+	clj_release(impl);
+	return ok;
+}
+
+// @ai-generated(solo)
+bool clj_c_satisfies_fill(_Atomic uint64_t *cell, clj_value proto, clj_value x, clj_value expected, uint64_t epoch) {
+	if (!clj_is_protocol(proto)) return false;
+	bool ok = clj_proto_satisfies(proto, x) == expected;
+	if (ok && clj_epoch_load() == epoch) atomic_store_explicit(cell, epoch, memory_order_relaxed);
+	return ok;
+}
+
+// @ai-generated(solo)
+bool clj_c_extends_fill(_Atomic uint64_t *cell, clj_value proto, clj_value type, clj_value expected, uint64_t epoch) {
+	if (!clj_is_protocol(proto) || !(clj_is_nil(type) || clj_is_type(type))) return false;
+	bool ok = clj_proto_extends(proto, type) == expected;
+	if (ok && clj_epoch_load() == epoch) atomic_store_explicit(cell, epoch, memory_order_relaxed);
+	return ok;
 }
