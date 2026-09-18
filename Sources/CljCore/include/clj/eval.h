@@ -118,8 +118,10 @@ size_t clj_debug_retired_roots(void);
 // What clj_exec_run brackets a top-level form with: a compiled unit's form does the same so a def inside parks fn roots.
 void clj_eval_top_enter(void);
 void clj_eval_top_leave(void);
-// Releases parked roots once the thread is idle; a compiled closure calls it where the shadow depth returns to zero.
+// Releases parked roots once the thread is idle.
 void clj_eval_drain_retired(void);
+// clj_invoke from the host: a recovery point for a stack overflow in compiled code (guard.h) and a top-level bracket.
+clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n);
 
 // A call of f with a fixed argument count prepared once, for a native that calls f per element: a closure has its
 // arity resolved and enters its body directly, a plain native skips its arity check. f is borrowed and must

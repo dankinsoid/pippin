@@ -6,6 +6,7 @@
 #include "clj/map.h"
 #include "clj/record.h"
 #include "clj/vector.h"
+#include "shadow_internal.h"
 
 clj_reducer clj_reducer_start(clj_value f, clj_value init, size_t nargs) {
 	CLJ_ASSERT(nargs == 2 || nargs == 3, "a reducer takes 2 or 3 arguments");
@@ -69,6 +70,7 @@ void clj_reducer_drop(clj_reducer *r) {
 clj_value clj_reduce_empty(clj_value f, clj_value init) { return init == CLJ_UNBOUND ? clj_invoke(f, NULL, 0) : clj_retain(init); }
 
 clj_value clj_reduce_iter(clj_value coll, clj_value f, clj_value init) {
+	if (clj_deadline_tick()) return CLJ_THROWN;
 	clj_reducer  r = clj_reducer_start(f, init, 2);
 	clj_seq_iter it = clj_seq_iter_start(coll);
 	clj_value    item;

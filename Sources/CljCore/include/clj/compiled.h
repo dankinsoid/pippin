@@ -18,12 +18,19 @@ typedef struct clj_cframe {
 	const struct clj_cframe *outer;
 } clj_cframe;
 
-// Per-call state between clj_c_enter and clj_c_leave: profile start, signpost id, the instrumentation byte read once.
+// Per-call state of an instrumented unit (CLJC_INSTRUMENT): profile start, signpost id, the instrumentation byte read once.
 typedef struct {
 	uint64_t t0;
 	uint64_t signpost;
 	uint8_t  instrument;
 } clj_ccall;
+
+// A compiled fn's code and the stub that names it in a trace; the unit registers its table once (trace.c).
+typedef void (*clj_code)(void);
+typedef struct {
+	clj_code        fn;
+	const clj_node *stub;
+} clj_frame_entry;
 
 // The unit descriptor a compiled dylib exports as `clj_compiled_unit`; the init evaluates the unit's forms in order.
 typedef struct {
@@ -51,8 +58,12 @@ clj_value clj_c_map_literal(const clj_value *items, uint32_t n);
 clj_value clj_c_set_literal(const clj_value *items, uint32_t n);
 // "Wrong number of args (n) passed to: name", "fn" for an anonymous one, as the interpreter words it for a closure.
 clj_value clj_c_arity_error(clj_value f, size_t n);
-// A fn stub for the shadow stack: an immortal FN node carrying only a name and a position.
+// A fn stub for traces and the profiler: an immortal FN node carrying only a name and a position.
 void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col);
+// The unit's frame table: each fn's code runs to the next one's in the __cljframe section (trace.c).
+void clj_c_register_frames(const clj_frame_entry *entries, size_t n);
+// Whether core.clj's fns report to the profiler: the interpreted core, or the compiled one built with CLJC_INSTRUMENT.
+bool clj_core_instrumented(void);
 // The C stack limit of this thread's shadow stack, computed on first use (eval.c).
 char *clj_eval_stack_limit(void *shadow_stack);
 // Called with the deadline set: true when the deadline throw is now pending.

@@ -9,6 +9,7 @@ import Pippin
 struct Options {
 	var out = "."
 	var closed = false
+	var instrument = false
 	var line = true
 	var lenient = false
 	var loadPath: [String] = []
@@ -22,8 +23,9 @@ struct Options {
 
 func usage() -> Never {
 	FileHandle.standardError.write(Data("""
-	usage: clj-compile [--out DIR] [--closed] [--no-line] [--lenient] [--load-path P]... [--features k,...]
+	usage: clj-compile [--out DIR] [--closed] [--instrument] [--no-line] [--lenient] [--load-path P]... [--features k,...]
 	                   [--core] [--with-embedded] [--allow-refused] [--stats] (--file F | --ns NS)...
+	--instrument emits the profiler and signpost hooks in every fn (a plain unit has none; core.c takes -DCLJC_INSTRUMENT).
 	--stats reports per unit the frame slots the facts pass calls local, the ones emitted as C variables and as int64_t, the arithmetic nodes emitted unboxed or behind a tag check, the protocol sites by their dispatch (direct arm, switch, cache), and the slot arrays direct callers allocate against their callees' frames.
 	--core writes <out>/core.c and <out>/libs_*.c (the embedded libs) for -DCLJ_COMPILED_CORE builds; otherwise
 	one <out>/<munged path>.c per loaded file plus <out>/units.txt (cname<TAB>path per line, in load order).
@@ -43,6 +45,7 @@ while !args.isEmpty {
 	switch a {
 	case "--out": opts.out = need()
 	case "--closed": opts.closed = true
+	case "--instrument": opts.instrument = true
 	case "--no-line": opts.line = false
 	case "--lenient": opts.lenient = true
 	case "--load-path": opts.loadPath.append(need())
@@ -61,6 +64,7 @@ if !opts.core && opts.inputs.isEmpty { usage() }
 // The hook must be in place before clj_init so that core.clj's own forms pass through it.
 var copts = cljc_options()
 copts.closed = opts.closed
+copts.instrument = opts.instrument
 copts.line = opts.line
 copts.skip_embedded = !opts.withEmbedded && !opts.core
 let coreGuard = strdup("CLJ_COMPILED_CORE")

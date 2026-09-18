@@ -6,6 +6,7 @@
 
 #include "clj/core.h"
 #include "clj/eval.h"
+#include "clj/guard.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/lock.h"
@@ -336,7 +337,13 @@ static clj_value run_unit(clj_compiled_init init, clj_value file) {
 	clj_release(bindings);
 	if (pushed == CLJ_THROWN) return CLJ_THROWN;
 	clj_release(pushed);
-	clj_value r = init();
+	// The unit's forms run outside clj_eval, so the recovery point of guard.h is here.
+	clj_recovery rec;
+	clj_recovery_push(&rec);
+	clj_value r;
+	if (sigsetjmp(rec.buf, 0)) r = clj_recovery_throw(&rec);
+	else r = init();
+	clj_recovery_pop(&rec);
 	if (clj_var_pop_bindings() == CLJ_THROWN) clj_fatal("load bindings vanished");
 	if (r == CLJ_THROWN) return r;
 	clj_release(r);

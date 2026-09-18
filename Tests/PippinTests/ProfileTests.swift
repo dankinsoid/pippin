@@ -90,7 +90,8 @@ extension CoreTests {
 		}
 
 		// A stop while calls are in flight drops them: only a call timed from its entry is recorded. Macro
-		// expansion runs closures too, so a form analyzed with the profiler on shows core.clj's macros.
+		// expansion runs closures too, so a form analyzed with the profiler on shows core.clj's macros — unless the
+		// core is compiled without the instrumentation hooks (clj-compile --instrument, -DCLJC_INSTRUMENT).
 		@Test func profileStopMidCall() throws {
 			try declare("pf-stopper", "pf-run")
 			let before = clj_debug_live_objects()
@@ -106,7 +107,8 @@ extension CoreTests {
 				clj_profile_start()
 				#expect(try rt.eval("(let [x 1] x)") == 1)
 				let expanded = Value(owning: clj_profile_stop())
-				#expect(try #require(field(expanded, "fns").array).map { field($0, "name").description }.contains("clojure.core/let"))
+				let names = try #require(field(expanded, "fns").array).map { field($0, "name").description }
+				#expect(names.contains("clojure.core/let") == clj_core_instrumented())
 				try unbind("pf-stopper", "pf-run")
 			}
 			#expect(clj_debug_live_objects() == before)

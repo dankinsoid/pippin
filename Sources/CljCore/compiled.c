@@ -118,6 +118,14 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 	stub->u.fn.name = clj_retain(name);
 }
 
+bool clj_core_instrumented(void) {
+#if defined(CLJ_COMPILED_CORE) && !defined(CLJC_INSTRUMENT)
+	return false;
+#else
+	return true;
+#endif
+}
+
 // ---- protocol call sites (compiled_internal.h)
 
 #if CLJ_DEBUG

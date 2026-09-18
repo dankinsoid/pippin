@@ -186,6 +186,13 @@ clj_value clj_var_pop_bindings(void) {
 	return CLJ_NIL;
 }
 
+void *clj_var_bindings_mark(void) { return frames; }
+
+// Pops what a landing at a recovery point left pushed (guard.c): the frames above the mark were abandoned.
+void clj_var_bindings_unwind(void *mark) {
+	while (frames && frames != mark) clj_release(clj_var_pop_bindings());
+}
+
 static bool collect_value(clj_value key, clj_value box, void *ctx) {
 	clj_value *m = ctx;
 	*m = clj_map_assoc(*m, key, clj_volatile_value(box));

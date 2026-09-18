@@ -9,10 +9,12 @@
 
 typedef struct clj_node clj_node;
 
-// One per running closure on the thread; natives are leaves and never appear.
+// One per running interpreted closure on the thread; natives are leaves and compiled fns are found on the real
+// stack instead (trace.c), so `sp` orders a frame among them.
 typedef struct {
 	const clj_node *fn_node;
 	const clj_node *call_site; // NULL for a host call or a call from a native
+	const void     *sp;        // a stack address inside the frame that runs the body
 } clj_shadow_frame;
 
 // Beyond this depth the innermost frames are kept and the rest counted as dropped.
@@ -23,7 +25,8 @@ size_t clj_shadow_stack_snapshot(clj_shadow_frame *out, size_t cap);
 size_t clj_shadow_stack_depth(void);
 size_t clj_shadow_stack_dropped(void);
 
-// Owned vector of {:fn sym-or-nil :line n :column n}, innermost first; the fn's own position when the call site is unknown.
+// Owned vector of {:fn sym-or-nil :line n :column n}, innermost first, interpreted and compiled frames merged by
+// stack order (trace.c); the fn's own position when the call site is unknown.
 clj_value clj_shadow_stack_trace(size_t max);
 
 // Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).

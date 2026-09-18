@@ -22,11 +22,13 @@
 #include "clj/var.h"
 #include "clj/vector.h"
 #include "epoch_internal.h"
+#include "guard_internal.h"
 #include "load_internal.h"
 #include "profile_internal.h"
 #include "proto_internal.h"
 #include "shadow_internal.h"
 #include "specialize_internal.h"
+#include "trace_internal.h"
 
 enum {
 	SMALL_SLOTS = 16, // frame slots kept on the C stack
@@ -164,7 +166,10 @@ typedef struct {
 
 static _Thread_local retired_roots retired;
 
-static bool in_flight(void) { return retired.exec_depth > 0 || (clj_shadow_tls && clj_shadow_tls->depth > 0); }
+// A compiled fn pushes no frame, so the real stack answers for it: a walk, paid only at a rebind or a drain.
+static bool in_flight(void) {
+	return retired.exec_depth > 0 || (clj_shadow_tls && clj_shadow_tls->depth > 0) || clj_trace_compiled_on_stack();
+}
 
 // @ai-generated(guided)
 bool clj_eval_retire_root(clj_value old) {
@@ -449,7 +454,7 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 		slots_release(frame, arity->nslots);
 		return deadline_throw(s);
 	}
-	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site};
+	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site, __builtin_frame_address(0)};
 	s->depth++;
 	// Read once: a profiler started or stopped mid-body counts only calls timed from their entry.
 	uint8_t  instrument = clj_instrument;
@@ -1297,6 +1302,25 @@ bool clj_eval_deadline_hit(void *shadow_stack) {
 
 void clj_eval_top_enter(void) { retired.exec_depth++; }
 
+uint32_t clj_eval_exec_depth(void) { return retired.exec_depth; }
+
+void clj_eval_exec_depth_set(uint32_t depth) { retired.exec_depth = depth; }
+
+clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
+	clj_recovery r;
+	clj_recovery_push(&r);
+	clj_value v;
+	if (sigsetjmp(r.buf, 0)) {
+		v = clj_recovery_throw(&r);
+	} else {
+		retired.exec_depth++;
+		v = clj_invoke(f, args, n);
+	}
+	clj_recovery_pop(&r);
+	if (--retired.exec_depth == 0 && retired.n) drain_retired();
+	return v;
+}
+
 void clj_eval_top_leave(void) {
 	if (--retired.exec_depth == 0 && retired.n) drain_retired();
 }
@@ -1305,9 +1329,22 @@ void clj_eval_drain_retired(void) {
 	if (retired.n) drain_retired();
 }
 
+static clj_value eval_form(clj_value form, const clj_env *given);
+
+// Every top-level form is a recovery point (guard.h): the first form of a thread makes its shadow stack too.
+clj_value clj_eval(clj_value form, const clj_env *given) {
+	clj_recovery r;
+	clj_recovery_push(&r);
+	clj_value v;
+	if (sigsetjmp(r.buf, 0)) v = clj_recovery_throw(&r);
+	else v = eval_form(form, given);
+	clj_recovery_pop(&r);
+	return v;
+}
+
 // A top-level (do ...) is a sequence of top-level forms: a defmacro in it is visible to the next form.
 // Without a position in env the form's own :line/:column stand in, so the expansion's errors keep them.
-clj_value clj_eval(clj_value form, const clj_env *given) {
+static clj_value eval_form(clj_value form, const clj_env *given) {
 	clj_env local = given ? *given : (clj_env){0};
 	if (!local.line) clj_form_position(form, &local.line, &local.col);
 	const clj_env       *env = &local;

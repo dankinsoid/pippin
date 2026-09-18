@@ -21,6 +21,7 @@ typedef struct {
 	bool toplevel;     // the hook also fires on host evals (compiled eval), not only on loads
 	bool skip_embedded; // leave <embedded>/ libs to the interpreter (units are not collected for them)
 	bool eval_result;   // the init returns the last form's value instead of nil (compiled eval)
+	bool instrument;    // the profiler and signpost hooks in every fn (CLJC_INSTRUMENT at the unit's top)
 	const char *guard_macro; // wrap the unit in #ifdef <macro> (the boot's core.c)
 } cljc_options;
 

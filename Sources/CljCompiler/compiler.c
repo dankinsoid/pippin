@@ -181,6 +181,7 @@ typedef struct {
 	pool  externs;  // direct-call targets referenced: "base_aN"
 	pool  defined;  // bases of the vars this unit defines with a fn init, with their qualified names
 	pool  impl_regs; // fn bases a closed init registers as protocol impls, with the arity mask a direct arm may call
+	pool  frames;    // the frame functions with their stub index, in emission order (the unit's range table)
 	uint32_t nstubs, ntops, nforms;
 	cljc_slot_stats slots;
 	struct proto_site *psites; // the protocol call sites, classified for --stats once every arm's target is resolved
@@ -363,6 +364,7 @@ static void unit_free(unit *u) {
 	pool_free(&u->externs);
 	pool_free(&u->defined);
 	pool_free(&u->impl_regs);
+	pool_free(&u->frames);
 	free(u);
 }
 
@@ -432,7 +434,13 @@ typedef struct fnctx {
 	uint32_t       last_line;
 	const clj_load_form *form;
 	bool                 top; // the top-level form's own context, where a def names its fn after itself
+	int32_t              stub; // S[] index of the frame fn being emitted, -1 in a top-level form
 } fnctx;
+
+// The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
+static void emit_site(fnctx *f) {
+	if (f->stub >= 0) sb_printf(&f->out, "\tCLJC_SITE(&S[%d]);\n", f->stub);
+}
 
 static void fn_line(fnctx *f, const clj_node *n) {
 	if (!f->c->opts.line || !n->line || n->line == f->last_line) return;
@@ -508,6 +516,7 @@ static void emit_unwind(fnctx *f) {
 }
 
 static void check_thrown(fnctx *f, const char *name) {
+	emit_site(f);
 	sb_printf(&f->out, "\tif (%s == CLJ_THROWN) {\n", name);
 	emit_unwind(f);
 	sb_puts(&f->out, "\t}\n");
@@ -910,6 +919,7 @@ static void emit_unwind(fnctx *f);
 static void emit_int64_arith(fnctx *f, unbox_op op, const char *a, const char *b, const char *r) {
 	const char *builtin = (op == UNBOX_ADD || op == UNBOX_INC) ? "__builtin_add_overflow" : (op == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
 	sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n\tclj_throw_msg(\"integer overflow\");\n", r, builtin, a, b, r);
+	emit_site(f);
 	emit_unwind(f);
 	sb_puts(&f->out, "\t}\n");
 }
@@ -1420,9 +1430,11 @@ static temp emit_recur(fnctx *f, const clj_node *n) {
 	free(vals);
 	if (!f->recur_label) clj_fatal("compiler: recur outside a loop or fn body");
 	if (f->recur_loop) {
-		sb_puts(&f->out, "\tif (clj_c_loop_tick()) {\n");
+		sb_puts(&f->out, "\t{\n\tbool tick = clj_c_loop_tick();\n");
+		emit_site(f);
+		sb_puts(&f->out, "\tif (tick) {\n");
 		emit_unwind(f);
-		sb_puts(&f->out, "\t}\n");
+		sb_puts(&f->out, "\t}\n\t}\n");
 	}
 	for (int i = f->nlive - 1; i >= f->recur_live_mark; i--) emit_release_of(&f->out, &f->live[i]);
 	sb_printf(&f->out, "\tgoto L%d;\n", f->recur_label);
@@ -1995,8 +2007,9 @@ static temp emit_tag_checked(fnctx *f, const clj_node *n, unbox_op uop, const uk
 		itemp z = new_itemp(f, rk);
 		if (rk == UK_INT) {
 			const char *builtin = (uop == UNBOX_ADD || uop == UNBOX_INC) ? "__builtin_add_overflow" : (uop == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
-			sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) %s = clj_throw_msg(\"integer overflow\");\n\telse %s = clj_long_new(%s);\n", z.name, builtin, x[0], x[1], z.name,
-			          r.name, r.name, z.name);
+			sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n\t%s = clj_throw_msg(\"integer overflow\");\n", z.name, builtin, x[0], x[1], z.name, r.name);
+			emit_site(f);
+			sb_printf(&f->out, "\t} else %s = clj_long_new(%s);\n", r.name, z.name);
 		} else {
 			emit_double_arith(f, uop, x[0], x[1], z.name);
 			sb_printf(&f->out, "\t%s = clj_double_new(%s);\n", r.name, z.name);
@@ -2267,7 +2280,16 @@ static fnctx fnctx_child(fnctx *parent, const char *base) {
 	f.fn_counter = parent->fn_counter;
 	f.ns = parent->ns;
 	f.form = parent->form;
+	f.stub = -1;
 	return f;
+}
+
+// A frame function joins the unit's range table (trace.c) under its stub.
+static void frame_add(unit *u, const char *name, uint32_t stub) {
+	char id[16];
+	snprintf(id, sizeof id, "%u", stub);
+	bool fresh;
+	pool_intern(&u->frames, name, id, &fresh);
 }
 
 static void fnctx_free(fnctx *f) {
@@ -2282,13 +2304,15 @@ static void emit_frame_teardown(fnctx *f, uint32_t arr) {
 	if (arr) sb_printf(&f->out, "\tclj_c_release_slots(&fr, %u);\n", arr);
 }
 
-// One arity of a closure: the frame, the guard and shadow frame, the body under a recur label, teardown.
+// One arity of a closure: the frame, the body under a recur label, teardown.
 static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, bool exported) {
 	fnctx f = fnctx_child(parent, base);
 	char  name[300];
 	snprintf(name, sizeof name, "%s_%c%u", base, a->variadic ? 'v' : 'a', a->nparams);
+	f.stub = (int32_t)stub;
+	frame_add(f.u, name, stub);
 	sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", name);
-	sb_printf(&f.out, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {\n", exported ? "" : "static ", name);
+	sb_printf(&f.out, "%sCLJC_FRAME clj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {\n", exported ? "" : "static ", name);
 	sb_puts(&f.out, "\t(void)self; (void)captured; (void)args; (void)nargs;\n");
 	promote_slots(&f, n, a, true, a->body, a->nslots);
 	uint32_t arr = array_slots(&f, a->nslots);
@@ -2312,8 +2336,8 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
 		if (a->self_slot >= 0) sb_puts(&f.out, "\tclj_retain(self);\n");
 	}
-	int noenter = new_label(&f), fail = new_label(&f);
-	sb_printf(&f.out, "\tclj_ccall cc;\n\tif (!clj_c_enter(&S[%u], &cc)) goto L%d;\n", stub, noenter);
+	int fail = new_label(&f);
+	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
 	f.recur_label = new_label(&f);
 	f.recur_loop = false;
@@ -2328,13 +2352,15 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		memcpy(f.out.s + at, label, strlen(label));
 	}
 	handler h = pop_handler(&f);
-	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n", stub);
+	sb_printf(&f.out, "\tCLJC_LEAVE(&S[%u], &cc);\n", stub);
 	emit_frame_teardown(&f, arr);
 	sb_printf(&f.out, "\treturn %s;\n", r.name);
-	if (h.used) sb_printf(&f.out, "L%d: ;\n\tclj_c_leave(&S[%u], &cc);\n", fail, stub);
-	sb_printf(&f.out, "L%d: ;\n", noenter);
-	emit_frame_teardown(&f, arr);
-	sb_puts(&f.out, "\treturn CLJ_THROWN;\n}\n\n");
+	if (h.used) {
+		sb_printf(&f.out, "L%d: ;\n\tCLJC_LEAVE(&S[%u], &cc);\n", fail, stub);
+		emit_frame_teardown(&f, arr);
+		sb_puts(&f.out, "\treturn CLJ_THROWN;\n");
+	}
+	sb_puts(&f.out, "}\n\n");
 	sb_put(&f.u->fns, f.out.s, f.out.len);
 	fnctx_free(&f);
 }
@@ -2368,8 +2394,10 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	fnctx f = fnctx_child(parent, base);
 	char  name[300];
 	snprintf(name, sizeof name, "%s_a%u", base, a->nparams);
+	f.stub = (int32_t)stub;
+	frame_add(f.u, name, stub);
 	sb_printf(&f.u->protos, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned);\n", name);
-	sb_printf(&f.out, "static clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned) {\n", name);
+	sb_printf(&f.out, "static CLJC_FRAME clj_value %s(const clj_cframe *outer, const clj_value *captured, clj_value *slots, uint64_t owned) {\n", name);
 	sb_puts(&f.out, "\tclj_cframe fr = {slots, captured, owned, outer};\n\t(void)fr;\n");
 	f.definer = parent;
 	// the array is the caller's, sized by what promotion leaves in it: a promoted entry is simply never touched
@@ -2378,8 +2406,8 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	direct_name_entry(n)->arr[a->nparams] = arr;
 	emit_promoted_decls(&f);
 	if (a->nslots > 64) sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
-	int noenter = new_label(&f), fail = new_label(&f);
-	sb_printf(&f.out, "\tclj_ccall cc;\n\tif (!clj_c_enter(&S[%u], &cc)) goto L%d;\n", stub, noenter);
+	int fail = new_label(&f);
+	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
 	f.recur_label = new_label(&f);
 	f.recur_loop = false;
@@ -2393,13 +2421,15 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 		memcpy(f.out.s + at, label, strlen(label));
 	}
 	handler h = pop_handler(&f);
-	sb_printf(&f.out, "\tclj_c_leave(&S[%u], &cc);\n", stub);
+	sb_printf(&f.out, "\tCLJC_LEAVE(&S[%u], &cc);\n", stub);
 	emit_frame_teardown(&f, arr);
 	sb_printf(&f.out, "\treturn %s;\n", r.name);
-	if (h.used) sb_printf(&f.out, "L%d: ;\n\tclj_c_leave(&S[%u], &cc);\n", fail, stub);
-	sb_printf(&f.out, "L%d: ;\n", noenter);
-	emit_frame_teardown(&f, arr);
-	sb_puts(&f.out, "\treturn CLJ_THROWN;\n}\n\n");
+	if (h.used) {
+		sb_printf(&f.out, "L%d: ;\n\tCLJC_LEAVE(&S[%u], &cc);\n", fail, stub);
+		emit_frame_teardown(&f, arr);
+		sb_puts(&f.out, "\treturn CLJ_THROWN;\n");
+	}
+	sb_puts(&f.out, "}\n\n");
 	sb_put(&f.u->fns, f.out.s, f.out.len);
 	fnctx_free(&f);
 }
@@ -2877,6 +2907,7 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	sb out = {0};
 	sb_printf(&out, "// Generated by clj-compile from %s; do not edit.\n", u->file);
 	if (c->opts.closed && !c->opts.guard_macro) sb_puts(&out, "#define CLJ_CLOSED 1\n");
+	if (c->opts.instrument) sb_puts(&out, "#define CLJC_INSTRUMENT 1\n");
 	sb_puts(&out, "#include \"compiled_internal.h\"\n\n");
 	sb_printf(&out, "#define FILE_STR %s\n", u->has_file ? "(K[0])" : "CLJ_NIL");
 	if (c->opts.guard_macro) sb_printf(&out, "#ifdef %s\n", c->opts.guard_macro);
@@ -2890,8 +2921,14 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	emit_pimpl_prelude(c, u, &out);
 	sb_puts(&out, "#endif\n\n");
 	sb_put(&out, u->fns.s ? u->fns.s : "", u->fns.len);
+	// The range table of trace.c: the frame functions, which the section keeps contiguous whatever clang's order.
+	sb_printf(&out, "static const clj_frame_entry FR[%zu] = {\n", u->frames.n ? u->frames.n : 1);
+	for (size_t k = 0; k < u->frames.n; k++) sb_printf(&out, "\t{(clj_code)%s, &S[%s]},\n", u->frames.keys[k], u->frames.extra[k]);
+	if (!u->frames.n) sb_puts(&out, "\t{NULL, NULL},\n");
+	sb_puts(&out, "};\n\n");
 	// The pools are filled before any form runs: reading a constant or interning a var has no effect on the program.
 	sb_puts(&out, "static bool pools_filled;\n\nstatic void unit_pools(void) {\n\t(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;\n\tpools_filled = true;\n");
+	sb_printf(&out, "\tclj_c_register_frames(FR, %zu);\n", u->frames.n);
 	for (size_t k = 0; k < u->vars.n; k++) {
 		const char *slash = strchr(u->vars.keys[k], '/');
 		if (slash == u->vars.keys[k] || !slash) slash = strrchr(u->vars.keys[k], '/');

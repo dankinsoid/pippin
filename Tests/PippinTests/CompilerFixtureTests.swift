@@ -174,6 +174,26 @@ extension CoreTests {
 			#expect(cljEvalError("(cd-m)")?.contains("Wrong number of args (0)") == true)
 		}
 
+		// The guard page lands "Stack overflow" at the host boundary, past any try in between (guard.c); the loop tick
+		// stops a loop without calls.
+		@Test func endlessRecursionAndLoopAreStopped() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.stop)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			for closed in [false, true] {
+				try compiledEval(closed: closed) {
+					_ = try cljEval("(declare cp-b) (let [] (defn cp-a [n] (cp-b (inc n))) (defn cp-b [n] (cp-a n)) (defn cp-spin [] (loop [i 0] (recur (inc i)))))")
+				}
+				#expect(cljEvalError("(cp-a 0)")?.hasPrefix("#error {:message \"Stack overflow\"") == true, "closed: \(closed)")
+				#expect(clj_shadow_stack_depth() == 0 && clj_debug_retired_roots() == 0)
+				#expect(cljEvalError("(try (cp-a 0) (catch :default e :caught))")?.hasPrefix("#error {:message \"Stack overflow\"") == true)
+				clj_deadline_set_ms(100)
+				#expect(cljEvalError("(cp-spin)")?.contains("Execution timed out") == true, "closed: \(closed)")
+				clj_deadline_set_ms(0)
+				#expect(try cljEval("(+ 1 2)") == 3)
+			}
+		}
+
 		// Under --closed a form the generator refuses is an error naming the node and its position, not a fallback.
 		@Test func closedRefusesEval() throws {
 			clj_init()

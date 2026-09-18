@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 #include "clj/fusion.h"
+#include "shadow_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -189,6 +190,11 @@ static bottom *bottom_new(bottom_kind kind) {
 
 // Runs the walk and hands back the accumulator (owned) or CLJ_THROWN; the fn owns b from here on.
 static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
+	if (clj_deadline_tick()) {
+		if (b->acc != CLJ_UNBOUND) clj_release(b->acc);
+		free(b);
+		return CLJ_THROWN;
+	}
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
 	clj_value done;
 	bool      ok = run(bot, coll, xfs, &done);

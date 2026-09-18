@@ -214,7 +214,7 @@ extension Value {
 	/// `callAsFunction` over an argument array.
 	public func apply(_ args: [Value]) throws -> Value {
 		try withExtendedLifetime((self, args)) {
-			let result = args.map(\.raw).withUnsafeBufferPointer { clj_invoke(raw, $0.baseAddress, $0.count) }
+			let result = args.map(\.raw).withUnsafeBufferPointer { clj_host_invoke(raw, $0.baseAddress, $0.count) }
 			if result == CLJ_THROWN { throw ClojureError.takePending() }
 			return Value(owning: result)
 		}

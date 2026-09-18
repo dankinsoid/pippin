@@ -26,6 +26,7 @@
 #include "clj/var.h"
 #include "clj/vector.h"
 #include "clj/compiled.h"
+#include "guard_internal.h"
 #include "load_internal.h"
 
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
@@ -129,6 +130,8 @@ static bool immortalize_root(clj_value sym, clj_value var, void *ctx) {
 }
 
 static void init(void) {
+	clj_trace_register_image((const void *)&clj_init);
+	clj_guard_install();
 	clj_value core = clj_ns_core();
 	// Every module's first-use keyword set, interned here so nothing lasting is made after a test's live-object baseline.
 	clj_reader_intern_keywords();

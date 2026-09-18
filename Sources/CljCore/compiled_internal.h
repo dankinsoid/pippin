@@ -123,20 +123,35 @@ static inline void clj_c_release_slots(const clj_cframe *f, uint32_t n) {
 	}
 }
 
-// The guard, the deadline, the shadow frame and the instrumentation of run_body; false leaves a throw pending.
-static inline bool clj_c_enter(const clj_node *stub, clj_ccall *c) {
-	clj_shadow_stack *s = clj_shadow_tls;
-	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
-	char *limit = s->stack_limit;
-	if (__builtin_expect(!limit, 0)) limit = clj_eval_stack_limit(s);
-	char here;
-	if (__builtin_expect(&here < limit, 0)) {
-		clj_throw_msg("Stack overflow");
-		return false;
-	}
-	if (__builtin_expect(s->deadline != 0, 0) && clj_eval_deadline_hit(s)) return false;
-	s->frames[s->depth & s->mask] = (clj_shadow_frame){stub, NULL};
-	s->depth++;
+// A compiled fn's body is an ordinary C function: no shadow frame (traces walk the real stack, trace.c), no stack
+// check (the guard page, guard.c), no deadline (the loop tick and the seq drivers). The section keeps the frame
+// functions contiguous for the unit's range table, noinline keeps each one a frame of its own, and a tail call
+// turned into a jump would hide an infinite recursion from the guard page.
+#if defined(__APPLE__)
+#define CLJC_FRAME __attribute__((noinline, disable_tail_calls, section("__TEXT,__cljframe,regular,pure_instructions")))
+#else
+#define CLJC_FRAME __attribute__((noinline, disable_tail_calls))
+#endif
+#define CLJC_INLINE static inline __attribute__((always_inline))
+
+// After a call in a frame fn's body: the address the call returns to and the fn it belongs to, so a body inlined
+// into another frame still names itself in a trace (trace.c). Data only: no instruction is emitted.
+#if defined(__APPLE__) && (defined(__aarch64__) || defined(__x86_64__))
+#define CLJC_SITE(stub) __asm__ volatile(".pushsection __TEXT,__cljsite,regular\n\t.p2align 2\n\t.long 1f - .\n\t.long %c0 - .\n\t.popsection\n1:" ::"i"(stub))
+#else
+#define CLJC_SITE(stub) ((void)0)
+#endif
+
+// The profiler and signposts of run_body, only in a unit built with CLJC_INSTRUMENT (clj-compile --instrument).
+#ifdef CLJC_INSTRUMENT
+#define CLJC_ENTER(stub, cc) clj_c_instrument_enter(stub, cc)
+#define CLJC_LEAVE(stub, cc) clj_c_instrument_leave(stub, cc)
+#else
+#define CLJC_ENTER(stub, cc) ((void)(cc))
+#define CLJC_LEAVE(stub, cc) ((void)(cc))
+#endif
+
+static inline void clj_c_instrument_enter(const clj_node *stub, clj_ccall *c) {
 	c->instrument = clj_instrument;
 	c->t0 = 0;
 	c->signpost = 0;
@@ -146,24 +161,19 @@ static inline bool clj_c_enter(const clj_node *stub, clj_ccall *c) {
 		if (c->instrument & CLJ_INSTRUMENT_SIGNPOSTS) c->signpost = clj_signpost_begin(stub->u.fn.name);
 #endif
 	}
-	return true;
 }
 
-static inline void clj_c_leave(const clj_node *stub, clj_ccall *c) {
+static inline void clj_c_instrument_leave(const clj_node *stub, clj_ccall *c) {
 	if (__builtin_expect(c->instrument, 0)) {
 #ifdef __APPLE__
 		if (c->signpost) clj_signpost_end(c->signpost);
 #endif
 		if (c->instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(stub, clj_profile_now() - c->t0);
 	}
-	if (__builtin_expect(clj_shadow_pop() == 0, 0)) clj_eval_drain_retired();
 }
 
 // One loop turn: true when the deadline throw is pending.
-static inline bool clj_c_loop_tick(void) {
-	clj_shadow_stack *s = clj_shadow_tls;
-	return s && __builtin_expect(s->deadline != 0, 0) && clj_eval_deadline_hit(s);
-}
+static inline bool clj_c_loop_tick(void) { return clj_deadline_tick(); }
 
 // Retains every param of a frame past 64 slots, which then treats every slot as owned (closure_run).
 static inline void clj_c_retain_params(clj_cframe *f, uint32_t nparams) {

@@ -12,7 +12,9 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/vector.h"
+#include "guard_internal.h"
 #include "shadow_internal.h"
+#include "trace_internal.h"
 
 _Thread_local clj_shadow_stack *clj_shadow_tls;
 
@@ -21,18 +23,39 @@ static pthread_once_t key_once = PTHREAD_ONCE_INIT;
 static pthread_key_t  key;
 static _Atomic bool   key_ready;
 
+static void thread_exit(void *p) {
+	clj_shadow_stack *s = p;
+	clj_guard_thread_exit(s);
+	free(s);
+}
+
 static void make_key(void) {
-	if (pthread_key_create(&key, free) != 0) clj_fatal("pthread_key_create failed");
+	if (pthread_key_create(&key, thread_exit) != 0) clj_fatal("pthread_key_create failed");
 	atomic_store_explicit(&key_ready, true, memory_order_release);
+}
+
+static void stack_bounds(clj_shadow_stack *s) {
+#if defined(__APPLE__)
+	pthread_t self = pthread_self();
+	s->stack_hi = pthread_get_stackaddr_np(self);
+	s->stack_lo = s->stack_hi - pthread_get_stacksize_np(self);
+#else
+	// No portable stack bounds: assume the thread's default and that we are near the top.
+	char here;
+	s->stack_hi = &here + 64 * 1024;
+	s->stack_lo = &here - 512 * 1024;
+#endif
 }
 
 clj_shadow_stack *clj_shadow_stack_init(void) {
 	clj_shadow_stack *s = calloc(1, sizeof *s);
 	if (!s) clj_fatal("out of memory");
 	s->mask = CLJ_SHADOW_CAPACITY - 1;
+	stack_bounds(s);
 	clj_shadow_tls = s;
 	pthread_once(&key_once, make_key);
 	pthread_setspecific(key, s);
+	clj_guard_thread_init(s);
 	return s;
 }
 
@@ -40,6 +63,8 @@ static const clj_shadow_stack *current(void) {
 	if (!atomic_load_explicit(&key_ready, memory_order_acquire)) return NULL;
 	return pthread_getspecific(key);
 }
+
+const clj_shadow_stack *clj_shadow_stack_current(void) { return current(); }
 
 static size_t held(const clj_shadow_stack *s) { return s->depth < s->mask + 1 ? s->depth : s->mask + 1; }
 
@@ -82,22 +107,21 @@ static void intern_keywords(void) {
 
 void clj_shadow_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
 
-static const clj_node *position_of(const clj_shadow_frame *f) {
-	return f->call_site && f->call_site->line ? f->call_site : f->fn_node;
-}
-
-enum { TRACE_MAX = 256 };
+enum { TRACE_MAX = CLJ_TRACE_MAX };
 
 clj_value clj_shadow_stack_trace(size_t max) {
+	clj_trace_frame frames[TRACE_MAX];
+	size_t          n = clj_trace_collect(frames, max < TRACE_MAX ? max : TRACE_MAX, NULL);
+	return clj_trace_vector(frames, n);
+}
+
+clj_value clj_trace_vector(const clj_trace_frame *frames, size_t n) {
 	pthread_once(&keywords_once, intern_keywords);
-	clj_shadow_frame frames[TRACE_MAX];
-	size_t           n = clj_shadow_stack_snapshot(frames, max < TRACE_MAX ? max : TRACE_MAX);
-	clj_value        trace = clj_vector_empty();
+	clj_value trace = clj_vector_empty();
 	for (size_t i = 0; i < n; i++) {
-		const clj_node *at = position_of(&frames[i]);
-		clj_value       m = clj_map_assoc(clj_map_empty(), kw_fn, frames[i].fn_node->u.fn.name);
-		m = clj_map_assoc(m, kw_line, clj_fixnum(at->line));
-		m = clj_map_assoc(m, kw_column, clj_fixnum(at->col));
+		clj_value m = clj_map_assoc(clj_map_empty(), kw_fn, frames[i].fn->u.fn.name);
+		m = clj_map_assoc(m, kw_line, clj_fixnum(frames[i].at->line));
+		m = clj_map_assoc(m, kw_column, clj_fixnum(frames[i].at->col));
 		trace = clj_vector_conj(trace, m);
 		clj_release(m);
 	}
@@ -143,33 +167,36 @@ static void put_symbol(clj_value sym) {
 	put(clj_string_bytes(clj_symbol_name(sym)), clj_string_len(clj_symbol_name(sym)));
 }
 
-static void write_frames(int sig) {
-	put_cstr("clj: signal ");
-	put_num((size_t)sig);
+void clj_trace_write(int fd, const clj_trace_origin *origin) {
+	crash_fd = fd;
 	put_cstr(", Clojure frames (innermost first):\n");
-	const clj_shadow_stack *s = current();
-	size_t                  n = s ? held(s) : 0;
+	clj_trace_frame frames[TRACE_MAX];
+	size_t          n = clj_trace_collect(frames, TRACE_MAX, origin);
 	for (size_t i = 0; i < n; i++) {
-		const clj_shadow_frame *f = &s->frames[(s->depth - 1 - i) & s->mask];
-		const clj_node         *at = position_of(f);
 		put_cstr("  at ");
-		put_symbol(f->fn_node->u.fn.name);
+		put_symbol(frames[i].fn->u.fn.name);
 		put_cstr(" (");
-		put_num(at->line);
+		put_num(frames[i].at->line);
 		put_cstr(":");
-		put_num(at->col);
+		put_num(frames[i].at->col);
 		put_cstr(")\n");
 	}
-	if (s && s->depth > n) {
+	const clj_shadow_stack *s = current();
+	if (s && s->depth > held(s)) {
 		put_cstr("  ... ");
-		put_num(s->depth - n);
-		put_cstr(" outer frames dropped\n");
+		put_num(s->depth - held(s));
+		put_cstr(" outer interpreted frames dropped\n");
 	}
 	if (n == 0) put_cstr("  (none)\n");
 }
 
-static void on_signal(int sig) {
-	write_frames(sig);
+static void on_signal(int sig, siginfo_t *info, void *uap) {
+	if (sig != test_signal && clj_guard_signal(sig, info, uap)) return;
+	put_cstr("clj: signal ");
+	put_num((size_t)sig);
+	clj_trace_origin origin;
+	clj_guard_origin(uap, &origin);
+	clj_trace_write(crash_fd, &origin);
 	if (sig == test_signal) return;
 	signal(sig, SIG_DFL);
 	raise(sig);
@@ -178,9 +205,9 @@ static void on_signal(int sig) {
 static void install(int sig) {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof sa);
-	sa.sa_handler = on_signal;
+	sa.sa_sigaction = on_signal;
 	sigemptyset(&sa.sa_mask);
-	sa.sa_flags = SA_ONSTACK | SA_NODEFER;
+	sa.sa_flags = SA_ONSTACK | SA_NODEFER | SA_SIGINFO;
 	sigaction(sig, &sa, NULL);
 }
 

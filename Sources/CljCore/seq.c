@@ -11,6 +11,7 @@
 #include "clj/seq.h"
 #include "clj/string.h"
 #include "clj/vector.h"
+#include "shadow_internal.h"
 
 // ---- vector-seq
 
@@ -247,8 +248,10 @@ static void publish(clj_value v, clj_value value) {
 
 static void unclaim(clj_value v) { atomic_store_explicit(&clj_lazy_seq_of(v)->state, UNFORCED, memory_order_release); }
 
-// Runs the thunk of a claimed object. Owned result.
+// Runs the thunk of a claimed object. Owned result. The deadline is checked per cell: a compiled thunk has no check
+// of its own, and an infinite lazy seq is realized one cell per turn here.
 static clj_value run_thunk(clj_value v) {
+	if (clj_deadline_tick()) return CLJ_THROWN;
 	forcing frame = {v, forcing_top};
 	forcing_top = &frame;
 	clj_value r = clj_invoke(clj_lazy_seq_of(v)->fn, NULL, 0);
