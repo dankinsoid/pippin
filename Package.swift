@@ -52,6 +52,14 @@ let package = Package(
 			dependencies: ["Pippin", "CljCore", "CljCompiler"],
 			exclude: ["Fixtures"]
 		),
+		// The type-coverage metric over core.clj, the embedded libs and the corpus (docs/facts-coverage.md).
+		.executableTarget(
+			name: "clj-facts",
+			dependencies: ["CljCore", "Pippin"],
+			cSettings: [
+				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),
+			]
+		),
 		.executableTarget(
 			name: "clj-api-dump",
 			dependencies: ["CljCore", "Pippin"]
