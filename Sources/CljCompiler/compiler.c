@@ -235,8 +235,20 @@ struct cljc_compiler {
 	uint32_t      next_pimpl;
 	const clj_node **candidates; // fn nodes given as method impls to deftype*, record* and extend: registered by a closed init
 	size_t           ncandidates, candidates_cap;
+	const clj_node  *emitting; // root of the form being emitted
+	uint32_t         neval_forms;
 	bool          installed;
 };
+
+// Whether a closure's tree is one of this compile's forms: only then does its fn node get a base to name.
+static bool tree_in_set(const cljc_compiler *c, const clj_fn *fn) {
+	const clj_node *root = clj_exec_of(fn->code)->root;
+	if (root == c->emitting) return true;
+	for (size_t i = 0; i < c->npending; i++) {
+		if (c->pending[i].node == root) return true;
+	}
+	return false;
+}
 
 static void fn_base_add(cljc_compiler *c, const clj_node *node, const char *base, unit *u, uint32_t arities) {
 	for (size_t i = 0; i < c->nfn_bases; i++) {
@@ -1655,7 +1667,7 @@ static uint32_t arm_target(fnctx *f, const clj_type *t, clj_value method, uint32
 	uint32_t  id = UINT32_MAX;
 	if (clj_is_fn(impl)) {
 		const clj_fn *fn = clj_fn_of(impl);
-		if (fn->kind == CLJ_FN_CLOSURE && (entry_arities(fn->u.node) >> nargs) & 1) {
+		if (fn->kind == CLJ_FN_CLOSURE && (entry_arities(fn->u.node) >> nargs) & 1 && tree_in_set(f->c, fn)) {
 			id = pimpl_add(f->c, f->u, fn->u.node, NULL, nargs);
 		} else if (fn->kind == CLJ_FN_NATIVE_CTX && fn->u.native_ctx.ctx == fn && fn->nenv == 0 && (fn->arities >> nargs) & 1) {
 			const char *name = clj_compiled_impl_name(fn->u.native_ctx.fn);
@@ -2401,7 +2413,8 @@ static char *form_base(cljc_compiler *c, unit *u, const clj_node *n) {
 		base = cljc_mangle(clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var))));
 	} else {
 		char ordinal[32];
-		snprintf(ordinal, sizeof ordinal, "form%u", u->ntops);
+		// compiled-eval units are one form each: number them per compiler, or every unit's impls share a registry name
+		snprintf(ordinal, sizeof ordinal, "form%u", u->eval_result ? c->neval_forms++ : u->ntops);
 		base = cljc_mangle(ns, ordinal);
 	}
 	bool   fresh;
@@ -2422,7 +2435,6 @@ static char *form_base(cljc_compiler *c, unit *u, const clj_node *n) {
 			k++;
 		}
 	}
-	(void)c;
 	return base;
 }
 
@@ -2523,6 +2535,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	f.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	f.form = form;
 	f.top = true;
+	c->emitting = n;
 	open_form(c, u, &f, form);
 	char *base = form_base(c, u, n);
 	f.base = base;
@@ -2619,11 +2632,22 @@ static void flush_pending(cljc_compiler *c) {
 	c->npending = 0;
 }
 
+// A unit's arm requests go with it: a later unit at the same address must not inherit them.
+static void pimpls_forget(cljc_compiler *c, const unit *u) {
+	size_t kept = 0;
+	for (size_t i = 0; i < c->npimpls; i++) {
+		if (c->pimpls[i].u == u) free(c->pimpls[i].name);
+		else c->pimpls[kept++] = c->pimpls[i];
+	}
+	c->npimpls = kept;
+}
+
 char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node *node) {
 	unit *u = unit_new(clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>");
 	u->eval_result = c->opts.eval_result;
 	emit_top(c, u, form, node);
 	char *text = unit_text(c, u, NULL);
+	pimpls_forget(c, u);
 	unit_free(u);
 	return text;
 }

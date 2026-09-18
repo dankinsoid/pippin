@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+import CljCompiler
 import CljCore
 import Pippin
 import Dispatch
@@ -695,6 +696,63 @@ _ = cljEval("(defprotocol BenchP (bench-m [x])) (deftype BenchT [] BenchP (bench
 let protoTypeFn = cljEval("(fn [n] (let [t (->BenchT)] (loop [i 0] (if (< i n) (recur (+ i (bench-m t))) i))))")
 let protoBuiltinFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-m i))) i)))")
 let protoBiFn = cljEval("(fn [n] (let [t (->BenchT)] (loop [i 0] (if (< i n) (recur (+ i (bench-m (if (even? i) t i)))) i))))")
+// The same call on a protocol with one implementor: the receiver known from a def'd caller in the same form (the
+// join names the deftype, so a closed unit takes the direct arm) and a captured one (top inside the body: the cache).
+_ = cljEval("(defprotocol BenchKP (bench-km [x])) (deftype BenchKT [] BenchKP (bench-km [x] 1))")
+let protoKnownFn = cljEval(
+	"(let [] (defn bench-proto-to [t n] (loop [i 0] (if (< i n) (recur (+ i (bench-km t))) i))) (defn bench-proto-run [] (bench-proto-to (->BenchKT) 100000))) bench-proto-run")
+let protoTopFn = cljEval("(let [t (->BenchKT)] (fn [n] (loop [i 0] (if (< i n) (recur (+ i (bench-km t))) i))))")
+
+// The deftype and its caller compiled as one unit from a file, the way clj-compile emits a namespace: the arm is a
+// static call clang inlines, which a compiled-eval form cannot be (it is compiled before its deftype runs). Only
+// under CLJ_EVAL_ROOT, since building the unit needs clang and the package root; the JIT hook is re-armed after.
+func compileUnitRow(name: String, closed: Bool) -> clj_value? {
+	guard let root = ProcessInfo.processInfo.environment["CLJ_EVAL_ROOT"] else { return nil }
+	let dir = "\(root)/.build/compiled-eval"
+	let ns = "bench.\(name)"
+	let source = """
+	(ns \(ns))
+	(defprotocol BenchUP (bench-um [x]))
+	(deftype BenchUT [] BenchUP (bench-um [x] 1))
+	(defn bench-unit-to [t n] (loop [i 0] (if (< i n) (recur (+ i (bench-um t))) i)))
+	(defn bench-unit-run [] (bench-unit-to (->BenchUT) 100000))
+	"""
+	let path = "\(dir)/\(name).clj"
+	try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+	try? source.write(toFile: path, atomically: true, encoding: .utf8)
+	var opts = cljc_options()
+	opts.closed = closed
+	opts.skip_embedded = true
+	let c = cljc_new(&opts)!
+	cljc_begin(c)
+	var bytes = Array(source.utf8)
+	let file = clj_string_from_cstr(path)
+	let loaded = bytes.withUnsafeMutableBufferPointer { buf in
+		buf.withMemoryRebound(to: CChar.self) { chars in clj_load_source(chars.baseAddress, chars.count, file) }
+	}
+	if loaded == CLJ_THROWN { benchThrew() }
+	clj_release(loaded)
+	cljc_end(c)
+	let text = cljc_unit_text(c, 0, nil)!
+	cljc_free(c)
+	var o = cljc_eval_options()
+	o.root = UnsafePointer(strdup(root))
+	o.dir = UnsafePointer(strdup(dir))
+	if let opt = ProcessInfo.processInfo.environment["CLJ_EVAL_OPT"] { o.opt = UnsafePointer(strdup(opt)) }
+	o.closed = closed
+	guard let unit = cljc_load_dylib(&o, "bench_\(name)", text) else { benchThrew() }
+	free(text)
+	clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
+	let ran = clj_load_file(file)
+	if ran == CLJ_THROWN { benchThrew() }
+	clj_release(ran)
+	clj_release(file)
+	clj_compiled_eval_boot()
+	return cljEval("\(ns)/bench-unit-run")
+}
+
+let protoUnitClosedFn = compileUnitRow(name: "unit_closed", closed: true)
+let protoUnitDevFn = compileUnitRow(name: "unit_dev", closed: false)
 
 struct CallRow {
 	let scenario: String
@@ -729,6 +787,10 @@ do {
 	callRows.append(CallRow(scenario: "protocol call, deftype receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoTypeFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "protocol call, fixnum receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoBuiltinFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "protocol call, bi-morphic", n: n, c: measure(ops: n) { cClosureCallLoop(protoBiFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "protocol call, receiver known from the caller", n: n, c: measure(ops: n) { cljCall0(protoKnownFn) }, swift: nil))
+	callRows.append(CallRow(scenario: "protocol call, captured receiver", n: n, c: measure(ops: n) { cClosureCallLoop(protoTopFn, n) }, swift: nil))
+	if let f = protoUnitClosedFn { callRows.append(CallRow(scenario: "protocol call, known receiver, one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = protoUnitDevFn { callRows.append(CallRow(scenario: "protocol call, known receiver, one dev unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
 }
 clj_release(countFn)
 clj_release(accFn)
@@ -745,6 +807,10 @@ clj_release(letFn)
 clj_release(helperFn)
 clj_release(protoTypeFn)
 clj_release(protoBuiltinFn)
+clj_release(protoKnownFn)
+clj_release(protoTopFn)
+if let f = protoUnitClosedFn { clj_release(f) }
+if let f = protoUnitDevFn { clj_release(f) }
 clj_release(protoBiFn)
 
 // (sort v) over shuffled fixnums: the Swift primitive, the Clojure merge sort that is its specification, and
