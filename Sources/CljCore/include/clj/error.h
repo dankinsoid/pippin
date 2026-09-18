@@ -38,6 +38,9 @@ clj_value clj_take_pending(void);
 clj_value clj_pending_trace(void);
 clj_value clj_take_pending_trace(void);
 
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_error_intern_keywords(void);
+
 static inline bool           clj_is_thrown(clj_value v) { return v == CLJ_THROWN; }
 // Any error type (CLJ_CORE_ERROR).
 static inline bool           clj_is_exception(clj_value v) { return clj_has_core(v, CLJ_CORE_ERROR); }

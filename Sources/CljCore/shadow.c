@@ -80,6 +80,8 @@ static void intern_keywords(void) {
 	kw_column = clj_keyword_from_cstr("column");
 }
 
+void clj_shadow_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
 static const clj_node *position_of(const clj_shadow_frame *f) {
 	return f->call_site && f->call_site->line ? f->call_site : f->fn_node;
 }

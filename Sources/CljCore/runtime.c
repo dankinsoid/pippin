@@ -14,11 +14,13 @@
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/printer.h"
+#include "clj/profile.h"
 #include "clj/proto.h"
 #include "clj/queue.h"
 #include "clj/reader.h"
 #include "clj/record.h"
 #include "clj/runtime.h"
+#include "clj/shadow.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
@@ -128,11 +130,16 @@ static bool immortalize_root(clj_value sym, clj_value var, void *ctx) {
 
 static void init(void) {
 	clj_value core = clj_ns_core();
-	// Interned up front so printing an error, an analysis position or a trace allocates nothing lasting later.
-	for (const char *const *k = (const char *const[]){"message", "data", "cause", "line", "column", "tag", "ns", "name", "doc", "arglists",
-	                                                    "macro", "dynamic", "private", "fn", "fns", "calls", "=>", "facts/warnings", NULL};
-	     *k; k++)
-		clj_keyword_from_cstr(*k);
+	// Every module's first-use keyword set, interned here so nothing lasting is made after a test's live-object baseline.
+	clj_reader_intern_keywords();
+	clj_analyzer_intern_keywords();
+	clj_node_data_intern_keywords();
+	clj_printer_intern_keywords();
+	clj_error_intern_keywords();
+	clj_shadow_intern_keywords();
+	clj_profile_intern_keywords();
+	clj_var_intern_keywords();
+	for (const char *const *k = (const char *const[]){"=>", "facts/warnings", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_ns_var();
 	clj_load_file_var();
 	clj_builtins_install();
@@ -150,11 +157,6 @@ static void init(void) {
 		boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : clj_string_bytes(text));
 	}
 	clj_compiled_libs_register();
-	// The interpreter's lazily interned names are made during an interpreted boot; tests baseline after clj_init.
-	clj_env   warm = {core, 0, 0};
-	clj_value warmed = clj_eval(CLJ_NIL, &warm);
-	if (warmed == CLJ_THROWN) clj_fatal("warm-up eval failed");
-	clj_release(warmed);
 #else
 	load_core();
 #endif

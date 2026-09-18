@@ -1,6 +1,22 @@
 // @ai-generated(guided)
 import CljCore
+import Testing
 @testable import Pippin
+
+// Boots the runtime before every test of the suite it is applied to (recursively), so a live-object baseline
+// never lands before clj_init's one-time allocations, whichever suite runs first.
+struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
+	var isRecursive: Bool { true }
+
+	func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
+		clj_init()
+		try await function()
+	}
+}
+
+extension Trait where Self == BootedTrait {
+	static var booted: BootedTrait { BootedTrait() }
+}
 
 struct CljEvalFailure: Error {
 	let message: String

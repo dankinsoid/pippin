@@ -21,6 +21,8 @@ static clj_value      kw_host_error;
 
 static void intern_keywords(void) { kw_host_error = clj_keyword_from_cstr("host/error"); }
 
+void clj_error_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
 static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_exception *e = self;
 	visit(e->message, ctx);

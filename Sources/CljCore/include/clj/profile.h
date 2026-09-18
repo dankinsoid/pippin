@@ -18,4 +18,7 @@ void clj_profile_start(void);
 clj_value clj_profile_stop(void);
 bool      clj_profile_running(void);
 
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_profile_intern_keywords(void);
+
 #endif

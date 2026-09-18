@@ -18,6 +18,8 @@ static void intern_keywords(void) {
 	kw_cause = clj_keyword_from_cstr("cause");
 }
 
+void clj_printer_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
 typedef struct {
 	char  *data;
 	size_t len, cap;

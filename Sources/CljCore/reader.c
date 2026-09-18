@@ -29,6 +29,8 @@ static void intern_keywords(void) {
 	kw_default = clj_keyword_from_cstr("default");
 }
 
+void clj_reader_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
 static clj_lock  features_lock = CLJ_LOCK_INIT;
 static clj_value features;
 

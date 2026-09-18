@@ -1,4 +1,4 @@
-.PHONY: build boot bench facts-report test test-pool test-ubsan test-noreuse test-all corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
+.PHONY: build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
 
 build:
 	swift build
@@ -26,6 +26,14 @@ test-noreuse:
 
 # Every mode; each rebuilds, so this is the slow one.
 test-all: test test-pool test-ubsan test-noreuse
+
+# Every suite alone, one process each: a live-object baseline that only holds after another suite's one-time
+# allocations fails here and not in the full run. Periodic, not a gate (NOTES.md, "Symbol / keyword").
+test-isolated:
+	swift build --build-tests
+	@fail=0; for s in $$(grep -ho '@Suite[^ ]* struct [A-Za-z]*' Tests/PippinTests/*.swift | awk '{print $$3}' | grep -v '^CoreTests$$'); do \
+		if swift test --skip-build --filter "$$s" > /dev/null 2>&1; then echo "ok   $$s"; else echo "FAIL $$s"; fail=1; fi; \
+	done; exit $$fail
 
 # The acceptance corpus alone (it is part of every test run; CLJ_CORPUS=0 skips it there).
 corpus:

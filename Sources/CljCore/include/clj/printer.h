@@ -13,6 +13,9 @@ clj_value clj_pr_str_max(clj_value v, size_t max);
 // How much of a value an error message shows.
 #define CLJ_ERROR_PRINT_MAX 64
 
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_printer_intern_keywords(void);
+
 // Clojure `print-str` for one value: strings and chars unquoted at every depth.
 clj_value clj_print_str(clj_value v);
 // What pr (readably) and print write: the same under *print-length* and *print-level*, which the others ignore.

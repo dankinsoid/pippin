@@ -180,6 +180,8 @@ static void intern_keywords(void) {
 	kw_dynamic = clj_keyword_from_cstr("dynamic");
 }
 
+void clj_analyzer_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
 static void *zalloc(size_t n, size_t size) {
 	void *p = calloc(n ? n : 1, size);
 	if (!p) clj_fatal("out of memory");

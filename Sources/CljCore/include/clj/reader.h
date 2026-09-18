@@ -44,6 +44,9 @@ void      clj_reader_set_features(clj_value features);
 clj_value clj_reader_features(void);
 // *out is owned (+1) on CLJ_READ_OK and untouched otherwise. After an error the position is unspecified.
 clj_read_status clj_read(clj_reader *r, clj_value *out);
+
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_reader_intern_keywords(void);
 // Borrowed: valid until the next clj_read.
 const char *clj_reader_message(const clj_reader *r);
 // The built-in tags, #inst and #uuid: what clojure.core/default-data-readers holds. CLJ_UNBOUND for any other tag.

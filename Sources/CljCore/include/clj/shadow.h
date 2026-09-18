@@ -26,6 +26,9 @@ size_t clj_shadow_stack_dropped(void);
 // Owned vector of {:fn sym-or-nil :line n :column n}, innermost first; the fn's own position when the call site is unknown.
 clj_value clj_shadow_stack_trace(size_t max);
 
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_shadow_intern_keywords(void);
+
 // Test hook: a power of two up to CLJ_SHADOW_CAPACITY, only while the stack is empty.
 void clj_debug_shadow_stack_set_capacity(size_t cap);
 

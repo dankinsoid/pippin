@@ -186,6 +186,10 @@ clj_node *clj_node_from_data(clj_value data);
 // The :line/:column a form's meta carries (the reader puts them on lists); false without both.
 bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col);
 
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_analyzer_intern_keywords(void);
+void clj_node_data_intern_keywords(void);
+
 // Special-form names (plus & and the clause heads catch/finally): syntax-quote leaves them unqualified.
 bool clj_is_special_symbol(clj_value sym);
 

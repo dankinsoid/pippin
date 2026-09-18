@@ -99,6 +99,8 @@ static clj_value      kw_private;
 
 static void intern_private(void) { kw_private = clj_keyword_from_cstr("private"); }
 
+void clj_var_intern_keywords(void) { pthread_once(&private_once, intern_private); }
+
 // @ai-generated(guided)
 bool clj_var_is_private(clj_value var) {
 	clj_value m = clj_var_meta(var);

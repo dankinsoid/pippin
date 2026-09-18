@@ -72,4 +72,7 @@ bool clj_var_cas_meta(clj_value var, clj_value expected, clj_value m);
 // (:private (meta var)) is logical true.
 bool clj_var_is_private(clj_value var);
 
+// Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
+void clj_var_intern_keywords(void);
+
 #endif

@@ -132,6 +132,8 @@ static void intern_keywords(void) {
 	kw_ns = clj_keyword_from_cstr("ns");
 }
 
+void clj_profile_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
 clj_value clj_profile_stop(void) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_lock_lock(&lock);
