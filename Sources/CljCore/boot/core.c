@@ -1588,6 +1588,30 @@ static clj_compiled_fn CLJC_FN_clojure_core_load_one_a1 = clojure_core_load_one_
 static clj_compiled_fn CLJC_FN_clojure_core_libspec_QMARK__a1 = clojure_core_libspec_QMARK__a1;
 #define CLJC_DIRECT_clojure_core_run_BANG__a2 1
 static clj_compiled_fn CLJC_FN_clojure_core_run_BANG__a2 = clojure_core_run_BANG__a2;
+#define CLJC_PIMPL_0 1
+#define CLJC_PIMPL_0_CODE clojure_core_Delay__r2__1
+#define CLJC_PIMPL_0_FN clojure_core_Delay__r2__1_a1
+#define CLJC_PIMPL_1 1
+#define CLJC_PIMPL_1_CODE clojure_core_MultiFn__r2__4
+#define CLJC_PIMPL_1_FN clojure_core_MultiFn__r2__4_a2
+#define CLJC_PIMPL_2 1
+#define CLJC_PIMPL_2_CODE clojure_core_MultiFn__r2__7
+#define CLJC_PIMPL_2_FN clojure_core_MultiFn__r2__7_a1
+#define CLJC_PIMPL_3 1
+#define CLJC_PIMPL_3_CODE clojure_core_MultiFn__r2__4
+#define CLJC_PIMPL_3_FN clojure_core_MultiFn__r2__4_a2
+#define CLJC_PIMPL_4 1
+#define CLJC_PIMPL_4_CODE clojure_core_MultiFn__r2__5
+#define CLJC_PIMPL_4_FN clojure_core_MultiFn__r2__5_a2
+#define CLJC_PIMPL_5 1
+#define CLJC_PIMPL_5_CODE clojure_core_MultiFn__r2__0
+#define CLJC_PIMPL_5_FN clojure_core_MultiFn__r2__0_a1
+#define CLJC_PIMPL_6 1
+#define CLJC_PIMPL_6_CODE clojure_core_MultiFn__r2__1
+#define CLJC_PIMPL_6_FN clojure_core_MultiFn__r2__1_a3
+#define CLJC_PIMPL_7 1
+#define CLJC_PIMPL_7_CODE clojure_core_MultiFn__r2__6
+#define CLJC_PIMPL_7_FN clojure_core_MultiFn__r2__6_a1
 #endif
 
 static clj_value clojure_core_concat__0_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
@@ -97118,7 +97142,20 @@ clj_value clojure_core_realized_QMARK__a1(clj_value self, const clj_value *captu
 	clj_value t7 = l0;
 	clj_value a1[1] = {t7};
 	(void)a1;
-	clj_value t8 = clj_c_invoke(t6, a1, 1);
+	clj_value t8;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a1[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC2;
+#ifdef CLJC_PIMPL_0
+		static _Atomic uint64_t PA0;
+#endif
+#ifdef CLJC_PIMPL_0
+		if (pt == clj_c_var_type(V[356]) && (clj_c_arm_hit(&PA0, pe) || clj_c_arm_fill(&PA0, t6, a1, 1, CLJC_PIMPL_0_CODE, CLJC_PIMPL_0_FN, pe))) t8 = CLJC_PIMPL_0_FN(CLJ_NIL, NULL, a1, 1);
+		else
+#endif
+		t8 = clj_c_proto_ic_call(&PC2, t6, a1, 1, pt, pe);
+	}
 	(void)t7;
 	if (o6) clj_release(t6);
 	if (t8 == CLJ_THROWN) {
@@ -97132,9 +97169,9 @@ clj_value clojure_core_realized_QMARK__a1(clj_value self, const clj_value *captu
 	goto L2;
 	}
 	clj_value t10 = l0;
-	clj_value a2[1] = {t10};
-	(void)a2;
-	clj_value t11 = clj_c_invoke(t9, a2, 1);
+	clj_value a3[1] = {t10};
+	(void)a3;
+	clj_value t11 = clj_c_invoke(t9, a3, 1);
 	(void)t10;
 	if (o9) clj_release(t9);
 	if (t11 == CLJ_THROWN) {
@@ -99411,7 +99448,20 @@ clj_value clojure_core_mf_method_a5(clj_value self, const clj_value *captured, c
 	clj_value t23 = l4;
 	clj_value a6[2] = {t22, t23};
 	(void)a6;
-	clj_value t24 = clj_c_invoke(t21, a6, 2);
+	clj_value t24;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a6[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC7;
+#ifdef CLJC_PIMPL_1
+		static _Atomic uint64_t PA1;
+#endif
+#ifdef CLJC_PIMPL_1
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA1, pe) || clj_c_arm_fill(&PA1, t21, a6, 2, CLJC_PIMPL_1_CODE, CLJC_PIMPL_1_FN, pe))) t24 = CLJC_PIMPL_1_FN(CLJ_NIL, NULL, a6, 2);
+		else
+#endif
+		t24 = clj_c_proto_ic_call(&PC7, t21, a6, 2, pt, pe);
+	}
 	(void)t23;
 	(void)t22;
 	if (o21) clj_release(t21);
@@ -99452,9 +99502,9 @@ clj_value clojure_core_mf_method_a5(clj_value self, const clj_value *captured, c
 	goto L2;
 	}
 	clj_value t35 = l4;
-	clj_value a9[1] = {t35};
-	(void)a9;
-	clj_value t36 = clj_c_invoke(t34, a9, 1);
+	clj_value a10[1] = {t35};
+	(void)a10;
+	clj_value t36 = clj_c_invoke(t34, a10, 1);
 	(void)t35;
 	if (o34) clj_release(t34);
 	if (t36 == CLJ_THROWN) {
@@ -99462,9 +99512,9 @@ clj_value clojure_core_mf_method_a5(clj_value self, const clj_value *captured, c
 	if (o29) clj_release(t29);
 	goto L2;
 	}
-	clj_value a8[4] = {t31, t32, t33, t36};
-	(void)a8;
-	clj_value t37 = clj_c_invoke(t30, a8, 4);
+	clj_value a9[4] = {t31, t32, t33, t36};
+	(void)a9;
+	clj_value t37 = clj_c_invoke(t30, a9, 4);
 	clj_release(t36);
 	(void)t33;
 	(void)t32;
@@ -99478,9 +99528,9 @@ clj_value clojure_core_mf_method_a5(clj_value self, const clj_value *captured, c
 	clj_value t39 = l4;
 	clj_value t40 = K[1263];
 	clj_value t41 = l1;
-	clj_value a10[4] = {t38, t39, t40, t41};
-	(void)a10;
-	clj_value t42 = clj_c_map_literal(a10, 4);
+	clj_value a11[4] = {t38, t39, t40, t41};
+	(void)a11;
+	clj_value t42 = clj_c_map_literal(a11, 4);
 	(void)t41;
 	(void)t40;
 	(void)t39;
@@ -99490,9 +99540,9 @@ clj_value clojure_core_mf_method_a5(clj_value self, const clj_value *captured, c
 	if (o29) clj_release(t29);
 	goto L2;
 	}
-	clj_value a7[2] = {t37, t42};
-	(void)a7;
-	clj_value t43 = clj_c_invoke(t29, a7, 2);
+	clj_value a8[2] = {t37, t42};
+	(void)a8;
+	clj_value t43 = clj_c_invoke(t29, a8, 2);
 	clj_release(t42);
 	clj_release(t37);
 	if (o29) clj_release(t29);
@@ -104364,7 +104414,20 @@ clj_value clojure_core_methods_a1(clj_value self, const clj_value *captured, con
 	clj_value t1 = l0;
 	clj_value a0[1] = {t1};
 	(void)a0;
-	clj_value t2 = clj_c_invoke(t0, a0, 1);
+	clj_value t2;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC1;
+#ifdef CLJC_PIMPL_2
+		static _Atomic uint64_t PA2;
+#endif
+#ifdef CLJC_PIMPL_2
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA2, pe) || clj_c_arm_fill(&PA2, t0, a0, 1, CLJC_PIMPL_2_CODE, CLJC_PIMPL_2_FN, pe))) t2 = CLJC_PIMPL_2_FN(CLJ_NIL, NULL, a0, 1);
+		else
+#endif
+		t2 = clj_c_proto_ic_call(&PC1, t0, a0, 1, pt, pe);
+	}
 	(void)t1;
 	if (o0) clj_release(t0);
 	if (t2 == CLJ_THROWN) {
@@ -104428,7 +104491,20 @@ clj_value clojure_core_get_method_a2(clj_value self, const clj_value *captured, 
 	clj_value t2 = l1;
 	clj_value a0[2] = {t1, t2};
 	(void)a0;
-	clj_value t3 = clj_c_invoke(t0, a0, 2);
+	clj_value t3;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC1;
+#ifdef CLJC_PIMPL_3
+		static _Atomic uint64_t PA3;
+#endif
+#ifdef CLJC_PIMPL_3
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA3, pe) || clj_c_arm_fill(&PA3, t0, a0, 2, CLJC_PIMPL_3_CODE, CLJC_PIMPL_3_FN, pe))) t3 = CLJC_PIMPL_3_FN(CLJ_NIL, NULL, a0, 2);
+		else
+#endif
+		t3 = clj_c_proto_ic_call(&PC1, t0, a0, 2, pt, pe);
+	}
 	(void)t2;
 	(void)t1;
 	if (o0) clj_release(t0);
@@ -104493,7 +104569,20 @@ clj_value clojure_core_remove_method_a2(clj_value self, const clj_value *capture
 	clj_value t2 = l1;
 	clj_value a0[2] = {t1, t2};
 	(void)a0;
-	clj_value t3 = clj_c_invoke(t0, a0, 2);
+	clj_value t3;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC1;
+#ifdef CLJC_PIMPL_4
+		static _Atomic uint64_t PA4;
+#endif
+#ifdef CLJC_PIMPL_4
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA4, pe) || clj_c_arm_fill(&PA4, t0, a0, 2, CLJC_PIMPL_4_CODE, CLJC_PIMPL_4_FN, pe))) t3 = CLJC_PIMPL_4_FN(CLJ_NIL, NULL, a0, 2);
+		else
+#endif
+		t3 = clj_c_proto_ic_call(&PC1, t0, a0, 2, pt, pe);
+	}
 	(void)t2;
 	(void)t1;
 	if (o0) clj_release(t0);
@@ -104557,7 +104646,20 @@ clj_value clojure_core_remove_all_methods_a1(clj_value self, const clj_value *ca
 	clj_value t1 = l0;
 	clj_value a0[1] = {t1};
 	(void)a0;
-	clj_value t2 = clj_c_invoke(t0, a0, 1);
+	clj_value t2;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC1;
+#ifdef CLJC_PIMPL_5
+		static _Atomic uint64_t PA5;
+#endif
+#ifdef CLJC_PIMPL_5
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA5, pe) || clj_c_arm_fill(&PA5, t0, a0, 1, CLJC_PIMPL_5_CODE, CLJC_PIMPL_5_FN, pe))) t2 = CLJC_PIMPL_5_FN(CLJ_NIL, NULL, a0, 1);
+		else
+#endif
+		t2 = clj_c_proto_ic_call(&PC1, t0, a0, 1, pt, pe);
+	}
 	(void)t1;
 	if (o0) clj_release(t0);
 	if (t2 == CLJ_THROWN) {
@@ -104626,7 +104728,20 @@ clj_value clojure_core_prefer_method_a3(clj_value self, const clj_value *capture
 	clj_value t3 = l2;
 	clj_value a0[3] = {t1, t2, t3};
 	(void)a0;
-	clj_value t4 = clj_c_invoke(t0, a0, 3);
+	clj_value t4;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC1;
+#ifdef CLJC_PIMPL_6
+		static _Atomic uint64_t PA6;
+#endif
+#ifdef CLJC_PIMPL_6
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA6, pe) || clj_c_arm_fill(&PA6, t0, a0, 3, CLJC_PIMPL_6_CODE, CLJC_PIMPL_6_FN, pe))) t4 = CLJC_PIMPL_6_FN(CLJ_NIL, NULL, a0, 3);
+		else
+#endif
+		t4 = clj_c_proto_ic_call(&PC1, t0, a0, 3, pt, pe);
+	}
 	(void)t3;
 	(void)t2;
 	(void)t1;
@@ -104689,7 +104804,20 @@ clj_value clojure_core_prefers_a1(clj_value self, const clj_value *captured, con
 	clj_value t1 = l0;
 	clj_value a0[1] = {t1};
 	(void)a0;
-	clj_value t2 = clj_c_invoke(t0, a0, 1);
+	clj_value t2;
+	{
+		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
+		uint64_t pe = clj_epoch_load();
+		static _Thread_local clj_cproto_ic PC1;
+#ifdef CLJC_PIMPL_7
+		static _Atomic uint64_t PA7;
+#endif
+#ifdef CLJC_PIMPL_7
+		if (pt == clj_c_var_type(V[377]) && (clj_c_arm_hit(&PA7, pe) || clj_c_arm_fill(&PA7, t0, a0, 1, CLJC_PIMPL_7_CODE, CLJC_PIMPL_7_FN, pe))) t2 = CLJC_PIMPL_7_FN(CLJ_NIL, NULL, a0, 1);
+		else
+#endif
+		t2 = clj_c_proto_ic_call(&PC1, t0, a0, 1, pt, pe);
+	}
 	(void)t1;
 	if (o0) clj_release(t0);
 	if (t2 == CLJ_THROWN) {
@@ -111732,6 +111860,33 @@ clj_value clj_compiled_core_init(void) {
 	clj_compiled_register_symbol("clojure_core_loaded_libs_a0", clojure_core_loaded_libs_a0);
 	clj_compiled_register_symbol("clojure_core_load_one_a1", clojure_core_load_one_a1);
 	clj_compiled_register_symbol("clojure_core_libspec_QMARK__a1", clojure_core_libspec_QMARK__a1);
+	clj_compiled_register_impl("clojure_core_Eduction__r2__0", clojure_core_Eduction__r2__0);
+	clj_compiled_register_symbol("clojure_core_Eduction__r2__0_a1", clojure_core_Eduction__r2__0_a1);
+	clj_compiled_register_impl("clojure_core_Eduction__r2__1", clojure_core_Eduction__r2__1);
+	clj_compiled_register_symbol("clojure_core_Eduction__r2__1_a3", clojure_core_Eduction__r2__1_a3);
+	clj_compiled_register_impl("clojure_core_Delay__r2__0", clojure_core_Delay__r2__0);
+	clj_compiled_register_symbol("clojure_core_Delay__r2__0_a1", clojure_core_Delay__r2__0_a1);
+	clj_compiled_register_impl("clojure_core_Delay__r2__1", clojure_core_Delay__r2__1);
+	clj_compiled_register_symbol("clojure_core_Delay__r2__1_a1", clojure_core_Delay__r2__1_a1);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__0", clojure_core_MultiFn__r2__0);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__0_a1", clojure_core_MultiFn__r2__0_a1);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__1", clojure_core_MultiFn__r2__1);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__1_a3", clojure_core_MultiFn__r2__1_a3);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__3", clojure_core_MultiFn__r2__3);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__3_a3", clojure_core_MultiFn__r2__3_a3);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__4", clojure_core_MultiFn__r2__4);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__4_a2", clojure_core_MultiFn__r2__4_a2);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__5", clojure_core_MultiFn__r2__5);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__5_a2", clojure_core_MultiFn__r2__5_a2);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__6", clojure_core_MultiFn__r2__6);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__6_a1", clojure_core_MultiFn__r2__6_a1);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__7", clojure_core_MultiFn__r2__7);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__7_a1", clojure_core_MultiFn__r2__7_a1);
+	clj_compiled_register_impl("clojure_core_MultiFn__r2__8", clojure_core_MultiFn__r2__8);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__8_a1", clojure_core_MultiFn__r2__8_a1);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__8_a2", clojure_core_MultiFn__r2__8_a2);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__8_a3", clojure_core_MultiFn__r2__8_a3);
+	clj_compiled_register_symbol("clojure_core_MultiFn__r2__8_a4", clojure_core_MultiFn__r2__8_a4);
 #endif
 	// form 1 at 10:1
 	if (0) {
