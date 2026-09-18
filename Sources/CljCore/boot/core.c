@@ -9459,7 +9459,6 @@ clj_value clojure_core_fn_v2(clj_value self, const clj_value *captured, const cl
 	}
 	clj_c_rebind(&l5, t18);
 	(void)clojure_core_fn__0_a1;
-	clj_c_rebind(&l6, CLJ_NIL);
 #line 234 "Sources/CljCore/boot/core.clj"
 	clj_value t43 = l5;
 	clj_value a13[1] = {t43};
@@ -36591,7 +36590,6 @@ clj_value clojure_core_update_in_v3(clj_value self, const clj_value *captured, c
 	if (!clj_c_enter(&S[171], &cc)) goto L1;
 #line 1003 "Sources/CljCore/boot/core.clj"
 	(void)clojure_core_update_in__0_a4;
-	clj_c_rebind(&l4, CLJ_NIL);
 #line 1008 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = l0;
 	clj_value t1 = l1;
@@ -66500,7 +66498,6 @@ clj_value clojure_core_condp_v4(clj_value self, const clj_value *captured, const
 	}
 	clj_c_rebind(&l6, t5);
 	(void)clojure_core_condp__0_a3;
-	clj_c_rebind(&l7, CLJ_NIL);
 #line 1587 "Sources/CljCore/boot/core.clj"
 	bool o6;
 	clj_value t6 = clj_c_var_borrow(V[0], &o6);
@@ -70242,7 +70239,6 @@ clj_value clojure_core_doseq_v3(clj_value self, const clj_value *captured, const
 	clj_release(t3);
 #line 1620 "Sources/CljCore/boot/core.clj"
 	(void)clojure_core_doseq__0_a2;
-	clj_c_rebind(&l4, CLJ_NIL);
 #line 1639 "Sources/CljCore/boot/core.clj"
 	clj_value t4 = K[3];
 	clj_value t5 = l2;
@@ -73384,7 +73380,6 @@ static clj_value clojure_core_for__2_a1(const clj_cframe *outer, const clj_value
 	}
 	clj_c_set(&fr, 21, t40);
 	(void)clojure_core_for__2__3_a1;
-	clj_c_rebind(&l22, CLJ_NIL);
 #line 1653 "Sources/CljCore/boot/core.clj"
 	bool o41;
 	clj_value t41 = clj_c_var_borrow(V[0], &o41);
@@ -74606,9 +74601,7 @@ clj_value clojure_core_for_a4(clj_value self, const clj_value *captured, const c
 	clj_release(t3);
 #line 1646 "Sources/CljCore/boot/core.clj"
 	(void)clojure_core_for__0_a1;
-	clj_c_rebind(&l4, CLJ_NIL);
 	(void)clojure_core_for__2_a1;
-	clj_c_rebind(&l5, CLJ_NIL);
 	bool o4;
 	clj_value t4 = clj_c_var_borrow(V[0], &o4);
 	if (t4 == CLJ_THROWN) {
@@ -91026,7 +91019,6 @@ clj_value clojure_core_binding_v3(clj_value self, const clj_value *captured, con
 	clj_release(t3);
 #line 1958 "Sources/CljCore/boot/core.clj"
 	(void)clojure_core_binding__0_a1;
-	clj_c_rebind(&l4, CLJ_NIL);
 	bool o4;
 	clj_value t4 = clj_c_var_borrow(V[0], &o4);
 	if (t4 == CLJ_THROWN) {
@@ -92544,7 +92536,6 @@ clj_value clojure_core_with_redefs_fn_a2(clj_value self, const clj_value *captur
 	if (!clj_c_enter(&S[406], &cc)) goto L1;
 #line 2000 "Sources/CljCore/boot/core.clj"
 	(void)clojure_core_with_redefs_fn__0_a1;
-	clj_c_rebind(&l2, CLJ_NIL);
 #line 2001 "Sources/CljCore/boot/core.clj"
 	bool o0;
 	clj_value t0 = clj_c_var_borrow(V[137], &o0);
@@ -95198,7 +95189,6 @@ clj_value clojure_core_derive_a3(clj_value self, const clj_value *captured, cons
 	}
 	clj_c_rebind(&l5, t56);
 	(void)clojure_core_derive__0_a5;
-	clj_c_rebind(&l6, CLJ_NIL);
 #line 2073 "Sources/CljCore/boot/core.clj"
 #line 2074 "Sources/CljCore/boot/core.clj"
 	clj_value t57 = l3;

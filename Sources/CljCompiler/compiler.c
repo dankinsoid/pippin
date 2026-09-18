@@ -826,7 +826,8 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 			for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
 				if (init->u.fn.fixed[k]) sb_printf(&f->out, "\t(void)%s_a%u;\n", base, k);
 			}
-			emit_set(f, n->u.let.slots[i], "CLJ_NIL");
+			// a promoted slot of a direct fn starts at nil and is never rebound
+			if (!promoted(f, n->u.let.slots[i])) emit_set(f, n->u.let.slots[i], "CLJ_NIL");
 			continue;
 		}
 		temp t = emit(f, init);
