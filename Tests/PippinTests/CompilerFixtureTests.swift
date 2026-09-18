@@ -115,6 +115,65 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() - live2 <= interpretedGrowth, "closed compiled run of \(name) leaks")
 		}
 
+		// A closed site whose receiver the join names takes the direct arm; a receiver the join never saw and an
+		// extend after the site was compiled (through the interpreter, the dev store) both fall back, right.
+		@Test func closedDirectArmGuardsAndFallsBack() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.direct)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			let arms0 = clj_debug_proto_arm_hits(), cache0 = clj_debug_proto_cache_hits()
+			try compiledEval(closed: true) {
+				_ = try cljEval("(defprotocol CpP (cp-m [x])) (deftype CpT [] CpP (cp-m [x] :t)) (extend-type Long CpP (cp-m [x] :long))")
+				_ = try cljEval("(let [] (defn cp-mono [x] (cp-m x)) (defn cp-run [] [(cp-mono (->CpT)) (cp-mono (->CpT))]))")
+				#expect(try cljEval("(cp-run)") == [Value(keyword: "t"), Value(keyword: "t")])
+			}
+			let arms1 = clj_debug_proto_arm_hits(), cache1 = clj_debug_proto_cache_hits()
+			#expect(arms1 - arms0 >= 1, "the second call hits the arm: \(arms1 - arms0)")
+			#expect(cache1 == cache0, "no cache hit on the arm's receiver")
+			// the protocol's other implementor is an arm too (the requirement names both); a kind outside the arms
+			// throws through the tables, and one extended after the compile is served by the cache
+			#expect(try cljEval("[(cp-mono 5) (cp-mono 5)]") == [Value(keyword: "long"), Value(keyword: "long")])
+			#expect(clj_debug_proto_arm_hits() - arms1 >= 1 && clj_debug_proto_cache_hits() == cache1)
+			#expect(cljEvalError("(cp-mono \"s\")")?.contains("No implementation of method: :cp-m") == true)
+			_ = try cljEval("(extend-type String CpP (cp-m [x] :str))")
+			#expect(try cljEval("[(cp-mono \"s\") (cp-mono \"s\")]") == [Value(keyword: "str"), Value(keyword: "str")])
+			#expect(clj_debug_proto_cache_hits() - cache1 == 1)
+			// the arm's impl replaced after the site was compiled: the epoch moves, the fill fails, the cache answers
+			_ = try cljEval("(extend-type CpT CpP (cp-m [x] :t2))")
+			let arms2 = clj_debug_proto_arm_hits()
+			#expect(try cljEval("(cp-run)") == [Value(keyword: "t2"), Value(keyword: "t2")])
+			#expect(clj_debug_proto_arm_hits() == arms2, "no arm hit after the extend")
+			// satisfies? folded to a verified constant, and re-verified after the extend
+			try compiledEval(closed: true) {
+				_ = try cljEval("(let [] (defn cp-is [x] (satisfies? CpP x)) (defn cp-is-run [] (cp-is (->CpT))))")
+				#expect(try cljEval("[(cp-is-run) (cp-is 5) (cp-is \"s\") (cp-is :k)]") == [true, true, true, false])
+			}
+			_ = try cljEval("(defprotocol CpP (cp-m [x]))")
+			#expect(try cljEval("[(cp-is-run) (cp-is 5)]") == [false, false])
+		}
+
+		// A dev unit's site keeps a per-thread cache: it hits on a repeated receiver, misses on another, and an
+		// extend-type after the compile refills it with the new impl.
+		@Test func devInlineCacheRefillsAfterExtend() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.dev)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			_ = try cljEval("(defprotocol CdP (cd-m [x])) (deftype CdT [] CdP (cd-m [x] :t)) (extend-type Long CdP (cd-m [x] :long))")
+			let cache0 = clj_debug_proto_cache_hits()
+			try compiledEval {
+				_ = try cljEval("(defn cd-any [x] (cd-m x))")
+				#expect(try cljEval("[(cd-any (->CdT)) (cd-any (->CdT)) (cd-any 5) (cd-any 5) (cd-any (->CdT))]")
+					== [Value(keyword: "t"), Value(keyword: "t"), Value(keyword: "long"), Value(keyword: "long"), Value(keyword: "t")])
+			}
+			let cache1 = clj_debug_proto_cache_hits()
+			#expect(cache1 - cache0 == 2, "one hit per repeated receiver: \(cache1 - cache0)")
+			_ = try cljEval("(extend-type Long CdP (cd-m [x] :long2))")
+			#expect(try cljEval("[(cd-any 5) (cd-any 5) (cd-any (->CdT))]") == [Value(keyword: "long2"), Value(keyword: "long2"), Value(keyword: "t")])
+			#expect(clj_debug_proto_cache_hits() - cache1 == 1)
+			#expect(cljEvalError("(cd-any \"s\")")?.contains("No implementation of method: :cd-m") == true)
+			#expect(cljEvalError("(cd-m)")?.contains("Wrong number of args (0)") == true)
+		}
+
 		// Under --closed a form the generator refuses is an error naming the node and its position, not a fallback.
 		@Test func closedRefusesEval() throws {
 			clj_init()

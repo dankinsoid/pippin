@@ -120,6 +120,26 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 
 // ---- protocol call sites (compiled_internal.h)
 
+#if CLJ_DEBUG
+_Atomic int64_t clj_debug_proto_counters[2];
+#endif
+
+int64_t clj_debug_proto_arm_hits(void) {
+#if CLJ_DEBUG
+	return atomic_load_explicit(&clj_debug_proto_counters[0], memory_order_relaxed);
+#else
+	return -1;
+#endif
+}
+
+int64_t clj_debug_proto_cache_hits(void) {
+#if CLJ_DEBUG
+	return atomic_load_explicit(&clj_debug_proto_counters[1], memory_order_relaxed);
+#else
+	return -1;
+#endif
+}
+
 static bool method_accepts(clj_value method, size_t n) {
 	const clj_fn *mf = clj_fn_of(method);
 	return n >= mf->min_arity && (mf->max_arity == CLJ_ARITY_ANY || n <= mf->max_arity);

@@ -200,8 +200,19 @@ static inline const clj_type *clj_c_var_type(clj_value var) {
 	return clj_is_type(root) ? (const clj_type *)clj_to_ptr(root) : NULL;
 }
 
+#if CLJ_DEBUG
+extern _Atomic int64_t clj_debug_proto_counters[2]; // arm hits, cache hits
+#define CLJ_C_PROTO_COUNT(i) atomic_fetch_add_explicit(&clj_debug_proto_counters[i], 1, memory_order_relaxed)
+#else
+#define CLJ_C_PROTO_COUNT(i) ((void)0)
+#endif
+
 // A direct arm's cell: the epoch at which the tables were last seen to bind the arm's descriptor to the arm's impl.
-static inline bool clj_c_arm_hit(const _Atomic uint64_t *cell, uint64_t epoch) { return atomic_load_explicit(cell, memory_order_relaxed) == epoch; }
+static inline bool clj_c_arm_hit(const _Atomic uint64_t *cell, uint64_t epoch) {
+	bool hit = atomic_load_explicit(cell, memory_order_relaxed) == epoch;
+	if (hit) CLJ_C_PROTO_COUNT(0);
+	return hit;
+}
 
 // An impl of another unit, bound through the registry at the first fill of an arm that names it.
 typedef struct {
@@ -246,7 +257,10 @@ bool clj_c_satisfies_fill(_Atomic uint64_t *cell, clj_value proto, clj_value x, 
 bool clj_c_extends_fill(_Atomic uint64_t *cell, clj_value proto, clj_value type, clj_value expected, uint64_t epoch);
 
 static inline clj_value clj_c_proto_ic_call(clj_cproto_ic *ic, clj_value method, const clj_value *args, size_t n, const clj_type *t, uint64_t epoch) {
-	if (__builtin_expect(ic->epoch == epoch && ic->type == t && ic->method == method, 1)) return clj_c_call_impl(ic->impl, args, n);
+	if (__builtin_expect(ic->epoch == epoch && ic->type == t && ic->method == method, 1)) {
+		CLJ_C_PROTO_COUNT(1);
+		return clj_c_call_impl(ic->impl, args, n);
+	}
 	return clj_c_proto_miss(ic, method, args, n, t, epoch);
 }
 
