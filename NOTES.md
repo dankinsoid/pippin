@@ -897,18 +897,24 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
   guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
   call — no frame, no arity table, no var deref, plus a load and a branch on the entry's `consume` form.
-- **The specialized arithmetic node** (specialize.c, eval.c `eval_fix_*`; design §6b item 8, the first
-  self-optimizing node; bench/RESULTS.md, "Specialized arithmetic"). `clj_exec_new` ends by deriving its
-  tree under the process-wide dev store (`clj_specialize_store`: summaries with the caller join on, one
-  lock, made on first use) and rewriting the exec entry of every INTRINSIC `+ - * inc dec < <= > >= =
-  zero? pos? neg?` whose arguments are all int64 by fact — fixnum or boxed long, never "fixnum" alone,
-  which no loop variable is (the Facts entry above) — to a fixnum entry: the fixnum tag of every argument
-  and the boot-root guard are the whole check, then the operation runs inline on the untagged values with
-  `arith2`'s overflow check and `clj_long_new`'s canonical re-tag; anything else, a boxed long included,
-  takes `intrinsic_apply`, the generic path the plain entry runs. Two guards, each for a reason: the tag
-  check makes a wrong or stale fact *slower, never wrong* — the host passes a double to a fn whose
-  recorded callers pass fixnums, a caller at the REPL does, a `def` moved a join a moment ago — and the
-  root guard keeps `(with-redefs [+ -] …)` visible, exactly as the plain entry does. The epoch the fact was
+- **The specialized arithmetic node** (specialize.c, eval.c `eval_fix_*`, `eval_dbl_*`, `eval_fd_*`/`eval_df_*`;
+  design §6b item 8, the first self-optimizing node; bench/RESULTS.md, "Specialized arithmetic" and "Specialized
+  arithmetic over doubles"). `clj_exec_new` ends by deriving its tree under the process-wide dev store
+  (`clj_specialize_store`: summaries with the caller join on, one lock, made on first use) and rewriting the exec
+  entry of every INTRINSIC `+ - * / inc dec < <= > >= = zero? pos? neg?` by the kinds of its argument facts. Every
+  argument int64 — fixnum or boxed long, never "fixnum" alone, which no loop variable is (the Facts entry above) —
+  gives the fixnum entry: the fixnum tag of every argument and the boot-root guard are the whole check, then the
+  operation runs inline on the untagged values with `arith2`'s overflow check and `clj_long_new`'s canonical re-tag
+  (no `/`: an integer quotient may be a ratio). Every argument double gives the double entry: `clj_is_double` of
+  every argument, then IEEE arithmetic into a fresh `clj_double_new` — `(/ 1.0 0.0)` is `##Inf`, every comparison
+  with a NaN false, `=` included, exactly `arith2`, `compare2` and `double_equals`. A fixnum beside a double, the
+  case the `Numbers` ladder makes a double, gives a mixed entry for `+ - * / < <= > >=`: one check of both tags,
+  the fixnum converted as `arith2` converts; `=` between them is false by type and stays generic. Anything else,
+  a boxed long included, takes `intrinsic_apply`, the generic path the plain entry runs. Two guards, each for a
+  reason: the tag check makes a wrong or stale fact *slower, never wrong* — the host passes a double to a fn whose
+  recorded callers pass fixnums, a caller at the REPL does, a `def` moved a join a moment ago — and the root guard
+  keeps `(with-redefs [+ -] …)` visible, exactly as the plain entry does. A node whose operator var is rebound at
+  derivation time takes the generic entry outright: its guard would fail on every call. The epoch the fact was
   derived under lives on the exec (`clj_exec_derivation_valid`: every var epoch the table read and every
   caller join it took, `clj_facts_valid`'s check) and is what re-derivation is *decided* by, not what a call
   checks: a call pays the tag bit and the root compare, nothing per epoch. The derivation also records the
@@ -918,20 +924,28 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   fixpoint: `(defn f [n] (f (dec n)))` settles in two, fixnum then int64), and the re-derivation writes
   every arithmetic entry afresh, which is how a stale specialization goes back to the generic entry: the
   fixture is a fn whose callers pass fixnums until a later `def` adds one passing a double, and
-  `SpecializeTests` checks the entry and the results either side. What a root rebind does *not* do: push;
-  the dependents' specializations stay, guarded by the tag, until a join change re-derives them —
-  trigger: a profile with failed tag checks after a redefinition. A rewrite from a re-derivation lands in
-  a running exec as `clj_exec_count`'s does, at the next child dispatch, and `clj_exec_count(off)` puts the
-  specialized entries back. Cost: the facts pass per exec, +3–4 ms on the 15 ms interpreted boot (the
-  compiled core has no execs and pays nothing), under a second on the 26 s pool test suite; `clj_specialize_enable`
-  turns it off (`CLJ_BENCH_NO_SPECIALIZE=1` is the bench's control). Measured, interpreted: the counting
-  loop 15.3–16.2 → 12.6 ns per iteration with `(inc i)` alone specialized — `n` comes from the host and has
-  no fact — and → 10.3 with the bound known from a def'd caller (`(< i n)` too); the accumulating loop
-  24.9–25.2 → 18.0 and → 15.1; `swap! inc` 42 → 38 (the loop's `(inc i)`). `reduce +` does not move (5.6
-  ns): the reducer calls `clj_add` from C, there is no node. What remains per iteration is the dispatch and
-  the frame work the design names; the tag check is ~1 ns of the ~3 an intrinsic call cost. Doubles are
-  the next trigger: the same entries with `clj_is_double` and a `clj_double_new` result, once a profile
-  shows a double loop.
+  `SpecializeTests` checks the entry and the results either side. **A root rebind pushes the same way**: the
+  derivation indexes the exec under every var whose root it read (the dependents index, var → execs, kept with the
+  derivation and dropped with it), and `clj_var_bind_root` ends with `clj_exec_root_rebound`, which queues the
+  dependents on the same worklist under the same budget — so `(def inc …)` takes the entries of every user of
+  `inc` back at the def, the boot fn bound again gives them back, and a redefined callee's callers read its new
+  summary at once. `with-redefs` of an operator is two rebinds, so two pushes, each bounded by the 64 (a rebind of
+  `+` under an interpreted core has hundreds of dependents; the rest keep their guarded entries). A dynamic var is
+  not indexed: a thread binding is invisible to its epoch, so its root is no fact to rest on, and `*ns*` is rebound
+  by every `ns` form. Cost of the push: +0.3 ms on the interpreted boot, nothing measurable on the corpus load.
+  A rewrite from a re-derivation lands in a running exec as `clj_exec_count`'s does, at the next child dispatch,
+  and `clj_exec_count(off)` puts the specialized entries back. Cost: the facts pass per exec, +3–4 ms on the 15 ms
+  interpreted boot (the compiled core has no execs and pays nothing), under a second on the 26 s pool test suite;
+  `clj_specialize_enable` turns it off (`CLJ_BENCH_NO_SPECIALIZE=1` is the bench's control). Measured, interpreted:
+  the counting loop 15.3–16.2 → 12.6 ns per iteration with `(inc i)` alone specialized — `n` comes from the host
+  and has no fact — and → 10.3 with the bound known from a def'd caller (`(< i n)` too); the accumulating loop
+  24.9–25.2 → 18.0 and → 15.1; `swap! inc` 42 → 38 (the loop's `(inc i)`); a loop accumulating a double 36 → 28,
+  what remains over the int64 loop being the `clj_double_new` per iteration a double result always is here; the
+  accumulating loop with its bound from `(count v)` 26 → 16 (a count is a fixnum fact). `reduce +` does not move
+  (5.6 ns): the reducer calls `clj_add` from C, there is no node. A dot product over two vectors through `nth`
+  moves only by its counter: `nth` answers ⊤, the products are generic and their sum "a number" — trigger: an
+  element fact for `nth`, which the lattice does not carry. What remains per iteration is the dispatch and the
+  frame work the design names; the tag check is ~1 ns of the ~3 an intrinsic call cost.
 - **Constant folding** (optimizer.c `fold_intrinsic`/`fold_if`; design §6b item 4): after the intrinsic
   rewrite, children first, an INTRINSIC whose entry is `pure`, whose arguments are all CONST and whose var
   still holds the boot fn is called at analysis and becomes a CONST; an IF whose test is a CONST becomes
@@ -1816,8 +1830,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   and `boot/libs_*.c` are core.clj and the embedded libs as units, regenerated by `make boot` and linked by a
   `-DCLJ_COMPILED_CORE` build (`make test-compiled`), where `clj_init` runs `clj_compiled_core_init` in place of
   reading `core_clj.inc` and registers the libs by their `<embedded>/...` paths. Two facts are consumed: the
-  escape classification (promoted slots, below) and the int64 kind of arithmetic arguments and loop variables
-  (unboxed arithmetic, below); everything else stays a boxed `clj_value`, and there is no tree shaking.
+  escape classification (promoted slots, below) and the int64 or double kind of arithmetic arguments and let or loop
+  variables (unboxed arithmetic, below); everything else stays a boxed `clj_value`, and there is no tree shaking.
 - **The load hook** (`clj_load_set_hook`, load.c/eval.c) is how the compiler sees the program: a loader
   (`clj_load_source`, `load_core`) arms the hook before each top-level `clj_eval`, which fires it with the
   optimized `const clj_node *` of every tree the form yields (a top-level `do` fires once per item, all with
@@ -1915,48 +1929,72 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   its kept slots — trigger: a stack-depth profile. A param a fn-body `recur` rebinds could be promoted with a
   runtime owned flag — trigger: a hot self-recursive fn showing the array store in a profile. The boxed `<`/`inc`
   the counting loop paid are the next entry's.
-- **Unboxed arithmetic and int64 loop variables** (`emit_unboxed`, `emit_tag_checked`, `select_int_slots`;
-  bench/RESULTS.md, "Specialized arithmetic"). `emit_top` builds the tree's table with the dev store
-  (`clj_facts_of_with`, the join included, the store read without its lock since a compile is one thread; a
-  compiled-eval form records its own fn-body sites first and reads the table again, so a callee defined in
-  the same form sees its callers). An arithmetic INTRINSIC of the
-  interpreter's list is emitted in one of three forms. *Unboxed*: every argument is an **unboxable**
-  expression — a fixnum literal, an int64 slot, or such arithmetic over those — so the operation runs on
-  `int64_t` with `__builtin_*_overflow` and only the result is boxed (`clj_long_new`; a comparison yields
-  `clj_bool`, no allocation); an overflow throws "integer overflow" and unwinds where the interpreter would.
-  Only under `--closed`: an unboxable expression has *no path that yields a box*, which needs the intrinsic
-  guard to be constant; in dev a rebound `+` would have to take the generic path, whose result is a box.
-  *Tag-checked*: every argument's fact is int64 but some come boxed (a parameter the join narrowed, a
-  `count`) — the inline operation runs behind `clj_is_fixnum` of the boxed ones, the table's function
-  otherwise, under `CLJC_GUARD` as before; an unboxable argument is computed as an `int64_t` and boxed only
-  on the generic path. Both forms in dev and closed. *Generic*: the call as in v0. The int64 slots: a
-  promoted owned slot is an `int64_t l<i>` when it is bound at least once and every binding — let init, loop
-  init, recur argument — is unboxable, which may rest on other int64 slots, so the candidates shrink to a
-  fixpoint; a read in a boxed position is `clj_long_new(l<i>)`, owned, since a value outside the fixnum
-  range allocates; the slot is never released, and a fused node's argument frame has none (its locals are the
-  argument array, not the enclosing frame's variables — the first version read them as such and passed a
-  long where a seq was due). Why the tag check and not the epoch: the join is a fact about the recorded
-  callers, and a closed unit is still called from the host and from top-level forms the index does not
-  record; the design's "closed removes the guard" holds for the var-root guard, which `CLJ_CLOSED` folds, and
-  for the loop variables, whose every binding the unit itself computes. A wrong fact therefore costs a
-  failed tag check and never a result; the differential gates (`corpus-compiled` dev and closed, the fixtures
-  dev and closed, `test-compiled`) are what keep that true, and `arith.clj` is the fixture that tries to break
-  it: overflow at the fixnum edge and at the int64 edge in unboxed and tag-checked nodes, a loop variable that
-  turns double, a double and a string through every specialized fn, `apply`, `map` over the fn, a direct fn
-  with an int64 loop, a fused node under one. `core.c` is one text for dev and closed, emitted without
-  `--closed`, so the closed core gets the tag-checked nodes (46 in core.clj) and no int64 slots. `clj-compile
-  --stats` counts the three per unit: `arith.clj` closed, 10 int64 slots, 11 unboxed, 15 tag-checked; dev, 26
-  tag-checked. Measured (the "loops compiled `--closed -O2`" column): the counting loop 3.6–3.7 → 2.9 ns per
-  iteration — `i` is an `int64_t`, `(inc i)` an add with an overflow branch, and what remains is `(< i n)`
-  boxing `i` for a `clj_lt` call, since `n` comes from the host and has no fact, plus the deadline tick —,
-  the accumulating loop 6.9–7.2 → 3.9, and both **1.3 ns** with the bound known from a def'd caller in the
-  same form: the loop is a compare against the untagged parameter behind one tag check, an add, the tick.
-  `swap! inc` 22–25 → 21. What remains and its trigger: a loop variable fed by a boxed value with an int64
-  fact (`(loop [i (count v)] …)`, a parameter) stays boxed, because the conversion at entry could fail on a
-  wrong fact and the sound answer is a boxed copy of the loop — trigger: such a loop in a profile, then the
-  two-program form the FUSED node already has; doubles, the same three forms over `clj_is_double` and
-  `clj_double_new` with a `double` C variable — trigger: a double loop in a profile, and the fact "double"
-  is already what the table answers for `(+ x 0.5)`.
+- **Unboxed arithmetic, int64 and double slots, entry-checked frames** (`emit_unboxed`, `emit_tag_checked`,
+  `typed_masks`, `select_split`, `emit_split`; bench/RESULTS.md, "Specialized arithmetic" and "Specialized
+  arithmetic over doubles"). `emit_top` builds the tree's table with the dev store (`clj_facts_of_with`, the join
+  included, the store read without its lock since a compile is one thread; a compiled-eval form records its own
+  fn-body sites first and reads the table again, so a callee defined in the same form sees its callers). Two
+  **kinds** of unboxed value: `int64_t` for a fact that is a fixnum or a boxed long, `double` for a fact that is
+  exactly a double; an arithmetic node over one of each is a double, as the `Numbers` ladder says, and an integer
+  `/` stays boxed (a ratio). An arithmetic INTRINSIC of the interpreter's list is emitted in one of three forms.
+  *Unboxed*: every argument is an **unboxable** expression — a fixnum or double literal (hex float, `__builtin_inf`
+  and `__builtin_nan` for the non-finite ones), a typed slot, or such arithmetic over those — so the operation runs
+  on the C values, `__builtin_*_overflow` for int64 and IEEE for double, and only the result is boxed
+  (`clj_long_new` or `clj_double_new`; a comparison yields `clj_bool`, no allocation); an overflow throws "integer
+  overflow" and unwinds where the interpreter would. Only under `--closed`: an unboxable expression has *no path
+  that yields a box*, which needs the intrinsic guard to be constant; in dev a rebound `+` would have to take the
+  generic path, whose result is a box. *Tag-checked*: every argument's fact has a kind but some come boxed (a
+  parameter the join narrowed, a `count`) — the inline operation runs behind `clj_is_fixnum` or `clj_is_double` of
+  the boxed ones, the table's function otherwise, under `CLJC_GUARD` as before; an unboxable argument is computed
+  as a C value and boxed only on the generic path. `=` between an int64 and a double is generic in both forms: it
+  is false by type, which a C comparison of the converted values would not say. Both forms in dev and closed.
+  *Generic*: the call as in v0. The **typed slots**: a promoted owned slot is an `int64_t l<i>` or a `double l<i>`
+  when it is bound at least once, every binding's fact has the same kind and every binding — let init, loop init,
+  recur argument — is unboxable in that kind, which may rest on other typed slots, so the candidates shrink to a
+  fixpoint; a read in a boxed position is `clj_long_new(l<i>)` or `clj_double_new(l<i>)`, owned, since a value
+  outside the fixnum range allocates and a double always does; the slot is never released, and a fused node's
+  argument frame has none (its locals are the argument array, not the enclosing frame's variables — the first
+  version read them as such and passed a long where a seq was due). A loop whose variable turns double
+  (`(recur (+ i 0.5))` from `0`) has bindings of two kinds and stays boxed. **Entry-checked frames**, the
+  two-program form the FUSED node has: a let or loop whose own slot is fed by a *boxed* value of a typed fact —
+  `(loop [i (count v)] …)`, `(let [n (count v)] …)`, a parameter the join typed — is emitted twice. The inits run
+  once, boxed; then `clj_is_fixnum`/`clj_is_double` of every such value chooses the fast branch, where the typed
+  C variables shadow the boxed ones for the extent of the body (with whatever the fixpoint types beside them once
+  those are typed: the accumulator whose recur argument adds the count), or the generic branch, the body as it
+  would be emitted without the split. A wrong fact — a bigint at entry, a call from the host with a string —
+  costs the check and takes the generic branch. One split per frame, the outermost, never inside a branch: a split
+  in a split doubles the body again, and a `let` at the top of a fn body would double the whole fn; and only when
+  an arithmetic node of the body reads a slot it would type, since otherwise the check buys nothing. Why the tag
+  check and not the epoch: the join is a fact about the recorded callers, and a closed unit is still called from
+  the host and from top-level forms the index does not record; the design's "closed removes the guard" holds for
+  the var-root guard, which `CLJ_CLOSED` folds, and for the typed slots whose every binding the unit itself
+  computes. A wrong fact therefore costs a failed tag check and never a result; the differential gates
+  (`corpus-compiled` dev and closed, the fixtures dev and closed, `test-compiled`) are what keep that true, and
+  `arith.clj` is the fixture that tries to break it: overflow at the fixnum edge and at the int64 edge in unboxed
+  and tag-checked nodes, a loop variable that turns double, a double and a string through every specialized fn,
+  `apply`, `map` over the fn, a direct fn with an int64 loop, a fused node under one, every operator over doubles
+  and over a fixnum beside a double with `##Inf`, `##NaN` and `-0.0` through them, a NaN loop variable, a loop fed
+  by a `count`, by a let-bound `count`, by a parameter the join typed, and the same entered with a bigint, a
+  double and a string; `rebind.clj` (dev only, it rebinds `*`) is the root-rebind case. `core.c` is one text for
+  dev and closed, emitted without `--closed`, so the closed core gets the tag-checked nodes (46 in core.clj) and no
+  typed slots. `clj-compile --stats` counts the forms per unit: `arith.clj` closed, 21 int64 slots, 4 double
+  slots, 51 unboxed, 52 tag-checked, 6 entry-checked frames; dev, 85 tag-checked; the closed test suite has 8
+  int64 slots and 2 entry-checked frames, medley none — the corpus has few loops, and the fixture and the bench
+  are where the forms are exercised. Measured (the "loops compiled `--closed -O2`" column): the counting loop
+  3.6–3.7 → 2.9 ns per iteration — `i` is an `int64_t`, `(inc i)` an add with an overflow branch, and what
+  remains is `(< i n)` boxing `i` for a `clj_lt` call, since `n` comes from the host and has no fact, plus the
+  deadline tick —, the accumulating loop 6.9–7.2 → 3.9, and both **1.3 ns** with the bound known from a def'd
+  caller in the same form: the loop is a compare against the untagged parameter behind one tag check, an add, the
+  tick. A loop accumulating a double 13.8 → 3.0: the `clj_double_new` and the release per iteration are gone, `x`
+  is a `double`. The accumulating loop with its bound from `(count v)` **1.2 → 0.5** with the count in a `let`
+  and 2.2 → 0.5 with the count as the loop's entry value: the fast branch is a compare, an add and the tick, no
+  tag check inside the loop. `swap! inc` 22–25 → 21. A dot product over two vectors through `nth` moves only by
+  its counter (38 → 36): `nth` answers ⊤ — trigger: an element fact for `nth`, which the lattice does not carry.
+  What remains and its trigger: a parameter used directly in the loop's arithmetic is tag-checked at every use
+  (`(< i n)` above), since a parameter is bound by the caller and cannot be a C variable — trigger: a profile
+  with a hot loop over a parameter, then the parameter as an entry-checked slot of the fn body, the same split
+  at the arity; a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a
+  profile.
 - **Refused** (reported with the node kind and position, the unit throws at the form, `clj-compile` exits 2
   unless `--allow-refused`): a constant that does not print and read back; `eval`/`load-string` in a
   `--closed` user unit. Every node kind is expressible; nothing in core.clj, the embedded libs, medley or the
