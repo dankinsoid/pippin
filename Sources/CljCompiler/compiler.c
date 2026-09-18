@@ -1237,7 +1237,8 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 static temp emit_def(fnctx *f, const clj_node *n) {
 	size_t vi = var_index(f->u, n->u.def.var);
 	if (n->u.def.init) {
-		bool named = n->u.def.init->kind == CLJ_NODE_FN && f->top && *f->fn_counter == 0;
+		// only the def that is the form itself takes the form's base: two defs under one let each get a nested name
+		bool named = n->u.def.init->kind == CLJ_NODE_FN && f->top && n->id == 0 && *f->fn_counter == 0;
 		if (named) fn_line(f, n->u.def.init);
 		temp init = named ? emit_fn_as(f, n->u.def.init, f->base) : emit(f, n->u.def.init);
 		sb_printf(&f->out, "\tclj_var_bind_root(V[%zu], %s);\n", vi, init.name);
@@ -1483,9 +1484,9 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	sb_printf(&f->out, "\tclj_cframe %s = {(clj_value *)%s, NULL, 0, NULL};\n\t(void)%s;\n", frame, array, frame);
 	temp        r = new_temp(f, OWN_YES);
 	const char *saved_frame = f->frame;
-	uint64_t    saved_promoted = f->promoted, saved_borrowed = f->borrowed;
+	uint64_t    saved_promoted = f->promoted, saved_borrowed = f->borrowed, saved_ints = f->ints;
 	f->frame = frame;
-	f->promoted = f->borrowed = 0;
+	f->promoted = f->borrowed = f->ints = 0;
 	if (f->facts) {
 		uint32_t fi = facts_frame(f->facts, n, n->u.fused.fused);
 		const clj_facts_frame *ff = fi == UINT32_MAX ? NULL : clj_facts_frame_at(f->facts, fi);
@@ -1508,6 +1509,7 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	f->frame = saved_frame;
 	f->promoted = saved_promoted;
 	f->borrowed = saved_borrowed;
+	f->ints = saved_ints;
 	release_args(f, args, n->u.fused.nargs);
 	live_push(f, r);
 	return r;

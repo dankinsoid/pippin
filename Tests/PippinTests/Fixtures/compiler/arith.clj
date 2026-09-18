@@ -10,7 +10,9 @@
 (defn near-max [start k] (loop [i start n 0] (if (< n k) (recur (inc i) (inc n)) i)))
 (defn from-max [k] (loop [i 4611686018427387900 n 0] (if (< n k) (recur (inc i) (inc n)) i)))
 (defn until-double [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (if (= i 3) 0.5 1))) acc)))
-(defn run [] [(count-to 10) (acc-to 10) (count-down 5) (mul-up 10) (preds 1) (preds 0) (preds -1)])
+(defn fused-int [n] (loop [i 0 out []] (if (< i n) (recur (inc i) (into out (map inc [i]))) out)))
+(defn direct-int [n] (let [f (fn [k] (loop [i 0 s 0] (if (< i k) (recur (inc i) (+ s i)) s)))] [(f n) (f (* n 2))]))
+(defn run [] [(count-to 10) (acc-to 10) (count-down 5) (mul-up 10) (preds 1) (preds 0) (preds -1) (fused-int 3) (direct-int 4)])
 
 (println (run) (mixed) (near-max 4611686018427387900 3) (near-max 4611686018427387900 8) (from-max 3) (from-max 8) (until-double 6))
 (println (count-to 1.5) (acc-to 2.5) (count-down 2.5) (preds 1.5) (preds 3037000499) (preds -3037000499))

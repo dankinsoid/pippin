@@ -265,9 +265,15 @@ func cljEval(_ source: String) -> clj_value {
 	return last
 }
 
+func benchThrew() -> Never {
+	let trace = clj_pr_str(clj_take_pending_trace())
+	let text = clj_pr_str(clj_take_pending())
+	fatalError("bench call threw: \(text == CLJ_THROWN ? "?" : String(cString: clj_string_bytes(text))) at \(trace == CLJ_THROWN ? "?" : String(cString: clj_string_bytes(trace)))")
+}
+
 func cljCall0(_ f: clj_value) -> UInt64 {
 	let r = clj_invoke(f, nil, 0)
-	if r == CLJ_THROWN { fatalError("bench call threw") }
+	if r == CLJ_THROWN { benchThrew() }
 	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
 	clj_release(r)
 	return v
@@ -276,7 +282,7 @@ func cljCall0(_ f: clj_value) -> UInt64 {
 func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
 	var a = arg
 	let r = withUnsafePointer(to: &a) { clj_invoke(f, $0, 1) }
-	if r == CLJ_THROWN { fatalError("bench call threw") }
+	if r == CLJ_THROWN { benchThrew() }
 	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
 	clj_release(r)
 	return v
