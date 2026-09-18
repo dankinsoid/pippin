@@ -316,7 +316,7 @@ typedef struct fnctx {
 	uint64_t         ints;     // the promoted slots that are int64_t variables: every binding is an unboxed expression
 	uint64_t         dbls;     // the same as double variables
 	const clj_node  *body;     // the frame's body, what the typed-slot selection walks
-	bool             in_split; // inside a branch of an entry-checked let or loop, where no further split is taken
+	bool             in_split; // inside a branch of an entry-checked loop, where no further split is taken
 	const struct fnctx *definer; // the context of the frame a direct fn body links to, for the promotion check of OUTER reads
 	temp          *live;
 	int            nlive, live_cap;
@@ -1217,28 +1217,28 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 
 static temp emit_loop_body(fnctx *f, const clj_node *n);
 
-// The two-program form of a loop fed by boxed values (NOTES.md, "Compiler": entry-checked frames): the tag checks at
-// entry choose the branch whose typed C variables shadow the boxed ones, or the generic one.
 static bool in_mask(uint64_t m, uint32_t i) { return (m >> i) & 1; }
 
-static temp emit_split(fnctx *f, const clj_node *n, uint64_t own, uint64_t ints, uint64_t dbls) {
+// The two-program form of a loop fed by boxed values (NOTES.md, "Compiler": entry-checked frames): the tag checks at
+// entry choose the branch whose typed C variables shadow the boxed ones, or the generic one.
+static temp emit_split(fnctx *f, const clj_node *n, uint64_t checked, uint64_t ints, uint64_t dbls) {
 	uint64_t fresh_ints = ints & ~f->ints, fresh_dbls = dbls & ~f->dbls;
 	temp     r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (1", r.name);
 	for (uint32_t i = 0; i < 64; i++) {
-		if (in_mask(fresh_ints & own, i)) sb_printf(&f->out, " && clj_is_fixnum(l%u)", i);
-		else if (in_mask(fresh_dbls & own, i)) sb_printf(&f->out, " && clj_is_double(l%u)", i);
+		if (in_mask(fresh_ints & checked, i)) sb_printf(&f->out, " && clj_is_fixnum(l%u)", i);
+		else if (in_mask(fresh_dbls & checked, i)) sb_printf(&f->out, " && clj_is_double(l%u)", i);
 	}
 	sb_puts(&f->out, ") {\n");
 	for (uint32_t i = 0; i < 64; i++) {
-		if (in_mask(fresh_ints & own, i)) sb_printf(&f->out, "\tint64_t e%u = clj_fixnum_val(l%u);\n", i, i);
-		else if (in_mask(fresh_dbls & own, i)) sb_printf(&f->out, "\tdouble e%u = clj_double_val(l%u);\n", i, i);
+		if (in_mask(fresh_ints & checked, i)) sb_printf(&f->out, "\tint64_t e%u = clj_fixnum_val(l%u);\n", i, i);
+		else if (in_mask(fresh_dbls & checked, i)) sb_printf(&f->out, "\tdouble e%u = clj_double_val(l%u);\n", i, i);
 	}
 	sb_puts(&f->out, "\t{\n");
 	for (uint32_t i = 0; i < 64; i++) {
 		if (!in_mask(fresh_ints | fresh_dbls, i)) continue;
 		const char *t = ctype(in_mask(fresh_ints, i) ? UK_INT : UK_DBL);
-		if (in_mask(own, i)) sb_printf(&f->out, "\t%s l%u = e%u;\n\t(void)l%u;\n", t, i, i, i);
+		if (in_mask(checked, i)) sb_printf(&f->out, "\t%s l%u = e%u;\n\t(void)l%u;\n", t, i, i, i);
 		else sb_printf(&f->out, "\t%s l%u = 0;\n\t(void)l%u;\n", t, i, i);
 	}
 	uint64_t saved_ints = f->ints, saved_dbls = f->dbls;
