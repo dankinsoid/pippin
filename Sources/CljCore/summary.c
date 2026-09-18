@@ -21,7 +21,7 @@
 // The same bound as a loop variable's fixpoint in facts.c, for the same reason (NOTES.md, "Facts").
 #define WIDEN_ROUNDS 3
 // Nested summary computations before a callee is taken as unknown: the budget per function of design §6b.
-#define MAX_DEPTH 8
+#define MAX_DEPTH 6
 #define MAX_DEPS 24
 
 #define T_INT  (CLJ_T_FIXNUM | CLJ_T_LONG | CLJ_T_BIGINT)
@@ -372,8 +372,11 @@ static uint32_t core_effects_of(clj_value var) {
 	return clj_facts_core_effects(clj_string_bytes(clj_symbol_name(clj_var_name(var))));
 }
 
+// A walk started this deep would be cut at once (facts.c); it is left for a caller with headroom.
+static bool budget_left(const clj_summaries *s) { return s->depth <= MAX_DEPTH && clj_facts_walk_depth() + 8 < CLJ_FACTS_MAX_WALK_DEPTH; }
+
 static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var, uint32_t nargs) {
-	if (s->depth > MAX_DEPTH) return NULL;
+	if (!budget_left(s)) return NULL;
 	if (e->state == STATE_DONE) s->invalidated++;
 	e->state = STATE_RUNNING;
 	e->ndeps = 0;
@@ -431,13 +434,14 @@ const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t 
 		return &e->s;
 	}
 	if (e->state == STATE_EMPTY && e->unknown && e->world == clj_epoch()) return NULL;
+	if (!budget_left(s)) return NULL; // out of budget is not "unknown": asked again with headroom, it is computed
 	const clj_summary *r = compute_var(s, e, var, nargs);
 	e->unknown = !r;
 	return r;
 }
 
 const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, const clj_fn_arity *a) {
-	if (!fn || !a || s->depth > MAX_DEPTH) return NULL;
+	if (!fn || !a) return NULL;
 	entry *e = entry_for(s, a, a->nparams);
 	if (e->state == STATE_RUNNING) {
 		e->s.recursive = true;
@@ -445,6 +449,7 @@ const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, co
 		return &e->s;
 	}
 	if (e->state == STATE_DONE && entry_valid(e)) return &e->s;
+	if (!budget_left(s)) return NULL;
 	if (e->state == STATE_DONE) s->invalidated++;
 	e->state = STATE_RUNNING;
 	e->ndeps = 0;

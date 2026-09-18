@@ -1013,7 +1013,128 @@ static clj_fact infer_fused(pass *p, const clj_node *n, env *e) {
 	return r;
 }
 
+// Nested summary walks share the C stack with the walk that asked, and a sanitizer build's frames are large: a
+// summary walk stops descending past this depth and answers TOP for the subtree, the recording walk never does.
+static _Thread_local uint32_t walk_depth;
+
+uint32_t clj_facts_walk_depth(void) { return walk_depth; }
+
+static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use);
+
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
+	if (!p->record && walk_depth >= CLJ_FACTS_MAX_WALK_DEPTH) {
+		p->effects |= CLJ_EFFECT_ANY;
+		return clj_fact_top();
+	}
+	walk_depth++;
+	clj_fact r = infer_node(p, n, e, use);
+	walk_depth--;
+	return r;
+}
+
+typedef struct {
+	clj_value *vars;
+	uint32_t  *nargs;
+	uint32_t   n, cap;
+} call_list;
+
+static void collect_calls(const clj_node *n, void *ctx) {
+	call_list *l = ctx;
+	clj_value  var = CLJ_NIL;
+	uint32_t   nargs = 0;
+	if (n->kind == CLJ_NODE_INVOKE && n->u.invoke.fn->kind == CLJ_NODE_VAR) {
+		var = n->u.invoke.fn->u.var;
+		nargs = n->u.invoke.n;
+	}
+	else if (n->kind == CLJ_NODE_INTRINSIC) {
+		var = n->u.intrinsic.var;
+		nargs = n->u.intrinsic.n;
+	}
+	if (clj_is_var(var)) {
+		if (l->n == l->cap) {
+			l->cap = l->cap ? l->cap * 2 : 64;
+			l->vars = xgrow(l->vars, l->cap, sizeof(clj_value));
+			l->nargs = xgrow(l->nargs, l->cap, sizeof(uint32_t));
+		}
+		l->vars[l->n] = var;
+		l->nargs[l->n] = nargs;
+		l->n++;
+	}
+	clj_node_children(n, collect_calls, ctx);
+}
+
+// Every var the tree calls is summarized at the top of the stack, so the walk below mostly hits the cache.
+static void warm_summaries(const clj_node *root, clj_summaries *sums) {
+	call_list l = {NULL, NULL, 0, 0};
+	collect_calls(root, &l);
+	for (uint32_t i = 0; i < l.n; i++) clj_summary_of_var(sums, l.vars[i], l.nargs[i]);
+	free(l.vars);
+	free(l.nargs);
+}
+
+static clj_fact infer_if(pass *p, const clj_node *n, env *e, use_kind use) {
+	infer(p, n->u.if_.test, e, USE_NONE);
+	env      yes = env_clone(e), no = env_clone(e);
+	uint32_t before = p->f->conflicts;
+	refine(p, n->u.if_.test, &yes, &no);
+	if (p->f->conflicts > before && p->f->conflict_node == UINT32_MAX) p->f->conflict_node = n->u.if_.test->id;
+	bool     outer = p->dead;
+	p->dead = outer || env_bottom(&yes);
+	clj_fact a = infer(p, n->u.if_.then, &yes, use);
+	p->dead = outer || env_bottom(&no);
+	clj_fact b = n->u.if_.else_ ? infer(p, n->u.if_.else_, &no, use) : fact_of(CLJ_T_NIL);
+	p->dead = outer;
+	for (uint32_t i = 0; i < e->n; i++) e->slots[i] = clj_fact_join(yes.slots[i], no.slots[i]);
+	env_join_req(e, &yes, &no);
+	env_free(&yes);
+	env_free(&no);
+	return clj_fact_join(a, b);
+}
+
+static clj_fact infer_fn(pass *p, const clj_node *n, env *e) {
+	clj_fact *caps = xalloc(n->u.fn.ncaptures + 1, sizeof(clj_fact));
+	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+		const clj_capture *c = &n->u.fn.captures[i];
+		switch (c->kind) {
+		case CLJ_CAPTURE_LOCAL:
+			mark_escape(p, c->index, CLJ_ESCAPE_CAPTURED);
+			caps[i] = c->index < e->n ? e->slots[c->index] : clj_fact_top();
+			break;
+		case CLJ_CAPTURE_CAPTURED:
+			caps[i] = p->frame->captured && c->index < p->frame->ncaptured ? p->frame->captured[c->index] : clj_fact_top();
+			break;
+		default: caps[i] = clj_fact_top();
+		}
+	}
+	if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures);
+	free(caps);
+	p->effects |= CLJ_EFFECT_ALLOC;
+	return fact_of(CLJ_T_FN);
+}
+
+static clj_fact infer_invoke(pass *p, const clj_node *n, env *e) {
+	infer(p, n->u.invoke.fn, e, USE_NONE);
+	const clj_node *head = n->u.invoke.fn;
+	if (head->kind == CLJ_NODE_VAR) return infer_call(p, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var, n->u.invoke.n), head->u.var);
+	if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
+		// (:k m) answers nil rather than throwing on anything, so it requires nothing (design §3)
+		infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
+		return clj_fact_top();
+	}
+	return infer_call(p, n->u.invoke.args, n->u.invoke.n, e, NULL, CLJ_NIL);
+}
+
+static clj_fact infer_direct_call(pass *p, const clj_node *n, env *e) {
+	clj_fact *have = xalloc(n->u.direct.n + 1, sizeof(clj_fact));
+	for (uint32_t i = 0; i < n->u.direct.n; i++) have[i] = infer(p, n->u.direct.args[i], e, USE_ESCAPE);
+	const clj_summary *sum = p->f->sums ? clj_summary_of_arity(p->f->sums, n->u.direct.fn, n->u.direct.arity) : NULL;
+	if (!sum) p->effects |= CLJ_EFFECT_ANY;
+	apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL);
+	free(have);
+	return result_with_summary(p, clj_fact_top(), sum);
+}
+
+static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	clj_fact r;
 	switch (n->kind) {
 	case CLJ_NODE_CONST: r = clj_fact_of_value(n->u.value); break;
@@ -1035,25 +1156,7 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 			add_dep(p->f, n->u.var);
 		}
 		break;
-	case CLJ_NODE_IF: {
-		infer(p, n->u.if_.test, e, USE_NONE);
-		env      yes = env_clone(e), no = env_clone(e);
-		uint32_t before = p->f->conflicts;
-		refine(p, n->u.if_.test, &yes, &no);
-		if (p->f->conflicts > before && p->f->conflict_node == UINT32_MAX) p->f->conflict_node = n->u.if_.test->id;
-		bool     outer = p->dead;
-		p->dead = outer || env_bottom(&yes);
-		clj_fact a = infer(p, n->u.if_.then, &yes, use);
-		p->dead = outer || env_bottom(&no);
-		clj_fact b = n->u.if_.else_ ? infer(p, n->u.if_.else_, &no, use) : fact_of(CLJ_T_NIL);
-		p->dead = outer;
-		for (uint32_t i = 0; i < e->n; i++) e->slots[i] = clj_fact_join(yes.slots[i], no.slots[i]);
-		env_join_req(e, &yes, &no);
-		env_free(&yes);
-		env_free(&no);
-		r = clj_fact_join(a, b);
-		break;
-	}
+	case CLJ_NODE_IF: r = infer_if(p, n, e, use); break;
 	case CLJ_NODE_DO: {
 		uint32_t last = n->u.seq.n - 1;
 		for (uint32_t i = 0; i < last; i++) infer(p, n->u.seq.items[i], e, USE_NONE);
@@ -1084,58 +1187,14 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		r = clj_fact_bottom();
 		break;
 	}
-	case CLJ_NODE_FN: {
-		clj_fact *caps = xalloc(n->u.fn.ncaptures + 1, sizeof(clj_fact));
-		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
-			const clj_capture *c = &n->u.fn.captures[i];
-			switch (c->kind) {
-			case CLJ_CAPTURE_LOCAL:
-				mark_escape(p, c->index, CLJ_ESCAPE_CAPTURED);
-				caps[i] = c->index < e->n ? e->slots[c->index] : clj_fact_top();
-				break;
-			case CLJ_CAPTURE_CAPTURED:
-				caps[i] = p->frame->captured && c->index < p->frame->ncaptured ? p->frame->captured[c->index] : clj_fact_top();
-				break;
-			default: caps[i] = clj_fact_top();
-			}
-		}
-		if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures);
-		free(caps);
-		p->effects |= CLJ_EFFECT_ALLOC;
-		r = fact_of(CLJ_T_FN);
-		break;
-	}
+	case CLJ_NODE_FN: r = infer_fn(p, n, e); break;
 	case CLJ_NODE_DIRECT_FN:
 		// its slot holds nil at run time and nothing reads it as a value; the node still denotes the function
 		if (p->record) run_fn(p, n, p->frame->captured, p->frame->ncaptured);
 		r = fact_of(CLJ_T_FN);
 		break;
-	case CLJ_NODE_INVOKE: {
-		infer(p, n->u.invoke.fn, e, USE_NONE);
-		const clj_node *head = n->u.invoke.fn;
-		if (head->kind == CLJ_NODE_VAR) {
-			r = infer_call(p, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var, n->u.invoke.n), head->u.var);
-		}
-		else if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
-			// (:k m) answers nil rather than throwing on anything, so it requires nothing (design §3)
-			infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
-			r = clj_fact_top();
-		}
-		else {
-			r = infer_call(p, n->u.invoke.args, n->u.invoke.n, e, NULL, CLJ_NIL);
-		}
-		break;
-	}
-	case CLJ_NODE_DIRECT_CALL: {
-		clj_fact *have = xalloc(n->u.direct.n + 1, sizeof(clj_fact));
-		for (uint32_t i = 0; i < n->u.direct.n; i++) have[i] = infer(p, n->u.direct.args[i], e, USE_ESCAPE);
-		const clj_summary *sum = p->f->sums ? clj_summary_of_arity(p->f->sums, n->u.direct.fn, n->u.direct.arity) : NULL;
-		if (!sum) p->effects |= CLJ_EFFECT_ANY;
-		apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL);
-		free(have);
-		r = result_with_summary(p, clj_fact_top(), sum);
-		break;
-	}
+	case CLJ_NODE_INVOKE: r = infer_invoke(p, n, e); break;
+	case CLJ_NODE_DIRECT_CALL: r = infer_direct_call(p, n, e); break;
 	case CLJ_NODE_INTRINSIC:
 		r = infer_call(p, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.var);
 		break;
@@ -1196,6 +1255,7 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
 	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0};
+	if (sums) warm_summaries(root, sums);
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);

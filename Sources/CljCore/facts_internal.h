@@ -13,5 +13,8 @@ uint32_t clj_facts_core_effects(const char *name);
 uint32_t clj_facts_kind_of_type(const clj_type *t);
 // Drops the direct-fn entries: keyed by a pointer into a tree, they must not outlive the table built over it.
 void clj_summaries_forget_arities(clj_summaries *s);
+// Nodes the walk on this thread is inside of, every nested summary walk included, and where a summary walk stops.
+uint32_t clj_facts_walk_depth(void);
+#define CLJ_FACTS_MAX_WALK_DEPTH 40
 
 #endif
