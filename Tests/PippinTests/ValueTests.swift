@@ -104,6 +104,7 @@ extension CoreTests {
 		}
 
 		@Test func mapsRoundTrip() throws {
+			_ = Value(keyword: "a")
 			let before = clj_debug_live_objects()
 			do {
 				let m: Value = [Value(keyword: "a"): 1, "b": [2, 3], nil: nil]

@@ -307,6 +307,7 @@ extension CoreTests {
 
 		@Test func coercions() throws {
 			clj_init()
+			_ = Value(keyword: "a")
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try eval("[(long 1.9) (long -1.9) (long 1N) (long 3/2) (long -3/2) (long 1/10) (long 1.1M)]") == [1, -1, 1, 1, -1, 0, 1])

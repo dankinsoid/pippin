@@ -159,6 +159,7 @@ extension CoreTests {
 
 		// The hit counter's wrapper and the specialization coexist: counting off puts the fast path back.
 		@Test func countingKeepsTheEntries() throws {
+			_ = try rt.eval("(defn sp-use-preds [] (sp-preds 1))")
 			let exec = try execOf(rt, "sp-preds")
 			let id = clj_debug_exec_intrinsic_id(exec, "dec")
 			clj_exec_count(exec, true)

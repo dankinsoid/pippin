@@ -22,6 +22,7 @@ extension CoreTests {
 		@Test func qualifiesSymbolsAndRebuildsCollections() throws {
 			clj_init()
 			_ = try cljEval("(def sq-defined)")
+			_ = Value(keyword: "k")
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try expand("`a") == "(quote user/a)")

@@ -278,6 +278,8 @@ extension CoreTests {
 		@Test func formErrors() throws {
 			try declare("T", "->T", "Desc", "describe")
 			_ = try rt.eval("(defprotocol Desc (describe [this]))")
+			// A method name is interned as a keyword the first time an error names it.
+			for k in ["nope", "empty", "applyTo", "count", "nth", "next", "cons", "describe"] { _ = kw(k) }
 			let before = clj_debug_live_objects()
 			do {
 				#expect(message(rt, "(deftype T [] ISeq (nope [_] 1))") == "No method :nope in interface ISeq")

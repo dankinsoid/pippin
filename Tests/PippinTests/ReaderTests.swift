@@ -286,8 +286,8 @@ extension CoreTests {
 
 		@Test(arguments: errorCases) func errors(text: String, line: Int, column: Int, message: String) {
 			clj_init()
-			// A pattern's syntax error carries them in its ex-data, and interning is permanent.
-			for k in ["pattern", "offset"] { _ = kw(k) }
+			// A pattern's syntax error carries them in its ex-data, and interning is permanent; so are the cases' own keywords.
+			for k in ["pattern", "offset", "a", "b", "k", "clj", "default", "jank", "a/b", "no-such/a"] { _ = kw(k) }
 			let before = clj_debug_live_objects()
 			#expect(readError(text) == ReaderError(message: message, line: line, column: column), "\(text.debugDescription)")
 			#expect(clj_debug_live_objects() == before)
@@ -340,6 +340,7 @@ extension CoreTests {
 		}
 
 		@Test func truncatedInputFailsInReadAll() {
+			_ = kw("a")
 			let before = clj_debug_live_objects()
 			for text in ["(", "\"", "#", "{", "{:a", "[1 2", "'(1 2", "@", "#_", "#_ #_ 1", "1 2 (", "\\", "##"] {
 				#expect(throws: ReaderError.self, Comment(rawValue: text.debugDescription)) { try Value.readAll(text) }
