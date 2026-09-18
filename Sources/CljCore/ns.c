@@ -27,9 +27,11 @@ static void ns_each_child(void *self, clj_visitor visit, void *ctx) {
 
 static clj_value ns_meta(clj_value self) { return clj_retain(clj_ns_of(self)->meta); }
 
+// IMeta without IObj, like a var: the meta changes through alter-meta!/reset-meta!.
 const clj_type clj_ns_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "namespace",
+	.core_bits = CLJ_CORE_META,
 	.each_child = ns_each_child,
 	.meta = ns_meta,
 };

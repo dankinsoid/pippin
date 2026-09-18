@@ -45,7 +45,7 @@ extension CoreTests {
 				("double", 1.5, 0),
 				("exception", try eval("(ex-info \"x\" {})"), ERROR),
 				("var", try eval("#'inc"), FN | META),
-				("namespace", Value(borrowing: clj_ns_user()), 0),
+				("namespace", Value(borrowing: clj_ns_user()), META),
 				("type", Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(Value(list: []).raw).pointee.type))), 0),
 				("lazy-seq", try eval("(lazy-seq [1])"), ASEQ),
 				("vector-seq", try eval("(seq [1 2])"), ASEQ | COUNTED | REDUCE),
