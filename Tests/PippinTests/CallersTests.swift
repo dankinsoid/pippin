@@ -52,10 +52,14 @@ private final class Joined {
 			var node: UInt32 = 0, nargs: UInt32 = 0
 			var v: clj_value = 0
 			var args: UnsafePointer<clj_fact>?
-			_ = clj_facts_site(table, i, &node, &v, &nargs, &args)
+			var inFn = false
+			_ = clj_facts_site(table, i, &node, &v, &nargs, &args, &inFn)
 			clj_callers_add_site(owner, v, nargs, args)
 		}
-		for i in 0..<clj_facts_nvalue_reads(table) { clj_callers_add_value_read(owner, clj_facts_value_read(table, i)) }
+		for i in 0..<clj_facts_nvalue_reads(table) {
+			var inFn = false
+			clj_callers_add_value_read(owner, clj_facts_value_read(table, i, &inFn))
+		}
 	}
 
 	var joins: [(reason: clj_join_reason, params: [String])] {

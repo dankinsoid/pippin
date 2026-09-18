@@ -265,6 +265,14 @@ func cljEval(_ source: String) -> clj_value {
 	return last
 }
 
+func cljCall0(_ f: clj_value) -> UInt64 {
+	let r = clj_invoke(f, nil, 0)
+	if r == CLJ_THROWN { fatalError("bench call threw") }
+	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+	clj_release(r)
+	return v
+}
+
 func cljCall(_ f: clj_value, _ arg: clj_value) -> UInt64 {
 	var a = arg
 	let r = withUnsafePointer(to: &a) { clj_invoke(f, $0, 1) }
@@ -515,6 +523,8 @@ for r in vectorRows {
 }
 print("\nns per op; Array is mutable and in place, the persistent column copies the buffer per version")
 
+// CLJ_BENCH_NO_SPECIALIZE=1: the interpreter without the specialized arithmetic nodes, the control for those rows.
+if ProcessInfo.processInfo.environment["CLJ_BENCH_NO_SPECIALIZE"] != nil { clj_specialize_enable(false) }
 clj_init()
 let sumFn = cljEval("(fn [n] (reduce + (map inc (range n))))")
 let sumFilterFn = cljEval("(fn [n] (reduce + (map inc (filter even? (range n)))))")
@@ -625,6 +635,12 @@ func aClosureCallLoop(_ n: Int) -> UInt64 {
 let countFn = cljEval("(fn [n] (loop [i 0] (if (< i n) (recur (inc i)) i)))")
 // The counting loop with a second variable it adds into: two slot rebinds per iteration.
 let accFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc)))")
+// The same two loops as def'd fns whose only caller is another def'd fn, in one form: the caller join gives the
+// bound a type, where the host's argument above gives it none (NOTES.md "Facts", the reverse index).
+let joinedCountFn = cljEval(
+	"(let [] (defn bench-count-to [n] (loop [i 0] (if (< i n) (recur (inc i)) i))) (defn bench-count-run [] (bench-count-to 100000))) bench-count-run")
+let joinedAccFn = cljEval(
+	"(let [] (defn bench-acc-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc))) (defn bench-acc-run [] (bench-acc-to 100000))) bench-acc-run")
 let callFn = cljEval("(def bench-inc (fn [x] (inc x))) (fn [n] (loop [i 0] (if (< i n) (recur (bench-inc i)) i)))")
 
 // The same call with the fn bound by a let around the loop, and a helper bound inside the loop body that
@@ -659,6 +675,8 @@ do {
 	// A Swift counting loop folds to a closed form under -O, so it has no reference column.
 	callRows.append(CallRow(scenario: "counting loop", n: n, c: measure(ops: n) { cCountLoop(countFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "loop accumulating into a local", n: n, c: measure(ops: n) { cCountLoop(accFn, n) }, swift: nil))
+	callRows.append(CallRow(scenario: "counting loop, bound known from the caller", n: n, c: measure(ops: n) { cljCall0(joinedCountFn) }, swift: nil))
+	callRows.append(CallRow(scenario: "accumulating loop, bound known from the caller", n: n, c: measure(ops: n) { cljCall0(joinedAccFn) }, swift: nil))
 	callRows.append(CallRow(scenario: "closure call in a loop", n: n,
 		c: measure(ops: n) { cClosureCallLoop(callFn, n) },
 		swift: measure(ops: n) { aClosureCallLoop(n) }))
@@ -672,6 +690,8 @@ do {
 }
 clj_release(countFn)
 clj_release(accFn)
+clj_release(joinedCountFn)
+clj_release(joinedAccFn)
 clj_release(callFn)
 clj_release(nativeCallFn)
 clj_release(hostCallFn)

@@ -75,7 +75,7 @@ extension CoreTests {
 		init() {
 			for k in ["a", "b", "x", "none", "yes", "no", "never", "const", "local", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke",
 			          "intrinsic", "def", "vector", "map", "try", "throw", "all", "error", "fused", "outer", "direct-fn", "direct-call", "fn", "line",
-			          "column", "name"] { _ = kw(k) }
+			          "column", "name", "last"] { _ = kw(k) }
 		}
 
 		// The folded node keeps the call's position; the value is what the call would have produced.

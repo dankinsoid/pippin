@@ -149,11 +149,12 @@ bool      clj_facts_valid(const clj_facts *f);
 
 // ---- the caller join (design §3 "Проход 2", the closed-world direction; NOTES.md "Facts": the reverse index)
 // Call sites of vars the walk saw, with what they pass: what a consumer records in the reverse index (summary.h).
+// in_fn says the site sits in a fn body, which outlives the form; the rest of a form runs once.
 uint32_t clj_facts_nsites(const clj_facts *f);
-bool     clj_facts_site(const clj_facts *f, uint32_t i, uint32_t *node, clj_value *var, uint32_t *nargs, const clj_fact **args);
+bool     clj_facts_site(const clj_facts *f, uint32_t i, uint32_t *node, clj_value *var, uint32_t *nargs, const clj_fact **args, bool *in_fn);
 // Vars read as a value (not as the head of a call): first-class uses.
 uint32_t  clj_facts_nvalue_reads(const clj_facts *f);
-clj_value clj_facts_value_read(const clj_facts *f, uint32_t i);
+clj_value clj_facts_value_read(const clj_facts *f, uint32_t i, bool *in_fn);
 // A join the table entered a def'd fn's parameters at, with the callers epoch it was read under.
 typedef struct {
 	clj_value var;

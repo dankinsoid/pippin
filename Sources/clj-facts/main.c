@@ -258,10 +258,14 @@ static void record_sites(const void *owner, const clj_facts *f) {
 		uint32_t        node, nargs;
 		clj_value       var;
 		const clj_fact *args;
-		clj_facts_site(f, i, &node, &var, &nargs, &args);
+		bool            in_fn;
+		clj_facts_site(f, i, &node, &var, &nargs, &args, &in_fn);
 		clj_callers_add_site(owner, var, nargs, args);
 	}
-	for (uint32_t i = 0; i < clj_facts_nvalue_reads(f); i++) clj_callers_add_value_read(owner, clj_facts_value_read(f, i));
+	for (uint32_t i = 0; i < clj_facts_nvalue_reads(f); i++) {
+		bool in_fn;
+		clj_callers_add_value_read(owner, clj_facts_value_read(f, i, &in_fn));
+	}
 }
 
 static const void *form_owner(int file, int form) { return (const void *)(uintptr_t)(((uint64_t)file << 24) + (uint64_t)form + 1); }

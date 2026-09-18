@@ -12,6 +12,7 @@
 #include "clj/fn.h"
 #include "clj/intrinsics.h"
 #include "clj/list.h"
+#include "clj/long.h"
 #include "clj/map.h"
 #include "clj/printer.h"
 #include "clj/proto.h"
@@ -25,6 +26,7 @@
 #include "profile_internal.h"
 #include "proto_internal.h"
 #include "shadow_internal.h"
+#include "specialize_internal.h"
 
 enum {
 	SMALL_SLOTS = 16, // frame slots kept on the C stack
@@ -700,28 +702,98 @@ static clj_value eval_direct_call(const clj_node *n, clj_frame *f) {
 // ((def + ...) in clojure.core, with-redefs) takes the generic path, so the rewrite is invisible to the
 // program. A relaxed load suffices: a match calls a C function that reads nothing the bind published.
 // @ai-generated(guided)
-static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
+static inline bool intrinsic_guard(const clj_node *n) {
+	return clj_var_root_relaxed(n->u.intrinsic.var) == clj_intrinsic_builtin(n->u.intrinsic.op);
+}
+
+// The table's function or the var's current root over evaluated arguments; the consuming bit leaves the mask.
+static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *owned) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
-	clj_value            args[3];
-	uint64_t             owned;
-	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned)) return CLJ_THROWN;
-	clj_value result;
-	if (__builtin_expect(clj_var_root_relaxed(n->u.intrinsic.var) == clj_intrinsic_builtin(op), 1)) {
+	if (__builtin_expect(intrinsic_guard(n), 1)) {
 		// A collection this site owns (a last-use local, a nested conj) goes to the consuming core as is: at rc 1
 		// it is updated in place, and the bit leaves the mask since the core took the reference.
-		if (__builtin_expect(clj_intrinsic_consumes(op), 0) && (owned & 1)) {
-			result = clj_intrinsic_call_consuming(op, args);
-			owned &= ~(uint64_t)1;
-		} else {
-			result = clj_intrinsic_call(op, args);
+		if (__builtin_expect(clj_intrinsic_consumes(op), 0) && (*owned & 1)) {
+			*owned &= ~(uint64_t)1;
+			return clj_intrinsic_call_consuming(op, args);
 		}
-	} else {
-		clj_value fn = clj_var_deref(n->u.intrinsic.var);
-		result = fn == CLJ_THROWN ? CLJ_THROWN : invoke_at(fn, args, n->u.intrinsic.n, n);
-		clj_release(fn);
+		return clj_intrinsic_call(op, args);
 	}
+	clj_value fn = clj_var_deref(n->u.intrinsic.var);
+	clj_value result = fn == CLJ_THROWN ? CLJ_THROWN : invoke_at(fn, args, n->u.intrinsic.n, n);
+	clj_release(fn);
+	return result;
+}
+
+static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
+	clj_value args[3];
+	uint64_t  owned;
+	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned)) return CLJ_THROWN;
+	clj_value result = intrinsic_apply(n, args, &owned);
 	release_owned(args, n->u.intrinsic.n, owned);
 	return result;
+}
+
+// The specialized arithmetic entries (specialize.c installs one where the facts say every argument is an int64):
+// the fixnum tag of every argument and the boot-root guard are the whole check, then the operation runs inline
+// on the untagged values with the overflow check of arith2 and the canonical re-tag of clj_long_new; anything
+// else, a boxed long included, takes the generic path above. A fact that went stale is therefore slower here,
+// never wrong.
+// @ai-generated(solo)
+#define FIXNUM_ENTRY(name, nargs, tagged, body)                                                                 \
+	static clj_value name(const clj_node *n, clj_frame *f) {                                                   \
+		clj_value args[nargs];                                                                                 \
+		uint64_t  owned;                                                                                       \
+		if (!eval_all(n->u.intrinsic.args, nargs, f, args, &owned)) return CLJ_THROWN;                         \
+		clj_value result;                                                                                      \
+		if (__builtin_expect(((tagged) & 1) && intrinsic_guard(n), 1)) {                                       \
+			body                                                                                               \
+		} else {                                                                                               \
+			result = intrinsic_apply(n, args, &owned);                                                         \
+		}                                                                                                      \
+		release_owned(args, nargs, owned);                                                                     \
+		return result;                                                                                         \
+	}
+
+#define FIXNUM_ARITH(name, nargs, tagged, op, a, b)                                                            \
+	FIXNUM_ENTRY(name, nargs, tagged, {                                                                        \
+		int64_t r;                                                                                             \
+		if (__builtin_expect(op((a), (b), &r), 0)) result = clj_throw_msg("integer overflow");                \
+		else result = clj_long_new(r);                                                                         \
+	})
+
+FIXNUM_ARITH(eval_fix_add, 2, args[0] & args[1], __builtin_add_overflow, clj_fixnum_val(args[0]), clj_fixnum_val(args[1]))
+FIXNUM_ARITH(eval_fix_sub, 2, args[0] & args[1], __builtin_sub_overflow, clj_fixnum_val(args[0]), clj_fixnum_val(args[1]))
+FIXNUM_ARITH(eval_fix_mul, 2, args[0] & args[1], __builtin_mul_overflow, clj_fixnum_val(args[0]), clj_fixnum_val(args[1]))
+FIXNUM_ARITH(eval_fix_inc, 1, args[0], __builtin_add_overflow, clj_fixnum_val(args[0]), (int64_t)1)
+FIXNUM_ARITH(eval_fix_dec, 1, args[0], __builtin_sub_overflow, clj_fixnum_val(args[0]), (int64_t)1)
+FIXNUM_ENTRY(eval_fix_lt, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) < clj_fixnum_val(args[1])); })
+FIXNUM_ENTRY(eval_fix_le, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) <= clj_fixnum_val(args[1])); })
+FIXNUM_ENTRY(eval_fix_gt, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) > clj_fixnum_val(args[1])); })
+FIXNUM_ENTRY(eval_fix_ge, 2, args[0] & args[1], { result = clj_bool(clj_fixnum_val(args[0]) >= clj_fixnum_val(args[1])); })
+FIXNUM_ENTRY(eval_fix_eq, 2, args[0] & args[1], { result = clj_bool(args[0] == args[1]); })
+FIXNUM_ENTRY(eval_fix_zero, 1, args[0], { result = clj_bool(args[0] == clj_fixnum(0)); })
+FIXNUM_ENTRY(eval_fix_pos, 1, args[0], { result = clj_bool(clj_fixnum_val(args[0]) > 0); })
+FIXNUM_ENTRY(eval_fix_neg, 1, args[0], { result = clj_bool(clj_fixnum_val(args[0]) < 0); })
+
+#undef FIXNUM_ARITH
+#undef FIXNUM_ENTRY
+
+clj_eval_fn clj_eval_fixnum_entry(const clj_intrinsic *op) {
+	static const struct {
+		const char *name;
+		uint32_t    arity;
+		clj_eval_fn fn;
+	} entries[] = {
+		{"clojure.core/+", 2, eval_fix_add},    {"clojure.core/-", 2, eval_fix_sub},    {"clojure.core/*", 2, eval_fix_mul},
+		{"clojure.core/inc", 1, eval_fix_inc},  {"clojure.core/dec", 1, eval_fix_dec},  {"clojure.core/<", 2, eval_fix_lt},
+		{"clojure.core/<=", 2, eval_fix_le},    {"clojure.core/>", 2, eval_fix_gt},     {"clojure.core/>=", 2, eval_fix_ge},
+		{"clojure.core/=", 2, eval_fix_eq},     {"clojure.core/zero?", 1, eval_fix_zero}, {"clojure.core/pos?", 1, eval_fix_pos},
+		{"clojure.core/neg?", 1, eval_fix_neg},
+	};
+	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) {
+		if (entries[i].arity == op->arity && strcmp(entries[i].name, op->name) == 0) return entries[i].fn;
+	}
+	return NULL;
 }
 
 // The arguments become the frame of whichever program runs, at +0 for its whole evaluation: the programs
@@ -921,6 +993,7 @@ static void count_off(const clj_node *n, void *ctx) {
 void clj_exec_count(clj_value exec, bool on) {
 	clj_exec *e = clj_exec_of(exec);
 	(on ? count_on : count_off)(e->root, e);
+	if (!on) clj_exec_reapply(exec);
 }
 
 uint64_t clj_exec_hits(clj_value exec, uint32_t id) { return clj_exec_of(exec)->nodes[id].hits; }
@@ -997,6 +1070,7 @@ static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
 
 static void exec_finalize(void *self) {
 	clj_exec *e = self;
+	clj_exec_forget(e);
 	for (uint32_t i = 0; i < e->nsites; i++) free(atomic_load_explicit(&e->sites[i].proto, memory_order_relaxed));
 	free(e->sites);
 }
@@ -1054,6 +1128,7 @@ clj_value clj_exec_new(const clj_node *root) {
 		e->sites = calloc(e->nsites, sizeof *e->sites);
 		if (!e->sites) clj_fatal("out of memory");
 	}
+	clj_exec_derive(clj_from_ptr(e));
 	return clj_from_ptr(e);
 }
 

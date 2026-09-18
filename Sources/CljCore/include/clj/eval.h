@@ -5,6 +5,7 @@
 #include "analyzer.h"
 #include "fn.h"
 #include "intrinsics.h"
+#include "summary.h"
 
 typedef struct clj_frame clj_frame;
 typedef clj_value (*clj_eval_fn)(const clj_node *node, clj_frame *frame);
@@ -16,6 +17,7 @@ typedef struct {
 } clj_exec_node;
 
 typedef struct clj_call_site clj_call_site;
+typedef struct clj_derivation clj_derivation;
 
 // One per tree; a closure retains the exec of the tree it was created in.
 typedef struct {
@@ -24,6 +26,7 @@ typedef struct {
 	uint32_t        nslots; // frame slots the root needs at top level
 	uint32_t        nsites; // invoke nodes in the tree
 	clj_call_site  *sites;  // their inline caches, indexed by clj_node.site (eval.c)
+	clj_derivation *derived; // the facts the specialized entries rest on (specialize.c); NULL when none
 	clj_exec_node   nodes[]; // indexed by node id
 } clj_exec;
 
@@ -50,6 +53,25 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind);
 // Swaps every node's eval for a hit-counting wrapper and back; off costs nothing, not even a branch.
 void     clj_exec_count(clj_value exec, bool on);
 uint64_t clj_exec_hits(clj_value exec, uint32_t id);
+
+// ---- specialization by facts (specialize.c; NOTES.md, "Analyzer and evaluator": the specialized arithmetic node)
+// Building an exec derives its tree's facts under the process-wide dev store (summaries and the caller join) and
+// rewrites the exec entry of every arithmetic INTRINSIC whose arguments are known int64 to a fixnum fast path; the
+// tree's call sites go into the reverse index, and a callee whose join that changed is re-derived. Off, nothing is
+// derived or recorded; on by default.
+void clj_specialize_enable(bool on);
+bool clj_specialize_enabled(void);
+// The process-wide store the derivations use (the compiler's closed-world run reads the same one), made on first use.
+clj_summaries *clj_specialize_store(void);
+// The epochs the exec's derivation rests on still stand: every var it read and every caller join it took.
+bool clj_exec_derivation_valid(clj_value exec);
+// How many times the exec was derived (1 after creation; each re-derivation adds one), 0 when never.
+uint32_t clj_exec_derivations(clj_value exec);
+// Whether the entry of node id is a specialized one, and the count of those.
+bool     clj_debug_exec_node_specialized(clj_value exec, uint32_t id);
+uint32_t clj_debug_exec_specialized(clj_value exec);
+// The id of the first INTRINSIC node of the tree whose op is the named core fn ("inc"), UINT32_MAX when none.
+uint32_t clj_debug_exec_intrinsic_id(clj_value exec, const char *name);
 // Call-site counters of the invoke node with this id, counted in debug builds only (-1 otherwise): a hit
 // entered a closure body directly, called a plain native from the site or called a cached protocol impl, a
 // miss went through the generic invoke (a host fn, a variadic or large-frame closure, a keyword or a
