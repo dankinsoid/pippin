@@ -177,6 +177,7 @@ clj_waiter *clj_waiter_new(clj_coro *c, clj_value callback) {
 	clj_waiter *w = calloc(1, sizeof *w);
 	if (!w) clj_fatal("out of memory");
 	atomic_init(&w->rc, 1);
+	clj_lock_init(&w->lock);
 	w->coro = c;
 	w->callback = clj_retain(callback);
 	w->value = CLJ_NIL;
@@ -194,9 +195,32 @@ void clj_waiter_release(clj_waiter *w) {
 	free(w);
 }
 
+static bool claimed(const clj_waiter *w) { return atomic_load_explicit(&w->claimed, memory_order_acquire); }
+
 bool clj_waiter_claim(clj_waiter *w) {
-	uint32_t expected = 0;
-	return atomic_compare_exchange_strong_explicit(&w->claimed, &expected, 1, memory_order_acq_rel, memory_order_acquire);
+	clj_lock_lock(&w->lock);
+	bool won = !claimed(w);
+	if (won) atomic_store_explicit(&w->claimed, 1, memory_order_release);
+	clj_lock_unlock(&w->lock);
+	return won;
+}
+
+// Both locks in address order, so two channels pairing the same two waiters cannot deadlock.
+int clj_waiter_claim_pair(clj_waiter *actor, clj_waiter *other) {
+	if (!actor && !other) return 0;
+	if (!actor) return clj_waiter_claim(other) ? 0 : 2;
+	if (!other) return clj_waiter_claim(actor) ? 0 : 1;
+	clj_waiter *first = actor < other ? actor : other, *second = actor < other ? other : actor;
+	clj_lock_lock(&first->lock);
+	if (first != second) clj_lock_lock(&second->lock);
+	int r = claimed(actor) ? 1 : claimed(other) ? 2 : 0;
+	if (r == 0) {
+		atomic_store_explicit(&actor->claimed, 1, memory_order_release);
+		atomic_store_explicit(&other->claimed, 1, memory_order_release);
+	}
+	if (first != second) clj_lock_unlock(&second->lock);
+	clj_lock_unlock(&first->lock);
+	return r;
 }
 
 bool clj_park_allowed(void) {

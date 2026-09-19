@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/chan.h"
 #include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/eval.h"
@@ -149,6 +150,7 @@ static void init(void) {
 	clj_builtins_install();
 	clj_proto_install();
 	clj_queue_install();
+	clj_chan_install();
 	clj_record_install();
 	clj_intrinsics_install();
 	clj_ns_set_current(core);
@@ -175,9 +177,130 @@ __attribute__((weak)) void clj_compiled_eval_boot(void) {}
 
 void clj_init(void) { pthread_once(&init_once, init); }
 
+// ---- the output writer: one thread, a bounded queue; a full queue parks the printer (backpressure)
+
+typedef struct chunk {
+	char         *data;
+	size_t        len;
+	struct chunk *next;
+} chunk;
+
+typedef struct out_waiter {
+	clj_waiter        *w;
+	struct out_waiter *next;
+} out_waiter;
+
+enum { OUT_LIMIT = 1 << 20 };
+
+static pthread_mutex_t out_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  out_cv = PTHREAD_COND_INITIALIZER;      // the writer waits for chunks
+static pthread_cond_t  out_idle_cv = PTHREAD_COND_INITIALIZER; // flushers wait for an empty queue and an idle writer
+static pthread_once_t  out_once = PTHREAD_ONCE_INIT;
+static chunk          *out_head, *out_tail;
+static size_t          out_bytes;
+static bool            out_busy;
+static out_waiter     *out_waiters;
+
+static void wake_printers_locked(out_waiter **list) {
+	*list = out_waiters;
+	out_waiters = NULL;
+}
+
+static void wake_printers(out_waiter *list) {
+	while (list) {
+		out_waiter *n = list->next;
+		if (clj_waiter_claim(list->w)) clj_resume(list->w);
+		clj_waiter_release(list->w);
+		free(list);
+		list = n;
+	}
+}
+
+static void *writer_main(void *arg) {
+	(void)arg;
+	pthread_mutex_lock(&out_mu);
+	for (;;) {
+		while (!out_head) {
+			out_busy = false;
+			pthread_cond_broadcast(&out_idle_cv);
+			pthread_cond_wait(&out_cv, &out_mu);
+		}
+		chunk *c = out_head;
+		out_head = c->next;
+		if (!out_head) out_tail = NULL;
+		out_bytes -= c->len;
+		out_busy = true;
+		out_waiter *woken = NULL;
+		if (out_bytes < OUT_LIMIT) wake_printers_locked(&woken);
+		clj_output_fn fn = out_fn;
+		void         *ctx = out_ctx;
+		pthread_mutex_unlock(&out_mu);
+		wake_printers(woken);
+		if (fn) fn(c->data, c->len, ctx);
+		else fwrite(c->data, 1, c->len, stdout);
+		free(c->data);
+		free(c);
+		pthread_mutex_lock(&out_mu);
+	}
+	return NULL;
+}
+
+static void start_writer(void) {
+	pthread_t      t;
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&t, &attr, writer_main, NULL) != 0) clj_fatal("pthread_create of the output writer failed");
+	pthread_attr_destroy(&attr);
+	atexit(clj_output_flush);
+}
+
+void clj_output_flush(void) {
+	pthread_mutex_lock(&out_mu);
+	while (out_head || out_busy) pthread_cond_wait(&out_idle_cv, &out_mu);
+	pthread_mutex_unlock(&out_mu);
+}
+
+// The hook is called from the writer thread; the swap waits for what was queued under the previous one.
 void clj_set_output(clj_output_fn fn, void *ctx) {
+	clj_output_flush();
+	pthread_mutex_lock(&out_mu);
 	out_fn = fn;
 	out_ctx = ctx;
+	pthread_mutex_unlock(&out_mu);
+}
+
+static void enqueue_output(const char *bytes, size_t len) {
+	pthread_once(&out_once, start_writer);
+	chunk *c = malloc(sizeof *c);
+	if (!c) clj_fatal("out of memory");
+	c->data = malloc(len);
+	if (!c->data) clj_fatal("out of memory");
+	memcpy(c->data, bytes, len);
+	c->len = len;
+	c->next = NULL;
+	pthread_mutex_lock(&out_mu);
+	while (out_bytes >= OUT_LIMIT) {
+		clj_coro   *me = clj_coro_current();
+		clj_waiter *w = clj_waiter_new(me, CLJ_NIL);
+		w->blocking = me->host_depth > 0 || clj_locks_held > 0;
+		out_waiter *n = malloc(sizeof *n);
+		if (!n) clj_fatal("out of memory");
+		clj_waiter_retain(w);
+		n->w = w;
+		n->next = out_waiters;
+		out_waiters = n;
+		pthread_mutex_unlock(&out_mu);
+		clj_park_uncancellable(w);
+		clj_waiter_release(w);
+		pthread_mutex_lock(&out_mu);
+	}
+	if (out_tail) out_tail->next = c;
+	else out_head = c;
+	out_tail = c;
+	out_bytes += len;
+	pthread_cond_signal(&out_cv);
+	pthread_mutex_unlock(&out_mu);
 }
 
 clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx) {
@@ -288,6 +411,5 @@ void clj_output(const char *bytes, size_t len) {
 		c->len += len;
 		return;
 	}
-	if (out_fn) out_fn(bytes, len, out_ctx);
-	else fwrite(bytes, 1, len, stdout);
+	if (len) enqueue_output(bytes, len);
 }

@@ -46,8 +46,10 @@ size_t clj_coro_stack_size(void);
 // Physical footprint of the process in bytes (Apple: phys_footprint), for the parked-coroutine measurement.
 size_t clj_debug_phys_footprint(void);
 
-// Live coroutine objects, including implicit ones of threads that touched the runtime.
+// Live spawned coroutines (the implicit ones of threads are not counted).
 size_t   clj_debug_live_coros(void);
+// Waits up to ms for the live count to fall to target: a test's quiesce before its live-object check.
+bool clj_debug_coro_settle(size_t target, uint64_t ms);
 uint64_t clj_debug_coro_switches(void);
 uint64_t clj_debug_coro_spawned(void);
 // Replaces the stderr report of an error a coroutine did not catch (a go block without a handler).

@@ -97,6 +97,7 @@ clj_carrier       *clj_carrier_here(void);
 // The unit of parking, shared by every queue it sits in (alts!): the claim winner resumes, stale nodes are dropped.
 struct clj_waiter {
 	_Atomic uint32_t rc;
+	clj_lock         lock;    // the claim: alone, or paired with the counterparty's under both locks (chan.c)
 	_Atomic uint32_t claimed;
 	clj_coro        *coro;     // NULL for a callback waiter (put!/take! with a fn)
 	clj_value        callback; // fn or nil, retained
@@ -112,6 +113,8 @@ void        clj_waiter_retain(clj_waiter *w);
 void        clj_waiter_release(clj_waiter *w);
 // true once, for the caller that wins.
 bool clj_waiter_claim(clj_waiter *w);
+// Claims both or neither: 0 both claimed, 1 actor already claimed, 2 other already claimed. NULL is "no claim needed".
+int clj_waiter_claim_pair(clj_waiter *actor, clj_waiter *other);
 // Ask before enqueueing w: a park is illegal under a host call, a clj_lock or a cancellation (exception pending).
 bool clj_park_allowed(void);
 void clj_park(clj_waiter *w);

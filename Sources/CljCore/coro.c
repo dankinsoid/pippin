@@ -141,7 +141,6 @@ static void coro_init(clj_coro *c) {
 	pthread_mutex_init(&c->lock, NULL);
 	pthread_cond_init(&c->cond, NULL);
 	c->state = CLJ_CORO_NEW;
-	atomic_fetch_add_explicit(&live_coros, 1, memory_order_relaxed);
 }
 
 static size_t page_size(void) {
@@ -163,6 +162,9 @@ clj_coro *clj_coro_alloc(void) {
 	clj_coro *c = clj_alloc(&clj_coro_type, sizeof *c);
 	memset((char *)c + sizeof c->h, 0, sizeof *c - sizeof c->h);
 	coro_init(c);
+	// The handle is held by the spawner and released by a carrier: atomic RC from birth.
+	c->h.flags |= CLJ_FLAG_SHARED;
+	atomic_fetch_add_explicit(&live_coros, 1, memory_order_relaxed);
 	c->map = base;
 	c->map_size = size;
 	char             *top = (char *)base + guard + stack + page / 2;
@@ -218,7 +220,6 @@ static void thread_exit(void *p) {
 		free(c->shadow);
 		pthread_mutex_destroy(&c->lock);
 		pthread_cond_destroy(&c->cond);
-		atomic_fetch_sub_explicit(&live_coros, 1, memory_order_relaxed);
 		free(c);
 	}
 	free(car);
@@ -320,6 +321,7 @@ void clj_coro_entry(void) {
 	clj_eval_top_leave();
 	c->threw = r == CLJ_THROWN;
 	c->result = c->threw ? clj_take_pending() : r;
+	clj_share(c->result);
 	atomic_store_explicit(&c->state, CLJ_CORO_DONE, memory_order_release);
 	clj_coro_switch_out(c);
 	clj_fatal("a finished coroutine was resumed");
@@ -328,6 +330,16 @@ void clj_coro_entry(void) {
 uint64_t clj_debug_coro_switches(void) { return atomic_load_explicit(&switches, memory_order_relaxed); }
 
 size_t clj_debug_live_coros(void) { return atomic_load_explicit(&live_coros, memory_order_relaxed); }
+
+// A finished coroutine is released last on its carrier, so the count reaching the target means every finish ran.
+bool clj_debug_coro_settle(size_t target, uint64_t ms) {
+	uint64_t deadline = clj_profile_now() + ms * 1000000u;
+	while (atomic_load_explicit(&live_coros, memory_order_acquire) > target) {
+		if (clj_profile_now() > deadline) return false;
+		usleep(200);
+	}
+	return true;
+}
 
 size_t clj_debug_phys_footprint(void) {
 #ifdef __APPLE__
