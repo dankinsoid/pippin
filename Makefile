@@ -75,7 +75,8 @@ api-diff:
 	@mkdir -p .build/api
 	clojure -M scripts/api-diff.clj dump-jvm > .build/api/jvm.edn
 	swift run clj-api-dump > .build/api/ours.edn
-	clojure -M scripts/api-diff.clj diff .build/api/jvm.edn .build/api/ours.edn corpus docs/api-parity.md
+	swift run clj-api-dump clojure.core.async > .build/api/ours-async.edn
+	clojure -M scripts/api-diff.clj diff .build/api/jvm.edn .build/api/ours.edn corpus docs/api-parity.md .build/api/ours-async.edn
 
 # Same binary twice: pool, then system malloc as the control. Compare only within one invocation.
 bench:

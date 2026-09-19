@@ -23,7 +23,10 @@
 #if __has_feature(address_sanitizer)
 void __sanitizer_start_switch_fiber(void **fake_stack_save, const void *bottom, size_t size);
 void __sanitizer_finish_switch_fiber(void *fake_stack_save, const void **bottom_old, size_t *size_old);
+void __asan_unpoison_memory_region(const void *addr, size_t size);
 #define ASAN_START(save, lo, size) __sanitizer_start_switch_fiber((save), (lo), (size))
+// A cached mapping keeps the red zones of the frames that died on it.
+#define ASAN_UNPOISON(p, n) __asan_unpoison_memory_region((p), (n))
 #define ASAN_FINISH(save)                                                                                                                            \
 	do {                                                                                                                                             \
 		const void *lo_;                                                                                                                             \
@@ -35,6 +38,7 @@ void __sanitizer_finish_switch_fiber(void *fake_stack_save, const void **bottom_
 #ifndef ASAN_START
 #define ASAN_START(save, lo, size) ((void)(save), (void)(lo), (void)(size))
 #define ASAN_FINISH(save) ((void)(save))
+#define ASAN_UNPOISON(p, n) ((void)(p), (void)(n))
 #endif
 
 // ---- the context switch: callee-saved registers and the stack pointer, nothing else (no signal mask)
@@ -186,6 +190,7 @@ clj_coro *clj_coro_alloc(void) {
 	size_t ring = round_up(page / 2 + sizeof(clj_shadow_stack), page);
 	size_t size = guard + stack + ring;
 	void  *base = map_take(size);
+	if (base) ASAN_UNPOISON((char *)base + guard, size - guard);
 	if (!base) {
 		base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 		if (base == MAP_FAILED) clj_fatal("mmap of a coroutine stack failed");

@@ -52,7 +52,37 @@
                 (if (some #{'&} args) (str n "+") (str n)))))
        set))
 
-(defn diff [jvm-file ours-file corpus-dir out-file]
+;; clojure.core.async 1.6.681's public names: the JVM dump would need the library on the classpath.
+(def async-jvm-publics
+  '#{<! <!! >! >!! admix alt! alt!! alts! alts!! buffer chan close! do-alt dropping-buffer go go-loop into map
+     merge mix mult offer! onto-chan onto-chan! onto-chan!! pipe pipeline pipeline-async pipeline-blocking poll!
+     promise-chan pub put! reduce sliding-buffer solo-mode split sub take take! tap thread thread-call timeout
+     to-chan to-chan! to-chan!! toggle transduce unblocking-buffer? unique unmix unmix-all unsub unsub-all untap
+     untap-all})
+
+(defn- async-section [line ours-async-file]
+  (let [ours (set (map :name (edn/read-string (slurp ours-async-file))))
+        built (sort (filter async-jvm-publics ours))
+        missing (sort (remove ours async-jvm-publics))
+        extra (sort (remove async-jvm-publics ours))]
+    (line)
+    (line "## clojure.core.async")
+    (line)
+    (line "Against core.async 1.6.681's public names (docs/jvm-differences.md, \"core.async\": the blocking variants are aliases, any function may park).")
+    (line)
+    (line "| | count |")
+    (line "|---|---|")
+    (line "| built | " (count built) " |")
+    (line "| missing | " (count missing) " |")
+    (line "| ours only | " (count extra) " |")
+    (line)
+    (line "Built: " (str/join " " (map #(str "`" % "`") built)))
+    (line)
+    (line "Missing (the library layer: design §10 step 5, later tasks): " (str/join " " (map #(str "`" % "`") missing)))
+    (line)
+    (line "Ours only: " (str/join " " (map #(str "`" % "`") extra)))))
+
+(defn diff [jvm-file ours-file corpus-dir out-file & [ours-async-file]]
   (let [jvm (edn/read-string (slurp jvm-file))
         ours (edn/read-string (slurp ours-file))
         jvm-by (into {} (map (juxt :name identity) jvm))
@@ -140,6 +170,7 @@
     (line "Public: " (str/join " " (map #(str "`" % "`") extra)))
     (line)
     (line "Internal helpers (`name*`): " (str/join " " (map #(str "`" % "`") internal)))
+    (when ours-async-file (async-section line ours-async-file))
     (spit out-file (str sb))
     (println "wrote" out-file ":" (count missing) "missing," (count used-missing) "used by the corpus")))
 
