@@ -15,7 +15,8 @@ let package = Package(
 		.package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
 	],
 	targets: [
-		// Portable runtime core. No platform headers here except os/signpost.h under __APPLE__ (profile.c);
+		// Portable runtime core. Platform headers only under __APPLE__ (os/signpost.h in profile.c, CoreFoundation
+		// for the main carrier's run-loop source in sched.c, mach for the footprint in coro.c: docs/portability.md);
 		// everything else host-specific goes through the Swift target.
 		.target(
 			name: "CljCore",
@@ -29,6 +30,9 @@ let package = Package(
 				// Traces walk the real stack by frame pointers through the runtime's own frames (trace.c).
 				.unsafeFlags(["-fno-omit-frame-pointer"]),
 				.unsafeFlags(["-DCLJ_DEBUG=1"], .when(configuration: .debug)),
+			],
+			linkerSettings: [
+				.linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
 			]
 		),
 		// The C generator over the analyzer's trees; the compiled-eval hook links into the tests and the bench.
