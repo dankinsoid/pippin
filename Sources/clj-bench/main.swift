@@ -551,19 +551,30 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 	}
 
 	var rows: [(String, Double?, Double?)] = []
+	if ProcessInfo.processInfo.environment["CLJ_BENCH_WATCHDOG"] != nil { Thread { while true { sleep(5); clj_debug_sched_dump() } }.start() }
+	func progress(_ s: String) { if ProcessInfo.processInfo.environment["CLJ_BENCH_WATCHDOG"] != nil { FileHandle.standardError.write(Data("row: \(s)\n".utf8)) } }
 	rows.append(("context switch (carrier → coroutine → carrier, per switch)", clj_bench_switch_ns(1_000_000), nil))
+	progress("switch")
+
+
 	rows.append(("go spawn + finish, joined through a channel", med(ops: n) { cljCall(spawnFn, clj_fixnum(n)) }, med(ops: n) { swiftSpawn(n) }))
 	settle()
+	progress("spawn")
 	rows.append(("unbuffered >!/<! round trip (ping-pong, two go blocks)", med(ops: n) { cljCall(pingPongFn, clj_fixnum(n)) }, med(ops: n) { swiftPingPong(n) }))
 	settle()
+	progress("ping-pong")
 	rows.append(("buffered throughput, chan 1024, one producer one consumer", med(ops: n) { cljCall(bufferedFn, clj_fixnum(n)) }, med(ops: n) { swiftBuffered(n) }))
 	settle()
+	progress("buffered")
 	rows.append(("alts! over 2 channels, one producer alternating", med(ops: n) { cljCall(altsFn, clj_fixnum(n)) }, nil))
 	settle()
+	progress("alts")
 	rows.append(("(<! (timeout 0)) round trip through the timer thread", med(ops: 10_000) { cljCall(timeoutFn, clj_fixnum(10_000)) }, med(ops: 10_000) { swiftTimeout(10_000) }))
 	settle()
+	progress("timeout")
 	rows.append(("locking, 4 carriers contending", med(ops: n) { cljCall(lockingFn, clj_fixnum(n)) }, med(ops: n) { swiftActor(n) }))
 	settle()
+	progress("locking")
 	rows.append(("swap! inc, 4 carriers contending", med(ops: n) { cljCall(swapFn, clj_fixnum(n)) }, med(ops: n) { swiftActor(n) }))
 	settle()
 	rows.append(("swap! inc, uncontended (the Atoms row)", med(ops: n) { cljCall(incFn, clj_fixnum(n)) }, nil))

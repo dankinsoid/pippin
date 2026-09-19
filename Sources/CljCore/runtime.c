@@ -209,7 +209,7 @@ static void wake_printers_locked(out_waiter **list) {
 static void wake_printers(out_waiter *list) {
 	while (list) {
 		out_waiter *n = list->next;
-		if (clj_waiter_claim(list->w)) clj_resume(list->w);
+		if (clj_waiter_claim(list->w)) clj_resume_far(list->w);
 		clj_waiter_release(list->w);
 		free(list);
 		list = n;

@@ -125,7 +125,10 @@ void clj_park(clj_waiter *w);
 // The same, invisible to cancel!: for a wait whose other side still uses the parker's stack (a blocking job).
 void clj_park_uncancellable(clj_waiter *w);
 // Makes the coroutine of a claimed waiter runnable; a callback waiter runs its fn with w->value on the caller.
+// clj_resume hands the carrier over (the resumer is about to park: a channel); clj_resume_far queues it for
+// any carrier (the resumer keeps running: a lock's unlock).
 void clj_resume(clj_waiter *w);
+void clj_resume_far(clj_waiter *w);
 
 // Switches the running coroutine out to its carrier (sched.c internals).
 void clj_ctx_switch(void **save_sp, void *load_sp);
@@ -157,8 +160,8 @@ clj_value clj_coro_append_spawn_trace(clj_value trace, const clj_coro *c);
 void clj_coro_report_uncaught(clj_coro *c);
 
 void clj_sched_init(void);
-// Makes the coroutine runnable (its affinity picks the queue).
-void clj_sched_enqueue(clj_coro *c);
+// Makes the coroutine runnable (its affinity picks the queue); handoff puts it in the calling carrier's next slot.
+void clj_sched_enqueue(clj_coro *c, bool handoff);
 // Timers (sched.c): fn(ctx) runs on the timer thread after ns.
 void clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx);
 // The blocking pool (sched.c): fn(ctx) runs on a dedicated thread while the caller parks; inline on a bare thread.
