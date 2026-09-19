@@ -348,8 +348,8 @@ extension CoreTests {
 				let h = try #require(clojureError(rt, "\n  nope"))
 				#expect(try h.data == Value(reading: "{:line 2 :column 3}"))
 				// The same through the C API, which passes no position: the form's own line/column.
-				#expect(cljEvalError("(defn mt-e [x]\n  (let [z] z))") == "#error {:message \"let requires an even number of forms in binding vector\", :data {:line 2, :column 3}, :cause #error {:message \"let requires an even number of forms in binding vector\", :data nil}}")
-				#expect(cljEvalError("(do\n (nope))") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:line 2, :column 2}}")
+				#expect(cljEvalError("(defn mt-e [x]\n  (let [z] z))") == "#error {:message \"let requires an even number of forms in binding vector\", :data {:column 3, :line 2}, :cause #error {:message \"let requires an even number of forms in binding vector\", :data nil}}")
+				#expect(cljEvalError("(do\n (nope))") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:column 2, :line 2}}")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

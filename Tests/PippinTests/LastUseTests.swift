@@ -97,8 +97,10 @@ extension CoreTests {
 			do {
 				// v is unique: the last read hands it over and conj grows it where it is.
 				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [inPlace, [1, 2]])
-				#expect(try rt.eval("(let [m (hash-map :a 1) p (lu-ptr m) n (assoc m :b 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{:a 1 :b 2}")])
-				#expect(try rt.eval("(let [m (hash-map :a 1 :b 2) p (lu-ptr m) n (dissoc m :b)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{:a 1}")])
+				// Non-keyword keys keep the trie: a shape map growing across a size class moves (ShapeTests covers it).
+				#expect(try rt.eval("(let [m (hash-map 1 1) p (lu-ptr m) n (assoc m 2 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{1 1 2 2}")])
+				#expect(try rt.eval("(let [m (hash-map 1 1 2 2) p (lu-ptr m) n (dissoc m 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{1 1}")])
+				#expect(try rt.eval("(let [m (hash-map :a 1) p (lu-ptr m) n (assoc m :a 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{:a 2}")])
 				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (with-meta v {:a 1})] [(= p (lu-ptr w)) (meta w)])") == [inPlace, Value(reading: "{:a 1}")])
 				// A read that is not the last stays a borrow: v is unchanged and the result is a copy.
 				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) v w])") == [false, [1], [1, 2]])

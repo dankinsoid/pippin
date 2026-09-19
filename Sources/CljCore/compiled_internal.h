@@ -34,6 +34,7 @@
 #include "profile_internal.h"
 #include "proto_internal.h"
 #include "shadow_internal.h"
+#include "shape_internal.h"
 
 // Every helper mirrors one step of eval.c so that a compiled body and the interpreter agree on ownership.
 
@@ -336,5 +337,45 @@ static inline clj_value clj_c_proto_ic_call(clj_cproto_ic *ic, clj_value method,
 	}
 	return clj_c_proto_miss(ic, method, args, n, t, epoch);
 }
+
+// ---- keyword-lookup sites (NOTES.md "Shapes", the cache): per thread, as the protocol cache, so a fill never races a hit.
+typedef struct {
+	uint32_t     n; // CLJ_KW_IC_MEGA once the site gave up
+	clj_kw_entry e[CLJ_KW_IC_ENTRIES];
+} clj_ckw_ic;
+
+#if CLJ_DEBUG
+extern _Atomic int64_t clj_debug_ckw_counters[2]; // hits, misses
+#define CLJ_C_KW_COUNT(i) atomic_fetch_add_explicit(&clj_debug_ckw_counters[i], 1, memory_order_relaxed)
+#else
+#define CLJ_C_KW_COUNT(i) ((void)0)
+#endif
+
+// The generic lookup and the fill, in compiled.c.
+clj_value clj_c_kw_miss(clj_ckw_ic *ic, clj_value key, clj_value m, clj_value not_found);
+
+// (:key m not_found) / (get m key not_found) with a literal keyword: the interpreter's kw_lookup.
+static inline clj_value clj_c_kw_get(clj_ckw_ic *ic, clj_value key, clj_value m, clj_value not_found) {
+	if (__builtin_expect(ic->n <= CLJ_KW_IC_ENTRIES, 1)) {
+		bool        record;
+		const void *k = clj_kw_key_of(m, &record);
+		for (uint32_t i = 0; i < ic->n; i++) {
+			if (clj_kw_entry_hit(&ic->e[i], k, key)) {
+				CLJ_C_KW_COUNT(0);
+				return clj_retain(clj_kw_entry_read(&ic->e[i], m, not_found));
+			}
+		}
+	}
+	return clj_c_kw_miss(ic, key, m, not_found);
+}
+
+// A site building a map literal whose keys are literal keywords: the shape, resolved once, and the slot of each key.
+typedef struct {
+	_Atomic(const clj_shape *) shape;
+	uint8_t                    slot[CLJ_SHAPE_MAX_KEYS];
+} clj_cmap_site;
+
+// items alternate key and value.
+clj_value clj_c_map_shaped(clj_cmap_site *site, const clj_value *items, uint32_t n);
 
 #endif

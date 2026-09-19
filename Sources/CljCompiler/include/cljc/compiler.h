@@ -77,6 +77,7 @@ typedef struct {
 	uint64_t workers;        // def'd arities with a primitive entry (closed only)
 	uint64_t prim_sites;     // direct call sites written with a worker path
 	uint64_t prim_bound;     // of those, bound to a worker of the set
+	uint64_t kw_sites;       // keyword-lookup sites with an inline cache: (:k m) and (get m :k) with a literal keyword
 } cljc_slot_stats;
 
 // After cljc_end: the protocol counters are resolved against the set as the units' text is.

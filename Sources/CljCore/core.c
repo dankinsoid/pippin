@@ -14,7 +14,7 @@ uint32_t clj_debug_cached_hash(clj_value v) {
 	if (clj_is_string(v)) return clj_hash_cache_load(&clj_string_of(v)->hash);
 	if (clj_is_symbol(v)) return clj_hash_cache_load(&clj_symbol_of(v)->hash);
 	if (clj_is_keyword(v)) return clj_hash_cache_load(&clj_keyword_of(v)->hash);
-	if (clj_is_ptr(v) && clj_header_of(v)->type == &clj_map_type) return clj_hash_cache_load(&clj_map_of(v)->hash);
+	if (clj_is_map(v)) return clj_debug_map_cached_hash(v);
 	if (clj_is_vector(v)) return clj_debug_vector_cached_hash(v);
 	if (clj_is_set(v)) return clj_hash_cache_load(&clj_set_of(v)->hash);
 	clj_fatal("value of a type without a hash cache");

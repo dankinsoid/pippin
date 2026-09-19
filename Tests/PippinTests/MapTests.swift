@@ -159,17 +159,17 @@ extension CoreTests {
 			var m = clj_map_assoc(clj_map_empty(), clj_fixnum(1), clj_fixnum(1))
 			#expect(clj_is_unique(m) == clj_reuse_enabled())
 			let wrapper = m
-			let root = clj_map_of(m).pointee.root
+			let root = clj_debug_map_root(m)
 			let live = clj_debug_live_objects()
 
 			m = clj_map_assoc(m, clj_fixnum(1), clj_fixnum(2))
 			#expect(m == wrapper)
-			#expect(clj_map_of(m).pointee.root == root)
+			#expect(clj_debug_map_root(m) == root)
 			#expect(clj_debug_live_objects() == live)
 
 			for i in 2..<100 { m = clj_map_assoc(m, clj_fixnum(i), clj_fixnum(i)) }
 			#expect(m == wrapper)
-			let grownRoot = clj_map_of(m).pointee.root
+			let grownRoot = clj_debug_map_root(m)
 			let grownLive = clj_debug_live_objects()
 			m = clj_map_dissoc(m, clj_fixnum(50))
 			#expect(m == wrapper)
@@ -178,7 +178,7 @@ extension CoreTests {
 			_ = clj_retain(m)
 			let copy = clj_map_assoc(m, clj_fixnum(1), clj_fixnum(3))
 			#expect(copy != wrapper)
-			#expect(clj_map_of(copy).pointee.root != grownRoot)
+			#expect(clj_debug_map_root(copy) != grownRoot)
 			#expect(clj_map_get(m, clj_fixnum(1), missing) == clj_fixnum(2))
 			#expect(clj_map_get(copy, clj_fixnum(1), missing) == clj_fixnum(3))
 			clj_release(copy)

@@ -39,6 +39,8 @@ typedef struct {
 // The object carries one extra trailing clj_value word holding its metadata (cons, empty list): only
 // with-meta'd and reader-produced lists pay for the slot, a plain cons stays 32 bytes.
 #define CLJ_FLAG_META     ((uint32_t)1 << 3)
+// A map object laid out as a shape map (map.h): the shape and inline values instead of a trie.
+#define CLJ_FLAG_SHAPE    ((uint32_t)1 << 4)
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
 
@@ -158,6 +160,9 @@ bool clj_debug_all_shared(clj_value v);
 bool clj_debug_pool_enabled(void);
 // Pool cell size an allocation of `size` bytes gets; 0 when it goes to the system allocator.
 size_t clj_debug_cell_size(size_t size);
+// Bytes of pool cells this thread's heap has handed out and not taken back (cells freed by other threads stay
+// counted until drained); 0 under the system allocator.
+size_t clj_debug_pool_used_bytes(void);
 // Test hook: replaces clj_hash for every value while set. NULL restores the default.
 void clj_debug_set_hash_override(uint32_t (*fn)(clj_value v));
 extern uint32_t (*clj_debug_hash_override)(clj_value v);

@@ -705,21 +705,15 @@ static clj_value namespaced_key(clj_value key, clj_value ns) {
 static clj_value namespaced_map(parser *p, const frame *f, clj_value m, clj_value ns) {
 	size_t     n;
 	clj_value *entries = coll_items(m, &n);
-	clj_value  out = clj_map_empty();
-	for (size_t i = 0; i < n; i += 2) {
-		clj_value key = namespaced_key(entries[i], ns);
-		if (clj_map_contains(out, key)) {
-			clj_value text = clj_pr_str(key);
-			fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
-			clj_release(text);
-			clj_release(key);
-			clj_release(out);
-			out = CLJ_UNBOUND;
-			break;
-		}
-		out = clj_map_assoc(out, key, entries[i + 1]);
-		clj_release(key);
+	for (size_t i = 0; i < n; i += 2) entries[i] = namespaced_key(entries[i], ns);
+	uint32_t  dup;
+	clj_value out = clj_map_from_items(entries, (uint32_t)n, &dup);
+	if (out == CLJ_UNBOUND) {
+		clj_value text = clj_pr_str(entries[dup]);
+		fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+		clj_release(text);
 	}
+	for (size_t i = 0; i < n; i += 2) clj_release(entries[i]);
 	free(entries);
 	clj_release(m);
 	return out;
@@ -1303,17 +1297,13 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 static clj_read_status close_map(parser *p, const frame *f, clj_value *out) {
 	size_t n = p->nvals - f->start;
 	if (n % 2) return fail(p, f->line, f->col, "Map literal must contain an even number of forms");
-	clj_value m = clj_map_empty();
-	for (size_t i = f->start; i < p->nvals; i += 2) {
-		clj_value key = p->vals[i];
-		if (clj_map_contains(m, key)) {
-			clj_value text = clj_pr_str(key);
-			clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
-			clj_release(text);
-			clj_release(m);
-			return st;
-		}
-		m = clj_map_assoc(m, key, p->vals[i + 1]);
+	uint32_t  dup;
+	clj_value m = clj_map_from_items(p->vals + f->start, (uint32_t)n, &dup);
+	if (m == CLJ_UNBOUND) {
+		clj_value       text = clj_pr_str(p->vals[f->start + dup]);
+		clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+		clj_release(text);
+		return st;
 	}
 	*out = m;
 	return CLJ_READ_OK;

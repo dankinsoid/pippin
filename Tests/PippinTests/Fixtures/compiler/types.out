@@ -1,2 +1,2 @@
 [12 a circle 6 4 nothing 7 n=7 true false] [woof ?:cat :dog-method true #{:fixture.types/dog}] [99 reified >reified] [true #fixture.types.Rect{:w 9, :h 2} {:h 2} 2 true true #fixture.types.Rect{:w 1, :h 2} RECT]
-[27] fixture.types.Circle (1 2 0) {:dog #object[fn], :default #object[fn]} nothing,long 1
+[27] fixture.types.Circle (1 2 0) {:default #object[fn], :dog #object[fn]} nothing,long 1

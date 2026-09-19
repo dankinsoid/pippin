@@ -114,6 +114,8 @@ typedef struct {
 } clj_intrinsic;
 
 static inline bool clj_intrinsic_consumes(const clj_intrinsic *op) { return op->consume.f2 != NULL; }
+// The get entries (2 and 3 arguments): what a keyword-lookup site is made of (eval.c, the compiler).
+bool clj_intrinsic_is_get(const clj_intrinsic *op);
 
 // The whole table, in its own order; the array is what clj_intrinsic_builtin indexes by pointer.
 const clj_intrinsic *clj_intrinsic_table(size_t *n);

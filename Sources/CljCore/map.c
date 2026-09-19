@@ -9,6 +9,7 @@
 #include "clj/map.h"
 #include "clj/record.h"
 #include "clj/reduce.h"
+#include "clj/shape.h"
 #include "clj/vector.h"
 
 enum { BITS = 5, MASK = 31 };
@@ -66,6 +67,12 @@ static const clj_type cnode_type = {
 };
 
 static inline bool   is_cnode(clj_value v) { return clj_header_of(v)->type == &cnode_type; }
+static inline bool   is_shape(clj_value v) { return clj_header_of(v)->flags & CLJ_FLAG_SHAPE; }
+// The trie layout; a shape map never reaches it.
+static inline clj_map *clj_map_of(clj_value v) {
+	CLJ_ASSERT(!is_shape(v), "a shape map has no trie");
+	return (clj_map *)clj_to_ptr(v);
+}
 static inline bnode *bnode_of(clj_value v) { return clj_to_ptr(v); }
 static inline cnode *cnode_of(clj_value v) { return clj_to_ptr(v); }
 
@@ -419,6 +426,13 @@ static bool node_each(clj_value node, clj_map_entry_fn fn, void *ctx) {
 }
 
 static void map_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_header *h = self;
+	if (h->flags & CLJ_FLAG_SHAPE) {
+		clj_shape_map *m = self;
+		uint32_t       n = clj_shape_nkeys(m->shape);
+		for (uint32_t i = 0; i < n; i++) visit(m->slots[i], ctx);
+		return;
+	}
 	visit(((clj_map *)self)->root, ctx);
 	visit(((clj_map *)self)->meta, ctx);
 }
@@ -433,12 +447,19 @@ static bool hash_entry(clj_value key, clj_value val, void *ctx) {
 	return true;
 }
 
+// A shape map has no cache slot (records have none either); trigger: shape maps as keys in a profile.
 static uint32_t map_hash(void *self) {
+	clj_value me = clj_from_ptr(self);
+	if (is_shape(me)) {
+		uint32_t sum = 0;
+		clj_map_each(me, hash_entry, &sum);
+		return clj_mix_coll_hash(sum, clj_map_count(me));
+	}
 	clj_map *m = self;
 	uint32_t h = clj_hash_cache_load(&m->hash);
 	if (h) return h;
 	uint32_t sum = 0;
-	clj_map_each(clj_from_ptr(m), hash_entry, &sum);
+	clj_map_each(me, hash_entry, &sum);
 	return clj_hash_cache_store(&m->hash, clj_mix_coll_hash(sum, m->count));
 }
 
@@ -449,8 +470,8 @@ typedef struct {
 
 static bool equals_entry(clj_value key, clj_value val, void *ctx) {
 	equals_ctx *ec = ctx;
-	const clj_value *found = map_find(ec->other, key);
-	ec->equal = found && clj_equals(*found, val);
+	clj_value   found = clj_map_get(ec->other, key, CLJ_UNBOUND);
+	ec->equal = found != CLJ_UNBOUND && clj_equals(found, val);
 	return ec->equal;
 }
 
@@ -466,15 +487,23 @@ static bool equals_foreign_entry(clj_value key, clj_value val, void *ctx) {
 // A record is no map's equal, in either direction, as on the JVM.
 static bool map_equals(void *self, clj_value other) {
 	if (!clj_has_core(other, CLJ_CORE_MAP) || clj_is_record(other)) return false;
-	clj_map *m = self;
+	clj_value me = clj_from_ptr(self);
+	if (is_shape(me) && clj_is_shape_map(other) && clj_shape_map_of(me)->shape == clj_shape_map_of(other)->shape) {
+		const clj_shape_map *a = self, *b = clj_shape_map_of(other);
+		uint32_t             n = clj_shape_nkeys(a->shape);
+		for (uint32_t i = 0; i < n; i++) {
+			if (!clj_equals(a->slots[i], b->slots[i])) return false;
+		}
+		return true;
+	}
 	clj_value n = clj_count(other);
 	if (n == CLJ_THROWN) {
 		clj_release(clj_take_pending());
 		return false;
 	}
-	if (m->count != (uint32_t)clj_fixnum_val(n)) return false;
+	if (clj_map_count(me) != (uint32_t)clj_fixnum_val(n)) return false;
 	equals_ctx ec = {other, true};
-	clj_map_each(clj_from_ptr(m), clj_is_map(other) ? equals_entry : equals_foreign_entry, &ec);
+	clj_map_each(me, clj_is_map(other) ? equals_entry : equals_foreign_entry, &ec);
 	return ec.equal;
 }
 
@@ -580,10 +609,16 @@ static clj_value map_invoke(clj_value self, const clj_value *args, size_t n) {
 	return map_lookup(self, args[0], n == 2 ? args[1] : CLJ_NIL);
 }
 
-static clj_value map_meta(clj_value self) { return clj_retain(clj_map_of(self)->meta); }
+static clj_value map_meta(clj_value self) { return is_shape(self) ? CLJ_NIL : clj_retain(clj_map_of(self)->meta); }
 
+// A shape map carries no meta: with-meta gives the trie layout up, one way (design §4).
 // @ai-generated(guided)
 static clj_value map_with_meta(clj_value self, clj_value m) {
+	if (is_shape(self)) {
+		if (clj_is_nil(m)) return self;
+		self = clj_shape_map_to_hash_map(self);
+		clj_debug_map_generic(CLJ_MAPS_TRIE_META);
+	}
 	clj_map *map = clj_map_of(self);
 	if (clj_is_nil(m) && clj_is_nil(map->meta)) return self;
 	if (!clj_is_unique(self)) {
@@ -625,16 +660,40 @@ clj_map clj_map_empty_object = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .roo
 
 clj_value clj_map_empty(void) { return clj_from_ptr(&clj_map_empty_object); }
 
-uint32_t clj_map_count(clj_value map) { return clj_map_of(map)->count; }
+clj_value clj_map_empty_new(void) {
+	clj_map *m = clj_alloc(&clj_map_type, sizeof *m);
+	m->root = clj_from_ptr(&empty_root);
+	return clj_from_ptr(m);
+}
+
+uint32_t clj_map_count(clj_value map) {
+	return is_shape(map) ? clj_shape_nkeys(clj_shape_map_of(map)->shape) : clj_map_of(map)->count;
+}
 
 clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found) {
+	if (is_shape(map)) {
+		const clj_shape_map *m = clj_shape_map_of(map);
+		int32_t              i = clj_shape_index(m->shape, key);
+		return i >= 0 ? m->slots[i] : not_found;
+	}
 	const clj_value *found = map_find(map, key);
 	return found ? *found : not_found;
 }
 
-bool clj_map_contains(clj_value map, clj_value key) { return map_find(map, key) != NULL; }
+bool clj_map_contains(clj_value map, clj_value key) {
+	if (is_shape(map)) return clj_shape_index(clj_shape_map_of(map)->shape, key) >= 0;
+	return map_find(map, key) != NULL;
+}
 
 void clj_map_each(clj_value map, clj_map_entry_fn fn, void *ctx) {
+	if (is_shape(map)) {
+		const clj_shape_map *m = clj_shape_map_of(map);
+		uint32_t             n = clj_shape_nkeys(m->shape);
+		for (uint32_t i = 0; i < n; i++) {
+			if (!fn(clj_shape_key(m->shape, i), m->slots[i], ctx)) return;
+		}
+		return;
+	}
 	node_each(clj_map_of(map)->root, fn, ctx);
 }
 
@@ -659,7 +718,7 @@ static clj_value map_commit(clj_value map, bool unique, clj_value root, edit e, 
 	return clj_from_ptr(m);
 }
 
-clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val) {
+clj_value clj_hash_map_assoc(clj_value map, clj_value key, clj_value val) {
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root : clj_retain(m->root);
@@ -668,13 +727,55 @@ clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val) {
 	return map_commit(map, unique, root, e, 1);
 }
 
-clj_value clj_map_dissoc(clj_value map, clj_value key) {
+clj_value clj_hash_map_dissoc(clj_value map, clj_value key) {
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root : clj_retain(m->root);
 	edit e = {0};
 	root = node_dissoc(root, 0, clj_hash(key), key, &e);
 	return map_commit(map, unique, root, e, -1);
+}
+
+// An empty map without meta is where the shape tree starts; a non-empty trie stays one (the one-way rule).
+clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val) {
+	if (is_shape(map)) return clj_shape_map_assoc(map, key, val);
+	clj_map *m = clj_map_of(map);
+	if (m->count == 0 && clj_is_nil(m->meta)) {
+		clj_value s = clj_shape_map_single(key, val);
+		if (s != CLJ_UNBOUND) {
+			clj_release(map);
+			return s;
+		}
+	}
+	return clj_hash_map_assoc(map, key, val);
+}
+
+clj_value clj_map_dissoc(clj_value map, clj_value key) {
+	if (is_shape(map)) return clj_shape_map_dissoc(map, key);
+	return clj_hash_map_dissoc(map, key);
+}
+
+clj_value clj_map_from_items(const clj_value *items, uint32_t n, uint32_t *dup) {
+	uint32_t nkeys = n / 2;
+	if (nkeys && nkeys <= CLJ_SHAPE_MAX_KEYS) {
+		clj_value keys[CLJ_SHAPE_MAX_KEYS], vals[CLJ_SHAPE_MAX_KEYS];
+		for (uint32_t i = 0; i < nkeys; i++) {
+			keys[i] = items[2 * i];
+			vals[i] = items[2 * i + 1];
+		}
+		const clj_shape *shape = clj_shape_for_keys(keys, nkeys);
+		if (shape) return clj_shape_map_from_keys(shape, keys, vals);
+	}
+	clj_value m = clj_map_empty();
+	for (uint32_t i = 0; i < n; i += 2) {
+		if (dup && clj_map_contains(m, items[i])) {
+			*dup = i;
+			clj_release(m);
+			return CLJ_UNBOUND;
+		}
+		m = clj_map_assoc(m, items[i], items[i + 1]);
+	}
+	return m;
 }
 
 static bool node_same_shape(clj_value a, clj_value b) {
@@ -704,6 +805,11 @@ static bool node_same_shape(clj_value a, clj_value b) {
 }
 
 bool clj_debug_map_same_shape(clj_value a, clj_value b) {
+	if (is_shape(a) || is_shape(b)) return is_shape(a) && is_shape(b) && clj_shape_map_of(a)->shape == clj_shape_map_of(b)->shape;
 	return clj_map_of(a)->count == clj_map_of(b)->count &&
 	       node_same_shape(clj_map_of(a)->root, clj_map_of(b)->root);
 }
+
+clj_value clj_debug_map_root(clj_value map) { return clj_map_of(map)->root; }
+
+uint32_t clj_debug_map_cached_hash(clj_value map) { return is_shape(map) ? 0 : clj_hash_cache_load(&clj_map_of(map)->hash); }

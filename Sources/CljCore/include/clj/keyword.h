@@ -5,11 +5,16 @@
 #include "object.h"
 #include "symbol.h"
 
+struct clj_shape;
+
 // Interned and immortal: equal keywords are the same pointer, so clj_equals never reaches the type.
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
 	clj_value        sym;
+	// The shape of {kw v}, the root's transition on this keyword (shape.c); NULL until first used. The root has
+	// as many transitions as the program has first keys, so its table is the keywords themselves.
+	_Atomic(const struct clj_shape *) shape1;
 } clj_keyword;
 
 extern const clj_type clj_keyword_type;

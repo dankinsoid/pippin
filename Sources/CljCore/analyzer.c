@@ -614,8 +614,11 @@ static clj_value build_vector(const clj_node *const *items, uint32_t n) {
 }
 
 static clj_value build_map(const clj_node *const *items, uint32_t n) {
-	clj_value m = clj_map_empty();
-	for (uint32_t i = 0; i < n; i += 2) m = clj_map_assoc(m, items[i]->u.value, items[i + 1]->u.value);
+	clj_value *vals = malloc((n ? n : 1) * sizeof *vals);
+	if (!vals) clj_fatal("out of memory");
+	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value;
+	clj_value m = clj_map_from_items(vals, n, NULL);
+	free(vals);
 	return m;
 }
 

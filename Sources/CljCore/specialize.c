@@ -232,7 +232,7 @@ static void install(const clj_node *n, void *ctx) {
 			c->d->spec_fns[c->d->nspec++] = fast;
 			c->e->nodes[n->id].eval = fast;
 		} else {
-			c->e->nodes[n->id].eval = clj_node_eval_fn(CLJ_NODE_INTRINSIC);
+			c->e->nodes[n->id].eval = clj_eval_site_entry(c->e, n);
 		}
 	}
 	clj_node_children(n, install, ctx);

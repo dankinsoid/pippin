@@ -14,6 +14,7 @@ typedef clj_value (*clj_eval_fn)(const clj_node *node, clj_frame *frame);
 typedef struct {
 	clj_eval_fn eval;
 	uint64_t    hits; // counted only while clj_exec_count is on
+	void       *ic;   // the keyword-lookup cache of a (:k m)/(get m :k) site, the shape of a keyword-keyed literal; else NULL
 } clj_exec_node;
 
 typedef struct clj_call_site clj_call_site;
@@ -80,6 +81,17 @@ int64_t clj_debug_exec_ic_hits(clj_value exec, uint32_t id);
 int64_t clj_debug_exec_ic_misses(clj_value exec, uint32_t id);
 // Receiver types the protocol cache of that node holds, at most CLJ_PROTO_IC_ENTRIES.
 uint32_t clj_debug_exec_ic_proto_entries(clj_value exec, uint32_t id);
+// The keyword-lookup cache of the node with this id (an invoke of a literal keyword or a get with one): the layouts
+// it holds, CLJ_KW_IC_MEGA once it gave up; UINT32_MAX when the node has no such cache. Hits and misses of that
+// cache are counted in debug builds only (-1 otherwise).
+#define CLJ_KW_IC_MEGA 5
+uint32_t clj_debug_exec_kw_entries(clj_value exec, uint32_t id);
+int64_t  clj_debug_exec_kw_hits(clj_value exec, uint32_t id);
+int64_t  clj_debug_exec_kw_misses(clj_value exec, uint32_t id);
+// The id of the first node of the tree that is a keyword invoke or a get with a literal keyword, UINT32_MAX when none.
+uint32_t clj_debug_exec_kw_site_id(clj_value exec, uint32_t ordinal);
+// Whether the map literal with this node id builds through a precomputed shape.
+bool clj_debug_exec_map_shaped(clj_value exec, uint32_t id);
 // The id of the tree's invoke node number `site` in pre-order (its clj_node.site); aborts past the last.
 uint32_t clj_debug_exec_invoke_id(clj_value exec, uint32_t site);
 // Direct calls of let/loop-bound fns run on this thread, counted in debug builds only (-1 otherwise).

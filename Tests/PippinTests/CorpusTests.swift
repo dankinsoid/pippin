@@ -381,6 +381,10 @@ extension CoreTests {
 			out += "- skipped by the suite's own when-var-exists (the var does not exist here): \(r.skipped.count)\n"
 			out += "- tests past the watchdog's deadline: \(timedOut)\n"
 			out += "- live objects a second run of the same tests leaves: \(liveAfterSecondRun)\n\n"
+			// Process-wide and order-dependent, so the log rather than the committed report.
+			var maps = [Int64](repeating: 0, count: Int(CLJ_MAPS_COUNTERS))
+			clj_debug_map_stats(&maps)
+			progress("corpus: \(lib.name): maps by layout so far (shape.h): shape from a key set \(maps[0]), from an assoc into {} \(maps[1]); trie by a non-keyword key \(maps[2]), by with-meta \(maps[3]), by the 33rd key \(maps[4]), by a dictionary-like shape \(maps[5]), by the shape cap \(maps[6]), with shapes off \(maps[7]); shapes \(clj_debug_shape_count())")
 			var reasons: [String: Int] = [:]
 			for f in r.forms { reasons[missingSymbol(in: f.reason).map { "missing `\($0)`" } ?? truncated(f.reason, 90), default: 0] += 1 }
 			for t in r.tests where t.status != "pass" {

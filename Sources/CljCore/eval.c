@@ -27,6 +27,7 @@
 #include "profile_internal.h"
 #include "proto_internal.h"
 #include "shadow_internal.h"
+#include "shape_internal.h"
 #include "specialize_internal.h"
 #include "trace_internal.h"
 
@@ -902,6 +903,92 @@ static clj_value eval_fused(const clj_node *n, clj_frame *f) {
 }
 
 // Root first, then meta, then the flags, as DefExpr.eval does.
+// ---- keyword-lookup sites (NOTES.md "Shapes", the cache)
+
+// Entries are appended under one lock and never rewritten, so a reader that loads n sees whole entries below it.
+typedef struct {
+	_Atomic uint32_t n; // CLJ_KW_IC_MEGA once the site gave up
+	clj_kw_entry     e[CLJ_KW_IC_ENTRIES];
+#if CLJ_DEBUG
+	_Atomic uint64_t hits, misses;
+#endif
+} kw_ic;
+
+static clj_lock kw_fill_lock = CLJ_LOCK_INIT;
+
+#if CLJ_DEBUG
+#define KW_COUNT(ic, which) atomic_fetch_add_explicit(&(ic)->which, 1, memory_order_relaxed)
+#else
+#define KW_COUNT(ic, which) ((void)0)
+#endif
+
+static void kw_ic_fill(kw_ic *ic, clj_value m, clj_value key) {
+	clj_kw_entry e;
+	if (!clj_kw_entry_make(&e, m, key)) return;
+	clj_lock_lock(&kw_fill_lock);
+	uint32_t n = atomic_load_explicit(&ic->n, memory_order_relaxed);
+	bool     seen = false;
+	for (uint32_t i = 0; i < n && i < CLJ_KW_IC_ENTRIES; i++) seen = seen || ic->e[i].key == e.key;
+	if (!seen && n < CLJ_KW_IC_ENTRIES) {
+		ic->e[n] = e;
+		atomic_store_explicit(&ic->n, n + 1, memory_order_release);
+	} else if (!seen && n == CLJ_KW_IC_ENTRIES) {
+		atomic_store_explicit(&ic->n, CLJ_KW_IC_MEGA, memory_order_relaxed);
+	}
+	clj_lock_unlock(&kw_fill_lock);
+}
+
+// (get m key not_found) through the site's cache: a hit is the guard and one load, a miss the generic lookup and a fill.
+// @ai-generated(solo)
+static inline clj_value kw_lookup(kw_ic *ic, clj_value m, clj_value key, clj_value not_found) {
+	uint32_t n = atomic_load_explicit(&ic->n, memory_order_acquire);
+	if (__builtin_expect(n <= CLJ_KW_IC_ENTRIES, 1)) {
+		bool        record;
+		const void *k = clj_kw_key_of(m, &record);
+		for (uint32_t i = 0; i < n; i++) {
+			if (clj_kw_entry_hit(&ic->e[i], k, key)) {
+				KW_COUNT(ic, hits);
+				return clj_retain(clj_kw_entry_read(&ic->e[i], m, not_found));
+			}
+		}
+		if (k) kw_ic_fill(ic, m, key);
+	}
+	KW_COUNT(ic, misses);
+	return clj_get(m, key, not_found);
+}
+
+// (:k m) and (:k m nf): the keyword is the node's constant, so the call is the lookup itself (keyword_invoke).
+static clj_value eval_kw_invoke(const clj_node *n, clj_frame *f) {
+	clj_value args[2];
+	uint64_t  owned;
+	if (!eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned)) return CLJ_THROWN;
+	clj_value r = kw_lookup(f->exec->nodes[n->id].ic, args[0], n->u.invoke.fn->u.value, n->u.invoke.n == 2 ? args[1] : CLJ_NIL);
+	release_owned(args, n->u.invoke.n, owned);
+	return r;
+}
+
+// (get m :k) and (get m :k nf) under the intrinsic guard; a rebound `get` takes the generic path.
+static clj_value eval_get_kw(const clj_node *n, clj_frame *f) {
+	clj_value args[3];
+	uint64_t  owned;
+	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned)) return CLJ_THROWN;
+	clj_value r;
+	if (__builtin_expect(intrinsic_guard(n), 1)) r = kw_lookup(f->exec->nodes[n->id].ic, args[0], args[1], n->u.intrinsic.n == 3 ? args[2] : CLJ_NIL);
+	else r = intrinsic_apply(n, args, &owned);
+	release_owned(args, n->u.intrinsic.n, owned);
+	return r;
+}
+
+static bool kw_invoke_site(const clj_node *n) {
+	return n->kind == CLJ_NODE_INVOKE && n->u.invoke.fn->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.invoke.fn->u.value) &&
+	       (n->u.invoke.n == 1 || n->u.invoke.n == 2);
+}
+
+static bool kw_get_site(const clj_node *n) {
+	return n->kind == CLJ_NODE_INTRINSIC && clj_intrinsic_is_get(n->u.intrinsic.op) && n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST &&
+	       clj_is_keyword(n->u.intrinsic.args[1]->u.value);
+}
+
 static clj_value eval_def(const clj_node *n, clj_frame *f) {
 	if (n->u.def.init) {
 		clj_value v = eval_child(n->u.def.init, f);
@@ -934,6 +1021,49 @@ static clj_value eval_vector(const clj_node *n, clj_frame *f) {
 	}
 	buf_free(small, items);
 	return result;
+}
+
+// The cache of a MAP literal whose keys are constant keywords: its shape and the slot each key of the literal takes.
+typedef struct {
+	const clj_shape *shape;
+	uint8_t          slot[CLJ_SHAPE_MAX_KEYS];
+} map_ic;
+
+// Such a literal builds straight into its shape: one allocation, no transitions.
+// @ai-generated(solo)
+static clj_value eval_map_shaped(const clj_node *n, clj_frame *f) {
+	const map_ic  *ic = f->exec->nodes[n->id].ic;
+	uint32_t       nkeys = n->u.seq.n / 2;
+	clj_value      m = clj_shape_map_alloc(ic->shape);
+	clj_shape_map *sm = clj_shape_map_of(m);
+	for (uint32_t i = 0; i < nkeys; i++) {
+		clj_value v = eval_child(n->u.seq.items[2 * i + 1], f);
+		if (v == CLJ_THROWN) {
+			clj_release(m);
+			return CLJ_THROWN;
+		}
+		sm->slots[ic->slot[i]] = v;
+	}
+	return m;
+}
+
+// The cache of a literal whose keys are constant keywords without a duplicate, else NULL (the generic entry throws).
+static map_ic *map_literal_ic(const clj_node *n) {
+	uint32_t  nkeys = n->u.seq.n / 2;
+	clj_value keys[CLJ_SHAPE_MAX_KEYS];
+	if (nkeys == 0 || nkeys > CLJ_SHAPE_MAX_KEYS) return NULL;
+	for (uint32_t i = 0; i < nkeys; i++) {
+		const clj_node *k = n->u.seq.items[2 * i];
+		if (k->kind != CLJ_NODE_CONST || !clj_is_keyword(k->u.value)) return NULL;
+		keys[i] = k->u.value;
+	}
+	const clj_shape *shape = clj_shape_for_keys(keys, nkeys);
+	if (!shape) return NULL;
+	map_ic *ic = calloc(1, sizeof *ic);
+	if (!ic) clj_fatal("out of memory");
+	ic->shape = shape;
+	clj_shape_slots_of(shape, keys, ic->slot);
+	return ic;
 }
 
 static clj_value eval_map(const clj_node *n, clj_frame *f) {
@@ -1070,9 +1200,16 @@ static void count_on(const clj_node *n, void *ctx) {
 	clj_node_children(n, count_on, e);
 }
 
+clj_eval_fn clj_eval_site_entry(const clj_exec *e, const clj_node *n) {
+	if (!e->nodes[n->id].ic) return clj_node_eval_fn(n->kind);
+	if (n->kind == CLJ_NODE_INVOKE) return eval_kw_invoke;
+	if (n->kind == CLJ_NODE_INTRINSIC) return eval_get_kw;
+	return eval_map_shaped;
+}
+
 static void count_off(const clj_node *n, void *ctx) {
 	clj_exec *e = ctx;
-	e->nodes[n->id].eval = clj_node_eval_fn(n->kind);
+	e->nodes[n->id].eval = clj_eval_site_entry(e, n);
 	clj_node_children(n, count_off, e);
 }
 
@@ -1149,14 +1286,82 @@ uint32_t clj_debug_exec_ic_proto_entries(clj_value exec, uint32_t id) {
 	return ic ? ic->n : 0;
 }
 
+static const kw_ic *kw_ic_of(clj_value exec, uint32_t id) {
+	const clj_exec *e = clj_exec_of(exec);
+	find_ctx        c = {id, NULL};
+	find_node(e->root, &c);
+	if (!c.found || (c.found->kind != CLJ_NODE_INVOKE && c.found->kind != CLJ_NODE_INTRINSIC)) return NULL;
+	return e->nodes[id].ic;
+}
+
+uint32_t clj_debug_exec_kw_entries(clj_value exec, uint32_t id) {
+	const kw_ic *ic = kw_ic_of(exec, id);
+	return ic ? atomic_load_explicit(&ic->n, memory_order_acquire) : UINT32_MAX;
+}
+
+int64_t clj_debug_exec_kw_hits(clj_value exec, uint32_t id) {
+#if CLJ_DEBUG
+	const kw_ic *ic = kw_ic_of(exec, id);
+	return ic ? (int64_t)atomic_load_explicit(&ic->hits, memory_order_relaxed) : -1;
+#else
+	(void)exec;
+	(void)id;
+	return -1;
+#endif
+}
+
+int64_t clj_debug_exec_kw_misses(clj_value exec, uint32_t id) {
+#if CLJ_DEBUG
+	const kw_ic *ic = kw_ic_of(exec, id);
+	return ic ? (int64_t)atomic_load_explicit(&ic->misses, memory_order_relaxed) : -1;
+#else
+	(void)exec;
+	(void)id;
+	return -1;
+#endif
+}
+
+typedef struct {
+	uint32_t        ordinal, seen;
+	const clj_node *found;
+} find_kw_ctx;
+
+static void find_kw_site(const clj_node *n, void *ctx) {
+	find_kw_ctx *c = ctx;
+	if (c->found) return;
+	if ((kw_invoke_site(n) || kw_get_site(n)) && c->seen++ == c->ordinal) {
+		c->found = n;
+		return;
+	}
+	clj_node_children(n, find_kw_site, c);
+}
+
+uint32_t clj_debug_exec_kw_site_id(clj_value exec, uint32_t ordinal) {
+	find_kw_ctx c = {ordinal, 0, NULL};
+	find_kw_site(clj_exec_of(exec)->root, &c);
+	return c.found ? c.found->id : UINT32_MAX;
+}
+
+bool clj_debug_exec_map_shaped(clj_value exec, uint32_t id) {
+	const clj_exec *e = clj_exec_of(exec);
+	return id < e->root->nnodes && e->nodes[id].eval == eval_map_shaped;
+}
+
 static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
 	const clj_exec *e = self;
 	visit(clj_from_ptr((void *)e->root), ctx);
 }
 
+static void free_ic(const clj_node *n, void *ctx) {
+	clj_exec *e = ctx;
+	free(e->nodes[n->id].ic);
+	clj_node_children(n, free_ic, e);
+}
+
 static void exec_finalize(void *self) {
 	clj_exec *e = self;
 	clj_exec_forget(e);
+	free_ic(e->root, e);
 	for (uint32_t i = 0; i < e->nsites; i++) free(atomic_load_explicit(&e->sites[i].proto, memory_order_relaxed));
 	free(e->sites);
 }
@@ -1177,6 +1382,12 @@ static void note_slot(build_ctx *b, uint32_t slot) {
 	if (b->top && slot >= b->exec->nslots) b->exec->nslots = slot + 1;
 }
 
+static void *kw_ic_new(void) {
+	kw_ic *ic = calloc(1, sizeof *ic);
+	if (!ic) clj_fatal("out of memory");
+	return ic;
+}
+
 // @ai-generated(guided)
 static void build(const clj_node *n, void *ctx) {
 	build_ctx *b = ctx;
@@ -1184,7 +1395,25 @@ static void build(const clj_node *n, void *ctx) {
 	switch (n->kind) {
 	case CLJ_NODE_INVOKE:
 		if (n->site >= b->exec->nsites) b->exec->nsites = n->site + 1;
+		if (kw_invoke_site(n)) {
+			b->exec->nodes[n->id].ic = kw_ic_new();
+			b->exec->nodes[n->id].eval = eval_kw_invoke;
+		}
 		break;
+	case CLJ_NODE_INTRINSIC:
+		if (kw_get_site(n)) {
+			b->exec->nodes[n->id].ic = kw_ic_new();
+			b->exec->nodes[n->id].eval = eval_get_kw;
+		}
+		break;
+	case CLJ_NODE_MAP: {
+		map_ic *ic = map_literal_ic(n);
+		if (ic) {
+			b->exec->nodes[n->id].ic = ic;
+			b->exec->nodes[n->id].eval = eval_map_shaped;
+		}
+		break;
+	}
 	case CLJ_NODE_LET:
 	case CLJ_NODE_LOOP:
 		for (uint32_t i = 0; i < n->u.let.n; i++) note_slot(b, n->u.let.slots[i]);

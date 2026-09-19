@@ -88,6 +88,8 @@ enum { N = sizeof table / sizeof *table };
 static clj_value vars[N];
 static clj_value builtins[N];
 
+bool clj_intrinsic_is_get(const clj_intrinsic *op) { return op->arity == 2 ? op->fn.f2 == clj_get2 : op->arity == 3 && op->fn.f3 == clj_get; }
+
 const clj_intrinsic *clj_intrinsic_table(size_t *n) {
 	*n = N;
 	return table;

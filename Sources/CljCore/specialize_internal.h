@@ -13,6 +13,8 @@ void clj_exec_forget(clj_exec *e);
 void clj_exec_root_rebound(clj_value var);
 // Puts the specialized entries back after clj_exec_count restored the generic ones.
 void clj_exec_reapply(clj_value exec);
+// The entry a node runs with no counting and no specialization: its keyword-site entry when it has a cache, else the kind's.
+clj_eval_fn clj_eval_site_entry(const clj_exec *e, const clj_node *n);
 // What the facts said every argument of a specialized node is; the mixed kinds name the two positions in order.
 typedef enum { CLJ_SPEC_FIXNUM, CLJ_SPEC_DOUBLE, CLJ_SPEC_FIXNUM_DOUBLE, CLJ_SPEC_DOUBLE_FIXNUM } clj_spec_kind;
 // The fast path of an arithmetic entry of the intrinsics table for that kind, NULL when the entry has none.

@@ -81,12 +81,9 @@ static clj_value duplicate_key(clj_value result, clj_value key) {
 }
 
 clj_value clj_c_map_literal(const clj_value *items, uint32_t n) {
-	clj_value result = clj_map_empty();
-	for (uint32_t i = 0; i < n; i += 2) {
-		if (clj_map_contains(result, items[i])) return duplicate_key(result, items[i]);
-		result = clj_map_assoc(result, items[i], items[i + 1]);
-	}
-	return result;
+	uint32_t  dup;
+	clj_value result = clj_map_from_items(items, n, &dup);
+	return result == CLJ_UNBOUND ? duplicate_key(CLJ_NIL, items[dup]) : result;
 }
 
 clj_value clj_c_set_literal(const clj_value *items, uint32_t n) {
@@ -172,6 +169,40 @@ clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value 
 	clj_value r = clj_c_call_impl(impl, args, n);
 	clj_release(impl);
 	return r;
+}
+
+#if CLJ_DEBUG
+_Atomic int64_t clj_debug_ckw_counters[2];
+#endif
+
+// @ai-generated(solo)
+clj_value clj_c_kw_miss(clj_ckw_ic *ic, clj_value key, clj_value m, clj_value not_found) {
+	CLJ_C_KW_COUNT(1);
+	clj_kw_entry e;
+	if (ic->n <= CLJ_KW_IC_ENTRIES && clj_kw_entry_make(&e, m, key)) {
+		if (ic->n < CLJ_KW_IC_ENTRIES) ic->e[ic->n++] = e;
+		else ic->n = CLJ_KW_IC_MEGA;
+	}
+	return clj_get(m, key, not_found);
+}
+
+// @ai-generated(solo)
+clj_value clj_c_map_shaped(clj_cmap_site *site, const clj_value *items, uint32_t n) {
+	const clj_shape *shape = atomic_load_explicit(&site->shape, memory_order_acquire);
+	uint32_t         nkeys = n / 2;
+	if (!shape) {
+		clj_value keys[CLJ_SHAPE_MAX_KEYS];
+		for (uint32_t i = 0; nkeys <= CLJ_SHAPE_MAX_KEYS && i < nkeys; i++) keys[i] = items[2 * i];
+		shape = nkeys <= CLJ_SHAPE_MAX_KEYS ? clj_shape_for_keys(keys, nkeys) : NULL;
+		if (!shape) return clj_c_map_literal(items, n);
+		// racing fillers write the same slots; the release publishes them with the shape
+		clj_shape_slots_of(shape, keys, site->slot);
+		atomic_store_explicit(&site->shape, shape, memory_order_release);
+	}
+	clj_value      m = clj_shape_map_alloc(shape);
+	clj_shape_map *sm = clj_shape_map_of(m);
+	for (uint32_t i = 0; i < nkeys; i++) sm->slots[site->slot[i]] = clj_retain(items[2 * i + 1]);
+	return m;
 }
 
 // @ai-generated(solo)

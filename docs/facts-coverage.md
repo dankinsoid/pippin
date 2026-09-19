@@ -50,7 +50,7 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 60 ms, with the summaries 70 ms, against 361 ms of analysis over the same forms
+- Cost: pass 1 alone 59 ms, with the summaries 68 ms, against 351 ms of analysis over the same forms
   (0.17× → 0.19×); the largest single table is 262 KB. The store holds 987 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
@@ -127,12 +127,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12463 | 6.4 | 3.0 | 3.8 | 4.1 | 0.46× → 0.59× | 367 | 13 |
-| embedded libs | 108 | 3710 | 1.7 | 0.7 | 1.1 | 1.2 | 0.41× → 0.64× | 114 | 6 |
-| clojure-test-suite | 516 | 415394 | 336.2 | 54.3 | 61.6 | 60.4 | 0.16× → 0.18× | 9880 | 262 |
-| medley | 104 | 22661 | 16.3 | 2.4 | 3.3 | 3.0 | 0.15× → 0.20× | 562 | 23 |
-| **library code** | 477 | 38834 | 24.4 | 6.1 | 8.2 | 8.4 | 0.25× → 0.34× | 1043 | 23 |
-| **all** | 993 | 454228 | 360.6 | 60.4 | 69.8 | 68.7 | 0.17× → 0.19× | 10923 | 262 |
+| core.clj | 265 | 12463 | 7.4 | 3.5 | 4.4 | 4.0 | 0.48× → 0.60× | 367 | 13 |
+| embedded libs | 108 | 3710 | 1.8 | 0.8 | 1.2 | 1.1 | 0.43× → 0.65× | 114 | 6 |
+| clojure-test-suite | 516 | 415394 | 326.6 | 52.0 | 59.3 | 59.1 | 0.16× → 0.18× | 9880 | 262 |
+| medley | 104 | 22661 | 15.4 | 2.3 | 3.2 | 3.2 | 0.15× → 0.21× | 562 | 23 |
+| **library code** | 477 | 38834 | 24.6 | 6.6 | 8.7 | 8.3 | 0.27× → 0.36× | 1043 | 23 |
+| **all** | 993 | 454228 | 351.2 | 58.6 | 68.0 | 67.4 | 0.17× → 0.19× | 10923 | 262 |
 
 ## Errors
 

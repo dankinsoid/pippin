@@ -33,6 +33,7 @@
 #include "seq.h"     // IWYU pragma: export
 #include "set.h"     // IWYU pragma: export
 #include "shadow.h"  // IWYU pragma: export
+#include "shape.h"   // IWYU pragma: export
 #include "sorted.h"  // IWYU pragma: export
 #include "string.h"  // IWYU pragma: export
 #include "uuid.h"    // IWYU pragma: export

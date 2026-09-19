@@ -455,9 +455,7 @@ static clj_value b_hash_map(const clj_value *args, size_t n) {
 		clj_release(text);
 		return r;
 	}
-	clj_value m = clj_map_empty();
-	for (size_t i = 0; i < n; i += 2) m = clj_map_assoc(m, args[i], args[i + 1]);
-	return m;
+	return clj_map_from_items(args, (uint32_t)n, NULL);
 }
 
 // ---- seqs

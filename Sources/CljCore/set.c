@@ -193,7 +193,7 @@ static clj_value set_update(clj_value set, clj_value x, bool add) {
 	clj_set  *s = set_own(set);
 	clj_value impl = s->impl;
 	s->impl = CLJ_NIL;
-	store(&s->h, &s->impl, add ? clj_map_assoc(impl, x, x) : clj_map_dissoc(impl, x));
+	store(&s->h, &s->impl, add ? clj_hash_map_assoc(impl, x, x) : clj_hash_map_dissoc(impl, x));
 	return clj_from_ptr(s);
 }
 

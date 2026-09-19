@@ -132,9 +132,9 @@ extension CoreTests {
 				#expect(try f.data == Value(reading: "{:line 2 :column 1}"))
 				// Through the C API without a position the form's own :line/:column (from the reader) still apply;
 				// a form built without them passes the exception unchanged.
-				#expect(cljEvalError("(mt-boom)") == "#error {:message \"boom\", :data {:k 1, :line 1, :column 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
+				#expect(cljEvalError("(mt-boom)") == "#error {:message \"boom\", :data {:column 1, :k 1, :line 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
 				#expect(cljEvalError("(macroexpand-1 (list 'mt-boom))") == "#error {:message \"boom\", :data {:k 1}}")
-				#expect(cljEvalError("(macroexpand-1 '(mt-boom))") == "#error {:message \"boom\", :data {:k 1, :line 1, :column 17}, :cause #error {:message \"boom\", :data {:k 1}}}")
+				#expect(cljEvalError("(macroexpand-1 '(mt-boom))") == "#error {:message \"boom\", :data {:column 17, :k 1, :line 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
 				// Analysis errors inside the expansion keep the position of the top-level form.
 				let g = try #require(clojureError(rt, "\n\n(mt-unless-nope (nope))"))
 				#expect(g.message == "Unable to resolve symbol: mt-unless-nope in this context")

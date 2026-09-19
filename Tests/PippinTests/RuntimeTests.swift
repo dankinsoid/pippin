@@ -151,7 +151,7 @@ extension CoreTests {
 				#expect(message(rt, "(def rt-x-unbound) rt-x-unbound") == "Unbound var: #'user/rt-x-unbound")
 				try unbind("rt-x", "rt-f")
 			}
-			#expect(clj_debug_live_objects() == before + 6) // rt-x-unbound: the var, its name symbol and the name string, its meta map and two nodes
+			#expect(clj_debug_live_objects() == before + 4) // rt-x-unbound: the var, its name symbol and the name string, its meta map (one shape map)
 		}
 
 		@Test func collectionsAsFunctionsAndApply() throws {

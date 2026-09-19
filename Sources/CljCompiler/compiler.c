@@ -2055,6 +2055,12 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
 	if (!folded && !clj_is_nil(method)) {
 		emit_proto_call(f, n, method, &fn, array, &r);
+	} else if (!folded && !d && (nargs == 1 || nargs == 2) && head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
+		// (:k m) / (:k m nf): the interpreter's keyword-lookup site; keyword_invoke's arity check is the count here.
+		int k = f->naux++;
+		sb_printf(&f->out, "\t{\n\t\tstatic _Thread_local clj_ckw_ic KC%d;\n\t\t%s = clj_c_kw_get(&KC%d, %s, %s[0], %s);\n\t}\n", k, r.name, k, fn.name, array,
+		          nargs == 2 ? args[1].name : "CLJ_NIL");
+		f->u->slots.kw_sites++;
 	} else if (!folded && direct) {
 		// The definition may still be superseded: the prelude decides at write time (CLJC_LOCAL_*, CLJC_DIRECT_*).
 		bool fresh;
@@ -2097,6 +2103,14 @@ static temp emit_def(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+static bool map_literal_keys_are_keywords(const clj_node *n) {
+	if (n->u.seq.n / 2 > CLJ_SHAPE_MAX_KEYS) return false;
+	for (uint32_t i = 0; i < n->u.seq.n; i += 2) {
+		if (n->u.seq.items[i]->kind != CLJ_NODE_CONST || !clj_is_keyword(n->u.seq.items[i]->u.value)) return false;
+	}
+	return true;
+}
+
 static temp emit_literal(fnctx *f, const clj_node *n, const char *ctor) {
 	if (n->u.seq.n == 0) {
 		temp t = new_temp(f, OWN_YES);
@@ -2105,10 +2119,16 @@ static temp emit_literal(fnctx *f, const clj_node *n, const char *ctor) {
 		return t;
 	}
 	char array[24];
-	snprintf(array, sizeof array, "a%d", f->naux++);
+	int  k = f->naux++;
+	snprintf(array, sizeof array, "a%d", k);
 	temp *items = emit_args(f, n->u.seq.items, n->u.seq.n, array);
 	temp  r = new_temp(f, OWN_YES);
-	sb_printf(&f->out, "\tclj_value %s = %s(%s, %u);\n", r.name, ctor, array, n->u.seq.n);
+	if (n->kind == CLJ_NODE_MAP && map_literal_keys_are_keywords(n)) {
+		// The shape is resolved once per site; a duplicate key or the cap falls back to the generic literal.
+		sb_printf(&f->out, "\tstatic clj_cmap_site KS%d;\n\tclj_value %s = clj_c_map_shaped(&KS%d, %s, %u);\n", k, r.name, k, array, n->u.seq.n);
+	} else {
+		sb_printf(&f->out, "\tclj_value %s = %s(%s, %u);\n", r.name, ctor, array, n->u.seq.n);
+	}
 	release_args(f, items, n->u.seq.n);
 	check_thrown(f, r.name);
 	live_push(f, r);
@@ -2318,6 +2338,12 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		sb_printf(&f->out, "\t%s = false;\n\t} else {\n", args[0].flag);
 		emit_intrinsic_call(f, op, op->cname, args, r.name);
 		sb_puts(&f->out, "\t}\n");
+	} else if (clj_intrinsic_is_get(op) && n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.intrinsic.args[1]->u.value)) {
+		// (get m :k) / (get m :k nf): the keyword-lookup site under the intrinsic guard, as the interpreter's eval_get_kw.
+		int k = f->naux++;
+		sb_printf(&f->out, "\t{\n\t\tstatic _Thread_local clj_ckw_ic KC%d;\n\t\t%s = clj_c_kw_get(&KC%d, %s, %s, %s);\n\t}\n", k, r.name, k, args[1].name, args[0].name,
+		          n->u.intrinsic.n == 3 ? args[2].name : "CLJ_NIL");
+		f->u->slots.kw_sites++;
 	} else {
 		emit_intrinsic_call(f, op, op->cname, args, r.name);
 	}

@@ -1127,6 +1127,195 @@ for r in recordRows {
 }
 print("\nns per op; record = a 5-field defrecord through clj_get and the assoc slot, hash map = the same five keywords and values through clj_map_get / clj_map_assoc; unique = the only reference, shared = a second one held so every assoc copies")
 
+// MARK: - Shapes
+
+// The Records rows for a record, a shape map and the trie (shapes off), then the sites (NOTES.md "Shapes").
+_ = cljEval("(defrecord BenchShapePoint [id name count x y])")
+let shapePointType = cljEval("BenchShapePoint")
+
+func shapeRecBuild() -> clj_value {
+	let vals = (0..<5).map { clj_fixnum($0) }
+	return vals.withUnsafeBufferPointer { clj_record_new(shapePointType, $0.baseAddress, 5) }
+}
+
+func trieBuild5() -> clj_value {
+	clj_shapes_enable(false)
+	defer { clj_shapes_enable(true) }
+	return mapBuild5()
+}
+
+struct ShapeRow {
+	let scenario: String
+	let record: Double?
+	let shape: Double
+	let trie: Double
+}
+
+var shapeRows: [ShapeRow] = []
+do {
+	let n = 100_000
+	let rec = shapeRecBuild(), smap = mapBuild5(), tmap = trieBuild5()
+	precondition(clj_is_shape_map(smap) && !clj_is_shape_map(tmap))
+	let recShared = clj_retain(rec), smapShared = clj_retain(smap), tmapShared = clj_retain(tmap)
+	// The shape's slots are in compare's order (count id name x y), the record's in the basis's (id name count x y).
+	shapeRows.append(ShapeRow(scenario: "(:count r), record field 3 / shape slot 1, clj_get",
+		record: measure(ops: n) { recGet(rec, benchCountKey, n) },
+		shape: measure(ops: n) { recGet(smap, benchCountKey, n) },
+		trie: measure(ops: n) { recGet(tmap, benchCountKey, n) }))
+	shapeRows.append(ShapeRow(scenario: "(:id r), record field 1 / shape slot 2, clj_get",
+		record: measure(ops: n) { recGet(rec, benchKeys[0], n) },
+		shape: measure(ops: n) { recGet(smap, benchKeys[0], n) },
+		trie: measure(ops: n) { recGet(tmap, benchKeys[0], n) }))
+	shapeRows.append(ShapeRow(scenario: "(assoc r :count v), unique",
+		record: measure(ops: n) { assocUnique(shapeRecBuild, n) },
+		shape: measure(ops: n) { assocUnique(mapBuild5, n) },
+		trie: measure(ops: n) { assocUnique(trieBuild5, n) }))
+	shapeRows.append(ShapeRow(scenario: "(assoc r :count v), shared",
+		record: measure(ops: n) { assocShared(recShared, n) },
+		shape: measure(ops: n) { assocShared(smapShared, n) },
+		trie: measure(ops: n) { assocShared(tmapShared, n) }))
+	shapeRows.append(ShapeRow(scenario: "(update r :count inc), unique",
+		record: measure(ops: n) { updateUnique(shapeRecBuild, n) },
+		shape: measure(ops: n) { updateUnique(mapBuild5, n) },
+		trie: measure(ops: n) { updateUnique(trieBuild5, n) }))
+	for v in [rec, smap, tmap, recShared, smapShared, tmapShared] { clj_release(v) }
+}
+
+// The counting loop plus one operation; receivers are built once outside, the trie ones with shapes off.
+let shapeLiteralFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (let [m {:id i :name \"x\" :count i}] (recur (inc i) (+ acc (count m)))) acc)))")
+let shapeAssocNewFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (count (assoc {:id i} :name \"x\")))) acc)))")
+let shapeGetIdFn = cljEval("(fn [m n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (:id m))) acc)))")
+let shapeGetCountFn = cljEval("(fn [m n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (:count m))) acc)))")
+let shapeGetYFn = cljEval("(fn [m n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (:y m))) acc)))")
+let shapeGetFormFn = cljEval("(fn [m n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (get m :count))) acc)))")
+let shapePolyFn = cljEval("(fn [a b n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (:count (if (even? i) a b)))) acc)))")
+let shapeCycleFn = cljEval("(fn [ms n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (:count (nth ms (bit-and i 7))))) acc)))")
+let shapeFoldFn = cljEval("(fn [maps] (reduce (fn [acc m] (+ acc (:count m))) 0 maps))")
+let shapeEqFn = cljEval("(fn [a b n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (if (= a b) (inc acc) acc)) acc)))")
+let shapeIntoFn = cljEval("(fn [pairs n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (count (into {} pairs)))) acc)))")
+let shapeZipmapFn = cljEval("(fn [ks vs n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (count (zipmap ks vs)))) acc)))")
+
+func shapeReceivers() -> (shape: clj_value, trie: clj_value, record: clj_value) {
+	let s = cljEval("{:id 1 :name \"x\" :count 3 :x 4 :y 5}")
+	clj_shapes_enable(false)
+	let t = cljEval("(hash-map :id 1 :name \"x\" :count 3 :x 4 :y 5)")
+	clj_shapes_enable(true)
+	let r = cljEval("(->BenchShapePoint 1 \"x\" 3 4 5)")
+	precondition(clj_is_shape_map(s) && !clj_is_shape_map(t) && clj_is_record(r))
+	return (s, t, r)
+}
+
+func cljCall3(_ f: clj_value, _ a: clj_value, _ b: clj_value, _ c: clj_value) -> UInt64 {
+	let args = [a, b, c]
+	let r = args.withUnsafeBufferPointer { clj_invoke(f, $0.baseAddress, 3) }
+	if r == CLJ_THROWN { benchThrew() }
+	let v = UInt64(bitPattern: Int64(clj_fixnum_val(r)))
+	clj_release(r)
+	return v
+}
+
+struct SiteRow {
+	let scenario: String
+	let n: Int
+	let shape: Double
+	let trie: Double?
+	let record: Double?
+}
+
+var siteRows: [SiteRow] = []
+do {
+	let n = 100_000
+	let recv = shapeReceivers()
+	let fix = clj_fixnum(n)
+	siteRows.append(SiteRow(scenario: "literal {:id i :name \"x\" :count i} per iteration", n: n, shape: measure(ops: n) { cljCall(shapeLiteralFn, fix) }, trie: nil, record: nil))
+	siteRows.append(SiteRow(scenario: "(assoc {:id i} :name \"x\"), a transition per iteration", n: n, shape: measure(ops: n) { cljCall(shapeAssocNewFn, fix) }, trie: nil, record: nil))
+	for (name, f) in [("(:id m), record field 1 / shape slot 2", shapeGetIdFn), ("(:count m), record field 3 / shape slot 1", shapeGetCountFn), ("(:y m), field 5 of 5", shapeGetYFn), ("(get m :count), record field 3 / shape slot 1", shapeGetFormFn)] {
+		siteRows.append(SiteRow(scenario: name, n: n,
+			shape: measure(ops: n) { cljCall2(f, recv.shape, fix) },
+			trie: measure(ops: n) { cljCall2(f, recv.trie, fix) },
+			record: measure(ops: n) { cljCall2(f, recv.record, fix) }))
+	}
+	// The polymorphic site alternates two shapes; the trie column alternates a shape map with a trie (a miss every other call).
+	let other = cljEval("{:count 7 :z 8}")
+	siteRows.append(SiteRow(scenario: "(:count m), site over 2 shapes", n: n,
+		shape: measure(ops: n) { cljCall3(shapePolyFn, recv.shape, other, fix) },
+		trie: measure(ops: n) { cljCall3(shapePolyFn, recv.shape, recv.trie, fix) },
+		record: measure(ops: n) { cljCall3(shapePolyFn, recv.shape, recv.record, fix) }))
+	// Eight receivers through nth: one shape, four (the cache's capacity), eight (megamorphic), eight tries.
+	let cycleOne = cljEval("(vec (repeat 8 {:id 1 :name \"x\" :count 3 :x 4 :y 5}))")
+	let cycleFour = cljEval("[{:count 1 :a 1} {:count 2 :b 2} {:count 3 :c 3} {:count 4 :d 4} {:count 1 :a 1} {:count 2 :b 2} {:count 3 :c 3} {:count 4 :d 4}]")
+	let cycleEight = cljEval("[{:count 1 :a 1} {:count 2 :b 2} {:count 3 :c 3} {:count 4 :d 4} {:count 5 :e 5} {:count 6 :f 6} {:count 7 :g 7} {:count 8 :h 8}]")
+	clj_shapes_enable(false)
+	let cycleTries = cljEval("(mapv (fn [m] (into (hash-map 1 1) m)) [{:count 1 :a 1} {:count 2 :b 2} {:count 3 :c 3} {:count 4 :d 4} {:count 5 :e 5} {:count 6 :f 6} {:count 7 :g 7} {:count 8 :h 8}])")
+	clj_shapes_enable(true)
+	siteRows.append(SiteRow(scenario: "(:count (nth ms i)), 8 receivers of one shape", n: n, shape: measure(ops: n) { cljCall2(shapeCycleFn, cycleOne, fix) }, trie: nil, record: nil))
+	siteRows.append(SiteRow(scenario: "(:count (nth ms i)), 4 shapes", n: n, shape: measure(ops: n) { cljCall2(shapeCycleFn, cycleFour, fix) }, trie: nil, record: nil))
+	siteRows.append(SiteRow(scenario: "(:count (nth ms i)), 8 shapes (megamorphic)", n: n, shape: measure(ops: n) { cljCall2(shapeCycleFn, cycleEight, fix) }, trie: measure(ops: n) { cljCall2(shapeCycleFn, cycleTries, fix) }, record: nil))
+	// The JSON-shaped fold: 100k maps of one shape, as tries and as records.
+	let foldShapes = cljEval("(mapv (fn [i] {:id i :name \"x\" :count i}) (range 100000))")
+	clj_shapes_enable(false)
+	let foldTries = cljEval("(mapv (fn [i] (hash-map :id i :name \"x\" :count i)) (range 100000))")
+	clj_shapes_enable(true)
+	let foldRecords = cljEval("(mapv (fn [i] (->BenchShapePoint i \"x\" i 0 0)) (range 100000))")
+	precondition(!clj_is_shape_map(clj_vector_nth(foldTries, 0)))
+	siteRows.append(SiteRow(scenario: "(reduce (fn [acc m] (+ acc (:count m))) 0 maps), 100k maps", n: n,
+		shape: measure(ops: n) { cljCall(shapeFoldFn, foldShapes) },
+		trie: measure(ops: n) { cljCall(shapeFoldFn, foldTries) },
+		record: measure(ops: n) { cljCall(shapeFoldFn, foldRecords) }))
+	// Equality of two equal 5-key maps: same shape (slot compare), a shape map against a trie, two tries.
+	let eqA = cljEval("{:id 1 :name \"x\" :count 3 :x 4 :y 5}"), eqB = cljEval("{:id 1 :name \"x\" :count 3 :x 4 :y 5}")
+	clj_shapes_enable(false)
+	let eqT1 = cljEval("(hash-map :id 1 :name \"x\" :count 3 :x 4 :y 5)"), eqT2 = cljEval("(hash-map :id 1 :name \"x\" :count 3 :x 4 :y 5)")
+	clj_shapes_enable(true)
+	siteRows.append(SiteRow(scenario: "(= a b), two equal 5-key maps", n: n,
+		shape: measure(ops: n) { cljCall3(shapeEqFn, eqA, eqB, fix) },
+		trie: measure(ops: n) { cljCall3(shapeEqFn, eqT1, eqT2, fix) },
+		record: measure(ops: n) { cljCall3(shapeEqFn, eqA, eqT1, fix) }))
+	let pairs = cljEval("[[:id 1] [:name \"x\"] [:count 3] [:x 4] [:y 5]]")
+	let ks = cljEval("[:id :name :count :x :y]"), vs = cljEval("[1 \"x\" 3 4 5]")
+	let intoShape = measure(ops: n) { cljCall2(shapeIntoFn, pairs, fix) }
+	let zipShape = measure(ops: n) { cljCall3(shapeZipmapFn, ks, vs, fix) }
+	clj_shapes_enable(false)
+	let intoTrie = measure(ops: n) { cljCall2(shapeIntoFn, pairs, fix) }
+	let zipTrie = measure(ops: n) { cljCall3(shapeZipmapFn, ks, vs, fix) }
+	clj_shapes_enable(true)
+	siteRows.append(SiteRow(scenario: "(into {} pairs), 5 pairs", n: n, shape: intoShape, trie: intoTrie, record: nil))
+	siteRows.append(SiteRow(scenario: "(zipmap ks vs), 5 keys", n: n, shape: zipShape, trie: zipTrie, record: nil))
+	for v in [recv.shape, recv.trie, recv.record, other, cycleOne, cycleFour, cycleEight, cycleTries, foldShapes, foldTries, foldRecords, eqA, eqB, eqT1, eqT2, pairs, ks, vs] { clj_release(v) }
+}
+for v in [shapeLiteralFn, shapeAssocNewFn, shapeGetIdFn, shapeGetCountFn, shapeGetYFn, shapeGetFormFn, shapePolyFn, shapeCycleFn, shapeFoldFn, shapeEqFn, shapeIntoFn, shapeZipmapFn] { clj_release(v) }
+clj_release(shapePointType)
+
+// Pool cells handed out per map, with the trie's nodes included.
+func mapFootprint(_ build: () -> clj_value, count: Int) -> Double {
+	var held: [clj_value] = []
+	held.reserveCapacity(count)
+	let before = clj_debug_pool_used_bytes()
+	for _ in 0..<count { held.append(build()) }
+	let after = clj_debug_pool_used_bytes()
+	for v in held { clj_release(v) }
+	return Double(after - before) / Double(count)
+}
+
+let footprintCount = 200_000
+let shapeFootprint = mapFootprint(mapBuild5, count: footprintCount)
+let trieFootprint = mapFootprint(trieBuild5, count: footprintCount)
+let shapeCell = clj_debug_cell_size(24 + 5 * 8), trieWrapperCell = clj_debug_cell_size(40), trieNodeCell = clj_debug_cell_size(24 + 10 * 8)
+
+print("\n| scenario | n | record | shape map | trie | trie / shape |")
+print("|---|---:|---:|---:|---:|---:|")
+for r in shapeRows {
+	print("| \(r.scenario) | 100000 | \(fmt(r.record)) | \(fmt(r.shape)) | \(fmt(r.trie)) | \(ratio(r.shape, r.trie)) |")
+}
+print("\nns per op through the C API, as the Records section: record = a 5-field defrecord, shape map = {:id :name :count :x :y} as a shape map, trie = the same map built with shapes off")
+print("\n| scenario | n | shape map | trie | record |")
+print("|---|---:|---:|---:|---:|")
+for r in siteRows {
+	print("| \(r.scenario) | \(r.n) | \(fmt(r.shape)) | \(fmt(r.trie)) | \(fmt(r.record)) |")
+}
+print("\nns per iteration, interpreted: the counting loop plus the operation; the receiver columns are the same fn over a shape map, the same map as a trie (shapes off while building) and a 5-field record; the polymorphic row's trie column alternates the shape map with a trie, its record column with a record; the equality row's record column compares the shape map with the trie")
+print("\nbytes per 5-key map, pool cells over \(footprintCount) maps: shape map \(String(format: "%.0f", shapeFootprint)) (one \(shapeCell)-byte cell), trie \(String(format: "%.0f", trieFootprint)) (a \(trieWrapperCell)-byte wrapper and a \(trieNodeCell)-byte node, more with a hash collision at the root); shapes so far \(clj_debug_shape_count()), \(clj_debug_shape_bytes()) bytes of shapes and transitions")
+
 // MARK: - Arrays
 
 // The same summing loop over 1000 elements: aget on a long-array, nth on a vector, and the reduce slot of

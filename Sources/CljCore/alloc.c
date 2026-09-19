@@ -278,3 +278,13 @@ size_t clj_debug_cell_size(size_t size) {
 	if (size > MAX_SMALL || use_system_alloc()) return 0;
 	return class_cell(size_class(size));
 }
+
+size_t clj_debug_pool_used_bytes(void) {
+	heap *h = tls_heap;
+	if (!h || use_system_alloc()) return 0;
+	size_t total = 0;
+	for (int c = 0; c < NCLASSES; c++) {
+		for (const slab *s = h->slabs[c]; s; s = s->next) total += (size_t)s->used * s->cell;
+	}
+	return total;
+}

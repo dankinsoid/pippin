@@ -740,11 +740,11 @@ static void unit_pools(void) {
 	K[7] = clj_c_const("(vector? argv)", 14);
 	K[8] = clj_c_const("{}", 2);
 	K[9] = clj_c_const("(every? symbol? argv)", 21);
-	K[10] = clj_c_const("{:ns clojure.template, :file \"<embedded>/clojure/template.clj\", :arglists ([argv expr values]), :doc \"For use in macros. argv is an argument list as in defn; expr is a quoted expression using the\\n  symbols in argv; values is a sequence of values for them. Returns expr with the values substituted.\", :name apply-template, :line 6, :column 1}", 342);
+	K[10] = clj_c_const("{:arglists ([argv expr values]), :column 1, :doc \"For use in macros. argv is an argument list as in defn; expr is a quoted expression using the\\n  symbols in argv; values is a sequence of values for them. Returns expr with the values substituted.\", :file \"<embedded>/clojure/template.clj\", :line 6, :name apply-template, :ns clojure.template}", 342);
 	K[11] = clj_c_const("do-template", 11);
 	K[12] = clj_c_const("clojure.template/do-template", 28);
 	K[13] = clj_c_const("do", 2);
-	K[14] = clj_c_const("{:ns clojure.template, :file \"<embedded>/clojure/template.clj\", :arglists ([argv expr & values]), :macro true, :doc \"Repeatedly copies expr (in a do block) for each group of arguments in values, substituting them for argv.\", :name do-template, :line 14, :column 1}", 264);
+	K[14] = clj_c_const("{:arglists ([argv expr & values]), :column 1, :doc \"Repeatedly copies expr (in a do block) for each group of arguments in values, substituting them for argv.\", :file \"<embedded>/clojure/template.clj\", :line 14, :macro true, :name do-template, :ns clojure.template}", 264);
 	OP[0] = clj_c_intrinsic("clojure.core/vector?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/count", 1);

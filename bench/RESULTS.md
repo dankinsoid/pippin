@@ -1387,3 +1387,80 @@ ns per iteration; `n` = 100000 unless the row says otherwise.
   linker placed after it — the protocol dispatch and `clj_invoke` among it — landed on other fetch boundaries. So the
   resolution of these tables across a change to CljCore is ±1.5 ns on the call rows, not the ±2 of run-to-run noise
   alone; a row that moves by less proves nothing either way, and `-falign-functions=64` on both sides is the check.
+
+## Shapes — 2026-09-19, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Design §4's shapes by observation and the keyword-lookup site cache (NOTES.md "Shapes"). Two binaries, two runs
+each: the interpreted core (`swift build -c release`) and the closed compiled core with every bench form compiled
+(`-DCLJ_COMPILED_CORE -DCLJ_CLOSED`, `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`). The first table is
+the "Records" section's five rows through the C API for a 5-field record, the same five keywords as a shape map and
+the same map as a trie (built with `clj_shapes_enable(false)`); the shape's slots are in `compare`'s order (`count
+id name x y`), the record's in the basis's (`id name count x y`), so `:count` is the shape's first slot and the
+record's third. The second table is the interpreted/compiled sites: the counting loop plus one operation per
+iteration, the receivers built once outside the loop.
+
+ns per op, `n` = 100000, interpreted binary / compiled binary, two runs each.
+
+| scenario | record | shape map | trie |
+|---|---:|---:|---:|
+| `(:count r)`, record field 3 / shape slot 1, `clj_get` | 2.7 / 2.6 · 4.9 / 5.4 | 2.4 / 2.3 · 3.2 / 3.6 | 4.2 / 4.2 · 5.0 / 5.3 |
+| `(:id r)`, record field 1 / shape slot 2, `clj_get` | 1.8 / 1.7 · 1.8 / 1.8 | 2.7 / 2.6 · 2.5 / 2.6 | 4.3 / 4.2 · 4.4 / 4.3 |
+| `(assoc r :count v)`, unique | 4.5 / 4.5 · 4.4 / 4.4 | 3.7 / 3.7 · 3.7 / 3.8 | 8.8 / 8.0 · 8.0 / 8.0 |
+| `(assoc r :count v)`, shared | 28.7 / 28.9 · 29.5 / 28.0 | 23.5 / 23.4 · 22.4 / 22.7 | 54.1 / 57.0 · 55.2 / 53.3 |
+| `(update r :count inc)`, unique | 6.9 / 7.1 · 6.9 / 6.9 | 5.8 / 6.0 · 5.9 / 6.4 | 12.5 / 12.2 · 12.3 / 13.8 |
+
+ns per iteration through the sites, `n` = 100000; the first number pair is the interpreted binary, the second the
+compiled one.
+
+| scenario | shape map | trie | record |
+|---|---:|---:|---:|
+| literal `{:id i :name "x" :count i}` per iteration | 47.7 / 48.9 · 26.6 / 26.3 | — | — |
+| `(assoc {:id i} :name "x")`, a transition per iteration | 69.2 / 68.6 · 37.1 / 37.9 | — | — |
+| `(:id m)`, record field 1 / shape slot 2 | 28.0 / 28.2 · 6.0 / 5.9 | 32.0 / 32.1 · 11.5 / 11.3 | 29.1 / 28.3 · 6.4 / 6.4 |
+| `(:count m)`, record field 3 / shape slot 1 | 28.0 / 28.8 · 5.9 / 5.9 | 32.6 / 32.0 · 12.0 / 11.4 | 28.4 / 28.4 · 6.5 / 6.5 |
+| `(:y m)`, field 5 of 5 | 28.1 / 28.3 · 5.9 / 5.9 | 33.1 / 34.3 · 11.9 / 11.4 | 28.4 / 28.4 · 6.5 / 6.6 |
+| `(get m :count)`, record field 3 / shape slot 1 | 29.3 / 29.3 · 6.0 / 6.3 | 33.6 / 33.4 · 11.4 / 12.1 | 29.7 / 29.6 · 6.5 / 6.5 |
+| `(:count m)`, site over 2 shapes | 37.5 / 37.8 · 12.1 / 13.3 | 40.3 / 40.2 · 12.5 / 12.5 (a shape map and a trie) | 38.8 / 38.3 · 10.0 / 9.8 (a shape map and a record) |
+| `(:count (nth ms i))`, 8 receivers of one shape | 52.1 / 50.7 · 16.8 / 23.2 | — | — |
+| `(:count (nth ms i))`, 4 shapes | 52.4 / 53.4 · 26.0 / 26.2 | — | — |
+| `(:count (nth ms i))`, 8 shapes (megamorphic) | 53.5 / 53.7 · 27.0 / 18.5 | 52.8 / 53.3 · 31.8 / 21.4 | — |
+| `(reduce (fn [acc m] (+ acc (:count m))) 0 maps)`, 100k maps | 21.2 / 21.2 · 10.3 / 10.3 | 25.4 / 25.3 · 13.9 / 14.3 | 21.4 / 21.5 · 8.9 / 9.3 |
+| `(= a b)`, two equal 5-key maps | 33.9 / 34.0 · 14.8 / 16.6 | 57.1 / 57.3 · 37.4 / 38.7 | 60.3 / 60.4 · 43.1 / 40.3 (a shape map against a trie) |
+| `(into {} pairs)`, 5 pairs | 198.2 / 198.9 · 166.3 / 164.6 | 245.0 / 246.6 · 214.5 / 222.1 | — |
+| `(zipmap ks vs)`, 5 keys | 556.3 / 551.8 · 275.0 / 278.3 | 620.8 / 620.0 · 344.1 / 341.9 | — |
+
+Memory, pool cells over 200k maps of five keys: **a shape map is 64 bytes** (one cell: 16 header + 8 shape + 40
+values), **the trie 152** (a 40-byte wrapper and a 112-byte node; a hash collision at the root adds a 56-byte
+node). The shapes themselves: 61 shapes and their transitions after the bench, 8.2 KB; 321 after the corpus.
+
+- **The site cache makes the position of the key disappear.** Compiled, `(:id m)`, `(:count m)` and `(:y m)` are
+  5.9–6.0 ns each against 11.3–12.1 for the trie — slots 2, 1 and 5 of the shape — and the record's `(:count r)`,
+  the "Records" section's 2.8-ns middle-of-basis scan through `clj_get`, is 6.5 at the site like its first
+  field: the cached entry is the descriptor and the slot offset, the guard a pointer compare and a re-read of the
+  basis keyword. What is left over the accumulating loop (1.3) is the site: the receiver's flag and shape loads,
+  the entry compare, the slot load, the retain/release of the value and the tag-checked `+` of a ⊤ operand — about
+  4.5 ns, not the design's 1–2; the boxed `+` and the release are half of it. Interpreted, the site is 4 ns under
+  the trie's (28 against 32) and the loop is the other 25.
+- **Through the C API the shape map is 1.5–2.5× the trie**, as the record is: `clj_get` on a shape map is a pointer
+  scan (2.4 at slot 1, 2.7 at slot 2, the trie's hash and trie walk 4.2), a unique `assoc` writes the slot (3.7
+  against 8.0, the record's 4.5 pays its `nfields` read and extmap slot), a shared one copies 64 bytes and five
+  retains (23 against 55: two trie nodes). `(:count r)` on the *record* in the compiled-core binary reads 4.9–5.4
+  where the interpreted-core binary reads 2.7: the same C, laid out differently; the site rows are the ones that
+  matter and agree.
+- **A polymorphic site pays branch prediction, not lookups.** Two shapes alternating cost 12–13 (the `(if (even? i)
+  a b)` is ~4 of it); four shapes cycled through `nth` 26 against 17–23 for eight receivers of one shape, and the
+  megamorphic eight 18–27 — the generic `clj_get` on a two-key shape map (a scan of two pointers) is as fast as a
+  cache probe whose hit position changes every call and mispredicts. The trie under the same eight receivers is
+  21–32. Trigger for a move-to-front or a hashed probe: a profile with a hot polymorphic site.
+- **The JSON-shaped fold** — 100k maps of one shape, `(:count m)` per element — is 10.3 ns per map compiled against
+  13.9–14.3 for the trie and 8.9–9.3 for records (the reduce over a vector is ~5 of it); interpreted 21 against 25.
+- **Equality of two maps of one shape is a slot compare**: 14.8–16.6 against 37–39 for two tries and 40–43 for a
+  shape map against a trie (the entry walk through `clj_map_get` either way).
+- **Construction.** A three-key literal is 26 ns compiled: the shape is resolved once per site and the values go
+  into their slots, one 48-byte cell; the interpreted 48 is the three value evaluations around it. A transition
+  (`(assoc {:id i} :name "x")`, 37 compiled) is the literal plus a `clj_realloc` from a 32- to a 40-byte cell. `into
+  {}` and `zipmap` over five pairs move 214–222 → 165 and 342–344 → 275–278: the seq machinery around them is the
+  cost, the map a fifth of it.
+- **What went generic in the corpus** (the `CorpusTests` log prints the layout counters): 95k shape maps against
+  41k tries, all but six of the tries by a non-keyword key — the namespace tables keyed by symbols, the suites' own
+  integer- and string-keyed data —, six by `with-meta`, none by the 33rd key, the dictionary rule or the shape cap.
