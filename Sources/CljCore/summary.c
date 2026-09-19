@@ -419,12 +419,6 @@ static void summary_widen(clj_summary *sum) {
 	sum->effects = CLJ_EFFECT_ANY;
 }
 
-static const clj_fn_arity *arity_for(const clj_node *fn, uint32_t nargs) {
-	if (nargs <= CLJ_FN_MAX_FIXED && fn->u.fn.fixed[nargs]) return fn->u.fn.fixed[nargs];
-	const clj_fn_arity *v = fn->u.fn.variadic;
-	return v && nargs >= v->nparams ? v : NULL;
-}
-
 typedef struct {
 	uint32_t types;
 	bool     open; // Object or a core interface was extended: anything may satisfy
@@ -557,7 +551,7 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 			}
 		}
 		else if (f->kind == CLJ_FN_CLOSURE) {
-			const clj_fn_arity *ar = arity_for(f->u.node, nargs);
+			const clj_fn_arity *ar = clj_facts_arity_for(f->u.node, nargs);
 			if (ar) {
 				clj_fact params[CLJ_FN_MAX_FIXED + 1];
 				if (domains) domain_params(nargs, domains, params);

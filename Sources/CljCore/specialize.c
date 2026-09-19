@@ -14,12 +14,14 @@
 #define MAX_PER_TRIGGER 64
 #define MAX_PER_EXEC 3
 
+// What the index answered for the join, not what the parameters entered at: a self-site's contribution is derived
+// from this, so this is what moving invalidates.
 typedef struct {
 	clj_value           var;
 	const clj_node     *fn;
 	const clj_fn_arity *arity;
 	uint32_t            nparams;
-	clj_fact            params[CLJ_FN_MAX_FIXED + 1];
+	clj_fact            callers[CLJ_FN_MAX_FIXED + 1];
 } join_dep;
 
 struct clj_derivation {
@@ -257,7 +259,7 @@ static void enqueue_if_stale_in(clj_exec *ce, clj_value var) {
 		clj_fact now[CLJ_FN_MAX_FIXED + 1];
 		clj_callers_join(var, j->fn, j->arity, now);
 		for (uint32_t k = 0; k < j->nparams; k++) {
-			if (!clj_fact_eq(now[k], j->params[k])) {
+			if (!clj_fact_eq(now[k], j->callers[k])) {
 				push_work(ce);
 				return;
 			}
@@ -297,7 +299,7 @@ static void derive(clj_exec *e, uint32_t trigger) {
 		dep->fn = node_by_id(e->root, j->fn);
 		dep->arity = j->arity > CLJ_FN_MAX_FIXED ? dep->fn->u.fn.variadic : dep->fn->u.fn.fixed[j->arity];
 		dep->nparams = j->nparams;
-		memcpy(dep->params, j->params, sizeof dep->params);
+		memcpy(dep->callers, j->callers, sizeof dep->callers);
 	}
 	install_ctx ic = {e, f, d, 0};
 	install(e->root, &ic);
@@ -398,7 +400,7 @@ bool clj_exec_derivation_valid(clj_value exec) {
 		clj_fact now[CLJ_FN_MAX_FIXED + 1];
 		clj_callers_join(d->joins[i].var, d->joins[i].fn, d->joins[i].arity, now);
 		for (uint32_t k = 0; k < d->joins[i].nparams; k++) {
-			if (!clj_fact_eq(now[k], d->joins[i].params[k])) return false;
+			if (!clj_fact_eq(now[k], d->joins[i].callers[k])) return false;
 		}
 	}
 	return true;

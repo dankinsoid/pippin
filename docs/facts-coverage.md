@@ -34,9 +34,9 @@ load-path root is named `test` is counted apart, because assertion expansions ar
 - **Loops**: 61 over library code, **4.9 → 4.9 → 4.9 %** with every variable of one numeric domain.
 - **The caller join** (the third number of a cell): 865 arities of def'd fns asked for it over the whole corpus, 140
   came back narrower than ⊤ at some parameter; of 1102 parameters 147 are narrowed and 147 to one kind. Why a join
-  answered ⊤, over every ask of the run (the rounds included): 576 with no recorded site, 444 with a site passing ⊤ at
+  answered ⊤, over every ask of the run (the rounds included): 576 with no recorded site, 442 with a site passing ⊤ at
   some position (the join keeps the other positions), 1221 with the var read as a value somewhere (an argument, a
-  capture, `#'f`, `apply`: it may be called from anywhere), 0 `^:dynamic`; 354 answered without a ⊤ rule. Known
+  capture, `#'f`, `apply`: it may be called from anywhere), 0 `^:dynamic`; 356 answered without a ⊤ rule. Known
   types over library code with the join: 69.1 % of value nodes, 57.4 % of computed nodes. Conflicts a use raised
   against what the recorded callers pass: 0, warnings (no recorded call takes that path; not a proof).
 - **Protocol receivers** (the inline-cache prize): 26 sites, **0.0 → 100.0 %** with a known type. A receiver
@@ -50,7 +50,7 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 60 ms, with the summaries 69 ms, against 360 ms of analysis over the same forms
+- Cost: pass 1 alone 60 ms, with the summaries 70 ms, against 361 ms of analysis over the same forms
   (0.17× → 0.19×); the largest single table is 262 KB. The store holds 987 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
@@ -127,12 +127,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12463 | 6.8 | 3.1 | 3.9 | 4.0 | 0.46× → 0.58× | 367 | 13 |
-| embedded libs | 108 | 3710 | 1.7 | 0.7 | 1.1 | 1.1 | 0.42× → 0.65× | 114 | 6 |
-| clojure-test-suite | 516 | 415394 | 335.1 | 53.9 | 60.9 | 59.8 | 0.16× → 0.18× | 9880 | 262 |
-| medley | 104 | 22661 | 16.7 | 2.5 | 3.4 | 3.0 | 0.15× → 0.20× | 562 | 23 |
-| **library code** | 477 | 38834 | 25.2 | 6.3 | 8.4 | 8.2 | 0.25× → 0.33× | 1043 | 23 |
-| **all** | 993 | 454228 | 360.3 | 60.2 | 69.3 | 68.0 | 0.17× → 0.19× | 10923 | 262 |
+| core.clj | 265 | 12463 | 6.4 | 3.0 | 3.8 | 4.1 | 0.46× → 0.59× | 367 | 13 |
+| embedded libs | 108 | 3710 | 1.7 | 0.7 | 1.1 | 1.2 | 0.41× → 0.64× | 114 | 6 |
+| clojure-test-suite | 516 | 415394 | 336.2 | 54.3 | 61.6 | 60.4 | 0.16× → 0.18× | 9880 | 262 |
+| medley | 104 | 22661 | 16.3 | 2.4 | 3.3 | 3.0 | 0.15× → 0.20× | 562 | 23 |
+| **library code** | 477 | 38834 | 24.4 | 6.1 | 8.2 | 8.4 | 0.25× → 0.34× | 1043 | 23 |
+| **all** | 993 | 454228 | 360.6 | 60.4 | 69.8 | 68.7 | 0.17× → 0.19× | 10923 | 262 |
 
 ## Errors
 

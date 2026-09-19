@@ -60,6 +60,18 @@ private final class Facts {
 		return out
 	}
 
+	// The sites the table lists, as "name/nargs" in the order recorded.
+	var sites: [String] {
+		(0..<clj_facts_nsites(table)).map { i in
+			var node: UInt32 = 0, nargs: UInt32 = 0
+			var v: clj_value = 0
+			var args: UnsafePointer<clj_fact>?
+			var inFn = false
+			_ = clj_facts_site(table, i, &node, &v, &nargs, &args, &inFn)
+			return Value(borrowing: clj_var_name(v)).description + "/\(nargs)"
+		}
+	}
+
 	var conflicts: UInt32 { clj_facts_conflicts(table) }
 	var widenings: UInt32 { clj_facts_widenings(table) }
 
@@ -323,6 +335,24 @@ extension CoreTests {
 				#expect(try Facts("(fn [] map)").fact(CLJ_NODE_VAR) == "⊤/maybe")
 				// a variadic rest parameter is the seq of the extra arguments, or nil
 				#expect(try Facts("(fn [& more] more)").fact(CLJ_NODE_LOCAL) == "nil|seq/maybe")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A def'd fn's call of itself at its own arity is no site of the table, with or without a store: it belongs to
+		// the entry's own join (callers.c, CallersTests). Another arity, a nested fn's call and a fused program's stay.
+		@Test func selfSitesAreNotSites() throws {
+			_ = try rt.eval("(declare fx-self)")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try Facts("(defn fx-self [n] (if (<= n 1) 1 (* n (fx-self (dec n)))))").sites == ["<=/2", "dec/1", "*/2"])
+				#expect(try Facts("(defn fx-self ([n] (fx-self n 0)) ([n acc] (if (zero? n) acc (fx-self (dec n) (+ acc n)))))").sites == ["fx-self/2", "zero?/1", "dec/1", "+/2"])
+				#expect(try Facts("(defn fx-self [n] (map (fn [k] (fx-self k)) [n]))").sites == ["fx-self/1", "map/2"])
+				#expect(try Facts("(defn fx-self [n] (let [g (fn [k] (fx-self k))] (g n)))").sites == ["fx-self/1"])
+				#expect(try Facts("(defn fx-self [n] (loop [i n] (if (pos? i) (recur (fx-self (dec i))) i)))").sites == ["pos?/1", "dec/1"])
+				// not the init of a def: an ordinary site
+				#expect(try Facts("(fn [n] (fx-self n))").sites == ["fx-self/1"])
+				#expect(try Facts("(defn ^:dynamic fx-self [n] (fx-self n))").sites == ["fx-self/1"])
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

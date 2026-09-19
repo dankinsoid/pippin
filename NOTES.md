@@ -1218,7 +1218,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   asked, and a sanitizer build's frames are large (UBSan overflowed at ~45 nested nodes over the 512 KB of a
   test thread). So: every var a tree calls is summarized *before* its walk, at the top of the stack
   (`warm_summaries`), at most 6 summary computations nest, and a summary walk stops descending past 40 nodes
-  of total depth (`CLJ_FACTS_MAX_WALK_DEPTH`) and answers ⊤ for the subtree — the recording walk is never cut.
+  of total depth (`CLJ_FACTS_MAX_WALK_DEPTH`) and answers ⊤ for the subtree — the recording walk is never cut, and
+  neither are its loop-fixpoint rounds nor the self walk of the caller join (`pass.bounded` marks the store's walks
+  alone; the first version keyed the cut on `!record`, which cut a recording walk's own rounds at depth 40).
   A summary can therefore depend on how deep it was first asked for; the warm phase makes the first ask
   shallow for everything a tree names directly.
 - **Pass 2: at every call site the caller's fact meets the callee's requirement.** The meet is the argument
@@ -1348,8 +1350,28 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   site with n arguments feeds the fixed arity n, else the variadic one, whose rest parameter takes nothing),
   kinds and nullability only — no singleton, which would borrow a caller's constant, and no descriptor,
   which may die — and records the join with the epoch it was read under (`clj_facts_join_at`, checked by
-  `clj_facts_valid` beside the var deps). The **⊤ rules**, each a reason the join reports: *no site*
-  recorded (a fn nobody calls yet: unknown, not ⊥, or every use in its body would be a false error); a site
+  `clj_facts_valid` beside the var deps). **A fn's own site is no site of the index: it enters the entry's own
+  join.** `(defn fact [n] (if (<= n 1) 1 (* n (fact (dec n)))))` recorded as any other site would put `n` at ⊤ into
+  its own join before any caller exists — "a number" — and every later join would rest on that, which is exactly the
+  poison the first version had (`fact` never got a worker). So a call of the def'd var from the arity's own frame,
+  resolving to that same arity (`self_site`: same var, `in_fn` at the frame's depth, `clj_facts_arity_for`; nested
+  fns, direct fns and fused programs are other frames and stay recorded), is dropped from the table's site list in
+  every mode, and `enter_join` closes the join over it: `callers` is what the index answered over the external
+  sites, `params` starts there and, when some position is narrower than ⊤ and the body has such a site
+  (`scan_self_sites`), takes in what the self-sites pass under it — the body walked again with the parameters at the
+  join, recording nothing, entering no nested fn (`self_sites_join`, a `pass` with `self_join` set) — until nothing
+  moves; a position still moving after `WIDEN_ROUNDS` = 3 goes to ⊤ and every round past that widens what moved, so
+  the loop ends within `nparams` more rounds (`self_fixpoint`; `self_rounds`, `self_widened` on the join). `fact`:
+  the external join is a fixnum, the self-site under it passes int64, under int64 it passes int64 — two walks. A
+  self-site passing ⊤ (`(f @box)`) makes the position ⊤ and the reason `CLJ_JOIN_TOP_ARG`, as a recorded ⊤ site
+  would; a self-site that climbs kind by kind (`(f (str x))`, `(f (keyword x))`, …) widens. An arity calling the
+  fn's *other* arity (`(defn sum ([n] (sum n 0)) ([n acc] …))`) is a caller like any other: recorded with the facts
+  the one-parameter arity's own join gave it, so the two-parameter arity reaches int64 through the re-derivation
+  the new site queues (specialize.c), not inside one table. The consumers compare the index against `callers`
+  (`enqueue_if_stale_in`, `clj_exec_derivation_valid`) and enter and emit against `params`. The self walk is the
+  recording walk's, so the depth cut of a summary walk does not apply to it (`pass.bounded`, the budget bullet
+  above). The **⊤ rules**, each a reason the join reports: *no site* recorded (a fn nobody calls yet: unknown,
+  not ⊥, or every use in its body would be a false error); a site
   passing *⊤ at that position* (the other positions keep their join); the var *read as a value* anywhere
   live (it may be called from a place the index cannot see); `^:dynamic` (a binding may put anything
   behind the var). The host boundary is a fifth, unrecorded caller, which is why no consumer trusts the join
@@ -1385,8 +1407,13 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   generic summary said "a number". This is the transfer function of design §3 for a body the analyzer sees, sound on
   the site's own argument facts alone (no join is involved): the parameters enter at exactly what the site passes. A
   declared result meets the specialized one; the declaration's own diagnostics are the generic entry's. It is what the
-  compiler's primitive entry reads on both sides of a call (the Compiler entry). Over the corpus the store holds 987
-  entries instead of 743 and no coverage percentage moves: the corpus has few numeric helpers called from typed loops.
+  compiler's primitive entry reads on both sides of a call (the Compiler entry). A recursive call inside the
+  specialized walk asks the specialized entry again (`specialized_of` keys on the site's own argument facts, which
+  rest on the domain parameters), finds it running and takes its optimistic ⊥ — the rule below — so `fact` at int64
+  is fixnum after the first round and int64 after the second, `fib` int64 in two, and `(defn halve-n [x n] (if (zero?
+  n) x (halve-n (/ x 2.0) (dec n))))` at (double, int64) double; the generic entry, computed inside the first round
+  with the parameters at ⊤, stays "a number". Over the corpus the store holds 987 entries instead of 743 and no
+  coverage percentage moves: the corpus has few numeric helpers called from typed loops.
 - **⊥ through a call in a summary walk.** A summary walk (`pass.summary`) answers ⊥ for a call whose argument is ⊥:
   the optimistic value of a fixpoint in flight, or a branch a refinement killed — the call is not reached, so its
   result joins nothing, and `(defn fact [n] (if (zero? n) 1 (* n (fact (dec n)))))` at an int64 argument climbs from
@@ -2205,10 +2232,22 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   overflow check, the add with its, the tick's two loads, the increment, the compare — and no `bl`. In core.clj
   compiled closed one arity qualifies (`mod`); of the other 326 non-variadic arities of 1–8 parameters 175 have no
   recorded caller, 99 a site passing ⊤ at some position, 34 are read first-class, 15 have a non-numeric parameter by
-  the join and 3 a numeric join with a non-numeric result (`range`, `rand`, `rand-int`). *Deferred, each with its
-  trigger.* A self-recursive fn's own site is recorded with its parameters at ⊤ before any join exists, so `fact`'s
-  join is "a number" and it gets no worker — trigger: a hot recursive numeric fn, then the self-site re-recorded under
-  the entry's own join (the fixpoint the report tool runs for three rounds). A non-leaf worker is not tried from the
+  the join and 3 a numeric join with a non-numeric result (`range`, `rand`, `rand-int`). *A self-recursive fn* gets
+  its worker since the fn's own site enters the entry's own join (the Facts entry, the caller join): `fact`, `fib`,
+  `halve-n` over (double, int64) and both arities of `(defn sum-to ([n] (sum-to n 0)) ([n acc] …))` in `arith.clj`,
+  the recursion a call from the worker to itself (`CLJC_CALL_` by name, an `int64_t` in, a `clj_wlong` back), a
+  self-site passing ⊤ (`rec-top`, a deref) still none; a worker that calls is no leaf, so the boxed wrapper does not
+  try it and a top-level `(fact 21)` overflows on the boxed path where `(defn fact-over [] (fact 21))` overflows in
+  the worker, the same message. Measured (bench/RESULTS.md, "The self-recursive worker"): `(fact 20)` 6.3 → 1.5 ns
+  per recursive call, `(fib 25)` 8.1 → 1.7 per call. In core.clj it adds no arity: none of the 118 arities with a
+  narrowed join has a site of its own arity (core's recursive fns are over seqs, through another arity, or read
+  first-class), so the count stays at `mod`. *Deferred, each with its trigger.* Two def'd fns recursing through each
+  other (`(defn ev [n] … (od (dec n)))`, `(defn od [n] … (ev (dec n)))`) get no worker: each one's site in the other
+  is an ordinary recorded site, first recorded with the other's parameters at ⊤, and a re-derivation only ever
+  re-records under the join that site itself made "a number" — the cycle sits at its greatest fixpoint, and the self
+  rule reaches one arity, not a component. Trigger: a hot mutually recursive numeric pair in a profile, then the
+  self rule over a strongly connected component of the def'd call graph: the sites inside the component dropped from
+  the index, its joins started from the external sites alone and closed together. A non-leaf worker is not tried from the
   boxed wrapper — trigger: a boxed caller of a large numeric fn in a profile, then a trace rule for a frame under its
   own wrapper. A variadic `+` is no intrinsic and answers "a number" — trigger: the optimizer's n-ary lowering. A boxed
   argument with an int64 fact (a `count`, a parameter of a fn that is no worker) takes the boxed twin and its tag check
@@ -2316,6 +2355,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - The "C iterator" number (3.8 ns/element) moves to 4.3 with identical machine code when the linker
   places `clj_seq_iter_next`/`clj_vector_nth` differently; `aligned(64)` on both brings it back.
   Compare that row across builds only with the alignment forced, or read it as ±0.5 ns.
+- The same for the call rows of the compiled-core binary, at ±1.5 ns: a change to facts.c alone moved every
+  protocol-call row 7.7 → 9.1 with byte-identical compiled-eval C (`CLJ_EVAL_KEEP=1` keeps it for the diff), and
+  `-Xcc -falign-functions=64` on both sides took the gap to 0.3 (bench/RESULTS.md, "The self-recursive worker").
+  A CljCore change that shows less than that on a call row it does not touch is layout until the aligned build says
+  otherwise.
 - Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).

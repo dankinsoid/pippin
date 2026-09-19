@@ -33,7 +33,10 @@ extension CoreTests {
 			    (defn sp-dbl [n] (loop [i 0 x 0.0] (if (< i n) (recur (inc i) (+ x 0.5)) x)))
 			    (defn sp-dbl-ops [a b] [(+ a b) (- a b) (* a b) (/ a b) (< a b) (<= a b) (> a b) (>= a b) (= a b) (zero? a) (pos? a) (neg? a) (inc a) (dec a)])
 			    (defn sp-fd [i d] [(+ i d) (- i d) (* i d) (/ i d) (< i d) (<= i d) (> i d) (>= i d) (= i d)])
-			    (defn sp-df [d i] [(+ d i) (- d i) (* d i) (/ d i) (< d i) (<= d i) (> d i) (>= d i)]))
+			    (defn sp-df [d i] [(+ d i) (- d i) (* d i) (/ d i) (< d i) (<= d i) (> d i) (>= d i)])
+			    (defn sp-fact [n] (if (<= n 1) 1 (* n (sp-fact (dec n)))))
+			    (defn sp-halve [x] (if (< x 1.0) x (sp-halve (/ x 2.0))))
+			    (defn sp-two ([n] (sp-two n 0)) ([n acc] (if (zero? n) acc (sp-two (dec n) (+ acc n))))))
 			""")
 		}
 
@@ -113,6 +116,34 @@ extension CoreTests {
 			#expect(try rt.eval("(with-redefs [* -] (sp-mul 6 7))").int == -1)
 			#expect(try specialized(rt, "sp-mul", "*"))
 			#expect(try rt.eval("(sp-mul 6 7)").int == 42)
+		}
+
+		// A self-recursive fn: its own site enters the entry's own join (NOTES.md "Facts", the caller join), so one
+		// external caller passing a fixnum puts the whole recursion on the fixnum path; an arity calling the fn's other
+		// arity is a caller like any other and reaches it through the re-derivation the new site queues.
+		@Test func selfRecursion() throws {
+			#expect(!(try specialized(rt, "sp-fact", "*")))
+			#expect(!(try specialized(rt, "sp-fact", "<=")))
+			_ = try rt.eval("(defn sp-fact-run [] (sp-fact 20))")
+			for op in ["*", "<=", "dec"] { #expect(try specialized(rt, "sp-fact", op), Comment(rawValue: op)) }
+			#expect(clj_exec_derivation_valid(try execOf(rt, "sp-fact")))
+			#expect(try rt.eval("(sp-fact-run)").description == "2432902008176640000")
+			#expect(cljEvalError("((fn [] (sp-fact 25)))")?.contains("integer overflow") == true)
+			#expect(try rt.eval("(sp-fact 3.5)").double == 13.125)
+			#expect(try specialized(rt, "sp-fact", "*"))
+			_ = try rt.eval("(defn sp-halve-run [] (sp-halve 8.0))")
+			#expect(try specialized(rt, "sp-halve", "/"))
+			#expect(try specialized(rt, "sp-halve", "<"))
+			#expect(try rt.eval("(sp-halve-run)").double == 0.5)
+			_ = try rt.eval("(defn sp-two-run [] (sp-two 100))")
+			for op in ["zero?", "dec", "+"] { #expect(try specialized(rt, "sp-two", op), Comment(rawValue: op)) }
+			#expect(clj_exec_derivation_valid(try execOf(rt, "sp-two")))
+			#expect(try rt.eval("(sp-two-run)").int == 5050)
+			// a caller passing a double de-specializes the recursion, and the result is right either way
+			_ = try rt.eval("(defn sp-fact-run-dbl [] (sp-fact 3.5))")
+			#expect(!(try specialized(rt, "sp-fact", "*")))
+			#expect(try rt.eval("(sp-fact-run)").description == "2432902008176640000")
+			#expect(try rt.eval("(sp-fact-run-dbl)").double == 13.125)
 		}
 
 		// A dynamic var and a loop whose variable turns double are never specialized; the predicates are.

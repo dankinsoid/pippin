@@ -443,7 +443,17 @@ typedef struct {
 	bool          head;    // the node being inferred is the head of a call, not a value read
 	uint32_t      joined;  // frames whose parameters came from a caller join the walk is inside of
 	uint32_t      in_fn;   // fn bodies the walk is inside of
+	uint32_t      in_fused; // fused programs the walk is inside of
 	bool          summary; // a summary walk: nothing is stored, and a BOTTOM argument makes a call unreachable
+	bool          bounded; // a store's walk: cut past CLJ_FACTS_MAX_WALK_DEPTH, the C stack being shared with the asker
+	// The def'd arity being walked, whose own sites (same var, same arity, in its own frame) are no recorded sites but
+	// the self fixpoint's: joined into self_join when it is set, dropped otherwise (NOTES.md "Facts", the caller join).
+	clj_value           self_var;
+	const clj_node     *self_fn;
+	const clj_fn_arity *self_arity;
+	uint32_t            self_depth; // in_fn at that arity's frame
+	clj_fact           *self_join;
+	bool                self_hit;
 } pass;
 
 typedef enum { USE_NONE, USE_CAPTURE, USE_ESCAPE } use_kind;
@@ -616,9 +626,81 @@ static uint32_t push_frame(pass *p, uint32_t owner, uint32_t arity, const clj_no
 	return f->nframes++;
 }
 
-// The parameters of a def'd fn's arity enter at the join of what every recorded caller passes (summary.h); true when
-// some position is narrower than TOP, so the frame's conflicts are reported against the recorded callers, not proven.
-static bool enter_join(pass *p, clj_value var, const clj_node *fn, const clj_fn_arity *a, env *e) {
+static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_node *body, const clj_fact *captured,
+                      uint32_t ncaptured, const clj_fact *self, clj_summary *out, const clj_node *fn, clj_value join_var,
+                      const clj_fact *params_at);
+static void free_scratch(clj_facts *f);
+
+typedef struct {
+	clj_value           var;
+	const clj_node     *fn;
+	const clj_fn_arity *arity;
+	bool                found;
+} self_scan;
+
+// Whether the arity's own frame calls its var at its own arity; nested fns and fused programs are other frames.
+static void scan_self_sites(const clj_node *n, void *ctx) {
+	self_scan *sc = ctx;
+	if (sc->found) return;
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+	case CLJ_NODE_FUSED: return;
+	case CLJ_NODE_INVOKE:
+		if (n->u.invoke.fn->kind == CLJ_NODE_VAR && n->u.invoke.fn->u.var == sc->var && clj_facts_arity_for(sc->fn, n->u.invoke.n) == sc->arity)
+			sc->found = true;
+		break;
+	default: break;
+	}
+	clj_node_children(n, scan_self_sites, ctx);
+}
+
+// What the arity's own sites pass with the parameters at params, joined per position into out (BOTTOM where none
+// passes): the body walked once more, storing nothing, entering no nested fn. False when no site was reached.
+static bool self_sites_join(pass *p, clj_value var, const clj_node *fn, const clj_fn_arity *a, const clj_fact *captured, uint32_t ncaptured,
+                            const clj_fact *self, const clj_fact *params, clj_fact *out) {
+	clj_facts scratch = {0};
+	scratch.conflict_node = UINT32_MAX;
+	scratch.sums = p->f->sums;
+	pass q = {.f = &scratch, .def_var = CLJ_NIL, .summary = true, .self_var = var, .self_fn = fn, .self_arity = a, .self_join = out};
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) out[i] = clj_fact_bottom();
+	run_frame(&q, fn->id, a, a->body, captured, ncaptured, self, NULL, NULL, CLJ_NIL, params);
+	free(q.alias_from);
+	free(q.alias_to);
+	free_scratch(&scratch);
+	return q.self_hit;
+}
+
+// The entry's own join: the parameters start at what the recorded (external) callers pass and take in what the
+// arity's own sites pass under them, until nothing moves; a position still moving after WIDEN_ROUNDS goes to TOP,
+// and every round after that widens what moved, so the loop ends within nparams more (NOTES.md "Facts").
+static void self_fixpoint(pass *p, clj_facts_join *j, const clj_node *fn, const clj_fn_arity *a, const clj_fact *captured, uint32_t ncaptured,
+                          const clj_fact *self) {
+	for (uint32_t round = 0;; round++) {
+		clj_fact passed[CLJ_FN_MAX_FIXED + 1];
+		j->self_rounds++;
+		if (!self_sites_join(p, j->var, fn, a, captured, ncaptured, self, j->params, passed)) return;
+		uint64_t moved = 0;
+		for (uint32_t i = 0; i < a->nparams; i++) {
+			clj_fact next = clj_fact_join(j->params[i], passed[i]);
+			if (clj_fact_eq(next, j->params[i])) continue;
+			j->params[i] = next;
+			moved |= (uint64_t)1 << i;
+		}
+		if (!moved) return;
+		if (round + 1 < WIDEN_ROUNDS) continue;
+		for (uint32_t i = 0; i < a->nparams; i++) {
+			if ((moved >> i) & 1) j->params[i] = clj_fact_top();
+		}
+		j->self_widened = true;
+	}
+}
+
+// The parameters of a def'd fn's arity enter at the join of what every recorded caller passes (summary.h), closed
+// over the arity's own sites; true when some position is narrower than TOP, so the frame's conflicts are reported
+// against the recorded callers, not proven.
+static bool enter_join(pass *p, clj_value var, const clj_node *fn, const clj_fn_arity *a, env *e, const clj_fact *captured, uint32_t ncaptured,
+                       const clj_fact *self) {
 	clj_facts *f = p->f;
 	if (!p->record || !f->sums || !clj_summaries_callers_on(f->sums) || !clj_is_var(var)) return false;
 	if (f->njoins == f->cjoins) {
@@ -632,10 +714,21 @@ static bool enter_join(pass *p, clj_value var, const clj_node *fn, const clj_fn_
 	j->fn = fn->id;
 	j->arity = a->variadic ? CLJ_FN_MAX_FIXED + 1 : a->nparams;
 	j->nparams = a->nparams;
-	j->reason = clj_callers_join(var, fn, a, j->params);
+	j->reason = clj_callers_join(var, fn, a, j->callers);
+	memcpy(j->params, j->callers, sizeof j->params);
 	bool narrowed = false;
+	for (uint32_t i = 0; i < a->nparams; i++) narrowed = narrowed || !clj_fact_is_top(j->params[i]);
+	if (narrowed) {
+		self_scan sc = {var, fn, a, false};
+		scan_self_sites(a->body, &sc);
+		if (sc.found) self_fixpoint(p, j, fn, a, captured, ncaptured, self);
+	}
+	narrowed = false;
 	for (uint32_t i = 0; i < a->nparams && i < e->n; i++) {
-		if (clj_fact_is_top(j->params[i])) continue;
+		if (clj_fact_is_top(j->params[i])) {
+			if (j->reason == CLJ_JOIN_OK) j->reason = CLJ_JOIN_TOP_ARG;
+			continue;
+		}
 		e->slots[i] = j->params[i];
 		narrowed = true;
 	}
@@ -657,11 +750,22 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 		if (a->variadic && a->nparams < nslots) e.slots[a->nparams] = fact_of(CLJ_T_LIST | CLJ_T_NIL);
 		if (a->self_slot >= 0 && (uint32_t)a->self_slot < nslots && self) e.slots[a->self_slot] = *self;
 		for (uint32_t i = 0; params_at && i < a->nparams && i < nslots; i++) e.slots[i] = params_at[i];
-		if (fn) joined = enter_join(p, join_var, fn, a, &e);
+		if (fn) joined = enter_join(p, join_var, fn, a, &e, captured, ncaptured, self);
 	}
 	frame_ctx    *saved_frame = p->frame;
 	recur_target *saved_recur = p->recur;
 	uint32_t      base = p->nalias;
+	// a def'd arity's own sites are never recorded sites, join or no join: the site list must not depend on the mode
+	clj_value           saved_self_var = p->self_var;
+	const clj_node     *saved_self_fn = p->self_fn;
+	const clj_fn_arity *saved_self_arity = p->self_arity;
+	uint32_t            saved_self_depth = p->self_depth;
+	if (fn && clj_is_var(join_var)) {
+		p->self_var = join_var;
+		p->self_fn = fn;
+		p->self_arity = a;
+		p->self_depth = p->in_fn;
+	}
 	uint32_t      params[CLJ_FN_MAX_FIXED + 1];
 	clj_fact      pf[CLJ_FN_MAX_FIXED + 1];
 	uint32_t      np = 0;
@@ -697,6 +801,10 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 	p->frame = saved_frame;
 	p->recur = saved_recur;
 	p->effects = effects; // a closure body's effects are its own, not the definer's
+	p->self_var = saved_self_var;
+	p->self_fn = saved_self_fn;
+	p->self_arity = saved_self_arity;
+	p->self_depth = saved_self_depth;
 	env_free(&e);
 }
 
@@ -1010,6 +1118,23 @@ bool clj_facts_signature(uint32_t i, const char **name, uint32_t *arity, clj_fac
 	return true;
 }
 
+// A call of the def'd arity being walked from its own frame: what it passes rests on the parameters, so it enters the
+// entry's own join (the self fixpoint) rather than the index. A fused program's sites stay recorded: the fixpoint's
+// walk does not enter one.
+static bool self_site(const pass *p, clj_value var, uint32_t n) {
+	if (!clj_is_var(p->self_var) || var != p->self_var || p->in_fn != p->self_depth || p->in_fused) return false;
+	return clj_facts_arity_for(p->self_fn, n) == p->self_arity;
+}
+
+// What a join keeps of a passed fact: the kinds and the nullability, never a borrowed constant or a descriptor.
+static clj_fact site_fact(clj_fact f) {
+	f.singleton = CLJ_UNBOUND;
+	f.desc = NULL;
+	f.elem = 0;
+	f.unreachable = 0;
+	return f;
+}
+
 // What the call passes, before the callee's requirement narrows it: a site of the reverse index (summary.h).
 static void record_site(pass *p, const clj_node *site, clj_value var, uint32_t n, const clj_fact *have) {
 	clj_facts *f = p->f;
@@ -1067,7 +1192,11 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 			return clj_fact_bottom();
 		}
 	}
-	record_site(p, site, var, n, have);
+	if (self_site(p, var, n)) {
+		for (uint32_t i = 0; p->self_join && i < n && i <= CLJ_FN_MAX_FIXED; i++) p->self_join[i] = clj_fact_join(p->self_join[i], site_fact(have[i]));
+		p->self_hit = true;
+	}
+	else record_site(p, site, var, n, have);
 	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
 	if (!sum) p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
@@ -1174,8 +1303,10 @@ static clj_fact infer_fused(pass *p, const clj_node *n, env *e) {
 		p->frame = &fc;
 		p->recur = NULL;
 		env      copy = env_clone(&fe);
+		p->in_fused++;
 		clj_fact a = infer(p, n->u.fused.fused, &fe, USE_ESCAPE);
 		clj_fact b = infer(p, n->u.fused.original, &copy, USE_ESCAPE);
+		p->in_fused--;
 		r = clj_fact_join(a, b);
 		resolve_aliases(p, base);
 		p->frame = saved_frame;
@@ -1196,7 +1327,7 @@ uint32_t clj_facts_walk_depth(void) { return walk_depth; }
 static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use);
 
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
-	if (!p->record && walk_depth >= CLJ_FACTS_MAX_WALK_DEPTH) {
+	if (p->bounded && walk_depth >= CLJ_FACTS_MAX_WALK_DEPTH) {
 		p->effects |= CLJ_EFFECT_ANY;
 		return clj_fact_top();
 	}
@@ -1450,7 +1581,7 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0, CLJ_NIL, false, 0, 0, false};
+	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL};
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
@@ -1466,7 +1597,7 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	f->warn = clj_facts_warnings_enabled(clj_ns_current());
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {f, NULL, NULL, true, false, NULL, NULL, 0, 0, 0, 0, CLJ_NIL, false, 0, 0, false};
+	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL};
 	if (sums) warm_summaries(root, sums);
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL, NULL);
 	free(p.alias_from);
@@ -1482,23 +1613,28 @@ static void free_sites(clj_facts *f) {
 	free(f->joins);
 }
 
+// A table no consumer sees, walked for its side answers alone (a summary, the self fixpoint): everything but nodes.
+static void free_scratch(clj_facts *f) {
+	free(f->frames);
+	free(f->escape);
+	free(f->loops);
+	free(f->vars);
+	free(f->diags);
+	free(f->dep_vars);
+	free(f->dep_epochs);
+	free_sites(f);
+}
+
 void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summaries *sums, clj_summary *out, const clj_fact *params) {
 	clj_facts f = {0};
 	f.conflict_node = UINT32_MAX;
 	f.sums = sums;
-	pass     p = {&f, NULL, NULL, false, false, NULL, NULL, 0, 0, 0, 0, CLJ_NIL, false, 0, 0, true};
+	pass     p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .self_var = CLJ_NIL};
 	clj_fact self = fact_of(CLJ_T_FN);
 	run_frame(&p, fn->id, a, a->body, NULL, 0, &self, out, NULL, CLJ_NIL, params);
 	free(p.alias_from);
 	free(p.alias_to);
-	free(f.frames);
-	free(f.escape);
-	free(f.loops);
-	free(f.vars);
-	free(f.diags);
-	free(f.dep_vars);
-	free(f.dep_epochs);
-	free_sites(&f);
+	free_scratch(&f);
 }
 
 void clj_facts_free(clj_facts *f) {

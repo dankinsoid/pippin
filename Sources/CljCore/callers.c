@@ -7,6 +7,7 @@
 #include "clj/lock.h"
 #include "clj/summary.h"
 #include "clj/var.h"
+#include "facts_internal.h"
 
 typedef struct {
 	const void *owner;
@@ -242,13 +243,6 @@ void clj_callers_forget(const void *owner) {
 	clj_lock_unlock(&lock);
 }
 
-// Which arity of fn a call with nargs arguments enters, as the evaluator resolves it.
-static const clj_fn_arity *arity_for(const clj_node *fn, uint32_t nargs) {
-	if (nargs <= CLJ_FN_MAX_FIXED && fn->u.fn.fixed[nargs]) return fn->u.fn.fixed[nargs];
-	const clj_fn_arity *v = fn->u.fn.variadic;
-	return v && nargs >= v->nparams ? v : NULL;
-}
-
 clj_join_reason clj_callers_join(clj_value var, const clj_node *fn, const clj_fn_arity *arity, clj_fact *out) {
 	uint32_t np = arity->nparams;
 	for (uint32_t i = 0; i < np; i++) out[i] = clj_fact_top();
@@ -262,7 +256,7 @@ clj_join_reason clj_callers_join(clj_value var, const clj_node *fn, const clj_fn
 		for (uint32_t i = 0; i < np; i++) out[i] = clj_fact_bottom();
 		for (uint32_t k = 0; e && k < e->nsites; k++) {
 			const site *s = &e->sites[k];
-			if (arity_for(fn, s->nargs) != arity) continue;
+			if (clj_facts_arity_for(fn, s->nargs) != arity) continue;
 			any = true;
 			for (uint32_t i = 0; i < np && i < s->nkept; i++) out[i] = clj_fact_join(out[i], s->args[i]);
 		}

@@ -71,3 +71,17 @@
          (try (qr-zero) (catch :default e (ex-message e))) (try (qr-min) (catch :default e (ex-message e))) (try (sq "a") (catch :default e (ex-message e)))
          (try (sq 9223372036854775807) (catch :default e (ex-message e))) (try (rem 1 0) (catch :default e (ex-message e))) (try (quot 1.0 0) (catch :default e (ex-message e)))
          (map sq [1 2 3]) (apply half [5]) (quot 7 2) (rem -7 2) (quot -7.5 2) (rem 7.5 -2) (quot 10N 3) (rem 2/3 1/4))
+
+;; self-recursive fns: the entry's own join (a fn's own site rests on its parameters), so fact and fib get a worker
+;; and recurse worker to worker; one with a double, one whose self-site passes ⊤ (a deref) gets none
+(def rec-box (atom 0))
+(defn fact [n] (if (<= n 1) 1 (* n (fact (dec n)))))
+(defn fib [n] (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
+(defn halve-n [x n] (if (zero? n) x (halve-n (/ x 2.0) (dec n))))
+(defn rec-top [n] (if (zero? n) 0 (rec-top @rec-box)))
+(defn sum-to ([n] (sum-to n 0)) ([n acc] (if (zero? n) acc (sum-to (dec n) (+ acc n)))))
+(defn run-rec [] [(fact 20) (fib 20) (halve-n 8.0 3) (rec-top 3) (sum-to 100)])
+(defn fact-over [] (fact 21))
+(println (run-rec) (fact 3.5) (fact 25N) (fib 10) (halve-n 12 2) (sum-to 10) (rec-top 0)
+         (try (fact-over) (catch :default e (ex-message e))) (try (fact 21) (catch :default e (ex-message e)))
+         (try (fact "a") (catch :default e (ex-message e))) (fib 3.5) (map fact [1 2 3]) (apply fib [7]))

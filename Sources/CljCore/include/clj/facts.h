@@ -159,7 +159,9 @@ bool     clj_facts_site(const clj_facts *f, uint32_t i, uint32_t *node, clj_valu
 // Vars read as a value (not as the head of a call): first-class uses.
 uint32_t  clj_facts_nvalue_reads(const clj_facts *f);
 clj_value clj_facts_value_read(const clj_facts *f, uint32_t i, bool *in_fn);
-// A join the table entered a def'd fn's parameters at, with the callers epoch it was read under.
+// A join the table entered a def'd fn's parameters at, with the callers epoch it was read under. callers is what the
+// index answered over the recorded sites; params joins into it what the arity's own self-sites pass under it (the
+// fixpoint of NOTES.md "Facts", the caller join), and is what the parameters entered at.
 typedef struct {
 	clj_value var;
 	uint32_t  epoch;   // the var's callers epoch then
@@ -167,6 +169,9 @@ typedef struct {
 	uint32_t  arity;   // its fixed parameter count; CLJ_FN_MAX_FIXED + 1 names the variadic arity
 	uint32_t  nparams;
 	uint32_t  reason;  // clj_join_reason
+	uint32_t  self_rounds; // walks of the body the self-site fixpoint took, 0 without a self-site
+	bool      self_widened; // a position still moving after the rounds went to TOP
+	clj_fact  callers[CLJ_FN_MAX_FIXED + 1];
 	clj_fact  params[CLJ_FN_MAX_FIXED + 1];
 } clj_facts_join;
 uint32_t              clj_facts_njoins(const clj_facts *f);

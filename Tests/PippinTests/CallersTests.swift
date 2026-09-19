@@ -62,16 +62,21 @@ private final class Joined {
 		}
 	}
 
-	var joins: [(reason: clj_join_reason, params: [String])] {
+	var joins: [(reason: clj_join_reason, params: [String], callers: [String], selfRounds: UInt32, selfWidened: Bool)] {
 		(0..<clj_facts_njoins(table)).map { i in
 			let j = clj_facts_join_at(table, i)!.pointee
-			var params: [String] = []
+			var params: [String] = [], callers: [String] = []
 			withUnsafePointer(to: j.params) { p in
 				p.withMemoryRebound(to: clj_fact.self, capacity: Int(CLJ_FN_MAX_FIXED) + 1) { facts in
 					for k in 0..<Int(j.nparams) { params.append(describe(facts[k])) }
 				}
 			}
-			return (clj_join_reason(rawValue: j.reason), params)
+			withUnsafePointer(to: j.callers) { p in
+				p.withMemoryRebound(to: clj_fact.self, capacity: Int(CLJ_FN_MAX_FIXED) + 1) { facts in
+					for k in 0..<Int(j.nparams) { callers.append(describe(facts[k])) }
+				}
+			}
+			return (clj_join_reason(rawValue: j.reason), params, callers, j.self_rounds, j.self_widened)
 		}
 	}
 
@@ -127,7 +132,15 @@ extension CoreTests {
 			    (defn cj-str [s] (name s))
 			    (defn ^:dynamic cj-dyn [n] (inc n))
 			    (defn cj-two ([a] (inc a)) ([a b] (+ a b)))
-			    (defn cj-rest [a & more] (inc a)))
+			    (defn cj-rest [a & more] (inc a))
+			    (def cj-box (atom 1))
+			    (defn cj-fact [n] (if (<= n 1) 1 (* n (cj-fact (dec n)))))
+			    (defn cj-fib [n] (if (< n 2) n (+ (cj-fib (- n 1)) (cj-fib (- n 2)))))
+			    (defn cj-halve [x] (if (< x 1.0) x (cj-halve (/ x 2.0))))
+			    (defn cj-mixed [n x] (if (< x 1.0) n (cj-mixed (inc n) (/ x 2.0))))
+			    (defn cj-opaque [n] (if (zero? n) 0 (cj-opaque @cj-box)))
+			    (defn cj-rotate [x] (if (number? x) (cj-rotate (str x)) (if (string? x) (cj-rotate (keyword x)) (if (keyword? x) (cj-rotate (name x)) (cj-rotate (vector x))))))
+			    (declare cj-two-way))
 			""")
 		}
 
@@ -225,6 +238,93 @@ extension CoreTests {
 			#expect(clj_facts_nerrors(t.table) == 0)
 			#expect(t.bottoms == 0)
 			#expect(t.diagnostics.contains { $0.hasPrefix("W clojure.core/name") && $0.contains("under what the recorded callers pass") })
+		}
+
+		// A fn's own site is no recorded site: it enters the entry's own join, re-evaluated with the parameters at the
+		// join over the external callers until nothing moves (NOTES.md "Facts", the caller join).
+		@Test func selfSiteEntersTheEntrysOwnJoin() throws {
+			let fact = try rt.eval("#'cj-fact"), fib = try rt.eval("#'cj-fib")
+			let s = store()
+			defer { clj_summaries_free(s) }
+			let factDef = "(defn cj-fact [n] (if (<= n 1) 1 (* n (cj-fact (dec n)))))"
+			do {
+				// no external caller: TOP, and the fixpoint is not run
+				let t = try Joined(factDef, store: s)
+				#expect(t.joins[0].reason == CLJ_JOIN_NO_SITES)
+				#expect(t.joins[0].selfRounds == 0)
+				t.record(owner: ownerA)
+				#expect(clj_callers_nsites(fact.raw) == 0)
+				clj_callers_forget(ownerA)
+			}
+			try Joined("(defn cj-caller-6 [] [(cj-fact 20) (cj-fib 25)])", store: s).record(owner: ownerA)
+			defer { clj_callers_forget(ownerA) }
+			#expect(clj_callers_nsites(fact.raw) == 1)
+			do {
+				let t = try Joined(factDef, store: s)
+				#expect(t.joins[0].reason == CLJ_JOIN_OK)
+				#expect(t.joins[0].callers == ["fixnum/never"])
+				#expect(t.joins[0].params == ["fixnum|long/never"])
+				#expect(t.joins[0].selfRounds == 2)
+				#expect(!t.joins[0].selfWidened)
+				// the body under the join: the multiply over int64 operands, the recursive result int64 too
+				#expect(t.intrinsicArg(0, occurrence: 1) == "fixnum|long/never")
+				#expect(t.intrinsicArg(1, occurrence: 1) == "fixnum|long/never")
+				#expect(t.intrinsic(1) == "fixnum|long/never")
+				#expect(clj_facts_valid(t.table))
+				// re-recording the def's own table adds no site of its var
+				t.record(owner: ownerB)
+				#expect(clj_callers_nsites(fact.raw) == 1)
+				#expect(clj_facts_valid(t.table))
+				clj_callers_forget(ownerB)
+			}
+			do {
+				let t = try Joined("(defn cj-fib [n] (if (< n 2) n (+ (cj-fib (- n 1)) (cj-fib (- n 2)))))", store: s)
+				#expect(t.joins[0].params == ["fixnum|long/never"])
+				#expect(t.intrinsic(1) == "fixnum|long/never")
+			}
+			#expect(clj_callers_nsites(fib.raw) == 1)
+		}
+
+		// A double self-site, a mixed one, one that passes TOP from a deref, an arity calling the fn's other arity,
+		// and a self-site that keeps climbing: widened to TOP after three rounds.
+		@Test func selfSiteKinds() throws {
+			let s = store()
+			defer { clj_summaries_free(s) }
+			try Joined("(defn cj-caller-7 [] [(cj-halve 8.0) (cj-mixed 0 8.0) (cj-opaque 3) (cj-rotate 1) (cj-two-way 5)])", store: s).record(owner: ownerA)
+			defer { clj_callers_forget(ownerA) }
+			let h = try Joined("(defn cj-halve [x] (if (< x 1.0) x (cj-halve (/ x 2.0))))", store: s)
+			#expect(h.joins[0].params == ["double/never"])
+			#expect(h.joins[0].selfRounds == 1)
+			let m = try Joined("(defn cj-mixed [n x] (if (< x 1.0) n (cj-mixed (inc n) (/ x 2.0))))", store: s)
+			#expect(m.joins[0].params == ["fixnum|long/never", "double/never"])
+			#expect(m.joins[0].selfRounds == 2)
+			let o = try Joined("(defn cj-opaque [n] (if (zero? n) 0 (cj-opaque @cj-box)))", store: s)
+			#expect(o.joins[0].reason == CLJ_JOIN_TOP_ARG)
+			#expect(o.joins[0].callers == ["fixnum/never"])
+			#expect(o.joins[0].params == ["⊤/maybe"])
+			#expect(o.joins[0].selfRounds == 2)
+			#expect(!o.joins[0].selfWidened)
+			let r = try Joined("(defn cj-rotate [x] (if (number? x) (cj-rotate (str x)) (if (string? x) (cj-rotate (keyword x)) (if (keyword? x) (cj-rotate (name x)) (cj-rotate (vector x))))))", store: s)
+			#expect(r.joins[0].params == ["⊤/maybe"])
+			#expect(r.joins[0].selfWidened)
+			#expect(r.joins[0].selfRounds == 4)
+			#expect(r.diagnostics.isEmpty)
+			// the one-parameter arity's call of the two-parameter one is a site of the index (another arity is a caller like
+			// any other); the var is only declared, so the interpreter recorded no site of its own
+			let two = try rt.eval("#'cj-two-way")
+			#expect(clj_callers_nsites(two.raw) == 1)
+			let twoDef = "(defn cj-two-way ([n] (cj-two-way n 0)) ([n acc] (if (zero? n) acc (cj-two-way (dec n) (+ acc n)))))"
+			do {
+				let w = try Joined(twoDef, store: s)
+				#expect(w.joins[0].params == ["fixnum/never"])
+				#expect(w.joins[1].reason == CLJ_JOIN_NO_SITES)
+				w.record(owner: ownerB)
+			}
+			defer { clj_callers_forget(ownerB) }
+			#expect(clj_callers_nsites(two.raw) == 2)
+			let w = try Joined(twoDef, store: s)
+			#expect(w.joins[1].callers == ["fixnum/never", "fixnum/never"])
+			#expect(w.joins[1].params == ["fixnum|long/never", "fixnum|long/never"])
 		}
 
 		// A form that calls f at its top level, outside any fn, is a site too; a nested fn's site belongs to the form.

@@ -1331,3 +1331,59 @@ ns per iteration, `n` = 100000.
 - **Unchanged within noise**: everything without a def'd numeric helper on its path — the closure and protocol call
   rows, `swap!`, the counting loop (whose 3.1 in the middle column is a run of the same code that happened to sit
   well; the two committed runs bracket the last section's 5.1–5.7).
+
+## The self-recursive worker — 2026-09-19, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The closed compiled-core binary with every bench form compiled (`CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`),
+as the last section. Two new rows, each one closed unit: `(defn fact [n] (if (<= n 1) 1 (* n (fact (dec n)))))`
+called 5000 times from a typed loop — 100000 recursive calls — and `(defn fib [n] (if (< n 2) n (+ (fib (- n 1))
+(fib (- n 2)))))` at 25, which is 242785 calls. "before" is the last section's build (16fc518) with the two rows added:
+the fn's own site is recorded with its parameters at ⊤, the join is "a number", no worker; two runs. "after" is the
+build as committed (NOTES.md "Facts", the caller join: the self fixpoint), two runs. The "aligned" columns are the same
+two sources built with `-Xcc -falign-functions=64`, one run each, see the last bullet.
+
+ns per iteration; `n` = 100000 unless the row says otherwise.
+
+| scenario | before | after | before, aligned | after, aligned |
+|---|---:|---:|---:|---:|
+| counting loop | 5.3 / 6.4 | 3.0 / 5.6 | 6.2 | 5.2 |
+| accumulating loop, bound known from the caller | 1.3 / 1.4 | 1.2 / 1.3 | 1.4 | 1.3 |
+| accumulating loop with `(* i i)` written out | 1.4 / 1.5 | 1.3 / 1.4 | 1.5 | 1.4 |
+| accumulating loop calling `(defn sq [x] (* x x))`, one closed unit | 0.7 / 0.7 | 0.7 / 0.7 | 0.7 | 0.7 |
+| accumulating loop calling `(defn sq [x] (* x x))`, one dev unit | 7.5 / 7.5 | 7.6 / 7.4 | 7.5 | 7.4 |
+| accumulating loop with `(quot i 3)` written out, one closed unit | 0.5 / 0.5 | 0.5 / 0.5 | 0.5 | 0.5 |
+| accumulating loop calling `(defn qr [a b] (quot a b))`, one closed unit | 0.5 / 0.5 | 0.5 / 0.6 | 0.5 | 0.5 |
+| double accumulating loop with `(/ x 2.0)` written out, one closed unit | 0.7 / 0.7 | 0.7 / 0.7 | 0.7 | 0.6 |
+| double accumulating loop calling `(defn half [x] (/ x 2.0))`, one closed unit | 0.7 / 0.7 | 0.7 / 0.7 | 0.6 | 0.7 |
+| `(fact 20)` × 5000, per recursive call, one closed unit | 6.3 / 6.6 | **1.5** / 1.1 | 6.7 | **1.0** |
+| `(fib 25)`, per call, one closed unit (`n` = 242785) | 8.1 / 8.6 | **1.7** / 1.6 | 8.8 | **1.4** |
+| double accumulating loop | 3.5 / 3.1 | 3.0 / 2.9 | 4.7 | 2.9 |
+| accumulating loop, bound `(count v)` in a let | 0.5 / 0.5 | 0.5 / 0.5 | 0.6 | 0.5 |
+| closure call in a loop | 5.9 / 5.8 | 5.9 / 5.8 | 5.8 | 5.8 |
+| C builtin call in a loop | 5.3 / 5.3 | 5.4 / 5.3 | 5.3 | 5.3 |
+| let-bound fn called in a loop | 3.6 / 3.6 | 3.8 / 3.6 | 3.5 | 3.8 |
+| loop with a local helper | 6.0 / 5.9 | 6.5 / 6.1 | 6.4 | 6.4 |
+| protocol call, deftype receiver | 7.8 / 7.7 | 9.1 / 9.0 | 7.7 | 8.0 |
+| protocol call, fixnum receiver | 7.5 / 7.6 | 9.1 / 9.2 | 7.4 | 8.0 |
+| protocol call, bi-morphic | 11.8 / 11.1 | 12.8 / 12.8 | 11.0 | 11.6 |
+| protocol call, known receiver, one closed unit | 7.7 / 7.4 | 8.9 / 8.9 | 7.3 | 8.0 |
+| plain fn call through a var | 6.9 / 7.5 | 8.1 / 7.8 | 7.0 | 7.3 |
+| swap! inc | 22.6 / 22.6 | 22.6 / 22.7 | 22.3 | 22.8 |
+
+- **A recursive call now costs what its body costs.** `fact` 6.3 → 1.5 and `fib` 8.1 → 1.7 per call: before, the
+  fn's own `(fact (dec n))` was a site of the reverse index with `n` at ⊤ — "a number" — so the join was a number,
+  there was no worker, and every level was a boxed call (box, `clj_c_invoke`, the tag check of `*`, box). After, the
+  join over the external callers alone is a fixnum, the self-site re-evaluated under it passes int64, and the entry
+  is `w_l_l`: the recursion is a C call from the worker to itself with an `int64_t` in a register and a
+  `clj_wlong` back, the multiply an `smulh` with its overflow check. What remains per level is the call itself, the
+  frame enter/leave (`CLJC_ENTER`/`CLJC_LEAVE`, the trace and the deadline tick) and the compare; a worker that calls
+  is not a leaf, so nothing inlines.
+- **`fib` at 1.7 against `fact` at 1.5**: two calls per level and the `+` over two `clj_wlong` results, whose
+  `thrown` flags are two branches; the same shape as `hyp2` in the fixture.
+- **The protocol rows and the plain fn call, up 1.2–1.5 in both after runs, are mostly code layout.** The
+  compiled-eval C of every bench form is byte-identical between the two builds (`CLJ_EVAL_KEEP=1`, 112 files) and
+  nothing on those rows' paths reads a join. Built with `-Xcc -falign-functions=64` on both sides the gap is
+  0.3–0.6 (7.7 → 8.0, 7.0 → 7.3), inside what the two before runs already span; without it, facts.c grew and what the
+  linker placed after it — the protocol dispatch and `clj_invoke` among it — landed on other fetch boundaries. So the
+  resolution of these tables across a change to CljCore is ±1.5 ns on the call rows, not the ±2 of run-to-run noise
+  alone; a row that moves by less proves nothing either way, and `-falign-functions=64` on both sides is the check.

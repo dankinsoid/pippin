@@ -5,6 +5,13 @@
 
 #include "clj/summary.h"
 
+// Which arity of fn a call with nargs arguments enters, as the evaluator resolves it; NULL for none.
+static inline const clj_fn_arity *clj_facts_arity_for(const clj_node *fn, uint32_t nargs) {
+	if (nargs <= CLJ_FN_MAX_FIXED && fn->u.fn.fixed[nargs]) return fn->u.fn.fixed[nargs];
+	const clj_fn_arity *v = fn->u.fn.variadic;
+	return v && nargs >= v->nparams ? v : NULL;
+}
+
 // Fills nparams, variadic, params with their positions, ret, effects and inferred; records nothing else. params enters
 // the parameters at those facts instead of TOP (a specialized summary), NULL for TOP.
 void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *arity, clj_summaries *sums, clj_summary *out, const clj_fact *params);

@@ -788,6 +788,20 @@ let qrUnitClosedFn = compileUnitRow(name: "qr_closed", closed: true, body: qrUni
 let qrInlineClosedFn = compileUnitRow(name: "qr_inline_closed", closed: true, body: qrInlineUnit)
 let halfUnitClosedFn = compileUnitRow(name: "half_closed", closed: true, body: halfUnit)
 let halfInlineClosedFn = compileUnitRow(name: "half_inline_closed", closed: true, body: halfInlineUnit)
+// Self-recursive numeric fns as closed units: the join of a fn's own site rests on the entry's own join (NOTES.md
+// "Facts", the caller join), so the recursion runs worker to worker. (fact 20) 5000 times is 100000 recursive calls;
+// (fib 25) once is 242785 calls.
+let factUnit = """
+	(defn bench-fact [n] (if (<= n 1) 1 (* n (bench-fact (dec n)))))
+	(defn bench-fact-to [k] (loop [i 0 r 0] (if (< i k) (recur (inc i) (bench-fact 20)) r)))
+	(defn bench-unit-run [] (bench-fact-to 5000))
+	"""
+let fibUnit = """
+	(defn bench-fib [n] (if (< n 2) n (+ (bench-fib (- n 1)) (bench-fib (- n 2)))))
+	(defn bench-unit-run [] (bench-fib 25))
+	"""
+let factUnitClosedFn = compileUnitRow(name: "fact_closed", closed: true, body: factUnit)
+let fibUnitClosedFn = compileUnitRow(name: "fib_closed", closed: true, body: fibUnit)
 
 struct CallRow {
 	let scenario: String
@@ -811,6 +825,8 @@ do {
 	if let f = qrUnitClosedFn { callRows.append(CallRow(scenario: "accumulating loop calling (defn qr [a b] (quot a b)), one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
 	if let f = halfInlineClosedFn { callRows.append(CallRow(scenario: "double accumulating loop with (/ x 2.0) written out, one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
 	if let f = halfUnitClosedFn { callRows.append(CallRow(scenario: "double accumulating loop calling (defn half [x] (/ x 2.0)), one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = factUnitClosedFn { callRows.append(CallRow(scenario: "(fact 20) x 5000, per recursive call, one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = fibUnitClosedFn { callRows.append(CallRow(scenario: "(fib 25), per call, one closed unit", n: 242_785, c: measure(ops: 242_785) { cljCall0(f) }, swift: nil)) }
 	let fixnums = cVecBuild(n), da = cDoubleVecBuild(n), db = cDoubleVecBuild(n)
 	callRows.append(CallRow(scenario: "double accumulating loop", n: n, c: measure(ops: n) { cCountLoop(dblAccFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "dot product of two double vectors via nth", n: n, c: measure(ops: n) { cljCall2(dotFn, da, db) }, swift: nil))
