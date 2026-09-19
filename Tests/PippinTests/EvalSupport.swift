@@ -68,6 +68,7 @@ func cljEvalError(_ source: String) -> String? {
 }
 
 // Captures println/prn output for the duration of body; the hook is process-wide, so callers run serially.
+// The hook runs on the writer thread, so the queue is flushed before the text is read.
 nonisolated(unsafe) private var captured = ""
 
 func capturingOutput(_ body: () throws -> Void) rethrows -> String {
@@ -77,5 +78,6 @@ func capturingOutput(_ body: () throws -> Void) rethrows -> String {
 	}, nil)
 	defer { clj_set_output(nil, nil) }
 	try body()
+	clj_output_flush()
 	return captured
 }
