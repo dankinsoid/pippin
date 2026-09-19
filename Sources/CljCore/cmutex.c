@@ -112,41 +112,46 @@ static inline void pause(void) {
 #endif
 }
 
-// The holder is usually done within tens of ns, cheaper to wait for than a park and a resume.
-void clj_cmutex_lock_slow(clj_cmutex *m) {
+// 0 free, 1 locked, 2 locked with waiters, 3 free with waiters: the waiters bit outlives an unlock so a barging
+// locker cannot strand the queue. The holder is usually done within tens of ns, cheaper to spin for than to park.
+enum { FREE = 0, LOCKED = 1, LOCKED_WAITERS = 2, FREE_WAITERS = 3 };
+
+static bool try_acquire(clj_cmutex *m) {
+	uint32_t st = atomic_load_explicit(&m->state, memory_order_relaxed);
+	if (st == FREE) return atomic_compare_exchange_strong_explicit(&m->state, &st, LOCKED, memory_order_acquire, memory_order_relaxed);
+	if (st == FREE_WAITERS) return atomic_compare_exchange_strong_explicit(&m->state, &st, LOCKED_WAITERS, memory_order_acquire, memory_order_relaxed);
+	return false;
+}
+
+// One attempt per activation: the park inside may move the coroutine to another thread, and the locks-held count
+// this frame touched before must be reached afresh after (lock.h).
+static __attribute__((noinline)) bool lock_attempt(clj_cmutex *m) {
 	for (int i = 0; i < SPINS; i++) {
-		uint32_t expected = 0;
-		if (atomic_load_explicit(&m->state, memory_order_relaxed) == 0 &&
-		    atomic_compare_exchange_weak_explicit(&m->state, &expected, 1, memory_order_acquire, memory_order_relaxed))
-			return;
+		if (try_acquire(m)) return true;
 		pause();
 	}
 	lot_bucket *b = bucket_of(m);
-	for (;;) {
-		clj_lock_lock(&b->lock);
-		uint32_t st = atomic_load_explicit(&m->state, memory_order_relaxed);
-		if (st == 0) {
-			uint32_t expected = 0;
-			bool     won = atomic_compare_exchange_strong_explicit(&m->state, &expected, 1, memory_order_acquire, memory_order_relaxed);
-			clj_lock_unlock(&b->lock);
-			if (won) return;
-			continue;
-		}
-		if (st == 1) {
-			uint32_t expected = 1;
-			if (!atomic_compare_exchange_strong_explicit(&m->state, &expected, 2, memory_order_relaxed, memory_order_relaxed)) {
-				clj_lock_unlock(&b->lock);
-				continue;
-			}
-		}
-		clj_waiter *w = waiter_here();
-		enqueue_locked(b, w, m);
+	clj_lock_lock(&b->lock);
+	if (try_acquire(m)) {
 		clj_lock_unlock(&b->lock);
-		// The unlocker hands the lock over: on return the mutex is ours, state 1 or 2.
-		clj_park_uncancellable(w);
-		clj_waiter_release(w);
-		return;
+		return true;
 	}
+	uint32_t st = atomic_load_explicit(&m->state, memory_order_relaxed);
+	if (st == LOCKED && !atomic_compare_exchange_strong_explicit(&m->state, &st, LOCKED_WAITERS, memory_order_relaxed, memory_order_relaxed)) {
+		clj_lock_unlock(&b->lock);
+		return false;
+	}
+	clj_waiter *w = waiter_here();
+	enqueue_locked(b, w, m);
+	clj_lock_unlock(&b->lock);
+	// Woken without the lock: the unlocker freed it, and whoever gets there first takes it (Go's normal mode).
+	clj_park_uncancellable(w);
+	clj_waiter_release(w);
+	return false;
+}
+
+void clj_cmutex_lock_slow(clj_cmutex *m) {
+	while (!lock_attempt(m)) {}
 }
 
 void clj_cmutex_unlock_slow(clj_cmutex *m) {
@@ -154,13 +159,9 @@ void clj_cmutex_unlock_slow(clj_cmutex *m) {
 	clj_lock_lock(&b->lock);
 	bool      more;
 	lot_node *n = dequeue_locked(b, m, &more);
-	if (!n) {
-		atomic_store_explicit(&m->state, 0, memory_order_release);
-		clj_lock_unlock(&b->lock);
-		return;
-	}
-	atomic_store_explicit(&m->state, more ? 2 : 1, memory_order_release);
+	atomic_store_explicit(&m->state, n && more ? FREE_WAITERS : FREE, memory_order_release);
 	clj_lock_unlock(&b->lock);
+	if (!n) return;
 	if (clj_waiter_claim(n->w)) clj_resume(n->w);
 	clj_waiter_release(n->w);
 	free(n);

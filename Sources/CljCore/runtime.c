@@ -283,7 +283,7 @@ static void enqueue_output(const char *bytes, size_t len) {
 	while (out_bytes >= OUT_LIMIT) {
 		clj_coro   *me = clj_coro_current();
 		clj_waiter *w = clj_waiter_new(me, CLJ_NIL);
-		w->blocking = me->host_depth > 0 || clj_locks_held > 0;
+		w->blocking = me->host_depth > 0 || me->locks_held > 0;
 		out_waiter *n = malloc(sizeof *n);
 		if (!n) clj_fatal("out of memory");
 		clj_waiter_retain(w);

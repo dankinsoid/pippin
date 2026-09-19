@@ -52,10 +52,12 @@ static inline uint64_t clj_shadow_deadline(const clj_shadow_stack *s) { return a
 // Called with the deadline set: true when the deadline throw is now pending (eval.c).
 bool clj_eval_deadline_hit(void *shadow_stack);
 
-// The deadline check of a loop turn and of a seq driver's step: true when the timeout throw is pending.
-static inline bool clj_deadline_tick(void) {
-	clj_shadow_stack *s = clj_shadow_tls;
-	return s && __builtin_expect(clj_shadow_deadline(s) != 0, 0) && clj_eval_deadline_hit(s);
+// The deadline check of a loop turn and of a seq driver's step: true when the timeout throw is pending. On a ring
+// the caller captured before its loop: the pointer stays the execution's own across a park, a TLS read would not.
+static inline bool clj_deadline_tick_on(clj_shadow_stack *s) {
+	return __builtin_expect(clj_shadow_deadline(s) != 0, 0) && clj_eval_deadline_hit(s);
 }
+// The same through a fresh TLS read (a call: eval.c).
+bool clj_deadline_tick(void);
 
 #endif

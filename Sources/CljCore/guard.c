@@ -26,8 +26,6 @@ void __asan_handle_no_return(void);
 #define ASAN_IMAGE() ((void)0)
 #endif
 
-_Thread_local uint32_t clj_locks_held;
-
 enum {
 	ALT_STACK_SIZE = 256 * 1024,
 	// A fault this far below the stack's low end is still its guard, whatever page size the frame skipped.
@@ -44,7 +42,6 @@ void clj_guard_thread_init(clj_carrier *car) {
 	if (car->altstack == MAP_FAILED) clj_fatal("mmap of the alternate signal stack failed");
 	stack_t ss = {.ss_sp = car->altstack, .ss_size = ALT_STACK_SIZE, .ss_flags = 0};
 	if (sigaltstack(&ss, NULL) != 0) clj_fatal("sigaltstack failed");
-	(void)clj_locks_held; // touched now, so the handler's read of it allocates nothing
 }
 
 // Only the stack still installed is ours to unmap: the sanitizer's teardown may have taken it already.
@@ -134,7 +131,7 @@ bool clj_guard_signal(int sig, siginfo_t *info, void *uap) {
 	const char *fatal = NULL;
 	if (!s->recovery) fatal = "no recovery point on this thread";
 	else if (!clj_trace_code_known(origin.pc)) fatal = "the fault is outside the runtime's own code";
-	else if (clj_locks_held) fatal = "a runtime lock is held";
+	else if (car->current->locks_held) fatal = "a runtime lock is held";
 	if (fatal) {
 		put("clj: fatal stack overflow (");
 		put(fatal);

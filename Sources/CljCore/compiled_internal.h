@@ -174,7 +174,18 @@ static inline void clj_c_instrument_leave(const clj_node *stub, clj_ccall *c) {
 }
 
 // One loop turn: true when the deadline throw is pending.
-static inline bool clj_c_loop_tick(void) { return clj_deadline_tick(); }
+// The ring captured at the loop's entry (clj_c_tick_ring, eval.c): a TLS read after a park inside the loop would go
+// through an address clang computed on the thread the loop started on.
+clj_shadow_stack *clj_c_tick_ring(void);
+static inline bool clj_c_loop_tick(clj_shadow_stack *ring) { return clj_deadline_tick_on(ring); }
+
+// A per-thread inline cache of a compiled site, reached through a call for the same reason (NOTES.md "Coroutines").
+#define CLJC_TLS_IC(type, name)                                                                                                                      \
+	static _Thread_local type name;                                                                                                                  \
+	static __attribute__((noinline)) type *name##_get(void) {                                                                                        \
+		__asm__ volatile("" ::: "memory");                                                                                                           \
+		return &name;                                                                                                                                \
+	}
 
 // ---- the primitive entry (NOTES.md "Compiler", worker/wrapper): a worker takes int64_t/double arguments and answers
 // its result unboxed, with thrown set in place of CLJ_THROWN (the exception is pending as usual).

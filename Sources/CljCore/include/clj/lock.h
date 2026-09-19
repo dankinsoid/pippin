@@ -6,11 +6,10 @@
 
 // Not recursive; no rwlock in the core (design §4: readers contend on the count like writers).
 
-// Locks the calling thread holds: a stack overflow under one cannot be turned into an error (guard.c).
-// Not for Swift: a _Thread_local does not import.
-#ifndef __swift__
-extern _Thread_local uint32_t clj_locks_held;
-#endif
+// Locks the running execution holds: a stack overflow under one cannot be turned into an error (guard.c), a park
+// under one is an error (sched.c). Reached through a call, never a cached TLS address: a coroutine may resume on
+// another thread, and clang keeps a _Thread_local's address across calls (NOTES.md "Coroutines", TLS).
+uint32_t *clj_locks_held_slot(void);
 
 #ifdef __APPLE__
 #include <os/lock.h>
@@ -22,10 +21,10 @@ static inline void clj_lock_init(clj_lock *l) { *l = (clj_lock){0}; }
 #ifndef __swift__
 static inline void clj_lock_lock(clj_lock *l) {
 	os_unfair_lock_lock(l);
-	clj_locks_held++;
+	(*clj_locks_held_slot())++;
 }
 static inline void clj_lock_unlock(clj_lock *l) {
-	clj_locks_held--;
+	(*clj_locks_held_slot())--;
 	os_unfair_lock_unlock(l);
 }
 #endif
@@ -40,10 +39,10 @@ static inline void clj_lock_init(clj_lock *l) { pthread_mutex_init(l, NULL); }
 #ifndef __swift__
 static inline void clj_lock_lock(clj_lock *l) {
 	pthread_mutex_lock(l);
-	clj_locks_held++;
+	(*clj_locks_held_slot())++;
 }
 static inline void clj_lock_unlock(clj_lock *l) {
-	clj_locks_held--;
+	(*clj_locks_held_slot())--;
 	pthread_mutex_unlock(l);
 }
 #endif

@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 #include <pthread.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -151,14 +152,45 @@ static size_t page_size(void) {
 
 static size_t round_up(size_t n, size_t to) { return (n + to - 1) / to * to; }
 
+// Finished coroutines leave their mappings here: mmap, mprotect and munmap per spawn cost more than the spawn.
+enum { STACK_CACHE_MAX = 256 };
+
+static clj_lock cache_lock = CLJ_LOCK_INIT;
+static void    *cache[STACK_CACHE_MAX];
+static size_t   ncached;
+static size_t   cache_map_size;
+
+static void *map_take(size_t size) {
+	void *base = NULL;
+	clj_lock_lock(&cache_lock);
+	if (ncached && cache_map_size == size) base = cache[--ncached];
+	clj_lock_unlock(&cache_lock);
+	return base;
+}
+
+static bool map_keep(void *base, size_t size) {
+	bool kept = false;
+	clj_lock_lock(&cache_lock);
+	if (ncached < STACK_CACHE_MAX && (ncached == 0 || cache_map_size == size)) {
+		cache_map_size = size;
+		cache[ncached++] = base;
+		kept = true;
+	}
+	clj_lock_unlock(&cache_lock);
+	return kept;
+}
+
 // The ring starts half a page past the stack's top: a shallow parked coroutine touches one page for both.
 clj_coro *clj_coro_alloc(void) {
 	size_t page = page_size(), guard = page, stack = round_up(stack_size, page);
 	size_t ring = round_up(page / 2 + sizeof(clj_shadow_stack), page);
 	size_t size = guard + stack + ring;
-	void  *base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-	if (base == MAP_FAILED) clj_fatal("mmap of a coroutine stack failed");
-	if (mprotect(base, guard, PROT_NONE) != 0) clj_fatal("mprotect of a coroutine guard page failed");
+	void  *base = map_take(size);
+	if (!base) {
+		base = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+		if (base == MAP_FAILED) clj_fatal("mmap of a coroutine stack failed");
+		if (mprotect(base, guard, PROT_NONE) != 0) clj_fatal("mprotect of a coroutine guard page failed");
+	}
 	clj_coro *c = clj_alloc(&clj_coro_type, sizeof *c);
 	memset((char *)c + sizeof c->h, 0, sizeof *c - sizeof c->h);
 	coro_init(c);
@@ -169,6 +201,8 @@ clj_coro *clj_coro_alloc(void) {
 	c->map_size = size;
 	char             *top = (char *)base + guard + stack + page / 2;
 	clj_shadow_stack *s = (clj_shadow_stack *)top;
+	// A cached ring keeps stale frames; everything before the frames array is reset.
+	memset(s, 0, offsetof(clj_shadow_stack, frames));
 	s->mask = CLJ_SHADOW_CAPACITY - 1;
 	s->stack_lo = (char *)base + guard;
 	s->stack_hi = top;
@@ -184,7 +218,7 @@ clj_coro *clj_coro_alloc(void) {
 
 void clj_coro_free_stack(clj_coro *c) {
 	if (!c->map) return;
-	munmap(c->map, c->map_size);
+	if (!map_keep(c->map, c->map_size)) munmap(c->map, c->map_size);
 	c->map = NULL;
 	c->shadow = NULL;
 }
@@ -256,6 +290,14 @@ static clj_coro *implicit_init(void) {
 clj_coro *clj_coro_current(void) {
 	clj_coro *c = clj_coro_tls;
 	return c ? c : implicit_init();
+}
+
+// Not inlined and not pure: two calls around a park must both reach the TLS afresh (lock.h).
+__attribute__((noinline)) uint32_t *clj_locks_held_slot(void) {
+	__asm__ volatile("" ::: "memory");
+	clj_coro *c = clj_coro_tls;
+	if (!c) c = implicit_init();
+	return &c->locks_held;
 }
 
 clj_shadow_stack *clj_shadow_stack_init(void) { return clj_coro_current()->shadow; }

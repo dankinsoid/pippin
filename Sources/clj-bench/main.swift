@@ -386,6 +386,219 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
 	exit(0)
 }
 
+// CLJ_BENCH_ONLY=coro: the coroutine primitive, the scheduler and the channels (bench/RESULTS.md, "Coroutines and
+// channels") against Swift's Task, AsyncStream and CheckedContinuation for the same shapes.
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
+	clj_init()
+	_ = cljEval("(require 'clojure.core.async) (in-ns 'bench.coro) (clojure.core/refer 'clojure.core) (require '[clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-loop alts!]])")
+	let n = 100_000
+	func settle() {
+		if !clj_debug_coro_settle(0, 10_000) { print("coroutines did not settle"); exit(1) }
+	}
+	// Median of reps runs of body(n), ns per op; body returns a checksum.
+	func med(ops: Int, _ body: () -> UInt64) -> Double {
+		var times: [Double] = []
+		blackHole(body())
+		for _ in 0..<reps {
+			let t0 = DispatchTime.now().uptimeNanoseconds
+			blackHole(body())
+			times.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / Double(ops))
+		}
+		return times.sorted()[reps / 2]
+	}
+	let spawnFn = cljEval("(fn [n] (let [done (chan n)] (dotimes [i n] (go (>! done i))) (dotimes [i n] (<!! done)) n))")
+	let pingPongFn = cljEval("""
+	(fn [n]
+	  (let [ping (chan) pong (chan)
+	        p (go-loop [i 0] (when (< i n) (>! ping i) (<! pong) (recur (inc i))))
+	        q (go-loop [] (when-let [v (<! ping)] (>! pong v) (recur)))]
+	    (<!! p) (close! ping) (<!! q) n))
+	""")
+	let bufferedFn = cljEval("""
+	(fn [n]
+	  (let [c (chan 1024)
+	        p (go (dotimes [i n] (>! c i)) (close! c))
+	        q (go-loop [s 0] (if-let [v (<! c)] (recur (+ s v)) s))]
+	    (<!! p) (<!! q)))
+	""")
+	let altsFn = cljEval("""
+	(fn [n]
+	  (let [a (chan) b (chan)
+	        p (go (dotimes [i n] (if (even? i) (>! a i) (>! b i))) (close! a) (close! b))
+	        q (go-loop [s 0 open 2] (if (pos? open) (let [[v _] (alts! [a b])] (if (nil? v) (recur s (dec open)) (recur (+ s v) open))) s))]
+	    (<!! p) (<!! q)))
+	""")
+	let timeoutFn = cljEval("(fn [n] (<!! (go (dotimes [i n] (<! (timeout 0))) n)))")
+	let lockingFn = cljEval("""
+	(fn [n]
+	  (let [o (atom nil) v (volatile! 0) done (chan)]
+	    (dotimes [t 4] (go (dotimes [i (quot n 4)] (locking o (vswap! v inc))) (>! done t)))
+	    (dotimes [t 4] (<!! done))
+	    @v))
+	""")
+	let swapFn = cljEval("""
+	(fn [n]
+	  (let [a (atom 0) done (chan)]
+	    (dotimes [t 4] (go (dotimes [i (quot n 4)] (swap! a inc)) (>! done t)))
+	    (dotimes [t 4] (<!! done))
+	    @a))
+	""")
+	let incFn = cljEval("(fn [n] (let [a (atom 0)] (loop [i 0] (if (< i n) (do (swap! a inc) (recur (inc i))) @a))))")
+	let derefFn = cljEval("(fn [n] (let [a (atom {:k 1})] (loop [i 0 s 0] (if (< i n) (recur (inc i) (+ s (get @a :k))) s))))")
+
+	// The Swift shapes: AsyncStreams for the hand-offs, an actor for the contended increments.
+	final class Box: @unchecked Sendable { var k: CheckedContinuation<Int, Never>? }
+	func swiftSpawn(_ n: Int) -> UInt64 {
+		let sem = DispatchSemaphore(value: 0)
+		Task.detached {
+			await withTaskGroup(of: Int.self) { g in
+				for i in 0..<n { g.addTask { i } }
+				for await _ in g {}
+			}
+			sem.signal()
+		}
+		sem.wait()
+		return UInt64(n)
+	}
+	func swiftPingPong(_ n: Int) -> UInt64 {
+		let sem = DispatchSemaphore(value: 0)
+		Task.detached {
+			let (ping, pingC) = AsyncStream<Int>.makeStream()
+			let (pong, pongC) = AsyncStream<Int>.makeStream()
+			let p = Task {
+				var it = pong.makeAsyncIterator()
+				for i in 0..<n {
+					pingC.yield(i)
+					_ = await it.next()
+				}
+				pingC.finish()
+			}
+			let q = Task {
+				for await v in ping { pongC.yield(v) }
+				pongC.finish()
+			}
+			await p.value
+			await q.value
+			sem.signal()
+		}
+		sem.wait()
+		return UInt64(n)
+	}
+	final class Sum: @unchecked Sendable { var v = 0 }
+	func swiftBuffered(_ n: Int) -> UInt64 {
+		let sem = DispatchSemaphore(value: 0)
+		let sum = Sum()
+		Task.detached {
+			let (s, c) = AsyncStream<Int>.makeStream(bufferingPolicy: .bufferingOldest(1024))
+			let p = Task { for i in 0..<n { c.yield(i) }; c.finish() }
+			var acc = 0
+			for await v in s { acc &+= v }
+			await p.value
+			sum.v = acc
+			sem.signal()
+		}
+		sem.wait()
+		return UInt64(sum.v)
+	}
+	func swiftTimeout(_ n: Int) -> UInt64 {
+		let sem = DispatchSemaphore(value: 0)
+		Task.detached {
+			for _ in 0..<n { try? await Task.sleep(nanoseconds: 0) }
+			sem.signal()
+		}
+		sem.wait()
+		return UInt64(n)
+	}
+	actor Counter {
+		var v = 0
+		func inc() { v += 1 }
+	}
+	func swiftActor(_ n: Int) -> UInt64 {
+		let sem = DispatchSemaphore(value: 0)
+		Task.detached {
+			let c = Counter()
+			await withTaskGroup(of: Void.self) { g in
+				for _ in 0..<4 { g.addTask { for _ in 0..<(n / 4) { await c.inc() } } }
+			}
+			sem.signal()
+		}
+		sem.wait()
+		return UInt64(n)
+	}
+	// count Tasks each suspended on a continuation; the footprint is read once all have suspended.
+	func swiftParkedFootprint(_ count: Int) -> (Int, Bool) {
+		let boxes = (0..<count).map { _ in Box() }
+		let before = clj_debug_phys_footprint()
+		let ready = DispatchSemaphore(value: 0)
+		let tasks = boxes.map { b in
+			Task.detached {
+				_ = await withCheckedContinuation { (k: CheckedContinuation<Int, Never>) in
+					b.k = k
+					ready.signal()
+				}
+			}
+		}
+		for _ in 0..<count { ready.wait() }
+		let delta = Int(clj_debug_phys_footprint()) - Int(before)
+		for b in boxes { b.k?.resume(returning: 0) }
+		let done = DispatchSemaphore(value: 0)
+		Task.detached {
+			for t in tasks { await t.value }
+			done.signal()
+		}
+		done.wait()
+		return (delta / count, true)
+	}
+
+	var rows: [(String, Double?, Double?)] = []
+	rows.append(("context switch (carrier → coroutine → carrier, per switch)", clj_bench_switch_ns(1_000_000), nil))
+	rows.append(("go spawn + finish, joined through a channel", med(ops: n) { cljCall(spawnFn, clj_fixnum(n)) }, med(ops: n) { swiftSpawn(n) }))
+	settle()
+	rows.append(("unbuffered >!/<! round trip (ping-pong, two go blocks)", med(ops: n) { cljCall(pingPongFn, clj_fixnum(n)) }, med(ops: n) { swiftPingPong(n) }))
+	settle()
+	rows.append(("buffered throughput, chan 1024, one producer one consumer", med(ops: n) { cljCall(bufferedFn, clj_fixnum(n)) }, med(ops: n) { swiftBuffered(n) }))
+	settle()
+	rows.append(("alts! over 2 channels, one producer alternating", med(ops: n) { cljCall(altsFn, clj_fixnum(n)) }, nil))
+	settle()
+	rows.append(("(<! (timeout 0)) round trip through the timer thread", med(ops: 10_000) { cljCall(timeoutFn, clj_fixnum(10_000)) }, med(ops: 10_000) { swiftTimeout(10_000) }))
+	settle()
+	rows.append(("locking, 4 carriers contending", med(ops: n) { cljCall(lockingFn, clj_fixnum(n)) }, med(ops: n) { swiftActor(n) }))
+	settle()
+	rows.append(("swap! inc, 4 carriers contending", med(ops: n) { cljCall(swapFn, clj_fixnum(n)) }, med(ops: n) { swiftActor(n) }))
+	settle()
+	rows.append(("swap! inc, uncontended (the Atoms row)", med(ops: n) { cljCall(incFn, clj_fixnum(n)) }, nil))
+	rows.append(("get @atom :k, uncontended (the Atoms row)", med(ops: n) { cljCall(derefFn, clj_fixnum(n)) }, nil))
+
+	print("| scenario | interpreted, ns/op | Swift, ns/op |")
+	print("|---|---:|---:|")
+	for r in rows { print("| \(r.0) | \(fmt(r.1)) | \(fmt(r.2)) |") }
+
+	// 10k parked: physical footprint per coroutine against the reserve, and Swift Tasks suspended on a continuation.
+	let gates = cljEval("(vec (repeatedly 10 chan))")
+	let parkFn = cljEval("(fn [gates n] (let [done (chan n)] (dotimes [i n] (let [g (nth gates (mod i 10))] (go (<! g) (>! done i)))) done))")
+	let before = clj_debug_phys_footprint()
+	let done = withUnsafePointer(to: [gates, clj_fixnum(10_000)]) { p in p.pointee.withUnsafeBufferPointer { clj_invoke(parkFn, $0.baseAddress, 2) } }
+	var parked: UInt32 = 0
+	while parked < 10_000 {
+		parked = (0..<10).reduce(0) { $0 + clj_debug_chan_pending(clj_vector_nth(gates, UInt32($1)), false) }
+		usleep(1000)
+	}
+	let perCoro = (Int(clj_debug_phys_footprint()) - Int(before)) / 10_000
+	let reserve = clj_coro_stack_size()
+	let closeFn = cljEval("(fn [gates done] (doseq [g gates] (close! g)) (dotimes [i 10000] (<!! done)) 1)")
+	_ = withUnsafePointer(to: [gates, done]) { p in p.pointee.withUnsafeBufferPointer { clj_invoke(closeFn, $0.baseAddress, 2) } }
+	settle()
+	let (swiftPer, _) = swiftParkedFootprint(10_000)
+	print("\n| parked | physical per coroutine | virtual reserve per coroutine | Swift Task on a continuation, physical |")
+	print("|---|---:|---:|---:|")
+	print("| 10000 | \(perCoro / 1024) KB | \(reserve / 1024) KB stack + \(page_size_kb()) KB ring page | \(swiftPer / 1024) KB |")
+	print("\nns per op, medians of \(reps) runs; Swift = Task.detached + withTaskGroup (spawn), two AsyncStreams (ping-pong), AsyncStream bufferingOldest(1024) (buffered), Task.sleep(0) (timeout), an actor from four tasks (locking, swap!)")
+	for v in [spawnFn, pingPongFn, bufferedFn, altsFn, timeoutFn, lockingFn, swapFn, incFn, derefFn, gates, parkFn, done, closeFn] { clj_release(v) }
+	exit(0)
+}
+
+func page_size_kb() -> Int { Int(sysconf(_SC_PAGESIZE)) / 1024 }
+
 // (reduce + (map inc (range n))), (reduce + (map inc (filter even? (range n)))), (count (vec (map inc (range n)))):
 // pipelines the optimizer fuses into their transducer form.
 func cReduceMapRange(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }

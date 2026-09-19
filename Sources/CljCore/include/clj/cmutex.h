@@ -31,6 +31,7 @@ static inline bool clj_cmutex_trylock(clj_cmutex *m) {
 	return atomic_compare_exchange_strong_explicit(&m->state, &expected, 1, memory_order_acquire, memory_order_relaxed);
 }
 
+// States: 0 free, 1 locked, 2 locked with waiters, 3 free with waiters (cmutex.c).
 static inline void clj_cmutex_unlock(clj_cmutex *m) {
 	uint32_t expected = 1;
 	if (__builtin_expect(atomic_compare_exchange_strong_explicit(&m->state, &expected, 0, memory_order_release, memory_order_relaxed), 1)) return;

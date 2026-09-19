@@ -46,6 +46,7 @@ struct clj_coro {
 	void             *forcing_top;   // seq.c
 	uint32_t          exec_depth;    // clj_exec_run nesting (eval.c)
 	uint32_t          host_depth;    // synchronous host calls on this execution: a park under one is an error
+	uint32_t          locks_held;    // clj_locks held (lock.h): 0 at every park
 	clj_value        *retired;       // fn roots a def replaced while this execution was in flight (eval.c)
 	size_t            nretired, cretired;
 	void             *captures;      // with-out-str buffers (runtime.c)
@@ -83,6 +84,9 @@ struct clj_carrier {
 	bool      pooled;
 	void     *asan_fake; // the sanitizer's handle for the carrier's own stack while a coroutine runs
 	void     *return_sp; // where the carrier's stack continues when a coroutine switches out
+	clj_coro *next;      // the coroutine this carrier runs next, ahead of the run queue (Go's runnext); under run_mu
+	uint64_t  next_at;   // when it was placed: an idle carrier steals it only once it has waited a while
+	struct clj_carrier *pool_next; // the pool's list of carriers, for stealing
 };
 
 // The running execution; NULL until the thread's first use. Not for Swift: a _Thread_local does not import.

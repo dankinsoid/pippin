@@ -27,8 +27,12 @@ static pthread_once_t   init_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t  run_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t   run_cv = PTHREAD_COND_INITIALIZER;
 static clj_coro        *run_head, *run_tail;
-static size_t           ncarriers;
+static clj_carrier     *carriers; // the pool, linked through pool_next
+static size_t           ncarriers, idle_carriers;
 static _Atomic uint64_t spawned;
+
+// A next slot younger than this stays with its carrier: a pair handing values back and forth keeps one thread.
+enum { NEXT_STEAL_AGE_NS = 5000 };
 
 static void queue_push(clj_coro **head, clj_coro **tail, clj_coro *c) {
 	c->next = NULL;
@@ -59,6 +63,26 @@ static void run_one(clj_carrier *car, clj_coro *c) {
 	pthread_mutex_unlock(&c->lock);
 }
 
+// Under run_mu: the carrier's own next slot, else the queue, else another carrier's slot old enough to steal.
+static clj_coro *take_work_locked(clj_carrier *car) {
+	clj_coro *c = car->next;
+	if (c) {
+		car->next = NULL;
+		return c;
+	}
+	c = queue_pop(&run_head, &run_tail);
+	if (c) return c;
+	uint64_t now = clj_profile_now();
+	for (clj_carrier *o = carriers; o; o = o->pool_next) {
+		if (o->next && now - o->next_at > NEXT_STEAL_AGE_NS) {
+			c = o->next;
+			o->next = NULL;
+			return c;
+		}
+	}
+	return NULL;
+}
+
 static void *carrier_main(void *arg) {
 	(void)arg;
 #ifdef __APPLE__
@@ -66,10 +90,32 @@ static void *carrier_main(void *arg) {
 #endif
 	clj_carrier *car = clj_carrier_here();
 	car->pooled = true;
+	pthread_mutex_lock(&run_mu);
+	car->pool_next = carriers;
+	carriers = car;
+	pthread_mutex_unlock(&run_mu);
 	for (;;) {
 		pthread_mutex_lock(&run_mu);
-		while (!run_head) pthread_cond_wait(&run_cv, &run_mu);
-		clj_coro *c = queue_pop(&run_head, &run_tail);
+		clj_coro *c;
+		while (!(c = take_work_locked(car))) {
+			// A fresh next slot elsewhere may age into stealable: look again after a short wait.
+			bool            fresh_next = false;
+			for (clj_carrier *o = carriers; o && !fresh_next; o = o->pool_next) fresh_next = o->next != NULL;
+			idle_carriers++;
+			if (fresh_next) {
+				struct timespec ts;
+				clock_gettime(CLOCK_REALTIME, &ts);
+				ts.tv_nsec += 50000;
+				if (ts.tv_nsec >= 1000000000L) {
+					ts.tv_sec++;
+					ts.tv_nsec -= 1000000000L;
+				}
+				pthread_cond_timedwait(&run_cv, &run_mu, &ts);
+			} else {
+				pthread_cond_wait(&run_cv, &run_mu);
+			}
+			idle_carriers--;
+		}
 		pthread_mutex_unlock(&run_mu);
 		run_one(car, c);
 	}
@@ -160,14 +206,24 @@ static void enqueue_main(clj_coro *c) {
 #endif
 }
 
+// From a pooled carrier the coroutine takes the carrier's next slot (an earlier occupant moves to the queue), so a
+// resumer that parks right after hands its thread over without waking another; idle carriers are still told.
 void clj_sched_enqueue(clj_coro *c) {
 	if (c->affinity == CLJ_AFFINITY_MAIN) {
 		enqueue_main(c);
 		return;
 	}
+	clj_coro    *me = clj_coro_tls;
+	clj_carrier *car = me && me->carrier && me->carrier->pooled ? me->carrier : NULL;
 	pthread_mutex_lock(&run_mu);
-	queue_push(&run_head, &run_tail, c);
-	pthread_cond_signal(&run_cv);
+	if (car) {
+		if (car->next) queue_push(&run_head, &run_tail, car->next);
+		car->next = c;
+		car->next_at = clj_profile_now();
+	} else {
+		queue_push(&run_head, &run_tail, c);
+	}
+	if (idle_carriers) pthread_cond_signal(&run_cv);
 	pthread_mutex_unlock(&run_mu);
 }
 
@@ -233,7 +289,7 @@ bool clj_park_allowed(void) {
 		clj_throw_msg("Cannot park inside a synchronous host call: the host waits for a value now (design §5)");
 		return false;
 	}
-	if (clj_locks_held) {
+	if (c->locks_held) {
 		clj_throw_msg("Cannot park while a runtime lock is held");
 		return false;
 	}
@@ -574,7 +630,7 @@ static void submit(void (*fn)(void *ctx), void *ctx, clj_waiter *w) {
 // The job's context lives on the caller's stack, so a cancellation may not wake the caller before the job ends.
 void clj_blocking(void (*fn)(void *ctx), void *ctx) {
 	clj_coro *c = clj_coro_current();
-	if (c->implicit || c->host_depth || clj_locks_held) {
+	if (c->implicit || c->host_depth || c->locks_held) {
 		fn(ctx);
 		return;
 	}

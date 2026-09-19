@@ -166,8 +166,8 @@ static inline const clj_fn_arity *arity_for(const clj_node *code, size_t n) {
 
 // A compiled fn pushes no frame, so the real stack answers for it: a walk, paid only at a rebind or a drain.
 static bool in_flight(void) {
-	clj_coro *c = clj_coro_tls;
-	return (c && c->exec_depth > 0) || (clj_shadow_tls && clj_shadow_tls->depth > 0) || clj_trace_compiled_on_stack();
+	clj_coro *c = clj_coro_current();
+	return c->exec_depth > 0 || c->shadow->depth > 0 || clj_trace_compiled_on_stack();
 }
 
 // @ai-generated(guided)
@@ -376,13 +376,14 @@ static clj_value eval_let(const clj_node *n, clj_frame *f) {
 }
 
 // recur has already rebound the slots when the body yields CLJ_RECUR; the loop is a C loop, not a call.
+// The ring is read once before the loop: the pointer is the execution's own across a park, a TLS re-read would not be.
 static clj_value eval_loop(const clj_node *n, clj_frame *f) {
 	if (!bind_all(n, f)) return CLJ_THROWN;
-	clj_shadow_stack *s = clj_shadow_tls;
+	clj_shadow_stack *s = clj_shadow_stack_init();
 	for (;;) {
 		clj_value v = eval_child(n->u.let.body, f);
 		if (v != CLJ_RECUR) return v;
-		if (s && deadline_hit(s)) return deadline_throw(s);
+		if (deadline_hit(s)) return deadline_throw(s);
 	}
 }
 
@@ -1524,6 +1525,18 @@ static bool is_do_form(clj_value form, clj_seq_iter *it) {
 	if (clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(clj_string_bytes(clj_symbol_name(head)), "do") == 0) return true;
 	clj_seq_iter_close(it);
 	return false;
+}
+
+__attribute__((noinline)) bool clj_deadline_tick(void) {
+	__asm__ volatile("" ::: "memory");
+	clj_shadow_stack *s = clj_shadow_tls;
+	return s && clj_deadline_tick_on(s);
+}
+
+// A compiled loop captures its execution's ring once, before the first turn (compiled_internal.h).
+__attribute__((noinline)) clj_shadow_stack *clj_c_tick_ring(void) {
+	__asm__ volatile("" ::: "memory");
+	return clj_shadow_stack_init();
 }
 
 bool clj_eval_deadline_hit(void *shadow_stack) {

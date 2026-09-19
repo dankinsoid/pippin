@@ -1112,6 +1112,7 @@ CLJC_INLINE clj_value clojure_string_join_a2_i(clj_value self, const clj_value *
 	clj_c_rebind(&l3, t2);
 	clj_value t3 = clj_retain(K[30]);
 	clj_c_rebind(&l4, t3);
+	clj_shadow_stack *tk3 = clj_c_tick_ring();
 L3: ;
 #line 47 "<embedded>/clojure/string.clj"
 	clj_value t4 = l3;
@@ -1186,7 +1187,7 @@ L3: ;
 	clj_c_rebind(&l3, t18);
 	clj_c_rebind(&l4, t19);
 	{
-	bool tick = clj_c_loop_tick();
+	bool tick = clj_c_loop_tick(tk3);
 	CLJC_SITE(&S[6]);
 	if (tick) {
 	goto L1;
@@ -2167,6 +2168,7 @@ CLJC_FRAME clj_value clojure_string_trim_newline_a1(clj_value self, const clj_va
 	goto L1;
 	}
 	clj_c_rebind(&l1, t1);
+	clj_shadow_stack *tk3 = clj_c_tick_ring();
 L3: ;
 #line 80 "<embedded>/clojure/string.clj"
 	clj_value t2 = l1;
@@ -2318,7 +2320,7 @@ L3: ;
 	}
 	clj_c_rebind(&l1, t27);
 	{
-	bool tick = clj_c_loop_tick();
+	bool tick = clj_c_loop_tick(tk3);
 	CLJC_SITE(&S[15]);
 	if (tick) {
 	goto L1;
@@ -2572,6 +2574,7 @@ CLJC_FRAME clj_value clojure_string_escape_a2(clj_value self, const clj_value *c
 	clj_c_rebind(&l2, t15);
 	clj_value t16 = clj_retain(K[77]);
 	clj_c_rebind(&l3, t16);
+	clj_shadow_stack *tk3 = clj_c_tick_ring();
 L3: ;
 #line 96 "<embedded>/clojure/string.clj"
 	clj_value t17 = l0;
@@ -2740,7 +2743,7 @@ L3: ;
 	clj_c_rebind(&l2, t30);
 	clj_c_rebind(&l3, t38);
 	{
-	bool tick = clj_c_loop_tick();
+	bool tick = clj_c_loop_tick(tk3);
 	CLJC_SITE(&S[17]);
 	if (tick) {
 	goto L1;

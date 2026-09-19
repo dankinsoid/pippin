@@ -188,6 +188,7 @@ typedef struct {
 	pool  workers;   // the primitive entries emitted, "<base>_a<n>_<sig>", with "1" when a leaf (NOTES.md "Compiler")
 	pool  prims;     // the primitive call sites written, by target, with their count
 	uint32_t nstubs, ntops, nforms;
+	uint32_t nics; // inline caches of the unit, numbered across its functions (file scope, behind getters)
 	cljc_slot_stats slots;
 	struct proto_site *psites; // the protocol call sites, classified for --stats once every arm's target is resolved
 	size_t             npsites, psites_cap;
@@ -1476,8 +1477,8 @@ static temp emit_loop_body(fnctx *f, const clj_node *n) {
 	size_t at = f->out.len;
 	temp   r = emit(f, n->u.let.body);
 	if (f->recur_used) {
-		char label[32];
-		snprintf(label, sizeof label, "L%d: ;\n", f->recur_label);
+		char label[96];
+		snprintf(label, sizeof label, "\tclj_shadow_stack *tk%d = clj_c_tick_ring();\nL%d: ;\n", f->recur_label, f->recur_label);
 		sb_put(&f->out, label, strlen(label));
 		memmove(f->out.s + at + strlen(label), f->out.s + at, f->out.len - strlen(label) - at);
 		memcpy(f->out.s + at, label, strlen(label));
@@ -1513,7 +1514,7 @@ static temp emit_recur(fnctx *f, const clj_node *n) {
 	free(vals);
 	if (!f->recur_label) clj_fatal("compiler: recur outside a loop or fn body");
 	if (f->recur_loop) {
-		sb_puts(&f->out, "\t{\n\tbool tick = clj_c_loop_tick();\n");
+		sb_printf(&f->out, "\t{\n\tbool tick = clj_c_loop_tick(tk%d);\n", f->recur_label);
 		emit_site(f);
 		sb_puts(&f->out, "\tif (tick) {\n");
 		emit_unwind(f);
@@ -1824,7 +1825,9 @@ static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const
 	for (uint32_t i = 0; i < a.n; i++) a.arms[i].pimpl = arm_target(f, a.arms[i].type, method, nargs);
 	proto_site_add(f->u, &a);
 	int k = f->naux++;
-	sb_printf(&f->out, "\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s[0]);\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Thread_local clj_cproto_ic PC%d;\n", array, k);
+	uint32_t ic = f->u->nics++;
+	sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_cproto_ic, PC_%u)\n", ic);
+	sb_printf(&f->out, "\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s[0]);\n\t\tuint64_t pe = clj_epoch_load();\n\t\tclj_cproto_ic *PC%d = PC_%u_get();\n", array, k, ic);
 	for (uint32_t i = 0; i < a.n; i++) {
 		if (a.arms[i].pimpl != UINT32_MAX) sb_printf(&f->out, "#ifdef CLJC_PIMPL_%u\n\t\tstatic _Atomic uint64_t PA%u;\n#endif\n", a.arms[i].pimpl, a.arms[i].pimpl);
 	}
@@ -1834,7 +1837,7 @@ static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const
 		sb_printf(&f->out, "#ifdef CLJC_PIMPL_%u\n\t\tif (pt == %s && (clj_c_arm_hit(&PA%u, pe) || clj_c_arm_fill(&PA%u, %s, %s, %u, CLJC_PIMPL_%u_CODE, CLJC_PIMPL_%u_FN, pe))) %s = CLJC_PIMPL_%u_FN(CLJ_NIL, NULL, %s, %u);\n\t\telse\n#endif\n",
 		          arm->pimpl, arm->guard, arm->pimpl, arm->pimpl, fn->name, array, nargs, arm->pimpl, arm->pimpl, r->name, arm->pimpl, array, nargs);
 	}
-	sb_printf(&f->out, "\t\t%s = clj_c_proto_ic_call(&PC%d, %s, %s, %u, pt, pe);\n\t}\n", r->name, k, fn->name, array, nargs);
+	sb_printf(&f->out, "\t\t%s = clj_c_proto_ic_call(PC%d, %s, %s, %u, pt, pe);\n\t}\n", r->name, k, fn->name, array, nargs);
 }
 
 // (satisfies? P x) with a known receiver under --closed: the answer per descriptor, verified once per epoch.
@@ -2057,9 +2060,9 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 		emit_proto_call(f, n, method, &fn, array, &r);
 	} else if (!folded && !d && (nargs == 1 || nargs == 2) && head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
 		// (:k m) / (:k m nf): the interpreter's keyword-lookup site; keyword_invoke's arity check is the count here.
-		int k = f->naux++;
-		sb_printf(&f->out, "\t{\n\t\tstatic _Thread_local clj_ckw_ic KC%d;\n\t\t%s = clj_c_kw_get(&KC%d, %s, %s[0], %s);\n\t}\n", k, r.name, k, fn.name, array,
-		          nargs == 2 ? args[1].name : "CLJ_NIL");
+		uint32_t ic = f->u->nics++;
+		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
+		sb_printf(&f->out, "\t%s = clj_c_kw_get(KC_%u_get(), %s, %s[0], %s);\n", r.name, ic, fn.name, array, nargs == 2 ? args[1].name : "CLJ_NIL");
 		f->u->slots.kw_sites++;
 	} else if (!folded && direct) {
 		// The definition may still be superseded: the prelude decides at write time (CLJC_LOCAL_*, CLJC_DIRECT_*).
@@ -2340,9 +2343,9 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		sb_puts(&f->out, "\t}\n");
 	} else if (clj_intrinsic_is_get(op) && n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.intrinsic.args[1]->u.value)) {
 		// (get m :k) / (get m :k nf): the keyword-lookup site under the intrinsic guard, as the interpreter's eval_get_kw.
-		int k = f->naux++;
-		sb_printf(&f->out, "\t{\n\t\tstatic _Thread_local clj_ckw_ic KC%d;\n\t\t%s = clj_c_kw_get(&KC%d, %s, %s, %s);\n\t}\n", k, r.name, k, args[1].name, args[0].name,
-		          n->u.intrinsic.n == 3 ? args[2].name : "CLJ_NIL");
+		uint32_t ic = f->u->nics++;
+		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
+		sb_printf(&f->out, "\t%s = clj_c_kw_get(KC_%u_get(), %s, %s, %s);\n", r.name, ic, args[1].name, args[0].name, n->u.intrinsic.n == 3 ? args[2].name : "CLJ_NIL");
 		f->u->slots.kw_sites++;
 	} else {
 		emit_intrinsic_call(f, op, op->cname, args, r.name);
