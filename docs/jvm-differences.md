@@ -93,3 +93,18 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 |---|---|---|
 | `swap!` inside its own `f` on the same atom traps; `deref` inside `f` returns the old value | Deliberate | A nested `swap!` on the same atom is a bug on the JVM too (it spins or double-applies); trapping is the loud version. |
 | No `ref`/`dosync`, `agent`, `future`, `pmap`, `promise` | Deferred | Design §4: `agent` as a library over a serial executor, `ref` as two-phase locking; `future` waits for core.async's carriers. |
+
+## core.async
+
+| Difference | Class | Decision |
+|---|---|---|
+| `<!!`, `>!!`, `alts!!`, `alt!!` are the same functions as `<!`, `>!`, `alts!`, `alt!`: a wait from a bare thread blocks that thread, from a coroutine parks it | Deliberate | Design §4: no thread-blocking variant exists (a semaphore in the pool is a priority inversion), and since any function may park the two semantics are one. The symbols stay defined so foreign code loads. |
+| `<!`, `>!`, `alts!` are legal in any function, not only inside a `go` body; `(map #(<! (fetch %)) urls)` works | Deliberate | Colorless coroutines (design §4, "Бесцветность"): the JVM's restriction is an artifact of its IOC transform. |
+| A park inside a synchronous host call (`Value.apply`) is an error with a trace to the wait, and `Runtime.eval` from a bare thread blocks that thread | Deliberate | Design §5: the host waits for a value now. Trigger for making the bare-thread case an error on the main thread: the async bridge, which gives the host `callAsync`. |
+| `cancel!` exists: it cancels the `go` behind a channel at its next park or loop tick, and a cancelled coroutine's park points keep throwing | Deliberate | core.async has no cancellation (design §4, "Отмена"); the JVM idiom of a control channel in `alts!` still works. |
+| An uncaught error in a `go` body is reported through `clj_coro_set_uncaught_handler` (stderr by default) and the channel closes; the JVM prints the thread's uncaught-exception report | Deliberate | Same observable shape; the host owns the report. |
+| `(chan n xform)` and `(chan n xform ex-handler)` throw "not supported yet" | Deferred | The transducer step would run user code under the channel's `clj_lock` (NOTES "Channels"). Trigger: a library using them. |
+| The library layer is missing: `pipe`, `mult`, `tap`, `pub`, `sub`, `mix`, `merge`, `pipeline`, `pipeline-async`, `onto-chan`, `to-chan`, `promise-chan`, `reduce`, `into`, `take`, `map`, `split`, `unique`, `unblocking-buffer?` | Deferred | The next task of design §10 step 5; docs/api-parity.md lists what is built. |
+| A `go` inside `with-out-str` prints to the real output; the JVM conveys `*out*` to the block | Deferred | Output captures are per execution and not conveyed (NOTES "Scheduler"). Trigger: a library capturing a go block's output. |
+| `set!` of a conveyed dynamic binding from the spawned coroutine is allowed; the JVM throws "Can't set!: from non-binding thread" | Deliberate | The box is shared with the spawner (NOTES "Coroutines"); refusing it needs an owner per frame. Trigger: a library relying on the refusal. |
+| The pending-put and pending-take limits are the JVM's 1024 with the JVM's messages | — | Same. |

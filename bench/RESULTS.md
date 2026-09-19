@@ -1464,3 +1464,56 @@ node). The shapes themselves: 61 shapes and their transitions after the bench, 8
 - **What went generic in the corpus** (the `CorpusTests` log prints the layout counters): 95k shape maps against
   41k tries, all but six of the tries by a non-keyword key — the namespace tables keyed by symbols, the suites' own
   integer- and string-keyed data —, six by `with-meta`, none by the 33rd key, the dictionary rule or the shape cap.
+
+## Coroutines and channels — 2026-09-19, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Design §10 step 5, steps 1–3 (NOTES.md "Coroutines", "Scheduler", "Channels", "Coroutine mutex"): stackful
+coroutines with a hand-written context switch, carriers as our own pthreads with a next slot, spinning and
+polling idle carriers, channels with direct hand-off, `alts!` on a paired claim, the coroutine mutex on a parking
+lot. `CLJ_BENCH_ONLY=coro ./.build/release/clj-bench`, 12 carriers, medians of 5 runs of n = 100 000 (10 000 for
+the timeout row); the Swift column is the same shape on Swift concurrency: `Task.detached` + `withTaskGroup` for
+the spawn, two `AsyncStream`s for the ping-pong, `AsyncStream(bufferingOldest(1024))` for the buffered producer,
+`Task.sleep(0)` for the timeout, an `actor` incremented from four tasks for the contended rows.
+
+| scenario | interpreted, ns/op | Swift, ns/op |
+|---|---:|---:|
+| context switch (carrier → coroutine → carrier, per switch) | 14.0 | — |
+| go spawn + finish, joined through a channel, from the main thread | 1653 | 1085 |
+| unbuffered >!/<! round trip (ping-pong, two go blocks) | 530 | 2867 |
+| buffered throughput, chan 1024, one producer one consumer | 131 | 939 |
+| alts! over 2 channels, one producer alternating | 664 | — |
+| (<! (timeout 0)) round trip through the timer thread | 1941 | 986 |
+| locking, 4 carriers contending | 364 | 3.2 |
+| swap! inc, 4 carriers contending | 107 | 3.0 |
+| swap! inc, uncontended (the Atoms row, gate: must not move) | 38.0 | — |
+| get @atom :k, uncontended (the Atoms row) | 43.1 | — |
+
+| parked | physical per coroutine | virtual reserve per coroutine | Swift Task on a continuation, physical |
+|---|---:|---:|---:|
+| 10 000 | 16 KB | 512 KB stack + 16 KB ring page | ~0.3 KB |
+
+- **The switch is 14–16 ns** (26 instructions each way: ten callee-saved pairs, `sp`, `ret`); a ping-pong round
+  trip is four switches plus two channel operations, 530 ns with the pair kept on one carrier by the next slot
+  (461 with one carrier in the process, 2.1 µs when every hand-off signalled a sleeping carrier and 6.1 when the
+  woken carriers contended for the run queue on each hop: the two versions before the spinners were taught to
+  ignore a fresh slot). Swift's two `AsyncStream`s pay a hop through the cooperative pool each way.
+- **A `go` from the main thread is 1.65 µs**: the coroutine object, a cached stack mapping (an `mmap`,
+  `mprotect` and `munmap` per spawn made it 3.9 µs), the spawn-trace walk (~150 ns), a queue push and one
+  `pthread_cond_signal` — work from outside the pool always signals; a `go` from inside a coroutine is the alloc
+  and the push. Swift's `addTask` is a heap allocation and a queue push without a wake per task.
+- **Buffered throughput is 131 ns per item** against 939 for `AsyncStream`: the buffer is a ring under one
+  `clj_lock`, and the consumer's wakeup when the buffer runs dry lands in the producer's next slot.
+- **The timer round trip is 1.9 µs**: the timer thread's `close!` signals a sleeping carrier (a wake is 1–2 µs
+  on macOS); it was 67 µs when a timer's enqueue trusted a polling carrier to notice within its 50 µs period,
+  and 5 µs when nobody spun. Swift's 1 µs is its own timer feeding an already-awake pool.
+- **Four carriers on one `swap! inc` cost 107 ns per op, on one `locking` 364** (the monitor table lookup and
+  the reentrancy record around the same mutex): the spin phase of the mutex wins most acquisitions; with the
+  hand-over of the first cut every acquisition parked and resumed (2.9 µs, then seconds once resumes went to a
+  next slot the holder never yielded). The Swift actor row is 3 ns because the four tasks serialize on the
+  actor's executor without contention on this shape: a hop per `await`, no lock.
+- **The uncontended rows did not move**: `swap! inc` 42.6 → 38.0 (a CAS pair either way plus the affinity flag
+  test), and `get @atom :k` 54.3 → 43.1 since `deref` takes no lock (a reader window instead).
+- **16 KB physical per parked coroutine** is the page size: the stack's top page holds the parked frames and,
+  half a page in, the shadow ring's header and first frames; the 512 KB reserve and the 200 KB ring are virtual.
+  10 000 parked are 160 MB physical and 5.3 GB virtual. A Swift task suspended on a continuation is a few hundred
+  bytes of heap: the price of a real stack, paid once per coroutine, not per frame.

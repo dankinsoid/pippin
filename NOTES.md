@@ -163,9 +163,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   returns even for a variadic f; Clojure hands the rest seq to a variadic fn lazily. core.clj avoids
   `(apply concat ...)` for that reason (`mapcat`). Trigger: a library doing `(apply concat (map ...))`
   on a lazy source. Fix: `clj_apply` passing a seq as the rest argument of a variadic closure.
-- **Forcing a shared lazy seq spins** (`sched_yield`) while another thread runs the thunk; a thunk
-  reaching its own object throws "Recursive realization" (thread-local forcing stack). Trigger: a
-  thunk that blocks for long with other threads waiting; then park on a condition variable.
+- **Forcing a shared lazy seq parks** on the lot while another execution runs the thunk (a one-shot wait,
+  "Coroutine mutex"; a bare thread blocks); a thunk reaching its own object throws "Recursive realization"
+  (the forcing stack is per execution). A thunk may itself park (`(lazy-seq [(<! c)])`).
 - **Metadata is any IPersistentMap**, a sorted map included, and so is `ex-info`'s data map. The three
   places that read a flag out of metadata with `clj_map_get` — a form's reader position, `def`'s
   `:dynamic`, a var's `:private` — first test the hash-map representation and treat any other as absent;
@@ -189,15 +189,221 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 
 ## Locks (include/clj/lock.h)
 
-- **Every mutex of the core is a `clj_lock`**: `os_unfair_lock` under `__APPLE__`, `pthread_mutex_t`
-  elsewhere, one interface (`clj_lock_init/lock/unlock/destroy`, `CLJ_LOCK_INIT`), the one `#ifdef` of its
-  kind (measured on an M3 Pro, a lock+unlock pair: 2.1 vs 4.6 ns, 4 vs 64 bytes; unfair passes priority to
-  the owner under contention). Holders: the keyword table, the namespace registry, the protocol tables and
-  the reify registry (proto.c), the profiler table, and every atom. Not recursive, so a path that reaches
-  the same lock twice deadlocks (an atom's `swap!` from inside its own `f` is detected before the lock,
-  see "Atoms" under Builtins). No rwlock anywhere, by design §4: a read lock is an RMW on the shared
+- **Every mutex of the core's internals is a `clj_lock`**: `os_unfair_lock` under `__APPLE__`,
+  `pthread_mutex_t` elsewhere, one interface (`clj_lock_init/lock/unlock/destroy`, `CLJ_LOCK_INIT`), the one
+  `#ifdef` of its kind (measured on an M3 Pro, a lock+unlock pair: 2.1 vs 4.6 ns, 4 vs 64 bytes; unfair passes
+  priority to the owner under contention). Holders: the keyword table, the namespace registry, the protocol
+  tables and the reify registry (proto.c), the profiler table, the channels' queues, the parking lot's
+  buckets. The invariant of design §4 ("Два лока"): under a `clj_lock` runs neither user code nor IO, and a
+  park under one is an error (the audit table under "Coroutine mutex"). What user code holds — an atom's
+  `swap!`, `locking`, a lazy seq being forced — is the `clj_cmutex` instead. The count of locks held is per
+  execution (`clj_locks_held_slot`, coroutines migrate between threads). Not recursive, so a path that reaches
+  the same lock twice deadlocks. No rwlock anywhere, by design §4: a read lock is an RMW on the shared
   count, so readers contend like writers; reads in the core go through immutability and the epoch instead.
   Trigger for `os_unfair_lock_trylock`/a fair variant: a profile showing a starved thread on one lock.
+
+## Coroutines (Sources/CljCore/coro.c, coro_internal.h, include/clj/coro.h; design §4 "core.async")
+
+- **The primitive is a stackful coroutine with a hand-written context switch** (`clj_ctx_switch`, arm64 and
+  x86_64 in `coro.c`): callee-saved registers, the frame pointer, the link register and `d8–d15` on a 160-byte
+  frame, then `sp` — 26 instructions, no signal mask (`swapcontext` makes a sigprocmask syscall per switch and
+  is deprecated on macOS). Measured 14–16 ns per switch (bench/RESULTS.md, "Coroutines and channels": a carrier →
+  coroutine → carrier round trip is two). The first switch into a new coroutine "returns" into `clj_coro_entry`
+  with an empty frame chain (`x29 = 0`), so a trace walk stops at the coroutine's base.
+- **A stack is one `mmap` reserve with no commit**: a guard page (`PROT_NONE`), the stack (512 KB by default,
+  `clj_coro_set_stack_size` before the first spawn; the interpreter's 64 KB `STACK_MARGIN` check applies to it
+  like to a thread), and the execution's shadow ring (`clj_shadow_stack`, 200 KB virtual) starting half a page
+  past the stack's top so that a shallow parked coroutine touches one 16 KB page for both. Measured: 10 000
+  parked `go` blocks cost 16 KB physical each (`clj_debug_phys_footprint`, `task_info`) against 528 KB virtual
+  — the page size is the floor, and a Swift `Task` suspended on a continuation is a few hundred bytes. On a
+  park the carrier hands the pages below the saved `sp` back with `MADV_FREE_REUSABLE` once per range
+  (`clj_coro_advise_stack`; a run that went deeper and parked at the same depth stays resident until a shallower
+  park: the high-water mark of the note in design §4, not the exact tail). Finished coroutines leave their
+  mappings in a cache of 256 (`map_keep`/`map_take`): an `mmap`, `mprotect` and `munmap` per spawn cost more
+  than the spawn itself. Under ASan a cached mapping is unpoisoned before reuse (the dead frames' red zones), and
+  every switch goes through `__sanitizer_start_switch_fiber`/`finish_switch_fiber`, so ASan follows the
+  coroutine stacks (`make test` runs the suites on them).
+- **The execution moved off `_Thread_local` into `clj_coro`** (`coro_internal.h`): the shadow ring with its
+  stack bounds, deadline, countdown, unwinds and cancel flag; the binding frames (`var.c`); the pending
+  exception and its trace (`error.c`); the forcing stack (`seq.c`); the exec nesting, the retired fn roots and
+  the host depth (`eval.c`); the `with-out-str` captures (`runtime.c`); the loader's arm; the locks-held count
+  (`lock.h`). What stays per thread: the allocator heap, the protocol reader window, the compiled sites' inline
+  caches, the rand state, the signal stack. A bare thread (the host's sync entry, a test calling `clj_eval`, a
+  blocking-pool thread, the timer thread) runs on an *implicit* coroutine made on first use (`implicit_init`:
+  calloc'd, immortal, its shadow ring calloc'd, its stack the thread's) whose park is a `pthread_cond_wait` —
+  nothing there ever switches, so every entry point works exactly as before. The switch stores two thread-locals
+  (`clj_coro_tls`, and `clj_shadow_tls` as its mirror so `run_body` still pays one TLS load) and `car->current`
+  (read by the signal handler through the pthread key). Retired roots are per coroutine, not per carrier as
+  the brief said: a parked coroutine keeps its +0 reads across the carriers it migrates over, and a drain
+  keyed to another execution's flight would free a root it still borrows.
+- **TLS across a park is the one rule every runtime file obeys.** Clang computes a `_Thread_local`'s address
+  once per function and keeps it across calls (verified: `held++; park(); held--` reuses `x19`), so a coroutine
+  that parks and resumes on another thread reads the *old* thread's slot through the cached address. Every
+  `_Thread_local` that code reaching a park can touch is therefore read through a call the compiler cannot
+  hoist or fold: `clj_coro_current()` (an external function), `clj_locks_held_slot()` (`noinline` plus an
+  `asm volatile` memory clobber so LLVM cannot infer it pure and merge two calls), `clj_deadline_tick()` (a
+  function), a compiled loop's tick ring captured once at the loop's entry (`clj_c_tick_ring`), and the
+  compiled inline caches behind per-site getters (`CLJC_TLS_IC`, `compiled_internal.h`: `static _Thread_local`
+  at file scope with a `noinline` getter; +1 ns on a protocol or keyword site — the trigger for the asm
+  alternative that names the TLV symbol directly is a profile where that call shows). The mutex slow path
+  runs one attempt per activation (`lock_attempt`) for the same reason. An inline read is fine when it happens
+  before any park in the activation and only the *pointer* is used after (`run_body`'s ring, `eval_loop`'s
+  ring): the pointer is the execution's own and stays valid; a *re-read* is what goes wrong.
+- **The guard page of a coroutine works like a thread's**: the fault lands in `clj_guard_signal` with the
+  current execution's ring (the carrier's `current`), the trace is collected from the coroutine's stack and
+  the landing is at the execution's innermost recovery point — `clj_coro_entry` pushes one, so an overflow
+  inside a coroutine throws "Stack overflow" in that coroutine (its `go` channel closes after the uncaught
+  report) and nothing else dies; `CompilerFixtureTests.overflowInsideACoroutineThrowsOnlyThere` runs compiled
+  recursion in a `go` in dev and closed mode. A `try` inside the coroutine does not see it, as at the host
+  boundary (same trigger as there).
+- **Traces read through a park**: `clj_trace_collect` walks the coroutine's own stack by frame pointer (its
+  bounds are the mapping's), and `clj_shadow_stack_trace` appends the spawner's frames captured at the spawn
+  (`clj_coro_capture_spawn_trace`: up to 32 `{name, line, col}` triples, the name symbol retained, no node
+  pointers since the spawner's exec may die first; a spawn from a coroutine inherits its parent's triples
+  within the same bound). The cheapest form measured: ~150 ns per spawn for the walk and the retains, no maps
+  until a throw needs them. The JVM's `go` shows nothing of the spawner. `ChanTests.traceThroughAPark` pins the
+  order: the throwing fn, the go body, then `spawner`, then `outer-spawner`.
+- **Bindings are conveyed by sharing the frame chain** (`clj_var_bindings_share`): a frame carries an atomic
+  refcount, a child holds the spawner's top frame and each frame its `prev`, a var's `thread_bound` count drops
+  when the frame dies rather than when it is popped, and the maps are shared once. `set!` on a conveyed binding
+  from the child is not refused (the JVM throws "Can't set!: from non-binding thread"): the box is a volatile
+  both sides may write. Trigger: a library relying on the JVM's refusal.
+- **Cancellation is the deadline's mechanism**: `cancel!` sets the ring's `cancelled` flag and its deadline to
+  1, so every loop tick and driver entry throws "Coroutine cancelled" through the deadline path (with its unwind
+  budget), every park point checks the flag before and after the wait, and a parked coroutine is woken by
+  claiming its current waiter (`clj_coro_cancel`). A blocking-pool wait is not cancellable
+  (`clj_park_uncancellable`): the job still uses the parker's stack. The flag is sticky: after the first throw
+  every later park point throws again, so cleanup that must wait does so in a `catch`. Deadlines are
+  per coroutine and conveyed at spawn.
+- **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
+  the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
+  the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
+- Not done, with triggers: `go-scoped` (structured spawn), `future`/`promise` on coroutines, the static `:park`
+  fact and the `:effects` lint, the Swift async bridge (`callAsync`, `callBlocking`) — the later tasks of
+  design §10 step 5. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
+  host-depth error is raised only under `clj_host_invoke` (`Value.apply`, the trampoline). Trigger for making
+  a park in a top-level `Runtime.eval` on the main thread an error: the async bridge, which gives the host the
+  alternative.
+
+## Scheduler (Sources/CljCore/sched.c)
+
+- **Carriers are our own pthreads**, one per core (`CLJ_CARRIERS` overrides), `QOS_CLASS_USER_INITIATED`,
+  detached, never exiting; not GCD, which offers no thread count and no promise that a coroutine's stack stays
+  off foreign queues. One global run queue under a pthread mutex and condition (`run_mu`/`run_cv` — a
+  `clj_lock` cannot be waited on), plus a **next slot per carrier**: a resume from a pool coroutine puts the
+  woken coroutine in the resumer's own slot (Go's `runnext`), so a pair handing values back and forth stays on
+  one thread with two switches per hop and no wakeup of anything; an occupant already there moves to the queue.
+  Idle carriers steal a slot only once it is 5 µs old (a fresh one belongs to its pair). An idle carrier first
+  spins for 20 µs in 2 µs slices (at most two spinners), then polls the queue every 50 µs for 1 ms, then sleeps
+  on the condition; an enqueue signals only when nobody spins and — for work placed from inside the pool —
+  nobody polls either, so a burst of hand-offs or spawns costs one wakeup, while work from outside the pool (a
+  timer, the main thread, a blocking job) always signals: it is latency. Measured (bench/RESULTS.md,
+  "Coroutines and channels"): ping-pong round trip 530 ns on the pool against 461 on one carrier; `(<! (timeout
+  0))` 1.9 µs (the timer thread's signal and the carrier's wake); a `go` from the main thread 1.65 µs (one
+  cross-thread wake per spawn — a `go` from a coroutine is the alloc and a queue push).
+- **Park and resume** (`clj_park`, `clj_resume`, `clj_waiter`): a park takes the coroutine's own pthread mutex,
+  stores `PARKED`, and switches out *holding it* — the carrier unlocks after the switch on its own stack — so a
+  resumer that acquires the mutex finds the context fully saved or the coroutine not yet parked; in the second
+  case it sets `resume_pending` and the park returns at once. A waiter is the unit of parking: refcounted,
+  malloc'd, shared by every queue it sits in (an `alts!` puts one in each port), claimed once under its own
+  `clj_lock` (`clj_waiter_claim`; `clj_waiter_claim_pair` claims the two sides of a hand-off together under both
+  locks in address order, so two channels pairing the same waiters cannot deadlock — core.async's
+  `lock`/`active?`/`commit` in one word). A stale node (its waiter claimed elsewhere) is dropped when a queue
+  meets it. A bare thread's implicit coroutine parks on its condition; a pool coroutine under `host_depth > 0`
+  (a `locking` or a lazy seq forced inside a synchronous host call) blocks its carrier the same way (the hybrid
+  of design §4) — the channel operations refuse instead (`clj_park_allowed`: an error with a trace to the wait,
+  never a block). The dev backstops: a park with a `clj_lock` held, a park under `host_depth`, and a park of a
+  cancelled coroutine are errors (`CoroTests`, `ChanTests`).
+- **Main carrier**: `clj_sched_main_install` on the main thread adds a version-0 `CFRunLoopSource`; a
+  main-affinity coroutine (`go-main`, `CLJ_AFFINITY_MAIN`) is queued separately and the source signalled, and
+  each turn of the run loop runs what is queued (`clj_sched_main_pump`). Without an installed carrier a
+  `go-main` is an error, not a silent pool run; a test adopts the calling thread (`clj_debug_sched_main_adopt`)
+  and pumps by hand, and `CoroTests.mainRunLoopSource` runs the real source from a `@MainActor` test turning
+  `CFRunLoopRunInMode`. `(atom x :affinity :main)` checks the carrier on every access (one flag test on the
+  fast path): a pool coroutine's `swap!`/`deref` of it is an error with a trace.
+- **Blocking pool** (`clj_blocking`, `clj_blocking_detach`): threads made on demand up to 64, kept for ever; a
+  pool coroutine submits the job and parks (uncancellable), a bare thread runs it inline; the loader reads files
+  there (`load.c` `read_file`), `thread` runs its body there as the thread's implicit coroutine with the
+  spawner's bindings conveyed. **Timers**: one thread, a list sorted by deadline (`clj_sched_timer`); `timeout`
+  closes its channel from it. Trigger for a heap: profiles with thousands of live timeouts.
+- **Output** (`runtime.c`): `clj_output` copies the bytes into a bounded queue (1 MB) drained by one writer thread
+  that calls the host's `out_fn` or `fwrite`; a printer that finds the queue full parks (blocks on a bare
+  thread) until the writer drains below the limit; `clj_output_flush` waits for an empty queue and an idle
+  writer, `clj_set_output` flushes before swapping the hook, `atexit` flushes. `with-out-str` captures are per
+  execution and bypass the queue; a `go` inside `with-out-str` prints to the real output (the JVM conveys
+  `*out*` to the block). Trigger: a library capturing a go block's output.
+
+## Channels (Sources/CljCore/chan.c, boot/clojure/core/async.clj, include/clj/chan.h)
+
+- **A channel is a buffer plus two queues of waiter nodes under a `clj_lock`**, a runtime-only short section
+  (the audit below): no user code runs inside it — woken nodes are collected and resumed after the unlock, and
+  a `put!`/`take!` callback runs on the execution that completed it (the timer thread for a `timeout`'s
+  takers; trigger for dispatching callbacks to the pool: a callback that parks long on the timer thread). The
+  fast path of `<!`/`>!` needs no waiter: the operation completes under the lock or a waiter is made and
+  enqueued in the same lock hold. Buffers: fixed, dropping, sliding (`buffer`, `dropping-buffer`,
+  `sliding-buffer` are spec objects `chan` reads); a fixed-buffer take refills from a parked putter; `close!`
+  wakes parked takers with nil and leaves parked puts to be taken (the JVM's contract); the pending limit is
+  the JVM's 1024 with the JVM's message, counted after purging stale nodes. Transducers on a channel are not
+  built: `(chan n xform)` throws "not supported yet" — the step would run user code under the channel's
+  `clj_lock` (the JVM runs it under the channel's mutex); trigger: a library using them, then a channel whose
+  lock is a `clj_cmutex` when it carries an xform.
+- **`alts!`** (`clj_chan_alts`): one waiter, one node per port, the paired claim decides the winner and the
+  continuation moves to whoever won; a port that completes immediately claims the waiter under that port's lock,
+  and an earlier port's node is then stale. `:priority` keeps the order, otherwise a per-thread xorshift
+  shuffles it; `:default` never enqueues. `alt!` is the JVM's `do-alt` expansion (a put clause is `[[ch v]]`).
+- **`go` spawns the body as an ordinary fn** (`go*`): the channel it returns holds the coroutine handle (for
+  `cancel!`), the coroutine holds the channel until it finishes, puts a non-nil result as a fire-and-forget node
+  and closes (`deliver_result`), so `(<! (go …))` is a join. `<!!`/`>!!`/`alts!!`/`alt!!` are the same functions;
+  `thread` runs on the blocking pool and returns a channel the same way. `<!` works in any function, inside
+  `map`, inside a lazy-seq thunk (`ChanTests.colorlessPark`, `CoroTests`). Measured (bench/RESULTS.md): buffered
+  throughput 120–130 ns per item, `alts!` over two ports 660 ns per completion, ping-pong 530 ns per round trip.
+- The names built and the JVM's library layer that is not (`pipe`, `mult`, `pub`, `mix`, `pipeline`,
+  `onto-chan`, `to-chan`, `promise-chan`, `merge`, `reduce`, `into`, …) are listed by `make api-diff` in
+  docs/api-parity.md; those are the next task of design §10 step 5.
+
+## Coroutine mutex (Sources/CljCore/cmutex.c, include/clj/cmutex.h)
+
+- **One word, a parking lot behind it**: 0 free, 1 locked, 2 locked with waiters, 3 free with waiters (the
+  waiters bit outlives an unlock so a barging locker cannot strand the queue). Uncontended a lock is one CAS
+  and an unlock one CAS, the same as `os_unfair_lock` — the `swap! inc` row did not move (42.6 → 38 ns). Contended
+  the locker spins 64 `yield`s (a holder is usually done in tens of ns), then queues a waiter in the lot's
+  bucket for the mutex's address (256 buckets under `clj_lock`s, as parking_lot and futexes do) and parks; the
+  unlock frees the word and wakes one waiter, who competes again (Go's normal mode). The brief's hand-over to
+  the first waiter was tried and dropped: with four carriers contending, every acquisition then goes through a
+  park and a resume (a convoy), 2.9 µs per `swap! inc` against 60–110 ns without it. Trigger for a starvation
+  mode (Go's after 1 ms): a profile showing a waiter that never wins. A waiter enqueues only once the word says
+  "locked with waiters" under the bucket lock (the first cut enqueued behind a state that a concurrent unlock
+  had just freed, and that waiter was never popped: the hang the bench found). A mutex wait is not cancellable
+  and a wait from a bare thread or under a host call blocks the thread.
+- **Holders**: every atom (`enter`/`leave` with the owner being the execution, the nested-swap trap unchanged),
+  `locking` (a reentrant monitor per object in a table keyed by identity, records living while held or waited
+  on: `monitor-enter*`/`monitor-exit*`, `clj_debug_live_monitors`), and a lazy seq being forced (a one-shot wait
+  on the lot with `FORCING_WAITED` as the "someone parked" state — the `sched_yield` spin is gone; "Recursive
+  realization" stays). `promise`/`future` will hold it too when they exist.
+- **Lock audit** (design §4, "under `clj_lock` runs neither user code nor IO"; every `clj_lock_lock` at the time
+  of this task, 58 sites in 13 files, now 62 with `chan.c` and `cmutex.c`):
+
+  | file | sites | what runs under the lock | verdict |
+  |---|---:|---|---|
+  | `atom.c` | 2 | `f`, the validator | **violated** → the atom's lock is a `clj_cmutex`; `deref` takes no lock at all |
+  | `load.c` | 12 | registries, the failures vector; one `fopen` per load-path root | **violated** (IO) → the roots are copied out and probed with `access` unlocked; the file is read on the blocking pool |
+  | `callers.c` | 7 | the caller index | runtime only |
+  | `ns.c` | 12 | the namespace tables | runtime only |
+  | `shape.c` | 6 | the shape tree | runtime only |
+  | `proto.c` | 6 | tables, the reify registry, `wait_readers` spinning on windows that hold no user code | runtime only |
+  | `specialize.c` | 4 | the facts pass over existing trees (no macroexpansion) — long, no user code | runtime only |
+  | `profile.c` | 3 | the profile table | runtime only |
+  | `reader.c` | 2 | the feature set | runtime only |
+  | `trace.c` | 2 | the frame tables | runtime only |
+  | `eval.c` | 1 | a keyword site's fill | runtime only |
+  | `keyword.c` | 1 | the intern table | runtime only |
+  | `chan.c` (new) | 2 per op | the buffer and the queues; wakes after the unlock | runtime only |
+  | `cmutex.c` (new) | 5 | a lot bucket, the monitor table | runtime only |
+
+  Every syscall that could block a carrier is off its path: `fopen`/`fread` (the loader) on the blocking pool,
+  `fwrite(stdout)`/`out_fn` on the writer thread with backpressure, the lazy-seq `sched_yield` spin replaced by
+  a park; `fprintf(stderr)`/`write(2)` remain for fatal, crash and the uncaught report. The backstop is live:
+  a park with a `clj_lock` held throws, and the guard handler still refuses to convert an overflow under one.
 
 ## RC (Sources/CljCore/rc.c, object.h)
 - **`-DCLJ_NO_REUSE` makes `clj_is_unique` always false** (`make test-noreuse`, `clj_reuse_enabled()` says
@@ -1618,12 +1824,18 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **Atoms** (atom.c; design §4 "Атомы"): `atom` (with `:meta`/`:validator`), `deref`/`@`, `reset!`,
   `swap!` (any arity), `swap-vals!`, `reset-vals!`, `compare-and-set!` (`identical?`), `add-watch`/
   `remove-watch`, `set-validator!`/`get-validator`, `atom?`, `meta`/`alter-meta!`/`reset-meta!`; the
-  type name `Atom`. One `clj_lock` per atom; `f` runs *exactly once* under it (no CAS retry loop, so an
-  `f` with side effects runs them once) on the value borrowed from the atom — the atom keeps its
-  reference, `f` sees it at +0 — the validator runs under it too, watches run after it with
-  `(f key atom old new)` (a watch may deref and swap the atom; a throwing watch propagates after the
-  store, the remaining watches are skipped), `deref` takes the lock (a load and an atomic retain, ~2 ns
-  more than a volatile). **JVM semantics on a throw:** a throw out of `f`, a validator rejection or the
+  type name `Atom`. One `clj_cmutex` per atom ("Coroutine mutex": a CAS uncontended, a park contended, so
+  an `f` that parks holds the atom across the park without freezing a carrier); `f` runs *exactly once*
+  under it (no CAS retry loop, so an `f` with side effects runs them once) on the value borrowed from the
+  atom — the atom keeps its reference, `f` sees it at +0 — the validator runs under it too, watches run after
+  it with `(f key atom old new)` (a watch may deref and swap the atom; a throwing watch propagates after the
+  store, the remaining watches are skipped). **`deref` takes no lock**: the load and its retain sit in the
+  protocol reader window (proto.c, one seq_cst store each side), and `commit` releases the old value only
+  after `clj_proto_wait_readers` saw every window closed — the retain never lands on a freed object, and a UI
+  read never waits for another execution's `f` (design §4). Measured: `get @atom :k` 54 → 41 ns, `swap! inc`
+  unchanged at 38–42, four carriers on one `swap! inc` 60–110 ns (bench/RESULTS.md, "Coroutines and
+  channels"). `(atom x :affinity :main)` checks the carrier on every access: off the main carrier the op
+  throws with a trace. **JVM semantics on a throw:** a throw out of `f`, a validator rejection or the
   nested-op trap leaves the state exactly as it was; `(swap! a (fn [s] (if ok (assoc s …) (throw …))))`
   is a rejection idiom and code relies on it. There is no hand-over of the atom's reference to `f`: the
   uniqueness trick (the atom at nil while `f` ran, `assoc` in place through a consuming native or a frame
@@ -1633,7 +1845,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   613 at 1000, 131 → 904 at 100000 (bench/RESULTS.md, "Atoms", the dated subsection); `swap! inc`, `deref`,
   the watched and the 4-thread rows did not move. `deref` of the same atom from inside `f`, a validator or
   an `alter-meta!` fn returns the current (old) value, as on the JVM: the lock holder reads its own atom
-  without taking the lock again (`held_by_me`, the owner thread id in the atom). The lock is not recursive,
+  without taking the lock again (`held_by_me`, the owner execution in the atom). The lock is not recursive,
   so the trap stays for every op that would take it — a nested `swap!`, `swap-vals!`, `reset!`,
   `reset-vals!`, `compare-and-set!`, `add-watch`, `set-validator!`, `alter-meta!`, `meta`, ... on the
   *same* atom from inside `f`, a validator or an `alter-meta!` fn throws "<op> on an atom this thread is
@@ -1883,8 +2095,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **`Value(function:)` bounds arity with a closed range**; a variadic fn with a minimum is `nil`
   (any count) plus a check in the body. Trigger: the first host fn wanting `[a & rest]` semantics.
 - **The Swift body of a host fn is not `Sendable`-checked** and runs on whichever thread invokes the
-  fn; the runtime evaluates on one thread at a time (NOTES, evaluator). Trigger: multi-threaded
-  evaluation.
+  fn — since coroutines exist, any carrier of the pool (NOTES "Coroutines"). `Value.apply`
+  (`clj_host_invoke`) counts as a synchronous host call: a park inside it is an error with a trace to the
+  wait, never a block (design §5, `host_depth`). `Runtime.eval` from a bare thread blocks that thread on a
+  park, the JVM's `<!!`. Trigger: the async bridge (`callAsync`/`callBlocking`).
 - **`ClojureError.trace` is the frames at the throw**, innermost first, and `description` appends
   them Clojure-style (`at user/f (line:col)`); a `ClojureError` rethrown from a host fn hands the
   same frames back to the core, so a non-error value keeps them across the boundary. Compiled frames

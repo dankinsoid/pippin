@@ -27,6 +27,9 @@ Two rules keep the list complete:
 | `CljCompiler/jit.c`, `include/cljc/compiler.h` | `xcrun` to find clang and the SDK; `dlopen` of a per-form dylib (diagnostic mode only) | none | Diagnostic path, not a product feature (design §9). |
 | `Makefile`, `Package.swift` | `swift test --sanitize`, `xcrun clang` for the corpus in compiled mode | none | Toolchain, not runtime. |
 | `clj-bench/main.swift` | `os_unfair_lock` rows as the Swift comparison | none | Bench only. |
+| `coro.c` | the context switch in asm for arm64 and x86_64 (Darwin symbol prefix `_`); `mmap`/`mprotect` for the stack reserve and its guard page; `MADV_FREE_REUSABLE` for a parked stack's tail; `task_info(TASK_VM_INFO)` for the physical footprint; the ASan fiber hooks | none — no other architecture | Linux: the same asm without the underscore, `MADV_DONTNEED`, `/proc/self/statm`; the fiber hooks are the sanitizer's, not the OS's. |
+| `sched.c` | `pthread_set_qos_class_self_np` on the carriers; the main carrier is a version-0 `CFRunLoopSource` signalled with `CFRunLoopWakeUp` | the main carrier queue alone (a host can pump it by hand) | Linux: an `eventfd` in the host's `epoll`/GLib loop performs the same pump; QoS has no equivalent. |
+| `cmutex.c`, `chan.c`, `runtime.c` (the writer thread) | pthreads and C atomics only | — | Portable; listed so the audit knows the scheduler files were read. |
 
 ## Not platform-specific, worth knowing
 
@@ -34,3 +37,7 @@ Two rules keep the list complete:
   C17 and Swift with no platform calls; `boot/core.c` is generated and carries whatever
   `compiled_internal.h` carries.
 - The deadline, the shadow stack, the atoms, the pool allocator use only pthreads and C atomics.
+- The coroutine mutex, the parking lot, the channels and the output writer are pthreads and C atomics; only the
+  switch, the stack mapping and the main carrier's run-loop source are platform code (rows above).
+- A coroutine may resume on another thread, so no `_Thread_local` is read through an address cached across a
+  call that can park (NOTES.md "Coroutines", TLS); that rule is the same on every platform.
