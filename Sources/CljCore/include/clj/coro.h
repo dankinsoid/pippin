@@ -50,6 +50,7 @@ size_t clj_debug_phys_footprint(void);
 size_t   clj_debug_live_coros(void);
 // Waits up to ms for the live count to fall to target: a test's quiesce before its live-object check.
 bool clj_debug_coro_settle(size_t target, uint64_t ms);
+bool clj_debug_park_under_lock_is_error(void);
 uint64_t clj_debug_coro_switches(void);
 uint64_t clj_debug_coro_spawned(void);
 // Replaces the stderr report of an error a coroutine did not catch (a go block without a handler).

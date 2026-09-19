@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "clj/core.h"
 #include "clj/eval.h"
@@ -228,22 +229,28 @@ clj_value clj_load_resource_path(const char *lib_path) {
 	}
 	static const char *const exts[] = {".cljc", ".clj"};
 	clj_value                found = CLJ_NIL;
+	// The roots are copied out: the file system is probed with no runtime lock held (design §4, "Два лока").
 	clj_lock_lock(&lock);
-	for (size_t i = 0; i < nroots && clj_is_nil(found); i++) {
-		for (size_t e = 0; e < 2 && clj_is_nil(found); e++) {
-			size_t cap = strlen(roots[i]) + strlen(lib_path) + 8;
-			char  *text = malloc(cap);
-			if (!text) clj_fatal("out of memory");
-			snprintf(text, cap, "%s/%s%s", roots[i], lib_path, exts[e]);
-			FILE *f = fopen(text, "rb");
-			if (f) {
-				fclose(f);
-				found = clj_string_from_cstr(text);
-			}
-			free(text);
-		}
+	size_t n = nroots;
+	char **copy = n ? malloc(n * sizeof *copy) : NULL;
+	if (n && !copy) clj_fatal("out of memory");
+	for (size_t i = 0; i < n; i++) {
+		copy[i] = strdup(roots[i]);
+		if (!copy[i]) clj_fatal("out of memory");
 	}
 	clj_lock_unlock(&lock);
+	for (size_t i = 0; i < n; i++) {
+		for (size_t e = 0; e < 2 && clj_is_nil(found); e++) {
+			size_t cap = strlen(copy[i]) + strlen(lib_path) + 8;
+			char  *text = malloc(cap);
+			if (!text) clj_fatal("out of memory");
+			snprintf(text, cap, "%s/%s%s", copy[i], lib_path, exts[e]);
+			if (access(text, R_OK) == 0) found = clj_string_from_cstr(text);
+			free(text);
+		}
+		free(copy[i]);
+	}
+	free(copy);
 	return found;
 }
 
@@ -414,6 +421,33 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 	return result;
 }
 
+typedef struct {
+	const char *path;
+	char       *bytes;
+	size_t      len;
+	bool        ok;
+} read_job;
+
+// Runs on the blocking pool while the loading coroutine parks (design §4: no fread on a carrier).
+static void read_file(void *ctx) {
+	read_job *j = ctx;
+	FILE     *f = fopen(j->path, "rb");
+	if (!f) return;
+	size_t cap = 0;
+	for (;;) {
+		if (j->len == cap) {
+			cap = cap ? cap * 2 : 1 << 16;
+			j->bytes = realloc(j->bytes, cap);
+			if (!j->bytes) clj_fatal("out of memory");
+		}
+		size_t n = fread(j->bytes + j->len, 1, cap - j->len, f);
+		if (n == 0) break;
+		j->len += n;
+	}
+	fclose(f);
+	j->ok = true;
+}
+
 clj_value clj_load_file(clj_value path) {
 	if (!clj_is_string(path)) return clj_throw_msg("load-file expects a path string, got: %s", clj_type_name(path));
 	const char *text = clj_string_bytes(path);
@@ -431,22 +465,10 @@ clj_value clj_load_file(clj_value path) {
 		if (!bytes) return clj_throw_msg("No embedded source: %s", text);
 		return clj_load_source(bytes, len, path);
 	}
-	FILE *f = fopen(text, "rb");
-	if (!f) return clj_throw_msg("Could not open %s", text);
-	char  *bytes = NULL;
-	size_t len = 0, cap = 0;
-	for (;;) {
-		if (len == cap) {
-			cap = cap ? cap * 2 : 1 << 16;
-			bytes = realloc(bytes, cap);
-			if (!bytes) clj_fatal("out of memory");
-		}
-		size_t n = fread(bytes + len, 1, cap - len, f);
-		if (n == 0) break;
-		len += n;
-	}
-	fclose(f);
-	clj_value r = clj_load_source(bytes, len, path);
-	free(bytes);
+	read_job job = {text, NULL, 0, false};
+	clj_blocking(read_file, &job);
+	if (!job.ok) return clj_throw_msg("Could not open %s", text);
+	clj_value r = clj_load_source(job.bytes, job.len, path);
+	free(job.bytes);
 	return r;
 }

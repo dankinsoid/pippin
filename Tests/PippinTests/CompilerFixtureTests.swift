@@ -39,6 +39,7 @@ private func compiledEval<T>(closed: Bool = false, _ body: () throws -> T) throw
 	return try body()
 }
 
+nonisolated(unsafe) private var uncaughtTraces: [(String, Int)] = []
 nonisolated(unsafe) private let jitDir = strdup(packageRoot.appendingPathComponent(".build/compiled-fixtures").path)
 nonisolated(unsafe) private let jitRoot = strdup(packageRoot.path)
 
@@ -200,6 +201,33 @@ extension CoreTests {
 				#expect(cljEvalError("(cp-spin)")?.contains("Execution timed out") == true, "closed: \(closed)")
 				clj_deadline_set_ms(0)
 				#expect(try cljEval("(+ 1 2)") == 3)
+			}
+		}
+
+		// Compiled recursion inside a coroutine hits the coroutine's own guard page and lands at its entry: that
+		// coroutine ends with "Stack overflow" (reported, its channel closes), the carrier and everything else live on.
+		// Compiled frames inside a coroutine trace like anywhere else.
+		@Test func overflowInsideACoroutineThrowsOnlyThere() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.coro (:require [clojure.core.async :refer [go <!!]]))")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			for closed in [false, true] {
+				try compiledEval(closed: closed) {
+					_ = try cljEval("(declare cp-cb) (let [] (defn cp-ca [n] (cp-cb (inc n))) (defn cp-cb [n] (cp-ca n)) (defn cp-throws [] (throw (ex-info \"t\" {}))) (defn cp-mid [] (cp-throws)))")
+				}
+				let coros = clj_debug_live_coros()
+				uncaughtTraces = []
+				clj_coro_set_uncaught_handler { ex, trace in
+					let t = Value(borrowing: trace)
+					uncaughtTraces.append((Value(borrowing: ex).description, (t.array ?? []).count))
+				}
+				defer { clj_coro_set_uncaught_handler(nil) }
+				#expect(try cljEval("(<!! (go (cp-ca 0)))") == nil, "closed: \(closed)")
+				#expect(clj_debug_coro_settle(coros, 5000))
+				#expect(uncaughtTraces.count == 1 && uncaughtTraces[0].0.hasPrefix("#error {:message \"Stack overflow\"") && uncaughtTraces[0].1 == 256, "\(uncaughtTraces)")
+				#expect(clj_shadow_stack_depth() == 0 && clj_debug_retired_roots() == 0)
+				#expect(try cljEval("(<!! (go (+ 1 2)))") == 3)
+				#expect(try cljEval("(<!! (go (try (cp-mid) (catch :default e (mapv :fn (ex-trace e))))))") == [Value(symbol: "cp.coro/cp-throws"), Value(symbol: "cp.coro/cp-mid"), nil], "closed: \(closed)")
 			}
 		}
 

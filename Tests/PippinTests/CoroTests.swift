@@ -4,37 +4,145 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval(source) }
+private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'coro-tests) " + source) }
 
 private func message(_ source: String) -> String? {
-	guard let text = cljEvalError(source) else { return nil }
+	guard let text = cljEvalError("(in-ns 'coro-tests) " + source) else { return nil }
 	let prefix = "#error {:message \""
 	guard text.hasPrefix(prefix), let end = text.range(of: "\", :data") else { return text }
 	return String(text[prefix.endIndex..<end.lowerBound])
 }
 
-// Every test ends with what it started with: no live objects, no live coroutines beyond the threads' own.
-private struct Baseline {
-	let objects = clj_debug_live_objects(), coros = clj_debug_live_coros()
-	func check(_ location: SourceLocation = #_sourceLocation) {
-		#expect(clj_debug_coro_settle(coros, 5000), sourceLocation: location)
-		clj_output_flush()
-		#expect(clj_debug_live_objects() == objects, sourceLocation: location)
-		#expect(clj_debug_live_coros() == coros, sourceLocation: location)
-	}
-}
+private func kw(_ s: String) -> Value { Value(keyword: s) }
 
 extension CoreTests {
 	@Suite struct CoroTests {
-		init() {
+		init() throws {
 			clj_init()
-			_ = try? cljEval("(require 'clojure.core.async)")
+			_ = try cljEval("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts!]]))")
+			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice"] { _ = kw(k) }
+			_ = try cljEval("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out)")
 		}
 
-		@Test func smoke() throws {
-			let base = Baseline()
+		// The switch is the hand-written asm: ~20 instructions each way, so a round trip is tens of nanoseconds.
+		@Test func switchCost() throws {
+			let base = CoroBaseline()
 			do {
-				#expect(try eval("(let [c (chan*)] (go* (fn [] (chan-put* c 42))) (chan-take* c))") == 42)
+				let ns = clj_bench_switch_ns(200_000)
+				#expect(ns < 200, "\(ns) ns per switch")
+			}
+			base.check()
+		}
+
+		// 10k parked coroutines: virtual is the reserve, physical the pages each one touched (one or two). Ten
+		// gates, since a channel takes at most 1024 pending takes.
+		@Test func tenThousandParked() throws {
+			let base = CoroBaseline()
+			do {
+				let before = clj_debug_phys_footprint()
+				_ = try eval("(def parked-gate (vec (repeatedly 10 chan))) (def parked-done (chan 10000))")
+				_ = try eval("(dotimes [i 10000] (let [g (nth parked-gate (mod i 10))] (go (<! g) (>! parked-done i))))")
+				let gates = try eval("parked-gate")
+				func pending() -> UInt32 { (0..<10).reduce(0) { $0 + clj_debug_chan_pending(clj_vector_nth(gates.raw, UInt32($1)), false) } }
+				var waited = 0
+				while pending() < 10000 && waited < 5000 {
+					usleep(1000)
+					waited += 1
+				}
+				#expect(pending() == 10000)
+				let after = clj_debug_phys_footprint()
+				let perCoro = (after - before) / 10000
+				#expect(perCoro < 64 * 1024, "\(perCoro) bytes physical per parked coroutine (\(clj_coro_stack_size() / 1024) KB reserved each)")
+				_ = try eval("(doseq [g parked-gate] (close! g)) (dotimes [i 10000] (<!! parked-done))")
+				_ = try eval("(def parked-gate nil) (def parked-done nil)")
+			}
+			base.check()
+		}
+
+		@Test func goFromABareThreadAndFromACoroutine() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("(<!! (go :from-bare))") == kw("from-bare"))
+				#expect(try eval("(<!! (go (<! (go :from-coro))))") == kw("from-coro"))
+				// From a plain pthread with no runtime state of its own.
+				let t = Thread {
+					let v = try? cljEval("(clojure.core.async/<!! (clojure.core.async/go 7))")
+					#expect(v == 7)
+				}
+				t.start()
+				while !t.isFinished { usleep(500) }
+			}
+			base.check()
+		}
+
+		// The main carrier: adopted by the test thread, pumped by hand; a :main atom refuses the pool.
+		@Test func mainAffinity() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(message("(go-main 1)") == "No main carrier: the host has not installed one (clj_sched_main_install)")
+				clj_debug_sched_main_adopt()
+				defer { clj_debug_sched_main_abandon() }
+				_ = try eval("(def main-out (chan 1)) (def main-ui (atom 0 :affinity :main))")
+				_ = try eval("(go-main (swap! main-ui inc) (>! main-out :ran))")
+				#expect(try eval("(clojure.core.async/poll! main-out)") == nil)
+				clj_sched_main_pump()
+				#expect(try eval("(<!! main-out)") == kw("ran"))
+				#expect(try eval("@main-ui") == 1)
+				// A pool coroutine touching the main atom: an error with a trace, not a silent race.
+				#expect(try eval("(<!! (go (try (swap! main-ui inc) (catch :default e (ex-message e)))))") == "swap! on an atom with :affinity :main from off the main carrier")
+				#expect(try eval("(<!! (go (try @main-ui (catch :default e (ex-message e)))))") == "deref on an atom with :affinity :main from off the main carrier")
+				// A main coroutine parks and resumes on the main carrier only.
+				_ = try eval("(def main-in (chan))")
+				_ = try eval("(go-main (>! main-out (<! main-in)))")
+				clj_sched_main_pump()
+				#expect(try eval("(clojure.core.async/offer! main-in :v)") == true)
+				#expect(try eval("(clojure.core.async/poll! main-out)") == nil)
+				clj_sched_main_pump()
+				#expect(try eval("(<!! main-out)") == kw("v"))
+				_ = try eval("(def main-out nil) (def main-ui nil) (def main-in nil)")
+			}
+			base.check()
+		}
+
+		// The real source on the main thread's run loop: the test runs on the main actor and turns the loop.
+		@Test @MainActor func mainRunLoopSource() throws {
+			try #require(Thread.isMainThread)
+			let base = CoroBaseline()
+			do {
+				clj_sched_main_install()
+				defer { clj_debug_sched_main_abandon() }
+				_ = try eval("(def loop-out (chan 1))")
+				_ = try eval("(go (>! loop-out (<! (go-main :from-run-loop))))")
+				var turns = 0
+				while try eval("(clojure.core.async/poll! loop-out)") == nil && turns < 200 {
+					CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0.01, true)
+					turns += 1
+				}
+				#expect(turns < 200)
+				_ = try eval("(def loop-out nil)")
+			}
+			base.check()
+		}
+
+		@Test func parkUnderARuntimeLockIsAnError() throws {
+			let base = CoroBaseline()
+			do {
+				// A lazy seq's thunk parks legally (the forcing lock is a coroutine mutex).
+				#expect(try eval("(let [c (chan 1)] (>!! c 5) (<!! (go (first (lazy-seq [(<! c)])))))") == 5)
+				#expect(clj_debug_park_under_lock_is_error())
+			}
+			base.check()
+		}
+
+		@Test func deadlineIsPerCoroutine() throws {
+			let base = CoroBaseline()
+			do {
+				// A deadline set on the spawner is conveyed; the spawner's own clock is untouched by the child.
+				clj_deadline_set_ms(200)
+				defer { clj_deadline_set_ms(0) }
+				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :default e (ex-message e)))))") == "Execution timed out")
+				clj_deadline_set_ms(0)
+				#expect(try eval("(<!! (go (loop [i 0] (if (< i 100000) (recur (inc i)) i))))") == 100000)
 			}
 			base.check()
 		}

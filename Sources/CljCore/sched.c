@@ -588,3 +588,18 @@ void clj_blocking(void (*fn)(void *ctx), void *ctx) {
 void clj_blocking_detach(void (*fn)(void *ctx), void *ctx) { submit(fn, ctx, NULL); }
 
 uint64_t clj_debug_coro_spawned(void) { return atomic_load_explicit(&spawned, memory_order_relaxed); }
+
+// Test hook: the dev backstop that refuses a park while a clj_lock is held.
+bool clj_debug_park_under_lock_is_error(void) {
+	static clj_lock probe = CLJ_LOCK_INIT;
+	clj_lock_lock(&probe);
+	bool allowed = clj_park_allowed();
+	clj_lock_unlock(&probe);
+	if (allowed) return false;
+	clj_value ex = clj_take_pending();
+	clj_value msg = clj_ex_message(ex);
+	bool ok = clj_is_string(msg) && strcmp(clj_string_bytes(msg), "Cannot park while a runtime lock is held") == 0;
+	clj_release(msg);
+	clj_release(ex);
+	return ok;
+}
