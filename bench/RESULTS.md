@@ -1271,3 +1271,63 @@ ns per iteration, `n` = 100000.
   `--closed` figure.
 - **Unchanged within noise**: `swap! inc` (the lock pair), the counting loop (its tick stayed), the local helper
   (a direct fn whose frame the static link pins), the bi-morphic protocol call.
+
+## The primitive entry — 2026-09-19, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The closed compiled-core binary with every bench form compiled `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1
+CLJ_EVAL_OPT=-O2`. Three columns: the last section's numbers (eb9b8cd: leaf inlining, the boxed convention at every
+call); the same build with the worker emission and the primitive sites switched off (a temporary knob, removed) — so
+the summaries specialized to the arguments' domains and the `quot`/`rem` intrinsics are in, the workers are not; and
+the build as committed (NOTES.md "Compiler", the primitive entry; "Facts", domains), two runs. Four new rows: the
+accumulating loop calling `(defn qr [a b] (quot a b))` — a callee whose primitive path can throw (a zero divisor) —
+and a double accumulating loop calling `(defn half [x] (/ x 2.0))`, each as one closed unit beside the same loop with
+the operation written out in a closed unit.
+
+ns per iteration, `n` = 100000.
+
+| scenario | eb9b8cd | workers off | after |
+|---|---:|---:|---:|
+| counting loop | 5.1 / 5.7 | 3.1 | 5.6 / 5.4 |
+| accumulating loop, bound known from the caller | 1.3 / 1.4 | 1.3 | 1.4 / 1.3 |
+| accumulating loop with `(* i i)` written out | 1.4 / 1.4 | 1.4 | 1.4 / 1.4 |
+| accumulating loop calling `(defn sq [x] (* x x))`, one closed unit | 4.0 / 4.0 | 3.2 | **0.7** / 0.7 |
+| accumulating loop calling `(defn sq [x] (* x x))`, one dev unit | 8.3 / 8.1 | 7.6 | 7.5 / 7.5 |
+| accumulating loop with `(quot i 3)` written out, one closed unit | — | 1.2 | 0.5 / 0.5 |
+| accumulating loop calling `(defn qr [a b] (quot a b))`, one closed unit | — | 3.4 | **0.5** / 0.5 |
+| double accumulating loop with `(/ x 2.0)` written out, one closed unit | — | 1.1 | 0.7 / 0.7 |
+| double accumulating loop calling `(defn half [x] (/ x 2.0))`, one closed unit | — | 32.4 | **0.7** / 0.7 |
+| double accumulating loop | 3.0 | 3.0 | 3.0 / 3.0 |
+| accumulating loop, bound `(count v)` in a let | 0.5 | 0.5 | 0.6 / 0.5 |
+| closure call in a loop | 5.6 / 5.9 | 5.9 | 6.1 / 5.9 |
+| C builtin call in a loop | 5.2 / 5.3 | 5.3 | 5.2 / 5.3 |
+| let-bound fn called in a loop | 3.5 / 3.7 | 3.7 | 3.8 / 4.0 |
+| loop with a local helper | 6.1 / 6.2 | 6.2 | 6.1 / 6.5 |
+| protocol call, deftype receiver | 7.6 / 8.0 | 8.1 | 8.0 / 8.0 |
+| protocol call, fixnum receiver | 7.9 / 8.0 | 8.2 | 7.8 / 8.0 |
+| protocol call, bi-morphic | 11.7 / 11.6 | 11.6 | 11.5 / 11.9 |
+| protocol call, known receiver, one closed unit | 7.8 / 7.7 | 8.0 | 7.8 / 7.9 |
+| plain fn call through a var | 7.2 / 7.2 | 7.2 | 7.8 / 7.2 |
+| swap! inc | 23.0 / 22.1 | 22.9 | 22.5 / 24.8 |
+
+- **The call to a small numeric fn now costs what its body costs.** `sq` in the loop 4.0 → 0.7: the argument is an
+  `int64_t` handed to the worker's always_inline twin, the result an `int64_t` added into the typed accumulator, no
+  box on either side. It lands *under* the written-out reference (1.4) because the reference is a compiled-eval form
+  whose loop bound is a boxed parameter checked at every `(< i n)`, while `bench-sq-to` in the unit is a worker itself
+  — its bound arrives as an `int64_t` — so the compare is untagged too. `otool -v -s __TEXT __cljframe
+  bench_sq_closed.dylib`: the sq-to worker's loop is thirteen instructions — `mul`/`smulh` and the overflow compare,
+  `adds`/`b.vs`, the tick's two loads, the increment and the compare — with no `bl`.
+- **The domains alone are worth 0.8 of the 3.3.** With the workers off, the same row is 3.2 against 4.0 last time: the
+  summary of `sq` specialized to an int64 argument makes `(bench-sq i)` int64 at the site, so the accumulator is typed
+  and the `+` unboxed; what remains, 1.8 ns, is the boxed call itself — box, tag check, box, unbox — which the worker
+  removes.
+- **A throwing primitive path costs nothing on the path.** `qr` through the worker is 0.5, the same as `(quot i 3)`
+  written out: the zero-divisor branch is a compare and a never-taken branch, the `thrown` flag folds away after
+  inlining, and the result of a `clj_wlong` is one register. Without the worker the helper costs 3.4 — the boxed call
+  around a two-instruction body.
+- **A double helper was the worst case and is now the same as the rest.** 32.4 → 0.7: the boxed call boxed a double
+  per iteration (`clj_double_new` allocates, unlike a fixnum) and released it, and the result again; the worker
+  passes and returns the `double` in registers. The written-out `(/ x 2.0)` moved 1.1 → 0.7 for the same reason as the
+  sq row: the enclosing fn is a worker and its bound untagged.
+- **Unchanged within noise**: everything without a def'd numeric helper on its path — the closure and protocol call
+  rows, `swap!`, the counting loop (whose 3.1 in the middle column is a run of the same code that happened to sit
+  well; the two committed runs bracket the last section's 5.1–5.7).

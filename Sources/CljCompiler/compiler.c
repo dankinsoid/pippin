@@ -169,6 +169,7 @@ typedef struct {
 	uint32_t self_used; // bit n: fixed arity n binds its self slot, so a direct call must pass the fn
 	int32_t  variadic;  // nparams of the variadic arity, -1 when none
 	bool     dynamic;
+	char    *wsig[CLJ_FN_MAX_FIXED + 1]; // the worker's signature ("w_ld_l") per fixed arity, NULL without one
 } direct_entry;
 
 typedef struct {
@@ -184,6 +185,8 @@ typedef struct {
 	pool  impl_regs; // fn bases a closed init registers as protocol impls, with the arity mask a direct arm may call
 	pool  frames;    // the frame functions with their stub index, in emission order (the unit's range table)
 	pool  leaves;    // the arity functions with an always_inline twin <name>_i: small bodies without direct calls
+	pool  workers;   // the primitive entries emitted, "<base>_a<n>_<sig>", with "1" when a leaf (NOTES.md "Compiler")
+	pool  prims;     // the primitive call sites written, by target, with their count
 	uint32_t nstubs, ntops, nforms;
 	cljc_slot_stats slots;
 	struct proto_site *psites; // the protocol call sites, classified for --stats once every arm's target is resolved
@@ -368,6 +371,8 @@ static void unit_free(unit *u) {
 	pool_free(&u->impl_regs);
 	pool_free(&u->frames);
 	pool_free(&u->leaves);
+	pool_free(&u->workers);
+	pool_free(&u->prims);
 	free(u);
 }
 
@@ -439,6 +444,8 @@ typedef struct fnctx {
 	bool                 top; // the top-level form's own context, where a def names its fn after itself
 	int32_t              stub; // S[] index of the frame fn being emitted, -1 in a top-level form
 	bool                 has_direct; // the body calls a compiled fn directly: not a leaf (NOTES.md "Compiler", inlining)
+	const uint8_t       *wkinds;     // a worker: the ukind of each parameter, which arrives as a C value in a typed slot
+	uint32_t             wnparams;
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -589,14 +596,19 @@ static uint32_t facts_frame(const clj_facts *facts, const clj_node *owner, const
 // Sets f->promoted and f->borrowed. A promoted slot is owned-or-nil for its whole life, or (a closure's param or
 // self slot no recur rebinds) borrowed for its whole life; a direct fn's params are owned by the caller's mask.
 static void select_typed_slots(fnctx *f, const clj_node *body);
+static bool in_typed(const fnctx *f, uint32_t i);
 
-static void promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
+static bool wparam(const fnctx *f, uint32_t i) { return f->wkinds && i < f->wnparams; }
+
+// False for a worker whose parameter cannot be a C value: read by address (a capture, an OUTER read) or not unboxable
+// at every fn-body recur.
+static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
 	cljc_slot_stats *st = &f->u->slots;
 	f->promoted = f->borrowed = f->ints = f->dbls = 0;
 	f->body = body;
-	if (!f->facts || nslots == 0) return;
+	if (!f->facts || nslots == 0) return !f->wkinds;
 	uint32_t fi = facts_frame(f->facts, owner, body);
-	if (fi == UINT32_MAX) return;
+	if (fi == UINT32_MAX) return !f->wkinds;
 	pin_scan p = {0, 0, 0};
 	pin_walk(body, &p);
 	for (uint32_t i = 0; i < nslots; i++) {
@@ -604,6 +616,11 @@ static void promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 		bool       param = a && (i < a->nparams || (int32_t)i == a->self_slot);
 		// a frame past 64 slots retains every param and releases every array entry
 		bool pinned = nslots > 64 || i >= 64 || ((p.pinned >> i) & 1);
+		if (wparam(f, i)) {
+			if (pinned || e == CLJ_ESCAPE_CAPTURED) return false;
+			f->promoted |= (uint64_t)1 << i;
+			continue;
+		}
 		if (param && (!closure || ((p.rebound >> i) & 1))) {
 			if (e == CLJ_ESCAPE_LOCAL) st->local_param++;
 			continue;
@@ -619,6 +636,10 @@ static void promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 		if (e == CLJ_ESCAPE_LOCAL) st->promoted_local++;
 	}
 	select_typed_slots(f, body);
+	for (uint32_t i = 0; i < nslots; i++) {
+		if (wparam(f, i) && !in_typed(f, i)) return false;
+	}
+	return true;
 }
 
 static bool promoted(const fnctx *f, uint32_t i) { return i < 64 && ((f->promoted >> i) & 1); }
@@ -628,7 +649,7 @@ static bool dbl_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->dbls >>
 
 // ---- unboxed arithmetic (NOTES.md, "Compiler": unboxed arithmetic, int64 and double slots, entry-checked frames)
 
-typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG } unbox_op;
+typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG } unbox_op;
 
 // The C representation of an unboxed value: int64_t or double.
 typedef enum { UK_NONE, UK_INT, UK_DBL } ukind;
@@ -641,6 +662,7 @@ static unbox_op unbox_op_of(const clj_intrinsic *op) {
 	} table[] = {
 		{"clojure.core/+", 2, UNBOX_ADD},   {"clojure.core/-", 2, UNBOX_SUB},   {"clojure.core/*", 2, UNBOX_MUL},
 		{"clojure.core//", 2, UNBOX_DIV},   {"clojure.core/inc", 1, UNBOX_INC}, {"clojure.core/dec", 1, UNBOX_DEC},
+		{"clojure.core/quot", 2, UNBOX_QUOT}, {"clojure.core/rem", 2, UNBOX_REM},
 		{"clojure.core/<", 2, UNBOX_LT},    {"clojure.core/<=", 2, UNBOX_LE},   {"clojure.core/>", 2, UNBOX_GT},
 		{"clojure.core/>=", 2, UNBOX_GE},   {"clojure.core/=", 2, UNBOX_EQ},    {"clojure.core/zero?", 1, UNBOX_ZERO},
 		{"clojure.core/pos?", 1, UNBOX_POS}, {"clojure.core/neg?", 1, UNBOX_NEG},
@@ -653,11 +675,12 @@ static unbox_op unbox_op_of(const clj_intrinsic *op) {
 
 static bool unbox_is_arith(unbox_op op) { return op >= UNBOX_ADD && op <= UNBOX_DEC; }
 
-// The kind of an arithmetic result over the kinds of its arguments; an integer quotient may be a ratio, so it stays boxed.
+// The kind of an arithmetic result over the kinds of its arguments; an integer quotient may be a ratio, so it stays
+// boxed, and quot/rem over doubles round through the builtin.
 static ukind arith_kind(unbox_op op, ukind a, ukind b) {
 	if (a == UK_NONE || b == UK_NONE) return UK_NONE;
 	if (a == UK_INT && b == UK_INT) return op == UNBOX_DIV ? UK_NONE : UK_INT;
-	return UK_DBL;
+	return op == UNBOX_QUOT || op == UNBOX_REM ? UK_NONE : UK_DBL;
 }
 
 // = between an integer and a double is false by type, which a C comparison of the converted values would not say.
@@ -678,12 +701,29 @@ static ukind fact_kind(const fnctx *f, const clj_node *n) {
 static ukind slot_kind(const fnctx *f, uint32_t i) { return int_slot(f, i) ? UK_INT : dbl_slot(f, i) ? UK_DBL : UK_NONE; }
 static bool  in_typed(const fnctx *f, uint32_t i) { return slot_kind(f, i) != UK_NONE; }
 
+// A direct call site that may take the callee's primitive entry (NOTES.md "Compiler", worker/wrapper).
+typedef struct {
+	direct_entry *d;
+	char          target[400]; // "<base>_a<n>_w_<kinds>_<ret>"
+	char          sig[40];
+	ukind         kinds[CLJ_SUMMARY_DOMAINS_MAX];
+	ukind         ret;
+	uint32_t      nargs;
+} prim_site;
+
+static bool prim_site_of(const fnctx *f, const clj_node *n, direct_entry *d, prim_site *out);
+static direct_entry *direct_of_head(cljc_compiler *c, const clj_node *head);
+
 // Closed only: in dev a rebound operator needs the generic path, whose result is a box.
 static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 	if (!f->c->opts.closed) return UK_NONE;
 	switch (n->kind) {
 	case CLJ_NODE_CONST: return clj_is_fixnum(n->u.value) ? UK_INT : clj_is_double(n->u.value) ? UK_DBL : UK_NONE;
 	case CLJ_NODE_LOCAL: return slot_kind(f, n->u.local.index);
+	case CLJ_NODE_INVOKE: {
+		prim_site pc;
+		return prim_site_of(f, n, direct_of_head(f->c, n->u.invoke.fn), &pc) ? pc.ret : UK_NONE;
+	}
 	case CLJ_NODE_INTRINSIC: {
 		unbox_op op = unbox_op_of(n->u.intrinsic.op);
 		if (!unbox_is_arith(op)) return UK_NONE;
@@ -768,6 +808,13 @@ static void typed_masks(fnctx *f, const clj_node *body, const clj_node *split, u
 		if (k == UK_INT) want_int |= bit;
 		else if (k == UK_DBL) want_dbl |= bit;
 		else bad |= bit;
+	}
+	// a worker's parameters arrive as C values: bound at entry in their kind, and rebound only by a fn-body recur
+	for (uint32_t i = 0; f->wkinds && i < f->wnparams && i < 64; i++) {
+		uint64_t bit = (uint64_t)1 << i;
+		bound |= bit;
+		if (f->wkinds[i] == UK_INT) want_int |= bit;
+		else want_dbl |= bit;
 	}
 	uint64_t ok = 0;
 	for (uint32_t i = 0; i < 64; i++) {
@@ -866,10 +913,13 @@ static uint32_t array_slots(const fnctx *f, uint32_t nslots) {
 	return nslots;
 }
 
+static const char *ctype(ukind k);
+
 // The owned promoted slots start at nil; a borrowed one is declared where its value arrives.
 static void emit_promoted_decls(fnctx *f) {
 	for (uint32_t i = 0; i < 64; i++) {
-		if (int_slot(f, i)) sb_printf(&f->out, "\tint64_t l%u = 0;\n\t(void)l%u;\n", i, i);
+		if (wparam(f, i)) sb_printf(&f->out, "\t%s l%u = p%u;\n\t(void)l%u;\n", ctype(slot_kind(f, i)), i, i, i);
+		else if (int_slot(f, i)) sb_printf(&f->out, "\tint64_t l%u = 0;\n\t(void)l%u;\n", i, i);
 		else if (dbl_slot(f, i)) sb_printf(&f->out, "\tdouble l%u = 0;\n\t(void)l%u;\n", i, i);
 		else if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
 	}
@@ -901,14 +951,14 @@ typedef struct {
 	ukind kind;
 } itemp;
 
+static const char *ctype(ukind k) { return k == UK_DBL ? "double" : "int64_t"; }
+
 static itemp new_itemp(fnctx *f, ukind kind) {
 	itemp t;
 	snprintf(t.name, sizeof t.name, "i%d", f->ntemp++);
 	t.kind = kind;
 	return t;
 }
-
-static const char *ctype(ukind k) { return k == UK_DBL ? "double" : "int64_t"; }
 
 // A double as C source: hex keeps every bit, and the non-finite values have no literal.
 static void double_literal(char *buf, size_t cap, double d) {
@@ -919,14 +969,40 @@ static void double_literal(char *buf, size_t cap, double d) {
 
 static void emit_unwind(fnctx *f);
 
-// r = a op b with the overflow check of arith2; an overflow throws where the interpreter would.
-static void emit_int64_arith(fnctx *f, unbox_op op, const char *a, const char *b, const char *r) {
-	const char *builtin = (op == UNBOX_ADD || op == UNBOX_INC) ? "__builtin_add_overflow" : (op == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
-	sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n\tclj_throw_msg(\"integer overflow\");\n", r, builtin, a, b, r);
+// The throw of an int64 operation: the raw path unwinds; the tag-checked path stores the thrown result and marks it.
+static void emit_int64_fail(fnctx *f, const char *msg, const char *boxed, const char *failed) {
+	if (boxed) {
+		sb_printf(&f->out, "\t%s = clj_throw_msg(\"%s\");\n\t%s = true;\n", boxed, msg, failed);
+		emit_site(f);
+		return;
+	}
+	sb_printf(&f->out, "\tclj_throw_msg(\"%s\");\n", msg);
 	emit_site(f);
 	emit_unwind(f);
+}
+
+// r = a op b with the checks of long_arith (number.c): an overflow, a zero divisor throw where the interpreter would.
+static void emit_int64_op(fnctx *f, unbox_op op, const char *a, const char *b, const char *r, const char *boxed, const char *failed) {
+	sb_printf(&f->out, "\tint64_t %s = 0;\n", r);
+	if (op == UNBOX_QUOT || op == UNBOX_REM) {
+		sb_printf(&f->out, "\tif (__builtin_expect(%s == 0, 0)) {\n", b);
+		emit_int64_fail(f, "Divide by zero", boxed, failed);
+		if (op == UNBOX_REM) {
+			sb_printf(&f->out, "\t} else %s = %s == -1 ? 0 : %s %% %s;\n", r, b, a, b);
+			return;
+		}
+		sb_printf(&f->out, "\t} else if (%s == -1) {\n\tif (__builtin_expect(%s == INT64_MIN, 0)) {\n", b, a);
+		emit_int64_fail(f, "integer overflow", boxed, failed);
+		sb_printf(&f->out, "\t} else %s = -%s;\n\t} else %s = %s / %s;\n", r, a, r, a, b);
+		return;
+	}
+	const char *builtin = (op == UNBOX_ADD || op == UNBOX_INC) ? "__builtin_add_overflow" : (op == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
+	sb_printf(&f->out, "\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n", builtin, a, b, r);
+	emit_int64_fail(f, "integer overflow", boxed, failed);
 	sb_puts(&f->out, "\t}\n");
 }
+
+static void emit_int64_arith(fnctx *f, unbox_op op, const char *a, const char *b, const char *r) { emit_int64_op(f, op, a, b, r, NULL, NULL); }
 
 static char arith_char(unbox_op op) {
 	switch (op) {
@@ -943,6 +1019,8 @@ static char arith_char(unbox_op op) {
 static void emit_double_arith(fnctx *f, unbox_op op, const char *a, const char *b, const char *r) {
 	sb_printf(&f->out, "\tdouble %s = (double)%s %c (double)%s;\n", r, a, arith_char(op), b);
 }
+
+static itemp emit_prim_raw(fnctx *f, const clj_node *n);
 
 // n as an unboxed value: only for an unboxable node.
 static itemp emit_raw(fnctx *f, const clj_node *n) {
@@ -976,6 +1054,7 @@ static itemp emit_raw(fnctx *f, const clj_node *n) {
 		f->u->slots.unboxed++;
 		return t;
 	}
+	case CLJ_NODE_INVOKE: return emit_prim_raw(f, n);
 	default: clj_fatal("compiler: not an unboxable node");
 	}
 }
@@ -1745,7 +1824,7 @@ static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const
 	for (uint32_t i = 0; i < a.n; i++) a.arms[i].pimpl = arm_target(f, a.arms[i].type, method, nargs);
 	proto_site_add(f->u, &a);
 	int k = f->naux++;
-	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s[0]);\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Thread_local clj_cproto_ic PC%d;\n", r->name, array, k);
+	sb_printf(&f->out, "\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s[0]);\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Thread_local clj_cproto_ic PC%d;\n", array, k);
 	for (uint32_t i = 0; i < a.n; i++) {
 		if (a.arms[i].pimpl != UINT32_MAX) sb_printf(&f->out, "#ifdef CLJC_PIMPL_%u\n\t\tstatic _Atomic uint64_t PA%u;\n#endif\n", a.arms[i].pimpl, a.arms[i].pimpl);
 	}
@@ -1772,7 +1851,7 @@ static bool emit_satisfies(fnctx *f, const clj_node *n, const temp *fn, const te
 		a.arms[i].answer = clj_truthy(clj_proto_extends(proto, type));
 	}
 	f->u->slots.proto_folded++;
-	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s);\n\t\tuint64_t pe = clj_epoch_load();\n", r->name, args[1].name);
+	sb_printf(&f->out, "\t{\n\t\tconst clj_type *pt = clj_dispatch_type_inline(%s);\n\t\tuint64_t pe = clj_epoch_load();\n", args[1].name);
 	int k = f->naux;
 	f->naux += (int)a.n;
 	for (uint32_t i = 0; i < a.n; i++) sb_printf(&f->out, "\t\tstatic _Atomic uint64_t PS%d;\n", k + (int)i);
@@ -1795,9 +1874,133 @@ static bool emit_extends(fnctx *f, const clj_node *n, const temp *fn, const temp
 	const char *answer = clj_truthy(clj_proto_extends(proto, type)) ? "CLJ_TRUE" : "CLJ_FALSE";
 	int         k = f->naux++;
 	f->u->slots.proto_folded++;
-	sb_printf(&f->out, "\tclj_value %s;\n\t{\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Atomic uint64_t PE%d;\n", r->name, k);
+	sb_printf(&f->out, "\t{\n\t\tuint64_t pe = clj_epoch_load();\n\t\tstatic _Atomic uint64_t PE%d;\n", k);
 	sb_printf(&f->out, "\t\t%s = (clj_c_arm_hit(&PE%d, pe) || clj_c_extends_fill(&PE%d, %s, %s, %s, pe)) ? %s : clj_c_invoke(%s, %s, 2);\n\t}\n", r->name, k, k, args[0].name, args[1].name, answer, answer, fn->name, array);
 	return true;
+}
+
+static direct_entry *direct_of_head(cljc_compiler *c, const clj_node *head) {
+	if (head->kind != CLJ_NODE_VAR) return NULL;
+	char key[600];
+	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var))));
+	return direct_find(c, key);
+}
+
+// ---- primitive call sites (NOTES.md "Compiler", worker/wrapper)
+
+static char kind_letter(ukind k) { return k == UK_DBL ? 'd' : 'l'; }
+
+static ukind kind_of_domain(clj_domain d) { return d == CLJ_DOMAIN_INT64 ? UK_INT : d == CLJ_DOMAIN_DOUBLE ? UK_DBL : UK_NONE; }
+
+static clj_domain domain_of_kind(ukind k) { return k == UK_INT ? CLJ_DOMAIN_INT64 : k == UK_DBL ? CLJ_DOMAIN_DOUBLE : CLJ_DOMAIN_ANY; }
+
+// "w_ld_d": the parameter kinds, then the result kind, in the C symbol of the worker.
+static void sig_text(char *buf, size_t cap, const ukind *kinds, uint32_t n, ukind ret) {
+	size_t k = 0;
+	buf[k++] = 'w';
+	buf[k++] = '_';
+	for (uint32_t i = 0; i < n && k + 3 < cap; i++) buf[k++] = kind_letter(kinds[i]);
+	buf[k++] = '_';
+	buf[k++] = kind_letter(ret);
+	buf[k] = '\0';
+}
+
+// The result kind of the callee over arguments of these kinds: the store's specialized summary (summary.h), which the
+// callee's worker is emitted against too, so caller and callee read one recorded fact.
+static ukind worker_result(clj_value var, const ukind *kinds, uint32_t n) {
+	clj_domain domains[CLJ_SUMMARY_DOMAINS_MAX];
+	for (uint32_t i = 0; i < n; i++) domains[i] = domain_of_kind(kinds[i]);
+	const clj_summary *sum = clj_summary_of_var_at(clj_specialize_store(), var, n, domains);
+	return sum ? kind_of_domain(clj_domain_of(sum->ret)) : UK_NONE;
+}
+
+// Only inside a frame fn: a top-level form's sites are not in the reverse index, so the join the worker rests on
+// never saw them.
+static bool prim_site_of(const fnctx *f, const clj_node *n, direct_entry *d, prim_site *out) {
+	if (!f->c->opts.closed || f->stub < 0 || !d || d->dynamic) return false;
+	uint32_t nargs = n->u.invoke.n;
+	if (nargs == 0 || nargs > CLJ_SUMMARY_DOMAINS_MAX || !((d->fixed >> nargs) & 1)) return false;
+	ukind kinds[CLJ_SUMMARY_DOMAINS_MAX];
+	for (uint32_t i = 0; i < nargs; i++) {
+		kinds[i] = unboxable_kind(f, n->u.invoke.args[i]);
+		if (kinds[i] == UK_NONE) return false;
+	}
+	ukind ret = worker_result(n->u.invoke.fn->u.var, kinds, nargs);
+	if (ret == UK_NONE) return false;
+	out->d = d;
+	out->nargs = nargs;
+	out->ret = ret;
+	memcpy(out->kinds, kinds, sizeof kinds);
+	sig_text(out->sig, sizeof out->sig, kinds, nargs, ret);
+	snprintf(out->target, sizeof out->target, "%s_a%u_%s", d->base, nargs, out->sig);
+	return true;
+}
+
+static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool direct, const char *rname);
+
+static const char *box_fn(ukind k) { return k == UK_DBL ? "clj_double_new" : "clj_long_new"; }
+static const char *unbox_fn(ukind k) { return k == UK_DBL ? "clj_c_unbox_double" : "clj_c_unbox_long"; }
+static const char *wtype(ukind k) { return k == UK_DBL ? "clj_wdouble" : "clj_wlong"; }
+
+// The two-program text of a primitive site: under CLJC_PRIM_<target> (the prelude defines it when the set's callee
+// emitted that worker) the arguments are computed raw and the worker called, by name or through the registry with the
+// var's root as the fallback; otherwise the boxed call as written without the worker. raw takes the result unboxed
+// into the returned temp; else it is boxed into rname, declared by the caller.
+static itemp emit_prim(fnctx *f, const clj_node *n, const prim_site *pc, const char *rname, bool raw) {
+	bool fresh;
+	pool_intern(&f->u->externs, pc->target, NULL, &fresh);
+	pool_intern(&f->u->prims, pc->target, NULL, &fresh);
+	f->has_direct = true;
+	uint32_t nargs = pc->nargs;
+	size_t   vi = var_index(f->u, n->u.invoke.fn->u.var);
+	int      k = f->naux++;
+	itemp    res = new_itemp(f, pc->ret);
+	fn_line(f, n);
+	if (raw) sb_printf(&f->out, "\t%s %s;\n", ctype(res.kind), res.name);
+	sb_printf(&f->out, "#ifdef CLJC_PRIM_%s\n\t{\n", pc->target);
+	itemp args[CLJ_SUMMARY_DOMAINS_MAX];
+	for (uint32_t i = 0; i < nargs; i++) args[i] = emit_raw(f, n->u.invoke.args[i]);
+	char self[64] = "CLJ_NIL";
+	if ((pc->d->self_used >> nargs) & 1) snprintf(self, sizeof self, "clj_var_root_relaxed(V[%zu])", vi);
+	sb_printf(&f->out, "\t%s w%d;\n\tbool ok%d = true;\n#ifdef CLJC_LOCAL_%s\n\tw%d = CLJC_CALL_%s(%s, NULL", wtype(pc->ret), k, k, pc->target, k, pc->target, self);
+	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, ", %s", args[i].name);
+	sb_printf(&f->out, ");\n#else\n\tif (!CLJC_FN_%s) CLJC_FN_%s = (CLJC_WFN_%s)clj_compiled_worker(\"%s\");\n\tif (CLJC_FN_%s) w%d = CLJC_FN_%s(%s, NULL", pc->target, pc->target,
+	          pc->target, pc->target, pc->target, k, pc->target, self);
+	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, ", %s", args[i].name);
+	sb_printf(&f->out, ");\n\telse ok%d = false;\n#endif\n\tif (ok%d) {\n", k, k);
+	emit_site(f);
+	sb_printf(&f->out, "\tif (w%d.thrown) {\n", k);
+	emit_unwind(f);
+	sb_puts(&f->out, "\t}\n");
+	if (raw) sb_printf(&f->out, "\t%s = w%d.v;\n", res.name, k);
+	else sb_printf(&f->out, "\t%s = %s(w%d.v);\n", rname, box_fn(pc->ret), k);
+	sb_printf(&f->out, "\t} else {\n\tclj_value fb%d[%u] = {", k, nargs);
+	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, "%s%s(%s)", i ? ", " : "", box_fn(args[i].kind), args[i].name);
+	sb_printf(&f->out, "};\n\tclj_value fr%d = clj_c_prim_fallback(V[%zu], fb%d, %u);\n", k, vi, k, nargs);
+	emit_site(f);
+	sb_printf(&f->out, "\tif (fr%d == CLJ_THROWN) {\n", k);
+	emit_unwind(f);
+	sb_puts(&f->out, "\t}\n");
+	if (raw) sb_printf(&f->out, "\t%s = %s(fr%d);\n", res.name, unbox_fn(pc->ret), k);
+	else sb_printf(&f->out, "\t%s = fr%d;\n", rname, k);
+	sb_puts(&f->out, "\t}\n\t}\n#else\n");
+	if (raw) {
+		temp t = new_temp(f, OWN_YES);
+		sb_printf(&f->out, "\tclj_value %s;\n", t.name);
+		emit_invoke_boxed(f, n, pc->d, true, t.name);
+		check_thrown(f, t.name);
+		sb_printf(&f->out, "\t%s = %s(%s);\n", res.name, unbox_fn(pc->ret), t.name);
+	} else {
+		emit_invoke_boxed(f, n, pc->d, true, rname);
+	}
+	sb_puts(&f->out, "#endif\n");
+	return res;
+}
+
+static itemp emit_prim_raw(fnctx *f, const clj_node *n) {
+	prim_site pc;
+	if (!prim_site_of(f, n, direct_of_head(f->c, n->u.invoke.fn), &pc)) clj_fatal("compiler: not a primitive call site");
+	return emit_prim(f, n, &pc, NULL, true);
 }
 
 static temp emit_invoke(fnctx *f, const clj_node *n) {
@@ -1807,14 +2010,24 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}
 	mark_impl_candidates(f, n);
-	direct_entry *d = NULL;
-	if (head->kind == CLJ_NODE_VAR && nargs <= CLJ_FN_MAX_FIXED) {
-		char key[600];
-		snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var))));
-		d = direct_find(f->c, key);
-	}
-	bool direct = d && !d->dynamic && ((d->fixed >> nargs) & 1);
-	char target[300];
+	direct_entry *d = nargs <= CLJ_FN_MAX_FIXED ? direct_of_head(f->c, head) : NULL;
+	bool          direct = d && !d->dynamic && ((d->fixed >> nargs) & 1);
+	temp          r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
+	prim_site pc;
+	if (direct && prim_site_of(f, n, d, &pc)) emit_prim(f, n, &pc, r.name, false);
+	else emit_invoke_boxed(f, n, d, direct, r.name);
+	check_thrown(f, r.name);
+	live_push(f, r);
+	return r;
+}
+
+// The call as written without a worker, into rname: a protocol chain, a folded predicate, a direct call by name or
+// through the registry, or the generic invoke.
+static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool direct, const char *rname) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	char            target[300];
 	if (direct) snprintf(target, sizeof target, "%s_a%u", d->base, nargs);
 	temp fn;
 	if (direct) {
@@ -1831,7 +2044,10 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 	char array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
 	temp *args = emit_args(f, n->u.invoke.args, nargs, array);
-	temp  r = new_temp(f, OWN_YES);
+	temp  r;
+	memset(&r, 0, sizeof r);
+	snprintf(r.name, sizeof r.name, "%s", rname);
+	r.own = OWN_YES;
 	// a var of the set may hold a protocol method (defprotocol's def) or a builtin (a (def satisfies? ...) shadows it)
 	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
 	bool      folded = false;
@@ -1847,7 +2063,7 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		size_t vi = var_index(f->u, head->u.var);
 		// A top-level form is no frame: its callee stays a call, so the frame it makes is the callee's own.
 		const char *callee = f->stub >= 0 ? "CLJC_CALL_" : "";
-		sb_printf(&f->out, "\tclj_value %s;\n#ifdef CLJC_LOCAL_%s\n", r.name, target);
+		sb_printf(&f->out, "#ifdef CLJC_LOCAL_%s\n", target);
 		if ((d->self_used >> nargs) & 1) sb_printf(&f->out, "\t%s = %s%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u);\n", r.name, callee, target, vi, array, nargs);
 		else sb_printf(&f->out, "\t%s = %s%s(CLJ_NIL, NULL, %s, %u);\n", r.name, callee, target, array, nargs);
 		sb_printf(&f->out, "#elif defined(CLJC_DIRECT_%s)\n", target);
@@ -1856,13 +2072,10 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 		          fn.name, array, nargs);
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n#endif\n", r.name, fn.name, array, nargs);
 	} else if (!folded) {
-		sb_printf(&f->out, "\tclj_value %s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
+		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
 	}
 	release_args(f, args, nargs);
 	release_temp(f, &fn);
-	check_thrown(f, r.name);
-	live_push(f, r);
-	return r;
 }
 
 static temp emit_def(fnctx *f, const clj_node *n) {
@@ -2029,10 +2242,11 @@ static temp emit_tag_checked(fnctx *f, const clj_node *n, unbox_op uop, const uk
 		ukind rk = arith_kind(uop, kinds[0], k1);
 		itemp z = new_itemp(f, rk);
 		if (rk == UK_INT) {
-			const char *builtin = (uop == UNBOX_ADD || uop == UNBOX_INC) ? "__builtin_add_overflow" : (uop == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
-			sb_printf(&f->out, "\tint64_t %s;\n\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n\t%s = clj_throw_msg(\"integer overflow\");\n", z.name, builtin, x[0], x[1], z.name, r.name);
-			emit_site(f);
-			sb_printf(&f->out, "\t} else %s = clj_long_new(%s);\n", r.name, z.name);
+			char failed[24];
+			snprintf(failed, sizeof failed, "f%d", f->naux++);
+			sb_printf(&f->out, "\tbool %s = false;\n", failed);
+			emit_int64_op(f, uop, x[0], x[1], z.name, r.name, failed);
+			sb_printf(&f->out, "\tif (!%s) %s = clj_long_new(%s);\n", failed, r.name, z.name);
 		} else {
 			emit_double_arith(f, uop, x[0], x[1], z.name);
 			sb_printf(&f->out, "\t%s = clj_double_new(%s);\n", r.name, z.name);
@@ -2334,6 +2548,151 @@ enum { LEAF_BODY_MAX = 3000 };
 
 static bool leaf_body(const fnctx *f) { return !f->has_direct && f->out.len <= LEAF_BODY_MAX; }
 
+// A boxed temp the facts give the kind: unboxed, the box released when it was owned.
+static itemp emit_unbox(fnctx *f, temp t, ukind k) {
+	itemp r = new_itemp(f, k);
+	const char *peek = k == UK_DBL ? "clj_c_peek_double" : "clj_c_peek_long";
+	if (t.own == OWN_YES) sb_printf(&f->out, "\t%s %s = %s(%s);\n", ctype(k), r.name, unbox_fn(k), t.name);
+	else if (t.own == OWN_DYN) sb_printf(&f->out, "\t%s %s = %s(%s);\n\tif (%s) clj_release(%s);\n", ctype(k), r.name, peek, t.name, t.flag, t.name);
+	else sb_printf(&f->out, "\t%s %s = %s(%s);\n", ctype(k), r.name, peek, t.name);
+	live_forget(f, &t);
+	return r;
+}
+
+// The body's value as a C value of kind k: raw where the node is unboxable, through if/do/let where the branches are,
+// and unboxed from the boxed emission elsewhere (a throw leaves before the unbox, so the line is never reached).
+static itemp emit_result(fnctx *f, const clj_node *n, ukind k) {
+	if (unboxable_kind(f, n) == k) return emit_raw(f, n);
+	fn_line(f, n);
+	switch (n->kind) {
+	case CLJ_NODE_IF: {
+		if (!n->u.if_.else_) break;
+		temp test = emit_borrowed(f, n->u.if_.test);
+		temp b = new_temp(f, OWN_NO);
+		sb_printf(&f->out, "\tbool %s = clj_truthy(%s);\n", b.name, test.name);
+		release_temp(f, &test);
+		itemp r = new_itemp(f, k);
+		sb_printf(&f->out, "\t%s %s;\n\tif (%s) {\n", ctype(k), r.name, b.name);
+		itemp x = emit_result(f, n->u.if_.then, k);
+		sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, x.name);
+		itemp y = emit_result(f, n->u.if_.else_, k);
+		sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, y.name);
+		return r;
+	}
+	case CLJ_NODE_DO:
+		if (n->u.seq.n == 0) break;
+		for (uint32_t i = 0; i + 1 < n->u.seq.n; i++) {
+			temp t = emit_borrowed(f, n->u.seq.items[i]);
+			release_temp(f, &t);
+		}
+		return emit_result(f, n->u.seq.items[n->u.seq.n - 1], k);
+	case CLJ_NODE_LET:
+		emit_bindings(f, n);
+		return emit_result(f, n->u.let.body, k);
+	default: break;
+	}
+	return emit_unbox(f, emit(f, n), k);
+}
+
+static direct_entry *direct_of_base(cljc_compiler *c, const char *base) {
+	for (size_t i = 0; i < c->ndirects; i++) {
+		if (strcmp(c->directs[i].base, base) == 0) return &c->directs[i];
+	}
+	return NULL;
+}
+
+// The primitive entry of a def'd arity (NOTES.md "Compiler", worker/wrapper): every parameter in a numeric domain by
+// the caller join of the form's table, the result in one by the specialized summary and by the body's own fact, the
+// body emitted again over parameters that arrive as C values. False, with nothing written, when it does not qualify.
+static bool emit_worker(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, sb *out, char *sig, size_t sigcap, bool *leaf, uint8_t *kinds) {
+	const clj_facts *facts = parent->facts;
+	if (!parent->c->opts.closed || !facts || a->variadic || a->nparams == 0 || a->nparams > CLJ_SUMMARY_DOMAINS_MAX || a->nslots > 64) return false;
+	const clj_facts_join *j = NULL;
+	for (uint32_t i = 0; i < clj_facts_njoins(facts) && !j; i++) {
+		const clj_facts_join *cand = clj_facts_join_at(facts, i);
+		if (cand->fn == n->id && cand->arity == a->nparams) j = cand;
+	}
+	if (!j) return false;
+	ukind pk[CLJ_SUMMARY_DOMAINS_MAX];
+	for (uint32_t i = 0; i < a->nparams; i++) {
+		pk[i] = kind_of_domain(clj_domain_of(j->params[i]));
+		kinds[i] = (uint8_t)pk[i];
+		if (pk[i] == UK_NONE) return false;
+	}
+	ukind ret = worker_result(j->var, pk, a->nparams);
+	if (ret == UK_NONE) return false;
+	fnctx f = fnctx_child(parent, base);
+	f.stub = (int32_t)stub;
+	f.wkinds = kinds;
+	f.wnparams = a->nparams;
+	if (fact_kind(&f, a->body) != ret) {
+		fnctx_free(&f);
+		return false;
+	}
+	cljc_slot_stats saved = f.u->slots;
+	sb_puts(&f.out, "\t(void)self; (void)captured;\n");
+	if (!promote_slots(&f, n, a, true, a->body, a->nslots)) {
+		f.u->slots = saved;
+		fnctx_free(&f);
+		return false;
+	}
+	uint32_t arr = array_slots(&f, a->nslots);
+	if (arr) sb_printf(&f.out, "\tclj_value s[%u];\n\tclj_cframe fr = {s, captured, 0, NULL};\n\tfor (uint32_t i = 0; i < %u; i++) s[i] = CLJ_NIL;\n", arr, arr);
+	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, captured, 0, NULL};\n");
+	sb_puts(&f.out, "\t(void)fr;\n");
+	emit_promoted_decls(&f);
+	if (a->self_slot >= 0) emit_slot_arrival(&f, (uint32_t)a->self_slot, "self");
+	int fail = new_label(&f);
+	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
+	push_handler(&f, fail);
+	f.recur_label = new_label(&f);
+	f.recur_loop = false;
+	f.recur_live_mark = 0;
+	size_t at = f.out.len;
+	itemp  r = emit_result(&f, a->body, ret);
+	if (f.recur_used) {
+		char label[32];
+		snprintf(label, sizeof label, "L%d: ;\n", f.recur_label);
+		sb_put(&f.out, label, strlen(label));
+		memmove(f.out.s + at + strlen(label), f.out.s + at, f.out.len - strlen(label) - at);
+		memcpy(f.out.s + at, label, strlen(label));
+	}
+	handler h = pop_handler(&f);
+	sb_printf(&f.out, "\tCLJC_LEAVE(&S[%u], &cc);\n", stub);
+	emit_frame_teardown(&f, arr);
+	sb_printf(&f.out, "\treturn (%s){%s, false};\n", wtype(ret), r.name);
+	if (h.used) {
+		sb_printf(&f.out, "L%d: ;\n\tCLJC_LEAVE(&S[%u], &cc);\n", fail, stub);
+		emit_frame_teardown(&f, arr);
+		sb_printf(&f.out, "\treturn (%s){0, true};\n", wtype(ret));
+	}
+	sb_puts(&f.out, "}\n\n");
+	*leaf = leaf_body(&f);
+	sig_text(sig, sigcap, pk, a->nparams, ret);
+	*out = f.out;
+	f.out.s = NULL;
+	f.out.len = f.out.cap = 0;
+	f.u->slots = saved;
+	f.u->slots.workers++;
+	fnctx_free(&f);
+	return true;
+}
+
+// "(clj_value self, const clj_value *captured, int64_t p0, double p1)"
+static void worker_params(char *buf, size_t cap, const uint8_t *kinds, uint32_t n) {
+	size_t k = (size_t)snprintf(buf, cap, "(clj_value self, const clj_value *captured");
+	for (uint32_t i = 0; i < n && k < cap; i++) k += (size_t)snprintf(buf + k, cap - k, ", %s p%u", ctype((ukind)kinds[i]), i);
+	if (k < cap) snprintf(buf + k, cap - k, ")");
+}
+
+// The tag checks of a boxed entry that takes its worker: "clj_c_as_int64(args[0], &q0) && ..." after the q declarations.
+static void worker_checks(sb *out, const uint8_t *kinds, uint32_t n) {
+	for (uint32_t i = 0; i < n; i++) sb_printf(out, "\t%s q%u;\n", ctype((ukind)kinds[i]), i);
+	sb_puts(out, "\tif (1");
+	for (uint32_t i = 0; i < n; i++) sb_printf(out, " && %s(args[%u], &q%u)", kinds[i] == UK_DBL ? "clj_c_as_double" : "clj_c_as_int64", i, i);
+	sb_puts(out, ") {\n");
+}
+
 // One arity of a closure: the frame, the body under a recur label, teardown.
 static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, bool exported) {
 	fnctx f = fnctx_child(parent, base);
@@ -2390,19 +2749,59 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		sb_puts(&f.out, "\treturn CLJ_THROWN;\n");
 	}
 	sb_puts(&f.out, "}\n\n");
-	// A leaf gets an always_inline twin that same-unit direct calls take; the frame function wraps it.
+	// The primitive entry beside the boxed one, for a top-level def's arity: its own frame fn, a twin when a leaf.
+	sb      wout = {0};
+	char    sig[40], wname[340], wparams[400];
+	bool    wleaf = false;
+	uint8_t kinds[CLJ_SUMMARY_DOMAINS_MAX];
+	bool    worker = exported && emit_worker(parent, n, a, base, stub, &wout, sig, sizeof sig, &wleaf, kinds);
+	ukind       wret = worker && sig[strlen(sig) - 1] == 'd' ? UK_DBL : UK_INT;
+	const char *wt = wtype(wret);
+	if (worker) {
+		direct_entry *d = direct_of_base(f.c, base);
+		if (!d) clj_fatal("compiler: a worker for a fn that is no direct target");
+		free(d->wsig[a->nparams]);
+		d->wsig[a->nparams] = xstrdup(sig);
+		snprintf(wname, sizeof wname, "%s_%s", name, sig);
+		worker_params(wparams, sizeof wparams, kinds, a->nparams);
+		bool fresh;
+		pool_intern(&f.u->workers, wname, wleaf ? "1" : "0", &fresh);
+		frame_add(f.u, wname, stub);
+		if (wleaf) {
+			sb_printf(&f.u->protos, "CLJC_INLINE %s %s_i%s;\n", wt, wname, wparams);
+			sb_printf(&f.u->fns, "CLJC_INLINE %s %s_i%s {\n", wt, wname, wparams);
+			sb_put(&f.u->fns, wout.s, wout.len);
+			sb_printf(&f.u->fns, "%sCLJC_FRAME %s %s%s { return %s_i(self, captured", exported ? "" : "static ", wt, wname, wparams, wname);
+			for (uint32_t i = 0; i < a->nparams; i++) sb_printf(&f.u->fns, ", p%u", i);
+			sb_puts(&f.u->fns, "); }\n\n");
+		} else {
+			sb_printf(&f.u->protos, "%s%s %s%s;\n", exported ? "" : "static ", wt, wname, wparams);
+			sb_printf(&f.u->fns, "%sCLJC_FRAME %s %s%s {\n", exported ? "" : "static ", wt, wname, wparams);
+			sb_put(&f.u->fns, wout.s, wout.len);
+		}
+	}
+	// A leaf gets an always_inline twin that same-unit direct calls take; the frame function wraps it. With a leaf
+	// worker the twin tries the worker first, behind the tags of the arguments: a boxed caller then unboxes once.
 	static const char params[] = "(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs)";
 	if (!a->variadic && leaf_body(&f)) {
 		bool fresh;
 		pool_intern(&f.u->leaves, name, NULL, &fresh);
 		sb_printf(&f.u->protos, "CLJC_INLINE clj_value %s_i%s;\n", name, params);
 		sb_printf(&f.u->fns, "CLJC_INLINE clj_value %s_i%s {\n", name, params);
+		if (worker && wleaf) {
+			sb_puts(&f.u->fns, "\t{\n");
+			worker_checks(&f.u->fns, kinds, a->nparams);
+			sb_printf(&f.u->fns, "\t%s w = %s_i(self, captured", wt, wname);
+			for (uint32_t i = 0; i < a->nparams; i++) sb_printf(&f.u->fns, ", q%u", i);
+			sb_printf(&f.u->fns, ");\n\treturn w.thrown ? CLJ_THROWN : %s(w.v);\n\t}\n\t}\n", box_fn(wret));
+		}
 		sb_put(&f.u->fns, f.out.s, f.out.len);
 		sb_printf(&f.u->fns, "%sCLJC_FRAME clj_value %s%s { return %s_i(self, captured, args, nargs); }\n\n", exported ? "" : "static ", name, params, name);
 	} else {
 		sb_printf(&f.u->fns, "%sCLJC_FRAME clj_value %s%s {\n", exported ? "" : "static ", name, params);
 		sb_put(&f.u->fns, f.out.s, f.out.len);
 	}
+	sb_free(&wout);
 	fnctx_free(&f);
 }
 
@@ -2590,6 +2989,10 @@ static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const ch
 	d->fixed = 0;
 	d->self_used = 0;
 	d->variadic = -1;
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		free(d->wsig[i]);
+		d->wsig[i] = NULL;
+	}
 	const clj_node *init = n->u.def.init;
 	if (init->kind != CLJ_NODE_FN || init->u.fn.ncaptures) return;
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
@@ -2809,6 +3212,7 @@ void cljc_free(cljc_compiler *c) {
 	for (size_t i = 0; i < c->ndirects; i++) {
 		free(c->directs[i].qualified);
 		free(c->directs[i].base);
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) free(c->directs[i].wsig[k]);
 	}
 	free(c->directs);
 	for (size_t i = 0; i < c->nfn_bases; i++) free(c->fn_bases[i].base);
@@ -2844,25 +3248,94 @@ char *cljc_unit_cname(const cljc_compiler *c, size_t i) {
 size_t              cljc_refusal_count(const cljc_compiler *c) { return c->nrefusals; }
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i) { return &c->refusals[i]; }
 
-// The direct-call targets a unit binds to: every var defined exactly once in the compiled set, per arity. A target
-// of this unit is a pointer to the function itself; another unit's is looked up in the symbol registry at first use.
+// A worker signature at p: "w_" then the parameter kinds, "_" and the result kind, to the end of the string.
+static bool sig_at(const char *p) {
+	if (p[0] != 'w' || p[1] != '_') return false;
+	const char *k = p + 2;
+	while (*k == 'l' || *k == 'd') k++;
+	return k > p + 2 && k[0] == '_' && (k[1] == 'l' || k[1] == 'd') && k[2] == '\0';
+}
+
+// "<base>_a<n>" or "<base>_a<n>_<sig>" apart; false for anything else. A name may itself contain "_w_" (my-w-fn),
+// so the signature is the last "_w_" tail that reads as one.
+static bool parse_target(const char *target, char *base, size_t cap, uint32_t *arity, const char **sig) {
+	const char *w = NULL;
+	for (const char *p = strstr(target, "_w_"); p; p = strstr(p + 1, "_w_")) {
+		if (sig_at(p + 1)) w = p;
+	}
+	size_t end = w ? (size_t)(w - target) : strlen(target);
+	size_t      k = end;
+	while (k > 0 && target[k - 1] >= '0' && target[k - 1] <= '9') k--;
+	if (k == end || k < 2 || target[k - 1] != 'a' || target[k - 2] != '_') return false;
+	snprintf(base, cap, "%.*s", (int)(k - 2), target);
+	*arity = (uint32_t)strtoul(target + k, NULL, 10);
+	*sig = w ? w + 1 : NULL;
+	return true;
+}
+
+// The direct target a name resolves to in the set: defined exactly once, not dynamic, with the arity; for a worker
+// name, with a worker of exactly that signature. A worker of the same arity under another signature is a bug: both
+// sides derive it from one store entry, so the compile stops rather than bind the wrong entry.
+static const direct_entry *target_entry(const cljc_compiler *c, const char *target, uint32_t *arity, const char **sig) {
+	char base[300];
+	if (!parse_target(target, base, sizeof base, arity, sig)) return NULL;
+	for (size_t j = 0; j < c->ndirects; j++) {
+		const direct_entry *d = &c->directs[j];
+		if (d->defs != 1 || d->dynamic || strcmp(d->base, base) != 0 || !((d->fixed >> *arity) & 1)) continue;
+		if (!*sig) return d;
+		if (!d->wsig[*arity]) return NULL;
+		if (strcmp(d->wsig[*arity], *sig) != 0) {
+			char msg[600];
+			snprintf(msg, sizeof msg, "compiler: %s expects a worker %s, the set emitted %s", target, *sig, d->wsig[*arity]);
+			clj_fatal(msg);
+		}
+		return d;
+	}
+	return NULL;
+}
+
+// The C type of a worker's function pointer from its signature: "w_ld_d".
+static void worker_fn_type(sb *out, const char *target, const char *sig) {
+	const char *ret = strrchr(sig, '_') + 1;
+	sb_printf(out, "typedef %s (*CLJC_WFN_%s)(clj_value, const clj_value *", wtype(*ret == 'd' ? UK_DBL : UK_INT), target);
+	for (const char *p = sig + 2; *p != '_'; p++) sb_printf(out, ", %s", ctype(*p == 'd' ? UK_DBL : UK_INT));
+	sb_puts(out, ");\n");
+}
+
+// The direct-call targets a unit binds to: every var defined exactly once in the compiled set, per arity, and the
+// workers by signature. A target of this unit is a pointer to the function itself; another unit's is looked up in
+// the symbol registry at first use.
 static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 	for (size_t i = 0; i < u->externs.n; i++) {
-		const char *target = u->externs.keys[i];
-		const char *us = strrchr(target, '_');
-		if (!us || us[1] != 'a') continue;
-		char base[300];
-		snprintf(base, sizeof base, "%.*s", (int)(us - target), target);
-		uint32_t arity = (uint32_t)strtoul(us + 2, NULL, 10);
-		for (size_t j = 0; j < c->ndirects; j++) {
-			const direct_entry *d = &c->directs[j];
-			if (d->defs != 1 || d->dynamic || strcmp(d->base, base) != 0 || !((d->fixed >> arity) & 1)) continue;
-			bool local = false, leaf = false;
-			for (size_t k = 0; k < u->defined.n && !local; k++) local = strcmp(u->defined.keys[k], base) == 0;
+		const char         *target = u->externs.keys[i], *sig;
+		uint32_t            arity;
+		const direct_entry *d = target_entry(c, target, &arity, &sig);
+		if (!d) continue;
+		bool local = false, leaf = false;
+		for (size_t k = 0; k < u->defined.n && !local; k++) local = strcmp(u->defined.keys[k], d->base) == 0;
+		if (sig) {
+			for (size_t k = 0; k < u->workers.n && !leaf; k++) leaf = strcmp(u->workers.keys[k], target) == 0 && strcmp(u->workers.extra[k], "1") == 0;
+			sb_printf(out, "#define CLJC_PRIM_%s 1\n", target);
+		} else {
 			for (size_t k = 0; k < u->leaves.n && !leaf; k++) leaf = strcmp(u->leaves.keys[k], target) == 0;
-			if (local) sb_printf(out, "#define CLJC_LOCAL_%s 1\n#define CLJC_CALL_%s %s%s\n", target, target, target, leaf ? "_i" : "");
-			else sb_printf(out, "#define CLJC_DIRECT_%s 1\nstatic clj_compiled_fn CLJC_FN_%s;\n", target, target);
 		}
+		if (local) sb_printf(out, "#define CLJC_LOCAL_%s 1\n#define CLJC_CALL_%s %s%s\n", target, target, target, leaf ? "_i" : "");
+		else if (sig) {
+			worker_fn_type(out, target, sig);
+			sb_printf(out, "static CLJC_WFN_%s CLJC_FN_%s;\n", target, target);
+		}
+		else sb_printf(out, "#define CLJC_DIRECT_%s 1\nstatic clj_compiled_fn CLJC_FN_%s;\n", target, target);
+	}
+}
+
+// The --stats view of a unit's primitive sites: written with a worker path, and of those bound to a worker of the set.
+static void count_prim_sites(const cljc_compiler *c, const unit *u, cljc_slot_stats *st) {
+	st->prim_sites = st->prim_bound = 0;
+	for (size_t i = 0; i < u->prims.n; i++) {
+		const char *sig;
+		uint32_t    arity;
+		st->prim_sites++;
+		if (target_entry(c, u->prims.keys[i], &arity, &sig)) st->prim_bound++;
 	}
 }
 
@@ -2899,6 +3372,7 @@ static void count_proto_sites(const cljc_compiler *c, const unit *u, cljc_slot_s
 void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out) {
 	*out = c->units[i]->slots;
 	count_proto_sites(c, c->units[i], out);
+	count_prim_sites(c, c->units[i], out);
 }
 
 // The direct arms of a unit's protocol sites: CLJC_PIMPL_<id> names the impl's dispatcher (what a fill verifies the
@@ -2951,7 +3425,10 @@ static void emit_direct_registrations(cljc_compiler *c, unit *u, sb *out) {
 		const direct_entry *d = direct_find(c, u->defined.extra[k]);
 		if (!d || d->defs != 1 || d->dynamic || strcmp(d->base, u->defined.keys[k]) != 0) continue;
 		for (uint32_t a = 0; a <= CLJ_FN_MAX_FIXED; a++) {
-			if ((d->fixed >> a) & 1) sb_printf(out, "\tclj_compiled_register_symbol(\"%s_a%u\", %s_a%u);\n", d->base, a, d->base, a);
+			if (!((d->fixed >> a) & 1)) continue;
+			sb_printf(out, "\tclj_compiled_register_symbol(\"%s_a%u\", %s_a%u);\n", d->base, a, d->base, a);
+			// the signature is the symbol: a caller compiled against other facts finds nothing rather than the wrong entry
+			if (d->wsig[a]) sb_printf(out, "\tclj_compiled_register_worker(\"%s_a%u_%s\", (void (*)(void))%s_a%u_%s);\n", d->base, a, d->wsig[a], d->base, a, d->wsig[a]);
 		}
 	}
 }

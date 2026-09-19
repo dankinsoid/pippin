@@ -127,6 +127,8 @@ extension CoreTests {
 			    (defn sum-box [x] [x])
 			    (defn sum-throw [x] (if x (throw (ex-info "no" {})) x))
 			    (defn sum-fact [n] (if (zero? n) 1 (* n (sum-fact (dec n)))))
+			    (defn sum-sq [x] (* x x))
+			    (defn sum-mix [x] (if (number? x) (inc x) (str x)))
 			    (declare sum-odd)
 			    (defn sum-even [n] (if (zero? n) true (sum-odd (dec n))))
 			    (defn sum-odd [n] (if (zero? n) false (sum-even (dec n))))
@@ -276,6 +278,38 @@ extension CoreTests {
 				#expect(clj_facts_narrowed_args(t.table) == 1)
 				// a direct fn's arity is summarized by node identity
 				#expect(try Summarized("(fn [x] (let [f (fn [a] (inc a))] (f x)))", store: store).fact(CLJ_NODE_DIRECT_CALL) == "fixnum|long|bigint|ratio|decimal|double/never")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A call site whose argument has a numeric domain takes the result of the body walked with the parameter in that
+		// domain, cached beside the generic entry; the requirements stay the generic entry's (NOTES.md "Facts").
+		@Test func specializedResults() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let store = clj_summaries_new()!
+				defer { clj_summaries_free(store) }
+				let s_sum_sq_1 = try summary(store, "sum-sq", 1)
+				#expect(s_sum_sq_1 == "[⊤/maybe] -> fixnum|long|bigint|ratio|decimal|double/never at")
+				#expect(try Summarized("(fn [] (sum-sq 3))", store: store).fact(CLJ_NODE_INVOKE) == "fixnum|long/never")
+				#expect(try Summarized("(fn [] (sum-sq 1.5))", store: store).fact(CLJ_NODE_INVOKE) == "double/never")
+				#expect(try Summarized("(fn [x] (sum-sq x))", store: store).fact(CLJ_NODE_INVOKE) == "fixnum|long|bigint|ratio|decimal|double/never")
+				let mix3 = try Summarized("(fn [] (sum-mix 3))", store: store).fact(CLJ_NODE_INVOKE)
+				#expect(mix3 == "fixnum|long/never")
+				// a string has no domain: the generic entry, whose walk with the parameter at TOP reaches both branches
+				#expect(try Summarized("(fn [] (sum-mix \"a\"))", store: store).fact(CLJ_NODE_INVOKE) == "fixnum|long|bigint|ratio|decimal|double|string/never")
+				// the recursive fixpoint under a domain
+				let fact5 = try Summarized("(fn [] (sum-fact 5))", store: store).fact(CLJ_NODE_INVOKE)
+				#expect(fact5 == "fixnum|long/never")
+				// a loop variable fed by a specialized result stays in the domain
+				let t = try Summarized("(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (sum-sq i))) acc)))", store: store)
+				#expect(t.fact(CLJ_NODE_LOOP) == "fixnum|long/never")
+				var domains: [clj_domain] = [CLJ_DOMAIN_INT64]
+				let v = try rt.eval("#'sum-sq")
+				#expect(clj_summary_of_var_at(store, v.raw, 1, &domains) != nil)
+				domains = [CLJ_DOMAIN_ANY]
+				let generic = clj_summary_of_var_at(store, v.raw, 1, &domains)
+				#expect(generic != nil && describe(generic!) == "[⊤/maybe] -> fixnum|long|bigint|ratio|decimal|double/never at")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -433,9 +467,9 @@ extension CoreTests {
 			}
 			let total = Int(clj_facts_nsignatures())
 			#expect(expressible == total - transfer.count - gaps.values.reduce(0) { $0 + $1.count })
-			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (156, 201, 14, 31),
+			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (154, 201, 16, 31),
 			        Comment(rawValue: "\(expressible) of \(total), \(transfer.count) transfer, gaps \(gaps.values.reduce(0) { $0 + $1.count })"))
-			#expect(Set(transfer) == ["+", "-", "*", "/", "inc", "dec", "conj", "assoc", "into", "with-meta", "vary-meta", "dissoc", "disj", "empty"])
+			#expect(Set(transfer) == ["+", "-", "*", "/", "quot", "rem", "inc", "dec", "conj", "assoc", "into", "with-meta", "vary-meta", "dissoc", "disj", "empty"])
 			// the kinds the vocabulary has no tag for (NOTES.md "Facts" lists them): design §3's vocabulary gap, not a second mechanism
 			let gapFacts = Set(gaps.keys)
 			#expect(gapFacts == ["array/never", "atom/never", "char/never", "fixnum/never", "map/never", "regex/never", "set/never",

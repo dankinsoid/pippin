@@ -764,6 +764,30 @@ let sqUnit = """
 	"""
 let sqUnitClosedFn = compileUnitRow(name: "sq_closed", closed: true, body: sqUnit)
 let sqUnitDevFn = compileUnitRow(name: "sq_dev", closed: false, body: sqUnit)
+// The same shape with a helper that can throw on its primitive path (quot: a zero divisor) and with a double helper,
+// each beside the loop with the operation written out (NOTES.md "Compiler", the primitive entry).
+let qrUnit = """
+	(defn bench-qr [a b] (quot a b))
+	(defn bench-qr-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (bench-qr i 3))) acc)))
+	(defn bench-unit-run [] (bench-qr-to 100000))
+	"""
+let qrInlineUnit = """
+	(defn bench-qr-to [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (quot i 3))) acc)))
+	(defn bench-unit-run [] (bench-qr-to 100000))
+	"""
+let halfUnit = """
+	(defn bench-half [x] (/ x 2.0))
+	(defn bench-half-to [n] (loop [i 0 x 0.0 acc 0.0] (if (< i n) (recur (inc i) (+ x 1.0) (+ acc (bench-half x))) acc)))
+	(defn bench-unit-run [] (bench-half-to 100000))
+	"""
+let halfInlineUnit = """
+	(defn bench-half-to [n] (loop [i 0 x 0.0 acc 0.0] (if (< i n) (recur (inc i) (+ x 1.0) (+ acc (/ x 2.0))) acc)))
+	(defn bench-unit-run [] (bench-half-to 100000))
+	"""
+let qrUnitClosedFn = compileUnitRow(name: "qr_closed", closed: true, body: qrUnit)
+let qrInlineClosedFn = compileUnitRow(name: "qr_inline_closed", closed: true, body: qrInlineUnit)
+let halfUnitClosedFn = compileUnitRow(name: "half_closed", closed: true, body: halfUnit)
+let halfInlineClosedFn = compileUnitRow(name: "half_inline_closed", closed: true, body: halfInlineUnit)
 
 struct CallRow {
 	let scenario: String
@@ -783,6 +807,10 @@ do {
 	callRows.append(CallRow(scenario: "accumulating loop with (* i i) written out", n: n, c: measure(ops: n) { cljCall0(sqInlineFn) }, swift: nil))
 	if let f = sqUnitClosedFn { callRows.append(CallRow(scenario: "accumulating loop calling (defn sq [x] (* x x)), one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
 	if let f = sqUnitDevFn { callRows.append(CallRow(scenario: "accumulating loop calling (defn sq [x] (* x x)), one dev unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = qrInlineClosedFn { callRows.append(CallRow(scenario: "accumulating loop with (quot i 3) written out, one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = qrUnitClosedFn { callRows.append(CallRow(scenario: "accumulating loop calling (defn qr [a b] (quot a b)), one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = halfInlineClosedFn { callRows.append(CallRow(scenario: "double accumulating loop with (/ x 2.0) written out, one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
+	if let f = halfUnitClosedFn { callRows.append(CallRow(scenario: "double accumulating loop calling (defn half [x] (/ x 2.0)), one closed unit", n: n, c: measure(ops: n) { cljCall0(f) }, swift: nil)) }
 	let fixnums = cVecBuild(n), da = cDoubleVecBuild(n), db = cDoubleVecBuild(n)
 	callRows.append(CallRow(scenario: "double accumulating loop", n: n, c: measure(ops: n) { cCountLoop(dblAccFn, n) }, swift: nil))
 	callRows.append(CallRow(scenario: "dot product of two double vectors via nth", n: n, c: measure(ops: n) { cljCall2(dotFn, da, db) }, swift: nil))

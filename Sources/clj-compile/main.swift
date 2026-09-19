@@ -117,7 +117,8 @@ if opts.stats {
 		of which local \(st.promoted_local); local not promoted: param \(st.local_param), pinned \(st.local_pinned), fused \(st.local_fused); \
 		int64 slots \(st.int_slots), double slots \(st.double_slots), arithmetic nodes unboxed \(st.unboxed), tag-checked \(st.tag_checked), entry-checked frames \(st.entry_checked); \
 		protocol sites direct \(st.proto_direct), switch \(st.proto_switch), cache \(st.proto_cache), satisfies?/extends? folded \(st.proto_folded); \
-		direct-call arrays \(st.direct_array) of \(st.direct_slots) callee slots
+		direct-call arrays \(st.direct_array) of \(st.direct_slots) callee slots; \
+		workers \(st.workers), primitive sites \(st.prim_sites) of which bound \(st.prim_bound)
 
 		""".utf8))
 	}

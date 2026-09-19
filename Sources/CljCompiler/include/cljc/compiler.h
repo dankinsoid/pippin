@@ -74,6 +74,9 @@ typedef struct {
 	uint64_t proto_folded;   // satisfies?/extends? sites answered by a verified constant (closed)
 	uint64_t direct_slots;   // frame slots of the callees of direct call sites, summed per site
 	uint64_t direct_array;   // of those, the entries the caller's ds[] holds: what the callee's promotion left in the array
+	uint64_t workers;        // def'd arities with a primitive entry (closed only)
+	uint64_t prim_sites;     // direct call sites written with a worker path
+	uint64_t prim_bound;     // of those, bound to a worker of the set
 } cljc_slot_stats;
 
 // After cljc_end: the protocol counters are resolved against the set as the units' text is.

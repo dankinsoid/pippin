@@ -1315,8 +1315,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   summary; the inferred one is still computed and, for a visible body, decides — for an opaque one (a native,
   a compiled closure) the declaration is trusted. `clj_fact_to_schema` is the total embedding back (a kind
   set as `[:or …]` of the widest tags that fit, nullability as `[:maybe …]`, a singleton as `[:= x]`), and
-  `signatureTableRoundTrips` projects every entry of the signature table through it and back: 156 of the
-  201 entries round-trip, 14 are transfer functions (`+ - * / inc dec conj assoc into with-meta vary-meta
+  `signatureTableRoundTrips` projects every entry of the signature table through it and back: 154 of the
+  201 entries round-trip, 16 are transfer functions (`+ - * / quot rem inc dec conj assoc into with-meta vary-meta
   dissoc disj empty`: the result is computed from the arguments, which is a function in the result position
   of `:=>` — out of scope here, the trigger is the comptime evaluator of design §3), and the rest name the
   **vocabulary gaps**, kinds without a tag: *array* (the twelve array constructors, `aclone`, `to-array`,
@@ -1375,6 +1375,31 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   carries the site diagnostic, and a join-derived error would be a false one for a caller the index does
   not see. So the join adds no ⊥ to any table (the entry meet is skipped when it would be ⊥ and the site
   diagnostics stand) and the corpus gate stays at zero errors.
+- **Summaries specialized to a call's arguments: domains.** `clj_summary_of_var_at(store, var, nargs, domains)` walks
+  the arity with each parameter entered at its domain — int64 (fixnum|long), double, or ⊤ — instead of ⊤, and caches
+  the entry beside the generic one (the key is the argument count under the domains in base 3, at most 8 arguments),
+  under the same validity, fixpoint and budget rules; a native, a protocol method and an annotation-only var answer
+  NULL. Pass 2 asks it at every call whose argument has a domain (`specialized_of`, `clj_domain_of` on the argument's
+  fact) and takes its *result* for the site node; the requirements and the effects stay the generic entry's, so no
+  diagnostic moves — the result of `(sq i)` with `i` int64 is int64, and the loop accumulating it stays typed where the
+  generic summary said "a number". This is the transfer function of design §3 for a body the analyzer sees, sound on
+  the site's own argument facts alone (no join is involved): the parameters enter at exactly what the site passes. A
+  declared result meets the specialized one; the declaration's own diagnostics are the generic entry's. It is what the
+  compiler's primitive entry reads on both sides of a call (the Compiler entry). Over the corpus the store holds 987
+  entries instead of 743 and no coverage percentage moves: the corpus has few numeric helpers called from typed loops.
+- **⊥ through a call in a summary walk.** A summary walk (`pass.summary`) answers ⊥ for a call whose argument is ⊥:
+  the optimistic value of a fixpoint in flight, or a branch a refinement killed — the call is not reached, so its
+  result joins nothing, and `(defn fact [n] (if (zero? n) 1 (* n (fact (dec n)))))` at an int64 argument climbs from
+  fixnum to fixnum|long instead of stopping at "a number" (`arith_result` reads a ⊥ operand as any number, which is
+  right for a stored fact and wrong for an optimistic one). Recording walks are untouched: a stored ⊥ would trip the
+  watchdog, and the dead-branch classes are theirs.
+- **`quot` and `rem` are arithmetic transfer rules** (`RA`, the `+` rule): int64 × int64 is fixnum|long (a quotient
+  never grows, and the one overflow, `INT64_MIN` by −1, throws), a double operand makes a double, ratio and decimal as
+  for `+`. They joined the intrinsics table too (`clj_quot`, `clj_rem`, the builtins' own bodies), so the compiler sees
+  an INTRINSIC node; the round trip counts 16 transfer functions now. Over the corpus the refinement conflicts rise
+  64 → 174, every one a dead branch: `(let [r (quot 10 3)] (and (int? r) …))` in the quot, rem and mod tests now has a
+  known `r`, so the false branch of `int?` is dead by the literal; ⊥ value nodes, errors and the unexplained count
+  stand.
 - **Deliberately not here, each with its trigger.** No shape facts (the design's key sets) — trigger: a
   record fact reaching a consumer, which the constructor summaries now make possible. No ownership, thread
   affinity or the rest of the design's fact kinds — each is a field and a transfer rule on the shared walk;
@@ -2127,6 +2152,68 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   with a hot loop over a parameter, then the parameter as a checked slot of the split (it is bound once, like a
   let's); a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a profile;
   a `let` without a loop, whose typed reads stay tag-checked — trigger: a hot straight-line body in a profile.
+- **The primitive entry: worker/wrapper** (design §6 "worker/wrapper = наши два входа, боксовый + примитивный", §6b
+  "unboxed-конвенция между функциями"; `emit_worker`, `emit_result`, `prim_site_of`, `emit_prim`, `target_entry`;
+  compiled_internal.h `clj_wlong`/`clj_wdouble`, `clj_c_as_int64`, `clj_c_unbox_long`, `clj_c_prim_fallback`,
+  `clj_compiled_register_worker`; bench/RESULTS.md "The primitive entry"). *What qualifies.* Under `--closed`, a
+  top-level def'd fn's fixed arity of 1–8 parameters and at most 64 slots whose caller join in the form's table
+  (`clj_facts_join_at`) puts every parameter in a numeric domain — int64 (fixnum|long) or double — whose summary
+  specialized to those domains (`clj_summary_of_var_at`, the Facts entry) answers a domain for the result, whose body's
+  own fact under the join agrees, and whose parameters can be C values: not captured, not read through the static
+  link, and rebound by a fn-body `recur` only with an unboxable expression of the same kind (`typed_masks` seeds them
+  as bound at entry). *The worker* is a second C function, `<base>_a<n>_<sig>` with `sig` = `w_<kinds>_<ret>` — `l` for
+  int64, `d` for double, `w_ld_d` a (long, double) → double — taking `(self, captured, int64_t p0, double p1)` and
+  returning `clj_wlong`/`clj_wdouble`: the unboxed value beside a `thrown` flag, which is `CLJ_THROWN`'s spelling on
+  the primitive path (the exception is pending as usual). A two-register struct return: no memory on either side,
+  the flag folds away once the worker is inlined, and a cross-unit call through a pointer pays one register and one
+  branch — the out-parameter alternative would pin a stack slot for the flag on every call. The body is emitted a
+  second time with the parameters as typed slots (`int64_t l0 = p0`), so every operation over them is unboxed; the
+  result is raw where the body is an unboxable expression, through `if`/`do`/`let` where the branches are
+  (`emit_result`), and otherwise the boxed emission unboxed once (`clj_c_unbox_long`; a mismatch is fatal — a lattice
+  bug, never a program error, and it is never reached from user data since the parameters are C-typed). A worker is a
+  frame fn of its own (`CLJC_FRAME`, in `FR[]` under the fn's stub, so a throw inside it names the fn) and a leaf
+  worker (no direct calls, under 3000 bytes) also an always_inline twin `_i`. *The wrapper* is the boxed arity
+  function as written, and when the worker is a leaf, the boxed twin `<name>_i` tries the worker first behind
+  `clj_c_as_int64`/`clj_c_as_double` of the arguments and boxes the result, so a boxed caller — the host, a dev unit,
+  a site whose argument is a `count` — unboxes once and runs the same code; a non-leaf worker is not tried from the
+  wrapper, because a frame calling a frame of the same fn would show the fn twice in a trace. *Sites.* A direct call
+  inside a frame fn (a top-level form's sites are not in the reverse index, so the join never saw them) whose every
+  argument is an unboxable expression, of kinds K, and whose result kind R the store's specialized summary at K gives,
+  is a primitive site: `unboxable_kind` answers R for the INVOKE, so `(+ acc (sq i))` types `acc` and the result flows
+  into an `int64_t` without a box. Its text is two programs under `#ifdef CLJC_PRIM_<target>`: the worker by name
+  (`CLJC_CALL_`, the twin for a leaf) or, for another unit, through the registry by its full name
+  (`clj_compiled_worker`, a `void (*)(void)` cast back to the signature's type) with `clj_c_prim_fallback` — the
+  var's root over the boxed arguments — while the symbol is not registered; else the boxed call exactly as before.
+  The prelude defines the macro only when the set's callee emitted a worker of that signature (`target_entry`): a
+  callee without one downgrades the site to the boxed call, and a callee with *another* signature at that arity stops
+  the compile (`clj_fatal`, the build-time error): both sides derive the signature from one store entry, so a
+  disagreement is a compiler bug, never something to bind through. The registry name carries the signature, so a unit
+  compiled against other facts finds no symbol and falls back rather than misbinding. Nothing is specialized on what
+  the analyzer did not record: the join and the specialized summary are the two facts, read by the callee and by every
+  site alike, and the interpreter reads the same store. `quot` and `rem` are unboxable int64 operations now (the
+  intrinsics entry, `emit_int64_op`): a zero divisor throws "Divide by zero", `INT64_MIN` by −1 "integer overflow", as
+  `long_arith` does; over doubles they stay generic (the builtin rounds). `clj-compile --stats` counts `workers` and
+  `primitive sites … of which bound`; `arith.clj` covers a leaf worker from a typed loop and from the top level with a
+  double, a string and a boxed long, a double worker, a worker over `if`/`let`, a fn-body `recur` (`gcd`), a worker
+  calling a worker, a throw inside the worker (`(qr 1 0)`, `(qr INT64_MIN -1)`), a `count` through the wrapper, `map`
+  and `apply` over the fn. Measured (bench/RESULTS.md, "The primitive entry"): the accumulating loop calling `(defn sq
+  [x] (* x x))` as one closed unit 4.0 → 0.7 ns per iteration — under the 1.4 of the square written out in a
+  compiled-eval form, because `bench-sq-to` is a worker itself and its bound `n` an `int64_t` parameter, so the loop's
+  compare is untagged too; `(quot i 3)` through a helper 3.4 → 0.5, the same as written out, the zero-divisor branch
+  costing nothing on the path; a double helper 32.4 → 0.7, the boxed call having paid a `clj_double_new` and its
+  release per iteration. `otool` of the unit: the sq-to worker's loop is thirteen instructions — the multiply with its
+  overflow check, the add with its, the tick's two loads, the increment, the compare — and no `bl`. In core.clj
+  compiled closed one arity qualifies (`mod`); of the other 326 non-variadic arities of 1–8 parameters 175 have no
+  recorded caller, 99 a site passing ⊤ at some position, 34 are read first-class, 15 have a non-numeric parameter by
+  the join and 3 a numeric join with a non-numeric result (`range`, `rand`, `rand-int`). *Deferred, each with its
+  trigger.* A self-recursive fn's own site is recorded with its parameters at ⊤ before any join exists, so `fact`'s
+  join is "a number" and it gets no worker — trigger: a hot recursive numeric fn, then the self-site re-recorded under
+  the entry's own join (the fixpoint the report tool runs for three rounds). A non-leaf worker is not tried from the
+  boxed wrapper — trigger: a boxed caller of a large numeric fn in a profile, then a trace rule for a frame under its
+  own wrapper. A variadic `+` is no intrinsic and answers "a number" — trigger: the optimizer's n-ary lowering. A boxed
+  argument with an int64 fact (a `count`, a parameter of a fn that is no worker) takes the boxed twin and its tag check
+  rather than a primitive site: the box of a fixnum and nothing else — trigger: a profile. A let-bound direct fn has
+  no specialized summary (`clj_summary_of_arity`) and no worker — trigger: a numeric helper in a `letfn`.
 - **Refused** (reported with the node kind and position, the unit throws at the form, `clj-compile` exits 2
   unless `--allow-refused`): a constant that does not print and read back; `eval`/`load-string` in a
   `--closed` user unit. Every node kind is expressible; nothing in core.clj, the embedded libs, medley or the

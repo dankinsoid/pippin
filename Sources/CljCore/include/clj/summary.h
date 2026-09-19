@@ -43,6 +43,15 @@ const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t 
 // A direct fn's arity, keyed by node identity.
 const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, const clj_fn_arity *arity);
 
+// The numeric domain of an argument: what a summary specialized to a call site is keyed by (NOTES.md, "Facts").
+typedef enum { CLJ_DOMAIN_ANY = 0, CLJ_DOMAIN_INT64 = 1, CLJ_DOMAIN_DOUBLE = 2 } clj_domain;
+#define CLJ_SUMMARY_DOMAINS_MAX 8
+clj_domain clj_domain_of(clj_fact f);
+clj_fact   clj_fact_of_domain(clj_domain d);
+// The arity's summary with the parameters entered at the domains instead of TOP: the result and effects of the body
+// over such arguments. NULL as clj_summary_of_var is, for a native, a protocol method and past the domain count.
+const clj_summary *clj_summary_of_var_at(clj_summaries *s, clj_value var, uint32_t nargs, const clj_domain *domains);
+
 // Kind and descriptor of the current root, never a singleton: the root may be rebound and only the epoch guards it. TOP when unbound.
 clj_fact clj_summary_var_fact(clj_summaries *s, clj_value var);
 // The var's epoch as the store last read it; UINT32_MAX when it never did.

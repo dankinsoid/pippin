@@ -50,11 +50,11 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 58 ms, with the summaries 66 ms, against 342 ms of analysis over the same forms
-  (0.17× → 0.19×); the largest single table is 262 KB. The store holds 743 summaries, ran 24 fixpoint rounds
-  beyond the first, widened 0, and recomputed 33 after an epoch moved (a protocol method's rests on the
+- Cost: pass 1 alone 60 ms, with the summaries 69 ms, against 360 ms of analysis over the same forms
+  (0.17× → 0.19×); the largest single table is 262 KB. The store holds 987 summaries, ran 24 fixpoint rounds
+  beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
-- Refinement conflicts (a meet down to ⊥): 64. Value nodes at ⊥: 137, of which 39 `dead-branch` (the pass's
+- Refinement conflicts (a meet down to ⊥): 174. Value nodes at ⊥: 137, of which 39 `dead-branch` (the pass's
   own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), 98 with a throw or recur as the only
   way out, and 0 unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening
   rule cut short: 0.
@@ -73,12 +73,12 @@ Each percentage is before → after the summaries; a third number is with the ca
 
 | library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12345 | 40.0 → 60.1 → 60.7 % | 10.5 → 11.2 % | 49.2 → 28.3 → 27.5 % | 42.3 → 63.1 % | 11037 | 32.9 → 55.4 → 56.0 % |
+| core.clj | 265 | 12342 | 40.0 → 60.1 → 60.6 % | 10.5 → 11.2 % | 49.2 → 28.3 → 27.5 % | 42.3 → 63.1 % | 11034 | 32.9 → 55.4 → 56.0 % |
 | embedded libs | 108 | 3692 | 42.4 → 69.0 → 69.6 % | 6.2 → 6.7 % | 51.2 → 24.1 → 23.0 % | 44.8 → 71.2 % | 3145 | 32.3 → 63.6 → 64.3 % |
-| clojure-test-suite | 516 | 415736 | 59.1 → 75.9 → 75.9 % | 0.5 → 0.4 % | 40.3 → 23.7 → 23.7 % | 59.5 → 76.1 % | 239182 | 29.0 → 58.1 → 58.1 % |
+| clojure-test-suite | 516 | 415349 | 59.2 → 75.9 → 76.0 % | 0.4 → 0.3 % | 40.4 → 23.7 → 23.7 % | 59.5 → 76.1 % | 238920 | 29.1 → 58.2 → 58.2 % |
 | medley | 104 | 22651 | 56.0 → 73.3 → 73.7 % | 0.8 → 1.0 % | 43.2 → 25.7 → 25.0 % | 56.4 → 73.7 % | 13824 | 27.8 → 56.2 → 56.9 % |
-| **library code** | 477 | 38688 | 49.6 → 68.7 → 69.1 % | 4.4 → 4.8 % | 45.9 → 26.4 → 25.6 % | 50.8 → 70.1 % | 28006 | 30.3 → 56.7 → 57.4 % |
-| **all** | 993 | 454424 | 58.3 → 75.3 → 75.3 % | 0.8 → 0.8 % | 40.8 → 23.9 → 23.8 % | 58.8 → 75.6 % | 267188 | 29.1 → 57.9 → 58.0 % |
+| **library code** | 477 | 38685 | 49.6 → 68.7 → 69.1 % | 4.4 → 4.8 % | 45.9 → 26.4 → 25.6 % | 50.8 → 70.1 % | 28003 | 30.3 → 56.7 → 57.4 % |
+| **all** | 993 | 454034 | 58.4 → 75.3 → 75.4 % | 0.8 → 0.7 % | 40.8 → 24.0 → 23.9 % | 58.8 → 75.6 % | 266923 | 29.2 → 58.0 → 58.1 % |
 
 ## The positions that pay
 
@@ -116,10 +116,10 @@ fails on any.
 |---|---:|---:|---:|---:|---:|
 | core.clj | 0 | 43 | 0 | 43 | 0 |
 | embedded libs | 1 | 8 | 1 | 7 | 0 |
-| clojure-test-suite | 63 | 81 | 38 | 43 | 0 |
+| clojure-test-suite | 173 | 81 | 38 | 43 | 0 |
 | medley | 0 | 5 | 0 | 5 | 0 |
 | **library code** | 1 | 56 | 1 | 55 | 0 |
-| **all** | 64 | 137 | 39 | 98 | 0 |
+| **all** | 174 | 137 | 39 | 98 | 0 |
 
 ## Cost per library
 
@@ -127,12 +127,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 265 | 12466 | 6.3 | 2.9 | 3.6 | 3.8 | 0.46× → 0.57× | 367 | 13 |
-| embedded libs | 108 | 3710 | 1.7 | 0.7 | 1.1 | 1.1 | 0.41× → 0.62× | 114 | 6 |
-| clojure-test-suite | 516 | 415781 | 319.6 | 52.1 | 58.0 | 55.7 | 0.16× → 0.18× | 9889 | 262 |
-| medley | 104 | 22661 | 14.6 | 2.2 | 2.9 | 2.7 | 0.15× → 0.20× | 562 | 23 |
-| **library code** | 477 | 38837 | 22.7 | 5.8 | 7.6 | 7.6 | 0.26× → 0.33× | 1043 | 23 |
-| **all** | 993 | 454618 | 342.2 | 57.9 | 65.6 | 63.4 | 0.17× → 0.19× | 10932 | 262 |
+| core.clj | 265 | 12463 | 6.8 | 3.1 | 3.9 | 4.0 | 0.46× → 0.58× | 367 | 13 |
+| embedded libs | 108 | 3710 | 1.7 | 0.7 | 1.1 | 1.1 | 0.42× → 0.65× | 114 | 6 |
+| clojure-test-suite | 516 | 415394 | 335.1 | 53.9 | 60.9 | 59.8 | 0.16× → 0.18× | 9880 | 262 |
+| medley | 104 | 22661 | 16.7 | 2.5 | 3.4 | 3.0 | 0.15× → 0.20× | 562 | 23 |
+| **library code** | 477 | 38834 | 25.2 | 6.3 | 8.4 | 8.2 | 0.25× → 0.33× | 1043 | 23 |
+| **all** | 993 | 454228 | 360.3 | 60.2 | 69.3 | 68.0 | 0.17× → 0.19× | 10923 | 262 |
 
 ## Errors
 

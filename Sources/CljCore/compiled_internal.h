@@ -175,6 +175,61 @@ static inline void clj_c_instrument_leave(const clj_node *stub, clj_ccall *c) {
 // One loop turn: true when the deadline throw is pending.
 static inline bool clj_c_loop_tick(void) { return clj_deadline_tick(); }
 
+// ---- the primitive entry (NOTES.md "Compiler", worker/wrapper): a worker takes int64_t/double arguments and answers
+// its result unboxed, with thrown set in place of CLJ_THROWN (the exception is pending as usual).
+typedef struct {
+	int64_t v;
+	bool    thrown;
+} clj_wlong;
+
+typedef struct {
+	double v;
+	bool   thrown;
+} clj_wdouble;
+
+// A worker in the symbol registry under its signature-carrying name: the caller's type comes from the name. Inline
+// (a symbol only generated code names would be dead-stripped from a release host).
+static inline void clj_compiled_register_worker(const char *name, void (*fn)(void)) { clj_compiled_register_symbol(name, (clj_compiled_fn)fn); }
+
+static inline void (*clj_compiled_worker(const char *name))(void) { return (void (*)(void))clj_compiled_symbol(name); }
+
+static inline bool clj_c_as_int64(clj_value v, int64_t *out) { return clj_int64_of(v, out); }
+
+static inline bool clj_c_as_double(clj_value v, double *out) {
+	if (!clj_is_double(v)) return false;
+	*out = clj_double_val(v);
+	return true;
+}
+
+// An owned box the facts say holds a long or a double; anything else is a lattice bug, never a program error.
+static inline int64_t clj_c_unbox_long(clj_value v) {
+	int64_t r;
+	if (!clj_int64_of(v, &r)) clj_fatal("compiled worker: a value the facts call a long is not one");
+	clj_release(v);
+	return r;
+}
+
+static inline double clj_c_unbox_double(clj_value v) {
+	if (!clj_is_double(v)) clj_fatal("compiled worker: a value the facts call a double is not one");
+	double r = clj_double_val(v);
+	clj_release(v);
+	return r;
+}
+
+// A borrowed box read the same way, kept.
+static inline int64_t clj_c_peek_long(clj_value v) {
+	int64_t r;
+	if (!clj_int64_of(v, &r)) clj_fatal("compiled worker: a value the facts call a long is not one");
+	return r;
+}
+
+static inline double clj_c_peek_double(clj_value v) {
+	if (!clj_is_double(v)) clj_fatal("compiled worker: a value the facts call a double is not one");
+	return clj_double_val(v);
+}
+
+
+
 // Retains every param of a frame past 64 slots, which then treats every slot as owned (closure_run).
 static inline void clj_c_retain_params(clj_cframe *f, uint32_t nparams) {
 	for (uint32_t i = 0; i < nparams; i++) {
@@ -199,6 +254,14 @@ static inline clj_value clj_c_intrinsic_fallback(clj_value var, const clj_value 
 	if (fn == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_invoke(fn, args, n);
 	clj_release(fn);
+	return r;
+}
+
+// A primitive site whose worker symbol is not registered (the callee's unit is not loaded): the var's root over the
+// boxed arguments, which are owned and released here.
+static inline clj_value clj_c_prim_fallback(clj_value var, clj_value *args, size_t n) {
+	clj_value r = clj_c_intrinsic_fallback(var, args, n);
+	for (size_t i = 0; i < n; i++) clj_release(args[i]);
 	return r;
 }
 

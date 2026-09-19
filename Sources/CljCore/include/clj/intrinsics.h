@@ -17,6 +17,8 @@ clj_value clj_add(clj_value a, clj_value b);
 clj_value clj_sub(clj_value a, clj_value b);
 clj_value clj_mul(clj_value a, clj_value b);
 clj_value clj_div(clj_value a, clj_value b);
+clj_value clj_quot(clj_value a, clj_value b);
+clj_value clj_rem(clj_value a, clj_value b);
 clj_value clj_inc(clj_value v);
 clj_value clj_dec(clj_value v);
 clj_value clj_lt(clj_value a, clj_value b);

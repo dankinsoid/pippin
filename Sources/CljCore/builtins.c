@@ -1159,10 +1159,9 @@ static clj_value int_args(const char *what, const clj_value *args, size_t n, int
 	return CLJ_NIL;
 }
 
-static clj_value b_quot(const clj_value *args, size_t n) {
-	(void)n;
+clj_value clj_quot(clj_value a, clj_value b) {
 	num x, y;
-	if (!to_num(args[0], &x) || !to_num(args[1], &y)) return clj_num_arith(args[0], args[1], CLJ_OP_QUOT);
+	if (!to_num(a, &x) || !to_num(b, &y)) return clj_num_arith(a, b, CLJ_OP_QUOT);
 	if (x.is_double || y.is_double) {
 		double q = as_double(&x) / as_double(&y);
 		// Numbers.quotient rounds through BigDecimal past the long range, which rejects an infinity or a NaN.
@@ -1173,10 +1172,9 @@ static clj_value b_quot(const clj_value *args, size_t n) {
 	return clj_long_new(x.i / y.i);
 }
 
-static clj_value b_rem(const clj_value *args, size_t n) {
-	(void)n;
+clj_value clj_rem(clj_value a, clj_value b) {
 	num x, y;
-	if (!to_num(args[0], &x) || !to_num(args[1], &y)) return clj_num_arith(args[0], args[1], CLJ_OP_REM);
+	if (!to_num(a, &x) || !to_num(b, &y)) return clj_num_arith(a, b, CLJ_OP_REM);
 	if (x.is_double || y.is_double) {
 		double p = as_double(&x), d = as_double(&y), q = p / d;
 		if (!isfinite(q)) return clj_throw_msg(d == 0 ? "Divide by zero" : "Infinite or NaN");
@@ -1186,6 +1184,16 @@ static clj_value b_rem(const clj_value *args, size_t n) {
 	if (y.i == 0) return clj_throw_msg("Divide by zero");
 	if (y.i == -1) return clj_fixnum(0);
 	return clj_fixnum(x.i % y.i);
+}
+
+static clj_value b_quot(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_quot(args[0], args[1]);
+}
+
+static clj_value b_rem(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_rem(args[0], args[1]);
 }
 
 typedef enum { BIT_AND, BIT_OR, BIT_XOR, BIT_AND_NOT } bit_op;

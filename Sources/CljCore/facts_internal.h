@@ -5,8 +5,9 @@
 
 #include "clj/summary.h"
 
-// Fills nparams, variadic, params with their positions, ret, effects and inferred; records nothing else.
-void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *arity, clj_summaries *sums, clj_summary *out);
+// Fills nparams, variadic, params with their positions, ret, effects and inferred; records nothing else. params enters
+// the parameters at those facts instead of TOP (a specialized summary), NULL for TOP.
+void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *arity, clj_summaries *sums, clj_summary *out, const clj_fact *params);
 // Effects of a clojure.core call by name: none for a predicate, IO and atom-write from short lists, else alloc|throw.
 uint32_t clj_facts_core_effects(const char *name);
 // The kind bit of a value of this descriptor, the dispatch pseudo-types included; HOST for anything unnamed.

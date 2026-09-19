@@ -22,6 +22,8 @@ static const clj_intrinsic table[] = {
 	I2("-", clj_sub, true),
 	I2("*", clj_mul, true),
 	I2("/", clj_div, true),
+	I2("quot", clj_quot, true),
+	I2("rem", clj_rem, true),
 	I1("inc", clj_inc, true),
 	I1("dec", clj_dec, true),
 	I2("<", clj_lt, true),

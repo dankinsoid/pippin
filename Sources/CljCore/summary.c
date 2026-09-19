@@ -458,13 +458,13 @@ static void protocol_summary(clj_summaries *s, entry *e, clj_value method, uint3
 	(void)s;
 }
 
-static void walk_fixpoint(clj_summaries *s, entry *e, const clj_node *fn, const clj_fn_arity *a) {
+static void walk_fixpoint(clj_summaries *s, entry *e, const clj_node *fn, const clj_fn_arity *a, const clj_fact *params) {
 	summary_reset(&e->s, a->nparams, a->variadic);
 	bool converged = false;
 	for (uint32_t round = 0; round < WIDEN_ROUNDS; round++) {
 		clj_summary next;
 		summary_reset(&next, a->nparams, a->variadic);
-		clj_facts_walk_arity(fn, a, s, &next);
+		clj_facts_walk_arity(fn, a, s, &next, params);
 		next.recursive = e->s.recursive;
 		if (!e->s.recursive || summary_eq(&next, &e->s)) {
 			e->s = next;
@@ -506,7 +506,34 @@ static uint32_t core_effects_of(clj_value var) {
 // A walk started this deep would be cut at once (facts.c); it is left for a caller with headroom.
 static bool budget_left(const clj_summaries *s) { return s->depth <= MAX_DEPTH && clj_facts_walk_depth() + 8 < CLJ_FACTS_MAX_WALK_DEPTH; }
 
-static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var, uint32_t nargs) {
+// ---- domains: a summary specialized to what a call site passes, keyed beside the generic entry
+
+clj_domain clj_domain_of(clj_fact f) {
+	if (f.types == CLJ_T_BOTTOM) return CLJ_DOMAIN_ANY;
+	if ((f.types & ~(uint32_t)(CLJ_T_FIXNUM | CLJ_T_LONG)) == 0) return CLJ_DOMAIN_INT64;
+	if (f.types == CLJ_T_DOUBLE) return CLJ_DOMAIN_DOUBLE;
+	return CLJ_DOMAIN_ANY;
+}
+
+clj_fact clj_fact_of_domain(clj_domain d) {
+	if (d == CLJ_DOMAIN_INT64) return fact_of_types(CLJ_T_FIXNUM | CLJ_T_LONG);
+	if (d == CLJ_DOMAIN_DOUBLE) return fact_of_types(CLJ_T_DOUBLE);
+	return clj_fact_top();
+}
+
+// The entry key of a specialized arity: the argument count under the domains in base 3, 0 for the generic entry.
+static uint32_t domains_key(uint32_t nargs, const clj_domain *domains) {
+	uint32_t code = 0;
+	for (uint32_t i = 0; domains && i < nargs && i < CLJ_SUMMARY_DOMAINS_MAX; i++) code = code * 3 + (uint32_t)domains[i];
+	return nargs | ((code + (domains ? 1u : 0u)) << 8);
+}
+
+static void domain_params(uint32_t nargs, const clj_domain *domains, clj_fact *out) {
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) out[i] = clj_fact_top();
+	for (uint32_t i = 0; i < nargs && i < CLJ_SUMMARY_DOMAINS_MAX; i++) out[i] = clj_fact_of_domain(domains[i]);
+}
+
+static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var, uint32_t nargs, const clj_domain *domains) {
 	if (!budget_left(s)) return NULL;
 	if (e->state == STATE_DONE) s->invalidated++;
 	e->state = STATE_RUNNING;
@@ -524,13 +551,17 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 	if (root != CLJ_UNBOUND && clj_is_fn(root)) {
 		clj_fn *f = clj_fn_of(root);
 		if (clj_is_protocol_method(root) && nargs >= 1) {
-			protocol_summary(s, e, root, nargs);
-			inferred = true;
+			if (!domains) {
+				protocol_summary(s, e, root, nargs);
+				inferred = true;
+			}
 		}
 		else if (f->kind == CLJ_FN_CLOSURE) {
 			const clj_fn_arity *ar = arity_for(f->u.node, nargs);
 			if (ar) {
-				walk_fixpoint(s, e, f->u.node, ar);
+				clj_fact params[CLJ_FN_MAX_FIXED + 1];
+				if (domains) domain_params(nargs, domains, params);
+				walk_fixpoint(s, e, f->u.node, ar, domains ? params : NULL);
 				inferred = true;
 			}
 		}
@@ -540,9 +571,15 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 		e->s.ret = clj_fact_top();
 		e->s.effects = core_effects_of(var);
 	}
-	apply_annotation(s, var, &a, &e->s);
+	// a specialized entry takes a declared result and nothing else: the generic entry reports the declaration
+	if (!domains) apply_annotation(s, var, &a, &e->s);
+	else if (a.present && a.has_ret && e->s.ret.types != CLJ_T_BOTTOM) {
+		uint32_t dummy = 0;
+		clj_fact m = clj_fact_meet(e->s.ret, a.ret, &dummy);
+		if (m.types != CLJ_T_BOTTOM) e->s.ret = m;
+	}
 	s->depth--;
-	if (!inferred && !a.present) {
+	if (!inferred && (!a.present || domains)) {
 		e->state = STATE_EMPTY;
 		return NULL;
 	}
@@ -550,9 +587,9 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 	return &e->s;
 }
 
-const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t nargs) {
+static const clj_summary *summary_of_var_keyed(clj_summaries *s, clj_value var, uint32_t nargs, const clj_domain *domains) {
 	if (!clj_is_var(var)) return NULL;
-	entry *e = entry_for(s, clj_to_ptr(var), nargs);
+	entry *e = entry_for(s, clj_to_ptr(var), domains_key(nargs, domains));
 	e->is_var = true;
 	if (e->state == STATE_RUNNING) {
 		e->s.recursive = true;
@@ -566,9 +603,16 @@ const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t 
 	}
 	if (e->state == STATE_EMPTY && e->unknown && e->world == clj_epoch()) return NULL;
 	if (!budget_left(s)) return NULL; // out of budget is not "unknown": asked again with headroom, it is computed
-	const clj_summary *r = compute_var(s, e, var, nargs);
+	const clj_summary *r = compute_var(s, e, var, nargs, domains);
 	e->unknown = !r;
 	return r;
+}
+
+const clj_summary *clj_summary_of_var(clj_summaries *s, clj_value var, uint32_t nargs) { return summary_of_var_keyed(s, var, nargs, NULL); }
+
+const clj_summary *clj_summary_of_var_at(clj_summaries *s, clj_value var, uint32_t nargs, const clj_domain *domains) {
+	if (!domains || nargs == 0 || nargs > CLJ_SUMMARY_DOMAINS_MAX) return NULL;
+	return summary_of_var_keyed(s, var, nargs, domains);
 }
 
 const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, const clj_fn_arity *a) {
@@ -589,7 +633,7 @@ const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, co
 	e->in_cycle = false;
 	e->world = clj_epoch();
 	s->stack[s->depth++] = e;
-	walk_fixpoint(s, e, fn, a);
+	walk_fixpoint(s, e, fn, a, NULL);
 	s->depth--;
 	finish(e);
 	return &e->s;
@@ -624,14 +668,16 @@ clj_fact clj_summary_var_fact(clj_summaries *s, clj_value var) {
 }
 
 uint32_t clj_summaries_epoch_seen(const clj_summaries *s, clj_value var) {
+	uint32_t seen = UINT32_MAX;
+	// the generic and the specialized entries of a var are recomputed on their own asks: the latest read is the answer
 	for (uint32_t i = 0; i < s->cap; i++) {
 		const entry *e = s->slots[i];
 		if (!e || e->key != clj_to_ptr(var)) continue;
 		for (uint32_t d = 0; d < e->ndeps; d++) {
-			if (e->deps[d].var == var) return e->deps[d].epoch;
+			if (e->deps[d].var == var && (seen == UINT32_MAX || e->deps[d].epoch > seen)) seen = e->deps[d].epoch;
 		}
 	}
-	return UINT32_MAX;
+	return seen;
 }
 
 uint32_t              clj_summaries_ndiagnostics(const clj_summaries *s) { return s->ndiags; }
