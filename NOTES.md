@@ -381,7 +381,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   on the lot with `FORCING_WAITED` as the "someone parked" state — the `sched_yield` spin is gone; "Recursive
   realization" stays). `promise`/`future` will hold it too when they exist.
 - **Lock audit** (design §4, "under `clj_lock` runs neither user code nor IO"; every `clj_lock_lock` at the time
-  of this task, 58 sites in 13 files, now 62 with `chan.c` and `cmutex.c`):
+  of this task, 58 sites in 12 files; 82 in 15 after it, the new ones in `chan.c`, `cmutex.c`, `sched.c`,
+  `coro.c`, all runtime-only sections):
 
   | file | sites | what runs under the lock | verdict |
   |---|---:|---|---|
@@ -397,8 +398,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   | `trace.c` | 2 | the frame tables | runtime only |
   | `eval.c` | 1 | a keyword site's fill | runtime only |
   | `keyword.c` | 1 | the intern table | runtime only |
-  | `chan.c` (new) | 2 per op | the buffer and the queues; wakes after the unlock | runtime only |
-  | `cmutex.c` (new) | 5 | a lot bucket, the monitor table | runtime only |
+  | `chan.c` (new) | 13 | the buffer and the queues; wakes after the unlock | runtime only |
+  | `cmutex.c` (new) | 7 | a lot bucket, the monitor table; the waiter's own claim lock | runtime only |
+  | `sched.c` (new) | 4 | a waiter's claim, the paired claim | runtime only |
+  | `coro.c` (new) | 2 | the stack-mapping cache | runtime only |
 
   Every syscall that could block a carrier is off its path: `fopen`/`fread` (the loader) on the blocking pool,
   `fwrite(stdout)`/`out_fn` on the writer thread with backpressure, the lazy-seq `sched_yield` spin replaced by
