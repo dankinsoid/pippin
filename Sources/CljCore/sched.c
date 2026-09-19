@@ -425,6 +425,12 @@ static void park(clj_waiter *w, bool cancellable) {
 	pthread_mutex_lock(&c->lock);
 	bool block = c->implicit || w->blocking;
 	if (!cancellable) w = NULL;
+	// A cancellation that landed between the caller's check and here found no waiter to wake: the park is skipped
+	// by claiming the waiter ourselves (a concurrent completion that won the claim resumes us instead).
+	if (w && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed) && clj_waiter_claim(w)) {
+		pthread_mutex_unlock(&c->lock);
+		return;
+	}
 	if (block) {
 		c->waiter = w;
 		while (!c->signaled) pthread_cond_wait(&c->cond, &c->lock);
@@ -452,6 +458,7 @@ void clj_park(clj_waiter *w) { park(w, true); }
 void clj_park_uncancellable(clj_waiter *w) { park(w, false); }
 
 static void run_callback(clj_waiter *w) {
+	if (clj_is_nil(w->callback)) return;
 	clj_value r = clj_invoke(w->callback, &w->value, 1);
 	if (r == CLJ_THROWN) {
 		clj_coro *c = clj_coro_current();
