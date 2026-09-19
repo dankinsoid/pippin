@@ -113,6 +113,10 @@ public final class Runtime: Sendable {
 		}
 	}
 
+	/// Makes the calling thread the main carrier: `go-main` blocks and `:affinity :main` atoms run on it, driven by
+	/// its run loop (a `CFRunLoopSource`). Call once, on the main thread, before the first `go-main`.
+	public static func installMainCarrier() { clj_sched_main_install() }
+
 	/// Instruments signposts (subsystem `clj`, name `invoke`) around every Clojure fn call. Process-wide.
 	public static var signposts: Bool {
 		get { clj_signposts_enabled() }
