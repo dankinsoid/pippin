@@ -647,16 +647,34 @@ static clj_value b_atom(const clj_value *args, size_t n) {
 		clj_release(text);
 		return r;
 	}
-	clj_value meta = CLJ_NIL, validator = CLJ_NIL;
+	clj_value meta = CLJ_NIL, validator = CLJ_NIL, affinity = CLJ_NIL;
 	for (size_t i = 1; i < n; i += 2) {
 		if (!clj_is_keyword(args[i])) continue;
 		const char *name = clj_string_bytes(clj_keyword_name(args[i]));
 		if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "meta") == 0) meta = args[i + 1];
 		else if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "validator") == 0) validator = args[i + 1];
+		else if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "affinity") == 0) affinity = args[i + 1];
 	}
 	if (!clj_is_nil(meta) && !clj_has_core(meta, CLJ_CORE_MAP)) return clj_throw_msg("atom :meta must be a map, got: %s", clj_type_name(meta));
 	if (!clj_is_nil(validator) && !clj_has_core(validator, CLJ_CORE_FN)) return clj_throw_msg("atom :validator must be a fn, got: %s", clj_type_name(validator));
-	return clj_atom_new(args[0], meta, validator);
+	bool main = false;
+	if (!clj_is_nil(affinity)) {
+		if (!clj_is_keyword(affinity) || strcmp(clj_string_bytes(clj_keyword_name(affinity)), "main") != 0) return clj_throw_msg("atom :affinity must be :main");
+		main = true;
+	}
+	clj_value a = clj_atom_new(args[0], meta, validator);
+	if (a != CLJ_THROWN && main) clj_atom_set_affinity(a, CLJ_AFFINITY_MAIN);
+	return a;
+}
+
+static clj_value b_monitor_enter(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_monitor_enter(args[0]);
+}
+
+static clj_value b_monitor_exit(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_monitor_exit(args[0]);
 }
 
 static clj_value b_atom_p(const clj_value *args, size_t n) {
@@ -1377,7 +1395,7 @@ static const entry entries[] = {
 	{"atom", b_atom, 1, ANY},      {"atom?", b_atom_p, 1, 1},     {"reset!", b_reset, 2, 2},     {"reset-vals!", b_reset_vals, 2, 2},
 	{"swap!", b_swap, 2, ANY},     {"swap-vals!", b_swap_vals, 2, ANY}, {"compare-and-set!", b_compare_and_set, 3, 3},
 	{"add-watch", b_add_watch, 3, 3}, {"remove-watch", b_remove_watch, 2, 2}, {"set-validator!", b_set_validator, 2, 2},
-	{"get-validator", b_get_validator, 1, 1},
+	{"get-validator", b_get_validator, 1, 1}, {"monitor-enter*", b_monitor_enter, 1, 1}, {"monitor-exit*", b_monitor_exit, 1, 1},
 };
 
 void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uint32_t max) {

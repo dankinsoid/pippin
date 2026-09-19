@@ -4,7 +4,10 @@
 #include <string.h>
 
 #include "clj/atom.h"
+#include "clj/coro.h"
 #include "clj/core.h"
+#include "coro_internal.h"
+#include "proto_internal.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -14,13 +17,12 @@
 
 static void atom_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_atom *a = self;
-	visit(a->value, ctx);
+	visit(atomic_load_explicit(&a->value, memory_order_relaxed), ctx);
 	visit(a->meta, ctx);
 	visit(a->validator, ctx);
 	visit(a->watches, ctx);
 }
 
-static void atom_finalize(void *self) { clj_lock_destroy(&((clj_atom *)self)->lock); }
 
 static uint32_t atom_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
 
@@ -31,31 +33,40 @@ const clj_type clj_atom_type = {
 	.name = "atom",
 	.core_bits = CLJ_CORE_META,
 	.each_child = atom_each_child,
-	.finalize = atom_finalize,
 	.hash = atom_hash,
 	.equals = atom_equals,
 	.meta = clj_atom_meta,
 };
 
-static uintptr_t self_id(void) { return (uintptr_t)pthread_self(); }
+static uintptr_t self_id(void) { return (uintptr_t)clj_coro_current(); }
 
 static bool held_by_me(const clj_atom *a) { return atomic_load_explicit(&a->owner, memory_order_relaxed) == self_id(); }
 
-// The lock is not recursive, so a thread that already holds it must not wait on it: throw instead.
+// One TLS load: a main-affinity atom touched off the main carrier is an error with a trace, not a silent race.
+static bool affinity_ok(const clj_atom *a, const char *op) {
+	if (__builtin_expect(a->affinity == CLJ_AFFINITY_POOL, 1) || clj_coro_on_main_carrier()) return true;
+	clj_throw_msg("%s on an atom with :affinity :main from off the main carrier", op);
+	return false;
+}
+
+// The lock is not recursive, so an execution that already holds it must not wait on it: throw instead.
 static bool enter(clj_atom *a, const char *op) {
+	if (!affinity_ok(a, op)) return false;
 	if (held_by_me(a)) {
 		clj_throw_msg("%s on an atom this thread is already swapping (nested swap! trap)", op);
 		return false;
 	}
-	clj_lock_lock(&a->lock);
+	clj_cmutex_lock(&a->lock);
 	atomic_store_explicit(&a->owner, self_id(), memory_order_relaxed);
 	return true;
 }
 
 static void leave(clj_atom *a) {
 	atomic_store_explicit(&a->owner, 0, memory_order_relaxed);
-	clj_lock_unlock(&a->lock);
+	clj_cmutex_unlock(&a->lock);
 }
+
+static clj_value value_of(const clj_atom *a) { return atomic_load_explicit(&a->value, memory_order_relaxed); }
 
 // Consumes cause.
 static clj_value invalid_state(clj_value cause) {
@@ -105,23 +116,28 @@ static bool notify(clj_value atom, clj_value watches, clj_value old, clj_value n
 clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	if (!validate_with(validator, value)) return CLJ_THROWN;
 	clj_atom *a = clj_alloc(&clj_atom_type, sizeof *a);
-	clj_lock_init(&a->lock);
+	clj_cmutex_init(&a->lock);
+	a->affinity = CLJ_AFFINITY_POOL;
+	atomic_init(&a->owner, 0);
 	clj_share(value);
 	clj_share(meta);
 	clj_share(validator);
-	a->value = clj_retain(value);
+	atomic_init(&a->value, clj_retain(value));
 	a->meta = clj_retain(meta);
 	a->validator = clj_retain(validator);
 	return clj_from_ptr(a);
 }
 
-// Inside f, a validator or an alter-meta! fn the lock holder reads its own atom: the value f was given.
+void clj_atom_set_affinity(clj_value atom, int affinity) { clj_atom_of(atom)->affinity = (uint8_t)affinity; }
+
+// No lock: the read and its retain sit in a reader window (proto.c), and a writer releases the old value only
+// after every window closed, so the retain never lands on a freed object. Inside f the holder sees the old value.
 clj_value clj_atom_deref(clj_value atom) {
 	clj_atom *a = clj_atom_of(atom);
-	if (held_by_me(a)) return clj_retain(a->value);
-	clj_lock_lock(&a->lock);
-	clj_value v = clj_retain(a->value);
-	clj_lock_unlock(&a->lock);
+	if (!affinity_ok(a, "deref")) return CLJ_THROWN;
+	clj_proto_reader *r = clj_proto_window_open_inline();
+	clj_value         v = clj_retain(atomic_load_explicit(&a->value, memory_order_seq_cst));
+	clj_proto_window_close_inline(r);
 	return v;
 }
 
@@ -129,12 +145,13 @@ clj_value clj_atom_deref(clj_value atom) {
 static bool commit(clj_value atom, clj_value new) {
 	clj_atom *a = clj_atom_of(atom);
 	clj_share(new);
-	clj_value old = a->value;
-	a->value = clj_retain(new);
+	clj_value old = value_of(a);
+	atomic_store_explicit(&a->value, clj_retain(new), memory_order_seq_cst);
 	clj_value watches = clj_retain(a->watches);
 	leave(a);
 	bool ok = notify(atom, watches, old, new);
 	clj_release(watches);
+	clj_proto_wait_readers();
 	clj_release(old);
 	return ok;
 }
@@ -161,7 +178,7 @@ clj_value clj_atom_reset_vals(clj_value atom, clj_value value) {
 		leave(a);
 		return CLJ_THROWN;
 	}
-	clj_value old = clj_retain(a->value);
+	clj_value old = clj_retain(value_of(a));
 	bool      ok = commit(atom, value);
 	clj_value r = ok ? pair(old, value) : CLJ_THROWN;
 	clj_release(old);
@@ -181,7 +198,7 @@ static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *
 		if (call != small) free(call);
 		return CLJ_THROWN;
 	}
-	call[0] = a->value;
+	call[0] = value_of(a);
 	clj_value new = clj_call_invoke(&c, call);
 	if (call != small) free(call);
 	if (new == CLJ_THROWN || !validate_with(a->validator, new)) {
@@ -189,7 +206,7 @@ static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *
 		leave(a);
 		return CLJ_THROWN;
 	}
-	if (old) *old = clj_retain(a->value);
+	if (old) *old = clj_retain(value_of(a));
 	if (!commit(atom, new)) {
 		if (old) clj_release(*old);
 		clj_release(new);
@@ -215,7 +232,7 @@ clj_value clj_atom_swap_vals(clj_value atom, clj_value f, const clj_value *args,
 clj_value clj_atom_compare_and_set(clj_value atom, clj_value expected, clj_value value) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "compare-and-set!")) return CLJ_THROWN;
-	if (a->value != expected) {
+	if (value_of(a) != expected) {
 		leave(a);
 		return CLJ_FALSE;
 	}
@@ -255,7 +272,7 @@ clj_value clj_atom_remove_watch(clj_value atom, clj_value key) {
 clj_value clj_atom_set_validator(clj_value atom, clj_value f) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "set-validator!")) return CLJ_THROWN;
-	if (!validate_with(f, a->value)) {
+	if (!validate_with(f, value_of(a))) {
 		leave(a);
 		return CLJ_THROWN;
 	}

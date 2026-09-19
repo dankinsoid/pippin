@@ -17,6 +17,8 @@ typedef struct clj_proto_reader {
 extern _Thread_local clj_proto_reader *clj_proto_reader_tls;
 
 clj_proto_reader *clj_proto_reader_init(void);
+// Spins until every window on every thread is closed: a writer retires what readers may still borrow.
+void clj_proto_wait_readers(void);
 
 // seq_cst on both sides (Dekker): a reader either shows up to the writer's scan or sees the new snapshot.
 static inline clj_proto_reader *clj_proto_window_open_inline(void) {

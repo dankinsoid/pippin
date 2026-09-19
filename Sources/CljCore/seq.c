@@ -1,7 +1,7 @@
 // @ai-generated(guided)
-#include <sched.h>
 #include <stdlib.h>
 
+#include "clj/cmutex.h"
 #include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/fn.h"
@@ -163,7 +163,8 @@ clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
 
 // ---- lazy-seq
 
-enum { UNFORCED = 0, FORCING = 1, FORCED = 2 };
+// FORCING_WAITED: some execution parked on the object in the lot (cmutex.c); the publisher unparks them.
+enum { UNFORCED = 0, FORCING = 1, FORCED = 2, FORCING_WAITED = 3 };
 
 static void lazy_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_lazy_seq *s = self;
@@ -190,6 +191,29 @@ clj_value clj_lazy_seq_new(clj_value fn) {
 	clj_lazy_seq *s = clj_alloc(&clj_lazy_seq_type, sizeof *s);
 	s->fn = clj_retain(fn);
 	return clj_from_ptr(s);
+}
+
+// The forcer's exchange sees FORCING_WAITED, or the waiter's CAS sees FORCED: no wakeup is lost either way.
+static bool still_forcing(const void *key, void *ctx) {
+	(void)ctx;
+	clj_lazy_seq *s = clj_lazy_seq_of(clj_from_ptr((void *)key));
+	for (;;) {
+		uint32_t st = atomic_load_explicit(&s->state, memory_order_acquire);
+		if (st != FORCING && st != FORCING_WAITED) return false;
+		if (st == FORCING_WAITED) return true;
+		uint32_t expected = FORCING;
+		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING_WAITED, memory_order_acq_rel, memory_order_acquire)) return true;
+	}
+}
+
+// A one-shot wait for the forcer, on the lot: a park, or a block on a bare thread (design §4, lazy seq under the
+// coroutine mutex).
+static void wait_forcer(clj_value v) { clj_lot_park(clj_to_ptr(v), still_forcing, NULL); }
+
+static void set_state(clj_value v, uint32_t st) {
+	clj_lazy_seq *s = clj_lazy_seq_of(v);
+	uint32_t      was = atomic_exchange_explicit(&s->state, st, memory_order_acq_rel);
+	if (was == FORCING_WAITED) clj_lot_unpark_all(clj_to_ptr(v));
 }
 
 bool clj_lazy_seq_realized(clj_value ls) {
@@ -233,7 +257,7 @@ static bool claim(clj_value v, bool *thrown) {
 			*thrown = clj_throw_msg("Recursive realization of a lazy seq") == CLJ_THROWN;
 			return false;
 		}
-		sched_yield();
+		wait_forcer(v);
 	}
 }
 
@@ -243,11 +267,11 @@ static void publish(clj_value v, clj_value value) {
 	s->value = value;
 	clj_value fn = s->fn;
 	s->fn = CLJ_NIL;
-	atomic_store_explicit(&s->state, FORCED, memory_order_release);
+	set_state(v, FORCED);
 	clj_release(fn);
 }
 
-static void unclaim(clj_value v) { atomic_store_explicit(&clj_lazy_seq_of(v)->state, UNFORCED, memory_order_release); }
+static void unclaim(clj_value v) { set_state(v, UNFORCED); }
 
 // Runs the thunk of a claimed object. Owned result. The deadline is checked per cell: a compiled thunk has no check
 // of its own, and an infinite lazy seq is realized one cell per turn here.

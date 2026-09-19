@@ -104,6 +104,7 @@ struct clj_waiter {
 	clj_value        port;     // the channel that completed it (alts!), retained
 	uint32_t         index;
 	bool             ok;
+	bool             blocking; // set before enqueueing: the park blocks the thread instead of switching (host_depth > 0)
 };
 
 clj_waiter *clj_waiter_new(clj_coro *c, clj_value callback);

@@ -1680,9 +1680,12 @@
      (when-not (bound? v#) (def ~name ~expr))))
 
 (defmacro locking
-  "Evaluates body; there is no monitor to hold, the runtime evaluates on one thread at a time (NOTES.md)."
+  "Executes body in an implicit do, while holding the monitor of x; the monitor is a coroutine mutex, so a
+  contended entry parks and a park inside body is legal (NOTES.md, \"Coroutine mutex\")."
   [x & body]
-  `(do ~x ~@body))
+  `(let [lockee# ~x]
+     (monitor-enter* lockee#)
+     (try ~@body (finally (monitor-exit* lockee#)))))
 
 (defn memoize
   "Returns a memoized version of f, caching its results by argument list."

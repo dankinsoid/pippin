@@ -103,7 +103,7 @@ static reader *window_open(void) { return clj_proto_window_open_inline(); }
 
 static void window_close(reader *r) { clj_proto_window_close_inline(r); }
 
-static void wait_readers(void) {
+void clj_proto_wait_readers(void) {
 	for (reader *r = readers; r; r = r->next) {
 		while (atomic_load_explicit(&r->active, memory_order_seq_cst)) sched_yield();
 	}
@@ -546,7 +546,7 @@ clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map
 		atomic_fetch_add_explicit(counter, 1, memory_order_relaxed);
 	}
 	clj_epoch_bump();
-	wait_readers();
+	clj_proto_wait_readers();
 	clj_lock_unlock(&lock);
 
 	table_free(old);

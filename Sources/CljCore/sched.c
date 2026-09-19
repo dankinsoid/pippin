@@ -220,8 +220,9 @@ bool clj_park_allowed(void) {
 static void park(clj_waiter *w, bool cancellable) {
 	clj_coro *c = clj_coro_current();
 	pthread_mutex_lock(&c->lock);
+	bool block = c->implicit || w->blocking;
 	if (!cancellable) w = NULL;
-	if (c->implicit) {
+	if (block) {
 		c->waiter = w;
 		while (!c->signaled) pthread_cond_wait(&c->cond, &c->lock);
 		c->signaled = false;
@@ -265,7 +266,7 @@ void clj_resume(clj_waiter *w) {
 		return;
 	}
 	pthread_mutex_lock(&c->lock);
-	if (c->implicit) {
+	if (c->implicit || w->blocking) {
 		c->signaled = true;
 		pthread_cond_signal(&c->cond);
 		pthread_mutex_unlock(&c->lock);

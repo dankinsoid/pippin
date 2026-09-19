@@ -196,14 +196,14 @@ extension CoreTests {
 			do {
 				_ = try eval("(def at-state (atom {:items [1 [2]]}))")
 				let atom = try eval("at-state")
-				let value = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
+				let value = withExtendedLifetime(atom) { clj_atom_value_borrowed(atom.raw) }
 				#expect(clj_debug_all_shared(value))
 				_ = try eval("(swap! at-state assoc :k 1)")
-				let afterNative = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
+				let afterNative = withExtendedLifetime(atom) { clj_atom_value_borrowed(atom.raw) }
 				#expect(afterNative != value)
 				#expect(clj_debug_all_shared(afterNative))
 				_ = try eval("(swap! at-state (fn [m] (let [items (get m :items)] (assoc m :items (conj items 3)))))")
-				let afterClosure = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
+				let afterClosure = withExtendedLifetime(atom) { clj_atom_value_borrowed(atom.raw) }
 				#expect(afterClosure != afterNative)
 				#expect(clj_debug_all_shared(afterClosure))
 				#expect(try eval("@at-state") == m(["items": [1, [2], 3], "k": 1]))
@@ -211,7 +211,7 @@ extension CoreTests {
 				#expect(try eval("(let [old @at-state] (swap! at-state assoc :k 10) [(:k old) (:k @at-state)])") == [1, 10])
 				// A value stored by reset! is shared before the store, with everything it reaches.
 				_ = try eval("(reset! at-state {:fresh [[1] {:n #{2}}]})")
-				let fresh = withExtendedLifetime(atom) { clj_atom_of(atom.raw).pointee.value }
+				let fresh = withExtendedLifetime(atom) { clj_atom_value_borrowed(atom.raw) }
 				#expect(clj_debug_all_shared(fresh))
 				// The atom's own graph: a validator and its watches are shared too.
 				_ = try eval("(let [v [1]] (set-validator! at-state (fn [x] (or v true))) (add-watch at-state :k (fn [k r o n] v)))")
