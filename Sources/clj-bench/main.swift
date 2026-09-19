@@ -407,6 +407,27 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 		return times.sorted()[reps / 2]
 	}
 	let spawnFn = cljEval("(fn [n] (let [done (chan n)] (dotimes [i n] (go (>! done i))) (dotimes [i n] (<!! done)) n))")
+	let spawnInsideFn = cljEval("(fn [n] (<!! (go (let [done (chan n)] (dotimes [i n] (go (>! done i))) (dotimes [i n] (<! done)) n))))")
+	let burstFn = cljEval("(fn [n] (let [done (chan 100)] (dotimes [b (quot n 100)] (dotimes [i 100] (go (>! done i))) (dotimes [i 100] (<!! done))) n))")
+	let oneFn = cljEval("(fn [] (<!! (go 1)))")
+	// One `go` from main joined at once, ns per round trip; cold first waits for every carrier to sleep.
+	func oneSpawn(_ n: Int, cold: Bool) -> Double {
+		var times: [Double] = []
+		for _ in 0..<n {
+			if cold {
+				let all = clj_debug_sched_carriers()
+				var waited = 0
+				while clj_debug_sched_sleeping() < all && waited < 200_000 {
+					usleep(100)
+					waited += 100
+				}
+			}
+			let t0 = DispatchTime.now().uptimeNanoseconds
+			blackHole(cljCall0(oneFn))
+			times.append(Double(DispatchTime.now().uptimeNanoseconds - t0))
+		}
+		return times.sorted()[n / 2]
+	}
 	let pingPongFn = cljEval("""
 	(fn [n]
 	  (let [ping (chan) pong (chan)
@@ -550,6 +571,17 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 		return (delta / count, true)
 	}
 
+	if let which = ProcessInfo.processInfo.environment["CLJ_BENCH_PROF"] {
+		let f = which == "inside" ? spawnInsideFn : which == "burst" ? burstFn : which == "locking" ? lockingFn : which == "swap" ? swapFn : which == "pingpong" ? pingPongFn : spawnFn
+		var line = "prof \(which):"
+		for _ in 0..<40 {
+			let t0 = DispatchTime.now().uptimeNanoseconds
+			blackHole(cljCall(f, clj_fixnum(n)))
+			line += " \(Int(Double(DispatchTime.now().uptimeNanoseconds - t0) / Double(n)))"
+		}
+		print(line)
+		exit(0)
+	}
 	var rows: [(String, Double?, Double?)] = []
 	if ProcessInfo.processInfo.environment["CLJ_BENCH_WATCHDOG"] != nil { Thread { while true { sleep(5); clj_debug_sched_dump() } }.start() }
 	func progress(_ s: String) { if ProcessInfo.processInfo.environment["CLJ_BENCH_WATCHDOG"] != nil { FileHandle.standardError.write(Data("row: \(s)\n".utf8)) } }
@@ -560,6 +592,17 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 	rows.append(("go spawn + finish, joined through a channel", med(ops: n) { cljCall(spawnFn, clj_fixnum(n)) }, med(ops: n) { swiftSpawn(n) }))
 	settle()
 	progress("spawn")
+	rows.append(("go spawn + finish from inside a coroutine", med(ops: n) { cljCall(spawnInsideFn, clj_fixnum(n)) }, nil))
+	settle()
+	progress("spawn-inside")
+	rows.append(("burst of 100 go from the main thread, joined after each burst (per spawn)", med(ops: n) { cljCall(burstFn, clj_fixnum(n)) }, nil))
+	settle()
+	progress("burst")
+	rows.append(("one go from the main thread, joined at once, pool warm (round trip)", oneSpawn(1000, cold: false), nil))
+	settle()
+	rows.append(("one go from the main thread, joined at once, pool cold (round trip)", oneSpawn(1000, cold: true), nil))
+	settle()
+	progress("one")
 	rows.append(("unbuffered >!/<! round trip (ping-pong, two go blocks)", med(ops: n) { cljCall(pingPongFn, clj_fixnum(n)) }, med(ops: n) { swiftPingPong(n) }))
 	settle()
 	progress("ping-pong")
@@ -604,7 +647,7 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 	print("|---|---:|---:|---:|")
 	print("| 10000 | \(perCoro / 1024) KB | \(reserve / 1024) KB stack + \(page_size_kb()) KB ring page | \(swiftPer / 1024) KB |")
 	print("\nns per op, medians of \(reps) runs; Swift = Task.detached + withTaskGroup (spawn), two AsyncStreams (ping-pong), AsyncStream bufferingOldest(1024) (buffered), Task.sleep(0) (timeout), an actor from four tasks (locking, swap!)")
-	for v in [spawnFn, pingPongFn, bufferedFn, altsFn, timeoutFn, lockingFn, swapFn, incFn, derefFn, gates, parkFn, done, closeFn] { clj_release(v) }
+	for v in [spawnFn, spawnInsideFn, burstFn, oneFn, pingPongFn, bufferedFn, altsFn, timeoutFn, lockingFn, swapFn, incFn, derefFn, gates, parkFn, done, closeFn] { clj_release(v) }
 	exit(0)
 }
 

@@ -120,7 +120,7 @@ void clj_coro_capture_spawn_trace(clj_coro *c) {
 	uint32_t        inherited = parent ? parent->nspawn : 0;
 	if (n + inherited > CLJ_CORO_SPAWN_TRACE_MAX) inherited = (uint32_t)(CLJ_CORO_SPAWN_TRACE_MAX - n);
 	if (n + inherited == 0) return;
-	c->spawn_trace = malloc((n + inherited) * sizeof *c->spawn_trace);
+	c->spawn_trace = n + inherited <= CLJ_CORO_SPAWN_TRACE_INLINE ? c->spawn_inline : malloc((n + inherited) * sizeof *c->spawn_trace);
 	if (!c->spawn_trace) clj_fatal("out of memory");
 	for (size_t i = 0; i < n; i++) {
 		clj_value name = frames[i].fn->u.fn.name;
@@ -136,7 +136,7 @@ void clj_coro_capture_spawn_trace(clj_coro *c) {
 
 void clj_coro_free_spawn_trace(clj_coro *c) {
 	for (uint32_t i = 0; i < c->nspawn; i++) clj_release(c->spawn_trace[i].name);
-	free(c->spawn_trace);
+	if (c->spawn_trace != c->spawn_inline) free(c->spawn_trace);
 	c->spawn_trace = NULL;
 	c->nspawn = 0;
 }

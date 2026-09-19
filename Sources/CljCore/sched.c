@@ -26,16 +26,20 @@
 
 static pthread_once_t   init_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t  run_mu = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t   run_cv = PTHREAD_COND_INITIALIZER;
 static clj_coro        *run_head, *run_tail;
-static clj_carrier     *carriers; // the pool, linked through pool_next
-static size_t           ncarriers, idle_carriers, polling_carriers, spinning_carriers;
+static clj_carrier     *carriers;  // the pool, linked through pool_next
+static clj_carrier     *idle_head; // carriers waiting on their own condition, most recent first; under run_mu
+static size_t           ncarriers, polling_carriers, spinning_carriers;
+// A popped carrier has not reached the queue yet (Go's wakep): nobody else is woken until it has.
+static bool             woken;
 
-// An idle carrier spins for SPIN_NS in slices, then polls every POLL_NS for POLL_ROUNDS, then sleeps for a signal:
+// An idle carrier spins for SPIN_NS in slices, then polls every POLL_NS for POLL_ROUNDS, then sleeps for a wake:
 // a burst of work costs one wakeup, not one per item.
 enum { SPIN_NS = 20000, SPIN_SLICE_NS = 2000, POLL_NS = 50000, POLL_ROUNDS = 20, MAX_SPINNERS = 2 };
 // A next slot younger than this stays with its carrier: a pair handing values back and forth keeps one thread.
 enum { NEXT_STEAL_AGE_NS = 5000 };
+// Trylocks before blocking on run_mu: a holder is out within ~100 ns, a kernel wait is a syscall each side.
+enum { LOCK_TRIES = 64 };
 
 static inline void cpu_relax(void) {
 #if defined(__aarch64__)
@@ -43,6 +47,14 @@ static inline void cpu_relax(void) {
 #elif defined(__x86_64__)
 	__asm__ volatile("pause");
 #endif
+}
+
+static void run_lock(void) {
+	for (int i = 0; i < LOCK_TRIES; i++) {
+		if (pthread_mutex_trylock(&run_mu) == 0) return;
+		cpu_relax();
+	}
+	pthread_mutex_lock(&run_mu);
 }
 
 // A racy glance at the queues from a spinner, confirmed under the lock before anything is taken; a fresh next slot
@@ -87,15 +99,53 @@ static void run_one(clj_carrier *car, clj_coro *c) {
 	pthread_mutex_unlock(&c->lock);
 }
 
+static void idle_push(clj_carrier *car) {
+	car->idle_next = idle_head;
+	idle_head = car;
+	car->idle = true;
+}
+
+static void idle_remove(clj_carrier *car) {
+	for (clj_carrier **at = &idle_head; *at; at = &(*at)->idle_next) {
+		if (*at == car) {
+			*at = car->idle_next;
+			break;
+		}
+	}
+	car->idle = false;
+}
+
+// Under run_mu: at most one carrier is on its way at a time; it chains the next wake (Go's resetspinning).
+static clj_carrier *wake_one_locked(void) {
+	if (spinning_carriers || woken || !idle_head) return NULL;
+	clj_carrier *car = idle_head;
+	idle_head = car->idle_next;
+	car->idle = false;
+	woken = true;
+	return car;
+}
+
+// Outside run_mu: the signal is a syscall when the carrier already sleeps in the kernel.
+static void carrier_wake(clj_carrier *car) {
+	if (!car) return;
+	pthread_mutex_lock(&car->park_mu);
+	car->signaled = true;
+	pthread_cond_signal(&car->park_cv);
+	pthread_mutex_unlock(&car->park_mu);
+}
+
 // Under run_mu: the carrier's own next slot, else the queue, else another carrier's slot old enough to steal.
-static clj_coro *take_work_locked(clj_carrier *car) {
+static clj_coro *take_work_locked(clj_carrier *car, clj_carrier **wake) {
 	clj_coro *c = car->next;
 	if (c) {
 		car->next = NULL;
 		return c;
 	}
 	c = queue_pop(&run_head, &run_tail);
-	if (c) return c;
+	if (c) {
+		if (run_head) *wake = wake_one_locked();
+		return c;
+	}
 	uint64_t now = clj_profile_now();
 	for (clj_carrier *o = carriers; o; o = o->pool_next) {
 		if (o->next && now - o->next_at > NEXT_STEAL_AGE_NS) {
@@ -107,6 +157,25 @@ static clj_coro *take_work_locked(clj_carrier *car) {
 	return NULL;
 }
 
+// A stale signal (a wake that raced a timeout) returns at once; the loop just looks at the queue again.
+static void carrier_park(clj_carrier *car, bool polling) {
+	pthread_mutex_lock(&car->park_mu);
+	if (polling) {
+		struct timespec ts;
+		clock_gettime(CLOCK_REALTIME, &ts);
+		ts.tv_nsec += POLL_NS;
+		if (ts.tv_nsec >= 1000000000L) {
+			ts.tv_sec++;
+			ts.tv_nsec -= 1000000000L;
+		}
+		while (!car->signaled && pthread_cond_timedwait(&car->park_cv, &car->park_mu, &ts) != ETIMEDOUT) {}
+	} else {
+		while (!car->signaled) pthread_cond_wait(&car->park_cv, &car->park_mu);
+	}
+	car->signaled = false;
+	pthread_mutex_unlock(&car->park_mu);
+}
+
 static void *carrier_main(void *arg) {
 	(void)arg;
 #ifdef __APPLE__
@@ -114,51 +183,54 @@ static void *carrier_main(void *arg) {
 #endif
 	clj_carrier *car = clj_carrier_here();
 	car->pooled = true;
+	pthread_mutex_init(&car->park_mu, NULL);
+	pthread_cond_init(&car->park_cv, NULL);
 	pthread_mutex_lock(&run_mu);
 	car->pool_next = carriers;
 	carriers = car;
 	pthread_mutex_unlock(&run_mu);
 	for (;;) {
-		pthread_mutex_lock(&run_mu);
-		clj_coro *c;
-		int       polls = 0;
-		uint64_t  spun = 0;
-		while (!(c = take_work_locked(car))) {
+		run_lock();
+		clj_coro    *c;
+		clj_carrier *wake = NULL;
+		int          polls = 0;
+		uint64_t     spun = 0;
+		while (!(c = take_work_locked(car, &wake))) {
 			// Out of work: spin briefly (a burst lands in a spinner within ~100 ns, no signal per item), then poll, then sleep.
 			if (spun < SPIN_NS && spinning_carriers < MAX_SPINNERS) {
 				spinning_carriers++;
 				pthread_mutex_unlock(&run_mu);
-				uint64_t t0 = clj_profile_now(), t = t0;
-				while (t - t0 < SPIN_SLICE_NS && !work_visible()) {
-					for (int i = 0; i < 32; i++) cpu_relax();
-					t = clj_profile_now();
-				}
-				spun += t - t0;
-				pthread_mutex_lock(&run_mu);
+				// The lock is taken only for work seen or at the budget's end.
+				bool seen = false;
+				do {
+					uint64_t t0 = clj_profile_now(), t = t0;
+					while (t - t0 < SPIN_SLICE_NS && !(seen = work_visible())) {
+						for (int i = 0; i < 32; i++) cpu_relax();
+						t = clj_profile_now();
+					}
+					spun += t - t0;
+				} while (!seen && spun < SPIN_NS);
+				run_lock();
 				spinning_carriers--;
 				continue;
 			}
 			bool fresh_next = false;
 			for (clj_carrier *o = carriers; o && !fresh_next; o = o->pool_next) fresh_next = o->next != NULL;
-			idle_carriers++;
-			if (fresh_next || polls < POLL_ROUNDS) {
-				polls++;
-				polling_carriers++;
-				struct timespec ts;
-				clock_gettime(CLOCK_REALTIME, &ts);
-				ts.tv_nsec += POLL_NS;
-				if (ts.tv_nsec >= 1000000000L) {
-					ts.tv_sec++;
-					ts.tv_nsec -= 1000000000L;
-				}
-				pthread_cond_timedwait(&run_cv, &run_mu, &ts);
-				polling_carriers--;
-			} else {
-				pthread_cond_wait(&run_cv, &run_mu);
-			}
-			idle_carriers--;
+			bool polling = fresh_next || polls < POLL_ROUNDS;
+			if (polling) polls++;
+			car->polling = polling;
+			polling_carriers += polling;
+			idle_push(car);
+			pthread_mutex_unlock(&run_mu);
+			carrier_park(car, polling);
+			run_lock();
+			polling_carriers -= polling;
+			// Popped by a waker: this carrier now looks at the queue. Timed out: leave the list.
+			if (car->idle) idle_remove(car);
+			else woken = false;
 		}
 		pthread_mutex_unlock(&run_mu);
+		carrier_wake(wake);
 		run_one(car, c);
 	}
 	return NULL;
@@ -258,7 +330,7 @@ void clj_sched_enqueue(clj_coro *c, bool handoff) {
 	}
 	clj_coro    *me = clj_coro_tls;
 	clj_carrier *car = handoff && me && me->carrier && me->carrier->pooled ? me->carrier : NULL;
-	pthread_mutex_lock(&run_mu);
+	run_lock();
 	if (car) {
 		if (car->next) queue_push(&run_head, &run_tail, car->next);
 		car->next = c;
@@ -266,11 +338,11 @@ void clj_sched_enqueue(clj_coro *c, bool handoff) {
 	} else {
 		queue_push(&run_head, &run_tail, c);
 	}
-	// A hand-off between coroutines leaves the pickup to a polling carrier: a signal is a syscall per item. Work
-	// from outside the pool (a timer, the main thread, a blocking job) is latency and gets the signal.
-	bool from_pool = me && me->carrier && me->carrier->pooled;
-	if (idle_carriers && !spinning_carriers && (!polling_carriers || !from_pool)) pthread_cond_signal(&run_cv);
+	// Pool-internal work leaves the pickup to a poller (a wake is a syscall per item); outside work is latency.
+	bool         from_pool = me && me->carrier && me->carrier->pooled;
+	clj_carrier *wake = !polling_carriers || !from_pool ? wake_one_locked() : NULL;
 	pthread_mutex_unlock(&run_mu);
+	carrier_wake(wake);
 }
 
 // ---- waiters, park and resume
@@ -710,14 +782,29 @@ bool clj_debug_park_under_lock_is_error(void) {
 	return ok;
 }
 
+size_t clj_debug_sched_sleeping(void) {
+	pthread_mutex_lock(&run_mu);
+	size_t n = 0;
+	for (clj_carrier *o = idle_head; o; o = o->idle_next) n += !o->polling;
+	pthread_mutex_unlock(&run_mu);
+	return n;
+}
+
+size_t clj_debug_sched_carriers(void) {
+	clj_sched_init();
+	return ncarriers;
+}
+
 // Debug: the scheduler's state on stderr (a watchdog's view of a hang).
 void clj_debug_sched_dump(void) {
 	pthread_mutex_lock(&run_mu);
 	size_t queued = 0;
 	for (clj_coro *c = run_head; c; c = c->next) queued++;
-	fprintf(stderr, "sched: spawned %llu live %zu queued %zu idle %zu/%zu\n", (unsigned long long)atomic_load(&spawned), clj_debug_live_coros(), queued, idle_carriers, ncarriers);
+	size_t idle = 0;
+	for (clj_carrier *o = idle_head; o; o = o->idle_next) idle++;
+	fprintf(stderr, "sched: spawned %llu live %zu queued %zu idle %zu/%zu polling %zu spinning %zu woken %d\n", (unsigned long long)atomic_load(&spawned), clj_debug_live_coros(), queued, idle, ncarriers, polling_carriers, spinning_carriers, woken);
 	for (clj_carrier *o = carriers; o; o = o->pool_next) {
-		fprintf(stderr, "  carrier %p next %p current %p\n", (void *)o, (void *)o->next, (void *)o->current);
+		fprintf(stderr, "  carrier %p next %p current %p idle %d polling %d\n", (void *)o, (void *)o->next, (void *)o->current, o->idle, o->polling);
 	}
 	pthread_mutex_unlock(&run_mu);
 }

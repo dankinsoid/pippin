@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 import CljCore
+import Foundation
 import Testing
 @testable import Pippin
 
@@ -55,6 +56,46 @@ extension CoreTests {
 				}
 				#expect(clj_debug_coro_settle(coros, 5000), "\(name)")
 			}
+		}
+
+		// A lost wakeup shows as a hang: a go from outside the pool while every carrier sleeps must wake one.
+		// A few rounds past 10 ms are the OS scheduling the woken thread late on a loaded machine.
+		@Test func goFromMainWithAColdPoolRunsAtOnce() throws {
+			let f = try eval("(fn [] (<!! (go 1)))")
+			let carriers = clj_debug_sched_carriers()
+			var cold = 0, late = 0
+			var slowest: UInt64 = 0
+			for _ in 0..<1000 {
+				var waited = 0
+				while clj_debug_sched_sleeping() < carriers && waited < 50_000 {
+					usleep(100)
+					waited += 100
+				}
+				if clj_debug_sched_sleeping() == carriers { cold += 1 }
+				let done = DispatchSemaphore(value: 0), gone = DispatchSemaphore(value: 0)
+				let watchdog = Thread {
+					if done.wait(timeout: .now() + .milliseconds(10)) == .timedOut {
+						clj_debug_sched_dump()
+						if done.wait(timeout: .now() + .seconds(5)) == .timedOut {
+							FileHandle.standardError.write(Data("go from main with a cold pool never ran: a lost wakeup\n".utf8))
+							exit(3)
+						}
+					}
+					gone.signal()
+				}
+				watchdog.start()
+				let t0 = DispatchTime.now().uptimeNanoseconds
+				let r = clj_invoke(f.raw, nil, 0)
+				let took = DispatchTime.now().uptimeNanoseconds - t0
+				done.signal()
+				gone.wait()
+				#expect(r == clj_fixnum(1))
+				clj_release(r)
+				slowest = max(slowest, took)
+				if took > 10_000_000 { late += 1 }
+			}
+			#expect(late <= 3, "\(late) rounds past 10 ms, the slowest \(slowest) ns")
+			#expect(cold > 900, "the pool went cold in \(cold) of 1000 rounds")
 		}
 
 		@Test func stressNested() throws {

@@ -260,8 +260,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   bounds are the mapping's), and `clj_shadow_stack_trace` appends the spawner's frames captured at the spawn
   (`clj_coro_capture_spawn_trace`: up to 32 `{name, line, col}` triples, the name symbol retained, no node
   pointers since the spawner's exec may die first; a spawn from a coroutine inherits its parent's triples
-  within the same bound). The cheapest form measured: ~150 ns per spawn for the walk and the retains, no maps
-  until a throw needs them. The JVM's `go` shows nothing of the spawner. `ChanTests.traceThroughAPark` pins the
+  within the same bound). The cheapest form measured: ~35 ns per spawn for the walk and the retains with the
+  frames inline in the coroutine (four; malloc beyond), no maps until a throw needs them; why it is not lazy is
+  under "Scheduler". The JVM's `go` shows nothing of the spawner. `ChanTests.traceThroughAPark` pins the
   order: the throwing fn, the go body, then `spawner`, then `outer-spawner`.
 - **Bindings are conveyed by sharing the frame chain** (`clj_var_bindings_share`): a frame carries an atomic
   refcount, a child holds the spawner's top frame and each frame its `prev`, a var's `thread_bound` count drops
@@ -289,18 +290,45 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 
 - **Carriers are our own pthreads**, one per core (`CLJ_CARRIERS` overrides), `QOS_CLASS_USER_INITIATED`,
   detached, never exiting; not GCD, which offers no thread count and no promise that a coroutine's stack stays
-  off foreign queues. One global run queue under a pthread mutex and condition (`run_mu`/`run_cv` — a
-  `clj_lock` cannot be waited on), plus a **next slot per carrier**: a resume from a pool coroutine puts the
-  woken coroutine in the resumer's own slot (Go's `runnext`), so a pair handing values back and forth stays on
-  one thread with two switches per hop and no wakeup of anything; an occupant already there moves to the queue.
-  Idle carriers steal a slot only once it is 5 µs old (a fresh one belongs to its pair). An idle carrier first
-  spins for 20 µs in 2 µs slices (at most two spinners), then polls the queue every 50 µs for 1 ms, then sleeps
-  on the condition; an enqueue signals only when nobody spins and — for work placed from inside the pool —
-  nobody polls either, so a burst of hand-offs or spawns costs one wakeup, while work from outside the pool (a
-  timer, the main thread, a blocking job) always signals: it is latency. Measured (bench/RESULTS.md,
-  "Coroutines and channels"): ping-pong round trip 530 ns on the pool against 461 on one carrier; `(<! (timeout
-  0))` 1.9 µs (the timer thread's signal and the carrier's wake); a `go` from the main thread 1.65 µs (one
-  cross-thread wake per spawn — a `go` from a coroutine is the alloc and a queue push).
+  off foreign queues. One global run queue under a pthread mutex (`run_mu`), plus a **next slot per carrier**: a
+  resume from a pool coroutine puts the woken coroutine in the resumer's own slot (Go's `runnext`), so a pair
+  handing values back and forth stays on one thread with two switches per hop and no wakeup of anything; an
+  occupant already there moves to the queue. Idle carriers steal a slot only once it is 5 µs old (a fresh one
+  belongs to its pair). An idle carrier first spins for 20 µs in 2 µs slices (at most two spinners; a spinner
+  takes `run_mu` only for work it has seen or at the budget's end), then polls the queue every 50 µs for 1 ms,
+  then sleeps. Measured (bench/RESULTS.md, "Coroutines and channels", "One wake per burst"): ping-pong round
+  trip ~500 ns on the pool against 461 on one carrier; `(<! (timeout 0))` 1.9 µs (the timer thread's wake and
+  the carrier's); a `go` from the main thread 535 ns spawn + finish, ~560 in bursts of 100 (was 1.65 µs).
+- **The wake protocol (Go's `wakep`)**: every idle carrier waits on *its own* mutex and condition
+  (`park_mu`/`park_cv`), listed on `idle_head` under `run_mu`, most recent first. An enqueue pushes under
+  `run_mu` and pops at most one carrier to wake, and only when nobody spins and no popped carrier is still on its
+  way (`woken`); the signal is sent after `run_mu` is released. The popped carrier clears `woken` when it
+  reaches `run_mu` again, takes its item, and if the queue still holds more pops the next carrier itself
+  (Go's `resetspinning` chain), so the enqueuer pays one wake per burst and the pool grows one carrier per wake
+  latency while work waits. Work placed from inside the pool (a hand-off, a lock's unlock) wakes nobody while a
+  poller exists: a poller looks within 50 µs and a wake is a syscall per item; work from outside the pool (a
+  timer, the main thread, a blocking job) is latency and wakes. **The invariant — no runnable coroutine sits in
+  the queue while every carrier sleeps** — holds because a carrier sleeps only after `take_work_locked` found
+  nothing and it pushed itself on `idle_head` in the same `run_mu` hold, and an enqueue is ordered after that
+  by the same mutex: it sees the carrier on the list and either pops it (the signal follows the unlock), or
+  finds a spinner or a popped carrier that has not yet run `take_work_locked` under `run_mu` after this push,
+  or finds no idle carrier at all — every running carrier returns to `take_work_locked` before it can sleep. No
+  seq_cst pair is needed: the mutex orders the push against the sleep decision; the spinner's racy glance is an
+  optimization confirmed under the lock. A poller whose timeout raced its wake returns once with a stale
+  `signaled` and simply looks at the queue again. Measured on macOS: the cost of a `go` from main was not the
+  `pthread_cond_signal` (~175 ns of 1.65 µs) but `run_mu` itself — every enqueue woke another carrier, twelve
+  woken carriers queued on the mutex in the kernel, and once one waiter is in the kernel every unlock is a
+  `__psynch_mutexdrop` syscall (~850 ns of the 1.65 µs went to `__psynch_mutexwait`/`mutexdrop`). Hence the
+  per-carrier conditions (a wake never touches `run_mu`), the trylock spin before blocking (`run_lock`, 64
+  tries: a holder is out within ~100 ns), and the spinner that locks only for work it has seen. The 4-carrier
+  `locking` row moved 365 → 405 ns: the resumer no longer pays a kernel wait per resume, so the four coroutines
+  contend on the monitor harder; `swap!` under four carriers is unchanged.
+- **The spawn trace stays eager** (`clj_coro_capture_spawn_trace`, ~35 ns for the walk plus the retains; the
+  frames live inline in the coroutine up to four, malloc beyond). Materializing it at the first throw from the
+  spawner's ring position is not possible without losing it: the ring's slots are rewritten as soon as the
+  spawner returns and calls again (a UI handler returns to the run loop long before its `go` throws), the
+  spawner's real stack — where the compiled frames are read from — is gone by then, and the ring itself is
+  freed or recycled when the spawner finishes. An epoch per frame would only tell us the trace is lost.
 - **Park and resume** (`clj_park`, `clj_resume`, `clj_waiter`): a park takes the coroutine's own pthread mutex,
   stores `PARKED`, and switches out *holding it* — the carrier unlocks after the switch on its own stack — so a
   resumer that acquires the mutex finds the context fully saved or the coroutine not yet parked; in the second

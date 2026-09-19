@@ -52,6 +52,9 @@ size_t   clj_debug_live_coros(void);
 bool clj_debug_coro_settle(size_t target, uint64_t ms);
 bool clj_debug_park_under_lock_is_error(void);
 void clj_debug_sched_dump(void);
+// Carriers in the untimed wait (not spinning, not polling) and the pool's size: a test's "the pool is cold".
+size_t clj_debug_sched_sleeping(void);
+size_t clj_debug_sched_carriers(void);
 uint64_t clj_debug_coro_switches(void);
 uint64_t clj_debug_coro_spawned(void);
 // Replaces the stderr report of an error a coroutine did not catch (a go block without a handler).

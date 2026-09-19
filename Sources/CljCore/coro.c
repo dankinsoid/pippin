@@ -196,8 +196,7 @@ clj_coro *clj_coro_alloc(void) {
 		if (base == MAP_FAILED) clj_fatal("mmap of a coroutine stack failed");
 		if (mprotect(base, guard, PROT_NONE) != 0) clj_fatal("mprotect of a coroutine guard page failed");
 	}
-	clj_coro *c = clj_alloc(&clj_coro_type, sizeof *c);
-	memset((char *)c + sizeof c->h, 0, sizeof *c - sizeof c->h);
+	clj_coro *c = clj_alloc(&clj_coro_type, sizeof *c); // zeroed by the allocator
 	coro_init(c);
 	// The handle is held by the spawner and released by a carrier: atomic RC from birth.
 	c->h.flags |= CLJ_FLAG_SHARED;
@@ -206,8 +205,8 @@ clj_coro *clj_coro_alloc(void) {
 	c->map_size = size;
 	char             *top = (char *)base + guard + stack + page / 2;
 	clj_shadow_stack *s = (clj_shadow_stack *)top;
-	// A cached ring keeps stale frames; everything before the frames array is reset.
-	memset(s, 0, offsetof(clj_shadow_stack, frames));
+	// A cached ring keeps stale frames; the header is reset, the overflow array is valid up to noverflow only.
+	memset(s, 0, offsetof(clj_shadow_stack, overflow));
 	s->mask = CLJ_SHADOW_CAPACITY - 1;
 	s->stack_lo = (char *)base + guard;
 	s->stack_hi = top;

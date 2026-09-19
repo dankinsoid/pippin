@@ -114,18 +114,31 @@ bool clj_is_shared(clj_value v) {
 	return clj_is_ptr(v) && (clj_header_of(v)->flags & CLJ_FLAG_SHARED) != 0;
 }
 
+enum { STACK_INLINE = 32 };
+
+// The share walk's pending children: a closure and its captures fit inline, no malloc per spawn.
 typedef struct {
 	clj_value *items;
 	size_t     count, cap;
+	clj_value  inline_items[STACK_INLINE];
 } value_stack;
+
+#define VALUE_STACK_INIT(name) value_stack name = {.items = name.inline_items, .cap = STACK_INLINE}
 
 static void stack_push(value_stack *s, clj_value v) {
 	if (s->count == s->cap) {
-		s->cap = s->cap ? s->cap * 2 : 64;
-		s->items = realloc(s->items, s->cap * sizeof *s->items);
-		if (!s->items) clj_fatal("out of memory");
+		bool heap = s->items != s->inline_items;
+		s->cap *= 2;
+		clj_value *grown = realloc(heap ? s->items : NULL, s->cap * sizeof *s->items);
+		if (!grown) clj_fatal("out of memory");
+		if (!heap) memcpy(grown, s->inline_items, s->count * sizeof *s->items);
+		s->items = grown;
 	}
 	s->items[s->count++] = v;
+}
+
+static void stack_free(value_stack *s) {
+	if (s->items != s->inline_items) free(s->items);
 }
 
 static void share_visit(clj_value child, void *ctx) {
@@ -135,7 +148,7 @@ static void share_visit(clj_value child, void *ctx) {
 void clj_share(clj_value v) {
 	if (!clj_is_ptr(v)) return;
 	if (clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) return;
-	value_stack st = {0};
+	VALUE_STACK_INIT(st);
 	stack_push(&st, v);
 	while (st.count) {
 		clj_header *h = clj_header_of(st.items[--st.count]);
@@ -143,12 +156,12 @@ void clj_share(clj_value v) {
 		h->flags |= CLJ_FLAG_SHARED;
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
-	free(st.items);
+	stack_free(&st);
 }
 
 bool clj_debug_all_shared(clj_value v) {
 	if (!clj_is_ptr(v)) return true;
-	value_stack st = {0};
+	VALUE_STACK_INIT(st);
 	stack_push(&st, v);
 	bool ok = true;
 	while (ok && st.count) {
@@ -157,6 +170,6 @@ bool clj_debug_all_shared(clj_value v) {
 		ok = (h->flags & CLJ_FLAG_SHARED) != 0;
 		if (ok && h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
-	free(st.items);
+	stack_free(&st);
 	return ok;
 }

@@ -23,7 +23,7 @@ enum {
 	CLJ_CORO_DONE,
 };
 
-enum { CLJ_CORO_SPAWN_TRACE_MAX = 32 };
+enum { CLJ_CORO_SPAWN_TRACE_MAX = 32, CLJ_CORO_SPAWN_TRACE_INLINE = 4 };
 
 // One frame of the spawner's trace, kept as names and numbers: the nodes may die before the child throws.
 typedef struct {
@@ -70,8 +70,9 @@ struct clj_coro {
 	bool             threw;
 	void (*on_done)(struct clj_coro *c, void *ctx); // runs on the carrier after the body returned
 	void            *done_ctx;
-	clj_spawn_frame *spawn_trace;
+	clj_spawn_frame *spawn_trace;    // spawn_inline for a short trace: no malloc per spawn
 	uint32_t         nspawn;
+	clj_spawn_frame  spawn_inline[CLJ_CORO_SPAWN_TRACE_INLINE];
 	uintptr_t        advised_lo, advised_hi; // the stack tail already handed back with madvise
 };
 
@@ -87,6 +88,13 @@ struct clj_carrier {
 	clj_coro *next;      // the coroutine this carrier runs next, ahead of the run queue (Go's runnext); under run_mu
 	uint64_t  next_at;   // when it was placed: an idle carrier steals it only once it has waited a while
 	struct clj_carrier *pool_next; // the pool's list of carriers, for stealing
+	// An idle pool carrier waits on its own condition, listed under run_mu so a waker pops exactly one.
+	struct clj_carrier *idle_next;
+	bool                idle;      // on the idle list
+	bool                polling;   // its wait is timed: it looks at the queue again by itself
+	bool                signaled;  // under park_mu: a waker popped it
+	pthread_mutex_t     park_mu;
+	pthread_cond_t      park_cv;
 };
 
 // The running execution; NULL until the thread's first use. Not for Swift: a _Thread_local does not import.

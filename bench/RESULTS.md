@@ -1517,3 +1517,63 @@ the spawn, two `AsyncStream`s for the ping-pong, `AsyncStream(bufferingOldest(10
   half a page in, the shadow ring's header and first frames; the 512 KB reserve and the 200 KB ring are virtual.
   10 000 parked are 160 MB physical and 5.3 GB virtual. A Swift task suspended on a continuation is a few hundred
   bytes of heap: the price of a real stack, paid once per coroutine, not per frame.
+
+## One wake per burst — 2026-09-19, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+The scheduler's wake protocol (NOTES.md "Scheduler", "The wake protocol"): every idle carrier waits on its own
+condition and is listed under `run_mu`; an enqueue pops at most one while nobody spins and no popped carrier is
+still on its way (`woken`), the popped carrier chains the next wake itself while the queue holds more, the signal
+goes out after `run_mu` is released, `run_mu` is taken with a bounded trylock spin before blocking, and a spinner
+takes it only for work it has seen. The spawn path: the shadow header's 4 KB overflow array is no longer zeroed
+per spawn, the spawn trace lives inline in the coroutine up to four frames, `clj_share` walks with an inline
+stack, and the coroutine object is not zeroed twice. `CLJ_BENCH_ONLY=coro ./.build/release/clj-bench`, 12
+carriers, medians of 5 runs of n = 100 000 (1000 for the single-`go` rows); each column the median of three
+such runs on the same machine, before = `27bf29c` with the new rows added to its harness.
+
+| scenario | before, ns/op | after, ns/op | Swift, ns/op |
+|---|---:|---:|---:|
+| go spawn + finish, joined through a channel, from the main thread | 1615 | 544 | 1076 |
+| go spawn + finish from inside a coroutine | 923 | 493 | — |
+| burst of 100 go from the main thread, joined after each burst (per spawn) | 1559 | 547 | — |
+| one go from the main thread, joined at once, pool warm (round trip) | 5042 | 2625 | — |
+| one go from the main thread, joined at once, pool cold (round trip) | 7583 | 7084 | — |
+| unbuffered >!/<! round trip (ping-pong, two go blocks) | 542 | 486 | 2814 |
+| buffered throughput, chan 1024, one producer one consumer | 121.5 | 120.3 | 963 |
+| alts! over 2 channels, one producer alternating | 659 | 613 | — |
+| (<! (timeout 0)) round trip through the timer thread | 1994 | 1920 | 975 |
+| locking, 4 carriers contending | 351 | 398 | 3.0 |
+| swap! inc, 4 carriers contending | 108 | 111 | 3.3 |
+| swap! inc, uncontended (the Atoms row, gate: must not move) | 38.0 | 38.1 | — |
+| get @atom :k, uncontended (the Atoms row) | 41.0 | 41.5 | — |
+
+- **The 1.65 µs was not the signal.** A `sample` of the old spawn row put ~175 ns of it in `pthread_cond_signal`
+  and ~850 ns in `run_mu`: every enqueue from main woke another carrier (idle and nobody spinning), the woken
+  carriers queued on the mutex in the kernel (`__psynch_mutexwait`), and once a waiter is in the kernel every
+  unlock — main's included — is a `__psynch_mutexdrop` syscall. The carriers themselves were 3 % busy each,
+  the rest polling and fighting for the lock. With one popped carrier at a time, a wake that never touches
+  `run_mu`, and a trylock spin ahead of a kernel wait, main's enqueue is ~85 ns (trylock ~40, the occasional
+  blocking fall-through when a holder is preempted, a wake ~25 amortized: one per carrier that joins, since a
+  carrier busy with an item is neither spinning nor popped).
+- **What the 544 ns are now** (main thread, `sample`): the interpreter's `dotimes` body — the closure and the
+  call — ~250 ns; the coroutine alloc ~120 (the object, the stack mapping from the cache under its
+  `os_unfair_lock`, which the carriers contend for when they hand mappings back, `pthread_mutex_init`/
+  `cond_init`); the enqueue ~85; the two `clj_share` walks (the channel, the fn) ~50; the spawn-trace walk
+  ~35. The 500 ns target for a burst from main is missed by ~10 %: the rest is the interpreter's loop and the
+  allocation, not the scheduler.
+- **The cold single `go` stays ~7 µs** and is two OS wakes: the carrier's (`pthread_cond_signal` to a thread
+  asleep in the kernel, 1–2 µs to send and ~3 µs until it runs) and main's own, parked in `<!!` on its
+  implicit coroutine's condition. Warm halves because the most recently idled carrier is woken first (the idle
+  list is LIFO) and is usually still polling with a hot cache; before, the kernel picked any of twelve waiters.
+- **The hand-off rows did not move outside noise**, ping-pong slightly down (fewer carriers awake to contend
+  for `run_mu` on the occasional stolen slot). **`locking` under four carriers moved 351 → 398**: the resumer
+  used to pay a kernel wait on `run_mu` per resume, which throttled the four coroutines' re-entry into the
+  monitor; now they contend on it at full speed (`lock_attempt`'s spin shows 4× the samples). Spinners that
+  block on `run_mu` in the kernel instead of trying it bring the row back to ~350 and cost the spawn rows
+  nothing on average but spike them to 1–1.4 µs (main's unlock pays the `mutexdrop` again); the trylock spinner
+  stays.
+- **Not done, with triggers**: a lock-free stack cache (a tagged-pointer Treiber stack; ~30 ns on main and on
+  every finish — a profile where `map_take` shows); recycling coroutine objects with their mutex and condition
+  intact (~40 ns per spawn+finish); the interpreter's per-iteration cost of a `go` in a loop belongs to the
+  compiler. The 4-carrier rows and `ChanStressTests` passed 20 runs in a row with `CLJ_CARRIERS` 1, 2, 4 and
+  12; `goFromMainWithAColdPoolRunsAtOnce` (1000 rounds, a watchdog per round) saw one 46 ms round on a loaded
+  machine in those runs — the OS scheduling the woken thread late, tolerated up to three rounds per run.
