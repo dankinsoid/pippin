@@ -83,30 +83,30 @@ static clj_value deadline_throw(clj_shadow_stack *s) {
 	} else {
 		s->countdown = 1;
 	}
-	if (atomic_load_explicit(&s->cancelled, memory_order_relaxed)) return clj_throw_msg(CLJ_CANCELLED_MESSAGE);
+	if (atomic_load_explicit(&s->cancelled, memory_order_relaxed)) return clj_throw_msg("%s", clj_coro_cancel_message(clj_coro_current()));
 	return clj_throw_msg(CLJ_DEADLINE_MESSAGE);
 }
 
-void clj_deadline_set_ms(uint64_t ms) {
-	clj_shadow_stack *s = clj_shadow_tls;
-	if (!s) s = clj_shadow_stack_init();
-	atomic_store_explicit(&s->deadline, ms ? clj_profile_now() + ms * 1000000u : 0, memory_order_relaxed);
+// The expiry is a cancellation by the timer thread (sched.c), so a coroutine parked past its deadline is woken too;
+// the tick's own clock read catches a running one first.
+static void deadline_apply(uint64_t deadline) {
+	clj_coro         *c = clj_coro_current();
+	clj_shadow_stack *s = c->shadow;
+	atomic_store_explicit(&s->deadline, deadline, memory_order_relaxed);
 	s->countdown = DEADLINE_CHECK_EVERY;
 	s->unwinds = DEADLINE_MAX_UNWINDS;
+	if (deadline) clj_coro_deadline_arm(c);
+	else clj_coro_deadline_cleared(c);
 }
+
+void clj_deadline_set_ms(uint64_t ms) { deadline_apply(ms ? clj_profile_now() + ms * 1000000u : 0); }
 
 uint64_t clj_deadline_get(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	return s ? clj_shadow_deadline(s) : 0;
 }
 
-void clj_deadline_restore(uint64_t deadline) {
-	clj_shadow_stack *s = clj_shadow_tls;
-	if (!s) s = clj_shadow_stack_init();
-	atomic_store_explicit(&s->deadline, deadline, memory_order_relaxed);
-	s->countdown = DEADLINE_CHECK_EVERY;
-	s->unwinds = DEADLINE_MAX_UNWINDS;
-}
+void clj_deadline_restore(uint64_t deadline) { deadline_apply(deadline); }
 
 bool clj_deadline_expired(void) {
 	clj_shadow_stack *s = clj_shadow_tls;

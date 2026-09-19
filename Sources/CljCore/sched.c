@@ -253,6 +253,11 @@ static void start_carriers(void) {
 
 void clj_sched_init(void) { pthread_once(&init_once, start_carriers); }
 
+size_t clj_sched_carrier_count(void) {
+	clj_sched_init();
+	return ncarriers;
+}
+
 // ---- the main carrier
 
 static pthread_mutex_t main_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -400,7 +405,7 @@ int clj_waiter_claim_pair(clj_waiter *actor, clj_waiter *other) {
 bool clj_park_allowed(void) {
 	clj_coro *c = clj_coro_current();
 	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) {
-		clj_throw_msg(CLJ_CANCELLED_MESSAGE);
+		clj_throw_msg("%s", clj_coro_cancel_message(c));
 		return false;
 	}
 	if (c->host_depth) {
@@ -524,10 +529,16 @@ void clj_coro_report_uncaught(clj_coro *c) {
 
 void clj_coro_set_uncaught_handler(void (*fn)(clj_value ex, clj_value trace)) { uncaught_handler = fn; }
 
+static void deadline_disarm(clj_coro *c);
+static void disarm_locked(clj_coro *c);
+
 static void finish(clj_coro *c) {
+	deadline_disarm(c);
 	clj_eval_drain_retired(c);
 	clj_var_bindings_release(c->bindings);
 	c->bindings = NULL;
+	clj_output_captures_release(c->captures);
+	c->captures = NULL;
 	clj_coro_drop_pending(c);
 	if (c->on_done) c->on_done(c, c->done_ctx);
 	else if (c->threw) clj_coro_report_uncaught(c);
@@ -562,8 +573,12 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	}
 	c->nargs = n;
 	c->bindings = clj_var_bindings_share();
+	c->captures = clj_output_captures_share();
 	c->pending = c->pending_trace = c->result = CLJ_NIL;
-	atomic_store_explicit(&c->shadow->deadline, clj_shadow_deadline(parent->shadow), memory_order_relaxed);
+	// A cancelled parent hands the child its deadline as it was, not the cancel flag: past it the child meets it at once.
+	bool     parent_cancelled = atomic_load_explicit(&parent->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
+	uint64_t deadline = parent_cancelled ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
+	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
 	c->shadow->countdown = 1024;
 	c->shadow->unwinds = 64;
 	clj_coro_capture_spawn_trace(c);
@@ -572,6 +587,7 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	c->done_ctx = ctx;
 	atomic_fetch_add_explicit(&spawned, 1, memory_order_relaxed);
 	clj_retain(clj_from_ptr(c));
+	clj_coro_deadline_arm(c);
 	atomic_store_explicit(&c->state, CLJ_CORO_RUNNABLE, memory_order_release);
 	clj_sched_enqueue(c, false);
 	return clj_from_ptr(c);
@@ -585,27 +601,69 @@ clj_value clj_coro_result(clj_value coro, bool *threw) {
 
 bool clj_coro_done(clj_value coro) { return atomic_load_explicit(&clj_coro_of(coro)->state, memory_order_acquire) == CLJ_CORO_DONE; }
 
-void clj_coro_cancel(clj_value coro) {
-	clj_coro *c = clj_coro_of(coro);
-	pthread_mutex_lock(&c->lock);
-	if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_DONE || c->implicit) {
-		pthread_mutex_unlock(&c->lock);
-		return;
+// Under c->lock: the flag, the tick trigger and the waiter to wake. A running coroutine sees the flag at its next
+// tick or park point; a parked one is woken by claiming its waiter (an implicit coroutine's park is its condition).
+static clj_waiter *cancel_locked(clj_coro *c, int kind) {
+	uint8_t have = atomic_load_explicit(&c->cancel, memory_order_relaxed);
+	if (have == CLJ_CANCEL_NONE || (kind == CLJ_CANCEL_REQUESTED && have != CLJ_CANCEL_REQUESTED)) {
+		if (have == CLJ_CANCEL_NONE) c->deadline_before = clj_shadow_deadline(c->shadow);
+		atomic_store_explicit(&c->cancel, (uint8_t)kind, memory_order_relaxed);
 	}
 	atomic_store_explicit(&c->shadow->cancelled, true, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
 	c->shadow->unwinds = 64;
 	clj_waiter *w = c->waiter;
 	if (w) clj_waiter_retain(w);
+	return w;
+}
+
+void clj_coro_cancel_kind(clj_coro *c, int kind) {
+	pthread_mutex_lock(&c->lock);
+	if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_DONE || !c->shadow) {
+		pthread_mutex_unlock(&c->lock);
+		return;
+	}
+	clj_waiter *w = cancel_locked(c, kind);
 	pthread_mutex_unlock(&c->lock);
 	if (!w) return;
 	if (clj_waiter_claim(w)) clj_resume_far(w);
 	clj_waiter_release(w);
 }
 
+void clj_coro_cancel(clj_value coro) {
+	clj_coro *c = clj_coro_of(coro);
+	if (c->implicit) return;
+	clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
+}
+
+void clj_coro_uncancel_scope(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	if (atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_SCOPE && c->shadow) {
+		atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
+		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
+		atomic_store_explicit(&c->shadow->deadline, c->deadline_before, memory_order_relaxed);
+		c->shadow->countdown = 1024;
+		c->shadow->unwinds = 64;
+	}
+	pthread_mutex_unlock(&c->lock);
+}
+
+void clj_coro_cancel_reset(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	disarm_locked(c);
+	atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
+	atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
+	atomic_store_explicit(&c->shadow->deadline, 0, memory_order_relaxed);
+	pthread_mutex_unlock(&c->lock);
+}
+
+const char *clj_coro_cancel_message(const clj_coro *c) {
+	return atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_DEADLINE ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE;
+}
+
 bool clj_coro_cancelled(clj_value coro) {
 	clj_coro *c = clj_coro_of(coro);
-	return c->shadow && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
+	return atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
 }
 
 void clj_coro_join_blocking(clj_value coro) {
@@ -618,16 +676,16 @@ void clj_coro_join_blocking(clj_value coro) {
 
 // ---- timers: one thread, a list sorted by deadline
 
-typedef struct timer {
+struct clj_timer {
 	uint64_t when;
 	void (*fn)(void *ctx);
-	void         *ctx;
-	struct timer *next;
-} timer;
+	void      *ctx;
+	clj_timer *next;
+};
 
 static pthread_mutex_t timer_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  timer_cv = PTHREAD_COND_INITIALIZER;
-static timer          *timers;
+static clj_timer      *timers;
 static pthread_once_t  timer_once = PTHREAD_ONCE_INIT;
 
 static void *timer_main(void *arg) {
@@ -652,7 +710,7 @@ static void *timer_main(void *arg) {
 			pthread_cond_timedwait(&timer_cv, &timer_mu, &ts);
 			continue;
 		}
-		timer *t = timers;
+		clj_timer *t = timers;
 		timers = t->next;
 		pthread_mutex_unlock(&timer_mu);
 		t->fn(t->ctx);
@@ -671,20 +729,125 @@ static void start_timer(void) {
 	pthread_attr_destroy(&attr);
 }
 
-void clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx) {
+// The thread is signalled only when the new timer is the earliest: the others are behind one it already waits for.
+clj_timer *clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx) {
 	pthread_once(&timer_once, start_timer);
-	timer *t = malloc(sizeof *t);
+	clj_timer *t = malloc(sizeof *t);
 	if (!t) clj_fatal("out of memory");
 	t->when = clj_profile_now() + ns;
 	t->fn = fn;
 	t->ctx = ctx;
 	pthread_mutex_lock(&timer_mu);
-	timer **at = &timers;
+	clj_timer **at = &timers;
 	while (*at && (*at)->when <= t->when) at = &(*at)->next;
 	t->next = *at;
 	*at = t;
+	bool first = timers == t;
 	pthread_mutex_unlock(&timer_mu);
-	pthread_cond_signal(&timer_cv);
+	if (first) pthread_cond_signal(&timer_cv);
+	return t;
+}
+
+bool clj_sched_timer_cancel(clj_timer *t) {
+	pthread_mutex_lock(&timer_mu);
+	clj_timer **at = &timers;
+	while (*at && *at != t) at = &(*at)->next;
+	bool found = *at == t;
+	if (found) *at = t->next;
+	pthread_mutex_unlock(&timer_mu);
+	if (found) free(t);
+	return found;
+}
+
+// ---- the deadline as a cancellation by timer (eval.h clj_deadline_set_ms): one mechanism with cancel!
+
+typedef struct {
+	clj_coro *coro; // retained
+	uint64_t  serial;
+} deadline_ctx;
+
+static void deadline_fire(void *arg) {
+	deadline_ctx *d = arg;
+	clj_coro     *c = d->coro;
+	pthread_mutex_lock(&c->lock);
+	bool live = d->serial == c->deadline_serial && atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_DONE && c->shadow;
+	clj_waiter *w = NULL;
+	if (live) {
+		c->deadline_timer = NULL;
+		w = cancel_locked(c, CLJ_CANCEL_DEADLINE);
+	}
+	pthread_mutex_unlock(&c->lock);
+	if (w) {
+		if (clj_waiter_claim(w)) clj_resume_far(w);
+		clj_waiter_release(w);
+	}
+	clj_release(clj_from_ptr(c));
+	free(d);
+}
+
+// Under c->lock: the timer's ctx is freed here when it never fired, by the firing otherwise.
+static void disarm_locked(clj_coro *c) {
+	c->deadline_serial++;
+	clj_timer *t = c->deadline_timer;
+	c->deadline_timer = NULL;
+	if (!t) return;
+	deadline_ctx *d = t->ctx;
+	if (clj_sched_timer_cancel(t)) {
+		clj_release(clj_from_ptr(d->coro));
+		free(d);
+	}
+}
+
+static void deadline_disarm(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	disarm_locked(c);
+	pthread_mutex_unlock(&c->lock);
+}
+
+void clj_coro_deadline_arm(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	disarm_locked(c);
+	uint64_t deadline = c->shadow ? clj_shadow_deadline(c->shadow) : 0;
+	if (deadline > 1) {
+		deadline_ctx *d = malloc(sizeof *d);
+		if (!d) clj_fatal("out of memory");
+		d->coro = c;
+		d->serial = c->deadline_serial;
+		clj_retain(clj_from_ptr(c));
+		uint64_t now = clj_profile_now();
+		c->deadline_timer = clj_sched_timer(deadline > now ? deadline - now : 0, deadline_fire, d);
+	}
+	pthread_mutex_unlock(&c->lock);
+}
+
+void clj_coro_deadline_cleared(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	disarm_locked(c);
+	if (atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_DEADLINE && c->shadow) {
+		atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
+		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
+	}
+	pthread_mutex_unlock(&c->lock);
+}
+
+// ---- Thread/sleep: a park on the timer thread, cancellable
+
+static void sleep_fire(void *ctx) {
+	clj_waiter *w = ctx;
+	if (clj_waiter_claim(w)) clj_resume_far(w);
+	clj_waiter_release(w);
+}
+
+clj_value clj_sched_sleep_ms(int64_t ms) {
+	if (!clj_park_allowed()) return CLJ_THROWN;
+	clj_coro   *c = clj_coro_current();
+	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
+	clj_waiter_retain(w);
+	clj_sched_timer(ms < 0 ? 0 : (uint64_t)ms * 1000000u, sleep_fire, w);
+	clj_park(w);
+	clj_waiter_release(w);
+	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) return clj_throw_msg("%s", clj_coro_cancel_message(c));
+	return CLJ_NIL;
 }
 
 // ---- the blocking pool: threads made on demand, kept for ever, capped

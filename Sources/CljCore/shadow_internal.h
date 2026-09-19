@@ -20,7 +20,7 @@ typedef struct {
 	_Atomic uint64_t deadline;    // monotonic ns the running code must not pass, 0 when none (eval.c); 1 once cancelled
 	uint32_t         countdown;   // calls and loop turns left before the next clock read
 	uint32_t         unwinds;     // unwind budgets a caught timeout may still spend before every check throws
-	_Atomic bool     cancelled;   // cancel! on the coroutine: the deadline throw becomes the cancellation
+	_Atomic bool     cancelled;   // a cancellation of the coroutine (its kind is on the clj_coro): the deadline throw becomes it
 	void            *recovery;    // innermost clj_recovery of the execution, NULL outside the host boundary (guard.c)
 	size_t           noverflow;   // the frames the guard handler collected before landing (guard.c)
 	clj_trace_frame  overflow[CLJ_TRACE_MAX];

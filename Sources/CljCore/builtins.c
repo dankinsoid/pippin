@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/chan.h"
 #include "clj/coll.h"
 #include "clj/compare.h"
 #include "clj/core.h"
@@ -1065,8 +1066,21 @@ static clj_value core_method(const char *name, clj_value v) {
 	return r;
 }
 
+// (deref x), (deref x ms timeout-val): the timed form is for what can wait — a promise, a future, a channel.
 static clj_value b_deref(const clj_value *args, size_t n) {
-	(void)n;
+	if (clj_is_chan(args[0])) {
+		if (n == 1) return clj_chan_deref(args[0]);
+		if (n != 3) return clj_throw_msg("deref with a timeout expects (deref ref timeout-ms timeout-val)");
+		if (!clj_is_fixnum(args[1])) return clj_throw_msg("deref expects a timeout in milliseconds, got: %s", clj_type_name(args[1]));
+		return clj_chan_deref_timeout(args[0], clj_fixnum_val(args[1]), args[2]);
+	}
+	if (n != 1) {
+		if (clj_is_instance(args[0])) {
+			clj_value r = core_method("-deref", args[0]);
+			if (r != CLJ_UNBOUND) return r;
+		}
+		return clj_throw_msg("deref with a timeout is not supported on this type: %s", clj_type_name(args[0]));
+	}
 	if (clj_is_atom(args[0])) return clj_atom_deref(args[0]);
 	if (clj_is_var(args[0])) return clj_var_deref(args[0]);
 	if (clj_is_reduced(args[0])) return clj_retain(clj_reduced_value(args[0]));
@@ -1386,7 +1400,7 @@ static const entry entries[] = {
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 	{"ex-trace", b_ex_trace, 1, 1}, {"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
-	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 1},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
+	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 3},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
 	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},
 	{"reduce", b_reduce, 2, 3},    {"reduce-kv", b_reduce_kv, 3, 3}, {"reduced", b_reduced, 1, 1}, {"reduced?", b_reduced_p, 1, 1},
 	{"fused-reduce*", clj_fused_reduce, 3, 4}, {"fused-into*", clj_fused_into, 3, 3}, {"fused-count*", clj_fused_count, 2, 2},

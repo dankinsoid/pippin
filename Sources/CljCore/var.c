@@ -118,6 +118,7 @@ typedef struct frame {
 	clj_value        pushed;   // map var → box of this push only
 	struct frame    *prev;
 	_Atomic uint32_t rc;
+	const void      *owner;    // the execution that pushed it: only it may set! (the JVM's non-binding-thread rule)
 } frame;
 
 #define frames (clj_coro_current()->bindings)
@@ -189,6 +190,7 @@ clj_value clj_var_push_bindings(clj_value bindings) {
 	f->pushed = c.pushed;
 	f->prev = top;
 	atomic_init(&f->rc, 1);
+	f->owner = clj_coro_current();
 	frames = f;
 	clj_map_each(f->pushed, count_binding, (void *)(intptr_t)1);
 	return CLJ_NIL;
@@ -238,10 +240,23 @@ clj_value clj_var_get_thread_bindings(void) {
 	return m;
 }
 
+// The frame whose own push holds the var's binding, or NULL.
+static frame *binding_frame(clj_value var) {
+	for (frame *f = top_frame(); f; f = f->prev) {
+		if (clj_map_contains(f->pushed, var)) return f;
+	}
+	return NULL;
+}
+
 clj_value clj_var_set(clj_value var, clj_value val) {
 	clj_value box = clj_var_thread_binding(var);
 	if (clj_is_nil(box)) {
 		return clj_throw_msg("Can't change/establish root binding of: %s/%s with set", clj_string_bytes(clj_symbol_name(clj_var_ns(var))),
+		                     clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	}
+	frame *f = binding_frame(var);
+	if (f && f->owner != clj_coro_current()) {
+		return clj_throw_msg("Can't set!: %s/%s from non-binding thread", clj_string_bytes(clj_symbol_name(clj_var_ns(var))),
 		                     clj_string_bytes(clj_symbol_name(clj_var_name(var))));
 	}
 	return clj_volatile_reset(box, val);

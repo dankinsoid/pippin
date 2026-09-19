@@ -74,7 +74,7 @@ extension CoreTests {
 				#expect(message("(chan -1)") == "chan: a buffer size must not be negative")
 				#expect(message("(buffer 0)") == "buffer expects a positive size")
 				#expect(message("(chan :x)") == "chan expects a buffer or a size, got: keyword")
-				#expect(message("(chan 1 (map inc))") == "chan: transducers on channels are not supported yet")
+				#expect(message("(chan nil (map inc))") == "chan: buffer must be supplied when transducer is")
 			}
 			base.check()
 		}
@@ -227,8 +227,8 @@ extension CoreTests {
 				#expect(try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
 				// After the cancellation every park point keeps throwing; a finally still runs.
 				#expect(try eval("(let [c (chan) r (atom []) g (go (try (<! c) (catch :default e (swap! r conj :caught) (try (<! c) (catch :default e2 (swap! r conj :again)))) (finally (swap! r conj :finally))) @r)] (<!! (timeout 5)) (cancel! g) (<!! g))") == [kw("caught"), kw("again"), kw("finally")])
-				// cancel! of a channel without a go block, or of a finished one, is harmless.
-				#expect(try eval("(let [c (chan) g (go 1)] (<!! g) [(cancel! c) (cancel! g)])") == [false, true])
+				// cancel! of a channel without a go block, or of a finished one, is harmless and says so.
+				#expect(try eval("(let [c (chan) g (go 1)] (<!! g) [(cancel! c) (cancel! g)])") == [false, false])
 				_ = try eval("(<!! (timeout 150))")
 			}
 			base.check()

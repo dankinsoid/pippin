@@ -1687,6 +1687,81 @@
      (monitor-enter* lockee#)
      (try ~@body (finally (monitor-exit* lockee#)))))
 
+;; ---- futures and promises: promise-buffered channels over the coroutine runtime (design §4; NOTES.md, "Futures and scopes")
+
+(defn future-call
+  "Takes a function of no args and yields a future: f runs on a pool coroutine; deref parks until it finished and
+  returns its value, or rethrows what it threw. Dynamic bindings are conveyed. A future is also an alts! port."
+  [f]
+  (future* f))
+
+(defmacro future
+  "Takes a body of expressions and yields a future (see future-call) that runs them on a pool coroutine."
+  [& body]
+  `(future-call (fn [] ~@body)))
+
+(defn future?
+  "Returns true if x is a future."
+  [x]
+  (future?* x))
+
+(defn future-done?
+  "Returns true if the future f is done."
+  [f]
+  (chan-realized?* f))
+
+(defn future-cancel
+  "Cancels the future if not already done: its next park or loop tick throws. Returns true when it was still running."
+  [f]
+  (chan-cancel* f))
+
+(defn future-cancelled?
+  "Returns true if the future f was cancelled."
+  [f]
+  (chan-cancelled?* f))
+
+(defn promise
+  "Returns a promise object that can be read with deref and delivered once with deliver. deref parks until it is
+  delivered; (deref p timeout-ms timeout-val) returns timeout-val past the timeout. A promise is also an alts! port."
+  []
+  (promise*))
+
+(defn deliver
+  "Delivers val to the promise, releasing every pending deref; returns the promise, or nil when it was already
+  delivered."
+  [promise val]
+  (chan-deliver* promise val))
+
+(defn pmap
+  "Like map, except f is applied in parallel on futures, keeping the carriers plus two items ahead of consumption.
+  Only useful for computationally intensive functions where the time of f dominates the coordination overhead."
+  ([f coll]
+   (let [n (+ 2 (available-processors*))
+         rets (map (fn [x] (future (f x))) coll)
+         step (fn step [[x & xs :as vs] fs]
+                (lazy-seq
+                 (if-let [s (seq fs)]
+                   (cons (deref x) (step xs (rest s)))
+                   (map deref vs))))]
+     (step rets (drop n rets))))
+  ([f coll & colls]
+   (let [step (fn step [cs]
+                (lazy-seq
+                 (let [ss (map seq cs)]
+                   (when (every? identity ss)
+                     (cons (map first ss) (step (map rest ss)))))))]
+     (pmap (fn [xs] (apply f xs)) (step (cons coll colls))))))
+
+(defn pcalls
+  "Executes the no-arg fns in parallel, returning a lazy sequence of their values."
+  [& fns]
+  (pmap (fn [f] (f)) fns))
+
+(defmacro pvalues
+  "Returns a lazy sequence of the values of the exprs, which are evaluated in parallel."
+  [& exprs]
+  `(pcalls ~@(map (fn [e] `(fn [] ~e)) exprs)))
+
 (defn memoize
   "Returns a memoized version of f, caching its results by argument list."
   [f]
@@ -2122,9 +2197,12 @@
   (-realized? [_] (boolean (:realized @state))))
 
 (defn realized?
-  "Returns true when a pending value (a lazy seq, a delay) has been forced."
+  "Returns true when a pending value (a lazy seq, a delay, a promise, a future) has been forced or delivered."
   [x]
-  (if (satisfies? IPending x) (-realized? x) (lazy-seq-realized?* x)))
+  (cond
+    (chan?* x) (chan-realized?* x)
+    (satisfies? IPending x) (-realized? x)
+    :else (lazy-seq-realized?* x)))
 
 (defmacro delay
   "Yields a Delay: body runs on the first deref or force, and its value is cached."

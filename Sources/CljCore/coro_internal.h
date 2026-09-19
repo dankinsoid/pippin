@@ -25,6 +25,12 @@ enum {
 
 enum { CLJ_CORO_SPAWN_TRACE_MAX = 32, CLJ_CORO_SPAWN_TRACE_INLINE = 4 };
 
+// Why a coroutine is cancelled: cancel!/future-cancel, its deadline's timer, or its go-scoped scope (cleared
+// again by the scope's exit, the only kind that is).
+enum { CLJ_CANCEL_NONE = 0, CLJ_CANCEL_REQUESTED = 1, CLJ_CANCEL_DEADLINE = 2, CLJ_CANCEL_SCOPE = 3 };
+
+typedef struct clj_timer clj_timer;
+
 // One frame of the spawner's trace, kept as names and numbers: the nodes may die before the child throws.
 typedef struct {
 	clj_value name; // symbol or nil, retained
@@ -74,6 +80,11 @@ struct clj_coro {
 	uint32_t         nspawn;
 	clj_spawn_frame  spawn_inline[CLJ_CORO_SPAWN_TRACE_INLINE];
 	uintptr_t        advised_lo, advised_hi; // the stack tail already handed back with madvise
+	// ---- cancellation (sched.c): the kind outlives the stack, so a finished future still answers future-cancelled?
+	_Atomic uint8_t  cancel;          // CLJ_CANCEL_*; the shadow's cancelled flag mirrors it for the tick path
+	uint64_t         deadline_before; // the deadline a scope cancel replaced with 1, restored by the uncancel
+	clj_timer       *deadline_timer;  // the timer that cancels this coroutine at its deadline, NULL when none
+	uint64_t         deadline_serial; // bumped by every arm and disarm; a firing timer with a stale serial is a no-op
 };
 
 // A thread that runs coroutines: a pool thread, the main thread, or any bare thread with its implicit one.
@@ -153,6 +164,9 @@ void clj_coro_switch_out(clj_coro *c);
 // var.c: the running execution's frame chain shared into a child, and its release when the child ends.
 void *clj_var_bindings_share(void);
 void  clj_var_bindings_release(void *chain);
+// runtime.c: the same for the with-out-str captures.
+void *clj_output_captures_share(void);
+void  clj_output_captures_release(void *chain);
 // eval.c: a finished coroutine releases everything it retired.
 void clj_eval_drain_retired(clj_coro *c);
 
@@ -170,8 +184,27 @@ void clj_coro_report_uncaught(clj_coro *c);
 void clj_sched_init(void);
 // Makes the coroutine runnable (its affinity picks the queue); handoff puts it in the calling carrier's next slot.
 void clj_sched_enqueue(clj_coro *c, bool handoff);
-// Timers (sched.c): fn(ctx) runs on the timer thread after ns.
-void clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx);
+// Timers (sched.c): fn(ctx) runs on the timer thread after ns. Cancel returns true when the timer was unlinked
+// before it fired (the caller then owns ctx); false once it fired or is firing.
+clj_timer *clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx);
+bool       clj_sched_timer_cancel(clj_timer *t);
+// A cancellation of the coroutine with a kind (coro.h's clj_coro_cancel is CLJ_CANCEL_REQUESTED); a kind already
+// set is not overwritten except by REQUESTED. Implicit coroutines are cancellable: a thread's job, a scope's body.
+void clj_coro_cancel_kind(clj_coro *c, int kind);
+// Clears a CLJ_CANCEL_SCOPE cancellation and restores the deadline; any other kind stays.
+void clj_coro_uncancel_scope(clj_coro *c);
+// Clears every cancellation and the deadline: a blocking thread's implicit coroutine between two jobs.
+void clj_coro_cancel_reset(clj_coro *c);
+// The message the cancellation of the running execution throws with.
+const char *clj_coro_cancel_message(const clj_coro *c);
+// Arms the deadline timer of c for its shadow's absolute deadline (disarming any earlier one); a cleared deadline
+// disarms it and lifts a deadline cancellation.
+void clj_coro_deadline_arm(clj_coro *c);
+void clj_coro_deadline_cleared(clj_coro *c);
+// The number of carriers the pool has or will have (available-processors*).
+size_t clj_sched_carrier_count(void);
+// A parking sleep on the timer thread: Thread/sleep for library code. CLJ_THROWN on a cancellation.
+clj_value clj_sched_sleep_ms(int64_t ms);
 // The blocking pool (sched.c): fn(ctx) runs on a dedicated thread while the caller parks; inline on a bare thread.
 void clj_blocking(void (*fn)(void *ctx), void *ctx);
 // fn(ctx) on a blocking thread, the caller continues (thread).

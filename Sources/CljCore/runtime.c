@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,31 +37,57 @@ static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 static clj_output_fn out_fn;
 static void         *out_ctx;
 
-// with-out-str: a per-thread stack of byte buffers the output hook writes into while one is open.
+// with-out-str: a stack of byte buffers per execution the output hook writes into while one is open. A spawned
+// coroutine shares its spawner's top capture (the JVM conveys *out*), so the buffer is refcounted and locked.
 typedef struct capture {
-	char           *data;
-	size_t          len, cap;
-	struct capture *prev;
+	clj_lock         lock;
+	char            *data;
+	size_t           len, cap;
+	struct capture  *prev;
+	_Atomic uint32_t rc;
 } capture;
 
 #define captures (*(capture **)&clj_coro_current()->captures)
 
+static void capture_release(capture *c) {
+	while (c && atomic_fetch_sub_explicit(&c->rc, 1, memory_order_acq_rel) == 1) {
+		capture *prev = c->prev;
+		clj_lock_destroy(&c->lock);
+		free(c->data);
+		free(c);
+		c = prev;
+	}
+}
+
 void clj_output_push_capture(void) {
 	capture *c = calloc(1, sizeof *c);
 	if (!c) clj_fatal("out of memory");
+	clj_lock_init(&c->lock);
+	atomic_init(&c->rc, 1);
 	c->prev = captures;
 	captures = c;
 }
 
+// The string is what was written so far; a child still holding the capture writes into a buffer nobody reads.
 clj_value clj_output_pop_capture(void) {
 	capture *c = captures;
 	CLJ_ASSERT(c, "output capture pop without push");
 	captures = c->prev;
+	if (c->prev) atomic_fetch_add_explicit(&c->prev->rc, 1, memory_order_relaxed);
+	clj_lock_lock(&c->lock);
 	clj_value s = clj_string_new(c->data, c->len);
-	free(c->data);
-	free(c);
+	clj_lock_unlock(&c->lock);
+	capture_release(c);
 	return s;
 }
+
+void *clj_output_captures_share(void) {
+	capture *c = captures;
+	if (c) atomic_fetch_add_explicit(&c->rc, 1, memory_order_relaxed);
+	return c;
+}
+
+void clj_output_captures_release(void *chain) { capture_release(chain); }
 
 #include "core_clj.inc"
 
@@ -411,6 +438,7 @@ void clj_reader_use_namespaces(clj_reader *r) {
 void clj_output(const char *bytes, size_t len) {
 	capture *c = captures;
 	if (c) {
+		clj_lock_lock(&c->lock);
 		if (c->len + len > c->cap) {
 			size_t cap = c->cap ? c->cap : 256;
 			while (cap < c->len + len) cap *= 2;
@@ -420,6 +448,7 @@ void clj_output(const char *bytes, size_t len) {
 		}
 		memcpy(c->data + c->len, bytes, len);
 		c->len += len;
+		clj_lock_unlock(&c->lock);
 		return;
 	}
 	if (len) enqueue_output(bytes, len);

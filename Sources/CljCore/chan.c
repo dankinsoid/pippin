@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/box.h"
 #include "clj/chan.h"
+#include "clj/cmutex.h"
 #include "clj/core.h"
 #include "clj/coro.h"
 #include "clj/error.h"
@@ -11,8 +13,11 @@
 #include "clj/keyword.h"
 #include "clj/lock.h"
 #include "clj/map.h"
+#include "clj/ns.h"
 #include "clj/runtime.h"
 #include "clj/string.h"
+#include "clj/symbol.h"
+#include "clj/var.h"
 #include "clj/vector.h"
 #include "coro_internal.h"
 
@@ -52,26 +57,41 @@ typedef struct qnode {
 	struct qnode *next;
 } qnode;
 
+typedef struct thread_job thread_job;
+
 typedef struct {
 	clj_header h;
-	clj_lock   lock;
+	clj_lock   lock;      // a plain channel: a runtime-only section
+	clj_cmutex cm;        // a channel with a transducer: its step runs user code, which may park
+	clj_coro  *cm_owner;  // the execution inside the section of an xform channel, for the reentry trap
 	uint8_t    kind;
+	uint8_t    role;
 	bool       closed;
-	uint32_t   cap, count, head;
+	bool       completed; // the transducer's completion arity ran
+	uint32_t   cap, count, head, ring_cap;
 	clj_value *ring;
 	qnode     *takers, *takers_tail;
 	qnode     *putters, *putters_tail;
 	uint32_t   ntakers, nputters;
-	clj_value  coro; // the go block feeding the channel, for cancel!; nil otherwise
+	clj_value  coro;       // the coroutine feeding the channel, for cancel!; nil otherwise
+	thread_job *job;       // a thread's job before its coroutine is attached, for a cancel! that comes first
+	clj_value  add_fn;     // (xform rf), nil without a transducer
+	clj_value  ex_handler; // fn or nil
+	clj_value  error;      // a future whose body threw: the value deref rethrows
 } clj_chan;
 
 static clj_chan *chan_of(clj_value v) { return (clj_chan *)clj_to_ptr(v); }
 
+static bool has_xform(const clj_chan *ch) { return !clj_is_nil(ch->add_fn); }
+
 static void chan_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_chan *ch = self;
-	for (uint32_t i = 0; i < ch->count; i++) visit(ch->ring[(ch->head + i) % ch->cap], ctx);
+	for (uint32_t i = 0; i < ch->count; i++) visit(ch->ring[(ch->head + i) % ch->ring_cap], ctx);
 	for (qnode *n = ch->putters; n; n = n->next) visit(n->value, ctx);
 	visit(ch->coro, ctx);
+	visit(ch->add_fn, ctx);
+	visit(ch->ex_handler, ctx);
+	visit(ch->error, ctx);
 }
 
 static void free_nodes(qnode *n) {
@@ -101,31 +121,113 @@ const clj_type clj_chan_type = {
 	.equals = identity_equals,
 };
 
-clj_value clj_chan_new(clj_value buf_or_n) {
-	int      kind = CLJ_BUF_NONE;
-	uint32_t cap = 0;
-	if (clj_is_buffer(buf_or_n)) {
-		kind = ((clj_buffer *)clj_to_ptr(buf_or_n))->kind;
-		cap = ((clj_buffer *)clj_to_ptr(buf_or_n))->cap;
-	} else if (clj_is_fixnum(buf_or_n)) {
-		if (clj_fixnum_val(buf_or_n) < 0) return clj_throw_msg("chan: a buffer size must not be negative");
-		cap = (uint32_t)clj_fixnum_val(buf_or_n);
-		kind = cap ? CLJ_BUF_FIXED : CLJ_BUF_NONE;
-	} else if (!clj_is_nil(buf_or_n)) {
-		return clj_throw_msg("chan expects a buffer or a size, got: %s", clj_type_name(buf_or_n));
-	}
-	if (kind != CLJ_BUF_NONE && cap == 0) return clj_throw_msg("chan: a buffer must have a positive size");
+static clj_value chan_alloc(int kind, uint32_t cap, int role) {
 	clj_chan *ch = clj_alloc(&clj_chan_type, sizeof *ch);
 	memset((char *)ch + sizeof ch->h, 0, sizeof *ch - sizeof ch->h);
 	clj_lock_init(&ch->lock);
+	clj_cmutex_init(&ch->cm);
 	ch->kind = (uint8_t)kind;
+	ch->role = (uint8_t)role;
 	ch->cap = cap;
+	ch->ring_cap = cap;
 	if (cap) {
 		ch->ring = malloc(cap * sizeof *ch->ring);
 		if (!ch->ring) clj_fatal("out of memory");
 	}
-	ch->coro = CLJ_NIL;
+	ch->coro = ch->add_fn = ch->ex_handler = ch->error = CLJ_NIL;
 	return clj_from_ptr(ch);
+}
+
+static clj_value buffer_spec(clj_value buf_or_n, int *kind, uint32_t *cap) {
+	*kind = CLJ_BUF_NONE;
+	*cap = 0;
+	if (clj_is_buffer(buf_or_n)) {
+		*kind = ((clj_buffer *)clj_to_ptr(buf_or_n))->kind;
+		*cap = ((clj_buffer *)clj_to_ptr(buf_or_n))->cap;
+	} else if (clj_is_fixnum(buf_or_n)) {
+		if (clj_fixnum_val(buf_or_n) < 0) return clj_throw_msg("chan: a buffer size must not be negative");
+		*cap = (uint32_t)clj_fixnum_val(buf_or_n);
+		*kind = *cap ? CLJ_BUF_FIXED : CLJ_BUF_NONE;
+	} else if (!clj_is_nil(buf_or_n)) {
+		return clj_throw_msg("chan expects a buffer or a size, got: %s", clj_type_name(buf_or_n));
+	}
+	if (*kind != CLJ_BUF_NONE && *cap == 0) return clj_throw_msg("chan: a buffer must have a positive size");
+	return CLJ_NIL;
+}
+
+clj_value clj_chan_new(clj_value buf_or_n) {
+	int      kind;
+	uint32_t cap;
+	if (buffer_spec(buf_or_n, &kind, &cap) == CLJ_THROWN) return CLJ_THROWN;
+	return chan_alloc(kind, cap, CLJ_CHAN_PLAIN);
+}
+
+// The reducing fn the transducer wraps: the accumulator is the channel itself, so no reference cycle is made.
+static void buffer_add(clj_chan *ch, clj_value v);
+
+static clj_value b_chan_rf(const clj_value *args, size_t n) {
+	if (!clj_is_chan(args[0])) return clj_throw_msg("a channel's reducing fn expects the channel, got: %s", clj_type_name(args[0]));
+	if (n == 2) {
+		clj_chan *ch = chan_of(args[0]);
+		if (ch->cm_owner != clj_coro_current()) return clj_throw_msg("a channel's reducing fn was called outside its transducer step");
+		clj_share(args[1]);
+		buffer_add(ch, clj_retain(args[1]));
+	}
+	return clj_retain(args[0]);
+}
+
+static clj_value chan_rf;
+
+clj_value clj_chan_new_xform(clj_value buf_or_n, clj_value xform, clj_value ex_handler) {
+	if (clj_is_nil(xform)) return clj_chan_new(buf_or_n);
+	int      kind;
+	uint32_t cap;
+	if (buffer_spec(buf_or_n, &kind, &cap) == CLJ_THROWN) return CLJ_THROWN;
+	if (kind == CLJ_BUF_NONE) return clj_throw_msg("chan: buffer must be supplied when transducer is");
+	if (!clj_has_core(xform, CLJ_CORE_FN)) return clj_throw_msg("chan expects a transducer fn, got: %s", clj_type_name(xform));
+	if (!clj_is_nil(ex_handler) && !clj_has_core(ex_handler, CLJ_CORE_FN)) return clj_throw_msg("chan expects an ex-handler fn, got: %s", clj_type_name(ex_handler));
+	clj_value add_fn = clj_invoke(xform, &chan_rf, 1);
+	if (add_fn == CLJ_THROWN) return CLJ_THROWN;
+	if (!clj_has_core(add_fn, CLJ_CORE_FN)) {
+		clj_release(add_fn);
+		return clj_throw_msg("chan: the transducer did not return a fn");
+	}
+	clj_value chv = chan_alloc(kind, cap, CLJ_CHAN_PLAIN);
+	clj_chan *ch = chan_of(chv);
+	clj_share(add_fn);
+	clj_share(ex_handler);
+	ch->add_fn = add_fn;
+	ch->ex_handler = clj_retain(ex_handler);
+	return chv;
+}
+
+// ---- the section: a clj_lock for a plain channel, the coroutine mutex when a transducer step runs inside
+
+static void chan_lock(clj_chan *ch) {
+	if (has_xform(ch)) {
+		clj_cmutex_lock(&ch->cm);
+		ch->cm_owner = clj_coro_current();
+	} else {
+		clj_lock_lock(&ch->lock);
+	}
+}
+
+static void chan_unlock(clj_chan *ch) {
+	if (has_xform(ch)) {
+		ch->cm_owner = NULL;
+		clj_cmutex_unlock(&ch->cm);
+	} else {
+		clj_lock_unlock(&ch->lock);
+	}
+}
+
+// The mutex is not reentrant: a step touching its own channel is refused, not deadlocked.
+static bool reentry(clj_chan *ch, const char *op) {
+	if (has_xform(ch) && ch->cm_owner == clj_coro_current()) {
+		clj_throw_msg("%s on a channel from inside its own transducer step", op);
+		return true;
+	}
+	return false;
 }
 
 // ---- queues
@@ -165,8 +267,7 @@ static void node_drop(qnode *n) {
 // Claimed by the caller's side: 0 the pair is claimed (n is live), 1 the actor was claimed elsewhere, 2 stale n.
 static int claim_node(clj_waiter *actor, qnode *n) { return clj_waiter_claim_pair(actor, n->w); }
 
-// The first entry live together with the actor, both claimed; stale entries are dropped on the way. A NULL
-// result with *actor_stale set means the actor was completed through another port meanwhile.
+// The first entry claimed together with the actor; NULL with *actor_stale when the actor won elsewhere.
 static qnode *pop_live(qnode **head, qnode **tail, uint32_t *count, clj_waiter *actor, bool *actor_stale) {
 	*actor_stale = false;
 	for (;;) {
@@ -219,27 +320,50 @@ static void wake(qnode *n, clj_value value, bool ok, clj_value port) {
 
 // ---- the buffer
 
-static bool buffer_has_room(const clj_chan *ch) { return ch->kind == CLJ_BUF_DROPPING || ch->kind == CLJ_BUF_SLIDING || (ch->kind == CLJ_BUF_FIXED && ch->count < ch->cap); }
+static bool buffer_full(const clj_chan *ch) { return ch->kind == CLJ_BUF_FIXED && ch->count >= ch->cap; }
 
-// Takes the value (+1) into the buffer: a full dropping buffer drops it, a full sliding one drops the oldest.
+static bool buffer_has_room(const clj_chan *ch) { return ch->kind != CLJ_BUF_NONE && !buffer_full(ch); }
+
+// A transducer may expand one input into many: a fixed ring grows past its capacity (the JVM's is a list).
+static void ring_grow(clj_chan *ch) {
+	uint32_t   cap = ch->ring_cap * 2;
+	clj_value *ring = malloc(cap * sizeof *ring);
+	if (!ring) clj_fatal("out of memory");
+	for (uint32_t i = 0; i < ch->count; i++) ring[i] = ch->ring[(ch->head + i) % ch->ring_cap];
+	free(ch->ring);
+	ch->ring = ring;
+	ch->ring_cap = cap;
+	ch->head = 0;
+}
+
+// Takes the value (+1); a full dropping buffer drops it, a full sliding one its oldest, a promise buffer its second.
 static void buffer_add(clj_chan *ch, clj_value v) {
-	if (ch->count == ch->cap) {
+	if (ch->kind == CLJ_BUF_PROMISE) {
+		if (ch->count) {
+			clj_release(v);
+			return;
+		}
+	} else if (ch->count == ch->cap && ch->kind != CLJ_BUF_FIXED) {
 		if (ch->kind == CLJ_BUF_DROPPING) {
 			clj_release(v);
 			return;
 		}
 		clj_value oldest = ch->ring[ch->head];
-		ch->head = (ch->head + 1) % ch->cap;
+		ch->head = (ch->head + 1) % ch->ring_cap;
 		ch->count--;
 		clj_release(oldest);
+	} else if (ch->count == ch->ring_cap) {
+		ring_grow(ch);
 	}
-	ch->ring[(ch->head + ch->count) % ch->cap] = v;
+	ch->ring[(ch->head + ch->count) % ch->ring_cap] = v;
 	ch->count++;
 }
 
+// Owned; a promise buffer's value stays.
 static clj_value buffer_take(clj_chan *ch) {
+	if (ch->kind == CLJ_BUF_PROMISE) return clj_retain(ch->ring[0]);
 	clj_value v = ch->ring[ch->head];
-	ch->head = (ch->head + 1) % ch->cap;
+	ch->head = (ch->head + 1) % ch->ring_cap;
 	ch->count--;
 	return v;
 }
@@ -276,12 +400,101 @@ static void flush_wakes(wakes *ws, bool ok) {
 
 enum { OP_DONE, OP_NOT_READY, OP_STALE };
 
-// The actor is claimed together with its counterparty (a taker, the buffer, the closed flag); NULL when nothing
-// else can complete the caller. OP_DONE with *ok false means closed.
+// Every live taker gets the buffer's head while there is one (a promise buffer serves all of them).
+static void drain_to_takers(clj_chan *ch, clj_value chv, wakes *ws) {
+	while (ch->count) {
+		bool   stale;
+		qnode *t = pop_live(&ch->takers, &ch->takers_tail, &ch->ntakers, NULL, &stale);
+		if (!t) return;
+		clj_value v = buffer_take(ch);
+		ws->port = chv;
+		add_wake(ws, t, v, true);
+		clj_release(v);
+	}
+}
+
+// ---- the transducer step, under the coroutine mutex: user code, exceptions to the ex-handler
+
+// The pending exception goes to the ex-handler; a non-nil answer is added instead (the JVM's contract).
+static void step_failed(clj_chan *ch) {
+	clj_coro *c = clj_coro_current();
+	if (clj_is_nil(ch->ex_handler)) {
+		clj_coro_report_uncaught(c);
+		clj_coro_drop_pending(c);
+		return;
+	}
+	clj_value ex = clj_take_pending();
+	clj_value r = clj_invoke(ch->ex_handler, &ex, 1);
+	clj_release(ex);
+	if (r == CLJ_THROWN) {
+		clj_coro_report_uncaught(c);
+		clj_coro_drop_pending(c);
+		return;
+	}
+	if (clj_is_nil(r)) return;
+	clj_share(r);
+	buffer_add(ch, r);
+}
+
+// True when the transducer said reduced: the channel is then aborted.
+static bool step_add(clj_chan *ch, clj_value chv, clj_value v) {
+	clj_value args[2] = {chv, v};
+	clj_value r = clj_invoke(ch->add_fn, args, 2);
+	if (r == CLJ_THROWN) {
+		step_failed(ch);
+		return false;
+	}
+	bool done = clj_is_reduced(r);
+	clj_release(r);
+	return done;
+}
+
+static void step_complete(clj_chan *ch, clj_value chv) {
+	if (ch->completed) return;
+	ch->completed = true;
+	clj_value r = clj_invoke(ch->add_fn, &chv, 1);
+	if (r == CLJ_THROWN) step_failed(ch);
+	else clj_release(r);
+}
+
+// The reduced answer: the channel closes and every parked put completes without a transfer.
+static void abort_locked(clj_chan *ch, clj_value chv, wakes *ws) {
+	ch->closed = true;
+	for (;;) {
+		bool   stale;
+		qnode *p = pop_live(&ch->putters, &ch->putters_tail, &ch->nputters, NULL, &stale);
+		if (!p) break;
+		ws->port = chv;
+		add_wake(ws, p, CLJ_TRUE, true);
+	}
+}
+
+static void close_locked(clj_chan *ch, clj_value chv, wakes *ws);
+
+// The actor is claimed together with its counterparty; OP_DONE with *ok false means closed.
 static int put_locked(clj_chan *ch, clj_value chv, clj_value v, clj_waiter *actor, bool *ok, wakes *ws) {
 	if (ch->closed) {
 		if (actor && !clj_waiter_claim(actor)) return OP_STALE;
 		*ok = false;
+		return OP_DONE;
+	}
+	if (has_xform(ch)) {
+		if (!buffer_has_room(ch)) return OP_NOT_READY;
+		if (actor && !clj_waiter_claim(actor)) return OP_STALE;
+		bool done = step_add(ch, chv, v);
+		drain_to_takers(ch, chv, ws);
+		if (done) {
+			abort_locked(ch, chv, ws);
+			close_locked(ch, chv, ws);
+		}
+		*ok = true;
+		return OP_DONE;
+	}
+	if (ch->kind == CLJ_BUF_PROMISE) {
+		if (actor && !clj_waiter_claim(actor)) return OP_STALE;
+		buffer_add(ch, clj_retain(v));
+		drain_to_takers(ch, chv, ws);
+		*ok = true;
 		return OP_DONE;
 	}
 	bool   stale;
@@ -302,31 +515,58 @@ static int put_locked(clj_chan *ch, clj_value chv, clj_value v, clj_waiter *acto
 	return OP_NOT_READY;
 }
 
+// Parked putters refill a buffer that made room; with a transducer each goes through the step.
+static void refill(clj_chan *ch, clj_value chv, wakes *ws) {
+	while (!buffer_full(ch)) {
+		bool   stale;
+		qnode *p = pop_live(&ch->putters, &ch->putters_tail, &ch->nputters, NULL, &stale);
+		if (!p) return;
+		bool done = false;
+		if (has_xform(ch)) {
+			done = step_add(ch, chv, p->value);
+			clj_release(p->value);
+		} else {
+			buffer_add(ch, p->value);
+		}
+		p->value = CLJ_NIL;
+		ws->port = chv;
+		add_wake(ws, p, CLJ_TRUE, true);
+		if (done) {
+			abort_locked(ch, chv, ws);
+			close_locked(ch, chv, ws);
+			return;
+		}
+	}
+}
+
 static int take_locked(clj_chan *ch, clj_value chv, clj_waiter *actor, clj_value *out, wakes *ws) {
 	if (ch->count) {
 		if (actor && !clj_waiter_claim(actor)) return OP_STALE;
 		*out = buffer_take(ch);
+		if (ch->kind != CLJ_BUF_PROMISE) refill(ch, chv, ws);
+		return OP_DONE;
+	}
+	if (!has_xform(ch)) {
 		bool   stale;
-		qnode *p = pop_live(&ch->putters, &ch->putters_tail, &ch->nputters, NULL, &stale);
+		qnode *p = pop_live(&ch->putters, &ch->putters_tail, &ch->nputters, actor, &stale);
+		if (stale) return OP_STALE;
 		if (p) {
-			buffer_add(ch, p->value);
+			*out = p->value;
 			p->value = CLJ_NIL;
 			ws->port = chv;
 			add_wake(ws, p, CLJ_TRUE, true);
+			return OP_DONE;
 		}
-		return OP_DONE;
-	}
-	bool   stale;
-	qnode *p = pop_live(&ch->putters, &ch->putters_tail, &ch->nputters, actor, &stale);
-	if (stale) return OP_STALE;
-	if (p) {
-		*out = p->value;
-		p->value = CLJ_NIL;
-		ws->port = chv;
-		add_wake(ws, p, CLJ_TRUE, true);
-		return OP_DONE;
 	}
 	if (ch->closed) {
+		if (has_xform(ch)) {
+			step_complete(ch, chv);
+			if (ch->count) {
+				if (actor && !clj_waiter_claim(actor)) return OP_STALE;
+				*out = buffer_take(ch);
+				return OP_DONE;
+			}
+		}
 		if (actor && !clj_waiter_claim(actor)) return OP_STALE;
 		*out = CLJ_NIL;
 		return OP_DONE;
@@ -347,8 +587,11 @@ static bool cancelled_here(void) {
 	return c->shadow && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
 }
 
+static clj_value cancelled_throw(void) { return clj_throw_msg("%s", clj_coro_cancel_message(clj_coro_current())); }
+
 static clj_value chan_arg(clj_value ch, const char *op) {
 	if (!clj_is_chan(ch)) return clj_throw_msg("%s expects a channel, got: %s", op, clj_type_name(ch));
+	if (reentry(chan_of(ch), op)) return CLJ_THROWN;
 	return CLJ_NIL;
 }
 
@@ -365,58 +608,62 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 	wakes       ws = {.n = 0};
 	bool        ok = false;
 	clj_waiter *w = NULL;
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
 	if (r == OP_NOT_READY) {
 		if (pending_full(&ch->putters, &ch->putters_tail, &ch->nputters)) {
-			clj_lock_unlock(&ch->lock);
+			chan_unlock(ch);
 			return pending_error(true);
 		}
 		w = clj_waiter_new(clj_coro_current(), CLJ_NIL);
 		enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), 0));
 		ch->nputters++;
 	}
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	if (!w) return clj_bool(ok);
 	clj_park(w);
 	ok = w->ok;
 	clj_waiter_release(w);
-	if (cancelled_here()) return clj_throw_msg(CLJ_CANCELLED_MESSAGE);
+	if (cancelled_here()) return cancelled_throw();
 	return clj_bool(ok);
 }
 
-clj_value clj_chan_take(clj_value chv) {
+// uncancellable: a scope's join, which must outlast its own cancellation.
+static clj_value chan_take(clj_value chv, bool uncancellable) {
 	if (chan_arg(chv, "<!") == CLJ_THROWN) return CLJ_THROWN;
-	if (!clj_park_allowed()) return CLJ_THROWN;
+	if (!uncancellable && !clj_park_allowed()) return CLJ_THROWN;
 	clj_chan   *ch = chan_of(chv);
 	wakes       ws = {.n = 0};
 	clj_value   out = CLJ_NIL;
 	clj_waiter *w = NULL;
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	int r = take_locked(ch, chv, NULL, &out, &ws);
 	if (r == OP_NOT_READY) {
 		if (pending_full(&ch->takers, &ch->takers_tail, &ch->ntakers)) {
-			clj_lock_unlock(&ch->lock);
+			chan_unlock(ch);
 			return pending_error(false);
 		}
 		w = clj_waiter_new(clj_coro_current(), CLJ_NIL);
 		enqueue(&ch->takers, &ch->takers_tail, node_new(w, CLJ_NIL, 0));
 		ch->ntakers++;
 	}
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	if (!w) return out;
-	clj_park(w);
+	if (uncancellable) clj_park_uncancellable(w);
+	else clj_park(w);
 	out = w->value;
 	w->value = CLJ_NIL;
 	clj_waiter_release(w);
-	if (cancelled_here()) {
+	if (!uncancellable && cancelled_here()) {
 		clj_release(out);
-		return clj_throw_msg(CLJ_CANCELLED_MESSAGE);
+		return cancelled_throw();
 	}
 	return out;
 }
+
+clj_value clj_chan_take(clj_value chv) { return chan_take(chv, false); }
 
 clj_value clj_chan_offer(clj_value chv, clj_value v) {
 	if (chan_arg(chv, "offer!") == CLJ_THROWN) return CLJ_THROWN;
@@ -425,9 +672,9 @@ clj_value clj_chan_offer(clj_value chv, clj_value v) {
 	clj_share(v);
 	wakes ws = {.n = 0};
 	bool  ok = false;
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	return r == OP_DONE ? clj_bool(ok) : CLJ_NIL;
 }
@@ -437,9 +684,9 @@ clj_value clj_chan_poll(clj_value chv) {
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {.n = 0};
 	clj_value out = CLJ_NIL;
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	take_locked(ch, chv, NULL, &out, &ws);
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	return out;
 }
@@ -472,21 +719,21 @@ clj_value clj_chan_put_cb(clj_value chv, clj_value v, clj_value fn, bool on_call
 	clj_share(fn);
 	wakes ws = {.n = 0};
 	bool  ok = false;
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
 	if (r == OP_NOT_READY) {
 		if (pending_full(&ch->putters, &ch->putters_tail, &ch->nputters)) {
-			clj_lock_unlock(&ch->lock);
+			chan_unlock(ch);
 			return pending_error(true);
 		}
 		clj_waiter *w = clj_waiter_new(NULL, fn);
 		enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), 0));
 		ch->nputters++;
 		clj_waiter_release(w);
-		clj_lock_unlock(&ch->lock);
+		chan_unlock(ch);
 		return CLJ_TRUE;
 	}
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	callback_now(fn, clj_bool(ok), on_caller);
 	return clj_bool(ok);
@@ -499,21 +746,21 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 	clj_share(fn);
 	wakes     ws = {.n = 0};
 	clj_value out = CLJ_NIL;
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	int r = take_locked(ch, chv, NULL, &out, &ws);
 	if (r == OP_NOT_READY) {
 		if (pending_full(&ch->takers, &ch->takers_tail, &ch->ntakers)) {
-			clj_lock_unlock(&ch->lock);
+			chan_unlock(ch);
 			return pending_error(false);
 		}
 		clj_waiter *w = clj_waiter_new(NULL, fn);
 		enqueue(&ch->takers, &ch->takers_tail, node_new(w, CLJ_NIL, 0));
 		ch->ntakers++;
 		clj_waiter_release(w);
-		clj_lock_unlock(&ch->lock);
+		chan_unlock(ch);
 		return CLJ_NIL;
 	}
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	callback_now(fn, out, on_caller);
 	clj_release(out);
@@ -522,10 +769,12 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 
 // ---- close!
 
-// Parked takers get nil; parked puts stay: their values are still taken from a closed channel.
+// Parked puts stay (their values are still taken); takers get the completion's flush, the promise value or nil.
 static void close_locked(clj_chan *ch, clj_value chv, wakes *ws) {
-	if (ch->closed) return;
+	if (ch->closed && !(has_xform(ch) && !ch->completed && !ch->putters)) return;
 	ch->closed = true;
+	if (has_xform(ch) && !ch->putters) step_complete(ch, chv);
+	drain_to_takers(ch, chv, ws);
 	if (ch->count) return;
 	ws->port = chv;
 	for (;;) {
@@ -540,18 +789,18 @@ clj_value clj_chan_close(clj_value chv) {
 	if (chan_arg(chv, "close!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {.n = 0};
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	close_locked(ch, chv, &ws);
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	return CLJ_NIL;
 }
 
 bool clj_chan_closed(clj_value chv) {
 	clj_chan *ch = chan_of(chv);
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	bool closed = ch->closed;
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	return closed;
 }
 
@@ -588,8 +837,11 @@ static clj_value check_ports(clj_value ports, uint32_t n) {
 		if (clj_is_vector(port)) {
 			if (clj_vector_count(port) != 2 || !clj_is_chan(clj_vector_nth(port, 0))) return clj_throw_msg("alts! put operation must be [channel value]");
 			if (clj_is_nil(clj_vector_nth(port, 1))) return clj_throw_msg("Can't put nil on channel");
+			if (reentry(chan_of(clj_vector_nth(port, 0)), "alts!")) return CLJ_THROWN;
 		} else if (!clj_is_chan(port)) {
 			return clj_throw_msg("alts! expects channels or [channel value] pairs, got: %s", clj_type_name(port));
+		} else if (reentry(chan_of(port), "alts!")) {
+			return CLJ_THROWN;
 		}
 	}
 	return CLJ_NIL;
@@ -628,7 +880,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 		wakes     ws = {.n = 0};
 		bool      ok = false;
 		clj_value out = CLJ_NIL;
-		clj_lock_lock(&ch->lock);
+		chan_lock(ch);
 		int r = is_put ? put_locked(ch, chv, v, w, &ok, &ws) : take_locked(ch, chv, w, &out, &ws);
 		if (r == OP_DONE) {
 			result = pair(is_put ? clj_bool(ok) : out, chv);
@@ -637,7 +889,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 			stale = true;
 		} else if (!has_default) {
 			if (pending_full(is_put ? &ch->putters : &ch->takers, is_put ? &ch->putters_tail : &ch->takers_tail, is_put ? &ch->nputters : &ch->ntakers)) {
-				clj_lock_unlock(&ch->lock);
+				chan_unlock(ch);
 				if (order != small) free(order);
 				if (clj_waiter_claim(w)) {
 					clj_waiter_release(w);
@@ -656,7 +908,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 				ch->ntakers++;
 			}
 		}
-		clj_lock_unlock(&ch->lock);
+		chan_unlock(ch);
 		flush_wakes(&ws, true);
 	}
 	if (order != small) free(order);
@@ -673,7 +925,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 	clj_park(w);
 	if (cancelled_here()) {
 		clj_waiter_release(w);
-		return clj_throw_msg(CLJ_CANCELLED_MESSAGE);
+		return cancelled_throw();
 	}
 	result = pair(w->value, w->port);
 	clj_waiter_release(w);
@@ -696,13 +948,87 @@ clj_value clj_chan_timeout(int64_t ms) {
 	return chv;
 }
 
-// ---- go and thread
+// ---- promise, deref and deliver: a promise buffer serves its one value to every taker for ever
+
+clj_value clj_chan_promise(void) { return chan_alloc(CLJ_BUF_PROMISE, 1, CLJ_CHAN_PROMISE); }
+
+static bool realized_locked(const clj_chan *ch) { return ch->count > 0 || ch->closed; }
+
+bool clj_chan_realized(clj_value chv) {
+	clj_chan *ch = chan_of(chv);
+	chan_lock(ch);
+	bool r = realized_locked(ch);
+	chan_unlock(ch);
+	return r;
+}
+
+// deliver of nil closes the channel: takes then answer nil for ever, and realized? is true.
+clj_value clj_chan_deliver(clj_value chv, clj_value v) {
+	if (chan_arg(chv, "deliver") == CLJ_THROWN) return CLJ_THROWN;
+	clj_chan *ch = chan_of(chv);
+	if (ch->kind != CLJ_BUF_PROMISE) return clj_throw_msg("deliver expects a promise, got a channel");
+	clj_share(v);
+	wakes ws = {.n = 0};
+	chan_lock(ch);
+	bool first = !realized_locked(ch);
+	if (first) {
+		if (clj_is_nil(v)) {
+			close_locked(ch, chv, &ws);
+		} else {
+			bool ok;
+			put_locked(ch, chv, v, NULL, &ok, &ws);
+		}
+	}
+	chan_unlock(ch);
+	flush_wakes(&ws, true);
+	return first ? clj_retain(chv) : CLJ_NIL;
+}
+
+// A future's cached exception is thrown again by every deref (the JVM wraps it in an ExecutionException).
+static clj_value rethrow_error(clj_chan *ch, clj_value v) {
+	chan_lock(ch);
+	clj_value error = clj_retain(ch->error);
+	chan_unlock(ch);
+	if (clj_is_nil(error)) return v;
+	clj_release(v);
+	return clj_throw(error);
+}
+
+clj_value clj_chan_deref(clj_value chv) {
+	clj_value v = clj_chan_take(chv);
+	if (v == CLJ_THROWN) return CLJ_THROWN;
+	return rethrow_error(chan_of(chv), v);
+}
+
+clj_value clj_chan_deref_timeout(clj_value chv, int64_t ms, clj_value timeout_val) {
+	if (chan_arg(chv, "deref") == CLJ_THROWN) return CLJ_THROWN;
+	if (clj_chan_realized(chv)) return clj_chan_deref(chv);
+	clj_value t = clj_chan_timeout(ms);
+	clj_value items[2] = {chv, t};
+	clj_value ports = clj_vector_from_array(items, 2);
+	clj_value opts = clj_map_assoc(clj_map_empty(), kw_priority, CLJ_TRUE);
+	clj_value r = clj_chan_alts(ports, opts);
+	clj_release(opts);
+	clj_release(ports);
+	clj_release(t);
+	if (r == CLJ_THROWN) return CLJ_THROWN;
+	clj_value port = clj_vector_nth(r, 1), v = clj_retain(clj_vector_nth(r, 0));
+	bool      won = port == chv;
+	clj_release(r);
+	if (!won) {
+		clj_release(v);
+		return clj_retain(timeout_val);
+	}
+	return rethrow_error(chan_of(chv), v);
+}
+
+// ---- go, future and thread
 
 // The body's value goes on as a fire-and-forget put, then the channel closes (core.async's go).
 static void deliver_result(clj_value chv, clj_value v) {
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {.n = 0};
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	if (!clj_is_nil(v)) {
 		clj_share(v);
 		bool ok;
@@ -712,7 +1038,7 @@ static void deliver_result(clj_value chv, clj_value v) {
 		}
 	}
 	close_locked(ch, chv, &ws);
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	flush_wakes(&ws, true);
 }
 
@@ -723,35 +1049,68 @@ static void go_done(clj_coro *c, void *ctx) {
 	clj_release(chv);
 }
 
-clj_value clj_chan_go(clj_value f, int affinity) {
-	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("go* expects a fn, got: %s", clj_type_name(f));
-	clj_value chv = clj_chan_new(CLJ_NIL);
+// A future keeps the thrown value for its derefs instead of reporting it.
+static void future_done(clj_coro *c, void *ctx) {
+	clj_value chv = clj_from_ptr(ctx);
+	clj_chan *ch = chan_of(chv);
+	if (c->threw) {
+		chan_lock(ch);
+		ch->error = clj_retain(c->result);
+		chan_unlock(ch);
+	}
+	deliver_result(chv, c->threw ? CLJ_NIL : c->result);
+	clj_release(chv);
+}
+
+static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*done)(clj_coro *c, void *ctx)) {
 	clj_share(chv);
 	clj_retain(chv);
-	clj_value coro = clj_coro_spawn(f, NULL, 0, affinity, go_done, clj_to_ptr(chv));
+	clj_value coro = clj_coro_spawn(f, NULL, 0, affinity, done, clj_to_ptr(chv));
 	if (coro == CLJ_THROWN) {
 		clj_release(chv);
 		clj_release(chv);
 		return CLJ_THROWN;
 	}
 	clj_chan *ch = chan_of(chv);
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	ch->coro = coro;
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	return chv;
 }
 
-typedef struct {
-	clj_value f, chv;
-	void     *bindings;
-} thread_job;
+clj_value clj_chan_go(clj_value f, int affinity) {
+	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("go expects a fn, got: %s", clj_type_name(f));
+	return spawn_into(f, clj_chan_new(CLJ_NIL), affinity, go_done);
+}
 
-// Runs on a blocking-pool thread as its implicit coroutine, with the spawner's bindings conveyed.
+clj_value clj_chan_future(clj_value f) {
+	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("future-call expects a fn, got: %s", clj_type_name(f));
+	return spawn_into(f, chan_alloc(CLJ_BUF_PROMISE, 1, CLJ_CHAN_FUTURE), CLJ_AFFINITY_POOL, future_done);
+}
+
+struct thread_job {
+	clj_value    f, chv;
+	void        *bindings;
+	void        *captures;
+	_Atomic bool cancel_early; // a cancel! before the job's thread attached its coroutine
+};
+
+// Runs on a blocking-pool thread as its implicit coroutine, with the spawner's bindings conveyed. The channel
+// holds the implicit coroutine while the body runs, so cancel! reaches it; the flag is reset for the thread's
+// next job.
 static void thread_run(void *ctx) {
 	thread_job *j = ctx;
 	clj_coro   *c = clj_coro_current();
-	void       *saved = c->bindings;
+	clj_chan   *ch = chan_of(j->chv);
+	chan_lock(ch);
+	ch->coro = clj_retain(clj_from_ptr(c));
+	ch->job = NULL;
+	bool early = atomic_load_explicit(&j->cancel_early, memory_order_relaxed);
+	chan_unlock(ch);
+	if (early) clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
+	void *saved = c->bindings, *saved_captures = c->captures;
 	c->bindings = j->bindings;
+	c->captures = j->captures;
 	clj_eval_top_enter();
 	clj_value r = clj_invoke(j->f, NULL, 0);
 	clj_eval_top_leave();
@@ -761,7 +1120,15 @@ static void thread_run(void *ctx) {
 		r = CLJ_NIL;
 	}
 	c->bindings = saved;
+	c->captures = saved_captures;
 	clj_var_bindings_release(j->bindings);
+	clj_output_captures_release(j->captures);
+	chan_lock(ch);
+	clj_value coro = ch->coro;
+	ch->coro = CLJ_NIL;
+	chan_unlock(ch);
+	clj_release(coro);
+	clj_coro_cancel_reset(c);
 	deliver_result(j->chv, r);
 	clj_release(r);
 	clj_release(j->f);
@@ -771,7 +1138,7 @@ static void thread_run(void *ctx) {
 
 clj_value clj_chan_thread(clj_value f) {
 	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("thread* expects a fn, got: %s", clj_type_name(f));
-	clj_value   chv = clj_chan_new(CLJ_NIL);
+	clj_value   chv = chan_alloc(CLJ_BUF_NONE, 0, CLJ_CHAN_THREAD);
 	thread_job *j = malloc(sizeof *j);
 	if (!j) clj_fatal("out of memory");
 	clj_share(f);
@@ -779,33 +1146,60 @@ clj_value clj_chan_thread(clj_value f) {
 	j->f = clj_retain(f);
 	j->chv = clj_retain(chv);
 	j->bindings = clj_var_bindings_share();
+	j->captures = clj_output_captures_share();
+	atomic_init(&j->cancel_early, false);
+	chan_of(chv)->job = j;
 	clj_blocking_detach(thread_run, j);
 	return chv;
 }
 
+// True when a body still running (or not yet started) was told to stop; false once it finished.
 clj_value clj_chan_cancel(clj_value chv) {
 	if (chan_arg(chv, "cancel!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
-	clj_lock_lock(&ch->lock);
-	clj_value coro = clj_retain(ch->coro);
-	clj_lock_unlock(&ch->lock);
-	if (clj_is_nil(coro)) return CLJ_FALSE;
-	clj_coro_cancel(coro);
-	clj_release(coro);
-	return CLJ_TRUE;
+	bool      cancelled = false;
+	chan_lock(ch);
+	if (ch->job) {
+		atomic_store_explicit(&ch->job->cancel_early, true, memory_order_relaxed);
+		cancelled = true;
+	} else if (!clj_is_nil(ch->coro)) {
+		clj_coro *c = clj_coro_of(ch->coro);
+		if (ch->role == CLJ_CHAN_THREAD) {
+			clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
+			cancelled = true;
+		} else if (!clj_coro_done(ch->coro)) {
+			clj_coro_cancel(ch->coro);
+			cancelled = true;
+		}
+	}
+	chan_unlock(ch);
+	return clj_bool(cancelled);
 }
+
+bool clj_chan_cancelled(clj_value chv) {
+	clj_chan *ch = chan_of(chv);
+	chan_lock(ch);
+	bool r = !clj_is_nil(ch->coro) && clj_coro_cancelled(ch->coro);
+	chan_unlock(ch);
+	return r;
+}
+
+int clj_chan_role(clj_value chv) { return chan_of(chv)->role; }
 
 uint32_t clj_debug_chan_pending(clj_value chv, bool puts) {
 	clj_chan *ch = chan_of(chv);
-	clj_lock_lock(&ch->lock);
+	chan_lock(ch);
 	uint32_t n = puts ? ch->nputters : ch->ntakers;
-	clj_lock_unlock(&ch->lock);
+	chan_unlock(ch);
 	return n;
 }
 
 // ---- builtins
 
-static clj_value b_chan(const clj_value *args, size_t n) { return clj_chan_new(n ? args[0] : CLJ_NIL); }
+static clj_value b_chan(const clj_value *args, size_t n) {
+	if (n < 2) return clj_chan_new(n ? args[0] : CLJ_NIL);
+	return clj_chan_new_xform(args[0], args[1], n > 2 ? args[2] : CLJ_NIL);
+}
 
 static clj_value buffer_of_kind(const clj_value *args, int kind, const char *name) {
 	if (!clj_is_fixnum(args[0]) || clj_fixnum_val(args[0]) <= 0) return clj_throw_msg("%s expects a positive size", name);
@@ -827,10 +1221,20 @@ static clj_value b_sliding_buffer(const clj_value *args, size_t n) {
 	return buffer_of_kind(args, CLJ_BUF_SLIDING, "sliding-buffer");
 }
 
-static clj_value b_take(const clj_value *args, size_t n) {
+static clj_value b_promise_buffer(const clj_value *args, size_t n) {
+	(void)args;
 	(void)n;
-	return clj_chan_take(args[0]);
+	return clj_buffer_new(CLJ_BUF_PROMISE, 1);
 }
+
+static clj_value b_unblocking_buffer_p(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_buffer(args[0])) return CLJ_FALSE;
+	int kind = ((clj_buffer *)clj_to_ptr(args[0]))->kind;
+	return clj_bool(kind == CLJ_BUF_DROPPING || kind == CLJ_BUF_SLIDING || kind == CLJ_BUF_PROMISE);
+}
+
+static clj_value b_take(const clj_value *args, size_t n) { return chan_take(args[0], n > 1 && clj_truthy(args[1])); }
 
 static clj_value b_put(const clj_value *args, size_t n) {
 	(void)n;
@@ -879,14 +1283,54 @@ static clj_value b_thread(const clj_value *args, size_t n) {
 	return clj_chan_thread(args[0]);
 }
 
+static clj_value b_future(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_chan_future(args[0]);
+}
+
+static clj_value b_promise(const clj_value *args, size_t n) {
+	(void)args;
+	(void)n;
+	return clj_chan_promise();
+}
+
+static clj_value b_deliver(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_chan_deliver(args[0], args[1]);
+}
+
+static clj_value b_deref(const clj_value *args, size_t n) {
+	if (chan_arg(args[0], "deref") == CLJ_THROWN) return CLJ_THROWN;
+	if (n == 1) return clj_chan_deref(args[0]);
+	if (!clj_is_fixnum(args[1])) return clj_throw_msg("deref expects a timeout in milliseconds, got: %s", clj_type_name(args[1]));
+	return clj_chan_deref_timeout(args[0], clj_fixnum_val(args[1]), args[2]);
+}
+
+static clj_value b_realized_p(const clj_value *args, size_t n) {
+	(void)n;
+	if (chan_arg(args[0], "realized?") == CLJ_THROWN) return CLJ_THROWN;
+	return clj_bool(clj_chan_realized(args[0]));
+}
+
 static clj_value b_cancel(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_chan_cancel(args[0]);
 }
 
+static clj_value b_cancelled_p(const clj_value *args, size_t n) {
+	(void)n;
+	if (chan_arg(args[0], "future-cancelled?") == CLJ_THROWN) return CLJ_THROWN;
+	return clj_bool(clj_chan_cancelled(args[0]));
+}
+
 static clj_value b_chan_p(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_bool(clj_is_chan(args[0]));
+}
+
+static clj_value b_future_p(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_bool(clj_is_chan(args[0]) && clj_chan_role(args[0]) == CLJ_CHAN_FUTURE);
 }
 
 static clj_value b_closed_p(const clj_value *args, size_t n) {
@@ -895,20 +1339,87 @@ static clj_value b_closed_p(const clj_value *args, size_t n) {
 	return clj_bool(clj_chan_closed(args[0]));
 }
 
+static clj_value b_sleep(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_fixnum(args[0])) return clj_throw_msg("sleep expects milliseconds, got: %s", clj_type_name(args[0]));
+	return clj_sched_sleep_ms(clj_fixnum_val(args[0]));
+}
+
+static clj_value b_available_processors(const clj_value *args, size_t n) {
+	(void)args;
+	(void)n;
+	return clj_fixnum((int64_t)clj_sched_carrier_count());
+}
+
+// The uncaught-exception report for a library's default handler (pipeline's ex-handler on the JVM).
+static clj_value b_uncaught_report(const clj_value *args, size_t n) {
+	(void)n;
+	clj_coro *c = clj_coro_current();
+	clj_throw(clj_retain(args[0]));
+	clj_coro_report_uncaught(c);
+	clj_coro_drop_pending(c);
+	return CLJ_NIL;
+}
+
+// The running execution as a handle for a scope (async.clj go-scoped): its children cancel it on their failure.
+static clj_value b_coro_current(const clj_value *args, size_t n) {
+	(void)args;
+	(void)n;
+	return clj_retain(clj_from_ptr(clj_coro_current()));
+}
+
+static clj_value b_coro_cancel_scope(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_coro(args[0])) return clj_throw_msg("coro-cancel-scope* expects a coroutine, got: %s", clj_type_name(args[0]));
+	clj_coro_cancel_kind(clj_coro_of(args[0]), CLJ_CANCEL_SCOPE);
+	return CLJ_NIL;
+}
+
+static clj_value b_coro_uncancel_scope(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_coro(args[0])) return clj_throw_msg("coro-uncancel-scope* expects a coroutine, got: %s", clj_type_name(args[0]));
+	clj_coro_uncancel_scope(clj_coro_of(args[0]));
+	return CLJ_NIL;
+}
+
+// Thread/sleep for library code: a namespace Thread with sleep, so the JVM's static call resolves (NOTES.md).
+static void install_thread_ns(void) {
+	clj_value ns_name = clj_symbol_from_cstr("Thread");
+	clj_value ns = clj_ns_find_or_create(ns_name);
+	clj_value name = clj_symbol_from_cstr("sleep");
+	clj_value qualified = clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(name));
+	clj_value f = clj_fn_native(qualified, b_sleep, 1, 1);
+	clj_var_bind_root(clj_ns_intern(ns, name), f);
+	clj_release(f);
+	clj_release(qualified);
+	clj_release(name);
+	clj_release(ns_name);
+}
+
 void clj_chan_install(void) {
 	intern_keywords();
+	clj_value rf_name = clj_symbol_from_cstr("clojure.core/chan-rf*");
+	chan_rf = clj_fn_native(rf_name, b_chan_rf, 1, 2);
+	clj_release(rf_name);
+	clj_header_of(chan_rf)->flags |= CLJ_FLAG_IMMORTAL;
 	static const struct {
 		const char   *name;
 		clj_native_fn fn;
 		uint32_t      min, max;
 	} entries[] = {
-		{"chan*", b_chan, 0, 1},            {"buffer*", b_buffer, 1, 1},          {"dropping-buffer*", b_dropping_buffer, 1, 1},
-		{"sliding-buffer*", b_sliding_buffer, 1, 1}, {"chan-take*", b_take, 1, 1}, {"chan-put*", b_put, 2, 2},
+		{"chan*", b_chan, 0, 3},            {"buffer*", b_buffer, 1, 1},          {"dropping-buffer*", b_dropping_buffer, 1, 1},
+		{"sliding-buffer*", b_sliding_buffer, 1, 1}, {"promise-buffer*", b_promise_buffer, 0, 0}, {"unblocking-buffer?*", b_unblocking_buffer_p, 1, 1},
+		{"chan-take*", b_take, 1, 2},       {"chan-put*", b_put, 2, 2},
 		{"chan-poll*", b_poll, 1, 1},       {"chan-offer*", b_offer, 2, 2},       {"chan-put-cb*", b_put_cb, 2, 4},
 		{"chan-take-cb*", b_take_cb, 2, 3}, {"chan-close*", b_close, 1, 1},       {"chan-alts*", b_alts, 1, 2},
-		{"chan-timeout*", b_timeout, 1, 1}, {"go*", b_go, 1, 1},                  {"go-main*", b_go_main, 1, 1},
+		{"chan-timeout*", b_timeout, 1, 1}, {"coro-go*", b_go, 1, 1},             {"coro-go-main*", b_go_main, 1, 1},
 		{"thread*", b_thread, 1, 1},        {"chan-cancel*", b_cancel, 1, 1},     {"chan?*", b_chan_p, 1, 1},
-		{"chan-closed?*", b_closed_p, 1, 1},
+		{"chan-closed?*", b_closed_p, 1, 1}, {"future*", b_future, 1, 1},         {"promise*", b_promise, 0, 0},
+		{"chan-deliver*", b_deliver, 2, 2}, {"chan-deref*", b_deref, 1, 3},       {"chan-realized?*", b_realized_p, 1, 1},
+		{"chan-cancelled?*", b_cancelled_p, 1, 1}, {"future?*", b_future_p, 1, 1}, {"sleep*", b_sleep, 1, 1},
+		{"available-processors*", b_available_processors, 0, 0}, {"coro-current*", b_coro_current, 0, 0}, {"uncaught-report*", b_uncaught_report, 1, 1},
+		{"coro-cancel-scope*", b_coro_cancel_scope, 1, 1}, {"coro-uncancel-scope*", b_coro_uncancel_scope, 1, 1},
 	};
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
+	install_thread_ns();
 }
