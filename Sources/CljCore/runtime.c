@@ -190,7 +190,8 @@ typedef struct out_waiter {
 	struct out_waiter *next;
 } out_waiter;
 
-enum { OUT_LIMIT = 1 << 20 };
+static size_t          out_limit = 1 << 20;
+static _Atomic uint64_t out_waits;
 
 static pthread_mutex_t out_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  out_cv = PTHREAD_COND_INITIALIZER;      // the writer waits for chunks
@@ -231,7 +232,7 @@ static void *writer_main(void *arg) {
 		out_bytes -= c->len;
 		out_busy = true;
 		out_waiter *woken = NULL;
-		if (out_bytes < OUT_LIMIT) wake_printers_locked(&woken);
+		if (out_bytes < out_limit) wake_printers_locked(&woken);
 		clj_output_fn fn = out_fn;
 		void         *ctx = out_ctx;
 		pthread_mutex_unlock(&out_mu);
@@ -254,6 +255,15 @@ static void start_writer(void) {
 	pthread_attr_destroy(&attr);
 	atexit(clj_output_flush);
 }
+
+// Test hooks: a small queue makes the backpressure path certain; the count says it ran.
+void clj_debug_output_set_limit(size_t bytes) {
+	pthread_mutex_lock(&out_mu);
+	out_limit = bytes ? bytes : 1 << 20;
+	pthread_mutex_unlock(&out_mu);
+}
+
+uint64_t clj_debug_output_waits(void) { return atomic_load_explicit(&out_waits, memory_order_relaxed); }
 
 void clj_output_flush(void) {
 	pthread_mutex_lock(&out_mu);
@@ -280,7 +290,8 @@ static void enqueue_output(const char *bytes, size_t len) {
 	c->len = len;
 	c->next = NULL;
 	pthread_mutex_lock(&out_mu);
-	while (out_bytes >= OUT_LIMIT) {
+	while (out_bytes >= out_limit) {
+		atomic_fetch_add_explicit(&out_waits, 1, memory_order_relaxed);
 		clj_coro   *me = clj_coro_current();
 		clj_waiter *w = clj_waiter_new(me, CLJ_NIL);
 		w->blocking = me->host_depth > 0 || me->locks_held > 0;

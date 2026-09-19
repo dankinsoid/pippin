@@ -20,9 +20,15 @@ nonisolated(unsafe) private var uncaughtReports = 0
 // Every test ends with what it started with: no live objects, no live coroutines.
 struct CoroBaseline {
 	let objects = clj_debug_live_objects(), coros = clj_debug_live_coros()
+	// The timer thread releases a timeout channel after it woke the taker: the object count settles a moment later.
 	func check(_ location: SourceLocation = #_sourceLocation) {
 		#expect(clj_debug_coro_settle(coros, 5000), sourceLocation: location)
 		clj_output_flush()
+		var tries = 0
+		while clj_debug_live_objects() != objects && tries < 200 {
+			usleep(1000)
+			tries += 1
+		}
 		#expect(clj_debug_live_objects() == objects, sourceLocation: location)
 		#expect(clj_debug_live_coros() == coros, sourceLocation: location)
 	}
@@ -265,14 +271,22 @@ extension CoreTests {
 			base.check()
 		}
 
+		// A one-byte queue: every second line finds it full, the printer parks and the writer wakes it; nothing is lost or reordered.
 		@Test func printlnBackpressure() throws {
 			let base = CoroBaseline()
 			do {
+				clj_debug_output_set_limit(1)
+				defer { clj_debug_output_set_limit(0) }
+				let waits = clj_debug_output_waits()
 				let text = try capturingOutput {
 					_ = try eval("(<!! (go (dotimes [i 3000] (println \"line\" i)) :printed))")
 				}
 				#expect(text.split(separator: "\n").count == 3000)
 				#expect(text.hasSuffix("line 2999\n"))
+				#expect(clj_debug_output_waits() > waits)
+				// The same from a bare thread blocks it instead of parking.
+				let again = try capturingOutput { _ = try eval("(dotimes [i 1000] (println \"bare\" i))") }
+				#expect(again.split(separator: "\n").count == 1000)
 			}
 			base.check()
 		}

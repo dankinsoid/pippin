@@ -61,5 +61,8 @@ double clj_bench_switch_ns(size_t n);
 
 // Waits until the output writer has written everything queued so far (runtime.c).
 void clj_output_flush(void);
+// Test hooks for the writer's backpressure: the queue limit (0 restores the default) and how often a printer parked.
+void     clj_debug_output_set_limit(size_t bytes);
+uint64_t clj_debug_output_waits(void);
 
 #endif
