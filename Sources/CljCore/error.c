@@ -10,9 +10,10 @@
 #include "clj/map.h"
 #include "clj/shadow.h"
 #include "clj/string.h"
+#include "coro_internal.h"
 
-static _Thread_local clj_value pending;
-static _Thread_local clj_value pending_trace;
+#define pending (clj_coro_current()->pending)
+#define pending_trace (clj_coro_current()->pending_trace)
 
 enum { TRACE_FRAMES = 256 };
 
@@ -179,4 +180,13 @@ clj_value clj_take_pending_trace(void) {
 	clj_value trace = pending_trace;
 	pending_trace = CLJ_NIL;
 	return trace;
+}
+
+#undef pending
+#undef pending_trace
+void clj_coro_drop_pending(clj_coro *c) {
+	clj_release(c->pending);
+	clj_release(c->pending_trace);
+	c->pending = CLJ_NIL;
+	c->pending_trace = CLJ_NIL;
 }

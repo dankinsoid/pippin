@@ -11,9 +11,10 @@
 
 // clj_init: SIGSEGV and SIGBUS handlers that turn a guard-page fault into a landing at the thread's recovery point.
 void clj_guard_install(void);
-// The alternate signal stack of a thread, made with its shadow stack and freed with it.
-void clj_guard_thread_init(clj_shadow_stack *s);
-void clj_guard_thread_exit(clj_shadow_stack *s);
+// The alternate signal stack of a thread, made with its carrier and freed with it.
+typedef struct clj_carrier clj_carrier;
+void clj_guard_thread_init(clj_carrier *car);
+void clj_guard_thread_exit(clj_carrier *car);
 // The overflow check of a handler: lands at the recovery point, or returns true after reporting a fatal overflow.
 bool clj_guard_signal(int sig, siginfo_t *info, void *uap);
 // The interrupted registers of a signal's ucontext, as a walk origin.

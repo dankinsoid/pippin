@@ -12,29 +12,14 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/vector.h"
+#include "coro_internal.h"
 #include "guard_internal.h"
 #include "shadow_internal.h"
 #include "trace_internal.h"
 
 _Thread_local clj_shadow_stack *clj_shadow_tls;
 
-// Signal handlers read through the key: a first touch of a _Thread_local mallocs under dyld.
-static pthread_once_t key_once = PTHREAD_ONCE_INIT;
-static pthread_key_t  key;
-static _Atomic bool   key_ready;
-
-static void thread_exit(void *p) {
-	clj_shadow_stack *s = p;
-	clj_guard_thread_exit(s);
-	free(s);
-}
-
-static void make_key(void) {
-	if (pthread_key_create(&key, thread_exit) != 0) clj_fatal("pthread_key_create failed");
-	atomic_store_explicit(&key_ready, true, memory_order_release);
-}
-
-static void stack_bounds(clj_shadow_stack *s) {
+void clj_shadow_stack_bounds(clj_shadow_stack *s) {
 #if defined(__APPLE__)
 	pthread_t self = pthread_self();
 	s->stack_hi = pthread_get_stackaddr_np(self);
@@ -47,24 +32,7 @@ static void stack_bounds(clj_shadow_stack *s) {
 #endif
 }
 
-clj_shadow_stack *clj_shadow_stack_init(void) {
-	clj_shadow_stack *s = calloc(1, sizeof *s);
-	if (!s) clj_fatal("out of memory");
-	s->mask = CLJ_SHADOW_CAPACITY - 1;
-	stack_bounds(s);
-	clj_shadow_tls = s;
-	pthread_once(&key_once, make_key);
-	pthread_setspecific(key, s);
-	clj_guard_thread_init(s);
-	return s;
-}
-
-static const clj_shadow_stack *current(void) {
-	if (!atomic_load_explicit(&key_ready, memory_order_acquire)) return NULL;
-	return pthread_getspecific(key);
-}
-
-const clj_shadow_stack *clj_shadow_stack_current(void) { return current(); }
+static const clj_shadow_stack *current(void) { return clj_shadow_stack_current(); }
 
 static size_t held(const clj_shadow_stack *s) { return s->depth < s->mask + 1 ? s->depth : s->mask + 1; }
 
@@ -109,23 +77,68 @@ void clj_shadow_intern_keywords(void) { pthread_once(&keywords_once, intern_keyw
 
 enum { TRACE_MAX = CLJ_TRACE_MAX };
 
+// The coroutine's own frames, then the frames of whoever spawned it: a trace reads through the park.
 clj_value clj_shadow_stack_trace(size_t max) {
 	clj_trace_frame frames[TRACE_MAX];
 	size_t          n = clj_trace_collect(frames, max < TRACE_MAX ? max : TRACE_MAX, NULL);
-	return clj_trace_vector(frames, n);
+	return clj_coro_append_spawn_trace(clj_trace_vector(frames, n), clj_coro_tls);
+}
+
+static clj_value frame_map(clj_value name, uint32_t line, uint32_t col) {
+	clj_value m = clj_map_assoc(clj_map_empty(), kw_fn, name);
+	m = clj_map_assoc(m, kw_line, clj_fixnum(line));
+	return clj_map_assoc(m, kw_column, clj_fixnum(col));
 }
 
 clj_value clj_trace_vector(const clj_trace_frame *frames, size_t n) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value trace = clj_vector_empty();
 	for (size_t i = 0; i < n; i++) {
-		clj_value m = clj_map_assoc(clj_map_empty(), kw_fn, frames[i].fn->u.fn.name);
-		m = clj_map_assoc(m, kw_line, clj_fixnum(frames[i].at->line));
-		m = clj_map_assoc(m, kw_column, clj_fixnum(frames[i].at->col));
+		clj_value m = frame_map(frames[i].fn->u.fn.name, frames[i].at->line, frames[i].at->col);
 		trace = clj_vector_conj(trace, m);
 		clj_release(m);
 	}
 	return trace;
+}
+
+clj_value clj_coro_append_spawn_trace(clj_value trace, const clj_coro *c) {
+	if (!c || !c->nspawn) return trace;
+	pthread_once(&keywords_once, intern_keywords);
+	for (uint32_t i = 0; i < c->nspawn; i++) {
+		clj_value m = frame_map(c->spawn_trace[i].name, c->spawn_trace[i].line, c->spawn_trace[i].col);
+		trace = clj_vector_conj(trace, m);
+		clj_release(m);
+	}
+	return trace;
+}
+
+// Names and positions, no nodes: the spawner's exec may die before the child throws.
+void clj_coro_capture_spawn_trace(clj_coro *c) {
+	clj_trace_frame frames[CLJ_CORO_SPAWN_TRACE_MAX];
+	size_t          n = clj_trace_collect(frames, CLJ_CORO_SPAWN_TRACE_MAX, NULL);
+	const clj_coro *parent = clj_coro_tls;
+	uint32_t        inherited = parent ? parent->nspawn : 0;
+	if (n + inherited > CLJ_CORO_SPAWN_TRACE_MAX) inherited = (uint32_t)(CLJ_CORO_SPAWN_TRACE_MAX - n);
+	if (n + inherited == 0) return;
+	c->spawn_trace = malloc((n + inherited) * sizeof *c->spawn_trace);
+	if (!c->spawn_trace) clj_fatal("out of memory");
+	for (size_t i = 0; i < n; i++) {
+		clj_value name = frames[i].fn->u.fn.name;
+		clj_share(name);
+		c->spawn_trace[i] = (clj_spawn_frame){clj_retain(name), frames[i].at->line, frames[i].at->col};
+	}
+	for (uint32_t i = 0; i < inherited; i++) {
+		clj_spawn_frame f = parent->spawn_trace[i];
+		c->spawn_trace[n + i] = (clj_spawn_frame){clj_retain(f.name), f.line, f.col};
+	}
+	c->nspawn = (uint32_t)(n + inherited);
+}
+
+void clj_coro_free_spawn_trace(clj_coro *c) {
+	for (uint32_t i = 0; i < c->nspawn; i++) clj_release(c->spawn_trace[i].name);
+	free(c->spawn_trace);
+	c->spawn_trace = NULL;
+	c->nspawn = 0;
 }
 
 // ---- crash handler: write(2) only, no allocation, no locks, no printf

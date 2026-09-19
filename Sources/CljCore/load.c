@@ -20,6 +20,7 @@
 #include "clj/var.h"
 #include "clj/vector.h"
 
+#include "coro_internal.h"
 #include "libs_clj.inc"
 #include "load_internal.h"
 
@@ -34,8 +35,6 @@ static clj_value failures; // vector or nil
 static pthread_once_t file_var_once = PTHREAD_ONCE_INIT;
 static clj_value      file_var;
 
-_Thread_local clj_load_arm clj_load_arm_tls;
-_Thread_local bool         clj_load_analysis_failed;
 
 static clj_load_hook    hook;
 static bool             hook_set;

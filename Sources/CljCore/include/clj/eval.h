@@ -107,6 +107,8 @@ clj_value clj_eval(clj_value form, const clj_env *env);
 // ---- cooperative deadline
 // The message a timed-out call throws; a host tells a timeout from any other error by it.
 #define CLJ_DEADLINE_MESSAGE "Execution timed out"
+// What every park point and deadline check of a cancelled coroutine throws (coro.h).
+#define CLJ_CANCELLED_MESSAGE "Coroutine cancelled"
 // Bounds the wall time of what this thread runs next: the first interpreted call, loop turn, lazy-seq cell or
 // reduce past the deadline throws CLJ_DEADLINE_MESSAGE, and so does every one after it until the deadline is cleared, each after an
 // unwind budget of calls that lets a handler run; past a fixed number of those budgets every check throws, so

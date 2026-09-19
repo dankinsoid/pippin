@@ -27,6 +27,7 @@
 #include "clj/vector.h"
 #include "clj/compiled.h"
 #include "guard_internal.h"
+#include "coro_internal.h"
 #include "load_internal.h"
 
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
@@ -41,7 +42,7 @@ typedef struct capture {
 	struct capture *prev;
 } capture;
 
-static _Thread_local capture *captures;
+#define captures (*(capture **)&clj_coro_current()->captures)
 
 void clj_output_push_capture(void) {
 	capture *c = calloc(1, sizeof *c);

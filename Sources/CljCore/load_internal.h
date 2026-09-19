@@ -10,9 +10,9 @@ typedef struct {
 	clj_load_form form; // file borrowed from the loader for the call
 } clj_load_arm;
 
-extern _Thread_local clj_load_arm clj_load_arm_tls;
+#define clj_load_arm_tls (clj_coro_current()->load_arm)
 // True after a clj_eval whose form never reached evaluation (a macro or analysis failure): no node was seen.
-extern _Thread_local bool clj_load_analysis_failed;
+#define clj_load_analysis_failed (clj_coro_current()->load_analysis_failed)
 
 uint64_t clj_load_next_serial(void);
 // The name a (def… name …) form defines, or nil; borrowed from the form.

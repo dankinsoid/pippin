@@ -11,6 +11,7 @@
 #include "clj/seq.h"
 #include "clj/string.h"
 #include "clj/vector.h"
+#include "coro_internal.h"
 #include "shadow_internal.h"
 
 // ---- vector-seq
@@ -201,7 +202,7 @@ typedef struct forcing {
 	struct forcing *prev;
 } forcing;
 
-static _Thread_local forcing *forcing_top;
+#define forcing_top (*(forcing **)&clj_coro_current()->forcing_top)
 
 static bool forcing_here(clj_value obj) {
 	for (const forcing *f = forcing_top; f; f = f->prev) {

@@ -9,6 +9,7 @@
 #include "clj/error.h"
 #include "clj/lock.h"
 #include "clj/string.h"
+#include "coro_internal.h"
 #include "guard_internal.h"
 
 #if defined(__has_feature)
@@ -38,25 +39,22 @@ enum {
 static struct sigaction previous[2]; // SIGSEGV, SIGBUS
 
 // The alternate stack is a mapping of its own: a sanitizer's thread teardown unmaps whatever stack it finds installed.
-void clj_guard_thread_init(clj_shadow_stack *s) {
-	s->overflow = calloc(CLJ_TRACE_MAX, sizeof(clj_trace_frame));
-	if (!s->overflow) clj_fatal("out of memory");
-	s->altstack = mmap(NULL, ALT_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-	if (s->altstack == MAP_FAILED) clj_fatal("mmap of the alternate signal stack failed");
-	stack_t ss = {.ss_sp = s->altstack, .ss_size = ALT_STACK_SIZE, .ss_flags = 0};
+void clj_guard_thread_init(clj_carrier *car) {
+	car->altstack = mmap(NULL, ALT_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+	if (car->altstack == MAP_FAILED) clj_fatal("mmap of the alternate signal stack failed");
+	stack_t ss = {.ss_sp = car->altstack, .ss_size = ALT_STACK_SIZE, .ss_flags = 0};
 	if (sigaltstack(&ss, NULL) != 0) clj_fatal("sigaltstack failed");
 	(void)clj_locks_held; // touched now, so the handler's read of it allocates nothing
 }
 
 // Only the stack still installed is ours to unmap: the sanitizer's teardown may have taken it already.
-void clj_guard_thread_exit(clj_shadow_stack *s) {
+void clj_guard_thread_exit(clj_carrier *car) {
 	stack_t cur;
-	if (sigaltstack(NULL, &cur) == 0 && cur.ss_sp == s->altstack && !(cur.ss_flags & SS_DISABLE)) {
+	if (sigaltstack(NULL, &cur) == 0 && cur.ss_sp == car->altstack && !(cur.ss_flags & SS_DISABLE)) {
 		stack_t off = {.ss_flags = SS_DISABLE};
 		sigaltstack(&off, NULL);
-		munmap(s->altstack, ALT_STACK_SIZE);
+		munmap(car->altstack, ALT_STACK_SIZE);
 	}
-	free(s->overflow);
 }
 
 void clj_guard_origin(const void *uap, clj_trace_origin *out) {
@@ -80,9 +78,9 @@ void clj_guard_origin(const void *uap, clj_trace_origin *out) {
 static void __attribute__((noreturn)) land(clj_recovery *r) { siglongjmp(r->buf, 1); }
 
 // Rewrites the interrupted context so that the handler's return resumes in land(): pc, sp and the first argument.
-static void land_after_return(void *uap, const clj_shadow_stack *s) {
+static void land_after_return(void *uap, const clj_carrier *car, const clj_shadow_stack *s) {
 	ucontext_t *uc = uap;
-	uintptr_t   top = ((uintptr_t)s->altstack + ALT_STACK_SIZE - 256) & ~(uintptr_t)15;
+	uintptr_t   top = ((uintptr_t)car->altstack + ALT_STACK_SIZE - 256) & ~(uintptr_t)15;
 #if defined(__APPLE__) && defined(__aarch64__)
 	_STRUCT_ARM_THREAD_STATE64 *ss = &uc->uc_mcontext->__ss;
 	__darwin_arm_thread_state64_set_pc_fptr(*ss, (void (*)(void))land);
@@ -125,7 +123,8 @@ static bool is_overflow(const clj_shadow_stack *s, const siginfo_t *info, const 
 }
 
 bool clj_guard_signal(int sig, siginfo_t *info, void *uap) {
-	const clj_shadow_stack *s = clj_shadow_stack_current();
+	const clj_carrier      *car = clj_carrier_current();
+	const clj_shadow_stack *s = car && car->current ? car->current->shadow : NULL;
 	if (!s || !info) return false;
 	clj_trace_origin origin;
 	clj_guard_origin(uap, &origin);
@@ -144,7 +143,7 @@ bool clj_guard_signal(int sig, siginfo_t *info, void *uap) {
 		signal(sig, SIG_DFL);
 		return true;
 	}
-	land_after_return(uap, s);
+	land_after_return(uap, car, s);
 	return true;
 }
 

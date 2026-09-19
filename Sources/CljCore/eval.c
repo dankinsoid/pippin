@@ -28,6 +28,7 @@
 #include "proto_internal.h"
 #include "shadow_internal.h"
 #include "shape_internal.h"
+#include "coro_internal.h"
 #include "specialize_internal.h"
 #include "trace_internal.h"
 
@@ -65,15 +66,16 @@ enum {
 static inline bool deadline_reached(clj_shadow_stack *s) {
 	if (--s->countdown) return false;
 	s->countdown = DEADLINE_CHECK_EVERY;
-	return clj_profile_now() >= s->deadline;
+	return clj_profile_now() >= clj_shadow_deadline(s);
 }
 
 // The branch every call pays when no deadline is set.
 static inline bool deadline_hit(clj_shadow_stack *s) {
-	return __builtin_expect(s->deadline != 0, 0) && deadline_reached(s);
+	return __builtin_expect(clj_shadow_deadline(s) != 0, 0) && deadline_reached(s);
 }
 
 // The deadline stays set, so code that catches the throw (clojure.test does, per assertion) is stopped again.
+// A cancelled coroutine takes the same path with its own message (coro.h).
 static clj_value deadline_throw(clj_shadow_stack *s) {
 	if (s->unwinds) {
 		s->unwinds--;
@@ -81,33 +83,34 @@ static clj_value deadline_throw(clj_shadow_stack *s) {
 	} else {
 		s->countdown = 1;
 	}
+	if (atomic_load_explicit(&s->cancelled, memory_order_relaxed)) return clj_throw_msg(CLJ_CANCELLED_MESSAGE);
 	return clj_throw_msg(CLJ_DEADLINE_MESSAGE);
 }
 
 void clj_deadline_set_ms(uint64_t ms) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	if (!s) s = clj_shadow_stack_init();
-	s->deadline = ms ? clj_profile_now() + ms * 1000000u : 0;
+	atomic_store_explicit(&s->deadline, ms ? clj_profile_now() + ms * 1000000u : 0, memory_order_relaxed);
 	s->countdown = DEADLINE_CHECK_EVERY;
 	s->unwinds = DEADLINE_MAX_UNWINDS;
 }
 
 uint64_t clj_deadline_get(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
-	return s ? s->deadline : 0;
+	return s ? clj_shadow_deadline(s) : 0;
 }
 
 void clj_deadline_restore(uint64_t deadline) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	if (!s) s = clj_shadow_stack_init();
-	s->deadline = deadline;
+	atomic_store_explicit(&s->deadline, deadline, memory_order_relaxed);
 	s->countdown = DEADLINE_CHECK_EVERY;
 	s->unwinds = DEADLINE_MAX_UNWINDS;
 }
 
 bool clj_deadline_expired(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
-	return s && s->deadline && clj_profile_now() >= s->deadline;
+	return s && clj_shadow_deadline(s) && clj_profile_now() >= clj_shadow_deadline(s);
 }
 
 // ---- call-site caches
@@ -155,42 +158,45 @@ static inline const clj_fn_arity *arity_for(const clj_node *code, size_t n) {
 	return arity;
 }
 
-// Old fn roots a def replaced while this thread was evaluating. A fn root is read at +0 (eval_borrowed), so
-// the release waits until nothing on the thread can still hold such a read: no closure frame (shadow depth)
-// and no clj_exec_run. Unbounded while the thread stays in flight; a def on another thread is not covered
-// (NOTES.md).
-typedef struct {
-	clj_value *items;
-	size_t     n, cap;
-	uint32_t   exec_depth; // clj_exec_run nesting on this thread
-} retired_roots;
-
-static _Thread_local retired_roots retired;
+// Old fn roots a def replaced while this execution was evaluating. A fn root is read at +0 (eval_borrowed), so
+// the release waits until nothing on the execution can still hold such a read: no closure frame (shadow depth)
+// and no clj_exec_run. Unbounded while it stays in flight; a def on another execution is not covered (NOTES.md).
+// Per coroutine, not per carrier: a parked coroutine keeps its +0 reads across the carriers it migrates over.
+#define execution (*clj_coro_current())
 
 // A compiled fn pushes no frame, so the real stack answers for it: a walk, paid only at a rebind or a drain.
 static bool in_flight(void) {
-	return retired.exec_depth > 0 || (clj_shadow_tls && clj_shadow_tls->depth > 0) || clj_trace_compiled_on_stack();
+	clj_coro *c = clj_coro_tls;
+	return (c && c->exec_depth > 0) || (clj_shadow_tls && clj_shadow_tls->depth > 0) || clj_trace_compiled_on_stack();
 }
 
 // @ai-generated(guided)
 bool clj_eval_retire_root(clj_value old) {
 	if (!clj_is_fn(old) || !in_flight()) return false;
-	if (retired.n == retired.cap) {
-		retired.cap = retired.cap ? retired.cap * 2 : 8;
-		retired.items = realloc(retired.items, retired.cap * sizeof *retired.items);
-		if (!retired.items) clj_fatal("out of memory");
+	if (execution.nretired == execution.cretired) {
+		execution.cretired = execution.cretired ? execution.cretired * 2 : 8;
+		execution.retired = realloc(execution.retired, execution.cretired * sizeof *execution.retired);
+		if (!execution.retired) clj_fatal("out of memory");
 	}
-	retired.items[retired.n++] = old;
+	execution.retired[execution.nretired++] = old;
 	return true;
 }
 
 // Called where a depth returned to zero; the other one may still be up.
 static void drain_retired(void) {
 	if (in_flight()) return;
-	while (retired.n) clj_release(retired.items[--retired.n]);
+	while (execution.nretired) clj_release(execution.retired[--execution.nretired]);
 }
 
-size_t clj_debug_retired_roots(void) { return retired.n; }
+// A finished coroutine holds nothing any more: everything it retired goes (sched.c).
+void clj_eval_drain_retired(clj_coro *c) {
+	while (c->nretired) clj_release(c->retired[--c->nretired]);
+	free(c->retired);
+	c->retired = NULL;
+	c->cretired = 0;
+}
+
+size_t clj_debug_retired_roots(void) { return execution.nretired; }
 
 // A local, captured or constant read without a retain: its home (the frame, the closure's env, the tree)
 // outlives the consumer. A local's last use (optimizer.c) hands the frame's own reference over instead: the
@@ -480,7 +486,7 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 #endif
 		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
 	}
-	if (__builtin_expect(--s->depth == 0, 0) && retired.n) drain_retired();
+	if (__builtin_expect(--s->depth == 0, 0) && execution.nretired) drain_retired();
 	slots_release(frame, arity->nslots);
 	return v;
 }
@@ -1493,12 +1499,12 @@ clj_value clj_exec_run(clj_value exec) {
 	}
 	memset(slots, 0, nslots * sizeof *slots);
 	clj_frame frame = {slots, NULL, e, 0, NULL};
-	retired.exec_depth++;
+	execution.exec_depth++;
 	clj_value v = eval_child(e->root, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
 	slots_release(&frame, nslots);
 	if (slots != small) free(slots);
-	if (--retired.exec_depth == 0 && retired.n) drain_retired();
+	if (--execution.exec_depth == 0 && execution.nretired) drain_retired();
 	return v;
 }
 
@@ -1527,27 +1533,31 @@ bool clj_eval_deadline_hit(void *shadow_stack) {
 	return true;
 }
 
-void clj_eval_top_enter(void) { retired.exec_depth++; }
+void clj_eval_top_enter(void) { execution.exec_depth++; }
 
-uint32_t clj_eval_exec_depth(void) { return retired.exec_depth; }
+uint32_t clj_eval_exec_depth(void) { return execution.exec_depth; }
 
-void clj_eval_exec_depth_set(uint32_t depth) { retired.exec_depth = depth; }
+void clj_eval_exec_depth_set(uint32_t depth) { execution.exec_depth = depth; }
 
+// The host's synchronous trampoline: a park under it is an error (design §5, host_depth), never a block.
 clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
 	// The bracket opens before the point is pushed, so a landing restores the depth to the open bracket.
-	retired.exec_depth++;
+	clj_coro *c = clj_coro_current();
+	c->exec_depth++;
+	c->host_depth++;
 	clj_recovery r;
 	clj_recovery_push(&r);
 	clj_value v;
 	if (sigsetjmp(r.buf, 0)) v = clj_recovery_throw(&r);
 	else v = clj_invoke(f, args, n);
 	clj_recovery_pop(&r);
-	if (--retired.exec_depth == 0 && retired.n) drain_retired();
+	c->host_depth--;
+	if (--c->exec_depth == 0 && c->nretired) drain_retired();
 	return v;
 }
 
 void clj_eval_top_leave(void) {
-	if (--retired.exec_depth == 0 && retired.n) drain_retired();
+	if (--execution.exec_depth == 0 && execution.nretired) drain_retired();
 }
 
 

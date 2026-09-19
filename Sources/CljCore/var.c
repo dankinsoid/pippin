@@ -13,6 +13,7 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
+#include "coro_internal.h"
 #include "specialize_internal.h"
 
 static void var_each_child(void *self, clj_visitor visit, void *ctx) {
@@ -111,17 +112,21 @@ bool clj_var_is_private(clj_value var) {
 }
 
 // A frame holds the bindings visible while it is on top (its own over the previous frame's) and its own alone,
-// so a pop knows which vars lose a thread binding.
+// so a pop knows which vars lose a thread binding. Shared with spawned coroutines: it lives while any chain reaches it.
 typedef struct frame {
-	clj_value     bindings; // map var → box
-	clj_value     pushed;   // map var → box of this push only
-	struct frame *prev;
+	clj_value        bindings; // map var → box
+	clj_value        pushed;   // map var → box of this push only
+	struct frame    *prev;
+	_Atomic uint32_t rc;
 } frame;
 
-static _Thread_local frame *frames;
+#define frames (clj_coro_current()->bindings)
+
+static frame *top_frame(void) { return frames; }
 
 clj_value clj_var_thread_binding(clj_value var) {
-	frame *f = frames;
+	clj_coro *c = clj_coro_tls;
+	frame    *f = c ? c->bindings : NULL;
 	if (!f) return CLJ_NIL;
 	return clj_map_get(f->bindings, var, CLJ_NIL);
 }
@@ -155,10 +160,23 @@ static bool count_binding(clj_value key, clj_value val, void *ctx) {
 	return true;
 }
 
+// A var's thread_bound count drops when the frame dies, not when it is popped: a child may still see the binding.
+static void frame_release(frame *f) {
+	while (f && atomic_fetch_sub_explicit(&f->rc, 1, memory_order_acq_rel) == 1) {
+		frame *prev = f->prev;
+		clj_map_each(f->pushed, count_binding, (void *)(intptr_t)-1);
+		clj_release(f->bindings);
+		clj_release(f->pushed);
+		free(f);
+		f = prev;
+	}
+}
+
 // @ai-generated(guided)
 clj_value clj_var_push_bindings(clj_value bindings) {
 	if (!clj_is_map(bindings)) return clj_throw_msg("push-thread-bindings expects a map, got: %s", clj_type_name(bindings));
-	push_ctx c = {clj_retain(frames ? frames->bindings : clj_map_empty()), clj_map_empty(), CLJ_NIL};
+	frame   *top = top_frame();
+	push_ctx c = {clj_retain(top ? top->bindings : clj_map_empty()), clj_map_empty(), CLJ_NIL};
 	clj_map_each(bindings, push_entry, &c);
 	if (c.error == CLJ_THROWN) {
 		clj_release(c.merged);
@@ -169,29 +187,43 @@ clj_value clj_var_push_bindings(clj_value bindings) {
 	if (!f) clj_fatal("out of memory");
 	f->bindings = c.merged;
 	f->pushed = c.pushed;
-	f->prev = frames;
+	f->prev = top;
+	atomic_init(&f->rc, 1);
 	frames = f;
 	clj_map_each(f->pushed, count_binding, (void *)(intptr_t)1);
 	return CLJ_NIL;
 }
 
 clj_value clj_var_pop_bindings(void) {
-	frame *f = frames;
+	frame *f = top_frame();
 	if (!f) return clj_throw_msg("Pop without matching push");
 	frames = f->prev;
-	clj_map_each(f->pushed, count_binding, (void *)(intptr_t)-1);
-	clj_release(f->bindings);
-	clj_release(f->pushed);
-	free(f);
+	if (f->prev) atomic_fetch_add_explicit(&f->prev->rc, 1, memory_order_relaxed);
+	frame_release(f);
 	return CLJ_NIL;
 }
 
-void *clj_var_bindings_mark(void) { return frames; }
+void *clj_var_bindings_mark(void) { return top_frame(); }
 
 // Pops what a landing at a recovery point left pushed (guard.c): the frames above the mark were abandoned.
 void clj_var_bindings_unwind(void *mark) {
-	while (frames && frames != mark) clj_release(clj_var_pop_bindings());
+	while (top_frame() && top_frame() != mark) clj_release(clj_var_pop_bindings());
 }
+
+// Conveyance: the child's chain starts at the spawner's top frame; the maps cross threads, so they are shared.
+void *clj_var_bindings_share(void) {
+	frame *f = top_frame();
+	if (!f) return NULL;
+	atomic_fetch_add_explicit(&f->rc, 1, memory_order_relaxed);
+	for (frame *g = f; g; g = g->prev) {
+		if (clj_is_ptr(g->bindings) && (clj_header_of(g->bindings)->flags & CLJ_FLAG_SHARED)) break;
+		clj_share(g->bindings);
+		clj_share(g->pushed);
+	}
+	return f;
+}
+
+void clj_var_bindings_release(void *chain) { frame_release(chain); }
 
 static bool collect_value(clj_value key, clj_value box, void *ctx) {
 	clj_value *m = ctx;
@@ -201,7 +233,8 @@ static bool collect_value(clj_value key, clj_value box, void *ctx) {
 
 clj_value clj_var_get_thread_bindings(void) {
 	clj_value m = clj_map_empty();
-	if (frames) clj_map_each(frames->bindings, collect_value, &m);
+	frame    *f = top_frame();
+	if (f) clj_map_each(f->bindings, collect_value, &m);
 	return m;
 }
 
