@@ -241,14 +241,15 @@ extension CoreTests {
 				}
 				#expect(pending() == 10000)
 				let before = clj_debug_phys_footprint()
+				// An aggressive sweep (CLJ_EVAC_SWEEP_MS=1 in the stress loop) may have taken some already.
 				let n = clj_coro_evacuate_all()
-				#expect(n == 10000, "\(n) evacuated")
+				#expect(clj_debug_coro_evacuated_count() == 10000, "\(n) evacuated now")
 				// ~3.7 KB live per interpreted go block: two 832-byte eval frames, the entry's sigjmp_buf, the switch frame.
 				let bytes = clj_debug_coro_evacuated_bytes()
 				#expect(underASan || bytes <= 10000 * 4096, "\(bytes) bytes in blobs")
 				let after = clj_debug_phys_footprint()
 				// Most of 10 000 pages went back; other suites run in parallel, so the bound is loose.
-				#expect(underASan || (before > after && before - after > 100 * 1024 * 1024), "footprint \(before / 1024) KB → \(after / 1024) KB")
+				#expect(underASan || n < 10000 || (before > after && before - after > 100 * 1024 * 1024), "footprint \(before / 1024) KB → \(after / 1024) KB")
 				#expect(try eval("(doseq [g gates] (close! g)) (reduce + (repeatedly 10000 #(<!! done)))") == 49_995_000)
 				#expect(clj_debug_coro_evacuated_count() == 0)
 				_ = try eval("(def gates nil) (def done nil)")

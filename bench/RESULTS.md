@@ -1625,3 +1625,84 @@ mutex, the library layer in core.async's own shape, `future`/`promise` as promis
   vs 111–181 (bimodal on both binaries: ~115 when the pair shares a carrier through the next slot, ~180–300 when
   it lands on two carriers exchanging wakeups), `alts!` 672 vs 663, timeout 2031 vs 2110, `swap!`
   uncontended 38.0 vs 38.0, `get @atom` 41.5.
+
+## Evacuation of parked coroutines — 2026-09-20, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Design §4, "Память припаркованной корутины — страница, не модель" (NOTES.md "Coroutines", the audit table and
+"Evacuation of cold parked coroutines"): a parked coroutine's live bytes are copied into a heap blob of exact
+size, its whole mapping goes to `MADV_FREE_REUSABLE`, and the carrier copies them back to the same addresses
+before the switch in. `CLJ_BENCH_ONLY=evac ./.build/release/clj-bench`, 12 carriers, medians of 5 runs. The
+machine ran other builds during these runs; the A/B rows below were taken back to back against a build of
+`253770e` for that reason.
+
+| scenario | ns/op |
+|---|---:|
+| evacuate + restore cycle, a go block parked on `<!` (1936 live bytes) | 1406–1598 |
+| evacuate + restore cycle, 120 interpreted frames deep (63 KB live) | 6245–6336 |
+| main → parked echo → main round trip, resident | 2069 |
+| the same, evacuated before each wake (the restore on the resume path) | 4438–5936 |
+
+| 10 000 parked go blocks | physical (`phys_footprint`), total | per coroutine |
+|---|---:|---:|
+| resident | 170 MB | 17 KB |
+| evacuated (10 000 in 19–22 ms) | 33–34 MB | 3.5 KB |
+| of which the blobs (live bytes) | 18 MB | 1936 B |
+| all woken after evacuation (restore + run + finish) | 40–46 ms total | 4.1–4.7 µs |
+
+| 1000 coroutines in 500 ping-pong pairs, 2000 hops each | ns per hop | evacuations over 6 runs |
+|---|---:|---:|
+| sweep off | 705–794 | 0 |
+| sweep every 2 ms | 712–804 | 0–3 |
+
+| hot row (`CLJ_BENCH_ONLY=coro`), three alternating runs each | `253770e`, ns/op | this commit, ns/op |
+|---|---:|---:|
+| go spawn + finish, joined through a channel | 585–640 | 608–611 |
+| go spawn + finish from inside a coroutine | 514–530 | 533–549 |
+| unbuffered >!/<! round trip (ping-pong) | 529–561 | 532–551 |
+| buffered throughput, chan 1024 | 118–329 (bimodal, see "The core.async library layer") | 117–229 (the same two modes) |
+| alts! over 2 channels | 650–668 | 665–669 |
+| (<! (timeout 0)) round trip | 2072–2418 | 2009–2299 |
+| locking, 4 carriers | 393–401 | 404–411 |
+| swap! inc, 4 carriers | 117–124 | 119–124 |
+| swap! inc, uncontended | 37.0–39.3 | 37.4–41.9 |
+| get @atom :k, uncontended | 40.8–42.2 | 40.2–43.2 |
+
+- **1936 live bytes per parked `(go (<! g))` in release, 3.7 KB in debug.** The frames, innermost first (debug
+  sizes): `park` 192 (the 160-byte switch frame), `clj_park` 64, `b_take` 288 (the 16-node `wakes` list),
+  `eval_invoke` 832 twice (the `SMALL_SLOTS` and `SMALL_ARGS` arrays: the interpreted frame of design §4),
+  `clj_closure_invoke_at` 512, `clj_coro_entry` 400 (the recovery point's `sigjmp_buf`). The ring adds 48 bytes
+  (two frames). The design's "1–3 KB" was the right order; a compiled body has no `eval_invoke` frames and
+  would land near 1.2 KB.
+- **An evacuate + restore cycle is 1.4–1.6 µs for a shallow coroutine and 6.3 µs for 63 KB**: two `memcpy`s, a
+  `malloc`/`free`, one `MADV_FREE_REUSABLE` over the pages the park's own advise had not covered (0.7 µs for one
+  page; 3.6 µs for the whole 528 KB reserve, which is why the evacuation starts where the park's advise
+  stopped), one `MADV_FREE_REUSE` (0.7 µs), and the page faults of the refault. A wake through a restore costs
+  the round trip +2.4–3.9 µs. The 10 000 evacuate in 19–22 ms (1.9–2.2 µs each) from one thread and wake in
+  40–46 ms.
+- **10 000 parked: 170 MB → 33 MB.** The 16 KB page per coroutine is gone; what stays is 18 MB of blobs and
+  ~16 MB of the objects that were always there — the coroutine (640 bytes), its `go` channel, the closure, the
+  waiter and queue node, the `done` channel's node. The brief's gate of 5 MB is not reachable with real C frames
+  and those objects; the next 2× is the interpreter's two 832-byte slot arrays, or compiled bodies.
+- **A 2 ms sweep over 1000 hot coroutines evacuated 0–3 of them in 6 runs of 2 000 000 hops** and moved the hop
+  by ~10 ns (within the run-to-run noise of that row). The sweep takes a coroutine only when two passes find
+  it in the same park, so a pair hopping every microsecond is never cold; the three that were caught sat in
+  the tail of a run where one side had finished. The default period is 250 ms: a coroutine parked that long
+  pays ~5 µs on its wake against ≥ 250 ms of sleep, and memory pressure (the dispatch source) takes everything
+  parked at once regardless.
+- **The hot rows did not move** beyond the noise of a loaded machine: spawn 608–611 against 585–640, ping-pong
+  532–551 against 529–561, `alts!` and the atom rows equal, the timeout row 2009–2299 against 2072–2418 — the
+  hot path gained one flag test on the resume and, on the park, `parks++` and a `linked` test under the lock it
+  already holds. Two findings on the way: (1) a link into the sweep's live list at every spawn and an unlink at
+  every finish under one `clj_lock` cost the spawn row ~60 ns against twelve finishing carriers — the list is
+  joined at the first park (a coroutine that never parks is never listed) and striped; (2) **any far pending
+  timer made `(<! (timeout 0))` ~0.8 µs slower** (2.1 → 2.9 µs), because a thread woken out of
+  `pthread_cond_timedwait` answers ~0.7 µs later than one woken out of `pthread_cond_wait` (measured with a
+  40-line C program: 4.4 vs 4.0 µs and 4.2 vs 3.1 per signalled round trip) — the sweep's 250 ms timer made that
+  permanent. The timer thread now keeps a deadline farther than 2 ms on one dispatch timer and waits untimed;
+  the row is 2.1 µs with the sweep armed and with a `(timeout 600000)` pending.
+- **Accounting:** a page re-dirtied after `MADV_FREE_REUSABLE` is not counted in `phys_footprint` until the
+  pageout scanner meets it (measured: 0 KB after re-dirtying 10 000 pages), while its data is safe (the scanner
+  treats a referenced or dirtied reusable page as reused). The restore therefore calls `MADV_FREE_REUSE` on the
+  pages it is about to write, so the "all woken" footprint is honest; the park path's own tail advise has the
+  same property and is left as it is (the tail is rarely re-dirtied).
+

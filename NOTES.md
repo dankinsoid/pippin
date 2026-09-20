@@ -265,9 +265,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   before the switch: `MADV_FREE_REUSE` on the pages about to be written (a re-dirtied reusable page rejoins
   `phys_footprint` otherwise only when the pageout scanner meets it — measured: 0 KB counted after a re-dirty
   without it; the data is safe either way, the scanner treats a referenced or dirtied reusable page as reused),
-  two `memcpy`s back, the blob freed. The hot path gains one flag test on the resume and a `parks++` under the
-  lock the park already holds; the spawn gains a link into the live list under a `clj_lock` (the arming of the
-  sweep timer happens outside it). Triggers: (1) the **sweep** — a timer on the timer thread every
+  two `memcpy`s back, the blob freed. The hot path gains one flag test on the resume, and on the park a `parks++`
+  and a `linked` test under the lock the park already holds: a coroutine joins the sweep's live list (16 stripes
+  by address under `clj_lock`s) at its *first* park, not at its spawn — a link per spawn and an unlink per finish
+  cost the spawn row ~60 ns against twelve finishing carriers, and a coroutine that never parks has nothing to
+  sweep. Triggers: (1) the **sweep** — a timer on the timer thread every
   `CLJ_EVAC_SWEEP_MS` (default 250, `clj_coro_set_evac_sweep_ms`, 0 disables), armed while any coroutine lives and
   re-armed by itself; a pass records each parked coroutine's park generation (`cold_at = parks`) and evacuates
   those the previous pass saw in the *same* park, so a coroutine is taken after 250–500 ms parked and a pair
