@@ -23,7 +23,7 @@ Top reasons (forms and tests):
 | 1 | assertion: (= false (double? (float 0.0))) |
 | 1 | assertion: (= false (list? (seq (sorted-map :a 1)))) |
 | 1 | assertion: (= nil (parse-uuid "0-0-0-0-0")) |
-| 1 | assertion: (false? (realized? ftr3)) |
+| 1 | assertion: (false? (realized? ftr2)) |
 | 1 | assertion: (ifn? (quote symbol)) |
 | 1 | assertion: (p/thrown? (assoc (transient avec) 0 5)) |
 | 1 | assertion: (p/thrown? (char 65895)) |

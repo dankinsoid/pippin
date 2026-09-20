@@ -2,6 +2,7 @@
 ;; A failing entry not listed here fails CI, and so does a listed one that now loads, passes or runs (stale).
 ;; :missing names the symbols the runtime lacks; an entry that fails by design cites :design-line, a line of §8;
 ;; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.
+;; :flaky true marks a test whose outcome depends on timing here (its :note says why); it is tolerated either way.
 ;; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the
 ;; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.
 {:second-run-live-objects 4
@@ -46,7 +47,7 @@
   {:name clojure.core-test.partition/test-partition :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.persistent-bang/test-persistent! :status :fail :reason "(p/thrown? (persistent! coll))" :missing [] :note "transient is identity here, so (persistent! {}) cannot throw"}
   {:name clojure.core-test.pop-bang/test-pop! :status :fail :reason "(p/thrown? (pop! t))" :missing [] :note "transient is identity here, so pop! on a persistent vector cannot throw"}
-  {:name clojure.core-test.realized-qmark/test-realized? :status :fail :reason "(false? (realized? ftr3))" :missing [] :note "the suite's sleep is (Thread/sleep ms) under :clj and has no :default branch, and the manifest sets no features, so (future (sleep 1)) is a no-op body that finishes on its carrier before realized? asks; with :clj the future parks on the timer and the test passes"}
+  {:name clojure.core-test.realized-qmark/test-realized? :status :fail :reason "(false? (realized? ftr2))" :missing [] :note "the suite's sleep is (Thread/sleep ms) under :clj and has no :default branch, and the manifest sets no features, so (future (sleep 1)) is a no-op body that usually finishes on its carrier before realized? asks; with :clj the future parks on the timer and the test passes" :flaky true}
   {:name clojure.core-test.remove/test-remove :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.repeat/test-repeat :status :error :reason "boolean cannot be cast to a number" :missing [] :note "the suite puts the JVM's throwing (repeat true :a) under :clj and jank's [:a] under :default, and the manifest sets no features; (repeat true :a) throws here, as on the JVM"}
   {:name clojure.core-test.select-keys/test-select-keys :status :fail :reason "(p/thrown? (select-keys \"\" [:a]))" :missing [] :note "select-keys answers {} for a collection with no lookup where the JVM throws: (select-keys \"\" [:a])"}

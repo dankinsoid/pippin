@@ -2,6 +2,7 @@
 ;; A failing entry not listed here fails CI, and so does a listed one that now loads, passes or runs (stale).
 ;; :missing names the symbols the runtime lacks; an entry that fails by design cites :design-line, a line of §8;
 ;; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.
+;; :flaky true marks a test whose outcome depends on timing here (its :note says why); it is tolerated either way.
 ;; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the
 ;; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.
 {:second-run-live-objects 32

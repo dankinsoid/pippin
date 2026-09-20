@@ -327,8 +327,12 @@ extension CoreTests {
 			var out: [(String, String)] = []
 			if let line = d[kw("design-line")] { out.append(("design-line", line.description)) }
 			if let note = d[kw("note")] { out.append(("note", note.description)) }
+			if isFlaky(e) { out.append(("flaky", "true")) }
 			return out
 		}
+
+		// :flaky true: the outcome depends on timing here (the :note says why), so the entry is tolerated either way.
+		private static func isFlaky(_ e: Value?) -> Bool { e?.dictionary?[kw("flaky")]?.bool == true }
 
 		private static func writeAllowlist(_ lib: Library, _ r: RunResult, liveAfterSecondRun: Int) throws -> String {
 			let previous = try readAllowlist(lib)
@@ -337,6 +341,7 @@ extension CoreTests {
 			lines.append(";; A failing entry not listed here fails CI, and so does a listed one that now loads, passes or runs (stale).")
 			lines.append(";; :missing names the symbols the runtime lacks; an entry that fails by design cites :design-line, a line of §8;")
 			lines.append(";; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.")
+			lines.append(";; :flaky true marks a test whose outcome depends on timing here (its :note says why); it is tolerated either way.")
 			lines.append(";; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the")
 			lines.append(";; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.")
 			lines.append("{:second-run-live-objects \(liveAfterSecondRun)")
@@ -355,11 +360,20 @@ extension CoreTests {
 			lines.append(" ]")
 			lines.append(" :tests")
 			lines.append(" [")
-			for t in r.tests.filter({ $0.status != "pass" }).sorted(by: { $0.name < $1.name }) {
+			var testLines: [(String, String)] = []
+			for t in r.tests.filter({ $0.status != "pass" }) {
 				let reason = t.reason ?? ""
-				lines.append(entry([("name", t.name), ("status", ":" + t.status), ("reason", ednString(truncated(reason))),
-				                    ("missing", "[" + (missingSymbol(in: reason).map { [$0] } ?? []).joined() + "]")] + kept(previous.tests[t.name])))
+				testLines.append((t.name, entry([("name", t.name), ("status", ":" + t.status), ("reason", ednString(truncated(reason))),
+				                                 ("missing", "[" + (missingSymbol(in: reason).map { [$0] } ?? []).joined() + "]")] + kept(previous.tests[t.name]))))
 			}
+			// A flaky entry that passed this run is kept as it was: the next run may see it fail again.
+			let passedNow = Set(r.tests.filter { $0.status == "pass" }.map(\.name))
+			for (name, e) in previous.tests where isFlaky(e) && passedNow.contains(name) {
+				let d = e.dictionary ?? [:]
+				testLines.append((name, entry([("name", name), ("status", d[kw("status")]?.description ?? ":fail"), ("reason", ednString(d[kw("reason")]?.string ?? "")),
+				                               ("missing", d[kw("missing")]?.description ?? "[]")] + kept(e))))
+			}
+			for (_, line) in testLines.sorted(by: { $0.0 < $1.0 }) { lines.append(line) }
 			lines.append(" ]")
 			lines.append(" :skipped")
 			lines.append(" [" + r.skipped.sorted().joined(separator: " ") + "]}")
@@ -408,7 +422,7 @@ extension CoreTests {
 			// A test that fails on an allowlisted refusal (refused.edn) is that refusal's consequence, not a new failure.
 			let failingTests = Dictionary(r.tests.filter { $0.status != "pass" && !(compiledMode && ($0.reason ?? "").hasPrefix("compiler refused")) }.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
 			for name in failingTests.keys.sorted() where allow.tests[name] == nil { problems.append("\(lib.name): test fails and is not allowlisted: \(name) — \(truncated(failingTests[name]?.reason ?? "", 100))") }
-			for name in allow.tests.keys.sorted() where failingTests[name] == nil { problems.append("\(lib.name): stale allowlist test entry, it passes now: \(name)") }
+			for name in allow.tests.keys.sorted() where failingTests[name] == nil && !isFlaky(allow.tests[name]) { problems.append("\(lib.name): stale allowlist test entry, it passes now: \(name)") }
 			for name in r.skipped.sorted() where !allow.skipped.contains(name) { problems.append("\(lib.name): skipped var not allowlisted: \(name)") }
 			for name in allow.skipped.sorted() where !r.skipped.contains(name) { problems.append("\(lib.name): stale skipped entry, the var exists now: \(name)") }
 			for (_, e) in allow.tests.sorted(by: { $0.key < $1.key }) {
@@ -452,7 +466,9 @@ extension CoreTests {
 				let before = clj_debug_live_objects()
 				let second = try Self.run(lib)
 				let live = Int(clj_debug_live_objects() - before)
-				#expect(second.tests.map(\.status) == first.tests.map(\.status), "\(lib.name): the two runs disagree")
+				let flaky = try Self.readAllowlist(lib).tests.filter { Self.isFlaky($0.value) }.keys
+				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) }.map(\.status) }
+				#expect(steady(second) == steady(first), "\(lib.name): the two runs disagree")
 				doc += Self.summary(lib, first, liveAfterSecondRun: live)
 				if Self.update {
 					_ = try Self.writeAllowlist(lib, first, liveAfterSecondRun: live)

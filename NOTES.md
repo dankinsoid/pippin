@@ -2180,7 +2180,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `:missing` (the symbols the runtime lacks, extracted from the message), `:design-line` (a line of design §8)
   or `:note` — a hand-written sentence saying whether the failure is an accepted deviation or a runtime bug
   still open, with the repro. A test entry with none of the three fails the check, and a regeneration carries
-  `:design-line` and `:note` over, so the review is not lost. Forms are not annotated: a form's reason is its
+  `:design-line` and `:note` over, so the review is not lost. `:flaky true` marks a test whose outcome depends on timing
+  here (its `:note` says why; the one so far is `realized?` on a `future` whose body is a no-op because the suite's
+  `sleep` has no `:default` branch): it is tolerated either way, left out of the two-runs-agree check and kept by a
+  regeneration when it happened to pass. Forms are not annotated: a form's reason is its
   own classification (a reader gap or an unresolved symbol). `:second-run-live-objects` is what a second run
   of the same tests leaves alive; a different number fails.
 - **On by default** (`CLJ_CORPUS=0` skips it): the whole corpus is about a second of a debug run, three under
