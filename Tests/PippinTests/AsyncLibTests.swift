@@ -4,10 +4,10 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'async-lib-tests) " + source) }
+private func eval(_ source: String) throws -> Value { try cljEvalScoped("(in-ns 'async-lib-tests) " + source) }
 
 private func message(_ source: String) -> String? {
-	guard let text = cljEvalError("(in-ns 'async-lib-tests) " + source) else { return nil }
+	guard let text = cljEvalErrorScoped("(in-ns 'async-lib-tests) " + source) else { return nil }
 	let prefix = "#error {:message \""
 	guard text.hasPrefix(prefix), let end = text.range(of: "\", :data") else { return text }
 	return String(text[prefix.endIndex..<end.lowerBound])
@@ -23,9 +23,9 @@ extension CoreTests {
 	@Suite struct AsyncLibTests {
 		init() throws {
 			clj_init()
-			_ = try cljEval("(ns async-lib-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel! go-scoped plet promise-chan pipe mult tap untap untap-all pub sub unsub unsub-all mix admix unmix unmix-all toggle solo-mode merge onto-chan! to-chan! onto-chan to-chan pipeline pipeline-blocking pipeline-async split unblocking-buffer?]]))")
+			_ = try cljEvalScoped("(ns async-lib-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel! go-scoped plet promise-chan pipe mult tap untap untap-all pub sub unsub unsub-all mix admix unmix unmix-all toggle solo-mode merge onto-chan! to-chan! onto-chan to-chan pipeline pipeline-blocking pipeline-async split unblocking-buffer?]]))")
 			for k in ["a", "b", "body", "cancelled", "caught", "child", "closed", "done", "err", "even", "finally", "int", "odd", "one", "ran", "second", "put", "string", "take", "two", "unreached", "x", "y", "z"] { _ = kw(k) }
-			_ = try cljEval("""
+			_ = try cljEvalScoped("""
 			(in-ns 'async-lib-tests)
 			(defn mapping [f] (fn [f1] (fn ([] (f1)) ([result] (f1 result)) ([result input] (f1 result (f input))))))
 			(defn xerox [n] (fn [f1] (fn ([] (f1)) ([result] (f1 result)) ([result input] (loop [res result i n] (if (pos? i) (let [a (f1 result input)] (if (reduced? a) a (recur a (dec i)))) res))))))

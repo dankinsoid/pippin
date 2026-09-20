@@ -8,6 +8,7 @@ clj_value clj_compiled_lib_init_clojure_walk(void);
 clj_value clj_compiled_lib_init_clojure_template(void);
 clj_value clj_compiled_lib_init_clojure_test(void);
 clj_value clj_compiled_lib_init_clojure_core_async(void);
+clj_value clj_compiled_lib_init_clojure_core_async_impl_buffers(void);
 
 void clj_compiled_libs_register(void) {
 	clj_compiled_register("<embedded>/clojure/set.clj", clj_compiled_lib_init_clojure_set);
@@ -16,6 +17,7 @@ void clj_compiled_libs_register(void) {
 	clj_compiled_register("<embedded>/clojure/template.clj", clj_compiled_lib_init_clojure_template);
 	clj_compiled_register("<embedded>/clojure/test.clj", clj_compiled_lib_init_clojure_test);
 	clj_compiled_register("<embedded>/clojure/core/async.clj", clj_compiled_lib_init_clojure_core_async);
+	clj_compiled_register("<embedded>/clojure/core/async/impl/buffers.clj", clj_compiled_lib_init_clojure_core_async_impl_buffers);
 }
 #else
 typedef int cljc_libs_disabled;

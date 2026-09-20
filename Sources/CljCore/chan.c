@@ -954,10 +954,11 @@ clj_value clj_chan_promise(void) { return chan_alloc(CLJ_BUF_PROMISE, 1, CLJ_CHA
 
 static bool realized_locked(const clj_chan *ch) { return ch->count > 0 || ch->closed; }
 
+// A cancelled future is done at once (the JVM's isDone): its deref throws the cancellation as soon as the body lands.
 bool clj_chan_realized(clj_value chv) {
 	clj_chan *ch = chan_of(chv);
 	chan_lock(ch);
-	bool r = realized_locked(ch);
+	bool r = realized_locked(ch) || (ch->role == CLJ_CHAN_FUTURE && !clj_is_nil(ch->coro) && clj_coro_cancelled(ch->coro));
 	chan_unlock(ch);
 	return r;
 }
@@ -1158,21 +1159,25 @@ clj_value clj_chan_cancel(clj_value chv) {
 	if (chan_arg(chv, "cancel!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	bool      cancelled = false;
+	clj_value coro = CLJ_NIL;
 	chan_lock(ch);
 	if (ch->job) {
 		atomic_store_explicit(&ch->job->cancel_early, true, memory_order_relaxed);
 		cancelled = true;
 	} else if (!clj_is_nil(ch->coro)) {
-		clj_coro *c = clj_coro_of(ch->coro);
-		if (ch->role == CLJ_CHAN_THREAD) {
-			clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
-			cancelled = true;
-		} else if (!clj_coro_done(ch->coro)) {
-			clj_coro_cancel(ch->coro);
-			cancelled = true;
-		}
+		coro = clj_retain(ch->coro);
 	}
 	chan_unlock(ch);
+	if (clj_is_nil(coro)) return clj_bool(cancelled);
+	// The wake is outside the section: a thread's implicit coroutine is cancellable only through its channel.
+	if (ch->role == CLJ_CHAN_THREAD) {
+		clj_coro_cancel_kind(clj_coro_of(coro), CLJ_CANCEL_REQUESTED);
+		cancelled = true;
+	} else if (!clj_coro_done(coro)) {
+		clj_coro_cancel(coro);
+		cancelled = true;
+	}
+	clj_release(coro);
 	return clj_bool(cancelled);
 }
 

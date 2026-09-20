@@ -4,10 +4,10 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'coro-tests) " + source) }
+private func eval(_ source: String) throws -> Value { try cljEvalScoped("(in-ns 'coro-tests) " + source) }
 
 private func message(_ source: String) -> String? {
-	guard let text = cljEvalError("(in-ns 'coro-tests) " + source) else { return nil }
+	guard let text = cljEvalErrorScoped("(in-ns 'coro-tests) " + source) else { return nil }
 	let prefix = "#error {:message \""
 	guard text.hasPrefix(prefix), let end = text.range(of: "\", :data") else { return text }
 	return String(text[prefix.endIndex..<end.lowerBound])
@@ -19,9 +19,9 @@ extension CoreTests {
 	@Suite struct CoroTests {
 		init() throws {
 			clj_init()
-			_ = try cljEval("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts!]]))")
+			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts!]]))")
 			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice"] { _ = kw(k) }
-			_ = try cljEval("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out)")
+			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out)")
 		}
 
 		// The switch is the hand-written asm: ~20 instructions each way, so a round trip is tens of nanoseconds.
@@ -66,7 +66,7 @@ extension CoreTests {
 				#expect(try eval("(<!! (go (<! (go :from-coro))))") == kw("from-coro"))
 				// From a plain pthread with no runtime state of its own.
 				let t = Thread {
-					let v = try? cljEval("(clojure.core.async/<!! (clojure.core.async/go 7))")
+					let v = try? cljEvalScoped("(clojure.core.async/<!! (clojure.core.async/go 7))")
 					#expect(v == 7)
 				}
 				t.start()

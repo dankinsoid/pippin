@@ -4,10 +4,10 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'cmutex-tests) " + source) }
+private func eval(_ source: String) throws -> Value { try cljEvalScoped("(in-ns 'cmutex-tests) " + source) }
 
 private func message(_ source: String) -> String? {
-	guard let text = cljEvalError("(in-ns 'cmutex-tests) " + source) else { return nil }
+	guard let text = cljEvalErrorScoped("(in-ns 'cmutex-tests) " + source) else { return nil }
 	let prefix = "#error {:message \""
 	guard text.hasPrefix(prefix), let end = text.range(of: "\", :data") else { return text }
 	return String(text[prefix.endIndex..<end.lowerBound])
@@ -19,9 +19,9 @@ extension CoreTests {
 	@Suite struct CmutexTests {
 		init() throws {
 			clj_init()
-			_ = try cljEval("(ns cmutex-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go thread]]))")
+			_ = try cljEvalScoped("(ns cmutex-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go thread]]))")
 			for k in ["twice", "a", "b", "again", "go", "open", "x"] { _ = kw(k) }
-			_ = try cljEval("(in-ns 'cmutex-tests) (declare cm-self)")
+			_ = try cljEvalScoped("(in-ns 'cmutex-tests) (declare cm-self)")
 		}
 
 		@Test func lockingIsReentrant() throws {

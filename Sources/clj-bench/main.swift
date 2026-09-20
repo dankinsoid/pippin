@@ -651,6 +651,84 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 	exit(0)
 }
 
+// CLJ_BENCH_ONLY=async: the core.async library layer, futures, promises and scopes (bench/RESULTS.md).
+// @ai-generated(solo)
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "async" {
+	clj_init()
+	_ = cljEval("(require 'clojure.core.async) (in-ns 'bench.async) (clojure.core/refer 'clojure.core) (require '[clojure.core.async :as a :refer [chan <! >! <!! >!! close! go go-loop go-scoped pipeline mult tap pub sub]])")
+	let n = 100_000
+	func settle() {
+		if !clj_debug_coro_settle(0, 10_000) { print("coroutines did not settle"); exit(1) }
+	}
+	func med(ops: Int, _ body: () -> UInt64) -> Double {
+		var times: [Double] = []
+		blackHole(body())
+		for _ in 0..<reps {
+			let t0 = DispatchTime.now().uptimeNanoseconds
+			blackHole(body())
+			times.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / Double(ops))
+		}
+		return times.sorted()[reps / 2]
+	}
+	// The sum of a channel until it closes, as a fixnum.
+	_ = cljEval("(defn drain [c] (<!! (go-loop [s 0] (if-let [v (<! c)] (recur (+ s v)) s))))")
+	_ = cljEval("(defn feed [c n] (go (dotimes [i n] (>! c i)) (close! c)))")
+	let bufferedFn = cljEval("(fn [n] (let [c (chan 1024)] (feed c n) (drain c)))")
+	let xformFn = cljEval("(fn [n] (let [c (chan 1024 (map identity))] (feed c n) (drain c)))")
+	let pipelineFn = cljEval("""
+	(fn [n]
+	  (let [in (chan 1024) a (chan 1024) b (chan 1024) out (chan 1024)]
+	    (pipeline 4 a (map inc) in) (pipeline 4 b (map inc) a) (pipeline 4 out (map inc) b)
+	    (feed in n)
+	    (drain out)))
+	""")
+	let multFn = cljEval("""
+	(fn [n]
+	  (let [src (chan 1024) m (mult src) taps (vec (repeatedly 4 #(chan 1024)))]
+	    (doseq [t taps] (tap m t))
+	    (feed src n)
+	    (let [sums (mapv #(go (drain %)) taps)] (reduce + (map <!! sums)))))
+	""")
+	let pubFn = cljEval("""
+	(fn [n]
+	  (let [src (chan 1024) p (pub src #(mod % 4)) subs (vec (repeatedly 4 #(chan 1024)))]
+	    (dotimes [t 4] (sub p t (subs t)))
+	    (feed src n)
+	    (let [sums (mapv #(go (drain %)) subs)] (reduce + (map <!! sums)))))
+	""")
+	let futureFn = cljEval("(fn [n] (loop [i 0 s 0] (if (< i n) (recur (inc i) (+ s @(future i))) s)))")
+	let promiseFn = cljEval("(fn [n] (loop [i 0 s 0] (if (< i n) (let [p (promise)] (deliver p i) (recur (inc i) (+ s @p))) s)))")
+	let pmapFn = cljEval("(fn [n] (reduce + (pmap inc (range n))))")
+	let scopedFn = cljEval("(fn [n] (let [a (atom 0)] (go-scoped (dotimes [i n] (go (swap! a + i)))) @a))")
+
+	var rows: [(String, Double?)] = []
+	rows.append(("buffered throughput, chan 1024, no transducer (the Coroutines row)", med(ops: n) { cljCall(bufferedFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("buffered throughput, chan 1024 with (map identity): the step under the coroutine mutex", med(ops: n) { cljCall(xformFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("pipeline, 3 stages of (map inc) with parallelism 4, per item end to end", med(ops: n) { cljCall(pipelineFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("mult to 4 taps, per source item", med(ops: n) { cljCall(multFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("pub/sub, 4 topics one sub each, per source item", med(ops: n) { cljCall(pubFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("future spawn + deref, from a bare thread", med(ops: n) { cljCall(futureFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("promise: deliver + deref", med(ops: n) { cljCall(promiseFn, clj_fixnum(n)) }))
+	settle()
+	rows.append(("pmap inc over 1000, per element", med(ops: 1000) { cljCall(pmapFn, clj_fixnum(1000)) }))
+	settle()
+	rows.append(("go-scoped with 100 children, per child", med(ops: 100) { cljCall(scopedFn, clj_fixnum(100)) }))
+	settle()
+
+	print("| scenario | interpreted, ns/op |")
+	print("|---|---:|")
+	for r in rows { print("| \(r.0) | \(fmt(r.1)) |") }
+	print("\nns per op, medians of \(reps) runs of n = \(n) (1000 for pmap, 100 for go-scoped)")
+	for v in [bufferedFn, xformFn, pipelineFn, multFn, pubFn, futureFn, promiseFn, pmapFn, scopedFn] { clj_release(v) }
+	exit(0)
+}
+
 func page_size_kb() -> Int { Int(sysconf(_SC_PAGESIZE)) / 1024 }
 
 // (reduce + (map inc (range n))), (reduce + (map inc (filter even? (range n)))), (count (vec (map inc (range n)))):

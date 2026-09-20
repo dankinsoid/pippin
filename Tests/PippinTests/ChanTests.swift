@@ -4,10 +4,10 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'chan-tests) " + source) }
+private func eval(_ source: String) throws -> Value { try cljEvalScoped("(in-ns 'chan-tests) " + source) }
 
 private func message(_ source: String) -> String? {
-	guard let text = cljEvalError("(in-ns 'chan-tests) " + source) else { return nil }
+	guard let text = cljEvalErrorScoped("(in-ns 'chan-tests) " + source) else { return nil }
 	let prefix = "#error {:message \""
 	guard text.hasPrefix(prefix), let end = text.range(of: "\", :data") else { return text }
 	return String(text[prefix.endIndex..<end.lowerBound])
@@ -38,10 +38,10 @@ extension CoreTests {
 	@Suite struct ChanTests {
 		init() throws {
 			clj_init()
-			_ = try cljEval("(ns chan-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel!]]))")
+			_ = try cljEvalScoped("(ns chan-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel!]]))")
 			// Keywords intern for ever and defs make vars: both before any test's live-object baseline.
 			for k in ["a", "after", "again", "b", "before", "bound", "c", "caught", "closed", "conveyed", "d", "default", "done", "early", "finally", "from-thread", "got", "in", "k", "none", "one-more", "printed", "priority", "put", "root", "t", "taking", "timed-out", "took", "v", "x"] { _ = kw(k) }
-			_ = try cljEval("""
+			_ = try cljEvalScoped("""
 			(in-ns 'chan-tests)
 			(def ^:dynamic *d* :root)
 			(defn inner-after-park [c] (<! c) (throw (ex-info "x" {})))

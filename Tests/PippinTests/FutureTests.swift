@@ -4,10 +4,10 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'future-tests) " + source) }
+private func eval(_ source: String) throws -> Value { try cljEvalScoped("(in-ns 'future-tests) " + source) }
 
 private func message(_ source: String) -> String? {
-	guard let text = cljEvalError("(in-ns 'future-tests) " + source) else { return nil }
+	guard let text = cljEvalErrorScoped("(in-ns 'future-tests) " + source) else { return nil }
 	let prefix = "#error {:message \""
 	guard text.hasPrefix(prefix), let end = text.range(of: "\", :data") else { return text }
 	return String(text[prefix.endIndex..<end.lowerBound])
@@ -20,9 +20,9 @@ extension CoreTests {
 	@Suite struct FutureTests {
 		init() throws {
 			clj_init()
-			_ = try cljEval("(ns future-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go alts! alts!! alt! alt!! thread cancel! promise-chan poll!]]))")
+			_ = try cljEvalScoped("(ns future-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go alts! alts!! alt! alt!! thread cancel! promise-chan poll!]]))")
 			for k in ["a", "b", "blocked", "bound", "cancelled", "caught", "default", "done", "finally", "got", "k", "late", "none", "p", "ran", "root", "slept", "timed-out", "v", "x", "yes"] { _ = kw(k) }
-			_ = try cljEval("(in-ns 'future-tests) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil))")
+			_ = try cljEvalScoped("(in-ns 'future-tests) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil))")
 		}
 
 		@Test func futureRunsOnThePoolAndDerefParks() throws {
@@ -95,6 +95,11 @@ extension CoreTests {
 				// cancel! reaches a thread body parked on a channel, and one not yet started.
 				#expect(try eval("(let [c (chan) t (thread (try (<!! c) (catch :default e (ex-message e))))] (<!! (timeout 5)) [(cancel! t) (<!! t)])") == [true, "Coroutine cancelled"])
 				#expect(try eval("(let [ts (vec (repeatedly 70 #(thread (try (<!! (timeout 200)) :slept (catch :default e (ex-message e))))))] (doseq [t ts] (cancel! t)) (frequencies (mapv <!! ts)))") == ["Coroutine cancelled": 70])
+				// A cancelled future is done at once, as on the JVM; its body lands a moment later with the cancellation.
+				#expect(try eval("(let [f (future (Thread/sleep 10000))] (<!! (timeout 5)) [(realized? f) (future-cancel f) (realized? f) (future-done? f) (try @f (catch :default e (ex-message e)))])") == [false, true, true, true, "Coroutine cancelled"])
+				#expect(try eval("(let [f (future (Thread/sleep 1))] [(realized? f) (do @f (realized? f))])") == [false, true])
+				// A coroutine parked in a deref is woken by its cancellation; the promise stays undelivered.
+				#expect(try eval("(let [p (promise) g (go (try @p (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) [(<!! g) (realized? p)])") == ["Coroutine cancelled", false])
 				// The blocking thread's next job starts clean.
 				#expect(try eval("(<!! (thread :ran))") == kw("ran"))
 				_ = try eval("(<!! (timeout 250))")

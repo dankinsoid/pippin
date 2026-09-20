@@ -74,7 +74,7 @@ cljc_begin(compiler)
 let rt = Runtime()
 if opts.core {
 	// core.clj went through the hook during clj_init; the embedded libs follow through require.
-	for lib in ["clojure.set", "clojure.string", "clojure.walk", "clojure.template", "clojure.test", "clojure.core.async"] {
+	for lib in ["clojure.set", "clojure.string", "clojure.walk", "clojure.template", "clojure.test", "clojure.core.async", "clojure.core.async.impl.buffers"] {
 		_ = try rt.eval("(require '\(lib))")
 	}
 }

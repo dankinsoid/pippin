@@ -18,7 +18,9 @@ private func message(_ rt: Runtime, _ source: String) -> String? {
 
 private func userVar(_ name: String) -> clj_value {
 	let sym = Value(symbol: name)
-	return withExtendedLifetime(sym) { clj_ns_resolve(clj_ns_user(), sym.raw) }
+	let v = withExtendedLifetime(sym) { clj_ns_resolve(clj_ns_user(), sym.raw) }
+	precondition(clj_is_var(v), "user/\(name) is not interned: another suite moved the root *ns* during this eval")
+	return v
 }
 
 private func rc(_ v: clj_value) -> UInt32 { UnsafeRawPointer(clj_header_of(v)).load(as: UInt32.self) }

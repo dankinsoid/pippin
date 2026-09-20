@@ -4,13 +4,13 @@ import Foundation
 import Testing
 @testable import Pippin
 
-private func eval(_ source: String) throws -> Value { try cljEval("(in-ns 'chan-tests) " + source) }
+private func eval(_ source: String) throws -> Value { try cljEvalScoped("(in-ns 'chan-tests) " + source) }
 
 extension CoreTests {
 	@Suite struct ChanStressTests {
 		init() throws {
 			clj_init()
-			_ = try cljEval("(ns chan-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! timeout go thread]]))")
+			_ = try cljEvalScoped("(ns chan-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! timeout go thread]]))")
 		}
 
 		@Test func stressSpawn() throws {
@@ -20,7 +20,7 @@ extension CoreTests {
 		}
 
 		@Test func stressBenchShapes() throws {
-			_ = try cljEval("(in-ns 'chan-tests) (require '[clojure.core.async :refer [go-loop alts! close!]])")
+			_ = try cljEvalScoped("(in-ns 'chan-tests) (require '[clojure.core.async :refer [go-loop alts! close!]])")
 			let shapes = [
 				("ping-pong", """
 				(fn [n]

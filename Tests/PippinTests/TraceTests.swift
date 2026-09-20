@@ -269,9 +269,11 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		// A fault off any guard page (a nil var's root) ends the process with the trace on stderr, never a hang.
+		// A fault off any guard page (a nil var's root) ends the process with the trace on stderr, never a hang. The exit
+		// test's child is spawned without the sanitizer's insert library, so under ASan it dies in the sanitizer's own init.
 		// @ai-generated(solo)
-		@Test func nonGuardFaultDiesWithATrace() async {
+		@Test(.disabled(if: dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__asan_init") != nil, "the exit test child cannot start under ASan"))
+		func nonGuardFaultDiesWithATrace() async {
 			let result = await #expect(processExitsWith: .failure, observing: [\.standardErrorContent]) {
 				setenv("CLJ_CRASH_EXIT", "1", 1)
 				clj_init()
