@@ -172,26 +172,46 @@ private let packageRoot = corpusRoot.deletingLastPathComponent()
 private let compiledMode = ProcessInfo.processInfo.environment["CLJ_CORPUS_COMPILED"] != nil
 
 private func compileLibrary(_ lib: Library) throws {
-	let out = packageRoot.appendingPathComponent(".build/corpus-compiled/\(lib.name)")
-	try? FileManager.default.removeItem(at: out)
-	try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-	let tool = packageRoot.appendingPathComponent(".build/debug/clj-compile")
-	var args = ["--lenient", "--out", out.path]
-	if ProcessInfo.processInfo.environment["CLJ_CORPUS_CLOSED"] != nil { args.append("--closed") }
+	let environment = ProcessInfo.processInfo.environment
+	let tool = URL(fileURLWithPath: environment["CLJ_COMPILE"] ?? packageRoot.appendingPathComponent(".build/plain/debug/clj-compile").path)
+	var args = ["--lenient"]
+	if environment["CLJ_CORPUS_CLOSED"] != nil { args.append("--closed") }
 	for p in lib.loadPath { args += ["--load-path", p] }
 	if !lib.features.isEmpty { args += ["--features", lib.features.sorted().joined(separator: ",")] }
 	for ns in lib.namespaces { args += ["--ns", ns] }
-	let proc = Process()
-	proc.executableURL = tool
-	proc.arguments = args
-	let stderr = Pipe()
-	proc.standardError = stderr
-	proc.standardOutput = FileHandle.nullDevice
-	let started = Date()
-	try proc.run()
-	let errText = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-	proc.waitUntilExit()
-	progress("corpus: clj-compile \(lib.name) took \(String(format: "%.2f", Date().timeIntervalSince(started))) s")
+	var fingerprint = CorpusCompilationFingerprint()
+	fingerprint.add("corpus-cache-v1;-O0;CLJ_DEBUG=1")
+	try fingerprint.addFile(tool)
+	for arg in args { fingerprint.add(arg) }
+	try fingerprint.addTree(lib.dir)
+	try fingerprint.addTree(packageRoot.appendingPathComponent("Sources/CljCore")) { $0.pathExtension == "h" }
+	try fingerprint.addFile(packageRoot.appendingPathComponent("Sources/CljCompiler/jit.c"))
+	try fingerprint.addFile(packageRoot.appendingPathComponent("Package.swift"))
+	fingerprint.add(try corpusCompilerIdentity())
+	let cacheRoot = URL(fileURLWithPath: environment["CLJ_CORPUS_CACHE"] ?? packageRoot.appendingPathComponent(".build/corpus-cache").path)
+	let cache = try CorpusCompilationCache(root: cacheRoot, library: lib.name, key: fingerprint.key)
+	let out = cache.directory
+	let cached = try cache.load()
+	let result: CorpusCompilationCache.Result
+	if let cached {
+		result = cached
+		progress("corpus: cache hit \(lib.name) \(fingerprint.key)")
+	} else {
+		try cache.prepare()
+		let proc = Process()
+		proc.executableURL = tool
+		proc.arguments = args + ["--out", out.path]
+		let stderr = Pipe()
+		proc.standardError = stderr
+		proc.standardOutput = FileHandle.nullDevice
+		let started = Date()
+		try proc.run()
+		let text = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+		proc.waitUntilExit()
+		result = CorpusCompilationCache.Result(stderr: text, status: proc.terminationStatus)
+		progress("corpus: cache miss \(lib.name); clj-compile took \(String(format: "%.2f", Date().timeIntervalSince(started))) s")
+	}
+	let errText = result.stderr
 	// A refused form fails unless corpus/<lib>/refused.edn lists its file and line with a :note saying why.
 	var allowed: Set<String> = []
 	if let text = try? String(contentsOf: lib.dir.appendingPathComponent("refused.edn"), encoding: .utf8) {
@@ -209,26 +229,35 @@ private func compileLibrary(_ lib: Library) throws {
 		let file = lib.relative(parts[..<(parts.count - 2)].joined(separator: ":"))
 		if !allowed.contains("\(file):\(parts[parts.count - 2])") && !allowed.contains("\(file):*") { unlisted.append(String(line)) }
 	}
-	if !unlisted.isEmpty || (proc.terminationStatus != 0 && proc.terminationStatus != 2) {
-		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(proc.terminationStatus):\n\(unlisted.joined(separator: "\n"))\n\(errText.contains("refused:") ? "" : errText)"))
+	if !unlisted.isEmpty || (result.status != 0 && result.status != 2) {
+		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(result.status):\n\(unlisted.joined(separator: "\n"))\n\(errText.contains("refused:") ? "" : errText)"))
 	}
 	let manifest = try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8)
 	let root = strdup(packageRoot.path), dir = strdup(out.path)
 	defer { free(root); free(dir) }
 	for line in manifest.split(separator: "\n") {
 		let cells = line.split(separator: "\t", maxSplits: 1).map(String.init)
+		guard cells.count == 2 else { throw CocoaError(.fileReadCorruptFile) }
 		let cname = cells[0], path = cells[1]
-		let text = try String(contentsOf: out.appendingPathComponent("\(cname).c"), encoding: .utf8)
 		var o = cljc_eval_options()
 		o.root = UnsafePointer(root)
 		o.dir = UnsafePointer(dir)
 		o.keep = true
 		let t0 = Date()
-		guard let unit = cljc_load_dylib(&o, cname, text) else { throw ClojureError.takePending() }
-		progress("corpus: clang \(lib.relative(path)) took \(String(format: "%.2f", Date().timeIntervalSince(t0))) s")
+		let loaded: UnsafePointer<clj_compiled_unit>?
+		if cached != nil {
+			loaded = cljc_open_dylib(out.appendingPathComponent("\(cname).dylib").path)
+		} else {
+			let text = try String(contentsOf: out.appendingPathComponent("\(cname).c"), encoding: .utf8)
+			loaded = cljc_load_dylib(&o, cname, text)
+		}
+		guard let unit = loaded else { throw ClojureError.takePending() }
+		progress("corpus: \(cached == nil ? "clang + dlopen" : "cached dlopen") \(lib.relative(path)) took \(String(format: "%.2f", Date().timeIntervalSince(t0))) s")
 		#expect(String(cString: unit.pointee.path) == path)
 		clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
 	}
+	if cached == nil { try cache.save(result) }
+	withExtendedLifetime(cache) {}
 }
 
 // CLJ_CORPUS_REPORT=<dir>: one line per form failure and per test, so two modes compare line by line.
