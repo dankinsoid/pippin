@@ -239,12 +239,14 @@
   conveyed. (cancel! ch) cancels the coroutine at its next park or loop tick. Inside a go-scoped scope the
   block is a child of the scope."
   [& body]
-  `(go* (fn [] ~@body)))
+  ;; The unscoped spawn goes straight to the primitive: a trace through the block shows no frame of ours (the JVM's
+  ;; go shows nothing of the spawner either).
+  `(let [f# (fn [] ~@body)] (if *scope* (go* f#) (coro-go* f#))))
 
 (defmacro go-main
   "As go, on the main carrier: the body runs when the main thread's run loop turns (clj_sched_main_install)."
   [& body]
-  `(go-main* (fn [] ~@body)))
+  `(let [f# (fn [] ~@body)] (if *scope* (go-main* f#) (coro-go-main* f#))))
 
 (defmacro go-loop
   "Like (go (loop ...))"

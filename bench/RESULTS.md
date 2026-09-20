@@ -1579,3 +1579,49 @@ such runs on the same machine, before = `27bf29c` with the new rows added to its
   compiler. The 4-carrier rows and `ChanStressTests` passed 20 runs in a row with `CLJ_CARRIERS` 1, 2, 4 and
   12; `goFromMainWithAColdPoolRunsAtOnce` (1000 rounds, a watchdog per round) saw one 46 ms round on a loaded
   machine in those runs — the OS scheduling the woken thread late, tolerated up to three rounds per run.
+
+## The core.async library layer, futures and scopes — 2026-09-20, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
+
+Design §10 step 5, step 4 (NOTES.md "Channels", "Futures and scopes"): transducers on channels under a coroutine
+mutex, the library layer in core.async's own shape, `future`/`promise` as promise-buffered channels, `go-scoped`.
+`CLJ_BENCH_ONLY=async ./.build/release/clj-bench`, 12 carriers, medians of 5 runs of n = 100 000 items
+(1000 for `pmap`, 100 children for `go-scoped`); every row is the whole shape end to end, per item.
+
+| scenario | interpreted, ns/op |
+|---|---:|
+| buffered throughput, chan 1024, no transducer (the Coroutines row) | 128 |
+| buffered throughput, chan 1024 with `(map identity)`: the step under the coroutine mutex | 176 |
+| pipeline, 3 stages of `(map inc)` with parallelism 4, per item end to end | 7668 |
+| mult to 4 taps, per source item | 4514 |
+| pub/sub, 4 topics one sub each, per source item | 1867 |
+| future spawn + deref, from a bare thread | 2660 |
+| promise: deliver + deref | 128 |
+| pmap inc over 1000, per element | 957 |
+| go-scoped with 100 children, per child | 3531 |
+
+- **A transducer costs 48 ns per item on the buffered row** (128 → 176): the coroutine mutex is the same CAS
+  as the `clj_lock` uncontended, so the difference is the step itself — the `(map identity)` step calls the
+  channel's reducing fn (`chan-rf*`) which calls `buffer_add`: two interpreted calls where the plain channel
+  did a ring store. The design invariant (no user code under a `clj_lock`) is kept for free on the plain path:
+  `chan_lock` tests `has_xform` once.
+- **`pipeline` is 7.7 µs per item across three stages**, core.async's own shape: every item makes a `(chan 1)`
+  result channel per stage, goes through a `thread` hop (the JVM's `:compute` type runs the transducer on a
+  thread), a `put!` of the result channel and an ordered `<!` by the collector — roughly 2.5 µs per stage of
+  which the blocking-pool hop is most. `pipeline-async` avoids the thread. Trigger for a coroutine-based
+  `:compute` pipeline: a profile that shows the hop.
+- **`mult` to 4 taps is 4.5 µs per source item**: four `put!` with a completion callback each, a `dchan`
+  rendezvous per item and four consumer wakeups; `pub` over 4 topics is 1.9 µs since each item goes to one
+  mult with one tap. Both are the JVM's algorithm; the cost is the per-item callbacks and wakeups, not the
+  channel operations (130 ns each).
+- **A future is 2.7 µs to spawn and deref from a bare thread**: a `go` spawn from outside the pool (1.65 µs: the
+  cross-thread wake) plus the promise-buffered channel and the bare thread's condition wait; a `promise` is
+  128 ns for a deliver and a deref — one put and one take on a channel, nothing parks. `pmap` is 957 ns per
+  element: a future per element with the deref pipelined `(+ 2 carriers)` ahead, all from the pool.
+- **A `go-scoped` child costs 3.5 µs against 1.65 for a bare `go`**: the wrapper fn around the body (its
+  `try`/`finally`), two `swap!`s on the pending counter, the children set's `conj`/`disj`, and the last child's
+  `put!` on the done channel. Trigger for a C-side scope: a profile with thousands of short children.
+- **The Coroutines rows did not move.** `CLJ_BENCH_ONLY=coro` on this commit against a build of `27bf29c` run
+  back to back: switch 14.3 vs 14.0, spawn 1622–1665 vs 1565, ping-pong 553–613 vs 538–585, buffered 113–125
+  vs 111–181 (bimodal on both binaries: ~115 when the pair shares a carrier through the next slot, ~180–300 when
+  it lands on two carriers exchanging wakeups), `alts!` 672 vs 663, timeout 2031 vs 2110, `swap!`
+  uncontended 38.0 vs 38.0, `get @atom` 41.5.

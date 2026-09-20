@@ -673,8 +673,8 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "async" {
 	// The sum of a channel until it closes, as a fixnum.
 	_ = cljEval("(defn drain [c] (<!! (go-loop [s 0] (if-let [v (<! c)] (recur (+ s v)) s))))")
 	_ = cljEval("(defn feed [c n] (go (dotimes [i n] (>! c i)) (close! c)))")
-	let bufferedFn = cljEval("(fn [n] (let [c (chan 1024)] (feed c n) (drain c)))")
-	let xformFn = cljEval("(fn [n] (let [c (chan 1024 (map identity))] (feed c n) (drain c)))")
+	let bufferedFn = cljEval("(fn [n] (let [c (chan 1024) p (go (dotimes [i n] (>! c i)) (close! c)) q (go-loop [s 0] (if-let [v (<! c)] (recur (+ s v)) s))] (<!! p) (<!! q)))")
+	let xformFn = cljEval("(fn [n] (let [c (chan 1024 (map identity)) p (go (dotimes [i n] (>! c i)) (close! c)) q (go-loop [s 0] (if-let [v (<! c)] (recur (+ s v)) s))] (<!! p) (<!! q)))")
 	let pipelineFn = cljEval("""
 	(fn [n]
 	  (let [in (chan 1024) a (chan 1024) b (chan 1024) out (chan 1024)]

@@ -267,21 +267,34 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **Bindings are conveyed by sharing the frame chain** (`clj_var_bindings_share`): a frame carries an atomic
   refcount, a child holds the spawner's top frame and each frame its `prev`, a var's `thread_bound` count drops
   when the frame dies rather than when it is popped, and the maps are shared once. `set!` on a conveyed binding
-  from the child is not refused (the JVM throws "Can't set!: from non-binding thread"): the box is a volatile
-  both sides may write. Trigger: a library relying on the JVM's refusal.
-- **Cancellation is the deadline's mechanism**: `cancel!` sets the ring's `cancelled` flag and its deadline to
-  1, so every loop tick and driver entry throws "Coroutine cancelled" through the deadline path (with its unwind
-  budget), every park point checks the flag before and after the wait, and a parked coroutine is woken by
-  claiming its current waiter (`clj_coro_cancel`). A blocking-pool wait is not cancellable
-  (`clj_park_uncancellable`): the job still uses the parker's stack. The flag is sticky: after the first throw
-  every later park point throws again, so cleanup that must wait does so in a `catch`. Deadlines are
-  per coroutine and conveyed at spawn.
+  from the child is refused with the JVM's message ("Can't set!: … from non-binding thread"): a frame records
+  the execution that pushed it (`owner`), `clj_var_set` finds the frame whose own push holds the var, and only
+  its owner writes the box; the child's own `binding` over the same var is its to set (`FutureTests`). The
+  `with-out-str` capture is conveyed the same way (`clj_output_captures_share`, "Scheduler" below).
+- **Cancellation is the deadline's mechanism, and the deadline is a cancellation by timer.** A cancellation sets
+  the ring's `cancelled` flag and its deadline to 1, so every loop tick and driver entry throws through the
+  deadline path (with its unwind budget), every park point checks the flag before and after the wait, and a
+  parked coroutine is woken by claiming its current waiter (`cancel_locked` in `sched.c`; a cancellation that
+  lands between the caller's check and its park claims the waiter itself, so the park is skipped, not stranded).
+  The *kind* lives on the `clj_coro` and outlives its stack (`CLJ_CANCEL_REQUESTED` from `cancel!`/`future-cancel`,
+  `CLJ_CANCEL_DEADLINE` from the timer, `CLJ_CANCEL_SCOPE` from a `go-scoped` failure — the only kind that is
+  cleared again, by the scope's exit, restoring the deadline it replaced); the message follows the kind
+  ("Execution timed out" or "Coroutine cancelled"). `clj_deadline_set_ms` arms a timer on the timer thread
+  (`clj_coro_deadline_arm`, a serial per arm so a stale firing is a no-op) whose firing is `cancel_locked` with the
+  deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
+  tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
+  cancellable (`clj_park_uncancellable`): the job still uses the parker's stack. The flag is sticky: after the
+  first throw every later park point throws again, so cleanup that must wait does so in a `catch`. Deadlines are
+  per coroutine and conveyed at spawn (a cancelled parent hands down the deadline it had, not its flag).
+  `thread` bodies are cancellable through their channel: the channel holds the blocking thread's implicit
+  coroutine while the body runs, a `cancel!` before the thread attached sets a flag on the job, and the
+  implicit coroutine's cancellation is reset for the thread's next job (`clj_coro_cancel_reset`).
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
-- Not done, with triggers: `go-scoped` (structured spawn), `future`/`promise` on coroutines, the static `:park`
-  fact and the `:effects` lint, the Swift async bridge (`callAsync`, `callBlocking`) — the later tasks of
-  design §10 step 5. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
+- Not done, with triggers: the static `:park` fact and the `:effects` lint, the Swift async bridge (`callAsync`,
+  `callBlocking`) — the later tasks of design §10 step 5; `go-scoped` and `future`/`promise` are in "Futures and
+  scopes" below. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
   host-depth error is raised only under `clj_host_invoke` (`Value.apply`, the trampoline). Trigger for making
   a park in a top-level `Runtime.eval` on the main thread an error: the async bridge, which gives the host the
   alternative.
@@ -358,8 +371,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   that calls the host's `out_fn` or `fwrite`; a printer that finds the queue full parks (blocks on a bare
   thread) until the writer drains below the limit; `clj_output_flush` waits for an empty queue and an idle
   writer, `clj_set_output` flushes before swapping the hook, `atexit` flushes. `with-out-str` captures are per
-  execution and bypass the queue; a `go` inside `with-out-str` prints to the real output (the JVM conveys
-  `*out*` to the block). Trigger: a library capturing a go block's output.
+  execution and bypass the queue; a spawned coroutine (`go`, `thread`, `future`) shares its spawner's top capture
+  (the JVM conveys `*out*`): the capture is refcounted and its buffer under a `clj_lock` (a `write` is a
+  `memcpy`, runtime only), the string is what was written when the capture pops, and a child still holding it
+  writes into a buffer nobody reads (`FutureTests.withOutStrIsConveyedToAGoBlock`).
 
 ## Channels (Sources/CljCore/chan.c, boot/clojure/core/async.clj, include/clj/chan.h)
 
@@ -371,10 +386,24 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   enqueued in the same lock hold. Buffers: fixed, dropping, sliding (`buffer`, `dropping-buffer`,
   `sliding-buffer` are spec objects `chan` reads); a fixed-buffer take refills from a parked putter; `close!`
   wakes parked takers with nil and leaves parked puts to be taken (the JVM's contract); the pending limit is
-  the JVM's 1024 with the JVM's message, counted after purging stale nodes. Transducers on a channel are not
-  built: `(chan n xform)` throws "not supported yet" — the step would run user code under the channel's
-  `clj_lock` (the JVM runs it under the channel's mutex); trigger: a library using them, then a channel whose
-  lock is a `clj_cmutex` when it carries an xform.
+  the JVM's 1024 with the JVM's message, counted after purging stale nodes.
+- **A channel with a transducer takes a `clj_cmutex` instead** (`chan_lock`: the one `clj_lock_lock` site of
+  `chan.c` is behind a `has_xform` test). The transducer's step is user code — it may park (`(map #(<! …))`),
+  and the design invariant says none runs under a `clj_lock`; the JVM runs it under the channel's mutex too.
+  The step runs inside the section (`put_locked`, `refill`, `step_complete` at `close!`), the reducing fn is the
+  channel itself (`chan-rf*`, immortal; the accumulator is the channel, so no cycle), and it refuses a call
+  from outside its step (`cm_owner`). What the JVM's `ManyToManyChannel` does and this does: an expanding step
+  overfills a fixed buffer (the ring grows past its capacity, the JVM's is a list), a filtering step completes
+  the put without a transfer, `reduced` closes the channel and completes every parked put, the completion arity
+  runs once at `close!` after the last parked put went through, a step's exception goes to the `ex-handler`
+  and its non-nil answer into the buffer (no handler: the uncaught report), and a put from `alts!` takes the
+  step under the paired claim. The mutex is not reentrant, so a step touching its own channel is an error
+  ("… from inside its own transducer step"), not a deadlock (`AsyncLibTests.transducersOnChannels`). Measured
+  (bench/RESULTS.md, "The core.async library layer"): buffered throughput `(chan 1024)` 128 ns per item against
+  176 with `(map identity)` — the mutex is the same CAS uncontended, the 48 ns are the step's two interpreted calls
+  (`chan-rf*`, then `buffer_add`).
+  `promise-chan` is a promise buffer (`CLJ_BUF_PROMISE`): one value served to every taker for ever, the second
+  put dropped, `close!` before a value answers nil for ever; with a transducer the step decides what that value is.
 - **`alts!`** (`clj_chan_alts`): one waiter, one node per port, the paired claim decides the winner and the
   continuation moves to whoever won; a port that completes immediately claims the waiter under that port's lock,
   and an earlier port's node is then stale. `:priority` keeps the order, otherwise a per-thread xorshift
@@ -385,9 +414,51 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `thread` runs on the blocking pool and returns a channel the same way. `<!` works in any function, inside
   `map`, inside a lazy-seq thunk (`ChanTests.colorlessPark`, `CoroTests`). Measured (bench/RESULTS.md): buffered
   throughput 120–130 ns per item, `alts!` over two ports 660 ns per completion, ping-pong 530 ns per round trip.
-- The names built and the JVM's library layer that is not (`pipe`, `mult`, `pub`, `mix`, `pipeline`,
-  `onto-chan`, `to-chan`, `promise-chan`, `merge`, `reduce`, `into`, …) are listed by `make api-diff` in
-  docs/api-parity.md; those are the next task of design §10 step 5.
+- **The library layer is core.async's own code over these primitives** (`async.clj`: `pipe`, `mult`/`tap`/`untap`/
+  `untap-all`, `pub`/`sub`/`unsub`/`unsub-all`, `mix`/`admix`/`unmix`/`unmix-all`/`toggle`/`solo-mode`, `merge`,
+  `take`, `into`, `reduce`, `transduce`, `onto-chan!`/`to-chan!` and the `!!` and deprecated forms, `map`,
+  `split`, `pipeline`/`pipeline-blocking`/`pipeline-async`, `promise-chan`, `unblocking-buffer?`, the deprecated
+  `map<`/`map>`/`filter<`/…/`unique`/`partition`/`partition-by`), with two shapes changed: `pipeline`'s default
+  ex-handler is the uncaught report (`uncaught-report*`), and `map>`/`filter>`/`mapcat>` pipe a front channel
+  into the target instead of wrapping it in a write port (the JVM's `WritePort` reify has no counterpart). The
+  `go` macro expands to the primitive spawn (`coro-go*`) outside a scope, so a trace through a block shows no
+  frame of the library (`CompilerFixtureTests.overflowInsideACoroutineThrowsOnlyThere` pins it); `make api-diff`
+  reports the section at 0 missing (docs/api-parity.md). `clojure.core.async.impl.buffers` exists for code that
+  requires it: the JVM's constructors over the spec objects. `Thread/sleep` resolves because a namespace named
+  `Thread` holds a var `sleep` (`install_thread_ns`): the reader gives `Thread/sleep` as a namespace-qualified
+  symbol, the analyzer resolves it as any `ns/name`, and the fn parks on the timer thread (`clj_sched_sleep_ms`;
+  no `nanosleep` on a carrier). Trigger for more static-call shims: a library calling another `Class/method`.
+
+## Futures and scopes (Sources/CljCore/chan.c, boot/core.clj, boot/clojure/core/async.clj; design §4)
+
+- **A future and a promise are promise-buffered channels** with a role (`CLJ_CHAN_FUTURE`, `CLJ_CHAN_PROMISE`;
+  `chan.h`): `deref` is a take that rethrows the future's cached exception (`ch->error`, kept by `future_done`
+  instead of the uncaught report), `(deref x ms timeout-val)` is an `alts!` against a `timeout` with `:priority`,
+  `realized?`/`future-done?` read the buffer or the closed flag, `deliver` puts once (nil closes: takes then
+  answer nil for ever, and `realized?` is true), `future-cancel` is `cancel!`, and both are `alts!` ports as
+  design §4 promised (the JVM cannot). `@f` parks from any function and blocks only a bare thread; a deref
+  parked in a coroutine is woken by the coroutine's cancellation like any take (`FutureTests`). A cancelled
+  future is done at once (`clj_chan_realized` reads the coroutine's flag: the JVM's `isDone`) and its deref
+  throws the cancellation as soon as the body lands. `future-call` spawns on the pool with the bindings and the
+  output capture conveyed; the trace of a rethrown exception is the future's own frames then the spawner's
+  (`thrower`, `future-call`, `spawner`). `pmap` is the JVM's: futures kept `(+ 2 (available-processors*))`
+  ahead of consumption, where `available-processors*` is the carrier count; `pcalls`/`pvalues` over it.
+- **`go-scoped` is structured spawn through the binding chain** (design §4, "Контекст go"; `scoped*` in
+  `async.clj`): the scope is a value in the dynamic var `*scope*`, which `binding` establishes and every spawn
+  conveys, so a `go` anywhere in the dynamic extent — in a called function, in a coroutine a child spawned — is
+  a child of the same scope; a `go` outside any scope stays unstructured. The scope counts pending children
+  (raised before the spawn, so a join that finds zero has nothing to wait for) and the join takes from a
+  sliding-buffer channel the last child puts on with an *uncancellable* take: a scope never returns while a
+  child runs, even after its own cancellation. A child's uncaught error is the scope's first error: it cancels
+  the siblings and the body (`coro-cancel-scope*` on the coroutine running the scope — an implicit one when the
+  scope is on a bare thread) and is rethrown from `go-scoped` after the join; a body error cancels the children
+  first; a `cancel!` of the coroutine running the scope reaches the children transitively (each nested scope's
+  body is cancelled, cancels its own children, joins); on exit the scope's own cancellation is lifted
+  (`coro-uncancel-scope*`), so the caller's coroutine is usable again. `plet` is `async let`: every init in its
+  own `go` under one scope, the bindings their values, a failing init cancels the rest and rethrows. Not in the
+  JVM's core.async (docs/jvm-differences.md). Measured (bench/RESULTS.md): a scope with 100 children 3.5 µs per
+  child against a bare `go` spawn of 1.65 µs (the wrapper fn, two `swap!`s, the set, the done put); `future`
+  spawn+deref from a bare thread 2.7 µs, `promise` deliver+deref 128 ns, `pmap` 957 ns per element.
 
 ## Coroutine mutex (Sources/CljCore/cmutex.c, include/clj/cmutex.h)
 
@@ -407,10 +478,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `locking` (a reentrant monitor per object in a table keyed by identity, records living while held or waited
   on: `monitor-enter*`/`monitor-exit*`, `clj_debug_live_monitors`), and a lazy seq being forced (a one-shot wait
   on the lot with `FORCING_WAITED` as the "someone parked" state — the `sched_yield` spin is gone; "Recursive
-  realization" stays). `promise`/`future` will hold it too when they exist.
+  realization" stays). A channel with a transducer holds it around its step ("Channels"); `promise`/`future` are plain promise-buffered channels, a runtime-only section under a `clj_lock`.
 - **Lock audit** (design §4, "under `clj_lock` runs neither user code nor IO"; every `clj_lock_lock` at the time
   of this task, 58 sites in 12 files; 82 in 15 after it, the new ones in `chan.c`, `cmutex.c`, `sched.c`,
-  `coro.c`, all runtime-only sections):
+  `coro.c`; 72 in 16 after the library layer, `chan.c` down to one site behind `chan_lock` and `runtime.c` up by the
+  capture buffer — all runtime-only sections):
 
   | file | sites | what runs under the lock | verdict |
   |---|---:|---|---|
@@ -426,7 +498,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   | `trace.c` | 2 | the frame tables | runtime only |
   | `eval.c` | 1 | a keyword site's fill | runtime only |
   | `keyword.c` | 1 | the intern table | runtime only |
-  | `chan.c` (new) | 13 | the buffer and the queues; wakes after the unlock | runtime only |
+  | `chan.c` (new) | 1 | `chan_lock`: the buffer and the queues of a plain channel; wakes after the unlock; a channel with a transducer takes a `clj_cmutex` instead ("Channels") | runtime only |
+  | `runtime.c` (new) | 2 | a shared `with-out-str` capture's buffer: a `memcpy` | runtime only |
   | `cmutex.c` (new) | 7 | a lot bucket, the monitor table; the waiter's own claim lock | runtime only |
   | `sched.c` (new) | 4 | a waiter's claim, the paired claim | runtime only |
   | `coro.c` (new) | 2 | the stack-mapping cache | runtime only |
@@ -435,6 +508,38 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `fwrite(stdout)`/`out_fn` on the writer thread with backpressure, the lazy-seq `sched_yield` spin replaced by
   a park; `fprintf(stderr)`/`write(2)` remain for fatal, crash and the uncaught report. The backstop is live:
   a park with a `clj_lock` held throws, and the guard handler still refuses to convert an overflow under one.
+
+## Guard (Sources/CljCore/guard.c, guard_internal.h; the crash handler in shadow.c)
+
+- **The SIGSEGV/SIGBUS handler is installed once at `clj_init`** (`SA_ONSTACK | SA_NODEFER | SA_SIGINFO`, an
+  alternate stack per carrier and per bare thread's implicit carrier, `clj_guard_thread_init`). On a fault it
+  reads the current execution through the carrier's pthread key — for a bare thread that is the implicit
+  coroutine, whose ring's stack bounds are the thread's (`clj_shadow_stack_bounds`) — and asks `is_overflow`:
+  the address just under the stack's low end or the stack pointer at it. An overflow lands at the execution's
+  innermost recovery point (`land_after_return` rewrites the interrupted context so the handler's *return*
+  resumes in `land`, off the signal stack); with no recovery point (a bare thread outside `clj_eval`), a fault
+  outside the runtime's code or a `clj_lock` held it is fatal: the trace and `clj_guard_die`.
+- **A fault that is not an overflow is fatal with a trace** (`fatal_fault`): "clj: fatal SIGSEGV at 0x…", the
+  Clojure frames (`clj_trace_write`), then the handler that was installed before ours (ASan's report under
+  `--sanitize=address`), then `clj_guard_die`. The handler never *returns* to the faulting instruction: the
+  first cut chained to a `SIG_DFL` by resetting the disposition and returning, so the kernel re-executed the
+  fault and applied the default action with nothing of ours written. `clj_guard_die` raises the signal with its
+  default disposition, or — `CLJ_CRASH_EXIT=1` — `_exit(128 + sig)`. The variable exists because the default
+  death is reported through the crash reporter: the kernel makes a corpse and sends `EXC_CRASH` to ReportCrash,
+  and a ReportCrash that never answers leaves the process in the kernel in state `UE`, unkillable, with the
+  faulting thread's user pc still at the fault (`sample` showed `clj_var_root` at var.c:66, no handler frame).
+  That was the wedge of two test helpers and reproduces with a five-line C program on the same machine, so it
+  is the host's, not the runtime's; the Makefile exports `CLJ_CRASH_EXIT=1` and `ASAN_OPTIONS=abort_on_error=0`
+  so a test that crashes ends with its trace and a nonzero exit either way.
+  `TraceTests.nonGuardFaultDiesWithATrace` is an exit test: a child faults on `clj_var_root(CLJ_NIL)` and its
+  stderr carries the line and the frames (skipped under ASan: the child is spawned without the insert library).
+- **The FnRootTests fault itself** was the test harness: `cljEval` ran `(in-ns …)` on the *root* of `*ns*`
+  (no thread binding), so a parallel suite's `Runtime.eval`, which binds `*ns*` to the current value, defined
+  its vars in that namespace, `clj_ns_resolve(clj_ns_user(), …)` answered nil and `clj_var_root(nil)` read
+  address 0x…. The suites whose sources `in-ns` now go through `cljEvalScoped`, which binds `*ns*` around the
+  call (`EvalSupport.swift`); `NamespaceTests` still tests the root deliberately and restores `user` at once.
+  The opt-in crash handler (`clj_crash_handler_install`, SIGSEGV/SIGBUS/SIGILL/SIGABRT/SIGFPE) dies through
+  the same `clj_guard_die`.
 
 ## RC (Sources/CljCore/rc.c, object.h)
 - **`-DCLJ_NO_REUSE` makes `clj_is_unique` always false** (`make test-noreuse`, `clj_reuse_enabled()` says
