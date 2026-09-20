@@ -80,11 +80,11 @@ struct clj_coro {
 	clj_spawn_frame *spawn_trace;    // spawn_inline for a short trace: no malloc per spawn
 	uint32_t         nspawn;
 	clj_spawn_frame  spawn_inline[CLJ_CORO_SPAWN_TRACE_INLINE];
-	uintptr_t        advised_lo, advised_hi; // the stack tail already handed back with madvise
+	uintptr_t        advised_hi;     // the stack tail [stack_lo, advised_hi) already handed back with madvise; 0 none
 	// ---- evacuation (coro.c): the live bytes of a cold parked coroutine sit in a heap blob, the mapping is reusable
 	void            *evac;           // the blob: [sp, stack_hi) then the ring's live frames; NULL while resident
-	size_t           evac_size;
 	bool             evacuated;      // read by the carrier before the switch in (one flag test), written under lock
+	bool             linked;         // on the live list (from its first park)
 	uint32_t         parks;          // bumped per park: the sweep evacuates a coroutine seen parked twice in one park
 	uint32_t         cold_at;        // the parks value the sweep last saw it parked at
 	struct clj_coro *live_prev, *live_next; // every spawned coroutine, for the sweep
@@ -164,6 +164,8 @@ void clj_ctx_switch(void **save_sp, void *load_sp);
 clj_coro *clj_coro_alloc(void);
 void      clj_coro_free_stack(clj_coro *c);
 void      clj_coro_advise_stack(clj_coro *c);
+// Under c->lock at a park: registers the coroutine for the sweep once (c->linked says whether it is done).
+void clj_coro_live_link(clj_coro *c);
 // Under c->lock with c parked: copies the live bytes out and hands the whole mapping back; false when not parked,
 // already evacuated or implicit. The carrier restores before the switch in (clj_coro_switch_in).
 bool clj_coro_evacuate_locked(clj_coro *c);

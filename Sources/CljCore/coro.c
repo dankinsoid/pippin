@@ -191,14 +191,21 @@ static bool map_keep(void *base, size_t size) {
 	return kept;
 }
 
-// Every spawned coroutine, for the evacuation sweep; linked at alloc, unlinked when the stack is freed.
-static clj_lock  live_lock = CLJ_LOCK_INIT;
-static clj_coro *live_head;
-static size_t    nlive;
+// Every coroutine that ever parked, for the evacuation sweep: linked at its first park (a coroutine that never
+// parks costs nothing here), unlinked when the stack is freed. Striped by address against the finishing carriers.
+enum { LIVE_STRIPES = 16 };
 
-static void live_link(clj_coro *c);
+typedef struct {
+	clj_lock  lock;
+	clj_coro *head;
+	size_t    n;
+} live_stripe;
+
+static live_stripe live[LIVE_STRIPES];
+
+static live_stripe *stripe_of(const clj_coro *c) { return &live[((uintptr_t)c >> 7) & (LIVE_STRIPES - 1)]; }
+
 static void live_unlink(clj_coro *c);
-static void pressure_install(void);
 
 // The ring's arrays start half a page past the stack's top: a shallow parked coroutine touches one page for both.
 clj_coro *clj_coro_alloc(void) {
@@ -216,7 +223,7 @@ clj_coro *clj_coro_alloc(void) {
 	coro_init(c);
 	// The handle is held by the spawner and released by a carrier: atomic RC from birth.
 	c->h.flags |= CLJ_FLAG_SHARED;
-	atomic_fetch_add_explicit(&live_coros, 1, memory_order_relaxed);
+	atomic_fetch_add_explicit(&live_coros, 1, memory_order_seq_cst);
 	c->map = base;
 	c->map_size = size;
 	char             *top = (char *)base + guard + stack + page / 2;
@@ -233,27 +240,26 @@ clj_coro *clj_coro_alloc(void) {
 	memset(sp, 0, SWITCH_FRAME);
 	*(void **)(sp + SWITCH_LR) = (void *)clj_coro_entry;
 	c->sp = sp;
-	pressure_install();
-	live_link(c);
 	return c;
 }
 
 static _Atomic size_t   evacuated_count, evacuated_bytes;
 static _Atomic uint64_t evacuations, restores;
 
+static size_t evac_size(const clj_coro *c);
+
 static void evac_drop(clj_coro *c) {
 	if (!c->evac) return;
 	free(c->evac);
 	atomic_fetch_sub_explicit(&evacuated_count, 1, memory_order_relaxed);
-	atomic_fetch_sub_explicit(&evacuated_bytes, c->evac_size, memory_order_relaxed);
+	atomic_fetch_sub_explicit(&evacuated_bytes, evac_size(c), memory_order_relaxed);
 	c->evac = NULL;
-	c->evac_size = 0;
 	c->evacuated = false;
 }
 
 void clj_coro_free_stack(clj_coro *c) {
 	if (!c->map) return;
-	live_unlink(c);
+	if (c->linked) live_unlink(c);
 	evac_drop(c);
 	if (!map_keep(c->map, c->map_size)) munmap(c->map, c->map_size);
 	c->map = NULL;
@@ -267,13 +273,12 @@ void clj_coro_advise_stack(clj_coro *c) {
 	uintptr_t lo = (uintptr_t)c->shadow->stack_lo, sp = (uintptr_t)c->sp;
 	uintptr_t hi = (sp & ~(page - 1)) - page;
 	if (hi <= lo || hi - lo < page) return;
-	if (c->advised_lo == lo && c->advised_hi == hi) return;
+	if (c->advised_hi == hi) return;
 #ifdef __APPLE__
 	madvise((void *)lo, hi - lo, MADV_FREE_REUSABLE);
 #else
 	madvise((void *)lo, hi - lo, MADV_DONTNEED);
 #endif
-	c->advised_lo = lo;
 	c->advised_hi = hi;
 }
 
@@ -446,6 +451,12 @@ static size_t ring_live(const clj_shadow_stack *s) {
 
 static size_t overflow_live(const clj_shadow_stack *s) { return s->noverflow * sizeof(clj_trace_frame); }
 
+// The blob's size, from the parked state it was made from (unchanged while parked).
+static size_t evac_size(const clj_coro *c) {
+	const clj_shadow_stack *s = c->shadow;
+	return (size_t)(s->stack_hi - (char *)c->sp) + ring_live(s) + overflow_live(s);
+}
+
 // Under c->lock. The stack tail already advised on the park stays as it is; the rest of the mapping joins it.
 bool clj_coro_evacuate_locked(clj_coro *c) {
 	if (!c->map || c->evacuated || atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_PARKED) return false;
@@ -461,7 +472,7 @@ bool clj_coro_evacuate_locked(clj_coro *c) {
 	memcpy(blob + stack_len + ring_len, s->overflow, over_len);
 	size_t    page = page_size();
 	uintptr_t tail_hi = ((uintptr_t)sp & ~(page - 1)) - page;
-	char     *lo = c->advised_lo == (uintptr_t)s->stack_lo && c->advised_hi == tail_hi ? (char *)tail_hi : s->stack_lo;
+	char     *lo = c->advised_hi == tail_hi ? (char *)tail_hi : s->stack_lo;
 #ifdef __APPLE__
 	madvise(lo, (size_t)(end - lo), MADV_FREE_REUSABLE);
 #else
@@ -469,7 +480,6 @@ bool clj_coro_evacuate_locked(clj_coro *c) {
 #endif
 	ASAN_POISON(s->stack_lo, (size_t)(end - s->stack_lo));
 	c->evac = blob;
-	c->evac_size = size;
 	c->evacuated = true;
 	atomic_fetch_add_explicit(&evacuated_count, 1, memory_order_relaxed);
 	atomic_fetch_add_explicit(&evacuated_bytes, size, memory_order_relaxed);
@@ -496,42 +506,56 @@ static void evac_restore(clj_coro *c) {
 	atomic_fetch_add_explicit(&restores, 1, memory_order_relaxed);
 }
 
-static bool sweep_claim_locked(void);
-static void sweep_arm(void);
+static void sweep_wanted(void);
+static void pressure_install(void);
+static _Atomic bool sweep_armed;
 
-static void live_link(clj_coro *c) {
-	clj_lock_lock(&live_lock);
+// Under c->lock, at the first park: the stripe lock nests inside it, and the sweep never holds them the other way.
+void clj_coro_live_link(clj_coro *c) {
+	pressure_install();
+	c->linked = true;
+	live_stripe *st = stripe_of(c);
+	clj_lock_lock(&st->lock);
 	c->live_prev = NULL;
-	c->live_next = live_head;
-	if (live_head) live_head->live_prev = c;
-	live_head = c;
-	nlive++;
-	bool arm = sweep_claim_locked();
-	clj_lock_unlock(&live_lock);
-	if (arm) sweep_arm();
+	c->live_next = st->head;
+	if (st->head) st->head->live_prev = c;
+	st->head = c;
+	st->n++;
+	clj_lock_unlock(&st->lock);
+	// Normally armed: one acquire load. The alloc's seq_cst increment of live_coros pairs with the sweep's re-check.
+	if (__builtin_expect(!atomic_load_explicit(&sweep_armed, memory_order_seq_cst), 0)) sweep_wanted();
 }
 
 static void live_unlink(clj_coro *c) {
-	clj_lock_lock(&live_lock);
+	live_stripe *st = stripe_of(c);
+	clj_lock_lock(&st->lock);
 	if (c->live_prev) c->live_prev->live_next = c->live_next;
-	else live_head = c->live_next;
+	else st->head = c->live_next;
 	if (c->live_next) c->live_next->live_prev = c->live_prev;
 	c->live_prev = c->live_next = NULL;
-	nlive--;
-	clj_lock_unlock(&live_lock);
+	st->n--;
+	clj_lock_unlock(&st->lock);
 }
 
 // The live coroutines, retained, so the walk holds no lock while it takes each coroutine's own.
 static clj_coro **live_snapshot(size_t *n) {
-	clj_lock_lock(&live_lock);
-	clj_coro **all = malloc((nlive ? nlive : 1) * sizeof *all);
+	size_t     cap = atomic_load_explicit(&live_coros, memory_order_relaxed) + 64, i = 0;
+	clj_coro **all = malloc(cap * sizeof *all);
 	if (!all) clj_fatal("out of memory");
-	size_t i = 0;
-	for (clj_coro *c = live_head; c; c = c->live_next) {
-		clj_retain(clj_from_ptr(c));
-		all[i++] = c;
+	for (size_t k = 0; k < LIVE_STRIPES; k++) {
+		live_stripe *st = &live[k];
+		clj_lock_lock(&st->lock);
+		if (i + st->n > cap) {
+			cap = i + st->n + 64;
+			all = realloc(all, cap * sizeof *all);
+			if (!all) clj_fatal("out of memory");
+		}
+		for (clj_coro *c = st->head; c; c = c->live_next) {
+			clj_retain(clj_from_ptr(c));
+			all[i++] = c;
+		}
+		clj_lock_unlock(&st->lock);
 	}
-	clj_lock_unlock(&live_lock);
 	*n = i;
 	return all;
 }
@@ -557,44 +581,38 @@ static size_t sweep(bool all) {
 size_t clj_coro_evacuate_all(void) { return sweep(true); }
 
 // The sweep timer runs while coroutines live and re-arms itself; the first spawn after it stopped arms it again.
-static uint64_t sweep_ms = 250;
-static bool     sweep_armed; // under live_lock
+static _Atomic uint64_t sweep_ms = 250;
 
 static void sweep_fire(void *ctx);
 
-// Under live_lock: claims the arming; the timer itself is made after the unlock (a syscall on the first one).
-static bool sweep_claim_locked(void) {
-	if (sweep_armed || !sweep_ms || !live_head) return false;
-	sweep_armed = true;
-	return true;
+// Arms the timer when coroutines live and nobody has: the exchange makes one arming per idle period.
+static void sweep_wanted(void) {
+	uint64_t ms = atomic_load_explicit(&sweep_ms, memory_order_relaxed);
+	if (!ms || !atomic_load_explicit(&live_coros, memory_order_seq_cst)) return;
+	if (atomic_load_explicit(&sweep_armed, memory_order_seq_cst)) return;
+	if (atomic_exchange_explicit(&sweep_armed, true, memory_order_seq_cst)) return;
+	clj_sched_timer(ms * 1000000u, sweep_fire, NULL);
 }
 
-static void sweep_arm(void) { clj_sched_timer(sweep_ms * 1000000u, sweep_fire, NULL); }
-
+// Cleared before the live count is read again: a spawn between the two arms for itself, one before is seen here.
 static void sweep_fire(void *ctx) {
 	(void)ctx;
-	if (sweep_ms) sweep(false);
-	clj_lock_lock(&live_lock);
-	sweep_armed = false;
-	bool arm = sweep_claim_locked();
-	clj_lock_unlock(&live_lock);
-	if (arm) sweep_arm();
+	if (atomic_load_explicit(&sweep_ms, memory_order_relaxed)) sweep(false);
+	atomic_store_explicit(&sweep_armed, false, memory_order_seq_cst);
+	sweep_wanted();
 }
 
 static void sweep_default(void) {
 	const char *env = getenv("CLJ_EVAC_SWEEP_MS");
-	if (env && *env) sweep_ms = (uint64_t)atoll(env);
+	if (env && *env) atomic_store_explicit(&sweep_ms, (uint64_t)atoll(env), memory_order_relaxed);
 }
 
 void clj_coro_set_evac_sweep_ms(uint64_t ms) {
-	clj_lock_lock(&live_lock);
-	sweep_ms = ms;
-	bool arm = sweep_claim_locked();
-	clj_lock_unlock(&live_lock);
-	if (arm) sweep_arm();
+	atomic_store_explicit(&sweep_ms, ms, memory_order_relaxed);
+	sweep_wanted();
 }
 
-uint64_t clj_coro_evac_sweep_ms(void) { return sweep_ms; }
+uint64_t clj_coro_evac_sweep_ms(void) { return atomic_load_explicit(&sweep_ms, memory_order_relaxed); }
 
 // Memory pressure evacuates everything parked at once; the sweep is the steady state. Apple: a dispatch source.
 #ifdef __APPLE__

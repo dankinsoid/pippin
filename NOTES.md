@@ -212,17 +212,83 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   with an empty frame chain (`x29 = 0`), so a trace walk stops at the coroutine's base.
 - **A stack is one `mmap` reserve with no commit**: a guard page (`PROT_NONE`), the stack (512 KB by default,
   `clj_coro_set_stack_size` before the first spawn; the interpreter's 64 KB `STACK_MARGIN` check applies to it
-  like to a thread), and the execution's shadow ring (`clj_shadow_stack`, 200 KB virtual) starting half a page
-  past the stack's top so that a shallow parked coroutine touches one 16 KB page for both. Measured: 10 000
-  parked `go` blocks cost 16 KB physical each (`clj_debug_phys_footprint`, `task_info`) against 528 KB virtual
-  — the page size is the floor, and a Swift `Task` suspended on a continuation is a few hundred bytes. On a
-  park the carrier hands the pages below the saved `sp` back with `MADV_FREE_REUSABLE` once per range
+  like to a thread), and the arrays of the execution's shadow ring (`frames[8192]`, then the guard's `overflow[256]`:
+  196 KB virtual) starting half a page past the stack's top so that a shallow parked coroutine touches one 16 KB
+  page for both. The ring's *header* (`clj_shadow_stack`: depth, bounds, deadline, the cancelled flag, the
+  recovery chain) is embedded in the `clj_coro` (`shadow_hdr`), not in the mapping: a canceller writes it while
+  the owner is parked, and the mapping of a parked coroutine may be evacuated (below); `frames` and `overflow`
+  are pointers in it (one extra load in `clj_shadow_push`, on the header's cache line). Measured: 10 000 parked
+  `go` blocks cost 16 KB physical each (`clj_debug_phys_footprint`, `task_info`) against 528 KB virtual — the
+  page size is the floor, and a Swift `Task` suspended on a continuation is a few hundred bytes. On a park the
+  carrier hands the pages below the saved `sp` back with `MADV_FREE_REUSABLE` once per range
   (`clj_coro_advise_stack`; a run that went deeper and parked at the same depth stays resident until a shallower
   park: the high-water mark of the note in design §4, not the exact tail). Finished coroutines leave their
   mappings in a cache of 256 (`map_keep`/`map_take`): an `mmap`, `mprotect` and `munmap` per spawn cost more
   than the spawn itself. Under ASan a cached mapping is unpoisoned before reuse (the dead frames' red zones), and
   every switch goes through `__sanitizer_start_switch_fiber`/`finish_switch_fiber`, so ASan follows the
   coroutine stacks (`make test` runs the suites on them).
+- **A parked coroutine's stack is its own** (design §4, "Стек припаркованной корутины — только её"): nothing a
+  resumer, a canceller, a timer or a blocking job touches lives in the parker's frames or in its mapping, so the
+  live bytes can be copied out and back *to the same addresses* (no pointer fixups: relocation stays refused).
+  The audit, every object another thread reads or writes while its owner is parked:
+
+  | touched while the owner is parked | by whom | where it lives | verdict |
+  |---|---|---|---|
+  | the waiter: claim word, its lock, `value`/`ok`/`port`/`index` | the completing side, a canceller, a timer | `clj_waiter`, malloc'd and refcounted | heap |
+  | channel queue nodes (`qnode`) | the completing side | malloc'd, owned by the channel | heap |
+  | the `alts!` handler | every port's completer | the one shared waiter; the `order`/`wakes` arrays of `clj_chan_alts` are used before the park only | heap |
+  | a `timeout`'s close, `Thread/sleep`, a deadline firing | the timer thread | the channel, the waiter, `deadline_ctx` (`clj_sched_timer` contexts) | heap |
+  | cancellation: kind, `deadline_before`, the waiter to claim | `cancel!`, the deadline timer, a scope | `clj_coro` (`cancel`, `waiter`) | heap |
+  | the ring header: `cancelled`, `deadline`, `unwinds`, `countdown` | `cancel_locked`, `deadline_fire`, `uncancel_scope` | was the first bytes of the mapping's ring page, shared with the stack's top → **moved** into `clj_coro` (`shadow_hdr`) | fixed |
+  | the blocking job's context (`read_job` of `load-file`) | the blocking-pool thread | was the caller's frame (`clj_blocking(fn, &job)`) → **fixed**: `clj_blocking(fn, ctx, size)` copies `size` bytes into the job, the thread works on the copy, the parker copies it back after the wake | fixed |
+  | `thread`'s job | the blocking thread | `thread_job`, malloc'd (the spawner never waits) | heap |
+  | lot nodes and monitors (`locking`, atoms, forcing) | the unlocker | malloc'd | heap |
+  | the output writer's `out_waiter` | the writer thread | malloc'd | heap |
+  | scope child tokens, the scope's done channel | children, the scope | Clojure values in the `*scope*` binding | heap |
+  | binding frames, `with-out-str` captures | children sharing them | refcounted heap chains | heap |
+  | the forcing records (`forcing_top`, seq.c) | nobody: a second forcer waits on the lot keyed by the seq, the chain is read by its owner only | the owner's frames | own |
+  | recovery points (`clj_recovery`, sigjmp_buf) | the guard handler of the *running* coroutine only | the owner's frames | own |
+  | the saved registers, `sp` | the carrier at the switch | `clj_coro.sp`, the switch frame on the owner's stack | own |
+
+  Two violations, both fixed; the rest is heap by construction (waiters are the unit of parking). `EvacTests`
+  is the proof: a coroutine parked in each kind of wait (take, put, `alts!`, `timeout`, the mutex lot, `promise`
+  and `future` deref, `Thread/sleep`, a scope's join, a `load-file` blocked on a FIFO) is evacuated and woken with
+  the right value; under ASan the evacuated mapping is poisoned, so a resumer that touched a parked frame would
+  be a report, not a corruption.
+- **Evacuation of cold parked coroutines** (design §4, "Память припаркованной корутины — страница, не модель"; the
+  sixteen kilobytes of a parked coroutine are one page, and a page is the floor for a mapping, so the only way
+  below it is off the mapping). `clj_coro_evacuate_locked`, under the coroutine's lock and only in state
+  `PARKED` (the context is fully saved — the parker switches out holding the lock): the live range `[sp,
+  stack_hi)` and the ring's live frames (`min(depth, capacity)` entries; the overflow array's `noverflow`) are
+  copied into one malloc'd blob of exact size, the mapping from the first page the park's advise did not cover up
+  to its end goes to `MADV_FREE_REUSABLE`, `evacuated` is set. The carrier restores in `clj_coro_switch_in`
+  before the switch: `MADV_FREE_REUSE` on the pages about to be written (a re-dirtied reusable page rejoins
+  `phys_footprint` otherwise only when the pageout scanner meets it — measured: 0 KB counted after a re-dirty
+  without it; the data is safe either way, the scanner treats a referenced or dirtied reusable page as reused),
+  two `memcpy`s back, the blob freed. The hot path gains one flag test on the resume and a `parks++` under the
+  lock the park already holds; the spawn gains a link into the live list under a `clj_lock` (the arming of the
+  sweep timer happens outside it). Triggers: (1) the **sweep** — a timer on the timer thread every
+  `CLJ_EVAC_SWEEP_MS` (default 250, `clj_coro_set_evac_sweep_ms`, 0 disables), armed while any coroutine lives and
+  re-armed by itself; a pass records each parked coroutine's park generation (`cold_at = parks`) and evacuates
+  those the previous pass saw in the *same* park, so a coroutine is taken after 250–500 ms parked and a pair
+  hopping every microsecond is never touched (bench: 500 pairs under a 2 ms sweep, 0 evacuations); (2) **memory
+  pressure** — `DISPATCH_SOURCE_TYPE_MEMORYPRESSURE` (warn and critical) evacuates every parked coroutine at once
+  (`clj_coro_evacuate_all`, also the test hook). The default is 250 ms because the cost of a wrong guess is
+  bounded and small (a restore is ~1.4 µs plus the page faults; a coroutine parked ≥ 250 ms pays 0.001 % of its
+  wait) while pressure handles the emergency, and a period under 100 ms would keep the timer thread busy on a
+  phone for nothing. Measured (bench/RESULTS.md, "Evacuation of parked coroutines"): 1.9 KB live per parked
+  `(go (<! g))` in release (3.7 KB in debug: two 832-byte `eval_invoke` slot arrays, the entry's `sigjmp_buf`, the
+  160-byte switch frame), evacuate + restore 1.4 µs shallow and 6.2 µs for 63 KB, a wake through a restore +2.4
+  µs, 10 000 parked 170 MB → 34 MB physical (18 MB of blobs, 16 MB of coroutine, channel, closure and waiter
+  objects that were there before too). The brief's gate of 5 MB for 10 000 is not reachable with real C frames:
+  the objects alone are 1.6 KB each; the trigger for the next 2× is the interpreter's frame (the two
+  `SMALL_SLOTS` arrays) or compiled bodies (a compiled `go` body has no `eval_invoke` frames). Traces: a parked
+  coroutine's trace is `clj_coro_parked_trace` (its ring frames and a frame-pointer walk from the saved `x29`,
+  read out of the blob with a bias while evacuated; nil for a coroutine that is not parked — an honest refusal);
+  the running coroutine's trace is unaffected, since the restore precedes the switch. Deferred, with their
+  triggers: the lanes of design §4 (K fixed mappings, a resume pays two memcpy where now it pays none) — a profile
+  with the page faults of restores or the VM entry count of 10 000 mappings on top; a smaller live range —
+  the interpreter's frame; `MADV_FREE_REUSE` on the park path's own re-dirtying (accounting only).
 - **The execution moved off `_Thread_local` into `clj_coro`** (`coro_internal.h`): the shadow ring with its
   stack bounds, deadline, countdown, unwinds and cancel flag; the binding frames (`var.c`); the pending
   exception and its trace (`error.c`); the forcing stack (`seq.c`); the exec nesting, the retired fn roots and
@@ -283,7 +349,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (`clj_coro_deadline_arm`, a serial per arm so a stale firing is a no-op) whose firing is `cancel_locked` with the
   deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
   tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
-  cancellable (`clj_park_uncancellable`): the job still uses the parker's stack. The flag is sticky: after the
+  cancellable (`clj_park_uncancellable`): the job's result would have no owner. The flag is sticky: after the
   first throw every later park point throws again, so cleanup that must wait does so in a `catch`. Deadlines are
   per coroutine and conveyed at spawn (a cancelled parent hands down the deadline it had, not its flag).
   `thread` bodies are cancellable through their channel: the channel holds the blocking thread's implicit
@@ -362,11 +428,18 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   and pumps by hand, and `CoroTests.mainRunLoopSource` runs the real source from a `@MainActor` test turning
   `CFRunLoopRunInMode`. `(atom x :affinity :main)` checks the carrier on every access (one flag test on the
   fast path): a pool coroutine's `swap!`/`deref` of it is an error with a trace.
-- **Blocking pool** (`clj_blocking`, `clj_blocking_detach`): threads made on demand up to 64, kept for ever; a
-  pool coroutine submits the job and parks (uncancellable), a bare thread runs it inline; the loader reads files
-  there (`load.c` `read_file`), `thread` runs its body there as the thread's implicit coroutine with the
-  spawner's bindings conveyed. **Timers**: one thread, a list sorted by deadline (`clj_sched_timer`); `timeout`
-  closes its channel from it. Trigger for a heap: profiles with thousands of live timeouts.
+- **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): threads made on demand up to 64, kept
+  for ever; a pool coroutine submits the job with a heap copy of its `size`-byte context and parks
+  (uncancellable), the thread works on the copy, the parker copies it back after the wake — the parker's frame
+  is never written by another thread (the evacuation invariant under "Coroutines"); a bare thread runs the job
+  inline on the original. The loader reads files there (`load.c` `read_file`), `thread` runs its body there as
+  the thread's implicit coroutine with the spawner's bindings conveyed. **Timers**: one thread, a list sorted by
+  deadline (`clj_sched_timer`); `timeout` closes its channel from it. A thread woken out of
+  `pthread_cond_timedwait` answers ~0.7 µs later than one woken out of `pthread_cond_wait` (the kernel arms a
+  deadline per wait; `(<! (timeout 0))` measured 2.1 → 2.9 µs whenever any far timer was pending — the
+  evacuation sweep's timer made that permanent), so a deadline farther than 2 ms is kept by one reprogrammed
+  dispatch timer (`far_wait`) that signals the condition, and the thread waits untimed. Trigger for a heap:
+  profiles with thousands of live timeouts.
 - **Output** (`runtime.c`): `clj_output` copies the bytes into a bounded queue (1 MB) drained by one writer thread
   that calls the host's `out_fn` or `fwrite`; a printer that finds the queue full parks (blocks on a bare
   thread) until the writer drains below the limit; `clj_output_flush` waits for an empty queue and an idle
@@ -502,7 +575,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   | `runtime.c` (new) | 2 | a shared `with-out-str` capture's buffer: a `memcpy` | runtime only |
   | `cmutex.c` (new) | 7 | a lot bucket, the monitor table; the waiter's own claim lock | runtime only |
   | `sched.c` (new) | 4 | a waiter's claim, the paired claim | runtime only |
-  | `coro.c` (new) | 2 | the stack-mapping cache | runtime only |
+  | `coro.c` (new) | 3 | the stack-mapping cache; the live list of coroutines (the evacuation sweep's snapshot: retains only) | runtime only |
 
   Every syscall that could block a carrier is off its path: `fopen`/`fread` (the loader) on the blocking pool,
   `fwrite(stdout)`/`out_fn` on the writer thread with backpressure, the lazy-seq `sched_yield` spin replaced by

@@ -446,6 +446,7 @@ static void park(clj_waiter *w, bool cancellable) {
 		return;
 	}
 	c->waiter = w;
+	if (__builtin_expect(!c->linked, 0)) clj_coro_live_link(c);
 	c->parks++;
 	atomic_store_explicit(&c->state, CLJ_CORO_PARKED, memory_order_release);
 	clj_coro_switch_out(c);
