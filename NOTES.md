@@ -2256,7 +2256,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0), each with a `SOURCE`
   (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
-- **The harness** (`CorpusTests`) is opt-in: `CLJ_CORPUS=1 swift test --filter CorpusTests`, `CLJ_CORPUS_LIB=medley`
+- **The harness** (`CorpusTests`) runs by default: `make corpus`, `CLJ_CORPUS_LIB=medley`
   for one library, `CLJ_CORPUS_UPDATE=1` to rewrite `corpus/<lib>/allowlist.edn` and `docs/corpus.md` from the
   run. It sets the load path and reader features from the manifest, requires every test namespace under
   lenient loading (a failing top-level form is recorded, not fatal), captures the suite's own `SKIP - x`
@@ -2273,8 +2273,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   regeneration when it happened to pass. Forms are not annotated: a form's reason is its
   own classification (a reader gap or an unresolved symbol). `:second-run-live-objects` is what a second run
   of the same tests leaves alive; a different number fails.
-- **On by default** (`CLJ_CORPUS=0` skips it): the whole corpus is about a second of a debug run, three under
-  ASan. `make corpus` runs it alone, `make corpus-update` regenerates the allowlists and docs/corpus.md.
+- **On by default** (`CLJ_CORPUS=0` skips it). `make corpus` runs it alone, `make corpus-update` regenerates
+  the allowlists and docs/corpus.md. Gate timings, including the corpus, are in "Gates".
 - **`:second-run-live-objects` is not always zero**: the suite's own `letfn` leaves a reference cycle per call
   (the volatile cell holds the fn, the fn's body derefs the cell), which RC cannot free — 2 objects per
   `letfn` call, 4 for the two namespaces that use one. The number is recorded per library and checked, so a
@@ -2804,7 +2804,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   the interpreter and, as one unit built and registered in-process, through the compiled backend, both
   against `<kind>.out` (`CLJ_FIXTURE_UPDATE=1` rewrites), and a second compiled run must not grow the live
   count by more than a second interpreted run does. `make test-compiled`: the suite on the compiled core in
-  the pool and ASan modes. `make corpus-compiled`: `clj-compile --lenient` per library in a child process,
+  the pool mode (`make test-compiled-asan` adds ASan on demand). `make corpus-compiled`: `clj-compile --lenient` per library in a child process,
   clang per file, `dlopen`, `clj_compiled_register` by path so the harness's `require`s run the units, and
   the per-line report (`CLJ_CORPUS_REPORT`) diffed against the interpreter's — identical for both corpora;
   `CLJ_CORPUS_CLOSED=1` compiles them `--closed`, where only the suite's `eval` test differs, by the refusal;
@@ -2906,3 +2906,62 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   conditionals are in (the reader takes any feature set), so the default set is `#{:default}` alone until
   the key exists; the corpus harness reads medley with `#{:clj}` so its JVM branches surface as
   resolution errors in the backlog rather than as silently empty bodies.
+
+
+## Gates
+
+- **Before every push, run `make gates`**: `test`, `test-compiled`, `corpus-compiled`, `facts-report`,
+  `port-audit`, `api-diff`, in that order. The runner prints wall seconds and exit status per step,
+  stops on the first failure, and prints the total on success. Even `make -j gates` keeps that order.
+  Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew). Every Makefile `swift test` is bounded by
+  `timeout -k 5 500`; GNU coreutils supplies `timeout` on macOS. Keep long runs in background logs.
+- **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
+  allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one
+  process per suite: an incorrect live-object baseline can pass when another suite initialized it first.
+  It is periodic because that startup cost repeats for every suite. All live-object assertions also remain
+  active in the ordinary full-suite and corpus runs.
+- **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
+  `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
+  `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
+  group. Release executables are inside `.build/release/release/`. `make boot` uses the plain compiler;
+  `scripts/embed-core.sh` only writes embedded source bytes and has no build-directory dependency.
+- **The push gate's ASan pass is `test`**, with interpreted core and `CLJ_SYSTEM_ALLOC=1`. It exercises
+  the evaluator/analyzer and runtime allocation boundaries; the pool would hide individual object bounds
+  from ASan. `test-compiled` runs the same suite with compiled core and the pool, checking emitted boot
+  code, pool behavior and live counts. `corpus-compiled` still executes both corpora twice per mode and
+  diffs fresh per-test reports. Compiled-core ASan catches memory errors specific to generated boot code;
+  it is retained as `test-compiled-asan` in the periodic full gate, not treated as redundant coverage.
+  Both ASan passes retain `--disable-xctest` for the discovery-helper issue in "Guard".
+- **Corpus compilation cache.** Each library lives at `.build/corpus-cache/<library>/<SHA-256>/`.
+  The length-framed key hashes the library tree (including manifest/refusal rules), the actual `clj-compile`
+  executable, ordered compiler arguments, runtime headers, `jit.c` (the clang flags), `Package.swift`,
+  clang identity and SDK path. Absolute input paths are included because generated descriptors contain
+  them. A lock per library serializes writers; a completion record is published atomically only after
+  every unit builds and loads. Interrupted entries or missing dylibs rebuild. Corrupt metadata or a
+  failing `dlopen` fails the gate. Compiler stderr and exit status are cached and refusal checks run on
+  hits too. A hit opens the existing dylibs at the same paths without invoking `clj-compile` or clang;
+  it still registers every unit, runs both test passes, checks live objects and compares reports.
+  `CLJ_COMPILE` and `CLJ_CORPUS_CACHE` override the tool and cache locations for direct harness runs.
+  Delete the cache to force recompilation. This cache is local executable build output, not a shared
+  artifact trust boundary.
+- **Measured, one machine, `2d73cd4` (before) vs this branch (after).** Cold clears every scratch path
+  and the corpus cache first; warm reruns `make gates` right after. Seconds per gate, wall clock:
+
+  | gate | before cold | before warm | after cold | after warm |
+  |---|---:|---:|---:|---:|
+  | test | 106 | 89 | 114 | 73 |
+  | test-compiled | 158 | 149 | 75 | 44 |
+  | corpus-compiled | 160 | 152 | 202 | 13 |
+  | facts-report | 10 | 4 | 11 | 4 |
+  | port-audit | 1 | 2 | 1 | 1 |
+  | api-diff | 6 | 4 | 6 | 4 |
+  | **total** | **441** | **400** | **409** | **139** |
+
+  `test-compiled` before ran the pool pass and the compiled-core ASan pass in one shared scratch
+  directory; after, it is the pool pass alone (the ASan pass moved to `test-compiled-asan`), so the two
+  numbers cover different work, not the same work faster. `corpus-compiled` cold is slower than before:
+  the cache pays for fingerprinting every library tree on a guaranteed miss. Warm is where the cache
+  earns it back — 152s to 13s, all cache hits, no clang or dlopen-from-a-fresh-file cost. The other four
+  gates are within run-to-run noise; separate scratch paths mean nothing in `gates` rebuilds anything
+  another gate already built. Total: cold about the same (independent scratch paths cost a bit up front),
+  warm about 3× faster, which is what a same-day second push pays.

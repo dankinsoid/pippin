@@ -14,6 +14,8 @@ Design decisions live in [docs/design.md](docs/design.md) (Russian), known simpl
 mechanism behind each in [NOTES.md](NOTES.md).
 
 ```sh
+make gates           # required before pushing; ordered and timed
+make gates-full      # gates plus suite isolation and compiled-core ASan
 make build           # swift build
 make test            # ASan run with the system allocator
 make test-all        # every sanitizer and allocator mode
@@ -24,5 +26,10 @@ make bench
 
 `Sources/CljCompiler` is the C generator over the analyzer's trees and `clj-compile` its tool; `make boot`
 regenerates the embedded core and its compiled form (NOTES.md, "Compiler").
+
+Before pushing, agents run `make gates`: `test`, `test-compiled`, `corpus-compiled`, `facts-report`,
+`port-audit`, `api-diff`, in that order. Run `make gates-full` weekly and after allocator, boot,
+compiler, or suite-lifetime changes. See [NOTES.md, Gates](NOTES.md#gates) for coverage and measurements.
+`api-diff` needs JVM Clojure on PATH (`/opt/homebrew/bin` with Homebrew); tests need GNU `timeout`.
 
 Requires Swift 6 and macOS 12 / iOS 15.
