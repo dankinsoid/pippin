@@ -78,7 +78,7 @@
     (line)
     (line "Built: " (str/join " " (map #(str "`" % "`") built)))
     (line)
-    (line "Missing (the library layer: design §10 step 5, later tasks): " (str/join " " (map #(str "`" % "`") missing)))
+    (line "Missing: " (if (seq missing) (str/join " " (map #(str "`" % "`") missing)) "none"))
     (line)
     (line "Ours only: " (str/join " " (map #(str "`" % "`") extra)))))
 

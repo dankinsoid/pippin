@@ -137,6 +137,6 @@ Against core.async 1.6.681's public names (docs/jvm-differences.md, "core.async"
 
 Built: `<!` `<!!` `>!` `>!!` `admix` `alt!` `alt!!` `alts!` `alts!!` `buffer` `chan` `close!` `do-alt` `dropping-buffer` `go` `go-loop` `into` `map` `merge` `mix` `mult` `offer!` `onto-chan` `onto-chan!` `onto-chan!!` `pipe` `pipeline` `pipeline-async` `pipeline-blocking` `poll!` `promise-chan` `pub` `put!` `reduce` `sliding-buffer` `solo-mode` `split` `sub` `take` `take!` `tap` `thread` `thread-call` `timeout` `to-chan` `to-chan!` `to-chan!!` `toggle` `transduce` `unblocking-buffer?` `unique` `unmix` `unmix-all` `unsub` `unsub-all` `untap` `untap-all`
 
-Missing (the library layer: design §10 step 5, later tasks): 
+Missing: none
 
 Ours only: `*scope*` `Mix` `Mult` `Mux` `Pub` `admix*` `cancel!` `filter<` `filter>` `go*` `go-main` `go-main*` `go-scoped` `map<` `map>` `mapcat<` `mapcat>` `muxch*` `partition` `partition-by` `plet` `remove<` `remove>` `scoped*` `solo-mode*` `sub*` `tap*` `toggle*` `unmix*` `unmix-all*` `unsub*` `unsub-all*` `untap*` `untap-all*`

@@ -185,12 +185,12 @@
 (defn- scope-new []
   {:pending (atom 0)
    :done (chan (sliding-buffer 1))
-   :children (atom #{})
+   :children (atom {}) ; token -> channel, nil until the spawn returned
    :state (atom {:error nil :failing false})
    :body (coro-current*)})
 
 (defn- scope-cancel-children! [s]
-  (doseq [c @(:children s)] (chan-cancel* c)))
+  (doseq [c (vals @(:children s)) :when c] (chan-cancel* c)))
 
 ;; The first failure is the scope's error: it cancels the siblings and the body; later ones are its consequences.
 (defn- scope-child-failed! [s e]
@@ -199,22 +199,23 @@
       (scope-cancel-children! s)
       (coro-cancel-scope* (:body s)))))
 
-(defn- scope-child-done! [s ch]
-  (swap! (:children s) disj ch)
+(defn- scope-child-done! [s tok]
+  (swap! (:children s) dissoc tok)
   (when (zero? (swap! (:pending s) dec))
     (put! (:done s) true)))
 
 ;; The count is raised before the spawn, so a join that finds it zero has nothing left to wait for.
 (defn- scope-spawn [s spawn f]
   (swap! (:pending s) inc)
-  (let [ch (atom nil)
+  (let [tok (volatile! nil)
+        _ (swap! (:children s) assoc tok nil)
         c (spawn (fn []
                    (try
                      (f)
                      (catch :default e (scope-child-failed! s e) nil)
-                     (finally (scope-child-done! s @ch)))))]
-    (reset! ch c)
-    (swap! (:children s) conj c)
+                     (finally (scope-child-done! s tok)))))]
+    ;; A child done before the spawn returned has left already: its entry is not put back.
+    (swap! (:children s) (fn [m] (if (contains? m tok) (assoc m tok c) m)))
     c))
 
 (defn- spawn* [spawn f]
