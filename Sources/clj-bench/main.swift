@@ -651,6 +651,170 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {
 	exit(0)
 }
 
+// CLJ_BENCH_ONLY=evac: the evacuation of cold parked coroutines (bench/RESULTS.md, "Evacuation of parked coroutines").
+// @ai-generated(solo)
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "evac" {
+	clj_init()
+	_ = cljEval("(require 'clojure.core.async) (in-ns 'bench.evac) (clojure.core/refer 'clojure.core) (require '[clojure.core.async :refer [chan <! >! <!! >!! close! go go-loop]])")
+	func settle() {
+		if !clj_debug_coro_settle(0, 10_000) { print("coroutines did not settle"); exit(1) }
+	}
+	func med(ops: Int, _ body: () -> UInt64) -> Double {
+		var times: [Double] = []
+		blackHole(body())
+		for _ in 0..<reps {
+			let t0 = DispatchTime.now().uptimeNanoseconds
+			blackHole(body())
+			times.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / Double(ops))
+		}
+		return times.sorted()[reps / 2]
+	}
+	// A go block parked on a gate, and the same with a stack ~100 KB deep; the coroutine behind the channel.
+	_ = cljEval("(defn deep [g n acc] (if (zero? n) (do (<! g) acc) (+ 1 (deep g (dec n) (inc acc)))))")
+	func parked(_ src: String) -> (gate: clj_value, ch: clj_value, coro: clj_value) {
+		let gate = cljEval("(chan)")
+		let spawn = cljEval("(fn [gate] \(src))")
+		var g = gate
+		let ch = withUnsafePointer(to: &g) { clj_invoke(spawn, $0, 1) }
+		clj_release(spawn)
+		let coro = clj_debug_chan_coro(ch)
+		var waited = 0
+		while !clj_debug_coro_evacuate(coro) && waited < 100_000 {
+			usleep(100)
+			waited += 100
+		}
+		_ = clj_debug_coro_restore(coro)
+		return (gate, ch, coro)
+	}
+	func release(_ p: (gate: clj_value, ch: clj_value, coro: clj_value)) {
+		clj_release(clj_chan_close(p.gate))
+		clj_release(clj_chan_take(p.ch))
+		clj_release(p.coro)
+		clj_release(p.ch)
+		clj_release(p.gate)
+	}
+	var rows: [(String, Double?)] = []
+	let shallow = parked("(go (<! gate) 1)")
+	let bytesShallow = clj_debug_coro_evacuate(shallow.coro) ? clj_debug_coro_evacuated_bytes() : 0
+	_ = clj_debug_coro_restore(shallow.coro)
+	rows.append(("evacuate + restore cycle, a go block parked on <! (\(bytesShallow) live bytes)", med(ops: 10_000) {
+		for _ in 0..<10_000 {
+			_ = clj_debug_coro_evacuate(shallow.coro)
+			_ = clj_debug_coro_restore(shallow.coro)
+		}
+		return 1
+	}))
+	release(shallow)
+	settle()
+	let deep = parked("(go (deep gate 120 0))")
+	let bytesDeep = clj_debug_coro_evacuate(deep.coro) ? clj_debug_coro_evacuated_bytes() : 0
+	_ = clj_debug_coro_restore(deep.coro)
+	rows.append(("evacuate + restore cycle, 120 interpreted frames deep (\(bytesDeep / 1024) KB live)", med(ops: 1_000) {
+		for _ in 0..<1_000 {
+			_ = clj_debug_coro_evacuate(deep.coro)
+			_ = clj_debug_coro_restore(deep.coro)
+		}
+		return 1
+	}))
+	release(deep)
+	settle()
+	// A round trip from the main thread through a parked echo coroutine: resident, and evacuated before every wake.
+	let echoIn = cljEval("(chan)"), echoOut = cljEval("(chan)")
+	let echo = cljEval("(fn [in out] (go-loop [] (when-let [v (<! in)] (>! out v) (recur))))")
+	let echoCh: clj_value = {
+		let args = [echoIn, echoOut]
+		return args.withUnsafeBufferPointer { clj_invoke(echo, $0.baseAddress, 2) }
+	}()
+	let echoCoro = clj_debug_chan_coro(echoCh)
+	func roundTrip(evacuate: Bool) -> UInt64 {
+		if evacuate {
+			var waited = 0
+			while !clj_debug_coro_evacuate(echoCoro) && waited < 100_000 {
+				usleep(50)
+				waited += 50
+			}
+		}
+		clj_release(clj_chan_put(echoIn, clj_fixnum(1)))
+		clj_release(clj_chan_take(echoOut))
+		return 1
+	}
+	rows.append(("main → parked echo → main round trip, resident", med(ops: 10_000) {
+		for _ in 0..<10_000 { blackHole(roundTrip(evacuate: false)) }
+		return 1
+	}))
+	rows.append(("main → parked echo → main round trip, evacuated before each wake (restore on the resume path)", med(ops: 2_000) {
+		for _ in 0..<2_000 { blackHole(roundTrip(evacuate: true)) }
+		return 1
+	}))
+	clj_release(clj_chan_close(echoIn))
+	clj_release(clj_chan_take(echoCh))
+	for v in [echoIn, echoOut, echo, echoCh, echoCoro] { clj_release(v) }
+	settle()
+
+	print("| scenario | ns/op |")
+	print("|---|---:|")
+	for r in rows { print("| \(r.0) | \(fmt(r.1)) |") }
+
+	// 10k parked: the footprint resident, evacuated, and after every one woke; the blobs' bytes per coroutine.
+	let gates = cljEval("(vec (repeatedly 10 chan))")
+	let parkFn = cljEval("(fn [gates n] (let [done (chan n)] (dotimes [i n] (let [g (nth gates (mod i 10))] (go (<! g) (>! done i)))) done))")
+	let before = clj_debug_phys_footprint()
+	let done = withUnsafePointer(to: [gates, clj_fixnum(10_000)]) { p in p.pointee.withUnsafeBufferPointer { clj_invoke(parkFn, $0.baseAddress, 2) } }
+	var parkedCount: UInt32 = 0
+	while parkedCount < 10_000 {
+		parkedCount = (0..<10).reduce(0) { $0 + clj_debug_chan_pending(clj_vector_nth(gates, UInt32($1)), false) }
+		usleep(1000)
+	}
+	let resident = clj_debug_phys_footprint()
+	let t0 = DispatchTime.now().uptimeNanoseconds
+	let evacuated = clj_coro_evacuate_all()
+	let evacNs = DispatchTime.now().uptimeNanoseconds - t0
+	let afterEvac = clj_debug_phys_footprint()
+	let blobBytes = clj_debug_coro_evacuated_bytes()
+	let closeFn = cljEval("(fn [gates done] (doseq [g gates] (close! g)) (dotimes [i 10000] (<!! done)) 1)")
+	let t1 = DispatchTime.now().uptimeNanoseconds
+	_ = withUnsafePointer(to: [gates, done]) { p in p.pointee.withUnsafeBufferPointer { clj_invoke(closeFn, $0.baseAddress, 2) } }
+	let wakeNs = DispatchTime.now().uptimeNanoseconds - t1
+	settle()
+	print("\n| 10 000 parked go blocks | physical (phys_footprint), total | per coroutine |")
+	print("|---|---:|---:|")
+	print("| resident | \((resident - before) / 1024 / 1024) MB | \((resident - before) / 10_000 / 1024) KB |")
+	print("| evacuated (\(evacuated) coroutines in \(evacNs / 1_000_000) ms) | \((afterEvac - before) / 1024 / 1024) MB | \((afterEvac - before) / 10_000) B |")
+	print("| of which the blobs (live bytes) | \(blobBytes / 1024 / 1024) MB | \(blobBytes / 10_000) B |")
+	print("| all woken after evacuation (restore + run + finish) | \(wakeNs / 1_000_000) ms total | \(wakeNs / 10_000) ns |")
+	for v in [gates, parkFn, done, closeFn] { clj_release(v) }
+
+	// 500 ping-pong pairs under an aggressive sweep: evacuations of hot coroutines are the bound, not the rule.
+	let pairsFn = cljEval("""
+	(fn [pairs n]
+	  (let [dones (vec (for [_ (range pairs)]
+	                     (let [ping (chan) pong (chan)
+	                           p (go-loop [i 0] (if (< i n) (do (>! ping i) (<! pong) (recur (inc i))) (close! ping)))
+	                           q (go-loop [] (when-let [v (<! ping)] (>! pong v) (recur)))]
+	                       [p q])))]
+	    (doseq [[p q] dones] (<!! p) (<!! q))
+	    (* pairs n)))
+	""")
+	let period = clj_coro_evac_sweep_ms()
+	func pairs(_ sweepMs: UInt64) -> (ns: Double, evacuations: UInt64) {
+		clj_coro_set_evac_sweep_ms(sweepMs)
+		let e0 = clj_debug_coro_evacuations()
+		let ns = med(ops: 500 * 2_000) { cljCall2(pairsFn, clj_fixnum(500), clj_fixnum(2_000)) }
+		settle()
+		return (ns, clj_debug_coro_evacuations() - e0)
+	}
+	let off = pairs(0)
+	let on = pairs(2)
+	clj_coro_set_evac_sweep_ms(period)
+	print("\n| 1000 coroutines in 500 ping-pong pairs, 2000 hops each | ns per hop | evacuations over \(reps + 1) runs |")
+	print("|---|---:|---:|")
+	print("| sweep off | \(fmt(off.ns)) | \(off.evacuations) |")
+	print("| sweep every 2 ms | \(fmt(on.ns)) | \(on.evacuations) |")
+	clj_release(pairsFn)
+	print("\nns per op, medians of \(reps) runs; sweep default \(period) ms")
+	exit(0)
+}
+
 // CLJ_BENCH_ONLY=async: the core.async library layer, futures, promises and scopes (bench/RESULTS.md).
 // @ai-generated(solo)
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "async" {

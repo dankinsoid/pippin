@@ -15,9 +15,10 @@ boot:
 	swift build --product clj-compile
 	./.build/debug/clj-compile --core --out Sources/CljCore/boot
 
-# ASan sees object boundaries only with the system allocator.
+# ASan sees object boundaries only with the system allocator. The suite is swift-testing only; the XCTest discovery
+# helper loads the ASan-linked bundle without the runtime first and dies, so it is skipped.
 test:
-	CLJ_SYSTEM_ALLOC=1 swift test --sanitize=address
+	CLJ_SYSTEM_ALLOC=1 swift test --sanitize=address --disable-xctest
 
 test-pool:
 	swift test
@@ -53,7 +54,7 @@ corpus-update:
 # The whole suite on the compiled core.clj (boot/core.c, boot/libs_*.c): pool and ASan modes.
 test-compiled:
 	swift test -Xcc -DCLJ_COMPILED_CORE
-	CLJ_SYSTEM_ALLOC=1 swift test -Xcc -DCLJ_COMPILED_CORE --sanitize=address
+	CLJ_SYSTEM_ALLOC=1 swift test -Xcc -DCLJ_COMPILED_CORE --sanitize=address --disable-xctest
 
 # Both corpora through compiled user code: clj-compile per library, clang per file, dlopen; the per-test report
 # must match the interpreter's line by line.

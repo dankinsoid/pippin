@@ -496,6 +496,9 @@ static void evac_restore(clj_coro *c) {
 	atomic_fetch_add_explicit(&restores, 1, memory_order_relaxed);
 }
 
+static bool sweep_claim_locked(void);
+static void sweep_arm(void);
+
 static void live_link(clj_coro *c) {
 	clj_lock_lock(&live_lock);
 	c->live_prev = NULL;
@@ -503,7 +506,9 @@ static void live_link(clj_coro *c) {
 	if (live_head) live_head->live_prev = c;
 	live_head = c;
 	nlive++;
+	bool arm = sweep_claim_locked();
 	clj_lock_unlock(&live_lock);
+	if (arm) sweep_arm();
 }
 
 static void live_unlink(clj_coro *c) {
@@ -555,20 +560,25 @@ size_t clj_coro_evacuate_all(void) { return sweep(true); }
 static uint64_t sweep_ms = 250;
 static bool     sweep_armed; // under live_lock
 
-static void sweep_arm_locked(void);
+static void sweep_fire(void *ctx);
+
+// Under live_lock: claims the arming; the timer itself is made after the unlock (a syscall on the first one).
+static bool sweep_claim_locked(void) {
+	if (sweep_armed || !sweep_ms || !live_head) return false;
+	sweep_armed = true;
+	return true;
+}
+
+static void sweep_arm(void) { clj_sched_timer(sweep_ms * 1000000u, sweep_fire, NULL); }
 
 static void sweep_fire(void *ctx) {
 	(void)ctx;
 	if (sweep_ms) sweep(false);
 	clj_lock_lock(&live_lock);
 	sweep_armed = false;
-	if (live_head && sweep_ms) sweep_arm_locked();
+	bool arm = sweep_claim_locked();
 	clj_lock_unlock(&live_lock);
-}
-
-static void sweep_arm_locked(void) {
-	sweep_armed = true;
-	clj_sched_timer(sweep_ms * 1000000u, sweep_fire, NULL);
+	if (arm) sweep_arm();
 }
 
 static void sweep_default(void) {
@@ -579,8 +589,9 @@ static void sweep_default(void) {
 void clj_coro_set_evac_sweep_ms(uint64_t ms) {
 	clj_lock_lock(&live_lock);
 	sweep_ms = ms;
-	if (ms && live_head && !sweep_armed) sweep_arm_locked();
+	bool arm = sweep_claim_locked();
 	clj_lock_unlock(&live_lock);
+	if (arm) sweep_arm();
 }
 
 uint64_t clj_coro_evac_sweep_ms(void) { return sweep_ms; }
@@ -606,9 +617,6 @@ static void pressure_init(void) {
 static void pressure_install(void) {
 	static pthread_once_t once = PTHREAD_ONCE_INIT;
 	pthread_once(&once, pressure_init);
-	clj_lock_lock(&live_lock);
-	if (sweep_ms && !sweep_armed) sweep_arm_locked();
-	clj_lock_unlock(&live_lock);
 }
 
 bool clj_debug_coro_evacuate(clj_value coro) {

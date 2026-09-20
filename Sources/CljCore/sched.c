@@ -9,6 +9,7 @@
 
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
+#include <dispatch/dispatch.h>
 #include <pthread/qos.h>
 #endif
 
@@ -696,6 +697,45 @@ static pthread_cond_t  timer_cv = PTHREAD_COND_INITIALIZER;
 static clj_timer      *timers;
 static pthread_once_t  timer_once = PTHREAD_ONCE_INIT;
 
+// A timed wait wakes ~0.7 µs later than an untimed one (a kernel deadline per wait): far deadlines go to a
+// dispatch timer that signals the condition, and the thread waits untimed.
+enum { FAR_NS = 2000000 };
+
+#ifdef __APPLE__
+static dispatch_source_t far_timer;
+static uint64_t          far_when; // under timer_mu
+
+static void far_fire(void *ctx) {
+	(void)ctx;
+	pthread_mutex_lock(&timer_mu);
+	far_when = 0;
+	pthread_cond_signal(&timer_cv);
+	pthread_mutex_unlock(&timer_mu);
+}
+
+// Under timer_mu: (re)arms the one dispatch timer for `when`; a stale firing is a spurious wake the loop absorbs.
+static bool far_wait(uint64_t when, uint64_t wait) {
+	if (!far_timer) {
+		far_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+		if (!far_timer) return false;
+		dispatch_source_set_event_handler_f(far_timer, far_fire);
+		dispatch_resume(far_timer);
+	}
+	if (far_when != when) {
+		dispatch_source_set_timer(far_timer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)wait), DISPATCH_TIME_FOREVER, 0);
+		far_when = when;
+	}
+	pthread_cond_wait(&timer_cv, &timer_mu);
+	return true;
+}
+#else
+static bool far_wait(uint64_t when, uint64_t wait) {
+	(void)when;
+	(void)wait;
+	return false;
+}
+#endif
+
 static void *timer_main(void *arg) {
 	(void)arg;
 	pthread_mutex_lock(&timer_mu);
@@ -706,7 +746,8 @@ static void *timer_main(void *arg) {
 		}
 		uint64_t now = clj_profile_now();
 		if (timers->when > now) {
-			uint64_t        wait = timers->when - now;
+			uint64_t wait = timers->when - now;
+			if (wait > FAR_NS && far_wait(timers->when, wait)) continue;
 			struct timespec ts;
 			clock_gettime(CLOCK_REALTIME, &ts);
 			ts.tv_sec += (time_t)(wait / 1000000000u);
