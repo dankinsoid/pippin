@@ -445,6 +445,7 @@ static void park(clj_waiter *w, bool cancellable) {
 		return;
 	}
 	c->waiter = w;
+	c->parks++;
 	atomic_store_explicit(&c->state, CLJ_CORO_PARKED, memory_order_release);
 	clj_coro_switch_out(c);
 	pthread_mutex_lock(&c->lock);
@@ -861,9 +862,10 @@ clj_value clj_sched_sleep_ms(int64_t ms) {
 
 typedef struct job {
 	void (*fn)(void *ctx);
-	void       *ctx;
+	void       *ctx;  // the caller's copy for a parking caller (ctx_copy), the caller's own for a detached job
 	clj_waiter *w;
 	struct job *next;
+	char        ctx_copy[];
 } job;
 
 enum { BLOCKING_MAX_THREADS = 64 };
@@ -885,20 +887,27 @@ static void *blocking_main(void *arg) {
 		if (!job_head) job_tail = NULL;
 		pthread_mutex_unlock(&job_mu);
 		j->fn(j->ctx);
-		if (j->w) {
-			if (clj_waiter_claim(j->w)) clj_resume_far(j->w);
-			clj_waiter_release(j->w);
+		clj_waiter *w = j->w;
+		if (!w) {
+			free(j);
+			continue;
 		}
-		free(j);
+		// The claim publishes the copy; the parker reads it back and frees the job, so j is not touched past here.
+		if (clj_waiter_claim(w)) clj_resume_far(w);
+		clj_waiter_release(w);
 	}
 	return NULL;
 }
 
-static void submit(void (*fn)(void *ctx), void *ctx, clj_waiter *w) {
-	job *j = malloc(sizeof *j);
+static job *submit(void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w) {
+	job *j = malloc(sizeof *j + copy);
 	if (!j) clj_fatal("out of memory");
 	j->fn = fn;
 	j->ctx = ctx;
+	if (copy) {
+		memcpy(j->ctx_copy, ctx, copy);
+		j->ctx = j->ctx_copy;
+	}
 	j->w = w;
 	j->next = NULL;
 	pthread_mutex_lock(&job_mu);
@@ -917,10 +926,12 @@ static void submit(void (*fn)(void *ctx), void *ctx, clj_waiter *w) {
 		pthread_attr_destroy(&attr);
 	}
 	pthread_cond_signal(&job_cv);
+	return j;
 }
 
-// The job's context lives on the caller's stack, so a cancellation may not wake the caller before the job ends.
-void clj_blocking(void (*fn)(void *ctx), void *ctx) {
+// The job works on a heap copy of ctx, written back here: the parker's frame is nobody else's (design §4).
+// Uncancellable: a caller that left would leave the job's result without an owner.
+void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
 	clj_coro *c = clj_coro_current();
 	if (c->implicit || c->host_depth || c->locks_held) {
 		fn(ctx);
@@ -928,12 +939,14 @@ void clj_blocking(void (*fn)(void *ctx), void *ctx) {
 	}
 	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
 	clj_waiter_retain(w);
-	submit(fn, ctx, w);
+	job *j = submit(fn, ctx, size, w);
 	clj_park_uncancellable(w);
+	memcpy(ctx, j->ctx_copy, size);
+	free(j);
 	clj_waiter_release(w);
 }
 
-void clj_blocking_detach(void (*fn)(void *ctx), void *ctx) { submit(fn, ctx, NULL); }
+void clj_blocking_detach(void (*fn)(void *ctx), void *ctx) { submit(fn, ctx, 0, NULL); }
 
 uint64_t clj_debug_coro_spawned(void) { return atomic_load_explicit(&spawned, memory_order_relaxed); }
 

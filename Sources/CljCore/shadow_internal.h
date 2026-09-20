@@ -11,21 +11,30 @@
 #define CLJ_TRACE_MAX 256
 
 // A ring, one per execution: past the capacity the oldest frame is overwritten, so the innermost ones survive.
+// The header is in the clj_coro: a canceller writes it while the owner is parked and its mapping may be evacuated.
 typedef struct {
-	size_t           depth;
-	size_t           mask;
-	char            *stack_limit; // lowest C stack address the interpreter may still use; eval.c fills it on the first call
-	char            *stack_lo;    // the stack bounds, for walking the real stack (trace.c, guard.c)
-	char            *stack_hi;
-	_Atomic uint64_t deadline;    // monotonic ns the running code must not pass, 0 when none (eval.c); 1 once cancelled
-	uint32_t         countdown;   // calls and loop turns left before the next clock read
-	uint32_t         unwinds;     // unwind budgets a caught timeout may still spend before every check throws
-	_Atomic bool     cancelled;   // a cancellation of the coroutine (its kind is on the clj_coro): the deadline throw becomes it
-	void            *recovery;    // innermost clj_recovery of the execution, NULL outside the host boundary (guard.c)
-	size_t           noverflow;   // the frames the guard handler collected before landing (guard.c)
-	clj_trace_frame  overflow[CLJ_TRACE_MAX];
-	clj_shadow_frame frames[CLJ_SHADOW_CAPACITY];
+	size_t            depth;
+	size_t            mask;
+	clj_shadow_frame *frames;      // CLJ_SHADOW_CAPACITY entries
+	char             *stack_limit; // lowest C stack address the interpreter may still use; eval.c fills it on the first call
+	char             *stack_lo;    // the stack bounds, for walking the real stack (trace.c, guard.c)
+	char             *stack_hi;
+	_Atomic uint64_t  deadline;    // monotonic ns the running code must not pass, 0 when none (eval.c); 1 once cancelled
+	uint32_t          countdown;   // calls and loop turns left before the next clock read
+	uint32_t          unwinds;     // unwind budgets a caught timeout may still spend before every check throws
+	_Atomic bool      cancelled;   // a cancellation of the coroutine (its kind is on the clj_coro): the deadline throw becomes it
+	void             *recovery;    // innermost clj_recovery of the execution, NULL outside the host boundary (guard.c)
+	size_t            noverflow;   // the frames the guard handler collected before landing (guard.c)
+	clj_trace_frame  *overflow;    // CLJ_TRACE_MAX entries, after the frames
 } clj_shadow_stack;
+
+// The arrays of a ring, laid out frames then overflow.
+enum { CLJ_SHADOW_ARRAYS_SIZE = CLJ_SHADOW_CAPACITY * sizeof(clj_shadow_frame) + CLJ_TRACE_MAX * sizeof(clj_trace_frame) };
+
+static inline void clj_shadow_stack_arrays(clj_shadow_stack *s, void *base) {
+	s->frames = base;
+	s->overflow = (clj_trace_frame *)((char *)base + CLJ_SHADOW_CAPACITY * sizeof(clj_shadow_frame));
+}
 
 // The running execution's ring, mirrored from the coroutine at every switch; not for Swift (_Thread_local).
 extern _Thread_local clj_shadow_stack *clj_shadow_tls;

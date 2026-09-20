@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #ifdef __APPLE__
+#include <dispatch/dispatch.h>
 #include <mach/mach.h>
 #endif
 
@@ -15,18 +16,23 @@
 #include "clj/fn.h"
 #include "clj/guard.h"
 #include "clj/profile.h"
+#include "clj/vector.h"
 #include "coro_internal.h"
 #include "guard_internal.h"
 #include "profile_internal.h"
+#include "trace_internal.h"
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
 void __sanitizer_start_switch_fiber(void **fake_stack_save, const void *bottom, size_t size);
 void __sanitizer_finish_switch_fiber(void *fake_stack_save, const void **bottom_old, size_t *size_old);
 void __asan_unpoison_memory_region(const void *addr, size_t size);
+void __asan_poison_memory_region(const void *addr, size_t size);
 #define ASAN_START(save, lo, size) __sanitizer_start_switch_fiber((save), (lo), (size))
 // A cached mapping keeps the red zones of the frames that died on it.
 #define ASAN_UNPOISON(p, n) __asan_unpoison_memory_region((p), (n))
+// An evacuated mapping is poisoned: a resumer touching a parked frame is a report, not silent corruption.
+#define ASAN_POISON(p, n) __asan_poison_memory_region((p), (n))
 #define ASAN_FINISH(save)                                                                                                                            \
 	do {                                                                                                                                             \
 		const void *lo_;                                                                                                                             \
@@ -39,6 +45,7 @@ void __asan_unpoison_memory_region(const void *addr, size_t size);
 #define ASAN_START(save, lo, size) ((void)(save), (void)(lo), (void)(size))
 #define ASAN_FINISH(save) ((void)(save))
 #define ASAN_UNPOISON(p, n) ((void)(p), (void)(n))
+#define ASAN_POISON(p, n) ((void)(p), (void)(n))
 #endif
 
 // ---- the context switch: callee-saved registers and the stack pointer, nothing else (no signal mask)
@@ -74,7 +81,7 @@ __asm__(".text\n"
         "  ldp d14, d15, [sp, #144]\n"
         "  add sp, sp, #160\n"
         "  ret\n");
-enum { SWITCH_FRAME = 160, SWITCH_LR = 88 };
+enum { SWITCH_FRAME = 160, SWITCH_LR = 88, SWITCH_FP = 80 };
 #elif defined(__x86_64__)
 __asm__(".text\n"
         ".globl _clj_ctx_switch\n"
@@ -96,7 +103,7 @@ __asm__(".text\n"
         "  popq %rbp\n"
         "  ret\n");
 // Six registers, the return address, and one pad word so the entry sees rsp ≡ 8 (mod 16) as after a call.
-enum { SWITCH_FRAME = 64, SWITCH_LR = 48 };
+enum { SWITCH_FRAME = 64, SWITCH_LR = 48, SWITCH_FP = 40 };
 #else
 #error "clj_ctx_switch: no context switch for this architecture"
 #endif
@@ -184,10 +191,19 @@ static bool map_keep(void *base, size_t size) {
 	return kept;
 }
 
-// The ring starts half a page past the stack's top: a shallow parked coroutine touches one page for both.
+// Every spawned coroutine, for the evacuation sweep; linked at alloc, unlinked when the stack is freed.
+static clj_lock  live_lock = CLJ_LOCK_INIT;
+static clj_coro *live_head;
+static size_t    nlive;
+
+static void live_link(clj_coro *c);
+static void live_unlink(clj_coro *c);
+static void pressure_install(void);
+
+// The ring's arrays start half a page past the stack's top: a shallow parked coroutine touches one page for both.
 clj_coro *clj_coro_alloc(void) {
 	size_t page = page_size(), guard = page, stack = round_up(stack_size, page);
-	size_t ring = round_up(page / 2 + sizeof(clj_shadow_stack), page);
+	size_t ring = round_up(page / 2 + CLJ_SHADOW_ARRAYS_SIZE, page);
 	size_t size = guard + stack + ring;
 	void  *base = map_take(size);
 	if (base) ASAN_UNPOISON((char *)base + guard, size - guard);
@@ -204,9 +220,9 @@ clj_coro *clj_coro_alloc(void) {
 	c->map = base;
 	c->map_size = size;
 	char             *top = (char *)base + guard + stack + page / 2;
-	clj_shadow_stack *s = (clj_shadow_stack *)top;
-	// A cached ring keeps stale frames; the header is reset, the overflow array is valid up to noverflow only.
-	memset(s, 0, offsetof(clj_shadow_stack, overflow));
+	clj_shadow_stack *s = &c->shadow_hdr;
+	// A cached ring keeps stale frames: valid up to depth, the overflow array up to noverflow only.
+	clj_shadow_stack_arrays(s, top);
 	s->mask = CLJ_SHADOW_CAPACITY - 1;
 	s->stack_lo = (char *)base + guard;
 	s->stack_hi = top;
@@ -217,11 +233,28 @@ clj_coro *clj_coro_alloc(void) {
 	memset(sp, 0, SWITCH_FRAME);
 	*(void **)(sp + SWITCH_LR) = (void *)clj_coro_entry;
 	c->sp = sp;
+	pressure_install();
+	live_link(c);
 	return c;
+}
+
+static _Atomic size_t   evacuated_count, evacuated_bytes;
+static _Atomic uint64_t evacuations, restores;
+
+static void evac_drop(clj_coro *c) {
+	if (!c->evac) return;
+	free(c->evac);
+	atomic_fetch_sub_explicit(&evacuated_count, 1, memory_order_relaxed);
+	atomic_fetch_sub_explicit(&evacuated_bytes, c->evac_size, memory_order_relaxed);
+	c->evac = NULL;
+	c->evac_size = 0;
+	c->evacuated = false;
 }
 
 void clj_coro_free_stack(clj_coro *c) {
 	if (!c->map) return;
+	live_unlink(c);
+	evac_drop(c);
 	if (!map_keep(c->map, c->map_size)) munmap(c->map, c->map_size);
 	c->map = NULL;
 	c->shadow = NULL;
@@ -255,7 +288,7 @@ static void thread_exit(void *p) {
 	clj_guard_thread_exit(car);
 	clj_coro *c = car->implicit;
 	if (c) {
-		free(c->shadow);
+		free(c->shadow->frames);
 		pthread_mutex_destroy(&c->lock);
 		pthread_cond_destroy(&c->cond);
 		free(c);
@@ -277,8 +310,10 @@ static clj_coro *implicit_init(void) {
 	coro_init(c);
 	c->implicit = true;
 	c->state = CLJ_CORO_RUNNING;
-	c->shadow = calloc(1, sizeof *c->shadow);
-	if (!c->shadow) clj_fatal("out of memory");
+	c->shadow = &c->shadow_hdr;
+	void *arrays = calloc(1, CLJ_SHADOW_ARRAYS_SIZE);
+	if (!arrays) clj_fatal("out of memory");
+	clj_shadow_stack_arrays(c->shadow, arrays);
 	c->shadow->mask = CLJ_SHADOW_CAPACITY - 1;
 	clj_shadow_stack_bounds(c->shadow);
 	c->carrier = car;
@@ -330,7 +365,11 @@ bool clj_coro_on_main_carrier(void) {
 
 // ---- switching
 
+static void evac_restore(clj_coro *c);
+
 void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
+	// The one cost evacuation adds to a resume: a flag test. The flag was written under c->lock while it was parked.
+	if (__builtin_expect(c->evacuated, 0)) evac_restore(c);
 	c->carrier = car;
 	car->current = c;
 	clj_coro_tls = c;
@@ -396,6 +435,233 @@ size_t clj_debug_phys_footprint(void) {
 #else
 	return 0;
 #endif
+}
+
+// ---- evacuation: a cold parked coroutine's live bytes go to a heap blob and its whole mapping is handed back
+
+static size_t ring_live(const clj_shadow_stack *s) {
+	size_t held = s->depth < s->mask + 1 ? s->depth : s->mask + 1;
+	return held * sizeof(clj_shadow_frame);
+}
+
+static size_t overflow_live(const clj_shadow_stack *s) { return s->noverflow * sizeof(clj_trace_frame); }
+
+// Under c->lock. The stack tail already advised on the park stays as it is; the rest of the mapping joins it.
+bool clj_coro_evacuate_locked(clj_coro *c) {
+	if (!c->map || c->evacuated || atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_PARKED) return false;
+	clj_shadow_stack *s = c->shadow;
+	char             *sp = c->sp, *end = (char *)c->map + c->map_size;
+	size_t            stack_len = (size_t)(s->stack_hi - sp), ring_len = ring_live(s), over_len = overflow_live(s);
+	size_t            size = stack_len + ring_len + over_len;
+	char             *blob = malloc(size);
+	if (!blob) clj_fatal("out of memory");
+	ASAN_UNPOISON(sp, stack_len);
+	memcpy(blob, sp, stack_len);
+	memcpy(blob + stack_len, s->frames, ring_len);
+	memcpy(blob + stack_len + ring_len, s->overflow, over_len);
+	size_t    page = page_size();
+	uintptr_t tail_hi = ((uintptr_t)sp & ~(page - 1)) - page;
+	char     *lo = c->advised_lo == (uintptr_t)s->stack_lo && c->advised_hi == tail_hi ? (char *)tail_hi : s->stack_lo;
+#ifdef __APPLE__
+	madvise(lo, (size_t)(end - lo), MADV_FREE_REUSABLE);
+#else
+	madvise(lo, (size_t)(end - lo), MADV_DONTNEED);
+#endif
+	ASAN_POISON(s->stack_lo, (size_t)(end - s->stack_lo));
+	c->evac = blob;
+	c->evac_size = size;
+	c->evacuated = true;
+	atomic_fetch_add_explicit(&evacuated_count, 1, memory_order_relaxed);
+	atomic_fetch_add_explicit(&evacuated_bytes, size, memory_order_relaxed);
+	atomic_fetch_add_explicit(&evacuations, 1, memory_order_relaxed);
+	return true;
+}
+
+// Same addresses, so no pointer in the frames needs fixing; on the carrier before the switch, or under c->lock.
+static void evac_restore(clj_coro *c) {
+	clj_shadow_stack *s = c->shadow;
+	char             *sp = c->sp, *end = (char *)c->map + c->map_size, *blob = c->evac;
+	size_t            stack_len = (size_t)(s->stack_hi - sp), ring_len = ring_live(s), over_len = overflow_live(s);
+	ASAN_UNPOISON(s->stack_lo, (size_t)(end - s->stack_lo));
+#ifdef __APPLE__
+	// Re-dirtied reusable pages rejoin phys_footprint only when the pageout scanner meets them; REUSE does it now.
+	size_t    page = page_size();
+	uintptr_t lo = (uintptr_t)sp & ~(page - 1), hi = round_up((uintptr_t)s->frames + ring_len, page);
+	madvise((void *)lo, hi - lo, MADV_FREE_REUSE);
+#endif
+	memcpy(sp, blob, stack_len);
+	memcpy(s->frames, blob + stack_len, ring_len);
+	memcpy(s->overflow, blob + stack_len + ring_len, over_len);
+	evac_drop(c);
+	atomic_fetch_add_explicit(&restores, 1, memory_order_relaxed);
+}
+
+static void live_link(clj_coro *c) {
+	clj_lock_lock(&live_lock);
+	c->live_prev = NULL;
+	c->live_next = live_head;
+	if (live_head) live_head->live_prev = c;
+	live_head = c;
+	nlive++;
+	clj_lock_unlock(&live_lock);
+}
+
+static void live_unlink(clj_coro *c) {
+	clj_lock_lock(&live_lock);
+	if (c->live_prev) c->live_prev->live_next = c->live_next;
+	else live_head = c->live_next;
+	if (c->live_next) c->live_next->live_prev = c->live_prev;
+	c->live_prev = c->live_next = NULL;
+	nlive--;
+	clj_lock_unlock(&live_lock);
+}
+
+// The live coroutines, retained, so the walk holds no lock while it takes each coroutine's own.
+static clj_coro **live_snapshot(size_t *n) {
+	clj_lock_lock(&live_lock);
+	clj_coro **all = malloc((nlive ? nlive : 1) * sizeof *all);
+	if (!all) clj_fatal("out of memory");
+	size_t i = 0;
+	for (clj_coro *c = live_head; c; c = c->live_next) {
+		clj_retain(clj_from_ptr(c));
+		all[i++] = c;
+	}
+	clj_lock_unlock(&live_lock);
+	*n = i;
+	return all;
+}
+
+// `all` takes every parked coroutine; a periodic pass takes those the previous pass saw in the same park.
+static size_t sweep(bool all) {
+	size_t     n, done = 0;
+	clj_coro **cs = live_snapshot(&n);
+	for (size_t i = 0; i < n; i++) {
+		clj_coro *c = cs[i];
+		pthread_mutex_lock(&c->lock);
+		if (c->map && !c->evacuated && atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED) {
+			if (all || c->cold_at == c->parks) done += clj_coro_evacuate_locked(c);
+			else c->cold_at = c->parks;
+		}
+		pthread_mutex_unlock(&c->lock);
+		clj_release(clj_from_ptr(c));
+	}
+	free(cs);
+	return done;
+}
+
+size_t clj_coro_evacuate_all(void) { return sweep(true); }
+
+// The sweep timer runs while coroutines live and re-arms itself; the first spawn after it stopped arms it again.
+static uint64_t sweep_ms = 250;
+static bool     sweep_armed; // under live_lock
+
+static void sweep_arm_locked(void);
+
+static void sweep_fire(void *ctx) {
+	(void)ctx;
+	if (sweep_ms) sweep(false);
+	clj_lock_lock(&live_lock);
+	sweep_armed = false;
+	if (live_head && sweep_ms) sweep_arm_locked();
+	clj_lock_unlock(&live_lock);
+}
+
+static void sweep_arm_locked(void) {
+	sweep_armed = true;
+	clj_sched_timer(sweep_ms * 1000000u, sweep_fire, NULL);
+}
+
+static void sweep_default(void) {
+	const char *env = getenv("CLJ_EVAC_SWEEP_MS");
+	if (env && *env) sweep_ms = (uint64_t)atoll(env);
+}
+
+void clj_coro_set_evac_sweep_ms(uint64_t ms) {
+	clj_lock_lock(&live_lock);
+	sweep_ms = ms;
+	if (ms && live_head && !sweep_armed) sweep_arm_locked();
+	clj_lock_unlock(&live_lock);
+}
+
+uint64_t clj_coro_evac_sweep_ms(void) { return sweep_ms; }
+
+// Memory pressure evacuates everything parked at once; the sweep is the steady state. Apple: a dispatch source.
+#ifdef __APPLE__
+static void pressure_fire(void *ctx) {
+	(void)ctx;
+	clj_coro_evacuate_all();
+}
+#endif
+
+static void pressure_init(void) {
+	sweep_default();
+#ifdef __APPLE__
+	dispatch_source_t src = dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0, DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+	if (!src) return;
+	dispatch_source_set_event_handler_f(src, pressure_fire);
+	dispatch_resume(src);
+#endif
+}
+
+static void pressure_install(void) {
+	static pthread_once_t once = PTHREAD_ONCE_INIT;
+	pthread_once(&once, pressure_init);
+	clj_lock_lock(&live_lock);
+	if (sweep_ms && !sweep_armed) sweep_arm_locked();
+	clj_lock_unlock(&live_lock);
+}
+
+bool clj_debug_coro_evacuate(clj_value coro) {
+	clj_coro *c = clj_coro_of(coro);
+	pthread_mutex_lock(&c->lock);
+	bool r = clj_coro_evacuate_locked(c);
+	pthread_mutex_unlock(&c->lock);
+	return r;
+}
+
+bool clj_debug_coro_evacuated(clj_value coro) {
+	clj_coro *c = clj_coro_of(coro);
+	pthread_mutex_lock(&c->lock);
+	bool r = c->evacuated;
+	pthread_mutex_unlock(&c->lock);
+	return r;
+}
+
+bool clj_debug_coro_restore(clj_value coro) {
+	clj_coro *c = clj_coro_of(coro);
+	pthread_mutex_lock(&c->lock);
+	bool r = c->evacuated && atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED;
+	if (r) evac_restore(c);
+	pthread_mutex_unlock(&c->lock);
+	return r;
+}
+
+size_t clj_debug_coro_evacuated_count(void) { return atomic_load_explicit(&evacuated_count, memory_order_relaxed); }
+
+size_t clj_debug_coro_evacuated_bytes(void) { return atomic_load_explicit(&evacuated_bytes, memory_order_relaxed); }
+
+uint64_t clj_debug_coro_evacuations(void) { return atomic_load_explicit(&evacuations, memory_order_relaxed); }
+
+uint64_t clj_debug_coro_restores(void) { return atomic_load_explicit(&restores, memory_order_relaxed); }
+
+// The frames of a parked coroutine: its saved fp starts the walk, resident in the mapping or in the blob.
+clj_value clj_coro_parked_trace(clj_value coro) {
+	clj_coro *c = clj_coro_of(coro);
+	pthread_mutex_lock(&c->lock);
+	if (!c->map || atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_PARKED) {
+		pthread_mutex_unlock(&c->lock);
+		return CLJ_NIL;
+	}
+	clj_shadow_stack *s = c->shadow;
+	char             *sp = c->sp;
+	intptr_t          bias = c->evacuated ? (intptr_t)((char *)c->evac - sp) : 0;
+	const void       *frames = c->evacuated ? (char *)c->evac + (s->stack_hi - sp) : (const void *)s->frames;
+	clj_trace_origin  origin = {0, 0, *(uintptr_t *)(sp + bias + SWITCH_FP), (uintptr_t)sp};
+	clj_trace_frame   out[CLJ_TRACE_MAX];
+	size_t            n = clj_trace_collect_parked(s, frames, &origin, bias, out, CLJ_TRACE_MAX);
+	clj_value         trace = clj_coro_append_spawn_trace(clj_trace_vector(out, n), c);
+	pthread_mutex_unlock(&c->lock);
+	return trace;
 }
 
 // ---- bench: a coroutine that switches straight back, n times

@@ -23,6 +23,8 @@ typedef struct {
 // Innermost first, shadow and real-stack frames merged by stack address. Async-signal-safe: no allocation, no locks.
 size_t clj_trace_collect(clj_trace_frame *out, size_t cap, const clj_trace_origin *origin);
 
+// A parked coroutine's frames from its ring (header, frame array) and a walk of its stack read `bias` bytes off.
+size_t clj_trace_collect_parked(const void *ring, const void *frames, const clj_trace_origin *origin, intptr_t bias, clj_trace_frame *out, size_t cap);
 // {:fn :line :column} maps of the frames (shadow.c).
 clj_value clj_trace_vector(const clj_trace_frame *frames, size_t n);
 // The frames of a crash, with write(2) only (shadow.c).

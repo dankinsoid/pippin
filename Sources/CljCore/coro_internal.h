@@ -46,7 +46,8 @@ struct clj_coro {
 	size_t   map_size;
 	void    *asan_fake;  // the sanitizer's fake stack handle across a switch
 	// ---- state that was _Thread_local
-	clj_shadow_stack *shadow;
+	clj_shadow_stack *shadow;        // &shadow_hdr; its arrays are in the mapping (or calloc'd for an implicit one)
+	clj_shadow_stack  shadow_hdr;
 	void             *bindings;      // var.c frames, refcounted and shared with spawned children
 	clj_value         pending, pending_trace;
 	void             *forcing_top;   // seq.c
@@ -80,6 +81,13 @@ struct clj_coro {
 	uint32_t         nspawn;
 	clj_spawn_frame  spawn_inline[CLJ_CORO_SPAWN_TRACE_INLINE];
 	uintptr_t        advised_lo, advised_hi; // the stack tail already handed back with madvise
+	// ---- evacuation (coro.c): the live bytes of a cold parked coroutine sit in a heap blob, the mapping is reusable
+	void            *evac;           // the blob: [sp, stack_hi) then the ring's live frames; NULL while resident
+	size_t           evac_size;
+	bool             evacuated;      // read by the carrier before the switch in (one flag test), written under lock
+	uint32_t         parks;          // bumped per park: the sweep evacuates a coroutine seen parked twice in one park
+	uint32_t         cold_at;        // the parks value the sweep last saw it parked at
+	struct clj_coro *live_prev, *live_next; // every spawned coroutine, for the sweep
 	// ---- cancellation (sched.c): the kind outlives the stack, so a finished future still answers future-cancelled?
 	_Atomic uint8_t  cancel;          // CLJ_CANCEL_*; the shadow's cancelled flag mirrors it for the tick path
 	uint64_t         deadline_before; // the deadline a scope cancel replaced with 1, restored by the uncancel
@@ -156,6 +164,9 @@ void clj_ctx_switch(void **save_sp, void *load_sp);
 clj_coro *clj_coro_alloc(void);
 void      clj_coro_free_stack(clj_coro *c);
 void      clj_coro_advise_stack(clj_coro *c);
+// Under c->lock with c parked: copies the live bytes out and hands the whole mapping back; false when not parked,
+// already evacuated or implicit. The carrier restores before the switch in (clj_coro_switch_in).
+bool clj_coro_evacuate_locked(clj_coro *c);
 void      clj_coro_entry(void);
 // Runs a coroutine's body on its own stack: called by the carrier loop, returns when it parks or finishes.
 void clj_coro_switch_in(clj_carrier *car, clj_coro *c);
@@ -205,8 +216,9 @@ void clj_coro_deadline_cleared(clj_coro *c);
 size_t clj_sched_carrier_count(void);
 // A parking sleep on the timer thread: Thread/sleep for library code. CLJ_THROWN on a cancellation.
 clj_value clj_sched_sleep_ms(int64_t ms);
-// The blocking pool (sched.c): fn(ctx) runs on a dedicated thread while the caller parks; inline on a bare thread.
-void clj_blocking(void (*fn)(void *ctx), void *ctx);
+// The blocking pool (sched.c): fn runs on a dedicated thread over a heap copy of ctx's `size` bytes while the caller
+// parks, and the copy is written back after; inline on a bare thread. The parker's frame is never touched by the job.
+void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size);
 // fn(ctx) on a blocking thread, the caller continues (thread).
 void clj_blocking_detach(void (*fn)(void *ctx), void *ctx);
 

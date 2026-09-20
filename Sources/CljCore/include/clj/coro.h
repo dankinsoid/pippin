@@ -46,6 +46,26 @@ size_t clj_coro_stack_size(void);
 // Physical footprint of the process in bytes (Apple: phys_footprint), for the parked-coroutine measurement.
 size_t clj_debug_phys_footprint(void);
 
+// Evacuation of cold parked coroutines (design §4 "Память припаркованной корутины — страница, не модель"): the
+// sweep runs every `ms` on the timer thread while coroutines live and evacuates a coroutine found parked in the
+// same park twice (parked between ms and 2·ms); 0 disables it. CLJ_EVAC_SWEEP_MS sets the default (250).
+void     clj_coro_set_evac_sweep_ms(uint64_t ms);
+uint64_t clj_coro_evac_sweep_ms(void);
+// Evacuates every parked coroutine now (the memory-pressure handler's action); returns how many.
+size_t clj_coro_evacuate_all(void);
+// Evacuates one parked coroutine (nothing when running, finished or already evacuated); tests and the bench.
+bool clj_debug_coro_evacuate(clj_value coro);
+bool clj_debug_coro_evacuated(clj_value coro);
+// Restores one evacuated parked coroutine in place without resuming it (the cycle's cost, bench).
+bool clj_debug_coro_restore(clj_value coro);
+// Evacuated coroutines now, the bytes their blobs hold, and the evacuations and restores so far.
+size_t   clj_debug_coro_evacuated_count(void);
+size_t   clj_debug_coro_evacuated_bytes(void);
+uint64_t clj_debug_coro_evacuations(void);
+uint64_t clj_debug_coro_restores(void);
+// The trace of a parked coroutine, from its ring and stack (or its blob): nil when it is not parked.
+clj_value clj_coro_parked_trace(clj_value coro);
+
 // Live spawned coroutines (the implicit ones of threads are not counted).
 size_t   clj_debug_live_coros(void);
 // Waits up to ms for the live count to fall to target: a test's quiesce before its live-object check.

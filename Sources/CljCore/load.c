@@ -466,7 +466,7 @@ clj_value clj_load_file(clj_value path) {
 		return clj_load_source(bytes, len, path);
 	}
 	read_job job = {text, NULL, 0, false};
-	clj_blocking(read_file, &job);
+	clj_blocking(read_file, &job, sizeof job);
 	if (!job.ok) return clj_throw_msg("Could not open %s", text);
 	clj_value r = clj_load_source(job.bytes, job.len, path);
 	free(job.bytes);

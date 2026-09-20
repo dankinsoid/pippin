@@ -216,7 +216,8 @@ static size_t frames_at(uintptr_t ra, uintptr_t key, compiled_frame *out, size_t
 }
 
 // Frame pointers from an origin up to the stack's top: {fp, return address} records, the caller's key its fp.
-static size_t walk(const clj_trace_origin *o, uintptr_t lo, uintptr_t hi, compiled_frame *out, size_t cap) {
+static size_t walk(const clj_trace_origin *o, uintptr_t lo, uintptr_t hi, intptr_t bias, compiled_frame *out, size_t cap) {
+	// Records are read `bias` bytes from their addresses: an evacuated stack is walked in its blob (coro.c).
 	size_t    n = 0;
 	uintptr_t fp = o->fp;
 	if (o->pc) {
@@ -224,12 +225,12 @@ static size_t walk(const clj_trace_origin *o, uintptr_t lo, uintptr_t hi, compil
 		// A fault in a prologue or a leaf has the caller's fp and its return address still in lr.
 		uintptr_t          end_pc, end_lr;
 		const frame_range *at_pc = frame_of(o->pc, &end_pc), *at_lr = frame_of(strip(o->lr), &end_lr);
-		uintptr_t          first_ra = frame_in(fp, lo, hi) ? strip(((uintptr_t *)fp)[1]) : 0;
+		uintptr_t          first_ra = frame_in(fp, lo, hi) ? strip(((uintptr_t *)(fp + bias))[1]) : 0;
 		bool               prologue = at_pc && o->pc - at_pc->start < 16;
 		if (o->lr && strip(o->lr) != first_ra && (prologue || !at_pc || at_lr != at_pc)) n = frames_at(strip(o->lr), fp, out, n, cap);
 	}
 	while (n < cap && frame_in(fp, lo, hi)) {
-		uintptr_t next = ((uintptr_t *)fp)[0], ra = strip(((uintptr_t *)fp)[1]);
+		uintptr_t next = ((uintptr_t *)(fp + bias))[0], ra = strip(((uintptr_t *)(fp + bias))[1]);
 		if (!ra) break;
 		n = frames_at(ra, next, out, n, cap);
 		if (next <= fp) break;
@@ -240,6 +241,23 @@ static size_t walk(const clj_trace_origin *o, uintptr_t lo, uintptr_t hi, compil
 
 static const clj_node *position_of(const clj_shadow_frame *f) {
 	return f->call_site && f->call_site->line ? f->call_site : f->fn_node;
+}
+
+// The compiled frames of a walk merged with a ring's frames by stack address, innermost first.
+static size_t merge(const clj_shadow_stack *s, const clj_shadow_frame *frames, const compiled_frame *compiled, size_t nc, clj_trace_frame *out, size_t cap) {
+	size_t held = s->depth < s->mask + 1 ? s->depth : s->mask + 1;
+	size_t n = 0, i = 0, j = 0;
+	while (n < cap && (i < nc || j < held)) {
+		const clj_shadow_frame *sf = j < held ? &frames[(s->depth - 1 - j) & s->mask] : NULL;
+		if (i < nc && (!sf || compiled[i].key < (uintptr_t)sf->sp)) {
+			out[n++] = (clj_trace_frame){compiled[i].fn, compiled[i].fn};
+			i++;
+		} else {
+			out[n++] = (clj_trace_frame){sf->fn_node, position_of(sf)};
+			j++;
+		}
+	}
+	return n;
 }
 
 size_t clj_trace_collect(clj_trace_frame *out, size_t cap, const clj_trace_origin *origin) {
@@ -254,20 +272,16 @@ size_t clj_trace_collect(clj_trace_frame *out, size_t cap, const clj_trace_origi
 	if (!s) return 0;
 	enum { COMPILED_MAX = 512 };
 	compiled_frame compiled[COMPILED_MAX];
-	size_t         nc = walk(origin, (uintptr_t)s->stack_lo, (uintptr_t)s->stack_hi, compiled, cap < COMPILED_MAX ? cap : COMPILED_MAX);
-	size_t         held = s->depth < s->mask + 1 ? s->depth : s->mask + 1;
-	size_t         n = 0, i = 0, j = 0;
-	while (n < cap && (i < nc || j < held)) {
-		const clj_shadow_frame *sf = j < held ? &s->frames[(s->depth - 1 - j) & s->mask] : NULL;
-		if (i < nc && (!sf || compiled[i].key < (uintptr_t)sf->sp)) {
-			out[n++] = (clj_trace_frame){compiled[i].fn, compiled[i].fn};
-			i++;
-		} else {
-			out[n++] = (clj_trace_frame){sf->fn_node, position_of(sf)};
-			j++;
-		}
-	}
-	return n;
+	size_t         nc = walk(origin, (uintptr_t)s->stack_lo, (uintptr_t)s->stack_hi, 0, compiled, cap < COMPILED_MAX ? cap : COMPILED_MAX);
+	return merge(s, s->frames, compiled, nc, out, cap);
+}
+
+size_t clj_trace_collect_parked(const void *ring, const void *frames, const clj_trace_origin *origin, intptr_t bias, clj_trace_frame *out, size_t cap) {
+	const clj_shadow_stack *s = ring;
+	enum { COMPILED_MAX = 512 };
+	compiled_frame compiled[COMPILED_MAX];
+	size_t         nc = walk(origin, origin->sp, (uintptr_t)s->stack_hi, bias, compiled, cap < COMPILED_MAX ? cap : COMPILED_MAX);
+	return merge(s, frames, compiled, nc, out, cap);
 }
 
 bool clj_trace_compiled_on_stack(void) {
@@ -275,5 +289,5 @@ bool clj_trace_compiled_on_stack(void) {
 	if (!s || !atomic_load_explicit(&frames, memory_order_acquire)) return false;
 	clj_trace_origin here = {0, 0, (uintptr_t)__builtin_frame_address(0), 0};
 	compiled_frame   one;
-	return walk(&here, (uintptr_t)s->stack_lo, (uintptr_t)s->stack_hi, &one, 1) > 0;
+	return walk(&here, (uintptr_t)s->stack_lo, (uintptr_t)s->stack_hi, 0, &one, 1) > 0;
 }
