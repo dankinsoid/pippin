@@ -605,7 +605,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   faulting thread's user pc still at the fault (`sample` showed `clj_var_root` at var.c:66, no handler frame).
   That was the wedge of two test helpers and reproduces with a five-line C program on the same machine, so it
   is the host's, not the runtime's; the Makefile exports `CLJ_CRASH_EXIT=1` and `ASAN_OPTIONS=abort_on_error=0`
-  so a test that crashes ends with its trace and a nonzero exit either way.
+  so a test that crashes ends with its trace and a nonzero exit either way. The ASan targets also pass
+  `--disable-xctest`: the suite is swift-testing only, and `swiftpm-xctest-helper` (XCTest discovery) loads the
+  ASan-linked bundle without the runtime first, dies in the sanitizer's init and wedges the same way (state `UE`
+  helpers from a clean `main` too).
   `TraceTests.nonGuardFaultDiesWithATrace` is an exit test: a child faults on `clj_var_root(CLJ_NIL)` and its
   stderr carries the line and the frames (skipped under ASan: the child is spawned without the insert library).
 - **The FnRootTests fault itself** was the test harness: `cljEval` ran `(in-ns …)` on the *root* of `*ns*`
