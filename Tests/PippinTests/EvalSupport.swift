@@ -22,8 +22,7 @@ struct CljEvalFailure: Error {
 	let message: String
 }
 
-// Evaluates every form in the current namespace through the C API and returns the last value. Forms are
-// read one at a time, so an in-ns earlier in the source governs how the reader resolves the later ones.
+// *ns* is bound per call: suites run in parallel, and an in-ns on the root would move every other suite's eval.
 func cljEval(_ source: String) throws -> Value {
 	clj_init()
 	var bytes = Array(source.utf8)
@@ -32,23 +31,25 @@ func cljEval(_ source: String) throws -> Value {
 			var reader = clj_reader()
 			clj_reader_init(&reader, chars.baseAddress, chars.count)
 			clj_reader_use_namespaces(&reader)
-			var last: Value = nil
-			while true {
-				var raw: clj_value = CLJ_NIL
-				switch clj_read(&reader, &raw) {
-				case CLJ_READ_EOF:
-					return last
-				case CLJ_READ_ERROR:
-					throw ReaderError(message: String(cString: clj_reader_message(&reader)), line: Int(reader.error_line), column: Int(reader.error_col))
-				default:
-					let form = Value(owning: raw)
-					var env = clj_env(ns: CLJ_NIL, line: reader.form_line, col: reader.form_col)
-					let result = withExtendedLifetime(form) { clj_eval(form.raw, &env) }
-					if result == CLJ_THROWN {
-						let ex = Value(owning: clj_take_pending())
-						throw CljEvalFailure(message: ex.description)
+			return try Runtime.bindingCurrentNamespace {
+				var last: Value = nil
+				while true {
+					var raw: clj_value = CLJ_NIL
+					switch clj_read(&reader, &raw) {
+					case CLJ_READ_EOF:
+						return last
+					case CLJ_READ_ERROR:
+						throw ReaderError(message: String(cString: clj_reader_message(&reader)), line: Int(reader.error_line), column: Int(reader.error_col))
+					default:
+						let form = Value(owning: raw)
+						var env = clj_env(ns: CLJ_NIL, line: reader.form_line, col: reader.form_col)
+						let result = withExtendedLifetime(form) { clj_eval(form.raw, &env) }
+						if result == CLJ_THROWN {
+							let ex = Value(owning: clj_take_pending())
+							throw CljEvalFailure(message: ex.description)
+						}
+						last = Value(owning: result)
 					}
-					last = Value(owning: result)
 				}
 			}
 		}

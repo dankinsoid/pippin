@@ -268,5 +268,18 @@ extension CoreTests {
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
+
+		// A fault off any guard page (a nil var's root) ends the process with the trace on stderr, never a hang.
+		// @ai-generated(solo)
+		@Test func nonGuardFaultDiesWithATrace() async {
+			let result = await #expect(processExitsWith: .failure, observing: [\.standardErrorContent]) {
+				setenv("CLJ_CRASH_EXIT", "1", 1)
+				clj_init()
+				_ = clj_var_root(CLJ_NIL)
+			}
+			let stderr = String(decoding: result?.standardErrorContent ?? [], as: UTF8.self)
+			#expect(stderr.contains("clj: fatal SIGSEGV at 0x"))
+			#expect(stderr.contains("Clojure frames (innermost first):\n  (none)"))
+		}
 	}
 }

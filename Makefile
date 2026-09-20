@@ -1,5 +1,10 @@
 .PHONY: port-audit build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled
 
+# A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
+# can leave the helper unkillable (NOTES.md, "Guard").
+export CLJ_CRASH_EXIT ?= 1
+export ASAN_OPTIONS ?= abort_on_error=0
+
 build:
 	swift build
 

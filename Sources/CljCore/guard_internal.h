@@ -19,6 +19,8 @@ void clj_guard_thread_exit(clj_carrier *car);
 bool clj_guard_signal(int sig, siginfo_t *info, void *uap);
 // The interrupted registers of a signal's ucontext, as a walk origin.
 void clj_guard_origin(const void *uap, clj_trace_origin *out);
+// Ends the process after a crash report was written: the signal's default death, or _exit under CLJ_CRASH_EXIT.
+void __attribute__((noreturn)) clj_guard_die(int sig);
 
 // eval.c: the clj_exec_run nesting of the thread, restored at a landing.
 uint32_t clj_eval_exec_depth(void);

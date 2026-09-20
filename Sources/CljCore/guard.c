@@ -98,18 +98,50 @@ static void land_after_return(void *uap, const clj_carrier *car, const clj_shado
 #endif
 }
 
-static void chain(int sig, siginfo_t *info, void *uap) {
+static bool crash_exit; // CLJ_CRASH_EXIT: die by _exit, not through the crash reporter
+
+static void put(const char *s) { (void)!write(2, s, strlen(s)); }
+
+static void put_hex(uintptr_t n) {
+	char   buf[2 + 2 * sizeof n];
+	size_t i = sizeof buf;
+	do {
+		buf[--i] = "0123456789abcdef"[n & 15];
+		n >>= 4;
+	} while (n);
+	buf[--i] = 'x';
+	buf[--i] = '0';
+	(void)!write(2, buf + i, sizeof buf - i);
+}
+
+// The default death waits on ReportCrash (EXC_CRASH); a reporter that never answers leaves the process unkillable.
+void __attribute__((noreturn)) clj_guard_die(int sig) {
+	if (crash_exit) _exit(128 + sig);
+	signal(sig, SIG_DFL);
+	raise(sig);
+	_exit(128 + sig);
+}
+
+// Never returns to the faulting instruction: the re-fault would reach the kernel with no trace written.
+static void __attribute__((noreturn)) fatal_fault(int sig, siginfo_t *info, void *uap) {
+	put("clj: fatal ");
+	put(sig == SIGBUS ? "SIGBUS" : "SIGSEGV");
+	if (info) {
+		put(" at ");
+		put_hex((uintptr_t)info->si_addr);
+	}
+	clj_trace_origin origin;
+	if (uap) clj_guard_origin(uap, &origin);
+	else origin = (clj_trace_origin){0, 0, (uintptr_t)__builtin_frame_address(0), 0};
+	clj_trace_write(2, &origin);
 	struct sigaction *p = &previous[sig == SIGBUS];
 	if (p->sa_flags & SA_SIGINFO && p->sa_sigaction) {
 		p->sa_sigaction(sig, info, uap);
 	} else if (p->sa_handler != SIG_DFL && p->sa_handler != SIG_IGN && p->sa_handler) {
 		p->sa_handler(sig);
-	} else {
-		signal(sig, SIG_DFL);
 	}
+	clj_guard_die(sig);
 }
-
-static void put(const char *s) { (void)!write(2, s, strlen(s)); }
 
 // A fault is a stack overflow when it lands just under the thread's stack, or with the stack pointer at its end.
 static bool is_overflow(const clj_shadow_stack *s, const siginfo_t *info, const clj_trace_origin *o) {
@@ -137,19 +169,20 @@ bool clj_guard_signal(int sig, siginfo_t *info, void *uap) {
 		put(fatal);
 		put(")");
 		clj_trace_write(2, &origin);
-		signal(sig, SIG_DFL);
-		return true;
+		clj_guard_die(sig);
 	}
 	land_after_return(uap, car, s);
 	return true;
 }
 
 static void on_signal(int sig, siginfo_t *info, void *uap) {
-	if (!clj_guard_signal(sig, info, uap)) chain(sig, info, uap);
+	if (!clj_guard_signal(sig, info, uap)) fatal_fault(sig, info, uap);
 }
 
 void clj_guard_install(void) {
 	ASAN_IMAGE();
+	const char *e = getenv("CLJ_CRASH_EXIT");
+	crash_exit = e && *e && strcmp(e, "0") != 0;
 	static const int signals[] = {SIGSEGV, SIGBUS};
 	for (size_t i = 0; i < 2; i++) {
 		struct sigaction sa;

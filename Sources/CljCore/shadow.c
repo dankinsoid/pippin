@@ -211,8 +211,7 @@ static void on_signal(int sig, siginfo_t *info, void *uap) {
 	clj_guard_origin(uap, &origin);
 	clj_trace_write(crash_fd, &origin);
 	if (sig == test_signal) return;
-	signal(sig, SIG_DFL);
-	raise(sig);
+	clj_guard_die(sig);
 }
 
 static void install(int sig) {
