@@ -625,6 +625,15 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   points depends on the counter is now enforced, not just written down. Off, the flag costs nothing — one
   `#ifdef` arm. Four tests assert that an address survives an in-place step and are gated on
   `clj_reuse_enabled()`; the rest degrade to a copy with the same values, which is what the mode checks.
+- **A type's `unlink` slot runs as the last reference drops, before the header becomes the worklist link**
+  (`free_object` and `release_child`; `finalize` runs later, after the children). It is for a registry that
+  holds objects *without* a reference: the specialize index of execs per var (`dependents`) is the one. The
+  race it closes: a closure finishing on a carrier dropped its exec's last reference, `set_dead_next`
+  overwrote the header, and a `def` on the main thread walking that var's dependents under the specialize
+  lock retained the exec — `clj_retain` read a zero count and died ("retain of a freed object", a
+  `make test-compiled` run of `EvacTests`). `exec_unlink` removes the exec under that lock while the count
+  still reads, and `push_work` retains an exec only from a count above zero (`retain_if_live`): one that reads
+  0 is on its way to `exec_unlink`, which waits for the lock the walk holds.
 - **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow
   under many threads. Fix: per-thread counters summed on read.
 - **Copy path retains every child and then replaces one slot**: one spare retain/release pair per
