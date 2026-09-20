@@ -2,11 +2,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "alloc.h"
 
+// CLJ_CRASH_EXIT: a plain exit, since a wedged crash reporter can leave the aborting process unkillable (NOTES "Guard").
 void clj_fatal(const char *msg) {
 	fprintf(stderr, "clj: fatal: %s\n", msg);
+	fflush(stderr);
+	const char *e = getenv("CLJ_CRASH_EXIT");
+	if (e && *e && strcmp(e, "0") != 0) _exit(134);
 	abort();
 }
 
