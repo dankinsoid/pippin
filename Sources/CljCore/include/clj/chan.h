@@ -63,6 +63,8 @@ clj_value clj_chan_thread(clj_value f);
 clj_value clj_chan_cancel(clj_value ch);
 // Debug: pending puts and takes queued on the channel.
 uint32_t clj_debug_chan_pending(clj_value ch, bool puts);
+// Debug: the coroutine behind a go, future or thread channel, owned; nil once it finished or for a plain channel.
+clj_value clj_debug_chan_coro(clj_value ch);
 
 void clj_chan_install(void);
 

@@ -1191,6 +1191,14 @@ bool clj_chan_cancelled(clj_value chv) {
 
 int clj_chan_role(clj_value chv) { return chan_of(chv)->role; }
 
+clj_value clj_debug_chan_coro(clj_value chv) {
+	clj_chan *ch = chan_of(chv);
+	chan_lock(ch);
+	clj_value coro = clj_retain(ch->coro);
+	chan_unlock(ch);
+	return coro;
+}
+
 uint32_t clj_debug_chan_pending(clj_value chv, bool puts) {
 	clj_chan *ch = chan_of(chv);
 	chan_lock(ch);
