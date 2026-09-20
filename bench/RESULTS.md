@@ -1570,7 +1570,9 @@ such runs on the same machine, before = `27bf29c` with the new rows added to its
   monitor; now they contend on it at full speed (`lock_attempt`'s spin shows 4× the samples). Spinners that
   block on `run_mu` in the kernel instead of trying it bring the row back to ~350 and cost the spawn rows
   nothing on average but spike them to 1–1.4 µs (main's unlock pays the `mutexdrop` again); the trylock spinner
-  stays.
+  stays. A re-run on the rebased tree read 413 with the 4-carrier prof loop spread 340–428 across 20 runs: the
+  shift is consistent, not noise, and it is not the parking's cost — with four carriers busy `idle_head` is empty
+  and a resume never touches a `park_mu`; it is the monitor's contention no longer throttled by the kernel.
 - **Not done, with triggers**: a lock-free stack cache (a tagged-pointer Treiber stack; ~30 ns on main and on
   every finish — a profile where `map_take` shows); recycling coroutine objects with their mutex and condition
   intact (~40 ns per spawn+finish); the interpreter's per-iteration cost of a `go` in a loop belongs to the
