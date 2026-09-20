@@ -232,13 +232,14 @@ private func compileLibrary(_ lib: Library) throws {
 }
 
 // CLJ_CORPUS_REPORT=<dir>: one line per form failure and per test, so two modes compare line by line.
-private func writeReport(_ lib: Library, _ r: RunResult) throws {
+// The flaky tests are written without their outcome: the interpreted and compiled reports must match line by line.
+private func writeReport(_ lib: Library, _ r: RunResult, flaky: Set<String>) throws {
 	guard let dir = ProcessInfo.processInfo.environment["CLJ_CORPUS_REPORT"] else { return }
 	try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
 	var lines: [String] = []
 	for f in r.forms.sorted(by: { ($0.file, $0.line) < ($1.file, $1.line) }) { lines.append("form \(f.file):\(f.line) \(f.name ?? "-") \(truncated(f.reason))") }
 	for (ns, m) in r.loadErrors.sorted(by: { $0.key < $1.key }) { lines.append("load \(ns) \(truncated(m))") }
-	for t in r.tests { lines.append("test \(t.name) \(t.status) \(truncated(t.reason ?? ""))") }
+	for t in r.tests { lines.append(flaky.contains(t.name) ? "test \(t.name) flaky" : "test \(t.name) \(t.status) \(truncated(t.reason ?? ""))") }
 	for s in r.skipped.sorted() { lines.append("skip \(s)") }
 	try (lines.joined(separator: "\n") + "\n").write(toFile: "\(dir)/\(lib.name).txt", atomically: true, encoding: .utf8)
 }
@@ -461,12 +462,12 @@ extension CoreTests {
 				let lib = try Library(dir: dir)
 				if compiledMode { try compileLibrary(lib) }
 				let first = try Self.run(lib)
-				try writeReport(lib, first)
+				let flaky = Set(try Self.readAllowlist(lib).tests.filter { Self.isFlaky($0.value) }.keys)
+				try writeReport(lib, first, flaky: flaky)
 				// Loading interns vars and keywords for the process; the second run over the loaded namespaces is the memory check.
 				let before = clj_debug_live_objects()
 				let second = try Self.run(lib)
 				let live = Int(clj_debug_live_objects() - before)
-				let flaky = try Self.readAllowlist(lib).tests.filter { Self.isFlaky($0.value) }.keys
 				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) }.map(\.status) }
 				#expect(steady(second) == steady(first), "\(lib.name): the two runs disagree")
 				doc += Self.summary(lib, first, liveAfterSecondRun: live)
