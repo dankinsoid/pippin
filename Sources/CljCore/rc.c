@@ -50,6 +50,7 @@ static void release_child(clj_value child, void *ctx) {
 	clj_header **stack = ctx;
 	clj_header *h = clj_header_of(child);
 	if (release_reaches_zero(h)) {
+		if (h->type->unlink) h->type->unlink(h);
 		set_dead_next(h, *stack);
 		*stack = h;
 	}
@@ -58,6 +59,7 @@ static void release_child(clj_value child, void *ctx) {
 // Iterative so a million-element list does not overflow the C stack.
 static void free_object(clj_header *dead) {
 	clj_header *stack = dead;
+	if (dead->type->unlink) dead->type->unlink(dead);
 	set_dead_next(dead, NULL);
 	while (stack) {
 		clj_header *h = stack;

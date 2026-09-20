@@ -238,16 +238,27 @@ static void install(const clj_node *n, void *ctx) {
 	clj_node_children(n, install, ctx);
 }
 
+// An exec in the index whose last reference dropped on another thread is on its way to exec_unlink, which waits
+// for this lock: its count reads 0 here, and it is left to go.
+static bool retain_if_live(clj_exec *e) {
+	if (e->h.flags & CLJ_FLAG_IMMORTAL) return true;
+	uint32_t rc = atomic_load_explicit(&e->h.rc, memory_order_relaxed);
+	while (rc) {
+		if (atomic_compare_exchange_weak_explicit(&e->h.rc, &rc, rc + 1, memory_order_acq_rel, memory_order_relaxed)) return true;
+	}
+	return false;
+}
+
 static void push_work(clj_exec *e) {
 	for (uint32_t i = 0; i < nwork; i++) {
 		if (work[i] == e) return;
 	}
+	if (!retain_if_live(e)) return;
 	if (nwork == cwork) {
 		cwork = cwork ? cwork * 2 : 8;
 		work = realloc(work, cwork * sizeof *work);
 		if (!work) clj_fatal("out of memory");
 	}
-	clj_retain(clj_from_ptr(e));
 	work[nwork++] = e;
 }
 

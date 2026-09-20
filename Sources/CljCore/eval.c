@@ -1365,9 +1365,12 @@ static void free_ic(const clj_node *n, void *ctx) {
 	clj_node_children(n, free_ic, e);
 }
 
+// The dependents index (specialize.c) holds execs without a reference: the entry leaves under its lock while the
+// header still says how many references the exec has, so a rebind that meets a dying one can see it die.
+static void exec_unlink(void *self) { clj_exec_forget(self); }
+
 static void exec_finalize(void *self) {
 	clj_exec *e = self;
-	clj_exec_forget(e);
 	free_ic(e->root, e);
 	for (uint32_t i = 0; i < e->nsites; i++) free(atomic_load_explicit(&e->sites[i].proto, memory_order_relaxed));
 	free(e->sites);
@@ -1378,6 +1381,7 @@ const clj_type clj_exec_type = {
 	.name = "exec",
 	.each_child = exec_each_child,
 	.finalize = exec_finalize,
+	.unlink = exec_unlink,
 };
 
 typedef struct {

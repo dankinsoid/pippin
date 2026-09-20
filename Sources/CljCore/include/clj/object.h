@@ -85,6 +85,9 @@ struct clj_type {
 	void (*each_child)(void *self, clj_visitor visit, void *ctx);
 	// Resources beyond child values (mutex, external buffer). NULL if none.
 	void (*finalize)(void *self);
+	// Runs as the last reference drops, header still intact, before the children go: for a registry that holds
+	// the object without a reference and reads its count under its own lock (specialize.c). NULL if none.
+	void (*unlink)(void *self);
 	// NULL when values of the type cannot be map keys; clj_hash/clj_equals abort on them.
 	uint32_t (*hash)(void *self);
 	bool     (*equals)(void *self, clj_value other);
