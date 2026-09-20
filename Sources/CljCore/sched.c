@@ -698,8 +698,7 @@ static pthread_cond_t  timer_cv = PTHREAD_COND_INITIALIZER;
 static clj_timer      *timers;
 static pthread_once_t  timer_once = PTHREAD_ONCE_INIT;
 
-// A timed wait wakes ~0.7 µs later than an untimed one (a kernel deadline per wait): far deadlines go to a
-// dispatch timer that signals the condition, and the thread waits untimed.
+// A timed wait wakes ~0.7 µs later than an untimed one: far deadlines go to a dispatch timer, the wait is untimed.
 enum { FAR_NS = 2000000 };
 
 #ifdef __APPLE__
@@ -972,7 +971,6 @@ static job *submit(void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w)
 }
 
 // The job works on a heap copy of ctx, written back here: the parker's frame is nobody else's (design §4).
-// Uncancellable: a caller that left would leave the job's result without an owner.
 void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
 	clj_coro *c = clj_coro_current();
 	if (c->implicit || c->host_depth || c->locks_held) {

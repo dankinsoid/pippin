@@ -166,8 +166,7 @@ void      clj_coro_free_stack(clj_coro *c);
 void      clj_coro_advise_stack(clj_coro *c);
 // Under c->lock at a park: registers the coroutine for the sweep once (c->linked says whether it is done).
 void clj_coro_live_link(clj_coro *c);
-// Under c->lock with c parked: copies the live bytes out and hands the whole mapping back; false when not parked,
-// already evacuated or implicit. The carrier restores before the switch in (clj_coro_switch_in).
+// Under c->lock with c parked: the live bytes to a blob, the mapping handed back; false when there is nothing to do.
 bool clj_coro_evacuate_locked(clj_coro *c);
 void      clj_coro_entry(void);
 // Runs a coroutine's body on its own stack: called by the carrier loop, returns when it parks or finishes.
@@ -218,8 +217,8 @@ void clj_coro_deadline_cleared(clj_coro *c);
 size_t clj_sched_carrier_count(void);
 // A parking sleep on the timer thread: Thread/sleep for library code. CLJ_THROWN on a cancellation.
 clj_value clj_sched_sleep_ms(int64_t ms);
-// The blocking pool (sched.c): fn runs on a dedicated thread over a heap copy of ctx's `size` bytes while the caller
-// parks, and the copy is written back after; inline on a bare thread. The parker's frame is never touched by the job.
+// The blocking pool (sched.c): fn runs on a dedicated thread over a heap copy of ctx's `size` bytes, written back
+// after the park; inline on a bare thread.
 void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size);
 // fn(ctx) on a blocking thread, the caller continues (thread).
 void clj_blocking_detach(void (*fn)(void *ctx), void *ctx);

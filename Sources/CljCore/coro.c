@@ -191,8 +191,7 @@ static bool map_keep(void *base, size_t size) {
 	return kept;
 }
 
-// Every coroutine that ever parked, for the evacuation sweep: linked at its first park (a coroutine that never
-// parks costs nothing here), unlinked when the stack is freed. Striped by address against the finishing carriers.
+// The sweep's list: joined at the first park (a coroutine that never parks costs nothing), striped by address.
 enum { LIVE_STRIPES = 16 };
 
 typedef struct {

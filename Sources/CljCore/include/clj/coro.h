@@ -46,9 +46,8 @@ size_t clj_coro_stack_size(void);
 // Physical footprint of the process in bytes (Apple: phys_footprint), for the parked-coroutine measurement.
 size_t clj_debug_phys_footprint(void);
 
-// Evacuation of cold parked coroutines (design §4 "Память припаркованной корутины — страница, не модель"): the
-// sweep runs every `ms` on the timer thread while coroutines live and evacuates a coroutine found parked in the
-// same park twice (parked between ms and 2·ms); 0 disables it. CLJ_EVAC_SWEEP_MS sets the default (250).
+// Evacuation of cold parked coroutines (design §4, NOTES "Coroutines"): the sweep's period, 0 off; a coroutine
+// found parked in the same park by two passes is evacuated. CLJ_EVAC_SWEEP_MS sets the default (250).
 void     clj_coro_set_evac_sweep_ms(uint64_t ms);
 uint64_t clj_coro_evac_sweep_ms(void);
 // Evacuates every parked coroutine now (the memory-pressure handler's action); returns how many.
