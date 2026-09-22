@@ -337,6 +337,18 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		f->entries[4] = kw_cause;
 		f->entries[5] = clj_exception_cause(v);
 		f->n = with_cause ? 6 : 4;
+	} else if (clj_is_cancellation(v)) {
+		// No :cause: a cancellation carries none, and the map frame walk needs only these two entries.
+		pthread_once(&keywords_once, intern_keywords);
+		put_cstr(b, "#error {");
+		frame *f = push_frame(stack, F_MAP);
+		f->entries = malloc(4 * sizeof *f->entries);
+		if (!f->entries) clj_fatal("out of memory");
+		f->entries[0] = kw_message;
+		f->entries[1] = clj_cancellation_message(v);
+		f->entries[2] = kw_data;
+		f->entries[3] = clj_cancellation_data(v);
+		f->n = 4;
 	} else if (clj_is_host_error(v)) {
 		// ex-data holds the value itself; spelled out here rather than walked.
 		put_cstr(b, "#error {:message ");

@@ -231,6 +231,31 @@ extension CoreTests {
 			}
 		}
 
+		// A keyword or ExceptionInfo selector must exclude :cancelled and, for the keyword, nothing else.
+		@Test func compiledCatchSelectivityMatchesTheInterpreter() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.catchkw)")
+			defer { clj_ns_set_current(clj_ns_user()); clj_deadline_set_ms(0) }
+			for closed in [false, true] {
+				try compiledEval(closed: closed) {
+					_ = try cljEval("""
+						(defn cp-catch-kw [f] (try (f) (catch :cancelled e :wrong) (catch :default e :right)))
+						(defn cp-catch-exinfo [f] (try (f) (catch ExceptionInfo e :wrong)))
+						(defn cp-spin [] (loop [i 0] (recur (inc i))))
+						""")
+				}
+				// ex-type selection: an ordinary ex-info skips :cancelled; one tagged :type :cancelled hits it.
+				#expect(try cljEval("(cp-catch-kw (fn [] (throw (ex-info \"boom\" {}))))") == Value(keyword: "right"), "closed: \(closed)")
+				#expect(try cljEval("(cp-catch-kw (fn [] (throw (ex-info \"boom\" {:type :cancelled}))))") == Value(keyword: "wrong"), "closed: \(closed)")
+				// ExceptionInfo still catches an ordinary ex-info...
+				#expect(try cljEval("(cp-catch-exinfo (fn [] (throw (ex-info \"boom\" {}))))") == Value(keyword: "wrong"), "closed: \(closed)")
+				// ...but a real cancellation (the deadline) is not an ex-info at all, so ExceptionInfo misses it.
+				clj_deadline_set_ms(50)
+				#expect(cljEvalError("(cp-catch-exinfo cp-spin)")?.contains("Execution timed out") == true, "closed: \(closed)")
+				clj_deadline_set_ms(0)
+			}
+		}
+
 		// Under --closed a form the generator refuses is an error naming the node and its position, not a fallback.
 		@Test func closedRefusesEval() throws {
 			clj_init()

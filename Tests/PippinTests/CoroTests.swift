@@ -15,6 +15,8 @@ private func message(_ source: String) -> String? {
 
 private func kw(_ s: String) -> Value { Value(keyword: s) }
 
+nonisolated(unsafe) private var uncaughtReports = 0
+
 extension CoreTests {
 	@Suite struct CoroTests {
 		init() throws {
@@ -149,8 +151,8 @@ extension CoreTests {
 
 		// Every cancellation path is :cancelled and :default lets it by (design §4, NReplTests proves interrupt).
 		@Test func everyCancellationIsCancelledType() throws {
-			// Warms the uncaught-report path (its trace/message printing interns state once) ahead of the baseline,
-			// same reason RecordTests defines its record before capturing one.
+			// Warms whatever this scenario interns on first use, ahead of the baseline (RecordTests does the
+			// same by defining its record first).
 			_ = try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :default e :caught)))] (<!! (timeout 5)) (cancel! g) (<!! g))")
 			let base = CoroBaseline()
 			do {
@@ -176,6 +178,22 @@ extension CoreTests {
 				clj_deadline_set_ms(0)
 				// (cancelled?) polls the same flag without waiting for a park point or a loop-tick throw.
 				#expect(try eval("(let [g (go (loop [n 0] (if (cancelled?) n (recur (inc n)))))] (<!! (timeout 5)) (cancel! g) (int? (<!! g)))") == true)
+			}
+			base.check()
+		}
+
+		// An uncaught cancellation ends a coroutine normally: no uncaught-handler call at all (design §4).
+		@Test func uncaughtCancellationIsNotAFailure() throws {
+			let base = CoroBaseline()
+			do {
+				uncaughtReports = 0
+				clj_coro_set_uncaught_handler { _, _ in uncaughtReports += 1 }
+				defer { clj_coro_set_uncaught_handler(nil) }
+				#expect(try eval("(let [g (go (loop [i 0] (recur (inc i))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
+				#expect(uncaughtReports == 0)
+				// A genuine error still reports, so the handler above is proven live, not merely unwired.
+				#expect(try eval("(<!! (go (throw (ex-info \"boom\" {}))))") == nil)
+				#expect(uncaughtReports == 1)
 			}
 			base.check()
 		}

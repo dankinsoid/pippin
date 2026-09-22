@@ -2166,8 +2166,18 @@ static temp emit_try(fnctx *f, const clj_node *n) {
 		push_handler(f, hfail);
 		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 			const clj_catch *c = &n->u.try_.catches[i];
-			if (c->kind == CLJ_CATCH_ALL) sb_printf(&f->out, "\t%sif (true) {\n", i ? "else " : "");
-			else sb_printf(&f->out, "\t%sif (clj_is_exception(ex%d)) {\n", i ? "else " : "", k);
+			const char      *lead = i ? "else " : "";
+			switch (c->kind) {
+			case CLJ_CATCH_ALL: sb_printf(&f->out, "\t%sif (!clj_ex_isa(ex%d, clj_cancelled_keyword())) {\n", lead, k); break;
+			case CLJ_CATCH_ERROR: sb_printf(&f->out, "\t%sif (clj_is_exception(ex%d)) {\n", lead, k); break;
+			case CLJ_CATCH_KEYWORD: {
+				bool   ok;
+				size_t ki = const_index(f, c->keyword, &ok);
+				if (!ok) clj_fatal("compiler: a catch keyword does not print and read back");
+				sb_printf(&f->out, "\t%sif (clj_ex_isa(ex%d, K[%zu])) {\n", lead, k, ki);
+				break;
+			}
+			}
 			char ex[16];
 			snprintf(ex, sizeof ex, "ex%d", k);
 			emit_set(f, c->slot, ex);

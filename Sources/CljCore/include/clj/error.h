@@ -80,7 +80,8 @@ clj_value clj_ex_cause(clj_value v);
 // nil for a value never thrown and for every non-ex-info.
 clj_value clj_ex_trace(clj_value v);
 
-// Total, never throws: keyword -> itself, ex-info -> its :type slot, host error -> nil for now, else nil.
+// Total, never throws: keyword -> itself, ex-info -> its :type slot, a cancellation -> :cancelled,
+// host error -> nil for now, else nil.
 clj_value clj_ex_type(clj_value v);
 // isa? k on ex-type, scalar case only; reads global-hierarchy's map directly, safe to call mid-unwind.
 bool clj_ex_isa(clj_value thrown, clj_value k);
@@ -89,8 +90,23 @@ void clj_isa_install(void);
 // What deadline/cancel throws as ex-type, and what :default/Throwable/Exception/Object let by.
 clj_value clj_cancelled_keyword(void);
 
-// ex-type :cancelled, data {:cancel/kind :deadline|:explicit}: explicit cancel, a deadline, an nREPL
-// interrupt (clj_coro_cancel) and a cancelled channel op all throw through here.
+// Not an ex-info (design.md §4): a selector naming no specific error misses it by construction, not a carve-out.
+typedef struct {
+	clj_header h;
+	clj_value  message;
+	clj_value  data;
+} clj_cancellation;
+
+extern const clj_type clj_cancellation_type;
+
+static inline bool clj_is_cancellation(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_cancellation_type; }
+static inline clj_cancellation *clj_cancellation_of(clj_value v) { return (clj_cancellation *)clj_to_ptr(v); }
+// Borrowed, valid while v is; mirrors clj_exception_message/data (the printer reads these directly).
+static inline clj_value clj_cancellation_message(clj_value v) { return clj_cancellation_of(v)->message; }
+static inline clj_value clj_cancellation_data(clj_value v) { return clj_cancellation_of(v)->data; }
+
+// Throws a clj_cancellation: explicit cancel, a coroutine's own deadline check, an nREPL interrupt
+// (clj_coro_cancel) and a cancelled channel op all arrive here.
 clj_value clj_throw_cancelled(bool deadline);
 
 #endif

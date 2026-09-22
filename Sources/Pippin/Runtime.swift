@@ -26,7 +26,7 @@ public struct ClojureError: Error, CustomStringConvertible {
 
 	/// Wraps a thrown value, sharing it with the core; the trace is the one on an `ex-info`, else none.
 	public init(thrown: Value) {
-		self.init(thrown: thrown, trace: thrown.isException ? Value(owning: withExtendedLifetime(thrown) { clj_ex_trace(thrown.raw) }) : nil)
+		self.init(thrown: thrown, trace: Value(owning: withExtendedLifetime(thrown) { clj_ex_trace(thrown.raw) }))
 	}
 
 	init(thrown: Value, trace: Value) {
@@ -41,7 +41,7 @@ public struct ClojureError: Error, CustomStringConvertible {
 				             column: clj_is_fixnum(column) ? clj_fixnum_val(column) : 0)
 			}
 		}
-		if thrown.isException {
+		if thrown.isException || thrown.isCancellation {
 			// A deftype error's slots run Clojure code and may throw; that exception's text stands in for the field.
 			func field(_ slot: (clj_value) -> clj_value) -> Value {
 				let raw = slot(thrown.raw)
@@ -227,6 +227,8 @@ extension Value {
 	public var isFn: Bool { clj_is_fn(raw) }
 	/// Any error value: an `ex-info` or a host error.
 	public var isException: Bool { clj_is_exception(raw) }
+	/// A cancellation (design.md §4): not an error value, but ex-message/ex-data/ex-cause work on it too.
+	public var isCancellation: Bool { clj_is_cancellation(raw) }
 
 	/// Clojure `meta`: the metadata map, or nil for a value without one (or without a meta slot).
 	public var meta: Value {

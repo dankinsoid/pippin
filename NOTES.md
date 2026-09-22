@@ -347,10 +347,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   The *kind* lives on the `clj_coro` and outlives its stack (`CLJ_CANCEL_REQUESTED` from `cancel!`/`future-cancel`,
   `CLJ_CANCEL_DEADLINE` from the timer, `CLJ_CANCEL_SCOPE` from a `go-scoped` failure — the only kind that is
   cleared again, by the scope's exit, restoring the deadline it replaced); every kind throws through
-  `clj_throw_cancelled(deadline)` (error.c), an ex-info of ex-type `:cancelled` whose `:cancel/kind` is
-  `:deadline` or `:explicit`; the message stays the old human text ("Execution timed out" or "Coroutine
-  cancelled") for logs, but nothing catchable dispatches on it any more (design §4, "Тип ошибки").
-  `clj_deadline_set_ms` arms a timer on the timer thread
+  `clj_throw_cancelled(deadline)` (error.c), a `clj_cancellation` (not an ex-info) whose ex-type is
+  `:cancelled` and whose ex-data's `:cancel/kind` is `:deadline` or `:explicit`; the message stays the old
+  human text ("Execution timed out" or "Coroutine cancelled") for logs, but nothing catchable dispatches
+  on it any more (design §4, "Тип ошибки", "Отмена — не `ex-info`"). `clj_deadline_set_ms` arms a timer on the timer thread
   (`clj_coro_deadline_arm`, a serial per arm so a stale firing is a no-op) whose firing is `cancel_locked` with the
   deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
   tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
@@ -1234,11 +1234,40 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   тупым"), never a vector, so the recursive branch of `isa?` never applies and the C copy is exactly
   as capable as calling it. `:default`/`Throwable`/`Exception`/`Object` still take every thrown value
   except one whose `ex-type` `isa?` `:cancelled` — the Python `BaseException`/`Exception` split, done
-  as a matching rule instead of a root type (design §4, "Отмена — `:cancelled`"). `ExceptionInfo`
-  still takes values whose type has `CLJ_CORE_ERROR`; a class name still resolves to "Unable to resolve
-  classname" (catching a host error by its Swift type needs the host-type registry, design §4, still
-  future work). `catch`'s own selector-form dispatch (keyword vs. class symbol) is unaffected by any
-  of this: `catch_kind_of` (analyzer.c) just gains a keyword branch beside the three symbol names.
+  as a matching rule instead of a root type (design §4, "Отмена — `:cancelled`"), kept explicit because
+  `:default` also catches non-errors (a fixnum, a string) that the type alone cannot decide. `ExceptionInfo`
+  needs no matching carve-out: a cancellation is not an ex-info at all (below), so `clj_is_exception`
+  already excludes it structurally. A class name still resolves to "Unable to resolve classname"
+  (catching a host error by its Swift type needs the host-type registry, design §4, still future work).
+  `catch`'s own selector-form dispatch (keyword vs. class symbol) is unaffected by any of this:
+  `catch_kind_of` (analyzer.c) just gains a keyword branch beside the three symbol names. The compiler's
+  `emit_try` (compiler.c) mirrors `catch_matches` exactly, including the constant pool for a keyword
+  selector (`const_index`, the same one `CLJ_NODE_CONST` uses) rather than interning it per throw; the
+  two backends disagreeing here once hung `AsyncLibTests.goScoped` under `-DCLJ_COMPILED_CORE` only —
+  `emit_try` had a bare `if (clj_is_exception(ex))` for every non-`:default` kind, so a compiled
+  `go-scoped` child's `(catch :cancelled e nil)` swallowed its sibling's real error too, and
+  `scope-child-failed!` never ran. `CompilerFixtureTests.compiledCatchSelectivityMatchesTheInterpreter`
+  is the regression test: it fails against the old `emit_try` and passes against the fixed one, in
+  both compiler modes.
+- **A cancellation is not an ex-info** (design §4, "Отмена — не `ex-info`"): `clj_cancellation`
+  (error.h/error.c) is its own type, `core_bits` deliberately without `CLJ_CORE_ERROR`, so
+  `clj_is_exception` — and therefore `ExceptionInfo`/`CLJ_CATCH_ERROR` — excludes it without a special
+  case. `ex-type` still answers `:cancelled`, `ex-message`/`ex-data` still work (`clj_ex_message`/
+  `clj_ex_data`, error.c, special-case `clj_is_cancellation` directly since the generic `clj_is_exception`
+  dispatch no longer reaches it); `ex-cause` is nil and `ex-trace` is nil like any non-ex-info (the trace
+  lives only in the pending slot, same as a thrown string). The printer gives it the same `#error
+  {:message :data}` shape as an ex-info, without `:cause`. **An uncaught cancellation is not a failure**:
+  `clj_coro_report_uncaught` (sched.c) returns immediately for one, before the installed handler or the
+  default stderr print — every call site (`finish`, `go_done`, `future_done`, `step_failed`, callback
+  and pipeline paths in chan.c) shares this one function, so the fix is one guard, not several.
+  `load.c`'s `wrap_pending` got the same treatment on its own call site: it used to relabel *any*
+  exception escaping a loaded form as `"Syntax error compiling at …"`, which would have turned an
+  interrupted `load`/`require` into a fake compile error, losing the cancellation's identity entirely.
+  Left alone on purpose: `future`'s cached error for `deref` of a cancelled future (design §9, open) and
+  `go-scoped`'s own cleanup catches (`scope-spawn`'s `:cancelled` clause, `scoped*`'s, `profile`'s and
+  `with-out-str`'s in core.clj) — those don't exist to dodge a matcher carve-out, they exist because
+  `finally`-shaped cleanup (child bookkeeping, `profile-stop!`, `out-capture-pop*`) must run before the
+  cancellation continues past that specific frame, which a merely-structural exclusion doesn't provide.
 - **`isa?`/`derive`/`global-hierarchy` stay Clojure (boot/core.clj); the unwind path reads the
   hierarchy's data instead of calling back into it.** `clj_ex_isa` (error.c) resolves and caches the
   `global-hierarchy` var once after boot (`clj_isa_install`, runtime.c) and, at each keyword catch,

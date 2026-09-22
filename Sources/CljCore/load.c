@@ -411,7 +411,8 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 				continue;
 			}
 			clj_release(form);
-			result = wrap_pending(file, r.form_line, r.form_col);
+			// A cancellation is not a compile error: wrapping it here would misidentify it (design.md §4).
+			result = clj_is_cancellation(clj_pending()) ? CLJ_THROWN : wrap_pending(file, r.form_line, r.form_col);
 			break;
 		}
 		clj_release(v);

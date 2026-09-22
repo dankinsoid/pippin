@@ -1179,7 +1179,7 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 			c->kind = CLJ_CATCH_ALL;
 		} else {
 			c->kind = CLJ_CATCH_KEYWORD;
-			c->keyword = clj_retain(cls);
+			c->keyword = cls; // immortal: no retain to pair with the release the field never gets
 		}
 		return true;
 	}

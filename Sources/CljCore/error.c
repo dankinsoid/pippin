@@ -113,6 +113,21 @@ clj_value clj_host_error_new(clj_value message, void *payload, void (*release)(v
 	return clj_from_ptr(e);
 }
 
+static void cancellation_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_cancellation *c = self;
+	visit(c->message, ctx);
+	visit(c->data, ctx);
+}
+
+// core_bits carries no CLJ_CORE_ERROR: a selector naming no specific error misses this by construction.
+const clj_type clj_cancellation_type = {
+	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.name = "cancellation",
+	.each_child = cancellation_each_child,
+	.hash = exception_hash,
+	.equals = exception_equals,
+};
+
 // type is set directly here, not derived from data: clj_throw_cancelled tags :cancelled without a :type key.
 static clj_value ex_info_new(clj_value message, clj_value data, clj_value cause, clj_value type) {
 	CLJ_ASSERT(clj_is_string(message), "exception message must be a string");
@@ -137,6 +152,7 @@ clj_value clj_ex_info(clj_value message, clj_value data) { return clj_ex_info_ca
 
 clj_value clj_ex_type(clj_value v) {
 	if (clj_is_keyword(v)) return clj_retain(v);
+	if (clj_is_cancellation(v)) return clj_retain(kw_cancelled);
 	if (clj_is_ex_info(v)) return clj_retain(clj_exception_of(v)->type);
 	return CLJ_NIL;
 }
@@ -166,12 +182,10 @@ bool clj_ex_isa(clj_value thrown, clj_value k) {
 
 clj_value clj_throw_cancelled(bool deadline) {
 	pthread_once(&keywords_once, intern_keywords);
-	clj_value data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
-	clj_value msg = clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE);
-	clj_value ex = ex_info_new(msg, data, CLJ_NIL, kw_cancelled);
-	clj_release(msg);
-	clj_release(data);
-	return clj_throw(ex);
+	clj_cancellation *c = clj_alloc(&clj_cancellation_type, sizeof *c);
+	c->data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
+	c->message = clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE);
+	return clj_throw(clj_from_ptr(c));
 }
 
 // @ai-generated(guided)
@@ -219,10 +233,14 @@ clj_value clj_throw_msg(const char *fmt, ...) {
 // A thrown string is its own message (CLJS says nil), so a :default handler reads (throw "m") like an ex-info.
 clj_value clj_ex_message(clj_value v) {
 	if (clj_is_string(v)) return clj_retain(v);
+	if (clj_is_cancellation(v)) return clj_retain(clj_cancellation_message(v));
 	return clj_is_exception(v) ? clj_type_of(v)->ex_message(v) : CLJ_NIL;
 }
 
-clj_value clj_ex_data(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)->ex_data(v) : CLJ_NIL; }
+clj_value clj_ex_data(clj_value v) {
+	if (clj_is_cancellation(v)) return clj_retain(clj_cancellation_data(v));
+	return clj_is_exception(v) ? clj_type_of(v)->ex_data(v) : CLJ_NIL;
+}
 
 clj_value clj_ex_cause(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)->ex_cause(v) : CLJ_NIL; }
 

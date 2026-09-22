@@ -225,5 +225,19 @@ extension CoreTests {
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
+
+		// A real cancellation is not an ex-info (design.md §4), so ExceptionInfo misses it by construction.
+		@Test func exceptionInfoDoesNotCatchCancellation() throws {
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("(try (throw (ex-info \"m\" nil)) (catch ExceptionInfo e :hit))") == kw("hit"))
+				// An ex-info merely tagged :type :cancelled is still a real ex-info: ExceptionInfo catches it.
+				#expect(try rt.eval("(try (throw (ex-info \"m\" {:type :cancelled})) (catch ExceptionInfo e :hit))") == kw("hit"))
+				clj_deadline_set_ms(50)
+				defer { clj_deadline_set_ms(0) }
+				#expect(message(rt, "(try (loop [i 0] (recur (inc i))) (catch ExceptionInfo e :never))")?.contains("Execution timed out") == true)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
 	}
 }

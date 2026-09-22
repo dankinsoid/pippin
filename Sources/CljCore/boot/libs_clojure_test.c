@@ -30214,7 +30214,7 @@ L6: ;
 	clj_value tr9 = clj_take_pending_trace();
 	clj_value ex9 = clj_take_pending();
 	bool h9 = false;
-	if (true) {
+	if (!clj_ex_isa(ex9, clj_cancelled_keyword())) {
 	clj_c_rebind(&l3, ex9);
 	h9 = true;
 #line 295 "<embedded>/clojure/test.clj"

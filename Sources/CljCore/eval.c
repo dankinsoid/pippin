@@ -1126,12 +1126,12 @@ static clj_value eval_throw(const clj_node *n, clj_frame *f) {
 	return clj_throw(v);
 }
 
-// :default/Throwable/Exception/Object pass a :cancelled ex-type by (design.md §4, "Отмена — :cancelled").
+// :default also catches non-errors, so its :cancelled exclusion stays explicit (design.md §4).
 static bool catch_matches(const clj_catch *c, clj_value ex) {
 	switch (c->kind) {
 	case CLJ_CATCH_ALL: return !clj_ex_isa(ex, clj_cancelled_keyword());
-	case CLJ_CATCH_KEYWORD: return clj_ex_isa(ex, c->keyword);
-	default: return clj_is_exception(ex);
+	case CLJ_CATCH_ERROR: return clj_is_exception(ex);
+	default: return clj_ex_isa(ex, c->keyword);
 	}
 }
 
