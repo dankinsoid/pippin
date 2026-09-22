@@ -3,24 +3,31 @@ import CljCore
 import Foundation
 import Pippin
 
-/// One nREPL session: its own `*ns*`, at most one eval in flight (keeps `ns` a plain field, race-free).
+/// One nREPL session: its whole dynamic binding frame, at most one eval in flight (keeps it race-free).
 public final class Session {
 	public let id: String
 	private let lock = NSLock()
-	private var ns: String
+	private var bindings: Value
 	private var busy = false
 	private var inFlight: (id: String, coro: Value)?
 	private var pending: [() -> Void] = []
 
-	public init(id: String = UUID().uuidString, namespace: String = "user") {
+	public init(id: String = UUID().uuidString, frame: Value) {
 		self.id = id
-		ns = namespace
+		bindings = frame
 	}
 
-	public var currentNamespace: String {
-		get { lock.withLock { ns } }
-		set { lock.withLock { ns = newValue } }
+	public convenience init(id: String = UUID().uuidString, namespace: String = "user") {
+		self.init(id: id, frame: ReplVars.defaultFrame(namespace: namespace))
 	}
+
+	/// The frame to push for the next eval, and what `clone` hands a new session (persistent: sharing it costs nothing).
+	var currentFrame: Value { lock.withLock { bindings } }
+
+	public var currentNamespace: String { ReplVars.namespace(in: currentFrame) }
+
+	/// Replaces the frame with what the coroutine's eval captured; skipped for a cancelled eval (below).
+	func updateFrame(_ frame: Value) { lock.withLock { bindings = frame } }
 
 	/// Runs `work` now if idle, else queues it; `work` must call `finishEval()` when its eval completes.
 	func scheduleEval(_ work: @escaping () -> Void) {

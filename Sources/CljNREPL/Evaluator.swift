@@ -4,24 +4,28 @@ import Pippin
 
 /// Reads and evaluates `code` form by form, streaming `:out`/`:value`/`:err`; must run on a pool coroutine.
 enum Evaluator {
-	// CLJ_CANCELLED_MESSAGE (eval.h): how a coroutine's own cancellation throw is told apart from a real error.
-	private static let cancelledMessage = "Coroutine cancelled"
-
-	static func run(code: String, startNamespace: String, session: Session, id: String, conn: Connection, onlyLastValue: Bool = false) {
+	static func run(code: String, overrideNamespace: String?, session: Session, id: String, conn: Connection, onlyLastValue: Bool = false) {
 		func reply(_ extra: [String: BValue]) {
 			conn.send(Ops.reply(["id": .string(id), "session": .string(session.id)], extra))
 		}
 		func currentNS() -> String { Value(borrowing: clj_ns_name(clj_ns_current())).description }
 
-		// Never popped: only its owner may set! it (NOTES "Coroutines"), and the frame dies with the coroutine.
-		let nsVar = Value(borrowing: clj_ns_var())
-		let startValue = Value(owning: withExtendedLifetime(Value(symbol: startNamespace)) { clj_ns_find_or_create($0.raw) })
-		let bindings = Value(owning: withExtendedLifetime((nsVar, startValue)) { clj_map_assoc(clj_map_empty(), nsVar.raw, startValue.raw) })
-		defer { session.currentNamespace = currentNS() }
-		if withExtendedLifetime(bindings, { clj_var_push_bindings(bindings.raw) }) == CLJ_THROWN {
+		var frame = session.currentFrame
+		if let overrideNamespace {
+			let nsValue = withExtendedLifetime(Value(symbol: overrideNamespace)) { Value(owning: clj_ns_find_or_create($0.raw)) }
+			frame = Value(owning: withExtendedLifetime((frame, nsValue)) { clj_map_assoc(frame.raw, ReplVars.ns.raw, nsValue.raw) })
+		}
+
+		var pushed = false
+		var cancelled = false
+		// Skipped for a cancelled eval (must not poison the session) and for a push that never took (nothing of ours to capture).
+		defer { if pushed && !cancelled { session.updateFrame(Value(owning: clj_var_get_thread_bindings())) } }
+
+		guard withExtendedLifetime(frame, { clj_var_push_bindings(frame.raw) }) != CLJ_THROWN else {
 			reportError(takePendingError(), reply)
 			return
 		}
+		pushed = true
 
 		var lastValue: Value?
 		var bytes = Array(code.utf8)
@@ -50,14 +54,17 @@ enum Evaluator {
 						if let text = captured.string, !text.isEmpty { reply(["out": .string(text)]) }
 						if result == CLJ_THROWN {
 							let error = takePendingError()
-							if error.message == cancelledMessage {
+							if clj_coro_current_cancelled() {
+								cancelled = true
 								reply(["status": .list([.string("interrupted"), .string("done")])])
 							} else {
+								ReplVars.recordError(error.thrown)
 								reportError(error, reply)
 							}
 							return
 						}
 						let value = Value(owning: result)
+						ReplVars.recordValue(value)
 						if onlyLastValue {
 							lastValue = value
 						} else {

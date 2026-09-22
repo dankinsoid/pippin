@@ -86,5 +86,49 @@ extension CoreTests {
 			server.stop()
 			#expect(clj_debug_coro_settle(0, 2000), "leftover nREPL eval coroutines after the test")
 		}
+
+		// *1 *2 *3 *e persist across evals, clone hands off an independent snapshot, interrupt does not poison it.
+		@Test func sessionCarriesItsWholeBindingFrame() throws {
+			let server = try Server()
+			let port = try server.start(host: "127.0.0.1", port: 0)
+			let client = try Client(port: port)
+			defer { client.socket.close() }
+
+			func eval(_ session: String, _ id: String, _ code: String) throws -> [[String: BValue]] {
+				try client.send(["op": .string("eval"), "session": .string(session), "id": .string(id), "code": .string(code)])
+				return try client.recvUntilDone()
+			}
+
+			try client.send(["op": .string("clone")])
+			let parent = try #require(client.recvUntilDone().last?["new-session"]?.asString)
+
+			_ = try eval(parent, "1", "10")
+			_ = try eval(parent, "2", "20")
+			// *1 20, *2 10, *3 nil now; cloning here, before *1 *2 *3 are themselves read (which would shift them).
+
+			try client.send(["op": .string("clone"), "session": .string(parent)])
+			let child = try #require(client.recvUntilDone().last?["new-session"]?.asString)
+			#expect(try eval(child, "3", "*1").contains { $0["value"]?.asString == "20" })
+			// Mutating the child's history must not reach back into the parent's.
+			_ = try eval(child, "4", "1001")
+
+			#expect(try eval(parent, "5", "[*1 *2 *3]").contains { $0["value"]?.asString == "[20 10 nil]" })
+
+			let errored = try eval(parent, "6", "(/ 1 0)")
+			#expect(errored.last?["status"]?.asStringList?.contains("eval-error") == true)
+			#expect(try eval(parent, "7", "(some? *e)").contains { $0["value"]?.asString == "true" })
+
+			// require's own value (nil) becomes the new *1; interrupting the next eval must not disturb it.
+			_ = try eval(parent, "8", "(require '[clojure.core.async :refer [chan <!!]])")
+			try client.send(["op": .string("eval"), "session": .string(parent), "id": .string("9"), "code": .string("(<!! (chan))")])
+			Thread.sleep(forTimeInterval: 0.2)
+			try client.send(["op": .string("interrupt"), "session": .string(parent), "interrupt-id": .string("9")])
+			_ = try client.recvUntilDone()
+			#expect(try client.recvUntilDone().last?["status"]?.asStringList?.contains("interrupted") == true)
+			#expect(try eval(parent, "10", "*1").contains { $0["value"]?.asString == "nil" })
+
+			server.stop()
+			#expect(clj_debug_coro_settle(0, 2000), "leftover nREPL eval coroutines after the test")
+		}
 	}
 }

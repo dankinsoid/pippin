@@ -12,7 +12,8 @@ enum Ops {
 
 	static func clone(_ server: Server, _ msg: [String: BValue], _ conn: Connection) {
 		let base = msg["session"]?.asString.flatMap(server.session)
-		let session = Session(namespace: base?.currentNamespace ?? "user")
+		let frame = base?.currentFrame ?? ReplVars.defaultFrame(namespace: "user")
+		let session = Session(frame: frame)
 		server.addSession(session)
 		conn.own(session.id)
 		conn.send(reply(msg, ["new-session": .string(session.id), "status": .list([.string("done")])]))
@@ -46,7 +47,7 @@ enum Ops {
 		let ns = msg["ns"]?.asString
 		session.scheduleEval {
 			let coro = spawnCoroutine({
-				Evaluator.run(code: code, startNamespace: ns ?? session.currentNamespace, session: session, id: id, conn: conn)
+				Evaluator.run(code: code, overrideNamespace: ns, session: session, id: id, conn: conn)
 			}, onDone: session.finishEval)
 			session.setInFlight(id: id, coro: coro)
 		}
@@ -59,7 +60,7 @@ enum Ops {
 		let code = msg["file"]?.asString ?? ""
 		session.scheduleEval {
 			let coro = spawnCoroutine({
-				Evaluator.run(code: code, startNamespace: session.currentNamespace, session: session, id: id, conn: conn, onlyLastValue: true)
+				Evaluator.run(code: code, overrideNamespace: nil, session: session, id: id, conn: conn, onlyLastValue: true)
 			}, onDone: session.finishEval)
 			session.setInFlight(id: id, coro: coro)
 		}

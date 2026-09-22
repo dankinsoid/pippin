@@ -2887,25 +2887,50 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **A session is a fresh coroutine per eval, not one long-lived coroutine per session.** The brief's own reading
   ("a session must be a coroutine") was one persistent coroutine looping on a work queue for the session's life,
   with `interrupt` cancelling just the in-flight eval. That runs into the binding-ownership rule head-on (NOTES
-  "Coroutines": "a child cannot `set!` a binding it does not own"): if the persistent coroutine pushes `*ns*`
-  once and a *child* coroutine runs each eval, `(in-ns ...)` inside that child is refused, because the child does
-  not own the frame the parent pushed. Keeping eval on the *same* coroutine that pushed the binding fixes that,
-  but then `interrupt`'s cancellation (sticky, NOTES "Coroutines") would permanently wedge the session's own
-  loop — every future park on that coroutine throws forever, and the only cure is `clj_coro_cancel_reset`,
-  which is `coro_internal.h`, not public. The deviation: spawn one coroutine per eval request
-  (`spawnCoroutine`, `CljNREPL/CoroBridge.swift`), let it push `*ns*` as its own frame (so `in-ns` can `set!`
-  it), and let it die with the coroutine when the eval finishes — cancellation only ever needs to reach a
-  coroutine that is about to end anyway, so the stock, unmodified `clj_coro_cancel` is enough and no new public
-  C API was needed. `Session` (a plain Swift class, not a coroutine) tracks `*ns*` as a string between calls,
-  serializes a session's evals through a small queue (`scheduleEval`/`finishEval`) so at most one is in flight
-  — this is what "a session must be a coroutine" was really protecting against (two evals racing the same
-  `*ns*`), and Swift-side sequencing gets it without needing the coroutine identity to persist.
-- **`interrupt` is `clj_coro_cancel` on that one eval's own coroutine handle, unmodified.** `Session.interrupt`
-  matches the request's `interrupt-id` against the in-flight eval's id (nREPL lets a client target a specific
-  pending eval; with one eval per session in flight this is just a sanity check) and calls `clj_coro_cancel`.
-  The eval loop tells a genuine interruption apart from any other thrown error by comparing the message text
-  against `CLJ_CANCELLED_MESSAGE` ("Coroutine cancelled", eval.h) — the same string the scheduler already
-  throws with (sched.c `clj_coro_cancel_message`); no second cancellation channel, no new state on `Session`.
+  "Coroutines": "a child cannot `set!` a binding it does not own"): if the persistent coroutine pushes the
+  frame once and a *child* coroutine runs each eval, `(in-ns ...)`/`(set! *1 ...)` inside that child is refused,
+  because the child does not own the frame the parent pushed. Keeping eval on the *same* coroutine that pushed
+  the binding fixes that, but then `interrupt`'s cancellation (sticky, NOTES "Coroutines") would permanently
+  wedge the session's own loop — every future park on that coroutine throws forever, and the only cure is
+  `clj_coro_cancel_reset`, which is `coro_internal.h`, not public. Revisited for the whole-frame pass below and
+  still the right call: nothing about carrying more vars changes the ownership or the sticky-cancellation
+  problem, since both are per-coroutine facts, not per-var ones. The deviation: spawn one coroutine per eval
+  request (`spawnCoroutine`, `CljNREPL/CoroBridge.swift`), let it push the session's whole frame as its own
+  (so `set!` on anything in it succeeds), and let it die with the coroutine when the eval finishes —
+  cancellation only ever needs to reach a coroutine that is about to end anyway, so the stock, unmodified
+  `clj_coro_cancel` is enough for that part. `Session` (a plain Swift class, not a coroutine) holds the frame
+  as a `Value` (a persistent map, `ReplVars.swift`) between calls and serializes a session's evals through a
+  small queue (`scheduleEval`/`finishEval`) so at most one is in flight — this is what "a session must be a
+  coroutine" was really protecting against (two evals racing the same frame), and Swift-side sequencing gets
+  it without needing the coroutine identity to persist.
+- **The session's whole frame, not just `*ns*`, round-trips through `clj_var_push_bindings`/
+  `clj_var_get_thread_bindings`.** `Session.currentFrame` is a map var → value (`ReplVars.defaultFrame`: `*ns*`
+  plus the REPL history vars below); `Evaluator.run` pushes it once, lets `set!`/`in-ns` mutate the live boxes
+  through the eval, and — unless the eval was cancelled — captures the whole thread's bindings back with
+  `clj_var_get_thread_bindings` and stores that as the session's new frame. Generic on purpose: whatever vars
+  end up in the frame persist, without `Evaluator` naming them; the frame can grow (more seeded vars, e.g.
+  `*print-length*`, which already exists in core.clj but is not seeded today) with no change here. **A frame
+  captured from a cancelled eval is dropped, not stored**: the `defer` that captures only fires when a `pushed`
+  flag is set (a failed push has nothing of ours to capture) and a `cancelled` flag is clear (`Tests
+  sessionCarriesItsWholeBindingFrame`, the case an interrupted `(<!! (chan))` must not disturb `*1`). This is a
+  conservative choice, not a proven-necessary one: a cancellation unwinds through `try`/`finally` like any
+  other throw (NOTES "Coroutines": "cleanup that must wait does so in a catch"), so the frame at the point of
+  cancellation is very likely already consistent; dropping it anyway costs nothing (the user retries the form)
+  and removes the need to reason about the unwind budget (`shadow->unwinds`, 64) being exhausted mid-cleanup.
+- **`interrupt` is `clj_coro_cancel` on that one eval's own coroutine handle, unmodified; telling a cancellation
+  apart from a real error needed one new public C function.** `Session.interrupt` matches the request's
+  `interrupt-id` against the in-flight eval's id (nREPL lets a client target a specific pending eval; with one
+  eval per session in flight this is just a sanity check) and calls `clj_coro_cancel`. The eval loop, running
+  *inside* that same coroutine, cannot call `clj_coro_cancelled(coro)` on itself: nothing publishes its own
+  `clj_value` handle to it without a race (`clj_coro_spawn` can start running the body on another carrier
+  before the spawning thread has anywhere to store the handle it returns — an unsynchronized write raced
+  against a read, not a timing coincidence that happens to work). The original version compared the thrown
+  message against a hand-copied `"Coroutines cancelled"` literal, which does not follow `CLJ_CANCELLED_MESSAGE`
+  (eval.h) if that ever changes. Added `clj_coro_current_cancelled(void)` (`coro.h`/`sched.c`, next to the
+  existing `clj_coro_cancelled(clj_value)`, same one-line body against `clj_coro_current()` instead of a
+  looked-up handle) so the eval loop asks its own execution directly — no message text involved at all, and
+  the alternative (a box the spawning closure fills in after `clj_coro_spawn` returns) was rejected because it
+  is exactly that race, not a matter of style.
 - **Output is captured per top-level form, not streamed byte by byte.** `clj_output_push_capture`/
   `clj_output_pop_capture` (the `with-out-str` mechanism, runtime.c) wrap each form; the popped string becomes
   one `:out` message before that form's `:value`. This is coarser than a real terminal (a `println` inside a
@@ -2920,12 +2945,26 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   or silently running on the pool. Trigger: a `--install-main-carrier` flag that adopts the process's own
   thread and pumps `CFRunLoopRunInMode` on a loop, for code that legitimately wants `:main` from the REPL (a UI
   test harness, say) — not needed for CIDER/Calva/Conjure, which never send such code.
-- **`*ns*` persistence, not `Runtime.eval`.** `Runtime.eval` deliberately resets `*ns*` after each call (like
+- **Frame persistence, not `Runtime.eval`.** `Runtime.eval` deliberately resets `*ns*` after each call (like
   `load`, NOTES on `Runtime.swift`), which is wrong for a REPL: `(ns foo)` on one eval must affect the next.
-  `Evaluator.run` pushes `*ns*` itself (found or created via `clj_ns_find_or_create`) and never pops it — the
-  coroutine finishing releases the whole binding chain regardless (NOTES "Coroutines": "a var's `thread_bound`
-  count drops when the frame dies rather than when it is popped") — and reads `clj_ns_current()` back into
-  `Session.currentNamespace` in a `defer`, so the next eval (a new coroutine) starts where this one left off.
+  `Evaluator.run` pushes the session's frame itself and never pops it — the coroutine finishing releases the
+  whole binding chain regardless (NOTES "Coroutines": "a var's `thread_bound` count drops when the frame dies
+  rather than when it is popped") — and (see above) captures it back into `Session` when the eval was not
+  cancelled, so the next eval (a new coroutine) starts where this one left off. `ns`'s own `overrideNamespace`
+  parameter (the `eval` op's optional `"ns"` field) replaces just the `*ns*` entry of the frame it pushes,
+  leaving the rest — `*1 *2 *3 *e` — intact.
+- **`*1`, `*2`, `*3` and `*e` are core.clj vars, not nREPL-private state**, matching real Clojure: they are
+  defined in `boot/core.clj` next to `*print-length*`/`*print-level*` (`(def ^:dynamic *1 nil)` etc.), because
+  the language ships them and a host REPL sets them, the same division as those two vars already had. Seeded
+  into `ReplVars.defaultFrame` at nil and shifted by `ReplVars.recordValue`/`recordError` after each form
+  (`*3 ← *2 ← *1 ← value`, or `*e ← thrown`), the JVM's own order. `make boot` regenerated the embedded and
+  compiled core after the addition (`core_clj.inc`, `boot/core.c`); nothing outside `CljNREPL` reads them.
+- **`clone` copies the parent's frame, not a fresh default.** `Session(frame:)` takes the parent session's
+  `currentFrame` value directly — free, since it is a persistent map and the clone's later `set!`s build new
+  versions rather than mutating the parent's (`Tests sessionCarriesItsWholeBindingFrame`: a clone that changes
+  its own `*1` leaves the parent's untouched). A `clone` naming an unknown session, or none, gets
+  `ReplVars.defaultFrame(namespace: "user")`, the nREPL server's own root state, not the JVM's `user` var
+  bindings (there are none to inherit outside a session).
 - **`complete`/`info` are Clojure, not a second namespace walker in Swift.** `ns-map`, `ns-publics`, `ns-aliases`,
   `ns-resolve`, `meta` and `resolve` are already C builtins with the exact resolution rules (aliases, refers,
   privacy) a REPL needs; `NReplHelpers` loads a small `pippin.nrepl.util` namespace once and calls its two
