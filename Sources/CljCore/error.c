@@ -26,7 +26,7 @@ static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_host_error, kw_type, kw_cancelled, kw_cancel_kind, kw_explicit, kw_deadline, kw_ancestors;
 static clj_value      cancelled_explicit, cancelled_deadline;
 
-static clj_value cancellation_new(bool deadline);
+static clj_value cancellation_singleton(bool deadline);
 
 static void intern_keywords(void) {
 	kw_host_error = clj_keyword_from_cstr("host/error");
@@ -37,8 +37,8 @@ static void intern_keywords(void) {
 	kw_deadline = clj_keyword_from_cstr("deadline");
 	kw_ancestors = clj_keyword_from_cstr("ancestors");
 	int64_t before = clj_debug_live_objects();
-	cancelled_explicit = cancellation_new(false);
-	cancelled_deadline = cancellation_new(true);
+	cancelled_explicit = cancellation_singleton(false);
+	cancelled_deadline = cancellation_singleton(true);
 	// Immortal by construction, not leaked: the count of a debug build must not carry them.
 	if (before >= 0) clj_debug_live_objects_exclude(clj_debug_live_objects() - before);
 }
@@ -125,6 +125,7 @@ static void cancellation_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_cancellation *c = self;
 	visit(c->message, ctx);
 	visit(c->data, ctx);
+	visit(c->cause, ctx);
 }
 
 // core_bits carries no CLJ_CORE_ERROR: a selector naming no specific error misses this by construction.
@@ -189,21 +190,32 @@ bool clj_ex_isa(clj_value thrown, clj_value k) {
 }
 
 // @ai-generated(guided)
-static clj_value cancellation_new(bool deadline) {
+static clj_value cancellation_new(bool deadline, clj_value cause) {
 	clj_cancellation *c = clj_alloc(&clj_cancellation_type, sizeof *c);
 	c->data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
 	c->message = clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE);
-	clj_value v = clj_from_ptr(c);
+	c->cause = clj_retain(cause);
+	return clj_from_ptr(c);
+}
+
+// @ai-generated(guided)
+static clj_value cancellation_singleton(bool deadline) {
+	clj_value v = cancellation_new(deadline, CLJ_NIL);
 	// Share before the flag: clj_share stops at an immortal root, so the children would stay unshared after it.
 	clj_share(v);
-	c->h.flags |= CLJ_FLAG_IMMORTAL;
+	clj_header_of(v)->flags |= CLJ_FLAG_IMMORTAL;
 	return v;
 }
 
-// The space of plain cancellations is two values, so two of them are identical? — intended and observable.
+// The space of causeless cancellations is two values, so two of them are identical? — intended and observable.
+// @ai-generated(guided)
 clj_value clj_throw_cancelled(bool deadline) {
 	pthread_once(&keywords_once, intern_keywords);
-	return clj_throw_untraced(clj_retain(deadline ? cancelled_deadline : cancelled_explicit));
+	clj_value cause = clj_coro_cancel_cause(clj_coro_current());
+	if (clj_is_nil(cause)) return clj_throw_untraced(clj_retain(deadline ? cancelled_deadline : cancelled_explicit));
+	clj_value c = cancellation_new(deadline, cause);
+	clj_release(cause);
+	return clj_throw_untraced(c);
 }
 
 // @ai-generated(guided)

@@ -124,6 +124,8 @@ static void coro_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(c->fn, ctx);
 	for (size_t i = 0; i < c->nargs; i++) visit(c->args[i], ctx);
 	visit(c->result, ctx);
+	// The cancel cause is an edge out of the coroutine while it unwinds: trial deletion must see it.
+	visit(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed), ctx);
 }
 
 static void coro_finalize(void *self) {

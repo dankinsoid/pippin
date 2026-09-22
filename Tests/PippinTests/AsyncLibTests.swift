@@ -24,7 +24,7 @@ extension CoreTests {
 		init() throws {
 			clj_init()
 			_ = try cljEvalScoped("(ns async-lib-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel! go-scoped plet promise-chan pipe mult tap untap untap-all pub sub unsub unsub-all mix admix unmix unmix-all toggle solo-mode merge onto-chan! to-chan! onto-chan to-chan pipeline pipeline-blocking pipeline-async split unblocking-buffer?]]))")
-			for k in ["a", "b", "body", "cancelled", "caught", "child", "closed", "done", "err", "even", "finally", "int", "odd", "one", "ran", "second", "put", "string", "take", "two", "unreached", "x", "y", "z"] { _ = kw(k) }
+			for k in ["a", "b", "body", "cancelled", "caught", "child", "closed", "done", "err", "even", "finally", "int", "odd", "one", "ran", "second", "put", "string", "take", "two", "unreached", "unset", "x", "y", "z"] { _ = kw(k) }
 			_ = try cljEvalScoped("""
 			(in-ns 'async-lib-tests)
 			(defn mapping [f] (fn [f1] (fn ([] (f1)) ([result] (f1 result)) ([result input] (f1 result (f input))))))
@@ -162,6 +162,64 @@ extension CoreTests {
 				#expect(try eval("(plet [a (do (<! (timeout 5)) 1) b 2] (+ a b))") == 3)
 				#expect(try eval("(try (plet [a (throw (ex-info \"a\" {})) b (<! (chan))] (+ a b)) (catch :default e (ex-message e)))") == "a")
 				_ = try eval("(<!! (timeout 20))")
+			}
+			base.check()
+		}
+
+		// A sibling cancelled by the scope reads the failure through ex-cause (design §4, Go's context.Cause).
+		@Test func aScopeCancellationCarriesItsCause() throws {
+			// Warms whatever this scenario interns on first use, ahead of the baseline (CoroTests does the same).
+			_ = try eval("(let [c (chan)] (try (go-scoped (go (try (<! c) (catch :cancelled e (ex-cause e)))) (go (throw (ex-info \"warm\" {})))) (catch :default e nil)))")
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+					(let [c (chan)]
+					  (try (go-scoped (go (try (<! c) (catch :cancelled e (throw (ex-info (ex-message (ex-cause e)) {})))))
+					                  (go (<! (timeout 5)) (throw (ex-info "sibling" {}))))
+					       (catch :default e (ex-message e))))
+					""") == "sibling")
+				// The body's own failure is the cause its children see.
+				#expect(try eval("""
+					(let [c (chan) r (atom nil)]
+					  (try (go-scoped (go (try (<! c) (catch :cancelled e (reset! r (ex-message (ex-cause e))))))
+					                  (<! (timeout 5))
+					                  (throw (ex-info "body" {})))
+					       (catch :default e nil))
+					  @r)
+					""") == "body")
+				// A plain cancellation has no cause, and the slot does not leak into the next one.
+				#expect(try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e (ex-cause e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
+				// uncancel-scope clears the cause with the flag: it must not surface in a later, unrelated cancel.
+				#expect(try eval("""
+					(let [r (atom :unset)
+					      g (go (try (go-scoped (go (throw (ex-info "child" {})))) (catch :default e nil))
+					            (try (loop [i 0] (recur (inc i))) (catch :cancelled e (reset! r (ex-cause e)))))]
+					  (<!! (timeout 20)) (cancel! g) (<!! g) @r)
+					""") == nil)
+			}
+			base.check()
+		}
+
+		// A coroutine that merely awaited something cancelled is not at fault: its own flag is clear (design §4).
+		@Test func aBystandersDeathIsAFailure() throws {
+			// Warms whatever this scenario interns on first use, ahead of the baseline.
+			_ = try eval("(let [c (chan) f (future (<!! c)) g (go @f)] (<!! (timeout 5)) (future-cancel f) (<!! g) (try @f (catch :cancelled e nil)))")
+			let base = CoroBaseline()
+			do {
+				uncaughtReports = 0
+				clj_coro_set_uncaught_handler { _, _ in uncaughtReports += 1 }
+				defer { clj_coro_set_uncaught_handler(nil) }
+				#expect(try eval("(let [c (chan) f (future (<!! c)) g (go @f)] (<!! (timeout 5)) (future-cancel f) (<!! g) (try @f (catch :cancelled e nil)))") == nil)
+				#expect(uncaughtReports == 1)
+				// The scope hears a failing child. Its sibling's wait is bounded, so a miss ends the scope, not the suite.
+				#expect(try eval("""
+					(let [c (chan) f (future (<!! c))]
+					  (try (go-scoped (go @f) (go (<! (timeout 5)) (future-cancel f) (<! (timeout 100))))
+					       (catch :cancelled e (ex-message e))
+					       (catch :default e (ex-message e))))
+					""") == "Coroutine cancelled")
+				// The sibling's timeout channel lives on the timer thread until it fires; the baseline waits less.
+				_ = try eval("(<!! (timeout 120))")
 			}
 			base.check()
 		}

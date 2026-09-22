@@ -356,7 +356,18 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `clj_throw_cancelled(deadline)` (error.c), a `clj_cancellation` (not an ex-info) whose ex-type is
   `:cancelled` and whose ex-data's `:cancel/kind` is `:deadline` or `:explicit`; the message stays the old
   human text ("Execution timed out" or "Coroutine cancelled") for logs, but nothing catchable dispatches
-  on it any more (design §4, "Тип ошибки", "Отмена — не `ex-info`"). `clj_deadline_set_ms` arms a timer on the timer thread
+  on it any more (design §4, "Тип ошибки", "Отмена — не `ex-info`"). The two causeless cancellations are
+  built once at `clj_init`, immortal and shared, and thrown through `clj_throw_untraced`: no trace is
+  captured (`ex-trace` of one was always nil, and the frames name the park, not the reason), so the throw is
+  a pointer store and two plain cancellations are `identical?`. A cancellation from a scope carries the
+  failure that caused it: `cancel_locked` records it in the `clj_coro`'s `cancel_cause` (shared, stored
+  before the flag's release store, read back through `clj_coro_cancel_cause` after an acquire load of the
+  flag), the throw site builds a fresh `clj_cancellation` around it, and `ex-cause` answers it — Go's
+  `context.Cause()`. The slot is cleared with the flag (`uncancel_scope`, `cancel_reset`, a cleared
+  deadline) and at `finish`, since the cause is an exception that may reach a channel that reaches the
+  coroutine. The siblings a scope cancels keep the `REQUESTED` kind and take only the cause
+  (`clj_chan_cancel_cause`): `CLJ_CANCEL_SCOPE` is the kind a scope's exit clears, so a sibling running its
+  own `go-scoped` would have its cancellation lifted by that scope's exit. `clj_deadline_set_ms` arms a timer on the timer thread
   (`clj_coro_deadline_arm`, a serial per arm so a stale firing is a no-op) whose firing is `cancel_locked` with the
   deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
   tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
@@ -369,6 +380,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
+  A cancellation is silent only when the dying coroutine's *own* `cancel` flag is set: a `go` that merely
+  awaited someone else's cancelled future is a bystander, its flag is clear, and it is reported like any
+  other failure (design §4, "Необработанная отмена — не сбой"). `scope-spawn` reads the same flag through
+  `(cancelled?*)` before it lets a child comply quietly.
 - Not done, with triggers: the static `:park` fact and the `:effects` lint, the Swift async bridge (`callAsync`,
   `callBlocking`) — the later tasks of design §10 step 5; `go-scoped` and `future`/`promise` are in "Futures and
   scopes" below. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
@@ -544,7 +559,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   sliding-buffer channel the last child puts on with an *uncancellable* take: a scope never returns while a
   child runs, even after its own cancellation. A child's uncaught error is the scope's first error: it cancels
   the siblings and the body (`coro-cancel-scope*` on the coroutine running the scope — an implicit one when the
-  scope is on a bare thread) and is rethrown from `go-scoped` after the join; a body error cancels the children
+  scope is on a bare thread), both carrying it as the cause the siblings read through `ex-cause`, and is
+  rethrown from `go-scoped` after the join; a child that died of a cancellation it was not the target of is a
+  failing child, not a compliant one (`(cancelled?*)` in `scope-spawn`); a body error cancels the children
   first; a `cancel!` of the coroutine running the scope reaches the children transitively (each nested scope's
   body is cancelled, cancels its own children, joins); on exit the scope's own cancellation is lifted
   (`coro-uncancel-scope*`), so the caller's coroutine is usable again. `plet` is `async let`: every init in its

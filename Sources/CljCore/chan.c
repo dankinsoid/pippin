@@ -1155,7 +1155,7 @@ clj_value clj_chan_thread(clj_value f) {
 }
 
 // True when a body still running (or not yet started) was told to stop; false once it finished.
-clj_value clj_chan_cancel(clj_value chv) {
+static clj_value cancel_chan(clj_value chv, int kind, clj_value cause) {
 	if (chan_arg(chv, "cancel!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	bool      cancelled = false;
@@ -1171,15 +1171,20 @@ clj_value clj_chan_cancel(clj_value chv) {
 	if (clj_is_nil(coro)) return clj_bool(cancelled);
 	// The wake is outside the section: a thread's implicit coroutine is cancellable only through its channel.
 	if (ch->role == CLJ_CHAN_THREAD) {
-		clj_coro_cancel_kind(clj_coro_of(coro), CLJ_CANCEL_REQUESTED);
+		clj_coro_cancel_kind_cause(clj_coro_of(coro), kind, cause);
 		cancelled = true;
 	} else if (!clj_coro_done(coro)) {
-		clj_coro_cancel(coro);
+		if (!clj_coro_of(coro)->implicit) clj_coro_cancel_kind_cause(clj_coro_of(coro), kind, cause);
 		cancelled = true;
 	}
 	clj_release(coro);
 	return clj_bool(cancelled);
 }
+
+clj_value clj_chan_cancel(clj_value chv) { return cancel_chan(chv, CLJ_CANCEL_REQUESTED, CLJ_NIL); }
+
+// Not CLJ_CANCEL_SCOPE: that kind is cleared by a scope's exit, and a sibling's own nested scope would clear it.
+clj_value clj_chan_cancel_cause(clj_value chv, clj_value cause) { return cancel_chan(chv, CLJ_CANCEL_REQUESTED, cause); }
 
 bool clj_chan_cancelled(clj_value chv) {
 	clj_chan *ch = chan_of(chv);
@@ -1382,10 +1387,13 @@ static clj_value b_coro_current(const clj_value *args, size_t n) {
 }
 
 static clj_value b_coro_cancel_scope(const clj_value *args, size_t n) {
-	(void)n;
 	if (!clj_is_coro(args[0])) return clj_throw_msg("coro-cancel-scope* expects a coroutine, got: %s", clj_type_name(args[0]));
-	clj_coro_cancel_kind(clj_coro_of(args[0]), CLJ_CANCEL_SCOPE);
+	clj_coro_cancel_kind_cause(clj_coro_of(args[0]), CLJ_CANCEL_SCOPE, n > 1 ? args[1] : CLJ_NIL);
 	return CLJ_NIL;
+}
+
+static clj_value b_chan_cancel_cause(const clj_value *args, size_t n) {
+	return clj_chan_cancel_cause(args[0], n > 1 ? args[1] : CLJ_NIL);
 }
 
 static clj_value b_coro_uncancel_scope(const clj_value *args, size_t n) {
@@ -1431,7 +1439,8 @@ void clj_chan_install(void) {
 		{"chan-deliver*", b_deliver, 2, 2}, {"chan-deref*", b_deref, 1, 3},       {"chan-realized?*", b_realized_p, 1, 1},
 		{"chan-cancelled?*", b_cancelled_p, 1, 1}, {"future?*", b_future_p, 1, 1}, {"sleep*", b_sleep, 1, 1},
 		{"available-processors*", b_available_processors, 0, 0}, {"coro-current*", b_coro_current, 0, 0}, {"uncaught-report*", b_uncaught_report, 1, 1},
-		{"coro-cancel-scope*", b_coro_cancel_scope, 1, 1}, {"coro-uncancel-scope*", b_coro_uncancel_scope, 1, 1},
+		{"coro-cancel-scope*", b_coro_cancel_scope, 1, 2}, {"coro-uncancel-scope*", b_coro_uncancel_scope, 1, 1},
+		{"chan-cancel-cause*", b_chan_cancel_cause, 1, 2},
 	};
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
 	install_thread_ns();

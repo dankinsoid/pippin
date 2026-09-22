@@ -516,10 +516,10 @@ static void (*uncaught_handler)(clj_value ex, clj_value trace);
 
 static void put(const char *s) { (void)!write(2, s, strlen(s)); }
 
-// Diagnostics, not fatal, and skipped for a cancellation: that one is expected, not a failure (design.md §4).
+// Diagnostics, not fatal. Only its own cancellation is expected: a bystander's flag is clear (design.md §4).
 void clj_coro_report_uncaught(clj_coro *c) {
 	clj_value ex = c->threw ? c->result : c->pending;
-	if (clj_is_cancellation(ex)) return;
+	if (clj_is_cancellation(ex) && atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE) return;
 	clj_value trace = c->threw ? clj_ex_trace(ex) : clj_trace_realize(c->pending_trace);
 	if (uncaught_handler) {
 		uncaught_handler(ex, trace);
@@ -554,6 +554,7 @@ void clj_coro_set_uncaught_handler(void (*fn)(clj_value ex, clj_value trace)) { 
 
 static void deadline_disarm(clj_coro *c);
 static void disarm_locked(clj_coro *c);
+static void cancel_cause_clear_locked(clj_coro *c);
 
 static void finish(clj_coro *c) {
 	deadline_disarm(c);
@@ -563,6 +564,10 @@ static void finish(clj_coro *c) {
 	clj_output_captures_release(c->captures);
 	c->captures = NULL;
 	clj_coro_drop_pending(c);
+	// The cause may hold a channel that holds this coroutine: the cycle dies here, with the body.
+	pthread_mutex_lock(&c->lock);
+	cancel_cause_clear_locked(c);
+	pthread_mutex_unlock(&c->lock);
 	if (c->on_done) c->on_done(c, c->done_ctx);
 	else if (c->threw) clj_coro_report_uncaught(c);
 	c->on_done = NULL;
@@ -626,11 +631,16 @@ bool clj_coro_done(clj_value coro) { return atomic_load_explicit(&clj_coro_of(co
 
 // Under c->lock: the flag, the tick trigger and the waiter to wake. A running coroutine sees the flag at its next
 // tick or park point; a parked one is woken by claiming its waiter (an implicit coroutine's park is its condition).
-static clj_waiter *cancel_locked(clj_coro *c, int kind) {
+static clj_waiter *cancel_locked(clj_coro *c, int kind, clj_value cause) {
 	uint8_t have = atomic_load_explicit(&c->cancel, memory_order_relaxed);
 	if (have == CLJ_CANCEL_NONE || (kind == CLJ_CANCEL_REQUESTED && have != CLJ_CANCEL_REQUESTED)) {
 		if (have == CLJ_CANCEL_NONE) c->deadline_before = clj_shadow_deadline(c->shadow);
-		atomic_store_explicit(&c->cancel, (uint8_t)kind, memory_order_relaxed);
+		if (!clj_is_nil(cause) && clj_is_nil(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed))) {
+			clj_share(cause);
+			atomic_store_explicit(&c->cancel_cause, clj_retain(cause), memory_order_relaxed);
+		}
+		// Release after the cause: the owner reads the flag first and must then see what came with it.
+		atomic_store_explicit(&c->cancel, (uint8_t)kind, memory_order_release);
 	}
 	atomic_store_explicit(&c->shadow->cancelled, true, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
@@ -640,17 +650,31 @@ static clj_waiter *cancel_locked(clj_coro *c, int kind) {
 	return w;
 }
 
-void clj_coro_cancel_kind(clj_coro *c, int kind) {
+void clj_coro_cancel_kind_cause(clj_coro *c, int kind, clj_value cause) {
 	pthread_mutex_lock(&c->lock);
 	if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_DONE || !c->shadow) {
 		pthread_mutex_unlock(&c->lock);
 		return;
 	}
-	clj_waiter *w = cancel_locked(c, kind);
+	clj_waiter *w = cancel_locked(c, kind, cause);
 	pthread_mutex_unlock(&c->lock);
 	if (!w) return;
 	if (clj_waiter_claim(w)) clj_resume_far(w);
 	clj_waiter_release(w);
+}
+
+void clj_coro_cancel_kind(clj_coro *c, int kind) { clj_coro_cancel_kind_cause(c, kind, CLJ_NIL); }
+
+// Acquire pairs with cancel_locked's release, so a flag this reads carries the cause stored before it.
+clj_value clj_coro_cancel_cause(clj_coro *c) {
+	if (atomic_load_explicit(&c->cancel, memory_order_acquire) == CLJ_CANCEL_NONE) return CLJ_NIL;
+	return clj_retain(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed));
+}
+
+// Under c->lock, with the flag: a cause left behind would surface in a later, unrelated cancellation.
+static void cancel_cause_clear_locked(clj_coro *c) {
+	clj_value cause = atomic_exchange_explicit(&c->cancel_cause, CLJ_NIL, memory_order_relaxed);
+	clj_release(cause);
 }
 
 void clj_coro_cancel(clj_value coro) {
@@ -662,6 +686,7 @@ void clj_coro_cancel(clj_value coro) {
 void clj_coro_uncancel_scope(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	if (atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_SCOPE && c->shadow) {
+		cancel_cause_clear_locked(c);
 		atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
 		atomic_store_explicit(&c->shadow->deadline, c->deadline_before, memory_order_relaxed);
@@ -674,6 +699,7 @@ void clj_coro_uncancel_scope(clj_coro *c) {
 void clj_coro_cancel_reset(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	disarm_locked(c);
+	cancel_cause_clear_locked(c);
 	atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->deadline, 0, memory_order_relaxed);
@@ -834,7 +860,7 @@ static void deadline_fire(void *arg) {
 	clj_waiter *w = NULL;
 	if (live) {
 		c->deadline_timer = NULL;
-		w = cancel_locked(c, CLJ_CANCEL_DEADLINE);
+		w = cancel_locked(c, CLJ_CANCEL_DEADLINE, CLJ_NIL);
 	}
 	pthread_mutex_unlock(&c->lock);
 	if (w) {
@@ -884,6 +910,7 @@ void clj_coro_deadline_cleared(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	disarm_locked(c);
 	if (atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_DEADLINE && c->shadow) {
+		cancel_cause_clear_locked(c);
 		atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
 	}

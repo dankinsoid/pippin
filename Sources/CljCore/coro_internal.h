@@ -90,6 +90,8 @@ struct clj_coro {
 	struct clj_coro *live_prev, *live_next; // every spawned coroutine, for the sweep
 	// ---- cancellation (sched.c): the kind outlives the stack, so a finished future still answers future-cancelled?
 	_Atomic uint8_t  cancel;          // CLJ_CANCEL_*; the shadow's cancelled flag mirrors it for the tick path
+	// What made a scope cancel this one; published before `cancel`, read after it, cleared with it and at finish.
+	_Atomic clj_value cancel_cause;
 	uint64_t         deadline_before; // the deadline a scope cancel replaced with 1, restored by the uncancel
 	clj_timer       *deadline_timer;  // the timer that cancels this coroutine at its deadline, NULL when none
 	uint64_t         deadline_serial; // bumped by every arm and disarm; a firing timer with a stale serial is a no-op
@@ -203,6 +205,10 @@ bool       clj_sched_timer_cancel(clj_timer *t);
 // A cancellation of the coroutine with a kind (coro.h's clj_coro_cancel is CLJ_CANCEL_REQUESTED); a kind already
 // set is not overwritten except by REQUESTED. Implicit coroutines are cancellable: a thread's job, a scope's body.
 void clj_coro_cancel_kind(clj_coro *c, int kind);
+// The same, recording why: only the cancel that takes the kind records a cause, and it is shared before it lands.
+void clj_coro_cancel_kind_cause(clj_coro *c, int kind, clj_value cause);
+// The cause recorded for c's current cancellation, owned; nil when the flag is clear or nothing was recorded.
+clj_value clj_coro_cancel_cause(clj_coro *c);
 // Clears a CLJ_CANCEL_SCOPE cancellation and restores the deadline; any other kind stays.
 void clj_coro_uncancel_scope(clj_coro *c);
 // Clears every cancellation and the deadline: a blocking thread's implicit coroutine between two jobs.

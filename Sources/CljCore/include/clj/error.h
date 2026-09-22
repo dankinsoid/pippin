@@ -97,6 +97,7 @@ typedef struct {
 	clj_header h;
 	clj_value  message;
 	clj_value  data;
+	clj_value  cause; // what a scope cancelled this coroutine for, nil otherwise (Go's context.Cause)
 } clj_cancellation;
 
 extern const clj_type clj_cancellation_type;
@@ -106,6 +107,7 @@ static inline clj_cancellation *clj_cancellation_of(clj_value v) { return (clj_c
 // Borrowed, valid while v is; mirrors clj_exception_message/data (the printer reads these directly).
 static inline clj_value clj_cancellation_message(clj_value v) { return clj_cancellation_of(v)->message; }
 static inline clj_value clj_cancellation_data(clj_value v) { return clj_cancellation_of(v)->data; }
+static inline clj_value clj_cancellation_cause(clj_value v) { return clj_cancellation_of(v)->cause; }
 
 // Throws a clj_cancellation: explicit cancel, a coroutine's own deadline check, an nREPL interrupt
 // (clj_coro_cancel) and a cancelled channel op all arrive here. Untraced, and the value is one of two

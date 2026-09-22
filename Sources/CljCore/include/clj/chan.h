@@ -61,6 +61,8 @@ clj_value clj_chan_go(clj_value f, int affinity);
 clj_value clj_chan_thread(clj_value f);
 // cancel! of the go, future or thread behind a channel: true while its body had not finished.
 clj_value clj_chan_cancel(clj_value ch);
+// The same, recording why: the coroutine's cancellation then answers cause to ex-cause (design.md §4).
+clj_value clj_chan_cancel_cause(clj_value ch, clj_value cause);
 // Debug: pending puts and takes queued on the channel.
 uint32_t clj_debug_chan_pending(clj_value ch, bool puts);
 // Debug: the coroutine behind a go, future or thread channel, owned; nil once it finished or for a plain channel.

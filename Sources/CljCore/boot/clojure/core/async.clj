@@ -189,15 +189,16 @@
    :state (atom {:error nil :failing false})
    :body (coro-current*)})
 
-(defn- scope-cancel-children! [s]
-  (doseq [c (vals @(:children s)) :when c] (chan-cancel* c)))
+;; The cause rides with the cancellation: a sibling reads the failure that killed it through ex-cause.
+(defn- scope-cancel-children! [s cause]
+  (doseq [c (vals @(:children s)) :when c] (chan-cancel-cause* c cause)))
 
 ;; The first failure is the scope's error: it cancels the siblings and the body; later ones are its consequences.
 (defn- scope-child-failed! [s e]
   (let [st (swap! (:state s) (fn [st] (if (:failing st) st (assoc st :error e :failing true))))]
     (when (identical? (:error st) e)
-      (scope-cancel-children! s)
-      (coro-cancel-scope* (:body s)))))
+      (scope-cancel-children! s e)
+      (coro-cancel-scope* (:body s) e))))
 
 (defn- scope-child-done! [s tok]
   (swap! (:children s) dissoc tok)
@@ -212,8 +213,8 @@
         c (spawn (fn []
                    (try
                      (f)
-                     ;; A child cancelled by the scope (a sibling's failure, or the body's) complies quietly.
-                     (catch :cancelled e nil)
+                     ;; Quietly only when this child was the one cancelled; someone else's cancellation is a failure.
+                     (catch :cancelled e (when-not (cancelled?*) (scope-child-failed! s e)) nil)
                      (catch :default e (scope-child-failed! s e) nil)
                      (finally (scope-child-done! s tok)))))]
     ;; A child done before the spawn returned has left already: its entry is not put back.
@@ -272,7 +273,7 @@
       (let [r (try {:value (f)} (catch :cancelled e {:error e}) (catch :default e {:error e}))]
         (when (contains? r :error)
           (swap! (:state s) assoc :failing true)
-          (scope-cancel-children! s))
+          (scope-cancel-children! s (:error r)))
         (scope-join! s)
         (coro-uncancel-scope* (:body s))
         (if-let [e (or (:error @(:state s)) (:error r))]
