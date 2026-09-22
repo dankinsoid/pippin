@@ -329,7 +329,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   the vector of three-key maps is built by `clj_trace_realize`, which `ex-trace`, `clj_coro_report_uncaught`
   and the Swift boundary call (the JVM keeps an opaque backtrace and builds `StackTraceElement[]` in
   `getStackTrace`). It is not memoized into the exception's slot: a shared exception would need a lock for
-  that, and two builds cost less than one. `ex-trace` returns what it always did.
+  that, and building it twice costs less than taking one. `ex-trace` returns what it always did.
 - **Traces read through a park**: `clj_trace_collect` walks the coroutine's own stack by frame pointer (its
   bounds are the mapping's), and `clj_shadow_stack_trace` appends the spawner's frames captured at the spawn
   (`clj_coro_capture_spawn_trace`: up to 32 `{name, line, col}` triples, the name symbol retained, no node

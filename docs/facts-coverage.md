@@ -50,8 +50,8 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 62 ms, with the summaries 72 ms, against 405 ms of analysis over the same forms
-  (0.15× → 0.18×); the largest single table is 262 KB. The store holds 1007 summaries, ran 24 fixpoint rounds
+- Cost: pass 1 alone 61 ms, with the summaries 70 ms, against 386 ms of analysis over the same forms
+  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1007 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 174. Value nodes at ⊥: 147, of which 39 `dead-branch` (the pass's
@@ -127,12 +127,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 280 | 12817 | 7.0 | 3.2 | 3.9 | 4.8 | 0.46× → 0.57× | 379 | 13 |
-| embedded libs | 108 | 3710 | 2.0 | 0.7 | 1.3 | 3.3 | 0.36× → 0.61× | 114 | 6 |
-| clojure-test-suite | 519 | 419353 | 378.0 | 55.6 | 63.5 | 61.6 | 0.15× → 0.17× | 9974 | 262 |
-| medley | 104 | 22661 | 18.4 | 2.5 | 3.6 | 3.1 | 0.13× → 0.20× | 562 | 23 |
-| **library code** | 492 | 39188 | 27.4 | 6.4 | 8.8 | 11.3 | 0.23× → 0.32× | 1055 | 23 |
-| **all** | 1011 | 458541 | 405.4 | 62.0 | 72.3 | 72.9 | 0.15× → 0.18× | 11029 | 262 |
+| core.clj | 280 | 12817 | 6.6 | 3.0 | 3.8 | 4.6 | 0.45× → 0.58× | 379 | 13 |
+| embedded libs | 108 | 3710 | 1.9 | 0.8 | 1.2 | 1.2 | 0.40× → 0.62× | 114 | 6 |
+| clojure-test-suite | 519 | 419353 | 360.6 | 54.7 | 62.1 | 61.4 | 0.15× → 0.17× | 9974 | 262 |
+| medley | 104 | 22661 | 17.1 | 2.4 | 3.3 | 3.1 | 0.14× → 0.19× | 562 | 23 |
+| **library code** | 492 | 39188 | 25.5 | 6.1 | 8.3 | 8.9 | 0.24× → 0.32× | 1055 | 23 |
+| **all** | 1011 | 458541 | 386.1 | 60.8 | 70.3 | 70.3 | 0.16× → 0.18× | 11029 | 262 |
 
 ## Errors
 
