@@ -253,6 +253,16 @@ extension CoreTests {
 				clj_deadline_set_ms(50)
 				#expect(cljEvalError("(cp-catch-exinfo cp-spin)")?.contains("Execution timed out") == true, "closed: \(closed)")
 				clj_deadline_set_ms(0)
+				// The rethrow out of the compiled try captures no frames either (design §4).
+				let rt = Runtime()
+				clj_deadline_set_ms(50)
+				do {
+					_ = try rt.eval("(cp-catch-exinfo cp-spin)")
+					Issue.record("the deadline did not fire, closed: \(closed)")
+				} catch let e as ClojureError {
+					#expect(e.message == "Execution timed out" && e.trace.isEmpty, "closed: \(closed), \(e.trace)")
+				}
+				clj_deadline_set_ms(0)
 			}
 		}
 
