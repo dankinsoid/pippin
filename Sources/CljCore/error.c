@@ -155,9 +155,10 @@ bool clj_ex_isa(clj_value thrown, clj_value k) {
 	clj_value t = clj_ex_type(thrown);
 	bool      match = t == k;
 	if (!match && !clj_is_nil(t) && !clj_is_nil(hierarchy_var)) {
-		clj_value ancestors = clj_map_get(clj_var_root(hierarchy_var), kw_ancestors, CLJ_NIL);
-		clj_value tset = clj_is_nil(ancestors) ? CLJ_NIL : clj_map_get(ancestors, t, CLJ_NIL);
-		match = !clj_is_nil(tset) && clj_set_contains(tset, k);
+		clj_value h = clj_var_root(hierarchy_var);
+		clj_value ancestors = clj_has_core(h, CLJ_CORE_MAP) ? clj_map_get(h, kw_ancestors, CLJ_NIL) : CLJ_NIL;
+		clj_value tset = clj_has_core(ancestors, CLJ_CORE_MAP) ? clj_map_get(ancestors, t, CLJ_NIL) : CLJ_NIL;
+		match = clj_has_core(tset, CLJ_CORE_SET) && clj_set_contains(tset, k);
 	}
 	clj_release(t);
 	return match;

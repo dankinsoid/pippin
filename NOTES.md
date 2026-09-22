@@ -1254,8 +1254,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   data that already lives in an immutable map one pointer-chase away. Reading that map directly gets
   the same non-reentrant, always-current answer for the one case (`isa?` on two keywords) `catch` can
   ever ask for. `clj_ex_isa` returns false, not a crash, before `clj_isa_install` has run (nothing
-  before boot writes a keyword `catch` clause) or if `global-hierarchy` is ever redefined out of a map
-  shape — a defensive default, not a load-bearing one.
+  before boot writes a keyword `catch` clause) and checks each level's core bits (map, then set) before
+  reading it, so directly `alter-var-root`ing `global-hierarchy` to a non-map cannot crash `catch` — a
+  defensive default, not a load-bearing one.
 - **`throw` accepts any value** (CLJS semantics): no implicit wrapping of a string or map into an
   ex-info, and no runtime check. `ex-message` of a thrown string is the string itself (CLJS says nil),
   so a `:default` handler reads `(throw "m")` like an ex-info; a string is still no error for
