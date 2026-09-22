@@ -4,3 +4,4 @@
 .DS_Store
 .clj-kondo/
 .lsp/
+.claude/worktrees/
