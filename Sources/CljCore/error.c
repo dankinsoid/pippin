@@ -24,6 +24,9 @@ enum { TRACE_FRAMES = 256 };
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_host_error, kw_type, kw_cancelled, kw_cancel_kind, kw_explicit, kw_deadline, kw_ancestors;
+static clj_value      cancelled_explicit, cancelled_deadline;
+
+static clj_value cancellation_new(bool deadline);
 
 static void intern_keywords(void) {
 	kw_host_error = clj_keyword_from_cstr("host/error");
@@ -33,6 +36,11 @@ static void intern_keywords(void) {
 	kw_explicit = clj_keyword_from_cstr("explicit");
 	kw_deadline = clj_keyword_from_cstr("deadline");
 	kw_ancestors = clj_keyword_from_cstr("ancestors");
+	int64_t before = clj_debug_live_objects();
+	cancelled_explicit = cancellation_new(false);
+	cancelled_deadline = cancellation_new(true);
+	// Immortal by construction, not leaked: the count of a debug build must not carry them.
+	if (before >= 0) clj_debug_live_objects_exclude(clj_debug_live_objects() - before);
 }
 
 void clj_error_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
@@ -180,12 +188,22 @@ bool clj_ex_isa(clj_value thrown, clj_value k) {
 	return match;
 }
 
-clj_value clj_throw_cancelled(bool deadline) {
-	pthread_once(&keywords_once, intern_keywords);
+// @ai-generated(guided)
+static clj_value cancellation_new(bool deadline) {
 	clj_cancellation *c = clj_alloc(&clj_cancellation_type, sizeof *c);
 	c->data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
 	c->message = clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE);
-	return clj_throw(clj_from_ptr(c));
+	clj_value v = clj_from_ptr(c);
+	// Share before the flag: clj_share stops at an immortal root, so the children would stay unshared after it.
+	clj_share(v);
+	c->h.flags |= CLJ_FLAG_IMMORTAL;
+	return v;
+}
+
+// The space of plain cancellations is two values, so two of them are identical? — intended and observable.
+clj_value clj_throw_cancelled(bool deadline) {
+	pthread_once(&keywords_once, intern_keywords);
+	return clj_throw_untraced(clj_retain(deadline ? cancelled_deadline : cancelled_explicit));
 }
 
 // @ai-generated(guided)
@@ -200,7 +218,7 @@ clj_value clj_throw_traced(clj_value ex, clj_value trace) {
 			clj_release(trace);
 		}
 		trace = clj_retain(e->trace);
-	} else if (clj_is_nil(trace)) {
+	} else if (clj_is_nil(trace) && !clj_is_cancellation(ex)) {
 		trace = clj_shadow_stack_trace(TRACE_FRAMES);
 	}
 	clj_release(pending);
@@ -211,6 +229,15 @@ clj_value clj_throw_traced(clj_value ex, clj_value trace) {
 }
 
 clj_value clj_throw(clj_value ex) { return clj_throw_traced(ex, CLJ_NIL); }
+
+// @ai-generated(guided)
+clj_value clj_throw_untraced(clj_value ex) {
+	clj_release(pending);
+	clj_release(pending_trace);
+	pending = ex;
+	pending_trace = CLJ_NIL;
+	return CLJ_THROWN;
+}
 
 clj_value clj_throw_msg(const char *fmt, ...) {
 	va_list ap;

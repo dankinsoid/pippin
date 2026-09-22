@@ -102,6 +102,29 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A cancellation carries no trace: the frames say where it was parked, not why it stopped (design §4).
+		@Test func aCancellationCarriesNoTrace() throws {
+			try declare("tr-spin")
+			let before = clj_debug_live_objects()
+			do {
+				_ = try rt.eval("(defn tr-spin [] (loop [i 0] (recur (inc i))))")
+				clj_deadline_set_ms(50)
+				let e = try #require(clojureError(rt, "(tr-spin)"))
+				clj_deadline_set_ms(0)
+				#expect(e.message == "Execution timed out")
+				#expect(e.trace == [])
+				clj_deadline_set_ms(50)
+				#expect(try rt.eval("(ex-trace (try (tr-spin) (catch :cancelled c c)))") == nil)
+				clj_deadline_set_ms(0)
+				// A try that does not match rethrows it, and the rethrow captures nothing either.
+				clj_deadline_set_ms(50)
+				#expect(try #require(clojureError(rt, "(try (tr-spin) (catch :default e e) (finally nil))")).trace == [])
+				clj_deadline_set_ms(0)
+				try unbind("tr-spin")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		// An ex-info keeps its first frames; a non-error value is re-traced when a handler rethrows it.
 		@Test func keptAcrossRethrow() throws {
 			try declare("tr-inner", "tr-outer", "tr-again")

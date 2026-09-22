@@ -29,6 +29,8 @@ clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause);
 clj_value clj_throw(clj_value ex);
 // Consumes both; trace nil captures the shadow stack. A rethrow of a caught non-error value keeps its frames.
 clj_value clj_throw_traced(clj_value ex, clj_value trace);
+// Consumes ex, captures nothing: the pending trace is nil. For a throw whose frames nobody reads (a cancellation).
+clj_value clj_throw_untraced(clj_value ex);
 // ex-info with the formatted message and nil data.
 clj_value clj_throw_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 // Borrowed; nil when nothing is pending.
@@ -106,7 +108,8 @@ static inline clj_value clj_cancellation_message(clj_value v) { return clj_cance
 static inline clj_value clj_cancellation_data(clj_value v) { return clj_cancellation_of(v)->data; }
 
 // Throws a clj_cancellation: explicit cancel, a coroutine's own deadline check, an nREPL interrupt
-// (clj_coro_cancel) and a cancelled channel op all arrive here.
+// (clj_coro_cancel) and a cancelled channel op all arrive here. Untraced, and the value is one of two
+// immortal singletons, so two plain cancellations are identical? (design.md §4).
 clj_value clj_throw_cancelled(bool deadline);
 
 #endif

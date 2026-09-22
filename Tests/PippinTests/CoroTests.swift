@@ -182,6 +182,21 @@ extension CoreTests {
 			base.check()
 		}
 
+		// Two plain cancellations are one immortal value, so the throw is a pointer store (design §4).
+		@Test func plainCancellationsAreOneValue() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+					(let [spin (fn [] (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e e))))
+					      a (spin) b (spin)]
+					  (<!! (timeout 5))
+					  (cancel! a) (cancel! b)
+					  (identical? (<!! a) (<!! b)))
+					""") == true)
+			}
+			base.check()
+		}
+
 		// An uncaught cancellation ends a coroutine normally: no uncaught-handler call at all (design §4).
 		@Test func uncaughtCancellationIsNotAFailure() throws {
 			let base = CoroBaseline()
