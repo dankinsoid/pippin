@@ -88,6 +88,47 @@ extension CoreTests {
 		}
 
 		// *1 *2 *3 *e persist across evals, clone hands off an independent snapshot, interrupt does not poison it.
+		// An interrupt is clj_coro_cancel, so it is :cancelled too: :default lets it through (design §4).
+		@Test func interruptIsTheCancelledType() throws {
+			let server = try Server()
+			let port = try server.start(host: "127.0.0.1", port: 0)
+			let client = try Client(port: port)
+			defer { client.socket.close() }
+
+			try client.send(["op": .string("clone")])
+			let session = try #require(client.recvUntilDone().last?["new-session"]?.asString)
+
+			try client.send(["op": .string("eval"), "session": .string(session), "id": .string("1"),
+			                  "code": .string("(require '[clojure.core.async :refer [chan <!!]])")])
+			_ = try client.recvUntilDone()
+
+			// Caught by :cancelled: the eval completes normally with the handler's value, not "interrupted".
+			try client.send(["op": .string("eval"), "session": .string(session), "id": .string("2"),
+			                  "code": .string("(try (<!! (chan)) (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))]))")])
+			Thread.sleep(forTimeInterval: 0.2)
+			try client.send(["op": .string("interrupt"), "session": .string(session), "interrupt-id": .string("2")])
+			#expect(try client.recvUntilDone().last?["status"]?.asStringList == ["done"])
+			let caught = try client.recvUntilDone()
+			#expect(caught.contains { $0["value"]?.asString == "[:cancelled :explicit]" })
+			#expect(caught.last?["status"]?.asStringList == ["done"])
+
+			// :default lets it by: the eval ends "interrupted", same as an untried (<!! (chan)).
+			try client.send(["op": .string("eval"), "session": .string(session), "id": .string("3"),
+			                  "code": .string("(try (<!! (chan)) (catch :default e :caught))")])
+			Thread.sleep(forTimeInterval: 0.2)
+			try client.send(["op": .string("interrupt"), "session": .string(session), "interrupt-id": .string("3")])
+			#expect(try client.recvUntilDone().last?["status"]?.asStringList == ["done"])
+			let notCaught = try client.recvUntilDone()
+			#expect(notCaught.last?["status"]?.asStringList?.contains("interrupted") == true)
+			#expect(!notCaught.contains { $0["value"] != nil })
+
+			try client.send(["op": .string("close"), "session": .string(session), "id": .string("4")])
+			#expect(try client.recvUntilDone().last?["status"]?.asStringList == ["done"])
+
+			server.stop()
+			#expect(clj_debug_coro_settle(0, 2000), "leftover nREPL eval coroutines after the test")
+		}
+
 		@Test func sessionCarriesItsWholeBindingFrame() throws {
 			let server = try Server()
 			let port = try server.start(host: "127.0.0.1", port: 0)
