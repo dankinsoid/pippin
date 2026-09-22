@@ -587,7 +587,7 @@ static bool cancelled_here(void) {
 	return c->shadow && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
 }
 
-static clj_value cancelled_throw(void) { return clj_throw_msg("%s", clj_coro_cancel_message(clj_coro_current())); }
+static clj_value cancelled_throw(void) { return clj_throw_cancelled(clj_coro_cancel_is_deadline(clj_coro_current())); }
 
 static clj_value chan_arg(clj_value ch, const char *op) {
 	if (!clj_is_chan(ch)) return clj_throw_msg("%s expects a channel, got: %s", op, clj_type_name(ch));

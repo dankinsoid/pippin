@@ -1173,17 +1173,22 @@ static try_clause try_clause_of(clj_value item) {
 }
 
 // @ai-generated(guided)
-static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch_kind *kind) {
-	if (clj_is_keyword(cls) && clj_is_nil(clj_keyword_ns(cls)) && strcmp(clj_string_bytes(clj_keyword_name(cls)), "default") == 0) {
-		*kind = CLJ_CATCH_ALL;
+static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
+	if (clj_is_keyword(cls)) {
+		if (clj_is_nil(clj_keyword_ns(cls)) && strcmp(clj_string_bytes(clj_keyword_name(cls)), "default") == 0) {
+			c->kind = CLJ_CATCH_ALL;
+		} else {
+			c->kind = CLJ_CATCH_KEYWORD;
+			c->keyword = clj_retain(cls);
+		}
 		return true;
 	}
 	if (symbol_is(cls, "Throwable") || symbol_is(cls, "Exception") || symbol_is(cls, "Object")) {
-		*kind = CLJ_CATCH_ALL;
+		c->kind = CLJ_CATCH_ALL;
 		return true;
 	}
 	if (symbol_is(cls, "ExceptionInfo")) {
-		*kind = CLJ_CATCH_ERROR;
+		c->kind = CLJ_CATCH_ERROR;
 		return true;
 	}
 	return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
@@ -1197,7 +1202,7 @@ static bool analyze_catch(analyzer *a, scope *s, clj_catch *c, clj_value clause)
 	if (!items) return false;
 	bool ok;
 	if (n < 3) ok = fail(a, "catch clause requires a classname and a binding: (catch Class name body*)") != NULL;
-	else if (!catch_kind_of(a, items[1], &c->kind)) ok = false;
+	else if (!catch_kind_of(a, items[1], c)) ok = false;
 	else if (!is_unqualified_symbol(items[2])) ok = fail_form(a, "Bad binding form, expected symbol, got: %s", items[2]) != NULL;
 	else {
 		uint32_t saved_nlocals = s->nlocals;

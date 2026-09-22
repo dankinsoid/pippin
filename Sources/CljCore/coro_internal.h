@@ -207,8 +207,8 @@ void clj_coro_cancel_kind(clj_coro *c, int kind);
 void clj_coro_uncancel_scope(clj_coro *c);
 // Clears every cancellation and the deadline: a blocking thread's implicit coroutine between two jobs.
 void clj_coro_cancel_reset(clj_coro *c);
-// The message the cancellation of the running execution throws with.
-const char *clj_coro_cancel_message(const clj_coro *c);
+// True when c's cancellation is the deadline kind, false for requested/scope (clj_throw_cancelled's argument).
+bool clj_coro_cancel_is_deadline(const clj_coro *c);
 // Arms the deadline timer of c for its shadow's absolute deadline (disarming any earlier one); a cleared deadline
 // disarms it and lifts a deadline cancellation.
 void clj_coro_deadline_arm(clj_coro *c);

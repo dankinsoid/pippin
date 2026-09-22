@@ -90,16 +90,16 @@ extension CoreTests {
 		@Test func futureCancel() throws {
 			let base = CoroBaseline()
 			do {
-				#expect(try eval("(let [c (chan) f (future (<!! c))] (<!! (timeout 5)) [(future-cancel f) (future-cancelled? f) (try @f (catch :default e (ex-message e))) (future-done? f) (future-cancel f)])") == [true, true, "Coroutine cancelled", true, false])
+				#expect(try eval("(let [c (chan) f (future (<!! c))] (<!! (timeout 5)) [(future-cancel f) (future-cancelled? f) (try @f (catch :cancelled e (ex-message e))) (future-done? f) (future-cancel f)])") == [true, true, "Coroutine cancelled", true, false])
 				#expect(try eval("(let [f (future 1)] @f [(future-cancel f) (future-cancelled? f)])") == [false, false])
 				// cancel! reaches a thread body parked on a channel, and one not yet started.
-				#expect(try eval("(let [c (chan) t (thread (try (<!! c) (catch :default e (ex-message e))))] (<!! (timeout 5)) [(cancel! t) (<!! t)])") == [true, "Coroutine cancelled"])
-				#expect(try eval("(let [ts (vec (repeatedly 70 #(thread (try (<!! (timeout 200)) :slept (catch :default e (ex-message e))))))] (doseq [t ts] (cancel! t)) (frequencies (mapv <!! ts)))") == ["Coroutine cancelled": 70])
+				#expect(try eval("(let [c (chan) t (thread (try (<!! c) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) [(cancel! t) (<!! t)])") == [true, "Coroutine cancelled"])
+				#expect(try eval("(let [ts (vec (repeatedly 70 #(thread (try (<!! (timeout 200)) :slept (catch :cancelled e (ex-message e))))))] (doseq [t ts] (cancel! t)) (frequencies (mapv <!! ts)))") == ["Coroutine cancelled": 70])
 				// A cancelled future is done at once, as on the JVM; its body lands a moment later with the cancellation.
-				#expect(try eval("(let [f (future (Thread/sleep 10000))] (<!! (timeout 5)) [(realized? f) (future-cancel f) (realized? f) (future-done? f) (try @f (catch :default e (ex-message e)))])") == [false, true, true, true, "Coroutine cancelled"])
+				#expect(try eval("(let [f (future (Thread/sleep 10000))] (<!! (timeout 5)) [(realized? f) (future-cancel f) (realized? f) (future-done? f) (try @f (catch :cancelled e (ex-message e)))])") == [false, true, true, true, "Coroutine cancelled"])
 				#expect(try eval("(let [f (future (Thread/sleep 1))] [(realized? f) (do @f (realized? f))])") == [false, true])
 				// A coroutine parked in a deref is woken by its cancellation; the promise stays undelivered.
-				#expect(try eval("(let [p (promise) g (go (try @p (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) [(<!! g) (realized? p)])") == ["Coroutine cancelled", false])
+				#expect(try eval("(let [p (promise) g (go (try @p (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) [(<!! g) (realized? p)])") == ["Coroutine cancelled", false])
 				// The blocking thread's next job starts clean.
 				#expect(try eval("(<!! (thread :ran))") == kw("ran"))
 				_ = try eval("(<!! (timeout 250))")
@@ -130,7 +130,7 @@ extension CoreTests {
 				#expect(Date().timeIntervalSince(t0) < 0.3)
 				#expect(try eval("(do (Thread/sleep 1) :ran)") == kw("ran"))
 				// A sleep is a park point: cancel! wakes it.
-				#expect(try eval("(let [g (go (try (Thread/sleep 5000) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
+				#expect(try eval("(let [g (go (try (Thread/sleep 5000) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
 				_ = try eval("(<!! (timeout 20))")
 			}
 			base.check()
@@ -143,7 +143,7 @@ extension CoreTests {
 				defer { clj_deadline_set_ms(0) }
 				// The child inherits the spawner's deadline; the spawner's own is cleared before it joins.
 				clj_deadline_set_ms(50)
-				_ = try eval("(reset! parked (let [c (chan)] (go (try (<! c) (catch :default e (ex-message e))))))")
+				_ = try eval("(reset! parked (let [c (chan)] (go (try (<! c) (catch :cancelled e (ex-message e))))))")
 				clj_deadline_set_ms(0)
 				#expect(try eval("(let [v (<!! @parked)] (reset! parked nil) v)") == "Execution timed out")
 				clj_deadline_set_ms(50)

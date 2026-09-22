@@ -212,6 +212,8 @@
         c (spawn (fn []
                    (try
                      (f)
+                     ;; A child cancelled by the scope (a sibling's failure, or the body's) complies quietly.
+                     (catch :cancelled e nil)
                      (catch :default e (scope-child-failed! s e) nil)
                      (finally (scope-child-done! s tok)))))]
     ;; A child done before the spawn returned has left already: its entry is not put back.
@@ -266,7 +268,8 @@
   [f]
   (let [s (scope-new)]
     (binding [*scope* s]
-      (let [r (try {:value (f)} (catch :default e {:error e}))]
+      ;; :cancelled reaches here too: the body's own cancellation must still cancel and join the children.
+      (let [r (try {:value (f)} (catch :cancelled e {:error e}) (catch :default e {:error e}))]
         (when (contains? r :error)
           (swap! (:state s) assoc :failing true)
           (scope-cancel-children! s))
@@ -313,6 +316,12 @@
   true when the body was still running, false otherwise. Not in the JVM's core.async."
   [ch]
   (chan-cancel* ch))
+
+(defn cancelled?
+  "True once the running coroutine's cancel flag is set: its next park or loop tick throws :cancelled.
+  A cooperative poll, not a park point itself. Not in the JVM's core.async."
+  []
+  (cancelled?*))
 
 ;;;;;;;;;;;;;;;;;;;; ops ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

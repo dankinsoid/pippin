@@ -74,8 +74,8 @@ static inline bool deadline_hit(clj_shadow_stack *s) {
 	return __builtin_expect(clj_shadow_deadline(s) != 0, 0) && deadline_reached(s);
 }
 
-// The deadline stays set, so code that catches the throw (clojure.test does, per assertion) is stopped again.
-// A cancelled coroutine takes the same path with its own message (coro.h).
+// The deadline stays set, so a handler that catches :cancelled and keeps going is stopped again.
+// A cancelled coroutine takes the same path (coro.h).
 static clj_value deadline_throw(clj_shadow_stack *s) {
 	if (s->unwinds) {
 		s->unwinds--;
@@ -83,8 +83,8 @@ static clj_value deadline_throw(clj_shadow_stack *s) {
 	} else {
 		s->countdown = 1;
 	}
-	if (atomic_load_explicit(&s->cancelled, memory_order_relaxed)) return clj_throw_msg("%s", clj_coro_cancel_message(clj_coro_current()));
-	return clj_throw_msg(CLJ_DEADLINE_MESSAGE);
+	if (atomic_load_explicit(&s->cancelled, memory_order_relaxed)) return clj_throw_cancelled(clj_coro_cancel_is_deadline(clj_coro_current()));
+	return clj_throw_cancelled(true);
 }
 
 // The expiry is a cancellation by the timer thread (sched.c), so a coroutine parked past its deadline is woken too;
@@ -1126,8 +1126,13 @@ static clj_value eval_throw(const clj_node *n, clj_frame *f) {
 	return clj_throw(v);
 }
 
+// :default/Throwable/Exception/Object pass a :cancelled ex-type by (design.md §4, "Отмена — :cancelled").
 static bool catch_matches(const clj_catch *c, clj_value ex) {
-	return c->kind == CLJ_CATCH_ALL || clj_is_exception(ex);
+	switch (c->kind) {
+	case CLJ_CATCH_ALL: return !clj_ex_isa(ex, clj_cancelled_keyword());
+	case CLJ_CATCH_KEYWORD: return clj_ex_isa(ex, c->keyword);
+	default: return clj_is_exception(ex);
+	}
 }
 
 // Unwinding is the ordinary return path: the body has already released its temporaries when CLJ_THROWN

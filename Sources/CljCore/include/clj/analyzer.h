@@ -50,13 +50,14 @@ typedef struct {
 	const clj_node *body;
 } clj_fn_arity;
 
-// Which thrown values a catch clause takes. There is no class hierarchy: :default, Throwable, Exception and
-// Object take every value; ExceptionInfo takes values whose type has CLJ_CORE_ERROR.
-typedef enum { CLJ_CATCH_ALL, CLJ_CATCH_ERROR } clj_catch_kind;
+// Which thrown values a catch clause takes: :default/Throwable/Exception/Object take everything but a
+// :cancelled ex-type (design.md §4); ExceptionInfo takes CLJ_CORE_ERROR; CLJ_CATCH_KEYWORD takes ex-type isa? keyword.
+typedef enum { CLJ_CATCH_ALL, CLJ_CATCH_ERROR, CLJ_CATCH_KEYWORD } clj_catch_kind;
 
 typedef struct {
 	clj_catch_kind kind;
 	uint32_t        slot; // the binding, a frame slot as for let*
+	clj_value       keyword; // the selector, only when kind == CLJ_CATCH_KEYWORD; immortal, needs no release
 	const clj_node *handler;
 } clj_catch;
 

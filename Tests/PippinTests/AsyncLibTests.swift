@@ -32,7 +32,7 @@ extension CoreTests {
 			(defn pipeline-tester [pipeline-fn n inputs xf] (let [cin (to-chan! inputs) cout (chan 1)] (pipeline-fn n cout xf cin) (<!! (go-loop [acc []] (let [val (<! cout)] (if (not (nil? val)) (recur (conj acc val)) acc))))))
 			;; (f) under a scope whose children (a mix's loop, which never ends by itself) are cancelled once f returned.
 			(defn helper [r] (go (<! (timeout 10)) (reset! r :done)))
-			(defn until-done [f] (let [p (promise) g (go (try (go-scoped (deliver p (try [(f)] (catch :default e [nil e]))) (<! (chan))) (catch :default e nil)))] (let [[v e] @p] (cancel! g) (<!! g) (when e (throw e)) v)))
+			(defn until-done [f] (let [p (promise) g (go (try (go-scoped (deliver p (try [(f)] (catch :default e [nil e]))) (<! (chan))) (catch :cancelled e nil)))] (let [[v e] @p] (cancel! g) (<!! g) (when e (throw e)) v)))
 			;; A reify site makes its type on first use and every macro site its nodes: warmed here, before any baseline.
 			(until-done (fn [] (let [src (chan) out (chan 1)] (tap (mult src) out) (sub (pub src :k) :k out) (admix (mix out) src) (alt!! [[out 1]] :put src :take) nil)))
 			""")
@@ -144,12 +144,12 @@ extension CoreTests {
 				// The scope joins its children; a child's value is taken as usual.
 				#expect(try eval("(let [r (atom [])] (go-scoped (go (swap! r conj :a)) (go (<! (timeout 10)) (swap! r conj :b))) (set @r))") == (try eval("#{:a :b}")))
 				#expect(try eval("(go-scoped (let [c (go 41)] (inc (<! c))))") == 42)
-				// A child's error cancels the siblings and the body, and is rethrown from the scope.
-				#expect(try eval("(let [r (atom []) c (chan)] [(try (go-scoped (go (try (<! c) (catch :default e (swap! r conj :cancelled)))) (go (<! (timeout 5)) (throw (ex-info \"child\" {}))) (try (<! c) (catch :default e (swap! r conj :body))) :unreached) (catch :default e (ex-message e))) (sort @r)])") == ["child", [kw("body"), kw("cancelled")]])
+				// A child's error cancels the siblings and the body (:cancelled, not :default) and is rethrown from the scope.
+				#expect(try eval("(let [r (atom []) c (chan)] [(try (go-scoped (go (try (<! c) (catch :cancelled e (swap! r conj :cancelled)))) (go (<! (timeout 5)) (throw (ex-info \"child\" {}))) (try (<! c) (catch :cancelled e (swap! r conj :body))) :unreached) (catch :default e (ex-message e))) (sort @r)])") == ["child", [kw("body"), kw("cancelled")]])
 				// The body's error cancels the children first; the join completes before the throw.
-				#expect(try eval("(let [r (atom 0) c (chan)] [(try (go-scoped (dotimes [_ 5] (go (try (<! c) (catch :default e (swap! r inc))))) (throw (ex-info \"body\" {}))) (catch :default e (ex-message e))) @r])") == ["body", 5])
+				#expect(try eval("(let [r (atom 0) c (chan)] [(try (go-scoped (dotimes [_ 5] (go (try (<! c) (catch :cancelled e (swap! r inc))))) (throw (ex-info \"body\" {}))) (catch :default e (ex-message e))) @r])") == ["body", 5])
 				// Cancelling the coroutine running the scope cancels the children transitively, nested scopes included.
-				#expect(try eval("(let [r (atom 0) c (chan) g (go (try (go-scoped (go (go-scoped (go (try (<! c) (catch :default e (swap! r inc)))) (<! c))) (<! c)) (catch :default e (ex-message e))))] (<!! (timeout 20)) (cancel! g) [(<!! g) @r])") == ["Coroutine cancelled", 1])
+				#expect(try eval("(let [r (atom 0) c (chan) g (go (try (go-scoped (go (go-scoped (go (try (<! c) (catch :cancelled e (swap! r inc)))) (<! c))) (<! c)) (catch :cancelled e (ex-message e))))] (<!! (timeout 20)) (cancel! g) [(<!! g) @r])") == ["Coroutine cancelled", 1])
 				// After a scope's own cancellation the caller's coroutine is usable again.
 				#expect(try eval("(<!! (go (try (go-scoped (go (throw (ex-info \"x\" {}))) (<! (chan))) (catch :default e nil)) (<! (go :ran))))") == kw("ran"))
 				// A go outside any scope is unstructured; a go in a function called from the scope is a child.

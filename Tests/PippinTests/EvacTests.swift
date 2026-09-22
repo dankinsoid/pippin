@@ -150,7 +150,7 @@ extension CoreTests {
 			let base = CoroBaseline()
 			do {
 				_ = try eval("(def gate (chan))")
-				let ch = try eval("(go (try (<! gate) (catch :default e (ex-message e))))")
+				let ch = try eval("(go (try (<! gate) (catch :cancelled e (ex-message e))))")
 				let c = coro(of: ch)
 				try #require(evacuateOnceParked(c))
 				clj_release(clj_chan_cancel(ch.raw))

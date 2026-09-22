@@ -1202,7 +1202,7 @@ static int re_exec_in(re_ctx *c, clj_value re, uint32_t from, bool whole, int32_
 			return 1;
 		}
 		if (c->timeout) {
-			clj_throw_msg(CLJ_DEADLINE_MESSAGE);
+			clj_throw_cancelled(true);
 			return -1;
 		}
 		if (whole) break;

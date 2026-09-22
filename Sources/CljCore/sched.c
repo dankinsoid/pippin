@@ -406,7 +406,7 @@ int clj_waiter_claim_pair(clj_waiter *actor, clj_waiter *other) {
 bool clj_park_allowed(void) {
 	clj_coro *c = clj_coro_current();
 	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) {
-		clj_throw_msg("%s", clj_coro_cancel_message(c));
+		clj_throw_cancelled(clj_coro_cancel_is_deadline(c));
 		return false;
 	}
 	if (c->host_depth) {
@@ -667,8 +667,8 @@ void clj_coro_cancel_reset(clj_coro *c) {
 	pthread_mutex_unlock(&c->lock);
 }
 
-const char *clj_coro_cancel_message(const clj_coro *c) {
-	return atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_DEADLINE ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE;
+bool clj_coro_cancel_is_deadline(const clj_coro *c) {
+	return atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_DEADLINE;
 }
 
 bool clj_coro_cancelled(clj_value coro) {
@@ -901,7 +901,7 @@ clj_value clj_sched_sleep_ms(int64_t ms) {
 	clj_sched_timer(ms < 0 ? 0 : (uint64_t)ms * 1000000u, sleep_fire, w);
 	clj_park(w);
 	clj_waiter_release(w);
-	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) return clj_throw_msg("%s", clj_coro_cancel_message(c));
+	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) return clj_throw_cancelled(clj_coro_cancel_is_deadline(c));
 	return CLJ_NIL;
 }
 

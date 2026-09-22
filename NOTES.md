@@ -346,8 +346,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   lands between the caller's check and its park claims the waiter itself, so the park is skipped, not stranded).
   The *kind* lives on the `clj_coro` and outlives its stack (`CLJ_CANCEL_REQUESTED` from `cancel!`/`future-cancel`,
   `CLJ_CANCEL_DEADLINE` from the timer, `CLJ_CANCEL_SCOPE` from a `go-scoped` failure — the only kind that is
-  cleared again, by the scope's exit, restoring the deadline it replaced); the message follows the kind
-  ("Execution timed out" or "Coroutine cancelled"). `clj_deadline_set_ms` arms a timer on the timer thread
+  cleared again, by the scope's exit, restoring the deadline it replaced); every kind throws through
+  `clj_throw_cancelled(deadline)` (error.c), an ex-info of ex-type `:cancelled` whose `:cancel/kind` is
+  `:deadline` or `:explicit`; the message stays the old human text ("Execution timed out" or "Coroutine
+  cancelled") for logs, but nothing catchable dispatches on it any more (design §4, "Тип ошибки").
+  `clj_deadline_set_ms` arms a timer on the timer thread
   (`clj_coro_deadline_arm`, a serial per arm so a stale firing is a no-op) whose firing is `cancel_locked` with the
   deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
   tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
@@ -1225,16 +1228,48 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **Debug live counts are per type as well** (`clj_debug_live_objects_of`, `clj_debug_live_report`
   prints `type: count` for non-zero types): a 1024-slot table keyed by descriptor pointer, slots
   never freed, so a dead deftype descriptor keeps its slot and a reused address inherits its count.
-- **`catch` knows five class names and no hierarchy**: `:default`, `Throwable`, `Exception` and
-  `Object` take every thrown value, `ExceptionInfo` takes values whose type has `CLJ_CORE_ERROR`;
-  anything else is "Unable to resolve classname". Trigger: catching a host error by its Swift type
-  (`(catch MyError e ...)`); that needs a class registry mapping names to descriptors or host
-  metatypes, and `isa?`-style ordering of the clauses.
+- **`catch` takes a fourth kind, `CLJ_CATCH_KEYWORD`, for any keyword but `:default`**: matched at
+  unwind by `clj_ex_isa(thrown, c->keyword)` (eval.c), `isa?`'s scalar case reimplemented in C rather
+  than called — a catch selector is always a bare keyword literal (design §4, "Селектор держать
+  тупым"), never a vector, so the recursive branch of `isa?` never applies and the C copy is exactly
+  as capable as calling it. `:default`/`Throwable`/`Exception`/`Object` still take every thrown value
+  except one whose `ex-type` `isa?` `:cancelled` — the Python `BaseException`/`Exception` split, done
+  as a matching rule instead of a root type (design §4, "Отмена — `:cancelled`"). `ExceptionInfo`
+  still takes values whose type has `CLJ_CORE_ERROR`; a class name still resolves to "Unable to resolve
+  classname" (catching a host error by its Swift type needs the host-type registry, design §4, still
+  future work). `catch`'s own selector-form dispatch (keyword vs. class symbol) is unaffected by any
+  of this: `catch_kind_of` (analyzer.c) just gains a keyword branch beside the three symbol names.
+- **`isa?`/`derive`/`global-hierarchy` stay Clojure (boot/core.clj); the unwind path reads the
+  hierarchy's data instead of calling back into it.** `clj_ex_isa` (error.c) resolves and caches the
+  `global-hierarchy` var once after boot (`clj_isa_install`, runtime.c) and, at each keyword catch,
+  reads its current root — an ordinary persistent map — and does the membership check
+  (`(contains? (:ancestors h) child) parent)`) with `clj_map_get`/`clj_set_contains`, no `clj_invoke`
+  and no Clojure evaluation at all. Rejected: (1) invoking the `isa?` var as a closure mid-unwind — the
+  obvious bridge, but it means running arbitrary interpreted code, with its own frame and pending-value
+  handling, on a path that already has an exception in flight (the ex is out of the pending slot into a
+  local by the time `catch_matches` runs, so nothing races, but a re-entrant eval on a hot,
+  exception-triggered path is the kind of thing that grows edge cases); it would also have needed
+  `isa?` to be resolvable before boot finishes analyzing itself. (2) mirroring the hierarchy as a C
+  data structure kept in sync with `derive`/`underive` through a hook — a second source of truth for
+  data that already lives in an immutable map one pointer-chase away. Reading that map directly gets
+  the same non-reentrant, always-current answer for the one case (`isa?` on two keywords) `catch` can
+  ever ask for. `clj_ex_isa` returns false, not a crash, before `clj_isa_install` has run (nothing
+  before boot writes a keyword `catch` clause) or if `global-hierarchy` is ever redefined out of a map
+  shape — a defensive default, not a load-bearing one.
 - **`throw` accepts any value** (CLJS semantics): no implicit wrapping of a string or map into an
   ex-info, and no runtime check. `ex-message` of a thrown string is the string itself (CLJS says nil),
   so a `:default` handler reads `(throw "m")` like an ex-info; a string is still no error for
   `ExceptionInfo` or `ex-data`. Trigger: the analyzer's `:strict` mode, which should warn on "throw of
   a non-error value" (JVM/Swift strictness as a lint, not a runtime rule).
+- **`ex-type` is total** (design §4, "Тип ошибки"): a keyword answers itself, an `ex-info` answers its
+  `type` slot, everything else (a fixnum, `nil`, a string, a record, a host-error box) answers `nil`,
+  and it never throws. The slot is filled once, at construction (`ex_info_new`, error.c), from a
+  keyword under `:type` in the data map — `clj_ex_info_cause` looks it up and passes it down, so
+  `clj_throw_cancelled` can hand `:cancelled` straight to the constructor with no `:type` key in
+  `{:cancel/kind ...}` at all. The key stays in `data` either way (`ex-data` is unaffected); a non-keyword
+  or absent `:type` leaves the slot `nil`, matching `ex-type`'s "everything else" case. A host error's
+  `ex-type` is `nil` for now — the host-type registry (design §4, "Хостовая ошибка ловится как своя")
+  is future work, out of this pass.
 - **Namespaces** (ns.c, builtins_ns.c, the tail of core.clj). `*ns*` is a dynamic var in clojure.core whose
   root is `user`; `clj_ns_current`/`clj_ns_set_current` read and write the thread's binding when it has
   one, else the root, so `in-ns` inside a load moves only that load. `Runtime.eval`, `load-file`,
@@ -2940,7 +2975,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   existing `clj_coro_cancelled(clj_value)`, same one-line body against `clj_coro_current()` instead of a
   looked-up handle) so the eval loop asks its own execution directly — no message text involved at all, and
   the alternative (a box the spawning closure fills in after `clj_coro_spawn` returns) was rejected because it
-  is exactly that race, not a matter of style.
+  is exactly that race, not a matter of style. `(cancelled?)` (`cancelled?*`, builtins.c;
+  `clojure.core.async/cancelled?`, core/async.clj) exposes the same function to Clojure code that wants to
+  poll its own cancellation without waiting for the next park point.
 - **Output is captured per top-level form, not streamed byte by byte.** `clj_output_push_capture`/
   `clj_output_pop_capture` (the `with-out-str` mechanism, runtime.c) wrap each form; the popped string becomes
   one `:out` message before that form's `:value`. This is coarser than a real terminal (a `println` inside a

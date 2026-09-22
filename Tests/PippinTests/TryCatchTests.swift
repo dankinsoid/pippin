@@ -23,7 +23,8 @@ extension CoreTests {
 		let rt = Runtime()
 
 		init() {
-			for k in ["k", "default", "failed", "done", "caught", "inner", "outer", "never", "no", "yes", "other", "line", "column"] { _ = kw(k) }
+			for k in ["k", "default", "failed", "done", "caught", "inner", "outer", "never", "no", "yes", "other", "line", "column",
+			          "et/boom", "tck/db", "tck/other", "tck/pg", "hit", "miss"] { _ = kw(k) }
 		}
 
 		private func declare(_ names: String...) throws {
@@ -172,7 +173,8 @@ extension CoreTests {
 				#expect(message(rt, "(try 1 (finally 2) (finally 3))") == "finally clause must be last in try expression")
 				#expect(message(rt, "(try 1 (catch :default e 2) 3)") == "Only catch or finally clause can follow catch in try expression")
 				#expect(message(rt, "(try 1 (catch Nope e 2))") == "Unable to resolve classname: Nope")
-				#expect(message(rt, "(try 1 (catch :other e 2))") == "Unable to resolve classname: :other")
+				// Any keyword but :default is a selector now (ex-type/isa?), not a classname error.
+				#expect(try rt.eval("(try 1 (catch :other e 2))") == 1)
 				#expect(message(rt, "(try 1 (catch java.lang.Exception e 2))") == "Unable to resolve classname: java.lang.Exception")
 				#expect(message(rt, "(try 1 (catch :default 5 2))") == "Bad binding form, expected symbol, got: 5")
 				#expect(message(rt, "(try 1 (catch :default a/e 2))") == "Bad binding form, expected symbol, got: a/e")
@@ -185,6 +187,41 @@ extension CoreTests {
 				#expect(try clojureError(rt, "\n (try 1 (catch :default e (nope)))")?.data == Value(reading: "{:line 2 :column 27}"))
 				// Analysis errors are not caught by the try being analyzed.
 				#expect(message(rt, "(try (nope) (catch :default e :caught))") == "Unable to resolve symbol: nope in this context")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// ex-type is total: keyword -> itself, ex-info -> its lifted :type, everything else -> nil.
+		@Test func exTypeIsTotal() throws {
+			_ = try rt.eval("(defrecord TcExTypeRec [a])")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("[(ex-type 1) (ex-type nil) (ex-type \"s\") (ex-type [1 2]) (ex-type {})]") == [nil, nil, nil, nil, nil])
+				#expect(try rt.eval("(ex-type :k)") == kw("k"))
+				#expect(try rt.eval("(ex-type (ex-info \"m\" nil))") == nil)
+				#expect(try rt.eval("(ex-type (ex-info \"m\" {:type :et/boom}))") == kw("et/boom"))
+				// :type stays a plain data key; ex-type only lifts it when the value is a keyword.
+				#expect(try rt.eval("(:type (ex-data (ex-info \"m\" {:type :et/boom})))") == kw("et/boom"))
+				#expect(try rt.eval("(ex-type (ex-info \"m\" {:type \"not-a-keyword\"}))") == nil)
+				#expect(try rt.eval("(ex-type (ex-info \"m\" {:type 42}))") == nil)
+				#expect(try rt.eval("(ex-type (->TcExTypeRec 1))") == nil)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// catch by keyword: (isa? (ex-type thrown) K), widened by derive (CoroTests proves :default vs :cancelled).
+		@Test func catchByKeywordAndHierarchy() throws {
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("(try (throw (ex-info \"m\" {:type :tck/db})) (catch :tck/db e :hit))") == kw("hit"))
+				#expect(try rt.eval("(try (throw (ex-info \"m\" {:type :tck/other})) (catch :tck/db e :hit) (catch :default e :miss))") == kw("miss"))
+				// A bare thrown keyword is its own ex-type: no ex-info needed to select on it.
+				#expect(try rt.eval("(try (throw :tck/db) (catch :tck/db e :hit))") == kw("hit"))
+				// derive widens the match transitively; :default still catches an ordinary ex-info.
+				_ = try rt.eval("(derive :tck/pg :tck/db)")
+				#expect(try rt.eval("(try (throw (ex-info \"m\" {:type :tck/pg})) (catch :tck/db e :hit))") == kw("hit"))
+				#expect(try rt.eval("(try (throw (ex-info \"m\" nil)) (catch :tck/db e :hit) (catch :default e :miss))") == kw("miss"))
+				_ = try rt.eval("(underive :tck/pg :tck/db)")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

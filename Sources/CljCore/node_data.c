@@ -48,7 +48,8 @@
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
-	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_set, kw_try, kw_throw, kw_all, kw_error;
+	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_set, kw_try, kw_throw, kw_all, kw_error,
+	kw_catch_kw;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
@@ -77,6 +78,7 @@ static void intern_keywords(void) {
 	kw_throw = clj_keyword_from_cstr("throw");
 	kw_all = clj_keyword_from_cstr("all");
 	kw_error = clj_keyword_from_cstr("error");
+	kw_catch_kw = clj_keyword_from_cstr("catch-kw");
 }
 
 void clj_node_data_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
@@ -273,7 +275,12 @@ static clj_value encode_try(const clj_node *n) {
 	clj_value *catches = zalloc(n->u.try_.ncatches, sizeof *catches);
 	for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 		const clj_catch *c = &n->u.try_.catches[i];
-		catches[i] = vec3(c->kind == CLJ_CATCH_ALL ? kw_all : kw_error, clj_fixnum(c->slot), encode(c->handler));
+		if (c->kind == CLJ_CATCH_KEYWORD) {
+			clj_value items[4] = {kw_catch_kw, clj_fixnum(c->slot), encode(c->handler), clj_retain(c->keyword)};
+			catches[i] = vec_take(items, 4);
+		} else {
+			catches[i] = vec3(c->kind == CLJ_CATCH_ALL ? kw_all : kw_error, clj_fixnum(c->slot), encode(c->handler));
+		}
 	}
 	clj_value v = vec4(kw_try, encode(n->u.try_.body), vec_take(catches, n->u.try_.ncatches), encode_opt(n->u.try_.finally_));
 	free(catches);
@@ -589,6 +596,13 @@ static clj_node *decode_def(clj_value data, dframe *fr) {
 }
 
 static bool decode_catch(clj_catch *c, clj_value data, dframe *fr) {
+	if (is_vector_of(data, 1) && clj_vector_nth(data, 0) == kw_catch_kw) {
+		if (clj_vector_count(data) != 4 || !as_u32(clj_vector_nth(data, 1), &c->slot) || !clj_is_keyword(clj_vector_nth(data, 3)))
+			return fail_data(data, "expected [:catch-kw slot handler keyword]") != NULL;
+		c->kind = CLJ_CATCH_KEYWORD;
+		c->keyword = clj_retain(clj_vector_nth(data, 3));
+		return (c->handler = decode(clj_vector_nth(data, 2), fr)) != NULL;
+	}
 	if (!is_vector_of(data, 3) || clj_vector_count(data) != 3 || !as_u32(clj_vector_nth(data, 1), &c->slot) ||
 	    (clj_vector_nth(data, 0) != kw_all && clj_vector_nth(data, 0) != kw_error))
 		return fail_data(data, "expected [:all|:error slot handler]") != NULL;

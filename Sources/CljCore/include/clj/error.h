@@ -14,6 +14,7 @@ typedef struct {
 	clj_value  data;    // map or nil
 	clj_value  cause;   // exception or nil
 	clj_value  trace;   // vector set at the first throw, nil before; a rethrow keeps it
+	clj_value  type;    // keyword or nil, lifted from a keyword under :type in data at construction (design.md §4)
 } clj_exception;
 
 extern const clj_type clj_exception_type;
@@ -72,12 +73,24 @@ static inline bool  clj_is_host_error(clj_value v) { return clj_is_ptr(v) && clj
 static inline void     *clj_host_error_payload(clj_value v) { return ((clj_host_error *)clj_to_ptr(v))->payload; }
 static inline clj_value clj_host_error_message(clj_value v) { return ((clj_host_error *)clj_to_ptr(v))->message; }
 
-// ex-message / ex-data / ex-cause of any value through the type's slots: owned, nil when v is not an
-// error, except that a string is its own message (NOTES.md).
+// A string is its own ex-message (NOTES.md); nil for a non-error value otherwise.
 clj_value clj_ex_message(clj_value v);
 clj_value clj_ex_data(clj_value v);
 clj_value clj_ex_cause(clj_value v);
-// ex-trace: the trace of an ex-info, owned; nil for one never thrown and for every other value.
+// nil for a value never thrown and for every non-ex-info.
 clj_value clj_ex_trace(clj_value v);
+
+// Total, never throws: keyword -> itself, ex-info -> its :type slot, host error -> nil for now, else nil.
+clj_value clj_ex_type(clj_value v);
+// isa? k on ex-type, scalar case only; reads global-hierarchy's map directly, safe to call mid-unwind.
+bool clj_ex_isa(clj_value thrown, clj_value k);
+// Caches the global-hierarchy var; runtime.c calls it once after boot, before any keyword catch runs.
+void clj_isa_install(void);
+// What deadline/cancel throws as ex-type, and what :default/Throwable/Exception/Object let by.
+clj_value clj_cancelled_keyword(void);
+
+// ex-type :cancelled, data {:cancel/kind :deadline|:explicit}: explicit cancel, a deadline, an nREPL
+// interrupt (clj_coro_cancel) and a cancelled channel op all throw through here.
+clj_value clj_throw_cancelled(bool deadline);
 
 #endif

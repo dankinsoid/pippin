@@ -89,6 +89,9 @@ extension CoreTests {
 				#expect(try byDefault(boom) == ["MyError(code: 7)", nil])
 				let byInfo = try rt.eval("(fn [f] (try (f) (catch ExceptionInfo e :caught)))")
 				#expect(try byInfo(boom) == kw("caught"))
+				// ex-type stays nil for a host error until the host-type registry exists (design §4).
+				let hostExType = try rt.eval("(fn [f] (try (f) (catch :default e (ex-type e))))")
+				#expect(try hostExType(boom) == nil)
 				// ex-data carries the error itself, so Clojure code can hand it back to Swift.
 				let data = try rt.eval("(fn [f] (try (f) (catch :default e (ex-data e))))")
 				let map = try #require(try data(boom).dictionary)

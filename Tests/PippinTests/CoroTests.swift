@@ -19,7 +19,7 @@ extension CoreTests {
 	@Suite struct CoroTests {
 		init() throws {
 			clj_init()
-			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts!]]))")
+			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts! cancel! cancelled?]]))")
 			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice"] { _ = kw(k) }
 			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out)")
 		}
@@ -140,9 +140,42 @@ extension CoreTests {
 				// A deadline set on the spawner is conveyed; the spawner's own clock is untouched by the child.
 				clj_deadline_set_ms(200)
 				defer { clj_deadline_set_ms(0) }
-				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :default e (ex-message e)))))") == "Execution timed out")
+				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e (ex-message e)))))") == "Execution timed out")
 				clj_deadline_set_ms(0)
 				#expect(try eval("(<!! (go (loop [i 0] (if (< i 100000) (recur (inc i)) i))))") == 100000)
+			}
+			base.check()
+		}
+
+		// Every cancellation path is :cancelled and :default lets it by (design §4, NReplTests proves interrupt).
+		@Test func everyCancellationIsCancelledType() throws {
+			// Warms the uncaught-report path (its trace/message printing interns state once) ahead of the baseline,
+			// same reason RecordTests defines its record before capturing one.
+			_ = try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :default e :caught)))] (<!! (timeout 5)) (cancel! g) (<!! g))")
+			let base = CoroBaseline()
+			do {
+				// Explicit cancel, no channel involved: eval.c's loop-tick check.
+				#expect(try eval("""
+					(let [g (go (try (loop [i 0] (recur (inc i)))
+					                  (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))])))]
+					  (<!! (timeout 5)) (cancel! g) (<!! g))
+					""") == [kw("cancelled"), kw("explicit")])
+				#expect(try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :default e :caught)))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
+				// A cancelled channel operation: chan.c's own park-point check, not the loop-tick.
+				#expect(try eval("""
+					(let [c (chan) g (go (try (<! c) (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))])))]
+					  (<!! (timeout 5)) (cancel! g) (<!! g))
+					""") == [kw("cancelled"), kw("explicit")])
+				#expect(try eval("(let [c (chan) g (go (try (<! c) (catch :default e :caught)))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
+				// The deadline: same :cancelled type, :cancel/kind :deadline instead.
+				clj_deadline_set_ms(50)
+				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))]))))")
+					== [kw("cancelled"), kw("deadline")])
+				clj_deadline_set_ms(50)
+				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :default e :caught))))") == nil)
+				clj_deadline_set_ms(0)
+				// (cancelled?) polls the same flag without waiting for a park point or a loop-tick throw.
+				#expect(try eval("(let [g (go (loop [n 0] (if (cancelled?) n (recur (inc n)))))] (<!! (timeout 5)) (cancel! g) (int? (<!! g)))") == true)
 			}
 			base.check()
 		}

@@ -25,7 +25,7 @@ extension CoreTests {
 		@Test func aLoopThatCatchesTheTimeoutStillStops() throws {
 			// The unwind budgets run out, after which every check throws and the catching loop cannot resume.
 			let message = withDeadline(ms: 100) {
-				cljEvalError("(loop [i 0] (try (loop [j 0] (recur (inc j))) (catch :default e nil)) (recur (inc i)))")
+				cljEvalError("(loop [i 0] (try (loop [j 0] (recur (inc j))) (catch :cancelled e nil)) (recur (inc i)))")
 			}
 			#expect(message?.contains("Execution timed out") == true)
 		}

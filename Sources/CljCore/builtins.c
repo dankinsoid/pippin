@@ -877,6 +877,18 @@ static clj_value b_ex_trace(const clj_value *args, size_t n) {
 	return clj_ex_trace(args[0]);
 }
 
+// @ai-generated(solo)
+static clj_value b_ex_type(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_ex_type(args[0]);
+}
+
+// @ai-generated(solo)
+static clj_value b_coro_cancelled_p(const clj_value *args, size_t n) {
+	(void)args, (void)n;
+	return clj_bool(clj_coro_current_cancelled());
+}
+
 // ---- profiling
 
 static clj_value b_profile_start(const clj_value *args, size_t n) {
@@ -1399,7 +1411,8 @@ static const entry entries[] = {
 	{"into", b_into, 2, 3},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
-	{"ex-trace", b_ex_trace, 1, 1}, {"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
+	{"ex-trace", b_ex_trace, 1, 1}, {"ex-type", b_ex_type, 1, 1}, {"cancelled?*", b_coro_cancelled_p, 0, 0},
+	{"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 3},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
 	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},
 	{"reduce", b_reduce, 2, 3},    {"reduce-kv", b_reduce_kv, 3, 3}, {"reduced", b_reduced, 1, 1}, {"reduced?", b_reduced_p, 1, 1},

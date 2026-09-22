@@ -101,7 +101,7 @@ private let harnessSource = """
                     (= t :end-test-var) (corpus-deadline* 0))))]
       (try
         (clojure.test/test-ns ns-sym)
-        (catch :default e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
+        (catch :cancelled e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
         (finally (corpus-deadline* 0))))
     (loop [es (seq @events) cur nil out []]
       (if-not es

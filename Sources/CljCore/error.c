@@ -6,10 +6,15 @@
 #include <pthread.h>
 
 #include "clj/error.h"
+#include "clj/eval.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
+#include "clj/ns.h"
+#include "clj/set.h"
 #include "clj/shadow.h"
 #include "clj/string.h"
+#include "clj/symbol.h"
+#include "clj/var.h"
 #include "coro_internal.h"
 
 #define pending (clj_coro_current()->pending)
@@ -18,11 +23,21 @@
 enum { TRACE_FRAMES = 256 };
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_host_error;
+static clj_value      kw_host_error, kw_type, kw_cancelled, kw_cancel_kind, kw_explicit, kw_deadline, kw_ancestors;
 
-static void intern_keywords(void) { kw_host_error = clj_keyword_from_cstr("host/error"); }
+static void intern_keywords(void) {
+	kw_host_error = clj_keyword_from_cstr("host/error");
+	kw_type = clj_keyword_from_cstr("type");
+	kw_cancelled = clj_keyword_from_cstr("cancelled");
+	kw_cancel_kind = clj_keyword_from_cstr("cancel/kind");
+	kw_explicit = clj_keyword_from_cstr("explicit");
+	kw_deadline = clj_keyword_from_cstr("deadline");
+	kw_ancestors = clj_keyword_from_cstr("ancestors");
+}
 
 void clj_error_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
+clj_value clj_cancelled_keyword(void) { return kw_cancelled; }
 
 static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_exception *e = self;
@@ -30,6 +45,7 @@ static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(e->data, ctx);
 	visit(e->cause, ctx);
 	visit(e->trace, ctx);
+	visit(e->type, ctx);
 }
 
 static uint32_t exception_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
@@ -97,7 +113,8 @@ clj_value clj_host_error_new(clj_value message, void *payload, void (*release)(v
 	return clj_from_ptr(e);
 }
 
-clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) {
+// type is set directly here, not derived from data: clj_throw_cancelled tags :cancelled without a :type key.
+static clj_value ex_info_new(clj_value message, clj_value data, clj_value cause, clj_value type) {
 	CLJ_ASSERT(clj_is_string(message), "exception message must be a string");
 	CLJ_ASSERT(clj_is_nil(data) || clj_header_of(data)->type == &clj_map_type, "exception data must be a map or nil");
 	CLJ_ASSERT(clj_is_nil(cause) || clj_is_exception(cause), "exception cause must be an exception or nil");
@@ -105,10 +122,56 @@ clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) 
 	e->message = clj_retain(message);
 	e->data = clj_retain(data);
 	e->cause = clj_retain(cause);
+	e->type = type;
 	return clj_from_ptr(e);
 }
 
+// ex-info lifts a keyword under :type into its own slot; the key stays in data (design.md §4, scope item 1).
+clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause) {
+	pthread_once(&keywords_once, intern_keywords);
+	clj_value type = clj_is_nil(data) ? CLJ_NIL : clj_map_get(data, kw_type, CLJ_NIL);
+	return ex_info_new(message, data, cause, clj_is_keyword(type) ? type : CLJ_NIL);
+}
+
 clj_value clj_ex_info(clj_value message, clj_value data) { return clj_ex_info_cause(message, data, CLJ_NIL); }
+
+clj_value clj_ex_type(clj_value v) {
+	if (clj_is_keyword(v)) return clj_retain(v);
+	if (clj_is_ex_info(v)) return clj_retain(clj_exception_of(v)->type);
+	return CLJ_NIL;
+}
+
+// Resolved once, after boot/core.clj defines it; clj_isa_install (runtime.c) sets it before any user code runs.
+static clj_value hierarchy_var = CLJ_NIL;
+
+void clj_isa_install(void) {
+	clj_value sym = clj_symbol_from_cstr("global-hierarchy");
+	hierarchy_var = clj_ns_resolve(clj_ns_core(), sym);
+	clj_release(sym);
+	if (clj_is_nil(hierarchy_var)) clj_fatal("isa bridge names no core var");
+}
+
+bool clj_ex_isa(clj_value thrown, clj_value k) {
+	clj_value t = clj_ex_type(thrown);
+	bool      match = t == k;
+	if (!match && !clj_is_nil(t) && !clj_is_nil(hierarchy_var)) {
+		clj_value ancestors = clj_map_get(clj_var_root(hierarchy_var), kw_ancestors, CLJ_NIL);
+		clj_value tset = clj_is_nil(ancestors) ? CLJ_NIL : clj_map_get(ancestors, t, CLJ_NIL);
+		match = !clj_is_nil(tset) && clj_set_contains(tset, k);
+	}
+	clj_release(t);
+	return match;
+}
+
+clj_value clj_throw_cancelled(bool deadline) {
+	pthread_once(&keywords_once, intern_keywords);
+	clj_value data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
+	clj_value msg = clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE);
+	clj_value ex = ex_info_new(msg, data, CLJ_NIL, kw_cancelled);
+	clj_release(msg);
+	clj_release(data);
+	return clj_throw(ex);
+}
 
 // @ai-generated(guided)
 clj_value clj_throw_traced(clj_value ex, clj_value trace) {

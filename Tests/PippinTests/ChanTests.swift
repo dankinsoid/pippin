@@ -218,15 +218,17 @@ extension CoreTests {
 		@Test func cancellation() throws {
 			let base = CoroBaseline()
 			do {
-				// Parked on a take, a put, an alts!, a timeout; cancelled in a loop tick.
-				#expect(try eval("(let [c (chan) g (go (try (<! c) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
-				#expect(try eval("(let [c (chan) g (go (try (>! c 1) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
-				#expect(try eval("(let [c (chan) d (chan) g (go (try (alts! [c d]) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
+				// Parked on a take, a put, an alts!, a timeout; cancelled in a loop tick: :cancelled catches every path.
+				#expect(try eval("(let [c (chan) g (go (try (<! c) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
+				#expect(try eval("(let [c (chan) g (go (try (>! c 1) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
+				#expect(try eval("(let [c (chan) d (chan) g (go (try (alts! [c d]) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
 				// The timer keeps its channel until it fires, so the wait below lets it go before the baseline check.
-				#expect(try eval("(let [g (go (try (<! (timeout 100)) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
-				#expect(try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :default e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
-				// After the cancellation every park point keeps throwing; a finally still runs.
-				#expect(try eval("(let [c (chan) r (atom []) g (go (try (<! c) (catch :default e (swap! r conj :caught) (try (<! c) (catch :default e2 (swap! r conj :again)))) (finally (swap! r conj :finally))) @r)] (<!! (timeout 5)) (cancel! g) (<!! g))") == [kw("caught"), kw("again"), kw("finally")])
+				#expect(try eval("(let [g (go (try (<! (timeout 100)) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
+				#expect(try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")
+				// After the cancellation every park point keeps throwing (the flag is sticky); a finally still runs.
+				#expect(try eval("(let [c (chan) r (atom []) g (go (try (<! c) (catch :cancelled e (swap! r conj :caught) (try (<! c) (catch :cancelled e2 (swap! r conj :again)))) (finally (swap! r conj :finally))) @r)] (<!! (timeout 5)) (cancel! g) (<!! g))") == [kw("caught"), kw("again"), kw("finally")])
+				// :default does not catch it at all: the go body is uncaught, so its channel closes with nothing put.
+				#expect(try eval("(let [c (chan) g (go (try (<! c) (catch :default e :caught)))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
 				// cancel! of a channel without a go block, or of a finished one, is harmless and says so.
 				#expect(try eval("(let [c (chan) g (go 1)] (<!! g) [(cancel! c) (cancel! g)])") == [false, false])
 				_ = try eval("(<!! (timeout 150))")
