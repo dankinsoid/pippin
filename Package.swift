@@ -53,9 +53,18 @@ let package = Package(
 			name: "Pippin",
 			dependencies: ["CljCore"]
 		),
+		// A library, not just the clj-nrepl executable's sources, so the test suite can drive it directly.
+		.target(
+			name: "CljNREPL",
+			dependencies: ["CljCore", "Pippin"]
+		),
+		.executableTarget(
+			name: "clj-nrepl",
+			dependencies: ["CljCore", "Pippin", "CljNREPL"]
+		),
 		.testTarget(
 			name: "PippinTests",
-			dependencies: ["Pippin", "CljCore", "CljCompiler"],
+			dependencies: ["Pippin", "CljCore", "CljCompiler", "CljNREPL"],
 			exclude: ["Fixtures"]
 		),
 		// The type-coverage metric over core.clj, the embedded libs and the corpus (docs/facts-coverage.md).

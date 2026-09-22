@@ -27,6 +27,9 @@ make bench
 `Sources/CljCompiler` is the C generator over the analyzer's trees and `clj-compile` its tool; `make boot`
 regenerates the embedded core and its compiled form (NOTES.md, "Compiler").
 
+`Sources/CljNREPL` is the nREPL server and `clj-nrepl` its executable: `swift run clj-nrepl` connects
+CIDER, Calva or Conjure like any Clojure nREPL (NOTES.md, "nREPL").
+
 Before pushing, agents run `make gates`: `test`, `test-compiled`, `corpus-compiled`, `facts-report`,
 `port-audit`, `api-diff`, in that order. Run `make gates-full` weekly and after allocator, boot,
 compiler, or suite-lifetime changes. See [NOTES.md, Gates](NOTES.md#gates) for coverage and measurements.

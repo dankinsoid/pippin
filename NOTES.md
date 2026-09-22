@@ -2882,6 +2882,83 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   fixture reloads showed a stale type implementing the old protocol, which the interpreter has on any
   re-evaluation of a `defprotocol` too.
 
+## nREPL (Sources/CljNREPL, Sources/clj-nrepl; design §5c)
+
+- **A session is a fresh coroutine per eval, not one long-lived coroutine per session.** The brief's own reading
+  ("a session must be a coroutine") was one persistent coroutine looping on a work queue for the session's life,
+  with `interrupt` cancelling just the in-flight eval. That runs into the binding-ownership rule head-on (NOTES
+  "Coroutines": "a child cannot `set!` a binding it does not own"): if the persistent coroutine pushes `*ns*`
+  once and a *child* coroutine runs each eval, `(in-ns ...)` inside that child is refused, because the child does
+  not own the frame the parent pushed. Keeping eval on the *same* coroutine that pushed the binding fixes that,
+  but then `interrupt`'s cancellation (sticky, NOTES "Coroutines") would permanently wedge the session's own
+  loop — every future park on that coroutine throws forever, and the only cure is `clj_coro_cancel_reset`,
+  which is `coro_internal.h`, not public. The deviation: spawn one coroutine per eval request
+  (`spawnCoroutine`, `CljNREPL/CoroBridge.swift`), let it push `*ns*` as its own frame (so `in-ns` can `set!`
+  it), and let it die with the coroutine when the eval finishes — cancellation only ever needs to reach a
+  coroutine that is about to end anyway, so the stock, unmodified `clj_coro_cancel` is enough and no new public
+  C API was needed. `Session` (a plain Swift class, not a coroutine) tracks `*ns*` as a string between calls,
+  serializes a session's evals through a small queue (`scheduleEval`/`finishEval`) so at most one is in flight
+  — this is what "a session must be a coroutine" was really protecting against (two evals racing the same
+  `*ns*`), and Swift-side sequencing gets it without needing the coroutine identity to persist.
+- **`interrupt` is `clj_coro_cancel` on that one eval's own coroutine handle, unmodified.** `Session.interrupt`
+  matches the request's `interrupt-id` against the in-flight eval's id (nREPL lets a client target a specific
+  pending eval; with one eval per session in flight this is just a sanity check) and calls `clj_coro_cancel`.
+  The eval loop tells a genuine interruption apart from any other thrown error by comparing the message text
+  against `CLJ_CANCELLED_MESSAGE` ("Coroutine cancelled", eval.h) — the same string the scheduler already
+  throws with (sched.c `clj_coro_cancel_message`); no second cancellation channel, no new state on `Session`.
+- **Output is captured per top-level form, not streamed byte by byte.** `clj_output_push_capture`/
+  `clj_output_pop_capture` (the `with-out-str` mechanism, runtime.c) wrap each form; the popped string becomes
+  one `:out` message before that form's `:value`. This is coarser than a real terminal (a `println` inside a
+  long-running loop in one form is invisible until the form returns), but it is the existing mechanism exactly
+  as the brief asked for, not a second capture path: the alternative (a live callback on every `clj_output`
+  write) would need a new per-coroutine hook the runtime does not have. Trigger: a form whose output needs to
+  be seen before it returns (e.g. a progress loop) — the fix is a flush hook on the capture struct itself, not
+  a parallel pipe.
+- **Headless: no main carrier is ever installed.** A run loop has nothing to pump in a bare server process, so
+  `Server` never calls `clj_sched_main_install`; `go-main`/`:affinity :main` code evaluated over nREPL gets the
+  existing "No main carrier" error immediately, the same as any other headless entry point, rather than hanging
+  or silently running on the pool. Trigger: a `--install-main-carrier` flag that adopts the process's own
+  thread and pumps `CFRunLoopRunInMode` on a loop, for code that legitimately wants `:main` from the REPL (a UI
+  test harness, say) — not needed for CIDER/Calva/Conjure, which never send such code.
+- **`*ns*` persistence, not `Runtime.eval`.** `Runtime.eval` deliberately resets `*ns*` after each call (like
+  `load`, NOTES on `Runtime.swift`), which is wrong for a REPL: `(ns foo)` on one eval must affect the next.
+  `Evaluator.run` pushes `*ns*` itself (found or created via `clj_ns_find_or_create`) and never pops it — the
+  coroutine finishing releases the whole binding chain regardless (NOTES "Coroutines": "a var's `thread_bound`
+  count drops when the frame dies rather than when it is popped") — and reads `clj_ns_current()` back into
+  `Session.currentNamespace` in a `defer`, so the next eval (a new coroutine) starts where this one left off.
+- **`complete`/`info` are Clojure, not a second namespace walker in Swift.** `ns-map`, `ns-publics`, `ns-aliases`,
+  `ns-resolve`, `meta` and `resolve` are already C builtins with the exact resolution rules (aliases, refers,
+  privacy) a REPL needs; `NReplHelpers` loads a small `pippin.nrepl.util` namespace once and calls its two
+  functions as ordinary `Value.apply`s. The op shapes follow the older, pre-`cider-nrepl` `complete`/`info`
+  convention (`{:candidate :ns}`, `{:ns :name :doc :arglists-str :line :column :macro}`) that Conjure and
+  plain `nrepl.el` still speak natively; CIDER's own richer `completions`/`eldoc` ops are `cider-nrepl`
+  middleware this runtime does not implement, so CIDER's completion is plainer than in JVM Clojure, but eval,
+  interrupt and the rest of the session protocol are unaffected — CIDER connects and evaluates.
+- **`stdin` is accepted, not wired anywhere.** The language has no `*in*`/`read-line` at all yet (`facts.c`
+  only lists `"read-line"` as a name in the IO-effect table, nothing implements it), so the op replies `done`
+  and drops its content. Trigger: adding `*in*`/`read-line` to the runtime — then `stdin` gets a per-session
+  input queue a blocked `read-line` calls parks a coroutine on.
+- **One `Runtime` per process, shared by every session** — the same sharing JVM nREPL gets from one JVM: a
+  `def` from one editor buffer's session is visible from another's, deliberately.
+- **The bencode codec and the socket layer are a separate library target, `CljNREPL`**, not folded into the
+  `clj-nrepl` executable's sources: `Tests/PippinTests/NReplTests.swift` depends on it directly and drives a
+  real `Server` over a real loopback socket (its own `TCPConnection`/`Bencode`, not a mock), matching how
+  `CljCompiler` already sits between `clj-compile` and the test suite.
+- **Pointing a real editor at it**: build `clj-nrepl` (`swift build --product clj-nrepl` or via `make`, once
+  the target is wired into a Makefile recipe — none exists yet, run the binary directly from `.build/debug/` or
+  `.build/release/`), run it from the directory a `deps.edn`/project root would occupy. It writes `.nrepl-port`
+  there (`--no-port-file` to skip, `--port-file PATH` to redirect, `--port N` to fix the port, `--bind HOST` for
+  other than loopback) and prints `nREPL server started on port N on host 127.0.0.1 - nrepl://127.0.0.1:N`, the
+  exact line CIDER (`cider-connect`), Calva ("Connect to a running REPL server") and Conjure
+  (`:ConjureConnect 127.0.0.1 N` or auto-detected from `.nrepl-port`) all look for. `(require 'clojure.string)`
+  or any embedded lib works out of the box; a third-party dependency needs `Runtime.loadPath` wiring this
+  executable does not expose yet (trigger: a `--load-path DIR` flag mirroring `clj-compile`'s).
+- Not done, with triggers: `load-file` position metadata (`*file*`/`*source-path*` are not bound, so a stack
+  trace from loaded code shows no filename — trigger: a client that shows file/line in its error view and
+  finds none); TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points (trigger: a client that
+  needs one); a `Makefile` target for `clj-nrepl` alongside `clj-compile`'s (trigger: someone other than an
+  editor plugin wanting a one-line launch).
+
 ## Benchmarks (bench/)
 
 - Numbers drift between sessions (thermal, background load). Compare only within one run; use
