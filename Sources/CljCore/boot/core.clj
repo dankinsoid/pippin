@@ -1799,6 +1799,13 @@
 (def ^:dynamic *print-length* "Items of a collection pr and print show before `...`; nil for all of them." nil)
 (def ^:dynamic *print-level* "Nesting depth pr and print show; a collection deeper prints as `#`. nil for no limit." nil)
 
+;; REPL history: a host REPL sets these after each form (clojure.main's own repl, nREPL's Evaluator); the
+;; language does not set them itself.
+(def ^:dynamic *1 "The most recent REPL value." nil)
+(def ^:dynamic *2 "The second most recent REPL value." nil)
+(def ^:dynamic *3 "The third most recent REPL value." nil)
+(def ^:dynamic *e "The most recent REPL exception." nil)
+
 ;; ---- protocols and types. Dispatch lives in C (proto.c); these macros only shape the forms.
 
 ;; (P (m [this] ...) (m [this a] ...) Q (n [x] ...)) → [[P [[m [([this] ...) ([this a] ...)]]]] [Q [[n [([x] ...)]]]],
