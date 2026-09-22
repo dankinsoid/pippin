@@ -445,16 +445,15 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   evacuation sweep's timer made that permanent), so a deadline farther than 2 ms is kept by one reprogrammed
   dispatch timer (`far_wait`) that signals the condition, and the thread waits untimed. Trigger for a heap:
   profiles with thousands of live timeouts.
-- **The timers' clock stops while the device sleeps**, and one wait is taken from another clock. `clj_profile_now`
-  is `CLOCK_UPTIME_RAW` (Darwin's `mach_absolute_time`) and `far_wait` arms its dispatch timer off
-  `DISPATCH_TIME_NOW`: neither advances across a device sleep, so a `timeout` armed before the screen locked
-  fires that long after the wake rather than at once — taken as the semantics (design §4, "Часы таймеров":
-  a timeout behaves as a budget, and no burst of expired timers lands on a resume). The waits left to
-  `pthread_cond_timedwait` compute their absolute deadline from `CLOCK_REALTIME` instead, a clock a `settime`
-  step can move: harmless on Apple, where only waits under `FAR_NS` (2 ms) take that path and the dispatch timer
-  keeps the rest, and fixable there with `pthread_cond_timedwait_relative_np` (Darwin has no
-  `pthread_condattr_setclock`). A port where every deadline waits on the condition must not leave it that way
-  (docs/portability.md, `sched.c`).
+- **The timers' clock stops while the device sleeps.** `clj_profile_now` is `CLOCK_UPTIME_RAW` (Darwin's
+  `mach_absolute_time`) and `far_wait` arms its dispatch timer off `DISPATCH_TIME_NOW`: neither advances across
+  a device sleep, so a `timeout` armed before the screen locked fires that long after the wake rather than at
+  once — taken as the semantics (design §4, "Часы таймеров": a timeout behaves as a budget, and no burst of
+  expired timers lands on a resume). The waits left to the condition — the sub-`FAR_NS` timer waits and the
+  carriers' poll — take `pthread_cond_timedwait_relative_np` on Apple (`cond_wait_ns` in `sched.c`), which takes
+  the relative timespec and reads no clock at all, since Darwin has no `pthread_condattr_setclock`. Its
+  non-Apple branch still computes an absolute `CLOCK_REALTIME` deadline, a clock a `settime` step can move; a
+  port where every deadline waits on the condition must not leave it that way (docs/portability.md, `sched.c`).
 - **Output** (`runtime.c`): `clj_output` copies the bytes into a bounded queue (1 MB) drained by one writer thread
   that calls the host's `out_fn` or `fwrite`; a printer that finds the queue full parks (blocks on a bare
   thread) until the writer drains below the limit; `clj_output_flush` waits for an empty queue and an idle

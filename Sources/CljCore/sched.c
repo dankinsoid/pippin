@@ -50,6 +50,24 @@ static inline void cpu_relax(void) {
 #endif
 }
 
+// Darwin has no pthread_condattr_setclock: a relative wait keeps the deadline off CLOCK_REALTIME, which can step.
+static int cond_wait_ns(pthread_cond_t *cv, pthread_mutex_t *mu, uint64_t ns) {
+#ifdef __APPLE__
+	struct timespec rel = {(time_t)(ns / 1000000000u), (long)(ns % 1000000000u)};
+	return pthread_cond_timedwait_relative_np(cv, mu, &rel);
+#else
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += (time_t)(ns / 1000000000u);
+	ts.tv_nsec += (long)(ns % 1000000000u);
+	if (ts.tv_nsec >= 1000000000L) {
+		ts.tv_sec++;
+		ts.tv_nsec -= 1000000000L;
+	}
+	return pthread_cond_timedwait(cv, mu, &ts);
+#endif
+}
+
 static void run_lock(void) {
 	for (int i = 0; i < LOCK_TRIES; i++) {
 		if (pthread_mutex_trylock(&run_mu) == 0) return;
@@ -162,14 +180,7 @@ static clj_coro *take_work_locked(clj_carrier *car, clj_carrier **wake) {
 static void carrier_park(clj_carrier *car, bool polling) {
 	pthread_mutex_lock(&car->park_mu);
 	if (polling) {
-		struct timespec ts;
-		clock_gettime(CLOCK_REALTIME, &ts);
-		ts.tv_nsec += POLL_NS;
-		if (ts.tv_nsec >= 1000000000L) {
-			ts.tv_sec++;
-			ts.tv_nsec -= 1000000000L;
-		}
-		while (!car->signaled && pthread_cond_timedwait(&car->park_cv, &car->park_mu, &ts) != ETIMEDOUT) {}
+		while (!car->signaled && cond_wait_ns(&car->park_cv, &car->park_mu, POLL_NS) != ETIMEDOUT) {}
 	} else {
 		while (!car->signaled) pthread_cond_wait(&car->park_cv, &car->park_mu);
 	}
@@ -756,15 +767,7 @@ static void *timer_main(void *arg) {
 		if (timers->when > now) {
 			uint64_t wait = timers->when - now;
 			if (wait > FAR_NS && far_wait(timers->when, wait)) continue;
-			struct timespec ts;
-			clock_gettime(CLOCK_REALTIME, &ts);
-			ts.tv_sec += (time_t)(wait / 1000000000u);
-			ts.tv_nsec += (long)(wait % 1000000000u);
-			if (ts.tv_nsec >= 1000000000L) {
-				ts.tv_sec++;
-				ts.tv_nsec -= 1000000000L;
-			}
-			pthread_cond_timedwait(&timer_cv, &timer_mu, &ts);
+			cond_wait_ns(&timer_cv, &timer_mu, wait);
 			continue;
 		}
 		clj_timer *t = timers;
