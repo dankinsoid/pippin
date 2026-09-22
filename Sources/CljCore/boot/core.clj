@@ -327,7 +327,9 @@
   "Runs body with the fn profiler on: {:result v :profile {:fns [...]}} (see profile-stop!)."
   [& body]
   `(let [v# (do (profile-start!)
-                (try (do ~@body) (catch :default e# (profile-stop!) (throw e#))))]
+                (try (do ~@body)
+                     (catch :cancelled e# (profile-stop!) (throw e#))
+                     (catch :default e# (profile-stop!) (throw e#))))]
      {:result v# :profile (profile-stop!)}))
 
 (defmacro dotimes
@@ -1785,6 +1787,7 @@
   [& body]
   `(do (out-capture-push*)
        (let [r# (try (do ~@body)
+                     (catch :cancelled e# (out-capture-pop*) (throw e#))
                      (catch :default e# (out-capture-pop*) (throw e#)))]
          (out-capture-pop*))))
 
