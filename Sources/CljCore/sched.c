@@ -676,6 +676,12 @@ bool clj_coro_cancelled(clj_value coro) {
 	return atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
 }
 
+// A caller with no clj_value for its own execution (nothing has published one without a spawn/publish race).
+bool clj_coro_current_cancelled(void) {
+	clj_coro *c = clj_coro_current();
+	return atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
+}
+
 void clj_coro_join_blocking(clj_value coro) {
 	clj_coro *c = clj_coro_of(coro);
 	if (clj_coro_current() == c) clj_fatal("a coroutine cannot join itself");

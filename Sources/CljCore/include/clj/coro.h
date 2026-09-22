@@ -23,6 +23,8 @@ bool      clj_coro_done(clj_value coro);
 // Sets the cancel flag: every park point and deadline check of the coroutine throws from now on.
 void clj_coro_cancel(clj_value coro);
 bool clj_coro_cancelled(clj_value coro);
+// Same, for code running on the coroutine itself, before a spawn's caller could publish its clj_value.
+bool clj_coro_current_cancelled(void);
 // The running execution is a pool or main coroutine, not a bare thread's implicit one.
 bool clj_coro_in_coroutine(void);
 bool clj_coro_on_main_carrier(void);
