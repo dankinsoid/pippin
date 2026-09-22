@@ -1003,7 +1003,13 @@ clj_value clj_chan_deref(clj_value chv) {
 
 clj_value clj_chan_deref_timeout(clj_value chv, int64_t ms, clj_value timeout_val) {
 	if (chan_arg(chv, "deref") == CLJ_THROWN) return CLJ_THROWN;
-	if (clj_chan_realized(chv)) return clj_chan_deref(chv);
+	clj_chan *ch = chan_of(chv);
+	chan_lock(ch);
+	bool has_value = realized_locked(ch);
+	chan_unlock(ch);
+	// Not clj_chan_realized: a cancelled future answers that before its body unwound, and the untimed deref
+	// behind it would then wait past ms.
+	if (has_value) return clj_chan_deref(chv);
 	clj_value t = clj_chan_timeout(ms);
 	clj_value items[2] = {chv, t};
 	clj_value ports = clj_vector_from_array(items, 2);

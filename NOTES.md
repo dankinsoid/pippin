@@ -547,7 +547,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   design §4 promised (the JVM cannot). `@f` parks from any function and blocks only a bare thread; a deref
   parked in a coroutine is woken by the coroutine's cancellation like any take (`FutureTests`). A cancelled
   future is done at once (`clj_chan_realized` reads the coroutine's flag: the JVM's `isDone`) and its deref
-  throws the cancellation as soon as the body lands. `future-call` spawns on the pool with the bindings and the
+  throws the cancellation as soon as the body lands. `(deref f ms v)` does not take that short cut: it asks
+  whether a value is actually there, since between `future-cancel` and the end of the body's unwinding the
+  future answers `realized?` with nothing to give, and the untimed deref behind the short cut would run past
+  `ms` (`FutureTests.derefWithTimeoutOfACancelledFutureStillTimesOut` holds the window open with a
+  `load-file` blocked on a FIFO, an uncancellable park). `future-call` spawns on the pool with the bindings and the
   output capture conveyed; the trace of a rethrown exception is the future's own frames then the spawner's
   (`thrower`, `future-call`, `spawner`). `pmap` is the JVM's: futures kept `(+ 2 (available-processors*))`
   ahead of consumption, where `available-processors*` is the carrier count; `pcalls`/`pvalues` over it.

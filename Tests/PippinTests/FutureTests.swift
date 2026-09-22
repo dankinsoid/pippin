@@ -21,8 +21,8 @@ extension CoreTests {
 		init() throws {
 			clj_init()
 			_ = try cljEvalScoped("(ns future-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go alts! alts!! alt! alt!! thread cancel! promise-chan poll!]]))")
-			for k in ["a", "b", "blocked", "bound", "cancelled", "caught", "default", "done", "finally", "got", "k", "late", "none", "p", "ran", "root", "slept", "timed-out", "v", "x", "yes"] { _ = kw(k) }
-			_ = try cljEvalScoped("(in-ns 'future-tests) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil))")
+			for k in ["a", "b", "blocked", "bound", "cancelled", "caught", "default", "done", "finally", "got", "k", "late", "none", "p", "ran", "root", "slept", "threw", "timed-out", "v", "x", "yes"] { _ = kw(k) }
+			_ = try cljEvalScoped("(in-ns 'future-tests) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil)) (def dt-fut nil)")
 		}
 
 		@Test func futureRunsOnThePoolAndDerefParks() throws {
@@ -59,6 +59,31 @@ extension CoreTests {
 				#expect(try eval("(let [p (promise)] (deref p 10 :none))") == kw("none"))
 				#expect(message("(deref (atom 1) 10 :x)") == "deref with a timeout is not supported on this type: atom")
 				_ = try eval("(<!! (timeout 50))")
+			}
+			base.check()
+		}
+
+		// A cancelled future is realized? before its body unwound; the timeout must still bound the wait.
+		@Test func derefWithTimeoutOfACancelledFutureStillTimesOut() throws {
+			let base = CoroBaseline()
+			do {
+				// load-file reads on the blocking pool, an uncancellable park: a FIFO with no writer holds it there.
+				let path = NSTemporaryDirectory() + "deref-\(getpid())-\(UInt32.random(in: 0..<UInt32.max)).clj"
+				#expect(mkfifo(path, 0o600) == 0)
+				defer { unlink(path) }
+				_ = try eval("(def dt-fut (future (load-file \"\(path)\")))")
+				_ = try eval("(<!! (timeout 30))")
+				#expect(try eval("(future-cancel dt-fut)") == true)
+				// The read is released whatever the deref does: an unbounded wait must end, not hang the suite.
+				DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(400)) {
+					let fd = open(path, O_WRONLY)
+					_ = "nil\n".withCString { write(fd, $0, strlen($0)) }
+					close(fd)
+				}
+				let started = DispatchTime.now().uptimeNanoseconds
+				#expect(try eval("(try (deref dt-fut 20 :none) (catch :cancelled e :threw))") == kw("none"))
+				#expect(DispatchTime.now().uptimeNanoseconds - started < 300_000_000)
+				_ = try eval("(try @dt-fut (catch :cancelled e :cancelled)) (def dt-fut nil)")
 			}
 			base.check()
 		}
