@@ -520,7 +520,7 @@ static void put(const char *s) { (void)!write(2, s, strlen(s)); }
 void clj_coro_report_uncaught(clj_coro *c) {
 	clj_value ex = c->threw ? c->result : c->pending;
 	if (clj_is_cancellation(ex)) return;
-	clj_value trace = c->threw ? clj_ex_trace(ex) : clj_retain(c->pending_trace);
+	clj_value trace = c->threw ? clj_ex_trace(ex) : clj_trace_realize(c->pending_trace);
 	if (uncaught_handler) {
 		uncaught_handler(ex, trace);
 		clj_release(trace);

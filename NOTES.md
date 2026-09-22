@@ -324,6 +324,12 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   report) and nothing else dies; `CompilerFixtureTests.overflowInsideACoroutineThrowsOnlyThere` runs compiled
   recursion in a `go` in dev and closed mode. A `try` inside the coroutine does not see it, as at the host
   boundary (same trigger as there).
+- **A trace is captured flat and materialized late**: `clj_shadow_stack_trace` walks the frames at the throw
+  but stores only `{retained shared name, line, col}` in one `clj_trace_type` object, as the spawn trace does;
+  the vector of three-key maps is built by `clj_trace_realize`, which `ex-trace`, `clj_coro_report_uncaught`
+  and the Swift boundary call (the JVM keeps an opaque backtrace and builds `StackTraceElement[]` in
+  `getStackTrace`). It is not memoized into the exception's slot: a shared exception would need a lock for
+  that, and two builds cost less than one. `ex-trace` returns what it always did.
 - **Traces read through a park**: `clj_trace_collect` walks the coroutine's own stack by frame pointer (its
   bounds are the mapping's), and `clj_shadow_stack_trace` appends the spawner's frames captured at the spawn
   (`clj_coro_capture_spawn_trace`: up to 32 `{name, line, col}` triples, the name symbol retained, no node

@@ -25,9 +25,15 @@ size_t clj_shadow_stack_snapshot(clj_shadow_frame *out, size_t cap);
 size_t clj_shadow_stack_depth(void);
 size_t clj_shadow_stack_dropped(void);
 
-// Owned vector of {:fn sym-or-nil :line n :column n}, innermost first, interpreted and compiled frames merged by
-// stack order (trace.c); the fn's own position when the call site is unknown.
+// Owned, opaque (clj_trace_realize): the frames innermost first, interpreted and compiled merged by stack order.
 clj_value clj_shadow_stack_trace(size_t max);
+
+extern const clj_type clj_trace_type;
+
+static inline bool clj_is_trace(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_trace_type; }
+
+// The vector of {:fn sym-or-nil :line n :column n} a capture stands for; any other value comes back retained.
+clj_value clj_trace_realize(clj_value trace);
 
 // Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
 void clj_shadow_intern_keywords(void);

@@ -62,7 +62,8 @@ public struct ClojureError: Error, CustomStringConvertible {
 	/// The value pending in the calling thread as a Swift error; the caller has just seen CLJ_THROWN.
 	/// A host error made from a Swift error yields that error itself, so it round-trips through Clojure code.
 	static func takePending() -> any Error {
-		let trace = Value(owning: clj_take_pending_trace())
+		let captured = Value(owning: clj_take_pending_trace())
+		let trace = Value(owning: withExtendedLifetime(captured) { clj_trace_realize(captured.raw) })
 		let ex = Value(owning: clj_take_pending())
 		return ex.hostError ?? ClojureError(thrown: ex, trace: trace)
 	}

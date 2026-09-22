@@ -269,9 +269,12 @@ clj_value clj_ex_data(clj_value v) {
 	return clj_is_exception(v) ? clj_type_of(v)->ex_data(v) : CLJ_NIL;
 }
 
-clj_value clj_ex_cause(clj_value v) { return clj_is_exception(v) ? clj_type_of(v)->ex_cause(v) : CLJ_NIL; }
+clj_value clj_ex_cause(clj_value v) {
+	if (clj_is_cancellation(v)) return clj_retain(clj_cancellation_cause(v));
+	return clj_is_exception(v) ? clj_type_of(v)->ex_cause(v) : CLJ_NIL;
+}
 
-clj_value clj_ex_trace(clj_value v) { return clj_is_ex_info(v) ? clj_retain(clj_exception_of(v)->trace) : CLJ_NIL; }
+clj_value clj_ex_trace(clj_value v) { return clj_is_ex_info(v) ? clj_trace_realize(clj_exception_of(v)->trace) : CLJ_NIL; }
 
 clj_value clj_pending(void) { return pending; }
 

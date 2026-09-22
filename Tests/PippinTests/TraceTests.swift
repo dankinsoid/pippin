@@ -102,6 +102,23 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// The capture is one object however deep the stack: the maps cost only when ex-trace asks (design §4).
+		@Test func aTraceIsOneObjectUntilItIsRead() throws {
+			try declare("tr-deep", "tr-held")
+			let before = clj_debug_live_objects()
+			do {
+				_ = try rt.eval("(defn tr-deep [n] (if (pos? n) (tr-deep (dec n)) (throw (ex-info \"deep\" nil))))")
+				let holding = clj_debug_live_objects()
+				_ = try rt.eval("(def tr-held (try (tr-deep 64) (catch :default e e)))")
+				#expect(clj_debug_live_objects() - holding < 16, "\(clj_debug_live_objects() - holding) objects for a 65-frame trace")
+				#expect(try rt.eval("(count (ex-trace tr-held))") == 65)
+				#expect(try rt.eval("(= (ex-trace tr-held) (ex-trace tr-held))") == true)
+				#expect(try rt.eval("(distinct (map :fn (ex-trace tr-held)))") == [Value(symbol: "user/tr-deep")])
+				try unbind("tr-deep", "tr-held")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		// A cancellation carries no trace: the frames say where it was parked, not why it stopped (design §4).
 		@Test func aCancellationCarriesNoTrace() throws {
 			try declare("tr-spin")

@@ -77,11 +77,43 @@ void clj_shadow_intern_keywords(void) { pthread_once(&keywords_once, intern_keyw
 
 enum { TRACE_MAX = CLJ_TRACE_MAX };
 
-// The coroutine's own frames, then the frames of whoever spawned it: a trace reads through the park.
+// A capture, not a trace: the frames as names and numbers, the maps built only when ex-trace asks.
+typedef struct {
+	clj_header      h;
+	uint32_t        n;
+	clj_spawn_frame frames[];
+} clj_trace_capture;
+
+static void capture_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_trace_capture *t = self;
+	for (uint32_t i = 0; i < t->n; i++) visit(t->frames[i].name, ctx);
+}
+
+const clj_type clj_trace_type = {
+	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.name = "trace",
+	.each_child = capture_each_child,
+};
+
+// The coroutine's own frames, then its spawner's; names and positions, no nodes, as the spawn trace keeps them.
+// @ai-generated(guided)
 clj_value clj_shadow_stack_trace(size_t max) {
 	clj_trace_frame frames[TRACE_MAX];
 	size_t          n = clj_trace_collect(frames, max < TRACE_MAX ? max : TRACE_MAX, NULL);
-	return clj_coro_append_spawn_trace(clj_trace_vector(frames, n), clj_coro_tls);
+	const clj_coro *c = clj_coro_tls;
+	uint32_t        spawned = c ? c->nspawn : 0;
+	clj_trace_capture *t = clj_alloc(&clj_trace_type, sizeof *t + (n + spawned) * sizeof *t->frames);
+	t->n = (uint32_t)n + spawned;
+	for (size_t i = 0; i < n; i++) {
+		clj_value name = frames[i].fn->u.fn.name;
+		clj_share(name); // the capture outlives its coroutine and is read from another
+		t->frames[i] = (clj_spawn_frame){clj_retain(name), frames[i].at->line, frames[i].at->col};
+	}
+	for (uint32_t i = 0; i < spawned; i++) {
+		clj_spawn_frame f = c->spawn_trace[i];
+		t->frames[n + i] = (clj_spawn_frame){clj_retain(f.name), f.line, f.col};
+	}
+	return clj_from_ptr(t);
 }
 
 static clj_value frame_map(clj_value name, uint32_t line, uint32_t col) {
@@ -99,6 +131,22 @@ clj_value clj_trace_vector(const clj_trace_frame *frames, size_t n) {
 		clj_release(m);
 	}
 	return trace;
+}
+
+// The three-key map per frame is what costs, so it is built here and not at the throw (JVM: getStackTrace).
+// @ai-generated(guided)
+clj_value clj_trace_realize(clj_value trace) {
+	// Built again per call: memoizing into the slot needs a lock once the exception is shared.
+	if (!clj_is_trace(trace)) return clj_retain(trace);
+	pthread_once(&keywords_once, intern_keywords);
+	const clj_trace_capture *t = clj_to_ptr(trace);
+	clj_value                v = clj_vector_empty();
+	for (uint32_t i = 0; i < t->n; i++) {
+		clj_value m = frame_map(t->frames[i].name, t->frames[i].line, t->frames[i].col);
+		v = clj_vector_conj(v, m);
+		clj_release(m);
+	}
+	return v;
 }
 
 clj_value clj_coro_append_spawn_trace(clj_value trace, const clj_coro *c) {

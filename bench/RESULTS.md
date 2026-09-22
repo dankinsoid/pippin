@@ -1706,3 +1706,22 @@ machine ran other builds during these runs; the A/B rows below were taken back t
   pages it is about to write, so the "all woken" footprint is honest; the park path's own tail advise has the
   same property and is left as it is (the tail is rarely re-dirtied).
 
+
+## Lazy ex-info traces — Apple M3 Pro, 36 GB, Swift 6.2.4 (release, pool only)
+
+`clj_shadow_stack_trace` walks the frames at the throw as before, but stores `{name, line, col}` in one object
+instead of conjing a three-key map per frame into a vector; `ex-trace` builds the vector of maps
+(`clj_trace_realize`). Same data, one `clj-bench` invocation per column, an `ex-info` thrown from a 65-frame
+interpreted stack and caught 20 000 times.
+
+| scenario | eager, ns/op | lazy, ns/op |
+|---|---:|---:|
+| throw an ex-info from a 64-deep stack, caught, trace not read | 6091.9 | 2040.9 |
+| the same, the handler calls ex-trace | 6173.0 | 6424.9 |
+
+- **A throw nobody reads the trace of is 3× cheaper** (6.1 → 2.0 µs): 65 maps and 65 vector conjes per throw
+  against one allocation with 65 triples in it. The work is not removed, it is moved to the reader.
+- **Reading the trace costs what it did plus the capture** (6.2 → 6.4 µs, +4 %): the maps are built once either
+  way, and the capture object and its retains are the difference.
+- A cancellation captures nothing at all (design §4), so the frequent path — a scope teardown, an nREPL
+  interrupt, a deadline — pays neither.

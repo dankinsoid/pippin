@@ -267,7 +267,8 @@ func cljEval(_ source: String) -> clj_value {
 }
 
 func benchThrew() -> Never {
-	let trace = clj_pr_str(clj_take_pending_trace())
+	let captured = clj_take_pending_trace()
+	let trace = clj_pr_str(clj_trace_realize(captured))
 	let text = clj_pr_str(clj_take_pending())
 	fatalError("bench call threw: \(text == CLJ_THROWN ? "?" : String(cString: clj_string_bytes(text))) at \(trace == CLJ_THROWN ? "?" : String(cString: clj_string_bytes(trace)))")
 }
@@ -1998,6 +1999,30 @@ for v in [reFindFn, reSplitFn, reReplaceFn, reFindArg, reSplitArg, reReplaceArg]
 print("\n| scenario | ns/op |")
 print("|---|---:|")
 for r in regexRows {
+	print("| \(r.0) | \(fmt(r.1)) |")
+}
+
+// MARK: - Throw and catch
+
+// The frames are walked at the throw either way; the second row adds the vector of maps over them.
+let throwDeepFn = cljEval("""
+(do (defn bench-throw-deep [n] (if (pos? n) (bench-throw-deep (dec n)) (throw (ex-info "deep" nil))))
+    (fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (try (bench-throw-deep 64) (catch :default e 1)))) acc))))
+""")
+let throwReadFn = cljEval("""
+(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (try (bench-throw-deep 64) (catch :default e (count (ex-trace e)))))) acc)))
+""")
+
+let throwOps = 20_000
+let throwRows: [(String, Double)] = [
+	("throw an ex-info from a 64-deep stack, caught, trace not read", measure(ops: throwOps) { cljCall(throwDeepFn, clj_fixnum(throwOps)) }),
+	("the same, the handler calls ex-trace", measure(ops: throwOps) { cljCall(throwReadFn, clj_fixnum(throwOps)) }),
+]
+for v in [throwDeepFn, throwReadFn] { clj_release(v) }
+
+print("\n| scenario | ns/op |")
+print("|---|---:|")
+for r in throwRows {
 	print("| \(r.0) | \(fmt(r.1)) |")
 }
 print("\nns per call; the measured fn is interpreted and the pattern is already compiled")
