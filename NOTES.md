@@ -377,6 +377,40 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `thread` bodies are cancellable through their channel: the channel holds the blocking thread's implicit
   coroutine while the body runs, a `cancel!` before the thread attached sets a flag on the job, and the
   implicit coroutine's cancellation is reset for the thread's next job (`clj_coro_cancel_reset`).
+- **Suspension is the cancellation's mechanism without the throw** (design §4, "Стек как объект", item 3):
+  `suspend!` sets a sticky `suspend` flag on the ring and poisons the same deadline with 1, so the branch every
+  call already pays is what meets it and nothing is added to the hot path. What differs is the tick's *answer*:
+  `deadline_reached` calls `clj_coro_suspend_point` instead of throwing, and that returns "no throw", so the
+  interpreter's call and loop checks and the compiler's emitted `if (tick)` go on where a cancellation would
+  unwind. The gate is `clj_lot_park` on the coroutine's own address (the lot of `cmutex.c`), and `resume!`
+  clears the flag, restores the deadline and `clj_lot_unpark_all`s it; the flag is read under the bucket's lock,
+  so a clear racing the park is either seen before the enqueue or found by the unpark. The deadline is the
+  *shared* poison: a cancellation and a suspension both replace it with 1 and keep the real one in
+  `deadline_before` (`deadline_poison_locked`), which comes back only when neither stands
+  (`deadline_unpoison_locked`) — otherwise an uncancelled scope under a standing suspension would hand the ring
+  a live deadline of 1, and a resume under a cancellation would lift it. A request lands at the next tick only:
+  a coroutine parked on a channel is left parked, it is already not running, and meets the gate after its wake;
+  one that stays there is evacuated by the sweep like any cold parked coroutine. **A cancel reaches a suspended
+  coroutine**, or it would be a leak: `clj_coro_cancel_kind_cause` clears the suspend flag before the cancel
+  lands and releases the gate, so the tick it wakes into finds `cancelled` and throws exactly once and nothing
+  parks it again while it unwinds; a later `resume!` is a no-op and answers false. **A suspension is legal only
+  where nothing is held**, and an illegal point defers rather than fails — the request came from another
+  coroutine, so there is no caller there to fail, and throwing at the target would make `suspend!` a remote
+  exception. `clj_coro_suspend_point` refuses `host_depth`, `locks_held` and `cmutex_held`, and sets the
+  countdown to 1 so the retry is the next *call*, not the next 1024: a loop of a fixed length meets the check at
+  the same instruction every turn, and a phase that falls inside a `swap!` would never park at all (the
+  `locking` test caught exactly that). `cmutex_held` counts the cmutexes held *around user code*, not every
+  `clj_cmutex_lock`: that one is an inline CAS on the atom hot path and a counter in it is not free. Only three
+  holders can span a tick, because only three run user code under the mutex — the atom's `enter`/`leave` (the
+  swap fn and its validator), `clj_monitor_enter`/`exit` (`locking`), and `chan_lock`/`chan_unlock` of a channel
+  with a transducer. Each already looks the execution up where it takes the mutex, and each release takes it back
+  from what it stored (`a->owner`, `ch->cm_owner`, the monitor's `me`) instead of the TLS: a second
+  `clj_coro_current()` in the atom's `leave` alone cost 9 ns of `swap! inc`'s 38, where the two field updates cost
+  about one (38.4 → 39.7 ns on this machine's bench row). Everything else takes a cmutex across straight-line C,
+  where no tick runs. `suspend!` takes a **channel**, like `cancel!` through `chan-cancel*`: `go`, `future` and `thread` hand
+  out channels and nothing hands out a coroutine. Unlike `cancel!` it does not remember a request that arrives
+  before a `thread` body attached (there is no `cancel_early` twin) — a suspension is done to a running body.
+  `suspended?` answers the flag, not the park: the body may still be a few calls short of its gate.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.

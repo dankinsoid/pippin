@@ -21,9 +21,11 @@ extension CoreTests {
 	@Suite struct CoroTests {
 		init() throws {
 			clj_init()
-			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts! cancel! cancelled?]]))")
-			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice"] { _ = kw(k) }
-			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out)")
+			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts! alts!! cancel! cancelled? suspend! resume! suspended?]]))")
+			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice", "took"] { _ = kw(k) }
+			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out suspended-g)")
+			// A timer still holding its guard channel would fail the next suite's live-object baseline.
+			_ = try cljEvalScoped("(in-ns 'coro-tests) (defn joined [ch ms] (let [t (timeout ms) v (first (alts!! [ch t]))] (<!! t) v))")
 		}
 
 		// The switch is the hand-written asm: ~20 instructions each way, so a round trip is tens of nanoseconds.
@@ -178,6 +180,123 @@ extension CoreTests {
 				clj_deadline_set_ms(0)
 				// (cancelled?) polls the same flag without waiting for a park point or a loop-tick throw.
 				#expect(try eval("(let [g (go (loop [n 0] (if (cancelled?) n (recur (inc n)))))] (<!! (timeout 5)) (cancel! g) (int? (<!! g)))") == true)
+			}
+			base.check()
+		}
+
+		// suspend! rides the same poisoned deadline a cancellation does, but the tick parks on a gate instead of
+		// throwing, and resume! puts the body back where it stood (design §4, "Стек как объект", item 3).
+		@Test func suspendParksTheBodyAndResumeLetsItOn() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+					(let [r (atom 0)
+					      g (go (try (loop [] (swap! r inc) (recur)) (catch :cancelled e :done)))]
+					  (<!! (timeout 10))
+					  (let [asked (suspend! g)]
+					    (<!! (timeout 10))
+					    (let [a @r]
+					      (<!! (timeout 10))
+					      (let [b @r
+					            gated (suspended? g)
+					            lifted (resume! g)]
+					        (<!! (timeout 10))
+					        (let [c @r]
+					          (cancel! g)
+					          [asked gated (= a b) lifted (suspended? g) (> c b)
+					           (joined g 200)])))))
+					""") == [true, true, true, true, false, true, kw("done")])
+			}
+			base.check()
+		}
+
+		// The precondition of design §4: a suspension is legal only where nothing is held. A body spinning inside
+		// locking and swap! leaves both before it parks, so another coroutine takes the same monitor and atom while
+		// it sits on the gate — a park under the cmutex would hold them until resume!.
+		@Test func aSuspendedBodyHoldsNoMutex() throws {
+			let base = CoroBaseline()
+			do {
+				let got = try eval("""
+					(let [r (atom 0)
+					      g (go (try (loop []
+					                   (locking r (swap! r (fn [v] (loop [i 0] (if (< i 4000) (recur (inc i)) (inc v))))))
+					                   (recur))
+					                 (catch :cancelled e :done)))]
+					  (<!! (timeout 20))
+					  (suspend! g)
+					  (<!! (timeout 20))
+					  (let [a @r
+					        took (joined (go (locking r (swap! r identity)) :took) 200)]
+					    (cancel! g)
+					    [took (= a @r) (joined g 200)]))
+					""")
+				#expect(got == [kw("took"), true, kw("done")], "\(got)")
+			}
+			base.check()
+		}
+
+		// A suspended coroutine is not a leak: a cancel! releases the gate and the tick it wakes into throws once,
+		// and neither the catch nor the finally parks on the gate again on the way out.
+		@Test func aCancelReachesASuspendedCoroutine() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+					(let [n (atom 0)
+					      g (go (try (loop [] (recur))
+					                 (catch :cancelled e (swap! n inc) :done)
+					                 (finally (swap! n inc))))]
+					  (<!! (timeout 10))
+					  (suspend! g)
+					  (<!! (timeout 10))
+					  [(cancel! g) (joined g 200) @n (suspended? g) (resume! g)])
+					""") == [true, kw("done"), 2, false, false])
+				// A channel with no body, and a body that has finished, take no request.
+				#expect(try eval("(let [c (chan) g (go 1)] (<!! g) [(suspend! c) (resume! c) (suspended? c) (suspend! g) (suspended? g)])")
+					== [false, false, false, false, false])
+			}
+			base.check()
+		}
+
+		// A request that lands on a coroutine parked on a channel leaves it parked — it is already not running —
+		// and is met at the first tick after its wake.
+		@Test func aSuspendOfAParkedCoroutineIsMetWhenItWakes() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+					(let [c (chan) r (atom 0)
+					      g (go (try (<! c) (loop [] (swap! r inc) (recur)) (catch :cancelled e :done)))]
+					  (<!! (timeout 10))
+					  (let [asked (suspend! g)]
+					    (>!! c 1)
+					    (<!! (timeout 20))
+					    (let [a @r]
+					      (<!! (timeout 10))
+					      (let [b @r]
+					        (resume! g)
+					        (<!! (timeout 10))
+					        (let [d @r]
+					          (cancel! g)
+					          [asked (= a b) (> d b) (joined g 200)])))))
+					""") == [true, true, true, kw("done")])
+			}
+			base.check()
+		}
+
+		// The deadline the suspension's poison replaced comes back with the resume: the body still dies at its own
+		// deadline, and a lost one would spin for ever instead.
+		@Test func aDeadlineOutlivesASuspension() throws {
+			let base = CoroBaseline()
+			do {
+				clj_deadline_set_ms(300)
+				_ = try eval("(def suspended-g (go (try (loop [] (recur)) (catch :cancelled e (:cancel/kind (ex-data e))))))")
+				clj_deadline_set_ms(0)
+				#expect(try eval("""
+					(do (<!! (timeout 20))
+					    (let [asked (suspend! suspended-g)]
+					      (<!! (timeout 20))
+					      [asked (resume! suspended-g) (joined suspended-g 1000)]))
+					""") == [true, true, kw("deadline")])
+				_ = try eval("(def suspended-g nil)")
 			}
 			base.check()
 		}

@@ -13,6 +13,7 @@
 #include <pthread/qos.h>
 #endif
 
+#include "clj/cmutex.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
@@ -629,12 +630,32 @@ clj_value clj_coro_result(clj_value coro, bool *threw) {
 
 bool clj_coro_done(clj_value coro) { return atomic_load_explicit(&clj_coro_of(coro)->state, memory_order_acquire) == CLJ_CORO_DONE; }
 
+// The tick's poison, under c->lock: a cancellation and a suspend request both replace the deadline with 1, so
+// neither adds a check of its own to the hot path; the real deadline waits in deadline_before until both are gone.
+// @ai-generated(guided)
+static void deadline_poison_locked(clj_coro *c) {
+	uint64_t d = clj_shadow_deadline(c->shadow);
+	if (d != 1) c->deadline_before = d;
+	atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
+}
+
+static bool poisoned_locked(const clj_coro *c) {
+	return atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE || atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed);
+}
+
+static void deadline_poison_if_locked(clj_coro *c) {
+	if (poisoned_locked(c)) atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
+}
+
+static void deadline_unpoison_locked(clj_coro *c) {
+	if (!poisoned_locked(c)) atomic_store_explicit(&c->shadow->deadline, c->deadline_before, memory_order_relaxed);
+}
+
 // Under c->lock: the flag, the tick trigger and the waiter to wake. A running coroutine sees the flag at its next
 // tick or park point; a parked one is woken by claiming its waiter (an implicit coroutine's park is its condition).
 static clj_waiter *cancel_locked(clj_coro *c, int kind, clj_value cause) {
 	uint8_t have = atomic_load_explicit(&c->cancel, memory_order_relaxed);
 	if (have == CLJ_CANCEL_NONE || (kind == CLJ_CANCEL_REQUESTED && have != CLJ_CANCEL_REQUESTED)) {
-		if (have == CLJ_CANCEL_NONE) c->deadline_before = clj_shadow_deadline(c->shadow);
 		if (!clj_is_nil(cause) && clj_is_nil(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed))) {
 			clj_share(cause);
 			atomic_store_explicit(&c->cancel_cause, clj_retain(cause), memory_order_relaxed);
@@ -643,7 +664,7 @@ static clj_waiter *cancel_locked(clj_coro *c, int kind, clj_value cause) {
 		atomic_store_explicit(&c->cancel, (uint8_t)kind, memory_order_release);
 	}
 	atomic_store_explicit(&c->shadow->cancelled, true, memory_order_relaxed);
-	atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
+	deadline_poison_locked(c);
 	c->shadow->unwinds = 64;
 	clj_waiter *w = c->waiter;
 	if (w) clj_waiter_retain(w);
@@ -656,8 +677,13 @@ void clj_coro_cancel_kind_cause(clj_coro *c, int kind, clj_value cause) {
 		pthread_mutex_unlock(&c->lock);
 		return;
 	}
+	// A cancellation reaches a suspended coroutine: the flag goes first, so the tick it wakes into throws once
+	// instead of parking again. Whoever asked for the suspension gets no resume of its own (NOTES.md).
+	bool gated = atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed);
+	if (gated) atomic_store_explicit(&c->shadow->suspend, false, memory_order_release);
 	clj_waiter *w = cancel_locked(c, kind, cause);
 	pthread_mutex_unlock(&c->lock);
+	if (gated) clj_lot_unpark_all(c);
 	if (!w) return;
 	if (clj_waiter_claim(w)) clj_resume_far(w);
 	clj_waiter_release(w);
@@ -690,7 +716,7 @@ void clj_coro_uncancel_scope(clj_coro *c) {
 		cancel_cause_clear_locked(c);
 		atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
-		atomic_store_explicit(&c->shadow->deadline, c->deadline_before, memory_order_relaxed);
+		deadline_unpoison_locked(c);
 		c->shadow->countdown = 1024;
 		c->shadow->unwinds = 64;
 	}
@@ -703,8 +729,67 @@ void clj_coro_cancel_reset(clj_coro *c) {
 	cancel_cause_clear_locked(c);
 	atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
+	atomic_store_explicit(&c->shadow->suspend, false, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->deadline, 0, memory_order_relaxed);
 	pthread_mutex_unlock(&c->lock);
+}
+
+// ---- suspension (design §4, "Стек как объект", item 3): the cancellation's mechanism without the throw
+
+// The gate is the coroutine's own address in the lot. Read under the bucket's lock, so a flag cleared before an
+// unpark is either seen here (no park) or found by the unpark (woken): the futex protocol, no wake is lost.
+// @ai-generated(guided)
+static bool suspend_wait_if(const void *key, void *ctx) {
+	const clj_coro *c = key;
+	(void)ctx;
+	return atomic_load_explicit(&c->shadow->suspend, memory_order_acquire) && !atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
+}
+
+// Sticky: the request stands until resume! or a cancellation, and the coroutine meets it at its next tick — a
+// parked one is left parked, it is already not running. A cancelled coroutine takes no request: its tick throws.
+// @ai-generated(guided)
+bool clj_coro_suspend(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	bool live = atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_DONE && c->shadow && atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_NONE;
+	if (live) {
+		atomic_store_explicit(&c->shadow->suspend, true, memory_order_release);
+		deadline_poison_locked(c);
+	}
+	pthread_mutex_unlock(&c->lock);
+	return live;
+}
+
+bool clj_coro_resume(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	bool was = c->shadow && atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed);
+	if (was) {
+		atomic_store_explicit(&c->shadow->suspend, false, memory_order_release);
+		deadline_unpoison_locked(c);
+	}
+	pthread_mutex_unlock(&c->lock);
+	// Outside the lock: the wake enqueues the coroutine, which a carrier may pick up at once.
+	if (was) clj_lot_unpark_all(c);
+	return was;
+}
+
+bool clj_coro_suspended(const clj_coro *c) { return c->shadow && atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed); }
+
+// Suspension is legal only where nothing is held (design §4): parking under a cmutex would hold it until resume!,
+// and parking under a host call or a runtime lock is the park error. Such a point defers the request to the next
+// tick rather than failing — the request came from another coroutine, there is no caller here to fail — so the
+// suspension lands the moment the swap!, locking or transducer step is over.
+// @ai-generated(guided)
+bool clj_coro_suspend_point(void) {
+	clj_coro *c = clj_coro_current();
+	if (c->host_depth || c->locks_held || c->cmutex_held) {
+		// Every call until the hold is over, not one per 1024: a loop of a fixed length would otherwise meet the
+		// check at the same instruction every turn, and a phase that falls inside the section would never park.
+		c->shadow->countdown = 1;
+		return atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
+	}
+	clj_lot_park(c, suspend_wait_if, NULL);
+	// The gate is left by a resume! (the deadline is restored: no throw) or by a cancellation (it stays poisoned).
+	return atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
 }
 
 bool clj_coro_cancel_is_deadline(const clj_coro *c) {
@@ -914,7 +999,19 @@ void clj_coro_deadline_cleared(clj_coro *c) {
 		cancel_cause_clear_locked(c);
 		atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
+		deadline_unpoison_locked(c);
 	}
+	pthread_mutex_unlock(&c->lock);
+}
+
+// The owner setting its own deadline while a poison stands: the new value waits in deadline_before with the old
+// one, or the ring would stop meeting the flag that poisoned it (eval.c's deadline_apply).
+// @ai-generated(guided)
+void clj_coro_deadline_replace(clj_coro *c, uint64_t deadline) {
+	pthread_mutex_lock(&c->lock);
+	c->deadline_before = deadline;
+	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
+	deadline_poison_if_locked(c);
 	pthread_mutex_unlock(&c->lock);
 }
 

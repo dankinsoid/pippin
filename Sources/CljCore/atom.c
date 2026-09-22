@@ -57,11 +57,17 @@ static bool enter(clj_atom *a, const char *op) {
 		return false;
 	}
 	clj_cmutex_lock(&a->lock);
-	atomic_store_explicit(&a->owner, self_id(), memory_order_relaxed);
+	// The swap fn, the validator and the watches run under this mutex, and a suspend must not park holding it.
+	clj_coro *me = clj_coro_current();
+	atomic_store_explicit(&a->owner, (uintptr_t)me, memory_order_relaxed);
+	me->cmutex_held++;
 	return true;
 }
 
+// The owner is the execution that entered, which is still this one: a park in between moves it between threads,
+// never between coroutines, so the count is reached without a second TLS lookup on the swap! path.
 static void leave(clj_atom *a) {
+	((clj_coro *)atomic_load_explicit(&a->owner, memory_order_relaxed))->cmutex_held--;
 	atomic_store_explicit(&a->owner, 0, memory_order_relaxed);
 	clj_cmutex_unlock(&a->lock);
 }

@@ -324,6 +324,27 @@
   []
   (cancelled?*))
 
+(defn suspend!
+  "Holds the go block, future or thread body behind a channel: at its next call or loop tick it parks, and stays
+  parked until resume!. The flag is sticky, and the park waits for a point where the body holds nothing — inside
+  swap!, locking or a transducer step it is deferred until that is over, never taken with a mutex held. A cancel!
+  of a suspended body releases it and its wake throws :cancelled. Returns true when a live body took the request.
+  Not in the JVM's core.async."
+  [ch]
+  (chan-suspend* ch))
+
+(defn resume!
+  "Lets a suspended body go on from where it parked. Returns true when a suspend! was standing.
+  Not in the JVM's core.async."
+  [ch]
+  (chan-resume* ch))
+
+(defn suspended?
+  "True while a suspend! of the body behind ch stands: it is parked on its gate, or will be at its next tick.
+  Not in the JVM's core.async."
+  [ch]
+  (chan-suspended?* ch))
+
 ;;;;;;;;;;;;;;;;;;;; ops ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn pipe

@@ -266,6 +266,39 @@ extension CoreTests {
 			}
 		}
 
+		// The compiler emits its own loop tick, so the shared predicate has to answer both ways through it: a
+		// cancellation unwinds the emitted loop, a suspension parks inside it and the loop goes on afterwards.
+		@Test func compiledLoopTickParksOnASuspend() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.suspend (:require [clojure.core.async :refer [go timeout <!! alts!! cancel! suspend! resume!]]))")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			// A timer still holding its guard channel would fail the next suite's live-object baseline.
+			_ = try cljEval("(defn cp-joined [ch] (let [t (timeout 200) v (first (alts!! [ch t]))] (<!! t) v))")
+			let coros = clj_debug_live_coros()
+			for closed in [false, true] {
+				try compiledEval(closed: closed) {
+					_ = try cljEval("(defn cp-spin-bump [r] (loop [] (swap! r inc) (recur)))")
+				}
+				let got = try cljEval("""
+					(let [r (atom 0)
+					      g (go (try (cp-spin-bump r) (catch :cancelled e :done)))]
+					  (<!! (timeout 10))
+					  (suspend! g)
+					  (<!! (timeout 10))
+					  (let [a @r]
+					    (<!! (timeout 10))
+					    (let [b @r]
+					      (resume! g)
+					      (<!! (timeout 10))
+					      (let [c @r]
+					        (cancel! g)
+					        [(= a b) (> c b) (cp-joined g)]))))
+					""")
+				#expect(got == [true, true, Value(keyword: "done")], "closed: \(closed), \(got)")
+			}
+			#expect(clj_debug_coro_settle(coros, 5000))
+		}
+
 		// Under --closed a form the generator refuses is an error naming the node and its position, not a fallback.
 		@Test func closedRefusesEval() throws {
 			clj_init()

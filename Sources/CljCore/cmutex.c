@@ -225,11 +225,14 @@ clj_value clj_monitor_enter(clj_value x) {
 	clj_lock_unlock(&mon_lock);
 	if (mo->owner == me) {
 		mo->count++;
+		me->cmutex_held++;
 		return CLJ_NIL;
 	}
 	clj_cmutex_lock(&mo->m);
 	mo->owner = me;
 	mo->count = 1;
+	// The body runs under the monitor's mutex: a suspend must not park holding it (sched.c).
+	me->cmutex_held++;
 	return CLJ_NIL;
 }
 
@@ -242,6 +245,7 @@ clj_value clj_monitor_exit(clj_value x) {
 		return clj_throw_msg("monitor-exit of an object this execution does not hold");
 	}
 	clj_lock_unlock(&mon_lock);
+	me->cmutex_held--;
 	if (--mo->count == 0) {
 		mo->owner = NULL;
 		clj_cmutex_unlock(&mo->m);

@@ -206,7 +206,10 @@ clj_value clj_chan_new_xform(clj_value buf_or_n, clj_value xform, clj_value ex_h
 static void chan_lock(clj_chan *ch) {
 	if (has_xform(ch)) {
 		clj_cmutex_lock(&ch->cm);
-		ch->cm_owner = clj_coro_current();
+		// Reached afresh after the lock, which may have parked us; the step runs here, so no suspend parks under it.
+		clj_coro *me = clj_coro_current();
+		ch->cm_owner = me;
+		me->cmutex_held++;
 	} else {
 		clj_lock_lock(&ch->lock);
 	}
@@ -214,6 +217,7 @@ static void chan_lock(clj_chan *ch) {
 
 static void chan_unlock(clj_chan *ch) {
 	if (has_xform(ch)) {
+		ch->cm_owner->cmutex_held--;
 		ch->cm_owner = NULL;
 		clj_cmutex_unlock(&ch->cm);
 	} else {
@@ -1189,6 +1193,42 @@ static clj_value cancel_chan(clj_value chv, int kind, clj_value cause) {
 
 clj_value clj_chan_cancel(clj_value chv) { return cancel_chan(chv, CLJ_CANCEL_REQUESTED, CLJ_NIL); }
 
+// The coroutine running the body, retained; nil before a thread's body attached and after any body finished.
+// @ai-generated(solo)
+static clj_value body_coro(clj_value chv) {
+	clj_chan *ch = chan_of(chv);
+	chan_lock(ch);
+	clj_value coro = clj_retain(ch->coro);
+	chan_unlock(ch);
+	return coro;
+}
+
+// Unlike cancel!, a request that arrives before a thread's body attached is not remembered: a suspension is a
+// thing done to a running body, and the window is the caller's to close.
+// @ai-generated(guided)
+clj_value clj_chan_suspend(clj_value chv) {
+	if (chan_arg(chv, "suspend!") == CLJ_THROWN) return CLJ_THROWN;
+	clj_value coro = body_coro(chv);
+	bool      ok = !clj_is_nil(coro) && clj_coro_suspend(clj_coro_of(coro));
+	clj_release(coro);
+	return clj_bool(ok);
+}
+
+clj_value clj_chan_resume(clj_value chv) {
+	if (chan_arg(chv, "resume!") == CLJ_THROWN) return CLJ_THROWN;
+	clj_value coro = body_coro(chv);
+	bool      ok = !clj_is_nil(coro) && clj_coro_resume(clj_coro_of(coro));
+	clj_release(coro);
+	return clj_bool(ok);
+}
+
+bool clj_chan_suspended(clj_value chv) {
+	clj_value coro = body_coro(chv);
+	bool      r = !clj_is_nil(coro) && clj_coro_suspended(clj_coro_of(coro));
+	clj_release(coro);
+	return r;
+}
+
 // Not CLJ_CANCEL_SCOPE: that kind is cleared by a scope's exit, and a sibling's own nested scope would clear it.
 // @ai-generated(guided)
 clj_value clj_chan_cancel_cause(clj_value chv, clj_value cause) { return cancel_chan(chv, CLJ_CANCEL_REQUESTED, cause); }
@@ -1203,13 +1243,7 @@ bool clj_chan_cancelled(clj_value chv) {
 
 int clj_chan_role(clj_value chv) { return chan_of(chv)->role; }
 
-clj_value clj_debug_chan_coro(clj_value chv) {
-	clj_chan *ch = chan_of(chv);
-	chan_lock(ch);
-	clj_value coro = clj_retain(ch->coro);
-	chan_unlock(ch);
-	return coro;
-}
+clj_value clj_debug_chan_coro(clj_value chv) { return body_coro(chv); }
 
 uint32_t clj_debug_chan_pending(clj_value chv, bool puts) {
 	clj_chan *ch = chan_of(chv);
@@ -1342,6 +1376,22 @@ static clj_value b_cancel(const clj_value *args, size_t n) {
 	return clj_chan_cancel(args[0]);
 }
 
+static clj_value b_suspend(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_chan_suspend(args[0]);
+}
+
+static clj_value b_resume(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_chan_resume(args[0]);
+}
+
+static clj_value b_suspended_p(const clj_value *args, size_t n) {
+	(void)n;
+	if (chan_arg(args[0], "suspended?") == CLJ_THROWN) return CLJ_THROWN;
+	return clj_bool(clj_chan_suspended(args[0]));
+}
+
 static clj_value b_cancelled_p(const clj_value *args, size_t n) {
 	(void)n;
 	if (chan_arg(args[0], "future-cancelled?") == CLJ_THROWN) return CLJ_THROWN;
@@ -1448,6 +1498,7 @@ void clj_chan_install(void) {
 		{"available-processors*", b_available_processors, 0, 0}, {"coro-current*", b_coro_current, 0, 0}, {"uncaught-report*", b_uncaught_report, 1, 1},
 		{"coro-cancel-scope*", b_coro_cancel_scope, 1, 2}, {"coro-uncancel-scope*", b_coro_uncancel_scope, 1, 1},
 		{"chan-cancel-cause*", b_chan_cancel_cause, 1, 2},
+		{"chan-suspend*", b_suspend, 1, 1}, {"chan-resume*", b_resume, 1, 1}, {"chan-suspended?*", b_suspended_p, 1, 1},
 	};
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
 	install_thread_ns();

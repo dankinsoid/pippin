@@ -63,6 +63,11 @@ clj_value clj_chan_thread(clj_value f);
 clj_value clj_chan_cancel(clj_value ch);
 // The same, recording why: the coroutine's cancellation then answers cause to ex-cause (design.md §4).
 clj_value clj_chan_cancel_cause(clj_value ch, clj_value cause);
+// suspend!/resume! of the same body: it parks at its next safe tick and stays there (design.md §4, NOTES.md).
+// suspend! is true when a live body took the request, resume! when one was standing.
+clj_value clj_chan_suspend(clj_value ch);
+clj_value clj_chan_resume(clj_value ch);
+bool      clj_chan_suspended(clj_value ch);
 // Debug: pending puts and takes queued on the channel.
 uint32_t clj_debug_chan_pending(clj_value ch, bool puts);
 // Debug: the coroutine behind a go, future or thread channel, owned; nil once it finished or for a plain channel.

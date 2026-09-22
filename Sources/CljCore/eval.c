@@ -66,7 +66,11 @@ enum {
 static inline bool deadline_reached(clj_shadow_stack *s) {
 	if (--s->countdown) return false;
 	s->countdown = DEADLINE_CHECK_EVERY;
-	return clj_profile_now() >= clj_shadow_deadline(s);
+	if (clj_profile_now() < clj_shadow_deadline(s)) return false;
+	// A suspend request poisons the deadline the way a cancellation does, and is met here: it parks and the call
+	// goes on, so the tick must answer "no throw" for it or both backends would unwind (sched.c).
+	if (__builtin_expect(atomic_load_explicit(&s->suspend, memory_order_relaxed), 0)) return clj_coro_suspend_point();
+	return true;
 }
 
 // The branch every call pays when no deadline is set.
@@ -92,7 +96,7 @@ static clj_value deadline_throw(clj_shadow_stack *s) {
 static void deadline_apply(uint64_t deadline) {
 	clj_coro         *c = clj_coro_current();
 	clj_shadow_stack *s = c->shadow;
-	atomic_store_explicit(&s->deadline, deadline, memory_order_relaxed);
+	clj_coro_deadline_replace(c, deadline);
 	s->countdown = DEADLINE_CHECK_EVERY;
 	s->unwinds = DEADLINE_MAX_UNWINDS;
 	if (deadline) clj_coro_deadline_arm(c);

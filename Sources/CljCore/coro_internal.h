@@ -54,6 +54,7 @@ struct clj_coro {
 	uint32_t          exec_depth;    // clj_exec_run nesting (eval.c)
 	uint32_t          host_depth;    // synchronous host calls on this execution: a park under one is an error
 	uint32_t          locks_held;    // clj_locks held (lock.h): 0 at every park
+	uint32_t          cmutex_held;   // clj_cmutexes held around user code: no suspend parks under one (cmutex.h)
 	clj_value        *retired;       // fn roots a def replaced while this execution was in flight (eval.c)
 	size_t            nretired, cretired;
 	void             *captures;      // with-out-str buffers (runtime.c)
@@ -213,12 +214,22 @@ clj_value clj_coro_cancel_cause(clj_coro *c);
 void clj_coro_uncancel_scope(clj_coro *c);
 // Clears every cancellation and the deadline: a blocking thread's implicit coroutine between two jobs.
 void clj_coro_cancel_reset(clj_coro *c);
+// Suspension (design §4, "Стек как объект"): a sticky flag beside the cancellation, poisoning the same deadline,
+// parking the tick on a gate instead of throwing. true when a live coroutine took the request / had one standing.
+bool clj_coro_suspend(clj_coro *c);
+bool clj_coro_resume(clj_coro *c);
+bool clj_coro_suspended(const clj_coro *c);
+// The tick with the poison and the flag set (eval.c): parks until resume! or a cancellation, and answers whether
+// the tick must throw after all. A point that holds anything defers the request to the next tick.
+bool clj_coro_suspend_point(void);
 // True when c's cancellation is the deadline kind, false for requested/scope (clj_throw_cancelled's argument).
 bool clj_coro_cancel_is_deadline(const clj_coro *c);
 // Arms the deadline timer of c for its shadow's absolute deadline (disarming any earlier one); a cleared deadline
 // disarms it and lifts a deadline cancellation.
 void clj_coro_deadline_arm(clj_coro *c);
 void clj_coro_deadline_cleared(clj_coro *c);
+// The deadline the owner sets on itself: kept aside while a cancellation or a suspension holds the ring's own.
+void clj_coro_deadline_replace(clj_coro *c, uint64_t deadline);
 // The number of carriers the pool has or will have (available-processors*).
 size_t clj_sched_carrier_count(void);
 // A parking sleep on the timer thread: Thread/sleep for library code. CLJ_THROWN on a cancellation.
