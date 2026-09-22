@@ -1190,6 +1190,7 @@ static clj_value cancel_chan(clj_value chv, int kind, clj_value cause) {
 clj_value clj_chan_cancel(clj_value chv) { return cancel_chan(chv, CLJ_CANCEL_REQUESTED, CLJ_NIL); }
 
 // Not CLJ_CANCEL_SCOPE: that kind is cleared by a scope's exit, and a sibling's own nested scope would clear it.
+// @ai-generated(guided)
 clj_value clj_chan_cancel_cause(clj_value chv, clj_value cause) { return cancel_chan(chv, CLJ_CANCEL_REQUESTED, cause); }
 
 bool clj_chan_cancelled(clj_value chv) {

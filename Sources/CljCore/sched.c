@@ -666,6 +666,7 @@ void clj_coro_cancel_kind_cause(clj_coro *c, int kind, clj_value cause) {
 void clj_coro_cancel_kind(clj_coro *c, int kind) { clj_coro_cancel_kind_cause(c, kind, CLJ_NIL); }
 
 // Acquire pairs with cancel_locked's release, so a flag this reads carries the cause stored before it.
+// @ai-generated(guided)
 clj_value clj_coro_cancel_cause(clj_coro *c) {
 	if (atomic_load_explicit(&c->cancel, memory_order_acquire) == CLJ_CANCEL_NONE) return CLJ_NIL;
 	return clj_retain(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed));
