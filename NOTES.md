@@ -1978,9 +1978,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **The `:effects` requirement (design §4).** A parameter whose schema is a `:=>` with a properties map
   declares what the function passed there may do: `(swap! a f)` is `[:=> {:effects #{}} [:cat :any] :any]` at
   argument 1, "no park". Only `park` is checked (`CLJ_EFFECTS_CHECKED`) — the other bits describe a body, no
-  site forbids an allocation. `{:effects/severity :error}` marks the places where parking cannot work at all
-  (`dosync`, a host stub's sync closure, code under `clj_lock`); there a known park is an error and an opaque
-  argument a warning. Without it the requirement is a lint: a known park warns and an opaque argument is
+  site forbids an allocation. `{:effects/severity :error}` is for the places where parking cannot work at
+  all (`dosync`, a host stub's sync closure, code under `clj_lock`): there a known park is an error and an
+  opaque argument a warning. No var carries it yet — none of those exist; `SummaryTests` is what exercises it. Without it the requirement is a lint: a known park warns and an opaque argument is
   silent, because warning on it costs 76 warnings over the corpus and proves nothing. `swap!`, `swap-vals!`,
   `set-validator!` and `lazy-seq*` carry one — each runs its function while holding the atom's coroutine
   mutex or the seq's forcing claim. Watches do not: `commit` unlocks the atom before `notify`.
