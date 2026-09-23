@@ -22,7 +22,7 @@
  ]
  :tests
  [
-  {:name medley.core-test/test-index-of :status :error :reason "Cannot send to a vector: not an Objective-C object" :missing []}
+  {:name medley.core-test/test-index-of :status :error :reason "Cannot send to a vector: not an Objective-C object" :missing [] :note "(.indexOf coll item) loads now that a method call is a form, but its target is our vector: the level-1 bridge speaks to Objective-C objects, and Java interop on our own collections is not it"}
   {:name medley.core-test/test-map-entry :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-map-kv :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-partition-after :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}
