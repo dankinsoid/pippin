@@ -93,6 +93,7 @@ typedef enum {
 	CLJ_DIAG_TOP_INTO_DECL, // TOP passed where a declaration requires something
 	CLJ_DIAG_TOP_RESULT,    // a body answers TOP where its declaration promises something
 	CLJ_DIAG_CALLERS_CONFLICT, // a use met what every recorded caller passes down to BOTTOM: no recorded call takes this path
+	CLJ_DIAG_EFFECTS,          // a function passed where the :effects of a parameter forbid what it does (design §4)
 } clj_diag_kind;
 
 typedef struct {
@@ -103,6 +104,7 @@ typedef struct {
 	clj_value         callee;            // var, or nil for a direct fn
 	uint32_t          arg;               // UINT32_MAX for the result
 	clj_fact          passed, required;
+	uint32_t          effects, effects_allowed; // CLJ_DIAG_EFFECTS only: what the argument does and what it may do
 	bool              caught; // the site sits in a try body with a handler: the throw it proves is caught, so a warning
 } clj_diagnostic;
 

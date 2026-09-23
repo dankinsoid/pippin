@@ -12,6 +12,7 @@
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/proto.h"
+#include "clj/set.h"
 #include "clj/string.h"
 #include "clj/summary.h"
 #include "clj/symbol.h"
@@ -308,11 +309,12 @@ clj_value clj_fact_to_schema(clj_fact f) {
 // ---- annotations: [:=> [:cat arg-schema …] ret-schema] under :=> in the var's meta (design §3, anchor 1)
 
 typedef struct {
-	bool     present;
-	uint32_t nargs;
-	clj_fact args[CLJ_FN_MAX_FIXED + 1];
-	bool     has_ret;
-	clj_fact ret;
+	bool            present;
+	uint32_t        nargs;
+	clj_fact        args[CLJ_FN_MAX_FIXED + 1];
+	clj_effects_req effects[CLJ_FN_MAX_FIXED + 1];
+	bool            has_ret;
+	clj_fact        ret;
 } annotation;
 
 // Owned lookup on any map kind; nil when absent.
@@ -322,14 +324,57 @@ static clj_value lookup(clj_value m, const char *key) {
 	return r == CLJ_THROWN ? (clj_release(clj_take_pending()), CLJ_NIL) : r;
 }
 
+static const struct {
+	const char *name;
+	uint32_t    bit;
+} effect_names[] = {
+	{"alloc", CLJ_EFFECT_ALLOC}, {"throw", CLJ_EFFECT_THROW}, {"io", CLJ_EFFECT_IO}, {"atom", CLJ_EFFECT_ATOM}, {"park", CLJ_EFFECT_PARK},
+};
+
+// An unknown effect keyword is ignored, as an unknown schema tag is TOP (design §4).
+static clj_effects_req effects_req_of(clj_value schema) {
+	clj_effects_req r = {CLJ_EFFECTS_FREE, 0, false};
+	if (!clj_is_vector(schema) || clj_vector_count(schema) == 0) return r;
+	if (tag_is(clj_vector_nth(schema, 0), "maybe") || tag_is(clj_vector_nth(schema, 0), "?")) {
+		uint32_t first = 0, n = schema_children(schema, &first);
+		return n > first ? effects_req_of(clj_vector_nth(schema, first)) : r;
+	}
+	if (clj_vector_count(schema) < 2 || !tag_is(clj_vector_nth(schema, 0), "=>")) return r;
+	clj_value props = clj_vector_nth(schema, 1);
+	clj_value allowed = lookup(props, "effects");
+	if (!clj_is_set(allowed)) {
+		clj_release(allowed);
+		return r;
+	}
+	r.allowed = 0;
+	for (size_t i = 0; i < sizeof effect_names / sizeof *effect_names; i++) {
+		if (clj_set_contains(allowed, clj_keyword_from_cstr(effect_names[i].name))) r.allowed |= effect_names[i].bit;
+	}
+	clj_release(allowed);
+	clj_value severity = lookup(props, "effects/severity");
+	r.strict = tag_is(severity, "error");
+	clj_release(severity);
+	uint32_t first = 0, n = schema_children(schema, &first);
+	if (n > first) {
+		clj_value in = clj_vector_nth(schema, first);
+		if (clj_is_vector(in) && clj_vector_count(in) > 0 && tag_is(clj_vector_nth(in, 0), "cat")) {
+			uint32_t cfirst = 0, cn = schema_children(in, &cfirst);
+			r.nargs = (uint8_t)(cn - cfirst);
+		}
+	}
+	return r;
+}
+
 static annotation annotation_of(clj_value var) {
 	annotation a = {0};
-	clj_value  meta = clj_var_meta(var);
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) a.effects[i].allowed = CLJ_EFFECTS_FREE;
+	clj_value meta = clj_var_meta(var);
 	if (clj_is_nil(meta)) return a;
 	clj_value schema = lookup(meta, "=>");
 	if (clj_is_nil(schema)) return a;
-	if (clj_is_vector(schema) && clj_vector_count(schema) >= 3 && tag_is(clj_vector_nth(schema, 0), "=>")) {
-		clj_value in = clj_vector_nth(schema, 1), out = clj_vector_nth(schema, 2);
+	uint32_t top = 0, ntop = clj_is_vector(schema) ? schema_children(schema, &top) : 0;
+	if (ntop >= top + 2 && tag_is(clj_vector_nth(schema, 0), "=>")) {
+		clj_value in = clj_vector_nth(schema, top), out = clj_vector_nth(schema, top + 1);
 		a.present = true;
 		if (clj_is_vector(in) && clj_vector_count(in) > 0 && tag_is(clj_vector_nth(in, 0), "cat")) {
 			uint32_t first = 0, n = schema_children(in, &first);
@@ -337,6 +382,7 @@ static annotation annotation_of(clj_value var) {
 				clj_value item = clj_vector_nth(in, i);
 				// the rest of the arguments: no requirement on any one element
 				if (clj_is_vector(item) && clj_vector_count(item) > 0 && tag_is(clj_vector_nth(item, 0), "*")) break;
+				a.effects[a.nargs] = effects_req_of(item);
 				clj_fact_of_schema(item, &a.args[a.nargs++]);
 			}
 		}
@@ -357,7 +403,7 @@ static void add_diagnostic(clj_summaries *s, clj_diag_kind kind, clj_value var, 
 	}
 	clj_diag_severity severity = kind == CLJ_DIAG_DECL_CONFLICT ? CLJ_DIAG_ERROR : CLJ_DIAG_WARNING;
 	if (severity == CLJ_DIAG_ERROR) s->nerrors++;
-	s->diags[s->ndiags++] = (clj_diagnostic){kind, severity, 0, 0, line, col, var, arg, inferred, declared, false};
+	s->diags[s->ndiags++] = (clj_diagnostic){kind, severity, 0, 0, line, col, var, arg, inferred, declared, 0, 0, false};
 }
 
 static bool warnings_on(clj_value var) {
@@ -375,6 +421,7 @@ static void apply_annotation(clj_summaries *s, clj_value var, const annotation *
 		sum->nparams = a->nargs;
 	}
 	for (uint32_t i = 0; i < a->nargs; i++) {
+		sum->param_effects[i] = a->effects[i];
 		clj_fact m = clj_fact_meet_wide(sum->params[i], a->args[i]);
 		if (m.types == CLJ_T_BOTTOM && sum->params[i].types != CLJ_T_BOTTOM) {
 			add_diagnostic(s, CLJ_DIAG_DECL_CONFLICT, var, i, sum->param_line[i], sum->param_col[i], a->args[i], sum->params[i]);
@@ -401,7 +448,10 @@ static void summary_reset(clj_summary *sum, uint32_t nparams, bool variadic) {
 	memset(sum, 0, sizeof *sum);
 	sum->nparams = nparams;
 	sum->variadic = variadic;
-	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) sum->params[i] = clj_fact_top();
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		sum->params[i] = clj_fact_top();
+		sum->param_effects[i].allowed = CLJ_EFFECTS_FREE;
+	}
 	sum->ret = clj_fact_bottom(); // optimistic: the fixpoint climbs from here
 }
 

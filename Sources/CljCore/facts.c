@@ -359,9 +359,31 @@ static const struct {
 	{"Pattern", CLJ_T_REGEX, true},
 };
 
-static bool is_core_var(clj_value var) {
+static bool var_in_ns(clj_value var, const char *ns_name) {
 	clj_value ns = clj_var_ns(var);
-	return clj_is_symbol(ns) && strcmp(clj_string_bytes(clj_symbol_name(ns)), "clojure.core") == 0;
+	return clj_is_symbol(ns) && strcmp(clj_string_bytes(clj_symbol_name(ns)), ns_name) == 0;
+}
+
+static bool is_core_var(clj_value var) { return var_in_ns(var, "clojure.core"); }
+
+// Named, not walked: under -DCLJ_COMPILED_CORE these bodies are gone, and a park the lint rests on must not
+// depend on how the library was built.
+static bool is_park_var(clj_value var) {
+	static const char *const waits[] = {"<!", ">!", "<!!", ">!!", "alts!", "alts!!"};
+	const char              *name = clj_string_bytes(clj_symbol_name(clj_var_name(var)));
+	if (var_in_ns(var, "Thread")) return strcmp(name, "sleep") == 0;
+	if (!var_in_ns(var, "clojure.core.async")) return false;
+	for (size_t i = 0; i < sizeof waits / sizeof *waits; i++) {
+		if (strcmp(waits[i], name) == 0) return true;
+	}
+	return false;
+}
+
+// What a var with no summary does: a core builtin by name, a parking primitive, anything otherwise.
+static uint32_t unknown_var_effects(clj_value var) {
+	if (!clj_is_var(var)) return CLJ_EFFECT_ANY;
+	if (is_core_var(var)) return clj_facts_core_effects(clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	return is_park_var(var) ? CLJ_EFFECT_ANY | CLJ_EFFECT_PARK : CLJ_EFFECT_ANY;
 }
 
 static const fact_sig *sig_named(const char *name, uint32_t arity) {
@@ -1034,7 +1056,7 @@ static void add_diagnostic(pass *p, clj_diag_kind kind, const clj_node *arg, uin
 	// call takes this path, which is not a proof that a call throws
 	if (kind == CLJ_DIAG_CALL_CONFLICT && p->joined) kind = CLJ_DIAG_CALLERS_CONFLICT;
 	clj_diagnostic d = {kind, kind == CLJ_DIAG_CALL_CONFLICT && !caught ? CLJ_DIAG_ERROR : CLJ_DIAG_WARNING,
-	                    arg->line, arg->col, use_line, use_col, callee, i, have, req, caught};
+	                    arg->line, arg->col, use_line, use_col, callee, i, have, req, 0, 0, caught};
 	if (d.severity == CLJ_DIAG_ERROR) f->nerrors++;
 	f->diags[f->ndiags++] = d;
 }
@@ -1069,6 +1091,47 @@ static void require_arg(pass *p, env *e, const clj_node *arg, clj_fact have, clj
 	}
 }
 
+// What a function passed as an argument does, OPAQUE where the walk cannot reach a body (design §4).
+static uint32_t arg_effects(pass *p, const clj_node *a, uint32_t nargs) {
+	if (!p->f->sums) return CLJ_EFFECT_OPAQUE;
+	if (a->kind == CLJ_NODE_FN) {
+		uint32_t r = 0;
+		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
+			const clj_fn_arity *ar = i <= CLJ_FN_MAX_FIXED ? a->u.fn.fixed[i] : a->u.fn.variadic;
+			if (!ar) continue;
+			const clj_summary *s = clj_summary_of_arity(p->f->sums, a, ar);
+			r |= s ? s->effects : CLJ_EFFECT_OPAQUE;
+		}
+		return r;
+	}
+	if (a->kind == CLJ_NODE_VAR && clj_is_var(a->u.var)) {
+		const clj_summary *s = summary_of(p, a->u.var, nargs);
+		return s ? s->effects : unknown_var_effects(a->u.var);
+	}
+	return CLJ_EFFECT_OPAQUE;
+}
+
+// The ladder of design §4, by whether the effect is impossible here or only bad practice.
+static void require_effects(pass *p, const clj_node *arg, const clj_effects_req *req, clj_value callee, uint32_t i) {
+	if (req->allowed == CLJ_EFFECTS_FREE || !p->record || p->dead) return;
+	uint32_t forbidden = ~req->allowed & CLJ_EFFECTS_CHECKED;
+	if (!forbidden) return;
+	uint32_t have = arg_effects(p, arg, req->nargs);
+	bool     proven = (have & forbidden) != 0;
+	// against a lint ⊤ would fire on every higher-order call: design §3 keeps it silent there
+	if (!proven && !(req->strict && (have & CLJ_EFFECT_OPAQUE))) return;
+	bool error = proven && req->strict;
+	if (!error && !p->f->warn) return;
+	add_diagnostic(p, CLJ_DIAG_EFFECTS, arg, 0, 0, callee, i, clj_fact_top(), clj_fact_top());
+	clj_diagnostic *d = &p->f->diags[p->f->ndiags - 1];
+	d->effects = have;
+	d->effects_allowed = req->allowed;
+	if (error) {
+		d->severity = CLJ_DIAG_ERROR;
+		p->f->nerrors++;
+	}
+}
+
 static void apply_summary(pass *p, env *e, const clj_summary *sum, const clj_node *const *args, uint32_t n, const clj_fact *have,
                           clj_value callee) {
 	if (!sum) return;
@@ -1078,6 +1141,7 @@ static void apply_summary(pass *p, env *e, const clj_summary *sum, const clj_nod
 	for (uint32_t i = 0; i < n && i < sum->nparams; i++) {
 		bool declared = sum->annotated && sum->param_line[i] == 0;
 		require_arg(p, e, args[i], have[i], sum->params[i], sum->param_line[i], sum->param_col[i], callee, i, declared);
+		require_effects(p, args[i], &sum->param_effects[i], callee, i);
 	}
 }
 
@@ -1199,7 +1263,12 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 	else record_site(p, site, var, n, have);
 	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
-	if (!sum) p->effects |= name ? clj_facts_core_effects(name) : CLJ_EFFECT_ANY;
+	if (!sum) {
+		uint32_t eff = unknown_var_effects(var);
+		// @atom never parks, @future and @promise do: the fact is the argument's, not the symbol's (design §4)
+		if (name && n >= 1 && have[0].types == CLJ_T_ATOM && strcmp(name, "deref") == 0) eff &= ~(uint32_t)CLJ_EFFECT_OPAQUE;
+		p->effects |= eff;
+	}
 	apply_summary(p, e, sum, args, n, have, var);
 	clj_fact r = s ? sig_result(s, have, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
 	const clj_summary *spec = specialized_of(p, var, n, have, sum);
@@ -1793,6 +1862,12 @@ const char *clj_diagnostic_message(const clj_diagnostic *d, char *buf, size_t n)
 		snprintf(buf, n, "%s declares argument %u as %s, nothing is known about what is passed at %u:%u", name, d->arg, req, d->line, d->col);
 		break;
 	case CLJ_DIAG_TOP_RESULT: snprintf(buf, n, "%s: the declaration says the result is %s, nothing is known about what the body answers", name, req); break;
+	case CLJ_DIAG_EFFECTS: {
+		uint32_t    bad = d->effects & ~d->effects_allowed & CLJ_EFFECTS_CHECKED;
+		const char *what = bad ? "parks" : "may park";
+		snprintf(buf, n, "%s does not allow argument %u to park, the function passed at %u:%u %s", name, d->arg, d->line, d->col, what);
+		break;
+	}
 	case CLJ_DIAG_CALLERS_CONFLICT:
 		snprintf(buf, n, "%s requires argument %u to be %s, %s is passed at %u:%u under what the recorded callers pass", name, d->arg, req, have,
 		         d->line, d->col);
@@ -1817,6 +1892,8 @@ static const char *const pure_names[] = {
 static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "read-line", "load", "require"};
 static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset-vals!", "compare-and-set!", "vreset!", "vswap!",
                                          "alter-var-root", "set-validator!", "add-watch", "remove-watch", "alter-meta!", "reset-meta!"};
+// The waits the coroutine parks on; deref is not among them because @atom does not park and @future does (design §4).
+static const char *const park_names[] = {"chan-take*", "chan-put*", "chan-alts*", "chan-deref*", "sleep*"};
 
 static bool named_in(const char *name, const char *const *list, size_t n) {
 	for (size_t i = 0; i < n; i++) {
@@ -1827,6 +1904,7 @@ static bool named_in(const char *name, const char *const *list, size_t n) {
 
 // A predicate neither allocates nor throws; the rest of the pure list allocates or throws on a wrong argument but no more.
 uint32_t clj_facts_core_effects(const char *name) {
+	if (named_in(name, park_names, sizeof park_names / sizeof *park_names)) return CLJ_EFFECT_ANY | CLJ_EFFECT_PARK;
 	if (named_in(name, io_names, sizeof io_names / sizeof *io_names)) return CLJ_EFFECT_ANY;
 	if (named_in(name, atom_names, sizeof atom_names / sizeof *atom_names)) return CLJ_EFFECT_ATOM | CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
 	if (named_in(name, pure_names, sizeof pure_names / sizeof *pure_names)) {

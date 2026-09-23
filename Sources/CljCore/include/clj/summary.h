@@ -7,12 +7,25 @@
 
 // Effects as far as they fall out of the walk (design §3); an unknown callee has every bit.
 enum {
-	CLJ_EFFECT_ALLOC = 1u << 0,
-	CLJ_EFFECT_THROW = 1u << 1,
-	CLJ_EFFECT_IO    = 1u << 2,
-	CLJ_EFFECT_ATOM  = 1u << 3, // atom-write
+	CLJ_EFFECT_ALLOC  = 1u << 0,
+	CLJ_EFFECT_THROW  = 1u << 1,
+	CLJ_EFFECT_IO     = 1u << 2,
+	CLJ_EFFECT_ATOM   = 1u << 3, // atom-write
+	CLJ_EFFECT_PARK   = 1u << 4, // a wait that suspends the coroutine: <!, >!, alts!, a future or promise deref, sleep
+	CLJ_EFFECT_OPAQUE = 1u << 5, // the walk did not see the whole body: anything may happen, a park included
+	// PARK stays out: the :effects ladder needs "known to park" apart from the "may park" OPAQUE already carries.
+	CLJ_EFFECT_ANY = CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW | CLJ_EFFECT_IO | CLJ_EFFECT_ATOM | CLJ_EFFECT_OPAQUE,
 };
-#define CLJ_EFFECT_ANY 0xfu
+
+// What a parameter is allowed to do: the :effects of the properties map in the parameter's :=> schema (design §4).
+#define CLJ_EFFECTS_FREE UINT32_MAX // no requirement declared
+// The bits a requirement can forbid: the others describe a body, no site bans an allocation.
+#define CLJ_EFFECTS_CHECKED CLJ_EFFECT_PARK
+typedef struct {
+	uint32_t allowed; // CLJ_EFFECTS_FREE, else the effect bits the parameter may have
+	uint8_t  nargs;   // fixed arguments the requirement's :cat declares: the arity a var argument is summarized at
+	bool     strict;  // the effect is impossible here (an error), not merely bad practice (a lint): :effects/severity :error
+} clj_effects_req;
 
 // One arity: requirements are the meet of a parameter's uses along a path, joined across branches; unknown is TOP.
 typedef struct {
@@ -21,8 +34,9 @@ typedef struct {
 	bool     inferred;  // a body was walked
 	bool     annotated; // the var's :clj/facts meta contributed
 	bool     recursive; // the walk reached its own summary: a fixpoint was run
-	uint32_t effects;
-	clj_fact params[CLJ_FN_MAX_FIXED + 1];
+	uint32_t        effects;
+	clj_fact        params[CLJ_FN_MAX_FIXED + 1];
+	clj_effects_req param_effects[CLJ_FN_MAX_FIXED + 1];
 	uint32_t param_line[CLJ_FN_MAX_FIXED + 1], param_col[CLJ_FN_MAX_FIXED + 1]; // the use that imposed it; 0 for an annotation
 	clj_fact ret;
 } clj_summary;

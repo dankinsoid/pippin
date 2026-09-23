@@ -17,11 +17,11 @@ column is "nothing useful", not "five kinds". *Computed nodes* leave the constan
 own type, so the share over computed nodes is what an optimizer actually gains. A library whose every
 load-path root is named `test` is counted apart, because assertion expansions are mostly literals.
 
-- Over library code: **49.5 → 68.7 %** of value nodes have a known type and **45.9 → 26.3 %** are ⊤; over
-  *computed* nodes **30.4 → 56.8 %** are known. What the summaries add is every call of a var whose root is a
+- Over library code: **49.5 → 69.0 %** of value nodes have a known type and **45.9 → 26.0 %** are ⊤; over
+  *computed* nodes **30.4 → 57.2 %** are known. What the summaries add is every call of a var whose root is a
   closure with a walkable body or an annotated builtin, every var read (the kind of its root, epoch-guarded)
   and every direct call.
-- Nullability is decided for **50.8 → 70.1 %** of value nodes over library code.
+- Nullability is decided for **50.8 → 70.4 %** of value nodes over library code.
 - **Local slots** (the register prize): 3584 slots over library code, **23.2 %** of which never escape and
   are never captured; escaping is pass 1's and the summaries do not move it.
 - **Intrinsic arithmetic** (the unboxing prize): 86 sites over library code, **18.6 → 18.6 → 22.1 %**
@@ -33,11 +33,11 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   parameters, which sat at ⊤ or "a number" in neither share.
 - **Loops**: 61 over library code, **4.9 → 4.9 → 4.9 %** with every variable of one numeric domain.
 - **The caller join** (the third number of a cell): 881 arities of def'd fns asked for it over the whole corpus, 145
-  came back narrower than ⊤ at some parameter; of 1117 parameters 152 are narrowed and 152 to one kind. Why a join
-  answered ⊤, over every ask of the run (the rounds included): 588 with no recorded site, 451 with a site passing ⊤ at
+  came back narrower than ⊤ at some parameter; of 1117 parameters 153 are narrowed and 153 to one kind. Why a join
+  answered ⊤, over every ask of the run (the rounds included): 588 with no recorded site, 448 with a site passing ⊤ at
   some position (the join keeps the other positions), 1233 with the var read as a value somewhere (an argument, a
-  capture, `#'f`, `apply`: it may be called from anywhere), 0 `^:dynamic`; 371 answered without a ⊤ rule. Known
-  types over library code with the join: 69.2 % of value nodes, 57.5 % of computed nodes. Conflicts a use raised
+  capture, `#'f`, `apply`: it may be called from anywhere), 0 `^:dynamic`; 374 answered without a ⊤ rule. Known
+  types over library code with the join: 69.4 % of value nodes, 57.9 % of computed nodes. Conflicts a use raised
   against what the recorded callers pass: 0, warnings (no recorded call takes that path; not a proof).
 - **Protocol receivers** (the inline-cache prize): 26 sites, **0.0 → 100.0 %** with a known type. A receiver
   that is a var read (`defmethod` expands to `(-add-method mf …)` on the multimethod's var) takes the kind of
@@ -50,21 +50,26 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 62 ms, with the summaries 71 ms, against 387 ms of analysis over the same forms
-  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1007 summaries, ran 24 fixpoint rounds
+- Cost: pass 1 alone 65 ms, with the summaries 77 ms, against 416 ms of analysis over the same forms
+  (0.16× → 0.19×); the largest single table is 262 KB. The store holds 1012 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 174. Value nodes at ⊥: 147, of which 39 `dead-branch` (the pass's
   own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), 108 with a throw or recur as the only
   way out, and 0 unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening
   rule cut short: 0.
-- Pass 2: 27169 call sites took a summary, 100 arguments were narrowed by a requirement. Diagnostics (design §3
+- Pass 2: 27297 call sites took a summary, 100 arguments were narrowed by a requirement. Diagnostics (design §3
   "Строгость"): **0 errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate
   this report fails on; 35 proven throws inside a `try` with a handler (`thrown?` assertions), warnings; 83
   warnings for ⊤ meeting a declaration. Declarations the bodies contradict: 0 errors. Listed below.
-- The declarations alone (`:=>` metas on 17 core vars: the table at the end of core.clj and three defn attr-maps;
-  inference without them is the third measurement): known types over library code 68.7 → 68.7 %, computed nodes
-  known 56.8 → 56.8 %, arguments narrowed 9 → 100, proven throws 0 → 35. They add requirements, which
+- The `:effects` requirement on a parameter (design §4): a function that parks passed where the callee holds a
+  lock through the wait — `swap!`/`swap-vals!`, a validator, the thunk of `lazy-seq*`. **0 errors** (a park where
+  parking is impossible, `:effects/severity :error`) and 0 lints (a park that is legal but holds the resource).
+  ⊤ is silent against a lint: warning on it costs 76 warnings over this corpus and says nothing, since an unknown
+  callee is unknown about every effect (`CLJ_EFFECT_OPAQUE`), not known to park.
+- The declarations alone (`:=>` metas on 21 core vars: the table at the end of core.clj and three defn attr-maps;
+  inference without them is the third measurement): known types over library code 68.7 → 69.0 %, computed nodes
+  known 56.8 → 57.2 %, arguments narrowed 9 → 100, proven throws 0 → 35. They add requirements, which
   inference alone has none of at the leaves: every builtin is a native without a body.
 
 ## Types and nullability
@@ -73,12 +78,12 @@ Each percentage is before → after the summaries; a third number is with the ca
 
 | library | forms | value nodes | known | union ≤4 | ⊤ | nullability known | computed nodes | known |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 280 | 12693 | 40.1 → 60.5 → 61.0 % | 10.4 → 11.2 % | 49.1 → 28.0 → 27.2 % | 42.4 → 63.3 % | 11342 | 33.0 → 55.7 → 56.3 % |
+| core.clj | 280 | 12693 | 40.1 → 60.9 → 61.5 % | 10.4 → 11.2 % | 49.1 → 27.5 → 26.7 % | 42.4 → 63.8 % | 11342 | 33.0 → 56.3 → 56.9 % |
 | embedded libs | 108 | 3692 | 42.4 → 69.0 → 69.6 % | 6.2 → 6.7 % | 51.2 → 24.1 → 23.0 % | 44.8 → 71.2 % | 3145 | 32.3 → 63.6 → 64.3 % |
-| clojure-test-suite | 519 | 419296 | 59.1 → 75.9 → 75.9 % | 0.4 → 0.3 % | 40.4 → 23.8 → 23.7 % | 59.4 → 76.1 % | 241466 | 29.0 → 58.2 → 58.2 % |
-| medley | 104 | 22651 | 56.0 → 73.3 → 73.7 % | 0.8 → 1.0 % | 43.2 → 25.7 → 25.0 % | 56.4 → 73.7 % | 13824 | 27.8 → 56.2 → 56.9 % |
-| **library code** | 492 | 39036 | 49.5 → 68.7 → 69.2 % | 4.5 → 4.9 % | 45.9 → 26.3 → 25.5 % | 50.8 → 70.1 % | 28311 | 30.4 → 56.8 → 57.5 % |
-| **all** | 1011 | 458332 | 58.3 → 75.3 → 75.4 % | 0.8 → 0.7 % | 40.9 → 24.0 → 23.9 % | 58.7 → 75.6 % | 269777 | 29.2 → 58.0 → 58.1 % |
+| clojure-test-suite | 519 | 419296 | 59.1 → 75.9 → 76.0 % | 0.4 → 0.3 % | 40.4 → 23.7 → 23.7 % | 59.4 → 76.1 % | 241466 | 29.0 → 58.2 → 58.3 % |
+| medley | 104 | 22651 | 56.0 → 73.5 → 73.9 % | 0.8 → 1.0 % | 43.2 → 25.5 → 24.8 % | 56.4 → 73.9 % | 13824 | 27.8 → 56.6 → 57.2 % |
+| **library code** | 492 | 39036 | 49.5 → 69.0 → 69.4 % | 4.5 → 4.9 % | 45.9 → 26.0 → 25.2 % | 50.8 → 70.4 % | 28311 | 30.4 → 57.2 → 57.9 % |
+| **all** | 1011 | 458332 | 58.3 → 75.3 → 75.4 % | 0.8 → 0.7 % | 40.9 → 23.9 → 23.8 % | 58.7 → 75.6 % | 269777 | 29.2 → 58.1 → 58.2 % |
 
 ## The positions that pay
 
@@ -127,25 +132,26 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 280 | 12817 | 7.5 | 3.5 | 4.3 | 4.3 | 0.47× → 0.58× | 379 | 13 |
-| embedded libs | 108 | 3710 | 2.1 | 0.8 | 1.2 | 1.2 | 0.37× → 0.60× | 114 | 6 |
-| clojure-test-suite | 519 | 419353 | 359.4 | 55.4 | 62.3 | 62.3 | 0.15× → 0.17× | 9974 | 262 |
-| medley | 104 | 22661 | 17.5 | 2.4 | 3.3 | 3.0 | 0.14× → 0.19× | 562 | 23 |
-| **library code** | 492 | 39188 | 27.1 | 6.7 | 8.9 | 8.5 | 0.25× → 0.33× | 1055 | 23 |
-| **all** | 1011 | 458541 | 386.5 | 62.1 | 71.2 | 70.8 | 0.16× → 0.18× | 11029 | 262 |
+| core.clj | 280 | 12817 | 9.1 | 3.6 | 5.7 | 4.9 | 0.39× → 0.62× | 379 | 13 |
+| embedded libs | 108 | 3710 | 1.9 | 0.7 | 1.2 | 1.4 | 0.39× → 0.64× | 114 | 6 |
+| clojure-test-suite | 519 | 419353 | 387.5 | 58.6 | 67.0 | 64.2 | 0.15× → 0.17× | 9974 | 262 |
+| medley | 104 | 22661 | 17.6 | 2.4 | 3.4 | 3.2 | 0.14× → 0.19× | 562 | 23 |
+| **library code** | 492 | 39188 | 28.7 | 6.8 | 10.3 | 9.5 | 0.24× → 0.36× | 1055 | 23 |
+| **all** | 1011 | 458541 | 416.2 | 65.3 | 77.4 | 73.7 | 0.16× → 0.19× | 11029 | 262 |
 
 ## Errors
 
-A ⊥ at a call site outside any try that catches it, or a `:=>` declaration the body contradicts: a runtime
-failure shown early. `make facts-report` exits non-zero on any (the corpus gate); nothing halts a load or a
-compile yet (NOTES.md, "Facts").
+A ⊥ at a call site outside any try that catches it, a `:=>` declaration the body contradicts, or a park where
+`:effects` says parking is impossible: a runtime failure shown early. `make facts-report` exits non-zero on any
+(the corpus gate); nothing halts a load or a compile yet (NOTES.md, "Facts").
 
 None.
 
 ## Warnings
 
-A proven throw inside a `try` that catches it (the negative tests of the corpus), and ⊤ meeting a declaration
-(on by default, `{:facts/warnings false}` in the ns meta turns it off). Reported here only.
+A proven throw inside a `try` that catches it (the negative tests of the corpus), ⊤ meeting a declaration, and
+a park where `:effects` calls it bad practice (on by default, `{:facts/warnings false}` in the ns meta turns them
+off). Reported here only.
 
 - core.clj: clojure.core/namespace declares argument 0 as keyword|symbol, nothing is known about what is passed at 125:113
 - core.clj: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 125:128
