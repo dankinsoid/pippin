@@ -2548,6 +2548,68 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   Swift → the `extend` entry above; `Runtime.define` of a macro → `:macro` meta and `clj_var_set_macro`,
   when a host has a reason.
 
+## ObjC bridge (Sources/CljCore/objc.c, include/clj/objc.h; design §5 level 1)
+
+Level 1 of the bridge: calling anything `@objc` from Clojure with the signature known only at run time.
+It lives in C rather than the Swift target although `Package.swift` says host-specific things go through
+Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64 ns over a C builtin,
+`bench/RESULTS.md` "Host-defined fns") and level 1 is meant to carry most of a real application.
+`sched.c` is the precedent; the row is in `docs/portability.md`.
+
+- **Eight `objc_msgSend` prototypes cover every shape we accept, and the rest are refused.** The symbol
+  must be called through the prototype the method's type encoding describes: on arm64 the integer and
+  floating-point argument registers are separate files, a `float` occupies a v register's low half where
+  a `double` occupies all of it, and calling through the wrong prototype is silent corruption, not a
+  crash. Two ABI facts collapse the combinatorics. Arguments a method does not declare are harmless —
+  they sit in registers the callee never reads — so one prototype with every slot filled serves every
+  argument count. And each register class is allocated independently, in the order of that class's own
+  arguments, so every integer-class argument (pointer, `SEL`, `BOOL`, `char` through `long`, each passed
+  as a full 64-bit slot we extend ourselves) becomes one kind. What is left is whether the
+  floating-point slots are `float` or `double`, times four return registers: `long long`, `double`,
+  `float`, `void`. Six integer slots and eight floating-point ones keep every call register-only on
+  arm64, so no stack argument area is involved.
+  **Not covered**, and answered with an error rather than a call through the wrong shape: a struct or
+  union argument or return (`CGRect` and friends — design §10 step 4 keeps struct conversion out of this
+  slice), `long double`, more than 6 integer-class or 8 floating-point arguments, and `float` and
+  `double` mixed in one selector. A variadic method (`stringWithFormat:`) is not refused because a type
+  encoding cannot show it is variadic; it is simply unsupported, since its arguments go on the stack.
+- **The autorelease pool lives in the slice between two context switches.** A +0 return is autoreleased
+  and needs a pool on the calling thread; our carriers are raw pthreads with none. A pool cannot span a
+  park: push and pop are one thread's stack, and a coroutine that parked mid-slice resumes on another
+  carrier, where popping its token would corrupt that carrier's. One pool per carrier is wrong for the
+  same reason, and one per call throws away the amortization the moment a loop of sends appears. So the
+  first send of a slice pushes a pool into `clj_objc_pool_token`, and `clj_coro_switch_out` drains it on
+  the way off the carrier — the thread that pushed it, properly nested inside whatever pool the host's
+  run loop keeps. Draining at a park loses nothing: `clj_objc_wrap` retains, and `clj_objc_id` is
+  borrowed only for as long as its wrapper. Off a coroutine (a host thread calling in) nothing will
+  switch, so such a call pushes and pops its own pool.
+- **Ownership is split at the selector, not at the call site.** `clj_objc_wrap` retains a +0 return;
+  `clj_objc_wrap_owned` takes the caller's reference from the `alloc`/`new`/`copy`/`mutableCopy`/`init`
+  families, read off the selector's first word as ARC reads it. A `Class` is immortal, so the wrapper
+  records `is_class` and the finalizer skips the release rather than asking the runtime again.
+- **Selectors resolve from the kebab spelling, cached per (class, spelling).** A capital run is one word
+  and digits join the word before them, so `UTF8String` is `utf8-string` and `centerXAnchor` is
+  `center-x-anchor`. Resolution kebabs every selector of the class and its superclasses and takes the
+  first match, as dispatch would; the parsed signature is cached with it, so a warm call site reads one
+  hash lookup. A miss names every selector of the receiver sharing the base name, which is how a wrong
+  or reordered label reads against the right order (design §3).
+- **What crosses as a value and what stays a handle.** `NSString` and `NSNumber` returns become our
+  string and number; an `NSMutableString` stays a handle, because a snapshot would silently drop the
+  mutation the caller went on to make. `@YES` and `@1` answer the same `-objCType`, so the booleans are
+  told apart by identity against the `kCFBoolean` singletons. Everything else is an opaque wrapper whose
+  equality and hash are identity: `-isEqual:` would run foreign code under a map's lock.
+- **The analyzer builds the selector, no backend resolves anything from the call's shape.**
+  `(.add-target btn self :action sel :for-control-events e)` becomes one `CLJ_NODE_OBJC_SEND` carrying
+  the string `add-target:action:for-control-events:`; labels are the odd items and arguments the even
+  ones, evaluated left to right. `objc-send` with the full Objective-C text is the escape hatch for a
+  selector that is not a literal.
+- **Not done, and why it shows.** Design §5 wants the label list checked against the type's selector
+  table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
+  facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
+  error with the right order in the message, not an analysis error. Also absent from this slice: struct
+  conversion, `reify` on `@objc`, blocks, the async bridge, the boundary bench, and a host type in
+  `catch` position.
+
 ## Printer (Sources/CljCore/printer.c)
 
 - **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.
