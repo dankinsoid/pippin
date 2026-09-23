@@ -1,4 +1,4 @@
-.PHONY: port-audit build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
+.PHONY: port-audit cmutex-audit build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -108,10 +108,14 @@ bench:
 port-audit:
 	sh scripts/port-audit.sh
 
+# Every cmutex acquisition must be accounted for: an unregistered one is a suspend! parked holding it.
+cmutex-audit:
+	sh scripts/cmutex-audit.sh
+
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit cmutex-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit cmutex-audit api-diff test-isolated test-compiled-asan

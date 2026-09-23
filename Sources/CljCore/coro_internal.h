@@ -55,6 +55,7 @@ struct clj_coro {
 	uint32_t          host_depth;    // synchronous host calls on this execution: a park under one is an error
 	uint32_t          locks_held;    // clj_locks held (lock.h): 0 at every park
 	uint32_t          cmutex_held;   // clj_cmutexes held around user code: no suspend parks under one (cmutex.h)
+	uint32_t          forcing_held;  // lazy seqs claimed FORCING by this one: readers park on them, so no suspend either (seq.c)
 	clj_value        *retired;       // fn roots a def replaced while this execution was in flight (eval.c)
 	size_t            nretired, cretired;
 	void             *captures;      // with-out-str buffers (runtime.c)

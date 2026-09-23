@@ -407,7 +407,12 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   from what it stored (`a->owner`, `ch->cm_owner`, the monitor's `me`) instead of the TLS: a second
   `clj_coro_current()` in the atom's `leave` alone cost 9 ns of `swap! inc`'s 38, where the two field updates cost
   about one (38.4 → 39.7 ns on this machine's bench row). Everything else takes a cmutex across straight-line C,
-  where no tick runs. `suspend!` takes a **channel**, like `cancel!` through `chan-cancel*`: `go`, `future` and `thread` hand
+  where no tick runs, and `make cmutex-audit` fails when that set of sites changes, because a new one added
+  without the bump is silent: nothing crashes, a suspended coroutine just keeps an atom or a monitor.
+  **A cmutex is not the only thing held across user code.** A lazy seq claimed `FORCING` is the other one: its
+  thunk is user code and every other reader of a shared object parks on it in the lot until the publish, so
+  `forcing_held` counts the claims (`claim`/`publish`/`unclaim` in seq.c, not the thunk's own frame — the claim
+  is wider on both ends) and defers a suspension the same way. `suspend!` takes a **channel**, like `cancel!` through `chan-cancel*`: `go`, `future` and `thread` hand
   out channels and nothing hands out a coroutine. Unlike `cancel!` it does not remember a request that arrives
   before a `thread` body attached (there is no `cancel_early` twin) — a suspension is done to a running body.
   `suspended?` answers the flag, not the park: the body may still be a few calls short of its gate.

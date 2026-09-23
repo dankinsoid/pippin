@@ -236,6 +236,14 @@ static bool forcing_here(clj_value obj) {
 }
 
 // UNFORCED -> FORCING, or false with the object FORCED (its value is now readable) or CLJ_THROWN pending.
+// The claim, not the thunk's frame, is the window: wait_forcer parks readers until the publish (sched.c).
+static bool claimed(void) {
+	clj_coro_current()->forcing_held++;
+	return true;
+}
+
+static void unclaimed(void) { clj_coro_current()->forcing_held--; }
+
 static bool claim(clj_value v, bool *thrown) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
 	*thrown = false;
@@ -247,11 +255,11 @@ static bool claim(clj_value v, bool *thrown) {
 			return false;
 		}
 		atomic_store_explicit(&s->state, FORCING, memory_order_relaxed);
-		return true;
+		return claimed();
 	}
 	for (;;) {
 		uint32_t expected = UNFORCED;
-		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING, memory_order_acq_rel, memory_order_acquire)) return true;
+		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING, memory_order_acq_rel, memory_order_acquire)) return claimed();
 		if (expected == FORCED) return false;
 		if (forcing_here(v)) {
 			*thrown = clj_throw_msg("Recursive realization of a lazy seq") == CLJ_THROWN;
@@ -268,10 +276,14 @@ static void publish(clj_value v, clj_value value) {
 	clj_value fn = s->fn;
 	s->fn = CLJ_NIL;
 	set_state(v, FORCED);
+	unclaimed();
 	clj_release(fn);
 }
 
-static void unclaim(clj_value v) { set_state(v, UNFORCED); }
+static void unclaim(clj_value v) {
+	set_state(v, UNFORCED);
+	unclaimed();
+}
 
 // Runs the thunk of a claimed object. Owned result. The deadline is checked per cell: a compiled thunk has no check
 // of its own, and an infinite lazy seq is realized one cell per turn here.

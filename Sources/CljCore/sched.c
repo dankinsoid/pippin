@@ -774,14 +774,12 @@ bool clj_coro_resume(clj_coro *c) {
 
 bool clj_coro_suspended(const clj_coro *c) { return c->shadow && atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed); }
 
-// Suspension is legal only where nothing is held (design §4): parking under a cmutex would hold it until resume!,
-// and parking under a host call or a runtime lock is the park error. Such a point defers the request to the next
-// tick rather than failing — the request came from another coroutine, there is no caller here to fail — so the
-// suspension lands the moment the swap!, locking or transducer step is over.
+// Legal only where nothing is held (design §4): a cmutex or a claimed lazy seq would stay held until resume!.
+// It defers rather than fails — the request came from another coroutine, there is no caller here to fail.
 // @ai-generated(guided)
 bool clj_coro_suspend_point(void) {
 	clj_coro *c = clj_coro_current();
-	if (c->host_depth || c->locks_held || c->cmutex_held) {
+	if (c->host_depth || c->locks_held || c->cmutex_held || c->forcing_held) {
 		// Every call until the hold is over, not one per 1024: a loop of a fixed length would otherwise meet the
 		// check at the same instruction every turn, and a phase that falls inside the section would never park.
 		c->shadow->countdown = 1;

@@ -23,7 +23,7 @@ extension CoreTests {
 			clj_init()
 			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts! alts!! cancel! cancelled? suspend! resume! suspended?]]))")
 			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice", "took"] { _ = kw(k) }
-			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out suspended-g)")
+			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out suspended-g forcing-ls)")
 			// A timer still holding its guard channel would fail the next suite's live-object baseline.
 			_ = try cljEvalScoped("(in-ns 'coro-tests) (defn joined [ch ms] (let [t (timeout ms) v (first (alts!! [ch t]))] (<!! t) v))")
 		}
@@ -231,6 +231,32 @@ extension CoreTests {
 					    [took (= a @r) (joined g 200)]))
 					""")
 				#expect(got == [kw("took"), true, kw("done")], "\(got)")
+			}
+			base.check()
+		}
+
+		// The other thing held across user code: a claimed lazy seq, which every other reader parks on until the
+		// publish. The forcer finishes the cell and meets the gate after it, or it would hold them until resume!.
+		@Test func aSuspendedBodyPublishesWhatItForces() throws {
+			let base = CoroBaseline()
+			do {
+				_ = try eval("(def forcing-ls (lazy-seq (do (loop [i 0] (when (< i 400000) (recur (inc i)))) (cons :v nil))))")
+				let got = try eval("""
+					(let [r (atom 0)
+					      g (go (try [(first forcing-ls) (loop [] (swap! r inc) (recur))]
+					                 (catch :cancelled e :done)))]
+					  (suspend! g)
+					  (<!! (timeout 60))
+					  (let [seen (joined (go (first forcing-ls)) 500)
+					        gated (suspended? g)
+					        a @r]
+					    (<!! (timeout 20))
+					    (let [b @r]
+					      (cancel! g)
+					      [seen gated (= a b) (joined g 200)])))
+					""")
+				#expect(got == [kw("v"), true, true, kw("done")], "\(got)")
+				_ = try eval("(def forcing-ls nil)")
 			}
 			base.check()
 		}
