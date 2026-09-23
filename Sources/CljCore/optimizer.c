@@ -637,6 +637,7 @@ static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use)
 	}
 	case CLJ_NODE_RECUR: return live_seq(n->u.recur.args, n->u.recur.n, c->recur->body_in & ~c->recur->slots, c, LIVE_OWNED);
 	case CLJ_NODE_INVOKE: return live_args(n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, 0, out, c);
+	case CLJ_NODE_OBJC_SEND: return live_args(n->u.objc.target, n->u.objc.args, n->u.objc.n, 0, out, c);
 	case CLJ_NODE_INTRINSIC: return live_args(NULL, n->u.intrinsic.args, n->u.intrinsic.n, clj_intrinsic_consumes(n->u.intrinsic.op) ? 1 : 0, out, c);
 	case CLJ_NODE_DIRECT_CALL: return live_args(NULL, n->u.direct.args, n->u.direct.n, 0, out, c);
 	case CLJ_NODE_FUSED: return live_args(NULL, n->u.fused.args, n->u.fused.nargs, 0, out, c); // the programs read a frame of their own

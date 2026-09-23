@@ -1632,6 +1632,13 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		p->effects |= CLJ_EFFECT_ANY;
 		r = infer_fused(p, n, e);
 		break;
+	// A method's return type is an Objective-C fact, and the lattice has no host types yet.
+	case CLJ_NODE_OBJC_SEND:
+		infer(p, n->u.objc.target, e, USE_ESCAPE);
+		for (uint32_t i = 0; i < n->u.objc.n; i++) infer(p, n->u.objc.args[i], e, USE_ESCAPE);
+		p->effects |= CLJ_EFFECT_ANY;
+		r = clj_fact_top();
+		break;
 	default: clj_fatal("unknown node kind");
 	}
 	if (p->record && n->id < p->f->nnodes) {

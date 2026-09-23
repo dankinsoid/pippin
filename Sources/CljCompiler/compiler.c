@@ -1219,7 +1219,7 @@ static bool const_ok(clj_value v) {
 
 static const char *kind_name(clj_node_kind k) {
 	static const char *const names[] = {"const", "local", "captured", "outer", "var", "if", "do", "let", "loop", "recur", "fn", "invoke",
-	                                    "def", "vector", "map", "set", "try", "throw", "intrinsic", "fused", "direct-fn", "direct-call"};
+	                                    "def", "vector", "map", "set", "try", "throw", "intrinsic", "fused", "direct-fn", "direct-call", "objc-send"};
 	return (size_t)k < sizeof names / sizeof *names ? names[k] : "?";
 }
 
@@ -2148,6 +2148,24 @@ static temp emit_throw(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+// eval_objc_send's shape: the selector is the pool constant the analyzer built, never rebuilt here.
+static temp emit_objc_send(fnctx *f, const clj_node *n) {
+	bool   ok;
+	size_t ki = const_index(f, n->u.objc.selector, &ok);
+	if (!ok) return emit_refused(f, n, "selector does not print and read back");
+	temp target = emit_borrowed(f, n->u.objc.target);
+	char array[24];
+	snprintf(array, sizeof array, "a%d", f->naux++);
+	temp *args = emit_args(f, n->u.objc.args, n->u.objc.n, array);
+	temp  r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s = clj_objc_send(%s, K[%zu], %s, %u, false);\n", r.name, target.name, ki, array, n->u.objc.n);
+	release_args(f, args, n->u.objc.n);
+	release_temp(f, &target);
+	check_thrown(f, r.name);
+	live_push(f, r);
+	return r;
+}
+
 // The interpreter's eval_try step by step: v is the body's result or CLJ_THROWN through the catches and finally.
 static temp emit_try(fnctx *f, const clj_node *n) {
 	int  k = f->naux++;
@@ -2510,6 +2528,7 @@ static temp emit(fnctx *f, const clj_node *n) {
 	case CLJ_NODE_SET: return emit_literal(f, n, "clj_c_set_literal");
 	case CLJ_NODE_TRY: return emit_try(f, n);
 	case CLJ_NODE_THROW: return emit_throw(f, n);
+	case CLJ_NODE_OBJC_SEND: return emit_objc_send(f, n);
 	case CLJ_NODE_INTRINSIC: return emit_intrinsic(f, n);
 	case CLJ_NODE_FUSED: return emit_fused(f, n);
 	case CLJ_NODE_DIRECT_FN: {

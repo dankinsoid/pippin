@@ -67,6 +67,11 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit_nodes(n->u.invoke.args, n->u.invoke.n, visit, ctx);
 		break;
 	case CLJ_NODE_DIRECT_CALL: visit_nodes(n->u.direct.args, n->u.direct.n, visit, ctx); break;
+	case CLJ_NODE_OBJC_SEND:
+		visit(n->u.objc.selector, ctx);
+		visit_node(n->u.objc.target, visit, ctx);
+		visit_nodes(n->u.objc.args, n->u.objc.n, visit, ctx);
+		break;
 	case CLJ_NODE_OUTER: break;
 	case CLJ_NODE_DEF:
 		visit(n->u.def.var, ctx);
@@ -121,6 +126,7 @@ static void node_finalize(void *self) {
 		free(n->u.fused.args);
 		break;
 	case CLJ_NODE_TRY: free(n->u.try_.catches); break;
+	case CLJ_NODE_OBJC_SEND: free(n->u.objc.args); break;
 	default: break;
 	}
 }
@@ -327,6 +333,10 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		children(n->u.invoke.args, n->u.invoke.n, visit, ctx);
 		break;
 	case CLJ_NODE_DIRECT_CALL: children(n->u.direct.args, n->u.direct.n, visit, ctx); break;
+	case CLJ_NODE_OBJC_SEND:
+		child(n->u.objc.target, visit, ctx);
+		children(n->u.objc.args, n->u.objc.n, visit, ctx);
+		break;
 	case CLJ_NODE_DEF:
 		child(n->u.def.init, visit, ctx);
 		child(n->u.def.meta, visit, ctx);
@@ -1018,6 +1028,67 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 	return node;
 }
 
+// A head symbol of the (.method target args*) form: a lone . is reserved, and a namespace is not a method.
+static bool is_method_head(clj_value v) {
+	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return false;
+	clj_value name = clj_symbol_name(v);
+	return clj_string_len(name) > 1 && clj_string_bytes(name)[0] == '.';
+}
+
+static bool spell_append(char *buf, size_t cap, size_t *used, const char *bytes, size_t len) {
+	if (*used + len >= cap) return false;
+	memcpy(buf + *used, bytes, len);
+	*used += len;
+	buf[*used] = '\0';
+	return true;
+}
+
+// (.add-target btn self :action sel :for-control-events e) -> "add-target:action:for-control-events:".
+// The labels are literal keywords in selector order: another order names another method (design §5).
+static clj_value method_selector(analyzer *a, const clj_value *items, uint32_t n, uint32_t *nargs) {
+	clj_value base = clj_symbol_name(items[0]);
+	char      buf[512];
+	size_t    used = 0;
+	buf[0] = '\0';
+	if (!spell_append(buf, sizeof buf, &used, clj_string_bytes(base) + 1, clj_string_len(base) - 1)) return fail_value(a, "Method name too long: %s", clj_string_bytes(base));
+	*nargs = n > 2 ? 1 : 0;
+	if (n > 2 && !spell_append(buf, sizeof buf, &used, ":", 1)) return fail_value(a, "Selector too long");
+	for (uint32_t i = 3; i < n; i += 2) {
+		if (!clj_is_keyword(items[i]) || !clj_is_nil(clj_keyword_ns(items[i]))) {
+			fail_form(a, "A method call takes literal unqualified keyword labels in selector order, got: %s", items[i]);
+			return CLJ_THROWN;
+		}
+		if (i + 1 >= n) {
+			fail_form(a, "Label %s has no argument", items[i]);
+			return CLJ_THROWN;
+		}
+		clj_value label = clj_keyword_name(items[i]);
+		if (!spell_append(buf, sizeof buf, &used, clj_string_bytes(label), clj_string_len(label)) || !spell_append(buf, sizeof buf, &used, ":", 1))
+			return fail_value(a, "Selector too long");
+		(*nargs)++;
+	}
+	return clj_string_new(buf, used);
+}
+
+static clj_node *analyze_objc_send(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
+	if (n < 2) return fail_form(a, "A method call needs a target: (%s target args*)", items[0]);
+	uint32_t  nargs;
+	clj_value selector = method_selector(a, items, n, &nargs);
+	if (selector == CLJ_THROWN) return NULL;
+	clj_node *node = node_new(a, CLJ_NODE_OBJC_SEND);
+	node->u.objc.selector = selector;
+	node->u.objc.args = zalloc(nargs, sizeof *node->u.objc.args);
+	node->u.objc.n = nargs;
+	bool ok = (node->u.objc.target = analyze(a, s, items[1], false)) != NULL;
+	// Arguments stay positional and left to right; the labels between them are the odd indices.
+	for (uint32_t i = 2, k = 0; i < n && ok; i += 2) ok = (node->u.objc.args[k++] = analyze(a, s, items[i], false)) != NULL;
+	if (!ok) {
+		clj_release(clj_from_ptr(node));
+		return NULL;
+	}
+	return node;
+}
+
 // [&form &env params...]
 static clj_value macro_params(analyzer *a, clj_value params) {
 	uint32_t   n;
@@ -1326,7 +1397,7 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_CATCH: node = fail(a, "catch outside try"); break;
 	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:
-	case SP_RESERVED: node = analyze_invoke(a, s, items, n); break;
+	case SP_RESERVED: node = is_method_head(items[0]) ? analyze_objc_send(a, s, items, n) : analyze_invoke(a, s, items, n); break;
 	}
 	free(items);
 	return node;

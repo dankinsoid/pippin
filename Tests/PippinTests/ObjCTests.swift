@@ -90,6 +90,27 @@ extension CoreTests {
 			#expect(try rt.eval(#"(= (objc-class "NSString") (objc-class "NSNumber"))"#) == false)
 		}
 
+		// (.base target arg :label arg …): labels are syntax, arguments stay positional (design §5).
+		@Test func methodForm() throws {
+			#expect(try rt.eval(#"(.string-with-utf8-string (objc-class "NSString") "hi")"#) == "hi")
+			#expect(try rt.eval(#"(.length (.string-with-utf8-string (objc-class "NSMutableString") "abc"))"#) == 3)
+			#expect(try rt.eval("""
+			(let [epoch (.date-with-time-interval-since1970 (objc-class "NSDate") 0.0)
+			      d (.init-with-time-interval (.alloc (objc-class "NSDate")) 1.5 :since-date epoch)]
+			  (.time-interval-since1970 d))
+			""") == 1.5)
+			#expect(try rt.eval(#"(.length nil)"#) == nil)
+		}
+
+		@Test func methodFormIsCheckedAtAnalysis() throws {
+			#expect(cljEvalError("(.length)")?.contains("needs a target") == true)
+			#expect(cljEvalError(#"(.foo (objc-class "NSString") 1 "bar" 2)"#)?.contains("literal unqualified keyword labels") == true)
+			#expect(cljEvalError(#"(.foo (objc-class "NSString") 1 :bar)"#)?.contains("has no argument") == true)
+			// A label out of order names another selector, and the message shows the ones that exist.
+			let reordered = cljEvalError(#"(.init-with-time-interval (.alloc (objc-class "NSDate")) 1.5 :since-dates 2)"#)
+			#expect(reordered?.contains("init-with-time-interval:since-date:") == true)
+		}
+
 		// A send from a coroutine leaves its pool for clj_coro_switch_out to drain, across a park.
 		@Test func sendsFromACoroutine() throws {
 			#expect(try cljEvalScoped("""

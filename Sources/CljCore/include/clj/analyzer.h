@@ -37,6 +37,7 @@ typedef enum {
 	CLJ_NODE_FUSED,     // a consumer over lazy stages with its transducer form beside the original (optimizer.c)
 	CLJ_NODE_DIRECT_FN, // a let/loop-bound fn only ever called: no closure, its slot holds nil (optimizer.c)
 	CLJ_NODE_DIRECT_CALL, // a call of a direct fn's arity in a fresh frame linked to the defining one
+	CLJ_NODE_OBJC_SEND,   // (.method target args*) with literal keyword labels (design §5, level 1)
 } clj_node_kind;
 
 // Clojure's limit; more parameters go through the rest argument.
@@ -127,6 +128,13 @@ struct clj_node {
 			const clj_node **args;
 			uint32_t         n;
 		} invoke;
+		// Labels are syntax, folded into one selector here, so no backend reads them again (design §5).
+		struct {
+			clj_value        selector; // string: base plus every label, each colon-terminated
+			const clj_node  *target;
+			const clj_node **args;
+			uint32_t         n;
+		} objc;
 		struct {
 			clj_value       var;
 			const clj_node *init;    // NULL for (def x)

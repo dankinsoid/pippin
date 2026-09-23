@@ -14,6 +14,7 @@
 //           | [:direct-fn name-or-nil [arity+]]      only as a let/loop init; its body links to that frame
 //           | [:direct-call [slot depth] arg*]        the direct fn bound at slot of the frame depth links up
 //           | [:invoke f arg*]
+//           | [:objc-send "selector" target arg*]   the kebab selector the labels were folded into
 //           | [:intrinsic ns/name arg*]     a listed core var at the arity of the args; unknown pairs are refused
 //           | [:fused [ns/name+] [arg*] fused original]   guard vars of the fusion table; the programs read the
 //                                                          args as locals 0..n-1 (optimizer.c)
@@ -49,7 +50,7 @@
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
 	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_set, kw_try, kw_throw, kw_all, kw_error,
-	kw_catch_kw;
+	kw_catch_kw, kw_objc_send;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
@@ -68,6 +69,7 @@ static void intern_keywords(void) {
 	kw_recur = clj_keyword_from_cstr("recur");
 	kw_fn = clj_keyword_from_cstr("fn");
 	kw_invoke = clj_keyword_from_cstr("invoke");
+	kw_objc_send = clj_keyword_from_cstr("objc-send");
 	kw_intrinsic = clj_keyword_from_cstr("intrinsic");
 	kw_fused = clj_keyword_from_cstr("fused");
 	kw_def = clj_keyword_from_cstr("def");
@@ -338,6 +340,16 @@ static clj_value encode_kind(const clj_node *n) {
 		items[1] = encode(n->u.invoke.fn);
 		for (uint32_t i = 0; i < n->u.invoke.n; i++) items[i + 2] = encode(n->u.invoke.args[i]);
 		clj_value v = vec_take(items, n->u.invoke.n + 2);
+		free(items);
+		return v;
+	}
+	case CLJ_NODE_OBJC_SEND: {
+		clj_value *items = zalloc(n->u.objc.n + 3, sizeof *items);
+		items[0] = kw_objc_send;
+		items[1] = clj_retain(n->u.objc.selector);
+		items[2] = encode(n->u.objc.target);
+		for (uint32_t i = 0; i < n->u.objc.n; i++) items[i + 3] = encode(n->u.objc.args[i]);
+		clj_value v = vec_take(items, n->u.objc.n + 3);
 		free(items);
 		return v;
 	}
@@ -686,6 +698,16 @@ static clj_node *decode_invoke(clj_value data, dframe *fr) {
 	return decode_into(n->u.invoke.args, data, 2, n->u.invoke.n, fr) ? n : drop(n);
 }
 
+static clj_node *decode_objc_send(clj_value data, dframe *fr) {
+	if (clj_vector_count(data) < 3 || !clj_is_string(clj_vector_nth(data, 1))) return fail_data(data, "expected [\"selector\" target args*]");
+	clj_node *n = clj_node_alloc(CLJ_NODE_OBJC_SEND);
+	n->u.objc.selector = clj_retain(clj_vector_nth(data, 1));
+	n->u.objc.n = clj_vector_count(data) - 3;
+	n->u.objc.args = zalloc(n->u.objc.n, sizeof *n->u.objc.args);
+	if (!(n->u.objc.target = decode(clj_vector_nth(data, 2), fr))) return drop(n);
+	return decode_into(n->u.objc.args, data, 3, n->u.objc.n, fr) ? n : drop(n);
+}
+
 static clj_node *decode_intrinsic(clj_value data, dframe *fr) {
 	if (clj_vector_count(data) < 3) return fail_data(data, "expected [ns/name args*]");
 	uint32_t             nargs = clj_vector_count(data) - 2;
@@ -762,6 +784,7 @@ static clj_node *decode_kind(clj_value data, dframe *fr, uint32_t slot) {
 	if (head == kw_direct_fn) return slot == UINT32_MAX ? fail_data(data, "direct fn outside a let/loop binding") : decode_direct_fn(data, fr, slot);
 	if (head == kw_direct_call) return decode_direct_call(data, fr);
 	if (head == kw_invoke) return decode_invoke(data, fr);
+	if (head == kw_objc_send) return decode_objc_send(data, fr);
 	if (head == kw_intrinsic) return decode_intrinsic(data, fr);
 	if (head == kw_fused) return decode_fused(data, fr);
 	if (head == kw_def) return decode_def(data, fr);

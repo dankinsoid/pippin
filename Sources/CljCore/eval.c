@@ -1123,6 +1123,24 @@ static clj_value eval_set(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+// The selector was built at analysis; nothing here reads the call's shape again (design §5).
+static clj_value eval_objc_send(const clj_node *n, clj_frame *f) {
+	clj_value target = eval_child(n->u.objc.target, f);
+	if (target == CLJ_THROWN) return CLJ_THROWN;
+	uint32_t   nargs = n->u.objc.n;
+	clj_value  small[SMALL_ARGS];
+	clj_value *args = buf_alloc(small, nargs);
+	clj_value  result = CLJ_THROWN;
+	uint64_t   owned;
+	if (eval_all(n->u.objc.args, nargs, f, args, &owned)) {
+		result = clj_objc_send(target, n->u.objc.selector, args, nargs, false);
+		release_owned(args, nargs, owned);
+	}
+	buf_free(small, args);
+	clj_release(target);
+	return result;
+}
+
 // @ai-generated(guided)
 static clj_value eval_throw(const clj_node *n, clj_frame *f) {
 	clj_value v = eval_child(n->u.throw_, f);
@@ -1194,6 +1212,7 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_SET: return eval_set;
 	case CLJ_NODE_TRY: return eval_try;
 	case CLJ_NODE_THROW: return eval_throw;
+	case CLJ_NODE_OBJC_SEND: return eval_objc_send;
 	case CLJ_NODE_INTRINSIC: return eval_intrinsic;
 	case CLJ_NODE_FUSED: return eval_fused;
 	case CLJ_NODE_OUTER: return eval_outer;
