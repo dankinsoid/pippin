@@ -16,14 +16,13 @@
   {:file "src/medley/core.cljc" :line 691 :name uuid :reason "Unable to resolve symbol: java.util.UUID/fromString in this context" :missing [java.util.UUID/fromString]}
   {:file "src/medley/core.cljc" :line 699 :name random-uuid :reason "Unable to resolve symbol: java.util.UUID/randomUUID in this context" :missing [java.util.UUID/randomUUID]}
   {:file "src/medley/core.cljc" :line 707 :name regexp? :reason "Unable to resolve symbol: java.util.regex.Pattern in this context" :missing [java.util.regex.Pattern]}
-  {:file "src/medley/core.cljc" :line 715 :name index-of :reason "Unable to resolve symbol: .indexOf in this context" :missing [.indexOf]}
   {:file "test/medley/core_test.cljc" :line 235 :name test-mapply :reason "Unable to resolve classname: IllegalArgumentException" :missing [IllegalArgumentException]}
   {:file "test/medley/core_test.cljc" :line 499 :name test-ex-message :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/medley/core_test.cljc" :line 504 :name test-ex-cause :reason "Unable to resolve symbol: new in this context" :missing [new]}
  ]
  :tests
  [
-  {:name medley.core-test/test-index-of :status :error :reason "Unbound var: #'medley.core/index-of" :missing [medley.core/index-of]}
+  {:name medley.core-test/test-index-of :status :error :reason "Cannot send to a vector: not an Objective-C object" :missing []}
   {:name medley.core-test/test-map-entry :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-map-kv :status :error :reason "Unbound var: #'medley.core/map-entry" :missing [medley.core/map-entry]}
   {:name medley.core-test/test-partition-after :status :error :reason "Unbound var: #'medley.core/partition-between" :missing [medley.core/partition-between]}

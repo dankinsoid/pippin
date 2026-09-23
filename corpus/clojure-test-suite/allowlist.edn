@@ -18,7 +18,6 @@
   {:file "test/clojure/core_test/short.cljc" :line 5 :reason "Index 2 out of bounds for length 2" :missing []}
   {:file "test/clojure/core_test/var_qmark.cljc" :line 17 :reason "Unable to resolve var: *assert* in this context" :missing [*assert*]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 1 :reason "Could not locate clojure/edn.cljc or clojure/edn.clj on load path." :missing [clojure/edn]}
-  {:file "test/clojure/edn_test/read_string.cljc" :line 16 :name epoch-millis :reason "Unable to resolve symbol: .getTime in this context" :missing [.getTime]}
  ]
  :tests
  [
