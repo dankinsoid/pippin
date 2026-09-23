@@ -120,7 +120,7 @@ extension CoreTests {
 			_ = try? rt.eval("""
 			(do :=> :cat :maybe :or :and :enum := :any :nil :int :double :number :string :keyword :symbol :boolean :map :vector :set :seq :fn
 			    :fixnum :long :bigint :ratio :decimal :char :sorted-map :sorted-set :record :array :var :atom :uuid :inst :regex :host :tuple :*
-			    :sequential :seqable :x :k :min :n :facts/warnings :effects :park :alloc :throw :io :effects/severity :error
+			    :sequential :seqable :x :k :min :n :facts/warnings
 			    (require 'clojure.core.async)
 			    (def sum-chan (clojure.core.async/chan))
 			    (defn sum-parks [_] (clojure.core.async/<! sum-chan))

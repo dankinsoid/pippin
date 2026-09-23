@@ -331,6 +331,30 @@ static const struct {
 	{"alloc", CLJ_EFFECT_ALLOC}, {"throw", CLJ_EFFECT_THROW}, {"io", CLJ_EFFECT_IO}, {"atom", CLJ_EFFECT_ATOM}, {"park", CLJ_EFFECT_PARK},
 };
 
+static bool qualified_tag_is(clj_value v, const char *ns, const char *name) {
+	if (!clj_is_keyword(v) || clj_is_nil(clj_keyword_ns(v))) return false;
+	return strcmp(clj_string_bytes(clj_keyword_ns(v)), ns) == 0 && strcmp(clj_string_bytes(clj_keyword_name(v)), name) == 0;
+}
+
+static bool effect_member(clj_value item, void *ctx) {
+	uint32_t *mask = ctx;
+	for (size_t i = 0; i < sizeof effect_names / sizeof *effect_names; i++) {
+		if (tag_is(item, effect_names[i].name)) *mask |= effect_names[i].bit;
+	}
+	return true;
+}
+
+// Keys are matched by name: interning one would allocate inside the first walk that meets a properties map.
+static bool props_entry(clj_value key, clj_value val, void *ctx) {
+	clj_effects_req *r = ctx;
+	if (tag_is(key, "effects") && clj_is_set(val)) {
+		r->allowed = 0;
+		clj_set_each(val, effect_member, &r->allowed);
+	}
+	else if (qualified_tag_is(key, "effects", "severity")) r->strict = tag_is(val, "error");
+	return true;
+}
+
 // An unknown effect keyword is ignored, as an unknown schema tag is TOP (design §4).
 static clj_effects_req effects_req_of(clj_value schema) {
 	clj_effects_req r = {CLJ_EFFECTS_FREE, 0, false};
@@ -341,19 +365,9 @@ static clj_effects_req effects_req_of(clj_value schema) {
 	}
 	if (clj_vector_count(schema) < 2 || !tag_is(clj_vector_nth(schema, 0), "=>")) return r;
 	clj_value props = clj_vector_nth(schema, 1);
-	clj_value allowed = lookup(props, "effects");
-	if (!clj_is_set(allowed)) {
-		clj_release(allowed);
-		return r;
-	}
-	r.allowed = 0;
-	for (size_t i = 0; i < sizeof effect_names / sizeof *effect_names; i++) {
-		if (clj_set_contains(allowed, clj_keyword_from_cstr(effect_names[i].name))) r.allowed |= effect_names[i].bit;
-	}
-	clj_release(allowed);
-	clj_value severity = lookup(props, "effects/severity");
-	r.strict = tag_is(severity, "error");
-	clj_release(severity);
+	if (!clj_is_map(props)) return r;
+	clj_map_each(props, props_entry, &r);
+	if (r.allowed == CLJ_EFFECTS_FREE) return r;
 	uint32_t first = 0, n = schema_children(schema, &first);
 	if (n > first) {
 		clj_value in = clj_vector_nth(schema, first);

@@ -50,8 +50,8 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 65 ms, with the summaries 77 ms, against 416 ms of analysis over the same forms
-  (0.16× → 0.19×); the largest single table is 262 KB. The store holds 1012 summaries, ran 24 fixpoint rounds
+- Cost: pass 1 alone 63 ms, with the summaries 74 ms, against 402 ms of analysis over the same forms
+  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1012 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 174. Value nodes at ⊥: 147, of which 39 `dead-branch` (the pass's
@@ -65,8 +65,8 @@ load-path root is named `test` is counted apart, because assertion expansions ar
 - The `:effects` requirement on a parameter (design §4): a function that parks passed where the callee holds a
   lock through the wait — `swap!`/`swap-vals!`, a validator, the thunk of `lazy-seq*`. **0 errors** (a park where
   parking is impossible, `:effects/severity :error`) and 0 lints (a park that is legal but holds the resource).
-  ⊤ is silent against a lint: warning on it costs 76 warnings over this corpus and says nothing, since an unknown
-  callee is unknown about every effect (`CLJ_EFFECT_OPAQUE`), not known to park.
+  ⊤ is silent against a lint: an unknown callee is unknown about every effect (`CLJ_EFFECT_OPAQUE`), not known to
+  park, and warning on that fires on every higher-order call (NOTES.md, "Facts").
 - The declarations alone (`:=>` metas on 21 core vars: the table at the end of core.clj and three defn attr-maps;
   inference without them is the third measurement): known types over library code 68.7 → 69.0 %, computed nodes
   known 56.8 → 57.2 %, arguments narrowed 9 → 100, proven throws 0 → 35. They add requirements, which
@@ -132,12 +132,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 280 | 12817 | 9.1 | 3.6 | 5.7 | 4.9 | 0.39× → 0.62× | 379 | 13 |
-| embedded libs | 108 | 3710 | 1.9 | 0.7 | 1.2 | 1.4 | 0.39× → 0.64× | 114 | 6 |
-| clojure-test-suite | 519 | 419353 | 387.5 | 58.6 | 67.0 | 64.2 | 0.15× → 0.17× | 9974 | 262 |
-| medley | 104 | 22661 | 17.6 | 2.4 | 3.4 | 3.2 | 0.14× → 0.19× | 562 | 23 |
-| **library code** | 492 | 39188 | 28.7 | 6.8 | 10.3 | 9.5 | 0.24× → 0.36× | 1055 | 23 |
-| **all** | 1011 | 458541 | 416.2 | 65.3 | 77.4 | 73.7 | 0.16× → 0.19× | 11029 | 262 |
+| core.clj | 280 | 12817 | 13.5 | 4.1 | 6.5 | 4.5 | 0.30× → 0.48× | 379 | 13 |
+| embedded libs | 108 | 3710 | 2.0 | 0.8 | 1.2 | 1.2 | 0.39× → 0.64× | 114 | 6 |
+| clojure-test-suite | 519 | 419353 | 369.2 | 55.5 | 63.1 | 66.9 | 0.15× → 0.17× | 9974 | 262 |
+| medley | 104 | 22661 | 17.2 | 2.5 | 3.4 | 3.4 | 0.14× → 0.20× | 562 | 23 |
+| **library code** | 492 | 39188 | 32.6 | 7.3 | 11.2 | 9.1 | 0.22× → 0.34× | 1055 | 23 |
+| **all** | 1011 | 458541 | 401.8 | 62.8 | 74.3 | 76.0 | 0.16× → 0.18× | 11029 | 262 |
 
 ## Errors
 
