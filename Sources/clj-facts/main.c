@@ -32,6 +32,7 @@ typedef struct {
 	uint64_t kw_lookups, kw_shaped, kw_record, kw_on_local;
 	uint64_t conflicts, widenings, bottom_dead_branch, bottom_exit, bottom_unexplained;
 	uint64_t call_conflicts, caught_conflicts, top_warnings, callers_conflicts, hits, narrowed; // pass 2 only
+	uint64_t effect_errors, effect_lints;                                                      // the :effects ladder of design §4
 	uint64_t joins, joins_narrowed, join_params, join_params_known; // the caller join: asks, asks that narrowed a parameter, parameters
 	double   analyze_ms, facts_ms;
 	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
@@ -239,6 +240,7 @@ static void tally(stats *s, const char *path, const clj_node *root, const clj_fa
 	for (uint32_t i = 0; i < clj_facts_ndiagnostics(f); i++) {
 		const clj_diagnostic *d = clj_facts_diagnostic(f, i);
 		if (d->kind == CLJ_DIAG_CALLERS_CONFLICT) s->callers_conflicts++;
+		else if (d->kind == CLJ_DIAG_EFFECTS) ++*(d->severity == CLJ_DIAG_ERROR ? &s->effect_errors : &s->effect_lints);
 		else if (d->kind != CLJ_DIAG_CALL_CONFLICT) s->top_warnings++;
 		else if (d->caught) s->caught_conflicts++;
 		else s->call_conflicts++;
@@ -608,6 +610,8 @@ static void add(stats *total, const stats *s) {
 	total->call_conflicts += s->call_conflicts;
 	total->caught_conflicts += s->caught_conflicts;
 	total->top_warnings += s->top_warnings;
+	total->effect_errors += s->effect_errors;
+	total->effect_lints += s->effect_lints;
 	total->callers_conflicts += s->callers_conflicts;
 	total->hits += s->hits;
 	total->narrowed += s->narrowed;
@@ -754,6 +758,12 @@ static void write_report(const char *path) {
 	             "  warnings for ⊤ meeting a declaration. Declarations the bodies contradict: %u errors. Listed below.\n",
 	        (unsigned long long)total.hits, (unsigned long long)total.narrowed, (unsigned long long)total.call_conflicts,
 	        (unsigned long long)total.caught_conflicts, (unsigned long long)total.top_warnings, clj_summaries_nerrors(sums));
+	fprintf(out, "- The `:effects` requirement on a parameter (design §4): a function that parks passed where the callee holds a\n"
+	             "  lock through the wait — `swap!`/`swap-vals!`, a validator, the thunk of `lazy-seq*`. **%llu errors** (a park where\n"
+	             "  parking is impossible, `:effects/severity :error`) and %llu lints (a park that is legal but holds the resource).\n"
+	             "  ⊤ is silent against a lint: an unknown callee is unknown about every effect (`CLJ_EFFECT_OPAQUE`), not known to\n"
+	             "  park, and warning on that fires on every higher-order call (NOTES.md, \"Facts\").\n",
+	        (unsigned long long)total.effect_errors, (unsigned long long)total.effect_lints);
 	fprintf(out, "- The declarations alone (`:=>` metas on %u core vars: the table at the end of core.clj and three defn attr-maps;\n"
 	             "  inference without them is the third measurement): known types over library code %.1f → %.1f %%, computed nodes\n"
 	             "  known %.1f → %.1f %%, arguments narrowed %llu → %llu, proven throws %llu → %llu. They add requirements, which\n"
@@ -816,9 +826,9 @@ static void write_report(const char *path) {
 	}
 
 	fprintf(out, "\n## Errors\n\n");
-	fprintf(out, "A ⊥ at a call site outside any try that catches it, or a `:=>` declaration the body contradicts: a runtime\n"
-	             "failure shown early. `make facts-report` exits non-zero on any (the corpus gate); nothing halts a load or a\n"
-	             "compile yet (NOTES.md, \"Facts\").\n\n");
+	fprintf(out, "A ⊥ at a call site outside any try that catches it, a `:=>` declaration the body contradicts, or a park where\n"
+	             "`:effects` says parking is impossible: a runtime failure shown early. `make facts-report` exits non-zero on any\n"
+	             "(the corpus gate); nothing halts a load or a compile yet (NOTES.md, \"Facts\").\n\n");
 	if (nmessages == 0 && clj_summaries_nerrors(sums) == 0) fprintf(out, "None.\n");
 	for (int i = 0; i < nmessages; i++) fprintf(out, "- %s\n", messages[i]);
 	for (uint32_t i = 0; i < clj_summaries_ndiagnostics(sums); i++) {
@@ -827,8 +837,9 @@ static void write_report(const char *path) {
 		if (d->severity == CLJ_DIAG_ERROR) fprintf(out, "- %s\n", clj_diagnostic_message(d, text, sizeof text));
 	}
 	fprintf(out, "\n## Warnings\n\n");
-	fprintf(out, "A proven throw inside a `try` that catches it (the negative tests of the corpus), and ⊤ meeting a declaration\n"
-	             "(on by default, `{:facts/warnings false}` in the ns meta turns it off). Reported here only.\n\n");
+	fprintf(out, "A proven throw inside a `try` that catches it (the negative tests of the corpus), ⊤ meeting a declaration, and\n"
+	             "a park where `:effects` calls it bad practice (on by default, `{:facts/warnings false}` in the ns meta turns them\n"
+	             "off). Reported here only.\n\n");
 	if (nwarnings == 0) fprintf(out, "None.\n");
 	for (int i = 0; i < nwarnings; i++) fprintf(out, "- %s\n", warnings[i]);
 	for (uint32_t i = 0; i < clj_summaries_ndiagnostics(sums); i++) {
@@ -945,7 +956,7 @@ int main(int argc, char **argv) {
 	}
 	// the gate: a proven runtime failure, or a declaration its body contradicts, anywhere in the corpus
 	uint64_t errors = clj_summaries_nerrors(sums);
-	for (int i = 0; i < nlibs; i++) errors += libs[i].call_conflicts + joined[i].call_conflicts;
+	for (int i = 0; i < nlibs; i++) errors += libs[i].call_conflicts + joined[i].call_conflicts + libs[i].effect_errors + joined[i].effect_errors;
 	if (errors > 0) {
 		fprintf(stderr, "clj-facts: %llu error(s): a ⊥ the corpus does not catch, see the report\n", (unsigned long long)errors);
 		status = 1;

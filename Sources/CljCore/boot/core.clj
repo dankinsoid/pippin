@@ -2474,4 +2474,9 @@
        'assoc     [:=> [:cat [:maybe [:or :map :vector]] :any :any [:* :any]] [:or :map :vector]]
        'zero?     [:=> [:cat :number] :boolean]
        'pos?      [:=> [:cat :number] :boolean]
-       'neg?      [:=> [:cat :number] :boolean]})
+       'neg?      [:=> [:cat :number] :boolean]
+       ;; A park here holds the atom's mutex or the seq's forcing claim across the wait (design §4).
+       'swap!          [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :any]
+       'swap-vals!     [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :vector]
+       'set-validator! [:=> [:cat :any [:maybe [:=> {:effects #{}} [:cat :any] :any]]] :nil]
+       'lazy-seq*      [:=> [:cat [:=> {:effects #{}} [:cat] :any]] :seq]})

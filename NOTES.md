@@ -423,9 +423,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   awaited someone else's cancelled future is a bystander, its flag is clear, and it is reported like any
   other failure (design §4, "Необработанная отмена — не сбой"). `scope-spawn` reads the same flag through
   `(cancelled?*)` before it lets a child comply quietly.
-- Not done, with triggers: the static `:park` fact and the `:effects` lint, the Swift async bridge (`callAsync`,
-  `callBlocking`) — the later tasks of design §10 step 5; `go-scoped` and `future`/`promise` are in "Futures and
-  scopes" below. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
+- Not done, with triggers: the Swift async bridge (`callAsync`, `callBlocking`) — the last task of design §10
+  step 5; the static `:park` fact and the `:effects` lint are in "Facts"; `go-scoped` and `future`/`promise` are
+  in "Futures and scopes" below. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
   host-depth error is raised only under `clj_host_invoke` (`Value.apply`, the trampoline). Trigger for making
   a park in a top-level `Runtime.eval` on the main thread an error: the async bridge, which gives the host the
   alternative.
@@ -485,7 +485,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (a `locking` or a lazy seq forced inside a synchronous host call) blocks its carrier the same way (the hybrid
   of design §4) — the channel operations refuse instead (`clj_park_allowed`: an error with a trace to the wait,
   never a block). The dev backstops: a park with a `clj_lock` held, a park under `host_depth`, and a park of a
-  cancelled coroutine are errors (`CoroTests`, `ChanTests`).
+  cancelled coroutine are errors (`CoroTests`, `ChanTests`). A cmutex held and a lazy seq being forced are not:
+  both wake the waiters when the holder finishes, so the wait ends. `suspend!` is the one that never does, and
+  it defers on all four (`clj_coro_suspend_point`, `forcing_held` above).
 - **Main carrier**: `clj_sched_main_install` on the main thread adds a version-0 `CFRunLoopSource`; a
   main-affinity coroutine (`go-main`, `CLJ_AFFINITY_MAIN`) is queued separately and the source signalled, and
   each turn of the run loop runs what is queued (`clj_sched_main_pump`). Without an installed carrier a
@@ -1958,18 +1960,35 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   no such lookup — its 69 `(:k m)` sites are 58 on locals (parameters, constrained by requirement only, and
   `(:k m)` requires nothing) and 11 below derefs and other calls — so the report's record row stays 0 → 0 for
   want of a site, not of a mechanism.
-- **Effects, as far as they fall out.** Four bits, `alloc`, `throw`, `io`, `atom` (atom-write), joined up the
-  walk: a vector, map, set or fn literal allocates; `throw` throws; a `def` is everything (registration); a
-  known core call takes `clj_facts_core_effects` — nothing for a predicate, `not`, `identity`, `boolean`,
-  `meta`, `type`; io for `print`/`println`/`slurp`/…; atom for `swap!`/`reset!`/`alter-var-root`/…;
-  alloc|throw for the rest of the named list; everything for anything unnamed — and a callee with a summary
-  takes the summary's. A closure body's effects are its own, not its definer's. Nothing reads them yet; they
-  cost one `|=` per node.
+- **Effects, as far as they fall out.** Six bits, `alloc`, `throw`, `io`, `atom` (atom-write), `park` and
+  `opaque`, joined up the walk: a vector, map, set or fn literal allocates; `throw` throws; a `def` is
+  everything (registration); a known core call takes `clj_facts_core_effects` — nothing for a predicate,
+  `not`, `identity`, `boolean`, `meta`, `type`; io for `print`/`println`/`slurp`/…; atom for
+  `swap!`/`reset!`/`alter-var-root`/…; park for `chan-take*`/`chan-put*`/`chan-alts*`/`chan-deref*`/`sleep*`;
+  alloc|throw for the rest of the named list; `CLJ_EFFECT_ANY` for anything unnamed — and a callee with a
+  summary takes the summary's. A closure body's effects are its own, not its definer's. `clojure.core.async`'s
+  `<!`/`>!`/`<!!`/`>!!`/`alts!`/`alts!!` and `Thread/sleep` are named as well (`is_park_var`), although their
+  bodies do reach the builtins: under `-DCLJ_COMPILED_CORE` there is no body to walk, and the whole lint went
+  dark in the compiled gate before they were named.
+- **`opaque` is what makes the park ladder three-valued.** `CLJ_EFFECT_ANY` is every bit *but* `park`, so an
+  unknown callee says "nothing is known", not "waits"; without the separate bit the first unknown call in a
+  body would read as a proven park and the ladder of design §4 would collapse to two steps. `deref` is the
+  reason the fact cannot be keyed on the symbol: `@atom` never parks and `@future`/`@promise` do, so `deref`
+  stays opaque and drops the bit only where the argument is known to be an atom.
+- **The `:effects` requirement (design §4).** A parameter whose schema is a `:=>` with a properties map
+  declares what the function passed there may do: `(swap! a f)` is `[:=> {:effects #{}} [:cat :any] :any]` at
+  argument 1, "no park". Only `park` is checked (`CLJ_EFFECTS_CHECKED`) — the other bits describe a body, no
+  site forbids an allocation. `{:effects/severity :error}` marks the places where parking cannot work at all
+  (`dosync`, a host stub's sync closure, code under `clj_lock`); there a known park is an error and an opaque
+  argument a warning. Without it the requirement is a lint: a known park warns and an opaque argument is
+  silent, because warning on it costs 76 warnings over the corpus and proves nothing. `swap!`, `swap-vals!`,
+  `set-validator!` and `lazy-seq*` carry one — each runs its function while holding the atom's coroutine
+  mutex or the seq's forcing claim. Watches do not: `commit` unlocks the atom before `notify`.
 - **Declarations: `:=>` meta on the var, the vocabulary of design §3, one mechanism.** A var may carry
   `{:=> [:=> [:cat arg-schema …] ret-schema]}` in its meta — the value is a complete Malli function schema, the
   same data `m/=>` takes, spelled either in a defn's attr-map (`(defn vec {:=> [:=> [:cat :any] :vector]}
   [coll] …)`, three of core.clj's defns carry one) or set by `alter-meta!` for a builtin that has no defn
-  (the one table at the end of core.clj, 14 vars). `clj_fact_of_schema` is each tag's abstract
+  (the one table at the end of core.clj, 18 vars). `clj_fact_of_schema` is each tag's abstract
   interpretation: `:int` → {fixnum, long, bigint}, `:number` all six, `:map` map|sorted-map|record, `:set`
   both sets, `:seq` seq, `:boolean`, `:string`, `:keyword`, `:symbol`, `:vector`, `:fn`, `:nil`, `:any` ⊤;
   `[:maybe X]` X ∪ nil, `[:or …]` join, `[:and …]` meet, `[:= x]` and `[:enum …]` singletons (kept only for

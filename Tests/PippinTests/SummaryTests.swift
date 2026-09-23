@@ -120,7 +120,10 @@ extension CoreTests {
 			_ = try? rt.eval("""
 			(do :=> :cat :maybe :or :and :enum := :any :nil :int :double :number :string :keyword :symbol :boolean :map :vector :set :seq :fn
 			    :fixnum :long :bigint :ratio :decimal :char :sorted-map :sorted-set :record :array :var :atom :uuid :inst :regex :host :tuple :*
-			    :sequential :seqable :x :k :min :facts/warnings
+			    :sequential :seqable :x :k :min :n :facts/warnings
+			    (require 'clojure.core.async)
+			    (def sum-chan (clojure.core.async/chan))
+			    (defn sum-parks [_] (clojure.core.async/<! sum-chan))
 			    (defn sum-inc [x] (inc x))
 			    (defn sum-len [xs] (count xs))
 			    (defn sum-pred [x] (nil? x))
@@ -147,8 +150,17 @@ extension CoreTests {
 			    (defrecord SumR [] SumQ (sum-q [_] 2))
 			    (defrecord SumRec [a b])
 			    (deftype SumTy [a])
-			    (def sum-inst (->SumT)))
+			    (def sum-inst (->SumT))
+			    (defn sum-atom-deref [] @sum-atom)
+			    (defn sum-any-deref [p] @p)
+			    (defn sum-strict {:=> [:=> [:cat [:=> {:effects #{} :effects/severity :error} [:cat] :any]] :any]} [f] (f)))
 			""")
+		}
+
+		private func effects(_ store: OpaquePointer, _ name: String, _ nargs: UInt32) throws -> UInt32 {
+			let v = try rt.eval("#'" + name)
+			guard let s = clj_summary_of_var(store, v.raw, nargs) else { return UInt32(CLJ_EFFECT_ANY) }
+			return s.pointee.effects
 		}
 
 		private func summary(_ store: OpaquePointer, _ name: String, _ nargs: UInt32) throws -> String {
@@ -405,6 +417,38 @@ extension CoreTests {
 			_ = try rt.eval("(defn sum-top {:=> [:=> [:cat :any] :int]} [x] (get x :n))")
 			_ = try summary(store, "sum-top", 1)
 			#expect(clj_summaries_ndiagnostics(store) == 1 && clj_summaries_nerrors(store) == 0)
+		}
+
+		// The :effects requirement of design §4: a park is legal under swap!'s mutex, so it lints and ⊤ is silent.
+		@Test func effectsRequirementLintsParking() throws {
+			let store = clj_summaries_new()!
+			defer { clj_summaries_free(store) }
+			let parked = try Summarized("(fn [a] (swap! a (fn [_] (clojure.core.async/<! sum-chan))))", store: store)
+			#expect(parked.errors == 0)
+			#expect(parked.diagnostics == ["W clojure.core/swap! does not allow argument 1 to park, the function passed at 1:18 parks"])
+			// through a named fn, since the effect travels in the summary
+			#expect(try Summarized("(fn [a] (swap! a sum-parks))", store: store).diagnostics.count == 1)
+			// a known-clean f, and one nothing is known about
+			#expect(try Summarized("(fn [a] (swap! a inc))", store: store).diagnostics.isEmpty)
+			#expect(try Summarized("(fn [a] (swap! a (fn [x] (assoc x :n 1))))", store: store).diagnostics.isEmpty)
+			// an f nothing is known about: the lint is silent, the declaration's own ⊤ warning is not
+			let opaque = try Summarized("(fn [a f] (swap! a f))", store: store).diagnostics
+			#expect(opaque == ["W clojure.core/swap! declares argument 1 as fn, nothing is known about what is passed at 1:11"])
+			// the three states of the ladder: a park, a clean body, and a deref of something that may be a promise
+			#expect(try effects(store, "sum-parks", 1) & UInt32(CLJ_EFFECT_PARK) != 0)
+			#expect(try effects(store, "sum-atom-deref", 0) & UInt32(CLJ_EFFECT_OPAQUE) == 0)
+			#expect(try effects(store, "sum-any-deref", 1) & UInt32(CLJ_EFFECT_OPAQUE) != 0)
+			// :effects/severity :error is the other class: parking cannot work there, so a known park is an error
+			let hard = try Summarized("(fn [] (sum-strict (fn [] (clojure.core.async/<! sum-chan))))", store: store)
+			#expect(hard.errors == 1)
+			#expect(hard.diagnostics == ["E user/sum-strict does not allow argument 0 to park, the function passed at 1:20 parks"])
+			// and ⊤ under it is a warning, which the same ⊤ against the lint is not
+			let hardTop = try Summarized("(fn [g] (sum-strict g))", store: store)
+			#expect(hardTop.errors == 0)
+			#expect(hardTop.diagnostics == ["W user/sum-strict declares argument 0 as fn, nothing is known about what is passed at 1:9",
+			                                "W user/sum-strict does not allow argument 0 to park, the function passed at 1:9 may park"])
+			// the lint follows the annotation: a thunk that parks under the forcing claim of a lazy seq
+			#expect(try Summarized("(fn [] (lazy-seq (clojure.core.async/<! sum-chan)))", store: store).diagnostics.count == 1)
 		}
 
 		// schema → fact for the vocabulary; an unknown tag is TOP and reported as not whole, never an error.
