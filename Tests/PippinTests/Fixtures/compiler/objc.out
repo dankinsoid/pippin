@@ -1,0 +1,8 @@
+true nil false
+"add-target:action:for-control-events:" "utf8-string" "center-x-anchor"
+"hi" 3 nil
+"abcd" 4 1
+1.5 false
+2.5 true -7
+"No selector no-such-method on NSString"
+"Cannot send to a long: not an Objective-C object"

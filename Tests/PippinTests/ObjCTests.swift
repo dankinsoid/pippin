@@ -7,6 +7,16 @@ extension CoreTests {
 	@Suite struct ObjCTests {
 		let rt = Runtime()
 
+		// A send allocates nothing that outlives its result: the wrapper owns the +1 and drops it.
+		@Test func sendsLeakNothing() throws {
+			_ = try cljEval(#"(.utf8-string (.init (.alloc (objc-class "NSMutableString"))))"#)
+			let before = clj_debug_live_objects()
+			for _ in 0 ..< 8 {
+				_ = try cljEval(#"(.utf8-string (.init (.alloc (objc-class "NSMutableString"))))"#)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func kebabSpelling() throws {
 			#expect(try rt.eval(#"(objc-kebab* "addTarget:action:forControlEvents:")"#) == "add-target:action:for-control-events:")
 			#expect(try rt.eval(#"(objc-kebab* "UTF8String")"#) == "utf8-string")

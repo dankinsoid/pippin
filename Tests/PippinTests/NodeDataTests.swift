@@ -59,7 +59,7 @@ extension CoreTests {
 		init() {
 			clj_init()
 			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map", "set",
-			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope"] {
+			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope", "since-date"] {
 				_ = Value(keyword: k)
 			}
 		}
@@ -83,6 +83,7 @@ extension CoreTests {
 					"(def nd-f (fn [n] (if (< n 1) 0 (+ n (nd-f (- n 1))))))",
 					"(do (println \"side\" nd-x (nd-f 4)) [nd-x (var nd-x)])",
 					"(let [x 5] {:k x (+ x 1) [x]})",
+					"(let [d (objc-class \"NSDate\")] (.time-interval-since1970 (.init-with-time-interval (.alloc d) 1.5 :since-date (.date-with-time-interval-since1970 d 0.0))))",
 					"(let [x 9223372036854775807] [x -9223372036854775808 (- x 1) {x [-9223372036854775808]}])",
 				]
 				for source in forms {
