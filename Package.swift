@@ -33,6 +33,9 @@ let package = Package(
 			],
 			linkerSettings: [
 				.linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+				// The level-1 bridge dispatches in C (objc.c): a Swift dispatcher would pay clj_host_invoke per call.
+				.linkedFramework("Foundation", .when(platforms: [.macOS, .iOS])),
+				.linkedLibrary("objc", .when(platforms: [.macOS, .iOS])),
 			]
 		),
 		// The C generator over the analyzer's trees; the compiled-eval hook links into the tests and the bench.

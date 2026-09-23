@@ -15,6 +15,7 @@
 #include "clj/eval.h"
 #include "clj/fn.h"
 #include "clj/guard.h"
+#include "clj/objc.h"
 #include "clj/profile.h"
 #include "clj/vector.h"
 #include "coro_internal.h"
@@ -391,6 +392,7 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 }
 
 void clj_coro_switch_out(clj_coro *c) {
+	clj_objc_pool_drain(); // the slice's pool must be popped on the thread that pushed it
 	clj_carrier      *car = c->carrier;
 	clj_shadow_stack *cs = car->implicit->shadow;
 	bool              done = atomic_load_explicit(&c->state, memory_order_relaxed) == CLJ_CORO_DONE;

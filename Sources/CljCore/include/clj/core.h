@@ -24,6 +24,7 @@
 #include "map.h"     // IWYU pragma: export
 #include "ns.h"      // IWYU pragma: export
 #include "number.h"  // IWYU pragma: export
+#include "objc.h"    // IWYU pragma: export
 #include "object.h"  // IWYU pragma: export
 #include "printer.h" // IWYU pragma: export
 #include "profile.h" // IWYU pragma: export

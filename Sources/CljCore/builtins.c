@@ -1448,4 +1448,5 @@ void clj_builtins_install(void) {
 	clj_uuid_builtins_install();
 	clj_inst_builtins_install();
 	clj_format_builtins_install();
+	clj_objc_builtins_install();
 }

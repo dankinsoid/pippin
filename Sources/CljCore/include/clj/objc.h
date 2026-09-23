@@ -36,7 +36,16 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 // before them, so UTF8String is utf8-string. snprintf's contract: returns the length it wanted.
 size_t clj_objc_kebab(const char *selector, char *out, size_t cap);
 
-// Registers objc-class, objc-send and objc-object?; clj_builtins_install calls it.
+// Registers objc-class, objc-send, objc-object? and objc-kebab*; clj_builtins_install calls it.
 void clj_objc_builtins_install(void);
+
+// The autorelease pool of the slice running on this thread, pushed by the first send (NOTES "ObjC bridge").
+extern _Thread_local void *clj_objc_pool_token;
+void clj_objc_pool_drain_slow(void);
+
+// Read at the switch, never through a park: a coroutine may resume on another carrier (NOTES, TLS).
+static inline void clj_objc_pool_drain(void) {
+	if (clj_objc_pool_token) clj_objc_pool_drain_slow();
+}
 
 #endif
