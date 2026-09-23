@@ -433,8 +433,9 @@ static clj_value no_such_selector(Class cls, const char *spelling, size_t len, b
 		for (unsigned i = 0; i < n && used + 96 < sizeof buf; i++) {
 			const char *name = sel_getName(method_getName(ms[i]));
 			clj_objc_kebab(name, kebab, sizeof kebab);
-			if (strncmp(kebab, spelling, base) != 0 || (kebab[base] != ':' && kebab[base] != '\0')) continue;
-			int wrote = snprintf(buf + used, sizeof buf - used, "%s%s", sep, raw ? name : kebab);
+			const char *shown = raw ? name : kebab;
+			if (strncmp(shown, spelling, base) != 0 || (shown[base] != ':' && shown[base] != '\0')) continue;
+			int wrote = snprintf(buf + used, sizeof buf - used, "%s%s", sep, shown);
 			if (wrote < 0) break;
 			used += (size_t)wrote;
 			sep = ", ";
