@@ -22,7 +22,7 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   closure with a walkable body or an annotated builtin, every var read (the kind of its root, epoch-guarded)
   and every direct call.
 - Nullability is decided for **50.8 → 70.4 %** of value nodes over library code.
-- **Local slots** (the register prize): 3584 slots over library code, **23.2 %** of which never escape and
+- **Local slots** (the register prize): 3587 slots over library code, **23.2 %** of which never escape and
   are never captured; escaping is pass 1's and the summaries do not move it.
 - **Intrinsic arithmetic** (the unboxing prize): 86 sites over library code, **18.6 → 18.6 → 22.1 %**
   with every argument known-fixnum and **44.2 → 44.2 → 48.8 %** with every argument known to be int64-representable
@@ -32,12 +32,12 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   never fixnum, and the gap between the two shares is loop variables and vars holding a boxed long — the join moves
   parameters, which sat at ⊤ or "a number" in neither share.
 - **Loops**: 61 over library code, **4.9 → 4.9 → 4.9 %** with every variable of one numeric domain.
-- **The caller join** (the third number of a cell): 881 arities of def'd fns asked for it over the whole corpus, 145
-  came back narrower than ⊤ at some parameter; of 1117 parameters 153 are narrowed and 153 to one kind. Why a join
-  answered ⊤, over every ask of the run (the rounds included): 588 with no recorded site, 448 with a site passing ⊤ at
+- **The caller join** (the third number of a cell): 883 arities of def'd fns asked for it over the whole corpus, 146
+  came back narrower than ⊤ at some parameter; of 1120 parameters 153 are narrowed and 153 to one kind. Why a join
+  answered ⊤, over every ask of the run (the rounds included): 591 with no recorded site, 448 with a site passing ⊤ at
   some position (the join keeps the other positions), 1233 with the var read as a value somewhere (an argument, a
-  capture, `#'f`, `apply`: it may be called from anywhere), 0 `^:dynamic`; 374 answered without a ⊤ rule. Known
-  types over library code with the join: 69.4 % of value nodes, 57.9 % of computed nodes. Conflicts a use raised
+  capture, `#'f`, `apply`: it may be called from anywhere), 0 `^:dynamic`; 377 answered without a ⊤ rule. Known
+  types over library code with the join: 69.5 % of value nodes, 57.9 % of computed nodes. Conflicts a use raised
   against what the recorded callers pass: 0, warnings (no recorded call takes that path; not a proof).
 - **Protocol receivers** (the inline-cache prize): 26 sites, **0.0 → 100.0 %** with a known type. A receiver
   that is a var read (`defmethod` expands to `(-add-method mf …)` on the multimethod's var) takes the kind of
@@ -50,17 +50,17 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 63 ms, with the summaries 73 ms, against 399 ms of analysis over the same forms
-  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1012 summaries, ran 24 fixpoint rounds
+- Cost: pass 1 alone 62 ms, with the summaries 72 ms, against 392 ms of analysis over the same forms
+  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1013 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 174. Value nodes at ⊥: 147, of which 39 `dead-branch` (the pass's
   own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), 108 with a throw or recur as the only
   way out, and 0 unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening
   rule cut short: 0.
-- Pass 2: 27297 call sites took a summary, 100 arguments were narrowed by a requirement. Diagnostics (design §3
+- Pass 2: 27308 call sites took a summary, 101 arguments were narrowed by a requirement. Diagnostics (design §3
   "Строгость"): **0 errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate
-  this report fails on; 35 proven throws inside a `try` with a handler (`thrown?` assertions), warnings; 83
+  this report fails on; 35 proven throws inside a `try` with a handler (`thrown?` assertions), warnings; 84
   warnings for ⊤ meeting a declaration. Declarations the bodies contradict: 0 errors. Listed below.
 - The `:effects` requirement on a parameter (design §4): a function that parks passed where the callee holds a
   lock through the wait — `swap!`/`swap-vals!`, a validator, the thunk of `lazy-seq*`. **0 errors** (a park where
@@ -69,7 +69,7 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   park, and warning on that fires on every higher-order call (NOTES.md, "Facts").
 - The declarations alone (`:=>` metas on 21 core vars: the table at the end of core.clj and three defn attr-maps;
   inference without them is the third measurement): known types over library code 68.7 → 69.0 %, computed nodes
-  known 56.8 → 57.2 %, arguments narrowed 9 → 100, proven throws 0 → 35. They add requirements, which
+  known 56.9 → 57.2 %, arguments narrowed 9 → 101, proven throws 0 → 35. They add requirements, which
   inference alone has none of at the leaves: every builtin is a native without a body.
 
 ## Types and nullability
@@ -80,10 +80,10 @@ Each percentage is before → after the summaries; a third number is with the ca
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | core.clj | 280 | 12693 | 40.1 → 60.9 → 61.5 % | 10.4 → 11.2 % | 49.1 → 27.5 → 26.7 % | 42.4 → 63.8 % | 11342 | 33.0 → 56.3 → 56.9 % |
 | embedded libs | 108 | 3692 | 42.4 → 69.0 → 69.6 % | 6.2 → 6.7 % | 51.2 → 24.1 → 23.0 % | 44.8 → 71.2 % | 3145 | 32.3 → 63.6 → 64.3 % |
-| clojure-test-suite | 519 | 419296 | 59.1 → 75.9 → 76.0 % | 0.4 → 0.3 % | 40.4 → 23.7 → 23.7 % | 59.4 → 76.1 % | 241466 | 29.0 → 58.2 → 58.3 % |
-| medley | 104 | 22651 | 56.0 → 73.5 → 73.9 % | 0.8 → 1.0 % | 43.2 → 25.5 → 24.8 % | 56.4 → 73.9 % | 13824 | 27.8 → 56.6 → 57.2 % |
-| **library code** | 492 | 39036 | 49.5 → 69.0 → 69.4 % | 4.5 → 4.9 % | 45.9 → 26.0 → 25.2 % | 50.8 → 70.4 % | 28311 | 30.4 → 57.2 → 57.9 % |
-| **all** | 1011 | 458332 | 58.3 → 75.3 → 75.4 % | 0.8 → 0.7 % | 40.9 → 23.9 → 23.8 % | 58.7 → 75.6 % | 269777 | 29.2 → 58.1 → 58.2 % |
+| clojure-test-suite | 520 | 419301 | 59.1 → 75.9 → 76.0 % | 0.4 → 0.3 % | 40.4 → 23.7 → 23.7 % | 59.4 → 76.1 % | 241470 | 29.0 → 58.2 → 58.3 % |
+| medley | 105 | 22667 | 55.9 → 73.5 → 73.9 % | 0.8 → 1.1 % | 43.2 → 25.4 → 24.7 % | 56.4 → 74.0 % | 13838 | 27.8 → 56.6 → 57.3 % |
+| **library code** | 493 | 39052 | 49.5 → 69.0 → 69.5 % | 4.5 → 4.9 % | 45.9 → 26.0 → 25.2 % | 50.8 → 70.4 % | 28325 | 30.4 → 57.2 → 57.9 % |
+| **all** | 1013 | 458353 | 58.3 → 75.3 → 75.4 % | 0.8 → 0.7 % | 40.9 → 23.9 → 23.8 % | 58.7 → 75.6 % | 269795 | 29.2 → 58.1 → 58.2 % |
 
 ## The positions that pay
 
@@ -94,10 +94,10 @@ cells add the share with the caller join as a third number.
 |---|---:|---:|---:|---:|---:|---:|---:|
 | core.clj | 57 / 7.0 → 7.0 → 7.0 % | 50 / 4.0 → 4.0 → 4.0 % | 1872 / 22.5 → 22.5 % | 8 / 0.0 → 100.0 % | 31 / 0.0 → 0.0 → 3.2 % | 31 / 0 → 0 → 0 | 57 / 40.4 → 40.4 → 42.1 % |
 | embedded libs | 14 / 78.6 → 78.6 → 78.6 % | 6 / 16.7 → 16.7 → 16.7 % | 365 / 19.7 → 19.7 % | 16 / 0.0 → 100.0 % | 32 / 0.0 → 0.0 → 0.0 % | 32 / 0 → 0 → 0 | 14 / 100.0 → 100.0 → 100.0 % |
-| clojure-test-suite | 127 / 3.1 → 3.1 → 3.9 % | 18 / 0.0 → 0.0 → 0.0 % | 19552 / 28.8 → 28.8 % | 2 / 0.0 → 100.0 % | 6 / 16.7 → 16.7 → 16.7 % | 6 / 0 → 0 → 0 | 127 / 3.1 → 16.5 → 18.1 % |
-| medley | 15 / 6.7 → 6.7 → 26.7 % | 5 / 0.0 → 0.0 → 0.0 % | 1347 / 25.2 → 25.2 % | 0 / 0.0 → 0.0 % | 0 / 0.0 → 0.0 → 0.0 % | 0 / 0 → 0 → 0 | 15 / 6.7 → 6.7 → 26.7 % |
-| **library code** | 86 / 18.6 → 18.6 → 22.1 % | 61 / 4.9 → 4.9 → 4.9 % | 3584 / 23.2 → 23.2 % | 24 / 0.0 → 100.0 % | 63 / 0.0 → 0.0 → 1.6 % | 63 / 0 → 0 → 0 | 86 / 44.2 → 44.2 → 48.8 % |
-| **all** | 213 / 9.4 → 9.4 → 11.3 % | 79 / 3.8 → 3.8 → 3.8 % | 23136 / 27.9 → 27.9 % | 26 / 0.0 → 100.0 % | 69 / 1.4 → 1.4 → 2.9 % | 69 / 0 → 0 → 0 | 213 / 19.7 → 27.7 → 30.5 % |
+| clojure-test-suite | 127 / 3.1 → 3.1 → 3.9 % | 18 / 0.0 → 0.0 → 0.0 % | 19553 / 28.8 → 28.8 % | 2 / 0.0 → 100.0 % | 6 / 16.7 → 16.7 → 16.7 % | 6 / 0 → 0 → 0 | 127 / 3.1 → 16.5 → 18.1 % |
+| medley | 15 / 6.7 → 6.7 → 26.7 % | 5 / 0.0 → 0.0 → 0.0 % | 1350 / 25.2 → 25.2 % | 0 / 0.0 → 0.0 % | 0 / 0.0 → 0.0 → 0.0 % | 0 / 0 → 0 → 0 | 15 / 6.7 → 6.7 → 26.7 % |
+| **library code** | 86 / 18.6 → 18.6 → 22.1 % | 61 / 4.9 → 4.9 → 4.9 % | 3587 / 23.2 → 23.2 % | 24 / 0.0 → 100.0 % | 63 / 0.0 → 0.0 → 1.6 % | 63 / 0 → 0 → 0 | 86 / 44.2 → 44.2 → 48.8 % |
+| **all** | 213 / 9.4 → 9.4 → 11.3 % | 79 / 3.8 → 3.8 → 3.8 % | 23140 / 27.9 → 27.9 % | 26 / 0.0 → 100.0 % | 69 / 1.4 → 1.4 → 2.9 % | 69 / 0 → 0 → 0 | 213 / 19.7 → 27.7 → 30.5 % |
 
 ## Local slots
 
@@ -105,10 +105,10 @@ cells add the share with the caller join as a third number.
 |---|---:|---:|---:|---:|
 | core.clj | 1872 | 22.5 % | 13.8 % | 63.7 % |
 | embedded libs | 365 | 19.7 % | 5.8 % | 74.5 % |
-| clojure-test-suite | 19552 | 28.8 % | 0.1 % | 71.1 % |
-| medley | 1347 | 25.2 % | 7.0 % | 67.8 % |
-| **library code** | 3584 | 23.2 % | 10.4 % | 66.4 % |
-| **all** | 23136 | 27.9 % | 1.7 % | 70.4 % |
+| clojure-test-suite | 19553 | 28.8 % | 0.1 % | 71.1 % |
+| medley | 1350 | 25.2 % | 7.0 % | 67.9 % |
+| **library code** | 3587 | 23.2 % | 10.4 % | 66.4 % |
+| **all** | 23140 | 27.9 % | 1.7 % | 70.4 % |
 
 ## Dead branches
 
@@ -132,12 +132,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 280 | 12817 | 7.0 | 3.2 | 4.2 | 4.5 | 0.46× → 0.60× | 379 | 13 |
-| embedded libs | 108 | 3710 | 1.8 | 0.7 | 1.1 | 1.2 | 0.41× → 0.65× | 114 | 6 |
-| clojure-test-suite | 519 | 419353 | 372.8 | 56.9 | 64.4 | 63.2 | 0.15× → 0.17× | 9974 | 262 |
-| medley | 104 | 22661 | 17.3 | 2.5 | 3.5 | 3.2 | 0.15× → 0.20× | 562 | 23 |
-| **library code** | 492 | 39188 | 26.0 | 6.4 | 8.8 | 9.0 | 0.25× → 0.34× | 1055 | 23 |
-| **all** | 1011 | 458541 | 398.8 | 63.3 | 73.2 | 72.2 | 0.16× → 0.18× | 11029 | 262 |
+| core.clj | 280 | 12817 | 7.2 | 3.3 | 4.4 | 4.4 | 0.46× → 0.61× | 379 | 13 |
+| embedded libs | 108 | 3710 | 1.9 | 0.8 | 1.2 | 1.2 | 0.40× → 0.62× | 114 | 6 |
+| clojure-test-suite | 520 | 419358 | 365.6 | 55.9 | 63.1 | 60.7 | 0.15× → 0.17× | 9975 | 262 |
+| medley | 105 | 22677 | 17.5 | 2.4 | 3.4 | 3.1 | 0.14× → 0.20× | 563 | 23 |
+| **library code** | 493 | 39204 | 26.5 | 6.5 | 9.0 | 8.6 | 0.24× → 0.34× | 1056 | 23 |
+| **all** | 1013 | 458562 | 392.1 | 62.3 | 72.1 | 69.3 | 0.16× → 0.18× | 11030 | 262 |
 
 ## Errors
 
@@ -263,6 +263,7 @@ off). Reported here only.
 - core.cljc: clojure.core/zero? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 631:9
 - core.cljc: clojure.core/dec declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 634:41
 - core.cljc: clojure.core/neg? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 639:7
+- core.cljc: clojure.core/neg? declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 724:17
 - core_test.cljc: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 74:31
 - core_test.cljc: clojure.core/inc declares argument 0 as fixnum|long|bigint|ratio|decimal|double, nothing is known about what is passed at 74:40
 - core_test.cljc: clojure.core/name declares argument 0 as string|keyword|symbol, nothing is known about what is passed at 76:31
