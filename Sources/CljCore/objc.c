@@ -1383,7 +1383,11 @@ static void call_in(const objc_sig *sig, clj_value fn, clj_value self, const cha
 			clj_throw_msg("%s cannot return a %s as '%c'", what, clj_type_name(r), sig->ret);
 			report_uncaught(what);
 		}
-		if (sig->ret == '@' && raw) autorelease_me = objc_retain((id)(intptr_t)raw);
+		// An owned family must hand the caller +1; every other selector returns +0 into its pool.
+		if (sig->ret == '@' && raw) {
+			objc_retain((id)(intptr_t)raw);
+			if (!sig->owned) autorelease_me = (id)(intptr_t)raw;
+		}
 		memcpy(rbuf, &raw, sizeof raw);
 	}
 	if (r != CLJ_THROWN) clj_release(r);
@@ -1436,6 +1440,7 @@ static bool signature_from_types(const char *types, SEL sel, objc_sig *sig, unsi
 	const char *p = types;
 	sig->sel = sel;
 	sig->reject = REJECT_SHAPE;
+	sig->owned = sel && family_is_owned(sel_getName(sel));
 	if (!next_encoding(&p, ret, sizeof ret)) return false;
 	for (unsigned i = 0; i < nhidden; i++)
 		if (!next_encoding(&p, skip, sizeof skip)) return false;

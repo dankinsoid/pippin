@@ -28,6 +28,8 @@ true nil false
 true [["a" {"x" "1"}] ["b" {}] "b" "a"]
 [3 2 1]
 [["a" 0 true] ["b" 1 true]]
+[1 2]
+"a copy of me"
 "objc-reify: no-such-selector-anywhere is on none of the protocols nor on NSObject, so it needs a type encoding"
 "objc-reify: no such protocol: NoSuchProtocol"
 "objc-reify: no such class: NoSuchClass"

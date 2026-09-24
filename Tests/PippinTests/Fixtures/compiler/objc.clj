@@ -109,6 +109,20 @@
   (.enumerate-objects-using-block (ns-array ["a" "b"]) each)
   (show @seen))
 
+;; A callback can arrive on a thread the runtime has never seen: clj_coro_current gives it one.
+(let [done (atom nil)
+      o (objc-reify {} (["run:" "v@:@"] [self arg] (reset! done (ns-array->vec (ns-array [1 2])))))]
+  (.detach-new-thread-selector (objc-class "NSThread") "run:" :to-target o :with-object nil)
+  (loop [i 0]
+    (when (and (nil? @done) (< i 500))
+      (.sleep-for-time-interval (objc-class "NSThread") 0.01)
+      (recur (inc i))))
+  (show @done))
+
+;; An owned family hands the caller +1, so the copy outlives the callback's own pool.
+(let [o (objc-reify {} (["copyWithZone:" "@@:^v"] [self z] (.string-with-utf8-string (objc-class "NSString") "a copy of me")))]
+  (show (.utf8-string (.copy o))))
+
 (show (try (objc-reify {} ("no-such-selector-anywhere" [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:protocols ["NoSuchProtocol"]} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:superclass "NoSuchClass"} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
