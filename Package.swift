@@ -82,6 +82,14 @@ let package = Package(
 			name: "clj-api-dump",
 			dependencies: ["CljCore", "Pippin"]
 		),
+		// CljCore alone, so a crash under ASan lands on the C stack that caused it and not in a test runner.
+		.executableTarget(
+			name: "clj-load",
+			dependencies: ["CljCore"],
+			cSettings: [
+				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),
+			]
+		),
 		.executableTarget(
 			name: "clj-bench",
 			dependencies: [

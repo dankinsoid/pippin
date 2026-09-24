@@ -1,4 +1,4 @@
-.PHONY: port-audit cmutex-audit build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
+.PHONY: port-audit cmutex-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -103,6 +103,12 @@ bench:
 	$(RELEASE)/release/clj-bench
 	@echo
 	CLJ_SYSTEM_ALLOC=1 $(RELEASE)/release/clj-bench
+
+# One file through the C core under ASan: FILE=x.clj make load-asan. A crash lands on the stack that caused it,
+# where the swift-testing run prints "<empty stack>".
+load-asan:
+	CLJ_SYSTEM_ALLOC=1 swift build --scratch-path $(ASAN) --sanitize=address --product clj-load
+	CLJ_SYSTEM_ALLOC=1 $(ASAN)/debug/clj-load $(FILE)
 
 # Every file using a platform-specific API must have a row in docs/portability.md (other platforms are the last goal).
 port-audit:
