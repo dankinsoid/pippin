@@ -2516,15 +2516,17 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   the frames. Trigger: a host reading traces off non-error values; then the coroutine keeps its
   pending trace for the reader.
 - **The Swift side of an `async` closure cannot itself wait**, by the same `host_depth` rule: its frame
-  is a host call. So the native fn starts a `Task`, hands back `[promise cancel-fn]` and returns, and a
-  Clojure wrapper — `(deref promise)` in a `try`/`catch :cancelled` — does the park, one frame later,
-  with the host frame gone. Chosen over a C shim because it is four existing calls (`apply`, `nth`,
-  `deref`, `throw`) and because `catch :cancelled` is the rule both backends already emit rather than a
-  copy of it; it is written with `fn*`/`let*` and fully qualified vars, so the current namespace at the
-  first `Value(asyncFunction:)` does not matter. The result crosses tagged, `[ok? v]`, because a channel
-  carries values and not throws, and the tag is what lets a Swift error arrive as a throw. The wrapper is
-  evaluated once and kept for the process, so the first `Value(asyncFunction:)` is a one-time allocation no
-  live-object baseline may straddle.
+  is a host call. So the native fn starts a `Task`, hands back `[promise cancel-fn]` and returns, and the
+  wrapper of `clojure.core/host-async-fn` — `(deref p)` in a `try`/`catch :cancelled` — does the park, one
+  frame later, with the host frame gone. Clojure rather than a C shim because it is four existing calls
+  (`apply`, `nth`, `deref`, `throw`) and because `catch :cancelled` is the rule both backends already emit
+  rather than a copy of it. The result crosses tagged, `[ok? v]`, because a channel carries values and not
+  throws, and the tag is what lets a Swift error arrive as a throw.
+- **The wrapper is a private var of the core, not a string the bridge evaluates.** Swift takes it with
+  `clj_ns_resolve(clj_ns_core(), …)` and `clj_var_root`, once. Source evaluated at first use would make the
+  host bridge need the reader and the analyzer at run time, and the shipping build is the compiled core with
+  no interpreter in it (design §10). `make boot` is what carries a change to it into `core_clj.inc` and
+  `boot/*.c`.
 - **A cancelled coroutine cannot park again**: the flag is sticky, so the `catch :cancelled` that
   cancels the Task calls a host fn and rethrows, and nothing in that arm may wait. The same trap catches
   tests: a cancellation handler that reports through a channel throws a second cancellation instead.

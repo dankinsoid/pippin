@@ -138,23 +138,15 @@ extension Value {
 	}
 }
 
-// The park of a Swift `async` fn called from Clojure cannot happen in the Swift frame: it is a host call, and
-// host_depth makes a park there an error (eval.c, sched.c). So the fn the core sees is two frames — a native
-// one that starts the Task and returns a promise, and this wrapper, which derefs it after that frame is gone.
-// The wrapper is Clojure rather than a C shim because it is four existing calls, and `catch :cancelled` (the
-// path that hands our cancellation to the Task) is the interpreter's and the compiler's own rule, not a copy
-// of it. Special forms are starred and every var is qualified, so the current namespace does not matter.
+// A park inside a host call is an error (host_depth), so the wait lives in `clojure.core/host-async-fn`, one
+// frame out. Fetched by var and not evaluated here: a build with no interpreter has no reader (design §10).
 private enum AsyncFn {
 	static let wrap: Value = {
 		clj_init()
-		return try! Runtime().eval("""
-		(fn* [inner]
-		  (fn* [& args]
-		    (let* [pair (clojure.core/apply inner args)
-		           r (try (clojure.core/deref (clojure.core/nth pair 0))
-		                  (catch :cancelled e ((clojure.core/nth pair 1)) (throw e)))]
-		      (if (clojure.core/nth r 0) (clojure.core/nth r 1) (throw (clojure.core/nth r 1))))))
-		""")
+		let name = Value(symbol: "host-async-fn")
+		let v = withExtendedLifetime(name) { clj_ns_resolve(clj_ns_core(), name.raw) }
+		precondition(clj_is_var(v) && clj_var_is_bound(v), "clojure.core/host-async-fn is missing from the core")
+		return Value(borrowing: clj_var_root(v))
 	}()
 }
 

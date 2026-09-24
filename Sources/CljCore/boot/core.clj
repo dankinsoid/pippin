@@ -2481,6 +2481,18 @@
        ~@(map process references)
        nil)))
 
+;; The Clojure half of the host's async bridge (design §5; NOTES.md, "The async bridge"). A Swift `async`
+;; closure crosses as `inner`, which starts the work and answers [promise cancel]: the wait cannot happen in
+;; the Swift frame, since a park inside a host call is an error, so it happens here, one frame out. The
+;; promise carries [ok? value], because a channel carries values and not throws.
+(defn- host-async-fn
+  [inner]
+  (fn [& args]
+    (let [[p cancel] (apply inner args)
+          r (try (deref p)
+                 (catch :cancelled e (cancel) (throw e)))]
+      (if (nth r 0) (nth r 1) (throw (nth r 1))))))
+
 ;; The :=> declarations of C builtins (design §3, anchor 1): what a defn carries in its attr-map, set here because a builtin has none.
 ;; :any where the true argument is "seqable": arrays have no tag in the vocabulary yet (NOTES.md, "Facts").
 (run! (fn [e] (alter-meta! (resolve (key e)) assoc :=> (val e)))
