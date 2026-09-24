@@ -827,6 +827,205 @@ static void describe_struct(const char *enc, char *out, size_t cap) {
 	if (used < cap) snprintf(out + used, cap - used, " or a vector of %u", si.nfields);
 }
 
+// ---- collections, by hand only (design §5: a scalar bridges itself, a collection does not)
+
+#define CLJ_OBJC_MAX_COLL_DEPTH 32
+
+static id to_ns_object(clj_value v, unsigned depth, const char **why);
+
+// The elements are autoreleased into the slice's pool, so the array holds the only strong reference the
+// caller needs; a NULL element would end the C array early, so nil travels as NSNull -- the conversion is
+// lossy by design (§5) and this is one of the places it shows.
+static id to_ns_array(clj_value v, unsigned depth, const char **why) {
+	static Class ns_array, ns_null;
+	Class        arr = class_named("NSArray", &ns_array), nul = class_named("NSNull", &ns_null);
+	if (!arr || !nul) return *why = "no NSArray class", (id)NULL;
+	id null_obj = ((id (*)(id, SEL))objc_msgSend)((id)nul, sel_registerName("null"));
+
+	clj_value count = clj_count(v);
+	int64_t   i64;
+	if (count == CLJ_THROWN || !clj_int64_of(count, &i64) || i64 < 0 || i64 > INT32_MAX) {
+		clj_take_pending();
+		return *why = "not a collection of a countable length", (id)NULL;
+	}
+	uint32_t n = (uint32_t)i64;
+	id      *buf = n ? malloc(n * sizeof *buf) : NULL;
+	if (n && !buf) clj_fatal("out of memory building an NSArray");
+
+	uint32_t  filled = 0;
+	clj_value seq = clj_seq(v);
+	while (seq != CLJ_THROWN && !clj_is_nil(seq) && filled < n) {
+		clj_value e = clj_first(seq);
+		id        o = clj_is_nil(e) ? null_obj : to_ns_object(e, depth + 1, why);
+		if (!o) {
+			clj_release(seq);
+			free(buf);
+			return NULL;
+		}
+		buf[filled++] = o;
+		clj_value nx = clj_next(seq);
+		clj_release(seq);
+		seq = nx;
+	}
+	if (seq == CLJ_THROWN) {
+		clj_take_pending();
+		free(buf);
+		return *why = "the sequence threw while converting", (id)NULL;
+	}
+	clj_release(seq);
+	if (filled != n) {
+		free(buf);
+		return *why = "the collection changed length while converting", (id)NULL;
+	}
+	id out = ((id (*)(id, SEL, const id *, unsigned long))objc_msgSend)((id)arr, sel_registerName("arrayWithObjects:count:"), buf, (unsigned long)n);
+	free(buf);
+	return out;
+}
+
+typedef struct {
+	id         *keys, *objs;
+	uint32_t    n, cap;
+	unsigned    depth;
+	const char *why;
+	id          null_obj;
+} dict_build;
+
+static bool dict_entry(clj_value k, clj_value val, void *ctx) {
+	dict_build *b = ctx;
+	if (b->n == b->cap) return b->why = "the map changed size while converting", false;
+	id ko = to_ns_object(k, b->depth + 1, &b->why);
+	if (!ko) return false;
+	id vo = clj_is_nil(val) ? b->null_obj : to_ns_object(val, b->depth + 1, &b->why);
+	if (!vo) return false;
+	b->keys[b->n] = ko;
+	b->objs[b->n] = vo;
+	b->n++;
+	return true;
+}
+
+static id to_ns_dictionary(clj_value v, unsigned depth, const char **why) {
+	static Class ns_dict, ns_null;
+	Class        dict = class_named("NSDictionary", &ns_dict), nul = class_named("NSNull", &ns_null);
+	if (!dict || !nul) return *why = "no NSDictionary class", (id)NULL;
+	uint32_t   n = clj_map_count(v);
+	dict_build b = {0};
+	b.cap = n;
+	b.depth = depth;
+	b.null_obj = ((id (*)(id, SEL))objc_msgSend)((id)nul, sel_registerName("null"));
+	b.keys = n ? malloc(2 * n * sizeof *b.keys) : NULL;
+	if (n && !b.keys) clj_fatal("out of memory building an NSDictionary");
+	b.objs = b.keys ? b.keys + n : NULL;
+	clj_map_each(v, dict_entry, &b);
+	if (b.why || b.n != n) {
+		free(b.keys);
+		*why = b.why ? b.why : "the map changed size while converting";
+		return NULL;
+	}
+	id out = ((id (*)(id, SEL, const id *, const id *, unsigned long))objc_msgSend)(
+	    (id)dict, sel_registerName("dictionaryWithObjects:forKeys:count:"), b.objs, b.keys, (unsigned long)n);
+	free(b.keys);
+	return out;
+}
+
+// A scalar converts itself here as it does in an argument slot; a nested collection converts too, because a
+// one-level conversion would put wrappers Cocoa cannot read inside the array it was handed.
+static id to_ns_object(clj_value v, unsigned depth, const char **why) {
+	if (depth > CLJ_OBJC_MAX_COLL_DEPTH) return *why = "nested deeper than the bridge converts", (id)NULL;
+	if (clj_is_objc_object(v)) return (id)clj_objc_id(v);
+	if (clj_is_string(v)) return to_ns_string(v);
+	// A keyword travels as its name, which is why the inverse hands back strings and not keywords.
+	if (clj_is_keyword(v)) return to_ns_string(clj_keyword_name(v));
+	if (clj_is_number(v) || clj_is_bool(v)) return to_ns_number(v);
+	if (clj_is_map(v)) return to_ns_dictionary(v, depth, why);
+	if (clj_is_seqable(v)) return to_ns_array(v, depth, why);
+	*why = "not a string, number, boolean, keyword, Objective-C object, map or sequence";
+	return NULL;
+}
+
+static clj_value from_ns_collection(id obj, unsigned depth);
+
+static clj_value from_ns_element(id obj, unsigned depth) {
+	static Class ns_null, ns_array, ns_dict;
+	if (!obj) return CLJ_NIL;
+	if (is_kind_of(obj, class_named("NSNull", &ns_null))) return CLJ_NIL;
+	if (is_kind_of(obj, class_named("NSArray", &ns_array)) || is_kind_of(obj, class_named("NSDictionary", &ns_dict)))
+		return from_ns_collection(obj, depth + 1);
+	return from_object(obj, false);
+}
+
+static clj_value from_ns_collection(id obj, unsigned depth) {
+	static Class ns_array;
+	if (depth > CLJ_OBJC_MAX_COLL_DEPTH) return clj_throw_msg("Nested deeper than the bridge converts");
+	bool is_array = is_kind_of(obj, class_named("NSArray", &ns_array));
+
+	unsigned long n = ((unsigned long (*)(id, SEL))objc_msgSend)(obj, sel_registerName("count"));
+	if (n > (unsigned long)INT32_MAX) return clj_throw_msg("Collection too large to convert: %lu", n);
+	clj_value *items = n ? malloc((is_array ? n : 2 * n) * sizeof *items) : NULL;
+	if (n && !items) clj_fatal("out of memory converting a Cocoa collection");
+
+	uint32_t  m = 0;
+	clj_value out;
+	if (is_array) {
+		for (unsigned long i = 0; i < n; i++)
+			items[m++] = from_ns_element(((id (*)(id, SEL, unsigned long))objc_msgSend)(obj, sel_registerName("objectAtIndex:"), i), depth);
+		out = clj_vector_from_array(items, m);
+	} else {
+		id keys = ((id (*)(id, SEL))objc_msgSend)(obj, sel_registerName("allKeys"));
+		for (unsigned long i = 0; i < n; i++) {
+			id k = ((id (*)(id, SEL, unsigned long))objc_msgSend)(keys, sel_registerName("objectAtIndex:"), i);
+			items[m++] = from_ns_element(k, depth);
+			items[m++] = from_ns_element(((id (*)(id, SEL, id))objc_msgSend)(obj, sel_registerName("objectForKey:"), k), depth);
+		}
+		out = clj_map_from_items(items, m, NULL);
+	}
+	for (uint32_t i = 0; i < m; i++) clj_release(items[i]);
+	free(items);
+	return out;
+}
+
+// A pool for a conversion that no send opened; the same rule as clj_objc_send's (NOTES "ObjC bridge").
+typedef struct {
+	bool  own;
+	void *tok;
+} pool_scope;
+
+static pool_scope pool_enter(void) {
+	pool_scope p = {!clj_coro_in_coroutine(), NULL};
+	if (p.own) p.tok = objc_autoreleasePoolPush();
+	else if (!clj_objc_pool_token) clj_objc_pool_token = objc_autoreleasePoolPush();
+	return p;
+}
+
+static void pool_leave(pool_scope p) {
+	if (p.own) objc_autoreleasePoolPop(p.tok);
+}
+
+clj_value clj_objc_to_collection(clj_value v, bool as_map) {
+	const char *name = as_map ? "ns-dictionary" : "ns-array";
+	if (as_map ? !clj_is_map(v) : (clj_is_map(v) || !clj_is_seqable(v)))
+		return clj_throw_msg("%s expects a %s, got: %s", name, as_map ? "map" : "sequence", clj_type_name(v));
+	pool_scope  p = pool_enter();
+	const char *why = NULL;
+	id          obj = as_map ? to_ns_dictionary(v, 0, &why) : to_ns_array(v, 0, &why);
+	clj_value   out = obj ? clj_objc_wrap(obj) : clj_throw_msg("%s cannot convert this value: %s", name, why ? why : "unsupported");
+	pool_leave(p);
+	return out;
+}
+
+clj_value clj_objc_from_collection(clj_value v, bool as_map) {
+	const char *name = as_map ? "ns-dictionary->map" : "ns-array->vec";
+	if (clj_is_nil(v)) return CLJ_NIL;
+	if (!clj_is_objc_object(v)) return clj_throw_msg("%s expects an Objective-C object, got: %s", name, clj_type_name(v));
+	static Class ns_array, ns_dict;
+	id           obj = (id)clj_objc_id(v);
+	if (!is_kind_of(obj, class_named(as_map ? "NSDictionary" : "NSArray", as_map ? &ns_dict : &ns_array)))
+		return clj_throw_msg("%s expects an %s, got a %s", name, as_map ? "NSDictionary" : "NSArray", class_getName(object_getClass(obj)));
+	pool_scope p = pool_enter();
+	clj_value  out = from_ns_collection(obj, 0);
+	pool_leave(p);
+	return out;
+}
+
 // ---- the call
 
 // The hint is every selector of the receiver sharing the base name, so a wrong or reordered label reads
@@ -1006,6 +1205,16 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 
+clj_value clj_objc_to_collection(clj_value v, bool as_map) {
+	(void)v, (void)as_map;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
+clj_value clj_objc_from_collection(clj_value v, bool as_map) {
+	(void)v, (void)as_map;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
 #endif
 
 // ---- builtins
@@ -1035,7 +1244,31 @@ static clj_value b_objc_kebab(const clj_value *args, size_t n) {
 	return clj_string_new(buf, want);
 }
 
+static clj_value b_ns_array(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_to_collection(args[0], false);
+}
+
+static clj_value b_ns_dictionary(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_to_collection(args[0], true);
+}
+
+static clj_value b_ns_array_to_vec(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_from_collection(args[0], false);
+}
+
+static clj_value b_ns_dictionary_to_map(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_from_collection(args[0], true);
+}
+
 void clj_objc_builtins_install(void) {
+	clj_builtin_bind("ns-array", b_ns_array, 1, 1);
+	clj_builtin_bind("ns-dictionary", b_ns_dictionary, 1, 1);
+	clj_builtin_bind("ns-array->vec", b_ns_array_to_vec, 1, 1);
+	clj_builtin_bind("ns-dictionary->map", b_ns_dictionary_to_map, 1, 1);
 	clj_builtin_bind("objc-class", b_objc_class, 1, 1);
 	clj_builtin_bind("objc-send", b_objc_send, 2, CLJ_ARITY_ANY);
 	clj_builtin_bind("objc-object?", b_objc_object_p, 1, 1);

@@ -14,3 +14,9 @@ true nil false
 "Argument 1 of value-with-range:: a vector is not _NSRange, a map of :location :length or a vector of 2"
 "Selector string-with-format: on NSString is variadic, and the bridge builds no stack arguments"
 "goodbye world"
+7 [1 "two" "three" nil true 2.5 [7]]
+3 ("a" "b" "c") 1 [1 2] {"d" "e"}
+[1 2 3 4 5] [] nil
+"ns-array expects a sequence, got: map"
+"ns-array cannot convert this value: not a string, number, boolean, keyword, Objective-C object, map or sequence"
+"ns-dictionary->map expects an NSDictionary, got a __NSArray0"

@@ -32,6 +32,10 @@ clj_value clj_objc_class(const char *name);
 // target is a wrapper or nil, args borrowed. Owned result, or CLJ_THROWN.
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw);
 
+// By hand only (design §5), deep and lossy: nil is NSNull, a keyword key returns a string.
+clj_value clj_objc_to_collection(clj_value v, bool as_map);
+clj_value clj_objc_from_collection(clj_value v, bool as_map);
+
 // Selector text to the kebab spelling a call site writes: a capital run is one word, digits join the word
 // before them, so UTF8String is utf8-string. snprintf's contract: returns the length it wanted.
 size_t clj_objc_kebab(const char *selector, char *out, size_t cap);

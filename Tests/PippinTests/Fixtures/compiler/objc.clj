@@ -53,3 +53,16 @@
 ;; A struct argument beside a pointer one: each register class is filled in the order of its own arguments.
 (show (.utf8-string (.string-by-replacing-characters-in-range (.string-with-utf8-string (objc-class "NSString") "hello world")
                                                               {:location 0 :length 5} :with-string "goodbye")))
+
+;; Collections cross by hand only, deeply, and lossily: nil is NSNull and a keyword key comes back a string.
+(let [a (ns-array [1 "two" :three nil true 2.5 [7]])]
+  (show (.count a) (ns-array->vec a)))
+
+(let [d (ns-dictionary {:a 1 "b" [1 2] :c {:d "e"}})
+      m (ns-dictionary->map d)]
+  (show (.count d) (sort (keys m)) (get m "a") (get m "b") (get m "c")))
+
+(show (ns-array->vec (ns-array (map inc (range 5)))) (ns-array->vec (ns-array '())) (ns-array->vec nil))
+(show (try (ns-array {:a 1}) (catch :default e (ex-message e))))
+(show (try (ns-array [(fn [])]) (catch :default e (ex-message e))))
+(show (try (ns-dictionary->map (ns-array [])) (catch :default e (ex-message e))))
