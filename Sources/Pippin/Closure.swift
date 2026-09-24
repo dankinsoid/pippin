@@ -202,7 +202,7 @@ extension Value {
 	/// The release policy of design §5: the failure is logged (stderr, as an uncaught coroutine error is) and
 	/// the callback answers `value`. In a debug build it still traps, so a stub written once behaves as the
 	/// design says in both.
-	public static func report<R>(default value: R) -> @Sendable (any Error) -> R {
+	public static func report<R: Sendable>(default value: R) -> @Sendable (any Error) -> R {
 		{ error in
 			#if DEBUG
 				return trap(error)
