@@ -2483,7 +2483,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   fn — since coroutines exist, any carrier of the pool (NOTES "Coroutines"). `Value.apply`
   (`clj_host_invoke`) counts as a synchronous host call: a park inside it is an error with a trace to the
   wait, never a block (design §5, `host_depth`). `Runtime.eval` from a bare thread blocks that thread on a
-  park, the JVM's `<!!`. Trigger: the async bridge (`callAsync`/`callBlocking`).
+  park, the JVM's `<!!`. The way out is the async bridge below.
 - **`ClojureError.trace` is the frames at the throw**, innermost first, and `description` appends
   them Clojure-style (`at user/f (line:col)`); a `ClojureError` rethrown from a host fn hands the
   same frames back to the core, so a non-error value keeps them across the boundary. Compiled frames
@@ -2494,6 +2494,44 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   top-level bracket, so a `def` inside parks the fn roots the caller may still borrow. `Runtime.eval` has
   the same through `clj_eval`. Other host entries that run Clojure code (a lazy seq realized through
   `Value`, a deftype's `equals`) have none: an overflow there is fatal with the trace on stderr.
+
+### The async bridge (Async.swift)
+
+- **`callAsync` spawns, and the fresh coroutine is clean by construction.** `host_depth` is raised only
+  by `clj_host_invoke` (eval.c), so a coroutine `clj_coro_spawn` starts has none of the host's frames
+  under it and may park anywhere; nothing needs lowering, and `callAsync` is a spawn plus a
+  `withCheckedThrowingContinuation` resumed from `on_done` with `clj_coro_result`.
+- **`on_done` can run before `clj_coro_spawn` returns**, on another carrier. So the continuation is
+  stored before the spawn and the coroutine handle after it, both under the call's lock, and a
+  cancellation that lands in that window is replayed once the handle is there. `clj_coro_cancel` on a
+  finished coroutine returns at the state check (sched.c), which closes the same race on the C side.
+- **A spawn with no `on_done` reports an uncaught throw to stderr** (`finish`, sched.c): the callback is
+  how the coroutine knows its throw has a reader. `callBlocking` therefore passes an empty one and reads
+  the result after `clj_coro_join_blocking`, which is valid only while the handle is held.
+- **A throw out of a coroutine keeps only the trace on the value.** `clj_coro_entry` stores
+  `clj_take_pending()` and the pending trace dies with the coroutine, so `ClojureError.trace` is
+  `clj_ex_trace`'s — full for an `ex-info`, empty for `(throw :k)`, where `Value.apply` would still have
+  the frames. Trigger: a host reading traces off non-error values; then the coroutine keeps its
+  pending trace for the reader.
+- **The Swift side of an `async` closure cannot itself wait**, by the same `host_depth` rule: its frame
+  is a host call. So the native fn starts a `Task`, hands back `[promise cancel-fn]` and returns, and a
+  Clojure wrapper — `(deref promise)` in a `try`/`catch :cancelled` — does the park, one frame later,
+  with the host frame gone. Chosen over a C shim because it is four existing calls (`apply`, `nth`,
+  `deref`, `throw`) and because `catch :cancelled` is the rule both backends already emit rather than a
+  copy of it; it is written with `fn*`/`let*` and fully qualified vars, so the current namespace at the
+  first `Value(asyncFunction:)` does not matter. The result crosses tagged, `[ok? v]`, because a channel
+  carries values and not throws, and the tag is what lets a Swift error arrive as a throw.
+- **A cancelled coroutine cannot park again**: the flag is sticky, so the `catch :cancelled` that
+  cancels the Task calls a host fn and rethrows, and nothing in that arm may wait. The same trap catches
+  tests: a cancellation handler that reports through a channel throws a second cancellation instead.
+- **A cancelled taker stays counted in the channel's pending queue** until a hand-off tries it, so
+  `clj_debug_chan_pending` says nothing about whether a cancel has landed; the coroutine's own outcome
+  does.
+- **`callDetached` is `Task.detached`.** An inheriting `Task` would put the wait on the caller's actor,
+  so a `@MainActor` caller would hop the main thread for a result it is not waiting on.
+- **`callBlocking` refuses only the main thread** (`Thread.isMainThread` or `clj_coro_on_main_carrier`).
+  Called from a carrier it is legal and costs the pool that carrier until the call returns — the design's
+  explicit opt-in, and the one escape hatch from a synchronous host call that needs a value now.
 
 ### Host-defined vars and primitives (Runtime.swift `define`, Differential.swift, Primitives.swift)
 

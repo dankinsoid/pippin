@@ -697,6 +697,8 @@ clj_value clj_coro_parked_trace(clj_value coro) {
 
 static void bounce(void) {
 	clj_coro *c = clj_coro_tls;
+	// Without the entry half, the first switch out starts a fiber switch inside one and ASan kills the run.
+	ASAN_FINISH(c->asan_fake);
 	for (;;) clj_coro_switch_out(c);
 }
 
