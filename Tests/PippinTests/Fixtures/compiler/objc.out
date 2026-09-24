@@ -6,3 +6,10 @@ true nil false
 2.5 true -7
 "No selector no-such-method on NSString"
 "Cannot send to a long: not an Objective-C object"
+{:length 3, :location 4} 4 3
+{:x 1.5, :y -2.5} {:height 20.0, :width 10.0} {:length 4, :location 3}
+{:origin {:x 1.0, :y 2.0}, :size {:height 4.0, :width 3.0}}
+[2.0 0.0 0.0 3.0 5.0 6.0] {:x 7.0, :y 9.0}
+"Argument 1 of value-with-point:: a map is not CGPoint, a map of :x :y or a vector of 2"
+"Argument 1 of value-with-range:: a vector is not _NSRange, a map of :location :length or a vector of 2"
+"Selector string-with-format: on NSString is variadic, and the bridge builds no stack arguments"

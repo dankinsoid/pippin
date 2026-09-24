@@ -110,14 +110,40 @@ clj_value clj_objc_class(const char *name) {
 
 // The wrong objc_msgSend prototype is silent corruption; why eight suffice: NOTES "ObjC bridge".
 
-#define CLJ_OBJC_MAX_INT_ARGS 6
-#define CLJ_OBJC_MAX_FP_ARGS  8
-#define CLJ_OBJC_MAX_ARGS     8
+#define CLJ_OBJC_MAX_INT_ARGS     6
+#define CLJ_OBJC_MAX_FP_ARGS      8
+#define CLJ_OBJC_MAX_ARGS         8
+#define CLJ_OBJC_MAX_STRUCT_BYTES 128
+#define CLJ_OBJC_MAX_FIELDS       16
 
 #define INT_SLOTS   long long, long long, long long, long long, long long, long long
 #define FP_SLOTS(t) t, t, t, t, t, t, t, t
 #define INT_ARGS(a) a[0], a[1], a[2], a[3], a[4], a[5]
 #define FP_ARGS(f)  f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]
+
+// A struct return needs the real return type in the prototype: the ABI puts an HFA in v0-v3, a small
+// aggregate in x0-x1 and a large one in the buffer the caller passes in x8, which C alone can set.
+typedef struct { long long a, b; } ret_i2;
+typedef struct { double a, b; } ret_d2;
+typedef struct { double a, b, c; } ret_d3;
+typedef struct { double a, b, c, d; } ret_d4;
+typedef struct { float a, b; } ret_f2;
+typedef struct { float a, b, c; } ret_f3;
+typedef struct { float a, b, c, d; } ret_f4;
+typedef struct { _Alignas(16) unsigned char b[CLJ_OBJC_MAX_STRUCT_BYTES]; } ret_mem;
+
+#define SEND_TYPE(tag, R)                                              \
+	typedef R(*send_##tag##_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));  \
+	typedef R(*send_##tag##_f)(id, SEL, INT_SLOTS, FP_SLOTS(float))
+
+SEND_TYPE(i2, ret_i2);
+SEND_TYPE(d2, ret_d2);
+SEND_TYPE(d3, ret_d3);
+SEND_TYPE(d4, ret_d4);
+SEND_TYPE(f2, ret_f2);
+SEND_TYPE(f3, ret_f3);
+SEND_TYPE(f4, ret_f4);
+SEND_TYPE(mem, ret_mem);
 
 typedef long long (*send_i_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));
 typedef double (*send_d_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));
@@ -132,17 +158,33 @@ typedef void (*send_v_f)(id, SEL, INT_SLOTS, FP_SLOTS(float));
 
 enum { K_INT, K_FLOAT, K_DOUBLE };
 
+// AAPCS64 §5.4: an aggregate of at most four members of one floating type travels in v0-v3, so a 32-byte
+// CGRect is registers and not memory; any other aggregate of at most 16 bytes goes in integer registers, a
+// larger one by a pointer, and its return through x8.
+enum { SC_INT, SC_HFA_D, SC_HFA_F, SC_MEM };
+
+typedef struct {
+	uint8_t  cls;
+	uint8_t  slots; // integer words, HFA members, or the one pointer of SC_MEM
+	uint16_t size;
+} struct_abi;
+
 // Why a selector cannot be called, for the message the caller gets.
 enum { REJECT_NONE, REJECT_SHAPE, REJECT_VARIADIC };
 
 typedef struct {
-	SEL     sel;
-	char    ret;                    // the return's encoding char
-	char    arg[CLJ_OBJC_MAX_ARGS]; // each argument's, self and _cmd dropped
-	uint8_t nargs;
-	uint8_t reject;
-	bool    owned;       // the alloc/new/copy/mutableCopy/init families return +1
-	bool    fp_is_float; // every floating-point argument is a float rather than a double
+	SEL         sel;
+	char        ret;                    // the return's encoding char, '{' for a struct
+	char        arg[CLJ_OBJC_MAX_ARGS]; // each argument's, self and _cmd dropped
+	const char *retenc;                 // the whole encoding of a '{' return, owned by the cache entry
+	const char *argenc[CLJ_OBJC_MAX_ARGS];
+	struct_abi  ret_abi;
+	struct_abi  arg_abi[CLJ_OBJC_MAX_ARGS];
+	uint8_t     nargs;
+	uint8_t     reject;
+	bool        owned;         // the alloc/new/copy/mutableCopy/init families return +1
+	bool        consumes_self; // the init family takes the reference its receiver was created with
+	bool        fp_is_float; // every floating-point argument is a float rather than a double
 } objc_sig;
 
 static int kind_of(char enc) {
@@ -168,20 +210,194 @@ static bool encoding_supported(char enc, bool is_return) {
 	}
 }
 
-static char strip_qualifiers(const char *enc) {
+static const char *skip_qualifiers(const char *enc) {
 	while (*enc && strchr("rnNoORV", *enc)) enc++;
-	return *enc;
+	return enc;
 }
 
-// The ARC method families, read off the selector's first word after any leading underscores.
-static bool family_is_owned(const char *sel) {
+// ---- struct layout and its ABI class
+
+typedef struct {
+	const char *body; // the first member's encoding
+	const char *name; // "?" when the struct is anonymous
+	const char *end;  // past the closing brace
+	size_t      namelen;
+	uint32_t    size, align;
+	uint8_t     nfields;
+} sinfo;
+
+static bool struct_info(const char *enc, sinfo *si);
+
+// Every Apple ABI agrees on these; 0 is a member we cannot lay out.
+static uint32_t prim_size(char enc) {
+	switch (enc) {
+	case 'c': case 'C': case 'B': return 1;
+	case 's': case 'S': return 2;
+	// The runtime documents 'l'/'L' as 32-bit even on LP64, where clang emits 'q'/'Q' for a real long.
+	case 'i': case 'I': case 'l': case 'L': case 'f': return 4;
+	case 'q': case 'Q': case 'd': case '@': case '#': case ':': case '*': case '^': return 8;
+	default: return 0;
+	}
+}
+
+// Past one encoding of any shape, laid out or not.
+static bool skip_encoding(const char **p) {
+	const char *e = skip_qualifiers(*p);
+	switch (*e) {
+	case '\0': return false;
+	case '^': return *p = e + 1, skip_encoding(p);
+	case '@':
+		e++;
+		if (*e == '"') {
+			while (*e && *++e != '"') {}
+			if (*e != '"') return false;
+			e++;
+		}
+		return *p = e, true;
+	case 'b':
+		for (e++; *e >= '0' && *e <= '9'; e++) {}
+		return *p = e, true;
+	case '{': case '(': case '[': {
+		for (int depth = 0; *e; e++) {
+			if (*e == '{' || *e == '(' || *e == '[') depth++;
+			else if ((*e == '}' || *e == ')' || *e == ']') && --depth == 0) return *p = e + 1, true;
+		}
+		return false;
+	}
+	default: return *p = e + 1, true;
+	}
+}
+
+static bool member_layout(const char **p, uint32_t *size, uint32_t *align) {
+	const char *e = skip_qualifiers(*p);
+	if (*e == '{') {
+		sinfo si;
+		if (!struct_info(e, &si)) return false;
+		*size = si.size;
+		*align = si.align;
+		*p = si.end;
+		return true;
+	}
+	if (*e == '^' || *e == '@') {
+		*size = *align = 8;
+		*p = e;
+		return skip_encoding(p);
+	}
+	uint32_t n = prim_size(*e);
+	if (n == 0) return false;
+	*size = *align = n;
+	*p = e + 1;
+	return true;
+}
+
+// A union is refused here: its members overlap, so no Clojure value is faithful to one.
+static bool struct_info(const char *enc, sinfo *si) {
+	if (*enc != '{') return false;
+	const char *eq = enc + 1;
+	while (*eq && *eq != '=' && *eq != '}') eq++;
+	if (*eq != '=') return false; // {Name} alone is an opaque forward declaration
+	si->name = enc + 1;
+	si->namelen = (size_t)(eq - si->name);
+	si->body = eq + 1;
+	uint32_t    off = 0, align = 1;
+	uint8_t     n = 0;
+	const char *p = si->body;
+	while (*p && *p != '}') {
+		uint32_t sz, al;
+		if (n == CLJ_OBJC_MAX_FIELDS || !member_layout(&p, &sz, &al)) return false;
+		off = (off + al - 1) & ~(al - 1);
+		off += sz;
+		if (al > align) align = al;
+		n++;
+	}
+	if (*p != '}' || n == 0) return false;
+	si->end = p + 1;
+	si->nfields = n;
+	si->align = align;
+	si->size = (off + align - 1) & ~(align - 1);
+	return true;
+}
+
+typedef struct {
+	const char *p;
+	uint32_t    off;
+} fcursor;
+
+static void fields_begin(const sinfo *si, fcursor *c) {
+	c->p = si->body;
+	c->off = 0;
+}
+
+static bool field_next(fcursor *c, const char **enc, uint32_t *off) {
+	if (!*c->p || *c->p == '}') return false;
+	const char *at = skip_qualifiers(c->p);
+	uint32_t    sz, al;
+	if (!member_layout(&c->p, &sz, &al)) return false;
+	*off = (c->off + al - 1) & ~(al - 1);
+	c->off = *off + sz;
+	*enc = at;
+	return true;
+}
+
+// The scalar members, nesting flattened out: the ABI class reads only these.
+static bool leaves_of(const char *enc, char *out, unsigned cap, unsigned *n) {
+	sinfo si;
+	if (!struct_info(enc, &si)) return false;
+	fcursor     c;
+	const char *f;
+	uint32_t    off;
+	for (fields_begin(&si, &c); field_next(&c, &f, &off);) {
+		if (*f == '{') {
+			if (!leaves_of(f, out, cap, n)) return false;
+		} else {
+			if (*n == cap) return false;
+			out[(*n)++] = *f;
+		}
+	}
+	return true;
+}
+
+static bool classify_struct(const char *enc, struct_abi *abi) {
+	sinfo si;
+	if (!struct_info(enc, &si)) return false;
+	if (si.size == 0 || si.size > CLJ_OBJC_MAX_STRUCT_BYTES) return false;
+	char     lv[CLJ_OBJC_MAX_FIELDS * 4];
+	unsigned n = 0;
+	if (!leaves_of(enc, lv, sizeof lv, &n) || n == 0) return false;
+	bool all_d = true, all_f = true, all_int = true;
+	for (unsigned i = 0; i < n; i++) {
+		if (!encoding_supported(lv[i], false)) return false;
+		all_d &= lv[i] == 'd';
+		all_f &= lv[i] == 'f';
+		all_int &= kind_of(lv[i]) == K_INT;
+	}
+	abi->size = (uint16_t)si.size;
+	if (all_d && n <= 4 && si.size == 8 * n) abi->cls = SC_HFA_D, abi->slots = (uint8_t)n;
+	else if (all_f && n <= 4 && si.size == 4 * n) abi->cls = SC_HFA_F, abi->slots = (uint8_t)n;
+	else if (si.size <= 16) abi->cls = SC_INT, abi->slots = (uint8_t)((si.size + 7) / 8);
+	else abi->cls = SC_MEM, abi->slots = 1;
+	(void)all_int;
+#if defined(__x86_64__)
+	// SysV classifies by eightbyte, not by member: two floats share one xmm, and an aggregate over 16 bytes
+	// rides the stack, with objc_msgSend_stret for a return. Only the shapes that agree with arm64 pass.
+	if (!(abi->cls == SC_INT && all_int) && !(abi->cls == SC_HFA_D && n <= 2)) return false;
+#endif
+	return true;
+}
+
+// A selector's first word after any leading underscores, as ARC reads a method family.
+static bool family_is(const char *sel, const char *word) {
 	while (*sel == '_') sel++;
+	size_t n = strlen(word);
+	if (strncmp(sel, word, n) != 0) return false;
+	char after = sel[n];
+	return after == '\0' || after == ':' || (after >= 'A' && after <= 'Z');
+}
+
+static bool family_is_owned(const char *sel) {
 	static const char *const families[] = {"alloc", "new", "copy", "mutableCopy", "init"};
 	for (size_t i = 0; i < sizeof families / sizeof *families; i++) {
-		size_t n = strlen(families[i]);
-		if (strncmp(sel, families[i], n) != 0) continue;
-		char after = sel[n];
-		if (after == '\0' || after == ':' || (after >= 'A' && after <= 'Z')) return true;
+		if (family_is(sel, families[i])) return true;
 	}
 	return false;
 }
@@ -210,28 +426,49 @@ static bool selector_is_variadic(const char *sel) {
 	return false;
 }
 
-// Fills sig from the method; false when the shape is none of the eight prototypes. sel is set either way, so
-// a caller can tell "no such selector" from "a selector we cannot call".
-static bool signature_of(Method m, objc_sig *sig) {
+static char *own_encoding(const char *enc) {
+	char *copy = strdup(enc);
+	if (!copy) clj_fatal("out of memory copying an objc type encoding");
+	return copy;
+}
+
+// Fills sig from the method; false when the shape is none of the prototypes. sel is set either way, so a
+// caller can tell "no such selector" from "a selector we cannot call".
+static bool signature_fill(Method m, objc_sig *sig) {
 	sig->sel = method_getName(m);
 	sig->reject = REJECT_SHAPE;
 	unsigned n = method_getNumberOfArguments(m);
 	if (n < 2 || n - 2 > CLJ_OBJC_MAX_ARGS) return false;
 	sig->nargs = (uint8_t)(n - 2);
 	sig->owned = family_is_owned(sel_getName(sig->sel));
+	sig->consumes_self = family_is(sel_getName(sig->sel), "init");
 	if (selector_is_variadic(sel_getName(sig->sel))) return sig->reject = REJECT_VARIADIC, false;
 
-	char *ret = method_copyReturnType(m);
-	sig->ret = strip_qualifiers(ret);
+	char       *ret = method_copyReturnType(m);
+	const char *r = skip_qualifiers(ret);
+	bool        ok = *r == '{' ? classify_struct(r, &sig->ret_abi) : encoding_supported(*r, true);
+	sig->ret = *r;
+	if (ok && *r == '{') sig->retenc = own_encoding(r);
 	free(ret);
-	if (!encoding_supported(sig->ret, true)) return false;
+	if (!ok) return false;
 
 	unsigned ints = 0, fps = 0, floats = 0;
 	for (unsigned i = 0; i < sig->nargs; i++) {
-		char *a = method_copyArgumentType(m, i + 2);
-		sig->arg[i] = strip_qualifiers(a);
+		char       *a = method_copyArgumentType(m, i + 2);
+		const char *e = skip_qualifiers(a);
+		sig->arg[i] = *e;
+		ok = *e == '{' ? classify_struct(e, &sig->arg_abi[i]) : encoding_supported(*e, false);
+		if (ok && *e == '{') sig->argenc[i] = own_encoding(e);
 		free(a);
-		if (!encoding_supported(sig->arg[i], false)) return false;
+		if (!ok) return false;
+		if (*e == '{') {
+			switch (sig->arg_abi[i].cls) {
+			case SC_HFA_F: floats += sig->arg_abi[i].slots; // fallthrough
+			case SC_HFA_D: fps += sig->arg_abi[i].slots; break;
+			default: ints += sig->arg_abi[i].slots; break; // SC_INT's words, SC_MEM's pointer
+			}
+			continue;
+		}
 		switch (kind_of(sig->arg[i])) {
 		case K_INT: ints++; break;
 		case K_FLOAT: fps++, floats++; break;
@@ -244,6 +481,17 @@ static bool signature_of(Method m, objc_sig *sig) {
 	return true;
 }
 
+static bool signature_of(Method m, objc_sig *sig) {
+	if (signature_fill(m, sig)) return true;
+	free((char *)sig->retenc);
+	sig->retenc = NULL;
+	for (unsigned i = 0; i < CLJ_OBJC_MAX_ARGS; i++) {
+		free((char *)sig->argenc[i]);
+		sig->argenc[i] = NULL;
+	}
+	return false;
+}
+
 // ---- the (class, spelling) selector cache
 
 typedef struct {
@@ -251,6 +499,7 @@ typedef struct {
 	char    *spelling; // owned; NULL marks a free slot
 	size_t   len;
 	uint32_t hash;
+	bool     raw; // the Objective-C text rather than the kebab spelling: the same string can mean either
 	bool     found;
 	objc_sig sig;
 } cache_entry;
@@ -259,18 +508,18 @@ static clj_lock     cache_lock = CLJ_LOCK_INIT;
 static cache_entry *cache;
 static size_t       cache_cap, cache_len;
 
-static uint32_t spelling_hash(Class cls, const char *s, size_t len) {
-	uint32_t h = (uint32_t)((uintptr_t)cls >> 4) * 2654435761u;
+static uint32_t spelling_hash(Class cls, const char *s, size_t len, bool raw) {
+	uint32_t h = (uint32_t)((uintptr_t)cls >> 4) * 2654435761u + raw;
 	for (size_t i = 0; i < len; i++) h = clj_hash_combine(h, (uint32_t)(unsigned char)s[i]);
 	return h;
 }
 
-static cache_entry *cache_slot(Class cls, const char *s, size_t len, uint32_t h) {
+static cache_entry *cache_slot(Class cls, const char *s, size_t len, bool raw, uint32_t h) {
 	size_t mask = cache_cap - 1;
 	for (size_t i = h & mask;; i = (i + 1) & mask) {
 		cache_entry *e = &cache[i];
 		if (!e->spelling) return e;
-		if (e->hash == h && e->cls == cls && e->len == len && memcmp(e->spelling, s, len) == 0) return e;
+		if (e->hash == h && e->cls == cls && e->len == len && e->raw == raw && memcmp(e->spelling, s, len) == 0) return e;
 	}
 }
 
@@ -282,14 +531,18 @@ static void cache_grow(void) {
 	cache = fresh;
 	cache_cap = cap;
 	for (size_t i = 0; i < old_cap; i++) {
-		if (old[i].spelling) *cache_slot(old[i].cls, old[i].spelling, old[i].len, old[i].hash) = old[i];
+		if (old[i].spelling) *cache_slot(old[i].cls, old[i].spelling, old[i].len, old[i].raw, old[i].hash) = old[i];
 	}
 	free(old);
 }
 
 // Walks cls and its superclasses kebabing every selector; the first match wins, as dispatch would.
-static bool resolve(Class cls, const char *spelling, size_t len, objc_sig *out) {
+static bool resolve(Class cls, const char *spelling, size_t len, bool raw, objc_sig *out) {
 	char buf[512];
+	if (raw) {
+		Method m = class_getInstanceMethod(cls, sel_registerName(spelling));
+		return m && signature_of(m, out);
+	}
 	for (Class k = cls; k; k = class_getSuperclass(k)) {
 		unsigned n = 0;
 		Method  *ms = class_copyMethodList(k, &n);
@@ -306,11 +559,11 @@ static bool resolve(Class cls, const char *spelling, size_t len, objc_sig *out) 
 	return false;
 }
 
-static bool lookup(Class cls, const char *spelling, size_t len, objc_sig *out) {
+static bool lookup(Class cls, const char *spelling, size_t len, bool raw, objc_sig *out) {
 	clj_lock_lock(&cache_lock);
 	if (cache_len * 2 >= cache_cap) cache_grow();
-	uint32_t     h = spelling_hash(cls, spelling, len);
-	cache_entry *e = cache_slot(cls, spelling, len, h);
+	uint32_t     h = spelling_hash(cls, spelling, len, raw);
+	cache_entry *e = cache_slot(cls, spelling, len, raw, h);
 	if (!e->spelling) {
 		char *copy = malloc(len + 1);
 		if (!copy) clj_fatal("out of memory filling the objc selector cache");
@@ -320,8 +573,9 @@ static bool lookup(Class cls, const char *spelling, size_t len, objc_sig *out) {
 		e->spelling = copy;
 		e->len = len;
 		e->hash = h;
+		e->raw = raw;
 		memset(&e->sig, 0, sizeof e->sig);
-		e->found = resolve(cls, spelling, len, &e->sig);
+		e->found = resolve(cls, copy, len, raw, &e->sig);
 		cache_len++;
 	}
 	*out = e->sig;
@@ -447,6 +701,132 @@ static clj_value from_int_return(long long raw, char enc, bool owned) {
 	}
 }
 
+// ---- structs as Clojure values
+
+// An encoding names the struct and its member types but never the members, so the keys come from here; an
+// unlisted struct crosses as a vector, in member order.
+static const struct {
+	const char *name;
+	uint8_t     n;
+	const char *field[6];
+} known_structs[] = {
+    {"CGPoint", 2, {"x", "y"}},
+    {"CGSize", 2, {"width", "height"}},
+    {"CGVector", 2, {"dx", "dy"}},
+    {"CGRect", 2, {"origin", "size"}},
+    {"_NSRange", 2, {"location", "length"}},
+    {"CGAffineTransform", 6, {"a", "b", "c", "d", "tx", "ty"}},
+    {"UIEdgeInsets", 4, {"top", "left", "bottom", "right"}},
+    {"NSEdgeInsets", 4, {"top", "left", "bottom", "right"}},
+    {"NSDirectionalEdgeInsets", 4, {"top", "leading", "bottom", "trailing"}},
+    {"UIOffset", 2, {"horizontal", "vertical"}},
+};
+
+#define KNOWN_STRUCTS (sizeof known_structs / sizeof *known_structs)
+
+// A keyword is immortal and interning is idempotent, so a race here stores the same value twice.
+static clj_value known_keys[KNOWN_STRUCTS][6];
+
+static clj_value field_key(int s, unsigned i) {
+	if (!known_keys[s][i]) known_keys[s][i] = clj_keyword_from_cstr(known_structs[s].field[i]);
+	return known_keys[s][i];
+}
+
+// The table's entry for this struct, or -1 when it has none or has gone stale against the real encoding.
+static int known_index(const sinfo *si) {
+	for (size_t i = 0; i < KNOWN_STRUCTS; i++) {
+		if (strncmp(known_structs[i].name, si->name, si->namelen) != 0 || known_structs[i].name[si->namelen]) continue;
+		return known_structs[i].n == si->nfields ? (int)i : -1;
+	}
+	return -1;
+}
+
+// Little-endian: a member's low bytes are its first ones, which every Apple target agrees on.
+static bool write_scalar(char enc, clj_value v, unsigned char *at) {
+	if (enc == 'd' || enc == 'f') {
+		if (!clj_is_number(v)) return false;
+		double d = clj_num_to_double(v);
+		float  f = (float)d;
+		memcpy(at, enc == 'd' ? (void *)&d : (void *)&f, prim_size(enc));
+		return true;
+	}
+	long long raw;
+	if (!to_int_slot(v, enc, &raw)) return false;
+	memcpy(at, &raw, prim_size(enc));
+	return true;
+}
+
+static clj_value read_scalar(char enc, const unsigned char *at) {
+	if (enc == 'd') {
+		double d;
+		memcpy(&d, at, sizeof d);
+		return clj_double_new(d);
+	}
+	if (enc == 'f') {
+		float f;
+		memcpy(&f, at, sizeof f);
+		return clj_double_new(f);
+	}
+	long long raw = 0;
+	memcpy(&raw, at, prim_size(enc));
+	return from_int_return(raw, enc, false);
+}
+
+// A listed struct takes a map of its field keywords, any struct a vector; buf is zeroed and big enough.
+static bool encode_struct(const char *enc, clj_value v, unsigned char *buf) {
+	sinfo si;
+	if (!struct_info(enc, &si)) return false;
+	int  ks = known_index(&si);
+	bool from_map = clj_is_map(v);
+	if (from_map ? ks < 0 || clj_map_count(v) != si.nfields : !clj_is_vector(v) || clj_vector_count(v) != si.nfields) return false;
+	fcursor     c;
+	const char *f;
+	uint32_t    off;
+	fields_begin(&si, &c);
+	for (unsigned i = 0; field_next(&c, &f, &off); i++) {
+		clj_value fv = from_map ? clj_map_get(v, field_key(ks, i), CLJ_UNBOUND) : clj_vector_nth(v, i);
+		if (fv == CLJ_UNBOUND) return false;
+		if (*f == '{' ? !encode_struct(f, fv, buf + off) : !write_scalar(*f, fv, buf + off)) return false;
+	}
+	return true;
+}
+
+static clj_value decode_struct(const char *enc, const unsigned char *buf) {
+	sinfo si;
+	if (!struct_info(enc, &si)) return CLJ_NIL;
+	int         ks = known_index(&si);
+	clj_value   items[CLJ_OBJC_MAX_FIELDS * 2];
+	unsigned    n = 0;
+	fcursor     c;
+	const char *f;
+	uint32_t    off;
+	fields_begin(&si, &c);
+	for (unsigned i = 0; field_next(&c, &f, &off); i++) {
+		if (ks >= 0) items[n++] = field_key(ks, i);
+		items[n++] = *f == '{' ? decode_struct(f, buf + off) : read_scalar(*f, buf + off);
+	}
+	clj_value out = ks >= 0 ? clj_map_from_items(items, n, NULL) : clj_vector_from_array(items, n);
+	for (unsigned i = ks >= 0 ? 1 : 0; i < n; i += ks >= 0 ? 2 : 1) clj_release(items[i]);
+	return out;
+}
+
+// What an argument of this struct may be written as, for the error when it is written as something else.
+static void describe_struct(const char *enc, char *out, size_t cap) {
+	sinfo si;
+	if (!struct_info(enc, &si)) {
+		snprintf(out, cap, "%s", enc);
+		return;
+	}
+	int ks = known_index(&si);
+	if (ks < 0) {
+		snprintf(out, cap, "%.*s, a vector of %u", (int)si.namelen, si.name, si.nfields);
+		return;
+	}
+	size_t used = (size_t)snprintf(out, cap, "%.*s, a map of", (int)si.namelen, si.name);
+	for (unsigned i = 0; i < si.nfields && used < cap; i++) used += (size_t)snprintf(out + used, cap - used, " :%s", known_structs[ks].field[i]);
+	if (used < cap) snprintf(out + used, cap - used, " or a vector of %u", si.nfields);
+}
+
 // ---- the call
 
 // The hint is every selector of the receiver sharing the base name, so a wrong or reordered label reads
@@ -487,17 +867,10 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	size_t           len = clj_string_len(selector);
 
 	objc_sig sig = {0};
-	bool     found;
-	if (raw) {
-		Method m = class_getInstanceMethod(cls, sel_registerName(spelling));
-		found = m && signature_of(m, &sig);
-		if (!m) return no_such_selector(cls, spelling, len, true);
-	} else {
-		found = lookup(cls, spelling, len, &sig);
-		if (!found && !sig.sel) return no_such_selector(cls, spelling, len, false);
-	}
-	if (!found && sig.reject == REJECT_VARIADIC) return clj_throw_msg("Selector %.*s on %s is variadic; the bridge cannot call it", (int)len, spelling, class_getName(cls));
-	if (!found) return clj_throw_msg("Selector %.*s on %s has a shape the bridge cannot call: a union, an array, a long double, a struct with no field names, too many arguments, or float and double mixed", (int)len, spelling, class_getName(cls));
+	bool     found = lookup(cls, spelling, len, raw, &sig);
+	if (!found && !sig.sel) return no_such_selector(cls, spelling, len, raw);
+	if (!found && sig.reject == REJECT_VARIADIC) return clj_throw_msg("Selector %.*s on %s is variadic, and the bridge builds no stack arguments", (int)len, spelling, class_getName(cls));
+	if (!found) return clj_throw_msg("Selector %.*s on %s has a shape the bridge cannot call: a union, an array, a long double, a struct over %d bytes, too many arguments, or float and double mixed", (int)len, spelling, class_getName(cls), CLJ_OBJC_MAX_STRUCT_BYTES);
 	if (nargs != sig.nargs) return clj_throw_msg("Selector %.*s takes %u argument(s), got %u", (int)len, spelling, sig.nargs, nargs);
 
 	// Off a coroutine nothing will switch, so the call keeps its own pool; on one the slice's pool is pushed
@@ -509,9 +882,35 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	long long ints[CLJ_OBJC_MAX_INT_ARGS] = {0};
 	double    dbls[CLJ_OBJC_MAX_FP_ARGS] = {0};
 	float     flts[CLJ_OBJC_MAX_FP_ARGS] = {0};
-	unsigned  ni = 0, nf = 0;
-	clj_value out = CLJ_NIL;
+	// An indirect struct is passed by a pointer into this, so it outlives the marshalling loop.
+	_Alignas(16) unsigned char structs[CLJ_OBJC_MAX_ARGS][CLJ_OBJC_MAX_STRUCT_BYTES];
+	unsigned                   ni = 0, nf = 0;
+	clj_value                  out = CLJ_NIL;
 	for (uint32_t i = 0; i < sig.nargs && out != CLJ_THROWN; i++) {
+		if (sig.arg[i] == '{') {
+			const struct_abi *abi = &sig.arg_abi[i];
+			unsigned char    *buf = structs[i];
+			memset(buf, 0, (abi->size + 15u) & ~15u);
+			if (!encode_struct(sig.argenc[i], args[i], buf)) {
+				char want[160];
+				describe_struct(sig.argenc[i], want, sizeof want);
+				out = clj_throw_msg("Argument %u of %.*s: a %s is not %s", i + 1, (int)len, spelling, clj_type_name(args[i]), want);
+				break;
+			}
+			switch (abi->cls) {
+			case SC_HFA_D:
+				for (unsigned m = 0; m < abi->slots; m++) memcpy(&dbls[nf++], buf + 8 * m, sizeof(double));
+				break;
+			case SC_HFA_F:
+				for (unsigned m = 0; m < abi->slots; m++) memcpy(&flts[nf++], buf + 4 * m, sizeof(float));
+				break;
+			case SC_INT:
+				for (unsigned w = 0; w < abi->slots; w++) memcpy(&ints[ni++], buf + 8 * w, sizeof(long long));
+				break;
+			default: ints[ni++] = (long long)(intptr_t)buf; break;
+			}
+			continue;
+		}
 		switch (kind_of(sig.arg[i])) {
 		case K_INT:
 			if (!to_int_slot(args[i], sig.arg[i], &ints[ni++]))
@@ -531,21 +930,45 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	if (out != CLJ_THROWN) {
 		id  self = (id)recv->obj;
 		SEL sel = sig.sel;
-		if (sig.fp_is_float) {
-			switch (sig.ret) {
-			case 'f': out = clj_double_new(((send_f_f)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(flts))); break;
-			case 'd': out = clj_double_new(((send_d_f)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(flts))); break;
-			case 'v': ((send_v_f)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(flts)), out = CLJ_NIL; break;
-			default: out = from_int_return(((send_i_f)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(flts)), sig.ret, sig.owned); break;
+		// -init takes over a reference and hands one back, so the wrapper's own must not be the one it takes.
+		if (sig.consumes_self) objc_retain(self);
+		// The prototype is chosen by the return, the slot type by fp_is_float; the arguments are the same.
+#define SEND(tag) (sig.fp_is_float ? ((send_##tag##_f)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(flts)) : ((send_##tag##_d)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(dbls)))
+		switch (sig.ret) {
+		case 'f': out = clj_double_new(SEND(f)); break;
+		case 'd': out = clj_double_new(SEND(d)); break;
+		case 'v': SEND(v), out = CLJ_NIL; break;
+		case '{': {
+			_Alignas(16) unsigned char rbuf[CLJ_OBJC_MAX_STRUCT_BYTES] = {0};
+			switch (sig.ret_abi.cls) {
+			case SC_HFA_D:
+				switch (sig.ret_abi.slots) {
+				case 1: { double r = SEND(d); memcpy(rbuf, &r, sizeof r); break; }
+				case 2: { ret_d2 r = SEND(d2); memcpy(rbuf, &r, sizeof r); break; }
+				case 3: { ret_d3 r = SEND(d3); memcpy(rbuf, &r, sizeof r); break; }
+				default: { ret_d4 r = SEND(d4); memcpy(rbuf, &r, sizeof r); break; }
+				}
+				break;
+			case SC_HFA_F:
+				switch (sig.ret_abi.slots) {
+				case 1: { float r = SEND(f); memcpy(rbuf, &r, sizeof r); break; }
+				case 2: { ret_f2 r = SEND(f2); memcpy(rbuf, &r, sizeof r); break; }
+				case 3: { ret_f3 r = SEND(f3); memcpy(rbuf, &r, sizeof r); break; }
+				default: { ret_f4 r = SEND(f4); memcpy(rbuf, &r, sizeof r); break; }
+				}
+				break;
+			case SC_INT:
+				if (sig.ret_abi.slots <= 1) { long long r = SEND(i); memcpy(rbuf, &r, sizeof r); }
+				else { ret_i2 r = SEND(i2); memcpy(rbuf, &r, sizeof r); }
+				break;
+			default: { ret_mem r = SEND(mem); memcpy(rbuf, r.b, sizeof r.b); break; }
 			}
-		} else {
-			switch (sig.ret) {
-			case 'f': out = clj_double_new(((send_f_d)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(dbls))); break;
-			case 'd': out = clj_double_new(((send_d_d)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(dbls))); break;
-			case 'v': ((send_v_d)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(dbls)), out = CLJ_NIL; break;
-			default: out = from_int_return(((send_i_d)objc_msgSend)(self, sel, INT_ARGS(ints), FP_ARGS(dbls)), sig.ret, sig.owned); break;
-			}
+			out = decode_struct(sig.retenc, rbuf);
+			break;
 		}
+		default: out = from_int_return(SEND(i), sig.ret, sig.owned); break;
+		}
+#undef SEND
 	}
 	if (own_pool) objc_autoreleasePoolPop(pool);
 	return out;

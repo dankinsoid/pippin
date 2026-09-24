@@ -27,3 +27,25 @@
 
 (show (try (.no-such-method (objc-class "NSString")) (catch :default e (ex-message e))))
 (show (try (objc-send 1 "length") (catch :default e (ex-message e))))
+
+;; A struct crosses as a map of the field names the type encoding does not carry.
+(let [s (.string-with-utf8-string (objc-class "NSString") "hello world")
+      r (.range-of-string s "o w")]
+  (show r (:location r) (:length r)))
+
+(show (.point-value (.value-with-point (objc-class "NSValue") {:x 1.5 :y -2.5}))
+      (.size-value (.value-with-size (objc-class "NSValue") {:width 10 :height 20}))
+      (.range-value (.value-with-range (objc-class "NSValue") {:location 3 :length 4})))
+
+;; CGRect nests, and its four doubles are an HFA: v0-v3 both ways, not memory.
+(show (.rect-value (.value-with-rect (objc-class "NSValue") {:origin {:x 1.0 :y 2.0} :size {:width 3.0 :height 4.0}})))
+
+;; An anonymous struct names no members, so it crosses positionally; six doubles are neither an HFA nor
+;; small, so this one travels by a pointer and returns through x8.
+(let [t (.init (.alloc (objc-class "NSAffineTransform")))]
+  (.set-transform-struct t [2.0 0.0 0.0 3.0 5.0 6.0])
+  (show (.transform-struct t) (.transform-point t {:x 1.0 :y 1.0})))
+
+(show (try (.value-with-point (objc-class "NSValue") {:x 1.0}) (catch :default e (ex-message e))))
+(show (try (.value-with-range (objc-class "NSValue") [1 2 3]) (catch :default e (ex-message e))))
+(show (try (.string-with-format (objc-class "NSString") "x") (catch :default e (ex-message e))))
