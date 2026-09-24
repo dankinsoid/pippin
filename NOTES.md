@@ -2680,11 +2680,10 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 - **Calling in: one trampoline per return shape, no `NSInvocation`.** The IMP prototype problem is
   `objc_msgSend`'s inverted, and the same two AAPCS64 facts answer it: the caller filled only the
   registers its own selector declares, and reading the rest is harmless because the signature we
-  installed the method with says how many there are. So the eleven return shapes of the send side, times
-  float or double slots, cover every argument list; `self` and `_cmd` say which instance and which
-  method, and a linear scan of a handful of `SEL`s finds it. The one refused shape is a struct returned
-  through `x8`: the caller's buffer is sized for the real struct, and a prototype returning a fixed 128
-  bytes would write past it. `forwardInvocation:` would be general and cost microseconds a
+  installed the method with says how many there are. So the eleven return shapes of the send side, plus
+  one per size of an `x8` return (below), times float or double slots, cover every argument list; `self`
+  and `_cmd` say which instance and which method, and a linear scan of a handful of `SEL`s finds it.
+  `forwardInvocation:` would be general and cost microseconds a
   `tableView:cellForRowAtIndexPath:` cannot pay; libffi would be a new dependency.
 - **A class per reify shape, never disposed.** `objc_disposeClassPair` refuses while an instance lives,
   and a reify inside a loop must not mint a class per instance, so the class is cached under
@@ -2711,10 +2710,35 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 - **Not done, and why it shows.** Design §5 wants the label list checked against the type's selector
   table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
   facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
-  error with the right order in the message, not an analysis error. Also absent: writing through a
-  pointer argument (`BOOL *stop` arrives as a borrowed handle, readable only), a struct return through
-  `x8` from a callback, invoking a block the host handed us, the async bridge, the boundary bench (it
-  wants a `CLJEncoder` that does not exist yet), and a host type in `catch` position.
+  error with the right order in the message, not an analysis error. Also absent: a static check of a
+  reify method's signature, the async bridge, the boundary bench (it wants a `CLJEncoder` that does not
+  exist yet), and a host type in `catch` position.
+- **A pointer argument carries what it points at, because the pointer does not.** `BOOL *stop` arrives
+  as a borrowed handle, and the width of a write through it is the pointee's encoding, not the
+  pointer's, so the wrapper records that encoding and `objc-write!` reads it. Only what the bridge lays
+  out by value is written — a number or a boolean: an object or a C string written into an out-parameter
+  would die with the callback's pool that autoreleased it, and `^v` has no width at all, so both are
+  refused by naming the encoding rather than guessed at. It is not a cell: nothing reads it back, it
+  lives until the callback returns, and what it is for is the caller reading the flag — which is the
+  test, `-[NSArray enumerateObjectsUsingBlock:]` stopping where the block wrote YES.
+- **A struct returned through `x8` is a shape per size, because that is all an indirect return is.** The
+  caller passes a buffer sized for the real struct, so a prototype returning a fixed 128 bytes writes
+  past it; but an indirect return's ABI reads nothing about the members, only that the aggregate is
+  MEMORY class, so `struct { unsigned char b[n]; }` for the real `n` puts the same bytes in the same
+  place. A struct's size is a multiple of its widest member's alignment, so the table steps by 4 from 20
+  to 128 and the only shapes outside it are aggregates of chars or shorts over 16 bytes, refused with
+  their size in the message. The send side needs none of this: our own return buffer is the widest the
+  bridge accepts, so a callee writing its real size writes inside it.
+- **Calling a block is the send side with the block in place of `(self, _cmd)`.** Its `invoke` takes the
+  block in `x0` and the first real argument in `x1`, where a method's `_cmd` sits, so the same prototypes
+  serve by passing the first integer argument through the `SEL` slot — which is why the marshalled
+  integer words start one slot in. The signature comes from the block itself: `Block_descriptor_3`'s
+  pointer sits behind the size word and, only when `BLOCK_HAS_COPY_DISPOSE` says so, the copy/dispose
+  pair. No `BLOCK_HAS_SIGNATURE`, no call: there is nothing to derive the prototype from, and every block
+  a compiler emits has one. `isKindOfClass: NSBlock` tells a block from any other object, since every
+  block class descends from it. A signature the bridge cannot *implement* can still be one it can
+  *call* — the trampoline table is the callee's problem — so the kind cache keeps a NULL invoke and only
+  `objc-block` refuses it.
 - **Mutability cannot decide what converts, so nothing asks it.** `__NSCFString` is a subclass of
   `NSMutableString` whether or not it is actually mutable, so `isKindOfClass:` splits strings by length
   (tagged pointer or not) and not by what the caller can do with them: the first cut converted short
