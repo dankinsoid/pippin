@@ -1306,8 +1306,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   as a matching rule instead of a root type (design §4, "Отмена — `:cancelled`"), kept explicit because
   `:default` also catches non-errors (a fixnum, a string) that the type alone cannot decide. `ExceptionInfo`
   needs no matching carve-out: a cancellation is not an ex-info at all (below), so `clj_is_exception`
-  already excludes it structurally. A class name still resolves to "Unable to resolve classname"
-  (catching a host error by its Swift type needs the host-type registry, design §4, still future work).
+  already excludes it structurally. An unqualified class name still resolves to "Unable to resolve
+  classname"; a qualified one is a host type and lowers to the keyword its `ex-type` is (below).
   `catch`'s own selector-form dispatch (keyword vs. class symbol) is unaffected by any of this:
   `catch_kind_of` (analyzer.c) just gains a keyword branch beside the three symbol names. The compiler's
   `emit_try` (compiler.c) mirrors `catch_matches` exactly, including the constant pool for a keyword
@@ -1366,9 +1366,41 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   keyword under `:type` in the data map — `clj_ex_info_cause` looks it up and passes it down, so
   `clj_throw_cancelled` can hand `:cancelled` straight to the constructor with no `:type` key in
   `{:cancel/kind ...}` at all. The key stays in `data` either way (`ex-data` is unaffected); a non-keyword
-  or absent `:type` leaves the slot `nil`, matching `ex-type`'s "everything else" case. A host error's
-  `ex-type` is `nil` for now — the host-type registry (design §4, "Хостовая ошибка ловится как своя")
-  is future work, out of this pass.
+  or absent `:type` leaves the slot `nil`, matching `ex-type`'s "everything else" case. A host error
+  answers the keyword the host named its type with (below).
+- **A host error's `ex-type` is built in Swift, where the name is** (design §4, "Хостовая ошибка ловится
+  как своя"): `Value(hostError:)` (Runtime.swift) computes the keyword from `String(reflecting: type(of:
+  error))` when it boxes the error and passes it to `clj_host_error_new`, which keeps it in a slot beside
+  the message. No registry is needed to *identify* an error — the runtime always has the name, which is §4's
+  point; the registry stays owed to `ex-data`'s richness. Rejected: a hook back into Swift at `ex-type`
+  time, which would run Swift on a path that already has an exception in flight to save a
+  `String(reflecting:)` next to the `String(describing:)` the box pays anyway; the C side never sees the
+  payload's type, so the name could come from nowhere else. A printed Swift name is not always a keyword,
+  so three rules make one out of it: **generic arguments are dropped**
+  (`PippinTests.Box<Swift.Int>` → `:PippinTests/Box`, and every instantiation shares that `ex-type`) —
+  `Box<Swift.Int, Swift.String>` contains a comma and a space and is no readable keyword at all;
+  **a component that would not read back is dropped** — a private or local type prints as
+  `PippinTests.(unknown context at $104cf7a5c).MyError`, and a load address is neither identity nor
+  writable, so what is left is `:PippinTests/MyError` (two same-named private types in one module therefore
+  share a keyword, which beats a build-varying one); **nesting stays**, `:PippinTests/HostErrorNest.Inner`,
+  since a dot is an ordinary keyword-name character (`is_terminating`, reader.c) and `Outer.Inner` is what
+  Swift prints. Nothing readable left — `ex-type` is `nil`, still total.
+- **Every `_BridgedStoredNSError` is already an `NSError` when we box it**, so §4's domain/code rule covers
+  more than the `NSError` "without a Swift mapping" it was written for: `type(of:)` of a `CocoaError`,
+  `URLError` or `POSIXError` erased to `any Error` answers `NSError`, because the error existential for
+  those types stores the bridged object itself. `:Foundation/CocoaError` is unreachable from the boxing
+  side and `:NSCocoaErrorDomain/4` is what comes out — a finer identity than the type name, per code
+  rather than per domain, and the distinction Swift itself makes. Hence the test is `type(of: error) is
+  NSError.Type`, not `== NSError.self`: a bridged `CFError` arrives as the private `__NSCFError` and takes
+  the same path. A Swift error type that is not NSError-bridged keeps its name (`:Foundation/DecodingError`).
+  An unreadable domain leaves `ex-type` nil rather than making a keyword no `catch` could name.
+- **A qualified symbol in `catch` position is a host type**, lowered by `catch_kind_of` (analyzer.c) to the
+  keyword its `ex-type` is, so §4's two forms are one node kind and `derive` groups foreign errors like our
+  own. Unqualified stays "Unable to resolve classname", which is what keeps `java.lang.Exception` and the
+  corpus's `IllegalArgumentException` failing (their dots are in the *name*, they carry no namespace) and
+  what keeps a typo of `ExceptionInfo` from becoming a clause that silently never matches. The `NSError`
+  pair has no symbol spelling at all — `foo/1` is an invalid token (ReaderTests) — so `:NSPOSIXErrorDomain/2`
+  is the only way to write it.
 - **Namespaces** (ns.c, builtins_ns.c, the tail of core.clj). `*ns*` is a dynamic var in clojure.core whose
   root is `user`; `clj_ns_current`/`clj_ns_set_current` read and write the thread's binding when it has
   one, else the root, so `in-ns` inside a load moves only that load. `Runtime.eval`, `load-file`,
