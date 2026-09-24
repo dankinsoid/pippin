@@ -49,3 +49,7 @@
 (show (try (.value-with-point (objc-class "NSValue") {:x 1.0}) (catch :default e (ex-message e))))
 (show (try (.value-with-range (objc-class "NSValue") [1 2 3]) (catch :default e (ex-message e))))
 (show (try (.string-with-format (objc-class "NSString") "x") (catch :default e (ex-message e))))
+
+;; A struct argument beside a pointer one: each register class is filled in the order of its own arguments.
+(show (.utf8-string (.string-by-replacing-characters-in-range (.string-with-utf8-string (objc-class "NSString") "hello world")
+                                                              {:location 0 :length 5} :with-string "goodbye")))

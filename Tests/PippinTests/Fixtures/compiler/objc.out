@@ -13,3 +13,4 @@ true nil false
 "Argument 1 of value-with-point:: a map is not CGPoint, a map of :x :y or a vector of 2"
 "Argument 1 of value-with-range:: a vector is not _NSRange, a map of :location :length or a vector of 2"
 "Selector string-with-format: on NSString is variadic, and the bridge builds no stack arguments"
+"goodbye world"
