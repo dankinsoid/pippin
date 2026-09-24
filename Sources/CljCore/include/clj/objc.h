@@ -36,6 +36,10 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 clj_value clj_objc_to_collection(clj_value v, bool as_map);
 clj_value clj_objc_from_collection(clj_value v, bool as_map);
 
+// One class per shape, never disposed, bodies under host_depth (design §5); an encoding is nil when a
+// protocol or the superclass already declares that selector.
+clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_value encs, clj_value fns);
+
 // Selector text to the kebab spelling a call site writes: a capital run is one word, digits join the word
 // before them, so UTF8String is utf8-string. snprintf's contract: returns the length it wanted.
 size_t clj_objc_kebab(const char *selector, char *out, size_t cap);

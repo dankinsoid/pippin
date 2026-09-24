@@ -1996,6 +1996,22 @@
                         ~@(mapcat (fn [g] [(check-proto (first g)) (slots g)]) groups))
            ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))
 
+;; Not a case of reify: a selector and a type encoding are things a protocol of ours does not carry.
+(defmacro objc-reify
+  "(objc-reify {:protocols [\"NSXMLParserDelegate\"]} (\"parser:did-end-element:\" [self p el] ...)):
+  an Objective-C object whose methods run these fns. A method head is the kebab selector spelling a call
+  site would write; where no protocol and no superclass declares it, write [\"objcText:\" \"v@:@\"]
+  instead. The body runs synchronously and cannot park: write (go ...) inside it for that."
+  [spec & methods]
+  (let [head (fn [m] (first m))
+        sel (fn [m] (let [h (head m)] (if (vector? h) (first h) h)))
+        enc (fn [m] (let [h (head m)] (if (vector? h) (second h) nil)))]
+    `(objc-reify* ~(:superclass spec)
+                  ~(vec (:protocols spec))
+                  ~(vec (map sel methods))
+                  ~(vec (map enc methods))
+                  ~(vec (map (fn [m] `(fn ~(second m) ~@(nnext m))) methods)))))
+
 ;; A deftype, not a C type: the IReduceInit slot trampoline (proto.c) makes this four lines, and reduce on
 ;; it reaches the source through the source's own slot with no seq in between.
 (deftype Eduction [xform coll]

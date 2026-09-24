@@ -432,34 +432,21 @@ static char *own_encoding(const char *enc) {
 	return copy;
 }
 
-// Fills sig from the method; false when the shape is none of the prototypes. sel is set either way, so a
-// caller can tell "no such selector" from "a selector we cannot call".
-static bool signature_fill(Method m, objc_sig *sig) {
-	sig->sel = method_getName(m);
-	sig->reject = REJECT_SHAPE;
-	unsigned n = method_getNumberOfArguments(m);
-	if (n < 2 || n - 2 > CLJ_OBJC_MAX_ARGS) return false;
-	sig->nargs = (uint8_t)(n - 2);
-	sig->owned = family_is_owned(sel_getName(sig->sel));
-	sig->consumes_self = family_is(sel_getName(sig->sel), "init");
-	if (selector_is_variadic(sel_getName(sig->sel))) return sig->reject = REJECT_VARIADIC, false;
-
-	char       *ret = method_copyReturnType(m);
+// Everything the ABI reads, shared by a method we call and one we install; the selector's own facts
+// (family, variadicity) belong to the caller.
+static bool signature_shape(objc_sig *sig, const char *ret, const char *const *argv) {
 	const char *r = skip_qualifiers(ret);
 	bool        ok = *r == '{' ? classify_struct(r, &sig->ret_abi) : encoding_supported(*r, true);
 	sig->ret = *r;
 	if (ok && *r == '{') sig->retenc = own_encoding(r);
-	free(ret);
 	if (!ok) return false;
 
 	unsigned ints = 0, fps = 0, floats = 0;
 	for (unsigned i = 0; i < sig->nargs; i++) {
-		char       *a = method_copyArgumentType(m, i + 2);
-		const char *e = skip_qualifiers(a);
+		const char *e = skip_qualifiers(argv[i]);
 		sig->arg[i] = *e;
 		ok = *e == '{' ? classify_struct(e, &sig->arg_abi[i]) : encoding_supported(*e, false);
 		if (ok && *e == '{') sig->argenc[i] = own_encoding(e);
-		free(a);
 		if (!ok) return false;
 		if (sig->arg[i] == '{') {
 			switch (sig->arg_abi[i].cls) {
@@ -479,6 +466,27 @@ static bool signature_fill(Method m, objc_sig *sig) {
 	if (floats != 0 && floats != fps) return false;
 	sig->fp_is_float = floats != 0;
 	return true;
+}
+
+// sel is set even on a refusal, so a caller can tell "no such selector" from "one we cannot call".
+static bool signature_fill(Method m, objc_sig *sig) {
+	sig->sel = method_getName(m);
+	sig->reject = REJECT_SHAPE;
+	unsigned n = method_getNumberOfArguments(m);
+	if (n < 2 || n - 2 > CLJ_OBJC_MAX_ARGS) return false;
+	sig->nargs = (uint8_t)(n - 2);
+	sig->owned = family_is_owned(sel_getName(sig->sel));
+	sig->consumes_self = family_is(sel_getName(sig->sel), "init");
+	if (selector_is_variadic(sel_getName(sig->sel))) return sig->reject = REJECT_VARIADIC, false;
+
+	char       *ret = method_copyReturnType(m);
+	char       *arg[CLJ_OBJC_MAX_ARGS] = {0};
+	const char *argv[CLJ_OBJC_MAX_ARGS];
+	for (unsigned i = 0; i < sig->nargs; i++) argv[i] = arg[i] = method_copyArgumentType(m, i + 2);
+	bool ok = signature_shape(sig, ret, argv);
+	free(ret);
+	for (unsigned i = 0; i < sig->nargs; i++) free(arg[i]);
+	return ok;
 }
 
 static bool signature_of(Method m, objc_sig *sig) {
@@ -1173,6 +1181,480 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	return out;
 }
 
+// ---- calling in: an Objective-C object whose methods are Clojure fns (design §5, "делегат не паркуется")
+
+typedef struct {
+	SEL      sel;
+	objc_sig sig;
+} reify_method;
+
+typedef struct {
+	Class         cls;
+	reify_method *m;
+	uint32_t      n;
+	char         *key; // the shape this class was minted for; NULL marks a free slot
+	uint32_t      hash;
+} reify_class;
+
+// Behind the instance, where class_createInstance's extra bytes land: an ivar would cost a runtime lookup
+// per callback to find its offset.
+typedef struct {
+	const reify_class *rc;
+	clj_value          fns; // SHARED: a callback and the dealloc can each arrive on any thread
+} reify_state;
+
+// ---- the trampolines
+
+// The IMP prototype problem is objc_msgSend's inverted, and the same two ABI facts answer it: the caller
+// filled only the registers its own selector declares, and reading the rest is harmless because the
+// signature says how many there are. So one entry point per return shape covers every argument list.
+#define TRAMP_PARAMS(t)                                                                             \
+	long long i0, long long i1, long long i2, long long i3, long long i4, long long i5, t f0, t f1, \
+	    t f2, t f3, t f4, t f5, t f6, t f7
+#define TRAMP_GATHER                                                          \
+	_Alignas(16) unsigned char rbuf[CLJ_OBJC_MAX_STRUCT_BYTES] = {0};         \
+	const long long ints[CLJ_OBJC_MAX_INT_ARGS] = {i0, i1, i2, i3, i4, i5};   \
+	const double    fps[CLJ_OBJC_MAX_FP_ARGS] = {f0, f1, f2, f3, f4, f5, f6, f7}
+
+static void reify_dispatch(id self, SEL cmd, const long long *ints, const double *fps, unsigned char *rbuf);
+
+#define DEFINE_TRAMP(tag, R, t, suffix)                             \
+	static R tramp_##tag##_##suffix(id self, SEL cmd, TRAMP_PARAMS(t)) { \
+		TRAMP_GATHER;                                               \
+		reify_dispatch(self, cmd, ints, fps, rbuf);                 \
+		R r;                                                        \
+		memcpy(&r, rbuf, sizeof r);                                 \
+		return r;                                                   \
+	}
+
+#define DEFINE_TRAMP_PAIR(tag, R) \
+	DEFINE_TRAMP(tag, R, double, d) \
+	DEFINE_TRAMP(tag, R, float, f)
+
+DEFINE_TRAMP_PAIR(i, long long)
+DEFINE_TRAMP_PAIR(f, float)
+DEFINE_TRAMP_PAIR(d, double)
+DEFINE_TRAMP_PAIR(i2, ret_i2)
+DEFINE_TRAMP_PAIR(d2, ret_d2)
+DEFINE_TRAMP_PAIR(d3, ret_d3)
+DEFINE_TRAMP_PAIR(d4, ret_d4)
+DEFINE_TRAMP_PAIR(f2, ret_f2)
+DEFINE_TRAMP_PAIR(f3, ret_f3)
+DEFINE_TRAMP_PAIR(f4, ret_f4)
+
+#define DEFINE_TRAMP_VOID(t, suffix)                                  \
+	static void tramp_v_##suffix(id self, SEL cmd, TRAMP_PARAMS(t)) { \
+		TRAMP_GATHER;                                                 \
+		reify_dispatch(self, cmd, ints, fps, rbuf);                   \
+	}
+
+DEFINE_TRAMP_VOID(double, d)
+DEFINE_TRAMP_VOID(float, f)
+
+#define PICK(tag) (sig->fp_is_float ? (IMP)tramp_##tag##_f : (IMP)tramp_##tag##_d)
+
+// NULL when no prototype has this return; the caller turns that into the refusal message.
+static IMP trampoline_for(const objc_sig *sig) {
+	switch (sig->ret) {
+	case 'v': return PICK(v);
+	case 'f': return PICK(f);
+	case 'd': return PICK(d);
+	case '{':
+		switch (sig->ret_abi.cls) {
+		case SC_HFA_D:
+			switch (sig->ret_abi.slots) {
+			case 1: return PICK(d);
+			case 2: return PICK(d2);
+			case 3: return PICK(d3);
+			default: return PICK(d4);
+			}
+		case SC_HFA_F:
+			switch (sig->ret_abi.slots) {
+			case 1: return PICK(f);
+			case 2: return PICK(f2);
+			case 3: return PICK(f3);
+			default: return PICK(f4);
+			}
+		case SC_INT: return sig->ret_abi.slots <= 1 ? PICK(i) : PICK(i2);
+		// x8 points at a buffer sized for the real struct, and a prototype returning a fixed 128 bytes
+		// would write past it; there is no shape to borrow, so this one is refused.
+		default: return NULL;
+		}
+	default: return PICK(i);
+	}
+}
+
+#undef PICK
+
+// ---- the dispatch
+
+static void report_uncaught(SEL cmd) {
+	clj_value ex = clj_take_pending(), trace = clj_take_pending_trace();
+	clj_value msg = clj_ex_message(ex);
+	clj_value text = clj_is_string(msg) ? clj_retain(msg) : clj_pr_str(ex);
+	(void)!write(2, "clj: uncaught error in -", 24);
+	(void)!write(2, sel_getName(cmd), strlen(sel_getName(cmd)));
+	(void)!write(2, ": ", 2);
+	if (text != CLJ_THROWN) (void)!write(2, clj_string_bytes(text), clj_string_len(text));
+	(void)!write(2, "\n", 1);
+	if (text != CLJ_THROWN) clj_release(text);
+	clj_release(msg);
+	clj_release(ex);
+	clj_release(trace);
+}
+
+// The wrapper the fn gets as its first parameter is fresh every call: caching it in the state would make
+// the instance own the wrapper that owns the instance.
+static void reify_dispatch(id self, SEL cmd, const long long *ints, const double *fps, unsigned char *rbuf) {
+	reify_state       *st = object_getIndexedIvars(self);
+	const reify_class *rc = st->rc;
+	uint32_t           at = 0;
+	while (at < rc->n && rc->m[at].sel != cmd) at++;
+	if (at == rc->n) clj_fatal("an Objective-C trampoline was reached by a selector it was not installed for");
+	const objc_sig *sig = &rc->m[at].sig;
+
+	// A callback cannot park (host_depth below), so its pool never spans a switch and is its own; the
+	// slice's token is hidden meanwhile, because popping ours pops any pool a send opened inside it.
+	void *saved = clj_objc_pool_token;
+	clj_objc_pool_token = NULL;
+	void *pool = objc_autoreleasePoolPush();
+
+	clj_value argv[CLJ_OBJC_MAX_ARGS + 1];
+	uint32_t  argc = 0;
+	argv[argc++] = clj_objc_wrap(self);
+	unsigned ni = 0, nf = 0;
+	for (unsigned i = 0; i < sig->nargs; i++) {
+		if (sig->arg[i] == '{') {
+			const struct_abi          *abi = &sig->arg_abi[i];
+			_Alignas(16) unsigned char buf[CLJ_OBJC_MAX_STRUCT_BYTES] = {0};
+			switch (abi->cls) {
+			case SC_HFA_D:
+				for (unsigned m = 0; m < abi->slots; m++) memcpy(buf + 8 * m, &fps[nf++], sizeof(double));
+				break;
+			case SC_HFA_F:
+				for (unsigned m = 0; m < abi->slots; m++) {
+					float f = (float)fps[nf++];
+					memcpy(buf + 4 * m, &f, sizeof f);
+				}
+				break;
+			case SC_INT:
+				for (unsigned w = 0; w < abi->slots; w++) memcpy(buf + 8 * w, &ints[ni++], sizeof(long long));
+				break;
+			default: memcpy(buf, (const void *)(intptr_t)ints[ni++], abi->size); break;
+			}
+			argv[argc++] = decode_struct(sig->argenc[i], buf);
+			continue;
+		}
+		switch (kind_of(sig->arg[i])) {
+		case K_INT: argv[argc++] = from_int_return(ints[ni++], sig->arg[i], false); break;
+		case K_FLOAT: argv[argc++] = clj_double_new((float)fps[nf++]); break;
+		default: argv[argc++] = clj_double_new(fps[nf++]); break;
+		}
+	}
+
+	clj_value r = clj_host_invoke(clj_vector_nth(st->fns, at), argv, argc);
+	for (uint32_t i = 0; i < argc; i++) clj_release(argv[i]);
+
+	// A returned object outlives our pool only if it is autoreleased into the caller's.
+	id autorelease_me = NULL;
+	if (r == CLJ_THROWN) {
+		report_uncaught(cmd);
+	} else if (sig->ret == '{') {
+		if (!encode_struct(sig->retenc, r, rbuf)) {
+			memset(rbuf, 0, sig->ret_abi.size);
+			clj_throw_msg("-%s must return %s", sel_getName(cmd), sig->retenc);
+			report_uncaught(cmd);
+		}
+	} else if (sig->ret == 'f' || sig->ret == 'd') {
+		if (!clj_is_number(r)) {
+			clj_throw_msg("-%s must return a number, got: %s", sel_getName(cmd), clj_type_name(r));
+			report_uncaught(cmd);
+		} else if (sig->ret == 'f') {
+			float f = (float)clj_num_to_double(r);
+			memcpy(rbuf, &f, sizeof f);
+		} else {
+			double d = clj_num_to_double(r);
+			memcpy(rbuf, &d, sizeof d);
+		}
+	} else if (sig->ret != 'v') {
+		long long raw = 0;
+		if (!to_int_slot(r, sig->ret, &raw)) {
+			clj_throw_msg("-%s cannot return a %s as '%c'", sel_getName(cmd), clj_type_name(r), sig->ret);
+			report_uncaught(cmd);
+		}
+		if (sig->ret == '@' && raw) autorelease_me = objc_retain((id)(intptr_t)raw);
+		memcpy(rbuf, &raw, sizeof raw);
+	}
+	if (r != CLJ_THROWN) clj_release(r);
+
+	clj_objc_pool_token = NULL;
+	objc_autoreleasePoolPop(pool);
+	clj_objc_pool_token = saved;
+	if (autorelease_me) objc_autorelease(autorelease_me);
+}
+
+static void reify_dealloc(id self, SEL cmd) {
+	reify_state *st = object_getIndexedIvars(self);
+	clj_release(st->fns);
+	struct objc_super sup = {self, class_getSuperclass(object_getClass(self))};
+	((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&sup, cmd);
+}
+
+// ---- resolving a selector's type encoding
+
+// The whole of one encoding, plus the frame offsets a protocol's types string carries between them.
+static bool next_encoding(const char **p, char *out, size_t cap) {
+	const char *e = skip_qualifiers(*p);
+	const char *q = e;
+	if (!*e || !skip_encoding(&q)) return false;
+	size_t n = (size_t)(q - e);
+	if (n >= cap) return false;
+	memcpy(out, e, n);
+	out[n] = '\0';
+	*p = q;
+	while (**p >= '0' && **p <= '9') (*p)++;
+	return true;
+}
+
+#define CLJ_OBJC_MAX_ENC 256
+
+// "v16@0:8" and "v@:" both parse: the return, self, _cmd, then one encoding per argument.
+static bool signature_from_types(const char *types, SEL sel, objc_sig *sig) {
+	char        ret[CLJ_OBJC_MAX_ENC], arg[CLJ_OBJC_MAX_ARGS][CLJ_OBJC_MAX_ENC], skip[CLJ_OBJC_MAX_ENC];
+	const char *argv[CLJ_OBJC_MAX_ARGS];
+	const char *p = types;
+	sig->sel = sel;
+	sig->reject = REJECT_SHAPE;
+	if (!next_encoding(&p, ret, sizeof ret)) return false;
+	if (!next_encoding(&p, skip, sizeof skip) || !next_encoding(&p, skip, sizeof skip)) return false;
+	unsigned n = 0;
+	while (*p) {
+		if (n == CLJ_OBJC_MAX_ARGS || !next_encoding(&p, arg[n], sizeof arg[n])) return false;
+		argv[n] = arg[n];
+		n++;
+	}
+	sig->nargs = (uint8_t)n;
+	return signature_shape(sig, ret, argv);
+}
+
+// A protocol's own methods and those of the protocols it adopts, required and optional alike.
+static const char *protocol_types(Protocol *p, const char *spelling, size_t len, SEL *sel) {
+	char buf[512];
+	for (int req = 0; req < 2; req++) {
+		unsigned                        n = 0;
+		struct objc_method_description *ds = protocol_copyMethodDescriptionList(p, req == 0, true, &n);
+		for (unsigned i = 0; i < n; i++) {
+			const char *name = sel_getName(ds[i].name);
+			if (clj_objc_kebab(name, buf, sizeof buf) != len || memcmp(buf, spelling, len) != 0) continue;
+			const char *types = ds[i].types;
+			*sel = ds[i].name;
+			free(ds);
+			return types; // a static string of the image the protocol came from
+		}
+		free(ds);
+	}
+	unsigned    n = 0;
+	Protocol  **ps = protocol_copyProtocolList(p, &n);
+	const char *found = NULL;
+	for (unsigned i = 0; i < n && !found; i++) found = protocol_types(ps[i], spelling, len, sel);
+	free(ps);
+	return found;
+}
+
+static const char *inherited_types(Class cls, const char *spelling, size_t len, SEL *sel) {
+	char buf[512];
+	for (Class k = cls; k; k = class_getSuperclass(k)) {
+		unsigned n = 0;
+		Method  *ms = class_copyMethodList(k, &n);
+		for (unsigned i = 0; i < n; i++) {
+			const char *name = sel_getName(method_getName(ms[i]));
+			if (clj_objc_kebab(name, buf, sizeof buf) != len || memcmp(buf, spelling, len) != 0) continue;
+			const char *types = method_getTypeEncoding(ms[i]);
+			*sel = method_getName(ms[i]);
+			free(ms);
+			return types;
+		}
+		free(ms);
+	}
+	return NULL;
+}
+
+// ---- the class, one per reify shape
+
+static clj_lock   reify_lock = CLJ_LOCK_INIT;
+static reify_class *reify_cache;
+static size_t       reify_cap, reify_len;
+static unsigned     reify_counter;
+
+static reify_class *reify_slot(const char *key, uint32_t h) {
+	size_t mask = reify_cap - 1;
+	for (size_t i = h & mask;; i = (i + 1) & mask) {
+		reify_class *e = &reify_cache[i];
+		if (!e->key || (e->hash == h && strcmp(e->key, key) == 0)) return e;
+	}
+}
+
+static void reify_grow(void) {
+	size_t       cap = reify_cap ? reify_cap * 2 : 16;
+	reify_class *old = reify_cache, *fresh = calloc(cap, sizeof *fresh);
+	if (!fresh) clj_fatal("out of memory growing the objc reify cache");
+	size_t old_cap = reify_cap;
+	reify_cache = fresh;
+	reify_cap = cap;
+	for (size_t i = 0; i < old_cap; i++) {
+		if (old[i].key) *reify_slot(old[i].key, old[i].hash) = old[i];
+	}
+	free(old);
+}
+
+static bool string_vector(clj_value v, uint32_t want, bool nils_ok) {
+	if (!clj_is_vector(v) || clj_vector_count(v) != want) return false;
+	for (uint32_t i = 0; i < want; i++) {
+		clj_value e = clj_vector_nth(v, i);
+		if (!clj_is_string(e) && !(nils_ok && clj_is_nil(e))) return false;
+	}
+	return true;
+}
+
+static void key_append(char **key, size_t *len, size_t *cap, const char *s) {
+	size_t n = strlen(s) + 1;
+	if (*len + n > *cap) {
+		*cap = (*len + n) * 2;
+		*key = realloc(*key, *cap);
+		if (!*key) clj_fatal("out of memory keying an objc reify site");
+	}
+	memcpy(*key + *len, s, n);
+	*len += n;
+}
+
+// Never disposed: objc_disposeClassPair refuses while an instance lives, and a reify in a loop must not
+// mint a class per instance anyway. One class per shape, immortal like an interned keyword.
+static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value sels, clj_value encs, clj_value *err) {
+	uint32_t n = clj_vector_count(sels);
+	char    *key = NULL;
+	size_t   klen = 0, kcap = 0;
+	key_append(&key, &klen, &kcap, clj_is_nil(super) ? "NSObject" : clj_string_bytes(super));
+	for (uint32_t i = 0; i < clj_vector_count(protos); i++) key_append(&key, &klen, &kcap, clj_string_bytes(clj_vector_nth(protos, i)));
+	key_append(&key, &klen, &kcap, "|");
+	for (uint32_t i = 0; i < n; i++) {
+		key_append(&key, &klen, &kcap, clj_string_bytes(clj_vector_nth(sels, i)));
+		clj_value e = clj_vector_nth(encs, i);
+		key_append(&key, &klen, &kcap, clj_is_nil(e) ? "" : clj_string_bytes(e));
+	}
+	uint32_t h = 2166136261u;
+	for (size_t i = 0; i < klen; i++) h = clj_hash_combine(h, (uint32_t)(unsigned char)key[i]);
+
+	clj_lock_lock(&reify_lock);
+	if (reify_len * 2 >= reify_cap) reify_grow();
+	reify_class *rc = reify_slot(key, h);
+	if (rc->key) {
+		free(key);
+		clj_lock_unlock(&reify_lock);
+		return rc;
+	}
+
+	const char *super_name = clj_is_nil(super) ? "NSObject" : clj_string_bytes(super);
+	Class       sup = objc_getClass(super_name);
+	if (!sup) {
+		*err = clj_throw_msg("objc-reify: no such class: %s", super_name);
+		goto fail;
+	}
+	char name[64];
+	Class cls = NULL;
+	while (!cls) {
+		snprintf(name, sizeof name, "CljReify_%u", reify_counter++);
+		cls = objc_allocateClassPair(sup, name, 0);
+	}
+	rc->m = calloc(n ? n : 1, sizeof *rc->m);
+	if (!rc->m) clj_fatal("out of memory building an objc reify class");
+	rc->n = n;
+
+	for (uint32_t i = 0; i < clj_vector_count(protos); i++) {
+		const char *pn = clj_string_bytes(clj_vector_nth(protos, i));
+		Protocol   *p = objc_getProtocol(pn);
+		if (!p) {
+			*err = clj_throw_msg("objc-reify: no such protocol: %s", pn);
+			goto fail_class;
+		}
+		class_addProtocol(cls, p);
+	}
+
+	for (uint32_t i = 0; i < n; i++) {
+		clj_value   sv = clj_vector_nth(sels, i), ev = clj_vector_nth(encs, i);
+		const char *spelling = clj_string_bytes(sv);
+		size_t      len = clj_string_len(sv);
+		const char *types = clj_is_nil(ev) ? NULL : clj_string_bytes(ev);
+		SEL         sel = NULL;
+		const char *found = NULL;
+		for (uint32_t k = 0; k < clj_vector_count(protos) && !found; k++)
+			found = protocol_types(objc_getProtocol(clj_string_bytes(clj_vector_nth(protos, k))), spelling, len, &sel);
+		if (!found) found = inherited_types(sup, spelling, len, &sel);
+		if (!types) {
+			if (!found) {
+				*err = clj_throw_msg("objc-reify: %s is on none of the protocols nor on %s, so it needs a type encoding", spelling, super_name);
+				goto fail_class;
+			}
+			types = found;
+		} else if (!sel) {
+			sel = sel_registerName(spelling); // a selector of our own: the spelling is its Objective-C text
+		}
+		if (!signature_from_types(types, sel, &rc->m[i].sig)) {
+			*err = clj_throw_msg("objc-reify: %s has a shape the bridge cannot implement: %s", spelling, types);
+			goto fail_class;
+		}
+		IMP imp = trampoline_for(&rc->m[i].sig);
+		if (!imp) {
+			*err = clj_throw_msg("objc-reify: %s returns a struct the bridge can only return through x8, which no trampoline shape fits: %s", spelling, types);
+			goto fail_class;
+		}
+		rc->m[i].sel = sel;
+		if (!class_addMethod(cls, sel, imp, types)) {
+			*err = clj_throw_msg("objc-reify: %s is named twice", spelling);
+			goto fail_class;
+		}
+	}
+	class_addMethod(cls, sel_registerName("dealloc"), (IMP)reify_dealloc, "v@:");
+	objc_registerClassPair(cls);
+	rc->cls = cls;
+	rc->key = key;
+	rc->hash = h;
+	reify_len++;
+	clj_lock_unlock(&reify_lock);
+	return rc;
+
+fail_class:
+	objc_disposeClassPair(cls);
+	free(rc->m);
+	memset(rc, 0, sizeof *rc);
+fail:
+	free(key);
+	clj_lock_unlock(&reify_lock);
+	return NULL;
+}
+
+clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_value encs, clj_value fns) {
+	if (!clj_is_nil(super) && !clj_is_string(super)) return clj_throw_msg("objc-reify: the superclass must be a string or nil");
+	if (!clj_is_vector(protos) || !string_vector(protos, clj_vector_count(protos), false)) return clj_throw_msg("objc-reify: the protocols must be a vector of strings");
+	if (!clj_is_vector(sels) || !clj_is_vector(fns) || !clj_is_vector(encs)) return clj_throw_msg("objc-reify: the methods must be vectors");
+	uint32_t n = clj_vector_count(sels);
+	if (!string_vector(sels, n, false)) return clj_throw_msg("objc-reify: every selector must be a string");
+	if (!string_vector(encs, n, true) || clj_vector_count(fns) != n) return clj_throw_msg("objc-reify: one encoding and one fn per selector");
+
+	pool_scope   p = pool_enter();
+	clj_value    err = CLJ_NIL;
+	reify_class *rc = reify_class_for(super, protos, sels, encs, &err);
+	pool_leave(p);
+	if (!rc) return err == CLJ_NIL ? clj_throw_msg("objc-reify failed") : err;
+
+	id           obj = class_createInstance(rc->cls, sizeof(reify_state));
+	reify_state *st = object_getIndexedIvars(obj);
+	st->rc = rc;
+	// A callback may arrive on a thread the runtime has never seen, and dealloc on any thread at all.
+	clj_share(fns);
+	st->fns = clj_retain(fns);
+	return clj_objc_wrap_owned(obj);
+}
+
 #else // !__APPLE__
 
 // The gap the ledger asks to be named: without an Objective-C runtime the level-1 bridge is absent rather
@@ -1202,6 +1684,11 @@ clj_value clj_objc_class(const char *name) {
 
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw) {
 	(void)target, (void)selector, (void)args, (void)nargs, (void)raw;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
+clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_value encs, clj_value fns) {
+	(void)super, (void)protos, (void)sels, (void)encs, (void)fns;
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 
@@ -1264,7 +1751,13 @@ static clj_value b_ns_dictionary_to_map(const clj_value *args, size_t n) {
 	return clj_objc_from_collection(args[0], true);
 }
 
+static clj_value b_objc_reify(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_reify(args[0], args[1], args[2], args[3], args[4]);
+}
+
 void clj_objc_builtins_install(void) {
+	clj_builtin_bind("objc-reify*", b_objc_reify, 5, 5);
 	clj_builtin_bind("ns-array", b_ns_array, 1, 1);
 	clj_builtin_bind("ns-dictionary", b_ns_dictionary, 1, 1);
 	clj_builtin_bind("ns-array->vec", b_ns_array_to_vec, 1, 1);
