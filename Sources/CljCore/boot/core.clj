@@ -2012,6 +2012,13 @@
                   ~(vec (map enc methods))
                   ~(vec (map (fn [m] `(fn ~(second m) ~@(nnext m))) methods)))))
 
+(defmacro objc-block
+  "(objc-block \"q@?@@\" [a b] ...): an Objective-C block running this fn. The signature is the block type
+  encoding -- the return, then @? for the block itself, then one per argument. Like a reify body it runs
+  synchronously and cannot park."
+  [signature params & body]
+  `(objc-block* ~signature (fn ~params ~@body)))
+
 ;; A deftype, not a C type: the IReduceInit slot trampoline (proto.c) makes this four lines, and reduce on
 ;; it reaches the source through the source's own slot with no seq in between.
 (deftype Eduction [xform coll]

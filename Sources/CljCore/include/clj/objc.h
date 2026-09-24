@@ -32,6 +32,9 @@ clj_value clj_objc_class(const char *name);
 // target is a wrapper or nil, args borrowed. Owned result, or CLJ_THROWN.
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw);
 
+// signature is the block type encoding ("q@?@@"); heap from birth, so a host that stores it only retains.
+clj_value clj_objc_block(clj_value signature, clj_value fn);
+
 // By hand only (design §5), deep and lossy: nil is NSNull, a keyword key returns a string.
 clj_value clj_objc_to_collection(clj_value v, bool as_map);
 clj_value clj_objc_from_collection(clj_value v, bool as_map);

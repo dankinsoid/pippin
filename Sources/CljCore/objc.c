@@ -248,6 +248,7 @@ static bool skip_encoding(const char **p) {
 	case '^': return *p = e + 1, skip_encoding(p);
 	case '@':
 		e++;
+		if (*e == '?') return *p = e + 1, true; // @? is one encoding, a block pointer
 		if (*e == '"') {
 			while (*e && *++e != '"') {}
 			if (*e != '"') return false;
@@ -1288,12 +1289,13 @@ static IMP trampoline_for(const objc_sig *sig) {
 
 // ---- the dispatch
 
-static void report_uncaught(SEL cmd) {
+// A callback has nowhere to throw to, so an error in a body is reported where it happened.
+static void report_uncaught(const char *what) {
 	clj_value ex = clj_take_pending(), trace = clj_take_pending_trace();
 	clj_value msg = clj_ex_message(ex);
 	clj_value text = clj_is_string(msg) ? clj_retain(msg) : clj_pr_str(ex);
-	(void)!write(2, "clj: uncaught error in -", 24);
-	(void)!write(2, sel_getName(cmd), strlen(sel_getName(cmd)));
+	(void)!write(2, "clj: uncaught error in ", 23);
+	(void)!write(2, what, strlen(what));
 	(void)!write(2, ": ", 2);
 	if (text != CLJ_THROWN) (void)!write(2, clj_string_bytes(text), clj_string_len(text));
 	(void)!write(2, "\n", 1);
@@ -1303,25 +1305,17 @@ static void report_uncaught(SEL cmd) {
 	clj_release(trace);
 }
 
-// The wrapper the fn gets as its first parameter is fresh every call: caching it in the state would make
-// the instance own the wrapper that owns the instance.
-static void reify_dispatch(id self, SEL cmd, const long long *ints, const double *fps, unsigned char *rbuf) {
-	reify_state       *st = object_getIndexedIvars(self);
-	const reify_class *rc = st->rc;
-	uint32_t           at = 0;
-	while (at < rc->n && rc->m[at].sel != cmd) at++;
-	if (at == rc->n) clj_fatal("an Objective-C trampoline was reached by a selector it was not installed for");
-	const objc_sig *sig = &rc->m[at].sig;
-
-	// A callback cannot park (host_depth below), so its pool never spans a switch and is its own; the
-	// slice's token is hidden meanwhile, because popping ours pops any pool a send opened inside it.
+// ints and fps start at the callback's own first argument: the trampoline ate x0 and, for a method, x1.
+static void call_in(const objc_sig *sig, clj_value fn, clj_value self, const char *what,
+                    const long long *ints, const double *fps, unsigned char *rbuf) {
+	// The slice's token is hidden: popping our pool pops any pool a send opened inside it.
 	void *saved = clj_objc_pool_token;
 	clj_objc_pool_token = NULL;
 	void *pool = objc_autoreleasePoolPush();
 
 	clj_value argv[CLJ_OBJC_MAX_ARGS + 1];
 	uint32_t  argc = 0;
-	argv[argc++] = clj_objc_wrap(self);
+	if (self != CLJ_UNBOUND) argv[argc++] = self;
 	unsigned ni = 0, nf = 0;
 	for (unsigned i = 0; i < sig->nargs; i++) {
 		if (sig->arg[i] == '{') {
@@ -1346,29 +1340,36 @@ static void reify_dispatch(id self, SEL cmd, const long long *ints, const double
 			continue;
 		}
 		switch (kind_of(sig->arg[i])) {
-		case K_INT: argv[argc++] = from_int_return(ints[ni++], sig->arg[i], false); break;
+		case K_INT: {
+			long long raw = ints[ni++];
+			// A raw pointer in is borrowed: releasing it at the wrapper's death would be a release of
+			// something that is not an object at all.
+			argv[argc++] = sig->arg[i] == '^' ? (raw ? wrap((void *)(intptr_t)raw, true) : CLJ_NIL)
+			                                  : from_int_return(raw, sig->arg[i], false);
+			break;
+		}
 		case K_FLOAT: argv[argc++] = clj_double_new((float)fps[nf++]); break;
 		default: argv[argc++] = clj_double_new(fps[nf++]); break;
 		}
 	}
 
-	clj_value r = clj_host_invoke(clj_vector_nth(st->fns, at), argv, argc);
+	clj_value r = clj_host_invoke(fn, argv, argc);
 	for (uint32_t i = 0; i < argc; i++) clj_release(argv[i]);
 
 	// A returned object outlives our pool only if it is autoreleased into the caller's.
 	id autorelease_me = NULL;
 	if (r == CLJ_THROWN) {
-		report_uncaught(cmd);
+		report_uncaught(what);
 	} else if (sig->ret == '{') {
 		if (!encode_struct(sig->retenc, r, rbuf)) {
 			memset(rbuf, 0, sig->ret_abi.size);
-			clj_throw_msg("-%s must return %s", sel_getName(cmd), sig->retenc);
-			report_uncaught(cmd);
+			clj_throw_msg("%s must return %s", what, sig->retenc);
+			report_uncaught(what);
 		}
 	} else if (sig->ret == 'f' || sig->ret == 'd') {
 		if (!clj_is_number(r)) {
-			clj_throw_msg("-%s must return a number, got: %s", sel_getName(cmd), clj_type_name(r));
-			report_uncaught(cmd);
+			clj_throw_msg("%s must return a number, got: %s", what, clj_type_name(r));
+			report_uncaught(what);
 		} else if (sig->ret == 'f') {
 			float f = (float)clj_num_to_double(r);
 			memcpy(rbuf, &f, sizeof f);
@@ -1379,8 +1380,8 @@ static void reify_dispatch(id self, SEL cmd, const long long *ints, const double
 	} else if (sig->ret != 'v') {
 		long long raw = 0;
 		if (!to_int_slot(r, sig->ret, &raw)) {
-			clj_throw_msg("-%s cannot return a %s as '%c'", sel_getName(cmd), clj_type_name(r), sig->ret);
-			report_uncaught(cmd);
+			clj_throw_msg("%s cannot return a %s as '%c'", what, clj_type_name(r), sig->ret);
+			report_uncaught(what);
 		}
 		if (sig->ret == '@' && raw) autorelease_me = objc_retain((id)(intptr_t)raw);
 		memcpy(rbuf, &raw, sizeof raw);
@@ -1391,6 +1392,16 @@ static void reify_dispatch(id self, SEL cmd, const long long *ints, const double
 	objc_autoreleasePoolPop(pool);
 	clj_objc_pool_token = saved;
 	if (autorelease_me) objc_autorelease(autorelease_me);
+}
+
+// A fresh self wrapper per call: a cached one would own the instance that owns it.
+static void reify_dispatch(id self, SEL cmd, const long long *ints, const double *fps, unsigned char *rbuf) {
+	reify_state       *st = object_getIndexedIvars(self);
+	const reify_class *rc = st->rc;
+	uint32_t           at = 0;
+	while (at < rc->n && rc->m[at].sel != cmd) at++;
+	if (at == rc->n) clj_fatal("an Objective-C trampoline was reached by a selector it was not installed for");
+	call_in(&rc->m[at].sig, clj_vector_nth(st->fns, at), clj_objc_wrap(self), sel_getName(cmd), ints, fps, rbuf);
 }
 
 static void reify_dealloc(id self, SEL cmd) {
@@ -1418,15 +1429,16 @@ static bool next_encoding(const char **p, char *out, size_t cap) {
 
 #define CLJ_OBJC_MAX_ENC 256
 
-// "v16@0:8" and "v@:" both parse: the return, self, _cmd, then one encoding per argument.
-static bool signature_from_types(const char *types, SEL sel, objc_sig *sig) {
+// "v16@0:8" and "v@:" both parse. nhidden is 2 for a method (self, _cmd) and 1 for a block.
+static bool signature_from_types(const char *types, SEL sel, objc_sig *sig, unsigned nhidden) {
 	char        ret[CLJ_OBJC_MAX_ENC], arg[CLJ_OBJC_MAX_ARGS][CLJ_OBJC_MAX_ENC], skip[CLJ_OBJC_MAX_ENC];
 	const char *argv[CLJ_OBJC_MAX_ARGS];
 	const char *p = types;
 	sig->sel = sel;
 	sig->reject = REJECT_SHAPE;
 	if (!next_encoding(&p, ret, sizeof ret)) return false;
-	if (!next_encoding(&p, skip, sizeof skip) || !next_encoding(&p, skip, sizeof skip)) return false;
+	for (unsigned i = 0; i < nhidden; i++)
+		if (!next_encoding(&p, skip, sizeof skip)) return false;
 	unsigned n = 0;
 	while (*p) {
 		if (n == CLJ_OBJC_MAX_ARGS || !next_encoding(&p, arg[n], sizeof arg[n])) return false;
@@ -1598,7 +1610,7 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 		} else if (!sel) {
 			sel = sel_registerName(spelling); // a selector of our own: the spelling is its Objective-C text
 		}
-		if (!signature_from_types(types, sel, &rc->m[i].sig)) {
+		if (!signature_from_types(types, sel, &rc->m[i].sig, 2)) {
 			*err = clj_throw_msg("objc-reify: %s has a shape the bridge cannot implement: %s", spelling, types);
 			goto fail_class;
 		}
@@ -1655,6 +1667,214 @@ clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_
 	return clj_objc_wrap_owned(obj);
 }
 
+// ---- blocks
+
+// The ABI of <Block_private.h>, which is not a public header; the flags and the descriptor tail are what
+// libclosure reads, so they are copied here rather than assumed.
+enum {
+	BLOCK_HAS_COPY_DISPOSE = 1 << 25,
+	BLOCK_HAS_SIGNATURE = 1 << 30,
+};
+
+extern void *_NSConcreteStackBlock[32];
+extern void *_Block_copy(const void *);
+
+typedef struct {
+	unsigned long reserved, size;
+	void (*copy)(void *dst, const void *src);
+	void (*dispose)(const void *);
+	const char *signature;
+	const char *layout;
+} block_descriptor;
+
+typedef struct block_kind block_kind;
+
+typedef struct {
+	void             *isa;
+	int               flags;
+	int               reserved;
+	void             *invoke;
+	block_descriptor *descriptor;
+	const block_kind *kind;
+	clj_value         fn; // SHARED: the dispose helper can run on any thread
+} clj_block;
+
+struct block_kind {
+	block_descriptor desc;
+	objc_sig         sig;
+	void            *invoke;
+	char            *signature; // owned; NULL marks a free slot
+	uint32_t         hash;
+};
+
+static void block_copy_helper(void *dst, const void *src) {
+	(void)src;
+	clj_retain(((clj_block *)dst)->fn);
+}
+
+static void block_dispose_helper(const void *b) {
+	clj_release(((const clj_block *)b)->fn);
+}
+
+// A block's invoke pointer has the IMP problem without the _cmd: x0 is the block, so x1-x6 carry the same
+// six integer arguments the method trampolines refuse to exceed and x7 is never read.
+#define BTRAMP_PARAMS(t)                                                                       \
+	long long i0, long long i1, long long i2, long long i3, long long i4, long long i5, t f0,  \
+	    t f1, t f2, t f3, t f4, t f5, t f6, t f7
+
+static void block_dispatch(void *blk, const long long *ints, const double *fps, unsigned char *rbuf) {
+	clj_block *b = blk;
+	call_in(&b->kind->sig, b->fn, CLJ_UNBOUND, b->kind->signature, ints, fps, rbuf);
+}
+
+#define DEFINE_BTRAMP(tag, R, t, suffix)                             \
+	static R btramp_##tag##_##suffix(void *blk, BTRAMP_PARAMS(t)) {  \
+		TRAMP_GATHER;                                                \
+		block_dispatch(blk, ints, fps, rbuf);                        \
+		R r;                                                         \
+		memcpy(&r, rbuf, sizeof r);                                  \
+		return r;                                                    \
+	}
+
+#define DEFINE_BTRAMP_PAIR(tag, R)  \
+	DEFINE_BTRAMP(tag, R, double, d) \
+	DEFINE_BTRAMP(tag, R, float, f)
+
+DEFINE_BTRAMP_PAIR(i, long long)
+DEFINE_BTRAMP_PAIR(f, float)
+DEFINE_BTRAMP_PAIR(d, double)
+DEFINE_BTRAMP_PAIR(i2, ret_i2)
+DEFINE_BTRAMP_PAIR(d2, ret_d2)
+DEFINE_BTRAMP_PAIR(d3, ret_d3)
+DEFINE_BTRAMP_PAIR(d4, ret_d4)
+DEFINE_BTRAMP_PAIR(f2, ret_f2)
+DEFINE_BTRAMP_PAIR(f3, ret_f3)
+DEFINE_BTRAMP_PAIR(f4, ret_f4)
+
+#define DEFINE_BTRAMP_VOID(t, suffix)                                  \
+	static void btramp_v_##suffix(void *blk, BTRAMP_PARAMS(t)) {       \
+		TRAMP_GATHER;                                                  \
+		block_dispatch(blk, ints, fps, rbuf);                          \
+	}
+
+DEFINE_BTRAMP_VOID(double, d)
+DEFINE_BTRAMP_VOID(float, f)
+
+#define PICK(tag) (sig->fp_is_float ? (void *)btramp_##tag##_f : (void *)btramp_##tag##_d)
+
+static void *block_invoke_for(const objc_sig *sig) {
+	switch (sig->ret) {
+	case 'v': return PICK(v);
+	case 'f': return PICK(f);
+	case 'd': return PICK(d);
+	case '{':
+		switch (sig->ret_abi.cls) {
+		case SC_HFA_D:
+			switch (sig->ret_abi.slots) {
+			case 1: return PICK(d);
+			case 2: return PICK(d2);
+			case 3: return PICK(d3);
+			default: return PICK(d4);
+			}
+		case SC_HFA_F:
+			switch (sig->ret_abi.slots) {
+			case 1: return PICK(f);
+			case 2: return PICK(f2);
+			case 3: return PICK(f3);
+			default: return PICK(f4);
+			}
+		case SC_INT: return sig->ret_abi.slots <= 1 ? PICK(i) : PICK(i2);
+		default: return NULL;
+		}
+	default: return PICK(i);
+	}
+}
+
+#undef PICK
+
+// One kind per signature, never freed: the descriptor a block points at must outlive every copy of it.
+static clj_lock    block_lock = CLJ_LOCK_INIT;
+static block_kind *block_kinds;
+static size_t      block_cap, block_len;
+
+static block_kind *block_slot(const char *sig, uint32_t h) {
+	size_t mask = block_cap - 1;
+	for (size_t i = h & mask;; i = (i + 1) & mask) {
+		block_kind *e = &block_kinds[i];
+		if (!e->signature || (e->hash == h && strcmp(e->signature, sig) == 0)) return e;
+	}
+}
+
+static void block_grow(void) {
+	size_t      cap = block_cap ? block_cap * 2 : 16;
+	block_kind *old = block_kinds, *fresh = calloc(cap, sizeof *fresh);
+	if (!fresh) clj_fatal("out of memory growing the objc block cache");
+	size_t old_cap = block_cap;
+	block_kinds = fresh;
+	block_cap = cap;
+	for (size_t i = 0; i < old_cap; i++) {
+		if (old[i].signature) *block_slot(old[i].signature, old[i].hash) = old[i];
+	}
+	free(old);
+}
+
+// A block's signature is the method one with the block itself in place of self and no _cmd.
+static block_kind *block_kind_for(const char *signature, clj_value *err) {
+	uint32_t h = 2166136261u;
+	for (const char *p = signature; *p; p++) h = clj_hash_combine(h, (uint32_t)(unsigned char)*p);
+	clj_lock_lock(&block_lock);
+	if (block_len * 2 >= block_cap) block_grow();
+	block_kind *k = block_slot(signature, h);
+	if (k->signature) {
+		clj_lock_unlock(&block_lock);
+		return k;
+	}
+	if (!signature_from_types(signature, NULL, &k->sig, 1)) {
+		*err = clj_throw_msg("objc-block: a shape the bridge cannot implement: %s", signature);
+		memset(k, 0, sizeof *k);
+		clj_lock_unlock(&block_lock);
+		return NULL;
+	}
+	void *invoke = block_invoke_for(&k->sig);
+	if (!invoke) {
+		*err = clj_throw_msg("objc-block: a struct returned through x8 fits no trampoline shape: %s", signature);
+		memset(k, 0, sizeof *k);
+		clj_lock_unlock(&block_lock);
+		return NULL;
+	}
+	k->signature = strdup(signature);
+	if (!k->signature) clj_fatal("out of memory keying an objc block signature");
+	k->hash = h;
+	k->desc.size = sizeof(clj_block);
+	k->desc.copy = block_copy_helper;
+	k->desc.dispose = block_dispose_helper;
+	k->desc.signature = k->signature;
+	k->invoke = invoke;
+	block_len++;
+	clj_lock_unlock(&block_lock);
+	return k;
+}
+
+clj_value clj_objc_block(clj_value signature, clj_value fn) {
+	if (!clj_is_string(signature)) return clj_throw_msg("objc-block expects a signature string, got: %s", clj_type_name(signature));
+	clj_value   err = CLJ_NIL;
+	block_kind *k = block_kind_for(clj_string_bytes(signature), &err);
+	if (!k) return err == CLJ_NIL ? clj_throw_msg("objc-block failed") : err;
+
+	// Built on the stack and copied, exactly as a compiler-generated block is: _Block_copy runs the copy
+	// helper, so the heap block owns the fn and the dispose helper gives it back.
+	clj_share(fn);
+	clj_block stack = {
+	    .isa = &_NSConcreteStackBlock,
+	    .flags = BLOCK_HAS_COPY_DISPOSE | BLOCK_HAS_SIGNATURE,
+	    .invoke = k->invoke,
+	    .descriptor = &k->desc,
+	    .kind = k,
+	    .fn = fn,
+	};
+	return clj_objc_wrap_owned(_Block_copy(&stack));
+}
+
 #else // !__APPLE__
 
 // The gap the ledger asks to be named: without an Objective-C runtime the level-1 bridge is absent rather
@@ -1689,6 +1909,11 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 
 clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_value encs, clj_value fns) {
 	(void)super, (void)protos, (void)sels, (void)encs, (void)fns;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
+clj_value clj_objc_block(clj_value signature, clj_value fn) {
+	(void)signature, (void)fn;
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 
@@ -1756,8 +1981,14 @@ static clj_value b_objc_reify(const clj_value *args, size_t n) {
 	return clj_objc_reify(args[0], args[1], args[2], args[3], args[4]);
 }
 
+static clj_value b_objc_block(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_block(args[0], args[1]);
+}
+
 void clj_objc_builtins_install(void) {
 	clj_builtin_bind("objc-reify*", b_objc_reify, 5, 5);
+	clj_builtin_bind("objc-block*", b_objc_block, 2, 2);
 	clj_builtin_bind("ns-array", b_ns_array, 1, 1);
 	clj_builtin_bind("ns-dictionary", b_ns_dictionary, 1, 1);
 	clj_builtin_bind("ns-array->vec", b_ns_array_to_vec, 1, 1);
