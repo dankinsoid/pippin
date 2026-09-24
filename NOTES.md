@@ -2556,8 +2556,8 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 `bench/RESULTS.md` "Host-defined fns") and level 1 is meant to carry most of a real application.
 `sched.c` is the precedent; the row is in `docs/portability.md`.
 
-- **A fixed set of `objc_msgSend` prototypes covers every shape we accept, and the rest are refused.** The symbol
-  must be called through the prototype the method's type encoding describes: on arm64 the integer and
+- **A fixed set of `objc_msgSend` prototypes covers every shape we accept, and the rest are refused.**
+  The symbol must be called through the prototype the method's type encoding describes: on arm64 the integer and
   floating-point argument registers are separate files, a `float` occupies a v register's low half where
   a `double` occupies all of it, and calling through the wrong prototype is silent corruption, not a
   crash. Two ABI facts collapse the combinatorics. Arguments a method does not declare are harmless —
@@ -2580,7 +2580,7 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   integer classes are built as the struct's byte image and read out as 8-byte words, which is right
   whatever the member types and padding are. Calling a 32-byte `CGRect` memory because it is over 16
   bytes is the mistake this avoids, and it would be silent. x86_64 classifies by eightbyte instead and
-  needs `objc_msgSend_stret`, which arm64 has not got, so there every shape that would diverge is
+  needs `objc_msgSend_stret`, which arm64 does not have, so there every diverging shape is
   refused (`docs/portability.md`).
 - **A struct crosses as a map when we know its field names, as a vector when we do not.** A type
   encoding gives `{CGRect={CGPoint=dd}{CGSize=dd}}`: the struct's name and its member types, never a

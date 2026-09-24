@@ -461,7 +461,7 @@ static bool signature_fill(Method m, objc_sig *sig) {
 		if (ok && *e == '{') sig->argenc[i] = own_encoding(e);
 		free(a);
 		if (!ok) return false;
-		if (*e == '{') {
+		if (sig->arg[i] == '{') {
 			switch (sig->arg_abi[i].cls) {
 			case SC_HFA_F: floats += sig->arg_abi[i].slots; // fallthrough
 			case SC_HFA_D: fps += sig->arg_abi[i].slots; break;
