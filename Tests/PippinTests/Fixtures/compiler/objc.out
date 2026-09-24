@@ -28,10 +28,20 @@ true nil false
 true [["a" {"x" "1"}] ["b" {}] "b" "a"]
 [3 2 1]
 [["a" 0 true] ["b" 1 true]]
+["a" "b"]
+"objc-write! writes a number or a boolean, and this pointer points at a 'v'"
+"objc-write! expects a pointer argument of a callback, not a NSTaggedPointerString"
+42 3 {:x 1.5, :y 3.0}
+"objc-invoke expects a block, got a NSTaggedPointerString"
+nil
+"The block v@?q takes 1 argument(s), got 2"
 [1 2]
 "a copy of me"
 "objc-reify: no-such-selector-anywhere is on none of the protocols nor on NSObject, so it needs a type encoding"
 "objc-reify: no such protocol: NoSuchProtocol"
 "objc-reify: no such class: NoSuchClass"
-"objc-reify: big returns a struct the bridge can only return through x8, which no trampoline shape fits: {big=ddddddd}@:"
+[1.0 2.0 3.0 4.0 5.0 6.0]
+"objc-reify: odd returns a struct of 18 bytes through x8, a size the bridge has no return shape for: {odd=sssssssss}@:"
+"objc-block: a struct of 18 bytes returned through x8, a size the bridge has no return shape for: {odd=sssssssss}@?"
+"objc-reify: big has a shape the bridge cannot implement: {big=ddddddddddddddddd}@:"
 "objc-block: a shape the bridge cannot implement: v@?[4i]"

@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 import CljCore
+import Foundation
 import Testing
 @testable import Pippin
 
@@ -139,6 +140,101 @@ extension CoreTests {
 			// A label out of order names another selector, and the message shows the ones that exist.
 			let reordered = cljEvalError(#"(.init-with-time-interval (.alloc (objc-class "NSDate")) 1.5 :since-dates 2)"#)
 			#expect(reordered?.contains("init-with-time-interval:since-date:") == true)
+		}
+
+		// A real Cocoa API reads the flag back: the enumeration ends where the block writes YES.
+		@Test func aWriteThroughAPointerStopsAnEnumeration() throws {
+			#expect(try rt.eval("""
+			(let [seen (atom [])
+			      blk (objc-block "v@?@Q^B" [x i stop]
+			            (swap! seen conj x)
+			            (objc-write! stop (= x "b")))]
+			  (.enumerate-objects-using-block (ns-array ["a" "b" "c"]) blk)
+			  @seen)
+			""") == ["a", "b"])
+			// Without the write the same enumeration runs to the end.
+			#expect(try rt.eval("""
+			(let [seen (atom [])
+			      blk (objc-block "v@?@Q^B" [x i stop] (swap! seen conj x))]
+			  (.enumerate-objects-using-block (ns-array ["a" "b" "c"]) blk)
+			  @seen)
+			""") == ["a", "b", "c"])
+		}
+
+		// The pointee's encoding travels with the handle, because it is what says how wide a write is.
+		@Test func aPointeeTheBridgeCannotSizeIsRefused() throws {
+			#expect(try rt.eval("""
+			(let [err (atom nil)
+			      blk (objc-block "v@?@Q^v" [x i stop]
+			            (try (objc-write! stop true) (catch :default e (reset! err (ex-message e)))))]
+			  (.enumerate-objects-using-block (ns-array ["a"]) blk)
+			  @err)
+			""") == "objc-write! writes a number or a boolean, and this pointer points at a 'v'")
+			#expect(try rt.eval("""
+			(let [err (atom nil)
+			      blk (objc-block "v@?@Q^B" [x i stop]
+			            (try (objc-write! stop "yes") (catch :default e (reset! err (ex-message e)))))]
+			  (.enumerate-objects-using-block (ns-array ["a"]) blk)
+			  @err)
+			""") == "objc-write!: a string does not convert to 'B'")
+			#expect(cljEvalError(#"(objc-write! (ns-string "x") 1)"#)?.contains("expects a pointer argument of a callback") == true)
+			#expect(cljEvalError("(objc-write! 1 2)")?.contains("expects a pointer argument, got: long") == true)
+		}
+
+		// A wider shape writes past this frame, which is sized for the real struct: the sanitizer sees it.
+		@Test func aStructReturnedThroughX8IsAsWideAsTheCallerThinks() throws {
+			// -transformStruct is Foundation's own: the encoding, and the buffer, are its 48 bytes.
+			let o = try cljEval(#"(objc-reify {:superclass "NSAffineTransform"} ("transform-struct" [self] [1.0 2.0 3.0 4.0 5.0 6.0]))"#)
+			let t = unsafeBitCast(clj_objc_id(o.raw), to: NSAffineTransform.self)
+			let s = t.transformStruct
+			#expect([s.m11, s.m12, s.m21, s.m22, s.tX, s.tY] == [1, 2, 3, 4, 5, 6])
+			// A size no shape in the table has is still refused, and the message names the shape.
+			let refused = cljEvalError(#"(objc-reify {} (["odd" "{odd=sssssssss}@:"] [self] 1))"#)
+			#expect(refused?.contains("returns a struct of 18 bytes through x8") == true)
+			#expect(refused?.contains("{odd=sssssssss}@:") == true)
+		}
+
+		// A block Swift made: its invoke pointer and its descriptor's signature are all the call needs.
+		@Test func callsABlockTheHostHandedUs() throws {
+			let triple: @convention(block) (Int64) -> Int64 = { $0 * 3 }
+			let greet: @convention(block) (NSString) -> NSString = { "hello \($0)" as NSString }
+			let invoke = try rt.eval("objc-invoke")
+			#expect(try invoke(Value(owning: clj_objc_wrap(unsafeBitCast(triple, to: UnsafeMutableRawPointer.self))), 14) == 42)
+			#expect(try invoke(Value(owning: clj_objc_wrap(unsafeBitCast(greet, to: UnsafeMutableRawPointer.self))), Value("world")) == "hello world")
+		}
+
+		// Ours come back the same way, through Cocoa's storage and the descriptor, not through our cache.
+		@Test func callsOurOwnBlocks() throws {
+			#expect(try rt.eval("""
+			(let [b (objc-block "q@?qq" [a c] (+ a c))
+			      back (get (ns-dictionary->map (ns-dictionary {"b" b})) "b")]
+			  [(objc-invoke b 20 22) (objc-invoke back 1 2)])
+			""") == [42, 3])
+			#expect(try rt.eval("""
+			(let [p (objc-invoke (objc-block "{CGPoint=dd}@?d" [d] {:x d :y (* 2 d)}) 1.5)]
+			  [(:x p) (:y p)])
+			""") == [1.5, 3.0])
+		}
+
+		// No signature, so no prototype: the refusal is the answer. A global block is the shape of this one.
+		@Test func aBlockWithoutASignatureIsRefused() throws {
+			var descriptor: (UInt, UInt) = (0, 32)
+			try withUnsafeMutablePointer(to: &descriptor) { desc in
+				let global: AnyObject = try #require(NSClassFromString("__NSGlobalBlock__"))
+				var layout = (isa: UnsafeRawPointer(Unmanaged.passUnretained(global).toOpaque()),
+				              flags: Int32(1 << 28), reserved: Int32(0),
+				              invoke: UnsafeRawPointer?.none, descriptor: UnsafeRawPointer(desc))
+				try withUnsafeMutablePointer(to: &layout) { blk in
+					let v = Value(owning: clj_objc_wrap(UnsafeMutableRawPointer(blk)))
+					let invoke = try rt.eval("objc-invoke")
+					#expect(throws: ClojureError.self) { _ = try invoke(v) }
+					do { _ = try invoke(v) } catch let e as ClojureError {
+						#expect(e.message.contains("carries no signature"))
+					}
+				}
+			}
+			#expect(cljEvalError(#"(objc-invoke (ns-string "x") 1)"#)?.contains("expects a block, got a") == true)
+			#expect(cljEvalError(#"(objc-invoke (objc-block "v@?" []) 1)"#)?.contains("takes 0 argument(s), got 1") == true)
 		}
 
 		// A send from a coroutine leaves its pool for clj_coro_switch_out to drain, across a park.
