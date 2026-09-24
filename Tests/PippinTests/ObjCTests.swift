@@ -216,6 +216,28 @@ extension CoreTests {
 			""") == [1.5, 3.0])
 		}
 
+		// A live block points at its kind's descriptor forever, so the kind must not move when the cache
+		// behind it grows: 144 more signatures rehash the table, and the first block is called after.
+		@Test func aBlockSurvivesItsKindCacheGrowing() throws {
+			#expect(try rt.eval("""
+			(let [encs ["q" "l" "i" "s" "c" "Q" "L" "I" "S" "C" "B" "@"]
+			      b (objc-block "q@?qq" [a c] (+ a c))
+			      more (doall (for [x encs y encs] (objc-block* (str "q@?" x y) (fn [_ _] 0))))]
+			  [(count more) (objc-invoke b 20 22)])
+			""") == [144, 42])
+		}
+
+		// Every instance keeps a pointer to its class's row, and a callback reads the row: 64 more shapes
+		// rehash the table, and the instance made before them is sent to after.
+		@Test func aReifiedInstanceSurvivesItsClassCacheGrowing() throws {
+			#expect(try rt.eval("""
+			(let [o (objc-reify {} (["growProbe0" "q@:"] [self] 7))
+			      more (doall (map (fn [i] (objc-reify* nil [] [(str "growProbe" (inc i))] ["q@:"] [(fn [self] i)]))
+			                       (range 64)))]
+			  [(count more) (objc-send o "growProbe0")])
+			""") == [64, 7])
+		}
+
 		// No signature, so no prototype: the refusal is the answer. A global block is the shape of this one.
 		@Test func aBlockWithoutASignatureIsRefused() throws {
 			var descriptor: (UInt, UInt) = (0, 32)

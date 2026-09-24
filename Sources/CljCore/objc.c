@@ -532,9 +532,11 @@ typedef struct {
 	objc_sig sig;
 } cache_entry;
 
-static clj_lock     cache_lock = CLJ_LOCK_INIT;
-static cache_entry *cache;
-static size_t       cache_cap, cache_len;
+// The table holds pointers, not entries: a signature handed to a caller is read after the lock is
+// dropped, so the entry it lives in must never move. Growing rehashes the pointers and frees only the table.
+static clj_lock      cache_lock = CLJ_LOCK_INIT;
+static cache_entry **cache;
+static size_t        cache_cap, cache_len;
 
 static uint32_t spelling_hash(Class cls, const char *s, size_t len, bool raw) {
 	uint32_t h = (uint32_t)((uintptr_t)cls >> 4) * 2654435761u + raw;
@@ -542,24 +544,24 @@ static uint32_t spelling_hash(Class cls, const char *s, size_t len, bool raw) {
 	return h;
 }
 
-static cache_entry *cache_slot(Class cls, const char *s, size_t len, bool raw, uint32_t h) {
+static cache_entry **cache_slot(Class cls, const char *s, size_t len, bool raw, uint32_t h) {
 	size_t mask = cache_cap - 1;
 	for (size_t i = h & mask;; i = (i + 1) & mask) {
-		cache_entry *e = &cache[i];
-		if (!e->spelling) return e;
-		if (e->hash == h && e->cls == cls && e->len == len && e->raw == raw && memcmp(e->spelling, s, len) == 0) return e;
+		cache_entry **e = &cache[i];
+		if (!*e) return e;
+		if ((*e)->hash == h && (*e)->cls == cls && (*e)->len == len && (*e)->raw == raw && memcmp((*e)->spelling, s, len) == 0) return e;
 	}
 }
 
 static void cache_grow(void) {
-	size_t       cap = cache_cap ? cache_cap * 2 : 64;
-	cache_entry *old = cache, *fresh = calloc(cap, sizeof *fresh);
+	size_t        cap = cache_cap ? cache_cap * 2 : 64;
+	cache_entry **old = cache, **fresh = calloc(cap, sizeof *fresh);
 	if (!fresh) clj_fatal("out of memory growing the objc selector cache");
 	size_t old_cap = cache_cap;
 	cache = fresh;
 	cache_cap = cap;
 	for (size_t i = 0; i < old_cap; i++) {
-		if (old[i].spelling) *cache_slot(old[i].cls, old[i].spelling, old[i].len, old[i].raw, old[i].hash) = old[i];
+		if (old[i]) *cache_slot(old[i]->cls, old[i]->spelling, old[i]->len, old[i]->raw, old[i]->hash) = old[i];
 	}
 	free(old);
 }
@@ -587,14 +589,18 @@ static bool resolve(Class cls, const char *spelling, size_t len, bool raw, objc_
 	return false;
 }
 
-static bool lookup(Class cls, const char *spelling, size_t len, bool raw, objc_sig *out) {
+// The signature is borrowed, not copied: the entry and the encodings it owns live for the process, so the
+// call built from it reads them long after the lock is gone.
+static bool lookup(Class cls, const char *spelling, size_t len, bool raw, const objc_sig **out) {
 	clj_lock_lock(&cache_lock);
 	if (cache_len * 2 >= cache_cap) cache_grow();
-	uint32_t     h = spelling_hash(cls, spelling, len, raw);
-	cache_entry *e = cache_slot(cls, spelling, len, raw, h);
-	if (!e->spelling) {
+	uint32_t      h = spelling_hash(cls, spelling, len, raw);
+	cache_entry **slot = cache_slot(cls, spelling, len, raw, h);
+	cache_entry  *e = *slot;
+	if (!e) {
+		e = calloc(1, sizeof *e);
 		char *copy = malloc(len + 1);
-		if (!copy) clj_fatal("out of memory filling the objc selector cache");
+		if (!e || !copy) clj_fatal("out of memory filling the objc selector cache");
 		memcpy(copy, spelling, len);
 		copy[len] = '\0';
 		e->cls = cls;
@@ -602,11 +608,11 @@ static bool lookup(Class cls, const char *spelling, size_t len, bool raw, objc_s
 		e->len = len;
 		e->hash = h;
 		e->raw = raw;
-		memset(&e->sig, 0, sizeof e->sig);
 		e->found = resolve(cls, copy, len, raw, &e->sig);
+		*slot = e;
 		cache_len++;
 	}
-	*out = e->sig;
+	*out = &e->sig;
 	bool found = e->found;
 	clj_lock_unlock(&cache_lock);
 	return found;
@@ -1261,21 +1267,21 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	const char      *spelling = clj_string_bytes(selector);
 	size_t           len = clj_string_len(selector);
 
-	objc_sig sig = {0};
-	bool     found = lookup(cls, spelling, len, raw, &sig);
-	if (!found && !sig.sel) return no_such_selector(cls, spelling, len, raw);
-	if (!found && sig.reject == REJECT_VARIADIC) return clj_throw_msg("Selector %.*s on %s is variadic, and the bridge builds no stack arguments", (int)len, spelling, class_getName(cls));
+	const objc_sig *sig = NULL;
+	bool            found = lookup(cls, spelling, len, raw, &sig);
+	if (!found && !sig->sel) return no_such_selector(cls, spelling, len, raw);
+	if (!found && sig->reject == REJECT_VARIADIC) return clj_throw_msg("Selector %.*s on %s is variadic, and the bridge builds no stack arguments", (int)len, spelling, class_getName(cls));
 	if (!found) return clj_throw_msg("Selector %.*s on %s has a shape the bridge cannot call: a union, an array, a long double, a struct over %d bytes, too many arguments, or float and double mixed", (int)len, spelling, class_getName(cls), CLJ_OBJC_MAX_STRUCT_BYTES);
-	if (nargs != sig.nargs) return clj_throw_msg("Selector %.*s takes %u argument(s), got %u", (int)len, spelling, sig.nargs, nargs);
+	if (nargs != sig->nargs) return clj_throw_msg("Selector %.*s takes %u argument(s), got %u", (int)len, spelling, sig->nargs, nargs);
 
 	pool_scope p = pool_enter();
 	call_args  ca;
 	call_args_init(&ca);
-	clj_value out = marshal_args(&sig, args, &ca, spelling, (int)len);
+	clj_value out = marshal_args(sig, args, &ca, spelling, (int)len);
 	if (out != CLJ_THROWN) {
 		// -init takes over a reference and hands one back, so the wrapper's own must not be the one it takes.
-		if (sig.consumes_self) objc_retain((id)recv->obj);
-		out = call_out(&sig, (void *)objc_msgSend, (id)recv->obj, sig.sel, false, &ca);
+		if (sig->consumes_self) objc_retain((id)recv->obj);
+		out = call_out(sig, (void *)objc_msgSend, (id)recv->obj, sig->sel, false, &ca);
 	}
 	pool_leave(p);
 	return out;
@@ -1615,28 +1621,30 @@ static const char *inherited_types(Class cls, const char *spelling, size_t len, 
 
 // ---- the class, one per reify shape
 
-static clj_lock   reify_lock = CLJ_LOCK_INIT;
-static reify_class *reify_cache;
-static size_t       reify_cap, reify_len;
-static unsigned     reify_counter;
+// Every instance holds its row (reify_state.rc) and a callback reads it, so the table holds pointers and
+// the rows themselves never move.
+static clj_lock      reify_lock = CLJ_LOCK_INIT;
+static reify_class **reify_cache;
+static size_t        reify_cap, reify_len;
+static unsigned      reify_counter;
 
-static reify_class *reify_slot(const char *key, uint32_t h) {
+static reify_class **reify_slot(const char *key, uint32_t h) {
 	size_t mask = reify_cap - 1;
 	for (size_t i = h & mask;; i = (i + 1) & mask) {
-		reify_class *e = &reify_cache[i];
-		if (!e->key || (e->hash == h && strcmp(e->key, key) == 0)) return e;
+		reify_class **e = &reify_cache[i];
+		if (!*e || ((*e)->hash == h && strcmp((*e)->key, key) == 0)) return e;
 	}
 }
 
 static void reify_grow(void) {
-	size_t       cap = reify_cap ? reify_cap * 2 : 16;
-	reify_class *old = reify_cache, *fresh = calloc(cap, sizeof *fresh);
+	size_t        cap = reify_cap ? reify_cap * 2 : 16;
+	reify_class **old = reify_cache, **fresh = calloc(cap, sizeof *fresh);
 	if (!fresh) clj_fatal("out of memory growing the objc reify cache");
 	size_t old_cap = reify_cap;
 	reify_cache = fresh;
 	reify_cap = cap;
 	for (size_t i = 0; i < old_cap; i++) {
-		if (old[i].key) *reify_slot(old[i].key, old[i].hash) = old[i];
+		if (old[i]) *reify_slot(old[i]->key, old[i]->hash) = old[i];
 	}
 	free(old);
 }
@@ -1680,12 +1688,15 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 
 	clj_lock_lock(&reify_lock);
 	if (reify_len * 2 >= reify_cap) reify_grow();
-	reify_class *rc = reify_slot(key, h);
-	if (rc->key) {
+	reify_class **slot = reify_slot(key, h);
+	if (*slot) {
+		reify_class *hit = *slot;
 		free(key);
 		clj_lock_unlock(&reify_lock);
-		return rc;
+		return hit;
 	}
+	reify_class *rc = calloc(1, sizeof *rc);
+	if (!rc) clj_fatal("out of memory building an objc reify class");
 
 	const char *super_name = clj_is_nil(super) ? "NSObject" : clj_string_bytes(super);
 	Class       sup = objc_getClass(super_name);
@@ -1753,6 +1764,7 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 	rc->cls = cls;
 	rc->key = key;
 	rc->hash = h;
+	*slot = rc;
 	reify_len++;
 	clj_lock_unlock(&reify_lock);
 	return rc;
@@ -1761,8 +1773,8 @@ fail_class:
 	objc_disposeClassPair(cls);
 	for (uint32_t i = 0; i < n; i++) signature_free(&rc->m[i].sig);
 	free(rc->m);
-	memset(rc, 0, sizeof *rc);
 fail:
+	free(rc);
 	free(key);
 	clj_lock_unlock(&reify_lock);
 	return NULL;
@@ -1926,28 +1938,29 @@ static void *block_invoke_for(const objc_sig *sig) {
 
 #undef PICK
 
-// One kind per signature, never freed: the descriptor a block points at must outlive every copy of it.
-static clj_lock    block_lock = CLJ_LOCK_INIT;
-static block_kind *block_kinds;
-static size_t      block_cap, block_len;
+// One kind per signature, never freed and never moved: a heap block holds &kind->desc for as long as any
+// copy of it lives, so the table holds pointers and growing it rehashes those and frees only the table.
+static clj_lock     block_lock = CLJ_LOCK_INIT;
+static block_kind **block_kinds;
+static size_t       block_cap, block_len;
 
-static block_kind *block_slot(const char *sig, uint32_t h) {
+static block_kind **block_slot(const char *sig, uint32_t h) {
 	size_t mask = block_cap - 1;
 	for (size_t i = h & mask;; i = (i + 1) & mask) {
-		block_kind *e = &block_kinds[i];
-		if (!e->signature || (e->hash == h && strcmp(e->signature, sig) == 0)) return e;
+		block_kind **e = &block_kinds[i];
+		if (!*e || ((*e)->hash == h && strcmp((*e)->signature, sig) == 0)) return e;
 	}
 }
 
 static void block_grow(void) {
-	size_t      cap = block_cap ? block_cap * 2 : 16;
-	block_kind *old = block_kinds, *fresh = calloc(cap, sizeof *fresh);
+	size_t       cap = block_cap ? block_cap * 2 : 16;
+	block_kind **old = block_kinds, **fresh = calloc(cap, sizeof *fresh);
 	if (!fresh) clj_fatal("out of memory growing the objc block cache");
 	size_t old_cap = block_cap;
 	block_kinds = fresh;
 	block_cap = cap;
 	for (size_t i = 0; i < old_cap; i++) {
-		if (old[i].signature) *block_slot(old[i].signature, old[i].hash) = old[i];
+		if (old[i]) *block_slot(old[i]->signature, old[i]->hash) = old[i];
 	}
 	free(old);
 }
@@ -1958,15 +1971,18 @@ static block_kind *block_kind_for(const char *signature, const char *who, clj_va
 	for (const char *p = signature; *p; p++) h = clj_hash_combine(h, (uint32_t)(unsigned char)*p);
 	clj_lock_lock(&block_lock);
 	if (block_len * 2 >= block_cap) block_grow();
-	block_kind *k = block_slot(signature, h);
-	if (k->signature) {
+	block_kind **slot = block_slot(signature, h);
+	if (*slot) {
+		block_kind *hit = *slot;
 		clj_lock_unlock(&block_lock);
-		return k;
+		return hit;
 	}
+	block_kind *k = calloc(1, sizeof *k);
+	if (!k) clj_fatal("out of memory keying an objc block signature");
 	if (!signature_from_types(signature, NULL, &k->sig, 1)) {
 		*err = clj_throw_msg("%s: a shape the bridge cannot implement: %s", who, signature);
 		signature_free(&k->sig);
-		memset(k, 0, sizeof *k);
+		free(k);
 		clj_lock_unlock(&block_lock);
 		return NULL;
 	}
@@ -1979,6 +1995,7 @@ static block_kind *block_kind_for(const char *signature, const char *who, clj_va
 	k->desc.copy = block_copy_helper;
 	k->desc.dispose = block_dispose_helper;
 	k->desc.signature = k->signature;
+	*slot = k;
 	block_len++;
 	clj_lock_unlock(&block_lock);
 	return k;

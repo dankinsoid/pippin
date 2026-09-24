@@ -2734,6 +2734,18 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   bumps a refcount. One descriptor per signature, cached and never freed, because the block points at it
   for as long as any copy lives. The invoke pointer has the IMP problem without the `_cmd`, so the same
   trampoline set serves with the block in `x0`.
+- **A cache entry is allocated on its own, because callers hold its address long after the lookup.** All
+  three tables of the bridge — the `(class, spelling)` selector cache, the reify class cache and the block
+  kind cache — hold pointers to entries, never entries, so growing one rehashes the pointers and frees
+  only the table. Who may hold an entry's address, and for how long: a send borrows the cached `objc_sig`
+  for the call instead of copying its ~150 bytes; a reified instance keeps its row in `reify_state.rc` for
+  its whole life, and every callback reads the row; a heap block keeps `&kind->desc`, which libclosure and
+  the runtime read on every call, copy and release of it. Nothing is ever evicted, so an entry lives for
+  the process. Entries inside the table, as the first cut had them, meant the ninth distinct block
+  signature freed the descriptor of every block made before it, and the ninth reify shape freed the row
+  every earlier instance dispatches through (`aBlockSurvivesItsKindCacheGrowing`,
+  `aReifiedInstanceSurvivesItsClassCacheGrowing`). The hot path pays one pointer load more per selector
+  lookup and one `calloc` per *new* (class, spelling), never per call.
 - **A body runs with `host_depth` raised, so a park inside it is an error** (design §5, "делегат не
   паркуется"): UIKit calls a delegate and waits for the value now. An error the body did not catch is
   reported where it happened, because a callback has nowhere to throw to. The callback's autorelease
