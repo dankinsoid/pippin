@@ -50,8 +50,8 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 61 ms, with the summaries 70 ms, against 381 ms of analysis over the same forms
-  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1013 summaries, ran 24 fixpoint rounds
+- Cost: pass 1 alone 65 ms, with the summaries 78 ms, against 440 ms of analysis over the same forms
+  (0.15× → 0.18×); the largest single table is 262 KB. The store holds 1013 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 34 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 174. Value nodes at ⊥: 147, of which 39 `dead-branch` (the pass's
@@ -132,12 +132,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 282 | 12960 | 7.8 | 3.6 | 4.8 | 4.5 | 0.46× → 0.61× | 383 | 13 |
-| embedded libs | 108 | 3710 | 1.8 | 0.8 | 1.2 | 1.2 | 0.41× → 0.65× | 114 | 6 |
-| clojure-test-suite | 520 | 419358 | 355.2 | 53.9 | 61.2 | 60.1 | 0.15× → 0.17× | 9975 | 262 |
-| medley | 105 | 22677 | 16.6 | 2.4 | 3.3 | 3.1 | 0.14× → 0.20× | 563 | 23 |
-| **library code** | 495 | 39347 | 26.2 | 6.7 | 9.3 | 8.8 | 0.26× → 0.35× | 1060 | 23 |
-| **all** | 1015 | 458705 | 381.4 | 60.6 | 70.5 | 68.9 | 0.16× → 0.18× | 11034 | 262 |
+| core.clj | 282 | 12960 | 7.6 | 3.5 | 4.7 | 4.4 | 0.46× → 0.61× | 383 | 13 |
+| embedded libs | 108 | 3710 | 1.9 | 0.8 | 1.2 | 1.2 | 0.41× → 0.63× | 114 | 6 |
+| clojure-test-suite | 520 | 419358 | 413.0 | 57.9 | 68.4 | 60.3 | 0.14× → 0.17× | 9975 | 262 |
+| medley | 105 | 22677 | 17.3 | 2.4 | 3.4 | 3.0 | 0.14× → 0.20× | 563 | 23 |
+| **library code** | 495 | 39347 | 26.7 | 6.7 | 9.2 | 8.6 | 0.25× → 0.35× | 1060 | 23 |
+| **all** | 1015 | 458705 | 439.7 | 64.6 | 77.7 | 68.9 | 0.15× → 0.18× | 11034 | 262 |
 
 ## Errors
 
