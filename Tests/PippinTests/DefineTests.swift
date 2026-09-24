@@ -31,7 +31,8 @@ extension CoreTests {
 		let rt = Runtime()
 
 		init() {
-			for k in ["k", "tag", "x"] { _ = kw(k) }
+			// A host error interns its ex-type keyword on the first error of that Swift type (design §4).
+			for k in ["k", "tag", "x", "PippinTests/DefineError"] { _ = kw(k) }
 		}
 
 		// A defined fn is the var's root and lives with it: baselines are taken after the define, and a test

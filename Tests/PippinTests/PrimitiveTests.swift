@@ -11,7 +11,8 @@ extension CoreTests {
 		let rt = Runtime()
 
 		init() {
-			for k in ["a", "b", "a/b", "b/a", "a/x", "a/y", "k"] { _ = kw(k) }
+			// A host error interns its ex-type keyword on the first error of that Swift type (design §4).
+			for k in ["a", "b", "a/b", "b/a", "a/x", "a/y", "k", "Pippin/ReaderError"] { _ = kw(k) }
 		}
 
 		@Test func compareTable() throws {

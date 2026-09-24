@@ -1384,7 +1384,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   writable, so what is left is `:PippinTests/MyError` (two same-named private types in one module therefore
   share a keyword, which beats a build-varying one); **nesting stays**, `:PippinTests/HostErrorNest.Inner`,
   since a dot is an ordinary keyword-name character (`is_terminating`, reader.c) and `Outer.Inner` is what
-  Swift prints. Nothing readable left — `ex-type` is `nil`, still total.
+  Swift prints. Nothing readable left — `ex-type` is `nil`, still total. Test-visible cost: the first host
+  error of a Swift type interns four objects (keyword, symbol, two strings), so a suite with a
+  `clj_debug_live_objects` baseline around one pre-interns that keyword in its `init`, as it does for
+  every keyword literal it evaluates.
 - **Every `_BridgedStoredNSError` is already an `NSError` when we box it**, so §4's domain/code rule covers
   more than the `NSError` "without a Swift mapping" it was written for: `type(of:)` of a `CocoaError`,
   `URLError` or `POSIXError` erased to `any Error` answers `NSError`, because the error existential for
