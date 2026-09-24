@@ -1953,7 +1953,7 @@ static void block_grow(void) {
 }
 
 // A block's signature is the method one with the block itself in place of self and no _cmd.
-static block_kind *block_kind_for(const char *signature, clj_value *err) {
+static block_kind *block_kind_for(const char *signature, const char *who, clj_value *err) {
 	uint32_t h = 2166136261u;
 	for (const char *p = signature; *p; p++) h = clj_hash_combine(h, (uint32_t)(unsigned char)*p);
 	clj_lock_lock(&block_lock);
@@ -1964,7 +1964,7 @@ static block_kind *block_kind_for(const char *signature, clj_value *err) {
 		return k;
 	}
 	if (!signature_from_types(signature, NULL, &k->sig, 1)) {
-		*err = clj_throw_msg("objc-block: a shape the bridge cannot implement: %s", signature);
+		*err = clj_throw_msg("%s: a shape the bridge cannot implement: %s", who, signature);
 		signature_free(&k->sig);
 		memset(k, 0, sizeof *k);
 		clj_lock_unlock(&block_lock);
@@ -1987,7 +1987,7 @@ static block_kind *block_kind_for(const char *signature, clj_value *err) {
 clj_value clj_objc_block(clj_value signature, clj_value fn) {
 	if (!clj_is_string(signature)) return clj_throw_msg("objc-block expects a signature string, got: %s", clj_type_name(signature));
 	clj_value   err = CLJ_NIL;
-	block_kind *k = block_kind_for(clj_string_bytes(signature), &err);
+	block_kind *k = block_kind_for(clj_string_bytes(signature), "objc-block", &err);
 	if (!k) return err == CLJ_NIL ? clj_throw_msg("objc-block failed") : err;
 	if (!k->invoke)
 		return clj_throw_msg("objc-block: a struct of %u bytes returned through x8, a size the bridge has no return shape for: %s",
@@ -2039,7 +2039,7 @@ clj_value clj_objc_call_block(clj_value block, const clj_value *args, uint32_t n
 	if (!signature) return clj_throw_msg("objc-invoke: this block carries no signature, and the bridge builds no prototype without one");
 
 	clj_value   err = CLJ_NIL;
-	block_kind *k = block_kind_for(signature, &err);
+	block_kind *k = block_kind_for(signature, "objc-invoke", &err);
 	if (!k) return err == CLJ_NIL ? clj_throw_msg("objc-invoke failed") : err;
 	if (nargs != k->sig.nargs) return clj_throw_msg("The block %s takes %u argument(s), got %u", signature, k->sig.nargs, nargs);
 
