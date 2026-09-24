@@ -1,10 +1,20 @@
 // @ai-generated(guided)
 import CljCore
+import Foundation
 import Testing
 @testable import Pippin
 
 private struct MyError: Error, Equatable {
 	let code: Int
+}
+
+// Not private, so the printed name carries no private discriminator: what is under test here is the nesting
+// and the generic argument, which a plain identifier does not have.
+enum HostErrorNest {
+	struct Inner: Error {}
+	struct Gen<T>: Error {
+		let v: T
+	}
 }
 
 private func kw(_ s: String) -> Value { Value(keyword: s) }
@@ -21,7 +31,9 @@ extension CoreTests {
 		let rt = Runtime()
 
 		init() {
-			for k in ["host/error", "k", "caught", "default", "info", "other"] { _ = kw(k) }
+			for k in ["host/error", "k", "caught", "default", "info", "other", "fell-through", "grouped",
+			          "PippinTests/MyError", "PippinTests/Other", "PippinTests/HostErrorNest.Inner",
+			          "PippinTests/HostErrorNest.Gen", "NSCocoaErrorDomain/260", "NSCocoaErrorDomain/4", "he/host-failure"] { _ = kw(k) }
 		}
 
 		private func declare(_ names: String...) throws {
@@ -89,9 +101,10 @@ extension CoreTests {
 				#expect(try byDefault(boom) == ["MyError(code: 7)", nil])
 				let byInfo = try rt.eval("(fn [f] (try (f) (catch ExceptionInfo e :caught)))")
 				#expect(try byInfo(boom) == kw("caught"))
-				// ex-type stays nil for a host error until the host-type registry exists (design §4).
+				// The registry (design §4) is for ex-data's richness; identification needs no registry, because
+				// the runtime always has the type's name.
 				let hostExType = try rt.eval("(fn [f] (try (f) (catch :default e (ex-type e))))")
-				#expect(try hostExType(boom) == nil)
+				#expect(try hostExType(boom) == kw("PippinTests/MyError"))
 				// ex-data carries the error itself, so Clojure code can hand it back to Swift.
 				let data = try rt.eval("(fn [f] (try (f) (catch :default e (ex-data e))))")
 				let map = try #require(try data(boom).dictionary)
@@ -119,6 +132,83 @@ extension CoreTests {
 				}
 				#expect(out == "finally\n")
 				#expect(thrown as? MyError == MyError(code: 7))
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A host error identifies itself by its Swift type name (design §4): both catch forms name one keyword.
+		@Test func hostErrorTypeIsItsSwiftTypeName() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let boom = Value(function: "he-typed") { _ in throw MyError(code: 7) }
+				let byKeyword = try rt.eval("(fn [f] (try (f) (catch :PippinTests/MyError e :caught)))")
+				#expect(try byKeyword(boom) == kw("caught"))
+				let byType = try rt.eval("(fn [f] (try (f) (catch PippinTests/MyError e :caught)))")
+				#expect(try byType(boom) == kw("caught"))
+				// Another type does not match, and :default still picks the error up behind it.
+				let other = try rt.eval("(fn [f] (try (f) (catch PippinTests/Other e :caught) (catch :default e :fell-through)))")
+				#expect(try other(boom) == kw("fell-through"))
+				// ExceptionInfo is unaffected: a host error is an error whatever its type says.
+				let byInfo = try rt.eval("(fn [f] (try (f) (catch ExceptionInfo e (ex-type e))))")
+				#expect(try byInfo(boom) == kw("PippinTests/MyError"))
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Grouping foreign errors is the ordinary derive, as for our own (design §4).
+		@Test func deriveGroupsAHostError() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let boom = Value(function: "he-grouped") { _ in throw MyError(code: 7) }
+				let grouped = try rt.eval("(fn [f] (try (f) (catch :he/host-failure e :grouped) (catch :default e :fell-through)))")
+				#expect(try grouped(boom) == kw("fell-through"))
+				_ = try rt.eval("(derive :PippinTests/MyError :he/host-failure)")
+				#expect(try grouped(boom) == kw("grouped"))
+				_ = try rt.eval("(underive :PippinTests/MyError :he/host-failure)")
+				#expect(try grouped(boom) == kw("fell-through"))
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A printed type name that is not one identifier: the nesting stays, the generic argument does not.
+		@Test func nestedAndGenericTypeNames() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let exType = try rt.eval("(fn [f] (try (f) (catch :default e (ex-type e))))")
+				let nested = Value(function: "he-nested") { _ in throw HostErrorNest.Inner() }
+				#expect(try exType(nested) == kw("PippinTests/HostErrorNest.Inner"))
+				let byType = try rt.eval("(fn [f] (try (f) (catch PippinTests/HostErrorNest.Inner e :caught)))")
+				#expect(try byType(nested) == kw("caught"))
+				// Every instantiation of a generic type shares one ex-type: `Box<Swift.Int>` is no keyword,
+				// and a keyword nobody can write in a catch is no identity.
+				let ints = Value(function: "he-gen-int") { _ in throw HostErrorNest.Gen(v: 1) }
+				let strings = Value(function: "he-gen-str") { _ in throw HostErrorNest.Gen(v: "s") }
+				#expect(try exType(ints) == kw("PippinTests/HostErrorNest.Gen"))
+				#expect(try exType(strings) == kw("PippinTests/HostErrorNest.Gen"))
+				// MyError is private, so its printed name carries an "(unknown context at $…)" component with a
+				// load address in it; an address is no identity either, so the component is dropped.
+				let priv = Value(function: "he-private") { _ in throw MyError(code: 1) }
+				#expect(try exType(priv) == kw("PippinTests/MyError"))
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// One NSError class for every domain, so the domain/code pair is the identity (design §4). A real
+		// NSError from Foundation, not one made up here: the rule has to hold for what the frameworks throw.
+		@Test func nsErrorTypeIsItsDomainAndCode() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let read = Value(function: "he-read") { _ in
+					_ = try Data(contentsOf: URL(fileURLWithPath: "/definitely/missing/pippin/file"))
+					return nil
+				}
+				let exType = try rt.eval("(fn [f] (try (f) (catch :default e (ex-type e))))")
+				#expect(try exType(read) == kw("NSCocoaErrorDomain/260"))
+				let byKeyword = try rt.eval("(fn [f] (try (f) (catch :NSCocoaErrorDomain/260 e :caught)))")
+				#expect(try byKeyword(read) == kw("caught"))
+				// The Swift-mapped Foundation errors take the same path: CocoaError is an NSError once it is
+				// an `any Error`, so the pair is what the runtime has, and it is finer than the type name.
+				#expect(Value.hostErrorType(of: CocoaError(.fileNoSuchFile)) == kw("NSCocoaErrorDomain/4"))
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

@@ -1262,6 +1262,13 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 		c->kind = CLJ_CATCH_ERROR;
 		return true;
 	}
+	// A host type has no var to resolve to: (catch Foundation/CocoaError e) is the keyword form spelled as a
+	// type, and means it (design §4). Unqualified stays an error — a JVM classname and a typo both land there.
+	if (clj_is_symbol(cls) && !clj_is_nil(clj_symbol_ns(cls))) {
+		c->kind = CLJ_CATCH_KEYWORD;
+		c->keyword = clj_keyword_intern(clj_symbol_ns(cls), clj_symbol_name(cls));
+		return true;
+	}
 	return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
 }
 
