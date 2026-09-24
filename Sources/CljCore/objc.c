@@ -961,7 +961,7 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 				if (sig.ret_abi.slots <= 1) { long long r = SEND(i); memcpy(rbuf, &r, sizeof r); }
 				else { ret_i2 r = SEND(i2); memcpy(rbuf, &r, sizeof r); }
 				break;
-			default: { ret_mem r = SEND(mem); memcpy(rbuf, r.b, sizeof r.b); break; }
+			default: { ret_mem r = SEND(mem); memcpy(rbuf, r.b, sig.ret_abi.size); break; }
 			}
 			out = decode_struct(sig.retenc, rbuf);
 			break;
