@@ -226,7 +226,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   mappings in a cache of 256 (`map_keep`/`map_take`): an `mmap`, `mprotect` and `munmap` per spawn cost more
   than the spawn itself. Under ASan a cached mapping is unpoisoned before reuse (the dead frames' red zones), and
   every switch goes through `__sanitizer_start_switch_fiber`/`finish_switch_fiber`, so ASan follows the
-  coroutine stacks (`make test` runs the suites on them).
+  coroutine stacks (`make test` runs the suites on them). The pairing is per thread and every entry owes a
+  finish, including the bench's `bounce` body; ASan ignores the hooks on a thread it does not track, so an
+  unbalanced one is invisible until something moves that code onto a tracked thread.
 - **A parked coroutine's stack is its own** (design §4, "Стек припаркованной корутины — только её"): nothing a
   resumer, a canceller, a timer or a blocking job touches lives in the parker's frames or in its mapping, so the
   live bytes can be copied out and back *to the same addresses* (no pointer fixups: relocation stays refused).
@@ -2520,7 +2522,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `deref`, `throw`) and because `catch :cancelled` is the rule both backends already emit rather than a
   copy of it; it is written with `fn*`/`let*` and fully qualified vars, so the current namespace at the
   first `Value(asyncFunction:)` does not matter. The result crosses tagged, `[ok? v]`, because a channel
-  carries values and not throws, and the tag is what lets a Swift error arrive as a throw.
+  carries values and not throws, and the tag is what lets a Swift error arrive as a throw. The wrapper is
+  evaluated once and kept for the process, so the first `Value(asyncFunction:)` is a one-time allocation no
+  live-object baseline may straddle.
 - **A cancelled coroutine cannot park again**: the flag is sticky, so the `catch :cancelled` that
   cancels the Task calls a host fn and rethrows, and nothing in that arm may wait. The same trap catches
   tests: a cancellation handler that reports through a channel throws a second cancellation instead.
