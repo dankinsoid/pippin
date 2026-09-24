@@ -2627,12 +2627,55 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   the string `add-target:action:for-control-events:`; labels are the odd items and arguments the even
   ones, evaluated left to right. `objc-send` with the full Objective-C text is the escape hatch for a
   selector that is not a literal.
+- **A collection crosses by hand only, and the four conversions say so.** `ns-array` and `ns-dictionary`
+  take a Clojure sequence or map to Cocoa, `ns-array->vec` and `ns-dictionary->map` bring one back;
+  scalars inside convert themselves, a nested collection converts too (a one-level conversion would put
+  wrappers Cocoa cannot read inside the array it was handed), and the losses design §5 names are real:
+  nil is `NSNull`, a keyword key travels as its name and comes back a string. A receiver is never
+  bridged, so `(.count [1 2])` is still an error.
+- **Calling in: one trampoline per return shape, no `NSInvocation`.** The IMP prototype problem is
+  `objc_msgSend`'s inverted, and the same two AAPCS64 facts answer it: the caller filled only the
+  registers its own selector declares, and reading the rest is harmless because the signature we
+  installed the method with says how many there are. So the eleven return shapes of the send side, times
+  float or double slots, cover every argument list; `self` and `_cmd` say which instance and which
+  method, and a linear scan of a handful of `SEL`s finds it. The one refused shape is a struct returned
+  through `x8`: the caller's buffer is sized for the real struct, and a prototype returning a fixed 128
+  bytes would write past it. `forwardInvocation:` would be general and cost microseconds a
+  `tableView:cellForRowAtIndexPath:` cannot pay; libffi would be a new dependency.
+- **A class per reify shape, never disposed.** `objc_disposeClassPair` refuses while an instance lives,
+  and a reify inside a loop must not mint a class per instance, so the class is cached under
+  (superclass, protocols, selectors, encodings) — which makes it per site by construction — and lives
+  for the process, like an interned keyword. The Clojure fns are per-instance state in the extra bytes
+  `class_createInstance` puts behind the instance (an ivar would cost a runtime lookup of its offset per
+  callback), retained and `clj_share`d because a callback can arrive on any thread and the `dealloc`
+  that releases them can run on any thread too.
+- **A method's type encoding comes from the protocol or the superclass, never from a guess.** A selector
+  no protocol and no superclass declares needs its encoding written beside it (`["doThing:" "v@:@"]`),
+  because guessing `void` and object arguments for a target/action would be exactly the silent wrong
+  call the send side refuses. The kebab spelling resolves against the protocols first, so a delegate
+  method is written the way a call site writes it.
+- **A block is a stack block that is copied, as the compiler's is.** `_Block_copy` runs our copy helper,
+  so the heap block owns the fn and the dispose helper gives it back; a host that stores the block only
+  bumps a refcount. One descriptor per signature, cached and never freed, because the block points at it
+  for as long as any copy lives. The invoke pointer has the IMP problem without the `_cmd`, so the same
+  trampoline set serves with the block in `x0`.
+- **A body runs with `host_depth` raised, so a park inside it is an error** (design §5, "делегат не
+  паркуется"): UIKit calls a delegate and waits for the value now. An error the body did not catch is
+  reported where it happened, because a callback has nowhere to throw to. The callback's autorelease
+  pool is its own and nested: it cannot span a switch, and popping it pops any pool a send opened inside
+  it, so the slice's token is hidden for the duration and restored after.
 - **Not done, and why it shows.** Design §5 wants the label list checked against the type's selector
   table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
   facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
-  error with the right order in the message, not an analysis error. Also absent: `reify` on `@objc`,
-  blocks, the async bridge, the boundary bench (it wants a `CLJEncoder` that does not exist yet), and a
-  host type in `catch` position.
+  error with the right order in the message, not an analysis error. Also absent: writing through a
+  pointer argument (`BOOL *stop` arrives as a borrowed handle, readable only), a struct return through
+  `x8` from a callback, invoking a block the host handed us, the async bridge, the boundary bench (it
+  wants a `CLJEncoder` that does not exist yet), and a host type in `catch` position.
+- **An `NSString` we cannot tell from an `NSMutableString` stays a handle.** `__NSCFString` is a subclass
+  of `NSMutableString` whether or not it is actually mutable, so any string past the tagged-pointer size
+  crosses as a wrapper rather than as a value — including one a callback returned. The conservative
+  answer is the one design §5 asks for (a snapshot would drop a mutation), but it costs more strings
+  than it should; a real test needs something `isKindOfClass:` cannot give.
 
 ## Printer (Sources/CljCore/printer.c)
 
