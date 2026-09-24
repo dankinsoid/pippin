@@ -1,6 +1,6 @@
 true nil false
 "add-target:action:for-control-events:" "utf8-string" "center-x-anchor"
-"hi" 3 nil
+"hi" 3 "abc" nil
 "abcd" 4 1
 1.5 false
 2.5 true -7

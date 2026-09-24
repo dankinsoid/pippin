@@ -9,10 +9,10 @@ extension CoreTests {
 
 		// A send allocates nothing that outlives its result: the wrapper owns the +1 and drops it.
 		@Test func sendsLeakNothing() throws {
-			_ = try cljEval(#"(.utf8-string (.init (.alloc (objc-class "NSMutableString"))))"#)
+			_ = try cljEval(#"(.utf8-string (ns-mutable-string "ab"))"#)
 			let before = clj_debug_live_objects()
 			for _ in 0 ..< 8 {
-				_ = try cljEval(#"(.utf8-string (.init (.alloc (objc-class "NSMutableString"))))"#)
+				_ = try cljEval(#"(.utf8-string (ns-mutable-string "ab"))"#)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -33,17 +33,29 @@ extension CoreTests {
 			#expect(try rt.eval("(objc-object? 1)") == false)
 		}
 
-		// An NSString return crosses as a value; an NSMutableString stays a wrapper, so it can be mutated.
+		// Every NSString crosses as a value, whatever its class: __NSCFString is registered under
+		// NSMutableString either way, so a mutability test would only split them by length.
 		@Test func stringsCrossAsValues() throws {
 			#expect(try rt.eval(#"(objc-send (objc-class "NSString") "stringWithUTF8String:" "hi")"#) == "hi")
-			let mutable = #"(objc-send (objc-class "NSMutableString") "stringWithUTF8String:" "ab")"#
-			#expect(try rt.eval("(objc-object? \(mutable))") == true)
-			#expect(try rt.eval("(objc-send \(mutable) \"length\")") == 2)
+			// Longer than a tagged pointer holds: the class is __NSCFString and the old test called it mutable.
+			#expect(try rt.eval(#"(objc-send (objc-class "NSString") "stringWithUTF8String:" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")"#)
+				== "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+			#expect(try rt.eval(#"(objc-send (objc-class "NSMutableString") "stringWithUTF8String:" "ab")"#) == "ab")
+		}
+
+		// The object itself by explicit request, the gesture ns-array makes for a vector (design §5).
+		@Test func handlesAreAskedForByName() throws {
+			#expect(try rt.eval(#"(objc-object? (ns-string "hi"))"#) == true)
+			#expect(try rt.eval(#"(ns-string->str (ns-string "hi"))"#) == "hi")
+			#expect(try rt.eval(#"(.length (ns-string "abc"))"#) == 3)
 			#expect(try rt.eval("""
-			(let [s \(mutable)]
-			  (objc-send s "appendString:" "cd")
-			  (objc-send s "UTF8String"))
-			""") == "abcd")
+			(let [s (ns-mutable-string "ab")]
+			  (.append-string s "cd")
+			  [(ns-string->str s) (.length s)])
+			""") == ["abcd", 4])
+			#expect(try rt.eval(#"(ns-string->str nil)"#) == nil)
+			#expect(cljEvalError(#"(ns-string 1)"#)?.contains("expects a string") == true)
+			#expect(cljEvalError(#"(ns-string->str (ns-array []))"#)?.contains("expects an NSString") == true)
 		}
 
 		@Test func numbersCrossAsValues() throws {
@@ -89,10 +101,18 @@ extension CoreTests {
 		// alloc/init hand back +1, so the wrapper must not retain again; the object survives its Clojure value.
 		@Test func allocInitOwnership() throws {
 			#expect(try rt.eval("""
-			(let [s (objc-send (objc-send (objc-class "NSMutableString") "alloc") "init")]
+			(let [s (ns-mutable-string "")]
 			  (objc-send s "appendString:" "ok")
 			  [(objc-send s "retainCount") (objc-send s "UTF8String")])
 			""") == [1, "ok"])
+		}
+
+		// An allocation is not an object of its class yet: -[NSPlaceholderMutableString length] raises, so
+		// alloc stays a handle where every other NSString return is read.
+		@Test func anAllocationIsNotConverted() throws {
+			#expect(try rt.eval(#"(objc-object? (.alloc (objc-class "NSMutableString")))"#) == true)
+			// What -init answers is an object, and it converts like any other NSString.
+			#expect(try rt.eval(#"(.init (.alloc (objc-class "NSMutableString")))"#) == "")
 		}
 
 		@Test func wrappersAreIdentity() throws {
@@ -103,7 +123,7 @@ extension CoreTests {
 		// (.base target arg :label arg …): labels are syntax, arguments stay positional (design §5).
 		@Test func methodForm() throws {
 			#expect(try rt.eval(#"(.string-with-utf8-string (objc-class "NSString") "hi")"#) == "hi")
-			#expect(try rt.eval(#"(.length (.string-with-utf8-string (objc-class "NSMutableString") "abc"))"#) == 3)
+			#expect(try rt.eval(#"(.length (ns-string "abc"))"#) == 3)
 			#expect(try rt.eval("""
 			(let [epoch (.date-with-time-interval-since1970 (objc-class "NSDate") 0.0)
 			      d (.init-with-time-interval (.alloc (objc-class "NSDate")) 1.5 :since-date epoch)]
@@ -132,7 +152,7 @@ extension CoreTests {
 			#expect(try cljEvalScoped("""
 			(in-ns 'objc-go-tests)
 			(let [c (chan)]
-			  (go (let [s (objc-send (objc-class "NSMutableString") "stringWithUTF8String:" "a")]
+			  (go (let [s (ns-mutable-string "a")]
 			        (<! (timeout 1))
 			        (objc-send s "appendString:" "b")
 			        (>! c (objc-send s "UTF8String"))))

@@ -183,6 +183,7 @@ typedef struct {
 	uint8_t     nargs;
 	uint8_t     reject;
 	bool        owned;         // the alloc/new/copy/mutableCopy/init families return +1
+	bool        allocation;    // the alloc family: memory of the class, not an object of it yet
 	bool        consumes_self; // the init family takes the reference its receiver was created with
 	bool        fp_is_float; // every floating-point argument is a float rather than a double
 } objc_sig;
@@ -477,6 +478,7 @@ static bool signature_fill(Method m, objc_sig *sig) {
 	if (n < 2 || n - 2 > CLJ_OBJC_MAX_ARGS) return false;
 	sig->nargs = (uint8_t)(n - 2);
 	sig->owned = family_is_owned(sel_getName(sig->sel));
+	sig->allocation = family_is(sel_getName(sig->sel), "alloc");
 	sig->consumes_self = family_is(sel_getName(sig->sel), "init");
 	if (selector_is_variadic(sel_getName(sig->sel))) return sig->reject = REJECT_VARIADIC, false;
 
@@ -626,18 +628,20 @@ static id to_ns_number(clj_value v) {
 	return ((id (*)(id, SEL, double))objc_msgSend)((id)c, sel_registerName("numberWithDouble:"), clj_num_to_double(v));
 }
 
-// A returned NSString or NSNumber crosses as a value; every other object stays an opaque wrapper. An
-// NSMutableString does not convert: a snapshot would silently drop the mutation the caller went on to make.
+// A returned NSString or NSNumber crosses as a value; every other object stays an opaque wrapper. Mutability
+// cannot decide it: __NSCFString is registered under NSMutableString whether or not it is mutable, so the
+// test would split strings by length (tagged pointer or not) and not by what the caller can do with them.
+// ns-string / ns-mutable-string hand back the object itself where one is needed.
 // @YES and @1 answer the same -objCType, but the boolean ones are the CFBoolean singletons, so identity
 // tells them apart where the encoding cannot.
 static clj_value from_object(id obj, bool owned) {
-	static Class ns_string, ns_mutable_string, ns_number;
+	static Class ns_string, ns_number;
 	if (!obj) return CLJ_NIL;
 	if (obj == (id)kCFBooleanTrue || obj == (id)kCFBooleanFalse) {
 		if (owned) objc_release(obj);
 		return obj == (id)kCFBooleanTrue ? CLJ_TRUE : CLJ_FALSE;
 	}
-	if (is_kind_of(obj, class_named("NSString", &ns_string)) && !is_kind_of(obj, class_named("NSMutableString", &ns_mutable_string))) {
+	if (is_kind_of(obj, class_named("NSString", &ns_string))) {
 		const char *utf8 = ((const char *(*)(id, SEL))objc_msgSend)(obj, sel_registerName("UTF8String"));
 		clj_value   s = utf8 ? clj_string_from_cstr(utf8) : CLJ_NIL;
 		if (owned) objc_release(obj);
@@ -1035,6 +1039,35 @@ clj_value clj_objc_from_collection(clj_value v, bool as_map) {
 	return out;
 }
 
+// The handle of design §5: every NSString crosses as a value, so a caller that needs the object itself,
+// to mutate it or to keep its identity, asks for one by name, as ns-array does for a vector.
+clj_value clj_objc_to_string(clj_value v, bool mutable) {
+	const char *name = mutable ? "ns-mutable-string" : "ns-string";
+	if (!clj_is_string(v)) return clj_throw_msg("%s expects a string, got: %s", name, clj_type_name(v));
+	static Class ns_string, ns_mutable_string;
+	Class        c = mutable ? class_named("NSMutableString", &ns_mutable_string) : class_named("NSString", &ns_string);
+	if (!c) return clj_throw_msg("%s: no Objective-C runtime here", name);
+	id raw = ((id (*)(id, SEL))objc_msgSend)((id)c, sel_registerName("alloc"));
+	// -initWithBytes: takes over the allocation, so a nil answer has already released it.
+	id str = ((id (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(
+	    raw, sel_registerName("initWithBytes:length:encoding:"), clj_string_bytes(v), (unsigned long)clj_string_len(v), 4 /* NSUTF8StringEncoding */);
+	return str ? clj_objc_wrap_owned(str) : clj_throw_msg("%s: not UTF-8", name);
+}
+
+clj_value clj_objc_from_string(clj_value v) {
+	if (clj_is_nil(v)) return CLJ_NIL;
+	if (!clj_is_objc_object(v)) return clj_throw_msg("ns-string->str expects an Objective-C object, got: %s", clj_type_name(v));
+	static Class ns_string;
+	id           obj = (id)clj_objc_id(v);
+	if (!is_kind_of(obj, class_named("NSString", &ns_string)))
+		return clj_throw_msg("ns-string->str expects an NSString, got a %s", class_getName(object_getClass(obj)));
+	pool_scope  p = pool_enter();
+	const char *utf8 = ((const char *(*)(id, SEL))objc_msgSend)(obj, sel_registerName("UTF8String"));
+	clj_value   out = utf8 ? clj_string_from_cstr(utf8) : CLJ_NIL;
+	pool_leave(p);
+	return out;
+}
+
 // ---- the call
 
 // The hint is every selector of the receiver sharing the base name, so a wrong or reordered label reads
@@ -1174,7 +1207,14 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 			out = decode_struct(sig.retenc, rbuf);
 			break;
 		}
-		default: out = from_int_return(SEND(i), sig.ret, sig.owned); break;
+		default: {
+			long long r = SEND(i);
+			// An allocation is no object of its class yet: -[NSPlaceholderMutableString length] raises, so
+			// nothing about it is read and it stays a handle for the -init that follows.
+			out = sig.allocation && sig.ret == '@' && r ? clj_objc_wrap_owned((void *)(intptr_t)r)
+			                                            : from_int_return(r, sig.ret, sig.owned);
+			break;
+		}
 		}
 #undef SEND
 	}
@@ -1441,6 +1481,7 @@ static bool signature_from_types(const char *types, SEL sel, objc_sig *sig, unsi
 	sig->sel = sel;
 	sig->reject = REJECT_SHAPE;
 	sig->owned = sel && family_is_owned(sel_getName(sel));
+	sig->allocation = false; // read only on the send side, where a placeholder must stay a handle
 	if (!next_encoding(&p, ret, sizeof ret)) return false;
 	for (unsigned i = 0; i < nhidden; i++)
 		if (!next_encoding(&p, skip, sizeof skip)) return false;
@@ -1932,6 +1973,16 @@ clj_value clj_objc_from_collection(clj_value v, bool as_map) {
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 
+clj_value clj_objc_to_string(clj_value v, bool mutable) {
+	(void)v, (void)mutable;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
+clj_value clj_objc_from_string(clj_value v) {
+	(void)v;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
 #endif
 
 // ---- builtins
@@ -1981,6 +2032,21 @@ static clj_value b_ns_dictionary_to_map(const clj_value *args, size_t n) {
 	return clj_objc_from_collection(args[0], true);
 }
 
+static clj_value b_ns_string(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_to_string(args[0], false);
+}
+
+static clj_value b_ns_mutable_string(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_to_string(args[0], true);
+}
+
+static clj_value b_ns_string_to_str(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_from_string(args[0]);
+}
+
 static clj_value b_objc_reify(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_objc_reify(args[0], args[1], args[2], args[3], args[4]);
@@ -1997,6 +2063,9 @@ void clj_objc_builtins_install(void) {
 	clj_builtin_bind("ns-array", b_ns_array, 1, 1);
 	clj_builtin_bind("ns-dictionary", b_ns_dictionary, 1, 1);
 	clj_builtin_bind("ns-array->vec", b_ns_array_to_vec, 1, 1);
+	clj_builtin_bind("ns-string", b_ns_string, 1, 1);
+	clj_builtin_bind("ns-mutable-string", b_ns_mutable_string, 1, 1);
+	clj_builtin_bind("ns-string->str", b_ns_string_to_str, 1, 1);
 	clj_builtin_bind("ns-dictionary->map", b_ns_dictionary_to_map, 1, 1);
 	clj_builtin_bind("objc-class", b_objc_class, 1, 1);
 	clj_builtin_bind("objc-send", b_objc_send, 2, CLJ_ARITY_ANY);

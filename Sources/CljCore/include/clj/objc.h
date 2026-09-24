@@ -39,6 +39,10 @@ clj_value clj_objc_block(clj_value signature, clj_value fn);
 clj_value clj_objc_to_collection(clj_value v, bool as_map);
 clj_value clj_objc_from_collection(clj_value v, bool as_map);
 
+// Every NSString crosses back as a value, so the object itself is asked for by name (design §5).
+clj_value clj_objc_to_string(clj_value v, bool mutable);
+clj_value clj_objc_from_string(clj_value v);
+
 // One class per shape, never disposed, bodies under host_depth (design §5); an encoding is nil when a
 // protocol or the superclass already declares that selector.
 clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_value encs, clj_value fns);

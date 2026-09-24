@@ -2617,9 +2617,9 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   first match, as dispatch would; the parsed signature is cached with it, so a warm call site reads one
   hash lookup. A miss names every selector of the receiver sharing the base name, which is how a wrong
   or reordered label reads against the right order (design §3).
-- **What crosses as a value and what stays a handle.** `NSString` and `NSNumber` returns become our
-  string and number; an `NSMutableString` stays a handle, because a snapshot would silently drop the
-  mutation the caller went on to make. `@YES` and `@1` answer the same `-objCType`, so the booleans are
+- **What crosses as a value and what stays a handle.** Every `NSString` and `NSNumber` return becomes our
+  string and number, whatever the class behind it; `ns-string`, `ns-mutable-string` and `ns-string->str`
+  hand back the object itself where one is needed. `@YES` and `@1` answer the same `-objCType`, so the booleans are
   told apart by identity against the `kCFBoolean` singletons. Everything else is an opaque wrapper whose
   equality and hash are identity: `-isEqual:` would run foreign code under a map's lock.
 - **The analyzer builds the selector, no backend resolves anything from the call's shape.**
@@ -2671,11 +2671,18 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   pointer argument (`BOOL *stop` arrives as a borrowed handle, readable only), a struct return through
   `x8` from a callback, invoking a block the host handed us, the async bridge, the boundary bench (it
   wants a `CLJEncoder` that does not exist yet), and a host type in `catch` position.
-- **An `NSString` we cannot tell from an `NSMutableString` stays a handle.** `__NSCFString` is a subclass
-  of `NSMutableString` whether or not it is actually mutable, so any string past the tagged-pointer size
-  crosses as a wrapper rather than as a value — including one a callback returned. The conservative
-  answer is the one design §5 asks for (a snapshot would drop a mutation), but it costs more strings
-  than it should; a real test needs something `isKindOfClass:` cannot give.
+- **Mutability cannot decide what converts, so nothing asks it.** `__NSCFString` is a subclass of
+  `NSMutableString` whether or not it is actually mutable, so `isKindOfClass:` splits strings by length
+  (tagged pointer or not) and not by what the caller can do with them: the first cut converted short
+  strings and handed back long ones as wrappers, and nothing in the call text said which. There is no
+  honest run-time test — the Clang importer decides this from the declared header type, which
+  `method_getTypeEncoding` does not carry (the same gap that blocks the static label check), and where
+  Swift is unsure it copies rather than tests. So every `NSString` converts, and the object is asked for
+  by name. The cost: an `NSMutableString` a method returns arrives as a snapshot, and a later mutation
+  of the original is not seen.
+- **An allocation is not an object of its class yet.** `+[NSMutableString alloc]` answers a placeholder
+  whose `-length` raises, so the `alloc` family alone returns a handle where every other `@` return is
+  read; the `-init` that follows answers a real object and converts like any other.
 
 ## Printer (Sources/CljCore/printer.c)
 

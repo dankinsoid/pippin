@@ -6,12 +6,13 @@
 (show (objc-object? (objc-class "NSString")) (objc-class "NoSuchClassHere") (objc-object? 1))
 (show (objc-kebab* "addTarget:action:forControlEvents:") (objc-kebab* "UTF8String") (objc-kebab* "centerXAnchor"))
 
-;; Values cross as values; an NSMutableString stays a handle so it can still be mutated.
+;; Every NSString crosses as a value; ns-string and ns-mutable-string hand back the object itself.
 (show (.string-with-utf8-string (objc-class "NSString") "hi")
-      (.length (.string-with-utf8-string (objc-class "NSMutableString") "abc"))
+      (.length (ns-string "abc"))
+      (ns-string->str (ns-string "abc"))
       (.length nil))
 
-(let [s (.init (.alloc (objc-class "NSMutableString")))]
+(let [s (ns-mutable-string "")]
   (.append-string s "ab")
   (.append-string s "cd")
   (show (.utf8-string s) (.length s) (.retain-count s)))
@@ -29,7 +30,7 @@
 (show (try (objc-send 1 "length") (catch :default e (ex-message e))))
 
 ;; A struct crosses as a map of the field names the type encoding does not carry.
-(let [s (.string-with-utf8-string (objc-class "NSString") "hello world")
+(let [s (ns-string "hello world")
       r (.range-of-string s "o w")]
   (show r (:location r) (:length r)))
 
@@ -51,8 +52,8 @@
 (show (try (.string-with-format (objc-class "NSString") "x") (catch :default e (ex-message e))))
 
 ;; A struct argument beside a pointer one: each register class is filled in the order of its own arguments.
-(show (.utf8-string (.string-by-replacing-characters-in-range (.string-with-utf8-string (objc-class "NSString") "hello world")
-                                                              {:location 0 :length 5} :with-string "goodbye")))
+(show (.string-by-replacing-characters-in-range (ns-string "hello world")
+                                               {:location 0 :length 5} :with-string "goodbye"))
 
 ;; Collections cross by hand only, deeply, and lossily: nil is NSNull and a keyword key comes back a string.
 (let [a (ns-array [1 "two" :three nil true 2.5 [7]])]
@@ -80,14 +81,14 @@
           ("description" [self] "a reified thing"))]
   (show (.twice o 21) (.hypot o 3.0 :with 4.0))
   (show (.mid o {:origin {:x 1.0 :y 2.0} :size {:width 10.0 :height 4.0}}))
-  (show (.utf8-string (.greet o "world")) (.utf8-string (.description o)))
+  (show (.greet o "world") (.description o))
   (.bump o)
   (.bump o)
   (show @n (.is-kind-of-class o (objc-class "NSObject")) (.responds-to-selector o "bump")))
 
 ;; One class per reify shape, not per instance: a reify in a loop must not mint a class per iteration.
 (let [os (map (fn [k] (objc-reify {} (["k" "q@:"] [self] k))) (range 4))]
-  (show (map (fn [o] (.k o)) os) (count (set (map (fn [o] (.utf8-string (.description (.class o)))) os)))))
+  (show (map (fn [o] (.k o)) os) (count (set (map (fn [o] (.description (.class o))) os)))))
 
 ;; A real delegate: NSXMLParser drives the protocol's methods, whose encodings come from the protocol.
 (let [seen (atom [])
@@ -96,7 +97,7 @@
             (swap! seen conj [el (ns-dictionary->map attrs)]))
           ("parser:did-end-element:namespace-uri:qualified-name:" [self p el ns qn]
             (swap! seen conj el)))
-      data (.data-using-encoding (.string-with-utf8-string (objc-class "NSString") "<a x=\"1\"><b/></a>") 4)
+      data (.data-using-encoding (ns-string "<a x=\"1\"><b/></a>") 4)
       p (.init-with-data (.alloc (objc-class "NSXMLParser")) data)]
   (.set-delegate p d)
   (show (.parse p) @seen))
@@ -121,7 +122,7 @@
 
 ;; An owned family hands the caller +1, so the copy outlives the callback's own pool.
 (let [o (objc-reify {} (["copyWithZone:" "@@:^v"] [self z] (.string-with-utf8-string (objc-class "NSString") "a copy of me")))]
-  (show (.utf8-string (.copy o))))
+  (show (.copy o)))
 
 (show (try (objc-reify {} ("no-such-selector-anywhere" [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:protocols ["NoSuchProtocol"]} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
