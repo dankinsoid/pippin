@@ -66,3 +66,51 @@
 (show (try (ns-array {:a 1}) (catch :default e (ex-message e))))
 (show (try (ns-array [(fn [])]) (catch :default e (ex-message e))))
 (show (try (ns-dictionary->map (ns-array [])) (catch :default e (ex-message e))))
+
+;; Calling in: an object of our own, with a method per return shape the trampolines cover.
+(let [n (atom 0)
+      o (objc-reify {}
+          (["twice:" "q@:q"] [self x] (* 2 x))
+          (["hypot:with:" "d@:dd"] [self a b] (+ (* a a) (* b b)))
+          (["mid:" "{CGPoint=dd}@:{CGRect={CGPoint=dd}{CGSize=dd}}"] [self r]
+            {:x (+ (:x (:origin r)) (/ (:width (:size r)) 2))
+             :y (+ (:y (:origin r)) (/ (:height (:size r)) 2))})
+          (["greet:" "@@:@"] [self who] (str "hello " who))
+          (["bump" "v@:"] [self] (swap! n inc))
+          ("description" [self] "a reified thing"))]
+  (show (.twice o 21) (.hypot o 3.0 :with 4.0))
+  (show (.mid o {:origin {:x 1.0 :y 2.0} :size {:width 10.0 :height 4.0}}))
+  (show (.utf8-string (.greet o "world")) (.utf8-string (.description o)))
+  (.bump o)
+  (.bump o)
+  (show @n (.is-kind-of-class o (objc-class "NSObject")) (.responds-to-selector o "bump")))
+
+;; One class per reify shape, not per instance: a reify in a loop must not mint a class per iteration.
+(let [os (map (fn [k] (objc-reify {} (["k" "q@:"] [self] k))) (range 4))]
+  (show (map (fn [o] (.k o)) os) (count (set (map (fn [o] (.utf8-string (.description (.class o)))) os)))))
+
+;; A real delegate: NSXMLParser drives the protocol's methods, whose encodings come from the protocol.
+(let [seen (atom [])
+      d (objc-reify {:protocols ["NSXMLParserDelegate"]}
+          ("parser:did-start-element:namespace-uri:qualified-name:attributes:" [self p el ns qn attrs]
+            (swap! seen conj [el (ns-dictionary->map attrs)]))
+          ("parser:did-end-element:namespace-uri:qualified-name:" [self p el ns qn]
+            (swap! seen conj el)))
+      data (.data-using-encoding (.string-with-utf8-string (objc-class "NSString") "<a x=\"1\"><b/></a>") 4)
+      p (.init-with-data (.alloc (objc-class "NSXMLParser")) data)]
+  (.set-delegate p d)
+  (show (.parse p) @seen))
+
+;; A block: Foundation calls it once per comparison, and once per element with a pointer it only reads.
+(let [desc (objc-block "q@?@@" [x y] (cond (< x y) 1 (> x y) -1 :else 0))
+      seen (atom [])
+      each (objc-block "v@?@Q^v" [x i stop] (swap! seen conj [x i (objc-object? stop)]))]
+  (show (ns-array->vec (.sorted-array-using-comparator (ns-array [3 1 2]) desc)))
+  (.enumerate-objects-using-block (ns-array ["a" "b"]) each)
+  (show @seen))
+
+(show (try (objc-reify {} ("no-such-selector-anywhere" [self] 1)) (catch :default e (ex-message e))))
+(show (try (objc-reify {:protocols ["NoSuchProtocol"]} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
+(show (try (objc-reify {:superclass "NoSuchClass"} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
+(show (try (objc-reify {} (["big" "{big=ddddddd}@:"] [self] 1)) (catch :default e (ex-message e))))
+(show (try (objc-block "v@?[4i]" [x] x) (catch :default e (ex-message e))))

@@ -20,3 +20,16 @@ true nil false
 "ns-array expects a sequence, got: map"
 "ns-array cannot convert this value: not a string, number, boolean, keyword, Objective-C object, map or sequence"
 "ns-dictionary->map expects an NSDictionary, got a __NSArray0"
+42 25.0
+{:x 6.0, :y 4.0}
+"hello world" "a reified thing"
+2 true true
+(0 1 2 3) 1
+true [["a" {"x" "1"}] ["b" {}] "b" "a"]
+[3 2 1]
+[["a" 0 true] ["b" 1 true]]
+"objc-reify: no-such-selector-anywhere is on none of the protocols nor on NSObject, so it needs a type encoding"
+"objc-reify: no such protocol: NoSuchProtocol"
+"objc-reify: no such class: NoSuchClass"
+"objc-reify: big returns a struct the bridge can only return through x8, which no trampoline shape fits: {big=ddddddd}@:"
+"objc-block: a shape the bridge cannot implement: v@?[4i]"
