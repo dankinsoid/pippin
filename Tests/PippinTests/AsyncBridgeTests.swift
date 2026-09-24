@@ -207,5 +207,138 @@ extension CoreTests {
 			}
 			#expect(try await eval("(fn [f] (<! (go (f (f 40)))))").callAsync(roundTrip) == 42)
 		}
+
+		// Piece 4: the typed adapters of design §5 — the caller who knows the signature writes Swift types.
+		@Test func aTypedAdapterConvertsTheArgumentsAndTheResult() throws {
+			let answer: @Sendable () throws -> Int = try eval("(fn [] 42)").closure()
+			#expect(try answer() == 42)
+			let shout: @Sendable (String) throws -> String = try eval("(fn [s] (str s \"!\"))").closure()
+			#expect(try shout("ab") == "ab!")
+			let square: @Sendable (Double, Double) throws -> Double = try eval("(fn [a b] (+ (* a a) (* b b)))").closure()
+			#expect(try square(3.0, 4.0) == 25.0)
+			let between: @Sendable (Int, Int, Int) throws -> Bool = try eval("(fn [lo x hi] (and (<= lo x) (< x hi)))").closure()
+			#expect(try between(0, 1, 2))
+			// Clojure truthiness, so nil is false rather than a decoding failure; Bool? keeps the third value.
+			let maybe: @Sendable (Int) throws -> Bool = try eval("(fn [x] (when (pos? x) :yes))").closure()
+			#expect(try maybe(1))
+			#expect(try !maybe(-1))
+			let maybeOpt: @Sendable (Int) throws -> Bool? = try eval("(fn [x] (when (pos? x) false))").closure()
+			#expect(try maybeOpt(1) == false)
+			#expect(try maybeOpt(-1) == nil)
+			// Collections and Values ride as themselves.
+			let sum: @Sendable ([Int]) throws -> Int = try eval("(fn [xs] (reduce + xs))").closure()
+			#expect(try sum([1, 2, 3]) == 6)
+			let reversed: @Sendable ([Int]) throws -> [Int] = try eval("(fn [xs] (reverse xs))").closure()
+			#expect(try reversed([1, 2]) == [2, 1])
+			let identity: @Sendable (Value) throws -> Value = try eval("(fn [x] x)").closure()
+			#expect(try identity(kw("x")) == kw("x"))
+			// A void adapter drops the result, which is why Void needs no conformance of its own.
+			let notes = Notes()
+			let heard = Value(function: "ab-heard", arity: 1...1) { args in
+				notes.note(args[0].string ?? "")
+				return kw("ignored")
+			}
+			let tell: @Sendable (String) throws -> Void = try heard.closure()
+			try tell("heard")
+			#expect(notes.has("heard"))
+			// A result of another kind is the one type check left, and it is the result's, not the signature's.
+			let wrong: @Sendable () throws -> Int = try eval("(fn [] :not-a-number)").closure()
+			#expect(throws: ValueTypeMismatch.self) { try wrong() }
+			// A throw crosses as it does through callAsFunction.
+			let boom: @Sendable () throws -> Int = try eval("(fn [] (throw (ex-info \"boom\" {})))").closure()
+			#expect(throws: ClojureError.self) { try boom() }
+		}
+
+		// The point of the feature: the signature is checked when the wrapper is made, so the call has no check.
+		@Test func aTypedAdapterChecksTheSignatureWhenItIsCreated() throws {
+			let notes = Notes()
+			let two = Value(function: "ab-two", arity: 2...2) { args in
+				notes.note("called")
+				return Value(args[0].int! + args[1].int!)
+			}
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable (Int) throws -> Int = try two.closure() }
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable (Int, Int, Int) throws -> Int = try two.closure() }
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable (Int, Int, Int) throws -> Void = try two.closure() }
+			#expect(!notes.has("called"), "the arity error must land before anything is called")
+			let ok: @Sendable (Int, Int) throws -> Int = try two.closure()
+			#expect(try ok(1, 2) == 3)
+			// A Clojure fn's own arity table, fixed and variadic.
+			let multi = try eval("(fn ([a] a) ([a b] (+ a b)))")
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable () throws -> Int = try multi.closure() }
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable (Int, Int, Int) throws -> Int = try multi.closure() }
+			let variadic = try eval("(fn [a & more] (count more))")
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable () throws -> Int = try variadic.closure() }
+			let rest: @Sendable (Int, Int, Int) throws -> Int = try variadic.closure()
+			#expect(try rest(1, 2, 3) == 2)
+			// A keyword is invokable but has no arity to check, so it is refused rather than checked per call.
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable (Value) throws -> Value = try kw("x").closure() }
+			// Same check on the async adapters.
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable (Int) async throws -> Int = try two.closureAsync() }
+		}
+
+		// A host signature that cannot throw decides at the stub what a failure does (design §5).
+		@Test func aNonThrowingAdapterAnswersThroughItsPolicy() throws {
+			let notes = Notes()
+			let failing = try eval("(fn [x] (throw (ex-info \"boom\" {:x x})))")
+			let sync: @Sendable (Int) -> Int = try failing.closure(onFailure: { error in
+				notes.note("\(error)".hasPrefix("boom") ? "boom" : "other")
+				return -1
+			})
+			#expect(sync(7) == -1)
+			#expect(notes.has("boom"))
+			let void: @Sendable (Int) -> Void = try failing.closure(onFailure: { _ in notes.note("void") })
+			// The policy argument is what the stub decides; the signature is still checked first.
+			#expect(throws: ClosureSignatureMismatch.self) { let _: @Sendable () -> Int = try failing.closure(onFailure: Value.trap) }
+			void(7)
+			#expect(notes.has("void"))
+			// A result of the wrong kind takes the same road as a throw.
+			let mistyped: @Sendable () -> Int = try eval("(fn [] :nope)").closure(onFailure: { _ in 0 })
+			#expect(mistyped() == 0)
+		}
+
+		// The async adapter spawns as callAsync does, so the Clojure body may park inside it.
+		@Test func anAsyncTypedAdapterParksInsideTheCall() async throws {
+			let slow: @Sendable (Int) async throws -> Int = try eval("(fn [x] (<! (timeout 5)) (* 2 x))").closureAsync()
+			#expect(try await slow(21) == 42)
+			let notes = Notes()
+			let fire: @Sendable (String) async throws -> Void = try Value(function: "ab-fire", arity: 1...1) { args in
+				notes.note(args[0].string ?? "")
+				return nil
+			}.closureAsync()
+			try await fire("fired")
+			#expect(notes.has("fired"))
+			let boom: @Sendable () async throws -> Int = try eval("(fn [] (<! (timeout 1)) (throw (ex-info \"boom\" {})))").closureAsync()
+			await #expect(throws: ClojureError.self) { try await boom() }
+		}
+
+		// Piece 5: `:affinity :main`. The body and its resume after a park run on the carrier the host installed.
+		@Test func aMainAffinityCallRunsOnTheMainCarrier() async throws {
+			let carrier = Value(function: "ab-carrier", arity: 0...0) { _ in Value(clj_coro_on_main_carrier()) }
+			let f = try eval("(fn [c] (let [before (c)] (<! (timeout 1)) [before (c)]))")
+			// Without a carrier the spawn itself fails: the host has to install one first.
+			do {
+				_ = try await f.callAsync(carrier, affinity: .main)
+				Issue.record("expected the missing-carrier error")
+			} catch let e as ClojureError {
+				#expect(e.message.hasPrefix("No main carrier"))
+			}
+			// The test thread is the carrier and pumps by hand, as CoroTests does; nothing awaits until it stops.
+			let done = Notes()
+			clj_debug_sched_main_adopt()
+			let task = f.callDetached(carrier, affinity: .main)
+			let watcher = Task.detached { _ = try? await task.value; done.note("task") }
+			var pumps = 0
+			while !done.has("task") && pumps < 20000 {
+				clj_sched_main_pump()
+				usleep(200)
+				pumps += 1
+			}
+			clj_debug_sched_main_abandon()
+			#expect(pumps < 20000, "the main-affinity call never finished")
+			_ = await watcher.value
+			#expect(try await task.value == Value([Value(true), Value(true)]))
+			// The default is the pool, where the same fn sees no main carrier at either point.
+			#expect(try await f.callAsync(carrier) == Value([Value(false), Value(false)]))
+		}
 	}
 }

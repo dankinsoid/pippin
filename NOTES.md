@@ -2538,6 +2538,34 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **`callBlocking` refuses only the main thread** (`Thread.isMainThread` or `clj_coro_on_main_carrier`).
   Called from a carrier it is legal and costs the pool that carrier until the call returns — the design's
   explicit opt-in, and the one escape hatch from a synchronous host call that needs a value now.
+- **`affinity:` is per call, and `.main` is sticky.** `clj_sched_enqueue` routes by the coroutine's own
+  affinity, so a `.main` call resumes on the main carrier after every park too, not only at its first
+  step. The spawn throws when no main carrier is installed, which is the whole check — there is no
+  fallback to the pool, since a body asking for `:main` asks for the thread and not for speed.
+  `callBlocking` takes no affinity: the thread it freezes is the one that would have to turn the run loop.
+  A test therefore drives it the way CoroTests does — `clj_debug_sched_main_adopt`, then
+  `clj_sched_main_pump` by hand, with no `await` between the two, since a suspension can change the thread
+  out from under the adopted carrier.
+
+### Typed closure adapters (Closure.swift)
+
+- **The arity check is the feature, so it happens once.** `closure()`/`closureAsync()` ask
+  `clj_fn_accepts` when the wrapper is made and the call path then carries no check of its own. The one
+  test left at the call is the result's kind (`ValueTypeMismatch`): a fn returns a value, not a
+  signature, so nothing earlier can know it. A keyword, map or vector is invokable but has no arity to
+  compare against, so it is refused at creation rather than checked on every call.
+- **`Void` can conform to nothing** (a tuple type takes no extension), so the result-dropping adapters are
+  their own overloads with no `R`. They are picked by the contextual type: with `-> Void` the decoding
+  overload fails its `ValueDecodable` constraint, with any other result the Void one does not match.
+- **`onFailure` has no default on purpose.** A non-throwing function type converts to a throwing one, so a
+  defaulted policy would make a bare `closure()` ambiguous between the two families. Passing it is also
+  what design §5 means by "configurable at the stub": `Value.trap` is the dev policy and
+  `Value.report(default:)` the release one, and the choice is written where the stub is.
+- **The protocols refine `SendableMetatype`.** The returned closures are `@Sendable` and capture the
+  generic parameters' metatypes; without it every adapter warns under Swift 6 concurrency checking.
+- **`Bool` decodes by truthiness** — nil and false are false, everything else true — so a Clojure
+  predicate answering `nil` is not a decoding failure. `Bool?` is the three-valued reading, as `Optional`
+  maps Clojure nil to Swift nil for every wrapped type.
 
 ### Host-defined vars and primitives (Runtime.swift `define`, Differential.swift, Primitives.swift)
 

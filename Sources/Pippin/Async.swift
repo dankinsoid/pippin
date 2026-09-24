@@ -16,7 +16,7 @@ private final class CoroCall: @unchecked Sendable {
 	private var handle: Value?
 	private var cancelRequested = false
 
-	func start(_ fn: Value, _ args: [Value], _ continuation: CheckedContinuation<Value, any Error>) {
+	func start(_ fn: Value, _ args: [Value], _ affinity: Value.Affinity, _ continuation: CheckedContinuation<Value, any Error>) {
 		lock.lock()
 		self.continuation = continuation
 		lock.unlock()
@@ -24,7 +24,7 @@ private final class CoroCall: @unchecked Sendable {
 		let ctx = Unmanaged.passRetained(self).toOpaque()
 		let raw = withExtendedLifetime((fn, args)) {
 			args.map(\.raw).withUnsafeBufferPointer {
-				clj_coro_spawn(fn.raw, $0.baseAddress, $0.count, Int32(CLJ_AFFINITY_POOL), CoroCall.done, ctx)
+				clj_coro_spawn(fn.raw, $0.baseAddress, $0.count, affinity.raw, CoroCall.done, ctx)
 			}
 		}
 		guard raw != CLJ_THROWN else {
@@ -82,19 +82,32 @@ extension Value {
 }
 
 extension Value {
+	/// Which carrier a spawned coroutine runs on (design §4, `:affinity`).
+	public enum Affinity: Sendable {
+		/// Any carrier of the pool.
+		case pool
+		/// The carrier of `Runtime.installMainCarrier`: the body and every resume after a park run there, so the
+		/// call advances only while that run loop turns, and throws when no main carrier is installed.
+		case main
+
+		var raw: Int32 { Int32(self == .main ? CLJ_AFFINITY_MAIN : CLJ_AFFINITY_POOL) }
+	}
+
 	/// Invokes the fn on a fresh coroutine and suspends the calling Task until it finishes: inside, the Clojure
 	/// code may park freely (`<!`, `@`, `Thread/sleep`), since nothing of the host's is on its stack.
 	///
 	/// Cancelling the awaiting Task cancels the coroutine, which throws at its next park point; the call then
 	/// throws `CancellationError`. Anything else thrown comes back as `callAsFunction` would deliver it.
-	public func callAsync(_ args: Value...) async throws -> Value { try await applyAsync(args) }
+	public func callAsync(_ args: Value..., affinity: Affinity = .pool) async throws -> Value {
+		try await applyAsync(args, affinity: affinity)
+	}
 
 	/// `callAsync` over an argument array.
-	public func applyAsync(_ args: [Value]) async throws -> Value {
+	public func applyAsync(_ args: [Value], affinity: Affinity = .pool) async throws -> Value {
 		let call = CoroCall()
 		return try await withTaskCancellationHandler {
 			try await withCheckedThrowingContinuation { continuation in
-				call.start(self, args, continuation)
+				call.start(self, args, affinity, continuation)
 			}
 		} onCancel: {
 			call.cancel()
@@ -103,11 +116,13 @@ extension Value {
 
 	/// Starts the call and hands back its Task: nobody is waiting until someone awaits `.value`, and
 	/// `Task.cancel()` cancels the coroutine. Detached, so the wait never occupies the caller's actor.
-	public func callDetached(_ args: Value...) -> Task<Value, any Error> { applyDetached(args) }
+	public func callDetached(_ args: Value..., affinity: Affinity = .pool) -> Task<Value, any Error> {
+		applyDetached(args, affinity: affinity)
+	}
 
 	/// `callDetached` over an argument array.
-	public func applyDetached(_ args: [Value]) -> Task<Value, any Error> {
-		Task.detached { try await self.applyAsync(args) }
+	public func applyDetached(_ args: [Value], affinity: Affinity = .pool) -> Task<Value, any Error> {
+		Task.detached { try await self.applyAsync(args, affinity: affinity) }
 	}
 
 	/// The explicit opt-in that freezes the calling thread until the call finishes (the JVM's `<!!`).
