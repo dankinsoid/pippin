@@ -132,11 +132,15 @@ typedef void (*send_v_f)(id, SEL, INT_SLOTS, FP_SLOTS(float));
 
 enum { K_INT, K_FLOAT, K_DOUBLE };
 
+// Why a selector cannot be called, for the message the caller gets.
+enum { REJECT_NONE, REJECT_SHAPE, REJECT_VARIADIC };
+
 typedef struct {
 	SEL     sel;
 	char    ret;                    // the return's encoding char
 	char    arg[CLJ_OBJC_MAX_ARGS]; // each argument's, self and _cmd dropped
 	uint8_t nargs;
+	uint8_t reject;
 	bool    owned;       // the alloc/new/copy/mutableCopy/init families return +1
 	bool    fp_is_float; // every floating-point argument is a float rather than a double
 } objc_sig;
@@ -182,14 +186,40 @@ static bool family_is_owned(const char *sel) {
 	return false;
 }
 
+// No encoding shows variadicity, so Cocoa's known variadic selectors are refused by name, not called wrong.
+static bool selector_is_variadic(const char *sel) {
+	static const char *const variadic[] = {
+	    "appendFormat:",
+	    "arrayWithObjects:",
+	    "dictionaryWithObjectsAndKeys:",
+	    "initWithFormat:",
+	    "initWithObjects:",
+	    "initWithObjectsAndKeys:",
+	    "initWithTitle:message:delegate:cancelButtonTitle:otherButtonTitles:",
+	    "localizedStringWithFormat:",
+	    "orderedSetWithObjects:",
+	    "predicateWithFormat:",
+	    "raise:format:",
+	    "setWithObjects:",
+	    "stringByAppendingFormat:",
+	    "stringWithFormat:",
+	};
+	for (size_t i = 0; i < sizeof variadic / sizeof *variadic; i++) {
+		if (strcmp(sel, variadic[i]) == 0) return true;
+	}
+	return false;
+}
+
 // Fills sig from the method; false when the shape is none of the eight prototypes. sel is set either way, so
 // a caller can tell "no such selector" from "a selector we cannot call".
 static bool signature_of(Method m, objc_sig *sig) {
 	sig->sel = method_getName(m);
+	sig->reject = REJECT_SHAPE;
 	unsigned n = method_getNumberOfArguments(m);
 	if (n < 2 || n - 2 > CLJ_OBJC_MAX_ARGS) return false;
 	sig->nargs = (uint8_t)(n - 2);
 	sig->owned = family_is_owned(sel_getName(sig->sel));
+	if (selector_is_variadic(sel_getName(sig->sel))) return sig->reject = REJECT_VARIADIC, false;
 
 	char *ret = method_copyReturnType(m);
 	sig->ret = strip_qualifiers(ret);
@@ -466,7 +496,8 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 		found = lookup(cls, spelling, len, &sig);
 		if (!found && !sig.sel) return no_such_selector(cls, spelling, len, false);
 	}
-	if (!found) return clj_throw_msg("Selector %.*s on %s has a shape the bridge cannot call: a struct, a long double, too many arguments, or float and double mixed", (int)len, spelling, class_getName(cls));
+	if (!found && sig.reject == REJECT_VARIADIC) return clj_throw_msg("Selector %.*s on %s is variadic; the bridge cannot call it", (int)len, spelling, class_getName(cls));
+	if (!found) return clj_throw_msg("Selector %.*s on %s has a shape the bridge cannot call: a union, an array, a long double, a struct with no field names, too many arguments, or float and double mixed", (int)len, spelling, class_getName(cls));
 	if (nargs != sig.nargs) return clj_throw_msg("Selector %.*s takes %u argument(s), got %u", (int)len, spelling, sig.nargs, nargs);
 
 	// Off a coroutine nothing will switch, so the call keeps its own pool; on one the slice's pool is pushed
