@@ -102,13 +102,38 @@
   (.set-delegate p d)
   (show (.parse p) @seen))
 
-;; A block: Foundation calls it once per comparison, and once per element with a pointer it only reads.
+;; A block: Foundation calls it once per comparison, and once per element with a BOOL * it reads back.
 (let [desc (objc-block "q@?@@" [x y] (cond (< x y) 1 (> x y) -1 :else 0))
       seen (atom [])
-      each (objc-block "v@?@Q^v" [x i stop] (swap! seen conj [x i (objc-object? stop)]))]
+      each (objc-block "v@?@Q^B" [x i stop] (swap! seen conj [x i (objc-object? stop)]))]
   (show (ns-array->vec (.sorted-array-using-comparator (ns-array [3 1 2]) desc)))
   (.enumerate-objects-using-block (ns-array ["a" "b"]) each)
   (show @seen))
+
+;; Writing through that pointer stops the enumeration, which is Foundation reading the flag back.
+(let [seen (atom [])
+      stop-at-b (objc-block "v@?@Q^B" [x i stop]
+                  (swap! seen conj x)
+                  (objc-write! stop (= x "b")))]
+  (.enumerate-objects-using-block (ns-array ["a" "b" "c"]) stop-at-b)
+  (show @seen))
+
+;; The pointee's encoding is what says how wide a write is, so an unknown one is a refusal.
+(let [err (atom nil)
+      opaque (objc-block "v@?@Q^v" [x i stop]
+               (try (objc-write! stop true) (catch :default e (reset! err (ex-message e)))))]
+  (.enumerate-objects-using-block (ns-array ["a"]) opaque)
+  (show @err))
+(show (try (objc-write! (ns-string "x") 1) (catch :default e (ex-message e))))
+
+;; Calling a block: its own invoke pointer and the signature its descriptor carries, ours or the host's.
+(let [add (objc-block "q@?qq" [a b] (+ a b))
+      mid (objc-block "{CGPoint=dd}@?d" [d] {:x d :y (* 2 d)})
+      back (get (ns-dictionary->map (ns-dictionary {"add" add})) "add")]
+  (show (objc-invoke add 20 22) (objc-invoke back 1 2) (objc-invoke mid 1.5)))
+(show (try (objc-invoke (ns-string "x") 1) (catch :default e (ex-message e))))
+(show (try (objc-invoke (objc-block "v@?" [])) (catch :default e (ex-message e))))
+(show (try (objc-invoke (objc-block "v@?q" [x]) 1 2) (catch :default e (ex-message e))))
 
 ;; A callback can arrive on a thread the runtime has never seen: clj_coro_current gives it one.
 (let [done (atom nil)
@@ -127,5 +152,10 @@
 (show (try (objc-reify {} ("no-such-selector-anywhere" [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:protocols ["NoSuchProtocol"]} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:superclass "NoSuchClass"} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
-(show (try (objc-reify {} (["big" "{big=ddddddd}@:"] [self] 1)) (catch :default e (ex-message e))))
+;; A struct through x8: the shape's size is the real one, so it fits the buffer -transformStruct laid out.
+(let [t (objc-reify {:superclass "NSAffineTransform"} ("transform-struct" [self] [1.0 2.0 3.0 4.0 5.0 6.0]))]
+  (show (.transform-struct t)))
+(show (try (objc-reify {} (["odd" "{odd=sssssssss}@:"] [self] 1)) (catch :default e (ex-message e))))
+(show (try (objc-block "{odd=sssssssss}@?" [] 1) (catch :default e (ex-message e))))
+(show (try (objc-reify {} (["big" "{big=ddddddddddddddddd}@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-block "v@?[4i]" [x] x) (catch :default e (ex-message e))))

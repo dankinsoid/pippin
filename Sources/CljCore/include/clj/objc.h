@@ -12,6 +12,8 @@ typedef struct {
 	clj_header h;
 	void      *obj;
 	bool       is_class;
+	// What a '^' argument points at: a write's width is the pointee's, not the pointer's.
+	char pointee;
 } clj_objc_object;
 
 extern const clj_type clj_objc_object_type;
@@ -35,6 +37,12 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 // signature is the block type encoding ("q@?@@"); heap from birth, so a host that stores it only retains.
 clj_value clj_objc_block(clj_value signature, clj_value fn);
 
+// Calls a block, ours or the host's; one whose flags claim no signature is refused, not guessed at.
+clj_value clj_objc_call_block(clj_value block, const clj_value *args, uint32_t nargs);
+
+// Writes a number or a boolean through a '^' argument (BOOL *stop); any other pointee is refused.
+clj_value clj_objc_write(clj_value pointer, clj_value v);
+
 // By hand only (design §5), deep and lossy: nil is NSNull, a keyword key returns a string.
 clj_value clj_objc_to_collection(clj_value v, bool as_map);
 clj_value clj_objc_from_collection(clj_value v, bool as_map);
@@ -51,7 +59,7 @@ clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_
 // before them, so UTF8String is utf8-string. snprintf's contract: returns the length it wanted.
 size_t clj_objc_kebab(const char *selector, char *out, size_t cap);
 
-// Registers objc-class, objc-send, objc-object? and objc-kebab*; clj_builtins_install calls it.
+// Registers objc-class, objc-send, objc-invoke, objc-write!, objc-object? and objc-kebab*; clj_builtins_install calls it.
 void clj_objc_builtins_install(void);
 
 // The autorelease pool of the slice running on this thread, pushed by the first send (NOTES "ObjC bridge").
