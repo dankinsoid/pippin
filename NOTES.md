@@ -2556,7 +2556,7 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 `bench/RESULTS.md` "Host-defined fns") and level 1 is meant to carry most of a real application.
 `sched.c` is the precedent; the row is in `docs/portability.md`.
 
-- **Eight `objc_msgSend` prototypes cover every shape we accept, and the rest are refused.** The symbol
+- **A fixed set of `objc_msgSend` prototypes covers every shape we accept, and the rest are refused.** The symbol
   must be called through the prototype the method's type encoding describes: on arm64 the integer and
   floating-point argument registers are separate files, a `float` occupies a v register's low half where
   a `double` occupies all of it, and calling through the wrong prototype is silent corruption, not a
@@ -2565,14 +2565,34 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   argument count. And each register class is allocated independently, in the order of that class's own
   arguments, so every integer-class argument (pointer, `SEL`, `BOOL`, `char` through `long`, each passed
   as a full 64-bit slot we extend ourselves) becomes one kind. What is left is whether the
-  floating-point slots are `float` or `double`, times four return registers: `long long`, `double`,
-  `float`, `void`. Six integer slots and eight floating-point ones keep every call register-only on
-  arm64, so no stack argument area is involved.
-  **Not covered**, and answered with an error rather than a call through the wrong shape: a struct or
-  union argument or return (`CGRect` and friends — design §10 step 4 keeps struct conversion out of this
-  slice), `long double`, more than 6 integer-class or 8 floating-point arguments, and `float` and
-  `double` mixed in one selector. A variadic method (`stringWithFormat:`) is not refused because a type
-  encoding cannot show it is variadic; it is simply unsupported, since its arguments go on the stack.
+  floating-point slots are `float` or `double`, times the return: `long long`, `double`, `float`, `void`
+  and one per struct-return shape (below). Six integer slots and eight floating-point ones keep every
+  call register-only on arm64, so no stack argument area is involved.
+  **Not covered**, and answered with an error rather than a call through the wrong shape: a union or
+  array argument or return, `long double`, a struct over 128 bytes, more than 6 integer-class or 8
+  floating-point arguments, and `float` and `double` mixed in one selector.
+- **A struct is passed by its AAPCS64 class, not by its size.** The members are flattened and the class
+  read off them: up to four members of one floating type are an HFA and travel in `v0`-`v3`, so a
+  32-byte `CGRect` is four FP registers and not memory; any other aggregate of at most 16 bytes goes in
+  integer registers, and a larger one by a pointer the caller copies to, with `x8` for a return.
+  Flattening an HFA into that many `double` slots of the fixed prototype puts the same values in the
+  same registers, because each register class is allocated in the order of its own arguments; the
+  integer classes are built as the struct's byte image and read out as 8-byte words, which is right
+  whatever the member types and padding are. Calling a 32-byte `CGRect` memory because it is over 16
+  bytes is the mistake this avoids, and it would be silent. x86_64 classifies by eightbyte instead and
+  needs `objc_msgSend_stret`, which arm64 has not got, so there every shape that would diverge is
+  refused (`docs/portability.md`).
+- **A struct crosses as a map when we know its field names, as a vector when we do not.** A type
+  encoding gives `{CGRect={CGPoint=dd}{CGSize=dd}}`: the struct's name and its member types, never a
+  member's name. So the keys come from a built-in table (`CGPoint`, `CGSize`, `CGRect`, `CGVector`,
+  `_NSRange`, `CGAffineTransform`, `UIEdgeInsets`, `NSEdgeInsets`, `NSDirectionalEdgeInsets`,
+  `UIOffset`), and a struct the table does not name — including an anonymous one such as
+  `{?=dddddd}` — crosses as a vector in member order, in both directions. A listed struct also takes a
+  vector, and a nested struct nests. Refusing an unnamed struct instead would lock out
+  `-[NSAffineTransform transformStruct]`, whose encoding carries no name at all.
+- **A variadic selector is refused by name.** No encoding shows variadicity, and a variadic callee reads
+  arguments off a stack area the fixed prototypes never build, so `stringWithFormat:` and the dozen
+  other known Cocoa variadics are a run-time error rather than a silently wrong call.
 - **The autorelease pool lives in the slice between two context switches.** A +0 return is autoreleased
   and needs a pool on the calling thread; our carriers are raw pthreads with none. A pool cannot span a
   park: push and pop are one thread's stack, and a coroutine that parked mid-slice resumes on another
@@ -2585,7 +2605,11 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   switch, so such a call pushes and pops its own pool.
 - **Ownership is split at the selector, not at the call site.** `clj_objc_wrap` retains a +0 return;
   `clj_objc_wrap_owned` takes the caller's reference from the `alloc`/`new`/`copy`/`mutableCopy`/`init`
-  families, read off the selector's first word as ARC reads it. A `Class` is immortal, so the wrapper
+  families, read off the selector's first word as ARC reads it. An `init` also takes over the reference
+  its receiver was created with, so the bridge retains the receiver before sending one: otherwise the
+  wrapper around the `alloc` and the wrapper around the `init` own one reference between them, and
+  `[[NSAffineTransform alloc] init]` dies when the second one finalizes (`NSMutableString` hides it,
+  because its placeholder `init` answers a different object). A `Class` is immortal, so the wrapper
   records `is_class` and the finalizer skips the release rather than asking the runtime again.
 - **Selectors resolve from the kebab spelling, cached per (class, spelling).** A capital run is one word
   and digits join the word before them, so `UTF8String` is `utf8-string` and `centerXAnchor` is
@@ -2606,9 +2630,9 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 - **Not done, and why it shows.** Design §5 wants the label list checked against the type's selector
   table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
   facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
-  error with the right order in the message, not an analysis error. Also absent from this slice: struct
-  conversion, `reify` on `@objc`, blocks, the async bridge, the boundary bench, and a host type in
-  `catch` position.
+  error with the right order in the message, not an analysis error. Also absent: `reify` on `@objc`,
+  blocks, the async bridge, the boundary bench (it wants a `CLJEncoder` that does not exist yet), and a
+  host type in `catch` position.
 
 ## Printer (Sources/CljCore/printer.c)
 
