@@ -39,9 +39,21 @@ private final class Notes: @unchecked Sendable {
 	}
 }
 
+// Every test here spawns, and none takes a live-object baseline of its own: a coroutine still running when
+// one ends fails the baseline of whatever suite runs next (CoroBaseline, ChanTests.swift).
+struct SettledTrait: SuiteTrait, TestTrait, TestScoping {
+	var isRecursive: Bool { true }
+
+	func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
+		let before = clj_debug_live_coros()
+		try await function()
+		#expect(clj_debug_coro_settle(before, 5000), "\(test.name) left a coroutine running")
+	}
+}
+
 extension CoreTests {
 	// The async bridge of design §5, both directions, cancellation included.
-	@Suite struct AsyncBridgeTests {
+	@Suite(SettledTrait()) struct AsyncBridgeTests {
 		let rt = Runtime()
 
 		init() throws {

@@ -2547,6 +2547,10 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `clj_sched_main_pump` by hand, with no `await` between the two, since a suspension can change the thread
   out from under the adopted carrier.
 
+- **The bridge suite waits for its own coroutines** (`SettledTrait`, AsyncBridgeTests). None of its tests
+  takes a live-object baseline, so one that outlives its test surfaces as a failed `CoroBaseline` in the
+  next suite instead — which is how a leftover taker of a cancelled call once failed `AsyncLibTests`.
+
 ### Typed closure adapters (Closure.swift)
 
 - **The arity check is the feature, so it happens once.** `closure()`/`closureAsync()` ask
