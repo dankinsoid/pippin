@@ -24,7 +24,7 @@ extension CoreTests {
 
 		init() {
 			for k in ["k", "default", "failed", "done", "caught", "inner", "outer", "never", "no", "yes", "other", "line", "column",
-			          "et/boom", "tck/db", "tck/other", "tck/pg", "hit", "miss"] { _ = kw(k) }
+			          "et/boom", "tck/db", "tck/other", "tck/pg", "hit", "miss", "Foundation/CocoaError", "NSPOSIXErrorDomain/2"] { _ = kw(k) }
 		}
 
 		private func declare(_ names: String...) throws {
@@ -176,6 +176,12 @@ extension CoreTests {
 				// Any keyword but :default is a selector now (ex-type/isa?), not a classname error.
 				#expect(try rt.eval("(try 1 (catch :other e 2))") == 1)
 				#expect(message(rt, "(try 1 (catch java.lang.Exception e 2))") == "Unable to resolve classname: java.lang.Exception")
+				// A qualified symbol is a host type, and means the keyword ex-type gives that type (design §4).
+				#expect(try rt.eval("(try 1 (catch Foundation/CocoaError e 2))") == 1)
+				// The NSError domain/code keyword has no symbol spelling: a symbol's name may not start with a digit.
+				// An NSError's domain/code pair has no symbol spelling (ReaderTests: `foo/1` is an invalid token),
+				// so that one keyword is all a catch can name.
+				#expect(try rt.eval("(try 1 (catch :NSPOSIXErrorDomain/2 e 2))") == 1)
 				#expect(message(rt, "(try 1 (catch :default 5 2))") == "Bad binding form, expected symbol, got: 5")
 				#expect(message(rt, "(try 1 (catch :default a/e 2))") == "Bad binding form, expected symbol, got: a/e")
 				#expect(message(rt, "(try 1 (catch :default))") == "catch clause requires a classname and a binding: (catch Class name body*)")

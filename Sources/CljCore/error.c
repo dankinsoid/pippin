@@ -77,7 +77,11 @@ const clj_type clj_exception_type = {
 	.ex_cause = exception_cause,
 };
 
-static void host_error_each_child(void *self, clj_visitor visit, void *ctx) { visit(((clj_host_error *)self)->message, ctx); }
+static void host_error_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_host_error *e = self;
+	visit(e->message, ctx);
+	visit(e->type, ctx);
+}
 
 static void host_error_finalize(void *self) {
 	clj_host_error *e = self;
@@ -112,10 +116,12 @@ const clj_type clj_host_error_type = {
 };
 
 // @ai-generated(guided)
-clj_value clj_host_error_new(clj_value message, void *payload, void (*release)(void *payload)) {
+clj_value clj_host_error_new(clj_value message, clj_value type, void *payload, void (*release)(void *payload)) {
 	CLJ_ASSERT(clj_is_string(message), "host error message must be a string");
+	CLJ_ASSERT(clj_is_nil(type) || clj_is_keyword(type), "host error type must be a keyword or nil");
 	clj_host_error *e = clj_alloc(&clj_host_error_type, sizeof *e);
 	e->message = clj_retain(message);
+	e->type = type; // immortal: a keyword needs no retain, as the ex-info type slot
 	e->payload = payload;
 	e->release = release;
 	return clj_from_ptr(e);
@@ -163,6 +169,7 @@ clj_value clj_ex_type(clj_value v) {
 	if (clj_is_keyword(v)) return clj_retain(v);
 	if (clj_is_cancellation(v)) return clj_retain(kw_cancelled);
 	if (clj_is_ex_info(v)) return clj_retain(clj_exception_of(v)->type);
+	if (clj_is_host_error(v)) return clj_retain(((clj_host_error *)clj_to_ptr(v))->type);
 	return CLJ_NIL;
 }
 

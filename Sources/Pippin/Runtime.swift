@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 import CljCore
+import Foundation
 
 /// A value thrown by Clojure code and not caught: an `ex-info`, or any other value (`throw` takes anything).
 public struct ClojureError: Error, CustomStringConvertible {
@@ -259,14 +260,53 @@ private final class NativeBody {
 }
 
 extension Value {
-	/// A host error carrying `error`: `ex-message` is `String(describing: error)`, `ex-data` is
-	/// `{:host/error <this value>}`. `hostError` gives the Swift error back.
+	/// A host error carrying `error`: `ex-message` is `String(describing: error)`, `ex-type` is
+	/// `Value.hostErrorType(of:)`, `ex-data` is `{:host/error <this value>}`. `hostError` gives the Swift
+	/// error back.
 	public init(hostError error: any Error) {
 		let message = Value(String(describing: error))
+		let type = Value.hostErrorType(of: error)
 		let payload = Unmanaged.passRetained(HostErrorBox(error)).toOpaque()
-		self.init(owning: withExtendedLifetime(message) {
-			clj_host_error_new(message.raw, payload) { Unmanaged<HostErrorBox>.fromOpaque($0!).release() }
+		self.init(owning: withExtendedLifetime((message, type)) {
+			clj_host_error_new(message.raw, type.raw, payload) { Unmanaged<HostErrorBox>.fromOpaque($0!).release() }
 		})
+	}
+
+	/// The `ex-type` of a host error carrying `error` (design §4): a keyword from the error's dynamic type
+	/// name, its module the namespace and the rest the name — `:Foundation/DecodingError`. An `NSError` is
+	/// one class for every domain, so its keyword is the domain/code pair instead: `:NSPOSIXErrorDomain/2`.
+	/// Nil when the name yields no keyword anybody could write in a `catch`.
+	// @ai-generated(solo)
+	public static func hostErrorType(of error: any Error) -> Value {
+		// Erasing a _BridgedStoredNSError (CocoaError, URLError, POSIXError) to `any Error` leaves an NSError
+		// behind, so the domain/code rule covers the Swift-mapped domains too, finer than their type names.
+		if type(of: error) is NSError.Type {
+			let ns = error as NSError
+			return keyword(namespace: ns.domain, name: String(ns.code))
+		}
+		// Generic arguments are dropped: every instantiation shares one ex-type, and `Box<Swift.Int>` is no
+		// keyword. A private or local type's "(unknown context at $…)" carries a load address, never identity.
+		var parts = String(reflecting: type(of: error))
+			.prefix { $0 != "<" }
+			.split(separator: ".")
+			.filter { isWritableInSource($0) }
+		guard !parts.isEmpty else { return nil }
+		let namespace = parts.count > 1 ? String(parts.removeFirst()) : nil
+		return keyword(namespace: namespace, name: parts.joined(separator: "."))
+	}
+
+	// @ai-generated(solo)
+	private static func keyword(namespace: String?, name: String) -> Value {
+		guard isWritableInSource(name), namespace.map(isWritableInSource) ?? true else { return nil }
+		let ns: Value = namespace.map { Value($0) } ?? nil
+		let text = Value(name)
+		return withExtendedLifetime((ns, text)) { Value(owning: clj_keyword_intern(ns.raw, text.raw)) }
+	}
+
+	// A part the reader would not read back as one keyword is no identity: catching it is impossible.
+	// @ai-generated(solo)
+	private static func isWritableInSource(_ s: some StringProtocol) -> Bool {
+		!s.isEmpty && s.allSatisfy { !$0.isWhitespace && !"\"';@^`~()[]{}\\/:,".contains($0) }
 	}
 
 	/// An `ex-info` with `message` and `data` (a map or nil): what a Swift primitive throws, wrapped in
