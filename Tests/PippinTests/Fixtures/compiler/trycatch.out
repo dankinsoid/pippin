@@ -1,4 +1,5 @@
 :body [boom {:k 1}] [:default a string] [:outer inner] {:cause x} from finally replaced 43 100 cause at 3 :thrown :no-throw
+[:rec 1] :typ :default
 [:body :finally :f2 :inner-finally [:finally true] [:finally false]]
 Divide by zero Index 5 out of bounds for length 1 nil
 (0 1 2 3 4)

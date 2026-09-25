@@ -10,6 +10,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/fusion.h"
+#include "clj/hosttype.h"
 #include "clj/intrinsics.h"
 #include "clj/record.h"
 #include "clj/reduce.h"
@@ -883,6 +884,27 @@ static clj_value b_ex_type(const clj_value *args, size_t n) {
 	return clj_ex_type(args[0]);
 }
 
+// The value a qualified symbol naming a host type resolves to; interned, so no retain is owed (design §4).
+// @ai-generated(solo)
+static clj_value b_host_type(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value name = args[0];
+	if (clj_is_symbol(name)) {
+		clj_value text = clj_pr_str(name);
+		if (text == CLJ_THROWN) return CLJ_THROWN;
+		clj_value r = b_host_type(&text, 1);
+		clj_release(text);
+		return r;
+	}
+	if (!clj_is_string(name)) return clj_throw_msg("host-type expects a string or a symbol, got: %s", clj_type_name(name));
+	clj_value t = clj_host_type_named(clj_string_bytes(name), clj_string_len(name));
+	if (clj_is_nil(t)) {
+		return clj_throw_msg(clj_host_type_available() ? "Unable to resolve host type: %s" : "No host type resolver: %s",
+		                     clj_string_bytes(name));
+	}
+	return t;
+}
+
 // @ai-generated(solo)
 static clj_value b_coro_cancelled_p(const clj_value *args, size_t n) {
 	(void)args, (void)n;
@@ -1412,6 +1434,7 @@ static const entry entries[] = {
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 	{"ex-trace", b_ex_trace, 1, 1}, {"ex-type", b_ex_type, 1, 1}, {"cancelled?*", b_coro_cancelled_p, 0, 0},
+	{"host-type", b_host_type, 1, 1},
 	{"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 3},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
 	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},

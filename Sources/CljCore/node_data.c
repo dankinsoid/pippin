@@ -50,7 +50,7 @@
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
 	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_set, kw_try, kw_throw, kw_all, kw_error,
-	kw_catch_kw, kw_objc_send;
+	kw_catch_kw, kw_catch_type, kw_catch_host, kw_objc_send;
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
@@ -81,6 +81,8 @@ static void intern_keywords(void) {
 	kw_all = clj_keyword_from_cstr("all");
 	kw_error = clj_keyword_from_cstr("error");
 	kw_catch_kw = clj_keyword_from_cstr("catch-kw");
+	kw_catch_type = clj_keyword_from_cstr("catch-type");
+	kw_catch_host = clj_keyword_from_cstr("catch-host");
 }
 
 void clj_node_data_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
@@ -277,8 +279,12 @@ static clj_value encode_try(const clj_node *n) {
 	clj_value *catches = zalloc(n->u.try_.ncatches, sizeof *catches);
 	for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 		const clj_catch *c = &n->u.try_.catches[i];
-		if (c->kind == CLJ_CATCH_KEYWORD) {
-			clj_value items[4] = {kw_catch_kw, clj_fixnum(c->slot), encode(c->handler), clj_retain(c->keyword)};
+		if (c->kind == CLJ_CATCH_KEYWORD || c->kind == CLJ_CATCH_HOST) {
+			clj_value head = c->kind == CLJ_CATCH_KEYWORD ? kw_catch_kw : kw_catch_host;
+			clj_value items[4] = {head, clj_fixnum(c->slot), encode(c->handler), clj_retain(c->selector)};
+			catches[i] = vec_take(items, 4);
+		} else if (c->kind == CLJ_CATCH_TYPE) {
+			clj_value items[4] = {kw_catch_type, clj_fixnum(c->slot), encode(c->handler), qualified(c->selector)};
 			catches[i] = vec_take(items, 4);
 		} else {
 			catches[i] = vec3(c->kind == CLJ_CATCH_ALL ? kw_all : kw_error, clj_fixnum(c->slot), encode(c->handler));
@@ -612,7 +618,22 @@ static bool decode_catch(clj_catch *c, clj_value data, dframe *fr) {
 		if (clj_vector_count(data) != 4 || !as_u32(clj_vector_nth(data, 1), &c->slot) || !clj_is_keyword(clj_vector_nth(data, 3)))
 			return fail_data(data, "expected [:catch-kw slot handler keyword]") != NULL;
 		c->kind = CLJ_CATCH_KEYWORD;
-		c->keyword = clj_retain(clj_vector_nth(data, 3));
+		c->selector = clj_retain(clj_vector_nth(data, 3));
+		return (c->handler = decode(clj_vector_nth(data, 2), fr)) != NULL;
+	}
+	if (is_vector_of(data, 1) && clj_vector_nth(data, 0) == kw_catch_host) {
+		if (clj_vector_count(data) != 4 || !as_u32(clj_vector_nth(data, 1), &c->slot) || !clj_is_string(clj_vector_nth(data, 3)))
+			return fail_data(data, "expected [:catch-host slot handler \"Module/Name\"]") != NULL;
+		c->kind = CLJ_CATCH_HOST;
+		c->selector = clj_retain(clj_vector_nth(data, 3));
+		return (c->handler = decode(clj_vector_nth(data, 2), fr)) != NULL;
+	}
+	if (is_vector_of(data, 1) && clj_vector_nth(data, 0) == kw_catch_type) {
+		clj_value var = clj_vector_count(data) == 4 ? var_named(clj_vector_nth(data, 3)) : CLJ_NIL;
+		if (clj_is_nil(var) || !as_u32(clj_vector_nth(data, 1), &c->slot))
+			return fail_data(data, "expected [:catch-type slot handler ns/name]") != NULL;
+		c->kind = CLJ_CATCH_TYPE;
+		c->selector = clj_retain(var);
 		return (c->handler = decode(clj_vector_nth(data, 2), fr)) != NULL;
 	}
 	if (!is_vector_of(data, 3) || clj_vector_count(data) != 3 || !as_u32(clj_vector_nth(data, 1), &c->slot) ||

@@ -8,7 +8,10 @@ import CljCore
 // the leaf with no Clojure specification — nothing in Clojure orders two strings — and is checked by table.
 // clj_init's host hook: the primitives are part of every boot, whichever entry point runs it.
 @_cdecl("clj_host_boot")
-func hostBoot() { Runtime.installPrimitives() }
+func hostBoot() {
+	Runtime.installHostTypes()
+	Runtime.installPrimitives()
+}
 
 extension Runtime {
 	static func installPrimitives() {

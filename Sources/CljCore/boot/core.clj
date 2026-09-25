@@ -2161,15 +2161,17 @@
   ([h tag] (not-empty (get (:descendants h) tag))))
 
 (defn- tag?
-  "A dispatch tag is a keyword, a symbol or a type; isa? treats a type as a plain key, with no supertypes."
+  "A dispatch tag is a keyword, a symbol or a type, ours or the host's; isa? treats a type as a plain key,
+  with no supertypes."
   [x]
-  (or (ident? x) (identical? Type (type x))))
+  (or (ident? x) (identical? Type (type x)) (identical? HostType (type x))))
 
 (defn derive
   "Makes parent a parent of tag. Without a hierarchy, alters the global one and returns nil."
   ([tag parent]
    (assert (namespace parent))
-   (assert (or (and (ident? tag) (namespace tag)) (identical? Type (type tag))))
+   ;; A bare keyword space is the runtime's, so a keyword tag carries a namespace; a type is a name already.
+   (assert (or (and (ident? tag) (namespace tag)) (identical? Type (type tag)) (identical? HostType (type tag))))
    (alter-var-root #'global-hierarchy derive tag parent)
    nil)
   ([h tag parent]

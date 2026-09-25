@@ -61,7 +61,7 @@ static inline clj_value clj_exception_trace(clj_value ex) { return clj_exception
 typedef struct {
 	clj_header h;
 	clj_value  message; // string
-	// ex-type, built by the host that names the type (Runtime.swift); nil when it could not.
+	// ex-type: the host type (hosttype.h), interned by the host that boxed the error; nil when it could not.
 	clj_value type;
 	void     *payload;
 	void (*release)(void *payload); // NULL when the payload needs no cleanup
@@ -69,7 +69,7 @@ typedef struct {
 
 extern const clj_type clj_host_error_type;
 
-// message is borrowed, type borrowed (a keyword is immortal) and nil when the host could not name the error.
+// message is borrowed, type borrowed (an interned host type is immortal) and nil when the host had none.
 // The value owns payload: release runs once, when it dies, on any thread.
 clj_value clj_host_error_new(clj_value message, clj_value type, void *payload, void (*release)(void *payload));
 
@@ -85,8 +85,8 @@ clj_value clj_ex_cause(clj_value v);
 // nil for a value never thrown and for every non-ex-info.
 clj_value clj_ex_trace(clj_value v);
 
-// Total, never throws: keyword -> itself, ex-info -> its :type slot, a cancellation -> :cancelled,
-// host error -> the keyword the host named its type with, else nil.
+// Total and heterogeneous as clojure.core/type is (design §4): keyword -> itself, ex-info -> its :type
+// slot, a cancellation -> :cancelled, host error -> its host type, else nil.
 clj_value clj_ex_type(clj_value v);
 // isa? k on ex-type, scalar case only; reads global-hierarchy's map directly, safe to call mid-unwind.
 bool clj_ex_isa(clj_value thrown, clj_value k);

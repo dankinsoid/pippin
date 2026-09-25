@@ -52,14 +52,17 @@ typedef struct {
 } clj_fn_arity;
 
 // A selector naming no specific error excludes a :cancelled ex-type (design.md §4, catch_matches/emit_try).
-typedef enum { CLJ_CATCH_ALL, CLJ_CATCH_ERROR, CLJ_CATCH_KEYWORD } clj_catch_kind;
+typedef enum { CLJ_CATCH_ALL, CLJ_CATCH_ERROR, CLJ_CATCH_KEYWORD, CLJ_CATCH_TYPE, CLJ_CATCH_HOST } clj_catch_kind;
 
 typedef struct {
 	clj_catch_kind kind;
 	uint32_t        slot; // the binding, a frame slot as for let*
-	clj_value       keyword; // the selector, only when kind == CLJ_CATCH_KEYWORD; immortal, no retain/release
+	// KEYWORD: the keyword, immortal. TYPE: the var holding our type descriptor, owned. HOST: the name the
+	// source spelled the host type with, a string, owned (design.md §4).
+	clj_value       selector;
 	const clj_node *handler;
 } clj_catch;
+
 
 // Where a closure takes a captured value from in the frame that creates it: its slots, its environment, or
 // a slot of the frame `depth` static links up when the closure is made inside a direct fn body.

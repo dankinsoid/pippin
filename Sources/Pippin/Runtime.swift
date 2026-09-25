@@ -248,8 +248,8 @@ extension Value {
 	}
 }
 
-// Payload of a host error made from a Swift error.
-private final class HostErrorBox {
+// Payload of a host error made from a Swift error; HostType.swift reads it back for the cast.
+final class HostErrorBox {
 	let error: any Error
 	init(_ error: any Error) { self.error = error }
 }
@@ -261,52 +261,26 @@ private final class NativeBody {
 
 extension Value {
 	/// A host error carrying `error`: `ex-message` is `String(describing: error)`, `ex-type` is
-	/// `Value.hostErrorType(of:)`, `ex-data` is `{:host/error <this value>}`. `hostError` gives the Swift
-	/// error back.
+	/// `Value.hostType(of:)` of its dynamic type, `ex-data` is `{:host/error <this value>}`. `hostError`
+	/// gives the Swift error back.
 	public init(hostError error: any Error) {
 		let message = Value(String(describing: error))
-		let type = Value.hostErrorType(of: error)
+		let type = Value.hostType(of: type(of: error))
 		let payload = Unmanaged.passRetained(HostErrorBox(error)).toOpaque()
 		self.init(owning: withExtendedLifetime((message, type)) {
 			clj_host_error_new(message.raw, type.raw, payload) { Unmanaged<HostErrorBox>.fromOpaque($0!).release() }
 		})
 	}
 
-	/// The `ex-type` of a host error carrying `error` (design §4): a keyword from the error's dynamic type
-	/// name, its module the namespace and the rest the name — `:Foundation/DecodingError`. An `NSError` is
-	/// one class for every domain, so its keyword is the domain/code pair instead: `:NSPOSIXErrorDomain/2`.
-	/// Nil when the name yields no keyword anybody could write in a `catch`.
+	/// A Swift type as a Clojure value (design §4): interned by its mangled name, so the same type is the
+	/// same value however it was reached. Nil for a type the runtime cannot name at all.
 	// @ai-generated(solo)
-	public static func hostErrorType(of error: any Error) -> Value {
-		// Erasing a _BridgedStoredNSError (CocoaError, URLError, POSIXError) to `any Error` leaves an NSError
-		// behind, so the domain/code rule covers the Swift-mapped domains too, finer than their type names.
-		if type(of: error) is NSError.Type {
-			let ns = error as NSError
-			return keyword(namespace: ns.domain, name: String(ns.code))
-		}
-		// Generic arguments are dropped: every instantiation shares one ex-type, and `Box<Swift.Int>` is no
-		// keyword. A private or local type's "(unknown context at $…)" carries a load address, never identity.
-		var parts = String(reflecting: type(of: error))
-			.prefix { $0 != "<" }
-			.split(separator: ".")
-			.filter { isWritableInSource($0) }
-		guard !parts.isEmpty else { return nil }
-		let namespace = parts.count > 1 ? String(parts.removeFirst()) : nil
-		return keyword(namespace: namespace, name: parts.joined(separator: "."))
-	}
-
-	// @ai-generated(solo)
-	private static func keyword(namespace: String?, name: String) -> Value {
-		guard isWritableInSource(name), namespace.map(isWritableInSource) ?? true else { return nil }
-		let ns: Value = namespace.map { Value($0) } ?? nil
-		let text = Value(name)
-		return withExtendedLifetime((ns, text)) { Value(owning: clj_keyword_intern(ns.raw, text.raw)) }
-	}
-
-	// A part the reader would not read back as one keyword is no identity: catching it is impossible.
-	// @ai-generated(solo)
-	private static func isWritableInSource(_ s: some StringProtocol) -> Bool {
-		!s.isEmpty && s.allSatisfy { !$0.isWhitespace && !"\"';@^`~()[]{}\\/:,".contains($0) }
+	public static func hostType(of t: Any.Type) -> Value {
+		guard let mangled = _mangledTypeName(t) else { return nil }
+		let meta = unsafeBitCast(t, to: UnsafeRawPointer.self)
+		return Value(borrowing: HostType.display(of: t).withCString { name in
+			mangled.withCString { clj_host_type_intern(name, $0, meta) }
+		})
 	}
 
 	/// An `ex-info` with `message` and `data` (a map or nil): what a Swift primitive throws, wrapped in
@@ -346,6 +320,9 @@ extension Value {
 			return withExtendedLifetime(result) { clj_retain(result.raw) }
 		} catch let e as ClojureError {
 			return withExtendedLifetime((e.thrown, e.traceValue)) { clj_throw_traced(clj_retain(e.thrown.raw), clj_retain(e.traceValue.raw)) }
+		} catch is CancellationError {
+			// A CancellationError is our own cancellation coming back, never a foreign error (design §4).
+			return clj_throw_cancelled(false)
 		} catch {
 			let wrapped = Value(hostError: error)
 			return withExtendedLifetime(wrapped) { clj_throw(clj_retain(wrapped.raw)) }

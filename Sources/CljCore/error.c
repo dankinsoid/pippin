@@ -7,6 +7,7 @@
 
 #include "clj/error.h"
 #include "clj/eval.h"
+#include "clj/hosttype.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/ns.h"
@@ -118,10 +119,10 @@ const clj_type clj_host_error_type = {
 // @ai-generated(guided)
 clj_value clj_host_error_new(clj_value message, clj_value type, void *payload, void (*release)(void *payload)) {
 	CLJ_ASSERT(clj_is_string(message), "host error message must be a string");
-	CLJ_ASSERT(clj_is_nil(type) || clj_is_keyword(type), "host error type must be a keyword or nil");
+	CLJ_ASSERT(clj_is_nil(type) || clj_is_host_type(type), "host error type must be a host type or nil");
 	clj_host_error *e = clj_alloc(&clj_host_error_type, sizeof *e);
 	e->message = clj_retain(message);
-	e->type = type; // immortal: a keyword needs no retain, as the ex-info type slot
+	e->type = type; // immortal: an interned host type needs no retain, as the ex-info type slot
 	e->payload = payload;
 	e->release = release;
 	return clj_from_ptr(e);

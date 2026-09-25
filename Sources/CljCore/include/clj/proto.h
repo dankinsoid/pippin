@@ -118,6 +118,8 @@ static inline bool clj_is_instance(clj_value v) { return clj_is_ptr(v) && clj_is
 // Borrowed; aborts out of range.
 clj_value clj_instance_field(clj_value obj, uint32_t i);
 clj_value clj_is_instance_of(clj_value type, clj_value v);
+// The same through a var holding the descriptor, as a catch clause naming our type does (design §4).
+clj_value clj_catch_instance(clj_value var, clj_value ex);
 
 // Interns the builtins, the builtin type names and the core interfaces into clojure.core.
 void clj_proto_install(void);

@@ -18,7 +18,15 @@
 (defn t12 [] (try (loop [i 0] (if (< i 3) (recur (inc i)) (throw (ex-info (str "at " i) {})))) (catch :default e (ex-message e))))
 (defn t13 [x] (try (if x (throw (ex-info "thrown" {})) :no-throw) (catch :default e :thrown) (finally (note [:finally x]))))
 
+;; A type in catch position: ours by an unqualified symbol, the host's by a qualified one (design §4).
+(defrecord Rec [x])
+(deftype Typ [a])
+(defn t14 [] (try (throw (->Rec 1)) (catch Rec e [:rec (:x e)]) (catch :default e :no)))
+(defn t15 [] (try (throw (->Typ 2)) (catch Rec e :wrong) (catch Typ e :typ) (catch :default e :no)))
+(defn t16 [] (try (throw (ex-info "m" {})) (catch Rec e :wrong) (catch Foundation/CocoaError e :cocoa) (catch :default e :default)))
+
 (println (t1) (t2) (t3) (t4) (t5) (t6) (t8) (t9) (t10) (t11) (t12) (t13 true) (t13 false))
+(println (t14) (t15) (t16))
 (println @log)
 (println (try (/ 1 0) (catch :default e (ex-message e))) (try (nth [1] 5) (catch :default e (ex-message e))) (try (throw nil) (catch :default e e)))
 (println (map (fn [x] (try (if (odd? x) (throw (ex-info "odd" {:x x})) x) (catch :default e (:x (ex-data e))))) (range 5)))

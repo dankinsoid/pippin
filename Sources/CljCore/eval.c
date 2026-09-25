@@ -10,6 +10,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
+#include "clj/hosttype.h"
 #include "clj/intrinsics.h"
 #include "clj/list.h"
 #include "clj/long.h"
@@ -1149,11 +1150,14 @@ static clj_value eval_throw(const clj_node *n, clj_frame *f) {
 }
 
 // :default also catches non-errors, so its :cancelled exclusion stays explicit (design.md §4).
-static bool catch_matches(const clj_catch *c, clj_value ex) {
+// CLJ_THROWN for a clause that names a type this host cannot decide on.
+static clj_value catch_matches(const clj_catch *c, clj_value ex) {
 	switch (c->kind) {
-	case CLJ_CATCH_ALL: return !clj_ex_isa(ex, clj_cancelled_keyword());
-	case CLJ_CATCH_ERROR: return clj_is_exception(ex);
-	default: return clj_ex_isa(ex, c->keyword);
+	case CLJ_CATCH_ALL: return clj_bool(!clj_ex_isa(ex, clj_cancelled_keyword()));
+	case CLJ_CATCH_ERROR: return clj_bool(clj_is_exception(ex));
+	case CLJ_CATCH_TYPE: return clj_catch_instance(c->selector, ex);
+	case CLJ_CATCH_HOST: return clj_host_type_catches(c->selector, ex);
+	default: return clj_bool(clj_ex_isa(ex, c->selector));
 	}
 }
 
@@ -1166,15 +1170,24 @@ static clj_value eval_try(const clj_node *n, clj_frame *f) {
 	if (v == CLJ_THROWN && n->u.try_.ncatches) {
 		clj_value trace = clj_take_pending_trace();
 		clj_value ex = clj_take_pending();
-		bool      handled = false;
-		for (uint32_t i = 0; i < n->u.try_.ncatches && !handled; i++) {
+		bool      handled = false, undecided = false;
+		for (uint32_t i = 0; i < n->u.try_.ncatches && !handled && !undecided; i++) {
 			const clj_catch *c = &n->u.try_.catches[i];
-			if (!catch_matches(c, ex)) continue;
-			slot_set(f, c->slot, ex);
-			v = eval_child(c->handler, f);
-			handled = true;
+			clj_value        m = catch_matches(c, ex);
+			if (m == CLJ_THROWN) undecided = true;
+			else if (m != CLJ_TRUE) continue;
+			else {
+				slot_set(f, c->slot, ex);
+				v = eval_child(c->handler, f);
+				handled = true;
+			}
 		}
-		if (handled) clj_release(trace);
+		// An undecidable selector throws in place of the exception it could not match.
+		if (undecided) {
+			clj_release(ex);
+			clj_release(trace);
+			v = CLJ_THROWN;
+		} else if (handled) clj_release(trace);
 		else clj_throw_traced(ex, trace);
 	}
 	if (n->u.try_.finally_) {

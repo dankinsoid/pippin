@@ -10,6 +10,7 @@
 #include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/fn.h"
+#include "clj/hosttype.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/map.h"
@@ -125,7 +126,13 @@ static void node_finalize(void *self) {
 		free(n->u.fused.guards);
 		free(n->u.fused.args);
 		break;
-	case CLJ_NODE_TRY: free(n->u.try_.catches); break;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			clj_catch_kind k = n->u.try_.catches[i].kind;
+			if (k == CLJ_CATCH_TYPE || k == CLJ_CATCH_HOST) clj_release(n->u.try_.catches[i].selector);
+		}
+		free(n->u.try_.catches);
+		break;
 	case CLJ_NODE_OBJC_SEND: free(n->u.objc.args); break;
 	default: break;
 	}
@@ -481,6 +488,26 @@ static bool private_elsewhere(const analyzer *a, clj_value sym, clj_value var) {
 	return !clj_is_nil(clj_symbol_ns(sym)) && !clj_equals(clj_var_ns(var), clj_ns_name(a->env.ns)) && clj_var_is_private(var);
 }
 
+static clj_value qualified_text(clj_value sym);
+
+// A qualified symbol no var answers is a host type, as a classname is on the JVM (design §4): the value is
+// made at runtime, because a compiled unit carries the name and meets the resolver only when it runs.
+static clj_node *host_type_symbol(analyzer *a, scope *s, clj_value sym) {
+	if (clj_is_nil(clj_symbol_ns(sym))) return NULL;
+	clj_value text = qualified_text(sym);
+	bool      known = !clj_is_nil(clj_host_type_named(clj_string_bytes(text), clj_string_len(text)));
+	clj_node *node = NULL;
+	if (known) {
+		clj_value items[2] = {clj_symbol_from_cstr("clojure.core/host-type"), text};
+		clj_value form = clj_list_from_array(items, 2);
+		clj_release(items[0]);
+		node = analyze(a, s, form, false);
+		clj_release(form);
+	}
+	clj_release(text);
+	return node;
+}
+
 static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 	if (clj_is_nil(clj_symbol_ns(sym))) {
 		bool     captured;
@@ -493,7 +520,11 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 		}
 	}
 	clj_value var = clj_ns_resolve(a->env.ns, sym);
-	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve symbol: %s in this context", sym);
+	if (clj_is_nil(var)) {
+		clj_node *host = host_type_symbol(a, s, sym);
+		if (host) return host;
+		return fail_form(a, "Unable to resolve symbol: %s in this context", sym);
+	}
 	if (private_elsewhere(a, sym, var)) return fail_form(a, "var: %s is not public", sym);
 	if (clj_var_is_macro(var)) return fail_form(a, "Can't take value of a macro: %s", var);
 	clj_node *n = node_new(a, CLJ_NODE_VAR);
@@ -1243,6 +1274,27 @@ static try_clause try_clause_of(clj_value item) {
 	return sp == SP_CATCH ? TRY_CATCH : sp == SP_FINALLY ? TRY_FINALLY : TRY_BODY;
 }
 
+// The one host type that is a runtime concept of ours: it arrives as our own cancellation, so a cast
+// against the Swift type would be false always (design §4).
+static bool is_cancellation_type(clj_value cls) {
+	clj_value ns = clj_symbol_ns(cls);
+	return !clj_is_nil(ns) && strcmp(clj_string_bytes(ns), "Swift") == 0 &&
+	       strcmp(clj_string_bytes(clj_symbol_name(cls)), "CancellationError") == 0;
+}
+
+// "Module/Name" as one string: what the host resolver takes and what the clause prints as.
+static clj_value qualified_text(clj_value sym) {
+	clj_value ns = clj_symbol_ns(sym), name = clj_symbol_name(sym);
+	size_t    nlen = clj_string_len(ns), mlen = clj_string_len(name);
+	char     *text = zalloc(nlen + mlen + 2, 1);
+	memcpy(text, clj_string_bytes(ns), nlen);
+	text[nlen] = '/';
+	memcpy(text + nlen + 1, clj_string_bytes(name), mlen);
+	clj_value v = clj_string_new(text, nlen + mlen + 1);
+	free(text);
+	return v;
+}
+
 // @ai-generated(guided)
 static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 	if (clj_is_keyword(cls)) {
@@ -1250,7 +1302,7 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 			c->kind = CLJ_CATCH_ALL;
 		} else {
 			c->kind = CLJ_CATCH_KEYWORD;
-			c->keyword = cls; // immortal: no retain to pair with the release the field never gets
+			c->selector = cls; // immortal: no retain to pair with the release the field never gets
 		}
 		return true;
 	}
@@ -1262,14 +1314,24 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 		c->kind = CLJ_CATCH_ERROR;
 		return true;
 	}
-	// A host type has no var to resolve to: (catch Foundation/CocoaError e) is the keyword form spelled as a
-	// type, and means it (design §4). Unqualified stays an error — a JVM classname and a typo both land there.
-	if (clj_is_symbol(cls) && !clj_is_nil(clj_symbol_ns(cls))) {
-		c->kind = CLJ_CATCH_KEYWORD;
-		c->keyword = clj_keyword_intern(clj_symbol_ns(cls), clj_symbol_name(cls));
+	if (!clj_is_symbol(cls)) return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
+	// Qualified is a host type, matched by a dynamic cast the host makes; unqualified is ours, a var holding
+	// a type descriptor, matched by instance? (design §4).
+	if (!clj_is_nil(clj_symbol_ns(cls))) {
+		if (is_cancellation_type(cls)) {
+			c->kind = CLJ_CATCH_KEYWORD;
+			c->selector = clj_cancelled_keyword();
+			return true;
+		}
+		c->kind = CLJ_CATCH_HOST;
+		c->selector = qualified_text(cls);
 		return true;
 	}
-	return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
+	clj_value var = clj_ns_resolve(a->env.ns, cls);
+	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
+	c->kind = CLJ_CATCH_TYPE;
+	c->selector = clj_retain(var);
+	return true;
 }
 
 // (catch Class name body*): the binding is a local of the handler only.

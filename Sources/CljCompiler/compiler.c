@@ -2180,19 +2180,40 @@ static temp emit_try(fnctx *f, const clj_node *n) {
 	if (h.used) sb_printf(&f->out, "\tgoto L%d;\nL%d: ;\n\t%s = CLJ_THROWN;\nL%d: ;\n", body_join, body_fail, v.name, body_join);
 	if (n->u.try_.ncatches) {
 		sb_printf(&f->out, "\tif (%s == CLJ_THROWN) {\n\tclj_value tr%d = clj_take_pending_trace();\n\tclj_value ex%d = clj_take_pending();\n\tbool h%d = false;\n", v.name, k, k, k);
+		// A selector that names a type can fail to decide (no resolver, an unresolvable name), and its
+		// exception then replaces the in-flight one: u%d stops the chain rather than letting a later clause
+		// swallow it (design §4).
+		bool undecidable = false;
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			clj_catch_kind ck = n->u.try_.catches[i].kind;
+			undecidable = undecidable || ck == CLJ_CATCH_TYPE || ck == CLJ_CATCH_HOST;
+		}
+		if (undecidable) sb_printf(&f->out, "\tbool u%d = false;\n", k);
 		int hfail = new_label(f), hdone = new_label(f);
 		push_handler(f, hfail);
 		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 			const clj_catch *c = &n->u.try_.catches[i];
 			const char      *lead = i ? "else " : "";
+			char             guard[24] = "";
+			if (undecidable) snprintf(guard, sizeof guard, "!u%d && ", k);
 			switch (c->kind) {
-			case CLJ_CATCH_ALL: sb_printf(&f->out, "\t%sif (!clj_ex_isa(ex%d, clj_cancelled_keyword())) {\n", lead, k); break;
-			case CLJ_CATCH_ERROR: sb_printf(&f->out, "\t%sif (clj_is_exception(ex%d)) {\n", lead, k); break;
+			case CLJ_CATCH_ALL: sb_printf(&f->out, "\t%sif (%s!clj_ex_isa(ex%d, clj_cancelled_keyword())) {\n", lead, guard, k); break;
+			case CLJ_CATCH_ERROR: sb_printf(&f->out, "\t%sif (%sclj_is_exception(ex%d)) {\n", lead, guard, k); break;
+			case CLJ_CATCH_TYPE:
+				sb_printf(&f->out, "\t%sif (%sclj_c_catch_selected(clj_catch_instance(V[%zu], ex%d), &u%d)) {\n", lead, guard, var_index(f->u, c->selector), k, k);
+				break;
+			case CLJ_CATCH_HOST: {
+				bool   ok;
+				size_t ki = const_index(f, c->selector, &ok);
+				if (!ok) clj_fatal("compiler: a catch host type name does not print and read back");
+				sb_printf(&f->out, "\t%sif (%sclj_c_catch_selected(clj_host_type_catches(K[%zu], ex%d), &u%d)) {\n", lead, guard, ki, k, k);
+				break;
+			}
 			case CLJ_CATCH_KEYWORD: {
 				bool   ok;
-				size_t ki = const_index(f, c->keyword, &ok);
+				size_t ki = const_index(f, c->selector, &ok);
 				if (!ok) clj_fatal("compiler: a catch keyword does not print and read back");
-				sb_printf(&f->out, "\t%sif (clj_ex_isa(ex%d, K[%zu])) {\n", lead, k, ki);
+				sb_printf(&f->out, "\t%sif (%sclj_ex_isa(ex%d, K[%zu])) {\n", lead, guard, k, ki);
 				break;
 			}
 			}
@@ -2207,7 +2228,10 @@ static temp emit_try(fnctx *f, const clj_node *n) {
 		handler hh = pop_handler(f);
 		sb_printf(&f->out, "\tgoto L%d;\n", hdone);
 		if (hh.used) sb_printf(&f->out, "L%d: ;\n\t%s = CLJ_THROWN;\n", hfail, v.name);
-		sb_printf(&f->out, "L%d: ;\n\tif (h%d) clj_release(tr%d); else clj_throw_traced(ex%d, tr%d);\n\t}\n", hdone, k, k, k, k);
+		if (undecidable)
+			sb_printf(&f->out, "L%d: ;\n\tif (u%d) { clj_release(ex%d); clj_release(tr%d); %s = CLJ_THROWN; } else if (h%d) clj_release(tr%d); else clj_throw_traced(ex%d, tr%d);\n\t}\n",
+			          hdone, k, k, k, v.name, k, k, k, k);
+		else sb_printf(&f->out, "L%d: ;\n\tif (h%d) clj_release(tr%d); else clj_throw_traced(ex%d, tr%d);\n\t}\n", hdone, k, k, k, k);
 	}
 	if (n->u.try_.finally_) {
 		sb_printf(&f->out, "\tclj_value pt%d = %s == CLJ_THROWN ? clj_take_pending_trace() : CLJ_NIL;\n", k, v.name);

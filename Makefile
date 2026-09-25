@@ -1,4 +1,4 @@
-.PHONY: port-audit cmutex-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
+.PHONY: port-audit c-only-audit cmutex-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -110,6 +110,12 @@ load-asan:
 	CLJ_SYSTEM_ALLOC=1 swift build --scratch-path $(ASAN) --sanitize=address --product clj-load
 	CLJ_SYSTEM_ALLOC=1 $(ASAN)/debug/clj-load $(FILE)
 
+# A C-only host installs no host type resolver, so a catch clause naming one must fail loudly (design §4).
+c-only-audit:
+	swift build --scratch-path $(PLAIN) --product clj-load
+	$(PLAIN)/debug/clj-load Tests/PippinTests/Fixtures/host-type-c-only.clj 2>&1 | grep -q "No host type resolver"
+	@echo "c-only-audit: a host type clause is refused where no resolver exists"
+
 # Every file using a platform-specific API must have a row in docs/portability.md (other platforms are the last goal).
 port-audit:
 	sh scripts/port-audit.sh
@@ -120,8 +126,8 @@ cmutex-audit:
 
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit cmutex-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit cmutex-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit api-diff test-isolated test-compiled-asan

@@ -8,6 +8,7 @@
 #include "clj/core.h"
 #include "clj/epoch.h"
 #include "clj/error.h"
+#include "clj/hosttype.h"
 #include "clj/fn.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
@@ -971,6 +972,14 @@ clj_value clj_instance_field(clj_value obj, uint32_t i) {
 	return ((clj_instance *)clj_to_ptr(obj))->fields[i];
 }
 
+clj_value clj_catch_instance(clj_value var, clj_value ex) {
+	clj_value type = clj_var_deref(var);
+	if (type == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_is_instance_of(type, ex);
+	clj_release(type);
+	return r;
+}
+
 clj_value clj_is_instance_of(clj_value type, clj_value v) {
 	if (clj_is_protocol(type) && clj_protocol_of(type)->core_bits) return clj_bool(clj_has_core(v, clj_protocol_of(type)->core_bits));
 	const clj_type *t = designated_type(type);
@@ -1172,6 +1181,7 @@ void clj_proto_install(void) {
 		{"PersistentList", &clj_list_type}, {"Cons", &clj_cons_type},      {"EmptyList", &clj_empty_list_type}, {"LazySeq", &clj_lazy_seq_type},
 		{"Range", &clj_range_type},        {"Fn", &clj_fn_type},           {"Var", &clj_var_type},           {"Namespace", &clj_ns_type},
 		{"ExceptionInfo", &clj_exception_type}, {"HostError", &clj_host_error_type}, {"Protocol", &clj_protocol_type}, {"Type", &clj_type_type},
+		{"HostType", &clj_host_type_type},
 		{"Reduced", &clj_reduced_type},    {"Volatile", &clj_volatile_type},  {"Atom", &clj_atom_type},
 		{"PersistentTreeMap", &clj_sorted_map_type}, {"PersistentTreeSet", &clj_sorted_set_type},
 		{"Pattern", &clj_regex_type},      {"Matcher", &clj_matcher_type},    {"UUID", &clj_uuid_type},         {"Date", &clj_inst_type},

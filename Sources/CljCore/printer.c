@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "clj/hosttype.h"
 #include "clj/record.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
@@ -419,6 +420,8 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		f->n = n;
 	} else if (clj_is_type(v)) {
 		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);
+	} else if (clj_is_host_type(v)) {
+		put_cstr(b, clj_host_type_name(v));
 	} else if (clj_is_protocol(v)) {
 		put_cstr(b, "#object[protocol ");
 		put_symbol_text(b, clj_symbol_ns(clj_protocol_of(v)->name), clj_symbol_name(clj_protocol_of(v)->name));

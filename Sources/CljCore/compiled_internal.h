@@ -14,6 +14,7 @@
 #include "clj/decimal.h"
 #include "clj/error.h"
 #include "clj/eval.h"
+#include "clj/hosttype.h"
 #include "clj/inst.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
@@ -35,6 +36,12 @@
 #include "proto_internal.h"
 #include "shadow_internal.h"
 #include "shape_internal.h"
+
+// A catch selector that names a type answers CLJ_TRUE/CLJ_FALSE or throws; *undecided stops the chain.
+static inline bool clj_c_catch_selected(clj_value m, bool *undecided) {
+	if (m == CLJ_THROWN) *undecided = true;
+	return m == CLJ_TRUE;
+}
 
 // Every helper mirrors one step of eval.c so that a compiled body and the interpreter agree on ownership.
 

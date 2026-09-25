@@ -24,7 +24,8 @@ extension CoreTests {
 
 		init() {
 			for k in ["k", "default", "failed", "done", "caught", "inner", "outer", "never", "no", "yes", "other", "line", "column",
-			          "et/boom", "tck/db", "tck/other", "tck/pg", "hit", "miss", "Foundation/CocoaError", "NSPOSIXErrorDomain/2"] { _ = kw(k) }
+			          "et/boom", "tck/db", "tck/other", "tck/pg", "hit", "miss", "rec", "type",
+			          "Foundation/CocoaError", "NSPOSIXErrorDomain/2"] { _ = kw(k) }
 		}
 
 		private func declare(_ names: String...) throws {
@@ -176,11 +177,13 @@ extension CoreTests {
 				// Any keyword but :default is a selector now (ex-type/isa?), not a classname error.
 				#expect(try rt.eval("(try 1 (catch :other e 2))") == 1)
 				#expect(message(rt, "(try 1 (catch java.lang.Exception e 2))") == "Unable to resolve classname: java.lang.Exception")
-				// A qualified symbol is a host type, and means the keyword ex-type gives that type (design §4).
+				// A qualified symbol is a host type, resolved where the clause runs and not where it is read,
+				// so a body that never throws never asks the host anything (design §4).
 				#expect(try rt.eval("(try 1 (catch Foundation/CocoaError e 2))") == 1)
-				// The NSError domain/code keyword has no symbol spelling: a symbol's name may not start with a digit.
-				// An NSError's domain/code pair has no symbol spelling (ReaderTests: `foo/1` is an invalid token),
-				// so that one keyword is all a catch can name.
+				#expect(try rt.eval("(try 1 (catch Nowhere/AtAll e 2))") == 1)
+				#expect(message(rt, "(try (throw (ex-info \"m\" {})) (catch Nowhere/AtAll e 2))") ==
+				        "Unable to resolve host type: Nowhere/AtAll")
+				// A keyword is still a selector of its own, whatever it looks like.
 				#expect(try rt.eval("(try 1 (catch :NSPOSIXErrorDomain/2 e 2))") == 1)
 				#expect(message(rt, "(try 1 (catch :default 5 2))") == "Bad binding form, expected symbol, got: 5")
 				#expect(message(rt, "(try 1 (catch :default a/e 2))") == "Bad binding form, expected symbol, got: a/e")
@@ -193,6 +196,25 @@ extension CoreTests {
 				#expect(try clojureError(rt, "\n (try 1 (catch :default e (nope)))")?.data == Value(reading: "{:line 2 :column 27}"))
 				// Analysis errors are not caught by the try being analyzed.
 				#expect(message(rt, "(try (nope) (catch :default e :caught))") == "Unable to resolve symbol: nope in this context")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Our own type in catch position: an unqualified symbol, the var's descriptor, instance? (design §4).
+		@Test func ourTypeIsACatchSelector() throws {
+			_ = try rt.eval("(defrecord TcRec [x]) (defrecord TcOther [y]) (deftype TcType [a]) (def tc-not-a-type 1)")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("(try (throw (->TcRec 1)) (catch TcRec e [:rec (:x e)]) (catch :default e :no))") ==
+				        [kw("rec"), 1])
+				#expect(try rt.eval("(try (throw (->TcRec 1)) (catch TcOther e :other) (catch :default e :no))") == kw("no"))
+				#expect(try rt.eval("(try (throw (->TcType 2)) (catch TcRec e :rec) (catch TcType e :type))") == kw("type"))
+				// A thrown record is an ordinary value: ex-type has nothing to say about it, the clause does.
+				#expect(try rt.eval("(try (throw (->TcRec 1)) (catch TcRec e (ex-type e)))") == nil)
+				#expect(try rt.eval("(try (throw (ex-info \"m\" {})) (catch TcRec e :rec) (catch :default e :no))") == kw("no"))
+				// A var that holds no type cannot decide, and says so where the clause runs.
+				#expect(message(rt, "(try (throw (ex-info \"m\" {})) (catch tc-not-a-type e 1))") == "1 is not a type")
+				#expect(try rt.eval("(try 1 (catch tc-not-a-type e 2))") == 1)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -242,6 +264,19 @@ extension CoreTests {
 				clj_deadline_set_ms(50)
 				defer { clj_deadline_set_ms(0) }
 				#expect(message(rt, "(try (loop [i 0] (recur (inc i))) (catch ExceptionInfo e :never))")?.contains("Execution timed out") == true)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Naming the Swift type means :cancelled, because what arrives is our own cancellation and a cast
+		// against CancellationError would be false always (design §4).
+		@Test func cancellationErrorNamesOurCancellation() throws {
+			let before = clj_debug_live_objects()
+			do {
+				clj_deadline_set_ms(50)
+				defer { clj_deadline_set_ms(0) }
+				#expect(try rt.eval("(try (loop [i 0] (recur (inc i))) (catch Swift/CancellationError e (ex-message e)))") ==
+				        "Execution timed out")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
