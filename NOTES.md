@@ -1306,10 +1306,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   as a matching rule instead of a root type (design §4, "Отмена — `:cancelled`"), kept explicit because
   `:default` also catches non-errors (a fixnum, a string) that the type alone cannot decide. `ExceptionInfo`
   needs no matching carve-out: a cancellation is not an ex-info at all (below), so `clj_is_exception`
-  already excludes it structurally. An unqualified class name still resolves to "Unable to resolve
-  classname"; a qualified one is a host type and lowers to the keyword its `ex-type` is (below).
-  `catch`'s own selector-form dispatch (keyword vs. class symbol) is unaffected by any of this:
-  `catch_kind_of` (analyzer.c) just gains a keyword branch beside the three symbol names. The compiler's
+  already excludes it structurally. Beside the keyword kind there are two type kinds, `CLJ_CATCH_TYPE`
+  and `CLJ_CATCH_HOST` (below); all four share one `selector` field, and only the two type kinds own it. The compiler's
   `emit_try` (compiler.c) mirrors `catch_matches` exactly, including the constant pool for a keyword
   selector (`const_index`, the same one `CLJ_NODE_CONST` uses) rather than interning it per throw; the
   two backends disagreeing here once hung `AsyncLibTests.goScoped` under `-DCLJ_COMPILED_CORE` only —
@@ -1367,43 +1365,75 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `clj_throw_cancelled` can hand `:cancelled` straight to the constructor with no `:type` key in
   `{:cancel/kind ...}` at all. The key stays in `data` either way (`ex-data` is unaffected); a non-keyword
   or absent `:type` leaves the slot `nil`, matching `ex-type`'s "everything else" case. A host error
-  answers the keyword the host named its type with (below).
-- **A host error's `ex-type` is built in Swift, where the name is** (design §4, "Хостовая ошибка ловится
-  как своя"): `Value(hostError:)` (Runtime.swift) computes the keyword from `String(reflecting: type(of:
-  error))` when it boxes the error and passes it to `clj_host_error_new`, which keeps it in a slot beside
-  the message. No registry is needed to *identify* an error — the runtime always has the name, which is §4's
-  point; the registry stays owed to `ex-data`'s richness. Rejected: a hook back into Swift at `ex-type`
-  time, which would run Swift on a path that already has an exception in flight to save a
-  `String(reflecting:)` next to the `String(describing:)` the box pays anyway; the C side never sees the
-  payload's type, so the name could come from nowhere else. A printed Swift name is not always a keyword,
-  so three rules make one out of it: **generic arguments are dropped**
-  (`PippinTests.Box<Swift.Int>` → `:PippinTests/Box`, and every instantiation shares that `ex-type`) —
-  `Box<Swift.Int, Swift.String>` contains a comma and a space and is no readable keyword at all;
-  **a component that would not read back is dropped** — a private or local type prints as
-  `PippinTests.(unknown context at $104cf7a5c).MyError`, and a load address is neither identity nor
-  writable, so what is left is `:PippinTests/MyError` (two same-named private types in one module therefore
-  share a keyword, which beats a build-varying one); **nesting stays**, `:PippinTests/HostErrorNest.Inner`,
-  since a dot is an ordinary keyword-name character (`is_terminating`, reader.c) and `Outer.Inner` is what
-  Swift prints. Nothing readable left — `ex-type` is `nil`, still total. Test-visible cost: the first host
-  error of a Swift type interns four objects (keyword, symbol, two strings), so a suite with a
-  `clj_debug_live_objects` baseline around one pre-interns that keyword in its `init`, as it does for
-  every keyword literal it evaluates.
-- **Every `_BridgedStoredNSError` is already an `NSError` when we box it**, so §4's domain/code rule covers
-  more than the `NSError` "without a Swift mapping" it was written for: `type(of:)` of a `CocoaError`,
-  `URLError` or `POSIXError` erased to `any Error` answers `NSError`, because the error existential for
-  those types stores the bridged object itself. `:Foundation/CocoaError` is unreachable from the boxing
-  side and `:NSCocoaErrorDomain/4` is what comes out — a finer identity than the type name, per code
-  rather than per domain, and the distinction Swift itself makes. Hence the test is `type(of: error) is
-  NSError.Type`, not `== NSError.self`: a bridged `CFError` arrives as the private `__NSCFError` and takes
-  the same path. A Swift error type that is not NSError-bridged keeps its name (`:Foundation/DecodingError`).
-  An unreadable domain leaves `ex-type` nil rather than making a keyword no `catch` could name.
-- **A qualified symbol in `catch` position is a host type**, lowered by `catch_kind_of` (analyzer.c) to the
-  keyword its `ex-type` is, so §4's two forms are one node kind and `derive` groups foreign errors like our
-  own. Unqualified stays "Unable to resolve classname", which is what keeps `java.lang.Exception` and the
-  corpus's `IllegalArgumentException` failing (their dots are in the *name*, they carry no namespace) and
-  what keeps a typo of `ExceptionInfo` from becoming a clause that silently never matches. The `NSError`
-  pair has no symbol spelling at all — `foo/1` is an invalid token (ReaderTests) — so `:NSPOSIXErrorDomain/2`
-  is the only way to write it.
+  answers its host type — a type, not a keyword — which is what makes `ex-type` heterogeneous exactly as
+  `clojure.core/type` is (below).
+- **A host type is a value of its own** (hosttype.c, include/clj/hosttype.h; design §4, "Хостовая ошибка
+  ловится как своя"): `clj_host_type` carries the spelling the source used, the type's **mangled name, which
+  is the identity**, and the host's metatype as an opaque pointer. The display name cannot be the identity —
+  `String(reflecting:)` of an `NSError` is `NSError` with no module, while the same type is written
+  `Foundation/NSError` in source — so values are interned by the mangled name, one entry per type and a
+  separate alias list per spelling looked up, and `=` is then identity. Interned values are immortal and
+  excluded from the debug live count (`clj_debug_live_objects_exclude`, as error.c does for the cancellation
+  singletons), so a suite's baseline does not move when a new Swift type first throws.
+- **A host error's `ex-type` is minted where the metatype is, in Swift**: `Value(hostError:)` (Runtime.swift)
+  calls `Value.hostType(of: type(of: error))`, which is `_mangledTypeName` plus `clj_host_type_intern`, and
+  hands the result to `clj_host_error_new` for the slot beside the message. No synthesized keyword exists
+  anywhere: `:Foundation/CocoaError` and `:NSCocoaErrorDomain/-1009` were both removed, because a name the
+  user never wrote is a name nothing can be caught by on purpose. A type whose `_mangledTypeName` is nil
+  leaves the slot nil, and `ex-type` stays total.
+- **Recognition is a cast, not a name** (HostType.swift). `type(of:)` over an `any Error` answers `NSError`
+  for every `_BridgedStoredNSError` — `CocoaError`, `URLError`, `POSIXError`, however the value was made —
+  while `is CocoaError` is true and `is URLError` false for the same Cocoa-domain `NSError`. So a
+  `CLJ_CATCH_HOST` clause resolves its name to a metatype and asks the host for a dynamic `is`:
+  `_openExistential` opens the metatype value into a generic context, where `error is T` is an ordinary
+  cast and works for a struct, an enum, a class, an Objective-C import, a bridged type and a **protocol**,
+  the last being strictly more than the JVM allows in catch position. The name reaches the metatype through
+  `_typeByName` over a mechanically built mangle: length-prefixed module (`Swift` is the substitution `s`),
+  then a length-prefixed component and a kind letter each. **The kind letter cannot be known from the
+  symbol**, so every candidate is tried — `V`, `O`, `C` per component and `P` for a trailing protocol, plus
+  `So<len><name>C` for a single-component name, which is how `Foundation/NSError` reaches the Objective-C
+  import. Generic arguments (`…Gen<Swift.Int>`), private and local types (`(unknown context at $…)`) and
+  deep nesting do not round-trip, and are refused by name rather than guessed at.
+- **The resolver is installed, not weak** (`clj_host_type_install`, called from `clj_host_boot`). A weak
+  *declaration* is not a weak *reference* on Darwin — that is `weak_import` — so the `if (clj_host_boot)`
+  pattern of runtime.h works only because something always defines that symbol. Two function pointers set
+  at boot avoid the question entirely, and a C-only host (Sources/clj-load) simply never sets them.
+- **A clause that cannot decide throws in place of the exception it was matching.** `clj_host_type_catches`
+  answers `CLJ_TRUE`/`CLJ_FALSE` or `CLJ_THROWN` ("No host type resolver: …" where nothing is installed,
+  "Unable to resolve host type: …" where the name reaches nothing), and `clj_catch_instance` does the same
+  for a var that holds no type. `eval_try` and `emit_try` both stop the clause chain on that — the compiled
+  chain gets a `!u<k> &&` guard on every condition — because a later clause matching would swallow the
+  refusal and turn a broken selector back into a silent mismatch, which is the one outcome §4 forbids.
+  Resolution is deferred to the first throw, not done at analysis: a compiled unit carries the name and
+  meets the resolver only where it runs, so a clause that never fires never asks the host anything.
+- **Both answers are cached by name, which is finer than §4's "cached per site"**: the core keeps the
+  alias list, so a second site naming the same type, and a name that reaches nothing, each cost one
+  `strcmp` walk. A *failing* name is remembered too, so a hot loop throwing through a clause naming a
+  missing type does not re-run the candidate mangles.
+- **A qualified symbol no var answers resolves to a host type outside `catch` too**, which is what makes
+  `(derive Foundation/URLError ::network)` the ordinary `derive` it is in §4 — the JVM resolves a classname
+  the same way, after the namespace map. `analyze_symbol` tries the resolver only after `clj_ns_resolve`
+  returns nil, so every existing "Unable to resolve symbol" message is unchanged, and it emits
+  `(clojure.core/host-type "Module/Name")` rather than a constant node: a host type does not print and read
+  back, so a compiled unit has to carry the name and resolve at run time. Unqualified stays "Unable to
+  resolve classname", which keeps `java.lang.Exception` and the corpus's `IllegalArgumentException` failing
+  (their dots are in the *name*; they carry no namespace) and keeps a typo of `ExceptionInfo` from becoming
+  a clause that never matches.
+- **What `derive` on a host type cannot do.** `isa?` compares the `ex-type` *value*, so grouping fires only
+  for types whose `type(of:)` is faithful — every Swift-native error. For a `_BridgedStoredNSError` the
+  dynamic type is `NSError`, so `(derive Foundation/URLError ::network)` never fires for a real `URLError`
+  even though `(catch Foundation/URLError e …)` catches it: the cast sees what the hierarchy key cannot.
+  Not a bug in the hierarchy — the same measured fact that made the cast the identity in the first place.
+  Making `isa?` cast against every host type in the hierarchy would fix it and was not done: it puts a scan
+  of the hierarchy on the throw path, and `clj_ex_isa` already reads that root **borrowed** while
+  `clj_var_bind_root` frees the old root immediately for a non-fn value. For the same reason `derive` stays
+  a load-time operation: nothing may write the hierarchy while an exception is crossing.
+- **Our own type in `catch` is an unqualified symbol resolving to an ordinary var** (`CLJ_CATCH_TYPE`): the
+  catch keeps the var, not the descriptor, so a re-`defrecord` is picked up and `node_data` can encode the
+  clause as the var's qualified symbol. Matching is `clj_catch_instance` → `clj_var_deref` → `clj_is_instance_of`,
+  the same call `(instance? R x)` makes. A thrown record is a plain value, so `ex-type` of it is still nil:
+  the clause decides, not the hierarchy.
+
 - **Namespaces** (ns.c, builtins_ns.c, the tail of core.clj). `*ns*` is a dynamic var in clojure.core whose
   root is `user`; `clj_ns_current`/`clj_ns_set_current` read and write the thread's binding when it has
   one, else the root, so `in-ns` inside a load moves only that load. `Runtime.eval`, `load-file`,
@@ -2373,9 +2403,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!`, `pop!` are the persistent operations themselves
   (the in-place path is the auto-transient of design §6b, so a code path written for transients just
   works; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`;
-  `isa?` knows tags only, never host types — there is no superclass to read (trigger: `(isa? String
-  CharSequence)` or an `instance?`-shaped dispatch in a corpus library; then `class_getSuperclass` and
-  `swift_conformsToProtocol`, design §4);
+  `isa?` reads no supertypes of a type, ours or the host's — a type is a plain hierarchy key (trigger:
+  `(isa? String CharSequence)` or an `instance?`-shaped dispatch in a corpus library; then
+  `class_getSuperclass` and `swift_conformsToProtocol`, design §4);
   `MultiFn.prefers` walks the *multimethod's* hierarchy, where Clojure's walks the global one whatever
   the multimethod's `:hierarchy` says (a JVM quirk, not a documented rule);
   `rand` is SplitMix64 seeded per thread from the id counter; `upper-case`/`lower-case`/`capitalize`
@@ -2504,9 +2534,9 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 
 - **A host error keeps the Swift `Error` boxed as an opaque payload** and captures
   `String(describing:)` as its message when made; `ex-data` builds `{:host/error e}` on every call
-  (storing it would make the value its own child). Trigger: `(catch MyError e ...)` by host type, or
-  `(:code (ex-data e))`-style access to the error's fields; both need a host type registry, and the
-  second a `Codable`/reflection walk of the error (design section "Интероп").
+  (storing it would make the value its own child). Catching it by type needs no registry — that is a cast
+  (hosttype.c) — but `(:code (ex-data e))`-style access to the error's fields still does, plus a
+  `Codable`/reflection walk of the error (design section "Интероп").
 - **Only a host error thrown as is comes back as the Swift error.** Wrapped as a cause (an
   `ex-info` from Clojure code, or the analyzer's positioned rethrow of a macro failure) it surfaces as
   `ClojureError` with `cause.hostError` set. Trigger: a host caller wanting `catch let e as MyError`
@@ -2790,8 +2820,9 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
   facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
   error with the right order in the message, not an analysis error. Also absent: a static check of a
-  reify method's signature, the async bridge, the boundary bench (it wants a `CLJEncoder` that does not
-  exist yet), and a host type in `catch` position.
+  reify method's signature and the boundary bench (it wants a `CLJEncoder` that does not exist yet). An
+  Objective-C class in `catch` position goes through the Swift resolver like any other host type
+  (`So7NSErrorC`), not through this bridge.
 - **A pointer argument carries what it points at, because the pointer does not.** `BOOL *stop` arrives
   as a borrowed handle, and the width of a write through it is the pointee's encoding, not the
   pointer's, so the wrapper records that encoding and `objc-write!` reads it. Only what the bridge lays
@@ -3471,7 +3502,8 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 ## Gates
 
 - **Before every push, run `make gates`**: `test`, `test-compiled`, `corpus-compiled`, `facts-report`,
-  `port-audit`, `api-diff`, in that order. The runner prints wall seconds and exit status per step,
+  `port-audit`, `c-only-audit`, `cmutex-audit`, `api-diff`, in that order. `c-only-audit` runs one file
+  through `clj-load`, the C-only host, to see a `catch` clause naming a host type refused out loud. The runner prints wall seconds and exit status per step,
   stops on the first failure, and prints the total on success. Even `make -j gates` keeps that order.
   Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew). Every Makefile `swift test` is bounded by
   `timeout -k 5 500`; GNU coreutils supplies `timeout` on macOS. Keep long runs in background logs.
