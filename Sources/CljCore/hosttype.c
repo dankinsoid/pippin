@@ -100,7 +100,8 @@ clj_value clj_host_type_named(const char *name, size_t len) {
 			found = find_mangled(mangled);
 			if (clj_is_nil(found)) found = make(name, len, mangled, meta);
 		}
-		remember(name, len, found);
+		// A miss before clj_host_boot installed the resolver is not an answer, so it is not remembered.
+		if (resolver) remember(name, len, found);
 	}
 	clj_lock_unlock(&table_lock);
 	return found;
