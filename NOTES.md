@@ -1424,6 +1424,7 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   dynamic type is `NSError`, so `(derive Foundation/URLError ::network)` never fires for a real `URLError`
   even though `(catch Foundation/URLError e …)` catches it: the cast sees what the hierarchy key cannot.
   Not a bug in the hierarchy — the same measured fact that made the cast the identity in the first place.
+  `(instance? Foundation/CocoaError e)` makes the same cast the clause does, so the two never disagree.
   Making `isa?` cast against every host type in the hierarchy would fix it and was not done: it puts a scan
   of the hierarchy on the throw path, and `clj_ex_isa` already reads that root **borrowed** while
   `clj_var_bind_root` frees the old root immediately for a non-fn value. For the same reason `derive` stays

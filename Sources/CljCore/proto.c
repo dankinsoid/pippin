@@ -982,6 +982,8 @@ clj_value clj_catch_instance(clj_value var, clj_value ex) {
 
 clj_value clj_is_instance_of(clj_value type, clj_value v) {
 	if (clj_is_protocol(type) && clj_protocol_of(type)->core_bits) return clj_bool(clj_has_core(v, clj_protocol_of(type)->core_bits));
+	// A host type answers the same cast a catch clause naming it makes (design §4).
+	if (clj_is_host_type(type)) return clj_bool(clj_host_type_instance(type, v));
 	const clj_type *t = designated_type(type);
 	if (!t) return CLJ_THROWN;
 	return clj_bool(t == &object_type || clj_dispatch_type(v) == t);

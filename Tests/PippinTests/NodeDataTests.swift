@@ -59,14 +59,15 @@ extension CoreTests {
 		init() {
 			clj_init()
 			for k in ["const", "local", "last", "captured", "var", "the-var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector", "map", "set",
-			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope", "since-date"] {
+			          "try", "throw", "all", "error", "intrinsic", "fused", "outer", "direct-fn", "direct-call", "default", "k", "code", "kw", "yes", "no", "nope", "since-date",
+			          "catch-kw", "catch-type", "catch-host", "cocoa", "x"] {
 				_ = Value(keyword: k)
 			}
 		}
 
 		// to_data -> pr-str -> read -> from_data yields the same data, and the read-back tree runs the same.
 		@Test func roundTrip() throws {
-			_ = try cljEval("(def nd-x) (def nd-f)")
+			_ = try cljEval("(def nd-x) (def nd-f) (defrecord NdRec [x])")
 			let before = clj_debug_live_objects()
 			do {
 				let forms = [
@@ -79,6 +80,7 @@ extension CoreTests {
 					"(try (throw (ex-info \"boom\" {:code 7})) (catch ExceptionInfo e (ex-data e)) (finally (println \"cleanup\")))",
 					"(try (throw 42) (catch ExceptionInfo e :no) (catch :default e [e]))",
 					"(try (println \"body\") (finally (println \"done\")))",
+					"(try (throw (->NdRec 1)) (catch NdRec e (:x e)) (catch Foundation/CocoaError e :cocoa) (catch :default e :no))",
 					"(def nd-x (+ 20 22))",
 					"(def nd-f (fn [n] (if (< n 1) 0 (+ n (nd-f (- n 1))))))",
 					"(do (println \"side\" nd-x (nd-f 4)) [nd-x (var nd-x)])",

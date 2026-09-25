@@ -156,6 +156,9 @@ extension CoreTests {
 				#expect(try byInfo(boom) == true)
 				#expect(try rt.eval("(pr-str PippinTests/MyError)") == "PippinTests/MyError")
 				#expect(try rt.eval("(identical? PippinTests/MyError (host-type \"PippinTests/MyError\"))") == true)
+				// instance? makes the same cast the clause does, so the two forms cannot disagree.
+				#expect(try rt.eval("(fn [f] (try (f) (catch :default e [(instance? PippinTests/MyError e) (instance? PippinTests/HostErrorNest.Inner e)])))")(boom) ==
+				        [true, false])
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
