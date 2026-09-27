@@ -2239,7 +2239,13 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   trigger: a consumer. No refinement on `CAPTURED` or `OUTER` reads, only on frame slots — trigger: a profile
   where a closure body re-tests what its definer already knew. No `case`/`condp` refinement beyond what their
   expansion into `if` gives. A `DIRECT_FN` node is recorded as a fn although its slot holds nil at run time:
-  nothing reads that slot as a value, and the useful fact is that the name denotes a function.
+  nothing reads that slot as a value, and the useful fact is that the name denotes a function. No host-call
+  effect bit: design §5 keeps that one a fact and a diagnostic, never a prohibition, because a prohibition
+  needs the call chain and `opaque` is the admission that the chain is not always there — trigger: the stub
+  generator's report reaching the LSP. No backward flow of an expected type into a body either: the walk runs
+  arguments → result, so a Swift generic's type is known at the call and does not propagate upward, and a
+  malli schema reaching such a call is a diagnostic — a schema is a predicate over values, a type parameter
+  selects code (design §5, "Дженерики").
 
 ## Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)
 
@@ -2693,6 +2699,12 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   A test therefore drives it the way CoroTests does — `clj_debug_sched_main_adopt`, then
   `clj_sched_main_pump` by hand, with no `await` between the two, since a suspension can change the thread
   out from under the adopted carrier.
+- **A `@MainActor` stub is `affinity: .main` plus two obligations.** Design §5 reduces isolation to
+  asyncness: the generated thunk awaits the isolated call, `callAsync(affinity:)` with `.main` carries it, and
+  `Value(asyncFunction:)`/`closureAsync` already turn the Swift side into a synchronous Clojure fn that parks.
+  What the wrapper still owes is eliding the hop when the caller is already on the main carrier
+  (`clj_coro_on_main_carrier`, the test `callBlocking` makes) — otherwise main waits for main — and failing
+  with a trace where the park is illegal, under a raised `host_depth`. Trigger: the first generated stub.
 
 - **The bridge suite waits for its own coroutines** (`SettledTrait`, AsyncBridgeTests). None of its tests
   takes a live-object baseline, so one that outlives its test surfaces as a failed `CoroBaseline` in the
@@ -2855,7 +2867,9 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   scalars inside convert themselves, a nested collection converts too (a one-level conversion would put
   wrappers Cocoa cannot read inside the array it was handed), and the losses design §5 names are real:
   nil is `NSNull`, a keyword key travels as its name and comes back a string. A receiver is never
-  bridged, so `(.count [1 2])` is still an error.
+  bridged, so `(.count [1 2])` is still an error. Level 2 converts a collection implicitly instead, because
+  a stub knows the element type, and a mixed vector where `[Int]` is expected is refused at the call site
+  rather than corrupted (design §5).
 - **Calling in: one trampoline per return shape, no `NSInvocation`.** The IMP prototype problem is
   `objc_msgSend`'s inverted, and the same two AAPCS64 facts answer it: the caller filled only the
   registers its own selector declares, and reading the rest is harmless because the signature we
@@ -2902,7 +2916,9 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
   facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
   error with the right order in the message, not an analysis error. Also absent: a static check of a
-  reify method's signature and the boundary bench (it wants a `CLJEncoder` that does not exist yet). An
+  reify method's signature and the boundary bench (it wants a `CLJEncoder` that does not exist yet); that
+  bench is an input to a generator decision and not an end in itself, since the size above which a
+  collection of values travels as a handle instead of a copy comes from it (design §5). An
   Objective-C class in `catch` position goes through the Swift resolver like any other host type
   (`So7NSErrorC`), not through this bridge.
 - **A pointer argument carries what it points at, because the pointer does not.** `BOOL *stop` arrives
@@ -3626,7 +3642,10 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   and permanent, and they should name the runtime (portable C core), not Apple or Swift. Reader
   conditionals are in (the reader takes any feature set), so the default set is `#{:default}` alone until
   the key exists; the corpus harness reads medley with `#{:clj}` so its JVM branches surface as
-  resolution errors in the backlog rather than as silently empty bodies.
+  resolution errors in the backlog rather than as silently empty bodies. A separate extension for files that
+  call Swift is refused from the other side of the same question (design §5): clojure-lsp, cljfmt and editor
+  highlighting all key off `.clj`/`.cljc`/`.cljs`, so the declared host boundary is a `require-swift` form in
+  `ns` instead.
 
 
 ## Gates
