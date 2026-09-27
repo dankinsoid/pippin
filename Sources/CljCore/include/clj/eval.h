@@ -127,6 +127,10 @@ bool     clj_deadline_expired(void);
 bool     clj_deadline_push_ms(uint64_t ms, uint64_t *prev);
 // Lifts the installed deadline and restores prev, answering whether that deadline had expired.
 bool     clj_deadline_pop(uint64_t prev, bool mine);
+// shielded* (boot/core.clj), Trio's shield: no check throws between the two, whatever stands over the region.
+// The pop must run, or the coroutine never meets its cancellation again.
+void     clj_shield_push(void);
+void     clj_shield_pop(void);
 
 // Takes an old fn root a rebind replaced while this thread evaluates (a closure frame or clj_exec_run is up)
 // and releases it once the thread is idle; false when the caller releases it itself. Only fn roots are read

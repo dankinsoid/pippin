@@ -933,6 +933,21 @@ static clj_value b_deadline_pop(const clj_value *args, size_t n) {
 	return clj_bool(clj_deadline_pop((uint64_t)prev, args[1] == CLJ_TRUE));
 }
 
+// Natives, so the shield is in force before the first call inside it can be checked (eval.c's deadline_hit).
+// @ai-generated(solo)
+static clj_value b_shield_push(const clj_value *args, size_t n) {
+	(void)args, (void)n;
+	clj_shield_push();
+	return CLJ_NIL;
+}
+
+// @ai-generated(solo)
+static clj_value b_shield_pop(const clj_value *args, size_t n) {
+	(void)args, (void)n;
+	clj_shield_pop();
+	return CLJ_NIL;
+}
+
 // ---- profiling
 
 static clj_value b_profile_start(const clj_value *args, size_t n) {
@@ -1457,6 +1472,7 @@ static const entry entries[] = {
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 	{"ex-trace", b_ex_trace, 1, 1}, {"ex-type", b_ex_type, 1, 1}, {"cancelled?*", b_coro_cancelled_p, 0, 0},
 	{"deadline-push*", b_deadline_push, 1, 1}, {"deadline-pop*", b_deadline_pop, 2, 2},
+	{"shield-push*", b_shield_push, 0, 0}, {"shield-pop*", b_shield_pop, 0, 0},
 	{"host-type", b_host_type, 1, 1},
 	{"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 3},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},

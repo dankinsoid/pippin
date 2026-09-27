@@ -168,6 +168,18 @@ extension CoreTests {
 
 		// with-deadline is in core, not here; what it owes core.async is composing with go-scoped both ways round.
 		@Test func withDeadlineOverCoroutines() throws {
+			// Warms what the shielded-exit scenario below interns on first use, ahead of the baseline.
+			_ = try eval("""
+			(let [spend (fn [] nil)
+			      left (atom nil)
+			      g (go (try (with-deadline 20
+			                   (go-scoped (go (try (<! (chan)) (catch :cancelled e (spend)) (finally (reset! left :child))))))
+			                 (catch :timeout e :timeout)))]
+			  (loop [i 0]
+			    (if-let [v (poll! g)]
+			      [v @left]
+			      (if (< i 400) (do (<!! (timeout 25)) (recur (inc i))) :hung))))
+			""")
 			let base = CoroBaseline()
 			do {
 				// The expiry reaches a parked coroutine through the deadline's timer, not a tick.
@@ -184,6 +196,26 @@ extension CoreTests {
 				""") == [kw("timeout"), true, true])
 				// The other nesting: the timeout is the scope body's failure, so the scope cancels and joins on it.
 				#expect(try eval("(<!! (go (try (go-scoped (go (<! (chan))) (with-deadline 20 (<! (chan)))) (catch :timeout e :timeout))))") == kw("timeout"))
+				// The scope's exit is shielded, so a child that outlives the expiry is still joined. `spend` runs the
+				// expired deadline out of unwind budgets (~65000 checks each, 64 of them), after which every check
+				// throws: the scope's own bookkeeping ran there, and the decrement the join waits for never came.
+				#expect(try eval("""
+				(let [spend (fn [] (loop [i 0]
+				                     (when (< i 80)
+				                       (try (loop [j 0] (if (< j 200000) (recur (inc j)) nil)) (catch :cancelled _ nil))
+				                       (recur (inc i)))))
+				      left (atom nil)
+				      g (go (try (with-deadline 20
+				                   (go-scoped (go (try (<! (chan)) (catch :cancelled e (spend)) (finally (reset! left :child))))))
+				                 (catch :timeout e :timeout)))]
+				  ;; Polled, not raced against a timeout channel: a scope that hangs must not hang the suite either.
+				  (loop [i 0]
+				    (if-let [v (poll! g)]
+				      [v @left]
+				      (if (< i 400) (do (<!! (timeout 25)) (recur (inc i))) :hung))))
+				""") == [kw("timeout"), kw("child")])
+				// The shield holds the runtime's checks, not the flag: cleanup still knows it was cancelled.
+				#expect(try eval("(let [g (go (try (<! (chan)) (catch :cancelled e (shielded* [(loop [i 0] (if (< i 50000) (recur (inc i)) :ran)) (cancelled?*)]))))] (<!! (timeout 10)) (cancel! g) (<!! g))") == [kw("ran"), true])
 				_ = try eval("(<!! (timeout 20))")
 			}
 			base.check()

@@ -1724,6 +1724,24 @@
   [ms & body]
   `(with-deadline* ~ms (fn [] ~@body)))
 
+(defmacro shielded*
+  "Runs the body with the runtime's own cancellation checks held off: inside it no call, loop turn or driver
+  entry throws for a cancellation or an expired deadline, however long the body runs (Trio's
+  CancelScope(shield=True)). The flags keep standing — (cancelled?) still answers true — and the first check
+  after the body meets them, so nothing is lost, only deferred. Nests, and the pop runs in a finally: a region
+  left unclosed would be a coroutine that never meets its cancellation again.
+
+  The shield holds the checks, not the parks: a park inside is cancelled as usual unless the operation itself is
+  uncancellable (the join of go-scoped is). This is what makes a shielded region able to hang: a body that waits
+  for something that never comes waits for ever, and no deadline of any caller can break it. Use it only for
+  bookkeeping that must complete, and only around work whose own end is guaranteed. Not in the JVM's
+  clojure.core."
+  [& body]
+  ;; Inline, not a function: the call to a function behind it would be a check point of its own, and under an
+  ;; expired deadline it is exactly the call that throws.
+  `(do (shield-push*)
+       (try ~@body (finally (shield-pop*)))))
+
 ;; ---- futures and promises: promise-buffered channels over the coroutine runtime (design §4; NOTES.md, "Futures and scopes")
 
 (defn future-call

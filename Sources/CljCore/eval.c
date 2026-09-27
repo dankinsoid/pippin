@@ -138,6 +138,10 @@ bool clj_deadline_pop(uint64_t prev, bool mine) {
 	return fired;
 }
 
+// The park of a shielded region is uncancellable on its own account (chan.c): the shield only holds the tick.
+void clj_shield_push(void) { clj_coro_shield_enter(clj_coro_current()); }
+void clj_shield_pop(void) { clj_coro_shield_leave(clj_coro_current()); }
+
 bool clj_deadline_expired(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	return s && clj_shadow_deadline(s) && clj_profile_now() >= clj_shadow_deadline(s);

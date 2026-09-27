@@ -106,6 +106,33 @@ extension CoreTests {
 			#expect(cljEvalError("(with-deadline -1 :x)")?.contains("non-negative") == true)
 		}
 
+		// ---- shielded* (core.clj): the region an expired deadline cannot interrupt
+
+		// A loop of 50000 turns meets the check some 48 times, so an unshielded one could not reach its end.
+		@Test func aShieldedRegionMeetsNoExpiry() throws {
+			#expect(try cljEval("""
+			(let [a (atom [])
+			      out (try (with-deadline 0
+			                 (shielded* (loop [i 0] (if (< i 50000) (recur (inc i)) (swap! a conj :shielded))))
+			                 (loop [i 0] (if (< i 50000) (recur (inc i)) (swap! a conj :after))))
+			               (catch :timeout e :timeout))]
+			  [out @a])
+			""") == [Value(keyword: "timeout"), [Value(keyword: "shielded")]])
+		}
+
+		// Nesting is a count: the inner region's end must not hand the expiry back to the outer one.
+		@Test func shieldsNest() throws {
+			#expect(try cljEval("""
+			(let [a (atom [])
+			      out (try (with-deadline 0
+			                 (shielded* (shielded* (loop [i 0] (if (< i 50000) (recur (inc i)) (swap! a conj :inner))))
+			                            (loop [i 0] (if (< i 50000) (recur (inc i)) (swap! a conj :outer))))
+			                 (loop [i 0] (if (< i 50000) (recur (inc i)) (swap! a conj :after))))
+			               (catch :timeout e :timeout))]
+			  [out @a])
+			""") == [Value(keyword: "timeout"), [Value(keyword: "inner"), Value(keyword: "outer")]])
+		}
+
 		// The message quotes at most CLJ_ERROR_PRINT_MAX bytes of the value, so an unbounded seq at the head
 		// of a call reports instead of printing for ever.
 		@Test func invokingAnInfiniteSeqReports() throws {

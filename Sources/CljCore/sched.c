@@ -608,8 +608,9 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	c->captures = clj_output_captures_share();
 	c->pending = c->pending_trace = c->result = CLJ_NIL;
 	// A cancelled parent hands the child its deadline as it was, not the cancel flag: past it the child meets it at once.
-	bool     parent_cancelled = atomic_load_explicit(&parent->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
-	uint64_t deadline = parent_cancelled ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
+	bool parent_cancelled = atomic_load_explicit(&parent->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
+	// A shield hides the deadline from the parent's own ticks, not from the children spawned there.
+	uint64_t deadline = parent_cancelled || parent->shield ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
 	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
 	c->shadow->countdown = 1024;
 	c->shadow->unwinds = 64;
@@ -637,6 +638,7 @@ bool clj_coro_done(clj_value coro) { return atomic_load_explicit(&clj_coro_of(co
 // neither adds a check of its own to the hot path; the real deadline waits in deadline_before until both are gone.
 // @ai-generated(guided)
 static void deadline_poison_locked(clj_coro *c) {
+	if (c->shield) return;
 	uint64_t d = clj_shadow_deadline(c->shadow);
 	if (d != 1) c->deadline_before = d;
 	atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
@@ -647,11 +649,43 @@ static bool poisoned_locked(const clj_coro *c) {
 }
 
 static void deadline_poison_if_locked(clj_coro *c) {
+	if (c->shield) return;
 	if (poisoned_locked(c)) atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
 }
 
 static void deadline_unpoison_locked(clj_coro *c) {
+	if (c->shield) return;
 	if (!poisoned_locked(c)) atomic_store_explicit(&c->shadow->deadline, c->deadline_before, memory_order_relaxed);
+}
+
+// The ring reads 1 under a poison and 0 inside a shield; the value itself waits in deadline_before.
+static uint64_t deadline_own_locked(const clj_coro *c) {
+	if (!c->shadow) return 0;
+	uint64_t d = clj_shadow_deadline(c->shadow);
+	return (d == 1 || c->shield) ? c->deadline_before : d;
+}
+
+// Shielding (design §4, Trio's shield): no deadline in the ring, so the tick has nothing to throw.
+// @ai-generated(solo)
+void clj_coro_shield_enter(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	if (!c->shield++ && c->shadow) {
+		uint64_t d = clj_shadow_deadline(c->shadow);
+		if (d != 1) c->deadline_before = d;
+		atomic_store_explicit(&c->shadow->deadline, 0, memory_order_relaxed);
+	}
+	pthread_mutex_unlock(&c->lock);
+}
+
+// @ai-generated(solo)
+void clj_coro_shield_leave(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	// Recomputed, not restored: a cancellation may have landed while the region ran, and only the flags say so.
+	if (c->shield && !--c->shield && c->shadow) {
+		if (poisoned_locked(c)) atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
+		else atomic_store_explicit(&c->shadow->deadline, c->deadline_before, memory_order_relaxed);
+	}
+	pthread_mutex_unlock(&c->lock);
 }
 
 // Under c->lock: the flag, the tick trigger and the waiter to wake. A running coroutine sees the flag at its next
@@ -730,6 +764,8 @@ void clj_coro_cancel_reset(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	disarm_locked(c);
 	cancel_cause_clear_locked(c);
+	// The next job starts unshielded even if the last one died where its pop could not run.
+	c->shield = 0;
 	atomic_store_explicit(&c->cancel, CLJ_CANCEL_NONE, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->suspend, false, memory_order_relaxed);
@@ -982,7 +1018,7 @@ static void deadline_disarm(clj_coro *c) {
 void clj_coro_deadline_arm(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	disarm_locked(c);
-	uint64_t deadline = c->shadow ? clj_shadow_deadline(c->shadow) : 0;
+	uint64_t deadline = c->shield ? c->deadline_before : (c->shadow ? clj_shadow_deadline(c->shadow) : 0);
 	if (deadline > 1) {
 		deadline_ctx *d = malloc(sizeof *d);
 		if (!d) clj_fatal("out of memory");
@@ -1013,15 +1049,16 @@ void clj_coro_deadline_cleared(clj_coro *c) {
 void clj_coro_deadline_replace(clj_coro *c, uint64_t deadline) {
 	pthread_mutex_lock(&c->lock);
 	c->deadline_before = deadline;
-	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
-	deadline_poison_if_locked(c);
+	if (!c->shield) {
+		atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
+		deadline_poison_if_locked(c);
+	}
 	pthread_mutex_unlock(&c->lock);
 }
 
 uint64_t clj_coro_deadline_own(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
-	uint64_t d = c->shadow ? clj_shadow_deadline(c->shadow) : 0;
-	if (d == 1) d = c->deadline_before;
+	uint64_t d = deadline_own_locked(c);
 	pthread_mutex_unlock(&c->lock);
 	return d;
 }

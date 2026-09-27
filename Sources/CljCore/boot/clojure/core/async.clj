@@ -214,9 +214,11 @@
                    (try
                      (f)
                      ;; Quietly only when this child was the one cancelled; someone else's cancellation is a failure.
-                     (catch :cancelled e (when-not (cancelled?*) (scope-child-failed! s e)) nil)
-                     (catch :default e (scope-child-failed! s e) nil)
-                     (finally (scope-child-done! s tok)))))]
+                     (catch :cancelled e (shielded* (when-not (cancelled?*) (scope-child-failed! s e))) nil)
+                     (catch :default e (shielded* (scope-child-failed! s e)) nil)
+                     ;; Shielded: whatever ended the child must not also stop the scope from being told it is
+                     ;; gone, or the uncancellable join would wait for it for ever.
+                     (finally (shielded* (scope-child-done! s tok))))))]
     ;; A child done before the spawn returned has left already: its entry is not put back.
     (swap! (:children s) (fn [m] (if (contains? m tok) (assoc m tok c) m)))
     c))
@@ -257,7 +259,7 @@
   [bindings & body]
   `(go (loop ~bindings ~@body)))
 
-;; The join outlasts a cancellation of the body: a scope never returns while a child runs.
+;; The take is uncancellable and the caller shields the loop: a scope never returns while a child runs.
 (defn- scope-join! [s]
   (loop []
     (when (pos? @(:pending s))
@@ -271,21 +273,33 @@
     (binding [*scope* s]
       ;; :cancelled reaches here too: the body's own cancellation must still cancel and join the children.
       (let [r (try {:value (f)} (catch :cancelled e {:error e}) (catch :default e {:error e}))]
-        (when (contains? r :error)
-          (swap! (:state s) assoc :failing true)
-          (scope-cancel-children! s (:error r)))
-        (scope-join! s)
-        (coro-uncancel-scope* (:body s))
-        (if-let [e (or (:error @(:state s)) (:error r))]
-          (throw e)
-          (:value r))))))
+        ;; The whole exit is shielded, so the cancellation or deadline it is unwinding from cannot make a loop
+        ;; turn of the join throw: that would return from the scope with children still running. It is also why
+        ;; a child that never ends hangs the scope (shielded*, docs/design.md §4).
+        (shielded*
+          (try
+            (when (contains? r :error)
+              (swap! (:state s) assoc :failing true)
+              (scope-cancel-children! s (:error r)))
+            (scope-join! s)
+            ;; In a finally: a throw from the join would otherwise leave the scope's cancellation standing on a
+            ;; coroutine the caller goes on using.
+            (finally (coro-uncancel-scope* (:body s))))
+          (if-let [e (or (:error @(:state s)) (:error r))]
+            (throw e)
+            (:value r)))))))
 
 (defmacro go-scoped
   "Runs the body inline under a scope (design §4, \"Контекст go\"): every go spawned in its dynamic extent —
   including from functions it calls and from coroutines those spawn — is a child of the scope. On exit the
   children are joined. A child's uncaught error cancels the siblings and the body and is rethrown from
   go-scoped; an error of the body cancels the children first. Cancelling the coroutine running the scope
-  cancels the children transitively. Returns the body's value. Not in the JVM's core.async."
+  cancels the children transitively. Returns the body's value.
+
+  The join is shielded: neither a cancellation nor an expired deadline can cut it short, because a scope that
+  returned early would leave children running behind it. The price is that a child which never ends — one stuck
+  in a synchronous host call, where no check of ours runs — hangs the scope for ever, and no deadline of any
+  caller breaks that. Every child must have an end of its own. Not in the JVM's core.async."
   [& body]
   `(scoped* (fn [] ~@body)))
 

@@ -399,6 +399,19 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   (`clj_coro_spawn`, with its own timer), so a coroutine started inside the extent meets it on its own stack,
   and joining them is what `go-scoped` is for. `clj_coro_deadline_own` sees through the poison: a cancelled or
   suspended ring reads 1, and pushing a minimum against that would park the real deadline as 1 for good.
+- **`shielded*` is the region a cancellation cannot interrupt** (Trio's `CancelScope(shield=True)`;
+  `boot/core.clj`, `clj_coro_shield_enter`/`leave`). The shield is the third writer of the ring's one deadline
+  word: a poison puts 1 there, a shield puts 0, and the real value waits in `deadline_before` for whichever ends
+  last — so inside the region no call, loop turn or driver entry has anything to throw, and the flags keep
+  standing for the first check after it to meet. The count is on the `clj_coro`, so a cancellation landing
+  mid-region only records itself, and the leave *recomputes* the word from the flags instead of restoring what
+  it saved. What it does not touch: `(cancelled?)` still answers true, a child spawned in the region still
+  inherits the real deadline (`clj_coro_deadline_own` sees through both), and a park is still cancelled unless
+  the operation itself is uncancellable — the shield holds the runtime's own checks, and a waiting operation
+  must be made unbreakable on its own account (`chan-take*`'s flag). `shielded*` is a macro that expands
+  inline, not a call to a function behind it: under an expired deadline that call is exactly what throws.
+  The one consumer is `go-scoped`'s exit ("Futures and scopes"); it is `*`-internal because a region that waits
+  for something that never comes hangs for ever and no caller's deadline breaks it.
 - **Suspension is the cancellation's mechanism without the throw** (design §4, "Стек как объект", item 3):
   `suspend!` sets a sticky `suspend` flag on the ring and poisons the same deadline with 1, so the branch every
   call already pays is what meets it and nothing is added to the hot path. What differs is the tick's *answer*:
@@ -633,7 +646,16 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   body is cancelled, cancels its own children, joins); on exit the scope's own cancellation is lifted
   (`coro-uncancel-scope*`), so the caller's coroutine is usable again. `plet` is `async let`: every init in its
   own `go` under one scope, the bindings their values, a failing init cancels the rest and rethrows. Not in the
-  JVM's core.async (docs/jvm-differences.md). Measured (bench/RESULTS.md): a scope with 100 children 3.5 µs per
+  JVM's core.async (docs/jvm-differences.md). **The whole exit is shielded** (`shielded*`, below): an
+  uncancellable take is not enough, because the join is a `loop` and every turn of it throws through the deadline
+  path like any other. Past the unwind budgets of an expired deadline every check throws, and there the scope's
+  own bookkeeping ran: the exit returned with children still running, and a child's `scope-child-done!` threw
+  before the decrement the join waits for, so the scope hung on a child that had already left (`AsyncLibTests`,
+  the `spend` case, is that second one; the first needs a child whose only end is the scope's own cancel). `coro-uncancel-scope*` is in a
+  `finally` inside that shield, since a throw from the join would otherwise leave the scope's cancellation
+  standing on a coroutine the caller goes on using. The price is the promise itself: a child that never ends —
+  one stuck in a synchronous host call, where no check of ours runs — hangs the scope for ever, and no deadline
+  of any caller breaks that. Trio accepts the same of a nursery. Measured (bench/RESULTS.md): a scope with 100 children 3.5 µs per
   child against a bare `go` spawn of 1.65 µs (the wrapper fn, two `swap!`s, the set, the done put); `future`
   spawn+deref from a bare thread 2.7 µs, `promise` deliver+deref 128 ns, `pmap` 957 ns per element.
 

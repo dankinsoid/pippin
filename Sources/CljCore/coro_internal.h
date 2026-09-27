@@ -95,6 +95,7 @@ struct clj_coro {
 	// What made a scope cancel this one; published before `cancel`, read after it, cleared with it and at finish.
 	_Atomic clj_value cancel_cause;
 	uint64_t         deadline_before; // the deadline a scope cancel replaced with 1, restored by the uncancel
+	uint32_t         shield;          // shielded regions the owner is inside: the ring shows no deadline in one
 	clj_timer       *deadline_timer;  // the timer that cancels this coroutine at its deadline, NULL when none
 	uint64_t         deadline_serial; // bumped by every arm and disarm; a firing timer with a stale serial is a no-op
 };
@@ -231,7 +232,10 @@ void clj_coro_deadline_arm(clj_coro *c);
 void clj_coro_deadline_cleared(clj_coro *c);
 // The deadline the owner sets on itself: kept aside while a cancellation or a suspension holds the ring's own.
 void clj_coro_deadline_replace(clj_coro *c, uint64_t deadline);
-// c's deadline with the poison seen through: a poisoned ring reads 1, the real one waits in deadline_before.
+// A shielded region meets no deadline check, so a cancellation over it waits for the region's end. Nests.
+void clj_coro_shield_enter(clj_coro *c);
+void clj_coro_shield_leave(clj_coro *c);
+// c's deadline with the poison and the shield seen through: the ring reads 1 or 0, the real one deadline_before.
 uint64_t clj_coro_deadline_own(clj_coro *c);
 // The number of carriers the pool has or will have (available-processors*).
 size_t clj_sched_carrier_count(void);
