@@ -192,7 +192,10 @@ static void carrier_park(clj_carrier *car, bool polling) {
 static void *carrier_main(void *arg) {
 	(void)arg;
 #ifdef __APPLE__
-	pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+	// USER_INITIATED claims the user is waiting, and one pool holding both a button handler and a background
+	// parse cannot claim it: the class costs P-cores for work nobody awaits. DEFAULT is "intent not expressed",
+	// which is the truth until a carrier per class exists (design §4, "Рассматривается: QoS носителей").
+	pthread_set_qos_class_self_np(QOS_CLASS_DEFAULT, 0);
 #endif
 	clj_carrier *car = clj_carrier_here();
 	car->pooled = true;
@@ -845,6 +848,8 @@ static void far_fire(void *ctx) {
 // Under timer_mu: (re)arms the one dispatch timer for `when`; a stale firing is a spurious wake the loop absorbs.
 static bool far_wait(uint64_t when, uint64_t wait) {
 	if (!far_timer) {
+		// Higher than the carriers on purpose: a deadline must fire on time whatever the class of the work it ends,
+		// and firing it is a wake, not the work.
 		far_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
 		if (!far_timer) return false;
 		dispatch_source_set_event_handler_f(far_timer, far_fire);
