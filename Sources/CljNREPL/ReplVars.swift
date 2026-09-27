@@ -9,6 +9,10 @@ enum ReplVars {
 	static let v2 = resolve("*2")
 	static let v3 = resolve("*3")
 	static let e = resolve("*e")
+	static let printLength = resolve("*print-length*")
+	static let printLevel = resolve("*print-level*")
+	static let input = resolve("*in*")
+	static let file = Value(borrowing: clj_load_file_var())
 
 	private static func resolve(_ name: String) -> Value {
 		withExtendedLifetime(Value(symbol: name)) { Value(borrowing: clj_ns_resolve(clj_ns_core(), $0.raw)) }
@@ -20,7 +24,8 @@ enum ReplVars {
 		return withExtendedLifetime(nsValue) {
 			var m = clj_map_empty()
 			m = clj_map_assoc(m, ns.raw, nsValue.raw)
-			for v in [v1, v2, v3, e] { m = clj_map_assoc(m, v.raw, CLJ_NIL) }
+			// Bound at nil, like the JVM's with-bindings: set! and binding need a frame entry of their own.
+			for v in [v1, v2, v3, e, printLength, printLevel, input, file] { m = clj_map_assoc(m, v.raw, CLJ_NIL) }
 			return Value(owning: m)
 		}
 	}
@@ -31,15 +36,35 @@ enum ReplVars {
 		return v.isNil ? "user" : Value(borrowing: clj_ns_name(v.raw)).description
 	}
 
+	/// Vars one message binds for its own extent: nREPL scopes print options, `*file*` and `*in*` to the request.
+	struct MessageBindings {
+		private var pairs: [(variable: Value, value: Value)] = []
+
+		mutating func bind(_ variable: Value, _ value: Value) { pairs.append((variable, value)) }
+
+		// assoc and dissoc consume the map (map.h): a retain keeps the version the caller still holds.
+		func applied(to frame: Value) -> Value {
+			pairs.reduce(frame) { m, pair in
+				Value(owning: withExtendedLifetime((m, pair.variable, pair.value)) {
+					clj_map_assoc(clj_retain(m.raw), pair.variable.raw, pair.value.raw)
+				})
+			}
+		}
+
+		func restored(in captured: Value, from frame: Value) -> Value {
+			pairs.reduce(captured) { m, pair in
+				Value(owning: withExtendedLifetime((m, frame, pair.variable)) {
+					clj_map_contains(frame.raw, pair.variable.raw)
+						? clj_map_assoc(clj_retain(m.raw), pair.variable.raw, clj_map_get(frame.raw, pair.variable.raw, CLJ_NIL))
+						: clj_map_dissoc(clj_retain(m.raw), pair.variable.raw)
+				})
+			}
+		}
+	}
+
 	// Only the coroutine that pushed a binding may set! it (NOTES "Coroutines"); drains any failure's exception.
 	private static func set(_ v: Value, _ value: Value) {
-		let r = withExtendedLifetime((v, value)) { clj_var_set(v.raw, value.raw) }
-		if r == CLJ_THROWN {
-			_ = Value(owning: clj_take_pending_trace())
-			_ = Value(owning: clj_take_pending())
-		} else {
-			clj_release(r)
-		}
+		discardResult(withExtendedLifetime((v, value)) { clj_var_set(v.raw, value.raw) })
 	}
 
 	/// Shifts `*1 *2 *3` after a form evaluates cleanly, JVM `clojure.main/repl`'s own order.

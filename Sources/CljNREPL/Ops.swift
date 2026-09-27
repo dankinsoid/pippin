@@ -45,9 +45,10 @@ enum Ops {
 		let id = msg["id"]?.asString ?? ""
 		let code = msg["code"]?.asString ?? ""
 		let ns = msg["ns"]?.asString
+		let bindings = printBindings(msg)
 		session.scheduleEval {
 			let coro = spawnCoroutine({
-				Evaluator.run(code: code, overrideNamespace: ns, session: session, id: id, conn: conn)
+				Evaluator.run(code: code, overrideNamespace: ns, session: session, id: id, conn: conn, bindings: bindings)
 			}, onDone: session.finishEval)
 			session.setInFlight(id: id, coro: coro)
 		}
@@ -58,12 +59,26 @@ enum Ops {
 		let session = server.resolveSession(msg, conn)
 		let id = msg["id"]?.asString ?? ""
 		let code = msg["file"]?.asString ?? ""
+		var bindings = printBindings(msg)
+		// The source path, as the JVM's load-file hands Compiler/load: file-name is the bare name, a poor *file*.
+		if let path = msg["file-path"]?.asString ?? msg["file-name"]?.asString, !path.isEmpty {
+			bindings.bind(ReplVars.file, Value(path))
+		}
 		session.scheduleEval {
 			let coro = spawnCoroutine({
-				Evaluator.run(code: code, overrideNamespace: nil, session: session, id: id, conn: conn, onlyLastValue: true)
+				Evaluator.run(code: code, overrideNamespace: nil, session: session, id: id, conn: conn, onlyLastValue: true, bindings: bindings)
 			}, onDone: session.finishEval)
 			session.setInFlight(id: id, coro: coro)
 		}
+	}
+
+	// nREPL keys its options map after the vars without the stars; cider-nrepl's pprint fns say `length`/`level`.
+	private static func printBindings(_ msg: [String: BValue]) -> ReplVars.MessageBindings {
+		var bindings = ReplVars.MessageBindings()
+		guard let options = msg["nrepl.middleware.print/options"]?.asDict else { return bindings }
+		if let n = options["print-length"]?.asInt ?? options["length"]?.asInt { bindings.bind(ReplVars.printLength, Value(n)) }
+		if let n = options["print-level"]?.asInt ?? options["level"]?.asInt { bindings.bind(ReplVars.printLevel, Value(n)) }
+		return bindings
 	}
 
 	static func interrupt(_ server: Server, _ msg: [String: BValue], _ conn: Connection) {
@@ -78,8 +93,9 @@ enum Ops {
 		}
 	}
 
-	// No *in*/read-line in the language yet (NOTES "nREPL"): accepted for protocol compliance, wired nowhere.
+	// The client's answer to a `need-input` status, or input offered ahead of one: both just queue on the session.
 	static func stdin(_ server: Server, _ msg: [String: BValue], _ conn: Connection) {
+		if let text = msg["stdin"]?.asString { server.resolveSession(msg, conn).acceptInput(text) }
 		conn.send(reply(msg, ["status": .list([.string("done")])]))
 	}
 

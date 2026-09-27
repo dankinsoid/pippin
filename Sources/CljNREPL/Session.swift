@@ -11,6 +11,9 @@ public final class Session {
 	private var busy = false
 	private var inFlight: (id: String, coro: Value)?
 	private var pending: [() -> Void] = []
+	private var lines: Value?
+	private var partialLine = ""
+	private var inputEnded = false
 
 	public init(id: String = UUID().uuidString, frame: Value) {
 		self.id = id
@@ -58,6 +61,70 @@ public final class Session {
 		let next = pending.removeFirst()
 		lock.unlock()
 		next()
+	}
+
+	/// `*in*` for one eval: the session's lines plus the fn that asks this request's client for the next chunk.
+	func inputBinding(id: String, conn: Connection) -> Value {
+		let channel = lock.withLock { linesChannel() }
+		let sessionID = self.id
+		let request = Value(function: "clj-nrepl/need-input", arity: 0...0) { _ in
+			conn.send(["id": .string(id), "session": .string(sessionID), "status": .list([.string("need-input")])])
+			return .nil_
+		}
+		return withExtendedLifetime((channel, request)) {
+			Value([Value(keyword: "lines"): channel, Value(keyword: "request"): request])
+		}
+	}
+
+	/// The `stdin` op's payload: whole lines only, and an empty payload is end of input (nREPL's own EOF).
+	func acceptInput(_ text: String) {
+		var ready: [String] = []
+		var end = false
+		lock.lock()
+		if text.isEmpty {
+			if !partialLine.isEmpty { ready.append(partialLine) }
+			partialLine = ""
+			end = !inputEnded
+			inputEnded = true
+		} else {
+			partialLine += text
+			while let newline = partialLine.firstIndex(of: "\n") {
+				ready.append(String(partialLine[partialLine.startIndex..<newline]))
+				partialLine = String(partialLine[partialLine.index(after: newline)...])
+			}
+		}
+		let channel = linesChannel()
+		lock.unlock()
+		for line in ready { put(channel, line.hasSuffix("\r") ? String(line.dropLast()) : line) }
+		if end { closeChannel(channel) }
+	}
+
+	/// End of input for a client that left: a read parked on it answers nil rather than holding its coroutine.
+	func endInput() {
+		lock.lock()
+		let channel = lines
+		partialLine = ""
+		let end = !inputEnded
+		inputEnded = true
+		lock.unlock()
+		if end, let channel { closeChannel(channel) }
+	}
+
+	private func linesChannel() -> Value {
+		if let lines { return lines }
+		let channel = Value(owning: clj_chan_new(CLJ_NIL))
+		lines = channel
+		return channel
+	}
+
+	// put!, not >!: the connection's reader thread must not park, and a line waits in the channel's queue anyway.
+	private func put(_ channel: Value, _ line: String) {
+		let value = Value(line)
+		discardResult(withExtendedLifetime((channel, value)) { clj_chan_put_cb(channel.raw, value.raw, CLJ_NIL, true) })
+	}
+
+	private func closeChannel(_ channel: Value) {
+		discardResult(withExtendedLifetime(channel) { clj_chan_close(channel.raw) })
 	}
 
 	enum InterruptResult { case idle, mismatch, interrupted }

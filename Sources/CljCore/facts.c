@@ -1896,11 +1896,12 @@ static const char *const pure_names[] = {
 	"cons", "inc", "dec", "+", "-", "*", "/", "quot", "rem", "mod", "min", "max", "zero?", "pos?", "neg?", "even?", "odd?",
 	"empty?", "contains?", "keys", "vals", "vec", "set", "into", "with-meta", "subs", "long", "int", "double", "char",
 };
-static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "read-line", "load", "require"};
+static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "load", "require"};
 static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset-vals!", "compare-and-set!", "vreset!", "vswap!",
                                          "alter-var-root", "set-validator!", "add-watch", "remove-watch", "alter-meta!", "reset-meta!"};
 // The waits the coroutine parks on; deref is not among them because @atom does not park and @future does (design §4).
-static const char *const park_names[] = {"chan-take*", "chan-put*", "chan-alts*", "chan-deref*", "sleep*"};
+static const char *const park_names[] = {"chan-take*", "chan-put*", "chan-alts*", "chan-deref*", "sleep*",
+                                         "read-line"}; // core.clj, but named: its body is gone under -DCLJ_COMPILED_CORE
 
 static bool named_in(const char *name, const char *const *list, size_t n) {
 	for (size_t i = 0; i < n; i++) {

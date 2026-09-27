@@ -45,6 +45,9 @@ typedef struct capture {
 	size_t           len, cap;
 	struct capture  *prev;
 	_Atomic uint32_t rc;
+	clj_output_fn    stream; // set: a write is handed over as it comes and nothing is kept (nREPL streams :out)
+	void            *ctx;
+	void (*release)(void *ctx);
 } capture;
 
 #define captures (*(capture **)&clj_coro_current()->captures)
@@ -52,6 +55,7 @@ typedef struct capture {
 static void capture_release(capture *c) {
 	while (c && atomic_fetch_sub_explicit(&c->rc, 1, memory_order_acq_rel) == 1) {
 		capture *prev = c->prev;
+		if (c->release) c->release(c->ctx);
 		clj_lock_destroy(&c->lock);
 		free(c->data);
 		free(c);
@@ -59,13 +63,23 @@ static void capture_release(capture *c) {
 	}
 }
 
-void clj_output_push_capture(void) {
+static capture *capture_push(void) {
 	capture *c = calloc(1, sizeof *c);
 	if (!c) clj_fatal("out of memory");
 	clj_lock_init(&c->lock);
 	atomic_init(&c->rc, 1);
 	c->prev = captures;
 	captures = c;
+	return c;
+}
+
+void clj_output_push_capture(void) { capture_push(); }
+
+void clj_output_push_stream(clj_output_fn fn, void *ctx, void (*release)(void *ctx)) {
+	capture *c = capture_push();
+	c->stream = fn;
+	c->ctx = ctx;
+	c->release = release;
 }
 
 // The string is what was written so far; a child still holding the capture writes into a buffer nobody reads.
@@ -440,6 +454,12 @@ void clj_output(const char *bytes, size_t len) {
 	capture *c = captures;
 	if (c) {
 		clj_lock_lock(&c->lock);
+		if (c->stream) {
+			// Under the lock: a coroutine sharing the capture must not interleave its bytes with this write.
+			if (len) c->stream(bytes, len, c->ctx);
+			clj_lock_unlock(&c->lock);
+			return;
+		}
 		if (c->len + len > c->cap) {
 			size_t cap = c->cap ? c->cap : 256;
 			while (cap < c->len + len) cap *= 2;

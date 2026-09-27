@@ -49,8 +49,11 @@ void clj_reader_use_namespaces(clj_reader *r);
 
 // println/prn go to the innermost capture on this thread while one is open (with-out-str).
 void      clj_output_push_capture(void);
-// The bytes written since the matching push, as an owned string.
+// The bytes written since the matching push, as an owned string; the empty string for a stream, which kept nothing.
 clj_value clj_output_pop_capture(void);
+// A capture reporting each write as it comes; release (NULL for none) can run long after the pop, because a
+// spawned coroutine shares the capture.
+void      clj_output_push_stream(clj_output_fn fn, void *ctx, void (*release)(void *ctx));
 
 // ---- loading source files (load.c)
 // Directories `require` searches, copied; replaces the previous list.

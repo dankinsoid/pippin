@@ -18,6 +18,30 @@ func spawnCoroutine(_ body: @escaping () -> Void, onDone: @escaping () -> Void) 
 	}
 }
 
+/// Releases an owned result, draining the two pending slots when the call threw: nobody is left to report it to.
+func discardResult(_ result: clj_value) {
+	if result == CLJ_THROWN {
+		_ = Value(owning: clj_take_pending_trace())
+		_ = Value(owning: clj_take_pending())
+	} else {
+		clj_release(result)
+	}
+}
+
+/// Pushes an output capture handing every write to `sink`: `:out` reaches the client while the form still runs.
+func pushOutputStream(_ sink: @escaping (String) -> Void) {
+	let box = Unmanaged.passRetained(OutputSinkBox(sink)).toOpaque()
+	clj_output_push_stream({ bytes, len, ctx in
+		let sink = Unmanaged<OutputSinkBox>.fromOpaque(ctx!).takeUnretainedValue().sink
+		sink(String(decoding: UnsafeRawBufferPointer(start: bytes, count: len), as: UTF8.self))
+	}, box, { Unmanaged<OutputSinkBox>.fromOpaque($0!).release() })
+}
+
+private final class OutputSinkBox {
+	let sink: (String) -> Void
+	init(_ sink: @escaping (String) -> Void) { self.sink = sink }
+}
+
 private final class CoroDoneBox {
 	let onDone: () -> Void
 	init(_ onDone: @escaping () -> Void) { self.onDone = onDone }

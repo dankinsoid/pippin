@@ -1802,6 +1802,21 @@
 (def ^:dynamic *print-length* "Items of a collection pr and print show before `...`; nil for all of them." nil)
 (def ^:dynamic *print-level* "Nesting depth pr and print show; a collection deeper prints as `#`. nil for no limit." nil)
 
+(def ^:dynamic *in*
+  "Where read-line takes from, installed by a host REPL: {:lines <channel of lines, closed at end of input>
+  :request <fn that asks the host's client for more>}. nil outside a REPL, so read-line is end of input there."
+  nil)
+
+(defn read-line
+  "The next line of *in* without its newline; nil at end of input. Parks while the line has not arrived."
+  []
+  (when-let [in *in*]
+    (let [lines (:lines in)]
+      (or (chan-poll* lines)
+          (when-not (chan-closed?* lines)
+            ((:request in))
+            (chan-take* lines))))))
+
 ;; REPL history: a host REPL sets these after each form (clojure.main's own repl, nREPL's Evaluator); the
 ;; language does not set them itself.
 (def ^:dynamic *1 "The most recent REPL value." nil)

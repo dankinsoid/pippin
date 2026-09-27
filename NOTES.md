@@ -3391,8 +3391,8 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   plus the REPL history vars below); `Evaluator.run` pushes it once, lets `set!`/`in-ns` mutate the live boxes
   through the eval, and — unless the eval was cancelled — captures the whole thread's bindings back with
   `clj_var_get_thread_bindings` and stores that as the session's new frame. Generic on purpose: whatever vars
-  end up in the frame persist, without `Evaluator` naming them; the frame can grow (more seeded vars, e.g.
-  `*print-length*`, which already exists in core.clj but is not seeded today) with no change here. **A frame
+  end up in the frame persist, without `Evaluator` naming them, which is how `*print-length*`, `*print-level*`,
+  `*file*` and `*in*` joined it later at no cost here. **A frame
   captured from a cancelled eval is dropped, not stored**: the `defer` that captures only fires when a `pushed`
   flag is set (a failed push has nothing of ours to capture) and a `cancelled` flag is clear (`Tests
   sessionCarriesItsWholeBindingFrame`, the case an interrupted `(<!! (chan))` must not disturb `*1`). This is a
@@ -3416,14 +3416,23 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   is exactly that race, not a matter of style. `(cancelled?)` (`cancelled?*`, builtins.c;
   `clojure.core.async/cancelled?`, core/async.clj) exposes the same function to Clojure code that wants to
   poll its own cancellation without waiting for the next park point.
-- **Output is captured per top-level form, not streamed byte by byte.** `clj_output_push_capture`/
-  `clj_output_pop_capture` (the `with-out-str` mechanism, runtime.c) wrap each form; the popped string becomes
-  one `:out` message before that form's `:value`. This is coarser than a real terminal (a `println` inside a
-  long-running loop in one form is invisible until the form returns), but it is the existing mechanism exactly
-  as the brief asked for, not a second capture path: the alternative (a live callback on every `clj_output`
-  write) would need a new per-coroutine hook the runtime does not have. Trigger: a form whose output needs to
-  be seen before it returns (e.g. a progress loop) — the fix is a flush hook on the capture struct itself, not
-  a parallel pipe.
+- **Output is streamed, one `:out` per write, not one per form.** The hook is on the capture struct itself, as
+  the earlier note predicted: `clj_output_push_stream` (runtime.c) pushes the same `with-out-str` capture with a
+  callback on it, keeps nothing, and hands every write over as it comes; `Evaluator.run` pushes one stream for
+  the whole eval and pops it in a `defer`, so each `println` reaches the client while the form still runs
+  (`Tests outputArrivesBeforeTheFormReturns`: a form that prints, then parks 150 ms, sends its `:out` first).
+  **The chunking policy is per write because a write already is a print call** — `print_line` (builtins.c)
+  builds the whole string, newline included, and calls `clj_output` once — which lands on the same granularity
+  the JVM reaches from `*flush-on-newline*` plus nREPL's 1024-byte `CallbackBufferedOutputStream`, with no
+  partial line stranded. Rejected: per N bytes (strands the tail of a progress line until the next write, the
+  same bug one buffer later), on a park (needs a park hook that does not exist, and a printing compute loop that
+  never parks stays silent), on a timer (a timer per eval, and reordering against `:value`). The callback runs
+  under the capture's own `clj_lock`, so two carriers sharing the capture cannot interleave one message's bytes;
+  it may not park, which a C function pointer into Swift cannot anyway. A nested `with-out-str` pushes a plain
+  capture on top and still keeps its own output. The stream's context is refcounted with the capture, so a child
+  coroutine holding it after the form returns writes to the client rather than into a buffer nobody reads. The
+  two guarantees the old code recorded hold unchanged: the pop is a `defer` on a push that cannot fail, and a
+  cancelled eval still drops its frame.
 - **Headless: no main carrier is ever installed.** A run loop has nothing to pump in a bare server process, so
   `Server` never calls `clj_sched_main_install`; `go-main`/`:affinity :main` code evaluated over nREPL gets the
   existing "No main carrier" error immediately, the same as any other headless entry point, rather than hanging
@@ -3444,6 +3453,29 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   into `ReplVars.defaultFrame` at nil and shifted by `ReplVars.recordValue`/`recordError` after each form
   (`*3 ← *2 ← *1 ← value`, or `*e ← thrown`), the JVM's own order. `make boot` regenerated the embedded and
   compiled core after the addition (`core_clj.inc`, `boot/core.c`); nothing outside `CljNREPL` reads them.
+- **A message's bindings stay the message's: print options, `*file*`, `*in*`.** `*print-length*` and
+  `*print-level*` are seeded into `ReplVars.defaultFrame` at nil, so a session can `set!` or `binding` them at
+  all (the JVM's `with-bindings` set carries them for the same reason), and a request's own limits are assoc'd
+  over the frame for that eval, then put back the way the session had them when the frame is captured
+  (`ReplVars.MessageBindings`, one mechanism for all three). Per request, not sticky, because that is nREPL's
+  own scoping — the options ride one message and the next message without them prints unlimited again. Where
+  they ride was read off the protocol, not guessed: nREPL carries them in the
+  `nrepl.middleware.print/options` **map** (nrepl.org's op reference; `nrepl/util/print.clj` maps that map's
+  `:print-length` onto `*print-length*` by adding the stars), and the eval op has no top-level `print-length`
+  field at all; cider-nrepl's pprint fns spell the same two limits `:length`/`:level`, so both spellings are
+  read. The value in the reply goes through `clj_pr_str_dynamic`, so a client that asks for a limit gets the
+  elided value too, which is the whole point of the JVM's print middleware. `load-file` binds `*file*` from
+  `file-path` (nREPL's source-path-relative name, the one the JVM's `load-file` passes `Compiler/load` as the
+  source path), falling back to `file-name`; positions in the loaded code and `*file*` reads inside it are right
+  for the load's extent and nil again afterwards. `*in*` is built per eval because the `need-input` fn it
+  carries names that eval's id — keeping it out of the captured frame also breaks the cycle it would otherwise
+  make (session → frame → fn → session).
+- **`clj_map_assoc` consumes its map** (map.h: "map is consumed (+1 in) and may be updated in place when
+  unique"), and every Swift `Value` copy shares one release box, so `Value(owning: clj_map_assoc(frame.raw, …))`
+  on a frame the `Session` still holds was a double free: unique in place returned the same pointer, then two
+  boxes released it. It showed as "retain of a freed object" on the first eval that bound anything; the same line
+  had been there for the `eval` op's `ns` field, where no test sent one. Frame assoc/dissoc now retains first
+  (`clj_map_assoc(clj_retain(m.raw), …)`, the idiom `MapTests` uses).
 - **`clone` copies the parent's frame, not a fresh default.** `Session(frame:)` takes the parent session's
   `currentFrame` value directly — free, since it is a persistent map and the clone's later `set!`s build new
   versions rather than mutating the parent's (`Tests sessionCarriesItsWholeBindingFrame`: a clone that changes
@@ -3458,10 +3490,27 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   plain `nrepl.el` still speak natively; CIDER's own richer `completions`/`eldoc` ops are `cider-nrepl`
   middleware this runtime does not implement, so CIDER's completion is plainer than in JVM Clojure, but eval,
   interrupt and the rest of the session protocol are unaffected — CIDER connects and evaluates.
-- **`stdin` is accepted, not wired anywhere.** The language has no `*in*`/`read-line` at all yet (`facts.c`
-  only lists `"read-line"` as a name in the IO-effect table, nothing implements it), so the op replies `done`
-  and drops its content. Trigger: adding `*in*`/`read-line` to the runtime — then `stdin` gets a per-session
-  input queue a blocked `read-line` calls parks a coroutine on.
+- **`*in*` is a map, `read-line` is Clojure, and the wait is a channel take.** `stdin` feeds a per-session
+  channel of whole lines (`Session.acceptInput`); `*in*` (core.clj, next to the print family) holds
+  `{:lines <channel> :request <fn>}`, and `read-line` polls the channel, calling `:request` and parking on
+  `chan-take*` only when it is empty. The two-part value is what the protocol forces: nREPL wants a `need-input`
+  status on the eval's own id *before* the reader waits, and the wait must be a park — a Swift blocking wait
+  would be a park under `host_depth` (an error, design §5), and parking in C would put nREPL's line protocol in
+  the core. So the signal is a native fn the eval's own coroutine calls (a native fn called from Clojure does not
+  raise `host_depth`; only `clj_host_invoke` does) and the wait is an ordinary take, which cancellation already
+  reaches: an `interrupt` of a form parked in `read-line` ends `interrupted` like any other park. Lines, not
+  bytes: `put!` from the connection's reader thread never parks, a trailing partial line waits in
+  `Session.partialLine` for its newline, and nREPL's EOF (an empty `stdin` payload — `session.clj`'s `addEof`)
+  flushes it and closes the channel, so `read-line` answers nil at end of input as on the JVM. `read-line` is
+  named in `facts.c` `park_names` rather than `io_names` (which subsumes it: park is `ANY | PARK`), because its
+  body is gone under `-DCLJ_COMPILED_CORE` and the `:park` fact must not depend on how the core was built. A
+  session whose connection dies closes its channel (`Server.removeSession` → `Session.endInput`), so a parked
+  reader unparks with nil instead of holding a coroutine for good. Deviation: a client answering `need-input`
+  without a trailing newline is not asked again, where the JVM's char-level reader would ask; every real client
+  sends the newline. Trigger: such a client — `acceptInput` then has to re-send the request when a chunk
+  completed no line. `make api-diff` lists `*in*` under "dynamic mismatches" and stays that way: the JVM's own
+  meta says `:dynamic false` because `RT` sets the flag on the var rather than through metadata, while ours is
+  `^:dynamic`, which is what `binding` needs (`with-in-str` binds it on the JVM too).
 - **One `Runtime` per process, shared by every session** — the same sharing JVM nREPL gets from one JVM: a
   `def` from one editor buffer's session is visible from another's, deliberately.
 - **The bencode codec and the socket layer are a separate library target, `CljNREPL`**, not folded into the
@@ -3477,11 +3526,10 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   (`:ConjureConnect 127.0.0.1 N` or auto-detected from `.nrepl-port`) all look for. `(require 'clojure.string)`
   or any embedded lib works out of the box; a third-party dependency needs `Runtime.loadPath` wiring this
   executable does not expose yet (trigger: a `--load-path DIR` flag mirroring `clj-compile`'s).
-- Not done, with triggers: `load-file` position metadata (`*file*`/`*source-path*` are not bound, so a stack
-  trace from loaded code shows no filename — trigger: a client that shows file/line in its error view and
-  finds none); TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points (trigger: a client that
-  needs one); a `Makefile` target for `clj-nrepl` alongside `clj-compile`'s (trigger: someone other than an
-  editor plugin wanting a one-line launch).
+- Not done, with triggers: `*source-path*` (only `*file*` is bound; nothing in the runtime defines the other
+  var — trigger: code that reads it); TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points
+  (trigger: a client that needs one); a `Makefile` target for `clj-nrepl` alongside `clj-compile`'s (trigger:
+  someone other than an editor plugin wanting a one-line launch).
 
 ## Benchmarks (bench/)
 

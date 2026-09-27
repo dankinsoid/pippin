@@ -18,7 +18,7 @@ public final class Server: @unchecked Sendable {
 
 	func session(_ id: String) -> Session? { lock.withLock { sessions[id] } }
 	func addSession(_ s: Session) { lock.withLock { sessions[s.id] = s } }
-	func removeSession(_ id: String) { lock.withLock { _ = sessions.removeValue(forKey: id) } }
+	func removeSession(_ id: String) { lock.withLock { sessions.removeValue(forKey: id) }?.endInput() }
 
 	// Adopts a session id the client names but we don't know, so the reply echoes back the id it expects.
 	func resolveSession(_ msg: [String: BValue], _ conn: Connection) -> Session {
