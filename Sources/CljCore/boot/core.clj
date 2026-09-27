@@ -1689,6 +1689,41 @@
      (monitor-enter* lockee#)
      (try ~@body (finally (monitor-exit* lockee#)))))
 
+;; ---- with-deadline (design §4): in core, not in core.async — a deadline over synchronous code needs no channels.
+
+(defn- timed-out [ms] (ex-info "Execution timed out" {:type :timeout :timeout/ms ms}))
+
+(defn with-deadline*
+  "The function behind with-deadline."
+  [ms f]
+  ;; Everything is caught and the deadline lifted before the verdict: deciding under an expired deadline would
+  ;; meet it again at the first call.
+  (let [[prev mine] (deadline-push* ms)
+        r (try {:value (f)} (catch :cancelled e {:cancelled e}) (catch :default e {:error e}))
+        fired (deadline-pop* prev mine)]
+    (cond
+      (contains? r :error) (throw (:error r))
+      ;; An outer deadline, and a cancel from anywhere, pass through: stopped from outside is not my timeout.
+      (contains? r :cancelled)
+      (if (and mine (= :deadline (get (ex-data (:cancelled r)) :cancel/kind)))
+        (throw (timed-out ms))
+        (throw (:cancelled r)))
+      ;; A body that joined its cancelled children absorbed the expiry; reporting it is still this call's job.
+      fired (throw (timed-out ms))
+      :else (:value r))))
+
+(defmacro with-deadline
+  "Runs the body under a deadline of ms milliseconds: past it the first call, loop turn or park throws, and so does
+  every one after it. What leaves with-deadline is ex-type :timeout — an ordinary failure `(catch :default e)` sees,
+  because the code imposed this deadline on itself, where a cancellation arriving from outside stays :cancelled.
+  `finally` runs: it is a throw, not a kill. A body that swallowed the expiry, or finished past it, times out all
+  the same. A deadline already in force is never extended — the earlier of the two stands, and when that is the
+  outer one its expiry leaves as :cancelled, since being cancelled from outside is not this call's timeout.
+  Coroutines spawned in the extent inherit the deadline and meet it on their own stacks; joining them is what
+  go-scoped is for, and the two compose either way round. Not in the JVM's clojure.core."
+  [ms & body]
+  `(with-deadline* ~ms (fn [] ~@body)))
+
 ;; ---- futures and promises: promise-buffered channels over the coroutine runtime (design §4; NOTES.md, "Futures and scopes")
 
 (defn future-call
@@ -2184,6 +2219,10 @@
 (defn derive
   "Makes parent a parent of tag. Without a hierarchy, alters the global one and returns nil."
   ([tag parent]
+   ;; By name, or the assert below reads as "add a namespace" and ::cancelled passes while catching nothing.
+   (when (= :cancelled parent)
+     (throw (ex-info "derive: :cancelled cannot be a parent — cancellation is matched by rule, not by derivation"
+                     {:tag tag :parent parent})))
    (assert (namespace parent))
    ;; A bare keyword space is the runtime's, so a keyword tag carries a namespace; a type is a name already.
    (assert (or (and (ident? tag) (namespace tag)) (identical? Type (type tag)) (identical? HostType (type tag))))

@@ -122,6 +122,11 @@ void     clj_deadline_set_ms(uint64_t ms);
 uint64_t clj_deadline_get(void);
 void     clj_deadline_restore(uint64_t deadline);
 bool     clj_deadline_expired(void);
+// with-deadline (boot/core.clj): installs the earlier of now + ms and the deadline in force, reporting the latter
+// in *prev. The ring holds one deadline, so only the call that installed the earliest may read a firing one as its own.
+bool     clj_deadline_push_ms(uint64_t ms, uint64_t *prev);
+// Lifts the installed deadline and restores prev, answering whether that deadline had expired.
+bool     clj_deadline_pop(uint64_t prev, bool mine);
 
 // Takes an old fn root a rebind replaced while this thread evaluates (a closure frame or clj_exec_run is up)
 // and releases it once the thread is idle; false when the caller releases it itself. Only fn roots are read

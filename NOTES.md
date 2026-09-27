@@ -379,6 +379,26 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   `thread` bodies are cancellable through their channel: the channel holds the blocking thread's implicit
   coroutine while the body runs, a `cancel!` before the thread attached sets a flag on the job, and the
   implicit coroutine's cancellation is reset for the thread's next job (`clj_coro_cancel_reset`).
+- **`with-deadline` is the construct that imposes a deadline, and the only thing that reads an expiry as
+  `:timeout`** (design §4, Trio's `fail_after`; `boot/core.clj`, `clj_deadline_push_ms`/`clj_deadline_pop` in
+  eval.c). It lives in core, not in `clojure.core.async`: a deadline over synchronous code must not need
+  channels, and it composes with `go-scoped` by nesting either way round instead of being an option on it.
+  The ring holds one deadline, so nesting is a minimum and a firing one names no owner: the push installs
+  `min(now + ms, the one in force)` and answers whether the installed one is the caller's, and only then may
+  the pop read the cancellation as this call's timeout. An outer deadline's expiry, and any explicit cancel,
+  leave untranslated as `:cancelled` — being stopped from outside is not my timeout, the subtle half of the
+  feature and the one Trio also gets right. `:timeout` is an ex-info (`{:type :timeout :timeout/ms ms}`), so
+  `(catch :default e)` catches it: a deadline the code imposed on itself is an ordinary failure of its own
+  operation, where the `:cancelled` exclusion exists for cancellation arriving from outside (Go's
+  `DeadlineExceeded` vs `Canceled`; Kotlin's timeout *under* `CancellationException` is rejected). Two things
+  that look optional and are not. The pop clears the deadline cancellation it translated, or the sticky flag
+  throws again at the next park. And the pop reports whether the deadline had expired at all, because a body
+  that absorbed the expiry — a `go-scoped` that joined the children its own inherited deadline killed — looks
+  like a plain return once the flag is gone; an explicit cancel outranks that, or the timeout would swallow a
+  cancellation from outside. Children need no dance of their own: a spawn conveys the parent's deadline
+  (`clj_coro_spawn`, with its own timer), so a coroutine started inside the extent meets it on its own stack,
+  and joining them is what `go-scoped` is for. `clj_coro_deadline_own` sees through the poison: a cancelled or
+  suspended ring reads 1, and pushing a minimum against that would park the real deadline as 1 for good.
 - **Suspension is the cancellation's mechanism without the throw** (design §4, "Стек как объект", item 3):
   `suspend!` sets a sticky `suspend` flag on the ring and poisons the same deadline with 1, so the branch every
   call already pays is what meets it and nothing is added to the hot path. What differs is the tick's *answer*:
@@ -1304,7 +1324,11 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   as capable as calling it. `:default`/`Throwable`/`Exception`/`Object` still take every thrown value
   except one whose `ex-type` `isa?` `:cancelled` — the Python `BaseException`/`Exception` split, done
   as a matching rule instead of a root type (design §4, "Отмена — `:cancelled`"), kept explicit because
-  `:default` also catches non-errors (a fixnum, a string) that the type alone cannot decide. `ExceptionInfo`
+  `:default` also catches non-errors (a fixnum, a string) that the type alone cannot decide. The rule is inherited
+  through `isa?`, so the two-arity `derive` refuses `:cancelled` as a parent by name (core.clj): the bare keyword
+  already failed its `(namespace parent)` assert, but that message reads as "add a namespace" and the namespaced
+  retry derives under a keyword nothing matches. The three-arity `derive` is left alone — it writes the caller's own
+  hierarchy, and `clj_ex_isa` reads only `global-hierarchy` (error.c). `ExceptionInfo`
   needs no matching carve-out: a cancellation is not an ex-info at all (below), so `clj_is_exception`
   already excludes it structurally. Beside the keyword kind there are two type kinds, `CLJ_CATCH_TYPE`
   and `CLJ_CATCH_HOST` (below); all four share one `selector` field, and only the two type kinds own it. The compiler's

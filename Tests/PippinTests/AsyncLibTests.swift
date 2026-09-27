@@ -166,6 +166,29 @@ extension CoreTests {
 			base.check()
 		}
 
+		// with-deadline is in core, not here; what it owes core.async is composing with go-scoped both ways round.
+		@Test func withDeadlineOverCoroutines() throws {
+			let base = CoroBaseline()
+			do {
+				// The expiry reaches a parked coroutine through the deadline's timer, not a tick.
+				#expect(try eval("(<!! (go (try (with-deadline 20 (<! (chan))) (catch :timeout e :timeout))))") == kw("timeout"))
+				// A cancel from outside is not this call's timeout, however long its deadline still had to run.
+				#expect(try eval("(let [g (go (try (with-deadline 60000 (<! (chan))) (catch :timeout e :timeout) (catch :cancelled e :cancelled)))] (<!! (timeout 20)) (cancel! g) (<!! g))") == kw("cancelled"))
+				// Children spawned in the extent inherit the deadline and meet it on their own stacks.
+				#expect(try eval("""
+				(<!! (go (let [r (atom 0)]
+				  [(try (with-deadline 30 (go-scoped (go (loop [] (<! (timeout 2)) (swap! r inc) (recur)))))
+				        (catch :timeout e :timeout))
+				   (pos? @r)
+				   (let [n @r] (<! (timeout 40)) (= n @r))])))
+				""") == [kw("timeout"), true, true])
+				// The other nesting: the timeout is the scope body's failure, so the scope cancels and joins on it.
+				#expect(try eval("(<!! (go (try (go-scoped (go (<! (chan))) (with-deadline 20 (<! (chan)))) (catch :timeout e :timeout))))") == kw("timeout"))
+				_ = try eval("(<!! (timeout 20))")
+			}
+			base.check()
+		}
+
 		// A sibling cancelled by the scope reads the failure through ex-cause (design §4, Go's context.Cause).
 		@Test func aScopeCancellationCarriesItsCause() throws {
 			// Warms whatever this scenario interns on first use, ahead of the baseline (CoroTests does the same).

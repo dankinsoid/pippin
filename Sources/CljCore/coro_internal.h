@@ -231,6 +231,8 @@ void clj_coro_deadline_arm(clj_coro *c);
 void clj_coro_deadline_cleared(clj_coro *c);
 // The deadline the owner sets on itself: kept aside while a cancellation or a suspension holds the ring's own.
 void clj_coro_deadline_replace(clj_coro *c, uint64_t deadline);
+// c's deadline with the poison seen through: a poisoned ring reads 1, the real one waits in deadline_before.
+uint64_t clj_coro_deadline_own(clj_coro *c);
 // The number of carriers the pool has or will have (available-processors*).
 size_t clj_sched_carrier_count(void);
 // A parking sleep on the timer thread: Thread/sleep for library code. CLJ_THROWN on a cancellation.

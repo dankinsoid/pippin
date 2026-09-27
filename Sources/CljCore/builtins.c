@@ -911,6 +911,28 @@ static clj_value b_coro_cancelled_p(const clj_value *args, size_t n) {
 	return clj_bool(clj_coro_current_cancelled());
 }
 
+// The absolute deadline is opaque to Clojure: with-deadline only carries it from the push back to the pop.
+// @ai-generated(solo)
+static clj_value b_deadline_push(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t ms;
+	if (!clj_int64_of(args[0], &ms) || ms < 0) return clj_throw_msg("with-deadline expects a non-negative integer of milliseconds, got: %s", clj_type_name(args[0]));
+	uint64_t  prev = 0;
+	bool      mine = clj_deadline_push_ms((uint64_t)ms, &prev);
+	clj_value pair[2] = {clj_long_new((int64_t)prev), clj_bool(mine)};
+	clj_value v = clj_vector_from_array(pair, 2);
+	clj_release(pair[0]);
+	return v;
+}
+
+// @ai-generated(solo)
+static clj_value b_deadline_pop(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t prev;
+	if (!clj_int64_of(args[0], &prev)) return clj_throw_msg("deadline-pop* expects an integer, got: %s", clj_type_name(args[0]));
+	return clj_bool(clj_deadline_pop((uint64_t)prev, args[1] == CLJ_TRUE));
+}
+
 // ---- profiling
 
 static clj_value b_profile_start(const clj_value *args, size_t n) {
@@ -1434,6 +1456,7 @@ static const entry entries[] = {
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 	{"ex-trace", b_ex_trace, 1, 1}, {"ex-type", b_ex_type, 1, 1}, {"cancelled?*", b_coro_cancelled_p, 0, 0},
+	{"deadline-push*", b_deadline_push, 1, 1}, {"deadline-pop*", b_deadline_pop, 2, 2},
 	{"host-type", b_host_type, 1, 1},
 	{"profile-start!", b_profile_start, 0, 0}, {"profile-stop!", b_profile_stop, 0, 0},
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 3},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},

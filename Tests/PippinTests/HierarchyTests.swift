@@ -73,6 +73,10 @@ extension CoreTests {
 				            "(underive nil :t/x :t/y)", "(underive {} :t/x :t/y)", "(underive :t/z :t/x :t/y)"] {
 					#expect(message(bad) != nil, Comment(rawValue: bad))
 				}
+				// Named in the refusal, or "add a namespace" sends the reader to a ::cancelled that catches nothing.
+				#expect(message("(derive :t/x :cancelled)")?.contains("matched by rule, not by derivation") == true)
+				// The three-arity derives into the caller's own hierarchy, which clj_ex_isa never reads.
+				#expect(message("(derive (make-hierarchy) :t/x :cancelled)") == nil)
 				// The two-argument underive asserts nothing, as Clojure's does not.
 				#expect(try eval("[(underive nil nil) (underive :a :a) (underive 'a 'b) (underive true false)]") == Value([nil, nil, nil, nil]))
 			}

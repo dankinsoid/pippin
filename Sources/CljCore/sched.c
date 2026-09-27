@@ -1013,6 +1013,14 @@ void clj_coro_deadline_replace(clj_coro *c, uint64_t deadline) {
 	pthread_mutex_unlock(&c->lock);
 }
 
+uint64_t clj_coro_deadline_own(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	uint64_t d = c->shadow ? clj_shadow_deadline(c->shadow) : 0;
+	if (d == 1) d = c->deadline_before;
+	pthread_mutex_unlock(&c->lock);
+	return d;
+}
+
 // ---- Thread/sleep: a park on the timer thread, cancellable
 
 static void sleep_fire(void *ctx) {

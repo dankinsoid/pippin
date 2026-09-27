@@ -54,6 +54,58 @@ extension CoreTests {
 			clj_deadline_set_ms(0)
 		}
 
+		// ---- with-deadline (core.clj): the construct that imposes a deadline, and the :timeout it throws
+
+		@Test func withDeadlineThrowsTimeout() throws {
+			#expect(try cljEval("(try (with-deadline 50 (loop [i 0] (recur (inc i)))) (catch :timeout e [(ex-type e) (:timeout/ms (ex-data e))]))")
+				== [Value(keyword: "timeout"), 50])
+		}
+
+		// The deadline is the code's own, so it is an ordinary failure: the :cancelled exclusion does not apply.
+		@Test func aTimeoutIsCaughtByDefault() throws {
+			#expect(try cljEval("(try (with-deadline 50 (loop [i 0] (recur (inc i)))) (catch :default e (ex-type e)))") == Value(keyword: "timeout"))
+		}
+
+		// The cancel flag is sticky, so a timeout that did not clear it would throw again at the next call.
+		@Test func aTimeoutLeavesTheCoroutineRunnable() throws {
+			#expect(try cljEval("""
+			(let [a (atom nil)
+			      r (try (with-deadline 50 (try (loop [i 0] (recur (inc i))) (finally (reset! a :ran))))
+			             (catch :timeout e :caught))]
+			  [r @a (cancelled?*) (reduce + (range 100000))])
+			""") == [Value(keyword: "caught"), Value(keyword: "ran"), false, 4999950000])
+		}
+
+		// The ring holds one deadline, so a firing one names no owner: being stopped from outside is not my timeout.
+		@Test func anOuterDeadlinePassesThroughTheInnerOne() throws {
+			#expect(try cljEval("""
+			(let [saw (atom nil)
+			      out (try (with-deadline 50
+			                 (try (with-deadline 60000 (loop [i 0] (recur (inc i))))
+			                      (catch :timeout e (reset! saw :timeout))
+			                      (catch :cancelled e (reset! saw :cancelled))))
+			               (catch :timeout e :outer))]
+			  [@saw out])
+			""") == [Value(keyword: "cancelled"), Value(keyword: "outer")])
+		}
+
+		@Test func anInnerDeadlineTimesOutAndRestoresTheOuterOne() throws {
+			#expect(try cljEval("""
+			(with-deadline 60000
+			  [(try (with-deadline 50 (loop [i 0] (recur (inc i)))) (catch :timeout e :inner))
+			   (reduce + (range 100000))])
+			""") == [Value(keyword: "inner"), 4999950000])
+		}
+
+		// Zero is no time at all, not the "clear it" of clj_deadline_set_ms.
+		@Test func aBodyThatNeverMetTheExpiryStillTimesOut() throws {
+			#expect(try cljEval("(try (with-deadline 0 :done) (catch :timeout e :timed-out))") == Value(keyword: "timed-out"))
+		}
+
+		@Test func aNegativeDeadlineIsAnArgumentError() throws {
+			#expect(cljEvalError("(with-deadline -1 :x)")?.contains("non-negative") == true)
+		}
+
 		// The message quotes at most CLJ_ERROR_PRINT_MAX bytes of the value, so an unbounded seq at the head
 		// of a call reports instead of printing for ever.
 		@Test func invokingAnInfiniteSeqReports() throws {

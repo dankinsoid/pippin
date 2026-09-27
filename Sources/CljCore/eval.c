@@ -113,6 +113,31 @@ uint64_t clj_deadline_get(void) {
 
 void clj_deadline_restore(uint64_t deadline) { deadline_apply(deadline); }
 
+// @ai-generated(solo)
+bool clj_deadline_push_ms(uint64_t ms, uint64_t *prev) {
+	uint64_t had = clj_coro_deadline_own(clj_coro_current());
+	uint64_t now = clj_profile_now();
+	// Saturating: an absurd ms is a deadline that never comes, where wrapping would make one already past.
+	uint64_t mine = ms > (UINT64_MAX - now) / 1000000u ? UINT64_MAX : now + ms * 1000000u;
+	*prev = had;
+	// An inherited deadline that is already the earlier one stays, timer and all: nothing of this call's is installed.
+	if (had && had <= mine) return false;
+	deadline_apply(mine);
+	return true;
+}
+
+// @ai-generated(solo)
+bool clj_deadline_pop(uint64_t prev, bool mine) {
+	if (!mine) return false;
+	clj_coro *c = clj_coro_current();
+	uint64_t own = clj_coro_deadline_own(c);
+	// An explicit cancel outranks the expiry, or the timeout would swallow a cancellation from outside.
+	bool fired = clj_coro_cancel_is_deadline(c) || (!clj_coro_current_cancelled() && own && clj_profile_now() >= own);
+	clj_coro_deadline_cleared(c);
+	deadline_apply(prev);
+	return fired;
+}
+
 bool clj_deadline_expired(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	return s && clj_shadow_deadline(s) && clj_profile_now() >= clj_shadow_deadline(s);
