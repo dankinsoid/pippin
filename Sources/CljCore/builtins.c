@@ -1500,8 +1500,35 @@ void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uin
 	clj_release(name);
 }
 
+// One shared map for every marked var, made inside clj_init so no test's live-object baseline sees it appear.
+static clj_value extension_meta(void) {
+	static clj_value meta = CLJ_NIL;
+	if (clj_is_nil(meta)) meta = clj_map_assoc(clj_map_empty_new(), clj_keyword_from_cstr("pippin/extension"), CLJ_TRUE);
+	return meta;
+}
+
+void clj_core_mark_extension(const char *name_text) {
+	clj_value name = clj_string_from_cstr(name_text);
+	clj_value sym = clj_symbol_new(CLJ_NIL, name);
+	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	// Interning here instead would give the parity report an unbound public var under a misspelled name.
+	CLJ_ASSERT(!clj_is_nil(var), "no clojure.core var of that name to mark an extension");
+	clj_var_set_meta(var, extension_meta());
+	clj_release(sym);
+	clj_release(name);
+}
+
+void clj_builtin_bind_extension(const char *name, clj_native_fn fn, uint32_t min, uint32_t max) {
+	clj_builtin_bind(name, fn, min, max);
+	clj_core_mark_extension(name);
+}
+
+// The entries[] names the JVM's clojure.core has not; every other name there is one it has.
+static const char *const extensions[] = {"atom?", "ex-trace", "ex-type", "host-type", "profile-start!", "profile-stop!"};
+
 void clj_builtins_install(void) {
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
+	for (size_t i = 0; i < sizeof extensions / sizeof *extensions; i++) clj_core_mark_extension(extensions[i]);
 	clj_ns_builtins_install();
 	clj_string_builtins_install();
 	clj_number_builtins_install();

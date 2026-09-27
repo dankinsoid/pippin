@@ -169,7 +169,9 @@ void clj_queue_install(void) {
 	clj_value core = clj_ns_core();
 	clj_value type = clj_from_ptr((void *)&clj_queue_type);
 	bind(core, "PersistentQueue", type);
+	clj_core_mark_extension("PersistentQueue");
 	bind(core, "clojure.lang.PersistentQueue", type);
+	clj_core_mark_extension("clojure.lang.PersistentQueue");
 	clj_builtin_bind("queue-pop*", b_queue_pop, 1, 1);
 	clj_value ns_name = clj_symbol_from_cstr("clojure.lang.PersistentQueue");
 	bind(clj_ns_find_or_create(ns_name), "EMPTY", clj_queue_empty());

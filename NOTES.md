@@ -607,7 +607,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   into the target instead of wrapping it in a write port (the JVM's `WritePort` reify has no counterpart). The
   `go` macro expands to the primitive spawn (`coro-go*`) outside a scope, so a trace through a block shows no
   frame of the library (`CompilerFixtureTests.overflowInsideACoroutineThrowsOnlyThere` pins it); `make api-diff`
-  reports the section at 0 missing (docs/api-parity.md). `clojure.core.async.impl.buffers` exists for code that
+  reports 83 of core.async's 87 publics built, the four missing ones its ioc and macro plumbing
+  (docs/api-parity.md). `clojure.core.async.impl.buffers` exists for code that
   requires it: the JVM's constructors over the spec objects. `Thread/sleep` resolves because a namespace named
   `Thread` holds a var `sleep` (`install_thread_ns`): the reader gives `Thread/sleep` as a namespace-qualified
   symbol, the analyzer resolves it as any `ns/name`, and the fn parks on the timer thread (`clj_sched_sleep_ms`;
@@ -2580,11 +2581,36 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **`make api-diff`** runs the parity report: `scripts/api-diff.clj dump-jvm` on JVM Clojure, the
   `clj-api-dump` executable for ours (it evaluates `ns-publics` and prints the EDN — name from the map key,
   not the meta, so a var whose meta lost its `:name` still appears), then the diff, weighted by symbol
-  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 470 of the JVM's 679
-  public vars exist, 209 missing, 21 of those used by the corpus; `ref`, `with-precision`, `future`, the
-  agents and `tap>` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
+  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 487 of the JVM's 679
+  public vars exist, 192 missing, 17 of those used by the corpus; `ref`, `with-precision`, the agents and
+  `tap>` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
   mismatch (`pr` is `^:dynamic` on the JVM) and 12 arity mismatches, of which `sequence`'s multi-coll arity
   and `disj!`'s 1-arity are real gaps rather than differently-written variadics.
+- **`api-diff` is also the gate on `^:pippin/extension`** (design, "Инвариант: язык не меняется"): an
+  ours-only public var without the mark fails the step and is named in the report's "Unmarked extensions".
+  The mark reaches the var's meta the same way in both backends — the compiler emits the whole `def` meta map
+  (`compiler.c`, `clj_c_def`) — so the two `clj-api-dump` outputs are byte-identical. Natives carry no source
+  metadata, and ~80 of the 104 ours-only publics are natives: `clj_core_mark_extension` (builtins.c) sets the
+  mark on an already-bound name and asserts the var exists, so a misspelling is a boot failure rather than an
+  unbound public var appearing in the report. `proto.c` marks its whole designator and core-interface tables,
+  which is where most of them come from. One shared meta map serves every marked var, built inside `clj_init`
+  so no live-object baseline sees it appear. `defprotocol` merges a docstring into the name's metadata
+  rather than replacing it, and `defprotocol`/`deftype`/`defrecord` pass `:pippin/extension` on to the vars they
+  generate (`-method`, `->Name`, `map->Name`) — a protocol method or a factory belongs to the same dialect as
+  its protocol or type. The `name*` convention stays outside the mark: those are internal helpers, not API.
+  Earmuffs are not that convention, so `*loaded-libs*` and `clojure.core.async/*scope*` count as publics.
+  The gate reaches the two namespaces the report covers. Of the other embedded libs only
+  `clojure.test/*assertion-pos*` is ours (the `is` expansion binds it, so it cannot be private); it carries the
+  mark with nothing checking it. Trigger for a JVM dump per embedded lib: a second such var.
+- **The core.async half of the report diffs against the library, not a written-down list.** `make api-diff`
+  dumps `(ns-publics 'clojure.core.async)` with core.async on the classpath (`-Sdeps`, `ASYNC_DEPS` in the
+  Makefile) and the report names the version it resolved. The hand-written set it replaces held 57 of the 87
+  publics and reported the missing 30 as ours: core.async's protocols and their methods (`Mult`, `muxch*`,
+  `tap*`, …) and the ten names deprecated in 0.1.319 but still public in 1.6.681 (`map<`, `partition-by`, …).
+  Those are core.async API we build, not extensions, so none of them carries the mark; the report lists the
+  deprecated ones apart. Two consequences of using the real dump: the `name*` heuristic may only judge names
+  that are ours (core.async's own protocol methods end in `*`), and `defblockingop`, `do-alts`, `fn-handler`
+  and `ioc-alts!` show as missing — the JVM implementation's ioc and macro plumbing.
 
 ## Host bridge (Sources/Pippin, error.c host-error, fn.c context natives)
 
@@ -3609,7 +3635,8 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   `port-audit`, `c-only-audit`, `cmutex-audit`, `api-diff`, in that order. `c-only-audit` runs one file
   through `clj-load`, the C-only host, to see a `catch` clause naming a host type refused out loud. The runner prints wall seconds and exit status per step,
   stops on the first failure, and prints the total on success. Even `make -j gates` keeps that order.
-  Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew). Every Makefile `swift test` is bounded by
+  Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew); `api-diff` also resolves the core.async jar it
+  dumps, so the first run of it needs the network and later ones the Maven cache. Every Makefile `swift test` is bounded by
   `timeout -k 5 500`; GNU coreutils supplies `timeout` on macOS. Keep long runs in background logs.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
   allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one

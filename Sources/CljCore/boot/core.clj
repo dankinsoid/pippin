@@ -323,7 +323,7 @@
   [& body])
 
 ;; Not a top-level do: that would analyze (and macroexpand) the rest with the profiler already on.
-(defmacro profile
+(defmacro ^:pippin/extension profile
   "Runs body with the fn profiler on: {:result v :profile {:fns [...]}} (see profile-stop!)."
   [& body]
   `(let [v# (do (profile-start!)
@@ -396,7 +396,7 @@
   (when (:doc m) (println " " (:doc m))))
 
 ;; #'print-doc: the expansion runs in the caller's namespace, where a private var does not resolve.
-(defmacro doc
+(defmacro ^:pippin/extension doc
   "Prints the documentation of the var name resolves to."
   [name]
   `(#'print-doc (meta (var ~name))))
@@ -1712,7 +1712,7 @@
       fired (throw (timed-out ms))
       :else (:value r))))
 
-(defmacro with-deadline
+(defmacro ^:pippin/extension with-deadline
   "Runs the body under a deadline of ms milliseconds: past it the first call, loop turn or park throws, and so does
   every one after it. What leaves with-deadline is ex-type :timeout — an ordinary failure `(catch :default e)` sees,
   because the code imposed this deadline on itself, where a cancellation arriving from outside stays :cancelled.
@@ -1937,6 +1937,11 @@
   [params body]
   body)
 
+(defn- inherited-meta
+  "What a name defines alongside itself inherits from it: a protocol's methods, a type's factories."
+  [nm]
+  (select-keys (meta nm) [:pippin/extension]))
+
 (defmacro defprotocol
   "(defprotocol P docstring? (m [this] [this a] docstring?) ...): P holds the protocol, each method a
   dispatching fn; the docstrings land in :doc of the vars, the param vectors in :arglists of the methods."
@@ -1947,11 +1952,11 @@
         docs (vec (map (fn [s] (some (fn [x] (when (string? x) x)) (next s))) specs))
         method-def (fn [i]
                      (let [[mname arglists] (nth sigs i)
-                           m {:arglists (list 'quote (seq arglists))}
+                           m (assoc (inherited-meta nm) :arglists (list 'quote (seq arglists)))
                            m (if (nth docs i) (assoc m :doc (nth docs i)) m)]
                        `(def ~(with-meta mname m) (protocol-method* ~nm ~i))))]
     `(do
-       (def ~(if pdoc (with-meta nm {:doc pdoc}) nm) (protocol* '~nm '~sigs))
+       (def ~(if pdoc (with-meta nm (assoc (meta nm) :doc pdoc)) nm) (protocol* '~nm '~sigs))
        ~@(map method-def (range (count sigs)))
        '~nm)))
 
@@ -2010,7 +2015,7 @@
   "(deftype Name [field ...] proto (m [this a] ...) ...): a type, its ->Name constructor and the impls."
   [nm fields & impls]
   (let [groups (group-impls impls)
-        ctor (symbol (str "->" (name nm)))
+        ctor (with-meta (symbol (str "->" (name nm))) (inherited-meta nm))
         wrap (field-wrap fields)]
     `(do
        (declare ~nm)
@@ -2024,8 +2029,8 @@
   constructors and the impls."
   [nm fields & impls]
   (let [groups (group-impls impls)
-        ctor (symbol (str "->" (name nm)))
-        from-map (symbol (str "map->" (name nm)))
+        ctor (with-meta (symbol (str "->" (name nm))) (inherited-meta nm))
+        from-map (with-meta (symbol (str "map->" (name nm))) (inherited-meta nm))
         wrap (field-wrap fields)]
     `(do
        (declare ~nm)
@@ -2065,7 +2070,7 @@
            ~@(map (fn [e] (method-fn (nth e 2) body-as-is)) entries))))
 
 ;; Not a case of reify: a selector and a type encoding are things a protocol of ours does not carry.
-(defmacro objc-reify
+(defmacro ^:pippin/extension objc-reify
   "(objc-reify {:protocols [\"NSXMLParserDelegate\"]} (\"parser:did-end-element:\" [self p el] ...)):
   an Objective-C object whose methods run these fns. A method head is the kebab selector spelling a call
   site would write; where no protocol and no superclass declares it, write [\"objcText:\" \"v@:@\"]
@@ -2080,7 +2085,7 @@
                   ~(vec (map enc methods))
                   ~(vec (map (fn [m] `(fn ~(second m) ~@(nnext m))) methods)))))
 
-(defmacro objc-block
+(defmacro ^:pippin/extension objc-block
   "(objc-block \"q@?@@\" [a b] ...): an Objective-C block running this fn. The signature is the block type
   encoding -- the return, then @? for the block itself, then one per argument. Like a reify body it runs
   synchronously and cannot park."
@@ -2089,7 +2094,7 @@
 
 ;; A deftype, not a C type: the IReduceInit slot trampoline (proto.c) makes this four lines, and reduce on
 ;; it reaches the source through the source's own slot with no seq in between.
-(deftype Eduction [xform coll]
+(deftype ^:pippin/extension Eduction [xform coll]
   Seqable
   (seq [_] (seq (sequence xform coll)))
   IReduceInit
@@ -2284,14 +2289,14 @@
 
 ;; ---- delays and multimethods: deftypes over protocols, since C knows neither.
 
-(defprotocol IDeref
+(defprotocol ^:pippin/extension IDeref
   "deref of a value that is not a var, atom, volatile or reduced box: the C builtin falls back to this method."
   (-deref [this]))
 
-(defprotocol IPending
+(defprotocol ^:pippin/extension IPending
   (-realized? [this]))
 
-(deftype Delay [state]
+(deftype ^:pippin/extension Delay [state]
   IDeref
   (-deref [_]
     (let [s @state]
@@ -2319,7 +2324,7 @@
 (defn delay? "Returns true when x is a Delay." [x] (instance? Delay x))
 (defn force "Derefs a Delay, or returns x itself." [x] (if (delay? x) (deref x) x))
 
-(defprotocol IMultiFn
+(defprotocol ^:pippin/extension IMultiFn
   (-add-method [mf dispatch-val f])
   (-remove-method [mf dispatch-val])
   (-remove-all-methods [mf])
@@ -2362,7 +2367,7 @@
       (throw (ex-info (str "No method in multimethod '" mname "' for dispatch value: " (pr-str dv))
                       {:multifn mname :dispatch-val dv}))))
 
-(deftype MultiFn [mname dispatch-fn default hierarchy table prefers cache]
+(deftype ^:pippin/extension MultiFn [mname dispatch-fn default hierarchy table prefers cache]
   IMultiFn
   (-add-method [_ dispatch-val f]
     (swap! table assoc dispatch-val f)
@@ -2442,7 +2447,7 @@
 
 ;; ---- namespaces: ns, require, refer, use over the C namespace API (in-ns, alias, ns-publics, load-file, ...).
 
-(def ^:dynamic *loaded-libs* (atom #{'clojure.core}))
+(def ^:dynamic ^:pippin/extension *loaded-libs* (atom #{'clojure.core}))
 
 (defn loaded-libs "Returns the set of libs loaded so far." [] @*loaded-libs*)
 

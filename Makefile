@@ -88,14 +88,18 @@ facts-report:
 	swift build --scratch-path $(RELEASE) -c release --product clj-facts
 	$(RELEASE)/release/clj-facts . docs/facts-coverage.md
 
+# core.async is not on the default classpath, and its publics are what the async half of the parity report diffs against.
+ASYNC_DEPS = {:deps {org.clojure/core.async {:mvn/version "1.6.681"}}}
+
 # clojure.core parity: the JVM's ns-publics, ours, and the diff weighted by the corpus (scripts/api-diff.clj).
-# Needs JVM Clojure on PATH; writes docs/api-parity.md, which is committed.
+# Needs JVM Clojure on PATH; writes docs/api-parity.md, which is committed, and fails on an unmarked extension.
 api-diff:
 	@mkdir -p $(PLAIN)/api
 	clojure -M scripts/api-diff.clj dump-jvm > $(PLAIN)/api/jvm.edn
+	clojure -Sdeps '$(ASYNC_DEPS)' -M scripts/api-diff.clj dump-async > $(PLAIN)/api/jvm-async.edn
 	swift run --scratch-path $(PLAIN) clj-api-dump > $(PLAIN)/api/ours.edn
 	swift run --scratch-path $(PLAIN) clj-api-dump clojure.core.async > $(PLAIN)/api/ours-async.edn
-	clojure -M scripts/api-diff.clj diff $(PLAIN)/api/jvm.edn $(PLAIN)/api/ours.edn corpus docs/api-parity.md $(PLAIN)/api/ours-async.edn
+	clojure -M scripts/api-diff.clj diff $(PLAIN)/api/jvm.edn $(PLAIN)/api/ours.edn corpus docs/api-parity.md $(PLAIN)/api/ours-async.edn $(PLAIN)/api/jvm-async.edn
 
 # Same binary twice: pool, then system malloc as the control. Compare only within one invocation.
 bench:

@@ -348,4 +348,5 @@ static const struct {
 
 void clj_ns_builtins_install(void) {
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
+	clj_core_mark_extension("ns?"); // the one name above that the JVM's clojure.core has not
 }

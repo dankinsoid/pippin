@@ -29,6 +29,11 @@ void clj_output(const char *bytes, size_t len);
 void clj_builtins_install(void);
 // Binds one native fn as clojure.core/name.
 void clj_builtin_bind(const char *name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity);
+// Marks clojure.core/name ^:pippin/extension: a public var this core has and the JVM's clojure.core has not.
+// make api-diff demands the mark of every such var (docs/api-parity.md), so a new native public needs it here.
+void clj_core_mark_extension(const char *name);
+// clj_builtin_bind plus that mark.
+void clj_builtin_bind_extension(const char *name, clj_native_fn fn, uint32_t min_arity, uint32_t max_arity);
 // The namespace, var and load builtins (builtins_ns.c) and the string ones (builtins_string.c); clj_builtins_install calls them.
 void clj_ns_builtins_install(void);
 void clj_string_builtins_install(void);

@@ -33058,7 +33058,7 @@ static void unit_pools(void) {
 	K[16] = clj_c_const("*testing-contexts*", 18);
 	K[17] = clj_c_const("{:column 1, :dynamic true, :file \"<embedded>/clojure/test.clj\", :line 18, :name *testing-contexts*, :ns clojure.test}", 117);
 	K[18] = clj_c_const("*assertion-pos*", 15);
-	K[19] = clj_c_const("{:column 1, :doc \"{:file :line :column} of the `is` form being evaluated; nil outside one.\", :dynamic true, :file \"<embedded>/clojure/test.clj\", :line 20, :name *assertion-pos*, :ns clojure.test}", 195);
+	K[19] = clj_c_const("{:column 1, :doc \"{:file :line :column} of the `is` form being evaluated; nil outside one.\", :dynamic true, :file \"<embedded>/clojure/test.clj\", :line 20, :name *assertion-pos*, :ns clojure.test, :pippin/extension true}", 219);
 	K[20] = clj_c_const("with-test-out", 13);
 	K[21] = clj_c_const("clojure.test/with-test-out", 26);
 	K[22] = clj_c_const("do", 2);

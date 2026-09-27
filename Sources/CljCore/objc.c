@@ -2230,17 +2230,17 @@ static clj_value b_objc_write(const clj_value *args, size_t n) {
 void clj_objc_builtins_install(void) {
 	clj_builtin_bind("objc-reify*", b_objc_reify, 5, 5);
 	clj_builtin_bind("objc-block*", b_objc_block, 2, 2);
-	clj_builtin_bind("objc-invoke", b_objc_invoke, 1, CLJ_ARITY_ANY);
-	clj_builtin_bind("objc-write!", b_objc_write, 2, 2);
-	clj_builtin_bind("ns-array", b_ns_array, 1, 1);
-	clj_builtin_bind("ns-dictionary", b_ns_dictionary, 1, 1);
-	clj_builtin_bind("ns-array->vec", b_ns_array_to_vec, 1, 1);
-	clj_builtin_bind("ns-string", b_ns_string, 1, 1);
-	clj_builtin_bind("ns-mutable-string", b_ns_mutable_string, 1, 1);
-	clj_builtin_bind("ns-string->str", b_ns_string_to_str, 1, 1);
-	clj_builtin_bind("ns-dictionary->map", b_ns_dictionary_to_map, 1, 1);
-	clj_builtin_bind("objc-class", b_objc_class, 1, 1);
-	clj_builtin_bind("objc-send", b_objc_send, 2, CLJ_ARITY_ANY);
-	clj_builtin_bind("objc-object?", b_objc_object_p, 1, 1);
+	clj_builtin_bind_extension("objc-invoke", b_objc_invoke, 1, CLJ_ARITY_ANY);
+	clj_builtin_bind_extension("objc-write!", b_objc_write, 2, 2);
+	clj_builtin_bind_extension("ns-array", b_ns_array, 1, 1);
+	clj_builtin_bind_extension("ns-dictionary", b_ns_dictionary, 1, 1);
+	clj_builtin_bind_extension("ns-array->vec", b_ns_array_to_vec, 1, 1);
+	clj_builtin_bind_extension("ns-string", b_ns_string, 1, 1);
+	clj_builtin_bind_extension("ns-mutable-string", b_ns_mutable_string, 1, 1);
+	clj_builtin_bind_extension("ns-string->str", b_ns_string_to_str, 1, 1);
+	clj_builtin_bind_extension("ns-dictionary->map", b_ns_dictionary_to_map, 1, 1);
+	clj_builtin_bind_extension("objc-class", b_objc_class, 1, 1);
+	clj_builtin_bind_extension("objc-send", b_objc_send, 2, CLJ_ARITY_ANY);
+	clj_builtin_bind_extension("objc-object?", b_objc_object_p, 1, 1);
 	clj_builtin_bind("objc-kebab*", b_objc_kebab, 1, 1);
 }

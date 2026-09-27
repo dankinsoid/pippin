@@ -1695,7 +1695,7 @@ static clj_value b_re_replace(const clj_value *args, size_t n) {
 
 void clj_regex_builtins_install(void) {
 	clj_builtin_bind("re-pattern", b_re_pattern, 1, 1);
-	clj_builtin_bind("regex?", b_regex_p, 1, 1);
+	clj_builtin_bind_extension("regex?", b_regex_p, 1, 1);
 	clj_builtin_bind("re-matcher", b_re_matcher, 2, 2);
 	clj_builtin_bind("re-find", b_re_find, 1, 2);
 	clj_builtin_bind("re-matches", b_re_matches, 2, 2);

@@ -1190,16 +1190,27 @@ void clj_proto_install(void) {
 		// The JVM class names libraries spell out in an instance? check; the static methods stay interop.
 		{"java.util.UUID", &clj_uuid_type}, {"java.util.Date", &clj_inst_type},
 	};
-	for (size_t i = 0; i < sizeof types / sizeof *types; i++) bind_core(types[i].name, clj_from_ptr((void *)types[i].type));
+	// Every designator and interface below is a var of this core alone: the JVM spells them as classes.
+	for (size_t i = 0; i < sizeof types / sizeof *types; i++) {
+		bind_core(types[i].name, clj_from_ptr((void *)types[i].type));
+		clj_core_mark_extension(types[i].name);
+	}
 	clj_value empty = clj_vector_empty();
 	for (size_t i = 0; i < NINTERFACES; i++) {
 		clj_value name = clj_string_from_cstr(interfaces[i].name);
 		clj_value qualified = clj_symbol_new(core_name, name);
 		interfaces[i].proto = protocol_alloc(qualified, empty, empty, interfaces[i].bits);
 		bind_core(interfaces[i].name, interfaces[i].proto);
+		clj_core_mark_extension(interfaces[i].name);
 		// Libraries spell the marker interfaces of instance? out in full; the bare name is ours.
-		if (interfaces[i].bits == CLJ_CORE_EDITABLE) bind_core("clojure.lang.IEditableCollection", interfaces[i].proto);
-		if (interfaces[i].bits == CLJ_CORE_RECORD) bind_core("clojure.lang.IRecord", interfaces[i].proto);
+		if (interfaces[i].bits == CLJ_CORE_EDITABLE) {
+			bind_core("clojure.lang.IEditableCollection", interfaces[i].proto);
+			clj_core_mark_extension("clojure.lang.IEditableCollection");
+		}
+		if (interfaces[i].bits == CLJ_CORE_RECORD) {
+			bind_core("clojure.lang.IRecord", interfaces[i].proto);
+			clj_core_mark_extension("clojure.lang.IRecord");
+		}
 		clj_release(qualified);
 		clj_release(name);
 	}

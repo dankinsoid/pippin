@@ -17,7 +17,7 @@
 
 (def ^:dynamic *testing-contexts* (list))
 
-(def ^:dynamic *assertion-pos*
+(def ^:dynamic ^:pippin/extension *assertion-pos*
   "{:file :line :column} of the `is` form being evaluated; nil outside one."
   nil)
 

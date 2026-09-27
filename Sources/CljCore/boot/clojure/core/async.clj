@@ -177,7 +177,7 @@
 
 ;;;; go and go-scoped: a scope conveyed through the binding chain makes every go in its extent a child
 
-(def ^:dynamic *scope*
+(def ^:dynamic ^:pippin/extension *scope*
   "The go-scoped scope of the dynamic extent, nil outside any: conveyed to spawned coroutines like every
   binding, so their go blocks are children of the same scope (NOTES.md, \"Futures and scopes\")."
   nil)
@@ -249,7 +249,7 @@
   ;; go shows nothing of the spawner either).
   `(let [f# (fn [] ~@body)] (if *scope* (go* f#) (coro-go* f#))))
 
-(defmacro go-main
+(defmacro ^:pippin/extension go-main
   "As go, on the main carrier: the body runs when the main thread's run loop turns (clj_sched_main_install)."
   [& body]
   `(let [f# (fn [] ~@body)] (if *scope* (go-main* f#) (coro-go-main* f#))))
@@ -289,7 +289,7 @@
             (throw e)
             (:value r)))))))
 
-(defmacro go-scoped
+(defmacro ^:pippin/extension go-scoped
   "Runs the body inline under a scope (design §4, \"Контекст go\"): every go spawned in its dynamic extent —
   including from functions it calls and from coroutines those spawn — is a child of the scope. On exit the
   children are joined. A child's uncaught error cancels the siblings and the body and is rethrown from
@@ -303,7 +303,7 @@
   [& body]
   `(scoped* (fn [] ~@body)))
 
-(defmacro plet
+(defmacro ^:pippin/extension plet
   "Like let, but every init expression runs in its own go block under one go-scoped scope, and the bindings
   are their values: Swift's async let. A failing init cancels the others and rethrows. Not in the JVM's core.async."
   [bindings & body]
@@ -326,19 +326,19 @@
   [& body]
   `(thread-call (fn [] ~@body)))
 
-(defn cancel!
+(defn ^:pippin/extension cancel!
   "Cancels the go block, future or thread body behind a channel: its next park or loop tick throws. Returns
   true when the body was still running, false otherwise. Not in the JVM's core.async."
   [ch]
   (chan-cancel* ch))
 
-(defn cancelled?
+(defn ^:pippin/extension cancelled?
   "True once the running coroutine's cancel flag is set: its next park or loop tick throws :cancelled.
   A cooperative poll, not a park point itself. Not in the JVM's core.async."
   []
   (cancelled?*))
 
-(defn suspend!
+(defn ^:pippin/extension suspend!
   "Holds the go block, future or thread body behind a channel: at its next call or loop tick it parks, and stays
   parked until resume!. The flag is sticky, and the park waits for a point where the body holds nothing — inside
   swap!, locking or a transducer step it is deferred until that is over, never taken with a mutex held. A cancel!
@@ -347,13 +347,13 @@
   [ch]
   (chan-suspend* ch))
 
-(defn resume!
+(defn ^:pippin/extension resume!
   "Lets a suspended body go on from where it parked. Returns true when a suspend! was standing.
   Not in the JVM's core.async."
   [ch]
   (chan-resume* ch))
 
-(defn suspended?
+(defn ^:pippin/extension suspended?
   "True while a suspend! of the body behind ch stands: it is parked on its gate, or will be at its next tick.
   Not in the JVM's core.async."
   [ch]
