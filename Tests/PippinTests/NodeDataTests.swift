@@ -129,6 +129,26 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A compiled unit carries the clause's name, not the type, so a name that reaches nothing where it runs
+		// still refuses there; the exception it could not decide on is the refusal's cause (design §4).
+		@Test func aCatchHostNameThatReachesNothingRefusesWithTheCause() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let analyzed = try Tree.analyze("(try (throw (ex-info \"boom\" {})) (catch Foundation/CocoaError e :cocoa))")
+				let data = try analyzed.data()
+				let text = try #require(Value(owning: clj_pr_str(data.raw)).string)
+				let gone = try Tree.read(try Value(reading: text.replacingOccurrences(of: "Foundation/CocoaError", with: "Nowhere/AtAll")))
+				do {
+					_ = try gone.run()
+					Issue.record("a clause naming no type must refuse")
+				} catch let e as ClojureError {
+					#expect(e.message == "Unable to resolve host type: Nowhere/AtAll")
+					#expect(try cljEval("(fn [e] (ex-message e))")(e.cause) == "boom")
+				}
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		// A constant a macro smuggled in from the host has no printed form that reads back.
 		@Test func notSerializable() throws {
 			_ = try cljEval("(defmacro nd-embed [] inc) (defmacro nd-embed-in-vec [] [inc])")

@@ -1323,8 +1323,14 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 			c->selector = clj_cancelled_keyword();
 			return true;
 		}
+		clj_value text = qualified_text(cls);
+		// clj_host_boot installs the resolver before analysis, so an unreachable name here is a typo.
+		if (clj_host_type_available() && clj_is_nil(clj_host_type_named(clj_string_bytes(text), clj_string_len(text)))) {
+			clj_release(text);
+			return fail_form(a, "Unable to resolve host type: %s", cls) != NULL;
+		}
 		c->kind = CLJ_CATCH_HOST;
-		c->selector = qualified_text(cls);
+		c->selector = text;
 		return true;
 	}
 	clj_value var = clj_ns_resolve(a->env.ns, cls);

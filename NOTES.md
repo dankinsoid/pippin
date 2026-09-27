@@ -1398,14 +1398,23 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
   *declaration* is not a weak *reference* on Darwin — that is `weak_import` — so the `if (clj_host_boot)`
   pattern of runtime.h works only because something always defines that symbol. Two function pointers set
   at boot avoid the question entirely, and a C-only host (Sources/clj-load) simply never sets them.
-- **A clause that cannot decide throws in place of the exception it was matching.** `clj_host_type_catches`
-  answers `CLJ_TRUE`/`CLJ_FALSE` or `CLJ_THROWN` ("No host type resolver: …" where nothing is installed,
-  "Unable to resolve host type: …" where the name reaches nothing), and `clj_catch_instance` does the same
-  for a var that holds no type. `eval_try` and `emit_try` both stop the clause chain on that — the compiled
-  chain gets a `!u<k> &&` guard on every condition — because a later clause matching would swallow the
-  refusal and turn a broken selector back into a silent mismatch, which is the one outcome §4 forbids.
-  Resolution is deferred to the first throw, not done at analysis: a compiled unit carries the name and
-  meets the resolver only where it runs, so a clause that never fires never asks the host anything.
+- **A clause that cannot decide throws in place of the exception it was matching, and carries it.**
+  `clj_host_type_catches` answers `CLJ_TRUE`/`CLJ_FALSE` or `CLJ_THROWN` ("No host type resolver: …" where
+  nothing is installed, "Unable to resolve host type: …" where the name reaches nothing), and
+  `clj_catch_instance` does the same for a var that holds no type. `eval_try` and `emit_try` both stop the
+  clause chain on that — the compiled chain gets a `!u<k> &&` guard on every condition — because a later
+  clause matching would swallow the refusal and turn a broken selector back into a silent mismatch, which is
+  the one outcome §4 forbids. The refusal is raised **while another exception is unwinding**, so that
+  exception is its `ex-cause` (`clj_throw_msg_cause`): replacing it outright reports a broken selector and
+  loses the failure that reached it.
+- **The name is resolved at analysis wherever there is anybody to ask.** `clj_init` ends in `clj_host_boot`,
+  which installs the resolver, so by the time a form is analyzed a Swift host can answer, and `catch_kind_of`
+  refuses an unreachable name there and then: a typo in `Foundation/URLErrror` is a diagnostic, not a clause
+  that never fires. There is no nearest-name hint and there cannot be one — a name reaches a type by being
+  mangled, and no set of known names exists to be near (design §4 "Диагностика"). A C-only host has nobody
+  to ask and stays silent at analysis. The run-time refusal is not a fallback but the other half of the rule:
+  `decode_catch` (node_data.c) sets `CLJ_CATCH_HOST` **without validating**, because a unit compiled where the
+  type exists may be loaded where it does not; at run time a clause that never fires still asks nothing.
 - **Both answers are cached by name, which is finer than §4's "cached per site"**: the core keeps the
   alias list, so a second site naming the same type, and a name that reaches nothing, each cost one
   `strcmp` walk. A *failing* name is remembered too, so a hot loop throwing through a clause naming a

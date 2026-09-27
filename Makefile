@@ -113,8 +113,9 @@ load-asan:
 # A C-only host installs no host type resolver, so a catch clause naming one must fail loudly (design §4).
 c-only-audit:
 	swift build --scratch-path $(PLAIN) --product clj-load
-	$(PLAIN)/debug/clj-load Tests/PippinTests/Fixtures/host-type-c-only.clj 2>&1 | grep -q "No host type resolver"
-	@echo "c-only-audit: a host type clause is refused where no resolver exists"
+	@out=`$(PLAIN)/debug/clj-load Tests/PippinTests/Fixtures/host-type-c-only.clj 2>&1`; \
+		echo "$$out" | grep -q "No host type resolver" && echo "$$out" | grep -qx "boom"
+	@echo "c-only-audit: a host type clause is refused where no resolver exists, keeping the exception it interrupted"
 
 # Every file using a platform-specific API must have a row in docs/portability.md (other platforms are the last goal).
 port-audit:

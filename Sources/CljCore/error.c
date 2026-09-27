@@ -259,20 +259,38 @@ clj_value clj_throw_untraced(clj_value ex) {
 	return CLJ_THROWN;
 }
 
-clj_value clj_throw_msg(const char *fmt, ...) {
-	va_list ap;
-	va_start(ap, fmt);
-	int n = vsnprintf(NULL, 0, fmt, ap);
-	va_end(ap);
+static clj_value formatted(const char *fmt, va_list ap) {
+	va_list count;
+	va_copy(count, ap);
+	int n = vsnprintf(NULL, 0, fmt, count);
+	va_end(count);
 	if (n < 0) clj_fatal("vsnprintf failed");
 	char *text = malloc((size_t)n + 1);
 	if (!text) clj_fatal("out of memory");
-	va_start(ap, fmt);
 	vsnprintf(text, (size_t)n + 1, fmt, ap);
-	va_end(ap);
 	clj_value message = clj_string_new(text, (size_t)n);
 	free(text);
+	return message;
+}
+
+clj_value clj_throw_msg(const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	clj_value message = formatted(fmt, ap);
+	va_end(ap);
 	clj_value ex = clj_ex_info(message, CLJ_NIL);
+	clj_release(message);
+	return clj_throw(ex);
+}
+
+// @ai-generated(solo)
+clj_value clj_throw_msg_cause(clj_value cause, const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	clj_value message = formatted(fmt, ap);
+	va_end(ap);
+	// A thrown non-error has no cause slot to sit in, as in atom.c and load.c.
+	clj_value ex = clj_ex_info_cause(message, CLJ_NIL, clj_is_exception(cause) ? cause : CLJ_NIL);
 	clj_release(message);
 	return clj_throw(ex);
 }

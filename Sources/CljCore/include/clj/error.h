@@ -33,6 +33,8 @@ clj_value clj_throw_traced(clj_value ex, clj_value trace);
 clj_value clj_throw_untraced(clj_value ex);
 // ex-info with the formatted message and nil data.
 clj_value clj_throw_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+// The same, for a throw that interrupts an unwind: cause is the in-flight value, dropped if it is no error.
+clj_value clj_throw_msg_cause(clj_value cause, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 // Borrowed; nil when nothing is pending.
 clj_value clj_pending(void);
 // Owned; clears the slot and drops the pending trace. nil when nothing is pending.

@@ -177,10 +177,12 @@ extension CoreTests {
 				// Any keyword but :default is a selector now (ex-type/isa?), not a classname error.
 				#expect(try rt.eval("(try 1 (catch :other e 2))") == 1)
 				#expect(message(rt, "(try 1 (catch java.lang.Exception e 2))") == "Unable to resolve classname: java.lang.Exception")
-				// A qualified symbol is a host type, resolved where the clause runs and not where it is read,
-				// so a body that never throws never asks the host anything (design §4).
+				// A qualified symbol is a host type, and the resolver stands before analysis does (clj_host_boot),
+				// so a name reaching no type is refused where it is read, throw or no throw (design §4). With no
+				// resolver, or a type gone where a compiled unit runs, the refusal comes at run time and carries
+				// the exception it interrupted (make c-only-audit, NodeDataTests).
 				#expect(try rt.eval("(try 1 (catch Foundation/CocoaError e 2))") == 1)
-				#expect(try rt.eval("(try 1 (catch Nowhere/AtAll e 2))") == 1)
+				#expect(message(rt, "(try 1 (catch Nowhere/AtAll e 2))") == "Unable to resolve host type: Nowhere/AtAll")
 				#expect(message(rt, "(try (throw (ex-info \"m\" {})) (catch Nowhere/AtAll e 2))") ==
 				        "Unable to resolve host type: Nowhere/AtAll")
 				// A keyword is still a selector of its own, whatever it looks like.

@@ -125,9 +125,11 @@ clj_value clj_host_type_catches(clj_value name, clj_value ex) {
 	const char *text = clj_string_bytes(name);
 	clj_value   type = clj_host_type_named(text, clj_string_len(name));
 	if (clj_is_nil(type)) {
-		return clj_throw_msg(clj_host_type_available() ? "Unable to resolve host type: %s"
-		                                               : "No host type resolver: %s cannot be caught by this host",
-		                     text);
+		// The refusal interrupts an unwind, so ex arrives as its cause instead of being dropped.
+		return clj_throw_msg_cause(ex,
+		                           clj_host_type_available() ? "Unable to resolve host type: %s"
+		                                                     : "No host type resolver: %s cannot be caught by this host",
+		                           text);
 	}
 	return clj_bool(clj_host_type_instance(type, ex));
 }
