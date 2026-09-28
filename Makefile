@@ -1,4 +1,4 @@
-.PHONY: port-audit c-only-audit cmutex-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan gates gates-full
+.PHONY: port-audit c-only-audit cmutex-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -128,6 +128,17 @@ port-audit:
 # Every cmutex acquisition must be accounted for: an unregistered one is a suspend! parked holding it.
 cmutex-audit:
 	sh scripts/cmutex-audit.sh
+
+# The stub-generator measurement of design §10 step 8: how much of a Swift module's public API reprints
+# into a compilable stub, and what the tail is made of. Rewrites docs/swift-reprint.md, which is committed.
+# NOT a gate, and must not become one: the numbers come from the installed SDK and toolchain, so they move
+# under an Xcode update and differ on another machine — the committed report names the versions it used.
+# Needs network on a cold run (the SwiftPM probe package) and about ten minutes (SwiftUI's graph is 450 MB).
+swift-reprint:
+	python3 scripts/swift-reprint.py --work $(BUILD_ROOT)/swift-reprint --out docs/swift-reprint.md \
+		Foundation SwiftUI \
+		--spm https://github.com/apple/swift-argument-parser.git=1.5.0=ArgumentParser \
+		--spm https://github.com/apple/swift-collections.git=1.1.0=OrderedCollections
 
 # @ai-generated(solo)
 gates:
