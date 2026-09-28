@@ -25,6 +25,7 @@ collects into one throwaway SwiftPM package that the script writes and builds un
 import argparse
 import collections
 import concurrent.futures
+import glob
 import json
 import os
 import random
@@ -86,7 +87,6 @@ TYPE_KINDS = {"swift.struct", "swift.class", "swift.enum", "swift.protocol", "sw
 # Causes of group 3, in the order a symbol is attributed to one when it has several.
 CAUSE_ORDER = [
 	"macro",
-	"result-builder",
 	"parameter-pack",
 	"noncopyable",
 	"autoclosure",
@@ -161,19 +161,54 @@ def frag_usrs(frags):
 	return out
 
 
-def param_type_frags(param):
-	"""Drop the label from a parameter's declaration fragments, leaving the type expression."""
+BUILDER_ATTR = re.compile(r"^@\w*Builder$")
+
+
+def param_attrs(param):
+	"""(attribute spellings, the fragments after them) for one parameter.
+
+	Attributes come before the label, so a scan for the label has to start past them."""
 	frags = param.get("declarationFragments", [])
+	attrs, cur, i = [], "", 0
+	while i < len(frags):
+		f = frags[i]
+		if f["kind"] == "attribute":
+			cur += f["spelling"]
+			i += 1
+			continue
+		if cur:
+			attrs.append(cur)
+			cur = ""
+			if f["kind"] == "text" and not f["spelling"].strip():
+				i += 1
+				continue
+		break
+	if cur:
+		attrs.append(cur)
+	return attrs, frags[i:]
+
+
+def builder_attrs(param):
+	return [a for a in param_attrs(param)[0] if BUILDER_ATTR.match(a)]
+
+
+def param_type_frags(param):
+	"""Drop the label and any result-builder attribute, leaving the type expression.
+
+	A builder attribute transforms a closure *literal* written at the call site and says nothing about
+	the type a stub passes: `@ViewBuilder content: () -> C` accepts any `() -> C` value."""
+	attrs, frags = param_attrs(param)
+	keep = [{"kind": "attribute", "spelling": a + " "} for a in attrs if not BUILDER_ATTR.match(a)]
 	for i, f in enumerate(frags):
 		if f["kind"] == "text" and ":" in f["spelling"]:
 			rest = f["spelling"].split(":", 1)[1]
 			tail = frags[i + 1:]
 			if rest.strip():
 				tail = [{"kind": "text", "spelling": rest}] + tail
-			return tail
+			return keep + tail
 		if f["kind"] not in ("identifier", "externalParam", "internalParam", "text"):
 			break
-	return frags
+	return keep + frags
 
 
 def decl_param_list(decl):
@@ -441,8 +476,21 @@ def isolation_of(decl):
 # ---------------------------------------------------------------------------
 # Pass 2: classification.
 
-RESULT_BUILDER = re.compile(r"@(\w*Builder)\b")
 THROWS_TYPED = re.compile(r"\bthrows\s*\(")
+
+
+def existential_of(slots, protocols):
+	"""Whether a slot asks for `any P` of one of these protocols.
+
+	Mentioning the protocol is not asking for its existential: `T: P` is a constraint the call site
+	instantiates (§5, generics) and `some P` is an opaque type swiftc resolves — both reprint and compile.
+	A comma or a bracket between `any` and the name blocks the match, so `(any Error, some P)` does not
+	count. Bare existentials spelled without `any` are missed; Swift 6 prints them with it."""
+	for _role, text, usrs, _bucket in slots:
+		for name, usr in usrs.items():
+			if usr in protocols and re.search(rf"\bany\b[\w\s.&]*\b{re.escape(name)}\b", text):
+				return True
+	return False
 
 
 def symbol_record(sym, idx):
@@ -493,17 +541,17 @@ def symbol_record(sym, idx):
 	causes = []
 	if kind == "swift.macro":
 		causes.append("macro")
-	if RESULT_BUILDER.search(decl):
-		causes.append("result-builder")
 	if re.search(r"\beach\b|\brepeat\b", decl):
 		causes.append("parameter-pack")
 	if "~Copyable" in decl or (all_usrs & idx.noncopyable) or (parent and parent["usr"] in idx.noncopyable):
 		causes.append("noncopyable")
 	if "@autoclosure" in decl:
 		causes.append("autoclosure")
-	if all_usrs & idx.propwrapper:
+	wrapper_slots = sum(1 for _r, _t, us, _b in slots if set(us.values()) & idx.propwrapper)
+	if any((idx.by_path.get(path[:i]) or {}).get("usr") in idx.propwrapper for i in range(1, len(path))):
+		# The wrapper *is* the declaration form (`@State var`); a wrapper in a slot is a constructible handle.
 		causes.append("property-wrapper-as-api")
-	if all_usrs & idx.proto_selfreq:
+	if existential_of(slots, idx.proto_selfreq):
 		causes.append("self-requirement-protocol")
 	if "..." in param_text:
 		causes.append("variadic-parameter")
@@ -537,6 +585,8 @@ def symbol_record(sym, idx):
 		"slots": [(r, t, b) for r, t, _, b in slots],
 		"slot_usrs": [u for _, _, u, _ in slots],
 		"mods": mods,
+		"builder_params": sum(1 for p in fs.get("parameters", []) if builder_attrs(p)),
+		"wrapper_slots": wrapper_slots,
 		"group": group,
 		"causes": causes,
 		"cause": next((c for c in CAUSE_ORDER if c in causes), None),
@@ -659,6 +709,33 @@ def protocol_witness_by_name(name):
 	return sorted(w)[0] if w else None
 
 
+WHERE_CLAUSE = re.compile(r"\bwhere\b(.*)$", re.S)
+
+
+def decl_constraints(decl, usrs):
+	"""The constraints of a printed `where` clause, shaped like `swiftGenerics.constraints`.
+
+	That key is not always there: a member of a protocol extension arrives with an empty constraint list
+	and `where MenuItems : View` only in the print, and a harness that misses it picks a witness that
+	conforms to nothing."""
+	m = WHERE_CLAUSE.search(decl)
+	if not m:
+		return []
+	out = []
+	for part in _split_top(m.group(1), [","]):
+		part = part.strip()
+		for sep, kind in (("==", "sameType"), (":", "conformance")):
+			i = _find_top(part, sep)
+			if i < 0:
+				continue
+			lhs, rhs = part[:i].strip(), part[i + len(sep):].strip()
+			if re.match(r"^[\w.]+$", lhs):
+				out.append({"kind": kind, "lhs": lhs, "rhs": rhs,
+					"rhsPrecise": usrs.get(rhs.split(".")[-1], "")})
+			break
+	return out
+
+
 def substitution(rec, idx):
 	"""A concrete type for every type parameter except `Self`, or None when one cannot be chosen."""
 	sym = rec["sym"]
@@ -669,6 +746,7 @@ def substitution(rec, idx):
 	by_name = collections.defaultdict(list)
 	# A member repeats its type's parameters but not its type's constraints, so merge them in.
 	constraints = list((parent["gen"] if parent else {}).get("constraints", [])) + gen.get("constraints", [])
+	constraints += decl_constraints(rec["decl"], frag_usrs(sym.get("declarationFragments", [])))
 	for c in constraints:
 		lhs = c["lhs"]
 		if "." in lhs:
@@ -879,7 +957,8 @@ def failure_class(msg, instantiated):
 
 def run_sample(name, module, pool, idx, work, sample_size, import_path, extra_imports, progress):
 	if not pool:
-		return {"pool": 0, "sampled": 0, "compiled": 0, "failures": []}
+		return {"pool": 0, "sampled": 0, "compiled": 0, "failures": [],
+			"pool_builder": 0, "sampled_builder": 0, "failed_builder": 0}
 	pool = sorted(pool, key=lambda r: r["usr"])
 	sample = pool if len(pool) <= sample_size else random.Random(0).sample(pool, sample_size)
 	sample.sort(key=lambda r: r["usr"])
@@ -913,6 +992,7 @@ def run_sample(name, module, pool, idx, work, sample_size, import_path, extra_im
 		msg = err[0].split(": error: ", 1)[-1] if err else res.stderr.strip()[:200]
 		return {"usr": r["usr"], "title": ".".join(r["path"]), "group": r["group"],
 			"generic": bool(r["generics"]) or "Self" in r["decl"],
+			"builder": bool(r["builder_params"]),
 			"class": failure_class(msg, name == "instantiated"), "error": msg}
 
 	progress(f"  swiftc {name}: {len(files)} stubs")
@@ -920,6 +1000,9 @@ def run_sample(name, module, pool, idx, work, sample_size, import_path, extra_im
 		results = list(pool_exec.map(one, files))
 	failures = [x for x in results if x]
 	return {"pool": len(pool), "sampled": len(files), "compiled": len(files) - len(failures),
+		"pool_builder": sum(1 for r in pool if r["builder_params"]),
+		"sampled_builder": sum(1 for _p, r, _s in files if r["builder_params"]),
+		"failed_builder": sum(1 for x in failures if x["builder"]),
 		"failures": failures}
 
 
@@ -942,17 +1025,23 @@ def verify(module, recs, idx, work, sample_size, import_path, extra_imports, pro
 # ---------------------------------------------------------------------------
 # Per-module analysis.
 
-def analyze(module, graph_dir, work, sample_size, import_path, extra_imports, progress, do_verify=True):
-	paths = graph_files(graph_dir)
+def analyze(module, graph_dirs, work, sample_size, import_path, extra_imports, progress, do_verify=True):
+	paths = [p for d in graph_dirs for p in graph_files(d)]
 	gen, plat = graph_metadata(paths[0])
 	progress(f"{module}: {len(paths)} graph file(s)")
 	idx = scan_types(paths, progress)
 
 	recs, props, ops = [], [], []
 	kinds = collections.Counter()
+	seen, dupes = set(), 0
 	for p in paths:
 		progress(f"  classify {os.path.basename(p)}")
 		for sym in iter_symbols(p):
+			usr = sym["identifier"]["precise"]
+			if usr in seen:
+				dupes += 1		# two graphs of one module can print the same symbol; count it once
+				continue
+			seen.add(usr)
 			kind = sym["kind"]["identifier"]
 			kinds[kind] += 1
 			if any(c.startswith("_") for c in sym["pathComponents"]):
@@ -968,6 +1057,7 @@ def analyze(module, graph_dir, work, sample_size, import_path, extra_imports, pr
 		"module": module, "generator": gen, "platform": plat,
 		"graph_files": [os.path.basename(p) for p in paths],
 		"graph_bytes": sum(os.path.getsize(p) for p in paths),
+		"duplicate_symbols": dupes,
 		"kinds": dict(kinds.most_common()),
 		"funclike": summarize(recs, idx),
 		"operators": summarize(ops, idx),
@@ -1015,6 +1105,10 @@ def summarize(recs, idx):
 		"causes_any": causes_any.most_common(),
 		"slots": slots.most_common(),
 		"hidden_closures": hidden_closures,
+		"builder_symbols": sum(1 for r in recs if r["builder_params"]),
+		"builder_param_slots": sum(r["builder_params"] for r in recs),
+		"wrapper_slot_symbols": sum(1 for r in recs if r["wrapper_slots"]),
+		"wrapper_slots": sum(r["wrapper_slots"] for r in recs),
 		"top_handle_types": handle_types.most_common(15),
 		"throws": collections.Counter(r["throws"] for r in recs).most_common(),
 		"isolated": sum(1 for r in recs if r["isolation"]),
@@ -1030,7 +1124,7 @@ def summarize(recs, idx):
 # ---------------------------------------------------------------------------
 # Extraction.
 
-def extract(module, target, sdk, out_dir, import_path, progress):
+def extract(module, target, sdk, out_dir, import_path, progress, required=True):
 	if os.path.isdir(out_dir) and graph_files(out_dir):
 		progress(f"{module}: reusing {out_dir}")
 		return out_dir
@@ -1042,8 +1136,124 @@ def extract(module, target, sdk, out_dir, import_path, progress):
 	progress(f"{module}: extracting")
 	res = subprocess.run(cmd, capture_output=True, text=True)
 	if res.returncode != 0 or not graph_files(out_dir):
+		if not required:
+			progress(f"{module}: extraction failed, skipped")
+			return None
 		raise SystemExit(f"{module}: symbolgraph-extract failed\n{res.stderr}")
 	return out_dir
+
+
+# ---------------------------------------------------------------------------
+# Re-exports: one `import` is not one `.swiftmodule`.
+
+def usr_module(usr):
+	"""The module a mangled Swift USR belongs to, or None when the USR is not a Swift one."""
+	if not usr.startswith("s:"):
+		return None
+	m = re.match(r"s:(\d+)", usr)
+	if not m:
+		return "Swift"			# a stdlib substitution: `s:Sb`, `s:Sa`
+	n = int(m.group(1))
+	return usr[m.end():m.end() + n]
+
+
+DECLARED_USR = re.compile(r'"identifier":\{"precise":"([^"]+)"')
+REFERENCED_USR = re.compile(r'"preciseIdentifier":"([^"]+)"')
+EDGE_USR = re.compile(r'"(?:source|target)":"([^"]+)"')
+
+
+def own_usrs(module, paths):
+	"""(declared, referenced) USRs of `module` itself over these graphs."""
+	declared, referenced = set(), collections.Counter()
+	for p in paths:
+		with open(p, "rb") as f:
+			text = f.read().decode("utf-8")
+		for m in DECLARED_USR.finditer(text):
+			if usr_module(m.group(1)) == module:
+				declared.add(m.group(1))
+		for rx in (REFERENCED_USR, EDGE_USR):
+			for m in rx.finditer(text):
+				if usr_module(m.group(1)) == module:
+					referenced[m.group(1)] += 1
+		del text
+	return declared, referenced
+
+
+def dangling_own(module, paths):
+	"""USRs mangled into `module` that none of these graphs declares.
+
+	A framework shipped as two `.swiftmodule`s keeps one ABI name — SwiftUICore is built
+	`-module-abi-name SwiftUI` — so the missing half's symbols are mangled as the module's own and show up
+	here rather than under a foreign prefix."""
+	declared, referenced = own_usrs(module, paths)
+	return {u: c for u, c in referenced.items() if u not in declared}
+
+
+EXPORTED_IMPORT = re.compile(r"^@_exported import (\w+)", re.M)
+ABI_NAME = re.compile(r"-module-abi-name (\w+)")
+
+
+def interface_path(module, sdk, target, import_path):
+	"""The `.swiftinterface` of a module, if the toolchain ships one."""
+	pats = []
+	if import_path:
+		pats += [os.path.join(import_path, f"{module}.swiftinterface"),
+			os.path.join(import_path, f"{module}.swiftmodule", "*.swiftinterface")]
+	for d in ("Frameworks", "SubFrameworks", "PrivateFrameworks"):
+		base = os.path.join(sdk, "System", "Library", d, f"{module}.framework")
+		pats.append(os.path.join(base, "Modules", f"{module}.swiftmodule", "*.swiftinterface"))
+		pats.append(os.path.join(base, "Versions", "*", "Modules", f"{module}.swiftmodule",
+			"*.swiftinterface"))
+	pats.append(os.path.join(sdk, "usr", "lib", "swift", f"{module}.swiftmodule", "*.swiftinterface"))
+	hits = [h for p in pats for h in glob.glob(p)]
+	arch, _, os_name = target.partition("-apple-")
+	os_name = re.sub(r"[\d.]+$", "", os_name).replace("macosx", "macos")
+	same_os = [h for h in hits if f"-apple-{os_name}." in os.path.basename(h)] or hits
+	same_os.sort(key=lambda h: (not os.path.basename(h).startswith(arch), h))
+	return same_os[0] if same_os else None
+
+
+def interface_facts(path):
+	"""(ABI name, `@_exported import` names) off a `.swiftinterface` header."""
+	with open(path, "r", errors="replace") as f:
+		head = f.read(1 << 18)
+	m = ABI_NAME.search(head)
+	return (m.group(1) if m else None), set(EXPORTED_IMPORT.findall(head))
+
+
+def abi_siblings(module, paths, sdk, target, work, import_path, progress):
+	"""The modules whose graphs have to be read together with this one's.
+
+	`-module-name SwiftUI` returns half a framework: `View`, `Text`, `VStack` and `ViewBuilder` live in
+	SwiftUICore. Detected rather than listed — the hole is the set of USRs mangled into the module that
+	nothing declares, and a candidate fills it only when its own ABI name is the module's, which is the
+	mechanism that put its symbols under that name in the first place."""
+	before = dangling_own(module, paths)
+	if not before:
+		return [], 0, 0
+	candidates = {os.path.basename(p).split("@", 1)[1].removesuffix(".symbols.json")
+		for p in paths if "@" in os.path.basename(p)}
+	iface = interface_path(module, sdk, target, import_path)
+	if iface:
+		candidates |= interface_facts(iface)[1]
+	candidates.discard(module)
+	found = []
+	for cand in sorted(candidates):
+		ci = interface_path(cand, sdk, target, import_path)
+		if ci is not None:
+			if interface_facts(ci)[0] != module:
+				continue		# a module in its own right: its surface answers to its own `require-swift`
+		elif not (import_path and glob.glob(os.path.join(import_path, f"{cand}.swiftmodule*"))):
+			continue			# no interface and not locally built: nothing cheap says it is a sibling
+		d = extract(cand, target, sdk, os.path.join(work, "sg", cand), import_path, progress,
+			required=False)
+		if d is None:
+			continue
+		if not own_usrs(module, graph_files(d))[0] & set(before):
+			continue
+		found.append((cand, d))
+	after = dangling_own(module, paths + [p for _, d in found for p in graph_files(d)])
+	return found, sum(before.values()), sum(after.values())
 
 
 PACKAGE_TEMPLATE = """// swift-tools-version: 6.0
@@ -1124,6 +1334,18 @@ def render(results, meta):
 	w("can be counted as a refusal. Symbols with an underscored path component are dropped: they are public")
 	w("only in the ABI sense and are not API.")
 	w("")
+	w("**A module is more than one `.swiftmodule`.** `swift-symbolgraph-extract -module-name SwiftUI`")
+	w("returns half a framework: `View`, `Text`, `VStack` and `ViewBuilder` are not in it, because they live")
+	w("in `SwiftUICore.framework`, which `SwiftUI` re-exports. The measured surface is therefore the")
+	w("module's graph plus the graph of every such sibling, found from the data rather than from a list:")
+	w("SwiftUICore is built `-module-abi-name SwiftUI`, so its symbols are mangled as SwiftUI's own and the")
+	w("hole shows up as USRs carrying the module's own name that nothing in its graph declares. A candidate")
+	w("— a `@_exported import` in the module's `.swiftinterface`, or a module named by one of the")
+	w("`Module@Other` extension graphs — is taken only when its own ABI name is the module's. A module with")
+	w("an ABI name of its own is left out: its surface answers to its own `require-swift`, not to this one's.")
+	w("The count of unresolved own-name USRs before and after is reported per module, so the step can be")
+	w("checked rather than believed.")
+	w("")
 	w("**Operators (`swift.func.op`) are reported separately and not merged into the totals.** They reprint")
 	w("like any other free function, but §5's call forms are `(.method x)` and `(f x)` — an operator has no")
 	w("Clojure spelling and would need a naming convention that no part of the design has decided. Counting")
@@ -1147,6 +1369,18 @@ def render(results, meta):
 	w("it is supplied here. It matters: without it every no-argument `init()` would land in group 1 while what")
 	w("actually crosses the boundary is an opaque handle, which is the one thing §10's sharpened criterion")
 	w("exists to catch.")
+	w("")
+	w("**A result-builder attribute is not a refusal.** `@ViewBuilder content: () -> Content` transforms a")
+	w("closure *literal written at the call site*; the parameter itself is an ordinary `() -> Content`, and a")
+	w("stub passes a closure *value*, which the attribute does not touch. Measured against")
+	w("`init(@ViewBuilder content: () -> Content)` on a `Content: View` struct: a stored `() -> Text`, a bare")
+	w("function reference, and a hand-built `TupleView<(Text, Text)>` closure all type-check. So the attribute")
+	w("is dropped from the reprinted type and the parameter is classified on its own type — a closure slot,")
+	w("which is crossable. The symbols that carry one are held out of group 1 by their `some View` return, not")
+	w("by the attribute. The honest remainder is narrower than a refusal: a *multi-statement builder body*")
+	w("cannot be written from Clojure, while one view value, or several through")
+	w("`TupleView`/`ViewBuilder.buildBlock`, can be passed. The count of builder-annotated parameters is")
+	w("reported as information, beside the buckets.")
 	w("")
 	w("**The three groups.** A symbol with any refusal cause is group 3. Otherwise it is group 1 when every")
 	w("parameter and the return is a value, a collection of values or a closure, and group 2 when anything")
@@ -1186,6 +1420,18 @@ def render(results, meta):
 			f"{', '.join('`' + g + '`' for g in r['graph_files'])}. The `Module@Other` files are the extensions")
 		w("the module adds to other modules' types; they are part of the surface and are counted.")
 		w("")
+		if r.get("reexports"):
+			w(f"Re-exported siblings merged in: {', '.join('`' + m + '`' for m in r['reexports'])}. "
+				f"Unresolved USRs carrying this module's own name fell from {r['dangling_before']} "
+				f"references to {r['dangling_after']}.")
+		elif r.get("dangling_before"):
+			w(f"No re-exported sibling: {r['dangling_before']} references to USRs carrying this module's own "
+				"name are unresolved, and no candidate module declares them.")
+		else:
+			w("No re-exported sibling: every USR carrying this module's own name is declared in its graph.")
+		if r.get("duplicate_symbols"):
+			w(f"{r['duplicate_symbols']} symbols were printed by more than one graph file and counted once.")
+		w("")
 		w("| group | count | share |")
 		w("|---|---:|---:|")
 		w(f"| 1 — reprints and is usable | {f['group1']} | {pct(f['group1'], f['total'])} |")
@@ -1224,6 +1470,16 @@ def render(results, meta):
 		w("would call them handles, and a wrapper forwarding one would not know it needs `@escaping`. This is")
 		w("undercounted — an ObjC block typedef (`NSComparator`, `NSUserUnixTask`'s completion handler) has a")
 		w("`c:@T@…` USR and no `swift.typealias` symbol in the module's own graph, so it stays a handle here.")
+		w("")
+		w(f"Result builders, for information and not as a refusal: {f['builder_symbols']} function-like symbols "
+			f"({pct(f['builder_symbols'], f['total'])}) take {f['builder_param_slots']} builder-annotated")
+		w("parameters between them. Each is classified on its own type; what cannot be written from Clojure is")
+		w("a multi-statement builder body, not the call.")
+		w("")
+		w(f"Property wrappers, likewise for information: {f['wrapper_slot_symbols']} symbols "
+			f"({pct(f['wrapper_slot_symbols'], f['total'])}) have a wrapper type in {f['wrapper_slots']} of their")
+		w("slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the")
+		w("declaration form `@State var x`, counted in the tail as members of a wrapper type.")
 		w("")
 		w("### Decided, not refused")
 		w("")
@@ -1300,6 +1556,13 @@ def render(results, meta):
 				w("")
 			w("`swiftc -typecheck -swift-version 5`, one file per stub.")
 			w("")
+			if c["pool_builder"] or g["pool_builder"]:
+				w(f"Builder-annotated symbols in the pools: {c['pool_builder']} concrete, "
+					f"{g['pool_builder']} instantiated; {c['sampled_builder'] + g['sampled_builder']} of them "
+					f"were sampled and {c['failed_builder'] + g['failed_builder']} failed. That is the check on")
+				w("the paragraph above: the attribute is dropped, the closure type is reprinted, and swiftc")
+				w("accepts the call.")
+				w("")
 			for label, arm in (("concrete", c), ("instantiated", g)):
 				if not arm["failures"]:
 					continue
@@ -1337,11 +1600,27 @@ def render(results, meta):
 	w("  symbols marked unavailable or obsoleted on macOS are dropped from the pool instead.")
 	w("- `self-requirement-protocol` is detected by a proxy: a protocol that declares an associated type, or")
 	w("  whose members mention `Self`, and whose own declaration names no primary associated type. Swift's own")
-	w("  answer is the swiftc column, which is why the sample exists.")
+	w("  answer is the swiftc column, which is why the sample exists. It fires only where a parameter or")
+	w("  return spells `any P`. A constraint `T: P` is not a refusal — the call site supplies `T` (§5,")
+	w("  generics) — and `some P` is an opaque type swiftc resolves; counting either would refuse most of a")
+	w("  declarative framework for mentioning its own protocol. This cause is kept on §5's usability grounds")
+	w("  and not as a reprint failure: `any P` has type-checked since Swift 5.7 (SE-0309), so the refusal is")
+	w("  that the value cannot be used, not that the declaration cannot be printed.")
+	w("- `property-wrapper-as-api` fires on members of a property-wrapper type, which is where the wrapper is")
+	w("  the declaration form (`@State var x`) and nothing is called. A wrapper *in a slot* is not counted: it")
+	w("  is a handle that can be built — `Binding(get:set:)` and `State(initialValue:)` are public, and a stub")
+	w("  taking `Binding<Bool>` compiles and calls. Wrapper-typed slots are reported per module as information.")
+	w("- Witnesses for the instantiated pool come from `swiftGenerics.constraints` **and** from the printed")
+	w("  `where` clause, because the key is not always populated: a member of a protocol extension arrives")
+	w("  with `where MenuItems : View` in its declaration and an empty constraint list, and a harness that")
+	w("  reads only the structured field picks a witness conforming to nothing. That is the same graph gap as")
+	w("  the ownership modifiers `functionSignature` drops — the print carries what the structure does not.")
 	w("- Cost of the measurement itself, for whoever reruns it: the graphs total "
 		f"{sum(r['graph_bytes'] for r in results) / 1e6:.0f} MB, extraction is minutes and analysis is seconds;")
-	w("  peak resident memory is about 3 GB, set by SwiftUI's single 450 MB JSON document, which is why the")
-	w("  graph is streamed element by element rather than parsed whole.")
+	w("  peak resident memory is about 4 GB, set by SwiftUI's single 450 MB JSON document, which is why the")
+	w("  graph is streamed element by element rather than parsed whole. With every graph already extracted the")
+	w("  whole run — four modules classified and 325 stubs type-checked — is under two minutes; the")
+	w("  classification alone is 34 s, which is what makes an index of the whole declared surface cheap.")
 	w("")
 	w("## Reading")
 	w("")
@@ -1358,12 +1637,24 @@ def render(results, meta):
 	w("  group shares can be read as they stand, in the worst-case module as well as the easy one.")
 	w("- The number the sharpened criterion asks for is group 1, and only group 1. Group 2 is large everywhere")
 	w("  and is not evidence for anything: it says the call site moved and an opaque handle crossed.")
-	w("- The tail's shape differs by module more than its size does. Where the surface is ObjC-imported the")
-	w("  refusals are a rounding error and the cost is that almost everything is a handle; where the surface is")
-	w("  Swift-native and declarative, one cause — result builders — is most of the tail on its own.")
+	w("- **Group 1 understates, and measuring a whole public surface is why.** The largest handle slots are")
+	w("  conformance plumbing no Clojure program reaches for — in Foundation, `inout Hasher`, `any Decoder`,")
+	w("  `any Encoder`, `[Self.Element]` — and `Encoder`/`Decoder` are our own `Codable` fallback path, which")
+	w("  §5 keeps for types the generator has not seen. §5's premise is that generation follows call sites and")
+	w("  not the SDK, so the share that decides anything needs a call list from a real application. The")
+	w("  instrument answers that the moment such a list exists; it does not exist here.")
+	tails = ", ".join(f"{r['module']} `{r['funclike']['causes'][0][0]}`"
+		for r in results if r["funclike"]["causes"])
+	w("- **The tail is small everywhere, and the cost is that almost everything is a handle.** The largest")
+	w(f"  single cause per module is {tails} — argument-passing forms, plus the one case where a declaration")
+	w("  form rather than a call is what does not move (a property wrapper). Nothing in the tail is the size")
+	w("  §5 feared; the number that hurts is group 2.")
 	w("- Two of the separately-counted \"decided\" lines are large enough to be read as costs rather than")
 	w("  footnotes: structs with no public initialiser, which §5 predicted would fill the tail, and global-actor")
-	w("  isolation, which §5 answers with an async thunk on every one of them.")
+	w("  isolation. The second is not a thunk apiece: the hop is conditional — elided when the caller is")
+	w("  already on the main carrier — and one shared helper performs it, so the cost at this share of the")
+	w("  surface is classification correctness, because a missed isolated symbol is a runtime failure where")
+	w("  Swift would have given a compile error.")
 	w("")
 	return "\n".join(L) + "\n"
 
@@ -1408,8 +1699,15 @@ def main():
 	generator = "?"
 	for module, ipath, imports, _note in specs:
 		gdir = extract(module, args.target, sdk, os.path.join(args.work, "sg", module), ipath, progress)
-		res, _recs, _idx = analyze(module, gdir, args.work, args.sample, ipath, imports, progress,
-			do_verify=not args.no_verify)
+		sibs, dangling_before, dangling_after = abi_siblings(module, graph_files(gdir), sdk, args.target,
+			args.work, ipath, progress)
+		if sibs:
+			progress(f"{module}: re-exported siblings {', '.join(n for n, _ in sibs)}")
+		res, _recs, _idx = analyze(module, [gdir] + [d for _, d in sibs], args.work, args.sample, ipath,
+			imports, progress, do_verify=not args.no_verify)
+		res["reexports"] = [n for n, _ in sibs]
+		res["dangling_before"] = dangling_before
+		res["dangling_after"] = dangling_after
 		generator = res["generator"]
 		res["note"] = MODULE_NOTES.get(module, "")
 		results.append(res)
@@ -1428,13 +1726,16 @@ def main():
 # A module's graph names types it only conforms to; the stub has to import those modules as well.
 EXTRA_IMPORTS = {
 	"Foundation": ["Foundation", "Combine"],
-	"SwiftUI": ["SwiftUI", "Foundation", "Combine", "CoreGraphics", "UniformTypeIdentifiers"],
+	"SwiftUI": ["SwiftUI", "Foundation", "Combine", "CoreGraphics", "UniformTypeIdentifiers",
+		"Symbols", "Spatial", "Observation", "CoreData", "OSLog"],
 }
 
 MODULE_NOTES = {
 	"Foundation": "The large, half-imported-from-ObjC case: what the boundary looks like where most of the "
 		"surface arrived through the Clang importer.",
-	"SwiftUI": "The worst case, chosen for it: result builders, opaque return types, heavy generics.",
+	"SwiftUI": "The worst case, chosen for it: opaque return types, heavy generics, a surface built out of "
+		"result builders — and a framework that ships as two modules, so the graph of one is not the surface "
+		"of one `import`.",
 	"ArgumentParser": "Someone else's code, built from source — the §5 case with no `.swiftinterface` at all "
 		"(checked: the build directory has `.swiftmodule` and nothing else).",
 	"OrderedCollections": "A second dependency built from source: a collection library, where the surface is "
