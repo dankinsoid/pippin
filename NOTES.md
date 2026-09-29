@@ -1457,7 +1457,8 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 - **The name is resolved at analysis wherever there is anybody to ask.** `clj_init` ends in `clj_host_boot`,
   which installs the resolver, so by the time a form is analyzed a Swift host can answer, and `catch_kind_of`
   refuses an unreachable name there and then: a typo in `Foundation/URLErrror` is a diagnostic, not a clause
-  that never fires. There is no nearest-name hint and there cannot be one — a name reaches a type by being
+  that never fires. This is the one of design §5's three loudness paths for a refused host symbol that is
+  built — the generator's per-module report and the LSP diagnostic at the call site are not. There is no nearest-name hint and there cannot be one — a name reaches a type by being
   mangled, and no set of known names exists to be near (design §4 "Диагностика"). A C-only host has nobody
   to ask and stays silent at analysis. The run-time refusal is not a fallback but the other half of the rule:
   `decode_catch` (node_data.c) sets `CLJ_CATCH_HOST` **without validating**, because a unit compiled where the
@@ -2856,7 +2857,11 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   string and number, whatever the class behind it; `ns-string`, `ns-mutable-string` and `ns-string->str`
   hand back the object itself where one is needed. `@YES` and `@1` answer the same `-objCType`, so the booleans are
   told apart by identity against the `kCFBoolean` singletons. Everything else is an opaque wrapper whose
-  equality and hash are identity: `-isEqual:` would run foreign code under a map's lock.
+  equality and hash are identity: `-isEqual:` would run foreign code under a map's lock. Identity is
+  defensible here and only here — an Objective-C object is a reference, so it means "the same object".
+  A level-2 handle to a Swift struct is a pointer to a box holding a *copy*, where identity would mean
+  "the same box", so design §5 has the generator print `==` and `hash(into:)` from the type's own
+  `Equatable`/`Hashable` and refuse to be a map key where the type has neither.
 - **The analyzer builds the selector, no backend resolves anything from the call's shape.**
   `(.add-target btn self :action sel :for-control-events e)` becomes one `CLJ_NODE_OBJC_SEND` carrying
   the string `add-target:action:for-control-events:`; labels are the odd items and arguments the even

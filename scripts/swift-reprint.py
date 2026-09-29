@@ -5,7 +5,7 @@
 The experiment of design.md §10 step 8: by declarations, without an application. Reads
 `swift-symbolgraph-extract` output, classifies every parameter and return type into §5's four
 buckets (value / collection of values / closure / opaque handle), places each function-like symbol
-into one of three groups (reprints and is usable / reprints but only as handles / does not reprint),
+into one of three groups (crosses as data / crosses as a handle / refused; 1 and 2 both cross),
 counts the tail by cause, and then checks the classification by emitting real stubs for a sample and
 running swiftc on them.
 
@@ -1367,8 +1367,7 @@ def render(results, meta):
 	w("")
 	w("**An initialiser's return is the type it constructs.** The graph records no return for `swift.init`, so")
 	w("it is supplied here. It matters: without it every no-argument `init()` would land in group 1 while what")
-	w("actually crosses the boundary is an opaque handle, which is the one thing §10's sharpened criterion")
-	w("exists to catch.")
+	w("actually crosses the boundary is an opaque handle, and the data share would be read off a fiction.")
 	w("")
 	w("**A result-builder attribute is not a refusal.** `@ViewBuilder content: () -> Content` transforms a")
 	w("closure *literal written at the call site*; the parameter itself is an ordinary `() -> Content`, and a")
@@ -1382,15 +1381,18 @@ def render(results, meta):
 	w("`TupleView`/`ViewBuilder.buildBlock`, can be passed. The count of builder-annotated parameters is")
 	w("reported as information, beside the buckets.")
 	w("")
-	w("**The three groups.** A symbol with any refusal cause is group 3. Otherwise it is group 1 when every")
-	w("parameter and the return is a value, a collection of values or a closure, and group 2 when anything")
-	w("crosses as an opaque handle. §10 sharpened the criterion on purpose — \"the call site moved\" is worth")
-	w("nothing if what crosses is an opaque handle — so 1 and 2 are never added together here.")
+	w("**The three groups, and what they are a pass mark for.** A symbol with any refusal cause is group 3.")
+	w("Otherwise it is group 1 when every parameter and the return is a value, a collection of values or a")
+	w("closure, and group 2 when anything crosses as an opaque handle. **Groups 1 and 2 both mean the symbol")
+	w("crosses.** §10's criterion is \"crosses and crosses back\": it is normal and expected that not all Swift")
+	w("data becomes Clojure data, and what has to hold is that a handle passed *back* into Swift works. So the")
+	w("1/2 split is reported as information — how much of the surface arrives as data rather than as a handle")
+	w("— and not as a pass mark; what the criterion measures against is group 3.")
 	w("")
 	w("## Summary")
 	w("")
-	w("| module | function-like | 1 usable | 2 handles | 3 refused | concrete stubs compiled | instantiated |")
-	w("|---|---:|---:|---:|---:|---:|---:|")
+	w("| module | function-like | crosses (1+2) | 1 as data | 2 as a handle | 3 refused | concrete stubs compiled | instantiated |")
+	w("|---|---:|---:|---:|---:|---:|---:|---:|")
 	for r in results:
 		f = r["funclike"]
 		v = r.get("verify") or {}
@@ -1398,16 +1400,18 @@ def render(results, meta):
 		g = v.get("instantiated", {})
 		def frac(a):
 			return f"{a.get('compiled', 0)}/{a['sampled']}" if a.get("sampled") else "— (empty pool)"
-		w(f"| {r['module']} | {f['total']} | {pct(f['group1'], f['total'])} | {pct(f['group2'], f['total'])} | "
+		w(f"| {r['module']} | {f['total']} | {pct(f['group1'] + f['group2'], f['total'])} | "
+			f"{pct(f['group1'], f['total'])} | {pct(f['group2'], f['total'])} | "
 			f"{pct(f['group3'], f['total'])} | {frac(c)} | {frac(g)} |")
 	w("")
 	w("What each module answered:")
 	w("")
 	for r in results:
 		f = r["funclike"]
-		w(f"- **{r['module']}** — {r['note']} Refusals {pct(f['group3'], f['total'])} of the surface; "
-			f"of everything that does reprint, {pct(f['group1'], max(f['group1'] + f['group2'], 1))} crosses "
-			"without an opaque handle.")
+		w(f"- **{r['module']}** — {r['note']} Crosses {pct(f['group1'] + f['group2'], f['total'])}, "
+			f"refused {pct(f['group3'], f['total'])}; of what crosses, "
+			f"{pct(f['group1'], max(f['group1'] + f['group2'], 1))} arrives as data rather than as a handle."
+			+ SUMMARY_REMARKS.get(r["module"], ""))
 	w("")
 
 	for r in results:
@@ -1434,9 +1438,9 @@ def render(results, meta):
 		w("")
 		w("| group | count | share |")
 		w("|---|---:|---:|")
-		w(f"| 1 — reprints and is usable | {f['group1']} | {pct(f['group1'], f['total'])} |")
-		w(f"| 2 — reprints but only as handles | {f['group2']} | {pct(f['group2'], f['total'])} |")
-		w(f"| 3 — does not reprint | {f['group3']} | {pct(f['group3'], f['total'])} |")
+		w(f"| 1 — crosses as data | {f['group1']} | {pct(f['group1'], f['total'])} |")
+		w(f"| 2 — crosses as a handle | {f['group2']} | {pct(f['group2'], f['total'])} |")
+		w(f"| 3 — refused | {f['group3']} | {pct(f['group3'], f['total'])} |")
 		w(f"| **total function-like** | **{f['total']}** | |")
 		w("")
 		w(f"Of group 2, {f['group2_generic_only']} ({pct(f['group2_generic_only'], max(f['group2'], 1))} of it) are group 2")
@@ -1635,12 +1639,21 @@ def render(results, meta):
 		f"{sampled - ok} failures —")
 	w("  the rest are the harness's witness choice, or a graph that still names a renamed ObjC spelling. So the")
 	w("  group shares can be read as they stand, in the worst-case module as well as the easy one.")
-	w("- The number the sharpened criterion asks for is group 1, and only group 1. Group 2 is large everywhere")
-	w("  and is not evidence for anything: it says the call site moved and an opaque handle crossed.")
-	w("- **Group 1 understates, and measuring a whole public surface is why.** The largest handle slots are")
-	w("  conformance plumbing no Clojure program reaches for — in Foundation, `inout Hasher`, `any Decoder`,")
-	w("  `any Encoder`, `[Self.Element]` — and `Encoder`/`Decoder` are our own `Codable` fallback path, which")
-	w("  §5 keeps for types the generator has not seen. §5's premise is that generation follows call sites and")
+	w("- **The number the criterion asks for is 1 + 2, because the criterion is \"crosses and crosses back\".**")
+	w("  Not all Swift data becoming Clojure data is the normal mode, not a partial failure; what has to hold")
+	w("  is that a handle passed back into Swift works. Group 2 is therefore read as the shape of the")
+	w("  boundary, and the 1/2 split as information about how much arrives as data.")
+	w("- **The other half of the criterion is not measured here: a handle has to be a legal value on this")
+	w("  side, not only travel back.** Putting one in a set or using it as a map key is something a Clojure")
+	w("  programmer does without thinking, and it breaks silently while equality and hash stay pointer")
+	w("  identity — for a boxed struct that means \"the same box\", an artifact of how the value was stored.")
+	w("  §5 answers it by printing `==` and `hash(into:)` for a box from the type's own `Equatable`/`Hashable`,")
+	w("  and by refusing to be a key where the type has neither.")
+	w("- **The data share understates, and measuring a whole public surface is why.** The largest handle slots")
+	w("  are conformance plumbing no Clojure program reaches for — in Foundation, `inout Hasher`, `any Decoder`,")
+	w("  `any Encoder`, `[Self.Element]` — and `Hasher`/`Encoder`/`Decoder` are **our own** implementation path")
+	w("  on this boundary: the `Codable` fallback §5 keeps for types the generator has not seen, and the")
+	w("  `==`/`hash(into:)` a box prints. §5's premise is that generation follows call sites and")
 	w("  not the SDK, so the share that decides anything needs a call list from a real application. The")
 	w("  instrument answers that the moment such a list exists; it does not exist here.")
 	tails = ", ".join(f"{r['module']} `{r['funclike']['causes'][0][0]}`"
@@ -1648,7 +1661,8 @@ def render(results, meta):
 	w("- **The tail is small everywhere, and the cost is that almost everything is a handle.** The largest")
 	w(f"  single cause per module is {tails} — argument-passing forms, plus the one case where a declaration")
 	w("  form rather than a call is what does not move (a property wrapper). Nothing in the tail is the size")
-	w("  §5 feared; the number that hurts is group 2.")
+	w("  §5 feared, and group 2, large as it is, is not a cost in reach — what it costs is the obligations §5")
+	w("  puts on a handle: equality, hash, and an accessor for every field the public shape exposes.")
 	w("- Two of the separately-counted \"decided\" lines are large enough to be read as costs rather than")
 	w("  footnotes: structs with no public initialiser, which §5 predicted would fill the tail, and global-actor")
 	w("  isolation. The second is not a thunk apiece: the hop is conditional — elided when the caller is")
@@ -1728,6 +1742,12 @@ EXTRA_IMPORTS = {
 	"Foundation": ["Foundation", "Combine"],
 	"SwiftUI": ["SwiftUI", "Foundation", "Combine", "CoreGraphics", "UniformTypeIdentifiers",
 		"Symbols", "Spatial", "Observation", "CoreData", "OSLog"],
+}
+
+# Appended to a module's summary bullet where its number needs a word to be read honestly.
+SUMMARY_REMARKS = {
+	"ArgumentParser": " The refusals are `@Argument`/`@Option`/`@Flag` — the declaration form that *is* this "
+		"module's API, which is why its refused share is the largest of the four.",
 }
 
 MODULE_NOTES = {

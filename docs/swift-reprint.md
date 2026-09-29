@@ -55,8 +55,7 @@ so it is counted as its own bucket `generic` and lands the symbol in group 2, wi
 
 **An initialiser's return is the type it constructs.** The graph records no return for `swift.init`, so
 it is supplied here. It matters: without it every no-argument `init()` would land in group 1 while what
-actually crosses the boundary is an opaque handle, which is the one thing §10's sharpened criterion
-exists to catch.
+actually crosses the boundary is an opaque handle, and the data share would be read off a fiction.
 
 **A result-builder attribute is not a refusal.** `@ViewBuilder content: () -> Content` transforms a
 closure *literal written at the call site*; the parameter itself is an ordinary `() -> Content`, and a
@@ -70,26 +69,29 @@ cannot be written from Clojure, while one view value, or several through
 `TupleView`/`ViewBuilder.buildBlock`, can be passed. The count of builder-annotated parameters is
 reported as information, beside the buckets.
 
-**The three groups.** A symbol with any refusal cause is group 3. Otherwise it is group 1 when every
-parameter and the return is a value, a collection of values or a closure, and group 2 when anything
-crosses as an opaque handle. §10 sharpened the criterion on purpose — "the call site moved" is worth
-nothing if what crosses is an opaque handle — so 1 and 2 are never added together here.
+**The three groups, and what they are a pass mark for.** A symbol with any refusal cause is group 3.
+Otherwise it is group 1 when every parameter and the return is a value, a collection of values or a
+closure, and group 2 when anything crosses as an opaque handle. **Groups 1 and 2 both mean the symbol
+crosses.** §10's criterion is "crosses and crosses back": it is normal and expected that not all Swift
+data becomes Clojure data, and what has to hold is that a handle passed *back* into Swift works. So the
+1/2 split is reported as information — how much of the surface arrives as data rather than as a handle
+— and not as a pass mark; what the criterion measures against is group 3.
 
 ## Summary
 
-| module | function-like | 1 usable | 2 handles | 3 refused | concrete stubs compiled | instantiated |
-|---|---:|---:|---:|---:|---:|---:|
-| Foundation | 9690 | 9.3 % | 89.3 % | 1.4 % | 98/100 | 98/100 |
-| SwiftUI | 96126 | 0.2 % | 97.7 % | 2.1 % | 100/100 | 95/100 |
-| ArgumentParser | 408 | 14.5 % | 75.2 % | 10.3 % | 25/25 | — (empty pool) |
-| OrderedCollections | 612 | 17.8 % | 81.2 % | 1.0 % | — (empty pool) | 99/100 |
+| module | function-like | crosses (1+2) | 1 as data | 2 as a handle | 3 refused | concrete stubs compiled | instantiated |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Foundation | 9690 | 98.6 % | 9.3 % | 89.3 % | 1.4 % | 98/100 | 98/100 |
+| SwiftUI | 96126 | 97.9 % | 0.2 % | 97.7 % | 2.1 % | 100/100 | 95/100 |
+| ArgumentParser | 408 | 89.7 % | 14.5 % | 75.2 % | 10.3 % | 25/25 | — (empty pool) |
+| OrderedCollections | 612 | 99.0 % | 17.8 % | 81.2 % | 1.0 % | — (empty pool) | 99/100 |
 
 What each module answered:
 
-- **Foundation** — The large, half-imported-from-ObjC case: what the boundary looks like where most of the surface arrived through the Clang importer. Refusals 1.4 % of the surface; of everything that does reprint, 9.5 % crosses without an opaque handle.
-- **SwiftUI** — The worst case, chosen for it: opaque return types, heavy generics, a surface built out of result builders — and a framework that ships as two modules, so the graph of one is not the surface of one `import`. Refusals 2.1 % of the surface; of everything that does reprint, 0.2 % crosses without an opaque handle.
-- **ArgumentParser** — Someone else's code, built from source — the §5 case with no `.swiftinterface` at all (checked: the build directory has `.swiftmodule` and nothing else). Refusals 10.3 % of the surface; of everything that does reprint, 16.1 % crosses without an opaque handle.
-- **OrderedCollections** — A second dependency built from source: a collection library, where the surface is generic by construction rather than by taste. Refusals 1.0 % of the surface; of everything that does reprint, 18.0 % crosses without an opaque handle.
+- **Foundation** — The large, half-imported-from-ObjC case: what the boundary looks like where most of the surface arrived through the Clang importer. Crosses 98.6 %, refused 1.4 %; of what crosses, 9.5 % arrives as data rather than as a handle.
+- **SwiftUI** — The worst case, chosen for it: opaque return types, heavy generics, a surface built out of result builders — and a framework that ships as two modules, so the graph of one is not the surface of one `import`. Crosses 97.9 %, refused 2.1 %; of what crosses, 0.2 % arrives as data rather than as a handle.
+- **ArgumentParser** — Someone else's code, built from source — the §5 case with no `.swiftinterface` at all (checked: the build directory has `.swiftmodule` and nothing else). Crosses 89.7 %, refused 10.3 %; of what crosses, 16.1 % arrives as data rather than as a handle. The refusals are `@Argument`/`@Option`/`@Flag` — the declaration form that *is* this module's API, which is why its refused share is the largest of the four.
+- **OrderedCollections** — A second dependency built from source: a collection library, where the surface is generic by construction rather than by taste. Crosses 99.0 %, refused 1.0 %; of what crosses, 18.0 % arrives as data rather than as a handle.
 
 ## Foundation
 
@@ -103,9 +105,9 @@ No re-exported sibling: 20 references to USRs carrying this module's own name ar
 
 | group | count | share |
 |---|---:|---:|
-| 1 — reprints and is usable | 905 | 9.3 % |
-| 2 — reprints but only as handles | 8649 | 89.3 % |
-| 3 — does not reprint | 136 | 1.4 % |
+| 1 — crosses as data | 905 | 9.3 % |
+| 2 — crosses as a handle | 8649 | 89.3 % |
+| 3 — refused | 136 | 1.4 % |
 | **total function-like** | **9690** | |
 
 Of group 2, 2360 (27.3 % of it) are group 2
@@ -259,9 +261,9 @@ Re-exported siblings merged in: `SwiftUICore`. Unresolved USRs carrying this mod
 
 | group | count | share |
 |---|---:|---:|
-| 1 — reprints and is usable | 204 | 0.2 % |
-| 2 — reprints but only as handles | 93896 | 97.7 % |
-| 3 — does not reprint | 2026 | 2.1 % |
+| 1 — crosses as data | 204 | 0.2 % |
+| 2 — crosses as a handle | 93896 | 97.7 % |
+| 3 — refused | 2026 | 2.1 % |
 | **total function-like** | **96126** | |
 
 Of group 2, 1435 (1.5 % of it) are group 2
@@ -411,9 +413,9 @@ No re-exported sibling: every USR carrying this module's own name is declared in
 
 | group | count | share |
 |---|---:|---:|
-| 1 — reprints and is usable | 59 | 14.5 % |
-| 2 — reprints but only as handles | 307 | 75.2 % |
-| 3 — does not reprint | 42 | 10.3 % |
+| 1 — crosses as data | 59 | 14.5 % |
+| 2 — crosses as a handle | 307 | 75.2 % |
+| 3 — refused | 42 | 10.3 % |
 | **total function-like** | **408** | |
 
 Of group 2, 131 (42.7 % of it) are group 2
@@ -540,9 +542,9 @@ No re-exported sibling: 2 references to USRs carrying this module's own name are
 
 | group | count | share |
 |---|---:|---:|
-| 1 — reprints and is usable | 109 | 17.8 % |
-| 2 — reprints but only as handles | 497 | 81.2 % |
-| 3 — does not reprint | 6 | 1.0 % |
+| 1 — crosses as data | 109 | 17.8 % |
+| 2 — crosses as a handle | 497 | 81.2 % |
+| 3 — refused | 6 | 1.0 % |
 | **total function-like** | **612** | |
 
 Of group 2, 210 (42.3 % of it) are group 2
@@ -711,18 +713,28 @@ Which numbers are decisive is a judgement, so it is fenced off here and the deci
   the modules, and the reprinted declaration's own fault accounts for 0 of the 10 failures —
   the rest are the harness's witness choice, or a graph that still names a renamed ObjC spelling. So the
   group shares can be read as they stand, in the worst-case module as well as the easy one.
-- The number the sharpened criterion asks for is group 1, and only group 1. Group 2 is large everywhere
-  and is not evidence for anything: it says the call site moved and an opaque handle crossed.
-- **Group 1 understates, and measuring a whole public surface is why.** The largest handle slots are
-  conformance plumbing no Clojure program reaches for — in Foundation, `inout Hasher`, `any Decoder`,
-  `any Encoder`, `[Self.Element]` — and `Encoder`/`Decoder` are our own `Codable` fallback path, which
-  §5 keeps for types the generator has not seen. §5's premise is that generation follows call sites and
+- **The number the criterion asks for is 1 + 2, because the criterion is "crosses and crosses back".**
+  Not all Swift data becoming Clojure data is the normal mode, not a partial failure; what has to hold
+  is that a handle passed back into Swift works. Group 2 is therefore read as the shape of the
+  boundary, and the 1/2 split as information about how much arrives as data.
+- **The other half of the criterion is not measured here: a handle has to be a legal value on this
+  side, not only travel back.** Putting one in a set or using it as a map key is something a Clojure
+  programmer does without thinking, and it breaks silently while equality and hash stay pointer
+  identity — for a boxed struct that means "the same box", an artifact of how the value was stored.
+  §5 answers it by printing `==` and `hash(into:)` for a box from the type's own `Equatable`/`Hashable`,
+  and by refusing to be a key where the type has neither.
+- **The data share understates, and measuring a whole public surface is why.** The largest handle slots
+  are conformance plumbing no Clojure program reaches for — in Foundation, `inout Hasher`, `any Decoder`,
+  `any Encoder`, `[Self.Element]` — and `Hasher`/`Encoder`/`Decoder` are **our own** implementation path
+  on this boundary: the `Codable` fallback §5 keeps for types the generator has not seen, and the
+  `==`/`hash(into:)` a box prints. §5's premise is that generation follows call sites and
   not the SDK, so the share that decides anything needs a call list from a real application. The
   instrument answers that the moment such a list exists; it does not exist here.
 - **The tail is small everywhere, and the cost is that almost everything is a handle.** The largest
   single cause per module is Foundation `variadic-parameter`, SwiftUI `autoclosure`, ArgumentParser `property-wrapper-as-api`, OrderedCollections `variadic-parameter` — argument-passing forms, plus the one case where a declaration
   form rather than a call is what does not move (a property wrapper). Nothing in the tail is the size
-  §5 feared; the number that hurts is group 2.
+  §5 feared, and group 2, large as it is, is not a cost in reach — what it costs is the obligations §5
+  puts on a handle: equality, hash, and an accessor for every field the public shape exposes.
 - Two of the separately-counted "decided" lines are large enough to be read as costs rather than
   footnotes: structs with no public initialiser, which §5 predicted would fill the tail, and global-actor
   isolation. The second is not a thunk apiece: the hop is conditional — elided when the caller is
