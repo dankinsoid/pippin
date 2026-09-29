@@ -13,7 +13,7 @@ generator is built. Nothing here is part of the generator.
 | target | `arm64-apple-macosx15.0` |
 | SDK | macOS 26.2 (`/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk`) |
 | graph generator | `Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)` |
-| measured | 2026-09-28 |
+| measured | 2026-09-29 |
 
 ## What is counted
 
@@ -106,8 +106,8 @@ No re-exported sibling: 20 references to USRs carrying this module's own name ar
 | group | count | share |
 |---|---:|---:|
 | 1 — crosses as data | 905 | 9.3 % |
-| 2 — crosses as a handle | 8649 | 89.3 % |
-| 3 — refused | 136 | 1.4 % |
+| 2 — crosses as a handle | 8651 | 89.3 % |
+| 3 — refused | 134 | 1.4 % |
 | **total function-like** | **9690** | |
 
 Of group 2, 2360 (27.3 % of it) are group 2
@@ -125,7 +125,6 @@ second column); the third column counts every symbol the cause touches, so it su
 | parameter-pack | 30 | 32 |
 | property-wrapper-as-api | 6 | 6 |
 | macro | 3 | 3 |
-| self-requirement-protocol | 2 | 2 |
 
 ### Slots by bucket
 
@@ -152,6 +151,10 @@ a multi-statement builder body, not the call.
 Property wrappers, likewise for information: 6 symbols (0.1 %) have a wrapper type in 7 of their
 slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the
 declaration form `@State var x`, counted in the tail as members of a wrapper type.
+
+Existentials, likewise for information: 2 symbols (0.0 %) spell `any P` for a
+protocol with Self requirements in a slot. Not a refusal — `any P` type-checks (SE-0309) and a
+handle to one crosses back, which is the criterion; reading it still needs accessors.
 
 ### Decided, not refused
 
@@ -181,7 +184,7 @@ Isolation: `@MainActor` 83.
 | | total | group 1 | group 2 | group 3 |
 |---|---:|---:|---:|---:|
 | operators | 1281 | 18 | 1261 | 2 |
-| properties | 6358 | 438 | 5909 | 11 |
+| properties | 6358 | 438 | 5912 | 8 |
 
 ### What the handles are
 
@@ -219,7 +222,7 @@ any stub was looked at.
 
 | pool | size | share of groups 1+2 | sampled | compiled | |
 |---|---:|---:|---:|---:|---:|
-| concrete | 3975 | 41.6 % | 100 | 98 | **98.0 %** |
+| concrete | 3977 | 41.6 % | 100 | 98 | **98.0 %** |
 | instantiated | 2083 | 21.8 % | 100 | 98 | **98.0 %** |
 
 `swiftc -typecheck -swift-version 5`, one file per stub.
@@ -233,7 +236,7 @@ Failures, concrete pool (2), by whose fault they are:
 | symbol | group | error |
 |---|---:|---|
 | `NSCharacterSet.init(charactersInString:)` | 2 | 'init(charactersInString:)' has been renamed to 'init(charactersIn:)' |
-| `NSSpecifierTest.init(objectSpecifier:comparisonOperator:testObject:)` | 2 | 'init(objectSpecifier:comparisonOperator:testObject:)' has been renamed to 'init(objectSpecifier:comparisonOperator:test:)' |
+| `XMLDTDNode.init(XMLString:)` | 2 | 'init(XMLString:)' has been renamed to 'init(xmlString:)' |
 
 Failures, instantiated pool (2), by whose fault they are:
 
@@ -262,8 +265,8 @@ Re-exported siblings merged in: `SwiftUICore`. Unresolved USRs carrying this mod
 | group | count | share |
 |---|---:|---:|
 | 1 — crosses as data | 204 | 0.2 % |
-| 2 — crosses as a handle | 93896 | 97.7 % |
-| 3 — refused | 2026 | 2.1 % |
+| 2 — crosses as a handle | 93904 | 97.7 % |
+| 3 — refused | 2018 | 2.1 % |
 | **total function-like** | **96126** | |
 
 Of group 2, 1435 (1.5 % of it) are group 2
@@ -278,10 +281,9 @@ second column); the third column counts every symbol the cause touches, so it su
 | cause | symbols (attributed) | symbols (touched) |
 |---|---:|---:|
 | autoclosure | 799 | 799 |
-| variadic-parameter | 723 | 724 |
+| variadic-parameter | 724 | 724 |
 | parameter-pack | 298 | 298 |
 | property-wrapper-as-api | 191 | 192 |
-| self-requirement-protocol | 9 | 9 |
 | macro | 6 | 6 |
 
 ### Slots by bucket
@@ -309,6 +311,10 @@ a multi-statement builder body, not the call.
 Property wrappers, likewise for information: 14589 symbols (15.2 %) have a wrapper type in 20110 of their
 slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the
 declaration form `@State var x`, counted in the tail as members of a wrapper type.
+
+Existentials, likewise for information: 9 symbols (0.0 %) spell `any P` for a
+protocol with Self requirements in a slot. Not a refusal — `any P` type-checks (SE-0309) and a
+handle to one crosses back, which is the criterion; reading it still needs accessors.
 
 ### Decided, not refused
 
@@ -338,7 +344,7 @@ Isolation: `@MainActor` 29375.
 | | total | group 1 | group 2 | group 3 |
 |---|---:|---:|---:|---:|
 | operators | 1113 | 0 | 1106 | 7 |
-| properties | 2720 | 152 | 2500 | 68 |
+| properties | 2720 | 152 | 2501 | 67 |
 
 ### What the handles are
 
@@ -376,7 +382,7 @@ any stub was looked at.
 
 | pool | size | share of groups 1+2 | sampled | compiled | |
 |---|---:|---:|---:|---:|---:|
-| concrete | 14412 | 15.3 % | 100 | 100 | **100.0 %** |
+| concrete | 14414 | 15.3 % | 100 | 100 | **100.0 %** |
 | instantiated | 14724 | 15.6 % | 100 | 95 | **95.0 %** |
 
 `swiftc -typecheck -swift-version 5`, one file per stub.
@@ -457,6 +463,10 @@ a multi-statement builder body, not the call.
 Property wrappers, likewise for information: 41 symbols (10.0 %) have a wrapper type in 41 of their
 slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the
 declaration form `@State var x`, counted in the tail as members of a wrapper type.
+
+Existentials, likewise for information: 0 symbols (0.0 %) spell `any P` for a
+protocol with Self requirements in a slot. Not a refusal — `any P` type-checks (SE-0309) and a
+handle to one crosses back, which is the criterion; reading it still needs accessors.
 
 ### Decided, not refused
 
@@ -586,6 +596,10 @@ Property wrappers, likewise for information: 0 symbols (0.0 %) have a wrapper ty
 slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the
 declaration form `@State var x`, counted in the tail as members of a wrapper type.
 
+Existentials, likewise for information: 0 symbols (0.0 %) spell `any P` for a
+protocol with Self requirements in a slot. Not a refusal — `any P` type-checks (SE-0309) and a
+handle to one crosses back, which is the criterion; reading it still needs accessors.
+
 ### Decided, not refused
 
 §5 decided each of these is handled; they are counted so the cost is visible, and they are **not**
@@ -687,9 +701,9 @@ Sensitivity of the value set: adding `AnyHashable`, `AttributedString`, `Calenda
   answer is the swiftc column, which is why the sample exists. It fires only where a parameter or
   return spells `any P`. A constraint `T: P` is not a refusal — the call site supplies `T` (§5,
   generics) — and `some P` is an opaque type swiftc resolves; counting either would refuse most of a
-  declarative framework for mentioning its own protocol. This cause is kept on §5's usability grounds
-  and not as a reprint failure: `any P` has type-checked since Swift 5.7 (SE-0309), so the refusal is
-  that the value cannot be used, not that the declaration cannot be printed.
+  declarative framework for mentioning its own protocol. It is **reported and not counted as a refusal**:
+  `any P` has type-checked since Swift 5.7 (SE-0309), and the criterion is that a value crosses back,
+  which a handle to an existential does — so §5 moved it out of the refusal list and this follows.
 - `property-wrapper-as-api` fires on members of a property-wrapper type, which is where the wrapper is
   the declaration form (`@State var x`) and nothing is called. A wrapper *in a slot* is not counted: it
   is a handle that can be built — `Binding(get:set:)` and `State(initialValue:)` are public, and a stub

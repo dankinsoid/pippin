@@ -91,9 +91,12 @@ CAUSE_ORDER = [
 	"noncopyable",
 	"autoclosure",
 	"property-wrapper-as-api",
-	"self-requirement-protocol",
 	"variadic-parameter",
 ]
+
+# Detected and reported, but not a refusal: the criterion is that a value crosses back, and an
+# existential does (design §5, "Экзистенциалы оттуда же ушли").
+INFORMATIONAL_CAUSES = ["self-requirement-protocol"]
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +559,7 @@ def symbol_record(sym, idx):
 	if "..." in param_text:
 		causes.append("variadic-parameter")
 
-	if causes:
+	if any(c in CAUSE_ORDER for c in causes):
 		group = 3
 	elif all(b in CROSSABLE for _, _, _, b in slots):
 		group = 1
@@ -1485,6 +1488,12 @@ def render(results, meta):
 		w("slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the")
 		w("declaration form `@State var x`, counted in the tail as members of a wrapper type.")
 		w("")
+		for cause in INFORMATIONAL_CAUSES:
+			n = dict(f["causes_any"]).get(cause, 0)
+			w(f"Existentials, likewise for information: {n} symbols ({pct(n, f['total'])}) spell `any P` for a")
+			w("protocol with Self requirements in a slot. Not a refusal — `any P` type-checks (SE-0309) and a")
+			w("handle to one crosses back, which is the criterion; reading it still needs accessors.")
+			w("")
 		w("### Decided, not refused")
 		w("")
 		w("§5 decided each of these is handled; they are counted so the cost is visible, and they are **not**")
@@ -1607,9 +1616,9 @@ def render(results, meta):
 	w("  answer is the swiftc column, which is why the sample exists. It fires only where a parameter or")
 	w("  return spells `any P`. A constraint `T: P` is not a refusal — the call site supplies `T` (§5,")
 	w("  generics) — and `some P` is an opaque type swiftc resolves; counting either would refuse most of a")
-	w("  declarative framework for mentioning its own protocol. This cause is kept on §5's usability grounds")
-	w("  and not as a reprint failure: `any P` has type-checked since Swift 5.7 (SE-0309), so the refusal is")
-	w("  that the value cannot be used, not that the declaration cannot be printed.")
+	w("  declarative framework for mentioning its own protocol. It is **reported and not counted as a refusal**:")
+	w("  `any P` has type-checked since Swift 5.7 (SE-0309), and the criterion is that a value crosses back,")
+	w("  which a handle to an existential does — so §5 moved it out of the refusal list and this follows.")
 	w("- `property-wrapper-as-api` fires on members of a property-wrapper type, which is where the wrapper is")
 	w("  the declaration form (`@State var x`) and nothing is called. A wrapper *in a slot* is not counted: it")
 	w("  is a handle that can be built — `Binding(get:set:)` and `State(initialValue:)` are public, and a stub")
