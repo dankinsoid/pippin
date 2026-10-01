@@ -293,6 +293,8 @@ static void record_failure(clj_value file, uint32_t line, uint32_t col, clj_valu
 	clj_lock_lock(&lock);
 	if (clj_is_nil(failures)) failures = clj_vector_empty();
 	failures = clj_vector_conj(failures, m);
+	// Any loading execution appends and another takes the vector (clj_load_take_failures): a publication.
+	clj_share(failures);
 	clj_lock_unlock(&lock);
 	clj_release(m);
 }

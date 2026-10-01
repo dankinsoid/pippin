@@ -81,6 +81,8 @@ static profile_entry *entry_for(const clj_node *node) {
 	while (table[i].node && table[i].node != node) i = (i + 1) & (cap - 1);
 	if (!table[i].node) {
 		table[i].node = node;
+		// Released by whichever execution stops or restarts the profile, not the one that ran it.
+		clj_share(clj_from_ptr((void *)node));
 		clj_retain(clj_from_ptr((void *)node));
 		used++;
 	}

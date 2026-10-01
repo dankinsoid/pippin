@@ -200,5 +200,21 @@ extension CoreTests {
 			#expect(clj_debug_exec_node_specialized(exec, id))
 			#expect(try rt.eval("(sp-preds 2)").description == "[false true false false false true true 1 1]")
 		}
+
+		// A def re-derives the exec of a form still running on another thread, retaining and releasing it from the
+		// def's execution while the form's own closures retain it: the index registers only shared execs (NOTES "RC").
+		// @ai-generated(solo)
+		@Test func aRedefReachesAFormRunningOnAnotherThread() throws {
+			_ = try cljEvalScoped("(in-ns 'user) (defn sp-dep [] 1) (def sp-dep-started (atom false))")
+			let t = Thread {
+				_ = try? cljEvalScoped("(in-ns 'user) (reset! sp-dep-started true) (loop [i 0 acc 0] (if (< i 400000) (recur (inc i) (+ acc ((fn [] (sp-dep))))) acc))")
+			}
+			t.start()
+			while try cljEvalScoped("(in-ns 'user) @sp-dep-started") != true { usleep(100) }
+			while !t.isFinished {
+				_ = try cljEvalScoped("(in-ns 'user) (defn sp-dep [] 1)")
+				usleep(200)
+			}
+		}
 	}
 }

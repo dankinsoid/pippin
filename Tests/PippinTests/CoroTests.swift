@@ -79,6 +79,19 @@ extension CoreTests {
 			base.check()
 		}
 
+		// A reify site's type outlives the execution that made it: every coroutine running the site retains it, so
+		// the registry shares it. Unshared, the first retain from a carrier dies in the owner check (NOTES "RC").
+		// @ai-generated(solo)
+		@Test func aReifySiteRunsOnManyCoroutines() throws {
+			_ = try eval("(defprotocol CoroSite (site-v [x])) (defn coro-site [n] (reify CoroSite (site-v [_] n)))")
+			#expect(try eval("(site-v (coro-site 0))") == 0)
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("(let [cs (mapv (fn [i] (go (site-v (coro-site i)))) (range 16))] (reduce + (map <!! cs)))") == 120)
+			}
+			base.check()
+		}
+
 		// The main carrier: adopted by the test thread, pumped by hand; a :main atom refuses the pool.
 		@Test func mainAffinity() throws {
 			let base = CoroBaseline()

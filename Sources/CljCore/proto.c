@@ -1106,6 +1106,8 @@ static clj_value reify_type(clj_value name, clj_value fields, const clj_value *i
 		clj_retain(type);
 	} else if ((type = reify_type_new(name, fields, impls, nimpls)) != CLJ_THROWN) {
 		reify_types = clj_map_assoc(clj_is_nil(reify_types) ? clj_map_empty() : reify_types, name, type);
+		// Shares the type too: every execution reaching the site gets it, and instances retain it outside the lock.
+		clj_share(reify_types);
 	}
 	clj_lock_unlock(&reify_lock);
 	return type;

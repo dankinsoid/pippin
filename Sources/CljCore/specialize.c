@@ -127,6 +127,8 @@ static dependents *dependents_for(clj_value var) {
 }
 
 static void dependents_add(clj_value var, clj_exec *e) {
+	// Any execution that rebinds var retains e from here (push_work) while e's own closures retain it: a publication.
+	clj_share(clj_from_ptr(e));
 	dependents *d = dependents_for(var);
 	if (d->n == d->cap) {
 		d->cap = d->cap ? d->cap * 2 : 4;

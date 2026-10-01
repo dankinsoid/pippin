@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 import CljCore
+import Foundation
 import Testing
 @testable import Pippin
 
@@ -112,6 +113,18 @@ extension CoreTests {
 				try unbind("pf-stopper", "pf-run")
 			}
 			#expect(clj_debug_live_objects() == before)
+		}
+
+		// The table holds a fn node of whichever execution made the call, and the stop releases it from its own: the
+		// node is shared when it enters the table (NOTES "RC", owner check).
+		// @ai-generated(solo)
+		@Test func aFnProfiledOnAnotherThread() throws {
+			clj_profile_start()
+			let t = Thread { _ = try? cljEvalScoped("(let [f (fn pf-elsewhere [] 1)] (f))") }
+			t.start()
+			while !t.isFinished { usleep(500) }
+			let data = Value(owning: clj_profile_stop())
+			#expect(try #require(field(data, "fns").array).map { field($0, "name").description }.contains("pf-elsewhere"))
 		}
 
 		@Test func signpostsToggle() throws {

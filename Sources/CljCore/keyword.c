@@ -48,6 +48,8 @@ static clj_value intern(clj_value sym) {
 		k->sym = sym;
 		kw = clj_from_ptr(k);
 		table = clj_map_assoc(table, sym, kw);
+		// Every execution that interns takes the table in turn: an interned table is a publication (design §4).
+		clj_share(table);
 	} else {
 		clj_release(sym);
 	}
