@@ -14,7 +14,7 @@ private func coro(of ch: Value) -> Value { Value(owning: clj_debug_chan_coro(ch.
 private func take(_ ch: Value) -> Value { Value(owning: clj_chan_take(ch.raw)) }
 
 // ASan frames are several times larger and its shadow dominates the footprint: the size gates hold outside it.
-private let underASan = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__asan_init") != nil
+let underASan = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__asan_init") != nil
 
 // Evacuates once the coroutine is parked; false when it did not park within the wait.
 private func evacuateOnceParked(_ c: Value, ms: Int = 5000) -> Bool {
