@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 import CljCore
+import Darwin
 import Testing
 @testable import Pippin
 
@@ -17,6 +18,18 @@ private func clojureError(_ rt: Runtime, _ source: String) -> ClojureError? {
 }
 
 private func message(_ rt: Runtime, _ source: String) -> String? { clojureError(rt, source)?.message }
+
+private let altstackSize = 256 * 1024
+nonisolated(unsafe) private var altstackVictim: UnsafeMutableRawPointer?
+
+// Made after the runtime's key, so its destructor runs between the runtime's thread teardown and the sanitizer's.
+private let betweenTeardowns: pthread_key_t = {
+	var key = pthread_key_t()
+	pthread_key_create(&key) { stack in
+		altstackVictim = mmap(stack, altstackSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)
+	}
+	return key
+}()
 
 extension CoreTests {
 	@Suite struct RuntimeTests {
@@ -275,6 +288,24 @@ extension CoreTests {
 				try unbind("fib", "rt-reduce", "rt-frequencies", "rt-range")
 			}
 			#expect(clj_debug_live_objects() == before)
+		}
+
+		// The hint lands the victim on the alternate stack's range only if the runtime unmapped it ahead of ASan.
+		@Test func aThreadsAlternateStackIsUnmappedOnce() throws {
+			_ = try rt.eval("1")
+			_ = betweenTeardowns
+			var thread: pthread_t?
+			#expect(pthread_create(&thread, nil, { _ in
+				_ = try? cljEval("1")
+				var installed = stack_t()
+				sigaltstack(nil, &installed)
+				pthread_setspecific(betweenTeardowns, installed.ss_sp)
+				return nil
+			}, nil) == 0)
+			pthread_join(try #require(thread), nil)
+			let victim = try #require(altstackVictim)
+			#expect(msync(victim, altstackSize, MS_ASYNC) == 0, "a mapping made after the runtime's teardown was unmapped by the sanitizer's")
+			munmap(victim, altstackSize)
 		}
 	}
 }

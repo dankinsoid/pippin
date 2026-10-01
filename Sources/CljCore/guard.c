@@ -24,11 +24,13 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 	} while (0)
 // Every instrumented entry calls into the sanitizer's runtime, so the fault lands there as often as in ours.
 #define ASAN_IMAGE() clj_trace_register_image((const void *)&__asan_handle_no_return)
+#define ASAN_UNMAPS_ALTSTACK 1
 #endif
 #endif
 #ifndef ASAN_LANDED
 #define ASAN_LANDED(s) ((void)(s))
 #define ASAN_IMAGE() ((void)0)
+#define ASAN_UNMAPS_ALTSTACK 0
 #endif
 
 enum {
@@ -41,7 +43,7 @@ enum {
 
 static struct sigaction previous[2]; // SIGSEGV, SIGBUS
 
-// The alternate stack is a mapping of its own: a sanitizer's thread teardown unmaps whatever stack it finds installed.
+// A mapping of its own: under ASan the sanitizer's thread teardown unmaps whatever stack it finds installed.
 void clj_guard_thread_init(clj_carrier *car) {
 	car->altstack = mmap(NULL, ALT_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 	if (car->altstack == MAP_FAILED) clj_fatal("mmap of the alternate signal stack failed");
@@ -49,14 +51,18 @@ void clj_guard_thread_init(clj_carrier *car) {
 	if (sigaltstack(&ss, NULL) != 0) clj_fatal("sigaltstack failed");
 }
 
-// Only the stack still installed is ours to unmap: the sanitizer's teardown may have taken it already.
+// ASan's teardown unmaps the reported stack, which Darwin reports even disabled: ours would be a second unmap.
 void clj_guard_thread_exit(clj_carrier *car) {
+#if ASAN_UNMAPS_ALTSTACK
+	(void)car;
+#else
 	stack_t cur;
-	if (sigaltstack(NULL, &cur) == 0 && cur.ss_sp == car->altstack && !(cur.ss_flags & SS_DISABLE)) {
+	if (sigaltstack(NULL, &cur) == 0 && cur.ss_sp == car->altstack) {
 		stack_t off = {.ss_flags = SS_DISABLE};
 		sigaltstack(&off, NULL);
 		munmap(car->altstack, ALT_STACK_SIZE);
 	}
+#endif
 }
 
 void clj_guard_origin(const void *uap, clj_trace_origin *out) {

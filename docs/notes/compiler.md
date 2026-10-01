@@ -79,8 +79,11 @@
   construction* (below), so the chain never needs a third name. *The guard page.* A thread's stack ends in the
   system's guard page; `clj_init` installs SIGSEGV and SIGBUS handlers (`clj_guard_install`, chaining to the
   previous action — the sanitizer's — for any other fault) and every thread that makes a shadow stack gets a
-  256 KB alternate signal stack (`sigaltstack`, an `mmap` of its own: a sanitizer's thread teardown unmaps
-  whatever stack it finds installed, and only the stack still installed is ours to unmap). A fault whose
+  256 KB alternate signal stack (`sigaltstack`, an `mmap` of its own: ASan's thread teardown unmaps whatever
+  stack `sigaltstack` reports, and Darwin reports the last one even after `SS_DISABLE`, so under ASan the
+  sanitizer alone unmaps it — ours, before or after, was a second unmap of a range another mapping may have
+  taken in between, which on arm64 CI was a SEGV inside ASan's large allocator;
+  `RuntimeTests.aThreadsAlternateStackIsUnmappedOnce`). A fault whose
   address lies within 1 MB below the stack's low end, or whose stack pointer is within 64 KB of it, is an
   overflow. The handler collects the merged trace from the interrupted registers (`pc`, `lr`, `fp`, `sp`; a
   fault in a prologue or a leaf has the caller's frame pointer and the return address still in `lr`; x86_64
