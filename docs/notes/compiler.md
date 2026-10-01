@@ -95,7 +95,11 @@
   XNU believing the thread is still on the signal stack, and the next overflow's frame then lands on the
   overflowed stack, which the kernel answers with SIGILL. At the point (`clj_recovery_throw`) the thread's
   state is restored to what the push saw — shadow depth, `clj_exec_run` nesting, the dynamic binding frames
-  (popped down to the mark) — the sanitizer is told the frames are gone (`__asan_handle_no_return`), and
+  (popped down to the mark) — the sanitizer is told the frames are gone (`__asan_handle_no_return`, and the stack from its low end up to
+  the point unpoisoned outright: that call clears only from its caller up, and `siglongjmp`'s own hook ignores a
+  jump off the alternate stack, so the abandoned frames' redzones stayed under the uninstrumented compiled
+  frames that reuse that memory, and an instrumented read of it was a report — on x86_64 ASan died describing it,
+  `CHECK failed: asan_thread.cpp:369`, in two of three `make test` runs), and
   "Stack overflow" is thrown as an `ex-info` carrying the collected trace, so the host sees the same error
   the interpreter's own check produces. What the landing abandons: the C frames between the point and the
   fault, so their owned temporaries leak, a lazy seq being realized stays claimed (its next force throws

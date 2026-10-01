@@ -14,15 +14,20 @@
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
-// Unpoisons the abandoned frames; the sanitizer's own siglongjmp hook ignores a jump off the alternate stack.
 void __asan_handle_no_return(void);
-#define ASAN_LANDED() __asan_handle_no_return()
+void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+// __asan_handle_no_return clears from its caller up; the abandoned frames' redzones lie below, under later frames.
+#define ASAN_LANDED(s)                                                                                                                               \
+	do {                                                                                                                                             \
+		__asan_handle_no_return();                                                                                                                   \
+		__asan_unpoison_memory_region((s)->stack_lo, (uintptr_t)__builtin_frame_address(0) - (uintptr_t)(s)->stack_lo);                              \
+	} while (0)
 // Every instrumented entry calls into the sanitizer's runtime, so the fault lands there as often as in ours.
 #define ASAN_IMAGE() clj_trace_register_image((const void *)&__asan_handle_no_return)
 #endif
 #endif
 #ifndef ASAN_LANDED
-#define ASAN_LANDED() ((void)0)
+#define ASAN_LANDED(s) ((void)(s))
 #define ASAN_IMAGE() ((void)0)
 #endif
 
@@ -213,8 +218,8 @@ void clj_recovery_pop(clj_recovery *r) {
 }
 
 clj_value clj_recovery_throw(clj_recovery *r) {
-	ASAN_LANDED();
 	clj_shadow_stack *s = r->shadow;
+	ASAN_LANDED(s);
 	s->depth = r->depth;
 	clj_eval_exec_depth_set(r->exec_depth);
 	clj_var_bindings_unwind(r->bindings);
