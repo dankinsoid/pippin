@@ -3552,6 +3552,7 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 		sb_puts(&out, ");\n");
 	}
 	for (size_t k = 0; k < u->consts.n; k++) sb_printf(&out, "\tK[%zu] = %s;\n", k, u->consts.extra[k]);
+	if (u->consts.n) sb_printf(&out, "\tclj_c_publish(K, %zu);\n", u->consts.n);
 	for (size_t k = 0; k < u->ops.n; k++) {
 		sb_printf(&out, "\tOP[%zu] = clj_c_intrinsic(", k);
 		sb_c_string(&out, u->ops.keys[k], strlen(u->ops.keys[k]));

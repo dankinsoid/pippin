@@ -44,6 +44,8 @@ typedef struct {
 
 // Interns a constant from its printed form; a build bug (fatal) when it does not read back.
 clj_value clj_c_const(const char *edn, size_t len);
+// Shares and immortalizes a filled constant pool: every execution running the unit's code reads it (NOTES "RC").
+void clj_c_publish(const clj_value *pool, size_t n);
 // The var ns/name, interned (the namespace created when missing). Borrowed: vars are immortal.
 clj_value clj_c_var(const char *ns, const char *name);
 // Table entries by qualified name, fatal when absent: the tables are fixed at build time.

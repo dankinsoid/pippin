@@ -2125,6 +2125,7 @@ static void unit_pools(void) {
 	K[28] = clj_c_const("macroexpand-all", 15);
 	K[29] = clj_c_const("clojure.walk/macroexpand-all", 28);
 	K[30] = clj_c_const("{:arglists ([form]), :column 1, :doc \"Recursively performs all possible macroexpansions in form.\", :file \"<embedded>/clojure/walk.clj\", :line 46, :name macroexpand-all, :ns clojure.walk}", 186);
+	clj_c_publish(K, 31);
 	OP[0] = clj_c_intrinsic("clojure.core/list?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/seq?", 1);

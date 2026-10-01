@@ -3936,6 +3936,7 @@ static void unit_pools(void) {
 	K[95] = clj_c_const("includes?", 9);
 	K[96] = clj_c_const("clojure.string/includes?", 24);
 	K[97] = clj_c_const("{:arglists ([s substr]), :column 1, :doc \"True when s includes substr.\", :file \"<embedded>/clojure/string.clj\", :line 128, :name includes?, :ns clojure.string}", 159);
+	clj_c_publish(K, 98);
 	OP[0] = clj_c_intrinsic("clojure.core/nil?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/string?", 1);

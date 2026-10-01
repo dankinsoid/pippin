@@ -31,6 +31,13 @@ clj_value clj_c_const(const char *edn, size_t len) {
 	return v;
 }
 
+void clj_c_publish(const clj_value *pool, size_t n) {
+	for (size_t i = 0; i < n; i++) {
+		clj_share(pool[i]);
+		if (clj_is_ptr(pool[i])) clj_header_of(pool[i])->flags |= CLJ_FLAG_IMMORTAL;
+	}
+}
+
 clj_value clj_c_var(const char *ns, const char *name) {
 	clj_value ns_sym = clj_symbol_from_cstr(ns);
 	clj_value ns_obj = clj_ns_find_or_create(ns_sym);

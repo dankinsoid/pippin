@@ -388,6 +388,7 @@ static void unit_pools(void) {
 	K[12] = clj_c_const("promise-buffer", 14);
 	K[13] = clj_c_const("clojure.core.async.impl.buffers/promise-buffer", 46);
 	K[14] = clj_c_const("{:arglists ([]), :column 1, :file \"<embedded>/clojure/core/async/impl/buffers.clj\", :line 9, :name promise-buffer, :ns clojure.core.async.impl.buffers}", 151);
+	clj_c_publish(K, 15);
 }
 
 clj_value clj_compiled_lib_init_clojure_core_async_impl_buffers(void) {

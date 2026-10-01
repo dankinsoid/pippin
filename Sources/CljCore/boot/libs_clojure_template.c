@@ -745,6 +745,7 @@ static void unit_pools(void) {
 	K[12] = clj_c_const("clojure.template/do-template", 28);
 	K[13] = clj_c_const("do", 2);
 	K[14] = clj_c_const("{:arglists ([argv expr & values]), :column 1, :doc \"Repeatedly copies expr (in a do block) for each group of arguments in values, substituting them for argv.\", :file \"<embedded>/clojure/template.clj\", :line 14, :macro true, :name do-template, :ns clojure.template}", 264);
+	clj_c_publish(K, 15);
 	OP[0] = clj_c_intrinsic("clojure.core/vector?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/count", 1);

@@ -4272,6 +4272,7 @@ static void unit_pools(void) {
 	K[47] = clj_c_const("superset?", 9);
 	K[48] = clj_c_const("clojure.set/superset?", 21);
 	K[49] = clj_c_const("{:arglists ([set1 set2]), :column 1, :doc \"Is set1 a superset of set2?\", :file \"<embedded>/clojure/set.clj\", :line 127, :name superset?, :ns clojure.set}", 153);
+	clj_c_publish(K, 50);
 	OP[0] = clj_c_intrinsic("clojure.core/cons", 2);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/identical?", 2);

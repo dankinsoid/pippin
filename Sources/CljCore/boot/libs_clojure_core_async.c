@@ -30677,6 +30677,7 @@ static void unit_pools(void) {
 	K[405] = clj_c_const("[]", 2);
 	K[406] = clj_c_const(":clojure.core.async/nothing", 27);
 	K[407] = clj_c_const("{:arglists ([f ch] [f ch buf-or-n]), :column 1, :deprecated \"0.1.319.0-6b1aca-alpha\", :doc \"Deprecated - this function will be removed. Use transducer instead\", :file \"<embedded>/clojure/core/async.clj\", :line 1029, :name partition-by, :ns clojure.core.async, :skip-wiki true}", 276);
+	clj_c_publish(K, 408);
 	OP[0] = clj_c_intrinsic("clojure.core/seq?", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/next", 1);

@@ -33432,6 +33432,7 @@ static void unit_pools(void) {
 	K[390] = clj_c_const(":fail", 5);
 	K[391] = clj_c_const(":error", 6);
 	K[392] = clj_c_const("{:arglists ([summary]), :column 1, :doc \"Returns true if the given test summary indicates all tests were successful, false otherwise.\", :file \"<embedded>/clojure/test.clj\", :line 367, :name successful?, :ns clojure.test}", 220);
+	clj_c_publish(K, 393);
 	OP[0] = clj_c_intrinsic("clojure.core/seq", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);
 	OP[1] = clj_c_intrinsic("clojure.core/seq?", 1);
