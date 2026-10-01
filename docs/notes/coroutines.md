@@ -105,16 +105,17 @@
 - [~] **TLS across a park is the one rule every runtime file obeys.** Clang computes a `_Thread_local`'s address
   once per function and keeps it across calls (verified: `held++; park(); held--` reuses `x19`), so a coroutine
   that parks and resumes on another thread reads the *old* thread's slot through the cached address. Every
-  `_Thread_local` that code reaching a park can touch is therefore read through a call the compiler cannot
-  hoist or fold: `clj_coro_current()` (an external function), `clj_locks_held_slot()` (`noinline` plus an
-  `asm volatile` memory clobber so LLVM cannot infer it pure and merge two calls), `clj_deadline_tick()` (a
-  function), a compiled loop's tick ring captured once at the loop's entry (`clj_c_tick_ring`), and the
-  compiled inline caches behind per-site getters (`CLJC_TLS_IC`, `compiled_internal.h`: `static _Thread_local`
-  at file scope with a `noinline` getter; +1 ns on a protocol or keyword site — the trigger for the asm
-  alternative that names the TLV symbol directly is a profile where that call shows). The mutex slow path
-  runs one attempt per activation (`lock_attempt`) for the same reason. An inline read is fine when it happens
-  before any park in the activation and only the *pointer* is used after (`run_body`'s ring, `eval_loop`'s
-  ring): the pointer is the execution's own and stays valid; a *re-read* is what goes wrong.
+  `_Thread_local` that code reaching a park can touch is therefore read through a call the compiler cannot hoist
+  or fold: `clj_coro_current()` (an external function), `clj_locks_held_slot()` (`noinline` plus an `asm
+  volatile` memory clobber so LLVM cannot infer it pure and merge two calls; `clj_debug_owner_here()`, the debug
+  owner check's, is built the same way), `clj_deadline_tick()` (a function), a compiled loop's tick ring
+  captured once at the loop's entry (`clj_c_tick_ring`), and the compiled inline caches behind per-site getters
+  (`CLJC_TLS_IC`, `compiled_internal.h`: `static _Thread_local` at file scope with a `noinline` getter; +1 ns on
+  a protocol or keyword site — the trigger for the asm alternative that names the TLV symbol directly is a
+  profile where that call shows). The mutex slow path runs one attempt per activation (`lock_attempt`) for the
+  same reason. An inline read is fine when it happens before any park in the activation and only the *pointer*
+  is used after (`run_body`'s ring, `eval_loop`'s ring): the pointer is the execution's own and stays valid; a
+  *re-read* is what goes wrong.
 - [~] **The guard page of a coroutine works like a thread's**: the fault lands in `clj_guard_signal` with the
   current execution's ring (the carrier's `current`), the trace is collected from the coroutine's stack and
   the landing is at the execution's innermost recovery point — `clj_coro_entry` pushes one, so an overflow
