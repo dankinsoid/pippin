@@ -142,7 +142,7 @@
   from the child is refused with the JVM's message ("Can't set!: … from non-binding thread"): a frame records
   the execution that pushed it (`owner`), `clj_var_set` finds the frame whose own push holds the var, and only
   its owner writes the box; the child's own `binding` over the same var is its to set (`FutureTests`). The
-  `with-out-str` capture is conveyed the same way (`clj_output_captures_share`, "Scheduler" below).
+  `with-out-str` capture is conveyed the same way (`clj_output_captures_share`, NOTES "Scheduler").
 - **Cancellation is the deadline's mechanism, and the deadline is a cancellation by timer.** A cancellation sets
   the ring's `cancelled` flag and its deadline to 1, so every loop tick and driver entry throws through the
   deadline path (with its unwind budget), every park point checks the flag before and after the wait, and a
