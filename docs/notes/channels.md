@@ -30,6 +30,15 @@
   continuation moves to whoever won; a port that completes immediately claims the waiter under that port's lock,
   and an earlier port's node is then stale. `:priority` keeps the order, otherwise a per-thread xorshift
   shuffles it; `:default` never enqueues. `alt!` is the JVM's `do-alt` expansion (a put clause is `[[ch v]]`).
+- [ ] **Two idle channels can keep each other alive through stale `alts!` nodes.** A completed waiter keeps the
+  `port` and `value` it was woken with until its last node is dropped, and a stale node is dropped only when its
+  channel's queue is next walked. Two `alts!` over `[[c v] d]` where one wins on `c` and the other on `d` can
+  leave each one's stale node in the other's port, holding a waiter whose `port` is that other channel:
+  `c → node → waiter → d → node → waiter → c`, invisible to `each_child` (takers' waiters are not visited).
+  Measured: 12 leaks of exactly two `chan` objects in 3000 runs of the racing-putters form of
+  `ChanTests.altsWithDefaultTimeoutAndPriority`, which fails CI the same way (+2 objects, runs 36909227833
+  arm64 and 36921714691 x86_64). Trigger: this test's flake; the likely fix is the parker taking `value` and
+  `port` out of the waiter when it reads its result, so a stale node holds no channel.
 - **`go` spawns the body as an ordinary fn** (`go*`): the channel it returns holds the coroutine handle (for
   `cancel!`), the coroutine holds the channel until it finishes, puts a non-nil result as a fire-and-forget node
   and closes (`deliver_result`), so `(<! (go …))` is a join. `<!!`/`>!!`/`alts!!`/`alt!!` are the same functions;

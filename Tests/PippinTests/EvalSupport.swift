@@ -11,7 +11,6 @@ struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
 
 	func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
 		clj_init()
-		_ = lineBufferedOutput
 		if test.isSuite { return try await function() }
 		runtimeSettled("before \(test.name)")
 		let watch = DispatchWorkItem { reportHang(test.name) }
@@ -20,9 +19,6 @@ struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
 		try await function()
 	}
 }
-
-// Piped stdout is block-buffered: a run killed mid-lump never shows where it stood.
-private let lineBufferedOutput: Void = { setvbuf(stdout, nil, _IOLBF, 0) }()
 
 // The run's time bound kills a hung test without a trace (docs/notes/gates.md, "CI").
 private let hangSeconds = Double(ProcessInfo.processInfo.environment["CLJ_TEST_HANG_S"] ?? "") ?? 300

@@ -33,6 +33,13 @@
   cost the debug suite less than its run-to-run noise (`swift test` on the pool, 650 tests with the corpus, an
   Intel i9 under other load: 54.8 and 53.3 s against 70.6 and 54.2 s without them), stressSpawn above being the
   one test that shows them.
+- [ ] **The cutoff check reads mutable slots without their owner's lock.** `assert_shared_below` descends
+  through a coroutine's `fn` (and an atom's value, a channel's buffer) while another thread may replace and
+  release it: `finish` clears and releases `c->fn` on the carrier while a spawn on the test thread walks a
+  channel → coroutine → fn edge, and ASan reports a heap-use-after-free in `shared_below` (rc.c:212, from
+  `clj_share` in `clj_coro_spawn`, freed by `finish`; `AsyncLibTests.goScoped`, arm64 `make test`, run
+  36921714691). Debug builds only, sampled one cutoff in 256. Trigger: the next report; the fix is a walk that
+  does not descend below a node whose children change after publication.
 - **The owner check: an unshared object is touched only by the execution that owns it** (debug builds;
   `object.h`, `rc.c`, `coro.c`). The owner is the execution — a `clj_coro`, a bare thread's implicit one
   included — not the thread: a coroutine that parks and resumes on another carrier owns what it owned (design

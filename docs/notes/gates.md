@@ -10,10 +10,10 @@
   Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew); `api-diff` also resolves the core.async jar it
   dumps, so the first run of it needs the network and later ones the Maven cache. Every Makefile `swift test` is bounded by
   `timeout -k 5 $(TEST_TIMEOUT)`, 500 seconds unless overridden; GNU coreutils supplies `timeout` on macOS. Keep long
-  runs in background logs. Every run passes `--disable-xctest` (NOTES "Guard") and the suite line-buffers its
-  stdout, so a log shows where a run stood; a test still running after 300 s (`CLJ_TEST_HANG_S`) prints its
-  name, `clj_debug_sched_dump` and a one-second `sample` of every thread to stderr and ends the process (exit 3)
-  before the bound kills it without a trace.
+  runs in background logs. SwiftPM passes the test helper's output on in lumps (~16 KB, 64 KB with the XCTest
+  pass every run now skips, NOTES "Guard"), and a run killed by the bound loses what it held. So a test still
+  running after 300 s (`CLJ_TEST_HANG_S`) prints its name, `clj_debug_sched_dump` and a one-second `sample` of
+  every thread to stderr and ends the process (exit 3): the exit delivers everything.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
   allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one
   process per suite: an incorrect live-object baseline can pass when another suite initialized it first.
