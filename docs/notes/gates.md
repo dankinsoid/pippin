@@ -1,5 +1,8 @@
 ## Gates
 
+- **The gates hold on arm64 and x86_64 Macs alike** (`docs/portability.md`). `port-audit` names every
+  architecture-specific construct by file and function or macro, so a new one in a file already listed still
+  needs its row; a gate passing on one architecture says nothing about the other's per-architecture rows.
 - **Before every push, run `make gates`**: `test`, `test-compiled`, `corpus-compiled`, `facts-report`,
   `port-audit`, `c-only-audit`, `cmutex-audit`, `open-items-audit`, `api-diff`, in that order. `c-only-audit` runs one file
   through `clj-load`, the C-only host, to see a `catch` clause naming a host type refused out loud. The runner prints wall seconds and exit status per step,

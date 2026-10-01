@@ -57,12 +57,15 @@
   calls it). The reduce and fusion drivers never leave their execution. A registry that any execution reads
   under its lock is a publication (design §4) and shares what it holds: namespaces (as they did), the keyword
   table, the reify-type registry, the specializer's dependents index, the profiler's table and the loader's
-  failures. Three of those were bugs the check found, not just its noise: a reify site's type was retained and
+  failures, and a compiled unit's constant pool (`clj_c_publish`). Four of those were bugs the check found, not
+  just its noise: a reify site's type was retained and
   released outside the registry lock by every coroutine running the site
   (`CoroTests.aReifySiteRunsOnManyCoroutines`); a `def` re-deriving an exec retained and released the exec of a
   form still running on another thread (`SpecializeTests.aRedefReachesAFormRunningOnAnotherThread`);
   `clj_profile_stop` released fn nodes recorded by other executions (`ProfileTests.aFnProfiledOnAnotherThread`);
-  each a non-atomic count touched from two threads. The keyword table and the loader's failures were only
+  every compiled unit's `K[]`, filled by the loading execution and retained by every one running the code, which
+  `make test-compiled` met at its first core constant touched from a second test thread; each a non-atomic count
+  touched from two threads. The keyword table and the loader's failures were only
   lock-ordered, never racy, and are shared for the check's model.
 - [~] **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
   "Atoms"; `clj_debug_rc_ops` counts the plain, shared and immortal paths in debug builds, one relaxed

@@ -9,9 +9,13 @@ Two rules keep the list complete:
 - **Behaviour is one; only the mechanism is per platform.** A platform-specific branch may choose how
   to find a stack bound, a section, a register or a random byte; it may not change what a program
   observes. A branch whose other side is "not supported" is a listed gap, not a design.
-- **`make port-audit` fails on an unlisted spot.** The script greps the sources for the platform markers
-  below and compares the files it finds against this ledger. A new Apple-only API in a file that is not
-  listed here fails the audit; add the row. Agents: every task that adds such a spot adds its row.
+- **`make port-audit` fails on an unlisted spot.** `scripts/port-audit.py` greps the sources for the
+  platform markers and compares the files it finds against the Spots table: a new Apple-only API in a file
+  that is not listed there fails the audit. It also names every architecture-specific construct by its
+  file and the function or macro holding it and compares those against the Per-architecture spots table,
+  both ways: one more such spot in a file already listed fails, and so does a row whose spot is gone.
+  Agents: every task that adds such a spot adds its row.
+- **Apple platforms are arm64 and x86_64.** Both are in scope today, and every gate runs on both.
 
 ## Spots
 
@@ -21,7 +25,7 @@ Two rules keep the list complete:
 | `shadow.c`, `eval.c` (stack limit) | `pthread_get_stackaddr_np` for the thread's stack bounds | a fixed 512 KB assumption from the first call | `pthread_getattr_np` on Linux gives the same. |
 | `guard.c`, `guard_internal.h` | guard-page overflow recovery: `sigaltstack`, `ucontext` register layout for arm64/x86_64 macOS; `CLJ_CRASH_EXIT` skips the crash reporter's corpse path (ReportCrash answering `EXC_CRASH`) | none — a compiled overflow is a plain crash elsewhere | Same design on Linux with its `ucontext` field names; the interpreter's own check is portable; the `_exit` fallback is plain POSIX and matters only where a crash reporter can wedge the death. |
 | `trace.c` | frame and site tables found through `getsectiondata` in Mach-O sections `__TEXT,__cljframe`/`__cljsite`; PAC stripping on arm64e | none — traces carry no compiled frames elsewhere | ELF: same sections with `__start_`/`__stop_` symbols; PAC is arm64e-only anyway. |
-| `compiled_internal.h` | the frame attributes (`section(...)`) and the site-marker emission the compiler relies on | none | Section names follow the object format; the attribute spelling differs between Mach-O and ELF. |
+| `compiled_internal.h` | the frame attributes (`section(...)`) and the site-marker emission the compiler relies on (per-architecture rows below) | none | Section names follow the object format; the attribute spelling differs between Mach-O and ELF. |
 | `profile.c`, `profile_internal.h`, `eval.c` (signposts) | `os_signpost` intervals under `--instrument` | compiled out | Instruments-only; a port keeps the profiler and drops signposts. |
 | `uuid.c` | `arc4random_buf` for `random-uuid` | none | `getrandom(2)` on Linux; a CSPRNG is required (design: not the SplitMix rng). |
 | `CljCompiler/jit.c`, `include/cljc/compiler.h` | `xcrun` to find clang and the SDK; `dlopen` of a per-form dylib (diagnostic mode only) | none | Diagnostic path, not a product feature (design §9). |
@@ -34,6 +38,38 @@ Two rules keep the list complete:
 | `cmutex.c`, `chan.c`, `runtime.c` (the writer thread) | pthreads and C atomics only | — | Portable; listed so the audit knows the scheduler files were read. |
 | `Sources/Pippin/HostType.swift`, `Sources/Pippin/Runtime.swift` | the host type resolver of design §4: `_typeByName`, `_mangledTypeName` and `_openExistential`, three underscored stdlib entry points with **no ABI guarantee** — a Swift release may rename or retire any of them; and the mangled names the resolver builds, which are platform facts: `Foundation/NSError` is the Objective-C import `So7NSErrorC` on Apple and the swift-corelibs-foundation class `10Foundation7NSErrorC` on Linux, where `So7NSErrorC` resolves to nothing | none — a host type clause fails loudly where nothing resolves | The mechanism is stdlib, not Foundation: a binary using all three links only `libSystem` and `libswiftCore`, so it ports wherever Swift runs. Three things do not: the `So…C` candidate the resolver tries last is Objective-C-only and costs one failed lookup elsewhere; a name must reach a type at all, so the **type metadata has to survive into the binary** (a dead-stripped or `-Osize`-trimmed build, and any linker that drops unreferenced metadata, makes a type unnameable and turns a working clause into the loud refusal); and whether a dynamic cast from a bridged `NSError` to `CocoaError`/`URLError` still discriminates on swift-corelibs-foundation is **unverified** — measured on Apple only, and corelibs implements `_BridgedStoredNSError` itself, so the cast may or may not behave the same. Not caught by `port-audit`'s markers, listed anyway. |
 | `Sources/CljNREPL/Socket.swift` | `sockaddr_in.sin_len`, which only Darwin's struct has | `#if canImport(Darwin)` skips the field elsewhere | Portable POSIX sockets otherwise (`#if canImport(Darwin) import Darwin #else import Glibc #endif`); not caught by `port-audit`'s markers, listed anyway. |
+
+## Per-architecture spots
+
+What counts (`port-audit.py`, `ARCH_MARKERS`): an `__aarch64__`/`__x86_64__`/… condition or Swift
+`#if arch(…)`, assembly with a non-empty template (the empty `__asm__ volatile("" ::: "memory")` compiler
+barrier is not), a section placement (`section("…")`, `.section`, `.pushsection`), pointer authentication,
+and a signal's register context. A spot at file scope is named by the first definition in its conditional
+group. Each row says what each architecture does; arm64 is the reference, and a row that changes its arm64
+side needs an arm64 run (there is no arm64 CI yet: this table is that job's checklist).
+
+| file | spot | arm64 | x86_64 | elsewhere |
+|---|---|---|---|---|
+| `compiled_internal.h` | `CLJC_FRAME` | `section("__TEXT,__cljframe,regular,pure_instructions")` | the same | no section: no compiled frames in traces |
+| `compiled_internal.h` | `CLJC_SITE` | `.long 1f - .` and `.long stub - .`: the assembler's own `ltmp` label at the section start gives ld64 a symbol to subtract | an `l` label per entry (`lcljsite%=`, unique per emitted copy of the asm) subtracted explicitly, since ld64 refuses an `X86_64_RELOC_SUBTRACTOR` without one; same bytes in the section | no markers: an inlined body is not named |
+| `coro.c` | `clj_ctx_switch` | callee-saved x19–x28, fp/lr, d8–d15 in a 160-byte frame | rbp, rbx, r12–r15 pushed, return address on the stack (MXCSR and the x87 control word are not saved: nothing changes them) | `#error` |
+| `sched.c` | `cpu_relax` | `yield` | `pause` | nothing |
+| `cmutex.c` | `pause` | `yield` | `pause` | nothing |
+| `guard.c` | `clj_guard_origin` | pc, lr, fp, sp from `__ss` | rip, rbp, rsp and no lr: `call` stores the return address, and with 16-byte frames the entry `push %rbp` writes the same aligned pair, so it cannot be the first write past the guard page (`CompilerFixtureTests.anOverflowTraceKeepsTheFaultingFramesCaller`) | fp of the handler only |
+| `guard.c` | `land_after_return` | pc, sp, fp, lr = 0, x0 | rip, rsp − 8 (a call's alignment), rbp = 0, rdi | a plain call of `land` |
+| `trace.c` | `STRIP` | `ptrauth_strip` where `ptrauth_returns` (arm64e) | identity | identity |
+| `objc.c` | `classify_struct` | AAPCS64: HFA of ≤ 4, ≤ 16 bytes in integer registers, larger by pointer and x8 | only all-integer ≤ 16 bytes and one or two doubles; every other shape refused | the bridge is absent |
+| `objc.c` | `from_int_return` | `c`/`C` are integers | `c`/`C` read as BOOL | the bridge is absent |
+| `ObjCTests.swift` | `aStructReturnedThroughX8IsAsWideAsTheCallerThinks` | the x8 return and the 18-byte refusal | the refusal of each shape `objc-arm64.clj` covers | — |
+| `CompilerFixtureTests.swift` | `fixtureNames` | every fixture | `*-arm64.clj` skipped (`objc-arm64.clj`: the AAPCS64 struct shapes) | — |
+
+What the audit cannot see, checked by hand when porting:
+
+- **The worker's struct return** (`clj_wlong`/`clj_wdouble`, compiled_internal.h): two registers on both
+  (x0/x1 and d0/x0 on arm64, rax/rdx and xmm0/rax on x86_64 SysV) — plain C, no branch, but the "no
+  memory on either side" claim of NOTES "Compiler" is an ABI fact per architecture.
+- **The page size**: 16 KB on Apple arm64, 4 KB on x86_64. A bound counted in pages is written with
+  `getpagesize()` (`EvacTests.tenThousandParkedEvacuated`), never as bytes of one page size.
 
 ## Not platform-specific, worth knowing
 

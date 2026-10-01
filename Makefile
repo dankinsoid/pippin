@@ -122,9 +122,9 @@ c-only-audit:
 		echo "$$out" | grep -q "No host type resolver" && echo "$$out" | grep -qx "boom"
 	@echo "c-only-audit: a host type clause is refused where no resolver exists, keeping the exception it interrupted"
 
-# Every file using a platform-specific API must have a row in docs/portability.md (other platforms are the last goal).
+# Every file using a platform-specific API and every architecture-specific spot has its row in docs/portability.md.
 port-audit:
-	sh scripts/port-audit.sh
+	python3 scripts/port-audit.py
 
 # Every cmutex acquisition must be accounted for: an unregistered one is a suspend! parked holding it.
 cmutex-audit:

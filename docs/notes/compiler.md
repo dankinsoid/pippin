@@ -68,7 +68,10 @@
   pin the frames as they were. *Markers for inlined bodies* (`CLJC_SITE(&S[k])`, after every call the emitter
   checks for `CLJ_THROWN` and after every direct throw): an `asm volatile` that writes `{address after the call,
   stub}` as two self-relative 32-bit offsets into `__TEXT,__cljsite` — data only, no instruction, no runtime
-  relocation — and travels with the body when clang inlines it. For a return address inside frame fn F, the
+  relocation — and travels with the body when clang inlines it. ld64 resolves each offset against a symbol in
+  `__cljsite`: arm64's assembler plants one (`ltmp`) at every section start, x86_64's does not and ld64 refuses
+  the difference there (`X86_64_RELOC_SUBTRACTOR must have r_extern=1`), so the x86_64 form defines an `l`
+  label per entry (`%=`, unique per emitted copy) and subtracts it — the same eight bytes (docs/portability.md). For a return address inside frame fn F, the
   first marker at or past it within F's range names the fn whose body made the call; a marker naming another
   fn than F is an inlined callee, and the trace shows `[callee, F]`. The marker sits in the call's own basic
   block, so block reordering (a cold throw path moved to the function's end) cannot separate them, and every
@@ -80,7 +83,10 @@
   whatever stack it finds installed, and only the stack still installed is ours to unmap). A fault whose
   address lies within 1 MB below the stack's low end, or whose stack pointer is within 64 KB of it, is an
   overflow. The handler collects the merged trace from the interrupted registers (`pc`, `lr`, `fp`, `sp`; a
-  fault in a prologue or a leaf has the caller's frame pointer and the return address still in `lr`) into
+  fault in a prologue or a leaf has the caller's frame pointer and the return address still in `lr`; x86_64
+  has no `lr` and needs none: `call` stores the return address, and the entry `push %rbp` writes the other half
+  of that 16-byte-aligned pair, so it is never the first write past the guard —
+  `anOverflowTraceKeepsTheFaultingFramesCaller` sweeps the fault across 48 stack offsets on each arch) into
   the shadow stack's buffer and then, if it can, lands at the thread's innermost **recovery point**
   (`clj_recovery`, guard.h): `clj_eval` pushes one per top-level form, `clj_host_invoke` per host call,
   `run_unit` (load.c) around a compiled unit's init. The landing is not a `siglongjmp` from the handler: the
@@ -147,7 +153,9 @@
   reader made separately stay two objects (`(= ##NaN ##NaN)` is false, `(compare #{1} #{1})` throws) while a
   value a macro copied into two nodes stays one, exactly the object graph the interpreter's tree has. What
   the codec refuses (`clj_node_to_data`'s "not serializable": a fn, a type, a host value in a constant) the
-  generator refuses too. `(var x)` constants are `V[]` entries.
+  generator refuses too. `(var x)` constants are `V[]` entries. The filled `K[]` is published
+  (`clj_c_publish`: shared, then immortal, as the keyword table's entries): every execution running the unit
+  reads it, where the interpreter's constants are shared through the def of the fn whose tree holds them.
 - **Dev and closed** are one generated text: `CLJC_GUARD(var, boot)` is the intrinsic guard (`root ==
   boot builtin`, else `clj_c_intrinsic_fallback` through `clj_invoke`) and `CLJC_FUSED` the fusion guard
   (`clj_fusion_guard`, else the original program), both `1` under `CLJ_CLOSED`; every INVOKE whose head is a
