@@ -264,6 +264,33 @@ extension CoreTests {
 			}
 		}
 
+		// The loading execution fills a unit's constant pool; every execution running its code retains from it.
+		@Test func aUnitsConstantsAreReadByOtherExecutions() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.consts (:require [clojure.core.async :refer [go thread <!!]]))")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			let define = """
+				(defn cp-lit [] [1 2 {:a "s" :v ["t"]}])
+				(defn cp-on-a-new-host-thread []
+				  (let [done (promise)
+				        o (objc-reify {} (["run:" "v@:@"] [self arg] (deliver done (cp-lit))))]
+				    (.detach-new-thread-selector (objc-class "NSThread") "run:" :to-target o :with-object nil)
+				    (deref done 5000 :timeout)))
+				"""
+			let run = "[(<!! (go (cp-lit))) @(future (cp-lit)) (<!! (thread (cp-lit))) (cp-on-a-new-host-thread)]"
+			let lit = "[1 2 {:a \"s\", :v [\"t\"]}]"
+			let expected = "[\(lit) \(lit) \(lit) \(lit)]"
+			_ = try cljEval(define)
+			#expect(try cljEval(run).description == expected, "interpreted")
+			for closed in [false, true] {
+				let out = try compiledEval(closed: closed) {
+					_ = try cljEval(define)
+					return try cljEval(run).description
+				}
+				#expect(out == expected, "closed: \(closed)")
+			}
+		}
+
 		// A keyword or ExceptionInfo selector must exclude :cancelled and, for the keyword, nothing else.
 		@Test func compiledCatchSelectivityMatchesTheInterpreter() throws {
 			clj_init()

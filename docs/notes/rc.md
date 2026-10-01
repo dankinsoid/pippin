@@ -64,7 +64,10 @@
   form still running on another thread (`SpecializeTests.aRedefReachesAFormRunningOnAnotherThread`);
   `clj_profile_stop` released fn nodes recorded by other executions (`ProfileTests.aFnProfiledOnAnotherThread`);
   every compiled unit's `K[]`, filled by the loading execution and retained by every one running the code, which
-  `make test-compiled` met at its first core constant touched from a second test thread; each a non-atomic count
+  `make test-compiled` met at its first core constant touched from a second test thread and arm64's `make test`
+  at the objc fixture's `[1 2]`, retained by a reified method running on an `NSThread` the runtime had never seen
+  (`CompilerFixtureTests.aUnitsConstantsAreReadByOtherExecutions`: a `go`, a `future`, a `thread` and such a
+  callback, interpreted and compiled); each a non-atomic count
   touched from two threads. The keyword table and the loader's failures were only
   lock-ordered, never racy, and are shared for the check's model.
 - [~] **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
