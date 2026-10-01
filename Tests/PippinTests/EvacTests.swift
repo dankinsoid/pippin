@@ -199,10 +199,11 @@ extension CoreTests {
 			let period = clj_coro_evac_sweep_ms()
 			defer { clj_coro_set_evac_sweep_ms(period) }
 			do {
+				// Read before the cold ones park: a 2 ms sweep can take them before the next statement runs.
+				let before = clj_debug_coro_evacuations()
 				clj_coro_set_evac_sweep_ms(2)
 				_ = try eval("(def gate (chan))")
 				_ = try eval("(dotimes [i 10] (go (<! gate)))")
-				let before = clj_debug_coro_evacuations()
 				let pair = try eval("""
 				(let [ping (chan) pong (chan)
 				      p (go (loop [i 0] (when (< i 20000) (>! ping i) (<! pong) (recur (inc i)))) (close! ping))
@@ -219,7 +220,7 @@ extension CoreTests {
 				var arg = pair.raw
 				#expect(Value(owning: withUnsafePointer(to: &arg) { clj_invoke(join.raw, $0, 1) }) == kw("joined"))
 				// The pair parked ~40 000 times inside the sweep's window: an evacuation of it is the bound, not the rule.
-				let hot = clj_debug_coro_evacuations() - before - 10
+				let hot = Int64(clj_debug_coro_evacuations() - before) - 10
 				#expect(hot <= 4, "\(hot) evacuations of the hot pair")
 				_ = try eval("(close! gate) (def gate nil)")
 			}
