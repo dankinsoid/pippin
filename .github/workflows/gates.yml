@@ -20,6 +20,8 @@ env:
   CLOJURE_CLI_VERSION: 1.12.6.1673
   HOMEBREW_NO_AUTO_UPDATE: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
+  # A cold ASan build alone takes 290 s on the 4-core Intel runner; the Makefile default is sized for an M3.
+  TEST_TIMEOUT: 1200
 
 jobs:
   gates:
