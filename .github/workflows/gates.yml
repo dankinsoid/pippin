@@ -1,0 +1,128 @@
+# @ai-generated(solo)
+# `make gates` on GitHub-hosted macOS runners (docs/notes/gates.md, "CI").
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  XCODE_APP: /Applications/Xcode_26.6.app
+  CLOJURE_CLI_VERSION: 1.12.6.1673
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+jobs:
+  gates:
+    name: gates (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ !matrix.required }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-26
+            required: true
+          - arch: x86_64
+            runner: macos-26-intel
+            # The compiled backend does not link on x86_64 yet (the CLJC_SITE relocation).
+            required: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: |
+          # A label that moves to another architecture must fail here, not test the wrong one quietly.
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          swift --version
+          echo "cpus $(sysctl -n hw.ncpu), memory $(($(sysctl -n hw.memsize) / 1073741824)) GB"
+
+      - name: GNU timeout
+        run: |
+          command -v timeout || brew install coreutils
+          timeout --version | head -1
+
+      - name: Clojure CLI
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLO "https://github.com/clojure/brew-install/releases/download/$CLOJURE_CLI_VERSION/posix-install.sh"
+          sh posix-install.sh --prefix "$RUNNER_TEMP/clojure"
+          echo "$RUNNER_TEMP/clojure/bin" >> "$GITHUB_PATH"
+          java -version
+
+      - name: Maven cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ env.CLOJURE_CLI_VERSION }}-${{ hashFiles('Makefile') }}
+          restore-keys: m2-
+
+      - name: SwiftPM repository cache
+        uses: actions/cache@v6
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: swiftpm-${{ runner.arch }}-
+
+      # Self-validating content keys: a restored entry hits exactly or is ignored.
+      - name: Restore the corpus cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .build/corpus-cache
+          key: corpus-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: corpus-${{ runner.arch }}-
+
+      - name: Corpus cache contents before
+        run: (ls -d .build/corpus-cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/corpus-before"
+
+      - name: make gates
+        run: |
+          set -o pipefail
+          make gates 2>&1 | tee "$RUNNER_TEMP/gates.log"
+
+      - name: Gate times
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "### gates (${{ matrix.arch }}), corpus cache: $(grep -c 'corpus: cache hit' "$RUNNER_TEMP/gates.log") hits, $(grep -c 'corpus: cache miss' "$RUNNER_TEMP/gates.log") misses"
+            echo '```'
+            grep -E '^gate|^gates total' "$RUNNER_TEMP/gates.log" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          git status --short
+
+      # One entry per library survives: a run either hits the restored one or writes a newer one.
+      - name: Prune the corpus cache
+        id: corpus
+        if: ${{ !cancelled() }}
+        run: |
+          for library in .build/corpus-cache/*/; do
+            [ -d "$library" ] || continue
+            ls -td "$library"*/ | tail -n +2 | xargs rm -rf
+          done
+          (ls -d .build/corpus-cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/corpus-after"
+          if cmp -s "$RUNNER_TEMP/corpus-before" "$RUNNER_TEMP/corpus-after"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save the corpus cache
+        if: ${{ !cancelled() && steps.corpus.outputs.changed == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .build/corpus-cache
+          key: corpus-${{ runner.arch }}-${{ github.sha }}
