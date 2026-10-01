@@ -40,8 +40,7 @@ jobs:
             required: true
           - arch: x86_64
             runner: macos-26-intel
-            # The compiled backend does not link on x86_64 yet (the CLJC_SITE relocation).
-            required: false
+            required: true
     steps:
       - uses: actions/checkout@v7
 
