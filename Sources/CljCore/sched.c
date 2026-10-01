@@ -872,6 +872,8 @@ static pthread_mutex_t timer_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  timer_cv = PTHREAD_COND_INITIALIZER;
 static clj_timer      *timers;
 static pthread_once_t  timer_once = PTHREAD_ONCE_INIT;
+// Timers with a context, pending or firing, under timer_mu: what they hold dies only when they fire or are cancelled.
+static size_t          timers_held;
 
 // A timed wait wakes ~0.7 µs later than an untimed one: far deadlines go to a dispatch timer, the wait is untimed.
 enum { FAR_NS = 2000000 };
@@ -930,10 +932,12 @@ static void *timer_main(void *arg) {
 		}
 		clj_timer *t = timers;
 		timers = t->next;
+		bool held = t->ctx != NULL;
 		pthread_mutex_unlock(&timer_mu);
 		t->fn(t->ctx);
 		free(t);
 		pthread_mutex_lock(&timer_mu);
+		timers_held -= held;
 	}
 	return NULL;
 }
@@ -960,6 +964,7 @@ clj_timer *clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx) {
 	while (*at && (*at)->when <= t->when) at = &(*at)->next;
 	t->next = *at;
 	*at = t;
+	timers_held += ctx != NULL;
 	bool first = timers == t;
 	pthread_mutex_unlock(&timer_mu);
 	if (first) pthread_cond_signal(&timer_cv);
@@ -971,7 +976,10 @@ bool clj_sched_timer_cancel(clj_timer *t) {
 	clj_timer **at = &timers;
 	while (*at && *at != t) at = &(*at)->next;
 	bool found = *at == t;
-	if (found) *at = t->next;
+	if (found) {
+		*at = t->next;
+		timers_held -= t->ctx != NULL;
+	}
 	pthread_mutex_unlock(&timer_mu);
 	if (found) free(t);
 	return found;
@@ -1106,6 +1114,7 @@ static pthread_mutex_t job_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  job_cv = PTHREAD_COND_INITIALIZER;
 static job            *job_head, *job_tail;
 static size_t          blocking_threads, blocking_idle;
+static size_t          jobs_held; // queued or running, under job_mu
 
 static void *blocking_main(void *arg) {
 	(void)arg;
@@ -1127,13 +1136,16 @@ static void *blocking_main(void *arg) {
 		if (j->w) clj_debug_owner_assume(own);
 #endif
 		clj_waiter *w = j->w;
-		if (!w) {
+		if (w) {
+			// The claim publishes the copy; the parker reads it back and frees the job, so j is not touched past here.
+			if (clj_waiter_claim(w)) clj_resume_far(w);
+			clj_waiter_release(w);
+		} else {
 			free(j);
-			continue;
 		}
-		// The claim publishes the copy; the parker reads it back and frees the job, so j is not touched past here.
-		if (clj_waiter_claim(w)) clj_resume_far(w);
-		clj_waiter_release(w);
+		pthread_mutex_lock(&job_mu);
+		jobs_held--;
+		pthread_mutex_unlock(&job_mu);
 	}
 	return NULL;
 }
@@ -1153,6 +1165,7 @@ static job *submit(void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w)
 	if (job_tail) job_tail->next = j;
 	else job_head = j;
 	job_tail = j;
+	jobs_held++;
 	bool spawn_thread = blocking_idle == 0 && blocking_threads < BLOCKING_MAX_THREADS;
 	if (spawn_thread) blocking_threads++;
 	pthread_mutex_unlock(&job_mu);
@@ -1187,6 +1200,39 @@ void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
 void clj_blocking_detach(void (*fn)(void *ctx), void *ctx) { submit(fn, ctx, 0, NULL); }
 
 uint64_t clj_debug_coro_spawned(void) { return atomic_load_explicit(&spawned, memory_order_relaxed); }
+
+size_t clj_debug_timers_held(void) {
+	pthread_mutex_lock(&timer_mu);
+	size_t n = timers_held;
+	pthread_mutex_unlock(&timer_mu);
+	return n;
+}
+
+size_t clj_debug_blocking_held(void) {
+	pthread_mutex_lock(&job_mu);
+	size_t n = jobs_held;
+	pthread_mutex_unlock(&job_mu);
+	return n;
+}
+
+static bool runtime_idle(size_t coros) {
+	return clj_debug_live_coros() <= coros && clj_debug_timers_held() == 0 && clj_debug_blocking_held() == 0;
+}
+
+// A coroutine's count drops at its finalize, before its children are freed: the object count must hold still too.
+bool clj_debug_runtime_settle(size_t coros, uint64_t ms) {
+	uint64_t deadline = clj_profile_now() + ms * 1000000u;
+	for (;;) {
+		if (runtime_idle(coros)) {
+			clj_output_flush();
+			int64_t objects = clj_debug_live_objects();
+			usleep(1000);
+			if (runtime_idle(coros) && clj_debug_live_objects() == objects) return true;
+		}
+		if (clj_profile_now() > deadline) return false;
+		usleep(200);
+	}
+}
 
 // Test hook: the dev backstop that refuses a park while a clj_lock is held.
 bool clj_debug_park_under_lock_is_error(void) {

@@ -12,7 +12,9 @@ COMPILED = $(BUILD_ROOT)/compiled
 COMPILED_ASAN = $(BUILD_ROOT)/compiled-asan
 RELEASE = $(BUILD_ROOT)/release
 TEST_TIMEOUT ?= 500
-TEST = timeout -k 5 $(TEST_TIMEOUT) swift test
+# The suite is swift-testing only: the XCTest pass runs nothing, and its discovery helper loads an ASan-linked
+# bundle without the runtime first and dies (NOTES "Guard").
+TEST = timeout -k 5 $(TEST_TIMEOUT) swift test --disable-xctest
 export CLJ_COMPILE = $(abspath $(PLAIN)/debug/clj-compile)
 export CLJ_CORPUS_CACHE = $(abspath $(BUILD_ROOT)/corpus-cache)
 CORPUS_REPORT = $(PLAIN)/corpus-report
@@ -27,10 +29,9 @@ boot:
 	swift build --scratch-path $(PLAIN) --product clj-compile
 	$(PLAIN)/debug/clj-compile --core --out Sources/CljCore/boot
 
-# ASan sees object boundaries only with the system allocator. The suite is swift-testing only; the XCTest discovery
-# helper loads the ASan-linked bundle without the runtime first and dies, so it is skipped.
+# ASan sees object boundaries only with the system allocator.
 test:
-	CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(ASAN) --sanitize=address --disable-xctest
+	CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(ASAN) --sanitize=address
 
 test-pool:
 	$(TEST) --scratch-path $(PLAIN)
@@ -68,7 +69,7 @@ test-compiled:
 	$(TEST) --scratch-path $(COMPILED) -Xcc -DCLJ_COMPILED_CORE
 
 test-compiled-asan:
-	CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(COMPILED_ASAN) -Xcc -DCLJ_COMPILED_CORE --sanitize=address --disable-xctest
+	CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(COMPILED_ASAN) -Xcc -DCLJ_COMPILED_CORE --sanitize=address
 
 # Both corpora through compiled user code: clj-compile per library, clang per file, dlopen; the per-test report
 # must match the interpreter's line by line.

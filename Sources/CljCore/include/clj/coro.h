@@ -71,6 +71,11 @@ clj_value clj_coro_parked_trace(clj_value coro);
 size_t   clj_debug_live_coros(void);
 // Waits up to ms for the live count to fall to target: a test's quiesce before its live-object check.
 bool clj_debug_coro_settle(size_t target, uint64_t ms);
+// Timers with a context (a timeout's channel, a sleeper, a deadline), pending or firing; blocking jobs in flight.
+size_t clj_debug_timers_held(void);
+size_t clj_debug_blocking_held(void);
+// Waits up to ms for nothing in flight to hold objects (docs/notes/gates.md, "Settled baselines").
+bool clj_debug_runtime_settle(size_t coros, uint64_t ms);
 bool clj_debug_park_under_lock_is_error(void);
 void clj_debug_sched_dump(void);
 // Carriers in the untimed wait (not spinning, not polling) and the pool's size: a test's "the pool is cold".

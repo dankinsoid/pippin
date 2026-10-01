@@ -527,8 +527,11 @@ extension CoreTests {
 				let flaky = Set(try Self.readAllowlist(lib).tests.filter { Self.isFlaky($0.value) }.keys)
 				try writeReport(lib, first, flaky: flaky)
 				// Loading interns vars and keywords for the process; the second run over the loaded namespaces is the memory check.
+				// A library's go blocks, thread bodies and timeouts outlive the deftest that started them.
+				runtimeSettled("before \(lib.name)'s second run")
 				let before = clj_debug_live_objects()
 				let second = try Self.run(lib)
+				runtimeSettled("after \(lib.name)'s second run")
 				let live = Int(clj_debug_live_objects() - before)
 				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) }.map(\.status) }
 				#expect(steady(second) == steady(first), "\(lib.name): the two runs disagree")

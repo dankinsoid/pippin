@@ -224,10 +224,7 @@ extension CoreTests {
 		// A sibling cancelled by the scope reads the failure through ex-cause (design §4, Go's context.Cause).
 		@Test func aScopeCancellationCarriesItsCause() throws {
 			// Warms whatever this scenario interns on first use, ahead of the baseline (CoroTests does the same).
-			let coros = clj_debug_live_coros()
 			_ = try eval("(let [c (chan)] (try (go-scoped (go (try (<! c) (catch :cancelled e (ex-cause e)))) (go (throw (ex-info \"warm\" {})))) (catch :default e nil)))")
-			// A joined child's channel closes before its epilogue on the carrier has run.
-			#expect(clj_debug_coro_settle(coros, 5000))
 			let base = CoroBaseline()
 			do {
 				#expect(try eval("""

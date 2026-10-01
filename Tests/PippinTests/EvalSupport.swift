@@ -1,17 +1,58 @@
 // @ai-generated(guided)
 import CljCore
+import Foundation
 import Testing
 @testable import Pippin
 
 // Boots the runtime before every test of the suite it is applied to (recursively), so a live-object baseline
-// never lands before clj_init's one-time allocations, whichever suite runs first.
+// never lands before clj_init's one-time allocations, whichever suite runs first, nor before the runtime settled.
 struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
 	var isRecursive: Bool { true }
 
 	func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
 		clj_init()
+		_ = lineBufferedOutput
+		if test.isSuite { return try await function() }
+		runtimeSettled("before \(test.name)")
+		let watch = DispatchWorkItem { reportHang(test.name) }
+		DispatchQueue.global().asyncAfter(deadline: .now() + hangSeconds, execute: watch)
+		defer { watch.cancel() }
 		try await function()
 	}
+}
+
+// Piped stdout is block-buffered: a run killed mid-lump never shows where it stood.
+private let lineBufferedOutput: Void = { setvbuf(stdout, nil, _IOLBF, 0) }()
+
+// The run's time bound kills a hung test without a trace (docs/notes/gates.md, "CI").
+private let hangSeconds = Double(ProcessInfo.processInfo.environment["CLJ_TEST_HANG_S"] ?? "") ?? 300
+
+// Ends the process: a test past the bound has failed, and waiting on for the run's bound gains nothing.
+// @ai-generated(solo)
+private func reportHang(_ name: String) {
+	FileHandle.standardError.write(Data("hang: \(name) still running after \(hangSeconds) s\n".utf8))
+	clj_debug_sched_dump()
+	let sample = Process()
+	sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
+	sample.arguments = [String(getpid()), "1", "-file", "/dev/stderr"]
+	if (try? sample.run()) != nil { sample.waitUntilExit() }
+	fflush(nil)
+	_exit(3)
+}
+
+nonisolated(unsafe) private var neverSettled = false
+
+// After one failure each call only looks: a leak would otherwise stall every later test into the run's bound.
+// @ai-generated(solo)
+@discardableResult
+func runtimeSettled(_ when: String, coros: Int = 0, sourceLocation: SourceLocation = #_sourceLocation) -> Bool {
+	if clj_debug_runtime_settle(coros, neverSettled ? 0 : 10_000) { return true }
+	if !neverSettled {
+		neverSettled = true
+		Issue.record("the runtime never settled \(when): \(clj_debug_live_coros()) coroutines (want \(coros)), \(clj_debug_timers_held()) timers, \(clj_debug_blocking_held()) blocking jobs", sourceLocation: sourceLocation)
+		clj_debug_sched_dump()
+	}
+	return false
 }
 
 extension Trait where Self == BootedTrait {

@@ -10,13 +10,37 @@
   Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew); `api-diff` also resolves the core.async jar it
   dumps, so the first run of it needs the network and later ones the Maven cache. Every Makefile `swift test` is bounded by
   `timeout -k 5 $(TEST_TIMEOUT)`, 500 seconds unless overridden; GNU coreutils supplies `timeout` on macOS. Keep long
-  runs in background logs. A run killed by the bound prints none of the suite's output: SwiftPM holds the test
-  helper's output, and the helper is orphaned rather than flushed.
+  runs in background logs. Every run passes `--disable-xctest` (NOTES "Guard") and the suite line-buffers its
+  stdout, so a log shows where a run stood; a test still running after 300 s (`CLJ_TEST_HANG_S`) prints its
+  name, `clj_debug_sched_dump` and a one-second `sample` of every thread to stderr and ends the process (exit 3)
+  before the bound kills it without a trace.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
   allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one
   process per suite: an incorrect live-object baseline can pass when another suite initialized it first.
   It is periodic because that startup cost repeats for every suite. All live-object assertions also remain
   active in the ordinary full-suite and corpus runs.
+- **A live-object baseline is taken with the runtime settled.** `clj_debug_runtime_settle` (sched.c) waits
+  until no coroutine lives beyond the target, no timer with a context is pending or firing (a timeout's
+  channel, a sleeper's waiter, a deadline's coroutine; the evacuation sweep holds none), no blocking-pool job is
+  queued or running, the output writer is drained, and the live-object count holds still across 1 ms (a
+  coroutine's count drops at its finalize, before its children are freed). `BootedTrait` settles before every
+  test under `CoreTests`, `CoroBaseline` at both ends, the corpus around its second run. Without it a baseline
+  counted whatever finished on another thread a moment later — a warm-up's joined go block still in its
+  epilogue on a carrier, a `timeout` that lost an `alts!` firing later, a `thread` body releasing after it
+  delivered — and the check found those objects gone (`CoroTests.everyCancellationIsCancelledType`,
+  `ChanTests.altsWithDefaultTimeoutAndPriority`, `AsyncLibTests.aScopeCancellationCarriesItsCause` on CI). The
+  wait is for work in flight, not for the count, so a leak still fails the check; it is bounded at 10 s and
+  fails loudly, once — later settles only look, so one leaked coroutine does not stall every test after it into
+  the run's bound. The runtime cannot see host threads: the nREPL server's connection threads hold its sessions
+  until they see the client hang up, so `NReplTests` waits for the server to be freed (`overTheWire`) — a
+  `NamespaceTests` baseline counted them otherwise. A test that starts host threads holding values joins them
+  before it returns.
+- [ ] **A `test-compiled` hang on arm64 CI** (run 36913041719, `d3a3181`): nothing after the build until the
+  1200 s bound. Known: that pass still ran XCTest, under which SwiftPM delivered the suite's output in 64 KB
+  lumps, the first ~50 s into a green run, so the hang was before `CorpusTests` finished (serialized,
+  alphabetical: AsyncBridge … ChanStress, Chan, Cmutex, CompilerFixture, Coro); the XCTest discovery helper
+  wedging (NOTES "Guard") is not excluded. Not reproduced locally (x86_64) nor in the dispatches below. Trigger:
+  the next hang, which now names its test and dumps every thread (the bullet above).
 - **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
   `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
   `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a

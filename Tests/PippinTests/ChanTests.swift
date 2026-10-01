@@ -19,16 +19,16 @@ nonisolated(unsafe) private var uncaughtReports = 0
 
 // Every test ends with what it started with: no live objects, no live coroutines.
 struct CoroBaseline {
-	let objects = clj_debug_live_objects(), coros = clj_debug_live_coros()
-	// The timer thread releases a timeout channel after it woke the taker: the object count settles a moment later.
+	let objects: Int64, coros: Int
+
+	init(_ location: SourceLocation = #_sourceLocation) {
+		runtimeSettled("before the baseline", sourceLocation: location)
+		objects = clj_debug_live_objects()
+		coros = clj_debug_live_coros()
+	}
+
 	func check(_ location: SourceLocation = #_sourceLocation) {
-		#expect(clj_debug_coro_settle(coros, 5000), sourceLocation: location)
-		clj_output_flush()
-		var tries = 0
-		while clj_debug_live_objects() != objects && tries < 200 {
-			usleep(1000)
-			tries += 1
-		}
+		runtimeSettled("before the check", coros: coros, sourceLocation: location)
 		#expect(clj_debug_live_objects() == objects, sourceLocation: location)
 		#expect(clj_debug_live_coros() == coros, sourceLocation: location)
 	}
@@ -48,6 +48,21 @@ extension CoreTests {
 			(defn spawner [c] (go (try (inner-after-park c) (catch :default e (mapv :fn (ex-trace e))))))
 			(defn outer-spawner [c] (spawner c))
 			""")
+		}
+
+		// Both outlive their caller holding objects (docs/notes/gates.md, "Settled baselines").
+		// @ai-generated(solo)
+		@Test func settlingWaitsForTimersAndBlockingJobs() throws {
+			_ = try eval("(do (timeout 2000) nil)")
+			#expect(clj_debug_timers_held() == 1)
+			#expect(!clj_debug_runtime_settle(0, 20))
+			#expect(clj_debug_runtime_settle(0, 10_000))
+			#expect(clj_debug_timers_held() == 0)
+			_ = try eval("(do (thread (<!! (timeout 500))) nil)")
+			#expect(clj_debug_blocking_held() == 1)
+			#expect(!clj_debug_runtime_settle(0, 20))
+			#expect(clj_debug_runtime_settle(0, 10_000))
+			#expect(clj_debug_blocking_held() == 0)
 		}
 
 		// A test waits for its go blocks by taking from their channels: (<! (go ...)) is a join.
