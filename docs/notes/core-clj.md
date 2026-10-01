@@ -5,7 +5,7 @@
   binary, so it is a build bug, not a user error.
 - **Loaded once per process into `clojure.core`**; its vars, closures and fn nodes are live for the
   process and sit under every test baseline taken after `clj_init`.
-- **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn defn-
+- [~] **Contents**: `concat lazy-seq when when-not if-not cond destructure let loop fn defn defn-
   vary-meta and or -> ->> comment profile dotimes if-let when-let assert declare doc vswap!`, the seq
   library `complement comp partial constantly completing transduce cat nthrest some every?
   not-any? not-every? map filter remove keep take drop take-while drop-while iterate repeat range
@@ -37,7 +37,7 @@
   collections), `replicate`, `lazy-cat`, `update-keys`, `update-vals`, `iteration` (a `reify` over `Seqable`
   and `IReduceInit`, whose type is made on the first call and cached for the process), `printf`, the data
   reader vars and `*print-length*`/`*print-level*`.
-- **Hierarchies and multimethod dispatch are core.clj, not C** (~line 1848). The global hierarchy is the
+- [~] **Hierarchies and multimethod dispatch are core.clj, not C** (~line 1848). The global hierarchy is the
   root of `#'clojure.core/global-hierarchy`, a `{:parents :ancestors :descendants}` map that `derive` and
   `underive` replace through `alter-var-root`, as Clojure does; `underive` rebuilds from the remaining
   edges. `isa?` is `=`, then the ancestor set, then elementwise over two vectors. A `MultiFn` is a
@@ -63,7 +63,7 @@
   `run-all-tests` takes a pattern or a predicate on the namespace name; no `*test-out*` (output goes to
   the process hook, `with-out-str` captures it); test vars run in `:line` order. Deviation: `is` binds
   `*assertion-pos*` per assertion (a frame push and pop, ~200 ns), where Clojure's reads the stack.
-- **Semantics that differ from Clojure**, each kept for a reason: `case` compiles to `cond` over `=`
+- [~] **Semantics that differ from Clojure**, each kept for a reason: `case` compiles to `cond` over `=`
   (O(clauses), no jump table); `letfn` rebinds every name from a volatile at each body's entry (closures
   copy their captures when made, so a forward reference must be read at call time) — the cell holds the fn
   and the fn's body reads the cell, so every `letfn` call leaks the cycle (2 objects for one fn) until design
@@ -111,19 +111,19 @@
   and takes no options (`:extend-via-metadata`, `:on-interface`). `extend` rejects a key that names
   no method where Clojure ignores it. Method fns are unnamed, so an arity error inside an impl says
   `fn`; the dispatching fn checks the declared arities first and names the method.
-- **`concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only**: syntax-quote expands `~@` to
+- [~] **`concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only**: syntax-quote expands `~@` to
   `(seq (concat ...))`, so every macro expansion runs through it. A macro's output is therefore a
   cons chain with lazy tails, which the analyzer realizes while collecting items; code-sized data,
   but each splice costs a closure and a lazy seq per element. Trigger: macro expansion in a profile.
   Fix: a C `concat` over already-realized arguments when every argument is counted. `assert` is always
   on (no `*assert*`). `dotimes` does not coerce its count to a long.
-- **`destructure` follows clojure.core with these gaps.** A keyword as a binding form (`[:a 1]`) and a
+- [~] **`destructure` follows clojure.core with these gaps.** A keyword as a binding form (`[:a 1]`) and a
   map key that is a keyword other than `:as`/`:or`/`:keys`/`:strs`/`:syms` (`{:foo x}`) are
   "Unsupported binding form/key" here; Clojure's function binds `a`/`foo` but its `let` spec rejects
   both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
   merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
   Trigger: a library relying on the trailing-map call style.
-- **Reader metadata on a collection literal is dropped**: `^:foo [1]` reads as a vector with meta, and the
+- [ ] **Reader metadata on a collection literal is dropped**: `^:foo [1]` reads as a vector with meta, and the
   analyzer then builds a fresh vector node from the items and loses it, so `(meta ^:foo [1])` is nil where
   Clojure's is `{:foo true}` (its compiler emits the `with-meta`). A bug; the fix is a meta child on the
   vector/map/set nodes, applied after the collection is built. Trigger: `^:const`, `^{:doc}` or any
@@ -140,7 +140,7 @@
   still stops. Cooperative only: a native that loops without calling back into Clojure is not interrupted
   (`(hash (range))` is such a loop). The corpus watchdog is the one user so far; an untrusted-code host is
   the other.
-- **`fn` has no `:pre`/`:post` conditions**: a map as the first body form is evaluated and discarded
+- [ ] **`fn` has no `:pre`/`:post` conditions**: a map as the first body form is evaluated and discarded
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
 

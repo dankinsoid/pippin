@@ -6,7 +6,7 @@
   behind it) and the rear starts over. A single vector with an offset would keep every popped element until
   the queue emptied; this drops them as they go. Invariant: `count > 0` means the front is non-empty, so
   `peek` and `pop` never read the rear, and the empty singleton pops to itself as on the JVM.
-- **`seq` is eager**: the front's items followed by the rear's as one list (`queue_seq`), which `=`, `hash`
+- [ ] **`seq` is eager**: the front's items followed by the rear's as one list (`queue_seq`), which `=`, `hash`
   and printing walk; `first` is the front's first and `reduce` walks front then rear without the copy.
   Trigger for a lazy view: a large queue seq'd in a profile.
 - **The JVM's spelling resolves**: `clojure.lang.PersistentQueue` and `PersistentQueue` name the type in core,

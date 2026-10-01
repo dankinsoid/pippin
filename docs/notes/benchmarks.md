@@ -10,7 +10,7 @@
   `-Xcc -falign-functions=64` on both sides took the gap to 0.3 (bench/RESULTS.md, "The self-recursive worker").
   A CljCore change that shows less than that on a call row it does not touch is layout until the aligned build says
   otherwise.
-- Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
+- [ ] Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
 

@@ -63,7 +63,7 @@
   and pumps by hand, and `CoroTests.mainRunLoopSource` runs the real source from a `@MainActor` test turning
   `CFRunLoopRunInMode`. `(atom x :affinity :main)` checks the carrier on every access (one flag test on the
   fast path): a pool coroutine's `swap!`/`deref` of it is an error with a trace.
-- **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): threads made on demand up to 64, kept
+- [~] **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): threads made on demand up to 64, kept
   for ever; a pool coroutine submits the job with a heap copy of its `size`-byte context and parks
   (uncancellable), the thread works on the copy, the parker copies it back after the wake — the parker's frame
   is never written by another thread (the evacuation invariant under "Coroutines"); a bare thread runs the job

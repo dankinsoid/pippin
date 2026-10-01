@@ -32,7 +32,7 @@
   and a dissoc of the last key answers a fresh empty trie (`clj_map_empty_new`), not the singleton, so
   `(identical? {} (dissoc {:a 1} :a))` is false as on the JVM. Sets stay on the trie (`clj_hash_map_assoc`), and
   so does the keyword intern table, by its symbol keys.
-- **Semantics are the map's.** `=` and `hash` are structural and the hash is the trie's (the entry mix of map.c,
+- [~] **Semantics are the map's.** `=` and `hash` are structural and the hash is the trie's (the entry mix of map.c,
   as records do): `(= {:a 1} (hash-map ... as a trie))` is true both ways and the two hash alike, so they are
   interchangeable as keys; two maps of one shape compare slot by slot. `seq`, `keys`, `vals`, `reduce-kv` and
   printing follow the shape's order — the keys sorted by `compare` — which is as unspecified as the trie's
@@ -73,7 +73,7 @@
   allocation, the values evaluated into their slots, no transitions and no duplicate check (the reader made it).
   A literal with a computed key, or one the cap refuses, is the generic path, which throws "Duplicate key" at
   run time as before.
-- **Not done, with triggers.** *Unboxed slots by observation* (`:count` always int64): the slot would need a
+- [ ] **Not done, with triggers.** *Unboxed slots by observation* (`:count` always int64): the slot would need a
   representation tag per shape and a check on every write, and the facts have no element fact for a map value to
   consume it; trigger: a fold like the bench's over a numeric field showing the box in a profile. *Tuples and
   elements kinds*: design §4, not this step. *A hash cache on the shape map*: above. *The record merge*: above.

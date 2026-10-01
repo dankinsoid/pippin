@@ -1,6 +1,6 @@
 ## Coroutine mutex (Sources/CljCore/cmutex.c, include/clj/cmutex.h)
 
-- **One word, a parking lot behind it**: 0 free, 1 locked, 2 locked with waiters, 3 free with waiters (the
+- [~] **One word, a parking lot behind it**: 0 free, 1 locked, 2 locked with waiters, 3 free with waiters (the
   waiters bit outlives an unlock so a barging locker cannot strand the queue). Uncontended a lock is one CAS
   and an unlock one CAS, the same as `os_unfair_lock` — the `swap! inc` row did not move (42.6 → 38 ns). Contended
   the locker spins 64 `yield`s (a holder is usually done in tens of ns), then queues a waiter in the lot's

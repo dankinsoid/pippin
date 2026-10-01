@@ -1,6 +1,6 @@
 ## Arrays (Sources/CljCore/array.c, builtins_array.c)
 
-- **Elements live inline, after the header**, not behind a pointer: `{rc, flags, type, kind, count, data[]}`,
+- [~] **Elements live inline, after the header**, not behind a pointer: `{rc, flags, type, kind, count, data[]}`,
   one allocation, one load to reach an element and a fixed offset from the object to the first byte. An array
   is fixed-length and never `clj_realloc`'d, so that address is stable for its life, which is what a zero-copy
   handoff needs — a `u8` or `f32` array can become a `Data`/`UnsafeBufferPointer` over `clj_array_data`
@@ -34,13 +34,13 @@
   (docs/jvm-differences.md). The printer boxes every element into a frame of owned entries, so printing a
   big array allocates the whole row; and an `:object` array that holds itself prints forever, the same
   hazard a self-referential lazy seq already has (no `*print-length*`).
-- **`vector-of` is a normal persistent vector** whose elements went through the kind's cast, so
+- [ ] **`vector-of` is a normal persistent vector** whose elements went through the kind's cast, so
   `(vector-of :byte 300)` throws and `(vector-of :float 0.1)` holds `0.10000000149011612` as on the JVM, but
   the storage is boxed `clj_value`s and `conj` onto it forgets the kind. An unboxed persistent vector needs
   the trie to carry an element kind and every leaf to be typed, which is the "elements kinds" item of design
   §4; the typed array is the piece that item stands on. Trigger: a `vector-of` in a profile, or the first
   code that wants `(vector-of :f32)` handed to Metal.
-- **No multi-dimensional arrays**: `make-array` takes one dimension and `aget`/`aset` one index, where the
+- [ ] **No multi-dimensional arrays**: `make-array` takes one dimension and `aget`/`aset` one index, where the
   JVM nests. An array of arrays is written out by hand. Trigger: a library indexing `(aget m i j)`.
 - **`aset-int` and its siblings are aliases of `aset`**: the array's kind decides the cast, so `aset-int`
   into a `double-array` stores a double where the JVM would refuse the array type at compile time.

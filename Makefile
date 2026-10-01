@@ -1,4 +1,4 @@
-.PHONY: port-audit c-only-audit cmutex-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint gates gates-full
+.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -129,6 +129,13 @@ port-audit:
 cmutex-audit:
 	sh scripts/cmutex-audit.sh
 
+# docs/open.md is generated from the [ ]/[~] marks of docs/design/ and docs/notes/; the audit fails when it is stale.
+open-items:
+	python3 scripts/open-items.py
+
+open-items-audit:
+	python3 scripts/open-items.py --check
+
 # The stub-generator measurement of design §10 step 8: how much of a Swift module's public API reprints
 # into a compilable stub, and what the tail is made of. Rewrites docs/swift-reprint.md, which is committed.
 # NOT a gate, and must not become one: the numbers come from the installed SDK and toolchain, so they move
@@ -142,8 +149,8 @@ swift-reprint:
 
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff test-isolated test-compiled-asan

@@ -45,7 +45,7 @@
   file order, each behind `clj_load_form_failed` (lenient: record and go on; else the CompilerException wrap
   of the loader). A trace names a compiled fn at its own position rather than the caller's line: the one
   visible deviation of compiled frames.
-- **An empty prologue: frames, traces, the guard page, the deadline, instrumentation** (design §4 "Пролог
+- [~] **An empty prologue: frames, traces, the guard page, the deadline, instrumentation** (design §4 "Пролог
   скомпилированной функции — ноль на горячем пути"; trace.c, guard.c, compiled_internal.h `CLJC_FRAME`,
   `CLJC_SITE`, `CLJC_ENTER`/`CLJC_LEAVE`). A compiled arity function is an ordinary C function: no shadow frame,
   no stack check, no deadline, no instrumentation byte; its epilogue is the release of the promoted owned
@@ -164,7 +164,7 @@
   `load-string` (design §6); core.clj may name them. Dev keeps every var, `with-redefs`, `def` at run time,
   `eval` and `load-string` working over compiled code, the interpreter stays linked, and a var rebound from
   the REPL reaches compiled call sites through the same deref the interpreter makes.
-- **Promoted slots.** `emit_top` runs `clj_facts_of` over each tree and every frame (closure arity, direct
+- [~] **Promoted slots.** `emit_top` runs `clj_facts_of` over each tree and every frame (closure arity, direct
   arity, top-level form) decides per slot whether it lives in the `clj_cframe` array or in a C variable
   `clj_value l<i>` (`promote_slots`). A promoted slot has one ownership for its whole life: *owned-or-nil* for
   a let, loop, catch or rest slot (declared `= CLJ_NIL`, bound by `clj_c_rebind`, which releases the old value,
@@ -202,7 +202,7 @@
   core.clj 103 of 194. A param a fn-body `recur` rebinds could be promoted with a
   runtime owned flag — trigger: a hot self-recursive fn showing the array store in a profile. The boxed `<`/`inc`
   the counting loop paid are the next entry's.
-- **Unboxed arithmetic, int64 and double slots, entry-checked frames** (`emit_unboxed`, `emit_tag_checked`,
+- [~] **Unboxed arithmetic, int64 and double slots, entry-checked frames** (`emit_unboxed`, `emit_tag_checked`,
   `typed_masks`, `select_split`, `emit_split`; bench/RESULTS.md, "Specialized arithmetic" and "Specialized
   arithmetic over doubles"). `emit_top` builds the tree's table with the dev store (`clj_facts_of_with`, the join
   included, the store read without its lock since a compile is one thread; a compiled-eval form records its own
@@ -271,7 +271,7 @@
   with a hot loop over a parameter, then the parameter as a checked slot of the split (it is bound once, like a
   let's); a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a profile;
   a `let` without a loop, whose typed reads stay tag-checked — trigger: a hot straight-line body in a profile.
-- **The primitive entry: worker/wrapper** (design §6 "worker/wrapper = наши два входа, боксовый + примитивный", §6b
+- [~] **The primitive entry: worker/wrapper** (design §6 "worker/wrapper = наши два входа, боксовый + примитивный", §6b
   "unboxed-конвенция между функциями"; `emit_worker`, `emit_result`, `prim_site_of`, `emit_prim`, `target_entry`;
   compiled_internal.h `clj_wlong`/`clj_wdouble`, `clj_c_as_int64`, `clj_c_unbox_long`, `clj_c_prim_fallback`,
   `clj_compiled_register_worker`; bench/RESULTS.md "The primitive entry"). *What qualifies.* Under `--closed`, a
@@ -370,7 +370,7 @@
   `make test-eval-compiled`: the whole suite with every host eval compiled (`CLJ_EVAL=compiled`, the weak
   `clj_compiled_eval_boot` `clj_init` calls); each unit's pool objects are taken out of the live count
   (`clj_debug_live_objects_exclude`) because they live for the process by design.
-- **Protocol calls** (`emit_proto_call`, `receiver_arms`, `arm_target`; compiled_internal.h `clj_c_arm_hit`,
+- [~] **Protocol calls** (`emit_proto_call`, `receiver_arms`, `arm_target`; compiled_internal.h `clj_c_arm_hit`,
   `clj_c_proto_ic_call`; bench/RESULTS.md "Compiled protocol calls"). An INVOKE whose head var holds a protocol
   method at emit time (the compile evaluated the file first, so the var and the tables are final) is emitted as a
   chain over `pt = clj_dispatch_type_inline(receiver)` and `pe = clj_epoch_load()`: the **arms** the receiver fact
@@ -421,7 +421,7 @@
   implementors, which today only a constructor-derived fact reaches; the entry protocol is gone (the empty
   prologue entry) and the row sits at 7.6–7.8: what stands between that and the design's 5 is the boxed
   argument array and the loop around the call.
-- **Deviations and skips, each with its trigger.** Trace positions as above; trigger: a host wanting caller lines from compiled code, then a line
+- [ ] **Deviations and skips, each with its trigger.** Trace positions as above; trigger: a host wanting caller lines from compiled code, then a line
   in each `CLJC_SITE` marker (the emitter knows the call's position) read by the walk in place of the fn's own. A closed unit binds a direct call to the registry's
   latest entry at its first call and never again, so redefining a var across compiled-eval forms under
   `CLJ_EVAL_CLOSED` is wrong by design (a bench tool). Every unit exports its top-level fns' arity functions

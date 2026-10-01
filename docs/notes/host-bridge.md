@@ -5,14 +5,14 @@
   (storing it would make the value its own child). Catching it by type needs no registry — that is a cast
   (hosttype.c) — but `(:code (ex-data e))`-style access to the error's fields still does, plus a
   `Codable`/reflection walk of the error (design section "Интероп").
-- **Only a host error thrown as is comes back as the Swift error.** Wrapped as a cause (an
+- [ ] **Only a host error thrown as is comes back as the Swift error.** Wrapped as a cause (an
   `ex-info` from Clojure code, or the analyzer's positioned rethrow of a macro failure) it surfaces as
   `ClojureError` with `cause.hostError` set. Trigger: a host caller wanting `catch let e as MyError`
   through a macro; then unwrap the cause chain in `takePending` or stop positioning host errors.
-- **A Swift fn extends a protocol only through `extend`** (`(extend T P {:m f})` with `f` a
+- [ ] **A Swift fn extends a protocol only through `extend`** (`(extend T P {:m f})` with `f` a
   `Value(function:)`); there is no Swift API for protocols, types or `satisfies?`. Trigger: a host
   wanting to implement a Clojure protocol for its own type registry (design section "Интероп").
-- **`Value(function:)` bounds arity with a closed range**; a variadic fn with a minimum is `nil`
+- [ ] **`Value(function:)` bounds arity with a closed range**; a variadic fn with a minimum is `nil`
   (any count) plus a check in the body. Trigger: the first host fn wanting `[a & rest]` semantics.
 - **The Swift body of a host fn is not `Sendable`-checked** and runs on whichever thread invokes the
   fn — since coroutines exist, any carrier of the pool (NOTES "Coroutines"). `Value.apply`
@@ -43,7 +43,7 @@
 - **A spawn with no `on_done` reports an uncaught throw to stderr** (`finish`, sched.c): the callback is
   how the coroutine knows its throw has a reader. `callBlocking` therefore passes an empty one and reads
   the result after `clj_coro_join_blocking`, which is valid only while the handle is held.
-- **A throw out of a coroutine keeps only the trace on the value.** `clj_coro_entry` stores
+- [ ] **A throw out of a coroutine keeps only the trace on the value.** `clj_coro_entry` stores
   `clj_take_pending()` and the pending trace dies with the coroutine, so `ClojureError.trace` is
   `clj_ex_trace`'s — full for an `ex-info`, empty for `(throw :k)`, where `Value.apply` would still have
   the frames. Trigger: a host reading traces off non-error values; then the coroutine keeps its
@@ -79,7 +79,7 @@
   A test therefore drives it the way CoroTests does — `clj_debug_sched_main_adopt`, then
   `clj_sched_main_pump` by hand, with no `await` between the two, since a suspension can change the thread
   out from under the adopted carrier.
-- **A `@MainActor` stub is `affinity: .main` plus two obligations.** Design §5 reduces isolation to
+- [ ] **A `@MainActor` stub is `affinity: .main` plus two obligations.** Design §5 reduces isolation to
   asyncness: the generated thunk awaits the isolated call, `callAsync(affinity:)` with `.main` carries it, and
   `Value(asyncFunction:)`/`closureAsync` already turn the Swift side into a synchronous Clojure fn that parks.
   What the wrapper still owes is eliding the hop when the caller is already on the main carrier
@@ -129,7 +129,7 @@
   in another argument order). It is public API, not a test helper: the escape hatch is for host libraries
   (hiccup diff, JSON, sorting) whose own tests cannot import ours, and it returns data, so it binds to no
   test framework.
-- **`compare` and `sort` are the first residents** (Primitives.swift), and both bodies are now one C call
+- [~] **`compare` and `sort` are the first residents** (Primitives.swift), and both bodies are now one C call
   each: `clj_compare` and `clj_sort` (compare.c) do the work, the Swift fns are the vars. They bind into
   `clojure.core` from `clj_host_boot`, a weak C hook `clj_init` calls last, defined by the Swift module with
   `@_cdecl`: a raw `clj_init()` and `Runtime()` boot the same core, tests take baselines after either. Their
@@ -152,12 +152,12 @@
   collections reach the same C functions. Meta is `:doc` only; `:private`,
   `:dynamic`, `:arglists`, `:tag` need a `def` afterwards. `define` on another thread against a running
   call is the concurrent-`def` race of the evaluator section.
-- **Cost** (bench/RESULTS.md, "Host-defined fns"): a host fn call is ~64 ns over a C builtin at the same
+- [~] **Cost** (bench/RESULTS.md, "Host-defined fns"): a host fn call is ~64 ns over a C builtin at the same
   site and ~60 over a closure — the `clj_invoke` path for context natives plus the bridge's `[Value]`
   array, per-argument wrapping and the box retain; the design's "tens of ns" at the upper end. `sort` of
   1k fixnums: 83 ns per element against 4960 through its Clojure spec. Trigger for a cheaper crossing: a
   host fn in a per-element position of a profile; then an argument-buffer body signature.
-- **Triggers.** Many primitives → a registration table and a generated differential suite over it, the
+- [ ] **Triggers.** Many primitives → a registration table and a generated differential suite over it, the
   design's one-table shape for intrinsics; a primitive core.clj needs at boot → a C builtin under the
   intrinsics rule, or a second hook before core.clj; a host wanting a Clojure protocol implemented in
   Swift → the `extend` entry above; `Runtime.define` of a macro → `:macro` meta and `clj_var_set_macro`,

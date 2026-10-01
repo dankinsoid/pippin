@@ -1,6 +1,6 @@
 ## Set (Sources/CljCore/set.c)
 
-- **A set is a wrapper over a map** (`clj_set.impl`, element → element), as Clojure's PersistentHashSet
+- [~] **A set is a wrapper over a map** (`clj_set.impl`, element → element), as Clojure's PersistentHashSet
   over PersistentHashMap: two objects per set, 16 bytes per element in the trie for a value nobody
   reads. `conj`/`disj` hand the wrapper's own trie reference to `clj_map_assoc`/`dissoc`, so a unique
   set edits its trie in place (the consuming `disj` intrinsic and the reduce drivers reach it as they

@@ -1,6 +1,6 @@
 ## Analyzer and evaluator (Sources/CljCore/analyzer.c, eval.c, fn.c, node_data.c)
 
-- **A node is the program, `clj_exec` its execution state.** `clj_node` carries no interpreter field and
+- [~] **A node is the program, `clj_exec` its execution state.** `clj_node` carries no interpreter field and
   is `const` to eval.c and fn.c; the analyzer numbers a finished tree in pre-order (`id`, `nnodes` = subtree
   size, so a subtree's ids are contiguous). `clj_exec_new` builds `exec_node[nnodes]` in one walk when a
   tree first runs and every child dispatch goes through `frame->exec->nodes[id]`: one extra indirection
@@ -14,7 +14,7 @@
 - **Every node carries `line`/`col`** of the innermost enclosing list the reader positioned (0 when none:
   a list a macro rebuilt reports the list the macro call sat in); the codec writes them as a trailing
   `line column` pair and omits them when unknown. Only traces and the profiler read them.
-- **A closure retains its whole top-level tree** through the exec, not only its fn subtree: a fn defined
+- [ ] **A closure retains its whole top-level tree** through the exec, not only its fn subtree: a fn defined
   inside a large top-level `let` keeps every sibling constant alive, and tests that count live objects
   across a redefinition must repeat the exact defining form. Trigger: memory of a large loaded program;
   then a per-fn exec sliced by the fn's id range.
@@ -37,7 +37,7 @@
   five plain instructions); borrowing the core roots removed the atomic pair every call through a
   core var paid, borrowing user fn roots the same pair on every user call (bench/RESULTS.md). A local's
   last use is the one read that hands the frame's reference over instead (the last-use entry below).
-- **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
+- [~] **`clj_node_to_data`/`clj_node_from_data` cover every node kind** (grammar in node_data.c); constants
   are limited to what prints and reads back: nil, booleans, numbers, chars, strings, keywords, symbols and
   vectors/maps/lists/seqs of those (a seq reads back as a list; symbol meta and the reader positions on
   constant lists are dropped, the node's own position is kept). Anything else — a fn or protocol a macro embedded as a constant, a deftype descriptor, a host
@@ -57,7 +57,7 @@
   `defprotocol`/`deftype`/`extend-type`/`extend-protocol`/`reify` without using them, so their
   expansions are checked on user forms in the same test. A macro that needs a runtime object must
   emit a var reference or a builtin call that finds it at run time (`reify-type*`), never the object.
-- **Macros expand in the analyzer, in `analyze_list`**, not in a separate pass: a list whose head
+- [~] **Macros expand in the analyzer, in `analyze_list`**, not in a separate pass: a list whose head
   resolves to a macro var (and is not a local or a special form) is expanded until it is not, then
   analyzed. `&env` is always nil: locals are slot indices, not a map. Trigger: a macro that inspects
   `&env` (`clojure.tools.macro`-style, `binding`-aware macros). Arity errors count `&form`/`&env`
@@ -66,11 +66,11 @@
   `macroexpand-1` of `(let ...)` yields `let*` and syntax-quote qualifies them to `clojure.core/let`.
   The analyzer's messages for the starred forms still say `let`/`loop` (`(let* [a] a)` reports
   "let requires an even number of forms"); Clojure says "Bad binding form". Trigger: nobody.
-- **`defmacro` emits `clojure.core/fn` once that macro exists, `fn*` before** (`macro_fn_symbol`):
+- [~] **`defmacro` emits `clojure.core/fn` once that macro exists, `fn*` before** (`macro_fn_symbol`):
   macros defined in core.clj above the `fn` macro (`when`, `cond`, ...) cannot destructure their
   params. Trigger: a `[bindings & body]`-style macro that wants `[[x y] & body]` up there; move it
   below `fn` or write the `first`/`second` by hand.
-- **Var meta follows Clojure minus `:file`**, and `:ns` is the namespace's *symbol*, not a Namespace
+- [~] **Var meta follows Clojure minus `:file`**, and `:ns` is the namespace's *symbol*, not a Namespace
   object (there is no `ns-name`; `(str (:ns m))` prints the same). `def` evaluates the symbol's meta
   map as a form, so `^{:tag String}` resolves `String` to the descriptor and an unresolvable symbol in
   it is an analysis error, as in Clojure. The C builtins (`first`, `meta`, ...) carry no `:doc` or
@@ -118,7 +118,7 @@
 - **Signposts** (`clj_signposts_enable`, `Runtime.signposts`) are Apple-only and process-wide: an
   `os_signpost` interval named `invoke` with the fn name per closure call, off by default; elsewhere
   the call is a no-op. Enabling it costs a signpost id and two `os_signpost` calls per invocation.
-- **Fn profiler** (`profile-start!`/`profile-stop!`, the `profile` macro): inclusive wall time and
+- [~] **Fn profiler** (`profile-start!`/`profile-stop!`, the `profile` macro): inclusive wall time and
   call count per fn node, aggregated at pop into one global table under a mutex, reported as
   `{:fns [...]}` sorted by time. It does not measure natives (`+`, `first`, a Swift fn: they are
   leaves without frames), self time, or a call already running when it starts. Macro expansion runs
@@ -189,7 +189,7 @@
   before boot writes a keyword `catch` clause) and checks each level's core bits (map, then set) before
   reading it, so directly `alter-var-root`ing `global-hierarchy` to a non-map cannot crash `catch` — a
   defensive default, not a load-bearing one.
-- **`throw` accepts any value** (CLJS semantics): no implicit wrapping of a string or map into an
+- [~] **`throw` accepts any value** (CLJS semantics): no implicit wrapping of a string or map into an
   ex-info, and no runtime check. `ex-message` of a thrown string is the string itself (CLJS says nil),
   so a `:default` handler reads `(throw "m")` like an ex-info; a string is still no error for
   `ExceptionInfo` or `ex-data`. Trigger: the analyzer's `:strict` mode, which should warn on "throw of
@@ -313,11 +313,11 @@
   skipped, so one missing function does not hide the rest of a library's gaps. Never on for a user.
 - **`defmacro` on a failing body still interns the var** (analysis creates it before the fn is
   analyzed), as `def` does: the name resolves afterwards to an unbound var. Same as Clojure.
-- **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
+- [ ] **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
   "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
-- **`def` is eager and vars are plain roots.** No lazy thunk state (design §4 "Var и ленивые def").
+- [ ] **`def` is eager and vars are plain roots.** No lazy thunk state (design §4 "Var и ленивые def").
   Trigger: the first ns whose load-time cost shows.
-- **Dynamic vars** (var.c): a per-thread stack of frames, each a persistent map var → box (a volatile)
+- [~] **Dynamic vars** (var.c): a per-thread stack of frames, each a persistent map var → box (a volatile)
   merged with the frame below, pushed by `push-thread-bindings` and popped by `pop-thread-bindings`
   (`binding` is the `try`/`finally` pair over them, `with-bindings*`, `bound-fn*` and `with-redefs-fn` are
   core.clj). `clj_var.thread_bound` counts live bindings across all threads, so a deref of a dynamic var
@@ -340,7 +340,7 @@
   fn from several threads are fine, `extend` against them included (the protocol cache is built for
   it, `concurrentDispatchWhileExtending`). Same for `clj_ns_current` vs `clj_init` ordering: call
   `clj_init` before any evaluation.
-- **A side cell of an exec node is a shared mutable cell** (any slot written at run time: an inline
+- [~] **A side cell of an exec node is a shared mutable cell** (any slot written at run time: an inline
   cache, a cached transducer composition, specialization state, profile counters). It must hold an
   immortal value (filled once via CAS, `CLJ_FLAG_IMMORTAL` set before publishing, the loser freed before
   publishing; the leak is bounded by the number of forms, as with vars), be per-thread, or hold a shared
@@ -349,7 +349,7 @@
   the protocol cache (type descriptor entry above) is the third kind: borrowed impls that only an epoch
   bump retires, a seqlock around the fill. The fusion pass (below) keeps nothing in a side cell: its
   per-form work measured too small to cache. Trigger: the var inline cache of the design.
-- **Var lookup is a root load on every evaluation** of a var node (an acquire load; an intrinsic's guard
+- [~] **Var lookup is a root load on every evaluation** of a var node (an acquire load; an intrinsic's guard
   is a relaxed one), no inline cache, and no closure cache either: a closure's fn node carries its arity
   table, so the call path reads `fixed[nargs]` off the live closure — one load — where a cache keyed on
   the fn would have to be validated by that same load (and a retained key pins captures or cycles
@@ -387,7 +387,7 @@
   generic ones (`..._misses`); release builds count nothing. The site array is indexed by
   `clj_node.site`, the node's ordinal among the tree's INVOKE nodes, assigned with the ids (it fills
   the padding after `col`, so a node grew by nothing; `from_data` renumbers it too).
-- **Direct local fns** (optimizer.c `direct_pass`, eval.c `eval_direct_call`; design §6b item 7;
+- [~] **Direct local fns** (optimizer.c `direct_pass`, eval.c `eval_direct_call`; design §6b item 7;
   bench/RESULTS.md, "Direct local fns"): a `let*`/`loop*`-bound `fn*` whose binding is referenced only
   as the head of INVOKE nodes — in the body, in later inits of the same binding vector, inside inner
   *direct* fn bodies (through the static link), and through its own name inside its arities — becomes
@@ -440,7 +440,7 @@
   `eval_borrowed` reads such a var at +0. A later `(def map ...)` in clojure.core "releases" the old
   root as a no-op — a bounded leak per redefinition, accepted — and binds an ordinary root, which reads
   owned. Roots bound after boot (user vars, a core var rebound from the REPL) are never immortalized.
-- **A replaced fn root is released once the thread is idle** (`clj_eval_retire_root`, eval.c). A fn
+- [~] **A replaced fn root is released once the thread is idle** (`clj_eval_retire_root`, eval.c). A fn
   root is read at +0, so `clj_var_bind_root` cannot release the old fn while a body on this thread
   may still be running it or holding it as a borrowed argument: while a closure frame is up (shadow
   depth) or a `clj_exec_run` is active, the old fn is parked on a per-thread list, drained when the
@@ -482,7 +482,7 @@
   restores the fast path. The epoch would cost the same load and needs a cache to compare against; the
   guard needs none. Cost per intrinsic call: the arg evaluation, two loads and a compare, one indirect
   call — no frame, no arity table, no var deref, plus a load and a branch on the entry's `consume` form.
-- **The specialized arithmetic node** (specialize.c, eval.c `eval_fix_*`, `eval_dbl_*`, `eval_fd_*`/`eval_df_*`;
+- [~] **The specialized arithmetic node** (specialize.c, eval.c `eval_fix_*`, `eval_dbl_*`, `eval_fd_*`/`eval_df_*`;
   design §6b item 8, the first self-optimizing node; bench/RESULTS.md, "Specialized arithmetic" and "Specialized
   arithmetic over doubles"). `clj_exec_new` ends by deriving its tree under the process-wide dev store
   (`clj_specialize_store`: summaries with the caller join on, one lock, made on first use) and rewriting the exec
@@ -531,7 +531,7 @@
   moves only by its counter: `nth` answers ⊤, the products are generic and their sum "a number" — trigger: an
   element fact for `nth`, which the lattice does not carry. What remains per iteration is the dispatch and the
   frame work the design names; the tag check is ~1 ns of the ~3 an intrinsic call cost.
-- **Constant folding** (optimizer.c `fold_intrinsic`/`fold_if`; design §6b item 4): after the intrinsic
+- [~] **Constant folding** (optimizer.c `fold_intrinsic`/`fold_if`; design §6b item 4): after the intrinsic
   rewrite, children first, an INTRINSIC whose entry is `pure`, whose arguments are all CONST and whose var
   still holds the boot fn is called at analysis and becomes a CONST; an IF whose test is a CONST becomes
   its taken branch (the branch's contents move into the IF node, which the parent already points at; a
@@ -550,7 +550,7 @@
   runtime error come from nodes folding never touches (FoldingTests). Trigger for more: a fold rule over
   `str`, `list`, `vector` (variadic builtins are not intrinsics), or `let`-bound constants (needs a
   substitution pass, not a local rewrite).
-- **Last-use reuse** (optimizer.c, the liveness pass; eval.c `eval_borrowed`/`eval_local`; design §6b
+- [~] **Last-use reuse** (optimizer.c, the liveness pass; eval.c `eval_borrowed`/`eval_local`; design §6b
   item 4, the auto-transient; bench/RESULTS.md, "Last-use reuse" and "Growing a collection per step"): the
   last pass of `clj_optimize` flags a LOCAL read after which its slot is dead on every path
   (`clj_node.u.local.last`, serialized `[:local slot :last]`), and the evaluator then hands the frame's own
@@ -601,7 +601,7 @@
   captured or var-held value, by rc. Triggers: a profile with a collection built through a helper fn per
   element (mark call arguments, ~2 ns per call); `transduce` with a user rf over a collection (the same
   +0 rule); a frame past 64 slots growing a collection (the bitset).
-- **The fusion pass** (optimizer.c, fusion.c, `CLJ_NODE_FUSED`; bench/RESULTS.md, "Fusion"): `(reduce
+- [~] **The fusion pass** (optimizer.c, fusion.c, `CLJ_NODE_FUSED`; bench/RESULTS.md, "Fusion"): `(reduce
   f [init] P)`, `(into to P)`, `(vec P)` and `(count P)`, where `P` is a nest of `map keep filter
   remove take drop take-while drop-while mapcat map-indexed keep-indexed interpose dedupe distinct` calls — each
   at its lazy arity, `map`/`mapcat` with one coll, every head resolved to the `clojure.core` var — over
@@ -637,7 +637,7 @@
   fused forms in a hot loop over tiny collections (the per-form cost); consumers `some`/`every?`/
   `run!`/`doseq` (a reduce with early exit); the barriers `sort`/`group-by` (cut a pipeline today);
   multi-coll `map` (a multi-source driver); `partition-all` (above).
-- **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
+- [ ] **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
   the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
   callee's frame; the generic path adds `closure_run` with its own 16 slots): on the order of 0.6 KB
   in a debug build, ~2.3 KB under ASan, ~3.7 KB under UBSan, measured before the direct path. On Swift
@@ -645,7 +645,7 @@
   "Stack overflow" (the guard reads the thread's real bounds on Apple platforms; elsewhere it assumes
   512 KB). Fix: frames on the heap and fewer C frames per call (the shadow stack records frames, it
   does not hold them). Tests keep non-tail recursion depth ≤ 50.
-- **The stack guard has no host fallback.** `pthread_get_stackaddr_np` is Apple/BSD; other platforms
+- [ ] **The stack guard has no host fallback.** `pthread_get_stackaddr_np` is Apple/BSD; other platforms
   get a fixed 512 KB assumption measured from the first call, and the guard page of compiled code
   (guard.c, `getsectiondata`, the Mach-O `__cljframe` section) is Apple-only outright: elsewhere a
   compiled overflow is a plain crash and traces carry no compiled frames. Trigger: a Linux port.
@@ -653,6 +653,6 @@
   life of the process, as do namespaces; tests declare their vars before taking live-object baselines.
 - **Analysis error messages are capped at 512 bytes** (`fail` formats into a fixed buffer): a huge
   unresolved form is truncated in the message.
-- **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
+- [ ] **Nodes are pool objects with a 14-arm union**, so a `const` node pays for the fn arity table.
   Trigger: memory of a large loaded program. Fix: per-kind sizes via `clj_alloc(size)`.
 

@@ -1,6 +1,6 @@
 ## Printer (Sources/CljCore/printer.c)
 
-- **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.
+- [ ] **Map entries are collected into a temporary array per map** because `clj_map_each` is callback-only.
   Trigger: printing huge maps in a profile. Fix: a resumable map iterator.
 - **An error message quotes a value through `clj_pr_str_max`** (`CLJ_ERROR_PRINT_MAX` bytes, then `...` and
   the closers of what is still open), so a message about an unbounded lazy seq does not realize it. Every

@@ -51,7 +51,7 @@
   `tap>` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
   mismatch (`pr` is `^:dynamic` on the JVM) and 12 arity mismatches, of which `sequence`'s multi-coll arity
   and `disj!`'s 1-arity are real gaps rather than differently-written variadics.
-- **`api-diff` is also the gate on `^:pippin/extension`** (design, "Инвариант: язык не меняется"): an
+- [~] **`api-diff` is also the gate on `^:pippin/extension`** (design, "Инвариант: язык не меняется"): an
   ours-only public var without the mark fails the step and is named in the report's "Unmarked extensions".
   The mark reaches the var's meta the same way in both backends — the compiler emits the whole `def` meta map
   (`compiler.c`, `clj_c_def`) — so the two `clj-api-dump` outputs are byte-identical. Natives carry no source

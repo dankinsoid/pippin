@@ -131,7 +131,7 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   reported where it happened, because a callback has nowhere to throw to. The callback's autorelease
   pool is its own and nested: it cannot span a switch, and popping it pops any pool a send opened inside
   it, so the slice's token is hidden for the duration and restored after.
-- **Not done, and why it shows.** Design §5 wants the label list checked against the type's selector
+- [ ] **Not done, and why it shows.** Design §5 wants the label list checked against the type's selector
   table at analysis; that needs an Objective-C type in the facts lattice, which does not exist (the
   facts pass returns ⊤ and `CLJ_EFFECT_ANY` for the node). So a wrong or out-of-order label is a run-time
   error with the right order in the message, not an analysis error. Also absent: a static check of a

@@ -1,6 +1,6 @@
 ## Channels (Sources/CljCore/chan.c, boot/clojure/core/async.clj, include/clj/chan.h)
 
-- **A channel is a buffer plus two queues of waiter nodes under a `clj_lock`**, a runtime-only short section
+- [~] **A channel is a buffer plus two queues of waiter nodes under a `clj_lock`**, a runtime-only short section
   (the audit below): no user code runs inside it — woken nodes are collected and resumed after the unlock, and
   a `put!`/`take!` callback runs on the execution that completed it (the timer thread for a `timeout`'s
   takers; trigger for dispatching callbacks to the pool: a callback that parks long on the timer thread). The
@@ -36,7 +36,7 @@
   `thread` runs on the blocking pool and returns a channel the same way. `<!` works in any function, inside
   `map`, inside a lazy-seq thunk (`ChanTests.colorlessPark`, `CoroTests`). Measured (bench/RESULTS.md): buffered
   throughput 120–130 ns per item, `alts!` over two ports 660 ns per completion, ping-pong 530 ns per round trip.
-- **The library layer is core.async's own code over these primitives** (`async.clj`: `pipe`, `mult`/`tap`/`untap`/
+- [~] **The library layer is core.async's own code over these primitives** (`async.clj`: `pipe`, `mult`/`tap`/`untap`/
   `untap-all`, `pub`/`sub`/`unsub`/`unsub-all`, `mix`/`admix`/`unmix`/`unmix-all`/`toggle`/`solo-mode`, `merge`,
   `take`, `into`, `reduce`, `transduce`, `onto-chan!`/`to-chan!` and the `!!` and deprecated forms, `map`,
   `split`, `pipeline`/`pipeline-blocking`/`pipeline-async`, `promise-chan`, `unblocking-buffer?`, the deprecated

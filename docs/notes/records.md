@@ -23,7 +23,7 @@
   them: `(= (dissoc (assoc r :z 1) :z) r)`. Equality needs the same descriptor pointer and compares the
   basis slots and the extmaps; `(= record map)` is false in both directions, which map.c and sorted.c
   enforce by rejecting a record in their own `equals`.
-- **`hash` is the map hash of the same content**, not Clojure's `(bit-xor (hash classname) (mapHasheq
+- [~] **`hash` is the map hash of the same content**, not Clojure's `(bit-xor (hash classname) (mapHasheq
   this))`. Equal hashes across representations cost collisions only — `=` still separates them — and the
   entry mix comes from map.c (`clj_map_entry_hash`) so the two cannot drift. There is no hash cache on a
   record yet; trigger: records as map keys in a profile.
@@ -31,7 +31,7 @@
   record's meta, as the JVM's generated `without` does; of an ext key it stays a record. `empty` throws
   "Can't create empty", `conj`/`merge`/`reduce-kv`/`into`/`select-keys` behave as for a map, and
   `select-keys` returns a map because it builds onto `{}`.
-- **The body may implement protocols only.** A core interface in a `defrecord` form is refused by name:
+- [ ] **The body may implement protocols only.** A core interface in a `defrecord` form is refused by name:
   every slot behind one — `seq`, `count`, `valAt`, `invoke`, `meta`, `reduce`, `hasheq`, `equiv` — is the
   record's own, and a trampoline over it would break the map contract that `record?` promises. A record
   reaches `IDeref` and every other `defprotocol` exactly as a deftype does, through `extend`. Trigger for

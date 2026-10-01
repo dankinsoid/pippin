@@ -24,7 +24,7 @@
 - **A negated predefined class is a nested class, a positive one is merged**: `\d` adds its ranges to the
   enclosing class, `\D` hangs off it as a sub-class with `negate`, and `&&` makes the rest of the class
   body the intersection operand, so `[a-z&&[^aeiou]]` is one recursive `class_member` call.
-- **Catastrophic backtracking is the host's deadline, not a memo table**: `re_run` reads the clock once per
+- [~] **Catastrophic backtracking is the host's deadline, not a memo table**: `re_run` reads the clock once per
   4096 backtracks through `clj_deadline_expired` and unwinds with "Execution timed out". Without a deadline
   set, `#"(a+)+b"` against a long string of `a`s runs until the host gives up. A memo table would bound the
   work instead, at the cost of a table per match; trigger is a host that cannot set a deadline.
@@ -32,7 +32,7 @@
   where the JVM compares `Pattern` by identity (docs/jvm-differences.md). That also makes a pattern a
   serializable node constant: it prints as `#"..."` and reads back equal, so `node_data.c` needs no arm
   of its own for it.
-- **`re-find` scans every start position**, since the program carries no first-character filter; the
+- [ ] **`re-find` scans every start position**, since the program carries no first-character filter; the
   leftmost-first rule and `re-matches`' whole-input rule are the same `re_run` with one flag. Trigger for a
   first-set bitmap: a `re-find` in a profile's inner loop (bench/RESULTS.md).
 - **`nth` on a matcher is its group**, as `RT.nth` special-cases `Matcher`; the type carries `lookup` for

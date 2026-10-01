@@ -66,7 +66,7 @@
   coroutine holding it after the form returns writes to the client rather than into a buffer nobody reads. The
   two guarantees the old code recorded hold unchanged: the pop is a `defer` on a push that cannot fail, and a
   cancelled eval still drops its frame.
-- **Headless: no main carrier is ever installed.** A run loop has nothing to pump in a bare server process, so
+- [~] **Headless: no main carrier is ever installed.** A run loop has nothing to pump in a bare server process, so
   `Server` never calls `clj_sched_main_install`; `go-main`/`:affinity :main` code evaluated over nREPL gets the
   existing "No main carrier" error immediately, the same as any other headless entry point, rather than hanging
   or silently running on the pool. Trigger: a `--install-main-carrier` flag that adopts the process's own
@@ -123,7 +123,7 @@
   plain `nrepl.el` still speak natively; CIDER's own richer `completions`/`eldoc` ops are `cider-nrepl`
   middleware this runtime does not implement, so CIDER's completion is plainer than in JVM Clojure, but eval,
   interrupt and the rest of the session protocol are unaffected — CIDER connects and evaluates.
-- **`*in*` is a map, `read-line` is Clojure, and the wait is a channel take.** `stdin` feeds a per-session
+- [~] **`*in*` is a map, `read-line` is Clojure, and the wait is a channel take.** `stdin` feeds a per-session
   channel of whole lines (`Session.acceptInput`); `*in*` (core.clj, next to the print family) holds
   `{:lines <channel> :request <fn>}`, and `read-line` polls the channel, calling `:request` and parking on
   `chan-take*` only when it is empty. The two-part value is what the protocol forces: nREPL wants a `need-input`
@@ -150,7 +150,7 @@
   `clj-nrepl` executable's sources: `Tests/PippinTests/NReplTests.swift` depends on it directly and drives a
   real `Server` over a real loopback socket (its own `TCPConnection`/`Bencode`, not a mock), matching how
   `CljCompiler` already sits between `clj-compile` and the test suite.
-- **Pointing a real editor at it**: build `clj-nrepl` (`swift build --product clj-nrepl` or via `make`, once
+- [~] **Pointing a real editor at it**: build `clj-nrepl` (`swift build --product clj-nrepl` or via `make`, once
   the target is wired into a Makefile recipe — none exists yet, run the binary directly from `.build/debug/` or
   `.build/release/`), run it from the directory a `deps.edn`/project root would occupy. It writes `.nrepl-port`
   there (`--no-port-file` to skip, `--port-file PATH` to redirect, `--port N` to fix the port, `--bind HOST` for
@@ -159,7 +159,7 @@
   (`:ConjureConnect 127.0.0.1 N` or auto-detected from `.nrepl-port`) all look for. `(require 'clojure.string)`
   or any embedded lib works out of the box; a third-party dependency needs `Runtime.loadPath` wiring this
   executable does not expose yet (trigger: a `--load-path DIR` flag mirroring `clj-compile`'s).
-- Not done, with triggers: `*source-path*` (only `*file*` is bound; nothing in the runtime defines the other
+- [ ] Not done, with triggers: `*source-path*` (only `*file*` is bound; nothing in the runtime defines the other
   var — trigger: code that reads it); TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points
   (trigger: a client that needs one); a `Makefile` target for `clj-nrepl` alongside `clj-compile`'s (trigger:
   someone other than an editor plugin wanting a one-line launch).

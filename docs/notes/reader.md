@@ -46,7 +46,7 @@
   current namespace or one of its aliases); with the hook NULL they are reader errors, an unknown alias
   is "Invalid token". Hex, octal and `NrDDD` radix integers read into longs, or into bigints past 64 bits
   (numeric tower).
-- **Every non-empty list read costs a `{:line :column}` map** (map wrapper plus one node) on its head
+- [ ] **Every non-empty list read costs a `{:line :column}` map** (map wrapper plus one node) on its head
   cons, as Clojure attaches positions to lists only; `'x`, `@x`, `#'x` and the syntax-quote output
   are built by the reader without one. Syntax-quote drops the meta of the forms it rebuilds where
   LispReader keeps everything but the position keys. Trigger: `^:once`-style meta inside a
@@ -64,7 +64,7 @@
 - **Only lists carry positions**, so an error on a bare symbol or vector reports the innermost
   enclosing list, or `form_line`/`form_col` of the top-level form for a top-level symbol; a form
   built by a macro reports the list the macro call sat in. Clojure does the same.
-- **Input is not validated as UTF-8** except inside a character literal; malformed bytes pass through
+- [ ] **Input is not validated as UTF-8** except inside a character literal; malformed bytes pass through
   into strings and symbols, and a column counts every non-continuation byte. Trigger: a non-Swift host
   feeding raw bytes.
 - **`strtod`/`snprintf` in reader and printer follow the C locale**, which the runtime never changes;

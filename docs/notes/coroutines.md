@@ -53,7 +53,7 @@
   and `future` deref, `Thread/sleep`, a scope's join, a `load-file` blocked on a FIFO) is evacuated and woken with
   the right value; under ASan the evacuated mapping is poisoned, so a resumer that touched a parked frame would
   be a report, not a corruption.
-- **Evacuation of cold parked coroutines** (design §4, "Память припаркованной корутины — страница, не модель"; the
+- [~] **Evacuation of cold parked coroutines** (design §4, "Память припаркованной корутины — страница, не модель"; the
   sixteen kilobytes of a parked coroutine are one page, and a page is the floor for a mapping, so the only way
   below it is off the mapping). `clj_coro_evacuate_locked`, under the coroutine's lock and only in state
   `PARKED` (the context is fully saved — the parker switches out holding the lock): the live range `[sp,
@@ -102,7 +102,7 @@
   (read by the signal handler through the pthread key). Retired roots are per coroutine, not per carrier as
   the brief said: a parked coroutine keeps its +0 reads across the carriers it migrates over, and a drain
   keyed to another execution's flight would free a root it still borrows.
-- **TLS across a park is the one rule every runtime file obeys.** Clang computes a `_Thread_local`'s address
+- [~] **TLS across a park is the one rule every runtime file obeys.** Clang computes a `_Thread_local`'s address
   once per function and keeps it across calls (verified: `held++; park(); held--` reuses `x19`), so a coroutine
   that parks and resumes on another thread reads the *old* thread's slot through the cached address. Every
   `_Thread_local` that code reaching a park can touch is therefore read through a call the compiler cannot
@@ -115,7 +115,7 @@
   runs one attempt per activation (`lock_attempt`) for the same reason. An inline read is fine when it happens
   before any park in the activation and only the *pointer* is used after (`run_body`'s ring, `eval_loop`'s
   ring): the pointer is the execution's own and stays valid; a *re-read* is what goes wrong.
-- **The guard page of a coroutine works like a thread's**: the fault lands in `clj_guard_signal` with the
+- [~] **The guard page of a coroutine works like a thread's**: the fault lands in `clj_guard_signal` with the
   current execution's ring (the carrier's `current`), the trace is collected from the coroutine's stack and
   the landing is at the execution's innermost recovery point — `clj_coro_entry` pushes one, so an overflow
   inside a coroutine throws "Stack overflow" in that coroutine (its `go` channel closes after the uncaught
@@ -254,7 +254,7 @@
   awaited someone else's cancelled future is a bystander, its flag is clear, and it is reported like any
   other failure (design §4, "Необработанная отмена — не сбой"). `scope-spawn` reads the same flag through
   `(cancelled?*)` before it lets a child comply quietly.
-- Not done, with triggers: the Swift async bridge (`callAsync`, `callBlocking`) — the last task of design §10
+- [ ] Not done, with triggers: the Swift async bridge (`callAsync`, `callBlocking`) — the last task of design §10
   step 5; the static `:park` fact and the `:effects` lint are in "Facts"; `go-scoped` and `future`/`promise` are
   in "Futures and scopes" below. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
   host-depth error is raised only under `clj_host_invoke` (`Value.apply`, the trampoline). Trigger for making

@@ -13,23 +13,23 @@
   `make test-compiled` run of `EvacTests`). `exec_unlink` removes the exec under that lock while the count
   still reads, and `push_work` retains an exec only from a count above zero (`retain_if_live`): one that reads
   0 is on its way to `exec_unlink`, which waits for the lock the walk holds.
-- **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow
+- [ ] **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow
   under many threads. Fix: per-thread counters summed on read.
-- **Copy path retains every child and then replaces one slot**: one spare retain/release pair per
+- [ ] **Copy path retains every child and then replaces one slot**: one spare retain/release pair per
   level. Trigger: profiling the "all versions kept" benchmark scenario.
-- **The "children of a shared object are shared" invariant is unchecked in debug builds.** A violation
+- [ ] **The "children of a shared object are shared" invariant is unchecked in debug builds.** A violation
   is a shared parent over an unshared child: the child looks like any unshared object, so the check
   belongs where the edge is visible. (1) In `free_object`'s child walk, a shared parent asserts every
   pointer child is shared or immortal — one flag read on a header already loaded. (2) At the cutoff in
   `clj_share` (`continue` on an already-shared node), `clj_debug_all_shared` of that subtree: the one
   place the walk relies on the invariant. Trigger: the next code that stores into an object in place
   (transients, reuse) or the first spawn primitive.
-- **No owner check on the non-atomic path.** "An unshared object is touched only by its allocating
+- [ ] **No owner check on the non-atomic path.** "An unshared object is touched only by its allocating
   thread" holds literally today; a debug-only allocating-thread id (side table or debug header
   extension) asserted in the inline retain/release catches the actual cross-thread race regardless of
   how the invariant broke. Handoffs (park/resume, a channel move) will need an explicit
   `clj_debug_reown` at each transfer point, which documents them. Trigger: the first spawn primitive.
-- **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
+- [~] **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
   "Atoms"; `clj_debug_rc_ops` counts the plain, shared and immortal paths in debug builds, one relaxed
   atomic add per retain/release, the same process-wide-counter caveat as the live count above). The flag
   is monotone, so the first `reset!` puts the whole domain on the atomic path, ~80 pairs per state tick,

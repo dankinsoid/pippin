@@ -25,7 +25,7 @@
   the true branch with ⊤ minus nil, which is 26 kinds and widens straight back to ⊤, while the separate
   nullability survives as `never`. Over library code the type is known for 50 % of value nodes and
   nullability for 51 %, and the second number is the one that holds up where the first does not.
-- **Escaping is per local slot, per frame**, three values joined by max: `local`, `captured`, `escapes`.
+- [~] **Escaping is per local slot, per frame**, three values joined by max: `local`, `captured`, `escapes`.
   A frame is the top level, one fn arity, one direct fn arity or a fused node's argument frame; the table
   records each with its body's id range, so `clj_facts_frame_of(id)` finds the innermost. A slot escapes when
   it is an argument of any call the signature table does not mark as storing nothing, an item of a vector,
@@ -84,7 +84,7 @@
   a loop's fixpoint rounds counted conflicts against variables not yet widened. Over the corpus the 64 conflicts
   are all `dead-branch` (`(and nil true)`, `(when-let [x [0 1 2]] …)`, `(ratio? x)` after `(= 1 x)`, `(or
   *assertion-pos* …)` with the root nil).
-- **Signatures live in facts.c, not in the intrinsics table.** `clj_intrinsic` is the C-call contract the
+- [~] **Signatures live in facts.c, not in the intrinsics table.** `clj_intrinsic` is the C-call contract the
   compiler emits against and the differential test crosses; hanging a lattice column on it would tie the ABI
   to the fact kinds and force every future fact into that struct. More decisively, half of what is worth
   annotating — `str`, `keys`, `vec`, `re-pattern`, `int-array` — has no intrinsics entry at all, so only a
@@ -152,7 +152,7 @@
   declaration or a protocol table) — rendered by `clj_diagnostic_message` as "user/sum-need uses argument 0
   as nil|map|sorted-map|record at 3:14, vector is passed at 1:8". The argument keeps the caller's fact:
   storing ⊥ would trip the watchdog, and the watchdog is worth more.
-- **Diagnostics: the ladder of design §3 "Строгость", by strength of knowledge.** One struct, two severities.
+- [~] **Diagnostics: the ladder of design §3 "Строгость", by strength of knowledge.** One struct, two severities.
   *Errors:* a call-site ⊥ (`CLJ_DIAG_CALL_CONFLICT`) and a `:=>` declaration the body contradicts
   (`CLJ_DIAG_DECL_CONFLICT`) — a runtime failure shown early, in every mode. One refinement of the rule: a
   site ⊥ inside a `try` body with a handler is the failure the code expects, not one it suffers (`(is
@@ -240,7 +240,7 @@
   silent, because warning on it costs 76 warnings over the corpus and proves nothing. `swap!`, `swap-vals!`,
   `set-validator!` and `lazy-seq*` carry one — each runs its function while holding the atom's coroutine
   mutex or the seq's forcing claim. Watches do not: `commit` unlocks the atom before `notify`.
-- **Declarations: `:=>` meta on the var, the vocabulary of design §3, one mechanism.** A var may carry
+- [~] **Declarations: `:=>` meta on the var, the vocabulary of design §3, one mechanism.** A var may carry
   `{:=> [:=> [:cat arg-schema …] ret-schema]}` in its meta — the value is a complete Malli function schema, the
   same data `m/=>` takes, spelled either in a defn's attr-map (`(defn vec {:=> [:=> [:cat :any] :vector]}
   [coll] …)`, three of core.clj's defns carry one) or set by `alter-meta!` for a builtin that has no defn
@@ -365,7 +365,7 @@
   64 → 174, every one a dead branch: `(let [r (quot 10 3)] (and (int? r) …))` in the quot, rem and mod tests now has a
   known `r`, so the false branch of `int?` is dead by the literal; ⊥ value nodes, errors and the unexplained count
   stand.
-- **Deliberately not here, each with its trigger.** No shape facts (the design's key sets) — trigger: a
+- [ ] **Deliberately not here, each with its trigger.** No shape facts (the design's key sets) — trigger: a
   record fact reaching a consumer, which the constructor summaries now make possible. No ownership, thread
   affinity or the rest of the design's fact kinds — each is a field and a transfer rule on the shared walk;
   trigger: a consumer. No refinement on `CAPTURED` or `OUTER` reads, only on frame slots — trigger: a profile

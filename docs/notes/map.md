@@ -1,6 +1,6 @@
 ## Map (Sources/CljCore/map.c)
 
-- **`clj_debug_hash_override` is checked on every `clj_hash`** even in release (one global load +
+- [ ] **`clj_debug_hash_override` is checked on every `clj_hash`** even in release (one global load +
   branch). Trigger: it shows in a profile.
 
 - **`clj_map_of` is private to map.c**: the trie layout is one of two behind the same functions (the "Shapes"

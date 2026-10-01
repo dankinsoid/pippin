@@ -1,6 +1,6 @@
 ## Locks (include/clj/lock.h)
 
-- **Every mutex of the core's internals is a `clj_lock`**: `os_unfair_lock` under `__APPLE__`,
+- [~] **Every mutex of the core's internals is a `clj_lock`**: `os_unfair_lock` under `__APPLE__`,
   `pthread_mutex_t` elsewhere, one interface (`clj_lock_init/lock/unlock/destroy`, `CLJ_LOCK_INIT`), the one
   `#ifdef` of its kind (measured on an M3 Pro, a lock+unlock pair: 2.1 vs 4.6 ns, 4 vs 64 bytes; unfair passes
   priority to the owner under contention). Holders: the keyword table, the namespace registry, the protocol

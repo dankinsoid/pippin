@@ -5,7 +5,12 @@ Delete an entry when it is done. Architecture-level decisions live in docs/desig
 
 The notes live in [`docs/notes/`](docs/notes/), one file per subsystem; the section titles are the ones code
 comments cite (`NOTES "Coroutines"`, `NOTES.md, "Facts"`). Read this index, open only the file you need;
-`grep -n '^- \*\*' docs/notes/<file>.md` lists a file's entry titles.
+`grep -nE '^- (\[.\] )?\*\*' docs/notes/<file>.md` lists a file's entry titles.
+
+An entry that names open work carries a mark: `- [ ]` the entry is open as a whole (a simplification waiting
+for its trigger), `- [~]` it describes what exists and names what is left (Not done, Trigger, Deferred). An
+unmarked entry describes what exists. Open items of both documents are collected in [`docs/open.md`](docs/open.md),
+written by `make open-items` from the marks; `make open-items-audit` fails when it is stale.
 
 ## Index
 

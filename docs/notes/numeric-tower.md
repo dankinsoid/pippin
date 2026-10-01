@@ -39,12 +39,12 @@
   the arithmetic is done in `uint64_t` and `clj_long_new` is the one range check on the way out, boxing
   when the result leaves the fixnum. `(unchecked-inc 4611686018427387903)` is `4611686018427387904`,
   `(unchecked-inc Long/MAX_VALUE)` is `Long/MIN_VALUE`.
-- **No float and no `*math-context*`.** `float` range-checks against `Float` and narrows through it
+- [ ] **No float and no `*math-context*`.** `float` range-checks against `Float` and narrows through it
   (`(float Double/MIN_VALUE)` is `0.0`) but returns a double box, so `(double? (float 0.0))` is true where
   the JVM says false. `with-precision` and rounding modes do not exist: decimal `+ - *` are exact, and `/`
   succeeds only when the quotient terminates, else it throws "Non-terminating decimal expansion;
   with-precision is not supported". `(/ 1M 3M)` is that throw; `(/ 1M 2M)` is `0.5M`.
-- **Division is shift-subtract**, quadratic in the bit length (`mag_divmod`), and `gcd` is Euclid over it.
+- [ ] **Division is shift-subtract**, quadratic in the bit length (`mag_divmod`), and `gcd` is Euclid over it.
   Every bigint the runtime meets is a few limbs, so the constant factors never showed. Trigger: a profile
   with `quot`/`rem`/`gcd` on thousand-bit values; the fix is Knuth D and a binary gcd.
 - **Printing follows `print-method`, not `toString`**: `pr-str` appends the tag (`1N`, `1.5M`, `1/2`), `str`
@@ -53,14 +53,14 @@
   scale is non-negative and the adjusted exponent is above -7, scientific otherwise), so `1e10M` prints
   `1E+10M`. `numerator`/`denominator` demote to the canonical
   integer, so `(numerator 1/2)` is `1` and only a value past 64 bits stays a bigint.
-- **`clj_bigint_to_double` and `clj_decimal_to_double` round through the decimal text** (`strtod`), which
+- [ ] **`clj_bigint_to_double` and `clj_decimal_to_double` round through the decimal text** (`strtod`), which
   is correct and slow, rather than reimplementing correct rounding over the limbs. Trigger: a profile with
   bigint-to-double in a loop.
 - **A decimal built from a double keeps `Double.toString`'s scale** (`BigDecimal.valueOf`), so
   `(bigdec 0.1)` is `0.1M`; a value at or past 1e7 takes the scientific branch, where the JVM's
   `Double.toString` switches too, but our scale can differ from the JVM's by the trailing zero it keeps.
   Equality and hashing ignore trailing zeros, so only the printed form differs.
-- **Every bigint carries at least one spare limb**: results are sized by the worst case and the count is
+- [ ] **Every bigint carries at least one spare limb**: results are sized by the worst case and the count is
   trimmed without a `clj_realloc`, so a one-limb value can occupy two. Four bytes per bigint; trigger is
   a heap profile with many of them.
 
