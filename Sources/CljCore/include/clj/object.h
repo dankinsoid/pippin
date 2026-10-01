@@ -41,6 +41,8 @@ typedef struct {
 #define CLJ_FLAG_META     ((uint32_t)1 << 3)
 // A map object laid out as a shape map (map.h): the shape and inline values instead of a trie.
 #define CLJ_FLAG_SHAPE    ((uint32_t)1 << 4)
+// Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
+#define CLJ_OWNER_SHIFT 16
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
 
@@ -178,9 +180,13 @@ void clj_debug_rc_ops(int64_t out[3]);
 #define CLJ_ASSERT(cond, msg) do { if (!(cond)) clj_fatal(msg); } while (0)
 extern _Atomic uint64_t clj_debug_rc_counters[3];
 #define CLJ_RC_COUNT(path) atomic_fetch_add_explicit(&clj_debug_rc_counters[path], 1, memory_order_relaxed)
+// Out of line: the running execution is read through a call, never a TLS address cached across a park.
+void clj_debug_owner_check(const clj_header *h);
+#define CLJ_OWNER_CHECK(h) do { if ((h)->flags >> CLJ_OWNER_SHIFT) clj_debug_owner_check(h); } while (0)
 #else
 #define CLJ_ASSERT(cond, msg) ((void)0)
 #define CLJ_RC_COUNT(path) ((void)0)
+#define CLJ_OWNER_CHECK(h) ((void)0)
 #endif
 
 static inline clj_value clj_retain(clj_value v) {
@@ -192,6 +198,7 @@ static inline clj_value clj_retain(clj_value v) {
 		return v;
 	}
 	CLJ_RC_COUNT(CLJ_RC_PLAIN);
+	CLJ_OWNER_CHECK(h);
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	CLJ_ASSERT(rc > 0, "retain of a freed object");
 	atomic_store_explicit(&h->rc, rc + 1, memory_order_relaxed);
@@ -207,6 +214,7 @@ static inline void clj_release(clj_value v) {
 		return;
 	}
 	CLJ_RC_COUNT(CLJ_RC_PLAIN);
+	CLJ_OWNER_CHECK(h);
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
 	if (rc == 1) {

@@ -18,6 +18,7 @@
 #include "clj/objc.h"
 #include "clj/profile.h"
 #include "clj/vector.h"
+#include "alloc.h"
 #include "coro_internal.h"
 #include "guard_internal.h"
 #include "profile_internal.h"
@@ -152,10 +153,18 @@ const clj_type clj_coro_type = {
 	.equals = coro_equals,
 };
 
+#if CLJ_DEBUG
+static _Atomic uint32_t owner_tags;
+#endif
+
 static void coro_init(clj_coro *c) {
 	pthread_mutex_init(&c->lock, NULL);
 	pthread_cond_init(&c->cond, NULL);
 	c->state = CLJ_CORO_NEW;
+#if CLJ_DEBUG
+	// 16 bits wrap after 65535 executions: two that share a tag hide each other's touches, never invent one.
+	c->debug_owner = 1 + atomic_fetch_add_explicit(&owner_tags, 1, memory_order_relaxed) % 0xFFFF;
+#endif
 }
 
 static size_t page_size(void) {
@@ -345,6 +354,21 @@ __attribute__((noinline)) uint32_t *clj_locks_held_slot(void) {
 	if (!c) c = implicit_init();
 	return &c->locks_held;
 }
+
+#if CLJ_DEBUG
+__attribute__((noinline)) uint32_t clj_debug_owner_here(void) {
+	__asm__ volatile("" ::: "memory");
+	clj_coro *c = clj_coro_tls;
+	return c ? c->debug_owner : 0;
+}
+
+uint32_t clj_debug_owner_assume(uint32_t tag) {
+	clj_coro *c = clj_coro_current();
+	uint32_t  prev = c->debug_owner;
+	c->debug_owner = tag;
+	return prev;
+}
+#endif
 
 clj_shadow_stack *clj_shadow_stack_init(void) { return clj_coro_current()->shadow; }
 

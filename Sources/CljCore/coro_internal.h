@@ -98,6 +98,9 @@ struct clj_coro {
 	uint32_t         shield;          // shielded regions the owner is inside: the ring shows no deadline in one
 	clj_timer       *deadline_timer;  // the timer that cancels this coroutine at its deadline, NULL when none
 	uint64_t         deadline_serial; // bumped by every arm and disarm; a firing timer with a stale serial is a no-op
+#if CLJ_DEBUG
+	uint32_t         debug_owner;     // the tag its unshared objects carry (object.h, CLJ_OWNER_SHIFT)
+#endif
 };
 
 // A thread that runs coroutines: a pool thread, the main thread, or any bare thread with its implicit one.
@@ -126,6 +129,13 @@ extern _Thread_local clj_coro *clj_coro_tls;
 
 // The running execution, making the thread's implicit one on first use.
 clj_coro *clj_coro_current(void);
+
+#if CLJ_DEBUG
+// The running execution acts as the owner of `tag` until a second call restores the returned tag: a finished
+// coroutine's epilogue on its carrier, a blocking job for its parked caller.
+uint32_t clj_debug_owner_assume(uint32_t tag);
+#endif
+
 // The carrier of the calling thread through the pthread key: async-signal-safe, NULL where none was made.
 const clj_carrier *clj_carrier_current(void);
 clj_carrier       *clj_carrier_here(void);

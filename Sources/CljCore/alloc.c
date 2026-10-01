@@ -229,6 +229,9 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	}
 	atomic_init(&h->rc, 1);
 	h->type = type;
+#if CLJ_DEBUG
+	h->flags |= clj_debug_owner_here() << CLJ_OWNER_SHIFT;
+#endif
 	LIVE_ADD(type, 1);
 	return h;
 }

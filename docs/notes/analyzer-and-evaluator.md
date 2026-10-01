@@ -572,8 +572,8 @@
   consuming intrinsic whose collection the site owns — a last-use local, or a nested result such as the
   inner `(conj (conj v 1) 2)` — calls the entry's `consume` form and drops the bit from the mask, so
   `clj_conj`/`clj_assoc_owned`/`clj_dissoc_owned`/`clj_disj_owned`/`clj_with_meta` see rc 1 and update in place (this is
-  the first in-place store reachable from interpreted code: the RC entry's unchecked "children of a shared
-  object are shared" trigger has fired). Liveness is backward over the evaluation order of one frame (the
+  the first in-place store reachable from interpreted code; NOTES "RC" checks in debug builds that the
+  children of a shared object stay shared). Liveness is backward over the evaluation order of one frame (the
   top level, each fn arity, each direct fn arity), on bitsets of the first 64 slots (a higher slot is
   never marked), with these rules: a `loop` body and a fn body with a `recur` are a fixpoint, a recur's
   live-out being the body's live-in minus the slots it rebinds, so a loop var is a last use where nothing

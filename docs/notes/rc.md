@@ -17,18 +17,53 @@
   under many threads. Fix: per-thread counters summed on read.
 - [ ] **Copy path retains every child and then replaces one slot**: one spare retain/release pair per
   level. Trigger: profiling the "all versions kept" benchmark scenario.
-- [ ] **The "children of a shared object are shared" invariant is unchecked in debug builds.** A violation
-  is a shared parent over an unshared child: the child looks like any unshared object, so the check
-  belongs where the edge is visible. (1) In `free_object`'s child walk, a shared parent asserts every
-  pointer child is shared or immortal — one flag read on a header already loaded. (2) At the cutoff in
-  `clj_share` (`continue` on an already-shared node), `clj_debug_all_shared` of that subtree: the one
-  place the walk relies on the invariant. Trigger: the next code that stores into an object in place
-  (transients, reuse) or the first spawn primitive.
-- [ ] **No owner check on the non-atomic path.** "An unshared object is touched only by its allocating
-  thread" holds literally today; a debug-only allocating-thread id (side table or debug header
-  extension) asserted in the inline retain/release catches the actual cross-thread race regardless of
-  how the invariant broke. Handoffs (park/resume, a channel move) will need an explicit
-  `clj_debug_reown` at each transfer point, which documents them. Trigger: the first spawn primitive.
+- **"Children of a shared object are shared" is checked in debug builds** (`rc.c`). A violation is a shared
+  parent over an unshared child, invisible from the child, so both checks sit where the edge is. (1) A shared
+  object whose count reaches zero walks its children before its header becomes the worklist link
+  (`assert_children_shared`, in `free_object` and `release_child`) and dies on one neither shared nor immortal:
+  every edge of every shared object that dies is seen once, at the price of a second `each_child` pass over it.
+  (2) Each cutoff of `clj_share` — a root already shared, and the `continue` on a shared node — is the one place
+  the walk relies on the invariant, and checks below that node (`assert_shared_below`): one cutoff in 256 per
+  thread, at most 256 children read and 64 descended into. `each_child` cannot stop early, so a check pays the
+  width of every node it visits, again at every cutoff: a spawn capturing a channel with 100k buffered values
+  re-reads them all (`ChanStressTests.stressSpawn`: 0.34 s unchecked, 40 s with every cutoff checked 64 nodes
+  deep, 1.6 s at one in 64, 0.56 s at one in 256), and an unbounded walk would not end on a cycle through a ref
+  type. The sample leaves (2) an early warning; (1) is the exhaustive one. `clj_debug_all_shared` is the same
+  walk without bounds. Both this check and the owner check below compile out of release builds; together they
+  cost the debug suite less than its run-to-run noise (`swift test` on the pool, 650 tests with the corpus, an
+  Intel i9 under other load: 54.8 and 53.3 s against 70.6 and 54.2 s without them), stressSpawn above being the
+  one test that shows them.
+- **The owner check: an unshared object is touched only by the execution that owns it** (debug builds;
+  `object.h`, `rc.c`, `coro.c`). The owner is the execution — a `clj_coro`, a bare thread's implicit one
+  included — not the thread: a coroutine that parks and resumes on another carrier owns what it owned (design
+  §4, «Смена потока — не триггер»). Each `clj_coro` takes a 16-bit tag at creation (`debug_owner`), `clj_alloc`
+  writes the running execution's tag into the top 16 bits of `flags` (`CLJ_OWNER_SHIFT`; release builds leave
+  them 0, so the header is the same in both; they are the bits design §4 keeps for a BRC owner id, which would
+  become the tag), and the non-atomic paths compare it with the running execution's: `clj_retain`/`clj_release`
+  inline, `release_reaches_zero` (a child released by a dying parent), `clj_is_unique`, and `clj_share` before
+  it marks a node (the plain write of the flag must be the owner's). The comparison is an out-of-line call
+  (`clj_debug_owner_check`), never a TLS address cached across a park. Gaps, both on the side of silence: tag 0
+  is unowned and never checked — what a thread allocates before its first execution exists, the boot's ~31k
+  objects against the 9M+ a suite run allocates; tags wrap after 65535 executions, and two executions sharing
+  one hide each other's touches. Swift's view of the inline paths has no `CLJ_DEBUG`, so the Swift side is
+  checked only inside the C calls it makes. An execution that works for another takes on that one's tag for the
+  work (`clj_debug_owner_assume`), and these are the only transfers of unshared objects: a finished coroutine's
+  epilogue on its carrier (`finish`: the binding frames it pushed and did not pop, its captures, its pending
+  exception, its retired roots, `on_done`), and a blocking-pool job working for its parked caller
+  (`blocking_main`). Everything else that crosses executions is shared before it does: spawn (fn, args, conveyed
+  binding frames), a channel put and a `put!`/`take!` callback, `thread`'s fn and channel, a coroutine's result
+  and thrown value (`clj_coro_entry`, so `clj_coro_result` is shared), a cancellation's cause, every `Value`
+  (the Swift bridge: `callAsync`, async closures, nREPL session frames; a host fn runs on the execution that
+  calls it). The reduce and fusion drivers never leave their execution. A registry that any execution reads
+  under its lock is a publication (design §4) and shares what it holds: namespaces (as they did), the keyword
+  table, the reify-type registry, the specializer's dependents index, the profiler's table and the loader's
+  failures. Three of those were bugs the check found, not just its noise: a reify site's type was retained and
+  released outside the registry lock by every coroutine running the site
+  (`CoroTests.aReifySiteRunsOnManyCoroutines`); a `def` re-deriving an exec retained and released the exec of a
+  form still running on another thread (`SpecializeTests.aRedefReachesAFormRunningOnAnotherThread`);
+  `clj_profile_stop` released fn nodes recorded by other executions (`ProfileTests.aFnProfiledOnAnotherThread`);
+  each a non-atomic count touched from two threads. The keyword table and the loader's failures were only
+  lock-ordered, never racy, and are shared for the check's model.
 - [~] **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
   "Atoms"; `clj_debug_rc_ops` counts the plain, shared and immortal paths in debug builds, one relaxed
   atomic add per retain/release, the same process-wide-counter caveat as the live count above). The flag

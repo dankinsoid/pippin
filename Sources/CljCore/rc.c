@@ -23,11 +23,33 @@ static bool release_reaches_zero(clj_header *h) {
 		CLJ_ASSERT(prev > 0, "release of a freed shared object");
 		return prev == 1;
 	}
+	CLJ_OWNER_CHECK(h);
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
 	atomic_store_explicit(&h->rc, rc - 1, memory_order_relaxed);
 	return rc == 1;
 }
+
+#if CLJ_DEBUG
+static void fatal_unshared_child(const char *where, const clj_header *parent, clj_value child) {
+	char msg[256];
+	snprintf(msg, sizeof msg, "%s: shared %s over unshared %s", where, parent ? parent->type->name : "object",
+	         clj_type_of(child)->name);
+	clj_fatal(msg);
+}
+
+static void assert_child_shared(clj_value child, void *ctx) {
+	if (clj_is_ptr(child) && !(clj_header_of(child)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)))
+		fatal_unshared_child("free", ctx, child);
+}
+
+// The header is still whole here; set_dead_next overwrites the flags right after.
+static void assert_children_shared(clj_header *h) {
+	if ((h->flags & CLJ_FLAG_SHARED) && h->type->each_child) h->type->each_child(h, assert_child_shared, h);
+}
+#else
+#define assert_children_shared(h) ((void)0)
+#endif
 
 // A dead object's rc+flags become the intrusive worklist link; bit 0 keeps CLJ_FLAG_LARGE for dealloc,
 // bits 1 and 2 CLJ_FLAG_META and CLJ_FLAG_SHAPE, which each_child reads (objects are at least 8-byte aligned).
@@ -50,6 +72,7 @@ static void release_child(clj_value child, void *ctx) {
 	clj_header **stack = ctx;
 	clj_header *h = clj_header_of(child);
 	if (release_reaches_zero(h)) {
+		assert_children_shared(h);
 		if (h->type->unlink) h->type->unlink(h);
 		set_dead_next(h, *stack);
 		*stack = h;
@@ -59,6 +82,7 @@ static void release_child(clj_value child, void *ctx) {
 // Iterative so a million-element list does not overflow the C stack.
 static void free_object(clj_header *dead) {
 	clj_header *stack = dead;
+	assert_children_shared(dead);
 	if (dead->type->unlink) dead->type->unlink(dead);
 	set_dead_next(dead, NULL);
 	while (stack) {
@@ -104,6 +128,7 @@ bool clj_is_unique(clj_value v) {
 	if (!clj_is_ptr(v)) return false;
 	clj_header *h = clj_header_of(v);
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
+	if (!(h->flags & CLJ_FLAG_SHARED)) CLJ_OWNER_CHECK(h);
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
 	return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
 #endif
@@ -152,14 +177,78 @@ static void share_visit(clj_value child, void *ctx) {
 	if (clj_is_ptr(child)) stack_push(ctx, child);
 }
 
+// A walk below a shared node: at most `reads` children's flags are read, `room` shared ones descended into.
+typedef struct {
+	value_stack       st;
+	size_t            reads, room;
+	const clj_header *parent;     // whose children are being visited
+	const clj_header *bad_parent; // the edge that breaks the invariant, when bad_child is set
+	clj_value         bad_child;
+} below_walk;
+
+static void below_visit(clj_value child, void *ctx) {
+	below_walk *w = ctx;
+	if (!clj_is_ptr(child) || !clj_is_nil(w->bad_child) || !w->reads) return;
+	w->reads--;
+	uint32_t flags = clj_header_of(child)->flags;
+	if (flags & CLJ_FLAG_IMMORTAL) return;
+	if (!(flags & CLJ_FLAG_SHARED)) {
+		w->bad_parent = w->parent;
+		w->bad_child = child;
+	} else if (w->room) {
+		w->room--;
+		stack_push(&w->st, child);
+	}
+}
+
+// v is shared. A bounded room also ends a walk around a cycle through a ref type.
+static bool shared_below(clj_value v, size_t reads, size_t room, below_walk *w) {
+	*w = (below_walk){.st = {.cap = STACK_INLINE}, .reads = reads, .room = room, .bad_child = CLJ_NIL};
+	w->st.items = w->st.inline_items;
+	stack_push(&w->st, v);
+	while (w->st.count && clj_is_nil(w->bad_child) && w->reads) {
+		clj_header *h = clj_header_of(w->st.items[--w->st.count]);
+		w->parent = h;
+		if (h->type->each_child) h->type->each_child(h, below_visit, w);
+	}
+	stack_free(&w->st);
+	return clj_is_nil(w->bad_child);
+}
+
+#if CLJ_DEBUG
+// A check pays the width of every node it visits, and each_child cannot stop early: a spawn capturing a channel
+// with 100k buffered values re-read them all, ChanStressTests.stressSpawn 0.3 -> 40 s, and 1.6 s at one cutoff in
+// 64. So one in 256 per thread, 256 children read and 64 descended into at most; the check at free sees every edge.
+enum { SHARE_CUTOFF_READS = 256, SHARE_CUTOFF_ROOM = 64, SHARE_CUTOFF_EVERY = 256 };
+
+static void assert_shared_below(clj_value v) {
+	static _Thread_local uint32_t cutoffs;
+	if (cutoffs++ % SHARE_CUTOFF_EVERY) return;
+	below_walk w;
+	if (!shared_below(v, SHARE_CUTOFF_READS, SHARE_CUTOFF_ROOM, &w)) fatal_unshared_child("share cutoff", w.bad_parent, w.bad_child);
+}
+#else
+#define assert_shared_below(v) ((void)0)
+#endif
+
 void clj_share(clj_value v) {
 	if (!clj_is_ptr(v)) return;
-	if (clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) return;
+	uint32_t flags = clj_header_of(v)->flags;
+	if (flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) {
+		if (!(flags & CLJ_FLAG_IMMORTAL)) assert_shared_below(v);
+		return;
+	}
 	VALUE_STACK_INIT(st);
 	stack_push(&st, v);
 	while (st.count) {
-		clj_header *h = clj_header_of(st.items[--st.count]);
-		if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) continue;
+		clj_value   cur = st.items[--st.count];
+		clj_header *h = clj_header_of(cur);
+		if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) {
+			if (!(h->flags & CLJ_FLAG_IMMORTAL)) assert_shared_below(cur);
+			continue;
+		}
+		// The flag is a plain write: only the owner may publish.
+		CLJ_OWNER_CHECK(h);
 		h->flags |= CLJ_FLAG_SHARED;
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
@@ -167,16 +256,19 @@ void clj_share(clj_value v) {
 }
 
 bool clj_debug_all_shared(clj_value v) {
-	if (!clj_is_ptr(v)) return true;
-	VALUE_STACK_INIT(st);
-	stack_push(&st, v);
-	bool ok = true;
-	while (ok && st.count) {
-		clj_header *h = clj_header_of(st.items[--st.count]);
-		if (h->flags & CLJ_FLAG_IMMORTAL) continue;
-		ok = (h->flags & CLJ_FLAG_SHARED) != 0;
-		if (ok && h->type->each_child) h->type->each_child(h, share_visit, &st);
-	}
-	stack_free(&st);
-	return ok;
+	if (!clj_is_ptr(v) || (clj_header_of(v)->flags & CLJ_FLAG_IMMORTAL)) return true;
+	if (!(clj_header_of(v)->flags & CLJ_FLAG_SHARED)) return false;
+	below_walk w;
+	return shared_below(v, SIZE_MAX, SIZE_MAX, &w);
 }
+
+#if CLJ_DEBUG
+void clj_debug_owner_check(const clj_header *h) {
+	uint32_t owner = h->flags >> CLJ_OWNER_SHIFT, here = clj_debug_owner_here();
+	if (owner == here) return;
+	char msg[256];
+	snprintf(msg, sizeof msg, "unshared %s of execution %u touched by execution %u (NOTES \"RC\", owner check)",
+	         h->type->name, owner, here);
+	clj_fatal(msg);
+}
+#endif

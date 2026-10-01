@@ -561,6 +561,10 @@ static void disarm_locked(clj_coro *c);
 static void cancel_cause_clear_locked(clj_coro *c);
 
 static void finish(clj_coro *c) {
+#if CLJ_DEBUG
+	// The epilogue tears down what the finished body owned, on the carrier: a transfer from c, which never runs again.
+	uint32_t carrier_owner = clj_debug_owner_assume(c->debug_owner);
+#endif
 	deadline_disarm(c);
 	clj_eval_drain_retired(c);
 	clj_var_bindings_release(c->bindings);
@@ -585,6 +589,9 @@ static void finish(clj_coro *c) {
 	c->signaled = true;
 	pthread_cond_broadcast(&c->cond);
 	pthread_mutex_unlock(&c->lock);
+#if CLJ_DEBUG
+	clj_debug_owner_assume(carrier_owner);
+#endif
 	clj_release(clj_from_ptr(c));
 }
 
@@ -1111,7 +1118,14 @@ static void *blocking_main(void *arg) {
 		job_head = j->next;
 		if (!job_head) job_tail = NULL;
 		pthread_mutex_unlock(&job_mu);
+#if CLJ_DEBUG
+		// A job with a waiter works for its parked caller, which touches nothing until the wake: a transfer both ways.
+		uint32_t own = j->w ? clj_debug_owner_assume(j->w->coro->debug_owner) : 0;
+#endif
 		j->fn(j->ctx);
+#if CLJ_DEBUG
+		if (j->w) clj_debug_owner_assume(own);
+#endif
 		clj_waiter *w = j->w;
 		if (!w) {
 			free(j);
