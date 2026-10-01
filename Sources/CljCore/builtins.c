@@ -144,20 +144,31 @@ static clj_value b_le(const clj_value *args, size_t n) { return compare_fold(arg
 static clj_value b_gt(const clj_value *args, size_t n) { return compare_fold(args, n, clj_gt); }
 static clj_value b_ge(const clj_value *args, size_t n) { return compare_fold(args, n, clj_ge); }
 
-clj_value clj_eq(clj_value a, clj_value b) { return clj_bool(clj_equals(a, b)); }
-clj_value clj_neq(clj_value a, clj_value b) { return clj_bool(!clj_equals(a, b)); }
+// A thunk the comparison forced may have been cancelled: that leaves as the cancellation, not as unequal (error.h).
+static clj_value equals_value(clj_value a, clj_value b, bool want) {
+	if (a == b) return clj_bool(want);
+	if (!clj_is_ptr(a) && !clj_is_ptr(b)) return clj_bool(!want);
+	clj_equals_watch();
+	bool eq = clj_equals_slow(a, b);
+	return clj_equals_rethrow() ? CLJ_THROWN : clj_bool(eq == want);
+}
+
+clj_value clj_eq(clj_value a, clj_value b) { return equals_value(a, b, true); }
+clj_value clj_neq(clj_value a, clj_value b) { return equals_value(a, b, false); }
 clj_value clj_identical(clj_value a, clj_value b) { return clj_bool(a == b); }
 
 static clj_value b_eq(const clj_value *args, size_t n) {
 	for (size_t i = 1; i < n; i++) {
-		if (clj_eq(args[0], args[i]) == CLJ_FALSE) return CLJ_FALSE;
+		clj_value r = clj_eq(args[0], args[i]);
+		if (r != CLJ_TRUE) return r;
 	}
 	return CLJ_TRUE;
 }
 
 static clj_value b_neq(const clj_value *args, size_t n) {
 	for (size_t i = 1; i < n; i++) {
-		if (clj_neq(args[0], args[i]) == CLJ_TRUE) return CLJ_TRUE;
+		clj_value r = clj_neq(args[0], args[i]);
+		if (r != CLJ_FALSE) return r;
 	}
 	return CLJ_FALSE;
 }
@@ -170,7 +181,9 @@ static clj_value b_identical(const clj_value *args, size_t n) {
 static clj_value b_hash(const clj_value *args, size_t n) {
 	(void)n;
 	if (clj_is_ptr(args[0]) && !clj_type_of(args[0])->hash) return clj_throw_msg("%s cannot be hashed", clj_type_name(args[0]));
-	return clj_fixnum((int32_t)clj_hash(args[0]));
+	clj_equals_watch();
+	uint32_t h = clj_hash(args[0]);
+	return clj_equals_rethrow() ? CLJ_THROWN : clj_fixnum((int32_t)h);
 }
 
 static clj_value int_arg(clj_value v, intptr_t *out) {

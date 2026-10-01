@@ -50,6 +50,7 @@ struct clj_coro {
 	clj_shadow_stack  shadow_hdr;
 	void             *bindings;      // var.c frames, refcounted and shared with spawned children
 	clj_value         pending, pending_trace;
+	uint8_t           equals_dropped; // CLJ_CANCEL_* of a cancellation equals/hash dropped (error.h), NONE otherwise
 	void             *forcing_top;   // seq.c
 	uint32_t          exec_depth;    // clj_exec_run nesting (eval.c)
 	uint32_t          host_depth;    // synchronous host calls on this execution: a park under one is an error

@@ -498,7 +498,7 @@ static bool map_equals(void *self, clj_value other) {
 	}
 	clj_value n = clj_count(other);
 	if (n == CLJ_THROWN) {
-		clj_release(clj_take_pending());
+		clj_equals_drop_pending();
 		return false;
 	}
 	if (clj_map_count(me) != (uint32_t)clj_fixnum_val(n)) return false;

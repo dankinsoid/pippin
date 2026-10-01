@@ -25,6 +25,7 @@ clj_value clj_lt(clj_value a, clj_value b);
 clj_value clj_le(clj_value a, clj_value b);
 clj_value clj_gt(clj_value a, clj_value b);
 clj_value clj_ge(clj_value a, clj_value b);
+// CLJ_THROWN only with a cancellation a thunk the comparison forced met (error.h, clj_equals_rethrow).
 clj_value clj_eq(clj_value a, clj_value b);
 clj_value clj_neq(clj_value a, clj_value b);
 clj_value clj_identical(clj_value a, clj_value b);

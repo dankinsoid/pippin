@@ -624,7 +624,7 @@ static bool sorted_equals(void *self, clj_value other) {
 	if (!clj_has_core(other, set ? CLJ_CORE_SET : CLJ_CORE_MAP) || clj_is_record(other)) return false;
 	clj_value n = clj_count(other);
 	if (n == CLJ_THROWN) {
-		clj_release(clj_take_pending());
+		clj_equals_drop_pending();
 		return false;
 	}
 	if ((uint32_t)clj_fixnum_val(n) != clj_sorted_count(me)) return false;

@@ -324,6 +324,29 @@ clj_value clj_take_pending(void) {
 	return ex;
 }
 
+// @ai-generated(solo)
+void clj_equals_drop_pending(void) {
+	clj_value ex = clj_take_pending();
+	if (clj_is_cancellation(ex)) {
+		bool deadline = clj_map_get(clj_cancellation_data(ex), kw_cancel_kind, CLJ_NIL) == kw_deadline;
+		clj_coro_current()->equals_dropped = deadline ? CLJ_CANCEL_DEADLINE : CLJ_CANCEL_REQUESTED;
+	}
+	clj_release(ex);
+}
+
+// A record left by a drop nobody rethrew (a set lookup) belongs to no later comparison.
+void clj_equals_watch(void) { clj_coro_current()->equals_dropped = CLJ_CANCEL_NONE; }
+
+// @ai-generated(solo)
+bool clj_equals_rethrow(void) {
+	clj_coro *c = clj_coro_current();
+	uint8_t   kind = c->equals_dropped;
+	if (kind == CLJ_CANCEL_NONE) return false;
+	c->equals_dropped = CLJ_CANCEL_NONE;
+	clj_throw_cancelled(kind == CLJ_CANCEL_DEADLINE);
+	return true;
+}
+
 clj_value clj_pending_trace(void) { return pending_trace; }
 
 clj_value clj_take_pending_trace(void) {

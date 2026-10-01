@@ -801,7 +801,7 @@ static clj_value user_reduce(clj_value self, clj_value f, clj_value init) {
 static uint32_t user_hash(void *self) {
 	clj_value r = call_core(clj_from_ptr(self), CLJ_CM_HASH, NULL, 0);
 	if (r == CLJ_THROWN) {
-		clj_release(clj_take_pending());
+		clj_equals_drop_pending();
 		return 0;
 	}
 	uint32_t h = clj_is_fixnum(r) ? (uint32_t)clj_fixnum_val(r) : 0;
@@ -812,7 +812,7 @@ static uint32_t user_hash(void *self) {
 static bool user_equals(void *self, clj_value other) {
 	clj_value r = call_core(clj_from_ptr(self), CLJ_CM_EQUALS, &other, 1);
 	if (r == CLJ_THROWN) {
-		clj_release(clj_take_pending());
+		clj_equals_drop_pending();
 		return false;
 	}
 	bool eq = clj_truthy(r);

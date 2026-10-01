@@ -22,6 +22,22 @@ extension CoreTests {
 			#expect(message?.contains("Execution timed out") == true)
 		}
 
+		// equals cannot throw and drops what a forced thunk threw; an expiry must not become its answer.
+		@Test func anExpiryInsideEqualsOrHashIsNotAnAnswer() throws {
+			for form in ["(= (lazy-seq (loop [] (recur))) [1])", "(= [1] (lazy-seq (loop [] (recur))))",
+			             "(not= (lazy-seq (loop [] (recur))) [1])", "(apply = [[1] [1] (lazy-seq (loop [] (recur)))])",
+			             "(hash (lazy-seq (loop [] (recur))))"] {
+				let message = withDeadline(ms: 100) { cljEvalError(form) }
+				#expect(message?.contains("Execution timed out") == true, "\(form)")
+			}
+		}
+
+		// A drop no `=` rethrew (a set lookup hashing the key) is not charged to a later comparison.
+		@Test func aDroppedExpiryDoesNotOutliveItsComparison() throws {
+			_ = withDeadline(ms: 100) { try? cljEval("(contains? #{[1]} (lazy-seq (loop [] (recur))))") }
+			#expect(try cljEval("(= (lazy-seq [1]) [1])") == true)
+		}
+
 		@Test func aLoopThatCatchesTheTimeoutStillStops() throws {
 			// The unwind budgets run out, after which every check throws and the catching loop cannot resume.
 			let message = withDeadline(ms: 100) {

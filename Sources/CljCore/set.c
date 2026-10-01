@@ -74,7 +74,7 @@ static bool set_equals(void *self, clj_value other) {
 	clj_value me = clj_from_ptr(self);
 	clj_value n = clj_count(other);
 	if (n == CLJ_THROWN) {
-		clj_release(clj_take_pending());
+		clj_equals_drop_pending();
 		return false;
 	}
 	if (clj_set_count(me) != (uint32_t)clj_fixnum_val(n)) return false;

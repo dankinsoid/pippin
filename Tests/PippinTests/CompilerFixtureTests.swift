@@ -328,6 +328,26 @@ extension CoreTests {
 			}
 		}
 
+		// An emitted `=` site checks clj_eq's result like any intrinsic's: an expiry in a thunk it forced is no answer.
+		@Test func compiledEqualsRethrowsAnExpiryInsideIt() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.eqexpiry)")
+			defer { clj_ns_set_current(clj_ns_user()); clj_deadline_set_ms(0) }
+			for closed in [false, true] {
+				try compiledEval(closed: closed) {
+					_ = try cljEval("""
+						(defn cp-eq-spin [] (= (lazy-seq (loop [] (recur))) [1]))
+						(defn cp-not-eq-spin [] (not= [1] (lazy-seq (loop [] (recur)))))
+						""")
+				}
+				for call in ["(cp-eq-spin)", "(cp-not-eq-spin)"] {
+					clj_deadline_set_ms(100)
+					#expect(cljEvalError(call)?.contains("Execution timed out") == true, "\(call), closed: \(closed)")
+					clj_deadline_set_ms(0)
+				}
+			}
+		}
+
 		// The compiler emits its own loop tick, so the shared predicate has to answer both ways through it: a
 		// cancellation unwinds the emitted loop, a suspension parks inside it and the loop goes on afterwards.
 		@Test func compiledLoopTickParksOnASuspend() throws {

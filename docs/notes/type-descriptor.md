@@ -134,11 +134,18 @@
   chunking only matters for the lazy `map`/`filter`/`first`/`next` walks. Trigger: seq
   walks of big vectors in a profile; Clojure's chunked seqs batch 32 elements per allocation and
   need `chunk-first`/`chunk-rest` in `map`/`filter`.
-- [ ] **`clj_equals`/`clj_hash` cannot throw**, so a lazy seq whose thunk throws compares unequal /
+- [~] **`clj_equals`/`clj_hash` cannot throw**, so a lazy seq whose thunk throws compares unequal /
   hashes what it yielded and the exception is dropped (`drop_thrown` in coll.c); a deftype `equiv`
   that throws compares unequal and a `hasheq` that throws or yields a non-integer hashes 0, the
-  same way. Clojure throws out of `=`. Trigger: user code relying on that exception. Fix: fallible
-  equals/hash slots.
+  same way. Clojure throws out of `=`. A cancellation is the exception no answer may survive — a deadline
+  that expired in a thunk `=` forced read as unequal (NOTES "Corpus", the `random-sample` failure) — so every
+  drop goes through `clj_equals_drop_pending` (error.c), which records a cancellation's kind on the execution,
+  and `=`, `not=` and `hash` clear the record before comparing and rethrow it after (`clj_equals_rethrow`;
+  `clj_eq`/`clj_neq` may return `CLJ_THROWN`, which both backends' intrinsic paths check). Left: any other
+  exception is still dropped, and so is a cancellation met inside a lookup, `contains?`, `distinct` or a
+  sorted collection's compare, where equals answers a question nobody rethrows for — the cancellation is
+  sticky, so the next call or loop turn throws it, after the wrong answer. Trigger: user code relying on that
+  exception. Fix: fallible equals/hash slots.
 - [ ] **`apply` spreads its whole last argument** (`clj_seq_items`), so `(apply f infinite-seq)` never
   returns even for a variadic f; Clojure hands the rest seq to a variadic fn lazily. core.clj avoids
   `(apply concat ...)` for that reason (`mapcat`). Trigger: a library doing `(apply concat (map ...))`

@@ -111,7 +111,7 @@ clj_value clj_get(clj_value coll, clj_value key, clj_value not_found) {
 clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found) {
 	clj_value v = clj_get(coll, key, not_found);
 	if (v != CLJ_THROWN) return v;
-	clj_release(clj_take_pending());
+	clj_equals_drop_pending();
 	return clj_retain(not_found);
 }
 
@@ -356,9 +356,9 @@ clj_value *clj_seq_items(clj_value coll, size_t *n, clj_value *keep) {
 // ---- ASeq trait
 
 // equals/hash cannot throw, so a lazy seq whose thunk throws compares unequal and hashes what it
-// yielded; the exception is dropped rather than left pending (NOTES.md).
+// yielded; the exception is dropped rather than left pending (NOTES.md), a cancellation kept for `=` (error.h).
 static void drop_thrown(const clj_seq_iter *it) {
-	if (it->thrown) clj_release(clj_take_pending());
+	if (it->thrown) clj_equals_drop_pending();
 }
 
 bool clj_seq_equals(clj_value a, clj_value b) {

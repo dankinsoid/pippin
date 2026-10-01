@@ -43,6 +43,12 @@ clj_value clj_take_pending(void);
 clj_value clj_pending_trace(void);
 clj_value clj_take_pending_trace(void);
 
+// A cancellation that equals/hash dropped must not become an answer: `=`, `not=` and `hash` rethrow it.
+// rethrow is true with the cancellation pending.
+void clj_equals_drop_pending(void);
+void clj_equals_watch(void);
+bool clj_equals_rethrow(void);
+
 // Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
 void clj_error_intern_keywords(void);
 
