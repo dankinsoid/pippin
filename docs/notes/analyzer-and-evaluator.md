@@ -414,19 +414,31 @@
   a fifth case in `eval_borrowed` made the switch a jump table in every inlined copy, +3 ns on every
   row. Serialized as `[:direct-fn name [arity+]]` (only as a let/loop init), `[:direct-call [slot
   depth] args*]` resolved by the decoder through a chain of binding frames, `[:outer [depth slot]]`;
-  `from_data` checks the link depth and the slot against the chain's frames. In core.clj only `psig`
-  in the `fn` macro qualifies; the `step` helpers of `drop`, `drop-while`, `mapcat`, `map` (4+ colls)
-  and `sequence` are called inside a `lazy-seq` thunk (an inner closure captures them) or reference
-  themselves from one, and `destructure`'s `pvec`/`pmap` are passed `pb` as an argument and called from
-  inside it, so all stay closures. Debug builds count direct calls (`clj_debug_direct_calls`).
+  `from_data` checks the link depth and the slot against the chain's frames. Debug builds count direct
+  calls (`clj_debug_direct_calls`).
+  Who qualifies, over core.clj, the embedded libs and both corpora: of 68 let/loop-bound `fn*` inits,
+  20 are direct — 10 in core.clj, 1 in medley, 9 in the suite's tests, none in the libs. At run time
+  that is the recursive `up` of `update-in` and of medley's `update-existing-in`, `derive`'s `tf` and
+  `with-redefs-fn`'s `root-bind`; the rest run at every expansion of `fn` (`psig`), `for` (`to-groups`,
+  `emit`, `do-mod`), `doseq` (`step`), `condp` (`emit`) and `binding` (`var-ize`). Both backends use
+  them (the compiled core emits `update-in`'s `up` as a direct fn). `update-in` on a 3-key path is
+  6.7 % faster with the pass than without it — no closure per call, three direct calls — and that,
+  not the synthetic rows, is why the mechanism stays (design §6b item 7; bench/RESULTS.md, "Direct
+  local fns"). `derive`'s two calls are lost in its map work. The 48 that stay closures: 18 call
+  themselves from a `lazy-seq` thunk (core's lazy `step`/`walk` helpers, and `for`'s `iter`), 18 are
+  captured by an inner closure (`destructure`'s `pvec`/`pmap` among them), 12 are passed as a value
+  (its `pb` among them), none is variadic. Expanded code adds nothing: `doseq` and destructuring bind
+  no fn, `for`'s `iter` calls itself under `lazy-seq`, and `letfn` binds volatile cells whose fns are
+  `vreset!` arguments, never a let init (no `for` occurs in either corpus).
   Triggers: a variadic helper in a profile (build the rest list from a buffer as `closure_run` does);
-  a `letfn` (falls out as a `let*` of direct fns once forward references are allowed in the scan);
   a self-referencing `step` under `lazy-seq` in a profile (the thunk would need to reach the frame,
-  which it outlives — that is a real closure).
-  Decision: kept although no core.clj helper qualifies today (the gain is on synthetic rows only).
-  Revisit when `for`/`doseq`/`letfn` exist: if their helpers fail the escape rule as the `step`s do,
-  roll it back — the pass, the three node kinds and the frame link are self-contained (optimizer.c
-  `direct_pass`, eval.c `eval_direct_call`/`eval_outer`, the codec forms), so the rollback is cheap.
+  which it outlives — that is a real closure); a `letfn` whose fns are only called, in a profile —
+  then a `letfn*` form with every name in scope before the inits, and a greatest fixpoint that starts
+  with every fn direct and demotes one with a non-head use or a reference from a demoted sibling's
+  body; the demoted ones keep the cells, the direct ones lose their cell cycle. Not done now: all 7
+  `letfn` fns of the corpora would be demoted (2 passed as a value, 2 calling themselves under
+  `lazy-seq`, 1 captured by a `defn`, 2 variadic), so the form would buy nothing measured and leave
+  `:second-run-live-objects` where it is.
 - **The definition epoch** (epoch.h) is one process-wide counter bumped by every root bind (`def`,
   `defmacro`, boot, a host bind), every `extend`, every type creation (`deftype`, a reify site's first
   evaluation) and every `deftype` descriptor's death; `protocol-epoch*` returns it. The protocol call

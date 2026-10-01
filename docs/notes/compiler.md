@@ -344,7 +344,8 @@
   own wrapper. A variadic `+` is no intrinsic and answers "a number" — trigger: the optimizer's n-ary lowering. A boxed
   argument with an int64 fact (a `count`, a parameter of a fn that is no worker) takes the boxed twin and its tag check
   rather than a primitive site: the box of a fixnum and nothing else — trigger: a profile. A let-bound direct fn has
-  no specialized summary (`clj_summary_of_arity`) and no worker — trigger: a numeric helper in a `letfn`.
+  no specialized summary (`clj_summary_of_arity`) and no worker — trigger: a numeric let-bound helper in a profile
+  (a `letfn` fn is never a direct fn: NOTES "Direct local fns").
 - **Refused** (reported with the node kind and position, the unit throws at the form, `clj-compile` exits 2
   unless `--allow-refused`): a constant that does not print and read back; `eval`/`load-string` in a
   `--closed` user unit. Every node kind is expressible; nothing in core.clj, the embedded libs, medley or the

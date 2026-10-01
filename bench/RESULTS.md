@@ -426,6 +426,29 @@ section above, so compare within the table.
 - The rows without a local fn move within the run-to-run spread, on the better side here because
   the base binary ran first in a warmer minute; nothing in their path changed.
 
+### The revisit after `for`/`doseq`/`letfn` (995b2c3)
+
+Design §6b item 7 called for a rollback if the helpers of `for`, `doseq` and `letfn` failed the escape
+rule. They do (NOTES.md, "Direct local fns"), so the question became what the 20 fns that do qualify in
+core.clj, the libs and the corpora are worth. Intel Core i9-9980HK (x86_64), not the M3 Pro of the
+table above, so compare within this table. One release `clj-load`, the pass on against the pass off
+(a temporary switch around `direct_pass`, not committed), each run a fresh process over one file: CPU
+time (user + sys) minus a boot-only run, the two modes alternating in pairs. The machine carried other
+work (load 6–13), so wall-clock runs disagreed by ±40 % and only paired CPU ratios are reported.
+
+| scenario | ops | on, ms | off, ms | paired on/off, median | quartiles | pairs |
+|---|---:|---:|---:|---:|---|---:|
+| `(update-in m [:a :b :c] inc)` | 1000000 | 913 | 995 | −6.7 % | −10.9 … −2.5 % | 21 |
+| loop with a local helper | 10000000 | 776 | 1233 | −38.0 % | −41.6 … −29.9 % | 15 |
+| `(derive (make-hierarchy) :a :b)` | 100000 | 218 | 218 | −1.2 % | −5.0 … +4.8 % | 15 |
+
+- **`update-in`, ~80 ns of ~1 µs.** Without the pass its `up` is a closure made per call and entered
+  three times; as a direct fn it allocates nothing and its calls skip the arity lookup. This is the one runtime helper of core
+  that qualifies on a path people call, and the reason the mechanism stays. The bench gains an
+  "update-in, a path of 3 keys" row in the call table to track it.
+- **`derive`**: `tf` runs twice per call against a dozen map operations; the difference is in the noise.
+- The local-helper row is the synthetic row of the table above, measured the same way for scale.
+
 ## Host-defined fns and the sort primitive — Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
 
 `Runtime.define` binds a Swift closure as a var root (NOTES.md, host bridge). Two rows in the call table
