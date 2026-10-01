@@ -15,6 +15,8 @@ private func message(_ source: String) -> String? {
 
 private func kw(_ s: String) -> Value { Value(keyword: s) }
 
+private func take(_ ch: Value) -> Value { Value(owning: clj_chan_take(ch.raw)) }
+
 nonisolated(unsafe) private var uncaughtReports = 0
 
 extension CoreTests {
@@ -154,11 +156,13 @@ extension CoreTests {
 		@Test func deadlineIsPerCoroutine() throws {
 			let base = CoroBaseline()
 			do {
-				// A deadline set on the spawner is conveyed; the spawner's own clock is untouched by the child.
-				clj_deadline_set_ms(200)
+				// A deadline set on the spawner is conveyed; the spawner's own clock is untouched by the child. The
+				// spawner clears its own before it waits, or its expiry and the child's race for the same instant.
 				defer { clj_deadline_set_ms(0) }
-				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e (ex-message e)))))") == "Execution timed out")
+				clj_deadline_set_ms(200)
+				let child = try eval("(go (try (loop [i 0] (recur (inc i))) (catch :cancelled e (ex-message e))))")
 				clj_deadline_set_ms(0)
+				#expect(take(child) == "Execution timed out")
 				#expect(try eval("(<!! (go (loop [i 0] (if (< i 100000) (recur (inc i)) i))))") == 100000)
 			}
 			base.check()
@@ -184,13 +188,17 @@ extension CoreTests {
 					  (<!! (timeout 5)) (cancel! g) (<!! g))
 					""") == [kw("cancelled"), kw("explicit")])
 				#expect(try eval("(let [c (chan) g (go (try (<! c) (catch :default e :caught)))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
-				// The deadline: same :cancelled type, :cancel/kind :deadline instead.
+				// The deadline: same :cancelled type, :cancel/kind :deadline instead. Conveyed, then cleared on the
+				// spawner before it waits: the two expiries race, and a spawner that loses throws out of this test.
+				defer { clj_deadline_set_ms(0) }
 				clj_deadline_set_ms(50)
-				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))]))))")
-					== [kw("cancelled"), kw("deadline")])
-				clj_deadline_set_ms(50)
-				#expect(try eval("(<!! (go (try (loop [i 0] (recur (inc i))) (catch :default e :caught))))") == nil)
+				let kind = try eval("(go (try (loop [i 0] (recur (inc i))) (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))])))")
 				clj_deadline_set_ms(0)
+				#expect(take(kind) == [kw("cancelled"), kw("deadline")])
+				clj_deadline_set_ms(50)
+				let caught = try eval("(go (try (loop [i 0] (recur (inc i))) (catch :default e :caught)))")
+				clj_deadline_set_ms(0)
+				#expect(take(caught) == nil)
 				// (cancelled?) polls the same flag without waiting for a park point or a loop-tick throw.
 				#expect(try eval("(let [g (go (loop [n 0] (if (cancelled?) n (recur (inc n)))))] (<!! (timeout 5)) (cancel! g) (int? (<!! g)))") == true)
 			}
