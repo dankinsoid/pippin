@@ -27,10 +27,8 @@
   macro, and the private helpers `check-bindings`, `maybe-destructured`, `sigs`, `print-doc`,
   `preserving-reduced`, `load-one`, `load-lib`, `load-libs`, `libspec?` (`destructure` is public, as in
   Clojure). `clojure.set`, `clojure.string`, `clojure.walk`, `clojure.template` are separate embedded
-  namespaces loaded on the first `require`. Not yet: `defrecord` (trigger: medley's `record?` and the
-  suite's skip list — a deftype with a map behind it, `assoc` returning the record until a key leaves the
-  basis), `defstruct`, `proxy`, `reify`-style
-  `IDeref`, `future`/`pmap`/`agent`, `ref`, `dosync`,
+  namespaces loaded on the first `require`. Not yet: `defstruct`, `proxy`, `reify`-style
+  `IDeref` (the JVM's `clojure.lang.IDeref` with `deref`; ours is a protocol with `-deref`), `agent`, `ref`, `dosync`,
   `with-local-vars`, `time`, `partition-all` transducer flush order, `chunk-*`. The 1.11/1.12 tail is in:
   `partition`'s pad arity, `partitionv`, `partitionv-all`, `splitv-at`, `reductions`, `halt-when`,
   `random-sample`, `bounded-count`, `boolean?`, `parse-boolean`, `reversible?` (vectors and the sorted
@@ -123,11 +121,6 @@
   both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
   merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
   Trigger: a library relying on the trailing-map call style.
-- [ ] **Reader metadata on a collection literal is dropped**: `^:foo [1]` reads as a vector with meta, and the
-  analyzer then builds a fresh vector node from the items and loses it, so `(meta ^:foo [1])` is nil where
-  Clojure's is `{:foo true}` (its compiler emits the `with-meta`). A bug; the fix is a meta child on the
-  vector/map/set nodes, applied after the collection is built. Trigger: `^:const`, `^{:doc}` or any
-  annotation on a literal, and the corpus `group-by` test.
 - **A cooperative deadline bounds what a thread runs** (`clj_deadline_set_ms`): an interpreted closure call
   (`run_body`), a `loop` turn in both backends, a lazy-seq cell's realization (`run_thunk`), `clj_reduce_iter`
   and a fusion driver's entry check it (`clj_deadline_tick`), the clock is read once per 1024 of them, and

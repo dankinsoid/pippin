@@ -254,10 +254,10 @@
   awaited someone else's cancelled future is a bystander, its flag is clear, and it is reported like any
   other failure (design §4, "Необработанная отмена — не сбой"). `scope-spawn` reads the same flag through
   `(cancelled?*)` before it lets a child comply quietly.
-- [ ] Not done, with triggers: the Swift async bridge (`callAsync`, `callBlocking`) — the last task of design §10
-  step 5; the static `:park` fact and the `:effects` lint are in "Facts"; `go-scoped` and `future`/`promise` are
-  in "Futures and scopes" below. `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
+- [ ] Not done, with triggers: `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`); the
   host-depth error is raised only under `clj_host_invoke` (`Value.apply`, the trampoline). Trigger for making
   a park in a top-level `Runtime.eval` on the main thread an error: the async bridge, which gives the host the
-  alternative.
+  alternative. That trigger has fired: the bridge is built ("The async bridge" under "Host bridge"), and only its
+  `callBlocking` refuses the main thread. The static `:park` fact and the `:effects` lint are in "Facts";
+  `go-scoped` and `future`/`promise` are in "Futures and scopes".
 

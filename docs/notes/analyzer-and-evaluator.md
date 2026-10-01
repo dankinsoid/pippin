@@ -329,8 +329,8 @@
   roots process-wide with no lock, as Clojure's does; the bound value is not shared, so a binding handed
   to another thread through `bound-fn` shares it only when that thread's frame stores it (a value
   published this way must be treated as shared by the caller — trigger: `bound-fn` across threads with a
-  mutable graph, then `clj_share` in `push_entry`). No `*print-length*`, `*out*`, `*assert*`, `*flush-on-newline*`
-  or the other printer vars; `with-out-str` captures the output hook per thread instead.
+  mutable graph, then `clj_share` in `push_entry`). No `*out*`, `*assert*`, `*flush-on-newline*`
+  or the printer vars beyond `*print-length*`/`*print-level*` ("Printer"); `with-out-str` captures the output hook per thread instead.
 - **Concurrent `def` against `deref` is unsafe**, and `alter-meta!`/`reset-meta!` against `meta` the
   same way: `clj_var_root`/`clj_var_meta` return a borrowed pointer and a racing writer releases the
   old value, so a reader may retain a freed one (`alter-meta!` is a CAS loop, so its `f` may run
