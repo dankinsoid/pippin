@@ -10,7 +10,18 @@ extension CoreTests {
 	@Suite struct ChanStressTests {
 		init() throws {
 			clj_init()
-			_ = try cljEvalScoped("(ns chan-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! timeout go thread]]))")
+			_ = try cljEvalScoped("(ns chan-tests (:require [clojure.core.async :as a :refer [chan <! >! <!! >!! timeout go thread]]))")
+		}
+
+		// Each alts! leaves a stale node in the port it lost, which must not hold the port it won (parked_result).
+		// @ai-generated(solo)
+		@Test func racingAltsPuttersLeaveNoChannelCycle() throws {
+			let race = "(let [c (chan) d (chan) g1 (go (first (a/alts! [[c 1] d]))) g2 (go (first (a/alts! [[c 2] d])))] (<!! (timeout 1)) (let [got (<!! c)] (>!! d :d) (count (set [(<!! g1) (<!! g2) got]))))"
+			// The first run interns what the form names.
+			#expect(try eval(race) == 3)
+			let base = CoroBaseline()
+			for _ in 0..<300 { #expect(try eval(race) == 3) }
+			base.check()
 		}
 
 		@Test func stressSpawn() throws {

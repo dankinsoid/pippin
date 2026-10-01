@@ -835,6 +835,16 @@ static clj_value pair(clj_value a, clj_value b) {
 	return clj_vector_from_array(items, 2);
 }
 
+// The waiter outlives the park in the stale nodes of the ports that lost: if it kept the port that won, two idle
+// channels could hold each other through their stale nodes, a cycle each_child does not see.
+static clj_value parked_result(clj_waiter *w) {
+	clj_value r = pair(w->value, w->port);
+	clj_release(w->value);
+	clj_release(w->port);
+	w->value = w->port = CLJ_NIL;
+	return r;
+}
+
 static clj_value check_ports(clj_value ports, uint32_t n) {
 	for (uint32_t i = 0; i < n; i++) {
 		clj_value port = clj_vector_nth(ports, i);
@@ -900,7 +910,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 					return pending_error(is_put);
 				}
 				clj_park(w);
-				result = pair(w->value, w->port);
+				result = parked_result(w);
 				clj_waiter_release(w);
 				return result;
 			}
@@ -928,10 +938,11 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 	}
 	clj_park(w);
 	if (cancelled_here()) {
+		clj_release(parked_result(w));
 		clj_waiter_release(w);
 		return cancelled_throw();
 	}
-	result = pair(w->value, w->port);
+	result = parked_result(w);
 	clj_waiter_release(w);
 	return result;
 }
