@@ -269,13 +269,15 @@ extension CoreTests {
 			clj_init()
 			_ = try cljEval("(ns cp.consts (:require [clojure.core.async :refer [go thread <!!]]))")
 			defer { clj_ns_set_current(clj_ns_user()) }
+			// Polled, not a timed deref: its timeout channel outlives the test on the timer thread, under a later baseline.
 			let define = """
 				(defn cp-lit [] [1 2 {:a "s" :v ["t"]}])
 				(defn cp-on-a-new-host-thread []
-				  (let [done (promise)
-				        o (objc-reify {} (["run:" "v@:@"] [self arg] (deliver done (cp-lit))))]
+				  (let [done (atom nil)
+				        o (objc-reify {} (["run:" "v@:@"] [self arg] (reset! done (cp-lit))))]
 				    (.detach-new-thread-selector (objc-class "NSThread") "run:" :to-target o :with-object nil)
-				    (deref done 5000 :timeout)))
+				    (loop [i 0] (when (and (nil? @done) (< i 500)) (Thread/sleep 10) (recur (inc i))))
+				    @done))
 				"""
 			let run = "[(<!! (go (cp-lit))) @(future (cp-lit)) (<!! (thread (cp-lit))) (cp-on-a-new-host-thread)]"
 			let lit = "[1 2 {:a \"s\", :v [\"t\"]}]"
