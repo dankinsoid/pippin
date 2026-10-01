@@ -32,7 +32,7 @@ CIDER, Calva or Conjure like any Clojure nREPL (NOTES.md, "nREPL").
 
 Before pushing, agents run `make gates`: `test`, `test-compiled`, `corpus-compiled`, `facts-report`,
 `port-audit`, `api-diff`, in that order. Run `make gates-full` weekly and after allocator, boot,
-compiler, or suite-lifetime changes. See [NOTES.md, Gates](NOTES.md#gates) for coverage and measurements.
+compiler, or suite-lifetime changes. See [NOTES.md, Gates](docs/notes/gates.md) for coverage and measurements.
 `api-diff` needs JVM Clojure on PATH (`/opt/homebrew/bin` with Homebrew); tests need GNU `timeout`.
 
 Requires Swift 6 and macOS 12 / iOS 15.

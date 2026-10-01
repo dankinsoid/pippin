@@ -1,0 +1,16 @@
+## Прецеденты и источники
+- **Хосты Clojure:** ClojureScript, ClojureCLR, ClojureDart (AOT-only, hot restart, `reify :extends` даёт настоящие Dart-классы), Clojerl (BEAM), Basilisp (Python), jank (LLVM/C++, JIT через ORC/Cling), SCI/babashka (интерпретатор ради старта), Fennel (Lisp на Lua).
+- **Lisp/динамика на ObjC:** Nu, F-Script, MacRuby, clojure-objc, JSPatch (запрещён Guideline 2.5.2), NativeScript (metadata на весь SDK через clang).
+- **Мосты:** React Native (legacy bridge, TurboModules + Codegen по TS-спекам), Expo Modules API (Swift DSL — ближайшее к «таблице функций»), UniFFI, swift-bridge.
+- **Память:** Perceus (Koka, 2021), Lean 4 «Counting Immutable Beans» (2019), Tofte–Talpin region inference (MLKit), Cyclone, mimalloc, Immix, Hertz & Berger (GC vs malloc).
+- **Компиляция в C:** Chicken Scheme, Nim, Ferret. Tail calls — clang `musttail`.
+- **Swift-рантайм:** wickwirew/Runtime, Echo, Mike Ash «Exploring Swift Memory Layout», Swift ABI stability docs, `_typeByName`, `_openExistential`, `@_dynamicReplacement`, `swift_conformsToProtocol`.
+- **JIT для контраста:** HotSpot (tiered C1/C2, inline caches, escape analysis, uncommon traps/deopt, OSR).
+- **Вывод фактов:** Julia type inference (abstract interpretation, widening, `@code_warntype`); Dialyzer / success typings (Lindahl & Sagonas); Typed Racket occurrence typing (Tobin-Hochstadt & Felleisen); TypeScript control-flow analysis / type guards; Kotlin smart casts; Zig comptime; Malli `m/=>`.
+- **Низкоуровневый слой:** Julia isbits / struct layout и `@code_warntype`; LuaJIT FFI cdata; SBCL `declare`; Clojure `vector-of` / `deftype` mutable fields; clang vector extensions; Swift `@frozen` / `MemoryLayout`.
+- **UI:** React Native (reconciler + host components), react-reconciler, Reagent/hicada/uix, Yoga, Elm Html.
+- **Оптимизации:** Truffle self-optimizing AST interpreters (Würthinger et al.), specializing adaptive interpreter в CPython (PEP 659), egg (Willsey et al. 2021), copy-and-patch (Xu & Kjølstad 2021), проекции Футамуры, MLIR, BOLT, conditions/restarts в Common Lisp, miniKanren/core.logic, Datascript.
+- **Циклы и дескрипторы:** Bacon & Rajan «Concurrent Cycle Collection in Reference Counted Systems» (2001), CPython gc, Nim ORC, Swift `weak`/`unowned`; CPython `tp_*`-слоты, Lua metatables, Racket CS record-type descriptors, Clojure `RT.first`.
+- **Тесты:** `clojure/test_clojure`, core-test (кроссплатформенный набор для clojure.core), ClojureCLR (core.clj поверх реализованных `clojure.lang.*`).
+- **Локация:** Swift `#file`/`#line`/`#fileID`/`#column`, Rust `#[track_caller]` и `Location::caller()`, Racket syntax objects (srcloc + origin), timbre (`(meta &form)`).
+- **Инструментарий:** clojure-lsp / clj-kondo, nREPL (bencode), Calva/CIDER/Conjure, Julia `@code_warntype` (для inlay hints).
