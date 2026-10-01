@@ -67,7 +67,9 @@
   runs with `continue-on-error` until the compiled backend links on x86_64 — its matrix entry's `required`
   is the one line to flip. Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
   are installed per run, the image's JDK 21 runs it. `TEST_TIMEOUT=1200`: the runners are several times
-  slower than the M3 the table above was measured on. Cached: `~/.m2` (api-diff's jars), the SwiftPM
+  slower than the M3 the table above was measured on, and `CLJ_CORPUS_TIMEOUT_MS=20000` for the same reason:
+  clojure-test-suite's `test-random-sample` takes 4–6 s under ASan there, against the 5 s default ("Corpus").
+  Cached: `~/.m2` (api-diff's jars), the SwiftPM
   repository cache, and `.build/corpus-cache`, restored from the newest entry of the architecture and
   pruned to one key per library before saving; its content keys make a stale entry a miss, never a wrong
   hit. Scratch paths are not cached: several GB per architecture, and whether SwiftPM reuses them after

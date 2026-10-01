@@ -87,26 +87,39 @@ private let harnessSource = """
 
 (defn- reason-of [m] (or (ex-message (:actual m)) (pr-str (:actual m))))
 
-;; A deadline per deftest: the runtime throws timeout-msg at the first call or loop turn past it and re-arms
-;; with a short grace, so clojure.test's own handler runs and the test unwinds instead of spinning on.
+;; The expiry is a :cancelled, which clojure.test's :default handlers let by: caught at the test fn, it is that
+;; test's error and the namespace goes on with the next test under a fresh deadline.
+(defn- guard-expiry [t]
+  (fn []
+    (try (t)
+         (catch :cancelled e
+           (corpus-deadline* 0)
+           (clojure.test/do-report {:type :error :message "watchdog" :expected nil :actual e})))))
+
+;; A deadline per deftest: the runtime throws timeout-msg at the first call or loop turn past it.
 (defn run-ns [ns-sym budget-ms]
   (let [events (atom [])
-        escaped (atom nil)]
-    (binding [clojure.test/report
-              (fn [m]
-                (let [t (:type m)]
-                  (swap! events conj m)
-                  (cond
-                    (= t :begin-test-var) (do (corpus-progress* (str (:var m))) (corpus-deadline* budget-ms))
-                    (= t :end-test-var) (corpus-deadline* 0))))]
-      (try
-        (clojure.test/test-ns ns-sym)
-        (catch :cancelled e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
-        (finally (corpus-deadline* 0))))
+        escaped (atom nil)
+        tests (into {} (keep (fn [v] (when-let [t (:test (meta v))] [v t])) (vals (ns-interns ns-sym))))]
+    (try
+      (doseq [[v t] tests] (alter-meta! v assoc :test (guard-expiry t)))
+      (binding [clojure.test/report
+                (fn [m]
+                  (let [t (:type m)]
+                    (swap! events conj m)
+                    (cond
+                      (= t :begin-test-var) (do (corpus-progress* (str (:var m))) (corpus-deadline* budget-ms))
+                      (= t :end-test-var) (corpus-deadline* 0))))]
+        (try
+          (clojure.test/test-ns ns-sym)
+          (catch :cancelled e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
+          (finally (corpus-deadline* 0))))
+      (finally (doseq [[v t] tests] (alter-meta! v assoc :test t))))
     (loop [es (seq @events) cur nil out []]
       (if-not es
         (cond
-          cur (conj out cur)
+          ;; escaped past the guard (a fixture): the open test is what it interrupted
+          cur (conj out (if-let [r @escaped] [(nth cur 0) (if (= r timeout-msg) :timeout :error) r] cur))
           @escaped (conj out [(str ns-sym) (if (= @escaped timeout-msg) :timeout :error) @escaped])
           :else out)
         (let [m (first es) t (:type m)]
@@ -467,8 +480,7 @@ extension CoreTests {
 
 		// On by default (a second of a debug run); CLJ_CORPUS=0 skips it, CLJ_CORPUS_LIB=name runs one library,
 		// CLJ_CORPUS_UPDATE=1 rewrites the allowlists and docs/corpus.md from the run (NOTES.md, "Corpus").
-		@Test(.enabled(if: ProcessInfo.processInfo.environment["CLJ_CORPUS"] != "0"))
-		func librariesLoadAndTheirTestsMatchTheAllowlists() throws {
+		private static func installHarness() throws {
 			clj_init()
 			Runtime().define("corpus-progress*", in: "clojure.core", arity: 1...1) { args in
 				progress("corpus: test \(args[0].description)")
@@ -479,6 +491,27 @@ extension CoreTests {
 				return nil
 			}
 			_ = try cljEval(harnessSource)
+		}
+
+		// An expiry inside `=` is the subtle one: equals drops what a forced thunk threw (NOTES "Corpus").
+		@Test func anExpiredTestIsATimeoutAndTheNamespaceGoesOn() throws {
+			try Self.installHarness()
+			defer { clj_ns_set_current(clj_ns_user()) }
+			_ = try cljEval("""
+			(ns corpus-watchdog-fixture (:require [clojure.test :refer [deftest is]]))
+			(deftest a-spins (loop [] (recur)))
+			(deftest b-expires-inside-equals (is (= (lazy-seq (loop [] (recur))) [1])))
+			(deftest c-passes (is true))
+			""")
+			let out = try cljEval("(corpus-harness/run-ns 'corpus-watchdog-fixture 100)")
+			let verdicts = (out.array ?? []).map { "\($0.array?[0].string ?? "?") \($0.array?[1].description ?? "?")" }
+			#expect(verdicts == ["corpus-watchdog-fixture/a-spins :timeout", "corpus-watchdog-fixture/b-expires-inside-equals :timeout",
+			                     "corpus-watchdog-fixture/c-passes :pass"])
+		}
+
+		@Test(.enabled(if: ProcessInfo.processInfo.environment["CLJ_CORPUS"] != "0"))
+		func librariesLoadAndTheirTestsMatchTheAllowlists() throws {
+			try Self.installHarness()
 			defer { clj_ns_set_current(clj_ns_user()) }
 			let dirs = try FileManager.default.contentsOfDirectory(at: corpusRoot, includingPropertiesForKeys: nil)
 				.filter { FileManager.default.fileExists(atPath: $0.appendingPathComponent("manifest.edn").path) }

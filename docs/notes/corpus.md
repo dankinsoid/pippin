@@ -30,13 +30,27 @@
 - **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
   reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
   section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run
-  with it. `CLJ_CORPUS_LOG=<file>` writes the progress lines to a file as well as stderr: the test runner
+  with it. The expiry is a `:cancelled`, which the `:default` catches of `is` and `test-var` let by, so `run-ns`
+  wraps each test fn in a `catch :cancelled` for the run (`guard-expiry`, the `:test` meta restored after): the
+  expiry becomes that test's error and the namespace goes on under a fresh deadline; one that still escapes (a
+  fixture) is the open test's verdict. `CLJ_CORPUS_LOG=<file>` writes the progress lines to a file as well as stderr: the test runner
   forwards stderr through a pipe and drops what it has not flushed when a killed run dies, which is why the
   earlier hang appeared to be in a different test each time.
 - **What the earlier hang was**: `((juxt (range)))` in `clojure.core-test.juxt` — calling a value that is not
   a fn built the "%s cannot be invoked" message with `clj_pr_str`, which realized the infinite lazy seq. The
   fix is `clj_pr_str_max` (printer section) in every error message that quotes a runtime value. It was never
   state-dependent: the namespace hangs in isolation too.
+- **What the CI-only `random-sample` failure was**: `test-random-sample` takes 4–6 s in `make test` (ASan, system
+  allocator) on the runners, against the 5 s budget, and the expiry landed inside `(= (random-sample 1 coll)
+  coll)`. `=` dropped the cancellation the forced `filter` thunk threw and answered false, so the test read as a
+  `:fail` of that assertion, in whichever of the two runs crossed the line. Past that, the harness lost the
+  timeout itself: the `:cancelled` escaped `test-ns`, the fold kept the open test's status so far — a spinning
+  test was a `:pass` — and the namespace's later tests never ran. The verdict followed the clock, not the caller
+  join: of the eight corpus runs in two workflow runs every one that failed had crossed 5 s, the one that crossed and passed had
+  met the expiry outside `=`, and none under 5 s failed. Fixed at all three places: `=`/`not=`/`hash` rethrow a cancellation equals dropped
+  (NOTES "Type descriptor"), the harness's `guard-expiry` and fold above, and `CLJ_CORPUS_TIMEOUT_MS=20000` on
+  the runners ("Gates", CI). `CorpusTests.anExpiredTestIsATimeoutAndTheNamespaceGoesOn` and
+  `DeadlineTests.anExpiryInsideEqualsOrHashIsNotAnAnswer` reproduce it with a 100 ms budget.
 - **Symbols the suite and medley need from the JVM**: `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in
   `catch` works, `instance?` of a JVM class works only for the names bound in core (`clojure.lang.IEditableCollection`,
   `clojure.lang.IRecord`, `clojure.lang.PersistentQueue`, `java.util.UUID`, `java.util.Date`); a static call
