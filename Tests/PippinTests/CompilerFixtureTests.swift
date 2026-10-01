@@ -12,7 +12,13 @@ private let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathCompon
 
 private func fixtureNames() -> [String] {
 	let files = (try? FileManager.default.contentsOfDirectory(atPath: fixtureDir.path)) ?? []
-	return files.filter { $0.hasSuffix(".clj") }.map { String($0.dropLast(4)) }.sorted()
+	let names = files.filter { $0.hasSuffix(".clj") }.map { String($0.dropLast(4)) }.sorted()
+	#if arch(arm64)
+	return names
+	#else
+	// What x86_64 refuses instead (docs/portability.md, objc.c) is ObjCTests' to check.
+	return names.filter { !$0.hasSuffix("-arm64") }
+	#endif
 }
 
 private func load(_ source: String, file: String) throws {
@@ -201,6 +207,33 @@ extension CoreTests {
 				#expect(cljEvalError("(cp-spin)")?.contains("Execution timed out") == true, "closed: \(closed)")
 				clj_deadline_set_ms(0)
 				#expect(try cljEval("(+ 1 2)") == 3)
+			}
+		}
+
+		// A fault in a prologue still names the frame's caller; each Swift depth moves the fault to another instruction.
+		@Test func anOverflowTraceKeepsTheFaultingFramesCaller() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.prologue)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			@inline(never) func nested(_ depth: Int, _ f: Value) throws -> Value {
+				if depth == 0 { return try f(0) }
+				let r = try nested(depth - 1, f)
+				return withExtendedLifetime(depth) { r }
+			}
+			for closed in [false, true] {
+				try compiledEval(closed: closed) {
+					_ = try cljEval("(declare pr-b) (let [] (defn pr-a [n] (pr-b (inc n))) (defn pr-b [n] (pr-a (inc n))))")
+				}
+				let f = try cljEval("pr-a")
+				for depth in 0..<48 {
+					do {
+						_ = try nested(depth, f)
+						Issue.record("no overflow")
+					} catch let e as ClojureError {
+						let names = e.trace.map(\.fn)
+						#expect(e.message == "Stack overflow" && zip(names, names.dropFirst()).allSatisfy { $0 != $1 }, "closed: \(closed), depth \(depth): \(names.prefix(4))")
+					}
+				}
 			}
 		}
 

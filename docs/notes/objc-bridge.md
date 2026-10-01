@@ -31,7 +31,9 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   whatever the member types and padding are. Calling a 32-byte `CGRect` memory because it is over 16
   bytes is the mistake this avoids, and it would be silent. x86_64 classifies by eightbyte instead and
   needs `objc_msgSend_stret`, which arm64 does not have, so there every diverging shape is
-  refused (`docs/portability.md`).
+  refused (`docs/portability.md`): `CGRect` and every HFA of three or four, anything over 16 bytes, two
+  floats. `ObjCTests.aStructReturnedThroughX8IsAsWideAsTheCallerThinks` checks those refusals on x86_64,
+  and the compiler fixture's AAPCS64 shapes sit in `objc-arm64.clj`, which x86_64 skips.
 - **A struct crosses as a map when we know its field names, as a vector when we do not.** A type
   encoding gives `{CGRect={CGPoint=dd}{CGSize=dd}}`: the struct's name and its member types, never a
   member's name. So the keys come from a built-in table (`CGPoint`, `CGSize`, `CGRect`, `CGVector`,

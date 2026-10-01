@@ -8,8 +8,6 @@ true nil false
 "Cannot send to a long: not an Objective-C object"
 {:length 3, :location 4} 4 3
 {:x 1.5, :y -2.5} {:height 20.0, :width 10.0} {:length 4, :location 3}
-{:origin {:x 1.0, :y 2.0}, :size {:height 4.0, :width 3.0}}
-[2.0 0.0 0.0 3.0 5.0 6.0] {:x 7.0, :y 9.0}
 "Argument 1 of value-with-point:: a map is not CGPoint, a map of :x :y or a vector of 2"
 "Argument 1 of value-with-range:: a vector is not _NSRange, a map of :location :length or a vector of 2"
 "Selector string-with-format: on NSString is variadic, and the bridge builds no stack arguments"
@@ -21,7 +19,6 @@ true nil false
 "ns-array cannot convert this value: not a string, number, boolean, keyword, Objective-C object, map or sequence"
 "ns-dictionary->map expects an NSDictionary, got a __NSArray0"
 42 25.0
-{:x 6.0, :y 4.0}
 "hello world" "a reified thing"
 2 true true
 (0 1 2 3) 1
@@ -40,8 +37,5 @@ nil
 "objc-reify: no-such-selector-anywhere is on none of the protocols nor on NSObject, so it needs a type encoding"
 "objc-reify: no such protocol: NoSuchProtocol"
 "objc-reify: no such class: NoSuchClass"
-[1.0 2.0 3.0 4.0 5.0 6.0]
-"objc-reify: odd returns a struct of 18 bytes through x8, a size the bridge has no return shape for: {odd=sssssssss}@:"
-"objc-block: a struct of 18 bytes returned through x8, a size the bridge has no return shape for: {odd=sssssssss}@?"
 "objc-reify: big has a shape the bridge cannot implement: {big=ddddddddddddddddd}@:"
 "objc-block: a shape the bridge cannot implement: v@?[4i]"

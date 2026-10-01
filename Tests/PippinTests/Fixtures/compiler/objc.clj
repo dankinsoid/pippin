@@ -38,15 +38,6 @@
       (.size-value (.value-with-size (objc-class "NSValue") {:width 10 :height 20}))
       (.range-value (.value-with-range (objc-class "NSValue") {:location 3 :length 4})))
 
-;; CGRect nests, and its four doubles are an HFA: v0-v3 both ways, not memory.
-(show (.rect-value (.value-with-rect (objc-class "NSValue") {:origin {:x 1.0 :y 2.0} :size {:width 3.0 :height 4.0}})))
-
-;; An anonymous struct names no members, so it crosses positionally; six doubles are neither an HFA nor
-;; small, so this one travels by a pointer and returns through x8.
-(let [t (.init (.alloc (objc-class "NSAffineTransform")))]
-  (.set-transform-struct t [2.0 0.0 0.0 3.0 5.0 6.0])
-  (show (.transform-struct t) (.transform-point t {:x 1.0 :y 1.0})))
-
 (show (try (.value-with-point (objc-class "NSValue") {:x 1.0}) (catch :default e (ex-message e))))
 (show (try (.value-with-range (objc-class "NSValue") [1 2 3]) (catch :default e (ex-message e))))
 (show (try (.string-with-format (objc-class "NSString") "x") (catch :default e (ex-message e))))
@@ -73,14 +64,10 @@
       o (objc-reify {}
           (["twice:" "q@:q"] [self x] (* 2 x))
           (["hypot:with:" "d@:dd"] [self a b] (+ (* a a) (* b b)))
-          (["mid:" "{CGPoint=dd}@:{CGRect={CGPoint=dd}{CGSize=dd}}"] [self r]
-            {:x (+ (:x (:origin r)) (/ (:width (:size r)) 2))
-             :y (+ (:y (:origin r)) (/ (:height (:size r)) 2))})
           (["greet:" "@@:@"] [self who] (str "hello " who))
           (["bump" "v@:"] [self] (swap! n inc))
           ("description" [self] "a reified thing"))]
   (show (.twice o 21) (.hypot o 3.0 :with 4.0))
-  (show (.mid o {:origin {:x 1.0 :y 2.0} :size {:width 10.0 :height 4.0}}))
   (show (.greet o "world") (.description o))
   (.bump o)
   (.bump o)
@@ -152,10 +139,5 @@
 (show (try (objc-reify {} ("no-such-selector-anywhere" [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:protocols ["NoSuchProtocol"]} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {:superclass "NoSuchClass"} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
-;; A struct through x8: the shape's size is the real one, so it fits the buffer -transformStruct laid out.
-(let [t (objc-reify {:superclass "NSAffineTransform"} ("transform-struct" [self] [1.0 2.0 3.0 4.0 5.0 6.0]))]
-  (show (.transform-struct t)))
-(show (try (objc-reify {} (["odd" "{odd=sssssssss}@:"] [self] 1)) (catch :default e (ex-message e))))
-(show (try (objc-block "{odd=sssssssss}@?" [] 1) (catch :default e (ex-message e))))
 (show (try (objc-reify {} (["big" "{big=ddddddddddddddddd}@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-block "v@?[4i]" [x] x) (catch :default e (ex-message e))))

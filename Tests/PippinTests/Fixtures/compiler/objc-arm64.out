@@ -1,0 +1,6 @@
+{:origin {:x 1.0, :y 2.0}, :size {:height 4.0, :width 3.0}}
+[2.0 0.0 0.0 3.0 5.0 6.0] {:x 7.0, :y 9.0}
+{:x 6.0, :y 4.0}
+[1.0 2.0 3.0 4.0 5.0 6.0]
+"objc-reify: odd returns a struct of 18 bytes through x8, a size the bridge has no return shape for: {odd=sssssssss}@:"
+"objc-block: a struct of 18 bytes returned through x8, a size the bridge has no return shape for: {odd=sssssssss}@?"

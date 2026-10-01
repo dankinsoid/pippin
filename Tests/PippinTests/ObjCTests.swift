@@ -183,6 +183,19 @@ extension CoreTests {
 
 		// A wider shape writes past this frame, which is sized for the real struct: the sanitizer sees it.
 		@Test func aStructReturnedThroughX8IsAsWideAsTheCallerThinks() throws {
+			#if arch(x86_64)
+			// SysV passes these by eightbyte, not as AAPCS64 does, and returns them through objc_msgSend_stret:
+			// refused, never called through a wrong shape (docs/portability.md, objc.c).
+			let reified = cljEvalError(#"(objc-reify {:superclass "NSAffineTransform"} ("transform-struct" [self] [1.0 2.0 3.0 4.0 5.0 6.0]))"#)
+			#expect(reified?.contains("objc-reify: transform-struct has a shape the bridge cannot implement: {") == true, "\(reified ?? "no error")")
+			let odd = cljEvalError(#"(objc-reify {} (["odd" "{odd=sssssssss}@:"] [self] 1))"#)
+			#expect(odd?.contains("objc-reify: odd has a shape the bridge cannot implement: {odd=sssssssss}@:") == true)
+			#expect(cljEvalError(#"(objc-block "{odd=sssssssss}@?" [] 1)"#)?.contains("{odd=sssssssss}@?") == true)
+			let rect = cljEvalError(#"(.rect-value (.value-with-rect (objc-class "NSValue") {:origin {:x 1.0 :y 2.0} :size {:width 3.0 :height 4.0}}))"#)
+			#expect(rect?.contains("Selector value-with-rect: on NSValue has a shape the bridge cannot call") == true, "\(rect ?? "no error")")
+			let hfa = cljEvalError(#"(objc-reify {} (["mid:" "{CGPoint=dd}@:{CGRect={CGPoint=dd}{CGSize=dd}}"] [self r] r))"#)
+			#expect(hfa?.contains("objc-reify: mid: has a shape the bridge cannot implement: {CGPoint=dd}@:{CGRect={CGPoint=dd}{CGSize=dd}}") == true)
+			#else
 			// -transformStruct is Foundation's own: the encoding, and the buffer, are its 48 bytes.
 			let o = try cljEval(#"(objc-reify {:superclass "NSAffineTransform"} ("transform-struct" [self] [1.0 2.0 3.0 4.0 5.0 6.0]))"#)
 			let t = unsafeBitCast(clj_objc_id(o.raw), to: NSAffineTransform.self)
@@ -192,6 +205,7 @@ extension CoreTests {
 			let refused = cljEvalError(#"(objc-reify {} (["odd" "{odd=sssssssss}@:"] [self] 1))"#)
 			#expect(refused?.contains("returns a struct of 18 bytes through x8") == true)
 			#expect(refused?.contains("{odd=sssssssss}@:") == true)
+			#endif
 		}
 
 		// A block Swift made: its invoke pointer and its descriptor's signature are all the call needs.
