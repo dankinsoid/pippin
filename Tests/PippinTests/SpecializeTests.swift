@@ -205,14 +205,15 @@ extension CoreTests {
 		// def's execution while the form's own closures retain it: the index registers only shared execs (NOTES "RC").
 		// @ai-generated(solo)
 		@Test func aRedefReachesAFormRunningOnAnotherThread() throws {
-			_ = try cljEvalScoped("(in-ns 'user) (defn sp-dep [] 1) (def sp-dep-started (atom false))")
+			_ = try cljEvalScoped("(in-ns 'user) (defn sp-dep [] 1) (def sp-dep-kept sp-dep) (def sp-dep-started (atom false))")
 			let t = Thread {
 				_ = try? cljEvalScoped("(in-ns 'user) (reset! sp-dep-started true) (loop [i 0 acc 0] (if (< i 400000) (recur (inc i) (+ acc ((fn [] (sp-dep))))) acc))")
 			}
 			t.start()
 			while try cljEvalScoped("(in-ns 'user) @sp-dep-started") != true { usleep(100) }
+			// The fn the root already holds: a new one would free the old under the loop's +0 read (NOTES "Concurrent `def`").
 			while !t.isFinished {
-				_ = try cljEvalScoped("(in-ns 'user) (defn sp-dep [] 1)")
+				_ = try cljEvalScoped("(in-ns 'user) (def sp-dep sp-dep-kept)")
 				usleep(200)
 			}
 		}

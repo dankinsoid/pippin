@@ -61,7 +61,9 @@
   just its noise: a reify site's type was retained and
   released outside the registry lock by every coroutine running the site
   (`CoroTests.aReifySiteRunsOnManyCoroutines`); a `def` re-deriving an exec retained and released the exec of a
-  form still running on another thread (`SpecializeTests.aRedefReachesAFormRunningOnAnotherThread`);
+  form still running on another thread (`SpecializeTests.aRedefReachesAFormRunningOnAnotherThread`, which rebinds
+  the root to the fn it already holds: a fresh fn would free the old one under the running form's +0 read, the
+  race NOTES "Analyzer and evaluator" accepts as "Concurrent `def`", and ASan met it on arm64);
   `clj_profile_stop` released fn nodes recorded by other executions (`ProfileTests.aFnProfiledOnAnotherThread`);
   every compiled unit's `K[]`, filled by the loading execution and retained by every one running the code, which
   `make test-compiled` met at its first core constant touched from a second test thread and arm64's `make test`
