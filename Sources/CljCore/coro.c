@@ -151,6 +151,7 @@ static bool coro_equals(void *self, clj_value other) { return clj_from_ptr(self)
 const clj_type clj_coro_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "coroutine",
+	.mutable_children = true,
 	.each_child = coro_each_child,
 	.finalize = coro_finalize,
 	.hash = coro_hash,
@@ -441,8 +442,10 @@ void clj_coro_entry(void) {
 	clj_recovery_pop(&rec);
 	clj_eval_top_leave();
 	c->threw = r == CLJ_THROWN;
-	c->result = c->threw ? clj_take_pending() : r;
-	clj_share(c->result);
+	clj_value result = c->threw ? clj_take_pending() : r;
+	clj_share(result);
+	c->result = result;
+	CLJ_SLOT_CHECK(&c->h, result);
 	atomic_store_explicit(&c->state, CLJ_CORO_DONE, memory_order_release);
 	clj_coro_switch_out(c);
 	clj_fatal("a finished coroutine was resumed");

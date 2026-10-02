@@ -116,6 +116,7 @@ static void chan_finalize(void *self) {
 const clj_type clj_chan_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "channel",
+	.mutable_children = true,
 	.each_child = chan_each_child,
 	.finalize = chan_finalize,
 	.hash = identity_hash,
@@ -361,6 +362,7 @@ static void buffer_add(clj_chan *ch, clj_value v) {
 		ring_grow(ch);
 	}
 	ch->ring[(ch->head + ch->count) % ch->ring_cap] = v;
+	CLJ_SLOT_CHECK(&ch->h, v);
 	ch->count++;
 }
 
@@ -622,6 +624,7 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 		}
 		w = clj_waiter_new(clj_coro_current(), CLJ_NIL);
 		enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), 0));
+		CLJ_SLOT_CHECK(&ch->h, v);
 		w->wait_chan = ch;
 		ch->nputters++;
 	}
@@ -735,6 +738,7 @@ clj_value clj_chan_put_cb(clj_value chv, clj_value v, clj_value fn, bool on_call
 		}
 		clj_waiter *w = clj_waiter_new(NULL, fn);
 		enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), 0));
+		CLJ_SLOT_CHECK(&ch->h, v);
 		w->wait_chan = ch;
 		ch->nputters++;
 		clj_waiter_release(w);
@@ -921,6 +925,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 			}
 			if (is_put) {
 				enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), i));
+				CLJ_SLOT_CHECK(&ch->h, v);
 				w->wait_chan = ch;
 				ch->nputters++;
 			} else {
@@ -1070,6 +1075,7 @@ static void deliver_result(clj_value chv, clj_value v) {
 		bool ok;
 		if (put_locked(ch, chv, v, NULL, &ok, &ws) == OP_NOT_READY) {
 			enqueue(&ch->putters, &ch->putters_tail, node_new(NULL, clj_retain(v), 0));
+			CLJ_SLOT_CHECK(&ch->h, v);
 			ch->nputters++;
 		}
 	}
@@ -1092,6 +1098,7 @@ static void future_done(clj_coro *c, void *ctx) {
 	if (c->threw) {
 		chan_lock(ch);
 		ch->error = clj_retain(c->result);
+		CLJ_SLOT_CHECK(&ch->h, c->result);
 		chan_unlock(ch);
 	}
 	deliver_result(chv, c->threw ? CLJ_NIL : c->result);
@@ -1110,6 +1117,7 @@ static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*don
 	clj_chan *ch = chan_of(chv);
 	chan_lock(ch);
 	ch->coro = coro;
+	CLJ_SLOT_CHECK(&ch->h, coro);
 	chan_unlock(ch);
 	return chv;
 }
@@ -1140,6 +1148,7 @@ static void thread_run(void *ctx) {
 	clj_chan   *ch = chan_of(j->chv);
 	chan_lock(ch);
 	ch->coro = clj_retain(clj_from_ptr(c));
+	CLJ_SLOT_CHECK(&ch->h, ch->coro);
 	ch->job = NULL;
 	bool early = atomic_load_explicit(&j->cancel_early, memory_order_relaxed);
 	chan_unlock(ch);

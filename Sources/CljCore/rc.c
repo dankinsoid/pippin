@@ -43,7 +43,8 @@ static void assert_child_shared(clj_value child, void *ctx) {
 		fatal_unshared_child("free", ctx, child);
 }
 
-// The header is still whole here; set_dead_next overwrites the flags right after.
+// The header is still whole here; set_dead_next overwrites the flags right after. Mutable slots are safe to read:
+// at a count of zero no writer holds the object.
 static void assert_children_shared(clj_header *h) {
 	if ((h->flags & CLJ_FLAG_SHARED) && h->type->each_child) h->type->each_child(h, assert_child_shared, h);
 }
@@ -181,6 +182,7 @@ static void share_visit(clj_value child, void *ctx) {
 typedef struct {
 	value_stack       st;
 	size_t            reads, room;
+	bool              into_mutable;
 	const clj_header *parent;     // whose children are being visited
 	const clj_header *bad_parent; // the edge that breaks the invariant, when bad_child is set
 	clj_value         bad_child;
@@ -201,13 +203,14 @@ static void below_visit(clj_value child, void *ctx) {
 	}
 }
 
-// v is shared. A bounded room also ends a walk around a cycle through a ref type.
-static bool shared_below(clj_value v, size_t reads, size_t room, below_walk *w) {
-	*w = (below_walk){.st = {.cap = STACK_INLINE}, .reads = reads, .room = room, .bad_child = CLJ_NIL};
+// v is shared. Other threads replace and release a mutable_children node's slots: only into_mutable reads them.
+static bool shared_below(clj_value v, size_t reads, size_t room, bool into_mutable, below_walk *w) {
+	*w = (below_walk){.st = {.cap = STACK_INLINE}, .reads = reads, .room = room, .into_mutable = into_mutable, .bad_child = CLJ_NIL};
 	w->st.items = w->st.inline_items;
 	stack_push(&w->st, v);
 	while (w->st.count && clj_is_nil(w->bad_child) && w->reads) {
 		clj_header *h = clj_header_of(w->st.items[--w->st.count]);
+		if (h->type->mutable_children && !w->into_mutable) continue;
 		w->parent = h;
 		if (h->type->each_child) h->type->each_child(h, below_visit, w);
 	}
@@ -221,13 +224,23 @@ static bool shared_below(clj_value v, size_t reads, size_t room, below_walk *w) 
 // 64. So one in 256 per thread, 256 children read and 64 descended into at most; the check at free sees every edge.
 enum { SHARE_CUTOFF_READS = 256, SHARE_CUTOFF_ROOM = 64, SHARE_CUTOFF_EVERY = 256 };
 
+static _Thread_local uint32_t cutoff_every = SHARE_CUTOFF_EVERY;
+
+void clj_debug_share_check_every(uint32_t n) { cutoff_every = n ? n : SHARE_CUTOFF_EVERY; }
+
 static void assert_shared_below(clj_value v) {
 	static _Thread_local uint32_t cutoffs;
-	if (cutoffs++ % SHARE_CUTOFF_EVERY) return;
+	if (cutoffs++ % cutoff_every) return;
 	below_walk w;
-	if (!shared_below(v, SHARE_CUTOFF_READS, SHARE_CUTOFF_ROOM, &w)) fatal_unshared_child("share cutoff", w.bad_parent, w.bad_child);
+	if (!shared_below(v, SHARE_CUTOFF_READS, SHARE_CUTOFF_ROOM, false, &w)) fatal_unshared_child("share cutoff", w.bad_parent, w.bad_child);
+}
+
+void clj_debug_slot_check(const clj_header *owner, clj_value v) {
+	if ((owner->flags & CLJ_FLAG_SHARED) && clj_is_ptr(v) && !(clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)))
+		fatal_unshared_child("store", owner, v);
 }
 #else
+void clj_debug_share_check_every(uint32_t n) { (void)n; }
 #define assert_shared_below(v) ((void)0)
 #endif
 
@@ -259,7 +272,7 @@ bool clj_debug_all_shared(clj_value v) {
 	if (!clj_is_ptr(v) || (clj_header_of(v)->flags & CLJ_FLAG_IMMORTAL)) return true;
 	if (!(clj_header_of(v)->flags & CLJ_FLAG_SHARED)) return false;
 	below_walk w;
-	return shared_below(v, SIZE_MAX, SIZE_MAX, &w);
+	return shared_below(v, SIZE_MAX, SIZE_MAX, true, &w);
 }
 
 #if CLJ_DEBUG

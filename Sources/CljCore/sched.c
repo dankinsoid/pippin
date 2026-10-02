@@ -602,12 +602,14 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	clj_coro *c = clj_coro_alloc();
 	clj_share(f);
 	c->fn = clj_retain(f);
+	CLJ_SLOT_CHECK(&c->h, f);
 	if (n) {
 		c->args = malloc(n * sizeof *c->args);
 		if (!c->args) clj_fatal("out of memory");
 		for (size_t i = 0; i < n; i++) {
 			clj_share(args[i]);
 			c->args[i] = clj_retain(args[i]);
+			CLJ_SLOT_CHECK(&c->h, args[i]);
 		}
 	}
 	c->nargs = n;
@@ -703,6 +705,7 @@ static clj_waiter *cancel_locked(clj_coro *c, int kind, clj_value cause) {
 		if (!clj_is_nil(cause) && clj_is_nil(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed))) {
 			clj_share(cause);
 			atomic_store_explicit(&c->cancel_cause, clj_retain(cause), memory_order_relaxed);
+			CLJ_SLOT_CHECK(&c->h, cause);
 		}
 		// Release after the cause: the owner reads the flag first and must then see what came with it.
 		atomic_store_explicit(&c->cancel, (uint8_t)kind, memory_order_release);

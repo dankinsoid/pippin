@@ -53,7 +53,8 @@ static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(e->message, ctx);
 	visit(e->data, ctx);
 	visit(e->cause, ctx);
-	visit(e->trace, ctx);
+	// Written once after publication (clj_throw_traced): the share walk may read it while the throw stores it.
+	visit(__atomic_load_n(&e->trace, __ATOMIC_ACQUIRE), ctx);
 	visit(e->type, ctx);
 }
 
@@ -230,14 +231,17 @@ clj_value clj_throw_cancelled(bool deadline) {
 clj_value clj_throw_traced(clj_value ex, clj_value trace) {
 	if (clj_is_ex_info(ex)) {
 		clj_exception *e = clj_exception_of(ex);
-		if (clj_is_nil(e->trace)) {
+		if (clj_is_nil(__atomic_load_n(&e->trace, __ATOMIC_ACQUIRE))) {
 			if (clj_is_nil(trace)) trace = clj_shadow_stack_trace(TRACE_FRAMES);
 			if (e->h.flags & CLJ_FLAG_SHARED) clj_share(trace);
-			e->trace = trace;
+			// A published ex-info may be thrown on two threads at once: the first trace stays.
+			clj_value none = CLJ_NIL;
+			if (__atomic_compare_exchange_n(&e->trace, &none, trace, false, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) CLJ_SLOT_CHECK(&e->h, trace);
+			else clj_release(trace);
 		} else {
 			clj_release(trace);
 		}
-		trace = clj_retain(e->trace);
+		trace = clj_retain(__atomic_load_n(&e->trace, __ATOMIC_ACQUIRE));
 	} else if (clj_is_nil(trace) && !clj_is_cancellation(ex)) {
 		trace = clj_shadow_stack_trace(TRACE_FRAMES);
 	}

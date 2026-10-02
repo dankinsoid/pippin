@@ -32,6 +32,7 @@ const clj_type clj_atom_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "atom",
 	.core_bits = CLJ_CORE_META,
+	.mutable_children = true,
 	.each_child = atom_each_child,
 	.hash = atom_hash,
 	.equals = atom_equals,
@@ -153,6 +154,7 @@ static bool commit(clj_value atom, clj_value new) {
 	clj_share(new);
 	clj_value old = value_of(a);
 	atomic_store_explicit(&a->value, clj_retain(new), memory_order_seq_cst);
+	CLJ_SLOT_CHECK(&a->h, new);
 	clj_value watches = clj_retain(a->watches);
 	leave(a);
 	bool ok = notify(atom, watches, old, new);
@@ -255,6 +257,7 @@ clj_value clj_atom_add_watch(clj_value atom, clj_value key, clj_value f) {
 	clj_value w = clj_map_assoc(clj_is_nil(a->watches) ? clj_map_empty() : a->watches, key, f);
 	clj_share(w);
 	a->watches = w;
+	CLJ_SLOT_CHECK(&a->h, w);
 	leave(a);
 	return clj_retain(atom);
 }
@@ -270,6 +273,7 @@ clj_value clj_atom_remove_watch(clj_value atom, clj_value key) {
 		}
 		clj_share(w);
 		a->watches = w;
+		CLJ_SLOT_CHECK(&a->h, w);
 	}
 	leave(a);
 	return clj_retain(atom);
@@ -285,6 +289,7 @@ clj_value clj_atom_set_validator(clj_value atom, clj_value f) {
 	clj_share(f);
 	clj_value old = a->validator;
 	a->validator = clj_retain(f);
+	CLJ_SLOT_CHECK(&a->h, f);
 	leave(a);
 	clj_release(old);
 	return CLJ_NIL;
@@ -312,6 +317,7 @@ clj_value clj_atom_reset_meta(clj_value atom, clj_value m) {
 	clj_share(m);
 	clj_value old = a->meta;
 	a->meta = clj_retain(m);
+	CLJ_SLOT_CHECK(&a->h, m);
 	leave(a);
 	clj_release(old);
 	return clj_retain(m);
@@ -342,6 +348,7 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 	clj_share(m);
 	clj_value old = a->meta;
 	a->meta = clj_retain(m);
+	CLJ_SLOT_CHECK(&a->h, m);
 	leave(a);
 	clj_release(old);
 	return m;

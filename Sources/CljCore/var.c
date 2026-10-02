@@ -44,6 +44,7 @@ const clj_type clj_var_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "var",
 	.core_bits = CLJ_CORE_FN | CLJ_CORE_META,
+	.mutable_children = true,
 	.each_child = var_each_child,
 	.hash = var_hash,
 	.equals = var_equals,
@@ -68,6 +69,7 @@ clj_value clj_var_root(clj_value var) { return atomic_load_explicit(&clj_var_of(
 void clj_var_bind_root(clj_value var, clj_value val) {
 	clj_share(val);
 	clj_value old = atomic_exchange_explicit(&clj_var_of(var)->root, clj_retain(val), memory_order_acq_rel);
+	CLJ_SLOT_CHECK(clj_header_of(var), val);
 	if (old != CLJ_UNBOUND && !clj_eval_retire_root(old)) clj_release(old);
 	atomic_fetch_add_explicit(&clj_var_of(var)->epoch, 1, memory_order_release);
 	clj_epoch_bump();
@@ -80,6 +82,7 @@ clj_value clj_var_meta(clj_value var) { return atomic_load_explicit(&clj_var_of(
 void clj_var_set_meta(clj_value var, clj_value m) {
 	clj_share(m);
 	clj_value old = atomic_exchange_explicit(&clj_var_of(var)->meta, clj_retain(m), memory_order_acq_rel);
+	CLJ_SLOT_CHECK(clj_header_of(var), m);
 	clj_release(old);
 }
 
@@ -91,6 +94,7 @@ bool clj_var_cas_meta(clj_value var, clj_value expected, clj_value m) {
 		clj_release(m);
 		return false;
 	}
+	CLJ_SLOT_CHECK(clj_header_of(var), m);
 	clj_release(expected);
 	return true;
 }

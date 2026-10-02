@@ -24,6 +24,7 @@ clj_value clj_reduced_new(clj_value value) {
 const clj_type clj_volatile_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "volatile",
+	.mutable_children = true,
 	.each_child = box_each_child,
 	.hash = box_hash,
 	.equals = box_equals,
@@ -42,6 +43,7 @@ clj_value clj_volatile_reset(clj_value vol, clj_value value) {
 	if (v->h.flags & CLJ_FLAG_SHARED) clj_share(value);
 	clj_value old = v->value;
 	v->value = clj_retain(value);
+	CLJ_SLOT_CHECK(&v->h, value);
 	clj_release(old);
 	return clj_retain(value);
 }

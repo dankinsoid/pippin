@@ -181,6 +181,7 @@ const clj_type clj_lazy_seq_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "lazy-seq",
 	CLJ_ASEQ_TRAIT(0),
+	.mutable_children = true,
 	.each_child = lazy_seq_each_child,
 	.seq = lazy_seq_seq,
 	.reduce = clj_reduce_iter,
@@ -273,6 +274,7 @@ static void publish(clj_value v, clj_value value) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
 	if (s->h.flags & CLJ_FLAG_SHARED) clj_share(value);
 	s->value = value;
+	CLJ_SLOT_CHECK(&s->h, value);
 	clj_value fn = s->fn;
 	s->fn = CLJ_NIL;
 	set_state(v, FORCED);

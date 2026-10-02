@@ -48,6 +48,16 @@ extension CoreTests {
 			#expect(finished)
 		}
 
+		// Each spawn's share check meets the previous go's channel while that go's finish releases its fn (NOTES "RC").
+		// @ai-generated(solo)
+		@Test func theShareCheckStopsAtAFinishingCoroutine() throws {
+			let base = CoroBaseline()
+			clj_debug_share_check_every(1)
+			defer { clj_debug_share_check_every(0) }
+			#expect(try eval("(loop [i 0 prev (go 0)] (if (< i 20000) (recur (inc i) (go (+ i (count [prev])))) (<!! prev)))") == 20000)
+			base.check()
+		}
+
 		@Test func stressSpawn() throws {
 			let coros = clj_debug_live_coros()
 			#expect(try eval("(let [done (chan 100000)] (dotimes [i 100000] (go (>! done i))) (dotimes [i 100000] (<!! done)) 1)") == 1)

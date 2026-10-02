@@ -32,6 +32,7 @@ const clj_type clj_ns_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "namespace",
 	.core_bits = CLJ_CORE_META,
+	.mutable_children = true,
 	.each_child = ns_each_child,
 	.meta = ns_meta,
 };

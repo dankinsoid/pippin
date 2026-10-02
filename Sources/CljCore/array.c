@@ -153,6 +153,7 @@ clj_value clj_array_set(clj_value arr, uint32_t i, clj_value v) {
 	if (a->h.flags & CLJ_FLAG_SHARED) clj_share(v);
 	clj_value old = *(clj_value *)slot;
 	*(clj_value *)slot = clj_retain(v);
+	CLJ_SLOT_CHECK(&a->h, v);
 	clj_release(old);
 	return CLJ_NIL;
 }
@@ -251,6 +252,7 @@ const clj_type clj_array_type = {
 	.name = "array",
 	// Seqable alone: a JVM array is no IPersistentCollection, and count, nth and reduce are slots without bits.
 	.core_bits = CLJ_CORE_SEQABLE,
+	.mutable_children = true,
 	.each_child = array_each_child,
 	.hash = array_hash,
 	.equals = array_equals,

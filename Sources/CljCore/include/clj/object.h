@@ -83,6 +83,8 @@ struct clj_type {
 	clj_header  h;
 	const char *name;
 	uint64_t    core_bits;
+	// Children replaced after publication (an atom's value): checked at the store (CLJ_SLOT_CHECK), not by a walk.
+	bool        mutable_children;
 	// NULL for leaf types. Drives both drop and share.
 	void (*each_child)(void *self, clj_visitor visit, void *ctx);
 	// Resources beyond child values (mutex, external buffer). NULL if none.
@@ -160,8 +162,10 @@ void clj_debug_live_objects_exclude(int64_t n);
 int64_t clj_debug_live_objects_of(const clj_type *type);
 // "type: count" per type with live objects, to stderr: what a leaking test left behind.
 void clj_debug_live_report(void);
-// True when v and everything reachable from it is shared or immortal.
+// True when v and everything reachable from it is shared or immortal. No other thread may write a slot it reaches.
 bool clj_debug_all_shared(clj_value v);
+// The calling thread checks one clj_share cutoff in n (NOTES "RC"); 0 restores the default.
+void clj_debug_share_check_every(uint32_t n);
 bool clj_debug_pool_enabled(void);
 // Pool cell size an allocation of `size` bytes gets; 0 when it goes to the system allocator.
 size_t clj_debug_cell_size(size_t size);
@@ -183,10 +187,14 @@ extern _Atomic uint64_t clj_debug_rc_counters[3];
 // Out of line: the running execution is read through a call, never a TLS address cached across a park.
 void clj_debug_owner_check(const clj_header *h);
 #define CLJ_OWNER_CHECK(h) do { if ((h)->flags >> CLJ_OWNER_SHIFT) clj_debug_owner_check(h); } while (0)
+// After a store of v into a mutable_children slot of owner: a shared owner holds only shared values.
+void clj_debug_slot_check(const clj_header *owner, clj_value v);
+#define CLJ_SLOT_CHECK(owner, v) clj_debug_slot_check((owner), (v))
 #else
 #define CLJ_ASSERT(cond, msg) ((void)0)
 #define CLJ_RC_COUNT(path) ((void)0)
 #define CLJ_OWNER_CHECK(h) ((void)0)
+#define CLJ_SLOT_CHECK(owner, v) ((void)0)
 #endif
 
 static inline clj_value clj_retain(clj_value v) {

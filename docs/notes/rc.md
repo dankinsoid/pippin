@@ -25,21 +25,33 @@
   (2) Each cutoff of `clj_share` — a root already shared, and the `continue` on a shared node — is the one place
   the walk relies on the invariant, and checks below that node (`assert_shared_below`): one cutoff in 256 per
   thread, at most 256 children read and 64 descended into. `each_child` cannot stop early, so a check pays the
-  width of every node it visits, again at every cutoff: a spawn capturing a channel with 100k buffered values
-  re-reads them all (`ChanStressTests.stressSpawn`: 0.34 s unchecked, 40 s with every cutoff checked 64 nodes
-  deep, 1.6 s at one in 64, 0.56 s at one in 256), and an unbounded walk would not end on a cycle through a ref
-  type. The sample leaves (2) an early warning; (1) is the exhaustive one. `clj_debug_all_shared` is the same
+  width of every node it visits, again at every cutoff (`ChanStressTests.stressSpawn`, measured while the walk
+  entered a channel's 100k-value buffer: 0.34 s unchecked, 40 s with every cutoff checked 64 nodes deep, 1.6 s
+  at one in 64, 0.56 s at one in 256), and an unbounded walk would not end on a cycle through a ref type. The sample leaves (2) an early warning; (1) is the exhaustive one. `clj_debug_all_shared` is the same
   walk without bounds. Both this check and the owner check below compile out of release builds; together they
   cost the debug suite less than its run-to-run noise (`swift test` on the pool, 650 tests with the corpus, an
   Intel i9 under other load: 54.8 and 53.3 s against 70.6 and 54.2 s without them), stressSpawn above being the
   one test that shows them.
-- [ ] **The cutoff check reads mutable slots without their owner's lock.** `assert_shared_below` descends
-  through a coroutine's `fn` (and an atom's value, a channel's buffer) while another thread may replace and
-  release it: `finish` clears and releases `c->fn` on the carrier while a spawn on the test thread walks a
-  channel → coroutine → fn edge, and ASan reports a heap-use-after-free in `shared_below` (rc.c:212, from
-  `clj_share` in `clj_coro_spawn`, freed by `finish`; `AsyncLibTests.goScoped`, arm64 `make test`, run
-  36921714691). Debug builds only, sampled one cutoff in 256. Trigger: the next report; the fix is a walk that
-  does not descend below a node whose children change after publication.
+- **Reference types are checked at the store, not below a cutoff** (`clj_type.mutable_children`, `CLJ_SLOT_CHECK`).
+  A coroutine, an atom, a volatile, a channel, a var, a namespace, a lazy seq and an array replace their
+  children after publication under their own lock or owner, and release the old ones there. The cutoff walk
+  read those slots without that lock: `finish` cleared and released `c->fn` on a carrier while a spawn on the
+  test thread walked a channel → coroutine → fn edge, an ASan heap-use-after-free in `shared_below`
+  (`AsyncLibTests.goScoped`, arm64 `make test`, run 36921714691).
+  `ChanStressTests.theShareCheckStopsAtAFinishingCoroutine` checks every cutoff of its thread
+  (`clj_debug_share_check_every`) over a chain of 20k go blocks, each capturing the last one's channel, and meets
+  that use-after-free under ASan on x86_64 when the walk enters a coroutine. The walk reads a flagged node's own
+  flags and does not descend below it; every store into one of its slots shares the value first and then
+  checks, in debug builds, that a shared owner got a shared value — atom (`commit`, watches, validator, meta), volatile
+  (`clj_volatile_reset`), channel (`buffer_add`, the parked putters, `coro`, `error`), coroutine (`fn`, args,
+  `result`, `cancel_cause`), var (root, meta), lazy seq (`publish`), array (`clj_array_set`). A namespace is
+  immortal, so no walk ever entered it, and its `store` shares unconditionally. The audit found one store before
+  its share: `clj_coro_entry` wrote `c->result` and shared it after. Every other slot is fixed at publication
+  or replaced only in place under `clj_is_unique`, which no other holder can see; a deftype descriptor's
+  protocol tables are read inside a reader window and freed after it closes; the exception's `trace`, the one
+  write-once slot, is a release CAS read with acquire. The check at free (1) is not affected: at a count of
+  zero no writer holds the object. `clj_debug_all_shared` still descends through every slot: its callers are
+  tests on values no other thread writes.
 - **The owner check: an unshared object is touched only by the execution that owns it** (debug builds;
   `object.h`, `rc.c`, `coro.c`). The owner is the execution — a `clj_coro`, a bare thread's implicit one
   included — not the thread: a coroutine that parks and resumes on another carrier owns what it owned (design
