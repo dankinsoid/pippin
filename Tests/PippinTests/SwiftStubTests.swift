@@ -114,29 +114,32 @@ extension CoreTests {
 			#expect(SwiftStubs.hops == hops)
 		}
 
-		@Test func onTheMainCarrierTheCallIsMadeInPlace() async throws {
+		// The main thread as the carrier, pumped by hand as AsyncBridgeTests does.
+		@Test @MainActor func onTheMainCarrierTheCallIsMadeInPlace() throws {
+			try #require(Thread.isMainThread)
 			try fixture()
 			let f = try cljEvalScoped("""
 				(fn [] (PippinFixture/describe (PippinFixture/moved (PippinFixture/make-point :x 1 :y 1) :by 1)))
 				""")
 			let hops = SwiftStubs.hops
-			let value: Value = try await MainActor.run {
-				// The main thread is the carrier and pumps by hand, as AsyncBridgeTests does.
-				clj_debug_sched_main_adopt()
-				defer { clj_debug_sched_main_abandon() }
-				let task = f.callDetached(affinity: .main)
-				let done = DoneFlag()
-				Task.detached { _ = try? await task.value; done.set() }
-				var pumps = 0
-				while !done.isSet && pumps < 20000 {
-					clj_sched_main_pump()
-					usleep(200)
-					pumps += 1
-				}
-				#expect(pumps < 20000, "the main-carrier call never finished")
-				return task
-			}.value
-			#expect(value == Value("(2, 2)"))
+			clj_debug_sched_main_adopt()
+			defer {
+				// A run-loop source CoroTests installed was signalled by the enqueue; it must fire while this
+				// thread is still the carrier, or its pump finds none.
+				CFRunLoopRunInMode(CFRunLoopMode.defaultMode, 0, false)
+				clj_debug_sched_main_abandon()
+			}
+			let task = f.callDetached(affinity: .main)
+			let result = Outcome()
+			Task.detached { result.set(try? await task.value) }
+			var pumps = 0
+			while !result.isSet && pumps < 20000 {
+				clj_sched_main_pump()
+				usleep(200)
+				pumps += 1
+			}
+			#expect(pumps < 20000, "the main-carrier call never finished")
+			#expect(result.value == Value("(2, 2)"))
 			#expect(SwiftStubs.hops == hops)
 		}
 
@@ -210,9 +213,11 @@ extension CoreTests {
 	}
 }
 
-private final class DoneFlag: @unchecked Sendable {
+private final class Outcome: @unchecked Sendable {
 	private let lock = NSLock()
 	private var done = false
-	func set() { lock.withLock { done = true } }
+	private var stored: Value?
+	func set(_ v: Value?) { lock.withLock { stored = v; done = true } }
 	var isSet: Bool { lock.withLock { done } }
+	var value: Value? { lock.withLock { stored } }
 }
