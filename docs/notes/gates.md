@@ -40,6 +40,12 @@
   above named the test (`AsyncLibTests.pipelines`), and its coroutine dump showed the deadlock: both pool threads
   in `>!!`, the results loop parked on the channel a queued `thread` body would have fed. The first such hang
   (run 36913041719, `d3a3181`) printed nothing, but stopped inside the same range of suites.
+- [ ] **Two CI failures seen once, not explained.** `AsyncLibTests.withDeadlineOverCoroutines`
+  (AsyncLibTests.swift:190, a 30 ms `with-deadline` over `go-scoped`) failed on arm64 in run 37023946974;
+  swift-testing did not print which element differed, and 20 local ASan runs passed. `CoroTests.switchCost`
+  failed on x86_64 in run 37027460141 at 848 ns against its 200 ns bound, on a runner whose `test` gate took
+  768 s against 490: a timing bound in a correctness gate fails on a slow runner. Trigger: either one again —
+  then make the first print the differing element, and give the second a bound relative to the runner.
 - **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
   `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
   `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
