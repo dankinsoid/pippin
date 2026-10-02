@@ -78,6 +78,8 @@ size_t clj_debug_blocking_held(void);
 bool clj_debug_runtime_settle(size_t coros, uint64_t ms);
 bool clj_debug_park_under_lock_is_error(void);
 void clj_debug_sched_dump(void);
+// Every coroutine that ever parked, its state, waiter and parked trace, on stderr (the hang report).
+void clj_debug_coro_dump(void);
 // Carriers in the untimed wait (not spinning, not polling) and the pool's size: a test's "the pool is cold".
 size_t clj_debug_sched_sleeping(void);
 size_t clj_debug_sched_carriers(void);

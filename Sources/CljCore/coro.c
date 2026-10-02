@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include <pthread.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -16,7 +17,10 @@
 #include "clj/fn.h"
 #include "clj/guard.h"
 #include "clj/objc.h"
+#include "clj/printer.h"
 #include "clj/profile.h"
+#include "clj/shadow.h"
+#include "clj/string.h"
 #include "clj/vector.h"
 #include "alloc.h"
 #include "coro_internal.h"
@@ -715,6 +719,38 @@ clj_value clj_coro_parked_trace(clj_value coro) {
 	clj_value         trace = clj_coro_append_spawn_trace(clj_trace_vector(out, n), c);
 	pthread_mutex_unlock(&c->lock);
 	return trace;
+}
+
+static const char *state_name(int state) {
+	static const char *names[] = {"new", "runnable", "running", "parked", "done"};
+	return state >= 0 && state <= CLJ_CORO_DONE ? names[state] : "?";
+}
+
+// Every coroutine that ever parked, with where it is parked: a hang report's view of what nobody woke.
+void clj_debug_coro_dump(void) {
+	size_t     n;
+	clj_coro **cs = live_snapshot(&n);
+	fprintf(stderr, "coroutines: %zu linked of %zu live\n", n, atomic_load_explicit(&live_coros, memory_order_relaxed));
+	for (size_t i = 0; i < n; i++) {
+		clj_coro *c = cs[i];
+		pthread_mutex_lock(&c->lock);
+		int         state = atomic_load_explicit(&c->state, memory_order_acquire);
+		clj_waiter *w = c->waiter;
+		fprintf(stderr, "  coro %p %s parks %llu evacuated %d resume_pending %d waiter %p claimed %u\n", (void *)c, state_name(state),
+		        (unsigned long long)c->parks, c->evacuated, c->resume_pending, (void *)w, w ? atomic_load_explicit(&w->claimed, memory_order_relaxed) : 0);
+		pthread_mutex_unlock(&c->lock);
+		clj_value trace = clj_coro_parked_trace(clj_from_ptr(c));
+		if (!clj_is_nil(trace)) {
+			clj_value frames = clj_trace_realize(trace);
+			clj_value text = clj_pr_str_max(frames, 2000);
+			fprintf(stderr, "    %.*s\n", (int)clj_string_len(text), clj_string_bytes(text));
+			clj_release(text);
+			clj_release(frames);
+		}
+		clj_release(trace);
+		clj_release(clj_from_ptr(c));
+	}
+	free(cs);
 }
 
 // ---- bench: a coroutine that switches straight back, n times

@@ -28,6 +28,7 @@ private let hangSeconds = Double(ProcessInfo.processInfo.environment["CLJ_TEST_H
 private func reportHang(_ name: String) {
 	FileHandle.standardError.write(Data("hang: \(name) still running after \(hangSeconds) s\n".utf8))
 	clj_debug_sched_dump()
+	clj_debug_coro_dump()
 	let sample = Process()
 	sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
 	sample.arguments = [String(getpid()), "1", "-file", "/dev/stderr"]
