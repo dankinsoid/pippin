@@ -144,7 +144,9 @@
   that expired in a thunk `=` forced read as unequal (NOTES "Corpus", the `random-sample` failure) — so every
   drop goes through `clj_equals_drop_pending` (error.c), which records a cancellation's kind on the execution,
   and `=`, `not=` and `hash` clear the record before comparing and rethrow it after (`clj_equals_rethrow`;
-  `clj_eq`/`clj_neq` may return `CLJ_THROWN`, which both backends' intrinsic paths check). Left: any other
+  `clj_eq`/`clj_neq` may return `CLJ_THROWN`, which both backends' intrinsic paths check). A refusal takes the
+  same road and more of it: a boxed Swift struct without `Hashable`/`Equatable` records one (`clj_refuse`), and the
+  HAMT's assoc throws it besides `=`, `not=` and `hash` (NOTES "Host bridge", "Swift stubs"). Left: any other
   exception is still dropped, and so is a cancellation met inside a lookup, `contains?`, `distinct` or a
   sorted collection's compare, where equals answers a question nobody rethrows for — the cancellation is
   sticky, so the next call or loop turn throws it, after the wrong answer. Trigger: user code relying on that

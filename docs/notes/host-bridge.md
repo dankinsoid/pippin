@@ -54,7 +54,9 @@
   frame later, with the host frame gone. Clojure rather than a C shim because it is four existing calls
   (`apply`, `nth`, `deref`, `throw`) and because `catch :cancelled` is the rule both backends already emit
   rather than a copy of it. The result crosses tagged, `[ok? v]`, because a channel carries values and not
-  throws, and the tag is what lets a Swift error arrive as a throw.
+  throws, and the tag is what lets a Swift error arrive as a throw. The native fn may also answer that outcome
+  itself, when it made the call in place (a `@MainActor` stub on the main thread, below): a boolean first
+  element is an outcome, a promise is a pending call, and the wrapper parks only on the second.
 - **The wrapper is a private var of the core, not a string the bridge evaluates.** Swift takes it with
   `clj_ns_resolve(clj_ns_core(), …)` and `clj_var_root`, once. Source evaluated at first use would make the
   host bridge need the reader and the analyzer at run time, and the shipping build is the compiled core with
@@ -79,12 +81,16 @@
   A test therefore drives it the way CoroTests does — `clj_debug_sched_main_adopt`, then
   `clj_sched_main_pump` by hand, with no `await` between the two, since a suspension can change the thread
   out from under the adopted carrier.
-- [ ] **A `@MainActor` stub is `affinity: .main` plus two obligations.** Design §5 reduces isolation to
-  asyncness: the generated thunk awaits the isolated call, `callAsync(affinity:)` with `.main` carries it, and
-  `Value(asyncFunction:)`/`closureAsync` already turn the Swift side into a synchronous Clojure fn that parks.
-  What the wrapper still owes is eliding the hop when the caller is already on the main carrier
-  (`clj_coro_on_main_carrier`, the test `callBlocking` makes) — otherwise main waits for main — and failing
-  with a trace where the park is illegal, under a raised `host_depth`. Trigger: the first generated stub.
+- **A `@MainActor` stub answers in place on the main thread and hops from anywhere else** (SwiftStubs.swift,
+  design §5 «Замыкания через границу»). Its var's fn is `host-async-fn` over a Swift inner fn, which decodes the
+  arguments where the caller is and then either makes the call through `MainActor.assumeIsolated` and answers the
+  outcome `[true v]` itself — nothing parks, no Task, no promise — or starts it on `MainActor.run` through
+  `pendingCall`, the same `[promise cancel]` `Value(asyncFunction:)` answers. The test is `Thread.isMainThread`,
+  not `clj_coro_on_main_carrier`: the main actor is the main thread, and a test can adopt any thread as the main
+  carrier. Before a hop the stub asks `clj_host_park_allowed`, so under a raised `host_depth` the error, with the
+  caller's frames, comes before the Swift function ran and not from the `deref` after it; a cancelled caller gets
+  its cancellation. The Swift side is not `callAsync(affinity: .main)`: that one carries Clojure onto the main
+  carrier, and here the Swift call is what moves. `SwiftStubs.hops` counts hops for the tests.
 
 - **The bridge suite waits for its own coroutines** (`SettledTrait`, AsyncBridgeTests). None of its tests
   takes a live-object baseline, so one that outlives its test surfaces as a failed `CoroBaseline` in the
@@ -163,3 +169,68 @@
   Swift → the `extend` entry above; `Runtime.define` of a macro → `:macro` meta and `clj_var_set_macro`,
   when a host has a reason.
 
+### Swift stubs (SwiftStubs.swift, scripts/swift-stubgen.py, hostbox.c, hostmodule.c; design §5 level 2)
+
+- **The chain of the first slice.** `(:require-swift [M :as a :refer [...]])` in `ns` is `require-swift`
+  (core.clj), which calls `require-swift*` (hostmodule.c), which calls the loader `clj_host_boot` installs
+  (`SwiftStubs.load`); a C-only host has none and refuses by name. `load` finds the module registered, or runs
+  `SwiftStubs.generator`: `python3 scripts/swift-stubgen.py`, which extracts the module's symbol graph, classifies
+  it with `swift-reprint.py`'s own classifier (imported, so the measurement measures this classifier), prints
+  `stubs.swift`, builds `lib<M>PippinStubs.dylib` with swiftc and writes `report.json`, all in a cache directory
+  keyed by the module's and the runtime's `.swiftmodule`, both scripts, the module maps, the link arguments and
+  the compiler. `load` then `dlopen`s it `RTLD_LOCAL` and calls `pippin_stubs_register_<M>`, which hands
+  `SwiftStubs.register` the functions and the refusals. Fixture and test: `Tests/PippinTests/Fixtures/swift/`,
+  `SwiftStubTests`.
+- **The stub is built against the running `Pippin`.** It imports `Pippin` (the box, the async bridge, the hop)
+  and binds to the process's copy of it and of the core with `-undefined dynamic_lookup`, as compiled units do;
+  the generator needs the directory of `Pippin.swiftmodule` and CljCore's module map, which the test reads off
+  its own bundle's path. Pippin's Swift ABI is not resilient, so a stub belongs to one build of it, and its
+  fingerprint is in the cache key. It is compiled in Swift 5 mode: a decoded struct is captured into the
+  `@MainActor` call, and the box is `@unchecked Sendable` by design (§5 «Замыкания через границу»).
+- **A module is a namespace, a base name a var.** `makePoint(x:y:)` is `PippinFixture/make-point`, kebab-cased by
+  `clj_objc_kebab` (one spelling rule for both levels); its fn takes the label keywords where the declaration
+  has labels and picks the overload whose labels match, in order — `(moved p :by 3)`. A wrong label is an error
+  naming every overload of the base name, at run time, as level 1's is; a label computed at run time works too,
+  a superset of the literal labels §5 asks for. A module none of whose overloads is isolated gets a plain host fn
+  per var; one with any gets `host-async-fn`'s wrapper for the whole base name.
+- **Compiled code reaches a stub as a var, nothing more.** A call to `PippinFixture/moved` is an INVOKE of a var
+  the compiled set does not define, so both dev and `--closed` emit a `V[]` entry and `clj_c_invoke`; the unit's
+  pools intern the var before its `ns` form runs `require-swift`, which binds the root of that same var. The
+  fixture runs interpreted, dev-compiled and closed-compiled with one expected output.
+- **A boxed struct's `=` and `hash` are the Swift type's** (hostbox.c; design §5 «Равенство и хэш бокса»). The
+  generator prints `SwiftStubs.box(v)` and swiftc picks the `Hashable`, `Equatable` or plain overload; the
+  descriptor, one per Swift type and immortal, carries those operations. Boxes of two Swift types are never `=`.
+  Without `Hashable` the hash slot records a refusal (`clj_refuse`, error.c) and answers 0, and the HAMT's assoc
+  throws it — `assoc`, `conj` onto a set, a map or set literal, `hash-set`, `set`, `add-watch`, a record's extmap —
+  as do `hash`, `=` and `not=`; a lookup, `contains?` or `dissoc` answers "absent", which is true since storing
+  refuses, and drops it. Without `Equatable`, `=` of two distinct boxes refuses the same way; `identical?` and
+  `(= b b)` hold. Each storing operation drops a stale record before it hashes, so a refusal is never blamed on
+  the wrong key. The cost where nothing refused is one relaxed load of `clj_refusals_held` per HAMT operation.
+- [~] **A refusal met outside those operations is dropped.** Swift's `Value ==` and `Value.hash(into:)`, or any C
+  caller of `clj_equals`/`clj_hash` itself, get false or 0 and the record waits until the next of those
+  operations drops it — the "Left" of NOTES "Type descriptor", `clj_equals`/`clj_hash` cannot throw. A record left on a thread's implicit execution when the thread exits keeps
+  `clj_refusals_held` nonzero, so every HAMT operation takes the out-of-line check. Trigger: fallible equals/hash
+  slots (the same entry), or `clj_refusal_*_slow` in a profile.
+- **The box handed back is the value boxed** (`SwiftStubs.unbox`): the payload is a Swift object holding the
+  struct, and unboxing returns its copy of the bits — `is-last-made` in the fixture tells it from an equal value
+  made again. A box of another type is a `ValueTypeMismatch`, which crosses as a host error.
+- **The report is part of the product.** Every public function, operator and property of the module is either
+  generated or listed with its reason, in `report.json` and in the registration (`SwiftStubs.refusals(of:)`); a
+  stub swiftc rejects moves to the report with swiftc's message and the rest is built again, so one symbol cannot
+  take a module down. A refused name is no var, so a call to it is the analyzer's "Unable to resolve".
+- [ ] **What the first slice does not generate.** Free functions only, over `Int`, `Double`, `Bool`, `String`,
+  `Void` and the module's structs with no public stored property (boxes). Refused with a reason: methods and
+  initializers, properties, operators, generics, `throws`, `async`, `inout`/ownership modifiers, isolation other
+  than `@MainActor`, optionals, collections, closures, enums, classes, tuples, types of other modules, and
+  structs with public stored properties (§5 moves those as a map). Trigger: the first symbol of that list an
+  application needs; generics come with the call-site instantiation list, members with the `(.method x)` form.
+- [ ] **Generation is per module, not per call site.** The whole supported surface of a `require-swift`'d module is
+  generated (§5 wants the closure of the call sites, which the closed world gives); the cache makes a second load
+  free. Trigger: a module whose surface makes the swiftc step slow, or `clj-compile --closed` of an application.
+- [ ] **The dev path only.** `dlopen` of a dylib the generator builds; `clj-compile` and the nREPL server configure
+  no generator, so a file declaring `require-swift` loads there only when the module is already registered. The
+  production path — stubs linked into the app, entries called at start, `generator` nil — is designed (§5
+  «Объявленная граница») and not built. Trigger: §10 step 9's application, or the first `clj-compile` of a file
+  with `require-swift`.
+- [ ] **Generation blocks the calling thread** for the generator and swiftc, seconds cold, under one lock per
+  process. Trigger: `require-swift` from the dev client's REPL on the main thread; then the blocking pool.
