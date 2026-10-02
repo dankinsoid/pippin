@@ -1,9 +1,14 @@
 ## Allocator (Sources/CljCore/alloc.c)
 
-- [ ] **Abandoned slabs.** A thread's slabs are never reclaimed after it exits; freed cells in them are
-  lost. Trigger: first code that creates short-lived threads (core.async, GCD workers). Fix as mimalloc:
-  pthread_key destructor moves the heap's slabs to a global abandoned list; heaps take from it before
-  mapping a new slab.
+- **An exiting thread's heap goes whole to the next thread that needs one.** The blocking pools retire idle
+  threads (NOTES "Scheduler", "Blocking pool"), so a burst of `thread` bodies every few minutes would otherwise
+  leave a heap of slabs per thread for ever. A pthread key's destructor (`heap_abandon`) pushes the heap on a
+  list under a mutex and clears `tls_heap`; `my_heap` pops one before it callocs. The heap, not its slabs, is
+  the unit: a slab's `owner` stays the heap, so `pool_free` sees the adopter's frees as local at once and
+  everyone else's as foreign, which the adopter drains as before. The destructor gets the heap as the key's
+  value, not from `tls_heap`: Darwin may have torn the thread's TLS down first. `tls_heap` is cleared because a
+  later destructor's free must take the foreign path — the heap may already have its next owner. A heap stays
+  on the list until a thread starts, so its slabs hold their cells meanwhile (the empty-slab item below).
 - [ ] **Empty slabs are never returned to the OS.** Peak memory stays resident. Trigger: first run on a
   device (jetsam). Fix: `madvise(MADV_FREE)`/`munmap` when empty slabs per class exceed a threshold,
   plus a memory-warning hook.

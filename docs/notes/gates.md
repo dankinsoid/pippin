@@ -34,7 +34,8 @@
   the run's bound. The runtime cannot see host threads: the nREPL server's connection threads hold its sessions
   until they see the client hang up, so `NReplTests` waits for the server to be freed (`overTheWire`) — a
   `NamespaceTests` baseline counted them otherwise. A test that starts host threads holding values joins them
-  before it returns.
+  before it returns. A blocking-pool thread that retires frees nothing the count sees (its implicit coroutine
+  and carrier are calloc'd, its heap is handed on), so the settle waits for jobs, not for threads.
 - **The `test-compiled` hangs on CI were the blocking pool** (NOTES "Scheduler", "Blocking pool"). The report
   above named the test (`AsyncLibTests.pipelines`), and its coroutine dump showed the deadlock: both pool threads
   in `>!!`, the results loop parked on the channel a queued `thread` body would have fed. The first such hang

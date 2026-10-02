@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include <stdio.h>
 #include <stdlib.h>
+#include <sched.h>
 #include <string.h>
 
 #include "clj/box.h"
@@ -76,6 +77,7 @@ typedef struct {
 	uint32_t   ntakers, nputters;
 	clj_value  coro;       // the coroutine feeding the channel, for cancel!; nil otherwise
 	thread_job *job;       // a thread's job before its coroutine is attached, for a cancel! that comes first
+	uint32_t   cancels;    // cancel!s of a thread's coroutine in flight outside the section
 	clj_value  add_fn;     // (xform rf), nil without a transducer
 	clj_value  ex_handler; // fn or nil
 	clj_value  error;      // a future whose body threw: the value deref rethrows
@@ -1171,6 +1173,12 @@ static void thread_run(void *ctx) {
 	chan_lock(ch);
 	clj_value coro = ch->coro;
 	ch->coro = CLJ_NIL;
+	// A cancel! that read the coroutine lands before the reset: past it, it would cancel the thread's next job.
+	while (ch->cancels) {
+		chan_unlock(ch);
+		sched_yield();
+		chan_lock(ch);
+	}
 	chan_unlock(ch);
 	clj_release(coro);
 	clj_coro_cancel_reset(c);
@@ -1210,6 +1218,7 @@ static clj_value cancel_chan(clj_value chv, int kind, clj_value cause) {
 		cancelled = true;
 	} else if (!clj_is_nil(ch->coro)) {
 		coro = clj_retain(ch->coro);
+		if (ch->role == CLJ_CHAN_THREAD) ch->cancels++;
 	}
 	chan_unlock(ch);
 	if (clj_is_nil(coro)) return clj_bool(cancelled);
@@ -1217,6 +1226,9 @@ static clj_value cancel_chan(clj_value chv, int kind, clj_value cause) {
 	if (ch->role == CLJ_CHAN_THREAD) {
 		clj_coro_cancel_kind_cause(clj_coro_of(coro), kind, cause);
 		cancelled = true;
+		chan_lock(ch);
+		ch->cancels--;
+		chan_unlock(ch);
 	} else if (!clj_coro_done(coro)) {
 		if (!clj_coro_of(coro)->implicit) clj_coro_cancel_kind_cause(clj_coro_of(coro), kind, cause);
 		cancelled = true;

@@ -122,7 +122,7 @@ typedef struct frame {
 	clj_value        pushed;   // map var → box of this push only
 	struct frame    *prev;
 	_Atomic uint32_t rc;
-	const void      *owner;    // the execution that pushed it: only it may set! (the JVM's non-binding-thread rule)
+	uint64_t         owner;    // the id of the execution that pushed it: only it may set! (the JVM's non-binding-thread rule)
 } frame;
 
 #define frames (clj_coro_current()->bindings)
@@ -194,7 +194,7 @@ clj_value clj_var_push_bindings(clj_value bindings) {
 	f->pushed = c.pushed;
 	f->prev = top;
 	atomic_init(&f->rc, 1);
-	f->owner = clj_coro_current();
+	f->owner = clj_coro_current()->id;
 	frames = f;
 	clj_map_each(f->pushed, count_binding, (void *)(intptr_t)1);
 	return CLJ_NIL;
@@ -259,7 +259,7 @@ clj_value clj_var_set(clj_value var, clj_value val) {
 		                     clj_string_bytes(clj_symbol_name(clj_var_name(var))));
 	}
 	frame *f = binding_frame(var);
-	if (f && f->owner != clj_coro_current()) {
+	if (f && f->owner != clj_coro_current()->id) {
 		return clj_throw_msg("Can't set!: %s/%s from non-binding thread", clj_string_bytes(clj_symbol_name(clj_var_ns(var))),
 		                     clj_string_bytes(clj_symbol_name(clj_var_name(var))));
 	}

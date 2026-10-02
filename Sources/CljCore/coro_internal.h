@@ -99,6 +99,8 @@ struct clj_coro {
 	uint32_t         shield;          // shielded regions the owner is inside: the ring shows no deadline in one
 	clj_timer       *deadline_timer;  // the timer that cancels this coroutine at its deadline, NULL when none
 	uint64_t         deadline_serial; // bumped by every arm and disarm; a firing timer with a stale serial is a no-op
+	// Never reused, unlike the address: a freed execution's successor at its address is not its owner.
+	uint64_t         id;
 #if CLJ_DEBUG
 	uint32_t         debug_owner;     // the tag its unshared objects carry (object.h, CLJ_OWNER_SHIFT)
 #endif

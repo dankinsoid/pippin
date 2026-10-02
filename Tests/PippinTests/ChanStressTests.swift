@@ -48,6 +48,69 @@ extension CoreTests {
 			#expect(finished)
 		}
 
+		// Past the 64 threads internal jobs are capped at: 100 bodies, each waiting on the one spawned after it.
+		// @ai-generated(solo)
+		@Test func threadBodiesNeverQueue() throws {
+			let n = 100
+			let run = try eval("""
+				(let [cs (vec (repeatedly \(n + 1) chan))]
+				  (dotimes [i \(n)]
+				    (if (= i \(n - 1))
+				      (thread (>!! (cs i) 0))
+				      (thread (>!! (cs i) (inc (<!! (cs (inc i))))))))
+				  cs)
+				""")
+			let poll = try eval("(fn [cs] (a/poll! (cs 0)))")
+			var got: Value = nil
+			for _ in 0..<1000 where got == nil {
+				got = try poll.apply([run])
+				if got == nil { usleep(10_000) }
+			}
+			#expect(got == Value(n - 1))
+		}
+
+		// An idle pool thread exits after the keep-alive; a binding frame conveyed past that exit stays its body's,
+		// though the next thread's execution likely sits at the same address.
+		// @ai-generated(solo)
+		@Test func idlePoolThreadsRetire() throws {
+			_ = try eval("(def ^:dynamic *conveyed* :root)")
+			clj_debug_blocking_keep_alive_ms(50)
+			defer { clj_debug_blocking_keep_alive_ms(0) }
+			func threads(_ ok: (Int) -> Bool) -> Bool {
+				for _ in 0..<500 {
+					if ok(clj_debug_blocking_threads()) { return true }
+					usleep(10_000)
+				}
+				return false
+			}
+			_ = try eval("(let [cs (vec (repeatedly 8 chan))] (doseq [c cs] (thread (<!! c))) (doseq [c cs] (>!! c 1)))")
+			#expect(threads { $0 == 0 })
+			let k = 16
+			let run = try eval("""
+				(let [hold (chan) gate (chan) out (chan \(k))]
+				  (dotimes [_ \(k)]
+				    (thread (binding [*conveyed* 1]
+				              (thread (<!! gate)
+				                      (>!! out (<!! (thread (try (set! *conveyed* 2) :set (catch :default e :refused))))))
+				              (<!! hold))))
+				  [gate out hold])
+				""")
+			#expect(threads { $0 == 2 * k })
+			// The binders' threads go, the ones holding their frames wait on the gate.
+			_ = try eval("(fn [[_ _ hold]] (a/close! hold))").apply([run])
+			#expect(threads { $0 == k })
+			// A retired thread is uncounted before its exit frees the execution whose address the next one may take.
+			usleep(100_000)
+			_ = try eval("(fn [[gate _ _]] (a/close! gate))").apply([run])
+			let poll = try eval("(fn [[_ out _]] (a/poll! out))")
+			var got: [Value] = []
+			for _ in 0..<1000 where got.count < k {
+				let v = try poll.apply([run])
+				if v == nil { usleep(10_000) } else { got.append(v) }
+			}
+			#expect(got == Array(repeating: Value(keyword: "refused"), count: k))
+		}
+
 		// Each spawn's share check meets the previous go's channel while that go's finish releases its fn (NOTES "RC").
 		// @ai-generated(solo)
 		@Test func theShareCheckStopsAtAFinishingCoroutine() throws {

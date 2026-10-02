@@ -63,15 +63,30 @@
   and pumps by hand, and `CoroTests.mainRunLoopSource` runs the real source from a `@MainActor` test turning
   `CFRunLoopRunInMode`. `(atom x :affinity :main)` checks the carrier on every access (one flag test on the
   fast path): a pool coroutine's `swap!`/`deref` of it is an error with a trace.
-- [~] **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): threads made on demand up to 64, kept
-  for ever, one per queued job beyond the idle ones (`jobs_queued > blocking_idle`). An idle thread stays counted
-  until it wakes, so "spawn only when none is idle" let two submits share one idle thread and queue the second
-  job behind `thread` bodies blocked on its output: `AsyncLibTests.pipelines` deadlocked on CI with both pool
-  threads in `>!!` and the job that would feed them queued (runs 36927938282, 36985871664, 36987070315). A pool coroutine submits the job with a heap copy of its `size`-byte context and parks
-  (uncancellable), the thread works on the copy, the parker copies it back after the wake — the parker's frame
-  is never written by another thread (the evacuation invariant under "Coroutines"); a bare thread runs the job
-  inline on the original. The loader reads files there (`load.c` `read_file`), `thread` runs its body there as
-  the thread's implicit coroutine with the spawner's bindings conveyed. **Timers**: one thread, a list sorted by
+- [~] **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): two pools of one code (`pool`
+  in `sched.c`), threads made on demand and retired after a minute idle (the JVM's cached pool;
+  `clj_debug_blocking_keep_alive_ms` shortens it for a test). Internal jobs (`clj_blocking`: the loader's
+  `read_file`) never wait on one another, so their pool is capped at 64 threads and queues past the cap.
+  `thread` bodies wait on one another as JVM threads may, so theirs has no cap: a body takes an idle thread or a
+  new one at once and never queues (design §3 «Инвариант: язык не меняется»); one pool with the cap would let 64
+  bodies blocked on a 65th deadlock, and would make a `require` from a go block wait behind bodies
+  (`ChanStressTests.threadBodiesNeverQueue`: 100 bodies, each waiting on the next). A pool spawns while its
+  queued jobs outnumber its idle threads: an idle thread stays counted until it wakes, so "spawn only when none
+  is idle" let two submits share one idle thread and queue the second behind `thread` bodies blocked on its
+  output (`AsyncLibTests.pipelines` on CI, runs 36927938282, 36985871664, 36987070315). A thread retires in the
+  same hold of the pool's mutex that found nothing queued, so no job counts on it. Its exit frees what was per
+  thread: the implicit coroutine and its carrier, the signal stack (`thread_exit` in `coro.c`), and the
+  allocator heap, which goes whole to the next thread that needs one (NOTES "Allocator"). What could still
+  reach the freed coroutine is waited for: a `cancel!` that read the body's coroutine off its channel lands
+  before `thread_run` resets the cancellation (`cancels` on the channel; past the reset it would cancel the
+  thread's next job), and a deadline fire the timer thread popped before the last disarm is waited out
+  (`timer_quiesce`). A binding frame names its owner by the execution's id, never reused, not by its address,
+  which the next thread's implicit coroutine is likely to get: `set!` from a body conveyed a frame of a retired
+  thread's body would pass the owner check (`ChanStressTests.idlePoolThreadsRetire` met it). A pool coroutine
+  submits the job with a heap copy of its `size`-byte context and parks (uncancellable), the thread works on
+  the copy, the parker copies it back after the wake — the parker's frame is never written by another thread
+  (the evacuation invariant under "Coroutines"); a bare thread runs the job inline on the original. `thread`
+  runs its body as the thread's implicit coroutine with the spawner's bindings conveyed. **Timers**: one thread, a list sorted by
   deadline (`clj_sched_timer`); `timeout` closes its channel from it. A thread woken out of
   `pthread_cond_timedwait` answers ~0.7 µs later than one woken out of `pthread_cond_wait` (the kernel arms a
   deadline per wait; `(<! (timeout 0))` measured 2.1 → 2.9 µs whenever any far timer was pending — the

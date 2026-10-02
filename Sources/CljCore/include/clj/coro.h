@@ -74,8 +74,10 @@ bool clj_debug_coro_settle(size_t target, uint64_t ms);
 // Timers with a context (a timeout's channel, a sleeper, a deadline), pending or firing; blocking jobs in flight.
 size_t clj_debug_timers_held(void);
 size_t clj_debug_blocking_held(void);
-// Blocking-pool threads made so far (they are kept): all idle once nothing is held.
+// Threads of the `thread` pool alive now: all idle once nothing is held, each retired after the keep-alive.
 size_t clj_debug_blocking_threads(void);
+// The idle time after which a blocking-pool thread exits; 0 restores the default minute.
+void clj_debug_blocking_keep_alive_ms(uint64_t ms);
 // Waits up to ms for nothing in flight to hold objects (docs/notes/gates.md, "Settled baselines").
 bool clj_debug_runtime_settle(size_t coros, uint64_t ms);
 bool clj_debug_park_under_lock_is_error(void);

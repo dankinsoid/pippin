@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,14 +33,34 @@ typedef struct slab {
 	uint32_t        used;    // handed out and not on the local free list
 } slab;
 
-// One per thread, never freed: an exited thread's slabs are abandoned, cells freed but never reused (v1).
-// Empty slabs are never returned to the OS (v1).
+// One per live thread, never freed: an exiting thread leaves its heap, slabs and all, to the next thread that
+// needs one. Empty slabs are never returned to the OS (v1).
 struct heap {
 	slab *current[NCLASSES];
 	slab *slabs[NCLASSES];
+	heap *next_abandoned;
 };
 
 static _Thread_local heap *tls_heap;
+static pthread_once_t      heap_key_once = PTHREAD_ONCE_INIT;
+static pthread_key_t       heap_key;
+static pthread_mutex_t     abandoned_mu = PTHREAD_MUTEX_INITIALIZER;
+static heap               *abandoned;
+
+// The heap comes as the key's value: Darwin may have torn the thread's TLS down before this destructor runs.
+static void heap_abandon(void *p) {
+	heap *h = p;
+	// A later destructor's free must take the foreign path: the next owner may already be using the heap.
+	tls_heap = NULL;
+	pthread_mutex_lock(&abandoned_mu);
+	h->next_abandoned = abandoned;
+	abandoned = h;
+	pthread_mutex_unlock(&abandoned_mu);
+}
+
+static void make_heap_key(void) {
+	if (pthread_key_create(&heap_key, heap_abandon) != 0) clj_fatal("pthread_key_create failed");
+}
 
 #if CLJ_DEBUG
 // One process-wide counter, contended across threads; debug-only, so acceptable until profiles say otherwise.
@@ -135,10 +156,19 @@ static inline void *cell_next(void *p) {
 
 static inline void cell_set_next(void *p, void *n) { memcpy(p, &n, sizeof n); }
 
+// The owner test of pool_free compares slab owners with tls_heap, so an adopted heap's slabs are local at once.
 static heap *my_heap(void) {
 	if (!tls_heap) {
-		tls_heap = calloc(1, sizeof *tls_heap);
-		if (!tls_heap) clj_fatal("out of memory");
+		pthread_once(&heap_key_once, make_heap_key);
+		pthread_mutex_lock(&abandoned_mu);
+		heap *h = abandoned;
+		if (h) abandoned = h->next_abandoned;
+		pthread_mutex_unlock(&abandoned_mu);
+		if (!h) h = calloc(1, sizeof *h);
+		if (!h) clj_fatal("out of memory");
+		h->next_abandoned = NULL;
+		tls_heap = h;
+		pthread_setspecific(heap_key, h);
 	}
 	return tls_heap;
 }

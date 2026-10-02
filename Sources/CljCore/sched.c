@@ -877,6 +877,11 @@ static clj_timer      *timers;
 static pthread_once_t  timer_once = PTHREAD_ONCE_INIT;
 // Timers with a context, pending or firing, under timer_mu: what they hold dies only when they fire or are cancelled.
 static size_t          timers_held;
+// A callback running, the callbacks finished and the threads waiting for one to finish; under timer_mu.
+static bool            timer_firing;
+static uint64_t        timer_fires;
+static size_t          timer_quiescers;
+static pthread_cond_t  timer_fired_cv = PTHREAD_COND_INITIALIZER;
 
 // A timed wait wakes ~0.7 µs later than an untimed one: far deadlines go to a dispatch timer, the wait is untimed.
 enum { FAR_NS = 2000000 };
@@ -936,13 +941,27 @@ static void *timer_main(void *arg) {
 		clj_timer *t = timers;
 		timers = t->next;
 		bool held = t->ctx != NULL;
+		timer_firing = true;
 		pthread_mutex_unlock(&timer_mu);
 		t->fn(t->ctx);
 		free(t);
 		pthread_mutex_lock(&timer_mu);
 		timers_held -= held;
+		timer_firing = false;
+		timer_fires++;
+		if (timer_quiescers) pthread_cond_broadcast(&timer_fired_cv);
 	}
 	return NULL;
+}
+
+// Returns once the callback running at the call, if any, has returned: what it popped before a cancel is done.
+static void timer_quiesce(void) {
+	pthread_mutex_lock(&timer_mu);
+	uint64_t seen = timer_fires;
+	timer_quiescers++;
+	while (timer_firing && timer_fires == seen) pthread_cond_wait(&timer_fired_cv, &timer_mu);
+	timer_quiescers--;
+	pthread_mutex_unlock(&timer_mu);
 }
 
 static void start_timer(void) {
@@ -1101,7 +1120,7 @@ clj_value clj_sched_sleep_ms(int64_t ms) {
 	return CLJ_NIL;
 }
 
-// ---- the blocking pool: threads made on demand, kept for ever, capped
+// ---- the blocking pools: threads made on demand, retired after a minute idle
 
 typedef struct job {
 	void (*fn)(void *ctx);
@@ -1111,26 +1130,46 @@ typedef struct job {
 	char        ctx_copy[];
 } job;
 
-enum { BLOCKING_MAX_THREADS = 64 };
+typedef struct {
+	pthread_mutex_t mu;
+	pthread_cond_t  cv;
+	job            *head, *tail;
+	size_t          threads, idle, queued;
+	size_t          held; // queued or running
+	size_t          max;  // 0: no cap
+} pool;
 
-static pthread_mutex_t job_mu = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  job_cv = PTHREAD_COND_INITIALIZER;
-static job            *job_head, *job_tail;
-static size_t          blocking_threads, blocking_idle, jobs_queued;
-static size_t          jobs_held; // queued or running, under job_mu
+// The loader's file reads never wait on one another: a capped pool may queue them.
+static pool jobs_pool = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, .max = 64};
+// `thread` bodies wait on one another, as JVM threads may: a thread each at once, no cap (the JVM's cached pool).
+static pool bodies_pool = {PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, .max = 0};
+
+static _Atomic uint64_t keep_alive_ns = 60000000000u;
+
+// Under p->mu. False when the thread retires: it uncounts itself in the same hold that found nothing queued.
+static bool await_job(pool *p) {
+	uint64_t since = clj_profile_now();
+	p->idle++;
+	while (!p->head) {
+		uint64_t keep = atomic_load_explicit(&keep_alive_ns, memory_order_relaxed), idle = clj_profile_now() - since;
+		if (idle >= keep) break;
+		cond_wait_ns(&p->cv, &p->mu, keep - idle);
+	}
+	p->idle--;
+	if (p->head) return true;
+	p->threads--;
+	return false;
+}
 
 static void *blocking_main(void *arg) {
-	(void)arg;
-	for (;;) {
-		pthread_mutex_lock(&job_mu);
-		blocking_idle++;
-		while (!job_head) pthread_cond_wait(&job_cv, &job_mu);
-		blocking_idle--;
-		job *j = job_head;
-		job_head = j->next;
-		if (!job_head) job_tail = NULL;
-		jobs_queued--;
-		pthread_mutex_unlock(&job_mu);
+	pool *p = arg;
+	pthread_mutex_lock(&p->mu);
+	while (await_job(p)) {
+		job *j = p->head;
+		p->head = j->next;
+		if (!p->head) p->tail = NULL;
+		p->queued--;
+		pthread_mutex_unlock(&p->mu);
 #if CLJ_DEBUG
 		// A job with a waiter works for its parked caller, which touches nothing until the wake: a transfer both ways.
 		uint32_t own = j->w ? clj_debug_owner_assume(j->w->coro->debug_owner) : 0;
@@ -1147,14 +1186,16 @@ static void *blocking_main(void *arg) {
 		} else {
 			free(j);
 		}
-		pthread_mutex_lock(&job_mu);
-		jobs_held--;
-		pthread_mutex_unlock(&job_mu);
+		pthread_mutex_lock(&p->mu);
+		p->held--;
 	}
+	pthread_mutex_unlock(&p->mu);
+	// The thread's exit frees its implicit coroutine, which a deadline fire popped before the last job's disarm reads.
+	timer_quiesce();
 	return NULL;
 }
 
-static job *submit(void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w) {
+static job *submit(pool *p, void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w) {
 	job *j = malloc(sizeof *j + copy);
 	if (!j) clj_fatal("out of memory");
 	j->fn = fn;
@@ -1165,25 +1206,25 @@ static job *submit(void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w)
 	}
 	j->w = w;
 	j->next = NULL;
-	pthread_mutex_lock(&job_mu);
-	if (job_tail) job_tail->next = j;
-	else job_head = j;
-	job_tail = j;
-	jobs_held++;
-	jobs_queued++;
+	pthread_mutex_lock(&p->mu);
+	if (p->tail) p->tail->next = j;
+	else p->head = j;
+	p->tail = j;
+	p->held++;
+	p->queued++;
 	// One idle thread serves one queued job: a job must never wait behind thread bodies that block on its output.
-	bool spawn_thread = jobs_queued > blocking_idle && blocking_threads < BLOCKING_MAX_THREADS;
-	if (spawn_thread) blocking_threads++;
-	pthread_mutex_unlock(&job_mu);
+	bool spawn_thread = p->queued > p->idle && (!p->max || p->threads < p->max);
+	if (spawn_thread) p->threads++;
+	pthread_mutex_unlock(&p->mu);
 	if (spawn_thread) {
 		pthread_t      t;
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);
 		pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-		if (pthread_create(&t, &attr, blocking_main, NULL) != 0) clj_fatal("pthread_create of a blocking thread failed");
+		if (pthread_create(&t, &attr, blocking_main, p) != 0) clj_fatal("pthread_create of a blocking thread failed");
 		pthread_attr_destroy(&attr);
 	}
-	pthread_cond_signal(&job_cv);
+	pthread_cond_signal(&p->cv);
 	return j;
 }
 
@@ -1196,14 +1237,14 @@ void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
 	}
 	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
 	clj_waiter_retain(w);
-	job *j = submit(fn, ctx, size, w);
+	job *j = submit(&jobs_pool, fn, ctx, size, w);
 	clj_park_uncancellable(w);
 	memcpy(ctx, j->ctx_copy, size);
 	free(j);
 	clj_waiter_release(w);
 }
 
-void clj_blocking_detach(void (*fn)(void *ctx), void *ctx) { submit(fn, ctx, 0, NULL); }
+void clj_blocking_detach(void (*fn)(void *ctx), void *ctx) { submit(&bodies_pool, fn, ctx, 0, NULL); }
 
 uint64_t clj_debug_coro_spawned(void) { return atomic_load_explicit(&spawned, memory_order_relaxed); }
 
@@ -1214,18 +1255,26 @@ size_t clj_debug_timers_held(void) {
 	return n;
 }
 
-size_t clj_debug_blocking_threads(void) {
-	pthread_mutex_lock(&job_mu);
-	size_t n = blocking_threads;
-	pthread_mutex_unlock(&job_mu);
+static size_t pool_read(pool *p, const size_t *field) {
+	pthread_mutex_lock(&p->mu);
+	size_t n = *field;
+	pthread_mutex_unlock(&p->mu);
 	return n;
 }
 
-size_t clj_debug_blocking_held(void) {
-	pthread_mutex_lock(&job_mu);
-	size_t n = jobs_held;
-	pthread_mutex_unlock(&job_mu);
-	return n;
+size_t clj_debug_blocking_threads(void) { return pool_read(&bodies_pool, &bodies_pool.threads); }
+
+size_t clj_debug_blocking_held(void) { return pool_read(&jobs_pool, &jobs_pool.held) + pool_read(&bodies_pool, &bodies_pool.held); }
+
+void clj_debug_blocking_keep_alive_ms(uint64_t ms) {
+	atomic_store_explicit(&keep_alive_ns, (ms ? ms : 60000) * 1000000u, memory_order_relaxed);
+	// Idle threads wait out the keep-alive they read: a wake makes them read it again.
+	pool *pools[] = {&jobs_pool, &bodies_pool};
+	for (size_t i = 0; i < 2; i++) {
+		pthread_mutex_lock(&pools[i]->mu);
+		pthread_cond_broadcast(&pools[i]->cv);
+		pthread_mutex_unlock(&pools[i]->mu);
+	}
 }
 
 static bool runtime_idle(size_t coros) {

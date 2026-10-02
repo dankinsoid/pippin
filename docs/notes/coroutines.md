@@ -96,8 +96,9 @@
   (`lock.h`). What stays per thread: the allocator heap, the protocol reader window, the compiled sites' inline
   caches, the rand state, the signal stack. A bare thread (the host's sync entry, a test calling `clj_eval`, a
   blocking-pool thread, the timer thread) runs on an *implicit* coroutine made on first use (`implicit_init`:
-  calloc'd, immortal, its shadow ring calloc'd, its stack the thread's) whose park is a `pthread_cond_wait` —
-  nothing there ever switches, so every entry point works exactly as before. The switch stores two thread-locals
+  calloc'd, immortal to RC and freed by the thread's exit, its shadow ring calloc'd, its stack the thread's)
+  whose park is a `pthread_cond_wait` — nothing there ever switches, so every entry point works exactly as
+  before. The switch stores two thread-locals
   (`clj_coro_tls`, and `clj_shadow_tls` as its mirror so `run_body` still pays one TLS load) and `car->current`
   (read by the signal handler through the pthread key). Retired roots are per coroutine, not per carrier as
   the brief said: a parked coroutine keeps its +0 reads across the carriers it migrates over, and a drain
@@ -141,7 +142,8 @@
   refcount, a child holds the spawner's top frame and each frame its `prev`, a var's `thread_bound` count drops
   when the frame dies rather than when it is popped, and the maps are shared once. `set!` on a conveyed binding
   from the child is refused with the JVM's message ("Can't set!: … from non-binding thread"): a frame records
-  the execution that pushed it (`owner`), `clj_var_set` finds the frame whose own push holds the var, and only
+  the execution that pushed it by its id (`owner`; an address is reused once a retired pool thread frees its
+  implicit coroutine), `clj_var_set` finds the frame whose own push holds the var, and only
   its owner writes the box; the child's own `binding` over the same var is its to set (`FutureTests`). The
   `with-out-str` capture is conveyed the same way (`clj_output_captures_share`, NOTES "Scheduler").
 - **Cancellation is the deadline's mechanism, and the deadline is a cancellation by timer.** A cancellation sets

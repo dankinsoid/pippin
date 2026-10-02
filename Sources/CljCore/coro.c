@@ -158,6 +158,7 @@ const clj_type clj_coro_type = {
 	.equals = coro_equals,
 };
 
+static _Atomic uint64_t coro_ids;
 #if CLJ_DEBUG
 static _Atomic uint32_t owner_tags;
 #endif
@@ -166,6 +167,7 @@ static void coro_init(clj_coro *c) {
 	pthread_mutex_init(&c->lock, NULL);
 	pthread_cond_init(&c->cond, NULL);
 	c->state = CLJ_CORO_NEW;
+	c->id = 1 + atomic_fetch_add_explicit(&coro_ids, 1, memory_order_relaxed);
 #if CLJ_DEBUG
 	// 16 bits wrap after 65535 executions: two that share a tag hide each other's touches, never invent one.
 	c->debug_owner = 1 + atomic_fetch_add_explicit(&owner_tags, 1, memory_order_relaxed) % 0xFFFF;
@@ -309,6 +311,7 @@ static void thread_exit(void *p) {
 	clj_guard_thread_exit(car);
 	clj_coro *c = car->implicit;
 	if (c) {
+		free(c->retired);
 		free(c->shadow->frames);
 		pthread_mutex_destroy(&c->lock);
 		pthread_cond_destroy(&c->cond);
