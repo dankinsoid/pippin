@@ -153,9 +153,11 @@ struct clj_waiter {
 	uint32_t         index;
 	bool             ok;
 	bool             blocking; // set before enqueueing: the park blocks the thread instead of switching (host_depth > 0)
+	const void      *wait_chan; // the channel it was last queued on, for clj_debug_coro_dump; never dereferenced else
 };
 
 clj_waiter *clj_waiter_new(clj_coro *c, clj_value callback);
+void        clj_debug_chan_describe(const void *chan, char *buf, size_t n);
 void        clj_waiter_retain(clj_waiter *w);
 void        clj_waiter_release(clj_waiter *w);
 // true once, for the caller that wins.

@@ -738,7 +738,10 @@ void clj_debug_coro_dump(void) {
 		clj_waiter *w = c->waiter;
 		fprintf(stderr, "  coro %p %s parks %llu evacuated %d resume_pending %d waiter %p claimed %u\n", (void *)c, state_name(state),
 		        (unsigned long long)c->parks, c->evacuated, c->resume_pending, (void *)w, w ? atomic_load_explicit(&w->claimed, memory_order_relaxed) : 0);
+		char where[160] = "";
+		if (w && w->wait_chan) clj_debug_chan_describe(w->wait_chan, where, sizeof where);
 		pthread_mutex_unlock(&c->lock);
+		if (*where) fprintf(stderr, "    on %s\n", where);
 		clj_value trace = clj_coro_parked_trace(clj_from_ptr(c));
 		if (!clj_is_nil(trace)) {
 			clj_value frames = clj_trace_realize(trace);

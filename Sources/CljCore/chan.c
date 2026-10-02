@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -621,6 +622,7 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 		}
 		w = clj_waiter_new(clj_coro_current(), CLJ_NIL);
 		enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), 0));
+		w->wait_chan = ch;
 		ch->nputters++;
 	}
 	chan_unlock(ch);
@@ -650,6 +652,7 @@ static clj_value chan_take(clj_value chv, bool uncancellable) {
 		}
 		w = clj_waiter_new(clj_coro_current(), CLJ_NIL);
 		enqueue(&ch->takers, &ch->takers_tail, node_new(w, CLJ_NIL, 0));
+		w->wait_chan = ch;
 		ch->ntakers++;
 	}
 	chan_unlock(ch);
@@ -732,6 +735,7 @@ clj_value clj_chan_put_cb(clj_value chv, clj_value v, clj_value fn, bool on_call
 		}
 		clj_waiter *w = clj_waiter_new(NULL, fn);
 		enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), 0));
+		w->wait_chan = ch;
 		ch->nputters++;
 		clj_waiter_release(w);
 		chan_unlock(ch);
@@ -759,6 +763,7 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 		}
 		clj_waiter *w = clj_waiter_new(NULL, fn);
 		enqueue(&ch->takers, &ch->takers_tail, node_new(w, CLJ_NIL, 0));
+		w->wait_chan = ch;
 		ch->ntakers++;
 		clj_waiter_release(w);
 		chan_unlock(ch);
@@ -916,9 +921,11 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 			}
 			if (is_put) {
 				enqueue(&ch->putters, &ch->putters_tail, node_new(w, clj_retain(v), i));
+				w->wait_chan = ch;
 				ch->nputters++;
 			} else {
 				enqueue(&ch->takers, &ch->takers_tail, node_new(w, CLJ_NIL, i));
+				w->wait_chan = ch;
 				ch->ntakers++;
 			}
 		}
@@ -945,6 +952,13 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 	result = parked_result(w);
 	clj_waiter_release(w);
 	return result;
+}
+
+// Racy reads of a channel nobody is expected to touch: the hang report's view of where a waiter sits.
+void clj_debug_chan_describe(const void *chan, char *buf, size_t n) {
+	const clj_chan *ch = chan;
+	snprintf(buf, n, "chan %p buffered %u/%u closed %d xform %d takers %u putters %u", chan, ch->count, ch->cap, ch->closed, has_xform(ch),
+	         ch->ntakers, ch->nputters);
 }
 
 // ---- timeout
