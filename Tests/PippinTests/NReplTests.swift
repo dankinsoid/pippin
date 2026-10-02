@@ -35,6 +35,26 @@ extension CoreTests {
 					if m["status"]?.asStringList?.contains("done") == true { return out }
 				}
 			}
+
+			// The interrupt's reply and the interrupted eval's come in either order; only the eval's carries its id.
+			// @ai-generated(solo)
+			func interrupt(_ session: String, _ id: String) throws -> (status: [String]?, eval: [[String: BValue]]) {
+				try send(["op": .string("interrupt"), "session": .string(session), "interrupt-id": .string(id)])
+				var status: [String]?
+				var eval: [[String: BValue]] = []
+				var evalDone = false
+				while status == nil || !evalDone {
+					let m = try recvOne()
+					let done = m["status"]?.asStringList?.contains("done") == true
+					if m["id"]?.asString == id {
+						eval.append(m)
+						evalDone = evalDone || done
+					} else if done {
+						status = m["status"]?.asStringList
+					}
+				}
+				return (status, eval)
+			}
 		}
 
 		// The server's threads hold its sessions' values past the hang-up: the next test's baseline would count them.
@@ -77,9 +97,8 @@ extension CoreTests {
 				// A form genuinely parked on a channel take, interrupted mid-flight.
 				try client.send(["op": .string("eval"), "session": .string(session), "id": .string("3"), "code": .string("(<!! (chan))")])
 				Thread.sleep(forTimeInterval: 0.2)
-				try client.send(["op": .string("interrupt"), "session": .string(session), "interrupt-id": .string("3")])
-				#expect(try client.recvUntilDone().last?["status"]?.asStringList == ["done"])
-				let interrupted = try client.recvUntilDone()
+				let (status, interrupted) = try client.interrupt(session, "3")
+				#expect(status == ["done"])
 				#expect(interrupted.last?["status"]?.asStringList?.contains("interrupted") == true)
 
 				// The session survives the interrupt and keeps its *ns*/history for the next eval.
@@ -120,9 +139,8 @@ extension CoreTests {
 				try client.send(["op": .string("eval"), "session": .string(session), "id": .string("2"),
 				                  "code": .string("(try (<!! (chan)) (catch :cancelled e [(ex-type e) (:cancel/kind (ex-data e))]))")])
 				Thread.sleep(forTimeInterval: 0.2)
-				try client.send(["op": .string("interrupt"), "session": .string(session), "interrupt-id": .string("2")])
-				#expect(try client.recvUntilDone().last?["status"]?.asStringList == ["done"])
-				let caught = try client.recvUntilDone()
+				let (status, caught) = try client.interrupt(session, "2")
+				#expect(status == ["done"])
 				#expect(caught.contains { $0["value"]?.asString == "[:cancelled :explicit]" })
 				#expect(caught.last?["status"]?.asStringList == ["done"])
 
@@ -130,9 +148,8 @@ extension CoreTests {
 				try client.send(["op": .string("eval"), "session": .string(session), "id": .string("3"),
 				                  "code": .string("(try (<!! (chan)) (catch :default e :caught))")])
 				Thread.sleep(forTimeInterval: 0.2)
-				try client.send(["op": .string("interrupt"), "session": .string(session), "interrupt-id": .string("3")])
-				#expect(try client.recvUntilDone().last?["status"]?.asStringList == ["done"])
-				let notCaught = try client.recvUntilDone()
+				let (status3, notCaught) = try client.interrupt(session, "3")
+				#expect(status3 == ["done"])
 				#expect(notCaught.last?["status"]?.asStringList?.contains("interrupted") == true)
 				#expect(!notCaught.contains { $0["value"] != nil })
 
@@ -274,9 +291,7 @@ extension CoreTests {
 				_ = try eval(parent, "8", "(require '[clojure.core.async :refer [chan <!!]])")
 				try client.send(["op": .string("eval"), "session": .string(parent), "id": .string("9"), "code": .string("(<!! (chan))")])
 				Thread.sleep(forTimeInterval: 0.2)
-				try client.send(["op": .string("interrupt"), "session": .string(parent), "interrupt-id": .string("9")])
-				_ = try client.recvUntilDone()
-				#expect(try client.recvUntilDone().last?["status"]?.asStringList?.contains("interrupted") == true)
+				#expect(try client.interrupt(parent, "9").eval.last?["status"]?.asStringList?.contains("interrupted") == true)
 				#expect(try eval(parent, "10", "*1").contains { $0["value"]?.asString == "nil" })
 
 			}
