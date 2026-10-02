@@ -24,6 +24,23 @@ extension CoreTests {
 			base.check()
 		}
 
+		// Every idle pool thread takes a body that waits for the last one, which needs a thread of its own.
+		// @ai-generated(solo)
+		@Test func aThreadBodyNeverQueuesBehindBodiesWaitingForIt() throws {
+			_ = try eval("(let [gate (chan)] (dotimes [_ 4] (thread (<!! gate))) (<!! (timeout 50)) (a/close! gate))")
+			runtimeSettled("before the pool is counted")
+			let idle = clj_debug_blocking_threads()
+			#expect(idle >= 4)
+			#expect(try eval("""
+				(let [c (chan) done (chan)]
+				  (dotimes [_ \(idle)] (thread (<!! c)))
+				  (thread (dotimes [_ \(idle)] (>!! c 1)) (a/close! done))
+				  (let [[_ port] (a/alts!! [done (timeout 10000)])]
+				    (a/close! c)
+				    (= port done)))
+				""") == true)
+		}
+
 		@Test func stressSpawn() throws {
 			let coros = clj_debug_live_coros()
 			#expect(try eval("(let [done (chan 100000)] (dotimes [i 100000] (go (>! done i))) (dotimes [i 100000] (<!! done)) 1)") == 1)

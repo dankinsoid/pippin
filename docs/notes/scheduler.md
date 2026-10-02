@@ -64,7 +64,10 @@
   `CFRunLoopRunInMode`. `(atom x :affinity :main)` checks the carrier on every access (one flag test on the
   fast path): a pool coroutine's `swap!`/`deref` of it is an error with a trace.
 - [~] **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): threads made on demand up to 64, kept
-  for ever; a pool coroutine submits the job with a heap copy of its `size`-byte context and parks
+  for ever, one per queued job beyond the idle ones (`jobs_queued > blocking_idle`). An idle thread stays counted
+  until it wakes, so "spawn only when none is idle" let two submits share one idle thread and queue the second
+  job behind `thread` bodies blocked on its output: `AsyncLibTests.pipelines` deadlocked on CI with both pool
+  threads in `>!!` and the job that would feed them queued (runs 36927938282, 36985871664, 36987070315). A pool coroutine submits the job with a heap copy of its `size`-byte context and parks
   (uncancellable), the thread works on the copy, the parker copies it back after the wake — the parker's frame
   is never written by another thread (the evacuation invariant under "Coroutines"); a bare thread runs the job
   inline on the original. The loader reads files there (`load.c` `read_file`), `thread` runs its body there as

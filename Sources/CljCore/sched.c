@@ -1113,7 +1113,7 @@ enum { BLOCKING_MAX_THREADS = 64 };
 static pthread_mutex_t job_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  job_cv = PTHREAD_COND_INITIALIZER;
 static job            *job_head, *job_tail;
-static size_t          blocking_threads, blocking_idle;
+static size_t          blocking_threads, blocking_idle, jobs_queued;
 static size_t          jobs_held; // queued or running, under job_mu
 
 static void *blocking_main(void *arg) {
@@ -1126,6 +1126,7 @@ static void *blocking_main(void *arg) {
 		job *j = job_head;
 		job_head = j->next;
 		if (!job_head) job_tail = NULL;
+		jobs_queued--;
 		pthread_mutex_unlock(&job_mu);
 #if CLJ_DEBUG
 		// A job with a waiter works for its parked caller, which touches nothing until the wake: a transfer both ways.
@@ -1166,7 +1167,9 @@ static job *submit(void (*fn)(void *ctx), void *ctx, size_t copy, clj_waiter *w)
 	else job_head = j;
 	job_tail = j;
 	jobs_held++;
-	bool spawn_thread = blocking_idle == 0 && blocking_threads < BLOCKING_MAX_THREADS;
+	jobs_queued++;
+	// One idle thread serves one queued job: a job must never wait behind thread bodies that block on its output.
+	bool spawn_thread = jobs_queued > blocking_idle && blocking_threads < BLOCKING_MAX_THREADS;
 	if (spawn_thread) blocking_threads++;
 	pthread_mutex_unlock(&job_mu);
 	if (spawn_thread) {
@@ -1205,6 +1208,13 @@ size_t clj_debug_timers_held(void) {
 	pthread_mutex_lock(&timer_mu);
 	size_t n = timers_held;
 	pthread_mutex_unlock(&timer_mu);
+	return n;
+}
+
+size_t clj_debug_blocking_threads(void) {
+	pthread_mutex_lock(&job_mu);
+	size_t n = blocking_threads;
+	pthread_mutex_unlock(&job_mu);
 	return n;
 }
 
