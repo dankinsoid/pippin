@@ -5,7 +5,10 @@
   immutable snapshots: `extend` builds the next one under the protocol mutex, publishes it with a
   seq_cst store, bumps the definition epoch (`clj_epoch()`) and frees the old one after every reader's
   dispatch window (a per-thread flag, Dekker-ordered with the publish) has closed. Per-thread reader
-  slots are never freed; a retired snapshot's impls are released, so a redefinition leaks nothing. The core-interface
+  slots are never freed, so the writer's scan needs no lock; an exiting thread's slot goes to the next thread
+  (`reader_retire`, a pthread key's destructor), so the scan is as long as the most threads alive at once, not
+  every thread the blocking pools ever retired (`ChanStressTests.idlePoolThreadsRetire`). A retired snapshot's
+  impls are released, so a redefinition leaks nothing. The core-interface
   slots of every type are write-once: a builtin's are static, a `deftype`/`reify` fills its own at
   creation from the interfaces its form names (next item); `(extend-type String ISeq ...)` and
   `(extend-type MyType ISeq ...)` are refused alike.

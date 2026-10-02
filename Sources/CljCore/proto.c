@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+#include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,15 +60,45 @@ typedef clj_proto_reader reader;
 static reader               *readers; // pushed under lock, never removed
 _Thread_local clj_proto_reader *clj_proto_reader_tls;
 
+// Readers of exited threads, for the next thread to take: the scan's list stays as long as the most threads
+// alive at once, not every thread that ever lived (the blocking pools retire idle threads).
+static pthread_mutex_t spare_mu = PTHREAD_MUTEX_INITIALIZER;
+static reader         *spare;
+static pthread_once_t  reader_key_once = PTHREAD_ONCE_INIT;
+static pthread_key_t   reader_key;
+
+// A plain mutex, not `lock`: a clj_lock counts itself on the execution, which the thread's exit may have freed.
+// The reader comes as the key's value: Darwin may have torn the thread's TLS down first. Its window is closed.
+static void reader_retire(void *p) {
+	reader *r = p;
+	clj_proto_reader_tls = NULL;
+	pthread_mutex_lock(&spare_mu);
+	r->spare_next = spare;
+	spare = r;
+	pthread_mutex_unlock(&spare_mu);
+}
+
+static void make_reader_key(void) {
+	if (pthread_key_create(&reader_key, reader_retire) != 0) clj_fatal("pthread_key_create failed");
+}
+
 clj_proto_reader *clj_proto_reader_init(void) {
-	reader *r = malloc(sizeof *r);
-	if (!r) clj_fatal("out of memory");
-	atomic_init(&r->active, 0);
-	clj_lock_lock(&lock);
-	r->next = readers;
-	readers = r;
-	clj_lock_unlock(&lock);
+	pthread_once(&reader_key_once, make_reader_key);
+	pthread_mutex_lock(&spare_mu);
+	reader *r = spare;
+	if (r) spare = r->spare_next;
+	pthread_mutex_unlock(&spare_mu);
+	if (!r) {
+		r = malloc(sizeof *r);
+		if (!r) clj_fatal("out of memory");
+		atomic_init(&r->active, 0);
+		clj_lock_lock(&lock);
+		r->next = readers;
+		readers = r;
+		clj_lock_unlock(&lock);
+	}
 	clj_proto_reader_tls = r;
+	pthread_setspecific(reader_key, r);
 	return r;
 }
 
@@ -103,6 +134,14 @@ static void users_remove(const clj_type *t) {
 static reader *window_open(void) { return clj_proto_window_open_inline(); }
 
 static void window_close(reader *r) { clj_proto_window_close_inline(r); }
+
+size_t clj_debug_proto_readers(void) {
+	clj_lock_lock(&lock);
+	size_t n = 0;
+	for (reader *r = readers; r; r = r->next) n++;
+	clj_lock_unlock(&lock);
+	return n;
+}
 
 void clj_proto_wait_readers(void) {
 	for (reader *r = readers; r; r = r->next) {

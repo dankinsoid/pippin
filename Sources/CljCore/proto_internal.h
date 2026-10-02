@@ -11,6 +11,7 @@
 typedef struct clj_proto_reader {
 	_Atomic uint32_t         active;
 	struct clj_proto_reader *next;
+	struct clj_proto_reader *spare_next; // on the spare list once its thread exited
 } clj_proto_reader;
 
 // Not in a public header: Swift cannot import a _Thread_local.

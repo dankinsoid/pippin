@@ -109,6 +109,16 @@ extension CoreTests {
 				if v == nil { usleep(10_000) } else { got.append(v) }
 			}
 			#expect(got == Array(repeating: Value(keyword: "refused"), count: k))
+			// Each batch's threads open a dispatch window (the deref) and retire; the next batch takes their readers.
+			let batch = "(let [a (atom 0) cs (vec (repeatedly 8 chan))] (doseq [c cs] (thread (<!! c) @a)) (doseq [c cs] (>!! c 1)))"
+			var readers = 0
+			for round in 0..<4 {
+				_ = try eval(batch)
+				#expect(threads { $0 == 0 })
+				usleep(100_000)
+				if round == 0 { readers = clj_debug_proto_readers() }
+			}
+			#expect(clj_debug_proto_readers() < readers + 8)
 		}
 
 		// Each spawn's share check meets the previous go's channel while that go's finish releases its fn (NOTES "RC").

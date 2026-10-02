@@ -124,4 +124,7 @@ clj_value clj_catch_instance(clj_value var, clj_value ex);
 // Interns the builtins, the builtin type names and the core interfaces into clojure.core.
 void clj_proto_install(void);
 
+// Dispatch windows ever made, each in use or kept for the next thread: what a writer's scan walks.
+size_t clj_debug_proto_readers(void);
+
 #endif

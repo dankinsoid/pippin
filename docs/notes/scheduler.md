@@ -76,7 +76,8 @@
   output (`AsyncLibTests.pipelines` on CI, runs 36927938282, 36985871664, 36987070315). A thread retires in the
   same hold of the pool's mutex that found nothing queued, so no job counts on it. Its exit frees what was per
   thread: the implicit coroutine and its carrier, the signal stack (`thread_exit` in `coro.c`), and the
-  allocator heap, which goes whole to the next thread that needs one (NOTES "Allocator"). What could still
+  allocator heap, which goes whole to the next thread that needs one (NOTES "Allocator"), as its protocol
+  reader slot does (NOTES "Type descriptor"): `clj_proto_wait_readers`, on every atom commit, scans them all. What could still
   reach the freed coroutine is waited for: a `cancel!` that read the body's coroutine off its channel lands
   before `thread_run` resets the cancellation (`cancels` on the channel; past the reset it would cancel the
   thread's next job), and a deadline fire the timer thread popped before the last disarm is waited out
