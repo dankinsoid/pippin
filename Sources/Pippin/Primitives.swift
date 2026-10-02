@@ -10,6 +10,7 @@ import CljCore
 @_cdecl("clj_host_boot")
 func hostBoot() {
 	Runtime.installHostTypes()
+	Runtime.installSwiftStubs()
 	Runtime.installPrimitives()
 }
 

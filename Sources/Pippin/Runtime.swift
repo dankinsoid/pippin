@@ -318,12 +318,20 @@ extension Value {
 		do {
 			let result = try body(values)
 			return withExtendedLifetime(result) { clj_retain(result.raw) }
-		} catch let e as ClojureError {
+		} catch {
+			return throwing(error)
+		}
+	}
+
+	/// A Swift error left pending in the core, for a C entry to return: CLJ_THROWN.
+	static func throwing(_ error: any Error) -> clj_value {
+		switch error {
+		case let e as ClojureError:
 			return withExtendedLifetime((e.thrown, e.traceValue)) { clj_throw_traced(clj_retain(e.thrown.raw), clj_retain(e.traceValue.raw)) }
-		} catch is CancellationError {
+		case is CancellationError:
 			// A CancellationError is our own cancellation coming back, never a foreign error (design §4).
 			return clj_throw_cancelled(false)
-		} catch {
+		default:
 			let wrapped = Value(hostError: error)
 			return withExtendedLifetime(wrapped) { clj_throw(clj_retain(wrapped.raw)) }
 		}

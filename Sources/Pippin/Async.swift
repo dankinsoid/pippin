@@ -176,25 +176,30 @@ extension Value {
 	public init(asyncFunction name: String? = nil, arity: ClosedRange<Int>? = nil,
 	            _ body: @escaping @Sendable ([Value]) async throws -> Value) {
 		// Arity is the inner fn's, so the error names it and not the variadic wrapper.
-		let inner = Value(function: name, arity: arity) { args in
-			let promise = Value(owning: clj_chan_promise())
-			let task = Task.detached {
-				let outcome: Value
-				do { outcome = Value([Value(true), try await body(args)]) } catch {
-					outcome = Value([Value(false), Self.thrownValue(for: error)])
-				}
-				withExtendedLifetime((promise, outcome)) {
-					// Nobody is left to deref after a cancelled caller walked away; the delivery is then a no-op.
-					let delivered = clj_chan_deliver(promise.raw, outcome.raw)
-					if delivered == CLJ_THROWN { _ = Value(owning: clj_take_pending()) } else { clj_release(delivered) }
-				}
+		self = Self.awaiting(Value(function: name, arity: arity) { args in Self.pendingCall { try await body(args) } })
+	}
+
+	/// `inner` behind `clojure.core/host-async-fn`: it answers `pendingCall` or an outcome made in place, `[true v]`.
+	static func awaiting(_ inner: Value) -> Value { try! AsyncFn.wrap(inner) }
+
+	/// Starts `body` on a detached Task and answers what `host-async-fn` parks on: `[promise cancel]`.
+	static func pendingCall(_ body: @escaping @Sendable () async throws -> Value) -> Value {
+		let promise = Value(owning: clj_chan_promise())
+		let task = Task.detached {
+			let outcome: Value
+			do { outcome = Value([Value(true), try await body()]) } catch {
+				outcome = Value([Value(false), Self.thrownValue(for: error)])
 			}
-			return Value([promise, Value(function: "cancel") { _ in
-				task.cancel()
-				return nil
-			}])
+			withExtendedLifetime((promise, outcome)) {
+				// Nobody is left to deref after a cancelled caller walked away; the delivery is then a no-op.
+				let delivered = clj_chan_deliver(promise.raw, outcome.raw)
+				if delivered == CLJ_THROWN { _ = Value(owning: clj_take_pending()) } else { clj_release(delivered) }
+			}
 		}
-		self = try! AsyncFn.wrap(inner)
+		return Value([promise, Value(function: "cancel") { _ in
+			task.cancel()
+			return nil
+		}])
 	}
 
 	// What Clojure rethrows for a Swift error: its own value for a ClojureError, :cancelled for a cancelled Task.

@@ -1,0 +1,370 @@
+// @ai-generated(solo)
+import CljCore
+import Foundation
+
+/// Level 2 of the bridge (design §5 «Объявленная граница»): what generated Swift stubs register with and call into.
+public enum SwiftStubs {
+	/// One Swift function as the generator printed it; a nil label is `_`.
+	public struct Function: Sendable {
+		public let swiftName: String
+		public let labels: [String?]
+		let call: Call
+
+		enum Call: Sendable {
+			case plain(@Sendable ([Value]) throws -> Value)
+			// Decodes on the caller's thread and answers the isolated call itself.
+			case mainActor(@Sendable ([Value]) throws -> @MainActor @Sendable () throws -> Value)
+		}
+
+		/// A nonisolated function: the body runs on the caller's thread.
+		public init(swiftName: String, labels: [String?], _ body: @escaping @Sendable ([Value]) throws -> Value) {
+			self.swiftName = swiftName
+			self.labels = labels
+			call = .plain(body)
+		}
+
+		/// A `@MainActor` function: `prepare` decodes the arguments where the caller is and returns the call,
+		/// which runs in place on the main thread and after a hop from anywhere else (design §5).
+		public init(swiftName: String, labels: [String?],
+		            mainActor prepare: @escaping @Sendable ([Value]) throws -> @MainActor @Sendable () throws -> Value) {
+			self.swiftName = swiftName
+			self.labels = labels
+			call = .mainActor(prepare)
+		}
+
+		var base: String { String(swiftName.prefix { $0 != "(" }) }
+		var isolated: Bool { if case .mainActor = call { true } else { false } }
+	}
+
+	/// A public symbol the generator did not bridge, and why: the report design §5 makes part of the product.
+	public struct Refusal: Sendable, Equatable, CustomStringConvertible {
+		public let swiftName: String
+		public let reason: String
+
+		public init(swiftName: String, reason: String) {
+			self.swiftName = swiftName
+			self.reason = reason
+		}
+
+		public var description: String { "\(swiftName): \(reason)" }
+	}
+
+	/// Where `require-swift` gets the stubs of a module nothing registered yet (design §5, the dev path): it runs
+	/// `scripts/swift-stubgen.py`, which caches by fingerprint, and `dlopen`s the dylib it names. A host that
+	/// links its stubs in (the production path) registers them at start and leaves this nil.
+	public struct Generator: Sendable {
+		/// `scripts/swift-stubgen.py`.
+		public var script: URL
+		/// Where the generator keeps one directory per fingerprint.
+		public var cache: URL
+		/// `-I` for the bridged modules' `.swiftmodule`.
+		public var moduleSearchPaths: [URL]
+		/// `-L` and `-l` for the libraries holding the bridged modules' code.
+		public var librarySearchPaths: [URL]
+		public var libraries: [String]
+		/// The directory holding the running runtime's `Pippin.swiftmodule`: a stub is built against it.
+		public var runtimeModules: URL
+		/// Module maps of the C modules `Pippin` imports (`CljCore`).
+		public var moduleMaps: [URL]
+
+		public init(script: URL, cache: URL, moduleSearchPaths: [URL], librarySearchPaths: [URL] = [], libraries: [String] = [],
+		            runtimeModules: URL, moduleMaps: [URL]) {
+			self.script = script
+			self.cache = cache
+			self.moduleSearchPaths = moduleSearchPaths
+			self.librarySearchPaths = librarySearchPaths
+			self.libraries = libraries
+			self.runtimeModules = runtimeModules
+			self.moduleMaps = moduleMaps
+		}
+	}
+
+	/// The generator's run failed; `output` is what it printed.
+	public struct GeneratorFailed: Error, CustomStringConvertible {
+		public let module: String
+		public let output: String
+		public var description: String { "The stub generator failed for Swift module \(module):\n\(output)" }
+	}
+
+	/// The dev path's configuration; nil leaves `require-swift` to modules already registered.
+	public static var generator: Generator? {
+		get { registry.withLock { registry.generator } }
+		set { registry.withLock { registry.generator = newValue } }
+	}
+
+	/// Called by a stub dylib's entry: a var per base name in the module's namespace picks the overload by labels.
+	public static func register(module: String, functions: [Function], refusals: [Refusal]) {
+		var order: [String] = []
+		var groups: [String: [Function]] = [:]
+		for f in functions {
+			if groups[f.base] == nil { order.append(f.base) }
+			groups[f.base, default: []].append(f)
+		}
+		for base in order {
+			let overloads = groups[base]!.map(Overload.init)
+			let name = kebab(base)
+			let doc = overloads.map { "\($0.function.swiftName)\($0.function.isolated ? " @MainActor" : "")" }.joined(separator: "\n")
+			Runtime.bind(name, in: module, doc: "Swift: \(doc)", dispatcher("\(module)/\(name)", overloads))
+		}
+		registry.withLock { registry.modules[module] = refusals }
+	}
+
+	/// What the generator reported as not bridged for a registered module; nil for a module not registered.
+	public static func refusals(of module: String) -> [Refusal]? {
+		registry.withLock { registry.modules[module] }
+	}
+
+	/// Makes the module's namespace exist with its stubs bound: `require-swift`'s host side.
+	public static func load(_ module: String) throws {
+		try registry.loading.withLock {
+			if refusals(of: module) != nil { return }
+			guard let generator else {
+				throw ClojureError(thrown: Value(exInfo: "No stubs for Swift module \(module): nothing registered them and no generator is configured (SwiftStubs.generator, design §5)"))
+			}
+			let dylib = try generate(module, with: generator)
+			guard let handle = dlopen(dylib, RTLD_NOW | RTLD_LOCAL) else {
+				throw ClojureError(thrown: Value(exInfo: "dlopen of the stubs of \(module) failed: \(String(cString: dlerror()))"))
+			}
+			let entry = "pippin_stubs_register_\(module)"
+			guard let symbol = dlsym(handle, entry) else {
+				throw ClojureError(thrown: Value(exInfo: "\(dylib) has no \(entry)"))
+			}
+			unsafeBitCast(symbol, to: (@convention(c) () -> Void).self)()
+			if refusals(of: module) == nil {
+				throw ClojureError(thrown: Value(exInfo: "\(entry) returned without registering \(module)"))
+			}
+		}
+	}
+
+	// The last line of the generator's output is the dylib; everything it printed is the error when it fails.
+	private static func generate(_ module: String, with g: Generator) throws -> String {
+		var args = [g.script.path, "--module", module, "--cache", g.cache.path, "--runtime-modules", g.runtimeModules.path]
+		for p in g.moduleSearchPaths { args += ["-I", p.path] }
+		for p in g.librarySearchPaths { args += ["-L", p.path] }
+		for l in g.libraries { args += ["-l", l] }
+		for m in g.moduleMaps { args += ["--module-map", m.path] }
+		let process = Process()
+		process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+		process.arguments = ["python3"] + args
+		// The host's DYLD_* variables would reach swiftc and every library it loads; DEVELOPER_DIR picks the Xcode.
+		let env = ProcessInfo.processInfo.environment
+		process.environment = env.filter { ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"].contains($0.key) }
+		let out = Pipe()
+		process.standardOutput = out
+		process.standardError = out
+		try process.run()
+		let data = out.fileHandleForReading.readDataToEndOfFile()
+		process.waitUntilExit()
+		let text = String(decoding: data, as: UTF8.self)
+		guard process.terminationStatus == 0,
+		      let last = text.split(separator: "\n").last, last.hasSuffix(".dylib") else {
+			throw GeneratorFailed(module: module, output: text)
+		}
+		return String(last)
+	}
+
+	// MARK: Calls
+
+	struct Overload: Sendable {
+		let function: Function
+		let labels: [Value?]
+
+		init(_ f: Function) {
+			function = f
+			labels = f.labels.map { $0.map { Value(keyword: SwiftStubs.kebab($0)) } }
+		}
+
+		var arity: Int { labels.reduce(0) { $0 + ($1 == nil ? 1 : 2) } }
+
+		// The positional values when the arguments carry exactly this overload's labels, in order.
+		func values(_ args: [Value]) -> [Value]? {
+			guard args.count == arity else { return nil }
+			var out: [Value] = []
+			var i = 0
+			for label in labels {
+				if let label {
+					guard args[i] == label else { return nil }
+					i += 1
+				}
+				out.append(args[i])
+				i += 1
+			}
+			return out
+		}
+
+		var spelling: String { "(\(labels.map { $0.map { ":\(String(describing: $0).dropFirst())" } ?? "_" }.joined(separator: " ")))" }
+	}
+
+	// An isolated overload sends the call through `host-async-fn`, the frame that may park; a module with none
+	// pays no wrapper at all.
+	private static func dispatcher(_ name: String, _ overloads: [Overload]) -> Value {
+		func pick(_ args: [Value]) throws -> (Overload, [Value]) {
+			for o in overloads { if let v = o.values(args) { return (o, v) } }
+			let shown = args.map { clj_is_keyword($0.raw) ? $0.description : "_" }.joined(separator: " ")
+			let known = overloads.map { "\($0.function.swiftName) \($0.spelling)" }.joined(separator: ", ")
+			throw ClojureError(thrown: Value(exInfo: "No overload of \(name) takes (\(shown)); it has \(known)"))
+		}
+		guard overloads.contains(where: \.function.isolated) else {
+			return Value(function: name) { args in
+				let (o, values) = try pick(args)
+				guard case .plain(let body) = o.function.call else { preconditionFailure("an isolated overload in a plain dispatcher") }
+				return try body(values)
+			}
+		}
+		return Value.awaiting(Value(function: name) { args in
+			let (o, values) = try pick(args)
+			switch o.function.call {
+			case .plain(let body):
+				return Value([Value(true), try body(values)])
+			case .mainActor(let prepare):
+				let call = try prepare(values)
+				if Thread.isMainThread { return Value([Value(true), try MainActor.assumeIsolated { try call() }]) }
+				try refuseHopWhereParkIsIllegal(o.function.swiftName)
+				registry.withLock { registry.hops += 1 }
+				return Value.pendingCall { try await MainActor.run { try call() } }
+			}
+		})
+	}
+
+	// Asked before anything Swift runs: a hop the caller could not wait for would have run the call regardless.
+	private static func refuseHopWhereParkIsIllegal(_ swiftName: String) throws {
+		if clj_host_park_allowed() { return }
+		let why = Value(owning: clj_take_pending())
+		_ = Value(owning: clj_take_pending_trace())
+		if why.isCancellation { throw ClojureError(thrown: why) }
+		let reason = ClojureError(thrown: why).message
+		throw ClojureError(thrown: Value(exInfo: "\(swiftName) is @MainActor and the caller is off the main thread, so the call hops and parks; here it cannot: \(reason)"))
+	}
+
+	static func kebab(_ name: String) -> String {
+		name.withCString { text in
+			let want = clj_objc_kebab(text, nil, 0)
+			var buf = [CChar](repeating: 0, count: want + 1)
+			_ = clj_objc_kebab(text, &buf, buf.count)
+			return String(decoding: buf.prefix(want).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+		}
+	}
+
+	// MARK: Boxes
+
+	/// A struct as a Clojure value, boxed with a copy (design §5): `=` and `hash` are the type's own `==` and
+	/// `hash(into:)`; the overload `swiftc` picks from the type's conformances decides which a box has.
+	public static func box<T: Hashable>(_ value: T) -> Value { make(value, BoxKind<T>.hashable) }
+	/// A box with the type's `==`; it refuses to be a map key or a set member.
+	public static func box<T: Equatable>(_ value: T) -> Value { make(value, BoxKind<T>.equatable) }
+	/// A box with neither: it refuses to be a key, and `=` of two distinct ones refuses.
+	public static func box<T>(_ value: T) -> Value { make(value, BoxKind<T>.plain) }
+
+	/// The struct inside a box of `T`; anything else throws. The value is the one boxed, not a rebuilt copy.
+	public static func unbox<T>(_ value: Value, as type: T.Type) throws -> T {
+		let descriptor = registry.withLock { registry.boxTypes[ObjectIdentifier(type)]?.descriptor }
+		guard let descriptor, clj_is_host_box(value.raw), clj_host_box_type(value.raw) == descriptor else {
+			throw ValueTypeMismatch(value: value, expected: String(reflecting: type))
+		}
+		return withExtendedLifetime(value) {
+			(Unmanaged<AnyObject>.fromOpaque(clj_host_box_payload(value.raw)!).takeUnretainedValue() as! Boxed<T>).value
+		}
+	}
+
+	private static func make<T>(_ value: T, _ kind: @autoclosure () -> BoxKind<T>) -> Value {
+		let id = ObjectIdentifier(T.self)
+		let type = registry.withLock { registry.boxTypes[id] ?? { let t = kind(); registry.boxTypes[id] = t; return t }() }
+		let payload = Unmanaged.passRetained(Boxed(value) as AnyObject).toOpaque()
+		return Value(owning: clj_host_box_new(type.descriptor, payload))
+	}
+
+	static var hops: Int { registry.withLock { registry.hops } }
+
+	private static let registry = Registry()
+
+	private final class Registry: @unchecked Sendable {
+		private let lock = NSLock()
+		// Held across a load: the generator and dlopen run once per module even when two callers race.
+		let loading = NSLock()
+		var modules: [String: [Refusal]] = [:]
+		var boxTypes: [ObjectIdentifier: AnyBoxKind] = [:]
+		var generator: Generator?
+		var hops = 0
+
+		func withLock<R>(_ body: () throws -> R) rethrows -> R {
+			lock.lock()
+			defer { lock.unlock() }
+			return try body()
+		}
+	}
+}
+
+private final class Boxed<T>: @unchecked Sendable {
+	let value: T
+	init(_ value: T) { self.value = value }
+}
+
+// One per boxed Swift type, never freed: the core's descriptor points at it for the life of the process.
+private class AnyBoxKind: @unchecked Sendable {
+	var descriptor: UnsafePointer<clj_type>!
+
+	func equals(_ a: AnyObject, _ b: AnyObject) -> Bool { preconditionFailure("no equality") }
+	func hash(_ a: AnyObject) -> UInt32 { preconditionFailure("no hash") }
+	func describe(_ a: AnyObject) -> String { preconditionFailure("abstract") }
+
+	fileprivate init(name: String, equatable: Bool, hashable: Bool) {
+		var ops = clj_host_box_ops()
+		ops.release = { _, payload in Unmanaged<AnyObject>.fromOpaque(payload!).release() }
+		ops.describe = { ctx, payload in
+			let text = Value(AnyBoxKind.of(ctx).describe(AnyBoxKind.object(payload)))
+			return withExtendedLifetime(text) { clj_retain(text.raw) }
+		}
+		if equatable { ops.equals = { ctx, a, b in AnyBoxKind.of(ctx).equals(AnyBoxKind.object(a), AnyBoxKind.object(b)) } }
+		if hashable { ops.hash = { ctx, payload in AnyBoxKind.of(ctx).hash(AnyBoxKind.object(payload)) } }
+		let ctx = Unmanaged.passRetained(self).toOpaque()
+		descriptor = name.withCString { n in withUnsafePointer(to: ops) { clj_host_box_type_new(n, $0, ctx) } }
+	}
+
+	static func of(_ ctx: UnsafeMutableRawPointer?) -> AnyBoxKind { Unmanaged<AnyBoxKind>.fromOpaque(ctx!).takeUnretainedValue() }
+	static func object(_ payload: UnsafeMutableRawPointer?) -> AnyObject { Unmanaged<AnyObject>.fromOpaque(payload!).takeUnretainedValue() }
+}
+
+private final class BoxKind<T>: AnyBoxKind, @unchecked Sendable {
+	private let eq: ((T, T) -> Bool)?
+	private let hasher: ((T) -> Int)?
+
+	private init(eq: ((T, T) -> Bool)?, hasher: ((T) -> Int)?) {
+		self.eq = eq
+		self.hasher = hasher
+		super.init(name: String(reflecting: T.self), equatable: eq != nil, hashable: hasher != nil)
+	}
+
+	static var plain: BoxKind { BoxKind(eq: nil, hasher: nil) }
+
+	override func equals(_ a: AnyObject, _ b: AnyObject) -> Bool { eq!((a as! Boxed<T>).value, (b as! Boxed<T>).value) }
+
+	override func hash(_ a: AnyObject) -> UInt32 {
+		let h = UInt64(UInt(bitPattern: hasher!((a as! Boxed<T>).value)))
+		return UInt32(truncatingIfNeeded: h ^ (h >> 32))
+	}
+
+	override func describe(_ a: AnyObject) -> String { String(describing: (a as! Boxed<T>).value) }
+}
+
+extension BoxKind where T: Equatable {
+	static var equatable: BoxKind { BoxKind(eq: ==, hasher: nil) }
+}
+
+extension BoxKind where T: Hashable {
+	static var hashable: BoxKind { BoxKind(eq: ==, hasher: { $0.hashValue }) }
+}
+
+// The C side of `require-swift`: installed by `clj_host_boot`, so every Swift host has it.
+func cljHostModuleLoad(_ module: clj_value) -> clj_value {
+	let name = Value(borrowing: module).description
+	do {
+		try SwiftStubs.load(name)
+		return CLJ_NIL
+	} catch {
+		return Value.throwing(error)
+	}
+}
+
+extension Runtime {
+	static func installSwiftStubs() { clj_host_module_install(cljHostModuleLoad) }
+}
