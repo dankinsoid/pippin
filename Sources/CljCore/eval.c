@@ -1123,6 +1123,7 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 				break;
 			}
 			result = clj_map_assoc(result, items[i], items[i + 1]);
+			if (result == CLJ_THROWN) break;
 		}
 		release_owned(items, n->u.seq.n, owned);
 	}
@@ -1146,6 +1147,7 @@ static clj_value eval_set(const clj_node *n, clj_frame *f) {
 				break;
 			}
 			result = clj_set_conj(result, items[i]);
+			if (result == CLJ_THROWN) break;
 		}
 		release_owned(items, n->u.seq.n, owned);
 	}
@@ -1642,6 +1644,8 @@ clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
 	if (--c->exec_depth == 0 && c->nretired) drain_retired();
 	return v;
 }
+
+bool clj_host_park_allowed(void) { return clj_park_allowed(); }
 
 void clj_eval_top_leave(void) {
 	if (--execution.exec_depth == 0 && execution.nretired) drain_retired();

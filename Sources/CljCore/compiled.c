@@ -98,6 +98,7 @@ clj_value clj_c_set_literal(const clj_value *items, uint32_t n) {
 	for (uint32_t i = 0; i < n; i++) {
 		if (clj_set_contains(result, items[i])) return duplicate_key(result, items[i]);
 		result = clj_set_conj(result, items[i]);
+		if (result == CLJ_THROWN) return CLJ_THROWN;
 	}
 	return result;
 }

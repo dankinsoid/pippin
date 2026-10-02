@@ -182,14 +182,18 @@ static clj_value normalized(clj_value m) {
 }
 
 // Consumes self and the slot's own reference to the extmap.
-static clj_record *ext_assoc(clj_value self, clj_value key, clj_value val, bool remove) {
+static clj_value ext_assoc(clj_value self, clj_value key, clj_value val, bool remove) {
 	clj_record *r = record_own(self);
 	clj_value  *slot = &r->slots[((const clj_user_type *)r->h.type)->nfields];
 	clj_value   base = clj_is_nil(*slot) ? clj_map_empty() : *slot;
 	*slot = CLJ_NIL;
 	clj_value m = remove ? clj_map_dissoc(base, key) : clj_map_assoc(base, key, val);
+	if (m == CLJ_THROWN) {
+		clj_release(clj_from_ptr(r));
+		return CLJ_THROWN;
+	}
 	store(&r->h, slot, normalized(m));
-	return r;
+	return clj_from_ptr(r);
 }
 
 static clj_value record_assoc(clj_value self, clj_value key, clj_value val) {
@@ -204,7 +208,7 @@ static clj_value record_assoc(clj_value self, clj_value key, clj_value val) {
 	}
 	clj_value ext = *ext_slot(self);
 	if (!clj_is_nil(ext) && clj_map_get(ext, key, CLJ_UNBOUND) == val) return self;
-	return clj_from_ptr(ext_assoc(self, key, val, false));
+	return ext_assoc(self, key, val, false);
 }
 
 clj_value clj_record_to_map(clj_value r) {
@@ -230,7 +234,7 @@ static clj_value record_dissoc(clj_value self, clj_value key) {
 	}
 	clj_value ext = *ext_slot(self);
 	if (clj_is_nil(ext) || !clj_map_contains(ext, key)) return self;
-	return clj_from_ptr(ext_assoc(self, key, CLJ_NIL, true));
+	return ext_assoc(self, key, CLJ_NIL, true);
 }
 
 static bool conj_entry(clj_value key, clj_value val, void *ctx) {

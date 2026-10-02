@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "clj/hostbox.h"
 #include "clj/hosttype.h"
 #include "clj/record.h"
 
@@ -422,6 +423,15 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);
 	} else if (clj_is_host_type(v)) {
 		put_cstr(b, clj_host_type_name(v));
+	} else if (clj_is_host_box(v)) {
+		put_fmt(b, "#object[%s", clj_type_name(v));
+		clj_value text = clj_host_box_describe(v);
+		if (clj_is_string(text)) {
+			put_char(b, ' ');
+			put_string_literal(b, text);
+		}
+		clj_release(text);
+		put_char(b, ']');
 	} else if (clj_is_protocol(v)) {
 		put_cstr(b, "#object[protocol ");
 		put_symbol_text(b, clj_symbol_ns(clj_protocol_of(v)->name), clj_symbol_name(clj_protocol_of(v)->name));

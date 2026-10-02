@@ -49,6 +49,21 @@ void clj_equals_drop_pending(void);
 void clj_equals_watch(void);
 bool clj_equals_rethrow(void);
 
+// Slots cannot throw, so a refusing hash/equals records here (design §5 «Равенство и хэш бокса»); storing a key,
+// `=`, `not=` and `hash` throw the record, a lookup drops it ("absent" is true). message is immortal.
+void clj_refuse(const char *message);
+// Nonzero while some execution holds a record, so a process where nothing refused pays one load.
+extern _Atomic uint32_t clj_refusals_held;
+bool clj_refusal_rethrow_slow(void);
+void clj_refusal_drop_slow(void);
+// True with the refusal pending as an ex-info carrying the trace.
+static inline bool clj_refusal_rethrow(void) {
+	return atomic_load_explicit(&clj_refusals_held, memory_order_relaxed) && clj_refusal_rethrow_slow();
+}
+static inline void clj_refusal_drop(void) {
+	if (atomic_load_explicit(&clj_refusals_held, memory_order_relaxed)) clj_refusal_drop_slow();
+}
+
 // Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
 void clj_error_intern_keywords(void);
 

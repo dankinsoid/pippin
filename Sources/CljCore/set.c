@@ -193,7 +193,12 @@ static clj_value set_update(clj_value set, clj_value x, bool add) {
 	clj_set  *s = set_own(set);
 	clj_value impl = s->impl;
 	s->impl = CLJ_NIL;
-	store(&s->h, &s->impl, add ? clj_hash_map_assoc(impl, x, x) : clj_hash_map_dissoc(impl, x));
+	clj_value updated = add ? clj_hash_map_assoc(impl, x, x) : clj_hash_map_dissoc(impl, x);
+	if (updated == CLJ_THROWN) {
+		clj_release(clj_from_ptr(s));
+		return CLJ_THROWN;
+	}
+	store(&s->h, &s->impl, updated);
 	return clj_from_ptr(s);
 }
 
@@ -209,6 +214,6 @@ clj_value clj_set_disj(clj_value set, clj_value x) {
 
 clj_value clj_set_from_array(const clj_value *items, size_t n) {
 	clj_value s = clj_set_empty();
-	for (size_t i = 0; i < n; i++) s = clj_set_conj(s, items[i]);
+	for (size_t i = 0; i < n && s != CLJ_THROWN; i++) s = clj_set_conj(s, items[i]);
 	return s;
 }

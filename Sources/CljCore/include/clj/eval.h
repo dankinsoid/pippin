@@ -143,6 +143,8 @@ void clj_eval_top_enter(void);
 void clj_eval_top_leave(void);
 // clj_invoke from the host: a recovery point for a stack overflow in compiled code (guard.h) and a top-level bracket.
 clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n);
+// Whether the running execution may park; when not, why is pending as a throw (a cancellation, host_depth, a lock).
+bool clj_host_park_allowed(void);
 
 // A call of f with a fixed argument count prepared once, for a native that calls f per element: a closure has its
 // arity resolved and enters its body directly, a plain native skips its arity check. f is borrowed and must

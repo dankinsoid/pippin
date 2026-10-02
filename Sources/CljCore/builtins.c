@@ -10,6 +10,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/fusion.h"
+#include "clj/hostmodule.h"
 #include "clj/hosttype.h"
 #include "clj/intrinsics.h"
 #include "clj/record.h"
@@ -407,7 +408,12 @@ static clj_value b_set(const clj_value *args, size_t n) {
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, r = clj_set_empty();
-	while (clj_seq_iter_next(&it, &item)) r = clj_set_conj(r, item);
+	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) r = clj_set_conj(r, item);
+	if (r == CLJ_THROWN) {
+		clj_seq_iter_close(&it);
+		clj_release(s);
+		return CLJ_THROWN;
+	}
 	clj_release(s);
 	if (it.thrown) {
 		clj_release(r);
@@ -1551,4 +1557,5 @@ void clj_builtins_install(void) {
 	clj_inst_builtins_install();
 	clj_format_builtins_install();
 	clj_objc_builtins_install();
+	clj_host_module_builtins_install();
 }

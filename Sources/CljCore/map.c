@@ -385,6 +385,8 @@ static clj_value node_dissoc(clj_value node, uint32_t shift, uint32_t hash, clj_
 
 static const clj_value *map_find(clj_value map, clj_value key) {
 	uint32_t hash = clj_hash(key);
+	// A key that refused its hash is in no map, since storing it throws: "absent" is the true answer.
+	clj_refusal_drop();
 	clj_value node = clj_map_of(map)->root;
 	for (uint32_t shift = 0;; shift += BITS) {
 		if (is_cnode(node)) {
@@ -579,7 +581,7 @@ static clj_value map_conj(clj_value self, clj_value item) {
 	if (clj_is_map(item)) {
 		size_t     n;
 		clj_value *entries = entries_of(item, &n);
-		for (size_t j = 0; j < n; j += 2) self = clj_map_assoc(self, entries[j], entries[j + 1]);
+		for (size_t j = 0; j < n && self != CLJ_THROWN; j += 2) self = clj_map_assoc(self, entries[j], entries[j + 1]);
 		free(entries);
 		return self;
 	}
@@ -592,7 +594,12 @@ static clj_value map_conj(clj_value self, clj_value item) {
 		}
 		clj_seq_iter it = clj_seq_iter_start(s);
 		clj_value    entry;
-		while (clj_seq_iter_next(&it, &entry)) self = clj_map_assoc(self, clj_vector_nth(entry, 0), clj_vector_nth(entry, 1));
+		while (self != CLJ_THROWN && clj_seq_iter_next(&it, &entry)) self = clj_map_assoc(self, clj_vector_nth(entry, 0), clj_vector_nth(entry, 1));
+		if (self == CLJ_THROWN) {
+			clj_seq_iter_close(&it);
+			clj_release(s);
+			return CLJ_THROWN;
+		}
 		clj_release(s);
 		if (it.thrown) {
 			clj_release(self);
@@ -719,11 +726,17 @@ static clj_value map_commit(clj_value map, bool unique, clj_value root, edit e, 
 }
 
 clj_value clj_hash_map_assoc(clj_value map, clj_value key, clj_value val) {
+	clj_refusal_drop();
+	uint32_t hash = clj_hash(key);
+	if (clj_refusal_rethrow()) {
+		clj_release(map);
+		return CLJ_THROWN;
+	}
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root : clj_retain(m->root);
 	edit e = {0};
-	root = node_assoc(root, 0, clj_hash(key), key, val, &e);
+	root = node_assoc(root, 0, hash, key, val, &e);
 	return map_commit(map, unique, root, e, 1);
 }
 
@@ -732,7 +745,9 @@ clj_value clj_hash_map_dissoc(clj_value map, clj_value key) {
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root : clj_retain(m->root);
 	edit e = {0};
-	root = node_dissoc(root, 0, clj_hash(key), key, &e);
+	uint32_t hash = clj_hash(key);
+	clj_refusal_drop();
+	root = node_dissoc(root, 0, hash, key, &e);
 	return map_commit(map, unique, root, e, -1);
 }
 
@@ -774,6 +789,7 @@ clj_value clj_map_from_items(const clj_value *items, uint32_t n, uint32_t *dup) 
 			return CLJ_UNBOUND;
 		}
 		m = clj_map_assoc(m, items[i], items[i + 1]);
+		if (m == CLJ_THROWN) return CLJ_THROWN;
 	}
 	return m;
 }

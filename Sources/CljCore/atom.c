@@ -254,7 +254,13 @@ clj_value clj_atom_compare_and_set(clj_value atom, clj_value expected, clj_value
 clj_value clj_atom_add_watch(clj_value atom, clj_value key, clj_value f) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "add-watch")) return CLJ_THROWN;
-	clj_value w = clj_map_assoc(clj_is_nil(a->watches) ? clj_map_empty() : a->watches, key, f);
+	clj_value watches = clj_is_nil(a->watches) ? clj_map_empty() : clj_retain(a->watches);
+	clj_value w = clj_map_assoc(watches, key, f);
+	if (w == CLJ_THROWN) {
+		leave(a);
+		return CLJ_THROWN;
+	}
+	clj_release(a->watches);
 	clj_share(w);
 	a->watches = w;
 	CLJ_SLOT_CHECK(&a->h, w);

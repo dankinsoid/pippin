@@ -2534,9 +2534,25 @@
   [& args]
   (apply load-libs :require :use args))
 
+;; The declared Swift boundary (design §5 «Объявленная граница»): the host binds a module's stubs as the vars
+;; of the namespace named after the module; a C-only host refuses in require-swift*.
+(defn ^:pippin/extension require-swift
+  "Loads the stubs of Swift modules. A spec is a module symbol or [Module :as alias :refer [names] or :all];
+  a module's functions are the vars of the namespace of its name, in kebab case, called with their labels
+  as keywords in declaration order: (moved p :by 3)."
+  [& specs]
+  (doseq [spec specs]
+    (let [[module & options] (if (symbol? spec) [spec] spec)
+          opts (apply hash-map options)]
+      (when-let [bad (seq (remove #{:as :refer} (keys opts)))]
+        (throw (ex-info (str "Unsupported require-swift option: " (first bad)) {:module module})))
+      (require-swift* module)
+      (when-let [a (:as opts)] (alias a module))
+      (when-let [r (:refer opts)] (refer module :refer r)))))
+
 (defmacro ns
   "(ns name docstring? attr-map? references*): sets the current namespace, creating it when needed, and
-  processes (:refer-clojure ...), (:require ...) and (:use ...). (:import ...) and (:gen-class) name JVM
+  processes (:refer-clojure ...), (:require ...), (:require-swift ...) and (:use ...). (:import ...) and (:gen-class) name JVM
   classes and are ignored; a class named later fails to resolve where it is used (NOTES.md)."
   [name & references]
   (let [docstring (when (string? (first references)) (first references))
@@ -2548,6 +2564,7 @@
                   (cond
                     (= kname :refer-clojure) `(refer-clojure ~@(quote-all args))
                     (= kname :require) `(require ~@(quote-all args))
+                    (= kname :require-swift) `(require-swift ~@(quote-all args))
                     (= kname :use) `(use ~@(quote-all args))
                     (= kname :import) nil
                     (= kname :gen-class) nil
@@ -2563,13 +2580,17 @@
 ;; The Clojure half of the host's async bridge (design §5; NOTES.md, "The async bridge"). A Swift `async`
 ;; closure crosses as `inner`, which starts the work and answers [promise cancel]: the wait cannot happen in
 ;; the Swift frame, since a park inside a host call is an error, so it happens here, one frame out. The
-;; promise carries [ok? value], because a channel carries values and not throws.
+;; promise carries [ok? value], because a channel carries values and not throws. An isolated call made in
+;; place (a @MainActor stub already on the main thread, design §5 «Замыкания через границу») answers that
+;; outcome itself, and nothing parks.
 (defn- host-async-fn
   [inner]
   (fn [& args]
-    (let [[p cancel] (apply inner args)
-          r (try (deref p)
-                 (catch :cancelled e (cancel) (throw e)))]
+    (let [r (apply inner args)
+          r (if (boolean? (nth r 0))
+              r
+              (try (deref (nth r 0))
+                   (catch :cancelled e ((nth r 1)) (throw e))))]
       (if (nth r 0) (nth r 1) (throw (nth r 1))))))
 
 ;; The :=> declarations of C builtins (design §3, anchor 1): what a defn carries in its attr-map, set here because a builtin has none.

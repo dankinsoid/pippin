@@ -339,17 +339,50 @@ void clj_equals_drop_pending(void) {
 }
 
 // A record left by a drop nobody rethrew (a set lookup) belongs to no later comparison.
-void clj_equals_watch(void) { clj_coro_current()->equals_dropped = CLJ_CANCEL_NONE; }
+void clj_equals_watch(void) {
+	clj_coro_current()->equals_dropped = CLJ_CANCEL_NONE;
+	clj_refusal_drop();
+}
 
 // @ai-generated(solo)
 bool clj_equals_rethrow(void) {
 	clj_coro *c = clj_coro_current();
 	uint8_t   kind = c->equals_dropped;
-	if (kind == CLJ_CANCEL_NONE) return false;
+	if (kind == CLJ_CANCEL_NONE) return clj_refusal_rethrow();
 	c->equals_dropped = CLJ_CANCEL_NONE;
+	clj_refusal_drop();
 	clj_throw_cancelled(kind == CLJ_CANCEL_DEADLINE);
 	return true;
 }
+
+_Atomic uint32_t clj_refusals_held;
+
+// @ai-generated(solo)
+void clj_refuse(const char *message) {
+	clj_coro *c = clj_coro_current();
+	if (c->refused) return;
+	c->refused = message;
+	atomic_fetch_add_explicit(&clj_refusals_held, 1, memory_order_relaxed);
+}
+
+static const char *refusal_take(void) {
+	clj_coro   *c = clj_coro_current();
+	const char *message = c->refused;
+	if (message) {
+		c->refused = NULL;
+		atomic_fetch_sub_explicit(&clj_refusals_held, 1, memory_order_relaxed);
+	}
+	return message;
+}
+
+bool clj_refusal_rethrow_slow(void) {
+	const char *message = refusal_take();
+	if (!message) return false;
+	clj_throw_msg("%s", message);
+	return true;
+}
+
+void clj_refusal_drop_slow(void) { refusal_take(); }
 
 clj_value clj_pending_trace(void) { return pending_trace; }
 
@@ -366,4 +399,8 @@ void clj_coro_drop_pending(clj_coro *c) {
 	clj_release(c->pending_trace);
 	c->pending = CLJ_NIL;
 	c->pending_trace = CLJ_NIL;
+	if (c->refused) {
+		c->refused = NULL;
+		atomic_fetch_sub_explicit(&clj_refusals_held, 1, memory_order_relaxed);
+	}
 }
