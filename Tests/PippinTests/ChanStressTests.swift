@@ -31,14 +31,21 @@ extension CoreTests {
 			runtimeSettled("before the pool is counted")
 			let idle = clj_debug_blocking_threads()
 			#expect(idle >= 4)
-			#expect(try eval("""
-				(let [c (chan) done (chan)]
+			let run = try eval("""
+				(let [c (chan) done (chan 1)]
 				  (dotimes [_ \(idle)] (thread (<!! c)))
-				  (thread (dotimes [_ \(idle)] (>!! c 1)) (a/close! done))
-				  (let [[_ port] (a/alts!! [done (timeout 10000)])]
-				    (a/close! c)
-				    (= port done)))
-				""") == true)
+				  (thread (dotimes [_ \(idle)] (>!! c 1)) (>!! done :done))
+				  [c done])
+				""")
+			// Polled rather than raced against a timeout, whose timer would outlive the test.
+			let poll = try eval("(fn [[_ done]] (a/poll! done))")
+			var finished = false
+			for _ in 0..<1000 where !finished {
+				finished = try poll.apply([run]) == Value(keyword: "done")
+				if !finished { usleep(10_000) }
+			}
+			_ = try eval("(fn [[c _]] (a/close! c))").apply([run])
+			#expect(finished)
 		}
 
 		@Test func stressSpawn() throws {
