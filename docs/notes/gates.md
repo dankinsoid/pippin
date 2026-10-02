@@ -86,7 +86,9 @@
   warm about 3× faster, which is what a same-day second push pays.
 - **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests and by hand, one job
   per architecture, both required: `macos-26` (arm64, 3 cores, 7 GB) and `macos-26-intel` (x86_64, 4 cores,
-  14 GB); a matrix entry's `required: false` would turn its job back into `continue-on-error`. Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
+  14 GB); a matrix entry's `required: false` would turn its job back into `continue-on-error`. The x86_64 job
+  became required after consecutive green dispatches on both runners (runs 36989106164, 36992908023,
+  36995366088; about 12 min arm64, 24 min x86_64). Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
   are installed per run, the image's JDK 21 runs it. `TEST_TIMEOUT=1200`: the runners are several times
   slower than the M3 the table above was measured on, and `CLJ_CORPUS_TIMEOUT_MS=20000` for the same reason:
   clojure-test-suite's `test-random-sample` takes 4–6 s under ASan there, against the 5 s default ("Corpus").
