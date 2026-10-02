@@ -35,12 +35,10 @@
   until they see the client hang up, so `NReplTests` waits for the server to be freed (`overTheWire`) — a
   `NamespaceTests` baseline counted them otherwise. A test that starts host threads holding values joins them
   before it returns.
-- [ ] **A `test-compiled` hang on arm64 CI** (run 36913041719, `d3a3181`): nothing after the build until the
-  1200 s bound. Known: that pass still ran XCTest, under which SwiftPM delivered the suite's output in 64 KB
-  lumps, the first ~50 s into a green run, so the hang was before `CorpusTests` finished (serialized,
-  alphabetical: AsyncBridge … ChanStress, Chan, Cmutex, CompilerFixture, Coro); the XCTest discovery helper
-  wedging (NOTES "Guard") is not excluded. Not reproduced locally (x86_64) nor in the dispatches below. Trigger:
-  the next hang, which now names its test and dumps every thread (the bullet above).
+- **The `test-compiled` hangs on CI were the blocking pool** (NOTES "Scheduler", "Blocking pool"). The report
+  above named the test (`AsyncLibTests.pipelines`), and its coroutine dump showed the deadlock: both pool threads
+  in `>!!`, the results loop parked on the channel a queued `thread` body would have fed. The first such hang
+  (run 36913041719, `d3a3181`) printed nothing, but stopped inside the same range of suites.
 - **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
   `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
   `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
