@@ -21,7 +21,7 @@ private func fixtureNames() -> [String] {
 	#endif
 }
 
-private func load(_ source: String, file: String) throws {
+func loadFixtureSource(_ source: String, file: String) throws {
 	var bytes = Array(source.utf8)
 	let path = Value(file)
 	try bytes.withUnsafeMutableBufferPointer { buf in
@@ -58,7 +58,7 @@ private func evalOptions() -> cljc_eval_options {
 
 // The file as one unit, the way clj-compile emits it: the load evaluates every form (its output is dropped) and the
 // unit built from what the hook saw is registered for the path, so clj_load_file runs it in place of the source.
-private func compileAsUnit(_ source: String, file: String, name: String, closed: Bool = false) throws {
+func compileFixtureAsUnit(_ source: String, file: String, name: String, closed: Bool = false) throws {
 	var opts = cljc_options()
 	opts.line = true
 	opts.skip_embedded = true
@@ -67,7 +67,7 @@ private func compileAsUnit(_ source: String, file: String, name: String, closed:
 	defer { cljc_free(c) }
 	cljc_begin(c)
 	defer { cljc_end(c) }
-	_ = try capturingOutput { try load(source, file: file) }
+	_ = try capturingOutput { try loadFixtureSource(source, file: file) }
 	cljc_end(c)
 	try #require(cljc_unit_count(c) == 1)
 	#expect(cljc_refusal_count(c) == 0)
@@ -78,7 +78,7 @@ private func compileAsUnit(_ source: String, file: String, name: String, closed:
 	clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
 }
 
-private func runUnit(_ file: String) throws -> String {
+func runFixtureUnit(_ file: String) throws -> String {
 	try capturingOutput {
 		let path = Value(file)
 		let r = withExtendedLifetime(path) { clj_load_file(path.raw) }
@@ -95,7 +95,7 @@ extension CoreTests {
 			let source = try String(contentsOf: fixtureDir.appendingPathComponent("\(name).clj"), encoding: .utf8)
 			let file = fixtureDir.appendingPathComponent("\(name).clj").path
 			defer { clj_ns_set_current(clj_ns_user()) }
-			let interpreted = try capturingOutput { try load(source, file: file) }
+			let interpreted = try capturingOutput { try loadFixtureSource(source, file: file) }
 			if ProcessInfo.processInfo.environment["CLJ_FIXTURE_UPDATE"] != nil {
 				try interpreted.write(to: fixtureDir.appendingPathComponent("\(name).out"), atomically: true, encoding: .utf8)
 			}
@@ -104,21 +104,21 @@ extension CoreTests {
 			// A second run replaces the first run's definitions one for one, so what it adds is what the source itself
 			// keeps per run (a deftype's descriptor, a parked root); the compiled backend must not add more.
 			let live0 = clj_debug_live_objects()
-			_ = try capturingOutput { try load(source, file: file) }
+			_ = try capturingOutput { try loadFixtureSource(source, file: file) }
 			let interpretedGrowth = clj_debug_live_objects() - live0
-			try compileAsUnit(source, file: file, name: name)
-			let compiled = try runUnit(file)
+			try compileFixtureAsUnit(source, file: file, name: name)
+			let compiled = try runFixtureUnit(file)
 			#expect(compiled == expected, "compiled output of \(name)")
 			let live1 = clj_debug_live_objects()
-			let again = try runUnit(file)
+			let again = try runFixtureUnit(file)
 			#expect(again == expected, "second compiled output of \(name)")
 			#expect(clj_debug_live_objects() - live1 <= interpretedGrowth, "compiled run of \(name) leaks")
 			// closed: no guards, direct calls, int64 loop variables; a fixture that rebinds vars or evals stays dev-only
 			guard !source.contains("with-redefs") && !source.contains("(eval ") && !source.contains("load-string") else { return }
-			try compileAsUnit(source, file: file, name: name + "_closed", closed: true)
-			#expect(try runUnit(file) == expected, "closed compiled output of \(name)")
+			try compileFixtureAsUnit(source, file: file, name: name + "_closed", closed: true)
+			#expect(try runFixtureUnit(file) == expected, "closed compiled output of \(name)")
 			let live2 = clj_debug_live_objects()
-			#expect(try runUnit(file) == expected, "second closed compiled output of \(name)")
+			#expect(try runFixtureUnit(file) == expected, "second closed compiled output of \(name)")
 			#expect(clj_debug_live_objects() - live2 <= interpretedGrowth, "closed compiled run of \(name) leaks")
 		}
 
