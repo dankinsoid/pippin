@@ -19,9 +19,10 @@ extension CoreTests {
 	@Suite struct CmutexTests {
 		init() throws {
 			clj_init()
+			try cljTimingSupport()
 			_ = try cljEvalScoped("(ns cmutex-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go thread]]))")
 			for k in ["twice", "a", "b", "again", "go", "open", "x"] { _ = kw(k) }
-			_ = try cljEvalScoped("(in-ns 'cmutex-tests) (declare cm-self)")
+			_ = try cljEvalScoped("(in-ns 'cmutex-tests) (refer 'test-support) (declare cm-self)")
 		}
 
 		@Test func lockingIsReentrant() throws {
@@ -88,12 +89,12 @@ extension CoreTests {
 				  @a)
 				""") == 1000)
 				#expect(try eval("""
-				(let [a (atom 0) gate (chan) seen (chan 1)]
-				  (go (swap! a (fn [v] (<! gate) (+ v 10))))
-				  (<!! (timeout 10))
+				(let [a (atom 0) gate (chan) seen (chan 1) in-f (promise)
+				      g (go (swap! a (fn [v] (deliver in-f true) (<! gate) (+ v 10))))]
+				  (await-true 10000 #(realized? in-f))
 				  (>!! seen @a)
 				  (>!! gate :go)
-				  (<!! (timeout 10))
+				  (<!! g)
 				  [(<!! seen) @a])
 				""") == [0, 10])
 			}

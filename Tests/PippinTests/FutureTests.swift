@@ -20,9 +20,10 @@ extension CoreTests {
 	@Suite struct FutureTests {
 		init() throws {
 			clj_init()
+			try cljTimingSupport()
 			_ = try cljEvalScoped("(ns future-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go alts! alts!! alt! alt!! thread cancel! promise-chan poll!]]))")
 			for k in ["a", "b", "blocked", "bound", "cancelled", "caught", "default", "done", "finally", "got", "k", "late", "none", "p", "ran", "root", "slept", "threw", "timed-out", "v", "x", "yes"] { _ = kw(k) }
-			_ = try cljEvalScoped("(in-ns 'future-tests) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil)) (def dt-fut nil)")
+			_ = try cljEvalScoped("(in-ns 'future-tests) (refer 'test-support) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil)) (def dt-fut nil)")
 		}
 
 		@Test func futureRunsOnThePoolAndDerefParks() throws {
@@ -55,7 +56,8 @@ extension CoreTests {
 			let base = CoroBaseline()
 			do {
 				#expect(try eval("(let [c (chan) f (future (<!! c))] (let [r (deref f 10 :timed-out)] (>!! c 1) [r @f]))") == [kw("timed-out"), 1])
-				#expect(try eval("(deref (future 5) 30 :timed-out)") == 5)
+				// The bound is the runner's slack, not the point: the base check waits its timer out.
+				#expect(try eval("(deref (future 5) 1000 :timed-out)") == 5)
 				#expect(try eval("(let [p (promise)] (deref p 10 :none))") == kw("none"))
 				#expect(message("(deref (atom 1) 10 :x)") == "deref with a timeout is not supported on this type: atom")
 				_ = try eval("(<!! (timeout 50))")
@@ -72,17 +74,19 @@ extension CoreTests {
 				#expect(mkfifo(path, 0o600) == 0)
 				defer { unlink(path) }
 				_ = try eval("(def dt-fut (future (load-file \"\(path)\")))")
-				_ = try eval("(<!! (timeout 30))")
+				// Cancelled before its read began, the body would unwind at once and the deref find it done.
+				#expect(eventually { clj_debug_blocking_held() > 0 })
 				#expect(try eval("(future-cancel dt-fut)") == true)
 				// The read is released whatever the deref does: an unbounded wait must end, not hang the suite.
-				DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(400)) {
+				let releasing = DispatchSemaphore(value: 0)
+				DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(1)) {
+					releasing.signal()
 					let fd = open(path, O_WRONLY)
 					_ = "nil\n".withCString { write(fd, $0, strlen($0)) }
 					close(fd)
 				}
-				let started = DispatchTime.now().uptimeNanoseconds
 				#expect(try eval("(try (deref dt-fut 20 :none) (catch :cancelled e :threw))") == kw("none"))
-				#expect(DispatchTime.now().uptimeNanoseconds - started < 300_000_000)
+				#expect(releasing.wait(timeout: .now()) == .timedOut, "the deref waited for the read's release")
 				_ = try eval("(try @dt-fut (catch :cancelled e :cancelled)) (def dt-fut nil)")
 			}
 			base.check()
@@ -119,7 +123,8 @@ extension CoreTests {
 				#expect(try eval("(let [f (future 1)] @f [(future-cancel f) (future-cancelled? f)])") == [false, false])
 				// cancel! reaches a thread body parked on a channel, and one not yet started.
 				#expect(try eval("(let [c (chan) t (thread (try (<!! c) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) [(cancel! t) (<!! t)])") == [true, "Coroutine cancelled"])
-				#expect(try eval("(let [ts (vec (repeatedly 70 #(thread (try (<!! (timeout 200)) :slept (catch :cancelled e (ex-message e))))))] (doseq [t ts] (cancel! t)) (frequencies (mapv <!! ts)))") == ["Coroutine cancelled": 70])
+				let seventy = try eval("(let [gate (chan) ts (vec (repeatedly 70 #(thread (try (<!! gate) :slept (catch :cancelled e (ex-message e))))))] (doseq [t ts] (cancel! t)) (close! gate) (frequencies (mapv <!! ts)))")
+				#expect(seventy == ["Coroutine cancelled": 70], "\(seventy)")
 				// A cancelled future is done at once, as on the JVM; its body lands a moment later with the cancellation.
 				#expect(try eval("(let [f (future (Thread/sleep 10000))] (<!! (timeout 5)) [(realized? f) (future-cancel f) (realized? f) (future-done? f) (try @f (catch :cancelled e (ex-message e)))])") == [false, true, true, true, "Coroutine cancelled"])
 				#expect(try eval("(let [f (future (Thread/sleep 1))] [(realized? f) (do @f (realized? f))])") == [false, true])
@@ -149,10 +154,13 @@ extension CoreTests {
 		@Test func threadSleepParks() throws {
 			let base = CoroBaseline()
 			do {
-				// Twenty sleeps of 20 ms on the pool finish together: nobody held a carrier.
-				let t0 = Date()
-				#expect(try eval("(let [gs (vec (repeatedly 20 #(go (Thread/sleep 20) :slept)))] (frequencies (mapv <!! gs)))") == [kw("slept"): 20])
-				#expect(Date().timeIntervalSince(t0) < 0.3)
+				// More sleepers than carriers: a sleep that held its carrier would keep the probe off them for 2 s.
+				let sleepers = 2 * clj_debug_sched_carriers() + 4
+				#expect(try eval("""
+					(let [gs (vec (repeatedly \(sleepers) #(go (Thread/sleep 2000) :slept)))
+					      probe (join (go :ran) 1000)]
+					  [probe (= (repeat \(sleepers) :slept) (mapv <!! gs))])
+					""") == [kw("ran"), true])
 				#expect(try eval("(do (Thread/sleep 1) :ran)") == kw("ran"))
 				// A sleep is a park point: cancel! wakes it.
 				#expect(try eval("(let [g (go (try (Thread/sleep 5000) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == "Coroutine cancelled")

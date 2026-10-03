@@ -38,11 +38,13 @@ extension CoreTests {
 	@Suite struct ChanTests {
 		init() throws {
 			clj_init()
+			try cljTimingSupport()
 			_ = try cljEvalScoped("(ns chan-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel!]]))")
 			// Keywords intern for ever and defs make vars: both before any test's live-object baseline.
 			for k in ["a", "after", "again", "b", "before", "bound", "c", "caught", "closed", "conveyed", "d", "default", "done", "early", "finally", "from-thread", "got", "in", "k", "none", "one-more", "printed", "priority", "put", "root", "t", "taking", "timed-out", "took", "v", "x"] { _ = kw(k) }
 			_ = try cljEvalScoped("""
 			(in-ns 'chan-tests)
+			(refer 'test-support)
 			(def ^:dynamic *d* :root)
 			(defn inner-after-park [c] (<! c) (throw (ex-info "x" {})))
 			(defn spawner [c] (go (try (inner-after-park c) (catch :default e (mapv :fn (ex-trace e))))))
@@ -72,7 +74,7 @@ extension CoreTests {
 				#expect(try eval("(let [c (chan) g (go (>! c 42) :put)] [(<!! c) (<!! g) (<!! g)])") == [42, kw("put"), nil])
 				#expect(try eval("(let [c (chan) g (go (<! c))] (>!! c :v) (<!! g))") == kw("v"))
 				// The putter parks until a taker arrives; both sides see the hand-off.
-				#expect(try eval("(let [c (chan) seen (atom []) g (go (swap! seen conj :before) (>! c 1) (swap! seen conj :after) @seen)] (<!! (timeout 20)) (swap! seen conj :taking) (<!! c) (<!! g))") == [kw("before"), kw("taking"), kw("after")])
+				#expect(try eval("(let [c (chan) seen (atom []) g (go (swap! seen conj :before) (>! c 1) (swap! seen conj :after) @seen)] (await-true 10000 #(seq @seen)) (swap! seen conj :taking) (<!! c) (<!! g))") == [kw("before"), kw("taking"), kw("after")])
 			}
 			base.check()
 		}
@@ -100,7 +102,7 @@ extension CoreTests {
 				#expect(try eval("(let [c (chan 2)] (>!! c 1) (close! c) [(>!! c 2) (offer! c 3) (<!! c) (<!! c) (<!! c) (poll! c)])") == [false, false, 1, nil, nil, nil])
 				// Parked takers wake with nil on close!; a parked putter is still taken after the close.
 				#expect(try eval("(let [c (chan) g (go (<! c))] (close! c) (<!! g))") == nil)
-				#expect(try eval("(let [c (chan) g (go (>! c :v))] (<!! (timeout 10)) (close! c) [(<!! c) (<!! g) (<!! c)])") == [kw("v"), true, nil])
+				#expect(try eval("(let [c (chan) g (go (>! c :v))] [(await-true 10000 #(= 1 (pending-puts c))) (do (close! c) (<!! c)) (<!! g) (<!! c)])") == [true, kw("v"), true, nil])
 				#expect(try eval("(let [c (chan)] (close! c) (close! c) (a/close! c) (<!! c))") == nil)
 			}
 			base.check()
