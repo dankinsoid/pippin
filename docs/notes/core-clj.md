@@ -68,7 +68,7 @@
   §7's trial deletion exists; `transient`,
   `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!`, `pop!` are the persistent operations themselves
   (the in-place path is the auto-transient of design §6b, so a code path written for transients just
-  works; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`;
+  works, though not at the same cost: next entry; the use-after-`persistent!` check is not made); `defonce` is a macro over `bound?`;
   `isa?` reads no supertypes of a type, ours or the host's — a type is a plain hierarchy key (trigger:
   `(isa? String CharSequence)` or an `instance?`-shaped dispatch in a corpus library; then
   `class_getSuperclass` and `swift_conformsToProtocol`, design §4);
@@ -84,6 +84,18 @@
   cannot throw; a symbol is not invokable, so `(ifn? 'x)` is false; a char is a Unicode scalar, so
   `(char 65895)` is in range; map and set seq order is the HAMT's, where the JVM's small collections keep
   insertion order (Clojure does not specify it). Triggers: a corpus test failing on any of these.
+- [ ] **`transient` is the identity, so `conj!` copies where `conj` would not** (core.clj ~line 1468). `conj!`
+  is a core.clj fn over `conj`, and its `coll` is a fixed param, borrowed (NOTES "Analyzer and evaluator",
+  last-use reuse): the `conj` inside never sees rc 1, and a call argument is never a last use, so
+  `(loop [t (transient [])] (recur (conj! t x)))` and `(reduce (fn [t x] (conj! t x)) (transient []) xs)`
+  copy at every step, where the same loop over `conj` grows in place — code written on transients for speed
+  (clojure.core's `into`/`frequencies`/`group-by`, medley, core.clj's own `update-keys`) runs slower than the
+  naive form. Derived from the code, not yet measured. Design §3 «Явные двойники» calls this a twin in name
+  only. Fix sketch: `transient` copies the root once when it is shared and sets a header flag; the `!`
+  operations on a flagged root update in place whatever its count (the transient contract voids every
+  other reference to it), nodes below still go by rc 1; `persistent!` clears the flag and can check
+  use-after. Open: how the flag meets `clj_share` and "children of a shared object are shared". Trigger:
+  a bench of `conj!` against `conj` in `loop` and `reduce`, or a corpus library's transient path in a profile.
 - **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
   partition-all dedupe distinct map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
   `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
