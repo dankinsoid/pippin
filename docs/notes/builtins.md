@@ -49,10 +49,11 @@
   already swapping (nested swap! trap)" (the JVM retries forever). **Publication:** everything stored into
   an atom — value, meta, validator, watches — is `clj_share`d before the store, whether or not the atom
   itself is shared: the atom is a publication point, so a value read on another thread is on the atomic
-  path from its first store. Triggers: the uniqueness trick returns only for atoms without watches or a
-  validator (both need `old` intact), and only with either a proven no-throw `f` (the `throws` fact of the
-  design's lattice, §3) or an undo journal, whichever is cheaper — when a profile shows `swap!` on a large
-  map hot (the 100000-key row is a 4-level trie, not a typical atom); `IRef`/`IAtom` as interfaces (a
+  path from its first store. Triggers: the uniqueness trick returns when a profile shows `swap!` on a large
+  map hot (the 100000-key row is a 4-level trie, not a typical atom), only for atoms without watches or a
+  validator (both need `old` intact), and only for an `f` that writes last — nothing that may throw after
+  its first in-place write, on any path — starting with the five consuming natives; the condition, the
+  order of work and the `deref` wait over the hand-over window are in design §4 «Атомы»; `IRef`/`IAtom` as interfaces (a
   deftype implementing `deref`); `agent`/`ref` (no); `swap!` returning a `reduced`-style early exit (no).
 - [~] **Volatiles are single-thread cells by contract** (`volatile!`, `vreset!`, `vswap!`; box.c): a
   read returns the value retained, a write retains the new value, shares it when the cell is

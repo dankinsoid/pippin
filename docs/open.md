@@ -91,7 +91,7 @@ file. 70 open, 80 partly done.
 
 ### [Builtins (Sources/CljCore/builtins.c)](notes/builtins.md)
 
-- [~] Atoms — Triggers: the uniqueness trick returns only for atoms without watches or a validator (both need `old` intact), and only with either a proven no-throw `f` (the `throws` fact of the design's lattice, §3) or an undo …
+- [~] Atoms — Triggers: the uniqueness trick returns when a profile shows `swap!` on a large map hot (the 100000-key row is a 4-level trie, not a typical atom), only for atoms without watches or a validator (both need `old` intact), …
 - [~] Volatiles are single-thread cells by contract — Trigger: a transducer shared across threads
 - [ ] `seq` on a map is an eager list of `[k v]` vectors — Trigger: `first`/`some` over big maps in a profile.
 - [~] `range` handles fixnums in C — … deferred).
