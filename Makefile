@@ -4,6 +4,8 @@
 # can leave the helper unkillable (NOTES.md, "Guard").
 export CLJ_CRASH_EXIT ?= 1
 export ASAN_OPTIONS ?= abort_on_error=0
+# The corpus watchdog catches a spinning deftest (NOTES "Corpus"); under ASan beside other shards one takes 4-6 s.
+export CLJ_CORPUS_TIMEOUT_MS ?= 20000
 
 BUILD_ROOT ?= .build
 PLAIN = $(BUILD_ROOT)/plain
@@ -15,6 +17,9 @@ TEST_TIMEOUT ?= 500
 # The suite is swift-testing only: the XCTest pass runs nothing, and its discovery helper loads an ASan-linked
 # bundle without the runtime first and dies (NOTES "Guard").
 TEST = timeout -k 5 $(TEST_TIMEOUT) swift test --disable-xctest
+# The suite as parallel processes over disjoint suites (docs/notes/gates.md, "Shards"); TEST_SHARDS=N sets the count.
+# python3 may be an xcrun shim, which sets SDKROOT for the swift calls it makes unless the caller's is passed on.
+SHARDS = python3 scripts/test-shards.py run --timeout $(TEST_TIMEOUT) --sdkroot='$(SDKROOT)'
 export CLJ_COMPILE = $(abspath $(PLAIN)/debug/clj-compile)
 export CLJ_CORPUS_CACHE = $(abspath $(BUILD_ROOT)/corpus-cache)
 CORPUS_REPORT = $(PLAIN)/corpus-report
@@ -31,17 +36,17 @@ boot:
 
 # ASan sees object boundaries only with the system allocator.
 test:
-	CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(ASAN) --sanitize=address
+	CLJ_SYSTEM_ALLOC=1 $(SHARDS) --gate test -- --scratch-path $(ASAN) --sanitize=address
 
 test-pool:
-	$(TEST) --scratch-path $(PLAIN)
+	$(SHARDS) --gate test-pool -- --scratch-path $(PLAIN)
 
 test-ubsan:
-	$(TEST) --scratch-path $(BUILD_ROOT)/ubsan --sanitize=undefined
+	$(SHARDS) --gate test-ubsan -- --scratch-path $(BUILD_ROOT)/ubsan --sanitize=undefined
 
 # The §7 invariant: clj_is_unique always false, so every in-place path degrades to a copy (NOTES.md, RC).
 test-noreuse:
-	$(TEST) --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE
+	$(SHARDS) --gate test-noreuse -- --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE
 
 # Every sanitizer and allocator mode has its own incremental build.
 test-all: test test-pool test-ubsan test-noreuse
@@ -49,10 +54,7 @@ test-all: test test-pool test-ubsan test-noreuse
 # Every suite alone, one process each: a live-object baseline that only holds after another suite's one-time
 # allocations fails here and not in the full run. Periodic, not a gate (NOTES.md, "Symbol / keyword").
 test-isolated:
-	swift build --scratch-path $(PLAIN) --build-tests
-	@fail=0; for s in $$(grep -ho '@Suite[^ ]* struct [A-Za-z]*' Tests/PippinTests/*.swift | awk '{print $$3}' | grep -v '^CoreTests$$'); do \
-		if $(TEST) --scratch-path $(PLAIN) --skip-build --filter "$$s" > /dev/null 2>&1; then echo "ok   $$s"; else echo "FAIL $$s"; fail=1; fi; \
-	done; exit $$fail
+	$(SHARDS) --gate test-pool --isolated -- --scratch-path $(PLAIN)
 
 # The acceptance corpus alone (it is part of every test run; CLJ_CORPUS=0 skips it there).
 corpus:
@@ -66,10 +68,10 @@ corpus-update:
 
 # The whole suite on the compiled core with the pool allocator.
 test-compiled:
-	$(TEST) --scratch-path $(COMPILED) -Xcc -DCLJ_COMPILED_CORE
+	$(SHARDS) --gate test-compiled -- --scratch-path $(COMPILED) -Xcc -DCLJ_COMPILED_CORE
 
 test-compiled-asan:
-	CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(COMPILED_ASAN) -Xcc -DCLJ_COMPILED_CORE --sanitize=address
+	CLJ_SYSTEM_ALLOC=1 $(SHARDS) --gate test-compiled-asan -- --scratch-path $(COMPILED_ASAN) -Xcc -DCLJ_COMPILED_CORE --sanitize=address
 
 # Both corpora through compiled user code: clj-compile per library, clang per file, dlopen; the per-test report
 # must match the interpreter's line by line.
@@ -82,7 +84,7 @@ corpus-compiled:
 
 # Every rt.eval of the suite through emit, clang and dlopen: slow, opt-in; CLJ_EVAL_CLOSED=1 for --closed.
 test-eval-compiled:
-	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 $(TEST) --scratch-path $(PLAIN)
+	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 $(SHARDS) --gate test-eval-compiled -- --scratch-path $(PLAIN)
 
 # The type-coverage metric of design §10 step 3b: loads core.clj, the embedded libs and every corpus library,
 # analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed.
