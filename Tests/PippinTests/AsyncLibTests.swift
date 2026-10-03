@@ -23,10 +23,12 @@ extension CoreTests {
 	@Suite struct AsyncLibTests {
 		init() throws {
 			clj_init()
+			try cljTimingSupport()
 			_ = try cljEvalScoped("(ns async-lib-tests (:require [clojure.core.async :as a :refer [chan buffer dropping-buffer sliding-buffer <! >! <!! >!! put! take! close! offer! poll! alts! alt! alts!! alt!! timeout go go-loop thread cancel! go-scoped plet promise-chan pipe mult tap untap untap-all pub sub unsub unsub-all mix admix unmix unmix-all toggle solo-mode merge onto-chan! to-chan! onto-chan to-chan pipeline pipeline-blocking pipeline-async split unblocking-buffer?]]))")
-			for k in ["a", "b", "body", "cancelled", "caught", "child", "closed", "done", "err", "even", "finally", "int", "odd", "one", "ran", "second", "put", "string", "take", "two", "unreached", "unset", "x", "y", "z"] { _ = kw(k) }
+			for k in ["a", "b", "body", "cancelled", "caught", "child", "closed", "deadline", "done", "end", "err", "even", "finally", "int", "odd", "one", "ran", "second", "put", "string", "take", "two", "unreached", "unset", "x", "y", "z"] { _ = kw(k) }
 			_ = try cljEvalScoped("""
 			(in-ns 'async-lib-tests)
+			(refer 'test-support)
 			(defn mapping [f] (fn [f1] (fn ([] (f1)) ([result] (f1 result)) ([result input] (f1 result (f input))))))
 			(defn xerox [n] (fn [f1] (fn ([] (f1)) ([result] (f1 result)) ([result input] (loop [res result i n] (if (pos? i) (let [a (f1 result input)] (if (reduced? a) a (recur a (dec i)))) res))))))
 			(defn pipeline-tester [pipeline-fn n inputs xf] (let [cin (to-chan! inputs) cout (chan 1)] (pipeline-fn n cout xf cin) (<!! (go-loop [acc []] (let [val (<! cout)] (if (not (nil? val)) (recur (conj acc val)) acc))))))
@@ -118,9 +120,12 @@ extension CoreTests {
 				#expect(try eval("(until-done (fn [] (let [out (chan 2500) mx (mix out)] (dotimes [i 2048] (let [c (chan)] (admix mx c) (put! c i))) (= (set (range 2048)) (<!! (a/into #{} (a/take 2048 out)))))))") == true)
 				// toggle before admix adds the input in that state, so what the loop reads from it is never in doubt:
 				// a muted input is consumed and dropped, a paused one is not consumed, solo keeps only the soloed.
-				#expect(try eval("(until-done (fn [] (let [out (chan 10) mx (mix out) a (chan 10) b (chan 10)] (admix mx a) (toggle mx {b {:mute true}}) (>!! a 1) (>!! b 2) (>!! a 3) (<!! (timeout 20)) (unmix-all mx) (close! out) (<!! (a/into [] out)))))") == [1, 3])
-				#expect(try eval("(until-done (fn [] (let [out (chan 10) mx (mix out) a (chan 10) b (chan 10)] (admix mx a) (toggle mx {b {:pause true}}) (>!! a 1) (>!! b 2) (<!! (timeout 20)) [(poll! b) (do (unmix-all mx) (close! out) (<!! (a/into [] out)))])))") == [2, [1]])
-				#expect(try eval("(until-done (fn [] (let [out (chan 10) mx (mix out) a (chan 10) b (chan 10)] (solo-mode mx :pause) (toggle mx {a {:solo true} b {}}) (>!! a 1) (>!! b 2) (<!! (timeout 20)) [(poll! b) (do (unmix-all mx) (close! out) (<!! (a/into [] out)))])))") == [2, [1]])
+				// The muted input is unbuffered, so its put returns once the loop took the value; :end follows it through
+				// the one loop, so whatever the loop passed on of the 2 is in out before it.
+				#expect(try eval("(until-done (fn [] (let [out (chan 10) mx (mix out) a (chan 10) b (chan)] (admix mx a) (toggle mx {b {:mute true}}) (>!! a 1) (>!! b 2) (>!! a 3) (>!! a :end) (loop [got []] (let [v (<!! out)] (if (= v :end) got (recur (conj got v))))))))") == [1, 3])
+				// The loop has run once 1 is out; the window after it is one in which a paused input stays unread.
+				#expect(try eval("(until-done (fn [] (let [out (chan 10) mx (mix out) a (chan 10) b (chan 10)] (admix mx a) (toggle mx {b {:pause true}}) (>!! a 1) (>!! b 2) [(<!! out) (do (<!! (timeout 20)) (poll! b))])))") == [1, 2])
+				#expect(try eval("(until-done (fn [] (let [out (chan 10) mx (mix out) a (chan 10) b (chan 10)] (solo-mode mx :pause) (toggle mx {a {:solo true} b {}}) (>!! a 1) (>!! b 2) [(<!! out) (do (<!! (timeout 20)) (poll! b))])))") == [1, 2])
 			}
 			base.check()
 		}
@@ -149,12 +154,12 @@ extension CoreTests {
 				// The body's error cancels the children first; the join completes before the throw.
 				#expect(try eval("(let [r (atom 0) c (chan)] [(try (go-scoped (dotimes [_ 5] (go (try (<! c) (catch :cancelled e (swap! r inc))))) (throw (ex-info \"body\" {}))) (catch :default e (ex-message e))) @r])") == ["body", 5])
 				// Cancelling the coroutine running the scope cancels the children transitively, nested scopes included.
-				#expect(try eval("(let [r (atom 0) c (chan) g (go (try (go-scoped (go (go-scoped (go (try (<! c) (catch :cancelled e (swap! r inc)))) (<! c))) (<! c)) (catch :cancelled e (ex-message e))))] (<!! (timeout 20)) (cancel! g) [(<!! g) @r])") == ["Coroutine cancelled", 1])
+				#expect(try eval("(let [r (atom 0) c (chan) in (promise) g (go (try (go-scoped (go (go-scoped (go (try (deliver in true) (<! c) (catch :cancelled e (swap! r inc)))) (<! c))) (<! c)) (catch :cancelled e (ex-message e))))] (await-true 10000 #(realized? in)) (cancel! g) [(<!! g) @r])") == ["Coroutine cancelled", 1])
 				// After a scope's own cancellation the caller's coroutine is usable again.
 				#expect(try eval("(<!! (go (try (go-scoped (go (throw (ex-info \"x\" {}))) (<! (chan))) (catch :default e nil)) (<! (go :ran))))") == kw("ran"))
 				// A go outside any scope is unstructured; a go in a function called from the scope is a child.
 				#expect(try eval("(let [r (atom nil)] (go-scoped (helper r)) @r)") == kw("done"))
-				#expect(try eval("(let [r (atom nil) c (chan)] (go (<! c) (reset! r :done)) (go-scoped nil) (let [before @r] (>!! c 1) (<!! (timeout 10)) [before @r]))") == [nil, kw("done")])
+				#expect(try eval("(let [r (atom nil) c (chan)] (go (<! c) (reset! r :done)) (go-scoped nil) (let [before @r] (>!! c 1) [before (await-true 10000 #(deref r))]))") == [nil, kw("done")])
 				// Many children, and a child that spawns grandchildren into the same scope.
 				#expect(try eval("(let [r (atom 0)] (go-scoped (dotimes [_ 200] (go (swap! r inc)))) @r)") == 200)
 				#expect(try eval("(let [r (atom 0)] (go-scoped (go (dotimes [_ 10] (go (<! (timeout 1)) (swap! r inc))))) @r)") == 10)
@@ -186,20 +191,23 @@ extension CoreTests {
 				#expect(try eval("(<!! (go (try (with-deadline 20 (<! (chan))) (catch :timeout e :timeout))))") == kw("timeout"))
 				// A cancel from outside is not this call's timeout, however long its deadline still had to run.
 				#expect(try eval("(let [g (go (try (with-deadline 60000 (<! (chan))) (catch :timeout e :timeout) (catch :cancelled e :cancelled)))] (<!! (timeout 20)) (cancel! g) (<!! g))") == kw("cancelled"))
-				// Children spawned in the extent inherit the deadline and meet it on their own stacks.
-				#expect(try eval("""
-				(<!! (go (let [r (atom 0)]
-				  [(try (with-deadline 30 (go-scoped (go (loop [] (<! (timeout 2)) (swap! r inc) (recur)))))
+				// Children spawned in the extent inherit the deadline and meet it on their own stacks: the kind is the
+				// child's own timer's, where a scope's cancellation would be :explicit. Once joined, a child moves no more.
+				let inherited = try eval("""
+				(<!! (go (let [r (atom 0) kind (atom nil)]
+				  [(try (with-deadline 100 (go-scoped (go (try (loop [] (<! (timeout 2)) (swap! r inc) (recur))
+				                                               (catch :cancelled e (reset! kind (:cancel/kind (ex-data e))))))))
 				        (catch :timeout e :timeout))
-				   (pos? @r)
+				   @kind
 				   (let [n @r] (<! (timeout 40)) (= n @r))])))
-				""") == [kw("timeout"), true, true])
+				""")
+				#expect(inherited == [kw("timeout"), kw("deadline"), true], "\(inherited)")
 				// The other nesting: the timeout is the scope body's failure, so the scope cancels and joins on it.
 				#expect(try eval("(<!! (go (try (go-scoped (go (<! (chan))) (with-deadline 20 (<! (chan)))) (catch :timeout e :timeout))))") == kw("timeout"))
 				// The scope's exit is shielded, so a child that outlives the expiry is still joined. `spend` runs the
 				// expired deadline out of unwind budgets (~65000 checks each, 64 of them), after which every check
 				// throws: the scope's own bookkeeping ran there, and the decrement the join waits for never came.
-				#expect(try eval("""
+				let shielded = try eval("""
 				(let [spend (fn [] (loop [i 0]
 				                     (when (< i 80)
 				                       (try (loop [j 0] (if (< j 200000) (recur (inc j)) nil)) (catch :cancelled _ nil))
@@ -208,12 +216,10 @@ extension CoreTests {
 				      g (go (try (with-deadline 20
 				                   (go-scoped (go (try (<! (chan)) (catch :cancelled e (spend)) (finally (reset! left :child))))))
 				                 (catch :timeout e :timeout)))]
-				  ;; Polled, not raced against a timeout channel: a scope that hangs must not hang the suite either.
-				  (loop [i 0]
-				    (if-let [v (poll! g)]
-				      [v @left]
-				      (if (< i 400) (do (<!! (timeout 25)) (recur (inc i))) :hung))))
-				""") == [kw("timeout"), kw("child")])
+				  ;; Polled: a scope that hangs must not hang the suite. spend takes over 10 s under ASan on a loaded machine.
+				  (let [v (join g 60000)] [v @left]))
+				""")
+				#expect(shielded == [kw("timeout"), kw("child")], "\(shielded)")
 				// The shield holds the runtime's checks, not the flag: cleanup still knows it was cancelled.
 				#expect(try eval("(let [g (go (try (<! (chan)) (catch :cancelled e (shielded* [(loop [i 0] (if (< i 50000) (recur (inc i)) :ran)) (cancelled?*)]))))] (<!! (timeout 10)) (cancel! g) (<!! g))") == [kw("ran"), true])
 				_ = try eval("(<!! (timeout 20))")
@@ -246,10 +252,10 @@ extension CoreTests {
 				#expect(try eval("(let [g (go (try (loop [i 0] (recur (inc i))) (catch :cancelled e (ex-cause e))))] (<!! (timeout 5)) (cancel! g) (<!! g))") == nil)
 				// uncancel-scope clears the cause with the flag: it must not surface in a later, unrelated cancel.
 				#expect(try eval("""
-					(let [r (atom :unset)
+					(let [r (atom :unset) spinning (atom false)
 					      g (go (try (go-scoped (go (throw (ex-info "child" {})))) (catch :default e nil))
-					            (try (loop [i 0] (recur (inc i))) (catch :cancelled e (reset! r (ex-cause e)))))]
-					  (<!! (timeout 20)) (cancel! g) (<!! g) @r)
+					            (try (reset! spinning true) (loop [i 0] (recur (inc i))) (catch :cancelled e (reset! r (ex-cause e)))))]
+					  (await-true 10000 #(deref spinning)) (cancel! g) (<!! g) @r)
 					""") == nil)
 			}
 			base.check()
