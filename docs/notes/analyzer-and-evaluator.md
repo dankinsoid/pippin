@@ -647,7 +647,9 @@
   the `(xf rf)` application must be fresh per run anyway (stateful transducers) — so the design's
   exec-cell cache (CAS fill, immortal winner) has nothing worth its guard. Triggers: a profile with
   fused forms in a hot loop over tiny collections (the per-form cost); consumers `some`/`every?`/
-  `run!`/`doseq` (a reduce with early exit); the barriers `sort`/`group-by` (cut a pipeline today);
+  `run!`/`doseq` (a reduce with early exit; design §6b item 9); a last-use source of `mapv`/`into` (the result
+  written into the source's nodes, design §6b item 10); stages inlined into one C loop in compiled code (it calls
+  the same driver today, design §6b «Итераторы Rust»); the barriers `sort`/`group-by` (cut a pipeline today);
   multi-coll `map` (a multi-source driver); `partition-all` (above).
 - [ ] **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
   the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
