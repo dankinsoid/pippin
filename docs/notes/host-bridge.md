@@ -171,7 +171,7 @@
 
 ### Swift stubs (SwiftStubs.swift, scripts/swift-stubgen.py, hostbox.c, hostmodule.c; design §5 level 2)
 
-- **The chain of the first slice.** `(:require-swift [M :as a :refer [...]])` in `ns` is `require-swift`
+- **The chain.** `(:require-swift [M :as a :refer [...]])` in `ns` is `require-swift`
   (core.clj), which calls `require-swift*` (hostmodule.c), which calls the loader `clj_host_boot` installs
   (`SwiftStubs.load`); a C-only host has none and refuses by name. `load` finds the module registered, or runs
   `SwiftStubs.generator`: `python3 scripts/swift-stubgen.py`, which extracts the module's symbol graph, classifies
@@ -191,8 +191,50 @@
   `clj_objc_kebab` (one spelling rule for both levels); its fn takes the label keywords where the declaration
   has labels and picks the overload whose labels match, in order — `(moved p :by 3)`. A wrong label is an error
   naming every overload of the base name, at run time, as level 1's is; a label computed at run time works too,
-  a superset of the literal labels §5 asks for. A module none of whose overloads is isolated gets a plain host fn
-  per var; one with any gets `host-async-fn`'s wrapper for the whole base name.
+  a superset of the literal labels §5 asks for. A var none of whose overloads parks (isolated or `async`) is a plain
+  host fn; one with any gets `host-async-fn`'s wrapper for the whole var.
+- **A member is the var `Type.member`** (design §5 «Как пишется вызов»): `Point.init(x:y:)` is `PippinFixture/Point.`,
+  `Point.scaled(by:)` is `Point.scaled` with the receiver first and unlabelled, a static member has no receiver, a
+  property is a getter `Point.sum` and, where settable (a stored `var`, or `{ get set }`), a setter `Point.set-first`;
+  module variables are `greeting`/`set-greeting`. The generator passes the Swift owner and base
+  (`SwiftStubs.Function`), the runtime spells the var, so the kebab rule stays `clj_objc_kebab`'s alone. The
+  `.`-form on a box refuses with the var to call (objc.c). An instance member of a `@MainActor` class hops as a free
+  function does; one marked `nonisolated` does not (the classifier reads `nonisolated` off the declaration's head).
+- **Overloads the labels cannot tell apart are all refused.** The generator groups stubs by owner, var base and label
+  shape, the receiver included, and refuses every member of a group of two or more with the other declarations in
+  the reason (`width(_ n: Int)` and `width(_ s: String)` in the fixture); `register` does the same for shapes only
+  the kebab spelling makes equal, adding them to the registration's refusals, which `report.json` then lacks.
+- **`inout` and `mutating` answer the new values** (design §5 «`mutating`, `inout`»): the stub decodes into lets,
+  copies what the call mutates into a fresh `var` inside the call (a closure that runs on another thread may not
+  mutate a capture), and answers `SwiftStubs.outcome`: `inout` values in order with `self` first, then the result
+  unless `Void`; one value bare, several a vector. A struct setter is the `mutating` case, answering the new struct;
+  a class setter answers nil. `borrowing`, `consuming`, `__owned` and `__shared` are dropped; `isolated` and
+  `sending` parameters are refused.
+- **A class instance is a box of the object** (`SwiftStubs.box(object:)`, design §5 «Экземпляр класса»). The
+  descriptor is per dynamic class, so one object is one box type whatever static type it crossed under, and its
+  operations come from the dynamic class at run time: `any Hashable.Type` → its `==` and `hashValue`,
+  `any Equatable.Type` → its `==` and no hash (a key refuses, as a struct's does), neither → `===` and
+  `ObjectIdentifier`. `unbox(object:as:)` checks the descriptor is a class box's, then casts, so a subclass passes
+  for its superclass and a superclass instance where a subclass is expected is a `ValueTypeMismatch`.
+- [ ] **Boxes of two dynamic classes are never `=`**, even when a shared superclass's `==` would call them equal: the
+  descriptor is the dynamic class's and hostbox.c compares across descriptors as false. Trigger: a module whose
+  `Equatable` base class means equality across its subclasses; then a descriptor per root of the conformance.
+- **The four `throws` forms share the host-error path** (design §5 «`throws` — четыре формы»): the stub prints
+  `try` for `throws`, `throws(E)` and `rethrows` and nothing for `throws(Never)`; `E` goes into the var's `:doc` and
+  `report.json`'s `effects`. A thrown Swift error is `Value.throwing`'s host error — `ex-type` its dynamic type,
+  caught by `PippinFixture/FixtureError` — and comes back to Swift as itself from `Value.apply` or a closure adapter.
+  The classifier reads effects off the text between the parameter list and `->` (`decl_parts`), so a closure
+  parameter's `throws` is not the function's.
+- **A closure parameter exists for `rethrows`**: a throwing function type of at most three `Int`/`Double`/`Bool`/
+  `String` arguments and such a result or `Void`, decoded with `Value.closure()`. A Clojure fn throwing a host error
+  hands Swift the Swift error, a Clojure throw arrives as `ClojureError` and comes back out of the stub as the value
+  thrown. Anything else in a function type is refused with the reason.
+- **An `async` stub parks its caller** (design §5 «`async`-функция модуля»): `Function(async:)` decodes on the
+  caller's thread, asks `clj_host_park_allowed` before any Swift code runs (under a synchronous host call the error
+  comes first, with the caller's frames), then answers `Value.pendingCall`, a `Task.detached`. The parked caller's
+  cancellation reaches `host-async-fn`'s `catch :cancelled`, which cancels the Task; the fixture's
+  `wait-for-cancel` counts it, from `future-cancel` and from a cancelled Swift `callAsync`. There is no in-place
+  path, and `@MainActor async` hops through its own `await`.
 - **Compiled code reaches a stub as a var, nothing more.** A call to `PippinFixture/moved` is an INVOKE of a var
   the compiled set does not define, so both dev and `--closed` emit a `V[]` entry and `clj_c_invoke`; the unit's
   pools intern the var before its `ns` form runs `require-swift`, which binds the root of that same var. The
@@ -214,16 +256,25 @@
 - **The box handed back is the value boxed** (`SwiftStubs.unbox`): the payload is a Swift object holding the
   struct, and unboxing returns its copy of the bits — `is-last-made` in the fixture tells it from an equal value
   made again. A box of another type is a `ValueTypeMismatch`, which crosses as a host error.
-- **The report is part of the product.** Every public function, operator and property of the module is either
-  generated or listed with its reason, in `report.json` and in the registration (`SwiftStubs.refusals(of:)`); a
-  stub swiftc rejects moves to the report with swiftc's message and the rest is built again, so one symbol cannot
-  take a module down. A refused name is no var, so a call to it is the analyzer's "Unable to resolve".
-- [ ] **What the first slice does not generate.** Free functions only, over `Int`, `Double`, `Bool`, `String`,
-  `Void` and the module's structs with no public stored property (boxes). Refused with a reason: methods and
-  initializers, properties, operators, generics, `throws`, `async`, `inout`/ownership modifiers, isolation other
-  than `@MainActor`, optionals, collections, closures, enums, classes, tuples, types of other modules, and
-  structs with public stored properties (§5 moves those as a map). Trigger: the first symbol of that list an
-  application needs; generics come with the call-site instantiation list, members with the `(.method x)` form.
+- **The report is part of the product.** Every public function, member, operator, property, subscript and enum
+  case of the module is either generated or listed with its reason, in `report.json` and in the registration
+  (`SwiftStubs.refusals(of:)`); a stub swiftc rejects moves to the report with swiftc's message and the rest is
+  built again, so one symbol cannot take a module down. A refused name is no var, so a call to it is the analyzer's
+  "Unable to resolve".
+- [ ] **What the generator does not generate.** Slots cross as `Int`, `Double`, `Bool`, `String`, `Void`, a module
+  struct with no public stored property (a box), a module class (a box of the object), and as a parameter the
+  throwing scalar closure above. Refused with a reason: generics (functions and types), optionals (`init?` too),
+  collections, tuples, enums and their members and cases, protocols' members, actors, other closures, operators,
+  subscripts, isolation other than `@MainActor`, `isolated`/`sending` parameters, types of other modules, structs
+  with public stored properties (§5 moves those as a map) and their members. Trigger: the first symbol of that list
+  an application needs; generics come with the call-site instantiation list.
+- **The classifier the generator shares with the measurement reads a declaration's own head and effects**
+  (`decl_parts`): a closure parameter's `throws`, `async` or `@MainActor` is not the function's, `nonisolated` drops
+  the owner's actor, the `>` of `->` closes no bracket, and a property's type stops before its `{ get }`.
+  `docs/swift-reprint.md` was measured again with them (x86_64, SDK 26.5): the crossing shares held, computed
+  properties moved from handles to data, and SwiftUI's isolated share fell from 30.6 % to 1.9 %, its modifiers
+  being `nonisolated` members of `@MainActor` protocols (design §5 «Цена изоляции»). The measurement builds for
+  the host's architecture now.
 - [ ] **Generation is per module, not per call site.** The whole supported surface of a `require-swift`'d module is
   generated (§5 wants the closure of the call sites, which the closed world gives); the cache makes a second load
   free. Trigger: a module whose surface makes the swiftc step slow, or `clj-compile --closed` of an application.

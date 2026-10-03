@@ -9,11 +9,11 @@ generator is built. Nothing here is part of the generator.
 
 | | |
 |---|---|
-| swift | `Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)` |
-| target | `arm64-apple-macosx15.0` |
-| SDK | macOS 26.2 (`/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk`) |
-| graph generator | `Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)` |
-| measured | 2026-09-29 |
+| swift | `Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)` |
+| target | `x86_64-apple-macosx15.0` |
+| SDK | macOS 26.5 (`/Applications/Xcode-26.6.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk`) |
+| graph generator | `Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)` |
+| measured | 2026-10-03 |
 
 ## What is counted
 
@@ -81,14 +81,14 @@ data becomes Clojure data, and what has to hold is that a handle passed *back* i
 
 | module | function-like | crosses (1+2) | 1 as data | 2 as a handle | 3 refused | concrete stubs compiled | instantiated |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Foundation | 9690 | 98.6 % | 9.3 % | 89.3 % | 1.4 % | 98/100 | 98/100 |
-| SwiftUI | 96126 | 97.9 % | 0.2 % | 97.7 % | 2.1 % | 100/100 | 95/100 |
+| Foundation | 9790 | 98.6 % | 9.3 % | 89.3 % | 1.4 % | 99/100 | 98/100 |
+| SwiftUI | 96307 | 97.9 % | 0.2 % | 97.7 % | 2.1 % | 100/100 | 95/100 |
 | ArgumentParser | 408 | 89.7 % | 14.5 % | 75.2 % | 10.3 % | 25/25 | — (empty pool) |
 | OrderedCollections | 612 | 99.0 % | 17.8 % | 81.2 % | 1.0 % | — (empty pool) | 99/100 |
 
 What each module answered:
 
-- **Foundation** — The large, half-imported-from-ObjC case: what the boundary looks like where most of the surface arrived through the Clang importer. Crosses 98.6 %, refused 1.4 %; of what crosses, 9.5 % arrives as data rather than as a handle.
+- **Foundation** — The large, half-imported-from-ObjC case: what the boundary looks like where most of the surface arrived through the Clang importer. Crosses 98.6 %, refused 1.4 %; of what crosses, 9.4 % arrives as data rather than as a handle.
 - **SwiftUI** — The worst case, chosen for it: opaque return types, heavy generics, a surface built out of result builders — and a framework that ships as two modules, so the graph of one is not the surface of one `import`. Crosses 97.9 %, refused 2.1 %; of what crosses, 0.2 % arrives as data rather than as a handle.
 - **ArgumentParser** — Someone else's code, built from source — the §5 case with no `.swiftinterface` at all (checked: the build directory has `.swiftmodule` and nothing else). Crosses 89.7 %, refused 10.3 %; of what crosses, 16.1 % arrives as data rather than as a handle. The refusals are `@Argument`/`@Option`/`@Flag` — the declaration form that *is* this module's API, which is why its refused share is the largest of the four.
 - **OrderedCollections** — A second dependency built from source: a collection library, where the surface is generic by construction rather than by taste. Crosses 99.0 %, refused 1.0 %; of what crosses, 18.0 % arrives as data rather than as a handle.
@@ -101,16 +101,16 @@ Graph: 51 MB over 10 file(s) — `Foundation.symbols.json`, `Foundation@CoreFoun
 the module adds to other modules' types; they are part of the surface and are counted.
 
 No re-exported sibling: 20 references to USRs carrying this module's own name are unresolved, and no candidate module declares them.
-61 symbols were printed by more than one graph file and counted once.
+45 symbols were printed by more than one graph file and counted once.
 
 | group | count | share |
 |---|---:|---:|
-| 1 — crosses as data | 905 | 9.3 % |
-| 2 — crosses as a handle | 8651 | 89.3 % |
+| 1 — crosses as data | 911 | 9.3 % |
+| 2 — crosses as a handle | 8745 | 89.3 % |
 | 3 — refused | 134 | 1.4 % |
-| **total function-like** | **9690** | |
+| **total function-like** | **9790** | |
 
-Of group 2, 2360 (27.3 % of it) are group 2
+Of group 2, 2372 (27.1 % of it) are group 2
 only because a type parameter is in the signature: the call site's instantiation decides their real
 bucket, and without an application there is no call site (§5, generics).
 
@@ -132,13 +132,13 @@ Every parameter and every return of every in-scope symbol, one row per bucket.
 
 | bucket | slots | share |
 |---|---:|---:|
-| handle | 9818 | 42.8 % |
-| value | 6817 | 29.7 % |
-| generic | 5009 | 21.8 % |
-| closure | 1179 | 5.1 % |
+| handle | 9861 | 42.6 % |
+| value | 6837 | 29.5 % |
+| generic | 5100 | 22.0 % |
+| closure | 1246 | 5.4 % |
 | collection | 114 | 0.5 % |
 
-2 of the closure slots are closures only after a typealias declared in this
+62 of the closure slots are closures only after a typealias declared in this
 module is resolved: the printed type is a nominal name, so a classifier reading the printed type alone
 would call them handles, and a wrapper forwarding one would not know it needs `@escaping`. This is
 undercounted — an ObjC block typedef (`NSComparator`, `NSUserUnixTask`'s completion handler) has a
@@ -164,18 +164,18 @@ failures.
 | case | count | share of function-like |
 |---|---:|---:|
 | generic parameter only in the return (needs an explicit annotation at the call) | 90 | 0.9 % |
-| generic in any position | 2176 | 22.5 % |
+| generic in any position | 2176 | 22.2 % |
 | takes a struct with no public initialiser | 113 | 1.2 % |
-| isolated to a global actor | 83 | 0.9 % |
+| isolated to a global actor | 80 | 0.8 % |
 
 Public structs in the module: 419, of which 69 (16.5 %) declare no public initialiser — they cross outward as a map and cannot be built inward (§5, "Структуры несимметричны").
 
-Isolation: `@MainActor` 83.
+Isolation: `@MainActor` 80.
 
 | `throws` form | count |
 |---|---:|
-| none | 7912 |
-| throws | 1036 |
+| none | 8078 |
+| throws | 970 |
 | rethrows | 662 |
 | throws(E) | 80 |
 
@@ -184,7 +184,7 @@ Isolation: `@MainActor` 83.
 | | total | group 1 | group 2 | group 3 |
 |---|---:|---:|---:|---:|
 | operators | 1281 | 18 | 1261 | 2 |
-| properties | 6358 | 438 | 5912 | 8 |
+| properties | 6359 | 2579 | 3772 | 8 |
 
 ### What the handles are
 
@@ -195,8 +195,9 @@ The most frequent type expressions that land in the opaque-handle bucket.
 | `inout Hasher` | 350 |
 | `any Decoder` | 279 |
 | `any Encoder` | 260 |
-| `URL` | 242 |
+| `URL` | 253 |
 | `[Self.Element]` | 175 |
+| `(inserted: Bool, memberAfterInsert: Self.Element)` | 122 |
 | `Notification` | 112 |
 | `Locale` | 110 |
 | `AttributedString.Index` | 97 |
@@ -206,7 +207,6 @@ The most frequent type expressions that land in the opaque-handle bucket.
 | `NSNumber` | 79 |
 | `NSCoder` | 74 |
 | `URL?` | 70 |
-| `IndexSet` | 66 |
 
 ### swiftc verification
 
@@ -222,21 +222,20 @@ any stub was looked at.
 
 | pool | size | share of groups 1+2 | sampled | compiled | |
 |---|---:|---:|---:|---:|---:|
-| concrete | 3977 | 41.6 % | 100 | 98 | **98.0 %** |
-| instantiated | 2083 | 21.8 % | 100 | 98 | **98.0 %** |
+| concrete | 3999 | 41.4 % | 100 | 99 | **99.0 %** |
+| instantiated | 2083 | 21.6 % | 100 | 98 | **98.0 %** |
 
 `swiftc -typecheck -swift-version 5`, one file per stub.
 
-Failures, concrete pool (2), by whose fault they are:
+Failures, concrete pool (1), by whose fault they are:
 
 | fault | count |
 |---|---:|
-| graph names an obsolete spelling | 2 |
+| the reprinted declaration | 1 |
 
 | symbol | group | error |
 |---|---:|---|
-| `NSCharacterSet.init(charactersInString:)` | 2 | 'init(charactersInString:)' has been renamed to 'init(charactersIn:)' |
-| `XMLDTDNode.init(XMLString:)` | 2 | 'init(XMLString:)' has been renamed to 'init(xmlString:)' |
+| `NSHashTableCallBacks.init(hash:isEqual:retain:release:describe:)` | 2 | a C function pointer can only be formed from a reference to a 'func' or a literal closure |
 
 Failures, instantiated pool (2), by whose fault they are:
 
@@ -250,26 +249,26 @@ Failures, instantiated pool (2), by whose fault they are:
 | `NSCoder.decodeArrayOfObjects(ofClass:forKey:)` | 2 | instance method 'decodeArrayOfObjects(ofClass:forKey:)' requires that 'NSObject' conform to 'NSSecureCoding' |
 
 Sensitivity of the value set: adding `AnyHashable`, `AttributedString`, `Calendar`, `IndexPath`, `Locale`, `TimeZone`, `URL`, `UUID` to it would move
-110 symbols from group 2 to group 1 (1.3 % of group 2).
+111 symbols from group 2 to group 1 (1.3 % of group 2).
 
 ## SwiftUI
 
 The worst case, chosen for it: opaque return types, heavy generics, a surface built out of result builders — and a framework that ships as two modules, so the graph of one is not the surface of one `import`.
 
-Graph: 535 MB over 11 file(s) — `SwiftUI.symbols.json`, `SwiftUI@AppKit.symbols.json`, `SwiftUI@DeveloperToolsSupport.symbols.json`, `SwiftUI@Foundation.symbols.json`, `SwiftUI@Swift.symbols.json`, `SwiftUI@SwiftUICore.symbols.json`, `SwiftUI@Symbols.symbols.json`, `SwiftUICore.symbols.json`, `SwiftUICore@CoreFoundation.symbols.json`, `SwiftUICore@Foundation.symbols.json`, `SwiftUICore@Swift.symbols.json`. The `Module@Other` files are the extensions
+Graph: 537 MB over 11 file(s) — `SwiftUI.symbols.json`, `SwiftUI@AppKit.symbols.json`, `SwiftUI@DeveloperToolsSupport.symbols.json`, `SwiftUI@Foundation.symbols.json`, `SwiftUI@Swift.symbols.json`, `SwiftUI@SwiftUICore.symbols.json`, `SwiftUI@Symbols.symbols.json`, `SwiftUICore.symbols.json`, `SwiftUICore@CoreFoundation.symbols.json`, `SwiftUICore@Foundation.symbols.json`, `SwiftUICore@Swift.symbols.json`. The `Module@Other` files are the extensions
 the module adds to other modules' types; they are part of the surface and are counted.
 
-Re-exported siblings merged in: `SwiftUICore`. Unresolved USRs carrying this module's own name fell from 481666 references to 1733.
+Re-exported siblings merged in: `SwiftUICore`. Unresolved USRs carrying this module's own name fell from 481977 references to 1733.
 5 symbols were printed by more than one graph file and counted once.
 
 | group | count | share |
 |---|---:|---:|
-| 1 — crosses as data | 204 | 0.2 % |
-| 2 — crosses as a handle | 93904 | 97.7 % |
+| 1 — crosses as data | 207 | 0.2 % |
+| 2 — crosses as a handle | 94082 | 97.7 % |
 | 3 — refused | 2018 | 2.1 % |
-| **total function-like** | **96126** | |
+| **total function-like** | **96307** | |
 
-Of group 2, 1435 (1.5 % of it) are group 2
+Of group 2, 1485 (1.6 % of it) are group 2
 only because a type parameter is in the signature: the call site's instantiation decides their real
 bucket, and without an application there is no call site (§5, generics).
 
@@ -292,13 +291,13 @@ Every parameter and every return of every in-scope symbol, one row per bucket.
 
 | bucket | slots | share |
 |---|---:|---:|
-| handle | 192153 | 68.1 % |
-| closure | 32809 | 11.6 % |
-| value | 29996 | 10.6 % |
-| generic | 26509 | 9.4 % |
+| handle | 190784 | 67.3 % |
+| closure | 34600 | 12.2 % |
+| value | 30869 | 10.9 % |
+| generic | 26669 | 9.4 % |
 | collection | 701 | 0.2 % |
 
-0 of the closure slots are closures only after a typealias declared in this
+1693 of the closure slots are closures only after a typealias declared in this
 module is resolved: the printed type is a nominal name, so a classifier reading the printed type alone
 would call them handles, and a wrapper forwarding one would not know it needs `@escaping`. This is
 undercounted — an ObjC block typedef (`NSComparator`, `NSUserUnixTask`'s completion handler) has a
@@ -308,7 +307,7 @@ Result builders, for information and not as a refusal: 14549 function-like symbo
 parameters between them. Each is classified on its own type; what cannot be written from Clojure is
 a multi-statement builder body, not the call.
 
-Property wrappers, likewise for information: 14589 symbols (15.2 %) have a wrapper type in 20110 of their
+Property wrappers, likewise for information: 14589 symbols (15.1 %) have a wrapper type in 20110 of their
 slots. Those are handles, not refusals — the wrapper has a public initialiser. The refusal is the
 declaration form `@State var x`, counted in the tail as members of a wrapper type.
 
@@ -324,19 +323,19 @@ failures.
 | case | count | share of function-like |
 |---|---:|---:|
 | generic parameter only in the return (needs an explicit annotation at the call) | 191 | 0.2 % |
-| generic in any position | 39027 | 40.6 % |
+| generic in any position | 39027 | 40.5 % |
 | takes a struct with no public initialiser | 19552 | 20.3 % |
-| isolated to a global actor | 29375 | 30.6 % |
+| isolated to a global actor | 1829 | 1.9 % |
 
 Public structs in the module: 768, of which 342 (44.5 %) declare no public initialiser — they cross outward as a map and cannot be built inward (§5, "Структуры несимметричны").
 
-Isolation: `@MainActor` 29375.
+Isolation: `@MainActor` 1829.
 
 | `throws` form | count |
 |---|---:|
-| none | 95425 |
+| none | 95618 |
 | rethrows | 488 |
-| throws | 155 |
+| throws | 143 |
 | throws(E) | 58 |
 
 ### Operators and properties
@@ -344,7 +343,7 @@ Isolation: `@MainActor` 29375.
 | | total | group 1 | group 2 | group 3 |
 |---|---:|---:|---:|---:|
 | operators | 1113 | 0 | 1106 | 7 |
-| properties | 2720 | 152 | 2501 | 67 |
+| properties | 2738 | 655 | 2016 | 67 |
 
 ### What the handles are
 
@@ -352,7 +351,7 @@ The most frequent type expressions that land in the opaque-handle bucket.
 
 | type | slots |
 |---|---:|
-| `some View` | 79472 |
+| `some View` | 79569 |
 | `ModifiedContent<Self, AccessibilityAttachmentModifier>` | 9430 |
 | `Binding<Bool>` | 7694 |
 | `LocalizedStringKey` | 5070 |
@@ -382,8 +381,8 @@ any stub was looked at.
 
 | pool | size | share of groups 1+2 | sampled | compiled | |
 |---|---:|---:|---:|---:|---:|
-| concrete | 14414 | 15.3 % | 100 | 100 | **100.0 %** |
-| instantiated | 14724 | 15.6 % | 100 | 95 | **95.0 %** |
+| concrete | 14457 | 15.3 % | 100 | 100 | **100.0 %** |
+| instantiated | 14725 | 15.6 % | 100 | 95 | **95.0 %** |
 
 `swiftc -typecheck -swift-version 5`, one file per stub.
 
@@ -484,15 +483,15 @@ Public structs in the module: 22, of which 9 (40.9 %) declare no public initiali
 
 | `throws` form | count |
 |---|---:|
-| none | 335 |
-| throws | 73 |
+| none | 349 |
+| throws | 59 |
 
 ### Operators and properties
 
 | | total | group 1 | group 2 | group 3 |
 |---|---:|---:|---:|---:|
 | operators | 465 | 0 | 465 | 0 |
-| properties | 239 | 13 | 215 | 11 |
+| properties | 239 | 107 | 121 | 11 |
 
 ### What the handles are
 
@@ -626,7 +625,7 @@ Public structs in the module: 9, of which 6 (66.7 %) declare no public initialis
 | | total | group 1 | group 2 | group 3 |
 |---|---:|---:|---:|---:|
 | operators | 12 | 0 | 12 | 0 |
-| properties | 76 | 0 | 76 | 0 |
+| properties | 78 | 43 | 35 | 0 |
 
 ### What the handles are
 
@@ -713,7 +712,7 @@ Sensitivity of the value set: adding `AnyHashable`, `AttributedString`, `Calenda
   with `where MenuItems : View` in its declaration and an empty constraint list, and a harness that
   reads only the structured field picks a witness conforming to nothing. That is the same graph gap as
   the ownership modifiers `functionSignature` drops — the print carries what the structure does not.
-- Cost of the measurement itself, for whoever reruns it: the graphs total 593 MB, extraction is minutes and analysis is seconds;
+- Cost of the measurement itself, for whoever reruns it: the graphs total 595 MB, extraction is minutes and analysis is seconds;
   peak resident memory is about 4 GB, set by SwiftUI's single 450 MB JSON document, which is why the
   graph is streamed element by element rather than parsed whole. With every graph already extracted the
   whole run — four modules classified and 325 stubs type-checked — is under two minutes; the
@@ -723,8 +722,8 @@ Sensitivity of the value set: adding `AnyHashable`, `AttributedString`, `Calenda
 
 Which numbers are decisive is a judgement, so it is fenced off here and the decision is not taken.
 
-- The swiftc columns say the **classification is not lying**: 515 of 525 stubs compiled over all
-  the modules, and the reprinted declaration's own fault accounts for 0 of the 10 failures —
+- The swiftc columns say the **classification is not lying**: 516 of 525 stubs compiled over all
+  the modules, and the reprinted declaration's own fault accounts for 1 of the 9 failures —
   the rest are the harness's witness choice, or a graph that still names a renamed ObjC spelling. So the
   group shares can be read as they stand, in the worst-case module as well as the easy one.
 - **The number the criterion asks for is 1 + 2, because the criterion is "crosses and crosses back".**
@@ -749,10 +748,11 @@ Which numbers are decisive is a judgement, so it is fenced off here and the deci
   form rather than a call is what does not move (a property wrapper). Nothing in the tail is the size
   §5 feared, and group 2, large as it is, is not a cost in reach — what it costs is the obligations §5
   puts on a handle: equality, hash, and an accessor for every field the public shape exposes.
-- Two of the separately-counted "decided" lines are large enough to be read as costs rather than
-  footnotes: structs with no public initialiser, which §5 predicted would fill the tail, and global-actor
-  isolation. The second is not a thunk apiece: the hop is conditional — elided when the caller is
-  already on the main carrier — and one shared helper performs it, so the cost at this share of the
-  surface is classification correctness, because a missed isolated symbol is a runtime failure where
-  Swift would have given a compile error.
+- Two of the separately-counted "decided" lines are read as costs rather than footnotes: structs with
+  no public initialiser, which §5 predicted would fill the tail, and global-actor isolation. The second
+  is not a thunk apiece: the hop is conditional — elided when the caller is already on the main carrier —
+  and one shared helper performs it, so its cost is classification correctness, because a missed
+  isolated symbol is a runtime failure where Swift would have given a compile error. The share itself
+  is that correctness at work: SwiftUI's modifiers are `nonisolated` members of `@MainActor` protocols,
+  and a classifier inheriting the protocol's actor without reading `nonisolated` counts them isolated.
 
