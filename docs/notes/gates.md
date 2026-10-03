@@ -91,8 +91,8 @@
   gates are within run-to-run noise; separate scratch paths mean nothing in `gates` rebuilds anything
   another gate already built. Total: cold about the same (independent scratch paths cost a bit up front),
   warm about 3× faster, which is what a same-day second push pays.
-- **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests and by hand, one job
-  per architecture, both required: `macos-26` (arm64, 3 cores, 7 GB) and `macos-26-intel` (x86_64, 4 cores,
+- **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests and by hand; a push
+  or pull request that touches only `docs/` and Markdown files does not start it. One job per architecture, both required: `macos-26` (arm64, 3 cores, 7 GB) and `macos-26-intel` (x86_64, 4 cores,
   14 GB); a matrix entry's `required: false` would turn its job back into `continue-on-error`. The x86_64 job
   became required after consecutive green dispatches on both runners (runs 36989106164, 36992908023,
   36995366088; about 12 min arm64, 24 min x86_64). Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI

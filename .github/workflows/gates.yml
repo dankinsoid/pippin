@@ -2,10 +2,13 @@
 # `make gates` on GitHub-hosted macOS runners (docs/notes/gates.md, "CI").
 name: gates
 
+# Docs are prose to the gates; the doc checks they do run (open-items, port-audit) are part of local `make gates`.
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md']
   pull_request:
+    paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
 concurrency:
