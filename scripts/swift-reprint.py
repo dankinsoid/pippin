@@ -28,6 +28,7 @@ import concurrent.futures
 import glob
 import json
 import os
+import platform
 import random
 import re
 import shutil
@@ -78,6 +79,9 @@ BUCKET_CLOSURE = "closure"
 BUCKET_HANDLE = "handle"
 BUCKET_GENERIC = "generic"		# a type parameter: the bucket is whatever the call site instantiates
 CROSSABLE = {BUCKET_VALUE, BUCKET_COLLECTION, BUCKET_CLOSURE}
+
+# The SwiftPM probe builds for the host, so the SDK's graphs and the typecheck use the host's architecture too.
+HOST_TARGET = f"{platform.machine()}-apple-macosx15.0"
 
 FUNCLIKE_KINDS = {"swift.method", "swift.type.method", "swift.init", "swift.func"}
 OPERATOR_KINDS = {"swift.func.op"}
@@ -1021,7 +1025,7 @@ def run_sample(name, module, pool, idx, work, sample_size, import_path, extra_im
 	def one(job):
 		p, r, _src = job
 		cmd = ["xcrun", "swiftc", "-typecheck", "-swift-version", "5",
-			"-target", "arm64-apple-macosx15.0", "-sdk", sdk]
+			"-target", HOST_TARGET, "-sdk", sdk]
 		if import_path:
 			cmd += ["-I", import_path]
 		cmd.append(p)
@@ -1330,11 +1334,11 @@ def build_spm_probe(specs, work, progress):
 	with open(os.path.join(root, "Sources", "Probe", "Probe.swift"), "w") as f:
 		f.write("public let probe = 1\n")
 	progress("spm probe: swift build")
-	scratch = os.path.join(root, ".build")
+	scratch = os.path.abspath(os.path.join(root, ".build"))
 	res = subprocess.run(["swift", "build", "--scratch-path", scratch], cwd=root, capture_output=True, text=True)
 	if res.returncode != 0:
 		raise SystemExit("spm probe build failed (network?):\n" + res.stderr[-2000:])
-	mod_dir = os.path.join(scratch, "arm64-apple-macosx", "debug", "Modules")
+	mod_dir = os.path.join(scratch, "debug", "Modules")
 	if not os.path.isdir(mod_dir):
 		raise SystemExit(f"spm probe: no module dir at {mod_dir}")
 	return mod_dir, modules
@@ -1709,12 +1713,13 @@ def render(results, meta):
 	w("  form rather than a call is what does not move (a property wrapper). Nothing in the tail is the size")
 	w("  §5 feared, and group 2, large as it is, is not a cost in reach — what it costs is the obligations §5")
 	w("  puts on a handle: equality, hash, and an accessor for every field the public shape exposes.")
-	w("- Two of the separately-counted \"decided\" lines are large enough to be read as costs rather than")
-	w("  footnotes: structs with no public initialiser, which §5 predicted would fill the tail, and global-actor")
-	w("  isolation. The second is not a thunk apiece: the hop is conditional — elided when the caller is")
-	w("  already on the main carrier — and one shared helper performs it, so the cost at this share of the")
-	w("  surface is classification correctness, because a missed isolated symbol is a runtime failure where")
-	w("  Swift would have given a compile error.")
+	w("- Two of the separately-counted \"decided\" lines are read as costs rather than footnotes: structs with")
+	w("  no public initialiser, which §5 predicted would fill the tail, and global-actor isolation. The second")
+	w("  is not a thunk apiece: the hop is conditional — elided when the caller is already on the main carrier —")
+	w("  and one shared helper performs it, so its cost is classification correctness, because a missed")
+	w("  isolated symbol is a runtime failure where Swift would have given a compile error. The share itself")
+	w("  is that correctness at work: SwiftUI's modifiers are `nonisolated` members of `@MainActor` protocols,")
+	w("  and a classifier inheriting the protocol's actor without reading `nonisolated` counts them isolated.")
 	w("")
 	return "\n".join(L) + "\n"
 
@@ -1728,7 +1733,7 @@ def main():
 		help="add a SwiftPM product; all of them go into one throwaway package built under --work")
 	ap.add_argument("--work", default=".build/swift-reprint")
 	ap.add_argument("--out", default="docs/swift-reprint.md")
-	ap.add_argument("--target", default="arm64-apple-macosx15.0")
+	ap.add_argument("--target", default=HOST_TARGET)
 	ap.add_argument("--sample", type=int, default=100)
 	ap.add_argument("--no-verify", action="store_true")
 	args = ap.parse_args()

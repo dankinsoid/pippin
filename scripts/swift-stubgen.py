@@ -174,12 +174,15 @@ def swift_name(rec):
 	return ".".join(rec["path"])
 
 
-def owner_of(rec, idx):
+def owner_of(rec, idx, types):
 	"""(owner record, spelling) of a member of a type of this module, or (None, None) for a free symbol."""
 	path = rec["path"]
 	if len(path) == 1:
 		return None, None
 	owner = idx.by_path.get(path[:-1])
+	if owner is not None and owner["kind"] == "swift.struct" and owner["usr"] in types.map_structs:
+		raise Refused(f"member of `{'.'.join(path[:-1])}`, which has public stored properties, so it crosses as a "
+			"map (design §5), which is not built")
 	if owner is None:
 		raise Refused("member of a type of another module: no stub reaches it")
 	kind = owner["kind"]
@@ -231,7 +234,7 @@ def plans(rec, idx, types):
 		raise Refused("generic: the instantiation set comes from call sites (design §5)")
 	if rec["isolation"] not in (None, "MainActor"):
 		raise Refused(f"isolation @{rec['isolation']}: only the main actor is hopped to")
-	owner, owner_spelling = owner_of(rec, idx)
+	owner, owner_spelling = owner_of(rec, idx, types)
 	receiver = None
 	if owner is not None and kind in ("swift.method", "swift.property"):
 		receiver = ("box" if owner["kind"] == "swift.struct" else "object", owner_spelling)
