@@ -50,8 +50,8 @@ load-path root is named `test` is counted apart, because assertion expansions ar
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 174 ms, with the summaries 202 ms, against 759 ms of analysis over the same forms
-  (0.23× → 0.27×); the largest single table is 262 KB. The store holds 1023 summaries, ran 24 fixpoint rounds
+- Cost: pass 1 alone 178 ms, with the summaries 210 ms, against 759 ms of analysis over the same forms
+  (0.23× → 0.28×); the largest single table is 262 KB. The store holds 1023 summaries, ran 24 fixpoint rounds
   beyond the first, widened 0, and recomputed 37 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
 - Refinement conflicts (a meet down to ⊥): 175. Value nodes at ⊥: 155, of which 42 `dead-branch` (the pass's
@@ -132,12 +132,12 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 291 | 13349 | 16.2 | 6.6 | 8.9 | 14.3 | 0.41× → 0.55× | 395 | 13 |
-| embedded libs | 108 | 3710 | 5.1 | 1.8 | 3.0 | 3.9 | 0.36× → 0.59× | 114 | 6 |
-| clojure-test-suite | 520 | 419358 | 703.9 | 159.8 | 181.7 | 188.8 | 0.23× → 0.26× | 9975 | 262 |
-| medley | 105 | 22677 | 34.2 | 5.4 | 8.7 | 9.3 | 0.16× → 0.25× | 563 | 23 |
-| **library code** | 504 | 39736 | 55.5 | 13.9 | 20.6 | 27.6 | 0.25× → 0.37× | 1071 | 23 |
-| **all** | 1024 | 459094 | 759.4 | 173.6 | 202.2 | 216.4 | 0.23× → 0.27× | 11046 | 262 |
+| core.clj | 291 | 13349 | 16.0 | 6.5 | 9.1 | 13.4 | 0.41× → 0.57× | 395 | 13 |
+| embedded libs | 108 | 3710 | 4.5 | 1.5 | 2.7 | 3.6 | 0.34× → 0.61× | 114 | 6 |
+| clojure-test-suite | 520 | 419358 | 704.3 | 164.6 | 190.1 | 187.0 | 0.23× → 0.27× | 9975 | 262 |
+| medley | 105 | 22677 | 34.3 | 5.7 | 8.6 | 8.5 | 0.17× → 0.25× | 563 | 23 |
+| **library code** | 504 | 39736 | 54.7 | 13.7 | 20.4 | 25.5 | 0.25× → 0.37× | 1071 | 23 |
+| **all** | 1024 | 459094 | 759.0 | 178.3 | 210.5 | 212.5 | 0.23× → 0.28× | 11046 | 262 |
 
 ## Errors
 
@@ -193,7 +193,7 @@ off). Reported here only.
 - core.clj: clojure.core/namespace declares argument 0 as keyword|symbol, nothing is known about what is passed at 2249:12
 - core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2476:24
 - core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2486:90
-- core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2547:49
+- core.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 2548:49
 - set.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 70:22
 - set.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 97:40
 - set.clj: clojure.core/keys declares argument 0 as nil|map|sorted-map|record, nothing is known about what is passed at 97:66
