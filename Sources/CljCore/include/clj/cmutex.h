@@ -42,6 +42,8 @@ static inline void clj_cmutex_unlock(clj_cmutex *m) {
 void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx);
 // Resumes every waiter parked on key.
 void clj_lot_unpark_all(const void *key);
+// Debug: a waiter is queued on key and not yet resumed.
+bool clj_debug_lot_queued(const void *key);
 
 // (locking x ...): a reentrant monitor per object, looked up by identity; monitor-exit* by a non-owner throws.
 clj_value clj_monitor_enter(clj_value x);

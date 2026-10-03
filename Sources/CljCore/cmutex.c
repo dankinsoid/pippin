@@ -100,6 +100,15 @@ void clj_lot_unpark_all(const void *key) {
 	}
 }
 
+bool clj_debug_lot_queued(const void *key) {
+	lot_bucket *b = bucket_of(key);
+	clj_lock_lock(&b->lock);
+	bool found = false;
+	for (lot_node *n = b->head; n && !found; n = n->next) found = n->key == key;
+	clj_lock_unlock(&b->lock);
+	return found;
+}
+
 // ---- the mutex
 
 enum { SPINS = 64 };

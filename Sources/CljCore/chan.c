@@ -1291,6 +1291,14 @@ int clj_chan_role(clj_value chv) { return chan_of(chv)->role; }
 
 clj_value clj_debug_chan_coro(clj_value chv) { return body_coro(chv); }
 
+// The gate is the lot keyed by the coroutine's own address (sched.c, clj_coro_suspend_point).
+bool clj_debug_chan_gated(clj_value chv) {
+	clj_value coro = body_coro(chv);
+	bool      r = !clj_is_nil(coro) && clj_debug_lot_queued(clj_coro_of(coro));
+	clj_release(coro);
+	return r;
+}
+
 uint32_t clj_debug_chan_pending(clj_value chv, bool puts) {
 	clj_chan *ch = chan_of(chv);
 	chan_lock(ch);

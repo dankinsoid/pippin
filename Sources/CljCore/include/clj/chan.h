@@ -72,6 +72,8 @@ bool      clj_chan_suspended(clj_value ch);
 uint32_t clj_debug_chan_pending(clj_value ch, bool puts);
 // Debug: the coroutine behind a go, future or thread channel, owned; nil once it finished or for a plain channel.
 clj_value clj_debug_chan_coro(clj_value ch);
+// Debug: the body behind ch is on its suspension gate, so it runs no code of its own until resume! or a cancel.
+bool clj_debug_chan_gated(clj_value ch);
 
 void clj_chan_install(void);
 
