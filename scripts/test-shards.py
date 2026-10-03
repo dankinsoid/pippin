@@ -43,9 +43,18 @@ def physical_memory():
 	return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
 
 
-def max_rss_bytes(rusage):
-	# Darwin reports bytes, Linux kilobytes (docs/portability.md).
-	return rusage.ru_maxrss if sys.platform == "darwin" else rusage.ru_maxrss * 1024
+def resident_by_group():
+	"""Resident bytes per process group: a shard is swift-test, its test process and whatever that spawns."""
+	try:
+		out = subprocess.run(["ps", "-A", "-o", "pgid=,rss="], capture_output=True, text=True, timeout=10).stdout
+	except (OSError, subprocess.SubprocessError):
+		return {}
+	groups = collections.Counter()
+	for line in out.splitlines():
+		fields = line.split()
+		if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
+			groups[int(fields[0])] += int(fields[1]) * 1024
+	return groups
 
 
 def scratch_path(swift_args):
@@ -228,7 +237,7 @@ class Shard:
 	def poll(self):
 		if self.status is not None:
 			return True
-		pid, status, rusage = os.wait4(self.proc.pid, os.WNOHANG)
+		pid, status = os.waitpid(self.proc.pid, os.WNOHANG)
 		now = time.monotonic()
 		if pid == 0:
 			if self.term_sent is None and now - self.started > self.timeout:
@@ -240,7 +249,6 @@ class Shard:
 			return False
 		self.status = os.waitstatus_to_exitcode(status)
 		self.proc.returncode = self.status
-		self.rss = max_rss_bytes(rusage)
 		self.ended = now
 		kill_group(self.proc.pid, signal.SIGKILL)  # whatever the shard left behind in its group
 		GROUPS.discard(self.proc.pid)
@@ -372,6 +380,7 @@ def run(args):
 
 	pending = list(shards)
 	running = []
+	sampled = 0.0
 	while pending or running:
 		# One shard at a time gets past swift-test's planning, the part that writes the shared build.db.
 		if pending and len(running) < n and all(s.has_begun() or s.status is not None for s in running):
@@ -385,6 +394,11 @@ def run(args):
 				running.remove(s)
 				log(f"{s.name} {'FAILED' if s.failed() else 'passed'}: {s.ended - s.started:.0f} s "
 					f"(planned {s.planned:.0f}), exit {s.status}, peak RSS {s.rss / 2**20:.0f} MB")
+		if time.monotonic() - sampled >= 1:
+			sampled = time.monotonic()
+			resident = resident_by_group()
+			for s in running:
+				s.rss = max(s.rss, resident.get(s.proc.pid, 0))
 		time.sleep(0.1)
 
 	# Every listed test exactly once, whichever shard ran it.
