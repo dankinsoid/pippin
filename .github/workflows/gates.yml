@@ -11,9 +11,10 @@ on:
     paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
 
+# A push supersedes its ref's last run; each dispatch is its own group, so a series runs side by side.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -25,8 +26,6 @@ env:
   HOMEBREW_NO_INSTALL_CLEANUP: 1
   # A cold ASan build alone takes 290 s on the 4-core Intel runner; the Makefile default is sized for an M3.
   TEST_TIMEOUT: 1200
-  # The corpus watchdog's budget per deftest: test-random-sample alone takes 4-6 s under ASan here.
-  CLJ_CORPUS_TIMEOUT_MS: 20000
 
 jobs:
   gates:
@@ -109,6 +108,16 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           git status --short
+
+      # Each shard's log and event stream, and times.json for `scripts/test-shards.py record`.
+      - name: Shard logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: shards-${{ matrix.arch }}
+          path: .build/*/shards/
+          retention-days: 14
+          if-no-files-found: ignore
 
       # One entry per library survives: a run either hits the restored one or writes a newer one.
       - name: Prune the corpus cache
