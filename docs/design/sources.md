@@ -11,6 +11,6 @@
 - **UI:** React Native (reconciler + host components), react-reconciler, Reagent/hicada/uix, Yoga, Elm Html.
 - **Оптимизации:** Truffle self-optimizing AST interpreters (Würthinger et al.), specializing adaptive interpreter в CPython (PEP 659), egg (Willsey et al. 2021), copy-and-patch (Xu & Kjølstad 2021), проекции Футамуры, MLIR, BOLT, conditions/restarts в Common Lisp, miniKanren/core.logic, Datascript.
 - **Циклы и дескрипторы:** Bacon & Rajan «Concurrent Cycle Collection in Reference Counted Systems» (2001), CPython gc, Nim ORC, Swift `weak`/`unowned`; CPython `tp_*`-слоты, Lua metatables, Racket CS record-type descriptors, Clojure `RT.first`.
-- **Тесты:** `clojure/test_clojure`, core-test (кроссплатформенный набор для clojure.core), ClojureCLR (core.clj поверх реализованных `clojure.lang.*`).
+- **Тесты:** `clojure/test_clojure`, core-test (кроссплатформенный набор для clojure.core), ClojureCLR (core.clj поверх реализованных `clojure.lang.*`). Генераторы и оракулы: Csmith (Yang et al. 2011), YARPGen, Fuzzilli, libFuzzer/OSS-Fuzz, test.check, crater; детерминированная конкурентность — FoundationDB simulation, TigerBeetle, loom, shuttle, CHESS; верификаторы проходов — LLVM `-verify-machineinstrs`, GHC `-dcore-lint`, Go `ssa.check`; rustc `tests/ui`.
 - **Локация:** Swift `#file`/`#line`/`#fileID`/`#column`, Rust `#[track_caller]` и `Location::caller()`, Racket syntax objects (srcloc + origin), timbre (`(meta &form)`).
 - **Инструментарий:** clojure-lsp / clj-kondo, nREPL (bencode), Calva/CIDER/Conjure, Julia `@code_warntype` (для inlay hints).
