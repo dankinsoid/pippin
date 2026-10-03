@@ -2539,7 +2539,8 @@
 (defn ^:pippin/extension require-swift
   "Loads the stubs of Swift modules. A spec is a module symbol or [Module :as alias :refer [names] or :all];
   a module's functions are the vars of the namespace of its name, in kebab case, called with their labels
-  as keywords in declaration order: (moved p :by 3)."
+  as keywords in declaration order: (moved p :by 3). A member of a type is the var Type.member, the receiver
+  first: (Point.scaled p :by 2), (Point.origin); an initializer is Type.: (Point. :x 1 :y 2)."
   [& specs]
   (doseq [spec specs]
     (let [[module & options] (if (symbol? spec) [spec] spec)

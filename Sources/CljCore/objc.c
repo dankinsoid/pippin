@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "clj/hostbox.h"
 
 // The slice's pool (NOTES "ObjC bridge"); defined on every platform so the drain needs no #ifdef.
 _Thread_local void *clj_objc_pool_token;
@@ -1258,6 +1259,9 @@ static clj_value call_out(const objc_sig *sig, void *fn, id self, SEL sel, bool 
 
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw) {
 	if (clj_is_nil(target)) return CLJ_NIL; // messaging nil is a no-op returning zero, as in Objective-C
+	if (clj_is_host_box(target) && clj_is_string(selector))
+		return clj_throw_msg("Cannot send .%s to a %s: a Swift type's members are vars of its module, Module/Type.member (design §5)",
+		                     clj_string_bytes(selector), clj_type_name(target));
 	if (!clj_is_objc_object(target)) return clj_throw_msg("Cannot send to a %s: not an Objective-C object", clj_type_name(target));
 	if (!clj_is_string(selector)) return clj_throw_msg("A selector must be a string, got: %s", clj_type_name(selector));
 

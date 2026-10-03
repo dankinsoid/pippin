@@ -127019,7 +127019,7 @@ CLJC_FRAME clj_value clojure_core_require_swift_v0(clj_value self, const clj_val
 	l0 = nargs > 0 ? clj_list_from_array(args + 0, nargs - 0) : CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[497], &cc);
-#line 2544 "Sources/CljCore/boot/core.clj"
+#line 2545 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = l0;
 	clj_value a0[1] = {t0};
 	(void)a0;
@@ -127057,7 +127057,7 @@ L3: ;
 	goto L1;
 	}
 	clj_c_rebind(&l2, t6);
-#line 2545 "Sources/CljCore/boot/core.clj"
+#line 2546 "Sources/CljCore/boot/core.clj"
 	clj_value t7 = l2;
 	clj_value a2[1] = {t7};
 	(void)a2;
@@ -127143,7 +127143,7 @@ L3: ;
 	clj_value t21 = l6;
 	l6 = CLJ_NIL;
 	clj_c_rebind(&l8, t21);
-#line 2546 "Sources/CljCore/boot/core.clj"
+#line 2547 "Sources/CljCore/boot/core.clj"
 	clj_value t22;
 	bool o23;
 	clj_value t23 = clj_c_var_borrow(V[9], &o23);
@@ -127170,8 +127170,8 @@ L3: ;
 	goto L1;
 	}
 	clj_c_rebind(&l9, t22);
-#line 2545 "Sources/CljCore/boot/core.clj"
-#line 2547 "Sources/CljCore/boot/core.clj"
+#line 2546 "Sources/CljCore/boot/core.clj"
+#line 2548 "Sources/CljCore/boot/core.clj"
 	clj_value t26;
 	bool o27 = false;
 	clj_value t27 = CLJ_NIL;
@@ -127251,7 +127251,7 @@ L3: ;
 	clj_value t36 = l10;
 	l10 = CLJ_NIL;
 	clj_c_rebind(&l11, t36);
-#line 2548 "Sources/CljCore/boot/core.clj"
+#line 2549 "Sources/CljCore/boot/core.clj"
 	clj_value t37;
 	bool o38;
 	clj_value t38 = clj_c_var_borrow(V[16], &o38);
@@ -127329,7 +127329,7 @@ L3: ;
 	t35 = CLJ_NIL;
 	}
 	clj_release(t35);
-#line 2549 "Sources/CljCore/boot/core.clj"
+#line 2550 "Sources/CljCore/boot/core.clj"
 	clj_value t48;
 	bool o49;
 	clj_value t49 = clj_c_var_borrow(V[456], &o49);
@@ -127348,7 +127348,7 @@ L3: ;
 	goto L1;
 	}
 	clj_release(t48);
-#line 2550 "Sources/CljCore/boot/core.clj"
+#line 2551 "Sources/CljCore/boot/core.clj"
 	clj_value t51;
 	clj_value t52 = K[1525];
 	clj_value t53 = l9;
@@ -127394,7 +127394,7 @@ L3: ;
 	t56 = CLJ_NIL;
 	}
 	clj_release(t56);
-#line 2551 "Sources/CljCore/boot/core.clj"
+#line 2552 "Sources/CljCore/boot/core.clj"
 	clj_value t62;
 	clj_value t63 = K[1526];
 	clj_value t64 = l9;
@@ -127442,7 +127442,7 @@ L3: ;
 	t67 = CLJ_NIL;
 	}
 	clj_release(t67);
-#line 2544 "Sources/CljCore/boot/core.clj"
+#line 2545 "Sources/CljCore/boot/core.clj"
 	clj_value t74 = l1;
 	clj_value a20[1] = {t74};
 	(void)a20;
@@ -127548,7 +127548,7 @@ CLJC_INLINE clj_value clojure_core_ns__0__1_a1_i(clj_value self, const clj_value
 	(void)l0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[500], &cc);
-#line 2562 "Sources/CljCore/boot/core.clj"
+#line 2563 "Sources/CljCore/boot/core.clj"
 	clj_value t0;
 	bool o1;
 	clj_value t1 = clj_c_var_borrow(V[8], &o1);
@@ -127594,7 +127594,7 @@ static CLJC_FRAME clj_value clojure_core_ns__0_a1(clj_value self, const clj_valu
 	(void)l0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[499], &cc);
-#line 2562 "Sources/CljCore/boot/core.clj"
+#line 2563 "Sources/CljCore/boot/core.clj"
 	clj_value t0;
 	bool o1 = false;
 	clj_value t1 = CLJ_NIL;
@@ -127654,7 +127654,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_value l6 = CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[501], &cc);
-#line 2563 "Sources/CljCore/boot/core.clj"
+#line 2564 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = clj_retain(l0);
 	clj_c_rebind(&l1, t0);
 	clj_value t1 = l1;
@@ -127708,8 +127708,8 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_value t8 = l4;
 	l4 = CLJ_NIL;
 	clj_c_rebind(&l6, t8);
-#line 2564 "Sources/CljCore/boot/core.clj"
 #line 2565 "Sources/CljCore/boot/core.clj"
+#line 2566 "Sources/CljCore/boot/core.clj"
 	clj_value t9 = l5;
 	clj_value t10 = K[1531];
 	clj_value a3[2] = {t9, t10};
@@ -127730,7 +127730,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_release(t11);
 	clj_value t13;
 	if (t12) {
-#line 2564 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
 	clj_value t14;
 	bool o15 = false;
 	clj_value t15 = CLJ_NIL;
@@ -127760,7 +127760,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	if (o15) clj_release(t15);
 	goto L1;
 	}
-#line 2565 "Sources/CljCore/boot/core.clj"
+#line 2566 "Sources/CljCore/boot/core.clj"
 	clj_value t19;
 	clj_value t20 = fr.captured[0];
 	clj_value t21 = l6;
@@ -127807,8 +127807,8 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	}
 	t13 = t22;
 	} else {
-#line 2564 "Sources/CljCore/boot/core.clj"
-#line 2566 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
+#line 2567 "Sources/CljCore/boot/core.clj"
 	clj_value t23 = l5;
 	clj_value t24 = K[1533];
 	clj_value a8[2] = {t23, t24};
@@ -127829,7 +127829,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_release(t25);
 	clj_value t27;
 	if (t26) {
-#line 2564 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
 	clj_value t28;
 	bool o29 = false;
 	clj_value t29 = CLJ_NIL;
@@ -127859,7 +127859,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	if (o29) clj_release(t29);
 	goto L1;
 	}
-#line 2566 "Sources/CljCore/boot/core.clj"
+#line 2567 "Sources/CljCore/boot/core.clj"
 	clj_value t33;
 	clj_value t34 = fr.captured[0];
 	clj_value t35 = l6;
@@ -127906,8 +127906,8 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	}
 	t27 = t36;
 	} else {
-#line 2564 "Sources/CljCore/boot/core.clj"
-#line 2567 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
+#line 2568 "Sources/CljCore/boot/core.clj"
 	clj_value t37 = l5;
 	clj_value t38 = K[1535];
 	clj_value a13[2] = {t37, t38};
@@ -127928,7 +127928,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_release(t39);
 	clj_value t41;
 	if (t40) {
-#line 2564 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
 	clj_value t42;
 	bool o43 = false;
 	clj_value t43 = CLJ_NIL;
@@ -127958,7 +127958,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	if (o43) clj_release(t43);
 	goto L1;
 	}
-#line 2567 "Sources/CljCore/boot/core.clj"
+#line 2568 "Sources/CljCore/boot/core.clj"
 	clj_value t47;
 	clj_value t48 = fr.captured[0];
 	clj_value t49 = l6;
@@ -128005,8 +128005,8 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	}
 	t41 = t50;
 	} else {
-#line 2564 "Sources/CljCore/boot/core.clj"
-#line 2568 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
+#line 2569 "Sources/CljCore/boot/core.clj"
 	clj_value t51 = l5;
 	clj_value t52 = K[1537];
 	clj_value a18[2] = {t51, t52};
@@ -128027,7 +128027,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_release(t53);
 	clj_value t55;
 	if (t54) {
-#line 2564 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
 	clj_value t56;
 	bool o57 = false;
 	clj_value t57 = CLJ_NIL;
@@ -128057,7 +128057,7 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	if (o57) clj_release(t57);
 	goto L1;
 	}
-#line 2568 "Sources/CljCore/boot/core.clj"
+#line 2569 "Sources/CljCore/boot/core.clj"
 	clj_value t61;
 	clj_value t62 = fr.captured[0];
 	clj_value t63 = l6;
@@ -128104,8 +128104,8 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	}
 	t55 = t64;
 	} else {
-#line 2564 "Sources/CljCore/boot/core.clj"
-#line 2569 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
+#line 2570 "Sources/CljCore/boot/core.clj"
 	clj_value t65 = l5;
 	clj_value t66 = K[1539];
 	clj_value a23[2] = {t65, t66};
@@ -128126,11 +128126,11 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_release(t67);
 	clj_value t69;
 	if (t68) {
-#line 2564 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
 	clj_value t70 = clj_retain(K[3]);
 	t69 = t70;
 	} else {
-#line 2570 "Sources/CljCore/boot/core.clj"
+#line 2571 "Sources/CljCore/boot/core.clj"
 	clj_value t71 = l5;
 	clj_value t72 = K[1540];
 	clj_value a24[2] = {t71, t72};
@@ -128151,11 +128151,11 @@ static CLJC_FRAME clj_value clojure_core_ns__2_a1(clj_value self, const clj_valu
 	clj_release(t73);
 	clj_value t75;
 	if (t74) {
-#line 2564 "Sources/CljCore/boot/core.clj"
+#line 2565 "Sources/CljCore/boot/core.clj"
 	clj_value t76 = clj_retain(K[3]);
 	t75 = t76;
 	} else {
-#line 2571 "Sources/CljCore/boot/core.clj"
+#line 2572 "Sources/CljCore/boot/core.clj"
 	clj_value t77;
 	bool o78;
 	clj_value t78 = clj_c_var_borrow(V[16], &o78);
@@ -128248,7 +128248,7 @@ CLJC_INLINE clj_value clojure_core_ns__3_a1_i(clj_value self, const clj_value *c
 	(void)l0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[502], &cc);
-#line 2572 "Sources/CljCore/boot/core.clj"
+#line 2573 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = K[1531];
 	clj_value t1 = l0;
 	clj_value a1[1] = {t1};
@@ -128318,7 +128318,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[498], &cc);
-#line 2558 "Sources/CljCore/boot/core.clj"
+#line 2559 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = l3;
 	clj_value a1[1] = {t0};
 	(void)a1;
@@ -128369,7 +128369,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	t4 = CLJ_NIL;
 	}
 	clj_c_rebind(&l4, t4);
-#line 2559 "Sources/CljCore/boot/core.clj"
+#line 2560 "Sources/CljCore/boot/core.clj"
 	clj_value t7 = l4;
 	bool t8 = clj_truthy(t7);
 	(void)t7;
@@ -128396,7 +128396,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	t9 = t12;
 	}
 	clj_c_rebind(&l5, t9);
-#line 2560 "Sources/CljCore/boot/core.clj"
+#line 2561 "Sources/CljCore/boot/core.clj"
 	clj_value t13 = l5;
 	clj_value a5[1] = {t13};
 	(void)a5;
@@ -128447,7 +128447,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	t17 = CLJ_NIL;
 	}
 	clj_c_rebind(&l6, t17);
-#line 2561 "Sources/CljCore/boot/core.clj"
+#line 2562 "Sources/CljCore/boot/core.clj"
 	clj_value t20 = l6;
 	bool t21 = clj_truthy(t20);
 	(void)t20;
@@ -128474,14 +128474,14 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	t22 = t25;
 	}
 	clj_c_rebind(&l7, t22);
-#line 2562 "Sources/CljCore/boot/core.clj"
+#line 2563 "Sources/CljCore/boot/core.clj"
 	clj_value t26 = clj_c_closure(CLJ_NIL, clojure_core_ns__0, NULL, 0, 0x2, 1, 1);
 	clj_c_set(&fr, 8, t26);
-#line 2563 "Sources/CljCore/boot/core.clj"
+#line 2564 "Sources/CljCore/boot/core.clj"
 	clj_value c8[1] = {fr.slots[8]};
 	clj_value t27 = clj_c_closure(CLJ_NIL, clojure_core_ns__2, c8, 1, 0x2, 1, 1);
 	clj_c_rebind(&l9, t27);
-#line 2572 "Sources/CljCore/boot/core.clj"
+#line 2573 "Sources/CljCore/boot/core.clj"
 	clj_value t28;
 	bool o29 = false;
 	clj_value t29 = CLJ_NIL;
@@ -128512,7 +128512,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	goto L1;
 	}
 	clj_c_rebind(&l10, t28);
-#line 2558 "Sources/CljCore/boot/core.clj"
+#line 2559 "Sources/CljCore/boot/core.clj"
 	clj_value t32;
 	bool o33;
 	clj_value t33 = clj_c_var_borrow(V[0], &o33);
@@ -128781,7 +128781,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	if (o33) clj_release(t33);
 	goto L1;
 	}
-#line 2575 "Sources/CljCore/boot/core.clj"
+#line 2576 "Sources/CljCore/boot/core.clj"
 	clj_value t56 = l6;
 	bool t57 = clj_truthy(t56);
 	(void)t56;
@@ -129218,7 +129218,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	} else {
 	t58 = CLJ_NIL;
 	}
-#line 2576 "Sources/CljCore/boot/core.clj"
+#line 2577 "Sources/CljCore/boot/core.clj"
 	clj_value t91 = l10;
 	bool t92 = clj_truthy(t91);
 	(void)t91;
@@ -129319,7 +129319,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	}
 	t93 = t101;
 	}
-#line 2577 "Sources/CljCore/boot/core.clj"
+#line 2578 "Sources/CljCore/boot/core.clj"
 	clj_value t102;
 	bool o103 = false;
 	clj_value t103 = CLJ_NIL;
@@ -129359,7 +129359,7 @@ CLJC_FRAME clj_value clojure_core_ns_v3(clj_value self, const clj_value *capture
 	if (o33) clj_release(t33);
 	goto L1;
 	}
-#line 2558 "Sources/CljCore/boot/core.clj"
+#line 2559 "Sources/CljCore/boot/core.clj"
 	clj_value t106;
 	bool o107;
 	clj_value t107 = clj_c_var_borrow(V[8], &o107);
@@ -129452,7 +129452,7 @@ static clj_value top_310(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
-#line 2553 "Sources/CljCore/boot/core.clj"
+#line 2554 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = clj_c_closure(K[1529], clojure_core_ns, NULL, 0, 0x0, 3, CLJ_ARITY_ANY);
 	clj_var_bind_root(V[457], t0);
 	clj_release(t0);
@@ -129480,7 +129480,7 @@ static CLJC_FRAME clj_value clojure_core_host_async_fn__0_v0(clj_value self, con
 	l0 = nargs > 0 ? clj_list_from_array(args + 0, nargs - 0) : CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[504], &cc);
-#line 2589 "Sources/CljCore/boot/core.clj"
+#line 2590 "Sources/CljCore/boot/core.clj"
 	clj_value t0;
 	bool o1;
 	clj_value t1 = clj_c_var_borrow(V[9], &o1);
@@ -129501,7 +129501,7 @@ static CLJC_FRAME clj_value clojure_core_host_async_fn__0_v0(clj_value self, con
 	goto L1;
 	}
 	clj_c_rebind(&l1, t0);
-#line 2590 "Sources/CljCore/boot/core.clj"
+#line 2591 "Sources/CljCore/boot/core.clj"
 	clj_value t4;
 	bool o5 = false;
 	clj_value t5 = CLJ_NIL;
@@ -129553,7 +129553,7 @@ static CLJC_FRAME clj_value clojure_core_host_async_fn__0_v0(clj_value self, con
 	l1 = CLJ_NIL;
 	t10 = t11;
 	} else {
-#line 2592 "Sources/CljCore/boot/core.clj"
+#line 2593 "Sources/CljCore/boot/core.clj"
 	clj_value t12;
 	clj_value t13;
 	bool o14;
@@ -129600,7 +129600,7 @@ L4: ;
 	if (clj_ex_isa(ex3, K[1554])) {
 	clj_c_rebind(&l2, ex3);
 	h3 = true;
-#line 2593 "Sources/CljCore/boot/core.clj"
+#line 2594 "Sources/CljCore/boot/core.clj"
 	clj_value t18;
 	clj_value t19 = l1;
 	clj_value t20 = K[61];
@@ -129649,7 +129649,7 @@ L6: ;
 	t10 = t24;
 	}
 	clj_c_rebind(&l3, t10);
-#line 2594 "Sources/CljCore/boot/core.clj"
+#line 2595 "Sources/CljCore/boot/core.clj"
 	clj_value t25 = l3;
 	clj_value t26 = K[42];
 	clj_value a8[2] = {t25, t26};
@@ -129743,7 +129743,7 @@ CLJC_INLINE clj_value clojure_core_host_async_fn_a1_i(clj_value self, const clj_
 	s[0] = args[0];
 	clj_ccall cc;
 	CLJC_ENTER(&S[503], &cc);
-#line 2588 "Sources/CljCore/boot/core.clj"
+#line 2589 "Sources/CljCore/boot/core.clj"
 	clj_value c0[1] = {fr.slots[0]};
 	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_core_host_async_fn__0, c0, 1, 0x0, 0, CLJ_ARITY_ANY);
 	CLJC_LEAVE(&S[503], &cc);
@@ -129766,7 +129766,7 @@ static clj_value top_311(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
-#line 2586 "Sources/CljCore/boot/core.clj"
+#line 2587 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = clj_c_closure(K[1553], clojure_core_host_async_fn, NULL, 0, 0x2, 1, 1);
 	clj_var_bind_root(V[458], t0);
 	clj_release(t0);
@@ -129791,7 +129791,7 @@ static CLJC_FRAME clj_value clojure_core_form312__0_a1(clj_value self, const clj
 	(void)l0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[505], &cc);
-#line 2598 "Sources/CljCore/boot/core.clj"
+#line 2599 "Sources/CljCore/boot/core.clj"
 	clj_value t0;
 	bool o1;
 	clj_value t1 = clj_c_var_borrow(V[459], &o1);
@@ -129922,7 +129922,7 @@ static clj_value top_312(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
-#line 2598 "Sources/CljCore/boot/core.clj"
+#line 2599 "Sources/CljCore/boot/core.clj"
 	clj_value t0;
 	bool o1 = false;
 	clj_value t1 = CLJ_NIL;
@@ -132606,7 +132606,7 @@ static void unit_pools(void) {
 	K[1524] = clj_c_const(":module", 7);
 	K[1525] = clj_c_const(":as", 3);
 	K[1526] = clj_c_const(":refer", 6);
-	K[1527] = clj_c_const("{:arglists ([& specs]), :column 1, :doc \"Loads the stubs of Swift modules. A spec is a module symbol or [Module :as alias :refer [names] or :all];\\n  a module's functions are the vars of the namespace of its name, in kebab case, called with their labels\\n  as keywords in declaration order: (moved p :by 3).\", :line 2539, :name require-swift, :ns clojure.core, :pippin/extension true}", 384);
+	K[1527] = clj_c_const("{:arglists ([& specs]), :column 1, :doc \"Loads the stubs of Swift modules. A spec is a module symbol or [Module :as alias :refer [names] or :all];\\n  a module's functions are the vars of the namespace of its name, in kebab case, called with their labels\\n  as keywords in declaration order: (moved p :by 3). A member of a type is the var Type.member, the receiver\\n  first: (Point.scaled p :by 2), (Point.origin); an initializer is Type.: (Point. :x 1 :y 2).\", :line 2539, :name require-swift, :ns clojure.core, :pippin/extension true}", 535);
 	K[1528] = clj_c_const("ns", 2);
 	K[1529] = clj_c_const("clojure.core/ns", 15);
 	K[1530] = clj_c_const("quote", 5);
@@ -132630,11 +132630,11 @@ static void unit_pools(void) {
 	K[1548] = clj_c_const("quote", 5);
 	K[1549] = clj_c_const("clojure.core/merge", 18);
 	K[1550] = clj_c_const("clojure.core/refer-clojure", 26);
-	K[1551] = clj_c_const("{:arglists ([name & references]), :column 1, :doc \"(ns name docstring? attr-map? references*): sets the current namespace, creating it when needed, and\\n  processes (:refer-clojure ...), (:require ...), (:require-swift ...) and (:use ...). (:import ...) and (:gen-class) name JVM\\n  classes and are ignored; a class named later fails to resolve where it is used (NOTES.md).\", :line 2553, :macro true, :name ns, :ns clojure.core}", 428);
+	K[1551] = clj_c_const("{:arglists ([name & references]), :column 1, :doc \"(ns name docstring? attr-map? references*): sets the current namespace, creating it when needed, and\\n  processes (:refer-clojure ...), (:require ...), (:require-swift ...) and (:use ...). (:import ...) and (:gen-class) name JVM\\n  classes and are ignored; a class named later fails to resolve where it is used (NOTES.md).\", :line 2554, :macro true, :name ns, :ns clojure.core}", 428);
 	K[1552] = clj_c_const("host-async-fn", 13);
 	K[1553] = clj_c_const("clojure.core/host-async-fn", 26);
 	K[1554] = clj_c_const(":cancelled", 10);
-	K[1555] = clj_c_const("{:arglists ([inner]), :column 1, :line 2586, :name host-async-fn, :ns clojure.core, :private true}", 98);
+	K[1555] = clj_c_const("{:arglists ([inner]), :column 1, :line 2587, :name host-async-fn, :ns clojure.core, :private true}", 98);
 	K[1556] = clj_c_const(":=>", 3);
 	K[1557] = clj_c_const("{namespace [:=> [:cat [:or :keyword :symbol]] [:maybe :string]], set-validator! [:=> [:cat :any [:maybe [:=> {:effects #{}} [:cat :any] :any]]] :nil], swap-vals! [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :vector], swap! [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :any], neg? [:=> [:cat :number] :boolean], nth [:=> [:cat :any :int] :any], seq [:=> [:cat :any] [:maybe :seq]], count [:=> [:cat :any] :int], zero? [:=> [:cat :number] :boolean], next [:=> [:cat :any] [:maybe :seq]], conj [:=> [:cat [:maybe [:or :seq :vector :map :set]] [:* :any]] [:or :seq :vector :map :set]], rest [:=> [:cat :any] :seq], assoc [:=> [:cat [:maybe [:or :map :vector]] :any :any [:* :any]] [:or :map :vector]], lazy-seq* [:=> [:cat [:=> {:effects #{}} [:cat] :any]] :seq], dec [:=> [:cat :number] :number], inc [:=> [:cat :number] :number], name [:=> [:cat [:or :keyword :symbol :string]] :string], pos? [:=> [:cat :number] :boolean]}", 961);
 	clj_c_publish(K, 1558);
@@ -136492,40 +136492,40 @@ F288: ;
 	if (r == CLJ_THROWN) goto F288;
 	clj_release(r);
 N288: ;
-	// form 289 at 2553:1
+	// form 289 at 2554:1
 	if (0) {
 F289: ;
-	if (!clj_load_form_failed(FILE_STR, 2553, 1, K[1528])) goto fail;
+	if (!clj_load_form_failed(FILE_STR, 2554, 1, K[1528])) goto fail;
 	goto N289;
 	}
-	clj_c_stub_init(&S[498], K[1529], 2553, 1);
-	clj_c_stub_init(&S[499], CLJ_NIL, 2562, 19);
-	clj_c_stub_init(&S[500], CLJ_NIL, 2562, 35);
-	clj_c_stub_init(&S[501], CLJ_NIL, 2563, 17);
-	clj_c_stub_init(&S[502], CLJ_NIL, 2572, 31);
+	clj_c_stub_init(&S[498], K[1529], 2554, 1);
+	clj_c_stub_init(&S[499], CLJ_NIL, 2563, 19);
+	clj_c_stub_init(&S[500], CLJ_NIL, 2563, 35);
+	clj_c_stub_init(&S[501], CLJ_NIL, 2564, 17);
+	clj_c_stub_init(&S[502], CLJ_NIL, 2573, 31);
 	r = top_310();
 	if (r == CLJ_THROWN) goto F289;
 	clj_release(r);
 N289: ;
-	// form 290 at 2586:1
+	// form 290 at 2587:1
 	if (0) {
 F290: ;
-	if (!clj_load_form_failed(FILE_STR, 2586, 1, K[1552])) goto fail;
+	if (!clj_load_form_failed(FILE_STR, 2587, 1, K[1552])) goto fail;
 	goto N290;
 	}
-	clj_c_stub_init(&S[503], K[1553], 2586, 1);
-	clj_c_stub_init(&S[504], CLJ_NIL, 2588, 3);
+	clj_c_stub_init(&S[503], K[1553], 2587, 1);
+	clj_c_stub_init(&S[504], CLJ_NIL, 2589, 3);
 	r = top_311();
 	if (r == CLJ_THROWN) goto F290;
 	clj_release(r);
 N290: ;
-	// form 291 at 2598:1
+	// form 291 at 2599:1
 	if (0) {
 F291: ;
-	if (!clj_load_form_failed(FILE_STR, 2598, 1, CLJ_NIL)) goto fail;
+	if (!clj_load_form_failed(FILE_STR, 2599, 1, CLJ_NIL)) goto fail;
 	goto N291;
 	}
-	clj_c_stub_init(&S[505], CLJ_NIL, 2598, 7);
+	clj_c_stub_init(&S[505], CLJ_NIL, 2599, 7);
 	r = top_312();
 	if (r == CLJ_THROWN) goto F291;
 	clj_release(r);

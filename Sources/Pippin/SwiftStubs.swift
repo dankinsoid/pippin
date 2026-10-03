@@ -4,36 +4,62 @@ import Foundation
 
 /// Level 2 of the bridge (design §5 «Объявленная граница»): what generated Swift stubs register with and call into.
 public enum SwiftStubs {
-	/// One Swift function as the generator printed it; a nil label is `_`.
+	/// One Swift function, member or accessor as the generator printed it; a nil label is `_`. An instance member's
+	/// receiver is its first argument, unlabelled.
 	public struct Function: Sendable {
 		public let swiftName: String
+		/// The Swift type a member belongs to, spelled as in Swift (`Point`, `Outer.Inner`); nil for a free function.
+		public let owner: String?
+		/// What the var is spelled from: the base name, `setName` for a setter, empty for an initializer.
+		public let base: String
 		public let labels: [String?]
+		/// What the doc adds after the name: `async`, `throws(FixtureError)`.
+		public let effects: String
 		let call: Call
 
 		enum Call: Sendable {
 			case plain(@Sendable ([Value]) throws -> Value)
 			// Decodes on the caller's thread and answers the isolated call itself.
 			case mainActor(@Sendable ([Value]) throws -> @MainActor @Sendable () throws -> Value)
+			// Decodes on the caller's thread; the call runs on a Task the caller parks on.
+			case async(@Sendable ([Value]) throws -> @Sendable () async throws -> Value)
 		}
 
-		/// A nonisolated function: the body runs on the caller's thread.
-		public init(swiftName: String, labels: [String?], _ body: @escaping @Sendable ([Value]) throws -> Value) {
-			self.swiftName = swiftName
-			self.labels = labels
-			call = .plain(body)
+		/// A nonisolated synchronous function: the body runs on the caller's thread.
+		public init(swiftName: String, owner: String? = nil, base: String? = nil, labels: [String?], effects: String = "",
+		            _ body: @escaping @Sendable ([Value]) throws -> Value) {
+			self.init(swiftName, owner, base, labels, effects, .plain(body))
 		}
 
 		/// A `@MainActor` function: `prepare` decodes the arguments where the caller is and returns the call,
 		/// which runs in place on the main thread and after a hop from anywhere else (design §5).
-		public init(swiftName: String, labels: [String?],
+		public init(swiftName: String, owner: String? = nil, base: String? = nil, labels: [String?], effects: String = "",
 		            mainActor prepare: @escaping @Sendable ([Value]) throws -> @MainActor @Sendable () throws -> Value) {
-			self.swiftName = swiftName
-			self.labels = labels
-			call = .mainActor(prepare)
+			self.init(swiftName, owner, base, labels, effects, .mainActor(prepare))
 		}
 
-		var base: String { String(swiftName.prefix { $0 != "(" }) }
-		var isolated: Bool { if case .mainActor = call { true } else { false } }
+		/// An `async` function: the caller parks on a Task, and cancelling the parked caller cancels it (design §5).
+		public init(swiftName: String, owner: String? = nil, base: String? = nil, labels: [String?], effects: String = "",
+		            async prepare: @escaping @Sendable ([Value]) throws -> @Sendable () async throws -> Value) {
+			self.init(swiftName, owner, base, labels, effects, .async(prepare))
+		}
+
+		private init(_ swiftName: String, _ owner: String?, _ base: String?, _ labels: [String?], _ effects: String, _ call: Call) {
+			self.swiftName = swiftName
+			self.owner = owner
+			self.base = base ?? String(swiftName.prefix { $0 != "(" })
+			self.labels = labels
+			self.effects = effects
+			self.call = call
+		}
+
+		/// `make-point`, `Point.scaled`, `Point.` for an initializer (design §5 «Как пишется вызов»).
+		var varName: String { (owner.map { "\($0)." } ?? "") + SwiftStubs.kebab(base) }
+		var parks: Bool { if case .plain = call { false } else { true } }
+		var signature: String {
+			let isolation = if case .mainActor = call { " @MainActor" } else { "" }
+			return swiftName + isolation + (effects.isEmpty ? "" : " \(effects)")
+		}
 	}
 
 	/// A public symbol the generator did not bridge, and why: the report design §5 makes part of the product.
@@ -92,21 +118,32 @@ public enum SwiftStubs {
 		set { registry.withLock { registry.generator = newValue } }
 	}
 
-	/// Called by a stub dylib's entry: a var per base name in the module's namespace picks the overload by labels.
+	/// Called by a stub dylib's entry: a var per name in the module's namespace picks the overload by labels.
 	public static func register(module: String, functions: [Function], refusals: [Refusal]) {
 		var order: [String] = []
 		var groups: [String: [Function]] = [:]
 		for f in functions {
-			if groups[f.base] == nil { order.append(f.base) }
-			groups[f.base, default: []].append(f)
+			if groups[f.varName] == nil { order.append(f.varName) }
+			groups[f.varName, default: []].append(f)
 		}
-		for base in order {
-			let overloads = groups[base]!.map(Overload.init)
-			let name = kebab(base)
-			let doc = overloads.map { "\($0.function.swiftName)\($0.function.isolated ? " @MainActor" : "")" }.joined(separator: "\n")
+		var refused = refusals
+		for name in order {
+			var overloads = groups[name]!.map(Overload.init)
+			// All refused, none picked (design §5); the generator refuses those it sees, kebab spelling makes the rest.
+			let clashes = Dictionary(grouping: overloads, by: \.spelling).filter { $0.value.count > 1 }
+			for (shape, clash) in clashes {
+				let names = clash.map(\.function.swiftName).joined(separator: ", ")
+				refused += clash.map {
+					Refusal(swiftName: $0.function.swiftName,
+					        reason: "overload: \(module)/\(name) \(shape) would name each of \(names), and labels cannot tell them apart (design §5)")
+				}
+			}
+			overloads.removeAll { clashes[$0.spelling] != nil }
+			if overloads.isEmpty { continue }
+			let doc = overloads.map(\.function.signature).joined(separator: "\n")
 			Runtime.bind(name, in: module, doc: "Swift: \(doc)", dispatcher("\(module)/\(name)", overloads))
 		}
-		registry.withLock { registry.modules[module] = refusals }
+		registry.withLock { registry.modules[module] = refused }
 	}
 
 	/// What the generator reported as not bridged for a registered module; nil for a module not registered.
@@ -195,8 +232,7 @@ public enum SwiftStubs {
 		var spelling: String { "(\(labels.map { $0.map { ":\(String(describing: $0).dropFirst())" } ?? "_" }.joined(separator: " ")))" }
 	}
 
-	// An isolated overload sends the call through `host-async-fn`, the frame that may park; a module with none
-	// pays no wrapper at all.
+	// Only a var with a parking overload (isolated, async) pays for `host-async-fn`, the frame allowed to park.
 	private static func dispatcher(_ name: String, _ overloads: [Overload]) -> Value {
 		func pick(_ args: [Value]) throws -> (Overload, [Value]) {
 			for o in overloads { if let v = o.values(args) { return (o, v) } }
@@ -204,10 +240,10 @@ public enum SwiftStubs {
 			let known = overloads.map { "\($0.function.swiftName) \($0.spelling)" }.joined(separator: ", ")
 			throw ClojureError(thrown: Value(exInfo: "No overload of \(name) takes (\(shown)); it has \(known)"))
 		}
-		guard overloads.contains(where: \.function.isolated) else {
+		guard overloads.contains(where: \.function.parks) else {
 			return Value(function: name) { args in
 				let (o, values) = try pick(args)
-				guard case .plain(let body) = o.function.call else { preconditionFailure("an isolated overload in a plain dispatcher") }
+				guard case .plain(let body) = o.function.call else { preconditionFailure("a parking overload in a plain dispatcher") }
 				return try body(values)
 			}
 		}
@@ -219,21 +255,25 @@ public enum SwiftStubs {
 			case .mainActor(let prepare):
 				let call = try prepare(values)
 				if Thread.isMainThread { return Value([Value(true), try MainActor.assumeIsolated { try call() }]) }
-				try refuseHopWhereParkIsIllegal(o.function.swiftName)
+				try refuseParkWhereIllegal("\(o.function.swiftName) is @MainActor and the caller is off the main thread, so the call hops and parks")
 				registry.withLock { registry.hops += 1 }
 				return Value.pendingCall { try await MainActor.run { try call() } }
+			case .async(let prepare):
+				let call = try prepare(values)
+				try refuseParkWhereIllegal("\(o.function.swiftName) is async, so the caller parks until it returns")
+				return Value.pendingCall { try await call() }
 			}
 		})
 	}
 
-	// Asked before anything Swift runs: a hop the caller could not wait for would have run the call regardless.
-	private static func refuseHopWhereParkIsIllegal(_ swiftName: String) throws {
+	// Asked before anything Swift runs: a call the caller could not wait for would have run regardless.
+	private static func refuseParkWhereIllegal(_ what: String) throws {
 		if clj_host_park_allowed() { return }
 		let why = Value(owning: clj_take_pending())
 		_ = Value(owning: clj_take_pending_trace())
 		if why.isCancellation { throw ClojureError(thrown: why) }
 		let reason = ClojureError(thrown: why).message
-		throw ClojureError(thrown: Value(exInfo: "\(swiftName) is @MainActor and the caller is off the main thread, so the call hops and parks; here it cannot: \(reason)"))
+		throw ClojureError(thrown: Value(exInfo: "\(what); here it cannot: \(reason)"))
 	}
 
 	static func kebab(_ name: String) -> String {
@@ -242,6 +282,16 @@ public enum SwiftStubs {
 			var buf = [CChar](repeating: 0, count: want + 1)
 			_ = clj_objc_kebab(text, &buf, buf.count)
 			return String(decoding: buf.prefix(want).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+		}
+	}
+
+	/// The value a call with `inout` parameters answers (design §5 «`mutating`, `inout`»): their new values in
+	/// declaration order, `self` first, then the result unless it is `Void`; one value as is, several as a vector.
+	public static func outcome(_ values: [Value]) -> Value {
+		switch values.count {
+		case 0: .nil_
+		case 1: values[0]
+		default: Value(values)
 		}
 	}
 
@@ -266,6 +316,32 @@ public enum SwiftStubs {
 		}
 	}
 
+	/// A class instance as a Clojure value: the box holds the object itself, typed by its dynamic class, so one
+	/// object is one kind of box whatever static type it crossed under (design §5 «Экземпляр класса»).
+	public static func box<T: AnyObject>(object value: T) -> Value {
+		let dynamic: AnyClass = type(of: value)
+		let id = ObjectIdentifier(dynamic)
+		let kind = registry.withLock {
+			registry.objectTypes[id] ?? {
+				let k = ObjectBoxKind(dynamic)
+				registry.objectTypes[id] = k
+				registry.objectDescriptors.insert(k.descriptor)
+				return k
+			}()
+		}
+		return Value(owning: clj_host_box_new(kind.descriptor, Unmanaged.passRetained(value as AnyObject).toOpaque()))
+	}
+
+	/// The object inside a class box when it is a `T`, a subclass included; anything else throws.
+	public static func unbox<T: AnyObject>(object value: Value, as type: T.Type) throws -> T {
+		let ours = clj_is_host_box(value.raw) && registry.withLock { registry.objectDescriptors.contains(clj_host_box_type(value.raw)) }
+		let object = ours ? withExtendedLifetime(value) {
+			Unmanaged<AnyObject>.fromOpaque(clj_host_box_payload(value.raw)!).takeUnretainedValue() as? T
+		} : nil
+		guard let object else { throw ValueTypeMismatch(value: value, expected: String(reflecting: type)) }
+		return object
+	}
+
 	private static func make<T>(_ value: T, _ kind: @autoclosure () -> BoxKind<T>) -> Value {
 		let id = ObjectIdentifier(T.self)
 		let type = registry.withLock { registry.boxTypes[id] ?? { let t = kind(); registry.boxTypes[id] = t; return t }() }
@@ -283,6 +359,9 @@ public enum SwiftStubs {
 		let loading = NSLock()
 		var modules: [String: [Refusal]] = [:]
 		var boxTypes: [ObjectIdentifier: AnyBoxKind] = [:]
+		// Keyed by the dynamic class; the descriptors tell a class box from a struct box of the same payload shape.
+		var objectTypes: [ObjectIdentifier: ObjectBoxKind] = [:]
+		var objectDescriptors: Set<UnsafePointer<clj_type>> = []
 		var generator: Generator?
 		var hops = 0
 
@@ -322,6 +401,11 @@ private class AnyBoxKind: @unchecked Sendable {
 
 	static func of(_ ctx: UnsafeMutableRawPointer?) -> AnyBoxKind { Unmanaged<AnyBoxKind>.fromOpaque(ctx!).takeUnretainedValue() }
 	static func object(_ payload: UnsafeMutableRawPointer?) -> AnyObject { Unmanaged<AnyObject>.fromOpaque(payload!).takeUnretainedValue() }
+
+	static func fold(_ hashValue: Int) -> UInt32 {
+		let h = UInt64(UInt(bitPattern: hashValue))
+		return UInt32(truncatingIfNeeded: h ^ (h >> 32))
+	}
 }
 
 private final class BoxKind<T>: AnyBoxKind, @unchecked Sendable {
@@ -337,12 +421,7 @@ private final class BoxKind<T>: AnyBoxKind, @unchecked Sendable {
 	static var plain: BoxKind { BoxKind(eq: nil, hasher: nil) }
 
 	override func equals(_ a: AnyObject, _ b: AnyObject) -> Bool { eq!((a as! Boxed<T>).value, (b as! Boxed<T>).value) }
-
-	override func hash(_ a: AnyObject) -> UInt32 {
-		let h = UInt64(UInt(bitPattern: hasher!((a as! Boxed<T>).value)))
-		return UInt32(truncatingIfNeeded: h ^ (h >> 32))
-	}
-
+	override func hash(_ a: AnyObject) -> UInt32 { Self.fold(hasher!((a as! Boxed<T>).value)) }
 	override func describe(_ a: AnyObject) -> String { String(describing: (a as! Boxed<T>).value) }
 }
 
@@ -352,6 +431,35 @@ extension BoxKind where T: Equatable {
 
 extension BoxKind where T: Hashable {
 	static var hashable: BoxKind { BoxKind(eq: ==, hasher: { $0.hashValue }) }
+}
+
+// A class's conformances are read off its dynamic class at run time: the static type at a stub may be a superclass.
+// Both objects of an equals call have this one dynamic class, since boxes of two descriptors are never compared.
+private final class ObjectBoxKind: AnyBoxKind, @unchecked Sendable {
+	private let eq: (AnyObject, AnyObject) -> Bool
+	private let hasher: ((AnyObject) -> Int)?
+
+	init(_ type: AnyClass) {
+		if let hashable = type as? any Hashable.Type {
+			(eq, hasher) = Self.hashing(hashable)
+		} else if let equatable = type as? any Equatable.Type {
+			(eq, hasher) = (Self.comparing(equatable), nil)
+		} else {
+			// The same object, as level 1 compares Objective-C objects: a fact about a reference, not about the box.
+			(eq, hasher) = ({ $0 === $1 }, { ObjectIdentifier($0).hashValue })
+		}
+		super.init(name: String(reflecting: type), equatable: true, hashable: hasher != nil)
+	}
+
+	private static func hashing<H: Hashable>(_: H.Type) -> ((AnyObject, AnyObject) -> Bool, (AnyObject) -> Int) {
+		({ ($0 as! H) == ($1 as! H) }, { ($0 as! H).hashValue })
+	}
+
+	private static func comparing<E: Equatable>(_: E.Type) -> (AnyObject, AnyObject) -> Bool { { ($0 as! E) == ($1 as! E) } }
+
+	override func equals(_ a: AnyObject, _ b: AnyObject) -> Bool { eq(a, b) }
+	override func hash(_ a: AnyObject) -> UInt32 { Self.fold(hasher!(a)) }
+	override func describe(_ a: AnyObject) -> String { String(describing: a) }
 }
 
 // The C side of `require-swift`: installed by `clj_host_boot`, so every Swift host has it.
