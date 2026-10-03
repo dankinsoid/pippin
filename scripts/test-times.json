@@ -1,7 +1,7 @@
 {
  "test": {
   "arm64": {
-   "peak_rss_mb": null,
+   "peak_rss_mb": 2100,
    "seconds": {
     "CoreTests/AllocTests": 0.317,
     "CoreTests/ArrayTests": 0.077,
@@ -88,7 +88,7 @@
    }
   },
   "x86_64": {
-   "peak_rss_mb": null,
+   "peak_rss_mb": 2100,
    "seconds": {
     "CoreTests/AllocTests": 1.022,
     "CoreTests/ArrayTests": 0.136,
