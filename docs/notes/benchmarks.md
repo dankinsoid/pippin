@@ -2,6 +2,9 @@
 
 - Numbers drift between sessions (thermal, background load). Compare only within one run; use
   `CLJ_SYSTEM_ALLOC=1` on the same binary as the control.
+- A cost is held here, not in a gate: the gates run under ASan on shared runners. The context-switch row
+  (`clj_bench_switch_ns`, 14 ns on the M3) is the switch's number; `CoroTests.switchCost` only bounds it
+  loosely (gates.md, "Timing in tests").
 - The "C iterator" number (3.8 ns/element) moves to 4.3 with identical machine code when the linker
   places `clj_seq_iter_next`/`clj_vector_nth` differently; `aligned(64)` on both brings it back.
   Compare that row across builds only with the alignment forced, or read it as ±0.5 ns.

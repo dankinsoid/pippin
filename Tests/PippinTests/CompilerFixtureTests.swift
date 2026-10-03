@@ -352,10 +352,10 @@ extension CoreTests {
 		// cancellation unwinds the emitted loop, a suspension parks inside it and the loop goes on afterwards.
 		@Test func compiledLoopTickParksOnASuspend() throws {
 			clj_init()
-			_ = try cljEval("(ns cp.suspend (:require [clojure.core.async :refer [go timeout <!! alts!! cancel! suspend! resume!]]))")
+			try cljTimingSupport()
+			_ = try cljEval("(ns cp.suspend (:require [clojure.core.async :refer [go timeout <!! cancel! suspend! resume!]]))")
 			defer { clj_ns_set_current(clj_ns_user()) }
-			// A timer still holding its guard channel would fail the next suite's live-object baseline.
-			_ = try cljEval("(defn cp-joined [ch] (let [t (timeout 200) v (first (alts!! [ch t]))] (<!! t) v))")
+			_ = try cljEval("(refer 'test-support)")
 			let coros = clj_debug_live_coros()
 			for closed in [false, true] {
 				try compiledEval(closed: closed) {
@@ -364,19 +364,18 @@ extension CoreTests {
 				let got = try cljEval("""
 					(let [r (atom 0)
 					      g (go (try (cp-spin-bump r) (catch :cancelled e :done)))]
-					  (<!! (timeout 10))
+					  (await-true 10000 #(pos? @r))
 					  (suspend! g)
-					  (<!! (timeout 10))
-					  (let [a @r]
+					  (let [gated (await-true 10000 #(gated? g))
+					        a @r]
 					    (<!! (timeout 10))
 					    (let [b @r]
 					      (resume! g)
-					      (<!! (timeout 10))
-					      (let [c @r]
+					      (let [moved (await-true 10000 #(> @r b))]
 					        (cancel! g)
-					        [(= a b) (> c b) (cp-joined g)]))))
+					        [gated (= a b) moved (join g 10000)]))))
 					""")
-				#expect(got == [true, true, Value(keyword: "done")], "closed: \(closed), \(got)")
+				#expect(got == [true, true, true, Value(keyword: "done")], "closed: \(closed), \(got)")
 			}
 			#expect(clj_debug_coro_settle(coros, 5000))
 		}

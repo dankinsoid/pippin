@@ -23,19 +23,21 @@ extension CoreTests {
 	@Suite struct CoroTests {
 		init() throws {
 			clj_init()
+			try cljTimingSupport()
 			_ = try cljEvalScoped("(ns coro-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go go-main go-loop thread alts! alts!! cancel! cancelled? suspend! resume! suspended?]]))")
-			for k in ["main", "pool", "affinity", "a", "b", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice", "took"] { _ = kw(k) }
+			for k in ["main", "pool", "affinity", "a", "b", "deadline", "done", "x", "from-bare", "from-coro", "ran", "v", "from-run-loop", "twice", "took"] { _ = kw(k) }
 			_ = try cljEvalScoped("(in-ns 'coro-tests) (declare parked-gate parked-done main-out main-ui main-in loop-out suspended-g forcing-ls)")
-			// A timer still holding its guard channel would fail the next suite's live-object baseline.
-			_ = try cljEvalScoped("(in-ns 'coro-tests) (defn joined [ch ms] (let [t (timeout ms) v (first (alts!! [ch t]))] (<!! t) v))")
+			_ = try cljEvalScoped("(in-ns 'coro-tests) (refer 'test-support)")
 		}
 
-		// The switch is the hand-written asm: ~20 instructions each way, so a round trip is tens of nanoseconds.
+		// The switch's cost is the bench's to hold (bench/RESULTS.md, "Coroutines and channels"): 14 ns on an M3. This
+		// bound only tells the hand-written switch from a kernel round trip, under ASan on a loaded runner too.
 		@Test func switchCost() throws {
 			let base = CoroBaseline()
 			do {
-				let ns = clj_bench_switch_ns(200_000)
-				#expect(ns < 200, "\(ns) ns per switch")
+				// Batches short enough that some run without a preemption, which only ever adds.
+				let ns = (0..<20).map { _ in clj_bench_switch_ns(2_000) }.min()!
+				#expect(ns < 2_000, "\(ns) ns per switch, the fastest of 20 batches")
 			}
 			base.check()
 		}
@@ -210,23 +212,23 @@ extension CoreTests {
 		@Test func suspendParksTheBodyAndResumeLetsItOn() throws {
 			let base = CoroBaseline()
 			do {
-				#expect(try eval("""
+				// On the gate the body runs nothing, so the window is a lower bound a slow runner only lengthens.
+				let got = try eval("""
 					(let [r (atom 0)
-					      g (go (try (loop [] (swap! r inc) (recur)) (catch :cancelled e :done)))]
+					      g (go (try (loop [] (swap! r inc) (recur)) (catch :cancelled e :done)))
+					      running (await-true 10000 #(pos? @r))
+					      asked (suspend! g)
+					      gated (await-true 10000 #(gated? g))
+					      a @r]
 					  (<!! (timeout 10))
-					  (let [asked (suspend! g)]
-					    (<!! (timeout 10))
-					    (let [a @r]
-					      (<!! (timeout 10))
-					      (let [b @r
-					            gated (suspended? g)
-					            lifted (resume! g)]
-					        (<!! (timeout 10))
-					        (let [c @r]
-					          (cancel! g)
-					          [asked gated (= a b) lifted (suspended? g) (> c b)
-					           (joined g 200)])))))
-					""") == [true, true, true, true, false, true, kw("done")])
+					  (let [b @r
+					        standing (suspended? g)
+					        lifted (resume! g)
+					        moved (await-true 10000 #(> @r b))]
+					    (cancel! g)
+					    [running asked gated (= a b) standing lifted (suspended? g) moved (join g 10000)]))
+					""")
+				#expect(got == [true, true, true, true, true, true, false, true, kw("done")], "\(got)")
 			}
 			base.check()
 		}
@@ -243,15 +245,15 @@ extension CoreTests {
 					                   (locking r (swap! r (fn [v] (loop [i 0] (if (< i 4000) (recur (inc i)) (inc v))))))
 					                   (recur))
 					                 (catch :cancelled e :done)))]
-					  (<!! (timeout 20))
+					  (await-true 10000 #(pos? @r))
 					  (suspend! g)
-					  (<!! (timeout 20))
-					  (let [a @r
-					        took (joined (go (locking r (swap! r identity)) :took) 200)]
+					  (let [gated (await-true 10000 #(gated? g))
+					        a @r
+					        took (join (go (locking r (swap! r identity)) :took) 10000)]
 					    (cancel! g)
-					    [took (= a @r) (joined g 200)]))
+					    [gated took (= a @r) (join g 10000)]))
 					""")
-				#expect(got == [kw("took"), true, kw("done")], "\(got)")
+				#expect(got == [true, kw("took"), true, kw("done")], "\(got)")
 			}
 			base.check()
 		}
@@ -267,14 +269,15 @@ extension CoreTests {
 					      g (go (try [(first forcing-ls) (loop [] (swap! r inc) (recur))]
 					                 (catch :cancelled e :done)))]
 					  (suspend! g)
+					  ;; Lets g claim the seq first, so the reader below waits on its publish; the result holds either way.
 					  (<!! (timeout 60))
-					  (let [seen (joined (go (first forcing-ls)) 500)
-					        gated (suspended? g)
+					  (let [seen (join (go (first forcing-ls)) 10000)
+					        gated (await-true 10000 #(gated? g))
 					        a @r]
 					    (<!! (timeout 20))
 					    (let [b @r]
 					      (cancel! g)
-					      [seen gated (= a b) (joined g 200)])))
+					      [seen gated (= a b) (join g 10000)])))
 					""")
 				#expect(got == [kw("v"), true, true, kw("done")], "\(got)")
 				_ = try eval("(def forcing-ls nil)")
@@ -287,16 +290,15 @@ extension CoreTests {
 		@Test func aCancelReachesASuspendedCoroutine() throws {
 			let base = CoroBaseline()
 			do {
-				#expect(try eval("""
+				let got = try eval("""
 					(let [n (atom 0)
 					      g (go (try (loop [] (recur))
 					                 (catch :cancelled e (swap! n inc) :done)
 					                 (finally (swap! n inc))))]
-					  (<!! (timeout 10))
 					  (suspend! g)
-					  (<!! (timeout 10))
-					  [(cancel! g) (joined g 200) @n (suspended? g) (resume! g)])
-					""") == [true, kw("done"), 2, false, false])
+					  [(await-true 10000 #(gated? g)) (cancel! g) (join g 10000) @n (suspended? g) (resume! g)])
+					""")
+				#expect(got == [true, true, kw("done"), 2, false, false], "\(got)")
 				// A channel with no body, and a body that has finished, take no request.
 				#expect(try eval("(let [c (chan) g (go 1)] (<!! g) [(suspend! c) (resume! c) (suspended? c) (suspend! g) (suspended? g)])")
 					== [false, false, false, false, false])
@@ -309,22 +311,23 @@ extension CoreTests {
 		@Test func aSuspendOfAParkedCoroutineIsMetWhenItWakes() throws {
 			let base = CoroBaseline()
 			do {
-				#expect(try eval("""
+				// Parked on c before the request: a body suspended short of its take would leave the >!! no taker.
+				let got = try eval("""
 					(let [c (chan) r (atom 0)
-					      g (go (try (<! c) (loop [] (swap! r inc) (recur)) (catch :cancelled e :done)))]
-					  (<!! (timeout 10))
-					  (let [asked (suspend! g)]
-					    (>!! c 1)
-					    (<!! (timeout 20))
-					    (let [a @r]
-					      (<!! (timeout 10))
-					      (let [b @r]
-					        (resume! g)
-					        (<!! (timeout 10))
-					        (let [d @r]
-					          (cancel! g)
-					          [asked (= a b) (> d b) (joined g 200)])))))
-					""") == [true, true, true, kw("done")])
+					      g (go (try (<! c) (loop [] (swap! r inc) (recur)) (catch :cancelled e :done)))
+					      parked (await-true 10000 #(= 1 (pending-takes c)))
+					      asked (suspend! g)]
+					  (>!! c 1)
+					  (let [gated (await-true 10000 #(gated? g))
+					        a @r]
+					    (<!! (timeout 10))
+					    (let [b @r]
+					      (resume! g)
+					      (let [moved (await-true 10000 #(> @r b))]
+					        (cancel! g)
+					        [parked asked gated (= a b) moved (join g 10000)]))))
+					""")
+				#expect(got == [true, true, true, true, true, kw("done")], "\(got)")
 			}
 			base.check()
 		}
@@ -334,15 +337,15 @@ extension CoreTests {
 		@Test func aDeadlineOutlivesASuspension() throws {
 			let base = CoroBaseline()
 			do {
-				clj_deadline_set_ms(300)
+				// The suspension begins and ends well inside the deadline: one firing on the gate cancels, resume! answers false.
+				clj_deadline_set_ms(1000)
 				_ = try eval("(def suspended-g (go (try (loop [] (recur)) (catch :cancelled e (:cancel/kind (ex-data e))))))")
 				clj_deadline_set_ms(0)
-				#expect(try eval("""
-					(do (<!! (timeout 20))
-					    (let [asked (suspend! suspended-g)]
-					      (<!! (timeout 20))
-					      [asked (resume! suspended-g) (joined suspended-g 1000)]))
-					""") == [true, true, kw("deadline")])
+				let got = try eval("""
+					(let [asked (suspend! suspended-g)]
+					  [asked (await-true 10000 #(gated? suspended-g)) (resume! suspended-g) (join suspended-g 10000)])
+					""")
+				#expect(got == [true, true, true, kw("deadline")], "\(got)")
 				_ = try eval("(def suspended-g nil)")
 			}
 			base.check()
