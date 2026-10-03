@@ -48,8 +48,8 @@
   test was a `:pass` — and the namespace's later tests never ran. The verdict followed the clock, not the caller
   join: of the eight corpus runs in two workflow runs every one that failed had crossed 5 s, the one that crossed and passed had
   met the expiry outside `=`, and none under 5 s failed. Fixed at all three places: `=`/`not=`/`hash` rethrow a cancellation equals dropped
-  (NOTES "Type descriptor"), the harness's `guard-expiry` and fold above, and `CLJ_CORPUS_TIMEOUT_MS=20000` on
-  the runners ("Gates", CI). `CorpusTests.anExpiredTestIsATimeoutAndTheNamespaceGoesOn` and
+  (NOTES "Type descriptor"), the harness's `guard-expiry` and fold above, and `CLJ_CORPUS_TIMEOUT_MS=20000`, which the
+  Makefile exports for every target: shards share the cores ("Gates", "Shards"). `CorpusTests.anExpiredTestIsATimeoutAndTheNamespaceGoesOn` and
   `DeadlineTests.anExpiryInsideEqualsOrHashIsNotAnAnswer` reproduce it with a 100 ms budget.
 - **Symbols the suite and medley need from the JVM**: `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in
   `catch` works, `instance?` of a JVM class works only for the names bound in core (`clojure.lang.IEditableCollection`,
