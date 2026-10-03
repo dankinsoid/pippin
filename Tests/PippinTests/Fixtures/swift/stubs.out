@@ -14,3 +14,26 @@ true nil false false
 3.0 "(1, 2)"
 "No overload of PippinFixture/moved takes (_ :to _); it has moved(_:by:) (_ :by)"
 "1 (long) is not a PippinFixture.Point"
+"(3, 4)" 7 3 "(3, 4)"
+"(6, 8)" "(0, 0)" "(1, 1)"
+"negative(-1)" "(2, 2)"
+"(8, 9)" "(3, 4)"
+["(0, 4)" 3] "(10, 4)" "(3, 4)"
+"(4, 5)"
+[2 1 true] "(103, 104)"
+"hello" nil "hi" nil 42
+"c" 2 nil 10 1
+true 1 false true
+true 1
+true "PippinFixture.Label is not Hashable: a boxed Swift value without it cannot be a map key or a set member (design §5)"
+9 0 true 9
+"#object[PippinFixture.Shape \"PippinFixture.Shape\"] (PippinFixture.Shape) is not a PippinFixture.Square"
+"Cannot send .area to a PippinFixture.Square: a Swift type's members are vars of its module, Module/Type.member (design §5)"
+3 ["tooBig(30)" true]
+"tooBig(30)" 5
+9
+"tooBig(20)" true
+["from clojure" {:x 1}]
+42 5 "negative(-1)"
+8 11 4
+true 1

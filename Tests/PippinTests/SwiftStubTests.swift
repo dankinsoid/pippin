@@ -186,16 +186,93 @@ extension CoreTests {
 			func reason(_ name: String) -> String? { refusals.first { $0.swiftName == name }?.reason }
 			#expect(reason("total(_:)")?.hasPrefix("variadic-parameter") == true)
 			#expect(reason("first(_:)")?.hasPrefix("generic") == true)
-			#expect(reason("risky(_:)")?.hasPrefix("throws") == true)
-			#expect(reason("later(_:)")?.hasPrefix("async") == true)
 			#expect(reason("origin()")?.contains("(Int, Int)") == true)
+			#expect(reason("maybe(_:)")?.contains("optional") == true)
+			#expect(reason("FixtureError.tooBig(_:)")?.hasPrefix("enum case") == true)
 			#expect(reason("Point.hash(into:)") != nil)
-			#expect(reason("moved(_:by:)") == nil)
+			// Overloads by type: both refused, neither picked.
+			#expect(refusals.filter { $0.swiftName == "width(_:)" && $0.reason.hasPrefix("overload") }.count == 2)
+			for generated in ["moved(_:by:)", "risky(_:)", "later(_:)", "Point.move(by:)", "Counter.init(name:)", "applyTwice(_:to:)"] {
+				#expect(reason(generated) == nil, "\(generated)")
+			}
 			// A refused symbol is no var: the analyzer reports the name, as for any unresolved one.
 			#expect(cljEvalErrorScoped("(PippinFixture/total 1 2)")?.contains("total") == true)
 			let reports = try FileManager.default.contentsOfDirectory(at: stubsWork.appendingPathComponent("cache/PippinFixture"),
 			                                                          includingPropertiesForKeys: nil)
 			#expect(reports.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("report.json").path) })
+		}
+
+		// The four throws forms differ only in what is printed: the typed error is in the doc, Never has no error path.
+		@Test func theDocNamesEffectsAndIsolation() throws {
+			try fixture()
+			func doc(_ name: String) throws -> Value { try cljEvalScoped("(:doc (meta #'PippinFixture/\(name)))") }
+			#expect(try doc("checked") == Value("Swift: checked(_:) throws(FixtureError)"))
+			#expect(try doc("safe") == Value("Swift: safe(_:)"))
+			#expect(try doc("apply-twice") == Value("Swift: applyTwice(_:to:) rethrows"))
+			#expect(try doc("fetch") == Value("Swift: fetch(_:) async throws"))
+			#expect(try doc("Point.") == Value("Swift: Point.init(validating:) throws\nPoint.init(x:y:)"))
+			#expect(try doc("Screen.title") == Value("Swift: Screen.title() @MainActor"))
+		}
+
+		// Uncaught, or caught and rethrown as is, the host error reaches Swift as the Swift error it was made from.
+		@Test func aSwiftErrorComesBackToSwiftAsItself() throws {
+			try fixture()
+			for source in ["(fn [] (PippinFixture/risky 30))", "(fn [] (try (PippinFixture/checked 30) (catch :default e (throw e))))",
+			               "(fn [] (PippinFixture/apply-twice (fn [x] (PippinFixture/risky (* 10 x))) :to 2))"] {
+				let f = try cljEvalScoped(source)
+				do {
+					_ = try f.apply([])
+					Issue.record("\(source) did not throw")
+				} catch {
+					#expect(String(reflecting: type(of: error)) == "PippinFixture.FixtureError", "\(source): \(error)")
+					#expect("\(error)" == "tooBig(30)" || "\(error)" == "tooBig(20)", "\(source): \(error)")
+				}
+			}
+		}
+
+		@Test func cancellingTheParkedCallerCancelsTheSwiftTask() async throws {
+			try fixture()
+			let f = try cljEvalScoped("(fn [] (PippinFixture/wait-for-cancel))")
+			let count = try cljEvalScoped("@#'PippinFixture/cancellations")
+			let before = try count.apply([])
+			let task = Task.detached { try await f.callAsync() }
+			try await Task.sleep(nanoseconds: 20_000_000)
+			task.cancel()
+			let outcome = await task.result
+			#expect(throws: CancellationError.self) { try outcome.get() }
+			var waited = 0
+			while try count.apply([]) == before && waited < 2000 {
+				try await Task.sleep(nanoseconds: 1_000_000)
+				waited += 1
+			}
+			#expect(try count.apply([]) == Value(before.int! + 1))
+		}
+
+		// An async stub parks its caller, so under a synchronous host call it refuses before the Swift function runs.
+		@Test func anAsyncCallUnderAHostCallRefusesLoudly() async throws {
+			try fixture()
+			let f = try cljEvalScoped("(fn [] (PippinFixture/later 1))")
+			let message = await Task.detached { () -> String? in
+				do {
+					_ = try f.apply([])
+					return nil
+				} catch let e as ClojureError {
+					return e.message
+				} catch {
+					return "\(error)"
+				}
+			}.value
+			#expect(message?.hasPrefix("later(_:) is async, so the caller parks until it returns") == true, "\(message ?? "no error")")
+			#expect(try await f.callAsync() == Value(2))
+		}
+
+		// A nonisolated member of a @MainActor class runs where its caller is; its initializer hops.
+		@Test func aNonisolatedMemberDoesNotHop() async throws {
+			try fixture()
+			let f = try cljEvalScoped("(fn [] (PippinFixture/Screen.id (PippinFixture/Screen.)))")
+			let hops = SwiftStubs.hops
+			#expect(try await f.callAsync() == Value(7))
+			#expect(SwiftStubs.hops == hops + 1)
 		}
 
 		@Test func aModuleNothingCanBuildRefusesWithTheGeneratorsWords() throws {
