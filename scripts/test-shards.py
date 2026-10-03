@@ -35,26 +35,40 @@ def log(msg):
 	print(f"shards: {msg}", flush=True)
 
 
-def arch():
-	return platform.machine()
+def machine():
+	"""What recorded times are keyed by: suites run at different relative speeds on a 3-core runner and a laptop."""
+	return f"{platform.machine()}-{os.cpu_count()}cpu"
 
 
 def physical_memory():
 	return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
 
 
-def resident_by_group():
-	"""Resident bytes per process group: a shard is swift-test, its test process and whatever that spawns."""
+def process_table():
+	"""pid -> (parent pid, resident bytes) of every process."""
 	try:
-		out = subprocess.run(["ps", "-A", "-o", "pgid=,rss="], capture_output=True, text=True, timeout=10).stdout
+		out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, timeout=10).stdout
 	except (OSError, subprocess.SubprocessError):
 		return {}
-	groups = collections.Counter()
+	table = {}
 	for line in out.splitlines():
 		fields = line.split()
-		if len(fields) == 2 and fields[0].isdigit() and fields[1].isdigit():
-			groups[int(fields[0])] += int(fields[1]) * 1024
-	return groups
+		if len(fields) == 3 and all(f.isdigit() for f in fields):
+			table[int(fields[0])] = (int(fields[1]), int(fields[2]) * 1024)
+	return table
+
+
+def tree(root, table):
+	children = collections.defaultdict(list)
+	for pid, (ppid, _) in table.items():
+		children[ppid].append(pid)
+	found, todo = set(), [root]
+	while todo:
+		pid = todo.pop()
+		if pid not in found:
+			found.add(pid)
+			todo += children[pid]
+	return found
 
 
 def scratch_path(swift_args):
@@ -66,35 +80,40 @@ def scratch_path(swift_args):
 	sys.exit("shards: SWIFT_ARGS must name --scratch-path: the shards share one build")
 
 
-# Process groups still running, killed with the runner.
-GROUPS = set()
+# Each running child -> its process tree as last sampled. swift-test starts its test process in a process
+# group of its own, so a group kill would leave the tests running; the tree is what gets killed.
+TREES = {}
 
 
 def bounded(cmd, timeout, **kw):
-	"""Runs cmd in its own process group, killed with the group after timeout seconds."""
+	"""Runs cmd, killed with its tree after timeout seconds."""
 	p = subprocess.Popen(cmd, start_new_session=True, **kw)
-	GROUPS.add(p.pid)
+	TREES[p.pid] = {p.pid}
 	try:
 		out, _ = p.communicate(timeout=timeout)
 	except subprocess.TimeoutExpired:
-		kill_group(p.pid, signal.SIGKILL)
+		kill_tree(p.pid, signal.SIGKILL)
 		p.communicate()
 		sys.exit(f"shards: {' '.join(cmd[:3])} still running after {timeout} s")
 	finally:
-		GROUPS.discard(p.pid)
+		TREES.pop(p.pid, None)
 	return p.returncode, out
 
 
-def kill_group(pid, sig=signal.SIGTERM):
-	try:
-		os.killpg(pid, sig)
-	except (ProcessLookupError, PermissionError):
-		pass
+def kill_tree(root, sig):
+	# The last sample keeps the pids of a tree whose root already exited, whose orphans no walk from it finds.
+	pids = TREES.get(root, set()) | tree(root, process_table())
+	TREES[root] = pids
+	for pid in pids:
+		try:
+			os.kill(pid, sig)
+		except (ProcessLookupError, PermissionError):
+			pass
 
 
 def stop(signum, _frame):
-	for pid in list(GROUPS):
-		kill_group(pid, signal.SIGKILL)
+	for root in list(TREES):
+		kill_tree(root, signal.SIGKILL)
 	sys.exit(128 + signum)
 
 
@@ -159,13 +178,12 @@ def load_times():
 
 
 def recorded(times, gate):
-	"""The closest recorded entry: this gate on this architecture, on the other, then `test`'s."""
+	"""The closest recorded entry: this gate on this machine, on the same architecture, on any; then `test`'s."""
+	arch = platform.machine() + "-"
 	for g in (gate, "test"):
-		by_arch = times.get(g, {})
-		if arch() in by_arch:
-			return by_arch[arch()]
-		if by_arch:
-			return next(iter(by_arch.values()))
+		by_machine = times.get(g, {})
+		for key in sorted(by_machine, key=lambda k: (k != machine(), not k.startswith(arch), k)):
+			return by_machine[key]
 	return {}
 
 
@@ -231,7 +249,7 @@ class Shard:
 		with open(self.log, "wb") as f:
 			self.proc = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
 				env=env, start_new_session=True)
-		GROUPS.add(self.proc.pid)
+		TREES[self.proc.pid] = {self.proc.pid}
 		self.started = time.monotonic()
 
 	def poll(self):
@@ -243,15 +261,16 @@ class Shard:
 			if self.term_sent is None and now - self.started > self.timeout:
 				self.timed_out = True
 				self.term_sent = now
-				kill_group(self.proc.pid)
+				kill_tree(self.proc.pid, signal.SIGTERM)
 			elif self.term_sent is not None and now - self.term_sent > KILL_GRACE_S:
-				kill_group(self.proc.pid, signal.SIGKILL)
+				kill_tree(self.proc.pid, signal.SIGKILL)
 			return False
 		self.status = os.waitstatus_to_exitcode(status)
 		self.proc.returncode = self.status
 		self.ended = now
-		kill_group(self.proc.pid, signal.SIGKILL)  # whatever the shard left behind in its group
-		GROUPS.discard(self.proc.pid)
+		if self.timed_out:
+			kill_tree(self.proc.pid, signal.SIGKILL)
+		TREES.pop(self.proc.pid, None)
 		return True
 
 	def has_begun(self):
@@ -396,9 +415,11 @@ def run(args):
 					f"(planned {s.planned:.0f}), exit {s.status}, peak RSS {s.rss / 2**20:.0f} MB")
 		if time.monotonic() - sampled >= 1:
 			sampled = time.monotonic()
-			resident = resident_by_group()
+			table = process_table()
 			for s in running:
-				s.rss = max(s.rss, resident.get(s.proc.pid, 0))
+				if s.status is None:
+					TREES[s.proc.pid] = tree(s.proc.pid, table)
+					s.rss = max(s.rss, sum(table[pid][1] for pid in TREES[s.proc.pid] if pid in table))
 		time.sleep(0.1)
 
 	# Every listed test exactly once, whichever shard ran it.
@@ -417,7 +438,7 @@ def run(args):
 			report_failure(s, issues, open_tests)
 	peak = max(s.rss for s in shards)
 	with open(os.path.join(out, "times.json"), "w") as f:
-		json.dump({"gate": args.gate, "arch": arch(), "module": module, "shards": len(shards), "passed": not failed,
+		json.dump({"gate": args.gate, "machine": machine(), "module": module, "shards": len(shards), "passed": not failed,
 			"peak_rss_mb": math.ceil(peak / 2**20), "seconds": measured}, f, indent=1, sort_keys=True)
 	if failed:
 		sys.exit(1)
@@ -444,10 +465,10 @@ def record(args):
 			m = json.load(f)
 		if not m.get("passed"):
 			sys.exit(f"{path}: a failed run's times are partial; record a passing one")
-		slot = times.setdefault(m["gate"], {}).setdefault(m["arch"], {})
+		slot = times.setdefault(m["gate"], {}).setdefault(m["machine"], {})
 		slot["seconds"] = dict(sorted(m["seconds"].items()))
 		slot["peak_rss_mb"] = m["peak_rss_mb"]
-		print(f"recorded {m['gate']} on {m['arch']}: {len(m['seconds'])} suites, peak {m['peak_rss_mb']} MB")
+		print(f"recorded {m['gate']} on {m['machine']}: {len(m['seconds'])} suites, peak {m['peak_rss_mb']} MB")
 	with open(TIMES, "w") as f:
 		json.dump(dict(sorted(times.items())), f, indent=1, sort_keys=True)
 		f.write("\n")
