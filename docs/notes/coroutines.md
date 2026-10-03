@@ -173,7 +173,9 @@
   deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
   tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
   cancellable (`clj_park_uncancellable`): the job's result would have no owner. The flag is sticky: after the
-  first throw every later park point throws again, so cleanup that must wait does so in a `catch`. Deadlines are
+  first throw every later park point throws again, so cleanup that must wait does so in a `catch`. An operation
+  that completes without a wait (a ready value, a closed channel) has only the check before it, and a cancellation
+  landing after that check is met at the next one: taking the value and then throwing would lose it. Deadlines are
   per coroutine and conveyed at spawn (a cancelled parent hands down the deadline it had, not its flag).
   `thread` bodies are cancellable through their channel: the channel holds the blocking thread's implicit
   coroutine while the body runs, a `cancel!` before the thread attached sets a flag on the job, and the

@@ -123,7 +123,9 @@ extension CoreTests {
 				#expect(try eval("(let [f (future 1)] @f [(future-cancel f) (future-cancelled? f)])") == [false, false])
 				// cancel! reaches a thread body parked on a channel, and one not yet started.
 				#expect(try eval("(let [c (chan) t (thread (try (<!! c) (catch :cancelled e (ex-message e))))] (<!! (timeout 5)) [(cancel! t) (<!! t)])") == [true, "Coroutine cancelled"])
-				let seventy = try eval("(let [gate (chan) ts (vec (repeatedly 70 #(thread (try (<!! gate) :slept (catch :cancelled e (ex-message e))))))] (doseq [t ts] (cancel! t)) (close! gate) (frequencies (mapv <!! ts)))")
+				// The gate stays open until every body answered: a body past its check when its cancel lands would take a
+				// closed gate's nil without a wait, and a wait is where a cancel is met.
+				let seventy = try eval("(let [gate (chan) ts (vec (repeatedly 70 #(thread (try (<!! gate) :slept (catch :cancelled e (ex-message e))))))] (doseq [t ts] (cancel! t)) (let [vs (mapv #(join % 10000) ts)] (close! gate) (frequencies vs)))")
 				#expect(seventy == ["Coroutine cancelled": 70], "\(seventy)")
 				// A cancelled future is done at once, as on the JVM; its body lands a moment later with the cancellation.
 				#expect(try eval("(let [f (future (Thread/sleep 10000))] (<!! (timeout 5)) [(realized? f) (future-cancel f) (realized? f) (future-done? f) (try @f (catch :cancelled e (ex-message e)))])") == [false, true, true, true, "Coroutine cancelled"])

@@ -57,13 +57,12 @@
   child records the kind of the cancellation it met (`:deadline`, its own timer's). Under 64 busy
   processes on 16 hardware threads the same test's shielded-exit scenario timed out its 10 s poll as well:
   `spend` takes over 20 s there, so that join is bounded at 60 s.
-- [ ] **`FutureTests.futureCancel`'s seventy thread bodies failed once, locally, unexplained.** Seventy `thread`
-  bodies parked on a gate, each `cancel!`ed and then the gate closed, must all answer "Coroutine cancelled";
-  one ASan run of six suites missed it, and the output was cut before the value. 40 more ASan runs (30 under
-  load), 400 loops in `clj-load` under ASan and 300 plain passed. A suspect, unconfirmed: a pool thread's
-  implicit coroutine keeps the previous job's tick `countdown` (`clj_coro_cancel_reset` does not reset it), so
-  an early cancel could throw at the body's entry, outside its `try`. Trigger: seen again — the expectation
-  prints the frequencies.
+  A wait that ends a test's window is part of the test too: `FutureTests.futureCancel` cancelled seventy
+  `thread` bodies on a gate and closed it at once, and two bodies answered `:slept` (run 37125363627, x86_64).
+  Traced, each had read its flag clear, its cancel landed, and the close followed before its take, which then
+  completed on the closed gate without a wait — the one point a cancel is not met (NOTES "Coroutines"). In a
+  loop of the scenario, 1–3 iterations in every 3000–8000 lost bodies so; with the gate left open until every body
+  answered, none in 10 000.
 - **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
   `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
   `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
