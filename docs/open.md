@@ -146,7 +146,7 @@ file. 71 open, 80 partly done.
 
 ### [Gates](notes/gates.md)
 
-- [ ] Two CI failures seen once, not explained. — Trigger: either one again — then make the first print the differing element, and give the second a bound relative to the runner.
+- [ ] `FutureTests.futureCancel`'s seventy thread bodies failed once, locally, unexplained. — Trigger: seen again — the expectation prints the frequencies.
 
 ### [Host bridge (Sources/Pippin, error.c host-error, fn.c context natives)](notes/host-bridge.md)
 

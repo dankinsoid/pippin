@@ -40,12 +40,30 @@
   above named the test (`AsyncLibTests.pipelines`), and its coroutine dump showed the deadlock: both pool threads
   in `>!!`, the results loop parked on the channel a queued `thread` body would have fed. The first such hang
   (run 36913041719, `d3a3181`) printed nothing, but stopped inside the same range of suites.
-- [ ] **Two CI failures seen once, not explained.** `AsyncLibTests.withDeadlineOverCoroutines`
-  (AsyncLibTests.swift:190, a 30 ms `with-deadline` over `go-scoped`) failed on arm64 in run 37023946974;
-  swift-testing did not print which element differed, and 20 local ASan runs passed. `CoroTests.switchCost`
-  failed on x86_64 in run 37027460141 at 848 ns against its 200 ns bound, on a runner whose `test` gate took
-  768 s against 490: a timing bound in a correctness gate fails on a slow runner. Trigger: either one again —
-  then make the first print the differing element, and give the second a bound relative to the runner.
+- **Timing in tests.** Rule: a test waits for the condition it needs, bounded far past any runner, and keeps
+  a fixed window only after that condition, where it checks that nothing happens — a slow runner then only
+  lengthens the window. The waits are `test-support` (`TimingSupport.swift`): `await-true` and `join` poll
+  with 1 ms timers each waited out (a longer timer would sit pending under the next baseline), `gated?` is a
+  body on its suspension gate (`clj_debug_chan_gated`), `pending-takes`/`pending-puts` a parked channel
+  operation, and `eventually` the Swift side; the bound is 10 s. A cost is the bench's to hold:
+  `CoroTests.switchCost` bounds the fastest of 20 short batches at 2 µs, which tells the hand-written switch
+  from a kernel round trip, and the 14 ns of record stays in bench/RESULTS.md. What CI found: `switchCost` at
+  848, 360 and 231 ns against 200 (runs 37027460141, 37027935840, 37041175728);
+  `suspendParksTheBodyAndResumeLetsItOn` (run 37121027548), whose 10 ms windows assumed the suspension landed
+  and the body moved within each; `withDeadlineOverCoroutines` (run 37023946974), whose child of a 30 ms
+  `with-deadline` needed a 2 ms timer and a turn inside the deadline. That one is the test, not the runtime:
+  looped on a loaded machine with the deadline cut to 1–5 ms, the only outcome besides a pass is `[:timeout
+  false true]`, a child that never ran; the join and the translation to `:timeout` held in every run. Its
+  child records the kind of the cancellation it met (`:deadline`, its own timer's). Under 64 busy
+  processes on 16 hardware threads the same test's shielded-exit scenario timed out its 10 s poll as well:
+  `spend` takes over 20 s there, so that join is bounded at 60 s.
+- [ ] **`FutureTests.futureCancel`'s seventy thread bodies failed once, locally, unexplained.** Seventy `thread`
+  bodies parked on a gate, each `cancel!`ed and then the gate closed, must all answer "Coroutine cancelled";
+  one ASan run of six suites missed it, and the output was cut before the value. 40 more ASan runs (30 under
+  load), 400 loops in `clj-load` under ASan and 300 plain passed. A suspect, unconfirmed: a pool thread's
+  implicit coroutine keeps the previous job's tick `countdown` (`clj_coro_cancel_reset` does not reset it), so
+  an early cancel could throw at the body's entry, outside its `try`. Trigger: seen again — the expectation
+  prints the frequencies.
 - **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
   `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
   `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
