@@ -62,6 +62,12 @@ public struct Blob {
 	let size: Int
 }
 
+/// Public stored state: it crosses as a map (design §5), so it and its members are refused.
+public struct Size {
+	public var w: Int
+	public init(w: Int) { self.w = w }
+}
+
 /// A class with neither conformance: its boxes compare by the object.
 public final class Counter {
 	public var count = 0

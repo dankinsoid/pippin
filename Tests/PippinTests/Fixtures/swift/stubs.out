@@ -36,4 +36,4 @@ true "PippinFixture.Label is not Hashable: a boxed Swift value without it cannot
 ["from clojure" {:x 1}]
 42 5 "negative(-1)"
 8 11 4
-true 1
+[true 1]

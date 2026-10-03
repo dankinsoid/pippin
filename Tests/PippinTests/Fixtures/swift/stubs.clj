@@ -83,9 +83,9 @@
 (show (fx/later 21) (fx/fetch 5) (try (fx/fetch -1) (catch PippinFixture/FixtureError e (ex-message e))))
 (show (fx/main-later 7) (fx/Counter.increment-later c) @(future (fx/later 2)))
 
-;; Cancelling the parked caller cancels the Swift Task.
-(def cancels (fx/cancellations))
-(def waiting (future (fx/wait-for-cancel)))
-(Thread/sleep 20)
-(show (future-cancel waiting)
-      (loop [i 0] (if (or (< cancels (fx/cancellations)) (> i 2000)) (- (fx/cancellations) cancels) (do (Thread/sleep 1) (recur (inc i))))))
+;; Cancelling the parked caller cancels the Swift Task. A future holds its coroutine, so none outlives the form.
+(show (let [cancels (fx/cancellations)
+            waiting (future (fx/wait-for-cancel))]
+        (Thread/sleep 20)
+        [(future-cancel waiting)
+         (loop [i 0] (if (or (< cancels (fx/cancellations)) (> i 2000)) (- (fx/cancellations) cancels) (do (Thread/sleep 1) (recur (inc i)))))]))

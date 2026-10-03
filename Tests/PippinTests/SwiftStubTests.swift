@@ -190,6 +190,8 @@ extension CoreTests {
 			#expect(reason("maybe(_:)")?.contains("optional") == true)
 			#expect(reason("FixtureError.tooBig(_:)")?.hasPrefix("enum case") == true)
 			#expect(reason("Point.hash(into:)") != nil)
+			#expect(reason("Size.init(w:)")?.contains("crosses as a map") == true)
+			#expect(reason("Size.w")?.contains("crosses as a map") == true)
 			// Overloads by type: both refused, neither picked.
 			#expect(refusals.filter { $0.swiftName == "width(_:)" && $0.reason.hasPrefix("overload") }.count == 2)
 			for generated in ["moved(_:by:)", "risky(_:)", "later(_:)", "Point.move(by:)", "Counter.init(name:)", "applyTwice(_:to:)"] {
