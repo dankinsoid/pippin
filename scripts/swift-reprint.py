@@ -214,11 +214,8 @@ def param_type_frags(param):
 	return keep + frags
 
 
-def decl_param_list(decl):
-	"""The parameter list of a declaration, split at top-level commas, each as (label, type).
-
-	`functionSignature` loses ownership modifiers — `hash(into hasher: inout Hasher)` arrives there as
-	plain `Hasher` — so a stub that wants to call the symbol has to read them off the declaration."""
+def _param_span(decl):
+	"""The indices of the parentheses around a declaration's parameter list, past its generic parameters."""
 	angle = 0
 	open_at = -1
 	for i, c in enumerate(decl):
@@ -230,18 +227,27 @@ def decl_param_list(decl):
 			open_at = i
 			break
 	if open_at < 0:
-		return []
+		return None
 	depth = 0
 	for i in range(open_at, len(decl)):
 		if decl[i] in "([<":
 			depth += 1
-		elif decl[i] in ")]>":
+		elif _closes(decl, i):
 			depth -= 1
 			if depth == 0:
-				inner = decl[open_at + 1:i]
-				break
-	else:
+				return open_at, i
+	return None
+
+
+def decl_param_list(decl):
+	"""The parameter list of a declaration, split at top-level commas, each as (label, type).
+
+	`functionSignature` loses ownership modifiers — `hash(into hasher: inout Hasher)` arrives there as
+	plain `Hasher` — so a stub that wants to call the symbol has to read them off the declaration."""
+	span = _param_span(decl)
+	if span is None:
 		return []
+	inner = decl[span[0] + 1:span[1]]
 	if not inner.strip():
 		return []
 	out = []
@@ -276,7 +282,7 @@ def _split_top(s, seps):
 		c = s[i]
 		if c in "([<{":
 			depth += 1
-		elif c in ")]>}":
+		elif _closes(s, i):
 			depth -= 1
 		elif depth == 0:
 			for sep in seps:
@@ -299,26 +305,31 @@ def _find_top(s, needle):
 	i = 0
 	while i < len(s):
 		c = s[i]
+		if depth == 0 and s.startswith(needle, i):
+			return i
 		if c in "([<{":
 			depth += 1
-		elif c in ")]>}":
+		elif _closes(s, i):
 			depth -= 1
-		elif depth == 0 and s.startswith(needle, i):
-			return i
 		i += 1
 	return -1
 
 
 def _balanced(s):
 	depth = 0
-	for c in s:
+	for i, c in enumerate(s):
 		if c in "([<{":
 			depth += 1
-		elif c in ")]>}":
+		elif _closes(s, i):
 			depth -= 1
 			if depth < 0:
 				return False
 	return depth == 0
+
+
+def _closes(s, i):
+	"""A closing bracket, which the `>` of an arrow `->` is not."""
+	return s[i] in ")]>}" and not (s[i] == ">" and i > 0 and s[i - 1] == "-")
 
 
 LEADING_MODIFIERS = re.compile(
@@ -479,7 +490,26 @@ def isolation_of(decl):
 # ---------------------------------------------------------------------------
 # Pass 2: classification.
 
-THROWS_TYPED = re.compile(r"\bthrows\s*\(")
+THROWS_TYPED_TYPE = re.compile(r"\bthrows\s*\(([^)]*)\)")
+
+
+def decl_parts(decl, kind):
+	"""(head, effects): what precedes the parameter list, and the effects after it or a property's accessors.
+
+	A closure parameter has its own `throws`, `async` and `@MainActor`; read off the whole declaration, they
+	would be taken for the function's."""
+	if kind in PROPERTY_KINDS:
+		brace = decl.find("{")
+		colon = _find_top(decl, ":")
+		return (decl[:colon] if colon >= 0 else decl), (decl[brace:] if brace >= 0 else "")
+	span = _param_span(decl)
+	if span is None:
+		return decl, ""
+	rest = decl[span[1] + 1:]
+	arrow = _find_top(rest, "->")
+	if arrow >= 0:
+		rest = rest[:arrow]
+	return decl[:span[0]], re.split(r"\bwhere\b", rest)[0]
 
 
 def existential_of(slots, protocols):
@@ -566,16 +596,21 @@ def symbol_record(sym, idx):
 	else:
 		group = 2
 
-	if THROWS_TYPED.search(decl):
+	head, effects = decl_parts(decl, kind)
+	typed = THROWS_TYPED_TYPE.search(effects)
+	if typed:
 		throws = "throws(E)"
-	elif re.search(r"\brethrows\b", decl):
+	elif re.search(r"\brethrows\b", effects):
 		throws = "rethrows"
-	elif re.search(r"\bthrows\b", decl):
+	elif re.search(r"\bthrows\b", effects):
 		throws = "throws"
 	else:
 		throws = "none"
 
-	isolation = isolation_of(decl) or (parent["isolation"] if parent else None)
+	if re.search(r"\bnonisolated\b", head):
+		isolation = None
+	else:
+		isolation = isolation_of(head) or (parent["isolation"] if parent else None)
 	struct_param_no_init = bool({u for _, _, us, _ in slots for u in us.values()
 		if u in idx.no_public_init} & {u for r, _, us, _ in slots if r == "param" for u in us.values()})
 
@@ -596,6 +631,8 @@ def symbol_record(sym, idx):
 		"generics": generics,
 		"return_only_generics": return_only_generics,
 		"throws": throws,
+		"throws_type": typed.group(1).strip() if typed else None,
+		"async": bool(re.search(r"\basync\b", effects)),
 		"isolation": isolation,
 		"struct_param_no_public_init": struct_param_no_init,
 		"generic_only_reason": group == 2 and all(
