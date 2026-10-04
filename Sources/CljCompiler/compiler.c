@@ -172,6 +172,13 @@ typedef struct {
 	char    *wsig[CLJ_FN_MAX_FIXED + 1]; // the worker's signature ("w_ld_l") per fixed arity, NULL without one
 } direct_entry;
 
+// What one top-level def cost the unit's C text, and whether the shaker left it out.
+struct def_size {
+	char    *name;
+	uint64_t bytes;
+	bool     dropped;
+};
+
 typedef struct {
 	char *file;   // the path *file* held, or the core path
 	char *cfile;  // munged file name
@@ -192,6 +199,8 @@ typedef struct {
 	cljc_slot_stats slots;
 	struct proto_site *psites; // the protocol call sites, classified for --stats once every arm's target is resolved
 	size_t             npsites, psites_cap;
+	struct def_size *dsizes; // one per top-level def, in emission order: the --stats survivor list
+	size_t           ndsizes, dsizes_cap;
 	uint64_t last_serial; // of the last form whose statements were emitted
 	bool     serial_open; // the failure label of the current form is still reachable
 	bool     embedded;
@@ -207,6 +216,7 @@ typedef struct {
 	const clj_node *node;   // retained; NULL for a failure
 	clj_value      ns;      // the current namespace at the hook
 	clj_value      message; // of a failure, retained
+	bool           dropped; // the shaker left this def out of its unit
 } pending_form;
 
 // A closure fn node the compiler emitted: how a protocol impl found in the tables as an interpreted closure is named.
@@ -246,6 +256,9 @@ struct cljc_compiler {
 	size_t           ncandidates, candidates_cap;
 	const clj_node  *emitting; // root of the form being emitted
 	uint32_t         neval_forms;
+	cljc_shake_report shake;
+	cljc_refusal     *escapes; // reachable sites that name a var the pass cannot read
+	size_t            nescapes, escapes_cap;
 	bool          installed;
 };
 
@@ -356,6 +369,8 @@ static unit *unit_for(cljc_compiler *c, const char *file) {
 }
 
 static void unit_free(unit *u) {
+	for (size_t i = 0; i < u->ndsizes; i++) free(u->dsizes[i].name);
+	free(u->dsizes);
 	free(u->psites);
 	free(u->file);
 	free(u->cfile);
@@ -382,6 +397,17 @@ static direct_entry *direct_find(cljc_compiler *c, const char *qualified) {
 		if (strcmp(c->directs[i].qualified, qualified) == 0) return &c->directs[i];
 	}
 	return NULL;
+}
+
+static void def_size_add(unit *u, clj_value var, uint64_t bytes, bool dropped) {
+	if (u->ndsizes == u->dsizes_cap) {
+		u->dsizes_cap = u->dsizes_cap ? u->dsizes_cap * 2 : 64;
+		u->dsizes = realloc(u->dsizes, u->dsizes_cap * sizeof *u->dsizes);
+		if (!u->dsizes) clj_fatal("out of memory");
+	}
+	char key[600];
+	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(var))), clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	u->dsizes[u->ndsizes++] = (struct def_size){xstrdup(key), bytes, dropped};
 }
 
 static direct_entry *direct_add(cljc_compiler *c, const char *qualified) {
@@ -3167,12 +3193,300 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 		sb_puts(&f.out, "\tclj_eval_top_leave();\n\treturn CLJ_THROWN;\n");
 	}
 	sb_puts(&f.out, "}\n\n");
+	size_t before = u->fns.len;
 	sb_put(&u->fns, f.out.s, f.out.len);
+	if (n->kind == CLJ_NODE_DEF) {
+		u->slots.defs++;
+		u->slots.def_bytes += u->fns.len - before;
+		def_size_add(u, n->u.def.var, u->fns.len - before, false);
+	}
 	clj_facts_free(facts);
 	if (c->opts.eval_result) sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto fail;\n", top);
 	else sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto F%u;\n\tclj_release(r);\n", top, u->nforms);
 	free(base);
 	fnctx_free(&f);
+}
+
+// ---- tree shaking of a closed set (design §6; NOTES.md, "Compiler": the nine rows of the root set)
+
+// Each row cites the C or Swift site that resolves the name, which is why no node references it.
+static const char *const core_roots[] = {
+    "global-hierarchy",                           // error.c clj_isa_install, fatal when missing
+    "-deref",                                     // builtins.c core_method: the deref builtin's user-type fallback
+    "fn",                                         // analyzer.c macro_fn_symbol: the macro flag decides run-time destructuring
+    "host-async-fn",                              // Pippin/Async.swift, behind a precondition
+    "*print-length*", "*print-level*",            // printer.c print_var
+    "*data-readers*", "*default-data-reader-fn*", // runtime.c core_var_value
+    "*ns*", "*file*",                             // ns.c clj_ns_var, load.c clj_load_file_var
+    "*1", "*2", "*3", "*e", "*in*",               // CljNREPL/ReplVars.swift
+};
+
+// Reported, never refused: the tripwire is what makes a miss loud, and `require` puts these on every program's path.
+static const char *const reflective_roots[] = {
+    "resolve", "ns-resolve", "find-var", "requiring-resolve", "intern",
+    "eval", "load-string", "load-file", "load",
+    "ns-publics", "ns-interns", "ns-map", "ns-refers", "all-ns", "alter-var-root",
+};
+
+typedef struct {
+	clj_value *v;
+	size_t     n, cap;
+} vlist;
+
+static void vlist_add(vlist *l, clj_value v) {
+	for (size_t i = 0; i < l->n; i++) {
+		if (l->v[i] == v) return;
+	}
+	if (l->n == l->cap) {
+		l->cap = l->cap ? l->cap * 2 : 16;
+		l->v = realloc(l->v, l->cap * sizeof *l->v);
+		if (!l->v) clj_fatal("out of memory");
+	}
+	l->v[l->n++] = v;
+}
+
+typedef struct {
+	clj_value def_var; // the var this form defines, CLJ_NIL when it defines none
+	vlist     refs;    // vars its tree names through a node
+	vlist     syms;    // symbols its constants carry
+	bool      candidate;
+	bool      live;
+} shake_form;
+
+typedef struct {
+	vlist *refs, *syms;
+} shake_ctx;
+
+static void shake_const(clj_value v, shake_ctx *w);
+
+static bool shake_const_item(clj_value item, void *ctx) {
+	shake_const(item, ctx);
+	return true;
+}
+
+static bool shake_const_entry(clj_value k, clj_value v, void *ctx) {
+	shake_const(k, ctx);
+	shake_const(v, ctx);
+	return true;
+}
+
+// Row 8: a :refer list, core.clj's :=> table and (resolve 'count) name a var no node references.
+static void shake_const(clj_value v, shake_ctx *w) {
+	if (clj_is_var(v)) {
+		vlist_add(w->refs, v);
+		return;
+	}
+	if (clj_is_symbol(v)) {
+		vlist_add(w->syms, v);
+		return;
+	}
+	if (!clj_is_ptr(v)) return;
+	if (clj_is_vector(v)) clj_vector_each(v, shake_const_item, w);
+	else if (clj_is_map(v)) clj_map_each(v, shake_const_entry, w);
+	else if (clj_is_set(v)) clj_set_each(v, shake_const_item, w);
+	else if (clj_is_seq(v)) {
+		clj_seq_iter it = clj_seq_iter_start(v);
+		clj_value    item;
+		while (clj_seq_iter_next(&it, &item)) shake_const(item, w);
+		clj_seq_iter_close(&it);
+		if (it.thrown) clj_release(clj_take_pending());
+	}
+}
+
+// Row 7: every way a tree names a var.
+static void shake_node(const clj_node *n, void *ctx) {
+	shake_ctx *w = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_VAR: vlist_add(w->refs, n->u.var); break;
+	case CLJ_NODE_CONST: shake_const(n->u.value, w); break;
+	case CLJ_NODE_INTRINSIC: vlist_add(w->refs, n->u.intrinsic.var); break;
+	case CLJ_NODE_DEF: vlist_add(w->refs, n->u.def.var); break; // a nested def binds a root at run time
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nguards; i++) vlist_add(w->refs, clj_fusion_var_of(n->u.fused.guards[i]));
+		break;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			if (n->u.try_.catches[i].kind == CLJ_CATCH_TYPE) vlist_add(w->refs, n->u.try_.catches[i].selector);
+		}
+		break;
+	default: break;
+	}
+	clj_node_children(n, shake_node, w);
+}
+
+// The root def's own var is left out: a def does not keep itself alive.
+static void shake_scan(const clj_node *root, shake_form *f) {
+	shake_ctx w = {&f->refs, &f->syms};
+	if (root->kind == CLJ_NODE_DEF) {
+		if (root->u.def.init) shake_node(root->u.def.init, &w);
+		if (root->u.def.meta) shake_node(root->u.def.meta, &w);
+	} else {
+		shake_node(root, &w);
+	}
+}
+
+static bool named_in(const char *const *table, size_t n, const char *name) {
+	for (size_t i = 0; i < n; i++) {
+		if (strcmp(table[i], name) == 0) return true;
+	}
+	return false;
+}
+
+static const char *var_name_bytes(clj_value var) { return clj_string_bytes(clj_symbol_name(clj_var_name(var))); }
+static const char *var_ns_bytes(clj_value var) { return clj_string_bytes(clj_symbol_name(clj_var_ns(var))); }
+
+static bool shake_forced(const cljc_compiler *c, clj_value var) {
+	char key[600];
+	snprintf(key, sizeof key, "%s/%s", var_ns_bytes(var), var_name_bytes(var));
+	for (size_t i = 0; i < c->opts.nforce_drop; i++) {
+		if (strcmp(c->opts.force_drop[i], key) == 0) return true;
+	}
+	return false;
+}
+
+// Rows 1-6: whether the def may be dropped at all, before anything is reached.
+static bool shake_candidate(const cljc_compiler *c, const unit *u, const clj_node *n) {
+	if (n->kind != CLJ_NODE_DEF || !n->u.def.init) return false;
+	clj_value var = n->u.def.var;
+	if (shake_forced(c, var)) return true;
+	if (n->u.def.init->kind != CLJ_NODE_FN) return false;                 // 1: a tripwire root is loud when called, not when read
+	if (!u->embedded) return false;                                       // 2: the program has no declared entry point
+	if (n->u.def.dynamic || clj_var_is_dynamic(var)) return false;        // 3: a host binding frame reaches it by var
+	if (clj_fusion_find(var)) return false;                               // 4: a tripwire root would pass clj_fusion_guard
+	for (uint32_t a = 1; a <= 3; a++) {
+		if (clj_intrinsic_find(var, a)) return false;                     // 5: clj_intrinsics_install wants a native root
+	}
+	return !named_in(core_roots, sizeof core_roots / sizeof *core_roots, var_name_bytes(var)); // 6
+}
+
+static void shake_escape_add(cljc_compiler *c, const clj_load_form *form, const char *name) {
+	if (c->nescapes == c->escapes_cap) {
+		c->escapes_cap = c->escapes_cap ? c->escapes_cap * 2 : 32;
+		c->escapes = realloc(c->escapes, c->escapes_cap * sizeof *c->escapes);
+		if (!c->escapes) clj_fatal("out of memory");
+	}
+	cljc_refusal *e = &c->escapes[c->nescapes++];
+	e->file = xstrdup(clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>");
+	e->line = form->line;
+	e->col = form->col;
+	e->kind = "reflective";
+	e->reason = xstrdup(name);
+}
+
+static void shake_reach_var(shake_form *forms, size_t n, clj_value var, size_t *queue, size_t *nqueue) {
+	for (size_t i = 0; i < n; i++) {
+		if (forms[i].def_var != var || forms[i].live) continue;
+		forms[i].live = true;
+		queue[(*nqueue)++] = i;
+	}
+}
+
+// An unqualified symbol matches the name in every namespace of the set, a qualified one only its own.
+static void shake_reach_sym(shake_form *forms, size_t n, clj_value sym, size_t *queue, size_t *nqueue) {
+	const char *name = clj_string_bytes(clj_symbol_name(sym));
+	const char *ns = clj_is_nil(clj_symbol_ns(sym)) ? NULL : clj_string_bytes(clj_symbol_ns(sym));
+	for (size_t i = 0; i < n; i++) {
+		if (clj_is_nil(forms[i].def_var) || forms[i].live) continue;
+		if (strcmp(var_name_bytes(forms[i].def_var), name) != 0) continue;
+		if (ns && strcmp(var_ns_bytes(forms[i].def_var), ns) != 0) continue;
+		forms[i].live = true;
+		queue[(*nqueue)++] = i;
+	}
+}
+
+// Which pending forms flush_pending leaves out, decided over the whole collected set.
+static void shake_run(cljc_compiler *c) {
+	cljc_shake_report *rep = &c->shake;
+	memset(rep, 0, sizeof *rep);
+	for (size_t i = 0; i < c->nunits; i++) {
+		if (c->units[i]->embedded) rep->embedded_units++;
+		else rep->entry_units++;
+	}
+	if (!c->opts.closed) {
+		rep->skipped = "dev mode: every var stays, with-redefs and def at run time keep working";
+		return;
+	}
+	if (c->opts.eval_result || c->opts.toplevel) {
+		rep->skipped = "compiled eval: a unit is one form, and the next form may name anything";
+		return;
+	}
+	if (c->opts.no_shake) {
+		rep->skipped = "--no-shake: the before half of the size measurement";
+		return;
+	}
+	if (!rep->embedded_units) {
+		rep->skipped = "no core or embedded unit in the set: only --core collects them, and a user def is root";
+		return;
+	}
+	if (!rep->entry_units && !c->opts.nforce_drop) {
+		rep->skipped = "no entry unit: without a program every def of core is reachable from somewhere";
+		return;
+	}
+
+	shake_form *forms = calloc(c->npending ? c->npending : 1, sizeof *forms);
+	size_t     *queue = calloc(c->npending ? c->npending : 1, sizeof *queue);
+	if (!forms || !queue) clj_fatal("out of memory");
+	for (size_t i = 0; i < c->npending; i++) {
+		const clj_node *n = c->pending[i].node;
+		if (!n) continue;
+		if (n->kind == CLJ_NODE_DEF) {
+			forms[i].def_var = n->u.def.var;
+			rep->defs++;
+		}
+		shake_scan(n, &forms[i]);
+		forms[i].candidate = shake_candidate(c, c->pending[i].u, n);
+	}
+	// Row 9: which of two defs of one name wins is the load's business, not this pass's.
+	for (size_t i = 0; i < c->npending; i++) {
+		if (clj_is_nil(forms[i].def_var) || shake_forced(c, forms[i].def_var)) continue;
+		for (size_t k = i + 1; k < c->npending; k++) {
+			if (forms[k].def_var != forms[i].def_var) continue;
+			forms[i].candidate = false;
+			forms[k].candidate = false;
+		}
+	}
+	size_t nqueue = 0;
+	for (size_t i = 0; i < c->npending; i++) {
+		if (forms[i].candidate) rep->candidates++;
+		else if (c->pending[i].node) {
+			forms[i].live = true;
+			queue[nqueue++] = i;
+		}
+	}
+	while (nqueue) {
+		shake_form *f = &forms[queue[--nqueue]];
+		for (size_t k = 0; k < f->refs.n; k++) shake_reach_var(forms, c->npending, f->refs.v[k], queue, &nqueue);
+		for (size_t k = 0; k < f->syms.n; k++) shake_reach_sym(forms, c->npending, f->syms.v[k], queue, &nqueue);
+	}
+	for (size_t i = 0; i < c->npending; i++) {
+		// --shake-drop ignores liveness: the gate needs a def the program really calls to prove the tripwire fires.
+		if (forms[i].candidate && (!forms[i].live || shake_forced(c, forms[i].def_var))) {
+			c->pending[i].dropped = true;
+			rep->dropped++;
+		}
+		// Where the tripwire, and not this pass, is what keeps a wrong claim from becoming a wrong program.
+		if (forms[i].live) {
+			for (size_t k = 0; k < forms[i].refs.n; k++) {
+				clj_value v = forms[i].refs.v[k];
+				if (strcmp(var_ns_bytes(v), "clojure.core") == 0 &&
+				    named_in(reflective_roots, sizeof reflective_roots / sizeof *reflective_roots, var_name_bytes(v)))
+					shake_escape_add(c, &c->pending[i].form, var_name_bytes(v));
+			}
+		}
+		free(forms[i].refs.v);
+		free(forms[i].syms.v);
+	}
+	rep->ran = true;
+	free(forms);
+	free(queue);
+}
+
+// A dropped def: its var is interned as every other var of the unit is, and its root is the tripwire.
+static void emit_shaken(unit *u, const clj_node *n) {
+	sb_printf(&u->init, "\tclj_c_shaken(V[%zu]);\n", var_index(u, n->u.def.var));
+	u->slots.defs++;
+	u->slots.defs_dropped++;
+	def_size_add(u, n->u.def.var, 0, true);
 }
 
 // ---- the hook
@@ -3221,7 +3535,8 @@ static void flush_pending(cljc_compiler *c) {
 	for (size_t i = 0; i < c->npending; i++) {
 		pending_form *p = &c->pending[i];
 		clj_ns_set_current(p->ns);
-		if (p->node) emit_top(c, p->u, &p->form, p->node);
+		if (p->dropped) emit_shaken(p->u, p->node);
+		else if (p->node) emit_top(c, p->u, &p->form, p->node);
 		else emit_failed(c, p->u, &p->form, p->message);
 		clj_release(clj_from_ptr((void *)p->node));
 		clj_release(p->message);
@@ -3291,6 +3606,11 @@ void cljc_free(cljc_compiler *c) {
 		free((char *)c->refusals[i].reason);
 	}
 	free(c->refusals);
+	for (size_t i = 0; i < c->nescapes; i++) {
+		free((char *)c->escapes[i].file);
+		free((char *)c->escapes[i].reason);
+	}
+	free(c->escapes);
 	for (size_t i = 0; i < c->ndirects; i++) {
 		free(c->directs[i].qualified);
 		free(c->directs[i].base);
@@ -3314,6 +3634,7 @@ void cljc_begin(cljc_compiler *c) {
 void cljc_end(cljc_compiler *c) {
 	clj_load_set_hook(NULL);
 	c->installed = false;
+	shake_run(c);
 	flush_pending(c);
 	mark_cross_unit_impls(c);
 }
@@ -3456,6 +3777,17 @@ void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out) {
 	count_proto_sites(c, c->units[i], out);
 	count_prim_sites(c, c->units[i], out);
 }
+
+size_t cljc_unit_def_count(const cljc_compiler *c, size_t i) { return c->units[i]->ndsizes; }
+
+void cljc_unit_def_at(const cljc_compiler *c, size_t i, size_t k, cljc_def_size *out) {
+	const struct def_size *d = &c->units[i]->dsizes[k];
+	*out = (cljc_def_size){d->name, d->bytes, d->dropped};
+}
+
+void cljc_shake_report_of(const cljc_compiler *c, cljc_shake_report *out) { *out = c->shake; }
+size_t              cljc_shake_escape_count(const cljc_compiler *c) { return c->nescapes; }
+const cljc_refusal *cljc_shake_escape_at(const cljc_compiler *c, size_t i) { return &c->escapes[i]; }
 
 // The direct arms of a unit's protocol sites: CLJC_PIMPL_<id> names the impl's dispatcher (what a fill verifies the
 // tables against) and its arity function (what a hit calls); a static of this unit by symbol, another unit's through

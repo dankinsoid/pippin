@@ -1,4 +1,4 @@
-.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe gates gates-full
+.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -91,6 +91,13 @@ corpus-compiled:
 test-eval-compiled:
 	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 CLJ_TEST_HANG_S=3600 $(SHARDS) --gate test-eval-compiled -- --scratch-path $(PLAIN)
 
+# The whole-program closed build of design §10 step 6: core.clj, the libs the program requires and the program as
+# one shaken set (NOTES.md, "Compiler": tree shaking). SHAKE_RELEASE=1 measures it release and dead-stripped,
+# which is the shape an app ships and the only one where the section numbers mean anything.
+shake:
+	swift build --scratch-path $(PLAIN) --product clj-compile --product clj-load
+	sh scripts/shake.sh
+
 # The type-coverage metric of design §10 step 3b: loads core.clj, the embedded libs and every corpus library,
 # analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed.
 facts-report:
@@ -163,8 +170,8 @@ ios-probe:
 
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff test-isolated test-compiled-asan

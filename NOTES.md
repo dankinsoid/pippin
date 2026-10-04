@@ -51,7 +51,7 @@ Host bridges
 - [ObjC bridge](docs/notes/objc-bridge.md) — `objc_msgSend` prototypes, AAPCS64 structs, selectors, ownership, calling in (`objc-reify`, `objc-block`).
 
 Compiler and tools
-- [Compiler](docs/notes/compiler.md) — `clj_node` → C: the load hook, calling convention, empty prologue, dev vs closed, promoted slots, unboxed arithmetic, worker/wrapper, deviations.
+- [Compiler](docs/notes/compiler.md) — `clj_node` → C: the load hook, calling convention, empty prologue, dev vs closed, tree shaking, promoted slots, unboxed arithmetic, worker/wrapper, deviations.
 - [nREPL](docs/notes/nrepl.md) — sessions as frames, interrupt, streamed output, `stdin`, `complete`/`info`.
 
 Process

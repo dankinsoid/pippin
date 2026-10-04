@@ -8,7 +8,7 @@
   reading `core_clj.inc` and registers the libs by their `<embedded>/...` paths. Three facts are consumed: the
   escape classification (promoted slots, below), the int64 or double kind of arithmetic arguments and let or loop
   variables (unboxed arithmetic, below) and the receiver kind at a protocol call (protocol calls, below);
-  everything else stays a boxed `clj_value`, and there is no tree shaking.
+  everything else stays a boxed `clj_value`; a whole-program `--closed` set is tree-shaken (below).
 - **The load hook** (`clj_load_set_hook`, load.c/eval.c) is how the compiler sees the program: a loader
   (`clj_load_source`, `load_core`) arms the hook before each top-level `clj_eval`, which fires it with the
   optimized `const clj_node *` of every tree the form yields (a top-level `do` fires once per item, all with
@@ -176,9 +176,98 @@
   units load `RTLD_LOCAL`: a global image costs dyld ~200 ms per `dlopen` and grows with the loaded count. A user unit compiled with `--closed` defines `CLJ_CLOSED` at its top; `core.c` leaves it to
   the build (`-DCLJ_CLOSED` on top of `-DCLJ_COMPILED_CORE`, the closed bench variant), since a closed core
   cannot be `with-redefs`'d and the test suite needs that. Under `--closed` a user unit refuses `eval` and
-  `load-string` (design §6); core.clj may name them. Dev keeps every var, `with-redefs`, `def` at run time,
+  `load-string` (design §6); core.clj may name them, which is the hole the shaker's tripwire covers (below). Dev keeps every var, `with-redefs`, `def` at run time,
   `eval` and `load-string` working over compiled code, the interpreter stays linked, and a var rebound from
   the REPL reaches compiled call sites through the same deref the interpreter makes.
+- **Tree shaking of a closed set** (design §6 «закрытый мир»; `shake_run`, `shake_candidate`, `emit_shaken` in
+  compiler.c, `clj_c_shaken` in compiled.c, `scripts/shake.sh`, `ShakeTests`, `make shake`).
+  `clj-compile --core --closed` with a `--file`/`--ns` entry is one whole-program set: core.clj, the embedded libs
+  the entry actually requires (`--core` alone still takes all seven, which is what `make boot` wants) and the
+  entry's own files, written side by side into one boot directory whose `libs.c` registers every one of them by
+  path, so `clj_load_file` of the program runs its unit. `cljc_end` decides, before a single form is emitted,
+  which top-level defs of the core half nothing can reach; `flush_pending` then skips them, so their arity
+  functions, stubs, constants and `top_N` are never written and their whole init line is `clj_c_shaken(V[k])`.
+  **The tripwire is the licence, not the analysis:** a shaken def's var is still interned and carries
+  `:pippin/shaken`, and its root is a native fn whose call is a `clj_fatal` naming it, so a reachability claim
+  this pass got wrong is a named abort and never a missing root or a wrong answer — the one failure mode a shaker
+  must not have. `--no-shake` keeps every def (the before half of a measurement) and `--shake-drop NS/NAME` drops
+  one however reachable it is, which is how the gate provokes the tripwire. Nothing is shaken in dev, in a set
+  without an entry unit (`make boot`), in one without a core or embedded unit (`corpus-compiled --closed`, a
+  library alone) or under the compiled eval, and each case prints its reason.
+- **The root set**, nine rows, each a check in `shake_candidate` or `shake_run`. 1. A def whose init is not a `fn`:
+  a tripwire root is loud when it is called and not when it is read, so only fn defs are candidates. 2. A def of an
+  entry unit: the program has no declared entry point, so its whole surface is root. 3. `^:dynamic`: `binding`, a
+  host binding frame and nREPL reach those by var, and they are read as values. 4. A fusion-table var —
+  `clj_fusion_install` caches the root as the guard a FUSED node compares against, so a tripwire there would
+  *pass* the guard and run a fused `map` whose `map` is gone. 5. An intrinsic-table var: `clj_intrinsics_install`
+  is fatal without a native root (those names are C builtins and not core.clj defs today; the row keeps the
+  invariant). 6. A name the runtime or the host resolves itself, `core_roots[]` with a citation per row:
+  `global-hierarchy` (error.c `clj_isa_install`), `-deref` (builtins.c `core_method`), `fn` (analyzer.c
+  `macro_fn_symbol`, whose macro flag decides run-time destructuring), `host-async-fn` (Pippin/Async.swift),
+  `*print-length*`/`*print-level*` (printer.c), `*data-readers*`/`*default-data-reader-fn*` (runtime.c),
+  `*ns*`/`*file*`, and `*1 *2 *3 *e *in*` (CljNREPL/ReplVars.swift). 7. Reachable from a root, through a VAR node,
+  an INVOKE head, an INTRINSIC's var, a FUSED node's guard vars, a `catch` clause's type var, a `(var x)` constant
+  and a def's own init and meta. 8. Named by a quoted symbol inside a reachable form's constants, at any depth: an
+  `ns` form's `:refer` list, core.clj's own `:=>` table and `(resolve 'count)` all name vars no node references, and
+  an unqualified symbol matches that name in every namespace of the set. 9. Defined more than once in the set —
+  two defs already turn direct linking off, and which one wins is the load's business.
+- [~] **What the shaker does not prove, and the tripwire covers.** A var reached by a computed name. `--closed`
+  refuses only `(eval …)` and `(load-string …)` with the var as the literal head, and only in a unit that is not
+  core.clj or an embedded lib, so core.clj's own `resolve`, `ns-publics`, `ns-interns` and `load-file` stay
+  reachable: four sites in the fixture run, which `--stats` prints with their positions. A program that names a
+  shaken def through one of them aborts with that name. The hole the tripwire leaves open is reading a shaken root
+  as a value without calling it — `(fn? @(resolve 'x))` answers true — which row 1 narrows to the fn defs it is.
+  Trigger: a host or a program that reads core roots reflectively, then a distinct tripwire type whose every
+  operation fails rather than a fn.
+- **Tree shaking: the numbers** (arm64, release, `-Wl,-dead_strip`, the `clj-load` binary over
+  `Tests/PippinTests/Fixtures/shake/app.clj`, which is wide on purpose; `make shake` measures the debug shape,
+  `SHAKE_RELEASE=1 sh scripts/shake.sh` this one). §10's "units of MB" was already met un-shaken, so the win is a
+  ratio against the interpreter, not a target reached.
+
+  | build | binary | `__cljframe` | `__text` | `__cstring` | `__TEXT,__const` |
+  | --- | --- | --- | --- | --- | --- |
+  | interpreted | 1 087 832 | — | 551 980 | 28 983 | 175 128 |
+  | the committed `boot/core.c`, all seven libs | 3 104 168 | 1 266 352 | 928 724 | 169 970 | 67 448 |
+  | the app's whole-program closed set, `--no-shake` | 2 451 000 | 899 700 | 808 624 | 116 399 | 67 448 |
+  | the same set, shaken | 1 526 536 | 282 628 | 686 000 | 61 298 | 67 448 |
+
+  So the shaking alone is −37.7 % of the binary and −68.6 % of `__cljframe`, which answers where the bytes are:
+  `__cljframe` is the compiled frame bodies and it is the whole win, while `__text` loses only the units' `top_N`,
+  pools and dispatchers. Against the committed compiled core the two halves of a whole-program build stack to
+  −50.8 % (compiling only the libs the entry requires is the other half), and the compiled core goes from 2.85× the
+  interpreter's binary to 1.40×. The set has 354 top-level defs, 293 of them candidates by rows 1–6, of which 219
+  are dropped and 135 defs kept; `core.c` itself is 3 512 588 → 971 084 bytes. No single def dominates what is left
+  — the biggest survivors are `MultiFn` 2 845 C bytes, `Eduction` 1 887, `Delay` 1 881, `global-hierarchy` 1 223,
+  `default-data-readers` 898, then the `-methods`/`-get-method`/`-prefer-method`/`-prefers`/`-deref` protocol
+  methods at ~858 each — so there is no second shaking rule worth writing for a particular def.
+- [ ] **The embedded libs' source is still linked, and that is a separate win.** `__TEXT,__const` is 175 128 bytes
+  interpreted, 99 % of it `core_clj.inc` plus `libs_clj.inc`; `-dead_strip` already drops core.clj's own copy from a
+  compiled build (nothing calls `clj_core_source` there), and a whole-program closed set registers every required
+  lib as a compiled unit, so `clj_embedded_source` is unreachable in such a build — but nothing tells the linker,
+  and the libs' 65 854 bytes stay, 4.3 % of the shaken binary. Dropping them is a build-time choice (an empty
+  `libs_clj.inc` behind a flag), not a shaker decision. Trigger: the §10 app's size budget.
+- [~] **Tree shaking: what the gate covers and what it costs.** `make shake` (in `make gates`, ~15 s warm) compiles
+  the fixture program three times — `--no-shake`, shaken, and shaken with one live def force-dropped — swaps each
+  generated boot into an rsync'd copy of the tree, builds `clj-load` with `-DCLJ_COMPILED_CORE -DCLJ_CLOSED` and
+  runs it: the shaken run must print exactly what the interpreter and the unshaken run print, and the
+  force-dropped one must abort naming the def. `ShakeTests` decides the nine rows in-process over an `<embedded>/`
+  lib standing in for core.clj, which a test process past `clj_init` cannot put through the hook again. The copy
+  exists because `Package.swift` names `boot/*.c` by path; a real toolchain would put a generated boot in the
+  content-addressed cache instead (design §3 «Кэш»). Not covered: the entry unit's own dead code (row 2), and the
+  committed `boot/core.c` stays unshaken by construction, so `make test-compiled`, `corpus-compiled` and the bench
+  all measure the unshaken core. Trigger for both: the §10 app, with a declared entry point and its own build flow.
+- [ ] **A shaken unit over a namespace the interpreter has already redefined is a heap-use-after-free.** A shaken
+  unit's init is written to run once, over vars nothing has bound: in a whole-program build `clj_init` runs it
+  before any interpreted def exists. Running one in a process where the interpreter has defined and redefined that
+  namespace several times — what `ShakeTests` did while five earlier tests loaded the same lib source — aborts
+  under ASan on a heap-use-after-free, an 8-byte read at +24 of a 48-byte object, on a stack ASan cannot describe
+  (`<empty stack>`: a coroutine). Bisected: the same source shaken in a namespace of its own is clean, the same
+  source closed and `--no-shake` over the redefined namespace is clean, and the whole program of
+  `scripts/shake.sh` is clean under ASan — so it is the tripwire bind over a repeatedly redefined var, not the
+  dropping of a def, and it cannot arise in a build. Not localized further; `clj_c_shaken` already binds under
+  `clj_eval_top_enter`/`clj_eval_top_leave`, the bracket a unit's other binds run under, which did not fix it.
+  Trigger: a compiled eval or a REPL that re-runs a shaken unit, neither of which the design has; until then the
+  invariant is "once, over unbound vars", and the test keeps a namespace of its own to honour it.
 - [ ] **A call emitted before its callee's `def` is not direct.** `record_direct` fills the direct table from
   `emit_top`, which `flush_pending` runs in load order, so a site ahead of the callee (`declare`d mutual
   recursion) misses `direct_of_head` and goes through `clj_c_invoke` with boxed arguments; `(declare g)(defn

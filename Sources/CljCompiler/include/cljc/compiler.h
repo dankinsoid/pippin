@@ -22,7 +22,12 @@ typedef struct {
 	bool skip_embedded; // leave <embedded>/ libs to the interpreter (units are not collected for them)
 	bool eval_result;   // the init returns the last form's value instead of nil (compiled eval)
 	bool instrument;    // the profiler and signpost hooks in every fn (CLJC_INSTRUMENT at the unit's top)
+	bool no_shake;      // keep every def of a closed set: the before half of the size measurement
 	const char *guard_macro; // wrap the unit in #ifdef <macro> (the boot's core.c)
+	// A qualified name the shaker drops however reachable it is: what the gate's negative run arms to prove the
+	// tripwire fires. NUL-terminated list of names, NULL when empty.
+	const char *const *force_drop;
+	size_t             nforce_drop;
 } cljc_options;
 
 // A form the generator could not express; the unit throws at that form instead.
@@ -78,10 +83,41 @@ typedef struct {
 	uint64_t prim_sites;     // direct call sites written with a worker path
 	uint64_t prim_bound;     // of those, bound to a worker of the set
 	uint64_t kw_sites;       // keyword-lookup sites with an inline cache: (:k m) and (get m :k) with a literal keyword
+	uint64_t defs;           // top-level defs of the unit
+	uint64_t defs_dropped;   // of those, the ones the shaker left out (closed only)
+	uint64_t def_bytes;      // C bytes the kept defs' functions take, as emitted
 } cljc_slot_stats;
 
 // After cljc_end: the protocol counters are resolved against the set as the units' text is.
 void cljc_unit_slots(const cljc_compiler *c, size_t i, cljc_slot_stats *out);
+
+// ---- tree shaking of a closed set (NOTES.md, "Compiler": tree shaking)
+
+// What one top-level def cost the unit, for the "biggest survivors" half of the report.
+typedef struct {
+	const char *name;  // qualified
+	uint64_t    bytes; // the C text of its functions; 0 for a dropped def
+	bool        dropped;
+} cljc_def_size;
+
+size_t cljc_unit_def_count(const cljc_compiler *c, size_t i);
+void   cljc_unit_def_at(const cljc_compiler *c, size_t i, size_t k, cljc_def_size *out);
+
+// The whole set's shake, filled by cljc_end.
+typedef struct {
+	bool        ran;
+	const char *skipped;    // why it did not run, NULL when it did
+	uint64_t    defs;       // top-level defs of every unit
+	uint64_t    candidates; // defs the root set did not keep outright
+	uint64_t    dropped;    // of those, the ones nothing reached
+	uint64_t    entry_units, embedded_units;
+} cljc_shake_report;
+
+void cljc_shake_report_of(const cljc_compiler *c, cljc_shake_report *out);
+// Reachable sites that reach a var by a name this pass cannot read: where the tripwire, and not the analysis,
+// is what keeps a wrong claim from becoming a wrong program. Reported, never fatal.
+size_t              cljc_shake_escape_count(const cljc_compiler *c);
+const cljc_refusal *cljc_shake_escape_at(const cljc_compiler *c, size_t i);
 
 // The C identifier of a Clojure name (NOTES.md, the demangling rule); owned by the caller.
 char *cljc_mangle(const char *ns, const char *name);

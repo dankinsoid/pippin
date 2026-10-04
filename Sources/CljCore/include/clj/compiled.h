@@ -55,6 +55,12 @@ const clj_fusion_var *clj_c_fusion_var(const char *qualified);
 clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity);
 // The rest of a def after its root is bound: meta (borrowed, a map), the flags; returns the var retained.
 clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic);
+// A def --closed tree shaking left out of the unit (NOTES.md, "Compiler": tree shaking). The var is still
+// interned and carries :pippin/shaken, and its root is a tripwire: reaching the def by name — resolve, a
+// run-time macroexpansion, a :refer — is a fatal naming the var, never a silently unbound or missing root.
+void clj_c_shaken(clj_value var);
+// Whether the var's root is such a tripwire: what a test asserts about a shaken def.
+bool clj_c_is_shaken(clj_value var);
 // Map and set literals from borrowed items (a map alternates key, value), with the duplicate-key check of the evaluator.
 clj_value clj_c_map_literal(const clj_value *items, uint32_t n);
 clj_value clj_c_set_literal(const clj_value *items, uint32_t n);

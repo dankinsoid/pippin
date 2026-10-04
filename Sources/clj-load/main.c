@@ -43,11 +43,12 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "clj-load: cannot read %s\n", argv[1]);
 		return 2;
 	}
+	free(src);
 	clj_init();
 	clj_value path = clj_string_from_cstr(argv[1]);
-	clj_value r = clj_load_source(src, len, path);
+	// Only clj_load_file consults the compiled-unit registry, where a whole-program build puts the entry file.
+	clj_value r = clj_load_file(path);
 	clj_release(path);
-	free(src);
 	if (r != CLJ_THROWN) return 0;
 	clj_value ex = clj_take_pending();
 	clj_value text = clj_pr_str(ex);
