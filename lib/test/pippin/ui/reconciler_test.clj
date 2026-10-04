@@ -214,4 +214,7 @@
     (is (thrown-with-msg? :default #"duplicate :key"
                           (r/mount b root [:stack {} [:label {:key 1}] [:label {:key 1}]])))
     (is (thrown-with-msg? :default #"must be a vector"
-                          (r/mount b root [:stack {} "text"])))))
+                          (r/mount b root [:stack {} "text"])))
+    (testing "a map is callable, so it would fail inside the thunk call instead of here"
+      (is (thrown-with-msg? :default #"thunk returning a host node"
+                            (r/mount b root [:native {}]))))))

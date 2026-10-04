@@ -46,7 +46,8 @@
   (when-not (= (count h) 2)
     (fail "[:native thunk] takes the thunk and nothing else" {:node h}))
   (let [t (nth h 1)]
-    (when-not (ifn? t) (fail "[:native thunk] takes a thunk returning a host node" {:thunk t}))
+    ;; fn?, not ifn?: a map or a keyword is callable and would fail later, inside the thunk call.
+    (when-not (fn? t) (fail "[:native thunk] takes a thunk returning a host node" {:thunk t}))
     t))
 
 (defn- child-key [h]
