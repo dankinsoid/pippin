@@ -1,0 +1,229 @@
+{:intro
+ ["One verdict per `clojure.core` name this core lacks, from `scripts/api-missing.edn`, by the rule of design §3 «Предел расхождения — ClojureScript». `make api-diff` fails on a missing name without a verdict and on a verdict for a name that is present again, so a name cannot slide through unclassified."
+  "The cljs column is the evidence, not the verdict. A name cljs keeps obliges us to code or to a reason of our own; a name cljs dropped is evidence for a §8 row whose reason must still be ours (`agent`, `send`, `await`, `future`, `pmap`, `ref`, `dosync` are absent there because JS has one thread, which is no argument here); a name cljs repointed at its host is leave to repoint at ours."
+  "**keep** — the name stays and needs code, ranked by corpus weight. **repoint** — the word stays, what it names is ours. **drop** — rejected, each citing the idea cell of its row in design §8; a drop without one is a candidate whose row is unwritten."]
+
+ :verdicts
+ {;; ── Refs and STM: §10 promises them; cljs lacks them because JS has one thread ─────────────────
+ ref                   {:verdict :keep :why "§10 promises it; §8 already fixes the mechanism (2PL by ref id, not MVCC). Absent from cljs only because JS has one thread"}
+ ref-set               {:verdict :keep :why "with `ref`"}
+ alter                 {:verdict :keep :why "with `ref`"}
+ commute               {:verdict :keep :why "with `ref`; the commutative path of the same 2PL"}
+ ensure                {:verdict :keep :why "with `ref`"}
+ dosync                {:verdict :keep :why "with `ref`; the transaction is a coroutine-mutex scope"}
+ sync                  {:verdict :keep :why "with `ref`; the pre-1.0 spelling of `dosync`, still public upstream"}
+ io!                   {:verdict :keep :why "with `ref`; the guard that makes a retry visible, so it belongs to the same mechanism"}
+ ref-history-count     {:verdict :keep :why "with `ref`; history is the one place 2PL still has to answer, even with 0"}
+ ref-max-history       {:verdict :keep :why "with `ref`"}
+ ref-min-history       {:verdict :keep :why "with `ref`"}
+
+ ;; ── Agents: §10 promises them; cljs lacks them because JS has one thread ───────────────────────
+ agent                 {:verdict :keep :why "§10 promises it; an agent is a carrier-pool send queue over an atom"}
+ send                  {:verdict :keep :why "with `agent`"}
+ send-off              {:verdict :keep :why "with `agent`; the blocking pool is already the loader's and `thread`'s"}
+ send-via              {:verdict :keep :why "with `agent`"}
+ await                 {:verdict :keep :why "with `agent`; the wait is a channel take, not a latch"}
+ await-for             {:verdict :keep :why "with `agent`; the deadline is ours already (`with-deadline`)"}
+ await1                {:verdict :keep :why "with `agent`; undocumented but public upstream, and `await` is written over it"}
+ *agent*               {:verdict :keep :why "with `agent`; the action's own handle, read from the running coroutine"}
+ agent-error           {:verdict :keep :why "with `agent`"}
+ agent-errors          {:verdict :keep :why "with `agent`; deprecated upstream but still public, so ours by compatibility"}
+ clear-agent-errors    {:verdict :keep :why "with `agent`; deprecated upstream but still public"}
+ restart-agent         {:verdict :keep :why "with `agent`"}
+ error-handler         {:verdict :keep :why "with `agent`"}
+ error-mode            {:verdict :keep :why "with `agent`"}
+ set-error-handler!    {:verdict :keep :why "with `agent`"}
+ set-error-mode!       {:verdict :keep :why "with `agent`"}
+ release-pending-sends {:verdict :keep :why "with `agent`; the dispatch deferred by a transaction, so it comes with `dosync`"}
+ shutdown-agents       {:verdict :keep :why "with `agent`; ours drains the blocking pool, which exists"}
+ set-agent-send-executor!     {:verdict :repoint :why "the word stays, the argument is our carrier pool, not a `java.util.concurrent.ExecutorService`"}
+ set-agent-send-off-executor! {:verdict :repoint :why "with `set-agent-send-executor!`: our blocking pool in place of a JVM executor"}
+ seque                 {:verdict :keep :why "a lookahead seq over a queue — a channel plus the blocking pool here; absent from cljs only because JS has one thread"}
+
+ ;; ── Printing and REPL dynamic vars cljs keeps ─────────────────────────────────────────────────
+ *out*                 {:verdict :keep :why "cljs keeps it; ours is the C capture stack (`out-capture-push*`), and `with-out-str` already rebinds something that `*out*` has to name"}
+ *err*                 {:verdict :keep :why "with `*out*`; cljs replaced the pair with `*print-fn*`/`*print-err-fn*`, but our namespace is literally `clojure.core`, so portable code redirects by binding these two"}
+ *flush-on-newline*    {:verdict :keep :why "cljs keeps it; the nREPL writer already decides per write (NOTES \"nREPL\"), so the policy exists and wants its name"}
+ *print-readably*      {:verdict :keep :why "cljs keeps it; our printer is C (`print_line`) and reads `*print-length*`/`*print-level*` already"}
+ *print-meta*          {:verdict :keep :why "with `*print-readably*`; cljs keeps it"}
+ *print-dup*           {:verdict :keep :why "with `*print-readably*`; cljs keeps the var (its printer honours `:dup`)"}
+ *print-namespace-maps* {:verdict :keep :why "with `*print-readably*`; cljs keeps it, and the `#:ns{}` form is in our reader"}
+ *assert*              {:verdict :keep :why "cljs keeps it and its `assert` reads it; ours expands unconditionally (core.clj)"}
+ *command-line-args*   {:verdict :keep :why "cljs keeps it; our hosts have argv (`clj-load`, `clj-nrepl`)"}
+ *repl*                {:verdict :keep :why "we have a REPL, and the nREPL session is the frame that would bind it (NOTES \"nREPL\"); cljs dropped it for lack of one"}
+ *source-path*         {:verdict :keep :why "named as a remaining tail of nREPL (NOTES \"nREPL\"), so the work is already owed"}
+ *clojure-version*     {:verdict :keep :why "cljs replaced it with `*clojurescript-version*` because its namespace is `cljs.core`; ours is `clojure.core`, and the var has to answer with the clojure.core level we implement"}
+ clojure-version       {:verdict :keep :why "with `*clojure-version*`"}
+
+ ;; ── Host interop: cljs repointed the word at Closure, we repoint it at ObjC ────────────────────
+ import                {:verdict :repoint :why "design §3's own example: in cljs a macro over Google Closure classes, here over ObjC classes (`objc-class`)"}
+ ns-imports            {:verdict :repoint :why "with `import`: the ns import table, ours mapping a symbol to an ObjC class"}
+ ..                    {:verdict :repoint :why "cljs chains JS property access, we chain `(.method target)` — the `CLJ_NODE_OBJC_SEND` form exists already (§5)"}
+ memfn                 {:verdict :repoint :why "with `..`: a method as a fn, over `objc-send` instead of a JS call"}
+ munge                 {:verdict :repoint :why "cljs munges to a JS identifier; ours is the symbol mangle the compiler and host-type resolution already use (NOTES \"Host bridge\")"}
+ uri?                  {:verdict :repoint :why "cljs tests a `goog.Uri`; ours tests an `NSURL` coming through the bridge"}
+ read                  {:verdict :repoint :why "the word stays, the source is our `*in*` (a map with a channel, NOTES \"nREPL\"), not a `java.io.PushbackReader`; `read-string` is already ours"}
+ read+string           {:verdict :repoint :why "with `read`"}
+ with-in-str           {:verdict :repoint :why "with `read`: ours seeds the `*in*` map's line channel instead of binding a `StringReader`"}
+
+ ;; ── Numbers: cljs dropped the tower, we have it (design §3) ───────────────────────────────────
+ with-precision        {:verdict :keep :why "cljs dropped the whole number tower; we have `bigdec`, and the corpus weighs this second heaviest"}
+ *math-context*        {:verdict :keep :why "with `with-precision`: the binding it establishes"}
+ unchecked-byte        {:verdict :keep :why "cljs keeps every unchecked coercion; ours is `byte` without the range check — §3 \"Явные двойники\""}
+ unchecked-char        {:verdict :keep :why "with `unchecked-byte`"}
+ unchecked-short       {:verdict :keep :why "with `unchecked-byte`"}
+ unchecked-int         {:verdict :keep :why "with `unchecked-byte`"}
+ unchecked-long        {:verdict :keep :why "with `unchecked-byte`"}
+ unchecked-float       {:verdict :keep :why "with `unchecked-byte`"}
+ unchecked-double      {:verdict :keep :why "with `unchecked-byte`"}
+ unchecked-add-int     {:verdict :keep :why "cljs keeps the `-int` family too; ours is the fixnum-width twin of `unchecked-add`"}
+ unchecked-subtract-int {:verdict :keep :why "with `unchecked-add-int`"}
+ unchecked-multiply-int {:verdict :keep :why "with `unchecked-add-int`"}
+ unchecked-divide-int  {:verdict :keep :why "with `unchecked-add-int`"}
+ unchecked-remainder-int {:verdict :keep :why "with `unchecked-add-int`"}
+ unchecked-negate-int  {:verdict :keep :why "with `unchecked-add-int`"}
+ unchecked-inc-int     {:verdict :keep :why "with `unchecked-add-int`"}
+ unchecked-dec-int     {:verdict :keep :why "with `unchecked-add-int`"}
+
+ ;; ── Arrays: cljs keeps the casts, our array type is the §4 low-level layer ─────────────────────
+ booleans              {:verdict :keep :why "cljs keeps all eight as identity casts; ours cast to the §4 low-level array layer, identity until `(array Layout n)` lands"}
+ bytes                 {:verdict :keep :why "with `booleans`"}
+ chars                 {:verdict :keep :why "with `booleans`"}
+ shorts                {:verdict :keep :why "with `booleans`"}
+ ints                  {:verdict :keep :why "with `booleans`"}
+ longs                 {:verdict :keep :why "with `booleans`"}
+ floats                {:verdict :keep :why "with `booleans`"}
+ doubles               {:verdict :keep :why "with `booleans`"}
+ bytes?                {:verdict :keep :why "the predicate of the byte-array type of §4's low-level layer; cljs dropped it although it has typed arrays, we have the type coming"}
+ to-array-2d           {:verdict :keep :why "cljs keeps it (a nested JS array); `to-array` is already ours"}
+
+ ;; ── Chunked seqs: cljs keeps the whole surface ────────────────────────────────────────────────
+ chunk                 {:verdict :keep :why "cljs keeps the whole chunked-seq surface; we have no chunking yet (docs/notes/type-descriptor.md, \"No chunked seqs\") and the names arrive with it"}
+ chunk-buffer          {:verdict :keep :why "with `chunk`"}
+ chunk-append          {:verdict :keep :why "with `chunk`"}
+ chunk-cons            {:verdict :keep :why "with `chunk`"}
+ chunk-first           {:verdict :keep :why "with `chunk`"}
+ chunk-next            {:verdict :keep :why "with `chunk`"}
+ chunk-rest            {:verdict :keep :why "with `chunk`"}
+ chunked-seq?          {:verdict :keep :why "with `chunk`"}
+ ->ArrayChunk          {:verdict :keep :why "with `chunk`; cljs keeps this deftype constructor, and a library writing its own chunked seq calls it"}
+
+ ;; ── Hashing: cljs keeps all four, and a user collection must hash like ours ────────────────────
+ hash-combine          {:verdict :keep :why "cljs keeps all four; our hashing is C (murmur3) and a user collection cannot hash consistently without them"}
+ hash-ordered-coll     {:verdict :keep :why "with `hash-combine`"}
+ hash-unordered-coll   {:verdict :keep :why "with `hash-combine`"}
+ mix-collection-hash   {:verdict :keep :why "with `hash-combine`"}
+
+ ;; ── Plain, portable core cljs kept and we simply lack ─────────────────────────────────────────
+ replace               {:verdict :keep :why "`clojure.core/replace` over a seq — pure Clojure, kept by cljs, and nothing here explains its absence"}
+ comparator            {:verdict :keep :why "cljs keeps it; three lines over our `compare`"}
+ test                  {:verdict :keep :why "cljs keeps it; it runs the var's `:test` meta, and `clojure.test` is ours already"}
+ time                  {:verdict :keep :why "cljs keeps it; listed as not-yet in NOTES \"core.clj\""}
+ seq-to-map-for-destructuring {:verdict :keep :why "cljs keeps it; 1.11 kwargs destructuring expands into a call of this name"}
+ tap>                  {:verdict :keep :why "cljs keeps the whole tap surface; the corpus calls it"}
+ add-tap               {:verdict :keep :why "with `tap>`"}
+ remove-tap            {:verdict :keep :why "with `tap>`"}
+ tagged-literal        {:verdict :keep :why "cljs keeps it; our reader has tags (NOTES \"Reader\")"}
+ tagged-literal?       {:verdict :keep :why "with `tagged-literal`"}
+ Inst                  {:verdict :keep :why "cljs keeps the protocol; `inst-ms` is ours already and this is what it dispatches on"}
+ inst-ms*              {:verdict :keep :why "with `Inst`: its only method"}
+ Throwable->map        {:verdict :keep :why "cljs keeps it over its own error type; the map shape is what `pst` and tooling read, and `ex-trace`/`ex-type` are ours"}
+ find-keyword          {:verdict :keep :why "keywords are interned in C here, so the non-interning lookup is one call; cljs dropped it for want of a table"}
+ print-method          {:verdict :keep :why "the one public extension point for printing a user type; cljs replaced it with the `IPrintWithWriter` protocol, we have multimethods and `type`, and nothing public replaces it yet"}
+ find-var              {:verdict :keep :why "vars are real at runtime here (`resolve`, `ns-resolve`, nREPL's `info` are ours); cljs dropped it for lack of them"}
+ requiring-resolve     {:verdict :keep :why "with `find-var`: `require` and `resolve` are both ours"}
+ remove-ns             {:verdict :keep :why "namespaces are real at runtime here (nREPL walks `ns-map`); cljs dropped it for lack of them"}
+ ns-unalias            {:verdict :keep :why "with `remove-ns`; `ns-aliases` is already ours"}
+ load                  {:verdict :keep :why "our loader resolves lib paths already (`lib-path*`, `load-resource*`, `load-file`); cljs dropped it for lack of a loader"}
+ slurp                 {:verdict :keep :why "cljs dropped file IO because a browser has no filesystem; a phone has one, and this is the name every real program uses"}
+ spit                  {:verdict :keep :why "with `slurp`"}
+ line-seq              {:verdict :keep :why "with `slurp`"}
+ file-seq              {:verdict :keep :why "with `slurp`"}
+ with-open             {:verdict :keep :why "with `slurp`; the close call is an ObjC message, not a JVM interface"}
+
+ ;; ── JVM class machinery: §10's named exceptions ────────────────────────────────────────────────
+ proxy                 {:verdict :drop :design "`proxy` и его обвязка" :why "generates a JVM class at runtime; §10 names it a permitted exception, ObjC subclassing (`objc-reify`) and single-method `reify` cover the need"}
+ construct-proxy       {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ init-proxy            {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ update-proxy          {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ get-proxy-class       {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ proxy-call-with-super {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ proxy-mappings        {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ proxy-name            {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ proxy-super           {:verdict :drop :design "`proxy` и его обвязка" :why "with `proxy`"}
+ bean                  {:verdict :drop :design "`bean`" :why "reflects a JavaBean into a map; §10 names it a permitted exception, and the ObjC analogue (KVC) belongs to the bridge, not to core"}
+ gen-class             {:verdict :drop :design "`gen-class`, `gen-interface`, `definterface`" :why "declares a JVM class as bytecode for AOT; §10 names it a permitted exception"}
+ gen-interface         {:verdict :drop :design "`gen-class`, `gen-interface`, `definterface`" :why "with `gen-class`"}
+ definterface          {:verdict :drop :design "`gen-class`, `gen-interface`, `definterface`" :why "with `gen-class`; §10 names it a permitted exception, and a protocol here is a descriptor slot, not an interface (§4)"}
+ class                 {:verdict :drop :design "`class`, `class?`, `supers`, `bases`, `cast`" :why "a `Class` object with a superclass chain; here a host type is a value and recognition is a cast, not a name (§4) — `type` returns it"}
+ class?                {:verdict :drop :design "`class`, `class?`, `supers`, `bases`, `cast`" :why "with `class`"}
+ supers                {:verdict :drop :design "`class`, `class?`, `supers`, `bases`, `cast`" :why "with `class`"}
+ bases                 {:verdict :drop :design "`class`, `class?`, `supers`, `bases`, `cast`" :why "with `class`"}
+ cast                  {:verdict :drop :design "`class`, `class?`, `supers`, `bases`, `cast`" :why "with `class`; it exists to make the JVM compiler emit a checkcast"}
+ extenders             {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "the extender set is not materialized here: a protocol method is a descriptor slot and a call-site cache in C (§4)"}
+ find-protocol-impl    {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "with `extenders`"}
+ find-protocol-method  {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "with `extenders`"}
+ -cache-protocol-fn    {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "with `extenders`; the JVM's protocol call-site cache, ours is in C"}
+ -reset-methods        {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "with `extenders`; ours resets through `MultiFn`'s atoms (NOTES \"core.clj\")"}
+ method-sig            {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "with `extenders`; a `java.lang.reflect.Method` as a vector"}
+ primitives-classnames {:verdict :drop :design "Внутренности протоколов и multimethod'ов JVM" :why "with `extenders`; a map from JVM primitive classes to their array class names"}
+
+ ;; ── JVM compiler, classpath and loader ────────────────────────────────────────────────────────
+ compile               {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "writes .class files to `*compile-path*`; compilation here is a separate step with its own cache (§6, §3 \"Кэш\")"}
+ *compile-path*        {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "with `compile`"}
+ *compile-files*       {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "with `compile`"}
+ *compiler-options*    {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "with `compile`; ours are build flags and facts (§3), not a runtime var"}
+ *warn-on-reflection*  {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "there is no reflection to warn about: a host call is resolved or it is a diagnostic (§3, §5)"}
+ *unchecked-math*      {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "a global arithmetic switch; cost here is a fact and the unchecked ops are explicit twins (§3)"}
+ *allow-unresolved-vars* {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "a `clojure.lang.Compiler` flag; an unresolved symbol here is a diagnostic (§3)"}
+ *verbose-defrecords*  {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "a flag over the JVM's record class generation"}
+ *fn-loader*           {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "the `IFnLoader` hook of `clojure.lang.Compiler`"}
+ *use-context-classloader* {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "there is no class loader here"}
+ add-classpath         {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "deprecated upstream; there is no classpath here"}
+ with-loading-context  {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "pins the context class loader around a load"}
+ namespace-munge       {:verdict :drop :design "Флаги и имена JVM-компилятора и загрузчика классов" :why "exists for the class-file path of `gen-class`; `munge` is repointed instead"}
+
+ ;; ── JVM reader hooks ──────────────────────────────────────────────────────────────────────────
+ *read-eval*           {:verdict :drop :design "Крючки JVM-ридера" :why "`#=` is an error here, never an evaluation, so the switch has nothing to switch off (NOTES \"Reader\")"}
+ *suppress-read*       {:verdict :drop :design "Крючки JVM-ридера" :why "suppression here follows the enclosing unselected `#?` branch (`F_SUPPRESSED`), not a var a caller sets"}
+ *reader-resolver*     {:verdict :drop :design "Крючки JVM-ридера" :why "our reader resolves `::alias/x` itself; the hook exists for tools reading another namespace's source"}
+ reader-conditional    {:verdict :drop :design "Крючки JVM-ридера" :why "a value only in `:read-cond :preserve`, which our reader has no mode for — it expands `#?` by our feature key (NOTES \"Reader\")"}
+ reader-conditional?   {:verdict :drop :design "Крючки JVM-ридера" :why "with `reader-conditional`"}
+ load-reader           {:verdict :drop :design "Крючки JVM-ридера" :why "evaluates from a `java.io.Reader`; `load-string` and `load-file` are ours"}
+ unquote               {:verdict :drop :design "`unquote`/`unquote-splicing` как вары" :why "a placeholder var the JVM reader expands `~` into outside syntax-quote; our reader builds syntax-quote itself, so the form is a read error, not a call"}
+ unquote-splicing      {:verdict :drop :design "`unquote`/`unquote-splicing` как вары" :why "with `unquote`"}
+
+ ;; ── JVM printer internals ─────────────────────────────────────────────────────────────────────
+ print-dup             {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "the multimethod behind `*print-dup*`; printing here is C (`print_line`) with `print-method` as the one extension point"}
+ print-ctor            {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "with `print-dup`; emits `#=(ctor …)`"}
+ print-simple          {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "with `print-dup`"}
+ PrintWriter-on        {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "builds a `java.io.PrintWriter` over a fn; our sink is the capture stack (NOTES \"nREPL\")"}
+ char-escape-string    {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "the printer's escape table as a var; ours is in C"}
+ char-name-string      {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "with `char-escape-string`"}
+ StackTraceElement->vec {:verdict :drop :design "Внутренности JVM-принтера, выставленные варами" :why "a `StackTraceElement` as a vector; our frame is already data (`ex-trace`, §4)"}
+
+ ;; ── Seqs over JDK types ───────────────────────────────────────────────────────────────────────
+ enumeration-seq       {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "names `java.util.Enumeration`; our sources are `seq`/`reduce` over our values, and an ObjC enumerator comes through the bridge (§5)"}
+ iterator-seq          {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `enumeration-seq`"}
+ resultset-seq         {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `enumeration-seq`; a JDBC `ResultSet`"}
+ xml-seq               {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `enumeration-seq`; walks a `clojure.xml` tree, which is a library"}
+ stream-seq!           {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `enumeration-seq`; a `java.util.stream.Stream`"}
+ stream-reduce!        {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `stream-seq!`"}
+ stream-into!          {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `stream-seq!`"}
+ stream-transduce!     {:verdict :drop :design "Seq'и и редьюсы над JVM-типами" :why "with `stream-seq!`"}
+
+ ;; ── Superseded by our own constructs ──────────────────────────────────────────────────────────
+ defstruct             {:verdict :drop :design "Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)" :why "superseded by `defrecord` and shapes (§4); deprecated in practice upstream and dropped by cljs"}
+ create-struct         {:verdict :drop :design "Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)" :why "with `defstruct`"}
+ struct                {:verdict :drop :design "Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)" :why "with `defstruct`"}
+ struct-map            {:verdict :drop :design "Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)" :why "with `defstruct`"}
+ accessor              {:verdict :drop :design "Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)" :why "with `defstruct`; a struct basis accessor"}
+ definline             {:verdict :drop :design "`definline`" :why "inlining is the compiler's decision from facts and a budget (§3, §6b), not a second copy of the body in the var"}
+ with-local-vars       {:verdict :drop :design "Мутабельные локалы (`set!` на `let`)" :why "the JVM's way to have mutable locals, which §8 already rejects; `loop/recur`, `volatile!` and mutable `deftype` fields cover it"}
+ ->Vec                 {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "the gvec deftypes behind `vector-of`; ours is a C type and its nodes are not vars"}
+ ->VecNode             {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "with `->Vec`"}
+ ->VecSeq              {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "with `->Vec`"}
+ EMPTY-NODE            {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "with `->Vec`"}
+
+ ;; ── Not an absent var ─────────────────────────────────────────────────────────────────────────
+ defmacro              {:verdict :special-form :why "a special form here (`SP_DEFMACRO`, Sources/CljCore/analyzer.c), not a var — being turned into a var in a parallel change"}}}

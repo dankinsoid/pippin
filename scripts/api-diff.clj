@@ -31,6 +31,37 @@
                  (sort-by :name)
                  vec)})
 
+(defn- cljs-jar-version []
+  (when-let [url (io/resource "cljs/core.cljs")]
+    (second (re-find #"clojurescript-([^/!]+)\.jar" (str url)))))
+
+(defn dump-cljs
+  "cljs.core's publics as the ClojureScript analyzer itself sees them, not as a source scan sees them:
+   `:defs` from the AOT analysis cache the compiler ships in the jar and reads on every build, `:macros`
+   interned by the analyzer's own `intern-macros` from the Clojure-side `cljs.core`, and `:private`
+   dropped by the analyzer's own `ns-publics`. A source scan would be wrong twice over: cljs aliases
+   JVM clojure.core as `core`, so `..` is `(core/defmacro ..` and `defmacro` is `(core/defn defmacro`,
+   and a scan counts private defs."
+  []
+  (let [compiler (requiring-resolve 'cljs.env/*compiler*)
+        default-env (requiring-resolve 'cljs.env/default-compiler-env)
+        read-cache (requiring-resolve 'cljs.analyzer.api/read-analysis-cache)
+        ns-publics* (requiring-resolve 'cljs.analyzer.api/ns-publics)
+        intern-macros (requiring-resolve 'cljs.analyzer/intern-macros)
+        state (default-env)]
+    ;; intern-macros reads the loaded Clojure-side namespace, so it has to be loaded first.
+    (require 'cljs.core)
+    (swap! state assoc-in [:cljs.analyzer/namespaces 'cljs.core]
+           (read-cache (io/resource "cljs/core.cljs.cache.aot.edn")))
+    (with-bindings* {compiler state}
+      (fn []
+        (intern-macros 'cljs.core)
+        {:version (or (cljs-jar-version) "unknown")
+         :publics (->> (ns-publics* 'cljs.core)
+                       (map (fn [[sym m]] {:name sym :macro (boolean (:macro m))}))
+                       (sort-by :name)
+                       vec)}))))
+
 (defn- read-all-forms [file]
   (with-open [r (java.io.PushbackReader. (io/reader file))]
     (binding [*read-eval* false]
@@ -116,9 +147,69 @@
     (line "Internal helpers (`name*`): " (names internal))
     bare))
 
-(defn diff [jvm-file ours-file corpus-dir out-file & [ours-async-file jvm-async-file]]
+;; The path is soft: only the gate runs from the repo root.
+(defn- dangling-designs
+  "The verdicts whose cited §8 idea cell is not in the table."
+  [verdicts]
+  (let [f (io/file "docs/design/08-rejected.md")]
+    (when (.exists f)
+      (let [text (slurp f)]
+        (->> verdicts
+             (keep (fn [[n m]] (when-let [d (:design m)] (when-not (str/includes? text d) [n d]))))
+             (sort-by first))))))
+
+(defn- classified-section
+  "The three outcomes of design §3 over the missing names."
+  [line verdicts intro missing cljs-names uses jvm-by unclassified stale]
+  (let [weight (fn [n] [(- (get uses n 0)) (str n)])
+        by-verdict (fn [v] (->> missing (filter #(= v (:verdict (verdicts %)))) (sort-by weight)))
+        cell (fn [n] (str "| " (get uses n 0) " | `" n "` | " (if (cljs-names n) "yes" "no") " | "))
+        special (->> (keys verdicts) (filter #(= :special-form (:verdict (verdicts %)))) sort)]
+    (line)
+    (line "## Missing, classified")
+    (line)
+    (doseq [p intro] (line p) (line))
+    (line "| | count |")
+    (line "|---|---|")
+    (doseq [v [:keep :repoint :drop]]
+      (line "| " (name v) " | " (count (by-verdict v)) " |"))
+    (line "| unclassified | " (count unclassified) " |")
+    (line)
+    (doseq [[v title] [[:keep "### keep — needs code, heaviest first"]
+                       [:repoint "### repoint — the word stays, the host is ours"]
+                       [:drop "### drop — rejected, with the §8 row that carries the reason"]]]
+      (line title)
+      (line)
+      (line (if (= v :drop) "| uses | name | cljs | §8 | why |" "| uses | name | cljs | why |"))
+      (line (if (= v :drop) "|---|---|---|---|---|" "|---|---|---|---|"))
+      (doseq [n (by-verdict v)
+              :let [m (verdicts n)]]
+        (line (cell n) (when (= v :drop) (str (if (:design m) (str "«" (:design m) "»") "**no row yet**") " | ")) (:why m) " |"))
+      (line))
+    (doseq [n special]
+      (line "`" n "` is not an absent var: " (:why (verdicts n))
+            (when-not (some #{n} missing) " — it is a var now, so its line in scripts/api-missing.edn can go.")))
+    (line)
+    (line "The §8 rows a verdict cites, against their table: "
+          (let [d (dangling-designs verdicts)]
+            (if (seq d) (str "dangling — " (names (map first d))) "every citation resolves")))
+    (when (seq stale)
+      (line)
+      (line "Verdicts for names that are public here now, so their lines in scripts/api-missing.edn are stale: "
+            (names stale)))
+    (line)
+    (line "Arglists of the unclassified, if any: "
+          (if (seq unclassified)
+            (str/join " " (map #(str "`" % "` `" (pr-str (:arglists (jvm-by %))) "`") unclassified))
+            "none"))
+    [unclassified stale]))
+
+(defn diff [jvm-file ours-file cljs-file verdicts-file corpus-dir out-file & [ours-async-file jvm-async-file]]
   (let [jvm (edn/read-string (slurp jvm-file))
         ours (edn/read-string (slurp ours-file))
+        cljs (edn/read-string (slurp cljs-file))
+        cljs-names (set (map :name (:publics cljs)))
+        {:keys [intro verdicts]} (edn/read-string (slurp verdicts-file))
         jvm-by (into {} (map (juxt :name identity) jvm))
         ours-by (into {} (map (juxt :name identity) ours))
         uses (symbol-uses corpus-dir)
@@ -140,6 +231,11 @@
                       (map (fn [n] [n (get uses n 0)]))
                       (sort-by (fn [[n c]] [(- c) (str n)])))
         used-missing (filter (fn [[_ c]] (pos? c)) weighted)
+        unclassified (->> missing (remove verdicts) sort)
+        stale (->> (keys verdicts)
+                   (remove (set missing))
+                   (remove #(= :special-form (:verdict (verdicts %))))
+                   sort)
         sb (StringBuilder.)
         line (fn [& xs] (.append sb (apply str xs)) (.append sb "\n"))]
     (line "# clojure.core API parity")
@@ -150,12 +246,21 @@
     (line "A public var this core has and the JVM's clojure.core has not must carry `^:pippin/extension`; `make api-diff`"
           " fails on an unmarked one (docs/design.md).")
     (line)
+    (line "The third column is ClojureScript " (:version cljs) ", the measure of admissible divergence (design §3 «Предел"
+          " расхождения — ClojureScript»): `cljs.core`'s publics as its own analyzer reports them — `:defs` from the AOT"
+          " analysis cache in the jar, `:macros` interned from the Clojure-side `cljs.core`, `:private` dropped by"
+          " `cljs.analyzer.api/ns-publics`. Not a source scan: cljs aliases JVM `clojure.core` as `core`, so `..` reads"
+          " `(core/defmacro ..` and `defmacro` reads `(core/defn defmacro`, and a scan counts private defs.")
+    (line)
     (line "| | count |")
     (line "|---|---|")
     (line "| JVM public vars | " (count jvm) " |")
     (line "| ours | " (count ours-by) " |")
+    (line "| cljs.core publics | " (count cljs-names) " |")
     (line "| in both | " (count common) " |")
     (line "| missing here | " (count missing) " |")
+    (line "| missing here, kept by cljs | " (count (filter cljs-names missing)) " |")
+    (line "| missing here, absent from cljs too | " (count (remove cljs-names missing)) " |")
     (line "| missing and used by the corpus | " (count used-missing) " |")
     (line "| ours only, public | " (count extra) " |")
     (line "| ours only, internal (`name*`) | " (count internal) " |")
@@ -169,14 +274,17 @@
     (line "Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qualified; every position, definitions"
           " and shadowed locals included, so the count is an upper bound).")
     (line)
-    (line "| uses | name | JVM arglists |")
-    (line "|---|---|---|")
+    (line "| uses | name | cljs | JVM arglists |")
+    (line "|---|---|---|---|")
     (doseq [[n c] (take 60 weighted)]
-      (line "| " c " | `" n "` | `" (pr-str (:arglists (jvm-by n))) "` |"))
+      (line "| " c " | `" n "` | " (if (cljs-names n) "yes" "no") " | `" (pr-str (:arglists (jvm-by n))) "` |"))
     (line)
     (line "## Every missing name")
     (line)
-    (line (names missing))
+    (line "Kept by cljs: " (names (filter cljs-names missing)))
+    (line)
+    (line "Absent from cljs too: " (names (remove cljs-names missing)))
+    (classified-section line verdicts intro missing cljs-names uses jvm-by unclassified stale)
     (line)
     (line "## Macro/fn mismatches")
     (line)
@@ -218,16 +326,24 @@
       (line)
       (line (if (seq offenders) (names offenders) "none"))
       (spit out-file (str sb))
-      (println "wrote" out-file ":" (count missing) "missing," (count used-missing) "used by the corpus")
-      (when (seq offenders)
+      (println "wrote" out-file ":" (count missing) "missing," (count used-missing) "used by the corpus,"
+               (count unclassified) "unclassified")
+      (when (or (seq offenders) (seq unclassified) (seq stale))
         (binding [*out* *err*]
-          (println "api-diff: ours-only public vars without ^:pippin/extension:" (str/join " " offenders)))
+          (when (seq offenders)
+            (println "api-diff: ours-only public vars without ^:pippin/extension:" (str/join " " offenders)))
+          (when (seq unclassified)
+            (println "api-diff: missing names without a verdict in" verdicts-file ":" (str/join " " unclassified)))
+          (when (seq stale)
+            (println "api-diff: verdicts in" verdicts-file "for names that are public here:" (str/join " " stale))))
         (System/exit 1)))))
 
 (let [[cmd & args] *command-line-args*]
   (case cmd
     "dump-jvm" (pp/pprint (dump-jvm))
     "dump-async" (pp/pprint (dump-async))
+    "dump-cljs" (pp/pprint (dump-cljs))
     "diff" (apply diff args)
-    (do (println "usage: api-diff.clj dump-jvm | dump-async | diff jvm.edn ours.edn corpus-dir out.md [ours-async.edn jvm-async.edn]")
+    (do (println "usage: api-diff.clj dump-jvm | dump-async | dump-cljs |"
+                 "diff jvm.edn ours.edn cljs.edn verdicts.edn corpus-dir out.md [ours-async.edn jvm-async.edn]")
         (System/exit 2))))

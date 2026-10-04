@@ -59,6 +59,19 @@
 | NaN-boxing | PAC на arm64e, 32-битный int, double и так unboxed там, где важно |
 | Генераторы / resumable exceptions / backtracking как фичи языка | корутины + `binding` + core.logic |
 | Оптимизации без бюджета | любой проход деградирует в ⊤, а не падает |
+| `proxy` и его обвязка (`construct-proxy`, `init-proxy`, `update-proxy`, `get-proxy-class`, `proxy-super`, `proxy-name`, `proxy-mappings`, `proxy-call-with-super`) | генерация JVM-класса в рантайме; класс создаёт ObjC-рантайм (`objc-reify`), одно-методный протокол — `reify` (§4); §10 называет разрешённым исключением, cljs его тоже не несёт |
+| `bean` | отражение JavaBean'а в мапу через JVM-рефлексию; ObjC-аналог (KVC) — дело моста (§5), а не ядра; §10 называет разрешённым исключением |
+| `gen-class`, `gen-interface`, `definterface` | объявление JVM-класса и интерфейса байткодом ради AOT; компилятор эмитит нативный код (§6), протокол — слоты дескриптора, а не интерфейс (§4); §10 называет разрешённым исключением |
+| `class`, `class?`, `supers`, `bases`, `cast` | `Class` как значение с цепочкой суперклассов; host-тип здесь — значение, опознание — каст, а не имя (§4), и значение отдаёт `type` |
+| Внутренности протоколов и multimethod'ов JVM (`extenders`, `find-protocol-impl`, `find-protocol-method`, `-cache-protocol-fn`, `-reset-methods`, `method-sig`, `primitives-classnames`) | множество расширителей не материализовано: метод протокола — слот дескриптора и inline cache в C (§4) |
+| Флаги и имена JVM-компилятора и загрузчика классов (`compile`, `*compile-path*`, `*compile-files*`, `*compiler-options*`, `*warn-on-reflection*`, `*unchecked-math*`, `*allow-unresolved-vars*`, `*verbose-defrecords*`, `*fn-loader*`, `*use-context-classloader*`, `add-classpath`, `with-loading-context`, `namespace-munge`) | они называют `clojure.lang.Compiler`, classpath и загрузчик классов; компиляция здесь — отдельный шаг со своим кэшем (§6, §3 «Кэш»), стоимость и небезопасная арифметика — факты и явные двойники (§3), рефлексии нет вообще |
+| Крючки JVM-ридера (`*read-eval*`, `*suppress-read*`, `*reader-resolver*`, `reader-conditional`, `reader-conditional?`, `load-reader`) | `#=` нет, так что `*read-eval*` нечего выключать; `#?` ридер раскрывает по нашему ключу, режима `:read-cond :preserve` нет; вход для текста — `load-string` |
+| `unquote`/`unquote-splicing` как вары | заглушки, в которые JVM-ридер раскрывает `~`/`~@` вне syntax-quote; наш ридер собирает syntax-quote сам, и форма вне него — ошибка чтения, а не вызов вара |
+| Внутренности JVM-принтера, выставленные варами (`print-dup`, `print-ctor`, `print-simple`, `PrintWriter-on`, `char-escape-string`, `char-name-string`, `StackTraceElement->vec`) | печать — C (`print_line`), таблицы экранирования и `java.io.Writer` варами не являются; точка расширения одна — `print-method` по `type` |
+| Seq'и и редьюсы над JVM-типами (`enumeration-seq`, `iterator-seq`, `resultset-seq`, `xml-seq`, `stream-seq!`, `stream-reduce!`, `stream-into!`, `stream-transduce!`) | каждое называет тип JDK; источник здесь — `seq`/`reduce` по нашим значениям, ObjC-перечислитель приезжает через мост (§5) |
+| Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`) | вытеснены `defrecord` и схемами (§4); cljs их тоже не несёт |
+| `definline` | инлайн — решение компилятора по фактам и бюджету (§3, §6b), а не второй экземпляр тела в варе |
+| Конструкторы gvec'а JVM-ядра (`->Vec`, `->VecNode`, `->VecSeq`, `EMPTY-NODE`) | `deftype`'ы, которыми на JVM сделан `vector-of`; у нас это тип в C, его узлы варами не выставлены |
 
 ---
 

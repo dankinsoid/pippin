@@ -66,6 +66,26 @@
   `tap>` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
   mismatch (`pr` is `^:dynamic` on the JVM) and 12 arity mismatches, of which `sequence`'s multi-coll arity
   and `disj!`'s 1-arity are real gaps rather than differently-written variadics.
+- **The third column is cljs, and it is derived, not written down.** `make api-diff` dumps `cljs.core`'s
+  publics with ClojureScript on the classpath (`CLJS_DEPS` in the Makefile, 1.11.132) as the cljs analyzer
+  itself reports them: `:defs` from `cljs/core.cljs.cache.aot.edn`, the analysis cache the compiler ships in
+  the jar and reads through `cljs.analyzer.api/read-analysis-cache`, `:macros` interned by the analyzer's own
+  `intern-macros` from the loaded Clojure-side `cljs.core`, and `:private` dropped by
+  `cljs.analyzer.api/ns-publics` — 928 names, 828 defs and 100 macros, out of 958 cached defs and 188 interned
+  macros. The cache carries no `:macros` of its own, so the macro half has to come from the macro namespace. A source scan of `cljs/core.cljs` and
+  `cljs/core.cljc` would be wrong twice: cljs aliases JVM `clojure.core` as `core`, so `..` is
+  `(core/defmacro ..`, `import`, `locking` and `defmacro` hide behind `core/`, and `defmacro` is not even a
+  `defmacro` but `(core/defn defmacro` with macro meta; and a scan counts private defs, which `ns-publics`
+  does not. It costs 3 s, and only the jar, no Closure compiler run.
+- **Every missing name carries a verdict, and that is a gate.** `scripts/api-missing.edn` holds one of
+  `:keep`/`:repoint`/`:drop`/`:special-form` per name with its reason, a `:drop` citing the idea cell of its
+  design §8 row; `make api-diff` fails on a missing name without a verdict, on a verdict whose name is public
+  here again, and prints a dangling §8 citation. The cljs column is the evidence, not the verdict (design §3,
+  "Предел расхождения — ClojureScript"), so a name cljs lacks can still be `:keep`: the agents and refs are
+  absent there only because JS has one thread. Two names showed what the gate is for: `defmacro` stood among
+  the missing with three corpus uses because it is a special form here (`SP_DEFMACRO`, analyzer.c), not a var,
+  and `monitor-enter`/`monitor-exit` are special forms on the JVM, absent from `ns-publics`, so the report
+  cannot see them at all although §10 counted them among the exceptions needing a §8 row.
 - [~] **`api-diff` is also the gate on `^:pippin/extension`** (design, "Инвариант: язык не меняется"): an
   ours-only public var without the mark fails the step and is named in the report's "Unmarked extensions".
   The mark reaches the var's meta the same way in both backends — the compiler emits the whole `def` meta map

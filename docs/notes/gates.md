@@ -7,8 +7,9 @@
   `port-audit`, `c-only-audit`, `cmutex-audit`, `open-items-audit`, `api-diff`, in that order. `c-only-audit` runs one file
   through `clj-load`, the C-only host, to see a `catch` clause naming a host type refused out loud. The runner prints wall seconds and exit status per step,
   stops on the first failure, and prints the total on success. Even `make -j gates` keeps that order.
-  Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew); `api-diff` also resolves the core.async jar it
-  dumps, so the first run of it needs the network and later ones the Maven cache. `TEST_TIMEOUT`, 500 seconds unless
+  Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew); `api-diff` also resolves the core.async and
+  ClojureScript jars it dumps, so the first run of it needs the network and later ones the Maven cache (CI
+  caches `~/.m2`, so only a cold cache fetches them). `TEST_TIMEOUT`, 500 seconds unless
   overridden, bounds every Makefile `swift test`: the shard runner bounds its build, its listing and each shard by it
   ("Shards"), the corpus targets go through `timeout -k 5`, which GNU coreutils supplies on macOS. Keep long
   runs in background logs. SwiftPM passes the test helper's output on in lumps (~16 KB, 64 KB with the XCTest
