@@ -173,6 +173,7 @@ public enum SwiftStubs {
 		}
 	}
 
+#if os(macOS) || os(Linux)
 	// The last line of the generator's output is the dylib; everything it printed is the error when it fails.
 	private static func generate(_ module: String, with g: Generator) throws -> String {
 		var args = [g.script.path, "--module", module, "--cache", g.cache.path, "--runtime-modules", g.runtimeModules.path]
@@ -199,6 +200,12 @@ public enum SwiftStubs {
 		}
 		return String(last)
 	}
+#else
+	// iOS has no Foundation `Process`; a device links its stubs in instead (docs/portability.md).
+	private static func generate(_ module: String, with _: Generator) throws -> String {
+		throw GeneratorFailed(module: module, output: "The stub generator needs a subprocess, which this platform has no API for; link the module's stubs in instead (design §5, the production path)")
+	}
+#endif
 
 	// MARK: Calls
 

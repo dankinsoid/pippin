@@ -461,4 +461,10 @@
   gensym makes a new type when the protocol it names was redefined (proto.c `reify_type_current`): the
   fixture reloads showed a stale type implementing the old protocol, which the interpreter has on any
   re-evaluation of a `defprotocol` too.
-
+- [ ] **`-Wl,-dead_strip` removes `__TEXT,__cljsite` whole.** Nothing references the section: its entries are
+  planted by `asm volatile` and no symbol reaches them, so ld64 drops all 88,232 bytes of it, while
+  `__cljframe` survives because its functions are called from the unit's tables. Measured on the macOS and the
+  iOS arm64 links of the compiled core, so it is ld64 and not a platform. The frame table alone still names a
+  frame that was not inlined, which is why `(mapv inc [1 nil 3])` reads the same either way; what a
+  dead-stripped build loses is the inlined-body name the markers carry. Trigger: the §10 app, which links with
+  dead stripping on. Candidate fix: the section's `no_dead_strip` attribute in the `.pushsection` directive.

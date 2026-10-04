@@ -9,9 +9,12 @@
   value, not from `tls_heap`: Darwin may have torn the thread's TLS down first. `tls_heap` is cleared because a
   later destructor's free must take the foreign path — the heap may already have its next owner. A heap stays
   on the list until a thread starts, so its slabs hold their cells meanwhile (the empty-slab item below).
-- [ ] **Empty slabs are never returned to the OS.** Peak memory stays resident. Trigger: first run on a
-  device (jetsam). Fix: `madvise(MADV_FREE)`/`munmap` when empty slabs per class exceed a threshold,
-  plus a memory-warning hook.
+- [ ] **Empty slabs are never returned to the OS.** Peak memory stays resident. Trigger: an app whose peak
+  working set is a real fraction of the jetsam limit — the §10 app with a UI and data, not the first iOS
+  run, which says nothing (NOTES "iOS"): the twelve probe forms leave 11–12 MB of `phys_footprint` behind
+  after their values die, part empty slabs and part `coro.c`'s pooled stacks, against a foreground limit of
+  hundreds of MB. Fix: `madvise(MADV_FREE)`/`munmap` when empty slabs per class exceed a threshold, plus a
+  memory-warning hook.
 - [ ] **Foreign free list drains only when the local list is empty.** With a producer thread allocating
   from bump cells and a consumer freeing, cells pile up unused until the slab is exhausted. Not a leak,
   a delay. Trigger: multi-threaded benchmark showing extra resident memory in producer/consumer runs.

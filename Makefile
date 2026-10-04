@@ -1,4 +1,4 @@
-.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint gates gates-full
+.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -155,6 +155,11 @@ swift-reprint:
 		Foundation SwiftUI \
 		--spm https://github.com/apple/swift-argument-parser.git=1.5.0=ArgumentParser \
 		--spm https://github.com/apple/swift-collections.git=1.1.0=OrderedCollections
+
+# The iOS build of the runtime, the simulator run of the probe and the binary-size baseline of design §10
+# (docs/notes/ios.md). NOT a gate: it needs an iOS SDK and a booted simulator, and the sizes move with the SDK.
+ios-probe:
+	sh scripts/ios-sizes.sh
 
 # @ai-generated(solo)
 gates:

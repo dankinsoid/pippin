@@ -58,4 +58,5 @@ Process
 - [Corpus](docs/notes/corpus.md) — the vendored libraries, the harness, the watchdog, `make api-diff`.
 - [Benchmarks](docs/notes/benchmarks.md) — how to compare numbers, what is not yet measured.
 - [Open decisions](docs/notes/open-decisions.md) — decisions not yet taken.
+- [iOS](docs/notes/ios.md) — building and running the runtime for iOS, what iOS lacks, the binary-size baseline.
 - [Gates](docs/notes/gates.md) — `make gates` and `gates-full`, build directories, measured gate times.
