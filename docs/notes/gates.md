@@ -15,7 +15,9 @@
   pass every run now skips, NOTES "Guard"), and a run killed by the bound loses what it held. So a test still
   running after 300 s (`CLJ_TEST_HANG_S`) prints its name, `clj_debug_sched_dump` and a one-second `sample` of
   every thread to stderr and ends the process (exit 3): the exit delivers everything. Under the shard runner
-  that is per shard, and the runner prints the report from the shard's log.
+  that is per shard, and the runner prints the report from the shard's log. CI sets 900 s: on one x86_64 runner
+  every suite ran 2.7× slower than on another with the same deal (runs 37193827945 and 37193832212), and
+  `SwiftStubTests`' cold stub generation passed 300 s; `test-eval-compiled` sets 3600 s, a clang run per eval.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
   allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one
   process per suite: an incorrect live-object baseline can pass when another suite initialized it first.
@@ -108,6 +110,16 @@
   are built in a `.tmp-<pid>` directory and renamed into place, the loser discarding its copy); the corpus cache
   (a lock per library); the nREPL server (port 0). The corpus watchdog's budget is the one timing collision:
   `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 60 s ("CI").
+- **A deal can fail a test the serial run passes.** Each shard is another history before each of its suites, so a
+  live-object count that holds only after some other suite's allocations, or a layout they decide, fails in one
+  deal and passes in the next; a deal is fixed by `scripts/test-times.json`, so it fails the same way every run.
+  `RuntimeTests.defAndRedefinition` counted the meta map of a var it defined as one object, a shape map; after
+  `QueueTests`' maps a shape on that path had become a dictionary (`CLJ_SHAPE_MAX_CHILDREN`, shape.c) and the meta
+  map was a hash map, two objects (runs 37190622763–37191593504, x86_64). The test now declares the var before its
+  baseline, as it does its other defs. A failed shard's report ends with its rerun in one process (`TEST_SUITES=…
+  TEST_SHARDS=1 make test`; on CI, a dispatch with `-f target=test -f shards=1 -f suites=…`); halves of its suite
+  list, dispatched side by side, find the pair, and `clj_debug_live_report` before and after the test names the
+  type.
 - **The push gate's ASan pass is `test`**, with interpreted core and `CLJ_SYSTEM_ALLOC=1`. It exercises
   the evaluator/analyzer and runtime allocation boundaries; the pool would hide individual object bounds
   from ASan. `test-compiled` runs the same suite with compiled core and the pool, checking emitted boot
