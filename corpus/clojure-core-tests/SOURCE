@@ -12,7 +12,6 @@ Files taken, unmodified (the nine files design §10 names, plus the in-tree help
   test/clojure/test_clojure/data_structures.clj   -> test/clojure/test_clojure/data_structures.clj
   test/clojure/test_clojure/def.clj               -> test/clojure/test_clojure/def.clj
   test/clojure/test_clojure/fn.clj                -> test/clojure/test_clojure/fn.clj
-  test/clojure/test_clojure/generators.clj        -> test/clojure/test_clojure/generators.clj
   test/clojure/test_clojure/logic.clj             -> test/clojure/test_clojure/logic.clj
   test/clojure/test_clojure/macros.clj            -> test/clojure/test_clojure/macros.clj
   test/clojure/test_clojure/numbers.clj           -> test/clojure/test_clojure/numbers.clj
@@ -22,7 +21,7 @@ Files taken, unmodified (the nine files design §10 names, plus the in-tree help
 Not taken: every other file of test/clojure/test_clojure/. The rule and the per-file reasons are in
 docs/notes/corpus.md, "Clojure's own suite: what is in and what is out".
 
-shim/ is ours, not Clojure's: stand-ins for the three support namespaces the nine files require and the
-JVM test tooling supplies (clojure.data.generators, clojure.test.generative, clojure.test.check.*) plus an
-empty clojure.test-clojure.protocols, so a file's own (ns ...) form loads instead of taking the whole file
-down with it. Each shim file says what it stands in for.
+shim/ is ours, not Clojure's: stand-ins for the support namespaces the nine files require and the JVM test
+tooling supplies (clojure.data.generators, clojure.test.generative, clojure.test.check.*, Clojure's own
+test_clojure/generators.clj) plus an empty clojure.test-clojure.protocols, so a file's own (ns ...) form
+loads instead of taking the whole file down with it. Each shim file says what it stands in for.
