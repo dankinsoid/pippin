@@ -35,18 +35,34 @@ else
 	BIN=debug
 fi
 
-build_and_run() {
-	sync_tree "$1"
-	# shellcheck disable=SC2086
-	swift build --package-path "$WORK/tree" --scratch-path "$WORK/scratch" --product clj-load $CONFIG \
-		-Xcc -DCLJ_COMPILED_CORE -Xcc -DCLJ_CLOSED >"$WORK/out/build-$2.txt" 2>&1 ||
-		{ cat "$WORK/out/build-$2.txt"; echo "shake: the $2 build did not compile"; exit 1; }
-	cp "$WORK/scratch/$BIN/clj-load" "$WORK/out/clj-load-$2"
+run_one() {
 	set +e
 	# Through another sh, so the fatal of the force-dropped run is a status and not an "Abort trap" on our stderr.
-	sh -c '"$1" "$2" >"$3" 2>"$4"' sh "$WORK/out/clj-load-$2" "$APP" "$WORK/out/run-$2.txt" "$WORK/out/run-$2.err" 2>/dev/null
-	echo $? >"$WORK/out/run-$2.status"
+	sh -c '"$1" "$2" >"$3" 2>"$4"' sh "$WORK/out/clj-load-$1" "$APP" "$WORK/out/run-$1.txt" "$WORK/out/run-$1.err" 2>/dev/null
+	echo $? >"$WORK/out/run-$1.status"
 	set -e
+}
+
+build_one() {
+	tag=$1
+	shift
+	# shellcheck disable=SC2086
+	swift build --package-path "$WORK/tree" --scratch-path "$WORK/scratch" --product clj-load $CONFIG "$@" \
+		-Xcc -DCLJ_COMPILED_CORE -Xcc -DCLJ_CLOSED >"$WORK/out/build-$tag.txt" 2>&1 ||
+		{ cat "$WORK/out/build-$tag.txt"; echo "shake: the $tag build did not compile"; exit 1; }
+	cp "$WORK/scratch/$BIN/clj-load" "$WORK/out/clj-load-$tag"
+}
+
+build_and_run() {
+	sync_tree "$1"
+	build_one "$2"
+	run_one "$2"
+}
+
+# An app links with dead stripping on, and nothing references __TEXT,__cljsite (compiled_internal.h).
+dead_strip_run() {
+	build_one stripped -Xlinker -dead_strip
+	run_one stripped
 }
 
 # The segment is carried because __const lives in two of them, and a bare name would match both.
@@ -56,6 +72,7 @@ sections() { /usr/bin/size -m "$1" | awk '/^Segment /{s=$2} /^\tSection /{gsub("
 
 build_and_run "$WORK/before" before
 build_and_run "$WORK/after" after
+dead_strip_run
 build_and_run "$WORK/dropped" dropped
 
 fail=0
@@ -68,6 +85,15 @@ diff -u "$WORK/out/run-interpreted.txt" "$WORK/out/run-after.txt" ||
 	{ echo "shake: the shaken build does not print what the interpreter prints"; fail=1; }
 diff -u "$WORK/out/run-before.txt" "$WORK/out/run-after.txt" >/dev/null ||
 	{ echo "shake: the shaken build does not print what the unshaken one prints"; fail=1; }
+
+# A dead-stripped link must keep the trace whole: boom-names names the inlined leaf out of __TEXT,__cljsite.
+sites=$(sections "$WORK/out/clj-load-stripped" | awk '$1 == "__TEXT:__cljsite" { print $2 }')
+if [ -z "$sites" ]; then
+	echo "shake: -dead_strip dropped __TEXT,__cljsite, so a trace loses every inlined body (compiled_internal.h)"
+	fail=1
+fi
+diff -u "$WORK/out/run-after.txt" "$WORK/out/run-stripped.txt" ||
+	{ echo "shake: the dead-stripped build does not print what the plain link prints"; fail=1; }
 
 # A dropped def the program calls must be a fatal naming it, which is what licenses shaking at all.
 if [ "$(cat "$WORK/out/run-dropped.status")" = 0 ]; then
@@ -118,6 +144,7 @@ sed -n 's/^shake: /  /p' "$WORK/out/stats-after.txt"
 printf '  core.c          %s -> %s bytes\n' "$(filesize "$WORK/before/core.c")" "$(filesize "$WORK/after/core.c")"
 printf '  every unit      %s -> %s bytes\n' "$(total "$WORK/before")" "$(total "$WORK/after")"
 printf '  clj-load binary %s -> %s bytes\n' "$(filesize "$WORK/out/clj-load-before")" "$(filesize "$WORK/out/clj-load-after")"
+printf '  dead-stripped   %s bytes, of it __TEXT:__cljsite %s\n' "$(filesize "$WORK/out/clj-load-stripped")" "$sites"
 if [ "${SHAKE_RELEASE:-0}" = 1 ]; then
 	sections "$WORK/out/clj-load-before" >"$WORK/out/sections-before.txt"
 	sections "$WORK/out/clj-load-after" >"$WORK/out/sections-after.txt"

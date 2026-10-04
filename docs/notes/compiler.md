@@ -257,21 +257,21 @@
   clj-load -Xlinker -dead_strip`, the second with `-Xcc -DCLJ_COMPILED_CORE -Xcc -DCLJ_CLOSED`). §10's "units of
   MB" was already met un-shaken, so the win is a ratio against the interpreter, not a target reached.
 
-  | build | binary | `__cljframe` | `__text` | `__cstring` | `__TEXT,__const` |
-  | --- | --- | --- | --- | --- | --- |
-  | interpreted | 1 089 496 | — | 553 148 | 29 140 | 175 128 |
-  | the committed `boot/core.c`, all seven libs | 3 106 088 | 1 266 352 | 929 892 | 170 127 | 67 448 |
-  | the app's whole-program closed set, `--no-shake` | 2 452 872 | 899 700 | 809 792 | 116 556 | 67 448 |
-  | the same set, shaken | 1 528 408 | 282 628 | 687 112 | 61 324 | 67 448 |
+  | build | binary | `__cljframe` | `__text` | `__cstring` | `__TEXT,__const` | `__cljsite` |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | interpreted | 1 089 496 | — | 553 160 | 29 140 | 175 128 | — |
+  | the committed `boot/core.c`, all seven libs | 3 188 488 | 1 266 352 | 929 904 | 170 127 | 67 448 | 88 888 |
+  | the app's whole-program closed set, `--no-shake` | 2 520 008 | 902 100 | 811 624 | 117 220 | 67 448 | 63 272 |
+  | the same set, shaken | 1 546 008 | 285 028 | 688 944 | 61 988 | 67 448 | 16 040 |
 
-  So the shaking alone is −37.7 % of the binary and −68.6 % of `__cljframe`, which answers where the bytes are:
+  So the shaking alone is −38.7 % of the binary and −68.4 % of `__cljframe`, which answers where the bytes are:
   `__cljframe` is the compiled frame bodies and it is the whole win, while `__text` loses only the units' `top_N`,
-  pools and dispatchers. Within one set the compiled core goes from 2.25× the interpreter's binary to 1.40×; against
+  pools and dispatchers. Within one set the compiled core goes from 2.31× the interpreter's binary to 1.42×; against
   the committed `boot/core.c`, which carries all seven libs, the two halves of a whole-program build stack to
-  −50.8 % (compiling only the libs the entry requires is the other half) and 2.85× becomes 1.40×.
+  −51.5 % (compiling only the libs the entry requires is the other half) and 2.93× becomes 1.42×.
 
-  The set has 354 top-level defs, 293 of them candidates by rows 1–6, of which 219
-  are dropped and 135 defs kept; `core.c` itself is 3 512 588 → 971 084 bytes. No single def dominates what is left
+  The set has 357 top-level defs, 293 of them candidates by rows 1–6, of which 219
+  are dropped and 138 defs kept; `core.c` itself is 3 512 588 → 971 084 bytes. No single def dominates what is left
   — the biggest survivors are `MultiFn` 2 845 C bytes, `Eduction` 1 887, `Delay` 1 881, `global-hierarchy` 1 223,
   `default-data-readers` 898, then the `-methods`/`-get-method`/`-prefer-method`/`-prefers`/`-deref` protocol
   methods at ~858 each — so there is no second shaking rule worth writing for a particular def.
@@ -285,7 +285,9 @@
   the fixture program three times — `--no-shake`, shaken, and shaken with one live def force-dropped — swaps each
   generated boot into an rsync'd copy of the tree, builds `clj-load` with `-DCLJ_COMPILED_CORE -DCLJ_CLOSED` and
   runs it: the shaken run must print exactly what the interpreter and the unshaken run print, and the
-  force-dropped one must abort naming the def. The force-dropped binary then runs two interpreted probes over the
+  force-dropped one must abort naming the def. The shaken tree is linked a fourth time with
+  `-Xlinker -dead_strip`, which is how an app links, and that binary must keep `__TEXT,__cljsite` and print the
+  same again (`no_dead_strip`, below). The force-dropped binary then runs two interpreted probes over the
   same shaken core, which is where the tripwire's type is decided end to end: reading the dropped root prints
   `#shaken[clojure.core/frequencies] false true true false true` (`pr-str`, `fn?`, `ifn?`, two `=`, `hash`) and
   exits 0, and `(get root :k)` aborts naming the def and the operation. `ShakeTests` decides the nine rows
@@ -595,10 +597,34 @@
   gensym makes a new type when the protocol it names was redefined (proto.c `reify_type_current`): the
   fixture reloads showed a stale type implementing the old protocol, which the interpreter has on any
   re-evaluation of a `defprotocol` too.
-- [ ] **`-Wl,-dead_strip` removes `__TEXT,__cljsite` whole.** Nothing references the section: its entries are
-  planted by `asm volatile` and no symbol reaches them, so ld64 drops all 88,232 bytes of it, while
-  `__cljframe` survives because its functions are called from the unit's tables. Measured on the macOS and the
-  iOS arm64 links of the compiled core, so it is ld64 and not a platform. The frame table alone still names a
-  frame that was not inlined, which is why `(mapv inc [1 nil 3])` reads the same either way; what a
-  dead-stripped build loses is the inlined-body name the markers carry. Trigger: the §10 app, which links with
-  dead stripping on. Candidate fix: the section's `no_dead_strip` attribute in the `.pushsection` directive.
+- **`__TEXT,__cljsite` survives `-Wl,-dead_strip` on the section's `no_dead_strip` attribute.** No symbol
+  reaches the markers — `asm volatile` plants them and `getsectiondata` reads them back — so ld64 drops the
+  section whole unless the `.pushsection` directive spells `regular,no_dead_strip`, which it now does on both
+  architectures (`compiled_internal.h`; verified by linking, not by reading the directive, and on x86_64 too,
+  where the entries carry their own `l` labels). What a stripped build loses without it is an inlined body's
+  name, silently: a leaf has no frame of its own in a closed build, so the marker is the only thing that names
+  it. `make shake` links the shaken tree a fourth time with `-Xlinker -dead_strip` and fails unless `size -m`
+  lists the section and the run prints what the plain link prints; the test is `shake/app.clj`'s `boom-names`,
+  which prints `[inner-boom outer-boom boom-names]` and, stripped without the attribute,
+  `[outer-boom boom-names]`. `(mapv inc [1 nil 3])` names a frame that was never inlined and tests nothing.
+  *The cost is the section and nothing else* (the numbers above, arm64, release, dead-stripped): **88,888**
+  bytes of the committed `boot/core.c` with all seven libs, 2.8 % of that binary, which grows 3,106,088 →
+  3,188,488 for them; **63,272** of the app's un-shaken whole-program closed set, 2.5 %; **16,040** of the
+  shaken one, 1.0 % — a dropped def takes its markers with it, so the shape an app ships pays the least.
+  Nothing is resurrected, measured over identical sources: the shaken debug link grows 2,042,048 → 2,058,560
+  for a 15,152-byte section and the `-DCLJ_COMPILED_CORE` release link 3,199,928 → 3,299,000 for an
+  88,232-byte one, both the section plus `__TEXT` alignment and nothing else. That is what a live marker
+  costs at most, since it does hold its own code alive: the section is one atom on arm64, so keeping it
+  keeps every marked function — all of which the frame table already held. Worth it unconditionally
+  at that size, with no flag: a trace that drops a frame is wrong rather than merely poorer, and nothing else
+  can carry an inlined body's name — the marker has to travel inside the body, which only an `asm volatile`
+  in it does. `live_support` on the section keeps it too, and on arm64 means exactly the same thing, since the
+  assembler's `ltmp` at the section start makes the whole section one atom.
+- **`__cljframe` needs no such attribute, and that is a guarantee.** The unit's `FR[]` holds a pointer to
+  every frame function, `unit_pools` fills the table from the unit's `init`, and trace.c cannot map a return
+  address without it, so the reference is load-bearing rather than incidental; `clj_c_register_frames` also
+  fatals on a frame function outside the section's `getsectiondata` bounds, so a stripped one would be loud.
+  Measured on the `-DCLJ_COMPILED_CORE` debug link, the same objects linked twice: `__cljframe` is 1,772,084
+  bytes either way while `__text` goes 1,307,012 → 1,253,124, so dead stripping takes nothing off it. It is
+  the table entry that does it, not the section: a hand-written two-function probe loses the `__cljframe`
+  function no table names, and its marker with it.

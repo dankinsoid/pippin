@@ -43,8 +43,10 @@
   175,144, `__DATA_CONST,__const` 35,248, `__cstring` 29,707, `__bss` 12,744 — nothing else over 6 KB. With
   the compiled core: `__TEXT,__cljframe` **1,402,048**, which is 44% of the binary and its largest section by
   far (the compiled frame bodies), then `__text` 909,924, `__cstring` 156,838, `__TEXT,__const` 67,464,
-  `__bss` 232,528, `__DATA_CONST,__const` 50,896. `__TEXT,__cljsite` is 88,232 in a plain link and absent
-  from a dead-stripped one (NOTES "Compiler").
+  `__bss` 232,528, `__DATA_CONST,__const` 50,896. `__TEXT,__cljsite` is 88,232 in both links, kept by the
+  section's `no_dead_strip` attribute (NOTES "Compiler"), which the dead-stripped figures above predate: the
+  device slice re-linked on a later SDK is 3,283,392 dead-stripped and 3,687,648 under the Swift host, about
+  +84 KB each.
 - **core.clj's share is `__TEXT,__const` and nothing else.** The embedded sources are `static const` byte
   arrays (`core_clj.inc`, `libs_clj.inc`): core.clj is 107,668 bytes and the seven embedded libs 65,854, which
   is 173,522 of that section's 175,144. Dead stripping removes core.clj's copy from a compiled build

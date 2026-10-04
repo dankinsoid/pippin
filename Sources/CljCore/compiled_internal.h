@@ -144,12 +144,15 @@ static inline void clj_c_release_slots(const clj_cframe *f, uint32_t n) {
 
 // After a call in a frame fn's body: the address the call returns to and the fn it belongs to, so a body inlined
 // into another frame still names itself in a trace (trace.c). Data only: no instruction is emitted.
+// no_dead_strip: no symbol reaches these entries, so a -dead_strip link drops the section whole without it.
 #if defined(__APPLE__) && defined(__aarch64__)
-#define CLJC_SITE(stub) __asm__ volatile(".pushsection __TEXT,__cljsite,regular\n\t.p2align 2\n\t.long 1f - .\n\t.long %c0 - .\n\t.popsection\n1:" ::"i"(stub))
+#define CLJC_SITE(stub)                                                                                                                              \
+	__asm__ volatile(".pushsection __TEXT,__cljsite,regular,no_dead_strip\n\t.p2align 2\n\t.long 1f - .\n\t.long %c0 - .\n\t.popsection\n1:" ::"i"(stub))
 #elif defined(__APPLE__) && defined(__x86_64__)
 // ld64 refuses an x86_64 difference without a symbol to subtract (r_extern=0); %= stays unique in an inlined copy.
 #define CLJC_SITE(stub)                                                                                                                              \
-	__asm__ volatile(".pushsection __TEXT,__cljsite,regular\n\t.p2align 2\nlcljsite%=:\n\t.long 1f - lcljsite%=\n\t.long %c0 - lcljsite%= - 4\n\t.popsection\n1:" ::"i"(stub))
+	__asm__ volatile(                                                                                                                                \
+		".pushsection __TEXT,__cljsite,regular,no_dead_strip\n\t.p2align 2\nlcljsite%=:\n\t.long 1f - lcljsite%=\n\t.long %c0 - lcljsite%= - 4\n\t.popsection\n1:" ::"i"(stub))
 #else
 #define CLJC_SITE(stub) ((void)0)
 #endif
