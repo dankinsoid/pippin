@@ -16,8 +16,13 @@
   running after 300 s (`CLJ_TEST_HANG_S`) prints its name, `clj_debug_sched_dump` and a one-second `sample` of
   every thread to stderr and ends the process (exit 3): the exit delivers everything. Under the shard runner
   that is per shard, and the runner prints the report from the shard's log. CI sets 900 s: on one x86_64 runner
-  every suite ran 2.7× slower than on another with the same deal (runs 37193827945 and 37193832212), and
-  `SwiftStubTests`' cold stub generation passed 300 s; `test-eval-compiled` sets 3600 s, a clang run per eval.
+  every suite ran 3.4× slower than on another with the same deal (`MapTests.randomOpsMatchReference`, all
+  in-process CPU, 82 s against 281 s; runs 37193827945 and 37193832212), and the one test of `SwiftStubTests`, 115 s
+  on the fast runner, passed 300 s on the slow one. Slow, not stuck: its report showed the test thread in
+  `SwiftStubs.generate` reading the generator's pipe, nothing on a lock or in `dlopen`; the suite was alone in
+  its shard and is the only user of `.build/swift-stubs`. `test-eval-compiled` sets 3600 s, a clang run per eval.
+  A failed shard's report also lists the shard's processes with their CPU time at the last sample, which tells a
+  child still working from one that waits.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
   allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one
   process per suite: an incorrect live-object baseline can pass when another suite initialized it first.
