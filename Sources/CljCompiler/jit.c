@@ -2,6 +2,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,26 +138,41 @@ const clj_compiled_unit *cljc_open_dylib(const char *path) {
 	return unit;
 }
 
-const clj_compiled_unit *cljc_load_dylib(const cljc_eval_options *given, const char *cname, const char *text) {
+static pthread_once_t toolchain_once = PTHREAD_ONCE_INIT;
+
+static void resolve_toolchain(void) {
+	resolved_clang();
+	resolved_sdk();
+}
+
+bool cljc_build_dylib(const cljc_eval_options *given, const char *cname, const char *text, char *err, size_t errcap) {
+	pthread_once(&toolchain_once, resolve_toolchain);
 	cljc_eval_options with_clang = *given;
 	if (!with_clang.clang) with_clang.clang = resolved_clang();
 	const cljc_eval_options *o = &with_clang;
-	char cfile[1200], dylib[1200], err[2048];
+	char cfile[1200], dylib[1200];
 	mkdir(o->dir, 0755);
 	snprintf(cfile, sizeof cfile, "%s/%s.c", o->dir, cname);
 	snprintf(dylib, sizeof dylib, "%s/%s.dylib", o->dir, cname);
 	if (!write_file(cfile, text)) {
-		clj_throw_msg("cannot write %s", cfile);
-		return NULL;
+		snprintf(err, errcap, "cannot write %s", cfile);
+		return false;
 	}
+	if (!run_clang(o, cfile, dylib, err, errcap)) return false;
+	if (!o->keep) unlink(cfile);
+	return true;
+}
+
+const clj_compiled_unit *cljc_load_dylib(const cljc_eval_options *o, const char *cname, const char *text) {
+	char     dylib[1200], err[2048];
 	uint64_t t0 = now_ns();
-	bool     ok = run_clang(o, cfile, dylib, err, sizeof err);
+	bool     ok = cljc_build_dylib(o, cname, text, err, sizeof err);
 	clang_ns += now_ns() - t0;
 	if (!ok) {
 		clj_throw_msg("%s", err);
 		return NULL;
 	}
-	if (!o->keep) unlink(cfile);
+	snprintf(dylib, sizeof dylib, "%s/%s.dylib", o->dir, cname);
 	uint64_t t1 = now_ns();
 	const clj_compiled_unit *u = cljc_open_dylib(dylib);
 	dlopen_ns += now_ns() - t1;

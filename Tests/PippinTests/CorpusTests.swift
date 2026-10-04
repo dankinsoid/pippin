@@ -184,6 +184,30 @@ private let packageRoot = corpusRoot.deletingLastPathComponent()
 // run the compiled units instead of reading the sources (NOTES.md, "Compiler").
 private let compiledMode = ProcessInfo.processInfo.environment["CLJ_CORPUS_COMPILED"] != nil
 
+// clang per unit is what a cache miss costs. Units build independently; they load after, in manifest order.
+// @ai-generated(solo)
+private func buildUnits(_ cnames: [String], in out: URL) throws {
+	let root = strdup(packageRoot.path), dir = strdup(out.path)
+	defer { free(root); free(dir) }
+	let texts = try cnames.map { try String(contentsOf: out.appendingPathComponent("\($0).c"), encoding: .utf8) }
+	var failures = [String?](repeating: nil, count: cnames.count)
+	let started = Date()
+	failures.withUnsafeMutableBufferPointer { slots in
+		DispatchQueue.concurrentPerform(iterations: cnames.count) { i in
+			var o = cljc_eval_options()
+			o.root = UnsafePointer(root)
+			o.dir = UnsafePointer(dir)
+			o.keep = true
+			var err = [CChar](repeating: 0, count: 2048)
+			if !cljc_build_dylib(&o, cnames[i], texts[i], &err, err.count) {
+				slots[i] = String(decoding: err.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+			}
+		}
+	}
+	progress("corpus: clang over \(cnames.count) units took \(String(format: "%.2f", Date().timeIntervalSince(started))) s")
+	if let failure = failures.compactMap({ $0 }).first { throw CljEvalFailure(message: failure) }
+}
+
 private func compileLibrary(_ lib: Library) throws {
 	let environment = ProcessInfo.processInfo.environment
 	let tool = URL(fileURLWithPath: environment["CLJ_COMPILE"] ?? packageRoot.appendingPathComponent(".build/plain/debug/clj-compile").path)
@@ -246,26 +270,16 @@ private func compileLibrary(_ lib: Library) throws {
 		Issue.record(Comment(rawValue: "\(lib.name): clj-compile exited \(result.status):\n\(unlisted.joined(separator: "\n"))\n\(errText.contains("refused:") ? "" : errText)"))
 	}
 	let manifest = try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8)
-	let root = strdup(packageRoot.path), dir = strdup(out.path)
-	defer { free(root); free(dir) }
-	for line in manifest.split(separator: "\n") {
+	let units = try manifest.split(separator: "\n").map { line in
 		let cells = line.split(separator: "\t", maxSplits: 1).map(String.init)
 		guard cells.count == 2 else { throw CocoaError(.fileReadCorruptFile) }
-		let cname = cells[0], path = cells[1]
-		var o = cljc_eval_options()
-		o.root = UnsafePointer(root)
-		o.dir = UnsafePointer(dir)
-		o.keep = true
+		return (cname: cells[0], path: cells[1])
+	}
+	if cached == nil { try buildUnits(units.map(\.cname), in: out) }
+	for (cname, path) in units {
 		let t0 = Date()
-		let loaded: UnsafePointer<clj_compiled_unit>?
-		if cached != nil {
-			loaded = cljc_open_dylib(out.appendingPathComponent("\(cname).dylib").path)
-		} else {
-			let text = try String(contentsOf: out.appendingPathComponent("\(cname).c"), encoding: .utf8)
-			loaded = cljc_load_dylib(&o, cname, text)
-		}
-		guard let unit = loaded else { throw ClojureError.takePending() }
-		progress("corpus: \(cached == nil ? "clang + dlopen" : "cached dlopen") \(lib.relative(path)) took \(String(format: "%.2f", Date().timeIntervalSince(t0))) s")
+		guard let unit = cljc_open_dylib(out.appendingPathComponent("\(cname).dylib").path) else { throw ClojureError.takePending() }
+		progress("corpus: \(cached == nil ? "dlopen" : "cached dlopen") \(lib.relative(path)) took \(String(format: "%.2f", Date().timeIntervalSince(t0))) s")
 		#expect(String(cString: unit.pointee.path) == path)
 		clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
 	}

@@ -106,6 +106,9 @@ uint64_t cljc_eval_dlopen_ns(void);
 // Objects the units' constant pools hold for the process: what a live-object count under compiled eval includes.
 int64_t cljc_eval_pool_objects(void);
 
+// Writes <dir>/<cname>.c and builds <dir>/<cname>.dylib without loading it; false with clang's words in err.
+// Safe from several threads at once, on different cnames.
+bool cljc_build_dylib(const cljc_eval_options *o, const char *cname, const char *text, char *err, size_t errcap);
 // Builds a unit's C text as a dylib and loads it in-process; NULL with the exception pending when clang fails.
 const clj_compiled_unit *cljc_load_dylib(const cljc_eval_options *o, const char *cname, const char *text);
 // dlopens a built unit; NULL with the exception pending.
