@@ -42,8 +42,9 @@
   false and remounts it; design §5b ("Идентичность узла") has `nil` hold its slot and a seq be one keyed
   fragment. Trigger: the component slice, which rewrites `children-of` anyway.
 - [ ] **No component heads.** `hiccup?` takes only a keyword head, so `[#'f args]` (and a bare fn) is
-  refused; the argument memo, the var watch that re-renders mounted instances and the paren-call lint of
-  design §5b ("Компонент") are all unbuilt. Trigger: the cursor/subscription slice.
+  refused; the argument memo, the var watch that re-renders mounted instances, the paren-call lint and the
+  node-owned `:ui/local` atom and `:ui/managed` resource of design §5b ("Компонент", "Локальное состояние")
+  are all unbuilt. Trigger: the cursor/subscription slice.
 - [ ] **No lazy layout, `:items`/`:item`, cursor-bound attributes or event vectors** (design §5b). They wait
   for Yoga and the UIKit backend. Unbuilt beside the lazy layout itself: the size estimate of rows never
   laid out (and the scroll anchoring it needs), an `UIAccessibilityContainer` over virtualized rows, swipe
