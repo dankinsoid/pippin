@@ -51,7 +51,7 @@ assertion expansions are mostly literals.
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 74 ms, with the summaries 85 ms, against 472 ms of analysis over the same forms
+- Cost: pass 1 alone 76 ms, with the summaries 89 ms, against 488 ms of analysis over the same forms
   (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1177 summaries, ran 25 fixpoint rounds
   beyond the first, widened 0, and recomputed 41 after an epoch moved (a protocol method's rests on the
   definition epoch, which every load bumps).
@@ -138,13 +138,13 @@ The join column is one round's tables over the whole library, summaries already 
 
 | library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 291 | 13360 | 7.7 | 3.4 | 4.7 | 4.7 | 0.44× → 0.61× | 395 | 13 |
-| embedded libs | 108 | 3714 | 1.9 | 0.8 | 1.2 | 1.2 | 0.39× → 0.65× | 114 | 6 |
-| clojure-core-tests | 276 | 111288 | 90.5 | 12.8 | 14.7 | 14.8 | 0.14× → 0.16× | 2686 | 75 |
-| clojure-test-suite | 520 | 419358 | 353.9 | 54.1 | 61.2 | 60.5 | 0.15× → 0.17× | 9975 | 262 |
-| medley | 106 | 23339 | 17.8 | 2.5 | 3.6 | 3.2 | 0.14× → 0.20× | 578 | 23 |
-| **library code** | 505 | 40413 | 27.5 | 6.7 | 9.5 | 9.1 | 0.24× → 0.35× | 1087 | 23 |
-| **all** | 1301 | 571059 | 471.9 | 73.5 | 85.4 | 84.4 | 0.16× → 0.18× | 13748 | 262 |
+| core.clj | 291 | 13360 | 7.7 | 3.5 | 4.7 | 4.7 | 0.45× → 0.61× | 395 | 13 |
+| embedded libs | 108 | 3714 | 1.8 | 0.7 | 1.2 | 1.2 | 0.41× → 0.63× | 114 | 6 |
+| clojure-core-tests | 276 | 111288 | 95.9 | 13.5 | 15.6 | 14.8 | 0.14× → 0.16× | 2686 | 75 |
+| clojure-test-suite | 520 | 419358 | 364.3 | 56.2 | 64.1 | 60.8 | 0.15× → 0.18× | 9975 | 262 |
+| medley | 106 | 23339 | 18.3 | 2.5 | 3.6 | 3.2 | 0.14× → 0.20× | 578 | 23 |
+| **library code** | 505 | 40413 | 27.8 | 6.7 | 9.5 | 9.2 | 0.24× → 0.34× | 1087 | 23 |
+| **all** | 1301 | 571059 | 488.0 | 76.5 | 89.1 | 84.8 | 0.16× → 0.18× | 13748 | 262 |
 
 ## Errors
 

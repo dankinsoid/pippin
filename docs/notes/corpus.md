@@ -9,16 +9,17 @@
   §10 names — `sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`, `string`, `numbers` —
   at tag `clojure-1.12.6`, the version `docs/api-parity.md` diffs against, plus `test/clojure/test_helper.clj`,
   which four of them `:use`. Unmodified, headers kept. The rule for the rest of `test_clojure/`: a file is in
-  only when its subject is the language or `clojure.core`/`clojure.string`, so out go the host files
+  when its subject is the language or a namespace this core carries. Out by subject: the host files
   (`java_interop`, `reflect`, `genclass`, `proxy/`, `param_tags`, `method_thunks`, `annotations`,
   `array_symbols`, `data_structures_interop`, `serialization`, `streams`, `generated_*`), the JVM concurrency
   files (`agents`, `refs`, `parallel`), the compiler and tooling files (`compilation`, `main`, `repl`, `server`,
-  `rt`, `api`, `pprint`, `run_single_test`, `test`, `test_fixtures`) and the files for libraries this core does
-  not carry (`clojure_xml`, `clojure_zip`, `reducers`, `generators`). The rest are portable and not yet taken:
-  `atoms`, `clearing`, `clojure_set`, `clojure_walk`, `data`, `delays`, `edn`, `errors`, `evaluation`, `for`,
-  `keywords`, `math`, `metadata`, `multimethods`, `ns_libs`, `other_functions`, `parse`, `predicates`,
-  `printer`, `protocols`, `reader`, `special`, `transducers`, `transients`, `try_catch`, `vars`, `vectors`,
-  `volatiles`.
+  `rt`, `api`, `run_single_test`, `test`, `test_fixtures`) and the files whose subject is a namespace this core
+  does not carry (`clojure_xml`, `clojure_zip`, `reducers`, `math`, `data`, `printer`, `edn`, `parse`).
+  `generators` and `protocols` are in only as the shims that stand in for them. What is portable and not taken
+  is 164 more deftests: `other_functions` 15, `transducers` 19, `vectors` 17, `special` 14, `clojure_set` 12,
+  `multimethods` 11, `ns_libs` 10, `vars` 9, `clojure_walk` 8, `transients` 8, `errors` 7, `evaluation` 7,
+  `atoms` 5, `delays` 5, `predicates` 4, `clearing` 3, `metadata` 3, `try_catch` 2, `volatiles` 2, `for` 1,
+  `keywords` 1, and `reader.cljc`.
 - **`numbers` is taken whole, not partially**, which design §10's "частично" allowed for: the numeric tower is
   complete (`ratio?`, `bigint`, `bigdec`, `numerator`, `rationalize`) and chars are a real type, so the line is
   not drawn inside the file — what does not run there fails per form on a JVM name (`Long/MAX_VALUE`,
