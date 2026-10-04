@@ -194,5 +194,13 @@
   Cached: `~/.m2` (api-diff's jars), the SwiftPM
   repository cache, and `.build/corpus-cache`, restored from the newest entry of the architecture and
   pruned to one key per library before saving; its content keys make a stale entry a miss, never a wrong
-  hit. Scratch paths are not cached: several GB per architecture, and whether SwiftPM reuses them after
+  hit. `.build/swift-stubs` the same way: the fixture module keyed by its source and `swiftc --version`, each
+  stub module by the generator's fingerprint (the module's and Pippin's `.swiftmodule` bytes and paths, the
+  module maps, both generator scripts, compiler, target and SDK), so a stub built against another Pippin never
+  loads. Two clean CI builds of one commit gave the same keys (runs 37197333475, 37197805426); test and
+  test-compiled have one each (Pippin's path differs), so four per module survive the prune. Cold,
+  `SwiftStubTests.theFixtureRunsAlikeInterpretedAndCompiled` spent, alone on arm64: 3.1 s on the fixture's
+  `swiftc`, 36 s on the generator, of it 34 s in `swift-symbolgraph-extract` building the SDK's module cache
+  (0.4 s once warm, as in the same job's test-compiled), 0.7 s on the stubs' `swiftc`, and 2.5 s on the
+  Clojure side (the interpreter, two compiled units); 115–227 s on x86_64 beside three ASan shards. Scratch paths are not cached: several GB per architecture, and whether SwiftPM reuses them after
   a fresh checkout (new mtimes and inodes on every source) is unmeasured. No benchmarks run in CI.

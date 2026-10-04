@@ -115,6 +115,17 @@ jobs:
       - name: Corpus cache contents before
         run: (ls -d .build/corpus-cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/corpus-before"
 
+      # The stub generator's and the Swift fixture's caches, content-keyed the same way (docs/notes/gates.md, "CI").
+      - name: Restore the Swift stubs cache
+        uses: actions/cache/restore@v6
+        with:
+          path: .build/swift-stubs
+          key: swift-stubs-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: swift-stubs-${{ runner.arch }}-
+
+      - name: Swift stubs cache contents before
+        run: (ls -d .build/swift-stubs/*/*/ .build/swift-stubs/cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/stubs-before"
+
       - name: make ${{ inputs.target || 'gates' }}
         env:
           TARGET: ${{ inputs.target || 'gates' }}
@@ -166,3 +177,28 @@ jobs:
         with:
           path: .build/corpus-cache
           key: corpus-${{ runner.arch }}-${{ github.sha }}
+
+      # Each build configuration's Pippin.swiftmodule keys its own stubs: four per module survive, two fixtures.
+      - name: Prune the Swift stubs cache
+        id: stubs
+        if: ${{ !cancelled() }}
+        run: |
+          rm -rf .build/swift-stubs/*/*.tmp-* .build/swift-stubs/cache/*/*.tmp-*
+          for module in .build/swift-stubs/cache/*/; do
+            [ -d "$module" ] || continue
+            ls -td "$module"*/ | tail -n +5 | xargs rm -rf
+          done
+          [ -d .build/swift-stubs/fixture ] && ls -td .build/swift-stubs/fixture/*/ | tail -n +3 | xargs rm -rf
+          (ls -d .build/swift-stubs/*/*/ .build/swift-stubs/cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/stubs-after"
+          if cmp -s "$RUNNER_TEMP/stubs-before" "$RUNNER_TEMP/stubs-after"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Save the Swift stubs cache
+        if: ${{ !cancelled() && steps.stubs.outputs.changed == 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .build/swift-stubs
+          key: swift-stubs-${{ runner.arch }}-${{ github.sha }}
