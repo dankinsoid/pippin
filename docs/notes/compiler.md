@@ -179,6 +179,12 @@
   `load-string` (design §6); core.clj may name them. Dev keeps every var, `with-redefs`, `def` at run time,
   `eval` and `load-string` working over compiled code, the interpreter stays linked, and a var rebound from
   the REPL reaches compiled call sites through the same deref the interpreter makes.
+- [ ] **A call emitted before its callee's `def` is not direct.** `record_direct` fills the direct table from
+  `emit_top`, which `flush_pending` runs in load order, so a site ahead of the callee (`declare`d mutual
+  recursion) misses `direct_of_head` and goes through `clj_c_invoke` with boxed arguments; `(declare g)(defn
+  f [x] (g x))(defn g …)` also names the real `g` `…_g__r2`, the `(def g)` having taken the base. Fix: record
+  every def's entry before emitting, which also needs `form_base` computed up front and prototypes for workers
+  not yet emitted. Trigger: a mutually recursive pair in a profile (tools.reader, cl-format declare ~10 each).
 - [~] **Promoted slots.** `emit_top` runs `clj_facts_of` over each tree and every frame (closure arity, direct
   arity, top-level form) decides per slot whether it lives in the `clj_cframe` array or in a C variable
   `clj_value l<i>` (`promote_slots`). A promoted slot has one ownership for its whole life: *owned-or-nil* for

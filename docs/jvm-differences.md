@@ -58,7 +58,6 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 
 | Difference | Class | Decision |
 |---|---|---|
-| No hoisting: a forward reference in a file is an error | Deferred | Design §4 pre-pass; no corpus library needed it. |
 | `def` is eager | Deferred | Design §4 lazy `def`; trigger: load-time cost of a namespace. |
 | `catch` knows five class names (`:default`, `Throwable`, `Exception`, …) and no class hierarchy | Deliberate | There is no Java class hierarchy; `ex-info` and host errors are the two kinds. |
 | Error messages are Clojure-like, not identical; type names are the runtime's | Deliberate | Tests that match on message text are the corpus's problem, not the runtime's. |

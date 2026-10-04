@@ -29,7 +29,7 @@
 - **§4. Рантайм**
   - «Представление значений» — [04-01-values.md](design/04-01-values.md): свой заголовок, теговые указатели и аллокатор вместо Swift-классов.
   - «Var и ленивые def» — [04-02-vars-and-lazy-def.md](design/04-02-vars-and-lazy-def.md): чистые `def` ленивы через thunk в корне вара, эффектные — eager.
-  - «Порядок объявлений (hoisting)» — [04-03-hoisting.md](design/04-03-hoisting.md): неявный `declare` при загрузке файла, в REPL неизвестный символ — ошибка, `defmacro` строго до использования.
+  - «Порядок объявлений (hoisting)» — [04-03-hoisting.md](design/04-03-hoisting.md): порядок как в Clojure плюс диагностика «определён ниже»; pre-pass отвергнут; фазы выведены, а не объявлены; отложенный анализ тел — кандидат по триггеру.
   - «Персистентные структуры — где деньги» — [04-04-persistent-structures.md](design/04-04-persistent-structures.md): стоимость копии HAMT-узла, неатомарный RC, reuse, регионы.
   - «Представление по наблюдению: shapes, tuples, elements kinds» — [04-05-shapes.md](design/04-05-shapes.md): keyword-мапы как shapes, кортежи, виды элементов вектора (V8).
   - «Низкоуровневый слой: числа, layout, память» — [04-06-low-level-layer.md](design/04-06-low-level-layer.md): `deflayout`, чужая память как view, владение, числовая башня.

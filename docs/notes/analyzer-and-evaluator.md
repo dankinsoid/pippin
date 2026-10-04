@@ -313,8 +313,18 @@
   skipped, so one missing function does not hide the rest of a library's gaps. Never on for a user.
 - **`defmacro` on a failing body still interns the var** (analysis creates it before the fn is
   analyzed), as `def` does: the name resolves afterwards to an unbound var. Same as Clojure.
-- [ ] **No hoisting.** A file is analyzed one top-level form at a time, so a forward reference is
-  "Unable to resolve symbol" (design: pre-pass registering `def` names at file load).
+- [ ] **Declaration-order diagnostics** (design §4 "Порядок объявлений"). A file is analyzed one top-level
+  form at a time and a forward reference is "Unable to resolve symbol", as in Clojure. Not done, until the first
+  code written for pippin rather than ported: four diagnostics.
+  - the hint "defined below at line N, move it or add `(declare foo)`" from a tolerant scan of the rest of
+    the source; `clj_load_source` has the bytes, an nREPL eval of a region does not;
+  - a reload or a REPL form resolves a reference above a `def` to the var the previous load left (ns.c
+    resolves mappings first), so it works until a cold start; a file load should treat a var of this file
+    not yet defined in this load (by `def` or `declare`) as unresolved, a REPL form should warn;
+  - `clj_ns_intern` checks neither refers nor core: a `def` of a name referred from another ns should be
+    JVM's "already refers" error, of a core name a warning naming the references above that meant core;
+  - `(declare m)`, a call `(m 1 2)`, then `(defmacro m …)` calls the macro fn without `&form`/`&env`; the
+    `defmacro` should warn.
 - [ ] **`def` is eager and vars are plain roots.** No lazy thunk state (design §4 "Var и ленивые def").
   Trigger: the first ns whose load-time cost shows.
 - [~] **Dynamic vars** (var.c): a per-thread stack of frames, each a persistent map var → box (a volatile)
