@@ -61,8 +61,8 @@
 - **`make api-diff`** runs the parity report: `scripts/api-diff.clj dump-jvm` on JVM Clojure, the
   `clj-api-dump` executable for ours (it evaluates `ns-publics` and prints the EDN — name from the map key,
   not the meta, so a var whose meta lost its `:name` still appears), then the diff, weighted by symbol
-  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 487 of the JVM's 679
-  public vars exist, 192 missing, 17 of those used by the corpus; `ref`, `with-precision`, the agents and
+  occurrences in `corpus/**/*.clj*`. It writes `docs/api-parity.md`, which is committed: 488 of the JVM's 679
+  public vars exist, 191 missing, 16 of those used by the corpus; `ref`, `with-precision`, the agents and
   `tap>` lead the weighted list. One macro/fn mismatch (`refer-clojure` is a fn here), one dynamic
   mismatch (`pr` is `^:dynamic` on the JVM) and 12 arity mismatches, of which `sequence`'s multi-coll arity
   and `disj!`'s 1-arity are real gaps rather than differently-written variadics.
