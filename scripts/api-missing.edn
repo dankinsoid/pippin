@@ -224,6 +224,4 @@
  ->VecNode             {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "with `->Vec`"}
  ->VecSeq              {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "with `->Vec`"}
  EMPTY-NODE            {:verdict :drop :design "Конструкторы gvec'а JVM-ядра" :why "with `->Vec`"}
-
- ;; ── Not an absent var ─────────────────────────────────────────────────────────────────────────
- defmacro              {:verdict :special-form :why "a special form here (`SP_DEFMACRO`, Sources/CljCore/analyzer.c), not a var — being turned into a var in a parallel change"}}}
+}}
