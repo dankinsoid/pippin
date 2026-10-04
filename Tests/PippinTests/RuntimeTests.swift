@@ -147,23 +147,27 @@ extension CoreTests {
 		}
 
 		@Test func defAndRedefinition() throws {
-			try declare("rt-x", "rt-f")
-			let before = clj_debug_live_objects()
-			do {
-				#expect(try rt.eval("(def rt-x 1)").description == "#'user/rt-x")
-				#expect(try rt.eval("rt-x") == 1)
-				#expect(try rt.eval("(+ rt-x 1)") == 2)
-				#expect(try rt.eval("(def rt-x \"two\") rt-x") == "two")
-				#expect(try rt.eval("(def rt-f (fn [] rt-x)) (rt-f)") == "two")
-				#expect(try rt.eval("(def rt-x 3) (rt-f)") == 3)
-				#expect(try rt.eval("(def rt-f (fn [] :new)) (rt-f)") == kw("new"))
-				#expect(try rt.eval("user/rt-x") == 3)
+			func run(_ x: String, _ f: String) throws {
+				try declare(x, f)
+				#expect(try rt.eval("(def \(x) 1)").description == "#'user/\(x)")
+				#expect(try rt.eval(x) == 1)
+				#expect(try rt.eval("(+ \(x) 1)") == 2)
+				#expect(try rt.eval("(def \(x) \"two\") \(x)") == "two")
+				#expect(try rt.eval("(def \(f) (fn [] \(x))) (\(f))") == "two")
+				#expect(try rt.eval("(def \(x) 3) (\(f))") == 3)
+				#expect(try rt.eval("(def \(f) (fn [] :new)) (\(f))") == kw("new"))
+				#expect(try rt.eval("user/\(x)") == 3)
 				#expect(try rt.eval("clojure.core/inc") == rt.eval("inc"))
 				#expect(message(rt, "(def other/y 1)") == "Can't create defs outside of current ns")
 				#expect(message(rt, "rt-unbound-never-defined") == "Unable to resolve symbol: rt-unbound-never-defined in this context")
-				#expect(message(rt, "(def rt-x-unbound) rt-x-unbound") == "Unbound var: #'user/rt-x-unbound")
-				try unbind("rt-x", "rt-f")
+				#expect(message(rt, "(def \(x)-unbound) \(x)-unbound") == "Unbound var: #'user/\(x)-unbound")
+				try unbind(x, f)
 			}
+			// The first run pays one-time allocations an earlier suite of the process may already have paid.
+			try run("rt-w", "rt-wf")
+			try declare("rt-x", "rt-f")
+			let before = clj_debug_live_objects()
+			try run("rt-x", "rt-f")
 			#expect(clj_debug_live_objects() == before + 4) // rt-x-unbound: the var, its name symbol and the name string, its meta map (one shape map)
 		}
 
