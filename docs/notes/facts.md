@@ -1,5 +1,11 @@
 ## Facts (Sources/CljCore/facts.c, summary.c, include/clj/facts.h, summary.h)
 
+- **A `CLJ_DEAD_REFINED` ⊥ is explained, and the report counts it apart.** `clj-facts` credited only
+  `CLJ_DEAD_LITERAL` as a dead branch and called the other cause unexplained, which its watchdog fails on;
+  the first one the corpus produced was Clojure's own `(sequence nil)` and `(sequence [])` as the only two
+  recorded callers of `sequence`'s 1-arity, whose join of nil and vector the `(seq? coll)` branch excludes
+  with neither side pinned (docs/facts-coverage.md, "Dead branches"). An unexplained ⊥ is now only a
+  `CLJ_DEAD_NONE` one, which is what "the lattice is wrong" meant.
 - **A side table, built on request, never on the way through.** `clj_facts_of(root)` walks the analyzer's
   optimized tree and returns `clj_facts`, `nnodes` entries indexed by node id exactly as `clj_exec` is.
   Nothing calls it: `clj_analyze`, `clj_exec_new` and the compiler are untouched, so the pass costs zero

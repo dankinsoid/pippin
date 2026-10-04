@@ -30,12 +30,12 @@ typedef struct {
 	uint64_t slots, slots_local, slots_captured, slots_escapes;
 	uint64_t proto_calls, proto_known;
 	uint64_t kw_lookups, kw_shaped, kw_record, kw_on_local;
-	uint64_t conflicts, widenings, bottom_dead_branch, bottom_exit, bottom_unexplained;
+	uint64_t conflicts, widenings, bottom_dead_branch, bottom_dead_refined, bottom_exit, bottom_unexplained;
 	uint64_t call_conflicts, caught_conflicts, top_warnings, callers_conflicts, hits, narrowed; // pass 2 only
 	uint64_t effect_errors, effect_lints;                                                      // the :effects ladder of design §4
 	uint64_t joins, joins_narrowed, join_params, join_params_known; // the caller join: asks, asks that narrowed a parameter, parameters
 	double   analyze_ms, facts_ms;
-	bool     tests_only; // every load-path root is named "test": assertion expansions, not library code
+	bool     tests_only; // the manifest says so, or every load-path root is named "test": assertion expansions, not library code
 } stats;
 
 // Every form is measured four times: pass 1 alone (before), with inferred summaries only (noann), with the
@@ -192,11 +192,11 @@ static void count_node(const clj_node *n, void *ctx) {
 		if (size == 0) {
 			c->s->type_bottom++;
 			if (f->unreachable == CLJ_DEAD_LITERAL) c->s->bottom_dead_branch++;
+			else if (f->unreachable == CLJ_DEAD_REFINED) c->s->bottom_dead_refined++;
 			else if (has_exit(n)) c->s->bottom_exit++;
 			else {
 				c->s->bottom_unexplained++;
-				fprintf(stderr, "clj-facts: unexplained ⊥ at %s:%u:%u, %s\n", c->path, n->line, n->col,
-				        f->unreachable == CLJ_DEAD_REFINED ? "in a branch two refinements killed" : "reachable");
+				fprintf(stderr, "clj-facts: unexplained ⊥ at %s:%u:%u, reachable\n", c->path, n->line, n->col);
 			}
 		}
 		else if (f->types == CLJ_T_TOP) c->s->type_top++;
@@ -530,11 +530,11 @@ static clj_value manifest_of(const char *lib_root) {
 
 static clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
 
-static void run_library(const char *name, const char *root, const char *const *roots, size_t nroots, clj_value features) {
+static void run_library(const char *name, const char *root, const char *const *roots, size_t nroots, clj_value features, bool tests_only) {
 	stats *s = &libs[nlibs], *b = &before[nlibs], *na = &noann[nlibs], *j = &joined[nlibs++];
 	snprintf(s->name, sizeof s->name, "%s", name);
-	s->tests_only = nroots > 0;
-	for (size_t i = 0; i < nroots; i++) {
+	s->tests_only = tests_only || nroots > 0;
+	for (size_t i = 0; i < nroots && !tests_only; i++) {
 		if (strcmp(roots[i], "test") != 0) s->tests_only = false;
 	}
 	*b = *s;
@@ -605,6 +605,7 @@ static void add(stats *total, const stats *s) {
 	total->conflicts += s->conflicts;
 	total->widenings += s->widenings;
 	total->bottom_dead_branch += s->bottom_dead_branch;
+	total->bottom_dead_refined += s->bottom_dead_refined;
 	total->bottom_exit += s->bottom_exit;
 	total->bottom_unexplained += s->bottom_unexplained;
 	total->call_conflicts += s->call_conflicts;
@@ -687,7 +688,8 @@ static void write_report(const char *path) {
 	             "exactly one kind, *union* two to four, ⊤ everything else — the lattice widens past four members, so the ⊤\n"
 	             "column is \"nothing useful\", not \"five kinds\". *Computed nodes* leave the constants out: a literal knows its\n"
 	             "own type, so the share over computed nodes is what an optimizer actually gains. A library whose every\n"
-	             "load-path root is named `test` is counted apart, because assertion expansions are mostly literals.\n\n");
+	             "load-path root is named `test`, or whose manifest says `:tests-only true`, is counted apart, because\n"
+	             "assertion expansions are mostly literals.\n\n");
 	fprintf(out, "- Over library code: **%.1f → %.1f %%** of value nodes have a known type and **%.1f → %.1f %%** are ⊤; over\n"
 	             "  *computed* nodes **%.1f → %.1f %%** are known. What the summaries add is every call of a var whose root is a\n"
 	             "  closure with a walkable body or an annotated builtin, every var read (the kind of its root, epoch-guarded)\n"
@@ -747,11 +749,12 @@ static void write_report(const char *path) {
 	        total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0, (double)total.peak_bytes / 1024, clj_summaries_count(sums),
 	        clj_summaries_rounds(sums), clj_summaries_widenings(sums), clj_summaries_invalidated(sums));
 	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu. Value nodes at ⊥: %llu, of which %llu `dead-branch` (the pass's\n"
-	             "  own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), %llu with a throw or recur as the only\n"
-	             "  way out, and %llu unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening\n"
-	             "  rule cut short: %llu.\n",
+	             "  own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), %llu `dead-refined` (a test excluding\n"
+	             "  every kind the slot can hold, `CLJ_DEAD_REFINED`), %llu with a throw or recur as the only way out, and %llu\n"
+	             "  unexplained — the lattice is wrong wherever that is not zero. Loop variables the widening rule cut short: %llu.\n",
 	        (unsigned long long)total.conflicts, (unsigned long long)total.type_bottom, (unsigned long long)total.bottom_dead_branch,
-	        (unsigned long long)total.bottom_exit, (unsigned long long)total.bottom_unexplained, (unsigned long long)total.widenings);
+	        (unsigned long long)total.bottom_dead_refined, (unsigned long long)total.bottom_exit,
+	        (unsigned long long)total.bottom_unexplained, (unsigned long long)total.widenings);
 	fprintf(out, "- Pass 2: %llu call sites took a summary, %llu arguments were narrowed by a requirement. Diagnostics (design §3\n"
 	             "  \"Строгость\"): **%llu errors** — an argument met a requirement down to ⊥ outside any try that catches, the gate\n"
 	             "  this report fails on; %llu proven throws inside a `try` with a handler (`thrown?` assertions), warnings; %llu\n"
@@ -802,14 +805,16 @@ static void write_report(const char *path) {
 	fprintf(out, "\n## Dead branches\n\n");
 	fprintf(out, "A conflict is a refinement that met a slot down to ⊥. A value node at ⊥ is `dead-branch` when the pass put it in a\n"
 	             "branch a test on a pinned value killed (`CLJ_DEAD_LITERAL`: a let-bound literal, a `(= x <const>)`, a var whose\n"
-	             "root is nil), `exit` when a throw or a recur is the only way out of it; unexplained is the rest, and the watchdog\n"
-	             "fails on any.\n\n");
-	fprintf(out, "| library | conflicts | ⊥ value nodes | dead-branch | exit | unexplained |\n");
-	fprintf(out, "|---|---:|---:|---:|---:|---:|\n");
+	             "root is nil), `dead-refined` when the test excluded every kind the slot can hold without either side being pinned\n"
+	             "(`CLJ_DEAD_REFINED`: the caller join narrowing a parameter to kinds a predicate in the body refuses), `exit` when a\n"
+	             "throw or a recur is the only way out of it; unexplained is the rest, and the watchdog fails on any.\n\n");
+	fprintf(out, "| library | conflicts | ⊥ value nodes | dead-branch | dead-refined | exit | unexplained |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|\n");
 	for (int i = 0; i <= nlibs + 1; i++) {
 		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
-		fprintf(out, "| %s | %llu | %llu | %llu | %llu | %llu |\n", s->name, (unsigned long long)s->conflicts, (unsigned long long)s->type_bottom,
-		        (unsigned long long)s->bottom_dead_branch, (unsigned long long)s->bottom_exit, (unsigned long long)s->bottom_unexplained);
+		fprintf(out, "| %s | %llu | %llu | %llu | %llu | %llu | %llu |\n", s->name, (unsigned long long)s->conflicts,
+		        (unsigned long long)s->type_bottom, (unsigned long long)s->bottom_dead_branch, (unsigned long long)s->bottom_dead_refined,
+		        (unsigned long long)s->bottom_exit, (unsigned long long)s->bottom_unexplained);
 	}
 
 	fprintf(out, "\n## Cost per library\n\n");
@@ -921,8 +926,11 @@ int main(int argc, char **argv) {
 			snprintf(root, sizeof root, "%s/%s", corpus, names[i]);
 			clj_value m = manifest_of(root);
 			if (clj_is_nil(m)) continue;
-			clj_value lp = kw("load-path"), fk = kw("features");
-			clj_value paths = clj_get2(m, lp), features = clj_get2(m, fk);
+			clj_value lp = kw("load-path"), fk = kw("features"), tk = kw("tests-only");
+			clj_value paths = clj_get2(m, lp), features = clj_get2(m, fk), declared = clj_get2(m, tk);
+			bool      tests_only = clj_truthy(declared);
+			clj_release(declared);
+			clj_release(tk);
 			clj_release(lp);
 			clj_release(fk);
 			const char *roots[MAX_ROOTS];
@@ -938,7 +946,7 @@ int main(int argc, char **argv) {
 				nroots++;
 				clj_release(head);
 			}
-			run_library(names[i], root, roots, nroots, features);
+			run_library(names[i], root, roots, nroots, features, tests_only);
 			clj_release(features);
 			clj_release(paths);
 			clj_release(m);

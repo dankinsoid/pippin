@@ -2,6 +2,7 @@
 {:name "clojure-core-tests"
  :load-path ["shim" "test"]
  :features #{}
+ :tests-only true
  :test-namespaces [clojure.test-clojure.control
                    clojure.test-clojure.data-structures
                    clojure.test-clojure.def

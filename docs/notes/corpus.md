@@ -26,6 +26,9 @@
   file's 44 deftests are lost that way, more than in any other file; the `Long/MAX_VALUE` family alone accounts
   for 19 across the library, and a namespace `Long` of vars (the shape `Thread/sleep` already has,
   docs/jvm-differences.md) is what would recover them.
+- **`:tests-only true` in a manifest** tells `clj-facts` the library is test code where the name heuristic
+  cannot: it counts a library apart when every load-path root is named `test`, and this one's `shim` root
+  would have put 111k assertion nodes into the library-code share (docs/facts-coverage.md).
 - **The shims under `corpus/clojure-core-tests/shim/` are ours, not Clojure's.** Four of the nine files require
   namespaces the JVM test tooling supplies, and a failing `(ns ...)` form takes the whole file down where a
   failing body form costs one deftest, so each is stood in for: `clojure.data.generators` and
