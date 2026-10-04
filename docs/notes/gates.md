@@ -107,7 +107,7 @@
   `CompilerFixtureTests`' own compiled eval); `.build/swift-stubs` (the fixture module and every generator entry
   are built in a `.tmp-<pid>` directory and renamed into place, the loser discarding its copy); the corpus cache
   (a lock per library); the nREPL server (port 0). The corpus watchdog's budget is the one timing collision:
-  `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 20 s ("CI").
+  `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 60 s ("CI").
 - **The push gate's ASan pass is `test`**, with interpreted core and `CLJ_SYSTEM_ALLOC=1`. It exercises
   the evaluator/analyzer and runtime allocation boundaries; the pool would hide individual object bounds
   from ASan. `test-compiled` runs the same suite with compiled core and the pool, checking emitted boot
@@ -159,9 +159,10 @@
   became required after consecutive green dispatches on both runners (runs 36989106164, 36992908023,
   36995366088; about 12 min arm64, 24 min x86_64). Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
   are installed per run, the image's JDK 21 runs it. `TEST_TIMEOUT=1200`: the runners are several times
-  slower than the M3 the table above was measured on. The Makefile exports `CLJ_CORPUS_TIMEOUT_MS=20000` for the
-  same reason, everywhere: clojure-test-suite's `test-random-sample` takes 4–6 s under ASan on a runner, and
-  locally too beside four other ASan shards, against the 5 s default ("Corpus").
+  slower than the M3 the table above was measured on. The Makefile exports `CLJ_CORPUS_TIMEOUT_MS=60000` for the
+  same reason, everywhere: clojure-test-suite's `test-random-sample` takes 4–6 s under ASan alone on a runner,
+  and 20.4 s beside three other ASan shards on the x86_64 one (run 37188956209), against the 5 s default
+  ("Corpus").
   A push or pull request cancels its ref's run still in progress; a manual dispatch is a concurrency group of
   its own, so **a CI series is dispatched all at once** (`for i in 1 2 3; do gh workflow run gates.yml --ref
   <branch>; done`) and its runs go side by side. Every run uploads `.build/*/shards/` (each shard's log and event

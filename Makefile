@@ -7,8 +7,9 @@ export ASAN_OPTIONS ?= abort_on_error=0
 # ld64 stamps object mtimes into the debug map, so without this a fresh build's clj-compile, whose bytes key the
 # corpus cache, never matches a cached entry (docs/notes/gates.md, "Corpus compilation cache").
 export ZERO_AR_DATE ?= 1
-# The corpus watchdog catches a spinning deftest (NOTES "Corpus"); under ASan beside other shards one takes 4-6 s.
-export CLJ_CORPUS_TIMEOUT_MS ?= 20000
+# The corpus watchdog catches a spinning deftest (NOTES "Corpus"), bounded far past any runner: under ASan beside
+# three other shards on a 4-core runner, test-random-sample takes 20 s.
+export CLJ_CORPUS_TIMEOUT_MS ?= 60000
 
 BUILD_ROOT ?= .build
 PLAIN = $(BUILD_ROOT)/plain
