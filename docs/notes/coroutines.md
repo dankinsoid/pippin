@@ -180,6 +180,14 @@
   `thread` bodies are cancellable through their channel: the channel holds the blocking thread's implicit
   coroutine while the body runs, a `cancel!` before the thread attached sets a flag on the job, and the
   implicit coroutine's cancellation is reset for the thread's next job (`clj_coro_cancel_reset`).
+- [ ] **A pool thread's tick `countdown` and `unwinds` outlive the job.** `clj_coro_cancel_reset` clears the
+  flag, the kind, the shield, the suspension and the deadline, not the shadow ring's `countdown` or `unwinds`,
+  and `cancel_locked` refills only `unwinds`. A job that ended with its unwind budgets spent leaves
+  `countdown` at 1, so the next body on that thread, cancelled before it attached, would meet the check at its
+  first call — outside its own `try` — where a fresh coroutine meets it later. Suspected, not reproduced: 50
+  loops of a spent job then an early-cancelled one on `clj-load` all caught it, with no control over which pool
+  thread ran each. Trigger: a `thread` body cancelled before it started that ends uncaught instead of in its
+  `catch` — then reset both in `clj_coro_cancel_reset`.
 - **`with-deadline` is the construct that imposes a deadline, and the only thing that reads an expiry as
   `:timeout`** (design §4, Trio's `fail_after`; `boot/core.clj`, `clj_deadline_push_ms`/`clj_deadline_pop` in
   eval.c). It lives in core, not in `clojure.core.async`: a deadline over synchronous code must not need
