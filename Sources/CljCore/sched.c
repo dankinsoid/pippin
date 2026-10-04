@@ -780,6 +780,9 @@ void clj_coro_cancel_reset(clj_coro *c) {
 	atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->suspend, false, memory_order_relaxed);
 	atomic_store_explicit(&c->shadow->deadline, 0, memory_order_relaxed);
+	// A spent budget left countdown at 1: the next job, cancelled before it starts, would throw outside its try.
+	c->shadow->countdown = 1024;
+	c->shadow->unwinds = 64;
 	pthread_mutex_unlock(&c->lock);
 }
 
@@ -1265,6 +1268,12 @@ static size_t pool_read(pool *p, const size_t *field) {
 size_t clj_debug_blocking_threads(void) { return pool_read(&bodies_pool, &bodies_pool.threads); }
 
 size_t clj_debug_blocking_held(void) { return pool_read(&jobs_pool, &jobs_pool.held) + pool_read(&bodies_pool, &bodies_pool.held); }
+
+void clj_debug_ticks_spend(void) {
+	clj_shadow_stack *s = clj_coro_current()->shadow;
+	s->countdown = 1;
+	s->unwinds = 0;
+}
 
 void clj_debug_blocking_keep_alive_ms(uint64_t ms) {
 	atomic_store_explicit(&keep_alive_ns, (ms ? ms : 60000) * 1000000u, memory_order_relaxed);

@@ -121,6 +121,35 @@ extension CoreTests {
 			#expect(clj_debug_proto_readers() < readers + 8)
 		}
 
+		// Spent tick budgets on a reused thread would throw an early cancel! at the body's call, outside its try.
+		// @ai-generated(solo)
+		@Test func aReusedPoolThreadStartsWithFreshTicks() throws {
+			clj_debug_blocking_keep_alive_ms(50)
+			defer { clj_debug_blocking_keep_alive_ms(0) }
+			func until(_ ok: () -> Bool) -> Bool {
+				for _ in 0..<1000 {
+					if ok() { return true }
+					usleep(10_000)
+				}
+				return false
+			}
+			#expect(until { clj_debug_blocking_threads() == 0 })
+			// One thread from here on, reused by every body below.
+			clj_debug_blocking_keep_alive_ms(0)
+			let spend = Value(function: "spend-ticks") { _ in
+				clj_debug_ticks_spend()
+				return nil
+			}
+			_ = try eval("(fn [f] (def spend-ticks f))").apply([spend])
+			for _ in 0..<3 {
+				_ = try eval("(<!! (thread (spend-ticks)))")
+				// The thread is idle once nothing is held; a body submitted before that would get a thread of its own.
+				#expect(until { clj_debug_blocking_held() == 0 })
+				#expect(try eval("(let [ch (thread (try (loop [] (recur)) (catch :cancelled _ :caught)))] (a/cancel! ch) (<!! ch))") == Value(keyword: "caught"))
+				#expect(clj_debug_blocking_threads() == 1)
+			}
+		}
+
 		// Each spawn's share check meets the previous go's channel while that go's finish releases its fn (NOTES "RC").
 		// @ai-generated(solo)
 		@Test func theShareCheckStopsAtAFinishingCoroutine() throws {

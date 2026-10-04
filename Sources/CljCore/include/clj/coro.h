@@ -76,6 +76,8 @@ size_t clj_debug_timers_held(void);
 size_t clj_debug_blocking_held(void);
 // Threads of the `thread` pool alive now: all idle once nothing is held, each retired after the keep-alive.
 size_t clj_debug_blocking_threads(void);
+// Spends the running coroutine's tick budgets, as a job that caught every unwind leaves them.
+void clj_debug_ticks_spend(void);
 // The idle time after which a blocking-pool thread exits; 0 restores the default minute.
 void clj_debug_blocking_keep_alive_ms(uint64_t ms);
 // Waits up to ms for nothing in flight to hold objects (docs/notes/gates.md, "Settled baselines").
