@@ -87,8 +87,9 @@ corpus-compiled:
 	diff -ru $(CORPUS_REPORT)/interpreted $(CORPUS_REPORT)/compiled && echo "corpus: compiled == interpreted"
 
 # Every rt.eval of the suite through emit, clang and dlopen: slow, opt-in; CLJ_EVAL_CLOSED=1 for --closed.
+# A test's evals each pay a clang run, so the hang report's 300 s would end tests that are only slow.
 test-eval-compiled:
-	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 $(SHARDS) --gate test-eval-compiled -- --scratch-path $(PLAIN)
+	CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) CLJ_CORPUS=0 CLJ_TEST_HANG_S=$${CLJ_TEST_HANG_S:-3600} $(SHARDS) --gate test-eval-compiled -- --scratch-path $(PLAIN)
 
 # The type-coverage metric of design §10 step 3b: loads core.clj, the embedded libs and every corpus library,
 # analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed.
