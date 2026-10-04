@@ -50,6 +50,9 @@ Host bridges
 - [Host bridge](docs/notes/host-bridge.md) — the Swift side (`Value`, host errors, host fns), with subsections "The async bridge", "Typed closure adapters", "Host-defined vars and primitives", "Swift stubs" (level 2: the generator, the box, `require-swift`).
 - [ObjC bridge](docs/notes/objc-bridge.md) — `objc_msgSend` prototypes, AAPCS64 structs, selectors, ownership, calling in (`objc-reify`, `objc-block`).
 
+UI
+- [UI](docs/notes/ui.md) — the hiccup reconciler as a library on the load path, the backend protocol, the zero-call test.
+
 Compiler and tools
 - [Compiler](docs/notes/compiler.md) — `clj_node` → C: the load hook, calling convention, empty prologue, dev vs closed, tree shaking, promoted slots, unboxed arithmetic, worker/wrapper, deviations.
 - [nREPL](docs/notes/nrepl.md) — sessions as frames, interrupt, streamed output, `stdin`, `complete`/`info`.
