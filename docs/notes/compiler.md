@@ -258,6 +258,12 @@
   content-addressed cache instead (design §3 «Кэш»). Not covered: the entry unit's own dead code (row 2), and the
   committed `boot/core.c` stays unshaken by construction, so `make test-compiled`, `corpus-compiled` and the bench
   all measure the unshaken core. Trigger for both: the §10 app, with a declared entry point and its own build flow.
+
+  A wider check made once by hand and not a gate (it is four minutes of builds): the fourteen
+  `Fixtures/compiler/*.clj` beside the shake app, compiled as one set of fifteen entries where 197 of 293
+  candidates are dropped, each print byte-identically shaken and `--no-shake`. Three of them — `defs`, `rebind`,
+  `intrinsics` — differ from the *interpreter* in both closed builds, which is `with-redefs` against direct
+  linking and the folded intrinsic guards, the closed world and not the shaker.
 - [ ] **A shaken unit over a namespace the interpreter has already redefined is a heap-use-after-free.** A shaken
   unit's init is written to run once, over vars nothing has bound: in a whole-program build `clj_init` runs it
   before any interpreted def exists. Running one in a process where the interpreter has defined and redefined that
