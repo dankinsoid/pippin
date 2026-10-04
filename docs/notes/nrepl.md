@@ -119,7 +119,7 @@
   `ns-resolve`, `meta` and `resolve` are already C builtins with the exact resolution rules (aliases, refers,
   privacy) a REPL needs; `NReplHelpers` loads a small `pippin.nrepl.util` namespace once and calls its two
   functions as ordinary `Value.apply`s. The op shapes follow the older, pre-`cider-nrepl` `complete`/`info`
-  convention (`{:candidate :ns}`, `{:ns :name :doc :arglists-str :line :column :macro}`) that Conjure and
+  convention (`{:candidate :ns}`, `{:ns :name :doc :arglists-str :file :line :column :macro}`) that Conjure and
   plain `nrepl.el` still speak natively; CIDER's own richer `completions`/`eldoc` ops are `cider-nrepl`
   middleware this runtime does not implement, so CIDER's completion is plainer than in JVM Clojure, but eval,
   interrupt and the rest of the session protocol are unaffected — CIDER connects and evaluates.

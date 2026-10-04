@@ -44,6 +44,7 @@ final class NReplHelpers {
 	    (cond-> {:ns (str (:ns m)) :name (str (:name m))}
 	      (:doc m) (assoc :doc (:doc m))
 	      (:arglists m) (assoc :arglists-str (pr-str (:arglists m)))
+	      (:file m) (assoc :file (:file m))
 	      (:line m) (assoc :line (:line m))
 	      (:column m) (assoc :column (:column m))
 	      (:macro m) (assoc :macro true))))

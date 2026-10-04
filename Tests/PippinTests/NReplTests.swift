@@ -192,6 +192,14 @@ extension CoreTests {
 				                  "code": .string("[*file* seen-while-loading]")])
 				#expect(try client.recvUntilDone().contains { $0["value"]?.asString == "[nil \"probe/thing.clj\"]" })
 
+				// info hands back the var's :file, so a client's go-to opens the source and not only a line number.
+				try client.send(["op": .string("info"), "session": .string(session), "id": .string("6"),
+				                  "symbol": .string("seen-while-loading")])
+				let info = try #require(client.recvUntilDone().last)
+				#expect(info["file"]?.asString == "probe/thing.clj")
+				#expect(info["ns"]?.asString == "user")
+				#expect(info["line"]?.asInt == 1)
+
 			}
 		}
 
