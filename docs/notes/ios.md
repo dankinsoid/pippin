@@ -131,7 +131,7 @@
   and `UIFont.Weight.regular` are static properties of structs — but each answers a **box** of its Swift type,
   which a level-1 send cannot take where `sendActionsForControlEvents:` wants a number. So a stub does not by
   itself close the gap the constants open: the levels have to meet at the call site, or the constants have to
-  arrive another way (design §5 «Три уровня, одновременно»).
+  arrive another way (design §5 «Три уровня, одновременно»): from the header, as numbers (design §5 «C — уровень 0»).
 - **The bundle's size is the probe's binary plus a screen** (release, arm64, dead-stripped, as above).
   Simulator slice: 1,107,664 bytes interpreted and 3,213,056 with `-DCLJ_COMPILED_CORE`, against the bare probe's
   1,086,896 and 3,192,288 — **+20,768 bytes in both modes**, of which the `__text` difference is 648 bytes and the

@@ -13,7 +13,7 @@
 - Интроспекция: `(sizeof T)`, `(offsetof T :x)`, `(alignof T)` — без этого не заполнить `MTLBuffer` под шейдер.
 - Интринсики: `popcount`, `clz`, `ctz`, rotate, `fma`, saturating.
 - Гарантии: `^:no-alloc`, `:strict`-ns, `^:inline` (§3, решётка фактов). `:strict` подсвечивает каждый бокс — аналог `@code_warntype`, главный инструмент числового кода: «где я потерял тип».
-- SIMD/Accelerate/vDSP/BLAS — просто стабы, без моста через `Value`; C-функции с сигнатурой из заголовка вызываются напрямую с unboxed аргументами (у Clojure JVM — JNI/Panama).
+- SIMD/Accelerate/vDSP/BLAS — просто стабы, без моста через `Value`; C-функции с сигнатурой из заголовка вызываются напрямую с unboxed аргументами (у Clojure JVM — JNI/Panama; §5 «C — уровень 0»).
 
 Не добавлять: мутабельные локалы (`set!` на `let`) — семантический разлом, `loop/recur` и мутабельные поля `deftype` покрывают; ручное управление памятью вне `^:unsafe`.
 
