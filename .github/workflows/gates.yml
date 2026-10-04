@@ -10,6 +10,13 @@ on:
   pull_request:
     paths-ignore: ['docs/**', '**.md']
   workflow_dispatch:
+    inputs:
+      target:
+        description: the make target; a long opt-in one such as test-eval-compiled runs by hand only
+        default: gates
+      test_timeout:
+        description: TEST_TIMEOUT, seconds per build, listing and shard
+        default: '1200'
 
 # A push supersedes its ref's last run; each dispatch is its own group, so a series runs side by side.
 concurrency:
@@ -25,14 +32,14 @@ env:
   HOMEBREW_NO_AUTO_UPDATE: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
   # A cold ASan build alone takes 290 s on the 4-core Intel runner; the Makefile default is sized for an M3.
-  TEST_TIMEOUT: 1200
+  TEST_TIMEOUT: ${{ inputs.test_timeout || '1200' }}
 
 jobs:
   gates:
     name: gates (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ !matrix.required }}
-    timeout-minutes: 75
+    timeout-minutes: ${{ (inputs.target || 'gates') == 'gates' && 75 || 340 }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,10 +100,12 @@ jobs:
       - name: Corpus cache contents before
         run: (ls -d .build/corpus-cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/corpus-before"
 
-      - name: make gates
+      - name: make ${{ inputs.target || 'gates' }}
+        env:
+          TARGET: ${{ inputs.target || 'gates' }}
         run: |
           set -o pipefail
-          make gates 2>&1 | tee "$RUNNER_TEMP/gates.log"
+          make "$TARGET" 2>&1 | tee "$RUNNER_TEMP/gates.log"
 
       - name: Gate times
         if: ${{ !cancelled() }}

@@ -71,6 +71,43 @@
   `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
   group. Release executables are inside `.build/release/release/`. `make boot` uses the plain compiler;
   `scripts/embed-core.sh` only writes embedded source bytes and has no build-directory dependency.
+- **Shards.** `test`, `test-compiled`, `test-eval-compiled` and the other whole-suite targets run through
+  `scripts/test-shards.py`: one `swift build --build-tests`, `swift test list`, then the suites dealt out longest
+  first by `scripts/test-times.json` onto N shards, each a `swift test --skip-build` over its suites' tests, side
+  by side. The live-object counters are per process, so the suite stays serialized inside a shard and no
+  baseline sees another shard's objects. A suite is the unit: its tests may share state in order, and
+  `test-isolated` proves every suite alone in a process. A shard names its tests by one anchored `--filter` each
+  (a filter matching a suite's ID selects the whole suite). The run fails unless the shards' event streams
+  (`--event-stream-output-path`) end every listed test exactly once, so a new suite cannot drop out: it is dealt
+  like any other, at the median time until its time is recorded. A failing shard prints its issues, the tests
+  that never ended (all a `TEST_TIMEOUT` kill leaves, since SwiftPM drops the log it held) and its log from the
+  hang or sanitizer report on; every log stays at `<scratch>/shards/shard-N.log`. `TEST_SHARDS=N` sets the count,
+  `TEST_SHARDS=1` is the serial run, and `swift test --filter` by hand is unchanged.
+- **What bounds the shard count.** N = min(cores, 70% of memory / the gate's recorded peak resident memory per
+  shard, ⌈sum of suite times / longest suite⌉). Past the last bound the longest suite alone sets the wall time
+  and a shard only adds a boot and its memory. On the runners: `test` (ASan, ~2 GB a shard) gets 2 shards on
+  arm64 (7 GB) and 4 on x86_64 (4 cores); `test-compiled` (≤0.4 GB) gets one per core, 3 and 4. A runner's cores
+  are the tighter bound than the suites: shards slow each other down (x86_64 shards planned at 92 s took
+  129–209 s), carriers and clang included. The peak is sampled once a second over the shard's process tree;
+  `record` keeps the largest one of a run. Times are keyed by machine (`x86_64-4cpu`): suites run at different
+  relative speeds on a runner and on a laptop.
+- **Parallel `swift test` and SwiftPM.** `swift test` holds `<scratch>/.lock` for its whole run, so a second one
+  on the same scratch path waits for the first. The shards pass `--ignore-lock`; `swift test --skip-build`
+  still writes `build.db` while it plans, so a shard starts only once the one before it has handed over to its
+  test process (its first event, ~1.3 s) and no two plan at once. swift-test starts the test process in a
+  process group of its own, so a timed-out shard is killed as a process tree. `/usr/bin/python3` is an xcrun
+  shim that sets `SDKROOT` when it is unset, and a build under another `SDKROOT` rebuilds everything, so the
+  Makefile hands the runner its own `SDKROOT` (or none).
+- **What shards share outside the process.** A suite runs in one shard, so only paths two suites write can
+  collide. `CLJ_EVAL=compiled` names its units `form1`, `form2`, … per process in one directory, so shards would
+  load each other's dylibs: each shard gets its own `CLJ_EVAL_DIR` (`<scratch>/shards/shard-N.eval`, or
+  `shard-N` under a given one). Safe as they are: temp files (pid, random or UUID names in `FutureTests`,
+  `EvacTests`, `NamespaceTests`, `ChanTests`, `CorpusCompilationCacheTests`); `.build/compiled-fixtures`
+  (`fixture_<name>` distinct between `CompilerFixtureTests` and `SwiftStubTests`, `form<n>` only from
+  `CompilerFixtureTests`' own compiled eval); `.build/swift-stubs` (the fixture module and every generator entry
+  are built in a `.tmp-<pid>` directory and renamed into place, the loser discarding its copy); the corpus cache
+  (a lock per library); the nREPL server (port 0). The corpus watchdog's budget is the one timing collision:
+  `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 20 s ("CI").
 - **The push gate's ASan pass is `test`**, with interpreted core and `CLJ_SYSTEM_ALLOC=1`. It exercises
   the evaluator/analyzer and runtime allocation boundaries; the pool would hide individual object bounds
   from ASan. `test-compiled` runs the same suite with compiled core and the pool, checking emitted boot
