@@ -1131,8 +1131,6 @@ static bool const_carries_meta(clj_value v) {
 	return carries;
 }
 
-static bool const_expr(fnctx *f, clj_value v, sb *out);
-
 static bool   const_ok(clj_value v);
 
 // A pool entry's init is a C expression: the reader over the printed form, or, for a collection holding vars (the
