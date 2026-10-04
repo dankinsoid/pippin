@@ -20,7 +20,9 @@
   in-process CPU, 82 s against 281 s; runs 37193827945 and 37193832212), and the one test of `SwiftStubTests`, 115 s
   on the fast runner, passed 300 s on the slow one. Slow, not stuck: its report showed the test thread in
   `SwiftStubs.generate` reading the generator's pipe, nothing on a lock or in `dlopen`; the suite was alone in
-  its shard and is the only user of `.build/swift-stubs`. `test-eval-compiled` sets 3600 s, a clang run per eval.
+  its shard and is the only user of `.build/swift-stubs`. The stubs cache ("CI") makes that test 5 s on a hit,
+  but a change to Pippin's sources misses it, and `MapTests.randomOpsMatchReference` itself took 281 s on the
+  slow runner, so the bound stays. `test-eval-compiled` sets 3600 s, a clang run per eval.
   A failed shard's report also lists the shard's processes with their CPU time at the last sample, which tells a
   child still working from one that waits.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
@@ -170,6 +172,27 @@
   gates are within run-to-run noise; separate scratch paths mean nothing in `gates` rebuilds anything
   another gate already built. Total: cold about the same (independent scratch paths cost a bit up front),
   warm about 3× faster, which is what a same-day second push pays.
+- **Measured on CI, serial vs shards.** Seconds, median over the runs named; a gate's wall time, then its build
+  and test phases (`Build complete`; the serial run's swift-testing total, the shards' listing and run). Before:
+  six serial runs, 37134880311–37142137285, every corpus run a miss. After: the parallel series
+  37196078768, 37196080394, 37196081831 (`da5b9da`, both architectures, caches cold for the commit), and on
+  arm64 run 37198691370 with the corpus and stubs caches hit. x86_64 warm: see below.
+
+  | gate | arm64 before | arm64 after | arm64 after, warm | x86_64 before | x86_64 after |
+  |---|---:|---:|---:|---:|---:|
+  | test | 334 | 263 | 199 | 557 | 537 |
+  | — build / tests | 105 / 214 | 108 / 155 | 81 / 109 | 193 / 328 | 228 / 234 |
+  | test-compiled | 184 | 132 | 139 | 246 | 298 |
+  | — build / tests | 75 / 105 | 90 / 50 | 86 / 51 | 115 / 120 | 172 / 74 |
+  | corpus-compiled | 154 | 132 | 88 | 263 | 347 |
+  | **gates total** | **694** | **572** | **459** | **1139** | **1267** |
+
+  The test phases are what sharding buys: 214→155 s and 105→50 s on arm64 (2 and 3 shards), 328→234 s and
+  120→74 s on x86_64 (4 shards). The x86_64 builds of the series ran 1.5× slower than serial runs' (`test-compiled`
+  115→172 s, the same 340 build steps): three x86_64 jobs at once, and a runner in that series ran every suite
+  3.4× slower than another; the x86_64 totals of a parallel series measure the runners as much as the gates.
+  What is left: builds, about half of every job; `corpus-compiled` on a miss, its first `dlopen` of each fresh
+  unit (the clang over the units now runs in parallel); on arm64 the memory bound (2 ASan shards of ~2 GB).
 - **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests, nightly and by
   hand; a push or pull request that touches only `docs/` and Markdown files does not start it. One job per
   architecture: `macos-26` (arm64, 3 cores, 7 GB) on every trigger, `macos-26-intel` (x86_64, 4 cores, 14 GB)
