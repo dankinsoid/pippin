@@ -1,4 +1,4 @@
-## iOS (scripts/ios-probe.c, scripts/ios-sizes.sh)
+## iOS (scripts/ios-probe.c, scripts/ios-sizes.sh, scripts/ios-app.sh, scripts/ios-app/)
 
 - **The runtime is cross-compiled by SwiftPM, not by xcodebuild.** `swift build --target CljCore` (and
   `Pippin`, `CljCompiler`, `CljNREPL`) with `-Xcc -target <triple> -Xcc -isysroot <sdk>` and the same pair as
@@ -57,12 +57,116 @@
   `clj_init` costs 6.0 MB interpreted and 1.1–1.3 MB with the compiled core — the analyzer trees of core.clj
   against the compiled bodies. The twelve forms then take the process to 23–29 MB and it does not come back
   down (NOTES "Allocator", empty slabs; `coro.c`'s pooled stacks).
-- [~] **No device run.** Blocked by signing, not postponed: a bare Mach-O cannot be launched on a device — there is no
-  `simctl spawn` for one, and `devicectl device process launch` takes an installed bundle id, so the probe
-  would need an `.app` signed with a development provisioning profile for a new bundle id and the target
-  device. An "Apple Development" identity and a paired iPad are on this machine; the profile is not, and
-  registering an app id is outside this work. Xcode 26.3's `DeviceSupport` also stops at 16.4, below the
-  paired iPhone's 26.6.1. The arm64 simulator is closer to a device than it looks: `getpagesize()` is 16384
-  there, the device's value, not the 4 KB of an x86_64 host (`docs/portability.md`, "The page size"), and a
-  third-party app is arm64, not arm64e, so `trace.c`'s PAC stripping is identity in both. What is left for
-  the device is jetsam under real pressure and the real clock. Trigger: the §10 app, which needs a bundle anyway.
+- **The bundle is a directory and four commands, not an Xcode project** (`scripts/ios-app.sh`,
+  `scripts/ios-app/main.c`, `scripts/ios-app/screen.clj`). An `.app` the simulator installs and launches is the
+  probe's own link plus `-framework UIKit`, an `Info.plist` written by `cat`, the screen's `.clj` copied in beside
+  the executable, and `codesign --force --sign -`. A `.xcodeproj` buys nothing and costs the package's own compile
+  flags (the `-Wshorten-64-to-32` story above), so the bundle is built the way the probe is: SwiftPM compiles
+  `CljCore` for the triple, clang links, and the product type an Xcode target would add is the twenty lines of
+  plist and signing. `make ios-app` builds, installs, launches and measures both modes under the id `dev.pippin.app`.
+- [~] **The app has no delegate class, because a reified class is not one UIKit can allocate.**
+  `UIApplicationMain(argc, argv, NULL, NULL)` leaves the process without a principal class and without a delegate,
+  and `screen.clj` mounts the screen from a zero-delay `NSTimer` block scheduled on the main run loop before
+  `UIApplicationMain` turns it. The reason is `objc-reify`: its Clojure fns live in the extra bytes of
+  `class_createInstance(cls, sizeof(reify_state))` (objc.c), while a host handed a class *name* —
+  `UIApplicationMain`'s delegate, `NSPrincipalClass`, a storyboard, `NSClassFromString` — sends `+alloc`, which
+  allocates `class_getInstanceSize` bytes and leaves `object_getIndexedIvars` reading past the object. Not done:
+  a reify shape whose instances the host may allocate (a real ivar for the state, or an `+alloc` of our own).
+  Trigger: an API that takes a class where an instance will not do; the window lifecycle is not one.
+- **The screen is Clojure and UIKit is level 1** (`scripts/ios-app/screen.clj`, 50 lines). A `UIWindow` over a
+  `UIViewController`, a monospaced `UILabel` and a `UIButton` in a centred `UIStackView` held by two
+  `NSLayoutConstraint` anchors. The button's target is an `objc-reify` of one method (`"tap:" "v@:@"`) doing
+  `(swap! taps inc)`, and the label is an `add-watch` on that atom (design §4 «Подписки»): the text is re-read
+  from the atom, not written by the handler. A second timer block taps the button three times through
+  `sendActionsForControlEvents:`, so a run with nobody's hand on the simulator still proves target/action — the
+  label reads `taps: 3` in both modes, interpreted and `-DCLJ_COMPILED_CORE`. The bridge carried all of it with
+  nothing added: `CGRect` as a nested map out of `-[UIScreen bounds]` and back into `initWithFrame:`, a Clojure
+  string into `setText:` and an `NSString` return read as one, `false` as a `BOOL`, an `NSArray` of handles
+  through `ns-array` into `initWithArrangedSubviews:` and `activateConstraints:`, a selector as the string
+  `"tap:"`, and two `objc-block`s for the timers.
+- **A UIKit target is unretained, so the Clojure handle is the only owner.**
+  `addTarget:action:forControlEvents:` does not retain its target, so the reified object and the timer blocks are
+  parked in an atom: releasing the wrapper is the instance's `dealloc`, and the next tap would message a freed
+  object. Level 1 is consistent here — a handle is a reference and ownership stays the caller's (NOTES "ObjC
+  bridge") — but it is the first thing a UI layer above it has to decide on its user's behalf.
+- **§10 step 8's first sample: this screen needs 30 selectors and not one Swift symbol.** The step's first
+  delivery is a number, how many Swift-only symbols a real application needs; this is one screen, not an
+  application, and it is counted by hand off `screen.clj`.
+  *Level 1, works today — 13 classes, 30 selectors, three calling-in objects:* `UIScreen` (`mainScreen`,
+  `bounds`), `UIWindow` (`alloc`, `initWithFrame:`, `setRootViewController:`, `makeKeyAndVisible`),
+  `UIViewController` (`init`, `view`), `UIView` (`setBackgroundColor:`, `addSubview:`,
+  `setTranslatesAutoresizingMaskIntoConstraints:`, `centerXAnchor`, `centerYAnchor`), `UIColor`
+  (`systemBackgroundColor`), `UIFont` (`monospacedSystemFontOfSize:weight:`), `UILabel` (`setFont:`,
+  `setTextAlignment:`, `setText:`, `text`), `UIButton` (`buttonWithType:`, `setTitle:forState:`), `UIControl`
+  (`addTarget:action:forControlEvents:`, `sendActionsForControlEvents:`), `UIStackView`
+  (`initWithArrangedSubviews:`, `setAxis:`, `setSpacing:`, `setAlignment:`), `NSLayoutAnchor`
+  (`constraintEqualToAnchor:`), `NSLayoutConstraint` (`activateConstraints:`), `NSTimer`
+  (`scheduledTimerWithTimeInterval:repeats:block:`); one `objc-reify` and two `objc-block`s.
+  *Swift-only and already generated by the stub generator — none.* Every class and method above is `@objc`;
+  level 2 was not needed for one symbol of the screen.
+  *Swift-only or header-only and refused — eight, and six of them are constants.* `NSTextAlignmentCenter` (1),
+  `UIButtonTypeSystem` (1), `UILayoutConstraintAxisVertical` (1), `UIStackViewAlignmentCenter` (3),
+  `UIControlEventTouchUpInside` (64) and `UIControlStateNormal` (0) are `NS_ENUM`/`NS_OPTIONS` values that live
+  in a header and nowhere else — `UIControlEventTouchUpInside` is not in `UIKit.tbd` and the runtime has no call
+  that names one — so the screen writes the numbers. `UIFontWeightRegular` is an exported `const CGFloat` (it
+  *is* in the .tbd), reachable by `dlsym` and by nothing the bridge offers, so the screen writes `0.0`.
+  `UIApplicationMain` is a C function, and level 1 calls methods and blocks only, so it stays in `main.c`.
+  **That list is the demand signal** NOTES "Host bridge" ("What the generator does not generate") waits for: the
+  first symbols an application needs and level 1 cannot reach are not functions but constants, and a wrong
+  number there is a silently wrong screen, not an error.
+- **What level 2 would do with the same screen, asked with the generator's own classifier.**
+  `swift-stubgen.py`'s `plans` over a UIKit symbol graph extracted for `arm64-apple-ios15.0-simulator` (the
+  generator itself cannot run there: `SwiftStubs.generate` needs Foundation's `Process`, which iOS does not
+  export, and `swift-reprint.py` extracts for the host's triple). Of the 34 UIKit declarations behind the screen
+  it reprints 11 and refuses 23; the 35th, `init()`, is `NSObject`'s and not in UIKit's graph at all. The
+  refusals are optionals (`String?`, `UIView!`, `UIColor?`, `Any?`), `CGRect` and `CGFloat` and the other imported
+  types, `[UIView]` and `[NSLayoutConstraint]`, the generic `NSLayoutAnchor.constraint(equalTo:)` and the four
+  enum cases. Three of the six constants do reprint — `UIControl.Event.touchUpInside`, `UIControl.State.normal`
+  and `UIFont.Weight.regular` are static properties of structs — but each answers a **box** of its Swift type,
+  which a level-1 send cannot take where `sendActionsForControlEvents:` wants a number. So a stub does not by
+  itself close the gap the constants open: the levels have to meet at the call site, or the constants have to
+  arrive another way (design §5 «Три уровня, одновременно»).
+- **The bundle's size is the probe's binary plus a screen** (release, arm64, dead-stripped, as above).
+  Simulator slice: 1,107,664 bytes interpreted and 3,213,056 with `-DCLJ_COMPILED_CORE`, against the bare probe's
+  1,086,896 and 3,192,288 — **+20,768 bytes in both modes**, of which the `__text` difference is 648 bytes and the
+  rest is `__LINKEDIT` and padding. Device slice: 1,113,312 and 3,202,328 against 1,110,640 and 3,199,648,
+  **+2,672 and +2,680**. On disk the `.app` is 1,096 KB interpreted and 3,152 KB compiled (the executable, a
+  1.6 KB `screen.clj`, `Info.plist` and the ad-hoc `_CodeSignature`). So a UIKit application is the same
+  "1.1 MB interpreted, 3.2 MB with the compiled core" the baseline named: UIKit itself ships with the OS, and the
+  screen's own cost is its source file.
+- **Footprint with a screen standing (simulator, two runs each).** `phys_footprint` at `main`, which is before
+  `UIApplicationMain` and with UIKit only mapped: 11.1–11.6 MB, against the bare probe's ~10 MB. `clj_init` then
+  costs **+5.7–6.0 MB interpreted and +1.2–1.3 MB compiled**, the probe's figures to the tenth of a megabyte in a
+  real app. Loading `screen.clj` costs +0.2 MB interpreted and +0.3–0.7 MB compiled. With the window up and three
+  taps delivered the process is **41–42 MB interpreted and 36–37 MB compiled**: UIKit's own +23 MB for a window,
+  a view controller and a text layout dwarfs the 4.6 MB the two core modes differ by. The number that matters for
+  §10 is still the boot one; the one that matters for jetsam is that a trivial screen is already 36 MB, and
+  almost none of it is ours.
+- [~] **No device run, and the only thing still missing is a profile.** The bundle exists now, installs and
+  launches on the simulator (above); the device slice of the same `.app` comes out of
+  `sh scripts/ios-app.sh <mode> iphoneos` unsigned, and `sign_device` there embeds a profile, takes the
+  entitlements from it as Xcode does and signs, so the run is three commands once there is one. On this machine:
+  the identity **Apple Development: Danil Voidilov (E4VXARX5DQ)**, team 4733T56UZW, valid to 2027-02-27, and
+  three paired devices (`xcrun devicectl list devices`) — an iPhone 16 on 26.6.1, an iPad (A16) on 18.6.2, an
+  iPhone 15 Pro on 26.2. Not on it: any profile for `dev.pippin.app`. All 45 local profiles belong to the work
+  team 79WNND69Y6, each for a fixed `app.tabby.*` id and none a wildcard, so not one of them can sign this
+  bundle. What the user must authorize, in order, and what this work deliberately did not touch:
+  1. the App ID `dev.pippin.app` (or a wildcard one) under team 4733T56UZW;
+  2. the target device's UDID in that team — iPhone 16 `00008140-000C64620ABA801C`, iPad
+     `00008120-0008588001E00032`;
+  3. an iOS App Development profile over that App ID, that device and that certificate, downloaded to a file;
+  4. Developer Mode on the device (Settings → Privacy & Security), which iOS 16 and later demand before any
+     development-signed app runs.
+  Then, with nothing further to authorize: `CLJ_APP_PROFILE=<file> CLJ_APP_IDENTITY='Apple Development: Danil
+  Voidilov (E4VXARX5DQ)' sh scripts/ios-app.sh interpreted iphoneos`, `xcrun devicectl device install app
+  --device <udid> <app>`, `xcrun devicectl device process launch --console --device <udid> dev.pippin.app`.
+  Xcode's automatic signing with a personal team does 1–3 by itself, at the price of a seven-day profile and of
+  letting Xcode register the id and the device — the same authorization, asked differently.
+  The `DeviceSupport` ceiling is probably not in the way: that directory (16.4 under Xcode 26.3) is the
+  pre-CoreDevice debugging path, and an iOS 17 or later device is served by the personalized DDI at
+  `/Library/Developer/DeveloperDiskImages/iOS_DDI`, which is this Xcode's own (build 17C529). Unconfirmed until
+  the run, like everything else here. The arm64 simulator is closer to a device than it looks: `getpagesize()`
+  is 16384 there, the device's value, not the 4 KB of an x86_64 host (`docs/portability.md`, "The page size"),
+  and a third-party app is arm64, not arm64e, so `trace.c`'s PAC stripping is identity in both. What is left for
+  the device is jetsam under real pressure and the real clock. Trigger: an App ID, a registered device and a
+  profile for `dev.pippin.app`, which only the owner of the account can make.
