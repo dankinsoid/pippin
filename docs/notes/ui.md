@@ -37,3 +37,15 @@
   marked in the tree.
 - [ ] **A `[:native thunk]` node cannot carry a `:key`.** It has no attrs map, so a keyed list of native
   nodes has to wrap each one in a host tag. Trigger: a real screen whose reordered rows are native views.
+- [ ] **Children are flattened, not slotted.** `append-children` drops a `nil` child and splices a seq into
+  its parent's children, so `[:column (when c [:banner]) [:list]]` shifts `:list` to index 0 when `c` turns
+  false and remounts it; design §5b ("Идентичность узла") has `nil` hold its slot and a seq be one keyed
+  fragment. Trigger: the component slice, which rewrites `children-of` anyway.
+- [ ] **No component heads.** `hiccup?` takes only a keyword head, so `[#'f args]` (and a bare fn) is
+  refused; the argument memo, the var watch that re-renders mounted instances and the paren-call lint of
+  design §5b ("Компонент") are all unbuilt. Trigger: the cursor/subscription slice.
+- [ ] **No lazy layout, `:items`/`:item`, cursor-bound attributes or event vectors** (design §5b). They wait
+  for Yoga and the UIKit backend. Unbuilt beside the lazy layout itself: the size estimate of rows never
+  laid out (and the scroll anchoring it needs), an `UIAccessibilityContainer` over virtualized rows, swipe
+  actions, reordering, sticky headers, prefetch. Trigger: a list longer than a screen on a device; the
+  accessibility container before any such list ships.
