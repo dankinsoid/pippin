@@ -218,8 +218,8 @@ def shard_count(entry, seconds, requested, isolated):
 # ---- running
 
 class Shard:
-	def __init__(self, index, units, planned, out, timeout):
-		self.index, self.units, self.planned, self.timeout = index, units, planned, timeout
+	def __init__(self, index, units, planned, out, timeout, gate):
+		self.index, self.units, self.planned, self.timeout, self.gate = index, units, planned, timeout, gate
 		self.log = os.path.join(out, f"shard-{index}.log")
 		self.events = os.path.join(out, f"shard-{index}.events.jsonl")
 		self.eval_dir = os.path.join(out, f"shard-{index}.eval")
@@ -354,7 +354,8 @@ def report_failure(shard, issues, open_tests):
 		print(f"--- {shard.log} from line {start + 1}:")
 		for l in lines[start:]:
 			print(l)
-	print(f"=== end of {shard.name}; the whole log: {shard.log}", flush=True)
+	print(f"=== end of {shard.name}; the whole log: {shard.log}; again alone, in one process:", flush=True)
+	print(f"    TEST_SUITES={','.join(shard.units)} TEST_SHARDS=1 make {shard.gate}", flush=True)
 
 
 def run(args):
@@ -376,6 +377,14 @@ def run(args):
 	for t in sorted(listed):
 		tests_by_unit[unit_of(t)].append(t)
 	module = split_id(ids[0])[0]
+	if args.suites:
+		wanted = [u.strip() for u in args.suites.split(",") if u.strip()]
+		missing = [u for u in wanted if u not in tests_by_unit]
+		if missing:
+			sys.exit(f"shards: no suite {', '.join(missing)}; name them as a failure report does (CoreTests/MapTests)")
+		tests_by_unit = {u: tests_by_unit[u] for u in wanted}
+		ids = [t for u in wanted for t in tests_by_unit[u]]
+		listed = collections.Counter(ids)
 
 	entry = recorded(load_times(), args.gate)
 	known = entry.get("seconds", {})
@@ -395,7 +404,7 @@ def run(args):
 
 	shutil.rmtree(out, ignore_errors=True)
 	os.makedirs(out)
-	shards = [Shard(i + 1, units, planned, out, args.timeout) for i, (units, planned) in enumerate(plan)]
+	shards = [Shard(i + 1, units, planned, out, args.timeout, args.gate) for i, (units, planned) in enumerate(plan)]
 
 	pending = list(shards)
 	running = []
@@ -413,6 +422,10 @@ def run(args):
 				running.remove(s)
 				log(f"{s.name} {'FAILED' if s.failed() else 'passed'}: {s.ended - s.started:.0f} s "
 					f"(planned {s.planned:.0f}), exit {s.status}, peak RSS {s.rss / 2**20:.0f} MB")
+				if s.failed():
+					# At once, not after the slowest shard: a run cancelled meanwhile still shows why.
+					_, _, issues, open_tests = outcomes(s)
+					report_failure(s, issues, open_tests)
 		if time.monotonic() - sampled >= 1:
 			sampled = time.monotonic()
 			table = process_table()
@@ -426,16 +439,14 @@ def run(args):
 	ran_in = collections.defaultdict(list)
 	measured, failed = {}, False
 	for s in shards:
-		ran, spans, issues, open_tests = outcomes(s)
+		ran, spans, _, _ = outcomes(s)
 		for t in ran:
 			ran_in[t].append(s.index)
 		for u in s.units:
 			instants = [x for t in tests_by_unit[u] for x in spans.get(t, []) if x is not None]
 			if instants:
 				measured[u] = round(max(instants) - min(instants), 3)
-		if s.failed():
-			failed = True
-			report_failure(s, issues, open_tests)
+		failed = failed or s.failed()
 	peak = max(s.rss for s in shards)
 	with open(os.path.join(out, "times.json"), "w") as f:
 		json.dump({"gate": args.gate, "machine": machine(), "module": module, "shards": len(shards), "passed": not failed,
@@ -482,6 +493,8 @@ def main():
 	r.add_argument("--shards", type=int, default=int(os.environ.get("TEST_SHARDS") or 0) or None)
 	r.add_argument("--timeout", type=int, default=int(os.environ.get("TEST_TIMEOUT") or 500),
 		help="seconds per step: the build, the listing, each shard")
+	r.add_argument("--suites", default=os.environ.get("TEST_SUITES"),
+		help="comma-separated suites to run alone, as a failure report names them; with --shards 1, in one process")
 	r.add_argument("--isolated", action="store_true",
 		help="every suite in a process of its own: a baseline must not lean on another suite's allocations")
 	r.add_argument("--sdkroot",help="the caller's SDKROOT, empty for none; without it the runner's own is kept")
