@@ -58,7 +58,7 @@
   - «Замыкания через границу: цвет живёт в Swift» — [05-12-closures.md](design/05-12-closures.md): async-адаптация по Swift-сигнатуре, `@MainActor` как affinity, цена изоляции.
   - «ABI» — [05-13-abi.md](design/05-13-abi.md): C ABI между сгенерированным C, ядром и Swift-частью.
 - **§5b. UI-слой** — [05b-ui.md](design/05b-ui.md): язык не знает про UI; реконсилер, бэкенды, Yoga, через границу идут изменения.
-- **§5c. Инструментарий: nREPL, LSP** — [05c-tooling.md](design/05c-tooling.md): nREPL сразу, clojure-lsp как есть, свой LSP поверх аналитора позже.
+- **§5c. Инструментарий: nREPL, LSP** — [05c-tooling.md](design/05c-tooling.md): встраивание протоколами; nREPL сразу; один свой LSP на месте clojure-lsp, сразу финальный.
 - **§6. Компилятор** — [06-compiler.md](design/06-compiler.md): закрытый мир, оптимизации по источнику права, нет JIT и есть PGO, инлайнинг, бэкенд — C через clang.
 - **§6b. Карта оптимизаций: где живут, когда включать, что заложить заранее** — [06b-optimization-map.md](design/06b-optimization-map.md): три уровня, флаги `-O`, ранжированный список, порядок работ интерпретатора до компилятора, итераторы Rust — что взято, что резервировать сразу.
 - **§7. Память** — [07-memory.md](design/07-memory.md): RC против GC, borrow inference и reuse (Perceus), регионы, циклы через trial deletion, почему не свой GC.
