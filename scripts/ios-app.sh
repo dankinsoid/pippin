@@ -6,6 +6,7 @@
 
 #   sh scripts/ios-app.sh                       # both modes: built, installed, launched, measured
 #   sh scripts/ios-app.sh compiled [iphoneos]   # one mode; the iphoneos slice is built and left unsigned
+#   CLJ_APP_KEEP=1 sh scripts/ios-app.sh compiled   # leave the screen standing, to tap it by hand
 
 # CLJ_IOS_SIM names the simulator (a udid or a name); the booted one, else "iPhone 17".
 set -e
@@ -17,6 +18,8 @@ SIM=${CLJ_IOS_SIM:-}
 BUNDLE_ID=${CLJ_APP_BUNDLE_ID:-dev.pippin.app}
 DEPLOY=15.0
 SETTLE=${CLJ_APP_SETTLE_MS:-3000}
+KEEP=${CLJ_APP_KEEP:-}
+HEADLESS=${CLJ_IOS_HEADLESS:-}
 
 plist() {
 	app=$1
@@ -127,16 +130,30 @@ run_sim() {
 	[ -n "$SIM" ] || SIM="iPhone 17"
 	xcrun simctl boot "$SIM" 2>/dev/null || true
 	xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1 || true
+	# simctl boots headless, so without this the screen exists only in the screenshot.
+	[ -n "$HEADLESS" ] || open -a Simulator --args -CurrentDeviceUDID "$SIM" 2>/dev/null || true
 	echo "--- install and launch on $SIM ($mode)"
 	xcrun simctl install "$SIM" "$app"
 	log=$WORK/app-$mode.log
 	: >"$log"
+	shot=$WORK/screen-$mode.png
+	if [ -n "$KEEP" ]; then
+		# No CLJ_APP_EXIT: the screen stands until it is closed by hand, which is the only way to tap it.
+		SIMCTL_CHILD_CLJ_APP_SETTLE_MS=$SETTLE \
+			xcrun simctl launch --terminate-running-process "$SIM" "$BUNDLE_ID" >"$log" 2>&1
+		sleep 3
+		xcrun simctl io "$SIM" screenshot --type png "$shot" >/dev/null 2>&1 || true
+		sed 's/^/  /' "$log"
+		echo "  screenshot: $shot"
+		echo "  the app is left running; its stdout goes to the system log:"
+		echo "    xcrun simctl spawn $SIM log stream --level debug --predicate 'process == \"PippinApp\"'"
+		return 0
+	fi
 	# --console-pty streams the app's stdout and ends when it exits, which CLJ_APP_EXIT makes it do.
 	SIMCTL_CHILD_CLJ_APP_SETTLE_MS=$SETTLE SIMCTL_CHILD_CLJ_APP_EXIT=1 \
 		xcrun simctl launch --console-pty --terminate-running-process "$SIM" "$BUNDLE_ID" >"$log" 2>&1 &
 	pid=$!
 	sleep 2
-	shot=$WORK/screen-$mode.png
 	xcrun simctl io "$SIM" screenshot --type png "$shot" >/dev/null 2>&1 || true
 	wait $pid || true
 	sed 's/^/  /' "$log"
