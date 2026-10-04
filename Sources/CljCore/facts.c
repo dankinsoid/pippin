@@ -25,6 +25,7 @@
 #include "clj/regex.h"
 #include "clj/seq.h"
 #include "clj/set.h"
+#include "clj/shaken.h"
 #include "clj/sorted.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
@@ -202,6 +203,7 @@ uint32_t clj_facts_kind_of_type(const clj_type *t) {
 	if (t->core_bits & CLJ_CORE_RECORD) return CLJ_T_RECORD;
 	// a deftype is host whatever interfaces it implements: (fn? x) is false on one that implements IFn
 	if (!(t->h.flags & CLJ_FLAG_IMMORTAL)) return CLJ_T_HOST;
+	if (t == &clj_shaken_type) return CLJ_T_HOST; // a shaken def's root: IFn, and (fn? x) false on it too
 	if (t->core_bits & (CLJ_CORE_SEQ | CLJ_CORE_LIST)) return CLJ_T_LIST;
 	if (t == &clj_empty_list_type || t == &clj_lazy_seq_type) return CLJ_T_LIST;
 	if (t->core_bits & CLJ_CORE_FN) return CLJ_T_FN;

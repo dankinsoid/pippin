@@ -203,22 +203,24 @@
   comparison that kills the process makes the var impossible to look at from a REPL, which turns loudness into an
   obstacle. Every slot that is a use is a fatal naming the def and the operation: invoke, seq, first, next, rest,
   count, lookup (`get`), conj, assoc, dissoc, reduce, with-meta. Three uses are not descriptor slots and stay
-  loud-but-catchable throws naming the type: arithmetic (`not_a_number`, a tag test in number.c), `@root` (the
-  `-deref` protocol, which has no impl for the type) and `nth` (no `CLJ_CORE_INDEXED` bit to claim honestly).
+  loud-but-catchable throws naming the type — measured against the gate's force-dropped binary: `(+ 1 root)`
+  "shaken cannot be cast to a number" (a tag test in number.c), `(deref root)` and `(nth root 0)` "not supported
+  on this type: shaken" (neither is a slot, and the type claims no `CLJ_CORE_INDEXED` bit it cannot honour).
   `ex_message`/`ex_data`/`ex_cause` are left NULL because `clj_ex_message` reaches them only through
-  `CLJ_CORE_ERROR`, a bit the type must not claim, and `meta` is NULL, which answers nil. The root is immortal,
-  so `clj_c_var_borrow` and `eval_borrowed` read it at +0 like a fn root and a call site pays no retain.
+  `CLJ_CORE_ERROR`, a bit the type must not claim, and `meta` is NULL, which answers nil. `clj_facts_kind_of_type`
+  calls the type `CLJ_T_HOST`, as it does a deftype that implements IFn, so an interpreted form in a shaken
+  binary cannot have `(fn? x)` folded back to true over the root's own type. The root is immortal, so
+  `clj_c_var_borrow` and `eval_borrowed` read it at +0 like a fn root and a call site pays no retain.
 - **The root set**, nine rows, each a check in `shake_candidate` or `shake_run`. 1. A def whose init is not a `fn`:
   a fn's init only builds a closure, while any other init is code that runs at load, and dropping the def drops
   that run — `(def _ (register!))` left out is an effect that never happens and no later read to trip the wire,
   which is the one failure the tripwire cannot cover. Measured with the row off over the fixture set: 305
   candidates instead of 293 but only one more def dropped (`default-data-readers`), core.c 969 618 against
   971 084 bytes and the release binary 1 528 312 against 1 528 408, 96 bytes (`__text` −1 052, the rest the
-  linker's alignment) — 0.15 % of the core's C and 0.006 % of the binary, against
-  `ShakeTests` losing `(def load-time-result (called-at-load))` and the def it calls, their load-time call gone
-  with nothing printed. So the row stays, for the effects of an init and not, since the type above, for the
-  loudness of a read. 2. A def of an
-  entry unit: the program has no declared entry point, so its whole surface is root. 3. `^:dynamic`: `binding`, a
+  linker's alignment) — 0.15 % of the core's C and 0.006 % of the binary, against `ShakeTests` losing
+  `(def load-time-result (called-at-load))` and the def it calls, their load-time call gone with nothing printed.
+  So the row stays, for the effects of an init and not, since the type above, for the loudness of a read.
+  2. A def of an entry unit: the program has no declared entry point, so its whole surface is root. 3. `^:dynamic`: `binding`, a
   host binding frame and nREPL reach those by var, and they are read as values. 4. A fusion-table var —
   `clj_fusion_install` caches the root as the guard a FUSED node compares against, so a tripwire there would
   *pass* the guard and run a fused `map` whose `map` is gone. 5. An intrinsic-table var: `clj_intrinsics_install`
@@ -239,10 +241,16 @@
   reachable: four sites in the fixture run, which `--stats` prints with their positions. A program that names a
   shaken def through one of them aborts with that name, and since the tripwire became a type of its own, reading
   the root is as loud as calling it: `(fn? @(resolve 'x))` answers false and the first use of the value aborts.
-  What is left is the three uses that are not descriptor slots — arithmetic, `@root`, `nth` — which throw naming
-  the type `shaken` instead of aborting with the def's name, so a catch-all around one turns a build bug into an
-  ordinary error. Trigger: a program that catches everything around arithmetic on a core root, then a tag test
-  for the type where number.c tests for a number.
+  What is left is the uses that do not reach a slot. The three non-slot operations — arithmetic, `deref`, `nth` —
+  throw naming the type `shaken` instead of aborting with the def's name, so a catch-all around one turns a build
+  bug into an ordinary error. And a dropped *macro* only half fires: `clj_c_shaken` leaves the var's `:macro`
+  flag false, so a run-time macroexpansion is an ordinary call of the var — named when the arguments analyze as
+  expressions (`(when true 1)` against a shaken core aborts naming `when`) and an
+  analyzer error before the call when they do not (`(defn f [] …)` fails at `f`). Flagging a dropped macro would
+  route it through `expand_once` → `clj_invoke` → the invoke slot, which needs the compiler to say which dropped
+  defs were macros. Trigger: a program that catches everything around arithmetic on a core root, or a REPL
+  against a shaken core where a dropped macro's error has to name the def; then a tag test for the type where
+  number.c tests for a number, and `clj_c_shaken_macro`.
 - **Tree shaking: the numbers** (arm64, release, `-Wl,-dead_strip`, the `clj-load` binary over
   `Tests/PippinTests/Fixtures/shake/app.clj`, which is wide on purpose; `make shake` measures the debug shape,
   `SHAKE_RELEASE=1 sh scripts/shake.sh` this one; the first two rows are `swift build -c release --product
