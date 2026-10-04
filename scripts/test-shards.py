@@ -45,22 +45,23 @@ def physical_memory():
 
 
 def process_table():
-	"""pid -> (parent pid, resident bytes) of every process."""
+	"""pid -> (parent pid, resident bytes, "cpu time  command") of every process."""
 	try:
-		out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, timeout=10).stdout
+		out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss=,time=,command="], capture_output=True, text=True,
+			timeout=10).stdout
 	except (OSError, subprocess.SubprocessError):
 		return {}
 	table = {}
 	for line in out.splitlines():
-		fields = line.split()
-		if len(fields) == 3 and all(f.isdigit() for f in fields):
-			table[int(fields[0])] = (int(fields[1]), int(fields[2]) * 1024)
+		fields = line.split(None, 4)
+		if len(fields) == 5 and all(f.isdigit() for f in fields[:3]):
+			table[int(fields[0])] = (int(fields[1]), int(fields[2]) * 1024, f"{fields[3]:>9}  {fields[4][:160]}")
 	return table
 
 
 def tree(root, table):
 	children = collections.defaultdict(list)
-	for pid, (ppid, _) in table.items():
+	for pid, (ppid, _, _) in table.items():
 		children[ppid].append(pid)
 	found, todo = set(), [root]
 	while todo:
@@ -227,6 +228,7 @@ class Shard:
 		self.started = self.ended = None
 		self.status = None
 		self.rss = 0
+		self.processes = []
 		self.timed_out = False
 		self.term_sent = None
 
@@ -337,6 +339,10 @@ def report_failure(shard, issues, open_tests):
 	print(f"\n=== {shard.name} FAILED: {why}; suites: {' '.join(shard.units)}", flush=True)
 	for t in open_tests:
 		print(f"  never ended: {t}")
+	# Slow or stuck: a child still gaining CPU time is working (a compiler under load); one that is not, waits.
+	print("  its processes at the last sample (cpu time, command):")
+	for line in shard.processes:
+		print(f"    {line}")
 	for p in issues:
 		where = p.get("issue", {}).get("sourceLocation", {})
 		text = " | ".join(m.get("text", "") for m in p.get("messages", []))
@@ -433,6 +439,7 @@ def run(args):
 				if s.status is None:
 					TREES[s.proc.pid] = tree(s.proc.pid, table)
 					s.rss = max(s.rss, sum(table[pid][1] for pid in TREES[s.proc.pid] if pid in table))
+					s.processes = [table[pid][2] for pid in sorted(TREES[s.proc.pid]) if pid in table]
 		time.sleep(0.1)
 
 	# Every listed test exactly once, whichever shard ran it.
