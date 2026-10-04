@@ -79,6 +79,38 @@ elif ! grep -q "$LIVE_DEF was dropped by --closed tree shaking" "$WORK/out/run-d
 	fail=1
 fi
 
+# The same binary over two interpreted probes: reading a dropped root answers, using it aborts (NOTES.md).
+probe() {
+	printf '%s\n' "$2" >"$WORK/out/probe-$1.clj"
+	set +e
+	sh -c '"$1" "$2" >"$3" 2>"$4"' sh "$WORK/out/clj-load-dropped" "$WORK/out/probe-$1.clj" \
+		"$WORK/out/probe-$1.txt" "$WORK/out/probe-$1.err" 2>/dev/null
+	echo $? >"$WORK/out/probe-$1.status"
+	set -e
+}
+
+probe read "(def root clojure.core/frequencies)
+(println root (fn? root) (ifn? root) (= root root) (= root :k) (number? (hash root)))"
+probe use "(def root clojure.core/frequencies)
+(get root :k)"
+
+if [ "$(cat "$WORK/out/probe-read.status")" != 0 ]; then
+	tail -5 "$WORK/out/probe-read.err"
+	echo "shake: reading a dropped root is not supposed to abort: printing, fn? and = answer"
+	fail=1
+elif [ "$(cat "$WORK/out/probe-read.txt")" != "#shaken[$LIVE_DEF] false true true false true" ]; then
+	echo "shake: a dropped root reads as '$(cat "$WORK/out/probe-read.txt")', not '#shaken[$LIVE_DEF] false true true false true'"
+	fail=1
+fi
+if [ "$(cat "$WORK/out/probe-use.status")" = 0 ]; then
+	echo "shake: (get root :k) on a dropped root answered instead of aborting"
+	fail=1
+elif ! grep -q "$LIVE_DEF was dropped by --closed tree shaking and the program reached it (get)" "$WORK/out/probe-use.err"; then
+	echo "shake: (get root :k) on a dropped root failed without naming it and the operation:"
+	tail -5 "$WORK/out/probe-use.err"
+	fail=1
+fi
+
 filesize() { wc -c <"$1" | tr -d ' '; }
 total() { cat "$1"/*.c | wc -c | tr -d ' '; }
 printf '\nshake: %s\n' "$APP"

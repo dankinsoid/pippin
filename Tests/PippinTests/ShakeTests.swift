@@ -133,6 +133,25 @@ extension CoreTests {
 			#expect(!clj_var_is_macro(try #require(resolveVar("fixture.shake.run", "dead-macro")).raw))
 		}
 
+		// The slot policy of the tripwire type (NOTES.md, "Compiler"): what answers, and that fn? is not a lie.
+		@Test func aDroppedRootAnswersOnlyWhatInspectsIt() throws {
+			try runShakenUnit("slots")
+			let dead = try #require(resolveVar("fixture.shake.slots", "dead-one"))
+			let root = Value(borrowing: clj_var_root(dead.raw))
+			#expect(root.description == "#shaken[fixture.shake.slots/dead-one]")
+			// fn? is a type-identity test: (fn? @(resolve 'x)) must not claim a dropped def is a function.
+			#expect(clj_fn_p(root.raw) == CLJ_FALSE)
+			#expect(clj_ifn_p(root.raw) == CLJ_TRUE)
+			#expect(clj_equals(root.raw, root.raw))
+			#expect(!clj_equals(root.raw, CLJ_NIL))
+			#expect(clj_hash(root.raw) == clj_hash(root.raw))
+			// Every other predicate reads a bit the type does not claim, so none of them aborts either.
+			#expect(clj_map_p(root.raw) == CLJ_FALSE)
+			#expect(clj_vector_p(root.raw) == CLJ_FALSE)
+			#expect(clj_seqable_p(root.raw) == CLJ_FALSE)
+			#expect(clj_coll_p(root.raw) == CLJ_FALSE)
+		}
+
 		// A namespace of its own, since a shaken unit's init is written to run once (NOTES.md, "Compiler").
 		private func runShakenUnit(_ tag: String) throws {
 			clj_init()

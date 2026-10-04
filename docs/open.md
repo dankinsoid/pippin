@@ -116,7 +116,7 @@ file. 81 open, 84 partly done.
 ### [Compiler (Sources/CljCompiler, Sources/CljCore/compiled.c, boot/core.c)](notes/compiler.md)
 
 - [~] An empty prologue: frames, traces, the guard page, the deadline, instrumentation — … trigger: a compiled `try` around deep compiled recursion in real code, then a recovery point per `try`, one `sigsetjmp` each).
-- [~] What the shaker does not prove, and the tripwire covers. — Trigger: a host or a program that reads core roots reflectively, then a distinct tripwire type whose every operation fails rather than a fn.
+- [~] What the shaker does not prove, and the tripwire covers. — Trigger: a program that catches everything around arithmetic on a core root, then a tag test for the type where number.c tests for a number.
 - [ ] The embedded libs' source is still linked, and that is a separate win. — Trigger: the §10 app's size budget.
 - [~] Tree shaking: what the gate covers and what it costs. — Trigger for both: the §10 app, with a declared entry point and its own build flow.
 - [ ] A shaken unit over a namespace the interpreter has already redefined is a heap-use-after-free. — Trigger: a compiled eval or a REPL that re-runs a shaken unit, neither of which the design has

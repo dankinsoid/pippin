@@ -10,6 +10,7 @@
 #include "clj/hostbox.h"
 #include "clj/hosttype.h"
 #include "clj/record.h"
+#include "clj/shaken.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_message, kw_data, kw_cause;
@@ -323,6 +324,15 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 			put_char(b, ' ');
 			put_symbol_text(b, clj_symbol_ns(name), clj_symbol_name(name));
 		}
+		put_char(b, ']');
+	} else if (clj_is_shaken(v)) {
+		// Printing answers where every use of a shaken root aborts: a pr-str that kills the process makes the var
+		// impossible to inspect at a REPL.
+		clj_value var = clj_shaken_var(v);
+		put_cstr(b, "#shaken[");
+		put_symbol_text(b, CLJ_NIL, clj_symbol_name(clj_var_ns(var)));
+		put_char(b, '/');
+		put_symbol_text(b, CLJ_NIL, clj_symbol_name(clj_var_name(var)));
 		put_char(b, ']');
 	} else if (clj_is_ex_info(v)) {
 		// Printed as a map literal after the tag, so the map frame does the field walk.

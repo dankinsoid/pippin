@@ -12,6 +12,7 @@
 #include "clj/printer.h"
 #include "clj/reader.h"
 #include "clj/set.h"
+#include "clj/shaken.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
@@ -81,19 +82,6 @@ clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic) {
 
 // ---- a def the shaker left out (NOTES.md, "Compiler": tree shaking)
 
-// ctx is the var, immortal, so the tripwire needs no release. Fatal and not a throw: reaching a shaken def is a
-// build bug, and a catch-all in the program must not be able to turn it into a wrong answer.
-static clj_value shaken_tripwire(void *ctx, const clj_value *args, size_t n) {
-	(void)args;
-	(void)n;
-	clj_value var = clj_from_ptr(ctx);
-	char      msg[400];
-	snprintf(msg, sizeof msg, "%s/%s was dropped by --closed tree shaking and the program reached it: the root set missed it (NOTES.md, \"Compiler\": tree shaking)",
-	         clj_string_bytes(clj_symbol_name(clj_var_ns(var))), clj_string_bytes(clj_symbol_name(clj_var_name(var))));
-	clj_fatal(msg);
-	return CLJ_THROWN;
-}
-
 // One map shared by every shaken var, as builtins.c does for :pippin/extension: nothing per def to count.
 static clj_value shaken_meta(void) {
 	static clj_value meta = CLJ_NIL;
@@ -102,9 +90,7 @@ static clj_value shaken_meta(void) {
 }
 
 void clj_c_shaken(clj_value var) {
-	clj_value qualified = clj_symbol_new(clj_symbol_name(clj_var_ns(var)), clj_symbol_name(clj_var_name(var)));
-	clj_value f = clj_fn_native_ctx(qualified, shaken_tripwire, clj_to_ptr(var), NULL, 0, CLJ_ARITY_ANY);
-	clj_release(qualified);
+	clj_value f = clj_shaken_new(var);
 	// Without the bracket a unit's other binds run under, clj_eval_retire_root declines and the old fn root dies early.
 	clj_eval_top_enter();
 	clj_var_bind_root(var, f);
@@ -115,10 +101,7 @@ void clj_c_shaken(clj_value var) {
 	clj_release(f);
 }
 
-bool clj_c_is_shaken(clj_value var) {
-	clj_value root = clj_var_root(var);
-	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_NATIVE_CTX && clj_fn_of(root)->u.native_ctx.fn == shaken_tripwire;
-}
+bool clj_c_is_shaken(clj_value var) { return clj_is_shaken(clj_var_root(var)); }
 
 static clj_value duplicate_key(clj_value result, clj_value key) {
 	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);

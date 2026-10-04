@@ -188,14 +188,36 @@
   which top-level defs of the core half nothing can reach; `flush_pending` then skips them, so their arity
   functions, stubs, constants and `top_N` are never written and their whole init line is `clj_c_shaken(V[k])`.
   **The tripwire is the licence, not the analysis:** a shaken def's var is still interned and carries
-  `:pippin/shaken`, and its root is a native fn whose call is a `clj_fatal` naming it, so a reachability claim
-  this pass got wrong is a named abort and never a missing root or a wrong answer — the one failure mode a shaker
-  must not have. `--no-shake` keeps every def (the before half of a measurement) and `--shake-drop NS/NAME` drops
+  `:pippin/shaken`, and its root is a value of `clj_shaken_type` (shaken.c) whose every use is a `clj_fatal`
+  naming the def, so a reachability claim this pass got wrong is a named abort and never a missing root or a
+  wrong answer — the one failure mode a shaker must not have. `--no-shake` keeps every def (the before half of a measurement) and `--shake-drop NS/NAME` drops
   one however reachable it is, which is how the gate provokes the tripwire. Nothing is shaken in dev, in a set
   without an entry unit (`make boot`), in one without a core or embedded unit (`corpus-compiled --closed`, a
   library alone) or under the compiled eval, and each case prints its reason.
+- **The tripwire is a type, not a fn** (`clj_shaken_type`, `clj_shaken_new` in shaken.c; `clj_c_shaken`,
+  `clj_c_is_shaken` in compiled.c). One immortal object per dropped def, holding its var, of a type whose
+  `core_bits` are `CLJ_CORE_FN` and nothing else: `ifn?` answers true, so a call lands on the invoke slot instead
+  of "not a function", and `fn?` answers false, because `fn?` is a type-identity test (`clj_is_fn`) — so
+  `(fn? @(resolve 'x))` no longer claims a def that is gone is a function. **Inspection answers, use aborts.**
+  Printing is `#shaken[clojure.core/frequencies]` and `=`/`hash` are identity, as an atom's: a `pr-str` or a
+  comparison that kills the process makes the var impossible to look at from a REPL, which turns loudness into an
+  obstacle. Every slot that is a use is a fatal naming the def and the operation: invoke, seq, first, next, rest,
+  count, lookup (`get`), conj, assoc, dissoc, reduce, with-meta. Three uses are not descriptor slots and stay
+  loud-but-catchable throws naming the type: arithmetic (`not_a_number`, a tag test in number.c), `@root` (the
+  `-deref` protocol, which has no impl for the type) and `nth` (no `CLJ_CORE_INDEXED` bit to claim honestly).
+  `ex_message`/`ex_data`/`ex_cause` are left NULL because `clj_ex_message` reaches them only through
+  `CLJ_CORE_ERROR`, a bit the type must not claim, and `meta` is NULL, which answers nil. The root is immortal,
+  so `clj_c_var_borrow` and `eval_borrowed` read it at +0 like a fn root and a call site pays no retain.
 - **The root set**, nine rows, each a check in `shake_candidate` or `shake_run`. 1. A def whose init is not a `fn`:
-  a tripwire root is loud when it is called and not when it is read, so only fn defs are candidates. 2. A def of an
+  a fn's init only builds a closure, while any other init is code that runs at load, and dropping the def drops
+  that run — `(def _ (register!))` left out is an effect that never happens and no later read to trip the wire,
+  which is the one failure the tripwire cannot cover. Measured with the row off over the fixture set: 305
+  candidates instead of 293 but only one more def dropped (`default-data-readers`), core.c 969 618 against
+  971 084 bytes and the release binary 1 528 312 against 1 528 408, 96 bytes (`__text` −1 052, the rest the
+  linker's alignment) — 0.15 % of the core's C and 0.006 % of the binary, against
+  `ShakeTests` losing `(def load-time-result (called-at-load))` and the def it calls, their load-time call gone
+  with nothing printed. So the row stays, for the effects of an init and not, since the type above, for the
+  loudness of a read. 2. A def of an
   entry unit: the program has no declared entry point, so its whole surface is root. 3. `^:dynamic`: `binding`, a
   host binding frame and nREPL reach those by var, and they are read as values. 4. A fusion-table var —
   `clj_fusion_install` caches the root as the guard a FUSED node compares against, so a tripwire there would
@@ -215,21 +237,24 @@
   refuses only `(eval …)` and `(load-string …)` with the var as the literal head, and only in a unit that is not
   core.clj or an embedded lib, so core.clj's own `resolve`, `ns-publics`, `ns-interns` and `load-file` stay
   reachable: four sites in the fixture run, which `--stats` prints with their positions. A program that names a
-  shaken def through one of them aborts with that name. The hole the tripwire leaves open is reading a shaken root
-  as a value without calling it — `(fn? @(resolve 'x))` answers true — which row 1 narrows to the fn defs it is.
-  Trigger: a host or a program that reads core roots reflectively, then a distinct tripwire type whose every
-  operation fails rather than a fn.
+  shaken def through one of them aborts with that name, and since the tripwire became a type of its own, reading
+  the root is as loud as calling it: `(fn? @(resolve 'x))` answers false and the first use of the value aborts.
+  What is left is the three uses that are not descriptor slots — arithmetic, `@root`, `nth` — which throw naming
+  the type `shaken` instead of aborting with the def's name, so a catch-all around one turns a build bug into an
+  ordinary error. Trigger: a program that catches everything around arithmetic on a core root, then a tag test
+  for the type where number.c tests for a number.
 - **Tree shaking: the numbers** (arm64, release, `-Wl,-dead_strip`, the `clj-load` binary over
   `Tests/PippinTests/Fixtures/shake/app.clj`, which is wide on purpose; `make shake` measures the debug shape,
-  `SHAKE_RELEASE=1 sh scripts/shake.sh` this one). §10's "units of MB" was already met un-shaken, so the win is a
-  ratio against the interpreter, not a target reached.
+  `SHAKE_RELEASE=1 sh scripts/shake.sh` this one; the first two rows are `swift build -c release --product
+  clj-load -Xlinker -dead_strip`, the second with `-Xcc -DCLJ_COMPILED_CORE -Xcc -DCLJ_CLOSED`). §10's "units of
+  MB" was already met un-shaken, so the win is a ratio against the interpreter, not a target reached.
 
   | build | binary | `__cljframe` | `__text` | `__cstring` | `__TEXT,__const` |
   | --- | --- | --- | --- | --- | --- |
-  | interpreted | 1 087 832 | — | 551 980 | 28 983 | 175 128 |
-  | the committed `boot/core.c`, all seven libs | 3 104 168 | 1 266 352 | 928 724 | 169 970 | 67 448 |
-  | the app's whole-program closed set, `--no-shake` | 2 451 000 | 899 700 | 808 624 | 116 399 | 67 448 |
-  | the same set, shaken | 1 526 536 | 282 628 | 686 000 | 61 298 | 67 448 |
+  | interpreted | 1 089 496 | — | 553 148 | 29 140 | 175 128 |
+  | the committed `boot/core.c`, all seven libs | 3 106 088 | 1 266 352 | 929 892 | 170 127 | 67 448 |
+  | the app's whole-program closed set, `--no-shake` | 2 452 872 | 899 700 | 809 792 | 116 556 | 67 448 |
+  | the same set, shaken | 1 528 408 | 282 628 | 687 112 | 61 324 | 67 448 |
 
   So the shaking alone is −37.7 % of the binary and −68.6 % of `__cljframe`, which answers where the bytes are:
   `__cljframe` is the compiled frame bodies and it is the whole win, while `__text` loses only the units' `top_N`,
@@ -252,8 +277,12 @@
   the fixture program three times — `--no-shake`, shaken, and shaken with one live def force-dropped — swaps each
   generated boot into an rsync'd copy of the tree, builds `clj-load` with `-DCLJ_COMPILED_CORE -DCLJ_CLOSED` and
   runs it: the shaken run must print exactly what the interpreter and the unshaken run print, and the
-  force-dropped one must abort naming the def. `ShakeTests` decides the nine rows in-process over an `<embedded>/`
-  lib standing in for core.clj, which a test process past `clj_init` cannot put through the hook again. The copy
+  force-dropped one must abort naming the def. The force-dropped binary then runs two interpreted probes over the
+  same shaken core, which is where the tripwire's type is decided end to end: reading the dropped root prints
+  `#shaken[clojure.core/frequencies] false true true false true` (`pr-str`, `fn?`, `ifn?`, two `=`, `hash`) and
+  exits 0, and `(get root :k)` aborts naming the def and the operation. `ShakeTests` decides the nine rows
+  in-process over an `<embedded>/` lib standing in for core.clj, which a test process past `clj_init` cannot put
+  through the hook again, and asserts the same slot policy on a root it binds itself. The copy
   exists because `Package.swift` names `boot/*.c` by path; a real toolchain would put a generated boot in the
   content-addressed cache instead (design §3 «Кэш»). Not covered: the entry unit's own dead code (row 2), and the
   committed `boot/core.c` stays unshaken by construction, so `make test-compiled`, `corpus-compiled` and the bench
