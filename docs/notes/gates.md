@@ -192,7 +192,10 @@
   115→172 s, the same 340 build steps): three x86_64 jobs at once, and a runner in that series ran every suite
   3.4× slower than another; the x86_64 totals of a parallel series measure the runners as much as the gates.
   The stubs cache's hit on x86_64 (run 37200095254) cut `SwiftStubTests` to 10.6 s, against 115–227 s cold, on a
-  runner whose builds were again 1.8× slow (gates total 1340 s).
+  runner whose builds were again 1.8× slow (gates total 1340 s). The last series (`03ec54d`: 37201631342 with
+  both architectures, 37201633260 and 37201635398 arm64 alone; both caches hit): arm64 totals 470, 445 and 652 s
+  (`test` 212, `test-compiled` 140, `corpus-compiled` 88 at the median), x86_64 918 s (`test` 380), its
+  `SwiftStubTests` 6 s off the stub entry another clean x86_64 build saved (run 37199233108).
   What is left: builds, about half of every job; `corpus-compiled` on a miss, its first `dlopen` of each fresh
   unit (the clang over the units now runs in parallel); on arm64 the memory bound (2 ASan shards of ~2 GB).
 - **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests, nightly and by
