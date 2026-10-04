@@ -9,19 +9,33 @@ on:
     paths-ignore: ['docs/**', '**.md']
   pull_request:
     paths-ignore: ['docs/**', '**.md']
+  # x86_64 runs here and when a dispatch asks for both; 23:00 UTC is night in Yerevan.
+  schedule:
+    - cron: '0 23 * * *'
   workflow_dispatch:
     inputs:
+      arches:
+        description: arm64 alone, or both architectures (a change to a per-architecture spot asks for both)
+        type: choice
+        options: [arm64, both]
+        default: arm64
       target:
         description: the make target; a long opt-in one such as test-eval-compiled runs by hand only
         default: gates
       test_timeout:
         description: TEST_TIMEOUT, seconds per build, listing and shard
         default: '1200'
+      suites:
+        description: TEST_SUITES, to rerun a failed shard's suites alone (its report prints them)
+        default: ''
+      shards:
+        description: TEST_SHARDS, the shard count; empty sizes it to the runner
+        default: ''
 
-# A push supersedes its ref's last run; each dispatch is its own group, so a series runs side by side.
+# A push supersedes its ref's last run; each dispatch or nightly run is its own group, so a series runs side by side.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -33,6 +47,8 @@ env:
   HOMEBREW_NO_INSTALL_CLEANUP: 1
   # A cold ASan build alone takes 290 s on the 4-core Intel runner; the Makefile default is sized for an M3.
   TEST_TIMEOUT: ${{ inputs.test_timeout || '1200' }}
+  TEST_SUITES: ${{ inputs.suites }}
+  TEST_SHARDS: ${{ inputs.shards }}
 
 jobs:
   gates:
@@ -42,14 +58,11 @@ jobs:
     timeout-minutes: ${{ (inputs.target || 'gates') == 'gates' && 75 || 340 }}
     strategy:
       fail-fast: false
+      # The x86_64 job takes twice arm64's time and the plan's macOS runners are five: it runs nightly or on asking.
       matrix:
-        include:
-          - arch: arm64
-            runner: macos-26
-            required: true
-          - arch: x86_64
-            runner: macos-26-intel
-            required: true
+        include: ${{ fromJSON((github.event_name == 'schedule' || inputs.arches == 'both')
+          && '[{"arch":"arm64","runner":"macos-26","required":true},{"arch":"x86_64","runner":"macos-26-intel","required":true}]'
+          || '[{"arch":"arm64","runner":"macos-26","required":true}]') }}
     steps:
       - uses: actions/checkout@v7
 

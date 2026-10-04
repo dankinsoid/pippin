@@ -153,19 +153,26 @@
   gates are within run-to-run noise; separate scratch paths mean nothing in `gates` rebuilds anything
   another gate already built. Total: cold about the same (independent scratch paths cost a bit up front),
   warm about 3× faster, which is what a same-day second push pays.
-- **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests and by hand; a push
-  or pull request that touches only `docs/` and Markdown files does not start it. One job per architecture, both required: `macos-26` (arm64, 3 cores, 7 GB) and `macos-26-intel` (x86_64, 4 cores,
-  14 GB); a matrix entry's `required: false` would turn its job back into `continue-on-error`. The x86_64 job
-  became required after consecutive green dispatches on both runners (runs 36989106164, 36992908023,
-  36995366088; about 12 min arm64, 24 min x86_64). Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
+- **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests, nightly and by
+  hand; a push or pull request that touches only `docs/` and Markdown files does not start it. One job per
+  architecture: `macos-26` (arm64, 3 cores, 7 GB) on every trigger, `macos-26-intel` (x86_64, 4 cores, 14 GB)
+  only nightly (`schedule`, 23:00 UTC, on main) and on a dispatch with `arches: both`
+  (`gh workflow run gates.yml --ref <branch> -f arches=both`): its job takes about twice arm64's. **A change to
+  a per-architecture spot of docs/portability.md (asm, `CLJC_SITE`, the struct ABI) dispatches `both` before
+  it merges.** Both jobs are required where they run; a matrix entry's `required: false` would turn its job
+  back into `continue-on-error`. The x86_64 job became required after consecutive green dispatches on both
+  runners (runs 36989106164, 36992908023, 36995366088; about 12 min arm64, 24 min x86_64). Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
   are installed per run, the image's JDK 21 runs it. `TEST_TIMEOUT=1200`: the runners are several times
   slower than the M3 the table above was measured on. The Makefile exports `CLJ_CORPUS_TIMEOUT_MS=60000` for the
   same reason, everywhere: clojure-test-suite's `test-random-sample` takes 4–6 s under ASan alone on a runner,
   and 20.4 s beside three other ASan shards on the x86_64 one (run 37188956209), against the 5 s default
   ("Corpus").
-  A push or pull request cancels its ref's run still in progress; a manual dispatch is a concurrency group of
-  its own, so **a CI series is dispatched all at once** (`for i in 1 2 3; do gh workflow run gates.yml --ref
-  <branch>; done`) and its runs go side by side. Every run uploads `.build/*/shards/` (each shard's log and event
+  A push or pull request cancels its ref's run still in progress; a manual dispatch or a nightly run is a
+  concurrency group of its own, so **a CI series is dispatched all at once** (`for i in 1 2 3; do gh workflow
+  run gates.yml --ref <branch>; done`) and its runs go side by side. The plan runs five macOS jobs at once
+  across the repository, so a series runs fully in parallel only when CI is otherwise idle: in runs
+  37188954183–37188958054 every run started at once, but two x86_64 jobs waited 13 and 15 min for a runner
+  behind other branches' runs. Every run uploads `.build/*/shards/` (each shard's log and event
   stream, and `times.json`) as the artifact `shards-<arch>`.
   Cached: `~/.m2` (api-diff's jars), the SwiftPM
   repository cache, and `.build/corpus-cache`, restored from the newest entry of the architecture and
