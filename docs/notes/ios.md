@@ -137,7 +137,7 @@
   1,086,896 and 3,192,288 — **+20,768 bytes in both modes**, of which the `__text` difference is 648 bytes and the
   rest is `__LINKEDIT` and padding. Device slice: 1,113,312 and 3,202,328 against 1,110,640 and 3,199,648,
   **+2,672 and +2,680**. On disk the `.app` is 1,096 KB interpreted and 3,152 KB compiled (the executable, a
-  1.6 KB `screen.clj`, `Info.plist` and the ad-hoc `_CodeSignature`). So a UIKit application is the same
+  3 KB `screen.clj`, `Info.plist` and the ad-hoc `_CodeSignature`). So a UIKit application is the same
   "1.1 MB interpreted, 3.2 MB with the compiled core" the baseline named: UIKit itself ships with the OS, and the
   screen's own cost is its source file.
 - **Footprint with a screen standing (simulator, two runs per mode).** `phys_footprint` at `main`, before
