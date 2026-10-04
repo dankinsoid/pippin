@@ -1167,11 +1167,13 @@ static clj_value qualified_text(clj_value sym) {
 	return v;
 }
 
-// Java's convention: every throwable class is named FooException or FooError (design, docs/jvm-differences.md).
+// Java's convention: every throwable class is named FooException or FooError (docs/jvm-differences.md). A
+// package-qualified name is excluded: `java.lang.Exception` names a host type and is refused as one.
 static bool is_jvm_throwable_name(clj_value sym) {
 	clj_value   name = clj_symbol_name(sym);
 	const char *n = clj_string_bytes(name);
 	size_t      l = clj_string_len(name);
+	if (memchr(n, '.', l)) return false;
 	return (l > 9 && memcmp(n + l - 9, "Exception", 9) == 0) || (l > 5 && memcmp(n + l - 5, "Error", 5) == 0);
 }
 
