@@ -23,9 +23,10 @@
   complete (`ratio?`, `bigint`, `bigdec`, `numerator`, `rationalize`) and chars are a real type, so the line is
   not drawn inside the file — what does not run there fails per form on a JVM name (`Long/MAX_VALUE`,
   `Math/round`, `unchecked-byte`, `Double/NaN`, `Class/forName`) and is allowlisted with that name. 30 of the
-  file's 44 deftests are lost that way, more than in any other file; the `Long/MAX_VALUE` family alone accounts
-  for 19 across the library, and a namespace `Long` of vars (the shape `Thread/sleep` already has,
-  docs/jvm-differences.md) is what would recover them.
+  file's 44 deftests are lost that way, more than in any other file; the boxed JVM constants (`Long/MAX_VALUE`,
+  `Double/NaN`, `Integer/MAX_VALUE` and their kind) account for 21 deftests of the 76 unloaded forms across the
+  library, and a namespace `Long` of vars (the shape `Thread/sleep` already has, docs/jvm-differences.md) is
+  what would recover them.
 - **`:tests-only true` in a manifest** tells `clj-facts` the library is test code where the name heuristic
   cannot: it counts a library apart when every load-path root is named `test`, and this one's `shim` root
   would have put 111k assertion nodes into the library-code share (docs/facts-coverage.md).
