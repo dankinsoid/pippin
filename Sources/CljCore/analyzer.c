@@ -178,7 +178,7 @@ typedef struct {
 } analyzer;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_arglists, kw_macro, kw_dynamic, kw_file, sym_with_meta;
+static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_macro, kw_dynamic, kw_file, sym_with_meta;
 
 static void intern_keywords(void) {
 	sym_with_meta = clj_symbol_from_cstr("with-meta");
@@ -188,7 +188,6 @@ static void intern_keywords(void) {
 	kw_ns = clj_keyword_from_cstr("ns");
 	kw_name = clj_keyword_from_cstr("name");
 	kw_doc = clj_keyword_from_cstr("doc");
-	kw_arglists = clj_keyword_from_cstr("arglists");
 	kw_macro = clj_keyword_from_cstr("macro");
 	kw_dynamic = clj_keyword_from_cstr("dynamic");
 }
@@ -438,7 +437,7 @@ static bool symbol_is(clj_value sym, const char *name) {
 }
 
 typedef enum {
-	SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_DEFMACRO, SP_RECUR, SP_VAR, SP_TRY, SP_THROW,
+	SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_RECUR, SP_VAR, SP_TRY, SP_THROW,
 	SP_SET, SP_CATCH, SP_FINALLY, SP_RESERVED
 } special;
 
@@ -446,9 +445,9 @@ static const struct {
 	const char *name;
 	special     kind;
 } specials[] = {
-	// let/loop/fn are core.clj macros over the starred forms (destructuring).
+	// let/loop/fn are core.clj macros over the starred forms (destructuring), defmacro a core.clj macro over def.
 	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let*", SP_LET},    {"loop*", SP_LOOP},
-	{"fn*", SP_FN},      {"def", SP_DEF},   {"defmacro", SP_DEFMACRO}, {"recur", SP_RECUR}, {"var", SP_VAR},
+	{"fn*", SP_FN},      {"def", SP_DEF},   {"recur", SP_RECUR}, {"var", SP_VAR},
 	{"try", SP_TRY},     {"throw", SP_THROW},  {"set!", SP_SET},
 	// Clause heads and `&` in params: not forms of their own, but syntax-quote must keep them unqualified.
 	{"catch", SP_CATCH}, {"finally", SP_FINALLY}, {"&", SP_RESERVED},
@@ -1026,6 +1025,9 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	clj_node *node = node_new(a, CLJ_NODE_DEF);
 	node->u.def.var = clj_retain(clj_ns_intern(a->env.ns, name));
 	node->u.def.dynamic = clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_dynamic, CLJ_NIL));
+	// Var.isMacro reads :macro from the var's meta on the JVM, so a def carrying it defines a macro; core.clj
+	// defines defmacro and the macros above it that way (NOTES "Analyzer and evaluator").
+	node->u.def.macro = clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_macro, CLJ_NIL));
 	clj_release(sym_meta);
 	if (name != sym) clj_release(name);
 	clj_value meta_form = def_meta_form(a, sym, node->u.def.var, doc);
@@ -1117,136 +1119,6 @@ static clj_node *analyze_objc_send(analyzer *a, scope *s, const clj_value *items
 		clj_release(clj_from_ptr(node));
 		return NULL;
 	}
-	return node;
-}
-
-// [&form &env params...]
-static clj_value macro_params(analyzer *a, clj_value params) {
-	uint32_t   n;
-	clj_value *syms = seq_items(a, params, &n);
-	if (!syms) return CLJ_THROWN;
-	clj_value *all = zalloc(n + 2, sizeof *all);
-	all[0] = clj_symbol_from_cstr("&form");
-	all[1] = clj_symbol_from_cstr("&env");
-	memcpy(all + 2, syms, n * sizeof *all);
-	clj_value v = clj_vector_from_array(all, n + 2);
-	clj_release(all[0]);
-	clj_release(all[1]);
-	free(all);
-	free(syms);
-	return v;
-}
-
-// @ai-generated(guided)
-// clojure.core/fn once core.clj has defined the macro (params then destructure); fn* while booting before it.
-static clj_value macro_fn_symbol(void) {
-	clj_value fn = clj_symbol_from_cstr("fn");
-	clj_value var = clj_ns_resolve(clj_ns_core(), fn);
-	if (clj_is_nil(var) || !clj_var_is_macro(var)) {
-		clj_release(fn);
-		return clj_symbol_from_cstr("fn*");
-	}
-	clj_value qualified = clj_symbol_new(clj_symbol_name(clj_ns_name(clj_ns_core())), clj_symbol_name(fn));
-	clj_release(fn);
-	return qualified;
-}
-
-typedef struct {
-	clj_value *entries;
-	size_t     n;
-} merge_ctx;
-
-static bool merge_entry(clj_value key, clj_value val, void *ctx) {
-	merge_ctx *c = ctx;
-	c->entries[c->n++] = key;
-	c->entries[c->n++] = val;
-	return true;
-}
-
-// Consumes m: m with every entry of other.
-static clj_value map_merge(clj_value m, clj_value other) {
-	size_t     n = 2 * (size_t)clj_map_count(other);
-	merge_ctx  c = {zalloc(n, sizeof(clj_value)), 0};
-	clj_map_each(other, merge_entry, &c);
-	for (size_t i = 0; i < n; i += 2) m = clj_map_assoc(m, c.entries[i], c.entries[i + 1]);
-	free(c.entries);
-	return m;
-}
-
-// (defmacro name docstring? attr-map? [params] body...) or with ([params] body...)+ arities:
-// a def of the fn with &form and &env prepended to every arity, the var's meta carrying :macro true,
-// :doc, the attr-map's entries and :arglists of the params as written; the var is flagged when the def runs.
-// @ai-generated(guided)
-static clj_node *analyze_defmacro(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
-	if (n < 2 || !clj_is_symbol(items[1])) return fail(a, "First argument to defmacro must be a Symbol");
-	clj_value meta = clj_meta(items[1]);
-	if (clj_is_nil(meta)) meta = clj_map_empty();
-	uint32_t i = 2;
-	if (i < n && clj_is_string(items[i])) meta = clj_map_assoc(meta, kw_doc, items[i++]);
-	if (i < n && is_map(items[i])) meta = map_merge(meta, items[i++]);
-	if (i >= n) {
-		clj_release(meta);
-		return fail(a, "Parameter declaration missing");
-	}
-	clj_value *fn_items = zalloc(n - i + 1, sizeof *fn_items);
-	clj_value *arglists = zalloc(n - i, sizeof *arglists);
-	uint32_t   nfn = 0, nargs = 0;
-	fn_items[nfn++] = macro_fn_symbol();
-	bool ok = true;
-	if (clj_is_vector(items[i])) {
-		fn_items[nfn++] = macro_params(a, items[i]);
-		ok = fn_items[nfn - 1] != CLJ_THROWN;
-		arglists[nargs++] = items[i];
-		for (uint32_t j = i + 1; j < n; j++) fn_items[nfn++] = clj_retain(items[j]);
-	} else {
-		for (uint32_t j = i; j < n && ok; j++) {
-			clj_value arity = items[j];
-			clj_value head = clj_is_seq(arity) ? clj_first(arity) : CLJ_NIL;
-			if (head == CLJ_THROWN) {
-				ok = false;
-				break;
-			}
-			if (clj_is_vector(head)) {
-				clj_value params = macro_params(a, head);
-				clj_value body = clj_rest(arity);
-				if (params == CLJ_THROWN || body == CLJ_THROWN) {
-					ok = false;
-				} else {
-					arity = clj_cons_new(params, body);
-					arglists[nargs++] = head;
-				}
-				clj_release(params);
-				clj_release(body);
-			} else {
-				clj_retain(arity); // analyze_fn reports the malformed arity
-			}
-			clj_release(head);
-			if (ok) fn_items[nfn++] = arity;
-		}
-	}
-	if (!ok) {
-		for (uint32_t j = 0; j < nfn; j++) clj_release(fn_items[j]);
-		free(fn_items);
-		free(arglists);
-		clj_release(meta);
-		return NULL;
-	}
-	clj_value lists = clj_list_from_array(arglists, nargs), quoted_lists = quoted(lists);
-	meta = clj_map_assoc(meta, kw_arglists, quoted_lists);
-	meta = clj_map_assoc(meta, kw_macro, CLJ_TRUE);
-	clj_release(lists);
-	clj_release(quoted_lists);
-	free(arglists);
-	clj_value fn_form = clj_list_from_array(fn_items, nfn);
-	for (uint32_t j = 0; j < nfn; j++) clj_release(fn_items[j]);
-	free(fn_items);
-	clj_value sym = clj_with_meta(clj_retain(items[1]), meta);
-	clj_release(meta);
-	clj_value def_items[3] = {items[0], sym, fn_form};
-	clj_node *node = analyze_def(a, s, def_items, 3);
-	clj_release(sym);
-	clj_release(fn_form);
-	if (node) node->u.def.macro = true;
 	return node;
 }
 
@@ -1463,7 +1335,6 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_LOOP: node = analyze_let(a, s, items, n, tail, true); break;
 	case SP_FN: node = analyze_fn(a, s, items, n); break;
 	case SP_DEF: node = analyze_def(a, s, items, n); break;
-	case SP_DEFMACRO: node = analyze_defmacro(a, s, items, n); break;
 	case SP_RECUR: node = analyze_recur(a, s, items, n, tail); break;
 	case SP_VAR: node = analyze_var(a, items, n); break;
 	case SP_TRY: node = analyze_try(a, s, items, n); break;

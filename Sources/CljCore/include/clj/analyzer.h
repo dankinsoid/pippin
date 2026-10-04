@@ -142,7 +142,7 @@ struct clj_node {
 			clj_value       var;
 			const clj_node *init;    // NULL for (def x)
 			const clj_node *meta;    // the var's meta: the symbol's meta plus :ns :name :line :column, evaluated at def time
-			bool            macro;   // defmacro
+			bool            macro;   // :macro true in the symbol's meta (defmacro puts it there)
 			bool            dynamic; // :dynamic in the symbol's meta
 		} def;
 		struct {

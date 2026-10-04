@@ -1,8 +1,10 @@
 ;; @ai-generated(guided)
 ;; Order matters: a macro must be defined before the first form that uses it.
 ;; Docstrings land in the var's :doc; a helper defined with def (above defn) carries a comment instead.
-;; Up to the `fn` macro only let*/loop*/fn* and the macros above a form are available;
-;; defmacro emits fn* until `fn` is a macro, so those macro params cannot destructure.
+;; Up to the `fn` macro only let*/loop*/fn* and the macros above a form are available.
+;; defmacro is itself a macro, defined below defn: above it a macro is a def of an fn* taking &form and
+;; &env, with :macro true in the var's meta (that entry is what makes a var a macro, as it does on the
+;; JVM). Those params go through fn*, so they cannot destructure.
 
 ;; A lazy seq of the elements of every coll, left to right.
 ;; Syntax-quote expands ~@ to (seq (concat ...)), so concat precedes every macro and is written
@@ -28,36 +30,43 @@
                           nil))))))]
        (cat (concat x y) zs)))))
 
-(defmacro lazy-seq
-  "Yields a seq that evaluates body on its first realization and caches the result."
-  [& body]
-  `(lazy-seq* (fn* [] ~@body)))
+(def ^{:doc "Yields a seq that evaluates body on its first realization and caches the result."
+       :arglists '([& body])
+       :macro true}
+  lazy-seq
+  (fn* [&form &env & body] `(lazy-seq* (fn* [] ~@body))))
 
-(defmacro when
-  "Evaluates body in an implicit do when test is logical true, else nil."
-  [test & body]
-  `(if ~test (do ~@body)))
+(def ^{:doc "Evaluates body in an implicit do when test is logical true, else nil."
+       :arglists '([test & body])
+       :macro true}
+  when
+  (fn* [&form &env test & body] `(if ~test (do ~@body))))
 
-(defmacro when-not
-  "Evaluates body in an implicit do when test is logical false, else nil."
-  [test & body]
-  `(if ~test nil (do ~@body)))
+(def ^{:doc "Evaluates body in an implicit do when test is logical false, else nil."
+       :arglists '([test & body])
+       :macro true}
+  when-not
+  (fn* [&form &env test & body] `(if ~test nil (do ~@body))))
 
-(defmacro if-not
-  "Like if with the branches swapped: then is evaluated when test is logical false."
-  ([test then] `(if-not ~test ~then nil))
-  ([test then else] `(if ~test ~else ~then)))
+(def ^{:doc "Like if with the branches swapped: then is evaluated when test is logical false."
+       :arglists '([test then] [test then else])
+       :macro true}
+  if-not
+  (fn* ([&form &env test then] `(if-not ~test ~then nil))
+       ([&form &env test then else] `(if ~test ~else ~then))))
 
-(defmacro cond
-  "Takes test/expr pairs and yields the expr of the first logical-true test, or nil
+(def ^{:doc "Takes test/expr pairs and yields the expr of the first logical-true test, or nil
   when none passes. :else is the conventional last test."
-  [& clauses]
-  (when clauses
-    `(if ~(first clauses)
-       ~(if (next clauses)
-          (second clauses)
-          (throw (ex-info "cond requires an even number of forms" {})))
-       (cond ~@(next (next clauses))))))
+       :arglists '([& clauses])
+       :macro true}
+  cond
+  (fn* [&form &env & clauses]
+    (when clauses
+      `(if ~(first clauses)
+         ~(if (next clauses)
+            (second clauses)
+            (throw (ex-info "cond requires an even number of forms" {})))
+         (cond ~@(next (next clauses)))))))
 
 ;; Clojure's destructure: bindings for let* with nested forms expanded to nth/get, or the
 ;; input itself when every binding form is already a symbol. Not supported: a keyword as a
@@ -168,31 +177,35 @@
       (throw (ex-info (str what " requires an even number of forms in binding vector") nil))
       nil)))
 
-(defmacro let
-  "binding => binding-form init-expr. Evaluates body with every binding-form
+(def ^{:doc "binding => binding-form init-expr. Evaluates body with every binding-form
   destructured against its init-expr, each visible to the ones after it."
-  [bindings & body]
-  (check-bindings "let" bindings)
-  `(let* ~(destructure bindings) ~@body))
+       :arglists '([bindings & body])
+       :macro true}
+  let
+  (fn* [&form &env bindings & body]
+    (check-bindings "let" bindings)
+    `(let* ~(destructure bindings) ~@body)))
 
 ;; Destructured bindings are re-bound to gensyms so recur still targets the loop.
-(defmacro loop
-  "Like let, and a recursion point that recur rebinds with as many args as there are bindings."
-  [bindings & body]
-  (check-bindings "loop" bindings)
-  (let* [db (destructure bindings)]
-    (if (= db bindings)
-      `(loop* ~bindings ~@body)
-      (loop* [i 0 bfs [] gs [] bs []]
-        (if (< i (count bindings))
-          (let* [b (nth bindings i)
-                 v (nth bindings (inc i))
-                 g (if (symbol? b) b (gensym))]
-            (recur (+ i 2)
-                   (if (symbol? b) (conj bfs g v) (conj bfs g v b g))
-                   (conj gs g g)
-                   (conj bs b g)))
-          `(let ~bfs (loop* ~gs (let ~bs ~@body))))))))
+(def ^{:doc "Like let, and a recursion point that recur rebinds with as many args as there are bindings."
+       :arglists '([bindings & body])
+       :macro true}
+  loop
+  (fn* [&form &env bindings & body]
+    (check-bindings "loop" bindings)
+    (let* [db (destructure bindings)]
+      (if (= db bindings)
+        `(loop* ~bindings ~@body)
+        (loop* [i 0 bfs [] gs [] bs []]
+          (if (< i (count bindings))
+            (let* [b (nth bindings i)
+                   v (nth bindings (inc i))
+                   g (if (symbol? b) b (gensym))]
+              (recur (+ i 2)
+                     (if (symbol? b) (conj bfs g v) (conj bfs g v b g))
+                     (conj gs g g)
+                     (conj bs b g)))
+            `(let ~bfs (loop* ~gs (let ~bs ~@body)))))))))
 
 ;; Params with every non-symbol replaced by a gensym, destructured by a let wrapped around body.
 (def ^:private maybe-destructured
@@ -208,63 +221,114 @@
           (list* new-params body)
           (list new-params `(let ~lets ~@body)))))))
 
-(defmacro fn
-  "(fn name? [params*] body) or (fn name? ([params*] body)+). fn* plus destructuring
+(def ^{:doc "(fn name? [params*] body) or (fn name? ([params*] body)+). fn* plus destructuring
   in the parameter vectors; name, when given, is in scope in the body."
-  [& sigs]
-  (let* [name (if (symbol? (first sigs)) (first sigs) nil)
-         sigs (if name (next sigs) sigs)
-         sigs (if (vector? (first sigs))
-                (list sigs)
-                (if (seq? (first sigs))
-                  sigs
-                  (throw (ex-info (if (seq sigs)
-                                    (str "Parameter declaration " (first sigs) " should be a vector")
-                                    "Parameter declaration missing")
-                                  nil))))
-         psig (fn* [sig]
-                (if (seq? sig)
-                  nil
-                  (throw (ex-info (str "Invalid signature " sig " should be a list") nil)))
-                (let* [params (first sig)]
-                  (if (vector? params)
+       :arglists '([& sigs])
+       :macro true}
+  fn
+  (fn* [&form &env & sigs]
+    (let* [name (if (symbol? (first sigs)) (first sigs) nil)
+           sigs (if name (next sigs) sigs)
+           sigs (if (vector? (first sigs))
+                  (list sigs)
+                  (if (seq? (first sigs))
+                    sigs
+                    (throw (ex-info (if (seq sigs)
+                                      (str "Parameter declaration " (first sigs) " should be a vector")
+                                      "Parameter declaration missing")
+                                    nil))))
+           psig (fn* [sig]
+                  (if (seq? sig)
                     nil
-                    (throw (ex-info (str "Parameter declaration " params " should be a vector") nil)))
-                  (maybe-destructured params (next sig))))
-         new-sigs (loop* [s (seq sigs) acc []]
-                    (if s
-                      (recur (next s) (conj acc (psig (first s))))
-                      acc))]
-    (if name
-      (list* 'fn* name new-sigs)
-      (list* 'fn* new-sigs))))
+                    (throw (ex-info (str "Invalid signature " sig " should be a list") nil)))
+                  (let* [params (first sig)]
+                    (if (vector? params)
+                      nil
+                      (throw (ex-info (str "Parameter declaration " params " should be a vector") nil)))
+                    (maybe-destructured params (next sig))))
+           new-sigs (loop* [s (seq sigs) acc []]
+                      (if s
+                        (recur (next s) (conj acc (psig (first s))))
+                        acc))]
+      (if name
+        (list* 'fn* name new-sigs)
+        (list* 'fn* new-sigs)))))
 
-;; The param vectors of an fdecl, one per arity, as the :arglists value.
+;; The param vectors of an fdecl, one per arity, as the :arglists value. A macro's implicit
+;; &form/&env are not part of its arglist, as in Clojure.
 (def ^:private sigs
   (fn* [fdecl]
-    (if (seq? (first fdecl))
-      (loop* [ret [] fdecls (seq fdecl)]
-        (if fdecls
-          (recur (conj ret (first (first fdecls))) (next fdecls))
-          (seq ret)))
-      (list (first fdecl)))))
+    (let* [asig (fn* [params]
+                  ;; A params that is not a vector is fn's error to report, not ours.
+                  (if (vector? params)
+                    (if (= '&form (nth params 0 nil)) (into [] (next (next params))) params)
+                    params))]
+      (if (seq? (first fdecl))
+        (loop* [ret [] fdecls (seq fdecl)]
+          (if fdecls
+            (recur (conj ret (asig (first (first fdecls)))) (next fdecls))
+            (seq ret)))
+        (list (asig (first fdecl)))))))
 
-(defmacro defn
-  "(defn name docstring? attr-map? [params] body... attr-map?) or with ([params] body...)+ arities.
+(def ^{:doc "(defn name docstring? attr-map? [params] body... attr-map?) or with ([params] body...)+ arities.
   Same as (def name (fn ...)) with the docstring, the attr-maps and :arglists added to the var's metadata."
-  [name & fdecl]
+       :arglists '([name & fdecl])
+       :macro true}
+  defn
+  (fn* [&form &env name & fdecl]
+    (when-not (symbol? name)
+      (throw (ex-info "First argument to defn must be a symbol" nil)))
+    (let [m (if (string? (first fdecl)) {:doc (first fdecl)} {})
+          fdecl (if (string? (first fdecl)) (next fdecl) fdecl)
+          m (if (map? (first fdecl)) (conj m (first fdecl)) m)
+          fdecl (if (map? (first fdecl)) (next fdecl) fdecl)
+          fdecl (if (vector? (first fdecl)) (list fdecl) fdecl)
+          m (if (map? (last fdecl)) (conj m (last fdecl)) m)
+          fdecl (if (map? (last fdecl)) (butlast fdecl) fdecl)
+          m (conj {:arglists (list 'quote (sigs fdecl))} m)
+          m (conj (if (meta name) (meta name) {}) m)]
+      (list 'def (with-meta name m) (cons `fn fdecl)))))
+
+;; The chicken-and-egg of a macro-defining macro, closed as ClojureScript closes it: an ordinary fn whose
+;; var carries :macro true. The arities grow the implicit &form/&env; defn adds the rest of the metadata.
+(defn defmacro
+  "Like defn, but the var is marked a macro: the analyzer expands its calls instead of compiling them,
+  passing the call form and the (always nil) local environment as the implicit params &form and &env."
+  {:arglists '([name doc-string? attr-map? [params*] body]
+               [name doc-string? attr-map? ([params*] body)+ attr-map?])
+   :macro true}
+  [&form &env name & args]
   (when-not (symbol? name)
-    (throw (ex-info "First argument to defn must be a symbol" nil)))
-  (let [m (if (string? (first fdecl)) {:doc (first fdecl)} {})
-        fdecl (if (string? (first fdecl)) (next fdecl) fdecl)
-        m (if (map? (first fdecl)) (conj m (first fdecl)) m)
-        fdecl (if (map? (first fdecl)) (next fdecl) fdecl)
+    (throw (ex-info "First argument to defmacro must be a symbol" nil)))
+  (let [prefix (loop [p (list (with-meta name (conj (if (meta name) (meta name) {}) {:macro true})))
+                      args args]
+                 (let [f (first args)]
+                   (if (string? f)
+                     (recur (cons f p) (next args))
+                     (if (map? f)
+                       (recur (cons f p) (next args))
+                       p))))
+        fdecl (loop [fd args]
+                (if (string? (first fd))
+                  (recur (next fd))
+                  (if (map? (first fd))
+                    (recur (next fd))
+                    fd)))
         fdecl (if (vector? (first fdecl)) (list fdecl) fdecl)
-        m (if (map? (last fdecl)) (conj m (last fdecl)) m)
-        fdecl (if (map? (last fdecl)) (butlast fdecl) fdecl)
-        m (conj {:arglists (list 'quote (sigs fdecl))} m)
-        m (conj (if (meta name) (meta name) {}) m)]
-    (list 'def (with-meta name m) (cons `fn fdecl))))
+        add-implicit-args (fn [fd] (cons (into ['&form '&env] (first fd)) (next fd)))
+        add-args (fn [acc ds]
+                   (if (nil? ds)
+                     acc
+                     (let [d (first ds)]
+                       (if (map? d)
+                         (conj acc d)
+                         (recur (conj acc (add-implicit-args d)) (next ds))))))
+        fdecl (seq (add-args [] fdecl))
+        decl (loop [p prefix d fdecl]
+               (if p
+                 (recur (next p) (cons (first p) d))
+                 d))]
+    (cons `defn decl)))
 
 (defmacro and
   "Evaluates its args left to right and returns the first logical-false one, or the

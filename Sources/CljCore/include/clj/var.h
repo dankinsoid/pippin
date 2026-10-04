@@ -11,7 +11,7 @@ typedef struct {
 	clj_value         name; // symbol
 	_Atomic clj_value root; // CLJ_UNBOUND until the first def
 	_Atomic clj_value meta; // map or nil; published like root
-	bool              macro; // set by defmacro, cleared by def; the analyzer expands calls through such vars
+	bool              macro; // :macro true in the def's meta, as Var.isMacro reads it on the JVM; the analyzer expands calls through such vars
 	bool              dynamic; // :dynamic true in the def's meta: deref looks at the thread's bindings first
 	_Atomic uint32_t  thread_bound; // live thread bindings across all threads; 0 lets deref skip the frame lookup
 	_Atomic uint32_t  epoch; // 0 until the first root bind, then bumped by every one: the guard a cached summary holds (facts.h)

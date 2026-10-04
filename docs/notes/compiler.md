@@ -226,8 +226,8 @@
   *pass* the guard and run a fused `map` whose `map` is gone. 5. An intrinsic-table var: `clj_intrinsics_install`
   is fatal without a native root (those names are C builtins and not core.clj defs today; the row keeps the
   invariant). 6. A name the runtime or the host resolves itself, `core_roots[]` with a citation per row:
-  `global-hierarchy` (error.c `clj_isa_install`), `-deref` (builtins.c `core_method`), `fn` (analyzer.c
-  `macro_fn_symbol`, whose macro flag decides run-time destructuring), `host-async-fn` (Pippin/Async.swift),
+  `global-hierarchy` (error.c `clj_isa_install`), `-deref` (builtins.c `core_method`), `host-async-fn`
+  (Pippin/Async.swift),
   `*print-length*`/`*print-level*` (printer.c), `*data-readers*`/`*default-data-reader-fn*` (runtime.c),
   `*ns*`/`*file*`, and `*1 *2 *3 *e *in*` (CljNREPL/ReplVars.swift). 7. Reachable from a root, through a VAR node,
   an INVOKE head, an INTRINSIC's var, a FUSED node's guard vars, a `catch` clause's type var, a `(var x)` constant

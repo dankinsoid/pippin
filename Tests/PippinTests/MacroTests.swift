@@ -85,13 +85,34 @@ extension CoreTests {
 				#expect(try eval("#'mt-unless").description == "#'user/mt-unless")
 				#expect(try eval("(var mt-unless)") == eval("#'user/mt-unless"))
 				#expect(message("(var mt-nope)") == "Unable to resolve var: mt-nope in this context")
-				#expect(message("(defmacro)") == "First argument to defmacro must be a Symbol")
+				#expect(message("(defmacro)") == "Wrong number of args (2) passed to: clojure.core/defmacro")
+				#expect(message("(defmacro 1 [])") == "First argument to defmacro must be a symbol")
 				#expect(message("(defmacro mt-x)") == "Parameter declaration missing")
-				#expect(message("(defmacro mt-x 1)") == "Parameter declaration 1 should be a vector")
-				#expect(message("(defmacro mt-x (1))") == "Parameter declaration 1 should be a vector")
+				// What the JVM reports as the cause too: defmacro conses &form/&env onto the params it was given.
+				#expect(message("(defmacro mt-x 1)") == "Don't know how to create ISeq from: long")
+				#expect(message("(defmacro mt-x (1))") == "Don't know how to create ISeq from: long")
 				// A macro used before its definition is an unresolved symbol (design: defmacro strictly before use).
 				#expect(message("(mt-later 1) (defmacro mt-later [x] x)") == "Unable to resolve symbol: mt-later in this context")
 				try unbind("mt-unless", "mt-unless2", "mt-echo", "mt-env", "mt-forever", "mt-id", "mt-arities", "mt-doc")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// defmacro is a var in clojure.core, defined in core.clj over def and fn, not a special form.
+		@Test func defmacroIsAVar() throws {
+			clj_init()
+			for k in ["macro", "arglists", "doc", "name"] { _ = Value(keyword: k) }
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try eval("(resolve 'defmacro)").description == "#'clojure.core/defmacro")
+				#expect(try eval("#'clojure.core/defmacro").description == "#'clojure.core/defmacro")
+				#expect(try eval("(:macro (meta #'defmacro))") == true)
+				#expect(try eval("(special-symbol? 'defmacro)") == false)
+				#expect(try eval("`defmacro") == Value(symbol: "clojure.core/defmacro"))
+				#expect(try eval("(count (:arglists (meta #'defmacro)))") == 2)
+				#expect(try eval("(string? (:doc (meta #'defmacro)))") == true)
+				// The implicit params are not part of a macro's arglist, as in Clojure.
+				#expect(try eval("(:arglists (meta #'when))") == Value(reading: "([test & body])"))
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

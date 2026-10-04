@@ -3213,7 +3213,6 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 static const char *const core_roots[] = {
     "global-hierarchy",                           // error.c clj_isa_install, fatal when missing
     "-deref",                                     // builtins.c core_method: the deref builtin's user-type fallback
-    "fn",                                         // analyzer.c macro_fn_symbol: the macro flag decides run-time destructuring
     "host-async-fn",                              // Pippin/Async.swift, behind a precondition
     "*print-length*", "*print-level*",            // printer.c print_var
     "*data-readers*", "*default-data-reader-fn*", // runtime.c core_var_value

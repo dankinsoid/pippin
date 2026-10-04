@@ -66,10 +66,16 @@
   `macroexpand-1` of `(let ...)` yields `let*` and syntax-quote qualifies them to `clojure.core/let`.
   The analyzer's messages for the starred forms still say `let`/`loop` (`(let* [a] a)` reports
   "let requires an even number of forms"); Clojure says "Bad binding form". Trigger: nobody.
-- [~] **`defmacro` emits `clojure.core/fn` once that macro exists, `fn*` before** (`macro_fn_symbol`):
-  macros defined in core.clj above the `fn` macro (`when`, `cond`, ...) cannot destructure their
-  params. Trigger: a `[bindings & body]`-style macro that wants `[[x y] & body]` up there; move it
-  below `fn` or write the `first`/`second` by hand.
+- **A macro is a var whose meta carries `:macro true`**, which is all the JVM keeps too (`Var.isMacro`
+  reads that entry): `analyze_def` takes the def node's flag from the def'd symbol's meta, and
+  `(def ^{:macro true} m (fn [&form &env x] x))` defines a macro there and here alike. So `defmacro`
+  is not a special form but core.clj's own macro over `def`/`defn`, as ClojureScript closes the same
+  bootstrap; it expands to a `defn` whose name carries `:macro true` and whose arities grow the implicit
+  `&form`/`&env`, which `sigs` elides from `:arglists`.
+- **The macros above `defmacro` in core.clj are defs of a bare `fn*`** — `lazy-seq`, `when`, `when-not`,
+  `if-not`, `cond`, `let`, `loop`, `fn`, `defn`, each writing out `&form`/`&env` and `:doc`/`:arglists`,
+  as Clojure's own core.clj writes its pre-`defmacro` window. Their params go through `fn*`, so they
+  cannot destructure: a `[[x y] & body]`-style macro belongs below `defmacro`, which every later macro is.
 - [~] **Var meta follows Clojure minus `:file`**, and `:ns` is the namespace's *symbol*, not a Namespace
   object (there is no `ns-name`; `(str (:ns m))` prints the same). `def` evaluates the symbol's meta
   map as a form, so `^{:tag String}` resolves `String` to the descriptor and an unresolvable symbol in
