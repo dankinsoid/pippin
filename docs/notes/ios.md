@@ -73,7 +73,7 @@
   allocates `class_getInstanceSize` bytes and leaves `object_getIndexedIvars` reading past the object. Not done:
   a reify shape whose instances the host may allocate (a real ivar for the state, or an `+alloc` of our own).
   Trigger: an API that takes a class where an instance will not do; the window lifecycle is not one.
-- **The screen is Clojure and UIKit is level 1** (`scripts/ios-app/screen.clj`, 50 lines). A `UIWindow` over a
+- **The screen is Clojure and UIKit is level 1** (`scripts/ios-app/screen.clj`, 56 lines). A `UIWindow` over a
   `UIViewController`, a monospaced `UILabel` and a `UIButton` in a centred `UIStackView` held by two
   `NSLayoutConstraint` anchors. The button's target is an `objc-reify` of one method (`"tap:" "v@:@"`) doing
   `(swap! taps inc)`, and the label is an `add-watch` on that atom (design §4 «Подписки»): the text is re-read
@@ -84,6 +84,12 @@
   string into `setText:` and an `NSString` return read as one, `false` as a `BOOL`, an `NSArray` of handles
   through `ns-array` into `initWithArrangedSubviews:` and `activateConstraints:`, a selector as the string
   `"tap:"`, and two `objc-block`s for the timers.
+- **The main carrier is UIKit's own run loop.** The shell calls `clj_sched_main_install` on the main thread
+  before `UIApplicationMain`, and `(a/go-main (a/<! (a/timeout 200)) (swap! taps + 10))` from the screen runs
+  when the app's run loop turns: the atom's watch sets the label from inside the coroutine and the screen reads
+  `taps: 13`. So the `CFRunLoopSource` carrier of `sched.c` needs no run loop of its own in an app — UIKit's is
+  the one it was designed for, and a `go-main` body may touch the view tree because it is on the main thread by
+  construction.
 - **A UIKit target is unretained, so the Clojure handle is the only owner.**
   `addTarget:action:forControlEvents:` does not retain its target, so the reified object and the timer blocks are
   parked in an atom: releasing the wrapper is the instance's `dealloc`, and the next tap would message a freed
@@ -134,14 +140,15 @@
   1.6 KB `screen.clj`, `Info.plist` and the ad-hoc `_CodeSignature`). So a UIKit application is the same
   "1.1 MB interpreted, 3.2 MB with the compiled core" the baseline named: UIKit itself ships with the OS, and the
   screen's own cost is its source file.
-- **Footprint with a screen standing (simulator, two runs each).** `phys_footprint` at `main`, which is before
+- **Footprint with a screen standing (simulator, two runs per mode).** `phys_footprint` at `main`, before
   `UIApplicationMain` and with UIKit only mapped: 11.1–11.6 MB, against the bare probe's ~10 MB. `clj_init` then
-  costs **+5.7–6.0 MB interpreted and +1.2–1.3 MB compiled**, the probe's figures to the tenth of a megabyte in a
-  real app. Loading `screen.clj` costs +0.2 MB interpreted and +0.3–0.7 MB compiled. With the window up and three
-  taps delivered the process is **41–42 MB interpreted and 36–37 MB compiled**: UIKit's own +23 MB for a window,
-  a view controller and a text layout dwarfs the 4.6 MB the two core modes differ by. The number that matters for
-  §10 is still the boot one; the one that matters for jetsam is that a trivial screen is already 36 MB, and
-  almost none of it is ours.
+  costs **+5.7–6.2 MB interpreted and +1.05–1.3 MB compiled**, the probe's own figures inside a real app.
+  Loading `screen.clj`, whose `ns` requires `clojure.core.async`, costs +1.7 MB interpreted and +0.8–0.9 MB
+  compiled — the library's source is analyzed either way, since `require` reads it even with the compiled units
+  registered. With the window up, three taps delivered and the `go-main` body run, the process is **45.4–45.5 MB
+  interpreted and 39.5–39.7 MB compiled**: UIKit's own ~26 MB for a window, a view controller and a text layout
+  dwarfs the 6 MB the two core modes differ by. The number §10 asks for is still the boot one; the number that
+  matters for jetsam is that a trivial screen is already 39 MB, and almost none of it is ours.
 - [~] **No device run, and the only thing still missing is a profile.** The bundle exists now, installs and
   launches on the simulator (above); the device slice of the same `.app` comes out of
   `sh scripts/ios-app.sh <mode> iphoneos` unsigned, and `sign_device` there embeds a profile, takes the

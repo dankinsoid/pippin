@@ -1,5 +1,6 @@
 ;; One screen through the level-1 ObjC bridge alone: no reconciler, no Swift (design §5, docs/notes/ios.md).
-(ns pippin.screen)
+(ns pippin.screen
+  (:require [clojure.core.async :as a]))
 
 (def taps (atom 0))
 
@@ -40,7 +41,12 @@
 (defn- self-test! []
   (let [{:keys [button label]} @live]
     (dotimes [_ 3] (.send-actions-for-control-events button 64))
-    (println "screen: after three taps, label =" (pr-str (.text label)) "atom =" @taps)))
+    (println "screen: after three taps, label =" (pr-str (.text label)) "atom =" @taps)
+    ;; The main carrier is UIKit's own run loop, so a go-main body may touch the view tree.
+    (a/go-main
+      (a/<! (a/timeout 200))
+      (swap! taps + 10)
+      (println "screen: after go-main, label =" (pr-str (.text label)) "atom =" @taps))))
 
 (defn- after [seconds f]
   (.scheduled-timer-with-time-interval (objc-class "NSTimer") seconds :repeats false
