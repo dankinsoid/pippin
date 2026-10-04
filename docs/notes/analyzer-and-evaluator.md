@@ -135,6 +135,12 @@
 - **Debug live counts are per type as well** (`clj_debug_live_objects_of`, `clj_debug_live_report`
   prints `type: count` for non-zero types): a 1024-slot table keyed by descriptor pointer, slots
   never freed, so a dead deftype descriptor keeps its slot and a reused address inherits its count.
+- **An unresolved `catch` name ending in `Exception` or `Error` takes every thrown value**, as `Throwable`
+  does (`is_jvm_throwable_name`, analyzer.c). Java names every throwable class that way, which is what tells
+  a JVM class with no counterpart here from a typo; the name is tried as a var first, so a type of ours wins.
+  What it is worth: one `(is (thrown? IllegalArgumentException ...))` clause used to refuse the whole deftest
+  around it, and 24 deftests of Clojure's own suite were lost that way, 20 of which pass
+  (docs/notes/corpus.md, docs/jvm-differences.md).
 - **`catch` takes a fourth kind, `CLJ_CATCH_KEYWORD`, for any keyword but `:default`**: matched at
   unwind by `clj_ex_isa(thrown, c->keyword)` (eval.c), `isa?`'s scalar case reimplemented in C rather
   than called — a catch selector is always a bare keyword literal (design §4, "Селектор держать

@@ -1110,6 +1110,29 @@ static void compare_expr(char *buf, size_t cap, unbox_op op, const char *a, ukin
 // ---- pools from nodes
 
 static size_t var_index(unit *u, clj_value var);
+// The reader puts a position on every list it reads, and a constant's printed form carries no metadata at all,
+// so only metadata beyond that position has to be rebuilt in the unit (design §3 «Инвариант: язык не меняется»).
+static bool meta_is_position_only(clj_value m) {
+	if (clj_is_nil(m)) return true;
+	if (!clj_is_map(m)) return false;
+	uint32_t n = clj_map_count(m);
+	uint32_t positions = 0;
+	static const char *const keys[] = {"line", "column", "file", "end-line", "end-column"};
+	for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+		if (clj_map_contains(m, clj_keyword_from_cstr(keys[i]))) positions++;
+	}
+	return positions == n;
+}
+
+static bool const_carries_meta(clj_value v) {
+	clj_value m = clj_meta(v);
+	bool      carries = !meta_is_position_only(m);
+	clj_release(m);
+	return carries;
+}
+
+static bool const_expr(fnctx *f, clj_value v, sb *out);
+
 static bool   const_ok(clj_value v);
 
 // A pool entry's init is a C expression: the reader over the printed form, or, for a collection holding vars (the
@@ -1137,6 +1160,23 @@ static bool const_expr(fnctx *f, clj_value v, sb *out) {
 		sb_printf(out, "V[%zu]", var_index(f->u, v));
 		return true;
 	}
+	if (const_carries_meta(v)) {
+		clj_value m = clj_meta(v);
+		clj_value bare = clj_with_meta(clj_retain(v), CLJ_NIL);
+		if (bare == CLJ_THROWN) {
+			clj_release(clj_take_pending());
+			clj_release(m);
+			return false;
+		}
+		sb_puts(out, "clj_c_with_meta(");
+		bool ok = const_expr(f, bare, out);
+		sb_puts(out, ", ");
+		ok = const_expr(f, m, out) && ok;
+		sb_puts(out, ")");
+		clj_release(bare);
+		clj_release(m);
+		return ok;
+	}
 	if (const_ok(v)) {
 		clj_value text = clj_pr_str(v);
 		if (text == CLJ_THROWN) {
@@ -1149,7 +1189,8 @@ static bool const_expr(fnctx *f, clj_value v, sb *out) {
 		clj_release(text);
 		return true;
 	}
-	const char *ctor = clj_is_vector(v) ? "clj_vector_from_array" : clj_is_map(v) ? "clj_c_map_literal" : clj_is_set(v) ? "clj_c_set_literal" : clj_is_list(v) ? "clj_list_from_array" : NULL;
+	// Any seq builds a list: that is what the text path's reader hands back for one anyway.
+	const char *ctor = clj_is_vector(v) ? "clj_vector_from_array" : clj_is_map(v) ? "clj_c_map_literal" : clj_is_set(v) ? "clj_c_set_literal" : clj_is_seq(v) ? "clj_list_from_array" : NULL;
 	if (!ctor) return false;
 	sb_printf(out, "%s((clj_value[]){", ctor);
 	items_ctx c = {f, out, true, 0};
@@ -1221,6 +1262,8 @@ static bool const_ok_item(clj_value item, void *ctx) {
 static bool const_ok_entry(clj_value k, clj_value v, void *ctx) { return const_ok_item(k, ctx) && const_ok_item(v, ctx); }
 
 static bool const_ok(clj_value v) {
+	// Metadata is not in the printed form, so a value carrying any goes through const_expr's with-meta instead.
+	if (const_carries_meta(v)) return false;
 	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v) || clj_is_regex(v) || clj_is_uuid(v) || clj_is_inst(v)) return true;
 	bool ok = true;
 	if (clj_is_vector(v)) clj_vector_each(v, const_ok_item, &ok);

@@ -1,9 +1,42 @@
 ## Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)
 
-- **What is vendored**: `corpus/medley` (medley.core and its test, EPL) and `corpus/clojure-test-suite`
-  (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0), each with a `SOURCE`
-  (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
+- **What is vendored**: `corpus/medley` (medley.core and its test, EPL), `corpus/clojure-test-suite`
+  (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0) and
+  `corpus/clojure-core-tests` (nine files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0), each with a
+  `SOURCE` (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
+- **Clojure's own suite: what is in and what is out.** `corpus/clojure-core-tests` holds the nine files design
+  §10 names — `sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`, `string`, `numbers` —
+  at tag `clojure-1.12.6`, the version `docs/api-parity.md` diffs against, plus `test/clojure/test_helper.clj`,
+  which four of them `:use`. Unmodified, headers kept. The rule for the rest of `test_clojure/`: a file is in
+  only when its subject is the language or `clojure.core`/`clojure.string`, so out go the host files
+  (`java_interop`, `reflect`, `genclass`, `proxy/`, `param_tags`, `method_thunks`, `annotations`,
+  `array_symbols`, `data_structures_interop`, `serialization`, `streams`, `generated_*`), the JVM concurrency
+  files (`agents`, `refs`, `parallel`), the compiler and tooling files (`compilation`, `main`, `repl`, `server`,
+  `rt`, `api`, `pprint`, `run_single_test`, `test`, `test_fixtures`) and the files for libraries this core does
+  not carry (`clojure_xml`, `clojure_zip`, `reducers`, `generators`). The rest are portable and not yet taken:
+  `atoms`, `clearing`, `clojure_set`, `clojure_walk`, `data`, `delays`, `edn`, `errors`, `evaluation`, `for`,
+  `keywords`, `math`, `metadata`, `multimethods`, `ns_libs`, `other_functions`, `parse`, `predicates`,
+  `printer`, `protocols`, `reader`, `special`, `transducers`, `transients`, `try_catch`, `vars`, `vectors`,
+  `volatiles`.
+- **`numbers` is taken whole, not partially**, which design §10's "частично" allowed for: the numeric tower is
+  complete (`ratio?`, `bigint`, `bigdec`, `numerator`, `rationalize`) and chars are a real type, so the line is
+  not drawn inside the file — what does not run there fails per form on a JVM name (`Long/MAX_VALUE`,
+  `Math/round`, `unchecked-byte`, `Double/NaN`, `Class/forName`) and is allowlisted with that name. 30 of the
+  file's 44 deftests are lost that way, more than in any other file; the `Long/MAX_VALUE` family alone accounts
+  for 19 across the library, and a namespace `Long` of vars (the shape `Thread/sleep` already has,
+  docs/jvm-differences.md) is what would recover them.
+- **The shims under `corpus/clojure-core-tests/shim/` are ours, not Clojure's.** Four of the nine files require
+  namespaces the JVM test tooling supplies, and a failing `(ns ...)` form takes the whole file down where a
+  failing body form costs one deftest, so each is stood in for: `clojure.data.generators` and
+  `clojure.test-clojure.generators` (generators over an own xorshift64, not core's `rand` — the harness runs
+  every test twice and compares the verdicts), `clojure.test.generative` (its `defspec` needs a runner of its
+  own, so `test-ns` runs none of them on the JVM either; here it becomes a `deftest` of 20 rounds, which is how
+  `numbers`' five arithmetic-law specs run at all), `clojure.test.check.*` (a property is a fn of the size, no
+  shrinking) and an empty `clojure.test-clojure.protocols`, which `def.clj` `:use`s and refers nothing from.
+  `gen/symbol` and `gen/keyword` are left out of the EDN-able scalars: `data_structures` picks from that vector
+  with core's `rand-nth`, and interning a fresh name is permanent, so a differing pick would move the
+  second-run live count.
 - **The harness** (`CorpusTests`) runs by default: `make corpus`, `CLJ_CORPUS_LIB=medley`
   for one library, `CLJ_CORPUS_UPDATE=1` to rewrite `corpus/<lib>/allowlist.edn` and `docs/corpus.md` from the
   run. It sets the load path and reader features from the manifest, requires every test namespace under
@@ -25,8 +58,11 @@
   the allowlists and docs/corpus.md. Gate timings, including the corpus, are in "Gates".
 - **`:second-run-live-objects` is not always zero**: the suite's own `letfn` leaves a reference cycle per call
   (the volatile cell holds the fn, the fn's body derefs the cell), which RC cannot free — 2 objects per
-  `letfn` call, 4 for the two namespaces that use one. The number is recorded per library and checked, so a
-  runtime leak still fails; design §7's trial deletion is what would collect it.
+  `letfn` call, 4 for the two namespaces that use one and 36 for medley, of which the last 4 arrived with
+  `test-mapply` and its two `letfn`s once that test started running. The number is recorded per library and
+  checked, so a runtime leak still fails; design §7's trial deletion is what would collect it. `clojure-core-tests` is at 0, which is also what made its generators
+  deterministic: a generated symbol or keyword interns permanently, so a differing pick between the two runs
+  showed up as a live object and the number moved from run to run.
 - **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
   reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
   section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run

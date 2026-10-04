@@ -10,3 +10,8 @@
 (show (type #"x") (uuid? #uuid "550e8400-e29b-41d4-a716-446655440000") (inst? #inst "2020-01-02T03:04:05.000-00:00"))
 (show (quote (a b c)) (quote [x y]) (quote {:k v}) (identical? :kw :kw) (= 'sym 'sym) (= "юникод ☃" (str "юникод" " " "☃")))
 (show (let [big 12345678901234567890N] (+ big 1)) (+ 1/3 2/3) (* 2.5 2) (count "юникод ☃"))
+
+;; Metadata beyond the reader's position is not in a constant's printed form: the pool rebuilds it (compiler.c).
+(show (meta (quote ^:dynamic p)) (meta (second (second (quote (do (declare ^:dynamic p) p))))))
+(show (meta (:k (quote {:k ^{:tag long} v}))) (meta (first (quote [^{:a 1 :b "two"} x]))))
+(show (meta (first (quote (^:private f 1)))) (mapv meta (quote [^:a x ^:b y])))

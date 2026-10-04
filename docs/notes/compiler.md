@@ -163,6 +163,15 @@
   generator refuses too. `(var x)` constants are `V[]` entries. The filled `K[]` is published
   (`clj_c_publish`: shared, then immortal, as the keyword table's entries): every execution running the unit
   reads it, where the interpreter's constants are shared through the def of the fn whose tree holds them.
+- **A constant's metadata is not in its printed form**, so the pool rebuilds it: `clj_c_with_meta` over the
+  bare value and its meta map, and `const_ok` refuses the text path for any value carrying metadata so that a
+  collection with a meta'd element goes through the constructors instead (`meta_is_position_only`,
+  compiler.c). The reader's own `:line`/`:column`/`:file` are the exception — every list it reads carries
+  them, they are of no use in a compiled unit, and wrapping each one would cost the pool a map; a quoted
+  list's position is therefore still nil in the compiled backend and set in the interpreted one. Without any
+  of this `'^:dynamic p` inside a quoted form lost its `:dynamic` silently, which is how
+  `clojure.test-clojure.def/nested-dynamic-declaration` failed compiled and passed interpreted
+  (docs/notes/corpus.md); `Fixtures/compiler/const.clj` is the regression.
 - **Dev and closed** are one generated text: `CLJC_GUARD(var, boot)` is the intrinsic guard (`root ==
   boot builtin`, else `clj_c_intrinsic_fallback` through `clj_invoke`) and `CLJC_FUSED` the fusion guard
   (`clj_fusion_guard`, else the original program), both `1` under `CLJ_CLOSED`; every INVOKE whose head is a

@@ -1,0 +1,13 @@
+;; Listed, not scanned: a scan would also test the shims and the two support files.
+{:name "clojure-core-tests"
+ :load-path ["shim" "test"]
+ :features #{}
+ :test-namespaces [clojure.test-clojure.control
+                   clojure.test-clojure.data-structures
+                   clojure.test-clojure.def
+                   clojure.test-clojure.fn
+                   clojure.test-clojure.logic
+                   clojure.test-clojure.macros
+                   clojure.test-clojure.numbers
+                   clojure.test-clojure.sequences
+                   clojure.test-clojure.string]}

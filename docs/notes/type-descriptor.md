@@ -173,9 +173,11 @@
   `conj` on a cons drops it (Clojure's `PersistentList` keeps it, `Cons` does not — the `clj_list`
   wrapper below fixes that too). Equality, hash and the printer ignore meta (no `*print-meta*`).
 - [ ] **The seq views carry no meta slot**: `with-meta` on a vector-seq, string-seq, range or lazy-seq
-  throws "does not support metadata", where Clojure's `IObj` seqs copy themselves with the map.
-  Trigger: a library calling `(with-meta (seq x) ...)` or `(vary-meta (lazy-seq ...) ...)`. Fix: a
-  meta field on each view, or the CLJ_FLAG_META trailing word as for cons.
+  throws "does not support metadata", where Clojure's `IObj` seqs copy themselves with the map. The
+  trigger has fired: Clojure's own `clojure.test-clojure.sequences/range-meta` asks for it over all six
+  `range` arities, and `test-sort-retains-meta` for `(sort (with-meta (range 10) {:a true}))`
+  (docs/notes/corpus.md, docs/jvm-differences.md, a **Fix** row). Fix: a meta field on each view, or the
+  CLJ_FLAG_META trailing word as for cons.
 - **`nth` special-cases strings by type** rather than a slot: a string has `lookup`/`count` slots
   but no ILookup/Indexed bits, as `RT.get`/`RT.nth` special-case `String`.
 

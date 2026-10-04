@@ -1167,6 +1167,14 @@ static clj_value qualified_text(clj_value sym) {
 	return v;
 }
 
+// Java's convention: every throwable class is named FooException or FooError (design, docs/jvm-differences.md).
+static bool is_jvm_throwable_name(clj_value sym) {
+	clj_value   name = clj_symbol_name(sym);
+	const char *n = clj_string_bytes(name);
+	size_t      l = clj_string_len(name);
+	return (l > 9 && memcmp(n + l - 9, "Exception", 9) == 0) || (l > 5 && memcmp(n + l - 5, "Error", 5) == 0);
+}
+
 // @ai-generated(guided)
 static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 	if (clj_is_keyword(cls)) {
@@ -1206,6 +1214,12 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 		return true;
 	}
 	clj_value var = clj_ns_resolve(a->env.ns, cls);
+	// A name that resolves to nothing and ends in Exception or Error is a JVM class with no counterpart here,
+	// so it takes every thrown value, as Throwable does; a type of that name still wins, being resolved first.
+	if (clj_is_nil(var) && is_jvm_throwable_name(cls)) {
+		c->kind = CLJ_CATCH_ALL;
+		return true;
+	}
 	if (clj_is_nil(var)) return fail_form(a, "Unable to resolve classname: %s", cls) != NULL;
 	c->kind = CLJ_CATCH_TYPE;
 	c->selector = clj_retain(var);

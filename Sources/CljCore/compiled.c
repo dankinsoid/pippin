@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "clj/compiled.h"
+#include "clj/coll.h"
 #include "clj/core.h"
 #include "clj/error.h"
 #include "clj/fn.h"
@@ -18,6 +19,13 @@
 #include "clj/var.h"
 #include "compiled_internal.h"
 #include "node.h"
+
+clj_value clj_c_with_meta(clj_value v, clj_value meta) {
+	clj_value r = clj_with_meta(v, meta);
+	clj_release(meta);
+	if (r == CLJ_THROWN) clj_fatal("compiled constant cannot carry metadata");
+	return r;
+}
 
 clj_value clj_c_const(const char *edn, size_t len) {
 	clj_reader r;

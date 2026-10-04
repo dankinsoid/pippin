@@ -365,7 +365,7 @@
     (if forms
       (let [form (first forms)
             threaded (if (seq? form)
-                       `(~(first form) ~x ~@(next form))
+                       (with-meta `(~(first form) ~x ~@(next form)) (meta form))
                        (list form x))]
         (recur threaded (next forms)))
       x)))
@@ -377,7 +377,7 @@
     (if forms
       (let [form (first forms)
             threaded (if (seq? form)
-                       `(~(first form) ~@(next form) ~x)
+                       (with-meta `(~(first form) ~@(next form) ~x) (meta form))
                        (list form x))]
         (recur threaded (next forms)))
       x)))
@@ -1308,8 +1308,9 @@
 (defn cycle
   "Returns a lazy infinite seq of repetitions of the items in coll."
   [coll]
-  (let [step (fn step [s] (lazy-seq (if s (cons (first s) (step (next s))) (step (seq coll)))))]
-    (lazy-seq (when (seq coll) (step (seq coll))))))
+  ;; rest, not next: next would realize the item after the one being asked for.
+  (let [step (fn step [s] (lazy-seq (if-let [s (seq s)] (cons (first s) (step (rest s))) (step coll))))]
+    (lazy-seq (when (seq coll) (step coll)))))
 
 (defn repeatedly
   "Returns a lazy seq of calls to f, endlessly or n times."

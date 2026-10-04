@@ -76,13 +76,14 @@
 (defn trim-newline
   "Removes every trailing newline or return character from s."
   [s]
-  (loop [index (count s)]
-    (if (zero? index)
-      ""
-      (let [ch (nth s (dec index))]
-        (if (or (= ch \newline) (= ch \return))
-          (recur (dec index))
-          (subs s 0 index))))))
+  (let [s (text s)]
+    (loop [index (count s)]
+      (if (zero? index)
+        ""
+        (let [ch (nth s (dec index))]
+          (if (or (= ch \newline) (= ch \return))
+            (recur (dec index))
+            (subs s 0 index)))))))
 
 (defn blank?
   "True when s is nil, empty, or only whitespace."

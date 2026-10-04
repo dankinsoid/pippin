@@ -3,7 +3,7 @@
 The language contract is JVM Clojure's, checked by the corpus (`docs/corpus.md`). Every known
 difference is listed here in one of three classes, so that a deliberate choice is never mistaken for
 an unfinished one. NOTES.md carries the mechanism behind each entry; this page carries the decision.
-A closed difference is deleted, not kept, so the page is the open list. No **Fix** row is open.
+A closed difference is deleted, not kept, so the page is the open list. The two **Fix** rows open are the ones Clojure's own test suite found (docs/notes/corpus.md).
 
 - **Fix** — visible to portable core-only code; the gap is against the contract and closes when its
   trigger fires or sooner.
@@ -28,7 +28,10 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 |---|---|---|
 | `transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error | Deliberate | The in-place path on a unique value is the transient (design §6b); a transient-shaped code path works unchanged. `(instance? clojure.lang.IEditableCollection x)` still answers as on the JVM — a core bit on the hash map, the vector and the hash set — because libraries branch on it. |
 | `seq` of a map, set or sorted collection is an eager list | Deferred | Trigger: `first` on a big map in a profile. |
+| A map literal or small `hash-map` seqs in this runtime's own order, not the JVM's insertion order: `(seq {1 1, 2 2})` is `([2 2] [1 1])` | Deliberate | A hash map's seq order is unspecified in Clojure; the JVM's comes from `PersistentArrayMap` keeping the literal's order up to eight keys, which a shape map does not have (NOTES.md, "Shapes"). Code that depends on it is relying on a representation. |
 | Sorted `dissoc` walks the tree twice | Deferred | LLRB deletion needs a present key; trigger: a delete-heavy profile. |
+| `with-meta` on a vector-seq, string-seq, `range` or lazy seq throws; Clojure's `IObj` seqs copy themselves with the map | Fix | Trigger fired: `clojure.test-clojure.sequences/range-meta` and `test-sort-retains-meta` (NOTES.md, "Type descriptor": the seq views carry no meta slot). |
+| A sorted collection accepts a key nothing compares it against: `(sorted-map () 1)` answers `{() 1}` where the JVM throws | Fix | `(compare () 1)` does throw here, so only the one-key insert is missing the check (NOTES.md, "Sorted"). |
 | `compare` returns −1/0/1 only and orders strings by code point | Deliberate | The JVM's char or length difference is an implementation leak, and UTF-16 unit order differs from code point order only between an astral char and U+E000–U+FFFF. |
 | `(hash record)` is the map hash of its content, not xor'd with the type name | Deliberate | `=` already separates a record from a map and from another record type, so sharing a hash costs collisions and never an answer; one entry mix (map.c) serves both representations. |
 | A `defrecord` body implements protocols only; a core interface in it is refused | Deferred | Every slot behind a core interface is the record's own, and a trampoline over it would break the map contract `record?` promises. Trigger: a library putting `IFn` or `IExceptionInfo` on a record. |
@@ -59,10 +62,11 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 | Difference | Class | Decision |
 |---|---|---|
 | `def` is eager | Deferred | Design §4 lazy `def`; trigger: load-time cost of a namespace. |
-| `catch` knows five class names (`:default`, `Throwable`, `Exception`, …) and no class hierarchy | Deliberate | There is no Java class hierarchy; `ex-info` and host errors are the two kinds. |
+| `catch` takes `:default`, `Throwable`, `Exception`, `Object`, `ExceptionInfo`, a keyword, a type of ours, a host type, and any unresolved name ending in `Exception` or `Error`; the last takes every thrown value, and there is no class hierarchy | Deliberate | There is no Java class hierarchy; `ex-info` and host errors are the two kinds. Java's naming convention is what tells a JVM throwable class from a typo, and a type of that name still wins, being resolved first. Without it one `(is (thrown? IllegalArgumentException …))` clause refused the whole deftest around it: 24 of Clojure's own deftests, 20 of which pass (docs/notes/corpus.md). |
 | Error messages are Clojure-like, not identical; type names are the runtime's | Deliberate | Tests that match on message text are the corpus's problem, not the runtime's. |
 | `^:private` is a resolve-time rule only; `#'ns/x` and `resolve` still reach the var | Deliberate | Same as JVM Clojure in practice. |
 | `letfn` leaves a reference cycle per call | Deferred | Closed by design §7 trial deletion. |
+| A quoted list's reader position (`:line`, `:column`, `:file`) is nil in the compiled backend and set in the interpreted one; any other metadata of a quoted form is kept by both | Deliberate | Wrapping every quoted list in a `with-meta` over a position map would cost the constant pool a map per list for information a compiled unit has no use for (NOTES.md, "Compiler": pools). |
 
 ## Strings and the reader
 
