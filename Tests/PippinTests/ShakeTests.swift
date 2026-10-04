@@ -76,100 +76,103 @@ private func shakeRun(closed: Bool = true, app: Bool = true, noShake: Bool = fal
 	return ShakeRun(report: report, dropped: dropped, kept: kept, text: libText)
 }
 
-@Suite(.serialized) struct ShakeTests {
-	@Test func dropsOnlyWhatNothingReaches() throws {
-		let r = try shakeRun()
-		#expect(r.report.ran)
-		// Nothing names these, and nothing names what the first one calls.
-		#expect(r.dropped == ["fixture.shake.lib/dead-caller", "fixture.shake.lib/chain-dead", "fixture.shake.lib/dead-leaf",
-		                      "fixture.shake.lib/only-a-macro"])
-		// Row 7 through the app, and one hop further.
-		#expect(r.kept.contains("fixture.shake.lib/reached-from-app"))
-		#expect(r.kept.contains("fixture.shake.lib/chain-live"))
-		// Row 8: only a quoted symbol in a live def's init names it.
-		#expect(r.kept.contains("fixture.shake.lib/named-by-symbol"))
-		// Rows 1, 3, 9, and a def a load-time form calls.
-		#expect(r.kept.contains("fixture.shake.lib/not-a-fn"))
-		#expect(r.kept.contains("fixture.shake.lib/*dyn-fn*"))
-		#expect(r.kept.contains("fixture.shake.lib/twice-defined"))
-		#expect(r.kept.contains("fixture.shake.lib/called-at-load"))
-		// Row 2: the program has no declared entry point, so its own defs all stay.
-		#expect(r.kept.contains("fixture.shake.app/app-own-def"))
-		#expect(r.text.contains("clj_c_shaken"))
-	}
-
-	@Test func devDropsNothing() throws {
-		let r = try shakeRun(closed: false)
-		#expect(!r.report.ran)
-		#expect(r.dropped.isEmpty)
-		#expect(!r.text.contains("clj_c_shaken"))
-		#expect(String(cString: r.report.skipped!).contains("dev mode"))
-	}
-
-	@Test func noEntryUnitDropsNothing() throws {
-		let r = try shakeRun(app: false)
-		#expect(!r.report.ran)
-		#expect(r.dropped.isEmpty)
-		#expect(String(cString: r.report.skipped!).contains("no entry unit"))
-	}
-
-	@Test func noShakeDropsNothing() throws {
-		let r = try shakeRun(noShake: true)
-		#expect(!r.report.ran)
-		#expect(r.dropped.isEmpty)
-		#expect(!r.text.contains("clj_c_shaken"))
-	}
-
-	// The fatal itself is scripts/shake.sh's to provoke; here the var, its meta and its tripwire root.
-	@Test func aDroppedVarKeepsItsVarAndTripwire() throws {
-		try runShakenUnit("run")
-		let dead = try #require(resolveVar("fixture.shake.run", "dead-one"))
-		#expect(clj_c_is_shaken(dead.raw))
-		#expect(Value(borrowing: clj_var_meta(dead.raw)).description.contains(":pippin/shaken"))
-		let live = try #require(resolveVar("fixture.shake.run", "live-one"))
-		#expect(!clj_c_is_shaken(live.raw))
-		#expect(!clj_var_is_macro(try #require(resolveVar("fixture.shake.run", "dead-macro")).raw))
-	}
-
-	// A namespace of its own, since a shaken unit's init is written to run once (NOTES.md, "Compiler").
-	private func runShakenUnit(_ tag: String) throws {
-		clj_init()
-		var opts = cljc_options()
-		opts.line = false
-		opts.closed = true
-		let c = cljc_new(&opts)!
-		defer { cljc_free(c) }
-		cljc_begin(c)
-		let file = "<embedded>/fixture/shake_\(tag).clj"
-		let lib = """
-		(ns fixture.shake.\(tag))
-		(defn live-one [x] x)
-		(defn dead-one [x] x)
-		(defmacro dead-macro [x] x)
-		"""
-		let app = "(ns fixture.shake.\(tag)app)\n(def r (fixture.shake.\(tag)/live-one 1))\n"
-		_ = try capturingOutput {
-			try loadFixtureSource(lib, file: file)
-			try loadFixtureSource(app, file: "Tests/PippinTests/Fixtures/shake/\(tag)-app.clj")
+// Under CoreTests, whose .serialized is what keeps these allocations out of another suite's live-object window.
+extension CoreTests {
+	@Suite(.serialized) struct ShakeTests {
+		@Test func dropsOnlyWhatNothingReaches() throws {
+			let r = try shakeRun()
+			#expect(r.report.ran)
+			// Nothing names these, and nothing names what the first one calls.
+			#expect(r.dropped == ["fixture.shake.lib/dead-caller", "fixture.shake.lib/chain-dead", "fixture.shake.lib/dead-leaf",
+			                      "fixture.shake.lib/only-a-macro"])
+			// Row 7 through the app, and one hop further.
+			#expect(r.kept.contains("fixture.shake.lib/reached-from-app"))
+			#expect(r.kept.contains("fixture.shake.lib/chain-live"))
+			// Row 8: only a quoted symbol in a live def's init names it.
+			#expect(r.kept.contains("fixture.shake.lib/named-by-symbol"))
+			// Rows 1, 3, 9, and a def a load-time form calls.
+			#expect(r.kept.contains("fixture.shake.lib/not-a-fn"))
+			#expect(r.kept.contains("fixture.shake.lib/*dyn-fn*"))
+			#expect(r.kept.contains("fixture.shake.lib/twice-defined"))
+			#expect(r.kept.contains("fixture.shake.lib/called-at-load"))
+			// Row 2: the program has no declared entry point, so its own defs all stay.
+			#expect(r.kept.contains("fixture.shake.app/app-own-def"))
+			#expect(r.text.contains("clj_c_shaken"))
 		}
-		cljc_end(c)
-		var index = -1
-		for i in 0..<cljc_unit_count(c) where String(cString: cljc_unit_file(c, i)) == file { index = Int(i) }
-		try #require(index >= 0)
-		let text = cljc_unit_text(c, index, nil)!
-		defer { free(text) }
-		#expect(String(cString: text).contains("clj_c_shaken"))
-		var o = cljc_eval_options()
-		o.root = UnsafePointer(jitRootPath)
-		o.dir = UnsafePointer(jitDirPath)
-		o.closed = true
-		guard let unit = cljc_load_dylib(&o, "fixture_shake_\(tag)", String(cString: text)) else { throw ClojureError.takePending() }
-		clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
-		_ = try capturingOutput {
-			let path = Value(file)
-			let r = withExtendedLifetime(path) { clj_load_file(path.raw) }
-			if r == CLJ_THROWN { throw ClojureError.takePending() }
-			clj_release(r)
+
+		@Test func devDropsNothing() throws {
+			let r = try shakeRun(closed: false)
+			#expect(!r.report.ran)
+			#expect(r.dropped.isEmpty)
+			#expect(!r.text.contains("clj_c_shaken"))
+			#expect(String(cString: r.report.skipped!).contains("dev mode"))
+		}
+
+		@Test func noEntryUnitDropsNothing() throws {
+			let r = try shakeRun(app: false)
+			#expect(!r.report.ran)
+			#expect(r.dropped.isEmpty)
+			#expect(String(cString: r.report.skipped!).contains("no entry unit"))
+		}
+
+		@Test func noShakeDropsNothing() throws {
+			let r = try shakeRun(noShake: true)
+			#expect(!r.report.ran)
+			#expect(r.dropped.isEmpty)
+			#expect(!r.text.contains("clj_c_shaken"))
+		}
+
+		// The fatal itself is scripts/shake.sh's to provoke; here the var, its meta and its tripwire root.
+		@Test func aDroppedVarKeepsItsVarAndTripwire() throws {
+			try runShakenUnit("run")
+			let dead = try #require(resolveVar("fixture.shake.run", "dead-one"))
+			#expect(clj_c_is_shaken(dead.raw))
+			#expect(Value(borrowing: clj_var_meta(dead.raw)).description.contains(":pippin/shaken"))
+			let live = try #require(resolveVar("fixture.shake.run", "live-one"))
+			#expect(!clj_c_is_shaken(live.raw))
+			#expect(!clj_var_is_macro(try #require(resolveVar("fixture.shake.run", "dead-macro")).raw))
+		}
+
+		// A namespace of its own, since a shaken unit's init is written to run once (NOTES.md, "Compiler").
+		private func runShakenUnit(_ tag: String) throws {
+			clj_init()
+			var opts = cljc_options()
+			opts.line = false
+			opts.closed = true
+			let c = cljc_new(&opts)!
+			defer { cljc_free(c) }
+			cljc_begin(c)
+			let file = "<embedded>/fixture/shake_\(tag).clj"
+			let lib = """
+			(ns fixture.shake.\(tag))
+			(defn live-one [x] x)
+			(defn dead-one [x] x)
+			(defmacro dead-macro [x] x)
+			"""
+			let app = "(ns fixture.shake.\(tag)app)\n(def r (fixture.shake.\(tag)/live-one 1))\n"
+			_ = try capturingOutput {
+				try loadFixtureSource(lib, file: file)
+				try loadFixtureSource(app, file: "Tests/PippinTests/Fixtures/shake/\(tag)-app.clj")
+			}
+			cljc_end(c)
+			var index = -1
+			for i in 0..<cljc_unit_count(c) where String(cString: cljc_unit_file(c, i)) == file { index = Int(i) }
+			try #require(index >= 0)
+			let text = cljc_unit_text(c, index, nil)!
+			defer { free(text) }
+			#expect(String(cString: text).contains("clj_c_shaken"))
+			var o = cljc_eval_options()
+			o.root = UnsafePointer(jitRootPath)
+			o.dir = UnsafePointer(jitDirPath)
+			o.closed = true
+			guard let unit = cljc_load_dylib(&o, "fixture_shake_\(tag)", String(cString: text)) else { throw ClojureError.takePending() }
+			clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
+			_ = try capturingOutput {
+				let path = Value(file)
+				let r = withExtendedLifetime(path) { clj_load_file(path.raw) }
+				if r == CLJ_THROWN { throw ClojureError.takePending() }
+				clj_release(r)
+			}
 		}
 	}
 }

@@ -233,9 +233,11 @@
 
   So the shaking alone is −37.7 % of the binary and −68.6 % of `__cljframe`, which answers where the bytes are:
   `__cljframe` is the compiled frame bodies and it is the whole win, while `__text` loses only the units' `top_N`,
-  pools and dispatchers. Against the committed compiled core the two halves of a whole-program build stack to
-  −50.8 % (compiling only the libs the entry requires is the other half), and the compiled core goes from 2.85× the
-  interpreter's binary to 1.40×. The set has 354 top-level defs, 293 of them candidates by rows 1–6, of which 219
+  pools and dispatchers. Within one set the compiled core goes from 2.25× the interpreter's binary to 1.40×; against
+  the committed `boot/core.c`, which carries all seven libs, the two halves of a whole-program build stack to
+  −50.8 % (compiling only the libs the entry requires is the other half) and 2.85× becomes 1.40×.
+
+  The set has 354 top-level defs, 293 of them candidates by rows 1–6, of which 219
   are dropped and 135 defs kept; `core.c` itself is 3 512 588 → 971 084 bytes. No single def dominates what is left
   — the biggest survivors are `MultiFn` 2 845 C bytes, `Eduction` 1 887, `Delay` 1 881, `global-hierarchy` 1 223,
   `default-data-readers` 898, then the `-methods`/`-get-method`/`-prefer-method`/`-prefers`/`-deref` protocol
