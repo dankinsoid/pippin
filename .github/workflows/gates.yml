@@ -115,7 +115,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: shards-${{ matrix.arch }}
-          path: .build/*/shards/
+          path: .build/*/shards
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: ignore
 
