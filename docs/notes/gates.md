@@ -8,16 +8,19 @@
   through `clj-load`, the C-only host, to see a `catch` clause naming a host type refused out loud. The runner prints wall seconds and exit status per step,
   stops on the first failure, and prints the total on success. Even `make -j gates` keeps that order.
   Put JVM Clojure on PATH (`/opt/homebrew/bin` for Homebrew); `api-diff` also resolves the core.async jar it
-  dumps, so the first run of it needs the network and later ones the Maven cache. Every Makefile `swift test` is bounded by
-  `timeout -k 5 $(TEST_TIMEOUT)`, 500 seconds unless overridden; GNU coreutils supplies `timeout` on macOS. Keep long
+  dumps, so the first run of it needs the network and later ones the Maven cache. `TEST_TIMEOUT`, 500 seconds unless
+  overridden, bounds every Makefile `swift test`: the shard runner bounds its build, its listing and each shard by it
+  ("Shards"), the corpus targets go through `timeout -k 5`, which GNU coreutils supplies on macOS. Keep long
   runs in background logs. SwiftPM passes the test helper's output on in lumps (~16 KB, 64 KB with the XCTest
   pass every run now skips, NOTES "Guard"), and a run killed by the bound loses what it held. So a test still
   running after 300 s (`CLJ_TEST_HANG_S`) prints its name, `clj_debug_sched_dump` and a one-second `sample` of
-  every thread to stderr and ends the process (exit 3): the exit delivers everything.
+  every thread to stderr and ends the process (exit 3): the exit delivers everything. Under the shard runner
+  that is per shard, and the runner prints the report from the shard's log.
 - **`make gates-full` adds `test-isolated` and `test-compiled-asan`.** Run it weekly and after changes to
   allocation/RC, boot, compiler emission, or suite initialization/lifetimes. `test-isolated` retains one
   process per suite: an incorrect live-object baseline can pass when another suite initialized it first.
-  It is periodic because that startup cost repeats for every suite. All live-object assertions also remain
+  It is periodic because that startup cost repeats for every suite; the shard runner (`--isolated`) runs as
+  many of those processes side by side as it would run shards. All live-object assertions also remain
   active in the ordinary full-suite and corpus runs.
 - **A live-object baseline is taken with the runtime settled.** `clj_debug_runtime_settle` (sched.c) waits
   until no coroutine lives beyond the target, no timer with a context is pending or firing (a timeout's
@@ -85,6 +88,11 @@
   hits too. A hit opens the existing dylibs at the same paths without invoking `clj-compile` or clang;
   it still registers every unit, runs both test passes, checks live objects and compares reports.
   `CLJ_COMPILE` and `CLJ_CORPUS_CACHE` override the tool and cache locations for direct harness runs.
+  The Makefile exports `ZERO_AR_DATE=1`: ld64 otherwise writes every object's mtime into the executable's debug
+  map, so each fresh build of `clj-compile` has other bytes and another key: without it every CI run misses for
+  both libraries, the restored cache notwithstanding (runs 37134880311 to 37142137285). On a miss the
+  units go through clang in parallel (`cljc_build_dylib`, one per core) and load in manifest order after; the
+  first `dlopen` of a fresh dylib still costs ~0.5 s locally, so a miss is dominated by loading, not clang.
   Delete the cache to force recompilation. This cache is local executable build output, not a shared
   artifact trust boundary.
 - **Measured, one machine, `2d73cd4` (before) vs this branch (after).** Cold clears every scratch path
@@ -114,8 +122,13 @@
   became required after consecutive green dispatches on both runners (runs 36989106164, 36992908023,
   36995366088; about 12 min arm64, 24 min x86_64). Both select Xcode 26.6 explicitly; Homebrew coreutils and the pinned Clojure CLI
   are installed per run, the image's JDK 21 runs it. `TEST_TIMEOUT=1200`: the runners are several times
-  slower than the M3 the table above was measured on, and `CLJ_CORPUS_TIMEOUT_MS=20000` for the same reason:
-  clojure-test-suite's `test-random-sample` takes 4–6 s under ASan there, against the 5 s default ("Corpus").
+  slower than the M3 the table above was measured on. The Makefile exports `CLJ_CORPUS_TIMEOUT_MS=20000` for the
+  same reason, everywhere: clojure-test-suite's `test-random-sample` takes 4–6 s under ASan on a runner, and
+  locally too beside four other ASan shards, against the 5 s default ("Corpus").
+  A push or pull request cancels its ref's run still in progress; a manual dispatch is a concurrency group of
+  its own, so **a CI series is dispatched all at once** (`for i in 1 2 3; do gh workflow run gates.yml --ref
+  <branch>; done`) and its runs go side by side. Every run uploads `.build/*/shards/` (each shard's log and event
+  stream, and `times.json`) as the artifact `shards-<arch>`.
   Cached: `~/.m2` (api-diff's jars), the SwiftPM
   repository cache, and `.build/corpus-cache`, restored from the newest entry of the architecture and
   pruned to one key per library before saving; its content keys make a stale entry a miss, never a wrong
