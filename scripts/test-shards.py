@@ -9,6 +9,11 @@ The live-object counters the suite compares are per process, so processes do not
 baselines; inside a process the suite stays serialized (docs/notes/gates.md, "Shards"). `run` builds once,
 lists every test, deals the suites out by their recorded times, runs the shards side by side, and fails
 unless every listed test ran exactly once. `record` folds a run's measured times into scripts/test-times.json.
+
+A gate's deal is committed, not sized to the machine: `"deal"` in scripts/test-times.json names the shard count
+and the recorded times that deal it, so the gate runs the same processes everywhere and a failure that is only
+about the deal fails locally and on CI alike. The machine's cores and memory bound how many of those shards run
+at once, nothing else.
 """
 import argparse
 import collections
@@ -188,6 +193,22 @@ def recorded(times, gate):
 	return {}
 
 
+def committed(times, gate):
+	"""The gate's committed deal: (shard count, the recorded entry whose times deal it), or (None, None).
+
+	A gate deals the same way on every machine, or a red CI gate can have a green local `make gates` behind it:
+	the machine's cores and memory would deal 6 shards where a 7 GB runner deals 2, and a suite whose history
+	another suite's allocations decide then passes in one deal and fails in the other."""
+	spec = times.get("deal", {}).get(gate)
+	if not spec:
+		return None, None
+	for g in (gate, "test"):
+		entry = times.get(g, {}).get(spec["times"])
+		if entry:
+			return spec["shards"], entry
+	sys.exit(f"shards: the committed deal of {gate} is dealt by {spec['times']} times, which {TIMES} lacks")
+
+
 def deal(units, seconds, n):
 	"""Longest first onto the least loaded shard. Deterministic for one input."""
 	order = sorted(units, key=lambda u: (-seconds[u], u))
@@ -200,20 +221,28 @@ def deal(units, seconds, n):
 	return [(s, l) for s, l in zip(shards, load) if s]
 
 
-def shard_count(entry, seconds, requested, isolated):
-	if requested:
-		return requested, f"{requested} requested"
+def shard_count(entry, seconds, requested, isolated, pinned):
+	"""(how many shards the suites are dealt onto, how many of them run at once, why).
+
+	Only the second depends on the machine: the deal is the gate's committed one, or sized to the machine where
+	no deal is committed (the periodic and opt-in targets)."""
 	cores = os.cpu_count() or 1
-	total, longest = sum(seconds.values()), max(seconds.values())
-	# Past total/longest shards the longest suite alone sets the wall time; more only adds boots and memory.
-	useful = len(seconds) if isolated else max(1, math.ceil(total / longest))
 	peak = entry.get("peak_rss_mb")
 	by_memory = max(1, int(physical_memory() * MEMORY_SHARE / (peak * 2**20))) if peak else cores
-	n = max(1, min(cores, by_memory, useful))
-	why = (f"cores {cores}, memory {physical_memory() / 2**30:.0f} GB / "
-		f"{'%d MB peak per shard' % peak if peak else 'no recorded peak'} -> {by_memory}, "
-		f"suites {total:.0f} s / longest {longest:.0f} s -> {useful}")
-	return n, why
+	fits = max(1, min(cores, by_memory))
+	machine_why = (f"cores {cores}, memory {physical_memory() / 2**30:.0f} GB / "
+		f"{'%d MB peak per shard' % peak if peak else 'no recorded peak'} -> {by_memory}")
+	if isolated:
+		return len(seconds), fits, machine_why
+	if requested:
+		return requested, min(requested, fits), f"{requested} requested, {machine_why}"
+	if pinned:
+		return pinned, min(pinned, fits), f"committed deal, {machine_why}"
+	total, longest = sum(seconds.values()), max(seconds.values())
+	# Past total/longest shards the longest suite alone sets the wall time; more only adds boots and memory.
+	useful = max(1, math.ceil(total / longest))
+	n = max(1, min(fits, useful))
+	return n, n, f"{machine_why}, suites {total:.0f} s / longest {longest:.0f} s -> {useful}"
 
 
 # ---- running
@@ -392,21 +421,28 @@ def run(args):
 		ids = [t for u in wanted for t in tests_by_unit[u]]
 		listed = collections.Counter(ids)
 
-	entry = recorded(load_times(), args.gate)
+	times = load_times()
+	pinned, entry = committed(times, args.gate)
+	if args.shards and pinned and args.shards != pinned:
+		log(f"TEST_SHARDS={args.shards} is not the committed {pinned}-shard deal of {args.gate}: the suites get "
+			"other histories than the gate's")
+	if entry is None:
+		entry = recorded(times, args.gate)
 	known = entry.get("seconds", {})
 	unknown = sorted(u for u in tests_by_unit if u not in known)
 	fallback = sorted(known.values())[len(known) // 2] if known else 1.0
 	seconds = {u: known.get(u, fallback) for u in tests_by_unit}
 	if unknown:
 		log(f"no recorded time for {', '.join(unknown)}; counted as {fallback:.1f} s each")
-	n, why = shard_count(entry, seconds, args.shards, args.isolated)
+	n, at_once, why = shard_count(entry, seconds, args.shards, args.isolated, pinned)
 	n = min(n, len(tests_by_unit))
+	at_once = min(at_once, n)
 	if args.isolated:
 		plan = [([u], seconds[u]) for u in sorted(tests_by_unit, key=lambda u: (-seconds[u], u))]
-		log(f"{len(ids)} tests in {len(tests_by_unit)} suites, one process each, {n} at a time ({why})")
+		log(f"{len(ids)} tests in {len(tests_by_unit)} suites, one process each, {at_once} at a time ({why})")
 	else:
 		plan = deal(sorted(tests_by_unit), seconds, n)
-		log(f"{len(ids)} tests in {len(tests_by_unit)} suites over {len(plan)} shards ({why})")
+		log(f"{len(ids)} tests in {len(tests_by_unit)} suites over {len(plan)} shards, {at_once} at a time ({why})")
 
 	shutil.rmtree(out, ignore_errors=True)
 	os.makedirs(out)
@@ -417,7 +453,7 @@ def run(args):
 	sampled = 0.0
 	while pending or running:
 		# One shard at a time gets past swift-test's planning, the part that writes the shared build.db.
-		if pending and len(running) < n and all(s.has_begun() or s.status is not None for s in running):
+		if pending and len(running) < at_once and all(s.has_begun() or s.status is not None for s in running):
 			s = pending.pop(0)
 			s.start(swift_args, tests_by_unit, env)
 			log(f"{s.name} started: {len(s.units)} suites, {sum(len(tests_by_unit[u]) for u in s.units)} tests, "

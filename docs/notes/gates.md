@@ -86,22 +86,37 @@
   `scripts/embed-core.sh` only writes embedded source bytes and has no build-directory dependency.
 - **Shards.** `test`, `test-compiled`, `test-eval-compiled` and the other whole-suite targets run through
   `scripts/test-shards.py`: one `swift build --build-tests`, `swift test list`, then the suites dealt out longest
-  first by `scripts/test-times.json` onto N shards, each a `swift test --skip-build` over its suites' tests, side
-  by side. The live-object counters are per process, so the suite stays serialized inside a shard and no
+  first by `scripts/test-times.json` onto the gate's committed shard count, each a `swift test --skip-build`
+  over its suites' tests, side by side. The live-object counters are per process, so the suite stays serialized inside a shard and no
   baseline sees another shard's objects. A suite is the unit: its tests may share state in order, and
   `test-isolated` proves every suite alone in a process. A shard names its tests by one anchored `--filter` each
   (a filter matching a suite's ID selects the whole suite). The run fails unless the shards' event streams
   (`--event-stream-output-path`) end every listed test exactly once, so a new suite cannot drop out: it is dealt
   like any other, at the median time until its time is recorded. A failing shard prints its issues, the tests
   that never ended (all a `TEST_TIMEOUT` kill leaves, since SwiftPM drops the log it held) and its log from the
-  hang or sanitizer report on; every log stays at `<scratch>/shards/shard-N.log`. `TEST_SHARDS=N` sets the count,
+  hang or sanitizer report on; every log stays at `<scratch>/shards/shard-N.log`. `TEST_SHARDS=N` overrides the
+  count for a rerun — the runner then says the suites get other histories than the gate's —
   `TEST_SHARDS=1` is the serial run, and `swift test --filter` by hand is unchanged.
-- **What bounds the shard count.** N = min(cores, 70% of memory / the gate's recorded peak resident memory per
-  shard, ⌈sum of suite times / longest suite⌉). Past the last bound the longest suite alone sets the wall time
-  and a shard only adds a boot and its memory. On the runners: `test` (ASan, ~2 GB a shard) gets 2 shards on
-  arm64 (7 GB) and 4 on x86_64 (4 cores); `test-compiled` (≤0.4 GB) gets one per core, 3 and 4. A runner's cores
-  are the tighter bound than the suites: shards slow each other down (x86_64 shards planned at 92 s took
-  129–209 s), carriers and clang included. The peak is sampled once a second over the shard's process tree;
+- **A gate's deal is committed, not sized to the machine.** `"deal"` in `scripts/test-times.json` names, per
+  gate, the shard count and the recorded times that deal it: `test` 2 shards by `arm64-3cpu`, `test-compiled` 3,
+  `test-compiled-asan` 2 by `test`'s times (its own are not recorded). So a gate groups the suites the same way
+  on every machine, and what a local shard runs before each of its suites is what the CI job's runs. Those are
+  the counts the arm64 runner reached by itself — 7 GB at ~2 GB a shard for the ASan pass, one per core at
+  ≤0.4 GB for `test-compiled` — so the required job runs exactly the processes it ran before. The x86_64 job,
+  which sized itself to 4, queues the same two or three instead: by its own recorded times that lengthens
+  `test`'s plan from 128 s to 244 s, on a job that runs nightly. Dealing by one named times key also keeps a
+  `record` on a laptop from moving the gate's deal. What it costs locally is the suites a shard runs one after
+  another: two warm `make gates` back to back on a 12-core M3, the committed deals against `TEST_SHARDS=6`,
+  which is what the machine sized both gates to, are 218 s and 187 s in total — `test` 78 s against 61 s,
+  `test-compiled` 63 s against 42 s, the rest noise.
+- **What bounds how many shards run at once.** min(cores, 70% of memory / the gate's recorded peak resident
+  memory per shard); the shards past that queue. A target with no committed deal is still sized to the machine
+  by the same two bounds and ⌈sum of suite times / longest suite⌉, and runs as many shards as it deals:
+  `test-pool`, `test-ubsan`, `test-noreuse`, `test-eval-compiled`, and `test-isolated`, which is
+  machine-independent anyway (one suite a process). Past that last bound the longest suite alone sets the wall
+  time and a shard only adds a boot and its memory. A runner's cores are the tighter bound than the suites: shards slow each other down (x86_64 shards
+  planned at 92 s took 129–209 s; on a 12-core M3 six `test` shards planned at 25 s took 44 s apiece), carriers
+  and clang included. The peak is sampled once a second over the shard's process tree;
   `record` keeps the largest one of a run. Times are keyed by machine (`x86_64-4cpu`): suites run at different
   relative speeds on a runner and on a laptop.
 - **Parallel `swift test` and SwiftPM.** `swift test` holds `<scratch>/.lock` for its whole run, so a second one
@@ -141,6 +156,22 @@
   TEST_SHARDS=1 make test`; on CI, a dispatch with `-f target=test -f shards=1 -f suites=…`); halves of its suite
   list, dispatched side by side, find the pair, and `clj_debug_live_report` before and after the test names the
   type.
+  What the committed deal buys is that such a failure is the same everywhere: a red required gate cannot have a
+  green local `make gates` behind it for a deal reason any more. That is how `HostErrorTests` held five pushes and
+  eight hours of CI red while a 12-core laptop dealt 6 shards, put `CorpusTests` elsewhere and passed every time.
+  What it does not buy is finding an order-dependent test: the gate runs one deal, and another deal is another
+  set of histories, as the entry below says. `TEST_SHARDS=1`, `2`, `3`, `4`, `6` over the whole gate is what
+  turns the next one up, and it is worth running when a suite is added or its recorded time moves.
+- [ ] **`HierarchyTests` is order-dependent in deals the gate does not run.** It fails with `CorpusTests` ahead
+  of it in one process, exactly as `HostErrorTests` and `TryCatchTests` did: `deriveShapesAndInvalidHierarchies`
+  by the same +35 live objects of the hierarchy a multimethod's cache pins, and `globalHierarchy` because it
+  asserts `(= (deref (var clojure.core/global-hierarchy)) (make-hierarchy))`, which holds only while no other
+  suite has derived. The committed deals miss it — `test` at 2 shards and `test-compiled` at 3 put it in another
+  shard than `CorpusTests` — and `TEST_SHARDS=3 make test` and `TEST_SHARDS=4 make test` both fail it on
+  `aaf9a91`, where the other two tests are already fixed. The fix is the tests': take the baseline after the
+  round trip's first cost, and compare the global hierarchy against what the suite found rather than against a
+  fresh one. Trigger: before a gate's committed shard count changes, and when a recorded time moves
+  `HierarchyTests` into `CorpusTests`' shard.
 - **The push gate's ASan pass is `test`**, with interpreted core and `CLJ_SYSTEM_ALLOC=1`. It exercises
   the evaluator/analyzer and runtime allocation boundaries; the pool would hide individual object bounds
   from ASan. `test-compiled` runs the same suite with compiled core and the pool, checking emitted boot

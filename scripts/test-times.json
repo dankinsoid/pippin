@@ -1,4 +1,18 @@
 {
+ "deal": {
+  "test": {
+   "shards": 2,
+   "times": "arm64-3cpu"
+  },
+  "test-compiled": {
+   "shards": 3,
+   "times": "arm64-3cpu"
+  },
+  "test-compiled-asan": {
+   "shards": 2,
+   "times": "arm64-3cpu"
+  }
+ },
  "test": {
   "arm64-3cpu": {
    "peak_rss_mb": 2136,

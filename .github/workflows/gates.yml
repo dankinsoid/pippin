@@ -29,7 +29,7 @@ on:
         description: TEST_SUITES, to rerun a failed shard's suites alone (its report prints them)
         default: ''
       shards:
-        description: TEST_SHARDS, the shard count; empty sizes it to the runner
+        description: TEST_SHARDS, to deal the suites otherwise than the gate's committed count; empty runs the gate's deal
         default: ''
 
 # A push supersedes its ref's last run; each dispatch or nightly run is its own group, so a series runs side by side.
