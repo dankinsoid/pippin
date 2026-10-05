@@ -1,8 +1,8 @@
 ;; Level 0 (design §5 «C — уровень 0»): declarations parsed out of a header by clang, interpreted and compiled.
 (ns fixture.c-decls
   (:require-c [AppKit :as ak :refer [NSTextAlignmentCenter NSUnderlineStyleDouble NSAppKitVersionNumber
-                                     NSClassFromString NSHomeDirectory NSSelectorFromString NSStringFromSelector
-                                     abs strlen]]
+                                     NSBundleDidLoadNotification NSClassFromString NSHomeDirectory
+                                     NSSelectorFromString NSStringFromSelector abs strlen]]
               [Math :header "math.h" :refer [FP_INFINITE]]))
 
 (defn show [& xs] (apply println (map pr-str xs)))
@@ -29,6 +29,18 @@
 ;; The arity is the header's, and an argument that does not fit the slot is an error, not a wrong call.
 (show (try (strlen) (catch :default e (ex-message e))))
 (show (try (strlen 5) (catch :default e (ex-message e))))
+
+;; A const NSString * global is read once at load and crosses as a value, as a level-1 '@' return does.
+(show NSBundleDidLoadNotification (string? NSBundleDidLoadNotification))
+
+;; Where a notification name is for: the name the header gave, through NSNotificationCenter.
+(let [centre (.default-center (objc-class "NSNotificationCenter"))
+      seen (atom nil)
+      token (.add-observer-for-name centre NSBundleDidLoadNotification :object nil :queue nil
+                                    :using-block (objc-block "v@?@" [note] (reset! seen (.name note))))]
+  (.post-notification-name centre NSBundleDidLoadNotification :object nil)
+  (.remove-observer centre token)
+  (show @seen (= @seen NSBundleDidLoadNotification)))
 
 ;; What the parse refused and why: the report is part of the product, so a wrong number cannot be silent.
 (doseq [[sym why] (sort-by key (:pippin/c-refused (meta (find-ns 'AppKit))))]

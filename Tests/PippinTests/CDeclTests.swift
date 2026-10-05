@@ -22,7 +22,7 @@ private let generated: Result<Void, any Error> = Result {
 	                     "--scan", fixtureDir.appendingPathComponent("decls.clj").path,
 	                     "--out", out.path, "--cache", work.appendingPathComponent("cache").path,
 	                     "--module", "AppKit",
-	                     "--refer", "NSLog,NSUIntegerMax,NSWindowDidResizeNotification,NSMaxRange,NSStringFromRect"]
+	                     "--refer", "NSLog,NSUIntegerMax,NSWindowDidResizeNotification,NSMaxRange,NSStringFromRect,kCFRunLoopDefaultMode"]
 	process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"].contains($0.key) }
 	let pipe = Pipe()
 	process.standardOutput = pipe

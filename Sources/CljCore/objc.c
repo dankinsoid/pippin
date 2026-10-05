@@ -1314,6 +1314,13 @@ const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint3
 
 uint32_t clj_objc_c_signature_nargs(const void *sigp) { return ((const objc_sig *)sigp)->nargs; }
 
+clj_value clj_objc_pointer_global(const void *addr, char enc) {
+	void *p = NULL;
+	memcpy(&p, addr, sizeof p);
+	// +0: the global outlives the process's interest in it, so the handle's retain is never given back.
+	return from_int_return((long long)(intptr_t)p, enc, false);
+}
+
 clj_value clj_objc_c_call(const void *sigp, void *fn, const char *name, const clj_value *args, uint32_t nargs) {
 	const objc_sig *sig = (const objc_sig *)sigp;
 	if (nargs != sig->nargs) return clj_throw_msg("%s takes %u argument(s), got %u", name, sig->nargs, nargs);
@@ -2154,6 +2161,11 @@ const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint3
 uint32_t clj_objc_c_signature_nargs(const void *sig) {
 	(void)sig;
 	return 0;
+}
+
+clj_value clj_objc_pointer_global(const void *addr, char enc) {
+	(void)addr, (void)enc;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 
 clj_value clj_objc_c_call(const void *sig, void *fn, const char *name, const clj_value *args, uint32_t nargs) {

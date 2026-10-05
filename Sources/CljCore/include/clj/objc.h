@@ -39,6 +39,8 @@ const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint3
 uint32_t    clj_objc_c_signature_nargs(const void *sig);
 // fn is the symbol's own address; name is only for messages. Owned result, or CLJ_THROWN.
 clj_value   clj_objc_c_call(const void *sig, void *fn, const char *name, const clj_value *args, uint32_t nargs);
+// A const pointer global ('@', '#', ':', '*'), crossing as a return of that encoding does: value or handle.
+clj_value   clj_objc_pointer_global(const void *addr, char enc);
 
 // signature is the block type encoding ("q@?@@"); heap from birth, so a host that stores it only retains.
 clj_value clj_objc_block(clj_value signature, clj_value fn);

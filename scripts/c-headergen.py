@@ -206,7 +206,7 @@ def value_probe(args, lang, include, names):
 	return values, refused
 
 
-# The C types a c-global* read knows; the key is clang's desugared spelling of the global's type.
+# The C scalars a c-global* read knows; the key is clang's desugared spelling of the global's type.
 GLOBAL_KINDS = {
 	"double": ":double", "float": ":float",
 	"char": ":char", "signed char": ":char", "unsigned char": ":uchar",
@@ -285,6 +285,39 @@ def encode_type(spelled, desugared, is_return):
 	raise Unencodable(f"the type {spelled}")
 
 
+# A pointer global crosses as a level-1 return of its encoding does, which is a value or an immortal handle.
+POINTER_KINDS = {"@": ":id", "#": ":class", ":": ":sel", "*": ":cstring"}
+
+CONST_POINTER = re.compile(r"^(.*\*)\s*const$")
+
+
+def global_of(spelled, desugared):
+	"""The kind keyword c-global* reads this global by, or (None, why).
+
+	Constness is the pointer's own for a pointer and the value's for a scalar: either way a global the
+	program may reassign is refused, since a snapshot taken at load stops being its value.
+	"""
+	d = re.sub(r"\s+", " ", ATTRS.sub(" ", desugared)).strip()
+	pointer = CONST_POINTER.match(d)
+	if pointer:
+		try:
+			enc = encode_type(spelled, pointer.group(1), False)
+		except Unencodable as e:
+			return None, f"a global of type {spelled}, which is {e}"
+		if enc not in POINTER_KINDS:
+			return None, (f"a raw pointer global ({spelled}): what it points at has no owner the bridge can name, "
+			              f"and releasing it would be a guess")
+		return POINTER_KINDS[enc], None
+	if d.endswith("*"):
+		return None, f"a mutable pointer global ({spelled}): a pointer read once at load would not be its value later"
+	bare = d.removeprefix("const ").strip()
+	if bare not in GLOBAL_KINDS:
+		return None, f"a global of type {spelled}: only a scalar and a const pointer cross"
+	if not d.startswith("const "):
+		return None, f"a mutable global ({spelled}): a value read once at load would not be its value later"
+	return GLOBAL_KINDS[bare], None
+
+
 def split_signature(qual):
 	"""('int', 'int, char **') out of 'int (int, char **)'; None when the spelling is not a plain function."""
 	if not qual.endswith(")"):
@@ -339,13 +372,8 @@ def classify(args, lang, include, name, why):
 		if kind == "VarDecl":
 			t = node.get("type", {})
 			spelled = t.get("qualType", "")
-			desugared = t.get("desugaredQualType", spelled)
-			bare = desugared.removeprefix("const ").strip()
-			if bare not in GLOBAL_KINDS:
-				return None, f"a global of type {spelled}: only a scalar crosses in this slice"
-			if not desugared.startswith("const "):
-				return None, f"a mutable global ({spelled}): a value read once at load would not be its value later"
-			return ("global", GLOBAL_KINDS[bare], spelled), None
+			found, why = global_of(spelled, t.get("desugaredQualType", spelled))
+			return (("global", found, spelled), None) if found else (None, why)
 		if kind == "RecordDecl" or kind == "EnumDecl" or kind == "TypedefDecl":
 			return None, f"a type ({kind}): structs are deflayout, which is not in this slice"
 		if kind == "ObjCInterfaceDecl":

@@ -16,26 +16,34 @@ typedef struct {
 	size_t      size;
 	bool        floating;
 	bool        signed_;
+	char        pointer; // the type encoding a const pointer global crosses by, 0 for a scalar
 } global_kind;
 
 static const global_kind kinds[] = {
-	{"double", sizeof(double), true, true},
-	{"float", sizeof(float), true, true},
-	{"char", sizeof(signed char), false, true},
-	{"uchar", sizeof(unsigned char), false, false},
-	{"short", sizeof(short), false, true},
-	{"ushort", sizeof(unsigned short), false, false},
-	{"int", sizeof(int), false, true},
-	{"uint", sizeof(unsigned int), false, false},
+	{"double", sizeof(double), true, true, 0},
+	{"float", sizeof(float), true, true, 0},
+	{"char", sizeof(signed char), false, true, 0},
+	{"uchar", sizeof(unsigned char), false, false, 0},
+	{"short", sizeof(short), false, true, 0},
+	{"ushort", sizeof(unsigned short), false, false, 0},
+	{"int", sizeof(int), false, true, 0},
+	{"uint", sizeof(unsigned int), false, false, 0},
 	// The runtime and the header are compiled for one target, so the C type's own width is the right one.
-	{"long", sizeof(long), false, true},
-	{"ulong", sizeof(unsigned long), false, false},
-	{"llong", sizeof(long long), false, true},
-	{"ullong", sizeof(unsigned long long), false, false},
-	{"bool", sizeof(bool), false, false},
+	{"long", sizeof(long), false, true, 0},
+	{"ulong", sizeof(unsigned long), false, false, 0},
+	{"llong", sizeof(long long), false, true, 0},
+	{"ullong", sizeof(unsigned long long), false, false, 0},
+	{"bool", sizeof(bool), false, false, 0},
+	// A const pointer is read once and crosses as level 1's return of that encoding: a value, or a handle
+	// whose +1 is never given back, since an immortal global has nobody to give it back to.
+	{"id", sizeof(void *), false, false, '@'},
+	{"class", sizeof(void *), false, false, '#'},
+	{"sel", sizeof(void *), false, false, ':'},
+	{"cstring", sizeof(void *), false, false, '*'},
 };
 
 static clj_value read_global(const void *addr, const global_kind *k) {
+	if (k->pointer) return clj_objc_pointer_global(addr, k->pointer);
 	if (k->floating) {
 		double d;
 		if (k->size == sizeof(float)) {
