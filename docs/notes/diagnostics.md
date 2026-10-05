@@ -59,6 +59,10 @@
   stands. A tab in the quoted line's prefix is copied into the underline, so the carets stay under the
   span whatever the terminal's tab width is, and a column is counted as the reader counts it — one per
   non-continuation byte.
+- **A reader error already points at the opening delimiter.** An unclosed `(defn n [x]` renders at 1:1
+  with that form underlined, which is the half of §3-07's reader rule that a reader acts on; the message
+  is still "EOF while reading", and naming the delimiter in it is a wording change over the fourteen cases
+  of ReaderTests' error table.
 - [ ] **Only `clj-load` renders.** nREPL still answers with the printed `#error` map and the Swift host
   with `ClojureError`; §3-07 wants one format for CLI, nREPL and LSP. Trigger: the LSP step (§10, step
   10), where the JSON shape and the code actions are built, so that the structure is not built twice.
