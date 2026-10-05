@@ -649,7 +649,37 @@ static void row_positions(FILE *out, const stats *b, const stats *s, const stats
 
 static uint32_t annotated_vars;
 
-static void write_report(const char *path) {
+// Wall-clock belongs to the machine that ran it, so it is written apart from the committed coverage report:
+// a gate that rewrites a committed file with timings dirties the tree on every run and hides real count moves.
+static void write_cost(const char *path, const stats *total, const stats *btotal, const stats *code,
+                       const stats *bcode, const stats *jtotal, const stats *jcode) {
+	FILE *out = fopen(path, "w");
+	if (!out) {
+		fprintf(stderr, "clj-facts: cannot write %s\n", path);
+		return;
+	}
+	fprintf(out, "# Facts pass: what a run costs\n\n");
+	fprintf(out, "Written by `make facts-report` beside docs/facts-coverage.md and deliberately not committed: these are\n"
+	             "wall-clock numbers of one run on one machine, and they move two- to threefold with what else is running.\n"
+	             "A cost worth keeping goes to bench/RESULTS.md from a deliberate run, like every other measurement.\n\n");
+	fprintf(out, "- Pass 1 alone %.0f ms, with the summaries %.0f ms, against %.0f ms of analysis over the same forms (%.2f× → %.2f×).\n\n",
+	        btotal->facts_ms, total->facts_ms, total->analyze_ms, total->analyze_ms > 0 ? btotal->facts_ms / total->analyze_ms : 0.0,
+	        total->analyze_ms > 0 ? total->facts_ms / total->analyze_ms : 0.0);
+	fprintf(out, "The join column is one round's tables over the whole library, summaries already cached.\n\n");
+	fprintf(out, "| library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|\n");
+	for (int i = 0; i <= nlibs + 1; i++) {
+		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? code : total);
+		const stats *b = i < nlibs ? &before[i] : (i == nlibs ? bcode : btotal);
+		const stats *j = i < nlibs ? &joined[i] : (i == nlibs ? jcode : jtotal);
+		fprintf(out, "| %s | %llu | %llu | %.1f | %.1f | %.1f | %.1f | %.2f× → %.2f× |\n", s->name, (unsigned long long)s->forms,
+		        (unsigned long long)s->nodes, s->analyze_ms, b->facts_ms, s->facts_ms, j->facts_ms,
+		        s->analyze_ms > 0 ? b->facts_ms / s->analyze_ms : 0.0, s->analyze_ms > 0 ? s->facts_ms / s->analyze_ms : 0.0);
+	}
+	fclose(out);
+}
+
+static void write_report(const char *path, const char *cost_path) {
 	FILE *out = fopen(path, "w");
 	if (!out) {
 		fprintf(stderr, "clj-facts: cannot write %s\n", path);
@@ -741,12 +771,11 @@ static void write_report(const char *path) {
 	        (unsigned long long)total.kw_lookups, pct(btotal.kw_shaped, btotal.kw_lookups), pct(total.kw_shaped, total.kw_lookups),
 	        pct(jtotal.kw_shaped, jtotal.kw_lookups), (unsigned long long)btotal.kw_record, (unsigned long long)total.kw_record,
 	        (unsigned long long)jtotal.kw_record, (unsigned long long)total.kw_on_local, (unsigned long long)total.kw_lookups);
-	fprintf(out, "- Cost: pass 1 alone %.0f ms, with the summaries %.0f ms, against %.0f ms of analysis over the same forms\n"
-	             "  (%.2f× → %.2f×); the largest single table is %.0f KB. The store holds %u summaries, ran %u fixpoint rounds\n"
+	fprintf(out, "- Cost: the largest single table is %.0f KB. The store holds %u summaries, ran %u fixpoint rounds\n"
 	             "  beyond the first, widened %u, and recomputed %u after an epoch moved (a protocol method's rests on the\n"
-	             "  definition epoch, which every load bumps).\n",
-	        btotal.facts_ms, total.facts_ms, total.analyze_ms, total.analyze_ms > 0 ? btotal.facts_ms / total.analyze_ms : 0.0,
-	        total.analyze_ms > 0 ? total.facts_ms / total.analyze_ms : 0.0, (double)total.peak_bytes / 1024, clj_summaries_count(sums),
+	             "  definition epoch, which every load bumps). Wall-clock is a fact about the machine, not the code, so it is\n"
+	             "  written apart and not committed (see the cost report named by `make facts-report`).\n",
+	        (double)total.peak_bytes / 1024, clj_summaries_count(sums),
 	        clj_summaries_rounds(sums), clj_summaries_widenings(sums), clj_summaries_invalidated(sums));
 	fprintf(out, "- Refinement conflicts (a meet down to ⊥): %llu. Value nodes at ⊥: %llu, of which %llu `dead-branch` (the pass's\n"
 	             "  own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), %llu `dead-refined` (a test excluding\n"
@@ -817,17 +846,14 @@ static void write_report(const char *path) {
 		        (unsigned long long)s->bottom_exit, (unsigned long long)s->bottom_unexplained);
 	}
 
-	fprintf(out, "\n## Cost per library\n\n");
-	fprintf(out, "The join column is one round's tables over the whole library, summaries already cached.\n\n");
-	fprintf(out, "| library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |\n");
-	fprintf(out, "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+	fprintf(out, "\n## Tables per library\n\n");
+	fprintf(out, "Memory, which is the same on every machine. What a run costs in time is in the cost report.\n\n");
+	fprintf(out, "| library | forms | nodes | tables, KB | largest table, KB |\n");
+	fprintf(out, "|---|---:|---:|---:|---:|\n");
 	for (int i = 0; i <= nlibs + 1; i++) {
 		const stats *s = i < nlibs ? &libs[i] : (i == nlibs ? &code : &total);
-		const stats *b = i < nlibs ? &before[i] : (i == nlibs ? &bcode : &btotal);
-		const stats *j = i < nlibs ? &joined[i] : (i == nlibs ? &jcode : &jtotal);
-		fprintf(out, "| %s | %llu | %llu | %.1f | %.1f | %.1f | %.1f | %.2f× → %.2f× | %.0f | %.0f |\n", s->name, (unsigned long long)s->forms,
-		        (unsigned long long)s->nodes, s->analyze_ms, b->facts_ms, s->facts_ms, j->facts_ms, s->analyze_ms > 0 ? b->facts_ms / s->analyze_ms : 0.0,
-		        s->analyze_ms > 0 ? s->facts_ms / s->analyze_ms : 0.0, (double)s->bytes / 1024, (double)s->peak_bytes / 1024);
+		fprintf(out, "| %s | %llu | %llu | %.0f | %.0f |\n", s->name, (unsigned long long)s->forms,
+		        (unsigned long long)s->nodes, (double)s->bytes / 1024, (double)s->peak_bytes / 1024);
 	}
 
 	fprintf(out, "\n## Errors\n\n");
@@ -852,6 +878,7 @@ static void write_report(const char *path) {
 		char                  text[512];
 		if (d->severity == CLJ_DIAG_WARNING) fprintf(out, "- %s\n", clj_diagnostic_message(d, text, sizeof text));
 	}
+	if (cost_path) write_cost(cost_path, &total, &btotal, &code, &bcode, &jtotal, &jcode);
 	fclose(out);
 	fprintf(stderr, "clj-facts: wrote %s\n", path);
 }
@@ -859,6 +886,7 @@ static void write_report(const char *path) {
 int main(int argc, char **argv) {
 	const char *repo = argc > 1 ? argv[1] : ".";
 	const char *out = argc > 2 ? argv[2] : "docs/facts-coverage.md";
+	const char *cost_out = argc > 3 ? argv[3] : NULL;
 	clj_init();
 	sums = clj_summaries_new();
 	sums_noann = clj_summaries_new();
@@ -953,7 +981,7 @@ int main(int argc, char **argv) {
 		}
 	}
 	join_rounds();
-	write_report(out);
+	write_report(out, cost_out);
 	uint64_t unexplained = 0;
 	for (int i = 0; i < nlibs; i++) unexplained += libs[i].bottom_unexplained + before[i].bottom_unexplained + joined[i].bottom_unexplained;
 	int status = 0;

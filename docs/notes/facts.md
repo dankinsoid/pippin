@@ -6,6 +6,13 @@
   recorded callers of `sequence`'s 1-arity, whose join of nil and vector the `(seq? coll)` branch excludes
   with neither side pinned (docs/facts-coverage.md, "Dead branches"). An unexplained ⊥ is now only a
   `CLJ_DEAD_NONE` one, which is what "the lattice is wrong" meant.
+- **The coverage report is committed, what a run costs is not.** `clj-facts` writes `docs/facts-coverage.md`
+  and, given a third argument, a cost report beside it (`make facts-report` names `$(BUILD_ROOT)/facts-cost.md`,
+  which git does not see). The split is not tidiness: `make facts-report` is a gate, so a committed file holding
+  wall-clock dirtied the tree on every gate run, and the numbers moved two- to threefold with machine load —
+  which hid a real count move inside noise nobody read. What stays in the committed report is what is the same
+  on every machine: forms, nodes, table bytes, the summary and round counts. A cost worth keeping goes to
+  bench/RESULTS.md from a deliberate run, as every other measurement does.
 - **A side table, built on request, never on the way through.** `clj_facts_of(root)` walks the analyzer's
   optimized tree and returns `clj_facts`, `nnodes` entries indexed by node id exactly as `clj_exec` is.
   Nothing calls it: `clj_analyze`, `clj_exec_new` and the compiler are untouched, so the pass costs zero

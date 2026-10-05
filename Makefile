@@ -99,10 +99,11 @@ shake:
 	sh scripts/shake.sh
 
 # The type-coverage metric of design §10 step 3b: loads core.clj, the embedded libs and every corpus library,
-# analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed.
+# analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed;
+# the wall-clock half goes to $(BUILD_ROOT)/facts-cost.md, which is not, so a gate run leaves the tree clean.
 facts-report:
 	swift build --scratch-path $(RELEASE) -c release --product clj-facts
-	$(RELEASE)/release/clj-facts . docs/facts-coverage.md
+	$(RELEASE)/release/clj-facts . docs/facts-coverage.md $(BUILD_ROOT)/facts-cost.md
 
 # core.async is not on the default classpath, and its publics are what the async half of the parity report diffs against.
 ASYNC_DEPS = {:deps {org.clojure/core.async {:mvn/version "1.6.681"}}}

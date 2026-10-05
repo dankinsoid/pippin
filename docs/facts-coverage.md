@@ -51,10 +51,10 @@ assertion expansions are mostly literals.
   requires nothing (design §3); the caller join reaches them only where every recorded caller passes a map, and
   the third number says how often that is. The rest are derefs and other calls answering ⊤. No lookup in the
   corpus sits below a record constructor.
-- Cost: pass 1 alone 75 ms, with the summaries 88 ms, against 480 ms of analysis over the same forms
-  (0.16× → 0.18×); the largest single table is 262 KB. The store holds 1178 summaries, ran 25 fixpoint rounds
+- Cost: the largest single table is 262 KB. The store holds 1178 summaries, ran 25 fixpoint rounds
   beyond the first, widened 0, and recomputed 41 after an epoch moved (a protocol method's rests on the
-  definition epoch, which every load bumps).
+  definition epoch, which every load bumps). Wall-clock is a fact about the machine, not the code, so it is
+  written apart and not committed (see the cost report named by `make facts-report`).
 - Refinement conflicts (a meet down to ⊥): 234. Value nodes at ⊥: 282, of which 98 `dead-branch` (the pass's
   own class: a branch a test on a pinned value kills, `CLJ_DEAD_LITERAL`), 0 `dead-refined` (a test excluding
   every kind the slot can hold, `CLJ_DEAD_REFINED`), 184 with a throw or recur as the only way out, and 0
@@ -132,19 +132,19 @@ throw or a recur is the only way out of it; unexplained is the rest, and the wat
 | **library code** | 2 | 72 | 4 | 0 | 68 | 0 |
 | **all** | 234 | 282 | 98 | 0 | 184 | 0 |
 
-## Cost per library
+## Tables per library
 
-The join column is one round's tables over the whole library, summaries already cached.
+Memory, which is the same on every machine. What a run costs in time is in the cost report.
 
-| library | forms | nodes | analysis, ms | pass 1, ms | with summaries, ms | with the join, ms | facts / analysis | tables, KB | largest table, KB |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| core.clj | 293 | 13747 | 7.3 | 3.3 | 4.3 | 5.0 | 0.45× → 0.59× | 405 | 13 |
-| embedded libs | 108 | 3714 | 1.8 | 0.7 | 1.1 | 1.3 | 0.40× → 0.62× | 114 | 6 |
-| clojure-core-tests | 276 | 111288 | 92.6 | 13.0 | 15.1 | 15.1 | 0.14× → 0.16× | 2686 | 75 |
-| clojure-test-suite | 520 | 419358 | 360.7 | 55.6 | 63.4 | 61.9 | 0.15× → 0.18× | 9975 | 262 |
-| medley | 106 | 23339 | 17.6 | 2.5 | 3.6 | 3.3 | 0.14× → 0.21× | 578 | 23 |
-| **library code** | 507 | 40800 | 26.7 | 6.6 | 9.1 | 9.6 | 0.25× → 0.34× | 1097 | 23 |
-| **all** | 1303 | 571446 | 480.0 | 75.2 | 87.6 | 86.6 | 0.16× → 0.18× | 13758 | 262 |
+| library | forms | nodes | tables, KB | largest table, KB |
+|---|---:|---:|---:|---:|
+| core.clj | 293 | 13747 | 405 | 13 |
+| embedded libs | 108 | 3714 | 114 | 6 |
+| clojure-core-tests | 276 | 111288 | 2686 | 75 |
+| clojure-test-suite | 520 | 419358 | 9975 | 262 |
+| medley | 106 | 23339 | 578 | 23 |
+| **library code** | 507 | 40800 | 1097 | 23 |
+| **all** | 1303 | 571446 | 13758 | 262 |
 
 ## Errors
 
