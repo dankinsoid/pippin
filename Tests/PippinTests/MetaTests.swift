@@ -43,7 +43,8 @@ extension CoreTests {
 		@Test func metaOnEverySupportedType() throws {
 			let before = clj_debug_live_objects()
 			do {
-				for form in ["'x", "'ns/x", "[1 2]", "{:a 1}", "(list 1 2)", "()", "(fn [x] x)", "+"] {
+				for form in ["'x", "'ns/x", "[1 2]", "{:a 1}", "(list 1 2)", "()", "(fn [x] x)", "+",
+				             "(seq [1 2])", "(seq \"ab\")", "(seq (int-array [1 2]))", "(range 3)", "(lazy-seq [1 2])"] {
 					#expect(try rt.eval("(meta \(form))") == nil, "\(form)")
 					#expect(try rt.eval("(meta (with-meta \(form) {:a 1}))") == m(["a": 1]), "\(form)")
 					#expect(try rt.eval("(meta (with-meta (with-meta \(form) {:a 1}) nil))") == nil, "\(form)")
@@ -74,9 +75,6 @@ extension CoreTests {
 				#expect(message(rt, "(with-meta :k {})") == "with-meta: keyword does not support metadata")
 				#expect(message(rt, "(with-meta 1 {})") == "with-meta: long does not support metadata")
 				#expect(message(rt, "(with-meta nil {})") == "with-meta: nil does not support metadata")
-				#expect(message(rt, "(with-meta (seq [1]) {})") == "with-meta: vector-seq does not support metadata")
-				#expect(message(rt, "(with-meta (range 3) {})") == "with-meta: range does not support metadata")
-				#expect(message(rt, "(with-meta (lazy-seq [1]) {})") == "with-meta: lazy-seq does not support metadata")
 				#expect(message(rt, "(with-meta #'inc {})") == "with-meta: var does not support metadata")
 				#expect(message(rt, "(with-meta [] 1)") == "with-meta: metadata must be a map, got: long")
 				#expect(message(rt, "(with-meta [] [])") == "with-meta: metadata must be a map, got: vector")
@@ -130,6 +128,52 @@ extension CoreTests {
 				#expect(clj_debug_all_shared(shared.raw))
 				#expect(try shared.withMeta(m(["b": 2])).meta == m(["b": 2]))
 				#expect(shared.meta == m(["a": [1]]))
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Clojure's IObj seqs: with-meta answers a copy carrying the map, out of the trailing CLJ_FLAG_META word.
+		@Test func seqViewsCarryMeta() throws {
+			let before = clj_debug_live_objects()
+			do {
+				// All six range arities, as clojure.test-clojure.sequences/range-meta asks; the float three are lazy seqs here.
+				#expect(try rt.eval("""
+				(mapv #(meta (with-meta % {:a 1}))
+				      [(range 10) (range 5 10) (range 5 10 1) (range 10.0) (range 5.0 10.0) (range 5.0 10.0 1.0)])
+				""") == Value([m(["a": 1]), m(["a": 1]), m(["a": 1]), m(["a": 1]), m(["a": 1]), m(["a": 1])]))
+				#expect(try rt.eval("(let [r (range 3) w (with-meta r {:a 1})] [(meta r) (meta w) (identical? r w) (vec w)])")
+					== [nil, m(["a": 1]), false, [0, 1, 2]])
+				// next drops it, as LongRange's and ChunkedSeq's do; StringSeq's and ArraySeq's hand it on.
+				#expect(try rt.eval("""
+				[(meta (next (with-meta (range 3) {:a 1})))
+				 (meta (next (with-meta (seq [1 2]) {:a 1})))
+				 (meta (next (with-meta (map inc [1 2]) {:a 1})))
+				 (meta (conj (with-meta (range 3) {:a 1}) 9))
+				 (meta (rest (with-meta (seq "ab") {:a 1})))
+				 (meta (next (with-meta (seq (int-array [1 2])) {:a 1})))]
+				""") == [nil, nil, nil, nil, m(["a": 1]), m(["a": 1])])
+				// sort is (with-meta (seq a) (meta coll)), and an empty coll answers the bare () before that.
+				#expect(try rt.eval("(meta (sort (with-meta (range 10) {:a true})))") == m(["a": true]))
+				#expect(try rt.eval("(meta (sort-by :a (with-meta (seq [{:a 5} {:a 2}]) {:a true})))") == m(["a": true]))
+				#expect(try rt.eval("(meta (sort (with-meta [] {:a true})))") == nil)
+				// LazySeq.withMeta realizes the head and no more: a thunk runs once per object, so the copy
+				// takes the realized value rather than the thunk.
+				#expect(try rt.eval("""
+				(let [n (atom 0)
+				      l (lazy-seq (do (swap! n inc) (cons 1 (lazy-seq (do (swap! n inc) [2])))))
+				      w (with-meta l {:a 1})]
+				  [@n (realized? l) (realized? w) (vec w) @n])
+				""") == [1, true, true, [1, 2], 2])
+				// A view without metadata keeps its size; one size class is 8 bytes here, so the word costs exactly that.
+				#expect([MemoryLayout<clj_vector_seq>.size, MemoryLayout<clj_string_seq>.size, MemoryLayout<clj_array_seq>.size,
+				         MemoryLayout<clj_range>.size, MemoryLayout<clj_lazy_seq>.size] == [32, 32, 32, 40, 40])
+				for form in ["(seq [1 2])", "(seq \"ab\")", "(seq (int-array [1 2]))", "(range 3)", "(lazy-seq [1 2])"] {
+					let plain = try rt.eval(form)
+					#expect(clj_header_of(plain.raw).pointee.flags & UInt32(CLJ_FLAG_META) == 0, "\(form)")
+					let tagged = try rt.eval("(with-meta \(form) {:a 1})")
+					#expect(clj_header_of(tagged.raw).pointee.flags & UInt32(CLJ_FLAG_META) != 0, "\(form)")
+					#expect(tagged == plain, "\(form)")
+				}
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

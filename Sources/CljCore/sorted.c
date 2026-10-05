@@ -8,9 +8,11 @@
 #include "clj/fn.h"
 #include "clj/list.h"
 #include "clj/number.h"
+#include "clj/printer.h"
 #include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/sorted.h"
+#include "clj/string.h"
 #include "clj/vector.h"
 
 // Red links lean left, which halves the rebalance cases (Sedgewick's LLRB).
@@ -162,6 +164,14 @@ static clj_value node_find(clj_value node, clj_value key, const clj_call *call) 
 
 // ---- insert and delete
 
+static clj_value bad_key(clj_value key) {
+	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
+	if (text == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_throw_msg("Default comparator requires nil, Number, or Comparable: %s", clj_string_bytes(text));
+	clj_release(text);
+	return r;
+}
+
 typedef struct {
 	bool changed;
 	bool added;
@@ -170,6 +180,9 @@ typedef struct {
 // Consumes node; owned result or CLJ_THROWN, which released it.
 static clj_value node_assoc(clj_value node, clj_value key, clj_value val, const clj_call *call, tedit *e) {
 	if (clj_is_nil(node)) {
+		// PersistentTreeMap.add: a fresh leaf has no sibling to compare against, so the default comparator
+		// refuses here what it could never order. A fn comparator is the user's and takes any key.
+		if (clj_is_nil(call->f) && !clj_compare_orders(key)) return bad_key(key);
 		e->changed = e->added = true;
 		return node_new(key, val);
 	}

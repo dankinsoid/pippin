@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 #include <stdlib.h>
+#include <string.h>
 
 #include "clj/cmutex.h"
 #include "clj/coll.h"
@@ -14,9 +15,51 @@
 #include "coro_internal.h"
 #include "shadow_internal.h"
 
+// ---- view metadata
+
+static void retain_child(clj_value child, void *ctx) {
+	(void)ctx;
+	clj_retain(child);
+}
+
+clj_value clj_view_meta(clj_value self, size_t size) { return clj_retain(clj_meta_trailing(clj_to_ptr(self), size)); }
+
+// @ai-generated(guided)
+clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
+	clj_header *h = clj_header_of(self);
+	if ((h->flags & CLJ_FLAG_META) && clj_is_unique(self)) {
+		if (h->flags & CLJ_FLAG_SHARED) clj_share(m);
+		clj_value old = *clj_meta_slot_at(h, size);
+		*clj_meta_slot_at(h, size) = clj_retain(m);
+		clj_release(old);
+		return self;
+	}
+	if (!(h->flags & CLJ_FLAG_META) && clj_is_nil(m)) return self;
+	bool        word = !clj_is_nil(m);
+	clj_header *c = clj_alloc(h->type, size + (word ? sizeof(clj_value) : 0));
+	memcpy((char *)c + sizeof *c, (char *)h + sizeof *h, size - sizeof *h);
+	// The copy's own flags carry no CLJ_FLAG_META yet, so each_child retains the real children only.
+	if (h->type->each_child) h->type->each_child(c, retain_child, NULL);
+	if (word) {
+		c->flags |= CLJ_FLAG_META;
+		*clj_meta_slot_at(c, size) = clj_retain(m);
+	}
+	clj_release(self);
+	return clj_from_ptr(c);
+}
+
 // ---- vector-seq
 
-static void vector_seq_each_child(void *self, clj_visitor visit, void *ctx) { visit(((clj_vector_seq *)self)->vec, ctx); }
+static void vector_seq_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_vector_seq *s = self;
+	visit(s->vec, ctx);
+	// Guarded, not visit(clj_meta_trailing(…)): a walk allocates and frees a view per step, and the call costs.
+	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+}
+
+static clj_value vector_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_vector_seq)); }
+
+static clj_value vector_seq_with_meta(clj_value self, clj_value m) { return clj_view_with_meta(self, m, sizeof(clj_vector_seq)); }
 
 static clj_value vector_seq_first(clj_value self) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
@@ -41,13 +84,15 @@ static clj_value vector_seq_reduce(clj_value self, clj_value f, clj_value init) 
 const clj_type clj_vector_seq_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "vector-seq",
-	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = vector_seq_each_child,
 	.seq = clj_aseq_seq,
 	.first = vector_seq_first,
 	.next = vector_seq_next,
 	.count = vector_seq_count,
 	.reduce = vector_seq_reduce,
+	.meta = vector_seq_meta,
+	.with_meta = vector_seq_with_meta,
 };
 
 clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
@@ -60,7 +105,15 @@ clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
 
 // ---- string-seq
 
-static void string_seq_each_child(void *self, clj_visitor visit, void *ctx) { visit(((clj_string_seq *)self)->str, ctx); }
+static void string_seq_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_string_seq *s = self;
+	visit(s->str, ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+}
+
+static clj_value string_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_string_seq)); }
+
+static clj_value string_seq_with_meta(clj_value self, clj_value m) { return clj_view_with_meta(self, m, sizeof(clj_string_seq)); }
 
 static clj_value string_seq_first(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
@@ -69,11 +122,26 @@ static clj_value string_seq_first(clj_value self) {
 	return clj_char(cp);
 }
 
+static clj_value string_seq_alloc(clj_value str, uint32_t pos, clj_value m) {
+	CLJ_ASSERT(pos < clj_string_len(str), "string-seq past the end");
+	bool            word = !clj_is_nil(m);
+	clj_string_seq *s = clj_alloc(&clj_string_seq_type, sizeof *s + (word ? sizeof(clj_value) : 0));
+	s->pos = pos;
+	s->str = clj_retain(str);
+	if (word) {
+		s->h.flags |= CLJ_FLAG_META;
+		*clj_meta_slot_at(s, sizeof *s) = clj_retain(m);
+	}
+	return clj_from_ptr(s);
+}
+
+// StringSeq.next hands the metadata on, where a range's and a vector-seq's next drop it.
 static clj_value string_seq_next(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
 	uint32_t              cp, len = clj_string_len(s->str);
 	size_t                next = s->pos + clj_utf8_decode(clj_string_bytes(s->str), len, s->pos, &cp);
-	return next < len ? clj_string_seq_new(s->str, (uint32_t)next) : CLJ_NIL;
+	if (next >= len) return CLJ_NIL;
+	return string_seq_alloc(s->str, (uint32_t)next, clj_meta_trailing(clj_to_ptr(self), sizeof *s));
 }
 
 static clj_value string_seq_count(clj_value self) {
@@ -87,24 +155,30 @@ static clj_value string_seq_count(clj_value self) {
 const clj_type clj_string_seq_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "string-seq",
-	CLJ_ASEQ_TRAIT(0),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = string_seq_each_child,
 	.seq = clj_aseq_seq,
 	.first = string_seq_first,
 	.next = string_seq_next,
 	.count = string_seq_count,
 	.reduce = clj_reduce_iter,
+	.meta = string_seq_meta,
+	.with_meta = string_seq_with_meta,
 };
 
-clj_value clj_string_seq_new(clj_value str, uint32_t pos) {
-	CLJ_ASSERT(pos < clj_string_len(str), "string-seq past the end");
-	clj_string_seq *s = clj_alloc(&clj_string_seq_type, sizeof *s);
-	s->pos = pos;
-	s->str = clj_retain(str);
-	return clj_from_ptr(s);
-}
+clj_value clj_string_seq_new(clj_value str, uint32_t pos) { return string_seq_alloc(str, pos, CLJ_NIL); }
 
 // ---- range
+
+// The metadata word is a range's only child.
+static void range_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_header *h = self;
+	if (h->flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(h, sizeof(clj_range)), ctx);
+}
+
+static clj_value range_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_range)); }
+
+static clj_value range_with_meta(clj_value self, clj_value m) { return clj_view_with_meta(self, m, sizeof(clj_range)); }
 
 static clj_value range_first(clj_value self) { return clj_long_new(clj_range_of(self)->start); }
 
@@ -143,12 +217,15 @@ static clj_value range_reduce(clj_value self, clj_value f, clj_value init) {
 const clj_type clj_range_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "range",
-	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
+	.each_child = range_each_child,
 	.seq = clj_aseq_seq,
 	.first = range_first,
 	.next = range_next,
 	.count = range_count,
 	.reduce = range_reduce,
+	.meta = range_meta,
+	.with_meta = range_with_meta,
 };
 
 clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
@@ -170,6 +247,7 @@ static void lazy_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_lazy_seq *s = self;
 	visit(s->fn, ctx);
 	visit(s->value, ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
 }
 
 static clj_value lazy_seq_seq(clj_value self) {
@@ -177,14 +255,28 @@ static clj_value lazy_seq_seq(clj_value self) {
 	return v == CLJ_THROWN ? v : clj_retain(v);
 }
 
+static clj_value lazy_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_lazy_seq)); }
+
+// LazySeq.withMeta realizes the head: a thunk is forced once per object, so a copy may share the realized
+// value but never the thunk. Once forced nothing writes `state` again, so the copy's memcpy of it is safe.
+static clj_value lazy_seq_with_meta(clj_value self, clj_value m) {
+	if (clj_lazy_seq_force(self) == CLJ_THROWN) {
+		clj_release(self);
+		return CLJ_THROWN;
+	}
+	return clj_view_with_meta(self, m, sizeof(clj_lazy_seq));
+}
+
 const clj_type clj_lazy_seq_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "lazy-seq",
-	CLJ_ASEQ_TRAIT(0),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.mutable_children = true,
 	.each_child = lazy_seq_each_child,
 	.seq = lazy_seq_seq,
 	.reduce = clj_reduce_iter,
+	.meta = lazy_seq_meta,
+	.with_meta = lazy_seq_with_meta,
 };
 
 clj_value clj_lazy_seq_new(clj_value fn) {

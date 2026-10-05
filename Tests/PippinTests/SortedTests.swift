@@ -151,6 +151,32 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// PersistentTreeMap.add: a fresh leaf has no sibling, so the default comparator vets the key itself.
+		@Test func defaultComparatorRefusesAnUnorderableKey() throws {
+			clj_init()
+			let before = clj_debug_live_objects()
+			do {
+				let refused = "Default comparator requires nil, Number, or Comparable: "
+				for key in ["()", "#{}", "{}", "'(1 2)", "(seq [1 2])", "inc"] {
+					#expect(message("(sorted-map \(key) 1)")?.hasPrefix(refused) == true, "\(key)")
+					#expect(message("(sorted-set \(key))")?.hasPrefix(refused) == true, "\(key)")
+					#expect(message("(assoc (sorted-map) \(key) 1)")?.hasPrefix(refused) == true, "\(key)")
+					#expect(message("(conj (sorted-set) \(key))")?.hasPrefix(refused) == true, "\(key)")
+					// A fn comparator is the user's: the JVM hands it any key and never compares one with itself.
+					#expect(message("(assoc (sorted-map-by (fn [a b] (compare (count a) (count b)))) \(key) 1)") == nil, "\(key)")
+				}
+				#expect(message("(sorted-map () 1)") == refused + "()")
+				// Every type clj_compare orders, nil and a vector among them, is a key.
+				#expect(try eval("(mapv #(count (sorted-set %)) [nil false true 0 42 0.0 2/3 0M \\c \"\" 'a :a [] [1 2]])")
+					== Value(Array(repeating: Value(1), count: 14)))
+				#expect(try eval("(keys (sorted-map nil 1 2 2))") == Value([nil, 2]))
+				// A key that only a comparison reveals still throws there, and a lookup answers rather than throwing.
+				#expect(message("(assoc (sorted-map 1 1) \"a\" 2)") == "long cannot be cast to a string")
+				#expect(try eval("[(get (sorted-map) ()) (contains? (sorted-map) ()) (dissoc (sorted-map) ())]") == Value([nil, false, [:]]))
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func reduceAndTransduce() throws {
 			clj_init()
 			let before = clj_debug_live_objects()

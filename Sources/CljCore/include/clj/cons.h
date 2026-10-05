@@ -23,7 +23,5 @@ clj_value clj_list_new_meta(clj_value first, clj_value rest, clj_value m);
 clj_value clj_cons_alloc(const clj_type *type, clj_value first, clj_value rest, clj_value m, bool with_meta);
 
 static inline clj_cons *clj_cons_of(clj_value v) { return (clj_cons *)clj_to_ptr(v); }
-// The trailing meta word of an object whose header has CLJ_FLAG_META; obj_size is the size without it.
-static inline clj_value *clj_meta_slot_at(void *obj, size_t obj_size) { return (clj_value *)((char *)obj + obj_size); }
 
 #endif

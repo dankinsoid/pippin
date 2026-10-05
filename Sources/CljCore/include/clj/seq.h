@@ -9,6 +9,12 @@
 // Seq types on the descriptor slots: views over a vector and a string, a fixnum range and the lazy seq.
 // All carry the ASeq trait (coll.h): sequential equality and hash, conj as cons.
 
+// Metadata in the trailing CLJ_FLAG_META word, as a cons: a view without it keeps its size. `size` is the
+// type's own sizeof; its each_child must pass clj_meta_trailing on.
+clj_value clj_view_meta(clj_value self, size_t size);
+// Consumes self (+1 in): a unique with-meta'd view is rewritten in place, anything else copied.
+clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size);
+
 // (seq v) as an O(1) view; next is a new view one index on.
 typedef struct {
 	clj_header h;

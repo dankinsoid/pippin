@@ -266,16 +266,31 @@ const clj_type clj_array_type = {
 
 static clj_array_seq *seq_of(clj_value v) { return (clj_array_seq *)clj_to_ptr(v); }
 
-static void array_seq_each_child(void *self, clj_visitor visit, void *ctx) { visit(((clj_array_seq *)self)->arr, ctx); }
+static void array_seq_each_child(void *self, clj_visitor visit, void *ctx) {
+	clj_array_seq *s = self;
+	visit(s->arr, ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+}
+
+static clj_value array_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_array_seq)); }
+
+static clj_value array_seq_with_meta(clj_value self, clj_value m) { return clj_view_with_meta(self, m, sizeof(clj_array_seq)); }
 
 static clj_value array_seq_first(clj_value self) { return clj_array_get(seq_of(self)->arr, seq_of(self)->i); }
 
+// ArraySeq.next hands the metadata on, as a string-seq's does.
 static clj_value array_seq_next(clj_value self) {
 	clj_array_seq *s = seq_of(self);
 	if (s->i + 1 >= clj_array_count(s->arr)) return CLJ_NIL;
-	clj_array_seq *next = clj_alloc(&clj_array_seq_type, sizeof *next);
+	clj_value      m = clj_meta_trailing(s, sizeof *s);
+	bool           word = !clj_is_nil(m);
+	clj_array_seq *next = clj_alloc(&clj_array_seq_type, sizeof *next + (word ? sizeof(clj_value) : 0));
 	next->i = s->i + 1;
 	next->arr = clj_retain(s->arr);
+	if (word) {
+		next->h.flags |= CLJ_FLAG_META;
+		*clj_meta_slot_at(next, sizeof *next) = clj_retain(m);
+	}
 	return clj_from_ptr(next);
 }
 
@@ -288,11 +303,13 @@ static clj_value array_seq_reduce(clj_value self, clj_value f, clj_value init) {
 const clj_type clj_array_seq_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "array-seq",
-	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE),
+	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = array_seq_each_child,
 	.seq = clj_aseq_seq,
 	.first = array_seq_first,
 	.next = array_seq_next,
 	.count = array_seq_count,
 	.reduce = array_seq_reduce,
+	.meta = array_seq_meta,
+	.with_meta = array_seq_with_meta,
 };

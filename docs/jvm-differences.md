@@ -3,7 +3,7 @@
 The language contract is JVM Clojure's, checked by the corpus (`docs/corpus.md`). Every known
 difference is listed here in one of three classes, so that a deliberate choice is never mistaken for
 an unfinished one. NOTES.md carries the mechanism behind each entry; this page carries the decision.
-A closed difference is deleted, not kept, so the page is the open list. The two **Fix** rows open are the ones Clojure's own test suite found (docs/notes/corpus.md).
+A closed difference is deleted, not kept, so the page is the open list. No **Fix** row is open: every difference Clojure's own test suite found is closed (docs/notes/corpus.md).
 
 - **Fix** — visible to portable core-only code; the gap is against the contract and closes when its
   trigger fires or sooner.
@@ -30,8 +30,6 @@ A closed difference is deleted, not kept, so the page is the open list. The two 
 | `seq` of a map, set or sorted collection is an eager list | Deferred | Trigger: `first` on a big map in a profile. |
 | A map literal or small `hash-map` seqs in this runtime's own order, not the JVM's insertion order: `(seq {1 1, 2 2})` is `([2 2] [1 1])` | Deliberate | A hash map's seq order is unspecified in Clojure; the JVM's comes from `PersistentArrayMap` keeping the literal's order up to eight keys, which a shape map does not have (NOTES.md, "Shapes"). Code that depends on it is relying on a representation. |
 | Sorted `dissoc` walks the tree twice | Deferred | LLRB deletion needs a present key; trigger: a delete-heavy profile. |
-| `with-meta` on a vector-seq, string-seq, `range` or lazy seq throws; Clojure's `IObj` seqs copy themselves with the map | Fix | Trigger fired: `clojure.test-clojure.sequences/range-meta` and `test-sort-retains-meta` (NOTES.md, "Type descriptor": the seq views carry no meta slot). |
-| A sorted collection accepts a key nothing compares it against: `(sorted-map () 1)` answers `{() 1}` where the JVM throws | Fix | `(compare () 1)` does throw here, so only the one-key insert is missing the check (NOTES.md, "Sorted"). |
 | `compare` returns −1/0/1 only and orders strings by code point | Deliberate | The JVM's char or length difference is an implementation leak, and UTF-16 unit order differs from code point order only between an astral char and U+E000–U+FFFF. |
 | `(hash record)` is the map hash of its content, not xor'd with the type name | Deliberate | `=` already separates a record from a map and from another record type, so sharing a hash costs collisions and never an answer; one entry mix (map.c) serves both representations. |
 | A `defrecord` body implements protocols only; a core interface in it is refused | Deferred | Every slot behind a core interface is the record's own, and a trampoline over it would break the map contract `record?` promises. Trigger: a library putting `IFn` or `IExceptionInfo` on a record. |

@@ -27,12 +27,13 @@
   first argument sorts first, the way `AFunction.compare` reads a fn comparator. `empty`, `assoc`, `dissoc`
   and `with-meta` carry the comparator over, and `(sorted-map)` is therefore still not a singleton. Trigger
   for a cheaper fn comparator: a `sorted-map-by` in a profile.
-- [ ] **A key nothing compares is accepted**: `(sorted-map () 1)` answers `{() 1}` and `(sorted-set ())`
-  answers `#{()}`, because the insert into an empty tree compares nothing, where Clojure's
-  `PersistentTreeMap` refuses the key ("Default comparator requires nil, Number, or Comparable"). The
-  comparator itself is right — `(compare () 1)` throws here — so the missing step is validating the key of
-  the one-element case. Trigger fired: `clojure.test-clojure.data-structures/test-sorted-map-keys` and
-  `test-sorted-set` (docs/jvm-differences.md, a **Fix** row).
+- **The default comparator vets a key it could never order**, at the fresh leaf where no sibling exists to
+  reveal it, as `PersistentTreeMap.add` does: `node_assoc` refuses it with Clojure's own message
+  ("Default comparator requires nil, Number, or Comparable: ()"). The predicate is `clj_compare_orders`
+  (compare.c), the dispatch of `clj_compare` with nothing else, and the check is skipped for a fn
+  comparator, which is the user's and takes any key — `(assoc (sorted-map-by cmp) () 1)` answers
+  `{() 1}` on the JVM too. Comparing the key with itself would not do: `clj_compare` returns 0 for the
+  same object, so `()`, `{}` and `#{}` — the keys Clojure's tests name — would pass.
 - [ ] **`dissoc` walks the tree twice**: `node_find` first, because the LLRB deletion is only correct for a
   key that is present and because the count must not move when it is not. Trigger: a delete-heavy profile.
 - **Equality and hash cross representations**: `(= (sorted-map :a 1) {:a 1})` and the reverse are true and

@@ -132,6 +132,21 @@ after: reduce + map inc range 224.2 → 228.8 (1k), 225.1 → 231.0 (100k); seq 
 by ~1.4 ns per call (3 %), at the edge of the ±3 % run-to-run spread; the rows without closure calls
 move within it.
 
+### Metadata on the seq views (after e2e4fa7), pool only, three alternating runs each
+
+The views grew the trailing `CLJ_FLAG_META` word, so every one of them now has an `each_child`
+(NOTES "Type descriptor"). A walk allocates and frees a view per step, and that free is where the
+cost would land. Medians, ns per element, before → after: reduce + map inc range 34.6 → 30.9 (1k),
+33.8 → 30.4 (100k); vec (map inc range) 35.6 → 36.1 (1k); seq walk of a vector 39.6 → 39.1;
+counting loop 12.8 → 12.8; closure call in a loop 19.5 → 20.2. The untouched rows move by up to 4 %
+here, which is the spread, and no touched row leaves it.
+
+- **The visit has to be guarded, not unconditional.** `visit(clj_meta_trailing(…))` — one extra
+  indirect call per freed view — cost the vector-seq walk 39.0 → 41.3 ns per element (+6 %)
+  reproducibly, the only move the measurement found. `if (flags & CLJ_FLAG_META) visit(…)`, which is
+  what cons.c already does, puts it back inside the spread: a view without metadata never makes the
+  call. A range pays one indirect call per free where it had none, which the range rows do not show.
+
 ## Intrinsics, immortal core roots — ef3641a, Apple M3 Pro, 36 GB, Swift 6.2.4 (pool only)
 
 The optimizer rewrites a call through a listed core var into an INTRINSIC node (a guard on the var's

@@ -164,7 +164,7 @@
   nothing but the reader and `def` ever writes those keys. Trigger for reading them generically: a library
   that puts a position or `:private` in a sorted map.
 - **Meta lives in per-type fields, not the header** (design, "Дескриптор типа"): symbol, vector, map
-  and fn have a `meta` field; a cons or `()` grows a trailing word under `CLJ_FLAG_META` (the flag
+  and fn have a `meta` field; a cons, `()` or a seq view grows a trailing word under `CLJ_FLAG_META` (the flag
   survives the dead-link in rc.c so the free path still visits it), so only with-meta'd and
   reader-produced lists pay 8 bytes; a var has an atomic `meta`. `with-meta` on a unique root sets
   the field in place, on a shared one copies the root (a fn copy shares code and env; a copy of a
@@ -172,12 +172,17 @@
   context has one release callback). `conj`/`assoc`/`dissoc`/`pop` keep a vector's or map's meta;
   `conj` on a cons drops it (Clojure's `PersistentList` keeps it, `Cons` does not — the `clj_list`
   wrapper below fixes that too). Equality, hash and the printer ignore meta (no `*print-meta*`).
-- [ ] **The seq views carry no meta slot**: `with-meta` on a vector-seq, string-seq, range or lazy-seq
-  throws "does not support metadata", where Clojure's `IObj` seqs copy themselves with the map. The
-  trigger has fired: Clojure's own `clojure.test-clojure.sequences/range-meta` asks for it over all six
-  `range` arities, and `test-sort-retains-meta` for `(sort (with-meta (range 10) {:a true}))`
-  (docs/notes/corpus.md, docs/jvm-differences.md, a **Fix** row). Fix: a meta field on each view, or the
-  CLJ_FLAG_META trailing word as for cons.
+- **The seq views keep meta in the trailing word too**: vector-seq, string-seq, array-seq, range and
+  lazy-seq carry `CLJ_CORE_META | CLJ_CORE_OBJ` and reach `clj_view_meta`/`clj_view_with_meta` (seq.c),
+  which are the cons mechanism over any plain view: the with-meta'd copy is `clj_alloc` of the type's own
+  size plus the word, the bytes past the header memcpy'd and the children retained through `each_child`,
+  which cannot see the new slot because the flag goes on after it. A view without metadata keeps its size
+  (32 bytes for the three seqs, 40 for a range and a lazy-seq), and one size class is 8 bytes up to 64, so
+  metadata costs exactly the word. `next` drops it as Clojure's `LongRange` and `ChunkedSeq` do, and hands
+  it on as `StringSeq` and `ArraySeq` do; `conj` drops it, being a cons. `with-meta` on a lazy-seq realizes
+  the head first, as `LazySeq.withMeta` does: a thunk runs once per object, so a copy may share the
+  realized value but never the thunk. `sort` and `sort-by` carry the source's metadata over
+  (`(with-meta (seq a) (meta coll))`, compare.c), an empty collection answering the bare `()`.
 - **`nth` special-cases strings by type** rather than a slot: a string has `lookup`/`count` slots
   but no ILookup/Indexed bits, as `RT.get`/`RT.nth` special-case `String`.
 

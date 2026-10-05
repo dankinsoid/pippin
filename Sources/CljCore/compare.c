@@ -109,6 +109,12 @@ clj_value clj_compare(clj_value a, clj_value b, int *out) {
 	return cast_error(a, "Comparable");
 }
 
+// The dispatch above, as a predicate: every branch it has, and nothing else.
+bool clj_compare_orders(clj_value v) {
+	return clj_is_nil(v) || clj_is_number(v) || clj_is_bool(v) || clj_is_char(v) || clj_is_string(v) || clj_is_keyword(v) ||
+	       clj_is_symbol(v) || clj_is_vector(v) || clj_is_uuid(v) || clj_is_inst(v);
+}
+
 bool clj_compare_with(const clj_call *call, clj_value a, clj_value b, int *out) {
 	if (clj_is_nil(call->f)) return clj_compare(a, b, out) != CLJ_THROWN;
 	clj_value args[2] = {a, b};
@@ -207,6 +213,12 @@ static clj_value sort_items(clj_value coll, sort_ctx *s) {
 	free(scratch);
 	free(items);
 	clj_release(keep);
+	// `sort` is (with-meta (seq a) (meta coll)); an empty coll answers the bare () before that.
+	if (out != CLJ_THROWN && n) {
+		clj_value m = clj_meta(coll);
+		if (!clj_is_nil(m)) out = clj_with_meta(out, m);
+		clj_release(m);
+	}
 	return out;
 }
 

@@ -12,6 +12,10 @@
 // Two values of any other type compare equal only as the same object.
 clj_value clj_compare(clj_value a, clj_value b, int *out);
 
+// The types clj_compare orders, Java's Comparable: anything else throws against every sibling, so a sorted
+// collection must refuse such a key where no sibling exists to reveal it (sorted.c).
+bool clj_compare_orders(clj_value v);
+
 // A comparator prepared once (eval.h) for a driver that compares per element: a call whose f is nil is
 // clj_compare, a fn answers a number or, as a predicate, logical true when its first argument sorts
 // first, the way AFunction.compare reads a fn comparator. false leaves the exception pending.

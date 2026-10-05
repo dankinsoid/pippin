@@ -238,7 +238,7 @@ extension Value {
 	}
 
 	/// Clojure `with-meta`: the same value carrying `m` (a map or nil) as its metadata. Throws `ClojureError`
-	/// for a value that does not support metadata (a string, a keyword, a number, a seq view, a var).
+	/// for a value that does not support metadata (a string, a keyword, a number, an array, a var).
 	public func withMeta(_ m: Value) throws -> Value {
 		try withExtendedLifetime((self, m)) {
 			let result = clj_with_meta(clj_retain(raw), m.raw)

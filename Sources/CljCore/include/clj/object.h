@@ -36,8 +36,8 @@ typedef struct {
 #define CLJ_FLAG_IMMORTAL ((uint32_t)1 << 1)
 // Lives in the system allocator, not a pool slab: too big for a size class, or CLJ_SYSTEM_ALLOC=1.
 #define CLJ_FLAG_LARGE    ((uint32_t)1 << 2)
-// The object carries one extra trailing clj_value word holding its metadata (cons, empty list): only
-// with-meta'd and reader-produced lists pay for the slot, a plain cons stays 32 bytes.
+// The object carries one extra trailing clj_value word holding its metadata (cons, empty list, the seq
+// views): only a with-meta'd or reader-produced value pays for the slot, a plain cons stays 32 bytes.
 #define CLJ_FLAG_META     ((uint32_t)1 << 3)
 // A map object laid out as a shape map (map.h): the shape and inline values instead of a trie.
 #define CLJ_FLAG_SHAPE    ((uint32_t)1 << 4)
@@ -132,6 +132,15 @@ static inline const clj_type *clj_type_of(clj_value v) { return clj_header_of(v)
 // 0 for immediates: nil, numbers, chars and booleans implement no core interface at the type level.
 static inline uint64_t clj_core_bits(clj_value v) { return clj_is_ptr(v) ? clj_type_of(v)->core_bits : 0; }
 static inline bool     clj_has_core(clj_value v, uint64_t bits) { return (clj_core_bits(v) & bits) == bits; }
+
+// The trailing meta word of an object whose header has CLJ_FLAG_META; obj_size is the size without it.
+static inline clj_value *clj_meta_slot_at(void *obj, size_t obj_size) { return (clj_value *)((char *)obj + obj_size); }
+
+// Borrowed, nil when the object carries no metadata.
+static inline clj_value clj_meta_trailing(void *obj, size_t obj_size) {
+	clj_header *h = obj;
+	return h->flags & CLJ_FLAG_META ? *clj_meta_slot_at(obj, obj_size) : CLJ_NIL;
+}
 
 // Zero-filled, rc = 1. Zero memory reads as nil, so value slots need no init.
 // Size-class pool per thread; CLJ_SYSTEM_ALLOC=1 in the environment routes to calloc/realloc/free.
