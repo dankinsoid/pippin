@@ -2,9 +2,8 @@
 
 - **What is vendored**: `corpus/medley` (medley.core and its test, EPL), `corpus/clojure-test-suite`
   (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0),
-  `corpus/clojure-core-tests` (26 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0),
-  `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0) and
-  `corpus/dependency` (Stuart Sierra's dependency 1.0.0 and its test, EPL 1.0), each with a
+  `corpus/clojure-core-tests` (26 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0) and
+  `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0), each with a
   `SOURCE` (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
 - **Of design §10's eight named libraries, only core.async is this core's to begin with.** Each of the other
@@ -29,18 +28,28 @@
   and `(.end matcher)`. The demand this reports, in order of how many libraries it blocks: a `deftype` body
   over host interfaces, JVM exception constructors, the `java.lang` statics §8 refuses, `print-method`,
   `*out*`/`*err*`, `clojure.zip`/`clojure.pprint`, and `^:unsynchronized-mutable` fields.
-- **The two libraries that do load are what §10's class actually looks like**: one namespace over
-  `clojure.core` (plus `clojure.string`/`set`/`walk`), no `deftype` over a host interface, no JVM static.
-  `math-combinatorics` loads whole (0 failing forms) and passes 17 of its 18 deftests; `dependency` loads
-  whole and passes all 9. Both wanted `:features #{:clj}`: four of math.combinatorics' `loop` vectors take
-  an initial value from a `#?` pair, so with no feature the vector reads with an odd number of forms and the
-  whole `defn` is lost. Between them they found four gaps, all closed: a regex literal in a discarded `#?`
-  branch read by string-escape rules (NOTES "Reader"), a lazy seq whose thunk answers `()` caching `()`
-  where `RT.seq` answers nil — so every seq walk written in Clojure saw one element too many (NOTES "Type
-  descriptor"), `fn`'s missing `:pre`/`:post` conditions and `*assert*` (NOTES "core.clj"), and
-  `(Name. args)` for a `deftype`/`defrecord` of one's own (NOTES "Analyzer and evaluator"). The one
-  remaining failure is `partitions` of an input with duplicates, whose parts come out of a `{index count}`
-  map and so carry that map's seq order (allowlist note, design §8).
+- **What a library of §10's class actually looks like**: one namespace over `clojure.core` (plus
+  `clojure.string`/`set`/`walk`), no `deftype` over a host interface, no JVM static. `math-combinatorics` is
+  the one taken — it loads whole, no top-level form lost, and passes 17 of its 18 deftests. It wanted
+  `:features #{:clj}`: four of its `loop` vectors take an initial value from a `#?` pair, so with no feature
+  the vector reads with an odd number of forms and the whole `defn` is lost. The one failure left is
+  `partitions` of an input with duplicates, whose parts come out of a `{index count}` map and so carry that
+  map's seq order (allowlist note, design §8). Four gaps closed on the way, two of them from this library
+  and two from the libraries that did not land: a regex literal in a discarded `#?` branch read by
+  string-escape rules (NOTES "Reader"), a lazy seq whose thunk answers `()` caching `()` where `RT.seq`
+  answers nil — so every seq walk written in Clojure saw one element too many (NOTES "Type descriptor"),
+  `fn`'s missing `:pre`/`:post` conditions and `*assert*` (NOTES "core.clj"), and `(Name. args)` for a
+  `deftype`/`defrecord` of one's own (NOTES "Analyzer and evaluator").
+- [ ] **Stuart Sierra's `dependency` 1.0.0 loads whole and passes all 9 of its deftests, and the ASan shard
+  dies on it.** Its test file builds `g3` with a `->` chain of 104 interpreted protocol calls; under
+  `--sanitize=address` the frames are large enough that somewhere between 55 and 60 of them exhaust the
+  test thread's 8 MB stack, where the plain build takes 104 without trouble. Worse than the depth: the
+  overflow is reported as `fatal stack overflow (a runtime lock is held)` and kills the process, where the
+  same overflow at top level is the catchable "Stack overflow" it should be — the fault lands inside a
+  locked region, so the guard cannot recover (NOTES "Guard"), and lenient loading has nothing to record.
+  That is what keeps the library out: `make test` is the ASan run and is a gate. The library itself is in
+  the scratch of this pass, not the tree. Trigger: a stack overflow inside `load` recovered the way the
+  top-level one is, or an evaluator that does not spend a C frame per nesting level.
 - [ ] **core.async's own suite passes 21 of its 23 deftests and is still not vendored.** `async_test.clj` at
   tag v1.6.681 (the version `make api-diff` diffs the async half against) loads with two forms lost to
   `Thread/currentThread` — `take!-on-caller?` and `put!-on-caller?`, whose subject is thread identity — and
