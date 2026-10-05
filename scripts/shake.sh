@@ -6,6 +6,9 @@ set -eu
 APP=${APP:-Tests/PippinTests/Fixtures/shake/app.clj}
 # The negative run drops this def, which the program calls: proof that reaching a dropped def is fatal.
 LIVE_DEF=${LIVE_DEF:-clojure.core/frequencies}
+# And these two macros, whose probe forms below are written for them: overriding one means rewriting its form.
+LIVE_MACRO=${LIVE_MACRO:-clojure.core/when}
+LIVE_MACRO_NAMING=${LIVE_MACRO_NAMING:-clojure.core/defn}
 BUILD_ROOT=${BUILD_ROOT:-.build}
 WORK=$BUILD_ROOT/shake
 CLJ_COMPILE=${CLJ_COMPILE:-$(pwd)/$BUILD_ROOT/plain/debug/clj-compile}
@@ -17,7 +20,7 @@ mkdir -p "$WORK/before" "$WORK/after" "$WORK/dropped" "$WORK/out" "$WORK/tree"
 
 "$CLJ_COMPILE" --core --closed --no-shake --stats --out "$WORK/before" --file "$APP" >/dev/null 2>"$WORK/out/stats-before.txt"
 "$CLJ_COMPILE" --core --closed --stats --out "$WORK/after" --file "$APP" >/dev/null 2>"$WORK/out/stats-after.txt"
-"$CLJ_COMPILE" --core --closed --shake-drop "$LIVE_DEF" --out "$WORK/dropped" --file "$APP" >/dev/null 2>"$WORK/out/stats-dropped.txt"
+"$CLJ_COMPILE" --core --closed --shake-drop "$LIVE_DEF" --shake-drop "$LIVE_MACRO" --shake-drop "$LIVE_MACRO_NAMING" --out "$WORK/dropped" --file "$APP" >/dev/null 2>"$WORK/out/stats-dropped.txt"
 
 # Only the sources, with the generated boot swapped for the run's own: Package.swift names boot/*.c by path.
 sync_tree() {
@@ -137,6 +140,22 @@ elif ! grep -q "$LIVE_DEF was dropped by --closed tree shaking and the program r
 	fail=1
 fi
 
+macro_probe() { # tag, macro, form
+	probe "$1" "$3"
+	if [ "$(cat "$WORK/out/probe-$1.status")" = 0 ]; then
+		echo "shake: the $1 probe expanded the dropped macro $2 instead of aborting"
+		fail=1
+	elif ! grep -q "$2 was dropped by --closed tree shaking and the program reached it (call)" "$WORK/out/probe-$1.err"; then
+		echo "shake: the $1 probe of the dropped macro $2 failed without naming it:"
+		tail -5 "$WORK/out/probe-$1.err"
+		fail=1
+	fi
+}
+
+# The second form's first argument is a name being defined, which no ordinary call could analyze.
+macro_probe macro-args "$LIVE_MACRO" "($LIVE_MACRO true 1)"
+macro_probe macro-naming "$LIVE_MACRO_NAMING" "($LIVE_MACRO_NAMING probe-fn [] 1)"
+
 filesize() { wc -c <"$1" | tr -d ' '; }
 total() { cat "$1"/*.c | wc -c | tr -d ' '; }
 printf '\nshake: %s\n' "$APP"
@@ -155,4 +174,4 @@ fi
 grep '^survivors: Sources/CljCore/boot/core.clj' "$WORK/out/stats-after.txt" | cut -c1-400
 
 [ "$fail" = 0 ] || exit 1
-echo "shake: the shaken whole-program build matches the interpreter, and a dropped live def is fatal"
+echo "shake: the shaken whole-program build matches the interpreter, and a dropped live def or macro is fatal"

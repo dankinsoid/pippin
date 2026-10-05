@@ -130,7 +130,22 @@ extension CoreTests {
 			#expect(Value(borrowing: clj_var_meta(dead.raw)).description.contains(":pippin/shaken"))
 			let live = try #require(resolveVar("fixture.shake.run", "live-one"))
 			#expect(!clj_c_is_shaken(live.raw))
-			#expect(!clj_var_is_macro(try #require(resolveVar("fixture.shake.run", "dead-macro")).raw))
+			// The flag is what routes a call through expand_once to the invoke slot (shake.sh provokes the abort).
+			let macroVar = try #require(resolveVar("fixture.shake.run", "dead-macro"))
+			#expect(clj_c_is_shaken(macroVar.raw))
+			#expect(clj_var_is_macro(macroVar.raw))
+			#expect(Value(borrowing: clj_var_meta(macroVar.raw)).description.contains(":macro true"))
+		}
+
+		// A macro var's root is only ever invoked (expand_once), so no reference reaches the tripwire.
+		@Test func aDroppedMacroIsRefusedAsAValueLikeAnyMacro() throws {
+			try runShakenUnit("ref")
+			let refused = "Can't take value of a macro: #'fixture.shake.ref/dead-macro"
+			#expect(cljEvalErrorScoped("fixture.shake.ref/dead-macro")?.contains(refused) == true)
+			#expect(cljEvalErrorScoped("(map fixture.shake.ref/dead-macro [1 2])")?.contains(refused) == true)
+			// Inspection still answers: the var resolves and nothing reached its root to abort over.
+			#expect(try cljEvalScoped("(var fixture.shake.ref/dead-macro)").description == "#'fixture.shake.ref/dead-macro")
+			#expect(try cljEvalScoped("(:macro (meta (var fixture.shake.ref/dead-macro)))").description == "true")
 		}
 
 		// The slot policy of the tripwire type (NOTES.md, "Compiler"): what answers, and that fn? is not a lie.

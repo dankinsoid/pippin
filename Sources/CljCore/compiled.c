@@ -90,24 +90,35 @@ clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic) {
 
 // ---- a def the shaker left out (NOTES.md, "Compiler": tree shaking)
 
-// One map shared by every shaken var, as builtins.c does for :pippin/extension: nothing per def to count.
-static clj_value shaken_meta(void) {
-	static clj_value meta = CLJ_NIL;
-	if (clj_is_nil(meta)) meta = clj_map_assoc(clj_map_empty_new(), clj_keyword_from_cstr("pippin/shaken"), CLJ_TRUE);
-	return meta;
+// Two maps shared by every shaken var, as builtins.c does for :pippin/extension: nothing per def to count.
+// A macro's keeps :macro true, which is where the JVM reads macro-ness from, so (meta #'x) and doc agree with
+// the var's own flag.
+static clj_value shaken_meta(bool macro) {
+	static clj_value plain = CLJ_NIL, of_macro = CLJ_NIL;
+	if (clj_is_nil(plain)) {
+		plain = clj_map_assoc(clj_map_empty_new(), clj_keyword_from_cstr("pippin/shaken"), CLJ_TRUE);
+		of_macro = clj_map_assoc(clj_retain(plain), clj_keyword_from_cstr("macro"), CLJ_TRUE); // assoc consumes
+	}
+	return macro ? of_macro : plain;
 }
 
-void clj_c_shaken(clj_value var) {
+static void shaken_bind(clj_value var, bool macro) {
 	clj_value f = clj_shaken_new(var);
 	// Without the bracket a unit's other binds run under, clj_eval_retire_root declines and the old fn root dies early.
 	clj_eval_top_enter();
 	clj_var_bind_root(var, f);
-	clj_var_set_macro(var, false);
+	clj_var_set_macro(var, macro);
 	clj_var_set_dynamic(var, false);
-	clj_var_set_meta(var, shaken_meta());
+	clj_var_set_meta(var, shaken_meta(macro));
 	clj_eval_top_leave();
 	clj_release(f);
 }
+
+void clj_c_shaken(clj_value var) { shaken_bind(var, false); }
+
+// A dropped macro keeps its flag: expand_once then reaches the tripwire's invoke slot, where a wrong
+// reachability claim is the named abort, instead of the analyzer failing on the arguments first.
+void clj_c_shaken_macro(clj_value var) { shaken_bind(var, true); }
 
 bool clj_c_is_shaken(clj_value var) { return clj_is_shaken(clj_var_root(var)); }
 

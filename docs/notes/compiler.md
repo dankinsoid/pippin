@@ -195,7 +195,8 @@
   entry's own files, written side by side into one boot directory whose `libs.c` registers every one of them by
   path, so `clj_load_file` of the program runs its unit. `cljc_end` decides, before a single form is emitted,
   which top-level defs of the core half nothing can reach; `flush_pending` then skips them, so their arity
-  functions, stubs, constants and `top_N` are never written and their whole init line is `clj_c_shaken(V[k])`.
+  functions, stubs, constants and `top_N` are never written and their whole init line is `clj_c_shaken(V[k])`,
+  or `clj_c_shaken_macro(V[k])` for a macro (below).
   **The tripwire is the licence, not the analysis:** a shaken def's var is still interned and carries
   `:pippin/shaken`, and its root is a value of `clj_shaken_type` (shaken.c) whose every use is a `clj_fatal`
   naming the def, so a reachability claim this pass got wrong is a named abort and never a missing root or a
@@ -220,6 +221,19 @@
   calls the type `CLJ_T_HOST`, as it does a deftype that implements IFn, so an interpreted form in a shaken
   binary cannot have `(fn? x)` folded back to true over the root's own type. The root is immortal, so
   `clj_c_var_borrow` and `eval_borrowed` read it at +0 like a fn root and a call site pays no retain.
+- **A dropped macro keeps its `:macro` flag** (`clj_c_shaken_macro` in compiled.c, `emit_shaken` in compiler.c).
+  Which dropped defs were macros is readable at compile time from the def node: a macro is a def whose symbol
+  carries `:macro true`, the JVM's own rule, which `analyze_def` already reads into `n->u.def.macro`. With the
+  flag the analyzer expands a call of the def — `expand_once` → `clj_invoke` → the invoke slot — so the abort
+  names it whichever way the arguments would go, and without it the call is an ordinary one whose arguments are
+  analyzed first: `(defn f [] 1)` against a shaken `defn` names `defn` where the unflagged var failed at `f`.
+  `expand_once` is the only place the analyzer reads a macro var's root, and it invokes it, so nothing else of
+  the type is reached; the one other thing a macro var changes is that a reference which is not a call is
+  refused ("Can't take value of a macro"), exactly as a live macro's is, instead of yielding the root as a value.
+  The var's meta carries `:macro true` beside `:pippin/shaken`, so `(meta #'x)` and `doc` agree with the flag.
+  `scripts/shake.sh` force-drops `clojure.core/when` and `clojure.core/defn` beside the live fn and probes both
+  argument shapes against the same binary; `ShakeTests` holds the reference and the meta, which a process can
+  survive.
 - **The root set**, nine rows, each a check in `shake_candidate` or `shake_run`. 1. A def whose init is not a `fn`:
   a fn's init only builds a closure, while any other init is code that runs at load, and dropping the def drops
   that run — `(def _ (register!))` left out is an effect that never happens and no later read to trip the wire,
@@ -252,14 +266,9 @@
   the root is as loud as calling it: `(fn? @(resolve 'x))` answers false and the first use of the value aborts.
   What is left is the uses that do not reach a slot. The three non-slot operations — arithmetic, `deref`, `nth` —
   throw naming the type `shaken` instead of aborting with the def's name, so a catch-all around one turns a build
-  bug into an ordinary error. And a dropped *macro* only half fires: `clj_c_shaken` leaves the var's `:macro`
-  flag false, so a run-time macroexpansion is an ordinary call of the var — named when the arguments analyze as
-  expressions (`(when true 1)` against a shaken core aborts naming `when`) and an
-  analyzer error before the call when they do not (`(defn f [] …)` fails at `f`). Flagging a dropped macro would
-  route it through `expand_once` → `clj_invoke` → the invoke slot, which needs the compiler to say which dropped
-  defs were macros. Trigger: a program that catches everything around arithmetic on a core root, or a REPL
-  against a shaken core where a dropped macro's error has to name the def; then a tag test for the type where
-  number.c tests for a number, and `clj_c_shaken_macro`.
+  bug into an ordinary error. A macroexpansion is not among them: a dropped macro says so and lands on the invoke
+  slot (above). Trigger: a program that catches everything around arithmetic on a core root; then a tag test for
+  the type where number.c tests for a number.
 - **Tree shaking: the numbers** (arm64, release, `-Wl,-dead_strip`, the `clj-load` binary over
   `Tests/PippinTests/Fixtures/shake/app.clj`, which is wide on purpose; `make shake` measures the debug shape,
   `SHAKE_RELEASE=1 sh scripts/shake.sh` this one; the first two rows are `swift build -c release --product

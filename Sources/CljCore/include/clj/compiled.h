@@ -61,6 +61,9 @@ clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic);
 // interned and carries :pippin/shaken, and its root is a clj_shaken_type tripwire (shaken.h): using the def —
 // a call, a get, a seq — is a fatal naming the var, never a silently unbound or missing root.
 void clj_c_shaken(clj_value var);
+// The same for a dropped macro: the :macro flag stays on, so the analyzer expands a call of it through the
+// tripwire's invoke slot instead of analyzing the arguments of an ordinary call that can fail before it.
+void clj_c_shaken_macro(clj_value var);
 // Whether the var's root is such a tripwire: what a test asserts about a shaken def.
 bool clj_c_is_shaken(clj_value var);
 // Map and set literals from borrowed items (a map alternates key, value), with the duplicate-key check of the evaluator.

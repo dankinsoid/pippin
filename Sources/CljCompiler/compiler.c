@@ -3521,9 +3521,10 @@ static void shake_run(cljc_compiler *c) {
 	free(queue);
 }
 
-// A dropped def: its var is interned as every other var of the unit is, and its root is the tripwire.
+// A dropped def: its var is interned as every other var of the unit is, and its root is the tripwire. A macro
+// says so, or the analyzer would read its call as an ordinary one and could fail on the arguments first.
 static void emit_shaken(unit *u, const clj_node *n) {
-	sb_printf(&u->init, "\tclj_c_shaken(V[%zu]);\n", var_index(u, n->u.def.var));
+	sb_printf(&u->init, "\tclj_c_shaken%s(V[%zu]);\n", n->u.def.macro ? "_macro" : "", var_index(u, n->u.def.var));
 	u->slots.defs++;
 	u->slots.defs_dropped++;
 	def_size_add(u, n->u.def.var, 0, true);
