@@ -31,7 +31,7 @@
   {:id :no-long-min-value
    :mechanism :generator
    :row "`(abs Long/MIN_VALUE)` throws where `Math/abs` returns `Long/MIN_VALUE`"
-   :why "Long/MIN_VALUE is not generated at all: it is not in the literal pool, and `bit-shift-left`, `bit-flip` and `bit-set` are not generated either, being the only operations that can set bit 63 without the overflow check `+`, `-` and `*` carry. `abs` is out too, it being the one generated function the JVM answers there where we throw. fuzz/regressions/abs-signed-zero.clj keeps `abs` itself measured."}
+   :why "`abs` is not generated, being the one generated function the JVM answers there where we throw, and the value is kept out of reach rather than excluded: it is not a literal, -2^62 is not a literal either (`(+ -2^62 -2^62)` is exactly it, and no overflow check fires), and `bit-shift-left`, `bit-flip`, `bit-set` and `bit-clear` are not generated. It stays reachable in two or three steps — `(bit-not (unsigned-bit-shift-right -1 1))` — so this thins the class rather than closing it: measured at one case in 80000 forms. fuzz/regressions/ keeps the value's own arithmetic measured."}
 
   {:id :no-compare
    :mechanism :generator
