@@ -29,10 +29,11 @@
 - [ ] **What is still unbounded is `eval_child`.** `run_body` checks per call, so a recursion of Clojure calls is
   bounded, but the evaluator walks one form's nesting with no check of its own: past the margin it reaches the
   guard page, catchably where no lock is held and fatally if the last straw lands in a critical section of its
-  own (a keyword intern, a shape transition, a protocol dispatch). It takes a form nested past ~150 levels under
-  ASan to get there, and the analyzer refuses most such forms first, which is why nothing reaches it today.
-  Trigger: a check in `eval_child` a benchmark shows free, or an evaluator that does not spend a C frame per
-  nesting level (design §6b).
+  own (a keyword intern, a shape transition, a protocol dispatch). Measured, the analyzer costs more stack a
+  level than the evaluator does, so a plain `(+ 1 (+ 1 …))` nest is refused in analysis at every depth and never
+  gets there; a `->` chain of protocol calls past ~180 levels under ASan does reach the page, and landed with no
+  lock held in every run of it. Trigger: a check in `eval_child` a benchmark shows free, or an evaluator that
+  does not spend a C frame per nesting level (design §6b).
 - **A fault that is not an overflow is fatal with a trace** (`fatal_fault`): "clj: fatal SIGSEGV at 0x…", the
   Clojure frames (`clj_trace_write`), then the handler that was installed before ours (ASan's report under
   `--sanitize=address`), then `clj_guard_die`. The handler never *returns* to the faulting instruction: the
