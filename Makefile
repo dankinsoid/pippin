@@ -184,11 +184,11 @@ ios-app:
 
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff test-isolated test-compiled-asan
 
 # ---- the differential fuzzer (fuzz/, docs/notes/fuzzing.md)
 
