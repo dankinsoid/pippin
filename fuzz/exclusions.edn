@@ -31,7 +31,7 @@
   {:id :no-long-min-value
    :mechanism :generator
    :row "`(abs Long/MIN_VALUE)` throws where `Math/abs` returns `Long/MIN_VALUE`"
-   :why "`abs` is not generated and Long/MIN_VALUE is not in the integer literal pool, though the bit operations reach it whatever the pool holds (`(bit-flip 0 63)`): `abs` is the one generated function the JVM answers where we throw. fuzz/regressions/abs-signed-zero.clj keeps `abs` itself measured."}
+   :why "Long/MIN_VALUE is not generated at all: it is not in the literal pool, and `bit-shift-left`, `bit-flip` and `bit-set` are not generated either, being the only operations that can set bit 63 without the overflow check `+`, `-` and `*` carry. `abs` is out too, it being the one generated function the JVM answers there where we throw. fuzz/regressions/abs-signed-zero.clj keeps `abs` itself measured."}
 
   {:id :no-compare
    :mechanism :generator
@@ -117,6 +117,11 @@
    :mechanism :generator
    :row "`=` and `hash` of a lazy seq realize it only as far as the answer needs"
    :why "The two-argument `reductions` is not generated: over an empty collection it calls `(f)` with no arguments, which is the one generated way to build a lazy seq whose realization throws. The three-argument one, which takes an init, stays."}
+
+  {:id :no-boxed-minus-of-long-min
+   :mechanism :generator
+   :row "`(- x Long/MIN_VALUE)` answers the difference wherever it fits"
+   :why "Same mechanism as :no-long-min-value, the value never being generated; the row is separate because the two answers here are the JVM's own and not a choice of ours."}
 
   {:id :no-bigint-marker
    :mechanism :normalize

@@ -58,6 +58,14 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   answers two ways (its row in `docs/jvm-differences.md`), so -0.0 left the literal pool; it is still reachable
   as `(* -1.5 0.0)`. Closing it needs either a static sign-of-zero fact or the JVM settling on one answer.
 
+- **Two values carry most of the deliberate rows: `Long/MIN_VALUE` and a lazy seq whose realization throws.**
+  Neither can be excluded by a type, so each is excluded by dropping the operations that *make* one:
+  `bit-shift-left`, `bit-flip` and `bit-set`, the only ones that set bit 63 without the overflow check `+`, `-`
+  and `*` carry, and the two-argument `reductions`, whose `(f)` with no arguments is the one lazy seq that
+  throws on realization. Three rows of `docs/jvm-differences.md` stand behind the first and two behind the
+  second, and most of them are the JVM answering one expression two ways, by whether its compiler saw a
+  primitive long.
+
 - **The compiled backend is the slow runner**: `CLJ_EVAL=compiled` pays a clang run per top-level form, about
   one form a second, and `--group N` wrapping N expressions in one `do` does not help, the cost being per form
   and not per clang. That is why the gate is the interpreter against the oracle and `make fuzz-long` carries the

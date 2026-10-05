@@ -188,8 +188,9 @@ static clj_value long_arith(clj_value a, clj_value b, clj_num_op op) {
 		if (y == 0) return clj_throw_msg("Divide by zero");
 		// -1 apart, so INT64_MIN reaches neither / nor % undefined.
 		if (y == -1) {
-			overflow = x == INT64_MIN;
-			r = overflow ? 0 : -x;
+			// An exact quotient that no long holds is a bigint, not an error: `/` is the rational division.
+			if (x == INT64_MIN) return integer_arith(a, b, CLJ_OP_DIV, true);
+			r = -x;
 			break;
 		}
 		if (x % y != 0) return integer_arith(a, b, CLJ_OP_DIV, true);
