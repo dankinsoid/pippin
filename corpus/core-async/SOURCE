@@ -3,8 +3,9 @@ core-async — core.async's own test suite (design §10, "корпус реал�
 Repository: https://github.com/clojure/core.async
 Tag:        v1.6.681 (d7f1f9d8fba7b002e539562fcb33de853df6840e, the version make api-diff diffs the
             async half of docs/api-parity.md against)
-License:    Eclipse Public License 1.0 (LICENSE; the repository ships it as epl-v10.html too, and
-            every file keeps its own copyright header)
+License:    Eclipse Public License 1.0 (LICENSE, the repository's own file; it ships the same text as
+            epl-v10.html too. This test file carries no per-file copyright header upstream, so there
+            is none to keep: it is byte-identical to the file at that tag.)
 
 Files taken, unmodified:
   src/test/clojure/clojure/core/async_test.clj -> test/clojure/core/async_test.clj
