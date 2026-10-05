@@ -106,6 +106,22 @@ Top reasons (forms and tests):
 
 Skipped vars: `add-tap`, `clojure.edn/read-string`, `with-precision`
 
+## core-async
+
+- namespaces: 1 requested, 0 failed to load entirely
+- top-level forms that failed to load: 2
+- tests: 16 ran, 15 passed, 1 failed, 0 errored
+- skipped by the suite's own when-var-exists (the var does not exist here): 0
+- tests past the watchdog's deadline: 0
+- live objects a second run of the same tests leaves: 0
+
+Top reasons (forms and tests):
+
+| count | reason |
+|---|---|
+| 2 | missing `Thread/currentThread` |
+| 1 | assertion: (= 1 (<!! t-1)) |
+
 ## math-combinatorics
 
 - namespaces: 1 requested, 0 failed to load entirely

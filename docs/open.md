@@ -63,7 +63,7 @@ file. 97 open, 91 partly done.
 - [~] переносимая часть `test/clojure/test_clojure/*` через наш `clojure.test`; JVM-специфичные … — Осталось: `ns_libs` — единственный переносимый файл, который не взят, и причина не в языке, а в проверке памяти (NOTES «Corpus»).
 - [ ] дифференциальный фаззинг против JVM-Clojure как оракула: случайные выражения над …
 - [~] полное соответствие публичного API `clojure.core`: механический дифф `(ns-publics …
-- [~] корпус реального кода — Девять библиотек измерены и не взяты, каждая с уликой в NOTES «Corpus»: шесть из списка §10 (instaparse, core.match, meander, tools.reader, edamame, malli) не грузятся вовсе — их ветки `:clj` это …
+- [~] корпус реального кода — Цель, не взятая: код **на** core.async — библиотека третьей стороны поверх каналов.
 - [~] Первые цифры на устройстве до UI: размер бинаря (рантайм + tree-shaken core — единицы … — Осталось: прогон на самом устройстве (бандл есть и ставится на симулятор, устройству не хватает только профиля, NOTES «iOS») и вторая половина пункта — время старта не измерено, известна только цена `clj_init` по …
 
 ## Engineering notes
@@ -125,7 +125,7 @@ file. 97 open, 91 partly done.
 ### [Channels (Sources/CljCore/chan.c, boot/clojure/core/async.clj, include/clj/chan.h)](notes/channels.md)
 
 - [~] A channel is a buffer plus two queues of waiter nodes under a `clj_lock` — trigger for dispatching callbacks to the pool: a callback that parks long on the timer thread).
-- [~] The library layer is core.async's own code over these primitives — Trigger for more static-call shims: a library calling another `Class/method`.
+- [~] The library layer is core.async's own code over these primitives — The trigger for the next such shim is a library calling another `Class/method` whose whole meaning this runtime has
 
 ### [Compiler (Sources/CljCompiler, Sources/CljCore/compiled.c, boot/core.c)](notes/compiler.md)
 
@@ -159,12 +159,12 @@ file. 97 open, 91 partly done.
 - [~] Evacuation of cold parked coroutines — Triggers: (1) the **sweep** — a timer on the timer thread every `CLJ_EVAC_SWEEP_MS` (default 250, `clj_coro_set_evac_sweep_ms`, 0 disables), armed while any coroutine lives and re-armed by itself
 - [~] TLS across a park is the one rule every runtime file obeys. — +1 ns on a protocol or keyword site — the trigger for the asm alternative that names the TLV symbol directly is a profile where that call shows).
 - [~] The guard page of a coroutine works like a thread's — A `try` inside the coroutine does not see it, as at the host boundary (same trigger as there).
+- [ ] A coroutine abandoned while parked is a cycle, and nothing frees it. — Trigger: trial deletion, or a profile where abandoned parked coroutines grow without bound.
 - [ ] Not done, with triggers: `Runtime.eval` from a bare thread that parks blocks that thread … — Not done, with triggers: `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`)
 
 ### [Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)](notes/corpus.md)
 
 - [ ] Stuart Sierra's `dependency` 1.0.0 loads whole and passes all 9 of its deftests, and the ASan shard dies on it. — Trigger: a stack overflow inside `load` recovered the way the top-level one is, or an evaluator that does not spend a C frame per nesting level.
-- [ ] core.async's own suite passes 21 of its 23 deftests and is still not vendored. — Trigger for taking it: either a decision on spawn locality (a spawned coroutine not starting before the spawner's next park, which would also close the ASYNC-127 divergence) or an account of the 20–55 s drain.
 - [~] `api-diff` is also the gate on `^:pippin/extension` — Trigger for a JVM dump per embedded lib: a second such var.
 - [ ] `ns_libs` is portable and still out, for the memory check. — Trigger for taking it: a namespace that `remove-ns` makes collectable, or a live-object baseline per test rather than per library.
 

@@ -258,6 +258,14 @@
   out channels and nothing hands out a coroutine. Unlike `cancel!` it does not remember a request that arrives
   before a `thread` body attached (there is no `cancel_early` twin) — a suspension is done to a running body.
   `suspended?` answers the flag, not the park: the body may still be a few calls short of its gate.
+- [ ] **A coroutine abandoned while parked is a cycle, and nothing frees it.** A `go` holds the channel it waits
+  on in its frames, and that channel's queue holds a waiter that holds the coroutine; the `go`'s own result channel
+  holds it too. So a `go-loop` whose channel the program has dropped — an untapped `mult`, an `onto-chan!` into a
+  buffer nobody drains — is unreachable and still alive, where the JVM's GC collects the same parked block once its
+  channel is unreachable. It is the cycle of design §7, not a leak of the scheduler's: RC is the only freeing, and
+  §7's trial deletion over may-cycle candidates is what would collect it. core.async's own `async_test.clj` makes 21
+  of them in one file, which is what the corpus harness's `reclaimAbandoned` cancels (NOTES "Corpus"); a program has
+  only `cancel!`. Trigger: trial deletion, or a profile where abandoned parked coroutines grow without bound.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
