@@ -135,6 +135,10 @@ extension CoreTests {
 				#expect(message("(str (lazy-seq (throw (ex-info \"str\" {}))))") == "str")
 				#expect(message("(count (lazy-seq (throw (ex-info \"count\" {}))))") == "count")
 				#expect(message("(= [1] (lazy-seq (throw (ex-info \"eq\" {}))))") == nil)
+				// A thunk answering an empty seq caches nil, or every seq walk written in Clojure sees one element too many.
+				#expect(try eval("[(seq (lazy-seq ())) (seq (lazy-seq (list))) (seq (lazy-seq []))]") == [nil, nil, nil])
+				#expect(try eval("(doall (for [x (cons 1 (lazy-seq ()))] x))") == list([1]))
+				#expect(try eval("(doall (map identity (cons 1 (lazy-seq (cons 2 (lazy-seq ()))))))") == list([1, 2]))
 				// A thunk that forces its own object is an error, not a hang, shared or not.
 				_ = try eval("(def lz-rec (lazy-seq (seq lz-rec)))")
 				#expect(message("(first lz-rec)") == "Recursive realization of a lazy seq")

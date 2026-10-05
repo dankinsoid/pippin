@@ -429,8 +429,8 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 		chain_push(&inner, r);
 		r = run_thunk(r);
 	}
-	// A thunk may return any seqable; the cache holds its seq.
-	if (r != CLJ_THROWN && !clj_is_nil(r) && !clj_is_seq(r)) {
+	// A thunk may return any seqable, an empty one included; the cache holds its seq, so () becomes nil (RT.seq).
+	if (r != CLJ_THROWN && !clj_is_nil(r)) {
 		clj_value v = clj_seq(r);
 		clj_release(r);
 		r = v;
