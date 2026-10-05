@@ -63,7 +63,7 @@ file. 96 open, 91 partly done.
 - [~] переносимая часть `test/clojure/test_clojure/*` через наш `clojure.test`; JVM-специфичные … — Осталось: `ns_libs` — единственный переносимый файл, который не взят, и причина не в языке, а в проверке памяти (NOTES «Corpus»).
 - [ ] дифференциальный фаззинг против JVM-Clojure как оракула: случайные выражения над …
 - [~] полное соответствие публичного API `clojure.core`: механический дифф `(ns-publics …
-- [~] корпус реального кода
+- [~] корпус реального кода — Сама core.async проходит 21 из 23 `deftest` своего `async_test.clj`, но не взята: файл оставляет 20–21 корутину и столько же таймеров, которые расходятся за 20–55 с против 10 с, отведённых проверке памяти (NOTES …
 - [~] Первые цифры на устройстве до UI: размер бинаря (рантайм + tree-shaken core — единицы … — Осталось: прогон на самом устройстве (бандл есть и ставится на симулятор, устройству не хватает только профиля, NOTES «iOS») и вторая половина пункта — время старта не измерено, известна только цена `clj_init` по …
 
 ## Engineering notes
@@ -149,7 +149,6 @@ file. 96 open, 91 partly done.
 - [ ] `transient` is the identity, so `conj!` copies where `conj` would not — Derived from the code, not yet measured.
 - [~] `concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only — Trigger: macro expansion in a profile.
 - [~] `destructure` follows clojure.core with these gaps. — Trigger: a library relying on the trailing-map call style.
-- [ ] `fn` has no `:pre`/`:post` conditions — Trigger: the first `{:pre [...]}`
 
 ### [Coroutine mutex (Sources/CljCore/cmutex.c, include/clj/cmutex.h)](notes/coroutine-mutex.md)
 
@@ -164,6 +163,7 @@ file. 96 open, 91 partly done.
 
 ### [Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)](notes/corpus.md)
 
+- [ ] core.async's own suite passes 21 of its 23 deftests and is still not vendored. — Trigger for taking it: either a decision on spawn locality (a spawned coroutine not starting before the spawner's next park, which would also close the ASYNC-127 divergence) or an account of the 20–55 s drain.
 - [~] `api-diff` is also the gate on `^:pippin/extension` — Trigger for a JVM dump per embedded lib: a second such var.
 - [ ] `ns_libs` is portable and still out, for the memory check. — Trigger for taking it: a namespace that `remove-ns` makes collectable, or a live-object baseline per test rather than per library.
 

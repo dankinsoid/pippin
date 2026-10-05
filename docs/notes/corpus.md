@@ -1,10 +1,66 @@
 ## Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)
 
 - **What is vendored**: `corpus/medley` (medley.core and its test, EPL), `corpus/clojure-test-suite`
-  (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0) and
-  `corpus/clojure-core-tests` (nine files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0), each with a
+  (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0),
+  `corpus/clojure-core-tests` (26 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0),
+  `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0) and
+  `corpus/dependency` (Stuart Sierra's dependency 1.0.0 and its test, EPL 1.0), each with a
   `SOURCE` (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
+- **Of design §10's eight named libraries, only core.async is this core's to begin with.** Each of the other
+  seven was vendored into the harness and measured, and six cannot load at all: their `:clj` branches are
+  `clojure.lang.*` interfaces in a `deftype` body, JVM exception constructors and `java.lang` statics, and
+  the `:cljs` branches are the same code against `cljs.core`'s protocols and `js/`. **instaparse** (45
+  failing forms) carries `auto-flatten-seq` as a `deftype` over `clojure.lang.IHashEq`, `ISeq`, `Counted`,
+  `ILookup`, `IObj`, `Seqable`, `IFn` and `java.util.Collection`, and needs `clojure.core.protocols`,
+  `dosync`, `unchecked-multiply-int`, `print-method`, `CharSequence`, `Character/codePointAt` and four
+  exception constructors. **core.match** (61) reads `clojure.lang.Compiler/LOOP_LOCALS` and
+  `extend-type clojure.lang.ILookup`, and its nodes are `deftype`s over `clojure.lang.IObj`/`ILookup`.
+  **meander** (80) needs `clojure.zip`, `clojure.pprint`, `print-method`, `*warn-on-reflection*`,
+  `Integer/parseInt`, `iterator-seq` and `java.lang.Iterable`, and its cascade leaves `r.match/match`
+  undefined, which is the library. **tools.reader** (103) is `StringBuilder.`, `Character/digit`,
+  `RT/map`, `PersistentHashSet/createWithCheck` and `clojure.lang.PersistentList/create` from end to end —
+  so **edamame**, whose `:clj` *and* `:default` branches both require `clojure.tools.reader.reader-types`,
+  goes with it, and **malli** (41), which requires edamame, `borkdude/dynaload` and `test.check`, and whose
+  own `malli.impl.regex` is a `deftype` with `^:unsynchronized-mutable` fields. **datascript** imports
+  `me.tonsky.persistent_sorted_set.PersistentSortedSet`, a Java class, so there is nothing to measure.
+  Two libraries outside §10's list were measured for the same reason and are also out: **tools.cli** wants
+  `*out*`, `*err*`, `Exception.` and `Integer/parseInt`, and **camel-snake-kebab** wants `Pattern/compile`
+  and `(.end matcher)`. The demand this reports, in order of how many libraries it blocks: a `deftype` body
+  over host interfaces, JVM exception constructors, the `java.lang` statics §8 refuses, `print-method`,
+  `*out*`/`*err*`, `clojure.zip`/`clojure.pprint`, and `^:unsynchronized-mutable` fields.
+- **The two libraries that do load are what §10's class actually looks like**: one namespace over
+  `clojure.core` (plus `clojure.string`/`set`/`walk`), no `deftype` over a host interface, no JVM static.
+  `math-combinatorics` loads whole (0 failing forms) and passes 17 of its 18 deftests; `dependency` loads
+  whole and passes all 9. Both wanted `:features #{:clj}`: four of math.combinatorics' `loop` vectors take
+  an initial value from a `#?` pair, so with no feature the vector reads with an odd number of forms and the
+  whole `defn` is lost. Between them they found four gaps, all closed: a regex literal in a discarded `#?`
+  branch read by string-escape rules (NOTES "Reader"), a lazy seq whose thunk answers `()` caching `()`
+  where `RT.seq` answers nil — so every seq walk written in Clojure saw one element too many (NOTES "Type
+  descriptor"), `fn`'s missing `:pre`/`:post` conditions and `*assert*` (NOTES "core.clj"), and
+  `(Name. args)` for a `deftype`/`defrecord` of one's own (NOTES "Analyzer and evaluator"). The one
+  remaining failure is `partitions` of an input with duplicates, whose parts come out of a `{index count}`
+  map and so carry that map's seq order (allowlist note, design §8).
+- [ ] **core.async's own suite passes 21 of its 23 deftests and is still not vendored.** `async_test.clj` at
+  tag v1.6.681 (the version `make api-diff` diffs the async half against) loads with two forms lost to
+  `Thread/currentThread` — `take!-on-caller?` and `put!-on-caller?`, whose subject is thread identity — and
+  one failing test, the ASYNC-127 block of `ops-tests`: `(mult (to-chan! [1 2 3]))` then `tap` drops the
+  first items, because the source is a filled buffer and the mult's `go-loop` takes from it on an idle
+  carrier before the caller's `tap` returns. The code is core.async's own and so is ours; what differs is
+  that twelve carriers start a spawned coroutine at once where the JVM's dispatch queue hands the first step
+  out slowly enough that the taps always win. What keeps the library out is the memory check: the file
+  leaves 20–21 coroutines and as many timers alive, and they drain between 20 s and 55 s, where
+  `runtimeSettled` allows 10 s — measured, the cause not found, and reproducible only in a full corpus run
+  (the library alone settles under 10 s). `pipeline_test.clj` is out for its own reason: `test_compute` is
+  `slow-fib` of 15–37 over 50 inputs, 5 s to past the 60 s deadline depending on the load, and its timeout
+  leaves eight blocking-pool jobs held, so the memory check cannot run; without that one deftest the file
+  runs in 2 s and its other seven pass. The other six files are out by subject — `buffers_test` and
+  `timers_test` name `clojure.core.async.impl.protocols`/`impl.timers` (the buffers here are the spec
+  objects `chan` reads, not containers with `add!`/`remove!`), `ioc_macros_test` names the JVM's
+  state-machine transform, `lab_test` names `clojure.core.async.lab`, and `concurrent_test` and
+  `exceptions_test` are `java.util.concurrent` and the JVM's uncaught-exception handler. Trigger for taking
+  it: either a decision on spawn locality (a spawned coroutine not starting before the spawner's next park,
+  which would also close the ASYNC-127 divergence) or an account of the 20–55 s drain.
 - **The parity report names a pinned Clojure, not the machine's.** `dump-jvm` runs under `JVM_DEPS`
   (1.12.6, the Makefile), carries `:version` in its dump as the async and cljs dumps already did, and the
   report prints what was dumped instead of calling `(clojure-version)` in the reporting process. Before this
