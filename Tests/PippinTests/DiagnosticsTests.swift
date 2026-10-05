@@ -89,6 +89,17 @@ extension CoreTests {
 			""")
 		}
 
+		// A fn whose rest arity takes more fixed parameters than one of its fixed arities: the gap is named.
+		// A compiled unit keeps one minimum for both and so cannot see the gap; it then names no arities at
+		// all rather than naming the gap as accepted (docs/notes/diagnostics.md).
+		@Test func theAritiesSkipTheGap() throws {
+			clj_init()
+			defer { clj_ns_set_current(clj_ns_user()) }
+			_ = try cljEval("(defn dt-gap ([a] a) ([a b c & r] r))")
+			#expect(cljEvalError("(dt-gap 1 2)")?.contains("which takes 1 or at least 3") == true)
+			#expect(cljEvalError("(dt-gap)")?.contains("which takes 1 or at least 3") == true)
+		}
+
 		// Nothing in a rendered diagnostic is a name only the implementation knows: a node kind, a lattice
 		// element or a runtime function (design §3 «Диагностика»). `long` is the word `type` answers.
 		@Test func theTextNamesNothingInternal() throws {

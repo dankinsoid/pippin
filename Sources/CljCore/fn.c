@@ -208,16 +208,27 @@ void clj_fn_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords
 static clj_value arity_data(clj_value f, size_t n, uint32_t bits, uint32_t variadic) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value data = clj_map_empty();
-	clj_value arities = clj_vector_empty();
-	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
-		if ((bits >> i) & 1) arities = clj_vector_conj(arities, clj_fixnum(i));
+	if (bits || variadic != CLJ_ARITY_ANY) {
+		clj_value arities = clj_vector_empty();
+		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+			if ((bits >> i) & 1) arities = clj_vector_conj(arities, clj_fixnum(i));
+		}
+		data = clj_map_assoc(data, kw_arities, arities);
+		clj_release(arities);
 	}
-	data = clj_map_assoc(data, kw_arities, arities);
-	clj_release(arities);
 	if (variadic != CLJ_ARITY_ANY) data = clj_map_assoc(data, kw_variadic, clj_fixnum(variadic));
 	data = clj_map_assoc(data, kw_given, clj_fixnum((int64_t)n));
 	if (clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name)) data = clj_map_assoc(data, kw_fn, clj_fn_of(f)->name);
 	return data;
+}
+
+// Whether the counts answer that this very call was fine. Then they are not the truth about f and must
+// not be shown: a compiled closure's bounds keep one minimum for its fixed and its rest arity, so a fn
+// whose rest arity takes more fixed parameters than one of its fixed ones over-accepts the gap through
+// clj_fn_accepts, and naming the gap as accepted would contradict the refusal beside it.
+static bool arities_disagree(uint32_t bits, uint32_t variadic, size_t n) {
+	if (variadic != CLJ_ARITY_ANY && n >= variadic) return true;
+	return n <= CLJ_FN_MAX_FIXED && ((bits >> n) & 1);
 }
 
 static clj_value arity_error(clj_value f, const char *over, size_t n) {
@@ -225,7 +236,13 @@ static clj_value arity_error(clj_value f, const char *over, size_t n) {
 	clj_value text = clj_is_nil(name) && clj_is_fn(f) ? clj_string_from_cstr("fn") : clj_pr_str_max(clj_is_nil(name) ? f : name, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	uint32_t variadic, bits = fn_arities(f, &variadic);
-	char     takes[256];
+	// An exact count disagreeing with the refusal drops the counts whole; "> n" is a lower bound and says
+	// nothing about which count was passed, so it is not checked against them.
+	if (!*over && arities_disagree(bits, variadic, n)) {
+		bits = 0;
+		variadic = CLJ_ARITY_ANY;
+	}
+	char      takes[256];
 	clj_value message = arities_text(bits, variadic, takes, sizeof takes)
 	                        ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, clj_string_bytes(text), takes)
 	                        : clj_error_message("Wrong number of args (%s%zu) passed to: %s", over, n, clj_string_bytes(text));

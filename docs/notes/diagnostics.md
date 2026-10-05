@@ -37,10 +37,14 @@
   which takes at least 3" where a reader passed none and may pass one or more. The count was the
   expander's before the arities were added and the arities inherit its offset. Trigger: the macro bit
   reaching the throw — it is on the var, and `clj_arity_error` holds only the fn.
-- **`clj_fn_accepts` over-accepts in a compiled unit** for a fn whose rest arity takes more fixed
-  parameters than one of its fixed arities (`([a] …) ([a b c & r] …)` answers true for 2), because the
-  bounds keep one minimum for both. The call still throws, in the dispatcher, so this shows only to a
-  caller that asks before calling; it is why the fixture holds no such shape.
+- [ ] **`clj_fn_accepts` over-accepts in a compiled unit** for a fn whose rest arity takes more fixed
+  parameters than one of its fixed arities (`([a] …) ([a b c & r] …)` answers true for 2), because
+  `fn_arity_bounds` (compiler.c) keeps one minimum for the fixed and the rest arity. The call still throws,
+  in the dispatcher, so the only visible effect is on the arities: the counts would name 2 as accepted
+  beside a refusal of 2, so `arities_disagree` drops them whole and the compiled message names none where
+  the interpreted one says "1 or at least 3". Fix: emit the rest arity's own count as `min`, the mask
+  already carrying the fixed ones. Trigger: a `make boot`, since the committed compiled core holds the
+  emitted bounds and would keep the old ones until it is regenerated.
 - **The nearest-name suggestion is the one §3-07 permits and no more** (`nearest_name`, analyzer.c):
   Levenshtein over the locals in scope and then the namespace's own, referred and `clojure.core`
   mappings — the three sets `clj_ns_resolve` itself walks — with the threshold at a third of the name, so
@@ -59,6 +63,14 @@
   stands. A tab in the quoted line's prefix is copied into the underline, so the carets stay under the
   span whatever the terminal's tab width is, and a column is counted as the reader counts it — one per
   non-continuation byte.
+- [ ] **A message can still name generated code.** `fail_form` prints the form it refuses, so a macro that
+  builds `(let [(a b) 1] …)` renders "Unsupported binding form: (a b)" — the position is the user's own
+  `(bad)` line, which is what §3-07 asks for, but the form quoted in the text is the macro's, which it
+  forbids. Trigger: the `:origin` chain (design §4 «Локация в коде»), which is what would tell `fail_form`
+  whose form it is holding.
+- **The `in the top-level form` note is printed only when that form is on another line.** On the quoted
+  line the excerpt already shows it; the note earns its place exactly when a reader would have to go
+  looking for it.
 - **A reader error already points at the opening delimiter.** An unclosed `(defn n [x]` renders at 1:1
   with that form underlined, which is the half of §3-07's reader rule that a reader acts on; the message
   is still "EOF while reading", and naming the delimiter in it is a wording change over the fourteen cases
