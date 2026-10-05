@@ -29,6 +29,8 @@ let package = Package(
 				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),
 				// Traces walk the real stack by frame pointers through the runtime's own frames (trace.c).
 				.unsafeFlags(["-fno-omit-frame-pointer"]),
+				// The JVM rounds every float operation, so a fused multiply-add is a wrong answer here.
+				.unsafeFlags(["-ffp-contract=off"]),
 				.unsafeFlags(["-DCLJ_DEBUG=1"], .when(configuration: .debug)),
 			],
 			linkerSettings: [
@@ -81,6 +83,11 @@ let package = Package(
 		.executableTarget(
 			name: "clj-api-dump",
 			dependencies: ["CljCore", "Pippin"]
+		),
+		// One runner of the differential fuzzer (docs/notes/fuzzing.md); CljCompiler is the compiled backend.
+		.executableTarget(
+			name: "clj-fuzz",
+			dependencies: ["CljCore", "CljCompiler", "Pippin"]
 		),
 		// CljCore alone, so a crash under ASan lands on the C stack that caused it and not in a test runner.
 		.executableTarget(

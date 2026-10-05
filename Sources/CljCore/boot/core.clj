@@ -1174,7 +1174,9 @@
   ([x y] (cond (NaN? x) x (NaN? y) y (< x y) x :else y))
   ([x y & more] (reduce min (min x y) more)))
 
-(defn abs "Returns the absolute value of a." [a] (if (neg? a) (- a) a))
+;; Math/abs clears the sign bit, so -0.0 comes back positive, where (neg? -0.0) is false.
+(defn abs "Returns the absolute value of a." [a]
+  (cond (neg? a) (- a) (and (double? a) (zero? a)) 0.0 :else a))
 
 (defn mod
   "Modulus of num and div, with the sign of div."

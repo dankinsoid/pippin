@@ -106,17 +106,42 @@ clj_value clj_num_truncate(clj_value v) {
 
 static clj_value not_a_number(clj_value v) { return clj_throw_msg("%s cannot be cast to a number", clj_type_name(v)); }
 
+// Past the long range Numbers.quotient goes through BigDecimal, which rejects an infinity or a NaN.
+static bool double_div_ok(double p, double q, double *quotient) {
+	*quotient = p / q;
+	return isfinite(*quotient);
+}
+
+// (double)Long.MAX_VALUE, which rounds up to 2^63: the bound Numbers tests the quotient against.
+#define CLJ_JLONG_LIMIT 9223372036854775808.0
+
+// Numbers truncates through a long cast, so a zero quotient is +0.0 where trunc would keep the sign.
+static double integral_quotient(double r) {
+	return r > -CLJ_JLONG_LIMIT && r < CLJ_JLONG_LIMIT ? (double)(int64_t)r : trunc(r);
+}
+
+clj_value clj_double_quot(double p, double q) {
+	double r;
+	if (!double_div_ok(p, q, &r)) return clj_throw_msg(q == 0 ? "Divide by zero" : "Infinite or NaN");
+	return clj_double_new(integral_quotient(r));
+}
+
+clj_value clj_double_rem(double p, double q) {
+	double r;
+	if (!double_div_ok(p, q, &r)) return clj_throw_msg(q == 0 ? "Divide by zero" : "Infinite or NaN");
+	// Its own statement: fused into the subtraction the product stays unrounded, where the JVM rounds it.
+	double whole = integral_quotient(r) * q;
+	return clj_double_new(p - whole);
+}
+
 static clj_value double_arith(double p, double q, clj_num_op op) {
 	switch (op) {
 	case CLJ_OP_ADD: return clj_double_new(p + q);
 	case CLJ_OP_SUB: return clj_double_new(p - q);
 	case CLJ_OP_MUL: return clj_double_new(p * q);
 	case CLJ_OP_DIV: return clj_double_new(p / q);
-	case CLJ_OP_QUOT: {
-		double r = p / q;
-		return clj_double_new(r < 0 ? ceil(r) : floor(r));
-	}
-	case CLJ_OP_REM: return clj_double_new(fmod(p, q));
+	case CLJ_OP_QUOT: return clj_double_quot(p, q);
+	case CLJ_OP_REM: return clj_double_rem(p, q);
 	}
 	clj_fatal("unknown arithmetic op");
 }
@@ -163,8 +188,9 @@ static clj_value long_arith(clj_value a, clj_value b, clj_num_op op) {
 		if (y == 0) return clj_throw_msg("Divide by zero");
 		// -1 apart, so INT64_MIN reaches neither / nor % undefined.
 		if (y == -1) {
-			overflow = x == INT64_MIN;
-			r = overflow ? 0 : -x;
+			// An exact quotient that no long holds is a bigint, not an error: `/` is the rational division.
+			if (x == INT64_MIN) return integer_arith(a, b, CLJ_OP_DIV, true);
+			r = -x;
 			break;
 		}
 		if (x % y != 0) return integer_arith(a, b, CLJ_OP_DIV, true);

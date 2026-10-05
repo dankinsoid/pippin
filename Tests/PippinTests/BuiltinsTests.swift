@@ -39,7 +39,8 @@ extension CoreTests {
 				#expect(message("(+ 9223372036854775807 1)") == "integer overflow")
 				#expect(message("(- -9223372036854775808 1)") == "integer overflow")
 				#expect(message("(* 9223372036854775807 2)") == "integer overflow")
-				#expect(message("(/ -9223372036854775808 -1)") == "integer overflow")
+				// The exact quotient of the one long that cannot be negated is a bigint, as on the JVM.
+				#expect(try eval("(pr-str (/ -9223372036854775808 -1))") == "9223372036854775808N")
 				#expect(message("(/ 1 0)") == "Divide by zero")
 				#expect(message("(+ 1 \"a\")") == "string cannot be cast to a number")
 				#expect(message("(inc nil)") == "nil cannot be cast to a number")

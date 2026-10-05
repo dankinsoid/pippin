@@ -61,4 +61,8 @@ clj_value clj_num_truncate(clj_value v);
 // v must be rational (an integer, a ratio or a decimal); both results are owned bigints.
 void clj_num_as_fraction(clj_value v, clj_value *num, clj_value *den);
 
+// Numbers.remainder is p - trunc(p/q)*q, not fmod, and java.math refuses a non-finite quotient.
+clj_value clj_double_quot(double p, double q);
+clj_value clj_double_rem(double p, double q);
+
 #endif

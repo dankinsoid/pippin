@@ -189,3 +189,30 @@ gates:
 # @ai-generated(solo)
 gates-full:
 	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled shake facts-report port-audit c-only-audit cmutex-audit open-items-audit api-diff test-isolated test-compiled-asan
+
+# ---- the differential fuzzer (fuzz/, docs/notes/fuzzing.md)
+
+.PHONY: fuzz fuzz-long
+
+# Random expressions over core functions and generated collections against JVM Clojure as the oracle, compared
+# through one canonical text per value. Seeded: a finding prints its seed and the form it shrank to.
+FUZZ_SEEDS ?= 1-8
+FUZZ_FORMS ?= 1000
+FUZZ = clojure -Sdeps '$(JVM_DEPS)' -M fuzz/differential.clj
+FUZZ_INTERP = --runner interp=$(abspath $(PLAIN))/debug/clj-fuzz
+FUZZ_NOREUSE = --runner noreuse=$(abspath $(BUILD_ROOT))/noreuse/debug/clj-fuzz
+FUZZ_COMPILED = --runner compiled="CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) $(abspath $(PLAIN))/debug/clj-fuzz"
+
+# The gate: the committed regressions, then a bounded seeded pass of the interpreter against the oracle. The
+# compiled backend pays a clang run per form (~1 form/s), so it stays in fuzz-long, as test-eval-compiled does.
+fuzz:
+	swift build --scratch-path $(PLAIN) --product clj-fuzz
+	$(FUZZ) replay $(FUZZ_INTERP)
+	$(FUZZ) run --seeds $(FUZZ_SEEDS) --forms $(FUZZ_FORMS) $(FUZZ_INTERP)
+
+# Opt-in, by hand, in the background: all four runners of design §3 item 2, the compiled pair on few seeds.
+fuzz-long:
+	swift build --scratch-path $(PLAIN) --product clj-fuzz
+	swift build --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE --product clj-fuzz
+	$(FUZZ) run --seeds 1-64 --forms 1000 $(FUZZ_INTERP) $(FUZZ_NOREUSE)
+	$(FUZZ) run --seeds 1-4 --forms 300 --group 25 $(FUZZ_INTERP) $(FUZZ_COMPILED)

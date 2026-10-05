@@ -1,0 +1,183 @@
+;; The deliberate divergences the differential fuzzer must not keep rediscovering (docs/notes/fuzzing.md).
+
+;; Every entry cites its source and `fuzz/differential.clj audit` fails on one that does not.
+
+;; :row is a verbatim slice of a row of docs/jvm-differences.md, :design plus :cite a slice of a design file.
+
+;; An exclusion without a citation is refused, as a corpus allowlist entry without its §8 line is.
+
+;; The ids are read by the code: :normalize changes fz-norm, :generator drops a production from the tables.
+
+;; Dropping an entry turns its exclusion off, which is how the fuzzer is shown to still find a listed row.
+
+;; :uncovered is ground the generator does not reach; nothing is hidden there, so no row is cited.
+
+{:exclusions
+ [{:id :map-seq-order
+   :mechanism :normalize
+   :row "A map literal or small `hash-map` seqs in this runtime's own order, not the JVM's insertion order"
+   :why "fz-norm prints a map's entries and a set's elements sorted by their own normalized text, and the generator reaches a map or a set through `(sort (map pr-str …))` rather than raw `seq`/`keys`/`vals`/`vec`. Content is still compared as a multiset; only the order is not."}
+
+  {:id :no-float
+   :mechanism :generator
+   :row "No `Float`: `(float x)` range-checks through `Float` but returns a double"
+   :why "`float` and `float-array` are not generated: our `(float 0.1)` is `0.1`, the JVM's is 0.10000000149011612."}
+
+  {:id :no-nan-coercion
+   :mechanism :generator
+   :row "`(long ##NaN)` throws; the JVM returns 0"
+   :why "##NaN and ##Inf are not generated as literals, and `long`/`int`/`unchecked-*` take only integer-typed arguments. NaN itself round-trips: fz-norm prints it as `##NaN` on both sides, so the exclusion is about the coercion, not about EDN."}
+
+  {:id :no-long-min-value
+   :mechanism :generator
+   :row "`(abs Long/MIN_VALUE)` throws where `Math/abs` returns `Long/MIN_VALUE`"
+   :why "`abs` is not generated, being the one generated function the JVM answers there where we throw, and the value is kept out of reach rather than excluded: it is not a literal, -2^62 is not a literal either (`(+ -2^62 -2^62)` is exactly it, and no overflow check fires), and `bit-shift-left`, `bit-flip`, `bit-set` and `bit-clear` are not generated. It stays reachable in two or three steps — `(bit-not (unsigned-bit-shift-right -1 1))` — so this thins the class rather than closing it: measured at one case in 80000 forms. fuzz/regressions/ keeps the value's own arithmetic measured."}
+
+  {:id :no-compare
+   :mechanism :generator
+   :row "`compare` returns −1/0/1 only and orders strings by code point"
+   :why "`compare` is not generated; `sort` and the sorted collections are, since only the sign of the comparison reaches their result. Generated strings are ASCII, where code-point order and UTF-16 order agree."}
+
+  {:id :ascii-only
+   :mechanism :generator
+   :row "`upper-case`/`lower-case`/`capitalize` and a pattern's `(?i)`, `\\w`, `\\p{L}` map ASCII letters only"
+   :why "String and character literals are ASCII, so the missing Unicode case and category data cannot show."}
+
+  {:id :no-regex
+   :mechanism :generator
+   :row "Two patterns with the same text are `=` and hash alike, where the JVM compares `Pattern` by identity"
+   :why "A pattern is never generated, as a value or as an argument: `=` on patterns diverges by this row, and the regex engine's own Deferred rows would be rediscovered at once."}
+
+  {:id :no-transients
+   :mechanism :generator
+   :row "`transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error"
+   :why "`transient`, `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!` are not generated: a use-after-`persistent!` form answers here and throws on the JVM. Aliasing under reuse is design §3's item 3, the model-based collection tests."}
+
+  {:id :no-decimals
+   :mechanism :generator
+   :row "`with-precision`, `*math-context*`, rounding modes; decimal `/` succeeds only when the quotient terminates"
+   :why "No `M` literal and no `bigdec` is generated; a decimal division's precision is a missing feature, not a wrong answer."}
+
+  {:id :no-biginteger
+   :mechanism :generator
+   :row "One bigint type where the JVM has `BigInt` and `BigInteger`"
+   :why "`biginteger` is not generated; `bigint` and the promoting `+'`/`-'`/`*'` are, and print alike with the `N` suffix."}
+
+  {:id :no-format
+   :mechanism :generator
+   :row "`format` knows `%s %b %c %d %o %x %e %f %g %n %%` with the `- + space 0 ,` flags"
+   :why "`format` is not generated: the missing conversions are errors naming the spec, which is a different outcome from the JVM's answer."}
+
+  {:id :no-arrays
+   :mechanism :generator
+   :row "An array prints its elements, `#array[:int 1 2 3]`"
+   :why "No array is generated: it prints differently by this row, `(vec array)` aliases on the JVM, and `(type (int-array 1))` is a keyword here."}
+
+  {:id :no-vector-of
+   :mechanism :generator
+   :row "`vector-of` returns an ordinary vector of cast elements, not unboxed storage"
+   :why "`vector-of` is not generated; the values agree, so only a profile would see this, and it keeps the arrays row's surface out in one rule."}
+
+  {:id :no-queue
+   :mechanism :generator
+   :row "A PersistentQueue prints `#queue [1 2 3]`"
+   :why "No queue is generated: `clojure.lang.PersistentQueue/EMPTY` is a `Class/member` form we do not resolve, and the printed form differs."}
+
+  {:id :no-inst
+   :mechanism :generator
+   :row "`str` of a `#inst` is its `#inst` text without the tag"
+   :why "No `#inst` literal and no date operation is generated; `str` of one differs by this row and by the host zone."}
+
+  {:id :no-quoted-meta
+   :mechanism :generator
+   :row "A quoted list's reader position (`:line`, `:column`, `:file`) is nil in the compiled backend and set in the interpreted one"
+   :why "`meta` and `with-meta` are not generated on quoted data: by this row our own two backends disagree there, which would make the backend differential report it on every case."}
+
+  {:id :no-str-of-seq
+   :mechanism :generator
+   :row "`str` of a lazy seq prints its items: `(str (map inc [1 2]))` is `\"(2 3)\"`"
+   :why "`str` and `clojure.string/join` are generated only over a scalar, a vector or a seq of scalars (the :seqs type), never over a seq that could be lazy."}
+
+  {:id :no-chunk-eagerness
+   :mechanism :generator
+   :row "No chunked seqs: a lazy seq over a vector realizes one element at a time"
+   :why "Every generated function is wrapped in a try that answers nil, so an element function cannot throw: whether it throws before its value is asked for is the JVM's chunk decision. The cost is that a throw from inside `map` or `reduce` is no longer an outcome the pass compares."}
+
+  {:id :no-ratio-parts-bigint
+   :mechanism :generator
+   :row "`numerator` and `denominator` answer the canonical integer, where the JVM answers a `BigInteger`"
+   :why "`numerator` and `denominator` are not generated. The N their arithmetic prints is normalized away by :no-bigint-marker, but a BigInteger also refuses a bit operation on the JVM where our canonical integer takes it, and that is a throw against a value, not a marker."}
+
+  {:id :no-unseqable-lazy-source
+   :mechanism :generator
+   :row "`(mapcat f x)` is lazy to the end"
+   :why "Every :seq production answers a seq — `reduce` lives in :any, where its type belongs, and not in :seq — so a lazy operation never gets a source that is not seqable and the moment an error is raised cannot differ."}
+
+  {:id :no-throwing-realization
+   :mechanism :generator
+   :row "`=` and `hash` of a lazy seq realize it only as far as the answer needs"
+   :why "The two-argument `reductions` is not generated: over an empty collection it calls `(f)` with no arguments, which is the one generated way to build a lazy seq whose realization throws. The three-argument one, which takes an init, stays."}
+
+  {:id :no-boxed-minus-of-long-min
+   :mechanism :generator
+   :row "`(- x Long/MIN_VALUE)` answers the difference wherever it fits"
+   :why "Same mechanism as :no-long-min-value, the value never being generated; the row is separate because the two answers here are the JVM's own and not a choice of ours."}
+
+  {:id :no-bigint-marker
+   :mechanism :normalize
+   :row "One bigint type where the JVM has `BigInt` and `BigInteger`"
+   :why "fz-norm prints an integer's digits without the JVM's N suffix, which is a type marker and not a value: with one integer type we cannot answer both `(numerator 2/3)`, where the JVM's BigInteger prints bare, and `(abs (numerator 13717421/4))`, where its BigInt prints with the N. The digits are still compared, so a wrong magnitude is still a finding."}
+
+  {:id :no-zero-float-divisor
+   :mechanism :generator
+   :row "`(/ 1.0 0.0)` is `##Inf`; the JVM answers `##Inf` or throws \"Divide by zero\""
+   :why "A `/` is generated only with a nonzero literal divisor (the :nznum type), there being no static way to know that an expression is not a zero double. Integer division by zero, which agrees, goes through `quot`, `rem` and `mod`, whose divisor is unconstrained."}
+
+  {:id :no-unary-plus-of-nil
+   :mechanism :generator
+   :row "`(+ nil)` and `(* nil)` throw; the JVM's one-argument `+` and `*` are `(cast Number x)`"
+   :why "`+` and `*` are not generated under `apply`, which is the only way a one-argument call of them reaches a non-number; `(apply + :seqint)` over a seq of integers stays."}
+
+  {:id :no-ratio-double-mix
+   :mechanism :generator
+   :row "`(double 1/63)` is the exactly rounded quotient `0.015873015873015872`"
+   :why "A ratio is generated in its own :ratio chain over integers and ratios only, so it never meets a double and `double` is never applied to one. Ratio arithmetic, comparison and printing stay compared."}
+
+  {:id :no-sorted-against-hash-equality
+   :mechanism :generator
+   :row "`(= {:a 1} (sorted-map 1 2))` is false; the JVM throws"
+   :why "A sorted map and a sorted set are generated in their own :sortedmap and :sortedset chains over integer keys, so one never meets a hash map under `=`. Their own order is the comparator's and is compared raw, without the :map-seq-order projection."}
+
+  {:id :no-negative-zero-literal
+   :mechanism :generator
+   :row "`(min -0.0 0.0)` is `0.0`; the JVM answers `-0.0` or `0.0`"
+   :why "-0.0 is not in the double literal pool. It is still reachable through arithmetic, `(* -1.5 0.0)`, so this exclusion thins the class rather than closing it; what would close it is the JVM settling on one of its two answers."}
+
+  {:id :no-hash
+   :mechanism :generator
+   :design "docs/design/10-first-steps.md"
+   :cite "совпадать ли с JVM по значениям `hash`"
+   :why "`hash`, `hash-ordered-coll`, `hash-unordered-coll` and `mix-collection-hash` are not generated, and no hash value reaches a compared outcome. §10 leaves the question open, so the fuzzer must not answer it by failing."}]
+
+ ;; Each line here is a reason, not a divergence; widening the generator is what removes one.
+ :uncovered
+ [{:what "records, deftype, reify, protocols, multimethods, hierarchies"
+   :why "A type has to be defined in the case file and its printed form carries our namespace; the dispatch tables are their own differential."}
+  {:what "atoms, volatiles, refs, agents, futures, channels, `go`"
+   :why "An outcome that depends on a schedule is design §3's item 4, the seeded scheduler, not a value differential."}
+  {:what "vars, `def`, `declare`, namespaces, `require`, `eval`, `resolve`, `intern`"
+   :why "The case file's own harness owns the namespace; a generated `def` would make the forms order-dependent."}
+  {:what "`sorted-map-by`, `sorted-set-by`, `sort` with a comparator"
+   :why "A comparator is a function, and a function has no EDN form: the collection could only be compared by a projection, and its order already is one."}
+  {:what "host interop: `Class/member`, `.method`, `new`, `instance?` on host types, `proxy`"
+   :why "Interop is design §5, and the JVM's answer there is a JVM answer by definition."}
+  {:what "`format`, `printf`, `print-str`, `*print-length*`, `*print-level*`, `pr` of a cyclic value"
+   :why "Printing is compared through fz-norm, so the print family would be comparing the harness with itself."}
+  {:what "`#inst`, `#uuid`, `random-uuid`, `rand`, `shuffle`, `gensym`, `time`"
+   :why "Not a function of the seed."}
+  {:what "metadata as a value: `with-meta`, `vary-meta`, `meta` of a collection"
+   :why "fz-norm prints a value, not its metadata; comparing metadata needs its own projection."}
+  {:what "deep recursion and large collections"
+   :why "A case is bounded so that the oracle and the runner finish: the stack-depth and size limits are their own subject (NOTES \"Guard\")."}
+  {:what "strings outside ASCII, surrogate pairs, astral characters"
+   :why "Excluded by the ascii-only row above; the Unicode tables are the same missing data for case, categories and `compare`."}]}

@@ -83,6 +83,8 @@ extension CoreTests {
 				#expect(message("(- \(minLong) 1)") == "integer overflow")
 				#expect(message("(* \(minLong) -1)") == "integer overflow")
 				#expect(message("(quot \(minLong) -1)") == "integer overflow")
+				// `/` is the rational division, so its exact quotient promotes where no long holds it.
+				#expect(try printed("(/ \(minLong) -1)") == "9223372036854775808N")
 				#expect(message("(inc \(maxLong))") == "integer overflow")
 				#expect(message("(dec \(minLong))") == "integer overflow")
 				#expect(try printed("[(quot \(maxLong) 2) (rem \(maxLong) 10) (mod \(maxLong) 10)]")
