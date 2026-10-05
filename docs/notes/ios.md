@@ -157,8 +157,8 @@
   screen's own cost is its source file. Re-measured after level 0 (`cdecl.c`, `require-c` in core.clj and the 1 KB
   `pippin/c/UIKit.clj` the bundle now carries): 1,126,272 and 3,333,232 simulator, 1,115,368 and 3,321,528 device,
   1,116 KB and 3,272 KB on disk. After the second slice (the call, `c-fn*`, `UIApplicationMain` out of `main.c`):
-  1,126,784 and 3,333,760 simulator, 1,115,896 and 3,322,064 device, 1,120 KB and 3,272 KB on disk — **+512 to
-  +536 bytes**, which is one more `dlsym` path and one more generated declaration. The figures above predate both that and an SDK re-link, so the difference is not
+  1,126,928 and 3,333,888 simulator, 1,116,032 and 3,322,192 device, 1,120 KB and 3,272 KB on disk — **+656 to
+  +664 bytes**, which is one more `dlsym` path and one more generated declaration. The figures above predate both that and an SDK re-link, so the difference is not
   the slice's alone; what it says is that level 0 did not move the "units of MB" the baseline is about.
 - **Footprint with a screen standing (simulator, two runs per mode).** `phys_footprint` at `main`, before
   `UIApplicationMain` and with UIKit only mapped: 11.1–11.6 MB, against the bare probe's ~10 MB. `clj_init` then
