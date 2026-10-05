@@ -5,6 +5,12 @@
   `corpus/clojure-core-tests` (nine files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0), each with a
   `SOURCE` (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
+- **The parity report names a pinned Clojure, not the machine's.** `dump-jvm` runs under `JVM_DEPS`
+  (1.12.6, the Makefile), carries `:version` in its dump as the async and cljs dumps already did, and the
+  report prints what was dumped instead of calling `(clojure-version)` in the reporting process. Before this
+  the header said whatever the local CLI resolved — 1.12.4 on one machine, 1.12.6 on another — so every gate
+  run flipped the committed line. The pin is also the tag `corpus/clojure-core-tests` is vendored at, so the
+  suite and the diff describe one Clojure. The name sets are the same either way: pinning moved no count.
 - **Clojure's own suite: what is in and what is out.** `corpus/clojure-core-tests` holds the nine files design
   §10 names — `sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`, `string`, `numbers` —
   at tag `clojure-1.12.6`, the version `docs/api-parity.md` diffs against, plus `test/clojure/test_helper.clj`,

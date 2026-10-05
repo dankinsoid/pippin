@@ -110,13 +110,16 @@ ASYNC_DEPS = {:deps {org.clojure/core.async {:mvn/version "1.6.681"}}}
 # ClojureScript is the measure of admissible divergence (design §3), so its cljs.core publics are the report's third
 # column; the version is pinned here and printed into the report from the jar the classpath resolved.
 CLJS_DEPS = {:deps {org.clojure/clojurescript {:mvn/version "1.11.132"}}}
+# The JVM Clojure the parity report diffs against. Pinned, or the report names whatever the machine resolved —
+# and corpus/clojure-core-tests is vendored at this same tag, so the suite and the diff describe one Clojure.
+JVM_DEPS = {:deps {org.clojure/clojure {:mvn/version "1.12.6"}}}
 
 # clojure.core parity: the JVM's ns-publics, ours, cljs.core's, and the diff weighted by the corpus (scripts/api-diff.clj).
 # Needs JVM Clojure on PATH and the two jars in ~/.m2 or Maven Central; writes docs/api-parity.md, which is committed,
 # and fails on an unmarked extension or a missing name without a verdict in scripts/api-missing.edn.
 api-diff:
 	@mkdir -p $(PLAIN)/api
-	clojure -M scripts/api-diff.clj dump-jvm > $(PLAIN)/api/jvm.edn
+	clojure -Sdeps '$(JVM_DEPS)' -M scripts/api-diff.clj dump-jvm > $(PLAIN)/api/jvm.edn
 	clojure -Sdeps '$(ASYNC_DEPS)' -M scripts/api-diff.clj dump-async > $(PLAIN)/api/jvm-async.edn
 	clojure -Sdeps '$(CLJS_DEPS)' -M scripts/api-diff.clj dump-cljs > $(PLAIN)/api/cljs.edn
 	swift run --scratch-path $(PLAIN) clj-api-dump > $(PLAIN)/api/ours.edn
