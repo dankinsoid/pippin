@@ -59,8 +59,8 @@ Top reasons (forms and tests):
 ## clojure-test-suite
 
 - namespaces: 249 requested, 0 failed to load entirely
-- top-level forms that failed to load: 10
-- tests: 236 ran, 201 passed, 23 failed, 12 errored
+- top-level forms that failed to load: 8
+- tests: 238 ran, 203 passed, 23 failed, 12 errored
 - skipped by the suite's own when-var-exists (the var does not exist here): 3
 - tests past the watchdog's deadline: 0
 - live objects a second run of the same tests leaves: 4
@@ -96,8 +96,6 @@ Top reasons (forms and tests):
 | 1 | error: assoc expects even number of arguments after map/vector, found odd number |
 | 1 | error: boolean cannot be cast to a number |
 | 1 | error: integer overflow |
-| 1 | missing `*assert*` |
-| 1 | missing `TestDissocRecord.` |
 | 1 | missing `clojure.core_test.parents.TestParentsProtocol` |
 | 1 | missing `clojure.lang.BigInt` |
 | 1 | missing `clojure.lang.LazySeq` |
@@ -107,6 +105,21 @@ Top reasons (forms and tests):
 | 1 | missing `ref` |
 
 Skipped vars: `add-tap`, `clojure.edn/read-string`, `with-precision`
+
+## math-combinatorics
+
+- namespaces: 1 requested, 0 failed to load entirely
+- top-level forms that failed to load: 0
+- tests: 18 ran, 17 passed, 1 failed, 0 errored
+- skipped by the suite's own when-var-exists (the var does not exist here): 0
+- tests past the watchdog's deadline: 0
+- live objects a second run of the same tests leaves: 0
+
+Top reasons (forms and tests):
+
+| count | reason |
+|---|---|
+| 1 | assertion: (= (partitions [1 1 2]) (quote (([1 1 2]) ([1 1] [2]) ([1 2] [1]) ([1] [1] [2])))) |
 
 ## medley
 

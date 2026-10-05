@@ -1,0 +1,12 @@
+math.combinatorics — lazy sequences for the common combinatorial functions (org.clojure)
+
+Repository: https://github.com/clojure/math.combinatorics
+Tag:        v0.3.2 (bd216e10bb2e6db4f8905fd2b65a97a2f2ca8b34, 2026-01-02)
+License:    Eclipse Public License 1.0 (LICENSE; every file keeps its own copyright header)
+
+Files taken, unmodified:
+  src/main/clojure/clojure/math/combinatorics.cljc      -> src/clojure/math/combinatorics.cljc
+  src/test/clojure/clojure/math/test_combinatorics.cljc -> test/clojure/math/test_combinatorics.cljc
+
+That is the whole library: one namespace, one test namespace, no dependency beyond clojure.core and
+clojure.test. The cljs half of the repository is the same .cljc file, so nothing is left out.

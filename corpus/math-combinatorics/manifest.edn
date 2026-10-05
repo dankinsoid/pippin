@@ -1,0 +1,5 @@
+;; :clj is mandatory: four `loop` vectors take an initial value from a #? pair and read odd without it.
+{:name "math-combinatorics"
+ :load-path ["src" "test"]
+ :features #{:clj}
+ :test-namespaces [clojure.math.test-combinatorics]}
