@@ -2,11 +2,11 @@
 # @ai-generated(solo)
 """Generate the level-0 declarations of a C header: clang's AST -> constants by value -> one Clojure file.
 
-Design §5 «C — уровень 0», first slice: what an `ns` form declares with `(:require-c [Module :refer [...]])` is
-parsed here by clang and lands as `<out>/pippin/c/<Module>.clj`, which `require-c` loads from the load path.
-Integer constants (`enum`, `NS_ENUM`/`NS_OPTIONS`, integer `#define`) arrive by value; an `extern const` scalar
-arrives as a `c-global*` read, which is `dlsym` at load. Everything else is refused by name with clang's own
-reason, so an unparsed symbol is an "Unable to resolve" and never a silently wrong number.
+Design §5 «C — уровень 0»: what an `ns` form declares with `(:require-c [Module :refer [...]])` is parsed here
+by clang and lands as `<out>/pippin/c/<Module>.clj`, which `require-c` loads from the load path. Integer
+constants (`enum`, `NS_ENUM`/`NS_OPTIONS`, integer `#define`) arrive by value; an `extern const` global arrives
+as a `c-global*` read and a function as a `c-fn*` binding, both `dlsym` at load. Everything else is refused by
+name with clang's own reason, so an unparsed symbol is an "Unable to resolve" and never a silently wrong call.
 
 Usage:
 	c-headergen.py --out DIR [--cache DIR] [--sdk PATH] [--target TRIPLE] [--lang objective-c|c]
@@ -217,9 +217,114 @@ GLOBAL_KINDS = {
 	"_Bool": ":bool",
 }
 
+# ---- the call: a header's types in the one vocabulary the level-1 dispatcher reads (design §5 «C — уровень 0»)
+
+# Objective-C type encodings of the canonical scalars. 'l'/'L' are 32-bit to the runtime, so a real long is
+# 'q'/'Q'; clang's own encoder does the same.
+SCALARS = {
+	"void": "v", "_Bool": "B", "bool": "B",
+	"char": "c", "signed char": "c", "unsigned char": "C",
+	"short": "s", "short int": "s", "unsigned short": "S", "unsigned short int": "S",
+	"int": "i", "unsigned int": "I", "unsigned": "I",
+	"long": "q", "long int": "q", "unsigned long": "Q", "unsigned long int": "Q",
+	"long long": "q", "long long int": "q", "unsigned long long": "Q", "unsigned long long int": "Q",
+	"float": "f", "double": "d",
+}
+
+# id, Class and SEL are the runtime's own: SEL desugars to "SEL *", so the alias decides, not the desugaring.
+OBJC_ALIASES = {"id": "@", "instancetype": "@", "Class": "#", "SEL": ":", "IMP": "^?"}
+
+ATTRS = re.compile(r"\b(_Nullable|_Nonnull|_Null_unspecified|_Nullable_result|__autoreleasing|__strong|__unsafe_unretained|__weak|__kindof|volatile|restrict|_Atomic)\b")
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\s*<.*>)?$")
+
+
+def bare_type(text):
+	"""A type spelling without the qualifiers and nullability that do not change its ABI."""
+	text = ATTRS.sub(" ", text)
+	text = re.sub(r"\s+", " ", text).strip()
+	while text.startswith("const "):
+		text = text[6:].strip()
+	return text
+
+
+class Unencodable(Exception):
+	pass
+
+
+def encode_type(spelled, desugared, is_return):
+	"""The type encoding of one parameter or return, or Unencodable with what stopped it."""
+	alias = bare_type(spelled)
+	if alias in OBJC_ALIASES:
+		return OBJC_ALIASES[alias]
+	text = bare_type(desugared if desugared else spelled)
+	if text in SCALARS:
+		if text == "void" and not is_return:
+			raise Unencodable("a void parameter")
+		return SCALARS[text]
+	if "(^" in text:
+		return "@?"	 # a block pointer is one encoding, and a block crosses as a level-1 handle
+	if "(*" in text:
+		return "^?"
+	if text.endswith("*"):
+		pointee = text[:-1].strip()
+		if pointee in ("char", "const char"):
+			return "*"
+		inner = bare_type(pointee)
+		if inner in SCALARS or inner.startswith(("struct ", "union ", "enum ")) or inner.endswith("*"):
+			try:
+				return "^" + encode_type(inner, inner, False)
+			except Unencodable:
+				return "^v"	 # an opaque pointee crosses as a raw pointer, which is what it is
+		if IDENTIFIER.match(inner):
+			return "@"	 # a typedef chain ends at a builtin, a tag or an Objective-C class; only the last is left
+		raise Unencodable(f"a pointer to {pointee}")
+	if text.startswith(("struct ", "union ")):
+		raise Unencodable(f"a {text} by value")
+	if "[" in text:
+		raise Unencodable(f"an array ({text})")
+	raise Unencodable(f"the type {spelled}")
+
+
+def split_signature(qual):
+	"""('int', 'int, char **') out of 'int (int, char **)'; None when the spelling is not a plain function."""
+	if not qual.endswith(")"):
+		return None
+	depth = 0
+	for i in range(len(qual) - 1, -1, -1):
+		if qual[i] == ")":
+			depth += 1
+		elif qual[i] == "(":
+			depth -= 1
+			if depth == 0:
+				return qual[:i].strip(), qual[i + 1 : -1].strip()
+	return None
+
+
+def function_of(node):
+	"""(return spelling, [(spelled, desugared)]) of a FunctionDecl, or a refusal string."""
+	if node.get("variadic"):
+		return "a variadic function: on arm64 Apple a variadic argument rides the stack, which a fixed prototype does not place"
+	if node.get("inline"):
+		return ("a static inline function: its body lives in the header and in no binary, so the interpreter needs "
+		        "a thin C stub (design §5 «Только в заголовке»)")
+	split = split_signature(node.get("type", {}).get("qualType", ""))
+	if not split:
+		return f"a function whose type the parse cannot read: {node.get('type', {}).get('qualType', '')}"
+	ret, params = split
+	if "(" in ret:
+		return f"a function returning {ret}, which the bridge has no prototype for"
+	parms = [c for c in node.get("inner", []) if c.get("kind") == "ParmVarDecl"]
+	if not params and not parms:
+		return "a declaration with no prototype, so the parse cannot know what it takes"
+	types = []
+	for p in parms:
+		t = p.get("type", {})
+		types.append((t.get("qualType", ""), t.get("desugaredQualType")))
+	return ret, types
+
 
 def classify(args, lang, include, name, why):
-	"""One name's own declaration: a global read, or a refusal naming what it is."""
+	"""One name's own declaration: a global read, a function to call, or a refusal naming what it is."""
 	src = f"{include}\n"
 	status, out, err = clang(args, lang, src, ["-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter", "-Xclang", name])
 	if status != 0:
@@ -229,7 +334,8 @@ def classify(args, lang, include, name, why):
 			continue
 		kind = node.get("kind")
 		if kind == "FunctionDecl":
-			return None, "a C function: calling one is the second slice of design §10 step 8b"
+			found = function_of(node)
+			return (None, found) if isinstance(found, str) else (("fn",) + found, None)
 		if kind == "VarDecl":
 			t = node.get("type", {})
 			spelled = t.get("qualType", "")
@@ -239,12 +345,68 @@ def classify(args, lang, include, name, why):
 				return None, f"a global of type {spelled}: only a scalar crosses in this slice"
 			if not desugared.startswith("const "):
 				return None, f"a mutable global ({spelled}): a value read once at load would not be its value later"
-			return (GLOBAL_KINDS[bare], spelled), None
+			return ("global", GLOBAL_KINDS[bare], spelled), None
 		if kind == "RecordDecl" or kind == "EnumDecl" or kind == "TypedefDecl":
 			return None, f"a type ({kind}): structs are deflayout, which is not in this slice"
 		if kind == "ObjCInterfaceDecl":
 			return None, "an Objective-C class: level 1 reaches it with (objc-class \"name\")"
 	return None, why
+
+
+def return_kinds(args, lang, include, wanted):
+	"""The desugared spelling of each function's return type: a variable of it, dumped (name -> text)."""
+	wanted = {n: r for n, r in wanted.items() if bare_type(r) != "void"}
+	if not wanted:
+		return {}
+	order = sorted(wanted)
+	lines = [include]
+	for i, name in enumerate(order):
+		lines.append(f"static {wanted[name]} {PREFIX}r{i};")
+	status, out, err = clang(args, lang, "\n".join(lines) + "\n",
+	                         ["-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter", "-Xclang", PREFIX + "r"])
+	if status != 0:
+		raise Failed(f"the return-type probe does not compile:\n{err}")
+	out_kinds = {}
+	for node in ast_objects(out):
+		n = node.get("name", "")
+		if node.get("kind") != "VarDecl" or not n.startswith(PREFIX + "r"):
+			continue
+		t = node.get("type", {})
+		out_kinds[order[int(n[len(PREFIX) + 1 :])]] = t.get("desugaredQualType", t.get("qualType", ""))
+	return out_kinds
+
+
+# Eight integer and eight floating-point slots, and the encodings objc.c refuses outright.
+MAX_INT_SLOTS = 8
+MAX_FP_SLOTS = 8
+
+
+def encode_function(ret_spelling, ret_desugared, types):
+	"""("i", ["i", "@"]) for one function, or a refusal string."""
+	try:
+		ret = encode_type(ret_spelling, ret_desugared, True)
+	except Unencodable as e:
+		return f"a function returning {e}, which the bridge cannot carry"
+	argv = []
+	ints = fps = floats = 0
+	for i, (spelled, desugared) in enumerate(types):
+		try:
+			enc = encode_type(spelled, desugared, False)
+		except Unencodable as e:
+			return f"a function taking {e} as argument {i + 1}, which the bridge cannot carry"
+		argv.append(enc)
+		if enc == "f":
+			fps += 1
+			floats += 1
+		elif enc == "d":
+			fps += 1
+		else:
+			ints += 1
+	if ints > MAX_INT_SLOTS or fps > MAX_FP_SLOTS:
+		return f"a function with {ints} integer and {fps} floating-point arguments, past the {MAX_INT_SLOTS} and {MAX_FP_SLOTS} slots of the dispatcher"
+	if floats and floats != fps:
+		return "a function mixing float and double arguments, which one prototype cannot place"
+	return ret, argv
 
 
 # ---- the cache (design §3 «Кэш»), keyed by the inputs and validated against the headers clang read
@@ -297,7 +459,7 @@ def fingerprint(args, module, header, lang, names, version):
 # ---- the generated file
 
 
-def emit(module, header, meta, values, globals_, refused):
+def emit(module, header, meta, values, globals_, fns, refused):
 	lines = [
 		f";; Generated by scripts/c-headergen.py from <{header}>; do not edit (design §5 «C — уровень 0»).",
 		f"(ns {module}",
@@ -311,6 +473,11 @@ def emit(module, header, meta, values, globals_, refused):
 		kind, spelled = globals_[name]
 		lines.append(f";; {spelled}")
 		lines.append(f'(def {name} (c-global* "{name}" {kind}))')
+	for name in sorted(fns):
+		ret, argv, spelled = fns[name]
+		lines.append(f";; {spelled}")
+		argl = " ".join(json.dumps(a) for a in argv)
+		lines.append(f'(def {name} (c-fn* "{name}" "{ret}" [{argl}]))')
 	return "\n".join(lines) + "\n"
 
 
@@ -340,21 +507,35 @@ def one(args, module, header, names, version):
 		raise Failed(f"<{header}> does not compile for this target:\n{err}")
 	deps = deps_of(depfile)
 	values, refused = value_probe(args, lang, include, names)
-	globals_ = {}
+	globals_, raw_fns = {}, {}
 	for name in sorted(refused):
 		found, why = classify(args, lang, include, name, refused[name])
-		if found:
-			globals_[name] = found
-			del refused[name]
-		else:
+		if not found:
 			refused[name] = why
+			continue
+		del refused[name]
+		if found[0] == "global":
+			globals_[name] = found[1:]
+		else:
+			raw_fns[name] = found[1:]
+	# One probe for every return type at once: a variable of that type desugars where the function type does not.
+	kinds = return_kinds(args, lang, include, {n: r for n, (r, _) in raw_fns.items()})
+	fns = {}
+	for name, (ret_spelling, types) in raw_fns.items():
+		encoded = encode_function(ret_spelling, kinds.get(name), types)
+		if isinstance(encoded, str):
+			refused[name] = encoded
+			continue
+		ret, argv = encoded
+		params = ", ".join(s for s, _ in types) or "void"
+		fns[name] = (ret, argv, re.sub(r"\s+", " ", f"{ret_spelling} {name}({params})"))
 	meta = {":header": header, ":target": args.target or "", ":sdk": args.sdk or "", ":clang": version.splitlines()[0],
 	        ":fingerprint": key}
 	with open(os.path.join(tmp, f"{module}.clj"), "w", encoding="utf-8") as f:
-		f.write(emit(module, header, meta, values, globals_, refused))
+		f.write(emit(module, header, meta, values, globals_, fns, refused))
 	with open(os.path.join(tmp, "report.json"), "w", encoding="utf-8") as f:
 		json.dump({"module": module, "header": header, "target": args.target, "sdk": args.sdk, "clang": version,
-		           "constants": values, "globals": globals_, "refused": refused, "deps": deps}, f, indent=1, sort_keys=True)
+		           "constants": values, "globals": globals_, "functions": fns, "refused": refused, "deps": deps}, f, indent=1, sort_keys=True)
 	os.makedirs(os.path.dirname(entry), exist_ok=True)
 	shutil.rmtree(entry, ignore_errors=True)
 	os.rename(tmp, entry)
