@@ -1,0 +1,5 @@
+;; :clj is mandatory: the topological comparator's sentinel is #?(:clj Long/MAX_VALUE :cljs ...).
+{:name "dependency"
+ :load-path ["src" "test"]
+ :features #{:clj}
+ :test-namespaces [com.stuartsierra.dependency-test]}
