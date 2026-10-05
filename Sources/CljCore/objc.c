@@ -2159,7 +2159,7 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 
 const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint32_t nargs, const char **why) {
 	(void)ret, (void)argv, (void)nargs;
-	*why = "the call dispatcher of level 1, which needs an Apple platform";
+	*why = "a shape only level 1's dispatcher can call, and that needs an Apple platform";
 	return NULL;
 }
 
