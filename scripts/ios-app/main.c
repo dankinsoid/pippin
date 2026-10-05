@@ -12,10 +12,6 @@
 void clj_host_boot(void);
 void clj_host_boot(void) {}
 
-// UIKit declares this in an Objective-C header, and the shell is C.
-// NULL for the delegate class: UIKit allocates that class itself, which objc-reify cannot be (docs/notes/ios.md).
-extern int UIApplicationMain(int argc, char *argv[], const void *principal_class, const void *delegate_class);
-
 static void report(const char *what) {
 	printf("pippin-app: footprint %zu KB %s\n", clj_debug_phys_footprint() / 1024, what);
 	fflush(stdout);
@@ -26,6 +22,22 @@ static void settled(void *ctx) {
 	(void)ctx;
 	report("with the screen up");
 	if (getenv("CLJ_APP_EXIT")) exit(0);
+}
+
+// Reports what the screen threw, if anything; shared by the load and the handover.
+static int threw(clj_value r, const char *what) {
+	if (r != CLJ_THROWN) {
+		clj_release(r);
+		return 0;
+	}
+	clj_value ex = clj_take_pending();
+	clj_value text = clj_pr_str(ex);
+	if (text != CLJ_THROWN) {
+		printf("pippin-app: %s threw: %.*s\n", what, (int)clj_string_len(text), clj_string_bytes(text));
+		clj_release(text);
+	}
+	clj_release(ex);
+	return 1;
 }
 
 static int load_screen(const char *exe) {
@@ -41,18 +53,20 @@ static int load_screen(const char *exe) {
 	clj_value name = clj_string_from_cstr(path);
 	clj_value r = clj_load_file(name);
 	clj_release(name);
-	if (r != CLJ_THROWN) return 0;
-	clj_value ex = clj_take_pending();
-	clj_value text = clj_pr_str(ex);
-	if (text != CLJ_THROWN) {
-		printf("pippin-app: screen.clj threw: %.*s\n", (int)clj_string_len(text), clj_string_bytes(text));
-		clj_release(text);
-	}
-	clj_release(ex);
-	return 1;
+	return threw(r, "screen.clj");
+}
+
+// The screen's -main calls UIApplicationMain, which never returns: the shell hands over, it does not drive.
+static int enter_screen(void) {
+	static const char entry[] = "(pippin.screen/-main)";
+	clj_value         name = clj_string_from_cstr("<entry>");
+	clj_value         r = clj_load_source(entry, sizeof entry - 1, name);
+	clj_release(name);
+	return threw(r, "pippin.screen/-main") ? 1 : 0;
 }
 
 int main(int argc, char **argv) {
+	(void)argc;
 	printf("pippin-app: core=%s\n",
 #ifdef CLJ_COMPILED_CORE
 	       "compiled"
@@ -74,5 +88,5 @@ int main(int argc, char **argv) {
 	dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW, settle * NSEC_PER_MSEC), dispatch_get_main_queue(), NULL, settled);
 	fflush(stdout);
 	if (failed) return 1;
-	return UIApplicationMain(argc, argv, NULL, NULL);
+	return enter_screen();
 }
