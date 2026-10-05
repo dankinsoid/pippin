@@ -31,7 +31,7 @@
   {:id :no-long-min-value
    :mechanism :generator
    :row "`(abs Long/MIN_VALUE)` throws where `Math/abs` returns `Long/MIN_VALUE`"
-   :why "Long/MIN_VALUE is not in the integer literal pool, and no `Class/member` form is generated at all."}
+   :why "`abs` is not generated and Long/MIN_VALUE is not in the integer literal pool, though the bit operations reach it whatever the pool holds (`(bit-flip 0 63)`): `abs` is the one generated function the JVM answers where we throw. fuzz/regressions/abs-signed-zero.clj keeps `abs` itself measured."}
 
   {:id :no-compare
    :mechanism :generator
@@ -96,7 +96,7 @@
   {:id :no-str-of-seq
    :mechanism :generator
    :row "`str` of a lazy seq prints its items: `(str (map inc [1 2]))` is `\"(2 3)\"`"
-   :why "`str` and `clojure.string/join` are generated only over a scalar, a vector or a seq of scalars (the :seqs type), never over a seq that could be lazy. The row's own case stays measured as a regression, fuzz/regressions/str-of-lazy-seq.clj."}
+   :why "`str` and `clojure.string/join` are generated only over a scalar, a vector or a seq of scalars (the :seqs type), never over a seq that could be lazy."}
 
   {:id :no-chunk-eagerness
    :mechanism :generator
@@ -106,7 +106,12 @@
   {:id :no-ratio-parts-bigint
    :mechanism :generator
    :row "`numerator` and `denominator` answer the canonical integer, where the JVM answers a `BigInteger`"
-   :why "`numerator` and `denominator` are not generated: their value agrees, and the N the JVM's arithmetic then prints is the second bigint type, not a number."}
+   :why "`numerator` and `denominator` are not generated. The N their arithmetic prints is normalized away by :no-bigint-marker, but a BigInteger also refuses a bit operation on the JVM where our canonical integer takes it, and that is a throw against a value, not a marker."}
+
+  {:id :no-bigint-marker
+   :mechanism :normalize
+   :row "One bigint type where the JVM has `BigInt` and `BigInteger`"
+   :why "fz-norm prints an integer's digits without the JVM's N suffix, which is a type marker and not a value: with one integer type we cannot answer both `(numerator 2/3)`, where the JVM's BigInteger prints bare, and `(abs (numerator 13717421/4))`, where its BigInt prints with the N. The digits are still compared, so a wrong magnitude is still a finding."}
 
   {:id :no-zero-float-divisor
    :mechanism :generator
@@ -122,6 +127,16 @@
    :mechanism :generator
    :row "`(double 1/63)` is the exactly rounded quotient `0.015873015873015872`"
    :why "A ratio is generated in its own :ratio chain over integers and ratios only, so it never meets a double and `double` is never applied to one. Ratio arithmetic, comparison and printing stay compared."}
+
+  {:id :no-sorted-against-hash-equality
+   :mechanism :generator
+   :row "`(= {:a 1} (sorted-map 1 2))` is false; the JVM throws"
+   :why "A sorted map and a sorted set are generated in their own :sortedmap and :sortedset chains over integer keys, so one never meets a hash map under `=`. Their own order is the comparator's and is compared raw, without the :map-seq-order projection."}
+
+  {:id :no-negative-zero-literal
+   :mechanism :generator
+   :row "`(min -0.0 0.0)` is `0.0`; the JVM answers `-0.0` or `0.0`"
+   :why "-0.0 is not in the double literal pool. It is still reachable through arithmetic, `(* -1.5 0.0)`, so this exclusion thins the class rather than closing it; what would close it is the JVM settling on one of its two answers."}
 
   {:id :no-hash
    :mechanism :generator

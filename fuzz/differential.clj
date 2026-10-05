@@ -68,7 +68,7 @@
    123456789 4611686018427387903])
 
 (def ^:private double-lits
-  [0.0 -0.0 0.5 -0.5 1.5 -1.5 0.1 3.14 1.0 2.0 1.0E10 1.0E-10 1.0E300])
+  [0.0 0.5 -0.5 1.5 -1.5 0.1 3.14 1.0 2.0 1.0E10 1.0E-10 1.0E300])
 
 (def ^:private str-lits
   ["" "a" "ab" "abc" "Hello" "hello world" "  pad  " "a,b,,c" "0" "-12" "x\ny" "AbC" "~!@" "1.5"])
@@ -89,7 +89,7 @@
 (def ^:private op-table
   {:int [['+ :int :int] ['+ :int :int] ['- :int :int] ['* :int :int] ['- :int]
          ['quot :int :nzint] ['rem :int :nzint] ['mod :int :nzint]
-         ['inc :int] ['dec :int] ['min :int :int] ['max :int :int] ['abs :int]
+         ['inc :int] ['dec :int] ['min :int :int] ['max :int :int]
          ['bit-and :int :int] ['bit-or :int :int] ['bit-xor :int :int] ['bit-not :int]
          ['bit-and-not :int :int] ['bit-shift-left :int :shift] ['bit-shift-right :int :shift]
          ['unsigned-bit-shift-right :int :shift] ['bit-flip :int :shift] ['bit-clear :int :shift]
@@ -99,7 +99,7 @@
          ['reduce '+ :int :seqint] ['transduce [:lit '(map inc)] '+ :seqint]
          :op/let :op/if :op/loop]
    :num [['+ :num :num] ['- :num :num] ['* :num :num]
-         ['inc :num] ['dec :num] ['min :num :num] ['max :num :num] ['abs :num]
+         ['inc :num] ['dec :num] ['min :num :num] ['max :num :num]
          ['double :num] ['quot :num :num] ['rem :num :num] ['mod :num :num]
          ['reduce '+ :num :seqint] ['apply 'max :seqint] ['apply 'min :seqint]
          :op/int :op/let :op/if]
@@ -117,6 +117,8 @@
           ['clojure.string/includes? :str :str] ['clojure.string/blank? :str]
           ['clojure.set/subset? :set :set] ['clojure.set/superset? :set :set]
           ['boolean :any] ['< :ratio :ratio] ['= :ratio :ratio]
+          ['= :sortedmap :sortedmap] ['= :sortedset :sortedset]
+          ['contains? :sortedmap :ikey] ['contains? :sortedset :ikey]
           :op/let :op/if]
    :str [['str :scalar :scalar] ['str :scalar] ['str :vec]
          ['subs :str :idx] ['subs :str :idx :idx]
@@ -154,12 +156,25 @@
          ['into [:lit '()] :seq] ['keep-indexed [:lit '(fn [i x] x)] :seq]
          ['map-indexed [:lit '(fn [i x] i)] :seq]
          :op/map-bridge :op/map-bridge :op/set-bridge
+         ['seq :sortedmap] ['keys :sortedmap] ['vals :sortedmap] ['vec :sortedmap]
+         ['seq :sortedset] ['vec :sortedset] ['take :idx :sortedset] ['map 'inc :sortedset]
          :op/let :op/if :op/loop :op/thread :op/destructure]
    :ratio [['/ :int :nzint] ['/ :int :nzint] ['/ :int :nzint]
            ['+ :ratio :ratio] ['- :ratio :ratio] ['* :ratio :ratio] ['/ :ratio :ratio]
            ['+ :ratio :int] ['* :ratio :int] ['- :int :ratio] ['- :ratio]
-           ['inc :ratio] ['dec :ratio] ['abs :ratio] ['min :ratio :ratio] ['max :ratio :ratio]
+           ['inc :ratio] ['dec :ratio] ['min :ratio :ratio] ['max :ratio :ratio]
            ['quot :ratio :ratio] ['rem :ratio :ratio] ['mod :ratio :ratio]]
+   :sortedmap [['sorted-map :ikey :any :ikey :any] ['sorted-map :ikey :any]
+               ['assoc :sortedmap :ikey :any] ['dissoc :sortedmap :ikey]
+               ['merge :sortedmap :sortedmap] ['into [:lit '(sorted-map)] :sortedmap]
+               ['into :sortedmap :sortedmap] ['update :sortedmap :ikey :fn1]
+               ['empty :sortedmap]]
+   :sortedset [['sorted-set :ikey :ikey] ['sorted-set :ikey :ikey :ikey]
+               ['conj :sortedset :ikey] ['disj :sortedset :ikey]
+               ['into [:lit '(sorted-set)] :sortedset] ['into :sortedset :sortedset]
+               ['clojure.set/union :sortedset :sortedset]
+               ['clojure.set/intersection :sortedset :sortedset]
+               ['clojure.set/difference :sortedset :sortedset] ['empty :sortedset]]
    :seqs [:op/scalar-vec :op/scalar-vec
           ['range :small] ['range :small :small] ['range :small :small :posidx]
           ['map 'inc :seqint] ['take :idx :seqs] ['drop :idx :seqs]
@@ -176,17 +191,18 @@
          ['merge :map :map] ['merge-with :fn2 :map :map] ['into :map :map]
          ['select-keys :map :vec] ['update :map :key :fn1] ['zipmap :seq :seq]
          ['frequencies :seq] ['group-by :pred1 :seq] ['group-by :fn1 :seqint]
-         ['sorted-map :key :any :key :any] ['into [:lit '(sorted-map)] :map]
          ['reduce-kv [:lit '(fn [m k v] (assoc m k v))] [:lit {}] :map]
          ['apply 'hash-map :vec] ['empty :map] ['update-in :map ['vector :key] :fn1]
          :op/let :op/if]
    :set [:op/set-lit :op/set-lit
          ['set :seq] ['conj :set :any] ['disj :set :any] ['into :set :seq]
          ['clojure.set/union :set :set] ['clojure.set/intersection :set :set]
-         ['clojure.set/difference :set :set] ['sorted-set :key :key]
+         ['clojure.set/difference :set :set]
          ['set :seqint] ['empty :set]
          :op/let :op/if]
    :any [['first :seq] ['last :seq] ['nth :seq :idx] ['nth :seq :idx :any] ['peek :vec]
+         ['first :sortedmap] ['first :sortedset] ['last :sortedset]
+         ['get :sortedmap :ikey] ['count :sortedmap] ['count :sortedset]
          ['get :map :key] ['get :map :key :any] ['get :vec :idx] ['get :vec :idx :any]
          ['get-in :map ['vector :key]] :op/kw-get
          ['some :pred1 :seq] ['reduce :fn2 :any :seq]
@@ -244,6 +260,10 @@
         :shift (pick! st shift-lits)
         :nzint (pick! st (remove zero? int-lits))
         :ratio (pick! st [1 2 3 7])
+        :ikey (pick! st [-2 -1 0 1 2 3 5 100])
+        :ikeyvec (vec (distinct (repeatedly (rint! st 4) #(leaf st :ikey env))))
+        :sortedmap (list 'sorted-map)
+        :sortedset (list 'sorted-set)
         :nznum (if (coin! st 2) (pick! st (remove zero? double-lits)) (pick! st (remove zero? int-lits)))
         :scalar (leaf st (pick! st scalar-types) env)
         :any (leaf st (pick! st scalar-types) env)
@@ -260,7 +280,7 @@
                           'identity 'coll?])
         :fn2 (pick! st ['+ '- '* 'max 'min 'conj 'vector 'list])))))
 
-(def ^:private leaf-only #{:kw :char :nil :key :small :idx :posidx :shift :nzint :nznum :scalar})
+(def ^:private leaf-only #{:kw :char :nil :key :ikey :ikeyvec :small :idx :posidx :shift :nzint :nznum :scalar})
 
 (defn- special [st op t env depth]
   (let [d (dec depth)]
@@ -371,17 +391,18 @@
 (defn gen-form [st depth order-raw?]
   (if (and order-raw? (coin! st 4))
     (gen-template st :any {} depth (pick! st raw-order-ops))
-    (gen st (pick! st [:int :int :num :str :bool :vec :seq :map :set :any :any :seqint :ratio]) {} depth)))
+    (gen st (pick! st [:int :int :num :str :bool :vec :seq :map :set :any :any :seqint :ratio :sortedmap :sortedset]) {} depth)))
 
 ;; ---------------------------------------------------------------- case files
 
 (def ^:private prelude-path "fuzz/prelude.clj")
 
-(defn case-text [forms {:keys [seed sort-unordered? group]}]
+(defn case-text [forms {:keys [seed sort-unordered? bare-integers? group]}]
   (let [groups (partition-all (max 1 (or group 1)) (map-indexed vector forms))]
     (str ";; A pippin fuzz case; docs/notes/fuzzing.md says how it was made and how to replay it.\n"
          ";; seed " seed "\n"
          "(def fz-sort-unordered " (boolean sort-unordered?) ")\n"
+         "(def fz-bare-integers " (boolean bare-integers?) ")\n"
          (slurp prelude-path)
          (str/join "\n"
                    (for [g groups]
@@ -456,12 +477,13 @@
 
 (def ^:private min-lit
   {:int 0 :num 0 :str "" :bool true :kw :a :char \a :nil nil :key :a :small 0 :idx 0 :posidx 1
-   :shift 0 :nzint 1 :nznum 1 :ratio 1 :scalar nil :any nil :vec [] :seq [] :seqint [] :seqs [] :map {} :set #{} :coll []
+   :shift 0 :nzint 1 :nznum 1 :ratio 1 :ikey 0 :ikeyvec [] :scalar nil
+   :sortedmap (list 'sorted-map) :sortedset (list 'sorted-set) :any nil :vec [] :seq [] :seqint [] :seqs [] :map {} :set #{} :coll []
    :fn1 'identity :pred1 'identity :fn2 'vector})
 
 (def ^:private fits
   {:any (set any-types) :scalar (set scalar-types) :num #{:int :num}
-   :ratio #{:ratio :int} :seq #{:seq :vec :seqint :seqs} :seqs #{:seqs :seqint} :coll #{:vec :seq :seqint :seqs :map :set}})
+   :ratio #{:ratio :int} :ikey #{:ikey :int} :seq #{:seq :vec :seqint :seqs} :seqs #{:seqs :seqint} :coll #{:vec :seq :seqint :seqs :map :set}})
 
 (defn- fits? [target source]
   (or (= target source) (contains? (get fits target #{}) source)))
@@ -661,9 +683,12 @@
     (let [have (ids ex)
           opts (assoc opts
                       :sort-unordered? (contains? have :map-seq-order)
+                      :bare-integers? (contains? have :no-bigint-marker)
                       :order-raw? (not (contains? have :map-seq-order)))]
       (when-not (contains? have :map-seq-order)
         (println "fuzz: exclusion :map-seq-order is OFF, so a map's and a set's order is being compared"))
+      (when-not (contains? have :no-bigint-marker)
+        (println "fuzz: exclusion :no-bigint-marker is OFF, so the JVM's N suffix is being compared"))
       (case cmd
         "audit" (println (format "fuzz: %d exclusions, every citation resolves; %d uncovered areas"
                                  (count (:exclusions ex)) (count (:uncovered ex))))
