@@ -223,7 +223,7 @@
   `clj_c_var_borrow` and `eval_borrowed` read it at +0 like a fn root and a call site pays no retain.
 - **A dropped macro keeps its `:macro` flag** (`clj_c_shaken_macro` in compiled.c, `emit_shaken` in compiler.c).
   Which dropped defs were macros is readable at compile time from the def node: a macro is a def whose symbol
-  carries `:macro true`, the JVM's own rule, which `analyze_def` already reads into `n->u.def.macro`. With the
+  carries `:macro true`, the JVM's own rule, which `analyze_def` reads into `n->u.def.macro`. With the
   flag the analyzer expands a call of the def — `expand_once` → `clj_invoke` → the invoke slot — so the abort
   names it whichever way the arguments would go, and without it the call is an ordinary one whose arguments are
   analyzed first: `(defn f [] 1)` against a shaken `defn` names `defn` where the unflagged var failed at `f`.
