@@ -227,6 +227,8 @@
   flag the analyzer expands a call of the def — `expand_once` → `clj_invoke` → the invoke slot — so the abort
   names it whichever way the arguments would go, and without it the call is an ordinary one whose arguments are
   analyzed first: `(defn f [] 1)` against a shaken `defn` names `defn` where the unflagged var failed at `f`.
+  An unflagged var is also no macro to `macroexpand-1`, which then answers the form unchanged — the one failure
+  mode the tripwire exists to rule out, and the sharpest reason the flag is the compiler's to carry.
   `expand_once` is the only place the analyzer reads a macro var's root, and it invokes it, so nothing else of
   the type is reached; the one other thing a macro var changes is that a reference which is not a call is
   refused ("Can't take value of a macro"), exactly as a live macro's is, instead of yielding the root as a value.
