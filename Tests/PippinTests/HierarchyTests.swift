@@ -17,9 +17,13 @@ private func kw(_ s: String) -> Value { Value(keyword: s) }
 extension CoreTests {
 	@Suite struct HierarchyTests {
 		// The keyword table is process-wide and never shrinks, so every keyword the suite reads is interned
-		// before a test takes its live-object baseline.
+		// before a test takes its live-object baseline. The global hierarchy is process-wide too, and the
+		// corpus's own derive tests leave edges in it, so a shard that ran CorpusTests first would give every
+		// test here a hierarchy that is not empty — the baselines and "underive undid it all" are about this
+		// test's own edges (docs/notes/gates.md, "Shards").
 		init() {
 			clj_init()
+			_ = try? eval("(alter-var-root (var clojure.core/global-hierarchy) (constantly (make-hierarchy)))")
 			_ = try? eval("""
 			'[:a :b :c :anything :parents :ancestors :descendants :default :unknown :sound :woof :dog :cat :rect :shape :generic
 			  :nil-method :fallback :fb :fb-hit :kind :w :h :nons :multifn :dispatch-val :hierarchy :found
