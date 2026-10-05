@@ -51,6 +51,8 @@ extension CoreTests {
 			#expect(interpreted == expected, "interpreter output")
 			try compileFixtureAsUnit(source, file: file, name: "c_decls")
 			#expect(try runFixtureUnit(file) == expected, "compiled output")
+			try compileFixtureAsUnit(source, file: file, name: "c_decls_closed", closed: true)
+			#expect(try runFixtureUnit(file) == expected, "closed compiled output")
 		}
 
 		// The parse is the module's namespace: the values are vars of it, and a second require-c re-parses nothing.
