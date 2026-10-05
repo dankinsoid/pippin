@@ -1,6 +1,7 @@
 ;; A pippin fuzz regression (docs/notes/fuzzing.md): every runner must answer as the oracle does.
 ;; abs clears the sign bit, where (neg? -0.0) is false; the NaN rules of min and max beside it.
 (def fz-sort-unordered true)
+(def fz-bare-integers true)
 ;; @ai-generated(solo)
 ;; The differential fuzzer's harness (docs/notes/fuzzing.md), inlined at the head of every case file.
 
