@@ -28,12 +28,22 @@
   `keywords` 1, and `reader.cljc`.
 - **`numbers` is taken whole, not partially**, which design §10's "частично" allowed for: the numeric tower is
   complete (`ratio?`, `bigint`, `bigdec`, `numerator`, `rationalize`) and chars are a real type, so the line is
-  not drawn inside the file — what does not run there fails per form on a JVM name (`Long/MAX_VALUE`,
-  `Math/round`, `unchecked-byte`, `Double/NaN`, `Class/forName`) and is allowlisted with that name. 30 of the
-  file's 44 deftests are lost that way, more than in any other file; the boxed JVM constants (`Long/MAX_VALUE`,
-  `Double/NaN`, `Integer/MAX_VALUE` and their kind) account for 21 deftests of the 76 unloaded forms across the
-  library, and a namespace `Long` of vars (the shape `Thread/sleep` already has, docs/jvm-differences.md) is
-  what would recover them.
+  not drawn inside the file — what does not run there fails per form on a JVM name (`Math/round`,
+  `unchecked-byte`, `Class/forName`, `Float.`) and is allowlisted with that name. 17 of the file's 44 deftests
+  are lost that way, more than in any other file: 14 forms that do not load and three tests that call one of
+  them.
+- **The boxed number classes are namespaces of vars**, the shape `Thread/sleep` has
+  (`install_boxed_classes`, builtins_number.c; docs/jvm-differences.md). It recovered 14 deftests of Clojure's
+  own suite — 13 in `numbers`, one in `sequences` — and the set is demand, one line per name, not a
+  `java.lang` slice: `Long/MAX_VALUE`, `Long/MIN_VALUE`, `Long/valueOf`, `Integer/MAX_VALUE`,
+  `Integer/MIN_VALUE`, `Short/MAX_VALUE`, `Byte/MAX_VALUE`, `Double/MAX_VALUE`, `Double/NaN`,
+  `Double/POSITIVE_INFINITY`, `Double/isNaN`. The 21 forms whose *first* unresolved name was such a constant
+  were an overcount of what the constants are worth: seven of them hit a second JVM name behind it
+  (`unchecked-byte`, `Float.`, `Double.`, `cast`, `iterator-seq`, `BigDecimal`, `clojure.lang.Range/create`)
+  and stay unloaded. Two of the 14 do not pass: `test-abs` is `(abs Long/MIN_VALUE)`, a §8 refusal, and
+  `test-longrange-corners` calls a helper that `clojure.lang.Range/create` keeps unloaded. `Float` is refused
+  whole rather than half-bound: a constant of it as a double would resolve one side of
+  `(Float/isNaN Float/NaN)` and refuse the other.
 - **`:tests-only true` in a manifest** tells `clj-facts` the library is test code where the name heuristic
   cannot: it counts a library apart when every load-path root is named `test`, and this one's `shim` root
   would have put 111k assertion nodes into the library-code share (docs/facts-coverage.md).

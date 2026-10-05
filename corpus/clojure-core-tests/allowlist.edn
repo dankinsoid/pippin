@@ -31,36 +31,23 @@
   {:file "test/clojure/test_clojure/fn.clj" :line 14 :name fn-error-checking :reason "Unable to resolve host type: clojure.test-helper/Throwable" :missing []}
   {:file "test/clojure/test_clojure/logic.clj" :line 21 :name test-if :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/clojure/test_clojure/logic.clj" :line 155 :name test-not :reason "Unable to resolve symbol: new in this context" :missing [new]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 30 :name Coerced-BigDecimal :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 38 :name BigInteger-conversions :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 30 :name Coerced-BigDecimal :reason "Unable to resolve symbol: BigDecimal in this context" :missing [BigDecimal]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 38 :name BigInteger-conversions :reason "Unable to resolve symbol: Float/MAX_VALUE in this context" :missing [Float/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 54 :name all-pairs-equal :reason "Unable to resolve symbol: class in this context" :missing [class]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 61 :name all-pairs-hash-consistent-with-= :reason "Unable to resolve symbol: class in this context" :missing [class]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 102 :name unchecked-cast-num-obj :reason "Unable to resolve symbol: unchecked-byte in this context" :missing [unchecked-byte]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 128 :name unchecked-cast-num-prim :reason "Unable to resolve symbol: unchecked-byte in this context" :missing [unchecked-byte]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 154 :name unchecked-cast-char :reason "Unable to resolve symbol: unchecked-int in this context" :missing [unchecked-int]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 159 :name expected-casts :reason "Unable to resolve symbol: Byte/MAX_VALUE in this context" :missing [Byte/MAX_VALUE]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 159 :name expected-casts :reason "Unable to resolve symbol: Float/MAX_VALUE in this context" :missing [Float/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 187 :name test-prim-with-matching-hint :reason "Unable to resolve symbol: Math/round in this context" :missing [Math/round]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 194 :name test-add :reason "Unable to resolve symbol: Integer/MAX_VALUE in this context" :missing [Integer/MAX_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 221 :name test-subtract :reason "Unable to resolve symbol: Integer/MIN_VALUE in this context" :missing [Integer/MIN_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 247 :name test-multiply :reason "Unable to resolve symbol: Integer/MAX_VALUE in this context" :missing [Integer/MAX_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 269 :name test-multiply-longs-at-edge :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 308 :name test-divide-bigint-at-edge :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 585 :name test-array-types :reason "Unable to resolve symbol: Class/forName in this context" :missing [Class/forName]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 597 :name test-ratios :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 613 :name test-arbitrary-precision-subtract :reason "Unable to resolve symbol: clojure.lang.BigInt in this context" :missing [clojure.lang.BigInt]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 619 :name test-min-max :reason "Unable to resolve symbol: Float. in this context" :missing [Float.]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 660 :name test-abs :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 674 :name clj-868 :reason "Unable to resolve symbol: Float/isNaN in this context" :missing [Float/isNaN]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 764 :name unchecked-inc-overflow :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 769 :name unchecked-dec-overflow :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 774 :name unchecked-negate-overflow :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 779 :name unchecked-add-overflow :reason "Unable to resolve symbol: Long/MIN_VALUE in this context" :missing [Long/MIN_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 791 :name unchecked-subtract-overflow :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 803 :name unchecked-multiply-overflow :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 835 :name warn-on-boxed :reason "Unable to resolve var: clojure.test-clojure.numbers/*unchecked-math* in this context" :missing [clojure.test-clojure.numbers/*unchecked-math*]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 843 :name comparisons :reason "Unable to resolve symbol: Integer. in this context" :missing [Integer.]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 884 :name test-nan-comparison :reason "Unable to resolve symbol: Double/NaN in this context" :missing [Double/NaN]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 891 :name test-nan-as-operand :reason "Unable to resolve symbol: Double/NaN in this context" :missing [Double/NaN]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 884 :name test-nan-comparison :reason "Unable to resolve symbol: Double. in this context" :missing [Double.]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 891 :name test-nan-as-operand :reason "Unable to resolve symbol: cast in this context" :missing [cast]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 28 :name test-reduce :reason "Unable to resolve symbol: Integer/TYPE in this context" :missing [Integer/TYPE]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 87 :name test-into-IReduceInit :reason "Unable to resolve protocol: clojure.lang.IReduceInit" :missing []}
   {:file "test/clojure/test_clojure/sequences.clj" :line 94 :name reduce-with-varying-impls :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
@@ -68,9 +55,8 @@
   {:file "test/clojure/test_clojure/sequences.clj" :line 611 :name test-nth :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 926 :name test-nthrest :reason "Unable to resolve symbol: class in this context" :missing [class]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1106 :name longrange-equals-range :reason "Unable to resolve symbol: clojure.lang.Range/create in this context" :missing [clojure.lang.Range/create]}
-  {:file "test/clojure/test_clojure/sequences.clj" :line 1113 :name test-range :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
+  {:file "test/clojure/test_clojure/sequences.clj" :line 1113 :name test-range :reason "Unable to resolve symbol: iterator-seq in this context" :missing [iterator-seq]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1203 :name unlimited-range-create :reason "Unable to resolve symbol: clojure.lang.Range/create in this context" :missing [clojure.lang.Range/create]}
-  {:file "test/clojure/test_clojure/sequences.clj" :line 1210 :name test-longrange-corners :reason "Unable to resolve symbol: Long/MAX_VALUE in this context" :missing [Long/MAX_VALUE]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1475 :name test-ArrayIter :reason "Unable to resolve symbol: clojure.lang.ArrayIter/createFromObject in this context" :missing [clojure.lang.ArrayIter/createFromObject]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1508 :name test-seqs-implements-iobj :reason "Unable to resolve symbol: clojure.lang.IMeta in this context" :missing [clojure.lang.IMeta]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1562 :name test-iteration :reason "Unable to resolve symbol: java.nio.file.Files/newBufferedReader in this context" :missing [java.nio.file.Files/newBufferedReader]}
@@ -104,8 +90,10 @@
   {:name clojure.test-clojure.data-structures/test-seq-iter-match :status :error :reason "Cannot send to a map: not an Objective-C object" :missing [] :note "seq-iter-match calls .iterator/.hasNext/.next on the collection: a java.util.Iterator has no counterpart here, and seq order against itself is what the test checks"}
   {:name clojure.test-clojure.data-structures/unordered-set-hashes-match :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/hash-unordered" :missing [clojure.test-clojure.data-structures/hash-unordered]}
   {:name clojure.test-clojure.numbers/equality-tests :status :error :reason "Unbound var: #'clojure.test-clojure.numbers/all-pairs-equal" :missing [clojure.test-clojure.numbers/all-pairs-equal]}
+  {:name clojure.test-clojure.numbers/test-abs :status :error :reason "integer overflow" :missing [] :note "accepted deviation: (abs Long/MIN_VALUE) throws here, where Math/abs returns the two's-complement wrap of a value it cannot represent; abs is (if (neg? a) (- a) a) over the checked negation (design §8, docs/jvm-differences.md)"}
   {:name clojure.test-clojure.numbers/test-expected-casts :status :error :reason "Unbound var: #'clojure.test-clojure.numbers/expected-casts" :missing [clojure.test-clojure.numbers/expected-casts]}
   {:name clojure.test-clojure.sequences/test-lazy-seq :status :error :reason "Cannot send to a lazy-seq: not an Objective-C object" :missing [] :note "(.equals (lazy-seq [3]) (lazy-seq [3N])) is a JVM method call; the = assertions of the same test pass"}
+  {:name clojure.test-clojure.sequences/test-longrange-corners :status :error :reason "Unbound var: #'clojure.test-clojure.sequences/unlimited-range-create" :missing [clojure.test-clojure.sequences/unlimited-range-create]}
   {:name clojure.test-clojure.sequences/test-reduce-on-coll-seqs :status :fail :reason "(and (= [:init [1 1] [2 2]] (reduce conj [:init] (seq {2 2, 1 1}))) (= [1 1 [2 2]] (reduce conj (seq {2 2, 1 1}))))" :missing [] :note "accepted deviation: a map literal of two keys seqs as ([2 2] [1 1]) here and as ([1 1] [2 2]) on the JVM, whose small maps are insertion-ordered array maps (design §8, docs/jvm-differences.md)"}
   {:name clojure.test-clojure.sequences/test-seq :status :error :reason "Cannot send to a vector-seq: not an Objective-C object" :missing [] :note "(.equals (seq [3]) (seq [3N])) is a JVM method call; the = assertions of the same test pass"}
  ]
