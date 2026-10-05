@@ -71,6 +71,13 @@ extension CoreTests {
 				#expect(message(rt, "(area)") == "Wrong number of args (0) passed to: user/area")
 				#expect(message(rt, "(area (->Rect 1 1) 2)") == "Wrong number of args (2) passed to: user/area")
 				#expect(message(rt, "(->Rect 1)") == "Wrong number of args (1) passed to: user/->Rect")
+				// (Name. args) is the positional factory: libraries write their own types that way.
+				#expect(try rt.eval("(area (Rect. 3 4))") == 12)
+				#expect(try rt.eval("(identical? (type (Rect. 3 4)) Rect)") == true)
+				#expect(try rt.eval("(map area [(Rect. 1 2) (Circle. 1)])") == Value(list: [2, 3]))
+				#expect(message(rt, "(Rect. 1)") == "user.Rect has 2 fields, got 1")
+				// A name that does not resolve is not a constructor: a JVM class still reports itself missing.
+				#expect(message(rt, "(StringBuffer.)") == "Unable to resolve symbol: StringBuffer. in this context")
 				// Fields are locals of the method body; a param of the same name shadows the field.
 				_ = try rt.eval("(deftype Pt [x y] Shape (area [this] (+ x y)) (perimeter [x] (if (instance? Pt x) :self x)))")
 				#expect(try rt.eval("[(area (->Pt 1 2)) (perimeter (->Pt 1 2))]") == [3, kw("self")])

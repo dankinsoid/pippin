@@ -269,6 +269,14 @@
   alias list, so a second site naming the same type, and a name that reaches nothing, each cost one
   `strcmp` walk. A *failing* name is remembered too, so a hot loop throwing through a clause naming a
   missing type does not re-run the candidate mangles.
+- **`(Name. args)` is the positional factory of a `deftype`/`defrecord`** (`ctor_head_type`, `analyze_ctor`):
+  a head symbol with no namespace whose name ends in a dot is rewritten to `(clojure.core/new* Name args)`
+  when the stem resolves to a var that is unbound or holds a user type. The second condition is what keeps
+  `(Long. 1)`, `(Integer. 1)` and `(java.util.Date.)` reporting the missing constructor §8 refuses rather
+  than reaching `new*`: those names are bound here, to a boxed-class namespace or a host type. Unbound
+  counts because `deftype` declares the name before it defines it, so a method body may construct its own
+  type. Libraries write their own types this way — `com.stuartsierra.dependency` has `MapDependencyGraph.`
+  and nothing else to fix — and `->Name` stays the factory the expansion itself uses.
 - **A qualified symbol no var answers resolves to a host type outside `catch` too**, which is what makes
   `(derive Foundation/URLError ::network)` the ordinary `derive` it is in §4 — the JVM resolves a classname
   the same way, after the namespace map. `analyze_symbol` tries the resolver only after `clj_ns_resolve`

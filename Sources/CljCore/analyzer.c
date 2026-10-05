@@ -16,6 +16,7 @@
 #include "clj/map.h"
 #include "clj/ns.h"
 #include "clj/printer.h"
+#include "clj/proto.h"
 #include "clj/runtime.h"
 #include "clj/set.h"
 #include "clj/string.h"
@@ -1061,6 +1062,29 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 	return node;
 }
 
+// The type of a (Name. args*) head, owned, or nil: a JVM class does not resolve, so it stays unresolved.
+static clj_value ctor_head_type(const analyzer *a, clj_value v) {
+	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return CLJ_NIL;
+	clj_value   name = clj_symbol_name(v);
+	size_t      len = clj_string_len(name);
+	const char *bytes = clj_string_bytes(name);
+	if (len < 2 || len > 250 || bytes[len - 1] != '.' || bytes[0] == '.') return CLJ_NIL;
+	char stem_bytes[256];
+	memcpy(stem_bytes, bytes, len - 1);
+	stem_bytes[len - 1] = '\0';
+	clj_value stem = clj_symbol_from_cstr(stem_bytes);
+	clj_value var = clj_ns_resolve(a->env.ns, stem);
+	// Unbound is the type's own name, declared before it is defined; any other value is a boxed JVM class.
+	clj_value root = clj_is_nil(var) ? CLJ_NIL : clj_var_root(var);
+	if (clj_is_nil(var) || (root != CLJ_UNBOUND && !clj_is_user_type(root))) {
+		clj_release(var);
+		clj_release(stem);
+		return CLJ_NIL;
+	}
+	clj_release(var);
+	return stem;
+}
+
 // A head symbol of the (.method target args*) form: a lone . is reserved, and a namespace is not a method.
 static bool is_method_head(clj_value v) {
 	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return false;
@@ -1330,6 +1354,20 @@ static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) 
 	return node;
 }
 
+// (Name. a b) is (new* Name a b), the positional factory ->Name is written with (design §4 «Протоколы и типы»).
+static clj_node *analyze_ctor(analyzer *a, scope *s, clj_value type_sym, const clj_value *items, uint32_t n) {
+	clj_value *call = zalloc(n + 1, sizeof *call);
+	call[0] = clj_symbol_from_cstr("clojure.core/new*");
+	call[1] = clj_retain(type_sym);
+	for (uint32_t i = 1; i < n; i++) call[i + 1] = clj_retain(items[i]);
+	clj_value form = clj_list_from_array(call, n + 1);
+	for (uint32_t i = 0; i < n + 1; i++) clj_release(call[i]);
+	free(call);
+	clj_node *node = analyze(a, s, form, false);
+	clj_release(form);
+	return node;
+}
+
 static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tail) {
 	clj_value expanded = expand_all(a, s, form);
 	if (expanded == CLJ_THROWN) return NULL;
@@ -1359,7 +1397,16 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_CATCH: node = fail(a, "catch outside try"); break;
 	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:
-	case SP_RESERVED: node = is_method_head(items[0]) ? analyze_objc_send(a, s, items, n) : analyze_invoke(a, s, items, n); break;
+	case SP_RESERVED: {
+		clj_value type_sym = ctor_head_type(a, items[0]);
+		if (!clj_is_nil(type_sym)) {
+			node = analyze_ctor(a, s, type_sym, items, n);
+			clj_release(type_sym);
+		} else {
+			node = is_method_head(items[0]) ? analyze_objc_send(a, s, items, n) : analyze_invoke(a, s, items, n);
+		}
+		break;
+	}
 	}
 	free(items);
 	return node;
