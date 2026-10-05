@@ -1283,12 +1283,7 @@ static clj_value int_args(const char *what, const clj_value *args, size_t n, int
 clj_value clj_quot(clj_value a, clj_value b) {
 	num x, y;
 	if (!to_num(a, &x) || !to_num(b, &y)) return clj_num_arith(a, b, CLJ_OP_QUOT);
-	if (x.is_double || y.is_double) {
-		double q = as_double(&x) / as_double(&y);
-		// Numbers.quotient rounds through BigDecimal past the long range, which rejects an infinity or a NaN.
-		if (!isfinite(q)) return clj_throw_msg(as_double(&y) == 0 ? "Divide by zero" : "Infinite or NaN");
-		return clj_double_new(q < 0 ? __builtin_ceil(q) : __builtin_floor(q));
-	}
+	if (x.is_double || y.is_double) return clj_double_quot(as_double(&x), as_double(&y));
 	if (y.i == 0) return clj_throw_msg("Divide by zero");
 	return clj_long_new(x.i / y.i);
 }
@@ -1296,12 +1291,7 @@ clj_value clj_quot(clj_value a, clj_value b) {
 clj_value clj_rem(clj_value a, clj_value b) {
 	num x, y;
 	if (!to_num(a, &x) || !to_num(b, &y)) return clj_num_arith(a, b, CLJ_OP_REM);
-	if (x.is_double || y.is_double) {
-		double p = as_double(&x), d = as_double(&y), q = p / d;
-		if (!isfinite(q)) return clj_throw_msg(d == 0 ? "Divide by zero" : "Infinite or NaN");
-		// Numbers.remainder is n - trunc(n/d)*d, not fmod: (rem 1 ##Inf) is NaN, not 1.0.
-		return clj_double_new(p - __builtin_trunc(q) * d);
-	}
+	if (x.is_double || y.is_double) return clj_double_rem(as_double(&x), as_double(&y));
 	if (y.i == 0) return clj_throw_msg("Divide by zero");
 	if (y.i == -1) return clj_fixnum(0);
 	return clj_fixnum(x.i % y.i);
