@@ -7,6 +7,13 @@
   `:given`/`:fn` on an arity error. Nothing was renamed or dropped: `:file`, `:line` and `:column` are
   the keys a `catch` plus `ex-data` already read, and what moved is their value — the innermost
   positioned form rather than the top-level one.
+- **The message shown is the outermost one, not the innermost.** A link whose message merely ends with its
+  cause's is a positional wrapper — the shape the loader's "Syntax error compiling at (f:l:c). <message>"
+  has — and `message_link` steps through it; any other outer message stands. An error raised while another
+  was unwinding is the diagnostic and the one it interrupted is not: taking the innermost message answered
+  `boom` where `Fixtures/host-type-c-only.clj` refuses a host-type clause, which `make c-only-audit` caught.
+  Every message below the one shown is a `caused by` note, since §3-07 allows shortening a form but not
+  losing a cause.
 - **The reported position is the deepest link of the cause chain whose data carries a `:line` *and* a
   `:file`** (`clj_diagnostic_position`, `wrap_pending`). The file is the condition, not a nicety: a node
   carries a line and no file of its own, so a line taken from a call site inside an already-loaded

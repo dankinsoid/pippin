@@ -103,22 +103,39 @@ clj_value clj_diagnostic_position(clj_value ex, bool with_file) {
 	return best;
 }
 
-clj_value clj_diagnostic_cause_message(clj_value ex) {
-	clj_value best = CLJ_NIL;
+// Whether `outer` is only `inner` with something prefixed: the shape a loader's "Syntax error compiling
+// at (f:l:c). <message>" has, and the one case where the inner wording is the one to show.
+static bool wraps(clj_value outer, clj_value inner) {
+	if (!clj_is_string(outer) || !clj_is_string(inner)) return false;
+	uint32_t no = clj_string_len(outer), ni = clj_string_len(inner);
+	return no >= ni && memcmp(clj_string_bytes(outer) + (no - ni), clj_string_bytes(inner), ni) == 0;
+}
+
+// The link whose message is the diagnostic's, retained; nil when no link has one.
+static clj_value message_link(clj_value ex) {
 	clj_value cur = clj_retain(ex);
 	while (!clj_is_nil(cur)) {
 		clj_value message = clj_ex_message(cur);
-		if (clj_is_string(message)) {
-			clj_release(best);
-			best = message;
-		} else {
-			clj_release(message);
+		clj_value cause = clj_ex_cause(cur);
+		clj_value inner = clj_ex_message(cause);
+		bool      step = !clj_is_string(message) || wraps(message, inner);
+		clj_release(message);
+		clj_release(inner);
+		if (!step) {
+			clj_release(cause);
+			return cur;
 		}
-		clj_value next = clj_ex_cause(cur);
 		clj_release(cur);
-		cur = next;
+		cur = cause;
 	}
-	return best;
+	return CLJ_NIL;
+}
+
+clj_value clj_diagnostic_cause_message(clj_value ex) {
+	clj_value link = message_link(ex);
+	clj_value message = clj_ex_message(link);
+	clj_release(link);
+	return message;
 }
 
 // The innermost link's own data, where the suggestion and the arities sit; nil when there is none.
@@ -265,6 +282,25 @@ clj_value clj_diagnostic_render(clj_value ex) {
 	// The position shown is the one with a file; a deeper one without a file is still where the mistake is.
 	if (!clj_is_nil(quotable) && !clj_is_nil(any) && number(any, kw_line) != number(quotable, kw_line))
 		put_fmt(&o, " = note: raised at %lld:%lld\n", (long long)number(any, kw_line), (long long)number(any, kw_column));
+	// Every message below the one shown, so a cause is never lost (design §3 «Диагностика»); a link that
+	// only wraps the next one adds nothing, and two links wording it the same say it once.
+	clj_value link = message_link(ex);
+	clj_value below = clj_is_nil(link) ? CLJ_NIL : clj_ex_cause(link);
+	clj_release(link);
+	clj_value shown = clj_retain(message);
+	while (!clj_is_nil(below)) {
+		clj_value note = clj_ex_message(below);
+		if (clj_is_string(note) && !wraps(shown, note) && !wraps(note, shown)) {
+			put_fmt(&o, " = note: caused by: %.*s\n", (int)clj_string_len(note), clj_string_bytes(note));
+			clj_release(shown);
+			shown = clj_retain(note);
+		}
+		clj_release(note);
+		clj_value next = clj_ex_cause(below);
+		clj_release(below);
+		below = next;
+	}
+	clj_release(shown);
 	clj_value top = clj_ex_data(ex);
 	if (clj_is_map(top) && number(top, kw_form_line) > 0 && number(top, kw_form_line) != number(pos, kw_line))
 		put_fmt(&o, " = note: in the top-level form at %lld:%lld\n", (long long)number(top, kw_form_line), (long long)number(top, kw_form_column));

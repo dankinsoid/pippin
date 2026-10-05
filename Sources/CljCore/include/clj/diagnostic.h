@@ -13,8 +13,10 @@
 // already-loaded function answers a line alone, and quoting source off it would quote the wrong file.
 clj_value clj_diagnostic_position(clj_value ex, bool with_file);
 
-// Message of the deepest link that has one: a loader's wrapper ends with it, and the inner wording is
-// what a reader acts on. Owned, nil when none.
+// The message a reader acts on: the outermost one, except that a link whose message merely ends with its
+// cause's is a positional wrapper and is stepped through. An outer message that says something of its own
+// stands — an error raised while another was unwinding is the diagnostic, not the one it interrupted.
+// Owned, nil when none.
 clj_value clj_diagnostic_cause_message(clj_value ex);
 
 // ex for a human and an agent: message, position, the source line with the span underlined, the notes.
