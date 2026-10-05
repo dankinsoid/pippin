@@ -263,9 +263,10 @@
   holds it too. So a `go-loop` whose channel the program has dropped — an untapped `mult`, an `onto-chan!` into a
   buffer nobody drains — is unreachable and still alive, where the JVM's GC collects the same parked block once its
   channel is unreachable. It is the cycle of design §7, not a leak of the scheduler's: RC is the only freeing, and
-  §7's trial deletion over may-cycle candidates is what would collect it. core.async's own `async_test.clj` makes 21
-  of them in one file, which is what the corpus harness's `reclaimAbandoned` cancels (NOTES "Corpus"); a program has
-  only `cancel!`. Trigger: trial deletion, or a profile where abandoned parked coroutines grow without bound.
+  §7's trial deletion over may-cycle candidates is the only mechanism here that could collect it — and collecting
+  one means its park never returns, which is what the JVM's GC already does to such a block. core.async's own
+  `async_test.clj` makes 20 or 21 of them in one file, which is what the corpus harness's `reclaimAbandoned`
+  cancels (NOTES "Corpus"); a program has only `cancel!`. Trigger: trial deletion, or a profile where abandoned parked coroutines grow without bound.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
