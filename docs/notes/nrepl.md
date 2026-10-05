@@ -144,14 +144,16 @@
   completed no line. `make api-diff` lists `*in*` under "dynamic mismatches" and stays that way: the JVM's own
   meta says `:dynamic false` because `RT` sets the flag on the var rather than through metadata, while ours is
   `^:dynamic`, which is what `binding` needs (`with-in-str` binds it on the JVM too).
-- [ ] **`readLineParksUntilStdinArrives` asked for input three times once.** Seen once on a standalone
-  `make test-compiled`, never again alone or in `make gates`: the test feeds `"one\ntwo\n"` to
+- [ ] **`readLineParksUntilStdinArrives` asked for input three times twice.** Seen on a standalone
+  `make test-compiled` and once on CI, in the `test` gate's shard 1 (run 37318497402, arm64), never
+  reproduced on asking: the test feeds `"one\ntwo\n"` to
   `[(read-line) (read-line) (read-line)]` and expects two `need-input` requests, because the second line
   comes out of the first chunk. A third request means the second `read-line` polled an empty channel.
   `Session.acceptInput` puts a chunk's lines one `put!` at a time, and the first `put!` unparks the waiter
   at once, so a second read that polls between the two puts asks again — a hypothesis that fits the design
-  above, not a confirmed trace. Trigger: a second sighting; then put a chunk's lines as one batch before any
-  waiter runs, and the test becomes a check of that rather than of timing.
+  above, not a confirmed trace. The second sighting was the trigger, so the fix is due: a chunk's lines go in
+  as one batch before any waiter runs, which `clj_chan_put_cb` cannot do — `flush_wakes` unparks the taker
+  inside the first put — so it needs a batched put in chan.c, and the test then checks that rather than timing.
 - **One `Runtime` per process, shared by every session** — the same sharing JVM nREPL gets from one JVM: a
   `def` from one editor buffer's session is visible from another's, deliberately.
 - **The bencode codec and the socket layer are a separate library target, `CljNREPL`**, not folded into the

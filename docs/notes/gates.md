@@ -127,7 +127,17 @@
   `RuntimeTests.defAndRedefinition` counted the meta map of a var it defined as one object, a shape map; after
   `QueueTests`' maps a shape on that path had become a dictionary (`CLJ_SHAPE_MAX_CHILDREN`, shape.c) and the meta
   map was a hash map, two objects (runs 37190622763–37191593504, x86_64). The test now declares the var before its
-  baseline, as it does its other defs. A failed shard's report ends with its rerun in one process (`TEST_SUITES=…
+  baseline, as it does its other defs. `HostErrorTests.deriveGroupsAHostError` measured a
+  `derive`/`underive` round trip on the process-global hierarchy, which is object-neutral only while no other
+  suite has derived into it: `underive` rebuilds the hierarchy from `(make-hierarchy)`, and the value it
+  replaces stays alive in the method cache of every multimethod that dispatched against it (core.clj,
+  `mf-method`), so the round trip costs one hierarchy once. `CorpusTests` runs
+  `test/clojure/test_clojure/multimethods.clj`, which derives four edges into the global hierarchy and leaves
+  two multimethods dispatched against it; from the commit that vendored that file, every arm64 push run failed
+  the same way, by exactly 35 objects (runs 37318497402–37346924206). With `CorpusTests` ahead of it in one
+  process the failure reproduces off CI, and `TryCatchTests.catchByKeywordAndHierarchy` fails there identically,
+  a deal away from the same red; both now run the round trip before the baseline.
+  A failed shard's report ends with its rerun in one process (`TEST_SUITES=…
   TEST_SHARDS=1 make test`; on CI, a dispatch with `-f target=test -f shards=1 -f suites=…`); halves of its suite
   list, dispatched side by side, find the pair, and `clj_debug_live_report` before and after the test names the
   type.

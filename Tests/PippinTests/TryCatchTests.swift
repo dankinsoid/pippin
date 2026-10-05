@@ -241,6 +241,9 @@ extension CoreTests {
 
 		// catch by keyword: (isa? (ex-type thrown) K), widened by derive (CoroTests proves :default vs :cancelled).
 		@Test func catchByKeywordAndHierarchy() throws {
+			// Before the baseline: underive rebuilds the hierarchy, and a multimethod cache pins the old one.
+			_ = try rt.eval("(derive :tck/pg :tck/db)")
+			_ = try rt.eval("(underive :tck/pg :tck/db)")
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try rt.eval("(try (throw (ex-info \"m\" {:type :tck/db})) (catch :tck/db e :hit))") == kw("hit"))

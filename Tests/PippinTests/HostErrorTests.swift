@@ -178,6 +178,9 @@ extension CoreTests {
 
 		// Grouping foreign errors is the ordinary derive, with the type in the child position (design §4).
 		@Test func deriveGroupsAHostError() throws {
+			// Before the baseline: underive rebuilds the hierarchy, and a multimethod cache pins the old one.
+			_ = try rt.eval("(derive PippinTests/MyError :he/host-failure)")
+			_ = try rt.eval("(underive PippinTests/MyError :he/host-failure)")
 			let before = clj_debug_live_objects()
 			do {
 				let boom = Value(function: "he-grouped") { _ in throw MyError(code: 7) }
