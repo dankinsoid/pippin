@@ -34,6 +34,12 @@ clj_value clj_objc_class(const char *name);
 // target is a wrapper or nil, args borrowed. Owned result, or CLJ_THROWN.
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw);
 
+// Level 0: no receiver, so all eight integer slots are arguments; NULL with a static *why is a refusal.
+const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint32_t nargs, const char **why);
+uint32_t    clj_objc_c_signature_nargs(const void *sig);
+// fn is the symbol's own address; name is only for messages. Owned result, or CLJ_THROWN.
+clj_value   clj_objc_c_call(const void *sig, void *fn, const char *name, const clj_value *args, uint32_t nargs);
+
 // signature is the block type encoding ("q@?@@"); heap from birth, so a host that stores it only retains.
 clj_value clj_objc_block(clj_value signature, clj_value fn);
 
