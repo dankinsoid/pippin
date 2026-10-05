@@ -190,6 +190,7 @@ typedef struct {
 	char        ret;                       // the return's encoding char, '{' for a struct
 	char        arg[CLJ_OBJC_MAX_ARGS];    // each argument's, self and _cmd dropped
 	char        argptr[CLJ_OBJC_MAX_ARGS]; // what a '^' argument points at, 0 for every other argument
+	char        retptr;                    // what a '^' return points at, 0 for every other return
 	const char *retenc;                    // the whole encoding of a '{' return, owned by the cache entry
 	const char *argenc[CLJ_OBJC_MAX_ARGS];
 	struct_abi  ret_abi;
@@ -454,6 +455,8 @@ static bool signature_shape(objc_sig *sig, const char *ret, const char *const *a
 	const char *r = skip_qualifiers(ret);
 	bool        ok = *r == '{' ? classify_struct(r, &sig->ret_abi) : encoding_supported(*r, true);
 	sig->ret = *r;
+	// 'v' where the encoding names no pointee, so the wrapper is still refused as a receiver.
+	if (*r == '^') sig->retptr = *skip_qualifiers(r + 1) ? *skip_qualifiers(r + 1) : 'v';
 	if (ok && *r == '{') sig->retenc = own_encoding(r);
 	if (!ok) return false;
 
@@ -1247,6 +1250,8 @@ static clj_value call_out(const objc_sig *sig, void *fn, const call_args *ca) {
 	}
 	default: {
 		long long r = SEND(i);
+		// Releasing a '^' return at the wrapper's death would release what is not an object at all.
+		if (sig->ret == '^') return r ? wrap_pointer((void *)(intptr_t)r, sig->retptr) : CLJ_NIL;
 		// An allocation is no object of its class yet: -[NSPlaceholderMutableString length] raises, so
 		// nothing about it is read and it stays a handle for the -init that follows.
 		return sig->allocation && sig->ret == '@' && r ? clj_objc_wrap_owned((void *)(intptr_t)r)

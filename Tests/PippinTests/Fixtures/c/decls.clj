@@ -2,7 +2,7 @@
 (ns fixture.c-decls
   (:require-c [AppKit :as ak :refer [NSTextAlignmentCenter NSUnderlineStyleDouble NSAppKitVersionNumber
                                      NSBundleDidLoadNotification NSClassFromString NSHomeDirectory
-                                     NSSelectorFromString NSStringFromSelector abs strlen]]
+                                     NSSelectorFromString NSStringFromSelector abs free malloc strlen]]
               [Math :header "math.h" :refer [FP_INFINITE]]))
 
 (defn show [& xs] (apply println (map pr-str xs)))
@@ -29,6 +29,11 @@
 ;; The arity is the header's, and an argument that does not fit the slot is an error, not a wrong call.
 (show (try (strlen) (catch :default e (ex-message e))))
 (show (try (strlen 5) (catch :default e (ex-message e))))
+
+;; A '^' return is memory the callee owns, so the wrapper neither releases it nor takes a message.
+(let [p (malloc 16)]
+  (show (some? p) (try (.length p) (catch :default e (ex-message e))))
+  (show (nil? (free p))))
 
 ;; A const NSString * global is read once at load and crosses as a value, as a level-1 '@' return does.
 (show NSBundleDidLoadNotification (string? NSBundleDidLoadNotification))

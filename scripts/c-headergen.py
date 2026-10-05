@@ -266,10 +266,11 @@ def encode_type(spelled, desugared, is_return):
 	if "(*" in text:
 		return "^?"
 	if text.endswith("*"):
-		pointee = text[:-1].strip()
-		if pointee in ("char", "const char"):
+		inner = bare_type(text[:-1])
+		if inner == "char":
 			return "*"
-		inner = bare_type(pointee)
+		if inner == "void":
+			return "^v"
 		if inner in SCALARS or inner.startswith(("struct ", "union ", "enum ")) or inner.endswith("*"):
 			try:
 				return "^" + encode_type(inner, inner, False)
@@ -277,7 +278,7 @@ def encode_type(spelled, desugared, is_return):
 				return "^v"	 # an opaque pointee crosses as a raw pointer, which is what it is
 		if IDENTIFIER.match(inner):
 			return "@"	 # a typedef chain ends at a builtin, a tag or an Objective-C class; only the last is left
-		raise Unencodable(f"a pointer to {pointee}")
+		raise Unencodable(f"a pointer to {inner}")
 	if text.startswith(("struct ", "union ")):
 		raise Unencodable(f"a {text} by value")
 	if "[" in text:
@@ -337,8 +338,10 @@ def function_of(node):
 	"""(return spelling, [(spelled, desugared)]) of a FunctionDecl, or a refusal string."""
 	if node.get("variadic"):
 		return "a variadic function: on arm64 Apple a variadic argument rides the stack, which a fixed prototype does not place"
-	if node.get("inline"):
-		return ("a static inline function: its body lives in the header and in no binary, so the interpreter needs "
+	# `static` is what makes the symbol missing; a C99 `inline` without it may still be exported somewhere.
+	if node.get("inline") or node.get("storageClass") == "static":
+		how = " ".join(w for w in ("static" if node.get("storageClass") == "static" else "", "inline" if node.get("inline") else "") if w)
+		return (f"a {how} function: its body lives in the header and in no binary, so the interpreter needs "
 		        "a thin C stub (design §5 «Только в заголовке»)")
 	split = split_signature(node.get("type", {}).get("qualType", ""))
 	if not split:
