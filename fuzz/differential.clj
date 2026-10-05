@@ -144,7 +144,7 @@
          ['take-while :pred1 :seq] ['drop-while :pred1 :seq] ['take-nth :posidx :seq]
          ['map :fn1 :seq] ['map :fn1 :seq] ['map :fn2 :seq :seq] ['filter :pred1 :seq]
          ['remove :pred1 :seq] ['keep :fn1 :seq] ['mapcat 'list :seq]
-         ['reduce :fn2 :seq] ['reductions :fn2 :seq] ['reductions :fn2 :any :seq]
+         ['reductions :fn2 :any :seq]
          ['concat :seq :seq] ['interleave :seq :seq] ['interpose :any :seq]
          ['partition :posidx :seq] ['partition :posidx :posidx :seq] ['partition-all :posidx :seq]
          ['split-at :idx :seq] ['split-with :pred1 :seq]

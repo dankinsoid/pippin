@@ -108,6 +108,16 @@
    :row "`numerator` and `denominator` answer the canonical integer, where the JVM answers a `BigInteger`"
    :why "`numerator` and `denominator` are not generated. The N their arithmetic prints is normalized away by :no-bigint-marker, but a BigInteger also refuses a bit operation on the JVM where our canonical integer takes it, and that is a throw against a value, not a marker."}
 
+  {:id :no-unseqable-lazy-source
+   :mechanism :generator
+   :row "`(mapcat f x)` is lazy to the end"
+   :why "Every :seq production answers a seq — `reduce` lives in :any, where its type belongs, and not in :seq — so a lazy operation never gets a source that is not seqable and the moment an error is raised cannot differ."}
+
+  {:id :no-throwing-realization
+   :mechanism :generator
+   :row "`=` and `hash` of a lazy seq realize it only as far as the answer needs"
+   :why "The two-argument `reductions` is not generated: over an empty collection it calls `(f)` with no arguments, which is the one generated way to build a lazy seq whose realization throws. The three-argument one, which takes an init, stays."}
+
   {:id :no-bigint-marker
    :mechanism :normalize
    :row "One bigint type where the JVM has `BigInt` and `BigInteger`"
