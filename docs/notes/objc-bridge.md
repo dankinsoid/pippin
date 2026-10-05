@@ -181,3 +181,11 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   whose `-length` raises, so the `alloc` family alone returns a handle where every other `@` return is
   read; the `-init` that follows answers a real object and converts like any other.
 
+- [ ] **No call into or out of the bridge is real-time safe.** A send takes `cache_lock` even on a hit
+  (the selector cache inserts on a miss and may rehash, so a reader cannot skip it), wraps an object return
+  in an allocation, and a callback pushes a pool and boxes its arguments; a Core Audio render callback or
+  any thread that must not lock or allocate cannot touch Clojure. The answer, as the industry's
+  (SuperCollider's sclang/scsynth, Max's `gen~`): the real-time work is C or Swift, and Clojure steers it
+  through atomics or a lock-free ring. Low priority. Trigger: someone writing DSP; then a `^:realtime`
+  compiled-only subset that the facts prove free of allocation, locks, a last `release` and parks (the
+  `^:no-alloc` of design §4 «Низкоуровневый слой» one step further), and a lock-free read of the cache.
