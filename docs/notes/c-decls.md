@@ -32,17 +32,34 @@
   linked into the test binary at all.
 - [~] **A mutable global is refused, and that is a correction to the design.** §5 said "`extern const` и глобалы";
   but `NSFoundationVersionNumber` and `kCFCoreFoundationVersionNumber` are declared *without* `const`, and a value
-  snapshotted into a var at load is not that global's value later. Reading per access needs a var form that is not
-  a constant — a getter fn, or a var kind that re-reads. Not done. Trigger: an API whose mutable global is the API.
-- [~] **An object global is refused, and it is the next demand after the constants.** `NSWindowDidResizeNotification`
-  and every other `NSNotificationName` is a `const NSString *`, which would cross as a level-1 handle; what is not
-  decided is its ownership, since the handle rule is "a reference, the caller owns it" (NOTES "ObjC bridge") and an
-  immortal global has no owner. Not done. Trigger: an app that registers for a system notification.
-- [~] **A function is a line of the report, not a var.** The design's order puts the call in the second slice, so
-  the generator refuses a `FunctionDecl` by name with that reason, and `require-c` raises it as
-  "Unable to resolve UIKit/UIApplicationMain: a C function: calling one is the second slice". A var that resolved
-  and threw on the call would defer the same failure to runtime and would fix a signature the second slice may have
-  to refuse. Structs (`deflayout`) are refused the same way. Trigger: the second slice.
+  snapshotted into a var at load is not that global's value later. Constness is read where the ABI puts it — at the
+  pointer for a pointer global, at the value for a scalar — so AppKit's `NSWindowDidResizeNotification`, declared
+  without `const`, is refused while UIKit's and Foundation's notification names, `NSString *const`, are read.
+  Reading per access needs a var form that is not a constant — a getter fn, or a var kind that re-reads. Not done.
+  Trigger: an API whose mutable global is the API.
+- **An object global is a value, which is what settled its ownership.** A `const NSString *` is read once by
+  `dlsym` at load and crosses as a level-1 `@` return does: an `NSString` or `NSNumber` as ours, any other object
+  as a handle whose +1 is never given back — right, because an immortal global has nobody to give it back to. So
+  the handle rule of NOTES "ObjC bridge" ("a reference, the caller owns it") needed no exception and no new kind of
+  value: `NSBundleDidLoadNotification` reaches `-[NSNotificationCenter addObserverForName:…]` as the string the
+  framework holds. A raw pointer global (`CFRunLoopMode`, a `const struct __CFString *const`) is refused instead:
+  what it points at has no owner the bridge can name, and `CFRelease` on it would be a guess.
+- **A C function is `dlsym` plus the level-1 dispatcher, and the header's types travel as its encodings.**
+  `(def UIApplicationMain (c-fn* "UIApplicationMain" "i" ["i" "^*" "@" "@"]))`: the parse maps clang's
+  *desugared* spelling of each parameter onto the Objective-C type encodings that `signature_shape` and
+  `classify_struct` already read, so there is one classifier and one prototype table, not two. `id`, `Class` and
+  `SEL` are keyed on the alias instead, because `SEL` desugars to `SEL *`; a pointer whose desugared pointee is
+  still a bare identifier is an Objective-C object, since a typedef chain ends at a builtin, a tag or a class and
+  only the last is left. `c-fn*` resolves the symbol and builds the signature once, at load, and the var holds a
+  plain fn afterwards, so a compiled unit calls it like any other fn (as with a global: a compiled unit runs its
+  own `ns` form and finds the module parsed).
+- **A return type is desugared by declaring a variable of it, because a function type is not.** clang's JSON gives
+  `desugaredQualType` per `ParmVarDecl` but only one `qualType` for the whole `FunctionDecl` (`int (int, char **)`),
+  and `@encode`'s text is nowhere in the AST — the `ObjCEncodeExpr` node carries the encoded *type* and the string's
+  length as `char[7]`, never its bytes. So the return spelling is split off that signature and fed back to clang as
+  `static <ret> __clj_v_r0;`, one probe for every function of the module at once; a spelling the split got wrong
+  fails to compile there and is refused with clang's own message rather than guessed at.
+- **Structs (`deflayout`) are still a line of the report.** Trigger: §10 step 8b's own remainder.
 - **Swift's import of the same header renames and retypes it, and the test is the evidence.** Reading the fixture's
   own global from Swift does not compile as `NSAppKitVersionNumber` — swiftc answers "has been renamed to
   `NSAppKitVersion.current`" and the value is a `RawRepresentable` struct over the double. The header gives the C
@@ -51,3 +68,32 @@
   which the build already requires; it uses no clang Python bindings and no libclang, only `-Xclang -ast-dump=json`
   of the clang in the toolchain. On a machine without an SDK the fixture test fails where any other SDK-dependent
   test does.
+- **Refused by name at parse time, each with its reason, so nothing throws at a call site.** A variadic function
+  (arm64 Apple puts a variadic argument on the stack and a fixed prototype does not place one); a `static` or
+  `inline` one, whose body is in the header and in no binary — `static` is what makes the symbol missing, so
+  `inline` alone is not the test; a declaration with no prototype; a shape past the eight integer or eight
+  floating-point slots, or mixing `float` and `double`; and a functional macro, which the value probe refuses with
+  clang's diagnostic as it always did.
+- [ ] **An aggregate by value is refused, which is the one place `classify_struct` is not yet reached from C.**
+  The AAPCS64 classification is shared and ready, but the parse has no struct encoding to hand it:
+  `{CGRect={CGPoint=dd}{CGSize=dd}}` is not in the JSON AST, and `@encode` exists only in generated code, not in
+  a dump. Building it means walking the `RecordDecl`'s fields recursively, one more dump per struct type. Not
+  done. Trigger: an API where a struct by value *is* the API (`CGContextFillRect`, `UIGraphicsBeginImageContextWithOptions`).
+- [ ] **A `dlsym` miss at load takes the module, not the one name.** `c-fn*` and `c-global*` throw when the header
+  declares a symbol nothing in the program exports, which fails the `def`, which fails the generated file's
+  `load-file` — so the program loses every constant of that module instead of one report line. The parse cannot
+  know: whether a symbol is linked is a fact about the program, not about the header. Not done; it wants the
+  generated file to record the miss into `:pippin/c-refused` rather than abort, which is a core helper the `def`s
+  go through. Trigger: a module whose header declares more than the program links — a framework reached through a
+  dev client, or AppKit in a test binary that only touches Foundation.
+- **The compiler calls through the same dispatcher, and the design's "direct call" is a later slice.** §5 wanted
+  `#include` of the header and an unboxed call out of the generated C. The headers of an Apple framework are
+  Objective-C and a unit is compiled as C17 (`-std=c17 -Wall -Wextra -Wpedantic -Werror`, `CljCompiler/jit.c`), so
+  `@interface` does not compile there at any sysroot. The cheap shape, when it is wanted, is a unit-local
+  `static int (*p_UIApplicationMain)(int, char **, const void *, const void *)` resolved once at unit init:
+  unboxed arguments, types from the header, plain C17, no SDK flags in the driver. Trigger: a measured boundary
+  cost that the dispatcher's marshalling dominates.
+- **No `:host-call` fact is emitted, and the design says not to.** §5 lists one beside the signature, but the facts
+  pass deliberately has no host-call effect bit (NOTES "Facts", "Deliberately not here") — a prohibition needs the
+  call chain and `opaque` is the admission it is not always there. A `c-fn*` var holds a native fn, which the walk
+  already treats as opaque, so a C call reads exactly like a Swift one.

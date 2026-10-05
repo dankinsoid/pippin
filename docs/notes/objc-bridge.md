@@ -16,8 +16,14 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   arguments, so every integer-class argument (pointer, `SEL`, `BOOL`, `char` through `long`, each passed
   as a full 64-bit slot we extend ourselves) becomes one kind. What is left is whether the
   floating-point slots are `float` or `double`, times the return: `long long`, `double`, `float`, `void`
-  and one per struct-return shape (below). Six integer slots and eight floating-point ones keep every
+  and one per struct-return shape (below). Eight integer slots and eight floating-point ones keep every
   call register-only on arm64, so no stack argument area is involved.
+  **The receiver is not in the prototype.** `self` and `_cmd` are the first two words of the integer
+  register file the caller fills, a block is the first one, and a C function (level 0, design §5
+  «C — уровень 0») spends none of it — so one prototype set serves all three and the "eight instead of
+  six" of a C call is a base, not a second table. The bytes and registers did not move when the receiver
+  left: the method prototype already declared eight integer-class parameters. A method or a block is still
+  capped at six marshalled integer arguments, since no selector needs more and the cap is the caller's.
   **Not covered**, and answered with an error rather than a call through the wrong shape: a union or
   array argument or return, `long double`, a struct over 128 bytes, more than 6 integer-class or 8
   floating-point arguments, and `float` and `double` mixed in one selector.
@@ -142,6 +148,13 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   collection of values travels as a handle instead of a copy comes from it (design §5). An
   Objective-C class in `catch` position goes through the Swift resolver like any other host type
   (`So7NSErrorC`), not through this bridge.
+- **A `'^'` return is a raw pointer, and releasing it would release what is not an object.** The first cut
+  sent it through `clj_objc_wrap_owned`, whose finalizer calls `objc_release` — heap corruption rather than
+  an error, and silent until the wrapper died. A method rarely returns one (`-[NSData bytes]` does), but a C
+  function routinely does (`malloc`, `CGColorSpaceCreateDeviceRGB`), so level 0 turned a latent case into a
+  likely one. The answer is the inbound argument's, read backwards: `wrap_pointer` with the pointee the
+  encoding names, so the finalizer lets it be and the wrapper refuses a message. Who frees it is the
+  binding's business, as design §5 «Владение» says.
 - **A pointer argument carries what it points at, because the pointer does not.** `BOOL *stop` arrives
   as a borrowed handle, and the width of a write through it is the pointee's encoding, not the
   pointer's, so the wrapper records that encoding and `objc-write!` reads it. Only what the bridge lays

@@ -68,7 +68,7 @@
   `<app>/pippin/c/UIKit.clj` against that SDK and triple, and `main.c` points `clj_load_path_set` at the
   executable's directory before loading the screen (NOTES "C declarations").
 - [~] **The app has no delegate class, because a reified class is not one UIKit can allocate.**
-  `UIApplicationMain(argc, argv, NULL, NULL)` leaves the process without a principal class and without a delegate,
+  `(UIApplicationMain 0 nil nil nil)` leaves the process without a principal class and without a delegate,
   and `screen.clj` mounts the screen from a zero-delay `NSTimer` block scheduled on the main run loop before
   `UIApplicationMain` turns it. The reason is `objc-reify`: its Clojure fns live in the extra bytes of
   `class_createInstance(cls, sizeof(reify_state))` (objc.c), while a host handed a class *name* —
@@ -87,6 +87,14 @@
   string into `setText:` and an `NSString` return read as one, `false` as a `BOOL`, an `NSArray` of handles
   through `ns-array` into `initWithArrangedSubviews:` and `activateConstraints:`, a selector as the string
   `"tap:"`, and two `objc-block`s for the timers.
+- **The screen names its entry point, and the shell hands over rather than driving.** `UIApplicationMain` does
+  not return, so calling it at the tail of the screen's own load would take `main.c`'s footprint report and its
+  settle timer with it — both of which have to be in place before the run loop turns, because the run loop is
+  what delivers them. So `screen.clj` ends in `(defn -main [] (UIApplicationMain 0 nil nil nil))`, the load
+  finishes with the two `NSTimer` blocks already scheduled, and the shell evaluates `(pippin.screen/-main)` after
+  its own measurement — which is where a Clojure program's entry point lives anyway. `argc` 0 and `argv` nil are
+  what UIKit gets; it reads neither (verified in both simulator modes, three taps and the `go-main` body
+  unchanged).
 - **The main carrier is UIKit's own run loop.** The shell calls `clj_sched_main_install` on the main thread
   before `UIApplicationMain`, and `(a/go-main (a/<! (a/timeout 200)) (swap! taps + 10))` from the screen runs
   when the app's run loop turns: the atom's watch sets the label from inside the coroutine and the screen reads
@@ -121,7 +129,8 @@
   `dlsym` and by nothing the bridge offered. All seven now come from the header through level 0's
   `(:require-c [UIKit :refer [...]])`, and the screen writes no number of its own (NOTES "C declarations",
   design §5 «C — уровень 0»); the six values the parse answers are the six counted here.
-  `UIApplicationMain` is a C function, and level 1 calls methods and blocks only, so it stays in `main.c`.
+  `UIApplicationMain` is a C function, which level 0's second slice calls: the screen declares it in the same
+  `(:require-c [UIKit …])` and `main.c` has neither its declaration nor its call.
   **That list is the demand signal** NOTES "Host bridge" ("What the generator does not generate") waits for: the
   first symbols an application needs and level 1 cannot reach are not functions but constants, and a wrong
   number there is a silently wrong screen, not an error.
@@ -147,7 +156,9 @@
   "1.1 MB interpreted, 3.2 MB with the compiled core" the baseline named: UIKit itself ships with the OS, and the
   screen's own cost is its source file. Re-measured after level 0 (`cdecl.c`, `require-c` in core.clj and the 1 KB
   `pippin/c/UIKit.clj` the bundle now carries): 1,126,272 and 3,333,232 simulator, 1,115,368 and 3,321,528 device,
-  1,116 KB and 3,272 KB on disk. The figures above predate both that and an SDK re-link, so the difference is not
+  1,116 KB and 3,272 KB on disk. After the second slice (the call, `c-fn*`, `UIApplicationMain` out of `main.c`):
+  1,126,784 and 3,333,760 simulator, 1,115,896 and 3,322,064 device, 1,120 KB and 3,272 KB on disk — **+512 to
+  +536 bytes**, which is one more `dlsym` path and one more generated declaration. The figures above predate both that and an SDK re-link, so the difference is not
   the slice's alone; what it says is that level 0 did not move the "units of MB" the baseline is about.
 - **Footprint with a screen standing (simulator, two runs per mode).** `phys_footprint` at `main`, before
   `UIApplicationMain` and with UIKit only mapped: 11.1–11.6 MB, against the bare probe's ~10 MB. `clj_init` then
