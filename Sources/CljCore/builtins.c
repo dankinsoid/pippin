@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/cdecl.h"
 #include "clj/chan.h"
 #include "clj/coll.h"
 #include "clj/compare.h"
@@ -1558,4 +1559,5 @@ void clj_builtins_install(void) {
 	clj_format_builtins_install();
 	clj_objc_builtins_install();
 	clj_host_module_builtins_install();
+	clj_cdecl_builtins_install();
 }

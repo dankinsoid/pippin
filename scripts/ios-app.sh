@@ -112,6 +112,9 @@ one() {
 		-o "$app/PippinApp" "$ROOT/scripts/ios-app/main.c" $objs \
 		-framework UIKit -framework CoreFoundation -framework Foundation -lobjc
 	cp "$ROOT/scripts/ios-app/screen.clj" "$app/screen.clj"
+	# The screen's (:require-c [UIKit ...]) is parsed here, against this SDK: the device has no clang.
+	python3 "$ROOT/scripts/c-headergen.py" --scan "$ROOT/scripts/ios-app/screen.clj" \
+		--out "$app" --sdk "$sdkroot" --target "$triple" >/dev/null
 	plist "$app" "$platform"
 	if [ "$sdk" = iphonesimulator ]; then
 		codesign --force --sign - --timestamp=none "$app" >/dev/null 2>&1

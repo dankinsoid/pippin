@@ -1,6 +1,10 @@
 ;; One screen through the level-1 ObjC bridge alone: no reconciler, no Swift (design §5, docs/notes/ios.md).
 (ns pippin.screen
-  (:require [clojure.core.async :as a]))
+  (:require [clojure.core.async :as a])
+  ;; Six NS_ENUM values that live in no binary and one exported const (design §5 «C — уровень 0»).
+  (:require-c [UIKit :refer [NSTextAlignmentCenter UIButtonTypeSystem UIControlEventTouchUpInside
+                             UIControlStateNormal UIFontWeightRegular UILayoutConstraintAxisVertical
+                             UIStackViewAlignmentCenter]]))
 
 (def taps (atom 0))
 
@@ -13,18 +17,18 @@
         vc (.init (.alloc (objc-class "UIViewController")))
         root (.view vc)
         label (.init (.alloc (objc-class "UILabel")))
-        button (.button-with-type (objc-class "UIButton") 1)
+        button (.button-with-type (objc-class "UIButton") UIButtonTypeSystem)
         target (objc-reify {} (["tap:" "v@:@"] [self sender] (swap! taps inc)))]
     (.set-background-color root (.system-background-color (objc-class "UIColor")))
-    (.set-font label (.monospaced-system-font-of-size (objc-class "UIFont") 28.0 :weight 0.0))
-    (.set-text-alignment label 1)
+    (.set-font label (.monospaced-system-font-of-size (objc-class "UIFont") 28.0 :weight UIFontWeightRegular))
+    (.set-text-alignment label NSTextAlignmentCenter)
     (.set-text label (str "taps: " @taps))
-    (.set-title button "tap me" :for-state 0)
-    (.add-target button target :action "tap:" :for-control-events 64)
+    (.set-title button "tap me" :for-state UIControlStateNormal)
+    (.add-target button target :action "tap:" :for-control-events UIControlEventTouchUpInside)
     (let [stack (.init-with-arranged-subviews (.alloc (objc-class "UIStackView")) (ns-array [label button]))]
-      (.set-axis stack 1)
+      (.set-axis stack UILayoutConstraintAxisVertical)
       (.set-spacing stack 16.0)
-      (.set-alignment stack 3)
+      (.set-alignment stack UIStackViewAlignmentCenter)
       (.set-translates-autoresizing-mask-into-constraints stack false)
       (.add-subview root stack)
       (.activate-constraints (objc-class "NSLayoutConstraint")
@@ -40,7 +44,7 @@
 ;; A tap of our own, so a run without a hand on the simulator still proves the target/action path.
 (defn- self-test! []
   (let [{:keys [button label]} @live]
-    (dotimes [_ 3] (.send-actions-for-control-events button 64))
+    (dotimes [_ 3] (.send-actions-for-control-events button UIControlEventTouchUpInside))
     (println "screen: after three taps, label =" (pr-str (.text label)) "atom =" @taps)
     ;; The main carrier is UIKit's own run loop, so a go-main body may touch the view tree.
     (a/go-main

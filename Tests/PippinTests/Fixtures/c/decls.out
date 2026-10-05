@@ -1,0 +1,10 @@
+1 9 2 true
+true true true
+"one"
+NSLog - a C function: calling one is the second slice of design §10 step 8b
+NSUIntegerMax - enumerator value is not representable in the underlying type 'long long'
+NSWindowDidResizeNotification - a global of type NSNotificationName _Nonnull: only a scalar crosses in this slice
+"Unable to resolve AppKit/NSLog: a C function: calling one is the second slice of design §10 step 8b"
+"Unable to resolve AppKit/NSNoSuchSymbolHere: no ns form the parse scanned asked for it"
+"No declarations for C module NotAModule: pip"
+"require-c AppKit :refer :all: a header is parsed for the names the form asks for"

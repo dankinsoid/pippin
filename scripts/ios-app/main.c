@@ -30,8 +30,12 @@ static void settled(void *ctx) {
 
 static int load_screen(const char *exe) {
 	char  *copy = strdup(exe);
+	char  *dir = dirname(copy);
 	char   path[4096];
-	size_t n = (size_t)snprintf(path, sizeof path, "%s/screen.clj", dirname(copy));
+	size_t n = (size_t)snprintf(path, sizeof path, "%s/screen.clj", dir);
+	// The bundle is the load path: pippin/c/UIKit.clj, the parse of UIKit's header, is beside the screen.
+	const char *roots[] = {dir};
+	clj_load_path_set(roots, 1);
 	free(copy);
 	if (n >= sizeof path) return 1;
 	clj_value name = clj_string_from_cstr(path);

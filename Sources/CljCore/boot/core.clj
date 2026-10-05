@@ -2616,9 +2616,45 @@
       (when-let [a (:as opts)] (alias a module))
       (when-let [r (:refer opts)] (refer module :refer r)))))
 
+;; The parse of a header is a build step; its product is pippin/c/<Module>.clj on the load path (design §5 «C — уровень 0»).
+(defn ^:pippin/extension require-c
+  "Loads what scripts/c-headergen.py parsed a C header into. A spec is a module symbol or
+  [Module :as alias :refer [names] :header \"path.h\"]; a module's constants are the vars of the namespace of
+  its name, under the names the header spells. A name the parse refused is an error here, with its reason."
+  [& specs]
+  (doseq [spec specs]
+    (let [[module & options] (if (symbol? spec) [spec] spec)
+          opts (apply hash-map options)]
+      (when-let [bad (seq (remove #{:as :refer :header} (keys opts)))]
+        (throw (ex-info (str "Unsupported require-c option: " (first bad)) {:module module})))
+      ;; The names are the parse's input, so there is no set for :all to stand for.
+      (when (= :all (:refer opts))
+        (throw (ex-info (str "require-c " module " :refer :all: a header is parsed for the names the form asks for")
+                        {:module module})))
+      (when-not (:pippin/c-parse (meta (find-ns module)))
+        (let [path (str "pippin/c/" (name module))
+              file (load-resource* path)]
+          (when-not file
+            (throw (ex-info (str "No declarations for C module " module ": " path ".clj is not on the load path. "
+                                 "The parse is a build step: scripts/c-headergen.py --scan <file.clj> --out <dir> "
+                                 "(design §5 «C — уровень 0»).")
+                            {:module module})))
+          (load-file file)
+          (when-not (:pippin/c-parse (meta (find-ns module)))
+            (throw (ex-info (str "C module '" module "' not declared after loading '" file "'") {:module module})))))
+      (let [refused (:pippin/c-refused (meta (find-ns module)))]
+        (doseq [sym (:refer opts)]
+          (when-not (get (ns-interns (find-ns module)) sym)
+            (throw (ex-info (if-let [why (get refused sym)]
+                              (str "Unable to resolve " module "/" sym ": " why)
+                              (str "Unable to resolve " module "/" sym ": no ns form the parse scanned asked for it"))
+                            {:module module :sym sym})))))
+      (when-let [a (:as opts)] (alias a module))
+      (when-let [r (:refer opts)] (refer module :refer r)))))
+
 (defmacro ns
   "(ns name docstring? attr-map? references*): sets the current namespace, creating it when needed, and
-  processes (:refer-clojure ...), (:require ...), (:require-swift ...) and (:use ...). (:import ...) and (:gen-class) name JVM
+  processes (:refer-clojure ...), (:require ...), (:require-swift ...), (:require-c ...) and (:use ...). (:import ...) and (:gen-class) name JVM
   classes and are ignored; a class named later fails to resolve where it is used (NOTES.md)."
   [name & references]
   (let [docstring (when (string? (first references)) (first references))
@@ -2631,6 +2667,7 @@
                     (= kname :refer-clojure) `(refer-clojure ~@(quote-all args))
                     (= kname :require) `(require ~@(quote-all args))
                     (= kname :require-swift) `(require-swift ~@(quote-all args))
+                    (= kname :require-c) `(require-c ~@(quote-all args))
                     (= kname :use) `(use ~@(quote-all args))
                     (= kname :import) nil
                     (= kname :gen-class) nil

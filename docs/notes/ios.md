@@ -64,6 +64,9 @@
   flags (the `-Wshorten-64-to-32` story above), so the bundle is built the way the probe is: SwiftPM compiles
   `CljCore` for the triple, clang links, and the product type an Xcode target would add is the twenty lines of
   plist and signing. `make ios-app` builds, installs, launches and measures both modes under the id `dev.pippin.app`.
+  The bundle is also the load path: `c-headergen.py` writes the parse of the screen's `(:require-c [UIKit …])` to
+  `<app>/pippin/c/UIKit.clj` against that SDK and triple, and `main.c` points `clj_load_path_set` at the
+  executable's directory before loading the screen (NOTES "C declarations").
 - [~] **The app has no delegate class, because a reified class is not one UIKit can allocate.**
   `UIApplicationMain(argc, argv, NULL, NULL)` leaves the process without a principal class and without a delegate,
   and `screen.clj` mounts the screen from a zero-delay `NSTimer` block scheduled on the main run loop before
@@ -73,7 +76,7 @@
   allocates `class_getInstanceSize` bytes and leaves `object_getIndexedIvars` reading past the object. Not done:
   a reify shape whose instances the host may allocate (a real ivar for the state, or an `+alloc` of our own).
   Trigger: an API that takes a class where an instance will not do; the window lifecycle is not one.
-- **The screen is Clojure and UIKit is level 1** (`scripts/ios-app/screen.clj`, 56 lines). A `UIWindow` over a
+- **The screen is Clojure and UIKit is level 1** (`scripts/ios-app/screen.clj`, 60 lines). A `UIWindow` over a
   `UIViewController`, a monospaced `UILabel` and a `UIButton` in a centred `UIStackView` held by two
   `NSLayoutConstraint` anchors. The button's target is an `objc-reify` of one method (`"tap:" "v@:@"`) doing
   `(swap! taps inc)`, and the label is an `add-watch` on that atom (design §4 «Подписки»): the text is re-read
@@ -114,8 +117,10 @@
   `UIButtonTypeSystem` (1), `UILayoutConstraintAxisVertical` (1), `UIStackViewAlignmentCenter` (3),
   `UIControlEventTouchUpInside` (64) and `UIControlStateNormal` (0) are `NS_ENUM`/`NS_OPTIONS` values that live
   in a header and nowhere else — `UIControlEventTouchUpInside` is not in `UIKit.tbd` and the runtime has no call
-  that names one — so the screen writes the numbers. `UIFontWeightRegular` is an exported `const CGFloat` (it
-  *is* in the .tbd), reachable by `dlsym` and by nothing the bridge offers, so the screen writes `0.0`.
+  that names one. `UIFontWeightRegular` is an exported `const CGFloat` (it *is* in the .tbd), reachable by
+  `dlsym` and by nothing the bridge offered. All seven now come from the header through level 0's
+  `(:require-c [UIKit :refer [...]])`, and the screen writes no number of its own (NOTES "C declarations",
+  design §5 «C — уровень 0»); the six values the parse answers are the six counted here.
   `UIApplicationMain` is a C function, and level 1 calls methods and blocks only, so it stays in `main.c`.
   **That list is the demand signal** NOTES "Host bridge" ("What the generator does not generate") waits for: the
   first symbols an application needs and level 1 cannot reach are not functions but constants, and a wrong
@@ -131,7 +136,8 @@
   and `UIFont.Weight.regular` are static properties of structs — but each answers a **box** of its Swift type,
   which a level-1 send cannot take where `sendActionsForControlEvents:` wants a number. So a stub does not by
   itself close the gap the constants open: the levels have to meet at the call site, or the constants have to
-  arrive another way (design §5 «Три уровня, одновременно»): from the header, as numbers (design §5 «C — уровень 0»).
+  arrive another way (design §5 «Три уровня, одновременно»): from the header, as numbers (design §5 «C — уровень 0»),
+  which is the way they now arrive.
 - **The bundle's size is the probe's binary plus a screen** (release, arm64, dead-stripped, as above).
   Simulator slice: 1,107,664 bytes interpreted and 3,213,056 with `-DCLJ_COMPILED_CORE`, against the bare probe's
   1,086,896 and 3,192,288 — **+20,768 bytes in both modes**, of which the `__text` difference is 648 bytes and the
@@ -139,7 +145,10 @@
   **+2,672 and +2,680**. On disk the `.app` is 1,096 KB interpreted and 3,152 KB compiled (the executable, a
   3 KB `screen.clj`, `Info.plist` and the ad-hoc `_CodeSignature`). So a UIKit application is the same
   "1.1 MB interpreted, 3.2 MB with the compiled core" the baseline named: UIKit itself ships with the OS, and the
-  screen's own cost is its source file.
+  screen's own cost is its source file. Re-measured after level 0 (`cdecl.c`, `require-c` in core.clj and the 1 KB
+  `pippin/c/UIKit.clj` the bundle now carries): 1,126,272 and 3,333,232 simulator, 1,115,368 and 3,321,528 device,
+  1,116 KB and 3,272 KB on disk. The figures above predate both that and an SDK re-link, so the difference is not
+  the slice's alone; what it says is that level 0 did not move the "units of MB" the baseline is about.
 - **Footprint with a screen standing (simulator, two runs per mode).** `phys_footprint` at `main`, before
   `UIApplicationMain` and with UIKit only mapped: 11.1–11.6 MB, against the bare probe's ~10 MB. `clj_init` then
   costs **+5.7–6.2 MB interpreted and +1.05–1.3 MB compiled**, the probe's own figures inside a real app.

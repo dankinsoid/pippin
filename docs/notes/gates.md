@@ -231,5 +231,9 @@
   `SwiftStubTests.theFixtureRunsAlikeInterpretedAndCompiled` spent, alone on arm64: 3.1 s on the fixture's
   `swiftc`, 36 s on the generator, of it 34 s in `swift-symbolgraph-extract` building the SDK's module cache
   (0.4 s once warm, as in the same job's test-compiled), 0.7 s on the stubs' `swiftc`, and 2.5 s on the
-  Clojure side (the interpreter, two compiled units); 115–227 s on x86_64 beside three ASan shards. Scratch paths are not cached: several GB per architecture, and whether SwiftPM reuses them after
+  Clojure side (the interpreter, two compiled units); 115–227 s on x86_64 beside three ASan shards. `CDeclTests`
+  (level 0) needs nothing a cold machine does not already have — python3 and the toolchain's own clang, through
+  `-Xclang -ast-dump=json`, with no libclang and no Python bindings — and its parse of AppKit is about 3 s cold,
+  0.13 s on a cache hit; its store is `.build/c-decls`, not cached in CI, so every run pays the cold parse once.
+  Scratch paths are not cached: several GB per architecture, and whether SwiftPM reuses them after
   a fresh checkout (new mtimes and inodes on every source) is unmeasured. No benchmarks run in CI.

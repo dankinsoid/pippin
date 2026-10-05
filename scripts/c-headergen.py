@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+# @ai-generated(solo)
+"""Generate the level-0 declarations of a C header: clang's AST -> constants by value -> one Clojure file.
+
+Design §5 «C — уровень 0», first slice: what an `ns` form declares with `(:require-c [Module :refer [...]])` is
+parsed here by clang and lands as `<out>/pippin/c/<Module>.clj`, which `require-c` loads from the load path.
+Integer constants (`enum`, `NS_ENUM`/`NS_OPTIONS`, integer `#define`) arrive by value; an `extern const` scalar
+arrives as a `c-global*` read, which is `dlsym` at load. Everything else is refused by name with clang's own
+reason, so an unparsed symbol is an "Unable to resolve" and never a silently wrong number.
+
+Usage:
+	c-headergen.py --out DIR [--cache DIR] [--sdk PATH] [--target TRIPLE] [--lang objective-c|c]
+		[-I DIR]... [--scan FILE]... [--module NAME [--header TEXT] [--refer A,B]]...
+
+Prints one generated path per module. A cache entry is keyed by the module, the header, the target, the SDK, the
+flags, the requested names and clang's version, and validated against the stat of every header clang read, so an
+edited SDK misses; a hit copies the entry out and runs no clang.
+
+Two clang runs do the work. The first is a value probe -- one `enum : long long` whose initializers are the
+requested names -- because clang's JSON AST carries a folded value on the ConstantExpr of an initializer and
+carries nothing at all for an implicitly numbered enum constant or for a macro. A name the probe cannot fold is
+dropped by the line of its diagnostic and classified by the second run, which dumps that name's own declaration.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PREFIX = "__clj_v_"
+
+
+class Failed(Exception):
+	pass
+
+
+def progress(msg):
+	print(f"c-headergen: {msg}", file=sys.stderr, flush=True)
+
+
+# ---- the declared boundary: the (:require-c ...) forms of an ns, read without a Clojure reader
+
+
+def _forms(text, open_at):
+	"""The balanced form starting at text[open_at] == '(' or '[', as a token list; nested forms are lists."""
+	stack = [[]]
+	i = open_at
+	closing = {"(": ")", "[": "]", "{": "}"}
+	while i < len(text):
+		c = text[i]
+		if c == ";":
+			i = text.find("\n", i)
+			if i < 0:
+				break
+			continue
+		if c in "([{":
+			stack.append([])
+			i += 1
+			continue
+		if c in ")]}":
+			done = stack.pop()
+			if not stack:
+				raise Failed(f"unbalanced {c} at {i}")
+			stack[-1].append(done)
+			if len(stack) == 1:
+				return stack[0][0]
+			i += 1
+			continue
+		if c == '"':
+			j = i + 1
+			while j < len(text) and text[j] != '"':
+				j += 2 if text[j] == "\\" else 1
+			stack[-1].append(text[i : j + 1])
+			i = j + 1
+			continue
+		if c.isspace() or c == ",":
+			i += 1
+			continue
+		j = i
+		while j < len(text) and not text[j].isspace() and text[j] not in '()[]{};,"':
+			j += 1
+		stack[-1].append(text[i:j])
+		i = j
+	raise Failed("unterminated form")
+
+
+def scan(path):
+	"""The (:require-c ...) specs of one file: [(module, header or None, [name...])]."""
+	with open(path, encoding="utf-8") as f:
+		text = f.read()
+	out = []
+	for m in re.finditer(r"\(:require-c\b", text):
+		form = _forms(text, m.start())
+		for spec in form[1:]:
+			if isinstance(spec, str):
+				spec = [spec]
+			module = spec[0]
+			if module.startswith("'"):
+				module = module[1:]
+			opts = {}
+			rest = spec[1:]
+			for i in range(0, len(rest) - 1, 2):
+				opts[rest[i]] = rest[i + 1]
+			bad = [k for k in opts if k not in (":as", ":refer", ":header")]
+			if bad:
+				raise Failed(f"{path}: unsupported require-c option {bad[0]}")
+			refer = opts.get(":refer", [])
+			if isinstance(refer, str):
+				raise Failed(f"{path}: {module} :refer takes a vector of names, got {refer}")
+			header = opts.get(":header")
+			out.append((module, header.strip('"') if header else None, list(refer)))
+	return out
+
+
+# ---- clang
+
+
+def clang(args, lang, src, extra=()):
+	"""Runs clang over source text on stdin; answers (status, stdout, stderr)."""
+	cmd = ["clang"] + list(args.flags) + ["-fsyntax-only", "-x", lang, *extra, "-"]
+	if args.sdk:
+		cmd[1:1] = ["-isysroot", args.sdk]
+	if args.target:
+		cmd[1:1] = ["-target", args.target]
+	p = subprocess.run(cmd, input=src, capture_output=True, text=True)
+	return p.returncode, p.stdout, p.stderr
+
+
+def clang_version(args):
+	p = subprocess.run(["clang", "--version"], capture_output=True, text=True)
+	if p.returncode != 0:
+		raise Failed("clang --version failed; a C header needs a clang on PATH")
+	return p.stdout.strip()
+
+
+def ast_objects(text):
+	"""The concatenated top-level JSON objects of an -ast-dump=json run."""
+	dec = json.JSONDecoder()
+	out, i = [], 0
+	while i < len(text):
+		while i < len(text) and text[i].isspace():
+			i += 1
+		if i >= len(text):
+			break
+		o, i = dec.raw_decode(text, i)
+		out.append(o)
+	return out
+
+
+def folded(node):
+	"""The value clang folded onto the ConstantExpr under an enum constant's initializer."""
+	if node.get("kind") == "ConstantExpr" and "value" in node:
+		return node["value"]
+	for inner in node.get("inner", []):
+		v = folded(inner)
+		if v is not None:
+			return v
+	return None
+
+
+DIAG = re.compile(r"^<stdin>:(\d+):\d+: (error|fatal error): (.*)$")
+
+
+def value_probe(args, lang, include, names):
+	"""The names clang folded to an integer, and why each of the others did not."""
+	values, refused = {}, {}
+	todo = list(names)
+	while todo:
+		lines = [include, "typedef enum __clj_v_probe : long long {"]
+		for i, name in enumerate(todo):
+			lines.append(f"\t{PREFIX}{i} = ({name}),")
+		lines.append("} __clj_v_probe_t;")
+		src = "\n".join(lines) + "\n"
+		status, out, err = clang(args, lang, src, ["-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter", "-Xclang", PREFIX])
+		if status == 0:
+			# The filter matches the probe enum, which the dump prints with its constants as its subtree.
+			for node in ast_objects(out):
+				for const in node.get("inner", []) if node.get("kind") == "EnumDecl" else [node]:
+					if const.get("kind") != "EnumConstantDecl":
+						continue
+					v = folded(const)
+					if v is not None:
+						values[todo[int(const["name"][len(PREFIX) :])]] = int(v)
+			missing = [n for n in todo if n not in values]
+			for name in missing:
+				refused[name] = "clang folded no value for this name"
+			return values, refused
+		dropped = {}
+		for line in err.splitlines():
+			m = DIAG.match(line)
+			if not m:
+				continue
+			row = int(m.group(1)) - 3		# the include and the enum head are lines 1 and 2
+			if not 0 <= row < len(todo):
+				raise Failed(f"the value probe failed outside its own lines:\n{err}")
+			dropped.setdefault(todo[row], m.group(3))
+		if not dropped:
+			raise Failed(f"the value probe failed with no diagnostic of its own:\n{err}")
+		refused.update(dropped)
+		todo = [n for n in todo if n not in dropped]
+	return values, refused
+
+
+# The C types a c-global* read knows; the key is clang's desugared spelling of the global's type.
+GLOBAL_KINDS = {
+	"double": ":double", "float": ":float",
+	"char": ":char", "signed char": ":char", "unsigned char": ":uchar",
+	"short": ":short", "unsigned short": ":ushort",
+	"int": ":int", "unsigned int": ":uint",
+	"long": ":long", "unsigned long": ":ulong",
+	"long long": ":llong", "unsigned long long": ":ullong",
+	"_Bool": ":bool",
+}
+
+
+def classify(args, lang, include, name, why):
+	"""One name's own declaration: a global read, or a refusal naming what it is."""
+	src = f"{include}\n"
+	status, out, err = clang(args, lang, src, ["-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter", "-Xclang", name])
+	if status != 0:
+		raise Failed(f"clang failed dumping {name}:\n{err}")
+	for node in ast_objects(out):
+		if node.get("name") != name:
+			continue
+		kind = node.get("kind")
+		if kind == "FunctionDecl":
+			return None, "a C function: calling one is the second slice of design §10 step 8b"
+		if kind == "VarDecl":
+			t = node.get("type", {})
+			spelled = t.get("qualType", "")
+			desugared = t.get("desugaredQualType", spelled)
+			bare = desugared.removeprefix("const ").strip()
+			if bare not in GLOBAL_KINDS:
+				return None, f"a global of type {spelled}: only a scalar crosses in this slice"
+			if not desugared.startswith("const "):
+				return None, f"a mutable global ({spelled}): a value read once at load would not be its value later"
+			return (GLOBAL_KINDS[bare], spelled), None
+		if kind == "RecordDecl" or kind == "EnumDecl" or kind == "TypedefDecl":
+			return None, f"a type ({kind}): structs are deflayout, which is not in this slice"
+		if kind == "ObjCInterfaceDecl":
+			return None, "an Objective-C class: level 1 reaches it with (objc-class \"name\")"
+	return None, why
+
+
+# ---- the cache (design §3 «Кэш»), keyed by the inputs and validated against the headers clang read
+
+
+def deps_of(path):
+	"""The files a -MD run named, as [[path, size, mtime_ns]]."""
+	with open(path, encoding="utf-8") as f:
+		text = f.read()
+	text = text.replace("\\\n", " ").split(":", 1)[-1]
+	out = []
+	for p in sorted(set(text.split())):
+		try:
+			st = os.stat(p)
+		except OSError:
+			continue
+		out.append([p, st.st_size, st.st_mtime_ns])
+	return out
+
+
+def deps_match(deps):
+	for path, size, mtime in deps:
+		try:
+			st = os.stat(path)
+		except OSError:
+			return False
+		if st.st_size != size or st.st_mtime_ns != mtime:
+			return False
+	return True
+
+
+def default_cache():
+	if os.environ.get("PIPPIN_CACHE"):
+		return os.environ["PIPPIN_CACHE"]
+	if sys.platform == "darwin":
+		return os.path.expanduser("~/Library/Caches/pippin")
+	return os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "pippin")
+
+
+def fingerprint(args, module, header, lang, names, version):
+	h = hashlib.sha256()
+	with open(os.path.join(HERE, "c-headergen.py"), "rb") as f:
+		h.update(f.read())
+	for part in [module, header, lang, args.target or "", args.sdk or "", version, *args.flags, *sorted(names)]:
+		h.update(part.encode())
+		h.update(b"\0")
+	return h.hexdigest()[:32]
+
+
+# ---- the generated file
+
+
+def emit(module, header, meta, values, globals_, refused):
+	lines = [
+		f";; Generated by scripts/c-headergen.py from <{header}>; do not edit (design §5 «C — уровень 0»).",
+		f"(ns {module}",
+		"  {:pippin/c-parse " + render_map(meta) + ",",
+		"   :pippin/c-refused (quote " + render_map({k: refused[k] for k in sorted(refused)}) + ")})",
+		"",
+	]
+	for name in sorted(values):
+		lines.append(f"(def {name} {values[name]})")
+	for name in sorted(globals_):
+		kind, spelled = globals_[name]
+		lines.append(f";; {spelled}")
+		lines.append(f'(def {name} (c-global* "{name}" {kind}))')
+	return "\n".join(lines) + "\n"
+
+
+def render_map(m):
+	items = [f"{k} {json.dumps(v, ensure_ascii=False)}" if isinstance(v, str) else f"{k} {v}" for k, v in m.items()]
+	return "{" + ", ".join(items) + "}"
+
+
+def one(args, module, header, names, version):
+	lang = args.lang
+	include = f"#import <{header}>" if lang.startswith("objective") else f"#include <{header}>"
+	key = fingerprint(args, module, header, lang, names, version)
+	entry = os.path.join(args.cache, "c", key)
+	report = os.path.join(entry, "report.json")
+	generated = os.path.join(entry, f"{module}.clj")
+	if os.path.exists(report) and os.path.exists(generated):
+		with open(report, encoding="utf-8") as f:
+			if deps_match(json.load(f).get("deps", [])):
+				return install(args, module, generated, entry)
+	progress(f"parsing <{header}> for {module}: {len(names)} names")
+	tmp = f"{entry}.tmp-{os.getpid()}"
+	shutil.rmtree(tmp, ignore_errors=True)
+	os.makedirs(tmp, exist_ok=True)
+	depfile = os.path.join(tmp, "deps.d")
+	status, _, err = clang(args, lang, include + "\n", ["-MD", "-MF", depfile])
+	if status != 0:
+		raise Failed(f"<{header}> does not compile for this target:\n{err}")
+	deps = deps_of(depfile)
+	values, refused = value_probe(args, lang, include, names)
+	globals_ = {}
+	for name in sorted(refused):
+		found, why = classify(args, lang, include, name, refused[name])
+		if found:
+			globals_[name] = found
+			del refused[name]
+		else:
+			refused[name] = why
+	meta = {":header": header, ":target": args.target or "", ":sdk": args.sdk or "", ":clang": version.splitlines()[0],
+	        ":fingerprint": key}
+	with open(os.path.join(tmp, f"{module}.clj"), "w", encoding="utf-8") as f:
+		f.write(emit(module, header, meta, values, globals_, refused))
+	with open(os.path.join(tmp, "report.json"), "w", encoding="utf-8") as f:
+		json.dump({"module": module, "header": header, "target": args.target, "sdk": args.sdk, "clang": version,
+		           "constants": values, "globals": globals_, "refused": refused, "deps": deps}, f, indent=1, sort_keys=True)
+	os.makedirs(os.path.dirname(entry), exist_ok=True)
+	shutil.rmtree(entry, ignore_errors=True)
+	os.rename(tmp, entry)
+	for name in sorted(refused):
+		progress(f"  refused {name}: {refused[name]}")
+	return install(args, module, generated, entry)
+
+
+def install(args, module, generated, entry):
+	"""The thin catalog of design §3: the project holds a copy of the store's entry, not a parse of its own."""
+	if not args.out:
+		return generated
+	# The declarations alone; report.json stays in the store, since a program ships what it loads.
+	out = os.path.join(args.out, "pippin", "c", f"{module}.clj")
+	os.makedirs(os.path.dirname(out), exist_ok=True)
+	shutil.copyfile(generated, out)
+	return out
+
+
+def main(argv):
+	p = argparse.ArgumentParser()
+	p.add_argument("--out", help="where pippin/c/<Module>.clj is written; the load path of the program")
+	p.add_argument("--cache", default=default_cache())
+	p.add_argument("--sdk")
+	p.add_argument("--target")
+	p.add_argument("--lang", default="objective-c" if sys.platform == "darwin" else "c")
+	p.add_argument("-I", dest="flags", action="append", default=[], metavar="DIR")
+	p.add_argument("--flag", dest="flags", action="append", metavar="FLAG", help="one more flag for clang")
+	p.add_argument("--scan", action="append", default=[], metavar="FILE", help="a .clj whose ns forms declare the headers")
+	p.add_argument("--module", action="append", default=[], metavar="NAME")
+	p.add_argument("--header", action="append", default=[], metavar="TEXT")
+	p.add_argument("--refer", action="append", default=[], metavar="A,B")
+	args = p.parse_args(argv)
+	args.flags = [f"-I{d}" if not d.startswith("-") else d for d in args.flags]
+
+	specs = []
+	for path in args.scan:
+		specs += scan(path)
+	for i, module in enumerate(args.module):
+		header = args.header[i] if i < len(args.header) else None
+		refer = args.refer[i].split(",") if i < len(args.refer) else []
+		specs.append((module, header, [n for n in refer if n]))
+	merged = {}
+	for module, header, names in specs:
+		header = header or f"{module}/{module}.h"
+		have = merged.setdefault((module, header), [])
+		have += [n for n in names if n not in have]
+	if not merged:
+		raise Failed("no (:require-c ...) spec to generate from")
+	version = clang_version(args)
+	for (module, header), names in merged.items():
+		print(one(args, module, header, sorted(names), version))
+	return 0
+
+
+if __name__ == "__main__":
+	try:
+		sys.exit(main(sys.argv[1:]))
+	except Failed as e:
+		progress(str(e))
+		sys.exit(1)
