@@ -108,7 +108,7 @@ elif ! grep -q "$LIVE_DEF was dropped by --closed tree shaking" "$WORK/out/run-d
 	fail=1
 fi
 
-# The same binary over two interpreted probes: reading a dropped root answers, using it aborts (NOTES.md).
+# The same binary over interpreted probes: reading a dropped root answers, using it aborts (NOTES.md).
 probe() {
 	printf '%s\n' "$2" >"$WORK/out/probe-$1.clj"
 	set +e
