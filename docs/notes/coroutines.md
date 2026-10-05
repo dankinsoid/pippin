@@ -6,7 +6,7 @@
   is deprecated on macOS). Measured 14–16 ns per switch (bench/RESULTS.md, "Coroutines and channels": a carrier →
   coroutine → carrier round trip is two). The first switch into a new coroutine "returns" into `clj_coro_entry`
   with an empty frame chain (`x29 = 0`), so a trace walk stops at the coroutine's base.
-- **A stack is one `mmap` reserve with no commit**: a guard page (`PROT_NONE`), the stack (512 KB by default,
+- **A stack is one `mmap` reserve with no commit**: a guard page (`PROT_NONE`), the stack (1 MB by default,
   `clj_coro_set_stack_size` before the first spawn; the interpreter's 64 KB `STACK_MARGIN` check applies to it
   like to a thread), and the arrays of the execution's shadow ring (`frames[8192]`, then the guard's `overflow[256]`:
   196 KB virtual) starting half a page past the stack's top so that a shallow parked coroutine touches one 16 KB

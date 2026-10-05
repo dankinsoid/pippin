@@ -19,13 +19,19 @@
   its lock across the whole facts pass. That is what killed the ASan shard on `corpus/dependency`: its test
   builds `g3` as a `->` chain of 104 interpreted protocol calls, so the node tree is 104 deep, the recording
   walk descended all of it where the summary walk has cut at `CLJ_FACTS_MAX_WALK_DEPTH` since it was written,
-  and under `--sanitize=address` ~9 KB a level ran the 512 KB coroutine stack out between the 55th and 60th
+  and under `--sanitize=address` ~9 KB a level ran the then-512 KB coroutine stack out between the 55th and 60th
   call — inside the lock, hence `fatal stack overflow (a runtime lock is held)` and a dead process. Releasing
   the lock in `land` was the alternative and is wrong: `derive` faults between `forget_locked` and
-  `e->derived = d`, so the dependents table would be left pointing at a freed derivation. Measured on the
-  `dependency` shape after the fix, on a 512 KB coroutine stack: ASan takes 140 nesting levels and refuses past
-  ~150, the plain build takes 400 and refuses past ~500; on an 8 MB thread the plain build takes 6000. Nothing
-  is fatal at any depth.
+  `e->derived = d`, so the dependents table would be left pointing at a freed derivation. `e->derived = d`, so the
+  dependents table would be left pointing at a freed derivation. `e->derived = d`, so the dependents table would be
+  left pointing at a freed derivation. Nothing is fatal at any depth after the fix, at any stack size: past the
+  margin the analyzer refuses the form with a catchable "Stack overflow" and its position. The depth a `->` chain of
+  interpreted protocol calls reaches under ASan is 150 levels on a 512 KB stack and 320 on 1 MB, which is why the
+  default is now 1 MB (`coro.c`): the deepest form the corpus has is `dependency`'s 104, and a third of headroom
+  would have been spent by a compiler release that grew the pass's frames. The plain build — what ships — takes 400
+  on 512 KB, 1000 on 1 MB and 6000 on an 8 MB thread, so the sanitizer is what the figure is about: ASan triples the
+  frame. For scale, the deepest hand-written form in this tree is 21 levels (`core.clj`); depth past that comes from
+  a threading macro, which expands one level per step.
 - [ ] **What is still unbounded is `eval_child`.** `run_body` checks per call, so a recursion of Clojure calls is
   bounded, but the evaluator walks one form's nesting with no check of its own: past the margin it reaches the
   guard page, catchably where no lock is held and fatally if the last straw lands in a critical section of its

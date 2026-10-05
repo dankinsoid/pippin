@@ -122,7 +122,9 @@ static pthread_once_t key_once = PTHREAD_ONCE_INIT;
 static pthread_key_t  key;
 static _Atomic bool   key_ready;
 static _Atomic size_t live_coros;
-static size_t         stack_size = 512 * 1024;
+// 1 MB, not 512 KB: ASan triples the facts walk's frame, and 512 KB left a third of headroom over the
+// deepest form the corpus has (NOTES "Guard").
+static size_t         stack_size = 1024 * 1024;
 static _Atomic uint64_t switches;
 
 static void coro_each_child(void *self, clj_visitor visit, void *ctx) {
