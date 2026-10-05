@@ -48,6 +48,7 @@ func runtimeSettled(_ when: String, coros: Int = 0, sourceLocation: SourceLocati
 		neverSettled = true
 		Issue.record("the runtime never settled \(when): \(clj_debug_live_coros()) coroutines (want \(coros)), \(clj_debug_timers_held()) timers, \(clj_debug_blocking_held()) blocking jobs", sourceLocation: sourceLocation)
 		clj_debug_sched_dump()
+		clj_debug_coro_dump()
 	}
 	return false
 }

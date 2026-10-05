@@ -727,6 +727,22 @@ clj_value clj_coro_parked_trace(clj_value coro) {
 	return trace;
 }
 
+// A coroutine that never parked is off the live list, so a runaway loop is not reclaimed here.
+size_t clj_debug_cancel_live_coros(void) {
+	size_t     n, asked = 0;
+	clj_coro **cs = live_snapshot(&n);
+	for (size_t i = 0; i < n; i++) {
+		clj_coro *c = cs[i];
+		if (!c->implicit && c != clj_coro_current() && atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_DONE) {
+			clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
+			asked++;
+		}
+		clj_release(clj_from_ptr(c));
+	}
+	free(cs);
+	return asked;
+}
+
 static const char *state_name(int state) {
 	static const char *names[] = {"new", "runnable", "running", "parked", "done"};
 	return state >= 0 && state <= CLJ_CORO_DONE ? names[state] : "?";

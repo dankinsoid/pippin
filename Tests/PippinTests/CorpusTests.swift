@@ -492,6 +492,15 @@ extension CoreTests {
 			return problems
 		}
 
+		// Every deftest has ended, so a coroutine still parked was abandoned by the library's own test code: a
+		// cycle through the channel nobody drains, which RC cannot free (NOTES.md, "Corpus"). Left alone, the only
+		// thing that reclaims it is the watchdog deadline its spawn conveyed, so the wait is CLJ_CORPUS_TIMEOUT_MS.
+		// @ai-generated(guided)
+		private static func reclaimAbandoned(_ lib: Library) {
+			let asked = clj_debug_cancel_live_coros()
+			if asked > 0 { progress("corpus: \(lib.name): cancelled \(asked) coroutines its tests abandoned parked") }
+		}
+
 		private static let update = ProcessInfo.processInfo.environment["CLJ_CORPUS_UPDATE"] != nil
 
 		// On by default (a second of a debug run); CLJ_CORPUS=0 skips it, CLJ_CORPUS_LIB=name runs one library,
@@ -544,9 +553,11 @@ extension CoreTests {
 				try writeReport(lib, first, flaky: flaky)
 				// Loading interns vars and keywords for the process; the second run over the loaded namespaces is the memory check.
 				// A library's go blocks, thread bodies and timeouts outlive the deftest that started them.
+				Self.reclaimAbandoned(lib)
 				runtimeSettled("before \(lib.name)'s second run")
 				let before = clj_debug_live_objects()
 				let second = try Self.run(lib)
+				Self.reclaimAbandoned(lib)
 				runtimeSettled("after \(lib.name)'s second run")
 				let live = Int(clj_debug_live_objects() - before)
 				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) }.map(\.status) }

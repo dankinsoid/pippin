@@ -1,0 +1,16 @@
+core-async — core.async's own test suite (design §10, "корпус реального кода": core.async itself)
+
+Repository: https://github.com/clojure/core.async
+Tag:        v1.6.681 (d7f1f9d8fba7b002e539562fcb33de853df6840e, the version make api-diff diffs the
+            async half of docs/api-parity.md against)
+License:    Eclipse Public License 1.0 (LICENSE; the repository ships it as epl-v10.html too, and
+            every file keeps its own copyright header)
+
+Files taken, unmodified:
+  src/test/clojure/clojure/core/async_test.clj -> test/clojure/core/async_test.clj
+
+Only the tests. The library itself is ours: clojure.core.async is boot/clojure/core/async.clj, core.async's
+own library layer over this runtime's coroutines and channels (design §4 "core.async", NOTES "Channels").
+
+Not taken: every other file of src/test/clojure/. The per-file reasons are in docs/notes/corpus.md,
+"core.async's own suite".
