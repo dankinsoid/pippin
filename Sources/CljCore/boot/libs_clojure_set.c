@@ -546,7 +546,7 @@ CLJC_FRAME clj_value clojure_set_union_v2(clj_value self, const clj_value *captu
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 19 "<embedded>/clojure/set.clj"
@@ -980,7 +980,7 @@ CLJC_FRAME clj_value clojure_set_intersection_v2(clj_value self, const clj_value
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
 #line 34 "<embedded>/clojure/set.clj"
@@ -1370,7 +1370,7 @@ CLJC_FRAME clj_value clojure_set_difference_v2(clj_value self, const clj_value *
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[6], &cc);
 #line 49 "<embedded>/clojure/set.clj"

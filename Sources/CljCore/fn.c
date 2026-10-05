@@ -141,14 +141,26 @@ clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, c
 	return clj_from_ptr(f);
 }
 
-clj_value clj_arity_error(clj_value f, size_t n) {
-	if (clj_is_fn(f) && clj_is_nil(clj_fn_of(f)->name)) return clj_throw_msg("Wrong number of args (%zu) passed to: fn", n);
+clj_value clj_rest_args(const clj_value *args, size_t nargs, uint32_t nparams) {
+	if (nargs == CLJ_NARGS_REST) return clj_retain(args[nparams]);
+	return nargs > nparams ? clj_list_from_array(args + nparams, nargs - nparams) : CLJ_NIL;
+}
+
+static clj_value arity_error(clj_value f, const char *over, size_t n) {
+	if (clj_is_fn(f) && clj_is_nil(clj_fn_of(f)->name)) return clj_throw_msg("Wrong number of args (%s%zu) passed to: fn", over, n);
 	clj_value text = clj_pr_str_max(clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
+	clj_value r = clj_throw_msg("Wrong number of args (%s%zu) passed to: %s", over, n, clj_string_bytes(text));
 	clj_release(text);
 	return r;
 }
+
+// Past CLJ_FN_MAX_FIXED only a rest parameter answers, so the exact count says nothing a reader can act on.
+clj_value clj_arity_error(clj_value f, size_t n) {
+	return n > CLJ_FN_MAX_FIXED ? arity_error(f, "> ", CLJ_FN_MAX_FIXED) : arity_error(f, "", n);
+}
+
+clj_value clj_arity_error_over(clj_value f, size_t n) { return arity_error(f, "> ", n); }
 
 // @ai-generated(guided)
 bool clj_fn_accepts(clj_value f, size_t n) {
@@ -170,20 +182,111 @@ clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	return r;
 }
 
+// clj_fn_native_env makes a compiled closure its own ctx, which a host block never is.
+static bool is_compiled_closure(const clj_fn *fn, clj_value f) {
+	return fn->kind == CLJ_FN_NATIVE_CTX && fn->u.native_ctx.ctx == clj_to_ptr(f);
+}
+
+// A hand-written native takes a flat array whatever its arity, so only a closure's rest parameter takes a seq.
+static size_t rest_at(clj_value f) {
+	if (!clj_is_fn(f)) return SIZE_MAX;
+	const clj_fn *fn = clj_fn_of(f);
+	if (fn->kind == CLJ_FN_CLOSURE) {
+		const clj_fn_arity *v = fn->u.node->u.fn.variadic;
+		return v ? v->nparams : SIZE_MAX;
+	}
+	return is_compiled_closure(fn, f) && fn->max_arity == CLJ_ARITY_ANY ? fn->min_arity : SIZE_MAX;
+}
+
+// A hand-written variadic native reads its arguments out of the array, so apply must spread the whole seq.
+static bool spreads_everything(clj_value f) {
+	return clj_is_fn(f) && clj_fn_of(f)->kind != CLJ_FN_CLOSURE && clj_fn_of(f)->max_arity == CLJ_ARITY_ANY;
+}
+
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	CLJ_ASSERT(n >= 1, "apply needs the sequence argument");
-	size_t     spread;
-	clj_value  keep;
-	clj_value *items = clj_seq_items(args[n - 1], &spread, &keep);
-	if (!items) return CLJ_THROWN;
-	size_t     total = n - 1 + spread;
-	clj_value *all = malloc((total ? total : 1) * sizeof *all);
-	if (!all) clj_fatal("out of memory");
-	memcpy(all, args, (n - 1) * sizeof *all);
-	memcpy(all + n - 1, items, spread * sizeof *all);
-	clj_value r = clj_invoke(f, all, total);
-	free(all);
-	free(items);
-	clj_release(keep);
+	// A var invokes its value, so its value answers for the shape; the call still names the var in an error.
+	clj_value held = clj_is_var(f) ? clj_var_deref(f) : CLJ_NIL;
+	if (held == CLJ_THROWN) return CLJ_THROWN;
+	clj_value shape = clj_is_var(f) ? held : f;
+	size_t fixed = n - 1;
+	size_t over = rest_at(shape);
+	// CLJ_FN_MAX_FIXED, never a lower ceiling of the callee's own: the arity error is to name the count passed.
+	size_t bound = over == SIZE_MAX && spreads_everything(shape) ? SIZE_MAX
+	               : over > CLJ_FN_MAX_FIXED && over != SIZE_MAX ? over
+	                                                             : CLJ_FN_MAX_FIXED;
+	// One argument past the bound: that one tells a whole spread from an arity error.
+	size_t probe = bound == SIZE_MAX ? SIZE_MAX : (bound >= fixed ? bound - fixed : 0) + 1;
+	clj_value tail = clj_seq(args[n - 1]);
+	if (tail == CLJ_THROWN) {
+		clj_release(held);
+		return CLJ_THROWN;
+	}
+
+	size_t     cap = 8, taken = 0;
+	clj_value *spread = malloc(cap * sizeof *spread);
+	if (!spread) clj_fatal("out of memory");
+	bool failed = false;
+	while (!clj_is_nil(tail) && taken < probe) {
+		clj_value x = clj_first(tail);
+		if (x == CLJ_THROWN) {
+			failed = true;
+			break;
+		}
+		if (taken == cap) {
+			cap *= 2;
+			spread = realloc(spread, cap * sizeof *spread);
+			if (!spread) clj_fatal("out of memory");
+		}
+		spread[taken++] = x;
+		clj_value nx = clj_next(tail);
+		if (nx == CLJ_THROWN) {
+			failed = true;
+			break;
+		}
+		clj_release(tail);
+		tail = nx;
+	}
+
+	clj_value r;
+	if (failed) {
+		r = CLJ_THROWN;
+	} else if (clj_is_nil(tail)) {
+		size_t     total = fixed + taken;
+		clj_value *all = malloc((total ? total : 1) * sizeof *all);
+		if (!all) clj_fatal("out of memory");
+		memcpy(all, args, fixed * sizeof *all);
+		memcpy(all + fixed, spread, taken * sizeof *all);
+		r = clj_invoke(f, all, total);
+		free(all);
+	} else if (over == SIZE_MAX) {
+		r = clj_arity_error_over(f, bound);
+	} else {
+		// Everything past the rest parameter goes back in front of the seq, so the parameter sees one seq.
+		size_t keep = over >= fixed ? over - fixed : 0;
+		CLJ_ASSERT(keep <= taken, "the walk stopped short of the rest parameter");
+		for (size_t i = taken; i > keep; i--) {
+			clj_value c = clj_cons_new(spread[i - 1], tail);
+			clj_release(tail);
+			tail = c;
+		}
+		for (size_t i = fixed; i > over; i--) {
+			clj_value c = clj_cons_new(args[i - 1], tail);
+			clj_release(tail);
+			tail = c;
+		}
+		size_t     head = over < fixed ? over : fixed;
+		clj_value *all = malloc((over + 1) * sizeof *all);
+		if (!all) clj_fatal("out of memory");
+		memcpy(all, args, head * sizeof *all);
+		memcpy(all + head, spread, keep * sizeof *all);
+		all[over] = tail;
+		r = clj_invoke(f, all, CLJ_NARGS_REST);
+		free(all);
+	}
+	for (size_t i = 0; i < taken; i++) clj_release(spread[i]);
+	free(spread);
+	clj_release(tail);
+	clj_release(held);
 	return r;
 }

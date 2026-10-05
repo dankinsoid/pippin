@@ -379,6 +379,22 @@
   through recursion: a site in core.clj's `map` would hold the last `f`, a site in `f` its own exec).
   What a var cache could still save is the acquire load and the immortal/fn check, ~1 ns; trigger: that
   showing in a profile.
+- **`apply` walks the trailing seq only as far as the callee can take it** (`clj_apply`, fn.c). A
+  variadic callee's rest argument is handed over as the seq itself: `nargs` is `CLJ_NARGS_REST`
+  (`SIZE_MAX`) and `args[nparams]` is that seq, so `(apply (fn [& args] 0) (range))` answers 0 instead of
+  realizing forever. The sentinel needs no dispatch change — no fixed arity answers `SIZE_MAX`, and
+  `n >= nparams` still picks the variadic one — and both backends read it through one helper,
+  `clj_rest_args`, which `closure_run` and the emitted `_v` arity both call (compiler.c), so the lazy
+  hand-over cannot reach one backend alone. Past `CLJ_FN_MAX_FIXED` (20) no fixed arity exists, so the
+  walk stops there and what it took past the rest parameter is consed back in front of the seq; a callee
+  with no rest parameter is walked one argument past its own ceiling, which tells a whole spread from an
+  arity error, and the error says `(> 20)` rather than a count the reader cannot act on — Clojure's own
+  wording, and for the same reason. A variadic *native* still gets a flat array, so `(apply str (range))`
+  realizes, as it does on the JVM. Found by `clojure.test-clojure.vars/test-vars-apply-lazily`, whose
+  `(future (apply sample (range)))` left a coroutine allocating for the rest of the process: every later
+  library's second-run live count became the time the run took (12.5M objects), which is how the harness
+  catches a runaway and not only a leak. `list?` of a rest argument depends on how the call was made,
+  here and on the JVM both: a spread builds a list, the hand-over a cons chain.
 - **The call path** (eval.c, `eval_invoke`, `run_frame`; bench/RESULTS.md, "Call-site caches"): a
   closure with a fixed arity for the call and a frame of at most `SMALL_SLOTS` (16) has its arguments
   evaluated straight into the frame on `eval_invoke`'s stack — no argument buffer, no copy — and the

@@ -549,7 +549,7 @@ static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_v
 	uint32_t filled = arity->nparams;
 	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big ? clj_retain(args[i]) : args[i];
 	if (arity->variadic) {
-		slots[filled++] = n > arity->nparams ? clj_list_from_array(args + arity->nparams, n - arity->nparams) : CLJ_NIL;
+		slots[filled++] = clj_rest_args(args, n, arity->nparams);
 		owned |= (uint64_t)1 << arity->nparams;
 	}
 	for (uint32_t i = filled; i < arity->nslots; i++) slots[i] = CLJ_NIL;

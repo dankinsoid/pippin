@@ -59,8 +59,14 @@ static inline clj_fn *clj_fn_of(clj_value v) { return (clj_fn *)clj_to_ptr(v); }
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n);
 // (apply f a b ... seq): the last argument is any seqable and is spread.
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n);
+// apply's rest hand-over: args[nparams] is the rest seq itself, and no fixed arity answers this nargs.
+static const size_t CLJ_NARGS_REST = SIZE_MAX;
+// Owned rest slot of a variadic arity. Both backends build it here, so a lazy hand-over reaches both.
+clj_value clj_rest_args(const clj_value *args, size_t nargs, uint32_t nparams);
 // "Wrong number of args (n) passed to: f" for any invokable; invoke slots share it.
 clj_value clj_arity_error(clj_value f, size_t n);
+// "Wrong number of args (> n) passed to: f": apply stops counting a seq past what the callee could take.
+clj_value clj_arity_error_over(clj_value f, size_t n);
 // Whether a fn takes n arguments; true for any other invokable, which checks on the call.
 bool clj_fn_accepts(clj_value f, size_t n);
 

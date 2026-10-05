@@ -2167,7 +2167,7 @@ CLJC_FRAME clj_value clojure_core_async_alts_BANG__v1(clj_value self, const clj_
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
-	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
+	l1 = clj_rest_args(args, nargs, 1);
 	clj_ccall cc;
 	CLJC_ENTER(&S[14], &cc);
 #line 107 "<embedded>/clojure/core/async.clj"
@@ -5416,7 +5416,7 @@ CLJC_FRAME clj_value clojure_core_async_alt_BANG__v2(clj_value self, const clj_v
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[21], &cc);
 #line 171 "<embedded>/clojure/core/async.clj"
@@ -5497,7 +5497,7 @@ CLJC_FRAME clj_value clojure_core_async_alt_BANG__BANG__v2(clj_value self, const
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[22], &cc);
 #line 173 "<embedded>/clojure/core/async.clj"
@@ -7438,7 +7438,7 @@ CLJC_FRAME clj_value clojure_core_async_go_v2(clj_value self, const clj_value *c
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[34], &cc);
 #line 241 "<embedded>/clojure/core/async.clj"
@@ -8430,7 +8430,7 @@ CLJC_FRAME clj_value clojure_core_async_go_main_v2(clj_value self, const clj_val
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[35], &cc);
 #line 252 "<embedded>/clojure/core/async.clj"
@@ -9424,7 +9424,7 @@ CLJC_FRAME clj_value clojure_core_async_go_loop_v3(clj_value self, const clj_val
 	clj_value l2 = args[2];
 	(void)l2;
 	clj_value l3 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[36], &cc);
 #line 257 "<embedded>/clojure/core/async.clj"
@@ -10380,7 +10380,7 @@ CLJC_FRAME clj_value clojure_core_async_go_scoped_v2(clj_value self, const clj_v
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[39], &cc);
 #line 292 "<embedded>/clojure/core/async.clj"
@@ -11086,7 +11086,7 @@ CLJC_FRAME clj_value clojure_core_async_plet_v3(clj_value self, const clj_value 
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
 	clj_value l5 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[40], &cc);
 #line 310 "<embedded>/clojure/core/async.clj"
@@ -11911,7 +11911,7 @@ CLJC_FRAME clj_value clojure_core_async_thread_v2(clj_value self, const clj_valu
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[45], &cc);
 #line 323 "<embedded>/clojure/core/async.clj"

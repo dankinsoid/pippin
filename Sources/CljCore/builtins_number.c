@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -375,6 +376,55 @@ static const struct {
 	{"unchecked-negate", b_unchecked_negate, 1, 1},
 };
 
+// ---- the boxed number classes as namespaces of vars (the shape Thread/sleep has, docs/jvm-differences.md)
+
+// A class a static resolves through is a namespace, so Long/MAX_VALUE reads as any ns/var does.
+static void bind_static(const char *ns_name, const char *name, clj_value val) {
+	clj_value ns_sym = clj_symbol_from_cstr(ns_name);
+	clj_value ns = clj_ns_find_or_create(ns_sym);
+	clj_value sym = clj_symbol_from_cstr(name);
+	clj_var_bind_root(clj_ns_intern(ns, sym), val);
+	// A root bound at boot outlives the process, as core's do (runtime.c, immortalize_root).
+	if (clj_is_ptr(val)) clj_header_of(val)->flags |= CLJ_FLAG_IMMORTAL;
+	clj_release(val);
+	clj_release(sym);
+	clj_release(ns_sym);
+}
+
+// One integer type, so the box is the value; a string argument would need Long/parseLong's answer, not this one.
+static clj_value b_long_value_of(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t v;
+	if (!clj_int64_of(args[0], &v)) return clj_throw_msg("Long/valueOf expects an integer, got: %s", clj_type_name(args[0]));
+	return clj_retain(args[0]);
+}
+
+static void bind_static_fn(const char *ns_name, const char *name, clj_native_fn fn, uint32_t min, uint32_t max) {
+	clj_value ns_sym = clj_symbol_from_cstr(ns_name);
+	clj_value sym = clj_symbol_from_cstr(name);
+	clj_value qualified = clj_symbol_new(clj_symbol_name(ns_sym), clj_symbol_name(sym));
+	bind_static(ns_name, name, clj_fn_native(qualified, fn, min, max));
+	clj_release(qualified);
+	clj_release(sym);
+	clj_release(ns_sym);
+}
+
+// Demand, not a java.lang surface: a value this runtime cannot hold is absent (docs/jvm-differences.md).
+static void install_boxed_classes(void) {
+	bind_static("Long", "MAX_VALUE", clj_long_new(INT64_MAX));
+	bind_static("Long", "MIN_VALUE", clj_long_new(INT64_MIN));
+	bind_static("Integer", "MAX_VALUE", clj_fixnum(INT32_MAX));
+	bind_static("Integer", "MIN_VALUE", clj_fixnum(INT32_MIN));
+	bind_static("Short", "MAX_VALUE", clj_fixnum(INT16_MAX));
+	bind_static("Byte", "MAX_VALUE", clj_fixnum(INT8_MAX));
+	bind_static("Double", "MAX_VALUE", clj_double_new(DBL_MAX));
+	bind_static("Double", "NaN", clj_double_new((double)NAN));
+	bind_static("Double", "POSITIVE_INFINITY", clj_double_new((double)INFINITY));
+	bind_static_fn("Long", "valueOf", b_long_value_of, 1, 1);
+	bind_static_fn("Double", "isNaN", b_nan_p, 1, 1);
+}
+
 void clj_number_builtins_install(void) {
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);
+	install_boxed_classes();
 }

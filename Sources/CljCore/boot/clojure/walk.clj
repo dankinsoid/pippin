@@ -6,8 +6,10 @@
   "Traverses form, applying inner to each element of a collection and outer to the result; outer to a leaf."
   [inner outer form]
   (cond
-    (list? form) (outer (apply list (map inner form)))
-    (seq? form) (outer (doall (map inner form)))
+    (list? form) (outer (with-meta (apply list (map inner form)) (meta form)))
+    (seq? form) (outer (with-meta (doall (map inner form)) (meta form)))
+    ;; conj onto the record itself: (empty record) is a map, and the type is the point.
+    (record? form) (outer (reduce (fn [r x] (conj r (inner x))) form form))
     (coll? form) (outer (into (empty form) (map inner form)))
     :else (outer form)))
 

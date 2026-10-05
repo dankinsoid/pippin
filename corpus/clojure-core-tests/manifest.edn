@@ -3,12 +3,29 @@
  :load-path ["shim" "test"]
  :features #{}
  :tests-only true
- :test-namespaces [clojure.test-clojure.control
+ :test-namespaces [clojure.test-clojure.atoms
+                   clojure.test-clojure.clojure-set
+                   clojure.test-clojure.clojure-walk
+                   clojure.test-clojure.control
                    clojure.test-clojure.data-structures
                    clojure.test-clojure.def
+                   clojure.test-clojure.delays
+                   clojure.test-clojure.errors
+                   clojure.test-clojure.evaluation
                    clojure.test-clojure.fn
+                   clojure.test-clojure.for
+                   clojure.test-clojure.keywords
                    clojure.test-clojure.logic
                    clojure.test-clojure.macros
+                   clojure.test-clojure.multimethods
                    clojure.test-clojure.numbers
+                   clojure.test-clojure.other-functions
+                   clojure.test-clojure.predicates
                    clojure.test-clojure.sequences
-                   clojure.test-clojure.string]}
+                   clojure.test-clojure.special
+                   clojure.test-clojure.string
+                   clojure.test-clojure.transducers
+                   clojure.test-clojure.transients
+                   clojure.test-clojure.vars
+                   clojure.test-clojure.vectors
+                   clojure.test-clojure.volatiles]}

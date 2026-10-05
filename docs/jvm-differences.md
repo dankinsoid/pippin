@@ -21,6 +21,8 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 | `with-precision`, `*math-context*`, rounding modes; decimal `/` succeeds only when the quotient terminates | Deferred | Trigger: a library that uses them. Money code on mobile rarely needs a context. |
 | Bigint division is shift-subtract, gcd is Euclid | Deferred | Same results; trigger: a profile with thousand-bit values. Fix is Knuth D and binary gcd. |
 | `(abs Long/MIN_VALUE)` throws where `Math/abs` returns `Long/MIN_VALUE` | Deliberate | `abs` is `(if (neg? a) (- a) a)`, and `-` is the checked negation; the JVM's answer is the two's-complement wrap of a value it cannot represent. Failing loudly wins, as for `(long ##NaN)`. |
+| Of the boxed classes only `Long`, `Integer`, `Short`, `Byte` and `Double` resolve a static, and only the names demand asked for: `Long/MAX_VALUE`, `Long/MIN_VALUE`, `Long/valueOf`, `Integer/MAX_VALUE`, `Integer/MIN_VALUE`, `Short/MAX_VALUE`, `Byte/MAX_VALUE`, `Double/MAX_VALUE`, `Double/NaN`, `Double/POSITIVE_INFINITY`, `Double/isNaN` | Deliberate | A class is not a value here (`class`, `cast`, design §8), so a static resolves only as a var in a namespace of the class's name — the shape `Thread/sleep` has. The set grows by demand, as the level-0 header constants do (NOTES "Corpus"): one name, one line, no `java.lang` surface guessed. `Long/valueOf` is the identity on an integer, there being one integer type, and refuses anything else rather than answering for `Long/parseLong`. |
+| No `Float/MAX_VALUE`, `Float/MIN_VALUE`, `Float/NaN`, `Float/POSITIVE_INFINITY`, `Float/isNaN` | Deliberate | There is no `Float` (the row above), so `Float` is not a class here at all: `Float.` and `Float/isNaN` have nothing to be, and a lone constant as a double would resolve one half of `(Float/isNaN Float/NaN)` and refuse the other. Refusing the class whole is one rule instead of two. |
 
 ## Collections
 
@@ -96,7 +98,7 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 | No `ref`/`dosync`, `agent` | Deferred | Design §4: `agent` as a library over a serial executor, `ref` as two-phase locking. |
 | `future`, `promise` are promise-buffered channels of the coroutine runtime: `@f` parks the coroutine (blocks only a bare thread), both are `alts!` ports, `future-cancel` is `cancel!` and a cancelled future is done at once; a future's exception is rethrown as itself, not wrapped in an `ExecutionException` | Deliberate | Design §4, "`future`/`promise` на корутинах" (NOTES.md, "Futures and scopes"). The JVM wraps because its future is a `FutureTask`; the cause is what code catches. |
 | `pmap` keeps `(+ 2 available-processors)` futures ahead, where the count is the carrier pool's size | — | The JVM's shape with its thread count read from the pool. |
-| `Thread/sleep` parks the coroutine on the timer thread; it is a var `sleep` in a namespace `Thread`, so only that static call resolves | Deliberate | Library code sleeps (NOTES.md, "Channels"); a carrier never blocks. Other `Class/method` calls stay unresolved. |
+| `Thread/sleep` parks the coroutine on the timer thread; it is a var `sleep` in a namespace `Thread`, so only that static call resolves | Deliberate | Library code sleeps (NOTES.md, "Channels"); a carrier never blocks. Beside the boxed-number statics of the Numbers row, every other `Class/method` call stays unresolved. |
 
 ## core.async
 
