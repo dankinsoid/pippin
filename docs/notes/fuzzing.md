@@ -66,6 +66,11 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   second, and most of them are the JVM answering one expression two ways, by whether its compiler saw a
   primitive long.
 
+- **Measured.** The gate is 8000 forms over eight seeds in 13 s end to end, the pass itself 9 s, 850 forms a
+  second against the oracle; the oracle is the whole cost, our runner evaluating the same file in well under a
+  second. Three runners (oracle, interpreter, no-reuse) make 700 forms a second, and the hand pass of 80000
+  forms over eighty seeds takes 88 s.
+
 - **The compiled backend is the slow runner**: `CLJ_EVAL=compiled` pays a clang run per top-level form, about
   one form a second, and `--group N` wrapping N expressions in one `do` does not help, the cost being per form
   and not per clang. That is why the gate is the interpreter against the oracle and `make fuzz-long` carries the
