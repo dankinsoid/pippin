@@ -138,6 +138,9 @@ extension CoreTests {
 				#expect(try read("#?(:jank #cpp (a b) :default 7)") == 7)
 				#expect(try read("#?(:jank [#cpp x #js {:a 1}] :default [1 2])") == [1, 2])
 				#expect(try read("#?(:jank #\"[a-z]+\" :default :ok)") == kw("ok"))
+				// A pattern in a discarded branch reads by regex rules and is never compiled: \\( is no string escape.
+				#expect(try read("#?(:jank #\"\\(\\*|\\*\\)\" :default :ok)") == kw("ok"))
+				#expect(try read("#?(:jank #\"(?<name>a)\\p{IsLatin}\" :default :ok)") == kw("ok"))
 				#expect(try read("#?(:jank #:ns{:a 1} :default :ok)") == kw("ok"))
 				#expect(try read("#?(:jank #=(+ 1 2) :default :ok)") == kw("ok"))
 				#expect(try read("#?(:jank #?(:default #cpp x) :default :ok)") == kw("ok"))

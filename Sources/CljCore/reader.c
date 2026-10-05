@@ -1084,7 +1084,7 @@ static clj_read_status read_string(parser *p, uint32_t line, uint32_t col) {
 }
 
 // #"..." keeps its text verbatim: only \" fails to close, and the backslash stays in the pattern.
-static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col) {
+static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col, bool compile) {
 	clj_reader     *r = p->r;
 	buf             b = {0};
 	clj_read_status st = CLJ_READ_OK;
@@ -1111,6 +1111,12 @@ static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col) {
 	}
 	if (st == CLJ_READ_OK) {
 		clj_value text = clj_string_new(b.data, b.len);
+		// A discarded #? branch may hold another dialect's pattern syntax.
+		if (!compile) {
+			st = push_value(p, text);
+			free(b.data);
+			return st;
+		}
 		clj_value re = clj_regex_new(text);
 		clj_release(text);
 		if (re == CLJ_THROWN) {
@@ -1247,9 +1253,7 @@ static clj_read_status read_dispatch(parser *p, uint32_t line, uint32_t col) {
 		p->fn_depth++;
 		push_frame(p, F_FN, line, col);
 		return CLJ_READ_OK;
-	case '"':
-		if (in_unselected_branch(p)) return read_string(p, line, col); // a discarded branch keeps the pattern text
-		return read_regex(p, line, col);
+	case '"': return read_regex(p, line, col, !in_unselected_branch(p));
 	case '\'':
 		advance(r);
 		push_frame(p, F_VAR, line, col);

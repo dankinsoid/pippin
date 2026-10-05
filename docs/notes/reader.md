@@ -30,8 +30,9 @@
 - **An unselected `#?` branch reads as data whatever it contains** (`in_unselected_branch`, `F_SUPPRESSED`):
   a tagged literal there reads as nil without running its tag fn (the tag's form is read and dropped), a
   `#:ns{}` map as a plain one and a `#=` as nil, instead of ending the file, as Clojure's suppressed read
-  does; in the selected branch a tag runs and `#=` is the error it is outside one. A `#"..."` there reads as the plain string of its text and is never compiled, so a pattern
-  meant for another runtime's engine cannot fail the read. Which branch is selected is known while reading: the body list's items
+  does; in the selected branch a tag runs and `#=` is the error it is outside one. A `#"..."` there goes through
+  `read_regex` with `compile` false — the text verbatim, never compiled — so neither another engine's pattern
+  syntax nor a `\(` that is no string escape can fail the read. Which branch is selected is known while reading: the body list's items
   so far are on the value stack, features at the even indexes. Suppression follows the enclosing conditionals,
   so a selected inner branch inside an unselected outer one is suppressed too. Numbers need no suppression:
   every literal the reader takes now reads in either branch (numeric tower).
