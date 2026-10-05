@@ -53,26 +53,54 @@
   stack for and the analyzer refuses a form it has no stack to walk. The depth ASan allows on that shape is
   140 levels against the library's 104, so the headroom is a third; a compiler that grows the pass's frames
   would need `clj_coro_set_stack_size` raised or the pass's per-level cost cut.
-- [ ] **core.async's own suite passes 21 of its 23 deftests and is still not vendored.** `async_test.clj` at
-  tag v1.6.681 (the version `make api-diff` diffs the async half against) loads with two forms lost to
-  `Thread/currentThread` — `take!-on-caller?` and `put!-on-caller?`, whose subject is thread identity — and
-  one failing test, the ASYNC-127 block of `ops-tests`: `(mult (to-chan! [1 2 3]))` then `tap` drops the
-  first items, because the source is a filled buffer and the mult's `go-loop` takes from it on an idle
-  carrier before the caller's `tap` returns. The code is core.async's own and so is ours; what differs is
-  that twelve carriers start a spawned coroutine at once where the JVM's dispatch queue hands the first step
-  out slowly enough that the taps always win. What keeps the library out is the memory check: the file
-  leaves 20–21 coroutines and as many timers alive, and they drain between 20 s and 55 s, where
-  `runtimeSettled` allows 10 s — measured, the cause not found, and reproducible only in a full corpus run
-  (the library alone settles under 10 s). `pipeline_test.clj` is out for its own reason: `test_compute` is
-  `slow-fib` of 15–37 over 50 inputs, 5 s to past the 60 s deadline depending on the load, and its timeout
-  leaves eight blocking-pool jobs held, so the memory check cannot run; without that one deftest the file
-  runs in 2 s and its other seven pass. The other six files are out by subject — `buffers_test` and
-  `timers_test` name `clojure.core.async.impl.protocols`/`impl.timers` (the buffers here are the spec
-  objects `chan` reads, not containers with `add!`/`remove!`), `ioc_macros_test` names the JVM's
-  state-machine transform, `lab_test` names `clojure.core.async.lab`, and `concurrent_test` and
-  `exceptions_test` are `java.util.concurrent` and the JVM's uncaught-exception handler. Trigger for taking
-  it: either a decision on spawn locality (a spawned coroutine not starting before the spawner's next park,
-  which would also close the ASYNC-127 divergence) or an account of the 20–55 s drain.
+- **core.async's own suite is `corpus/core-async`: of `async_test.clj`'s 18 deftests, 16 run and 15 pass**,
+  against 18 of 18 on the JVM (measured per deftest under Clojure 1.12.6 and core.async 1.6.681, none of them
+  hanging; `expanding-transducer-delivers-to-multiple-pending` takes 4.37 s there and 4.6–4.9 s here, its own
+  `(Thread/sleep 50)` poll 81 times over). It is at tag v1.6.681, the version `make api-diff` diffs the async
+  half against, and it is the one file taken: the library itself is ours, so only the test tree is vendored and
+  the manifest is `:tests-only`. Two forms do not load — `take!-on-caller?`
+  and `put!-on-caller?`, whose subject is which thread a `put!`/`take!` callback runs on — because
+  `Thread/currentThread` is refused rather than shimmed the way `Thread/sleep` is (design §8,
+  `docs/jvm-differences.md`). One test fails, and the code is core.async's own: the ASYNC-127 block of `ops-tests`,
+  `(mult (to-chan! [1 2 3]))` plus three `tap`s, where the source is a filled buffer and the mult's `go-loop` drains
+  it before the taps register — which `mult`'s own docstring allows ("Items received when there are no taps get
+  dropped"). Our `mult` is 1.6.681's text, the ASYNC-127 fix of upstream `2df8e1d` in it, and the same block with the
+  source filled *after* the taps answers 1/1/2 every time, so what differs is only the order of a spawned
+  coroutine's first step (design §8, the spawn-locality row). Measured over 300 runs of the block: 285 answer a later
+  item, 11 pass whole and 4 leave `t-1` an orphan — the mult read the source's nil while `@cs` was still empty, so it
+  closed no tap and `(<!! t-1)` never returns, which the watchdog ends as `:timeout`. The entry is `:flaky`: all three
+  verdicts are its.
+- **What the file's 20–21 leftover coroutines were, and what reclaims them.** They are abandoned parked by the tests
+  themselves: fifteen `onto-chan!` fillers of a `(chan n xf)` whose takers have all reported and nobody drains again
+  (`check-expanding-transducer`, run 81 times), the `mult` and `mix` loops of `ops-tests`, and the two `future`s that
+  `unfulfilled-readers-block` and `expanding-transducer-puts-can-ignore-buffer-fullness` leave waiting on purpose.
+  Each is a reference cycle through the channel it waits on, which RC cannot free (NOTES "Coroutines": a parked
+  coroutine abandoned is a cycle), so nothing frees one — except the per-deftest watchdog deadline its spawn
+  conveyed. That is the whole of the 20–55 s drain: the wait is `CLJ_CORPUS_TIMEOUT_MS` from the last such spawn,
+  measured 7.99 s at a budget of 8000 and 5.0 s at 5000, and the Makefile exports 60000, which is why it showed in a
+  full corpus run and not when the library ran alone at the 5 s default. So the harness reclaims them: every deftest
+  has ended when a run returns, so a coroutine still parked is the library's leftover, and `reclaimAbandoned`
+  (`clj_debug_cancel_live_coros`) cancels it before the memory check. The count is not pinned but bounded:
+  `:abandoned-coroutines` in the allowlist is the most a library's own tests may leave parked, 0 for every
+  library but this one — so the old "nothing may be left" check holds everywhere else — and 24 here against 20
+  or 21 measured over twenty runs, the margin being the few of the 81 `check-expanding-transducer` calls whose
+  filler parks or not by a race (it parks when the items the takers did not consume do not fit the buffer, which
+  the expanding step may overfill). A run past the bound fails the step. A coroutine that never parked is not on
+  the live list, so a runaway loop is not reclaimed there and still fails the settle, which is how the
+  `(apply f (range))` one was caught. The
+  library's two runs take 9.7 s together and leave 0 live objects; before, the settle waited out 10 s and failed, and
+  the second run's baseline was taken while the first run's coroutines were still being reaped, so the delta came out
+  negative (−5 in one run).
+- **The other seven files of core.async's suite are out by subject, and `pipeline_test.clj` by cost.**
+  `buffers_test` and `timers_test` name `clojure.core.async.impl.protocols` (`full?`/`add!`/`remove!`/`close-buf!`)
+  and `impl.timers`: the buffers here are the spec objects `chan` reads, not containers with those methods, and the
+  timer wheel is C. `ioc_macros_test` names `impl.ioc-macros`, the state-machine transform design §8 refuses;
+  `lab_test` names `clojure.core.async.lab`, which we do not carry; `concurrent_test` is `java.util.concurrent`'s
+  `ThreadFactory` and `exceptions_test` is the JVM's default uncaught-exception handler plus `clojure.stacktrace`.
+  `pipeline_test` is portable and its subject is ours, but `test-compute` is `slow-fib` of 15–37 over 50 inputs:
+  **30.4 s** interpreted on this machine unloaded, against the 60 s watchdog — a 2× margin where `test-random-sample`
+  has 3× under four ASan shards. The file's other seven deftests run in 2.2 s and pass. Trigger for taking it: a
+  corpus run whose user code is compiled in every mode, or a per-test budget in the allowlist.
 - **The parity report names a pinned Clojure, not the machine's.** `dump-jvm` runs under `JVM_DEPS`
   (1.12.6, the Makefile), carries `:version` in its dump as the async and cljs dumps already did, and the
   report prints what was dumped instead of calling `(clojure-version)` in the reporting process. Before this
@@ -142,7 +170,8 @@
   lenient loading (a failing top-level form is recorded, not fatal), captures the suite's own `SKIP - x`
   lines (`when-var-exists`), runs each namespace through `clojure.test/test-ns` under a collecting
   reporter and folds the events into pass/fail/error per var; a second run over the loaded namespaces is
-  the memory check (baseline after the first). Allowlist rule: a failing form, test or skip not in the
+  the memory check (baseline after the first), with `reclaimAbandoned` between them: every deftest has ended,
+  so a coroutine still parked was abandoned by the library's own tests and is cancelled rather than waited out. Allowlist rule: a failing form, test or skip not in the
   allowlist fails; a listed one that now loads, passes or runs fails too (stale); an entry carries
   `:missing` (the symbols the runtime lacks, extracted from the message), `:design-line` (a line of design §8)
   or `:note` — a hand-written sentence saying whether the failure is an accepted deviation or a runtime bug

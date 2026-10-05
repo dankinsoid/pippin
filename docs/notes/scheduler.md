@@ -35,6 +35,15 @@
   tries: a holder is out within ~100 ns), and the spinner that locks only for work it has seen. The 4-carrier
   `locking` row moved 365 → 405 ns: the resumer no longer pays a kernel wait per resume, so the four coroutines
   contend on the monitor harder; `swap!` under four carriers is unchanged.
+- **A spawn starts eagerly, and that is the decision, not an accident.** Measured with a `go` that reads a counter
+  its spawner then increments a thousand times: the block sees 0–15 of 1000 here, and 1, 70, 76, 106 and 1000 of 1000
+  on JVM core.async 1.6.681 (600–4000 of a million, so the JVM's head start is a time, not a count of the spawner's
+  work). Neither host orders the first step against the spawner's next form, so the ASYNC-127 block of
+  `async_test.clj` passes there on dispatch latency alone (NOTES "Corpus"). Spawn locality — a spawned coroutine not
+  starting before its spawner's nearest park — is refused in design §8: a spawner that never parks (a UI handler
+  returns to the run loop) would start none of its children, and "not yet runnable" would make the wake invariant
+  above conditional on another execution's state, so a carrier blocked under `host_depth` would hold its children
+  too. It would buy the order of the first step and nothing beyond it.
 - **The spawn trace stays eager** (`clj_coro_capture_spawn_trace`, ~35 ns for the walk plus the retains; the
   frames live inline in the coroutine up to four, malloc beyond). Materializing it at the first throw from the
   spawner's ring position is not possible without losing it: the ring's slots are rewritten as soon as the

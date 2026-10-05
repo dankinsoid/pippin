@@ -44,7 +44,10 @@
   `ChanTests.altsWithDefaultTimeoutAndPriority`, `AsyncLibTests.aScopeCancellationCarriesItsCause` on CI). The
   wait is for work in flight, not for the count, so a leak still fails the check; it is bounded at 10 s and
   fails loudly, once — later settles only look, so one leaked coroutine does not stall every test after it into
-  the run's bound. The runtime cannot see host threads: the nREPL server's connection threads hold its sessions
+  the run's bound. The failure prints `clj_debug_coro_dump` beside the scheduler's state: every coroutine that
+  ever parked with the trace of where it is parked, which is what names the leftover (NOTES "Corpus": the
+  core.async suite's abandoned `onto-chan!` fillers were found no other way). The runtime cannot see host
+  threads: the nREPL server's connection threads hold its sessions
   until they see the client hang up, so `NReplTests` waits for the server to be freed (`overTheWire`) — a
   `NamespaceTests` baseline counted them otherwise. A test that starts host threads holding values joins them
   before it returns. A blocking-pool thread that retires frees nothing the count sees (its implicit coroutine

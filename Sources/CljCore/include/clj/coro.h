@@ -82,7 +82,9 @@ void clj_debug_ticks_spend(void);
 void clj_debug_blocking_keep_alive_ms(uint64_t ms);
 // Waits up to ms for nothing in flight to hold objects (docs/notes/gates.md, "Settled baselines").
 bool clj_debug_runtime_settle(size_t coros, uint64_t ms);
-bool clj_debug_park_under_lock_is_error(void);
+// Reclaims what a library's own tests abandoned parked; answers how many (NOTES "Corpus").
+size_t clj_debug_cancel_live_coros(void);
+bool   clj_debug_park_under_lock_is_error(void);
 void clj_debug_sched_dump(void);
 // Every coroutine that ever parked, its state, waiter and parked trace, on stderr (the hang report).
 void clj_debug_coro_dump(void);

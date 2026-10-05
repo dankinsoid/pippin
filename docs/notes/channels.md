@@ -57,5 +57,8 @@
   requires it: the JVM's constructors over the spec objects. `Thread/sleep` resolves because a namespace named
   `Thread` holds a var `sleep` (`install_thread_ns`): the reader gives `Thread/sleep` as a namespace-qualified
   symbol, the analyzer resolves it as any `ns/name`, and the fn parks on the timer thread (`clj_sched_sleep_ms`;
-  no `nanosleep` on a carrier). Trigger for more static-call shims: a library calling another `Class/method`.
+  no `nanosleep` on a carrier). The trigger for the next such shim is a library calling another
+  `Class/method` whose whole meaning this runtime has; it has fired once and the answer was a refusal —
+  core.async's own tests call `Thread/currentThread`, and an identity that changes carrier at every park is
+  not that (design §8, `docs/jvm-differences.md`).
 

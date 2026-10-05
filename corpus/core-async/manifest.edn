@@ -1,0 +1,6 @@
+;; The library under test is ours (boot/clojure/core/async.clj), so only its test tree is vendored.
+{:name "core-async"
+ :load-path ["test"]
+ :features #{:clj}
+ :tests-only true
+ :test-namespaces [clojure.core.async-test]}

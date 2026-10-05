@@ -6,7 +6,10 @@
 ;; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.
 ;; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the
 ;; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.
-{:second-run-live-objects 0
+;; :abandoned-coroutines is the most its own tests may leave parked for the harness to cancel: an
+;; upper bound, not a count, a library's own race deciding it, and 0 for a library that leaves none.
+{:abandoned-coroutines 0
+ :second-run-live-objects 0
  :forms
  [
   {:file "test/clojure/test_clojure/atoms.clj" :line 27 :name deref-swap-arities :reason "Unable to resolve var: *warn-on-reflection* in this context" :missing [*warn-on-reflection*]}
