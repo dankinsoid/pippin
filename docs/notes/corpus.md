@@ -11,21 +11,31 @@
   the header said whatever the local CLI resolved — 1.12.4 on one machine, 1.12.6 on another — so every gate
   run flipped the committed line. The pin is also the tag `corpus/clojure-core-tests` is vendored at, so the
   suite and the diff describe one Clojure. The name sets are the same either way: pinning moved no count.
-- **Clojure's own suite: what is in and what is out.** `corpus/clojure-core-tests` holds the nine files design
-  §10 names — `sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`, `string`, `numbers` —
-  at tag `clojure-1.12.6`, the version `docs/api-parity.md` diffs against, plus `test/clojure/test_helper.clj`,
-  which four of them `:use`. Unmodified, headers kept. The rule for the rest of `test_clojure/`: a file is in
-  when its subject is the language or a namespace this core carries. Out by subject: the host files
-  (`java_interop`, `reflect`, `genclass`, `proxy/`, `param_tags`, `method_thunks`, `annotations`,
+- **Clojure's own suite: what is in and what is out.** `corpus/clojure-core-tests` holds the portable part of
+  `test/clojure/test_clojure/` at tag `clojure-1.12.6`, the version `docs/api-parity.md` diffs against:
+  the nine files design §10 names — `sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`,
+  `string`, `numbers` — and seventeen more — `transducers`, `vectors`, `other_functions`, `special`,
+  `clojure_set`, `multimethods`, `vars`, `clojure_walk`, `transients`, `errors`, `evaluation`,
+  `for`, `atoms`, `delays`, `predicates`, `volatiles`, `keywords` — plus `test/clojure/test_helper.clj`,
+  which five of them `:use`. Unmodified, headers kept. The rule for the
+  rest: a file is in when its subject is the language or a namespace this core carries. Out by subject: the
+  host files (`java_interop`, `reflect`, `genclass`, `proxy/`, `param_tags`, `method_thunks`, `annotations`,
   `array_symbols`, `data_structures_interop`, `serialization`, `streams`, `generated_*`), the JVM concurrency
   files (`agents`, `refs`, `parallel`), the compiler and tooling files (`compilation`, `main`, `repl`, `server`,
   `rt`, `api`, `run_single_test`, `test`, `test_fixtures`) and the files whose subject is a namespace this core
   does not carry (`clojure_xml`, `clojure_zip`, `reducers`, `math`, `data`, `printer`, `edn`, `parse`).
-  `generators` and `protocols` are in only as the shims that stand in for them. What is portable and not taken
-  is 164 more deftests: `other_functions` 15, `transducers` 19, `vectors` 17, `special` 14, `clojure_set` 12,
-  `multimethods` 11, `ns_libs` 10, `vars` 9, `clojure_walk` 8, `transients` 8, `errors` 7, `evaluation` 7,
-  `atoms` 5, `delays` 5, `predicates` 4, `clearing` 3, `metadata` 3, `try_catch` 2, `volatiles` 2, `for` 1,
-  `keywords` 1, and `reader.cljc`.
+  `generators` and `protocols` are in only as the shims that stand in for them.
+- **Four of the files NOTES called portable are not.** `clearing` is `java.lang.reflect.Field` over a closure's
+  fields from end to end — its subject is the JVM's clearing of closed-overs, so it belongs among the host
+  files. `metadata` requires `clojure.pprint`, `clojure.inspector`, `clojure.xml`,
+  `clojure.zip`, `clojure.java.io` and `clojure.data` in a top-level `doseq` and then checks their docstrings:
+  its subject is namespaces this core does not carry. `try_catch` imports `clojure.test.ReflectorTryCatchFixture`,
+  a Java class compiled from the test tree, so both of its deftests are reflection on that class.
+  `reader.cljc` needs `clojure.edn` and `clojure.instant`. 11 deftests in all.
+- **`(:import …)` does not cost a file.** The `ns` macro here ignores an `:import` clause rather than refusing
+  it, so `vectors`, `errors`, `delays` and `clearing` load their own `(ns …)` form and lose only the body forms
+  that name an imported class. A file whose `ns` form failed would lose every deftest at once, which is why
+  the shims exist; `:import` needs none.
 - **`numbers` is taken whole, not partially**, which design §10's "частично" allowed for: the numeric tower is
   complete (`ratio?`, `bigint`, `bigdec`, `numerator`, `rationalize`) and chars are a real type, so the line is
   not drawn inside the file — what does not run there fails per form on a JVM name (`Math/round`,
@@ -69,10 +79,12 @@
   `:missing` (the symbols the runtime lacks, extracted from the message), `:design-line` (a line of design §8)
   or `:note` — a hand-written sentence saying whether the failure is an accepted deviation or a runtime bug
   still open, with the repro. A test entry with none of the three fails the check, and a regeneration carries
-  `:design-line` and `:note` over, so the review is not lost. `:flaky true` marks a test whose outcome depends on timing
-  here (its `:note` says why; the one so far is `realized?` on a `future` whose body is a no-op because the suite's
-  `sleep` has no `:default` branch): it is tolerated either way, left out of the two-runs-agree check and kept by a
-  regeneration when it happened to pass. Forms are not annotated: a form's reason is its
+  `:design-line` and `:note` over, so the review is not lost. `:flaky true` marks a test whose outcome is not a function of
+  the code alone — timing, or state the first run left — and whose `:note` says which: it is tolerated either way,
+  left out of the two-runs-agree check and kept by a regeneration when it happened to pass. Two so far:
+  `realized?` on a `future` whose body is a no-op because the suite's `sleep` has no `:default` branch, and
+  `multimethods/methods-test`, whose `defmulti` is `defonce`, so the `remove-method` of the first run reaches
+  the second — not re-runnable on the JVM either. Forms are not annotated: a form's reason is its
   own classification (a reader gap or an unresolved symbol). `:second-run-live-objects` is what a second run
   of the same tests leaves alive; a different number fails.
 - **On by default** (`CLJ_CORPUS=0` skips it). `make corpus` runs it alone, `make corpus-update` regenerates
@@ -81,9 +93,14 @@
   (the volatile cell holds the fn, the fn's body derefs the cell), which RC cannot free — 2 objects per
   `letfn` call, 4 for the two namespaces that use one and 36 for medley, of which the last 4 arrived with
   `test-mapply` and its two `letfn`s once that test started running. The number is recorded per library and
-  checked, so a runtime leak still fails; design §7's trial deletion is what would collect it. `clojure-core-tests` is at 0, which is also what made its generators
-  deterministic: a generated symbol or keyword interns permanently, so a differing pick between the two runs
-  showed up as a live object and the number moved from run to run.
+  checked, so a runtime leak still fails; design §7's trial deletion is what would collect it.
+  `clojure-core-tests` is at 11: `special`'s `letfn` cycles, and the namespace and the symbols `ns_libs` and
+  `keywords` intern per run from a `gensym` ("Symbol / keyword": interning is permanent). It is a fixed number
+  per run, not a growing one, which is the property the check needs. The same check caught the runaway
+  `(apply f (range))` coroutine ("Analyzer and evaluator"): every library's count became the time the run took,
+  medley's 36 among them, so a leak elsewhere in the process shows up here too. A generated symbol or keyword
+  also has to be picked deterministically, which is why the generator shims seed themselves: a differing pick
+  between the two runs moved the number from run to run.
 - **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
   reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
   section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run
@@ -169,3 +186,26 @@
   that are ours (core.async's own protocol methods end in `*`), and `defblockingop`, `do-alts`, `fn-handler`
   and `ioc-alts!` show as missing — the JVM implementation's ioc and macro plumbing.
 
+- **What the second portion of Clojure's own suite found.** Eighteen more files brought 163 deftests and five
+  runtime bugs, all fixed: `apply` realized the rest argument of a variadic fn ("Analyzer and evaluator"), and
+  `clojure.walk` dropped metadata, `with-redefs`/`alter-var-root` read a binding where they needed the root,
+  `require`/`use` swallowed an unknown flag and an empty argument list, and `load-lib` aliased only one of
+  `:as` and `:as-alias` ("core.clj"). Two API gaps closed with them: `sequence`'s multi-collection arity and
+  `Eduction`'s `Sequential`. `apply` was the one worth the whole portion: a `(future (apply sample (range)))`
+  in `vars.clj` never returned, and the harness reported it as 12.5M live objects in a library whose own tests
+  had not changed.
+- [ ] **`ns_libs` is portable and still out, for the memory check.** `refer-error-messages` makes a namespace
+  from a `gensym` and `eval`s a `def` into it, and a namespace, a var and their name symbols are permanent here
+  ("Analyzer and evaluator": vars are immortal), so the file alone put 11 lasting objects into
+  `:second-run-live-objects` where the rest of the library leaves 0. The two backends also disagreed on the
+  number — 11 interpreted against 10 compiled, the quoted form's reader position the compiled constant does not
+  carry (`docs/jvm-differences.md`) — and the allowlist holds one number, so the disagreement had nowhere to go.
+  It is the one file whose own subject (namespaces, `require`, `refer`) this core carries and that is not taken.
+  It earned its place first: three of the eleven bugs this portion found are its — `require`/`use` swallowing an
+  unknown flag and an empty argument list, `load-lib` aliasing only one of `:as` and `:as-alias`, and
+  `ns-resolve`'s env argument not shadowing a var ("core.clj"). Trigger for taking it: a namespace that
+  `remove-ns` makes collectable, or a live-object baseline per test rather than per library.
+- **Ten deftests of Clojure's own suite are not re-runnable**, and the harness runs everything twice. One
+  survives as `:flaky` (`multimethods/methods-test`, whose `defmulti` is `defonce`, so the `remove-method` of
+  the first run reaches the second); the rest went out with `ns_libs`. The property is the JVM's too: a second
+  `test-ns` over those namespaces fails there in the same places.

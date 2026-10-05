@@ -126,17 +126,29 @@ static clj_value b_ns_unmap(const clj_value *args, size_t n) {
 	return CLJ_NIL;
 }
 
+// The env argument is a macro's &env: a name it binds is a local, and a local shadows the var.
+static bool shadowed_by_env(clj_value env, clj_value sym) {
+	if (clj_is_nil(env)) return false;
+	clj_value v = clj_get(env, sym, CLJ_UNBOUND);
+	if (v == CLJ_THROWN) return false;
+	bool found = v != CLJ_UNBOUND;
+	clj_release(v);
+	return found;
+}
+
 static clj_value b_ns_resolve(const clj_value *args, size_t n) {
 	clj_value ns = the_ns(args[0]);
 	if (ns == CLJ_THROWN) return CLJ_THROWN;
 	clj_value sym = args[n - 1];
 	if (!clj_is_symbol(sym)) return clj_throw_msg("ns-resolve expects a symbol, got: %s", clj_type_name(sym));
+	if (n == 3 && shadowed_by_env(args[1], sym)) return CLJ_NIL;
 	return clj_ns_resolve(ns, sym);
 }
 
 static clj_value b_resolve(const clj_value *args, size_t n) {
 	clj_value sym = args[n - 1];
 	if (!clj_is_symbol(sym)) return clj_throw_msg("resolve expects a symbol, got: %s", clj_type_name(sym));
+	if (n == 2 && shadowed_by_env(args[0], sym)) return CLJ_NIL;
 	return clj_ns_resolve(clj_ns_current(), sym);
 }
 
@@ -236,9 +248,24 @@ static clj_value b_ns_p(const clj_value *args, size_t n) {
 	return clj_bool(clj_is_ns(args[0]));
 }
 
+// The root, never a thread binding: a rebind of the root under a binding must not write the bound value back.
+static clj_value var_root_arg(const char *who, clj_value v) {
+	if (var_arg(who, v) == CLJ_THROWN) return CLJ_THROWN;
+	clj_value root = clj_var_root(v);
+	if (root == CLJ_UNBOUND) {
+		clj_value ns = clj_symbol_name(clj_var_ns(v)), name = clj_symbol_name(clj_var_name(v));
+		return clj_throw_msg("Unbound var: #'%s/%s", clj_string_bytes(ns), clj_string_bytes(name));
+	}
+	return clj_retain(root);
+}
+
+static clj_value b_var_root(const clj_value *args, size_t n) {
+	(void)n;
+	return var_root_arg("var-root*", args[0]);
+}
+
 static clj_value b_alter_var_root(const clj_value *args, size_t n) {
-	if (var_arg("alter-var-root", args[0]) == CLJ_THROWN) return CLJ_THROWN;
-	clj_value root = clj_var_deref(args[0]);
+	clj_value root = var_root_arg("alter-var-root", args[0]);
 	if (root == CLJ_THROWN) return CLJ_THROWN;
 	clj_value *all = calloc(n - 1, sizeof *all);
 	if (!all) clj_fatal("out of memory");
@@ -340,7 +367,7 @@ static const struct {
 	{"ns-exclude*", b_ns_exclude_star, 2, 2}, {"intern", b_intern, 2, 3},   {"var-get", b_var_get, 1, 1},     {"var-set", b_var_set, 2, 2},
 	{"push-thread-bindings", b_push_thread_bindings, 1, 1}, {"pop-thread-bindings", b_pop_thread_bindings, 0, 0},
 	{"get-thread-bindings", b_get_thread_bindings, 0, 0}, {"bound?", b_bound_p, 0, ANY}, {"thread-bound?", b_thread_bound_p, 0, ANY},
-	{"var?", b_var_p, 1, 1},            {"ns?", b_ns_p, 1, 1},              {"alter-var-root", b_alter_var_root, 2, ANY},
+	{"var-root*", b_var_root, 1, 1}, {"var?", b_var_p, 1, 1},            {"ns?", b_ns_p, 1, 1},              {"alter-var-root", b_alter_var_root, 2, ANY},
 	{"load-file", b_load_file, 1, 1},   {"load-resource*", b_load_resource_star, 1, 1}, {"lib-path*", b_lib_path_star, 1, 1},
 	{"read-string", b_read_string, 1, 2}, {"eval", b_eval, 1, 1},           {"load-string", b_load_string, 1, 1},
 	{"special-symbol?", b_special_symbol_p, 1, 1}, {"out-capture-push*", b_out_capture_push, 0, 0}, {"out-capture-pop*", b_out_capture_pop, 0, 0},

@@ -388,7 +388,8 @@ extension CoreTests {
 			return out
 		}
 
-		// :flaky true: the outcome depends on timing here (the :note says why), so the entry is tolerated either way.
+		// :flaky true: the outcome is not a function of the code alone — timing, or state the first run left (the
+		// :note says which), so the entry is tolerated either way and left out of the two-runs-agree check.
 		private static func isFlaky(_ e: Value?) -> Bool { e?.dictionary?[kw("flaky")]?.bool == true }
 
 		private static func writeAllowlist(_ lib: Library, _ r: RunResult, liveAfterSecondRun: Int) throws -> String {
@@ -398,7 +399,8 @@ extension CoreTests {
 			lines.append(";; A failing entry not listed here fails CI, and so does a listed one that now loads, passes or runs (stale).")
 			lines.append(";; :missing names the symbols the runtime lacks; an entry that fails by design cites :design-line, a line of §8;")
 			lines.append(";; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.")
-			lines.append(";; :flaky true marks a test whose outcome depends on timing here (its :note says why); it is tolerated either way.")
+			lines.append(";; :flaky true marks a test whose outcome is not a function of the code alone — timing, or state the first run")
+			lines.append(";; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.")
 			lines.append(";; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the")
 			lines.append(";; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.")
 			lines.append("{:second-run-live-objects \(liveAfterSecondRun)")

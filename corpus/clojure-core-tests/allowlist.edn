@@ -2,12 +2,16 @@
 ;; A failing entry not listed here fails CI, and so does a listed one that now loads, passes or runs (stale).
 ;; :missing names the symbols the runtime lacks; an entry that fails by design cites :design-line, a line of §8;
 ;; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.
-;; :flaky true marks a test whose outcome depends on timing here (its :note says why); it is tolerated either way.
+;; :flaky true marks a test whose outcome is not a function of the code alone — timing, or state the first run
+;; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.
 ;; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the
 ;; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.
 {:second-run-live-objects 0
  :forms
  [
+  {:file "test/clojure/test_clojure/atoms.clj" :line 27 :name deref-swap-arities :reason "Unable to resolve var: *warn-on-reflection* in this context" :missing [*warn-on-reflection*]}
+  {:file "test/clojure/test_clojure/atoms.clj" :line 46 :name atoms-are-suppliers :reason "Unable to resolve symbol: java.util.function.Supplier in this context" :missing [java.util.function.Supplier]}
+  {:file "test/clojure/test_clojure/clojure_walk.clj" :line 38 :name walk :reason "Unable to resolve symbol: clojure.lang.PersistentTreeMap in this context" :missing [clojure.lang.PersistentTreeMap]}
   {:file "test/clojure/test_clojure/control.clj" :line 272 :name test-while :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
   {:file "test/clojure/test_clojure/control.clj" :line 287 :name test-case :reason "Unable to resolve var: clojure.test-helper/*warn-on-reflection* in this context" :missing [clojure.test-helper/*warn-on-reflection*]}
   {:file "test/clojure/test_clojure/data_structures.clj" :line 37 :name transient? :reason "Unable to resolve symbol: clojure.lang.ITransientCollection in this context" :missing [clojure.lang.ITransientCollection]}
@@ -28,9 +32,37 @@
   {:file "test/clojure/test_clojure/data_structures.clj" :line 1340 :name trailing-map-destructuring :reason "Unable to resolve symbol: seq-to-map-for-destructuring in this context" :missing [seq-to-map-for-destructuring]}
   {:file "test/clojure/test_clojure/def.clj" :line 13 :name defn-error-messages :reason "Unable to resolve host type: clojure.test-helper/Throwable" :missing []}
   {:file "test/clojure/test_clojure/def.clj" :line 55 :name non-dynamic-warnings :reason "Unable to resolve symbol: clojure.test-helper/java.io.StringWriter. in this context" :missing [clojure.test-helper/java.io.StringWriter.]}
+  {:file "test/clojure/test_clojure/delays.clj" :line 13 :name calls-once-in-parallel :reason "Unable to resolve symbol: CyclicBarrier. in this context" :missing [CyclicBarrier.]}
+  {:file "test/clojure/test_clojure/delays.clj" :line 34 :name saves-exceptions :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
+  {:file "test/clojure/test_clojure/delays.clj" :line 45 :name saves-exceptions-in-parallel :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
+  {:file "test/clojure/test_clojure/delays.clj" :line 70 :name delays-are-suppliers :reason "Unable to resolve symbol: java.util.function.Supplier in this context" :missing [java.util.function.Supplier]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 28 :name arity-exception :reason "Unable to resolve symbol: RuntimeException. in this context" :missing [RuntimeException.]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 52 :name compile-error-examples :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 59 :name assert-arg-messages :reason "Unable to resolve classname: clojure.lang.Compiler$CompilerException" :missing [clojure.lang.Compiler$CompilerException]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 69 :name extract-ex-data :reason "Unable to resolve symbol: RuntimeException. in this context" :missing [RuntimeException.]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 76 :name Throwable->map-test :reason "Unable to resolve symbol: Throwable->map in this context" :missing [Throwable->map]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 110 :name ex-info-allows-nil-data :reason "Unable to resolve symbol: Throwable. in this context" :missing [Throwable.]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 20 :reason "Unable to resolve symbol: import in this context" :missing [import]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 37 :name Eval :reason "Unable to resolve symbol: Compiler/eval in this context" :missing [Compiler/eval]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 47 :name class-for-name :reason "Unable to resolve symbol: java.lang.Class/forName in this context" :missing [java.lang.Class/forName]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 62 :name Literals :reason "Unable to resolve symbol: Boolean/TRUE in this context" :missing [Boolean/TRUE]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 92 :name throws-with-msg :reason "Unable to resolve symbol: Exception in this context" :missing [Exception]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 111 :name SymbolResolution :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 184 :name struct-with-symbols :reason "Unable to resolve symbol: defstruct in this context" :missing [defstruct]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 186 :name Metadata :reason "Unable to resolve symbol: struct in this context" :missing [struct]}
+  {:file "test/clojure/test_clojure/evaluation.clj" :line 197 :name Collections :reason "Unable to resolve symbol: clojure.lang.IPersistentMap in this context" :missing [clojure.lang.IPersistentMap]}
   {:file "test/clojure/test_clojure/fn.clj" :line 14 :name fn-error-checking :reason "Unable to resolve host type: clojure.test-helper/Throwable" :missing []}
+  {:file "test/clojure/test_clojure/for.clj" :line 59 :name only :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
+  {:file "test/clojure/test_clojure/for.clj" :line 97 :name While-and-When-Same-Binding :reason "Unable to resolve symbol: Math/abs in this context" :missing [Math/abs]}
+  {:file "test/clojure/test_clojure/for.clj" :line 113 :name Destructuring :reason "Unable to resolve symbol: Integer. in this context" :missing [Integer.]}
+  {:file "test/clojure/test_clojure/keywords.clj" :line 12 :reason "Unable to resolve symbol: find-keyword in this context" :missing [find-keyword]}
   {:file "test/clojure/test_clojure/logic.clj" :line 21 :name test-if :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/clojure/test_clojure/logic.clj" :line 155 :name test-not :reason "Unable to resolve symbol: new in this context" :missing [new]}
+  {:file "test/clojure/test_clojure/multimethods.clj" :line 28 :name hierarchy-tags :reason "Unable to resolve symbol: clojure.lang.Named in this context" :missing [clojure.lang.Named]}
+  {:file "test/clojure/test_clojure/multimethods.clj" :line 46 :name tag-descendants :reason "Unable to resolve symbol: clojure.lang.Named in this context" :missing [clojure.lang.Named]}
+  {:file "test/clojure/test_clojure/multimethods.clj" :line 124 :name derivation-world-bridges-to-java-inheritance :reason "Unable to resolve symbol: java.util.Map in this context" :missing [java.util.Map]}
+  {:file "test/clojure/test_clojure/multimethods.clj" :line 177 :name isA-multimethod-test :reason "Unable to resolve symbol: java.util.Map in this context" :missing [java.util.Map]}
+  {:file "test/clojure/test_clojure/multimethods.clj" :line 189 :name preferences-multimethod-test :reason "Unable to resolve classname: java.lang.IllegalArgumentException" :missing [java.lang.IllegalArgumentException]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 30 :name Coerced-BigDecimal :reason "Unable to resolve symbol: BigDecimal in this context" :missing [BigDecimal]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 38 :name BigInteger-conversions :reason "Unable to resolve symbol: Float/MAX_VALUE in this context" :missing [Float/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 54 :name all-pairs-equal :reason "Unable to resolve symbol: class in this context" :missing [class]}
@@ -48,6 +80,11 @@
   {:file "test/clojure/test_clojure/numbers.clj" :line 843 :name comparisons :reason "Unable to resolve symbol: Integer. in this context" :missing [Integer.]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 884 :name test-nan-comparison :reason "Unable to resolve symbol: Double. in this context" :missing [Double.]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 891 :name test-nan-as-operand :reason "Unable to resolve symbol: cast in this context" :missing [cast]}
+  {:file "test/clojure/test_clojure/predicates.clj" :line 22 :name sample-data :reason "Unable to resolve symbol: new in this context" :missing [new]}
+  {:file "test/clojure/test_clojure/predicates.clj" :line 71 :name type-preds :reason "Unable to resolve symbol: class? in this context" :missing [class?]}
+  {:file "test/clojure/test_clojure/predicates.clj" :line 139 :name test-string?-more :reason "Unable to resolve symbol: new in this context" :missing [new]}
+  {:file "test/clojure/test_clojure/predicates.clj" :line 144 :name pred-val-table :reason "Unable to resolve symbol: java.util.Date. in this context" :missing [java.util.Date.]}
+  {:file "test/clojure/test_clojure/predicates.clj" :line 178 :name test-double-preds :reason "Unable to resolve symbol: Double/parseDouble in this context" :missing [Double/parseDouble]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 28 :name test-reduce :reason "Unable to resolve symbol: Integer/TYPE in this context" :missing [Integer/TYPE]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 87 :name test-into-IReduceInit :reason "Unable to resolve protocol: clojure.lang.IReduceInit" :missing []}
   {:file "test/clojure/test_clojure/sequences.clj" :line 94 :name reduce-with-varying-impls :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
@@ -61,6 +98,11 @@
   {:file "test/clojure/test_clojure/sequences.clj" :line 1508 :name test-seqs-implements-iobj :reason "Unable to resolve symbol: clojure.lang.IMeta in this context" :missing [clojure.lang.IMeta]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1562 :name test-iteration :reason "Unable to resolve symbol: java.nio.file.Files/newBufferedReader in this context" :missing [java.nio.file.Files/newBufferedReader]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1643 :name iteration-seq-equals-reduce :reason "Unable to resolve symbol: java.util.Random. in this context" :missing [java.util.Random.]}
+  {:file "test/clojure/test_clojure/special.clj" :line 69 :name keywords-not-allowed-in-let-bindings :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
+  {:file "test/clojure/test_clojure/special.clj" :line 79 :name namespaced-syms-only-allowed-in-map-destructuring :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
+  {:file "test/clojure/test_clojure/special.clj" :line 85 :name or-doesnt-create-bindings :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
+  {:file "test/clojure/test_clojure/special.clj" :line 94 :name quote-with-multiple-args :reason "Unable to resolve classname: clojure.lang.Compiler$CompilerException" :missing [clojure.lang.Compiler$CompilerException]}
+  {:file "test/clojure/test_clojure/special.clj" :line 103 :name typehints-retained-destructuring :reason "Unable to resolve var: clojure.test-helper/*warn-on-reflection* in this context" :missing [clojure.test-helper/*warn-on-reflection*]}
   {:file "test/clojure/test_clojure/string.clj" :line 5 :reason "Unable to resolve var: *warn-on-reflection* in this context" :missing [*warn-on-reflection*]}
   {:file "test/clojure/test_clojure/string.clj" :line 106 :name char-sequence-handling :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
   {:file "test/clojure/test_clojure/string.clj" :line 150 :name t-index-of :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
@@ -68,6 +110,52 @@
   {:file "test/clojure/test_clojure/string.clj" :line 180 :name t-starts-with? :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
   {:file "test/clojure/test_clojure/string.clj" :line 184 :name t-ends-with? :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
   {:file "test/clojure/test_clojure/string.clj" :line 188 :name t-includes? :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 31 :name literal :reason "Unable to resolve symbol: gen/fmap in this context" :missing [gen/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 51 :name empty?$ :reason "Unable to resolve symbol: clojure.lang.Seqable in this context" :missing [clojure.lang.Seqable]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 54 :name gen-mapfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 57 :name gen-mapcatfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 61 :name gen-predfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 64 :name gen-indexedfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 69 :name gen-take :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 70 :name gen-drop :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 71 :name gen-drop-while :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 72 :name gen-map :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 73 :name gen-mapcat :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 74 :name gen-filter :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 75 :name gen-remove :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 76 :name gen-keep :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 77 :name gen-partition-all :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 78 :name gen-partition-by :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 79 :name gen-take-while :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 80 :name gen-take-nth :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 81 :name gen-keep-indexed :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 82 :name gen-map-indexed :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 83 :name gen-replace :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 84 :name gen-distinct :reason "Unable to resolve symbol: gen/return in this context" :missing [gen/return]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 85 :name gen-dedupe :reason "Unable to resolve symbol: gen/return in this context" :missing [gen/return]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 86 :name gen-interpose :reason "Unable to resolve symbol: clojure.test.check.generators/fmap in this context" :missing [clojure.test.check.generators/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 88 :name gen-action :reason "Unable to resolve symbol: gen/one-of in this context" :missing [gen/one-of]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 96 :name gen-actions :reason "Unable to resolve symbol: gen/vector in this context" :missing [gen/vector]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 99 :name gen-coll :reason "Unable to resolve symbol: gen/vector in this context" :missing [gen/vector]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 129 :name build-results :reason "Unable to resolve host type: clojure.test-clojure.transducers/Throwable" :missing []}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 144 :name result-gen :reason "Unable to resolve symbol: gen/fmap in this context" :missing [gen/fmap]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 153 :name seq-and-transducer :reason "Unable to resolve symbol: prop/for-all* in this context" :missing [prop/for-all*]}
+  {:file "test/clojure/test_clojure/transducers.clj" :line 168 :name test-transduce :reason "Unable to resolve symbol: Integer/TYPE in this context" :missing [Integer/TYPE]}
+  {:file "test/clojure/test_clojure/vars.clj" :line 32 :name test-with-local-vars :reason "Unable to resolve symbol: with-local-vars in this context" :missing [with-local-vars]}
+  {:file "test/clojure/test_clojure/vars.clj" :line 41 :name test-with-precision :reason "Unable to resolve symbol: with-precision in this context" :missing [with-precision]}
+  {:file "test/clojure/test_clojure/vars.clj" :line 54 :name test-settable-math-context :reason "Unable to resolve symbol: clojure.main/with-bindings in this context" :missing [clojure.main/with-bindings]}
+  {:file "test/clojure/test_clojure/vars.clj" :line 67 :name test-with-redefs-fn :reason "Unable to resolve symbol: Thread. in this context" :missing [Thread.]}
+  {:file "test/clojure/test_clojure/vars.clj" :line 76 :name test-with-redefs :reason "Unable to resolve symbol: Thread. in this context" :missing [Thread.]}
+  {:file "test/clojure/test_clojure/vars.clj" :line 84 :name test-with-redefs-throw :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 18 :name test-reversed-vec :reason "Unable to resolve symbol: clojure.lang.APersistentVector$RSeq in this context" :missing [clojure.lang.APersistentVector$RSeq]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 37 :name test-vecseq :reason "Unable to resolve symbol: clojure.lang.PersistentList/EMPTY in this context" :missing [clojure.lang.PersistentList/EMPTY]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 289 :name test-vec-associative :reason "Unable to resolve symbol: clojure.lang.MapEntry. in this context" :missing [clojure.lang.MapEntry.]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 317 :name test-vec-creation :reason "Unable to resolve symbol: clojure.core.Vec in this context" :missing [clojure.core.Vec]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 410 :name test-vec :reason "Unable to resolve protocol: clojure.lang.IReduceInit" :missing []}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 428 :name test-vector-eqv-to-non-counted-types :reason "Unable to resolve symbol: new in this context" :missing [new]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 436 :reason "Unable to resolve var: *warn-on-reflection* in this context" :missing [*warn-on-reflection*]}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 439 :name remember :reason "Unable to resolve protocol: Consumer" :missing []}
+  {:file "test/clojure/test_clojure/vectors.clj" :line 485 :name test-vector-parallel-stream :reason "Unable to resolve symbol: Collectors/counting in this context" :missing [Collectors/counting]}
   {:file "test/clojure/test_helper.clj" :line 21 :reason "Unable to resolve symbol: System/getProperty in this context" :missing [System/getProperty]}
   {:file "test/clojure/test_helper.clj" :line 93 :name exception :reason "Unable to resolve symbol: new in this context" :missing [new]}
  ]
@@ -89,13 +177,31 @@
   {:name clojure.test-clojure.data-structures/set-equality-test :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/is-same-collection" :missing [clojure.test-clojure.data-structures/is-same-collection]}
   {:name clojure.test-clojure.data-structures/test-seq-iter-match :status :error :reason "Cannot send to a map: not an Objective-C object" :missing [] :note "seq-iter-match calls .iterator/.hasNext/.next on the collection: a java.util.Iterator has no counterpart here, and seq order against itself is what the test checks"}
   {:name clojure.test-clojure.data-structures/unordered-set-hashes-match :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/hash-unordered" :missing [clojure.test-clojure.data-structures/hash-unordered]}
+  {:name clojure.test-clojure.errors/ex-info-arities-construct-equivalent-exceptions :status :error :reason "Cannot send to a exception: not an Objective-C object" :missing [] :note "(.getMessage ex), (.getData ex) and (.getCause ex) are JVM methods on a Throwable; ex-message, ex-data and ex-cause of the same two ex-infos are what the file's other arity tests compare"}
+  {:name clojure.test-clojure.for/Doseq-While :status :error :reason "Unbound var: #'clojure.test-clojure.for/only" :missing [clojure.test-clojure.for/only]}
+  {:name clojure.test-clojure.for/Doseq-While-and-When :status :error :reason "Unbound var: #'clojure.test-clojure.for/only" :missing [clojure.test-clojure.for/only]}
+  {:name clojure.test-clojure.for/For-While :status :error :reason "Unbound var: #'clojure.test-clojure.for/only" :missing [clojure.test-clojure.for/only]}
+  {:name clojure.test-clojure.for/For-While-and-When :status :error :reason "Unbound var: #'clojure.test-clojure.for/only" :missing [clojure.test-clojure.for/only]}
+  {:name clojure.test-clojure.multimethods/global-hierarchy-test :status :error :reason "Unbound var: #'clojure.test-clojure.multimethods/hierarchy-tags" :missing [clojure.test-clojure.multimethods/hierarchy-tags]}
+  {:name clojure.test-clojure.multimethods/methods-test :status :fail :reason "(= #{:a :b} (into #{} (keys (methods simple2))))" :missing [] :note "defmulti is defonce, so the second run keeps the method table the first left: after (remove-method simple2 :a) the test re-adds :a and (methods simple2) has three keys where it expects two. Not re-runnable on the JVM either" :flaky true}
+  {:name clojure.test-clojure.multimethods/using-diamond-inheritance :status :error :reason "Unbound var: #'clojure.test-clojure.multimethods/hierarchy-tags" :missing [clojure.test-clojure.multimethods/hierarchy-tags]}
   {:name clojure.test-clojure.numbers/equality-tests :status :error :reason "Unbound var: #'clojure.test-clojure.numbers/all-pairs-equal" :missing [clojure.test-clojure.numbers/all-pairs-equal]}
   {:name clojure.test-clojure.numbers/test-abs :status :error :reason "integer overflow" :missing [] :note "accepted deviation: (abs Long/MIN_VALUE) throws here, where Math/abs returns the two's-complement wrap of a value it cannot represent; abs is (if (neg? a) (- a) a) over the checked negation (design §8, docs/jvm-differences.md)"}
   {:name clojure.test-clojure.numbers/test-expected-casts :status :error :reason "Unbound var: #'clojure.test-clojure.numbers/expected-casts" :missing [clojure.test-clojure.numbers/expected-casts]}
+  {:name clojure.test-clojure.predicates/test-preds :status :error :reason "Unbound var: #'clojure.test-clojure.predicates/pred-val-table" :missing [clojure.test-clojure.predicates/pred-val-table]}
+  {:name clojure.test-clojure.predicates/test-type-preds :status :error :reason "Unbound var: #'clojure.test-clojure.predicates/type-preds" :missing [clojure.test-clojure.predicates/type-preds]}
   {:name clojure.test-clojure.sequences/test-lazy-seq :status :error :reason "Cannot send to a lazy-seq: not an Objective-C object" :missing [] :note "(.equals (lazy-seq [3]) (lazy-seq [3N])) is a JVM method call; the = assertions of the same test pass"}
   {:name clojure.test-clojure.sequences/test-longrange-corners :status :error :reason "Unbound var: #'clojure.test-clojure.sequences/unlimited-range-create" :missing [clojure.test-clojure.sequences/unlimited-range-create]}
   {:name clojure.test-clojure.sequences/test-reduce-on-coll-seqs :status :fail :reason "(and (= [:init [1 1] [2 2]] (reduce conj [:init] (seq {2 2, 1 1}))) (= [1 1 [2 2]] (reduce conj (seq {2 2, 1 1}))))" :missing [] :note "accepted deviation: a map literal of two keys seqs as ([2 2] [1 1]) here and as ([1 1] [2 2]) on the JVM, whose small maps are insertion-ordered array maps (design §8, docs/jvm-differences.md)"}
   {:name clojure.test-clojure.sequences/test-seq :status :error :reason "Cannot send to a vector-seq: not an Objective-C object" :missing [] :note "(.equals (seq [3]) (seq [3N])) is a JVM method call; the = assertions of the same test pass"}
+  {:name clojure.test-clojure.transients/dissocing :status :error :reason "type is not a protocol" :missing [] :note "(reify Object (hashCode [_] 42)) reifies a JVM class: Object is a type here, not a protocol, and a collision node needs two values that are not = under one hash"}
+  {:name clojure.test-clojure.transients/empty-transient :status :error :reason "Cannot send to a set: not an Objective-C object" :missing [] :note "(.contains (transient #{}) k) is a java.util.Collection method; contains? of the same set is covered by data_structures"}
+  {:name clojure.test-clojure.transients/persistent-assoc-on-collision :status :error :reason "type is not a protocol" :missing [] :note "(reify Object (hashCode [_] 42)) reifies a JVM class: Object is a type here, not a protocol"}
+  {:name clojure.test-clojure.transients/transient-mod-after-persistent :status :fail :reason "(thrown? IllegalAccessError (conj! t2 5))" :missing [] :note "accepted deviation: a transient is the persistent collection here, so conj! after persistent! cannot throw (design §8, docs/jvm-differences.md)"}
+  {:name clojure.test-clojure.vectors/empty-vector-equality :status :error :reason "Cannot send to a vector: not an Objective-C object" :missing [] :note "(.equals c1 c2) is a JVM method; the = assertions of the same test pass"}
+  {:name clojure.test-clojure.vectors/test-empty-vector-spliterator :status :error :reason "Cannot send to a vector: not an Objective-C object" :missing [] :note "(.spliterator v) is a java.util.Collection method with no counterpart here"}
+  {:name clojure.test-clojure.vectors/test-spliterator-trySplit :status :error :reason "Unbound var: #'clojure.test-clojure.vectors/remember" :missing [clojure.test-clojure.vectors/remember]}
+  {:name clojure.test-clojure.vectors/test-vec-compare :status :error :reason "Cannot send to a vector: not an Objective-C object" :missing [] :note "(.compare ...) calls the vector as a java.util.Comparator; compare over the same vectors is covered by data_structures"}
  ]
  :skipped
  []}

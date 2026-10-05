@@ -507,7 +507,7 @@ CLJC_FRAME clj_value clojure_template_do_template_v4(clj_value self, const clj_v
 	s[3] = args[3];
 	clj_value l4 = CLJ_NIL;
 	clj_value l5 = CLJ_NIL;
-	l4 = nargs > 4 ? clj_list_from_array(args + 4, nargs - 4) : CLJ_NIL;
+	l4 = clj_rest_args(args, nargs, 4);
 	clj_ccall cc;
 	CLJC_ENTER(&S[1], &cc);
 #line 17 "<embedded>/clojure/template.clj"

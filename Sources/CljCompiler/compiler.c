@@ -2865,8 +2865,8 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	emit_promoted_decls(&f);
 	if (a->variadic) {
 		uint32_t r = a->nparams;
-		if (promoted(&f, r)) sb_printf(&f.out, "\tl%u = nargs > %u ? clj_list_from_array(args + %u, nargs - %u) : CLJ_NIL;\n", r, r, r, r);
-		else sb_printf(&f.out, "\ts[%u] = nargs > %u ? clj_list_from_array(args + %u, nargs - %u) : CLJ_NIL;\n\tfr.owned |= (uint64_t)1 << %u;\n", r, r, r, r, r);
+		if (promoted(&f, r)) sb_printf(&f.out, "\tl%u = clj_rest_args(args, nargs, %u);\n", r, r);
+		else sb_printf(&f.out, "\ts[%u] = clj_rest_args(args, nargs, %u);\n\tfr.owned |= (uint64_t)1 << %u;\n", r, r, r);
 	}
 	if (a->self_slot >= 0) emit_slot_arrival(&f, (uint32_t)a->self_slot, "self");
 	if (a->nslots > 64) {

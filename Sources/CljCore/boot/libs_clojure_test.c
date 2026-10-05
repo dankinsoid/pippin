@@ -662,7 +662,7 @@ CLJC_FRAME clj_value clojure_test_with_test_out_v2(clj_value self, const clj_val
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
-	l2 = nargs > 2 ? clj_list_from_array(args + 2, nargs - 2) : CLJ_NIL;
+	l2 = clj_rest_args(args, nargs, 2);
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 24 "<embedded>/clojure/test.clj"
@@ -25089,7 +25089,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	clj_value l6 = CLJ_NIL;
 	clj_value l7 = CLJ_NIL;
 	clj_value l8 = CLJ_NIL;
-	l4 = nargs > 4 ? clj_list_from_array(args + 4, nargs - 4) : CLJ_NIL;
+	l4 = clj_rest_args(args, nargs, 4);
 	clj_ccall cc;
 	CLJC_ENTER(&S[27], &cc);
 #line 209 "<embedded>/clojure/test.clj"
@@ -25611,7 +25611,7 @@ CLJC_FRAME clj_value clojure_test_testing_v3(clj_value self, const clj_value *ca
 	clj_value l2 = args[2];
 	(void)l2;
 	clj_value l3 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[28], &cc);
 #line 217 "<embedded>/clojure/test.clj"
@@ -26049,7 +26049,7 @@ CLJC_FRAME clj_value clojure_test_with_test_v3(clj_value self, const clj_value *
 	clj_value l2 = args[2];
 	(void)l2;
 	clj_value l3 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[29], &cc);
 #line 228 "<embedded>/clojure/test.clj"
@@ -26647,7 +26647,7 @@ CLJC_FRAME clj_value clojure_test_deftest_v3(clj_value self, const clj_value *ca
 	clj_value l2 = args[2];
 	(void)l2;
 	clj_value l3 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[30], &cc);
 #line 235 "<embedded>/clojure/test.clj"
@@ -27596,7 +27596,7 @@ CLJC_FRAME clj_value clojure_test_deftest__v3(clj_value self, const clj_value *c
 	clj_value l2 = args[2];
 	(void)l2;
 	clj_value l3 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[31], &cc);
 #line 242 "<embedded>/clojure/test.clj"
@@ -28549,7 +28549,7 @@ CLJC_FRAME clj_value clojure_test_set_test_v3(clj_value self, const clj_value *c
 	clj_value l2 = args[2];
 	(void)l2;
 	clj_value l3 = CLJ_NIL;
-	l3 = nargs > 3 ? clj_list_from_array(args + 3, nargs - 3) : CLJ_NIL;
+	l3 = clj_rest_args(args, nargs, 3);
 	clj_ccall cc;
 	CLJC_ENTER(&S[32], &cc);
 #line 249 "<embedded>/clojure/test.clj"
@@ -29129,7 +29129,7 @@ static CLJC_FRAME clj_value clojure_test_form59__0_v1(clj_value self, const clj_
 	clj_value l0 = args[0];
 	(void)l0;
 	clj_value l1 = CLJ_NIL;
-	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
+	l1 = clj_rest_args(args, nargs, 1);
 	clj_ccall cc;
 	CLJC_ENTER(&S[33], &cc);
 #line 259 "<embedded>/clojure/test.clj"
@@ -29308,7 +29308,7 @@ static CLJC_FRAME clj_value clojure_test_form60__0_v1(clj_value self, const clj_
 	clj_value l0 = args[0];
 	(void)l0;
 	clj_value l1 = CLJ_NIL;
-	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
+	l1 = clj_rest_args(args, nargs, 1);
 	clj_ccall cc;
 	CLJC_ENTER(&S[34], &cc);
 #line 262 "<embedded>/clojure/test.clj"
@@ -29481,7 +29481,7 @@ static CLJC_FRAME clj_value clojure_test_form62__0_v1(clj_value self, const clj_
 	clj_value l0 = args[0];
 	(void)l0;
 	clj_value l1 = CLJ_NIL;
-	l1 = nargs > 1 ? clj_list_from_array(args + 1, nargs - 1) : CLJ_NIL;
+	l1 = clj_rest_args(args, nargs, 1);
 	clj_ccall cc;
 	CLJC_ENTER(&S[35], &cc);
 #line 265 "<embedded>/clojure/test.clj"
@@ -31646,7 +31646,7 @@ CLJC_FRAME clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *
 	(void)fr;
 	clj_value l0 = CLJ_NIL;
 	clj_value l1 = CLJ_NIL;
-	l0 = nargs > 0 ? clj_list_from_array(args + 0, nargs - 0) : CLJ_NIL;
+	l0 = clj_rest_args(args, nargs, 0);
 	clj_ccall cc;
 	CLJC_ENTER(&S[49], &cc);
 #line 336 "<embedded>/clojure/test.clj"

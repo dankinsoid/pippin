@@ -150,3 +150,19 @@
   like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
   `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
 
+- **Five gaps Clojure's own `vars`, `ns_libs`, `transducers` and `clojure_walk` tests found.**
+  `clojure.walk/walk` dropped the metadata of a list, a seq and a record and turned a record into a map:
+  the list and seq branches now carry `(meta form)` over and a `record?` branch `conj`s onto the record
+  itself, since `(empty record)` is a map. `with-redefs-fn` saved `deref` as the old root, so under a
+  `binding` it restored the *bound* value as the root and the binding's own value outlived it
+  (`test-with-redefs-inside-binding`); it reads `var-root*` now, and `alter-var-root` applies its fn to
+  the root for the same reason. `load-libs` filtered every keyword out as a flag, so `(require :foo)`
+  loaded nothing silently and `(require)` did nothing at all; an unknown flag and an empty argument list
+  are errors, as on the JVM. `load-lib` aliased only one of `:as` and `:as-alias`, so
+  `(require '[clojure.set :as n1 :as-alias n2])` left `n2` unbound, and `:as-alias` beside `:as` or `:use`
+  must still load the lib. `sequence` gained its multi-collection arity (the step takes one input per
+  collection and ends with the shortest), the gap `docs/api-parity.md` named; `vec`/`every?` stand in for
+  `mapv`/`some?`, which core.clj defines further down.
+- **`Eduction` carries `Sequential`**, so `(= [1 2 3] (eduction (map inc) (range 3)))` answers as on the
+  JVM: a vector's `equals` compares against anything sequential (vector.c), and `Eduction` had only
+  `Seqable` and `IReduceInit`. It still prints as an object, as the JVM's does.

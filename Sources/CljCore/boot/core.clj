@@ -963,7 +963,24 @@
                           (seq out) (concat out (step (rest s)))
                           :else (recur (next s))))
                       (do (xf nil) (seq (drain)))))))]
-     (step coll))))
+     (step coll)))
+  ;; The step takes one input per collection, so (sequence (map +) a b) adds pairs; it ends with the shortest.
+  ([xform coll & colls]
+   (let [buf (volatile! [])
+         xf (xform (fn ([] nil) ([acc] acc) ([acc x] (vswap! buf conj x) nil)))
+         drain (fn [] (let [out @buf] (vreset! buf []) out))
+         step (fn step [ss]
+                (lazy-seq
+                  (loop [ss (vec (map seq ss))]
+                    (if (every? identity ss)
+                      (let [r (apply xf nil (map first ss))
+                            out (drain)]
+                        (cond
+                          (reduced? r) (do (xf nil) (concat out (drain)))
+                          (seq out) (concat out (step (vec (map rest ss))))
+                          :else (recur (vec (map next ss)))))
+                      (do (xf nil) (seq (drain)))))))]
+     (step (cons coll colls)))))
 
 (defn halt-when
   "Returns a transducer that ends transduction when pred is true for an input. When retf is
@@ -2160,6 +2177,7 @@
 ;; A deftype, not a C type: the IReduceInit slot trampoline (proto.c) makes this four lines, and reduce on
 ;; it reaches the source through the source's own slot with no seq in between.
 (deftype ^:pippin/extension Eduction [xform coll]
+  Sequential
   Seqable
   (seq [_] (seq (sequence xform coll)))
   IReduceInit
@@ -2247,8 +2265,9 @@
   "Temporarily rebinds the roots of the vars in binding-map (var → value) while calling func, then
   restores them. The roots are process-wide: every thread sees the change."
   [binding-map func]
+  ;; The roots, not deref: under a binding deref answers the bound value, which would be restored as the root.
   (let [root-bind (fn [m] (doseq [[a-var a-val] m] (alter-var-root a-var (fn [_] a-val))))
-        old-vals (zipmap (keys binding-map) (map deref (keys binding-map)))]
+        old-vals (zipmap (keys binding-map) (map var-root* (keys binding-map)))]
     (try
       (root-bind binding-map)
       (func)
@@ -2568,18 +2587,26 @@
         use? (:use opts)
         reload (or (:reload opts) (:reload-all opts))]
     (when-not (symbol? lib) (throw (ex-info (str "lib names must be symbols: " lib) {})))
-    (when (and (not as-alias) (or reload (not (contains? @*loaded-libs* lib))))
-      (load-one lib))
-    (when as-alias (create-ns lib))
-    (when (or as as-alias) (alias (or as as-alias) lib))
+    ;; :as-alias alone only names the namespace; :as or :use asks for the lib itself, even beside :as-alias.
+    (if (and as-alias (not (or as use?)))
+      (create-ns lib)
+      (when (or reload (not (contains? @*loaded-libs* lib))) (load-one lib)))
+    (when as (alias as lib))
+    (when as-alias (alias as-alias lib))
     (when (or use? refer-opt)
       (apply refer lib (mapcat (fn [k] (when-let [v (get opts k)] [k v])) [:refer :only :exclude :rename])))
     nil))
+
+(def ^:private load-libs-flags #{:as :as-alias :exclude :only :refer :reload :reload-all :rename :require :use :verbose})
 
 (defn- load-libs [& args]
   (let [flags (filter keyword? args)
         opts (interleave flags (repeat true))
         args (filter (complement keyword?) args)]
+    ;; A misspelled flag would otherwise be filtered out and load nothing, silently.
+    (when-let [unsupported (seq (remove load-libs-flags flags))]
+      (throw (ex-info (str "Unsupported option(s) supplied: " (apply str (interpose \, unsupported))) {:unsupported unsupported})))
+    (when-not (seq args) (throw (ex-info "Nothing specified to load" {})))
     (doseq [arg args]
       (if (libspec? arg)
         (apply load-lib nil (concat (if (symbol? arg) [arg] arg) opts))

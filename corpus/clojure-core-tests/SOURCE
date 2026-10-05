@@ -6,22 +6,41 @@ Tag:        clojure-1.12.6 (the version docs/api-parity.md names, so the suite a
 License:    Eclipse Public License 1.0 (LICENSE; the repository ships it as epl-v10.html, and every
             file keeps its own copyright header)
 
-Files taken, unmodified (the nine files design §10 names, plus the in-tree helpers they require):
-  test/clojure/test_helper.clj                    -> test/clojure/test_helper.clj
-  test/clojure/test_clojure/control.clj           -> test/clojure/test_clojure/control.clj
-  test/clojure/test_clojure/data_structures.clj   -> test/clojure/test_clojure/data_structures.clj
-  test/clojure/test_clojure/def.clj               -> test/clojure/test_clojure/def.clj
-  test/clojure/test_clojure/fn.clj                -> test/clojure/test_clojure/fn.clj
-  test/clojure/test_clojure/logic.clj             -> test/clojure/test_clojure/logic.clj
-  test/clojure/test_clojure/macros.clj            -> test/clojure/test_clojure/macros.clj
-  test/clojure/test_clojure/numbers.clj           -> test/clojure/test_clojure/numbers.clj
-  test/clojure/test_clojure/sequences.clj         -> test/clojure/test_clojure/sequences.clj
-  test/clojure/test_clojure/string.clj            -> test/clojure/test_clojure/string.clj
+Files taken, unmodified (the nine files design §10 names, the portable rest of test_clojure/, and the
+in-tree helpers they require):
+  test/clojure/test_helper.clj                     -> test/clojure/test_helper.clj
+  test/clojure/test_clojure/atoms.clj              -> test/clojure/test_clojure/atoms.clj
+  test/clojure/test_clojure/clojure_set.clj        -> test/clojure/test_clojure/clojure_set.clj
+  test/clojure/test_clojure/clojure_walk.clj       -> test/clojure/test_clojure/clojure_walk.clj
+  test/clojure/test_clojure/control.clj            -> test/clojure/test_clojure/control.clj
+  test/clojure/test_clojure/data_structures.clj    -> test/clojure/test_clojure/data_structures.clj
+  test/clojure/test_clojure/def.clj                -> test/clojure/test_clojure/def.clj
+  test/clojure/test_clojure/delays.clj             -> test/clojure/test_clojure/delays.clj
+  test/clojure/test_clojure/errors.clj             -> test/clojure/test_clojure/errors.clj
+  test/clojure/test_clojure/evaluation.clj         -> test/clojure/test_clojure/evaluation.clj
+  test/clojure/test_clojure/fn.clj                 -> test/clojure/test_clojure/fn.clj
+  test/clojure/test_clojure/for.clj                -> test/clojure/test_clojure/for.clj
+  test/clojure/test_clojure/keywords.clj           -> test/clojure/test_clojure/keywords.clj
+  test/clojure/test_clojure/logic.clj              -> test/clojure/test_clojure/logic.clj
+  test/clojure/test_clojure/macros.clj             -> test/clojure/test_clojure/macros.clj
+  test/clojure/test_clojure/multimethods.clj       -> test/clojure/test_clojure/multimethods.clj
+  test/clojure/test_clojure/numbers.clj            -> test/clojure/test_clojure/numbers.clj
+  test/clojure/test_clojure/other_functions.clj    -> test/clojure/test_clojure/other_functions.clj
+  test/clojure/test_clojure/predicates.clj         -> test/clojure/test_clojure/predicates.clj
+  test/clojure/test_clojure/sequences.clj          -> test/clojure/test_clojure/sequences.clj
+  test/clojure/test_clojure/special.clj            -> test/clojure/test_clojure/special.clj
+  test/clojure/test_clojure/string.clj             -> test/clojure/test_clojure/string.clj
+  test/clojure/test_clojure/transducers.clj        -> test/clojure/test_clojure/transducers.clj
+  test/clojure/test_clojure/transients.clj         -> test/clojure/test_clojure/transients.clj
+  test/clojure/test_clojure/vars.clj               -> test/clojure/test_clojure/vars.clj
+  test/clojure/test_clojure/vectors.clj            -> test/clojure/test_clojure/vectors.clj
+  test/clojure/test_clojure/volatiles.clj          -> test/clojure/test_clojure/volatiles.clj
 
 Not taken: every other file of test/clojure/test_clojure/. The rule and the per-file reasons are in
 docs/notes/corpus.md, "Clojure's own suite: what is in and what is out".
 
-shim/ is ours, not Clojure's: stand-ins for the support namespaces the nine files require and the JVM test
-tooling supplies (clojure.data.generators, clojure.test.generative, clojure.test.check.*, Clojure's own
-test_clojure/generators.clj) plus an empty clojure.test-clojure.protocols, so a file's own (ns ...) form
-loads instead of taking the whole file down with it. Each shim file says what it stands in for.
+shim/ is ours, not Clojure's: stand-ins for the support namespaces the files require and the JVM test
+tooling supplies (clojure.data.generators, clojure.test.generative, clojure.test.check and
+clojure.test.check.*, Clojure's own test_clojure/generators.clj) plus an empty
+clojure.test-clojure.protocols, so a file's own (ns ...) form loads instead of taking the whole file
+down with it. Each shim file says what it stands in for.
