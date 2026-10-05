@@ -221,8 +221,17 @@
           (list* new-params body)
           (list new-params `(let ~lets ~@body)))))))
 
+;; assert is defined below, so the call is written out rather than syntax-quoted.
+(def ^:private cond-asserts
+  (fn* [cs]
+    (loop* [cs (seq cs) acc []]
+      (if cs
+        (recur (next cs) (conj acc (list 'clojure.core/assert (first cs))))
+        acc))))
+
 (def ^{:doc "(fn name? [params*] body) or (fn name? ([params*] body)+). fn* plus destructuring
-  in the parameter vectors; name, when given, is in scope in the body."
+  in the parameter vectors, and a leading map in a body of two or more forms is a :pre/:post
+  condition map, with % bound to the return value in :post; name, when given, is in scope in the body."
        :arglists '([& sigs])
        :macro true}
   fn
@@ -245,7 +254,23 @@
                     (if (vector? params)
                       nil
                       (throw (ex-info (str "Parameter declaration " params " should be a vector") nil)))
-                    (maybe-destructured params (next sig))))
+                    (let* [body (next sig)
+                           ;; A lone map is the body, not a condition map, as in Clojure.
+                           conds (if (next body) (if (map? (first body)) (first body) nil) nil)
+                           body (if conds (next body) body)
+                           conds (if conds conds (meta params))
+                           post (get conds :post)
+                           pre (get conds :pre)
+                           body (if post
+                                  (list (list* 'clojure.core/let
+                                               ['% (if (next body) (cons 'do body) (first body))]
+                                               (conj (cond-asserts post) '%)))
+                                  body)
+                           body (if pre
+                                  (loop* [v (cond-asserts pre) b (seq body)]
+                                    (if b (recur (conj v (first b)) (next b)) v))
+                                  body)]
+                      (maybe-destructured params body))))
            new-sigs (loop* [s (seq sigs) acc []]
                       (if s
                         (recur (next s) (conj acc (psig (first s))))
@@ -433,15 +458,20 @@
        (when temp#
          (let [~form temp#] ~@body)))))
 
+(def ^:dynamic *assert*
+  "False elides every assert and every fn :pre/:post condition expanded while it is bound." true)
+
 (defmacro assert
   "Throws when x is logical false, reporting the form and the message when given.
-  Always evaluated: there is no flag to elide it."
+  Read at expansion time, so a binding of *assert* governs the forms expanded under it, not the calls."
   ([x]
-   `(when-not ~x
-      (throw (ex-info (str "Assert failed: " (pr-str '~x)) {}))))
+   (when *assert*
+     `(when-not ~x
+        (throw (ex-info (str "Assert failed: " (pr-str '~x)) {})))))
   ([x message]
-   `(when-not ~x
-      (throw (ex-info (str "Assert failed: " ~message "\n" (pr-str '~x)) {})))))
+   (when *assert*
+     `(when-not ~x
+        (throw (ex-info (str "Assert failed: " ~message "\n" (pr-str '~x)) {}))))))
 
 (defmacro declare
   "Interns each name unbound, so forms written above its definition can refer to it."

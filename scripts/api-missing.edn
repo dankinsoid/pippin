@@ -48,7 +48,6 @@
  *print-meta*          {:verdict :keep :why "with `*print-readably*`; cljs keeps it"}
  *print-dup*           {:verdict :keep :why "with `*print-readably*`; cljs keeps the var (its printer honours `:dup`)"}
  *print-namespace-maps* {:verdict :keep :why "with `*print-readably*`; cljs keeps it, and the `#:ns{}` form is in our reader"}
- *assert*              {:verdict :keep :why "cljs keeps it and its `assert` reads it; ours expands unconditionally (core.clj)"}
  *command-line-args*   {:verdict :keep :why "cljs keeps it; our hosts have argv (`clj-load`, `clj-nrepl`)"}
  *repl*                {:verdict :keep :why "we have a REPL, and the nREPL session is the frame that would bind it (NOTES \"nREPL\"); cljs dropped it for lack of one"}
  *source-path*         {:verdict :keep :why "named as a remaining tail of nREPL (NOTES \"nREPL\"), so the work is already owed"}

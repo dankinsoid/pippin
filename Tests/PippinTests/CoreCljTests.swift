@@ -178,6 +178,17 @@ extension CoreTests {
 				#expect(try eval("(assert 1 \"msg\")") == nil)
 				#expect(message("(assert (= 1 2))") == "Assert failed: (= 1 2)")
 				#expect(message("(assert nil \"must hold\")") == "Assert failed: must hold\\nnil")
+				// *assert* is read where the form expands, so a binding governs what is expanded under it.
+				#expect(try eval("*assert*") == true)
+				#expect(try eval("(binding [*assert* false] (eval '(assert false)))") == nil)
+				// A leading map in a body of two or more forms is a :pre/:post condition map; % is the value.
+				#expect(try eval("((fn [x] {:pre [(pos? x)]} (* x 2)) 3)") == 6)
+				#expect(message("((fn [x] {:pre [(pos? x)]} (* x 2)) -1)") == "Assert failed: (pos? x)")
+				#expect(try eval("((fn [x] {:post [(even? %)]} (inc x) (* x 3)) 2)") == 6)
+				#expect(message("((fn [x] {:post [(even? %)]} (* x 3)) 1)") == "Assert failed: (even? %)")
+				#expect(try eval("((fn ([x] {:pre [(pos? x)]} x) ([x y] {:post [(pos? %)]} (+ x y))) 1 2)") == 3)
+				#expect(try eval("((fn [x] {:a x}) 1)") == Value([kw("a"): 1]))
+				#expect(try eval("(binding [*assert* false] (eval '((fn [x] {:pre [(pos? x)]} x) -5)))") == -5)
 				#expect(try eval("(declare cc-a cc-b)").description == "#'user/cc-b")
 				#expect(try eval("(declare)") == nil)
 				#expect(message("cc-a") == "Unbound var: #'user/cc-a")

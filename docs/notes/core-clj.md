@@ -114,8 +114,8 @@
   completion answers the accumulator so `retf` gets it, as `transduce`'s rf does. `sequence` drops the
   substituted result, as the JVM's TransformerIterator does.
 - **`defn` follows clojure.core's** `name docstring? attr-map? ([params] body)+ attr-map?` but has no
-  `:inline`/`:tag` handling and no `:pre`/`:post` map in `sigs` (a map after the params is a body
-  form, see `fn` below). `doc` handles vars only: no special forms, no namespaces.
+  `:inline`/`:tag` handling; a condition map is `fn`'s business, as on the JVM (see `fn` below).
+  `doc` handles vars only: no special forms, no namespaces.
 - **Protocol macro helpers are private** (`group-impls`, `form-uses?`, `method-fn`, `method-map`,
   `body-as-is`); they run at expansion time inside clojure.core, so user code never resolves them.
   `defprotocol` puts its docstrings in `:doc` (the protocol's on its var, a method's on the method's)
@@ -146,9 +146,13 @@
   still stops. Cooperative only: a native that loops without calling back into Clojure is not interrupted
   (`(hash (range))` is such a loop). The corpus watchdog is the one user so far; an untrusted-code host is
   the other.
-- [ ] **`fn` has no `:pre`/`:post` conditions**: a map as the first body form is evaluated and discarded
-  like any expression. Trigger: the first `{:pre [...]}`; the `fn` macro then wraps the body in
-  `assert`s as Clojure's does (`assert` is defined below it, so the wrap must use `when-not`/`throw`).
+- **`fn` wraps a `:pre`/`:post` condition map in `assert`s**, as clojure.core does: a map as the first form
+  of a body of two or more is the condition map (a lone map is the body), `(meta params)` is read when the
+  body carries none, and `:post` binds `%` to the value a `let` around the body holds. The expansion names
+  `clojure.core/assert` outright rather than through syntax-quote, because `assert` is defined below `fn`.
+  `*assert*` is read at expansion time, so a `binding` of it governs the forms expanded under it and not the
+  calls — the JVM's semantics. tools.cli, malli and math.combinatorics all carry conditions; before this
+  `%` was an unresolved symbol in every `:post` and an assertion was a map the body discarded.
 
 - **Five gaps Clojure's own `vars`, `ns_libs`, `transducers` and `clojure_walk` tests found.**
   `clojure.walk/walk` dropped the metadata of a list, a seq and a record and turned a record into a map:

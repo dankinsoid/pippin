@@ -9,13 +9,13 @@ The third column is ClojureScript 1.11.132, the measure of admissible divergence
 | | count |
 |---|---|
 | JVM public vars | 679 |
-| ours | 697 |
+| ours | 698 |
 | cljs.core publics | 928 |
-| in both | 488 |
-| missing here | 191 |
-| missing here, kept by cljs | 64 |
+| in both | 489 |
+| missing here | 190 |
+| missing here, kept by cljs | 63 |
 | missing here, absent from cljs too | 127 |
-| missing and used by the corpus | 55 |
+| missing and used by the corpus | 54 |
 | ours only, public | 106 |
 | ours only, internal (`name*`) | 103 |
 | ours only, public without `^:pippin/extension` | 0 |
@@ -52,7 +52,6 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 | 3 | `unchecked-long` | yes | `([x])` |
 | 3 | `unchecked-short` | yes | `([x])` |
 | 3 | `with-open` | no | `([bindings & body])` |
-| 2 | `*assert*` | yes | `nil` |
 | 2 | `*err*` | no | `nil` |
 | 2 | `agent` | no | `([state & options])` |
 | 2 | `agent-error` | no | `([a])` |
@@ -89,10 +88,11 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 | 0 | `*clojure-version*` | no | `nil` |
 | 0 | `*command-line-args*` | yes | `nil` |
 | 0 | `*compile-files*` | no | `nil` |
+| 0 | `*compile-path*` | no | `nil` |
 
 ## Every missing name
 
-Kept by cljs: `*assert*` `*command-line-args*` `*flush-on-newline*` `*out*` `*print-dup*` `*print-meta*` `*print-namespace-maps*` `*print-readably*` `->ArrayChunk` `..` `Inst` `Throwable->map` `add-tap` `booleans` `bytes` `chars` `chunk` `chunk-append` `chunk-buffer` `chunk-cons` `chunk-first` `chunk-next` `chunk-rest` `chunked-seq?` `comparator` `doubles` `floats` `hash-combine` `hash-ordered-coll` `hash-unordered-coll` `import` `inst-ms*` `ints` `longs` `memfn` `mix-collection-hash` `munge` `ns-imports` `remove-tap` `replace` `seq-to-map-for-destructuring` `shorts` `tagged-literal` `tagged-literal?` `tap>` `test` `time` `to-array-2d` `unchecked-add-int` `unchecked-byte` `unchecked-char` `unchecked-dec-int` `unchecked-divide-int` `unchecked-double` `unchecked-float` `unchecked-inc-int` `unchecked-int` `unchecked-long` `unchecked-multiply-int` `unchecked-negate-int` `unchecked-remainder-int` `unchecked-short` `unchecked-subtract-int` `uri?`
+Kept by cljs: `*command-line-args*` `*flush-on-newline*` `*out*` `*print-dup*` `*print-meta*` `*print-namespace-maps*` `*print-readably*` `->ArrayChunk` `..` `Inst` `Throwable->map` `add-tap` `booleans` `bytes` `chars` `chunk` `chunk-append` `chunk-buffer` `chunk-cons` `chunk-first` `chunk-next` `chunk-rest` `chunked-seq?` `comparator` `doubles` `floats` `hash-combine` `hash-ordered-coll` `hash-unordered-coll` `import` `inst-ms*` `ints` `longs` `memfn` `mix-collection-hash` `munge` `ns-imports` `remove-tap` `replace` `seq-to-map-for-destructuring` `shorts` `tagged-literal` `tagged-literal?` `tap>` `test` `time` `to-array-2d` `unchecked-add-int` `unchecked-byte` `unchecked-char` `unchecked-dec-int` `unchecked-divide-int` `unchecked-double` `unchecked-float` `unchecked-inc-int` `unchecked-int` `unchecked-long` `unchecked-multiply-int` `unchecked-negate-int` `unchecked-remainder-int` `unchecked-short` `unchecked-subtract-int` `uri?`
 
 Absent from cljs too: `*agent*` `*allow-unresolved-vars*` `*clojure-version*` `*compile-files*` `*compile-path*` `*compiler-options*` `*err*` `*fn-loader*` `*math-context*` `*read-eval*` `*reader-resolver*` `*repl*` `*source-path*` `*suppress-read*` `*unchecked-math*` `*use-context-classloader*` `*verbose-defrecords*` `*warn-on-reflection*` `->Vec` `->VecNode` `->VecSeq` `-cache-protocol-fn` `-reset-methods` `EMPTY-NODE` `PrintWriter-on` `StackTraceElement->vec` `accessor` `add-classpath` `agent` `agent-error` `agent-errors` `alter` `await` `await-for` `await1` `bases` `bean` `bytes?` `cast` `char-escape-string` `char-name-string` `class` `class?` `clear-agent-errors` `clojure-version` `commute` `compile` `construct-proxy` `create-struct` `definline` `definterface` `defstruct` `dosync` `ensure` `enumeration-seq` `error-handler` `error-mode` `extenders` `file-seq` `find-keyword` `find-protocol-impl` `find-protocol-method` `find-var` `gen-class` `gen-interface` `get-proxy-class` `init-proxy` `io!` `iterator-seq` `line-seq` `load` `load-reader` `method-sig` `namespace-munge` `ns-unalias` `primitives-classnames` `print-ctor` `print-dup` `print-method` `print-simple` `proxy` `proxy-call-with-super` `proxy-mappings` `proxy-name` `proxy-super` `read` `read+string` `reader-conditional` `reader-conditional?` `ref` `ref-history-count` `ref-max-history` `ref-min-history` `ref-set` `release-pending-sends` `remove-ns` `requiring-resolve` `restart-agent` `resultset-seq` `send` `send-off` `send-via` `seque` `set-agent-send-executor!` `set-agent-send-off-executor!` `set-error-handler!` `set-error-mode!` `shutdown-agents` `slurp` `spit` `stream-into!` `stream-reduce!` `stream-seq!` `stream-transduce!` `struct` `struct-map` `supers` `sync` `unquote` `unquote-splicing` `update-proxy` `with-in-str` `with-loading-context` `with-local-vars` `with-open` `with-precision` `xml-seq`
 
@@ -106,7 +106,7 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 
 | | count |
 |---|---|
-| keep | 108 |
+| keep | 107 |
 | repoint | 11 |
 | drop | 72 |
 | unclassified | 0 |
@@ -131,7 +131,6 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | 3 | `unchecked-long` | yes | with `unchecked-byte` |
 | 3 | `unchecked-short` | yes | with `unchecked-byte` |
 | 3 | `with-open` | no | with `slurp`; the close call is an ObjC message, not a JVM interface |
-| 2 | `*assert*` | yes | cljs keeps it and its `assert` reads it; ours expands unconditionally (core.clj) |
 | 2 | `*err*` | no | with `*out*`; cljs replaced the pair with `*print-fn*`/`*print-err-fn*`, but our namespace is literally `clojure.core`, so portable code redirects by binding these two |
 | 2 | `agent` | no | §10 promises it; an agent is a carrier-pool send queue over an atom |
 | 2 | `agent-error` | no | with `agent` |
@@ -330,7 +329,7 @@ Arglists of the unclassified, if any: none
 
 ## Dynamic mismatches
 
-`*in*` `pr`
+`*assert*` `*in*` `pr`
 
 ## Arity mismatches
 
