@@ -59,6 +59,12 @@
   length as `char[7]`, never its bytes. So the return spelling is split off that signature and fed back to clang as
   `static <ret> __clj_v_r0;`, one probe for every function of the module at once; a spelling the split got wrong
   fails to compile there and is refused with clang's own message rather than guessed at.
+- **An enum parameter is its underlying integer type, and clang is asked which rather than guessed.** An
+  `NS_ENUM(NSUInteger, …)` parameter desugars to `enum NSSearchPathDirectory` and an anonymous
+  `typedef enum {…} E` desugars to nothing at all, so neither is in the encoding tables. The value probe answers
+  both: `sizeof(T)` and `((T)-1 < (T)0)` are two more expressions for the same `enum : long long` fold, and the
+  pair gives the encoding char. A spelling for which neither folds — a struct, a union — is left to be refused,
+  because `sizeof` folds for those too and the signedness cast does not.
 - **Structs (`deflayout`) are still a line of the report.** Trigger: §10 step 8b's own remainder.
 - **Swift's import of the same header renames and retypes it, and the test is the evidence.** Reading the fixture's
   own global from Swift does not compile as `NSAppKitVersionNumber` — swiftc answers "has been renamed to

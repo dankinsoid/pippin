@@ -9,7 +9,7 @@ The third column is ClojureScript 1.11.132, the measure of admissible divergence
 | | count |
 |---|---|
 | JVM public vars | 679 |
-| ours | 695 |
+| ours | 696 |
 | cljs.core publics | 928 |
 | in both | 488 |
 | missing here | 191 |
@@ -17,7 +17,7 @@ The third column is ClojureScript 1.11.132, the measure of admissible divergence
 | missing here, absent from cljs too | 127 |
 | missing and used by the corpus | 47 |
 | ours only, public | 106 |
-| ours only, internal (`name*`) | 101 |
+| ours only, internal (`name*`) | 102 |
 | ours only, public without `^:pippin/extension` | 0 |
 | macro/fn mismatches | 1 |
 | arity mismatches | 12 |
@@ -359,7 +359,7 @@ C builtins and host primitives carry no :arglists (NOTES.md): `*` `*'` `+` `+'` 
 
 Public: `*loaded-libs*` `->Delay` `->MultiFn` `-add-method` `-deref` `-get-method` `-methods` `-prefer-method` `-prefers` `-realized?` `-remove-all-methods` `-remove-method` `Associative` `Atom` `Boolean` `Character` `Cons` `Counted` `Date` `Delay` `Double` `Eduction` `EmptyList` `ExceptionInfo` `Fn` `HostError` `HostType` `IDeref` `IEditableCollection` `IEquiv` `IExceptionInfo` `IFn` `IHashEq` `ILookup` `IMeta` `IMultiFn` `IObj` `IPending` `IPersistentCollection` `IPersistentList` `IPersistentMap` `IPersistentSet` `IPersistentVector` `IRecord` `IReduceInit` `ISeq` `Indexed` `Integer` `Keyword` `LazySeq` `Long` `Matcher` `MultiFn` `Namespace` `Object` `Pattern` `PersistentHashMap` `PersistentHashSet` `PersistentList` `PersistentQueue` `PersistentTreeMap` `PersistentTreeSet` `PersistentVector` `Protocol` `Range` `Reduced` `Seqable` `Sequential` `String` `Symbol` `Type` `UUID` `Var` `Volatile` `atom?` `clojure.lang.IEditableCollection` `clojure.lang.IRecord` `clojure.lang.PersistentQueue` `doc` `ex-trace` `ex-type` `host-type` `java.util.Date` `java.util.UUID` `ns-array` `ns-array->vec` `ns-dictionary` `ns-dictionary->map` `ns-mutable-string` `ns-string` `ns-string->str` `ns?` `objc-block` `objc-class` `objc-invoke` `objc-object?` `objc-reify` `objc-send` `objc-write!` `profile` `profile-start!` `profile-stop!` `regex?` `require-c` `require-swift` `with-deadline`
 
-Internal helpers (`name*`): `available-processors*` `buffer*` `c-global*` `cancelled?*` `chan*` `chan-alts*` `chan-cancel*` `chan-cancel-cause*` `chan-cancelled?*` `chan-close*` `chan-closed?*` `chan-deliver*` `chan-deref*` `chan-offer*` `chan-poll*` `chan-put*` `chan-put-cb*` `chan-realized?*` `chan-resume*` `chan-suspend*` `chan-suspended?*` `chan-take*` `chan-take-cb*` `chan-timeout*` `chan?*` `coro-cancel-scope*` `coro-current*` `coro-go*` `coro-go-main*` `coro-uncancel-scope*` `deadline-pop*` `deadline-push*` `deftype*` `dropping-buffer*` `extend*` `field*` `fused-count*` `fused-into*` `fused-reduce*` `future*` `future?*` `lazy-seq*` `lazy-seq-realized?*` `lib-path*` `load-resource*` `monitor-enter*` `monitor-exit*` `new*` `ns-exclude*` `ns-refer*` `objc-block*` `objc-kebab*` `objc-reify*` `out-capture-pop*` `out-capture-push*` `promise*` `promise-buffer*` `protocol*` `protocol-epoch*` `protocol-method*` `queue-pop*` `rand*` `range*` `re-quote-replacement*` `re-replace*` `re-split*` `read-inst*` `read-uuid*` `record*` `record-map*` `reify-type*` `require-swift*` `shield-pop*` `shield-push*` `shielded*` `sleep*` `sliding-buffer*` `sort-by*` `sorted-compare*` `sorted-map*` `sorted-seq*` `sorted-seq-from*` `sorted-set*` `str-blank?*` `str-index-of*` `str-last-index-of*` `str-lower*` `str-replace*` `str-replace-first*` `str-reverse*` `str-split*` `str-split-lines*` `str-trim*` `str-triml*` `str-trimr*` `str-upper*` `str-whitespace?*` `thread*` `unblocking-buffer?*` `uncaught-report*` `with-deadline*`
+Internal helpers (`name*`): `available-processors*` `buffer*` `c-fn*` `c-global*` `cancelled?*` `chan*` `chan-alts*` `chan-cancel*` `chan-cancel-cause*` `chan-cancelled?*` `chan-close*` `chan-closed?*` `chan-deliver*` `chan-deref*` `chan-offer*` `chan-poll*` `chan-put*` `chan-put-cb*` `chan-realized?*` `chan-resume*` `chan-suspend*` `chan-suspended?*` `chan-take*` `chan-take-cb*` `chan-timeout*` `chan?*` `coro-cancel-scope*` `coro-current*` `coro-go*` `coro-go-main*` `coro-uncancel-scope*` `deadline-pop*` `deadline-push*` `deftype*` `dropping-buffer*` `extend*` `field*` `fused-count*` `fused-into*` `fused-reduce*` `future*` `future?*` `lazy-seq*` `lazy-seq-realized?*` `lib-path*` `load-resource*` `monitor-enter*` `monitor-exit*` `new*` `ns-exclude*` `ns-refer*` `objc-block*` `objc-kebab*` `objc-reify*` `out-capture-pop*` `out-capture-push*` `promise*` `promise-buffer*` `protocol*` `protocol-epoch*` `protocol-method*` `queue-pop*` `rand*` `range*` `re-quote-replacement*` `re-replace*` `re-split*` `read-inst*` `read-uuid*` `record*` `record-map*` `reify-type*` `require-swift*` `shield-pop*` `shield-push*` `shielded*` `sleep*` `sliding-buffer*` `sort-by*` `sorted-compare*` `sorted-map*` `sorted-seq*` `sorted-seq-from*` `sorted-set*` `str-blank?*` `str-index-of*` `str-last-index-of*` `str-lower*` `str-replace*` `str-replace-first*` `str-reverse*` `str-split*` `str-split-lines*` `str-trim*` `str-triml*` `str-trimr*` `str-upper*` `str-whitespace?*` `thread*` `unblocking-buffer?*` `uncaught-report*` `with-deadline*`
 
 ## clojure.core.async
 

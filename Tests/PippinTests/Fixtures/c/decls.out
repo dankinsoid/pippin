@@ -6,6 +6,7 @@ true true
 "from a Class the header found" true
 "Wrong number of args (0) passed to: strlen"
 "Argument 1 of strlen: a long does not convert to '*'"
+true true true
 true "Cannot send to a raw '^v' pointer"
 true
 "NSBundleDidLoadNotification" true

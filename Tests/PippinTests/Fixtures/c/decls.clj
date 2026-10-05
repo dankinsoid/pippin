@@ -2,6 +2,7 @@
 (ns fixture.c-decls
   (:require-c [AppKit :as ak :refer [NSTextAlignmentCenter NSUnderlineStyleDouble NSAppKitVersionNumber
                                      NSBundleDidLoadNotification NSClassFromString NSHomeDirectory
+                                     NSSearchPathForDirectoriesInDomains NSApplicationDirectory NSUserDomainMask
                                      NSSelectorFromString NSStringFromSelector abs free malloc strlen]]
               [Math :header "math.h" :refer [FP_INFINITE]]))
 
@@ -29,6 +30,11 @@
 ;; The arity is the header's, and an argument that does not fit the slot is an error, not a wrong call.
 (show (try (strlen) (catch :default e (ex-message e))))
 (show (try (strlen 5) (catch :default e (ex-message e))))
+
+;; An NS_ENUM argument is its underlying integer type, which clang is asked for; the value filling it is
+;; a constant of the same parse, and the NSArray comes back a handle because only strings and numbers convert.
+(let [dirs (ns-array->vec (NSSearchPathForDirectoriesInDomains NSApplicationDirectory NSUserDomainMask true))]
+  (show (vector? dirs) (pos? (count dirs)) (string? (first dirs))))
 
 ;; A '^' return is memory the callee owns, so the wrapper neither releases it nor takes a message.
 (let [p (malloc 16)]

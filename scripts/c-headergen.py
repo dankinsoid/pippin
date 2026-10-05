@@ -251,16 +251,61 @@ class Unencodable(Exception):
 	pass
 
 
-def encode_type(spelled, desugared, is_return):
+# An enum travels as its underlying integer type, and clang is asked which that is (below).
+INT_ENCODINGS = {(1, True): "c", (1, False): "C", (2, True): "s", (2, False): "S",
+                 (4, True): "i", (4, False): "I", (8, True): "q", (8, False): "Q"}
+
+
+def scalar_candidates(texts):
+	"""The spellings that may still be integer scalars: an enum, or a typedef with no desugaring of its own."""
+	out = set()
+	for t in texts:
+		t = bare_type(t)
+		# A qualified object type (id<Foo>) is pointer-sized and would fold as an unsigned long, so never probe one.
+		if not t or t in SCALARS or t in OBJC_ALIASES or t.endswith("*") or "(" in t or "[" in t or "<" in t:
+			continue
+		if t.startswith(("struct ", "union ")):
+			continue
+		if t.startswith("enum ") or IDENTIFIER.match(t):
+			out.add(t)
+	return out
+
+
+def scalar_probe(args, lang, include, texts):
+	"""clang's own sizeof and signedness per spelling; what folds for neither is left to be refused."""
+	order = sorted(texts)
+	if not order:
+		return {}
+	values, _ = value_probe(args, lang, include,
+	                        [f"sizeof({t})" for t in order] + [f"(({t})-1 < ({t})0)" for t in order])
+	out = {}
+	for t in order:
+		size, signed = values.get(f"sizeof({t})"), values.get(f"(({t})-1 < ({t})0)")
+		if size is None or signed is None:
+			continue
+		enc = INT_ENCODINGS.get((size, signed != 0))
+		if enc:
+			out[t] = enc
+	return out
+
+
+def encode_type(spelled, desugared, is_return, extra=None):
 	"""The type encoding of one parameter or return, or Unencodable with what stopped it."""
+	extra = extra or {}
 	alias = bare_type(spelled)
 	if alias in OBJC_ALIASES:
 		return OBJC_ALIASES[alias]
+	if re.match(r"^(id|instancetype)\s*<", alias):
+		return "@"
 	text = bare_type(desugared if desugared else spelled)
 	if text in SCALARS:
 		if text == "void" and not is_return:
 			raise Unencodable("a void parameter")
 		return SCALARS[text]
+	if text in extra:
+		return extra[text]
+	if alias in extra:
+		return extra[alias]
 	if "(^" in text:
 		return "@?"	 # a block pointer is one encoding, and a block crosses as a level-1 handle
 	if "(*" in text:
@@ -412,17 +457,17 @@ MAX_INT_SLOTS = 8
 MAX_FP_SLOTS = 8
 
 
-def encode_function(ret_spelling, ret_desugared, types):
+def encode_function(ret_spelling, ret_desugared, types, extra=None):
 	"""("i", ["i", "@"]) for one function, or a refusal string."""
 	try:
-		ret = encode_type(ret_spelling, ret_desugared, True)
+		ret = encode_type(ret_spelling, ret_desugared, True, extra)
 	except Unencodable as e:
 		return f"a function returning {e}, which the bridge cannot carry"
 	argv = []
 	ints = fps = floats = 0
 	for i, (spelled, desugared) in enumerate(types):
 		try:
-			enc = encode_type(spelled, desugared, False)
+			enc = encode_type(spelled, desugared, False, extra)
 		except Unencodable as e:
 			return f"a function taking {e} as argument {i + 1}, which the bridge cannot carry"
 		argv.append(enc)
@@ -551,9 +596,14 @@ def one(args, module, header, names, version):
 			raw_fns[name] = found[1:]
 	# One probe for every return type at once: a variable of that type desugars where the function type does not.
 	kinds = return_kinds(args, lang, include, {n: r for n, (r, _) in raw_fns.items()})
+	# One probe for every spelling the tables do not know: an NS_ENUM parameter is the common one.
+	spellings = set()
+	for name, (ret_spelling, types) in raw_fns.items():
+		spellings.update([ret_spelling, kinds.get(name) or ""] + [t for pair in types for t in pair if t])
+	extra = scalar_probe(args, lang, include, scalar_candidates(spellings))
 	fns = {}
 	for name, (ret_spelling, types) in raw_fns.items():
-		encoded = encode_function(ret_spelling, kinds.get(name), types)
+		encoded = encode_function(ret_spelling, kinds.get(name), types, extra)
 		if isinstance(encoded, str):
 			refused[name] = encoded
 			continue
