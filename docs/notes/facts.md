@@ -152,11 +152,17 @@
   asked, and a sanitizer build's frames are large (UBSan overflowed at ~45 nested nodes over the 512 KB of a
   test thread). So: every var a tree calls is summarized *before* its walk, at the top of the stack
   (`warm_summaries`), at most 6 summary computations nest, and a summary walk stops descending past 40 nodes
-  of total depth (`CLJ_FACTS_MAX_WALK_DEPTH`) and answers ⊤ for the subtree — the recording walk is never cut, and
-  neither are its loop-fixpoint rounds nor the self walk of the caller join (`pass.bounded` marks the store's walks
+  of total depth (`CLJ_FACTS_MAX_WALK_DEPTH`) and answers ⊤ for the subtree — the *depth* cut spares the recording
+  walk, its loop-fixpoint rounds and the self walk of the caller join (`pass.bounded` marks the store's walks
   alone; the first version keyed the cut on `!record`, which cut a recording walk's own rounds at depth 40).
   A summary can therefore depend on how deep it was first asked for; the warm phase makes the first ask
   shallow for everything a tree names directly.
+- **Every walk is cut by the C stack left, recording or not** (`pass.stack_limit`, `clj_stack_limit()`): past the
+  interpreter's margin `infer` answers ⊤ and `CLJ_EFFECT_ANY` instead of descending. Not a budget but a
+  correctness rule — `clj_exec_derive` holds specialize.c's lock across the pass, and an overflow with a
+  `clj_lock` held cannot be landed at a recovery point, so it kills the process (NOTES "Guard": it killed the
+  ASan shard on `corpus/dependency`, whose test nests 104 protocol calls in one form). The limit is read once
+  per pass, which holds because a pass under a lock cannot park and so cannot change threads.
 - **Pass 2: at every call site the caller's fact meets the callee's requirement.** The meet is the argument
   node's fact from then on (and the slot's, when the argument is a local), which is how a receiver, a
   `(keys m)` and a `(zero? n)` narrow the parameter behind them for the rest of the body. A meet down to ⊥ is

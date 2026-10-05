@@ -34,6 +34,7 @@
 #include "clj/vector.h"
 #include "clj/proto.h"
 #include "facts_internal.h"
+#include "guard_internal.h"
 
 // A loop variable that has not settled after this many rounds goes straight to TOP.
 #define WIDEN_ROUNDS 3
@@ -470,6 +471,7 @@ typedef struct {
 	uint32_t      in_fused; // fused programs the walk is inside of
 	bool          summary; // a summary walk: nothing is stored, and a BOTTOM argument makes a call unreachable
 	bool          bounded; // a store's walk: cut past CLJ_FACTS_MAX_WALK_DEPTH, the C stack being shared with the asker
+	char         *stack_limit; // the walk descends no lower: it runs under specialize.c's lock, where a fault is fatal
 	// The def'd arity being walked, whose own sites (same var, same arity, in its own frame) are no recorded sites but
 	// the self fixpoint's: joined into self_join when it is set, dropped otherwise (NOTES.md "Facts", the caller join).
 	clj_value           self_var;
@@ -1397,8 +1399,10 @@ uint32_t clj_facts_walk_depth(void) { return walk_depth; }
 
 static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use);
 
+// Out of stack answers the depth cut's TOP: a subtree with no facts costs optimization, never correctness (§3).
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
-	if (p->bounded && walk_depth >= CLJ_FACTS_MAX_WALK_DEPTH) {
+	char here;
+	if ((p->bounded && walk_depth >= CLJ_FACTS_MAX_WALK_DEPTH) || &here < p->stack_limit) {
 		p->effects |= CLJ_EFFECT_ANY;
 		return clj_fact_top();
 	}
@@ -1659,7 +1663,7 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL};
+	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
@@ -1675,7 +1679,7 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	f->warn = clj_facts_warnings_enabled(clj_ns_current());
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
-	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL};
+	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
 	if (sums) warm_summaries(root, sums);
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL, NULL);
 	free(p.alias_from);
@@ -1707,7 +1711,7 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	clj_facts f = {0};
 	f.conflict_node = UINT32_MAX;
 	f.sums = sums;
-	pass     p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .self_var = CLJ_NIL};
+	pass     p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
 	clj_fact self = fact_of(CLJ_T_FN);
 	run_frame(&p, fn->id, a, a->body, NULL, 0, &self, out, NULL, CLJ_NIL, params);
 	free(p.alias_from);

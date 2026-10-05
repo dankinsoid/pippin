@@ -63,7 +63,7 @@ file. 97 open, 91 partly done.
 - [~] переносимая часть `test/clojure/test_clojure/*` через наш `clojure.test`; JVM-специфичные … — Осталось: `ns_libs` — единственный переносимый файл, который не взят, и причина не в языке, а в проверке памяти (NOTES «Corpus»).
 - [ ] дифференциальный фаззинг против JVM-Clojure как оракула: случайные выражения над …
 - [~] полное соответствие публичного API `clojure.core`: механический дифф `(ns-publics …
-- [~] корпус реального кода — Девять библиотек измерены и не взяты, каждая с уликой в NOTES «Corpus»: шесть из списка §10 (instaparse, core.match, meander, tools.reader, edamame, malli) не грузятся вовсе — их ветки `:clj` это …
+- [~] корпус реального кода — Цель, не взятая: сама core.async и код на ней — её собственный `async_test.clj` проходит 21 `deftest` из 23, но упирается в проверку памяти (статус ниже).
 - [~] Первые цифры на устройстве до UI: размер бинаря (рантайм + tree-shaken core — единицы … — Осталось: прогон на самом устройстве (бандл есть и ставится на симулятор, устройству не хватает только профиля, NOTES «iOS») и вторая половина пункта — время старта не измерено, известна только цена `clj_init` по …
 
 ## Engineering notes
@@ -163,7 +163,6 @@ file. 97 open, 91 partly done.
 
 ### [Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)](notes/corpus.md)
 
-- [ ] Stuart Sierra's `dependency` 1.0.0 loads whole and passes all 9 of its deftests, and the ASan shard dies on it. — Trigger: a stack overflow inside `load` recovered the way the top-level one is, or an evaluator that does not spend a C frame per nesting level.
 - [ ] core.async's own suite passes 21 of its 23 deftests and is still not vendored. — Trigger for taking it: either a decision on spawn locality (a spawned coroutine not starting before the spawner's next park, which would also close the ASYNC-127 divergence) or an account of the 20–55 s drain.
 - [~] `api-diff` is also the gate on `^:pippin/extension` — Trigger for a JVM dump per embedded lib: a second such var.
 - [ ] `ns_libs` is portable and still out, for the memory check. — Trigger for taking it: a namespace that `remove-ns` makes collectable, or a live-object baseline per test rather than per library.
@@ -175,6 +174,10 @@ file. 97 open, 91 partly done.
 - [~] Diagnostics: the ladder of design §3 "Строгость", by strength of knowledge. — wiring an error to stop a load or a compile is a later trigger, once the gate has been green long enough to trust the lattice.
 - [~] Declarations: `:=>` meta on the var, the vocabulary of design §3, one mechanism. — … trigger is the comptime evaluator of design §3), and the rest name the **vocabulary gaps**, kinds without a tag: *array* (the twelve array constructors, `aclone`, `to-array`, and the reason `count`, `nth`, `next`, …
 - [ ] Deliberately not here, each with its trigger. — **Deliberately not here, each with its trigger.** No shape facts (the design's key sets) — trigger: a record fact reaching a consumer, which the constructor summaries now make possible.
+
+### [Guard (Sources/CljCore/guard.c, guard_internal.h; the crash handler in shadow.c)](notes/guard.md)
+
+- [ ] What is still unbounded is `eval_child`. — Trigger: a check in `eval_child` a benchmark shows free, or an evaluator that does not spend a C frame per nesting level (design §6b).
 
 ### [Host bridge (Sources/Pippin, error.c host-error, fn.c context natives)](notes/host-bridge.md)
 

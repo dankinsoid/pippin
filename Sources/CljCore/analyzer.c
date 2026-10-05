@@ -23,6 +23,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "guard_internal.h"
 #include "node.h"
 
 static void visit_node(const clj_node *n, clj_visitor visit, void *ctx) {
@@ -176,6 +177,7 @@ typedef struct {
 	clj_env   env;
 	uint32_t  line, col; // of the innermost list being analyzed that carries a position; env's at the top
 	clj_value keeps;     // vector holding the items of forms whose seq yields them owned (a deftype seq), or nil
+	char     *stack_limit; // nesting stops here: past it a fault inside a lock the walk enters is fatal (guard.c)
 } analyzer;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
@@ -605,7 +607,7 @@ static clj_value expand_all(analyzer *a, scope *s, clj_value form) {
 
 static analyzer analyzer_for(const clj_env *env) {
 	pthread_once(&keywords_once, intern_keywords);
-	analyzer a = {.env = env ? *env : (clj_env){0}};
+	analyzer a = {.env = env ? *env : (clj_env){0}, .stack_limit = clj_stack_limit()};
 	if (clj_is_nil(a.env.ns)) a.env.ns = clj_ns_current();
 	a.line = a.env.line;
 	a.col = a.env.col;
@@ -1414,6 +1416,9 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 
 // Any seq is a list form: macros hand back lazy seqs, and () analyzes as itself.
 static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
+	// One C frame per nesting level: a form nested past the margin refuses here, not on the guard page.
+	char here;
+	if (__builtin_expect(&here < a->stack_limit, 0)) return fail(a, "Stack overflow");
 	if (clj_is_symbol(form)) return analyze_symbol(a, s, form);
 	if (clj_is_seq(form)) {
 		clj_value seq = clj_seq(form);

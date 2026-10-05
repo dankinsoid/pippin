@@ -61,5 +61,26 @@ extension CoreTests {
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
+
+		// Analysis stops at the interpreter's margin, where the guard page would be a fault under a lock (NOTES "Guard").
+		@Test func aFormNestedPastTheStackIsRefusedNotFatal() throws {
+			func nested(_ n: Int) -> String { String(repeating: "(+ 1 ", count: n) + "0" + String(repeating: ")", count: n) }
+			let deep = "(def ev-nest \(nested(100_000)))"
+			// A try cannot catch the refusal of the form it is part of: the whole form never analyzes.
+			let caught = "(try \(nested(100_000)) (catch :default e :caught))"
+			let overflow = "#error {:message \"Stack overflow\""
+			_ = try eval("(def ev-nest)")
+			// Warmed before the baseline: a refused form still interns the names it read, and interning is permanent.
+			for source in [deep, caught] { #expect(evalError(source)?.hasPrefix(overflow) == true) }
+			let before = clj_debug_live_objects()
+			do {
+				for source in [deep, caught] { #expect(evalError(source)?.hasPrefix(overflow) == true) }
+				_ = try eval("(def ev-nest \(nested(104)))")
+				#expect(try eval("ev-nest") == 104)
+				#expect(try eval("(+ 1 2)") == 3)
+				_ = try eval("(def ev-nest nil)")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
 	}
 }

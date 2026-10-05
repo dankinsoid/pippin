@@ -479,6 +479,13 @@ static char *stack_limit_of(clj_shadow_stack *s) {
 	return s->stack_limit;
 }
 
+// The running execution's limit, so a pass that reads it must not park before it is done with it.
+char *clj_stack_limit(void) {
+	clj_shadow_stack *s = clj_shadow_tls;
+	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
+	return s->stack_limit ? s->stack_limit : stack_limit_of(s);
+}
+
 // Runs arity's body of the fn node `code` (a fn or a direct fn) in a frame the caller filled: every owned slot
 // is released after. The guard, the shadow frame, the instrumentation and the recur loop of every call.
 // @ai-generated(guided)

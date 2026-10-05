@@ -3,7 +3,8 @@
 - **What is vendored**: `corpus/medley` (medley.core and its test, EPL), `corpus/clojure-test-suite`
   (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0),
   `corpus/clojure-core-tests` (26 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0) and
-  `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0), each with a
+  `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0) and
+  `corpus/dependency` (Stuart Sierra's dependency 1.0.0 and its test, EPL 1.0), each with a
   `SOURCE` (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
 - **Of design §10's eight named libraries, only core.async is this core's to begin with.** Each of the other
@@ -40,16 +41,18 @@
   answers nil — so every seq walk written in Clojure saw one element too many (NOTES "Type descriptor"),
   `fn`'s missing `:pre`/`:post` conditions and `*assert*` (NOTES "core.clj"), and `(Name. args)` for a
   `deftype`/`defrecord` of one's own (NOTES "Analyzer and evaluator").
-- [ ] **Stuart Sierra's `dependency` 1.0.0 loads whole and passes all 9 of its deftests, and the ASan shard
-  dies on it.** Its test file builds `g3` with a `->` chain of 104 interpreted protocol calls; under
-  `--sanitize=address` the frames are large enough that somewhere between 55 and 60 of them exhaust the
-  test thread's 8 MB stack, where the plain build takes 104 without trouble. Worse than the depth: the
-  overflow is reported as `fatal stack overflow (a runtime lock is held)` and kills the process, where the
-  same overflow at top level is the catchable "Stack overflow" it should be — the fault lands inside a
-  locked region, so the guard cannot recover (NOTES "Guard"), and lenient loading has nothing to record.
-  That is what keeps the library out: `make test` is the ASan run and is a gate. The library itself is in
-  the scratch of this pass, not the tree. Trigger: a stack overflow inside `load` recovered the way the
-  top-level one is, or an evaluator that does not spend a C frame per nesting level.
+- **Stuart Sierra's `dependency` 1.0.0 is in, and what kept it out was a stack overflow under a lock.** The
+  library loads whole, passes all 9 of its deftests and leaves 0 live objects after a second run, so its
+  allowlist is empty; one namespace over `clojure.core` and `clojure.set`, `:features #{:clj}` for the
+  topological comparator's `#?(:clj Long/MAX_VALUE …)`. Its test builds `g3` as a `->` chain of 104 interpreted
+  protocol calls, which is a node tree 104 deep, and under `--sanitize=address` the facts pass's recording walk
+  spent ~9 KB a level on it and ran the 512 KB coroutine stack out between the 55th and 60th — inside the lock
+  `clj_exec_derive` holds across the pass, where the guard cannot land, so the ASan shard died with
+  `fatal stack overflow (a runtime lock is held)` rather than failing. The fix is one margin for every
+  recursion whose depth is the program's (NOTES "Guard"): the pass now answers TOP for the subtree it has no
+  stack for and the analyzer refuses a form it has no stack to walk. The depth ASan allows on that shape is
+  140 levels against the library's 104, so the headroom is a third; a compiler that grows the pass's frames
+  would need `clj_coro_set_stack_size` raised or the pass's per-level cost cut.
 - [ ] **core.async's own suite passes 21 of its 23 deftests and is still not vendored.** `async_test.clj` at
   tag v1.6.681 (the version `make api-diff` diffs the async half against) loads with two forms lost to
   `Thread/currentThread` — `take!-on-caller?` and `put!-on-caller?`, whose subject is thread identity — and

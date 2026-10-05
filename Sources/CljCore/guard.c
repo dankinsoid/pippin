@@ -174,6 +174,7 @@ bool clj_guard_signal(int sig, siginfo_t *info, void *uap) {
 	const char *fatal = NULL;
 	if (!s->recovery) fatal = "no recovery point on this thread";
 	else if (!clj_trace_code_known(origin.pc)) fatal = "the fault is outside the runtime's own code";
+	// Landing here would resume with the lock's table half-written: a recursion stops at clj_stack_limit() instead.
 	else if (car->current->locks_held) fatal = "a runtime lock is held";
 	if (fatal) {
 		put("clj: fatal stack overflow (");

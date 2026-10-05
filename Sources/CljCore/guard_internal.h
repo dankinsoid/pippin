@@ -22,6 +22,8 @@ void clj_guard_origin(const void *uap, clj_trace_origin *out);
 // Ends the process after a crash report was written: the signal's default death, or _exit under CLJ_CRASH_EXIT.
 void __attribute__((noreturn)) clj_guard_die(int sig);
 
+// eval.c: the lowest C stack address a recursion may use; past it a fault under a clj_lock is fatal (guard.c).
+char *clj_stack_limit(void);
 // eval.c: the clj_exec_run nesting of the thread, restored at a landing.
 uint32_t clj_eval_exec_depth(void);
 void     clj_eval_exec_depth_set(uint32_t depth);
