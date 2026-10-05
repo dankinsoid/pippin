@@ -2177,7 +2177,11 @@
 ;; A deftype, not a C type: the IReduceInit slot trampoline (proto.c) makes this four lines, and reduce on
 ;; it reaches the source through the source's own slot with no seq in between.
 (deftype ^:pippin/extension Eduction [xform coll]
+  ;; Sequential so a vector compares against it, as APersistentVector.equals does; two Eductions compare by
+  ;; identity, as on the JVM, where neither side is the persistent collection that would seq them.
   Sequential
+  IEquiv
+  (equiv [this other] (if (= (type other) (type this)) (identical? this other) (= (seq this) other)))
   Seqable
   (seq [_] (seq (sequence xform coll)))
   IReduceInit

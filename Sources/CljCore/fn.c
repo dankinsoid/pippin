@@ -198,12 +198,9 @@ static size_t rest_at(clj_value f) {
 	return is_compiled_closure(fn, f) && fn->max_arity == CLJ_ARITY_ANY ? fn->min_arity : SIZE_MAX;
 }
 
-// The most arguments the callee could ever take, SIZE_MAX when a rest parameter takes any number.
-static size_t arg_ceiling(clj_value f) {
-	if (!clj_is_fn(f)) return CLJ_FN_MAX_FIXED;
-	const clj_fn *fn = clj_fn_of(f);
-	if (fn->kind == CLJ_FN_CLOSURE) return fn->u.node->u.fn.variadic ? SIZE_MAX : CLJ_FN_MAX_FIXED;
-	return fn->max_arity == CLJ_ARITY_ANY ? SIZE_MAX : fn->max_arity;
+// A hand-written variadic native reads its arguments out of the array, so apply must spread the whole seq.
+static bool spreads_everything(clj_value f) {
+	return clj_is_fn(f) && clj_fn_of(f)->kind != CLJ_FN_CLOSURE && clj_fn_of(f)->max_arity == CLJ_ARITY_ANY;
 }
 
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
@@ -214,8 +211,10 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	clj_value shape = clj_is_var(f) ? held : f;
 	size_t fixed = n - 1;
 	size_t over = rest_at(shape);
-	// Past CLJ_FN_MAX_FIXED no fixed arity exists, so from there the rest may be handed over unwalked.
-	size_t bound = over == SIZE_MAX ? arg_ceiling(shape) : (over > CLJ_FN_MAX_FIXED ? over : CLJ_FN_MAX_FIXED);
+	// CLJ_FN_MAX_FIXED, never a lower ceiling of the callee's own: the arity error is to name the count passed.
+	size_t bound = over == SIZE_MAX && spreads_everything(shape) ? SIZE_MAX
+	               : over > CLJ_FN_MAX_FIXED && over != SIZE_MAX ? over
+	                                                             : CLJ_FN_MAX_FIXED;
 	// One argument past the bound: that one tells a whole spread from an arity error.
 	size_t probe = bound == SIZE_MAX ? SIZE_MAX : (bound >= fixed ? bound - fixed : 0) + 1;
 	clj_value tail = clj_seq(args[n - 1]);
@@ -276,10 +275,11 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 			clj_release(tail);
 			tail = c;
 		}
+		size_t     head = over < fixed ? over : fixed;
 		clj_value *all = malloc((over + 1) * sizeof *all);
 		if (!all) clj_fatal("out of memory");
-		memcpy(all, args, (over < fixed ? over : fixed) * sizeof *all);
-		memcpy(all + fixed, spread, keep * sizeof *all);
+		memcpy(all, args, head * sizeof *all);
+		memcpy(all + head, spread, keep * sizeof *all);
 		all[over] = tail;
 		r = clj_invoke(f, all, CLJ_NARGS_REST);
 		free(all);

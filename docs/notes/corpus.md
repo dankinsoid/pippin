@@ -17,7 +17,7 @@
   `string`, `numbers` — and seventeen more — `transducers`, `vectors`, `other_functions`, `special`,
   `clojure_set`, `multimethods`, `vars`, `clojure_walk`, `transients`, `errors`, `evaluation`,
   `for`, `atoms`, `delays`, `predicates`, `volatiles`, `keywords` — plus `test/clojure/test_helper.clj`,
-  which five of them `:use`. Unmodified, headers kept. The rule for the
+  which seven of them require. Unmodified, headers kept. The rule for the
   rest: a file is in when its subject is the language or a namespace this core carries. Out by subject: the
   host files (`java_interop`, `reflect`, `genclass`, `proxy/`, `param_tags`, `method_thunks`, `annotations`,
   `array_symbols`, `data_structures_interop`, `serialization`, `streams`, `generated_*`), the JVM concurrency
@@ -33,7 +33,7 @@
   a Java class compiled from the test tree, so both of its deftests are reflection on that class.
   `reader.cljc` needs `clojure.edn` and `clojure.instant`. 11 deftests in all.
 - **`(:import …)` does not cost a file.** The `ns` macro here ignores an `:import` clause rather than refusing
-  it, so `vectors`, `errors`, `delays` and `clearing` load their own `(ns …)` form and lose only the body forms
+  it, so `vectors`, `errors` and `delays` load their own `(ns …)` form and lose only the body forms
   that name an imported class. A file whose `ns` form failed would lose every deftest at once, which is why
   the shims exist; `:import` needs none.
 - **`numbers` is taken whole, not partially**, which design §10's "частично" allowed for: the numeric tower is

@@ -163,6 +163,9 @@
   must still load the lib. `sequence` gained its multi-collection arity (the step takes one input per
   collection and ends with the shortest), the gap `docs/api-parity.md` named; `vec`/`every?` stand in for
   `mapv`/`some?`, which core.clj defines further down.
-- **`Eduction` carries `Sequential`**, so `(= [1 2 3] (eduction (map inc) (range 3)))` answers as on the
-  JVM: a vector's `equals` compares against anything sequential (vector.c), and `Eduction` had only
-  `Seqable` and `IReduceInit`. It still prints as an object, as the JVM's does.
+- **`Eduction` carries `Sequential` and its own `equiv`**, so all three of the JVM's answers come out the
+  same: `(= [1 2 3] ed)` and `(= ed [1 2 3])` are true, `(= ed1 ed2)` is false. A vector's `equals` compares
+  against anything sequential (vector.c), which is where the first comes from; the `equiv` seqs itself for
+  anything of another type and falls back to identity for another `Eduction`, which is what the JVM's
+  `pcequiv` does by accident — neither side there is the persistent collection that would seq them. It still
+  prints as an object, as the JVM's does.
