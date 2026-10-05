@@ -53,9 +53,9 @@
 - **core.async's own suite is `corpus/core-async`: of `async_test.clj`'s 18 deftests, 16 run and 15 pass**,
   against 18 of 18 on the JVM (measured per deftest under Clojure 1.12.6 and core.async 1.6.681, none of them
   hanging; `expanding-transducer-delivers-to-multiple-pending` takes 4.37 s there and 4.6–4.9 s here, its own
-  `(Thread/sleep 50)` poll 81 times over). The file is at tag
-  v1.6.681 (the version `make api-diff` diffs the async half against) is the one file taken: the library itself is
-  ours, so only the test tree is vendored and the manifest is `:tests-only`. Two forms do not load — `take!-on-caller?`
+  `(Thread/sleep 50)` poll 81 times over). It is at tag v1.6.681, the version `make api-diff` diffs the async
+  half against, and it is the one file taken: the library itself is ours, so only the test tree is vendored and
+  the manifest is `:tests-only`. Two forms do not load — `take!-on-caller?`
   and `put!-on-caller?`, whose subject is which thread a `put!`/`take!` callback runs on — because
   `Thread/currentThread` is refused rather than shimmed the way `Thread/sleep` is (design §8,
   `docs/jvm-differences.md`). One test fails, and the code is core.async's own: the ASYNC-127 block of `ops-tests`,
@@ -82,8 +82,9 @@
   library but this one — so the old "nothing may be left" check holds everywhere else — and 24 here against 20
   or 21 measured over twenty runs, the margin being the few of the 81 `check-expanding-transducer` calls whose
   filler parks or not by a race (it parks when the items the takers did not consume do not fit the buffer, which
-  the expanding step may overfill). A run past the bound fails the step. A coroutine that never parked is not on the live list, so a runaway
-  loop is not reclaimed there and still fails the settle, which is how the `(apply f (range))` one was caught. The
+  the expanding step may overfill). A run past the bound fails the step. A coroutine that never parked is not on
+  the live list, so a runaway loop is not reclaimed there and still fails the settle, which is how the
+  `(apply f (range))` one was caught. The
   library's two runs take 9.7 s together and leave 0 live objects; before, the settle waited out 10 s and failed, and
   the second run's baseline was taken while the first run's coroutines were still being reaped, so the delta came out
   negative (−5 in one run).
