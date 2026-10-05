@@ -50,7 +50,10 @@
   That is what keeps the library out: `make test` is the ASan run and is a gate. The library itself is in
   the scratch of this pass, not the tree. Trigger: a stack overflow inside `load` recovered the way the
   top-level one is, or an evaluator that does not spend a C frame per nesting level.
-- **core.async's own suite is `corpus/core-async`: of `async_test.clj`'s 18 deftests, 16 run and 15 pass.** `async_test.clj` at tag
+- **core.async's own suite is `corpus/core-async`: of `async_test.clj`'s 18 deftests, 16 run and 15 pass**,
+  against 18 of 18 on the JVM (measured per deftest under Clojure 1.12.6 and core.async 1.6.681, none of them
+  hanging; `expanding-transducer-delivers-to-multiple-pending` takes 4.37 s there and 4.6–4.9 s here, its own
+  `(Thread/sleep 50)` poll 81 times over). The file is at tag
   v1.6.681 (the version `make api-diff` diffs the async half against) is the one file taken: the library itself is
   ours, so only the test tree is vendored and the manifest is `:tests-only`. Two forms do not load — `take!-on-caller?`
   and `put!-on-caller?`, whose subject is which thread a `put!`/`take!` callback runs on — because
@@ -74,8 +77,12 @@
   measured 7.99 s at a budget of 8000 and 5.0 s at 5000, and the Makefile exports 60000, which is why it showed in a
   full corpus run and not when the library ran alone at the 5 s default. So the harness reclaims them: every deftest
   has ended when a run returns, so a coroutine still parked is the library's leftover, and `reclaimAbandoned`
-  (`clj_debug_cancel_live_coros`) cancels it before the memory check — 21 and 20 of them, logged, not pinned, since
-  the number is the outcome of the race above. A coroutine that never parked is not on the live list, so a runaway
+  (`clj_debug_cancel_live_coros`) cancels it before the memory check. The count is not pinned but bounded:
+  `:abandoned-coroutines` in the allowlist is the most a library's own tests may leave parked, 0 for every
+  library but this one — so the old "nothing may be left" check holds everywhere else — and 24 here against 20
+  or 21 measured over twenty runs, the margin being the few of the 81 `check-expanding-transducer` calls whose
+  filler parks or not by a race (it parks when the items the takers did not consume do not fit the buffer, which
+  the expanding step may overfill). A run past the bound fails the step. A coroutine that never parked is not on the live list, so a runaway
   loop is not reclaimed there and still fails the settle, which is how the `(apply f (range))` one was caught. The
   library's two runs take 9.7 s together and leave 0 live objects; before, the settle waited out 10 s and failed, and
   the second run's baseline was taken while the first run's coroutines were still being reaped, so the delta came out
