@@ -120,15 +120,18 @@ clj_value clj_objc_class(const char *name) {
 
 // The wrong objc_msgSend prototype is silent corruption; why eight suffice: NOTES "ObjC bridge".
 
+// A method spends two of x0-x7 on self and _cmd, a block one on itself, a C function none.
+#define CLJ_OBJC_SEND_SLOTS       8
 #define CLJ_OBJC_MAX_INT_ARGS     6
+#define CLJ_OBJC_C_MAX_INT_ARGS   8
 #define CLJ_OBJC_MAX_FP_ARGS      8
 #define CLJ_OBJC_MAX_ARGS         8
 #define CLJ_OBJC_MAX_STRUCT_BYTES 128
 #define CLJ_OBJC_MAX_FIELDS       16
 
-#define INT_SLOTS   long long, long long, long long, long long, long long, long long
+#define INT_SLOTS   long long, long long, long long, long long, long long, long long, long long, long long
 #define FP_SLOTS(t) t, t, t, t, t, t, t, t
-#define INT_ARGS(a) a[0], a[1], a[2], a[3], a[4], a[5]
+#define INT_ARGS(a) a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]
 #define FP_ARGS(f)  f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]
 
 // A struct return needs the real return type in the prototype: the ABI puts an HFA in v0-v3, a small
@@ -143,8 +146,8 @@ typedef struct { float a, b, c, d; } ret_f4;
 typedef struct { _Alignas(16) unsigned char b[CLJ_OBJC_MAX_STRUCT_BYTES]; } ret_mem;
 
 #define SEND_TYPE(tag, R)                                              \
-	typedef R(*send_##tag##_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));  \
-	typedef R(*send_##tag##_f)(id, SEL, INT_SLOTS, FP_SLOTS(float))
+	typedef R(*send_##tag##_d)(INT_SLOTS, FP_SLOTS(double));  \
+	typedef R(*send_##tag##_f)(INT_SLOTS, FP_SLOTS(float))
 
 SEND_TYPE(i2, ret_i2);
 SEND_TYPE(d2, ret_d2);
@@ -155,14 +158,14 @@ SEND_TYPE(f3, ret_f3);
 SEND_TYPE(f4, ret_f4);
 SEND_TYPE(mem, ret_mem);
 
-typedef long long (*send_i_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));
-typedef double (*send_d_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));
-typedef float (*send_f_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));
-typedef void (*send_v_d)(id, SEL, INT_SLOTS, FP_SLOTS(double));
-typedef long long (*send_i_f)(id, SEL, INT_SLOTS, FP_SLOTS(float));
-typedef double (*send_d_f)(id, SEL, INT_SLOTS, FP_SLOTS(float));
-typedef float (*send_f_f)(id, SEL, INT_SLOTS, FP_SLOTS(float));
-typedef void (*send_v_f)(id, SEL, INT_SLOTS, FP_SLOTS(float));
+typedef long long (*send_i_d)(INT_SLOTS, FP_SLOTS(double));
+typedef double (*send_d_d)(INT_SLOTS, FP_SLOTS(double));
+typedef float (*send_f_d)(INT_SLOTS, FP_SLOTS(double));
+typedef void (*send_v_d)(INT_SLOTS, FP_SLOTS(double));
+typedef long long (*send_i_f)(INT_SLOTS, FP_SLOTS(float));
+typedef double (*send_d_f)(INT_SLOTS, FP_SLOTS(float));
+typedef float (*send_f_f)(INT_SLOTS, FP_SLOTS(float));
+typedef void (*send_v_f)(INT_SLOTS, FP_SLOTS(float));
 
 // ---- signatures
 
@@ -187,6 +190,7 @@ typedef struct {
 	char        ret;                       // the return's encoding char, '{' for a struct
 	char        arg[CLJ_OBJC_MAX_ARGS];    // each argument's, self and _cmd dropped
 	char        argptr[CLJ_OBJC_MAX_ARGS]; // what a '^' argument points at, 0 for every other argument
+	char        retptr;                    // what a '^' return points at, 0 for every other return
 	const char *retenc;                    // the whole encoding of a '{' return, owned by the cache entry
 	const char *argenc[CLJ_OBJC_MAX_ARGS];
 	struct_abi  ret_abi;
@@ -447,10 +451,12 @@ static char *own_encoding(const char *enc) {
 
 // Everything the ABI reads, shared by a method we call and one we install; the selector's own facts
 // (family, variadicity) belong to the caller.
-static bool signature_shape(objc_sig *sig, const char *ret, const char *const *argv) {
+static bool signature_shape(objc_sig *sig, const char *ret, const char *const *argv, unsigned max_ints) {
 	const char *r = skip_qualifiers(ret);
 	bool        ok = *r == '{' ? classify_struct(r, &sig->ret_abi) : encoding_supported(*r, true);
 	sig->ret = *r;
+	// 'v' where the encoding names no pointee, so the wrapper is still refused as a receiver.
+	if (*r == '^') sig->retptr = *skip_qualifiers(r + 1) ? *skip_qualifiers(r + 1) : 'v';
 	if (ok && *r == '{') sig->retenc = own_encoding(r);
 	if (!ok) return false;
 
@@ -477,7 +483,7 @@ static bool signature_shape(objc_sig *sig, const char *ret, const char *const *a
 		default: fps++; break;
 		}
 	}
-	if (ints > CLJ_OBJC_MAX_INT_ARGS || fps > CLJ_OBJC_MAX_FP_ARGS) return false;
+	if (ints > max_ints || fps > CLJ_OBJC_MAX_FP_ARGS) return false;
 	if (floats != 0 && floats != fps) return false;
 	sig->fp_is_float = floats != 0;
 	return true;
@@ -499,7 +505,7 @@ static bool signature_fill(Method m, objc_sig *sig) {
 	char       *arg[CLJ_OBJC_MAX_ARGS] = {0};
 	const char *argv[CLJ_OBJC_MAX_ARGS];
 	for (unsigned i = 0; i < sig->nargs; i++) argv[i] = arg[i] = method_copyArgumentType(m, i + 2);
-	bool ok = signature_shape(sig, ret, argv);
+	bool ok = signature_shape(sig, ret, argv, CLJ_OBJC_MAX_INT_ARGS);
 	free(ret);
 	for (unsigned i = 0; i < sig->nargs; i++) free(arg[i]);
 	return ok;
@@ -1143,16 +1149,14 @@ static clj_value no_such_selector(Class cls, const char *spelling, size_t len, b
 	return clj_throw_msg("No selector %.*s on %s; it has %s", (int)len, spelling, class_getName(cls), buf);
 }
 
-// The register slots of one call; the spare integer word is the block form's, which starts one slot over.
+// The register slots of one call: ints is x0-x7, whose first `base` words the caller's own identity fills.
 typedef struct {
-	long long ints[CLJ_OBJC_MAX_INT_ARGS + 1];
+	long long ints[CLJ_OBJC_SEND_SLOTS];
 	double    dbls[CLJ_OBJC_MAX_FP_ARGS];
 	float     flts[CLJ_OBJC_MAX_FP_ARGS];
 	// An indirect struct is passed by a pointer into this, so it outlives the marshalling loop.
 	_Alignas(16) unsigned char structs[CLJ_OBJC_MAX_ARGS][CLJ_OBJC_MAX_STRUCT_BYTES];
 } call_args;
-
-#define BINT_ARGS(a) a[1], a[2], a[3], a[4], a[5], a[6]
 
 // The struct area is left alone: only the bytes an indirect argument uses are written, and it is 1 KB.
 static void call_args_init(call_args *ca) {
@@ -1162,8 +1166,8 @@ static void call_args_init(call_args *ca) {
 }
 
 // CLJ_NIL, or CLJ_THROWN with the mismatch named against what (the selector spelling, or a block's signature).
-static clj_value marshal_args(const objc_sig *sig, const clj_value *args, call_args *ca, const char *what, int whatlen) {
-	unsigned ni = 0, nf = 0;
+static clj_value marshal_args(const objc_sig *sig, const clj_value *args, call_args *ca, unsigned base, const char *what, int whatlen) {
+	unsigned ni = base, nf = 0;
 	for (uint32_t i = 0; i < sig->nargs; i++) {
 		if (sig->arg[i] == '{') {
 			const struct_abi *abi = &sig->arg_abi[i];
@@ -1206,14 +1210,12 @@ static clj_value marshal_args(const objc_sig *sig, const clj_value *args, call_a
 	return CLJ_NIL;
 }
 
-// fn is objc_msgSend for a method and the block's own invoke for a block; the prototype set is one.
-static clj_value call_out(const objc_sig *sig, void *fn, id self, SEL sel, bool block, const call_args *ca) {
+// Who the callee is sits in ca->ints already (self/_cmd, the block, nothing), so the prototype set is one.
+static clj_value call_out(const objc_sig *sig, void *fn, const call_args *ca) {
 	// The prototype is chosen by the return, the slot type by fp_is_float; the arguments are the same.
-#define SEND(tag)                                                                                                             \
-	(block ? (sig->fp_is_float ? ((send_##tag##_f)fn)(self, (SEL)(intptr_t)ca->ints[0], BINT_ARGS(ca->ints), FP_ARGS(ca->flts))   \
-	                           : ((send_##tag##_d)fn)(self, (SEL)(intptr_t)ca->ints[0], BINT_ARGS(ca->ints), FP_ARGS(ca->dbls))) \
-	       : (sig->fp_is_float ? ((send_##tag##_f)fn)(self, sel, INT_ARGS(ca->ints), FP_ARGS(ca->flts))                           \
-	                           : ((send_##tag##_d)fn)(self, sel, INT_ARGS(ca->ints), FP_ARGS(ca->dbls))))
+#define SEND(tag)                                                                 \
+	(sig->fp_is_float ? ((send_##tag##_f)fn)(INT_ARGS(ca->ints), FP_ARGS(ca->flts)) \
+	                  : ((send_##tag##_d)fn)(INT_ARGS(ca->ints), FP_ARGS(ca->dbls)))
 	switch (sig->ret) {
 	case 'f': return clj_double_new(SEND(f));
 	case 'd': return clj_double_new(SEND(d));
@@ -1248,6 +1250,8 @@ static clj_value call_out(const objc_sig *sig, void *fn, id self, SEL sel, bool 
 	}
 	default: {
 		long long r = SEND(i);
+		// Releasing a '^' return at the wrapper's death would release what is not an object at all.
+		if (sig->ret == '^') return r ? wrap_pointer((void *)(intptr_t)r, sig->retptr) : CLJ_NIL;
 		// An allocation is no object of its class yet: -[NSPlaceholderMutableString length] raises, so
 		// nothing about it is read and it stays a handle for the -init that follows.
 		return sig->allocation && sig->ret == '@' && r ? clj_objc_wrap_owned((void *)(intptr_t)r)
@@ -1281,12 +1285,55 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	pool_scope p = pool_enter();
 	call_args  ca;
 	call_args_init(&ca);
-	clj_value out = marshal_args(sig, args, &ca, spelling, (int)len);
+	ca.ints[0] = (long long)(intptr_t)recv->obj;
+	ca.ints[1] = (long long)(intptr_t)sig->sel;
+	clj_value out = marshal_args(sig, args, &ca, 2, spelling, (int)len);
 	if (out != CLJ_THROWN) {
 		// -init takes over a reference and hands one back, so the wrapper's own must not be the one it takes.
 		if (sig->consumes_self) objc_retain((id)recv->obj);
-		out = call_out(sig, (void *)objc_msgSend, (id)recv->obj, sig->sel, false, &ca);
+		out = call_out(sig, (void *)objc_msgSend, &ca);
 	}
+	pool_leave(p);
+	return out;
+}
+
+// ---- level 0: a C function by its address, through the same prototypes (design §5 «C — уровень 0»)
+
+const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint32_t nargs, const char **why) {
+	if (nargs > CLJ_OBJC_MAX_ARGS) {
+		*why = "more arguments than the bridge has register slots";
+		return NULL;
+	}
+	objc_sig *sig = calloc(1, sizeof *sig);
+	if (!sig) clj_fatal("out of memory building a C function's signature");
+	sig->nargs = (uint8_t)nargs;
+	if (!signature_shape(sig, ret, argv, CLJ_OBJC_C_MAX_INT_ARGS)) {
+		signature_free(sig);
+		free(sig);
+		*why = "a shape the bridge cannot call: a union, an array, a long double, a struct over 128 bytes, "
+		       "more than 8 integer or 8 floating-point arguments, or float and double mixed";
+		return NULL;
+	}
+	return sig;
+}
+
+uint32_t clj_objc_c_signature_nargs(const void *sigp) { return ((const objc_sig *)sigp)->nargs; }
+
+clj_value clj_objc_pointer_global(const void *addr, char enc) {
+	void *p = NULL;
+	memcpy(&p, addr, sizeof p);
+	// +0: the global outlives the process's interest in it, so the handle's retain is never given back.
+	return from_int_return((long long)(intptr_t)p, enc, false);
+}
+
+clj_value clj_objc_c_call(const void *sigp, void *fn, const char *name, const clj_value *args, uint32_t nargs) {
+	const objc_sig *sig = (const objc_sig *)sigp;
+	if (nargs != sig->nargs) return clj_throw_msg("%s takes %u argument(s), got %u", name, sig->nargs, nargs);
+	pool_scope p = pool_enter();
+	call_args  ca;
+	call_args_init(&ca);
+	clj_value out = marshal_args(sig, args, &ca, 0, name, (int)strlen(name));
+	if (out != CLJ_THROWN) out = call_out(sig, fn, &ca);
 	pool_leave(p);
 	return out;
 }
@@ -1578,7 +1625,7 @@ static bool signature_from_types(const char *types, SEL sel, objc_sig *sig, unsi
 		n++;
 	}
 	sig->nargs = (uint8_t)n;
-	return signature_shape(sig, ret, argv);
+	return signature_shape(sig, ret, argv, CLJ_OBJC_MAX_INT_ARGS);
 }
 
 // A protocol's own methods and those of the protocols it adopts, required and optional alike.
@@ -2070,8 +2117,10 @@ clj_value clj_objc_call_block(clj_value block, const clj_value *args, uint32_t n
 	pool_scope p = pool_enter();
 	call_args  ca;
 	call_args_init(&ca);
-	clj_value out = marshal_args(&k->sig, args, &ca, what, whatlen);
-	if (out != CLJ_THROWN) out = call_out(&k->sig, b->invoke, obj, NULL, true, &ca);
+	// A block's invoke takes the block in x0, so its first real argument rides a method's _cmd slot.
+	ca.ints[0] = (long long)(intptr_t)obj;
+	clj_value out = marshal_args(&k->sig, args, &ca, 1, what, whatlen);
+	if (out != CLJ_THROWN) out = call_out(&k->sig, b->invoke, &ca);
 	pool_leave(p);
 	return out;
 }
@@ -2105,6 +2154,27 @@ clj_value clj_objc_class(const char *name) {
 
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw) {
 	(void)target, (void)selector, (void)args, (void)nargs, (void)raw;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
+const void *clj_objc_c_signature(const char *ret, const char *const *argv, uint32_t nargs, const char **why) {
+	(void)ret, (void)argv, (void)nargs;
+	*why = "a shape only level 1's dispatcher can call, and that needs an Apple platform";
+	return NULL;
+}
+
+uint32_t clj_objc_c_signature_nargs(const void *sig) {
+	(void)sig;
+	return 0;
+}
+
+clj_value clj_objc_pointer_global(const void *addr, char enc) {
+	(void)addr, (void)enc;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
+clj_value clj_objc_c_call(const void *sig, void *fn, const char *name, const clj_value *args, uint32_t nargs) {
+	(void)sig, (void)fn, (void)name, (void)args, (void)nargs;
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 

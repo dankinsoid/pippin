@@ -1,10 +1,10 @@
 ;; One screen through the level-1 ObjC bridge alone: no reconciler, no Swift (design §5, docs/notes/ios.md).
 (ns pippin.screen
   (:require [clojure.core.async :as a])
-  ;; Six NS_ENUM values that live in no binary and one exported const (design §5 «C — уровень 0»).
-  (:require-c [UIKit :refer [NSTextAlignmentCenter UIButtonTypeSystem UIControlEventTouchUpInside
-                             UIControlStateNormal UIFontWeightRegular UILayoutConstraintAxisVertical
-                             UIStackViewAlignmentCenter]]))
+  ;; Six NS_ENUM values that live in no binary, one exported const and one C function (design §5 «C — уровень 0»).
+  (:require-c [UIKit :refer [NSTextAlignmentCenter UIApplicationMain UIButtonTypeSystem
+                             UIControlEventTouchUpInside UIControlStateNormal UIFontWeightRegular
+                             UILayoutConstraintAxisVertical UIStackViewAlignmentCenter]]))
 
 (def taps (atom 0))
 
@@ -56,5 +56,8 @@
   (.scheduled-timer-with-time-interval (objc-class "NSTimer") seconds :repeats false
                                        :block (objc-block "v@?@" [_] (f))))
 
-;; UIKit has no application before UIApplicationMain, so the screen mounts from the run loop main.c is about to run.
+;; UIKit has no application before UIApplicationMain, so the screen mounts from the run loop -main turns.
 (swap! live assoc :mount (after 0.0 mount!) :self-test (after 0.5 self-test!))
+
+;; UIApplicationMain does not return: the load has to be over before it runs, or the timers above never fire.
+(defn -main [] (UIApplicationMain 0 nil nil nil))

@@ -1,10 +1,23 @@
 1 9 2 true
 true true true
 "one"
-NSLog - a C function: calling one is the second slice of design §10 step 8b
+5 7 "countOfFoo:"
+true true
+"from a Class the header found" true
+"Wrong number of args (0) passed to: strlen"
+"Argument 1 of strlen: a long does not convert to '*'"
+true true true
+true "Cannot send to a raw '^v' pointer"
+true
+"NSBundleDidLoadNotification" true
+"NSBundleDidLoadNotification" true
+NSLog - a variadic function: on arm64 Apple a variadic argument rides the stack, which a fixed prototype does not place
+NSMaxRange - a static inline function: its body lives in the header and in no binary, so the interpreter needs a thin C stub (design §5 «Только в заголовке»)
+NSStringFromRect - a function taking a struct CGRect by value as argument 1, which the bridge cannot carry
 NSUIntegerMax - enumerator value is not representable in the underlying type 'long long'
-NSWindowDidResizeNotification - a global of type NSNotificationName _Nonnull: only a scalar crosses in this slice
-"Unable to resolve AppKit/NSLog: a C function: calling one is the second slice of design §10 step 8b"
+NSWindowDidResizeNotification - a mutable pointer global (NSNotificationName _Nonnull): a pointer read once at load would not be its value later
+kCFRunLoopDefaultMode - a raw pointer global (const CFRunLoopMode): what it points at has no owner the bridge can name, and releasing it would be a guess
+"Unable to resolve AppKit/NSLog: a variadic function: on arm64 Apple a variadic argument rides the stack, which a fixed prototype does not place"
 "Unable to resolve AppKit/NSNoSuchSymbolHere: no ns form the parse scanned asked for it"
 "No declarations for C module NotAModule: pip"
 "require-c AppKit :refer :all: a header is parsed for the names the form asks for"

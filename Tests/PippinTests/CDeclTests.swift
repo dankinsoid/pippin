@@ -21,7 +21,8 @@ private let generated: Result<Void, any Error> = Result {
 	process.arguments = ["python3", packageRoot.appendingPathComponent("scripts/c-headergen.py").path,
 	                     "--scan", fixtureDir.appendingPathComponent("decls.clj").path,
 	                     "--out", out.path, "--cache", work.appendingPathComponent("cache").path,
-	                     "--module", "AppKit", "--refer", "NSLog,NSUIntegerMax,NSWindowDidResizeNotification"]
+	                     "--module", "AppKit",
+	                     "--refer", "NSLog,NSUIntegerMax,NSWindowDidResizeNotification,NSMaxRange,NSStringFromRect,kCFRunLoopDefaultMode"]
 	process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"].contains($0.key) }
 	let pipe = Pipe()
 	process.standardOutput = pipe
