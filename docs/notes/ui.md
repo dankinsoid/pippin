@@ -35,8 +35,9 @@
   that re-describes that node reverts the component's own frame (design §5b, "Перерисовка одного
   компонента"). Trigger: the cursor/subscription slice, which is what decides how a component boundary is
   marked in the tree.
-- [ ] **A `[:native thunk]` node cannot carry a `:key`.** It has no attrs map, so a keyed list of native
-  nodes has to wrap each one in a host tag. Trigger: a real screen whose reordered rows are native views.
+- [ ] **A `[:native thunk]` node cannot carry a `:key`.** It has no attrs map, and the key in the vector's
+  meta (design §5b, "`:key` сопоставляется по проходу") is not read, so a keyed list of native nodes has to
+  wrap each one in a host tag. Trigger: a real screen whose reordered rows are native views.
 - [ ] **Children are flattened, not slotted.** `append-children` drops a `nil` child and splices a seq into
   its parent's children, so `[:column (when c [:banner]) [:list]]` shifts `:list` to index 0 when `c` turns
   false and remounts it; design §5b ("Идентичность узла") has `nil` hold its slot and a seq be one keyed
@@ -45,6 +46,15 @@
   refused; the argument memo, the var watch that re-renders mounted instances, the paren-call lint and the
   node-owned `:ui/local` atom and `:ui/managed` resource of design §5b ("Компонент", "Локальное состояние")
   are all unbuilt. Trigger: the cursor/subscription slice.
+- [ ] **The 2026-10-05 identity and authoring rules are unbuilt** (design §5b): `:key` matched across the
+  pass (unmatched keyed removals and creations paired by key and head after the diff), single-child wrapper
+  chains matched by their base, the key in a vector's meta, standard attributes expanded into layout
+  wrappers and layout-only tags without a host view, a view-valued attribute as a named child slot,
+  `defui` and `ui->>`, and the loud error for a Reagent form-2 head. Trigger: the component slice.
+- [ ] **Whether UIKit drops first responder on a move is unverified.** A pass-wide key move and a wrapper
+  appearing around a field both `detach!` + `insert!` its view; if a superview change resigns first
+  responder, the backend has to restore it after `insert!`. Trigger: the first move of a focused field on a
+  device.
 - [ ] **No lazy layout, `:items`/`:item`, cursor-bound attributes or event vectors** (design §5b). They wait
   for Yoga and the UIKit backend. Unbuilt beside the lazy layout itself: the size estimate of rows never
   laid out (and the scroll anchoring it needs), an `UIAccessibilityContainer` over virtualized rows, swipe
