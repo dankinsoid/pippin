@@ -196,6 +196,9 @@ clj_node *clj_node_from_data(clj_value data);
 
 // The :line/:column a form's meta carries (the reader puts them on lists); false without both.
 bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col);
+// The same as {line, column, end-line, end-column}; the last two stay 0 for a form read without a span
+// (anything a macro built). A diagnostic underlines the range (design §3 «Диагностика»).
+bool clj_form_span(clj_value form, uint32_t span[4]);
 
 // Interns the keywords this module otherwise makes on first use; clj_init calls it (runtime.c).
 void clj_analyzer_intern_keywords(void);

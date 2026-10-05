@@ -381,19 +381,19 @@ extension CoreTests {
 				"""
 				let e = try #require(clojureError(rt, source))
 				#expect(e.message == "let requires an even number of forms in binding vector")
-				#expect(try e.data == Value(reading: "{:line 3 :column 5}"))
+				#expect(try e.data == Value(reading: "{:line 3 :column 5 :end-line 3 :end-column 16}"))
 				let f = try #require(clojureError(rt, "(defn mt-e [x]\n  (if x\n      (nope)\n      x))"))
 				#expect(f.message == "Unable to resolve symbol: nope in this context")
-				#expect(try f.data == Value(reading: "{:line 3 :column 7}"))
+				#expect(try f.data == Value(reading: "{:line 3 :column 7 :end-line 3 :end-column 13}"))
 				let g = try #require(clojureError(rt, "(defn mt-e [x]\n  [1 2 (recur)])"))
 				#expect(g.message == "Can only recur from tail position")
-				#expect(try g.data == Value(reading: "{:line 2 :column 8}"))
+				#expect(try g.data == Value(reading: "{:line 2 :column 8 :end-line 2 :end-column 15}"))
 				// A symbol outside any list: the top-level position from the host.
 				let h = try #require(clojureError(rt, "\n  nope"))
 				#expect(try h.data == Value(reading: "{:line 2 :column 3}"))
 				// The same through the C API, which passes no position: the form's own line/column.
-				#expect(cljEvalError("(defn mt-e [x]\n  (let [z] z))") == "#error {:message \"let requires an even number of forms in binding vector\", :data {:column 3, :line 2}, :cause #error {:message \"let requires an even number of forms in binding vector\", :data nil}}")
-				#expect(cljEvalError("(do\n (nope))") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:column 2, :line 2}}")
+				#expect(cljEvalError("(defn mt-e [x]\n  (let [z] z))") == "#error {:message \"let requires an even number of forms in binding vector\", :data {:column 3, :end-column 14, :end-line 2, :line 2}, :cause #error {:message \"let requires an even number of forms in binding vector\", :data nil}}")
+				#expect(cljEvalError("(do\n (nope))") == "#error {:message \"Unable to resolve symbol: nope in this context\", :data {:column 2, :end-column 8, :end-line 2, :line 2}}")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

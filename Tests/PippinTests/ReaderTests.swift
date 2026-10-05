@@ -311,7 +311,7 @@ extension CoreTests {
 				#expect(try meta("^:a [1 2]") == read("{:a true}"))
 				#expect(try meta("^:a {}") == read("{:a true}"))
 				#expect(try meta("^:a ()") == read("{:a true}"))
-				#expect(try meta("^:a (fn)") == read("{:a true :line 1 :column 5}"))
+				#expect(try meta("^:a (fn)") == read("{:a true :line 1 :column 5 :end-line 1 :end-column 9}"))
 				#expect(try read("^:a (fn)") == list(sym("fn")))
 				// Stacked: the outer keys win, as in LispReader.
 				#expect(try meta("^:a ^:b x") == read("{:a true :b true}"))
@@ -322,12 +322,13 @@ extension CoreTests {
 				#expect(try read("'^:a x").list?[1].meta == read("{:a true}"))
 				#expect(try meta("[^:a x]").isNil == true)
 				#expect(try read("[^:a x]").array?[0].meta == read("{:a true}"))
-				// Every non-empty list carries the position of its opening paren; an explicit :line overrides it.
-				#expect(try meta("(a b)") == read("{:line 1 :column 1}"))
-				#expect(try meta("\n  (a)") == read("{:line 2 :column 3}"))
-				#expect(try read("(a\n (b\n  (c)))").list?[1].meta == read("{:line 2 :column 2}"))
-				#expect(try read("(a\n (b\n  (c)))").list?[1].list?[1].meta == read("{:line 3 :column 3}"))
-				#expect(try meta("^{:line 9} (a)") == read("{:line 9 :column 12}"))
+				// Every non-empty list carries the span of its delimiters, the end column one past the closer, as
+				// tools.reader writes it (docs/notes/diagnostics.md); an explicit :line overrides the start.
+				#expect(try meta("(a b)") == read("{:line 1 :column 1 :end-line 1 :end-column 6}"))
+				#expect(try meta("\n  (a)") == read("{:line 2 :column 3 :end-line 2 :end-column 6}"))
+				#expect(try read("(a\n (b\n  (c)))").list?[1].meta == read("{:line 2 :column 2 :end-line 3 :end-column 7}"))
+				#expect(try read("(a\n (b\n  (c)))").list?[1].list?[1].meta == read("{:line 3 :column 3 :end-line 3 :end-column 6}"))
+				#expect(try meta("^{:line 9} (a)") == read("{:line 9 :column 12 :end-line 1 :end-column 15}"))
 				#expect(try meta("()").isNil == true)
 				#expect(try meta("[a]").isNil == true)
 				#expect(try meta("x").isNil == true)

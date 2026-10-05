@@ -44,6 +44,7 @@ Reading, analysis, evaluation
 - [Facts](docs/notes/facts.md) — the facts lattice, pass 1, summaries, pass 2, diagnostics, effects and `:park`, declarations, the caller join, domains.
 - [Builtins](docs/notes/builtins.md) — the C builtins: `into`, atoms, volatiles, `range`, printing, error messages.
 - [core.clj](docs/notes/core-clj.md) — how core.clj is embedded and loaded, its contents, semantics that differ from Clojure.
+- [Diagnostics](docs/notes/diagnostics.md) — the position of an error, spans, the source excerpt, the arities, the nearest-name hint, the rendering layer.
 - [Printer](docs/notes/printer.md) — map printing, `clj_pr_str_max`, print limits, `format`.
 
 Host bridges

@@ -70,7 +70,7 @@ extension CoreTests {
 				_ = try eval("(defmacro mt-id [] '(mt-id))")
 				#expect(message("(mt-id)") == "Can't take value of a macro: #'user/mt-id")
 				#expect(message("mt-unless") == "Can't take value of a macro: #'user/mt-unless")
-				#expect(message("(mt-unless)") == "Wrong number of args (2) passed to: user/mt-unless")
+				#expect(message("(mt-unless)") == "Wrong number of args (2) passed to: user/mt-unless, which takes at least 3")
 				// Locals shadow macros.
 				#expect(try eval("(let [mt-unless (fn [c a b] (if c a b))] (mt-unless true 1 2))") == 1)
 				#expect(try eval("((fn [mt-unless] (mt-unless 5)) inc)") == 6)
@@ -85,7 +85,7 @@ extension CoreTests {
 				#expect(try eval("#'mt-unless").description == "#'user/mt-unless")
 				#expect(try eval("(var mt-unless)") == eval("#'user/mt-unless"))
 				#expect(message("(var mt-nope)") == "Unable to resolve var: mt-nope in this context")
-				#expect(message("(defmacro)") == "Wrong number of args (2) passed to: clojure.core/defmacro")
+				#expect(message("(defmacro)") == "Wrong number of args (2) passed to: clojure.core/defmacro, which takes at least 3")
 				#expect(message("(defmacro 1 [])") == "First argument to defmacro must be a symbol")
 				#expect(message("(defmacro mt-x)") == "Parameter declaration missing")
 				// What the JVM reports as the cause too: defmacro conses &form/&env onto the params it was given.
@@ -143,23 +143,23 @@ extension CoreTests {
 				_ = try rt.eval("(defmacro mt-boom [] (throw (ex-info \"boom\" {:k 1})))")
 				let e = try #require(clojureError(rt, "1\n\n  (mt-boom)"))
 				#expect(e.message == "boom")
-				#expect(try e.data == Value(reading: "{:k 1 :line 3 :column 3}"))
+				#expect(try e.data == Value(reading: "{:k 1 :line 3 :column 3 :end-line 3 :end-column 12}"))
 				#expect(e.causeError?.message == "boom")
 				#expect(try e.causeError?.data == Value(reading: "{:k 1}"))
 				// Runtime failures in the macro body (not just throw) are positioned the same way.
 				_ = try rt.eval("(defmacro mt-bad [] (+ 1 nil))")
 				let f = try #require(clojureError(rt, "\n(mt-bad)"))
 				#expect(f.message == "nil cannot be cast to a number")
-				#expect(try f.data == Value(reading: "{:line 2 :column 1}"))
+				#expect(try f.data == Value(reading: "{:line 2 :column 1 :end-line 2 :end-column 9}"))
 				// Through the C API without a position the form's own :line/:column (from the reader) still apply;
 				// a form built without them passes the exception unchanged.
-				#expect(cljEvalError("(mt-boom)") == "#error {:message \"boom\", :data {:column 1, :k 1, :line 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
+				#expect(cljEvalError("(mt-boom)") == "#error {:message \"boom\", :data {:column 1, :end-column 10, :end-line 1, :k 1, :line 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
 				#expect(cljEvalError("(macroexpand-1 (list 'mt-boom))") == "#error {:message \"boom\", :data {:k 1}}")
-				#expect(cljEvalError("(macroexpand-1 '(mt-boom))") == "#error {:message \"boom\", :data {:column 17, :k 1, :line 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
+				#expect(cljEvalError("(macroexpand-1 '(mt-boom))") == "#error {:message \"boom\", :data {:column 17, :end-column 26, :end-line 1, :k 1, :line 1}, :cause #error {:message \"boom\", :data {:k 1}}}")
 				// Analysis errors inside the expansion keep the position of the top-level form.
 				let g = try #require(clojureError(rt, "\n\n(mt-unless-nope (nope))"))
 				#expect(g.message == "Unable to resolve symbol: mt-unless-nope in this context")
-				#expect(try g.data == Value(reading: "{:line 3 :column 1}"))
+				#expect(try g.data == Value(reading: "{:line 3 :column 1 :end-line 3 :end-column 24}"))
 				_ = try rt.eval("(def mt-boom nil) (def mt-bad nil)")
 			}
 			#expect(clj_debug_live_objects() == before)

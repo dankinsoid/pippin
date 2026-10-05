@@ -1537,20 +1537,11 @@ clj_value clj_exec_new(const clj_node *root) {
 	return clj_from_ptr(e);
 }
 
-static clj_value arity_error(clj_value f, size_t n) {
-	clj_value name = clj_fn_of(f)->name;
-	clj_value text = clj_is_nil(name) ? clj_string_from_cstr("fn") : clj_pr_str(name);
-	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
-	clj_release(text);
-	return r;
-}
-
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) { return clj_closure_invoke_at(f, args, n, NULL); }
 
 clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, const clj_node *site) {
 	const clj_fn_arity *arity = arity_for(clj_fn_of(f)->u.node, n);
-	if (!arity) return arity_error(f, n);
+	if (!arity) return clj_arity_error(f, n);
 	return closure_run(f, arity, args, n, site);
 }
 

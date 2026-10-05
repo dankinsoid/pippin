@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "clj/core.h"
+#include "clj/diagnostic.h"
 #include "clj/eval.h"
 #include "clj/guard.h"
 #include "clj/keyword.h"
@@ -300,16 +301,24 @@ static void record_failure(clj_value file, uint32_t line, uint32_t col, clj_valu
 }
 
 // The pending exception wrapped as Clojure's CompilerException: the position in the message and the data.
+// The position is the innermost one the cause chain carries, not the top-level form Clojure reports
+// (design §3 «Диагностика»); the form's own position stays under :form-line/:form-column. The message is
+// built to its length — truncating a diagnostic to a buffer is a defect there, not a compromise.
 static clj_value wrap_pending(clj_value file, uint32_t line, uint32_t col) {
 	clj_value trace = clj_take_pending_trace();
 	clj_value cause = clj_take_pending();
 	clj_value cause_msg = clj_ex_message(cause);
-	char      text[600];
-	snprintf(text, sizeof text, "Syntax error compiling at (%s:%u:%u).%s%s", clj_is_string(file) ? clj_string_bytes(file) : "NO_SOURCE_PATH", line, col,
-	         clj_is_string(cause_msg) ? " " : "", clj_is_string(cause_msg) ? clj_string_bytes(cause_msg) : "");
+	clj_value inner = clj_diagnostic_position(cause, true);
+	clj_value at_file = clj_is_nil(inner) ? file : clj_map_get(inner, clj_keyword_from_cstr("file"), CLJ_NIL);
+	uint32_t  at_line = clj_is_nil(inner) ? line : (uint32_t)clj_fixnum_val(clj_map_get(inner, clj_keyword_from_cstr("line"), clj_fixnum(line)));
+	uint32_t  at_col = clj_is_nil(inner) ? col : (uint32_t)clj_fixnum_val(clj_map_get(inner, clj_keyword_from_cstr("column"), clj_fixnum(col)));
+	clj_value msg = clj_error_message("Syntax error compiling at (%s:%u:%u).%s%s", clj_is_string(at_file) ? clj_string_bytes(at_file) : "NO_SOURCE_PATH",
+	                                  at_line, at_col, clj_is_string(cause_msg) ? " " : "", clj_is_string(cause_msg) ? clj_string_bytes(cause_msg) : "");
 	clj_release(cause_msg);
-	clj_value msg = clj_string_from_cstr(text);
-	clj_value data = position_data(file, line, col);
+	clj_value data = clj_is_nil(inner) ? position_data(file, line, col) : clj_retain(inner);
+	data = clj_map_assoc(data, clj_keyword_from_cstr("form-line"), clj_fixnum(line));
+	data = clj_map_assoc(data, clj_keyword_from_cstr("form-column"), clj_fixnum(col));
+	clj_release(inner);
 	clj_value ex = clj_is_exception(cause) ? clj_ex_info_cause(msg, data, cause) : clj_ex_info(msg, data);
 	clj_release(msg);
 	clj_release(data);

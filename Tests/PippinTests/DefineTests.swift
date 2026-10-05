@@ -69,13 +69,13 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try rt.eval("(df-one 1)") == nil)
-				#expect(message { try rt.eval("(df-one)") } == "Wrong number of args (0) passed to: user/df-one")
-				#expect(message { try rt.eval("(df-one 1 2)") } == "Wrong number of args (2) passed to: user/df-one")
-				#expect(message { try rt.eval("(apply df-one [1 2 3])") } == "Wrong number of args (3) passed to: user/df-one")
+				#expect(message { try rt.eval("(df-one)") } == "Wrong number of args (0) passed to: user/df-one, which takes 1")
+				#expect(message { try rt.eval("(df-one 1 2)") } == "Wrong number of args (2) passed to: user/df-one, which takes 1")
+				#expect(message { try rt.eval("(apply df-one [1 2 3])") } == "Wrong number of args (3) passed to: user/df-one, which takes 1")
 				#expect(try rt.eval("[(df-some 1) (df-some 1 2)]") == [1, 2])
-				#expect(message { try rt.eval("(df-some 1 2 3)") } == "Wrong number of args (3) passed to: user/df-some")
+				#expect(message { try rt.eval("(df-some 1 2 3)") } == "Wrong number of args (3) passed to: user/df-some, which takes 1 or 2")
 				#expect(try rt.eval("[(df-any) (df-any 1 2 3 4 5)]") == [0, 5])
-				#expect(try rt.eval("(try (df-one) (catch :default e (ex-message e)))") == "Wrong number of args (0) passed to: user/df-one")
+				#expect(try rt.eval("(try (df-one) (catch :default e (ex-message e)))") == "Wrong number of args (0) passed to: user/df-one, which takes 1")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -144,7 +144,7 @@ extension CoreTests {
 				#expect(try f(3, 4) == 12)
 				#expect(try rt.eval("(+ 3 4)") == 12)
 				#expect(try rt.eval("(reduce + [2 3 4])") == 24)
-				#expect(message { try rt.eval("(+ 1 2 3)") } == "Wrong number of args (3) passed to: clojure.core/+")
+				#expect(message { try rt.eval("(+ 1 2 3)") } == "Wrong number of args (3) passed to: clojure.core/+, which takes 2")
 				#expect(try rt.eval("(meta #'clojure.core/+)") == [kw("ns"): sym("clojure.core"), kw("name"): sym("+")])
 				clj_var_bind_root(plus, boot)
 				withExtendedLifetime(bootMeta) { clj_var_set_meta(plus, bootMeta.raw) }

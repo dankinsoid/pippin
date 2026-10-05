@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #include "clj/core.h"
+#include "clj/diagnostic.h"
 #include "clj/printer.h"
 #include "clj/runtime.h"
 
@@ -51,10 +52,10 @@ int main(int argc, char **argv) {
 	clj_release(path);
 	if (r != CLJ_THROWN) return 0;
 	clj_value ex = clj_take_pending();
-	clj_value text = clj_pr_str(ex);
+	clj_value text = clj_diagnostic_render(ex);
 	// A throw while printing the throw: the first one is still what the caller needs.
 	if (text != CLJ_THROWN) {
-		fprintf(stderr, "%.*s\n", (int)clj_string_len(text), clj_string_bytes(text));
+		fprintf(stderr, "%.*s", (int)clj_string_len(text), clj_string_bytes(text));
 		clj_release(text);
 	}
 	clj_release(ex);

@@ -2,6 +2,8 @@
 #ifndef CLJ_ERROR_H
 #define CLJ_ERROR_H
 
+#include <stdarg.h>
+
 #include "object.h"
 
 // Runtime errors are values, as in CPython: a failing function returns CLJ_THROWN and leaves the
@@ -31,6 +33,12 @@ clj_value clj_throw(clj_value ex);
 clj_value clj_throw_traced(clj_value ex, clj_value trace);
 // Consumes ex, captures nothing: the pending trace is nil. For a throw whose frames nobody reads (a cancellation).
 clj_value clj_throw_untraced(clj_value ex);
+// A message string built to its own length: design §3 «Диагностика» counts truncating a diagnostic to a
+// fixed buffer a defect, so no caller formats one into a char[]. A long form inside it is shortened by
+// clj_pr_str_max before it is formatted in; the assembled message is never cut. Owned.
+clj_value clj_error_message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+clj_value clj_error_message_v(const char *fmt, va_list ap) __attribute__((format(printf, 1, 0)));
+
 // ex-info with the formatted message and nil data.
 clj_value clj_throw_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 // The same, for a throw that interrupts an unwind: cause is the in-flight value, dropped if it is no error.

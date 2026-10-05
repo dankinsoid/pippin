@@ -153,7 +153,7 @@ extension CoreTests {
 			#expect(try await eval("(fn [f] (<! (go (+ (f 1) (f 2)))))").callAsync(double) == 6)
 			// The arity is the inner fn's, so the error names it.
 			#expect(try await eval("(fn [f] (<! (go (try (f 1 2) (catch :default e (ex-message e))))))").callAsync(double)
-				== Value("Wrong number of args (2) passed to: ab-double"))
+				== Value("Wrong number of args (2) passed to: ab-double, which takes 1"))
 		}
 
 		// A Swift async fn called from a synchronous host call: the park is the error the design promises (§5).

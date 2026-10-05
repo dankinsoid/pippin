@@ -1,4 +1,6 @@
 // @ai-generated(guided)
+#include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -146,13 +148,93 @@ clj_value clj_rest_args(const clj_value *args, size_t nargs, uint32_t nparams) {
 	return nargs > nparams ? clj_list_from_array(args + nparams, nargs - nparams) : CLJ_NIL;
 }
 
+// The argument counts f accepts, as a bit per count below *variadic, and *variadic the count from which
+// every larger one is accepted too (CLJ_ARITY_ANY when f is bounded). Read through clj_fn_accepts and not
+// off the fn's own fields: a compiled closure keeps only its lowest arity where an interpreted one keeps
+// the rest arity's own count, so the fields would answer differently in the two backends.
+// Anything that is not a fn answers nothing: its invoke slot checks on the call.
+// @ai-generated(solo)
+static uint32_t fn_arities(clj_value f, uint32_t *variadic) {
+	*variadic = CLJ_ARITY_ANY;
+	if (!clj_is_fn(f)) return 0;
+	uint32_t bits = 0;
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		if (clj_fn_accepts(f, i)) bits |= 1u << i;
+	}
+	if (!clj_fn_accepts(f, CLJ_FN_MAX_FIXED + 1)) return bits;
+	// Open above: the lowest count from which the run to the top is unbroken is where "at least" starts.
+	uint32_t from = CLJ_FN_MAX_FIXED + 1;
+	for (uint32_t i = CLJ_FN_MAX_FIXED + 1; i-- > 0;) {
+		if (!((bits >> i) & 1)) break;
+		from = i;
+	}
+	*variadic = from;
+	return bits & ((from > 31 ? 0u : (1u << from)) - 1);
+}
+
+// "1", "1 or 2", "at least 1", "1 or at least 2", "0, 1 or at least 3" — the counts a reader could have
+// written. "N or more" alongside a fixed N reads as one number, hence "at least".
+// @ai-generated(solo)
+static bool arities_text(uint32_t bits, uint32_t variadic, char *buf, size_t cap) {
+	char   items[CLJ_FN_MAX_FIXED + 2][24];
+	size_t n = 0;
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		if ((bits >> i) & 1) snprintf(items[n++], sizeof items[0], "%u", i);
+	}
+	if (variadic != CLJ_ARITY_ANY) snprintf(items[n++], sizeof items[0], "at least %u", variadic);
+	if (!n) return false;
+	size_t at = 0;
+	for (size_t i = 0; i < n; i++) {
+		const char *sep = i == 0 ? "" : (i + 1 == n ? " or " : ", ");
+		int         wrote = snprintf(buf + at, cap - at, "%s%s", sep, items[i]);
+		if (wrote < 0 || at + (size_t)wrote >= cap) return false;
+		at += (size_t)wrote;
+	}
+	return true;
+}
+
+static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
+static clj_value      kw_arities, kw_variadic, kw_given, kw_fn;
+
+static void intern_keywords(void) {
+	kw_arities = clj_keyword_from_cstr("arities");
+	kw_variadic = clj_keyword_from_cstr("variadic");
+	kw_given = clj_keyword_from_cstr("given");
+	kw_fn = clj_keyword_from_cstr("fn");
+}
+
+void clj_fn_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
+static clj_value arity_data(clj_value f, size_t n, uint32_t bits, uint32_t variadic) {
+	pthread_once(&keywords_once, intern_keywords);
+	clj_value data = clj_map_empty();
+	clj_value arities = clj_vector_empty();
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
+		if ((bits >> i) & 1) arities = clj_vector_conj(arities, clj_fixnum(i));
+	}
+	data = clj_map_assoc(data, kw_arities, arities);
+	clj_release(arities);
+	if (variadic != CLJ_ARITY_ANY) data = clj_map_assoc(data, kw_variadic, clj_fixnum(variadic));
+	data = clj_map_assoc(data, kw_given, clj_fixnum((int64_t)n));
+	if (clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name)) data = clj_map_assoc(data, kw_fn, clj_fn_of(f)->name);
+	return data;
+}
+
 static clj_value arity_error(clj_value f, const char *over, size_t n) {
-	if (clj_is_fn(f) && clj_is_nil(clj_fn_of(f)->name)) return clj_throw_msg("Wrong number of args (%s%zu) passed to: fn", over, n);
-	clj_value text = clj_pr_str_max(clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : f, CLJ_ERROR_PRINT_MAX);
+	clj_value name = clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : CLJ_NIL;
+	clj_value text = clj_is_nil(name) && clj_is_fn(f) ? clj_string_from_cstr("fn") : clj_pr_str_max(clj_is_nil(name) ? f : name, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Wrong number of args (%s%zu) passed to: %s", over, n, clj_string_bytes(text));
+	uint32_t variadic, bits = fn_arities(f, &variadic);
+	char     takes[256];
+	clj_value message = arities_text(bits, variadic, takes, sizeof takes)
+	                        ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, clj_string_bytes(text), takes)
+	                        : clj_error_message("Wrong number of args (%s%zu) passed to: %s", over, n, clj_string_bytes(text));
 	clj_release(text);
-	return r;
+	clj_value data = arity_data(f, n, bits, variadic);
+	clj_value ex = clj_ex_info(message, data);
+	clj_release(message);
+	clj_release(data);
+	return clj_throw(ex);
 }
 
 // Past CLJ_FN_MAX_FIXED only a rest parameter answers, so the exact count says nothing a reader can act on.

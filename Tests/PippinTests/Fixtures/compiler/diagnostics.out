@@ -1,0 +1,8 @@
+["Wrong number of args (1) passed to: user/dg-two, which takes 2" [2] nil 1 user/dg-two]
+["Wrong number of args (3) passed to: user/dg-two, which takes 2" [2] nil 3 user/dg-two]
+["Wrong number of args (0) passed to: user/dg-many, which takes at least 1" [] 1 0 user/dg-many]
+["Wrong number of args (0) passed to: user/dg-rest, which takes at least 1" [] 1 0 user/dg-rest]
+["Wrong number of args (0) passed to: clojure.core/inc, which takes 1" [1] nil 0 clojure.core/inc]
+["Wrong number of args (0) passed to: fn, which takes 1" [1] nil 0 nil]
+["nth not supported on this type: long" nil nil nil nil]
+["Wrong number of args (3) passed to: user/dg-two, which takes 2" [2] nil 3 user/dg-two]

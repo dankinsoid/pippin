@@ -78,10 +78,10 @@ extension CoreTests {
 				#expect(try eval("(defn cc-many [a & more] [a more]) (cc-many 1 2 3)") == [1, Value(list: [2, 3])])
 				#expect(try eval("(defn cc-rec [n] (if (zero? n) :done (recur (dec n)))) (cc-rec 100000)") == kw("done"))
 				#expect(try eval("(str cc-fact)") == "#object[fn user/cc-fact]")
-				#expect(message("(cc-fact)") == "Wrong number of args (0) passed to: user/cc-fact")
+				#expect(message("(cc-fact)") == "Wrong number of args (0) passed to: user/cc-fact, which takes 1 or 2")
 				#expect(message("(defn cc-bad)") == "Parameter declaration missing")
 				#expect(message("(defn cc-bad 1)") == "Parameter declaration 1 should be a vector")
-				#expect(message("(defn)") == "Wrong number of args (2) passed to: clojure.core/defn")
+				#expect(message("(defn)") == "Wrong number of args (2) passed to: clojure.core/defn, which takes at least 3")
 				try unbind("cc-fact", "cc-doc", "cc-many", "cc-rec")
 			}
 			#expect(clj_debug_live_objects() == before + 3) // cc-bad: the var, its name symbol and the name string

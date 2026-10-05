@@ -185,7 +185,7 @@ extension CoreTests {
 				#expect(try rt.eval("(pr-str [(->Point 1 2)])") == "[#user.Point{:x 1, :y 2}]")
 				#expect(try rt.eval("(= (map->Point (->Point 1 2)) (->Point 1 2))") == true)
 				#expect(message(rt, "(map->Point 7)") == "map->Name expects a map, got: long")
-				#expect(message(rt, "(->Point 1)") == "Wrong number of args (1) passed to: user/->Point")
+				#expect(message(rt, "(->Point 1)") == "Wrong number of args (1) passed to: user/->Point, which takes 2")
 			}
 			#expect(clj_debug_live_objects() == before)
 			try dropPoint()

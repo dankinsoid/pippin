@@ -44,8 +44,8 @@ extension CoreTests {
 				#expect(message("(/ 1 0)") == "Divide by zero")
 				#expect(message("(+ 1 \"a\")") == "string cannot be cast to a number")
 				#expect(message("(inc nil)") == "nil cannot be cast to a number")
-				#expect(message("(-)") == "Wrong number of args (0) passed to: clojure.core/-")
-				#expect(message("(inc)") == "Wrong number of args (0) passed to: clojure.core/inc")
+				#expect(message("(-)") == "Wrong number of args (0) passed to: clojure.core/-, which takes at least 1")
+				#expect(message("(inc)") == "Wrong number of args (0) passed to: clojure.core/inc, which takes 1")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

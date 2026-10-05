@@ -114,10 +114,10 @@ extension CoreTests {
 					[kw("zero"), [kw("one"), 1], [kw("two"), 1, 2], [kw("more"), 1, 2, Value(list: [3, 4])]])
 				#expect(try rt.eval("((fn [a & r] r) 1)") == nil)
 				#expect(try rt.eval("((fn [& r] (count r)) 1 2 3)") == 3)
-				#expect(message(rt, "((fn [a b] a) 1)") == "Wrong number of args (1) passed to: fn")
-				#expect(message(rt, "((fn named [a b] a) 1 2 3)") == "Wrong number of args (3) passed to: named")
-				#expect(message(rt, "(rt-adder)") == "Wrong number of args (0) passed to: user/rt-adder")
-				#expect(message(rt, "(inc 1 2)") == "Wrong number of args (2) passed to: clojure.core/inc")
+				#expect(message(rt, "((fn [a b] a) 1)") == "Wrong number of args (1) passed to: fn, which takes 2")
+				#expect(message(rt, "((fn named [a b] a) 1 2 3)") == "Wrong number of args (3) passed to: named, which takes 2")
+				#expect(message(rt, "(rt-adder)") == "Wrong number of args (0) passed to: user/rt-adder, which takes 1")
+				#expect(message(rt, "(inc 1 2)") == "Wrong number of args (2) passed to: clojure.core/inc, which takes 1")
 				#expect(try rt.eval("(def rt-fact (fn [n] (if (<= n 1) 1 (* n (rt-fact (dec n)))))) (rt-fact 20)") == 2432902008176640000)
 				#expect(message(rt, "(rt-fact 21)") == "integer overflow")
 				#expect(try rt.eval("(def rt-count-down (fn [n acc] (if (zero? n) acc (recur (dec n) (conj acc n))))) (rt-count-down 3 [])") == [3, 2, 1])
@@ -201,7 +201,7 @@ extension CoreTests {
 			do {
 				let e = try #require(clojureError(rt, "1\n  (let [x 1]\n    (nope x))"))
 				#expect(e.message == "Unable to resolve symbol: nope in this context")
-				#expect(try e.data == Value(reading: "{:line 3 :column 5}"))
+				#expect(try e.data == Value(reading: "{:line 3 :column 5 :end-line 3 :end-column 13}"))
 				#expect(e.cause == nil)
 				#expect(e.causeError == nil)
 				#expect(e.description == e.message)
@@ -210,7 +210,7 @@ extension CoreTests {
 				#expect(runtime.data == nil)
 				#expect(throws: ReaderError.self) { try rt.eval("(+ 1") }
 				#expect(throws: ReaderError.self) { try rt.eval("1 )") }
-				#expect(try clojureError(rt, "(let [x 1] (if x (recur)))")?.data == Value(reading: "{:line 1 :column 18}"))
+				#expect(try clojureError(rt, "(let [x 1] (if x (recur)))")?.data == Value(reading: "{:line 1 :column 18 :end-line 1 :end-column 25}"))
 				#expect(try rt.eval("(def rt-deep (fn [n] (+ 1 (rt-deep (inc n)))))").description == "#'user/rt-deep")
 				#expect(message(rt, "(rt-deep 0)") == "Stack overflow")
 				#expect(message(rt, "(rt-deep 0)") == "Stack overflow")

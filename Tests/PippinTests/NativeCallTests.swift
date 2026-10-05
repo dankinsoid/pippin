@@ -111,9 +111,9 @@ extension CoreTests {
 		@Test func arityErrors() throws {
 			let before = clj_debug_live_objects()
 			do {
-				#expect(clojureError(rt, "(let [f inc] (f 1 2))")?.message == "Wrong number of args (2) passed to: clojure.core/inc")
-				#expect(clojureError(rt, "(let [f inc] (f))")?.message == "Wrong number of args (0) passed to: clojure.core/inc")
-				#expect(clojureError(rt, "((fn [f] (f)) vector?)")?.message == "Wrong number of args (0) passed to: clojure.core/vector?")
+				#expect(clojureError(rt, "(let [f inc] (f 1 2))")?.message == "Wrong number of args (2) passed to: clojure.core/inc, which takes 1")
+				#expect(clojureError(rt, "(let [f inc] (f))")?.message == "Wrong number of args (0) passed to: clojure.core/inc, which takes 1")
+				#expect(clojureError(rt, "((fn [f] (f)) vector?)")?.message == "Wrong number of args (0) passed to: clojure.core/vector?, which takes 1")
 				#expect(try rt.eval("(let [f +] [(f) (f 1) (f 1 2 3 4 5 6 7 8 9 10)])") == [0, 1, 55])
 				#expect(clj_shadow_stack_depth() == 0)
 			}
@@ -139,7 +139,7 @@ extension CoreTests {
 				#expect(direct.trace.map(\.line) == generic.trace.map(\.line))
 				#expect(clj_shadow_stack_depth() == 0)
 				let info = try #require(clojureError(rt, "(nc-call ex-info \"only a message\")"))
-				#expect(info.message == "Wrong number of args (1) passed to: clojure.core/ex-info")
+				#expect(info.message == "Wrong number of args (1) passed to: clojure.core/ex-info, which takes 2 or 3")
 				#expect(info.trace.map(\.fn) == ["user/nc-call"])
 				#expect(try rt.eval("(try (nc-call inc \"s\") (catch :default e (ex-message e)))") == "string cannot be cast to a number")
 			}
@@ -153,7 +153,7 @@ extension CoreTests {
 				#expect(try rt.eval("(let [f +] [(apply f [1 2 3]) (apply f 1 2 [3 4]) (apply f [])])") == [6, 10, 0])
 				#expect(try rt.eval("(let [f inc] (map f [1 2]))") == Value(list: [2, 3]))
 				#expect(try rt.eval("(let [f inc g (fn [h] h)] ((g f) 1))") == 2)
-				#expect(clojureError(rt, "(let [f inc] (apply f [1 2]))")?.message == "Wrong number of args (2) passed to: clojure.core/inc")
+				#expect(clojureError(rt, "(let [f inc] (apply f [1 2]))")?.message == "Wrong number of args (2) passed to: clojure.core/inc, which takes 1")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

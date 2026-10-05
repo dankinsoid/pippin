@@ -163,10 +163,10 @@ extension CoreTests {
 				// A call past the fn's arities keeps the closure and the runtime error it gives.
 				let mismatch = try Tree("(let [f (fn [x] x)] (f 1 2))")
 				#expect(mismatch.directFns == 0)
-				#expect(message { try mismatch.run() } == "Wrong number of args (2) passed to: fn")
+				#expect(message { try mismatch.run() } == "Wrong number of args (2) passed to: fn, which takes 1")
 				let named = try Tree("(let [f (fn named [x] x)] (f))")
 				#expect(named.directFns == 0)
-				#expect(message { try named.run() } == "Wrong number of args (0) passed to: named")
+				#expect(message { try named.run() } == "Wrong number of args (0) passed to: named, which takes 1")
 				// A mix: the escaping one stays a closure, the head-only one goes direct.
 				let mixed = try Tree("(let [f (fn [x] x) g (fn [y] (* 2 y))] [(g 2) (map f [1])])")
 				#expect(try mixed.run() == [4, Value(list: [1])])

@@ -4,7 +4,7 @@ true true true
 5 7 "countOfFoo:"
 true true
 "from a Class the header found" true
-"Wrong number of args (0) passed to: strlen"
+"Wrong number of args (0) passed to: strlen, which takes 1"
 "Argument 1 of strlen: a long does not convert to '*'"
 true true true
 true "Cannot send to a raw '^v' pointer"

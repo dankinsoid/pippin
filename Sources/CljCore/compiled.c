@@ -31,6 +31,7 @@ clj_value clj_c_const(const char *edn, size_t len) {
 	clj_reader r;
 	clj_reader_init(&r, edn, len);
 	clj_reader_use_namespaces(&r);
+	clj_reader_no_positions(&r);
 	clj_value v;
 	if (clj_read(&r, &v) != CLJ_READ_OK) {
 		char msg[300];
@@ -147,14 +148,7 @@ clj_value clj_c_set_literal(const clj_value *items, uint32_t n) {
 	return result;
 }
 
-clj_value clj_c_arity_error(clj_value f, size_t n) {
-	clj_value name = clj_fn_of(f)->name;
-	clj_value text = clj_is_nil(name) ? clj_string_from_cstr("fn") : clj_pr_str(name);
-	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_string_bytes(text));
-	clj_release(text);
-	return r;
-}
+clj_value clj_c_arity_error(clj_value f, size_t n) { return clj_arity_error(f, n); }
 
 void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col) {
 	memset(stub, 0, sizeof *stub);

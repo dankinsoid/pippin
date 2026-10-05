@@ -175,19 +175,23 @@ typedef struct scope {
 
 typedef struct {
 	clj_env   env;
-	uint32_t  line, col; // of the innermost list being analyzed that carries a position; env's at the top
+	uint32_t  line, col;         // of the innermost list being analyzed that carries a position; env's at the top
+	uint32_t  end_line, end_col; // its span's end, 0 for a form a macro built (clj_form_span)
 	clj_value keeps;     // vector holding the items of forms whose seq yields them owned (a deftype seq), or nil
 	char     *stack_limit; // nesting stops here: past it a fault inside a lock the walk enters is fatal (guard.c)
 } analyzer;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_line, kw_column, kw_ns, kw_name, kw_doc, kw_macro, kw_dynamic, kw_file, sym_with_meta;
+static clj_value      kw_line, kw_column, kw_end_line, kw_end_column, kw_ns, kw_name, kw_doc, kw_macro, kw_dynamic, kw_file, kw_suggestion, sym_with_meta;
 
 static void intern_keywords(void) {
 	sym_with_meta = clj_symbol_from_cstr("with-meta");
 	kw_file = clj_keyword_from_cstr("file");
 	kw_line = clj_keyword_from_cstr("line");
 	kw_column = clj_keyword_from_cstr("column");
+	kw_end_line = clj_keyword_from_cstr("end-line");
+	kw_end_column = clj_keyword_from_cstr("end-column");
+	kw_suggestion = clj_keyword_from_cstr("suggestion");
 	kw_ns = clj_keyword_from_cstr("ns");
 	kw_name = clj_keyword_from_cstr("name");
 	kw_doc = clj_keyword_from_cstr("doc");
@@ -203,19 +207,27 @@ static void *zalloc(size_t n, size_t size) {
 	return p;
 }
 
-// Consumes data (a map or nil); the position is added when known.
+// Consumes data (a map or nil); the position is added when known. The keys are the rich meta's
+// (design §4 «Локация в коде»), so one reader of ex-data serves every diagnostic.
 static clj_value with_position(const analyzer *a, clj_value data) {
 	if (!a->line) return data;
 	if (clj_is_nil(data)) data = clj_map_empty();
 	data = clj_map_assoc(data, kw_line, clj_fixnum(a->line));
-	return clj_map_assoc(data, kw_column, clj_fixnum(a->col));
+	data = clj_map_assoc(data, kw_column, clj_fixnum(a->col));
+	if (a->end_line) {
+		data = clj_map_assoc(data, kw_end_line, clj_fixnum(a->end_line));
+		data = clj_map_assoc(data, kw_end_column, clj_fixnum(a->end_col));
+	}
+	clj_value file = clj_var_thread_binding(clj_load_file_var());
+	if (!clj_is_nil(file) && clj_is_string(clj_volatile_value(file))) data = clj_map_assoc(data, kw_file, clj_volatile_value(file));
+	return data;
 }
 
 // @ai-generated(guided)
-bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col) {
+bool clj_form_span(clj_value form, uint32_t span[4]) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value m = clj_meta(form);
-	// Only the reader writes a position, and it writes a hash map.
+	// Only the reader writes a position, and it writes a map.
 	if (!clj_is_map(m)) {
 		clj_release(m);
 		return false;
@@ -223,17 +235,27 @@ bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col) {
 	clj_value l = clj_map_get(m, kw_line, CLJ_NIL), c = clj_map_get(m, kw_column, CLJ_NIL);
 	bool      ok = clj_is_fixnum(l) && clj_is_fixnum(c) && clj_fixnum_val(l) > 0;
 	if (ok) {
-		*line = (uint32_t)clj_fixnum_val(l);
-		*col = (uint32_t)clj_fixnum_val(c);
+		span[0] = (uint32_t)clj_fixnum_val(l);
+		span[1] = (uint32_t)clj_fixnum_val(c);
+		clj_value el = clj_map_get(m, kw_end_line, CLJ_NIL), ec = clj_map_get(m, kw_end_column, CLJ_NIL);
+		bool      end = clj_is_fixnum(el) && clj_is_fixnum(ec) && clj_fixnum_val(el) >= clj_fixnum_val(l);
+		span[2] = end ? (uint32_t)clj_fixnum_val(el) : 0;
+		span[3] = end ? (uint32_t)clj_fixnum_val(ec) : 0;
 	}
 	clj_release(m);
 	return ok;
 }
 
+bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col) {
+	uint32_t span[4] = {0};
+	if (!clj_form_span(form, span)) return false;
+	*line = span[0];
+	*col = span[1];
+	return true;
+}
+
 static void throw_at(const analyzer *a, const char *fmt, va_list ap) {
-	char buf[512];
-	vsnprintf(buf, sizeof buf, fmt, ap);
-	clj_value message = clj_string_from_cstr(buf);
+	clj_value message = clj_error_message_v(fmt, ap);
 	clj_value data = with_position(a, CLJ_NIL);
 	clj_throw(clj_ex_info(message, data));
 	clj_release(message);
@@ -283,6 +305,117 @@ static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
 	clj_node *r = fail(a, fmt, clj_string_bytes(text));
 	clj_release(text);
 	return r;
+}
+
+// Levenshtein distance, abandoned once every cell of the row exceeds max: a caller only wants to know
+// whether the two names are within max of each other.
+// @ai-generated(solo)
+static uint32_t edit_distance(const char *a, size_t na, const char *b, size_t nb, uint32_t max) {
+	if (na > nb) return edit_distance(b, nb, a, na, max);
+	if (nb - na > max) return max + 1;
+	uint32_t *prev = zalloc(na + 1, sizeof *prev), *cur = zalloc(na + 1, sizeof *cur);
+	for (size_t i = 0; i <= na; i++) prev[i] = (uint32_t)i;
+	uint32_t answer = max + 1;
+	for (size_t j = 1; j <= nb; j++) {
+		cur[0] = (uint32_t)j;
+		uint32_t best = cur[0];
+		for (size_t i = 1; i <= na; i++) {
+			uint32_t sub = prev[i - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+			uint32_t del = prev[i] + 1, ins = cur[i - 1] + 1;
+			cur[i] = sub < del ? (sub < ins ? sub : ins) : (del < ins ? del : ins);
+			if (cur[i] < best) best = cur[i];
+		}
+		uint32_t *swap = prev;
+		prev = cur;
+		cur = swap;
+		if (best > max) goto done;
+	}
+	answer = prev[na];
+done:
+	free(prev);
+	free(cur);
+	return answer > max ? max + 1 : answer;
+}
+
+typedef struct {
+	const char *name;
+	size_t      len;
+	uint32_t    max;      // the threshold; a candidate past it is no suggestion
+	clj_value   best;     // the nearest name, nil when none is within max
+	uint32_t    distance; // of best; max + 1 while there is none
+	bool        local;    // best is a local of the scope chain, so no namespace has to answer for it
+} nearest;
+
+// A tie is broken by the shorter name and then by its bytes, never by the order a namespace's map
+// happens to walk: the hint has to be the same name on every run for a snapshot to mean anything.
+static bool nearer(clj_value sym, clj_value best) {
+	clj_value a = clj_symbol_name(sym), b = clj_symbol_name(best);
+	uint32_t  na = clj_string_len(a), nb = clj_string_len(b);
+	if (na != nb) return na < nb;
+	return memcmp(clj_string_bytes(a), clj_string_bytes(b), na) < 0;
+}
+
+static void offer(nearest *n, clj_value sym, bool local) {
+	if (!clj_is_symbol(sym) || !clj_is_nil(clj_symbol_ns(sym))) return;
+	clj_value text = clj_symbol_name(sym);
+	uint32_t  d = edit_distance(n->name, n->len, clj_string_bytes(text), clj_string_len(text), n->max);
+	if (d > n->max || d == 0) return;
+	if (d < n->distance || (d == n->distance && nearer(sym, n->best))) {
+		n->distance = d;
+		n->best = sym;
+		n->local = local;
+	}
+}
+
+static bool offer_mapping(clj_value key, clj_value val, void *ctx) {
+	(void)val;
+	offer(ctx, key, false);
+	return true;
+}
+
+// The nearest name to an unresolved symbol: the locals in scope, then the namespace's own and referred
+// mappings; a local wins a tie against a var, being the nearer binding. Design §3 «Диагностика»: no hint
+// means no line, so nothing within the threshold answers nil. Borrowed; the owner is the scope or the ns.
+// @ai-generated(solo)
+static clj_value nearest_name(const analyzer *a, scope *s, clj_value sym) {
+	if (!clj_is_nil(clj_symbol_ns(sym))) return CLJ_NIL;
+	clj_value text = clj_symbol_name(sym);
+	size_t    len = clj_string_len(text);
+	// rustc's rule: a third of the name, so a three-letter name admits one edit and a shorter one none.
+	uint32_t max = len / 3 > 3 ? 3 : (uint32_t)(len / 3);
+	if (!max) return CLJ_NIL;
+	nearest n = {clj_string_bytes(text), len, max, CLJ_NIL, max + 1, false};
+	for (scope *sc = s; sc; sc = sc->parent) {
+		for (uint32_t i = 0; i < sc->nlocals; i++) offer(&n, sc->locals[i].sym, true);
+	}
+	// The same three sets clj_ns_resolve walks for an unqualified name, in its order; the snapshots are
+	// borrowed, and nothing here can mutate a namespace.
+	clj_map_each(clj_ns_mappings(a->env.ns), offer_mapping, &n);
+	clj_map_each(clj_ns_refers(a->env.ns), offer_mapping, &n);
+	if (a->env.ns != clj_ns_core()) clj_map_each(clj_ns_mappings(clj_ns_core()), offer_mapping, &n);
+	// A hint has to name something this namespace really sees: :refer-clojure :exclude hides a core name
+	// that the walk above still offered, and a hint for a name that does not resolve is a wrong one.
+	if (!clj_is_nil(n.best) && !n.local && clj_is_nil(clj_ns_resolve(a->env.ns, n.best))) return CLJ_NIL;
+	return n.best;
+}
+
+// Unresolved name: the message Clojure words, plus the nearest name in scope under :suggestion when one
+// is computable. A consumer renders the hint; the message never claims one that was not found.
+static clj_node *fail_unresolved(const analyzer *a, scope *s, clj_value sym) {
+	clj_value text = clj_pr_str(sym);
+	if (text == CLJ_THROWN) return NULL;
+	clj_value message = clj_error_message("Unable to resolve symbol: %s in this context", clj_string_bytes(text));
+	clj_release(text);
+	clj_value data = with_position(a, CLJ_NIL);
+	clj_value hint = nearest_name(a, s, sym);
+	if (!clj_is_nil(hint)) {
+		if (clj_is_nil(data)) data = clj_map_empty();
+		data = clj_map_assoc(data, kw_suggestion, hint);
+	}
+	clj_throw(clj_ex_info(message, data));
+	clj_release(message);
+	clj_release(data);
+	return NULL;
 }
 
 clj_node *clj_node_alloc(clj_node_kind kind) {
@@ -525,7 +658,7 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 	if (clj_is_nil(var)) {
 		clj_node *host = host_type_symbol(a, s, sym);
 		if (host) return host;
-		return fail_form(a, "Unable to resolve symbol: %s in this context", sym);
+		return fail_unresolved(a, s, sym);
 	}
 	if (private_elsewhere(a, sym, var)) return fail_form(a, "var: %s is not public", sym);
 	if (clj_var_is_macro(var)) return fail_form(a, "Can't take value of a macro: %s", var);
@@ -605,6 +738,16 @@ static clj_value expand_all(analyzer *a, scope *s, clj_value form) {
 	}
 }
 
+// The form's own span becomes the analyzer's; a form without one leaves the enclosing position standing.
+static void set_span(analyzer *a, clj_value form) {
+	uint32_t span[4] = {0};
+	if (!clj_form_span(form, span)) return;
+	a->line = span[0];
+	a->col = span[1];
+	a->end_line = span[2];
+	a->end_col = span[3];
+}
+
 static analyzer analyzer_for(const clj_env *env) {
 	pthread_once(&keywords_once, intern_keywords);
 	analyzer a = {.env = env ? *env : (clj_env){0}, .stack_limit = clj_stack_limit()};
@@ -616,7 +759,7 @@ static analyzer analyzer_for(const clj_env *env) {
 
 clj_value clj_macroexpand_1(clj_value form, const clj_env *env) {
 	analyzer a = analyzer_for(env);
-	clj_form_position(form, &a.line, &a.col);
+	set_span(&a, form);
 	clj_value var = macro_var(&a, NULL, form);
 	clj_value r = clj_is_nil(var) ? clj_retain(form) : expand_once(&a, var, form);
 	clj_release(a.keeps);
@@ -625,7 +768,7 @@ clj_value clj_macroexpand_1(clj_value form, const clj_env *env) {
 
 clj_value clj_macroexpand(clj_value form, const clj_env *env) {
 	analyzer a = analyzer_for(env);
-	clj_form_position(form, &a.line, &a.col);
+	set_span(&a, form);
 	clj_value r = expand_all(&a, NULL, form);
 	clj_release(a.keeps);
 	return r;
@@ -1348,11 +1491,13 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 
 // Errors inside the list report its own position when the reader gave it one.
 static clj_node *analyze_list(analyzer *a, scope *s, clj_value form, bool tail) {
-	uint32_t saved_line = a->line, saved_col = a->col;
-	clj_form_position(form, &a->line, &a->col);
+	uint32_t saved[4] = {a->line, a->col, a->end_line, a->end_col};
+	set_span(a, form);
 	clj_node *node = analyze_list_at(a, s, form, tail);
-	a->line = saved_line;
-	a->col = saved_col;
+	a->line = saved[0];
+	a->col = saved[1];
+	a->end_line = saved[2];
+	a->end_col = saved[3];
 	return node;
 }
 

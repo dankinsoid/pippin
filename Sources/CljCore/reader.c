@@ -20,16 +20,20 @@ typedef struct {
 } frame;
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_line, kw_column, kw_tag, kw_default;
+static clj_value      kw_line, kw_column, kw_end_line, kw_end_column, kw_tag, kw_default;
 
 static void intern_keywords(void) {
 	kw_line = clj_keyword_from_cstr("line");
 	kw_column = clj_keyword_from_cstr("column");
+	kw_end_line = clj_keyword_from_cstr("end-line");
+	kw_end_column = clj_keyword_from_cstr("end-column");
 	kw_tag = clj_keyword_from_cstr("tag");
 	kw_default = clj_keyword_from_cstr("default");
 }
 
 void clj_reader_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
+
+void clj_reader_no_positions(clj_reader *r) { r->no_positions = true; }
 
 static clj_lock  features_lock = CLJ_LOCK_INIT;
 static clj_value features;
@@ -1347,15 +1351,19 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 		if (st != CLJ_READ_OK) return st;
 		return push_value(p, v);
 	}
-	if (f.kind == F_LIST && n) {
-		// Clojure attaches the opening paren's position to lists only; the head cell carries it.
-		clj_value pos = clj_map_assoc(clj_map_assoc(clj_map_empty(), kw_line, clj_fixnum(f.line)), kw_column, clj_fixnum(f.col));
+	if (f.kind == F_LIST && n && !p->r->no_positions) {
+		// Clojure attaches the opening paren's position to lists only; the head cell carries it. The span
+		// closes at the character after the closer, as tools.reader and ClojureScript write it: a diagnostic
+		// underlines a range (design §3 «Диагностика»), and only the reader knows where a form ends.
+		clj_value span[8] = {kw_line,     clj_fixnum(f.line), kw_column,     clj_fixnum(f.col),
+		                     kw_end_line, clj_fixnum(line),   kw_end_column, clj_fixnum(col + 1)};
+		clj_value pos = clj_map_from_items(span, 8, NULL);
 		clj_value tail = clj_list_from_array(items + 1, n - 1);
 		v = clj_list_new_meta(items[0], tail, pos);
 		clj_release(tail);
 		clj_release(pos);
 	} else if (f.kind == F_LIST) {
-		v = clj_list_empty();
+		v = n ? clj_list_from_array(items, n) : clj_list_empty();
 	} else if (f.kind == F_VECTOR) {
 		if (n > UINT32_MAX) return fail(p, f.line, f.col, "Vector literal too long");
 		v = clj_vector_from_array(items, (uint32_t)n);

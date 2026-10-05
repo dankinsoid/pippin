@@ -35,6 +35,7 @@ typedef struct {
 	clj_tag_reader      read_tag; // NULL: clj_default_data_reader alone
 	void               *resolve_ctx;
 	clj_value           features; // set of keywords #?( ) selects on, borrowed; nil means :default alone
+	bool                no_positions; // the lists read carry no :line/:column (clj_reader_no_positions)
 } clj_reader;
 
 // Leaves the resolvers NULL and takes the process-wide features; set them after the call.
@@ -42,6 +43,9 @@ void clj_reader_init(clj_reader *r, const char *bytes, size_t len);
 // The features every clj_reader_init takes: a set of keywords or nil (:default alone). Retained; process-wide.
 void      clj_reader_set_features(clj_value features);
 clj_value clj_reader_features(void);
+// No :line/:column on the lists this reader returns. For a compiled unit's constant pool, whose text is
+// not the user's source: a position inside it would be a wrong one (docs/notes/compiler.md).
+void clj_reader_no_positions(clj_reader *r);
 // *out is owned (+1) on CLJ_READ_OK and untouched otherwise. After an error the position is unspecified.
 clj_read_status clj_read(clj_reader *r, clj_value *out);
 

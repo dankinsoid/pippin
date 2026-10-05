@@ -263,7 +263,15 @@ clj_value clj_throw_untraced(clj_value ex) {
 	return CLJ_THROWN;
 }
 
-static clj_value formatted(const char *fmt, va_list ap) {
+clj_value clj_error_message(const char *fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	clj_value message = clj_error_message_v(fmt, ap);
+	va_end(ap);
+	return message;
+}
+
+clj_value clj_error_message_v(const char *fmt, va_list ap) {
 	va_list count;
 	va_copy(count, ap);
 	int n = vsnprintf(NULL, 0, fmt, count);
@@ -280,7 +288,7 @@ static clj_value formatted(const char *fmt, va_list ap) {
 clj_value clj_throw_msg(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
-	clj_value message = formatted(fmt, ap);
+	clj_value message = clj_error_message_v(fmt, ap);
 	va_end(ap);
 	clj_value ex = clj_ex_info(message, CLJ_NIL);
 	clj_release(message);
@@ -291,7 +299,7 @@ clj_value clj_throw_msg(const char *fmt, ...) {
 clj_value clj_throw_msg_cause(clj_value cause, const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
-	clj_value message = formatted(fmt, ap);
+	clj_value message = clj_error_message_v(fmt, ap);
 	va_end(ap);
 	// A thrown non-error has no cause slot to sit in, as in atom.c and load.c.
 	clj_value ex = clj_ex_info_cause(message, CLJ_NIL, clj_is_exception(cause) ? cause : CLJ_NIL);

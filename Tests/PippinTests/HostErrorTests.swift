@@ -67,7 +67,7 @@ extension CoreTests {
 					_ = try add(1)
 					Issue.record("expected an arity error")
 				} catch let e as ClojureError {
-					#expect(e.message == "Wrong number of args (1) passed to: he-add")
+					#expect(e.message == "Wrong number of args (1) passed to: he-add, which takes 2")
 				}
 				let count = Value(function: nil) { args in Value(args.count) }
 				#expect(try count() == 0)

@@ -168,7 +168,9 @@
   collection with a meta'd element goes through the constructors instead (`meta_is_position_only`,
   compiler.c). The reader's own `:line`/`:column`/`:file` are the exception — every list it reads carries
   them, they are of no use in a compiled unit, and wrapping each one would cost the pool a map; a quoted
-  list's position is therefore still nil in the compiled backend and set in the interpreted one. Without any
+  list's position is therefore nil in the compiled backend and set in the interpreted one, which the pool's
+  reader has to be told (`clj_reader_no_positions`, docs/notes/diagnostics.md) — reading the pool's own text
+  with positions on gave the constant a position inside *that* text. Without any
   of this `'^:dynamic p` inside a quoted form lost its `:dynamic` silently, which is how
   `clojure.test-clojure.def/nested-dynamic-declaration` failed compiled and passed interpreted
   (docs/notes/corpus.md); `Fixtures/compiler/const.clj` is the regression.

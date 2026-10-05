@@ -8,6 +8,7 @@
 #include "clj/analyzer.h"
 #include "clj/chan.h"
 #include "clj/coll.h"
+#include "clj/diagnostic.h"
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fusion.h"
@@ -187,6 +188,8 @@ static void init(void) {
 	clj_var_intern_keywords();
 	for (const char *const *k = (const char *const[]){"=>", "facts/warnings", NULL}; *k; k++) clj_keyword_from_cstr(*k);
 	clj_ns_var();
+	clj_diagnostic_intern_keywords();
+	clj_fn_intern_keywords();
 	clj_load_file_var();
 	clj_builtins_install();
 	clj_proto_install();

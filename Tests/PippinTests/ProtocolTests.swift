@@ -68,9 +68,9 @@ extension CoreTests {
 				#expect(message(rt, "(perimeter (->Circle 1))") == "No implementation of method: :perimeter of protocol: #'user/Shape found for type: user.Circle")
 				#expect(message(rt, "(area 42)") == "No implementation of method: :area of protocol: #'user/Shape found for type: long")
 				#expect(message(rt, "(area nil)") == "No implementation of method: :area of protocol: #'user/Shape found for type: nil")
-				#expect(message(rt, "(area)") == "Wrong number of args (0) passed to: user/area")
-				#expect(message(rt, "(area (->Rect 1 1) 2)") == "Wrong number of args (2) passed to: user/area")
-				#expect(message(rt, "(->Rect 1)") == "Wrong number of args (1) passed to: user/->Rect")
+				#expect(message(rt, "(area)") == "Wrong number of args (0) passed to: user/area, which takes 1")
+				#expect(message(rt, "(area (->Rect 1 1) 2)") == "Wrong number of args (2) passed to: user/area, which takes 1")
+				#expect(message(rt, "(->Rect 1)") == "Wrong number of args (1) passed to: user/->Rect, which takes 2")
 				// (Name. args) is the positional factory: libraries write their own types that way.
 				#expect(try rt.eval("(area (Rect. 3 4))") == 12)
 				#expect(try rt.eval("(identical? (type (Rect. 3 4)) Rect)") == true)
@@ -105,7 +105,7 @@ extension CoreTests {
 				#expect(try rt.eval("(let [a (->Person \"ann\") b (->Person \"bob\")] [(greet a) (greet a b) (greet a b b b) (name-of b)])")
 					== ["hi from ann", "ann greets bob", "ann greets 3", "bob"])
 				#expect(try rt.eval("[(satisfies? Named (->Person \"x\")) (satisfies? Greeter (->Person \"x\")) (satisfies? Named 1)]") == [true, true, false])
-				#expect(message(rt, "(greet)") == "Wrong number of args (0) passed to: user/greet")
+				#expect(message(rt, "(greet)") == "Wrong number of args (0) passed to: user/greet, which takes at least 1")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

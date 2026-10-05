@@ -166,7 +166,7 @@ extension CoreTests {
 				#expect(try rt.eval("[(satisfies? ILookup (->Env {})) (associative? (->Env {}))]") == [true, false])
 				// Only a 2-arity valAt: get without a not-found reaches it, as RT.get does; a not-found needs the 3-arity.
 				#expect(try rt.eval("[(get (->Env2 {:a 1}) :a) (get (->Env2 {}) :b) (:a (->Env2 {:a 1}))]") == [1, kw("two-arity"), 1])
-				#expect(message(rt, "(get (->Env2 {}) :b :nf)") == "Wrong number of args (3) passed to: fn")
+				#expect(message(rt, "(get (->Env2 {}) :b :nf)") == "Wrong number of args (3) passed to: fn, which takes 2")
 			}
 			#expect(clj_debug_live_objects() == before)
 			try unbind("Env", "->Env", "Env2", "->Env2")

@@ -81,7 +81,7 @@ extension CoreTests {
 				#expect(try eval("(apply reduce + [[1 2]])") == 3)
 				#expect(message("(reduce + 5)") == "Don't know how to create ISeq from: long")
 				#expect(message("(reduce + 0 :a)") == "Don't know how to create ISeq from: keyword")
-				#expect(message("(reduce)") == "Wrong number of args (0) passed to: clojure.core/reduce")
+				#expect(message("(reduce)") == "Wrong number of args (0) passed to: clojure.core/reduce, which takes 2 or 3")
 				#expect(message("(reduce (fn [a x] (throw (ex-info \"in f\" {}))) 0 [1])") == "in f")
 				#expect(message("(reduce (fn [a x] (+ a x)) 0 [1 :a])") == "keyword cannot be cast to a number")
 			}
@@ -199,7 +199,7 @@ extension CoreTests {
 				#expect(try eval("(transduce (map (fn [[k v]] v)) + {:a 1})") == 1)
 				#expect(try eval("(transduce cat conj [[1 2] [3]])") == [1, 2, 3])
 				#expect(try eval("(transduce (comp cat (take 2)) conj [[1 2] (range)])") == [1, 2])
-				#expect(message("(transduce (map inc) (fn [a b] (+ a b)) [1])") == "Wrong number of args (0) passed to: fn")
+				#expect(message("(transduce (map inc) (fn [a b] (+ a b)) [1])") == "Wrong number of args (0) passed to: fn, which takes 2")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -240,7 +240,7 @@ extension CoreTests {
 				#expect(message("(into [] (map inc) (lazy-seq (throw (ex-info \"x\" {}))))") == "x")
 				#expect(message("(into [] (lazy-seq (throw (ex-info \"y\" {}))))") == "y")
 				#expect(message("(into 1 [2])") == "conj not supported on this type: long")
-				#expect(message("(into)") == "Wrong number of args (0) passed to: clojure.core/into")
+				#expect(message("(into)") == "Wrong number of args (0) passed to: clojure.core/into, which takes 2 or 3")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

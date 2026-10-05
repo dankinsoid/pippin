@@ -63,11 +63,20 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n);
 static const size_t CLJ_NARGS_REST = SIZE_MAX;
 // Owned rest slot of a variadic arity. Both backends build it here, so a lazy hand-over reaches both.
 clj_value clj_rest_args(const clj_value *args, size_t nargs, uint32_t nparams);
-// "Wrong number of args (n) passed to: f" for any invokable; invoke slots share it.
+// "Wrong number of args (n) passed to: f, which takes 1 or 2" for any invokable; invoke slots share it.
+// The arities are what design §3 «Диагностика» requires of this one: ex-data carries :arities (the counts
+// accepted below :variadic), :variadic (the count from which every larger one is accepted too, absent when
+// f is bounded) and :given. They are the counts a call may pass, not the overloads as written.
+// No position: the interpreter refuses at the call site and a compiled fn in its own dispatcher, so one
+// would be the caller's in one backend and absent in the other (docs/notes/diagnostics.md).
 clj_value clj_arity_error(clj_value f, size_t n);
 // "Wrong number of args (> n) passed to: f": apply stops counting a seq past what the callee could take.
 clj_value clj_arity_error_over(clj_value f, size_t n);
 // Whether a fn takes n arguments; true for any other invokable, which checks on the call.
 bool clj_fn_accepts(clj_value f, size_t n);
+
+// Interns the keywords of an arity error's data; clj_init calls it, so a process where nothing failed
+// still holds them and a live-object baseline does not move at the first failure (NOTES "Symbol / keyword").
+void clj_fn_intern_keywords(void);
 
 #endif
