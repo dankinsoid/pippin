@@ -31,8 +31,8 @@
   after `clj_proto_wait_readers` saw every window closed — the retain never lands on a freed object, and a UI
   read never waits for another execution's `f` (design §4). Measured: `get @atom :k` 54 → 41 ns, `swap! inc`
   unchanged at 38–42, four carriers on one `swap! inc` 60–110 ns (bench/RESULTS.md, "Coroutines and
-  channels"). `(atom x :affinity :main)` checks the carrier on every access: off the main carrier the op
-  throws with a trace. **JVM semantics on a throw:** a throw out of `f`, a validator rejection or the
+  channels"). An atom has no carrier affinity: `:affinity` is an unknown option key and ignored, as on the
+  JVM (design §4 «Атомы»). **JVM semantics on a throw:** a throw out of `f`, a validator rejection or the
   nested-op trap leaves the state exactly as it was; `(swap! a (fn [s] (if ok (assoc s …) (throw …))))`
   is a rejection idiom and code relies on it. There is no hand-over of the atom's reference to `f`: the
   uniqueness trick (the atom at nil while `f` ran, `assoc` in place through a consuming native or a frame

@@ -4,7 +4,7 @@ import Foundation
 import Pippin
 
 /// One process, one `Runtime`, shared by every session. Never installs the main carrier: headless, so
-/// `go-main`/`:affinity :main` code errors immediately rather than hanging (NOTES "Scheduler").
+/// `go-main` code errors immediately rather than hanging (NOTES "Scheduler").
 public final class Server: @unchecked Sendable {
 	let runtime = Runtime()
 	let helpers: NReplHelpers

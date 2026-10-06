@@ -96,7 +96,7 @@ extension CoreTests {
 			base.check()
 		}
 
-		// The main carrier: adopted by the test thread, pumped by hand; a :main atom refuses the pool.
+		// The main carrier: adopted by the test thread, pumped by hand.
 		@Test func mainAffinity() throws {
 			let base = CoroBaseline()
 			do {
@@ -109,9 +109,12 @@ extension CoreTests {
 				clj_sched_main_pump()
 				#expect(try eval("(<!! main-out)") == kw("ran"))
 				#expect(try eval("@main-ui") == 1)
-				// A pool coroutine touching the main atom: an error with a trace, not a silent race.
-				#expect(try eval("(<!! (go (try (swap! main-ui inc) (catch :default e (ex-message e)))))") == "swap! on an atom with :affinity :main from off the main carrier")
-				#expect(try eval("(<!! (go (try @main-ui (catch :default e (ex-message e)))))") == "deref on an atom with :affinity :main from off the main carrier")
+				// :affinity is an unknown atom option, ignored as on the JVM: a pool coroutine swaps and reads the atom.
+				#expect(try eval("(<!! (go (swap! main-ui inc)))") == 2)
+				#expect(try eval("(<!! (go @main-ui))") == 2)
+				_ = try eval("(go-main (>! main-out (swap! main-ui inc)))")
+				clj_sched_main_pump()
+				#expect(try eval("(<!! main-out)") == 3)
 				// A main coroutine parks and resumes on the main carrier only.
 				_ = try eval("(def main-in (chan))")
 				_ = try eval("(go-main (>! main-out (<! main-in)))")

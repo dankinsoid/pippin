@@ -70,8 +70,8 @@
   each turn of the run loop runs what is queued (`clj_sched_main_pump`). Without an installed carrier a
   `go-main` is an error, not a silent pool run; a test adopts the calling thread (`clj_debug_sched_main_adopt`)
   and pumps by hand, and `CoroTests.mainRunLoopSource` runs the real source from a `@MainActor` test turning
-  `CFRunLoopRunInMode`. `(atom x :affinity :main)` checks the carrier on every access (one flag test on the
-  fast path): a pool coroutine's `swap!`/`deref` of it is an error with a trace.
+  `CFRunLoopRunInMode`. Only coroutines have an affinity; an atom is correct from any carrier, and its
+  `:affinity` option is ignored (design §4 «Атомы»).
 - [~] **Blocking pool** (`clj_blocking(fn, ctx, size)`, `clj_blocking_detach`): two pools of one code (`pool`
   in `sched.c`), threads made on demand and retired after a minute idle (the JVM's cached pool;
   `clj_debug_blocking_keep_alive_ms` shortens it for a test). Internal jobs (`clj_blocking`: the loader's

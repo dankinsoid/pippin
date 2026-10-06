@@ -67,7 +67,7 @@
   two guarantees the old code recorded hold unchanged: the pop is a `defer` on a push that cannot fail, and a
   cancelled eval still drops its frame.
 - [~] **Headless: no main carrier is ever installed.** A run loop has nothing to pump in a bare server process, so
-  `Server` never calls `clj_sched_main_install`; `go-main`/`:affinity :main` code evaluated over nREPL gets the
+  `Server` never calls `clj_sched_main_install`; `go-main` code evaluated over nREPL gets the
   existing "No main carrier" error immediately, the same as any other headless entry point, rather than hanging
   or silently running on the pool. Trigger: a `--install-main-carrier` flag that adopts the process's own
   thread and pumps `CFRunLoopRunInMode` on a loop, for code that legitimately wants `:main` from the REPL (a UI

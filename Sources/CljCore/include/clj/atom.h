@@ -9,7 +9,6 @@
 typedef struct {
 	clj_header        h;
 	clj_cmutex        lock;
-	uint8_t           affinity;  // CLJ_AFFINITY_MAIN: every access checks the carrier (dev guarantee)
 	_Atomic uintptr_t owner;     // execution holding the lock, 0 when none: the nested-swap trap reads it
 	_Atomic clj_value value;     // read without the lock inside a reader window (deref)
 	clj_value         meta;      // map or nil
@@ -25,8 +24,6 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator);
 static inline bool      clj_is_atom(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_atom_type; }
 static inline clj_atom *clj_atom_of(clj_value v) { return (clj_atom *)clj_to_ptr(v); }
 
-// The affinity of a new atom, before it is shared; :main makes every access off the main carrier throw.
-void clj_atom_set_affinity(clj_value atom, int affinity);
 // Borrowed current value, no window: for a caller that knows no writer runs (tests, the bench).
 static inline clj_value clj_atom_value_borrowed(clj_value atom) { return atomic_load_explicit(&clj_atom_of(atom)->value, memory_order_acquire); }
 // Owned current value, without the lock: a UI read never waits for another execution's f.

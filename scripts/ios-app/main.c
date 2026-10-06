@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
 	size_t booted = clj_debug_phys_footprint();
 	printf("pippin-app: footprint %zu KB before clj_init, %zu KB after boot (+%zu KB)\n",
 	       before / 1024, booted / 1024, (booted - before) / 1024);
-	// UIKit drives the screen from the main thread, and an atom with :affinity :main needs the carrier there.
+	// UIKit drives the screen from the main thread, and go-main blocks need the carrier there.
 	clj_sched_main_install();
 	int failed = load_screen(argv[0]);
 	report("after screen.clj");

@@ -43,16 +43,8 @@ static uintptr_t self_id(void) { return (uintptr_t)clj_coro_current(); }
 
 static bool held_by_me(const clj_atom *a) { return atomic_load_explicit(&a->owner, memory_order_relaxed) == self_id(); }
 
-// One TLS load: a main-affinity atom touched off the main carrier is an error with a trace, not a silent race.
-static bool affinity_ok(const clj_atom *a, const char *op) {
-	if (__builtin_expect(a->affinity == CLJ_AFFINITY_POOL, 1) || clj_coro_on_main_carrier()) return true;
-	clj_throw_msg("%s on an atom with :affinity :main from off the main carrier", op);
-	return false;
-}
-
 // The lock is not recursive, so an execution that already holds it must not wait on it: throw instead.
 static bool enter(clj_atom *a, const char *op) {
-	if (!affinity_ok(a, op)) return false;
 	if (held_by_me(a)) {
 		clj_throw_msg("%s on an atom this thread is already swapping (nested swap! trap)", op);
 		return false;
@@ -124,7 +116,6 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	if (!validate_with(validator, value)) return CLJ_THROWN;
 	clj_atom *a = clj_alloc(&clj_atom_type, sizeof *a);
 	clj_cmutex_init(&a->lock);
-	a->affinity = CLJ_AFFINITY_POOL;
 	atomic_init(&a->owner, 0);
 	clj_share(value);
 	clj_share(meta);
@@ -135,13 +126,10 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	return clj_from_ptr(a);
 }
 
-void clj_atom_set_affinity(clj_value atom, int affinity) { clj_atom_of(atom)->affinity = (uint8_t)affinity; }
-
 // No lock: the read and its retain sit in a reader window (proto.c), and a writer releases the old value only
 // after every window closed, so the retain never lands on a freed object. Inside f the holder sees the old value.
 clj_value clj_atom_deref(clj_value atom) {
 	clj_atom *a = clj_atom_of(atom);
-	if (!affinity_ok(a, "deref")) return CLJ_THROWN;
 	clj_proto_reader *r = clj_proto_window_open_inline();
 	clj_value         v = clj_retain(atomic_load_explicit(&a->value, memory_order_seq_cst));
 	clj_proto_window_close_inline(r);
