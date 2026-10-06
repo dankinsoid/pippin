@@ -7,7 +7,7 @@ import Testing
 // The exec of the closure at a var's root.
 private func execOf(_ rt: Runtime, _ name: String) throws -> clj_value {
 	let f = try rt.eval(name)
-	return withExtendedLifetime(f) { clj_fn_of(f.raw).pointee.code }
+	return withExtendedLifetime(f) { clj_fn_of(f.raw).pointee.code.v }
 }
 
 private func specialized(_ rt: Runtime, _ name: String, _ op: String) throws -> Bool {

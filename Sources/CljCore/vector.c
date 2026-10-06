@@ -18,7 +18,7 @@ typedef struct {
 	uint16_t   cap;
 	uint32_t   flags;
 	uint32_t  *sizes;
-	clj_value  slots[];
+	clj_slot   slots[];
 } node;
 
 typedef struct {
@@ -26,14 +26,14 @@ typedef struct {
 	uint32_t         count;
 	uint32_t         shift;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
-	clj_value        root;
-	clj_value        tail;
-	clj_value        meta; // map or nil; kept across conj/assoc/pop, ignored by equality and hash
+	clj_slot         root;
+	clj_slot         tail;
+	clj_slot         meta; // map or nil; kept across conj/assoc/pop, ignored by equality and hash
 } clj_vector;
 
 static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 	node *n = self;
-	for (size_t i = 0; i < n->len; i++) visit(n->slots[i], ctx);
+	for (size_t i = 0; i < n->len; i++) visit(n->slots[i].v, ctx);
 }
 
 static const clj_type node_type = {
@@ -51,11 +51,6 @@ static inline size_t slot_index(const node *n, uint32_t i, uint32_t shift) {
 	return (i >> shift) & MASK;
 }
 
-// Storing into a shared owner must keep the invariant that its children are shared.
-static void store(clj_header *owner, clj_value *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	*slot = v;
-}
 
 // Powers of two up to 8, then a full node: a 32-slot leaf is 288 bytes and lands in the 320 size
 // class either way, so a growing tail pays 4 moves per 32 conj instead of 12 and small vectors stay small.
@@ -79,17 +74,17 @@ static node *node_resize(node *n, uint32_t len) {
 	if (len > n->cap) {
 		uint32_t cap = cap_for(len);
 		n = clj_realloc(n, sizeof *n + cap * sizeof(clj_value));
-		for (uint32_t i = n->cap; i < cap; i++) n->slots[i] = CLJ_NIL;
+		for (uint32_t i = n->cap; i < cap; i++) clj_slot_clear(&n->slots[i]);
 		n->cap = (uint16_t)cap;
 	}
-	for (uint32_t i = len; i < n->len; i++) n->slots[i] = CLJ_NIL;
+	for (uint32_t i = len; i < n->len; i++) clj_slot_clear(&n->slots[i]);
 	n->len = (uint16_t)len;
 	return n;
 }
 
 static node *node_copy(const node *n) {
 	node *c = node_alloc(n->len);
-	for (size_t i = 0; i < n->len; i++) c->slots[i] = clj_retain(n->slots[i]);
+	for (size_t i = 0; i < n->len; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(n->slots[i].v));
 	return c;
 }
 
@@ -104,9 +99,9 @@ static node *node_own(clj_value v) {
 static node empty_node = {.h = {1, CLJ_FLAG_IMMORTAL, &node_type}};
 
 static node *leaf_for(const clj_vector *v, uint32_t i) {
-	if (i >= tail_off(v->count)) return node_of(v->tail);
-	node *n = node_of(v->root);
-	for (uint32_t shift = v->shift; shift > 0; shift -= BITS) n = node_of(n->slots[slot_index(n, i, shift)]);
+	if (i >= tail_off(v->count)) return node_of(v->tail.v);
+	node *n = node_of(v->root.v);
+	for (uint32_t shift = v->shift; shift > 0; shift -= BITS) n = node_of(n->slots[slot_index(n, i, shift)].v);
 	return n;
 }
 
@@ -114,7 +109,7 @@ static node *leaf_for(const clj_vector *v, uint32_t i) {
 static clj_value new_path(uint32_t shift, clj_value leaf) {
 	if (shift == 0) return leaf;
 	node *n = node_alloc(1);
-	n->slots[0] = new_path(shift - BITS, leaf);
+	clj_slot_init(&n->h, &n->slots[0], new_path(shift - BITS, leaf));
 	return clj_from_ptr(n);
 }
 
@@ -126,12 +121,12 @@ static clj_value push_tail(clj_value nv, uint32_t shift, uint32_t count, clj_val
 	if (shift == BITS) {
 		child = tail;
 	} else if (j < n->len) {
-		child = push_tail(n->slots[j], shift - BITS, count, tail);
+		child = push_tail(n->slots[j].v, shift - BITS, count, tail);
 	} else {
 		child = new_path(shift - BITS, tail);
 	}
 	if (j == n->len) n = node_resize(n, n->len + 1);
-	store(&n->h, &n->slots[j], child);
+	clj_slot_store(&n->h, &n->slots[j], child);
 	return clj_from_ptr(n);
 }
 
@@ -141,15 +136,15 @@ static clj_value pop_tail(clj_value nv, uint32_t shift, uint32_t count) {
 	size_t j = n->len - 1;
 	CLJ_ASSERT(j == slot_index(n, count - 2, shift), "vector trie out of shape");
 	if (shift > BITS) {
-		clj_value child = pop_tail(n->slots[j], shift - BITS, count);
+		clj_value child = pop_tail(n->slots[j].v, shift - BITS, count);
 		if (child != CLJ_NIL) {
-			store(&n->h, &n->slots[j], child);
+			clj_slot_store(&n->h, &n->slots[j], child);
 			return clj_from_ptr(n);
 		}
 	} else {
-		clj_release(n->slots[j]);
+		clj_release(n->slots[j].v);
 	}
-	n->slots[j] = CLJ_NIL;
+	clj_slot_clear(&n->slots[j]);
 	if (j == 0) {
 		clj_release(clj_from_ptr(n));
 		return CLJ_NIL;
@@ -162,20 +157,20 @@ static clj_value node_assoc(clj_value nv, uint32_t shift, uint32_t i, clj_value 
 	node *n = node_own(nv);
 	size_t j = slot_index(n, i, shift);
 	if (shift == 0) {
-		clj_value old = n->slots[j];
-		store(&n->h, &n->slots[j], clj_retain(val));
+		clj_value old = n->slots[j].v;
+		clj_slot_store(&n->h, &n->slots[j], clj_retain(val));
 		clj_release(old);
 	} else {
-		store(&n->h, &n->slots[j], node_assoc(n->slots[j], shift - BITS, i, val));
+		clj_slot_store(&n->h, &n->slots[j], node_assoc(n->slots[j].v, shift - BITS, i, val));
 	}
 	return clj_from_ptr(n);
 }
 
 static void vector_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_vector *v = self;
-	visit(v->root, ctx);
-	visit(v->tail, ctx);
-	visit(v->meta, ctx);
+	visit(v->root.v, ctx);
+	visit(v->tail.v, ctx);
+	visit(v->meta.v, ctx);
 }
 
 static uint32_t vector_hash(void *self) {
@@ -185,7 +180,7 @@ static uint32_t vector_hash(void *self) {
 	h = 1;
 	for (uint32_t base = 0; base < v->count; base += WIDTH) {
 		const node *leaf = leaf_for(v, base);
-		for (size_t i = 0; i < leaf->len; i++) h = 31 * h + clj_hash(leaf->slots[i]);
+		for (size_t i = 0; i < leaf->len; i++) h = 31 * h + clj_hash(leaf->slots[i].v);
 	}
 	return clj_hash_cache_store(&v->hash, clj_mix_coll_hash(h, v->count));
 }
@@ -197,7 +192,7 @@ static bool vector_equals(void *self, clj_value other) {
 	for (uint32_t base = 0; base < a->count; base += WIDTH) {
 		const node *la = leaf_for(a, base), *lb = leaf_for(b, base);
 		for (size_t i = 0; i < la->len; i++) {
-			if (!clj_equals(la->slots[i], lb->slots[i])) return false;
+			if (!clj_equals(la->slots[i].v, lb->slots[i].v)) return false;
 		}
 	}
 	return true;
@@ -220,7 +215,7 @@ clj_value clj_vector_reduce_from(clj_value vec, uint32_t from, clj_value f, clj_
 		const node *leaf = leaf_for(v, i);
 		uint32_t    end = (i | MASK) + 1 < count ? (i | MASK) + 1 : count;
 		for (; i < end; i++) {
-			if (!clj_reducer_step(&r, leaf->slots[i & MASK])) return clj_reducer_finish(&r);
+			if (!clj_reducer_step(&r, leaf->slots[i & MASK].v)) return clj_reducer_finish(&r);
 		}
 	}
 	return clj_reducer_finish(&r);
@@ -234,7 +229,7 @@ clj_value clj_vector_reduce_kv(clj_value vec, clj_value f, clj_value init) {
 		const node *leaf = leaf_for(v, i);
 		uint32_t    end = (i | MASK) + 1 < count ? (i | MASK) + 1 : count;
 		for (; i < end; i++) {
-			if (!clj_reducer_step_kv(&r, clj_fixnum(i), leaf->slots[i & MASK])) return clj_reducer_finish(&r);
+			if (!clj_reducer_step_kv(&r, clj_fixnum(i), leaf->slots[i & MASK].v)) return clj_reducer_finish(&r);
 		}
 	}
 	return clj_reducer_finish(&r);
@@ -255,16 +250,16 @@ static clj_value vector_invoke(clj_value self, const clj_value *args, size_t n) 
 	return clj_nth(self, args[0], false, CLJ_NIL);
 }
 
-static clj_value vector_meta(clj_value self) { return clj_retain(vector_of(self)->meta); }
+static clj_value vector_meta(clj_value self) { return clj_retain(vector_of(self)->meta.v); }
 
 static clj_vector *vector_own(clj_value vec);
 
 // @ai-generated(guided)
 static clj_value vector_with_meta(clj_value self, clj_value m) {
-	if (clj_is_nil(m) && clj_is_nil(vector_of(self)->meta)) return self;
+	if (clj_is_nil(m) && clj_is_nil(vector_of(self)->meta.v)) return self;
 	clj_vector *v = vector_own(self);
-	clj_value   old = v->meta;
-	store(&v->h, &v->meta, clj_retain(m));
+	clj_value   old = v->meta.v;
+	clj_slot_store(&v->h, &v->meta, clj_retain(m));
 	clj_release(old);
 	return clj_from_ptr(v);
 }
@@ -293,8 +288,8 @@ const clj_type clj_vector_type = {
 static clj_vector empty_vector = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_vector_type},
 	.shift = BITS,
-	.root = (clj_value)&empty_node,
-	.tail = (clj_value)&empty_node,
+	.root = {(clj_value)&empty_node},
+	.tail = {(clj_value)&empty_node},
 };
 
 clj_value clj_vector_empty(void) { return clj_from_ptr(&empty_vector); }
@@ -304,7 +299,7 @@ uint32_t clj_vector_count(clj_value vec) { return vector_of(vec)->count; }
 clj_value clj_vector_nth(clj_value vec, uint32_t i) {
 	const clj_vector *v = vector_of(vec);
 	if (i >= v->count) clj_fatal("vector index out of bounds");
-	return leaf_for(v, i)->slots[i & MASK];
+	return leaf_for(v, i)->slots[i & MASK].v;
 }
 
 clj_value clj_vector_peek(clj_value vec) {
@@ -322,9 +317,9 @@ static clj_vector *vector_own(clj_value vec) {
 	clj_vector *c = clj_alloc(&clj_vector_type, sizeof *c);
 	c->count = v->count;
 	c->shift = v->shift;
-	c->root = clj_retain(v->root);
-	c->tail = clj_retain(v->tail);
-	c->meta = clj_retain(v->meta);
+	clj_slot_init(&c->h, &c->root, clj_retain(v->root.v));
+	clj_slot_init(&c->h, &c->tail, clj_retain(v->tail.v));
+	clj_slot_init(&c->h, &c->meta, clj_retain(v->meta.v));
 	clj_release(vec);
 	return c;
 }
@@ -333,24 +328,24 @@ clj_value clj_vector_conj(clj_value vec, clj_value val) {
 	clj_vector *v = vector_own(vec);
 	uint32_t tail_len = v->count - tail_off(v->count);
 	if (tail_len < WIDTH) {
-		node *t = node_resize(node_own(v->tail), tail_len + 1);
-		store(&t->h, &t->slots[tail_len], clj_retain(val));
-		store(&v->h, &v->tail, clj_from_ptr(t));
+		node *t = node_resize(node_own(v->tail.v), tail_len + 1);
+		clj_slot_store(&t->h, &t->slots[tail_len], clj_retain(val));
+		clj_slot_store(&v->h, &v->tail, clj_from_ptr(t));
 	} else {
 		clj_value root;
 		if ((v->count >> BITS) > (1u << v->shift)) {
 			node *r = node_alloc(2);
-			r->slots[0] = v->root;
-			r->slots[1] = new_path(v->shift, v->tail);
+			clj_slot_init(&r->h, &r->slots[0], v->root.v);
+			clj_slot_init(&r->h, &r->slots[1], new_path(v->shift, v->tail.v));
 			v->shift += BITS;
 			root = clj_from_ptr(r);
 		} else {
-			root = push_tail(v->root, v->shift, v->count, v->tail);
+			root = push_tail(v->root.v, v->shift, v->count, v->tail.v);
 		}
-		store(&v->h, &v->root, root);
+		clj_slot_store(&v->h, &v->root, root);
 		node *t = node_alloc(1);
-		store(&t->h, &t->slots[0], clj_retain(val));
-		store(&v->h, &v->tail, clj_from_ptr(t));
+		clj_slot_store(&t->h, &t->slots[0], clj_retain(val));
+		clj_slot_store(&v->h, &v->tail, clj_from_ptr(t));
 	}
 	v->count++;
 	return clj_from_ptr(v);
@@ -362,13 +357,13 @@ clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val) {
 	if (i > count) clj_fatal("vector index out of bounds");
 	clj_vector *v = vector_own(vec);
 	if (i >= tail_off(count)) {
-		node *t = node_own(v->tail);
-		clj_value old = t->slots[i & MASK];
-		store(&t->h, &t->slots[i & MASK], clj_retain(val));
+		node *t = node_own(v->tail.v);
+		clj_value old = t->slots[i & MASK].v;
+		clj_slot_store(&t->h, &t->slots[i & MASK], clj_retain(val));
 		clj_release(old);
-		store(&v->h, &v->tail, clj_from_ptr(t));
+		clj_slot_store(&v->h, &v->tail, clj_from_ptr(t));
 	} else {
-		store(&v->h, &v->root, node_assoc(v->root, v->shift, i, val));
+		clj_slot_store(&v->h, &v->root, node_assoc(v->root.v, v->shift, i, val));
 	}
 	return clj_from_ptr(v);
 }
@@ -376,41 +371,42 @@ clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val) {
 clj_value clj_vector_pop(clj_value vec) {
 	uint32_t count = vector_of(vec)->count;
 	if (count == 0) clj_fatal("pop of an empty vector");
-	if (count == 1 && clj_is_nil(vector_of(vec)->meta)) {
+	if (count == 1 && clj_is_nil(vector_of(vec)->meta.v)) {
 		clj_release(vec);
 		return clj_vector_empty();
 	}
 	clj_vector *v = vector_own(vec);
 	if (count == 1) {
-		clj_release(v->root);
-		clj_release(v->tail);
-		v->root = v->tail = clj_from_ptr(&empty_node);
+		clj_release(v->root.v);
+		clj_release(v->tail.v);
+		clj_slot_store(&v->h, &v->root, clj_from_ptr(&empty_node));
+		clj_slot_store(&v->h, &v->tail, clj_from_ptr(&empty_node));
 		v->shift = BITS;
 		v->count = 0;
 		return clj_from_ptr(v);
 	}
 	uint32_t tail_len = count - tail_off(count);
 	if (tail_len > 1) {
-		node *t = node_own(v->tail);
-		clj_release(t->slots[tail_len - 1]);
-		store(&v->h, &v->tail, clj_from_ptr(node_resize(t, tail_len - 1)));
+		node *t = node_own(v->tail.v);
+		clj_release(t->slots[tail_len - 1].v);
+		clj_slot_store(&v->h, &v->tail, clj_from_ptr(node_resize(t, tail_len - 1)));
 	} else {
 		clj_value tail = clj_retain(clj_from_ptr(leaf_for(v, count - 2)));
-		clj_value root = pop_tail(v->root, v->shift, count);
+		clj_value root = pop_tail(v->root.v, v->shift, count);
 		if (root == CLJ_NIL) {
 			root = clj_from_ptr(&empty_node);
 		} else if (v->shift > BITS && node_of(root)->len == 1) {
 			node *r = node_of(root);
-			clj_value inner = r->slots[0];
+			clj_value inner = r->slots[0].v;
 			if (clj_is_unique(root)) r->len = 0;
 			else clj_retain(inner);
 			clj_release(root);
 			root = inner;
 			v->shift -= BITS;
 		}
-		store(&v->h, &v->root, root);
-		clj_release(v->tail);
-		store(&v->h, &v->tail, tail);
+		clj_slot_store(&v->h, &v->root, root);
+		clj_release(v->tail.v);
+		clj_slot_store(&v->h, &v->tail, tail);
 	}
 	v->count--;
 	return clj_from_ptr(v);
@@ -427,11 +423,11 @@ void clj_vector_each(clj_value vec, clj_vector_item_fn fn, void *ctx) {
 	for (uint32_t base = 0; base < v->count; base += WIDTH) {
 		const node *leaf = leaf_for(v, base);
 		for (size_t i = 0; i < leaf->len; i++) {
-			if (!fn(leaf->slots[i], ctx)) return;
+			if (!fn(leaf->slots[i].v, ctx)) return;
 		}
 	}
 }
 
-clj_value clj_debug_vector_root(clj_value vec) { return vector_of(vec)->root; }
-clj_value clj_debug_vector_tail(clj_value vec) { return vector_of(vec)->tail; }
+clj_value clj_debug_vector_root(clj_value vec) { return vector_of(vec)->root.v; }
+clj_value clj_debug_vector_tail(clj_value vec) { return vector_of(vec)->tail.v; }
 uint32_t  clj_debug_vector_cached_hash(clj_value vec) { return clj_hash_cache_load(&vector_of(vec)->hash); }

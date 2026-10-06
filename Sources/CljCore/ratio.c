@@ -7,19 +7,19 @@
 
 static void ratio_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_ratio *r = self;
-	visit(r->num, ctx);
-	visit(r->den, ctx);
+	visit(r->num.v, ctx);
+	visit(r->den.v, ctx);
 }
 
 static uint32_t ratio_hash(void *self) {
 	clj_ratio *r = self;
-	return clj_hash_combine(clj_hash(r->num), clj_hash(r->den));
+	return clj_hash_combine(clj_hash(r->num.v), clj_hash(r->den.v));
 }
 
 // A normalised ratio is never integral, so it equals nothing outside its own type.
 static bool ratio_equals(void *self, clj_value other) {
 	clj_ratio *r = self;
-	return clj_is_ratio(other) && clj_bigint_cmp(r->num, clj_ratio_num(other)) == 0 && clj_bigint_cmp(r->den, clj_ratio_den(other)) == 0;
+	return clj_is_ratio(other) && clj_bigint_cmp(r->num.v, clj_ratio_num(other)) == 0 && clj_bigint_cmp(r->den.v, clj_ratio_den(other)) == 0;
 }
 
 const clj_type clj_ratio_type = {
@@ -53,14 +53,14 @@ clj_value clj_ratio_new(clj_value num, clj_value den) {
 		return n;
 	}
 	clj_ratio *r = clj_alloc(&clj_ratio_type, sizeof *r);
-	r->num = n;
-	r->den = d;
+	clj_slot_init(&r->h, &r->num, n);
+	clj_slot_init(&r->h, &r->den, d);
 	return clj_from_ptr(r);
 }
 
 double clj_ratio_to_double(clj_value v) {
 	clj_ratio *r = clj_ratio_of(v);
-	return clj_bigint_to_double(r->num) / clj_bigint_to_double(r->den);
+	return clj_bigint_to_double(r->num.v) / clj_bigint_to_double(r->den.v);
 }
 
 int clj_ratio_cmp(clj_value a, clj_value b) {
@@ -74,14 +74,14 @@ int clj_ratio_cmp(clj_value a, clj_value b) {
 
 clj_value clj_ratio_to_string(clj_value v) {
 	clj_ratio *r = clj_ratio_of(v);
-	size_t     cap = clj_bigint_digits10(r->num) + clj_bigint_digits10(r->den) + 4;
+	size_t     cap = clj_bigint_digits10(r->num.v) + clj_bigint_digits10(r->den.v) + 4;
 	char      *buf = malloc(cap);
 	if (!buf) clj_fatal("out of memory");
 	size_t k = 0;
-	if (clj_bigint_sign(r->num) < 0) buf[k++] = '-';
-	k += clj_bigint_digits(r->num, buf + k, cap - k);
+	if (clj_bigint_sign(r->num.v) < 0) buf[k++] = '-';
+	k += clj_bigint_digits(r->num.v, buf + k, cap - k);
 	buf[k++] = '/';
-	k += clj_bigint_digits(r->den, buf + k, cap - k);
+	k += clj_bigint_digits(r->den.v, buf + k, cap - k);
 	clj_value s = clj_string_new(buf, k);
 	free(buf);
 	return s;

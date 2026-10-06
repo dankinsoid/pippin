@@ -32,7 +32,7 @@
   cost the debug suite less than its run-to-run noise (`swift test` on the pool, 650 tests with the corpus, an
   Intel i9 under other load: 54.8 and 53.3 s against 70.6 and 54.2 s without them), stressSpawn above being the
   one test that shows them.
-- **Reference types are checked at the store, not below a cutoff** (`clj_type.mutable_children`, `CLJ_SLOT_CHECK`).
+- **Reference types are checked at the store, not below a cutoff** (`clj_type.mutable_children`, `clj_slot_store`).
   A coroutine, an atom, a volatile, a channel, a var, a namespace, a lazy seq and an array replace their
   children after publication under their own lock or owner, and release the old ones there. The cutoff walk
   read those slots without that lock: `finish` cleared and released `c->fn` on a carrier while a spawn on the
@@ -41,17 +41,34 @@
   `ChanStressTests.theShareCheckStopsAtAFinishingCoroutine` checks every cutoff of its thread
   (`clj_debug_share_check_every`) over a chain of 20k go blocks, each capturing the last one's channel, and meets
   that use-after-free under ASan on x86_64 when the walk enters a coroutine. The walk reads a flagged node's own
-  flags and does not descend below it; every store into one of its slots shares the value first and then
-  checks, in debug builds, that a shared owner got a shared value — atom (`commit`, watches, validator, meta), volatile
-  (`clj_volatile_reset`), channel (`buffer_add`, the parked putters, `coro`, `error`), coroutine (`fn`, args,
-  `result`, `cancel_cause`), var (root, meta), lazy seq (`publish`), array (`clj_array_set`). A namespace is
-  immortal, so no walk ever entered it, and its `store` shares unconditionally. The audit found one store before
-  its share: `clj_coro_entry` wrote `c->result` and shared it after. Every other slot is fixed at publication
+  flags and does not descend below it; every store into one of its slots goes through `clj_slot_store` (or its
+  atomic forms), which shares the value when the owner is shared and then checks, in debug builds
+  (`clj_debug_slot_store_check`), that a shared owner got a shared value and that the running execution holds the
+  owner's lock where `clj_type.debug_lock_held` answers cheaply: an atom's cmutex owner, a channel's section (its
+  plain lock's holder is tracked in debug builds, `lock_owner`). A count of 1 skips the lock check: that is the
+  creator filling the object before anyone else can reach it. A namespace is immortal, so no walk ever entered it;
+  it is born shared, so its stores publish like any other. Every other slot is fixed at publication
   or replaced only in place under `clj_is_unique`, which no other holder can see; a deftype descriptor's
   protocol tables are read inside a reader window and freed after it closes; the exception's `trace`, the one
   write-once slot, is a release CAS read with acquire. The check at free (1) is not affected: at a count of
   zero no writer holds the object. `clj_debug_all_shared` still descends through every slot: its callers are
   tests on values no other thread writes.
+- **Slots: an edge of a heap object is written through a primitive, enforced by type** (`object.h`,
+  `scripts/slot-audit.py`; design §4 «Запись в слот»). A field or slot-array element `each_child` visits is a
+  `clj_slot` (`clj_atomic_slot` where it is read and replaced with atomics), so `obj->f = v` does not compile and
+  every write is `clj_slot_store` (publishes `v` when the owner is shared), `clj_slot_init` (a fresh object, no flag
+  test; debug builds check that an owner born shared gets only shared values), `clj_slot_clear` or the atomic
+  forms; `clj_root_store` is the C-global form and publishes always. A value an object keeps for its own execution,
+  which `each_child` does not visit (a coroutine's pending exception and retired roots), is a `clj_private_value`.
+  An atom, a channel, a coroutine, a var and a namespace are born shared, so their stores publish without a
+  `clj_share` of their own; a channel's put is published on every path in — the ring, a parked putter's node, a
+  woken taker's node (`add_wake`). `make slot-audit` (in `make gates`) fails on a plain `clj_value` field of a
+  heap struct and on a write to `.v`, or its address taken, outside `object.h`. Holes, all on the side of a value
+  already published: a move between slots (`memmove` of a node, a struct copy of a slot) compiles, and the slot
+  pointer of an untyped buffer (an object array's `data`, the trailing meta word) is a cast the audit cannot see.
+  Swift reads slots through `.v` and is outside the audit; it never writes one. Release builds compile the
+  primitives to the old code: in the A/B of bench/RESULTS.md («Slot primitive») every collection internal is
+  byte-identical, and what differs is the intended change (born-shared stores test the flag).
 - **The owner check: an unshared object is touched only by the execution that owns it** (debug builds;
   `object.h`, `rc.c`, `coro.c`). The owner is the execution — a `clj_coro`, a bare thread's implicit one
   included — not the thread: a coroutine that parks and resumes on another carrier owns what it owned (design

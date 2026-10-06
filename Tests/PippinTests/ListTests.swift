@@ -53,9 +53,9 @@ extension CoreTests {
 			#expect(String(cString: clj_type_name(l)) == "list")
 			#expect(clj_list_count(l) == 5)
 			#expect(items(l) == raw)
-			#expect(clj_cons_of(l).pointee.first == clj_fixnum(1))
+			#expect(clj_cons_of(l).pointee.first.v == clj_fixnum(1))
 			var tail = l
-			for _ in 0..<5 { tail = clj_cons_of(tail).pointee.rest }
+			for _ in 0..<5 { tail = clj_cons_of(tail).pointee.rest.v }
 			#expect(tail == clj_list_empty())
 			#expect(clj_debug_live_objects() == before + 5)
 			clj_release(l)
@@ -68,9 +68,9 @@ extension CoreTests {
 			let l = list(raw)
 			let v = vector(raw)
 			let consNil = clj_cons_new(clj_fixnum(1), clj_cons_new(clj_fixnum(2), CLJ_NIL))
-			clj_release(clj_cons_of(consNil).pointee.rest)
+			clj_release(clj_cons_of(consNil).pointee.rest.v)
 			let consVec = clj_cons_new(clj_fixnum(1), vector([clj_fixnum(2)]))
-			clj_release(clj_cons_of(consVec).pointee.rest)
+			clj_release(clj_cons_of(consVec).pointee.rest.v)
 			let longer = list(raw + [clj_fixnum(3)])
 			let other = list([clj_fixnum(1), clj_fixnum(3)])
 
@@ -110,7 +110,7 @@ extension CoreTests {
 			clj_release(s)
 			clj_release(inner)
 			#expect(clj_debug_live_objects() == before + 4)
-			#expect(clj_equals(clj_cons_of(clj_cons_of(outer).pointee.rest).pointee.first, clj_cons_of(inner).pointee.first))
+			#expect(clj_equals(clj_cons_of(clj_cons_of(outer).pointee.rest.v).pointee.first.v, clj_cons_of(inner).pointee.first.v))
 			clj_release(outer)
 			#expect(clj_debug_live_objects() == before)
 		}

@@ -7,10 +7,10 @@
 // Immortal: a var lives for the process, like the name that reaches it. Made through clj_ns_intern.
 typedef struct {
 	clj_header        h;
-	clj_value         ns;   // symbol
-	clj_value         name; // symbol
-	_Atomic clj_value root; // CLJ_UNBOUND until the first def
-	_Atomic clj_value meta; // map or nil; published like root
+	clj_slot          ns;   // symbol
+	clj_slot          name; // symbol
+	clj_atomic_slot   root; // CLJ_UNBOUND until the first def
+	clj_atomic_slot   meta; // map or nil; published like root
 	bool              macro; // :macro true in the def's meta, as Var.isMacro reads it on the JVM; the analyzer expands calls through such vars
 	bool              dynamic; // :dynamic true in the def's meta: deref looks at the thread's bindings first
 	_Atomic uint32_t  thread_bound; // live thread bindings across all threads; 0 lets deref skip the frame lookup
@@ -25,8 +25,8 @@ clj_value clj_var_new(clj_value ns, clj_value name);
 static inline bool     clj_is_var(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_var_type; }
 static inline clj_var *clj_var_of(clj_value v) { return (clj_var *)clj_to_ptr(v); }
 // Borrowed: the var never dies.
-static inline clj_value clj_var_ns(clj_value var) { return clj_var_of(var)->ns; }
-static inline clj_value clj_var_name(clj_value var) { return clj_var_of(var)->name; }
+static inline clj_value clj_var_ns(clj_value var) { return clj_var_of(var)->ns.v; }
+static inline clj_value clj_var_name(clj_value var) { return clj_var_of(var)->name.v; }
 
 // Counts root binds of this var alone, 0 while it has never been bound: what invalidates a summary of its root.
 static inline uint32_t clj_var_epoch(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->epoch, memory_order_acquire); }
@@ -37,7 +37,7 @@ static inline uint32_t clj_var_callers_epoch(clj_value var) {
 // Borrowed root, CLJ_UNBOUND when unbound. Not safe against a concurrent def (NOTES.md).
 clj_value clj_var_root(clj_value var);
 // The same without ordering: for a guard that only compares the root against a known immortal object.
-static inline clj_value clj_var_root_relaxed(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->root, memory_order_relaxed); }
+static inline clj_value clj_var_root_relaxed(clj_value var) { return clj_slot_load(&clj_var_of(var)->root, memory_order_relaxed); }
 static inline bool clj_var_is_bound(clj_value var) { return clj_var_root(var) != CLJ_UNBOUND; }
 // Shares and retains val (a var is reachable from every thread), releases the previous root (a fn root once the
 // thread is idle: clj_eval_retire_root).

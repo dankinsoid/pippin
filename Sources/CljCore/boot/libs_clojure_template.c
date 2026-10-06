@@ -411,7 +411,7 @@ L1: ;
 static clj_value clojure_template_apply_template(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 3: return clojure_template_apply_template_a3(clj_from_ptr((void *)f), f->env, args, n);
+	case 3: return clojure_template_apply_template_a3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -488,7 +488,7 @@ L1: ;
 static clj_value clojure_template_do_template__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_template_do_template__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_template_do_template__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -674,7 +674,7 @@ static clj_value clojure_template_do_template(void *ctx, const clj_value *args, 
 	switch (n) {
 	default: break;
 	}
-	if (n >= 4) return clojure_template_do_template_v4(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 4) return clojure_template_do_template_v4(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 

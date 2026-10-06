@@ -25,6 +25,24 @@ typedef struct {
 	const clj_type  *type;
 } clj_header;
 
+// An edge of a heap object: a clj_value field or slot-array element its each_child visits. A bare assignment to it
+// does not compile, so every write goes through the primitives below and a publication cannot be forgotten (design
+// §4 «Запись в слот»; make slot-audit keeps other code off `.v`). Reads take `.v`.
+typedef struct {
+	clj_value v;
+} clj_slot;
+
+// An edge read and replaced with atomics: an atom's value, a var's root and meta, a cancel cause, a trace.
+typedef struct {
+	_Atomic clj_value v;
+} clj_atomic_slot;
+
+// A value a heap object keeps for its own execution: each_child does not visit it and no other execution reads
+// it, so it is no edge and never published (a coroutine's pending exception, its retired roots).
+typedef clj_value clj_private_value;
+
+_Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word");
+
 // TSan reports nothing between two atomics, relaxed or not, so under it the unshared count is plain (docs/notes/gates.md, "TSan").
 #if defined(__has_feature)
 #if __has_feature(thread_sanitizer)
@@ -135,6 +153,9 @@ struct clj_type {
 	clj_value (*ex_cause)(clj_value self);
 	// defprotocol tables, NULL until protocols exist (NOTES.md).
 	void *user_protos;
+	// Debug builds: whether the running execution holds the lock a mutable_children object's slots are replaced
+	// under (clj_slot_store asks); NULL where no cheap answer exists.
+	bool (*debug_lock_held)(const void *self);
 };
 
 extern const clj_type clj_type_type;
@@ -146,12 +167,12 @@ static inline uint64_t clj_core_bits(clj_value v) { return clj_is_ptr(v) ? clj_t
 static inline bool     clj_has_core(clj_value v, uint64_t bits) { return (clj_core_bits(v) & bits) == bits; }
 
 // The trailing meta word of an object whose header has CLJ_FLAG_META; obj_size is the size without it.
-static inline clj_value *clj_meta_slot_at(void *obj, size_t obj_size) { return (clj_value *)((char *)obj + obj_size); }
+static inline clj_slot *clj_meta_slot_at(void *obj, size_t obj_size) { return (clj_slot *)((char *)obj + obj_size); }
 
 // Borrowed, nil when the object carries no metadata.
 static inline clj_value clj_meta_trailing(void *obj, size_t obj_size) {
 	clj_header *h = obj;
-	return h->flags & CLJ_FLAG_META ? *clj_meta_slot_at(obj, obj_size) : CLJ_NIL;
+	return h->flags & CLJ_FLAG_META ? clj_meta_slot_at(obj, obj_size)->v : CLJ_NIL;
 }
 
 // Zero-filled, rc = 1. Zero memory reads as nil, so value slots need no init.
@@ -197,6 +218,10 @@ size_t clj_debug_pool_used_bytes(void);
 void clj_debug_set_hash_override(uint32_t (*fn)(clj_value v));
 extern uint32_t (*clj_debug_hash_override)(clj_value v);
 
+// After clj_slot_store into a mutable_children owner: the slot check, and the owner's lock is held (debug_lock_held).
+// Declared in every build for the tests; release builds check nothing.
+void clj_debug_slot_store_check(const clj_header *owner, clj_value v);
+
 // Retains and releases per path, debug builds only: the share measurement of design §4 (bench/RESULTS.md, "Atoms").
 enum { CLJ_RC_PLAIN, CLJ_RC_SHARED, CLJ_RC_IMMORTAL };
 void clj_debug_rc_ops(int64_t out[3]);
@@ -211,12 +236,75 @@ void clj_debug_owner_check(const clj_header *h);
 // After a store of v into a mutable_children slot of owner: a shared owner holds only shared values.
 void clj_debug_slot_check(const clj_header *owner, clj_value v);
 #define CLJ_SLOT_CHECK(owner, v) clj_debug_slot_check((owner), (v))
+#define CLJ_SLOT_STORE_CHECK(owner, v) \
+	do { if ((owner)->type->mutable_children) clj_debug_slot_store_check((owner), (v)); } while (0)
+#define CLJ_SLOT_INIT_CHECK(owner, v) \
+	do { \
+		if (((owner)->flags & CLJ_FLAG_SHARED) && clj_is_ptr(v) && \
+		    !(clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL))) \
+			clj_debug_slot_check((owner), (v)); \
+	} while (0)
 #else
 #define CLJ_ASSERT(cond, msg) ((void)0)
 #define CLJ_RC_COUNT(path) ((void)0)
 #define CLJ_OWNER_CHECK(h) ((void)0)
 #define CLJ_SLOT_CHECK(owner, v) ((void)0)
+#define CLJ_SLOT_STORE_CHECK(owner, v) ((void)0)
+#define CLJ_SLOT_INIT_CHECK(owner, v) ((void)0)
 #endif
+
+// The store into a live object: a shared owner publishes v before v becomes reachable through it. A reference type
+// (atom, channel, ...) stores under its own lock, which this does not take; debug builds check that it is held.
+static inline void clj_slot_store(clj_header *owner, clj_slot *slot, clj_value v) {
+	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
+	slot->v = v;
+	CLJ_SLOT_STORE_CHECK(owner, v);
+}
+
+// Fills a slot of an object no other execution can reach yet, without the flag test. An owner born shared (var,
+// coroutine) takes only values that need no publication; debug builds check it.
+static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v) {
+	(void)owner;
+	CLJ_SLOT_INIT_CHECK(owner, v);
+	slot->v = v;
+}
+
+// nil publishes nothing, so clearing needs neither the owner nor the flag test.
+static inline void clj_slot_clear(clj_slot *slot) { slot->v = CLJ_NIL; }
+
+// A place outside the heap that every execution reads under its own lock: a C global, a registry.
+static inline void clj_root_store(clj_value *root, clj_value v) {
+	clj_share(v);
+	*root = v;
+}
+
+static inline clj_value clj_slot_load(const clj_atomic_slot *slot, memory_order order) {
+	return atomic_load_explicit(&slot->v, order);
+}
+
+static inline void clj_slot_store_atomic(clj_header *owner, clj_atomic_slot *slot, clj_value v, memory_order order) {
+	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
+	atomic_store_explicit(&slot->v, v, order);
+	CLJ_SLOT_STORE_CHECK(owner, v);
+}
+
+static inline clj_value clj_slot_exchange(clj_header *owner, clj_atomic_slot *slot, clj_value v, memory_order order) {
+	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
+	clj_value old = atomic_exchange_explicit(&slot->v, v, order);
+	CLJ_SLOT_STORE_CHECK(owner, v);
+	return old;
+}
+
+static inline bool clj_slot_cas(clj_header *owner, clj_atomic_slot *slot, clj_value *expected, clj_value v,
+                                memory_order success, memory_order failure) {
+	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
+	if (!atomic_compare_exchange_strong_explicit(&slot->v, expected, v, success, failure)) return false;
+	CLJ_SLOT_STORE_CHECK(owner, v);
+	return true;
+}
+
+// A read-only view of a slot array as values, for an API that takes clj_value * (a frame's captures).
+static inline const clj_value *clj_slot_values(const clj_slot *slots) { return (const clj_value *)(const void *)slots; }
 
 static inline clj_value clj_retain(clj_value v) {
 	if (!clj_is_ptr(v)) return v;

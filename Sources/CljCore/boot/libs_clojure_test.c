@@ -740,7 +740,7 @@ static clj_value clojure_test_with_test_out(void *ctx, const clj_value *args, si
 	switch (n) {
 	default: break;
 	}
-	if (n >= 2) return clojure_test_with_test_out_v2(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 2) return clojure_test_with_test_out_v2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -814,7 +814,7 @@ static CLJC_FRAME clj_value clojure_test_testing_vars_str__0_a1(clj_value self, 
 static clj_value clojure_test_testing_vars_str__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_testing_vars_str__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_testing_vars_str__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1101,7 +1101,7 @@ L1: ;
 static clj_value clojure_test_testing_vars_str(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_testing_vars_str_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_testing_vars_str_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1233,7 +1233,7 @@ L1: ;
 static clj_value clojure_test_testing_contexts_str(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_test_testing_contexts_str_a0(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_test_testing_contexts_str_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1373,7 +1373,7 @@ L1: ;
 static clj_value clojure_test_inc_report_counter(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_inc_report_counter_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_inc_report_counter_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1829,7 +1829,7 @@ L1: ;
 static clj_value clojure_test_print_trace(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_print_trace_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_print_trace_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1894,7 +1894,7 @@ static CLJC_FRAME clj_value clojure_test_form17__0_a1(clj_value self, const clj_
 static clj_value clojure_test_form17__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form17__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form17__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -2010,7 +2010,7 @@ L1: ;
 static clj_value clojure_test_form19__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form19__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form19__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -2401,7 +2401,7 @@ L1: ;
 static clj_value clojure_test_form21__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form21__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form21__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -2833,7 +2833,7 @@ L1: ;
 static clj_value clojure_test_form23__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form23__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form23__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -3081,7 +3081,7 @@ L1: ;
 static clj_value clojure_test_form25__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form25__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form25__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -3222,7 +3222,7 @@ static CLJC_FRAME clj_value clojure_test_form27__0_a1(clj_value self, const clj_
 static clj_value clojure_test_form27__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form27__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form27__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -3311,7 +3311,7 @@ static CLJC_FRAME clj_value clojure_test_form29__0_a1(clj_value self, const clj_
 static clj_value clojure_test_form29__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form29__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form29__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -3400,7 +3400,7 @@ static CLJC_FRAME clj_value clojure_test_form31__0_a1(clj_value self, const clj_
 static clj_value clojure_test_form31__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form31__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form31__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -3489,7 +3489,7 @@ static CLJC_FRAME clj_value clojure_test_form33__0_a1(clj_value self, const clj_
 static clj_value clojure_test_form33__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_form33__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_form33__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -3874,7 +3874,7 @@ L1: ;
 static clj_value clojure_test_do_report(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_do_report_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_do_report_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -4113,7 +4113,7 @@ L1: ;
 static clj_value clojure_test_function_QMARK_(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_function_QMARK__a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_function_QMARK__a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -8224,7 +8224,7 @@ L1: ;
 static clj_value clojure_test_assert_predicate(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_assert_predicate_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_assert_predicate_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -10512,7 +10512,7 @@ L1: ;
 static clj_value clojure_test_assert_any(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_assert_any_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_assert_any_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -10626,7 +10626,7 @@ static CLJC_FRAME clj_value clojure_test_form39__0_a2(clj_value self, const clj_
 static clj_value clojure_test_form39__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_form39__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_form39__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -11093,7 +11093,7 @@ L1: ;
 static clj_value clojure_test_form40__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_form40__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_form40__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -11321,7 +11321,7 @@ L1: ;
 static clj_value clojure_test_form42__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_form42__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_form42__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -15066,7 +15066,7 @@ L1: ;
 static clj_value clojure_test_form44__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_form44__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_form44__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -17138,7 +17138,7 @@ L1: ;
 static clj_value clojure_test_form46__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_form46__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_form46__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -22604,7 +22604,7 @@ L1: ;
 static clj_value clojure_test_form48__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_form48__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_form48__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -23905,7 +23905,7 @@ L1: ;
 static clj_value clojure_test_try_expr(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 4: return clojure_test_try_expr_a4(clj_from_ptr((void *)f), f->env, args, n);
+	case 4: return clojure_test_try_expr_a4(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -25044,8 +25044,8 @@ L1: ;
 static clj_value clojure_test_is(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 3: return clojure_test_is_a3(clj_from_ptr((void *)f), f->env, args, n);
-	case 4: return clojure_test_is_a4(clj_from_ptr((void *)f), f->env, args, n);
+	case 3: return clojure_test_is_a3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
+	case 4: return clojure_test_is_a4(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -25575,7 +25575,7 @@ static clj_value clojure_test_are(void *ctx, const clj_value *args, size_t n) {
 	switch (n) {
 	default: break;
 	}
-	if (n >= 4) return clojure_test_are_v4(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 4) return clojure_test_are_v4(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -26013,7 +26013,7 @@ static clj_value clojure_test_testing(void *ctx, const clj_value *args, size_t n
 	switch (n) {
 	default: break;
 	}
-	if (n >= 3) return clojure_test_testing_v3(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 3) return clojure_test_testing_v3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -26611,7 +26611,7 @@ static clj_value clojure_test_with_test(void *ctx, const clj_value *args, size_t
 	switch (n) {
 	default: break;
 	}
-	if (n >= 3) return clojure_test_with_test_v3(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 3) return clojure_test_with_test_v3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -27560,7 +27560,7 @@ static clj_value clojure_test_deftest(void *ctx, const clj_value *args, size_t n
 	switch (n) {
 	default: break;
 	}
-	if (n >= 3) return clojure_test_deftest_v3(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 3) return clojure_test_deftest_v3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -28513,7 +28513,7 @@ static clj_value clojure_test_deftest_(void *ctx, const clj_value *args, size_t 
 	switch (n) {
 	default: break;
 	}
-	if (n >= 3) return clojure_test_deftest__v3(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 3) return clojure_test_deftest__v3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -29062,7 +29062,7 @@ static clj_value clojure_test_set_test(void *ctx, const clj_value *args, size_t 
 	switch (n) {
 	default: break;
 	}
-	if (n >= 3) return clojure_test_set_test_v3(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 3) return clojure_test_set_test_v3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -29144,7 +29144,7 @@ static clj_value clojure_test_form59__0(void *ctx, const clj_value *args, size_t
 	switch (n) {
 	default: break;
 	}
-	if (n >= 1) return clojure_test_form59__0_v1(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 1) return clojure_test_form59__0_v1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -29406,7 +29406,7 @@ static clj_value clojure_test_form60__0(void *ctx, const clj_value *args, size_t
 	switch (n) {
 	default: break;
 	}
-	if (n >= 1) return clojure_test_form60__0_v1(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 1) return clojure_test_form60__0_v1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -29579,7 +29579,7 @@ static clj_value clojure_test_form62__0(void *ctx, const clj_value *args, size_t
 	switch (n) {
 	default: break;
 	}
-	if (n >= 1) return clojure_test_form62__0_v1(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 1) return clojure_test_form62__0_v1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -29677,7 +29677,7 @@ CLJC_FRAME clj_value clojure_test_default_fixture_a1(clj_value self, const clj_v
 static clj_value clojure_test_default_fixture(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_default_fixture_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_default_fixture_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -29735,7 +29735,7 @@ static CLJC_FRAME clj_value clojure_test_compose_fixtures__0__1_a0(clj_value sel
 static clj_value clojure_test_compose_fixtures__0__1(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_test_compose_fixtures__0__1_a0(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_test_compose_fixtures__0__1_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -29777,7 +29777,7 @@ static CLJC_FRAME clj_value clojure_test_compose_fixtures__0_a1(clj_value self, 
 static clj_value clojure_test_compose_fixtures__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_compose_fixtures__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_compose_fixtures__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -29805,7 +29805,7 @@ CLJC_FRAME clj_value clojure_test_compose_fixtures_a2(clj_value self, const clj_
 static clj_value clojure_test_compose_fixtures(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_test_compose_fixtures_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_test_compose_fixtures_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -29887,7 +29887,7 @@ CLJC_FRAME clj_value clojure_test_join_fixtures_a1(clj_value self, const clj_val
 static clj_value clojure_test_join_fixtures(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_join_fixtures_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_join_fixtures_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -29975,7 +29975,7 @@ CLJC_FRAME clj_value clojure_test_ns_key_a1(clj_value self, const clj_value *cap
 static clj_value clojure_test_ns_key(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_ns_key_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_ns_key_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -30382,7 +30382,7 @@ L1: ;
 static clj_value clojure_test_test_var(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_test_var_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_test_var_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -30453,7 +30453,7 @@ L1: ;
 static clj_value clojure_test_test_vars__0__1(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_test_test_vars__0__1_a0(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_test_test_vars__0__1_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -30603,7 +30603,7 @@ static CLJC_FRAME clj_value clojure_test_test_vars__0_a0(clj_value self, const c
 static clj_value clojure_test_test_vars__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_test_test_vars__0_a0(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_test_test_vars__0_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -30954,7 +30954,7 @@ L1: ;
 static clj_value clojure_test_test_vars(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_test_vars_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_test_vars_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -31046,7 +31046,7 @@ static CLJC_FRAME clj_value clojure_test_test_all_vars__0_a1(clj_value self, con
 static clj_value clojure_test_test_all_vars__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_test_all_vars__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_test_all_vars__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -31184,7 +31184,7 @@ L1: ;
 static clj_value clojure_test_test_all_vars(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_test_all_vars_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_test_all_vars_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -31574,7 +31574,7 @@ L1: ;
 static clj_value clojure_test_test_ns(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_test_ns_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_test_ns_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -31791,10 +31791,10 @@ L1: ;
 static clj_value clojure_test_run_tests(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_test_run_tests_a0(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_test_run_tests_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
-	if (n >= 0) return clojure_test_run_tests_v0(clj_from_ptr((void *)f), f->env, args, n);
+	if (n >= 0) return clojure_test_run_tests_v0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
@@ -31917,7 +31917,7 @@ static CLJC_FRAME clj_value clojure_test_run_all_tests__0_a1(clj_value self, con
 static clj_value clojure_test_run_all_tests__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_run_all_tests__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_run_all_tests__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -31990,7 +31990,7 @@ static CLJC_FRAME clj_value clojure_test_run_all_tests__1_a1(clj_value self, con
 static clj_value clojure_test_run_all_tests__1(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_run_all_tests__1_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_run_all_tests__1_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -32127,8 +32127,8 @@ L1: ;
 static clj_value clojure_test_run_all_tests(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_test_run_all_tests_a0(clj_from_ptr((void *)f), f->env, args, n);
-	case 1: return clojure_test_run_all_tests_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_test_run_all_tests_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
+	case 1: return clojure_test_run_all_tests_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -32391,7 +32391,7 @@ L1: ;
 static clj_value clojure_test_run_test_var(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_run_test_var_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_run_test_var_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -32708,7 +32708,7 @@ L1: ;
 static clj_value clojure_test_run_test(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 3: return clojure_test_run_test_a3(clj_from_ptr((void *)f), f->env, args, n);
+	case 3: return clojure_test_run_test_a3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -32827,7 +32827,7 @@ CLJC_FRAME clj_value clojure_test_successful_QMARK__a1(clj_value self, const clj
 static clj_value clojure_test_successful_QMARK_(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_test_successful_QMARK__a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_test_successful_QMARK__a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);

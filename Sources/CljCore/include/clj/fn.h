@@ -18,7 +18,7 @@ static const uint32_t CLJ_ARITY_ANY = UINT32_MAX;
 
 typedef struct {
 	clj_header  h;
-	clj_value   name; // symbol or nil; only for messages
+	clj_slot    name; // symbol or nil; only for messages
 	clj_fn_kind kind;
 	uint32_t    min_arity, max_arity; // natives; a closure dispatches on its code's arity table
 	uint32_t    arities; // a compiled closure's fixed arities as bits, the variadic one through max_arity; 0 means the range
@@ -34,10 +34,10 @@ typedef struct {
 		} native_ctx;
 		const clj_node *node; // closure: its fn node, borrowed from the exec in code
 	} u;
-	clj_value code; // exec (eval.h) of a closure's tree; a native parks a value its ctx borrows here (a protocol method: its protocol, a with-meta copy: the original)
-	clj_value meta; // map or nil
+	clj_slot  code; // exec (eval.h) of a closure's tree; a native parks a value its ctx borrows here (a protocol method: its protocol, a with-meta copy: the original)
+	clj_slot  meta; // map or nil
 	uint32_t  nenv;
-	clj_value env[]; // captured values, owned
+	clj_slot  env[]; // captured values, owned
 } clj_fn;
 
 extern const clj_type clj_fn_type;

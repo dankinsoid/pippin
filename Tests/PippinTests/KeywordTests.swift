@@ -28,7 +28,7 @@ extension CoreTests {
 			#expect(text(clj_keyword_name(k1)) == "state")
 			#expect(clj_is_shared(k1))
 			#expect(!clj_is_unique(k1))
-			#expect(clj_debug_all_shared(clj_keyword_of(k1).pointee.sym))
+			#expect(clj_debug_all_shared(clj_keyword_of(k1).pointee.sym.v))
 			_ = clj_retain(k1)
 			clj_release(k1)
 			clj_release(k1)

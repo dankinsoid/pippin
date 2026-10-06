@@ -222,7 +222,7 @@ static void install(const clj_node *n, void *ctx) {
 	install_ctx *c = ctx;
 	if (n->kind == CLJ_NODE_INTRINSIC) {
 		// a rebound operator fails the entry's root guard on every call: the generic entry until the var's next bind
-		clj_eval_fn fast = clj_var_root(n->u.intrinsic.var) == clj_intrinsic_builtin(n->u.intrinsic.op) ? entry_for(n, c->f) : NULL;
+		clj_eval_fn fast = clj_var_root(n->u.intrinsic.var.v) == clj_intrinsic_builtin(n->u.intrinsic.op) ? entry_for(n, c->f) : NULL;
 		if (fast) {
 			if (c->d->nspec == c->cap) {
 				c->cap = c->cap ? c->cap * 2 : 8;
@@ -286,7 +286,7 @@ static void enqueue_if_stale(clj_value var, clj_exec *self) {
 	enqueue_if_stale_in(self, var);
 	clj_value root = clj_var_root(var);
 	if (root == CLJ_UNBOUND || !clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_CLOSURE) return;
-	clj_exec *ce = clj_exec_of(clj_fn_of(root)->code);
+	clj_exec *ce = clj_exec_of(clj_fn_of(root)->code.v);
 	if (ce != self) enqueue_if_stale_in(ce, var);
 }
 

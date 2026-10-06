@@ -9,8 +9,8 @@ typedef struct {
 	clj_header       h;
 	uint32_t         count;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
-	clj_value        root; // trie node, never nil
-	clj_value        meta; // map or nil; kept across assoc/dissoc, ignored by equality and hash
+	clj_slot         root; // trie node, never nil
+	clj_slot         meta; // map or nil; kept across assoc/dissoc, ignored by equality and hash
 } clj_map;
 
 typedef struct clj_shape clj_shape;
@@ -19,7 +19,7 @@ typedef struct clj_shape clj_shape;
 typedef struct {
 	clj_header       h;
 	const clj_shape *shape;
-	clj_value        slots[]; // nkeys values in the shape's key order
+	clj_slot         slots[]; // nkeys values in the shape's key order
 } clj_shape_map;
 
 extern const clj_type clj_map_type;

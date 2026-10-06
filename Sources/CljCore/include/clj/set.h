@@ -8,8 +8,8 @@
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
-	clj_value        impl; // map, never nil
-	clj_value        meta; // map or nil; kept across conj/disj, ignored by equality and hash
+	clj_slot         impl; // map, never nil
+	clj_slot         meta; // map or nil; kept across conj/disj, ignored by equality and hash
 } clj_set;
 
 extern const clj_type clj_set_type;

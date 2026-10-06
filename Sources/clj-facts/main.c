@@ -151,7 +151,7 @@ static void count_loop(counter *c, const clj_node *n) {
 
 static void count_invoke(counter *c, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
-	if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value) && n->u.invoke.n >= 1) {
+	if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value.v) && n->u.invoke.n >= 1) {
 		c->s->kw_lookups++;
 		const clj_fact *m = clj_facts_node(c->f, n->u.invoke.args[0]->id);
 		if (m && clj_fact_union_size(*m) == 1 && (m->types & T_MAP_SET)) c->s->kw_shaped++;
@@ -160,8 +160,8 @@ static void count_invoke(counter *c, const clj_node *n) {
 		return;
 	}
 	// The receiver of a protocol method: the tool reads the var's root, which the pass itself may not.
-	if (head->kind == CLJ_NODE_VAR && clj_is_var(head->u.var) && n->u.invoke.n >= 1) {
-		clj_value root = clj_var_root(head->u.var);
+	if (head->kind == CLJ_NODE_VAR && clj_is_var(head->u.var.v) && n->u.invoke.n >= 1) {
+		clj_value root = clj_var_root(head->u.var.v);
 		if (root != CLJ_UNBOUND && clj_is_fn(root) && clj_is_protocol_method(root)) {
 			c->s->proto_calls++;
 			const clj_fact *r = clj_facts_node(c->f, n->u.invoke.args[0]->id);
@@ -301,7 +301,7 @@ static void measure_table(stats *s, const char *path, clj_node *root, clj_facts 
 		const char *what = "?";
 		if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC) what = fc.found->u.intrinsic.op->name;
 		else if (fc.found && fc.found->kind == CLJ_NODE_INVOKE && fc.found->u.invoke.fn->kind == CLJ_NODE_VAR)
-			what = clj_string_bytes(clj_symbol_name(clj_var_name(fc.found->u.invoke.fn->u.var)));
+			what = clj_string_bytes(clj_symbol_name(clj_var_name(fc.found->u.invoke.fn->u.var.v)));
 		else if (fc.found && fc.found->kind == CLJ_NODE_LOCAL) what = "local";
 		uint32_t argtypes = 0;
 		if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC && fc.found->u.intrinsic.n == 1) {

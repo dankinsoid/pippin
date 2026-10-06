@@ -158,7 +158,7 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 	stub->kind = CLJ_NODE_FN;
 	stub->line = line;
 	stub->col = col;
-	stub->u.fn.name = clj_retain(name);
+	clj_slot_store(&stub->h, &stub->u.fn.name, clj_retain(name));
 }
 
 bool clj_core_instrumented(void) {
@@ -247,7 +247,7 @@ clj_value clj_c_map_shaped(clj_cmap_site *site, const clj_value *items, uint32_t
 	}
 	clj_value      m = clj_shape_map_alloc(shape);
 	clj_shape_map *sm = clj_shape_map_of(m);
-	for (uint32_t i = 0; i < nkeys; i++) sm->slots[site->slot[i]] = clj_retain(items[2 * i + 1]);
+	for (uint32_t i = 0; i < nkeys; i++) clj_slot_init(&sm->h, &sm->slots[site->slot[i]], clj_retain(items[2 * i + 1]));
 	return m;
 }
 

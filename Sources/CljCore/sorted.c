@@ -18,19 +18,19 @@
 // Red links lean left, which halves the rebalance cases (Sedgewick's LLRB).
 typedef struct {
 	clj_header h;
-	clj_value  key;
-	clj_value  val;
-	clj_value  left;
-	clj_value  right;
+	clj_slot   key;
+	clj_slot   val;
+	clj_slot   left;
+	clj_slot   right;
 	uint32_t   red;
 } tnode;
 
 static void tnode_each_child(void *self, clj_visitor visit, void *ctx) {
 	tnode *n = self;
-	visit(n->key, ctx);
-	visit(n->val, ctx);
-	visit(n->left, ctx);
-	visit(n->right, ctx);
+	visit(n->key.v, ctx);
+	visit(n->val.v, ctx);
+	visit(n->left.v, ctx);
+	visit(n->right.v, ctx);
 }
 
 static const clj_type tnode_type = {
@@ -41,19 +41,14 @@ static const clj_type tnode_type = {
 
 static inline tnode    *tnode_of(clj_value v) { return clj_to_ptr(v); }
 static inline bool      is_red(clj_value node) { return !clj_is_nil(node) && tnode_of(node)->red; }
-static inline clj_value left_of(clj_value node) { return clj_is_nil(node) ? CLJ_NIL : tnode_of(node)->left; }
-static inline clj_value right_of(clj_value node) { return clj_is_nil(node) ? CLJ_NIL : tnode_of(node)->right; }
+static inline clj_value left_of(clj_value node) { return clj_is_nil(node) ? CLJ_NIL : tnode_of(node)->left.v; }
+static inline clj_value right_of(clj_value node) { return clj_is_nil(node) ? CLJ_NIL : tnode_of(node)->right.v; }
 
-// Storing into a shared object must keep the invariant that its children are shared.
-static void store(clj_header *owner, clj_value *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	*slot = v;
-}
 
 static clj_value node_new(clj_value key, clj_value val) {
 	tnode *n = clj_alloc(&tnode_type, sizeof *n);
-	n->key = clj_retain(key);
-	n->val = clj_retain(val);
+	clj_slot_init(&n->h, &n->key, clj_retain(key));
+	clj_slot_init(&n->h, &n->val, clj_retain(val));
 	n->red = 1;
 	return clj_from_ptr(n);
 }
@@ -63,10 +58,10 @@ static tnode *node_own(clj_value node) {
 	tnode *n = tnode_of(node);
 	if (clj_is_unique(node)) return n;
 	tnode *c = clj_alloc(&tnode_type, sizeof *c);
-	c->key = clj_retain(n->key);
-	c->val = clj_retain(n->val);
-	c->left = clj_retain(n->left);
-	c->right = clj_retain(n->right);
+	clj_slot_init(&c->h, &c->key, clj_retain(n->key.v));
+	clj_slot_init(&c->h, &c->val, clj_retain(n->val.v));
+	clj_slot_init(&c->h, &c->left, clj_retain(n->left.v));
+	clj_slot_init(&c->h, &c->right, clj_retain(n->right.v));
 	c->red = n->red;
 	clj_release(node);
 	return c;
@@ -74,16 +69,16 @@ static tnode *node_own(clj_value node) {
 
 // The reference moves to the caller, so a throw below leaves nothing dangling in h.
 static clj_value take_child(tnode *h, bool left) {
-	clj_value *slot = left ? &h->left : &h->right;
-	clj_value  c = *slot;
-	*slot = CLJ_NIL;
+	clj_slot  *slot = left ? &h->left : &h->right;
+	clj_value c = slot->v;
+	clj_slot_clear(slot);
 	return c;
 }
 
 static void set_child(tnode *h, bool left, clj_value c) {
-	clj_value *slot = left ? &h->left : &h->right;
-	CLJ_ASSERT(clj_is_nil(*slot), "set_child over an occupied slot");
-	store(&h->h, slot, c);
+	clj_slot  *slot = left ? &h->left : &h->right;
+	CLJ_ASSERT(clj_is_nil(slot->v), "set_child over an occupied slot");
+	clj_slot_store(&h->h, slot, c);
 }
 
 static tnode *rotate_left(tnode *h) {
@@ -105,7 +100,7 @@ static tnode *rotate_right(tnode *h) {
 }
 
 static tnode *flip_colors(tnode *h) {
-	CLJ_ASSERT(!clj_is_nil(h->left) && !clj_is_nil(h->right), "flip_colors needs both children");
+	CLJ_ASSERT(!clj_is_nil(h->left.v) && !clj_is_nil(h->right.v), "flip_colors needs both children");
 	h->red = !h->red;
 	for (int i = 0; i < 2; i++) {
 		bool   left = i == 0;
@@ -117,15 +112,15 @@ static tnode *flip_colors(tnode *h) {
 }
 
 static tnode *fix_up(tnode *h) {
-	if (is_red(h->right) && !is_red(h->left)) h = rotate_left(h);
-	if (is_red(h->left) && is_red(left_of(h->left))) h = rotate_right(h);
-	if (is_red(h->left) && is_red(h->right)) h = flip_colors(h);
+	if (is_red(h->right.v) && !is_red(h->left.v)) h = rotate_left(h);
+	if (is_red(h->left.v) && is_red(left_of(h->left.v))) h = rotate_right(h);
+	if (is_red(h->left.v) && is_red(h->right.v)) h = flip_colors(h);
 	return h;
 }
 
 static tnode *move_red_left(tnode *h) {
 	h = flip_colors(h);
-	if (is_red(left_of(h->right))) {
+	if (is_red(left_of(h->right.v))) {
 		set_child(h, false, clj_from_ptr(rotate_right(node_own(take_child(h, false)))));
 		h = rotate_left(h);
 		h = flip_colors(h);
@@ -135,7 +130,7 @@ static tnode *move_red_left(tnode *h) {
 
 static tnode *move_red_right(tnode *h) {
 	h = flip_colors(h);
-	if (is_red(left_of(h->left))) {
+	if (is_red(left_of(h->left.v))) {
 		h = rotate_right(h);
 		h = flip_colors(h);
 	}
@@ -145,7 +140,7 @@ static tnode *move_red_right(tnode *h) {
 // ---- comparator
 
 clj_value clj_sorted_compare(clj_value c, clj_value a, clj_value b) {
-	clj_call call = clj_call_prepare(clj_sorted_of(c)->cmp, 2);
+	clj_call call = clj_call_prepare(clj_sorted_of(c)->cmp.v, 2);
 	int      r;
 	if (!clj_compare_with(&call, a, b, &r)) return CLJ_THROWN;
 	return clj_fixnum(r);
@@ -155,9 +150,9 @@ clj_value clj_sorted_compare(clj_value c, clj_value a, clj_value b) {
 static clj_value node_find(clj_value node, clj_value key, const clj_call *call) {
 	while (!clj_is_nil(node)) {
 		int c;
-		if (!clj_compare_with(call, key, tnode_of(node)->key, &c)) return CLJ_THROWN;
+		if (!clj_compare_with(call, key, tnode_of(node)->key.v, &c)) return CLJ_THROWN;
 		if (c == 0) return node;
-		node = c < 0 ? tnode_of(node)->left : tnode_of(node)->right;
+		node = c < 0 ? tnode_of(node)->left.v : tnode_of(node)->right.v;
 	}
 	return CLJ_NIL;
 }
@@ -187,16 +182,15 @@ static clj_value node_assoc(clj_value node, clj_value key, clj_value val, const 
 		return node_new(key, val);
 	}
 	int c;
-	if (!clj_compare_with(call, key, tnode_of(node)->key, &c)) {
+	if (!clj_compare_with(call, key, tnode_of(node)->key.v, &c)) {
 		clj_release(node);
 		return CLJ_THROWN;
 	}
 	if (c == 0) {
-		if (tnode_of(node)->val == val) return node;
+		if (tnode_of(node)->val.v == val) return node;
 		tnode    *h = node_own(node);
-		clj_value old = h->val;
-		h->val = CLJ_NIL;
-		store(&h->h, &h->val, clj_retain(val));
+		clj_value old = h->val.v;
+		clj_slot_store(&h->h, &h->val, clj_retain(val));
 		clj_release(old);
 		e->changed = true;
 		return clj_from_ptr(h);
@@ -214,24 +208,24 @@ static clj_value node_assoc(clj_value node, clj_value key, clj_value val, const 
 
 // Leftmost node, borrowed.
 static clj_value min_node(clj_value node) {
-	while (!clj_is_nil(tnode_of(node)->left)) node = tnode_of(node)->left;
+	while (!clj_is_nil(tnode_of(node)->left.v)) node = tnode_of(node)->left.v;
 	return node;
 }
 
 // Rightmost node, borrowed.
 static clj_value max_node(clj_value node) {
-	while (!clj_is_nil(tnode_of(node)->right)) node = tnode_of(node)->right;
+	while (!clj_is_nil(tnode_of(node)->right.v)) node = tnode_of(node)->right.v;
 	return node;
 }
 
 // Consumes node, which is non-nil; owned result or nil.
 static clj_value node_delete_min(clj_value node) {
 	tnode *h = node_own(node);
-	if (clj_is_nil(h->left)) {
+	if (clj_is_nil(h->left.v)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_NIL;
 	}
-	if (!is_red(h->left) && !is_red(left_of(h->left))) h = move_red_left(h);
+	if (!is_red(h->left.v) && !is_red(left_of(h->left.v))) h = move_red_left(h);
 	set_child(h, true, node_delete_min(take_child(h, true)));
 	return clj_from_ptr(fix_up(h));
 }
@@ -240,12 +234,12 @@ static clj_value node_delete_min(clj_value node) {
 static clj_value node_delete(clj_value node, clj_value key, const clj_call *call) {
 	tnode *h = node_own(node);
 	int    c;
-	if (!clj_compare_with(call, key, h->key, &c)) {
+	if (!clj_compare_with(call, key, h->key.v, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
 	}
 	if (c < 0) {
-		if (!is_red(h->left) && !is_red(left_of(h->left))) h = move_red_left(h);
+		if (!is_red(h->left.v) && !is_red(left_of(h->left.v))) h = move_red_left(h);
 		clj_value nl = node_delete(take_child(h, true), key, call);
 		if (nl == CLJ_THROWN) {
 			clj_release(clj_from_ptr(h));
@@ -254,27 +248,26 @@ static clj_value node_delete(clj_value node, clj_value key, const clj_call *call
 		set_child(h, true, nl);
 		return clj_from_ptr(fix_up(h));
 	}
-	if (is_red(h->left)) h = rotate_right(h);
-	if (!clj_compare_with(call, key, h->key, &c)) {
+	if (is_red(h->left.v)) h = rotate_right(h);
+	if (!clj_compare_with(call, key, h->key.v, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
 	}
-	if (c == 0 && clj_is_nil(h->right)) {
+	if (c == 0 && clj_is_nil(h->right.v)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_NIL;
 	}
-	if (!is_red(h->right) && !is_red(left_of(h->right))) h = move_red_right(h);
-	if (!clj_compare_with(call, key, h->key, &c)) {
+	if (!is_red(h->right.v) && !is_red(left_of(h->right.v))) h = move_red_right(h);
+	if (!clj_compare_with(call, key, h->key.v, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
 	}
 	if (c == 0) {
-		clj_value  m = min_node(h->right);
-		clj_value  nk = clj_retain(tnode_of(m)->key), nv = clj_retain(tnode_of(m)->val);
-		clj_value  ok = h->key, ov = h->val;
-		h->key = h->val = CLJ_NIL;
-		store(&h->h, &h->key, nk);
-		store(&h->h, &h->val, nv);
+		clj_value  m = min_node(h->right.v);
+		clj_value  nk = clj_retain(tnode_of(m)->key.v), nv = clj_retain(tnode_of(m)->val.v);
+		clj_value  ok = h->key.v, ov = h->val.v;
+		clj_slot_store(&h->h, &h->key, nk);
+		clj_slot_store(&h->h, &h->val, nv);
 		clj_release(ok);
 		clj_release(ov);
 		set_child(h, false, node_delete_min(take_child(h, false)));
@@ -299,56 +292,56 @@ typedef struct {
 static bool each_asc(clj_value node, const each_ctx *c) {
 	if (clj_is_nil(node)) return true;
 	tnode *n = tnode_of(node);
-	return each_asc(n->left, c) && c->fn(n->key, n->val, c->ctx) && each_asc(n->right, c);
+	return each_asc(n->left.v, c) && c->fn(n->key.v, n->val.v, c->ctx) && each_asc(n->right.v, c);
 }
 
 static bool each_desc(clj_value node, const each_ctx *c) {
 	if (clj_is_nil(node)) return true;
 	tnode *n = tnode_of(node);
-	return each_desc(n->right, c) && c->fn(n->key, n->val, c->ctx) && each_desc(n->left, c);
+	return each_desc(n->right.v, c) && c->fn(n->key.v, n->val.v, c->ctx) && each_desc(n->left.v, c);
 }
 
 void clj_sorted_each(clj_value c, clj_sorted_entry_fn fn, void *ctx) {
 	each_ctx e = {fn, ctx};
-	each_asc(clj_sorted_of(c)->root, &e);
+	each_asc(clj_sorted_of(c)->root.v, &e);
 }
 
 static bool walk_from(clj_value node, clj_value key, const clj_call *call, bool asc, const each_ctx *c, bool *thrown) {
 	if (clj_is_nil(node)) return true;
 	tnode *n = tnode_of(node);
 	int    r;
-	if (!clj_compare_with(call, key, n->key, &r)) {
+	if (!clj_compare_with(call, key, n->key.v, &r)) {
 		*thrown = true;
 		return false;
 	}
 	if (asc) {
-		if (r > 0) return walk_from(n->right, key, call, asc, c, thrown);
-		if (!walk_from(n->left, key, call, asc, c, thrown)) return false;
-		return c->fn(n->key, n->val, c->ctx) && each_asc(n->right, c);
+		if (r > 0) return walk_from(n->right.v, key, call, asc, c, thrown);
+		if (!walk_from(n->left.v, key, call, asc, c, thrown)) return false;
+		return c->fn(n->key.v, n->val.v, c->ctx) && each_asc(n->right.v, c);
 	}
-	if (r < 0) return walk_from(n->left, key, call, asc, c, thrown);
-	if (!walk_from(n->right, key, call, asc, c, thrown)) return false;
-	return c->fn(n->key, n->val, c->ctx) && each_desc(n->left, c);
+	if (r < 0) return walk_from(n->left.v, key, call, asc, c, thrown);
+	if (!walk_from(n->right.v, key, call, asc, c, thrown)) return false;
+	return c->fn(n->key.v, n->val.v, c->ctx) && each_desc(n->left.v, c);
 }
 
 // ---- wrapper
 
 static clj_value sorted_new(const clj_type *type, clj_value cmp) {
 	clj_sorted *s = clj_alloc(type, sizeof *s);
-	s->cmp = clj_retain(cmp);
+	clj_slot_init(&s->h, &s->cmp, clj_retain(cmp));
 	return clj_from_ptr(s);
 }
 
 clj_value clj_sorted_map_new(clj_value cmp) { return sorted_new(&clj_sorted_map_type, cmp); }
 clj_value clj_sorted_set_new(clj_value cmp) { return sorted_new(&clj_sorted_set_type, cmp); }
 
-clj_value clj_sorted_empty(clj_value c) { return sorted_new(clj_header_of(c)->type, clj_sorted_of(c)->cmp); }
+clj_value clj_sorted_empty(clj_value c) { return sorted_new(clj_header_of(c)->type, clj_sorted_of(c)->cmp.v); }
 
 static void sorted_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_sorted *s = self;
-	visit(s->root, ctx);
-	visit(s->cmp, ctx);
-	visit(s->meta, ctx);
+	visit(s->root.v, ctx);
+	visit(s->cmp.v, ctx);
+	visit(s->meta.v, ctx);
 }
 
 // root is owned; a unique wrapper had its root slot emptied and takes it back.
@@ -356,7 +349,7 @@ static clj_value sorted_commit(clj_value coll, bool unique, clj_value root, tedi
 	clj_sorted *s = clj_sorted_of(coll);
 	if (unique) {
 		if (e.changed) atomic_store_explicit(&s->hash, 0, memory_order_relaxed);
-		store(&s->h, &s->root, root);
+		clj_slot_store(&s->h, &s->root, root);
 		if (e.added) s->count = (uint32_t)((int32_t)s->count + delta);
 		return coll;
 	}
@@ -366,9 +359,9 @@ static clj_value sorted_commit(clj_value coll, bool unique, clj_value root, tedi
 	}
 	clj_sorted *c = clj_alloc(clj_header_of(coll)->type, sizeof *c);
 	c->count = (uint32_t)((int32_t)s->count + (e.added ? delta : 0));
-	c->cmp = clj_retain(s->cmp);
-	c->meta = clj_retain(s->meta);
-	c->root = root;
+	clj_slot_init(&c->h, &c->cmp, clj_retain(s->cmp.v));
+	clj_slot_init(&c->h, &c->meta, clj_retain(s->meta.v));
+	clj_slot_init(&c->h, &c->root, root);
 	clj_release(coll);
 	return clj_from_ptr(c);
 }
@@ -383,14 +376,14 @@ static clj_value blacken(clj_value root) {
 
 clj_value clj_sorted_assoc(clj_value map, clj_value key, clj_value val) {
 	clj_sorted *s = clj_sorted_of(map);
-	clj_call    call = clj_call_prepare(s->cmp, 2);
+	clj_call    call = clj_call_prepare(s->cmp.v, 2);
 	bool        unique = clj_is_unique(map);
 	clj_value   root;
 	if (unique) {
-		root = s->root;
-		s->root = CLJ_NIL;
+		root = s->root.v;
+		clj_slot_clear(&s->root);
 	} else {
-		root = clj_retain(s->root);
+		root = clj_retain(s->root.v);
 	}
 	tedit e = {0};
 	root = node_assoc(root, key, val, &call, &e);
@@ -403,8 +396,8 @@ clj_value clj_sorted_assoc(clj_value map, clj_value key, clj_value val) {
 
 clj_value clj_sorted_dissoc(clj_value coll, clj_value key) {
 	clj_sorted *s = clj_sorted_of(coll);
-	clj_call    call = clj_call_prepare(s->cmp, 2);
-	clj_value   found = node_find(s->root, key, &call);
+	clj_call    call = clj_call_prepare(s->cmp.v, 2);
+	clj_value   found = node_find(s->root.v, key, &call);
 	if (found == CLJ_THROWN) {
 		clj_release(coll);
 		return CLJ_THROWN;
@@ -413,10 +406,10 @@ clj_value clj_sorted_dissoc(clj_value coll, clj_value key) {
 	bool      unique = clj_is_unique(coll);
 	clj_value root;
 	if (unique) {
-		root = s->root;
-		s->root = CLJ_NIL;
+		root = s->root.v;
+		clj_slot_clear(&s->root);
 	} else {
-		root = clj_retain(s->root);
+		root = clj_retain(s->root.v);
 	}
 	if (!is_red(left_of(root)) && !is_red(right_of(root))) {
 		tnode *r = node_own(root);
@@ -434,17 +427,17 @@ clj_value clj_sorted_dissoc(clj_value coll, clj_value key) {
 
 clj_value clj_sorted_get(clj_value c, clj_value key, clj_value not_found) {
 	clj_sorted *s = clj_sorted_of(c);
-	clj_call    call = clj_call_prepare(s->cmp, 2);
-	clj_value   n = node_find(s->root, key, &call);
+	clj_call    call = clj_call_prepare(s->cmp.v, 2);
+	clj_value   n = node_find(s->root.v, key, &call);
 	if (n == CLJ_THROWN) return CLJ_THROWN;
 	if (clj_is_nil(n)) return not_found;
-	return clj_is_sorted_set(c) ? tnode_of(n)->key : tnode_of(n)->val;
+	return clj_is_sorted_set(c) ? tnode_of(n)->key.v : tnode_of(n)->val.v;
 }
 
 clj_value clj_sorted_contains(clj_value c, clj_value key) {
 	clj_sorted *s = clj_sorted_of(c);
-	clj_call    call = clj_call_prepare(s->cmp, 2);
-	clj_value   n = node_find(s->root, key, &call);
+	clj_call    call = clj_call_prepare(s->cmp.v, 2);
+	clj_value   n = node_find(s->root.v, key, &call);
 	if (n == CLJ_THROWN) return CLJ_THROWN;
 	return clj_bool(!clj_is_nil(n));
 }
@@ -495,8 +488,8 @@ clj_value clj_sorted_seq(clj_value c, bool ascending) {
 	collect_ctx cc;
 	entry_buffer(c, &cc);
 	each_ctx e = {collect_entry, &cc};
-	if (ascending) each_asc(clj_sorted_of(c)->root, &e);
-	else each_desc(clj_sorted_of(c)->root, &e);
+	if (ascending) each_asc(clj_sorted_of(c)->root.v, &e);
+	else each_desc(clj_sorted_of(c)->root.v, &e);
 	return seq_of(c, cc.items, cc.n / 2);
 }
 
@@ -504,9 +497,9 @@ clj_value clj_sorted_seq_from(clj_value c, clj_value key, bool ascending) {
 	collect_ctx cc;
 	entry_buffer(c, &cc);
 	each_ctx e = {collect_entry, &cc};
-	clj_call  call = clj_call_prepare(clj_sorted_of(c)->cmp, 2);
+	clj_call  call = clj_call_prepare(clj_sorted_of(c)->cmp.v, 2);
 	bool      thrown = false;
-	walk_from(clj_sorted_of(c)->root, key, &call, ascending, &e, &thrown);
+	walk_from(clj_sorted_of(c)->root.v, key, &call, ascending, &e, &thrown);
 	if (thrown) {
 		free(cc.items);
 		return CLJ_THROWN;
@@ -646,23 +639,23 @@ static bool sorted_equals(void *self, clj_value other) {
 	return ec.equal;
 }
 
-static clj_value sorted_meta(clj_value self) { return clj_retain(clj_sorted_of(self)->meta); }
+static clj_value sorted_meta(clj_value self) { return clj_retain(clj_sorted_of(self)->meta.v); }
 
 static clj_value sorted_with_meta(clj_value self, clj_value m) {
 	clj_sorted *s = clj_sorted_of(self);
-	if (clj_is_nil(m) && clj_is_nil(s->meta)) return self;
+	if (clj_is_nil(m) && clj_is_nil(s->meta.v)) return self;
 	if (!clj_is_unique(self)) {
 		clj_sorted *c = clj_alloc(clj_header_of(self)->type, sizeof *c);
 		c->count = s->count;
 		atomic_store_explicit(&c->hash, clj_hash_cache_load(&s->hash), memory_order_relaxed);
-		c->root = clj_retain(s->root);
-		c->cmp = clj_retain(s->cmp);
+		clj_slot_init(&c->h, &c->root, clj_retain(s->root.v));
+		clj_slot_init(&c->h, &c->cmp, clj_retain(s->cmp.v));
 		clj_release(self);
 		s = c;
 	}
-	clj_value old = s->meta;
-	s->meta = CLJ_NIL;
-	store(&s->h, &s->meta, clj_retain(m));
+	clj_value old = s->meta.v;
+	clj_slot_clear(&s->meta);
+	clj_slot_store(&s->h, &s->meta, clj_retain(m));
 	clj_release(old);
 	return clj_from_ptr(s);
 }
@@ -708,7 +701,7 @@ const clj_type clj_sorted_set_type = {
 
 // ---- test hooks
 
-clj_value clj_debug_sorted_root(clj_value c) { return clj_sorted_of(c)->root; }
+clj_value clj_debug_sorted_root(clj_value c) { return clj_sorted_of(c)->root.v; }
 
 typedef struct {
 	const clj_call *call;
@@ -719,21 +712,21 @@ typedef struct {
 static int check_node(clj_value node, check_ctx *cc) {
 	if (clj_is_nil(node)) return 0;
 	tnode *n = tnode_of(node);
-	if (is_red(n->right)) return -1;
-	if (n->red && is_red(n->left)) return -1;
-	int l = check_node(n->left, cc), r = check_node(n->right, cc);
+	if (is_red(n->right.v)) return -1;
+	if (n->red && is_red(n->left.v)) return -1;
+	int l = check_node(n->left.v, cc), r = check_node(n->right.v, cc);
 	if (l < 0 || r < 0 || l != r) return -1;
 	// max(left) < key < min(right) at every node is the whole ordering, since the subtrees are checked too.
 	int c;
-	if (!clj_is_nil(n->left)) {
-		if (!clj_compare_with(cc->call, tnode_of(max_node(n->left))->key, n->key, &c)) {
+	if (!clj_is_nil(n->left.v)) {
+		if (!clj_compare_with(cc->call, tnode_of(max_node(n->left.v))->key.v, n->key.v, &c)) {
 			clj_release(clj_take_pending());
 			return -1;
 		}
 		if (c >= 0) return -1;
 	}
-	if (!clj_is_nil(n->right)) {
-		if (!clj_compare_with(cc->call, n->key, tnode_of(min_node(n->right))->key, &c)) {
+	if (!clj_is_nil(n->right.v)) {
+		if (!clj_compare_with(cc->call, n->key.v, tnode_of(min_node(n->right.v))->key.v, &c)) {
 			clj_release(clj_take_pending());
 			return -1;
 		}
@@ -745,9 +738,9 @@ static int check_node(clj_value node, check_ctx *cc) {
 
 bool clj_debug_sorted_valid(clj_value c) {
 	clj_sorted *s = clj_sorted_of(c);
-	if (is_red(s->root)) return false;
-	clj_call  call = clj_call_prepare(s->cmp, 2);
+	if (is_red(s->root.v)) return false;
+	clj_call  call = clj_call_prepare(s->cmp.v, 2);
 	check_ctx cc = {&call, 0};
-	if (check_node(s->root, &cc) < 0) return false;
+	if (check_node(s->root.v, &cc) < 0) return false;
 	return cc.count == s->count;
 }

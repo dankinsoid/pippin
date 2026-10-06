@@ -319,7 +319,7 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		put_symbol_text(b, CLJ_NIL, clj_symbol_name(clj_var_name(v)));
 	} else if (clj_is_fn(v)) {
 		put_cstr(b, "#object[fn");
-		clj_value name = clj_fn_of(v)->name;
+		clj_value name = clj_fn_of(v)->name.v;
 		if (!clj_is_nil(name)) {
 			put_char(b, ' ');
 			put_symbol_text(b, clj_symbol_ns(name), clj_symbol_name(name));
@@ -444,7 +444,7 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		put_char(b, ']');
 	} else if (clj_is_protocol(v)) {
 		put_cstr(b, "#object[protocol ");
-		put_symbol_text(b, clj_symbol_ns(clj_protocol_of(v)->name), clj_symbol_name(clj_protocol_of(v)->name));
+		put_symbol_text(b, clj_symbol_ns(clj_protocol_of(v)->name.v), clj_symbol_name(clj_protocol_of(v)->name.v));
 		put_char(b, ']');
 	} else {
 		put_fmt(b, "#object[%s]", clj_type_name(v));

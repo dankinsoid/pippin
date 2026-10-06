@@ -7,8 +7,8 @@
 // The pattern text is the identity: `=`, `hash` and the printer all read it.
 typedef struct {
 	clj_header h;
-	clj_value  pattern; // string, verbatim as written
-	clj_value  names;   // name -> group number, nil when no group is named
+	clj_slot   pattern; // string, verbatim as written
+	clj_slot   names;   // name -> group number, nil when no group is named
 	void      *prog;    // re_prog, freed by the finalizer
 	uint32_t   ngroups; // not counting group 0
 } clj_regex;
@@ -21,14 +21,14 @@ clj_value clj_regex_new(clj_value pattern);
 static inline bool       clj_is_regex(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_regex_type; }
 static inline clj_regex *clj_regex_of(clj_value v) { return (clj_regex *)clj_to_ptr(v); }
 // Borrowed: valid while re is.
-static inline clj_value clj_regex_pattern(clj_value re) { return clj_regex_of(re)->pattern; }
+static inline clj_value clj_regex_pattern(clj_value re) { return clj_regex_of(re)->pattern.v; }
 static inline uint32_t  clj_regex_group_count(clj_value re) { return clj_regex_of(re)->ngroups; }
 
 // java.util.regex.Matcher: a scan position and the last match, mutable.
 typedef struct {
 	clj_header h;
-	clj_value  re;
-	clj_value  input;  // string
+	clj_slot   re;
+	clj_slot   input;  // string
 	void      *text;   // re_text: the input decoded once, so a scan stays linear
 	int32_t   *slots;  // 2 * (ngroups + 1) code point bounds, -1 when absent
 	uint32_t   from;   // where the next search starts

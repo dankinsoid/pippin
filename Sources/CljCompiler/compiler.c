@@ -264,7 +264,7 @@ struct cljc_compiler {
 
 // Whether a closure's tree is one of this compile's forms: only then does its fn node get a base to name.
 static bool tree_in_set(const cljc_compiler *c, const clj_fn *fn) {
-	const clj_node *root = clj_exec_of(fn->code)->root;
+	const clj_node *root = clj_exec_of(fn->code.v)->root;
 	if (root == c->emitting) return true;
 	for (size_t i = 0; i < c->npending; i++) {
 		if (c->pending[i].node == root) return true;
@@ -745,7 +745,7 @@ static direct_entry *direct_of_head(cljc_compiler *c, const clj_node *head);
 static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 	if (!f->c->opts.closed) return UK_NONE;
 	switch (n->kind) {
-	case CLJ_NODE_CONST: return clj_is_fixnum(n->u.value) ? UK_INT : clj_is_double(n->u.value) ? UK_DBL : UK_NONE;
+	case CLJ_NODE_CONST: return clj_is_fixnum(n->u.value.v) ? UK_INT : clj_is_double(n->u.value.v) ? UK_DBL : UK_NONE;
 	case CLJ_NODE_LOCAL: return slot_kind(f, n->u.local.index);
 	case CLJ_NODE_INVOKE: {
 		prim_site pc;
@@ -1054,14 +1054,14 @@ static itemp emit_raw(fnctx *f, const clj_node *n) {
 	fn_line(f, n);
 	switch (n->kind) {
 	case CLJ_NODE_CONST: {
-		if (clj_is_fixnum(n->u.value)) {
+		if (clj_is_fixnum(n->u.value.v)) {
 			itemp t = new_itemp(f, UK_INT);
-			sb_printf(&f->out, "\tint64_t %s = INT64_C(%lld);\n", t.name, (long long)clj_fixnum_val(n->u.value));
+			sb_printf(&f->out, "\tint64_t %s = INT64_C(%lld);\n", t.name, (long long)clj_fixnum_val(n->u.value.v));
 			return t;
 		}
 		itemp t = new_itemp(f, UK_DBL);
 		char  lit[64];
-		double_literal(lit, sizeof lit, clj_double_val(n->u.value));
+		double_literal(lit, sizeof lit, clj_double_val(n->u.value.v));
 		sb_printf(&f->out, "\tdouble %s = %s;\n", t.name, lit);
 		return t;
 	}
@@ -1318,7 +1318,7 @@ static temp emit_refused(fnctx *f, const clj_node *n, const char *reason) {
 }
 
 static temp emit_const(fnctx *f, const clj_node *n, bool borrowed) {
-	clj_value v = n->u.value;
+	clj_value v = n->u.value.v;
 	if (clj_is_var(v)) {
 		size_t vi = var_index(f->u, v);
 		temp   t = new_temp(f, borrowed ? OWN_NO : OWN_YES);
@@ -1401,7 +1401,7 @@ static temp emit_outer(fnctx *f, const clj_node *n) {
 }
 
 static temp emit_var(fnctx *f, const clj_node *n, bool borrowed) {
-	size_t vi = var_index(f->u, n->u.var);
+	size_t vi = var_index(f->u, n->u.var.v);
 	if (borrowed) {
 		temp t = new_temp(f, OWN_DYN);
 		sb_printf(&f->out, "\tbool %s;\n\tclj_value %s = clj_c_var_borrow(V[%zu], &%s);\n", t.flag, t.name, vi, t.flag);
@@ -1640,9 +1640,9 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 	uint32_t mask, min, max;
 	fn_arity_bounds(n, &mask, &min, &max);
 	char name[64] = "CLJ_NIL", maxs[32] = "CLJ_ARITY_ANY";
-	if (!clj_is_nil(n->u.fn.name)) {
+	if (!clj_is_nil(n->u.fn.name.v)) {
 		bool ok;
-		snprintf(name, sizeof name, "K[%zu]", const_index(f, n->u.fn.name, &ok));
+		snprintf(name, sizeof name, "K[%zu]", const_index(f, n->u.fn.name.v, &ok));
 	}
 	if (max != CLJ_ARITY_ANY) snprintf(maxs, sizeof maxs, "%u", max);
 	temp t = new_temp(f, OWN_YES);
@@ -1848,7 +1848,7 @@ static uint32_t arm_target(fnctx *f, const clj_type *t, clj_value method, uint32
 static void mark_impl_candidates(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	if (head->kind != CLJ_NODE_VAR) return;
-	clj_value var = head->u.var;
+	clj_value var = head->u.var.v;
 	if (!var_named(var, "clojure.core", "deftype*") && !var_named(var, "clojure.core", "record*") && !var_named(var, "clojure.core", "extend") && !var_named(var, "clojure.core", "extend*")) return;
 	for (uint32_t i = 0; i < n->u.invoke.n; i++) {
 		const clj_node *arg = n->u.invoke.args[i];
@@ -1860,8 +1860,8 @@ static void mark_impl_candidates(fnctx *f, const clj_node *n) {
 }
 
 static clj_value protocol_method_root(const clj_node *head) {
-	if (head->kind != CLJ_NODE_VAR || clj_var_of(head->u.var)->dynamic) return CLJ_NIL;
-	clj_value root = clj_var_root(head->u.var);
+	if (head->kind != CLJ_NODE_VAR || clj_var_of(head->u.var.v)->dynamic) return CLJ_NIL;
+	clj_value root = clj_var_root(head->u.var.v);
 	return clj_is_protocol_method(root) ? root : CLJ_NIL;
 }
 
@@ -1910,8 +1910,8 @@ static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const
 // (satisfies? P x) with a known receiver under --closed: the answer per descriptor, verified once per epoch.
 static bool emit_satisfies(fnctx *f, const clj_node *n, const temp *fn, const temp *args, const char *array, const temp *r) {
 	const clj_node *pnode = n->u.invoke.args[0];
-	if (pnode->kind != CLJ_NODE_VAR || clj_var_of(pnode->u.var)->dynamic) return false;
-	clj_value proto = clj_var_root(pnode->u.var);
+	if (pnode->kind != CLJ_NODE_VAR || clj_var_of(pnode->u.var.v)->dynamic) return false;
+	clj_value proto = clj_var_root(pnode->u.var.v);
 	if (!clj_is_protocol(proto)) return false;
 	proto_arms a = receiver_arms(f, n->u.invoke.args[1], proto);
 	if (a.n == 0) return false;
@@ -1938,8 +1938,8 @@ static bool emit_satisfies(fnctx *f, const clj_node *n, const temp *fn, const te
 // (extends? P T) with T a var holding a type under --closed: the answer, verified once per epoch (a rebind of T bumps it).
 static bool emit_extends(fnctx *f, const clj_node *n, const temp *fn, const temp *args, const char *array, const temp *r) {
 	const clj_node *pnode = n->u.invoke.args[0], *tnode = n->u.invoke.args[1];
-	if (pnode->kind != CLJ_NODE_VAR || clj_var_of(pnode->u.var)->dynamic || tnode->kind != CLJ_NODE_VAR || clj_var_of(tnode->u.var)->dynamic) return false;
-	clj_value proto = clj_var_root(pnode->u.var), type = clj_var_root(tnode->u.var);
+	if (pnode->kind != CLJ_NODE_VAR || clj_var_of(pnode->u.var.v)->dynamic || tnode->kind != CLJ_NODE_VAR || clj_var_of(tnode->u.var.v)->dynamic) return false;
+	clj_value proto = clj_var_root(pnode->u.var.v), type = clj_var_root(tnode->u.var.v);
 	if (!clj_is_protocol(proto) || !(clj_is_nil(type) || clj_is_type(type))) return false;
 	const char *answer = clj_truthy(clj_proto_extends(proto, type)) ? "CLJ_TRUE" : "CLJ_FALSE";
 	int         k = f->naux++;
@@ -1952,7 +1952,7 @@ static bool emit_extends(fnctx *f, const clj_node *n, const temp *fn, const temp
 static direct_entry *direct_of_head(cljc_compiler *c, const clj_node *head) {
 	if (head->kind != CLJ_NODE_VAR) return NULL;
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var))));
+	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var.v))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var.v))));
 	return direct_find(c, key);
 }
 
@@ -1995,7 +1995,7 @@ static bool prim_site_of(const fnctx *f, const clj_node *n, direct_entry *d, pri
 		kinds[i] = unboxable_kind(f, n->u.invoke.args[i]);
 		if (kinds[i] == UK_NONE) return false;
 	}
-	ukind ret = worker_result(n->u.invoke.fn->u.var, kinds, nargs);
+	ukind ret = worker_result(n->u.invoke.fn->u.var.v, kinds, nargs);
 	if (ret == UK_NONE) return false;
 	out->d = d;
 	out->nargs = nargs;
@@ -2022,7 +2022,7 @@ static itemp emit_prim(fnctx *f, const clj_node *n, const prim_site *pc, const c
 	pool_intern(&f->u->prims, pc->target, NULL, &fresh);
 	f->has_direct = true;
 	uint32_t nargs = pc->nargs;
-	size_t   vi = var_index(f->u, n->u.invoke.fn->u.var);
+	size_t   vi = var_index(f->u, n->u.invoke.fn->u.var.v);
 	int      k = f->naux++;
 	itemp    res = new_itemp(f, pc->ret);
 	fn_line(f, n);
@@ -2076,7 +2076,7 @@ static itemp emit_prim_raw(fnctx *f, const clj_node *n) {
 static temp emit_invoke(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
-	if (f->c->opts.closed && !f->u->embedded && head->kind == CLJ_NODE_VAR && (var_named(head->u.var, "clojure.core", "eval") || var_named(head->u.var, "clojure.core", "load-string"))) {
+	if (f->c->opts.closed && !f->u->embedded && head->kind == CLJ_NODE_VAR && (var_named(head->u.var.v, "clojure.core", "eval") || var_named(head->u.var.v, "clojure.core", "load-string"))) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}
 	mark_impl_candidates(f, n);
@@ -2104,7 +2104,7 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 		// A target of this unit is called by name: its var is read only where the call may fall back to it.
 		fn_line(f, head);
 		fn = new_temp(f, OWN_DYN);
-		sb_printf(&f->out, "\tbool %s = false;\n\tclj_value %s = CLJ_NIL;\n#ifndef CLJC_LOCAL_%s\n\t%s = clj_c_var_borrow(V[%zu], &%s);\n", fn.flag, fn.name, target, fn.name, var_index(f->u, head->u.var), fn.flag);
+		sb_printf(&f->out, "\tbool %s = false;\n\tclj_value %s = CLJ_NIL;\n#ifndef CLJC_LOCAL_%s\n\t%s = clj_c_var_borrow(V[%zu], &%s);\n", fn.flag, fn.name, target, fn.name, var_index(f->u, head->u.var.v), fn.flag);
 		check_thrown(f, fn.name);
 		sb_puts(&f->out, "#endif\n");
 		live_push(f, fn);
@@ -2121,11 +2121,11 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	// a var of the set may hold a protocol method (defprotocol's def) or a builtin (a (def satisfies? ...) shadows it)
 	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
 	bool      folded = false;
-	if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var, "clojure.core", "satisfies?")) folded = emit_satisfies(f, n, &fn, args, array, &r);
-	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
+	if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var.v, "clojure.core", "satisfies?")) folded = emit_satisfies(f, n, &fn, args, array, &r);
+	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var.v, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
 	if (!folded && !clj_is_nil(method)) {
 		emit_proto_call(f, n, method, &fn, array, &r);
-	} else if (!folded && !d && (nargs == 1 || nargs == 2) && head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
+	} else if (!folded && !d && (nargs == 1 || nargs == 2) && head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value.v)) {
 		// (:k m) / (:k m nf): the interpreter's keyword-lookup site; keyword_invoke's arity check is the count here.
 		uint32_t ic = f->u->nics++;
 		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
@@ -2136,7 +2136,7 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 		bool fresh;
 		pool_intern(&f->u->externs, target, NULL, &fresh);
 		f->has_direct = true;
-		size_t vi = var_index(f->u, head->u.var);
+		size_t vi = var_index(f->u, head->u.var.v);
 		// A top-level form is no frame: its callee stays a call, so the frame it makes is the callee's own.
 		const char *callee = f->stub >= 0 ? "CLJC_CALL_" : "";
 		sb_printf(&f->out, "#ifdef CLJC_LOCAL_%s\n", target);
@@ -2155,7 +2155,7 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 }
 
 static temp emit_def(fnctx *f, const clj_node *n) {
-	size_t vi = var_index(f->u, n->u.def.var);
+	size_t vi = var_index(f->u, n->u.def.var.v);
 	if (n->u.def.init) {
 		// only the def that is the form itself takes the form's base: two defs under one let each get a nested name
 		bool named = n->u.def.init->kind == CLJ_NODE_FN && f->top && n->id == 0 && *f->fn_counter == 0;
@@ -2176,7 +2176,7 @@ static temp emit_def(fnctx *f, const clj_node *n) {
 static bool map_literal_keys_are_keywords(const clj_node *n) {
 	if (n->u.seq.n / 2 > CLJ_SHAPE_MAX_KEYS) return false;
 	for (uint32_t i = 0; i < n->u.seq.n; i += 2) {
-		if (n->u.seq.items[i]->kind != CLJ_NODE_CONST || !clj_is_keyword(n->u.seq.items[i]->u.value)) return false;
+		if (n->u.seq.items[i]->kind != CLJ_NODE_CONST || !clj_is_keyword(n->u.seq.items[i]->u.value.v)) return false;
 	}
 	return true;
 }
@@ -2218,7 +2218,7 @@ static temp emit_throw(fnctx *f, const clj_node *n) {
 // eval_objc_send's shape: the selector is the pool constant the analyzer built, never rebuilt here.
 static temp emit_objc_send(fnctx *f, const clj_node *n) {
 	bool   ok;
-	size_t ki = const_index(f, n->u.objc.selector, &ok);
+	size_t ki = const_index(f, n->u.objc.selector.v, &ok);
 	if (!ok) return emit_refused(f, n, "selector does not print and read back");
 	temp target = emit_borrowed(f, n->u.objc.target);
 	char array[24];
@@ -2348,7 +2348,7 @@ static temp emit_unboxed(fnctx *f, const clj_node *n, unbox_op uop) {
 // The tags of the boxed arguments decide at run time: a stale fact costs the check and never the result.
 static temp emit_tag_checked(fnctx *f, const clj_node *n, unbox_op uop, const ukind *kinds) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
-	size_t               oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var);
+	size_t               oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var.v);
 	uint32_t             nargs = n->u.intrinsic.n;
 	char                 array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
@@ -2444,7 +2444,7 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		if (all_unboxable && ok) return emit_unboxed(f, n, uop);
 		if (all_typed && ok) return emit_tag_checked(f, n, uop, kinds);
 	}
-	size_t oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var);
+	size_t oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var.v);
 	char   array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
 	temp *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
@@ -2460,7 +2460,7 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		sb_printf(&f->out, "\t%s = false;\n\t} else {\n", args[0].flag);
 		emit_intrinsic_call(f, op, op->cname, args, r.name);
 		sb_puts(&f->out, "\t}\n");
-	} else if (clj_intrinsic_is_get(op) && n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.intrinsic.args[1]->u.value)) {
+	} else if (clj_intrinsic_is_get(op) && n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.intrinsic.args[1]->u.value.v)) {
 		// (get m :k) / (get m :k nf): the keyword-lookup site under the intrinsic guard, as the interpreter's eval_get_kw.
 		uint32_t ic = f->u->nics++;
 		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
@@ -2956,7 +2956,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 
 static void emit_fn_functions(fnctx *parent, const clj_node *n, const char *base) {
 	unit    *u = parent->u;
-	uint32_t stub = stub_new(u, parent, n->u.fn.name, n->line, n->col);
+	uint32_t stub = stub_new(u, parent, n->u.fn.name.v, n->line, n->col);
 	// A top-level (def name (fn ...)) is a direct-call target of closed units; its base is the def's own symbol.
 	bool exported = strcmp(base, parent->base) == 0 && parent->top;
 	fn_base_add(parent->c, n, base, u, entry_arities(n));
@@ -2969,10 +2969,10 @@ static void emit_fn_functions(fnctx *parent, const clj_node *n, const char *base
 	sb_printf(&u->protos, "static clj_value %s(void *ctx, const clj_value *args, size_t n);\n", base);
 	sb_printf(&d, "static clj_value %s(void *ctx, const clj_value *args, size_t n) {\n\tconst clj_fn *f = ctx;\n\tswitch (n) {\n", base);
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
-		if (n->u.fn.fixed[i]) sb_printf(&d, "\tcase %u: return %s_a%u(clj_from_ptr((void *)f), f->env, args, n);\n", i, base, i);
+		if (n->u.fn.fixed[i]) sb_printf(&d, "\tcase %u: return %s_a%u(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);\n", i, base, i);
 	}
 	sb_puts(&d, "\tdefault: break;\n\t}\n");
-	if (n->u.fn.variadic) sb_printf(&d, "\tif (n >= %u) return %s_v%u(clj_from_ptr((void *)f), f->env, args, n);\n", n->u.fn.variadic->nparams, base, n->u.fn.variadic->nparams);
+	if (n->u.fn.variadic) sb_printf(&d, "\tif (n >= %u) return %s_v%u(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);\n", n->u.fn.variadic->nparams, base, n->u.fn.variadic->nparams);
 	sb_puts(&d, "\treturn clj_c_arity_error(clj_from_ptr((void *)f), n);\n}\n\n");
 	sb_put(&u->fns, d.s, d.len);
 	sb_free(&d);
@@ -3031,7 +3031,7 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 }
 
 static void emit_direct_fn_functions(fnctx *parent, const clj_node *n, const char *base) {
-	uint32_t stub = stub_new(parent->u, parent, n->u.fn.name, n->line, n->col);
+	uint32_t stub = stub_new(parent->u, parent, n->u.fn.name.v, n->line, n->col);
 	direct_name_add(n, base);
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (n->u.fn.fixed[i]) emit_direct_arity(parent, n, n->u.fn.fixed[i], base, stub);
@@ -3070,7 +3070,7 @@ static char *form_base(cljc_compiler *c, unit *u, const clj_node *n) {
 	const char *ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	char       *base;
 	if (n->kind == CLJ_NODE_DEF) {
-		base = cljc_mangle(clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var))));
+		base = cljc_mangle(clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var.v))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var.v))));
 	} else {
 		char ordinal[32];
 		// compiled-eval units are one form each: number them per compiler, or every unit's impls share a registry name
@@ -3127,7 +3127,7 @@ static void open_form(cljc_compiler *c, unit *u, fnctx *scratch, const clj_load_
 static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const char *base) {
 	if (n->kind != CLJ_NODE_DEF || !n->u.def.init) return;
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var))));
+	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var.v))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var.v))));
 	direct_entry *d = direct_add(c, key);
 	bool          fresh;
 	if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.init->u.fn.ncaptures) pool_intern(&u->defined, base, key, &fresh);
@@ -3239,7 +3239,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	if (n->kind == CLJ_NODE_DEF) {
 		u->slots.defs++;
 		u->slots.def_bytes += u->fns.len - before;
-		def_size_add(u, n->u.def.var, u->fns.len - before, false);
+		def_size_add(u, n->u.def.var.v, u->fns.len - before, false);
 	}
 	clj_facts_free(facts);
 	if (c->opts.eval_result) sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto fail;\n", top);
@@ -3337,10 +3337,10 @@ static void shake_const(clj_value v, shake_ctx *w) {
 static void shake_node(const clj_node *n, void *ctx) {
 	shake_ctx *w = ctx;
 	switch (n->kind) {
-	case CLJ_NODE_VAR: vlist_add(w->refs, n->u.var); break;
-	case CLJ_NODE_CONST: shake_const(n->u.value, w); break;
-	case CLJ_NODE_INTRINSIC: vlist_add(w->refs, n->u.intrinsic.var); break;
-	case CLJ_NODE_DEF: vlist_add(w->refs, n->u.def.var); break; // a nested def binds a root at run time
+	case CLJ_NODE_VAR: vlist_add(w->refs, n->u.var.v); break;
+	case CLJ_NODE_CONST: shake_const(n->u.value.v, w); break;
+	case CLJ_NODE_INTRINSIC: vlist_add(w->refs, n->u.intrinsic.var.v); break;
+	case CLJ_NODE_DEF: vlist_add(w->refs, n->u.def.var.v); break; // a nested def binds a root at run time
 	case CLJ_NODE_FUSED:
 		for (uint32_t i = 0; i < n->u.fused.nguards; i++) vlist_add(w->refs, clj_fusion_var_of(n->u.fused.guards[i]));
 		break;
@@ -3387,7 +3387,7 @@ static bool shake_forced(const cljc_compiler *c, clj_value var) {
 // Rows 1-6: whether the def may be dropped at all, before anything is reached.
 static bool shake_candidate(const cljc_compiler *c, const unit *u, const clj_node *n) {
 	if (n->kind != CLJ_NODE_DEF || !n->u.def.init) return false;
-	clj_value var = n->u.def.var;
+	clj_value var = n->u.def.var.v;
 	if (shake_forced(c, var)) return true;
 	if (n->u.def.init->kind != CLJ_NODE_FN) return false;                 // 1: a tripwire root is loud when called, not when read
 	if (!u->embedded) return false;                                       // 2: the program has no declared entry point
@@ -3470,7 +3470,7 @@ static void shake_run(cljc_compiler *c) {
 		const clj_node *n = c->pending[i].node;
 		if (!n) continue;
 		if (n->kind == CLJ_NODE_DEF) {
-			forms[i].def_var = n->u.def.var;
+			forms[i].def_var = n->u.def.var.v;
 			rep->defs++;
 		}
 		shake_scan(n, &forms[i]);
@@ -3524,10 +3524,10 @@ static void shake_run(cljc_compiler *c) {
 // A dropped def: its var is interned as every other var of the unit is, and its root is the tripwire. A macro
 // says so, or the analyzer would read its call as an ordinary one and could fail on the arguments first.
 static void emit_shaken(unit *u, const clj_node *n) {
-	sb_printf(&u->init, "\tclj_c_shaken%s(V[%zu]);\n", n->u.def.macro ? "_macro" : "", var_index(u, n->u.def.var));
+	sb_printf(&u->init, "\tclj_c_shaken%s(V[%zu]);\n", n->u.def.macro ? "_macro" : "", var_index(u, n->u.def.var.v));
 	u->slots.defs++;
 	u->slots.defs_dropped++;
-	def_size_add(u, n->u.def.var, 0, true);
+	def_size_add(u, n->u.def.var.v, 0, true);
 }
 
 // ---- the hook

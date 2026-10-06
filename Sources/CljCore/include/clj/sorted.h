@@ -9,9 +9,9 @@ typedef struct {
 	clj_header       h;
 	uint32_t         count;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
-	clj_value        root;  // tree node or nil
-	clj_value        cmp;   // comparator fn, nil for clj_compare; kept by empty/assoc/dissoc/with-meta
-	clj_value        meta;  // map or nil; ignored by equality and hash
+	clj_slot         root;  // tree node or nil
+	clj_slot         cmp;   // comparator fn, nil for clj_compare; kept by empty/assoc/dissoc/with-meta
+	clj_slot         meta;  // map or nil; ignored by equality and hash
 } clj_sorted;
 
 extern const clj_type clj_sorted_map_type;
@@ -29,7 +29,7 @@ static inline clj_sorted *clj_sorted_of(clj_value v) { return (clj_sorted *)clj_
 
 static inline uint32_t clj_sorted_count(clj_value c) { return clj_sorted_of(c)->count; }
 // Borrowed; nil for the default comparator.
-static inline clj_value clj_sorted_comparator(clj_value c) { return clj_sorted_of(c)->cmp; }
+static inline clj_value clj_sorted_comparator(clj_value c) { return clj_sorted_of(c)->cmp.v; }
 
 // -1, 0 or 1 as a is below, equal to or above b; CLJ_THROWN when the comparator throws.
 clj_value clj_sorted_compare(clj_value c, clj_value a, clj_value b);

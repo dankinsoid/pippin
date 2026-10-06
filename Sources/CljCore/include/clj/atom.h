@@ -10,10 +10,10 @@ typedef struct {
 	clj_header        h;
 	clj_cmutex        lock;
 	_Atomic uintptr_t owner;     // execution holding the lock, 0 when none: the nested-swap trap reads it
-	_Atomic clj_value value;     // read without the lock inside a reader window (deref)
-	clj_value         meta;      // map or nil
-	clj_value         validator; // fn or nil
-	clj_value         watches;   // map key -> fn, or nil
+	clj_atomic_slot   value;     // read without the lock inside a reader window (deref)
+	clj_slot          meta;      // map or nil
+	clj_slot          validator; // fn or nil
+	clj_slot          watches;   // map key -> fn, or nil
 } clj_atom;
 
 extern const clj_type clj_atom_type;
@@ -25,7 +25,7 @@ static inline bool      clj_is_atom(clj_value v) { return clj_is_ptr(v) && clj_h
 static inline clj_atom *clj_atom_of(clj_value v) { return (clj_atom *)clj_to_ptr(v); }
 
 // Borrowed current value, no window: for a caller that knows no writer runs (tests, the bench).
-static inline clj_value clj_atom_value_borrowed(clj_value atom) { return atomic_load_explicit(&clj_atom_of(atom)->value, memory_order_acquire); }
+static inline clj_value clj_atom_value_borrowed(clj_value atom) { return clj_slot_load(&clj_atom_of(atom)->value, memory_order_acquire); }
 // Owned current value, without the lock: a UI read never waits for another execution's f.
 clj_value clj_atom_deref(clj_value atom);
 // (reset! a v): validates, stores v shared, notifies the watches; returns v owned.

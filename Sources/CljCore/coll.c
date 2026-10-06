@@ -150,7 +150,7 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		count = clj_string_count(coll);
 	} else if (t == &clj_matcher_type) {
 		// RT.nth indexes a Matcher by group, which no interface of its own carries.
-		count = clj_regex_group_count(clj_matcher_of(coll)->re) + 1;
+		count = clj_regex_group_count(clj_matcher_of(coll)->re.v) + 1;
 		if (i >= 0 && (size_t)i < count) return clj_matcher_group(coll, i);
 	} else if (t && (t->core_bits & CLJ_CORE_SEQUENTIAL) && t->seq) {
 		clj_value s = t->seq(coll);
@@ -242,19 +242,19 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 		const clj_type *t = clj_type_of(cur);
 		if (t == &clj_cons_type || t == &clj_list_type) {
 			const clj_cons *c = clj_cons_of(cur);
-			*out = c->first;
-			iter_enter(it, c->rest);
+			*out = c->first.v;
+			iter_enter(it, c->rest.v);
 			return true;
 		}
 		if (t == &clj_empty_list_type) return done(it, false);
 		if (t == &clj_vector_type || t == &clj_vector_seq_type) {
-			clj_value vec = t == &clj_vector_type ? cur : clj_vector_seq_of(cur)->vec;
+			clj_value vec = t == &clj_vector_type ? cur : clj_vector_seq_of(cur)->vec.v;
 			if (it->pos >= clj_vector_count(vec)) return done(it, false);
 			*out = clj_vector_nth(vec, (uint32_t)it->pos++);
 			return true;
 		}
 		if (t == &clj_string_type || t == &clj_string_seq_type) {
-			clj_value s = t == &clj_string_type ? cur : clj_string_seq_of(cur)->str;
+			clj_value s = t == &clj_string_type ? cur : clj_string_seq_of(cur)->str.v;
 			size_t    len = clj_string_len(s);
 			if (it->pos >= len) return done(it, false);
 			uint32_t cp;

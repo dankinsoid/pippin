@@ -212,7 +212,7 @@ static void init(void) {
 #endif
 	clj_fusion_install();
 	clj_isa_install();
-	clj_map_each(clj_ns_of(core)->mappings, immortalize_root, NULL);
+	clj_map_each(clj_ns_of(core)->mappings.v, immortalize_root, NULL);
 	clj_ns_set_current(clj_ns_user());
 	if (clj_host_boot) clj_host_boot();
 	clj_compiled_eval_boot();

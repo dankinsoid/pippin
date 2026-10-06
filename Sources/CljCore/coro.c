@@ -166,11 +166,11 @@ static _Atomic uint64_t switches;
 
 static void coro_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_coro *c = self;
-	visit(c->fn, ctx);
-	for (size_t i = 0; i < c->nargs; i++) visit(c->args[i], ctx);
-	visit(c->result, ctx);
+	visit(c->fn.v, ctx);
+	for (size_t i = 0; i < c->nargs; i++) visit(c->args[i].v, ctx);
+	visit(c->result.v, ctx);
 	// The cancel cause is an edge out of the coroutine while it unwinds: trial deletion must see it.
-	visit(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed), ctx);
+	visit(clj_slot_load(&c->cancel_cause, memory_order_relaxed), ctx);
 }
 
 static void coro_finalize(void *self) {
@@ -484,14 +484,12 @@ void clj_coro_entry(void) {
 	clj_recovery_push(&rec);
 	clj_value r;
 	if (sigsetjmp(rec.buf, 0)) r = clj_recovery_throw(&rec);
-	else r = clj_invoke(c->fn, c->args, c->nargs);
+	else r = clj_invoke(c->fn.v, clj_slot_values(c->args), c->nargs);
 	clj_recovery_pop(&rec);
 	clj_eval_top_leave();
 	c->threw = r == CLJ_THROWN;
 	clj_value result = c->threw ? clj_take_pending() : r;
-	clj_share(result);
-	c->result = result;
-	CLJ_SLOT_CHECK(&c->h, result);
+	clj_slot_store(&c->h, &c->result, result);
 	atomic_store_explicit(&c->state, CLJ_CORO_DONE, memory_order_release);
 	clj_coro_switch_out(c);
 	clj_fatal("a finished coroutine was resumed");

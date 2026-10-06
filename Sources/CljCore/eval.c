@@ -272,17 +272,17 @@ static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *own
 		return v;
 	}
 	case CLJ_NODE_CAPTURED: return f->captured[n->u.index];
-	case CLJ_NODE_CONST: return n->u.value;
+	case CLJ_NODE_CONST: return n->u.value.v;
 	case CLJ_NODE_VAR: {
-		if (__builtin_expect(clj_var_of(n->u.var)->dynamic, 0)) {
+		if (__builtin_expect(clj_var_of(n->u.var.v)->dynamic, 0)) {
 			*owned = true;
-			return clj_var_deref(n->u.var);
+			return clj_var_deref(n->u.var.v);
 		}
-		clj_value root = clj_var_root(n->u.var);
+		clj_value root = clj_var_root(n->u.var.v);
 		if (!clj_is_ptr(root)) {
 			if (root == CLJ_UNBOUND) {
 				*owned = true;
-				return clj_var_deref(n->u.var);
+				return clj_var_deref(n->u.var.v);
 			}
 			return root;
 		}
@@ -351,7 +351,7 @@ static inline __attribute__((always_inline)) bool eval_all(const clj_node *const
 
 static clj_value eval_const(const clj_node *n, clj_frame *f) {
 	(void)f;
-	return clj_retain(n->u.value);
+	return clj_retain(n->u.value.v);
 }
 
 // An owned read: the last use of an owned slot is a hand-over, as in eval_borrowed, and retains nothing.
@@ -372,7 +372,7 @@ static clj_value eval_outer(const clj_node *n, clj_frame *f) { return clj_retain
 
 static clj_value eval_var(const clj_node *n, clj_frame *f) {
 	(void)f;
-	return clj_var_deref(n->u.var);
+	return clj_var_deref(n->u.var.v);
 }
 
 static clj_value eval_if(const clj_node *n, clj_frame *f) {
@@ -445,7 +445,7 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 		case CLJ_CAPTURE_OUTER: env[i] = outer_frame(f, c->depth)->slots[c->index]; break;
 		}
 	}
-	clj_value fn = clj_fn_closure(clj_from_ptr((void *)f->exec), n, n->u.fn.name, env, n->u.fn.ncaptures);
+	clj_value fn = clj_fn_closure(clj_from_ptr((void *)f->exec), n, n->u.fn.name.v, env, n->u.fn.ncaptures);
 	buf_free(small, env);
 	return fn;
 }
@@ -515,7 +515,7 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 	if (__builtin_expect(instrument, 0)) {
 		if (instrument & CLJ_INSTRUMENT_PROFILE) t0 = clj_profile_now();
 #ifdef __APPLE__
-		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(code->u.fn.name);
+		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(code->u.fn.name.v);
 #endif
 	}
 	clj_value v;
@@ -538,7 +538,7 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 // exec and environment are the closure's own.
 static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, const clj_fn_arity *arity, clj_value *slots, uint64_t owned, const clj_node *site) {
 	const clj_fn *fn = clj_fn_of(f);
-	clj_frame     frame = {slots, (clj_value *)fn->env, clj_exec_of(fn->code), owned, NULL};
+	clj_frame     frame = {slots, clj_slot_values(fn->env), clj_exec_of(fn->code.v), owned, NULL};
 	return run_body(fn->u.node, arity, &frame, site);
 }
 
@@ -758,7 +758,7 @@ static clj_value eval_direct_call(const clj_node *n, clj_frame *f) {
 // program. A relaxed load suffices: a match calls a C function that reads nothing the bind published.
 // @ai-generated(guided)
 static inline bool intrinsic_guard(const clj_node *n) {
-	return clj_var_root_relaxed(n->u.intrinsic.var) == clj_intrinsic_builtin(n->u.intrinsic.op);
+	return clj_var_root_relaxed(n->u.intrinsic.var.v) == clj_intrinsic_builtin(n->u.intrinsic.op);
 }
 
 // The table's function or the var's current root over evaluated arguments; the consuming bit leaves the mask.
@@ -773,7 +773,7 @@ static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *o
 		}
 		return clj_intrinsic_call(op, args);
 	}
-	clj_value fn = clj_var_deref(n->u.intrinsic.var);
+	clj_value fn = clj_var_deref(n->u.intrinsic.var.v);
 	clj_value result = fn == CLJ_THROWN ? CLJ_THROWN : invoke_at(fn, args, n->u.intrinsic.n, n);
 	clj_release(fn);
 	return result;
@@ -1011,7 +1011,7 @@ static clj_value eval_kw_invoke(const clj_node *n, clj_frame *f) {
 	clj_value args[2];
 	uint64_t  owned;
 	if (!eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned)) return CLJ_THROWN;
-	clj_value r = kw_lookup(f->exec->nodes[n->id].ic, args[0], n->u.invoke.fn->u.value, n->u.invoke.n == 2 ? args[1] : CLJ_NIL);
+	clj_value r = kw_lookup(f->exec->nodes[n->id].ic, args[0], n->u.invoke.fn->u.value.v, n->u.invoke.n == 2 ? args[1] : CLJ_NIL);
 	release_owned(args, n->u.invoke.n, owned);
 	return r;
 }
@@ -1029,20 +1029,20 @@ static clj_value eval_get_kw(const clj_node *n, clj_frame *f) {
 }
 
 static bool kw_invoke_site(const clj_node *n) {
-	return n->kind == CLJ_NODE_INVOKE && n->u.invoke.fn->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.invoke.fn->u.value) &&
+	return n->kind == CLJ_NODE_INVOKE && n->u.invoke.fn->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.invoke.fn->u.value.v) &&
 	       (n->u.invoke.n == 1 || n->u.invoke.n == 2);
 }
 
 static bool kw_get_site(const clj_node *n) {
 	return n->kind == CLJ_NODE_INTRINSIC && clj_intrinsic_is_get(n->u.intrinsic.op) && n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST &&
-	       clj_is_keyword(n->u.intrinsic.args[1]->u.value);
+	       clj_is_keyword(n->u.intrinsic.args[1]->u.value.v);
 }
 
 static clj_value eval_def(const clj_node *n, clj_frame *f) {
 	if (n->u.def.init) {
 		clj_value v = eval_child(n->u.def.init, f);
 		if (v == CLJ_THROWN) return CLJ_THROWN;
-		clj_var_bind_root(n->u.def.var, v);
+		clj_var_bind_root(n->u.def.var.v, v);
 		clj_release(v);
 	}
 	clj_value m = eval_child(n->u.def.meta, f);
@@ -1052,11 +1052,11 @@ static clj_value eval_def(const clj_node *n, clj_frame *f) {
 		clj_release(m);
 		return e;
 	}
-	clj_var_set_meta(n->u.def.var, m);
+	clj_var_set_meta(n->u.def.var.v, m);
 	clj_release(m);
-	clj_var_set_macro(n->u.def.var, n->u.def.macro);
-	clj_var_set_dynamic(n->u.def.var, n->u.def.dynamic);
-	return clj_retain(n->u.def.var);
+	clj_var_set_macro(n->u.def.var.v, n->u.def.macro);
+	clj_var_set_dynamic(n->u.def.var.v, n->u.def.dynamic);
+	return clj_retain(n->u.def.var.v);
 }
 
 static clj_value eval_vector(const clj_node *n, clj_frame *f) {
@@ -1091,7 +1091,7 @@ static clj_value eval_map_shaped(const clj_node *n, clj_frame *f) {
 			clj_release(m);
 			return CLJ_THROWN;
 		}
-		sm->slots[ic->slot[i]] = v;
+		clj_slot_init(&sm->h, &sm->slots[ic->slot[i]], v);
 	}
 	return m;
 }
@@ -1103,8 +1103,8 @@ static map_ic *map_literal_ic(const clj_node *n) {
 	if (nkeys == 0 || nkeys > CLJ_SHAPE_MAX_KEYS) return NULL;
 	for (uint32_t i = 0; i < nkeys; i++) {
 		const clj_node *k = n->u.seq.items[2 * i];
-		if (k->kind != CLJ_NODE_CONST || !clj_is_keyword(k->u.value)) return NULL;
-		keys[i] = k->u.value;
+		if (k->kind != CLJ_NODE_CONST || !clj_is_keyword(k->u.value.v)) return NULL;
+		keys[i] = k->u.value.v;
 	}
 	const clj_shape *shape = clj_shape_for_keys(keys, nkeys);
 	if (!shape) return NULL;
@@ -1173,7 +1173,7 @@ static clj_value eval_objc_send(const clj_node *n, clj_frame *f) {
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
 	if (eval_all(n->u.objc.args, nargs, f, args, &owned)) {
-		result = clj_objc_send(target, n->u.objc.selector, args, nargs, false);
+		result = clj_objc_send(target, n->u.objc.selector.v, args, nargs, false);
 		release_owned(args, nargs, owned);
 	}
 	buf_free(small, args);

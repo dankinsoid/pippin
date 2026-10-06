@@ -19,7 +19,7 @@ clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size);
 typedef struct {
 	clj_header h;
 	uint32_t   i;
-	clj_value  vec;
+	clj_slot   vec;
 } clj_vector_seq;
 
 extern const clj_type clj_vector_seq_type;
@@ -31,7 +31,7 @@ clj_value clj_vector_seq_new(clj_value vec, uint32_t i);
 typedef struct {
 	clj_header h;
 	uint32_t   pos;
-	clj_value  str;
+	clj_slot   str;
 } clj_string_seq;
 
 extern const clj_type clj_string_seq_type;
@@ -61,8 +61,8 @@ static inline bool clj_range_step(int64_t at, int64_t step, int64_t *out) { retu
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t state;
-	clj_value        fn;    // thunk; nil once forced
-	clj_value        value; // realized seq or nil; meaningful once forced
+	clj_slot         fn;    // thunk; nil once forced
+	clj_slot         value; // realized seq or nil; meaningful once forced
 } clj_lazy_seq;
 
 extern const clj_type clj_lazy_seq_type;

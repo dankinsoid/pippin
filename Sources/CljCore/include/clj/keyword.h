@@ -11,7 +11,7 @@ struct clj_shape;
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
-	clj_value        sym;
+	clj_slot         sym;
 	// The shape of {kw v}, the root's transition on this keyword (shape.c); NULL until first used. The root has
 	// as many transitions as the program has first keys, so its table is the keywords themselves.
 	_Atomic(const struct clj_shape *) shape1;
@@ -27,7 +27,7 @@ clj_value clj_keyword_from_cstr(const char *s);
 static inline bool         clj_is_keyword(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_keyword_type; }
 static inline clj_keyword *clj_keyword_of(clj_value v) { return (clj_keyword *)clj_to_ptr(v); }
 // Borrowed; the keyword never dies, so effectively forever.
-static inline clj_value clj_keyword_ns(clj_value k) { return clj_symbol_ns(clj_keyword_of(k)->sym); }
-static inline clj_value clj_keyword_name(clj_value k) { return clj_symbol_name(clj_keyword_of(k)->sym); }
+static inline clj_value clj_keyword_ns(clj_value k) { return clj_symbol_ns(clj_keyword_of(k)->sym.v); }
+static inline clj_value clj_keyword_name(clj_value k) { return clj_symbol_name(clj_keyword_of(k)->sym.v); }
 
 #endif

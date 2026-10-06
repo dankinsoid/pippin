@@ -240,8 +240,22 @@ void clj_debug_slot_check(const clj_header *owner, clj_value v) {
 	if ((owner->flags & CLJ_FLAG_SHARED) && clj_is_ptr(v) && !(clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)))
 		fatal_unshared_child("store", owner, v);
 }
+
+// A count of 1 is the creator's own reference: a store while it fills the object needs no lock yet.
+void clj_debug_slot_store_check(const clj_header *owner, clj_value v) {
+	clj_debug_slot_check(owner, v);
+	if (!owner->type->debug_lock_held || atomic_load_explicit(&owner->rc, memory_order_relaxed) <= 1) return;
+	if (owner->type->debug_lock_held(owner)) return;
+	char msg[256];
+	snprintf(msg, sizeof msg, "store into a slot of %s without its lock (design §4, «Запись в слот»)", owner->type->name);
+	clj_fatal(msg);
+}
 #else
 void clj_debug_share_check_every(uint32_t n) { (void)n; }
+void clj_debug_slot_store_check(const clj_header *owner, clj_value v) {
+	(void)owner;
+	(void)v;
+}
 #define assert_shared_below(v) ((void)0)
 #endif
 

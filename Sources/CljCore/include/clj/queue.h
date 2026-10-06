@@ -8,9 +8,9 @@
 typedef struct {
 	clj_header h;
 	uint32_t   count;
-	clj_value  front; // a seq, nil when empty
-	clj_value  rear;  // a vector, the empty one when nothing is queued behind front
-	clj_value  meta;
+	clj_slot   front; // a seq, nil when empty
+	clj_slot   rear;  // a vector, the empty one when nothing is queued behind front
+	clj_slot   meta;
 } clj_queue;
 
 extern const clj_type clj_queue_type;

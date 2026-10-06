@@ -18,10 +18,10 @@
 
 static void var_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_var *v = self;
-	visit(v->ns, ctx);
-	visit(v->name, ctx);
-	visit(atomic_load_explicit(&v->root, memory_order_acquire), ctx);
-	visit(atomic_load_explicit(&v->meta, memory_order_acquire), ctx);
+	visit(v->ns.v, ctx);
+	visit(v->name.v, ctx);
+	visit(clj_slot_load(&v->root, memory_order_acquire), ctx);
+	visit(clj_slot_load(&v->meta, memory_order_acquire), ctx);
 }
 
 static uint32_t var_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
@@ -56,45 +56,37 @@ clj_value clj_var_new(clj_value ns, clj_value name) {
 	CLJ_ASSERT(clj_is_symbol(ns) && clj_is_symbol(name), "var ns and name must be symbols");
 	clj_var *v = clj_alloc(&clj_var_type, sizeof *v);
 	v->h.flags |= CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED;
-	clj_share(ns);
-	clj_share(name);
-	v->ns = clj_retain(ns);
-	v->name = clj_retain(name);
-	atomic_store_explicit(&v->root, CLJ_UNBOUND, memory_order_relaxed);
+	clj_slot_store(&v->h, &v->ns, clj_retain(ns));
+	clj_slot_store(&v->h, &v->name, clj_retain(name));
+	clj_slot_store_atomic(&v->h, &v->root, CLJ_UNBOUND, memory_order_relaxed);
 	return clj_from_ptr(v);
 }
 
-clj_value clj_var_root(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->root, memory_order_acquire); }
+clj_value clj_var_root(clj_value var) { return clj_slot_load(&clj_var_of(var)->root, memory_order_acquire); }
 
 void clj_var_bind_root(clj_value var, clj_value val) {
-	clj_share(val);
-	clj_value old = atomic_exchange_explicit(&clj_var_of(var)->root, clj_retain(val), memory_order_acq_rel);
-	CLJ_SLOT_CHECK(clj_header_of(var), val);
+	clj_value old = clj_slot_exchange(clj_header_of(var), &clj_var_of(var)->root, clj_retain(val), memory_order_acq_rel);
 	if (old != CLJ_UNBOUND && !clj_eval_retire_root(old)) clj_release(old);
 	atomic_fetch_add_explicit(&clj_var_of(var)->epoch, 1, memory_order_release);
 	clj_epoch_bump();
 	clj_exec_root_rebound(var);
 }
 
-clj_value clj_var_meta(clj_value var) { return atomic_load_explicit(&clj_var_of(var)->meta, memory_order_acquire); }
+clj_value clj_var_meta(clj_value var) { return clj_slot_load(&clj_var_of(var)->meta, memory_order_acquire); }
 
 // @ai-generated(guided)
 void clj_var_set_meta(clj_value var, clj_value m) {
-	clj_share(m);
-	clj_value old = atomic_exchange_explicit(&clj_var_of(var)->meta, clj_retain(m), memory_order_acq_rel);
-	CLJ_SLOT_CHECK(clj_header_of(var), m);
+	clj_value old = clj_slot_exchange(clj_header_of(var), &clj_var_of(var)->meta, clj_retain(m), memory_order_acq_rel);
 	clj_release(old);
 }
 
 // @ai-generated(guided)
 bool clj_var_cas_meta(clj_value var, clj_value expected, clj_value m) {
-	clj_share(m);
 	clj_retain(m);
-	if (!atomic_compare_exchange_strong_explicit(&clj_var_of(var)->meta, &expected, m, memory_order_acq_rel, memory_order_acquire)) {
+	if (!clj_slot_cas(clj_header_of(var), &clj_var_of(var)->meta, &expected, m, memory_order_acq_rel, memory_order_acquire)) {
 		clj_release(m);
 		return false;
 	}
-	CLJ_SLOT_CHECK(clj_header_of(var), m);
 	clj_release(expected);
 	return true;
 }

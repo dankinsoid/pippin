@@ -19,7 +19,7 @@ typedef struct {
 	clj_header h;
 	uint32_t   datamap;
 	uint32_t   nodemap;
-	clj_value  slots[];
+	clj_slot   slots[];
 } bnode;
 
 // Keys whose full 32-bit hashes coincide. Sits wherever its hash is alone among siblings.
@@ -27,7 +27,7 @@ typedef struct {
 	clj_header h;
 	uint32_t   hash;
 	uint32_t   count;
-	clj_value  slots[];
+	clj_slot   slots[];
 } cnode;
 
 // Internal nodes report whether the operation changed anything; pointer identity cannot,
@@ -46,12 +46,12 @@ static inline size_t   node_slot(const bnode *n, size_t total, uint32_t bit) { r
 static void bnode_each_child(void *self, clj_visitor visit, void *ctx) {
 	bnode *n = self;
 	size_t total = bnode_slots(n);
-	for (size_t i = 0; i < total; i++) visit(n->slots[i], ctx);
+	for (size_t i = 0; i < total; i++) visit(n->slots[i].v, ctx);
 }
 
 static void cnode_each_child(void *self, clj_visitor visit, void *ctx) {
 	cnode *c = self;
-	for (size_t i = 0; i < 2 * (size_t)c->count; i++) visit(c->slots[i], ctx);
+	for (size_t i = 0; i < 2 * (size_t)c->count; i++) visit(c->slots[i].v, ctx);
 }
 
 static const clj_type bnode_type = {
@@ -76,11 +76,6 @@ static inline clj_map *clj_map_of(clj_value v) {
 static inline bnode *bnode_of(clj_value v) { return clj_to_ptr(v); }
 static inline cnode *cnode_of(clj_value v) { return clj_to_ptr(v); }
 
-// Storing into a shared node must keep the invariant that its children are shared.
-static void store(clj_header *owner, clj_value *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	*slot = v;
-}
 
 static bnode *bnode_alloc(uint32_t datamap, uint32_t nodemap, size_t total) {
 	bnode *n = clj_alloc(&bnode_type, sizeof *n + total * sizeof(clj_value));
@@ -107,13 +102,13 @@ static cnode *cnode_resize(cnode *c, uint32_t count) {
 static bnode *bnode_copy(const bnode *n) {
 	size_t total = bnode_slots(n);
 	bnode *c = bnode_alloc(n->datamap, n->nodemap, total);
-	for (size_t i = 0; i < total; i++) c->slots[i] = clj_retain(n->slots[i]);
+	for (size_t i = 0; i < total; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(n->slots[i].v));
 	return c;
 }
 
 static cnode *cnode_copy(const cnode *c) {
 	cnode *d = cnode_alloc(c->hash, c->count);
-	for (size_t i = 0; i < 2 * (size_t)c->count; i++) d->slots[i] = clj_retain(c->slots[i]);
+	for (size_t i = 0; i < 2 * (size_t)c->count; i++) clj_slot_init(&d->h, &d->slots[i], clj_retain(c->slots[i].v));
 	return d;
 }
 
@@ -151,24 +146,24 @@ static clj_value merge_pairs(clj_value k0, clj_value v0, uint32_t h0,
                              clj_value k1, clj_value v1, uint32_t h1, uint32_t shift) {
 	if (h0 == h1) {
 		cnode *c = cnode_alloc(h0, 2);
-		c->slots[0] = k0;
-		c->slots[1] = v0;
-		c->slots[2] = k1;
-		c->slots[3] = v1;
+		clj_slot_init(&c->h, &c->slots[0], k0);
+		clj_slot_init(&c->h, &c->slots[1], v0);
+		clj_slot_init(&c->h, &c->slots[2], k1);
+		clj_slot_init(&c->h, &c->slots[3], v1);
 		return clj_from_ptr(c);
 	}
 	uint32_t b0 = bit_pos(h0, shift), b1 = bit_pos(h1, shift);
 	if (b0 == b1) {
 		bnode *n = bnode_alloc(0, b0, 1);
-		n->slots[0] = merge_pairs(k0, v0, h0, k1, v1, h1, shift + BITS);
+		clj_slot_init(&n->h, &n->slots[0], merge_pairs(k0, v0, h0, k1, v1, h1, shift + BITS));
 		return clj_from_ptr(n);
 	}
 	bnode *n = bnode_alloc(b0 | b1, 0, 4);
 	size_t i0 = b0 < b1 ? 0 : 2, i1 = 2 - i0;
-	n->slots[i0] = k0;
-	n->slots[i0 + 1] = v0;
-	n->slots[i1] = k1;
-	n->slots[i1 + 1] = v1;
+	clj_slot_init(&n->h, &n->slots[i0], k0);
+	clj_slot_init(&n->h, &n->slots[i0 + 1], v0);
+	clj_slot_init(&n->h, &n->slots[i1], k1);
+	clj_slot_init(&n->h, &n->slots[i1 + 1], v1);
 	return clj_from_ptr(n);
 }
 
@@ -183,7 +178,7 @@ typedef struct {
 static descent descend(clj_value node, size_t j) {
 	bnode *n = bnode_of(node);
 	bool unique = clj_is_unique(node);
-	return (descent){n, j, unique ? n->slots[j] : clj_retain(n->slots[j]), unique};
+	return (descent){n, j, unique ? n->slots[j].v : clj_retain(n->slots[j].v), unique};
 }
 
 // NULL when the child was untouched; otherwise the owned parent whose slot j awaits the new child.
@@ -195,8 +190,8 @@ static bnode *ascend(descent d, clj_value nc, bool changed) {
 	if (d.unique) return d.n;
 	bnode *n = bnode_copy(d.n);
 	clj_release(clj_from_ptr(d.n));
-	clj_release(n->slots[d.j]);
-	n->slots[d.j] = CLJ_NIL;
+	clj_release(n->slots[d.j].v);
+	clj_slot_clear(&n->slots[d.j]);
 	return n;
 }
 
@@ -207,15 +202,15 @@ static clj_value cnode_assoc(clj_value node, uint32_t shift, uint32_t hash, clj_
 	if (c->hash != hash) {
 		// The hashes diverge below this level: push the collision node down and add beside it.
 		bnode *w = bnode_alloc(0, bit_pos(c->hash, shift), 1);
-		w->slots[0] = node;
+		clj_slot_init(&w->h, &w->slots[0], node);
 		return node_assoc(clj_from_ptr(w), shift, hash, key, val, e);
 	}
 	for (size_t i = 0; i < 2 * (size_t)c->count; i += 2) {
-		if (!clj_equals(c->slots[i], key)) continue;
-		if (c->slots[i + 1] == val) return node;
+		if (!clj_equals(c->slots[i].v, key)) continue;
+		if (c->slots[i + 1].v == val) return node;
 		c = cnode_own(node);
-		clj_value old = c->slots[i + 1];
-		store(&c->h, &c->slots[i + 1], clj_retain(val));
+		clj_value old = c->slots[i + 1].v;
+		clj_slot_store(&c->h, &c->slots[i + 1], clj_retain(val));
 		clj_release(old);
 		e->changed = true;
 		return clj_from_ptr(c);
@@ -224,8 +219,8 @@ static clj_value cnode_assoc(clj_value node, uint32_t shift, uint32_t hash, clj_
 	size_t i = 2 * (size_t)c->count;
 	c = cnode_resize(c, c->count + 1);
 	c->count++;
-	store(&c->h, &c->slots[i], clj_retain(key));
-	store(&c->h, &c->slots[i + 1], clj_retain(val));
+	clj_slot_store(&c->h, &c->slots[i], clj_retain(key));
+	clj_slot_store(&c->h, &c->slots[i + 1], clj_retain(val));
 	e->changed = e->count_changed = true;
 	return clj_from_ptr(c);
 }
@@ -236,25 +231,25 @@ static clj_value node_assoc(clj_value node, uint32_t shift, uint32_t hash, clj_v
 	uint32_t bit = bit_pos(hash, shift);
 	if (n->datamap & bit) {
 		size_t i = 2 * bit_index(n->datamap, bit);
-		if (clj_equals(n->slots[i], key)) {
-			if (n->slots[i + 1] == val) return node;
+		if (clj_equals(n->slots[i].v, key)) {
+			if (n->slots[i + 1].v == val) return node;
 			n = bnode_own(node);
-			clj_value old = n->slots[i + 1];
-			store(&n->h, &n->slots[i + 1], clj_retain(val));
+			clj_value old = n->slots[i + 1].v;
+			clj_slot_store(&n->h, &n->slots[i + 1], clj_retain(val));
 			clj_release(old);
 			e->changed = true;
 			return clj_from_ptr(n);
 		}
 		n = bnode_own(node);
 		size_t total = bnode_slots(n);
-		clj_value k0 = n->slots[i], v0 = n->slots[i + 1];
+		clj_value k0 = n->slots[i].v, v0 = n->slots[i + 1].v;
 		clj_value sub = merge_pairs(k0, v0, clj_hash(k0), clj_retain(key), clj_retain(val), hash, shift + BITS);
 		n = bnode_close(n, total, i, 2);
 		n->datamap &= ~bit;
 		n->nodemap |= bit;
 		size_t j = node_slot(n, total - 1, bit);
 		n = bnode_open(n, total - 2, j, 1);
-		store(&n->h, &n->slots[j], sub);
+		clj_slot_store(&n->h, &n->slots[j], sub);
 		e->changed = e->count_changed = true;
 		return clj_from_ptr(n);
 	}
@@ -263,7 +258,7 @@ static clj_value node_assoc(clj_value node, uint32_t shift, uint32_t hash, clj_v
 		clj_value nc = node_assoc(d.child, shift + BITS, hash, key, val, e);
 		n = ascend(d, nc, e->changed);
 		if (!n) return node;
-		store(&n->h, &n->slots[d.j], nc);
+		clj_slot_store(&n->h, &n->slots[d.j], nc);
 		return clj_from_ptr(n);
 	}
 	n = bnode_own(node);
@@ -271,23 +266,23 @@ static clj_value node_assoc(clj_value node, uint32_t shift, uint32_t hash, clj_v
 	size_t i = 2 * bit_index(n->datamap, bit);
 	n = bnode_open(n, total, i, 2);
 	n->datamap |= bit;
-	store(&n->h, &n->slots[i], clj_retain(key));
-	store(&n->h, &n->slots[i + 1], clj_retain(val));
+	clj_slot_store(&n->h, &n->slots[i], clj_retain(key));
+	clj_slot_store(&n->h, &n->slots[i + 1], clj_retain(val));
 	e->changed = e->count_changed = true;
 	return clj_from_ptr(n);
 }
 
 // Moves the pair out of a node holding exactly one; releases the node.
 static void take_pair(clj_value node, clj_value *k, clj_value *v) {
-	clj_value *slots = is_cnode(node) ? cnode_of(node)->slots : bnode_of(node)->slots;
+	const clj_slot *slots = is_cnode(node) ? cnode_of(node)->slots : bnode_of(node)->slots;
 	if (clj_is_unique(node)) {
-		*k = slots[0];
-		*v = slots[1];
+		*k = slots[0].v;
+		*v = slots[1].v;
 		if (is_cnode(node)) cnode_of(node)->count = 0;
 		else bnode_of(node)->datamap = 0;
 	} else {
-		*k = clj_retain(slots[0]);
-		*v = clj_retain(slots[1]);
+		*k = clj_retain(slots[0].v);
+		*v = clj_retain(slots[1].v);
 	}
 	clj_release(node);
 }
@@ -302,17 +297,17 @@ static bool holds_single_pair(clj_value node) {
 static bool wraps_lone_collision(clj_value node) {
 	if (is_cnode(node)) return false;
 	const bnode *n = bnode_of(node);
-	return n->datamap == 0 && popcount(n->nodemap) == 1 && is_cnode(n->slots[0]);
+	return n->datamap == 0 && popcount(n->nodemap) == 1 && is_cnode(n->slots[0].v);
 }
 
 static clj_value take_lone_collision(clj_value node) {
 	bnode *n = bnode_of(node);
 	clj_value c;
 	if (clj_is_unique(node)) {
-		c = n->slots[0];
+		c = n->slots[0].v;
 		n->nodemap = 0;
 	} else {
-		c = clj_retain(n->slots[0]);
+		c = clj_retain(n->slots[0].v);
 	}
 	clj_release(node);
 	return c;
@@ -329,12 +324,12 @@ static bnode *bnode_adopt(bnode *n, uint32_t bit, size_t j, clj_value child) {
 		size_t i = 2 * bit_index(n->datamap, bit);
 		n = bnode_open(n, total - 1, i, 2);
 		n->datamap |= bit;
-		store(&n->h, &n->slots[i], k);
-		store(&n->h, &n->slots[i + 1], v);
+		clj_slot_store(&n->h, &n->slots[i], k);
+		clj_slot_store(&n->h, &n->slots[i + 1], v);
 		return n;
 	}
 	if (wraps_lone_collision(child)) child = take_lone_collision(child);
-	store(&n->h, &n->slots[j], child);
+	clj_slot_store(&n->h, &n->slots[j], child);
 	return n;
 }
 
@@ -343,9 +338,9 @@ static clj_value cnode_dissoc(clj_value node, uint32_t hash, clj_value key, edit
 	if (c->hash != hash) return node;
 	size_t len = 2 * (size_t)c->count;
 	for (size_t i = 0; i < len; i += 2) {
-		if (!clj_equals(c->slots[i], key)) continue;
+		if (!clj_equals(c->slots[i].v, key)) continue;
 		c = cnode_own(node);
-		clj_value k = c->slots[i], v = c->slots[i + 1];
+		clj_value k = c->slots[i].v, v = c->slots[i + 1].v;
 		memmove(c->slots + i, c->slots + i + 2, (len - i - 2) * sizeof(clj_value));
 		c->count--;
 		c = cnode_resize(c, c->count);
@@ -363,9 +358,9 @@ static clj_value node_dissoc(clj_value node, uint32_t shift, uint32_t hash, clj_
 	uint32_t bit = bit_pos(hash, shift);
 	if (n->datamap & bit) {
 		size_t i = 2 * bit_index(n->datamap, bit);
-		if (!clj_equals(n->slots[i], key)) return node;
+		if (!clj_equals(n->slots[i].v, key)) return node;
 		n = bnode_own(node);
-		clj_value k = n->slots[i], v = n->slots[i + 1];
+		clj_value k = n->slots[i].v, v = n->slots[i + 1].v;
 		n = bnode_close(n, bnode_slots(n), i, 2);
 		n->datamap &= ~bit;
 		clj_release(k);
@@ -383,17 +378,17 @@ static clj_value node_dissoc(clj_value node, uint32_t shift, uint32_t hash, clj_
 	return node;
 }
 
-static const clj_value *map_find(clj_value map, clj_value key) {
+static const clj_slot *map_find(clj_value map, clj_value key) {
 	uint32_t hash = clj_hash(key);
 	// A key that refused its hash is in no map, since storing it throws: "absent" is the true answer.
 	clj_refusal_drop();
-	clj_value node = clj_map_of(map)->root;
+	clj_value node = clj_map_of(map)->root.v;
 	for (uint32_t shift = 0;; shift += BITS) {
 		if (is_cnode(node)) {
 			const cnode *c = cnode_of(node);
 			if (c->hash != hash) return NULL;
 			for (size_t i = 0; i < 2 * (size_t)c->count; i += 2) {
-				if (clj_equals(c->slots[i], key)) return &c->slots[i + 1];
+				if (clj_equals(c->slots[i].v, key)) return &c->slots[i + 1];
 			}
 			return NULL;
 		}
@@ -401,10 +396,10 @@ static const clj_value *map_find(clj_value map, clj_value key) {
 		uint32_t bit = bit_pos(hash, shift);
 		if (n->datamap & bit) {
 			size_t i = 2 * bit_index(n->datamap, bit);
-			return clj_equals(n->slots[i], key) ? &n->slots[i + 1] : NULL;
+			return clj_equals(n->slots[i].v, key) ? &n->slots[i + 1] : NULL;
 		}
 		if (!(n->nodemap & bit)) return NULL;
-		node = n->slots[node_slot(n, bnode_slots(n), bit)];
+		node = n->slots[node_slot(n, bnode_slots(n), bit)].v;
 	}
 }
 
@@ -412,17 +407,17 @@ static bool node_each(clj_value node, clj_map_entry_fn fn, void *ctx) {
 	if (is_cnode(node)) {
 		const cnode *c = cnode_of(node);
 		for (size_t i = 0; i < 2 * (size_t)c->count; i += 2) {
-			if (!fn(c->slots[i], c->slots[i + 1], ctx)) return false;
+			if (!fn(c->slots[i].v, c->slots[i + 1].v, ctx)) return false;
 		}
 		return true;
 	}
 	const bnode *n = bnode_of(node);
 	size_t pairs = 2 * popcount(n->datamap), total = pairs + popcount(n->nodemap);
 	for (size_t i = 0; i < pairs; i += 2) {
-		if (!fn(n->slots[i], n->slots[i + 1], ctx)) return false;
+		if (!fn(n->slots[i].v, n->slots[i + 1].v, ctx)) return false;
 	}
 	for (size_t j = pairs; j < total; j++) {
-		if (!node_each(n->slots[j], fn, ctx)) return false;
+		if (!node_each(n->slots[j].v, fn, ctx)) return false;
 	}
 	return true;
 }
@@ -432,11 +427,11 @@ static void map_each_child(void *self, clj_visitor visit, void *ctx) {
 	if (h->flags & CLJ_FLAG_SHAPE) {
 		clj_shape_map *m = self;
 		uint32_t       n = clj_shape_nkeys(m->shape);
-		for (uint32_t i = 0; i < n; i++) visit(m->slots[i], ctx);
+		for (uint32_t i = 0; i < n; i++) visit(m->slots[i].v, ctx);
 		return;
 	}
-	visit(((clj_map *)self)->root, ctx);
-	visit(((clj_map *)self)->meta, ctx);
+	visit(((clj_map *)self)->root.v, ctx);
+	visit(((clj_map *)self)->meta.v, ctx);
 }
 
 uint32_t clj_map_entry_hash(clj_value key, clj_value val) {
@@ -494,7 +489,7 @@ static bool map_equals(void *self, clj_value other) {
 		const clj_shape_map *a = self, *b = clj_shape_map_of(other);
 		uint32_t             n = clj_shape_nkeys(a->shape);
 		for (uint32_t i = 0; i < n; i++) {
-			if (!clj_equals(a->slots[i], b->slots[i])) return false;
+			if (!clj_equals(a->slots[i].v, b->slots[i].v)) return false;
 		}
 		return true;
 	}
@@ -616,7 +611,7 @@ static clj_value map_invoke(clj_value self, const clj_value *args, size_t n) {
 	return map_lookup(self, args[0], n == 2 ? args[1] : CLJ_NIL);
 }
 
-static clj_value map_meta(clj_value self) { return is_shape(self) ? CLJ_NIL : clj_retain(clj_map_of(self)->meta); }
+static clj_value map_meta(clj_value self) { return is_shape(self) ? CLJ_NIL : clj_retain(clj_map_of(self)->meta.v); }
 
 // A shape map carries no meta: with-meta gives the trie layout up, one way (design §4).
 // @ai-generated(guided)
@@ -627,17 +622,17 @@ static clj_value map_with_meta(clj_value self, clj_value m) {
 		clj_debug_map_generic(CLJ_MAPS_TRIE_META);
 	}
 	clj_map *map = clj_map_of(self);
-	if (clj_is_nil(m) && clj_is_nil(map->meta)) return self;
+	if (clj_is_nil(m) && clj_is_nil(map->meta.v)) return self;
 	if (!clj_is_unique(self)) {
 		clj_map *c = clj_alloc(&clj_map_type, sizeof *c);
 		c->count = map->count;
 		atomic_store_explicit(&c->hash, clj_hash_cache_load(&map->hash), memory_order_relaxed);
-		c->root = clj_retain(map->root);
+		clj_slot_init(&c->h, &c->root, clj_retain(map->root.v));
 		clj_release(self);
 		map = c;
 	}
-	clj_value old = map->meta;
-	store(&map->h, &map->meta, clj_retain(m));
+	clj_value old = map->meta.v;
+	clj_slot_store(&map->h, &map->meta, clj_retain(m));
 	clj_release(old);
 	return clj_from_ptr(map);
 }
@@ -663,13 +658,13 @@ const clj_type clj_map_type = {
 };
 
 static bnode   empty_root = {.h = {1, CLJ_FLAG_IMMORTAL, &bnode_type}};
-clj_map clj_map_empty_object = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .root = (clj_value)&empty_root};
+clj_map clj_map_empty_object = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .root = {(clj_value)&empty_root}};
 
 clj_value clj_map_empty(void) { return clj_from_ptr(&clj_map_empty_object); }
 
 clj_value clj_map_empty_new(void) {
 	clj_map *m = clj_alloc(&clj_map_type, sizeof *m);
-	m->root = clj_from_ptr(&empty_root);
+	clj_slot_init(&m->h, &m->root, clj_from_ptr(&empty_root));
 	return clj_from_ptr(m);
 }
 
@@ -681,10 +676,10 @@ clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found) {
 	if (is_shape(map)) {
 		const clj_shape_map *m = clj_shape_map_of(map);
 		int32_t              i = clj_shape_index(m->shape, key);
-		return i >= 0 ? m->slots[i] : not_found;
+		return i >= 0 ? m->slots[i].v : not_found;
 	}
-	const clj_value *found = map_find(map, key);
-	return found ? *found : not_found;
+	const clj_slot  *found = map_find(map, key);
+	return found ? found->v : not_found;
 }
 
 bool clj_map_contains(clj_value map, clj_value key) {
@@ -697,11 +692,11 @@ void clj_map_each(clj_value map, clj_map_entry_fn fn, void *ctx) {
 		const clj_shape_map *m = clj_shape_map_of(map);
 		uint32_t             n = clj_shape_nkeys(m->shape);
 		for (uint32_t i = 0; i < n; i++) {
-			if (!fn(clj_shape_key(m->shape, i), m->slots[i], ctx)) return;
+			if (!fn(clj_shape_key(m->shape, i), m->slots[i].v, ctx)) return;
 		}
 		return;
 	}
-	node_each(clj_map_of(map)->root, fn, ctx);
+	node_each(clj_map_of(map)->root.v, fn, ctx);
 }
 
 // Applies the root produced by a node op to the consumed map, copying the wrapper only when needed.
@@ -714,13 +709,13 @@ static clj_value map_commit(clj_value map, bool unique, clj_value root, edit e, 
 	if (!unique) {
 		clj_map *c = clj_alloc(&clj_map_type, sizeof *c);
 		c->count = m->count;
-		c->meta = clj_retain(m->meta);
+		clj_slot_init(&c->h, &c->meta, clj_retain(m->meta.v));
 		clj_release(map);
 		m = c;
 	} else {
 		atomic_store_explicit(&m->hash, 0, memory_order_relaxed);
 	}
-	store(&m->h, &m->root, root);
+	clj_slot_store(&m->h, &m->root, root);
 	if (e.count_changed) m->count = (uint32_t)((int32_t)m->count + delta);
 	return clj_from_ptr(m);
 }
@@ -734,7 +729,7 @@ clj_value clj_hash_map_assoc(clj_value map, clj_value key, clj_value val) {
 	}
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
-	clj_value root = unique ? m->root : clj_retain(m->root);
+	clj_value root = unique ? m->root.v : clj_retain(m->root.v);
 	edit e = {0};
 	root = node_assoc(root, 0, hash, key, val, &e);
 	return map_commit(map, unique, root, e, 1);
@@ -743,7 +738,7 @@ clj_value clj_hash_map_assoc(clj_value map, clj_value key, clj_value val) {
 clj_value clj_hash_map_dissoc(clj_value map, clj_value key) {
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
-	clj_value root = unique ? m->root : clj_retain(m->root);
+	clj_value root = unique ? m->root.v : clj_retain(m->root.v);
 	edit e = {0};
 	uint32_t hash = clj_hash(key);
 	clj_refusal_drop();
@@ -755,7 +750,7 @@ clj_value clj_hash_map_dissoc(clj_value map, clj_value key) {
 clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val) {
 	if (is_shape(map)) return clj_shape_map_assoc(map, key, val);
 	clj_map *m = clj_map_of(map);
-	if (m->count == 0 && clj_is_nil(m->meta)) {
+	if (m->count == 0 && clj_is_nil(m->meta.v)) {
 		clj_value s = clj_shape_map_single(key, val);
 		if (s != CLJ_UNBOUND) {
 			clj_release(map);
@@ -802,7 +797,7 @@ static bool node_same_shape(clj_value a, clj_value b) {
 		for (size_t i = 0; i < 2 * (size_t)x->count; i += 2) {
 			bool found = false;
 			for (size_t j = 0; j < 2 * (size_t)y->count && !found; j += 2) {
-				found = clj_equals(x->slots[i], y->slots[j]) && clj_equals(x->slots[i + 1], y->slots[j + 1]);
+				found = clj_equals(x->slots[i].v, y->slots[j].v) && clj_equals(x->slots[i + 1].v, y->slots[j + 1].v);
 			}
 			if (!found) return false;
 		}
@@ -812,10 +807,10 @@ static bool node_same_shape(clj_value a, clj_value b) {
 	if (x->datamap != y->datamap || x->nodemap != y->nodemap) return false;
 	size_t pairs = 2 * popcount(x->datamap), total = pairs + popcount(x->nodemap);
 	for (size_t i = 0; i < pairs; i++) {
-		if (!clj_equals(x->slots[i], y->slots[i])) return false;
+		if (!clj_equals(x->slots[i].v, y->slots[i].v)) return false;
 	}
 	for (size_t j = pairs; j < total; j++) {
-		if (!node_same_shape(x->slots[j], y->slots[j])) return false;
+		if (!node_same_shape(x->slots[j].v, y->slots[j].v)) return false;
 	}
 	return true;
 }
@@ -823,9 +818,9 @@ static bool node_same_shape(clj_value a, clj_value b) {
 bool clj_debug_map_same_shape(clj_value a, clj_value b) {
 	if (is_shape(a) || is_shape(b)) return is_shape(a) && is_shape(b) && clj_shape_map_of(a)->shape == clj_shape_map_of(b)->shape;
 	return clj_map_of(a)->count == clj_map_of(b)->count &&
-	       node_same_shape(clj_map_of(a)->root, clj_map_of(b)->root);
+	       node_same_shape(clj_map_of(a)->root.v, clj_map_of(b)->root.v);
 }
 
-clj_value clj_debug_map_root(clj_value map) { return clj_map_of(map)->root; }
+clj_value clj_debug_map_root(clj_value map) { return clj_map_of(map)->root.v; }
 
 uint32_t clj_debug_map_cached_hash(clj_value map) { return is_shape(map) ? 0 : clj_hash_cache_load(&clj_map_of(map)->hash); }

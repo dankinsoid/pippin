@@ -7,8 +7,8 @@
 // 32 bytes. With CLJ_FLAG_META set, one more clj_value follows the cell: its metadata (clj_cons_meta_slot).
 typedef struct {
 	clj_header h;
-	clj_value  first;
-	clj_value  rest;
+	clj_slot   first;
+	clj_slot   rest;
 } clj_cons;
 
 extern const clj_type clj_cons_type;

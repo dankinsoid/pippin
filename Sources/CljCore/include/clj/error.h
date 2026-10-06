@@ -12,11 +12,11 @@
 // An error is any value whose type has CLJ_CORE_ERROR; ex-info (clj_exception) is the builtin one.
 typedef struct {
 	clj_header h;
-	clj_value  message; // string
-	clj_value  data;    // map or nil
-	clj_value  cause;   // exception or nil
-	clj_value  trace;   // vector set at the first throw, nil before; a rethrow keeps it
-	clj_value  type;    // keyword or nil, lifted from a keyword under :type in data at construction (design.md §4)
+	clj_slot   message; // string
+	clj_slot   data;    // map or nil
+	clj_slot   cause;   // exception or nil
+	clj_atomic_slot trace;   // vector set at the first throw, nil before; a rethrow keeps it
+	clj_slot   type;    // keyword or nil, lifted from a keyword under :type in data at construction (design.md §4)
 } clj_exception;
 
 extern const clj_type clj_exception_type;
@@ -82,18 +82,18 @@ static inline bool           clj_is_exception(clj_value v) { return clj_has_core
 static inline bool           clj_is_ex_info(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_exception_type; }
 static inline clj_exception *clj_exception_of(clj_value v) { return (clj_exception *)clj_to_ptr(v); }
 // Fields of an ex-info, borrowed: valid while ex is. Other error types go through the clj_ex_* slots.
-static inline clj_value clj_exception_message(clj_value ex) { return clj_exception_of(ex)->message; }
-static inline clj_value clj_exception_data(clj_value ex) { return clj_exception_of(ex)->data; }
-static inline clj_value clj_exception_cause(clj_value ex) { return clj_exception_of(ex)->cause; }
-static inline clj_value clj_exception_trace(clj_value ex) { return clj_exception_of(ex)->trace; }
+static inline clj_value clj_exception_message(clj_value ex) { return clj_exception_of(ex)->message.v; }
+static inline clj_value clj_exception_data(clj_value ex) { return clj_exception_of(ex)->data.v; }
+static inline clj_value clj_exception_cause(clj_value ex) { return clj_exception_of(ex)->cause.v; }
+static inline clj_value clj_exception_trace(clj_value ex) { return clj_slot_load(&clj_exception_of(ex)->trace, memory_order_acquire); }
 
 // A host (Swift) error carried through Clojure code. The payload is opaque to the core; message and type are
 // captured when the value is made. ex-data is {:host/error <the value itself>}, built on each call.
 typedef struct {
 	clj_header h;
-	clj_value  message; // string
+	clj_slot   message; // string
 	// ex-type: the host type (hosttype.h), interned by the host that boxed the error; nil when it could not.
-	clj_value type;
+	clj_slot  type;
 	void     *payload;
 	void (*release)(void *payload); // NULL when the payload needs no cleanup
 } clj_host_error;
@@ -107,7 +107,7 @@ clj_value clj_host_error_new(clj_value message, clj_value type, void *payload, v
 static inline bool  clj_is_host_error(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_host_error_type; }
 // Borrowed: valid while v is.
 static inline void     *clj_host_error_payload(clj_value v) { return ((clj_host_error *)clj_to_ptr(v))->payload; }
-static inline clj_value clj_host_error_message(clj_value v) { return ((clj_host_error *)clj_to_ptr(v))->message; }
+static inline clj_value clj_host_error_message(clj_value v) { return ((clj_host_error *)clj_to_ptr(v))->message.v; }
 
 // A string is its own ex-message (NOTES.md); nil for a non-error value otherwise.
 clj_value clj_ex_message(clj_value v);
@@ -129,9 +129,9 @@ clj_value clj_cancelled_keyword(void);
 // Not an ex-info (design.md §4): a selector naming no specific error misses it by construction, not a carve-out.
 typedef struct {
 	clj_header h;
-	clj_value  message;
-	clj_value  data;
-	clj_value  cause; // what a scope cancelled this coroutine for, nil otherwise (Go's context.Cause)
+	clj_slot   message;
+	clj_slot   data;
+	clj_slot   cause; // what a scope cancelled this coroutine for, nil otherwise (Go's context.Cause)
 } clj_cancellation;
 
 extern const clj_type clj_cancellation_type;
@@ -139,9 +139,9 @@ extern const clj_type clj_cancellation_type;
 static inline bool clj_is_cancellation(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_cancellation_type; }
 static inline clj_cancellation *clj_cancellation_of(clj_value v) { return (clj_cancellation *)clj_to_ptr(v); }
 // Borrowed, valid while v is; mirrors clj_exception_message/data (the printer reads these directly).
-static inline clj_value clj_cancellation_message(clj_value v) { return clj_cancellation_of(v)->message; }
-static inline clj_value clj_cancellation_data(clj_value v) { return clj_cancellation_of(v)->data; }
-static inline clj_value clj_cancellation_cause(clj_value v) { return clj_cancellation_of(v)->cause; }
+static inline clj_value clj_cancellation_message(clj_value v) { return clj_cancellation_of(v)->message.v; }
+static inline clj_value clj_cancellation_data(clj_value v) { return clj_cancellation_of(v)->data.v; }
+static inline clj_value clj_cancellation_cause(clj_value v) { return clj_cancellation_of(v)->cause.v; }
 
 // Throws a clj_cancellation: explicit cancel, a coroutine's own deadline check, an nREPL interrupt
 // (clj_coro_cancel) and a cancelled channel op all arrive here. Untraced, and the value is one of two

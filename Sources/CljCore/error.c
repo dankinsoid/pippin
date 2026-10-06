@@ -50,21 +50,21 @@ clj_value clj_cancelled_keyword(void) { return kw_cancelled; }
 
 static void exception_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_exception *e = self;
-	visit(e->message, ctx);
-	visit(e->data, ctx);
-	visit(e->cause, ctx);
+	visit(e->message.v, ctx);
+	visit(e->data.v, ctx);
+	visit(e->cause.v, ctx);
 	// Written once after publication (clj_throw_traced): the share walk may read it while the throw stores it.
-	visit(__atomic_load_n(&e->trace, __ATOMIC_ACQUIRE), ctx);
-	visit(e->type, ctx);
+	visit(clj_slot_load(&e->trace, memory_order_acquire), ctx);
+	visit(e->type.v, ctx);
 }
 
 static uint32_t exception_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
 
 static bool exception_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
-static clj_value exception_message(clj_value self) { return clj_retain(clj_exception_of(self)->message); }
-static clj_value exception_data(clj_value self) { return clj_retain(clj_exception_of(self)->data); }
-static clj_value exception_cause(clj_value self) { return clj_retain(clj_exception_of(self)->cause); }
+static clj_value exception_message(clj_value self) { return clj_retain(clj_exception_of(self)->message.v); }
+static clj_value exception_data(clj_value self) { return clj_retain(clj_exception_of(self)->data.v); }
+static clj_value exception_cause(clj_value self) { return clj_retain(clj_exception_of(self)->cause.v); }
 
 // Identity hash and equality, as Throwable on the JVM.
 const clj_type clj_exception_type = {
@@ -81,8 +81,8 @@ const clj_type clj_exception_type = {
 
 static void host_error_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_host_error *e = self;
-	visit(e->message, ctx);
-	visit(e->type, ctx);
+	visit(e->message.v, ctx);
+	visit(e->type.v, ctx);
 }
 
 static void host_error_finalize(void *self) {
@@ -90,7 +90,7 @@ static void host_error_finalize(void *self) {
 	if (e->release) e->release(e->payload);
 }
 
-static clj_value host_error_message(clj_value self) { return clj_retain(((clj_host_error *)clj_to_ptr(self))->message); }
+static clj_value host_error_message(clj_value self) { return clj_retain(((clj_host_error *)clj_to_ptr(self))->message.v); }
 
 // Built per call: storing the map would make the value its own child, a cycle RC never frees.
 static clj_value host_error_data(clj_value self) {
@@ -122,8 +122,8 @@ clj_value clj_host_error_new(clj_value message, clj_value type, void *payload, v
 	CLJ_ASSERT(clj_is_string(message), "host error message must be a string");
 	CLJ_ASSERT(clj_is_nil(type) || clj_is_host_type(type), "host error type must be a host type or nil");
 	clj_host_error *e = clj_alloc(&clj_host_error_type, sizeof *e);
-	e->message = clj_retain(message);
-	e->type = type; // immortal: an interned host type needs no retain, as the ex-info type slot
+	clj_slot_init(&e->h, &e->message, clj_retain(message));
+	clj_slot_init(&e->h, &e->type, type); // immortal: an interned host type needs no retain, as the ex-info type slot
 	e->payload = payload;
 	e->release = release;
 	return clj_from_ptr(e);
@@ -131,9 +131,9 @@ clj_value clj_host_error_new(clj_value message, clj_value type, void *payload, v
 
 static void cancellation_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_cancellation *c = self;
-	visit(c->message, ctx);
-	visit(c->data, ctx);
-	visit(c->cause, ctx);
+	visit(c->message.v, ctx);
+	visit(c->data.v, ctx);
+	visit(c->cause.v, ctx);
 }
 
 // core_bits carries no CLJ_CORE_ERROR: a selector naming no specific error misses this by construction.
@@ -151,10 +151,10 @@ static clj_value ex_info_new(clj_value message, clj_value data, clj_value cause,
 	CLJ_ASSERT(clj_is_nil(data) || clj_header_of(data)->type == &clj_map_type, "exception data must be a map or nil");
 	CLJ_ASSERT(clj_is_nil(cause) || clj_is_exception(cause), "exception cause must be an exception or nil");
 	clj_exception *e = clj_alloc(&clj_exception_type, sizeof *e);
-	e->message = clj_retain(message);
-	e->data = clj_retain(data);
-	e->cause = clj_retain(cause);
-	e->type = type;
+	clj_slot_init(&e->h, &e->message, clj_retain(message));
+	clj_slot_init(&e->h, &e->data, clj_retain(data));
+	clj_slot_init(&e->h, &e->cause, clj_retain(cause));
+	clj_slot_init(&e->h, &e->type, type);
 	return clj_from_ptr(e);
 }
 
@@ -170,8 +170,8 @@ clj_value clj_ex_info(clj_value message, clj_value data) { return clj_ex_info_ca
 clj_value clj_ex_type(clj_value v) {
 	if (clj_is_keyword(v)) return clj_retain(v);
 	if (clj_is_cancellation(v)) return clj_retain(kw_cancelled);
-	if (clj_is_ex_info(v)) return clj_retain(clj_exception_of(v)->type);
-	if (clj_is_host_error(v)) return clj_retain(((clj_host_error *)clj_to_ptr(v))->type);
+	if (clj_is_ex_info(v)) return clj_retain(clj_exception_of(v)->type.v);
+	if (clj_is_host_error(v)) return clj_retain(((clj_host_error *)clj_to_ptr(v))->type.v);
 	return CLJ_NIL;
 }
 
@@ -201,9 +201,9 @@ bool clj_ex_isa(clj_value thrown, clj_value k) {
 // @ai-generated(guided)
 static clj_value cancellation_new(bool deadline, clj_value cause) {
 	clj_cancellation *c = clj_alloc(&clj_cancellation_type, sizeof *c);
-	c->data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
-	c->message = clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE);
-	c->cause = clj_retain(cause);
+	clj_slot_init(&c->h, &c->data, clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit));
+	clj_slot_init(&c->h, &c->message, clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE));
+	clj_slot_init(&c->h, &c->cause, clj_retain(cause));
 	return clj_from_ptr(c);
 }
 
@@ -231,17 +231,15 @@ clj_value clj_throw_cancelled(bool deadline) {
 clj_value clj_throw_traced(clj_value ex, clj_value trace) {
 	if (clj_is_ex_info(ex)) {
 		clj_exception *e = clj_exception_of(ex);
-		if (clj_is_nil(__atomic_load_n(&e->trace, __ATOMIC_ACQUIRE))) {
+		if (clj_is_nil(clj_slot_load(&e->trace, memory_order_acquire))) {
 			if (clj_is_nil(trace)) trace = clj_shadow_stack_trace(TRACE_FRAMES);
-			if (e->h.flags & CLJ_FLAG_SHARED) clj_share(trace);
 			// A published ex-info may be thrown on two threads at once: the first trace stays.
 			clj_value none = CLJ_NIL;
-			if (__atomic_compare_exchange_n(&e->trace, &none, trace, false, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) CLJ_SLOT_CHECK(&e->h, trace);
-			else clj_release(trace);
+			if (!clj_slot_cas(&e->h, &e->trace, &none, trace, memory_order_release, memory_order_acquire)) clj_release(trace);
 		} else {
 			clj_release(trace);
 		}
-		trace = clj_retain(__atomic_load_n(&e->trace, __ATOMIC_ACQUIRE));
+		trace = clj_retain(clj_slot_load(&e->trace, memory_order_acquire));
 	} else if (clj_is_nil(trace) && !clj_is_cancellation(ex)) {
 		trace = clj_shadow_stack_trace(TRACE_FRAMES);
 	}
@@ -324,7 +322,7 @@ clj_value clj_ex_cause(clj_value v) {
 	return clj_is_exception(v) ? clj_type_of(v)->ex_cause(v) : CLJ_NIL;
 }
 
-clj_value clj_ex_trace(clj_value v) { return clj_is_ex_info(v) ? clj_trace_realize(clj_exception_of(v)->trace) : CLJ_NIL; }
+clj_value clj_ex_trace(clj_value v) { return clj_is_ex_info(v) ? clj_trace_realize(clj_slot_load(&clj_exception_of(v)->trace, memory_order_acquire)) : CLJ_NIL; }
 
 clj_value clj_pending(void) { return pending; }
 

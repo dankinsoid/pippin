@@ -150,7 +150,7 @@ clj_value clj_profile_stop(void) {
 	clj_value fns = clj_vector_empty();
 	for (size_t i = 0; i < n; i++) {
 		const clj_node *node = entries[i].node;
-		clj_value       m = clj_map_assoc(clj_map_empty(), kw_name, node->u.fn.name);
+		clj_value       m = clj_map_assoc(clj_map_empty(), kw_name, node->u.fn.name.v);
 		m = clj_map_assoc(m, kw_line, clj_fixnum(node->line));
 		m = clj_map_assoc(m, kw_column, clj_fixnum(node->col));
 		m = clj_map_assoc(m, kw_calls, clj_fixnum((intptr_t)entries[i].calls));

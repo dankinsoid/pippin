@@ -9,7 +9,7 @@
 #include "clj/string.h"
 
 static void decimal_each_child(void *self, clj_visitor visit, void *ctx) {
-	visit(((clj_decimal *)self)->unscaled, ctx);
+	visit(((clj_decimal *)self)->unscaled.v, ctx);
 }
 
 static clj_value scale_up(clj_value u, uint32_t k) {
@@ -79,7 +79,7 @@ const clj_type clj_decimal_type = {
 clj_value clj_decimal_new(clj_value unscaled, int32_t scale) {
 	clj_decimal *d = clj_alloc(&clj_decimal_type, sizeof *d);
 	int64_t      i = 0;
-	d->unscaled = clj_int64_of(unscaled, &i) ? clj_bigint_from_i64(i) : clj_retain(unscaled);
+	clj_slot_init(&d->h, &d->unscaled, clj_int64_of(unscaled, &i) ? clj_bigint_from_i64(i) : clj_retain(unscaled));
 	d->scale = scale;
 	return clj_from_ptr(d);
 }

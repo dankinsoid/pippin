@@ -46,7 +46,7 @@ static inline clj_exec *clj_exec_of(clj_value v) { return (clj_exec *)clj_to_ptr
 // as owned, so a slot index >= 64 is owned by definition.
 struct clj_frame {
 	clj_value       *slots;
-	clj_value       *captured; // borrowed from the running closure; a direct fn's frame shares its definer's
+	const clj_value *captured; // borrowed from the running closure; a direct fn's frame shares its definer's
 	const clj_exec  *exec;     // of the tree the running node belongs to
 	uint64_t         owned;
 	const clj_frame *outer;    // the defining frame of a direct fn body, alive for the whole call; else NULL

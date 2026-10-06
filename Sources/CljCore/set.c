@@ -9,15 +9,10 @@
 #include "clj/set.h"
 
 static void set_each_child(void *self, clj_visitor visit, void *ctx) {
-	visit(((clj_set *)self)->impl, ctx);
-	visit(((clj_set *)self)->meta, ctx);
+	visit(((clj_set *)self)->impl.v, ctx);
+	visit(((clj_set *)self)->meta.v, ctx);
 }
 
-// Storing into a shared wrapper must keep the invariant that its children are shared.
-static void store(clj_header *owner, clj_value *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	*slot = v;
-}
 
 typedef struct {
 	clj_set_item_fn fn;
@@ -32,7 +27,7 @@ static bool each_entry(clj_value key, clj_value val, void *ctx) {
 
 void clj_set_each(clj_value set, clj_set_item_fn fn, void *ctx) {
 	each_ctx c = {fn, ctx};
-	clj_map_each(clj_set_of(set)->impl, each_entry, &c);
+	clj_map_each(clj_set_of(set)->impl.v, each_entry, &c);
 }
 
 static bool hash_item(clj_value item, void *ctx) {
@@ -132,7 +127,7 @@ static clj_value set_invoke(clj_value self, const clj_value *args, size_t n) {
 	return set_lookup(self, args[0], n == 2 ? args[1] : CLJ_NIL);
 }
 
-static clj_value set_meta(clj_value self) { return clj_retain(clj_set_of(self)->meta); }
+static clj_value set_meta(clj_value self) { return clj_retain(clj_set_of(self)->meta.v); }
 
 // Consumes self; the caller writes the wrapper that comes back.
 static clj_set *set_own(clj_value self) {
@@ -142,19 +137,19 @@ static clj_set *set_own(clj_value self) {
 		return s;
 	}
 	clj_set *c = clj_alloc(&clj_set_type, sizeof *c);
-	c->impl = clj_retain(s->impl);
-	c->meta = clj_retain(s->meta);
+	clj_slot_init(&c->h, &c->impl, clj_retain(s->impl.v));
+	clj_slot_init(&c->h, &c->meta, clj_retain(s->meta.v));
 	clj_release(self);
 	return c;
 }
 
 static clj_value set_with_meta(clj_value self, clj_value m) {
-	if (clj_is_nil(m) && clj_is_nil(clj_set_of(self)->meta)) return self;
+	if (clj_is_nil(m) && clj_is_nil(clj_set_of(self)->meta.v)) return self;
 	uint32_t hash = clj_hash_cache_load(&clj_set_of(self)->hash);
 	clj_set *s = set_own(self);
 	atomic_store_explicit(&s->hash, hash, memory_order_relaxed);
-	clj_value old = s->meta;
-	store(&s->h, &s->meta, clj_retain(m));
+	clj_value old = s->meta.v;
+	clj_slot_store(&s->h, &s->meta, clj_retain(m));
 	clj_release(old);
 	return clj_from_ptr(s);
 }
@@ -178,27 +173,27 @@ const clj_type clj_set_type = {
 	.with_meta = set_with_meta,
 };
 
-static clj_set empty_set = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_set_type}, .impl = (clj_value)&clj_map_empty_object};
+static clj_set empty_set = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_set_type}, .impl = {(clj_value)&clj_map_empty_object}};
 
 clj_value clj_set_empty(void) { return clj_from_ptr(&empty_set); }
 
-uint32_t clj_set_count(clj_value set) { return clj_map_count(clj_set_of(set)->impl); }
+uint32_t clj_set_count(clj_value set) { return clj_map_count(clj_set_of(set)->impl.v); }
 
-bool clj_set_contains(clj_value set, clj_value x) { return clj_map_contains(clj_set_of(set)->impl, x); }
+bool clj_set_contains(clj_value set, clj_value x) { return clj_map_contains(clj_set_of(set)->impl.v, x); }
 
-clj_value clj_set_get(clj_value set, clj_value x, clj_value not_found) { return clj_map_get(clj_set_of(set)->impl, x, not_found); }
+clj_value clj_set_get(clj_value set, clj_value x, clj_value not_found) { return clj_map_get(clj_set_of(set)->impl.v, x, not_found); }
 
 // The wrapper's own reference to the trie goes to the map op, so uniqueness propagates into it.
 static clj_value set_update(clj_value set, clj_value x, bool add) {
 	clj_set  *s = set_own(set);
-	clj_value impl = s->impl;
-	s->impl = CLJ_NIL;
+	clj_value impl = s->impl.v;
+	clj_slot_clear(&s->impl);
 	clj_value updated = add ? clj_hash_map_assoc(impl, x, x) : clj_hash_map_dissoc(impl, x);
 	if (updated == CLJ_THROWN) {
 		clj_release(clj_from_ptr(s));
 		return CLJ_THROWN;
 	}
-	store(&s->h, &s->impl, updated);
+	clj_slot_store(&s->h, &s->impl, updated);
 	return clj_from_ptr(s);
 }
 

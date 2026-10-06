@@ -35,7 +35,7 @@ static inline bool clj_kw_entry_hit(const clj_kw_entry *e, const void *key, clj_
 	if (e->key != key) return false;
 	if (!e->record) return true;
 	const clj_record_type *rt = key;
-	return e->index < rt->ut.nfields && rt->basis[e->index] == kw;
+	return e->index < rt->ut.nfields && rt->basis[e->index].v == kw;
 }
 
 // The slot value a hit answers, borrowed; not_found for an absent key.

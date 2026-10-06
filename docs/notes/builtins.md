@@ -46,10 +46,10 @@
   so the trap stays for every op that would take it — a nested `swap!`, `swap-vals!`, `reset!`,
   `reset-vals!`, `compare-and-set!`, `add-watch`, `set-validator!`, `alter-meta!`, `meta`, ... on the
   *same* atom from inside `f`, a validator or an `alter-meta!` fn throws "<op> on an atom this thread is
-  already swapping (nested swap! trap)" (the JVM retries forever). **Publication:** everything stored into
-  an atom — value, meta, validator, watches — is `clj_share`d before the store, whether or not the atom
-  itself is shared: the atom is a publication point, so a value read on another thread is on the atomic
-  path from its first store. Triggers: the uniqueness trick returns when a profile shows `swap!` on a large
+  already swapping (nested swap! trap)" (the JVM retries forever). **Publication:** an atom is born shared, so
+  everything stored into it — value, meta, validator, watches — is published by the store itself
+  (`clj_slot_store`, NOTES "RC", "Slots"): the atom is a publication point, so a value read on another thread
+  is on the atomic path from its first store. Triggers: the uniqueness trick returns when a profile shows `swap!` on a large
   map hot (the 100000-key row is a 4-level trie, not a typical atom), only for atoms without watches or a
   validator (both need `old` intact), and only for an `f` that writes last — nothing that may throw after
   its first in-place write, on any path — starting with the five consuming natives; the condition, the

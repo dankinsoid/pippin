@@ -40,10 +40,9 @@ static clj_value features;
 
 void clj_reader_set_features(clj_value f) {
 	CLJ_ASSERT(clj_is_nil(f) || clj_is_set(f), "reader features must be a set or nil");
-	clj_share(f);
 	clj_lock_lock(&features_lock);
 	clj_value old = features;
-	features = clj_retain(f);
+	clj_root_store(&features, clj_retain(f));
 	clj_lock_unlock(&features_lock);
 	clj_release(old);
 }
@@ -236,10 +235,10 @@ static bool symbol_named(clj_value v, const char *ns, const char *name) {
 }
 
 static bool is_tagged(clj_value form, const char *name) {
-	return clj_is_list(form) && !clj_is_empty_list(form) && symbol_named(clj_cons_of(form)->first, "clojure.core", name);
+	return clj_is_list(form) && !clj_is_empty_list(form) && symbol_named(clj_cons_of(form)->first.v, "clojure.core", name);
 }
 
-static clj_value second(clj_value list) { return clj_cons_of(clj_cons_of(list)->rest)->first; }
+static clj_value second(clj_value list) { return clj_cons_of(clj_cons_of(list)->rest.v)->first.v; }
 
 static bool is_auto_gensym(clj_value sym) {
 	if (!clj_is_nil(clj_symbol_ns(sym))) return false;

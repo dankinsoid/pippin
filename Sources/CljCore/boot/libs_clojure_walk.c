@@ -189,7 +189,7 @@ static CLJC_FRAME clj_value clojure_walk_walk__0_a2(clj_value self, const clj_va
 static clj_value clojure_walk_walk__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_walk_walk__0_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_walk_walk__0_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -729,7 +729,7 @@ L1: ;
 static clj_value clojure_walk_walk(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 3: return clojure_walk_walk_a3(clj_from_ptr((void *)f), f->env, args, n);
+	case 3: return clojure_walk_walk_a3(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -845,7 +845,7 @@ L1: ;
 static clj_value clojure_walk_postwalk(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_walk_postwalk_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_walk_postwalk_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -982,7 +982,7 @@ L1: ;
 static clj_value clojure_walk_prewalk(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_walk_prewalk_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_walk_prewalk_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1139,7 +1139,7 @@ static CLJC_FRAME clj_value clojure_walk_keywordize_keys__0_a1(clj_value self, c
 static clj_value clojure_walk_keywordize_keys__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_keywordize_keys__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_keywordize_keys__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1314,7 +1314,7 @@ L1: ;
 static clj_value clojure_walk_keywordize_keys__1(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_keywordize_keys__1_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_keywordize_keys__1_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1376,7 +1376,7 @@ L1: ;
 static clj_value clojure_walk_keywordize_keys(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_keywordize_keys_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_keywordize_keys_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1533,7 +1533,7 @@ static CLJC_FRAME clj_value clojure_walk_stringify_keys__0_a1(clj_value self, co
 static clj_value clojure_walk_stringify_keys__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_stringify_keys__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_stringify_keys__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1708,7 +1708,7 @@ L1: ;
 static clj_value clojure_walk_stringify_keys__1(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_stringify_keys__1_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_stringify_keys__1_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1770,7 +1770,7 @@ L1: ;
 static clj_value clojure_walk_stringify_keys(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_stringify_keys_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_stringify_keys_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1855,7 +1855,7 @@ static CLJC_FRAME clj_value clojure_walk_prewalk_replace__0_a1(clj_value self, c
 static clj_value clojure_walk_prewalk_replace__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_prewalk_replace__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_prewalk_replace__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1914,7 +1914,7 @@ L1: ;
 static clj_value clojure_walk_prewalk_replace(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_walk_prewalk_replace_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_walk_prewalk_replace_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -1999,7 +1999,7 @@ static CLJC_FRAME clj_value clojure_walk_postwalk_replace__0_a1(clj_value self, 
 static clj_value clojure_walk_postwalk_replace__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_postwalk_replace__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_postwalk_replace__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -2058,7 +2058,7 @@ L1: ;
 static clj_value clojure_walk_postwalk_replace(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 2: return clojure_walk_postwalk_replace_a2(clj_from_ptr((void *)f), f->env, args, n);
+	case 2: return clojure_walk_postwalk_replace_a2(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -2146,7 +2146,7 @@ static CLJC_FRAME clj_value clojure_walk_macroexpand_all__0_a1(clj_value self, c
 static clj_value clojure_walk_macroexpand_all__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_macroexpand_all__0_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_macroexpand_all__0_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -2200,7 +2200,7 @@ L1: ;
 static clj_value clojure_walk_macroexpand_all(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_walk_macroexpand_all_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_walk_macroexpand_all_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);

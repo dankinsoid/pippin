@@ -673,7 +673,7 @@ static void scan_self_sites(const clj_node *n, void *ctx) {
 	case CLJ_NODE_DIRECT_FN:
 	case CLJ_NODE_FUSED: return;
 	case CLJ_NODE_INVOKE:
-		if (n->u.invoke.fn->kind == CLJ_NODE_VAR && n->u.invoke.fn->u.var == sc->var && clj_facts_arity_for(sc->fn, n->u.invoke.n) == sc->arity)
+		if (n->u.invoke.fn->kind == CLJ_NODE_VAR && n->u.invoke.fn->u.var.v == sc->var && clj_facts_arity_for(sc->fn, n->u.invoke.n) == sc->arity)
 			sc->found = true;
 		break;
 	default: break;
@@ -885,7 +885,7 @@ static refinement refinement_equality(const clj_node *const *args, uint32_t narg
 		for (uint32_t i = 0; i < 2; i++) {
 			const clj_node *a = args[i], *b = args[1 - i];
 			if (a->kind != CLJ_NODE_LOCAL || b->kind != CLJ_NODE_CONST) continue;
-			refinement r = {a->u.local.index, clj_fact_of_value(b->u.value), false};
+			refinement r = {a->u.local.index, clj_fact_of_value(b->u.value.v), false};
 			return r;
 		}
 	}
@@ -893,9 +893,9 @@ static refinement refinement_equality(const clj_node *const *args, uint32_t narg
 }
 
 static refinement refinement_instance(const clj_node *const *args, uint32_t nargs) {
-	if (nargs != 2 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var) || !is_core_var(args[0]->u.var))
+	if (nargs != 2 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var.v) || !is_core_var(args[0]->u.var.v))
 		return no_refinement();
-	const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(args[0]->u.var)));
+	const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(args[0]->u.var.v)));
 	for (size_t i = 0; i < sizeof type_names / sizeof *type_names; i++) {
 		if (strcmp(type_names[i].name, name) == 0)
 			return refinement_at(args[1], type_names[i].types, CLJ_NULL_NEVER, type_names[i].exact);
@@ -924,9 +924,9 @@ static refinement predicate_of(const clj_node *n, bool *negated) {
 		return refinement_call(sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.args, n->u.intrinsic.n);
 	}
 	case CLJ_NODE_INVOKE: {
-		if (n->u.invoke.fn->kind != CLJ_NODE_VAR || !clj_is_var(n->u.invoke.fn->u.var) || !is_core_var(n->u.invoke.fn->u.var))
+		if (n->u.invoke.fn->kind != CLJ_NODE_VAR || !clj_is_var(n->u.invoke.fn->u.var.v) || !is_core_var(n->u.invoke.fn->u.var.v))
 			return no_refinement();
-		const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(n->u.invoke.fn->u.var)));
+		const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(n->u.invoke.fn->u.var.v)));
 		if (strcmp(name, "not") == 0 && n->u.invoke.n == 1) {
 			refinement r = predicate_of(n->u.invoke.args[0], negated);
 			*negated = !*negated;
@@ -934,7 +934,7 @@ static refinement predicate_of(const clj_node *n, bool *negated) {
 		}
 		if (strcmp(name, "=") == 0) return refinement_equality(n->u.invoke.args, n->u.invoke.n);
 		if (strcmp(name, "instance?") == 0) return refinement_instance(n->u.invoke.args, n->u.invoke.n);
-		return refinement_call(sig_of_var(n->u.invoke.fn->u.var, n->u.invoke.n), n->u.invoke.args, n->u.invoke.n);
+		return refinement_call(sig_of_var(n->u.invoke.fn->u.var.v, n->u.invoke.n), n->u.invoke.args, n->u.invoke.n);
 	}
 	default: return no_refinement();
 	}
@@ -1108,9 +1108,9 @@ static uint32_t arg_effects(pass *p, const clj_node *a, uint32_t nargs) {
 		}
 		return r;
 	}
-	if (a->kind == CLJ_NODE_VAR && clj_is_var(a->u.var)) {
-		const clj_summary *s = summary_of(p, a->u.var, nargs);
-		return s ? s->effects : unknown_var_effects(a->u.var);
+	if (a->kind == CLJ_NODE_VAR && clj_is_var(a->u.var.v)) {
+		const clj_summary *s = summary_of(p, a->u.var.v, nargs);
+		return s ? s->effects : unknown_var_effects(a->u.var.v);
 	}
 	return CLJ_EFFECT_OPAQUE;
 }
@@ -1161,10 +1161,10 @@ static clj_fact result_with_summary(const pass *p, clj_fact r, const clj_summary
 
 // (new* T ...) and (record-map* T m): the constructor bodies defrecord and deftype expand to.
 static clj_fact construct_result(pass *p, const char *name, const clj_node *const *args, uint32_t n) {
-	if (!p->f->sums || n < 1 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var)) return clj_fact_top();
+	if (!p->f->sums || n < 1 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var.v)) return clj_fact_top();
 	if (strcmp(name, "new*") != 0 && strcmp(name, "record-map*") != 0) return clj_fact_top();
-	clj_value root = clj_var_root(args[0]->u.var);
-	add_dep(p->f, args[0]->u.var);
+	clj_value root = clj_var_root(args[0]->u.var.v);
+	add_dep(p->f, args[0]->u.var.v);
 	if (root == CLJ_UNBOUND || !clj_is_user_type(root)) return clj_fact_top();
 	const clj_type *t = (const clj_type *)clj_to_ptr(root);
 	clj_fact        r = fact_of((t->core_bits & CLJ_CORE_RECORD) ? CLJ_T_RECORD : CLJ_T_HOST);
@@ -1423,11 +1423,11 @@ static void collect_calls(const clj_node *n, void *ctx) {
 	clj_value  var = CLJ_NIL;
 	uint32_t   nargs = 0;
 	if (n->kind == CLJ_NODE_INVOKE && n->u.invoke.fn->kind == CLJ_NODE_VAR) {
-		var = n->u.invoke.fn->u.var;
+		var = n->u.invoke.fn->u.var.v;
 		nargs = n->u.invoke.n;
 	}
 	else if (n->kind == CLJ_NODE_INTRINSIC) {
-		var = n->u.intrinsic.var;
+		var = n->u.intrinsic.var.v;
 		nargs = n->u.intrinsic.n;
 	}
 	if (clj_is_var(var)) {
@@ -1519,8 +1519,8 @@ static clj_fact infer_invoke(pass *p, const clj_node *n, env *e) {
 	p->head = head->kind == CLJ_NODE_VAR;
 	infer(p, head, e, USE_NONE);
 	p->head = false;
-	if (head->kind == CLJ_NODE_VAR) return infer_call(p, n, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var, n->u.invoke.n), head->u.var);
-	if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value)) {
+	if (head->kind == CLJ_NODE_VAR) return infer_call(p, n, n->u.invoke.args, n->u.invoke.n, e, sig_of_var(head->u.var.v, n->u.invoke.n), head->u.var.v);
+	if (head->kind == CLJ_NODE_CONST && clj_is_keyword(head->u.value.v)) {
 		// (:k m) answers nil rather than throwing on anything, so it requires nothing (design §3)
 		infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
 		return clj_fact_top();
@@ -1543,8 +1543,8 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	clj_fact r;
 	switch (n->kind) {
 	case CLJ_NODE_CONST:
-		r = clj_fact_of_value(n->u.value);
-		if (clj_is_var(n->u.value)) record_value_read(p, n->u.value);
+		r = clj_fact_of_value(n->u.value.v);
+		if (clj_is_var(n->u.value.v)) record_value_read(p, n->u.value.v);
 		break;
 	case CLJ_NODE_LOCAL: {
 		uint32_t i = n->u.local.index;
@@ -1562,10 +1562,10 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_VAR:
 		// pass 1 alone reads no root; with a store the read is guarded by the var's epoch (clj_facts_valid)
 		r = clj_fact_top();
-		if (!p->head) record_value_read(p, n->u.var);
-		if (p->f->sums && clj_is_var(n->u.var)) {
-			r = clj_summary_var_fact(p->f->sums, n->u.var);
-			add_dep(p->f, n->u.var);
+		if (!p->head) record_value_read(p, n->u.var.v);
+		if (p->f->sums && clj_is_var(n->u.var.v)) {
+			r = clj_summary_var_fact(p->f->sums, n->u.var.v);
+			add_dep(p->f, n->u.var.v);
 		}
 		break;
 	case CLJ_NODE_IF: r = infer_if(p, n, e, use); break;
@@ -1608,12 +1608,12 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_INVOKE: r = infer_invoke(p, n, e); break;
 	case CLJ_NODE_DIRECT_CALL: r = infer_direct_call(p, n, e); break;
 	case CLJ_NODE_INTRINSIC:
-		r = infer_call(p, n, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.var);
+		r = infer_call(p, n, n->u.intrinsic.args, n->u.intrinsic.n, e, sig_of_intrinsic(n->u.intrinsic.op), n->u.intrinsic.var.v);
 		break;
 	case CLJ_NODE_DEF:
 		if (n->u.def.init) {
 			// a dynamic var may be bound to anything: its fn's parameters take no caller join
-			if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.dynamic) p->def_var = n->u.def.var;
+			if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.dynamic) p->def_var = n->u.def.var.v;
 			infer(p, n->u.def.init, e, USE_ESCAPE);
 			p->def_var = CLJ_NIL;
 		}

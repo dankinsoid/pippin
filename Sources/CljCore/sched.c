@@ -544,7 +544,7 @@ static void put(const char *s) { (void)!write(2, s, strlen(s)); }
 
 // Diagnostics, not fatal. Only its own cancellation is expected: a bystander's flag is clear (design.md §4).
 void clj_coro_report_uncaught(clj_coro *c) {
-	clj_value ex = c->threw ? c->result : c->pending;
+	clj_value ex = c->threw ? c->result.v : c->pending;
 	if (clj_is_cancellation(ex) && atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE) return;
 	clj_value trace = c->threw ? clj_ex_trace(ex) : clj_trace_realize(c->pending_trace);
 	if (uncaught_handler) {
@@ -601,10 +601,10 @@ static void finish(clj_coro *c) {
 	if (c->on_done) c->on_done(c, c->done_ctx);
 	else if (c->threw) clj_coro_report_uncaught(c);
 	c->on_done = NULL;
-	clj_value fn = c->fn;
-	c->fn = CLJ_NIL;
+	clj_value fn = c->fn.v;
+	clj_slot_clear(&c->fn);
 	clj_release(fn);
-	for (size_t i = 0; i < c->nargs; i++) clj_release(c->args[i]);
+	for (size_t i = 0; i < c->nargs; i++) clj_release(c->args[i].v);
 	c->nargs = 0;
 	// Under the lock: a canceller and the sweep read c->shadow and c->map under it.
 	pthread_mutex_lock(&c->lock);
@@ -623,22 +623,17 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	clj_sched_init();
 	clj_coro *parent = clj_coro_current();
 	clj_coro *c = clj_coro_alloc();
-	clj_share(f);
-	c->fn = clj_retain(f);
-	CLJ_SLOT_CHECK(&c->h, f);
+	clj_slot_store(&c->h, &c->fn, clj_retain(f));
 	if (n) {
 		c->args = malloc(n * sizeof *c->args);
 		if (!c->args) clj_fatal("out of memory");
-		for (size_t i = 0; i < n; i++) {
-			clj_share(args[i]);
-			c->args[i] = clj_retain(args[i]);
-			CLJ_SLOT_CHECK(&c->h, args[i]);
-		}
+		for (size_t i = 0; i < n; i++) clj_slot_store(&c->h, &c->args[i], clj_retain(args[i]));
 	}
 	c->nargs = n;
 	c->bindings = clj_var_bindings_share();
 	c->captures = clj_output_captures_share();
-	c->pending = c->pending_trace = c->result = CLJ_NIL;
+	c->pending = c->pending_trace = CLJ_NIL;
+	clj_slot_clear(&c->result);
 	// A cancelled parent hands the child its deadline as it was, not the cancel flag: past it the child meets it at once.
 	bool parent_cancelled = atomic_load_explicit(&parent->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
 	// A shield hides the deadline from the parent's own ticks, not from the children spawned there.
@@ -661,7 +656,7 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 clj_value clj_coro_result(clj_value coro, bool *threw) {
 	clj_coro *c = clj_coro_of(coro);
 	if (threw) *threw = c->threw;
-	return c->result;
+	return c->result.v;
 }
 
 bool clj_coro_done(clj_value coro) { return atomic_load_explicit(&clj_coro_of(coro)->state, memory_order_acquire) == CLJ_CORO_DONE; }
@@ -725,11 +720,8 @@ void clj_coro_shield_leave(clj_coro *c) {
 static clj_waiter *cancel_locked(clj_coro *c, int kind, clj_value cause) {
 	uint8_t have = atomic_load_explicit(&c->cancel, memory_order_relaxed);
 	if (have == CLJ_CANCEL_NONE || (kind == CLJ_CANCEL_REQUESTED && have != CLJ_CANCEL_REQUESTED)) {
-		if (!clj_is_nil(cause) && clj_is_nil(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed))) {
-			clj_share(cause);
-			atomic_store_explicit(&c->cancel_cause, clj_retain(cause), memory_order_relaxed);
-			CLJ_SLOT_CHECK(&c->h, cause);
-		}
+		if (!clj_is_nil(cause) && clj_is_nil(clj_slot_load(&c->cancel_cause, memory_order_relaxed)))
+			clj_slot_store_atomic(&c->h, &c->cancel_cause, clj_retain(cause), memory_order_relaxed);
 		// Release after the cause: the owner reads the flag first and must then see what came with it.
 		atomic_store_explicit(&c->cancel, (uint8_t)kind, memory_order_release);
 	}
@@ -765,12 +757,12 @@ void clj_coro_cancel_kind(clj_coro *c, int kind) { clj_coro_cancel_kind_cause(c,
 // @ai-generated(guided)
 clj_value clj_coro_cancel_cause(clj_coro *c) {
 	if (atomic_load_explicit(&c->cancel, memory_order_acquire) == CLJ_CANCEL_NONE) return CLJ_NIL;
-	return clj_retain(atomic_load_explicit(&c->cancel_cause, memory_order_relaxed));
+	return clj_retain(clj_slot_load(&c->cancel_cause, memory_order_relaxed));
 }
 
 // Under c->lock, with the flag: a cause left behind would surface in a later, unrelated cancellation.
 static void cancel_cause_clear_locked(clj_coro *c) {
-	clj_value cause = atomic_exchange_explicit(&c->cancel_cause, CLJ_NIL, memory_order_relaxed);
+	clj_value cause = clj_slot_exchange(&c->h, &c->cancel_cause, CLJ_NIL, memory_order_relaxed);
 	clj_release(cause);
 }
 

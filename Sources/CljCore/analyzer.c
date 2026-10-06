@@ -38,10 +38,10 @@ static void visit_nodes(const clj_node **nodes, uint32_t n, clj_visitor visit, v
 static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_node *n = self;
 	switch (n->kind) {
-	case CLJ_NODE_CONST: visit(n->u.value, ctx); break;
+	case CLJ_NODE_CONST: visit(n->u.value.v, ctx); break;
 	case CLJ_NODE_LOCAL:
 	case CLJ_NODE_CAPTURED: break;
-	case CLJ_NODE_VAR: visit(n->u.var, ctx); break;
+	case CLJ_NODE_VAR: visit(n->u.var.v, ctx); break;
 	case CLJ_NODE_IF:
 		visit_node(n->u.if_.test, visit, ctx);
 		visit_node(n->u.if_.then, visit, ctx);
@@ -59,7 +59,7 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 	case CLJ_NODE_RECUR: visit_nodes(n->u.recur.args, n->u.recur.n, visit, ctx); break;
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN:
-		visit(n->u.fn.name, ctx);
+		visit(n->u.fn.name.v, ctx);
 		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 			if (n->u.fn.fixed[i]) visit_node(n->u.fn.fixed[i]->body, visit, ctx);
 		}
@@ -71,13 +71,13 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_DIRECT_CALL: visit_nodes(n->u.direct.args, n->u.direct.n, visit, ctx); break;
 	case CLJ_NODE_OBJC_SEND:
-		visit(n->u.objc.selector, ctx);
+		visit(n->u.objc.selector.v, ctx);
 		visit_node(n->u.objc.target, visit, ctx);
 		visit_nodes(n->u.objc.args, n->u.objc.n, visit, ctx);
 		break;
 	case CLJ_NODE_OUTER: break;
 	case CLJ_NODE_DEF:
-		visit(n->u.def.var, ctx);
+		visit(n->u.def.var.v, ctx);
 		visit_node(n->u.def.init, visit, ctx);
 		visit_node(n->u.def.meta, visit, ctx);
 		break;
@@ -88,7 +88,7 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_THROW: visit_node(n->u.throw_, visit, ctx); break;
 	case CLJ_NODE_INTRINSIC:
-		visit(n->u.intrinsic.var, ctx);
+		visit(n->u.intrinsic.var.v, ctx);
 		visit_nodes(n->u.intrinsic.args, n->u.intrinsic.n, visit, ctx);
 		break;
 	case CLJ_NODE_FUSED:
@@ -519,7 +519,7 @@ void clj_node_number(clj_node *root) {
 
 static clj_node *node_const(const analyzer *a, clj_value v) {
 	clj_node *n = node_new(a, CLJ_NODE_CONST);
-	n->u.value = clj_retain(v);
+	clj_slot_init(&n->h, &n->u.value, clj_retain(v));
 	return n;
 }
 
@@ -663,7 +663,7 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 	if (private_elsewhere(a, sym, var)) return fail_form(a, "var: %s is not public", sym);
 	if (clj_var_is_macro(var)) return fail_form(a, "Can't take value of a macro: %s", var);
 	clj_node *n = node_new(a, CLJ_NODE_VAR);
-	n->u.var = clj_retain(var);
+	clj_slot_init(&n->h, &n->u.var, clj_retain(var));
 	return n;
 }
 
@@ -793,7 +793,7 @@ static clj_node *fold_or_keep(const analyzer *a, clj_node *node, clj_value (*bui
 
 static clj_value build_vector(const clj_node *const *items, uint32_t n) {
 	clj_value *vals = zalloc(n, sizeof *vals);
-	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value;
+	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value.v;
 	clj_value v = clj_vector_from_array(vals, n);
 	free(vals);
 	return v;
@@ -802,7 +802,7 @@ static clj_value build_vector(const clj_node *const *items, uint32_t n) {
 static clj_value build_map(const clj_node *const *items, uint32_t n) {
 	clj_value *vals = malloc((n ? n : 1) * sizeof *vals);
 	if (!vals) clj_fatal("out of memory");
-	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value;
+	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value.v;
 	clj_value m = clj_map_from_items(vals, n, NULL);
 	free(vals);
 	return m;
@@ -810,7 +810,7 @@ static clj_value build_map(const clj_node *const *items, uint32_t n) {
 
 static clj_value build_set(const clj_node *const *items, uint32_t n) {
 	clj_value s = clj_set_empty();
-	for (uint32_t i = 0; i < n; i++) s = clj_set_conj(s, items[i]->u.value);
+	for (uint32_t i = 0; i < n; i++) s = clj_set_conj(s, items[i]->u.value.v);
 	return s;
 }
 
@@ -826,7 +826,7 @@ static clj_node *literal_with_meta(analyzer *a, scope *s, clj_value form, clj_no
 		return NULL;
 	}
 	clj_node *fn = node_new(a, CLJ_NODE_VAR);
-	fn->u.var = clj_retain(clj_ns_intern(clj_ns_core(), sym_with_meta));
+	clj_slot_init(&fn->h, &fn->u.var, clj_retain(clj_ns_intern(clj_ns_core(), sym_with_meta)));
 	clj_node *call = node_new(a, CLJ_NODE_INVOKE);
 	call->u.invoke.fn = fn;
 	call->u.invoke.args = zalloc(2, sizeof *call->u.invoke.args);
@@ -1055,9 +1055,9 @@ static bool analyze_arity(analyzer *a, clj_node *fn, capture_list *captures, sco
 	}
 	if (arity->variadic) fn->u.fn.variadic = arity;
 	else fn->u.fn.fixed[arity->nparams] = arity;
-	if (!clj_is_nil(fn->u.fn.name)) {
+	if (!clj_is_nil(fn->u.fn.name.v)) {
 		arity->self_slot = (int32_t)new_slot(&s);
-		push_local(&s, fn->u.fn.name, (uint32_t)arity->self_slot);
+		push_local(&s, fn->u.fn.name.v, (uint32_t)arity->self_slot);
 	}
 	uint32_t  nrecur = arity->nparams + (arity->variadic ? 1 : 0);
 	uint32_t *slots = zalloc(nrecur, sizeof *slots);
@@ -1079,7 +1079,7 @@ static clj_node *analyze_fn(analyzer *a, scope *s, const clj_value *items, uint3
 			clj_release(clj_from_ptr(node));
 			return fail_form(a, "Can't use qualified name as fn name: %s", items[i]);
 		}
-		node->u.fn.name = clj_retain(items[i]);
+		clj_slot_init(&node->h, &node->u.fn.name, clj_retain(items[i]));
 		i++;
 	}
 	capture_list captures = {0};
@@ -1169,14 +1169,14 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	// The var's name is a bare symbol: the meta stays on the var, not on the key that reaches it.
 	if (!clj_is_nil(clj_symbol_ns(sym)) || !clj_is_nil(sym_meta)) name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
 	clj_node *node = node_new(a, CLJ_NODE_DEF);
-	node->u.def.var = clj_retain(clj_ns_intern(a->env.ns, name));
+	clj_slot_init(&node->h, &node->u.def.var, clj_retain(clj_ns_intern(a->env.ns, name)));
 	node->u.def.dynamic = clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_dynamic, CLJ_NIL));
 	// Var.isMacro reads :macro from the var's meta on the JVM, so a def carrying it defines a macro; core.clj
 	// defines defmacro and the macros above it that way (NOTES "Analyzer and evaluator").
 	node->u.def.macro = clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_macro, CLJ_NIL));
 	clj_release(sym_meta);
 	if (name != sym) clj_release(name);
-	clj_value meta_form = def_meta_form(a, sym, node->u.def.var, doc);
+	clj_value meta_form = def_meta_form(a, sym, node->u.def.var.v, doc);
 	node->u.def.meta = analyze(a, s, meta_form, false);
 	clj_release(meta_form);
 	if (!node->u.def.meta) {
@@ -1191,7 +1191,7 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 			return NULL;
 		}
 		// (def f (fn ...)) names the fn after the var, as Clojure does, so arity errors can say who.
-		if (init->kind == CLJ_NODE_FN && clj_is_nil(init->u.fn.name)) init->u.fn.name = clj_symbol_new(ns_name, clj_symbol_name(sym));
+		if (init->kind == CLJ_NODE_FN && clj_is_nil(init->u.fn.name.v)) clj_slot_store(&init->h, &init->u.fn.name, clj_symbol_new(ns_name, clj_symbol_name(sym)));
 	}
 	return node;
 }
@@ -1278,7 +1278,7 @@ static clj_node *analyze_objc_send(analyzer *a, scope *s, const clj_value *items
 	clj_value selector = method_selector(a, items, n, &nargs);
 	if (selector == CLJ_THROWN) return NULL;
 	clj_node *node = node_new(a, CLJ_NODE_OBJC_SEND);
-	node->u.objc.selector = selector;
+	clj_slot_init(&node->h, &node->u.objc.selector, selector);
 	node->u.objc.args = zalloc(nargs, sizeof *node->u.objc.args);
 	node->u.objc.n = nargs;
 	bool ok = (node->u.objc.target = analyze(a, s, items[1], false)) != NULL;

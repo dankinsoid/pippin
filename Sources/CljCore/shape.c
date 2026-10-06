@@ -316,11 +316,6 @@ size_t clj_debug_shape_bytes(void) {
 
 static clj_shape_map *smap_of(clj_value v) { return clj_shape_map_of(v); }
 
-// Storing into a shared map must keep the invariant that its children are shared.
-static void store(clj_header *owner, clj_value *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	*slot = v;
-}
 
 static clj_shape_map *smap_alloc(const clj_shape *s) {
 	clj_shape_map *m = clj_alloc(&clj_map_type, sizeof *m + s->nkeys * sizeof(clj_value));
@@ -337,7 +332,7 @@ clj_value clj_shape_map_alloc(const clj_shape *s) {
 clj_value clj_shape_map_new(const clj_shape *s, const clj_value *vals) {
 	COUNT(CLJ_MAPS_SHAPE_SET);
 	clj_shape_map *m = smap_alloc(s);
-	for (uint32_t i = 0; i < s->nkeys; i++) m->slots[i] = clj_retain(vals[i]);
+	for (uint32_t i = 0; i < s->nkeys; i++) clj_slot_init(&m->h, &m->slots[i], clj_retain(vals[i]));
 	return clj_from_ptr(m);
 }
 
@@ -348,7 +343,7 @@ void clj_shape_slots_of(const clj_shape *s, const clj_value *keys, uint8_t *slot
 clj_value clj_shape_map_from_keys(const clj_shape *s, const clj_value *keys, const clj_value *vals) {
 	if (memcmp(s->keys, keys, s->nkeys * sizeof *keys) == 0) return clj_shape_map_new(s, vals);
 	clj_shape_map *m = smap_alloc(s);
-	for (uint32_t i = 0; i < s->nkeys; i++) m->slots[clj_shape_index(s, keys[i])] = clj_retain(vals[i]);
+	for (uint32_t i = 0; i < s->nkeys; i++) clj_slot_init(&m->h, &m->slots[clj_shape_index(s, keys[i])], clj_retain(vals[i]));
 	return clj_from_ptr(m);
 }
 
@@ -374,7 +369,7 @@ clj_value clj_shape_map_single(clj_value key, clj_value val) {
 	}
 	COUNT(CLJ_MAPS_SHAPE_EDGE);
 	clj_shape_map *m = smap_alloc(s);
-	m->slots[0] = clj_retain(val);
+	clj_slot_init(&m->h, &m->slots[0], clj_retain(val));
 	return clj_from_ptr(m);
 }
 
@@ -382,7 +377,7 @@ clj_value clj_shape_map_single(clj_value key, clj_value val) {
 clj_value clj_shape_map_to_hash_map(clj_value map) {
 	clj_shape_map *m = smap_of(map);
 	clj_value      h = clj_map_empty();
-	for (uint32_t i = 0; i < m->shape->nkeys; i++) h = clj_hash_map_assoc(h, m->shape->keys[i], m->slots[i]);
+	for (uint32_t i = 0; i < m->shape->nkeys; i++) h = clj_hash_map_assoc(h, m->shape->keys[i], m->slots[i].v);
 	clj_release(map);
 	return h;
 }
@@ -391,7 +386,7 @@ clj_value clj_shape_map_to_hash_map(clj_value map) {
 static clj_shape_map *smap_own(clj_value map) {
 	if (clj_is_unique(map)) return smap_of(map);
 	clj_shape_map *m = smap_of(map), *c = smap_alloc(m->shape);
-	for (uint32_t i = 0; i < m->shape->nkeys; i++) c->slots[i] = clj_retain(m->slots[i]);
+	for (uint32_t i = 0; i < m->shape->nkeys; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(m->slots[i].v));
 	clj_release(map);
 	return c;
 }
@@ -404,12 +399,12 @@ static clj_value smap_permuted(clj_value map, const edge *e, clj_value val) {
 	if (unique) c->h.flags |= m->h.flags & CLJ_FLAG_SHARED;
 	for (uint32_t i = 0; i < e->to->nkeys; i++) {
 		uint8_t p = e->perm[i];
-		c->slots[i] = p == NEW_KEY ? clj_retain(val) : unique ? m->slots[p] : clj_retain(m->slots[p]);
-		if (p == NEW_KEY && (c->h.flags & CLJ_FLAG_SHARED)) clj_share(val);
+		if (p == NEW_KEY) clj_slot_store(&c->h, &c->slots[i], clj_retain(val));
+		else clj_slot_init(&c->h, &c->slots[i], unique ? m->slots[p].v : clj_retain(m->slots[p].v));
 	}
 	if (unique) {
 		// the moved slots are the copy's now; a removed key's value stays behind
-		if (e->to->nkeys < m->shape->nkeys) clj_release(m->slots[e->index]);
+		if (e->to->nkeys < m->shape->nkeys) clj_release(m->slots[e->index].v);
 		clj_dealloc(&m->h);
 	} else {
 		clj_release(map);
@@ -421,10 +416,10 @@ clj_value clj_shape_map_assoc(clj_value map, clj_value key, clj_value val) {
 	clj_shape_map *m = smap_of(map);
 	int32_t        i = clj_shape_index(m->shape, key);
 	if (i >= 0) {
-		if (m->slots[i] == val) return map;
+		if (m->slots[i].v == val) return map;
 		m = smap_own(map);
-		clj_value old = m->slots[i];
-		store(&m->h, &m->slots[i], clj_retain(val));
+		clj_value old = m->slots[i].v;
+		clj_slot_store(&m->h, &m->slots[i], clj_retain(val));
 		clj_release(old);
 		return clj_from_ptr(m);
 	}
@@ -439,12 +434,12 @@ clj_value clj_shape_map_assoc(clj_value map, clj_value key, clj_value val) {
 		m = clj_realloc(m, sizeof *m + (n + 1) * sizeof(clj_value));
 	} else {
 		clj_shape_map *c = smap_alloc(e->to);
-		for (uint32_t k = 0; k < n; k++) c->slots[k] = clj_retain(m->slots[k]);
+		for (uint32_t k = 0; k < n; k++) clj_slot_init(&c->h, &c->slots[k], clj_retain(m->slots[k].v));
 		clj_release(map);
 		m = c;
 	}
 	m->shape = e->to;
-	store(&m->h, &m->slots[n], clj_retain(val));
+	clj_slot_store(&m->h, &m->slots[n], clj_retain(val));
 	return clj_from_ptr(m);
 }
 
@@ -463,7 +458,7 @@ clj_value clj_shape_map_dissoc(clj_value map, clj_value key) {
 	}
 	if (!e->identity || !clj_is_unique(map)) return smap_permuted(map, e, CLJ_NIL);
 	uint32_t  n = m->shape->nkeys;
-	clj_value old = m->slots[i];
+	clj_value old = m->slots[i].v;
 	memmove(m->slots + i, m->slots + i + 1, (n - 1 - (uint32_t)i) * sizeof(clj_value));
 	m = clj_realloc(m, sizeof *m + (n - 1) * sizeof(clj_value));
 	m->shape = e->to;

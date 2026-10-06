@@ -7,7 +7,7 @@
 // value = unscaled * 10^-scale, as java.math.BigDecimal; unscaled is always a bigint.
 typedef struct {
 	clj_header h;
-	clj_value  unscaled;
+	clj_slot   unscaled;
 	int32_t    scale;
 } clj_decimal;
 
@@ -16,7 +16,7 @@ extern const clj_type clj_decimal_type;
 static inline bool         clj_is_decimal(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_decimal_type; }
 static inline clj_decimal *clj_decimal_of(clj_value v) { return (clj_decimal *)clj_to_ptr(v); }
 // Borrowed: valid while v is.
-static inline clj_value clj_decimal_unscaled(clj_value v) { return clj_decimal_of(v)->unscaled; }
+static inline clj_value clj_decimal_unscaled(clj_value v) { return clj_decimal_of(v)->unscaled.v; }
 static inline int32_t   clj_decimal_scale(clj_value v) { return clj_decimal_of(v)->scale; }
 
 // unscaled is a fixnum or a bigint.

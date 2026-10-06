@@ -7,12 +7,12 @@
 // Immortal, like vars. Every lookup and mutation goes through one process-wide mutex.
 typedef struct {
 	clj_header h;
-	clj_value  name;     // symbol
-	clj_value  mappings; // map symbol → var interned here
-	clj_value  refers;   // map symbol → var referred from other namespaces
-	clj_value  aliases;  // map symbol → namespace
-	clj_value  excludes; // set of clojure.core names this namespace does not see unqualified, or nil
-	clj_value  meta;     // map or nil: the ns form's attr-map, alter-meta!; the facts pass reads :facts/warnings
+	clj_slot   name;     // symbol
+	clj_slot   mappings; // map symbol → var interned here
+	clj_slot   refers;   // map symbol → var referred from other namespaces
+	clj_slot   aliases;  // map symbol → namespace
+	clj_slot   excludes; // set of clojure.core names this namespace does not see unqualified, or nil
+	clj_slot   meta;     // map or nil: the ns form's attr-map, alter-meta!; the facts pass reads :facts/warnings
 } clj_ns;
 
 extern const clj_type clj_ns_type;
@@ -20,7 +20,7 @@ extern const clj_type clj_ns_type;
 static inline bool    clj_is_ns(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_ns_type; }
 static inline clj_ns *clj_ns_of(clj_value v) { return (clj_ns *)clj_to_ptr(v); }
 // Borrowed: the namespace never dies.
-static inline clj_value clj_ns_name(clj_value ns) { return clj_ns_of(ns)->name; }
+static inline clj_value clj_ns_name(clj_value ns) { return clj_ns_of(ns)->name.v; }
 
 // name is an unqualified symbol. Borrowed results; nil when not found.
 clj_value clj_ns_find(clj_value name);

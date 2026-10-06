@@ -8,13 +8,13 @@
 // The design's named shape (§4): the hash map's bits and slots over a basis kept inline.
 typedef struct {
 	clj_user_type ut;
-	clj_value     basis[]; // interned keywords, one per field, declaration order; immortal, so never visited
+	clj_slot      basis[]; // interned keywords, one per field, declaration order; immortal, so never visited
 } clj_record_type;
 
 // A deftype instance with two trailing slots, so field* and the deftype method bodies read the basis unchanged.
 typedef struct {
 	clj_header h;
-	clj_value  slots[]; // nfields basis values, then extmap (nil or a non-empty hash map), then meta
+	clj_slot   slots[]; // nfields basis values, then extmap (nil or a non-empty hash map), then meta
 } clj_record;
 
 // impls as deftype* takes them, minus the core interfaces: the map ones are the record's own.

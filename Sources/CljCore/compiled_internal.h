@@ -173,7 +173,7 @@ static inline void clj_c_instrument_enter(const clj_node *stub, clj_ccall *c) {
 	if (__builtin_expect(c->instrument, 0)) {
 		if (c->instrument & CLJ_INSTRUMENT_PROFILE) c->t0 = clj_profile_now();
 #ifdef __APPLE__
-		if (c->instrument & CLJ_INSTRUMENT_SIGNPOSTS) c->signpost = clj_signpost_begin(stub->u.fn.name);
+		if (c->instrument & CLJ_INSTRUMENT_SIGNPOSTS) c->signpost = clj_signpost_begin(stub->u.fn.name.v);
 #endif
 	}
 }

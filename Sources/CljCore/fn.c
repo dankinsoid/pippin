@@ -20,10 +20,10 @@
 
 static void fn_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_fn *f = self;
-	visit(f->name, ctx);
-	visit(f->code, ctx);
-	visit(f->meta, ctx);
-	for (uint32_t i = 0; i < f->nenv; i++) visit(f->env[i], ctx);
+	visit(f->name.v, ctx);
+	visit(f->code.v, ctx);
+	visit(f->meta.v, ctx);
+	for (uint32_t i = 0; i < f->nenv; i++) visit(f->env[i].v, ctx);
 }
 
 static uint32_t fn_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
@@ -43,35 +43,33 @@ static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
 	return fn->u.native.fn(args, n);
 }
 
-static clj_value fn_meta(clj_value self) { return clj_retain(clj_fn_of(self)->meta); }
+static clj_value fn_meta(clj_value self) { return clj_retain(clj_fn_of(self)->meta.v); }
 
 // A shared copy keeps the original alive through code and borrows its ctx: a ctx has one release callback,
 // so it cannot be owned twice.
 // @ai-generated(guided)
 static clj_value fn_with_meta(clj_value self, clj_value m) {
 	clj_fn *f = clj_fn_of(self);
-	if (clj_is_nil(m) && clj_is_nil(f->meta)) return self;
+	if (clj_is_nil(m) && clj_is_nil(f->meta.v)) return self;
 	if (!clj_is_unique(self)) {
 		size_t  size = sizeof *f + f->nenv * sizeof *f->env;
 		clj_fn *c = clj_alloc(&clj_fn_type, size);
 		memcpy((char *)c + sizeof c->h, (const char *)f + sizeof f->h, size - sizeof f->h);
-		clj_retain(c->name);
-		clj_retain(c->code);
-		c->meta = CLJ_NIL;
-		for (uint32_t i = 0; i < c->nenv; i++) clj_retain(c->env[i]);
+		clj_retain(c->name.v);
+		clj_retain(c->code.v);
+		clj_slot_init(&c->h, &c->meta, CLJ_NIL);
+		for (uint32_t i = 0; i < c->nenv; i++) clj_retain(c->env[i].v);
 		if (c->kind == CLJ_FN_NATIVE_CTX && c->u.native_ctx.ctx == f) c->u.native_ctx.ctx = c;
 		if (c->kind == CLJ_FN_NATIVE_CTX && c->u.native_ctx.release) {
 			c->u.native_ctx.release = NULL;
-			clj_release(c->code);
-			c->code = clj_retain(self);
+			clj_release(c->code.v);
+			clj_slot_init(&c->h, &c->code, clj_retain(self));
 		}
 		clj_release(self);
 		f = c;
-	} else if (f->h.flags & CLJ_FLAG_SHARED) {
-		clj_share(m);
 	}
-	clj_value old = f->meta;
-	f->meta = clj_retain(m);
+	clj_value old = f->meta.v;
+	clj_slot_store(&f->h, &f->meta, clj_retain(m));
 	clj_release(old);
 	return clj_from_ptr(f);
 }
@@ -92,7 +90,7 @@ const clj_type clj_fn_type = {
 static clj_fn *native_new(clj_value name, clj_fn_kind kind, uint32_t min_arity, uint32_t max_arity) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f);
-	f->name = clj_retain(name);
+	clj_slot_init(&f->h, &f->name, clj_retain(name));
 	f->kind = kind;
 	f->min_arity = min_arity;
 	f->max_arity = max_arity;
@@ -118,7 +116,7 @@ clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, voi
 clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
-	f->name = clj_retain(name);
+	clj_slot_init(&f->h, &f->name, clj_retain(name));
 	f->kind = CLJ_FN_NATIVE_CTX;
 	f->arities = arities;
 	f->min_arity = min_arity;
@@ -126,7 +124,7 @@ clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_valu
 	f->u.native_ctx.fn = fn;
 	f->u.native_ctx.ctx = f;
 	f->nenv = nenv;
-	for (uint32_t i = 0; i < nenv; i++) f->env[i] = clj_retain(env[i]);
+	for (uint32_t i = 0; i < nenv; i++) clj_slot_init(&f->h, &f->env[i], clj_retain(env[i]));
 	return clj_from_ptr(f);
 }
 
@@ -134,12 +132,12 @@ clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, c
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	CLJ_ASSERT(node->kind == CLJ_NODE_FN, "closure code must be a fn node");
 	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
-	f->name = clj_retain(name);
+	clj_slot_init(&f->h, &f->name, clj_retain(name));
 	f->kind = CLJ_FN_CLOSURE;
 	f->u.node = node;
-	f->code = clj_retain(exec);
+	clj_slot_init(&f->h, &f->code, clj_retain(exec));
 	f->nenv = nenv;
-	for (uint32_t i = 0; i < nenv; i++) f->env[i] = clj_retain(env[i]);
+	for (uint32_t i = 0; i < nenv; i++) clj_slot_init(&f->h, &f->env[i], clj_retain(env[i]));
 	return clj_from_ptr(f);
 }
 
@@ -218,7 +216,7 @@ static clj_value arity_data(clj_value f, size_t n, uint32_t bits, uint32_t varia
 	}
 	if (variadic != CLJ_ARITY_ANY) data = clj_map_assoc(data, kw_variadic, clj_fixnum(variadic));
 	data = clj_map_assoc(data, kw_given, clj_fixnum((int64_t)n));
-	if (clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name)) data = clj_map_assoc(data, kw_fn, clj_fn_of(f)->name);
+	if (clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name.v)) data = clj_map_assoc(data, kw_fn, clj_fn_of(f)->name.v);
 	return data;
 }
 
@@ -232,7 +230,7 @@ static bool arities_disagree(uint32_t bits, uint32_t variadic, size_t n) {
 }
 
 static clj_value arity_error(clj_value f, const char *over, size_t n) {
-	clj_value name = clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name) ? clj_fn_of(f)->name : CLJ_NIL;
+	clj_value name = clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name.v) ? clj_fn_of(f)->name.v : CLJ_NIL;
 	clj_value text = clj_is_nil(name) && clj_is_fn(f) ? clj_string_from_cstr("fn") : clj_pr_str_max(clj_is_nil(name) ? f : name, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	uint32_t variadic, bits = fn_arities(f, &variadic);

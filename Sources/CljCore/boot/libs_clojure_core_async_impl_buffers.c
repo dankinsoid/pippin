@@ -133,7 +133,7 @@ CLJC_FRAME clj_value clojure_core_async_impl_buffers_fixed_buffer_a1(clj_value s
 static clj_value clojure_core_async_impl_buffers_fixed_buffer(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_core_async_impl_buffers_fixed_buffer_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_core_async_impl_buffers_fixed_buffer_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -198,7 +198,7 @@ CLJC_FRAME clj_value clojure_core_async_impl_buffers_dropping_buffer_a1(clj_valu
 static clj_value clojure_core_async_impl_buffers_dropping_buffer(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_core_async_impl_buffers_dropping_buffer_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_core_async_impl_buffers_dropping_buffer_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -263,7 +263,7 @@ CLJC_FRAME clj_value clojure_core_async_impl_buffers_sliding_buffer_a1(clj_value
 static clj_value clojure_core_async_impl_buffers_sliding_buffer(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 1: return clojure_core_async_impl_buffers_sliding_buffer_a1(clj_from_ptr((void *)f), f->env, args, n);
+	case 1: return clojure_core_async_impl_buffers_sliding_buffer_a1(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
@@ -323,7 +323,7 @@ CLJC_FRAME clj_value clojure_core_async_impl_buffers_promise_buffer_a0(clj_value
 static clj_value clojure_core_async_impl_buffers_promise_buffer(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
 	switch (n) {
-	case 0: return clojure_core_async_impl_buffers_promise_buffer_a0(clj_from_ptr((void *)f), f->env, args, n);
+	case 0: return clojure_core_async_impl_buffers_promise_buffer_a0(clj_from_ptr((void *)f), clj_slot_values(f->env), args, n);
 	default: break;
 	}
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);

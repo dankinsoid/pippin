@@ -17,12 +17,14 @@
 
 static void atom_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_atom *a = self;
-	visit(atomic_load_explicit(&a->value, memory_order_relaxed), ctx);
-	visit(a->meta, ctx);
-	visit(a->validator, ctx);
-	visit(a->watches, ctx);
+	visit(clj_slot_load(&a->value, memory_order_relaxed), ctx);
+	visit(a->meta.v, ctx);
+	visit(a->validator.v, ctx);
+	visit(a->watches.v, ctx);
 }
 
+
+static bool atom_lock_held(const void *self);
 
 static uint32_t atom_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
 
@@ -37,11 +39,14 @@ const clj_type clj_atom_type = {
 	.hash = atom_hash,
 	.equals = atom_equals,
 	.meta = clj_atom_meta,
+	.debug_lock_held = atom_lock_held,
 };
 
 static uintptr_t self_id(void) { return (uintptr_t)clj_coro_current(); }
 
 static bool held_by_me(const clj_atom *a) { return atomic_load_explicit(&a->owner, memory_order_relaxed) == self_id(); }
+
+static bool atom_lock_held(const void *self) { return held_by_me(self); }
 
 // The lock is not recursive, so an execution that already holds it must not wait on it: throw instead.
 static bool enter(clj_atom *a, const char *op) {
@@ -65,7 +70,7 @@ static void leave(clj_atom *a) {
 	clj_cmutex_unlock(&a->lock);
 }
 
-static clj_value value_of(const clj_atom *a) { return atomic_load_explicit(&a->value, memory_order_relaxed); }
+static clj_value value_of(const clj_atom *a) { return clj_slot_load(&a->value, memory_order_relaxed); }
 
 // Consumes cause.
 static clj_value invalid_state(clj_value cause) {
@@ -117,12 +122,11 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	clj_atom *a = clj_alloc(&clj_atom_type, sizeof *a);
 	clj_cmutex_init(&a->lock);
 	atomic_init(&a->owner, 0);
-	clj_share(value);
-	clj_share(meta);
-	clj_share(validator);
-	atomic_init(&a->value, clj_retain(value));
-	a->meta = clj_retain(meta);
-	a->validator = clj_retain(validator);
+	// Born shared, as a var: every value stored into it is published by the store itself.
+	a->h.flags |= CLJ_FLAG_SHARED;
+	clj_slot_store_atomic(&a->h, &a->value, clj_retain(value), memory_order_relaxed);
+	clj_slot_store(&a->h, &a->meta, clj_retain(meta));
+	clj_slot_store(&a->h, &a->validator, clj_retain(validator));
 	return clj_from_ptr(a);
 }
 
@@ -131,7 +135,7 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 clj_value clj_atom_deref(clj_value atom) {
 	clj_atom *a = clj_atom_of(atom);
 	clj_proto_reader *r = clj_proto_window_open_inline();
-	clj_value         v = clj_retain(atomic_load_explicit(&a->value, memory_order_seq_cst));
+	clj_value         v = clj_retain(clj_slot_load(&a->value, memory_order_seq_cst));
 	clj_proto_window_close_inline(r);
 	return v;
 }
@@ -139,11 +143,9 @@ clj_value clj_atom_deref(clj_value atom) {
 // Takes the lock the caller holds; the old value outlives the watches, which see it at +0.
 static bool commit(clj_value atom, clj_value new) {
 	clj_atom *a = clj_atom_of(atom);
-	clj_share(new);
 	clj_value old = value_of(a);
-	atomic_store_explicit(&a->value, clj_retain(new), memory_order_seq_cst);
-	CLJ_SLOT_CHECK(&a->h, new);
-	clj_value watches = clj_retain(a->watches);
+	clj_slot_store_atomic(&a->h, &a->value, clj_retain(new), memory_order_seq_cst);
+	clj_value watches = clj_retain(a->watches.v);
 	leave(a);
 	bool ok = notify(atom, watches, old, new);
 	clj_release(watches);
@@ -155,7 +157,7 @@ static bool commit(clj_value atom, clj_value new) {
 clj_value clj_atom_reset(clj_value atom, clj_value value) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "reset!")) return CLJ_THROWN;
-	if (!validate_with(a->validator, value)) {
+	if (!validate_with(a->validator.v, value)) {
 		leave(a);
 		return CLJ_THROWN;
 	}
@@ -170,7 +172,7 @@ static clj_value pair(clj_value old, clj_value new) {
 clj_value clj_atom_reset_vals(clj_value atom, clj_value value) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "reset-vals!")) return CLJ_THROWN;
-	if (!validate_with(a->validator, value)) {
+	if (!validate_with(a->validator.v, value)) {
 		leave(a);
 		return CLJ_THROWN;
 	}
@@ -197,7 +199,7 @@ static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *
 	call[0] = value_of(a);
 	clj_value new = clj_call_invoke(&c, call);
 	if (call != small) free(call);
-	if (new == CLJ_THROWN || !validate_with(a->validator, new)) {
+	if (new == CLJ_THROWN || !validate_with(a->validator.v, new)) {
 		if (new != CLJ_THROWN) clj_release(new);
 		leave(a);
 		return CLJ_THROWN;
@@ -232,7 +234,7 @@ clj_value clj_atom_compare_and_set(clj_value atom, clj_value expected, clj_value
 		leave(a);
 		return CLJ_FALSE;
 	}
-	if (!validate_with(a->validator, value)) {
+	if (!validate_with(a->validator.v, value)) {
 		leave(a);
 		return CLJ_THROWN;
 	}
@@ -242,16 +244,14 @@ clj_value clj_atom_compare_and_set(clj_value atom, clj_value expected, clj_value
 clj_value clj_atom_add_watch(clj_value atom, clj_value key, clj_value f) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "add-watch")) return CLJ_THROWN;
-	clj_value watches = clj_is_nil(a->watches) ? clj_map_empty() : clj_retain(a->watches);
+	clj_value watches = clj_is_nil(a->watches.v) ? clj_map_empty() : clj_retain(a->watches.v);
 	clj_value w = clj_map_assoc(watches, key, f);
 	if (w == CLJ_THROWN) {
 		leave(a);
 		return CLJ_THROWN;
 	}
-	clj_release(a->watches);
-	clj_share(w);
-	a->watches = w;
-	CLJ_SLOT_CHECK(&a->h, w);
+	clj_release(a->watches.v);
+	clj_slot_store(&a->h, &a->watches, w);
 	leave(a);
 	return clj_retain(atom);
 }
@@ -259,15 +259,13 @@ clj_value clj_atom_add_watch(clj_value atom, clj_value key, clj_value f) {
 clj_value clj_atom_remove_watch(clj_value atom, clj_value key) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "remove-watch")) return CLJ_THROWN;
-	if (!clj_is_nil(a->watches)) {
-		clj_value w = clj_map_dissoc(a->watches, key);
+	if (!clj_is_nil(a->watches.v)) {
+		clj_value w = clj_map_dissoc(a->watches.v, key);
 		if (clj_map_count(w) == 0) {
 			clj_release(w);
 			w = CLJ_NIL;
 		}
-		clj_share(w);
-		a->watches = w;
-		CLJ_SLOT_CHECK(&a->h, w);
+		clj_slot_store(&a->h, &a->watches, w);
 	}
 	leave(a);
 	return clj_retain(atom);
@@ -280,10 +278,8 @@ clj_value clj_atom_set_validator(clj_value atom, clj_value f) {
 		leave(a);
 		return CLJ_THROWN;
 	}
-	clj_share(f);
-	clj_value old = a->validator;
-	a->validator = clj_retain(f);
-	CLJ_SLOT_CHECK(&a->h, f);
+	clj_value old = a->validator.v;
+	clj_slot_store(&a->h, &a->validator, clj_retain(f));
 	leave(a);
 	clj_release(old);
 	return CLJ_NIL;
@@ -292,7 +288,7 @@ clj_value clj_atom_set_validator(clj_value atom, clj_value f) {
 clj_value clj_atom_get_validator(clj_value atom) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "get-validator")) return CLJ_THROWN;
-	clj_value f = clj_retain(a->validator);
+	clj_value f = clj_retain(a->validator.v);
 	leave(a);
 	return f;
 }
@@ -300,7 +296,7 @@ clj_value clj_atom_get_validator(clj_value atom) {
 clj_value clj_atom_meta(clj_value atom) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "meta")) return CLJ_THROWN;
-	clj_value m = clj_retain(a->meta);
+	clj_value m = clj_retain(a->meta.v);
 	leave(a);
 	return m;
 }
@@ -308,10 +304,8 @@ clj_value clj_atom_meta(clj_value atom) {
 clj_value clj_atom_reset_meta(clj_value atom, clj_value m) {
 	clj_atom *a = clj_atom_of(atom);
 	if (!enter(a, "reset-meta!")) return CLJ_THROWN;
-	clj_share(m);
-	clj_value old = a->meta;
-	a->meta = clj_retain(m);
-	CLJ_SLOT_CHECK(&a->h, m);
+	clj_value old = a->meta.v;
+	clj_slot_store(&a->h, &a->meta, clj_retain(m));
 	leave(a);
 	clj_release(old);
 	return clj_retain(m);
@@ -327,7 +321,7 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 		if (call != small) free(call);
 		return CLJ_THROWN;
 	}
-	call[0] = a->meta;
+	call[0] = a->meta.v;
 	clj_value m = clj_invoke(f, call, nargs + 1);
 	if (call != small) free(call);
 	if (m != CLJ_THROWN && !clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
@@ -339,10 +333,8 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 		leave(a);
 		return CLJ_THROWN;
 	}
-	clj_share(m);
-	clj_value old = a->meta;
-	a->meta = clj_retain(m);
-	CLJ_SLOT_CHECK(&a->h, m);
+	clj_value old = a->meta.v;
+	clj_slot_store(&a->h, &a->meta, clj_retain(m));
 	leave(a);
 	clj_release(old);
 	return m;

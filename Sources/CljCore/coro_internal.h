@@ -50,7 +50,7 @@ struct clj_coro {
 	clj_shadow_stack *shadow;        // &shadow_hdr; its arrays are in the mapping (or calloc'd for an implicit one)
 	clj_shadow_stack  shadow_hdr;
 	void             *bindings;      // var.c frames, refcounted and shared with spawned children
-	clj_value         pending, pending_trace;
+	clj_private_value pending, pending_trace;
 	uint8_t           equals_dropped; // CLJ_CANCEL_* of a cancellation equals/hash dropped (error.h), NONE otherwise
 	const char       *refused;        // a hash/equals refusal nobody threw yet (error.h, clj_refuse), immortal
 	void             *forcing_top;   // seq.c
@@ -59,7 +59,7 @@ struct clj_coro {
 	uint32_t          locks_held;    // clj_locks held (lock.h): 0 at every park
 	uint32_t          cmutex_held;   // clj_cmutexes held around user code: no suspend parks under one (cmutex.h)
 	uint32_t          forcing_held;  // lazy seqs claimed FORCING by this one: readers park on them, so no suspend either (seq.c)
-	clj_value        *retired;       // fn roots a def replaced while this execution was in flight (eval.c)
+	clj_private_value *retired;   // fn roots a def replaced while this execution was in flight (eval.c)
 	size_t            nretired, cretired;
 	void             *captures;      // with-out-str buffers (runtime.c)
 	clj_load_arm      load_arm;
@@ -75,10 +75,10 @@ struct clj_coro {
 	clj_waiter      *waiter;         // the park it is in, NULL while running
 	struct clj_coro *next;           // run-queue link
 	clj_carrier     *carrier;        // the carrier running it now
-	clj_value        fn;             // the body, shared at spawn
-	clj_value       *args;
+	clj_slot         fn;             // the body, shared at spawn
+	clj_slot        *args;
 	size_t           nargs;
-	clj_value        result;         // the body's value, or the thrown value with `threw`
+	clj_slot         result;         // the body's value, or the thrown value with `threw`
 	bool             threw;
 	void (*on_done)(struct clj_coro *c, void *ctx); // runs on the carrier after the body returned
 	void            *done_ctx;
@@ -96,7 +96,7 @@ struct clj_coro {
 	// ---- cancellation (sched.c): the kind outlives the stack, so a finished future still answers future-cancelled?
 	_Atomic uint8_t  cancel;          // CLJ_CANCEL_*; the shadow's cancelled flag mirrors it for the tick path
 	// What made a scope cancel this one; published before `cancel`, read after it, cleared with it and at finish.
-	_Atomic clj_value cancel_cause;
+	clj_atomic_slot  cancel_cause;
 	uint64_t         deadline_before; // the deadline a scope cancel replaced with 1, restored by the uncancel
 	uint32_t         shield;          // shielded regions the owner is inside: the ring shows no deadline in one
 	clj_timer       *deadline_timer;  // the timer that cancels this coroutine at its deadline, NULL when none

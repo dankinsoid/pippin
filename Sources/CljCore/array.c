@@ -110,7 +110,7 @@ static clj_value cast_into(clj_array_kind kind, clj_value v, void *slot) {
 			return CLJ_NIL;
 		}
 		return clj_throw_msg("%s cannot be cast to a char", clj_type_name(v));
-	default: *(clj_value *)slot = clj_retain(v); return CLJ_NIL;
+	default: clj_fatal("an object array's element is stored by clj_array_set");
 	}
 }
 
@@ -149,11 +149,9 @@ clj_value clj_array_set(clj_value arr, uint32_t i, clj_value v) {
 	CLJ_ASSERT(i < a->count, "array index out of range");
 	void *slot = slot_of(a, i);
 	if (a->kind != CLJ_ARRAY_OBJECT) return cast_into((clj_array_kind)a->kind, v, slot);
-	// Every child of a shared object is shared (object.h), and a write is how a new one gets in.
-	if (a->h.flags & CLJ_FLAG_SHARED) clj_share(v);
-	clj_value old = *(clj_value *)slot;
-	*(clj_value *)slot = clj_retain(v);
-	CLJ_SLOT_CHECK(&a->h, v);
+	clj_slot *s = slot;
+	clj_value old = s->v;
+	clj_slot_store(&a->h, s, clj_retain(v));
 	clj_release(old);
 	return CLJ_NIL;
 }
@@ -176,7 +174,7 @@ clj_value clj_array_clone(clj_value arr) {
 	clj_array *c = clj_array_of(copy);
 	memcpy(c->data, a->data, (size_t)a->count * kind_size[a->kind]);
 	if (a->kind == CLJ_ARRAY_OBJECT) {
-		for (uint32_t i = 0; i < a->count; i++) clj_retain(((clj_value *)c->data)[i]);
+		for (uint32_t i = 0; i < a->count; i++) clj_retain(((const clj_slot *)c->data)[i].v);
 	}
 	return copy;
 }
@@ -208,7 +206,7 @@ clj_value clj_array_from_seq(clj_array_kind kind, clj_value coll) {
 static void array_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_array *a = self;
 	if (a->kind != CLJ_ARRAY_OBJECT) return;
-	for (uint32_t i = 0; i < a->count; i++) visit(((clj_value *)a->data)[i], ctx);
+	for (uint32_t i = 0; i < a->count; i++) visit(((const clj_slot *)a->data)[i].v, ctx);
 }
 
 // Identity, as on the JVM: a mutable array is never equal to a copy of itself and hashes by address.
@@ -229,7 +227,7 @@ static clj_value array_lookup(clj_value self, clj_value key, clj_value not_found
 static clj_value array_seq(clj_value self) {
 	if (!clj_array_count(self)) return CLJ_NIL;
 	clj_array_seq *s = clj_alloc(&clj_array_seq_type, sizeof *s);
-	s->arr = clj_retain(self);
+	clj_slot_init(&s->h, &s->arr, clj_retain(self));
 	return clj_from_ptr(s);
 }
 
@@ -268,36 +266,36 @@ static clj_array_seq *seq_of(clj_value v) { return (clj_array_seq *)clj_to_ptr(v
 
 static void array_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_array_seq *s = self;
-	visit(s->arr, ctx);
-	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+	visit(s->arr.v, ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
 
 static clj_value array_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_array_seq)); }
 
 static clj_value array_seq_with_meta(clj_value self, clj_value m) { return clj_view_with_meta(self, m, sizeof(clj_array_seq)); }
 
-static clj_value array_seq_first(clj_value self) { return clj_array_get(seq_of(self)->arr, seq_of(self)->i); }
+static clj_value array_seq_first(clj_value self) { return clj_array_get(seq_of(self)->arr.v, seq_of(self)->i); }
 
 // ArraySeq.next hands the metadata on, as a string-seq's does.
 static clj_value array_seq_next(clj_value self) {
 	clj_array_seq *s = seq_of(self);
-	if (s->i + 1 >= clj_array_count(s->arr)) return CLJ_NIL;
+	if (s->i + 1 >= clj_array_count(s->arr.v)) return CLJ_NIL;
 	clj_value      m = clj_meta_trailing(s, sizeof *s);
 	bool           word = !clj_is_nil(m);
 	clj_array_seq *next = clj_alloc(&clj_array_seq_type, sizeof *next + (word ? sizeof(clj_value) : 0));
 	next->i = s->i + 1;
-	next->arr = clj_retain(s->arr);
+	clj_slot_init(&next->h, &next->arr, clj_retain(s->arr.v));
 	if (word) {
 		next->h.flags |= CLJ_FLAG_META;
-		*clj_meta_slot_at(next, sizeof *next) = clj_retain(m);
+		clj_slot_init(&next->h, clj_meta_slot_at(next, sizeof *next), clj_retain(m));
 	}
 	return clj_from_ptr(next);
 }
 
-static clj_value array_seq_count(clj_value self) { return clj_fixnum(clj_array_count(seq_of(self)->arr) - seq_of(self)->i); }
+static clj_value array_seq_count(clj_value self) { return clj_fixnum(clj_array_count(seq_of(self)->arr.v) - seq_of(self)->i); }
 
 static clj_value array_seq_reduce(clj_value self, clj_value f, clj_value init) {
-	return array_reduce_from(seq_of(self)->arr, seq_of(self)->i, f, init);
+	return array_reduce_from(seq_of(self)->arr.v, seq_of(self)->i, f, init);
 }
 
 const clj_type clj_array_seq_type = {

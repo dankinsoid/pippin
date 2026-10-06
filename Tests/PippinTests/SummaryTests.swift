@@ -52,7 +52,7 @@ private final class Summarized {
 	func argument(of name: String, _ i: Int, occurrence: Int = 0) -> String {
 		let calls = nodes.filter {
 			guard $0.pointee.kind == CLJ_NODE_INVOKE, $0.pointee.u.invoke.fn.pointee.kind == CLJ_NODE_VAR else { return false }
-			return Value(borrowing: $0.pointee.u.invoke.fn.pointee.u.var).description == "#'" + name
+			return Value(borrowing: $0.pointee.u.invoke.fn.pointee.u.var.v).description == "#'" + name
 		}
 		guard occurrence < calls.count else { return "<missing>" }
 		return fact(calls[occurrence].pointee.u.invoke.args[i]!.pointee.id)

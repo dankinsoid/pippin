@@ -17,15 +17,15 @@ static clj_value core_ns, user_ns;
 
 static void ns_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_ns *n = self;
-	visit(n->name, ctx);
-	visit(n->mappings, ctx);
-	visit(n->refers, ctx);
-	visit(n->aliases, ctx);
-	visit(n->excludes, ctx);
-	visit(n->meta, ctx);
+	visit(n->name.v, ctx);
+	visit(n->mappings.v, ctx);
+	visit(n->refers.v, ctx);
+	visit(n->aliases.v, ctx);
+	visit(n->excludes.v, ctx);
+	visit(n->meta.v, ctx);
 }
 
-static clj_value ns_meta(clj_value self) { return clj_retain(clj_ns_of(self)->meta); }
+static clj_value ns_meta(clj_value self) { return clj_retain(clj_ns_of(self)->meta.v); }
 
 // IMeta without IObj, like a var: the meta changes through alter-meta!/reset-meta!.
 const clj_type clj_ns_type = {
@@ -37,12 +37,6 @@ const clj_type clj_ns_type = {
 	.meta = ns_meta,
 };
 
-// Replaces a slot of a shared owner: the new value must be shared before it becomes reachable.
-static void store(clj_value *slot, clj_value v) {
-	clj_share(v);
-	*slot = v;
-}
-
 static clj_value find_locked(clj_value name) {
 	return clj_is_nil(registry) ? CLJ_NIL : clj_map_get(registry, name, CLJ_NIL);
 }
@@ -52,17 +46,15 @@ static clj_value find_or_create_locked(clj_value name) {
 	if (!clj_is_nil(ns)) return ns;
 	clj_ns *n = clj_alloc(&clj_ns_type, sizeof *n);
 	n->h.flags |= CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED;
-	clj_share(name);
-	n->name = clj_retain(name);
-	n->mappings = clj_map_empty();
-	n->refers = clj_map_empty();
-	n->aliases = clj_map_empty();
-	n->meta = CLJ_NIL;
+	clj_slot_store(&n->h, &n->name, clj_retain(name));
+	clj_slot_init(&n->h, &n->mappings, clj_map_empty());
+	clj_slot_init(&n->h, &n->refers, clj_map_empty());
+	clj_slot_init(&n->h, &n->aliases, clj_map_empty());
 	ns = clj_from_ptr(n);
 	if (clj_is_nil(registry)) registry = clj_map_empty();
-	store(&registry, clj_map_assoc(registry, name, ns));
+	clj_root_store(&registry, clj_map_assoc(registry, name, ns));
 	if (clj_is_nil(all)) all = clj_vector_empty();
-	store(&all, clj_vector_conj(all, ns));
+	clj_root_store(&all, clj_vector_conj(all, ns));
 	return ns;
 }
 
@@ -93,10 +85,10 @@ clj_value clj_ns_intern(clj_value ns, clj_value sym) {
 	CLJ_ASSERT(clj_is_symbol(sym) && clj_is_nil(clj_symbol_ns(sym)), "interned symbol must be unqualified");
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
-	clj_value var = clj_map_get(n->mappings, sym, CLJ_NIL);
+	clj_value var = clj_map_get(n->mappings.v, sym, CLJ_NIL);
 	if (clj_is_nil(var)) {
-		var = clj_var_new(n->name, sym);
-		store(&n->mappings, clj_map_assoc(n->mappings, sym, var));
+		var = clj_var_new(n->name.v, sym);
+		clj_slot_store(&n->h, &n->mappings, clj_map_assoc(n->mappings.v, sym, var));
 	}
 	clj_lock_unlock(&lock);
 	return var;
@@ -105,15 +97,15 @@ clj_value clj_ns_intern(clj_value ns, clj_value sym) {
 void clj_ns_refer(clj_value ns, clj_value sym, clj_value var) {
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
-	store(&n->refers, clj_map_assoc(n->refers, sym, var));
+	clj_slot_store(&n->h, &n->refers, clj_map_assoc(n->refers.v, sym, var));
 	clj_lock_unlock(&lock);
 }
 
 void clj_ns_unmap(clj_value ns, clj_value sym) {
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
-	store(&n->mappings, clj_map_dissoc(n->mappings, sym));
-	store(&n->refers, clj_map_dissoc(n->refers, sym));
+	clj_slot_store(&n->h, &n->mappings, clj_map_dissoc(n->mappings.v, sym));
+	clj_slot_store(&n->h, &n->refers, clj_map_dissoc(n->refers.v, sym));
 	clj_lock_unlock(&lock);
 }
 
@@ -121,26 +113,26 @@ void clj_ns_alias(clj_value ns, clj_value alias, clj_value target) {
 	CLJ_ASSERT(clj_is_ns(target), "alias target must be a namespace");
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
-	store(&n->aliases, clj_map_assoc(n->aliases, alias, target));
+	clj_slot_store(&n->h, &n->aliases, clj_map_assoc(n->aliases.v, alias, target));
 	clj_lock_unlock(&lock);
 }
 
-clj_value clj_ns_mappings(clj_value ns) { return clj_ns_of(ns)->mappings; }
-clj_value clj_ns_refers(clj_value ns) { return clj_ns_of(ns)->refers; }
-clj_value clj_ns_aliases(clj_value ns) { return clj_ns_of(ns)->aliases; }
+clj_value clj_ns_mappings(clj_value ns) { return clj_ns_of(ns)->mappings.v; }
+clj_value clj_ns_refers(clj_value ns) { return clj_ns_of(ns)->refers.v; }
+clj_value clj_ns_aliases(clj_value ns) { return clj_ns_of(ns)->aliases.v; }
 
 void clj_ns_set_excludes(clj_value ns, clj_value excludes) {
 	CLJ_ASSERT(clj_is_nil(excludes) || clj_is_set(excludes), "excludes must be a set or nil");
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
-	clj_value old = n->excludes;
-	store(&n->excludes, clj_retain(excludes));
+	clj_value old = n->excludes.v;
+	clj_slot_store(&n->h, &n->excludes, clj_retain(excludes));
 	clj_release(old);
 	clj_lock_unlock(&lock);
 }
 
 static clj_value resolve_ns_locked(clj_ns *n, clj_value name) {
-	clj_value target = clj_map_get(n->aliases, name, CLJ_NIL);
+	clj_value target = clj_map_get(n->aliases.v, name, CLJ_NIL);
 	return clj_is_nil(target) ? find_locked(name) : target;
 }
 
@@ -149,10 +141,10 @@ clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 	clj_ns   *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
 	if (clj_is_nil(clj_symbol_ns(sym))) {
-		var = clj_map_get(n->mappings, sym, CLJ_NIL);
-		if (clj_is_nil(var)) var = clj_map_get(n->refers, sym, CLJ_NIL);
-		if (clj_is_nil(var) && !clj_is_nil(core_ns) && core_ns != ns && !(!clj_is_nil(n->excludes) && clj_set_contains(n->excludes, sym))) {
-			var = clj_map_get(clj_ns_of(core_ns)->mappings, sym, CLJ_NIL);
+		var = clj_map_get(n->mappings.v, sym, CLJ_NIL);
+		if (clj_is_nil(var)) var = clj_map_get(n->refers.v, sym, CLJ_NIL);
+		if (clj_is_nil(var) && !clj_is_nil(core_ns) && core_ns != ns && !(!clj_is_nil(n->excludes.v) && clj_set_contains(n->excludes.v, sym))) {
+			var = clj_map_get(clj_ns_of(core_ns)->mappings.v, sym, CLJ_NIL);
 			if (!clj_is_nil(var) && clj_var_is_private(var)) var = CLJ_NIL;
 		}
 	} else {
@@ -161,7 +153,7 @@ clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 		clj_release(ns_name);
 		if (!clj_is_nil(target)) {
 			clj_value name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
-			var = clj_map_get(clj_ns_of(target)->mappings, name, CLJ_NIL);
+			var = clj_map_get(clj_ns_of(target)->mappings.v, name, CLJ_NIL);
 			clj_release(name);
 		}
 	}
@@ -222,14 +214,14 @@ void clj_ns_set_current(clj_value ns) {
 	else clj_release(clj_volatile_reset(box, ns));
 }
 
-clj_value clj_ns_meta(clj_value ns) { return clj_ns_of(ns)->meta; }
+clj_value clj_ns_meta(clj_value ns) { return clj_ns_of(ns)->meta.v; }
 
 // Retained like a var's meta, and the old one released: a borrowed clj_ns_meta has the var's caveat against a writer.
 void clj_ns_set_meta(clj_value ns, clj_value m) {
-	clj_share(m);
+	clj_ns   *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
-	clj_value old = clj_ns_of(ns)->meta;
-	clj_ns_of(ns)->meta = clj_retain(m);
+	clj_value old = n->meta.v;
+	clj_slot_store(&n->h, &n->meta, clj_retain(m));
 	clj_lock_unlock(&lock);
 	clj_release(old);
 }

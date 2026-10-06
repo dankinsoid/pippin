@@ -82,13 +82,13 @@ struct clj_node {
 	uint32_t      line, col; // of the innermost enclosing list the reader positioned; 0 when unknown
 	uint32_t      site;      // INVOKE: ordinal among the tree's invoke nodes, the index of its call-site cache in the exec (eval.h)
 	union {
-		clj_value value; // const
+		clj_slot  value; // const
 		uint32_t  index; // captured
 		struct {
 			uint32_t index;
 			bool     last; // the last use of the slot on its path (optimizer.c): the frame's reference goes to the consumer
 		} local;
-		clj_value var;   // var
+		clj_slot  var;   // var
 		struct {
 			uint32_t depth, index; // outer: depth >= 1
 		} outer;
@@ -111,7 +111,7 @@ struct clj_node {
 			uint32_t         n;
 		} recur;
 		struct {
-			clj_value      name; // symbol or nil
+			clj_slot       name; // symbol or nil
 			clj_fn_arity  *fixed[CLJ_FN_MAX_FIXED + 1];
 			clj_fn_arity  *variadic; // NULL on a direct fn
 			clj_capture   *captures; // none on a direct fn: its body reads the defining frame through OUTER nodes
@@ -133,13 +133,13 @@ struct clj_node {
 		} invoke;
 		// Labels are syntax, folded into one selector here, so no backend reads them again (design §5).
 		struct {
-			clj_value        selector; // string: base plus every label, each colon-terminated
+			clj_slot         selector; // string: base plus every label, each colon-terminated
 			const clj_node  *target;
 			const clj_node **args;
 			uint32_t         n;
 		} objc;
 		struct {
-			clj_value       var;
+			clj_slot        var;
 			const clj_node *init;    // NULL for (def x)
 			const clj_node *meta;    // the var's meta: the symbol's meta plus :ns :name :line :column, evaluated at def time
 			bool            macro;   // :macro true in the symbol's meta (defmacro puts it there)
@@ -154,7 +154,7 @@ struct clj_node {
 		const clj_node *throw_; // the value to throw
 		struct {
 			const clj_intrinsic *op;
-			clj_value            var;  // the core var the head resolved to; its root is checked against op's boot fn on every call
+			clj_slot             var;  // the core var the head resolved to; its root is checked against op's boot fn on every call
 			const clj_node     **args; // n == op->arity
 			uint32_t             n;
 		} intrinsic;

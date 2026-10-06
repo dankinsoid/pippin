@@ -1763,3 +1763,41 @@ interpreted stack and caught 20 000 times.
   way, and the capture object and its retains are the difference.
 - A cancellation captures nothing at all (design §4), so the frequent path — a scope teardown, an nREPL
   interrupt, a deadline — pays neither.
+
+
+## Slot primitive — 2026-10-06, Intel i9-9980HK (x86_64), macOS 26.7.1, Swift 6.3.3 (release, pool only)
+
+Every edge of a heap object became a `clj_slot`, written through `clj_slot_store`/`clj_slot_init`/`clj_slot_clear`
+(design §4 «Запись в слот», NOTES "RC", "Slots"); atoms and channels are born shared. Before = 7915ef9, after = the
+commit of this section, both `clj-bench` release binaries built from clean scratch paths, run alternately three
+times each (before, after, after, before, after, before) on an otherwise idle laptop; each cell is a run's own
+median of five. This machine's run-to-run noise is ±5 % on most rows and up to ±30 % on the shortest ones (the
+same binary against itself), so the rows are listed run by run.
+
+| scenario | n | before | after |
+|---|---:|---|---|
+| map assoc, old version dropped | 1000 | 83.5 · 81.6 · 79.4 | 81.5 · 84.5 · 83.0 |
+| map assoc, all versions kept | 100000 | 1201 · 1208 · 1216 | 1242 · 1272 · 1254 |
+| map get, hit | 100000 | 53.9 · 69.6 · 52.1 | 55.5 · 54.1 · 55.1 |
+| vector conj, old version dropped | 100000 | 14.7 · 14.7 · 15.1 | 15.1 · 14.8 · 14.5 |
+| vector conj, all versions kept | 1000 | 114.0 · 119.2 · 117.4 | 117.6 · 114.2 · 115.3 |
+| loop assoc into a map (no atom) | 100000 | 167.3 · 175.9 · 200.3 | 185.8 · 172.2 · 185.1 |
+| swap! inc | 100000 | 79.2 · 80.9 · 89.0 | 87.2 · 81.3 · 81.7 |
+| get @atom :k | 100000 | 86.3 · 87.5 · 109.2 | 93.8 · 85.5 · 96.9 |
+| swap! assoc, map of 16 keys | 100000 | 423.4 · 440.9 · 476.0 | 443.6 · 422.9 · 433.2 |
+| swap! assoc, map of 1000 keys | 100000 | 1177 · 1214 · 1203 | 1216 · 1137 · 1170 |
+| swap! assoc, watched | 100000 | 1946 · 2016 · 2277 | 2072 · 1917 · 2011 |
+| swap! inc, 4 threads | 100000 | 237.3 · 238.3 · 232.4 | 241.5 · 229.2 · 231.5 |
+
+- **The release primitives compile to the code they replaced.** The machine code of the 2172 functions present in
+  both binaries, addresses and RIP displacements normalized, is identical for 2038; every map, vector, set, sorted
+  and shape-map internal is among them except sorted's `node_assoc`/`node_delete` (a dead `= nil` store removed)
+  and `smap_permuted` (the new key through `clj_slot_store`, the moved ones through `clj_slot_init`). The 133 that
+  differ are the intended changes — atom, channel, var and namespace stores now test the owner's flag where they
+  called `clj_share` unconditionally (atoms and channels are born shared, so the test always takes the call), the
+  optimizer's node stores test it too, `clj_vector_pop` to empty stores two slots — and the record and deftype
+  paths, whose `clj_user_type` field offsets moved by the new `clj_type.debug_lock_held` word.
+- **So the map rows' spread is layout, not work** (the caveat in NOTES "Benchmarks"): "all versions kept" at
+  100000 reads +3.5 % in all three pairs with byte-identical copy and assoc code, and "loop assoc" moves either
+  way. The atom rows, where the stores did change, are within noise: `swap! inc` and `deref` 81–96 against
+  79–109, the contended counter 229–242 against 232–238.

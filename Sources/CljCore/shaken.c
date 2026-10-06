@@ -10,10 +10,10 @@
 
 typedef struct {
 	clj_header h;
-	clj_value  var; // the dropped def's var: immortal, so the field is borrowed and the type has no each_child
+	clj_slot   var; // the dropped def's var: immortal, so the field is borrowed and the type has no each_child
 } clj_shaken;
 
-clj_value clj_shaken_var(clj_value v) { return ((const clj_shaken *)clj_to_ptr(v))->var; }
+clj_value clj_shaken_var(clj_value v) { return ((const clj_shaken *)clj_to_ptr(v))->var.v; }
 
 // Fatal and not a throw: a catch-all must not turn a build bug into a wrong answer.
 static clj_value reached(clj_value self, const char *op) {
@@ -99,7 +99,7 @@ clj_value clj_shaken_new(clj_value var) {
 	int64_t     before = clj_debug_live_objects();
 	clj_shaken *s = clj_alloc(&clj_shaken_type, sizeof *s);
 	s->h.flags |= CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED;
-	s->var = var;
+	clj_slot_init(&s->h, &s->var, var);
 	if (before >= 0) clj_debug_live_objects_exclude(clj_debug_live_objects() - before);
 	return clj_from_ptr(s);
 }

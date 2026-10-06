@@ -10,9 +10,9 @@ typedef struct {
 	clj_header h;
 	uint32_t   id;
 	uint64_t   core_bits; // nonzero: a core interface with no methods; satisfies? reads the bits, extend refuses it
-	clj_value  name;      // qualified symbol
-	clj_value  methods;   // vector of unqualified symbols
-	clj_value  sigs;      // vector, per method, of param vectors
+	clj_slot   name;      // qualified symbol
+	clj_slot   methods;   // vector of unqualified symbols
+	clj_slot   sigs;      // vector, per method, of param vectors
 	_Atomic uint32_t user_types, user_records; // extends by deftypes and by records ever, since those types have no registry (facts)
 } clj_protocol;
 
@@ -93,16 +93,16 @@ typedef enum {
 
 typedef struct {
 	clj_type  t;
-	clj_value name;   // string; t.name points into it
-	clj_value fields; // vector of symbols
+	clj_slot  name;   // string; t.name points into it
+	clj_slot  fields; // vector of symbols
 	uint32_t  nfields;
-	clj_value core_fns[CLJ_CORE_METHOD_COUNT]; // the fn behind each core slot, nil where not given; written at creation only
+	clj_slot  core_fns[CLJ_CORE_METHOD_COUNT]; // the fn behind each core slot, nil where not given; written at creation only
 } clj_user_type;
 
 // Identity equality and hash, as Clojure's deftype.
 typedef struct {
 	clj_header h;
-	clj_value  fields[];
+	clj_slot   fields[];
 } clj_instance;
 
 // name is a bare symbol, qualified as ns.Name. impls alternates a protocol or core interface with a method map

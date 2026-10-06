@@ -105,7 +105,7 @@ clj_value clj_shadow_stack_trace(size_t max) {
 	clj_trace_capture *t = clj_alloc(&clj_trace_type, sizeof *t + (n + spawned) * sizeof *t->frames);
 	t->n = (uint32_t)n + spawned;
 	for (size_t i = 0; i < n; i++) {
-		clj_value name = frames[i].fn->u.fn.name;
+		clj_value name = frames[i].fn->u.fn.name.v;
 		clj_share(name); // the capture outlives its coroutine and is read from another
 		t->frames[i] = (clj_spawn_frame){clj_retain(name), frames[i].at->line, frames[i].at->col};
 	}
@@ -126,7 +126,7 @@ clj_value clj_trace_vector(const clj_trace_frame *frames, size_t n) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value trace = clj_vector_empty();
 	for (size_t i = 0; i < n; i++) {
-		clj_value m = frame_map(frames[i].fn->u.fn.name, frames[i].at->line, frames[i].at->col);
+		clj_value m = frame_map(frames[i].fn->u.fn.name.v, frames[i].at->line, frames[i].at->col);
 		trace = clj_vector_conj(trace, m);
 		clj_release(m);
 	}
@@ -171,7 +171,7 @@ void clj_coro_capture_spawn_trace(clj_coro *c) {
 	c->spawn_trace = n + inherited <= CLJ_CORO_SPAWN_TRACE_INLINE ? c->spawn_inline : malloc((n + inherited) * sizeof *c->spawn_trace);
 	if (!c->spawn_trace) clj_fatal("out of memory");
 	for (size_t i = 0; i < n; i++) {
-		clj_value name = frames[i].fn->u.fn.name;
+		clj_value name = frames[i].fn->u.fn.name.v;
 		clj_share(name);
 		c->spawn_trace[i] = (clj_spawn_frame){clj_retain(name), frames[i].at->line, frames[i].at->col};
 	}
@@ -235,7 +235,7 @@ void clj_trace_write(int fd, const clj_trace_origin *origin) {
 	size_t          n = clj_trace_collect(frames, TRACE_MAX, origin);
 	for (size_t i = 0; i < n; i++) {
 		put_cstr("  at ");
-		put_symbol(frames[i].fn->u.fn.name);
+		put_symbol(frames[i].fn->u.fn.name.v);
 		put_cstr(" (");
 		put_num(frames[i].at->line);
 		put_cstr(":");

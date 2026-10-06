@@ -160,6 +160,30 @@ extension CoreTests {
 			#expect(stderrText(result).contains("share cutoff: shared cons over unshared cons"))
 		}
 
+		// @ai-generated(solo)
+		@Test(.enabled(if: debugChecks)) func aStoreIntoAnAtomWithoutItsLockDies() async {
+			let result = await #expect(processExitsWith: .failure, observing: [\.standardErrorContent]) {
+				setenv("CLJ_CRASH_EXIT", "1", 1)
+				clj_init()
+				let atom = clj_atom_new(clj_fixnum(0), CLJ_NIL, CLJ_NIL)
+				clj_retain(atom) // a second holder: past the creator's fill, the lock is required
+				clj_debug_slot_store_check(clj_header_of(atom), clj_fixnum(1))
+			}
+			#expect(stderrText(result).contains("store into a slot of atom without its lock"))
+		}
+
+		// @ai-generated(solo)
+		@Test(.enabled(if: debugChecks)) func aStoreIntoAChannelWithoutItsLockDies() async {
+			let result = await #expect(processExitsWith: .failure, observing: [\.standardErrorContent]) {
+				setenv("CLJ_CRASH_EXIT", "1", 1)
+				clj_init()
+				let ch = clj_chan_new(clj_fixnum(1))
+				clj_retain(ch)
+				clj_debug_slot_store_check(clj_header_of(ch), clj_fixnum(1))
+			}
+			#expect(stderrText(result).contains("store into a slot of channel without its lock"))
+		}
+
 		@Test func valueBorrowingRetains() {
 			let before = clj_debug_live_objects()
 			let c = clj_cons_new(clj_fixnum(1), CLJ_NIL)

@@ -9,14 +9,14 @@ static clj_lock  table_lock = CLJ_LOCK_INIT;
 static clj_value table; // symbol -> keyword; nil until the first intern
 
 static void keyword_each_child(void *self, clj_visitor visit, void *ctx) {
-	visit(((clj_keyword *)self)->sym, ctx);
+	visit(((clj_keyword *)self)->sym.v, ctx);
 }
 
 static uint32_t keyword_hash(void *self) {
 	clj_keyword *k = self;
 	uint32_t h = clj_hash_cache_load(&k->hash);
 	if (h) return h;
-	return clj_hash_cache_store(&k->hash, clj_hash_slow(k->sym) + 0x9e3779b9);
+	return clj_hash_cache_store(&k->hash, clj_hash_slow(k->sym.v) + 0x9e3779b9);
 }
 
 static bool keyword_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
@@ -44,12 +44,10 @@ static clj_value intern(clj_value sym) {
 	if (clj_is_nil(kw)) {
 		clj_keyword *k = clj_alloc(&clj_keyword_type, sizeof *k);
 		k->h.flags |= CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED;
-		clj_share(sym);
-		k->sym = sym;
+		clj_slot_store(&k->h, &k->sym, sym);
 		kw = clj_from_ptr(k);
-		table = clj_map_assoc(table, sym, kw);
 		// Every execution that interns takes the table in turn: an interned table is a publication (design §4).
-		clj_share(table);
+		clj_root_store(&table, clj_map_assoc(table, sym, kw));
 	} else {
 		clj_release(sym);
 	}

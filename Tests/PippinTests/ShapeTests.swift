@@ -258,7 +258,7 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		@Test func sharedMapStaysShared() throws {
+		@Test(.enabled(if: clj_reuse_enabled())) func sharedMapStaysShared() throws {
 			let before = clj_debug_live_objects()
 			do {
 				let x = clj_string_from_cstr("x")

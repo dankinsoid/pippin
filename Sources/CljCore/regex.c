@@ -1222,17 +1222,17 @@ static int re_exec(clj_value re, const re_text *t, uint32_t from, bool whole, in
 
 static void regex_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_regex *r = self;
-	visit(r->pattern, ctx);
-	visit(r->names, ctx);
+	visit(r->pattern.v, ctx);
+	visit(r->names.v, ctx);
 }
 
 static void regex_finalize(void *self) { prog_free(((clj_regex *)self)->prog); }
 
 // JVM patterns are equal by identity; a value type costs nothing here (docs/jvm-differences.md).
-static uint32_t regex_hash(void *self) { return clj_hash(((clj_regex *)self)->pattern); }
+static uint32_t regex_hash(void *self) { return clj_hash(((clj_regex *)self)->pattern.v); }
 
 static bool regex_equals(void *self, clj_value other) {
-	return clj_is_regex(other) && clj_equals(((clj_regex *)self)->pattern, clj_regex_pattern(other));
+	return clj_is_regex(other) && clj_equals(((clj_regex *)self)->pattern.v, clj_regex_pattern(other));
 }
 
 const clj_type clj_regex_type = {
@@ -1246,8 +1246,8 @@ const clj_type clj_regex_type = {
 
 static void matcher_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_matcher *m = self;
-	visit(m->re, ctx);
-	visit(m->input, ctx);
+	visit(m->re.v, ctx);
+	visit(m->input.v, ctx);
 }
 
 static void matcher_finalize(void *self) {
@@ -1260,7 +1260,7 @@ static void matcher_finalize(void *self) {
 static clj_value matcher_lookup(clj_value self, clj_value key, clj_value not_found) {
 	clj_matcher *m = clj_matcher_of(self);
 	intptr_t     n;
-	if (!clj_index_arg(key, &n) || !m->matched || n < 0 || (uintptr_t)n > clj_regex_group_count(m->re)) return clj_retain(not_found);
+	if (!clj_index_arg(key, &n) || !m->matched || n < 0 || (uintptr_t)n > clj_regex_group_count(m->re.v)) return clj_retain(not_found);
 	return clj_matcher_group(self, n);
 }
 
@@ -1318,8 +1318,8 @@ clj_value clj_regex_new(clj_value pattern) {
 	}
 	p->nslots = bounds + p->nmarks;
 	clj_regex *r = clj_alloc(&clj_regex_type, sizeof *r);
-	r->pattern = clj_retain(pattern);
-	r->names = c.names;
+	clj_slot_init(&r->h, &r->pattern, clj_retain(pattern));
+	clj_slot_init(&r->h, &r->names, c.names);
 	r->prog = p;
 	r->ngroups = c.ngroups;
 	return clj_from_ptr(r);
@@ -1329,8 +1329,8 @@ clj_value clj_matcher_new(clj_value re, clj_value input) {
 	if (!clj_is_regex(re)) return clj_throw_msg("re-matcher expects a pattern, got: %s", clj_type_name(re));
 	if (!clj_is_string(input)) return clj_throw_msg("re-matcher expects a string, got: %s", clj_type_name(input));
 	clj_matcher *m = clj_alloc(&clj_matcher_type, sizeof *m);
-	m->re = clj_retain(re);
-	m->input = clj_retain(input);
+	clj_slot_init(&m->h, &m->re, clj_retain(re));
+	clj_slot_init(&m->h, &m->input, clj_retain(input));
 	m->text = calloc(1, sizeof(re_text));
 	if (!m->text) clj_fatal("out of memory");
 	text_of(input, m->text);
@@ -1385,7 +1385,7 @@ clj_value clj_matcher_find(clj_value m) {
 		x->matched = false;
 		return CLJ_NIL;
 	}
-	int hit = re_exec(x->re, t, x->from, false, x->slots);
+	int hit = re_exec(x->re.v, t, x->from, false, x->slots);
 	if (hit < 0) return CLJ_THROWN;
 	if (!hit) {
 		x->matched = false;
@@ -1395,24 +1395,24 @@ clj_value clj_matcher_find(clj_value m) {
 	x->matched = true;
 	// An empty match would find itself for ever, so the scan moves on by one.
 	x->from = (uint32_t)x->slots[1] + (x->slots[0] == x->slots[1] ? 1 : 0);
-	return result_of(x->re, x->input, t, x->slots);
+	return result_of(x->re.v, x->input.v, t, x->slots);
 }
 
 clj_value clj_matcher_groups(clj_value m) {
 	if (!clj_is_matcher(m)) return clj_throw_msg("re-groups expects a matcher, got: %s", clj_type_name(m));
 	clj_matcher *x = clj_matcher_of(m);
 	if (!x->matched) return clj_throw_msg("No match found");
-	return result_of(x->re, x->input, x->text, x->slots);
+	return result_of(x->re.v, x->input.v, x->text, x->slots);
 }
 
 clj_value clj_matcher_group(clj_value m, intptr_t n) {
 	clj_matcher *x = clj_matcher_of(m);
 	if (!x->matched) return clj_throw_msg("No match found");
-	uint32_t count = clj_regex_group_count(x->re);
+	uint32_t count = clj_regex_group_count(x->re.v);
 	if (n < 0 || (uintptr_t)n > count) return clj_throw_msg("Index %lld out of bounds for length %u", (long long)n, count + 1);
 	int32_t from = x->slots[2 * n], to = x->slots[2 * n + 1];
 	if (from < 0) return CLJ_NIL;
-	return text_slice(x->text, x->input, (uint32_t)from, (uint32_t)to);
+	return text_slice(x->text, x->input.v, (uint32_t)from, (uint32_t)to);
 }
 
 // ---- clojure.string's regex paths
@@ -1524,7 +1524,7 @@ static bool expand(buf *b, clj_value re, clj_value s, const re_text *t, const in
 				return false;
 			}
 			clj_value name = clj_string_new(r + start, end - start);
-			clj_value idx = clj_is_nil(clj_regex_of(re)->names) ? CLJ_NIL : clj_map_get(clj_regex_of(re)->names, name, CLJ_NIL);
+			clj_value idx = clj_is_nil(clj_regex_of(re)->names.v) ? CLJ_NIL : clj_map_get(clj_regex_of(re)->names.v, name, CLJ_NIL);
 			bool      known = clj_is_fixnum(idx);
 			group = known ? (uint32_t)clj_fixnum_val(idx) : 0;
 			clj_release(name);

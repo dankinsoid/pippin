@@ -271,11 +271,11 @@ clj_value clj_load_take_failures(void) {
 
 clj_value clj_load_form_name(clj_value form) {
 	if (!clj_is_list(form) || clj_is_empty_list(form)) return CLJ_NIL;
-	clj_value head = clj_cons_of(form)->first;
+	clj_value head = clj_cons_of(form)->first.v;
 	if (!clj_is_symbol(head) || strncmp(clj_string_bytes(clj_symbol_name(head)), "def", 3) != 0) return CLJ_NIL;
-	clj_value rest = clj_cons_of(form)->rest;
+	clj_value rest = clj_cons_of(form)->rest.v;
 	if (!clj_is_list(rest) || clj_is_empty_list(rest)) return CLJ_NIL;
-	clj_value name = clj_cons_of(rest)->first;
+	clj_value name = clj_cons_of(rest)->first.v;
 	return clj_is_symbol(name) ? name : CLJ_NIL;
 }
 
@@ -293,9 +293,8 @@ static void record_failure(clj_value file, uint32_t line, uint32_t col, clj_valu
 	m = clj_map_assoc(m, clj_keyword_from_cstr("message"), message);
 	clj_lock_lock(&lock);
 	if (clj_is_nil(failures)) failures = clj_vector_empty();
-	failures = clj_vector_conj(failures, m);
 	// Any loading execution appends and another takes the vector (clj_load_take_failures): a publication.
-	clj_share(failures);
+	clj_root_store(&failures, clj_vector_conj(failures, m));
 	clj_lock_unlock(&lock);
 	clj_release(m);
 }

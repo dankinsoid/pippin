@@ -183,9 +183,9 @@ bool clj_node_foldable(clj_value v) {
 		clj_set_each(v, foldable_item, &ok);
 	} else if (clj_is_list(v)) {
 		// By cell, not through the iterator: a cons over a lazy tail must not be realized here.
-		for (; ok && !clj_is_empty_list(v); v = clj_cons_of(v)->rest) {
+		for (; ok && !clj_is_empty_list(v); v = clj_cons_of(v)->rest.v) {
 			if (!clj_is_ptr(v) || clj_header_of(v)->type != &clj_list_type) return clj_is_nil(v);
-			ok = clj_node_foldable(clj_cons_of(v)->first);
+			ok = clj_node_foldable(clj_cons_of(v)->first.v);
 		}
 	} else {
 		return false;
@@ -257,10 +257,10 @@ static clj_value encode_capture(const clj_capture *c) {
 }
 
 static clj_value encode_fn(const clj_node *n) {
-	if (n->kind == CLJ_NODE_DIRECT_FN) return vec3(kw_direct_fn, clj_retain(n->u.fn.name), encode_arities(n));
+	if (n->kind == CLJ_NODE_DIRECT_FN) return vec3(kw_direct_fn, clj_retain(n->u.fn.name.v), encode_arities(n));
 	clj_value *captures = zalloc(n->u.fn.ncaptures, sizeof *captures);
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) captures[i] = encode_capture(&n->u.fn.captures[i]);
-	clj_value v = vec4(kw_fn, clj_retain(n->u.fn.name), encode_arities(n), vec_take(captures, n->u.fn.ncaptures));
+	clj_value v = vec4(kw_fn, clj_retain(n->u.fn.name.v), encode_arities(n), vec_take(captures, n->u.fn.ncaptures));
 	free(captures);
 	return v;
 }
@@ -317,15 +317,15 @@ static clj_value encode(const clj_node *n) {
 static clj_value encode_kind(const clj_node *n) {
 	switch (n->kind) {
 	case CLJ_NODE_CONST:
-		if (clj_is_var(n->u.value)) return vec2(kw_the_var, qualified(n->u.value));
-		if (!serializable(n->u.value)) return CLJ_THROWN;
-		return vec2(kw_const, clj_retain(n->u.value));
+		if (clj_is_var(n->u.value.v)) return vec2(kw_the_var, qualified(n->u.value.v));
+		if (!serializable(n->u.value.v)) return CLJ_THROWN;
+		return vec2(kw_const, clj_retain(n->u.value.v));
 	case CLJ_NODE_LOCAL:
 		if (n->u.local.last) return vec3(kw_local, clj_fixnum(n->u.local.index), kw_last);
 		return vec2(kw_local, clj_fixnum(n->u.local.index));
 	case CLJ_NODE_CAPTURED: return vec2(kw_captured, clj_fixnum(n->u.index));
 	case CLJ_NODE_OUTER: return vec2(kw_outer, vec2(clj_fixnum(n->u.outer.depth), clj_fixnum(n->u.outer.index)));
-	case CLJ_NODE_VAR: return vec2(kw_var, qualified(n->u.var));
+	case CLJ_NODE_VAR: return vec2(kw_var, qualified(n->u.var.v));
 	case CLJ_NODE_IF: {
 		const clj_node *arms[3] = {n->u.if_.test, n->u.if_.then, n->u.if_.else_};
 		return tagged(kw_if, arms, n->u.if_.else_ ? 3 : 2);
@@ -352,7 +352,7 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_OBJC_SEND: {
 		clj_value *items = zalloc(n->u.objc.n + 3, sizeof *items);
 		items[0] = kw_objc_send;
-		items[1] = clj_retain(n->u.objc.selector);
+		items[1] = clj_retain(n->u.objc.selector.v);
 		items[2] = encode(n->u.objc.target);
 		for (uint32_t i = 0; i < n->u.objc.n; i++) items[i + 3] = encode(n->u.objc.args[i]);
 		clj_value v = vec_take(items, n->u.objc.n + 3);
@@ -360,7 +360,7 @@ static clj_value encode_kind(const clj_node *n) {
 		return v;
 	}
 	case CLJ_NODE_DEF: {
-		clj_value items[6] = {kw_def, qualified(n->u.def.var), encode_opt(n->u.def.init), encode(n->u.def.meta), clj_bool(n->u.def.macro),
+		clj_value items[6] = {kw_def, qualified(n->u.def.var.v), encode_opt(n->u.def.init), encode(n->u.def.meta), clj_bool(n->u.def.macro),
 		                      clj_bool(n->u.def.dynamic)};
 		return vec_take(items, 6);
 	}
@@ -369,7 +369,7 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_INTRINSIC: {
 		clj_value *items = zalloc(n->u.intrinsic.n + 2, sizeof *items);
 		items[0] = kw_intrinsic;
-		items[1] = qualified(n->u.intrinsic.var);
+		items[1] = qualified(n->u.intrinsic.var.v);
 		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) items[i + 2] = encode(n->u.intrinsic.args[i]);
 		clj_value v = vec_take(items, n->u.intrinsic.n + 2);
 		free(items);
@@ -472,7 +472,7 @@ static clj_node *decode_direct_fn(clj_value data, dframe *fr, uint32_t slot) {
 	    !is_vector_of(clj_vector_nth(data, 2), 1))
 		return fail_data(data, "expected [name arities]");
 	clj_node *n = clj_node_alloc(CLJ_NODE_DIRECT_FN);
-	n->u.fn.name = clj_retain(clj_vector_nth(data, 1));
+	clj_slot_init(&n->h, &n->u.fn.name, clj_retain(clj_vector_nth(data, 1)));
 	dframe_bind(fr, slot, n);
 	if (!decode_arities(n, clj_vector_nth(data, 2), fr)) return drop(n);
 	if (!n->u.fn.variadic) return n;
@@ -572,7 +572,7 @@ static clj_node *decode_fn(clj_value data, dframe *fr) {
 		return fail_data(data, "expected [name arities captures]");
 	clj_value arities = clj_vector_nth(data, 2), captures = clj_vector_nth(data, 3);
 	clj_node *n = clj_node_alloc(CLJ_NODE_FN);
-	n->u.fn.name = clj_retain(clj_vector_nth(data, 1));
+	clj_slot_init(&n->h, &n->u.fn.name, clj_retain(clj_vector_nth(data, 1)));
 	n->u.fn.ncaptures = clj_vector_count(captures);
 	n->u.fn.captures = zalloc(n->u.fn.ncaptures, sizeof *n->u.fn.captures);
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
@@ -605,7 +605,7 @@ static clj_node *decode_def(clj_value data, dframe *fr) {
 	if (clj_is_nil(var) || !clj_is_bool(clj_vector_nth(data, 4)) || !clj_is_bool(clj_vector_nth(data, 5)))
 		return fail_data(data, "expected [ns/name init meta macro dynamic]");
 	clj_node *n = clj_node_alloc(CLJ_NODE_DEF);
-	n->u.def.var = clj_retain(var);
+	clj_slot_init(&n->h, &n->u.def.var, clj_retain(var));
 	n->u.def.macro = clj_vector_nth(data, 4) == CLJ_TRUE;
 	n->u.def.dynamic = clj_vector_nth(data, 5) == CLJ_TRUE;
 	clj_value init = clj_vector_nth(data, 2);
@@ -676,8 +676,8 @@ static clj_node *decode_var(clj_node_kind kind, clj_value data) {
 	clj_value var = clj_vector_count(data) == 2 ? var_named(clj_vector_nth(data, 1)) : CLJ_NIL;
 	if (clj_is_nil(var)) return fail_data(data, "expected a qualified symbol");
 	clj_node *n = clj_node_alloc(kind);
-	if (kind == CLJ_NODE_VAR) n->u.var = clj_retain(var);
-	else n->u.value = clj_retain(var);
+	if (kind == CLJ_NODE_VAR) clj_slot_init(&n->h, &n->u.var, clj_retain(var));
+	else clj_slot_init(&n->h, &n->u.value, clj_retain(var));
 	return n;
 }
 
@@ -694,7 +694,7 @@ static clj_node *decode_single(clj_node_kind kind, clj_value data, dframe *fr) {
 	if (clj_vector_count(data) != 2) return fail_data(data, "expected one item");
 	clj_node *n = clj_node_alloc(kind);
 	if (kind == CLJ_NODE_CONST) {
-		n->u.value = clj_retain(clj_vector_nth(data, 1));
+		clj_slot_init(&n->h, &n->u.value, clj_retain(clj_vector_nth(data, 1)));
 		return n;
 	}
 	return (n->u.throw_ = decode(clj_vector_nth(data, 1), fr)) ? n : drop(n);
@@ -722,7 +722,7 @@ static clj_node *decode_invoke(clj_value data, dframe *fr) {
 static clj_node *decode_objc_send(clj_value data, dframe *fr) {
 	if (clj_vector_count(data) < 3 || !clj_is_string(clj_vector_nth(data, 1))) return fail_data(data, "expected [\"selector\" target args*]");
 	clj_node *n = clj_node_alloc(CLJ_NODE_OBJC_SEND);
-	n->u.objc.selector = clj_retain(clj_vector_nth(data, 1));
+	clj_slot_init(&n->h, &n->u.objc.selector, clj_retain(clj_vector_nth(data, 1)));
 	n->u.objc.n = clj_vector_count(data) - 3;
 	n->u.objc.args = zalloc(n->u.objc.n, sizeof *n->u.objc.args);
 	if (!(n->u.objc.target = decode(clj_vector_nth(data, 2), fr))) return drop(n);
@@ -736,7 +736,7 @@ static clj_node *decode_intrinsic(clj_value data, dframe *fr) {
 	if (!op) return fail_data(data, "unknown intrinsic");
 	clj_node *n = clj_node_alloc(CLJ_NODE_INTRINSIC);
 	n->u.intrinsic.op = op;
-	n->u.intrinsic.var = clj_retain(clj_intrinsic_var(op));
+	clj_slot_init(&n->h, &n->u.intrinsic.var, clj_retain(clj_intrinsic_var(op)));
 	n->u.intrinsic.n = nargs;
 	n->u.intrinsic.args = zalloc(nargs, sizeof *n->u.intrinsic.args);
 	return decode_into(n->u.intrinsic.args, data, 2, nargs, fr) ? n : drop(n);

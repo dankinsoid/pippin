@@ -8,15 +8,11 @@
 
 static void queue_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_queue *q = self;
-	visit(q->front, ctx);
-	visit(q->rear, ctx);
-	visit(q->meta, ctx);
+	visit(q->front.v, ctx);
+	visit(q->rear.v, ctx);
+	visit(q->meta.v, ctx);
 }
 
-static void store(clj_header *owner, clj_value *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	*slot = v;
-}
 
 // The singleton's rear is nil, which only the copy taken here ever replaces.
 static clj_queue *queue_own(clj_value self) {
@@ -24,29 +20,29 @@ static clj_queue *queue_own(clj_value self) {
 	const clj_queue *q = clj_queue_of(self);
 	clj_queue       *c = clj_alloc(&clj_queue_type, sizeof *c);
 	c->count = q->count;
-	c->front = clj_retain(q->front);
-	c->rear = clj_is_nil(q->rear) ? clj_vector_empty() : clj_retain(q->rear);
-	c->meta = clj_retain(q->meta);
+	clj_slot_init(&c->h, &c->front, clj_retain(q->front.v));
+	clj_slot_init(&c->h, &c->rear, clj_is_nil(q->rear.v) ? clj_vector_empty() : clj_retain(q->rear.v));
+	clj_slot_init(&c->h, &c->meta, clj_retain(q->meta.v));
 	clj_release(self);
 	return c;
 }
 
-static uint32_t rear_count(const clj_queue *q) { return clj_is_nil(q->rear) ? 0 : clj_vector_count(q->rear); }
+static uint32_t rear_count(const clj_queue *q) { return clj_is_nil(q->rear.v) ? 0 : clj_vector_count(q->rear.v); }
 
 // One list of the front's items followed by the rear's: the JVM's Seq view, materialized.
 static clj_value queue_seq(clj_value self) {
 	const clj_queue *q = clj_queue_of(self);
 	if (!q->count) return CLJ_NIL;
 	uint32_t rn = rear_count(q);
-	if (!rn) return clj_retain(q->front);
+	if (!rn) return clj_retain(q->front.v);
 	size_t     n;
 	clj_value  keep;
-	clj_value *front = clj_seq_items(q->front, &n, &keep);
+	clj_value *front = clj_seq_items(q->front.v, &n, &keep);
 	if (!front) return CLJ_THROWN;
 	clj_value *items = malloc((n + rn) * sizeof *items);
 	if (!items) clj_fatal("out of memory");
 	memcpy(items, front, n * sizeof *items);
-	for (uint32_t i = 0; i < rn; i++) items[n + i] = clj_vector_nth(q->rear, i);
+	for (uint32_t i = 0; i < rn; i++) items[n + i] = clj_vector_nth(q->rear.v, i);
 	clj_value list = clj_list_from_array(items, n + rn);
 	free(items);
 	free(front);
@@ -64,11 +60,11 @@ static bool queue_equals(void *self, clj_value other) { return clj_has_core(othe
 
 static clj_value queue_conj(clj_value self, clj_value x) {
 	clj_queue *q = queue_own(self);
-	if (clj_is_nil(q->front)) {
-		store(&q->h, &q->front, clj_list_new(x, CLJ_NIL));
+	if (clj_is_nil(q->front.v)) {
+		clj_slot_store(&q->h, &q->front, clj_list_new(x, CLJ_NIL));
 	} else {
-		clj_value rear = clj_vector_conj(q->rear, x);
-		if (rear != q->rear) store(&q->h, &q->rear, rear);
+		clj_value rear = clj_vector_conj(q->rear.v, x);
+		if (rear != q->rear.v) clj_slot_store(&q->h, &q->rear, rear);
 	}
 	q->count++;
 	return clj_from_ptr(q);
@@ -78,7 +74,7 @@ static clj_value queue_reduce(clj_value self, clj_value f, clj_value init) {
 	const clj_queue *q = clj_queue_of(self);
 	if (!q->count) return clj_reduce_empty(f, init);
 	clj_reducer  r = clj_reducer_start(f, init, 2);
-	clj_seq_iter it = clj_seq_iter_start(q->front);
+	clj_seq_iter it = clj_seq_iter_start(q->front.v);
 	clj_value    item;
 	bool         go = true;
 	while (go && clj_seq_iter_next(&it, &item)) go = clj_reducer_step(&r, item);
@@ -87,17 +83,17 @@ static clj_value queue_reduce(clj_value self, clj_value f, clj_value init) {
 		return CLJ_THROWN;
 	}
 	clj_seq_iter_close(&it);
-	for (uint32_t i = 0, n = rear_count(q); go && i < n; i++) go = clj_reducer_step(&r, clj_vector_nth(q->rear, i));
+	for (uint32_t i = 0, n = rear_count(q); go && i < n; i++) go = clj_reducer_step(&r, clj_vector_nth(q->rear.v, i));
 	return clj_reducer_finish(&r);
 }
 
-static clj_value queue_meta(clj_value self) { return clj_retain(clj_queue_of(self)->meta); }
+static clj_value queue_meta(clj_value self) { return clj_retain(clj_queue_of(self)->meta.v); }
 
 static clj_value queue_with_meta(clj_value self, clj_value m) {
-	if (clj_is_nil(m) && clj_is_nil(clj_queue_of(self)->meta)) return self;
+	if (clj_is_nil(m) && clj_is_nil(clj_queue_of(self)->meta.v)) return self;
 	clj_queue *q = queue_own(self);
-	clj_value  old = q->meta;
-	store(&q->h, &q->meta, clj_retain(m));
+	clj_value  old = q->meta.v;
+	clj_slot_store(&q->h, &q->meta, clj_retain(m));
 	clj_release(old);
 	return clj_from_ptr(q);
 }
@@ -124,26 +120,26 @@ clj_value clj_queue_empty(void) { return clj_from_ptr(&empty_queue); }
 
 clj_value clj_queue_peek(clj_value self) {
 	const clj_queue *q = clj_queue_of(self);
-	return q->count ? clj_first(q->front) : CLJ_NIL;
+	return q->count ? clj_first(q->front.v) : CLJ_NIL;
 }
 
 clj_value clj_queue_pop(clj_value self) {
 	if (!clj_queue_of(self)->count) return self;
 	clj_queue *q = queue_own(self);
-	clj_value  front = clj_next(q->front);
+	clj_value  front = clj_next(q->front.v);
 	if (front == CLJ_THROWN) {
 		clj_release(clj_from_ptr(q));
 		return CLJ_THROWN;
 	}
-	clj_value old_front = q->front;
+	clj_value old_front = q->front.v;
 	if (clj_is_nil(front)) {
 		// The rear becomes the front; the vector lives on behind the seq view.
-		front = clj_seq(q->rear);
-		clj_value old_rear = q->rear;
-		q->rear = clj_vector_empty();
+		front = clj_seq(q->rear.v);
+		clj_value old_rear = q->rear.v;
+		clj_slot_store(&q->h, &q->rear, clj_vector_empty());
 		clj_release(old_rear);
 	}
-	store(&q->h, &q->front, front);
+	clj_slot_store(&q->h, &q->front, front);
 	clj_release(old_front);
 	q->count--;
 	return clj_from_ptr(q);

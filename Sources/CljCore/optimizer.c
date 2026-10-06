@@ -23,15 +23,15 @@ static void *zalloc(size_t n, size_t size) {
 static void rewrite_invoke(clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	if (head->kind != CLJ_NODE_VAR) return;
-	const clj_intrinsic *op = clj_intrinsic_find(head->u.var, n->u.invoke.n);
+	const clj_intrinsic *op = clj_intrinsic_find(head->u.var.v, n->u.invoke.n);
 	if (!op) return;
 	const clj_node **args = n->u.invoke.args;
 	uint32_t         nargs = n->u.invoke.n;
-	clj_value        var = clj_retain(head->u.var);
+	clj_value        var = clj_retain(head->u.var.v);
 	clj_release(clj_from_ptr((void *)head));
 	n->kind = CLJ_NODE_INTRINSIC;
 	n->u.intrinsic.op = op;
-	n->u.intrinsic.var = var;
+	clj_slot_store(&n->h, &n->u.intrinsic.var, var);
 	n->u.intrinsic.args = args;
 	n->u.intrinsic.n = nargs;
 }
@@ -55,7 +55,7 @@ typedef struct {
 
 static const clj_fusion_var *fusion_head(const clj_node *n, clj_fusion_role role) {
 	if (n->kind != CLJ_NODE_INVOKE || n->u.invoke.fn->kind != CLJ_NODE_VAR) return NULL;
-	const clj_fusion_var *fv = clj_fusion_find(n->u.invoke.fn->u.var);
+	const clj_fusion_var *fv = clj_fusion_find(n->u.invoke.fn->u.var.v);
 	return fv && fv->role == role ? fv : NULL;
 }
 
@@ -101,13 +101,13 @@ static clj_node *local_node(uint32_t index, position at) {
 
 static clj_node *var_node(clj_value var, position at) {
 	clj_node *n = node_at(CLJ_NODE_VAR, at);
-	n->u.var = clj_retain(var);
+	clj_slot_store(&n->h, &n->u.var, clj_retain(var));
 	return n;
 }
 
 static clj_node *const_node(clj_value v, position at) {
 	clj_node *n = node_at(CLJ_NODE_CONST, at);
-	n->u.value = clj_retain(v);
+	clj_slot_store(&n->h, &n->u.value, clj_retain(v));
 	return n;
 }
 
@@ -447,8 +447,8 @@ static void direct_pass(const clj_node *n, void *ctx) {
 // ---- constant folding (design §6b item 4): a pure intrinsic on constant arguments, an `if` on a constant test
 
 static bool const_arg(const clj_node *n, clj_value *out) {
-	if (n->kind != CLJ_NODE_CONST || !clj_node_foldable(n->u.value)) return false;
-	*out = n->u.value;
+	if (n->kind != CLJ_NODE_CONST || !clj_node_foldable(n->u.value.v)) return false;
+	*out = n->u.value.v;
 	return true;
 }
 
@@ -458,7 +458,7 @@ static bool const_arg(const clj_node *n, clj_value *out) {
 static void fold_intrinsic(clj_node *n) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
 	clj_value            vals[3];
-	if (!op->pure || clj_var_root(n->u.intrinsic.var) != clj_intrinsic_builtin(op)) return;
+	if (!op->pure || clj_var_root(n->u.intrinsic.var.v) != clj_intrinsic_builtin(op)) return;
 	for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
 		if (!const_arg(n->u.intrinsic.args[i], &vals[i])) return;
 	}
@@ -473,9 +473,9 @@ static void fold_intrinsic(clj_node *n) {
 	}
 	for (uint32_t i = 0; i < n->u.intrinsic.n; i++) clj_release(clj_from_ptr((void *)n->u.intrinsic.args[i]));
 	free(n->u.intrinsic.args);
-	clj_release(n->u.intrinsic.var);
+	clj_release(n->u.intrinsic.var.v);
 	n->kind = CLJ_NODE_CONST;
-	n->u.value = r;
+	clj_slot_store(&n->h, &n->u.value, r);
 }
 
 // The taken branch's contents move into n, which the parent points at (only a DIRECT_FN is referenced by
@@ -484,14 +484,14 @@ static void fold_intrinsic(clj_node *n) {
 static void fold_if(clj_node *n) {
 	const clj_node *test = n->u.if_.test;
 	if (test->kind != CLJ_NODE_CONST) return;
-	bool      truthy = clj_truthy(test->u.value);
+	bool      truthy = clj_truthy(test->u.value.v);
 	clj_node *taken = (clj_node *)(truthy ? n->u.if_.then : n->u.if_.else_);
 	clj_node *dropped = (clj_node *)(truthy ? n->u.if_.else_ : n->u.if_.then);
 	clj_release(clj_from_ptr((void *)test));
 	if (dropped) clj_release(clj_from_ptr(dropped));
 	if (!taken) {
 		n->kind = CLJ_NODE_CONST;
-		n->u.value = CLJ_NIL;
+		clj_slot_clear(&n->u.value);
 		return;
 	}
 	n->kind = taken->kind;
@@ -499,7 +499,7 @@ static void fold_if(clj_node *n) {
 	n->line = taken->line;
 	n->col = taken->col;
 	taken->kind = CLJ_NODE_CONST;
-	taken->u.value = CLJ_NIL;
+	clj_slot_clear(&taken->u.value);
 	clj_release(clj_from_ptr(taken));
 }
 

@@ -320,9 +320,9 @@ static bool type_satisfies(const clj_type *t, clj_value proto) {
 
 static void protocol_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_protocol *p = self;
-	visit(p->name, ctx);
-	visit(p->methods, ctx);
-	visit(p->sigs, ctx);
+	visit(p->name.v, ctx);
+	visit(p->methods.v, ctx);
+	visit(p->sigs.v, ctx);
 }
 
 static uint32_t identity_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
@@ -356,9 +356,9 @@ static clj_value protocol_alloc(clj_value qualified_name, clj_value methods, clj
 	clj_protocol *p = clj_alloc(&clj_protocol_type, sizeof *p);
 	p->id = atomic_fetch_add_explicit(&next_proto_id, 1, memory_order_relaxed) + 1;
 	p->core_bits = core_bits;
-	p->name = clj_retain(qualified_name);
-	p->methods = clj_retain(methods);
-	p->sigs = clj_retain(sigs);
+	clj_slot_init(&p->h, &p->name, clj_retain(qualified_name));
+	clj_slot_init(&p->h, &p->methods, clj_retain(methods));
+	clj_slot_init(&p->h, &p->sigs, clj_retain(sigs));
 	return clj_from_ptr(p);
 }
 
@@ -408,9 +408,9 @@ static _Atomic uint64_t method_serials;
 
 static clj_value no_impl(const method_ctx *m, clj_value v) {
 	const clj_protocol *p = clj_protocol_of(m->proto);
-	clj_value           method = clj_vector_nth(p->methods, m->idx);
+	clj_value           method = clj_vector_nth(p->methods.v, m->idx);
 	return clj_throw_msg("No implementation of method: :%s of protocol: #'%s/%s found for type: %s", clj_string_bytes(clj_symbol_name(method)),
-	                     clj_string_bytes(clj_symbol_ns(p->name)), clj_string_bytes(clj_symbol_name(p->name)), clj_type_name(v));
+	                     clj_string_bytes(clj_symbol_ns(p->name.v)), clj_string_bytes(clj_symbol_name(p->name.v)), clj_type_name(v));
 }
 
 clj_value clj_protocol_method_invoke(void *ctx, const clj_value *args, size_t n) {
@@ -433,8 +433,8 @@ static bool is_amp(clj_value v) { return is_unqualified_symbol(v) && strcmp(clj_
 
 clj_value clj_protocol_method(clj_value proto, uint32_t idx) {
 	const clj_protocol *p = clj_protocol_of(proto);
-	CLJ_ASSERT(idx < clj_vector_count(p->methods), "protocol method index out of range");
-	clj_value sigs = clj_vector_nth(p->sigs, idx);
+	CLJ_ASSERT(idx < clj_vector_count(p->methods.v), "protocol method index out of range");
+	clj_value sigs = clj_vector_nth(p->sigs.v, idx);
 	uint32_t  min = UINT32_MAX, max = 0;
 	for (uint32_t i = 0; i < clj_vector_count(sigs); i++) {
 		clj_value params = clj_vector_nth(sigs, i);
@@ -453,10 +453,10 @@ clj_value clj_protocol_method(clj_value proto, uint32_t idx) {
 	ctx->proto = proto;
 	ctx->idx = idx;
 	ctx->serial = atomic_fetch_add_explicit(&method_serials, 1, memory_order_relaxed) + 1;
-	clj_value name = clj_symbol_new(clj_symbol_ns(p->name), clj_symbol_name(clj_vector_nth(p->methods, idx)));
+	clj_value name = clj_symbol_new(clj_symbol_ns(p->name.v), clj_symbol_name(clj_vector_nth(p->methods.v, idx)));
 	clj_value f = clj_fn_native_ctx(name, clj_protocol_method_invoke, ctx, free, min, max);
 	clj_release(name);
-	clj_fn_of(f)->code = clj_retain(proto);
+	clj_slot_store(&(clj_fn_of(f))->h, &clj_fn_of(f)->code, clj_retain(proto));
 	return f;
 }
 
@@ -527,9 +527,9 @@ typedef struct {
 
 static bool collect_method(clj_value key, clj_value val, void *ctx) {
 	collect_ctx *c = ctx;
-	uint32_t     n = clj_vector_count(c->proto->methods);
+	uint32_t     n = clj_vector_count(c->proto->methods.v);
 	for (uint32_t i = 0; i < n; i++) {
-		if (!clj_is_keyword(key) || !clj_equals(clj_keyword_name(key), clj_symbol_name(clj_vector_nth(c->proto->methods, i)))) continue;
+		if (!clj_is_keyword(key) || !clj_equals(clj_keyword_name(key), clj_symbol_name(clj_vector_nth(c->proto->methods.v, i)))) continue;
 		if (!clj_is_nil(val) && !clj_has_core(val, CLJ_CORE_FN)) {
 			c->bad_val = val;
 			return false;
@@ -544,7 +544,7 @@ static bool collect_method(clj_value key, clj_value val, void *ctx) {
 // Owned vector of impls in method order; unknown keys are errors, as a silent miss is the classic extend typo.
 static clj_value impl_vector(clj_value proto, clj_value method_map) {
 	const clj_protocol *p = clj_protocol_of(proto);
-	uint32_t            n = clj_vector_count(p->methods);
+	uint32_t            n = clj_vector_count(p->methods.v);
 	clj_value          *fns = calloc(n ? n : 1, sizeof *fns);
 	if (!fns) clj_fatal("out of memory");
 	collect_ctx c = {p, fns, CLJ_UNBOUND, CLJ_UNBOUND};
@@ -553,7 +553,7 @@ static clj_value impl_vector(clj_value proto, clj_value method_map) {
 	if (c.bad_key != CLJ_UNBOUND || c.bad_val != CLJ_UNBOUND) {
 		clj_value text = clj_pr_str_max(c.bad_key != CLJ_UNBOUND ? c.bad_key : c.bad_val, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) r = CLJ_THROWN;
-		else if (c.bad_key != CLJ_UNBOUND) r = clj_throw_msg("No method %s in protocol %s", clj_string_bytes(text), clj_string_bytes(clj_symbol_name(p->name)));
+		else if (c.bad_key != CLJ_UNBOUND) r = clj_throw_msg("No method %s in protocol %s", clj_string_bytes(text), clj_string_bytes(clj_symbol_name(p->name.v)));
 		else r = clj_throw_msg("Method implementation must be a fn, got: %s", clj_string_bytes(text));
 		clj_release(text);
 	} else {
@@ -566,7 +566,7 @@ static clj_value impl_vector(clj_value proto, clj_value method_map) {
 clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map) {
 	if (!clj_is_protocol(proto)) return clj_throw_msg("%s is not a protocol", clj_type_name(proto));
 	const clj_protocol *p = clj_protocol_of(proto);
-	if (p->core_bits) return clj_throw_msg("%s is a core interface, not a protocol: the core-interface slots of a type are write-once", clj_string_bytes(clj_symbol_name(p->name)));
+	if (p->core_bits) return clj_throw_msg("%s is a core interface, not a protocol: the core-interface slots of a type are write-once", clj_string_bytes(clj_symbol_name(p->name.v)));
 	const clj_type *t = designated_type(type);
 	if (!t) return CLJ_THROWN;
 	if (!clj_is_nil(method_map) && !clj_is_map(method_map)) return clj_throw_msg("extend expects a map of method fns, got: %s", clj_type_name(method_map));
@@ -617,16 +617,16 @@ clj_value clj_proto_extends(clj_value proto, clj_value type) {
 static void instance_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_instance        *o = self;
 	const clj_user_type *ut = (const clj_user_type *)o->h.type;
-	for (uint32_t i = 0; i < ut->nfields; i++) visit(o->fields[i], ctx);
+	for (uint32_t i = 0; i < ut->nfields; i++) visit(o->fields[i].v, ctx);
 	visit(clj_from_ptr((void *)ut), ctx);
 }
 
 // A window, so an extend racing with the first share of the descriptor cannot free the table under the walk.
 static void type_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_user_type *ut = self;
-	visit(ut->name, ctx);
-	visit(ut->fields, ctx);
-	for (int m = 0; m < CLJ_CORE_METHOD_COUNT; m++) visit(ut->core_fns[m], ctx);
+	visit(ut->name.v, ctx);
+	visit(ut->fields.v, ctx);
+	for (int m = 0; m < CLJ_CORE_METHOD_COUNT; m++) visit(ut->core_fns[m].v, ctx);
 	reader      *r = window_open();
 	proto_table *tbl = __atomic_load_n((void *const *)&ut->t.user_protos, __ATOMIC_SEQ_CST);
 	for (uint32_t i = 0; tbl && i < tbl->n; i++) {
@@ -718,7 +718,7 @@ static clj_value no_core_impl(clj_value self, clj_core_method m) {
 
 // (method self rest...) through the fn the type holds for m; the type outlives the call because self does.
 static clj_value call_core(clj_value self, clj_core_method m, const clj_value *rest, size_t nrest) {
-	clj_value f = user_type_of(self)->core_fns[m];
+	clj_value f = user_type_of(self)->core_fns[m].v;
 	if (clj_is_nil(f)) return no_core_impl(self, m);
 	clj_value args[4];
 	CLJ_ASSERT(nrest < sizeof args / sizeof *args, "core method arity");
@@ -750,7 +750,7 @@ static clj_value user_rest(clj_value self) {
 // Without next, more's result is seq'd, as Cons.next() does on the JVM.
 static clj_value user_next(clj_value self) {
 	const clj_user_type *ut = user_type_of(self);
-	if (clj_is_nil(ut->core_fns[CLJ_CM_NEXT]) && !clj_is_nil(ut->core_fns[CLJ_CM_REST])) {
+	if (clj_is_nil(ut->core_fns[CLJ_CM_NEXT].v) && !clj_is_nil(ut->core_fns[CLJ_CM_REST].v)) {
 		clj_value more = user_rest(self);
 		if (more == CLJ_THROWN) return more;
 		clj_value s = clj_seq(more);
@@ -768,7 +768,7 @@ static clj_value user_count(clj_value self) {
 
 // (get x k) reaches valAt with 2 args when the fn has no 3-arity, as RT.get on the JVM; a not-found needs the 3-arity.
 static clj_value user_lookup(clj_value self, clj_value key, clj_value not_found) {
-	clj_value f = user_type_of(self)->core_fns[CLJ_CM_LOOKUP];
+	clj_value f = user_type_of(self)->core_fns[CLJ_CM_LOOKUP].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_LOOKUP);
 	clj_value args[3] = {self, key, not_found};
 	return clj_invoke(f, args, !clj_is_nil(not_found) || clj_fn_accepts(f, 3) ? 3 : 2);
@@ -781,7 +781,7 @@ static clj_value user_conj(clj_value self, clj_value x) {
 }
 
 static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
-	clj_value f = user_type_of(self)->core_fns[CLJ_CM_INVOKE];
+	clj_value f = user_type_of(self)->core_fns[CLJ_CM_INVOKE].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_INVOKE);
 	if (!clj_fn_accepts(f, n + 1)) return clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_type_name(self));
 	clj_value  small[8];
@@ -796,7 +796,7 @@ static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
 
 // Throwable's getMessage/getCause default to null; nil here for all three when the form gives none.
 static clj_value user_ex_field(clj_value self, clj_core_method m, bool (*ok)(clj_value), const char *expected) {
-	if (clj_is_nil(user_type_of(self)->core_fns[m])) return CLJ_NIL;
+	if (clj_is_nil(user_type_of(self)->core_fns[m].v)) return CLJ_NIL;
 	clj_value r = call_core(self, m, NULL, 0);
 	return checked(self, m, r, clj_is_nil(r) || ok(r), expected);
 }
@@ -865,7 +865,7 @@ static bool user_equals(void *self, clj_value other) {
 static void fill_slots(clj_user_type *ut) {
 	clj_type        *t = &ut->t;
 	uint64_t         bits = t->core_bits;
-	const clj_value *m = ut->core_fns;
+	const clj_value *m = clj_slot_values(ut->core_fns);
 	if (bits & CLJ_CORE_SEQABLE) t->seq = user_seq;
 	if (bits & CLJ_CORE_SEQ) {
 		t->first = user_first;
@@ -899,7 +899,7 @@ typedef struct {
 static clj_value refuse_method(const core_collect_ctx *c, clj_value key, const char *why) {
 	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("%s %s in interface %s", why, clj_string_bytes(text), clj_string_bytes(clj_symbol_name(c->iface->name)));
+	clj_value r = clj_throw_msg("%s %s in interface %s", why, clj_string_bytes(text), clj_string_bytes(clj_symbol_name(c->iface->name.v)));
 	clj_release(text);
 	return r;
 }
@@ -918,11 +918,11 @@ static bool collect_core_method(clj_value key, clj_value val, void *ctx) {
 			c->thrown = clj_throw_msg("Method implementation must be a fn, got: %s", clj_type_name(val));
 			return false;
 		}
-		if (!clj_is_nil(c->ut->core_fns[method_rows[i].method])) {
+		if (!clj_is_nil(c->ut->core_fns[method_rows[i].method].v)) {
 			c->thrown = refuse_method(c, key, "Duplicate method");
 			return false;
 		}
-		c->ut->core_fns[method_rows[i].method] = clj_retain(val);
+		clj_slot_init(&c->ut->t.h, &c->ut->core_fns[method_rows[i].method], clj_retain(val));
 		return true;
 	}
 	bool known = strcmp(name, "empty") == 0 || strcmp(name, "applyTo") == 0;
@@ -934,7 +934,7 @@ static bool collect_core_method(clj_value key, clj_value val, void *ctx) {
 static clj_value implement_interface(clj_user_type *ut, clj_value iface, clj_value method_map) {
 	const clj_protocol *p = clj_protocol_of(iface);
 	uint64_t            implied = implied_bits(p->core_bits);
-	if (!implied) return clj_throw_msg("%s cannot be implemented by deftype: no slots behind it", clj_string_bytes(clj_symbol_name(p->name)));
+	if (!implied) return clj_throw_msg("%s cannot be implemented by deftype: no slots behind it", clj_string_bytes(clj_symbol_name(p->name.v)));
 	ut->t.core_bits |= implied;
 	core_collect_ctx c = {ut, p, CLJ_NIL};
 	if (!clj_is_nil(method_map)) clj_map_each(method_map, collect_core_method, &c);
@@ -963,11 +963,11 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 	char       *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
 	snprintf(text, len + 1, "%s.%s", ns, bare);
-	ut->name = clj_string_new(text, len);
+	clj_slot_init(&ut->t.h, &ut->name, clj_string_new(text, len));
 	free(text);
-	ut->fields = clj_retain(fields);
+	clj_slot_init(&ut->t.h, &ut->fields, clj_retain(fields));
 	ut->nfields = clj_vector_count(fields);
-	ut->t.name = clj_string_bytes(ut->name);
+	ut->t.name = clj_string_bytes(ut->name.v);
 	ut->t.each_child = instance_each_child;
 	ut->t.hash = identity_hash;
 	ut->t.equals = identity_equals;
@@ -985,8 +985,8 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 		}
 	}
 	// Methods given under an ISeq/IPersistentCollection group mark the override as IHashEq/IEquiv would.
-	if (!clj_is_nil(ut->core_fns[CLJ_CM_HASH])) ut->t.core_bits |= CLJ_CORE_HASHEQ;
-	if (!clj_is_nil(ut->core_fns[CLJ_CM_EQUALS])) ut->t.core_bits |= CLJ_CORE_EQUIV;
+	if (!clj_is_nil(ut->core_fns[CLJ_CM_HASH].v)) ut->t.core_bits |= CLJ_CORE_HASHEQ;
+	if (!clj_is_nil(ut->core_fns[CLJ_CM_EQUALS].v)) ut->t.core_bits |= CLJ_CORE_EQUIV;
 	fill_slots(ut);
 	clj_epoch_bump();
 	return type;
@@ -1002,14 +1002,14 @@ clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
 	clj_user_type *ut = clj_to_ptr(type);
 	if (n != ut->nfields) return clj_throw_msg("%s has %u fields, got %zu", ut->t.name, ut->nfields, n);
 	clj_instance *o = clj_alloc(&ut->t, sizeof *o + n * sizeof *o->fields);
-	for (size_t i = 0; i < n; i++) o->fields[i] = clj_retain(fields[i]);
+	for (size_t i = 0; i < n; i++) clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));
 	clj_retain(type);
 	return clj_from_ptr(o);
 }
 
 clj_value clj_instance_field(clj_value obj, uint32_t i) {
 	CLJ_ASSERT(clj_is_instance(obj) && i < ((const clj_user_type *)clj_type_of(obj))->nfields, "instance field out of range");
-	return ((clj_instance *)clj_to_ptr(obj))->fields[i];
+	return ((clj_instance *)clj_to_ptr(obj))->fields[i].v;
 }
 
 clj_value clj_catch_instance(clj_value var, clj_value ex) {
@@ -1039,7 +1039,7 @@ static clj_value b_protocol(const clj_value *args, size_t n) {
 static clj_value b_protocol_method(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_protocol(args[0])) return clj_throw_msg("%s is not a protocol", clj_type_name(args[0]));
-	if (!clj_is_fixnum(args[1]) || clj_fixnum_val(args[1]) < 0 || (uintptr_t)clj_fixnum_val(args[1]) >= clj_vector_count(clj_protocol_of(args[0])->methods)) {
+	if (!clj_is_fixnum(args[1]) || clj_fixnum_val(args[1]) < 0 || (uintptr_t)clj_fixnum_val(args[1]) >= clj_vector_count(clj_protocol_of(args[0])->methods.v)) {
 		return clj_throw_msg("protocol-method* index out of range");
 	}
 	return clj_protocol_method(args[0], (uint32_t)clj_fixnum_val(args[1]));
@@ -1145,9 +1145,8 @@ static clj_value reify_type(clj_value name, clj_value fields, const clj_value *i
 		}
 		clj_retain(type);
 	} else if ((type = reify_type_new(name, fields, impls, nimpls)) != CLJ_THROWN) {
-		reify_types = clj_map_assoc(clj_is_nil(reify_types) ? clj_map_empty() : reify_types, name, type);
 		// Shares the type too: every execution reaching the site gets it, and instances retain it outside the lock.
-		clj_share(reify_types);
+		clj_root_store(&reify_types, clj_map_assoc(clj_is_nil(reify_types) ? clj_map_empty() : reify_types, name, type));
 	}
 	clj_lock_unlock(&reify_lock);
 	return type;

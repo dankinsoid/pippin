@@ -28,9 +28,8 @@ clj_value clj_view_meta(clj_value self, size_t size) { return clj_retain(clj_met
 clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
 	clj_header *h = clj_header_of(self);
 	if ((h->flags & CLJ_FLAG_META) && clj_is_unique(self)) {
-		if (h->flags & CLJ_FLAG_SHARED) clj_share(m);
-		clj_value old = *clj_meta_slot_at(h, size);
-		*clj_meta_slot_at(h, size) = clj_retain(m);
+		clj_value old = clj_meta_slot_at(h, size)->v;
+		clj_slot_store(h, clj_meta_slot_at(h, size), clj_retain(m));
 		clj_release(old);
 		return self;
 	}
@@ -42,7 +41,7 @@ clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
 	if (h->type->each_child) h->type->each_child(c, retain_child, NULL);
 	if (word) {
 		c->flags |= CLJ_FLAG_META;
-		*clj_meta_slot_at(c, size) = clj_retain(m);
+		clj_slot_init(c, clj_meta_slot_at(c, size), clj_retain(m));
 	}
 	clj_release(self);
 	return clj_from_ptr(c);
@@ -52,9 +51,9 @@ clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
 
 static void vector_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_vector_seq *s = self;
-	visit(s->vec, ctx);
+	visit(s->vec.v, ctx);
 	// Guarded, not visit(clj_meta_trailing(…)): a walk allocates and frees a view per step, and the call costs.
-	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
 
 static clj_value vector_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_vector_seq)); }
@@ -63,22 +62,22 @@ static clj_value vector_seq_with_meta(clj_value self, clj_value m) { return clj_
 
 static clj_value vector_seq_first(clj_value self) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
-	return clj_retain(clj_vector_nth(s->vec, s->i));
+	return clj_retain(clj_vector_nth(s->vec.v, s->i));
 }
 
 static clj_value vector_seq_next(clj_value self) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
-	return s->i + 1 < clj_vector_count(s->vec) ? clj_vector_seq_new(s->vec, s->i + 1) : CLJ_NIL;
+	return s->i + 1 < clj_vector_count(s->vec.v) ? clj_vector_seq_new(s->vec.v, s->i + 1) : CLJ_NIL;
 }
 
 static clj_value vector_seq_count(clj_value self) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
-	return clj_fixnum(clj_vector_count(s->vec) - s->i);
+	return clj_fixnum(clj_vector_count(s->vec.v) - s->i);
 }
 
 static clj_value vector_seq_reduce(clj_value self, clj_value f, clj_value init) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
-	return clj_vector_reduce_from(s->vec, s->i, f, init);
+	return clj_vector_reduce_from(s->vec.v, s->i, f, init);
 }
 
 const clj_type clj_vector_seq_type = {
@@ -99,7 +98,7 @@ clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
 	CLJ_ASSERT(i < clj_vector_count(vec), "vector-seq past the end");
 	clj_vector_seq *s = clj_alloc(&clj_vector_seq_type, sizeof *s);
 	s->i = i;
-	s->vec = clj_retain(vec);
+	clj_slot_init(&s->h, &s->vec, clj_retain(vec));
 	return clj_from_ptr(s);
 }
 
@@ -107,8 +106,8 @@ clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
 
 static void string_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_string_seq *s = self;
-	visit(s->str, ctx);
-	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+	visit(s->str.v, ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
 
 static clj_value string_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_string_seq)); }
@@ -118,7 +117,7 @@ static clj_value string_seq_with_meta(clj_value self, clj_value m) { return clj_
 static clj_value string_seq_first(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
 	uint32_t              cp;
-	clj_utf8_decode(clj_string_bytes(s->str), clj_string_len(s->str), s->pos, &cp);
+	clj_utf8_decode(clj_string_bytes(s->str.v), clj_string_len(s->str.v), s->pos, &cp);
 	return clj_char(cp);
 }
 
@@ -127,10 +126,10 @@ static clj_value string_seq_alloc(clj_value str, uint32_t pos, clj_value m) {
 	bool            word = !clj_is_nil(m);
 	clj_string_seq *s = clj_alloc(&clj_string_seq_type, sizeof *s + (word ? sizeof(clj_value) : 0));
 	s->pos = pos;
-	s->str = clj_retain(str);
+	clj_slot_init(&s->h, &s->str, clj_retain(str));
 	if (word) {
 		s->h.flags |= CLJ_FLAG_META;
-		*clj_meta_slot_at(s, sizeof *s) = clj_retain(m);
+		clj_slot_init(&s->h, clj_meta_slot_at(s, sizeof *s), clj_retain(m));
 	}
 	return clj_from_ptr(s);
 }
@@ -138,16 +137,16 @@ static clj_value string_seq_alloc(clj_value str, uint32_t pos, clj_value m) {
 // StringSeq.next hands the metadata on, where a range's and a vector-seq's next drop it.
 static clj_value string_seq_next(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
-	uint32_t              cp, len = clj_string_len(s->str);
-	size_t                next = s->pos + clj_utf8_decode(clj_string_bytes(s->str), len, s->pos, &cp);
+	uint32_t              cp, len = clj_string_len(s->str.v);
+	size_t                next = s->pos + clj_utf8_decode(clj_string_bytes(s->str.v), len, s->pos, &cp);
 	if (next >= len) return CLJ_NIL;
-	return string_seq_alloc(s->str, (uint32_t)next, clj_meta_trailing(clj_to_ptr(self), sizeof *s));
+	return string_seq_alloc(s->str.v, (uint32_t)next, clj_meta_trailing(clj_to_ptr(self), sizeof *s));
 }
 
 static clj_value string_seq_count(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
-	const unsigned char  *p = (const unsigned char *)clj_string_bytes(s->str);
-	size_t                n = clj_string_len(s->str), count = 0;
+	const unsigned char  *p = (const unsigned char *)clj_string_bytes(s->str.v);
+	size_t                n = clj_string_len(s->str.v), count = 0;
 	for (size_t i = s->pos; i < n; i++) count += (p[i] & 0xC0) != 0x80;
 	return clj_fixnum((intptr_t)count);
 }
@@ -173,7 +172,7 @@ clj_value clj_string_seq_new(clj_value str, uint32_t pos) { return string_seq_al
 // The metadata word is a range's only child.
 static void range_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_header *h = self;
-	if (h->flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(h, sizeof(clj_range)), ctx);
+	if (h->flags & CLJ_FLAG_META) visit(clj_meta_slot_at(h, sizeof(clj_range))->v, ctx);
 }
 
 static clj_value range_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_range)); }
@@ -245,9 +244,9 @@ enum { UNFORCED = 0, FORCING = 1, FORCED = 2, FORCING_WAITED = 3 };
 
 static void lazy_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_lazy_seq *s = self;
-	visit(s->fn, ctx);
-	visit(s->value, ctx);
-	if (s->h.flags & CLJ_FLAG_META) visit(*clj_meta_slot_at(s, sizeof *s), ctx);
+	visit(s->fn.v, ctx);
+	visit(s->value.v, ctx);
+	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
 
 static clj_value lazy_seq_seq(clj_value self) {
@@ -282,7 +281,7 @@ const clj_type clj_lazy_seq_type = {
 clj_value clj_lazy_seq_new(clj_value fn) {
 	CLJ_ASSERT(clj_is_fn(fn), "lazy-seq thunk must be a fn");
 	clj_lazy_seq *s = clj_alloc(&clj_lazy_seq_type, sizeof *s);
-	s->fn = clj_retain(fn);
+	clj_slot_init(&s->h, &s->fn, clj_retain(fn));
 	return clj_from_ptr(s);
 }
 
@@ -364,11 +363,9 @@ static bool claim(clj_value v, bool *thrown) {
 
 static void publish(clj_value v, clj_value value) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
-	if (s->h.flags & CLJ_FLAG_SHARED) clj_share(value);
-	s->value = value;
-	CLJ_SLOT_CHECK(&s->h, value);
-	clj_value fn = s->fn;
-	s->fn = CLJ_NIL;
+	clj_slot_store(&s->h, &s->value, value);
+	clj_value fn = s->fn.v;
+	clj_slot_clear(&s->fn);
 	set_state(v, FORCED);
 	unclaimed();
 	clj_release(fn);
@@ -385,7 +382,7 @@ static clj_value run_thunk(clj_value v) {
 	if (clj_deadline_tick()) return CLJ_THROWN;
 	forcing frame = {v, forcing_top};
 	forcing_top = &frame;
-	clj_value r = clj_invoke(clj_lazy_seq_of(v)->fn, NULL, 0);
+	clj_value r = clj_invoke(clj_lazy_seq_of(v)->fn.v, NULL, 0);
 	forcing_top = frame.prev;
 	return r;
 }
@@ -411,9 +408,9 @@ static void chain_push(chain *c, clj_value v) {
 
 clj_value clj_lazy_seq_force(clj_value ls) {
 	clj_lazy_seq *s = clj_lazy_seq_of(ls);
-	if (atomic_load_explicit(&s->state, memory_order_acquire) == FORCED) return s->value;
+	if (atomic_load_explicit(&s->state, memory_order_acquire) == FORCED) return s->value.v;
 	bool thrown;
-	if (!claim(ls, &thrown)) return thrown ? CLJ_THROWN : s->value;
+	if (!claim(ls, &thrown)) return thrown ? CLJ_THROWN : s->value.v;
 
 	// Nested lazy seqs are unwrapped in a loop, so nesting depth costs no C stack (LazySeq.seq()).
 	chain inner = {.n = 0, .cap = 16};
@@ -421,7 +418,7 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 	clj_value r = run_thunk(ls);
 	while (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
 		if (!claim(r, &thrown)) {
-			clj_value v = thrown ? CLJ_THROWN : clj_retain(clj_lazy_seq_of(r)->value);
+			clj_value v = thrown ? CLJ_THROWN : clj_retain(clj_lazy_seq_of(r)->value.v);
 			clj_release(r);
 			r = v;
 			break;
@@ -449,5 +446,5 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 		publish(ls, r);
 	}
 	if (inner.items != inner.small) free(inner.items);
-	return r == CLJ_THROWN ? CLJ_THROWN : s->value;
+	return r == CLJ_THROWN ? CLJ_THROWN : s->value.v;
 }
