@@ -51,7 +51,7 @@ static void buf_free(clj_value *small, clj_value *p) {
 	if (p != small) free(p);
 }
 
-static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return f->exec->nodes[n->id].eval(n, f); }
+static inline clj_value eval_child(const clj_node *n, clj_frame *f) { return CLJ_NODE_ENTRY(f->exec, n->id)(n, f); }
 
 // ---- cooperative deadline
 // Checked at a closure call and at a loop turn, one clock read per DEADLINE_CHECK_EVERY of them.
@@ -82,8 +82,9 @@ static inline bool deadline_hit(clj_shadow_stack *s) {
 // The deadline stays set, so a handler that catches :cancelled and keeps going is stopped again.
 // A cancelled coroutine takes the same path (coro.h).
 static clj_value deadline_throw(clj_shadow_stack *s) {
-	if (s->unwinds) {
-		s->unwinds--;
+	uint32_t left = atomic_load_explicit(&s->unwinds, memory_order_relaxed);
+	if (left) {
+		atomic_store_explicit(&s->unwinds, left - 1, memory_order_relaxed);
 		s->countdown = DEADLINE_UNWIND_CALLS;
 	} else {
 		s->countdown = 1;
@@ -99,7 +100,7 @@ static void deadline_apply(uint64_t deadline) {
 	clj_shadow_stack *s = c->shadow;
 	clj_coro_deadline_replace(c, deadline);
 	s->countdown = DEADLINE_CHECK_EVERY;
-	s->unwinds = DEADLINE_MAX_UNWINDS;
+	atomic_store_explicit(&s->unwinds, DEADLINE_MAX_UNWINDS, memory_order_relaxed);
 	if (deadline) clj_coro_deadline_arm(c);
 	else clj_coro_deadline_cleared(c);
 }
@@ -1282,7 +1283,7 @@ static clj_value eval_counting(const clj_node *n, clj_frame *f) {
 
 static void count_on(const clj_node *n, void *ctx) {
 	clj_exec *e = ctx;
-	e->nodes[n->id].eval = eval_counting;
+	CLJ_NODE_ENTRY_SET(e, n->id, eval_counting);
 	clj_node_children(n, count_on, e);
 }
 
@@ -1295,7 +1296,7 @@ clj_eval_fn clj_eval_site_entry(const clj_exec *e, const clj_node *n) {
 
 static void count_off(const clj_node *n, void *ctx) {
 	clj_exec *e = ctx;
-	e->nodes[n->id].eval = clj_eval_site_entry(e, n);
+	CLJ_NODE_ENTRY_SET(e, n->id, clj_eval_site_entry(e, n));
 	clj_node_children(n, count_off, e);
 }
 
@@ -1430,7 +1431,7 @@ uint32_t clj_debug_exec_kw_site_id(clj_value exec, uint32_t ordinal) {
 
 bool clj_debug_exec_map_shaped(clj_value exec, uint32_t id) {
 	const clj_exec *e = clj_exec_of(exec);
-	return id < e->root->nnodes && e->nodes[id].eval == eval_map_shaped;
+	return id < e->root->nnodes && CLJ_NODE_ENTRY(e, id) == eval_map_shaped;
 }
 
 static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
@@ -1481,26 +1482,26 @@ static void *kw_ic_new(void) {
 // @ai-generated(guided)
 static void build(const clj_node *n, void *ctx) {
 	build_ctx *b = ctx;
-	b->exec->nodes[n->id].eval = clj_node_eval_fn(n->kind);
+	CLJ_NODE_ENTRY_SET(b->exec, n->id, clj_node_eval_fn(n->kind));
 	switch (n->kind) {
 	case CLJ_NODE_INVOKE:
 		if (n->site >= b->exec->nsites) b->exec->nsites = n->site + 1;
 		if (kw_invoke_site(n)) {
 			b->exec->nodes[n->id].ic = kw_ic_new();
-			b->exec->nodes[n->id].eval = eval_kw_invoke;
+			CLJ_NODE_ENTRY_SET(b->exec, n->id, eval_kw_invoke);
 		}
 		break;
 	case CLJ_NODE_INTRINSIC:
 		if (kw_get_site(n)) {
 			b->exec->nodes[n->id].ic = kw_ic_new();
-			b->exec->nodes[n->id].eval = eval_get_kw;
+			CLJ_NODE_ENTRY_SET(b->exec, n->id, eval_get_kw);
 		}
 		break;
 	case CLJ_NODE_MAP: {
 		map_ic *ic = map_literal_ic(n);
 		if (ic) {
 			b->exec->nodes[n->id].ic = ic;
-			b->exec->nodes[n->id].eval = eval_map_shaped;
+			CLJ_NODE_ENTRY_SET(b->exec, n->id, eval_map_shaped);
 		}
 		break;
 	}

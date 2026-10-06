@@ -94,7 +94,7 @@ clj_proto_reader *clj_proto_reader_init(void) {
 		atomic_init(&r->active, 0);
 		clj_lock_lock(&lock);
 		r->next = readers;
-		readers = r;
+		__atomic_store_n(&readers, r, __ATOMIC_RELEASE);
 		clj_lock_unlock(&lock);
 	}
 	clj_proto_reader_tls = r;
@@ -144,7 +144,8 @@ size_t clj_debug_proto_readers(void) {
 }
 
 void clj_proto_wait_readers(void) {
-	for (reader *r = readers; r; r = r->next) {
+	// Acquire against the publication under `lock`: a reader added after this walk opened its window later.
+	for (reader *r = __atomic_load_n(&readers, __ATOMIC_ACQUIRE); r; r = r->next) {
 		while (atomic_load_explicit(&r->active, memory_order_seq_cst)) sched_yield();
 	}
 }

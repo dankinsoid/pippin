@@ -54,6 +54,43 @@ void __asan_poison_memory_region(const void *addr, size_t size);
 #define ASAN_POISON(p, n) ((void)(p), (void)(n))
 #endif
 
+// Unannotated, a carrier's own TSan shadow stack takes every coroutine's frames and overflows (docs/notes/gates.md, "TSan").
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+void *__tsan_create_fiber(unsigned flags);
+void  __tsan_destroy_fiber(void *fiber);
+void  __tsan_switch_to_fiber(void *fiber, unsigned flags);
+void *__tsan_get_current_fiber(void);
+void  __tsan_set_fiber_name(void *fiber, const char *name);
+#define TSAN_FIBER_NEW(c)                                                                                                                            \
+	do {                                                                                                                                             \
+		(c)->tsan_fiber = __tsan_create_fiber(0);                                                                                                    \
+		char name_[32];                                                                                                                              \
+		snprintf(name_, sizeof name_, "coro %llu", (unsigned long long)(c)->id);                                                                     \
+		__tsan_set_fiber_name((c)->tsan_fiber, name_);                                                                                               \
+	} while (0)
+// Paired with the mapping: the carrier that frees a stack is not running its fiber.
+#define TSAN_FIBER_FREE(c)                                                                                                                         \
+	do {                                                                                                                                             \
+		if ((c)->tsan_fiber) __tsan_destroy_fiber((c)->tsan_fiber);                                                                                  \
+		(c)->tsan_fiber = NULL;                                                                                                                      \
+	} while (0)
+// Flag 0 orders the fibers: no_sync would report the spawner's own writes as racing its coroutine's reads.
+#define TSAN_ENTER(car, c)                                                                                                                         \
+	do {                                                                                                                                             \
+		(car)->tsan_fiber = __tsan_get_current_fiber();                                                                                              \
+		__tsan_switch_to_fiber((c)->tsan_fiber, 0);                                                                                                  \
+	} while (0)
+#define TSAN_LEAVE(car) __tsan_switch_to_fiber((car)->tsan_fiber, 0)
+#endif
+#endif
+#ifndef TSAN_ENTER
+#define TSAN_FIBER_NEW(c) ((void)(c))
+#define TSAN_FIBER_FREE(c) ((void)(c))
+#define TSAN_ENTER(car, c) ((void)(car), (void)(c))
+#define TSAN_LEAVE(car) ((void)(car))
+#endif
+
 // ---- the context switch: callee-saved registers and the stack pointer, nothing else (no signal mask)
 
 #if defined(__aarch64__)
@@ -246,6 +283,7 @@ clj_coro *clj_coro_alloc(void) {
 	atomic_fetch_add_explicit(&live_coros, 1, memory_order_seq_cst);
 	c->map = base;
 	c->map_size = size;
+	TSAN_FIBER_NEW(c);
 	char             *top = (char *)base + guard + stack + page / 2;
 	clj_shadow_stack *s = &c->shadow_hdr;
 	// A cached ring keeps stale frames: valid up to depth, the overflow array up to noverflow only.
@@ -284,6 +322,7 @@ void clj_coro_free_stack(clj_coro *c) {
 	if (!map_keep(c->map, c->map_size)) munmap(c->map, c->map_size);
 	c->map = NULL;
 	c->shadow = NULL;
+	TSAN_FIBER_FREE(c);
 }
 
 // Hands the pages below the parked stack pointer back once; a deeper run since a shallower park stays resident.
@@ -418,6 +457,7 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	atomic_store_explicit(&c->state, CLJ_CORO_RUNNING, memory_order_relaxed);
 	atomic_fetch_add_explicit(&switches, 1, memory_order_relaxed);
 	ASAN_START(&car->asan_fake, c->shadow->stack_lo, (size_t)(c->shadow->stack_hi - c->shadow->stack_lo));
+	TSAN_ENTER(car, c);
 	clj_ctx_switch(&car->return_sp, c->sp);
 	ASAN_FINISH(car->asan_fake);
 	car->current = car->implicit;
@@ -431,6 +471,7 @@ void clj_coro_switch_out(clj_coro *c) {
 	clj_shadow_stack *cs = car->implicit->shadow;
 	bool              done = atomic_load_explicit(&c->state, memory_order_relaxed) == CLJ_CORO_DONE;
 	ASAN_START(done ? NULL : &c->asan_fake, cs->stack_lo, (size_t)(cs->stack_hi - cs->stack_lo));
+	TSAN_LEAVE(car);
 	clj_ctx_switch(&c->sp, car->return_sp);
 	ASAN_FINISH(c->asan_fake);
 }

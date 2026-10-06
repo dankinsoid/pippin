@@ -56,15 +56,18 @@ extension CoreTests {
 				let g = try eval("(fn [] dv-t)")
 				let boundFn = try eval("(binding [dv-t 3] (bound-fn [] dv-t))")
 				nonisolated(unsafe) var seen: [Value] = []
+				// isFinished is a poll, not a release: handing `seen` back needs an edge of its own.
+				let done = DispatchSemaphore(value: 0)
 				let thread = Thread {
 					// A fresh thread has no frames: it sees the root even while this thread is inside a binding.
 					seen.append(try! g())
 					seen.append(try! f())
 					seen.append(try! boundFn())
+					done.signal()
 				}
 				_ = try eval("(push-thread-bindings {#'dv-t 10})")
 				thread.start()
-				while !thread.isFinished { usleep(1000) }
+				done.wait()
 				_ = try eval("(pop-thread-bindings)")
 				#expect(seen == [1, 2, 3])
 				#expect(try eval("dv-t") == 1)

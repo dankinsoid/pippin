@@ -25,6 +25,20 @@
   coroutine stacks (`make test` runs the suites on them). The pairing is per thread and every entry owes a
   finish, including the bench's `bounce` body; ASan ignores the hooks on a thread it does not track, so an
   unbalanced one is invisible until something moves that code onto a tracked thread.
+- **TSan follows a coroutine through its own fiber API** (`make test-tsan`, docs/notes/gates.md "TSan"),
+  hooked where ASan's hooks already are: `TSAN_ENTER` before the switch in, `TSAN_LEAVE` before the switch out.
+  A fiber is a TSan thread state without a thread — its own vector clock and its own shadow stack of the
+  `__tsan_func_entry`/`exit` pairs the instrumentation emits — so the API is one call before the switch and
+  nothing on the other stack, where ASan needs a finishing half: `clj_coro_entry` and the bench's `bounce` owe
+  TSan nothing. The fiber is made with the mapping (`clj_coro_alloc`, named `coro <id>`, which is what a
+  report's thread line prints) and destroyed with it (`clj_coro_free_stack`, run by a carrier that is not on
+  it). Unannotated, a carrier's shadow stack takes the entries of every coroutine it runs and keeps those whose
+  exits run after a park on another carrier, until it runs off its fixed-size mapping inside TSan.
+  The switch passes flag 0, a release to a sync object keyed by the target fiber and an acquire from it: two coroutines
+  that ran on *one* carrier are ordered through it and a race between them is not reported, while two on two
+  carriers — §7's case — is. `no_sync` instead would report a spawner's writes to `c->fn` and `c->args` as
+  racing the body's reads of them. The park's `c->lock`, locked on the coroutine and unlocked on the carrier,
+  is handed over in TSan's model as well (`TSAN_LOCK_GIVE`/`_TAKE`, docs/notes/gates.md "TSan").
 - **A parked coroutine's stack is its own** (design §4, "Стек припаркованной корутины — только её"): nothing a
   resumer, a canceller, a timer or a blocking job touches lives in the parker's frames or in its mapping, so the
   live bytes can be copied out and back *to the same addresses* (no pointer fixups: relocation stays refused).

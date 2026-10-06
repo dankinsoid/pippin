@@ -232,9 +232,9 @@ static void install(const clj_node *n, void *ctx) {
 			}
 			c->d->spec_ids[c->d->nspec] = n->id;
 			c->d->spec_fns[c->d->nspec++] = fast;
-			c->e->nodes[n->id].eval = fast;
+			CLJ_NODE_ENTRY_SET(c->e, n->id, fast);
 		} else {
-			c->e->nodes[n->id].eval = clj_eval_site_entry(c->e, n);
+			CLJ_NODE_ENTRY_SET(c->e, n->id, clj_eval_site_entry(c->e, n));
 		}
 	}
 	clj_node_children(n, install, ctx);
@@ -400,7 +400,7 @@ void clj_exec_reapply(clj_value exec) {
 	clj_exec       *e = clj_exec_of(exec);
 	clj_derivation *d = e->derived;
 	if (!d) return;
-	for (uint32_t i = 0; i < d->nspec; i++) e->nodes[d->spec_ids[i]].eval = d->spec_fns[i];
+	for (uint32_t i = 0; i < d->nspec; i++) CLJ_NODE_ENTRY_SET(e, d->spec_ids[i], d->spec_fns[i]);
 }
 
 bool clj_exec_derivation_valid(clj_value exec) {

@@ -1,4 +1,4 @@
-.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: port-audit c-only-audit cmutex-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -47,6 +47,13 @@ test-pool:
 
 test-ubsan:
 	$(SHARDS) --gate test-ubsan -- --scratch-path $(BUILD_ROOT)/ubsan --sanitize=undefined
+
+# Data races, with the coroutine switch annotated by TSan's fiber API (docs/notes/gates.md, "TSan"). Opt-in like
+# test-ubsan. TSan sees object boundaries only with the system allocator, as ASan does.
+test-tsan: TEST_TIMEOUT = 3600
+test-tsan:
+	CLJ_SYSTEM_ALLOC=1 TSAN_OPTIONS="abort_on_error=0 suppressions=$(abspath scripts/tsan.supp)" \
+		$(SHARDS) --gate test-tsan -- --scratch-path $(BUILD_ROOT)/tsan --sanitize=thread
 
 # The §7 invariant: clj_is_unique always false, so every in-place path degrades to a copy (NOTES.md, RC).
 test-noreuse:

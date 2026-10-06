@@ -21,7 +21,8 @@ typedef struct {
 	char             *stack_hi;
 	_Atomic uint64_t  deadline;    // monotonic ns the running code must not pass, 0 when none (eval.c); 1 once cancelled
 	uint32_t          countdown;   // calls and loop turns left before the next clock read
-	uint32_t          unwinds;     // unwind budgets a caught timeout may still spend before every check throws
+	// A canceller writes it while the owner spends it, so atomic; countdown beside it is the owner's alone.
+	_Atomic uint32_t  unwinds;     // unwind budgets a caught timeout may still spend before every check throws
 	_Atomic bool      cancelled;   // a cancellation of the coroutine (its kind is on the clj_coro): the deadline throw becomes it
 	_Atomic bool      suspend;     // a standing suspend!: the same poisoned deadline, but the tick parks on a gate (sched.c)
 	void             *recovery;    // innermost clj_recovery of the execution, NULL outside the host boundary (guard.c)

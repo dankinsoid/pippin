@@ -4,8 +4,8 @@ import Darwin
 import Testing
 @testable import Pippin
 
-// The RC invariant checks exist in debug builds only, and an exit test's child cannot start under ASan (TraceTests).
-private let debugChecks = clj_debug_live_objects() >= 0 && dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__asan_init") == nil
+// The RC invariant checks exist in debug builds only, and an exit test's child cannot start under a sanitizer (TraceTests).
+private let debugChecks = clj_debug_live_objects() >= 0 && !underSanitizer
 
 private func stderrText(_ result: ExitTest.Result?) -> String {
 	String(decoding: result?.standardErrorContent ?? [], as: UTF8.self)

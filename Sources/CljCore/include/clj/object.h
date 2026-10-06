@@ -25,6 +25,18 @@ typedef struct {
 	const clj_type  *type;
 } clj_header;
 
+// TSan reports nothing between two atomics, relaxed or not, so under it the unshared count is plain (docs/notes/gates.md, "TSan").
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define CLJ_RC_UNSHARED_LOAD(h) (*(const uint32_t *)(const void *)&(h)->rc)
+#define CLJ_RC_UNSHARED_STORE(h, v) (*(uint32_t *)(void *)&(h)->rc = (v))
+#endif
+#endif
+#ifndef CLJ_RC_UNSHARED_LOAD
+#define CLJ_RC_UNSHARED_LOAD(h) atomic_load_explicit(&(h)->rc, memory_order_relaxed)
+#define CLJ_RC_UNSHARED_STORE(h, v) atomic_store_explicit(&(h)->rc, (v), memory_order_relaxed)
+#endif
+
 // Set on the whole reachable graph once it is published: stored into a cell another thread can read
 // (var, atom, channel, lazy-seq cell), captured by a spawn, or exported to the host; from then on RC is
 // atomic. A handoff (park/resume, a channel move) is not a publication: one side touches the object at
@@ -216,9 +228,9 @@ static inline clj_value clj_retain(clj_value v) {
 	}
 	CLJ_RC_COUNT(CLJ_RC_PLAIN);
 	CLJ_OWNER_CHECK(h);
-	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT(rc > 0, "retain of a freed object");
-	atomic_store_explicit(&h->rc, rc + 1, memory_order_relaxed);
+	CLJ_RC_UNSHARED_STORE(h, rc + 1);
 	return v;
 }
 
@@ -232,13 +244,13 @@ static inline void clj_release(clj_value v) {
 	}
 	CLJ_RC_COUNT(CLJ_RC_PLAIN);
 	CLJ_OWNER_CHECK(h);
-	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
 	if (rc == 1) {
 		clj_release_slow(h);
 		return;
 	}
-	atomic_store_explicit(&h->rc, rc - 1, memory_order_relaxed);
+	CLJ_RC_UNSHARED_STORE(h, rc - 1);
 }
 
 // murmur3 finalizer: spreads entropy across all 32 bits.

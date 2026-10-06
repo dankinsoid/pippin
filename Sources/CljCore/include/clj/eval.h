@@ -17,6 +17,11 @@ typedef struct {
 	void       *ic;   // the keyword-lookup cache of a (:k m)/(get m :k) site, the shape of a keyword-keyed literal; else NULL
 } clj_exec_node;
 
+// A `def` rewrites a node's entry while an execution of the same form runs (NOTES "Analyzer and evaluator"):
+// both entries are valid, so the hand-over is relaxed rather than a plain store beside the racing read.
+#define CLJ_NODE_ENTRY(e, id) __atomic_load_n(&(e)->nodes[id].eval, __ATOMIC_RELAXED)
+#define CLJ_NODE_ENTRY_SET(e, id, fn) __atomic_store_n(&(e)->nodes[id].eval, (fn), __ATOMIC_RELAXED)
+
 typedef struct clj_call_site clj_call_site;
 typedef struct clj_derivation clj_derivation;
 

@@ -77,12 +77,16 @@ static void run_lock(void) {
 	pthread_mutex_lock(&run_mu);
 }
 
+// A plain store beside the spinner's relaxed load is a race in the model, whatever the hardware does.
+#define GLANCE_SET(lv, v) __atomic_store_n(&(lv), (v), __ATOMIC_RELAXED)
+
 // A racy glance at the queues from a spinner, confirmed under the lock before anything is taken; a fresh next slot
 // is not work for a spinner, or the pair using it would pay a lock contention per hand-off.
 static bool work_visible(void) {
 	if (__atomic_load_n(&run_head, __ATOMIC_RELAXED)) return true;
 	uint64_t now = clj_profile_now();
-	for (clj_carrier *o = __atomic_load_n(&carriers, __ATOMIC_RELAXED); o; o = o->pool_next) {
+	// Acquire against the publication of a new carrier: its pool_next is written before it, under run_mu.
+	for (clj_carrier *o = __atomic_load_n(&carriers, __ATOMIC_ACQUIRE); o; o = o->pool_next) {
 		if (__atomic_load_n(&o->next, __ATOMIC_RELAXED) && now - __atomic_load_n(&o->next_at, __ATOMIC_RELAXED) > NEXT_STEAL_AGE_NS) return true;
 	}
 	return false;
@@ -92,18 +96,34 @@ static _Atomic uint64_t spawned;
 static void queue_push(clj_coro **head, clj_coro **tail, clj_coro *c) {
 	c->next = NULL;
 	if (*tail) (*tail)->next = c;
-	else *head = c;
+	else GLANCE_SET(*head, c);
 	*tail = c;
 }
 
 static clj_coro *queue_pop(clj_coro **head, clj_coro **tail) {
 	clj_coro *c = *head;
 	if (!c) return NULL;
-	*head = c->next;
+	GLANCE_SET(*head, c->next);
 	if (!*head) *tail = NULL;
 	c->next = NULL;
 	return c;
 }
+
+// park locks c->lock on the coroutine's fiber and run_one unlocks it on the carrier's (docs/notes/gates.md, "TSan").
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+void __tsan_mutex_pre_lock(void *addr, unsigned flags);
+void __tsan_mutex_post_lock(void *addr, unsigned flags, int recursion);
+int  __tsan_mutex_pre_unlock(void *addr, unsigned flags);
+void __tsan_mutex_post_unlock(void *addr, unsigned flags);
+#define TSAN_LOCK_GIVE(m) ((void)__tsan_mutex_pre_unlock((m), 0), __tsan_mutex_post_unlock((m), 0))
+#define TSAN_LOCK_TAKE(m) (__tsan_mutex_pre_lock((m), 0), __tsan_mutex_post_lock((m), 0, 0))
+#endif
+#endif
+#ifndef TSAN_LOCK_GIVE
+#define TSAN_LOCK_GIVE(m) ((void)(m))
+#define TSAN_LOCK_TAKE(m) ((void)(m))
+#endif
 
 static void finish(clj_coro *c);
 
@@ -116,6 +136,7 @@ static void run_one(clj_carrier *car, clj_coro *c) {
 		return;
 	}
 	clj_coro_advise_stack(c);
+	TSAN_LOCK_TAKE(&c->lock);
 	pthread_mutex_unlock(&c->lock);
 }
 
@@ -158,7 +179,7 @@ static void carrier_wake(clj_carrier *car) {
 static clj_coro *take_work_locked(clj_carrier *car, clj_carrier **wake) {
 	clj_coro *c = car->next;
 	if (c) {
-		car->next = NULL;
+		GLANCE_SET(car->next, NULL);
 		return c;
 	}
 	c = queue_pop(&run_head, &run_tail);
@@ -170,7 +191,7 @@ static clj_coro *take_work_locked(clj_carrier *car, clj_carrier **wake) {
 	for (clj_carrier *o = carriers; o; o = o->pool_next) {
 		if (o->next && now - o->next_at > NEXT_STEAL_AGE_NS) {
 			c = o->next;
-			o->next = NULL;
+			GLANCE_SET(o->next, NULL);
 			return c;
 		}
 	}
@@ -203,7 +224,7 @@ static void *carrier_main(void *arg) {
 	pthread_cond_init(&car->park_cv, NULL);
 	pthread_mutex_lock(&run_mu);
 	car->pool_next = carriers;
-	carriers = car;
+	__atomic_store_n(&carriers, car, __ATOMIC_RELEASE);
 	pthread_mutex_unlock(&run_mu);
 	for (;;) {
 		run_lock();
@@ -354,8 +375,8 @@ void clj_sched_enqueue(clj_coro *c, bool handoff) {
 	run_lock();
 	if (car) {
 		if (car->next) queue_push(&run_head, &run_tail, car->next);
-		car->next = c;
-		car->next_at = clj_profile_now();
+		GLANCE_SET(car->next, c);
+		GLANCE_SET(car->next_at, clj_profile_now());
 	} else {
 		queue_push(&run_head, &run_tail, c);
 	}
@@ -464,6 +485,7 @@ static void park(clj_waiter *w, bool cancellable) {
 	if (__builtin_expect(!c->linked, 0)) clj_coro_live_link(c);
 	c->parks++;
 	atomic_store_explicit(&c->state, CLJ_CORO_PARKED, memory_order_release);
+	TSAN_LOCK_GIVE(&c->lock);
 	clj_coro_switch_out(c);
 	pthread_mutex_lock(&c->lock);
 	c->waiter = NULL;
@@ -584,8 +606,9 @@ static void finish(clj_coro *c) {
 	clj_release(fn);
 	for (size_t i = 0; i < c->nargs; i++) clj_release(c->args[i]);
 	c->nargs = 0;
-	clj_coro_free_stack(c);
+	// Under the lock: a canceller and the sweep read c->shadow and c->map under it.
 	pthread_mutex_lock(&c->lock);
+	clj_coro_free_stack(c);
 	c->signaled = true;
 	pthread_cond_broadcast(&c->cond);
 	pthread_mutex_unlock(&c->lock);
@@ -622,7 +645,7 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	uint64_t deadline = parent_cancelled || parent->shield ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
 	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
 	c->shadow->countdown = 1024;
-	c->shadow->unwinds = 64;
+	atomic_store_explicit(&c->shadow->unwinds, 64, memory_order_relaxed);
 	clj_coro_capture_spawn_trace(c);
 	c->affinity = (uint8_t)affinity;
 	c->on_done = on_done;
@@ -712,7 +735,7 @@ static clj_waiter *cancel_locked(clj_coro *c, int kind, clj_value cause) {
 	}
 	atomic_store_explicit(&c->shadow->cancelled, true, memory_order_relaxed);
 	deadline_poison_locked(c);
-	c->shadow->unwinds = 64;
+	atomic_store_explicit(&c->shadow->unwinds, 64, memory_order_relaxed);
 	clj_waiter *w = c->waiter;
 	if (w) clj_waiter_retain(w);
 	return w;
@@ -765,7 +788,7 @@ void clj_coro_uncancel_scope(clj_coro *c) {
 		atomic_store_explicit(&c->shadow->cancelled, false, memory_order_relaxed);
 		deadline_unpoison_locked(c);
 		c->shadow->countdown = 1024;
-		c->shadow->unwinds = 64;
+		atomic_store_explicit(&c->shadow->unwinds, 64, memory_order_relaxed);
 	}
 	pthread_mutex_unlock(&c->lock);
 }
@@ -782,7 +805,7 @@ void clj_coro_cancel_reset(clj_coro *c) {
 	atomic_store_explicit(&c->shadow->deadline, 0, memory_order_relaxed);
 	// A spent budget left countdown at 1: the next job, cancelled before it starts, would throw outside its try.
 	c->shadow->countdown = 1024;
-	c->shadow->unwinds = 64;
+	atomic_store_explicit(&c->shadow->unwinds, 64, memory_order_relaxed);
 	pthread_mutex_unlock(&c->lock);
 }
 
@@ -824,7 +847,13 @@ bool clj_coro_resume(clj_coro *c) {
 	return was;
 }
 
-bool clj_coro_suspended(const clj_coro *c) { return c->shadow && atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed); }
+// Under the lock: the carrier that finishes c clears c->shadow under it.
+bool clj_coro_suspended(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	bool s = c->shadow && atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed);
+	pthread_mutex_unlock(&c->lock);
+	return s;
+}
 
 // Legal only where nothing is held (design §4): a cmutex or a claimed lazy seq would stay held until resume!.
 // It defers rather than fails — the request came from another coroutine, there is no caller here to fail.
@@ -1272,7 +1301,7 @@ size_t clj_debug_blocking_held(void) { return pool_read(&jobs_pool, &jobs_pool.h
 void clj_debug_ticks_spend(void) {
 	clj_shadow_stack *s = clj_coro_current()->shadow;
 	s->countdown = 1;
-	s->unwinds = 0;
+	atomic_store_explicit(&s->unwinds, 0, memory_order_relaxed);
 }
 
 void clj_debug_blocking_keep_alive_ms(uint64_t ms) {

@@ -65,7 +65,8 @@ typedef struct {
 	clj_header h;
 	clj_lock   lock;      // a plain channel: a runtime-only section
 	clj_cmutex cm;        // a channel with a transducer: its step runs user code, which may park
-	clj_coro  *cm_owner;  // the execution inside the section of an xform channel, for the reentry trap
+	// Read without the mutex by the reentry trap and compared against self: only the owner stores its own pointer.
+	_Atomic(clj_coro *) cm_owner; // the execution inside the section of an xform channel
 	uint8_t    kind;
 	uint8_t    role;
 	bool       closed;
@@ -173,7 +174,7 @@ static clj_value b_chan_rf(const clj_value *args, size_t n) {
 	if (!clj_is_chan(args[0])) return clj_throw_msg("a channel's reducing fn expects the channel, got: %s", clj_type_name(args[0]));
 	if (n == 2) {
 		clj_chan *ch = chan_of(args[0]);
-		if (ch->cm_owner != clj_coro_current()) return clj_throw_msg("a channel's reducing fn was called outside its transducer step");
+		if (atomic_load_explicit(&ch->cm_owner, memory_order_relaxed) != clj_coro_current()) return clj_throw_msg("a channel's reducing fn was called outside its transducer step");
 		clj_share(args[1]);
 		buffer_add(ch, clj_retain(args[1]));
 	}
@@ -212,7 +213,7 @@ static void chan_lock(clj_chan *ch) {
 		clj_cmutex_lock(&ch->cm);
 		// Reached afresh after the lock, which may have parked us; the step runs here, so no suspend parks under it.
 		clj_coro *me = clj_coro_current();
-		ch->cm_owner = me;
+		atomic_store_explicit(&ch->cm_owner, me, memory_order_relaxed);
 		me->cmutex_held++;
 	} else {
 		clj_lock_lock(&ch->lock);
@@ -221,8 +222,8 @@ static void chan_lock(clj_chan *ch) {
 
 static void chan_unlock(clj_chan *ch) {
 	if (has_xform(ch)) {
-		ch->cm_owner->cmutex_held--;
-		ch->cm_owner = NULL;
+		atomic_load_explicit(&ch->cm_owner, memory_order_relaxed)->cmutex_held--;
+		atomic_store_explicit(&ch->cm_owner, NULL, memory_order_relaxed);
 		clj_cmutex_unlock(&ch->cm);
 	} else {
 		clj_lock_unlock(&ch->lock);
@@ -231,7 +232,7 @@ static void chan_unlock(clj_chan *ch) {
 
 // The mutex is not reentrant: a step touching its own channel is refused, not deadlocked.
 static bool reentry(clj_chan *ch, const char *op) {
-	if (has_xform(ch) && ch->cm_owner == clj_coro_current()) {
+	if (has_xform(ch) && atomic_load_explicit(&ch->cm_owner, memory_order_relaxed) == clj_coro_current()) {
 		clj_throw_msg("%s on a channel from inside its own transducer step", op);
 		return true;
 	}

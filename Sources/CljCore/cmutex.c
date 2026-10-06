@@ -182,7 +182,8 @@ void clj_cmutex_unlock_slow(clj_cmutex *m) {
 typedef struct monitor {
 	uintptr_t       key;
 	clj_cmutex      m;
-	clj_coro       *owner;
+	// Read without the mutex and compared against self: only the owner ever stores its own pointer here.
+	_Atomic(clj_coro *) owner;
 	uint32_t        count;
 	uint32_t        users;
 	struct monitor *next;
@@ -232,13 +233,13 @@ clj_value clj_monitor_enter(clj_value x) {
 	monitor *mo = mon_find_locked((uintptr_t)x, true);
 	mo->users++;
 	clj_lock_unlock(&mon_lock);
-	if (mo->owner == me) {
+	if (atomic_load_explicit(&mo->owner, memory_order_relaxed) == me) {
 		mo->count++;
 		me->cmutex_held++;
 		return CLJ_NIL;
 	}
 	clj_cmutex_lock(&mo->m);
-	mo->owner = me;
+	atomic_store_explicit(&mo->owner, me, memory_order_relaxed);
 	mo->count = 1;
 	// The body runs under the monitor's mutex: a suspend must not park holding it (sched.c).
 	me->cmutex_held++;
@@ -249,14 +250,14 @@ clj_value clj_monitor_exit(clj_value x) {
 	clj_coro *me = clj_coro_current();
 	clj_lock_lock(&mon_lock);
 	monitor *mo = mon_find_locked((uintptr_t)x, false);
-	if (!mo || mo->owner != me) {
+	if (!mo || atomic_load_explicit(&mo->owner, memory_order_relaxed) != me) {
 		clj_lock_unlock(&mon_lock);
 		return clj_throw_msg("monitor-exit of an object this execution does not hold");
 	}
 	clj_lock_unlock(&mon_lock);
 	me->cmutex_held--;
 	if (--mo->count == 0) {
-		mo->owner = NULL;
+		atomic_store_explicit(&mo->owner, NULL, memory_order_relaxed);
 		clj_cmutex_unlock(&mo->m);
 	}
 	clj_lock_lock(&mon_lock);

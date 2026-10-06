@@ -24,9 +24,9 @@ static bool release_reaches_zero(clj_header *h) {
 		return prev == 1;
 	}
 	CLJ_OWNER_CHECK(h);
-	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
-	atomic_store_explicit(&h->rc, rc - 1, memory_order_relaxed);
+	CLJ_RC_UNSHARED_STORE(h, rc - 1);
 	return rc == 1;
 }
 
@@ -129,9 +129,10 @@ bool clj_is_unique(clj_value v) {
 	if (!clj_is_ptr(v)) return false;
 	clj_header *h = clj_header_of(v);
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
-	if (!(h->flags & CLJ_FLAG_SHARED)) CLJ_OWNER_CHECK(h);
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
-	return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
+	if (h->flags & CLJ_FLAG_SHARED) return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
+	CLJ_OWNER_CHECK(h);
+	return CLJ_RC_UNSHARED_LOAD(h) == 1;
 #endif
 }
 

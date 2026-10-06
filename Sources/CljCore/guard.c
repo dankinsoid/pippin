@@ -33,6 +33,17 @@ void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
 #define ASAN_UNMAPS_ALTSTACK 0
 #endif
 
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+void __tsan_acquire(void *addr);
+// Every instrumented access calls into the sanitizer's runtime, so the overflow lands there as often as in ours.
+#define TSAN_IMAGE() clj_trace_register_image((const void *)&__tsan_acquire)
+#endif
+#endif
+#ifndef TSAN_IMAGE
+#define TSAN_IMAGE() ((void)0)
+#endif
+
 enum {
 	ALT_STACK_SIZE = 256 * 1024,
 	// A fault this far below the stack's low end is still its guard, whatever page size the frame skipped.
@@ -193,6 +204,7 @@ static void on_signal(int sig, siginfo_t *info, void *uap) {
 
 void clj_guard_install(void) {
 	ASAN_IMAGE();
+	TSAN_IMAGE();
 	const char *e = getenv("CLJ_CRASH_EXIT");
 	crash_exit = e && *e && strcmp(e, "0") != 0;
 	static const int signals[] = {SIGSEGV, SIGBUS};

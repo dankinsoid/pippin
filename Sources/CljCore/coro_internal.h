@@ -45,6 +45,7 @@ struct clj_coro {
 	void    *map;        // the mmap'd region: guard page, stack, shadow stack; NULL for an implicit coroutine
 	size_t   map_size;
 	void    *asan_fake;  // the sanitizer's fake stack handle across a switch
+	void    *tsan_fiber; // TSan's fiber for this stack: its vector clock and its shadow stack of entry/exit pairs
 	// ---- state that was _Thread_local
 	clj_shadow_stack *shadow;        // &shadow_hdr; its arrays are in the mapping (or calloc'd for an implicit one)
 	clj_shadow_stack  shadow_hdr;
@@ -115,6 +116,7 @@ struct clj_carrier {
 	bool      is_main;
 	bool      pooled;
 	void     *asan_fake; // the sanitizer's handle for the carrier's own stack while a coroutine runs
+	void     *tsan_fiber; // the thread's own TSan fiber, read back at each switch in
 	void     *return_sp; // where the carrier's stack continues when a coroutine switches out
 	clj_coro *next;      // the coroutine this carrier runs next, ahead of the run queue (Go's runnext); under run_mu
 	uint64_t  next_at;   // when it was placed: an idle carrier steals it only once it has waited a while
@@ -236,7 +238,7 @@ void clj_coro_cancel_reset(clj_coro *c);
 // parking the tick on a gate instead of throwing. true when a live coroutine took the request / had one standing.
 bool clj_coro_suspend(clj_coro *c);
 bool clj_coro_resume(clj_coro *c);
-bool clj_coro_suspended(const clj_coro *c);
+bool clj_coro_suspended(clj_coro *c);
 // The tick with the poison and the flag set (eval.c): parks until resume! or a cancellation, and answers whether
 // the tick must throw after all. A point that holds anything defers the request to the next tick.
 bool clj_coro_suspend_point(void);

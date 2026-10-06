@@ -32,6 +32,47 @@
   It is periodic because that startup cost repeats for every suite; the shard runner (`--isolated`) runs as
   many of those processes side by side as it would run shards. All live-object assertions also remain
   active in the ordinary full-suite and corpus runs.
+- **`make test-tsan` is the data-race instrument** (design §3 item 4's first half; the seeded scheduler is the
+  other). The whole suite under `swift build --sanitize=thread` with `CLJ_SYSTEM_ALLOC=1`, the hand-written
+  context switch annotated with TSan's fiber API, so an access is attributed to the coroutine and a report
+  carries the coroutine's own stack instead of its carrier's (NOTES "Coroutines"). Opt-in like `test-ubsan`, in
+  neither `gates` nor `gates-full`: WALL_PLACEHOLDER Its `TEST_TIMEOUT` is 3600 s, a target-specific value
+  that wins over CI's 1200 from the environment. The footprint gates of `CoroTests` and `EvacTests` are off
+  under it (`underSanitizer`: TSan keeps a thread state and a trace per fiber), and so are the exit tests of
+  `RCTests` and `TraceTests`, as under ASan: the runtime strips itself from `DYLD_INSERT_LIBRARIES` before a
+  child starts (`strip_env`), so swift-testing's exit-test child stops at "Interceptors are not working".
+  `libclang_rt.tsan_osx_dynamic.dylib` carries x86_64 and arm64 alike, so the target runs on both CI
+  architectures (`docs/portability.md`).
+- **What TSan cannot see here without help.**
+  1. **A lost increment on our own refcount.** `clj_header.rc` is `_Atomic uint32_t` and the unshared path reads
+     and writes it relaxed, and TSan never reports a race between two atomics — so §7's lost increment would be
+     as silent under TSan as without it. Under TSan the unshared path is therefore plain
+     (`CLJ_RC_UNSHARED_LOAD`/`_STORE`, object.h); every other build keeps the relaxed atomics.
+  2. **A pthread mutex locked on one fiber and unlocked on another.** The park locks `c->lock` on the coroutine
+     and the carrier unlocks it after the switch (NOTES "Scheduler"). TSan keys a mutex's owner and every
+     fiber's held set by fiber, so unannotated the first such unlock marks the mutex broken — no release at an
+     unlock, no acquire at a later lock, every access under it a race from then on — and the coroutine's held
+     set keeps one entry more per park. TSan replays that set at the head of each trace part, and once a
+     coroutine has parked some 16 000 times the replay fills the part (256 KB, two 8-byte events a lock):
+     `CHECK failed: tsan_rtl.cpp:1012 "((TraceSkipGap(thr))) != (0)"`, which took down the shard running
+     `ChanStressTests.stressBenchShapes` (20 000 ping-pong rounds on one `go-loop`). `TSAN_LOCK_GIVE` in `park`
+     (a model unlock on the coroutine, before the switch) and `TSAN_LOCK_TAKE` in `run_one` (a model lock on the
+     carrier, before the real unlock) keep the owner, the held sets and the edge where the real lock is (sched.c).
+  3. **Two coroutines that ran on one carrier.** The switch's own edge orders them (NOTES "Coroutines").
+  4. **Nothing else needs an annotation**: a `clj_cmutex` is a CAS with acquire/release ordering, which TSan
+     models; a `clj_lock` is an `os_unfair_lock`, which TSan interposes and which is never held across a park;
+     the other pthread mutexes are locked and unlocked on one fiber.
+- **A TSan suppression names its protocol and why it is correct** (`scripts/tsan.supp`), the way a corpus
+  allowlist carries its §8 citation. Two entries today: the protocol inline cache of a dispatch site, which is a
+  seqlock and whose payload TSan reports by construction, and a var's `macro`/`dynamic` byte, which a `def`
+  stores while another thread reads it (NOTES "Analyzer and evaluator"). An entry matches any frame of either
+  stack by substring, so a generic function name is too wide to use. The races fixed instead: the plain stores
+  beside the scheduler's racy glance at the run queue and the next slots (`GLANCE_SET`) and the carrier list's
+  publication, the monitor's and the xform channel's `owner`, `proto.c`'s reader list, the ring's `unwinds`
+  (a canceller resets it while the owner spends it), the node entry the specializer rewrites
+  (`CLJ_NODE_ENTRY`), `DynamicVarTests` handing its result back through `Thread.isFinished`, and `c->shadow`
+  and `c->map` cleared by `finish` outside the coroutine's lock while a canceller, `suspended?` or the sweep
+  read them under it.
 - **A live-object baseline is taken with the runtime settled.** `clj_debug_runtime_settle` (sched.c) waits
   until no coroutine lives beyond the target, no timer with a context is pending or firing (a timeout's
   channel, a sleeper's waiter, a deadline's coroutine; the evacuation sweep holds none), no blocking-pool job is
@@ -81,7 +122,7 @@
   answered, none in 10 000.
 - **One build directory per configuration.** Plain tools/tests use `.build/plain`, interpreted ASan
   `.build/asan`, compiled core `.build/compiled`, compiled core ASan `.build/compiled-asan`, release tools
-  `.build/release`, UBSan `.build/ubsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
+  `.build/release`, UBSan `.build/ubsan`, TSan `.build/tsan`, and no-reuse `.build/noreuse`. `BUILD_ROOT` can relocate them as a
   group. Release executables are inside `.build/release/release/`. `make boot` uses the plain compiler;
   `scripts/embed-core.sh` only writes embedded source bytes and has no build-directory dependency.
 - **Shards.** `test`, `test-compiled`, `test-eval-compiled` and the other whole-suite targets run through
@@ -112,7 +153,7 @@
 - **What bounds how many shards run at once.** min(cores, 70% of memory / the gate's recorded peak resident
   memory per shard); the shards past that queue. A target with no committed deal is still sized to the machine
   by the same two bounds and ⌈sum of suite times / longest suite⌉, and runs as many shards as it deals:
-  `test-pool`, `test-ubsan`, `test-noreuse`, `test-eval-compiled`, and `test-isolated`, which is
+  `test-pool`, `test-ubsan`, `test-tsan`, `test-noreuse`, `test-eval-compiled`, and `test-isolated`, which is
   machine-independent anyway (one suite a process). Past that last bound the longest suite alone sets the wall
   time and a shard only adds a boot and its memory. A runner's cores are the tighter bound than the suites: shards slow each other down (x86_64 shards
   planned at 92 s took 129–209 s; on a 12-core M3 six `test` shards planned at 25 s took 44 s apiece), carriers

@@ -15,6 +15,9 @@ private func take(_ ch: Value) -> Value { Value(owning: clj_chan_take(ch.raw)) }
 
 // ASan frames are several times larger and its shadow dominates the footprint: the size gates hold outside it.
 let underASan = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__asan_init") != nil
+// TSan keeps a thread state and a trace per fiber, so a parked coroutine costs it ~170 KB (docs/notes/gates.md, "TSan").
+let underTSan = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "__tsan_init") != nil
+let underSanitizer = underASan || underTSan
 
 // Evacuates once the coroutine is parked; false when it did not park within the wait.
 private func evacuateOnceParked(_ c: Value, ms: Int = 5000) -> Bool {
@@ -247,10 +250,10 @@ extension CoreTests {
 				#expect(clj_debug_coro_evacuated_count() == 10000, "\(n) evacuated now")
 				// ~3.7 KB live per interpreted go block: two 832-byte eval frames, the entry's sigjmp_buf, the switch frame.
 				let bytes = clj_debug_coro_evacuated_bytes()
-				#expect(underASan || bytes <= 10000 * 4096, "\(bytes) bytes in blobs")
+				#expect(underSanitizer || bytes <= 10000 * 4096, "\(bytes) bytes in blobs")
 				let after = clj_debug_phys_footprint()
 				// Most of 10 000 stacks' pages went back (6400 pages: 100 MB of 16 KB ones); other suites run in parallel.
-				#expect(underASan || n < 10000 || (before > after && before - after > 6400 * Int(getpagesize())), "footprint \(before / 1024) KB → \(after / 1024) KB")
+				#expect(underSanitizer || n < 10000 || (before > after && before - after > 6400 * Int(getpagesize())), "footprint \(before / 1024) KB → \(after / 1024) KB")
 				#expect(try eval("(doseq [g gates] (close! g)) (reduce + (repeatedly 10000 #(<!! done)))") == 49_995_000)
 				#expect(clj_debug_coro_evacuated_count() == 0)
 				_ = try eval("(def gates nil) (def done nil)")

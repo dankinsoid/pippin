@@ -1,0 +1,21 @@
+# TSan suppressions for `make test-tsan`. One entry per deliberate protocol, each with the reason it is
+# correct, the way a corpus allowlist carries its §8 citation (docs/notes/gates.md, "TSan"). A blanket entry
+# and an entry for something nobody understood are both worse than a red gate: an entry matches any frame of
+# either stack, by substring, so it hides every future race under that function too.
+
+# The protocol inline cache of a dispatch site is a seqlock (eval.c, proto_ic_find/proto_ic_fill): the reader
+# copies the entry without a lock and keeps it only if ic->seq is unchanged and even across the copy, so a torn
+# read is discarded rather than used. TSan reports the payload of every seqlock; the odd/even counter is what
+# makes it correct, and it is a release/acquire atomic. A fill racing another fill gives up on the CAS.
+race:proto_ic_find
+race:proto_ic_fill
+
+# A `def` while another thread analyzes or runs a form that reads the var's flags. Every `def` stores `macro`
+# and `dynamic` (eval.c, the def node), a redefinition the same values; the analyzer's macro test and a var
+# node's dynamic test read them without a lock. Redefinition is a dev-time operation that is not ordered against
+# a running call (NOTES "Analyzer and evaluator", "Concurrent `def` against `deref` is unsafe"); for the flags
+# themselves either value is a valid answer, and each is its own byte, so neither write can lose the other's.
+race:clj_var_is_macro
+race:clj_var_set_macro
+race:clj_var_is_dynamic
+race:clj_var_set_dynamic

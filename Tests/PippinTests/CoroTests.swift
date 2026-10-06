@@ -60,7 +60,7 @@ extension CoreTests {
 				#expect(pending() == 10000)
 				let after = clj_debug_phys_footprint()
 				let perCoro = (after - before) / 10000
-				#expect(underASan || perCoro < 64 * 1024, "\(perCoro) bytes physical per parked coroutine (\(clj_coro_stack_size() / 1024) KB reserved each)")
+				#expect(underSanitizer || perCoro < 64 * 1024, "\(perCoro) bytes physical per parked coroutine (\(clj_coro_stack_size() / 1024) KB reserved each)")
 				_ = try eval("(doseq [g parked-gate] (close! g)) (dotimes [i 10000] (<!! parked-done))")
 				_ = try eval("(def parked-gate nil) (def parked-done nil)")
 			}
