@@ -1,6 +1,6 @@
 ;; Level 0 (design §5 «C — уровень 0»): declarations parsed out of a header by clang, interpreted and compiled.
 (ns fixture.c-decls
-  (:require-c [AppKit :as ak :refer [NSTextAlignmentCenter NSUnderlineStyleDouble NSAppKitVersionNumber
+  (:require-c [AppKit :as ak :refer [NSTextAlignmentJustified NSUnderlineStyleDouble NSAppKitVersionNumber
                                      NSBundleDidLoadNotification NSClassFromString NSHomeDirectory
                                      NSSearchPathForDirectoriesInDomains NSApplicationDirectory NSUserDomainMask
                                      NSSelectorFromString NSStringFromSelector abs free malloc strlen]]
@@ -8,14 +8,15 @@
 
 (defn show [& xs] (apply println (map pr-str xs)))
 
-;; An NS_ENUM value, an NS_OPTIONS value and an integer #define, by value at parse time.
-(show NSTextAlignmentCenter NSUnderlineStyleDouble FP_INFINITE (= NSTextAlignmentCenter ak/NSTextAlignmentCenter))
+;; An NS_ENUM value, an NS_OPTIONS value and an integer #define, by value at parse time. Justified because
+;; Center and Right swap between arm64 and x86_64 (TARGET_ABI_USES_IOS_VALUES).
+(show NSTextAlignmentJustified NSUnderlineStyleDouble FP_INFINITE (= NSTextAlignmentJustified ak/NSTextAlignmentJustified))
 
 ;; An extern const double: dlsym at load, so the value is the running framework's, not a number written here.
 (show (number? NSAppKitVersionNumber) (pos? NSAppKitVersionNumber) (double? NSAppKitVersionNumber))
 
 ;; A constant is a number where a selector wants NSUInteger: the gap docs/notes/ios.md records, closed.
-(show (.object-at-index (ns-array ["zero" "one" "two"]) NSTextAlignmentCenter))
+(show (.object-at-index (ns-array ["zero" "one" "two" "three"]) NSTextAlignmentJustified))
 
 ;; A C function is dlsym plus the level-1 dispatcher, whose eight integer slots are all arguments here.
 (show (strlen "hello") (abs -7) (NSStringFromSelector (NSSelectorFromString "countOfFoo:")))

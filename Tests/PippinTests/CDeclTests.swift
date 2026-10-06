@@ -60,7 +60,13 @@ extension CoreTests {
 		@Test func aHeaderIsANamespaceOfConstants() throws {
 			clj_init()
 			try generated.get()
-			#expect(try cljEvalScoped("(do (require-c '[AppKit :refer [NSTextAlignmentCenter]]) AppKit/NSTextAlignmentCenter)") == Value(1))
+			// The header's own #if picks the value per architecture (TARGET_ABI_USES_IOS_VALUES), so the parse is the target's.
+			#if arch(arm64)
+			let center = 1
+			#else
+			let center = 2
+			#endif
+			#expect(try cljEvalScoped("(do (require-c '[AppKit :refer [NSTextAlignmentCenter]]) AppKit/NSTextAlignmentCenter)") == Value(center))
 			#expect(try cljEvalScoped("(:header (:pippin/c-parse (meta (find-ns 'AppKit))))") == Value("AppKit/AppKit.h"))
 			// Asking for a name the parse was never given is an "Unable to resolve", not a nil var.
 			let error = cljEvalErrorScoped("(require-c '[AppKit :refer [NSWindowStyleMaskTitled]])")
