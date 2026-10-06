@@ -52,7 +52,7 @@ test-ubsan:
 # test-ubsan. TSan sees object boundaries only with the system allocator, as ASan does.
 test-tsan: TEST_TIMEOUT = 3600
 test-tsan:
-	CLJ_SYSTEM_ALLOC=1 TSAN_OPTIONS="abort_on_error=0 suppressions=$(abspath scripts/tsan.supp)" \
+	CLJ_SYSTEM_ALLOC=1 CLJ_TEST_HANG_S=1800 TSAN_OPTIONS="abort_on_error=0 suppressions=$(abspath scripts/tsan.supp)" \
 		$(SHARDS) --gate test-tsan -- --scratch-path $(BUILD_ROOT)/tsan --sanitize=thread
 
 # The §7 invariant: clj_is_unique always false, so every in-place path degrades to a copy (NOTES.md, RC).

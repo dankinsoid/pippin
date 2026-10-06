@@ -378,6 +378,18 @@ def report_failure(shard, issues, open_tests):
 		print(f"  issue in {p.get('testID')} at {where.get('fileID', '?')}:{where.get('line', '?')}: {text}")
 	with open(shard.log, encoding="utf-8", errors="replace") as f:
 		lines = f.read().splitlines()
+	# A TSan report does not end the process, so each is cut out of the middle of the log.
+	tsan, inside = [], False
+	for l in lines:
+		inside = inside or "WARNING: ThreadSanitizer" in l
+		if inside:
+			tsan.append(l)
+		if l.startswith("SUMMARY: ThreadSanitizer"):
+			inside = False
+	if tsan:
+		print(f"--- the ThreadSanitizer reports in {shard.log}:")
+		for l in tsan:
+			print(l)
 	# The hang report and a sanitizer's report end the process, so they run to the end of the log.
 	start = next((i for i, l in enumerate(lines) if l.startswith("hang: ") or "ERROR: AddressSanitizer" in l
 		or "runtime error:" in l), None)

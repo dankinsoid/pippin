@@ -80,6 +80,12 @@ static bool run_clang(const cljc_eval_options *o, const char *cfile, const char 
 	argv[n++] = "-fno-common";
 	// Traces walk the real stack by frame pointers (trace.c); Apple keeps them by default, this makes it explicit.
 	argv[n++] = "-fno-omit-frame-pointer";
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+	// TSan sees no edge through an uninstrumented unit's atomics: its last release of an object would race the free.
+	argv[n++] = "-fsanitize=thread";
+#endif
+#endif
 #if CLJ_DEBUG
 	argv[n++] = "-DCLJ_DEBUG=1";
 #endif

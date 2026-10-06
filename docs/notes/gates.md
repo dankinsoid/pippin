@@ -43,6 +43,12 @@
   child starts (`strip_env`), so swift-testing's exit-test child stops at "Interceptors are not working".
   `libclang_rt.tsan_osx_dynamic.dylib` carries x86_64 and arm64 alike, so the target runs on both CI
   architectures (`docs/portability.md`).
+- **A clean TSan run proves nothing until the instrument has been shown to work.** The planted race, kept out of
+  the tree: `clj_retain` gives a published object the unshared path's plain increment — design §7's lost
+  increment, silent by itself. `ChanTests` alone under it (run 37441664697, arm64) reported 7 races, each a
+  plain 4-byte access to a refcount against another thread's, with both stacks; three of them name
+  `Thread T16 'coro 15'`, read its stack from `clj_coro_entry` up and show the spawn (`b_go`, `clj_coro_spawn`)
+  under "created by" — the fiber annotation delivers a coroutine's stack, not its carrier's.
 - **What TSan cannot see here without help.**
   1. **A lost increment on our own refcount.** `clj_header.rc` is `_Atomic uint32_t` and the unshared path reads
      and writes it relaxed, and TSan never reports a race between two atomics — so §7's lost increment would be
@@ -59,7 +65,12 @@
      (a model unlock on the coroutine, before the switch) and `TSAN_LOCK_TAKE` in `run_one` (a model lock on the
      carrier, before the real unlock) keep the owner, the held sets and the edge where the real lock is (sched.c).
   3. **Two coroutines that ran on one carrier.** The switch's own edge orders them (NOTES "Coroutines").
-  4. **Nothing else needs an annotation**: a `clj_cmutex` is a CAS with acquire/release ordering, which TSan
+  4. **A unit compiled at run time.** `jit.c` builds a form's dylib with clang, outside the package's flags, and
+     TSan sees no edge through code it did not instrument. `CompilerFixtureTests.aUnitsConstantsAreReadByOtherExecutions`
+     reported twice (run 37441573986), once per compiled mode and never interpreted: an atom freed by the test
+     thread against a host thread's earlier read of it, with the hand-over between them in the unit's code. Under TSan
+     the JIT adds `-fsanitize=thread`; the dylib binds the runtime the process already loaded.
+  5. **Nothing else needs an annotation**: a `clj_cmutex` is a CAS with acquire/release ordering, which TSan
      models; a `clj_lock` is an `os_unfair_lock`, which TSan interposes and which is never held across a park;
      the other pthread mutexes are locked and unlocked on one fiber.
 - **A TSan suppression names its protocol and why it is correct** (`scripts/tsan.supp`), the way a corpus
@@ -72,7 +83,9 @@
   (a canceller resets it while the owner spends it), the node entry the specializer rewrites
   (`CLJ_NODE_ENTRY`), `DynamicVarTests` handing its result back through `Thread.isFinished`, and `c->shadow`
   and `c->map` cleared by `finish` outside the coroutine's lock while a canceller, `suspended?` or the sweep
-  read them under it.
+  read them under it. And the sweep's test of a coroutine (run 37441573986): it read `c->evacuated` under the
+  lock before the state, while a resumed coroutine's carrier restored it and cleared the flag without the
+  lock; the state goes first, and only a parked coroutine's flag is read.
 - **A live-object baseline is taken with the runtime settled.** `clj_debug_runtime_settle` (sched.c) waits
   until no coroutine lives beyond the target, no timer with a context is pending or firing (a timeout's
   channel, a sleeper's waiter, a deadline's coroutine; the evacuation sweep holds none), no blocking-pool job is

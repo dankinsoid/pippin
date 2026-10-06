@@ -539,7 +539,8 @@ static size_t evac_size(const clj_coro *c) {
 
 // Under c->lock. The stack tail already advised on the park stays as it is; the rest of the mapping joins it.
 bool clj_coro_evacuate_locked(clj_coro *c) {
-	if (!c->map || c->evacuated || atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_PARKED) return false;
+	// State first: a coroutine that is not parked may be restoring on a carrier, which writes evacuated unlocked.
+	if (atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_PARKED || !c->map || c->evacuated) return false;
 	clj_shadow_stack *s = c->shadow;
 	char             *sp = c->sp, *end = (char *)c->map + c->map_size;
 	size_t            stack_len = (size_t)(s->stack_hi - sp), ring_len = ring_live(s), over_len = overflow_live(s);
@@ -647,7 +648,7 @@ static size_t sweep(bool all) {
 	for (size_t i = 0; i < n; i++) {
 		clj_coro *c = cs[i];
 		pthread_mutex_lock(&c->lock);
-		if (c->map && !c->evacuated && atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED) {
+		if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED && c->map && !c->evacuated) {
 			if (all || c->cold_at == c->parks) done += clj_coro_evacuate_locked(c);
 			else c->cold_at = c->parks;
 		}
@@ -736,7 +737,7 @@ bool clj_debug_coro_evacuated(clj_value coro) {
 bool clj_debug_coro_restore(clj_value coro) {
 	clj_coro *c = clj_coro_of(coro);
 	pthread_mutex_lock(&c->lock);
-	bool r = c->evacuated && atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED;
+	bool r = atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED && c->evacuated;
 	if (r) evac_restore(c);
 	pthread_mutex_unlock(&c->lock);
 	return r;
