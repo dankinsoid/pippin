@@ -36,9 +36,13 @@
   other). The whole suite under `swift build --sanitize=thread` with `CLJ_SYSTEM_ALLOC=1`, the hand-written
   context switch annotated with TSan's fiber API, so an access is attributed to the coroutine and a report
   carries the coroutine's own stack instead of its carrier's (NOTES "Coroutines"). Opt-in like `test-ubsan`, in
-  neither `gates` nor `gates-full`: WALL_PLACEHOLDER Its `TEST_TIMEOUT` is 3600 s, a target-specific value
-  that wins over CI's 1200 from the environment. The footprint gates of `CoroTests` and `EvacTests` are off
-  under it (`underSanitizer`: TSan keeps a thread state and a trace per fiber), and so are the exit tests of
+  neither `gates` nor `gates-full`: on the 3-core arm64 runner it took 10.5 minutes (run 37446273380), a
+  128 s build and 504 s of tests in two shards of 498 s and 235 s, `CorpusTests` alone 316 s of them (16 s
+  under ASan), at 2.5 GB a shard (ASan's `test` peaks at 2.1 GB). With no times of its own recorded it is dealt
+  by `test`'s, which put the corpus beside 42 other suites. Its `TEST_TIMEOUT` is 3600 s, a target-specific
+  value that wins over CI's 1200 from the environment, and its `CLJ_TEST_HANG_S` 1800 s. The footprint gates
+  of `CoroTests` and `EvacTests` are off under it (`underSanitizer`: TSan keeps a thread state and a trace per
+  fiber), and so are the exit tests of
   `RCTests` and `TraceTests`, as under ASan: the runtime strips itself from `DYLD_INSERT_LIBRARIES` before a
   child starts (`strip_env`), so swift-testing's exit-test child stops at "Interceptors are not working".
   `libclang_rt.tsan_osx_dynamic.dylib` carries x86_64 and arm64 alike, so nothing in the target is arm64-only
