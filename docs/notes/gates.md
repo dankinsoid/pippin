@@ -89,7 +89,9 @@
   and `c->map` cleared by `finish` outside the coroutine's lock while a canceller, `suspended?` or the sweep
   read them under it. And the sweep's test of a coroutine (run 37441573986): it read `c->evacuated` under the
   lock before the state, while a resumed coroutine's carrier restored it and cleared the flag without the
-  lock; the state goes first, and only a parked coroutine's flag is read.
+  lock; the state goes first, and only a parked coroutine's flag is read. And `clj_debug_sched_dump`, a
+  watchdog's view of a late wake, reading each carrier's `current` while the carrier switched (run
+  37444787665): relaxed atomics on both sides.
 - **A live-object baseline is taken with the runtime settled.** `clj_debug_runtime_settle` (sched.c) waits
   until no coroutine lives beyond the target, no timer with a context is pending or firing (a timeout's
   channel, a sleeper's waiter, a deadline's coroutine; the evacuation sweep holds none), no blocking-pool job is

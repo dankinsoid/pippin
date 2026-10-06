@@ -1371,7 +1371,7 @@ void clj_debug_sched_dump(void) {
 	for (clj_carrier *o = idle_head; o; o = o->idle_next) idle++;
 	fprintf(stderr, "sched: spawned %llu live %zu queued %zu idle %zu/%zu polling %zu spinning %zu woken %d\n", (unsigned long long)atomic_load(&spawned), clj_debug_live_coros(), queued, idle, ncarriers, polling_carriers, spinning_carriers, woken);
 	for (clj_carrier *o = carriers; o; o = o->pool_next) {
-		fprintf(stderr, "  carrier %p next %p current %p idle %d polling %d\n", (void *)o, (void *)o->next, (void *)o->current, o->idle, o->polling);
+		fprintf(stderr, "  carrier %p next %p current %p idle %d polling %d\n", (void *)o, (void *)o->next, (void *)__atomic_load_n(&o->current, __ATOMIC_RELAXED), o->idle, o->polling);
 	}
 	pthread_mutex_unlock(&run_mu);
 }

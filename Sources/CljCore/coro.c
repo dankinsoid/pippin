@@ -451,7 +451,7 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	// The one cost evacuation adds to a resume: a flag test. The flag was written under c->lock while it was parked.
 	if (__builtin_expect(c->evacuated, 0)) evac_restore(c);
 	c->carrier = car;
-	car->current = c;
+	__atomic_store_n(&car->current, c, __ATOMIC_RELAXED); // clj_debug_sched_dump reads it from another thread
 	clj_coro_tls = c;
 	clj_shadow_tls = c->shadow;
 	atomic_store_explicit(&c->state, CLJ_CORO_RUNNING, memory_order_relaxed);
@@ -460,7 +460,7 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	TSAN_ENTER(car, c);
 	clj_ctx_switch(&car->return_sp, c->sp);
 	ASAN_FINISH(car->asan_fake);
-	car->current = car->implicit;
+	__atomic_store_n(&car->current, car->implicit, __ATOMIC_RELAXED);
 	clj_coro_tls = car->implicit;
 	clj_shadow_tls = car->implicit->shadow;
 }
