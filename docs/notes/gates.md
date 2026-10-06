@@ -41,8 +41,8 @@
   under it (`underSanitizer`: TSan keeps a thread state and a trace per fiber), and so are the exit tests of
   `RCTests` and `TraceTests`, as under ASan: the runtime strips itself from `DYLD_INSERT_LIBRARIES` before a
   child starts (`strip_env`), so swift-testing's exit-test child stops at "Interceptors are not working".
-  `libclang_rt.tsan_osx_dynamic.dylib` carries x86_64 and arm64 alike, so the target runs on both CI
-  architectures (`docs/portability.md`).
+  `libclang_rt.tsan_osx_dynamic.dylib` carries x86_64 and arm64 alike, so nothing in the target is arm64-only
+  (`docs/portability.md`); CI has run it on arm64.
 - **A clean TSan run proves nothing until the instrument has been shown to work.** The planted race, kept out of
   the tree: `clj_retain` gives a published object the unshared path's plain increment — design §7's lost
   increment, silent by itself. `ChanTests` alone under it (run 37441664697, arm64) reported 7 races, each a
@@ -61,15 +61,19 @@
      set keeps one entry more per park. TSan replays that set at the head of each trace part, and once a
      coroutine has parked some 16 000 times the replay fills the part (256 KB, two 8-byte events a lock):
      `CHECK failed: tsan_rtl.cpp:1012 "((TraceSkipGap(thr))) != (0)"`, which took down the shard running
-     `ChanStressTests.stressBenchShapes` (20 000 ping-pong rounds on one `go-loop`). `TSAN_LOCK_GIVE` in `park`
+     `ChanStressTests.stressBenchShapes` (20 000 ping-pong rounds on one `go-loop`) before the hand-off. `TSAN_LOCK_GIVE` in `park`
      (a model unlock on the coroutine, before the switch) and `TSAN_LOCK_TAKE` in `run_one` (a model lock on the
      carrier, before the real unlock) keep the owner, the held sets and the edge where the real lock is (sched.c).
   3. **Two coroutines that ran on one carrier.** The switch's own edge orders them (NOTES "Coroutines").
-  4. **A unit compiled at run time.** `jit.c` builds a form's dylib with clang, outside the package's flags, and
-     TSan sees no edge through code it did not instrument. `CompilerFixtureTests.aUnitsConstantsAreReadByOtherExecutions`
-     reported twice (run 37441573986), once per compiled mode and never interpreted: an atom freed by the test
-     thread against a host thread's earlier read of it, with the hand-over between them in the unit's code. Under TSan
-     the JIT adds `-fsanitize=thread`; the dylib binds the runtime the process already loaded.
+  4. **An edge through code TSan did not instrument.** `jit.c` builds a form's dylib with clang outside the
+     package's flags, so under TSan it adds `-fsanitize=thread` (the dylib binds the runtime the process already
+     loaded through `@rpath`). And libobjc's and libclosure's refcounts order every callback into a reified
+     object or a block before its dealloc or dispose, which may run on another thread and drop the last Clojure
+     reference the callback used: `reify_dispatch` and `block_dispatch` release on the object when the call
+     returns, `reify_dealloc` and `block_dispose_helper` acquire from it (objc.c). Unannotated,
+     `CompilerFixtureTests.aUnitsConstantsAreReadByOtherExecutions` reported an atom freed by the test thread
+     against the `reset!` that a host thread's `-run:` callback had done on it (runs 37441573986 and, with the
+     units instrumented, 37443440676).
   5. **Nothing else needs an annotation**: a `clj_cmutex` is a CAS with acquire/release ordering, which TSan
      models; a `clj_lock` is an `os_unfair_lock`, which TSan interposes and which is never held across a park;
      the other pthread mutexes are locked and unlocked on one fiber.

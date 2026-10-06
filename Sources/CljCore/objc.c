@@ -1360,6 +1360,20 @@ typedef struct {
 	clj_value          fns; // SHARED: a callback and the dealloc can each arrive on any thread
 } reify_state;
 
+// libobjc's and libclosure's refcounts order every callback before the dealloc, and TSan does not see them.
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+void __tsan_acquire(void *addr);
+void __tsan_release(void *addr);
+#define TSAN_CALLBACK_DONE(p) __tsan_release((void *)(p))
+#define TSAN_DEALLOC(p) __tsan_acquire((void *)(p))
+#endif
+#endif
+#ifndef TSAN_CALLBACK_DONE
+#define TSAN_CALLBACK_DONE(p) ((void)(p))
+#define TSAN_DEALLOC(p) ((void)(p))
+#endif
+
 // ---- the trampolines
 
 // The IMP prototype problem is objc_msgSend's inverted, and the same two ABI facts answer it: the caller
@@ -1579,9 +1593,11 @@ static void reify_dispatch(id self, SEL cmd, const long long *ints, const double
 	while (at < rc->n && rc->m[at].sel != cmd) at++;
 	if (at == rc->n) clj_fatal("an Objective-C trampoline was reached by a selector it was not installed for");
 	call_in(&rc->m[at].sig, clj_vector_nth(st->fns, at), clj_objc_wrap(self), sel_getName(cmd), ints, fps, rbuf);
+	TSAN_CALLBACK_DONE(self);
 }
 
 static void reify_dealloc(id self, SEL cmd) {
+	TSAN_DEALLOC(self);
 	reify_state *st = object_getIndexedIvars(self);
 	clj_release(st->fns);
 	struct objc_super sup = {self, class_getSuperclass(object_getClass(self))};
@@ -1900,6 +1916,7 @@ static void block_copy_helper(void *dst, const void *src) {
 }
 
 static void block_dispose_helper(const void *b) {
+	TSAN_DEALLOC(b);
 	clj_release(((const clj_block *)b)->fn);
 }
 
@@ -1912,6 +1929,7 @@ static void block_dispose_helper(const void *b) {
 static void block_dispatch(void *blk, const long long *ints, const double *fps, unsigned char *rbuf) {
 	clj_block *b = blk;
 	call_in(&b->kind->sig, b->fn, CLJ_UNBOUND, b->kind->signature, ints, fps, rbuf);
+	TSAN_CALLBACK_DONE(blk);
 }
 
 #define DEFINE_BTRAMP(tag, R, t, suffix)                             \
