@@ -13,7 +13,8 @@ private let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathCompon
 private let fixtureDir = packageRoot.appendingPathComponent("Tests/PippinTests/Fixtures/c")
 private let work = packageRoot.appendingPathComponent(".build/c-decls")
 
-// One parse per machine and SDK, cached by the generator; the extra names are the refusals the fixture prints.
+// One parse per machine and SDK, cached by the generator; the extra names are the refusals the fixture prints
+// and NSTextAlignmentCenter, whose value differs per architecture and so is asserted here, not in the fixture.
 private let generated: Result<Void, any Error> = Result {
 	let out = work.appendingPathComponent("decls")
 	let process = Process()
@@ -22,7 +23,7 @@ private let generated: Result<Void, any Error> = Result {
 	                     "--scan", fixtureDir.appendingPathComponent("decls.clj").path,
 	                     "--out", out.path, "--cache", work.appendingPathComponent("cache").path,
 	                     "--module", "AppKit",
-	                     "--refer", "NSLog,NSUIntegerMax,NSWindowDidResizeNotification,NSMaxRange,NSStringFromRect,kCFRunLoopDefaultMode"]
+	                     "--refer", "NSTextAlignmentCenter,NSLog,NSUIntegerMax,NSWindowDidResizeNotification,NSMaxRange,NSStringFromRect,kCFRunLoopDefaultMode"]
 	process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"].contains($0.key) }
 	let pipe = Pipe()
 	process.standardOutput = pipe
