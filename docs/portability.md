@@ -71,6 +71,7 @@ side needs an arm64 run (there is no arm64 CI yet: this table is that job's chec
 | `objc.c` | `from_int_return` | `c`/`C` are integers | `c`/`C` read as BOOL | the bridge is absent |
 | `ObjCTests.swift` | `aStructReturnedThroughX8IsAsWideAsTheCallerThinks` | the x8 return and the 18-byte refusal | the refusal of each shape `objc-arm64.clj` covers | — |
 | `CompilerFixtureTests.swift` | `fixtureNames` | every fixture | `*-arm64.clj` skipped (`objc-arm64.clj`: the AAPCS64 struct shapes) | — |
+| `CDeclTests.swift` | `aHeaderIsANamespaceOfConstants` | `NSTextAlignmentCenter` is 1 | 2: AppKit swaps Center and Right outside `TARGET_ABI_USES_IOS_VALUES`, and the test asserts the header's own branch | — |
 
 What the audit cannot see, checked by hand when porting:
 
