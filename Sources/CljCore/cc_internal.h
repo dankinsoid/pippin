@@ -18,15 +18,20 @@ void clj_cc_local_candidate(clj_header *h);
 // A shared object's RC changed while a collection watched it.
 void clj_cc_unwatch(clj_header *h);
 // A shared object reached zero while a collection runs: true when it is kept whole until the collection ends.
-bool clj_cc_defer_free(clj_header *h);
+bool clj_cc_defer_free(clj_header *h, bool deep);
+// A release whose nonzero rest goes to the deep walk: -1 not for it (no LAZY or REACH, unshared), 0 filed, 1 at zero.
+int  clj_cc_deep_release(clj_header *h);
 // Set while a shared collection runs; a section of a type read under its own lock tests it before the watch bit.
 extern _Atomic bool clj_cc_running;
 // After the teardown of a buffered object: the entry gives the cell back when it is processed.
 void clj_cc_zombie(clj_header *h);
 
 // rc.c: the free of an object at zero, and a decrement that never makes a candidate (the collector's own references).
-void clj_rc_free(clj_header *dead);
-void clj_rc_drop(clj_header *h);
+// deep: what the teardown leaves at a nonzero count is filed by clj_cc_deep_release.
+void clj_rc_free(clj_header *dead, bool deep);
+void clj_rc_drop(clj_header *h, bool deep);
+// The release of a var's old root: what it leaves alive goes to the deep walk, which descends through lazy seqs.
+void clj_rc_release_root(clj_value v);
 
 // Candidates go to owner's buffer until the return: the two transfers of unshared objects (NOTES "RC", owner check).
 void *clj_cc_local_borrow(clj_coro *owner);

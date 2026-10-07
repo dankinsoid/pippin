@@ -22,6 +22,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "cc_internal.h"
 #include "epoch_internal.h"
 #include "guard_internal.h"
 #include "load_internal.h"
@@ -220,12 +221,12 @@ bool clj_eval_retire_root(clj_value old) {
 // Called where a depth returned to zero; the other one may still be up.
 static void drain_retired(void) {
 	if (in_flight()) return;
-	while (execution.nretired) clj_release(execution.retired[--execution.nretired]);
+	while (execution.nretired) clj_rc_release_root(execution.retired[--execution.nretired]);
 }
 
 // A finished coroutine holds nothing any more: everything it retired goes (sched.c).
 void clj_eval_drain_retired(clj_coro *c) {
-	while (c->nretired) clj_release(c->retired[--c->nretired]);
+	while (c->nretired) clj_rc_release_root(c->retired[--c->nretired]);
 	free(c->retired);
 	c->retired = NULL;
 	c->cretired = 0;

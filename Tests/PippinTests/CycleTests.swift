@@ -27,6 +27,15 @@ extension CoreTests {
 			(deftype Node [cell])
 			(def rooted nil)
 			(defn ring [n] (let [x (atom nil)] (reset! x {:n n :back (fn [] x)}) nil))
+			(def lazy-self nil)
+			(def ring-a nil)
+			(def ring-b nil)
+			(def chain-src nil)
+			(def big-lazy nil)
+			(def keep-old (atom nil))
+			(def held-self nil)
+			(def holder (atom nil))
+			(def self-fn nil)
 			""")
 			for k in ["n", "back", "k", "self", "j", "x", "next", "v", "leaf", "shared"] { _ = kw(k) }
 		}
@@ -67,6 +76,94 @@ extension CoreTests {
 			_ = try eval("(def rooted nil)")
 			clj_cc_collect()
 			#expect(freedStat() - freed >= 1)
+			base.check()
+		}
+
+		// Realization gives no REACH, so no bit marks this ring: every way of replacing the root walks it deep.
+		@Test func aLazySeqReachingItselfThroughItsVar() throws {
+			for replace in ["(def lazy-self nil)", "(alter-var-root #'lazy-self (constantly nil))", "(intern 'cycle-tests 'lazy-self nil)"] {
+				let base = CoroBaseline()
+				_ = try eval("(def lazy-self (lazy-seq (cons 1 lazy-self)))")
+				#expect(try eval("(reduce + (take 3 lazy-self))") == 3)
+				let freed = freedStat(), filed = clj_debug_cc_deep_filed_here()
+				_ = try eval(replace)
+				#expect(clj_debug_cc_deep_filed_here() - filed == 1, "\(replace)")
+				clj_cc_collect()
+				#expect(freedStat() - freed >= 2, "\(replace)")
+				_ = try eval("(def lazy-self nil)") // intern left its own meta
+				base.check()
+			}
+		}
+
+		// The first redefinition finds the ring alive through the other var; the second lets it go.
+		@Test func twoVarsReachingEachOther() throws {
+			for apart in [true, false] {
+				let base = CoroBaseline()
+				_ = try eval("(def ring-a (lazy-seq (cons 1 ring-b))) (def ring-b (lazy-seq (cons 2 ring-a)))")
+				#expect(try eval("(reduce + (take 6 ring-a))") == 9)
+				let freed = freedStat()
+				_ = try eval("(def ring-a nil)")
+				if apart {
+					clj_cc_collect()
+					#expect(try eval("(reduce + (take 4 ring-b))") == 6)
+				}
+				_ = try eval("(def ring-b nil)")
+				clj_cc_collect()
+				#expect(freedStat() - freed >= 4)
+				base.check()
+			}
+		}
+
+		// The head goes by RC alone; its teardown files the ring at the realized frontier, where the map and filter
+		// thunks capture each other's cells.
+		@Test func aLongChainThroughMapAndFilterOverAVar() throws {
+			let base = CoroBaseline()
+			_ = try eval("(def chain-src (lazy-seq (cons 0 (map inc (filter some? chain-src)))))")
+			#expect(try eval("(nth chain-src 2000)") == 2000)
+			let freed = freedStat()
+			_ = try eval("(def chain-src nil)")
+			clj_cc_collect()
+			#expect(freedStat() - freed >= 2)
+			base.check()
+		}
+
+		// Held by nothing else, a replaced root goes by RC with no entry; held elsewhere, it is one entry, not one per element.
+		@Test func aLargeAcyclicRootFreesWithoutAWalk() throws {
+			let base = CoroBaseline()
+			let make = "(mapv (fn [j] (map inc (range j (+ j 3)))) (range 5000))"
+			var filed = clj_debug_cc_deep_filed_here()
+			_ = try eval("(dotimes [i 10] (def big-lazy \(make)))")
+			#expect(clj_debug_cc_deep_filed_here() == filed)
+			filed = clj_debug_cc_deep_filed_here()
+			_ = try eval("(dotimes [i 10] (swap! keep-old conj big-lazy) (def big-lazy \(make)))")
+			#expect(clj_debug_cc_deep_filed_here() - filed == 10)
+			_ = try eval("(reset! keep-old nil) (def big-lazy nil)")
+			base.check()
+		}
+
+		// The walk at the redefinition finds the ring alive through the atom, whose release files nothing: the retry
+		// of the ring finds it gone.
+		@Test func aRingHeldElsewhereIsRetried() throws {
+			let base = CoroBaseline()
+			_ = try eval("(def held-self (lazy-seq (cons 1 held-self))) (reset! holder held-self) (first held-self)")
+			let freed = freedStat()
+			_ = try eval("(def held-self nil)")
+			clj_cc_collect()
+			#expect(try eval("(reduce + (take 3 @holder))") == 3)
+			_ = try eval("(reset! holder nil)")
+			clj_cc_collect()
+			#expect(freedStat() - freed >= 2)
+			base.check()
+		}
+
+		// A fn root replaced mid-evaluation is retired until the evaluation ends, and its drain is the deep release.
+		@Test func aFnRootRetiredMidEvaluation() throws {
+			let base = CoroBaseline()
+			_ = try eval("(def self-fn (let [s (lazy-seq (cons self-fn nil))] (fn [] s))) (first (self-fn))")
+			let freed = freedStat()
+			_ = try eval("(def self-fn nil)")
+			clj_cc_collect()
+			#expect(freedStat() - freed >= 3)
 			base.check()
 		}
 

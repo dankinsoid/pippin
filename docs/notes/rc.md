@@ -120,8 +120,8 @@
   where main contends with the pool on one state.
 
 - **The cycle collector** (`cc.c`, `include/clj/cc.h`; design §7 «Сборщик циклов: как он устроен», which holds the
-  why). Header bits `CLJ_FLAG_MUTABLE`, `CLJ_FLAG_REACH`, `CLJ_FLAG_REACH_LOCAL` (5–7); rc bits `CLJ_RC_WATCH`,
-  `CLJ_RC_BUFFERED` (31, 30), the count in 30 bits. `REACH` is born with an atom, a channel, a volatile and an object
+  why). Header bits `CLJ_FLAG_MUTABLE`, `CLJ_FLAG_REACH`, `CLJ_FLAG_REACH_LOCAL` (5–7), `CLJ_FLAG_LAZY` (9, below); rc
+  bits `CLJ_RC_WATCH`, `CLJ_RC_BUFFERED` (31, 30), the count in 30 bits. `REACH` is born with an atom, a channel, a volatile and an object
   array, and is OR'd into a non-`MUTABLE` owner by `clj_slot_init`/`clj_slot_store` (`clj_reach_from`); a `memcpy`
   clone copies it (`fn_with_meta`, `clj_view_with_meta`). A lazy seq is `MUTABLE` with the bits of its thunk only, a
   var is immortal and has none, an exec has none because its root is not a slot. The inline release takes the slow
@@ -149,13 +149,37 @@
   `CLJ_CC=0` keeps the bits and files no entry, the control of a cost measurement. `runtimeSettled` collects first,
   so a test baseline is after collection. `scripts/tsan.supp` names `visit_lockfree`, the frame that reads a
   volatile's, an array's or a lazy seq's slots without their writer's lock.
+- **The deep walk of a replaced var root** (`clj_rc_release_root` in `rc.c`, `clj_cc_deep_release` and
+  `collect_deep` in `cc.c`; design §7 «Сборщик циклов: как он устроен», «Корень вара», which holds the why). A
+  lazy seq realized into a value that reaches it back through a var (`(def s (lazy-seq (cons 1 s)))`, then a
+  redefinition) is a ring with no `REACH` on it. `CLJ_FLAG_LAZY` is born with a lazy seq and OR'd like `REACH` by
+  `clj_reach_from`, `clj_reach_copy` and the two `memcpy` clones; it makes no candidate. `clj_var_bind_root` is the one
+  place a root is swapped (`def`, `alter-var-root`, `intern` with a value, a compiled unit's and a shaken var's
+  bind, Swift's `Runtime` definitions, `in-ns`, `load`'s `*file*`), and it releases the old root through
+  `clj_rc_release_root`, as do both drains of the retired fn roots (`eval.c`). A deep release of a shared object with
+  `LAZY` or `REACH` that stays nonzero files a deep entry (the decrement and `BUFFERED` in one CAS, no reference;
+  with `BUFFERED` already set, the entry keeps the releaser's reference instead, tagged in bit 0); one that reaches
+  zero is torn down with `dead_list.deep`, so its children get the same rule, deferred frees included (bit 0 of a
+  `deferred` entry). The entries wait in their own chunk list, 500 ms from the first so a reload's defs share one
+  graph, and run on the background thread only (`cc_main` sleeps until the earliest due batch or retry), after the
+  shared collection; `clj_cc_collect` forces them and every retry. The graph enters `LAZY` or `REACH`, stops adding
+  nodes at `DEEP_MAX_NODES` (2^20; the parent of a child left out is `N_CUT`, so lost and black), and the next deep
+  collection waits `DEEP_DUTY` (7) times this one's length. After `blacken`, Tarjan's components over the black nodes
+  find rings alive at the walk; one member of each, unless a waiting retry already holds the ring or a member is
+  cut, is retained and retried after 1 s, doubling to 64 s, while it stays alive; a deep root a mutator touched
+  mid-walk is retried the same way instead of being filed again. Stats `CLJ_CC_STAT_DEEP_FILED`, `_RETRIES`, `_CUT`;
+  `clj_debug_cc_deep_filed_here` counts the calling thread's entries, `clj_debug_cc_deep_retries` the waiting
+  retries. `CycleTests`: the ring through each replacing form, two vars reaching each other, a chain through `map` and
+  `filter` over a var, a fn root retired mid-evaluation, a ring still held at the redefinition, a large lazy root
+  that files nothing when no one else holds it and one entry per redefinition when someone does.
 - [ ] **What the collector does not see.** A type descriptor (the `users` registry holds it without a reference), an
   exec (the specializer's dependents index resurrects one through `retain_if_live`) and a coroutine (design §7,
   Phase 3) are never entered: their references count as external, so a cycle through one stays. A cycle through
   Swift or an ObjC object (a host box shows no children; a reify instance keeps its fns past `each_child`) is design
-  §7's boundary. A lazy seq realized into a value that refers back to it through a global (`(def s (lazy-seq (cons
-  1 s)))`, then a redefinition) is not collected: realization adds no reach bit, or every cell of a `map` pipeline
-  would be a candidate. Trigger: a leak report naming one of these.
+  §7's boundary. A ring through a lazy seq let go by something other than a var root's replacement stays: an atom's
+  store (`(reset! a (lazy-seq (cons 1 @a)))` with `a` a global, then `(reset! a nil)`), a binding's `set!` or its
+  frame's death (design §7, «Корень вара», why `set!` is not hooked), and a ring past the deep walk's cap. Trigger:
+  a leak report naming one of these.
 - [~] **What the collector costs** (bench/RESULTS.md, "Cycle collector", arm64 CI). A cycle-free program: the median
   head/base ratio over the default bench's 128 rows was 0.995–1.052 in four `bench-ab` jobs, inside that runner's ±20 %
   floor, after three fixes the first cut needed (reach bits once per node copy, the owner's flags read once per store,

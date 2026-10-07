@@ -82,6 +82,9 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // A shared MUTABLE type the collector reads under the lock its stores take (clj_type.cc_locked: an atom, a channel):
 // a store into it needs no barrier. In the header, since a store has the owner's flags in hand already.
 #define CLJ_FLAG_CC_LOCKED   ((uint32_t)1 << 8)
+// Reaches a lazy seq, OR'd like REACH: a realization adds an edge no bit records, so the walk of a replaced var root
+// (clj_rc_release_root) descends through it as well as through REACH.
+#define CLJ_FLAG_LAZY        ((uint32_t)1 << 9)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
 #define CLJ_OWNER_SHIFT 16
 
@@ -285,7 +288,7 @@ void clj_debug_slot_check(const clj_header *owner, clj_value v);
 static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
 	if (!clj_is_ptr(v) || (flags & CLJ_FLAG_MUTABLE)) return;
 	uint32_t f = clj_header_of(v)->flags;
-	owner->flags |= (f & CLJ_FLAG_REACH) |
+	owner->flags |= (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
 	                ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
 }
 
@@ -317,7 +320,7 @@ static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v)
 // A node copy has its source's children, so its reach bits once rather than per slot: the path copy is hot.
 static inline void clj_reach_copy(clj_header *owner, const clj_header *src) {
 	uint32_t f = src->flags;
-	owner->flags |= f & ((f & CLJ_FLAG_SHARED) ? CLJ_FLAG_REACH : CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL);
+	owner->flags |= f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | ((f & CLJ_FLAG_SHARED) ? 0 : CLJ_FLAG_REACH_LOCAL));
 }
 
 // clj_slot_init of a slot copied from src, whose bits clj_reach_copy gives the owner.

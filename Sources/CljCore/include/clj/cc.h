@@ -18,12 +18,18 @@ enum {
 	CLJ_CC_STAT_VISITED,         // nodes visited
 	CLJ_CC_STAT_INTERFERED,      // roots put back because a mutator touched them mid-collection
 	CLJ_CC_STAT_HANDOFF_MAX_NS,  // the longest hand-off of one main-carrier candidate past the bound
+	CLJ_CC_STAT_DEEP_FILED,      // entries a replaced var root's release filed for the deep walk
+	CLJ_CC_STAT_DEEP_RETRIES,    // rings a deep walk found alive, and touched roots, filed again for a later walk
+	CLJ_CC_STAT_DEEP_CUT,        // deep collections that stopped adding nodes at their cap
 	CLJ_CC_STAT_COUNT
 };
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]);
 // Candidates waiting: the calling execution's local buffer, and the shared one.
 int64_t clj_debug_cc_pending_local(void);
 int64_t clj_debug_cc_pending_shared(void);
+// Deep entries the calling thread filed, ever; retries waiting.
+int64_t clj_debug_cc_deep_filed_here(void);
+int64_t clj_debug_cc_deep_retries(void);
 // Treat the calling thread as the main carrier for the candidate policy only (tests of the hand-off and the idle hook).
 void clj_debug_cc_as_main(int on);
 // Runs the main run loop's idle hook now; the number of candidates it processed.

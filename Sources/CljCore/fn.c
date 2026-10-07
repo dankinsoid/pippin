@@ -55,7 +55,7 @@ static clj_value fn_with_meta(clj_value self, clj_value m) {
 		size_t  size = sizeof *f + f->nenv * sizeof *f->env;
 		clj_fn *c = clj_alloc(&clj_fn_type, size);
 		memcpy((char *)c + sizeof c->h, (const char *)f + sizeof f->h, size - sizeof f->h);
-		c->h.flags |= f->h.flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL);
+		c->h.flags |= f->h.flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_LAZY);
 		clj_retain(c->name.v);
 		clj_retain(c->code.v);
 		clj_slot_init(&c->h, &c->meta, CLJ_NIL);

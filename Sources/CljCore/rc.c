@@ -85,6 +85,7 @@ typedef struct {
 	clj_header  *stack;
 	clj_header **aside;
 	size_t       naside, caside;
+	bool         deep;
 } dead_list;
 
 static void bury(dead_list *d, clj_header *h) {
@@ -106,17 +107,19 @@ static void bury(dead_list *d, clj_header *h) {
 
 static void release_child(clj_value child, void *ctx) {
 	if (!clj_is_ptr(child)) return;
+	dead_list  *d = ctx;
 	clj_header *h = clj_header_of(child);
-	if (release_reaches_zero(h)) {
-		if ((h->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(h)) return;
-		bury(ctx, h);
+	int         deep = d->deep ? clj_cc_deep_release(h) : -1;
+	if (deep < 0 ? release_reaches_zero(h) : deep > 0) {
+		if ((h->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(h, d->deep)) return;
+		bury(d, h);
 	}
 }
 
 // Iterative so a million-element list does not overflow the C stack.
-static void free_object(clj_header *dead) {
-	if ((dead->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(dead)) return;
-	dead_list d = {0};
+static void free_object(clj_header *dead, bool deep) {
+	if ((dead->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(dead, deep)) return;
+	dead_list d = {.deep = deep};
 	bury(&d, dead);
 	for (;;) {
 		clj_header *h;
@@ -158,12 +161,21 @@ void clj_retain_slow(clj_header *h) {
 }
 
 void clj_release_slow(clj_header *h) {
-	if (release_reaches_zero(h)) free_object(h);
+	if (release_reaches_zero(h)) free_object(h, false);
 }
 
-void clj_rc_free(clj_header *dead) { free_object(dead); }
+void clj_rc_free(clj_header *dead, bool deep) { free_object(dead, deep); }
 
-void clj_rc_drop(clj_header *h) {
+// A ring through a lazy seq that reaches the var back has no REACH: a pruned walk would not see it (design §7).
+void clj_rc_release_root(clj_value v) {
+	if (!clj_is_ptr(v)) return;
+	clj_header *h = clj_header_of(v);
+	int         deep = clj_cc_deep_release(h);
+	if (deep < 0) clj_release(v);
+	else if (deep > 0) free_object(h, true);
+}
+
+void clj_rc_drop(clj_header *h, bool deep) {
 	uint32_t prev;
 	if (h->flags & CLJ_FLAG_SHARED) {
 		prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_seq_cst);
@@ -173,7 +185,7 @@ void clj_rc_drop(clj_header *h) {
 		CLJ_RC_UNSHARED_STORE(h, prev - 1);
 	}
 	CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "drop of a freed object");
-	if ((prev & CLJ_RC_COUNT_MASK) == 1) free_object(h);
+	if ((prev & CLJ_RC_COUNT_MASK) == 1) free_object(h, deep);
 }
 
 bool clj_is_unique(clj_value v) {
