@@ -179,8 +179,8 @@ extension CoreTests {
 				let s = Value("held")
 				#expect(clj_debug_live_objects_of(vectorType) == vectors + 1)
 				#expect(clj_debug_live_objects_of(stringType) == strings + 1)
-				// A vector is two objects: the wrapper and its tail node.
-				#expect(clj_debug_live_objects() == before + 3)
+				// A three-element literal is a tuple, one object.
+				#expect(clj_debug_live_objects() == before + 2)
 				withExtendedLifetime((v, s)) {}
 			}
 			#expect(clj_debug_live_objects_of(vectorType) == vectors)

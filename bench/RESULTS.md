@@ -1912,3 +1912,37 @@ swing by 2–9× across rounds; they are left out.
 - The pool tick with a main carrier installed reads +20–40 %; without one it is within the round-to-round spread.
   The Atoms rows of the full run move ±10–25 % both ways between rounds on this runner and decide nothing.
 - Verdict: not merged. The design item records it with its trigger (design §4, «BRC с одним владельцем»).
+
+## Tuples — 2026-10-07, Intel i9-9980HK (x86_64), macOS 26.7.1, Swift 6.3.3 (x86_64 local, release, pool only)
+
+Design §4's tuples (NOTES "Vector"): `CLJ_BENCH_ONLY=tuples` (also the end of the full run) measures every row twice
+in one binary, `clj_tuples_enable(false)` for the trie column, so the two columns share a process and a layout. The
+first cell is the interpreted core with interpreted forms, the second the closed compiled core with every form
+compiled (`-DCLJ_COMPILED_CORE -DCLJ_CLOSED`, `CLJ_EVAL=compiled CLJ_EVAL_CLOSED=1 CLJ_EVAL_OPT=-O2`). One run
+each, local numbers on a shared laptop: read the ratios, not the nanoseconds.
+
+| scenario | tuple | trie | trie / tuple |
+|---|---:|---:|---:|
+| C: `clj_vector_from_array` of 2 + nth 0, nth 1 + release | 33.9 · 33.3 | 104.2 · 108.5 | 3.1× · 3.3× |
+| C: `clj_vector_nth` on a pair | 1.7 · 2.0 | 2.0 · 2.3 | 1.2× · 1.2× |
+| `[i 1]` create + destructure per iteration | 156.9 · 66.5 | 243.4 · 148.8 | 1.6× · 2.2× |
+| `(count (conj [i 1] 2))` per iteration | 141.9 · 64.5 | 229.3 · 148.6 | 1.6× · 2.3× |
+| `(nth (assoc [i 1 2] 1 i) 1)` per iteration | 143.4 · 64.2 | 259.5 · 175.8 | 1.8× · 2.7× |
+| `(reduce (fn [acc [_ v]] …))` over a map of 8, per entry | 141.9 · 74.4 | 220.5 · 155.6 | 1.6× · 2.1× |
+| `(reduce + (map (fn [[_ v]] v) m))`, map of 8, per entry | 237.6 · 125.0 | 324.5 · 215.1 | 1.4× · 1.7× |
+| `(into {} (map (fn [[k v]] [k (inc v)])) m)`, map of 8, per entry | 365.2 · 235.6 | 520.7 · 410.3 | 1.4× · 1.7× |
+| `(reduce (fn [acc [_ v]] …))` over a map of 1000, per entry | 134.8 · 69.2 | 213.6 · 150.2 | 1.6× · 2.2× |
+| `(reduce + (map (fn [[_ v]] v) m))`, map of 1000, per entry | 173.1 · 91.8 | 264.7 · 166.9 | 1.5× · 1.8× |
+| `(into {} (map (fn [[k v]] [k (inc v)])) m)`, map of 1000, per entry | 353.5 · 236.6 | 508.7 · 395.5 | 1.4× · 1.7× |
+
+Memory, `(mapv (fn [i] [i i]) (range 100000))`: 66.3 pool bytes per pair with tuples, 114.3 without (the outer
+vector's ~10 included): a pair is one 56-byte cell against a 56-byte wrapper and a 48-byte tail node.
+
+- **The gain is the second allocation and the trie walk, in that order.** A pair through the C API is one cell
+  instead of three allocations and a move (the empty tail copied, grown to one, then to two), 3× cheaper; `nth` on
+  it is a load behind the layout test instead of the tail-offset compare and the tail load, 15 %.
+- **Compiled code shows it most**: the loop around the pair is cheap there, so the pair is most of an iteration
+  and the rows halve; interpreted, the same ~85 ns come off a larger total. A map entry in `reduce` is a pair
+  per entry built by `map_reduce`, so every destructuring walk over a map gains, at 8 keys and at 1000 alike.
+- `(assoc [i 1 2] 1 i)` writes the slot of a unique tuple in place; the trie copies nothing either but walks to
+  the tail through the wrapper. `(conj [i 1] 2)` reallocates the unique cell by a word.

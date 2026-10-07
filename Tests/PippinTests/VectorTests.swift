@@ -386,6 +386,177 @@ extension CoreTests {
 		}
 	}
 
+	// Tuples (vector.c, design §4 «Tuples»): clj_vector_from_array of one to six items is the inline layout.
+	@Suite struct TupleTests {
+		private func fromArray(_ xs: [clj_value]) -> clj_value {
+			xs.withUnsafeBufferPointer { clj_vector_from_array($0.baseAddress, UInt32(xs.count)) }
+		}
+
+		@Test func layoutBySize() {
+			let before = clj_debug_live_objects()
+			for n in 1...6 {
+				let t = fromArray((0..<n).map { clj_fixnum($0) })
+				#expect(clj_vector_is_tuple(t))
+				#expect(clj_debug_live_objects() == before + 1, "a tuple of \(n) is one object")
+				#expect(matches(t, (0..<n).map { clj_fixnum($0) }))
+				#expect(clj_debug_vector_root(t) == CLJ_NIL && clj_debug_vector_tail(t) == CLJ_NIL)
+				clj_release(t)
+			}
+			let seven = fromArray((0..<7).map { clj_fixnum($0) })
+			#expect(!clj_vector_is_tuple(seven))
+			#expect(fromArray([]) == clj_vector_empty())
+			let conjed = clj_vector_conj(clj_vector_empty(), clj_fixnum(1))
+			#expect(!clj_vector_is_tuple(conjed))
+			clj_tuples_enable(false)
+			let off = fromArray([clj_fixnum(1), clj_fixnum(2)])
+			clj_tuples_enable(true)
+			#expect(!clj_vector_is_tuple(off))
+			for v in [seven, conjed, off] { clj_release(v) }
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Every operation on a tuple of each size against the same operation on a trie of the same elements.
+		@Test(arguments: 1...6) func operationsMatchTheTrie(n: Int) {
+			let before = clj_debug_live_objects()
+			var rng = SplitMix64(state: UInt64(n))
+			var ref = (0..<n).map { clj_fixnum($0) }
+			var t = fromArray(ref)
+			var trie = build(n)
+			#expect(clj_equals(t, trie) && clj_equals(trie, t))
+			#expect(clj_hash(t) == clj_hash(trie))
+			for step in 0..<600 {
+				let value = clj_fixnum(rng.below(1000))
+				let roll = rng.below(3)
+				// Every other step a second reference forces the copy path and must keep its old contents.
+				let kept = step % 2 == 0 ? clj_retain(t) : CLJ_NIL
+				let keptRef = ref
+				if roll == 0 || ref.isEmpty {
+					t = clj_vector_conj(t, value)
+					trie = clj_vector_conj(trie, value)
+					ref.append(value)
+				} else if roll == 1 {
+					let i = rng.below(ref.count)
+					t = clj_vector_assoc(t, UInt32(i), value)
+					trie = clj_vector_assoc(trie, UInt32(i), value)
+					ref[i] = value
+				} else {
+					t = clj_vector_pop(t)
+					trie = clj_vector_pop(trie)
+					ref.removeLast()
+				}
+				if ref.count > 6 { #expect(!clj_vector_is_tuple(t)) }
+				guard matches(t, ref), clj_equals(t, trie), clj_equals(trie, t), clj_hash(t) == clj_hash(trie),
+					kept == CLJ_NIL || matches(kept, keptRef)
+				else {
+					Issue.record("mismatch at step \(step)")
+					clj_release(kept)
+					break
+				}
+				clj_release(kept)
+				if ref.count > 9 {
+					while ref.count > n {
+						t = clj_vector_pop(t)
+						trie = clj_vector_pop(trie)
+						ref.removeLast()
+					}
+				}
+				// A promoted tuple stays a trie, and so does a pop to empty: start over from a tuple.
+				if !clj_vector_is_tuple(t), (1...6).contains(ref.count) {
+					clj_release(t)
+					t = fromArray(ref)
+				}
+			}
+			clj_release(t)
+			clj_release(trie)
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test(.enabled(if: clj_reuse_enabled())) func uniqueTupleIsUpdatedInPlace() {
+			let before = clj_debug_live_objects()
+			var t = fromArray([clj_fixnum(1), clj_fixnum(2)])
+			let cell = t
+			t = clj_vector_assoc(t, 0, clj_fixnum(-1))
+			#expect(t == cell)
+			t = clj_vector_pop(t)
+			#expect(t == cell && clj_vector_count(t) == 1)
+			// A conj may move the cell to the next size class; the object count is the stable signal.
+			for i in 2...6 { t = clj_vector_conj(t, clj_fixnum(i)) }
+			#expect(clj_vector_is_tuple(t) && clj_debug_live_objects() == before + 1)
+			let kept = clj_retain(t)
+			let copy = clj_vector_assoc(kept, 0, clj_fixnum(0))
+			#expect(copy != t && clj_vector_nth(t, 0) == clj_fixnum(-1) && clj_vector_nth(copy, 0) == clj_fixnum(0))
+			let promoted = clj_vector_conj(t, clj_fixnum(7))
+			#expect(!clj_vector_is_tuple(promoted) && clj_vector_count(promoted) == 7)
+			clj_release(copy)
+			clj_release(promoted)
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test(.enabled(if: clj_reuse_enabled())) func sharedTupleKeepsChildrenShared() {
+			let before = clj_debug_live_objects()
+			let first = clj_cons_new(clj_fixnum(0), CLJ_NIL)
+			var t = fromArray([first])
+			clj_release(first)
+			clj_share(t)
+			for i in 1..<4 {
+				let c = clj_cons_new(clj_fixnum(i), CLJ_NIL)
+				t = clj_vector_conj(t, c)
+				clj_release(c)
+			}
+			let c = clj_cons_new(clj_fixnum(9), CLJ_NIL)
+			t = clj_vector_assoc(t, 1, c)
+			clj_release(c)
+			t = clj_vector_pop(t)
+			#expect(clj_vector_is_tuple(t) && clj_vector_count(t) == 3)
+			#expect(clj_debug_all_shared(t))
+			let copy = clj_vector_conj(clj_retain(t), CLJ_TRUE)
+			#expect(!clj_is_shared(copy) && clj_debug_all_shared(t))
+			clj_release(copy)
+			clj_release(t)
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func metaSurvivesEveryOperation() {
+			let m = Value([Value(keyword: "m"): Value(1)])
+			let before = clj_debug_live_objects()
+			withExtendedLifetime(m) {
+				var t = clj_with_meta(fromArray([clj_fixnum(1)]), m.raw)
+				#expect(clj_vector_is_tuple(t))
+				for i in 2...7 { t = clj_vector_conj(t, clj_fixnum(i)) }
+				#expect(!clj_vector_is_tuple(t))
+				var meta = clj_meta(t)
+				#expect(clj_equals(meta, m.raw))
+				clj_release(meta)
+				clj_release(t)
+				t = clj_vector_pop(clj_with_meta(fromArray([clj_fixnum(1)]), m.raw))
+				#expect(clj_vector_count(t) == 0 && t != clj_vector_empty())
+				meta = clj_meta(t)
+				#expect(clj_equals(meta, m.raw))
+				clj_release(meta)
+				#expect(clj_equals(t, clj_vector_empty()))
+				clj_release(t)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		@Test func mapEntriesAreTuples() throws {
+			let rt = Runtime()
+			let sources = ["(first {:a 1})", "(first (hash-map 1 2))", "(first (sorted-map 1 2))", "(reduce (fn [_ e] (reduced e)) nil {:a 1})", "[1 2]"]
+			let destructure = "(let [[k v] (first {:a 1})] [k v (key (first {:a 1})) (val (first {:a 1}))])"
+			// The first run interns what the forms read.
+			for source in sources + [destructure] { _ = try rt.eval(source) }
+			let before = clj_debug_live_objects()
+			do {
+				for source in sources {
+					let e = try rt.eval(source)
+					#expect(withExtendedLifetime(e) { clj_vector_is_tuple(e.raw) }, "\(source)")
+				}
+				#expect(try rt.eval(destructure) == [Value(keyword: "a"), 1, Value(keyword: "a"), 1])
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+	}
+
 	@Suite struct VectorValueTests {
 		@Test func arrayRoundTrip() {
 			let before = clj_debug_live_objects()

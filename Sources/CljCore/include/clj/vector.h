@@ -4,8 +4,7 @@
 
 #include "object.h"
 
-// 32-way radix trie plus a tail node, as in Clojure. The layout is private: tuples and unboxed
-// representations will sit behind these same functions.
+// Two private layouts of one type: Clojure's 32-way trie plus tail, and a tuple of up to six inline (NOTES "Vector").
 extern const clj_type clj_vector_type;
 
 // Immortal singleton.
@@ -36,7 +35,22 @@ void clj_vector_each(clj_value vec, clj_vector_item_fn fn, void *ctx);
 
 static inline bool clj_is_vector(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_vector_type; }
 
-// Borrowed root and tail nodes: pointer identity shows in-place reuse in tests.
+// Process-wide switch, the bench's control: off, clj_vector_from_array builds tries (existing tuples keep working).
+void clj_tuples_enable(bool on);
+bool clj_tuples_enabled(void);
+bool clj_vector_is_tuple(clj_value vec);
+
+// Where vectors got their layout, counted in debug builds (-1 otherwise).
+enum {
+	CLJ_VECTORS_TUPLE,     // clj_vector_from_array of 1 to 6 items: a literal, a map entry, `vector`
+	CLJ_VECTORS_PROMOTED,  // a conj past a full tuple
+	CLJ_VECTORS_TRIE_CONJ, // a conj onto the empty vector, which stays a trie
+	CLJ_VECTORS_TRIE_OFF,  // tuples switched off
+	CLJ_VECTORS_COUNTERS
+};
+void clj_debug_vector_stats(int64_t out[CLJ_VECTORS_COUNTERS]);
+
+// Borrowed root and tail nodes, nil for a tuple: pointer identity shows in-place reuse in tests.
 clj_value clj_debug_vector_root(clj_value vec);
 clj_value clj_debug_vector_tail(clj_value vec);
 // Raw cache slot, see clj_debug_cached_hash.

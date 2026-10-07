@@ -73,12 +73,23 @@
   allocation, the values evaluated into their slots, no transitions and no duplicate check (the reader made it).
   A literal with a computed key, or one the cap refuses, is the generic path, which throws "Duplicate key" at
   run time as before.
-- [ ] **Not done, with triggers.** *Unboxed slots by observation* (`:count` always int64): the slot would need a
-  representation tag per shape and a check on every write, and the facts have no element fact for a map value to
-  consume it; trigger: a fold like the bench's over a numeric field showing the box in a profile. *Tuples and
-  elements kinds*: design §4, not this step. *A hash cache on the shape map*: above. *The record merge*: above.
-  *Shapes in the facts lattice* (a literal's shape as a static fact, the direct offset without the guard): needs
-  the interprocedural pass to carry it; trigger: a monomorphic site whose guard shows.
+- [ ] **Not done, with triggers.** *A hash cache on the shape map*: above. *The record merge*: above. *Shapes in
+  the facts lattice* (a literal's shape as a static fact, the direct offset without the guard): needs the
+  interprocedural pass to carry it; trigger: a monomorphic site whose guard shows. *Tuples* are done (NOTES
+  "Vector"), *elements kinds* assessed and deferred there.
+- [ ] **Unboxed slots by observation (design §4): assessed and deferred.** The design's `:count` always int64 → a
+  slot without a box, checked at write. *Gain here*: none for integers — a fixnum is the word in the slot already;
+  doubles only, a 32-byte box per field (`{:x 1.5 :y 2.5}` is a 40-byte map plus two 32-byte boxes). *Cost*: the
+  observation has to live on the shape, and a shape is one per key set, shared by every map with those keys. Made
+  part of the shape's identity, it splits a key set into one shape per representation: the key-set table and "one
+  shape per key set" lose their meaning, and a site that sees both goes polymorphic. Kept as a bit the first
+  non-double write clears, it changes every live map of that shape at once, so each map would still carry its own
+  per-slot tag to be read. Either way `each_child` skips a raw slot, `=`/`hash`/printing box it, and every `(:x m)`
+  in a boxed context allocates the box the slot no longer holds where today it is a retain — the site cache
+  worse than the base — unless the consumer is unboxed, and none is: the facts have no element fact for a map
+  value, so `clj_c_kw_get` hands `+` a boxed operand. *Measure* with the bench's JSON fold over a double field
+  (`(reduce (fn [acc m] (+ acc (:x m))) 0.0 maps)`), boxed against raw, the compiled `+` unboxed. Trigger: shapes
+  in the facts lattice (above) carrying a slot's kind, and that fold showing the box in a profile.
 - **Inspection.** `clj_map_shape`, `clj_shape_nkeys/key/index`, `clj_shape_is_dictionary`,
   `clj_debug_shape_count/children/bytes`, `clj_debug_exec_kw_entries/hits/misses/site_id`,
   `clj_debug_exec_map_shaped`, `clj_shapes_enable` (the bench's control: off, no new shape map at run time; a

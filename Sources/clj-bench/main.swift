@@ -896,6 +896,88 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "async" {
 
 func page_size_kb() -> Int { Int(sysconf(_SC_PAGESIZE)) / 1024 }
 
+// Tuples against tries in one binary (bench/RESULTS.md, "Tuples"): CLJ_BENCH_ONLY=tuples, and the end of the full run.
+// bench-ab: head only {
+// @ai-generated(solo)
+func tuplesBench() {
+	let n = 100_000
+	func both(ops: Int, _ body: () -> UInt64) -> (tuple: Double, trie: Double) {
+		clj_tuples_enable(false)
+		let trie = measure(ops: ops, body)
+		clj_tuples_enable(true)
+		return (measure(ops: ops, body), trie)
+	}
+	let items = UnsafeMutablePointer<clj_value>.allocate(capacity: 2)
+	func pairsC(_ k: Int) -> UInt64 {
+		var acc: UInt64 = 0
+		for i in 0..<k {
+			items[0] = clj_fixnum(i)
+			items[1] = clj_fixnum(1)
+			let v = clj_vector_from_array(items, 2)
+			acc &+= UInt64(bitPattern: Int64(clj_fixnum_val(clj_vector_nth(v, 0)) + clj_fixnum_val(clj_vector_nth(v, 1))))
+			clj_release(v)
+		}
+		return acc
+	}
+	func nthC(_ v: clj_value, _ k: Int) -> UInt64 {
+		var acc: UInt64 = 0
+		for i in 0..<k { acc &+= UInt64(clj_vector_nth(v, UInt32(i & 1))) }
+		return acc
+	}
+	var rows: [(String, (tuple: Double, trie: Double))] = []
+	rows.append(("C: clj_vector_from_array of 2 + nth 0, nth 1 + release", both(ops: n) { pairsC(n) }))
+	do {
+		clj_tuples_enable(false)
+		let trie = cljEval("[(inc 0) 2]")
+		clj_tuples_enable(true)
+		let tuple = cljEval("[(inc 0) 2]")
+		precondition(clj_vector_is_tuple(tuple) && !clj_vector_is_tuple(trie))
+		rows.append(("C: clj_vector_nth on a pair", (measure(ops: n) { nthC(tuple, n) }, measure(ops: n) { nthC(trie, n) })))
+		clj_release(tuple)
+		clj_release(trie)
+	}
+	let fix = clj_fixnum(n)
+	let literalFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (let [[a b] [i 1]] (recur (inc i) (+ acc a b))) acc)))")
+	let conjFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (count (conj [i 1] 2)))) acc)))")
+	let assocFn = cljEval("(fn [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (nth (assoc [i 1 2] 1 i) 1))) acc)))")
+	let entryFn = cljEval("(fn [m] (reduce (fn [acc [_ v]] (+ acc v)) 0 m))")
+	let mapFn = cljEval("(fn [m] (reduce + (map (fn [[_ v]] v) m)))")
+	let intoFn = cljEval("(fn [m] (count (into {} (map (fn [[k v]] [k (inc v)])) m)))")
+	rows.append(("[i 1] create + destructure per iteration", both(ops: n) { cljCall(literalFn, fix) }))
+	rows.append(("(count (conj [i 1] 2)) per iteration", both(ops: n) { cljCall(conjFn, fix) }))
+	rows.append(("(nth (assoc [i 1 2] 1 i) 1) per iteration", both(ops: n) { cljCall(assocFn, fix) }))
+	for size in [8, 1000] {
+		let m = cljEval("(zipmap (range \(size)) (range \(size)))")
+		rows.append(("(reduce (fn [acc [_ v]] ...)) over a map of \(size), per entry", both(ops: size) { cljCall(entryFn, m) }))
+		rows.append(("(reduce + (map (fn [[_ v]] v) m)), map of \(size), per entry", both(ops: size) { cljCall(mapFn, m) }))
+		rows.append(("(into {} (map (fn [[k v]] [k (inc v)])) m), map of \(size), per entry", both(ops: size) { cljCall(intoFn, m) }))
+		clj_release(m)
+	}
+	print("| scenario | tuple | trie | trie / tuple |")
+	print("|---|---:|---:|---:|")
+	for r in rows { print("| \(r.0) | \(fmt(r.1.tuple)) | \(fmt(r.1.trie)) | \(ratio(r.1.tuple, r.1.trie)) |") }
+	print("\nns per op, medians of \(reps) runs; n = \(n) for the loops, the map's size for the per-entry rows")
+	// Pool bytes per pair, 100k pairs held at once.
+	for on in [true, false] {
+		clj_tuples_enable(on)
+		let before = clj_debug_pool_used_bytes()
+		let pairs = cljEval("(mapv (fn [i] [i i]) (range 100000))")
+		let after = clj_debug_pool_used_bytes()
+		print("memory, \(on ? "tuple" : "trie"): \(String(format: "%.1f", Double(after - before) / 100_000)) pool bytes per pair (the outer vector included)")
+		clj_release(pairs)
+	}
+	clj_tuples_enable(true)
+	for v in [literalFn, conjFn, assocFn, entryFn, mapFn, intoFn] { clj_release(v) }
+	items.deallocate()
+}
+
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "tuples" {
+	clj_init()
+	tuplesBench()
+	exit(0)
+}
+// bench-ab: }
+
 // (reduce + (map inc (range n))), (reduce + (map inc (filter even? (range n)))), (count (vec (map inc (range n)))):
 // pipelines the optimizer fuses into their transducer form.
 func cReduceMapRange(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }
@@ -2029,3 +2111,8 @@ for r in throwRows {
 	print("| \(r.0) | \(fmt(r.1)) |")
 }
 print("\nns per call; the measured fn is interpreted and the pattern is already compiled")
+
+// bench-ab: head only {
+print("\n## Tuples\n")
+tuplesBench()
+// bench-ab: }
