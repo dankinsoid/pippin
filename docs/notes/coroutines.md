@@ -285,9 +285,14 @@
   putters' values but not the waiters, whose references are released on finalize instead; neither type is in §7's
   may-cycle list; and `coro_finalize` asserts `!c->map`, so a parked coroutine cannot be freed at all until its
   stack is given back. core.async's own `async_test.clj` makes 20 or 21 of them in one file, which is what the
-  corpus harness's `reclaimAbandoned` cancels (NOTES "Corpus"); a program has only `cancel!`. The narrow open
-  question is whether collection unwinds the coroutine, running its `finally` on an arbitrary carrier, or discards
-  it as the JVM does. Trigger: trial deletion, or a profile where abandoned parked coroutines grow without bound.
+  corpus harness's `reclaimAbandoned` cancels (NOTES "Corpus"); a program has only `cancel!`. Trial deletion
+  exists (NOTES "RC") and does not reach this cycle: the waiter's `coro` is a bare pointer and a parked frame's
+  counted reference to its channel is invisible, so the channel always reads as held from outside. Design §7
+  ("Фаза 3") decided the open question — a collected coroutine is unwound by a cancel, not discarded, since only the
+  unwinding releases what its frames own — and records what is missing: the waiter edge as a strong edge, and an
+  exact enumeration of what frames own across a park (stack maps for compiled code, the interpreter's frame
+  records, a rule for C builtins on the stack). Trigger: that enumeration, or a profile where abandoned parked
+  coroutines grow without bound.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.

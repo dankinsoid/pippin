@@ -119,3 +119,35 @@
   main tick costs 20–30 % more with it (bench/RESULTS.md, "Main-thread BRC"). Trigger: a profile of a real app
   where main contends with the pool on one state.
 
+- **The cycle collector** (`cc.c`, `include/clj/cc.h`; design §7 «Сборщик циклов: как он устроен», which holds the
+  why). Header bits `CLJ_FLAG_MUTABLE`, `CLJ_FLAG_REACH`, `CLJ_FLAG_REACH_LOCAL` (5–7); rc bits `CLJ_RC_WATCH`,
+  `CLJ_RC_BUFFERED` (31, 30), the count in 30 bits. `REACH` is born with an atom, a channel, a volatile and an object
+  array, and is OR'd into a non-`MUTABLE` owner by `clj_slot_init`/`clj_slot_store` (`clj_reach_from`); a `memcpy`
+  clone copies it (`fn_with_meta`, `clj_view_with_meta`). A lazy seq is `MUTABLE` with the bits of its thunk only, a
+  var is immortal and has none, an exec has none because its root is not a slot. The inline release takes the slow
+  path for `REACH_LOCAL`; a nonzero release of a `REACH`/`REACH_LOCAL` object without `BUFFERED` files an entry
+  (`clj_cc_shared_candidate`: the decrement and the bit in one CAS; the local one: a plain store, the entry in the
+  running execution's `clj_coro.cc_local`). An entry holds no reference: a buffered object that reaches zero is torn
+  down at once (`bury` sets it aside instead of making its header a link) and its cell stays a zombie
+  (`CLJ_RC_ZOMBIE`, out of the live count by `clj_dealloc_dead`) until its entry gives it back (`clj_dealloc_cell`).
+  The local collection runs in the owner — at 256 entries off the main carrier and only with no `clj_lock` or cmutex
+  held, at finish (the epilogue borrows the finished coroutine's buffer, `clj_cc_local_borrow`; so does a blocking
+  job for its parked caller), in `clj_cc_collect`, and on the main carrier at `kCFRunLoopBeforeWaiting` with a 1 ms
+  budget in slices of 64 (`clj_cc_main_idle`); past 4096 the main carrier hands one entry per new candidate to the
+  background by `clj_share`. The shared collection runs on a detached thread woken by the first entry and collecting
+  500 ms later or at 1024 entries; `clj_cc_collect` runs one on the caller under the same mutex. While it runs a
+  shared object reaching zero is deferred whole (`clj_cc_defer_free`) and freed by the collector at the end. A
+  store into a shared `MUTABLE` owner calls `clj_cc_note_store` after the store and before the old value goes (a
+  barrier, then the watch check; no barrier for a type read under its own lock, `cc_locked`: an atom's cmutex, a
+  channel's section, whose entry also clears the watch since any section may move a value out). `clj_debug_cc_stats`
+  counts collections, objects freed, candidates, hand-offs, nodes visited and roots put back after interference;
+  `CLJ_CC=0` keeps the bits and files no entry, the control of a cost measurement. `runtimeSettled` collects first,
+  so a test baseline is after collection. `scripts/tsan.supp` names `visit_lockfree`, the frame that reads a
+  volatile's, an array's or a lazy seq's slots without their writer's lock.
+- [ ] **What the collector does not see.** A type descriptor (the `users` registry holds it without a reference), an
+  exec (the specializer's dependents index resurrects one through `retain_if_live`) and a coroutine (design §7,
+  Phase 3) are never entered: their references count as external, so a cycle through one stays. A cycle through
+  Swift or an ObjC object (a host box shows no children; a reify instance keeps its fns past `each_child`) is design
+  §7's boundary. A lazy seq realized into a value that refers back to it through a global (`(def s (lazy-seq (cons
+  1 s)))`, then a redefinition) is not collected: realization adds no reach bit, or every cell of a `map` pipeline
+  would be a candidate. Trigger: a leak report naming one of these.

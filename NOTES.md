@@ -18,7 +18,7 @@ Memory and the object model
 - [Allocator](docs/notes/allocator.md) — size-class slabs per thread: abandoned and empty slabs, the foreign free list.
 - [Type descriptor](docs/notes/type-descriptor.md) — descriptors, protocol tables and their snapshots, core-interface slots, seq iteration, `reduce` slot, metadata placement.
 - [Locks](docs/notes/locks.md) — `clj_lock`, the one mutex type of the core's internals.
-- [RC](docs/notes/rc.md) — `-DCLJ_NO_REUSE`, `unlink`, the copy path, the shared-object invariant, live counts.
+- [RC](docs/notes/rc.md) — `-DCLJ_NO_REUSE`, `unlink`, the copy path, the shared-object invariant, live counts, the cycle collector.
 - [Guard](docs/notes/guard.md) — the SIGSEGV/SIGBUS handler, stack overflow recovery, fatal faults with a trace.
 
 Coroutines and concurrency
