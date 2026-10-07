@@ -1946,3 +1946,37 @@ vector's ~10 included): a pair is one 56-byte cell against a 56-byte wrapper and
   per entry built by `map_reduce`, so every destructuring walk over a map gains, at 8 keys and at 1000 alike.
 - `(assoc [i 1 2] 1 i)` writes the slot of a unique tuple in place; the trie copies nothing either but walks to
   the tail through the wrapper. `(conj [i 1] 2)` reallocates the unique cell by a word.
+
+### The same on arm64 — 2026-10-07, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool only)
+
+`make bench-ab` (CI run 37642648434): base 0a6db6b against 3f94fab, three alternating rounds of the full run, whose
+end on the head side is the tuples table; the interpreted core only. Cells are rounds 2 · 3 (round 1 is warm-up).
+
+| scenario | tuple | trie | trie / tuple |
+|---|---:|---:|---:|
+| C: `clj_vector_from_array` of 2 + nth 0, nth 1 + release | 27.7 · 30.7 | 87.9 · 104.8 | 3.2× · 3.4× |
+| C: `clj_vector_nth` on a pair | 1.8 · 2.1 | 1.6 · 1.4 | 0.9× · 0.7× |
+| `[i 1]` create + destructure per iteration | 96.6 · 118.7 | 152.9 · 198.6 | 1.6× · 1.7× |
+| `(count (conj [i 1] 2))` per iteration | 93.2 · 110.8 | 156.0 · 201.7 | 1.7× · 1.8× |
+| `(nth (assoc [i 1 2] 1 i) 1)` per iteration | 93.0 · 99.6 | 187.3 · 193.6 | 2.0× · 1.9× |
+| `(reduce (fn [acc [_ v]] …))` over a map of 8, per entry | 86.1 · 94.2 | 152.4 · 162.2 | 1.8× · 1.7× |
+| `(reduce + (map (fn [[_ v]] v) m))`, map of 8, per entry | 138.6 · 187.3 | 202.6 · 225.8 | 1.5× · 1.2× |
+| `(into {} (map (fn [[k v]] [k (inc v)])) m)`, map of 8, per entry | 223.4 · 262.6 | 343.5 · 396.3 | 1.5× · 1.5× |
+| `(reduce (fn [acc [_ v]] …))` over a map of 1000, per entry | 84.4 · 111.5 | 146.8 · 180.1 | 1.7× · 1.6× |
+| `(reduce + (map (fn [[_ v]] v) m))`, map of 1000, per entry | 113.0 · 121.9 | 175.4 · 187.0 | 1.6× · 1.5× |
+| `(into {} (map (fn [[k v]] [k (inc v)])) m)`, map of 1000, per entry | 213.6 · 253.7 | 354.4 · 380.5 | 1.7× · 1.5× |
+
+Memory: 64.4 · 66.3 pool bytes per pair with tuples, 114.2 without.
+
+- **The allocation is the gain, not `nth`.** Building and freeing a pair is 3.2–3.4× cheaper; every row that makes
+  a pair per iteration or per map entry is 1.5–2.0× cheaper interpreted, as on x86_64. `clj_vector_nth` on a
+  pair reads 1.8–2.1 against 1.4–1.6 for the trie's tail here (1.7 against 2.0 on x86_64): the layout test
+  before the load is not free on M1, and the row sits in the ±0.5 ns the call rows move by with layout
+  (docs/notes/benchmarks.md); no row through `nth` in a loop shows it.
+- **The trie path is unchanged**: the Vector rows (conj, nth, pop at 10, 1000, 100k) of base and head agree
+  within the round-to-round spread (`nth` at 10: 1.5 · 1.3 base, 1.4 · 1.6 head; pop to empty at 1000: 15.8 · 16.7
+  against 17.7 · 15.6), as do the seq walk and `reduce + vector`. The local x86_64 A/B (two rounds) read `nth` at
+  10 +0.4 ns and pop at 1000 +2 ns, inside that machine's spread.
+- **Reach, from the corpus log** (`clj_debug_vector_stats`, the compiled-corpus run of the same CI job,
+  37644671595): over both libraries' suites 1.03 M tuples were built against 147 k tries begun by a conj onto
+  `[]`, and 3 tuples were promoted past six — the literals and map entries are the vectors a program makes.

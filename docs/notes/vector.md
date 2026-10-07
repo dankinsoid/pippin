@@ -23,9 +23,10 @@
   class) and `pop` clears the slot and keeps the cell; a shared tuple copies its words. A `conj` onto a full tuple
   promotes it to a trie of seven, one way, as a shape map falls to the trie. A `conj` onto `[]` builds the trie
   as before: `into`, `vec`, `mapv` and transients start there and would only pay a promotion at the seventh
-  element. Measured (bench/RESULTS.md, "Tuples", x86_64 local): a pair is 56 bytes against 104, its create + release 33 ns
-  against 104–108 through the C API, `[i 1]` created and destructured 66 ns against 149 compiled, a map entry
-  destructured in `reduce` 69–74 against 150–156 compiled (1.6× interpreted). Inspection: `clj_vector_is_tuple`,
+  element. Measured (bench/RESULTS.md, "Tuples", arm64 CI): a pair is 56 bytes against 104, its create + release 28–31
+  ns against 88–105, a pair per iteration or per map entry 1.5–2.0× cheaper interpreted (2.1–2.7× compiled,
+  x86_64 local); `nth` on a pair gains nothing measurable, the trie's rows are unchanged; the corpus builds 1.03 M
+  tuples against 147 k tries begun by a conj onto `[]`. Inspection: `clj_vector_is_tuple`,
   `clj_tuples_enable` (the bench's control), `clj_debug_vector_stats` (the `CorpusTests` log prints it).
   Not done: unboxed tuple slots (`[x y]` as two doubles) — the read-boxes cost of elements kinds below, the same
   trigger; and not allocating the pair at all (`(map (fn [[k v]] …) m)` passing `k v` as two arguments after
