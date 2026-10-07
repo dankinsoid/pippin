@@ -2191,7 +2191,10 @@
   "When true, output is flushed at each newline. Output here leaves at every write, so either value is honoured."
   true)
 ;; Each is dynamic on the JVM through setDynamic, with no :dynamic in its meta.
-(run! (fn [v] (alter-meta! v dissoc :dynamic)) [#'*print-readably* #'*print-meta* #'*print-dup* #'*flush-on-newline*])
+(alter-meta! #'*print-readably* dissoc :dynamic)
+(alter-meta! #'*print-meta* dissoc :dynamic)
+(alter-meta! #'*print-dup* dissoc :dynamic)
+(alter-meta! #'*flush-on-newline* dissoc :dynamic)
 
 (def ^:dynamic *in*
   "Where read-line takes from, installed by a host REPL: {:lines <channel of lines, closed at end of input>

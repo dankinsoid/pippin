@@ -88,8 +88,9 @@ extension CoreTests {
 				#expect(try eval("(let [h (agent 1 :validator pos?)] (send h dec) (wait-error h) [(ex-message (agent-error h)) @h (some? (get-validator h)) (msg #(restart-agent h -5)) (some? (agent-error h))])") == ["Invalid reference state", 1, true, "Invalid reference state", true])
 				#expect(message("(agent -1 :validator pos?)") == "Invalid reference state")
 				#expect(try eval("(msg #(set-validator! (agent -1) pos?))") == "Invalid reference state")
-				// A watch sees every action, an unchanged state included, and runs inside it: a throwing watch fails the agent.
-				#expect(try eval("(let [log (atom []) b (agent [])] [(identical? b (add-watch b :w (fn [k r o n] (swap! log conj [k (identical? r b) o n])))) (do (send b conj 1) (await b) @log) (identical? b (remove-watch b :w))])") == [true, [[kw("w"), true, [], [1]], [kw("w"), true, [1], [1]]], true])
+				// A watch runs inside the action, so a throwing watch fails the agent. await's own counting action fires
+				// it too, after the latch it delivers, so only the first entry is certain when await returns.
+				#expect(try eval("(let [log (atom []) b (agent [])] [(identical? b (add-watch b :w (fn [k r o n] (swap! log conj [k (identical? r b) o n])))) (do (send b conj 1) (await b) (first @log)) (identical? b (remove-watch b :w))])") == [true, [kw("w"), true, [], [1]], true])
 				#expect(try eval("(let [n (agent 0)] (add-watch n :bad (fn [& _] (throw (ex-info \"watch\" {})))) (send n inc) (wait-error n) [@n (ex-message (agent-error n))])") == [1, "watch"])
 				#expect(try eval("(let [b (agent nil :meta {:x 1})] [(meta b) (alter-meta! b assoc :y 2) (reset-meta! b {:z 3}) (meta b)])") == [[kw("x"): 1], [kw("x"): 1, kw("y"): 2], [kw("z"): 3], [kw("z"): 3]])
 			}
