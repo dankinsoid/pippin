@@ -96,7 +96,10 @@ extension CoreTests {
 			let inPlace: Value = clj_reuse_enabled() ? true : false
 			do {
 				// v is unique: the last read hands it over and conj grows it where it is.
-				#expect(try rt.eval("(let [v (vector 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [inPlace, [1, 2]])
+				#expect(try rt.eval("(let [v (conj [] 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [inPlace, [1, 2]])
+				// A tuple grows by a word, moving with its size class (72 and 80 bytes share one) or under the system realloc.
+				let poolInPlace: Value = clj_reuse_enabled() && clj_debug_pool_enabled() ? true : false
+				#expect(try rt.eval("(let [v (vector 1 2 3 4) p (lu-ptr v) w (conj v 5)] [(= p (lu-ptr w)) w])") == [poolInPlace, [1, 2, 3, 4, 5]])
 				// Non-keyword keys keep the trie: a shape map growing across a size class moves (ShapeTests covers it).
 				#expect(try rt.eval("(let [m (hash-map 1 1) p (lu-ptr m) n (assoc m 2 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{1 1 2 2}")])
 				#expect(try rt.eval("(let [m (hash-map 1 1 2 2) p (lu-ptr m) n (dissoc m 2)] [(= p (lu-ptr n)) n])") == [inPlace, Value(reading: "{1 1}")])
