@@ -155,7 +155,7 @@ static clj_value set_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_set_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "set",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_FN | CLJ_CORE_SET | CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE |
 	             CLJ_CORE_EDITABLE,
@@ -173,7 +173,7 @@ const clj_type clj_set_type = {
 	.with_meta = set_with_meta,
 };
 
-static clj_set empty_set = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_set_type}, .impl = {(clj_value)&clj_map_empty_object}};
+static clj_set empty_set = {.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_set_type}, .impl = {(clj_value)&clj_map_empty_object}};
 
 clj_value clj_set_empty(void) { return clj_from_ptr(&empty_set); }
 

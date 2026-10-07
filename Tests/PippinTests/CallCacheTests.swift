@@ -23,7 +23,7 @@ private func userVar(_ name: String) -> clj_value {
 	return v
 }
 
-private func rc(_ v: clj_value) -> UInt32 { UnsafeRawPointer(clj_header_of(v)).load(as: UInt32.self) }
+private func rc(_ v: clj_value) -> Int64 { clj_debug_rc_count(v) }
 
 // An analyzed tree with its exec, so a test can read the call-site counters of its invoke nodes.
 private final class Tree {

@@ -46,7 +46,7 @@ static clj_value symbol_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_symbol_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "symbol",
 	.core_bits = CLJ_CORE_META | CLJ_CORE_OBJ,
 	.each_child = symbol_each_child,

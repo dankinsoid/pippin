@@ -60,7 +60,7 @@ static clj_value list_conj(clj_value self, clj_value x) {
 
 // No hash cache: the cell stays 32 bytes, so hashing a list walks it every time.
 const clj_type clj_cons_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "cons",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = cons_each_child,
@@ -75,7 +75,7 @@ const clj_type clj_cons_type = {
 
 // Same cell as a Cons; only IPersistentList, conj and the type name separate them, as on the JVM.
 const clj_type clj_list_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "list",
 	CLJ_ASEQ_TRAIT_BASE(CLJ_CORE_LIST | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.conj = list_conj,

@@ -141,7 +141,7 @@ static void node_finalize(void *self) {
 }
 
 const clj_type clj_node_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "node",
 	.each_child = node_each_child,
 	.finalize = node_finalize,

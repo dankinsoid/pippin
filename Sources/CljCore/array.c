@@ -246,7 +246,7 @@ static clj_value array_reduce_from(clj_value self, uint32_t i, clj_value f, clj_
 static clj_value array_reduce(clj_value self, clj_value f, clj_value init) { return array_reduce_from(self, 0, f, init); }
 
 const clj_type clj_array_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "array",
 	// Seqable alone: a JVM array is no IPersistentCollection, and count, nth and reduce are slots without bits.
 	.core_bits = CLJ_CORE_SEQABLE,
@@ -299,7 +299,7 @@ static clj_value array_seq_reduce(clj_value self, clj_value f, clj_value init) {
 }
 
 const clj_type clj_array_seq_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "array-seq",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = array_seq_each_child,

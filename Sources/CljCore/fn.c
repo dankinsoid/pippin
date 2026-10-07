@@ -75,7 +75,7 @@ static clj_value fn_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_fn_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "fn",
 	.core_bits = CLJ_CORE_FN | CLJ_CORE_META | CLJ_CORE_OBJ,
 	.each_child = fn_each_child,

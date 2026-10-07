@@ -18,7 +18,7 @@ static bool uuid_equals(void *self, clj_value other) {
 }
 
 const clj_type clj_uuid_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "UUID",
 	.hash = uuid_hash,
 	.equals = uuid_equals,

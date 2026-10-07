@@ -23,7 +23,7 @@ static bool ratio_equals(void *self, clj_value other) {
 }
 
 const clj_type clj_ratio_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "ratio",
 	.each_child = ratio_each_child,
 	.hash = ratio_hash,

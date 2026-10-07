@@ -152,7 +152,7 @@ clj_value clj_c_arity_error(clj_value f, size_t n) { return clj_arity_error(f, n
 
 void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col) {
 	memset(stub, 0, sizeof *stub);
-	stub->h.rc = 1;
+	stub->h.rc = CLJ_RC_INIT;
 	stub->h.flags = CLJ_FLAG_IMMORTAL;
 	stub->h.type = &clj_node_type;
 	stub->kind = CLJ_NODE_FN;

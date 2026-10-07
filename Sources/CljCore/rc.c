@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,19 +16,141 @@ void clj_fatal(const char *msg) {
 	abort();
 }
 
+#if CLJ_DEBUG
+_Atomic uint64_t clj_debug_rc_counters[CLJ_RC_KINDS];
+
+void clj_debug_rc_ops(int64_t out[CLJ_RC_KINDS]) {
+	for (int i = 0; i < CLJ_RC_KINDS; i++) out[i] = (int64_t)atomic_load_explicit(&clj_debug_rc_counters[i], memory_order_relaxed);
+}
+#else
+void clj_debug_rc_ops(int64_t out[CLJ_RC_KINDS]) {
+	for (int i = 0; i < CLJ_RC_KINDS; i++) out[i] = -1;
+}
+#endif
+
+// ---- the main thread's counts (design §4, «BRC с одним владельцем — главным потоком»)
+//
+// Every decision about a free is made on the rc word: main changes it only with RMWs, at the edges of an episode
+// (main16 0 -> 1 and 1 -> 0), and every other thread decides from what its own fetch_sub returns.
+
+// The one thread whose main16 counts are live: the main carrier. A TLS address cached across a park still answers
+// right, since a pool coroutine never runs there and a main one never leaves it.
+static _Thread_local bool clj_rc_on_main;
+
+// main16 at its top moves this much into rc.
+enum { MAIN_SPILL = 0x8000 };
+
+static inline int32_t rc_count(uint32_t word) { return (int32_t)word >> 1; }
+
+// Under brc_mu: whether a thread owns main16 now, and the releases it has yet to take.
+static pthread_mutex_t brc_mu = PTHREAD_MUTEX_INITIALIZER;
+static bool            brc_owned;
+static clj_header    **pending;
+static size_t          npending, cpending;
+
+void clj_sched_main_wake(void); // sched.c
+
+static void main_retain(clj_header *h) {
+	uint16_t m = h->main16;
+	if (m == 0) {
+		// main retains from a reference it holds, counted in rc while main16 is empty, so rc cannot reach zero here.
+		uint32_t old = atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_MERGED, memory_order_relaxed);
+		(void)old;
+		CLJ_ASSERT((old & CLJ_RC_MERGED) && rc_count(old) > 0, "main retain of an unmerged object with main16 empty");
+		CLJ_RC_COUNT(CLJ_RC_MAIN_EDGE_IN);
+		h->main16 = 1;
+		return;
+	}
+	if (m == UINT16_MAX) {
+		atomic_fetch_add_explicit(&h->rc, MAIN_SPILL * CLJ_RC_ONE, memory_order_relaxed);
+		CLJ_RC_COUNT(CLJ_RC_MAIN_SPILL);
+		m -= MAIN_SPILL;
+	} else {
+		CLJ_RC_COUNT(CLJ_RC_MAIN_PLAIN);
+	}
+	h->main16 = (uint16_t)(m + 1);
+}
+
+// main16 just went 1 -> 0. A zero word is a zero sum nobody can retain from, except a registry that counts on
+// retain_if_live (a type with unlink): its CAS must meet an RMW here.
+static bool main_episode_end(clj_header *h) {
+	if (!h->type->unlink && atomic_load_explicit(&h->rc, memory_order_acquire) == 0) {
+		CLJ_RC_COUNT(CLJ_RC_MAIN_FREE_IN_PLACE);
+		return true;
+	}
+	uint32_t old = atomic_fetch_or_explicit(&h->rc, CLJ_RC_MERGED, memory_order_acq_rel);
+	CLJ_RC_COUNT(CLJ_RC_MAIN_EDGE_OUT);
+	// Below zero, another thread released a reference main16 still counts: main16 cannot have been at 1.
+	CLJ_ASSERT(!(old & CLJ_RC_MERGED) && rc_count(old) >= 0, "main episode end on a merged or negative rc");
+	return old == 0;
+}
+
+static bool main_release(clj_header *h) {
+	uint16_t m = h->main16;
+	if (m > 1) {
+		CLJ_RC_COUNT(CLJ_RC_MAIN_PLAIN);
+		h->main16 = (uint16_t)(m - 1);
+		return false;
+	}
+	if (m == 0) {
+		uint32_t old = atomic_fetch_sub_explicit(&h->rc, CLJ_RC_ONE, memory_order_acq_rel);
+		CLJ_RC_COUNT(CLJ_RC_MAIN_MERGED);
+		CLJ_ASSERT((old & CLJ_RC_MERGED) && rc_count(old) > 0, "main release of a freed shared object");
+		return old == CLJ_RC_INIT;
+	}
+	h->main16 = 0;
+	return main_episode_end(h);
+}
+
+// A reference main16 counts, released on another thread: main takes it at its next turn. With no main carrier
+// nobody else writes main16, and brc_mu orders this thread with the last owner and the next one.
+static bool defer_to_main(clj_header *h) {
+	CLJ_RC_COUNT(CLJ_RC_DEFERRED);
+	pthread_mutex_lock(&brc_mu);
+	if (brc_owned) {
+		if (npending == cpending) {
+			cpending = cpending ? cpending * 2 : 64;
+			pending = realloc(pending, cpending * sizeof *pending);
+			if (!pending) clj_fatal("out of memory");
+		}
+		pending[npending++] = h;
+		bool first = npending == 1;
+		pthread_mutex_unlock(&brc_mu);
+		if (first) clj_sched_main_wake();
+		return false;
+	}
+	uint16_t m = h->main16;
+	CLJ_ASSERT(m > 0, "a reference given back to main16, which holds none");
+	h->main16 = (uint16_t)(m - 1);
+	bool zero = m == 1 && atomic_fetch_or_explicit(&h->rc, CLJ_RC_MERGED, memory_order_acq_rel) == 0;
+	pthread_mutex_unlock(&brc_mu);
+	return zero;
+}
+
+static bool other_release(clj_header *h) {
+	// acq_rel rather than release plus an acquire fence on zero: TSan does not model fences.
+	uint32_t old = atomic_fetch_sub_explicit(&h->rc, CLJ_RC_ONE, memory_order_acq_rel);
+	if (old == CLJ_RC_INIT) return true;
+	if (old & CLJ_RC_MERGED) {
+		CLJ_ASSERT(rc_count(old) > 0, "release of a freed shared object");
+		return false;
+	}
+	// Unmerged: main16 holds the rest, and main frees at its episode end.
+	if (rc_count(old) > 0) return false;
+	// Below zero the reference was one main16 counts: the unit goes back to rc and the reference to main. A QUEUED
+	// bit set after this fetch_sub could land on an object another such release queued and main freed meanwhile.
+	atomic_fetch_add_explicit(&h->rc, CLJ_RC_ONE, memory_order_relaxed);
+	return defer_to_main(h);
+}
+
 static bool release_reaches_zero(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
-	if (h->flags & CLJ_FLAG_SHARED) {
-		// acq_rel rather than release plus an acquire fence on zero: TSan does not model fences.
-		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_acq_rel);
-		CLJ_ASSERT(prev > 0, "release of a freed shared object");
-		return prev == 1;
-	}
+	if (h->flags & CLJ_FLAG_SHARED) return clj_rc_on_main ? main_release(h) : other_release(h);
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
-	CLJ_ASSERT(rc > 0, "release of a freed object");
-	CLJ_RC_UNSHARED_STORE(h, rc - 1);
-	return rc == 1;
+	CLJ_ASSERT(rc >= CLJ_RC_INIT, "release of a freed object");
+	CLJ_RC_UNSHARED_STORE(h, rc - CLJ_RC_ONE);
+	return rc == CLJ_RC_INIT;
 }
 
 #if CLJ_DEBUG
@@ -96,27 +219,36 @@ static void free_object(clj_header *dead) {
 	}
 }
 
-#if CLJ_DEBUG
-_Atomic uint64_t clj_debug_rc_counters[3];
-
-void clj_debug_rc_ops(int64_t out[3]) {
-	for (int i = 0; i < 3; i++) out[i] = (int64_t)atomic_load_explicit(&clj_debug_rc_counters[i], memory_order_relaxed);
-}
-#else
-void clj_debug_rc_ops(int64_t out[3]) {
-	for (int i = 0; i < 3; i++) out[i] = -1;
-}
-#endif
-
 void clj_retain_slow(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return;
-	uint32_t prev = atomic_fetch_add_explicit(&h->rc, 1, memory_order_relaxed);
+	if (clj_rc_on_main) {
+		main_retain(h);
+		return;
+	}
+	uint32_t prev = atomic_fetch_add_explicit(&h->rc, CLJ_RC_ONE, memory_order_relaxed);
 	(void)prev;
-	CLJ_ASSERT(prev > 0, "retain of a freed shared object");
+	// Unmerged, the count may be zero or below: main16 holds the object.
+	CLJ_ASSERT(rc_count(prev) > 0 || !(prev & CLJ_RC_MERGED), "retain of a freed shared object");
 }
 
 void clj_release_slow(clj_header *h) {
 	if (release_reaches_zero(h)) free_object(h);
+}
+
+bool clj_rc_unique(clj_header *h) {
+	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
+	if (h->flags & CLJ_FLAG_SHARED) {
+		if (clj_rc_on_main) {
+			uint16_t m = h->main16;
+			if (m > 1) return false;
+			// Acquire: a reuse writes what other threads read up to their release.
+			return atomic_load_explicit(&h->rc, memory_order_acquire) == (m ? 0 : CLJ_RC_INIT);
+		}
+		// Relaxed is enough: we hold a reference, so an observed 1 means no one else does; merged, main16 holds none.
+		return atomic_load_explicit(&h->rc, memory_order_relaxed) == CLJ_RC_INIT;
+	}
+	CLJ_OWNER_CHECK(h);
+	return CLJ_RC_UNSHARED_LOAD(h) == CLJ_RC_INIT;
 }
 
 bool clj_is_unique(clj_value v) {
@@ -126,14 +258,94 @@ bool clj_is_unique(clj_value v) {
 	(void)v;
 	return false;
 #else
-	if (!clj_is_ptr(v)) return false;
-	clj_header *h = clj_header_of(v);
-	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
-	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
-	if (h->flags & CLJ_FLAG_SHARED) return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
-	CLJ_OWNER_CHECK(h);
-	return CLJ_RC_UNSHARED_LOAD(h) == 1;
+	return clj_is_ptr(v) && clj_rc_unique(clj_header_of(v));
 #endif
+}
+
+bool clj_retain_if_live(clj_header *h) {
+	if (h->flags & CLJ_FLAG_IMMORTAL) return true;
+	uint32_t w = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	if (!(h->flags & CLJ_FLAG_SHARED)) {
+		while (rc_count(w) > 0) {
+			if (atomic_compare_exchange_weak_explicit(&h->rc, &w, w + CLJ_RC_ONE, memory_order_acq_rel, memory_order_relaxed)) return true;
+		}
+		return false;
+	}
+	if (clj_rc_on_main) {
+		if (h->main16) {
+			main_retain(h);
+			return true;
+		}
+		while (rc_count(w) > 0) {
+			if (atomic_compare_exchange_weak_explicit(&h->rc, &w, w & ~CLJ_RC_MERGED, memory_order_acq_rel, memory_order_relaxed)) {
+				CLJ_RC_COUNT(CLJ_RC_MAIN_EDGE_IN);
+				h->main16 = 1;
+				return true;
+			}
+		}
+		return false;
+	}
+	// Unmerged: main16 holds the object, or main is at its episode end, whose RMW this CAS meets (main_episode_end).
+	while (rc_count(w) > 0 || !(w & CLJ_RC_MERGED)) {
+		if (atomic_compare_exchange_weak_explicit(&h->rc, &w, w + CLJ_RC_ONE, memory_order_acq_rel, memory_order_relaxed)) return true;
+	}
+	return false;
+}
+
+void clj_rc_main_adopt(void) {
+	if (clj_rc_on_main) return;
+	pthread_mutex_lock(&brc_mu);
+	if (brc_owned) clj_fatal("a second main carrier while the first one holds main16");
+	brc_owned = true;
+	pthread_mutex_unlock(&brc_mu);
+	clj_rc_on_main = true;
+}
+
+void clj_rc_main_drain(void) {
+	if (!clj_rc_on_main) clj_fatal("clj_rc_main_drain off the main carrier");
+	for (;;) {
+		pthread_mutex_lock(&brc_mu);
+		clj_header **batch = pending;
+		size_t       n = npending;
+		pending = NULL;
+		npending = cpending = 0;
+		pthread_mutex_unlock(&brc_mu);
+		if (!n) return;
+		for (size_t i = 0; i < n; i++) {
+			if (main_release(batch[i])) free_object(batch[i]);
+		}
+		free(batch);
+	}
+}
+
+void clj_rc_main_abandon(void) {
+	if (!clj_rc_on_main) return;
+	for (;;) {
+		clj_rc_main_drain();
+		pthread_mutex_lock(&brc_mu);
+		if (!npending) {
+			brc_owned = false;
+			clj_rc_on_main = false;
+			pthread_mutex_unlock(&brc_mu);
+			return;
+		}
+		pthread_mutex_unlock(&brc_mu);
+	}
+}
+
+size_t clj_debug_rc_pending(void) {
+	pthread_mutex_lock(&brc_mu);
+	size_t n = npending;
+	pthread_mutex_unlock(&brc_mu);
+	return n;
+}
+
+int64_t clj_debug_rc_count(clj_value v) {
+	if (!clj_is_ptr(v)) return 0;
+	clj_header *h = clj_header_of(v);
+	int64_t     n = rc_count(atomic_load_explicit(&h->rc, memory_order_relaxed));
+	if ((h->flags & CLJ_FLAG_SHARED) && clj_rc_on_main) n += h->main16;
+	return n;
 }
 
 bool clj_reuse_enabled(void) {
@@ -244,7 +456,7 @@ void clj_debug_slot_check(const clj_header *owner, clj_value v) {
 // A count of 1 is the creator's own reference: a store while it fills the object needs no lock yet.
 void clj_debug_slot_store_check(const clj_header *owner, clj_value v) {
 	clj_debug_slot_check(owner, v);
-	if (!owner->type->debug_lock_held || atomic_load_explicit(&owner->rc, memory_order_relaxed) <= 1) return;
+	if (!owner->type->debug_lock_held || clj_debug_rc_count(clj_from_ptr((void *)owner)) <= 1) return;
 	if (owner->type->debug_lock_held(owner)) return;
 	char msg[256];
 	snprintf(msg, sizeof msg, "store into a slot of %s without its lock (design §4, «Запись в слот»)", owner->type->name);
@@ -258,6 +470,23 @@ void clj_debug_slot_store_check(const clj_header *owner, clj_value v) {
 }
 #define assert_shared_below(v) ((void)0)
 #endif
+
+void clj_mark_shared(clj_header *h) {
+	if (clj_rc_on_main) {
+		int32_t  c = rc_count(CLJ_RC_UNSHARED_LOAD(h));
+		uint16_t m = c <= UINT16_MAX ? (uint16_t)c : MAIN_SPILL;
+		h->main16 = m;
+		CLJ_RC_UNSHARED_STORE(h, (uint32_t)(c - m) * CLJ_RC_ONE);
+	} else {
+		h->main16 = 0;
+	}
+	h->flags |= CLJ_FLAG_SHARED;
+}
+
+void clj_mark_shared_merged(clj_header *h) {
+	h->main16 = 0;
+	h->flags |= CLJ_FLAG_SHARED;
+}
 
 void clj_share(clj_value v) {
 	if (!clj_is_ptr(v)) return;
@@ -277,7 +506,7 @@ void clj_share(clj_value v) {
 		}
 		// The flag is a plain write: only the owner may publish.
 		CLJ_OWNER_CHECK(h);
-		h->flags |= CLJ_FLAG_SHARED;
+		clj_mark_shared(h);
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
 	stack_free(&st);
@@ -292,7 +521,7 @@ bool clj_debug_all_shared(clj_value v) {
 
 #if CLJ_DEBUG
 void clj_debug_owner_check(const clj_header *h) {
-	uint32_t owner = h->flags >> CLJ_OWNER_SHIFT, here = clj_debug_owner_here();
+	uint32_t owner = h->main16, here = clj_debug_owner_here();
 	if (owner == here) return;
 	char msg[256];
 	snprintf(msg, sizeof msg, "unshared %s of execution %u touched by execution %u (NOTES \"RC\", owner check)",

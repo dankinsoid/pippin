@@ -75,7 +75,7 @@ static bool     shaken_equals(void *self, clj_value other) { return clj_from_ptr
 
 // IFn and nothing else: ifn? true keeps a call on the slot path, every other predicate answers false.
 const clj_type clj_shaken_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "shaken",
 	.core_bits = CLJ_CORE_FN,
 	.hash = shaken_hash,

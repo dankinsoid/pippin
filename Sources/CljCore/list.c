@@ -57,7 +57,7 @@ static clj_value empty_list_conj(clj_value self, clj_value x) {
 }
 
 const clj_type clj_empty_list_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "empty-list",
 	CLJ_ASEQ_TRAIT_BASE(CLJ_CORE_LIST | CLJ_CORE_COUNTED | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.conj = empty_list_conj,
@@ -71,7 +71,7 @@ const clj_type clj_empty_list_type = {
 	.with_meta = empty_list_with_meta,
 };
 
-static clj_header empty_list = {1, CLJ_FLAG_IMMORTAL, &clj_empty_list_type};
+static clj_header empty_list = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_empty_list_type};
 
 clj_value clj_list_empty(void) { return clj_from_ptr(&empty_list); }
 

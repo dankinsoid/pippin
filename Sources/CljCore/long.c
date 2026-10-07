@@ -17,7 +17,7 @@ static bool long_equals(void *self, clj_value other) {
 }
 
 const clj_type clj_long_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "long",
 	.hash = long_hash,
 	.equals = long_equals,

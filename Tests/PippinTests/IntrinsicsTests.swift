@@ -170,8 +170,8 @@ extension CoreTests {
 		// Every root boot bound is immortal, so a call through a core var retains nothing: the rc of a native
 		// and of a core.clj closure stays put across 1000 calls each, while a user fn's root is ordinary.
 		@Test func coreRootsAreImmortal() throws {
-			func rc(_ v: clj_value) -> UInt32 { UnsafeRawPointer(clj_header_of(v)).load(as: UInt32.self) }
-			func immortal(_ v: clj_value) -> Bool { clj_header_of(v).pointee.flags & UInt32(CLJ_FLAG_IMMORTAL) != 0 }
+			func rc(_ v: clj_value) -> Int64 { clj_debug_rc_count(v) }
+			func immortal(_ v: clj_value) -> Bool { clj_header_of(v).pointee.flags & UInt16(CLJ_FLAG_IMMORTAL) != 0 }
 			let second = clj_var_root(coreVar("second")), mapFn = clj_var_root(coreVar("map")), plus = clj_var_root(coreVar("+"))
 			#expect(immortal(second) && immortal(mapFn) && immortal(plus))
 			#expect(!clj_is_unique(mapFn))

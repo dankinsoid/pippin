@@ -112,9 +112,9 @@ extension CoreTests {
 				// A plain cons stays 32 bytes; only the with-meta'd cell carries the slot.
 				#expect(clj_debug_cell_size(MemoryLayout<clj_cons>.size) == 32 || !clj_debug_pool_enabled())
 				let plain = Value(list: [1, 2])
-				#expect(clj_header_of(plain.raw).pointee.flags & UInt32(CLJ_FLAG_META) == 0)
+				#expect(clj_header_of(plain.raw).pointee.flags & UInt16(CLJ_FLAG_META) == 0)
 				let tagged = try rt.eval("(with-meta '(1 2) {:a 1})")
-				#expect(clj_header_of(tagged.raw).pointee.flags & UInt32(CLJ_FLAG_META) != 0)
+				#expect(clj_header_of(tagged.raw).pointee.flags & UInt16(CLJ_FLAG_META) != 0)
 				#expect(tagged == plain)
 				#expect(tagged.list == [1, 2])
 				#expect(try rt.eval("(meta (rest (with-meta '(1 2 3) {:a 1})))") == nil)
@@ -169,9 +169,9 @@ extension CoreTests {
 				         MemoryLayout<clj_range>.size, MemoryLayout<clj_lazy_seq>.size] == [32, 32, 32, 40, 40])
 				for form in ["(seq [1 2])", "(seq \"ab\")", "(seq (int-array [1 2]))", "(range 3)", "(lazy-seq [1 2])"] {
 					let plain = try rt.eval(form)
-					#expect(clj_header_of(plain.raw).pointee.flags & UInt32(CLJ_FLAG_META) == 0, "\(form)")
+					#expect(clj_header_of(plain.raw).pointee.flags & UInt16(CLJ_FLAG_META) == 0, "\(form)")
 					let tagged = try rt.eval("(with-meta \(form) {:a 1})")
-					#expect(clj_header_of(tagged.raw).pointee.flags & UInt32(CLJ_FLAG_META) != 0, "\(form)")
+					#expect(clj_header_of(tagged.raw).pointee.flags & UInt16(CLJ_FLAG_META) != 0, "\(form)")
 					#expect(tagged == plain, "\(form)")
 				}
 			}

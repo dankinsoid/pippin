@@ -4,6 +4,9 @@
 
 #include "clj/object.h"
 
+// Whether h is unique as the calling thread can see it (clj_is_unique without CLJ_NO_REUSE).
+bool clj_rc_unique(clj_header *h);
+
 // Returns the object's memory; the caller has already released its children.
 void clj_dealloc(clj_header *h);
 

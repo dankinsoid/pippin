@@ -41,7 +41,7 @@ static clj_value var_meta(clj_value self) { return clj_retain(clj_var_meta(self)
 
 // IMeta without IObj: a var is a reference, its meta changes through alter-meta!/reset-meta!.
 const clj_type clj_var_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "var",
 	.core_bits = CLJ_CORE_FN | CLJ_CORE_META,
 	.mutable_children = true,

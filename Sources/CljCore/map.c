@@ -55,13 +55,13 @@ static void cnode_each_child(void *self, clj_visitor visit, void *ctx) {
 }
 
 static const clj_type bnode_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "map-node",
 	.each_child = bnode_each_child,
 };
 
 static const clj_type cnode_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "map-collision-node",
 	.each_child = cnode_each_child,
 };
@@ -638,7 +638,7 @@ static clj_value map_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_map_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "map",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP |
 	             CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE | CLJ_CORE_EDITABLE,
@@ -657,8 +657,8 @@ const clj_type clj_map_type = {
 	.with_meta = map_with_meta,
 };
 
-static bnode   empty_root = {.h = {1, CLJ_FLAG_IMMORTAL, &bnode_type}};
-clj_map clj_map_empty_object = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .root = {(clj_value)&empty_root}};
+static bnode   empty_root = {.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &bnode_type}};
+clj_map clj_map_empty_object = {.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_map_type}, .root = {(clj_value)&empty_root}};
 
 clj_value clj_map_empty(void) { return clj_from_ptr(&clj_map_empty_object); }
 

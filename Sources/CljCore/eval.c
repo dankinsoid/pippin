@@ -1457,7 +1457,7 @@ static void exec_finalize(void *self) {
 }
 
 const clj_type clj_exec_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "exec",
 	.each_child = exec_each_child,
 	.finalize = exec_finalize,

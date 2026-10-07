@@ -81,7 +81,7 @@ static clj_value vector_seq_reduce(clj_value self, clj_value f, clj_value init) 
 }
 
 const clj_type clj_vector_seq_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "vector-seq",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = vector_seq_each_child,
@@ -152,7 +152,7 @@ static clj_value string_seq_count(clj_value self) {
 }
 
 const clj_type clj_string_seq_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "string-seq",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = string_seq_each_child,
@@ -214,7 +214,7 @@ static clj_value range_reduce(clj_value self, clj_value f, clj_value init) {
 }
 
 const clj_type clj_range_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "range",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = range_each_child,
@@ -267,7 +267,7 @@ static clj_value lazy_seq_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_lazy_seq_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "lazy-seq",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.mutable_children = true,

@@ -68,7 +68,7 @@ static clj_value exception_cause(clj_value self) { return clj_retain(clj_excepti
 
 // Identity hash and equality, as Throwable on the JVM.
 const clj_type clj_exception_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "exception",
 	.core_bits = CLJ_CORE_ERROR,
 	.each_child = exception_each_child,
@@ -105,7 +105,7 @@ static clj_value host_error_cause(clj_value self) {
 
 // @ai-generated(guided)
 const clj_type clj_host_error_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "host-error",
 	.core_bits = CLJ_CORE_ERROR,
 	.each_child = host_error_each_child,
@@ -138,7 +138,7 @@ static void cancellation_each_child(void *self, clj_visitor visit, void *ctx) {
 
 // core_bits carries no CLJ_CORE_ERROR: a selector naming no specific error misses this by construction.
 const clj_type clj_cancellation_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "cancellation",
 	.each_child = cancellation_each_child,
 	.hash = exception_hash,

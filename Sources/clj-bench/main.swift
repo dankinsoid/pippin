@@ -329,7 +329,7 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "boot" {
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
 	clj_init()
 	func rcOps() -> [Int64] {
-		var out = [Int64](repeating: 0, count: 3)
+		var out = [Int64](repeating: 0, count: Int(CLJ_RC_KINDS))
 		clj_debug_rc_ops(&out)
 		return out
 	}
@@ -384,6 +384,70 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
 	}
 	print("\nretain+release ops per run of n ticks; shared share = shared / (plain + shared), immortal ops (keywords, core roots) aside")
 	for fn in [tickAtom, tickWatched, tickLocal] { clj_release(fn) }
+	exit(0)
+}
+
+// CLJ_BENCH_ONLY=rc-main: the rc-share tick timed off and on the main carrier (design §4, «BRC с одним владельцем»).
+// @ai-generated(solo)
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-main" {
+	clj_init()
+	_ = cljEval("(require 'clojure.core.async) (in-ns 'bench.rc-main) (clojure.core/refer 'clojure.core) (require '[clojure.core.async :refer [go <!!]])")
+	let state = cljEval("(def state (atom nil)) (def stop (atom false)) state")
+	let tick = cljEval("""
+	(fn [n]
+	  (reset! state {:users {} :counter 0})
+	  (loop [i 0 s 0]
+	    (if (< i n)
+	      (do (swap! state assoc-in [:users i] {:id i :name "x"})
+	          (swap! state update :counter inc)
+	          (recur (inc i) (+ s (count (get-in @state [:users (- i 1) :name] "")) (get @state :counter))))
+	      s)))
+	""")
+	let startReaders = cljEval("""
+	(fn [k]
+	  (reset! stop false)
+	  (mapv (fn [_] (go (loop [s 0] (if @stop s (recur (+ s (count (get-in @state [:users 1 :name] "")) (get @state :counter 0))))))) (range k)))
+	""")
+	let stopReaders = cljEval("(fn [rs] (reset! stop true) (reduce + (map <!! rs)))")
+	let n = 10_000
+	var onMain = false
+	func timed() -> Double {
+		var times: [Double] = []
+		_ = cljCall(tick, clj_fixnum(n))
+		for _ in 0..<reps {
+			let t0 = DispatchTime.now().uptimeNanoseconds
+			_ = cljCall(tick, clj_fixnum(n))
+			times.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / Double(n))
+			if onMain { clj_sched_main_pump() }
+		}
+		return times.sorted()[reps / 2]
+	}
+	func withReaders(_ k: Int, _ body: () -> Double) -> Double {
+		var arg = clj_fixnum(k)
+		let readers = withUnsafePointer(to: &arg) { clj_invoke(startReaders, $0, 1) }
+		if readers == CLJ_THROWN { benchThrew() }
+		let t = body()
+		var r = readers
+		let sum = withUnsafePointer(to: &r) { clj_invoke(stopReaders, $0, 1) }
+		if sum == CLJ_THROWN { benchThrew() }
+		clj_release(sum)
+		clj_release(readers)
+		return t
+	}
+	var rows: [(String, Double)] = []
+	rows.append(("bare thread", timed()))
+	rows.append(("bare thread, 2 pool readers", withReaders(2) { timed() }))
+	clj_debug_sched_main_adopt()
+	onMain = true
+	rows.append(("main carrier", timed()))
+	rows.append(("main carrier, 2 pool readers", withReaders(2) { timed() }))
+	clj_sched_main_pump()
+	clj_debug_sched_main_abandon()
+	print("| where the tick runs | ns per tick |")
+	print("|---|---:|")
+	for (name, t) in rows { print("| \(name) | \(String(format: "%.1f", t)) |") }
+	print("\nmedian of \(reps) runs of \(n) ticks; a tick = two swap! (assoc-in, update) and two reads (get-in, get) on one atom; a reader = a pool coroutine looping get-in/get on @state until stopped")
+	clj_release(state)
 	exit(0)
 }
 

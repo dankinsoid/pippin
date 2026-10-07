@@ -14,7 +14,7 @@ static uint32_t inst_hash(void *self) {
 static bool inst_equals(void *self, clj_value other) { return clj_is_inst(other) && ((clj_inst *)self)->ms == clj_inst_ms(other); }
 
 const clj_type clj_inst_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "Date",
 	.hash = inst_hash,
 	.equals = inst_equals,

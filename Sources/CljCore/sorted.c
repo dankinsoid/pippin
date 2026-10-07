@@ -34,7 +34,7 @@ static void tnode_each_child(void *self, clj_visitor visit, void *ctx) {
 }
 
 static const clj_type tnode_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "sorted-node",
 	.each_child = tnode_each_child,
 };
@@ -661,7 +661,7 @@ static clj_value sorted_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_sorted_map_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "sorted-map",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP |
 	             CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE,
@@ -681,7 +681,7 @@ const clj_type clj_sorted_map_type = {
 };
 
 const clj_type clj_sorted_set_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "sorted-set",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_FN | CLJ_CORE_SET | CLJ_CORE_META | CLJ_CORE_OBJ |
 	             CLJ_CORE_REDUCE,

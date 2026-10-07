@@ -1236,7 +1236,7 @@ static bool regex_equals(void *self, clj_value other) {
 }
 
 const clj_type clj_regex_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "regex",
 	.each_child = regex_each_child,
 	.finalize = regex_finalize,
@@ -1265,7 +1265,7 @@ static clj_value matcher_lookup(clj_value self, clj_value key, clj_value not_fou
 }
 
 const clj_type clj_matcher_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "matcher",
 	.each_child = matcher_each_child,
 	.finalize = matcher_finalize,

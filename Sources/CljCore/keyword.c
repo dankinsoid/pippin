@@ -27,7 +27,7 @@ static clj_value keyword_invoke(clj_value self, const clj_value *args, size_t n)
 }
 
 const clj_type clj_keyword_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "keyword",
 	.core_bits = CLJ_CORE_FN,
 	.each_child = keyword_each_child,

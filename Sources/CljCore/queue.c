@@ -99,7 +99,7 @@ static clj_value queue_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_queue_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "PersistentQueue",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_SEQUENTIAL | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LIST | CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE,
 	.each_child = queue_each_child,
@@ -114,7 +114,7 @@ const clj_type clj_queue_type = {
 	.with_meta = queue_with_meta,
 };
 
-static clj_queue empty_queue = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_queue_type}};
+static clj_queue empty_queue = {.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_queue_type}};
 
 clj_value clj_queue_empty(void) { return clj_from_ptr(&empty_queue); }
 

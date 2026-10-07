@@ -257,10 +257,10 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	} else {
 		h = pool_alloc(size_class(size), size);
 	}
-	atomic_init(&h->rc, 1);
+	atomic_init(&h->rc, CLJ_RC_INIT);
 	h->type = type;
 #if CLJ_DEBUG
-	h->flags |= clj_debug_owner_here() << CLJ_OWNER_SHIFT;
+	h->main16 = (uint16_t)clj_debug_owner_here();
 #endif
 	LIVE_ADD(type, 1);
 	return h;
@@ -268,7 +268,7 @@ void *clj_alloc(const clj_type *type, size_t size) {
 
 void *clj_realloc(void *obj, size_t size) {
 	clj_header *h = obj;
-	CLJ_ASSERT(!(h->flags & CLJ_FLAG_IMMORTAL) && atomic_load_explicit(&h->rc, memory_order_relaxed) == 1,
+	CLJ_ASSERT(clj_rc_unique(h),
 	           "realloc of a non-unique object");
 	CLJ_ASSERT(size >= sizeof(clj_header), "object smaller than its header");
 	if (h->flags & CLJ_FLAG_LARGE) {

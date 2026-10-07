@@ -36,7 +36,7 @@ static uint32_t identity_hash(void *self) { return clj_fmix32((uint32_t)((uintpt
 static bool identity_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
 const clj_type clj_buffer_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "buffer",
 	.hash = identity_hash,
 	.equals = identity_equals,
@@ -122,7 +122,7 @@ static void chan_finalize(void *self) {
 static bool chan_lock_held(const void *self);
 
 const clj_type clj_chan_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "channel",
 	.mutable_children = true,
 	.each_child = chan_each_child,
@@ -136,7 +136,7 @@ static clj_value chan_alloc(int kind, uint32_t cap, int role) {
 	clj_chan *ch = clj_alloc(&clj_chan_type, sizeof *ch);
 	memset((char *)ch + sizeof ch->h, 0, sizeof *ch - sizeof ch->h);
 	// Born shared, as an atom: whatever a put stores is published by the store, on every path into the channel.
-	ch->h.flags |= CLJ_FLAG_SHARED;
+	clj_mark_shared(&ch->h);
 	clj_lock_init(&ch->lock);
 	clj_cmutex_init(&ch->cm);
 	ch->kind = (uint8_t)kind;

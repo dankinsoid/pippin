@@ -152,7 +152,7 @@ void clj_proto_wait_readers(void) {
 
 // ---- pseudo-descriptors: dispatch keys for immediates, Object and the core interfaces
 
-#define PSEUDO(nm) {.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type}, .name = nm}
+#define PSEUDO(nm) {.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type}, .name = nm}
 
 const clj_type clj_nil_dispatch_type = PSEUDO("nil");
 const clj_type clj_boolean_dispatch_type = PSEUDO("boolean");
@@ -330,7 +330,7 @@ static uint32_t identity_hash(void *self) { return clj_fmix32((uint32_t)((uintpt
 static bool identity_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
 const clj_type clj_protocol_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "protocol",
 	.each_child = protocol_each_child,
 	.hash = identity_hash,
@@ -646,7 +646,7 @@ static void type_finalize(void *self) {
 
 // Only heap descriptors (deftype, reify) reach each_child and finalize; builtin ones are immortal.
 const clj_type clj_type_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "type",
 	.each_child = type_each_child,
 	.finalize = type_finalize,

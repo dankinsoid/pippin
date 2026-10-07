@@ -76,7 +76,7 @@ static bool objc_object_equals(void *self, clj_value other) {
 }
 
 const clj_type clj_objc_object_type = {
-    .h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+    .h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
     .name = "objc-object",
     .finalize = objc_object_finalize,
     .hash = objc_object_hash,
@@ -2149,7 +2149,7 @@ clj_value clj_objc_call_block(clj_value block, const clj_value *args, uint32_t n
 // than emulated, and everything that would reach it says so.
 
 const clj_type clj_objc_object_type = {
-    .h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+    .h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
     .name = "objc-object",
 };
 

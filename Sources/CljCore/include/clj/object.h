@@ -19,11 +19,21 @@ typedef struct clj_type clj_type;
 // Every heap object starts with this. Kept to 16 bytes so a cons cell is 32.
 // rc is _Atomic only so the non-shared path can use relaxed load/store, which
 // compiles to plain instructions; the shared path uses real RMW.
+// main16 is its own field so the main thread's plain stores to it race with nobody's read of flags.
 typedef struct {
 	_Atomic uint32_t rc;
-	uint32_t         flags;
+	uint16_t         flags;
+	// Shared: the main thread's count (CLJ_RC_MERGED). Unshared, debug builds: the owning execution's tag.
+	uint16_t         main16;
 	const clj_type  *type;
 } clj_header;
+
+// The rc word: a signed count above bit 0, which is CLJ_RC_MERGED. A count goes negative when another thread
+// releases a reference main16 holds; the count + main16 is the object's reference count.
+// MERGED is set iff main16 holds nothing (design §4, «BRC с одним владельцем — главным потоком»).
+#define CLJ_RC_MERGED ((uint32_t)1)
+#define CLJ_RC_ONE    ((uint32_t)2)
+#define CLJ_RC_INIT   (CLJ_RC_ONE | CLJ_RC_MERGED)
 
 // An edge of a heap object: a clj_value field or slot-array element its each_child visits. A bare assignment to it
 // does not compile, so every write goes through the primitives below and a publication cannot be forgotten (design
@@ -71,8 +81,6 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 #define CLJ_FLAG_META     ((uint32_t)1 << 3)
 // A map object laid out as a shape map (map.h): the shape and inline values instead of a trie.
 #define CLJ_FLAG_SHAPE    ((uint32_t)1 << 4)
-// Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
-#define CLJ_OWNER_SHIFT 16
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
 
@@ -193,6 +201,19 @@ bool      clj_is_unique(clj_value v);
 bool      clj_is_shared(clj_value v);
 // Marks v and everything reachable from it shared. Call before handing v to another thread.
 void      clj_share(clj_value v);
+// Marks one fresh unshared object shared, its children being shared already: on the main thread its count moves to
+// main16. A container born shared (atom, channel) takes this; a coroutine is born merged (clj_mark_shared_merged).
+void      clj_mark_shared(clj_header *h);
+// Marks a fresh object shared with its count left in rc: its references are expected to cross threads.
+void      clj_mark_shared_merged(clj_header *h);
+// For a registry that holds h without a reference and reads its count under its own lock (clj_type.unlink):
+// retains and answers true unless the last reference has dropped.
+bool      clj_retain_if_live(clj_header *h);
+// The main carrier's side of the RC (design §4, BRC): the calling thread becomes the one whose main16 counts are
+// live; abandon drains the pending releases first. Drain releases the references other threads gave back.
+void      clj_rc_main_adopt(void);
+void      clj_rc_main_abandon(void);
+void      clj_rc_main_drain(void);
 void      clj_fatal(const char *msg) __attribute__((noreturn));
 
 // Declared regardless of CLJ_DEBUG: the Swift importer reads this header without the C target's defines.
@@ -223,16 +244,34 @@ extern uint32_t (*clj_debug_hash_override)(clj_value v);
 void clj_debug_slot_store_check(const clj_header *owner, clj_value v);
 
 // Retains and releases per path, debug builds only: the share measurement of design §4 (bench/RESULTS.md, "Atoms").
-enum { CLJ_RC_PLAIN, CLJ_RC_SHARED, CLJ_RC_IMMORTAL };
-void clj_debug_rc_ops(int64_t out[3]);
+// The MAIN_ kinds split the shared ones the main carrier makes: plain ones and each place it executes an RMW.
+// DEFERRED: a reference main16 held, released elsewhere and handed to main.
+enum {
+	CLJ_RC_PLAIN,
+	CLJ_RC_SHARED,
+	CLJ_RC_IMMORTAL,
+	CLJ_RC_MAIN_PLAIN,
+	CLJ_RC_MAIN_EDGE_IN,
+	CLJ_RC_MAIN_EDGE_OUT,
+	CLJ_RC_MAIN_FREE_IN_PLACE,
+	CLJ_RC_MAIN_MERGED,
+	CLJ_RC_MAIN_SPILL,
+	CLJ_RC_DEFERRED,
+	CLJ_RC_KINDS
+};
+void clj_debug_rc_ops(int64_t out[CLJ_RC_KINDS]);
+// The reference count of v as the calling thread can see it: rc's count, plus main16 on the main carrier.
+int64_t clj_debug_rc_count(clj_value v);
+// Releases waiting for the main carrier's drain.
+size_t clj_debug_rc_pending(void);
 
 #if CLJ_DEBUG
 #define CLJ_ASSERT(cond, msg) do { if (!(cond)) clj_fatal(msg); } while (0)
-extern _Atomic uint64_t clj_debug_rc_counters[3];
+extern _Atomic uint64_t clj_debug_rc_counters[CLJ_RC_KINDS];
 #define CLJ_RC_COUNT(path) atomic_fetch_add_explicit(&clj_debug_rc_counters[path], 1, memory_order_relaxed)
 // Out of line: the running execution is read through a call, never a TLS address cached across a park.
 void clj_debug_owner_check(const clj_header *h);
-#define CLJ_OWNER_CHECK(h) do { if ((h)->flags >> CLJ_OWNER_SHIFT) clj_debug_owner_check(h); } while (0)
+#define CLJ_OWNER_CHECK(h) do { if ((h)->main16) clj_debug_owner_check(h); } while (0)
 // After a store of v into a mutable_children slot of owner: a shared owner holds only shared values.
 void clj_debug_slot_check(const clj_header *owner, clj_value v);
 #define CLJ_SLOT_CHECK(owner, v) clj_debug_slot_check((owner), (v))
@@ -317,8 +356,8 @@ static inline clj_value clj_retain(clj_value v) {
 	CLJ_RC_COUNT(CLJ_RC_PLAIN);
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
-	CLJ_ASSERT(rc > 0, "retain of a freed object");
-	CLJ_RC_UNSHARED_STORE(h, rc + 1);
+	CLJ_ASSERT(rc >= CLJ_RC_INIT, "retain of a freed object");
+	CLJ_RC_UNSHARED_STORE(h, rc + CLJ_RC_ONE);
 	return v;
 }
 
@@ -333,12 +372,12 @@ static inline void clj_release(clj_value v) {
 	CLJ_RC_COUNT(CLJ_RC_PLAIN);
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
-	CLJ_ASSERT(rc > 0, "release of a freed object");
-	if (rc == 1) {
+	CLJ_ASSERT(rc >= CLJ_RC_INIT, "release of a freed object");
+	if (rc == CLJ_RC_INIT) {
 		clj_release_slow(h);
 		return;
 	}
-	CLJ_RC_UNSHARED_STORE(h, rc - 1);
+	CLJ_RC_UNSHARED_STORE(h, rc - CLJ_RC_ONE);
 }
 
 // murmur3 finalizer: spreads entropy across all 32 bits.

@@ -8,7 +8,7 @@ static uint32_t box_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)s
 static bool box_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
 const clj_type clj_reduced_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "reduced",
 	.each_child = box_each_child,
 	.hash = box_hash,
@@ -22,7 +22,7 @@ clj_value clj_reduced_new(clj_value value) {
 }
 
 const clj_type clj_volatile_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "volatile",
 	.mutable_children = true,
 	.each_child = box_each_child,

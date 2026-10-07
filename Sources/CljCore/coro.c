@@ -188,7 +188,7 @@ static uint32_t coro_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)
 static bool coro_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
 const clj_type clj_coro_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "coroutine",
 	.mutable_children = true,
 	.each_child = coro_each_child,
@@ -279,7 +279,7 @@ clj_coro *clj_coro_alloc(void) {
 	clj_coro *c = clj_alloc(&clj_coro_type, sizeof *c); // zeroed by the allocator
 	coro_init(c);
 	// The handle is held by the spawner and released by a carrier: atomic RC from birth.
-	c->h.flags |= CLJ_FLAG_SHARED;
+	clj_mark_shared_merged(&c->h);
 	atomic_fetch_add_explicit(&live_coros, 1, memory_order_seq_cst);
 	c->map = base;
 	c->map_size = size;
@@ -371,7 +371,7 @@ static clj_coro *implicit_init(void) {
 	clj_carrier *car = calloc(1, sizeof *car);
 	clj_coro    *c = calloc(1, sizeof *c);
 	if (!car || !c) clj_fatal("out of memory");
-	c->h = (clj_header){1, CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED, &clj_coro_type};
+	c->h = (clj_header){.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED, .type = &clj_coro_type};
 	coro_init(c);
 	c->implicit = true;
 	c->state = CLJ_CORO_RUNNING;

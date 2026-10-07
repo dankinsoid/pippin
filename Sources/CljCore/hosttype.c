@@ -13,7 +13,7 @@ static bool host_type_equals(void *self, clj_value other) { return clj_from_ptr(
 
 // Interned by mangled name, so identity is equality, as for a keyword.
 const clj_type clj_host_type_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "host-type",
 	.hash = host_type_hash,
 	.equals = host_type_equals,

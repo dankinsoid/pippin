@@ -82,7 +82,7 @@ static clj_value string_lookup(clj_value self, clj_value key, clj_value not_foun
 }
 
 const clj_type clj_string_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "string",
 	.core_bits = CLJ_CORE_SEQABLE,
 	.hash = string_hash,

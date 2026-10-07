@@ -396,7 +396,7 @@ static clj_value smap_permuted(clj_value map, const edge *e, clj_value val) {
 	clj_shape_map *m = smap_of(map), *c = smap_alloc(e->to);
 	bool           unique = clj_is_unique(map);
 	// the copy stands in for a unique published map, whose children are all shared already
-	if (unique) c->h.flags |= m->h.flags & CLJ_FLAG_SHARED;
+	if (unique && (m->h.flags & CLJ_FLAG_SHARED)) clj_mark_shared(&c->h);
 	for (uint32_t i = 0; i < e->to->nkeys; i++) {
 		uint8_t p = e->perm[i];
 		if (p == NEW_KEY) clj_slot_store(&c->h, &c->slots[i], clj_retain(val));

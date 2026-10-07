@@ -90,7 +90,7 @@ static void capture_each_child(void *self, clj_visitor visit, void *ctx) {
 }
 
 const clj_type clj_trace_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "trace",
 	.each_child = capture_each_child,
 };

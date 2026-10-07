@@ -69,7 +69,7 @@ static bool decimal_equals(void *self, clj_value other) {
 }
 
 const clj_type clj_decimal_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "decimal",
 	.each_child = decimal_each_child,
 	.hash = decimal_hash,

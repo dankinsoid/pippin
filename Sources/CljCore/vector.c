@@ -37,7 +37,7 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 }
 
 static const clj_type node_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "vector-node",
 	.each_child = node_each_child,
 };
@@ -96,7 +96,7 @@ static node *node_own(clj_value v) {
 	return c;
 }
 
-static node empty_node = {.h = {1, CLJ_FLAG_IMMORTAL, &node_type}};
+static node empty_node = {.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &node_type}};
 
 static node *leaf_for(const clj_vector *v, uint32_t i) {
 	if (i >= tail_off(v->count)) return node_of(v->tail.v);
@@ -265,7 +265,7 @@ static clj_value vector_with_meta(clj_value self, clj_value m) {
 }
 
 const clj_type clj_vector_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "vector",
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_SEQUENTIAL | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP |
 	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR | CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE |
@@ -286,7 +286,7 @@ const clj_type clj_vector_type = {
 };
 
 static clj_vector empty_vector = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_vector_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_vector_type},
 	.shift = BITS,
 	.root = {(clj_value)&empty_node},
 	.tail = {(clj_value)&empty_node},

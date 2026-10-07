@@ -312,9 +312,24 @@ void clj_sched_main_pump(void) {
 		pthread_mutex_lock(&main_mu);
 		clj_coro *c = queue_pop(&main_head, &main_tail);
 		pthread_mutex_unlock(&main_mu);
-		if (!c) return;
+		if (!c) break;
 		run_one(car, c);
 	}
+	clj_rc_main_drain();
+}
+
+// A release main16 has to take arrived: the run loop turns for it as for a coroutine.
+void clj_sched_main_wake(void) {
+#ifdef __APPLE__
+	pthread_mutex_lock(&main_mu);
+	CFRunLoopSourceRef source = main_source;
+	CFRunLoopRef       loop = main_loop;
+	pthread_mutex_unlock(&main_mu);
+	if (source) {
+		CFRunLoopSourceSignal(source);
+		CFRunLoopWakeUp(loop);
+	}
+#endif
 }
 
 #ifdef __APPLE__
@@ -328,13 +343,18 @@ void clj_sched_main_install(void) {
 	clj_carrier *car = clj_carrier_here();
 	car->is_main = true;
 	main_carrier = car;
+	clj_rc_main_adopt();
 #ifdef __APPLE__
 	CFRunLoopSourceContext ctx;
 	memset(&ctx, 0, sizeof ctx);
 	ctx.perform = main_perform;
-	main_source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
-	main_loop = CFRunLoopGetCurrent();
-	CFRunLoopAddSource(main_loop, main_source, kCFRunLoopCommonModes);
+	CFRunLoopSourceRef source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
+	CFRunLoopRef       loop = CFRunLoopGetCurrent();
+	CFRunLoopAddSource(loop, source, kCFRunLoopCommonModes);
+	pthread_mutex_lock(&main_mu);
+	main_source = source;
+	main_loop = loop;
+	pthread_mutex_unlock(&main_mu);
 #endif
 }
 
@@ -342,24 +362,33 @@ void clj_debug_sched_main_adopt(void) {
 	clj_carrier *car = clj_carrier_here();
 	car->is_main = true;
 	main_carrier = car;
+	clj_rc_main_adopt();
 }
 
+// Undoes an install too: a later carrier's wake must not turn this thread's run loop into a pump off the carrier.
 void clj_debug_sched_main_abandon(void) {
 	clj_carrier *car = clj_carrier_here();
+	clj_rc_main_abandon();
 	if (main_carrier == car) main_carrier = NULL;
 	car->is_main = false;
+#ifdef __APPLE__
+	pthread_mutex_lock(&main_mu);
+	CFRunLoopSourceRef source = main_source;
+	main_source = NULL;
+	main_loop = NULL;
+	pthread_mutex_unlock(&main_mu);
+	if (source) {
+		CFRunLoopSourceInvalidate(source);
+		CFRelease(source);
+	}
+#endif
 }
 
 static void enqueue_main(clj_coro *c) {
 	pthread_mutex_lock(&main_mu);
 	queue_push(&main_head, &main_tail, c);
 	pthread_mutex_unlock(&main_mu);
-#ifdef __APPLE__
-	if (main_source) {
-		CFRunLoopSourceSignal(main_source);
-		CFRunLoopWakeUp(main_loop);
-	}
-#endif
+	clj_sched_main_wake();
 }
 
 // From a pooled carrier the coroutine takes the carrier's next slot (an earlier occupant moves to the queue), so a

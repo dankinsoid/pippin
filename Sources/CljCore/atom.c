@@ -31,7 +31,7 @@ static uint32_t atom_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)
 static bool atom_equals(void *self, clj_value other) { return clj_from_ptr(self) == other; }
 
 const clj_type clj_atom_type = {
-	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.h = {.rc = CLJ_RC_INIT, .flags = CLJ_FLAG_IMMORTAL, .type = &clj_type_type},
 	.name = "atom",
 	.core_bits = CLJ_CORE_META,
 	.mutable_children = true,
@@ -123,7 +123,7 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	clj_cmutex_init(&a->lock);
 	atomic_init(&a->owner, 0);
 	// Born shared, as a var: every value stored into it is published by the store itself.
-	a->h.flags |= CLJ_FLAG_SHARED;
+	clj_mark_shared(&a->h);
 	clj_slot_store_atomic(&a->h, &a->value, clj_retain(value), memory_order_relaxed);
 	clj_slot_store(&a->h, &a->meta, clj_retain(meta));
 	clj_slot_store(&a->h, &a->validator, clj_retain(validator));
