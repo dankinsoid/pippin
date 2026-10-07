@@ -35,7 +35,10 @@
   `random-sample`, `bounded-count`, `boolean?`, `parse-boolean`, `reversible?` (vectors and the sorted
   collections), `replicate`, `lazy-cat`, `update-keys`, `update-vals`, `iteration` (a `reify` over `Seqable`
   and `IReduceInit`, whose type is made on the first call and cached for the process), `printf`, the data
-  reader vars and `*print-length*`/`*print-level*`.
+  reader vars and `*print-length*`/`*print-level*`, `with-precision` and `*math-context*` (NOTES "Numeric
+  tower"). The taps: `tap>` queues up to 1024 values in an atom and, when no drain runs, starts one on the
+  blocking pool that hands each value to every tap fn in order, swallowing what a tap throws, and ends when
+  the queue is empty — the JVM's tap thread waits for ever, which a settled runtime here cannot have.
 - [~] **Hierarchies and multimethod dispatch are core.clj, not C** (~line 1848). The global hierarchy is the
   root of `#'clojure.core/global-hierarchy`, a `{:parents :ancestors :descendants}` map that `derive` and
   `underive` replace through `alter-var-root`, as Clojure does; `underive` rebuilds from the remaining

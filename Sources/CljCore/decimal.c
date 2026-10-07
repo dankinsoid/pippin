@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/decimal.h"
+#include "clj/error.h"
 #include "clj/long.h"
 #include "clj/string.h"
 
@@ -223,6 +224,134 @@ clj_value clj_decimal_div(clj_value a, clj_value b) {
 	if (clj_is_nil(exact)) return CLJ_NIL;
 	clj_value r = clj_decimal_new(clj_decimal_unscaled(exact), clj_decimal_scale(exact) + clj_decimal_scale(a) - clj_decimal_scale(b));
 	clj_release(exact);
+	return r;
+}
+
+// @ai-generated(solo)
+static uint32_t digit_count(clj_value u) {
+	size_t cap = clj_bigint_digits10(u) + 2;
+	char  *buf = malloc(cap);
+	if (!buf) clj_fatal("out of memory");
+	size_t n = clj_bigint_digits(u, buf, cap);
+	free(buf);
+	return (uint32_t)n;
+}
+
+bool clj_decimal_integral_fits(clj_value whole, const clj_math_context *mc) {
+	return mc->precision == 0 || digit_count(whole) <= mc->precision;
+}
+
+// half: the dropped remainder against half the unit of the last kept digit, -1, 0 or 1.
+static bool rounds_away(clj_rounding mode, int sign, bool odd, int half) {
+	switch (mode) {
+	case CLJ_ROUND_UP: return true;
+	case CLJ_ROUND_DOWN: return false;
+	case CLJ_ROUND_CEILING: return sign > 0;
+	case CLJ_ROUND_FLOOR: return sign < 0;
+	case CLJ_ROUND_HALF_UP: return half >= 0;
+	case CLJ_ROUND_HALF_DOWN: return half > 0;
+	case CLJ_ROUND_HALF_EVEN: return half > 0 || (half == 0 && odd);
+	case CLJ_ROUND_UNNECESSARY: return false;
+	}
+	return false;
+}
+
+// The decimal ±(q + rem/unit) * 10^-scale rounded to q's digits by mc; q is consumed and has at most mc's
+// precision digits.
+// @ai-generated(solo)
+static clj_value rounded(clj_value q, clj_value rem, clj_value unit, int sign, int64_t scale, const clj_math_context *mc) {
+	if (!clj_bigint_is_zero(rem)) {
+		if (mc->rounding == CLJ_ROUND_UNNECESSARY) {
+			clj_release(q);
+			return clj_throw_msg("Rounding necessary");
+		}
+		clj_value two = clj_bigint_from_i64(2);
+		clj_value twice = clj_bigint_mul(rem, two);
+		int       half = clj_bigint_cmp(twice, unit);
+		clj_release(twice);
+		clj_value parity = CLJ_NIL;
+		clj_release(clj_bigint_quot(q, two, &parity));
+		bool odd = !clj_bigint_is_zero(parity);
+		clj_release(parity);
+		clj_release(two);
+		if (rounds_away(mc->rounding, sign, odd, half)) {
+			clj_value one = clj_bigint_from_i64(1);
+			clj_value up = clj_bigint_add(q, one);
+			clj_release(one);
+			clj_release(q);
+			q = up;
+			// 99…9 + 1 is 10^precision: one digit too many, and exact after one division.
+			if (digit_count(q) > mc->precision) {
+				clj_value ten = clj_bigint_from_i64(10);
+				clj_value down = clj_bigint_quot(q, ten, NULL);
+				clj_release(ten);
+				clj_release(q);
+				q = down;
+				scale--;
+			}
+		}
+	}
+	if (scale > INT32_MAX || scale < INT32_MIN) {
+		clj_release(q);
+		return clj_throw_msg(scale > 0 ? "Underflow" : "Overflow");
+	}
+	clj_value u = sign < 0 ? clj_bigint_neg(q) : clj_retain(q);
+	clj_release(q);
+	clj_value r = clj_decimal_new(u, (int32_t)scale);
+	clj_release(u);
+	return r;
+}
+
+clj_value clj_decimal_round(clj_value v, const clj_math_context *mc) {
+	clj_value u = clj_decimal_unscaled(v);
+	uint32_t  nd = digit_count(u);
+	if (mc->precision == 0 || nd <= mc->precision) return clj_retain(v);
+	uint32_t  drop = nd - mc->precision;
+	clj_value unit = clj_bigint_pow10(drop);
+	clj_value mag = clj_bigint_abs(u);
+	clj_value rem = CLJ_NIL;
+	clj_value q = clj_bigint_quot(mag, unit, &rem);
+	clj_release(mag);
+	clj_value r = rounded(q, rem, unit, clj_bigint_sign(u), (int64_t)clj_decimal_scale(v) - drop, mc);
+	clj_release(rem);
+	clj_release(unit);
+	return r;
+}
+
+// @ai-generated(solo)
+clj_value clj_decimal_div_mc(clj_value a, clj_value b, const clj_math_context *mc) {
+	clj_value exact = clj_decimal_div(a, b);
+	if (mc->precision == 0) {
+		return clj_is_nil(exact) ? clj_throw_msg("Non-terminating decimal expansion; no exact representable decimal result.") : exact;
+	}
+	if (!clj_is_nil(exact)) {
+		if (digit_count(clj_decimal_unscaled(exact)) <= mc->precision) return exact;
+		clj_release(exact);
+	}
+	// n/d has dn - dd or dn - dd + 1 integer digits, so q takes this k or the next.
+	clj_value n = clj_bigint_abs(clj_decimal_unscaled(a)), d = clj_bigint_abs(clj_decimal_unscaled(b));
+	int64_t   k = (int64_t)mc->precision - ((int64_t)digit_count(n) - (int64_t)digit_count(d) + 1);
+	clj_value q, rem, unit;
+	for (;;) {
+		clj_value p = clj_bigint_pow10((uint32_t)(k < 0 ? -k : k));
+		clj_value num = k >= 0 ? clj_bigint_mul(n, p) : clj_retain(n);
+		unit = k >= 0 ? clj_retain(d) : clj_bigint_mul(d, p);
+		clj_release(p);
+		rem = CLJ_NIL;
+		q = clj_bigint_quot(num, unit, &rem);
+		clj_release(num);
+		if (!clj_bigint_is_zero(q) && digit_count(q) >= mc->precision) break;
+		clj_release(q);
+		clj_release(rem);
+		clj_release(unit);
+		k++;
+	}
+	clj_release(n);
+	clj_release(d);
+	int       sign = clj_bigint_sign(clj_decimal_unscaled(a)) * clj_bigint_sign(clj_decimal_unscaled(b));
+	clj_value r = rounded(q, rem, unit, sign, k + clj_decimal_scale(a) - clj_decimal_scale(b), mc);
+	clj_release(rem);
+	clj_release(unit);
 	return r;
 }
 

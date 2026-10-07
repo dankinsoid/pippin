@@ -51,6 +51,10 @@ typedef enum { CLJ_OP_ADD, CLJ_OP_SUB, CLJ_OP_MUL, CLJ_OP_DIV, CLJ_OP_QUOT, CLJ_
 
 // The whole tower; the fixnum and double fast paths live in builtins.c and never reach here.
 clj_value clj_num_arith(clj_value a, clj_value b, clj_num_op op);
+// numerator / denominator under *math-context*, as bigdec of a ratio; CLJ_THROWN when it does not terminate.
+clj_value clj_num_ratio_to_decimal(clj_value ratio);
+// BigDecimal.negate under *math-context*: unary minus, where (- 0 x) is an add.
+clj_value clj_num_decimal_negate(clj_value v);
 // *out is -1, 0, 1, or 2 when a NaN makes the pair unordered; CLJ_THROWN on a non-number.
 clj_value clj_num_cmp(clj_value a, clj_value b, int *out);
 // v must be a number.

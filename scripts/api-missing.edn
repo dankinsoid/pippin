@@ -66,8 +66,6 @@
  with-in-str           {:verdict :repoint :why "with `read`: ours seeds the `*in*` map's line channel instead of binding a `StringReader`"}
 
  ;; ── Numbers: cljs dropped the tower, we have it (design §3) ───────────────────────────────────
- with-precision        {:verdict :keep :why "cljs dropped the whole number tower; we have `bigdec`, and the corpus weighs this second heaviest"}
- *math-context*        {:verdict :keep :why "with `with-precision`: the binding it establishes"}
  unchecked-byte        {:verdict :keep :why "cljs keeps every unchecked coercion; ours is `byte` without the range check — §3 \"Явные двойники\""}
  unchecked-char        {:verdict :keep :why "with `unchecked-byte`"}
  unchecked-short       {:verdict :keep :why "with `unchecked-byte`"}
@@ -119,9 +117,6 @@
  test                  {:verdict :keep :why "cljs keeps it; it runs the var's `:test` meta, and `clojure.test` is ours already"}
  time                  {:verdict :keep :why "cljs keeps it; listed as not-yet in NOTES \"core.clj\""}
  seq-to-map-for-destructuring {:verdict :keep :why "cljs keeps it; 1.11 kwargs destructuring expands into a call of this name"}
- tap>                  {:verdict :keep :why "cljs keeps the whole tap surface; the corpus calls it"}
- add-tap               {:verdict :keep :why "with `tap>`"}
- remove-tap            {:verdict :keep :why "with `tap>`"}
  tagged-literal        {:verdict :keep :why "cljs keeps it; our reader has tags (NOTES \"Reader\")"}
  tagged-literal?       {:verdict :keep :why "with `tagged-literal`"}
  Inst                  {:verdict :keep :why "cljs keeps the protocol; `inst-ms` is ours already and this is what it dispatches on"}

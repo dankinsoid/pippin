@@ -276,34 +276,115 @@ static clj_value ratio_arith(clj_value a, clj_value b, clj_num_op op) {
 	return r;
 }
 
-// CLJ_NIL for a ratio whose expansion does not terminate, which no decimal can hold.
-static clj_value as_decimal(clj_value v) {
-	if (clj_is_decimal(v)) return clj_retain(v);
-	if (clj_is_ratio(v)) return clj_decimal_from_fraction(clj_ratio_num(v), clj_ratio_den(v));
-	return clj_decimal_new(v, 0);
+// *math-context*, which with-precision binds to {:precision n :rounding :HALF_UP}; nil is exact arithmetic.
+// @ai-generated(solo)
+static bool math_context(clj_math_context *mc) {
+	static const char *const modes[] = {"UP", "DOWN", "CEILING", "FLOOR", "HALF_UP", "HALF_DOWN", "HALF_EVEN", "UNNECESSARY"};
+	static clj_value         var = CLJ_NIL;
+	mc->precision = 0;
+	mc->rounding = CLJ_ROUND_HALF_UP;
+	// Vars are immortal, so a racing second lookup stores the same var.
+	if (clj_is_nil(var)) {
+		clj_value sym = clj_symbol_from_cstr("*math-context*");
+		var = clj_ns_resolve(clj_ns_core(), sym);
+		clj_release(sym);
+		if (clj_is_nil(var)) return true;
+	}
+	if (!clj_var_is_bound(var)) return true;
+	clj_value ctx = clj_var_deref(var);
+	if (clj_is_nil(ctx)) return true;
+	clj_value p = clj_get(ctx, clj_keyword_from_cstr("precision"), CLJ_NIL);
+	clj_value m = p == CLJ_THROWN ? CLJ_THROWN : clj_get(ctx, clj_keyword_from_cstr("rounding"), CLJ_NIL);
+	if (m == CLJ_THROWN) {
+		clj_release(p);
+		clj_release(ctx);
+		return false;
+	}
+	int64_t digits = -1;
+	int       mode = -1;
+	if (clj_is_keyword(m) && clj_is_nil(clj_keyword_ns(m))) {
+		clj_value name = clj_keyword_name(m);
+		for (int i = 0; i < (int)(sizeof modes / sizeof *modes); i++) {
+			if (strlen(modes[i]) == clj_string_len(name) && memcmp(modes[i], clj_string_bytes(name), clj_string_len(name)) == 0) mode = i;
+		}
+	}
+	bool ok = clj_int64_of(p, &digits) && digits >= 0 && digits <= INT32_MAX && mode >= 0;
+	clj_release(p);
+	clj_release(m);
+	if (!ok) {
+		clj_value text = clj_pr_str_max(ctx, 200);
+		clj_release(ctx);
+		clj_throw_msg("*math-context* must be nil or {:precision n :rounding mode}, not %s", clj_string_bytes(text));
+		clj_release(text);
+		return false;
+	}
+	clj_release(ctx);
+	mc->precision = (uint32_t)digits;
+	mc->rounding = (clj_rounding)mode;
+	return true;
 }
 
-static clj_value inexact_quotient(void) {
-	return clj_throw_msg("Non-terminating decimal expansion; with-precision is not supported");
+// A ratio becomes a decimal as Numbers.toBigDecimal makes it: numerator divided by denominator under mc.
+static clj_value as_decimal(clj_value v, const clj_math_context *mc) {
+	if (clj_is_decimal(v)) return clj_retain(v);
+	if (!clj_is_ratio(v)) return clj_decimal_new(v, 0);
+	clj_value n = clj_decimal_new(clj_ratio_num(v), 0), d = clj_decimal_new(clj_ratio_den(v), 0);
+	clj_value r = clj_decimal_div_mc(n, d, mc);
+	clj_release(n);
+	clj_release(d);
+	return r;
+}
+
+clj_value clj_num_ratio_to_decimal(clj_value ratio) {
+	clj_math_context mc;
+	if (!math_context(&mc)) return CLJ_THROWN;
+	return as_decimal(ratio, &mc);
+}
+
+clj_value clj_num_decimal_negate(clj_value v) {
+	clj_math_context mc;
+	if (!math_context(&mc)) return CLJ_THROWN;
+	clj_value neg = clj_decimal_neg(v), r = clj_decimal_round(neg, &mc);
+	clj_release(neg);
+	return r;
 }
 
 static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
-	clj_value x = as_decimal(a), y = as_decimal(b), r;
-	if (clj_is_nil(x) || clj_is_nil(y)) {
+	clj_math_context mc;
+	if (!math_context(&mc)) return CLJ_THROWN;
+	clj_value x = as_decimal(a, &mc);
+	if (x == CLJ_THROWN) return x;
+	clj_value y = as_decimal(b, &mc);
+	if (y == CLJ_THROWN) {
 		clj_release(x);
-		clj_release(y);
-		return inexact_quotient();
+		return y;
 	}
+	clj_value r;
 	switch (op) {
-	case CLJ_OP_ADD: r = clj_decimal_add(x, y); break;
-	case CLJ_OP_SUB: r = clj_decimal_sub(x, y); break;
-	case CLJ_OP_MUL: r = clj_decimal_mul(x, y); break;
+	case CLJ_OP_SUB: {
+		// Numbers.minus is add(x, negate(y)), and negate rounds y first: (with-precision 2 (- 100M 99.99M)) is 0M.
+		clj_value neg = clj_decimal_neg(y), negr = clj_decimal_round(neg, &mc);
+		clj_release(neg);
+		if (negr == CLJ_THROWN) {
+			r = negr;
+			break;
+		}
+		clj_value exact = clj_decimal_add(x, negr);
+		clj_release(negr);
+		r = clj_decimal_round(exact, &mc);
+		clj_release(exact);
+		break;
+	}
+	case CLJ_OP_ADD:
+	case CLJ_OP_MUL: {
+		clj_value exact = op == CLJ_OP_ADD ? clj_decimal_add(x, y) : clj_decimal_mul(x, y);
+		r = clj_decimal_round(exact, &mc);
+		clj_release(exact);
+		break;
+	}
 	case CLJ_OP_DIV: {
 		if (clj_num_sign(y) == 0) r = clj_throw_msg("Divide by zero");
-		else {
-			r = clj_decimal_div(x, y);
-			if (clj_is_nil(r)) r = inexact_quotient();
-		}
+		else r = clj_decimal_div_mc(x, y, &mc);
 		break;
 	}
 	case CLJ_OP_QUOT:
@@ -323,7 +404,9 @@ static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
 		clj_release(xd);
 		clj_release(yn);
 		clj_release(yd);
-		if (op == CLJ_OP_QUOT) {
+		if (!clj_decimal_integral_fits(whole, &mc)) {
+			r = clj_throw_msg("Division impossible");
+		} else if (op == CLJ_OP_QUOT) {
 			r = clj_decimal_new(whole, 0);
 		} else {
 			clj_value wd = clj_decimal_new(whole, 0);

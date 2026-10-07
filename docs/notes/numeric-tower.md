@@ -39,11 +39,21 @@
   the arithmetic is done in `uint64_t` and `clj_long_new` is the one range check on the way out, boxing
   when the result leaves the fixnum. `(unchecked-inc 4611686018427387903)` is `4611686018427387904`,
   `(unchecked-inc Long/MAX_VALUE)` is `Long/MIN_VALUE`.
-- [ ] **No float and no `*math-context*`.** `float` range-checks against `Float` and narrows through it
-  (`(float Double/MIN_VALUE)` is `0.0`) but returns a double box, so `(double? (float 0.0))` is true where
-  the JVM says false. `with-precision` and rounding modes do not exist: decimal `+ - *` are exact, and `/`
-  succeeds only when the quotient terminates, else it throws "Non-terminating decimal expansion;
-  with-precision is not supported". `(/ 1M 3M)` is that throw; `(/ 1M 2M)` is `0.5M`.
+- [ ] **No float.** `float` range-checks against `Float` and narrows through it (`(float Double/MIN_VALUE)` is
+  `0.0`) but returns a double box, so `(double? (float 0.0))` is true where the JVM says false.
+- **`*math-context*` is a map, read on every decimal operation** (`math_context` in number.c):
+  `with-precision` binds `{:precision n :rounding :HALF_UP}`, the mode a keyword of `java.math.RoundingMode`'s
+  names, and the root nil is exact arithmetic, where `/` throws the JVM's "Non-terminating decimal expansion;
+  no exact representable decimal result." for `(/ 1M 3M)`. Rounding is `BigDecimal`'s (`clj_decimal_round`,
+  `clj_decimal_div_mc` in decimal.c): `+ *` round the exact result, `/` keeps the exact quotient at its
+  preferred scale while it fits the precision and otherwise computes exactly `precision` digits with the
+  remainder deciding the last, `-` is `Numbers.minus`'s add of the negated operand, whose negate rounds first —
+  so `(with-precision 2 (- 100M 99.99M))` is `0M` here as on the JVM. A ratio meeting a decimal, and `bigdec` of
+  a ratio, divide under the context as `Numbers.toBigDecimal` does. `quot`/`rem` check the integral part against
+  the precision ("Division impossible") but keep their scale-0 result. Unary `-` of a decimal is
+  `negate(mc)`, not `(- 0 x)`, whose add pads a negative scale: `(with-precision 3 (- 1E+5M))` is `-1E+5M`. The
+  optimizer does not fold an arithmetic intrinsic with a decimal constant operand: the context is the call's,
+  not the analysis's.
 - [ ] **Division is shift-subtract**, quadratic in the bit length (`mag_divmod`), and `gcd` is Euclid over it.
   Every bigint the runtime meets is a few limbs, so the constant factors never showed. Trigger: a profile
   with `quot`/`rem`/`gcd` on thousand-bit values; the fix is Knuth D and a binary gcd.

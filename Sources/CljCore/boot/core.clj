@@ -1901,6 +1901,50 @@
   [promise val]
   (chan-deliver* promise val))
 
+;; ---- taps: values reach the tap fns off the caller, one at a time and in order, as on the JVM's tap thread.
+
+(def ^:private tapset (atom #{}))
+
+;; [queue draining?]. The drain is a blocking-pool job that ends when the queue empties, so no thread waits
+;; for a tap> that may never come.
+(def ^:private tap-state (atom [clojure.lang.PersistentQueue/EMPTY false]))
+
+(defn- tap-drain []
+  (try
+    (loop []
+      (let [[[q]] (swap-vals! tap-state (fn [[q]] (if (seq q) [(pop q) true] [clojure.lang.PersistentQueue/EMPTY false])))]
+        (when (seq q)
+          (let [x (peek q)]
+            (doseq [f @tapset]
+              (try (f x) (catch :default _ nil))))
+          (recur))))
+    ;; The drain inherits its spawner's deadline; the next tap> starts another for what is left.
+    (catch :cancelled e
+      (shielded* (swap! tap-state assoc 1 false))
+      (throw e))))
+
+(defn add-tap
+  "Adds f, a fn of one argument, to the tap set. f receives every value sent to tap>, on a thread of its own,
+  and should not block for long; an f already in the set is added once. Returns nil."
+  [f]
+  (swap! tapset conj f)
+  nil)
+
+(defn remove-tap
+  "Removes f from the tap set. Returns nil."
+  [f]
+  (swap! tapset disj f)
+  nil)
+
+(defn tap>
+  "Sends x to the tap fns. Returns true when x was queued, false when 1024 values already wait and x is dropped."
+  [x]
+  (let [[[q draining?]] (swap-vals! tap-state (fn [[q :as s]] (if (< (count q) 1024) [(conj q x) true] s)))]
+    (cond
+      (>= (count q) 1024) false
+      draining? true
+      :else (do (thread* tap-drain) true))))
+
 (defn pmap
   "Like map, except f is applied in parallel on futures, keeping the carriers plus two items ahead of consumption.
   Only useful for computationally intensive functions where the time of f dominates the coordination overhead."
@@ -2318,6 +2362,39 @@
   `(with-redefs-fn ~(zipmap (map (fn [v] `(var ~v)) (take-nth 2 bindings))
                             (take-nth 2 (drop 1 bindings)))
      (fn [] ~@body)))
+
+;; ---- decimal precision: number.c reads *math-context* on every decimal operation.
+
+(def ^:dynamic *math-context*
+  "The precision and rounding of decimal arithmetic, {:precision n :rounding mode} as with-precision binds it,
+  mode a keyword of java.math.RoundingMode's names (:HALF_UP, :HALF_EVEN, ...). nil, the root, is exact
+  arithmetic, where a quotient that does not terminate throws."
+  nil)
+
+(defn math-context*
+  "The *math-context* value with-precision binds."
+  [precision rounding]
+  (when-not (and (int? precision) (<= 0 precision 2147483647))
+    (throw (ex-info (if (and (int? precision) (neg? precision)) "Digits < 0" (str "Precision must be an int, not " (pr-str precision)))
+                    {:precision precision})))
+  {:precision precision :rounding rounding})
+
+(defmacro with-precision
+  "Sets the precision and rounding mode to be used for decimal operations.
+
+  Usage: (with-precision 10 (/ 1M 3))
+  or:    (with-precision 10 :rounding HALF_DOWN (/ 1M 3))
+
+  The rounding mode is one of CEILING, FLOOR, HALF_UP, HALF_DOWN, HALF_EVEN, UP, DOWN and UNNECESSARY; it
+  defaults to HALF_UP."
+  [precision & exprs]
+  (let [[body rm] (if (= (first exprs) :rounding)
+                    [(next (next exprs)) (second exprs)]
+                    [exprs 'HALF_UP])]
+    (when-not (contains? '#{UP DOWN CEILING FLOOR HALF_UP HALF_DOWN HALF_EVEN UNNECESSARY} rm)
+      (throw (ex-info (str "No rounding mode named " (pr-str rm)) {:rounding rm})))
+    `(binding [*math-context* (math-context* ~precision ~(keyword (name rm)))]
+       ~@body)))
 
 ;; ---- hierarchies: keyword and symbol tags; no host-type superclass lookup (NOTES.md).
 

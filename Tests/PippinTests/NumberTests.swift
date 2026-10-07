@@ -297,8 +297,37 @@ extension CoreTests {
 				#expect(try printed("[(/ 1M 2M) (/ 1.5M 0.5M)]") == "[0.5M 3M]")
 				#expect(try printed("(+ 1M 1.5)") == "2.5")
 				#expect(try eval("[(decimal? 1.0M) (decimal? 1N) (rational? 1.0M) (integer? 1.0M)]") == [true, false, true, false])
-				#expect(message("(/ 1M 3M)") == "Non-terminating decimal expansion; with-precision is not supported")
+				#expect(message("(/ 1M 3M)") == "Non-terminating decimal expansion; no exact representable decimal result.")
 				#expect(message("(/ 1M 0M)") == "Divide by zero")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// Every expected value is what JVM Clojure 1.12.6 prints for the same form.
+		@Test func withPrecision() throws {
+			clj_init()
+			_ = try eval("[:precision :rounding :UP :DOWN :CEILING :FLOOR :HALF_UP :HALF_DOWN :HALF_EVEN :UNNECESSARY]")
+			_ = try eval("(with-precision 1 (+ 1M 1M))")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try printed("[(with-precision 10 (/ 1M 3M)) (with-precision 10 (/ 1M 3)) (with-precision 50 (/ 22M 7M))]") == "[0.3333333333M 0.3333333333M 3.1428571428571428571428571428571428571428571428571M]")
+				#expect(try printed("[(with-precision 1 :rounding UP (* 1.1M 1M)) (with-precision 1 :rounding CEILING (* -1.1M 1M)) (with-precision 1 :rounding DOWN (* -1.9M 1M)) (with-precision 1 :rounding FLOOR (* -1.9M 1M))]") == "[2M -1M -1M -2M]")
+				#expect(try printed("[(with-precision 1 :rounding HALF_EVEN (* 2.5M 1M)) (with-precision 1 :rounding HALF_EVEN (* 1.5M 1M)) (with-precision 1 :rounding HALF_DOWN (* -1.5M 1M)) (with-precision 1 :rounding HALF_UP (* -1.5M 1M))]") == "[2M 2M -1M -2M]")
+				#expect(try printed("[(with-precision 4 (+ 3.5555555M 1)) (with-precision 6 :rounding FLOOR (+ 3.5555555M 1)) (with-precision 6 :rounding UNNECESSARY (+ 3.5555M 1))]") == "[4.556M 4.55555M 4.5555M]")
+				#expect(message("(with-precision 1 :rounding UNNECESSARY (* 1.5M 1M))") == "Rounding necessary")
+				// An exact quotient keeps the scale the operands prefer while it fits; past the precision it is rounded.
+				#expect(try printed("[(with-precision 2 (/ 1M 8M)) (with-precision 5 (/ 1M 4M)) (with-precision 3 (/ 1.000M 1M)) (with-precision 2 (/ 100.00M 1M)) (with-precision 1 (/ 100M 4M))]") == "[0.13M 0.25M 1.00M 1.0E+2M 3E+1M]")
+				#expect(try printed("[(with-precision 3 (+ 999.6M 0)) (with-precision 3 (inc 9.9999M)) (with-precision 3 (* 0.0001234567M 1)) (with-precision 3 (/ 123456M 0.001M))]") == "[1.00E+3M 11.0M 0.000123M 1.23E+8M]")
+				// minus is add of the negated operand, which rounds first: the JVM's (- 100M 99.99M) under 2 digits is 0M.
+				#expect(try printed("[(with-precision 2 (- 100M 99.99M)) (with-precision 2 (- 5M 5.000M)) (with-precision 2 (+ 5M -5.000M)) (with-precision 3 (- 1.2345M)) (with-precision 3 (- 1E+5M)) (with-precision 3 (- 0 1E+5M))]") == "[0M 0.0M 0.000M -1.23M -1E+5M -1.00E+5M]")
+				#expect(try printed("[(with-precision 5 (bigdec 1/3)) (with-precision 5 (+ 1/3 1M)) (with-precision 0 (+ 1.23456789M 1)) (with-precision 2 (rem 7M 2M))]") == "[0.33333M 1.3333M 2.23456789M 1M]")
+				#expect(message("(with-precision 2 (quot 12345M 1M))") == "Division impossible")
+				#expect(message("(with-precision -1 1)") == "Digits < 0")
+				#expect(message("(with-precision 0 (/ 1M 3M))") == "Non-terminating decimal expansion; no exact representable decimal result.")
+				// The binding is the call's, not the analysis's: a constant operand is not folded ahead of it.
+				#expect(try printed("[*math-context* (with-precision 7 :rounding FLOOR *math-context*) ((fn [] (with-precision 1 (* 1.5M 1M))))]") == "[nil {:precision 7, :rounding :FLOOR} 2M]")
+				#expect(try printed("(binding [*math-context* {:precision 2 :rounding :DOWN}] (/ 2M 3M))") == "0.66M")
+				#expect(message("(binding [*math-context* {:precision 2}] (/ 2M 3M))") == "*math-context* must be nil or {:precision n :rounding mode}, not {:precision 2}")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

@@ -24,6 +24,15 @@ extension CoreTests {
 			_ = try cljEvalScoped("(ns future-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go alts! alts!! alt! alt!! thread cancel! promise-chan poll!]]))")
 			for k in ["a", "b", "blocked", "bound", "cancelled", "caught", "default", "done", "finally", "got", "k", "late", "none", "p", "ran", "root", "slept", "threw", "timed-out", "v", "x", "yes"] { _ = kw(k) }
 			_ = try cljEvalScoped("(in-ns 'future-tests) (refer 'test-support) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil)) (def dt-fut nil)")
+			_ = try cljEvalScoped("""
+			(in-ns 'future-tests)
+			(def tap-seen (atom []))
+			(defn tap-rec [x] (when-not (vector? x) (swap! tap-seen conj x)))
+			(defn tap-deliver [x] (when (vector? x) (deliver (first x) nil)))
+			(defn tap-throw [x] (throw (ex-info "tap" {})))
+			(defn tap-await [] (let [p (promise)] (tap> [p]) @p))
+			(add-tap tap-deliver) (tap-await) (remove-tap tap-deliver)
+			""")
 		}
 
 		@Test func futureRunsOnThePoolAndDerefParks() throws {
@@ -196,6 +205,19 @@ extension CoreTests {
 				#expect(try eval("(with-out-str (<!! (go (print \"inside\"))))") == "inside")
 				#expect(try eval("(with-out-str (<!! (thread (print \"thread\"))))") == "thread")
 				#expect(try eval("(with-out-str (print \"a\") @(future (print \"b\")) (print \"c\"))") == "abc")
+			}
+			base.check()
+		}
+
+		// tap>'s drain is a blocking-pool job that ends with the queue, so the baseline settles after it.
+		@Test func tapsSeeEveryValueInOrder() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("[(add-tap tap-deliver) (add-tap tap-rec) (add-tap tap-throw) (add-tap tap-rec)]") == [nil, nil, nil, nil])
+				#expect(try eval("(do (reset! tap-seen []) [(tap> 1) (tap> nil) (tap> 2)])") == [true, true, true])
+				#expect(try eval("(do (tap-await) @tap-seen)") == [1, nil, 2])
+				#expect(try eval("[(remove-tap tap-rec) (tap> 3) (tap-await) @tap-seen]") == [nil, true, nil, [1, nil, 2]])
+				#expect(try eval("(do (remove-tap tap-throw) (remove-tap tap-deliver) (reset! tap-seen []) (tap> 4))") == true)
 			}
 			base.check()
 		}

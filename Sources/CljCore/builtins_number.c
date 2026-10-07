@@ -201,10 +201,7 @@ static clj_value b_bigdec(const clj_value *args, size_t n) {
 		if (!isfinite(d)) return clj_throw_msg("Cannot convert %s to a bigdec", d != d ? "##NaN" : d < 0 ? "##-Inf" : "##Inf");
 		return clj_decimal_from_double(d);
 	}
-	if (clj_is_ratio(v)) {
-		clj_value r = clj_decimal_from_fraction(clj_ratio_num(v), clj_ratio_den(v));
-		return clj_is_nil(r) ? clj_throw_msg("Non-terminating decimal expansion; with-precision is not supported") : r;
-	}
+	if (clj_is_ratio(v)) return clj_num_ratio_to_decimal(v);
 	return not_a_number(v);
 }
 

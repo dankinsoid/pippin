@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/decimal.h"
 #include "clj/error.h"
 #include "clj/fusion.h"
 #include "clj/intrinsics.h"
@@ -461,6 +462,8 @@ static void fold_intrinsic(clj_node *n) {
 	if (!op->pure || clj_var_root(n->u.intrinsic.var.v) != clj_intrinsic_builtin(op)) return;
 	for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
 		if (!const_arg(n->u.intrinsic.args[i], &vals[i])) return;
+		// Decimal arithmetic rounds to the *math-context* of the call, which analysis cannot know.
+		if (clj_is_decimal(vals[i])) return;
 	}
 	clj_value r = clj_intrinsic_call(op, vals);
 	if (r == CLJ_THROWN) {

@@ -145,7 +145,6 @@
   {:file "test/clojure/test_clojure/transducers.clj" :line 153 :name seq-and-transducer :reason "Unable to resolve symbol: prop/for-all* in this context" :missing [prop/for-all*]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 168 :name test-transduce :reason "Unable to resolve symbol: Integer/TYPE in this context" :missing [Integer/TYPE]}
   {:file "test/clojure/test_clojure/vars.clj" :line 32 :name test-with-local-vars :reason "Unable to resolve symbol: with-local-vars in this context" :missing [with-local-vars]}
-  {:file "test/clojure/test_clojure/vars.clj" :line 41 :name test-with-precision :reason "Unable to resolve symbol: with-precision in this context" :missing [with-precision]}
   {:file "test/clojure/test_clojure/vars.clj" :line 54 :name test-settable-math-context :reason "Unable to resolve symbol: clojure.main/with-bindings in this context" :missing [clojure.main/with-bindings]}
   {:file "test/clojure/test_clojure/vars.clj" :line 67 :name test-with-redefs-fn :reason "Unable to resolve symbol: Thread. in this context" :missing [Thread.]}
   {:file "test/clojure/test_clojure/vars.clj" :line 76 :name test-with-redefs :reason "Unable to resolve symbol: Thread. in this context" :missing [Thread.]}

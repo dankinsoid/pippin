@@ -31,7 +31,7 @@ clj_value clj_decimal_from_fraction(clj_value p, clj_value q);
 clj_value clj_decimal_add(clj_value a, clj_value b);
 clj_value clj_decimal_sub(clj_value a, clj_value b);
 clj_value clj_decimal_mul(clj_value a, clj_value b);
-// CLJ_NIL when the quotient has no terminating expansion: there is no *math-context* here.
+// CLJ_NIL when the quotient has no terminating expansion.
 clj_value clj_decimal_div(clj_value a, clj_value b);
 clj_value clj_decimal_neg(clj_value a);
 int       clj_decimal_cmp(clj_value a, clj_value b);
@@ -40,5 +40,31 @@ clj_value clj_decimal_to_string(clj_value v);
 clj_value clj_decimal_truncate(clj_value v);
 // The exact value as two owned bigints.
 void clj_decimal_as_fraction(clj_value v, clj_value *num, clj_value *den);
+
+// java.math.RoundingMode, in its order.
+typedef enum {
+	CLJ_ROUND_UP,
+	CLJ_ROUND_DOWN,
+	CLJ_ROUND_CEILING,
+	CLJ_ROUND_FLOOR,
+	CLJ_ROUND_HALF_UP,
+	CLJ_ROUND_HALF_DOWN,
+	CLJ_ROUND_HALF_EVEN,
+	CLJ_ROUND_UNNECESSARY,
+} clj_rounding;
+
+// java.math.MathContext: significant digits, 0 for exact arithmetic.
+typedef struct {
+	uint32_t     precision;
+	clj_rounding rounding;
+} clj_math_context;
+
+// v to mc's precision, as BigDecimal.round; CLJ_THROWN when CLJ_ROUND_UNNECESSARY would lose a digit.
+clj_value clj_decimal_round(clj_value v, const clj_math_context *mc);
+// BigDecimal.divide(b, mc): the exact quotient when it fits the precision, else rounded to it; b must not be
+// zero. Under precision 0 a quotient that does not terminate throws.
+clj_value clj_decimal_div_mc(clj_value a, clj_value b, const clj_math_context *mc);
+// Whether the bigint whole has at most mc's precision digits: divideToIntegralValue's "Division impossible".
+bool clj_decimal_integral_fits(clj_value whole, const clj_math_context *mc);
 
 #endif

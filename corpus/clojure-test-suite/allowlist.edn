@@ -19,6 +19,7 @@
   {:file "test/clojure/core_test/portability.cljc" :line 38 :name lazy-seq? :reason "Unable to resolve symbol: clojure.lang.LazySeq in this context" :missing [clojure.lang.LazySeq]}
   {:file "test/clojure/core_test/remove_watch.cljc" :line 5 :reason "Unable to resolve symbol: ref in this context" :missing [ref]}
   {:file "test/clojure/core_test/short.cljc" :line 5 :reason "Index 2 out of bounds for length 2" :missing []}
+  {:file "test/clojure/core_test/taps.cljc" :line 5 :reason "Unable to resolve symbol: clojure.lang.IPending in this context" :missing [clojure.lang.IPending]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 1 :reason "Could not locate clojure/edn.cljc or clojure/edn.clj on load path." :missing [clojure/edn]}
  ]
  :tests
@@ -60,4 +61,4 @@
   {:name clojure.core-test.vec/test-vec :status :fail :reason "(= [-1 2 3] v)" :missing [] :note "(vec array) copies here; the JVM aliases the array, so a later aset shows through the vector (docs/jvm-differences.md)"}
  ]
  :skipped
- [add-tap clojure.edn/read-string with-precision]}
+ [clojure.edn/read-string]}

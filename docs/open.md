@@ -252,7 +252,7 @@ file. 103 open, 99 partly done.
 
 ### [Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)](notes/numeric-tower.md)
 
-- [ ] No float and no `*math-context*`.
+- [ ] No float.
 - [ ] Division is shift-subtract — Trigger: a profile with `quot`/`rem`/`gcd` on thousand-bit values
 - [ ] `clj_bigint_to_double` and `clj_decimal_to_double` round through the decimal text — Trigger: a profile with bigint-to-double in a loop.
 - [ ] Every bigint carries at least one spare limb — trigger is a heap profile with many of them.

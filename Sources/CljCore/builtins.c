@@ -100,7 +100,10 @@ static clj_value arith_fold(const clj_value *args, size_t n, clj_intrinsic_2 op,
 }
 
 static clj_value b_add(const clj_value *args, size_t n) { return arith_fold(args, n, clj_add, 0, true); }
-static clj_value b_sub(const clj_value *args, size_t n) { return arith_fold(args, n, clj_sub, 0, false); }
+static clj_value b_sub(const clj_value *args, size_t n) {
+	if (n == 1 && clj_is_decimal(args[0])) return clj_num_decimal_negate(args[0]);
+	return arith_fold(args, n, clj_sub, 0, false);
+}
 static clj_value b_mul(const clj_value *args, size_t n) { return arith_fold(args, n, clj_mul, 1, true); }
 static clj_value b_div(const clj_value *args, size_t n) { return arith_fold(args, n, clj_div, 1, false); }
 
