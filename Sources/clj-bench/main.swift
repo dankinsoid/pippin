@@ -324,6 +324,7 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "boot" {
 	exit(0)
 }
 
+// bench-ab: head only {
 // CLJ_BENCH_ONLY=rc-share on a debug binary: the share of retain/release pairs on the shared (atomic) path
 // with the application state in one atom (design §4, "Проверка, закрывающая вопрос"); release builds count nothing.
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
@@ -406,6 +407,7 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
 	for fn in [tickAtom, tickWatched, tickLocal] { clj_release(fn) }
 	exit(0)
 }
+// bench-ab: }
 
 // CLJ_BENCH_ONLY=rc-main: the rc-share tick timed off and on the main carrier (design §4, «BRC с одним владельцем»).
 // @ai-generated(solo)

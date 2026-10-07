@@ -1,4 +1,4 @@
-.PHONY: port-audit c-only-audit cmutex-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: bench-ab port-audit c-only-audit cmutex-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -139,6 +139,10 @@ bench:
 	$(RELEASE)/release/clj-bench
 	@echo
 	CLJ_SYSTEM_ALLOC=1 $(RELEASE)/release/clj-bench
+
+# Release bench of BASE (default main) against this tree, alternated in one job: BASE=<ref> ROUNDS=<n> ONLY="<sel> ...".
+bench-ab:
+	sh scripts/bench-ab.sh
 
 # One file through the C core under ASan: FILE=x.clj make load-asan. A crash lands on the stack that caused it,
 # where the swift-testing run prints "<empty stack>".

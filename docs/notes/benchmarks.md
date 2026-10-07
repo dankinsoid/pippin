@@ -13,6 +13,10 @@
   `-Xcc -falign-functions=64` on both sides took the gap to 0.3 (bench/RESULTS.md, "The self-recursive worker").
   A CljCore change that shows less than that on a call row it does not touch is layout until the aligned build says
   otherwise.
+- **`make bench-ab` compares two revisions in one job** (`scripts/bench-ab.sh`): release `clj-bench` of `BASE`
+  (default `main`) against the working tree, alternated for `ROUNDS` rounds over the `ONLY` selectors, both sides
+  built with this tree's harness. On CI it is a `workflow_dispatch` with `target: bench-ab`: two separate runs
+  land on two runners, and the runner-to-runner spread is larger than the effects worth measuring.
 - [ ] Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
