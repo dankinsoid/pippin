@@ -92,7 +92,7 @@ static size_t          shared_n;
 static size_t          shared_fresh; // candidates since the last take, retries not counted
 static pthread_once_t  thread_once = PTHREAD_ONCE_INIT;
 
-// The deep entries (clj_cc_deep_release): a header, bit 0 set when the entry holds a reference of its own.
+// The deep entries (clj_cc_deep_release), each owning its object's BUFFERED bit and no reference, as a shared one.
 static chunk   *deep_head;
 static size_t   deep_n;
 static uint64_t deep_first_at;   // wall time of the waiting batch's first entry
@@ -235,10 +235,10 @@ bool clj_cc_shared_candidate(clj_header *h) {
 	return true;
 }
 
-static void deep_push(clj_header *h, bool held) {
+static void deep_push(clj_header *h) {
 	pthread_once(&thread_once, start_thread);
 	pthread_mutex_lock(&buf_mu);
-	chunk_push(&deep_head, (clj_header *)((uintptr_t)h | held));
+	chunk_push(&deep_head, h);
 	if (deep_n++ == 0) {
 		deep_first_at = wall_ns();
 		pthread_cond_signal(&buf_cv);
@@ -248,8 +248,8 @@ static void deep_push(clj_header *h, bool held) {
 
 static _Thread_local int64_t deep_filed_here;
 
-// The decrement and the bit in one CAS, as for a shared candidate. A bit another entry owns may be a pruned entry's,
-// which would not walk through a lazy seq: this entry then takes the releaser's reference instead of the bit.
+// The decrement and the bit in one CAS, as for a shared candidate. An object an entry already names is left to that
+// entry, though it may be a pruned one: an entry holding a reference would keep the object past its last release.
 int clj_cc_deep_release(clj_header *h) {
 	uint32_t f = h->flags;
 	if ((f & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) != CLJ_FLAG_SHARED || !(f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) ||
@@ -258,6 +258,7 @@ int clj_cc_deep_release(clj_header *h) {
 	uint32_t cur = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	for (;;) {
 		CLJ_ASSERT(cur & CLJ_RC_COUNT_MASK, "release of a freed shared object");
+		if (cur & CLJ_RC_BUFFERED) return -1;
 		if ((cur & CLJ_RC_COUNT_MASK) == 1) {
 			// seq_cst: the collection-flag load after a zero pairs with the collector's store, as in rc.c.
 			if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, (cur - 1) & ~CLJ_RC_WATCH, memory_order_seq_cst,
@@ -265,12 +266,11 @@ int clj_cc_deep_release(clj_header *h) {
 				return 1;
 			continue;
 		}
-		bool held = cur & CLJ_RC_BUFFERED;
-		if (held || atomic_compare_exchange_weak_explicit(&h->rc, &cur, ((cur - 1) | CLJ_RC_BUFFERED) & ~CLJ_RC_WATCH,
-		                                                  memory_order_seq_cst, memory_order_relaxed)) {
+		if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, ((cur - 1) | CLJ_RC_BUFFERED) & ~CLJ_RC_WATCH,
+		                                          memory_order_seq_cst, memory_order_relaxed)) {
 			stat_add(CLJ_CC_STAT_DEEP_FILED, 1);
 			deep_filed_here++;
-			deep_push(h, held);
+			deep_push(h);
 			return 0;
 		}
 	}
@@ -377,7 +377,7 @@ void clj_cc_local_candidate(clj_header *h) {
 // ---- the graph of one collection
 
 // N_BUFFERED: an entry elsewhere names it, so a white one stays as a zombie for that entry. N_ROOT: an entry that
-// owns the BUFFERED bit names it; N_HELD: one that holds a reference instead. N_CUT: a child was left out at the
+// owns the BUFFERED bit names it; N_HELD: a retry, which holds a reference instead. N_CUT: a child was left out at the
 // deep cap; N_CYCLIC: on a ring of the deep graph.
 enum { N_ROOT = 1, N_LOST = 2, N_BLACK = 4, N_WHITE = 8, N_BUFFERED = 16, N_HELD = 32, N_CUT = 64, N_CYCLIC = 128 };
 #define NONE UINT32_MAX
@@ -784,14 +784,16 @@ static void ring_found(graph *g, const uint32_t *members, uint32_t n, clj_header
 	for (uint32_t e = 0; !cyclic && e < first->edge_n; e++) cyclic = g->edges[first->edge_lo + e] == members[0];
 	if (!cyclic) return;
 	uint32_t best = members[0];
-	bool     skip = false;
+	bool     skip = false, unseen = false;
 	for (uint32_t k = 0; k < n; k++) {
 		node *nd = &g->nodes[members[k]];
 		nd->flags |= N_CYCLIC;
 		if ((nd->flags & N_CUT) || is_waiting(nd->h, waiting, nwaiting)) skip = true;
+		// A ring all REACH files itself on its last outside release; the retry's reference would only delay a broken one.
+		if (!(nd->h->flags & CLJ_FLAG_REACH)) unseen = true;
 		if (nd->attempt > g->nodes[best].attempt) best = members[k];
 	}
-	if (!skip) retry_node(g, best, out);
+	if (unseen && !skip) retry_node(g, best, out);
 }
 
 // Tarjan's components over the black nodes, iteratively: a long realized chain is deeper than the C stack.
@@ -846,12 +848,22 @@ static void retry_rings(graph *g, clj_header **waiting, size_t nwaiting, retry_v
 	free(on);
 }
 
-// While the collector's references hold every black node: a touch mid-walk may have been the last outside reference.
-static void retry_deep(graph *g, clj_header **waiting, size_t nwaiting, retry_vec *out) {
+// While the collector's references hold every black node. A root a mutator touched mid-walk is filed again, with the
+// bit and no reference, as the shared collection does: the touch may have been its last outside reference going.
+static void retry_deep(graph *g, clj_header **waiting, size_t nwaiting, retry_vec *out, cand_vec *refile) {
 	retry_rings(g, waiting, nwaiting, out);
 	for (uint32_t i = 0; i < g->n; i++) {
 		const node *nd = &g->nodes[i];
-		if ((nd->flags & (N_ROOT | N_HELD)) && (nd->flags & N_LOST) && !(nd->flags & (N_CUT | N_CYCLIC))) retry_node(g, i, out);
+		if (!(nd->flags & (N_ROOT | N_HELD)) || !(nd->flags & N_LOST) || (nd->flags & (N_CUT | N_CYCLIC))) continue;
+		uint32_t cur = atomic_load_explicit(&nd->h->rc, memory_order_relaxed);
+		while (!(cur & CLJ_RC_BUFFERED)) {
+			if (atomic_compare_exchange_weak_explicit(&nd->h->rc, &cur, cur | CLJ_RC_BUFFERED, memory_order_seq_cst,
+			                                          memory_order_relaxed)) {
+				stat_add(CLJ_CC_STAT_INTERFERED, 1);
+				vec_push(refile, nd->h);
+				break;
+			}
+		}
 	}
 }
 
@@ -889,17 +901,14 @@ static int64_t collect_deep(bool force) {
 		activate();
 		graph g = {.shared = true, .deep = true};
 		for (size_t i = 0; i < entries.n; i++) {
-			uintptr_t   e = (uintptr_t)entries.items[i];
-			clj_header *h = (clj_header *)(e & ~(uintptr_t)1);
-			if (e & 1) deep_root(&g, h, N_HELD, 0);
-			else if (shared_intake(h, &later)) deep_root(&g, h, N_ROOT, 0);
+			if (shared_intake(entries.items[i], &later)) deep_root(&g, entries.items[i], N_ROOT, 0);
 		}
 		for (size_t i = 0; i < due.n; i++) deep_root(&g, due.items[i].h, N_HELD, due.items[i].attempt + 1);
 		if (nwaiting) qsort(waiting, nwaiting, sizeof *waiting, cmp_ptr);
 		while (g.nw) visit(&g, g.work[--g.nw]);
 		validate(&g);
 		blacken(&g);
-		retry_deep(&g, waiting, nwaiting, &found);
+		retry_deep(&g, waiting, nwaiting, &found, &later);
 		freed = free_whites(&g);
 		release_survivors(&g);
 		stat_add(CLJ_CC_STAT_COLLECTIONS, 1);
@@ -918,7 +927,7 @@ static int64_t collect_deep(bool force) {
 		if (found.n) pthread_cond_signal(&buf_cv);
 		pthread_mutex_unlock(&buf_mu);
 	}
-	for (size_t i = 0; i < later.n; i++) deep_push(later.items[i], false);
+	for (size_t i = 0; i < later.n; i++) deep_push(later.items[i]);
 	free(later.items);
 	free(entries.items);
 	free(due.items);
