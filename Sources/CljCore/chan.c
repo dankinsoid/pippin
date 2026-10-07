@@ -229,7 +229,9 @@ static void chan_lock(clj_chan *ch) {
 #endif
 	}
 	// Any section may move a value out of the ring or a queue: a collection reading the channel loses its snapshot.
-	if (__builtin_expect(atomic_load_explicit(&ch->h.rc, memory_order_relaxed) & CLJ_RC_WATCH, 0)) clj_cc_unwatch(&ch->h);
+	if (__builtin_expect(atomic_load_explicit(&clj_cc_running, memory_order_relaxed), 0) &&
+	    (atomic_load_explicit(&ch->h.rc, memory_order_relaxed) & CLJ_RC_WATCH))
+		clj_cc_unwatch(&ch->h);
 }
 
 static void chan_unlock(clj_chan *ch) {

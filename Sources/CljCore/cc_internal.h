@@ -19,6 +19,8 @@ void clj_cc_local_candidate(clj_header *h);
 void clj_cc_unwatch(clj_header *h);
 // A shared object reached zero while a collection runs: true when it is kept whole until the collection ends.
 bool clj_cc_defer_free(clj_header *h);
+// Set while a shared collection runs; a section of a type read under its own lock tests it before the watch bit.
+extern _Atomic bool clj_cc_running;
 // After the teardown of a buffered object: the entry gives the cell back when it is processed.
 void clj_cc_zombie(clj_header *h);
 

@@ -123,11 +123,6 @@ static void shared_push(clj_header *h, bool fresh) {
 
 void clj_cc_unwatch(clj_header *h) { atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_WATCH, memory_order_seq_cst); }
 
-// The barrier pairs with the collector's watch-then-read: design §7, the lock-free protocol.
-void clj_cc_note_store(clj_header *owner) {
-	if (!owner->type->cc_locked) atomic_thread_fence(memory_order_seq_cst);
-	if (__builtin_expect(atomic_load_explicit(&owner->rc, memory_order_seq_cst) & CLJ_RC_WATCH, 0)) clj_cc_unwatch(owner);
-}
 
 // The decrement and the bit in one CAS: an entry the collector takes before the decrement would count the
 // releaser's reference as external, and nothing would file the object again.
@@ -146,21 +141,30 @@ bool clj_cc_shared_candidate(clj_header *h) {
 }
 
 // While set, a shared object at zero stays whole: a pointer read without a lock never meets returned memory.
-static _Atomic bool    active;
+_Atomic bool clj_cc_running;
 static pthread_mutex_t defer_mu = PTHREAD_MUTEX_INITIALIZER;
 static cand_vec        deferred;
 
 bool clj_cc_defer_free(clj_header *h) {
-	if (!atomic_load_explicit(&active, memory_order_seq_cst)) return false;
+	if (!atomic_load_explicit(&clj_cc_running, memory_order_seq_cst)) return false;
 	pthread_mutex_lock(&defer_mu);
-	bool on = atomic_load_explicit(&active, memory_order_relaxed);
+	bool on = atomic_load_explicit(&clj_cc_running, memory_order_relaxed);
 	if (on) vec_push(&deferred, h);
 	pthread_mutex_unlock(&defer_mu);
 	return on;
 }
 
+// The barrier pairs with the collector's activate-then-read: design §7, the lock-free protocol. Reading `active`
+// first keeps a contended owner's header (an atom swapped by many threads) out of its critical section.
+void clj_cc_note_store(clj_header *owner) {
+	if (!owner->type->cc_locked) atomic_thread_fence(memory_order_seq_cst);
+	if (__builtin_expect(atomic_load_explicit(&clj_cc_running, memory_order_seq_cst), 0) &&
+	    (atomic_load_explicit(&owner->rc, memory_order_seq_cst) & CLJ_RC_WATCH))
+		clj_cc_unwatch(owner);
+}
+
 static void activate(void) {
-	atomic_store_explicit(&active, true, memory_order_seq_cst);
+	atomic_store_explicit(&clj_cc_running, true, memory_order_seq_cst);
 	atomic_thread_fence(memory_order_seq_cst);
 }
 
@@ -171,7 +175,7 @@ void clj_cc_zombie(clj_header *h) {
 
 static void deactivate(void) {
 	pthread_mutex_lock(&defer_mu);
-	atomic_store_explicit(&active, false, memory_order_seq_cst);
+	atomic_store_explicit(&clj_cc_running, false, memory_order_seq_cst);
 	cand_vec dead = deferred;
 	deferred = (cand_vec){0};
 	pthread_mutex_unlock(&defer_mu);
