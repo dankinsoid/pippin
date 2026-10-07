@@ -31,6 +31,9 @@ on:
       shards:
         description: TEST_SHARDS, to deal the suites otherwise than the gate's committed count; empty runs the gate's deal
         default: ''
+      make_args:
+        description: variables for make, space-separated (BASE=<ref> for bench-ab)
+        default: ''
 
 # A push supersedes its ref's last run; each dispatch or nightly run is its own group, so a series runs side by side.
 concurrency:
@@ -129,9 +132,11 @@ jobs:
       - name: make ${{ inputs.target || 'gates' }}
         env:
           TARGET: ${{ inputs.target || 'gates' }}
+          MAKE_ARGS: ${{ inputs.make_args }}
         run: |
           set -o pipefail
-          make "$TARGET" 2>&1 | tee "$RUNNER_TEMP/gates.log"
+          # Split on purpose: one word per variable.
+          make "$TARGET" $MAKE_ARGS 2>&1 | tee "$RUNNER_TEMP/gates.log"
 
       - name: Gate times
         if: ${{ !cancelled() }}
