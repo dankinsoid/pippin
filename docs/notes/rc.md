@@ -164,7 +164,8 @@
   0.75–1.2 µs, p99.9 6–10 µs, the idle hook 170–378 µs for 4096 cells; off it, an inline local collection every 256
   candidates, 9–21 µs at p99.9. Gates: one branch run took 1106 s against main's 911 s, the next 800 s, while `shake`,
   `facts-report` and `fuzz`, which collect nothing that matters, moved ±50 % between the two — runner noise; the ASan
-  shard holding the corpus read 230–263 s against main's 190 s in both, a share two samples do not resolve. Open:
+  shard holding the corpus read 230–263 s against main's 190 s in those two and 136 s in the third (37677161624,
+  whole gates 741 s), so it is noise too. Open:
   "swap! inc, 4 threads" read higher in all four jobs (head 95–152 ns, base 65–117), on a row bimodal on both sides.
   The suspect is `release_reaches_zero`'s read of `rc` before the decrement of a shared `REACH` object (the
   `BUFFERED` test), a second access to a contended line; the decrement and the filing must stay one operation (the
