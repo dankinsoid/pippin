@@ -363,11 +363,17 @@ void clj_debug_vector_stats(int64_t out[CLJ_VECTORS_COUNTERS]) {
 }
 
 // Items borrowed; n <= cap.
-static tuple *tuple_new(const clj_value *items, uint32_t n, uint32_t cap) {
+// from: the tuple whose items these are, whose reach bits a copy takes whole; NULL for items of any origin.
+static tuple *tuple_new(const clj_value *items, uint32_t n, uint32_t cap, const tuple *from) {
 	tuple *t = clj_alloc(&clj_vector_type, tuple_size(cap));
 	t->count = n;
 	t->shift = TUPLE;
-	for (uint32_t i = 0; i < n; i++) clj_slot_init(&t->h, &t->items[i], clj_retain(items[i]));
+	if (from) {
+		for (uint32_t i = 0; i < n; i++) clj_slot_init_copied(&t->h, &t->items[i], clj_retain(items[i]));
+		clj_reach_copy(&t->h, &from->h);
+	} else {
+		for (uint32_t i = 0; i < n; i++) clj_slot_init(&t->h, &t->items[i], clj_retain(items[i]));
+	}
 	return t;
 }
 
@@ -378,7 +384,7 @@ static tuple *tuple_own(clj_value vec, uint32_t cap) {
 		atomic_store_explicit(&t->hash, 0, memory_order_relaxed);
 		return cap > t->count ? clj_realloc(t, tuple_size(cap)) : t;
 	}
-	tuple *c = tuple_new(clj_slot_values(t->items), t->count, cap);
+	tuple *c = tuple_new(clj_slot_values(t->items), t->count, cap, t);
 	clj_slot_init(&c->h, &c->meta, clj_retain(t->meta.v));
 	clj_release(vec);
 	return c;
@@ -549,7 +555,7 @@ clj_value clj_vector_from_array(const clj_value *items, uint32_t n) {
 	if (n && n <= TUPLE_MAX) {
 		if (clj_tuples_enabled()) {
 			COUNT(CLJ_VECTORS_TUPLE);
-			return clj_from_ptr(tuple_new(items, n, n));
+			return clj_from_ptr(tuple_new(items, n, n, NULL));
 		}
 		COUNT(CLJ_VECTORS_TRIE_OFF);
 	}

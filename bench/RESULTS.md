@@ -2010,3 +2010,28 @@ the pool run and the `CLJ_SYSTEM_ALLOC=1` control). Design §7 «Сборщик 
   laptop a like tail (p99.9 9–27 µs) stayed with the background thread switched off, so it is the machine and
   the allocator, not the buffer's mutex. The idle hook then collected the 4096
   buffered cells in 170–224 µs, one run-loop wake, within its 1 ms budget.
+
+### What a cycle-free program pays — `make bench-ab`, arm64 (Apple M1 Virtual, 3 cpus) and x86_64
+
+Base bd57bc1 (main before the collector) against the branch, the full default bench, three alternating rounds in
+one job, rounds 2 and 3 compared (NOTES "Benchmarks"). Four CI jobs over the branch's last fixes; over the 128 rows
+the median head/base ratio:
+
+| run | head | median | p10 | p90 |
+|---|---|---:|---:|---:|
+| 37654979848 | 1ab4a87 (reach bits once per node copy) | 1.042 | 0.892 | 1.191 |
+| 37658029852 | f14b9da (the store note reads the collection flag first) | 1.014 | 0.904 | 1.161 |
+| 37665355883 | aa4c6a9 (the store primitives read the owner's flags once) | 0.995 | 0.867 | 1.134 |
+| 37669144906 | 1eb7f72 (the collector thread at QoS utility) | 1.052 | 0.913 | 1.228 |
+
+- **Within the runner's floor.** This runner's spread per row is about ±20 % (the Slot primitive section above), and
+  the median moves 0.995–1.052 between jobs of nearly the same code. The rows the collector's paths touch read as
+  noise there: `swap! inc` 1.03–1.05, `get @atom :k` 0.99, the closure call 1.03, "loop assoc into a map" 0.99, the
+  HAMT copy path ("all versions kept", every slot of every copied node through `clj_slot_init_copied`) 0.85–1.18.
+- **What the first local A/B showed and the fixes took away.** On the x86_64 laptop (i9-9980HK, two alternating
+  rounds) the first cut read "assoc, all versions kept" +33–39 % and the vector conj rows +10–25 %: every copied slot
+  OR'd its child's reach bits into the owner and `free_object` called `free(NULL)` per free. A node copy now takes its
+  source's bits once (`clj_reach_copy`), and the free calls `free` only for an aside list it has.
+- **The contended atom.** "swap! inc, 4 threads" reads higher in all four jobs (head 95–152 ns against base
+  65–117), "swap! assoc, 4 threads" moved from 1.9× to 0.99 with the store fixes. Four workers on three virtual cpus
+  make the row bimodal on both sides (base itself 65–117 and 291–811), so the size is not resolved here.

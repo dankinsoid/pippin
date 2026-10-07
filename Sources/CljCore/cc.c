@@ -656,10 +656,8 @@ int64_t clj_cc_collect(void) {
 		while (c->cc_local && ((cand_vec *)c->cc_local)->n && !c->cc_collecting) got += collect_local(c, SIZE_MAX);
 		got += collect_shared();
 		freed += got;
-		pthread_mutex_lock(&buf_mu);
-		bool more = shared_n > 0;
-		pthread_mutex_unlock(&buf_mu);
-		if (!got && !more && !(c->cc_local && ((cand_vec *)c->cc_local)->n)) break;
+		// A round that frees nothing made no new candidates; what is left are roots a mutator holds, retried later.
+		if (!got) break;
 	}
 	return freed;
 }
