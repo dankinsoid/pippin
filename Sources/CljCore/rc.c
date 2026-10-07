@@ -128,10 +128,10 @@ COLD static bool main_release(clj_header *h) {
 	return main_episode_end(h);
 }
 
-// A reference main16 counts, released on another thread: main takes it at its next turn. With no main carrier
-// nobody else writes main16, and brc_mu orders this thread with the last owner and the next one.
-// Below zero the reference was one main16 counts: the unit goes back to rc and the reference to main. A QUEUED bit
-// set after the fetch_sub could land on an object another such release queued and main freed meanwhile.
+// A release that took rc below zero gave up a reference main16 counts: the unit goes back to rc and the reference
+// to main, for its next turn. A QUEUED bit set after the fetch_sub could land on an object another such release
+// queued and main freed meanwhile. With no main carrier nobody else writes main16, and brc_mu orders this thread
+// with the last owner and the next one.
 COLD static bool defer_to_main(clj_header *h) {
 	atomic_fetch_add_explicit(&h->rc, CLJ_RC_ONE, memory_order_relaxed);
 	CLJ_RC_COUNT(CLJ_RC_DEFERRED);
@@ -172,7 +172,7 @@ static bool other_release(clj_header *h) {
 static bool release_reaches_zero(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
 	if (h->flags & CLJ_FLAG_SHARED) {
-		// Merged, main16 is empty, and main releases as any thread does: the TLS read is for unmerged objects only.
+		// Merged, main16 is empty, and main releases as any thread does: the owner test is for unmerged objects only.
 		if (__builtin_expect(any_main(), 0) && !(atomic_load_explicit(&h->rc, memory_order_relaxed) & CLJ_RC_MERGED) &&
 		    here_main())
 			return main_release(h);
