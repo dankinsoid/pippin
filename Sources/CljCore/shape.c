@@ -386,7 +386,8 @@ clj_value clj_shape_map_to_hash_map(clj_value map) {
 static clj_shape_map *smap_own(clj_value map) {
 	if (clj_is_unique(map)) return smap_of(map);
 	clj_shape_map *m = smap_of(map), *c = smap_alloc(m->shape);
-	for (uint32_t i = 0; i < m->shape->nkeys; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(m->slots[i].v));
+	for (uint32_t i = 0; i < m->shape->nkeys; i++) clj_slot_init_copied(&c->h, &c->slots[i], clj_retain(m->slots[i].v));
+	clj_reach_copy(&c->h, &m->h);
 	clj_release(map);
 	return c;
 }
@@ -434,7 +435,8 @@ clj_value clj_shape_map_assoc(clj_value map, clj_value key, clj_value val) {
 		m = clj_realloc(m, sizeof *m + (n + 1) * sizeof(clj_value));
 	} else {
 		clj_shape_map *c = smap_alloc(e->to);
-		for (uint32_t k = 0; k < n; k++) clj_slot_init(&c->h, &c->slots[k], clj_retain(m->slots[k].v));
+		for (uint32_t k = 0; k < n; k++) clj_slot_init_copied(&c->h, &c->slots[k], clj_retain(m->slots[k].v));
+		clj_reach_copy(&c->h, &m->h);
 		clj_release(map);
 		m = c;
 	}

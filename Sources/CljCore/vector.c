@@ -106,7 +106,8 @@ static node *node_resize(node *n, uint32_t len) {
 
 static node *node_copy(const node *n) {
 	node *c = node_alloc(n->len);
-	for (size_t i = 0; i < n->len; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(n->slots[i].v));
+	for (size_t i = 0; i < n->len; i++) clj_slot_init_copied(&c->h, &c->slots[i], clj_retain(n->slots[i].v));
+	clj_reach_copy(&c->h, &n->h);
 	return c;
 }
 
@@ -388,7 +389,8 @@ static clj_value tuple_promote(clj_value vec, clj_value val) {
 	const tuple *t = tuple_of(vec);
 	clj_vector  *v = clj_alloc(&clj_vector_type, sizeof *v);
 	node        *tail = node_alloc(t->count + 1);
-	for (uint32_t i = 0; i < t->count; i++) clj_slot_init(&tail->h, &tail->slots[i], clj_retain(t->items[i].v));
+	for (uint32_t i = 0; i < t->count; i++) clj_slot_init_copied(&tail->h, &tail->slots[i], clj_retain(t->items[i].v));
+	clj_reach_copy(&tail->h, &t->h);
 	clj_slot_init(&tail->h, &tail->slots[t->count], clj_retain(val));
 	v->count = t->count + 1;
 	v->shift = BITS;

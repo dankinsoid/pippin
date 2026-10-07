@@ -309,6 +309,19 @@ static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v)
 	slot->v = v;
 }
 
+// A node copy has its source's children, so its reach bits once rather than per slot: the path copy is hot.
+static inline void clj_reach_copy(clj_header *owner, const clj_header *src) {
+	uint32_t f = src->flags;
+	owner->flags |= f & ((f & CLJ_FLAG_SHARED) ? CLJ_FLAG_REACH : CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL);
+}
+
+// clj_slot_init of a slot copied from src, whose bits clj_reach_copy gives the owner.
+static inline void clj_slot_init_copied(clj_header *owner, clj_slot *slot, clj_value v) {
+	CLJ_SLOT_INIT_CHECK(owner, v);
+	(void)owner;
+	slot->v = v;
+}
+
 // nil publishes nothing, so clearing needs neither the owner nor the flag test.
 static inline void clj_slot_clear(clj_slot *slot) { slot->v = CLJ_NIL; }
 

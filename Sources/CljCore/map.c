@@ -102,13 +102,15 @@ static cnode *cnode_resize(cnode *c, uint32_t count) {
 static bnode *bnode_copy(const bnode *n) {
 	size_t total = bnode_slots(n);
 	bnode *c = bnode_alloc(n->datamap, n->nodemap, total);
-	for (size_t i = 0; i < total; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(n->slots[i].v));
+	for (size_t i = 0; i < total; i++) clj_slot_init_copied(&c->h, &c->slots[i], clj_retain(n->slots[i].v));
+	clj_reach_copy(&c->h, &n->h);
 	return c;
 }
 
 static cnode *cnode_copy(const cnode *c) {
 	cnode *d = cnode_alloc(c->hash, c->count);
-	for (size_t i = 0; i < 2 * (size_t)c->count; i++) clj_slot_init(&d->h, &d->slots[i], clj_retain(c->slots[i].v));
+	for (size_t i = 0; i < 2 * (size_t)c->count; i++) clj_slot_init_copied(&d->h, &d->slots[i], clj_retain(c->slots[i].v));
+	clj_reach_copy(&d->h, &c->h);
 	return d;
 }
 

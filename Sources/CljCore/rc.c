@@ -135,7 +135,7 @@ static void free_object(clj_header *dead) {
 		if (zombie) clj_cc_zombie(h);
 		else clj_dealloc(h);
 	}
-	free(d.aside);
+	if (d.aside) free(d.aside);
 }
 
 #if CLJ_DEBUG

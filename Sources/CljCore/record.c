@@ -42,7 +42,8 @@ static clj_record *record_own(clj_value self) {
 	if (clj_is_unique(self)) return rec_of(self);
 	const clj_user_type *ut = (const clj_user_type *)clj_type_of(self);
 	clj_record          *c = record_alloc(ut);
-	for (uint32_t i = 0; i < ut->nfields + 2u; i++) clj_slot_init(&c->h, &c->slots[i], clj_retain(rec_of(self)->slots[i].v));
+	for (uint32_t i = 0; i < ut->nfields + 2u; i++) clj_slot_init_copied(&c->h, &c->slots[i], clj_retain(rec_of(self)->slots[i].v));
+	clj_reach_copy(&c->h, clj_header_of(self));
 	clj_release(self);
 	return c;
 }
