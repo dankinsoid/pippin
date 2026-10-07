@@ -53,11 +53,6 @@
    :row "`transient`/`persistent!`/`conj!`… are the persistent operations; no use-after-`persistent!` error"
    :why "`transient`, `persistent!`, `conj!`, `assoc!`, `dissoc!`, `disj!` are not generated: a use-after-`persistent!` form answers here and throws on the JVM. Aliasing under reuse is design §3's item 3, the model-based collection tests."}
 
-  {:id :no-decimals
-   :mechanism :generator
-   :row "`with-precision`, `*math-context*`, rounding modes; decimal `/` succeeds only when the quotient terminates"
-   :why "No `M` literal and no `bigdec` is generated; a decimal division's precision is a missing feature, not a wrong answer."}
-
   {:id :no-biginteger
    :mechanism :generator
    :row "One bigint type where the JVM has `BigInt` and `BigInteger`"
@@ -179,5 +174,7 @@
    :why "fz-norm prints a value, not its metadata; comparing metadata needs its own projection."}
   {:what "deep recursion and large collections"
    :why "A case is bounded so that the oracle and the runner finish: the stack-depth and size limits are their own subject (NOTES \"Guard\")."}
+  {:what "decimals: `M` literals, `bigdec`, `with-precision`"
+   :why "No production generates one yet; `bigdec` of a double can keep a trailing zero the JVM drops (NOTES \"Numeric tower\"), which a production would have to project away first."}
   {:what "strings outside ASCII, surrogate pairs, astral characters"
    :why "Excluded by the ascii-only row above; the Unicode tables are the same missing data for case, categories and `compare`."}]}
