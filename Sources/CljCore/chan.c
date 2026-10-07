@@ -139,7 +139,7 @@ static clj_value chan_alloc(int kind, uint32_t cap, int role) {
 	clj_chan *ch = clj_alloc(&clj_chan_type, sizeof *ch);
 	memset((char *)ch + sizeof ch->h, 0, sizeof *ch - sizeof ch->h);
 	// Born shared, as an atom: whatever a put stores is published by the store, on every path into the channel.
-	ch->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH;
+	ch->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | CLJ_FLAG_CC_LOCKED;
 	clj_lock_init(&ch->lock);
 	clj_cmutex_init(&ch->cm);
 	ch->kind = (uint8_t)kind;

@@ -79,6 +79,9 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 #define CLJ_FLAG_REACH       ((uint32_t)1 << 6)
 // The same through unshared objects only: the inline release takes the slow path for it, the local candidate.
 #define CLJ_FLAG_REACH_LOCAL ((uint32_t)1 << 7)
+// A shared MUTABLE type the collector reads under the lock its stores take (clj_type.cc_locked: an atom, a channel):
+// a store into it needs no barrier. In the header, since a store has the owner's flags in hand already.
+#define CLJ_FLAG_CC_LOCKED   ((uint32_t)1 << 8)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
 #define CLJ_OWNER_SHIFT 16
 
@@ -173,8 +176,8 @@ struct clj_type {
 	// under (clj_slot_store asks); NULL where no cheap answer exists.
 	bool (*debug_lock_held)(const void *self);
 	// The concurrent collector reads a shared object of this type under the lock its writers hold: runs inside(self,
-	// ctx) under it, false without running when the lock is busy. A store into such an object needs no barrier
-	// (clj_cc_note_store). NULL: each_child is read without a lock (cc.c, the lock-free protocol).
+	// ctx) under it, false without running when the lock is busy. Its objects carry CLJ_FLAG_CC_LOCKED, so a store
+	// into one needs no barrier. NULL: each_child is read without a lock (cc.c, the lock-free protocol).
 	bool (*cc_locked)(void *self, void (*inside)(void *self, void *ctx), void *ctx);
 };
 
@@ -212,7 +215,7 @@ void      clj_release_slow(clj_header *h);
 bool      clj_is_unique(clj_value v);
 bool      clj_is_shared(clj_value v);
 // A store into a shared MUTABLE owner, after the slot was written and before the old value is released (cc.c).
-void      clj_cc_note_store(clj_header *owner);
+void      clj_cc_note_store(clj_header *owner, uint32_t flags);
 // Marks v and everything reachable from it shared. Call before handing v to another thread.
 void      clj_share(clj_value v);
 void      clj_fatal(const char *msg) __attribute__((noreturn));
@@ -275,29 +278,31 @@ void clj_debug_slot_check(const clj_header *owner, clj_value v);
 #define CLJ_SLOT_INIT_CHECK(owner, v) ((void)0)
 #endif
 
-// The reach bits of a new edge into owner. A MUTABLE owner keeps the bits it was born with: a reference type that
-// can close a cycle has them from birth, and a lazy seq's realization must not give them (design §7). The owner is
-// unshared, or shared and unique, so the plain write races with no reader.
-static inline void clj_reach_from(clj_header *owner, clj_value v) {
-	if (!clj_is_ptr(v) || (owner->flags & CLJ_FLAG_MUTABLE)) return;
+// The reach bits of a new edge into owner, whose flags the caller read once: a contended reference type's header is
+// read once per store. A MUTABLE owner keeps the bits it was born with: a reference type that can close a cycle has
+// them from birth, and a lazy seq's realization must not give them (design §7). The owner is unshared, or shared and
+// unique, so the plain write races with no reader.
+static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
+	if (!clj_is_ptr(v) || (flags & CLJ_FLAG_MUTABLE)) return;
 	uint32_t f = clj_header_of(v)->flags;
 	owner->flags |= (f & CLJ_FLAG_REACH) |
 	                ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
 }
 
 // After a store into owner: a shared reference type tells a running collection its slots moved.
-static inline void clj_slot_stored(clj_header *owner) {
-	if ((owner->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE)) == (CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE)) clj_cc_note_store(owner);
+static inline void clj_slot_stored(clj_header *owner, uint32_t flags) {
+	if ((flags & (CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE)) == (CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE)) clj_cc_note_store(owner, flags);
 }
 
 // The store into a live object: a shared owner publishes v before v becomes reachable through it. A reference type
 // (atom, channel, ...) stores under its own lock, which this does not take; debug builds check that it is held.
 // The caller releases the old value after this returns, never before (the collector's lock-free protocol, cc.c).
 static inline void clj_slot_store(clj_header *owner, clj_slot *slot, clj_value v) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	clj_reach_from(owner, v);
+	uint32_t f = owner->flags;
+	if (f & CLJ_FLAG_SHARED) clj_share(v);
+	clj_reach_from(owner, f, v);
 	slot->v = v;
-	clj_slot_stored(owner);
+	clj_slot_stored(owner, f);
 	CLJ_SLOT_STORE_CHECK(owner, v);
 }
 
@@ -305,7 +310,7 @@ static inline void clj_slot_store(clj_header *owner, clj_slot *slot, clj_value v
 // coroutine) takes only values that need no publication; debug builds check it.
 static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v) {
 	CLJ_SLOT_INIT_CHECK(owner, v);
-	clj_reach_from(owner, v);
+	clj_reach_from(owner, owner->flags, v);
 	slot->v = v;
 }
 
@@ -336,28 +341,31 @@ static inline clj_value clj_slot_load(const clj_atomic_slot *slot, memory_order 
 }
 
 static inline void clj_slot_store_atomic(clj_header *owner, clj_atomic_slot *slot, clj_value v, memory_order order) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	clj_reach_from(owner, v);
+	uint32_t f = owner->flags;
+	if (f & CLJ_FLAG_SHARED) clj_share(v);
+	clj_reach_from(owner, f, v);
 	atomic_store_explicit(&slot->v, v, order);
-	clj_slot_stored(owner);
+	clj_slot_stored(owner, f);
 	CLJ_SLOT_STORE_CHECK(owner, v);
 }
 
 static inline clj_value clj_slot_exchange(clj_header *owner, clj_atomic_slot *slot, clj_value v, memory_order order) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	clj_reach_from(owner, v);
+	uint32_t f = owner->flags;
+	if (f & CLJ_FLAG_SHARED) clj_share(v);
+	clj_reach_from(owner, f, v);
 	clj_value old = atomic_exchange_explicit(&slot->v, v, order);
-	clj_slot_stored(owner);
+	clj_slot_stored(owner, f);
 	CLJ_SLOT_STORE_CHECK(owner, v);
 	return old;
 }
 
 static inline bool clj_slot_cas(clj_header *owner, clj_atomic_slot *slot, clj_value *expected, clj_value v,
                                 memory_order success, memory_order failure) {
-	if (owner->flags & CLJ_FLAG_SHARED) clj_share(v);
-	clj_reach_from(owner, v);
+	uint32_t f = owner->flags;
+	if (f & CLJ_FLAG_SHARED) clj_share(v);
+	clj_reach_from(owner, f, v);
 	if (!atomic_compare_exchange_strong_explicit(&slot->v, expected, v, success, failure)) return false;
-	clj_slot_stored(owner);
+	clj_slot_stored(owner, f);
 	CLJ_SLOT_STORE_CHECK(owner, v);
 	return true;
 }

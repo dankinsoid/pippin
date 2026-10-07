@@ -1980,3 +1980,33 @@ Memory: 64.4 · 66.3 pool bytes per pair with tuples, 114.2 without.
 - **Reach, from the corpus log** (`clj_debug_vector_stats`, the compiled-corpus run of the same CI job,
   37644671595): over both libraries' suites 1.03 M tuples were built against 147 k tries begun by a conj onto
   `[]`, and 3 tuples were promoted past six — the literals and map entries are the vectors a program makes.
+
+## Cycle collector — 2026-10-07, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release)
+
+`CLJ_BENCH_ONLY=cycles` (CI run 37654984724, head 1ab4a87; `make bench` with `make_args: CLJ_BENCH_ONLY=cycles`, so
+the pool run and the `CLJ_SYSTEM_ALLOC=1` control). Design §7 «Сборщик циклов: как он устроен», NOTES "RC".
+
+| scenario (interpreted, 100000 iterations) | pool ns/op | malloc ns/op |
+|---|---:|---:|
+| atom ↔ map ↔ closure ring, made and collected (background) | 374.1 | 338.8 |
+| the same atom and map, no cycle | 126.9 | 151.0 |
+| volatile ↔ vector cell, made and collected (local, inline at 256) | 177.7 | 186.7 |
+| the same volatile and vector, no cycle | 92.1 | 111.5 |
+| letfn of two fns, called and collected | 653.5 | 701.6 |
+| a closure over an atom, bound and called | 49.6 | 49.1 |
+
+| per call: one volatile ↔ vector cell | p50 ns | p99 ns | p99.9 ns | max ns | calls over 10 µs of 20000 |
+|---|---:|---:|---:|---:|---:|
+| off the main carrier: a local collection inline every 256 | 125 | 292 | 8959 | 51375 | 12 |
+| main carrier past its bound: one hand-off per call | 291 | 750 | 5750 | 14000 | 3 |
+
+- **A cycle costs about one more allocation's worth to collect.** The shared ring (atom, map, closure) is made and
+  dropped in 127 ns and collected in another ~250 ns on the background thread; the local cell (volatile, vector)
+  in another ~85 ns on the releasing execution. Without the collector the same loops leak every cycle.
+- **The main carrier's worst pause is one hand-off, not a collection.** Off the main carrier a call that crosses
+  256 candidates collects them inline, 9–51 µs at the tail; on it, past 4096 buffered candidates every call hands
+  one to the background (`clj_share` of a volatile and a vector, then the shared buffer's push), +166 ns at the
+  median, 14 µs at worst, the longest hand-off timed inside the runtime 11–37 µs over the two runs. On the x86_64
+  laptop a like tail (p99.9 9–27 µs) stayed with the background thread switched off, so it is the machine and
+  the allocator, not the buffer's mutex. The idle hook then collected the 4096
+  buffered cells in 170–224 µs, one run-loop wake, within its 1 ms budget.

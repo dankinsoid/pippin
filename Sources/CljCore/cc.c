@@ -156,8 +156,8 @@ bool clj_cc_defer_free(clj_header *h) {
 
 // The barrier pairs with the collector's activate-then-read: design §7, the lock-free protocol. Reading `active`
 // first keeps a contended owner's header (an atom swapped by many threads) out of its critical section.
-void clj_cc_note_store(clj_header *owner) {
-	if (!owner->type->cc_locked) atomic_thread_fence(memory_order_seq_cst);
+void clj_cc_note_store(clj_header *owner, uint32_t flags) {
+	if (!(flags & CLJ_FLAG_CC_LOCKED)) atomic_thread_fence(memory_order_seq_cst);
 	if (__builtin_expect(atomic_load_explicit(&clj_cc_running, memory_order_seq_cst), 0) &&
 	    (atomic_load_explicit(&owner->rc, memory_order_seq_cst) & CLJ_RC_WATCH))
 		clj_cc_unwatch(owner);

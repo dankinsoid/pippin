@@ -134,7 +134,7 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	clj_cmutex_init(&a->lock);
 	atomic_init(&a->owner, 0);
 	// Born shared, as a var: every value stored into it is published by the store itself.
-	a->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH;
+	a->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | CLJ_FLAG_CC_LOCKED;
 	clj_slot_store_atomic(&a->h, &a->value, clj_retain(value), memory_order_relaxed);
 	clj_slot_store(&a->h, &a->meta, clj_retain(meta));
 	clj_slot_store(&a->h, &a->validator, clj_retain(validator));
