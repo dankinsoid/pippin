@@ -134,13 +134,18 @@
   held, at finish (the epilogue borrows the finished coroutine's buffer, `clj_cc_local_borrow`; so does a blocking
   job for its parked caller), in `clj_cc_collect`, and on the main carrier at `kCFRunLoopBeforeWaiting` with a 1 ms
   budget in slices of 64 (`clj_cc_main_idle`); past 4096 the main carrier hands one entry per new candidate to the
-  background by `clj_share`. The shared collection runs on a detached thread woken by the first entry and collecting
-  500 ms later or at 1024 entries; `clj_cc_collect` runs one on the caller under the same mutex. While it runs a
-  shared object reaching zero is deferred whole (`clj_cc_defer_free`) and freed by the collector at the end. A
-  store into a shared `MUTABLE` owner calls `clj_cc_note_store` after the store and before the old value goes (a
-  barrier, then the watch check; no barrier for a type read under its own lock, `cc_locked`: an atom's cmutex, a
-  channel's section, whose entry also clears the watch since any section may move a value out). `clj_debug_cc_stats`
-  counts collections, objects freed, candidates, hand-offs, nodes visited and roots put back after interference;
+  background by `clj_share`. The shared collection runs on a detached thread at QoS utility, woken by the first
+  entry and collecting 500 ms later or at 1024 entries, its buffer in chunks of 1022 so a push never copies a grown
+  array; `clj_cc_collect` runs one on the caller under the same mutex. While it runs (`clj_cc_running`) a shared
+  object reaching zero is deferred whole (`clj_cc_defer_free`) and freed by the collector at the end. A store into a
+  shared `MUTABLE` owner calls `clj_cc_note_store` after the store and before the old value goes: a barrier, then
+  the collection flag, and the owner's watch bit only while a collection runs, so a contended atom's header is not
+  read again inside its critical section. A type read under its own lock (`cc_locked`, `CLJ_FLAG_CC_LOCKED`: an
+  atom's cmutex, a channel's section, whose entry also clears the watch since any section may move a value out)
+  takes no barrier. The store primitives read the owner's flags once for the share test, the reach bits and the
+  note. A node copy takes its source's reach bits once (`clj_reach_copy`, `clj_slot_init_copied`) rather than per
+  slot. `clj_debug_cc_stats` counts collections, objects freed, candidates, hand-offs, nodes visited, roots put back
+  after interference and the longest main-carrier hand-off;
   `CLJ_CC=0` keeps the bits and files no entry, the control of a cost measurement. `runtimeSettled` collects first,
   so a test baseline is after collection. `scripts/tsan.supp` names `visit_lockfree`, the frame that reads a
   volatile's, an array's or a lazy seq's slots without their writer's lock.

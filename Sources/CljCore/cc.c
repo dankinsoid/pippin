@@ -5,6 +5,10 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef __APPLE__
+#include <pthread/qos.h>
+#endif
+
 #include "alloc.h"
 #include "cc_internal.h"
 #include "clj/coro.h"
@@ -74,6 +78,10 @@ static int64_t collect_shared(void);
 
 static void *cc_main(void *arg) {
 	(void)arg;
+#ifdef __APPLE__
+	// Below the carriers' default: a collection yields the cpu to the mutators whose garbage it collects.
+	pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#endif
 	pthread_mutex_lock(&buf_mu);
 	for (;;) {
 		while (!shared_fresh) pthread_cond_wait(&buf_cv, &buf_mu);
