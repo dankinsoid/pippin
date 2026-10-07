@@ -95,8 +95,8 @@ extension CoreTests {
 			// The address is kept only where reuse is on; -DCLJ_NO_REUSE copies and the values stay the same.
 			let inPlace: Value = clj_reuse_enabled() ? true : false
 			do {
-				// v is unique: the last read hands it over and conj grows it where it is.
-				#expect(try rt.eval("(let [v (conj [] 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [inPlace, [1, 2]])
+				// v is a unique trie ((conj [] 1) would fold to a constant): the last read hands it over and conj grows it in place.
+				#expect(try rt.eval("(let [v (conj (vector) 1) p (lu-ptr v) w (conj v 2)] [(= p (lu-ptr w)) w])") == [inPlace, [1, 2]])
 				// A tuple grows by a word, moving with its size class (72 and 80 bytes share one) or under the system realloc.
 				let poolInPlace: Value = clj_reuse_enabled() && clj_debug_pool_enabled() ? true : false
 				#expect(try rt.eval("(let [v (vector 1 2 3 4) p (lu-ptr v) w (conj v 5)] [(= p (lu-ptr w)) w])") == [poolInPlace, [1, 2, 3, 4, 5]])
