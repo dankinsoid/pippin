@@ -1802,6 +1802,22 @@ same binary against itself), so the rows are listed run by run.
   way. The atom rows, where the stores did change, are within noise: `swap! inc` and `deref` 81–96 against
   79–109, the contended counter 229–242 against 232–238.
 
+
+### The same A/B on arm64 — 2026-10-07, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool only)
+
+`make bench-ab` (CI run 37631527077): base 472cf64, before the primitive, against main 0bdd1f7, three alternating
+full runs in one job; rounds 2 and 3 compared, round 1 being warm-up. Over the 118 rows the median head/base ratio
+is 1.05, the 10th and 90th percentiles 0.88 and 1.23, and the Atoms rows the primitive's stores touch read 0.70–0.96
+(`swap!`, `deref`), the contended ones 1.12–1.21.
+
+- **Inconclusive by construction: this runner's spread per row is about ±20 %.** The same workload printed in two
+  tables of one run moves opposite ways — "loop assoc into a map", 100000, reads 0.74 in the Atoms table and 1.21 in
+  the map table. A layout-sized effect (the x86_64 section above: 2038 of 2172 functions byte-identical) is below
+  what one job on a 3-cpu virtual M1 resolves; it shows no systematic cost of the primitive and could not show one
+  under ~10 %.
+- The same floor bounds the arm64 BRC verdict below: its +20–30 % on the main tick held in both compared rounds with
+  the control moving the other way, which makes it a direction, not a measured size.
+
 ## Main-thread BRC (branch `brc-main`, not merged) — 2026-10-07, Intel i9-9980HK (x86_64), macOS 26.7.1, Swift 6.3.3 (release, pool only)
 
 The main carrier counts shared objects in `main16` and executes an RMW only at an episode edge (design §4, «BRC с
