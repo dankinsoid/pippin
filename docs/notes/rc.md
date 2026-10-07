@@ -73,9 +73,9 @@
   `object.h`, `rc.c`, `coro.c`). The owner is the execution — a `clj_coro`, a bare thread's implicit one
   included — not the thread: a coroutine that parks and resumes on another carrier owns what it owned (design
   §4, «Смена потока — не триггер»). Each `clj_coro` takes a 16-bit tag at creation (`debug_owner`), `clj_alloc`
-  writes the running execution's tag into the top 16 bits of `flags` (`CLJ_OWNER_SHIFT`; release builds leave
-  them 0, so the header is the same in both; design §4 gives them to the main thread's counter of its BRC, and
-  the tag moves out of the header when that lands), and the non-atomic paths compare it with the running execution's: `clj_retain`/`clj_release`
+  writes the running execution's tag into the header's `main16` field (release builds leave it 0, so the header is
+  the same in both; on a shared object the field is the main thread's count, and `clj_share` zeroes the tag or
+  puts the count there as it publishes), and the non-atomic paths compare it with the running execution's: `clj_retain`/`clj_release`
   inline, `release_reaches_zero` (a child released by a dying parent), `clj_is_unique`, and `clj_share` before
   it marks a node (the plain write of the flag must be the owner's). The comparison is an out-of-line call
   (`clj_debug_owner_check`), never a TLS address cached across a park. Gaps, both on the side of silence: tag 0
@@ -108,14 +108,39 @@
   callback, interpreted and compiled); each a non-atomic count
   touched from two threads. The keyword table and the loader's failures were only
   lock-ordered, never racy, and are shared for the check's model.
-- [~] **Share of retain/release on shared objects: 79–83 % with the state in an atom** (bench/RESULTS.md,
-  "Atoms"; `clj_debug_rc_ops` counts the plain, shared and immortal paths in debug builds, one relaxed
-  atomic add per retain/release, the same process-wide-counter caveat as the live count above). The flag
-  is monotone, so the first `reset!` puts the whole domain on the atomic path, ~80 pairs per state tick,
-  on the order of 300 ns — the same order as one `swap! assoc` (288–904 ns at 16–100000 keys, the path
-  copy of the "Atoms" entry under Builtins). General BRC is not taken: the copy path is dominated by the
-  node copies, not by their retains (measured while the hand-over existed: 140 in place against 765 copied).
-  Not done: design §4 «Представление значений» takes BRC with the main thread as the one owner, since reads
-  of UI state on main are where the atomic pairs are the whole cost; the rc-share run on main is its
-  before/after.
-
+- **Share of retain/release on shared objects: 76–81 % with the state in an atom, none of it an RMW on main**
+  (bench/RESULTS.md, "Atoms" and "Main-thread BRC"; `clj_debug_rc_ops` counts the plain, shared and immortal
+  paths in debug builds, one relaxed atomic add per retain/release, the same process-wide-counter caveat as the
+  live count above, and splits the main carrier's shared ops into plain `main16` ones and each kind of RMW). The
+  flag is monotone, so the first `reset!` puts the whole domain on the shared path, ~80–100 ops per state tick.
+  Off main each is an atomic, on the order of 300 ns a tick — the same order as one `swap! assoc` (288–904 ns at
+  16–100000 keys, the path copy of the "Atoms" entry under Builtins). General BRC is not taken: the copy path is
+  dominated by the node copies, not by their retains (measured while the hand-over existed: 140 in place against
+  765 copied). On the main carrier the same tick executes no RMW but the atom's own episode edges (below).
+- **Main-thread BRC.** `rc.c`, `object.h`; design §4 «BRC с одним владельцем — главным потоком». The header's
+  `main16` is the main carrier's count of a shared object, the rc word a signed count above bit 0 and
+  `CLJ_RC_MERGED`, set iff `main16` holds nothing; the sum is the reference count (`clj_debug_rc_count`).
+  - The main carrier is `clj_rc_owner`, set by `clj_sched_main_install` and `clj_debug_sched_main_adopt`
+    (`clj_rc_main_adopt`), cleared by `clj_debug_sched_main_abandon` after it drains. "Am I main" compares the
+    thread word (`thread_word`: the TSD base, docs/portability.md) with it; a `_Thread_local` there cost +13 % on
+    a pool tick, its read being a call on Darwin that clang hoisted into every retain. The main paths, the
+    hand-back and the identity are out of line, so a pool retain and release stay leaves; a merged object's
+    release never reads the identity.
+  - On main a retain from `main16 == 0` clears MERGED (`fetch_and`), a release to `main16 == 0` reads the word:
+    0 frees with no RMW, anything else is `fetch_or` MERGED and the old count decides; a release at `main16 == 0`
+    is a `fetch_sub`, the top of `main16` spills half into rc. A type with `unlink` always takes the `fetch_or`,
+    which `clj_retain_if_live`'s CAS meets (the specializer's index, above).
+  - Another thread's release that takes the count below zero gave up a reference `main16` counts: it adds the unit
+    back and queues the reference (`defer_to_main`), and `clj_sched_main_pump` takes the queue
+    (`clj_rc_main_drain`) as plain `main16` decrements; the first entry wakes the run-loop source. With no main
+    carrier the releasing thread takes it itself under `brc_mu`. A `go` spawned from main hands its closure back
+    this way, so its captures live until main's next turn; `clj_debug_rc_pending` counts what waits, and a test
+    on an adopted thread pumps before it settles (`MainRCTests.settledAsMain`).
+  - Publication on main moves an unshared object's count into `main16` (`clj_mark_shared`, from `clj_share` and
+    for an atom or channel born on main); a coroutine is born merged (`clj_mark_shared_merged`), its reference
+    always dropped by a carrier. An object that is unshared on main keeps today's plain path.
+  - `MainRCTests` drives every path deterministically on an adopted test thread with a fresh pthread as the pool
+    and asserts the RMW counts: an episode of 1000 pairs, Swift's inline copies, both orders of the last two
+    references in each count, the hand-back and its drain, the hand-back with no carrier, the spill, uniqueness,
+    a go-main block holding an atom's value the pool drops, a `put!` to a pool coroutine, and a stress of main,
+    go-main blocks and four pool coroutines over channels and an atom (run under TSan and ASan).

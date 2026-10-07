@@ -383,6 +383,26 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
 		}
 	}
 	print("\nretain+release ops per run of n ticks; shared share = shared / (plain + shared), immortal ops (keywords, core roots) aside")
+	// The same ticks on the main carrier: its shared ops split into plain main16 ones and each kind of RMW.
+	clj_debug_sched_main_adopt()
+	print("\n| on the main carrier | n | shared | main plain | edge in | edge out | free in place | merged | spill | RMW share |")
+	print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	for (name, fn) in [("state in an atom", tickAtom), ("state in a watched atom", tickWatched)] {
+		for n in [1_000, 10_000] {
+			_ = cljCall(fn, clj_fixnum(n))
+			clj_sched_main_pump()
+			let a = rcOps()
+			_ = cljCall(fn, clj_fixnum(n))
+			clj_sched_main_pump()
+			let b = rcOps()
+			func d(_ k: Int) -> Int64 { b[k] - a[k] }
+			let shared = d(CLJ_RC_SHARED)
+			let rmw = d(CLJ_RC_MAIN_EDGE_IN) + d(CLJ_RC_MAIN_EDGE_OUT) + d(CLJ_RC_MAIN_MERGED) + d(CLJ_RC_MAIN_SPILL)
+			print("| \(name) | \(n) | \(shared) | \(d(CLJ_RC_MAIN_PLAIN)) | \(d(CLJ_RC_MAIN_EDGE_IN)) | \(d(CLJ_RC_MAIN_EDGE_OUT)) | \(d(CLJ_RC_MAIN_FREE_IN_PLACE)) | \(d(CLJ_RC_MAIN_MERGED)) | \(d(CLJ_RC_MAIN_SPILL)) | \(String(format: "%.1f", Double(rmw) / Double(max(shared, 1)) * 100)) % |")
+		}
+	}
+	clj_debug_sched_main_abandon()
+	print("\nRMW share = the main carrier's RMWs (edges, merged releases, spills) per shared retain/release; a free in place is a plain load")
 	for fn in [tickAtom, tickWatched, tickLocal] { clj_release(fn) }
 	exit(0)
 }
@@ -394,7 +414,7 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-main" {
 	_ = cljEval("(require 'clojure.core.async) (in-ns 'bench.rc-main) (clojure.core/refer 'clojure.core) (require '[clojure.core.async :refer [go <!!]])")
 	let state = cljEval("(def state (atom nil)) (def stop (atom false)) state")
 	let tick = cljEval("""
-	(fn [n]
+	(defn tick [n]
 	  (reset! state {:users {} :counter 0})
 	  (loop [i 0 s 0]
 	    (if (< i n)
@@ -402,6 +422,7 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-main" {
 	          (swap! state update :counter inc)
 	          (recur (inc i) (+ s (count (get-in @state [:users (- i 1) :name] "")) (get @state :counter))))
 	      s)))
+	tick
 	""")
 	let startReaders = cljEval("""
 	(fn [k]
@@ -409,14 +430,24 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-main" {
 	  (mapv (fn [_] (go (loop [s 0] (if @stop s (recur (+ s (count (get-in @state [:users 1 :name] "")) (get @state :counter 0))))))) (range k)))
 	""")
 	let stopReaders = cljEval("(fn [rs] (reset! stop true) (reduce + (map <!! rs)))")
+	let poolTick = cljEval("(fn [n] (<!! (go (tick n))))")
+	let localTick = cljEval("""
+	(fn [n]
+	  (loop [i 0 s 0 state {:users {} :counter 0}]
+	    (if (< i n)
+	      (let [state (assoc-in state [:users i] {:id i :name "x"})
+	            state (update state :counter inc)]
+	        (recur (inc i) (+ s (count (get-in state [:users (- i 1) :name] "")) (get state :counter)) state))
+	      s)))
+	""")
 	let n = 10_000
 	var onMain = false
-	func timed() -> Double {
+	func timed(_ f: clj_value = tick) -> Double {
 		var times: [Double] = []
-		_ = cljCall(tick, clj_fixnum(n))
+		_ = cljCall(f, clj_fixnum(n))
 		for _ in 0..<reps {
 			let t0 = DispatchTime.now().uptimeNanoseconds
-			_ = cljCall(tick, clj_fixnum(n))
+			_ = cljCall(f, clj_fixnum(n))
 			times.append(Double(DispatchTime.now().uptimeNanoseconds - t0) / Double(n))
 			if onMain { clj_sched_main_pump() }
 		}
@@ -435,12 +466,15 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-main" {
 		return t
 	}
 	var rows: [(String, Double)] = []
+	rows.append(("bare thread, state in a loop local", timed(localTick)))
 	rows.append(("bare thread", timed()))
 	rows.append(("bare thread, 2 pool readers", withReaders(2) { timed() }))
+	rows.append(("pool coroutine", timed(poolTick)))
 	clj_debug_sched_main_adopt()
 	onMain = true
 	rows.append(("main carrier", timed()))
 	rows.append(("main carrier, 2 pool readers", withReaders(2) { timed() }))
+	rows.append(("pool coroutine, main carrier installed", timed(poolTick)))
 	clj_sched_main_pump()
 	clj_debug_sched_main_abandon()
 	print("| where the tick runs | ns per tick |")
