@@ -289,8 +289,10 @@
   exists (NOTES "RC") and does not reach this cycle: the waiter's `coro` is a bare pointer and a parked frame's
   counted reference to its channel is invisible, so the channel always reads as held from outside. Design §7
   ("Фаза 3") decided the open question — a collected coroutine is unwound by a cancel, not discarded, since only the
-  unwinding releases what its frames own — and records what is missing: the waiter edge as a strong edge, and an
-  exact enumeration of what frames own across a park (stack maps for compiled code, the interpreter's frame
+  unwinding releases what its frames own — and records what is missing: the waiter edge as a strong edge, every
+  source that can wake a park (all ports of an `alts!` — a `timeout` port is held by the timer thread, so a
+  coroutine whose other channel was dropped still wakes —, a deadline, a `suspend!` gate, a blocking job, a cmutex
+  queue, a lazy seq claim), and an exact enumeration of what frames own across a park (stack maps for compiled code, the interpreter's frame
   records, a rule for C builtins on the stack). Trigger: that enumeration, or a profile where abandoned parked
   coroutines grow without bound.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
