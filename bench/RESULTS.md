@@ -1981,41 +1981,44 @@ Memory: 64.4 · 66.3 pool bytes per pair with tuples, 114.2 without.
   37644671595): over both libraries' suites 1.03 M tuples were built against 147 k tries begun by a conj onto
   `[]`, and 3 tuples were promoted past six — the literals and map entries are the vectors a program makes.
 
-## Cycle collector — 2026-10-07, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release)
+## Cycle collector — 2026-10-07, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
 
-`CLJ_BENCH_ONLY=cycles` (CI run 37654984724, head 1ab4a87; `make bench` with `make_args: CLJ_BENCH_ONLY=cycles`, so
-the pool run and the `CLJ_SYSTEM_ALLOC=1` control). Design §7 «Сборщик циклов: как он устроен», NOTES "RC".
+`CLJ_BENCH_ONLY=cycles` through `make bench` (`make_args: CLJ_BENCH_ONLY=cycles`), two CI jobs: 37654984724 on
+1ab4a87 and 37676747690 on 1b7eaa9, the branch's last code; the second runner was slower across the board (the
+no-cycle rows 46–49 % above the first). Design §7 «Сборщик циклов: как он устроен», NOTES "RC".
 
-| scenario (interpreted, 100000 iterations) | pool ns/op | malloc ns/op |
+| scenario (interpreted, 100000 iterations, ns per iteration) | 1ab4a87 | 1b7eaa9 |
 |---|---:|---:|
-| atom ↔ map ↔ closure ring, made and collected (background) | 374.1 | 338.8 |
-| the same atom and map, no cycle | 126.9 | 151.0 |
-| volatile ↔ vector cell, made and collected (local, inline at 256) | 177.7 | 186.7 |
-| the same volatile and vector, no cycle | 92.1 | 111.5 |
-| letfn of two fns, called and collected | 653.5 | 701.6 |
-| a closure over an atom, bound and called | 49.6 | 49.1 |
+| atom ↔ map ↔ closure ring, made and collected (background) | 374.1 | 584.2 |
+| the same atom and map, no cycle | 126.9 | 185.1 |
+| volatile ↔ vector cell, made and collected (local, inline at 256) | 177.7 | 302.1 |
+| the same volatile and vector, no cycle | 92.1 | 137.5 |
+| letfn of two fns, called and collected | 653.5 | 746.7 |
+| a closure over an atom, bound and called | 49.6 | 64.1 |
 
-| per call: one volatile ↔ vector cell | p50 ns | p99 ns | p99.9 ns | max ns | calls over 10 µs of 20000 |
+| per call: one volatile ↔ vector cell, 20000 calls | p50 ns | p99 ns | p99.9 ns | max ns | over 10 µs |
 |---|---:|---:|---:|---:|---:|
-| off the main carrier: a local collection inline every 256 | 125 | 292 | 8959 | 51375 | 12 |
-| main carrier past its bound: one hand-off per call | 291 | 750 | 5750 | 14000 | 3 |
+| off the main carrier, a local collection inline every 256 (1ab4a87) | 125 | 292 | 8959 | 51375 | 12 |
+| the same (1b7eaa9) | 250 | 417 | 21125 | 42541 | 127 |
+| main carrier past its bound, one hand-off per call (1ab4a87) | 291 | 750 | 5750 | 14000 | 3 |
+| the same (1b7eaa9) | 250 | 1209 | 9666 | 238042 | 19 |
 
-- **A cycle costs about one more allocation's worth to collect.** The shared ring (atom, map, closure) is made and
-  dropped in 127 ns and collected in another ~250 ns on the background thread; the local cell (volatile, vector)
-  in another ~85 ns on the releasing execution. Without the collector the same loops leak every cycle.
-- **The main carrier's worst pause is one hand-off, not a collection.** Off the main carrier a call that crosses
-  256 candidates collects them inline, 9–51 µs at the tail; on it, past 4096 buffered candidates every call hands
-  one to the background (`clj_share` of a volatile and a vector, then the shared buffer's push), +166 ns at the
-  median, 14 µs at worst, the longest hand-off timed inside the runtime 11–37 µs over the two runs. On the x86_64
-  laptop a like tail (p99.9 9–27 µs) stayed with the background thread switched off, so it is the machine and
-  the allocator, not the buffer's mutex. The idle hook then collected the 4096
-  buffered cells in 170–224 µs, one run-loop wake, within its 1 ms budget.
+- **A cycle costs about one more allocation's worth to collect.** The shared ring (atom, map, closure) takes 1.9–2.2×
+  its cycle-free twin, the difference collected on the background thread; the local cell (volatile, vector)
+  1.9–2.2× on the releasing execution. Without the collector the same loops leak every cycle.
+- **The main carrier pauses for a hand-off, not a collection.** Off the main carrier a call that crosses 256
+  candidates collects them inline: the tail, 9–21 µs at p99.9, is those calls. On it, past 4096 buffered candidates
+  every call hands one to the background (`clj_share` of a volatile and a vector, then a push into the shared buffer):
+  p99 0.75–1.2 µs, p99.9 6–10 µs; the longest hand-off timed inside the runtime was 11 µs on the first runner and
+  117 µs on the second, a single outlier against 19 calls over 10 µs, which a descheduled thread on a 3-cpu virtual
+  runner accounts for as well as the work does. The idle hook then collected the 4096 buffered cells in one run-loop
+  wake of 170–378 µs, within its 1 ms budget.
 
-### What a cycle-free program pays — `make bench-ab`, arm64 (Apple M1 Virtual, 3 cpus) and x86_64
+### What a cycle-free program pays — `make bench-ab`, arm64 (Apple M1 Virtual, 3 cpus)
 
 Base bd57bc1 (main before the collector) against the branch, the full default bench, three alternating rounds in
-one job, rounds 2 and 3 compared (NOTES "Benchmarks"). Four CI jobs over the branch's last fixes; over the 128 rows
-the median head/base ratio:
+one job, rounds 2 and 3 compared (NOTES "Benchmarks"). Four jobs over the branch's fixes; over the 128 rows the median
+head/base ratio:
 
 | run | head | median | p10 | p90 |
 |---|---|---:|---:|---:|
@@ -2024,14 +2027,15 @@ the median head/base ratio:
 | 37665355883 | aa4c6a9 (the store primitives read the owner's flags once) | 0.995 | 0.867 | 1.134 |
 | 37669144906 | 1eb7f72 (the collector thread at QoS utility) | 1.052 | 0.913 | 1.228 |
 
-- **Within the runner's floor.** This runner's spread per row is about ±20 % (the Slot primitive section above), and
-  the median moves 0.995–1.052 between jobs of nearly the same code. The rows the collector's paths touch read as
-  noise there: `swap! inc` 1.03–1.05, `get @atom :k` 0.99, the closure call 1.03, "loop assoc into a map" 0.99, the
-  HAMT copy path ("all versions kept", every slot of every copied node through `clj_slot_init_copied`) 0.85–1.18.
-- **What the first local A/B showed and the fixes took away.** On the x86_64 laptop (i9-9980HK, two alternating
-  rounds) the first cut read "assoc, all versions kept" +33–39 % and the vector conj rows +10–25 %: every copied slot
-  OR'd its child's reach bits into the owner and `free_object` called `free(NULL)` per free. A node copy now takes its
-  source's bits once (`clj_reach_copy`), and the free calls `free` only for an aside list it has.
-- **The contended atom.** "swap! inc, 4 threads" reads higher in all four jobs (head 95–152 ns against base
-  65–117), "swap! assoc, 4 threads" moved from 1.9× to 0.99 with the store fixes. Four workers on three virtual cpus
-  make the row bimodal on both sides (base itself 65–117 and 291–811), so the size is not resolved here.
+- **Within the runner's floor.** Its spread per row is about ±20 % (the Slot primitive section above), and the median
+  moves 0.995–1.052 between jobs of nearly the same code. The rows the collector's paths touch read as noise there:
+  `swap! inc` 1.03–1.05, `get @atom :k` 0.99, the closure call 1.03, "loop assoc into a map" 0.99, the HAMT copy path
+  ("all versions kept", every slot of every copied node) 0.85–1.18.
+- **What the first cut cost, by an x86_64 local A/B (i9-9980HK, two rounds; not the numbers that count).** "assoc, all
+  versions kept" +33–39 % and the vector conj rows +10–25 %: every copied slot OR'd its child's reach bits into the
+  owner and `free_object` called `free(NULL)` per free. A node copy now takes its source's bits once
+  (`clj_reach_copy`; tuples too, in 1b7eaa9, after these jobs), and the free calls `free` only for an aside list.
+- **The contended atom is not resolved.** "swap! inc, 4 threads" reads higher in all four jobs (head 95–152 ns
+  against base 65–117), "swap! assoc, 4 threads" went from 1.9× to 0.99 once the store primitives read the atom's
+  header once. Four workers on three virtual cpus make the row bimodal on both sides (base alone 65–117 and
+  291–811), so its size is below what this runner resolves; NOTES "RC" holds it as the open cost.

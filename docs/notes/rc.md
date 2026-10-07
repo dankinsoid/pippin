@@ -156,3 +156,16 @@
   §7's boundary. A lazy seq realized into a value that refers back to it through a global (`(def s (lazy-seq (cons
   1 s)))`, then a redefinition) is not collected: realization adds no reach bit, or every cell of a `map` pipeline
   would be a candidate. Trigger: a leak report naming one of these.
+- [~] **What the collector costs** (bench/RESULTS.md, "Cycle collector", arm64 CI). A cycle-free program: the median
+  head/base ratio over the default bench's 128 rows was 0.995–1.052 in four `bench-ab` jobs, inside that runner's ±20 %
+  floor, after three fixes the first cut needed (reach bits once per node copy, the owner's flags read once per store,
+  the collection flag before a reference type's header). A cycle: about its own construction again (the ring and the
+  cell rows, 1.9–2.2× their cycle-free twins). The main carrier: past its bound a hand-off per candidate, p99
+  0.75–1.2 µs, p99.9 6–10 µs, the idle hook 170–378 µs for 4096 cells; off it, an inline local collection every 256
+  candidates, 9–21 µs at p99.9. Gates: one branch run took 1106 s against main's 911 s, the next 800 s, while `shake`,
+  `facts-report` and `fuzz`, which collect nothing that matters, moved ±50 % between the two — runner noise; the ASan
+  shard holding the corpus read 230–263 s against main's 190 s in both, a share two samples do not resolve. Open:
+  "swap! inc, 4 threads" read higher in all four jobs (head 95–152 ns, base 65–117), on a row bimodal on both sides.
+  The suspect is `release_reaches_zero`'s read of `rc` before the decrement of a shared `REACH` object (the
+  `BUFFERED` test), a second access to a contended line; the decrement and the filing must stay one operation (the
+  note at `clj_cc_shared_candidate`). Trigger: a profile of a contended atom on real hardware.
