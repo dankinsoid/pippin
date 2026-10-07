@@ -18,27 +18,8 @@
  ref-min-history       {:verdict :keep :why "with `ref`"}
 
  ;; ── Agents: §10 promises them; cljs lacks them because JS has one thread ───────────────────────
- agent                 {:verdict :keep :why "§10 promises it; an agent is a carrier-pool send queue over an atom"}
- send                  {:verdict :keep :why "with `agent`"}
- send-off              {:verdict :keep :why "with `agent`; the blocking pool is already the loader's and `thread`'s"}
- send-via              {:verdict :keep :why "with `agent`"}
- await                 {:verdict :keep :why "with `agent`; the wait is a channel take, not a latch"}
- await-for             {:verdict :keep :why "with `agent`; the deadline is ours already (`with-deadline`)"}
- await1                {:verdict :keep :why "with `agent`; undocumented but public upstream, and `await` is written over it"}
- *agent*               {:verdict :keep :why "with `agent`; the action's own handle, read from the running coroutine"}
- agent-error           {:verdict :keep :why "with `agent`"}
- agent-errors          {:verdict :keep :why "with `agent`; deprecated upstream but still public, so ours by compatibility"}
- clear-agent-errors    {:verdict :keep :why "with `agent`; deprecated upstream but still public"}
- restart-agent         {:verdict :keep :why "with `agent`"}
- error-handler         {:verdict :keep :why "with `agent`"}
- error-mode            {:verdict :keep :why "with `agent`"}
- set-error-handler!    {:verdict :keep :why "with `agent`"}
- set-error-mode!       {:verdict :keep :why "with `agent`"}
- release-pending-sends {:verdict :keep :why "with `agent`; the dispatch deferred by a transaction, so it comes with `dosync`"}
- shutdown-agents       {:verdict :keep :why "with `agent`; ours drains the blocking pool, which exists"}
  set-agent-send-executor!     {:verdict :repoint :why "the word stays, the argument is our carrier pool, not a `java.util.concurrent.ExecutorService`"}
  set-agent-send-off-executor! {:verdict :repoint :why "with `set-agent-send-executor!`: our blocking pool in place of a JVM executor"}
- seque                 {:verdict :keep :why "a lookahead seq over a queue — a channel plus the blocking pool here; absent from cljs only because JS has one thread"}
 
  ;; ── Printing and REPL dynamic vars cljs keeps ─────────────────────────────────────────────────
  *out*                 {:verdict :keep :why "cljs keeps it; ours is the C capture stack (`out-capture-push*`), and `with-out-str` already rebinds something that `*out*` has to name"}

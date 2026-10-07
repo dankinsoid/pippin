@@ -1124,9 +1124,9 @@ static void future_done(clj_coro *c, void *ctx) {
 	clj_release(chv);
 }
 
-static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*done)(clj_coro *c, void *ctx)) {
+static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*done)(clj_coro *c, void *ctx), bool detached) {
 	clj_retain(chv);
-	clj_value coro = clj_coro_spawn(f, NULL, 0, affinity, done, clj_to_ptr(chv));
+	clj_value coro = detached ? clj_coro_spawn_detached(f, done, clj_to_ptr(chv)) : clj_coro_spawn(f, NULL, 0, affinity, done, clj_to_ptr(chv));
 	if (coro == CLJ_THROWN) {
 		clj_release(chv);
 		clj_release(chv);
@@ -1141,12 +1141,12 @@ static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*don
 
 clj_value clj_chan_go(clj_value f, int affinity) {
 	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("go expects a fn, got: %s", clj_type_name(f));
-	return spawn_into(f, clj_chan_new(CLJ_NIL), affinity, go_done);
+	return spawn_into(f, clj_chan_new(CLJ_NIL), affinity, go_done, false);
 }
 
 clj_value clj_chan_future(clj_value f) {
 	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("future-call expects a fn, got: %s", clj_type_name(f));
-	return spawn_into(f, chan_alloc(CLJ_BUF_PROMISE, 1, CLJ_CHAN_FUTURE), CLJ_AFFINITY_POOL, future_done);
+	return spawn_into(f, chan_alloc(CLJ_BUF_PROMISE, 1, CLJ_CHAN_FUTURE), CLJ_AFFINITY_POOL, future_done, false);
 }
 
 struct thread_job {
@@ -1203,8 +1203,7 @@ static void thread_run(void *ctx) {
 	free(j);
 }
 
-clj_value clj_chan_thread(clj_value f) {
-	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("thread* expects a fn, got: %s", clj_type_name(f));
+static clj_value chan_thread(clj_value f, bool detached) {
 	clj_value   chv = chan_alloc(CLJ_BUF_NONE, 0, CLJ_CHAN_THREAD);
 	thread_job *j = malloc(sizeof *j);
 	if (!j) clj_fatal("out of memory");
@@ -1212,12 +1211,17 @@ clj_value clj_chan_thread(clj_value f) {
 	clj_share(f);
 	j->f = clj_retain(f);
 	j->chv = clj_retain(chv);
-	j->bindings = clj_var_bindings_share();
+	j->bindings = detached ? NULL : clj_var_bindings_share();
 	j->captures = clj_output_captures_share();
 	atomic_init(&j->cancel_early, false);
 	chan_of(chv)->job = j;
 	clj_blocking_detach(thread_run, j);
 	return chv;
+}
+
+clj_value clj_chan_thread(clj_value f) {
+	if (!clj_has_core(f, CLJ_CORE_FN)) return clj_throw_msg("thread* expects a fn, got: %s", clj_type_name(f));
+	return chan_thread(f, false);
 }
 
 // True when a body still running (or not yet started) was told to stop; false once it finished.
@@ -1410,6 +1414,15 @@ static clj_value b_thread(const clj_value *args, size_t n) {
 	return clj_chan_thread(args[0]);
 }
 
+// An agent action's run (core.clj): the action carries its sender's bindings itself, and what the execution
+// that happened to start the agent's queue had bound, or its deadline, is no business of the agent's.
+static clj_value b_spawn_detached(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_has_core(args[0], CLJ_CORE_FN)) return clj_throw_msg("spawn-detached* expects a fn, got: %s", clj_type_name(args[0]));
+	if (clj_truthy(args[1])) return chan_thread(args[0], true);
+	return spawn_into(args[0], clj_chan_new(CLJ_NIL), CLJ_AFFINITY_POOL, go_done, true);
+}
+
 static clj_value b_future(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_chan_future(args[0]);
@@ -1566,6 +1579,7 @@ void clj_chan_install(void) {
 		{"available-processors*", b_available_processors, 0, 0}, {"coro-current*", b_coro_current, 0, 0}, {"uncaught-report*", b_uncaught_report, 1, 1},
 		{"coro-cancel-scope*", b_coro_cancel_scope, 1, 2}, {"coro-uncancel-scope*", b_coro_uncancel_scope, 1, 1},
 		{"chan-cancel-cause*", b_chan_cancel_cause, 1, 2},
+		{"spawn-detached*", b_spawn_detached, 2, 2},
 		{"chan-suspend*", b_suspend, 1, 1}, {"chan-resume*", b_resume, 1, 1}, {"chan-suspended?*", b_suspended_p, 1, 1},
 	};
 	for (size_t i = 0; i < sizeof entries / sizeof *entries; i++) clj_builtin_bind(entries[i].name, entries[i].fn, entries[i].min, entries[i].max);

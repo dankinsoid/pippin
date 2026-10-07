@@ -9,15 +9,15 @@ The third column is ClojureScript 1.11.132, the measure of admissible divergence
 | | count |
 |---|---|
 | JVM public vars | 679 |
-| ours | 704 |
+| ours | 734 |
 | cljs.core publics | 928 |
-| in both | 494 |
-| missing here | 185 |
+| in both | 513 |
+| missing here | 166 |
 | missing here, kept by cljs | 60 |
-| missing here, absent from cljs too | 125 |
-| missing and used by the corpus | 49 |
-| ours only, public | 106 |
-| ours only, internal (`name*`) | 104 |
+| missing here, absent from cljs too | 106 |
+| missing and used by the corpus | 44 |
+| ours only, public | 116 |
+| ours only, internal (`name*`) | 105 |
 | ours only, public without `^:pippin/extension` | 0 |
 | macro/fn mismatches | 1 |
 | arity mismatches | 11 |
@@ -31,7 +31,6 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 |---|---|---|---|
 | 45 | `class` | no | `([x])` |
 | 36 | `ref` | no | `([x] [x & options])` |
-| 7 | `await` | no | `([& agents])` |
 | 5 | `*warn-on-reflection*` | no | `nil` |
 | 5 | `cast` | no | `([c x])` |
 | 5 | `test` | yes | `([v])` |
@@ -50,14 +49,11 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 | 3 | `unchecked-short` | yes | `([x])` |
 | 3 | `with-open` | no | `([bindings & body])` |
 | 2 | `*err*` | no | `nil` |
-| 2 | `agent` | no | `([state & options])` |
-| 2 | `agent-error` | no | `([a])` |
 | 2 | `dosync` | no | `([& exprs])` |
 | 2 | `find-keyword` | no | `([name] [ns name])` |
 | 2 | `import` | yes | `([& import-symbols-or-lists])` |
 | 2 | `iterator-seq` | no | `([iter])` |
 | 2 | `mix-collection-hash` | yes | `([hash-basis count])` |
-| 2 | `send` | no | `([a f & args])` |
 | 2 | `unchecked-add-int` | yes | `([x y])` |
 | 1 | `alter` | no | `([ref fun & args])` |
 | 1 | `booleans` | yes | `([xs])` |
@@ -73,12 +69,10 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 | 1 | `longs` | yes | `([xs])` |
 | 1 | `ref-set` | no | `([ref val])` |
 | 1 | `replace` | yes | `([smap] [smap coll])` |
-| 1 | `restart-agent` | no | `([a new-state & options])` |
 | 1 | `shorts` | yes | `([xs])` |
 | 1 | `unchecked-multiply-int` | yes | `([x y])` |
 | 1 | `uri?` | yes | `([x])` |
 | 1 | `with-local-vars` | no | `([name-vals-vec & body])` |
-| 0 | `*agent*` | no | `nil` |
 | 0 | `*allow-unresolved-vars*` | no | `nil` |
 | 0 | `*clojure-version*` | no | `nil` |
 | 0 | `*command-line-args*` | yes | `nil` |
@@ -89,12 +83,18 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 | 0 | `*fn-loader*` | no | `nil` |
 | 0 | `*out*` | yes | `nil` |
 | 0 | `*print-dup*` | yes | `nil` |
+| 0 | `*print-meta*` | yes | `nil` |
+| 0 | `*print-namespace-maps*` | yes | `nil` |
+| 0 | `*print-readably*` | yes | `nil` |
+| 0 | `*read-eval*` | no | `nil` |
+| 0 | `*reader-resolver*` | no | `nil` |
+| 0 | `*repl*` | no | `nil` |
 
 ## Every missing name
 
 Kept by cljs: `*command-line-args*` `*flush-on-newline*` `*out*` `*print-dup*` `*print-meta*` `*print-namespace-maps*` `*print-readably*` `->ArrayChunk` `..` `Inst` `Throwable->map` `booleans` `bytes` `chars` `chunk` `chunk-append` `chunk-buffer` `chunk-cons` `chunk-first` `chunk-next` `chunk-rest` `chunked-seq?` `comparator` `doubles` `floats` `hash-combine` `hash-ordered-coll` `hash-unordered-coll` `import` `inst-ms*` `ints` `longs` `memfn` `mix-collection-hash` `munge` `ns-imports` `replace` `seq-to-map-for-destructuring` `shorts` `tagged-literal` `tagged-literal?` `test` `time` `to-array-2d` `unchecked-add-int` `unchecked-byte` `unchecked-char` `unchecked-dec-int` `unchecked-divide-int` `unchecked-double` `unchecked-float` `unchecked-inc-int` `unchecked-int` `unchecked-long` `unchecked-multiply-int` `unchecked-negate-int` `unchecked-remainder-int` `unchecked-short` `unchecked-subtract-int` `uri?`
 
-Absent from cljs too: `*agent*` `*allow-unresolved-vars*` `*clojure-version*` `*compile-files*` `*compile-path*` `*compiler-options*` `*err*` `*fn-loader*` `*read-eval*` `*reader-resolver*` `*repl*` `*source-path*` `*suppress-read*` `*unchecked-math*` `*use-context-classloader*` `*verbose-defrecords*` `*warn-on-reflection*` `->Vec` `->VecNode` `->VecSeq` `-cache-protocol-fn` `-reset-methods` `EMPTY-NODE` `PrintWriter-on` `StackTraceElement->vec` `accessor` `add-classpath` `agent` `agent-error` `agent-errors` `alter` `await` `await-for` `await1` `bases` `bean` `bytes?` `cast` `char-escape-string` `char-name-string` `class` `class?` `clear-agent-errors` `clojure-version` `commute` `compile` `construct-proxy` `create-struct` `definline` `definterface` `defstruct` `dosync` `ensure` `enumeration-seq` `error-handler` `error-mode` `extenders` `file-seq` `find-keyword` `find-protocol-impl` `find-protocol-method` `find-var` `gen-class` `gen-interface` `get-proxy-class` `init-proxy` `io!` `iterator-seq` `line-seq` `load` `load-reader` `method-sig` `namespace-munge` `ns-unalias` `primitives-classnames` `print-ctor` `print-dup` `print-method` `print-simple` `proxy` `proxy-call-with-super` `proxy-mappings` `proxy-name` `proxy-super` `read` `read+string` `reader-conditional` `reader-conditional?` `ref` `ref-history-count` `ref-max-history` `ref-min-history` `ref-set` `release-pending-sends` `remove-ns` `requiring-resolve` `restart-agent` `resultset-seq` `send` `send-off` `send-via` `seque` `set-agent-send-executor!` `set-agent-send-off-executor!` `set-error-handler!` `set-error-mode!` `shutdown-agents` `slurp` `spit` `stream-into!` `stream-reduce!` `stream-seq!` `stream-transduce!` `struct` `struct-map` `supers` `sync` `unquote` `unquote-splicing` `update-proxy` `with-in-str` `with-loading-context` `with-local-vars` `with-open` `xml-seq`
+Absent from cljs too: `*allow-unresolved-vars*` `*clojure-version*` `*compile-files*` `*compile-path*` `*compiler-options*` `*err*` `*fn-loader*` `*read-eval*` `*reader-resolver*` `*repl*` `*source-path*` `*suppress-read*` `*unchecked-math*` `*use-context-classloader*` `*verbose-defrecords*` `*warn-on-reflection*` `->Vec` `->VecNode` `->VecSeq` `-cache-protocol-fn` `-reset-methods` `EMPTY-NODE` `PrintWriter-on` `StackTraceElement->vec` `accessor` `add-classpath` `alter` `bases` `bean` `bytes?` `cast` `char-escape-string` `char-name-string` `class` `class?` `clojure-version` `commute` `compile` `construct-proxy` `create-struct` `definline` `definterface` `defstruct` `dosync` `ensure` `enumeration-seq` `extenders` `file-seq` `find-keyword` `find-protocol-impl` `find-protocol-method` `find-var` `gen-class` `gen-interface` `get-proxy-class` `init-proxy` `io!` `iterator-seq` `line-seq` `load` `load-reader` `method-sig` `namespace-munge` `ns-unalias` `primitives-classnames` `print-ctor` `print-dup` `print-method` `print-simple` `proxy` `proxy-call-with-super` `proxy-mappings` `proxy-name` `proxy-super` `read` `read+string` `reader-conditional` `reader-conditional?` `ref` `ref-history-count` `ref-max-history` `ref-min-history` `ref-set` `remove-ns` `requiring-resolve` `resultset-seq` `set-agent-send-executor!` `set-agent-send-off-executor!` `slurp` `spit` `stream-into!` `stream-reduce!` `stream-seq!` `stream-transduce!` `struct` `struct-map` `supers` `sync` `unquote` `unquote-splicing` `update-proxy` `with-in-str` `with-loading-context` `with-local-vars` `with-open` `xml-seq`
 
 ## Missing, classified
 
@@ -106,7 +106,7 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 
 | | count |
 |---|---|
-| keep | 102 |
+| keep | 83 |
 | repoint | 11 |
 | drop | 72 |
 | unclassified | 0 |
@@ -116,7 +116,6 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | uses | name | cljs | why |
 |---|---|---|---|
 | 36 | `ref` | no | §10 promises it; §8 already fixes the mechanism (2PL by ref id, not MVCC). Absent from cljs only because JS has one thread |
-| 7 | `await` | no | with `agent`; the wait is a channel take, not a latch |
 | 5 | `test` | yes | cljs keeps it; it runs the var's `:test` meta, and `clojure.test` is ours already |
 | 5 | `unchecked-int` | yes | with `unchecked-byte` |
 | 4 | `Throwable->map` | yes | cljs keeps it over its own error type; the map shape is what `pst` and tooling read, and `ex-trace`/`ex-type` are ours |
@@ -129,12 +128,9 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | 3 | `unchecked-short` | yes | with `unchecked-byte` |
 | 3 | `with-open` | no | with `slurp`; the close call is an ObjC message, not a JVM interface |
 | 2 | `*err*` | no | with `*out*`; cljs replaced the pair with `*print-fn*`/`*print-err-fn*`, but our namespace is literally `clojure.core`, so portable code redirects by binding these two |
-| 2 | `agent` | no | §10 promises it; an agent is a carrier-pool send queue over an atom |
-| 2 | `agent-error` | no | with `agent` |
 | 2 | `dosync` | no | with `ref`; the transaction is a coroutine-mutex scope |
 | 2 | `find-keyword` | no | keywords are interned in C here, so the non-interning lookup is one call; cljs dropped it for want of a table |
 | 2 | `mix-collection-hash` | yes | with `hash-combine` |
-| 2 | `send` | no | with `agent` |
 | 2 | `unchecked-add-int` | yes | cljs keeps the `-int` family too; ours is the fixnum-width twin of `unchecked-add` |
 | 1 | `alter` | no | with `ref` |
 | 1 | `booleans` | yes | cljs keeps all eight as identity casts; ours cast to the §4 low-level array layer, identity until `(array Layout n)` lands |
@@ -148,10 +144,8 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | 1 | `longs` | yes | with `booleans` |
 | 1 | `ref-set` | no | with `ref` |
 | 1 | `replace` | yes | `clojure.core/replace` over a seq — pure Clojure, kept by cljs, and nothing here explains its absence |
-| 1 | `restart-agent` | no | with `agent` |
 | 1 | `shorts` | yes | with `booleans` |
 | 1 | `unchecked-multiply-int` | yes | with `unchecked-add-int` |
-| 0 | `*agent*` | no | with `agent`; the action's own handle, read from the running coroutine |
 | 0 | `*clojure-version*` | no | cljs replaced it with `*clojurescript-version*` because its namespace is `cljs.core`; ours is `clojure.core`, and the var has to answer with the clojure.core level we implement |
 | 0 | `*command-line-args*` | yes | cljs keeps it; our hosts have argv (`clj-load`, `clj-nrepl`) |
 | 0 | `*flush-on-newline*` | yes | cljs keeps it; the nREPL writer already decides per write (NOTES "nREPL"), so the policy exists and wants its name |
@@ -164,9 +158,6 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | 0 | `*source-path*` | no | named as a remaining tail of nREPL (NOTES "nREPL"), so the work is already owed |
 | 0 | `->ArrayChunk` | yes | with `chunk`; cljs keeps this deftype constructor, and a library writing its own chunked seq calls it |
 | 0 | `Inst` | yes | cljs keeps the protocol; `inst-ms` is ours already and this is what it dispatches on |
-| 0 | `agent-errors` | no | with `agent`; deprecated upstream but still public, so ours by compatibility |
-| 0 | `await-for` | no | with `agent`; the deadline is ours already (`with-deadline`) |
-| 0 | `await1` | no | with `agent`; undocumented but public upstream, and `await` is written over it |
 | 0 | `chunk` | yes | cljs keeps the whole chunked-seq surface; we have no chunking yet (docs/notes/type-descriptor.md, "No chunked seqs") and the names arrive with it |
 | 0 | `chunk-append` | yes | with `chunk` |
 | 0 | `chunk-buffer` | yes | with `chunk` |
@@ -175,13 +166,10 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | 0 | `chunk-next` | yes | with `chunk` |
 | 0 | `chunk-rest` | yes | with `chunk` |
 | 0 | `chunked-seq?` | yes | with `chunk` |
-| 0 | `clear-agent-errors` | no | with `agent`; deprecated upstream but still public |
 | 0 | `clojure-version` | no | with `*clojure-version*` |
 | 0 | `commute` | no | with `ref`; the commutative path of the same 2PL |
 | 0 | `comparator` | yes | cljs keeps it; three lines over our `compare` |
 | 0 | `ensure` | no | with `ref` |
-| 0 | `error-handler` | no | with `agent` |
-| 0 | `error-mode` | no | with `agent` |
 | 0 | `file-seq` | no | with `slurp` |
 | 0 | `find-var` | no | vars are real at runtime here (`resolve`, `ns-resolve`, nREPL's `info` are ours); cljs dropped it for lack of them |
 | 0 | `hash-combine` | yes | cljs keeps all four; our hashing is C (murmur3) and a user collection cannot hash consistently without them |
@@ -195,15 +183,8 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 | 0 | `ref-history-count` | no | with `ref`; history is the one place 2PL still has to answer, even with 0 |
 | 0 | `ref-max-history` | no | with `ref` |
 | 0 | `ref-min-history` | no | with `ref` |
-| 0 | `release-pending-sends` | no | with `agent`; the dispatch deferred by a transaction, so it comes with `dosync` |
 | 0 | `remove-ns` | no | namespaces are real at runtime here (nREPL walks `ns-map`); cljs dropped it for lack of them |
 | 0 | `requiring-resolve` | no | with `find-var`: `require` and `resolve` are both ours |
-| 0 | `send-off` | no | with `agent`; the blocking pool is already the loader's and `thread`'s |
-| 0 | `send-via` | no | with `agent` |
-| 0 | `seque` | no | a lookahead seq over a queue — a channel plus the blocking pool here; absent from cljs only because JS has one thread |
-| 0 | `set-error-handler!` | no | with `agent` |
-| 0 | `set-error-mode!` | no | with `agent` |
-| 0 | `shutdown-agents` | no | with `agent`; ours drains the blocking pool, which exists |
 | 0 | `slurp` | no | cljs dropped file IO because a browser has no filesystem; a phone has one, and this is the name every real program uses |
 | 0 | `spit` | no | with `slurp` |
 | 0 | `sync` | no | with `ref`; the pre-1.0 spelling of `dosync`, still public upstream |
@@ -324,7 +305,7 @@ Arglists of the unclassified, if any: none
 
 ## Dynamic mismatches
 
-`*assert*` `*in*` `*math-context*` `pr`
+`*agent*` `*assert*` `*in*` `*math-context*` `pr`
 
 ## Arity mismatches
 
@@ -350,9 +331,9 @@ C builtins and host primitives carry no :arglists (NOTES.md): `*` `*'` `+` `+'` 
 
 ## Ours only
 
-Public: `*loaded-libs*` `->Delay` `->MultiFn` `-add-method` `-deref` `-get-method` `-methods` `-prefer-method` `-prefers` `-realized?` `-remove-all-methods` `-remove-method` `Associative` `Atom` `Boolean` `Character` `Cons` `Counted` `Date` `Delay` `Double` `Eduction` `EmptyList` `ExceptionInfo` `Fn` `HostError` `HostType` `IDeref` `IEditableCollection` `IEquiv` `IExceptionInfo` `IFn` `IHashEq` `ILookup` `IMeta` `IMultiFn` `IObj` `IPending` `IPersistentCollection` `IPersistentList` `IPersistentMap` `IPersistentSet` `IPersistentVector` `IRecord` `IReduceInit` `ISeq` `Indexed` `Integer` `Keyword` `LazySeq` `Long` `Matcher` `MultiFn` `Namespace` `Object` `Pattern` `PersistentHashMap` `PersistentHashSet` `PersistentList` `PersistentQueue` `PersistentTreeMap` `PersistentTreeSet` `PersistentVector` `Protocol` `Range` `Reduced` `Seqable` `Sequential` `String` `Symbol` `Type` `UUID` `Var` `Volatile` `atom?` `clojure.lang.IEditableCollection` `clojure.lang.IRecord` `clojure.lang.PersistentQueue` `doc` `ex-trace` `ex-type` `host-type` `java.util.Date` `java.util.UUID` `ns-array` `ns-array->vec` `ns-dictionary` `ns-dictionary->map` `ns-mutable-string` `ns-string` `ns-string->str` `ns?` `objc-block` `objc-class` `objc-invoke` `objc-object?` `objc-reify` `objc-send` `objc-write!` `profile` `profile-start!` `profile-stop!` `regex?` `require-c` `require-swift` `with-deadline`
+Public: `*loaded-libs*` `->Agent` `->Delay` `->MultiFn` `-add-method` `-add-watch` `-alter-meta!` `-deref` `-get-method` `-get-validator` `-methods` `-prefer-method` `-prefers` `-realized?` `-remove-all-methods` `-remove-method` `-remove-watch` `-reset-meta!` `-set-validator!` `Agent` `Associative` `Atom` `Boolean` `Character` `Cons` `Counted` `Date` `Delay` `Double` `Eduction` `EmptyList` `ExceptionInfo` `Fn` `HostError` `HostType` `IDeref` `IEditableCollection` `IEquiv` `IExceptionInfo` `IFn` `IHashEq` `ILookup` `IMeta` `IMultiFn` `IObj` `IPending` `IPersistentCollection` `IPersistentList` `IPersistentMap` `IPersistentSet` `IPersistentVector` `IRecord` `IReduceInit` `IRef` `IReference` `ISeq` `Indexed` `Integer` `Keyword` `LazySeq` `Long` `Matcher` `MultiFn` `Namespace` `Object` `Pattern` `PersistentHashMap` `PersistentHashSet` `PersistentList` `PersistentQueue` `PersistentTreeMap` `PersistentTreeSet` `PersistentVector` `Protocol` `Range` `Reduced` `Seqable` `Sequential` `String` `Symbol` `Type` `UUID` `Var` `Volatile` `atom?` `clojure.lang.IEditableCollection` `clojure.lang.IRecord` `clojure.lang.PersistentQueue` `doc` `ex-trace` `ex-type` `host-type` `java.util.Date` `java.util.UUID` `ns-array` `ns-array->vec` `ns-dictionary` `ns-dictionary->map` `ns-mutable-string` `ns-string` `ns-string->str` `ns?` `objc-block` `objc-class` `objc-invoke` `objc-object?` `objc-reify` `objc-send` `objc-write!` `profile` `profile-start!` `profile-stop!` `regex?` `require-c` `require-swift` `with-deadline`
 
-Internal helpers (`name*`): `available-processors*` `buffer*` `c-fn*` `c-global*` `cancelled?*` `chan*` `chan-alts*` `chan-cancel*` `chan-cancel-cause*` `chan-cancelled?*` `chan-close*` `chan-closed?*` `chan-deliver*` `chan-deref*` `chan-offer*` `chan-poll*` `chan-put*` `chan-put-cb*` `chan-realized?*` `chan-resume*` `chan-suspend*` `chan-suspended?*` `chan-take*` `chan-take-cb*` `chan-timeout*` `chan?*` `coro-cancel-scope*` `coro-current*` `coro-go*` `coro-go-main*` `coro-uncancel-scope*` `deadline-pop*` `deadline-push*` `deftype*` `dropping-buffer*` `extend*` `field*` `fused-count*` `fused-into*` `fused-reduce*` `future*` `future?*` `lazy-seq*` `lazy-seq-realized?*` `lib-path*` `load-resource*` `math-context*` `monitor-enter*` `monitor-exit*` `new*` `ns-exclude*` `ns-refer*` `objc-block*` `objc-kebab*` `objc-reify*` `out-capture-pop*` `out-capture-push*` `promise*` `promise-buffer*` `protocol*` `protocol-epoch*` `protocol-method*` `queue-pop*` `rand*` `range*` `re-quote-replacement*` `re-replace*` `re-split*` `read-inst*` `read-uuid*` `record*` `record-map*` `reify-type*` `require-swift*` `shield-pop*` `shield-push*` `shielded*` `sleep*` `sliding-buffer*` `sort-by*` `sorted-compare*` `sorted-map*` `sorted-seq*` `sorted-seq-from*` `sorted-set*` `str-blank?*` `str-index-of*` `str-last-index-of*` `str-lower*` `str-replace*` `str-replace-first*` `str-reverse*` `str-split*` `str-split-lines*` `str-trim*` `str-triml*` `str-trimr*` `str-upper*` `str-whitespace?*` `thread*` `unblocking-buffer?*` `uncaught-report*` `var-root*` `with-deadline*`
+Internal helpers (`name*`): `available-processors*` `buffer*` `c-fn*` `c-global*` `cancelled?*` `chan*` `chan-alts*` `chan-cancel*` `chan-cancel-cause*` `chan-cancelled?*` `chan-close*` `chan-closed?*` `chan-deliver*` `chan-deref*` `chan-offer*` `chan-poll*` `chan-put*` `chan-put-cb*` `chan-realized?*` `chan-resume*` `chan-suspend*` `chan-suspended?*` `chan-take*` `chan-take-cb*` `chan-timeout*` `chan?*` `coro-cancel-scope*` `coro-current*` `coro-go*` `coro-go-main*` `coro-uncancel-scope*` `deadline-pop*` `deadline-push*` `deftype*` `dropping-buffer*` `extend*` `field*` `fused-count*` `fused-into*` `fused-reduce*` `future*` `future?*` `lazy-seq*` `lazy-seq-realized?*` `lib-path*` `load-resource*` `math-context*` `monitor-enter*` `monitor-exit*` `new*` `ns-exclude*` `ns-refer*` `objc-block*` `objc-kebab*` `objc-reify*` `out-capture-pop*` `out-capture-push*` `promise*` `promise-buffer*` `protocol*` `protocol-epoch*` `protocol-method*` `queue-pop*` `rand*` `range*` `re-quote-replacement*` `re-replace*` `re-split*` `read-inst*` `read-uuid*` `record*` `record-map*` `reify-type*` `require-swift*` `shield-pop*` `shield-push*` `shielded*` `sleep*` `sliding-buffer*` `sort-by*` `sorted-compare*` `sorted-map*` `sorted-seq*` `sorted-seq-from*` `sorted-set*` `spawn-detached*` `str-blank?*` `str-index-of*` `str-last-index-of*` `str-lower*` `str-replace*` `str-replace-first*` `str-reverse*` `str-split*` `str-split-lines*` `str-trim*` `str-triml*` `str-trimr*` `str-upper*` `str-whitespace?*` `thread*` `unblocking-buffer?*` `uncaught-report*` `var-root*` `with-deadline*`
 
 ## clojure.core.async
 

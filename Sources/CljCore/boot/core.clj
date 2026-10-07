@@ -2521,6 +2521,295 @@
 (defn delay? "Returns true when x is a Delay." [x] (instance? Delay x))
 (defn force "Derefs a Delay, or returns x itself." [x] (if (delay? x) (deref x) x))
 
+;; ---- references that are not atoms: the C reference builtins fall back to these for a deftype.
+
+(defprotocol ^:pippin/extension IRef
+  "What add-watch, remove-watch, set-validator! and get-validator call on a reference that is not an atom."
+  (-add-watch [r k f])
+  (-remove-watch [r k])
+  (-set-validator! [r f])
+  (-get-validator [r]))
+
+(defprotocol ^:pippin/extension IReference
+  "What alter-meta! and reset-meta! call on a reference that is not a var, an atom or a namespace."
+  (-alter-meta! [r f args])
+  (-reset-meta! [r m]))
+
+(defn- validate-reference
+  "Throws as an atom's validator does when validator rejects v, with what the validator threw as the cause."
+  [validator v]
+  (when validator
+    (when-not (try (validator v) (catch :default e (throw (ex-info "Invalid reference state" nil e))))
+      (throw (ex-info "Invalid reference state" nil)))))
+
+(defn- notify-watches [r watches old new]
+  (doseq [[k f] watches] (f k r old new)))
+
+;; ---- agents (design §4 «Агенты и ref'ы»): one action at a time per agent, each on the executor it was sent with.
+
+;; state: the value; aq: {:q actions :error e}, the head running; cfg: validator, watches, error handler and mode.
+(deftype ^:pippin/extension Agent [state aq cfg m]
+  IDeref
+  (-deref [_] @state)
+  IMeta
+  (meta [_] @m)
+  IReference
+  (-alter-meta! [_ f args] (apply swap! m f args))
+  (-reset-meta! [_ v] (reset! m v))
+  IRef
+  (-add-watch [this k f] (swap! cfg update :watches assoc k f) this)
+  (-remove-watch [this k] (swap! cfg update :watches dissoc k) this)
+  (-set-validator! [_ f] (validate-reference f @state) (swap! cfg assoc :validator f) nil)
+  (-get-validator [_] (:validator @cfg)))
+
+(defn- agent-of [what a]
+  (if (instance? Agent a)
+    a
+    (throw (ex-info (str what " expects an agent, got: " (pr-str (type a))) {:value a}))))
+
+(defn agent
+  "Creates and returns an agent with an initial value of state and zero or more options (in any order):
+  :meta metadata-map, :validator validate-fn, :error-handler handler-fn, :error-mode mode-keyword. The
+  validator, when given, must accept state. The error mode is :continue when an error handler is given and
+  :fail otherwise (see set-error-handler! and set-error-mode!)."
+  [state & options]
+  (let [opts (apply hash-map options)
+        validator (:validator opts)]
+    (validate-reference validator state)
+    (->Agent (atom state)
+             (atom {:q clojure.lang.PersistentQueue/EMPTY :error nil})
+             (atom {:validator validator :watches {} :error-handler (:error-handler opts)
+                    :error-mode (or (:error-mode opts) (if (:error-handler opts) :continue :fail))})
+             (atom (:meta opts)))))
+
+(def ^:dynamic *agent*
+  "The agent whose action is running, nil outside an action."
+  nil)
+
+;; [owner sends] while an action runs; the owner check keeps a future spawned inside it from holding its sends.
+(def ^:private ^:dynamic *held-sends* nil)
+
+(defn- held-sends []
+  (let [h *held-sends*]
+    (when (and h (identical? (nth h 0) (coro-current*)))
+      (nth h 1))))
+
+(declare agent-run)
+
+;; An action is [f args executor bindings].
+(defn- agent-execute [a action]
+  ((nth action 2) (fn [] (agent-run a action))))
+
+(defn- agent-enqueue [a action]
+  (let [[{q :q error :error}] (swap-vals! (field* a 1) update :q conj action)]
+    (when (and (empty? q) (nil? error))
+      (agent-execute a action))))
+
+(defn- agent-dispatch [a action]
+  (if-let [held (held-sends)]
+    (vswap! held conj [a action])
+    (agent-enqueue a action)))
+
+(defn- release-held [held]
+  (let [sends @held]
+    (vreset! held [])
+    (doseq [[a action] sends] (agent-enqueue a action))
+    (count sends)))
+
+(defn- agent-run [a [f args _ bindings]]
+  (let [held (volatile! [])
+        error (with-bindings* (assoc bindings #'*agent* a #'*held-sends* [(coro-current*) held])
+                (fn []
+                  (let [error (try
+                                (let [old @(field* a 0)
+                                      new (apply f old args)
+                                      {:keys [validator watches]} @(field* a 2)]
+                                  (validate-reference validator new)
+                                  (reset! (field* a 0) new)
+                                  (notify-watches a watches old new)
+                                  nil)
+                                (catch :cancelled e e)
+                                (catch :default e e))]
+                    (if (nil? error)
+                      (do (release-held held) nil)
+                      ;; A failed action's sends are dropped; the handler's own go out at once.
+                      (let [{:keys [error-handler error-mode]} @(field* a 2)]
+                        (when error-handler
+                          (binding [*held-sends* nil]
+                            (try (error-handler a error) (catch :cancelled _ nil) (catch :default _ nil))))
+                        (when-not (= error-mode :continue) error))))))]
+    ;; Shielded: an action cancelled while parked still pops itself, or the queue would stall behind it.
+    (shielded*
+     (let [[_ {q :q}] (swap-vals! (field* a 1) (fn [{q :q}] {:q (pop q) :error error}))]
+       (when (and (nil? error) (seq q))
+         (agent-execute a (peek q)))))))
+
+(defn send-via
+  "Dispatches an action to an agent and returns the agent at once. On a thread the executor supplies, the
+  agent's state becomes (apply action-fn state-of-agent args), under the bindings of the send. The executor is
+  a fn of one argument, the action's run as a fn of no arguments, which it starts where it chooses."
+  [executor a f & args]
+  (let [a (agent-of "send-via" a)]
+    (when-let [error (:error @(field* a 1))]
+      (throw (ex-info "Agent is failed, needs restart" {} error)))
+    (agent-dispatch a [f args executor (dissoc (get-thread-bindings) #'*agent* #'*held-sends*)])
+    a))
+
+(defn- pooled-executor [run] (spawn-detached* run false))
+(defn- solo-executor [run] (spawn-detached* run true))
+
+(defn send
+  "Dispatches an action to an agent and returns the agent at once. The action runs as a coroutine on the
+  carriers: (apply action-fn state-of-agent args) becomes the agent's state. For actions that are not
+  CPU-bound and may block in a host call, use send-off."
+  [a f & args]
+  (apply send-via pooled-executor a f args))
+
+(defn send-off
+  "Dispatches a potentially blocking action to an agent and returns the agent at once. The action runs on the
+  blocking pool that runs thread bodies: (apply action-fn state-of-agent args) becomes the agent's state."
+  [a f & args]
+  (apply send-via solo-executor a f args))
+
+(defn release-pending-sends
+  "Normally, actions sent directly or indirectly during another action are held until the action completes
+  (changes the agent's state). This function can be used to dispatch any pending sent actions immediately.
+  Returns the number of actions dispatched; 0 outside an action."
+  []
+  (if-let [held (held-sends)] (release-held held) 0))
+
+(defn await
+  "Blocks the current thread (a coroutine parks) until all actions dispatched thus far, from this thread or
+  agent, to the agent(s) have occurred. Will never return if a failed agent is restarted with :clear-actions
+  true or shutdown-agents was called."
+  [& agents]
+  (when *agent* (throw (ex-info "Can't await in agent action" {})))
+  (let [latch (promise)
+        n (atom (count agents))
+        count-down (fn [state] (when (zero? (swap! n dec)) (deliver latch true)) state)]
+    (doseq [a agents] (send a count-down))
+    (when (seq agents) @latch)
+    nil))
+
+(defn await-for
+  "Like await, but waits at most timeout-ms milliseconds. Returns logical false if returning due to timeout,
+  logical true otherwise."
+  [timeout-ms & agents]
+  (when *agent* (throw (ex-info "Can't await in agent action" {})))
+  (let [latch (promise)
+        n (atom (count agents))
+        count-down (fn [state] (when (zero? (swap! n dec)) (deliver latch true)) state)]
+    (doseq [a agents] (send a count-down))
+    (or (empty? agents) (deref latch timeout-ms false))))
+
+(defn await1
+  "Awaits the agent when it has actions queued; returns the agent."
+  [a]
+  (when (seq (:q @(field* (agent-of "await1" a) 1))) (await a))
+  a)
+
+(defn agent-error
+  "Returns the exception thrown during an asynchronous action of the agent if the agent is failed. Returns nil
+  if the agent is not failed."
+  [a]
+  (:error @(field* (agent-of "agent-error" a) 1)))
+
+(defn agent-errors
+  "DEPRECATED: Use agent-error instead. Returns a sequence of the exceptions thrown during asynchronous actions
+  of the agent."
+  [a]
+  (when-let [e (agent-error a)] (list e)))
+
+(defn restart-agent
+  "When an agent is failed, changes the agent state to new-state and then un-fails the agent so that sends are
+  allowed again. If a :clear-actions true option is given, any actions queued on the agent that were being held
+  while it was failed will be discarded, otherwise those held actions will proceed. The new-state must pass the
+  validator if any, or restart will throw an exception and the agent will remain failed with its old state and
+  error. Watchers, if any, will NOT be notified of the new state. Throws an exception if the agent is not failed."
+  [a new-state & options]
+  (let [a (agent-of "restart-agent" a)
+        opts (apply hash-map options)]
+    (locking a
+      (when (nil? (:error @(field* a 1)))
+        (throw (ex-info "Agent does not need a restart" {})))
+      (validate-reference (:validator @(field* a 2)) new-state)
+      (reset! (field* a 0) new-state)
+      (if (:clear-actions opts)
+        (reset! (field* a 1) {:q clojure.lang.PersistentQueue/EMPTY :error nil})
+        (let [[{q :q}] (swap-vals! (field* a 1) assoc :error nil)]
+          (when (seq q) (agent-execute a (peek q)))))
+      new-state)))
+
+(defn clear-agent-errors
+  "DEPRECATED: Use restart-agent instead. Clears any exceptions thrown during asynchronous actions of the agent,
+  allowing subsequent actions to occur."
+  [a]
+  (restart-agent a @a))
+
+(defn set-error-handler!
+  "Sets the error-handler of agent a to handler-fn. If an action being run by the agent throws an exception or
+  doesn't pass the validator fn, handler-fn will be called with two arguments: the agent and the exception."
+  [a handler-fn]
+  (swap! (field* (agent-of "set-error-handler!" a) 2) assoc :error-handler handler-fn)
+  nil)
+
+(defn error-handler
+  "Returns the error-handler of agent a, or nil if there is none."
+  [a]
+  (:error-handler @(field* (agent-of "error-handler" a) 2)))
+
+(defn set-error-mode!
+  "Sets the error-mode of agent a to mode-keyword, which must be either :fail or :continue. With :continue an
+  action's exception is ignored, the error handler aside, and the agent goes on; with :fail the agent becomes
+  failed and stops until restart-agent."
+  [a mode-keyword]
+  (swap! (field* (agent-of "set-error-mode!" a) 2) assoc :error-mode mode-keyword)
+  nil)
+
+(defn error-mode
+  "Returns the error-mode of agent a. See set-error-mode!."
+  [a]
+  (:error-mode @(field* (agent-of "error-mode" a) 2)))
+
+(defn shutdown-agents
+  "On the JVM, initiates a shutdown of the thread pools that back the agent system. Here the carriers and the
+  blocking pool are the runtime's own and outlive any agent, so this does nothing (docs/jvm-differences.md)."
+  []
+  nil)
+
+(defn seque
+  "Creates a queued seq on another (presumably lazy) seq s. The queued seq will produce a concrete seq in the
+  background, and can get up to n items ahead of the consumer. n-or-q can be an integer n buffer size, or a
+  channel. Note reading from a seque parks the reader when the producer is slower."
+  ([s] (seque 100 s))
+  ([n-or-q s]
+   (let [q (if (chan?* n-or-q) n-or-q (chan* (buffer* n-or-q)))
+         ;; A channel carries no nil, and the end needs a value of its own.
+         NIL (volatile! nil)
+         EOS (volatile! nil)
+         agt (agent (lazy-seq s))
+         log-error (fn [e] (if (chan-offer* q EOS) (throw e) {::seque-error e}))
+         fill (fn [s]
+                (when s
+                  (if (map? s)
+                    (log-error (::seque-error s))
+                    (try
+                      (loop [[x & xs :as s] (seq s)]
+                        (if s
+                          (if (chan-offer* q (if (nil? x) NIL x)) (recur xs) s)
+                          (when-not (chan-offer* q EOS) ())))
+                      (catch :default e (log-error e))))))
+         drain (fn drain []
+                 (lazy-seq
+                  (let [x (chan-take* q)]
+                    (if (identical? x EOS)
+                      (do @agt nil)
+                      (do (send-off agt fill)
+                          (release-pending-sends)
+                          (cons (if (identical? x NIL) nil x) (drain)))))))]
+     (send-off agt fill)
+     (drain))))
+
 (defprotocol ^:pippin/extension IMultiFn
   (-add-method [mf dispatch-val f])
   (-remove-method [mf dispatch-val])

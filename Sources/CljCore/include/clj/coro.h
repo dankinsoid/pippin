@@ -17,6 +17,8 @@ enum { CLJ_AFFINITY_POOL = 0, CLJ_AFFINITY_MAIN = 1 };
 
 // Owned handle; fn and args are shared once, bindings and deadline conveyed; on_done runs on the carrier after the body.
 clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx);
+// The same on the pool with neither the bindings nor the deadline conveyed: work that belongs to no caller.
+clj_value clj_coro_spawn_detached(clj_value f, void (*on_done)(clj_coro *c, void *ctx), void *ctx);
 // The body's result of a finished coroutine, borrowed; threw says whether it is the thrown value.
 clj_value clj_coro_result(clj_value coro, bool *threw);
 bool      clj_coro_done(clj_value coro);

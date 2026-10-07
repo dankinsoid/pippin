@@ -663,6 +663,17 @@ static clj_value b_vreset(const clj_value *args, size_t n) {
 
 static clj_value not_an_atom(const char *what, clj_value v) { return clj_throw_msg("%s expects an atom, got: %s", what, clj_type_name(v)); }
 
+static clj_value core_method_n(const char *name, const clj_value *args, size_t n);
+
+// An agent or a ref is a deftype (core.clj) answering the reference operations through IRef and IReference.
+static clj_value reference_method(const char *what, const char *method, const clj_value *args, size_t n) {
+	if (clj_is_instance(args[0])) {
+		clj_value r = core_method_n(method, args, n);
+		if (r != CLJ_UNBOUND) return r;
+	}
+	return not_an_atom(what, args[0]);
+}
+
 // (atom x & {:keys [meta validator]}): other keys are ignored, as Clojure's setup-reference does.
 static clj_value b_atom(const clj_value *args, size_t n) {
 	if (n % 2 == 0) {
@@ -728,28 +739,24 @@ static clj_value b_compare_and_set(const clj_value *args, size_t n) {
 }
 
 static clj_value b_add_watch(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_atom(args[0])) return not_an_atom("add-watch", args[0]);
 	if (!clj_has_core(args[2], CLJ_CORE_FN)) return clj_throw_msg("add-watch expects a fn, got: %s", clj_type_name(args[2]));
+	if (!clj_is_atom(args[0])) return reference_method("add-watch", "-add-watch", args, n);
 	return clj_atom_add_watch(args[0], args[1], args[2]);
 }
 
 static clj_value b_remove_watch(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_atom(args[0])) return not_an_atom("remove-watch", args[0]);
+	if (!clj_is_atom(args[0])) return reference_method("remove-watch", "-remove-watch", args, n);
 	return clj_atom_remove_watch(args[0], args[1]);
 }
 
 static clj_value b_set_validator(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_atom(args[0])) return not_an_atom("set-validator!", args[0]);
 	if (!clj_is_nil(args[1]) && !clj_has_core(args[1], CLJ_CORE_FN)) return clj_throw_msg("set-validator! expects a fn or nil, got: %s", clj_type_name(args[1]));
+	if (!clj_is_atom(args[0])) return reference_method("set-validator!", "-set-validator!", args, n);
 	return clj_atom_set_validator(args[0], args[1]);
 }
 
 static clj_value b_get_validator(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_atom(args[0])) return not_an_atom("get-validator", args[0]);
+	if (!clj_is_atom(args[0])) return reference_method("get-validator", "-get-validator", args, n);
 	return clj_atom_get_validator(args[0]);
 }
 
@@ -1141,16 +1148,18 @@ static clj_value b_resolve(const clj_value *args, size_t n) {
 }
 
 // A core.clj protocol method (clojure.core/name) applied to v, for a builtin's fallback on user types.
-static clj_value core_method(const char *name, clj_value v) {
+static clj_value core_method_n(const char *name, const clj_value *args, size_t n) {
 	clj_value sym = clj_symbol_from_cstr(name);
 	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
 	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
 	clj_value f = clj_var_deref(var);
-	clj_value r = clj_invoke(f, &v, 1);
+	clj_value r = clj_invoke(f, args, n);
 	clj_release(f);
 	return r;
 }
+
+static clj_value core_method(const char *name, clj_value v) { return core_method_n(name, &v, 1); }
 
 // (deref x), (deref x ms timeout-val): the timed form is for what can wait — a promise, a future, a channel.
 static clj_value b_deref(const clj_value *args, size_t n) {
@@ -1204,7 +1213,13 @@ static clj_value b_reset_meta(const clj_value *args, size_t n) {
 		clj_ns_set_meta(args[0], args[1]);
 		return clj_retain(args[1]);
 	}
-	if (!clj_is_var(args[0])) return not_a_reference("reset-meta!", args[0]);
+	if (!clj_is_var(args[0])) {
+		if (clj_is_instance(args[0])) {
+			clj_value r = core_method_n("-reset-meta!", args, 2);
+			if (r != CLJ_UNBOUND) return r;
+		}
+		return not_a_reference("reset-meta!", args[0]);
+	}
 	clj_var_set_meta(args[0], args[1]);
 	return clj_retain(args[1]);
 }
@@ -1234,7 +1249,15 @@ static clj_value ns_alter_meta(clj_value ns, clj_value f, const clj_value *args,
 static clj_value b_alter_meta(const clj_value *args, size_t n) {
 	if (clj_is_atom(args[0])) return clj_atom_alter_meta(args[0], args[1], args + 2, n - 2);
 	if (clj_is_ns(args[0])) return ns_alter_meta(args[0], args[1], args + 2, n - 2);
-	if (!clj_is_var(args[0])) return not_a_reference("alter-meta!", args[0]);
+	if (!clj_is_var(args[0])) {
+		if (clj_is_instance(args[0])) {
+			clj_value call[3] = {args[0], args[1], clj_list_from_array(args + 2, n - 2)};
+			clj_value r = core_method_n("-alter-meta!", call, 3);
+			clj_release(call[2]);
+			if (r != CLJ_UNBOUND) return r;
+		}
+		return not_a_reference("alter-meta!", args[0]);
+	}
 	clj_value  small[8];
 	clj_value *call = n <= sizeof small / sizeof *small ? small : malloc(n * sizeof *call);
 	if (!call) clj_fatal("out of memory");

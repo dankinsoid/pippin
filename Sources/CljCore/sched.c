@@ -618,7 +618,7 @@ static void finish(clj_coro *c) {
 	clj_release(clj_from_ptr(c));
 }
 
-clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx) {
+static clj_value spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx, bool detached) {
 	if (affinity == CLJ_AFFINITY_MAIN && !main_carrier) return clj_throw_msg("No main carrier: the host has not installed one (clj_sched_main_install)");
 	clj_sched_init();
 	clj_coro *parent = clj_coro_current();
@@ -630,14 +630,14 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 		for (size_t i = 0; i < n; i++) clj_slot_store(&c->h, &c->args[i], clj_retain(args[i]));
 	}
 	c->nargs = n;
-	c->bindings = clj_var_bindings_share();
+	c->bindings = detached ? NULL : clj_var_bindings_share();
 	c->captures = clj_output_captures_share();
 	c->pending = c->pending_trace = CLJ_NIL;
 	clj_slot_clear(&c->result);
 	// A cancelled parent hands the child its deadline as it was, not the cancel flag: past it the child meets it at once.
 	bool parent_cancelled = atomic_load_explicit(&parent->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
 	// A shield hides the deadline from the parent's own ticks, not from the children spawned there.
-	uint64_t deadline = parent_cancelled || parent->shield ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
+	uint64_t deadline = detached ? 0 : parent_cancelled || parent->shield ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
 	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
 	c->shadow->countdown = 1024;
 	atomic_store_explicit(&c->shadow->unwinds, 64, memory_order_relaxed);
@@ -651,6 +651,14 @@ clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affin
 	atomic_store_explicit(&c->state, CLJ_CORO_RUNNABLE, memory_order_release);
 	clj_sched_enqueue(c, false);
 	return clj_from_ptr(c);
+}
+
+clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx) {
+	return spawn(f, args, n, affinity, on_done, ctx, false);
+}
+
+clj_value clj_coro_spawn_detached(clj_value f, void (*on_done)(clj_coro *c, void *ctx), void *ctx) {
+	return spawn(f, NULL, 0, CLJ_AFFINITY_POOL, on_done, ctx, true);
 }
 
 clj_value clj_coro_result(clj_value coro, bool *threw) {
