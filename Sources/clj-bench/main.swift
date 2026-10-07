@@ -387,6 +387,76 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
 	exit(0)
 }
 
+// bench-ab: head only {
+// CLJ_BENCH_ONLY=cycles: the cycle collector's costs and the main carrier's pauses (bench/RESULTS.md).
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "cycles" {
+	clj_init()
+	func now() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
+	func med(ops: Int, _ body: () -> UInt64) -> Double {
+		var times: [Double] = []
+		var sink: UInt64 = 0
+		for _ in 0..<reps {
+			let t0 = now()
+			sink &+= body()
+			clj_cc_collect()
+			times.append(Double(now() - t0) / Double(ops))
+		}
+		blackHole(sink)
+		return times.sorted()[reps / 2]
+	}
+	let n = 100_000
+	let ring = cljEval("(fn [n] (dotimes [i n] (let [a (atom nil)] (reset! a {:i i :f (fn [] @a)}))) n)")
+	let atomNoCycle = cljEval("(fn [n] (dotimes [i n] (let [a (atom nil)] (reset! a {:i i}))) n)")
+	let cell = cljEval("(fn [n] (dotimes [i n] (let [v (volatile! nil)] (vreset! v [v i]))) n)")
+	let cellNoCycle = cljEval("(fn [n] (dotimes [i n] (let [v (volatile! nil)] (vreset! v [i]))) n)")
+	let letfn = cljEval("(fn [n] (dotimes [i n] (letfn [(f [x] (if (pos? x) (g (dec x)) x)) (g [x] (f x))] (f 1))) n)")
+	let handler = cljEval("(let [st (atom 0) h (fn [] @st)] (fn [n] (dotimes [i n] (let [k h] (k))) n))")
+	print("| scenario | n | ns per op |")
+	print("|---|---:|---:|")
+	for (name, fn) in [("atom ↔ map ↔ closure ring, made and collected", ring), ("the same atom and map, no cycle", atomNoCycle),
+	                   ("volatile ↔ vector cell, made and collected (local)", cell), ("the same volatile and vector, no cycle", cellNoCycle),
+	                   ("letfn of two fns, called and collected", letfn), ("a closure over an atom, bound and called", handler)] {
+		print("| \(name) | \(n) | \(String(format: "%.1f", med(ops: n) { cljCall(fn, clj_fixnum(n)) })) |")
+	}
+	// A pause per call: inline collections off the main carrier against the hand-off and the idle hook on it.
+	let one = cljEval("(fn [i] (let [v (volatile! nil)] (vreset! v [v i])) i)")
+	func pauses(_ label: String, calls: Int) {
+		var ds: [UInt64] = []
+		ds.reserveCapacity(calls)
+		for i in 0..<calls {
+			let t0 = now()
+			_ = cljCall(one, clj_fixnum(i))
+			ds.append(now() - t0)
+		}
+		ds.sort()
+		print("| \(label) | \(calls) | \(ds[calls / 2]) | \(ds[calls * 99 / 100]) | \(ds[calls * 999 / 1000]) | \(ds[calls - 1]) | \(ds.filter { $0 > 10_000 }.count) |")
+	}
+	clj_cc_collect()
+	print("\n| per call: a volatile ↔ vector cell | calls | p50 ns | p99 ns | p99.9 ns | max ns | over 10 µs |")
+	print("|---|---:|---:|---:|---:|---:|---:|")
+	pauses("off the main carrier (collects inline at 256)", calls: 20_000)
+	clj_cc_collect()
+	clj_debug_cc_as_main(1)
+	pauses("main carrier, hand-off past 4096", calls: 20_000)
+	var worst: UInt64 = 0, total: UInt64 = 0, slices = 0
+	while clj_debug_cc_pending_local() > 0 {
+		let t0 = now()
+		_ = clj_debug_cc_main_idle()
+		let d = now() - t0
+		worst = max(worst, d)
+		total += d
+		slices += 1
+	}
+	clj_debug_cc_as_main(0)
+	print("\nidle hook: \(slices) wakes, \(total / 1000) µs in all, the longest \(worst / 1000) µs (budget 1000 µs)")
+	clj_cc_collect()
+	var s = [Int64](repeating: 0, count: CLJ_CC_STAT_COUNT)
+	clj_debug_cc_stats(&s)
+	print("collections \(s[CLJ_CC_STAT_COLLECTIONS]), freed \(s[CLJ_CC_STAT_FREED]), candidates \(s[CLJ_CC_STAT_CANDIDATES]), hand-offs \(s[CLJ_CC_STAT_HANDOFFS]), visited \(s[CLJ_CC_STAT_VISITED]), interfered \(s[CLJ_CC_STAT_INTERFERED]), the longest hand-off \(s[CLJ_CC_STAT_HANDOFF_MAX_NS]) ns")
+	exit(0)
+}
+// bench-ab: }
+
 // CLJ_BENCH_ONLY=coro: the coroutine primitive, the scheduler and the channels (bench/RESULTS.md, "Coroutines and
 // channels") against Swift's Task, AsyncStream and CheckedContinuation for the same shapes.
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "coro" {

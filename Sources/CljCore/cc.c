@@ -54,10 +54,19 @@ bool clj_cc_enabled(void) {
 
 // ---- the shared buffer and the background thread
 
+// Chunks, not one array: a push from the main carrier never copies a grown buffer under the mutex.
+enum { CHUNK = 1022 };
+typedef struct chunk {
+	struct chunk *next;
+	size_t        n;
+	clj_header   *items[CHUNK];
+} chunk;
+
 // A pthread mutex rather than a clj_lock: the background thread waits on a condition paired with it.
 static pthread_mutex_t buf_mu = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  buf_cv = PTHREAD_COND_INITIALIZER;
-static cand_vec        shared_buf;
+static chunk          *shared_head, *spare;
+static size_t          shared_n;
 static size_t          shared_fresh; // candidates since the last take, retries not counted
 static pthread_once_t  thread_once = PTHREAD_ONCE_INIT;
 
@@ -96,7 +105,16 @@ static void start_thread(void) {
 static void shared_push(clj_header *h, bool fresh) {
 	pthread_once(&thread_once, start_thread);
 	pthread_mutex_lock(&buf_mu);
-	vec_push(&shared_buf, h);
+	if (!shared_head || shared_head->n == CHUNK) {
+		chunk *c = spare;
+		spare = NULL;
+		if (!c && !(c = malloc(sizeof *c))) clj_fatal("out of memory");
+		c->n = 0;
+		c->next = shared_head;
+		shared_head = c;
+	}
+	shared_head->items[shared_head->n++] = h;
+	shared_n++;
 	if (fresh && (++shared_fresh == 1 || shared_fresh == SHARED_THRESHOLD)) pthread_cond_signal(&buf_cv);
 	pthread_mutex_unlock(&buf_mu);
 }
@@ -197,7 +215,12 @@ void clj_cc_local_candidate(clj_header *h) {
 		if (b->n > MAIN_BOUND) {
 			clj_header *old = b->items[0];
 			b->items[0] = b->items[--b->n];
+			uint64_t t0 = clj_profile_now();
 			hand_off(old, clj_share);
+			int64_t took = (int64_t)(clj_profile_now() - t0);
+			int64_t seen = atomic_load_explicit(&stats[CLJ_CC_STAT_HANDOFF_MAX_NS], memory_order_relaxed);
+			while (took > seen && !atomic_compare_exchange_weak_explicit(&stats[CLJ_CC_STAT_HANDOFF_MAX_NS], &seen, took,
+			                                                             memory_order_relaxed, memory_order_relaxed)) {}
 		}
 	} else if (b->n >= LOCAL_THRESHOLD && !c->cc_collecting && !c->locks_held && !c->cmutex_held) {
 		// No lock held: a cycle's teardown frees whatever it held, and a finalizer may want a lock the caller has.
@@ -539,10 +562,24 @@ static bool shared_intake(clj_header *h, cand_vec *later) {
 static int64_t collect_shared(void) {
 	pthread_mutex_lock(&collect_mu);
 	pthread_mutex_lock(&buf_mu);
-	cand_vec entries = shared_buf;
-	shared_buf = (cand_vec){0};
+	chunk *taken = shared_head;
+	shared_head = NULL;
+	shared_n = 0;
 	shared_fresh = 0;
 	pthread_mutex_unlock(&buf_mu);
+	cand_vec entries = {0};
+	while (taken) {
+		chunk *c = taken;
+		taken = c->next;
+		for (size_t i = 0; i < c->n; i++) vec_push(&entries, c->items[i]);
+		pthread_mutex_lock(&buf_mu);
+		if (!spare) {
+			spare = c;
+			c = NULL;
+		}
+		pthread_mutex_unlock(&buf_mu);
+		free(c);
+	}
 	int64_t  freed = 0;
 	cand_vec later = {0};
 	if (entries.n) {
@@ -606,7 +643,7 @@ int64_t clj_cc_collect(void) {
 		got += collect_shared();
 		freed += got;
 		pthread_mutex_lock(&buf_mu);
-		bool more = shared_buf.n > 0;
+		bool more = shared_n > 0;
 		pthread_mutex_unlock(&buf_mu);
 		if (!got && !more && !(c->cc_local && ((cand_vec *)c->cc_local)->n)) break;
 	}
@@ -671,7 +708,7 @@ int64_t clj_debug_cc_pending_local(void) {
 
 int64_t clj_debug_cc_pending_shared(void) {
 	pthread_mutex_lock(&buf_mu);
-	int64_t n = (int64_t)shared_buf.n;
+	int64_t n = (int64_t)shared_n;
 	pthread_mutex_unlock(&buf_mu);
 	return n;
 }

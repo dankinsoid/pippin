@@ -305,7 +305,10 @@ void clj_dealloc(clj_header *h) {
 	else pool_free(h);
 }
 
-void clj_dealloc_dead(clj_header *h) { LIVE_ADD(h->type, -1); }
+void clj_dealloc_dead(clj_header *h) {
+	(void)h;
+	LIVE_ADD(h->type, -1);
+}
 
 void clj_dealloc_cell(clj_header *h) {
 	if (h->flags & CLJ_FLAG_LARGE) free(h);
