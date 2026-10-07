@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/box.h"
 #include "clj/chan.h"
 #include "clj/coll.h"
 #include "clj/diagnostic.h"
@@ -453,7 +454,27 @@ void clj_reader_use_namespaces(clj_reader *r) {
 	r->read_tag = clj_reader_read_tag;
 }
 
+// (binding [*out* *err*] ...): the bytes go to standard error past every capture, as the JVM's go to System.err.
+// Vars are immortal, so a racing first lookup stores the same var.
+static bool out_is_err(void) {
+	static clj_value out_var = CLJ_NIL, err_var = CLJ_NIL;
+	if (clj_is_nil(out_var) || clj_is_nil(err_var)) {
+		clj_value o = clj_symbol_from_cstr("*out*"), e = clj_symbol_from_cstr("*err*");
+		out_var = clj_ns_resolve(clj_ns_core(), o);
+		err_var = clj_ns_resolve(clj_ns_core(), e);
+		clj_release(o);
+		clj_release(e);
+		if (clj_is_nil(out_var) || clj_is_nil(err_var)) return false;
+	}
+	clj_value box = clj_var_thread_binding(out_var);
+	return !clj_is_nil(box) && clj_var_is_bound(err_var) && clj_volatile_value(box) == clj_var_root(err_var);
+}
+
 void clj_output(const char *bytes, size_t len) {
+	if (out_is_err()) {
+		fwrite(bytes, 1, len, stderr);
+		return;
+	}
 	capture *c = captures;
 	if (c) {
 		clj_lock_lock(&c->lock);

@@ -28,11 +28,8 @@
   {:file "test/clojure/test_clojure/data_structures.clj" :line 939 :name test-disj :reason "Unable to resolve symbol: class in this context" :missing [class]}
   {:file "test/clojure/test_clojure/data_structures.clj" :line 999 :name test-queues :reason "Unable to resolve symbol: Long. in this context" :missing [Long.]}
   {:file "test/clojure/test_clojure/data_structures.clj" :line 1108 :name is-same-collection :reason "Unable to resolve symbol: class in this context" :missing [class]}
-  {:file "test/clojure/test_clojure/data_structures.clj" :line 1186 :name hash-ordered :reason "Unable to resolve symbol: mix-collection-hash in this context" :missing [mix-collection-hash]}
-  {:file "test/clojure/test_clojure/data_structures.clj" :line 1192 :name hash-unordered :reason "Unable to resolve symbol: mix-collection-hash in this context" :missing [mix-collection-hash]}
   {:file "test/clojure/test_clojure/data_structures.clj" :line 1308 :name test-struct :reason "Unable to resolve symbol: defstruct in this context" :missing [defstruct]}
   {:file "test/clojure/test_clojure/data_structures.clj" :line 1310 :name gen-struct :reason "Unable to resolve symbol: struct in this context" :missing [struct]}
-  {:file "test/clojure/test_clojure/data_structures.clj" :line 1340 :name trailing-map-destructuring :reason "Unable to resolve symbol: seq-to-map-for-destructuring in this context" :missing [seq-to-map-for-destructuring]}
   {:file "test/clojure/test_clojure/def.clj" :line 13 :name defn-error-messages :reason "Unable to resolve host type: clojure.test-helper/Throwable" :missing []}
   {:file "test/clojure/test_clojure/def.clj" :line 55 :name non-dynamic-warnings :reason "Unable to resolve symbol: clojure.test-helper/java.io.StringWriter. in this context" :missing [clojure.test-helper/java.io.StringWriter.]}
   {:file "test/clojure/test_clojure/delays.clj" :line 13 :name calls-once-in-parallel :reason "Unable to resolve symbol: CyclicBarrier. in this context" :missing [CyclicBarrier.]}
@@ -43,7 +40,7 @@
   {:file "test/clojure/test_clojure/errors.clj" :line 52 :name compile-error-examples :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
   {:file "test/clojure/test_clojure/errors.clj" :line 59 :name assert-arg-messages :reason "Unable to resolve classname: clojure.lang.Compiler$CompilerException" :missing [clojure.lang.Compiler$CompilerException]}
   {:file "test/clojure/test_clojure/errors.clj" :line 69 :name extract-ex-data :reason "Unable to resolve symbol: RuntimeException. in this context" :missing [RuntimeException.]}
-  {:file "test/clojure/test_clojure/errors.clj" :line 76 :name Throwable->map-test :reason "Unable to resolve symbol: Throwable->map in this context" :missing [Throwable->map]}
+  {:file "test/clojure/test_clojure/errors.clj" :line 76 :name Throwable->map-test :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
   {:file "test/clojure/test_clojure/errors.clj" :line 110 :name ex-info-allows-nil-data :reason "Unable to resolve symbol: Throwable. in this context" :missing [Throwable.]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 20 :reason "Unable to resolve symbol: import in this context" :missing [import]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 37 :name Eval :reason "Unable to resolve symbol: Compiler/eval in this context" :missing [Compiler/eval]}
@@ -58,7 +55,7 @@
   {:file "test/clojure/test_clojure/for.clj" :line 59 :name only :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
   {:file "test/clojure/test_clojure/for.clj" :line 97 :name While-and-When-Same-Binding :reason "Unable to resolve symbol: Math/abs in this context" :missing [Math/abs]}
   {:file "test/clojure/test_clojure/for.clj" :line 113 :name Destructuring :reason "Unable to resolve symbol: Integer. in this context" :missing [Integer.]}
-  {:file "test/clojure/test_clojure/keywords.clj" :line 12 :reason "Unable to resolve symbol: find-keyword in this context" :missing [find-keyword]}
+  {:file "test/clojure/test_clojure/keywords.clj" :line 12 :reason "Cannot send to a namespace: not an Objective-C object" :missing []}
   {:file "test/clojure/test_clojure/logic.clj" :line 21 :name test-if :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/clojure/test_clojure/logic.clj" :line 155 :name test-not :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/clojure/test_clojure/multimethods.clj" :line 28 :name hierarchy-tags :reason "Unable to resolve symbol: clojure.lang.Named in this context" :missing [clojure.lang.Named]}
@@ -70,9 +67,8 @@
   {:file "test/clojure/test_clojure/numbers.clj" :line 38 :name BigInteger-conversions :reason "Unable to resolve symbol: Float/MAX_VALUE in this context" :missing [Float/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 54 :name all-pairs-equal :reason "Unable to resolve symbol: class in this context" :missing [class]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 61 :name all-pairs-hash-consistent-with-= :reason "Unable to resolve symbol: class in this context" :missing [class]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 102 :name unchecked-cast-num-obj :reason "Unable to resolve symbol: unchecked-byte in this context" :missing [unchecked-byte]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 128 :name unchecked-cast-num-prim :reason "Unable to resolve symbol: unchecked-byte in this context" :missing [unchecked-byte]}
-  {:file "test/clojure/test_clojure/numbers.clj" :line 154 :name unchecked-cast-char :reason "Unable to resolve symbol: unchecked-int in this context" :missing [unchecked-int]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 102 :name unchecked-cast-num-obj :reason "Unable to resolve symbol: Byte. in this context" :missing [Byte.]}
+  {:file "test/clojure/test_clojure/numbers.clj" :line 128 :name unchecked-cast-num-prim :reason "Unable to resolve symbol: Float/MAX_VALUE in this context" :missing [Float/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 159 :name expected-casts :reason "Unable to resolve symbol: Float/MAX_VALUE in this context" :missing [Float/MAX_VALUE]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 187 :name test-prim-with-matching-hint :reason "Unable to resolve symbol: Math/round in this context" :missing [Math/round]}
   {:file "test/clojure/test_clojure/numbers.clj" :line 585 :name test-array-types :reason "Unable to resolve symbol: Class/forName in this context" :missing [Class/forName]}
@@ -166,7 +162,6 @@
   {:name clojure.test-clojure.data-structures/ireduce-reduced :status :error :reason "Cannot send to a list: not an Objective-C object" :missing [] :note "(.reduce ^clojure.lang.IReduce (list 1 2 3 4 5) f) is a JVM interface method; reduce with a reduced is covered by test-reduce"}
   {:name clojure.test-clojure.data-structures/map-equality-test :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/is-same-collection" :missing [clojure.test-clojure.data-structures/is-same-collection]}
   {:name clojure.test-clojure.data-structures/ordered-collection-equality-test :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/is-same-collection" :missing [clojure.test-clojure.data-structures/is-same-collection]}
-  {:name clojure.test-clojure.data-structures/ordered-collection-hashes-match :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/hash-ordered" :missing [clojure.test-clojure.data-structures/hash-ordered]}
   {:name clojure.test-clojure.data-structures/same-output-persistent-transient-set :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/transient?" :missing [clojure.test-clojure.data-structures/transient?]}
   {:name clojure.test-clojure.data-structures/same-output-persistent-transient-vector :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/transient?" :missing [clojure.test-clojure.data-structures/transient?]}
   {:name clojure.test-clojure.data-structures/seq-and-iter-match-for-keys :status :error :reason "Cannot send to a cons: not an Objective-C object" :missing [] :note "seq-iter-match calls .iterator/.hasNext/.next on the collection: a java.util.Iterator has no counterpart here, and seq order against itself is what the test checks"}
@@ -178,7 +173,6 @@
   {:name clojure.test-clojure.data-structures/seq-and-iter-match-for-vals :status :error :reason "Cannot send to a cons: not an Objective-C object" :missing [] :note "seq-iter-match calls .iterator/.hasNext/.next on the collection: a java.util.Iterator has no counterpart here, and seq order against itself is what the test checks"}
   {:name clojure.test-clojure.data-structures/set-equality-test :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/is-same-collection" :missing [clojure.test-clojure.data-structures/is-same-collection]}
   {:name clojure.test-clojure.data-structures/test-seq-iter-match :status :error :reason "Cannot send to a map: not an Objective-C object" :missing [] :note "seq-iter-match calls .iterator/.hasNext/.next on the collection: a java.util.Iterator has no counterpart here, and seq order against itself is what the test checks"}
-  {:name clojure.test-clojure.data-structures/unordered-set-hashes-match :status :error :reason "Unbound var: #'clojure.test-clojure.data-structures/hash-unordered" :missing [clojure.test-clojure.data-structures/hash-unordered]}
   {:name clojure.test-clojure.errors/ex-info-arities-construct-equivalent-exceptions :status :error :reason "Cannot send to a exception: not an Objective-C object" :missing [] :note "(.getMessage ex), (.getData ex) and (.getCause ex) are JVM methods on a Throwable; ex-message, ex-data and ex-cause of the same two ex-infos are what the file's other arity tests compare"}
   {:name clojure.test-clojure.for/Doseq-While :status :error :reason "Unbound var: #'clojure.test-clojure.for/only" :missing [clojure.test-clojure.for/only]}
   {:name clojure.test-clojure.for/Doseq-While-and-When :status :error :reason "Unbound var: #'clojure.test-clojure.for/only" :missing [clojure.test-clojure.for/only]}

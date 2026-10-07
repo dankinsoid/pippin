@@ -29,7 +29,7 @@
   Clojure). `clojure.set`, `clojure.string`, `clojure.walk`, `clojure.template` are separate embedded
   namespaces loaded on the first `require`. Not yet: `reify`-style
   `IDeref` (the JVM's `clojure.lang.IDeref` with `deref`; ours is a protocol with `-deref`),
-  `time`, `partition-all` transducer flush order, `chunk-*`; `defstruct`, `proxy` and `with-local-vars` are
+  `partition-all` transducer flush order; `defstruct`, `proxy` and `with-local-vars` are
   rejected, each with its design §8 row (`docs/api-parity.md`). The 1.11/1.12 tail is in:
   `partition`'s pad arity, `partitionv`, `partitionv-all`, `splitv-at`, `reductions`, `halt-when`,
   `random-sample`, `bounded-count`, `boolean?`, `parse-boolean`, `reversible?` (vectors and the sorted
@@ -134,9 +134,23 @@
 - [~] **`destructure` follows clojure.core with these gaps.** A keyword as a binding form (`[:a 1]`) and a
   map key that is a keyword other than `:as`/`:or`/`:keys`/`:strs`/`:syms` (`{:foo x}`) are
   "Unsupported binding form/key" here; Clojure's function binds `a`/`foo` but its `let` spec rejects
-  both. Kwargs: a rest seq is turned into a map when it is all pairs or a single map; Clojure 1.11 also
-  merges a trailing map after pairs (`(f :a 1 {:b 2})`), here that is "No value supplied for key".
-  Trigger: a library relying on the trailing-map call style.
+  both. Trigger: a library binding a keyword. Kwargs go through `seq-to-map-for-destructuring`, defined first
+  in core.clj so every later destructuring can call it: pairs, a single map, or pairs then a map whose entries
+  win (`((partial f 100 :a 1) {:a 5})` binds 5), as Clojure 1.11's `createAsIfByAssoc`.
+- **The parity tail of `docs/api-parity.md`'s keep list** (each the JVM's text where one exists): `replace`,
+  `comparator`, `test`, `time` (over `nano-time*`, the profiler's monotonic clock), `*clojure-version*` and
+  `clojure-version` (1.12.6, the level the corpus and the diff pin), `*command-line-args*` (nil; a host sets it),
+  `*repl*` (nREPL's session frame binds it true, as `clojure.main/with-bindings` does), `*source-path*` (the
+  loaded file's last segment, bound by load.c beside `*file*`), `find-var`, `requiring-resolve`, `remove-ns` and
+  `ns-unalias` (ns.c), `find-keyword` (a lookup that never interns), `Throwable->map` (`:type` is the value's
+  `ex-type`, else `clojure.lang.ExceptionInfo`; a frame is `[fn invoke file line]` from `ex-trace`), the `Inst`
+  protocol (`inst-ms`/`inst?` fall back to it for a deftype), `tagged-literal` (a deftype printing `#tag form`
+  through `print-method`), `to-array-2d`, `load` (load-path-relative with a leading slash, else relative to the
+  current namespace's directory), and the files: `slurp`, `spit` and `file-seq` over path strings (io.c, on the
+  blocking pool), `line-seq` and `with-open` over `(.readLine r)`/`(.close r)`. A var the JVM makes dynamic
+  through `setDynamic` (`*out*`, `*err*`, `*print-readably*`, `*command-line-args*`, `*agent*`,
+  `*math-context*` …) is `^:dynamic` here with `:dynamic` then dissociated from its meta, so `api-diff` sees the
+  JVM's meta.
 - **A cooperative deadline bounds what a thread runs** (`clj_deadline_set_ms`): an interpreted closure call
   (`run_body`), a `loop` turn in both backends, a lazy-seq cell's realization (`run_thunk`), `clj_reduce_iter`
   and a fusion driver's entry check it (`clj_deadline_tick`), the clock is read once per 1024 of them, and

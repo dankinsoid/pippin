@@ -168,6 +168,32 @@ static clj_value b_vector_of(const clj_value *args, size_t n) {
 
 #define ANY CLJ_ARITY_ANY
 
+// (ints a) and its siblings: the array itself when its element kind is the one named, as the JVM's checkcast.
+static clj_value array_cast(clj_value v, clj_array_kind kind, const char *name) {
+	if (clj_is_nil(v)) return CLJ_NIL;
+	if (clj_is_array(v)) {
+		clj_array_kind k = clj_array_kind_of(v);
+		if (k == kind || (kind == CLJ_ARRAY_I8 && k == CLJ_ARRAY_U8)) return clj_retain(v);
+		return clj_throw_msg("%s array cannot be cast to a %s array", clj_array_kind_name(k), name);
+	}
+	return clj_throw_msg("%s cannot be cast to a %s array", clj_type_name(v), name);
+}
+
+static clj_value b_booleans(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_BOOL, "boolean"); }
+static clj_value b_bytes(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_I8, "byte"); }
+static clj_value b_chars(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_CHAR, "char"); }
+static clj_value b_shorts(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_I16, "short"); }
+static clj_value b_ints(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_I32, "int"); }
+static clj_value b_longs(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_I64, "long"); }
+static clj_value b_floats(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_F32, "float"); }
+static clj_value b_doubles(const clj_value *args, size_t n) { (void)n; return array_cast(args[0], CLJ_ARRAY_F64, "double"); }
+
+// The bridge's u8 buffer is a byte array to Clojure code as well.
+static clj_value b_bytes_p(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_bool(clj_is_array(args[0]) && (clj_array_kind_of(args[0]) == CLJ_ARRAY_I8 || clj_array_kind_of(args[0]) == CLJ_ARRAY_U8));
+}
+
 static const struct {
 	const char   *name;
 	clj_native_fn fn;
@@ -181,6 +207,9 @@ static const struct {
 	{"aset-byte", b_aset, 3, 3},            {"aset-short", b_aset, 3, 3},           {"aset-int", b_aset, 3, 3},
 	{"aset-long", b_aset, 3, 3},            {"aset-float", b_aset, 3, 3},           {"aset-double", b_aset, 3, 3},
 	{"aset-boolean", b_aset, 3, 3},         {"aset-char", b_aset, 3, 3},
+	{"booleans", b_booleans, 1, 1},         {"bytes", b_bytes, 1, 1},               {"chars", b_chars, 1, 1},
+	{"shorts", b_shorts, 1, 1},             {"ints", b_ints, 1, 1},                 {"longs", b_longs, 1, 1},
+	{"floats", b_floats, 1, 1},             {"doubles", b_doubles, 1, 1},           {"bytes?", b_bytes_p, 1, 1},
 	{"into-array", b_into_array, 1, 2},     {"to-array", b_to_array, 1, 1},         {"vector-of", b_vector_of, 1, ANY},
 };
 

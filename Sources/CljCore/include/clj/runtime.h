@@ -40,6 +40,8 @@ void clj_string_builtins_install(void);
 void clj_number_builtins_install(void);
 void clj_array_builtins_install(void);
 void clj_format_builtins_install(void);
+// slurp*, spit*, dir-children* (io.c).
+void clj_io_builtins_install(void);
 // (str v) of one value, owned; CLJ_THROWN when printing it throws.
 clj_value clj_str_value(clj_value v);
 

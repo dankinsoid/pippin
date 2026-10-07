@@ -96,7 +96,8 @@
   `nrepl.middleware.print/options` **map** (nrepl.org's op reference; `nrepl/util/print.clj` maps that map's
   `:print-length` onto `*print-length*` by adding the stars), and the eval op has no top-level `print-length`
   field at all; cider-nrepl's pprint fns spell the same two limits `:length`/`:level`, so both spellings are
-  read. The value in the reply goes through `clj_pr_str_dynamic`, so a client that asks for a limit gets the
+  read. A session's frame binds `*repl*` true, as `clojure.main/with-bindings` does under every JVM REPL, and a
+  `load-file` binds `*source-path*` to the file's last segment through load.c. The value in the reply goes through `clj_pr_str_dynamic`, so a client that asks for a limit gets the
   elided value too, which is the whole point of the JVM's print middleware. `load-file` binds `*file*` from
   `file-path` (nREPL's source-path-relative name, the one the JVM's `load-file` passes `Compiler/load` as the
   source path), falling back to `file-name`; positions in the loaded code and `*file*` reads inside it are right
@@ -169,8 +170,7 @@
   (`:ConjureConnect 127.0.0.1 N` or auto-detected from `.nrepl-port`) all look for. `(require 'clojure.string)`
   or any embedded lib works out of the box; a third-party dependency needs `Runtime.loadPath` wiring this
   executable does not expose yet (trigger: a `--load-path DIR` flag mirroring `clj-compile`'s).
-- [ ] Not done, with triggers: `*source-path*` (only `*file*` is bound; nothing in the runtime defines the other
-  var — trigger: code that reads it); TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points
+- [ ] Not done, with triggers: TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points
   (trigger: a client that needs one); a `Makefile` target for `clj-nrepl` alongside `clj-compile`'s (trigger:
   someone other than an editor plugin wanting a one-line launch).
 

@@ -12,6 +12,7 @@ enum ReplVars {
 	static let printLength = resolve("*print-length*")
 	static let printLevel = resolve("*print-level*")
 	static let input = resolve("*in*")
+	static let repl = resolve("*repl*")
 	static let file = Value(borrowing: clj_load_file_var())
 
 	private static func resolve(_ name: String) -> Value {
@@ -26,6 +27,8 @@ enum ReplVars {
 			m = clj_map_assoc(m, ns.raw, nsValue.raw)
 			// Bound at nil, like the JVM's with-bindings: set! and binding need a frame entry of their own.
 			for v in [v1, v2, v3, e, printLength, printLevel, input, file] { m = clj_map_assoc(m, v.raw, CLJ_NIL) }
+			// clojure.main/with-bindings, which every JVM REPL runs under, binds *repl* true.
+			m = clj_map_assoc(m, repl.raw, CLJ_TRUE)
 			return Value(owning: m)
 		}
 	}

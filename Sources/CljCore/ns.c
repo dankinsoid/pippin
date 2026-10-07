@@ -109,6 +109,30 @@ void clj_ns_unmap(clj_value ns, clj_value sym) {
 	clj_lock_unlock(&lock);
 }
 
+clj_value clj_ns_remove(clj_value name) {
+	clj_lock_lock(&lock);
+	clj_value ns = find_locked(name);
+	if (!clj_is_nil(ns)) {
+		clj_root_store(&registry, clj_map_dissoc(registry, name));
+		clj_value old = all, kept = clj_vector_empty();
+		for (uint32_t i = 0; i < clj_vector_count(old); i++) {
+			clj_value each = clj_vector_nth(old, i);
+			if (each != ns) kept = clj_vector_conj(kept, each);
+		}
+		clj_root_store(&all, kept);
+		clj_release(old);
+	}
+	clj_lock_unlock(&lock);
+	return ns;
+}
+
+void clj_ns_unalias(clj_value ns, clj_value alias) {
+	clj_ns *n = clj_ns_of(ns);
+	clj_lock_lock(&lock);
+	clj_slot_store(&n->h, &n->aliases, clj_map_dissoc(n->aliases.v, alias));
+	clj_lock_unlock(&lock);
+}
+
 void clj_ns_alias(clj_value ns, clj_value alias, clj_value target) {
 	CLJ_ASSERT(clj_is_ns(target), "alias target must be a namespace");
 	clj_ns *n = clj_ns_of(ns);

@@ -165,7 +165,7 @@ file. 105 open, 99 partly done.
 - [~] Semantics that differ from Clojure — `isa?` reads no supertypes of a type, ours or the host's — a type is a plain hierarchy key (trigger: `(isa? String CharSequence)` or an `instance?`-shaped dispatch in a corpus library
 - [ ] `transient` is the identity, so `conj!` copies where `conj` would not — Derived from the code, not yet measured.
 - [~] `concat` is defined first, with `fn*`/`let*`/`lazy-seq*` only — Trigger: macro expansion in a profile.
-- [~] `destructure` follows clojure.core with these gaps. — Trigger: a library relying on the trailing-map call style.
+- [~] `destructure` follows clojure.core with these gaps. — Trigger: a library binding a keyword.
 
 ### [Coroutine mutex (Sources/CljCore/cmutex.c, include/clj/cmutex.h)](notes/coroutine-mutex.md)
 
@@ -253,7 +253,7 @@ file. 105 open, 99 partly done.
 - [~] `*in*` is a map, `read-line` is Clojure, and the wait is a channel take. — Trigger: such a client — `acceptInput` then has to re-send the request when a chunk completed no line.
 - [ ] `readLineParksUntilStdinArrives` asked for input three times twice. — The second sighting was the trigger, so the fix is due: a chunk's lines go in as one batch before any waiter runs, which `clj_chan_put_cb` cannot do — `flush_wakes` unparks the taker inside the first put — so it needs a …
 - [~] Pointing a real editor at it — a third-party dependency needs `Runtime.loadPath` wiring this executable does not expose yet (trigger: a `--load-path DIR` flag mirroring `clj-compile`'s).
-- [ ] Not done, with triggers: `*source-path*` (only `*file*` is bound; nothing in the runtime …
+- [ ] Not done, with triggers: TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension … — Not done, with triggers: TLS/`nrepl.el` `x-clojure-refresh`-style middleware extension points (trigger: a client that needs one)
 
 ### [Numeric tower (bigint.c, ratio.c, decimal.c, number.c, builtins_number.c)](notes/numeric-tower.md)
 

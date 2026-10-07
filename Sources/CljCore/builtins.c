@@ -20,6 +20,7 @@
 #include "clj/runtime.h"
 #include "clj/seq.h"
 #include "clj/sorted.h"
+#include "profile_internal.h"
 
 // ---- numbers
 
@@ -188,6 +189,56 @@ static clj_value b_hash(const clj_value *args, size_t n) {
 	if (clj_is_ptr(args[0]) && !clj_type_of(args[0])->hash) return clj_throw_msg("%s cannot be hashed", clj_type_name(args[0]));
 	clj_equals_watch();
 	uint32_t h = clj_hash(args[0]);
+	return clj_equals_rethrow() ? CLJ_THROWN : clj_fixnum((int32_t)h);
+}
+
+// Murmur3.hashOrdered/hashUnordered over this core's element hashes, the mix every collection's hash uses
+// (vector.c, set.c, map.c): each answers what hash answers for a collection of the same items.
+static clj_value hash_coll(clj_value coll, bool ordered) {
+	clj_value s = clj_seq(coll);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_equals_watch();
+	uint32_t     h = ordered ? 1 : 0, n = 0;
+	clj_seq_iter it = clj_seq_iter_start(s);
+	clj_value    item;
+	while (clj_seq_iter_next(&it, &item)) {
+		h = ordered ? 31 * h + clj_hash(item) : h + clj_hash(item);
+		n++;
+	}
+	bool thrown = it.thrown;
+	clj_seq_iter_close(&it);
+	clj_release(s);
+	bool dropped = clj_equals_rethrow();
+	return thrown || dropped ? CLJ_THROWN : clj_fixnum((int32_t)clj_mix_coll_hash(h, n));
+}
+
+static clj_value b_hash_ordered_coll(const clj_value *args, size_t n) {
+	(void)n;
+	return hash_coll(args[0], true);
+}
+
+static clj_value b_hash_unordered_coll(const clj_value *args, size_t n) {
+	(void)n;
+	return hash_coll(args[0], false);
+}
+
+// Murmur3.mixCollHash takes both as Math.toIntExact of its long arguments.
+static clj_value b_mix_collection_hash(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t basis, count;
+	if (!clj_int64_of(args[0], &basis) || !clj_int64_of(args[1], &count)) return clj_throw_msg("mix-collection-hash expects two integers");
+	if (basis != (int32_t)basis || count != (int32_t)count) return clj_throw_msg("integer overflow");
+	return clj_fixnum((int32_t)clj_mix_coll_hash((uint32_t)(int32_t)basis, (uint32_t)(int32_t)count));
+}
+
+// Util.hashCombine with this core's hash of y, the combination symbols hash by.
+static clj_value b_hash_combine(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t seed;
+	if (!clj_int64_of(args[0], &seed)) return clj_throw_msg("hash-combine expects an integer seed, got: %s", clj_type_name(args[0]));
+	if (clj_is_ptr(args[1]) && !clj_type_of(args[1])->hash) return clj_throw_msg("%s cannot be hashed", clj_type_name(args[1]));
+	clj_equals_watch();
+	uint32_t h = clj_hash_combine((uint32_t)(uint64_t)seed, clj_hash(args[1]));
 	return clj_equals_rethrow() ? CLJ_THROWN : clj_fixnum((int32_t)h);
 }
 
@@ -698,6 +749,31 @@ static clj_value b_atom(const clj_value *args, size_t n) {
 static clj_value b_monitor_enter(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_monitor_enter(args[0]);
+}
+
+static clj_value b_find_keyword(const clj_value *args, size_t n) {
+	clj_value sym;
+	if (n == 2) {
+		if (!(clj_is_nil(args[0]) || clj_is_string(args[0])) || !clj_is_string(args[1])) return clj_throw_msg("find-keyword expects a namespace and a name as strings");
+		sym = clj_symbol_new(args[0], args[1]);
+	} else if (clj_is_keyword(args[0])) {
+		return args[0];
+	} else if (clj_is_symbol(args[0])) {
+		sym = clj_symbol_new(clj_symbol_ns(args[0]), clj_symbol_name(args[0]));
+	} else if (clj_is_string(args[0])) {
+		sym = clj_symbol_from_cstr(clj_string_bytes(args[0]));
+	} else {
+		return CLJ_NIL;
+	}
+	clj_value kw = clj_keyword_find(sym);
+	clj_release(sym);
+	return kw;
+}
+
+static clj_value b_nano_time(const clj_value *args, size_t n) {
+	(void)args;
+	(void)n;
+	return clj_long_new((int64_t)clj_profile_now());
 }
 
 static clj_value b_monitor_try_enter(const clj_value *args, size_t n) {
@@ -1519,6 +1595,9 @@ static const entry entries[] = {
 	{"add-watch", b_add_watch, 3, 3}, {"remove-watch", b_remove_watch, 2, 2}, {"set-validator!", b_set_validator, 2, 2},
 	{"get-validator", b_get_validator, 1, 1}, {"monitor-enter*", b_monitor_enter, 1, 1}, {"monitor-exit*", b_monitor_exit, 1, 1},
 	{"monitor-try-enter*", b_monitor_try_enter, 1, 1},
+	{"find-keyword", b_find_keyword, 1, 2}, {"nano-time*", b_nano_time, 0, 0},
+	{"hash-ordered-coll", b_hash_ordered_coll, 1, 1}, {"hash-unordered-coll", b_hash_unordered_coll, 1, 1},
+	{"mix-collection-hash", b_mix_collection_hash, 2, 2}, {"hash-combine", b_hash_combine, 2, 2},
 };
 
 void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uint32_t max) {
@@ -1571,6 +1650,7 @@ void clj_builtins_install(void) {
 	clj_uuid_builtins_install();
 	clj_inst_builtins_install();
 	clj_format_builtins_install();
+	clj_io_builtins_install();
 	clj_objc_builtins_install();
 	clj_host_module_builtins_install();
 	clj_cdecl_builtins_install();

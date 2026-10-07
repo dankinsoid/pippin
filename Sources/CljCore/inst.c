@@ -146,15 +146,43 @@ void clj_inst_format(clj_value inst, char *out, size_t cap) {
 
 // ---- builtins
 
+// The root of a clojure.core var, owned, or CLJ_UNBOUND before core.clj defined it.
+static clj_value core_root(const char *name) {
+	clj_value sym = clj_symbol_from_cstr(name);
+	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	clj_release(sym);
+	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
+	return clj_var_deref(var);
+}
+
+// A deftype is an inst when it extends core.clj's Inst protocol, as on the JVM, where inst? is satisfies?.
 static clj_value b_inst_p(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_bool(clj_is_inst(args[0]));
+	if (clj_is_inst(args[0])) return CLJ_TRUE;
+	if (!clj_is_instance(args[0])) return CLJ_FALSE;
+	clj_value proto = core_root("Inst"), satisfies = core_root("satisfies?");
+	clj_value r = CLJ_FALSE;
+	if (proto != CLJ_UNBOUND && satisfies != CLJ_UNBOUND) {
+		clj_value call[2] = {proto, args[0]};
+		r = clj_invoke(satisfies, call, 2);
+	}
+	if (proto != CLJ_UNBOUND) clj_release(proto);
+	if (satisfies != CLJ_UNBOUND) clj_release(satisfies);
+	return r;
 }
 
 static clj_value b_inst_ms(const clj_value *args, size_t n) {
 	(void)n;
-	if (!clj_is_inst(args[0])) return clj_throw_msg("inst-ms not supported on this type: %s", clj_type_name(args[0]));
-	return clj_long_new(clj_inst_ms(args[0]));
+	if (clj_is_inst(args[0])) return clj_long_new(clj_inst_ms(args[0]));
+	if (clj_is_instance(args[0])) {
+		clj_value f = core_root("inst-ms*");
+		if (f != CLJ_UNBOUND) {
+			clj_value r = clj_invoke(f, args, 1);
+			clj_release(f);
+			return r;
+		}
+	}
+	return clj_throw_msg("inst-ms not supported on this type: %s", clj_type_name(args[0]));
 }
 
 // The #inst data reader: clojure.instant/read-instant-date.

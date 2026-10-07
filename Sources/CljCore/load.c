@@ -35,7 +35,7 @@ static bool     lenient;
 static clj_value failures; // vector or nil
 
 static pthread_once_t file_var_once = PTHREAD_ONCE_INIT;
-static clj_value      file_var;
+static clj_value      file_var, source_path_var;
 
 
 static clj_load_hook    hook;
@@ -186,6 +186,26 @@ static void make_file_var(void) {
 	clj_release(sym);
 	clj_var_set_dynamic(file_var, true);
 	clj_var_bind_root(file_var, CLJ_NIL);
+	sym = clj_symbol_from_cstr("*source-path*");
+	source_path_var = clj_ns_intern(clj_ns_core(), sym);
+	clj_release(sym);
+	clj_var_set_dynamic(source_path_var, true);
+	clj_var_bind_root(source_path_var, CLJ_NIL);
+}
+
+// *file* and *source-path* for a load of file: the JVM's Compiler.load binds the path and its last segment.
+static clj_value load_bindings(clj_value file) {
+	clj_value bindings = clj_map_empty();
+	bindings = clj_map_assoc(bindings, clj_ns_var(), clj_ns_current());
+	bindings = clj_map_assoc(bindings, clj_load_file_var(), file);
+	clj_value name = CLJ_NIL;
+	if (clj_is_string(file)) {
+		const char *s = clj_string_bytes(file), *slash = strrchr(s, '/');
+		name = clj_string_from_cstr(slash ? slash + 1 : s);
+	}
+	bindings = clj_map_assoc(bindings, source_path_var, name);
+	clj_release(name);
+	return bindings;
 }
 
 clj_value clj_load_file_var(void) {
@@ -346,9 +366,7 @@ bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value
 
 // A registered unit runs under the bindings a source load has: its init sees the same *ns* and *file*.
 static clj_value run_unit(clj_compiled_init init, clj_value file) {
-	clj_value bindings = clj_map_empty();
-	bindings = clj_map_assoc(bindings, clj_ns_var(), clj_ns_current());
-	bindings = clj_map_assoc(bindings, clj_load_file_var(), file);
+	clj_value bindings = load_bindings(file);
 	clj_value pushed = clj_var_push_bindings(bindings);
 	clj_release(bindings);
 	if (pushed == CLJ_THROWN) return CLJ_THROWN;
@@ -367,9 +385,7 @@ static clj_value run_unit(clj_compiled_init init, clj_value file) {
 }
 
 clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
-	clj_value bindings = clj_map_empty();
-	bindings = clj_map_assoc(bindings, clj_ns_var(), clj_ns_current());
-	bindings = clj_map_assoc(bindings, clj_load_file_var(), file);
+	clj_value bindings = load_bindings(file);
 	clj_value pushed = clj_var_push_bindings(bindings);
 	clj_release(bindings);
 	if (pushed == CLJ_THROWN) return CLJ_THROWN;

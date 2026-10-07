@@ -1263,6 +1263,10 @@ static clj_value call_out(const objc_sig *sig, void *fn, const call_args *ca) {
 
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw) {
 	if (clj_is_nil(target)) return CLJ_NIL; // messaging nil is a no-op returning zero, as in Objective-C
+	if (clj_is_instance(target) && clj_is_string(selector)) {
+		clj_value r = clj_instance_send(target, selector, args, nargs);
+		if (r != CLJ_UNBOUND) return r;
+	}
 	if (clj_is_host_box(target) && clj_is_string(selector))
 		return clj_throw_msg("Cannot send .%s to a %s: a Swift type's members are vars of its module, Module/Type.member (design §5)",
 		                     clj_string_bytes(selector), clj_type_name(target));
@@ -2171,7 +2175,11 @@ clj_value clj_objc_class(const char *name) {
 }
 
 clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs, bool raw) {
-	(void)target, (void)selector, (void)args, (void)nargs, (void)raw;
+	(void)raw;
+	if (clj_is_instance(target) && clj_is_string(selector)) {
+		clj_value r = clj_instance_send(target, selector, args, nargs);
+		if (r != CLJ_UNBOUND) return r;
+	}
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 

@@ -117,6 +117,22 @@ static clj_value b_alias(const clj_value *args, size_t n) {
 	return CLJ_NIL;
 }
 
+static clj_value b_remove_ns(const clj_value *args, size_t n) {
+	(void)n;
+	if (ns_symbol_arg("remove-ns", args[0]) == CLJ_THROWN) return CLJ_THROWN;
+	if (clj_equals(args[0], clj_ns_name(clj_ns_core()))) return clj_throw_msg("Cannot remove clojure namespace");
+	return clj_ns_remove(args[0]);
+}
+
+static clj_value b_ns_unalias(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value ns = the_ns(args[0]);
+	if (ns == CLJ_THROWN) return CLJ_THROWN;
+	if (!clj_is_symbol(args[1])) return clj_throw_msg("ns-unalias expects a symbol, got: %s", clj_type_name(args[1]));
+	clj_ns_unalias(ns, args[1]);
+	return CLJ_NIL;
+}
+
 static clj_value b_ns_unmap(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value ns = the_ns(args[0]);
@@ -363,6 +379,7 @@ static const struct {
 	{"in-ns", b_in_ns, 1, 1},           {"create-ns", b_create_ns, 1, 1},   {"find-ns", b_find_ns, 1, 1},     {"the-ns", b_the_ns, 1, 1},
 	{"ns-name", b_ns_name, 1, 1},       {"all-ns", b_all_ns, 0, 0},         {"ns-map", b_ns_map, 1, 1},       {"ns-publics", b_ns_publics, 1, 1},
 	{"ns-interns", b_ns_interns, 1, 1}, {"ns-refers", b_ns_refers, 1, 1},   {"ns-aliases", b_ns_aliases, 1, 1}, {"alias", b_alias, 2, 2},
+	{"remove-ns", b_remove_ns, 1, 1},   {"ns-unalias", b_ns_unalias, 2, 2},
 	{"ns-unmap", b_ns_unmap, 2, 2},     {"ns-resolve", b_ns_resolve, 2, 3}, {"resolve", b_resolve, 1, 2},     {"ns-refer*", b_ns_refer_star, 3, 3},
 	{"ns-exclude*", b_ns_exclude_star, 2, 2}, {"intern", b_intern, 2, 3},   {"var-get", b_var_get, 1, 1},     {"var-set", b_var_set, 2, 2},
 	{"push-thread-bindings", b_push_thread_bindings, 1, 1}, {"pop-thread-bindings", b_pop_thread_bindings, 0, 0},

@@ -136,7 +136,9 @@
   `transduce` over a vector or range take the reduce slot and allocate nothing per element, so
   chunking only matters for the lazy `map`/`filter`/`first`/`next` walks. Trigger: seq
   walks of big vectors in a profile; Clojure's chunked seqs batch 32 elements per allocation and
-  need `chunk-first`/`chunk-rest` in `map`/`filter`.
+  need `chunk-first`/`chunk-rest` in `map`/`filter`. The API a library calls exists (core.clj: `chunk-buffer`,
+  `chunk`, `chunk-cons`, `->ArrayChunk` …, deftypes), so such a library loads and takes its chunked branch
+  only over what `chunk-cons` built; the producing side is what this entry waits for.
 - [~] **`clj_equals`/`clj_hash` cannot throw**, so a lazy seq whose thunk throws compares unequal /
   hashes what it yielded and the exception is dropped (`drop_thrown` in coll.c); a deftype `equiv`
   that throws compares unequal and a `hasheq` that throws or yields a non-integer hashes 0, the
@@ -185,4 +187,8 @@
   (`(with-meta (seq a) (meta coll))`, compare.c), an empty collection answering the bare `()`.
 - **`nth` special-cases strings by type** rather than a slot: a string has `lookup`/`count` slots
   but no ILookup/Indexed bits, as `RT.get`/`RT.nth` special-case `String`.
-
+- **`hash-ordered-coll`, `hash-unordered-coll`, `mix-collection-hash` and `hash-combine` agree with this core's
+  `hash`** (builtins.c): the collections hash by Murmur3's `hashOrdered`/`hashUnordered` over the element hashes
+  and `clj_mix_coll_hash`, which is the JVM's mixing bit for bit, so a user collection built on them hashes as a
+  vector, a seq or a set of the same items does. Whether the element hashes are the JVM's is design §10's open
+  question; these leave it alone.

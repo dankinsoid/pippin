@@ -11,18 +11,6 @@
  set-agent-send-off-executor! {:verdict :repoint :why "with `set-agent-send-executor!`: our blocking pool in place of a JVM executor"}
 
  ;; ── Printing and REPL dynamic vars cljs keeps ─────────────────────────────────────────────────
- *out*                 {:verdict :keep :why "cljs keeps it; ours is the C capture stack (`out-capture-push*`), and `with-out-str` already rebinds something that `*out*` has to name"}
- *err*                 {:verdict :keep :why "with `*out*`; cljs replaced the pair with `*print-fn*`/`*print-err-fn*`, but our namespace is literally `clojure.core`, so portable code redirects by binding these two"}
- *flush-on-newline*    {:verdict :keep :why "cljs keeps it; the nREPL writer already decides per write (NOTES \"nREPL\"), so the policy exists and wants its name"}
- *print-readably*      {:verdict :keep :why "cljs keeps it; our printer is C (`print_line`) and reads `*print-length*`/`*print-level*` already"}
- *print-meta*          {:verdict :keep :why "with `*print-readably*`; cljs keeps it"}
- *print-dup*           {:verdict :keep :why "with `*print-readably*`; cljs keeps the var (its printer honours `:dup`)"}
- *print-namespace-maps* {:verdict :keep :why "with `*print-readably*`; cljs keeps it, and the `#:ns{}` form is in our reader"}
- *command-line-args*   {:verdict :keep :why "cljs keeps it; our hosts have argv (`clj-load`, `clj-nrepl`)"}
- *repl*                {:verdict :keep :why "we have a REPL, and the nREPL session is the frame that would bind it (NOTES \"nREPL\"); cljs dropped it for lack of one"}
- *source-path*         {:verdict :keep :why "named as a remaining tail of nREPL (NOTES \"nREPL\"), so the work is already owed"}
- *clojure-version*     {:verdict :keep :why "cljs replaced it with `*clojurescript-version*` because its namespace is `cljs.core`; ours is `clojure.core`, and the var has to answer with the clojure.core level we implement"}
- clojure-version       {:verdict :keep :why "with `*clojure-version*`"}
 
  ;; ── Host interop: cljs repointed the word at Closure, we repoint it at ObjC ────────────────────
  import                {:verdict :repoint :why "design §3's own example: in cljs a macro over Google Closure classes, here over ObjC classes (`objc-class`)"}
@@ -36,74 +24,14 @@
  with-in-str           {:verdict :repoint :why "with `read`: ours seeds the `*in*` map's line channel instead of binding a `StringReader`"}
 
  ;; ── Numbers: cljs dropped the tower, we have it (design §3) ───────────────────────────────────
- unchecked-byte        {:verdict :keep :why "cljs keeps every unchecked coercion; ours is `byte` without the range check — §3 \"Явные двойники\""}
- unchecked-char        {:verdict :keep :why "with `unchecked-byte`"}
- unchecked-short       {:verdict :keep :why "with `unchecked-byte`"}
- unchecked-int         {:verdict :keep :why "with `unchecked-byte`"}
- unchecked-long        {:verdict :keep :why "with `unchecked-byte`"}
- unchecked-float       {:verdict :keep :why "with `unchecked-byte`"}
- unchecked-double      {:verdict :keep :why "with `unchecked-byte`"}
- unchecked-add-int     {:verdict :keep :why "cljs keeps the `-int` family too; ours is the fixnum-width twin of `unchecked-add`"}
- unchecked-subtract-int {:verdict :keep :why "with `unchecked-add-int`"}
- unchecked-multiply-int {:verdict :keep :why "with `unchecked-add-int`"}
- unchecked-divide-int  {:verdict :keep :why "with `unchecked-add-int`"}
- unchecked-remainder-int {:verdict :keep :why "with `unchecked-add-int`"}
- unchecked-negate-int  {:verdict :keep :why "with `unchecked-add-int`"}
- unchecked-inc-int     {:verdict :keep :why "with `unchecked-add-int`"}
- unchecked-dec-int     {:verdict :keep :why "with `unchecked-add-int`"}
 
  ;; ── Arrays: cljs keeps the casts, our array type is the §4 low-level layer ─────────────────────
- booleans              {:verdict :keep :why "cljs keeps all eight as identity casts; ours cast to the §4 low-level array layer, identity until `(array Layout n)` lands"}
- bytes                 {:verdict :keep :why "with `booleans`"}
- chars                 {:verdict :keep :why "with `booleans`"}
- shorts                {:verdict :keep :why "with `booleans`"}
- ints                  {:verdict :keep :why "with `booleans`"}
- longs                 {:verdict :keep :why "with `booleans`"}
- floats                {:verdict :keep :why "with `booleans`"}
- doubles               {:verdict :keep :why "with `booleans`"}
- bytes?                {:verdict :keep :why "the predicate of the byte-array type of §4's low-level layer; cljs dropped it although it has typed arrays, we have the type coming"}
- to-array-2d           {:verdict :keep :why "cljs keeps it (a nested JS array); `to-array` is already ours"}
 
  ;; ── Chunked seqs: cljs keeps the whole surface ────────────────────────────────────────────────
- chunk                 {:verdict :keep :why "cljs keeps the whole chunked-seq surface; we have no chunking yet (docs/notes/type-descriptor.md, \"No chunked seqs\") and the names arrive with it"}
- chunk-buffer          {:verdict :keep :why "with `chunk`"}
- chunk-append          {:verdict :keep :why "with `chunk`"}
- chunk-cons            {:verdict :keep :why "with `chunk`"}
- chunk-first           {:verdict :keep :why "with `chunk`"}
- chunk-next            {:verdict :keep :why "with `chunk`"}
- chunk-rest            {:verdict :keep :why "with `chunk`"}
- chunked-seq?          {:verdict :keep :why "with `chunk`"}
- ->ArrayChunk          {:verdict :keep :why "with `chunk`; cljs keeps this deftype constructor, and a library writing its own chunked seq calls it"}
 
  ;; ── Hashing: cljs keeps all four, and a user collection must hash like ours ────────────────────
- hash-combine          {:verdict :keep :why "cljs keeps all four; our hashing is C (murmur3) and a user collection cannot hash consistently without them"}
- hash-ordered-coll     {:verdict :keep :why "with `hash-combine`"}
- hash-unordered-coll   {:verdict :keep :why "with `hash-combine`"}
- mix-collection-hash   {:verdict :keep :why "with `hash-combine`"}
 
  ;; ── Plain, portable core cljs kept and we simply lack ─────────────────────────────────────────
- replace               {:verdict :keep :why "`clojure.core/replace` over a seq — pure Clojure, kept by cljs, and nothing here explains its absence"}
- comparator            {:verdict :keep :why "cljs keeps it; three lines over our `compare`"}
- test                  {:verdict :keep :why "cljs keeps it; it runs the var's `:test` meta, and `clojure.test` is ours already"}
- time                  {:verdict :keep :why "cljs keeps it; listed as not-yet in NOTES \"core.clj\""}
- seq-to-map-for-destructuring {:verdict :keep :why "cljs keeps it; 1.11 kwargs destructuring expands into a call of this name"}
- tagged-literal        {:verdict :keep :why "cljs keeps it; our reader has tags (NOTES \"Reader\")"}
- tagged-literal?       {:verdict :keep :why "with `tagged-literal`"}
- Inst                  {:verdict :keep :why "cljs keeps the protocol; `inst-ms` is ours already and this is what it dispatches on"}
- inst-ms*              {:verdict :keep :why "with `Inst`: its only method"}
- Throwable->map        {:verdict :keep :why "cljs keeps it over its own error type; the map shape is what `pst` and tooling read, and `ex-trace`/`ex-type` are ours"}
- find-keyword          {:verdict :keep :why "keywords are interned in C here, so the non-interning lookup is one call; cljs dropped it for want of a table"}
- print-method          {:verdict :keep :why "the one public extension point for printing a user type; cljs replaced it with the `IPrintWithWriter` protocol, we have multimethods and `type`, and nothing public replaces it yet"}
- find-var              {:verdict :keep :why "vars are real at runtime here (`resolve`, `ns-resolve`, nREPL's `info` are ours); cljs dropped it for lack of them"}
- requiring-resolve     {:verdict :keep :why "with `find-var`: `require` and `resolve` are both ours"}
- remove-ns             {:verdict :keep :why "namespaces are real at runtime here (nREPL walks `ns-map`); cljs dropped it for lack of them"}
- ns-unalias            {:verdict :keep :why "with `remove-ns`; `ns-aliases` is already ours"}
- load                  {:verdict :keep :why "our loader resolves lib paths already (`lib-path*`, `load-resource*`, `load-file`); cljs dropped it for lack of a loader"}
- slurp                 {:verdict :keep :why "cljs dropped file IO because a browser has no filesystem; a phone has one, and this is the name every real program uses"}
- spit                  {:verdict :keep :why "with `slurp`"}
- line-seq              {:verdict :keep :why "with `slurp`"}
- file-seq              {:verdict :keep :why "with `slurp`"}
- with-open             {:verdict :keep :why "with `slurp`; the close call is an ObjC message, not a JVM interface"}
 
  ;; ── JVM class machinery: §10's named exceptions ────────────────────────────────────────────────
  proxy                 {:verdict :drop :design "`proxy` и его обвязка" :why "generates a JVM class at runtime; §10 names it a permitted exception, ObjC subclassing (`objc-reify`) and single-method `reify` cover the need"}

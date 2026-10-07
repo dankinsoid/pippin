@@ -25,6 +25,8 @@ clj_value clj_bigint_from_double(double d);
 // CLJ_NIL when the text is not `n` digits of `radix` with an optional leading sign.
 clj_value clj_bigint_parse(const char *s, size_t n, unsigned radix);
 bool      clj_bigint_to_i64(clj_value v, int64_t *out);
+// The low 64 bits of the two's complement, as BigInteger.longValue: wraps instead of failing.
+int64_t   clj_bigint_low64(clj_value v);
 // ±HUGE_VAL past the double range.
 double    clj_bigint_to_double(clj_value v);
 // The canonical integer: a fixnum, else a boxed long, else v retained.

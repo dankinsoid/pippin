@@ -45,6 +45,11 @@ static inline const clj_method_ctx *clj_method_ctx_of(clj_value f) { return clj_
 // retires: a cache may hold it borrowed and, inside a window that saw the epoch unchanged, retain it.
 clj_value clj_protocol_method_impl(clj_value method, clj_value v);
 
+// (.name x args) on a deftype, record or reify instance: its own protocol method named name, else -name (the
+// protocol convention), called with x first — a deftype's methods are its class's methods on the JVM. The
+// selector's base is what precedes its first ':'. CLJ_UNBOUND when the type has neither.
+clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs);
+
 // Throws "No implementation of method: ..." for v.
 clj_value clj_protocol_no_impl(clj_value method, clj_value v);
 

@@ -32,6 +32,9 @@ clj_value clj_ns_intern(clj_value ns, clj_value sym);
 void      clj_ns_refer(clj_value ns, clj_value sym, clj_value var);
 // Removes sym from the namespace's own mappings and refers; a var that was mapped stays alive (vars are immortal).
 void      clj_ns_unmap(clj_value ns, clj_value sym);
+// The namespace leaves the registry and all-ns, borrowed, or nil; it stays alive for whatever still names it.
+clj_value clj_ns_remove(clj_value name);
+void      clj_ns_unalias(clj_value ns, clj_value alias);
 // alias → target; replaces a previous alias of the same name.
 void      clj_ns_alias(clj_value ns, clj_value alias, clj_value target);
 // Borrowed meta, nil when none; set shares m like every other slot.

@@ -301,6 +301,144 @@ static clj_value b_parse_double(const clj_value *args, size_t n) {
 	return clj_double_new(strtod(buf, NULL));
 }
 
+// ---- unchecked coercions: Java's narrowing conversions, as RT.uncheckedIntCast and its siblings
+
+// (long)d: NaN is 0 and the range saturates.
+static int64_t java_d2l(double d) {
+	if (d != d) return 0;
+	if (d >= 9223372036854775807.0) return INT64_MAX;
+	if (d <= -9223372036854775808.0) return INT64_MIN;
+	return (int64_t)d;
+}
+
+static int32_t java_d2i(double d) {
+	if (d != d) return 0;
+	if (d >= 2147483647.0) return INT32_MAX;
+	if (d <= -2147483648.0) return INT32_MIN;
+	return (int32_t)d;
+}
+
+// Number.longValue: a double saturates, anything else keeps the low 64 bits of its truncation; false for a
+// value that is no number.
+static bool java_long(clj_value v, int64_t *out) {
+	if (clj_int64_of(v, out)) return true;
+	if (clj_is_double(v)) {
+		*out = java_d2l(clj_double_val(v));
+		return true;
+	}
+	if (!clj_is_number(v)) return false;
+	clj_value t = clj_num_truncate(v);
+	*out = clj_bigint_low64(t);
+	clj_release(t);
+	return true;
+}
+
+// Number.intValue: Ratio's goes through its double, as a Double's does; the rest keeps the low 32 bits.
+static bool java_int(clj_value v, int32_t *out) {
+	if (clj_is_double(v) || clj_is_ratio(v)) {
+		*out = java_d2i(clj_num_to_double(v));
+		return true;
+	}
+	int64_t l;
+	if (!java_long(v, &l)) return false;
+	*out = (int32_t)(uint32_t)(uint64_t)l;
+	return true;
+}
+
+static clj_value b_unchecked_byte(const clj_value *args, size_t n) {
+	(void)n;
+	int32_t i;
+	return java_int(args[0], &i) ? clj_fixnum((int8_t)(uint8_t)(uint32_t)i) : not_a_number(args[0]);
+}
+
+static clj_value b_unchecked_short(const clj_value *args, size_t n) {
+	(void)n;
+	int32_t i;
+	return java_int(args[0], &i) ? clj_fixnum((int16_t)(uint16_t)(uint32_t)i) : not_a_number(args[0]);
+}
+
+// RT.uncheckedIntCast alone of the family takes a char.
+static clj_value b_unchecked_int(const clj_value *args, size_t n) {
+	(void)n;
+	if (clj_is_char(args[0])) return clj_fixnum(clj_char_val(args[0]));
+	int32_t i;
+	return java_int(args[0], &i) ? clj_fixnum(i) : not_a_number(args[0]);
+}
+
+static clj_value b_unchecked_long(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t l;
+	return java_long(args[0], &l) ? clj_long_new(l) : not_a_number(args[0]);
+}
+
+// (char) of the long: the low 16 bits. A surrogate half is no Unicode scalar, which is what a char is here.
+static clj_value b_unchecked_char(const clj_value *args, size_t n) {
+	(void)n;
+	if (clj_is_char(args[0])) return args[0];
+	int64_t l;
+	if (!java_long(args[0], &l)) return not_a_number(args[0]);
+	uint32_t c = (uint32_t)(uint64_t)l & 0xFFFF;
+	if (c >= 0xD800 && c <= 0xDFFF) return range_error("char", args[0]);
+	return clj_char(c);
+}
+
+static clj_value b_unchecked_float(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_number(args[0])) return not_a_number(args[0]);
+	return clj_double_new((double)(float)clj_num_to_double(args[0]));
+}
+
+static clj_value b_unchecked_double(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_number(args[0])) return not_a_number(args[0]);
+	return clj_double_new(clj_num_to_double(args[0]));
+}
+
+// The operands of the -int family are RT.intCast'd, which checks the range; only the operation wraps.
+static bool int_operands(const clj_value *args, size_t n, int32_t *out) {
+	for (size_t i = 0; i < n; i++) {
+		clj_value v = int_cast(args[i], "int", INT32_MIN, INT32_MAX, false);
+		if (v == CLJ_THROWN) return false;
+		int64_t x = 0;
+		clj_int64_of(v, &x);
+		clj_release(v);
+		out[i] = (int32_t)x;
+	}
+	return true;
+}
+
+static clj_value unchecked_int2(const clj_value *args, char op) {
+	int32_t x[2];
+	if (!int_operands(args, 2, x)) return CLJ_THROWN;
+	uint32_t a = (uint32_t)x[0], b = (uint32_t)x[1];
+	switch (op) {
+	case '+': return clj_fixnum((int32_t)(a + b));
+	case '-': return clj_fixnum((int32_t)(a - b));
+	case '*': return clj_fixnum((int32_t)(a * b));
+	default: break;
+	}
+	if (x[1] == 0) return clj_throw_msg("Divide by zero");
+	// INT32_MIN / -1 is undefined in C; Java's int division wraps it to INT32_MIN and its remainder is 0.
+	if (x[0] == INT32_MIN && x[1] == -1) return clj_fixnum(op == '/' ? INT32_MIN : 0);
+	return clj_fixnum(op == '/' ? x[0] / x[1] : x[0] % x[1]);
+}
+
+static clj_value unchecked_int1(const clj_value *args, int32_t delta, bool negate) {
+	int32_t x;
+	if (!int_operands(args, 1, &x)) return CLJ_THROWN;
+	uint32_t u = (uint32_t)x;
+	return clj_fixnum((int32_t)(negate ? 0u - u : u + (uint32_t)delta));
+}
+
+static clj_value b_unchecked_add_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '+'); }
+static clj_value b_unchecked_subtract_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '-'); }
+static clj_value b_unchecked_multiply_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '*'); }
+static clj_value b_unchecked_divide_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '/'); }
+static clj_value b_unchecked_remainder_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '%'); }
+static clj_value b_unchecked_negate_int(const clj_value *args, size_t n) { (void)n; return unchecked_int1(args, 0, true); }
+static clj_value b_unchecked_inc_int(const clj_value *args, size_t n) { (void)n; return unchecked_int1(args, 1, false); }
+static clj_value b_unchecked_dec_int(const clj_value *args, size_t n) { (void)n; return unchecked_int1(args, -1, false); }
+
 // ---- unchecked arithmetic: two's-complement wrap at 64 bits, as on the JVM
 
 static clj_value unchecked2(const clj_value *args, clj_num_op op) {
@@ -365,6 +503,13 @@ static const struct {
 	{"denominator", b_denominator, 1, 1},
 	{"parse-long", b_parse_long, 1, 1},
 	{"parse-double", b_parse_double, 1, 1},
+	{"unchecked-byte", b_unchecked_byte, 1, 1}, {"unchecked-short", b_unchecked_short, 1, 1}, {"unchecked-int", b_unchecked_int, 1, 1},
+	{"unchecked-long", b_unchecked_long, 1, 1}, {"unchecked-char", b_unchecked_char, 1, 1}, {"unchecked-float", b_unchecked_float, 1, 1},
+	{"unchecked-double", b_unchecked_double, 1, 1},
+	{"unchecked-add-int", b_unchecked_add_int, 2, 2}, {"unchecked-subtract-int", b_unchecked_subtract_int, 2, 2},
+	{"unchecked-multiply-int", b_unchecked_multiply_int, 2, 2}, {"unchecked-divide-int", b_unchecked_divide_int, 2, 2},
+	{"unchecked-remainder-int", b_unchecked_remainder_int, 2, 2}, {"unchecked-negate-int", b_unchecked_negate_int, 1, 1},
+	{"unchecked-inc-int", b_unchecked_inc_int, 1, 1}, {"unchecked-dec-int", b_unchecked_dec_int, 1, 1},
 	{"unchecked-add", b_unchecked_add, 2, 2},
 	{"unchecked-subtract", b_unchecked_subtract, 2, 2},
 	{"unchecked-multiply", b_unchecked_multiply, 2, 2},

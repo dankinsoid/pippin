@@ -273,6 +273,45 @@ static clj_value impl_of(clj_value proto, uint32_t idx, clj_value v) {
 	return f;
 }
 
+// A protocol method of the instance's own type named exactly name (pass 0) or -name (pass 1), owned, or nil.
+static clj_value method_named(const clj_type *t, const char *name, size_t len) {
+	reader            *r = window_open();
+	const proto_table *tbl = table_of(t);
+	clj_value          f = CLJ_NIL;
+	for (int pass = 0; pass < 2 && clj_is_nil(f); pass++) {
+		for (uint32_t i = 0; tbl && i < tbl->n && clj_is_nil(f); i++) {
+			clj_value methods = clj_protocol_of(tbl->entries[i].proto)->methods.v;
+			for (uint32_t k = 0; k < clj_vector_count(methods); k++) {
+				clj_value   sym = clj_symbol_name(clj_vector_nth(methods, k));
+				const char *s = clj_string_bytes(sym);
+				size_t      n = clj_string_len(sym);
+				bool        match = pass == 0 ? n == len && memcmp(s, name, len) == 0 : n == len + 1 && s[0] == '-' && memcmp(s + 1, name, len) == 0;
+				if (!match) continue;
+				clj_value fn = clj_vector_nth(tbl->entries[i].fns, k);
+				if (!clj_is_nil(fn)) f = clj_retain(fn);
+				break;
+			}
+		}
+	}
+	window_close(r);
+	return f;
+}
+
+clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs) {
+	const char *sel = clj_string_bytes(selector);
+	clj_value   f = method_named(clj_type_of(target), sel, strcspn(sel, ":"));
+	if (clj_is_nil(f)) return CLJ_UNBOUND;
+	clj_value  small[8];
+	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
+	if (!call) clj_fatal("out of memory");
+	call[0] = target;
+	memcpy(call + 1, args, nargs * sizeof *call);
+	clj_value r = clj_invoke(f, call, nargs + 1);
+	if (call != small) free(call);
+	clj_release(f);
+	return r;
+}
+
 void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx) {
 	reader     *r = window_open();
 	side_table *s = atomic_load_explicit(&side, memory_order_seq_cst);

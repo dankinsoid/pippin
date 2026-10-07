@@ -55,6 +55,13 @@ static clj_value intern(clj_value sym) {
 	return kw;
 }
 
+clj_value clj_keyword_find(clj_value sym) {
+	clj_lock_lock(&table_lock);
+	clj_value kw = clj_is_nil(table) ? CLJ_NIL : clj_map_get(table, sym, CLJ_NIL);
+	clj_lock_unlock(&table_lock);
+	return kw;
+}
+
 clj_value clj_keyword_intern(clj_value ns, clj_value name) { return intern(clj_symbol_new(ns, name)); }
 
 clj_value clj_keyword_from_cstr(const char *s) { return intern(clj_symbol_from_cstr(s)); }

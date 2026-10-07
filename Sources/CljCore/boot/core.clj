@@ -68,6 +68,18 @@
             (throw (ex-info "cond requires an even number of forms" {})))
          (cond ~@(next (next clauses)))))))
 
+(def ^{:doc "Builds a map from a seq as described in
+  https://clojure.org/reference/special_forms#keyword-arguments: key/value pairs, a single map, or pairs
+  followed by a map whose entries win."
+       :arglists '([s])}
+  seq-to-map-for-destructuring
+  (fn* [s]
+    (if (next s)
+      (if (even? (count s))
+        (apply hash-map s)
+        (reduce (fn* [m e] (assoc m (nth e 0) (nth e 1))) (apply hash-map (butlast s)) (seq (last s))))
+      (if (seq s) (first s) {}))))
+
 ;; Clojure's destructure: bindings for let* with nested forms expanded to nth/get, or the
 ;; input itself when every binding form is already a symbol. Not supported: a keyword as a
 ;; binding form and a map key that is a keyword other than :as/:or/:keys/:strs/:syms (both are
@@ -116,9 +128,7 @@
              (let* [gmap (gensym "map__")
                     defaults (get b :or)
                     ret (conj bvec gmap v
-                              gmap `(if (seq? ~gmap)
-                                      (if (next ~gmap) (apply hash-map ~gmap) (if (seq ~gmap) (first ~gmap) {}))
-                                      ~gmap))
+                              gmap `(if (seq? ~gmap) (seq-to-map-for-destructuring ~gmap) ~gmap))
                     ret (if (get b :as) (conj ret (get b :as) gmap) ret)
                     bes (loop* [es (seq b) acc []]
                           (if es
@@ -1975,6 +1985,148 @@
   [& exprs]
   `(pcalls ~@(map (fn [e] `(fn [] ~e)) exprs)))
 
+(defn replace
+  "Given a map of replacement pairs and a vector/collection, returns a vector/seq with any elements = a key in
+  smap replaced with the corresponding val in smap. Returns a transducer when no collection is provided."
+  ([smap] (map (fn [x] (if-let [e (find smap x)] (val e) x))))
+  ([smap coll]
+   (if (vector? coll)
+     (reduce (fn [v i] (if-let [e (find smap (nth v i))] (assoc v i (val e)) v)) coll (range (count coll)))
+     (map (fn [x] (if-let [e (find smap x)] (val e) x)) coll))))
+
+(defn comparator
+  "Returns an implementation of a comparator based upon pred."
+  [pred]
+  (fn [x y] (cond (pred x y) -1 (pred y x) 1 :else 0)))
+
+(defn test
+  "test [v] finds fn at key :test in var metadata and calls it, presuming failure will throw exception"
+  [v]
+  (let [f (:test (meta v))]
+    (if f (do (f) :ok) :no-test)))
+
+(defmacro time
+  "Evaluates expr and prints the time it took. Returns the value of expr."
+  [expr]
+  `(let [start# (nano-time*)
+         ret# ~expr]
+     (prn (str "Elapsed time: " (/ (double (- (nano-time*) start#)) 1000000.0) " msecs"))
+     ret#))
+
+(def ^:dynamic *clojure-version*
+  "The version of clojure.core this core implements, as JVM Clojure's map of it."
+  {:major 1 :minor 12 :incremental 6 :qualifier nil})
+
+(defn clojure-version
+  "Returns clojure version as a printable string."
+  []
+  (str (:major *clojure-version*) "." (:minor *clojure-version*)
+       (when-let [i (:incremental *clojure-version*)] (str "." i))
+       (when-let [q (:qualifier *clojure-version*)] (when (pos? (count q)) (str "-" q)))
+       (when (:interim *clojure-version*) "-SNAPSHOT")))
+
+(def ^:dynamic *command-line-args*
+  "A sequence of the supplied command line arguments, or nil if none were supplied. Set by a host."
+  nil)
+;; The JVM's is dynamic through setDynamic, with no :dynamic in its meta.
+(alter-meta! #'*command-line-args* dissoc :dynamic)
+
+(def ^:dynamic *repl*
+  "Bound to true in a repl thread."
+  false)
+
+(defn find-var
+  "Returns the global var named by the namespace-qualified symbol, or nil if no var with that name."
+  [sym]
+  (when-not (qualified-symbol? sym)
+    (throw (ex-info "Symbol must be namespace-qualified" {:symbol sym})))
+  (let [ns (find-ns (symbol (namespace sym)))]
+    (when-not ns
+      (throw (ex-info (str "No such namespace: " (namespace sym)) {:symbol sym})))
+    (get (ns-interns ns) (symbol (name sym)))))
+
+(defn Throwable->map
+  "Constructs a data representation for a thrown value: {:via [{:type :message :data :at} ...] :trace [...]
+  :cause :data}, the cause chain outermost first. :type is the value's ex-type, else clojure.lang.ExceptionInfo
+  for an exception and the name of its type for any other thrown value; a frame is [fn invoke file line]."
+  [o]
+  (let [type-of (fn [t] (or (ex-type t) (if (instance? ExceptionInfo t) 'clojure.lang.ExceptionInfo (symbol (pr-str (type t))))))
+        frame (fn [f] [(:fn f) 'invoke (:file f) (:line f)])
+        base (fn [t]
+               (merge {:type (type-of t)}
+                      (when-let [msg (ex-message t)] {:message msg})
+                      (when-let [ed (ex-data t)] {:data ed})
+                      (when-let [f (first (ex-trace t))] {:at (frame f)})))
+        via (loop [via [] t o] (if (some? t) (recur (conj via t) (ex-cause t)) via))
+        root (peek via)]
+    (merge {:via (mapv base via)
+            :trace (mapv frame (ex-trace root))}
+           (when-let [m (ex-message root)] {:cause m})
+           (when-let [d (ex-data root)] {:data d})
+           (when-let [phase (:clojure.error/phase (ex-data o))] {:phase phase}))))
+
+(defn to-array-2d
+  "Returns a (potentially-ragged) 2-dimensional array of Objects containing the contents of coll, which can be
+  any Collection of any Collection."
+  [coll]
+  (let [ret (object-array (count coll))]
+    (loop [i 0 xs (seq coll)]
+      (when xs
+        (aset ret i (to-array (first xs)))
+        (recur (inc i) (next xs))))
+    ret))
+
+;; ---- files: a file is its path string here, there being no java.io.File (docs/jvm-differences.md).
+
+(defn- utf-8-only [opts]
+  (when-let [e (:encoding (apply hash-map opts))]
+    (when-not (contains? #{"UTF-8" "utf-8" "UTF8" "utf8"} e)
+      (throw (ex-info (str "Unsupported encoding: " e) {:encoding e})))))
+
+(defn slurp
+  "Opens the file at path f, reads all its contents and returns them as a string. The one :encoding is UTF-8."
+  [f & opts]
+  (utf-8-only opts)
+  (slurp* f))
+
+(defn spit
+  "Opposite of slurp. Writes (str content) to the file at path f, replacing it, or appending with :append true.
+  The one :encoding is UTF-8."
+  [f content & options]
+  (utf-8-only options)
+  (spit* f (str content) (:append (apply hash-map options))))
+
+(defn line-seq
+  "Returns the lines of text from rdr as a lazy sequence of strings. rdr is anything that answers (.readLine rdr)
+  with a line, nil at the end: an Objective-C object, or a type of the program's own with a readLine method."
+  [rdr]
+  (when-let [line (.readLine rdr)]
+    (cons line (lazy-seq (line-seq rdr)))))
+
+(defn file-seq
+  "A tree seq on the files under dir, a path: dir itself, then every file and directory below it, each a path,
+  siblings in name order."
+  [dir]
+  (tree-seq (fn [p] (some? (dir-children* p))) (fn [p] (seq (dir-children* p))) dir))
+
+(defmacro with-open
+  "bindings => [name init ...]
+
+  Evaluates body in a try expression with names bound to the values of the inits, and a finally clause that
+  calls (.close name) on each name in reverse order."
+  [bindings & body]
+  (when-not (vector? bindings)
+    (throw (ex-info "with-open requires a vector for its binding" {})))
+  (when-not (even? (count bindings))
+    (throw (ex-info "with-open requires an even number of forms in binding vector" {})))
+  (cond
+    (= (count bindings) 0) `(do ~@body)
+    (symbol? (bindings 0)) `(let ~(subvec bindings 0 2)
+                              (try
+                                (with-open ~(subvec bindings 2) ~@body)
+                                (finally ~(list '.close (bindings 0)))))
+    :else (throw (ex-info "with-open only allows Symbols in bindings" {}))))
+
 (defn memoize
   "Returns a memoized version of f, caching its results by argument list."
   [f]
@@ -1993,14 +2145,25 @@
      (if (fn? ret) (recur ret) ret)))
   ([f & args] (trampoline (fn [] (apply f args)))))
 
+;; *out* and *err* name where pr and print write (runtime.c): bound to *err*'s value, *out* is standard error;
+;; anything else, its root included, is the execution's capture stack and then the host's output. The roots are
+;; set once the writer type exists (below); the JVM's are dynamic through setDynamic, with no :dynamic in meta.
+(def ^:dynamic *out* "Where pr, print and their relatives write. Bind to *err* to write to standard error." nil)
+(def ^:dynamic *err* "Standard error, a value to bind *out* to." nil)
+(alter-meta! #'*out* dissoc :dynamic)
+(alter-meta! #'*err* dissoc :dynamic)
+
 (defmacro with-out-str
   "Evaluates body with println and friends writing into a string, which is returned."
   [& body]
-  `(do (out-capture-push*)
+  `(do (push-thread-bindings {(var *out*) (var-root* (var *out*))})
+       (out-capture-push*)
        (let [r# (try (do ~@body)
-                     (catch :cancelled e# (out-capture-pop*) (throw e#))
-                     (catch :default e# (out-capture-pop*) (throw e#)))]
-         (out-capture-pop*))))
+                     (catch :cancelled e# (out-capture-pop*) (pop-thread-bindings) (throw e#))
+                     (catch :default e# (out-capture-pop*) (pop-thread-bindings) (throw e#)))
+             s# (out-capture-pop*)]
+         (pop-thread-bindings)
+         s#)))
 
 (defn print-str "print to a string, returning it." [& xs] (with-out-str (apply print xs)))
 (defn println-str "println to a string, returning it." [& xs] (with-out-str (apply println xs)))
@@ -2012,6 +2175,23 @@
 ;; The pr and print families read these (printer.c); str and error messages do not.
 (def ^:dynamic *print-length* "Items of a collection pr and print show before `...`; nil for all of them." nil)
 (def ^:dynamic *print-level* "Nesting depth pr and print show; a collection deeper prints as `#`. nil for no limit." nil)
+(def ^:dynamic *print-readably*
+  "When logical false, pr and its relatives print strings and characters as their text, as print does."
+  true)
+(def ^:dynamic *print-meta*
+  "When true and *print-readably* too, pr prints the metadata of a symbol, a var or a collection before it."
+  false)
+(def ^:dynamic *print-dup*
+  "The JVM's switch to print-dup's constructor forms; there is no print-dup here, so pr prints readably whatever it is."
+  false)
+(def ^:dynamic *print-namespace-maps*
+  "When true, a map whose keys are all keywords or symbols of one namespace prints as #:ns{...}."
+  false)
+(def ^:dynamic *flush-on-newline*
+  "When true, output is flushed at each newline. Output here leaves at every write, so either value is honoured."
+  true)
+;; Each is dynamic on the JVM through setDynamic, with no :dynamic in its meta.
+(run! (fn [v] (alter-meta! v dissoc :dynamic)) [#'*print-readably* #'*print-meta* #'*print-dup* #'*flush-on-newline*])
 
 (def ^:dynamic *in*
   "Where read-line takes from, installed by a host REPL: {:lines <channel of lines, closed at end of input>
@@ -2370,6 +2550,8 @@
   mode a keyword of java.math.RoundingMode's names (:HALF_UP, :HALF_EVEN, ...). nil, the root, is exact
   arithmetic, where a quotient that does not terminate throws."
   nil)
+;; The JVM's is dynamic through setDynamic, with no :dynamic in its meta.
+(alter-meta! #'*math-context* dissoc :dynamic)
 
 (defn math-context*
   "The *math-context* value with-precision binds."
@@ -2521,6 +2703,126 @@
 (defn delay? "Returns true when x is a Delay." [x] (instance? Delay x))
 (defn force "Derefs a Delay, or returns x itself." [x] (if (delay? x) (deref x) x))
 
+(defprotocol Inst
+  "What inst-ms and inst? answer for a type that is not the built-in inst (inst.c falls back to it)."
+  (inst-ms* [inst]))
+
+(extend-protocol Inst
+  Date
+  (inst-ms* [inst] (inst-ms inst)))
+
+;; The value a reader gives a tag it has no reader for, when *default-data-reader-fn* is tagged-literal.
+(deftype ^:pippin/extension TaggedLiteral [tag form]
+  ILookup
+  (valAt [_ k] (case k :tag tag :form form nil))
+  (valAt [_ k not-found] (case k :tag tag :form form not-found))
+  IEquiv
+  (equiv [this o] (and (= (type o) (type this)) (= tag (:tag o)) (= form (:form o))))
+  IHashEq
+  (hasheq [_] (+ (* 31 (hash tag)) (hash form))))
+
+(defn tagged-literal
+  "Construct a data representation of a tagged literal from a tag symbol and a form."
+  [tag form]
+  (->TaggedLiteral tag form))
+
+(defn tagged-literal?
+  "Return true if the value is the data representation of a tagged literal"
+  [value]
+  (instance? TaggedLiteral value))
+
+;; ---- chunked seqs: the API a library writing its own chunked seq calls. Nothing in this core produces one
+;; (NOTES "Type descriptor"), so chunked-seq? is true only of what chunk-cons builds.
+
+(defprotocol ^:pippin/extension IChunk
+  (-drop-first [chunk])
+  (-nth [chunk i]))
+
+(defprotocol ^:pippin/extension IChunkedSeq
+  (-chunked-first [s])
+  (-chunked-next [s])
+  (-chunked-more [s]))
+
+(declare ->ArrayChunk ->ChunkedCons)
+
+;; am is the JVM's ArrayManager for a primitive array; an array here knows its element kind, so it goes unread.
+;; A deftype has no Indexed slot, so nth walks the chunk as the seq it also is; (.nth c i) reaches -nth.
+(deftype ^:pippin/extension ArrayChunk [am arr off end]
+  Counted
+  (count [_] (- end off))
+  ISeq
+  (seq [this] (when (< off end) this))
+  (first [_] (when (< off end) (aget arr off)))
+  (next [_] (when (< (inc off) end) (->ArrayChunk am arr (inc off) end)))
+  Sequential
+  IReduceInit
+  (reduce [_ f init]
+    (loop [acc init i off]
+      (if (< i end)
+        (let [r (f acc (aget arr i))] (if (reduced? r) r (recur r (inc i))))
+        acc)))
+  IChunk
+  (-drop-first [_]
+    (if (= off end)
+      (throw (ex-info "dropFirst of empty chunk" {}))
+      (->ArrayChunk am arr (inc off) end)))
+  (-nth [_ i]
+    (if (and (>= i 0) (< i (- end off)))
+      (aget arr (+ off i))
+      (throw (ex-info (str "Index " i " out of bounds for length " (- end off)) {})))))
+
+;; The type is ours to name, its constructor the JVM's.
+(alter-meta! #'->ArrayChunk dissoc :pippin/extension)
+
+(deftype ^:pippin/extension ChunkBuffer [buffer end]
+  Counted
+  (count [_] @end))
+
+(deftype ^:pippin/extension ChunkedCons [chunk more]
+  ISeq
+  (seq [this] this)
+  (first [_] (-nth chunk 0))
+  (next [_] (if (> (count chunk) 1) (->ChunkedCons (-drop-first chunk) more) (seq more)))
+  (more [_] (if (> (count chunk) 1) (->ChunkedCons (-drop-first chunk) more) (if (nil? more) () more)))
+  Sequential
+  IChunkedSeq
+  (-chunked-first [_] chunk)
+  (-chunked-next [_] (seq more))
+  (-chunked-more [_] (if (nil? more) () more)))
+
+(defn chunk-buffer
+  "A buffer of capacity items that chunk-append fills and chunk turns into a chunk."
+  [capacity]
+  (->ChunkBuffer (volatile! (object-array capacity)) (volatile! 0)))
+
+(defn chunk-append
+  "Appends x to the chunk buffer b."
+  [b x]
+  (aset @(field* b 0) @(field* b 1) x)
+  (vswap! (field* b 1) inc)
+  nil)
+
+(defn chunk
+  "The chunk of what b holds; b takes no more items."
+  [b]
+  (let [arr @(field* b 0)]
+    (vreset! (field* b 0) nil)
+    (->ArrayChunk nil arr 0 @(field* b 1))))
+
+(defn chunk-first "The first chunk of a chunked seq." [s] (-chunked-first s))
+(defn chunk-rest "The chunked seq after its first chunk, () when none." [s] (-chunked-more s))
+(defn chunk-next "The chunked seq after its first chunk, nil when none." [s] (-chunked-next s))
+
+(defn chunk-cons
+  "A chunked seq of chunk's items followed by rest; rest itself when the chunk is empty."
+  [chunk rest]
+  (if (zero? (count chunk)) rest (->ChunkedCons chunk rest)))
+
+(defn chunked-seq?
+  "True when s is a chunked seq."
+  [s]
+  (satisfies? IChunkedSeq s))
+
 ;; ---- references that are not atoms: the C reference builtins fall back to these for a deftype.
 
 (defprotocol ^:pippin/extension IRef
@@ -2608,6 +2910,7 @@
 (def ^:dynamic *agent*
   "The agent whose action is running, nil outside an action."
   nil)
+(alter-meta! #'*agent* dissoc :dynamic)
 
 ;; [owner sends] while an action runs; the owner check keeps a future spawned inside it from holding its sends.
 (def ^:private ^:dynamic *held-sends* nil)
@@ -3131,6 +3434,61 @@
 (defn prefer-method "Makes dispatch-val-x win over dispatch-val-y when both match." [multifn dispatch-val-x dispatch-val-y] (-prefer-method multifn dispatch-val-x dispatch-val-y))
 (defn prefers "Returns the multimethod's preference table." [multifn] (-prefers multifn))
 
+;; ---- print-method: the extension point of the printer for a type of the program's own (printer.c's print_hook).
+
+(defprotocol ^:pippin/extension IWriter
+  "What a print-method writes to; (.write w x) and (.flush w) reach these through the instance send rule."
+  (-write [w x])
+  (-flush [w]))
+
+;; java.io.Writer.write takes a string, a char or a char's code.
+(defn- writer-text [x] (if (int? x) (str (char x)) (str x)))
+
+(deftype ^:pippin/extension StringWriter [parts]
+  IWriter
+  (-write [_ x] (vswap! parts conj (writer-text x)) nil)
+  (-flush [_] nil))
+
+;; *out* and *err* themselves: a write to either goes where printing under it would go.
+(deftype ^:pippin/extension PrintStream [stream]
+  IWriter
+  (-write [this x] (push-thread-bindings {#'*out* this}) (try (print (writer-text x)) (finally (pop-thread-bindings))) nil)
+  (-flush [_] (flush) nil))
+
+(alter-var-root #'*out* (constantly (->PrintStream :out)))
+(alter-var-root #'*err* (constantly (->PrintStream :err)))
+
+(defn- print-dispatch [x _]
+  (let [t (get (meta x) :type)]
+    (if (keyword? t) t (type x))))
+
+(defmulti print-method
+  "Prints x to writer: a type of the program's own, or a value with a keyword :type in its meta, prints through
+  its method here, which writes with (.write writer s); every other value prints as pr would."
+  print-dispatch)
+
+(defmethod print-method :default [x writer]
+  (-write writer (if *print-readably* (pr-str x) (print-str x))))
+
+(defmethod print-method TaggedLiteral [o writer]
+  (-write writer "#")
+  (print-method (:tag o) writer)
+  (-write writer " ")
+  (print-method (:form o) writer))
+
+(defn print-with-method*
+  "The text of x's print-method when one other than :default applies, else nil."
+  [x]
+  ;; A type has no ancestors to dispatch through (isa? on types is =), so the table answers without get-method's
+  ;; cache, which would keep an entry per type ever printed.
+  (let [d (print-dispatch x nil)
+        table (methods print-method)
+        m (if (keyword? d) (get-method print-method d) (get table d))]
+    (when (and m (not (identical? m (get table :default))))
+      (let [w (->StringWriter (volatile! []))]
+        (m x w)
+        (apply str @(field* w 0))))))
+
 ;; ---- data readers: what `#tag form` resolves through, in this order (runtime.c reads the vars while reading).
 
 (def ^:dynamic *data-readers* "Map of tag symbol to reader fn, consulted before default-data-readers." {})
@@ -3233,6 +3591,34 @@
   "Like require, then refers the libs' public vars (:only, :exclude, :rename apply)."
   [& args]
   (apply load-libs :require :use args))
+
+(defn load
+  "Loads Clojure code from the load path. A path is load-path-relative if it begins with a slash, else relative
+  to the directory of the current namespace's file; it names the file without its .clj or .cljc."
+  [& paths]
+  (doseq [path paths]
+    (let [lib-dir (let [p (lib-path* (ns-name *ns*))
+                        i (str-last-index-of* p "/")]
+                    (if i (subs p 0 i) ""))
+          path (cond
+                 (= (first path) \/) (subs path 1)
+                 (= lib-dir "") path
+                 :else (str lib-dir "/" path))
+          file (load-resource* path)]
+      (when-not file
+        (throw (ex-info (str "Could not locate " path ".cljc or " path ".clj on load path.") {:path path})))
+      (load-file file)))
+  nil)
+
+(defn requiring-resolve
+  "Resolves namespace-qualified sym per 'resolve'. If initial resolve fails, attempts to require sym's namespace
+  and retries."
+  [sym]
+  (if (qualified-symbol? sym)
+    (or (resolve sym)
+        (do (require (symbol (namespace sym)))
+            (resolve sym)))
+    (throw (ex-info (str "Not a qualified symbol: " sym) {:symbol sym}))))
 
 ;; The declared Swift boundary (design §5 «Объявленная граница»): the host binds a module's stubs as the vars
 ;; of the namespace named after the module; a C-only host refuses in require-swift*.

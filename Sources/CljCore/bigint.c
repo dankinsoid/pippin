@@ -425,3 +425,9 @@ clj_value clj_bigint_to_string(clj_value v) {
 	free(buf);
 	return s;
 }
+
+int64_t clj_bigint_low64(clj_value v) {
+	const clj_bigint *b = clj_bigint_of(v);
+	uint64_t          mag = (b->n > 0 ? b->limbs[0] : 0) | (b->n > 1 ? (uint64_t)b->limbs[1] << 32 : 0);
+	return (int64_t)(b->sign < 0 ? 0u - mag : mag);
+}

@@ -24,6 +24,9 @@
   retains what goes in and releases what it replaces, and a write into a *shared* array shares the new value
   first, keeping the invariant that every child of a shared object is shared. Two threads writing one shared
   array race, as they do on the JVM; nothing in the core makes that safe.
+- **`ints`, `longs` … `booleans` are checked casts**: the array itself when its kind is the one named (`bytes`
+  also takes the bridge's `u8`, as `bytes?` does), nil for nil, and an error naming both kinds otherwise, where the
+  JVM throws a ClassCastException.
 - **Seqable and nothing else.** `core_bits` is `CLJ_CORE_SEQABLE` alone, as a JVM array is no
   `IPersistentCollection`: `(coll? a)`, `(counted? a)`, `(indexed? a)` and `(sequential? a)` are all false,
   while `count`, `lookup` and `reduce` are slots without their bits and `nth`/`contains?` special-case the

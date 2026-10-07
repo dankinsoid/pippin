@@ -35,6 +35,14 @@
   fixnum hash widened to 64 bits, so a fixnum, a box and a bigint of one value agree. `clj_int64_of` is the
   accessor that takes either. One descriptor serves both, named `long`, so `(type 1)` and
   `(type Long/MAX_VALUE)` are one value and `Long` is bound to it.
+- **The unchecked coercions are Java's narrowing conversions** (builtins_number.c): `unchecked-long` is
+  `Number.longValue` — a double saturates and NaN is 0, a bigint, ratio or decimal keeps the low 64 bits of its
+  truncation (`clj_bigint_low64`) —, `unchecked-int` is `intValue`, whose ratio and double go through `(int)` of
+  the double as Ratio's does, `unchecked-short`/`-byte` the low bits of that, `unchecked-char` the low 16 bits as a
+  char (a surrogate half throws: no scalar), and `unchecked-float` the double through a float. Only `unchecked-int`
+  takes a char, as `RT.uncheckedIntCast` alone does. The `-int` twins (`unchecked-add-int` …) range-check their
+  operands as `RT.intCast` does and wrap the operation at 32 bits; `MIN_VALUE / -1` is `MIN_VALUE` and its
+  remainder 0. Every value in `CoreParityTests` is what JVM Clojure 1.12.6 answers.
 - **`unchecked-add`/`-subtract`/`-multiply`/`-inc`/`-dec`/`-negate` wrap at 64 bits**, as on the JVM:
   the arithmetic is done in `uint64_t` and `clj_long_new` is the one range check on the way out, boxing
   when the result leaves the fixnum. `(unchecked-inc 4611686018427387903)` is `4611686018427387904`,

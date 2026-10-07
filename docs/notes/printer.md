@@ -18,6 +18,24 @@
   the `#error` map excepted). A negative length prints everything and a negative level nothing, as on the
   JVM; a non-integer throws "cannot be cast to a number". The vars are looked up by name on each call until
   core.clj has defined them (vars are immortal, so the cache never goes stale).
+- **`*print-readably*`, `*print-meta*` and `*print-namespace-maps*` are read with the limits**, by
+  `clj_pr_str_dynamic` only: `pr` prints as `print` under a false `*print-readably*`; under `*print-meta*` (and a
+  readable print) a symbol, a var or a collection with non-empty meta prints `^meta ` first, a lone `:tag` as the
+  tag (`put_meta`); under `*print-namespace-maps*` a hash or sorted map whose keys are all keywords or symbols of
+  one namespace prints `#:ns{…}` with the keys stripped (`lift_ns`, the frame then owning the stripped keys). The
+  root is false, as the JVM's is outside its REPL. `*print-dup*` is read by nothing.
+- **`print-method` is a multimethod on `type` (or a keyword `:type` in the meta), consulted by `print_hook`** for a
+  deftype or record instance and a value with a keyword `:type` in its meta, never for a built-in type: it calls
+  core.clj's `print-with-method*`, which answers nil when only `:default` applies (the C printer then prints as
+  ever) and otherwise the text the method wrote to a `StringWriter`. A method writes with `(.write w x)` — a
+  string, a char or a char's code — reaching `IWriter`'s `-write` through the instance send rule (NOTES "ObjC
+  bridge"), and prints a part with `(print-method part w)`, whose `:default` is `pr-str` or `print-str` by
+  `*print-readably*`. Only the pr family consults it (`limits.hooks`): an error message never runs user code.
+- **`*out*` and `*err*` are two `PrintStream` values**, `clj_output` (runtime.c) checking one thing: `*out*`
+  thread-bound to the root of `*err*` sends the bytes to the process's standard error, past every capture.
+  Everything else is the capture stack and then the host's output, as before; `with-out-str` binds `*out*` to its
+  root while it captures, so `(binding [*out* *err*] (with-out-str …))` captures, as the JVM's StringWriter does.
+  `(.write *out* s)` and `(.flush *out*)` work through `PrintStream`'s `IWriter`.
 - **`#queue [1 2 3]`** for a PersistentQueue (queue.c): the JVM prints an address. The `F_QUEUE` frame is the seq
   frame with `]` as its closer; nothing reads the form back (docs/jvm-differences.md).
 - **`format` is java.util.Formatter's subset** (builtins_format.c): `%s %S %b %B %c %C %d %o %x %X %e %E %f %g

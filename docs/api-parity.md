@@ -9,19 +9,19 @@ The third column is ClojureScript 1.11.132, the measure of admissible divergence
 | | count |
 |---|---|
 | JVM public vars | 679 |
-| ours | 750 |
+| ours | 848 |
 | cljs.core publics | 928 |
-| in both | 524 |
-| missing here | 155 |
-| missing here, kept by cljs | 60 |
-| missing here, absent from cljs too | 95 |
-| missing and used by the corpus | 40 |
-| ours only, public | 118 |
-| ours only, internal (`name*`) | 108 |
+| in both | 596 |
+| missing here | 83 |
+| missing here, kept by cljs | 6 |
+| missing here, absent from cljs too | 77 |
+| missing and used by the corpus | 13 |
+| ours only, public | 139 |
+| ours only, internal (`name*`) | 113 |
 | ours only, public without `^:pippin/extension` | 0 |
 | macro/fn mismatches | 1 |
 | arity mismatches | 11 |
-| fns without :arglists here | 238 |
+| fns without :arglists here | 270 |
 
 ## Missing, weighted by corpus uses
 
@@ -32,69 +32,69 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 | 45 | `class` | no | `([x])` |
 | 5 | `*warn-on-reflection*` | no | `nil` |
 | 5 | `cast` | no | `([c x])` |
-| 5 | `test` | yes | `([v])` |
-| 5 | `unchecked-int` | yes | `([x])` |
-| 4 | `Throwable->map` | yes | `([o])` |
 | 4 | `struct` | no | `([s & vals])` |
 | 3 | `*unchecked-math*` | no | `nil` |
 | 3 | `..` | yes | `([x form] [x form & more])` |
 | 3 | `defstruct` | no | `([name & keys])` |
-| 3 | `seq-to-map-for-destructuring` | yes | `([s])` |
-| 3 | `unchecked-byte` | yes | `([x])` |
-| 3 | `unchecked-char` | yes | `([x])` |
-| 3 | `unchecked-double` | yes | `([x])` |
-| 3 | `unchecked-float` | yes | `([x])` |
-| 3 | `unchecked-long` | yes | `([x])` |
-| 3 | `unchecked-short` | yes | `([x])` |
-| 3 | `with-open` | no | `([bindings & body])` |
-| 2 | `*err*` | no | `nil` |
-| 2 | `find-keyword` | no | `([name] [ns name])` |
 | 2 | `import` | yes | `([& import-symbols-or-lists])` |
 | 2 | `iterator-seq` | no | `([iter])` |
-| 2 | `mix-collection-hash` | yes | `([hash-basis count])` |
-| 2 | `unchecked-add-int` | yes | `([x y])` |
-| 1 | `booleans` | yes | `([xs])` |
-| 1 | `bytes` | yes | `([xs])` |
-| 1 | `bytes?` | no | `([x])` |
-| 1 | `chars` | yes | `([xs])` |
 | 1 | `class?` | no | `([x])` |
 | 1 | `definterface` | no | `([name & sigs])` |
-| 1 | `doubles` | yes | `([xs])` |
-| 1 | `floats` | yes | `([xs])` |
-| 1 | `ints` | yes | `([xs])` |
-| 1 | `line-seq` | no | `([rdr])` |
-| 1 | `longs` | yes | `([xs])` |
-| 1 | `replace` | yes | `([smap] [smap coll])` |
-| 1 | `shorts` | yes | `([xs])` |
-| 1 | `unchecked-multiply-int` | yes | `([x y])` |
 | 1 | `uri?` | yes | `([x])` |
 | 1 | `with-local-vars` | no | `([name-vals-vec & body])` |
 | 0 | `*allow-unresolved-vars*` | no | `nil` |
-| 0 | `*clojure-version*` | no | `nil` |
-| 0 | `*command-line-args*` | yes | `nil` |
 | 0 | `*compile-files*` | no | `nil` |
 | 0 | `*compile-path*` | no | `nil` |
 | 0 | `*compiler-options*` | no | `nil` |
-| 0 | `*flush-on-newline*` | yes | `nil` |
 | 0 | `*fn-loader*` | no | `nil` |
-| 0 | `*out*` | yes | `nil` |
-| 0 | `*print-dup*` | yes | `nil` |
-| 0 | `*print-meta*` | yes | `nil` |
-| 0 | `*print-namespace-maps*` | yes | `nil` |
-| 0 | `*print-readably*` | yes | `nil` |
 | 0 | `*read-eval*` | no | `nil` |
 | 0 | `*reader-resolver*` | no | `nil` |
-| 0 | `*repl*` | no | `nil` |
-| 0 | `*source-path*` | no | `nil` |
 | 0 | `*suppress-read*` | no | `nil` |
 | 0 | `*use-context-classloader*` | no | `nil` |
 | 0 | `*verbose-defrecords*` | no | `nil` |
+| 0 | `->Vec` | no | `([am cnt shift root tail _meta])` |
+| 0 | `->VecNode` | no | `([edit arr])` |
+| 0 | `->VecSeq` | no | `([am vec anode i offset _meta])` |
+| 0 | `-cache-protocol-fn` | no | `([pf x c interf])` |
+| 0 | `-reset-methods` | no | `([protocol])` |
+| 0 | `EMPTY-NODE` | no | `nil` |
+| 0 | `PrintWriter-on` | no | `([flush-fn close-fn] [flush-fn close-fn autoflush?])` |
+| 0 | `StackTraceElement->vec` | no | `([o])` |
+| 0 | `accessor` | no | `([s key])` |
+| 0 | `add-classpath` | no | `([url])` |
+| 0 | `bases` | no | `([c])` |
+| 0 | `bean` | no | `([x])` |
+| 0 | `char-escape-string` | no | `nil` |
+| 0 | `char-name-string` | no | `nil` |
+| 0 | `compile` | no | `([lib])` |
+| 0 | `construct-proxy` | no | `([c & ctor-args])` |
+| 0 | `create-struct` | no | `([& keys])` |
+| 0 | `definline` | no | `([name & decl])` |
+| 0 | `enumeration-seq` | no | `([e])` |
+| 0 | `extenders` | no | `([protocol])` |
+| 0 | `find-protocol-impl` | no | `([protocol x])` |
+| 0 | `find-protocol-method` | no | `([protocol methodk x])` |
+| 0 | `gen-class` | no | `([& options])` |
+| 0 | `gen-interface` | no | `([& options])` |
+| 0 | `get-proxy-class` | no | `([& bases])` |
+| 0 | `init-proxy` | no | `([proxy mappings])` |
+| 0 | `load-reader` | no | `([rdr])` |
+| 0 | `memfn` | yes | `([name & args])` |
+| 0 | `method-sig` | no | `([meth])` |
+| 0 | `munge` | yes | `([s])` |
+| 0 | `namespace-munge` | no | `([ns])` |
+| 0 | `ns-imports` | yes | `([ns])` |
+| 0 | `primitives-classnames` | no | `nil` |
+| 0 | `print-ctor` | no | `([o print-args w])` |
+| 0 | `print-dup` | no | `nil` |
+| 0 | `print-simple` | no | `([o w])` |
+| 0 | `proxy` | no | `([class-and-interfaces args & fs])` |
 
 ## Every missing name
 
-Kept by cljs: `*command-line-args*` `*flush-on-newline*` `*out*` `*print-dup*` `*print-meta*` `*print-namespace-maps*` `*print-readably*` `->ArrayChunk` `..` `Inst` `Throwable->map` `booleans` `bytes` `chars` `chunk` `chunk-append` `chunk-buffer` `chunk-cons` `chunk-first` `chunk-next` `chunk-rest` `chunked-seq?` `comparator` `doubles` `floats` `hash-combine` `hash-ordered-coll` `hash-unordered-coll` `import` `inst-ms*` `ints` `longs` `memfn` `mix-collection-hash` `munge` `ns-imports` `replace` `seq-to-map-for-destructuring` `shorts` `tagged-literal` `tagged-literal?` `test` `time` `to-array-2d` `unchecked-add-int` `unchecked-byte` `unchecked-char` `unchecked-dec-int` `unchecked-divide-int` `unchecked-double` `unchecked-float` `unchecked-inc-int` `unchecked-int` `unchecked-long` `unchecked-multiply-int` `unchecked-negate-int` `unchecked-remainder-int` `unchecked-short` `unchecked-subtract-int` `uri?`
+Kept by cljs: `..` `import` `memfn` `munge` `ns-imports` `uri?`
 
-Absent from cljs too: `*allow-unresolved-vars*` `*clojure-version*` `*compile-files*` `*compile-path*` `*compiler-options*` `*err*` `*fn-loader*` `*read-eval*` `*reader-resolver*` `*repl*` `*source-path*` `*suppress-read*` `*unchecked-math*` `*use-context-classloader*` `*verbose-defrecords*` `*warn-on-reflection*` `->Vec` `->VecNode` `->VecSeq` `-cache-protocol-fn` `-reset-methods` `EMPTY-NODE` `PrintWriter-on` `StackTraceElement->vec` `accessor` `add-classpath` `bases` `bean` `bytes?` `cast` `char-escape-string` `char-name-string` `class` `class?` `clojure-version` `compile` `construct-proxy` `create-struct` `definline` `definterface` `defstruct` `enumeration-seq` `extenders` `file-seq` `find-keyword` `find-protocol-impl` `find-protocol-method` `find-var` `gen-class` `gen-interface` `get-proxy-class` `init-proxy` `iterator-seq` `line-seq` `load` `load-reader` `method-sig` `namespace-munge` `ns-unalias` `primitives-classnames` `print-ctor` `print-dup` `print-method` `print-simple` `proxy` `proxy-call-with-super` `proxy-mappings` `proxy-name` `proxy-super` `read` `read+string` `reader-conditional` `reader-conditional?` `remove-ns` `requiring-resolve` `resultset-seq` `set-agent-send-executor!` `set-agent-send-off-executor!` `slurp` `spit` `stream-into!` `stream-reduce!` `stream-seq!` `stream-transduce!` `struct` `struct-map` `supers` `unquote` `unquote-splicing` `update-proxy` `with-in-str` `with-loading-context` `with-local-vars` `with-open` `xml-seq`
+Absent from cljs too: `*allow-unresolved-vars*` `*compile-files*` `*compile-path*` `*compiler-options*` `*fn-loader*` `*read-eval*` `*reader-resolver*` `*suppress-read*` `*unchecked-math*` `*use-context-classloader*` `*verbose-defrecords*` `*warn-on-reflection*` `->Vec` `->VecNode` `->VecSeq` `-cache-protocol-fn` `-reset-methods` `EMPTY-NODE` `PrintWriter-on` `StackTraceElement->vec` `accessor` `add-classpath` `bases` `bean` `cast` `char-escape-string` `char-name-string` `class` `class?` `compile` `construct-proxy` `create-struct` `definline` `definterface` `defstruct` `enumeration-seq` `extenders` `find-protocol-impl` `find-protocol-method` `gen-class` `gen-interface` `get-proxy-class` `init-proxy` `iterator-seq` `load-reader` `method-sig` `namespace-munge` `primitives-classnames` `print-ctor` `print-dup` `print-simple` `proxy` `proxy-call-with-super` `proxy-mappings` `proxy-name` `proxy-super` `read` `read+string` `reader-conditional` `reader-conditional?` `resultset-seq` `set-agent-send-executor!` `set-agent-send-off-executor!` `stream-into!` `stream-reduce!` `stream-seq!` `stream-transduce!` `struct` `struct-map` `supers` `unquote` `unquote-splicing` `update-proxy` `with-in-str` `with-loading-context` `with-local-vars` `xml-seq`
 
 ## Missing, classified
 
@@ -106,7 +106,7 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 
 | | count |
 |---|---|
-| keep | 72 |
+| keep | 0 |
 | repoint | 11 |
 | drop | 72 |
 | unclassified | 0 |
@@ -115,78 +115,6 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 
 | uses | name | cljs | why |
 |---|---|---|---|
-| 5 | `test` | yes | cljs keeps it; it runs the var's `:test` meta, and `clojure.test` is ours already |
-| 5 | `unchecked-int` | yes | with `unchecked-byte` |
-| 4 | `Throwable->map` | yes | cljs keeps it over its own error type; the map shape is what `pst` and tooling read, and `ex-trace`/`ex-type` are ours |
-| 3 | `seq-to-map-for-destructuring` | yes | cljs keeps it; 1.11 kwargs destructuring expands into a call of this name |
-| 3 | `unchecked-byte` | yes | cljs keeps every unchecked coercion; ours is `byte` without the range check — §3 "Явные двойники" |
-| 3 | `unchecked-char` | yes | with `unchecked-byte` |
-| 3 | `unchecked-double` | yes | with `unchecked-byte` |
-| 3 | `unchecked-float` | yes | with `unchecked-byte` |
-| 3 | `unchecked-long` | yes | with `unchecked-byte` |
-| 3 | `unchecked-short` | yes | with `unchecked-byte` |
-| 3 | `with-open` | no | with `slurp`; the close call is an ObjC message, not a JVM interface |
-| 2 | `*err*` | no | with `*out*`; cljs replaced the pair with `*print-fn*`/`*print-err-fn*`, but our namespace is literally `clojure.core`, so portable code redirects by binding these two |
-| 2 | `find-keyword` | no | keywords are interned in C here, so the non-interning lookup is one call; cljs dropped it for want of a table |
-| 2 | `mix-collection-hash` | yes | with `hash-combine` |
-| 2 | `unchecked-add-int` | yes | cljs keeps the `-int` family too; ours is the fixnum-width twin of `unchecked-add` |
-| 1 | `booleans` | yes | cljs keeps all eight as identity casts; ours cast to the §4 low-level array layer, identity until `(array Layout n)` lands |
-| 1 | `bytes` | yes | with `booleans` |
-| 1 | `bytes?` | no | the predicate of the byte-array type of §4's low-level layer; cljs dropped it although it has typed arrays, we have the type coming |
-| 1 | `chars` | yes | with `booleans` |
-| 1 | `doubles` | yes | with `booleans` |
-| 1 | `floats` | yes | with `booleans` |
-| 1 | `ints` | yes | with `booleans` |
-| 1 | `line-seq` | no | with `slurp` |
-| 1 | `longs` | yes | with `booleans` |
-| 1 | `replace` | yes | `clojure.core/replace` over a seq — pure Clojure, kept by cljs, and nothing here explains its absence |
-| 1 | `shorts` | yes | with `booleans` |
-| 1 | `unchecked-multiply-int` | yes | with `unchecked-add-int` |
-| 0 | `*clojure-version*` | no | cljs replaced it with `*clojurescript-version*` because its namespace is `cljs.core`; ours is `clojure.core`, and the var has to answer with the clojure.core level we implement |
-| 0 | `*command-line-args*` | yes | cljs keeps it; our hosts have argv (`clj-load`, `clj-nrepl`) |
-| 0 | `*flush-on-newline*` | yes | cljs keeps it; the nREPL writer already decides per write (NOTES "nREPL"), so the policy exists and wants its name |
-| 0 | `*out*` | yes | cljs keeps it; ours is the C capture stack (`out-capture-push*`), and `with-out-str` already rebinds something that `*out*` has to name |
-| 0 | `*print-dup*` | yes | with `*print-readably*`; cljs keeps the var (its printer honours `:dup`) |
-| 0 | `*print-meta*` | yes | with `*print-readably*`; cljs keeps it |
-| 0 | `*print-namespace-maps*` | yes | with `*print-readably*`; cljs keeps it, and the `#:ns{}` form is in our reader |
-| 0 | `*print-readably*` | yes | cljs keeps it; our printer is C (`print_line`) and reads `*print-length*`/`*print-level*` already |
-| 0 | `*repl*` | no | we have a REPL, and the nREPL session is the frame that would bind it (NOTES "nREPL"); cljs dropped it for lack of one |
-| 0 | `*source-path*` | no | named as a remaining tail of nREPL (NOTES "nREPL"), so the work is already owed |
-| 0 | `->ArrayChunk` | yes | with `chunk`; cljs keeps this deftype constructor, and a library writing its own chunked seq calls it |
-| 0 | `Inst` | yes | cljs keeps the protocol; `inst-ms` is ours already and this is what it dispatches on |
-| 0 | `chunk` | yes | cljs keeps the whole chunked-seq surface; we have no chunking yet (docs/notes/type-descriptor.md, "No chunked seqs") and the names arrive with it |
-| 0 | `chunk-append` | yes | with `chunk` |
-| 0 | `chunk-buffer` | yes | with `chunk` |
-| 0 | `chunk-cons` | yes | with `chunk` |
-| 0 | `chunk-first` | yes | with `chunk` |
-| 0 | `chunk-next` | yes | with `chunk` |
-| 0 | `chunk-rest` | yes | with `chunk` |
-| 0 | `chunked-seq?` | yes | with `chunk` |
-| 0 | `clojure-version` | no | with `*clojure-version*` |
-| 0 | `comparator` | yes | cljs keeps it; three lines over our `compare` |
-| 0 | `file-seq` | no | with `slurp` |
-| 0 | `find-var` | no | vars are real at runtime here (`resolve`, `ns-resolve`, nREPL's `info` are ours); cljs dropped it for lack of them |
-| 0 | `hash-combine` | yes | cljs keeps all four; our hashing is C (murmur3) and a user collection cannot hash consistently without them |
-| 0 | `hash-ordered-coll` | yes | with `hash-combine` |
-| 0 | `hash-unordered-coll` | yes | with `hash-combine` |
-| 0 | `inst-ms*` | yes | with `Inst`: its only method |
-| 0 | `load` | no | our loader resolves lib paths already (`lib-path*`, `load-resource*`, `load-file`); cljs dropped it for lack of a loader |
-| 0 | `ns-unalias` | no | with `remove-ns`; `ns-aliases` is already ours |
-| 0 | `print-method` | no | the one public extension point for printing a user type; cljs replaced it with the `IPrintWithWriter` protocol, we have multimethods and `type`, and nothing public replaces it yet |
-| 0 | `remove-ns` | no | namespaces are real at runtime here (nREPL walks `ns-map`); cljs dropped it for lack of them |
-| 0 | `requiring-resolve` | no | with `find-var`: `require` and `resolve` are both ours |
-| 0 | `slurp` | no | cljs dropped file IO because a browser has no filesystem; a phone has one, and this is the name every real program uses |
-| 0 | `spit` | no | with `slurp` |
-| 0 | `tagged-literal` | yes | cljs keeps it; our reader has tags (NOTES "Reader") |
-| 0 | `tagged-literal?` | yes | with `tagged-literal` |
-| 0 | `time` | yes | cljs keeps it; listed as not-yet in NOTES "core.clj" |
-| 0 | `to-array-2d` | yes | cljs keeps it (a nested JS array); `to-array` is already ours |
-| 0 | `unchecked-dec-int` | yes | with `unchecked-add-int` |
-| 0 | `unchecked-divide-int` | yes | with `unchecked-add-int` |
-| 0 | `unchecked-inc-int` | yes | with `unchecked-add-int` |
-| 0 | `unchecked-negate-int` | yes | with `unchecked-add-int` |
-| 0 | `unchecked-remainder-int` | yes | with `unchecked-add-int` |
-| 0 | `unchecked-subtract-int` | yes | with `unchecked-add-int` |
 
 ### repoint — the word stays, the host is ours
 
@@ -294,7 +222,7 @@ Arglists of the unclassified, if any: none
 
 ## Dynamic mismatches
 
-`*agent*` `*assert*` `*in*` `*math-context*` `pr`
+`*assert*` `*in*` `pr`
 
 ## Arity mismatches
 
@@ -316,13 +244,13 @@ Compared as the set of fixed arities plus `n+` for a variadic one.
 
 ## Fns without :arglists here
 
-C builtins and host primitives carry no :arglists (NOTES.md): `*` `*'` `+` `+'` `-` `-'` `->Eduction` `/` `<` `<=` `=` `==` `>` `>=` `NaN?` `aclone` `add-watch` `aget` `alength` `alias` `all-ns` `alter-meta!` `alter-var-root` `apply` `aset` `aset-boolean` `aset-byte` `aset-char` `aset-double` `aset-float` `aset-int` `aset-long` `aset-short` `assoc` `associative?` `atom` `bigdec` `bigint` `biginteger` `bit-and` `bit-and-not` `bit-clear` `bit-flip` `bit-not` `bit-or` `bit-set` `bit-shift-left` `bit-shift-right` `bit-test` `bit-xor` `boolean-array` `bound?` `butlast` `byte` `byte-array` `char` `char-array` `char?` `coll?` `compare` `compare-and-set!` `concat` `conj` `cons` `contains?` `count` `counted?` `create-ns` `dec` `dec'` `decimal?` `denominator` `deref` `destructure` `disj` `dissoc` `double` `double-array` `double?` `empty` `empty?` `ensure-reduced` `eval` `even?` `ex-cause` `ex-data` `ex-info` `ex-message` `extends?` `find-ns` `first` `float` `float-array` `fn?` `format` `gensym` `get` `get-thread-bindings` `get-validator` `hash` `hash-map` `hash-set` `identical?` `identity` `ifn?` `in-ns` `inc` `inc'` `indexed?` `infinite?` `inst-ms` `inst?` `instance?` `int` `int-array` `int?` `integer?` `intern` `into` `into-array` `keyword` `keyword?` `last` `list` `list*` `list?` `load-file` `load-string` `long` `long-array` `macroexpand` `macroexpand-1` `make-array` `map?` `meta` `name` `namespace` `neg?` `next` `nil?` `not` `not=` `ns-aliases` `ns-interns` `ns-map` `ns-name` `ns-publics` `ns-refers` `ns-resolve` `ns-unmap` `nth` `num` `number?` `numerator` `object-array` `odd?` `parse-double` `parse-long` `parse-uuid` `pop-thread-bindings` `pos?` `pr` `pr-str` `print` `println` `prn` `push-thread-bindings` `quot` `random-uuid` `ratio?` `rational?` `rationalize` `re-find` `re-groups` `re-matcher` `re-matches` `re-pattern` `read-string` `record?` `reduce` `reduce-kv` `reduced` `reduced?` `rem` `remove-watch` `reset!` `reset-meta!` `reset-vals!` `resolve` `rest` `reverse` `satisfies?` `second` `seq` `seq?` `seqable?` `sequential?` `set` `set-validator!` `set?` `short` `short-array` `sort` `sorted-map-by` `sorted-set-by` `sorted?` `special-symbol?` `str` `string?` `subs` `swap!` `swap-vals!` `symbol` `symbol?` `the-ns` `thread-bound?` `to-array` `type` `unchecked-add` `unchecked-dec` `unchecked-inc` `unchecked-multiply` `unchecked-negate` `unchecked-subtract` `unreduced` `unsigned-bit-shift-right` `uuid?` `var-get` `var-set` `var?` `vector` `vector-of` `vector?` `volatile!` `volatile?` `vreset!` `with-meta` `zero?`
+C builtins and host primitives carry no :arglists (NOTES.md): `*` `*'` `+` `+'` `-` `-'` `->ArrayChunk` `->Eduction` `/` `<` `<=` `=` `==` `>` `>=` `NaN?` `aclone` `add-watch` `aget` `alength` `alias` `all-ns` `alter-meta!` `alter-var-root` `apply` `aset` `aset-boolean` `aset-byte` `aset-char` `aset-double` `aset-float` `aset-int` `aset-long` `aset-short` `assoc` `associative?` `atom` `bigdec` `bigint` `biginteger` `bit-and` `bit-and-not` `bit-clear` `bit-flip` `bit-not` `bit-or` `bit-set` `bit-shift-left` `bit-shift-right` `bit-test` `bit-xor` `boolean-array` `booleans` `bound?` `butlast` `byte` `byte-array` `bytes` `bytes?` `char` `char-array` `char?` `chars` `coll?` `compare` `compare-and-set!` `concat` `conj` `cons` `contains?` `count` `counted?` `create-ns` `dec` `dec'` `decimal?` `denominator` `deref` `destructure` `disj` `dissoc` `double` `double-array` `double?` `doubles` `empty` `empty?` `ensure-reduced` `eval` `even?` `ex-cause` `ex-data` `ex-info` `ex-message` `extends?` `find-keyword` `find-ns` `first` `float` `float-array` `floats` `fn?` `format` `gensym` `get` `get-thread-bindings` `get-validator` `hash` `hash-combine` `hash-map` `hash-ordered-coll` `hash-set` `hash-unordered-coll` `identical?` `identity` `ifn?` `in-ns` `inc` `inc'` `indexed?` `infinite?` `inst-ms` `inst?` `instance?` `int` `int-array` `int?` `integer?` `intern` `into` `into-array` `ints` `keyword` `keyword?` `last` `list` `list*` `list?` `load-file` `load-string` `long` `long-array` `longs` `macroexpand` `macroexpand-1` `make-array` `map?` `meta` `mix-collection-hash` `name` `namespace` `neg?` `next` `nil?` `not` `not=` `ns-aliases` `ns-interns` `ns-map` `ns-name` `ns-publics` `ns-refers` `ns-resolve` `ns-unalias` `ns-unmap` `nth` `num` `number?` `numerator` `object-array` `odd?` `parse-double` `parse-long` `parse-uuid` `pop-thread-bindings` `pos?` `pr` `pr-str` `print` `println` `prn` `push-thread-bindings` `quot` `random-uuid` `ratio?` `rational?` `rationalize` `re-find` `re-groups` `re-matcher` `re-matches` `re-pattern` `read-string` `record?` `reduce` `reduce-kv` `reduced` `reduced?` `rem` `remove-ns` `remove-watch` `reset!` `reset-meta!` `reset-vals!` `resolve` `rest` `reverse` `satisfies?` `second` `seq` `seq?` `seqable?` `sequential?` `set` `set-validator!` `set?` `short` `short-array` `shorts` `sort` `sorted-map-by` `sorted-set-by` `sorted?` `special-symbol?` `str` `string?` `subs` `swap!` `swap-vals!` `symbol` `symbol?` `the-ns` `thread-bound?` `to-array` `type` `unchecked-add` `unchecked-add-int` `unchecked-byte` `unchecked-char` `unchecked-dec` `unchecked-dec-int` `unchecked-divide-int` `unchecked-double` `unchecked-float` `unchecked-inc` `unchecked-inc-int` `unchecked-int` `unchecked-long` `unchecked-multiply` `unchecked-multiply-int` `unchecked-negate` `unchecked-negate-int` `unchecked-remainder-int` `unchecked-short` `unchecked-subtract` `unchecked-subtract-int` `unreduced` `unsigned-bit-shift-right` `uuid?` `var-get` `var-set` `var?` `vector` `vector-of` `vector?` `volatile!` `volatile?` `vreset!` `with-meta` `zero?`
 
 ## Ours only
 
-Public: `*loaded-libs*` `->Agent` `->Delay` `->MultiFn` `->Ref` `-add-method` `-add-watch` `-alter-meta!` `-deref` `-get-method` `-get-validator` `-methods` `-prefer-method` `-prefers` `-realized?` `-remove-all-methods` `-remove-method` `-remove-watch` `-reset-meta!` `-set-validator!` `Agent` `Associative` `Atom` `Boolean` `Character` `Cons` `Counted` `Date` `Delay` `Double` `Eduction` `EmptyList` `ExceptionInfo` `Fn` `HostError` `HostType` `IDeref` `IEditableCollection` `IEquiv` `IExceptionInfo` `IFn` `IHashEq` `ILookup` `IMeta` `IMultiFn` `IObj` `IPending` `IPersistentCollection` `IPersistentList` `IPersistentMap` `IPersistentSet` `IPersistentVector` `IRecord` `IReduceInit` `IRef` `IReference` `ISeq` `Indexed` `Integer` `Keyword` `LazySeq` `Long` `Matcher` `MultiFn` `Namespace` `Object` `Pattern` `PersistentHashMap` `PersistentHashSet` `PersistentList` `PersistentQueue` `PersistentTreeMap` `PersistentTreeSet` `PersistentVector` `Protocol` `Range` `Reduced` `Ref` `Seqable` `Sequential` `String` `Symbol` `Type` `UUID` `Var` `Volatile` `atom?` `clojure.lang.IEditableCollection` `clojure.lang.IRecord` `clojure.lang.PersistentQueue` `doc` `ex-trace` `ex-type` `host-type` `java.util.Date` `java.util.UUID` `ns-array` `ns-array->vec` `ns-dictionary` `ns-dictionary->map` `ns-mutable-string` `ns-string` `ns-string->str` `ns?` `objc-block` `objc-class` `objc-invoke` `objc-object?` `objc-reify` `objc-send` `objc-write!` `profile` `profile-start!` `profile-stop!` `regex?` `require-c` `require-swift` `with-deadline`
+Public: `*loaded-libs*` `->Agent` `->ChunkBuffer` `->ChunkedCons` `->Delay` `->MultiFn` `->PrintStream` `->Ref` `->StringWriter` `->TaggedLiteral` `-add-method` `-add-watch` `-alter-meta!` `-chunked-first` `-chunked-more` `-chunked-next` `-deref` `-drop-first` `-flush` `-get-method` `-get-validator` `-methods` `-nth` `-prefer-method` `-prefers` `-realized?` `-remove-all-methods` `-remove-method` `-remove-watch` `-reset-meta!` `-set-validator!` `-write` `Agent` `ArrayChunk` `Associative` `Atom` `Boolean` `Character` `ChunkBuffer` `ChunkedCons` `Cons` `Counted` `Date` `Delay` `Double` `Eduction` `EmptyList` `ExceptionInfo` `Fn` `HostError` `HostType` `IChunk` `IChunkedSeq` `IDeref` `IEditableCollection` `IEquiv` `IExceptionInfo` `IFn` `IHashEq` `ILookup` `IMeta` `IMultiFn` `IObj` `IPending` `IPersistentCollection` `IPersistentList` `IPersistentMap` `IPersistentSet` `IPersistentVector` `IRecord` `IReduceInit` `IRef` `IReference` `ISeq` `IWriter` `Indexed` `Integer` `Keyword` `LazySeq` `Long` `Matcher` `MultiFn` `Namespace` `Object` `Pattern` `PersistentHashMap` `PersistentHashSet` `PersistentList` `PersistentQueue` `PersistentTreeMap` `PersistentTreeSet` `PersistentVector` `PrintStream` `Protocol` `Range` `Reduced` `Ref` `Seqable` `Sequential` `String` `StringWriter` `Symbol` `TaggedLiteral` `Type` `UUID` `Var` `Volatile` `atom?` `clojure.lang.IEditableCollection` `clojure.lang.IRecord` `clojure.lang.PersistentQueue` `doc` `ex-trace` `ex-type` `host-type` `java.util.Date` `java.util.UUID` `ns-array` `ns-array->vec` `ns-dictionary` `ns-dictionary->map` `ns-mutable-string` `ns-string` `ns-string->str` `ns?` `objc-block` `objc-class` `objc-invoke` `objc-object?` `objc-reify` `objc-send` `objc-write!` `profile` `profile-start!` `profile-stop!` `regex?` `require-c` `require-swift` `with-deadline`
 
-Internal helpers (`name*`): `available-processors*` `buffer*` `c-fn*` `c-global*` `cancelled?*` `chan*` `chan-alts*` `chan-cancel*` `chan-cancel-cause*` `chan-cancelled?*` `chan-close*` `chan-closed?*` `chan-deliver*` `chan-deref*` `chan-offer*` `chan-poll*` `chan-put*` `chan-put-cb*` `chan-realized?*` `chan-resume*` `chan-suspend*` `chan-suspended?*` `chan-take*` `chan-take-cb*` `chan-timeout*` `chan?*` `coro-cancel-scope*` `coro-current*` `coro-go*` `coro-go-main*` `coro-uncancel-scope*` `deadline-pop*` `deadline-push*` `deftype*` `dropping-buffer*` `extend*` `field*` `fused-count*` `fused-into*` `fused-reduce*` `future*` `future?*` `in-transaction*` `lazy-seq*` `lazy-seq-realized?*` `lib-path*` `load-resource*` `math-context*` `monitor-enter*` `monitor-exit*` `monitor-try-enter*` `new*` `ns-exclude*` `ns-refer*` `objc-block*` `objc-kebab*` `objc-reify*` `out-capture-pop*` `out-capture-push*` `promise*` `promise-buffer*` `protocol*` `protocol-epoch*` `protocol-method*` `queue-pop*` `rand*` `range*` `re-quote-replacement*` `re-replace*` `re-split*` `read-inst*` `read-uuid*` `record*` `record-map*` `reify-type*` `require-swift*` `run-in-transaction*` `shield-pop*` `shield-push*` `shielded*` `sleep*` `sliding-buffer*` `sort-by*` `sorted-compare*` `sorted-map*` `sorted-seq*` `sorted-seq-from*` `sorted-set*` `spawn-detached*` `str-blank?*` `str-index-of*` `str-last-index-of*` `str-lower*` `str-replace*` `str-replace-first*` `str-reverse*` `str-split*` `str-split-lines*` `str-trim*` `str-triml*` `str-trimr*` `str-upper*` `str-whitespace?*` `thread*` `unblocking-buffer?*` `uncaught-report*` `var-root*` `with-deadline*`
+Internal helpers (`name*`): `available-processors*` `buffer*` `c-fn*` `c-global*` `cancelled?*` `chan*` `chan-alts*` `chan-cancel*` `chan-cancel-cause*` `chan-cancelled?*` `chan-close*` `chan-closed?*` `chan-deliver*` `chan-deref*` `chan-offer*` `chan-poll*` `chan-put*` `chan-put-cb*` `chan-realized?*` `chan-resume*` `chan-suspend*` `chan-suspended?*` `chan-take*` `chan-take-cb*` `chan-timeout*` `chan?*` `coro-cancel-scope*` `coro-current*` `coro-go*` `coro-go-main*` `coro-uncancel-scope*` `deadline-pop*` `deadline-push*` `deftype*` `dir-children*` `dropping-buffer*` `extend*` `field*` `fused-count*` `fused-into*` `fused-reduce*` `future*` `future?*` `in-transaction*` `lazy-seq*` `lazy-seq-realized?*` `lib-path*` `load-resource*` `math-context*` `monitor-enter*` `monitor-exit*` `monitor-try-enter*` `nano-time*` `new*` `ns-exclude*` `ns-refer*` `objc-block*` `objc-kebab*` `objc-reify*` `out-capture-pop*` `out-capture-push*` `print-with-method*` `promise*` `promise-buffer*` `protocol*` `protocol-epoch*` `protocol-method*` `queue-pop*` `rand*` `range*` `re-quote-replacement*` `re-replace*` `re-split*` `read-inst*` `read-uuid*` `record*` `record-map*` `reify-type*` `require-swift*` `run-in-transaction*` `shield-pop*` `shield-push*` `shielded*` `sleep*` `sliding-buffer*` `slurp*` `sort-by*` `sorted-compare*` `sorted-map*` `sorted-seq*` `sorted-seq-from*` `sorted-set*` `spawn-detached*` `spit*` `str-blank?*` `str-index-of*` `str-last-index-of*` `str-lower*` `str-replace*` `str-replace-first*` `str-reverse*` `str-split*` `str-split-lines*` `str-trim*` `str-triml*` `str-trimr*` `str-upper*` `str-whitespace?*` `thread*` `unblocking-buffer?*` `uncaught-report*` `var-root*` `with-deadline*`
 
 ## clojure.core.async
 

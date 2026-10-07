@@ -6,6 +6,11 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
 `bench/RESULTS.md` "Host-defined fns") and level 1 is meant to carry most of a real application.
 `sched.c` is the precedent; the row is in `docs/portability.md`.
 
+- **A `.method` send to a deftype, record or reify instance never reaches the bridge** (design §5 «Как пишется
+  вызов»): `clj_objc_send` first asks `clj_instance_send` (proto.c), which looks through the instance's own
+  protocol table for a method named the selector's base, then `-`base, and calls it with the target first; only a
+  miss goes on to the ObjC send, which refuses a value that is no ObjC object as before. Core interfaces are
+  slots, not table entries, so `(.valAt r k)` is still refused; trigger for them: JVM-shaped code calling one.
 - **A fixed set of `objc_msgSend` prototypes covers every shape we accept, and the rest are refused.**
   The symbol must be called through the prototype the method's type encoding describes: on arm64 the integer and
   floating-point argument registers are separate files, a `float` occupies a v register's low half where

@@ -13,12 +13,14 @@
 #include "clj/shaken.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
-static clj_value      kw_message, kw_data, kw_cause;
+static clj_value      kw_message, kw_data, kw_cause, kw_type, kw_tag;
 
 static void intern_keywords(void) {
 	kw_message = clj_keyword_from_cstr("message");
 	kw_data = clj_keyword_from_cstr("data");
 	kw_cause = clj_keyword_from_cstr("cause");
+	kw_type = clj_keyword_from_cstr("type");
+	kw_tag = clj_keyword_from_cstr("tag");
 }
 
 void clj_printer_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
@@ -197,6 +199,7 @@ typedef struct {
 	size_t       n, i;
 	bool         value_next;
 	bool         first;
+	bool         owned_keys; // a namespace map's keys are stripped copies, released with the entries
 } frame;
 
 typedef struct {
@@ -240,6 +243,9 @@ static void free_entries(frame *f) {
 	if (f->kind == F_ARRAY) {
 		for (size_t i = 0; i < f->n; i++) clj_release(f->entries[i]);
 	}
+	if (f->owned_keys) {
+		for (size_t i = 0; i < f->n; i += 2) clj_release(f->entries[i]);
+	}
 	free(f->entries);
 }
 
@@ -248,9 +254,12 @@ static bool collect_sorted_item(clj_value key, clj_value val, void *ctx) {
 	return collect_item(key, ctx);
 }
 
-// *print-length* and *print-level* as fixnums, -1 when unbound; read once per print.
+// *print-length* and *print-level* as fixnums, -1 when unbound; *print-meta* and *print-namespace-maps*; and
+// whether print-method is consulted, which only the pr family does: an error message never runs user code.
+// Read once per print.
 typedef struct {
 	int64_t length, level;
+	bool    meta, ns_maps, hooks;
 } limits;
 
 // What *print-level* counts: everything printed through a frame except the #error map.
@@ -260,12 +269,111 @@ static bool is_collection(clj_value v) {
 	       clj_is_array(v);
 }
 
+static clj_value print_to_string(clj_value root, bool readably, size_t max, const limits *lim);
+
+// The root of a clojure.core var, owned, or CLJ_UNBOUND before core.clj defined it.
+static clj_value core_root(const char *name) {
+	clj_value sym = clj_symbol_from_cstr(name);
+	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	clj_release(sym);
+	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
+	return clj_var_deref(var);
+}
+
+// A user print-method for v (core.clj's print-with-method*): true when it printed, its text then in b. Only a
+// type of the program's own or a value with a keyword :type in its meta can have one that is not :default.
+static bool print_hook(buf *b, clj_value v, bool *thrown) {
+	if (!clj_is_ptr(v) || clj_is_string(v) || clj_is_number(v) || clj_is_keyword(v)) return false;
+	if (!clj_is_instance(v) && !clj_is_record(v)) {
+		clj_value m = clj_meta(v);
+		bool      typed = clj_is_map(m) && clj_is_keyword(clj_map_get(m, kw_type, CLJ_NIL));
+		clj_release(m);
+		if (!typed) return false;
+	}
+	clj_value f = core_root("print-with-method*");
+	if (f == CLJ_UNBOUND) return false;
+	clj_value text = clj_invoke(f, &v, 1);
+	clj_release(f);
+	if (text == CLJ_THROWN) {
+		*thrown = true;
+		return true;
+	}
+	bool printed = clj_is_string(text);
+	if (printed) put_bytes(b, clj_string_bytes(text), clj_string_len(text));
+	clj_release(text);
+	return printed;
+}
+
+// *print-meta*: `^meta ` before a symbol, a var or a collection whose meta is not empty; a meta of :tag alone
+// prints as the tag, as the JVM's print-meta does.
+static void put_meta(buf *b, clj_value v, const limits *lim, bool *thrown) {
+	if (!clj_is_symbol(v) && !clj_is_var(v) && !(is_collection(v) && !clj_is_array(v))) return;
+	clj_value m = clj_meta(v);
+	if (clj_is_nil(m) || !clj_has_core(m, CLJ_CORE_MAP)) {
+		clj_release(m);
+		return;
+	}
+	clj_value n = clj_count(m);
+	if (n == CLJ_THROWN || !clj_is_fixnum(n) || clj_fixnum_val(n) == 0) {
+		clj_release(m);
+		return;
+	}
+	clj_value tag = clj_fixnum_val(n) == 1 ? clj_map_get(m, kw_tag, CLJ_NIL) : CLJ_NIL;
+	clj_value text = print_to_string(clj_is_nil(tag) ? m : tag, true, 0, lim);
+	clj_release(m);
+	if (text == CLJ_THROWN) {
+		*thrown = true;
+		return;
+	}
+	put_char(b, '^');
+	put_bytes(b, clj_string_bytes(text), clj_string_len(text));
+	put_char(b, ' ');
+	clj_release(text);
+}
+
+// *print-namespace-maps*: when every key is a qualified keyword or symbol of one namespace, the keys come back
+// stripped (owned) in place and the namespace name is returned, borrowed; else nil and the entries untouched.
+static clj_value lift_ns(clj_value *entries, size_t n) {
+	clj_value ns = CLJ_NIL;
+	for (size_t i = 0; i < n; i += 2) {
+		clj_value k = entries[i], kns;
+		if (clj_is_keyword(k)) kns = clj_keyword_ns(k);
+		else if (clj_is_symbol(k)) kns = clj_symbol_ns(k);
+		else return CLJ_NIL;
+		if (clj_is_nil(kns) || (!clj_is_nil(ns) && !clj_equals(ns, kns))) return CLJ_NIL;
+		ns = kns;
+	}
+	if (clj_is_nil(ns)) return CLJ_NIL;
+	for (size_t i = 0; i < n; i += 2) {
+		clj_value k = entries[i];
+		entries[i] = clj_is_keyword(k) ? clj_keyword_intern(CLJ_NIL, clj_keyword_name(k)) : clj_symbol_new(CLJ_NIL, clj_symbol_name(k));
+	}
+	return ns;
+}
+
+static void open_map(buf *b, frame *f, const limits *lim) {
+	clj_value ns = lim->ns_maps ? lift_ns(f->entries, f->n) : CLJ_NIL;
+	if (clj_is_nil(ns)) {
+		put_char(b, '{');
+		return;
+	}
+	f->owned_keys = true;
+	put_cstr(b, "#:");
+	put_bytes(b, clj_string_bytes(ns), clj_string_len(ns));
+	put_char(b, '{');
+}
+
 // Scalars are written outright; a collection writes its opener and pushes a frame, or `#` past *print-level*.
 // Not readably (Clojure's *print-readably* false): strings and chars as their text.
-static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const limits *lim) {
+static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const limits *lim, bool *thrown) {
 	if (lim->level >= 0 && (int64_t)stack->count >= lim->level && is_collection(v)) {
 		put_char(b, '#');
 		return;
+	}
+	if (lim->hooks && print_hook(b, v, thrown)) return;
+	if (lim->meta && readably) {
+		put_meta(b, v, lim, thrown);
+		if (*thrown) return;
 	}
 	if (clj_is_nil(v)) {
 		put_cstr(b, "nil");
@@ -381,7 +489,6 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		f->vec = v;
 		f->count = clj_vector_count(v);
 	} else if (clj_header_of(v)->type == &clj_map_type) {
-		put_char(b, '{');
 		frame *f = push_frame(stack, F_MAP);
 		size_t n = 2 * (size_t)clj_map_count(v);
 		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
@@ -389,6 +496,7 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		collect_ctx c = {f->entries, 0};
 		clj_map_each(v, collect_entry, &c);
 		f->n = n;
+		open_map(b, f, lim);
 	} else if (clj_is_set(v)) {
 		put_cstr(b, "#{");
 		frame *f = push_frame(stack, F_SET);
@@ -400,7 +508,6 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		f->n = n;
 	} else if (clj_is_sorted(v)) {
 		bool set = clj_is_sorted_set(v);
-		put_cstr(b, set ? "#{" : "{");
 		frame *f = push_frame(stack, set ? F_SET : F_MAP);
 		size_t n = (set ? 1 : 2) * (size_t)clj_sorted_count(v);
 		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
@@ -408,6 +515,8 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		collect_ctx c = {f->entries, 0};
 		clj_sorted_each(v, set ? collect_sorted_item : collect_entry, &c);
 		f->n = n;
+		if (set) put_cstr(b, "#{");
+		else open_map(b, f, lim);
 	} else if (clj_is_record(v)) {
 		put_char(b, '#');
 		put_cstr(b, clj_type_of(v)->name);
@@ -537,7 +646,7 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max, cons
 	clj_value   v = root;
 	bool        pending = true, thrown = false, truncated = false;
 	for (;;) {
-		if (pending) emit(&b, &stack, v, readably, lim);
+		if (pending) emit(&b, &stack, v, readably, lim, &thrown);
 		if (!stack.count || thrown) break;
 		if (max && b.len >= max) {
 			truncated = true;
@@ -559,7 +668,7 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max, cons
 	return s;
 }
 
-static const limits unlimited = {-1, -1};
+static const limits unlimited = {-1, -1, false, false, false};
 
 clj_value clj_pr_str(clj_value v) { return print_to_string(v, true, 0, &unlimited); }
 
@@ -595,9 +704,27 @@ static bool read_limit(clj_value *slot, const char *name, bool level, int64_t *o
 	return true;
 }
 
+// A boolean print var, false when core.clj has not defined it yet.
+static bool read_flag(clj_value *slot, const char *name) {
+	clj_value var = print_var(slot, name);
+	if (clj_is_nil(var) || !clj_var_is_bound(var)) return false;
+	clj_value v = clj_var_deref(var);
+	bool      on = clj_truthy(v);
+	clj_release(v);
+	return on;
+}
+
 clj_value clj_pr_str_dynamic(clj_value v, bool readably) {
-	static clj_value length_var, level_var;
+	static clj_value length_var, level_var, readably_var, meta_var, ns_maps_var;
 	limits           lim;
 	if (!read_limit(&length_var, "*print-length*", false, &lim.length) || !read_limit(&level_var, "*print-level*", true, &lim.level)) return CLJ_THROWN;
+	// pr reads *print-readably*, print is always not readably: the JVM's print binds it to nil.
+	if (readably) {
+		clj_value var = print_var(&readably_var, "*print-readably*");
+		readably = clj_is_nil(var) || !clj_var_is_bound(var) || read_flag(&readably_var, "*print-readably*");
+	}
+	lim.meta = read_flag(&meta_var, "*print-meta*");
+	lim.ns_maps = read_flag(&ns_maps_var, "*print-namespace-maps*");
+	lim.hooks = true;
 	return print_to_string(v, readably, 0, &lim);
 }

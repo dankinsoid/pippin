@@ -83,6 +83,8 @@ extension CoreTests {
 				#expect(try eval("(let [{a :a} '(:a 1)] a)") == 1)
 				#expect(try eval("(let [{a :a} '({:a 7})] a)") == 7)
 				#expect(try eval("(let [{a :a} ()] a)") == nil)
+				// Clojure 1.11: pairs then a trailing map, whose entries win (seq-to-map-for-destructuring).
+				#expect(try eval("(let [{a :a b :b} '(:a 1 {:b 2 :a 5})] [a b])") == [5, 2])
 				#expect(try eval("(macroexpand-1 '(let [a 1] a))") == Value(reading: "(let* [a 1] a)"))
 			}
 			#expect(clj_debug_live_objects() == before)
