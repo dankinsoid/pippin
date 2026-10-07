@@ -194,12 +194,14 @@ static cand_vec *local_of(clj_coro *c) {
 }
 
 // The main carrier never walks mid-work: past the bound a candidate is published to the background (design §7).
+// One at zero but not yet a zombie is torn down further up this thread's stack: the shared buffer waits for it.
 static void hand_off(clj_header *h, void (*share)(clj_value v)) {
-	if (atomic_load_explicit(&h->rc, memory_order_acquire) == CLJ_RC_ZOMBIE) {
+	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_acquire);
+	if (rc == CLJ_RC_ZOMBIE) {
 		clj_dealloc_cell(h);
 		return;
 	}
-	share(clj_from_ptr(h));
+	if (rc & CLJ_RC_COUNT_MASK) share(clj_from_ptr(h));
 	stat_add(CLJ_CC_STAT_HANDOFFS, 1);
 	shared_push(h, true);
 }
@@ -613,7 +615,7 @@ static int64_t collect_local(clj_coro *c, size_t max) {
 		clj_header *h = b->items[--b->n];
 		uint32_t    rc = atomic_load_explicit(&h->rc, memory_order_acquire);
 		if (rc == CLJ_RC_ZOMBIE) clj_dealloc_cell(h);
-		else if (h->flags & CLJ_FLAG_SHARED) shared_push(h, true);
+		else if ((h->flags & CLJ_FLAG_SHARED) || !(rc & CLJ_RC_COUNT_MASK)) shared_push(h, true);
 		else if ((h->flags & CLJ_FLAG_IMMORTAL) || opaque(h->type)) CLJ_RC_UNSHARED_STORE(h, rc & ~CLJ_RC_BUFFERED);
 		else roots[n++] = h;
 	}
