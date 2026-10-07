@@ -74,8 +74,8 @@
   included — not the thread: a coroutine that parks and resumes on another carrier owns what it owned (design
   §4, «Смена потока — не триггер»). Each `clj_coro` takes a 16-bit tag at creation (`debug_owner`), `clj_alloc`
   writes the running execution's tag into the top 16 bits of `flags` (`CLJ_OWNER_SHIFT`; release builds leave
-  them 0, so the header is the same in both; design §4 gives them to the main thread's counter of its BRC, and
-  the tag moves out of the header when that lands), and the non-atomic paths compare it with the running execution's: `clj_retain`/`clj_release`
+  them 0, so the header is the same in both; design §4's BRC for the main thread, measured and not taken, would
+  put its counter there), and the non-atomic paths compare it with the running execution's: `clj_retain`/`clj_release`
   inline, `release_reaches_zero` (a child released by a dying parent), `clj_is_unique`, and `clj_share` before
   it marks a node (the plain write of the flag must be the owner's). The comparison is an out-of-line call
   (`clj_debug_owner_check`), never a TLS address cached across a park. Gaps, both on the side of silence: tag 0
@@ -115,7 +115,7 @@
   on the order of 300 ns — the same order as one `swap! assoc` (288–904 ns at 16–100000 keys, the path
   copy of the "Atoms" entry under Builtins). General BRC is not taken: the copy path is dominated by the
   node copies, not by their retains (measured while the hand-over existed: 140 in place against 765 copied).
-  Not done: design §4 «Представление значений» takes BRC with the main thread as the one owner, since reads
-  of UI state on main are where the atomic pairs are the whole cost; the rc-share run on main is its
-  before/after.
+  BRC with the main thread as the one owner is implemented on branch `brc-main` and not taken: on arm64 the
+  main tick costs 20–30 % more with it (bench/RESULTS.md, "Main-thread BRC"). Trigger: a profile of a real app
+  where main contends with the pool on one state.
 

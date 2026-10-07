@@ -1801,3 +1801,98 @@ same binary against itself), so the rows are listed run by run.
   100000 reads +3.5 % in all three pairs with byte-identical copy and assoc code, and "loop assoc" moves either
   way. The atom rows, where the stores did change, are within noise: `swap! inc` and `deref` 81–96 against
   79–109, the contended counter 229–242 against 232–238.
+
+## Main-thread BRC (branch `brc-main`, not merged) — 2026-10-07, Intel i9-9980HK (x86_64), macOS 26.7.1, Swift 6.3.3 (release, pool only)
+
+The main carrier counts shared objects in `main16` and executes an RMW only at an episode edge (design §4, «BRC с
+одним владельцем — главным потоком»; NOTES "RC", "Main-thread BRC"). Before = 72fb4e0, after = the commit of this
+section, `clj-bench` release binaries run alternately (before, after) three times on a laptop shared with other
+jobs (load 2–3); each cell is a run's own median of five, and the rows below are the median of the three. The
+noise of the previous section holds: ±5 % on most rows, and the 2-reader rows swing by ±10 %.
+
+`CLJ_BENCH_ONLY=rc-share` on a debug binary counts what the main carrier does with the rc-share tick (the
+`rc-share` table above) when the test thread adopts the carrier. Every shared retain and release of the tick is
+a plain `main16` store: the values `swap!` publishes from main carry their count in `main16` from the
+publication on, and the only RMWs are the episode edges of the atom itself.
+
+| on the main carrier | n | shared | main plain | edge in | edge out | free in place | merged | spill | RMW share |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| state in an atom | 1000 | 72968 | 114800 | 3 | 3 | 6346 | 0 | 0 | 0.0 % |
+| state in an atom | 10000 | 973574 | 1605076 | 3 | 3 | 70335 | 0 | 0 | 0.0 % |
+| state in a watched atom | 1000 | 76972 | 118803 | 4 | 4 | 6348 | 0 | 0 | 0.0 % |
+| state in a watched atom | 10000 | 1013578 | 1645079 | 4 | 4 | 70337 | 0 | 0 | 0.0 % |
+
+"shared" counts the inline entry points only; "main plain" also counts the releases of a dying parent's children,
+hence more. The off-main table (`plain`/`shared`/`immortal`) is the same in both binaries to the op.
+
+`CLJ_BENCH_ONLY=rc-main` times the same tick (n = 10000, one atom reset per run) on the bench thread before and
+after it adopts the main carrier, alone and with two pool coroutines looping `get-in`/`get` on the same atom, and
+inside a pool coroutine without and with a main carrier installed. "Loop local" is the tick over a local map, no
+shared RC: the control for layout.
+
+| where the tick runs | before, ns per tick | after | after / before |
+|---|---:|---:|---:|
+| bare thread, state in a loop local | 1864 | 1947 | 1.04 |
+| bare thread | 3111 | 3275 | 1.05 |
+| bare thread, 2 pool readers | 4858 | 4715 | 0.97 |
+| pool coroutine | 3153 | 3298 | 1.05 |
+| main carrier | 3131 | 3129 | 1.00 |
+| main carrier, 2 pool readers | 4964 | 3910 | 0.79 |
+| pool coroutine, main carrier installed | 3115 | 3471 | 1.11 |
+
+The pool rows of the Atoms table (the bench thread, no main carrier), two alternating runs each:
+
+| scenario | n | before | after |
+|---|---:|---|---|
+| swap! assoc, map of 16 keys | 100000 | 416.6 · 424.5 | 446.8 · 432.7 |
+| swap! assoc, map of 1000 keys | 100000 | 1128.9 · 1128.7 | 1235.1 · 1235.2 |
+| swap! assoc, map of 100000 keys | 100000 | 2145.6 · 2129.1 | 2330.2 · 2328.9 |
+| swap! assoc, watched | 100000 | 1893.4 · 1898.3 | 2078.9 · 2079.6 |
+| loop assoc into a map (no atom) | 100000 | 168.9 · 167.7 | 173.9 · 174.1 |
+| swap! inc | 100000 | 80.6 · 101.5 | 86.1 · 85.2 |
+| get @atom :k | 100000 | 85.6 · 86.3 | 87.5 · 88.1 |
+| get @volatile :k | 100000 | 80.9 · 81.4 | 84.4 · 84.8 |
+| counting loop | 100000 | 25.8 · 26.1 | 28.1 · 28.1 |
+| swap! inc, 4 threads | 100000 | 223.9 · 225.3 | 216.2 · 215.5 |
+| swap! assoc, 4 threads | 100000 | 442.0 · 438.2 | 434.9 · 431.0 |
+
+- **On this Intel the main carrier gains only under contention.** Alone, the tick costs the same on main before
+  and after (3131 against 3129) although none of its ~100 shared RC ops per tick is an RMW any more: an
+  uncontended `lock xadd` on a line in L1 costs about what the main path's call, owner test and `main16` load and
+  store cost. With two pool readers on the same state the main tick drops 21 % (4964 → 3910): the readers'
+  retains no longer meet main's on every node, only on the atom's root. Apple silicon, the target, is not measured
+  here; its uncontended atomics are cheaper than Intel's, which narrows the alone case further.
+- **The pool rows moved +4–10 %, and so did the controls.** The counting loop (+8 %), `get @volatile` (+4 %) and the
+  loop-local tick (+4 %) do no shared RC at all, so most of the copy-path rows' +9 % is layout of the same order
+  (NOTES "Benchmarks"); what the pool pays per shared op without a main carrier is one load of the owner word and
+  a branch on retain, and on release that plus a test of the returned word's MERGED bit. With a main carrier
+  installed a pool retain also reads its thread word (one `%gs` load), and the pool tick reads +11 %.
+- **The first cut read a `_Thread_local` for "am I main" and cost +13 % on the pool tick**: on Darwin a TLS read is
+  a call through the TLV descriptor, and clang hoisted it above the cheaper owner test into every retain, which
+  also grew a frame. The thread word (`thread_word` in `rc.c`) and out-of-line main paths keep the pool's retain
+  and release leaves. An inline main path in `object.h` read +15 % on the loop-local control in one noisy pair of
+  runs, with no gain on main to show for the code it adds at every retain site, so it stays out of line.
+
+### The same A/B on arm64 — 2026-10-07, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool only)
+
+`make bench-ab` on the branch (CI run 37614776783): base 72fb4e0 against `brc-main` 276e551, three alternating
+rounds of `rc-main` and the full run in one job. Round 1 of the base runs 40–70 % above its rounds 2 and 3 on every
+row (warm-up), so the cells are rounds 2 · 3. The 2-reader rows put three busy threads on three virtual cpus and
+swing by 2–9× across rounds; they are left out.
+
+| where the tick runs | base, ns per tick | brc-main |
+|---|---|---|
+| bare thread, state in a loop local | 1555 · 1426 | 1365 · 1322 |
+| bare thread | 2447 · 2328 | 2111 · 2075 |
+| pool coroutine | 1749 · 2036 | 2107 · 2060 |
+| main carrier | 1750 · 2012 | 2369 · 2277 |
+| pool coroutine, main carrier installed | 1740 · 2032 | 2546 · 2366 |
+
+- **On arm64 the main carrier is slower with BRC, not faster**: +20–30 % on the main tick while the control without
+  shared RC reads −9 % (layout), so the main path costs about a third more than the atomics it replaces. An
+  uncontended LSE `ldadd` on M1 is cheaper than the out-of-line main path — the call, the thread-word test against
+  the owner word, the `main16` load and store. The premise of the design item ("~5 ns an atomic pair against ~1
+  plain", from the M3) holds for the instructions, not for the path that avoids them.
+- The pool tick with a main carrier installed reads +20–40 %; without one it is within the round-to-round spread.
+  The Atoms rows of the full run move ±10–25 % both ways between rounds on this runner and decide nothing.
+- Verdict: not merged. The design item records it with its trigger (design §4, «BRC с одним владельцем»).
