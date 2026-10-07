@@ -21,7 +21,7 @@ extension CoreTests {
 		init() throws {
 			clj_init()
 			try cljTimingSupport()
-			for k in ["bound", "root", "from-future", "ok", "x", "y", "w", "bad", "k", "z", "fail", "continue"] { _ = kw(k) }
+			for k in ["bound", "root", "from-future", "ok", "x", "y", "w", "bad", "k", "z", "fail", "continue", "sent", "untouched"] { _ = kw(k) }
 			_ = try cljEvalScoped("""
 			(ns agent-tests)
 			(def ^:dynamic *v* :root)
