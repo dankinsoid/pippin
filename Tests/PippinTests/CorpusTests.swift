@@ -25,7 +25,7 @@ private struct Allowlist {
 	var forms: [String: Value] = [:] // key → entry map
 	var tests: [String: Value] = [:] // name → entry map
 	var skipped: Set<String> = []
-	var liveAfterSecondRun = 0 // objects the library's own reference cycles keep, per run
+	var liveAfterSecondRun = 0 // objects a second run leaves alive after the cycle collector
 	var abandonedCoroutines = 0 // the most its tests may leave parked, which the harness then cancels
 }
 
@@ -403,8 +403,8 @@ extension CoreTests {
 			lines.append(";; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.")
 			lines.append(";; :flaky true marks a test whose outcome is not a function of the code alone — timing, or state the first run")
 			lines.append(";; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.")
-			lines.append(";; :second-run-live-objects is what a second run of the same tests leaves behind: the reference cycles the")
-			lines.append(";; library's own code makes, which RC cannot free (NOTES.md, RC). A different number fails.")
+			lines.append(";; :second-run-live-objects is what a second run of the same tests leaves alive once the cycle collector ran")
+			lines.append(";; (NOTES.md, RC): what the library keeps, or a cycle the collector does not see. A different number fails.")
 			lines.append(";; :abandoned-coroutines is the most its own tests may leave parked for the harness to cancel: an")
 			lines.append(";; upper bound, not a count, a library's own race deciding it, and 0 for a library that leaves none.")
 			lines.append("{:abandoned-coroutines \(max(abandonedCoroutines, previous.abandonedCoroutines))")

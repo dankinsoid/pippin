@@ -61,7 +61,7 @@ Top reasons (forms and tests):
 - tests: 239 ran, 203 passed, 23 failed, 13 errored
 - skipped by the suite's own when-var-exists (the var does not exist here): 1
 - tests past the watchdog's deadline: 0
-- live objects a second run of the same tests leaves: 4
+- live objects a second run of the same tests leaves: 0
 
 Top reasons (forms and tests):
 
@@ -157,7 +157,7 @@ Top reasons (forms and tests):
 - tests: 53 ran, 43 passed, 0 failed, 10 errored
 - skipped by the suite's own when-var-exists (the var does not exist here): 0
 - tests past the watchdog's deadline: 0
-- live objects a second run of the same tests leaves: 36
+- live objects a second run of the same tests leaves: 0
 
 Top reasons (forms and tests):
 

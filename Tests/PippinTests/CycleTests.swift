@@ -31,52 +31,53 @@ extension CoreTests {
 			for k in ["n", "back", "k", "self", "j", "x", "next", "v", "leaf", "shared"] { _ = kw(k) }
 		}
 
-		// Each form leaves only a cycle behind: RC alone keeps it, so the baseline returning is the collector's work.
-		private func collected(_ form: String, atLeast: Int64, _ location: SourceLocation = #_sourceLocation) throws {
+		// The baseline returning is the proof; `cycles` is how many distinct cycles the form drops, each of which RC
+		// alone keeps, so at least one member of each is the collector's (more when no temporary held one mid-collection).
+		private func collected(_ form: String, cycles: Int64, _ location: SourceLocation = #_sourceLocation) throws {
 			let base = CoroBaseline(location)
 			let freed = freedStat()
 			_ = try eval(form)
 			clj_cc_collect()
 			base.check(location)
-			#expect(freedStat() - freed >= atLeast, sourceLocation: location)
+			#expect(freedStat() - freed >= cycles, sourceLocation: location)
 		}
 
 		@Test func aSelfReferencingAtom() throws {
-			try collected("(let [a (atom nil)] (reset! a a) nil)", atLeast: 1)
+			try collected("(let [a (atom nil)] (reset! a a) nil)", cycles: 1)
 		}
 
 		// The cycle is garbage when the last outside reference to the map goes; the atom is never decremented then.
 		@Test func anAtomMapClosureRing() throws {
-			try collected("(let [a (atom nil) m {:k (fn [] @a)}] (reset! a m) nil)", atLeast: 3)
-			try collected("(dotimes [i 300] (ring i))", atLeast: 900)
+			try collected("(let [a (atom nil) m {:k (fn [] @a)}] (reset! a m) nil)", cycles: 1)
+			try collected("(dotimes [i 300] (ring i))", cycles: 300)
 		}
 
 		// A deftype has no mutable fields (analyzer.c, set!): its cycle closes through a volatile in a field.
 		@Test func aCycleThroughADeftype() throws {
-			try collected("(let [v (volatile! nil) n (Node. v)] (vreset! v n) nil)", atLeast: 2)
-			try collected("(let [v (volatile! nil) n (Node. v) a (atom n)] (vreset! v n) nil)", atLeast: 3)
-			try collected("(let [v (volatile! nil)] (vreset! v (Node. (Node. v))) nil)", atLeast: 3)
+			try collected("(let [v (volatile! nil) n (Node. v)] (vreset! v n) nil)", cycles: 1)
+			try collected("(let [v (volatile! nil) n (Node. v) a (atom n)] (vreset! v n) nil)", cycles: 1)
+			try collected("(let [v (volatile! nil)] (vreset! v (Node. (Node. v))) nil)", cycles: 1)
 		}
 
 		// A var is immortal, so no cycle runs through one: a ring hangs off a var's root and the rebind lets it go.
 		@Test func aRingRootedAtAVarAfterItsRebind() throws {
-			_ = try eval("(def rooted (let [x (atom nil)] (reset! x {:back (fn [] x)}) x))")
 			let base = CoroBaseline()
+			_ = try eval("(def rooted (let [x (atom nil)] (reset! x {:back (fn [] x)}) x))")
 			let freed = freedStat()
 			_ = try eval("(def rooted nil)")
 			clj_cc_collect()
-			#expect(freedStat() - freed >= 3)
+			#expect(freedStat() - freed >= 1)
 			base.check()
 		}
 
 		@Test func aCycleThroughAChannelBuffer() throws {
-			try collected("(let [c (a/chan 1)] (a/>!! c c) nil)", atLeast: 1)
-			try collected("(let [c (a/chan 4)] (a/>!! c {:k [c]}) (a/>!! c 1) nil)", atLeast: 3)
+			try collected("(let [c (a/chan 1)] (a/>!! c c) nil)", cycles: 1)
+			try collected("(let [c (a/chan 4)] (a/>!! c {:k [c]}) (a/>!! c 1) nil)", cycles: 1)
 		}
 
 		// letfn's cells are volatiles holding the fns that deref them: a cycle per call (NOTES "Corpus").
 		@Test func letfnCells() throws {
-			try collected("(dotimes [i 1000] (letfn [(f [n] (if (pos? n) (g (dec n)) n)) (g [n] (f n))] (f 3)))", atLeast: 2000)
+			try collected("(dotimes [i 1000] (letfn [(f [n] (if (pos? n) (g (dec n)) n)) (g [n] (f n))] (f 3)))", cycles: 1000)
 		}
 
 		// A ring over a DAG whose vector is shared fifty times and held from Swift: the ring goes, the DAG stays.
@@ -91,7 +92,7 @@ extension CoreTests {
 			  mid)
 			""")
 			clj_cc_collect()
-			#expect(freedStat() - freed >= 102)
+			#expect(freedStat() - freed >= 1)
 			#expect(mid!.array?.count == 1000)
 			#expect(try eval("(fn [m] (reduce + (map (comp deref :leaf) m)))")(mid!) == 1000)
 			let held = clj_debug_live_objects()
@@ -112,7 +113,7 @@ extension CoreTests {
 			                            (let [x (atom nil)] (reset! x {:x x :j j}))))))]
 			  (run! deref fs)
 			  nil)
-			""", atLeast: 16 * 500)
+			""", cycles: 16 * 500)
 			try collected("""
 			(let [st (atom {})
 			      fs (doall (for [i (range 8)]
@@ -123,7 +124,7 @@ extension CoreTests {
 			  (run! deref fs)
 			  (reset! st nil)
 			  nil)
-			""", atLeast: 1)
+			""", cycles: 1)
 			try collected("""
 			(let [c (a/chan 64)
 			      fs (doall (for [i (range 8)]
@@ -131,7 +132,7 @@ extension CoreTests {
 			                            (let [x (atom nil)] (reset! x [x]) (a/>!! c x) (a/<!! c))))))]
 			  (run! deref fs)
 			  nil)
-			""", atLeast: 8 * 500)
+			""", cycles: 8 * 500)
 		}
 
 		// The main carrier hands candidates past its bound to the background and collects the rest when idle.
@@ -154,7 +155,7 @@ extension CoreTests {
 
 		// A channel's finalize frees the ring its each_child reads: within a cycle, children go before finalizers.
 		@Test func membersWithFinalizers() throws {
-			try collected("(dotimes [i 100] (let [c (a/chan 2) d (a/chan 2)] (a/>!! c d) (a/>!! d c) (a/>!! c (atom c))))", atLeast: 300)
+			try collected("(dotimes [i 100] (let [c (a/chan 2) d (a/chan 2)] (a/>!! c d) (a/>!! d c) (a/>!! c (atom c))))", cycles: 100)
 		}
 	}
 }

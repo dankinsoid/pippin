@@ -186,18 +186,15 @@
   of the same tests leaves alive; a different number fails.
 - **On by default** (`CLJ_CORPUS=0` skips it). `make corpus` runs it alone, `make corpus-update` regenerates
   the allowlists and docs/corpus.md. Gate timings, including the corpus, are in "Gates".
-- **`:second-run-live-objects` is not always zero**: the suite's own `letfn` leaves a reference cycle per call
-  (the volatile cell holds the fn, the fn's body derefs the cell), which RC cannot free — 2 objects per
-  `letfn` call, 4 for the two namespaces that use one and 36 for medley, of which the last 4 arrived with
-  `test-mapply` and its two `letfn`s once that test started running. The number is recorded per library and
-  checked, so a runtime leak still fails; design §7's trial deletion is what would collect it.
-  `clojure-core-tests` is at 11: `special`'s `letfn` cycles, and the namespace and the symbols `ns_libs` and
-  `keywords` intern per run from a `gensym` ("Symbol / keyword": interning is permanent). It is a fixed number
-  per run, not a growing one, which is the property the check needs. The same check caught the runaway
+- **`:second-run-live-objects` is zero for every library**, counted after the cycle collector ran
+  (`runtimeSettled` collects). The suites' own `letfn` makes a reference cycle per call (the volatile cell holds
+  the fn, the fn's body derefs the cell): 4 objects for clojure-test-suite and 36 for medley while nothing
+  collected them, 0 since trial deletion does (NOTES "RC"). The number is recorded per library and checked, so a
+  runtime leak, or a cycle the collector does not see, still fails. The same check caught the runaway
   `(apply f (range))` coroutine ("Analyzer and evaluator"): every library's count became the time the run took,
-  medley's 36 among them, so a leak elsewhere in the process shows up here too. A generated symbol or keyword
-  also has to be picked deterministically, which is why the generator shims seed themselves: a differing pick
-  between the two runs moved the number from run to run.
+  so a leak elsewhere in the process shows up here too. A generated symbol or keyword interns for good ("Symbol /
+  keyword"), so it has to be picked deterministically, which is why the generator shims seed themselves: a
+  differing pick between the two runs moved the number from run to run.
 - **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
   reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
   section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run
