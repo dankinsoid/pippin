@@ -305,6 +305,13 @@ void clj_dealloc(clj_header *h) {
 	else pool_free(h);
 }
 
+void clj_dealloc_dead(clj_header *h) { LIVE_ADD(h->type, -1); }
+
+void clj_dealloc_cell(clj_header *h) {
+	if (h->flags & CLJ_FLAG_LARGE) free(h);
+	else pool_free(h);
+}
+
 bool clj_debug_pool_enabled(void) { return !use_system_alloc(); }
 
 size_t clj_debug_cell_size(size_t size) {

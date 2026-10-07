@@ -181,6 +181,22 @@ extension CoreTests {
 			#expect(cljEvalError("(cd-m)")?.contains("Wrong number of args (0)") == true)
 		}
 
+		// Compiled closures capture through the interpreter's fn constructors, so the reach bits and the collector are one.
+		@Test func cyclesMadeByCompiledCodeAreCollected() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.cycles)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			for k in ["n", "f"] { _ = Value(keyword: k) }
+			try compiledEval {
+				_ = try cljEval("(defn cp-ring [n] (let [a (atom nil)] (reset! a {:n n :f (fn [] @a)}) nil))")
+				_ = try cljEval("(defn cp-cell [n] (let [v (volatile! nil)] (vreset! v [v n]) nil))")
+				_ = try cljEval("(defn cp-cells [k] (dotimes [i k] (letfn [(f [x] (if (pos? x) (g (dec x)) x)) (g [x] (f x))] (f 2))))")
+			}
+			let base = CoroBaseline()
+			_ = try cljEval("(dotimes [i 300] (cp-ring i) (cp-cell i)) (cp-cells 300)")
+			base.check()
+		}
+
 		// The guard page lands "Stack overflow" at the host boundary, past any try in between (guard.c); the loop tick
 		// stops a loop without calls.
 		@Test func endlessRecursionAndLoopAreStopped() throws {

@@ -25,6 +25,7 @@ static void atom_each_child(void *self, clj_visitor visit, void *ctx) {
 
 
 static bool atom_lock_held(const void *self);
+static bool atom_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx);
 
 static uint32_t atom_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
 
@@ -40,6 +41,7 @@ const clj_type clj_atom_type = {
 	.equals = atom_equals,
 	.meta = clj_atom_meta,
 	.debug_lock_held = atom_lock_held,
+	.cc_locked = atom_cc_locked,
 };
 
 static uintptr_t self_id(void) { return (uintptr_t)clj_coro_current(); }
@@ -47,6 +49,15 @@ static uintptr_t self_id(void) { return (uintptr_t)clj_coro_current(); }
 static bool held_by_me(const clj_atom *a) { return atomic_load_explicit(&a->owner, memory_order_relaxed) == self_id(); }
 
 static bool atom_lock_held(const void *self) { return held_by_me(self); }
+
+// The collector reads the four slots under the mutex every store into them takes (cc.c).
+static bool atom_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx) {
+	clj_atom *a = self;
+	if (!clj_cmutex_trylock(&a->lock)) return false;
+	inside(self, ctx);
+	clj_cmutex_unlock(&a->lock);
+	return true;
+}
 
 // The lock is not recursive, so an execution that already holds it must not wait on it: throw instead.
 static bool enter(clj_atom *a, const char *op) {
@@ -123,7 +134,7 @@ clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	clj_cmutex_init(&a->lock);
 	atomic_init(&a->owner, 0);
 	// Born shared, as a var: every value stored into it is published by the store itself.
-	a->h.flags |= CLJ_FLAG_SHARED;
+	a->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH;
 	clj_slot_store_atomic(&a->h, &a->value, clj_retain(value), memory_order_relaxed);
 	clj_slot_store(&a->h, &a->meta, clj_retain(meta));
 	clj_slot_store(&a->h, &a->validator, clj_retain(validator));

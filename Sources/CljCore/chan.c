@@ -21,6 +21,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "cc_internal.h"
 #include "coro_internal.h"
 
 // ---- the buffer spec
@@ -120,6 +121,7 @@ static void chan_finalize(void *self) {
 }
 
 static bool chan_lock_held(const void *self);
+static bool chan_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx);
 
 const clj_type clj_chan_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
@@ -130,13 +132,14 @@ const clj_type clj_chan_type = {
 	.hash = identity_hash,
 	.equals = identity_equals,
 	.debug_lock_held = chan_lock_held,
+	.cc_locked = chan_cc_locked,
 };
 
 static clj_value chan_alloc(int kind, uint32_t cap, int role) {
 	clj_chan *ch = clj_alloc(&clj_chan_type, sizeof *ch);
 	memset((char *)ch + sizeof ch->h, 0, sizeof *ch - sizeof ch->h);
 	// Born shared, as an atom: whatever a put stores is published by the store, on every path into the channel.
-	ch->h.flags |= CLJ_FLAG_SHARED;
+	ch->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH;
 	clj_lock_init(&ch->lock);
 	clj_cmutex_init(&ch->cm);
 	ch->kind = (uint8_t)kind;
@@ -225,6 +228,8 @@ static void chan_lock(clj_chan *ch) {
 		atomic_store_explicit(&ch->lock_owner, clj_coro_current(), memory_order_relaxed);
 #endif
 	}
+	// Any section may move a value out of the ring or a queue: a collection reading the channel loses its snapshot.
+	if (__builtin_expect(atomic_load_explicit(&ch->h.rc, memory_order_relaxed) & CLJ_RC_WATCH, 0)) clj_cc_unwatch(&ch->h);
 }
 
 static void chan_unlock(clj_chan *ch) {
@@ -238,6 +243,21 @@ static void chan_unlock(clj_chan *ch) {
 #endif
 		clj_lock_unlock(&ch->lock);
 	}
+}
+
+// The collector reads the ring and the queues under the section's own lock (cc.c).
+static bool chan_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx) {
+	clj_chan *ch = self;
+	if (has_xform(ch)) {
+		if (!clj_cmutex_trylock(&ch->cm)) return false;
+		inside(self, ctx);
+		clj_cmutex_unlock(&ch->cm);
+	} else {
+		if (!clj_lock_trylock(&ch->lock)) return false;
+		inside(self, ctx);
+		clj_lock_unlock(&ch->lock);
+	}
+	return true;
 }
 
 #if CLJ_DEBUG

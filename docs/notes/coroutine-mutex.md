@@ -16,7 +16,7 @@
   `locking` (a reentrant monitor per object in a table keyed by identity, records living while held or waited
   on: `monitor-enter*`/`monitor-exit*`, `clj_debug_live_monitors`; `monitor-try-enter*` is the trylock a transaction takes a ref out of id order with, NOTES "Agents and refs"), and a lazy seq being forced (a one-shot wait
   on the lot with `FORCING_WAITED` as the "someone parked" state — the `sched_yield` spin is gone; "Recursive
-  realization" stays). A channel with a transducer holds it around its step ("Channels"); `promise`/`future` are plain promise-buffered channels, a runtime-only section under a `clj_lock`.
+  realization" stays). A channel with a transducer holds it around its step ("Channels"); `promise`/`future` are plain promise-buffered channels, a runtime-only section under a `clj_lock`. The cycle collector trylocks an atom's and a transducer channel's mutex to read their slots (`cc_locked`, NOTES "RC"): no user code runs while it holds one, so `cmutex_held` is not bumped, and a busy mutex makes the object black rather than a wait.
 - **Lock audit** (design §4, "under `clj_lock` runs neither user code nor IO"; every `clj_lock_lock` at the time
   of this task, 58 sites in 12 files; 82 in 15 after it, the new ones in `chan.c`, `cmutex.c`, `sched.c`,
   `coro.c`; 72 in 16 after the library layer, `chan.c` down to one site behind `chan_lock` and `runtime.c` up by the

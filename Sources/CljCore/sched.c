@@ -21,6 +21,7 @@
 #include "clj/profile.h"
 #include "clj/string.h"
 #include "clj/vector.h"
+#include "cc_internal.h"
 #include "coro_internal.h"
 #include "profile_internal.h"
 
@@ -322,6 +323,13 @@ static void main_perform(void *info) {
 	(void)info;
 	clj_sched_main_pump();
 }
+
+static void main_before_waiting(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info) {
+	(void)observer;
+	(void)activity;
+	(void)info;
+	clj_cc_main_idle();
+}
 #endif
 
 void clj_sched_main_install(void) {
@@ -335,6 +343,10 @@ void clj_sched_main_install(void) {
 	main_source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx);
 	main_loop = CFRunLoopGetCurrent();
 	CFRunLoopAddSource(main_loop, main_source, kCFRunLoopCommonModes);
+	// The main carrier's cycle candidates are collected only here, when it has nothing else to do (design §7).
+	CFRunLoopObserverRef idle = CFRunLoopObserverCreate(kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, main_before_waiting, NULL);
+	CFRunLoopAddObserver(main_loop, idle, kCFRunLoopCommonModes);
+	CFRelease(idle);
 #endif
 }
 
@@ -587,6 +599,7 @@ static void finish(clj_coro *c) {
 	// The epilogue tears down what the finished body owned, on the carrier: a transfer from c, which never runs again.
 	uint32_t carrier_owner = clj_debug_owner_assume(c->debug_owner);
 #endif
+	void *carrier_candidates = clj_cc_local_borrow(c);
 	deadline_disarm(c);
 	clj_eval_drain_retired(c);
 	clj_var_bindings_release(c->bindings);
@@ -612,6 +625,8 @@ static void finish(clj_coro *c) {
 	c->signaled = true;
 	pthread_cond_broadcast(&c->cond);
 	pthread_mutex_unlock(&c->lock);
+	clj_cc_execution_done(c);
+	clj_cc_local_return(c, carrier_candidates);
 #if CLJ_DEBUG
 	clj_debug_owner_assume(carrier_owner);
 #endif
@@ -1206,7 +1221,9 @@ static void *blocking_main(void *arg) {
 		// A job with a waiter works for its parked caller, which touches nothing until the wake: a transfer both ways.
 		uint32_t own = j->w ? clj_debug_owner_assume(j->w->coro->debug_owner) : 0;
 #endif
+		void *own_candidates = j->w ? clj_cc_local_borrow(j->w->coro) : NULL;
 		j->fn(j->ctx);
+		if (j->w) clj_cc_local_return(j->w->coro, own_candidates);
 #if CLJ_DEBUG
 		if (j->w) clj_debug_owner_assume(own);
 #endif
@@ -1324,6 +1341,7 @@ bool clj_debug_runtime_settle(size_t coros, uint64_t ms) {
 	uint64_t deadline = clj_profile_now() + ms * 1000000u;
 	for (;;) {
 		if (runtime_idle(coros)) {
+			clj_cc_collect();
 			clj_output_flush();
 			int64_t objects = clj_debug_live_objects();
 			usleep(1000);

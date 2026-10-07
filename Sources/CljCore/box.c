@@ -32,6 +32,7 @@ const clj_type clj_volatile_type = {
 
 clj_value clj_volatile_new(clj_value value) {
 	clj_volatile *v = clj_alloc(&clj_volatile_type, sizeof *v);
+	v->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL;
 	clj_slot_init(&v->h, &v->value, clj_retain(value));
 	return clj_from_ptr(v);
 }

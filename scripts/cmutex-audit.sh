@@ -6,8 +6,8 @@
 set -e
 cd "$(dirname "$0")/.."
 
-register='Sources/CljCore/atom.c 1
-Sources/CljCore/chan.c 1
+register='Sources/CljCore/atom.c 2
+Sources/CljCore/chan.c 2
 Sources/CljCore/cmutex.c 2'
 
 found=$(grep -rcE 'clj_cmutex_lock\(|clj_cmutex_trylock\(' Sources 2>/dev/null |

@@ -2,6 +2,7 @@
 #ifndef CLJ_LOCK_H
 #define CLJ_LOCK_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 // Not recursive; no rwlock in the core (design §4: readers contend on the count like writers).
@@ -27,6 +28,11 @@ static inline void clj_lock_unlock(clj_lock *l) {
 	(*clj_locks_held_slot())--;
 	os_unfair_lock_unlock(l);
 }
+static inline bool clj_lock_trylock(clj_lock *l) {
+	if (!os_unfair_lock_trylock(l)) return false;
+	(*clj_locks_held_slot())++;
+	return true;
+}
 #endif
 static inline void clj_lock_destroy(clj_lock *l) { (void)l; }
 #else
@@ -44,6 +50,11 @@ static inline void clj_lock_lock(clj_lock *l) {
 static inline void clj_lock_unlock(clj_lock *l) {
 	(*clj_locks_held_slot())--;
 	pthread_mutex_unlock(l);
+}
+static inline bool clj_lock_trylock(clj_lock *l) {
+	if (pthread_mutex_trylock(l) != 0) return false;
+	(*clj_locks_held_slot())++;
+	return true;
 }
 #endif
 static inline void clj_lock_destroy(clj_lock *l) { pthread_mutex_destroy(l); }

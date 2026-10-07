@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "alloc.h"
+#include "cc_internal.h"
 
 // CLJ_CRASH_EXIT: a plain exit, since a wedged crash reporter can leave the aborting process unkillable (NOTES "Guard").
 void clj_fatal(const char *msg) {
@@ -15,19 +16,30 @@ void clj_fatal(const char *msg) {
 	abort();
 }
 
+// A nonzero release of an object that may lie on a cycle leaves an entry in a candidate buffer (cc.c).
 static bool release_reaches_zero(clj_header *h) {
-	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
-	if (h->flags & CLJ_FLAG_SHARED) {
-		// acq_rel rather than release plus an acquire fence on zero: TSan does not model fences.
-		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_acq_rel);
-		CLJ_ASSERT(prev > 0, "release of a freed shared object");
-		return prev == 1;
+	uint32_t flags = h->flags;
+	if (flags & CLJ_FLAG_IMMORTAL) return false;
+	if (flags & CLJ_FLAG_SHARED) {
+		if ((flags & CLJ_FLAG_REACH) && !(atomic_load_explicit(&h->rc, memory_order_relaxed) & CLJ_RC_BUFFERED) &&
+		    clj_cc_shared_candidate(h))
+			return false;
+		// seq_cst: the collection-flag load after a zero pairs with the collector's store (cc.c, deferred frees).
+		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_seq_cst);
+		CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "release of a freed shared object");
+		if (__builtin_expect(prev & CLJ_RC_WATCH, 0)) clj_cc_unwatch(h);
+		return (prev & CLJ_RC_COUNT_MASK) == 1;
 	}
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
-	CLJ_ASSERT(rc > 0, "release of a freed object");
+	CLJ_ASSERT((rc & CLJ_RC_COUNT_MASK) > 0, "release of a freed object");
+	if (rc != 1 && (flags & CLJ_FLAG_REACH_LOCAL) && !(rc & CLJ_RC_BUFFERED) && clj_cc_enabled()) {
+		CLJ_RC_UNSHARED_STORE(h, (rc - 1) | CLJ_RC_BUFFERED);
+		clj_cc_local_candidate(h);
+		return false;
+	}
 	CLJ_RC_UNSHARED_STORE(h, rc - 1);
-	return rc == 1;
+	return (rc & CLJ_RC_COUNT_MASK) == 1;
 }
 
 #if CLJ_DEBUG
@@ -68,32 +80,62 @@ static clj_header *get_dead_next(clj_header *h) {
 	return (clj_header *)(link & ~(uintptr_t)7);
 }
 
+// A buffered dead object waits aside, not as a link: a candidate entry reads its header (cc.c, the zombie).
+typedef struct {
+	clj_header  *stack;
+	clj_header **aside;
+	size_t       naside, caside;
+} dead_list;
+
+static void bury(dead_list *d, clj_header *h) {
+	assert_children_shared(h);
+	if (h->type->unlink) h->type->unlink(h);
+	if (atomic_load_explicit(&h->rc, memory_order_relaxed) & CLJ_RC_BUFFERED) {
+		if (d->naside == d->caside) {
+			d->caside = d->caside ? d->caside * 2 : 8;
+			clj_header **grown = realloc(d->aside, d->caside * sizeof *grown);
+			if (!grown) clj_fatal("out of memory");
+			d->aside = grown;
+		}
+		d->aside[d->naside++] = h;
+		return;
+	}
+	set_dead_next(h, d->stack);
+	d->stack = h;
+}
+
 static void release_child(clj_value child, void *ctx) {
 	if (!clj_is_ptr(child)) return;
-	clj_header **stack = ctx;
 	clj_header *h = clj_header_of(child);
 	if (release_reaches_zero(h)) {
-		assert_children_shared(h);
-		if (h->type->unlink) h->type->unlink(h);
-		set_dead_next(h, *stack);
-		*stack = h;
+		if ((h->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(h)) return;
+		bury(ctx, h);
 	}
 }
 
 // Iterative so a million-element list does not overflow the C stack.
 static void free_object(clj_header *dead) {
-	clj_header *stack = dead;
-	assert_children_shared(dead);
-	if (dead->type->unlink) dead->type->unlink(dead);
-	set_dead_next(dead, NULL);
-	while (stack) {
-		clj_header *h = stack;
-		stack = get_dead_next(h);
+	if ((dead->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(dead)) return;
+	dead_list d = {0};
+	bury(&d, dead);
+	for (;;) {
+		clj_header *h;
+		bool        zombie = !d.stack;
+		if (d.stack) {
+			h = d.stack;
+			d.stack = get_dead_next(h);
+		} else if (d.naside) {
+			h = d.aside[--d.naside];
+		} else {
+			break;
+		}
 		const clj_type *t = h->type;
-		if (t->each_child) t->each_child(h, release_child, &stack);
+		if (t->each_child) t->each_child(h, release_child, &d);
 		if (t->finalize) t->finalize(h);
-		clj_dealloc(h);
+		if (zombie) clj_cc_zombie(h);
+		else clj_dealloc(h);
 	}
+	free(d.aside);
 }
 
 #if CLJ_DEBUG
@@ -111,12 +153,27 @@ void clj_debug_rc_ops(int64_t out[3]) {
 void clj_retain_slow(clj_header *h) {
 	if (h->flags & CLJ_FLAG_IMMORTAL) return;
 	uint32_t prev = atomic_fetch_add_explicit(&h->rc, 1, memory_order_relaxed);
-	(void)prev;
-	CLJ_ASSERT(prev > 0, "retain of a freed shared object");
+	CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "retain of a freed shared object");
+	if (__builtin_expect(prev & CLJ_RC_WATCH, 0)) clj_cc_unwatch(h);
 }
 
 void clj_release_slow(clj_header *h) {
 	if (release_reaches_zero(h)) free_object(h);
+}
+
+void clj_rc_free(clj_header *dead) { free_object(dead); }
+
+void clj_rc_drop(clj_header *h) {
+	uint32_t prev;
+	if (h->flags & CLJ_FLAG_SHARED) {
+		prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_seq_cst);
+		if (__builtin_expect(prev & CLJ_RC_WATCH, 0)) clj_cc_unwatch(h);
+	} else {
+		prev = CLJ_RC_UNSHARED_LOAD(h);
+		CLJ_RC_UNSHARED_STORE(h, prev - 1);
+	}
+	CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "drop of a freed object");
+	if ((prev & CLJ_RC_COUNT_MASK) == 1) free_object(h);
 }
 
 bool clj_is_unique(clj_value v) {
@@ -277,6 +334,19 @@ void clj_share(clj_value v) {
 		}
 		// The flag is a plain write: only the owner may publish.
 		CLJ_OWNER_CHECK(h);
+		h->flags |= CLJ_FLAG_SHARED;
+		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
+	}
+	stack_free(&st);
+}
+
+void clj_share_unowned(clj_value v) {
+	if (!clj_is_ptr(v) || (clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL))) return;
+	VALUE_STACK_INIT(st);
+	stack_push(&st, v);
+	while (st.count) {
+		clj_header *h = clj_header_of(st.items[--st.count]);
+		if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) continue;
 		h->flags |= CLJ_FLAG_SHARED;
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}

@@ -37,6 +37,7 @@ clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
 	bool        word = !clj_is_nil(m);
 	clj_header *c = clj_alloc(h->type, size + (word ? sizeof(clj_value) : 0));
 	memcpy((char *)c + sizeof *c, (char *)h + sizeof *h, size - sizeof *h);
+	c->flags |= h->flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL);
 	// The copy's own flags carry no CLJ_FLAG_META yet, so each_child retains the real children only.
 	if (h->type->each_child) h->type->each_child(c, retain_child, NULL);
 	if (word) {
@@ -282,6 +283,8 @@ clj_value clj_lazy_seq_new(clj_value fn) {
 	CLJ_ASSERT(clj_is_fn(fn), "lazy-seq thunk must be a fn");
 	clj_lazy_seq *s = clj_alloc(&clj_lazy_seq_type, sizeof *s);
 	clj_slot_init(&s->h, &s->fn, clj_retain(fn));
+	// After the thunk's bits: a realization adds none (design §7, a lazy seq).
+	s->h.flags |= CLJ_FLAG_MUTABLE;
 	return clj_from_ptr(s);
 }
 
@@ -365,7 +368,7 @@ static void publish(clj_value v, clj_value value) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
 	clj_slot_store(&s->h, &s->value, value);
 	clj_value fn = s->fn.v;
-	clj_slot_clear(&s->fn);
+	clj_slot_store(&s->h, &s->fn, CLJ_NIL);
 	set_state(v, FORCED);
 	unclaimed();
 	clj_release(fn);

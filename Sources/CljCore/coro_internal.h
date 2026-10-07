@@ -103,6 +103,9 @@ struct clj_coro {
 	uint64_t         deadline_serial; // bumped by every arm and disarm; a firing timer with a stale serial is a no-op
 	// Never reused, unlike the address: a freed execution's successor at its address is not its owner.
 	uint64_t         id;
+	// ---- the cycle collector (cc.c): candidates among the unshared objects this execution owns
+	void            *cc_local;
+	bool             cc_collecting;
 #if CLJ_DEBUG
 	uint32_t         debug_owner;     // the tag its unshared objects carry (object.h, CLJ_OWNER_SHIFT)
 #endif

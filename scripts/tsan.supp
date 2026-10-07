@@ -19,3 +19,9 @@ race:clj_var_is_macro
 race:clj_var_set_macro
 race:clj_var_is_dynamic
 race:clj_var_set_dynamic
+
+# The cycle collector reads the slots of a shared volatile, object array or lazy seq without a lock while their
+# writers store without one (cc.c, visit_lockfree; design §7, the lock-free protocol). A read that races a store
+# is never used: the writer's barrier and watch check after the store make the collector's re-check of the
+# owner's WATCH fail, and frees are deferred while a collection runs, so even a stale pointer meets live memory.
+race:visit_lockfree

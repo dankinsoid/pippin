@@ -23,6 +23,7 @@
 #include "clj/string.h"
 #include "clj/vector.h"
 #include "alloc.h"
+#include "cc_internal.h"
 #include "coro_internal.h"
 #include "guard_internal.h"
 #include "profile_internal.h"
@@ -176,6 +177,7 @@ static void coro_each_child(void *self, clj_visitor visit, void *ctx) {
 static void coro_finalize(void *self) {
 	clj_coro *c = self;
 	CLJ_ASSERT(!c->map, "a coroutine died with its stack mapped");
+	clj_cc_execution_free(c);
 	free(c->args);
 	pthread_mutex_destroy(&c->lock);
 	pthread_cond_destroy(&c->cond);
@@ -352,6 +354,7 @@ static void thread_exit(void *p) {
 	clj_guard_thread_exit(car);
 	clj_coro *c = car->implicit;
 	if (c) {
+		clj_cc_execution_free(c);
 		free(c->retired);
 		free(c->shadow->frames);
 		pthread_mutex_destroy(&c->lock);

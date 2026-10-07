@@ -134,6 +134,7 @@ static void *slot_of(clj_array *a, uint32_t i) { return a->data + (size_t)i * ki
 clj_value clj_array_new(clj_array_kind kind, uint32_t count) {
 	clj_array *a = clj_alloc(&clj_array_type, sizeof *a + (size_t)count * kind_size[kind]);
 	a->kind = (uint32_t)kind;
+	if (kind == CLJ_ARRAY_OBJECT) a->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL;
 	a->count = count;
 	return clj_from_ptr(a);
 }
