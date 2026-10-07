@@ -105,6 +105,22 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// PersistentVector.pop keeps the vector's meta, down to the empty vector, and is O(1): core's pop reaches clj_vector_pop.
+		// @ai-generated(solo)
+		@Test func corePopKeepsMetaAndShape() throws {
+			clj_init()
+			_ = Value(keyword: "m")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try cljEval("(pop [1 2 3])") == [1, 2])
+				#expect(try cljEval("(= (pop (vec (range 40))) (vec (range 39)))") == true)
+				#expect(try cljEval("[(meta (pop (with-meta [1 2] {:m 1}))) (meta (pop (with-meta [1] {:m 1}))) (meta (pop (with-meta (vec (range 40)) {:m 1})))]").description == "[{:m 1} {:m 1} {:m 1}]")
+				#expect(try cljEval("(loop [v (vec (range 50000)) n 0] (if (seq v) (recur (pop v) (+ n (peek v))) n))") == Value(50000 * 49999 / 2))
+				#expect(cljEvalError("(pop [])")?.contains("Can't pop empty vector") == true)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func assocAtEveryPosition() {
 			let before = clj_debug_live_objects()
 			let n = 1025

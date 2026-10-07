@@ -353,6 +353,13 @@ static clj_value b_get(const clj_value *args, size_t n) { return n == 3 ? clj_ge
 
 static clj_value b_nth(const clj_value *args, size_t n) { return n == 3 ? clj_nth3(args[0], args[1], args[2]) : clj_nth2(args[0], args[1]); }
 
+static clj_value b_vector_pop(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_vector(args[0])) return clj_throw_msg("vector-pop* expects a vector, got: %s", clj_type_name(args[0]));
+	if (clj_vector_count(args[0]) == 0) return clj_throw_msg("Can't pop empty vector");
+	return clj_vector_pop(clj_retain(args[0]));
+}
+
 // Consumes coll (+1 in), as clj_conj does.
 static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
 	const clj_type *t = clj_is_ptr(coll) ? clj_type_of(coll) : NULL;
@@ -1565,7 +1572,7 @@ static const entry entries[] = {
 	{"seq?", b_seq_p, 1, 1},       {"seqable?", b_seqable_p, 1, 1}, {"sequential?", b_sequential_p, 1, 1}, {"coll?", b_coll_p, 1, 1},
 	{"counted?", b_counted_p, 1, 1}, {"ifn?", b_ifn_p, 1, 1},    {"associative?", b_associative_p, 1, 1}, {"indexed?", b_indexed_p, 1, 1},
 	{"get", b_get, 2, 3},          {"assoc", b_assoc, 3, ANY},   {"dissoc", b_dissoc, 1, ANY},  {"contains?", b_contains, 2, 2},
-	{"count", b_count, 1, 1},      {"conj", b_conj, 0, ANY},     {"nth", b_nth, 2, 3},          {"first", b_first, 1, 1},
+	{"count", b_count, 1, 1},      {"conj", b_conj, 0, ANY},     {"nth", b_nth, 2, 3}, {"vector-pop*", b_vector_pop, 1, 1},          {"first", b_first, 1, 1},
 	{"rest", b_rest, 1, 1},        {"next", b_next, 1, 1},       {"cons", b_cons, 2, 2},        {"list", b_list, 0, ANY},
 	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
 	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},

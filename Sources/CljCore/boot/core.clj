@@ -1259,9 +1259,7 @@
   list or vector; an empty queue pops to itself."
   [coll]
   (cond (nil? coll) nil
-        (vector? coll) (if (pos? (count coll))
-                         (into [] (take (dec (count coll)) coll))
-                         (throw (ex-info "Can't pop empty vector" {})))
+        (vector? coll) (vector-pop* coll)
         (instance? PersistentQueue coll) (queue-pop* coll)
         ;; PersistentList.pop hands the empty list the popped list's meta.
         (list? coll) (cond (next coll) (rest coll)
