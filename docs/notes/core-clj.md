@@ -28,7 +28,7 @@
   `preserving-reduced`, `load-one`, `load-lib`, `load-libs`, `libspec?` (`destructure` is public, as in
   Clojure). `clojure.set`, `clojure.string`, `clojure.walk`, `clojure.template` are separate embedded
   namespaces loaded on the first `require`. Not yet: `reify`-style
-  `IDeref` (the JVM's `clojure.lang.IDeref` with `deref`; ours is a protocol with `-deref`), `ref`, `dosync`,
+  `IDeref` (the JVM's `clojure.lang.IDeref` with `deref`; ours is a protocol with `-deref`),
   `time`, `partition-all` transducer flush order, `chunk-*`; `defstruct`, `proxy` and `with-local-vars` are
   rejected, each with its design §8 row (`docs/api-parity.md`). The 1.11/1.12 tail is in:
   `partition`'s pad arity, `partitionv`, `partitionv-all`, `splitv-at`, `reductions`, `halt-when`,

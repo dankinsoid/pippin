@@ -27,7 +27,7 @@ Coroutines and concurrency
 - [Channels](docs/notes/channels.md) — the channel, transducers under a cmutex, `alts!`, `go`, the core.async library layer.
 - [Futures and scopes](docs/notes/futures-and-scopes.md) — `future`/`promise` as promise-buffered channels, `go-scoped`.
 - [Coroutine mutex](docs/notes/coroutine-mutex.md) — the parking-lot mutex, its holders, the lock audit.
-- [Agents and refs](docs/notes/agents-and-refs.md) — agents as a queue of actions in an atom, the detached spawn of an action, held sends.
+- [Agents and refs](docs/notes/agents-and-refs.md) — agents as a queue of actions in an atom, the detached spawn of an action, held sends, refs as two-phase locking by id.
 
 Collections and values
 - [Map](docs/notes/map.md), [Set](docs/notes/set.md), [Vector](docs/notes/vector.md), [List](docs/notes/list.md), [Queue](docs/notes/queue.md) — the persistent collections' simplifications.

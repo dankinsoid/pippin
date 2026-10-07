@@ -2545,6 +2545,29 @@
 (defn- notify-watches [r watches old new]
   (doseq [[k f] watches] (f k r old new)))
 
+;; The running transaction (run-in-transaction*); the owner check keeps a future spawned inside dosync out of it.
+(def ^:private ^:dynamic *tx* nil)
+
+(defn- running-tx []
+  (let [tx *tx*]
+    (when (and tx (identical? (:owner tx) (coro-current*)))
+      tx)))
+
+(defn in-transaction*
+  "True inside a dosync of the running execution."
+  []
+  (some? (running-tx)))
+
+(defmacro io!
+  "If an io! block occurs in a transaction, throws, else runs body in an implicit do. If the first expression in
+  body is a literal string, will use that as the exception message."
+  [& body]
+  (let [message (when (string? (first body)) (first body))
+        body (if message (next body) body)]
+    `(if (in-transaction*)
+       (throw (ex-info ~(or message "I/O in transaction") {}))
+       (do ~@body))))
+
 ;; ---- agents (design §4 «Агенты и ref'ы»): one action at a time per agent, each on the executor it was sent with.
 
 ;; state: the value; aq: {:q actions :error e}, the head running; cfg: validator, watches, error handler and mode.
@@ -2606,9 +2629,11 @@
       (agent-execute a action))))
 
 (defn- agent-dispatch [a action]
-  (if-let [held (held-sends)]
-    (vswap! held conj [a action])
-    (agent-enqueue a action)))
+  (if-let [tx (running-tx)]
+    (vswap! (:sends tx) conj [a action])
+    (if-let [held (held-sends)]
+      (vswap! held conj [a action])
+      (agent-enqueue a action))))
 
 (defn- release-held [held]
   (let [sends @held]
@@ -2652,7 +2677,7 @@
   (let [a (agent-of "send-via" a)]
     (when-let [error (:error @(field* a 1))]
       (throw (ex-info "Agent is failed, needs restart" {} error)))
-    (agent-dispatch a [f args executor (dissoc (get-thread-bindings) #'*agent* #'*held-sends*)])
+    (agent-dispatch a [f args executor (dissoc (get-thread-bindings) #'*agent* #'*held-sends* #'*tx*)])
     a))
 
 (defn- pooled-executor [run] (spawn-detached* run false))
@@ -2683,24 +2708,26 @@
   agent, to the agent(s) have occurred. Will never return if a failed agent is restarted with :clear-actions
   true or shutdown-agents was called."
   [& agents]
-  (when *agent* (throw (ex-info "Can't await in agent action" {})))
-  (let [latch (promise)
-        n (atom (count agents))
-        count-down (fn [state] (when (zero? (swap! n dec)) (deliver latch true)) state)]
-    (doseq [a agents] (send a count-down))
-    (when (seq agents) @latch)
-    nil))
+  (io! "await in transaction"
+       (when *agent* (throw (ex-info "Can't await in agent action" {})))
+       (let [latch (promise)
+             n (atom (count agents))
+             count-down (fn [state] (when (zero? (swap! n dec)) (deliver latch true)) state)]
+         (doseq [a agents] (send a count-down))
+         (when (seq agents) @latch)
+         nil)))
 
 (defn await-for
   "Like await, but waits at most timeout-ms milliseconds. Returns logical false if returning due to timeout,
   logical true otherwise."
   [timeout-ms & agents]
-  (when *agent* (throw (ex-info "Can't await in agent action" {})))
-  (let [latch (promise)
-        n (atom (count agents))
-        count-down (fn [state] (when (zero? (swap! n dec)) (deliver latch true)) state)]
-    (doseq [a agents] (send a count-down))
-    (or (empty? agents) (deref latch timeout-ms false))))
+  (io! "await-for in transaction"
+       (when *agent* (throw (ex-info "Can't await in agent action" {})))
+       (let [latch (promise)
+             n (atom (count agents))
+             count-down (fn [state] (when (zero? (swap! n dec)) (deliver latch true)) state)]
+         (doseq [a agents] (send a count-down))
+         (or (empty? agents) (deref latch timeout-ms false)))))
 
 (defn await1
   "Awaits the agent when it has actions queued; returns the agent."
@@ -2776,6 +2803,185 @@
   blocking pool are the runtime's own and outlive any agent, so this does nothing (docs/jvm-differences.md)."
   []
   nil)
+
+
+;; ---- refs and transactions (design §4 «Агенты и ref'ы», §8: two-phase locking by ref id, not MVCC)
+
+(def ^:private ref-ids (atom 0))
+
+(declare tx-read)
+
+;; id orders the locks a transaction takes; the state atom holds the committed value, which a read outside a
+;; transaction takes without a lock, and is the monitor a transaction holds the ref by.
+(deftype ^:pippin/extension Ref [id state cfg m]
+  IDeref
+  (-deref [this] (if-let [tx (running-tx)] (tx-read tx this) @state))
+  IMeta
+  (meta [_] @m)
+  IReference
+  (-alter-meta! [_ f args] (apply swap! m f args))
+  (-reset-meta! [_ v] (reset! m v))
+  IRef
+  (-add-watch [this k f] (swap! cfg update :watches assoc k f) this)
+  (-remove-watch [this k] (swap! cfg update :watches dissoc k) this)
+  (-set-validator! [_ f] (validate-reference f @state) (swap! cfg assoc :validator f) nil)
+  (-get-validator [_] (:validator @cfg)))
+
+(defn- ref-of [what r]
+  (if (instance? Ref r)
+    r
+    (throw (ex-info (str what " expects a ref, got: " (pr-str (type r))) {:value r}))))
+
+(defn- make-ref [x opts]
+  (validate-reference (:validator opts) x)
+  (->Ref (swap! ref-ids inc)
+         (atom x)
+         (atom {:validator (:validator opts) :watches {}
+                :min-history (or (:min-history opts) 0) :max-history (or (:max-history opts) 10)})
+         (atom (:meta opts))))
+
+(defn ref
+  "Creates and returns a Ref with an initial value of x and zero or more options (in any order): :meta
+  metadata-map, :validator validate-fn, :min-history (default 0), :max-history (default 10). The validator,
+  when given, must accept x. A ref keeps no history here — a transaction locks what it reads instead (design
+  §8) — so the two history options are only recorded."
+  ([x] (make-ref x {}))
+  ([x & options] (make-ref x (apply hash-map options))))
+
+(defn- tx-retry [tx]
+  (vreset! (:doomed tx) true)
+  (throw (ex-info "Transaction retry" {::retry tx})))
+
+;; In id order a lock is waited for; out of it only tried, and a refusal retries the transaction with the ref
+;; taken in order up front: a wait out of order could close a cycle.
+(defn- tx-lock [tx r]
+  (when @(:doomed tx) (tx-retry tx))
+  (when-not (contains? @(:locked tx) r)
+    (if (> (field* r 0) @(:top tx))
+      (monitor-enter* (field* r 1))
+      (when-not (monitor-try-enter* (field* r 1))
+        (vswap! (:wanted tx) conj r)
+        (tx-retry tx)))
+    (vswap! (:locked tx) conj r)
+    (vswap! (:top tx) max (field* r 0))))
+
+(defn- tx-read [tx r]
+  (tx-lock tx r)
+  (let [vals @(:vals tx)]
+    (if (contains? vals r) (get vals r) @(field* r 1))))
+
+(defn- tx-running! []
+  (or (running-tx) (throw (ex-info "No transaction running" {}))))
+
+(defn- tx-set [tx r v]
+  (tx-lock tx r)
+  (when (contains? @(:commuted tx) r) (throw (ex-info "Can't set after commute" {})))
+  (vswap! (:vals tx) assoc r v)
+  v)
+
+(defn- tx-unlock [tx]
+  (doseq [r @(:locked tx)] (monitor-exit* (field* r 1)))
+  (vreset! (:locked tx) #{}))
+
+;; Every written value is validated before the first is written, and the writes are shielded, so a commit is whole.
+(defn- tx-commit [tx]
+  (let [vals @(:vals tx)]
+    (doseq [[r v] vals] (validate-reference (:validator @(field* r 2)) v))
+    (shielded*
+     (mapv (fn [[r v]] (let [old @(field* r 1)] (reset! (field* r 1) v) [r old v])) vals))))
+
+(defn run-in-transaction*
+  "The function behind sync and dosync: calls f in a transaction, or in the running one."
+  [f]
+  (if (running-tx)
+    (f)
+    (loop [prelock (sorted-map) attempt 1]
+      (let [tx {:owner (coro-current*) :locked (volatile! #{}) :top (volatile! 0) :vals (volatile! {})
+                :commuted (volatile! #{}) :wanted (volatile! []) :sends (volatile! []) :doomed (volatile! false)}
+            outcome (try
+                      (doseq [r (vals prelock)] (tx-lock tx r))
+                      (let [v (binding [*tx* tx] (f))]
+                        ;; A retry the body caught and swallowed still retries.
+                        (if @(:doomed tx) ::retry [v (tx-commit tx)]))
+                      (catch :cancelled e (shielded* (tx-unlock tx)) (throw e))
+                      (catch :default e
+                        (if (identical? tx (::retry (ex-data e)))
+                          ::retry
+                          (do (shielded* (tx-unlock tx)) (throw e)))))
+            touched (into @(:locked tx) @(:wanted tx))]
+        (shielded* (tx-unlock tx))
+        (if (identical? outcome ::retry)
+          (if (= attempt 10000)
+            (throw (ex-info "Transaction failed after reaching retry limit" {}))
+            (recur (into prelock (map (fn [r] [(field* r 0) r])) touched) (inc attempt)))
+          (let [[v changes] outcome
+                sends @(:sends tx)]
+            (vreset! (:sends tx) [])
+            (doseq [[r old new] changes] (notify-watches r (:watches @(field* r 2)) old new))
+            (doseq [[a action] sends] (agent-dispatch a action))
+            v))))))
+
+(defmacro sync
+  "transaction-flags => TBD, pass nil for now. Runs the exprs (in an implicit do) in a transaction that
+  encompasses exprs and any nested calls. Starts a transaction if none is already running on this thread. Any
+  uncaught exception will abort the transaction and flow out of sync. The exprs may be run more than once, but
+  any effects on Refs will be atomic."
+  [flags-ignored-for-now & body]
+  `(run-in-transaction* (fn [] ~@body)))
+
+(defmacro dosync
+  "Runs the exprs (in an implicit do) in a transaction that encompasses exprs and any nested calls. Starts a
+  transaction if none is already running on this thread. Any uncaught exception will abort the transaction and
+  flow out of dosync. The exprs may be run more than once, but any effects on Refs will be atomic."
+  [& exprs]
+  `(sync nil ~@exprs))
+
+(defn ref-set
+  "Must be called in a transaction. Sets the value of ref. Returns val."
+  [ref val]
+  (tx-set (tx-running!) (ref-of "ref-set" ref) val))
+
+(defn alter
+  "Must be called in a transaction. Sets the in-transaction-value of ref to (apply fun in-transaction-value-of-ref
+  args) and returns the in-transaction-value of ref."
+  [ref fun & args]
+  (let [tx (tx-running!)
+        r (ref-of "alter" ref)]
+    (tx-set tx r (apply fun (tx-read tx r) args))))
+
+(defn commute
+  "Must be called in a transaction. Sets the in-transaction-value of ref to (apply fun in-transaction-value-of-ref
+  args) and returns the in-transaction-value of ref. The ref is locked from here to the commit, so the value fun
+  saw is the one committed over, and fun runs once."
+  [ref fun & args]
+  (let [tx (tx-running!)
+        r (ref-of "commute" ref)
+        v (apply fun (tx-read tx r) args)]
+    (vswap! (:vals tx) assoc r v)
+    (vswap! (:commuted tx) conj r)
+    v))
+
+(defn ensure
+  "Must be called in a transaction. Protects the ref from modification by other transactions and returns the
+  in-transaction-value of ref. Every ref a transaction reads is protected here, so this is a read."
+  [ref]
+  (tx-read (tx-running!) (ref-of "ensure" ref)))
+
+(defn ref-history-count
+  "Returns the history count of a ref: always 0, since no history is kept (see ref)."
+  [ref]
+  (ref-of "ref-history-count" ref)
+  0)
+
+(defn ref-min-history
+  "Gets the min-history of a ref, or sets it and returns the ref."
+  ([ref] (:min-history @(field* (ref-of "ref-min-history" ref) 2)))
+  ([ref n] (swap! (field* (ref-of "ref-min-history" ref) 2) assoc :min-history n) ref))
+
+(defn ref-max-history
+  "Gets the max-history of a ref, or sets it and returns the ref."
+  ([ref] (:max-history @(field* (ref-of "ref-max-history" ref) 2)))
+  ([ref n] (swap! (field* (ref-of "ref-max-history" ref) 2) assoc :max-history n) ref))
 
 (defn seque
   "Creates a queued seq on another (presumably lazy) seq s. The queued seq will produce a concrete seq in the

@@ -43,7 +43,7 @@
   - «core.async» — [04-14-core-async.md](design/04-14-core-async.md): `go` на stackful-корутинах в обоих режимах, свои каналы, affinity, отмена, стеки и эвакуация припаркованных.
   - «Ошибки и стектрейсы» — [04-15-errors-and-traces.md](design/04-15-errors-and-traces.md): `#line` и DWARF в компиляторе, теневой стек в интерпретаторе.
   - «Тип ошибки, `catch` по кейворду, отмена» — [04-16-error-type-catch-cancel.md](design/04-16-error-type-catch-cancel.md): бросается любое значение, `ex-type`, хостовая ошибка по типу, `:cancelled` не `ex-info`.
-  - «Агенты и ref'ы» — [04-17-agents-and-refs.md](design/04-17-agents-and-refs.md): агент — очередь действий в атоме, `send` на носителях, `send-off` на пуле блокирующих задач, действие не наследует привязок и дедлайна запустившего.
+  - «Агенты и ref'ы» — [04-17-agents-and-refs.md](design/04-17-agents-and-refs.md): агент — очередь действий в атоме, `send` на носителях, `send-off` на пуле блокирующих задач, действие не наследует привязок и дедлайна запустившего; ref — 2PL по id: ожидание лока только по возрастанию id, иначе ретрай, `commute` под тем же локом, истории нет.
 - **§5. Интероп**
   - «Главное разделение: данные vs вызовы» — [05-01-data-vs-calls.md](design/05-01-data-vs-calls.md): Swift-рантайм отдаёт данные динамически, вызовы — нет.
   - «Что умеет Swift-рантайм (wickwirew/Runtime, Echo и ниже)» — [05-02-swift-runtime.md](design/05-02-swift-runtime.md): что можно и чего нельзя сделать с метаданными.

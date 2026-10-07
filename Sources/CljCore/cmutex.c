@@ -246,6 +246,30 @@ clj_value clj_monitor_enter(clj_value x) {
 	return CLJ_NIL;
 }
 
+// A transaction takes a ref out of id order only this way (core.clj): blocking there could close a cycle.
+clj_value clj_monitor_try_enter(clj_value x) {
+	clj_coro *me = clj_coro_current();
+	clj_lock_lock(&mon_lock);
+	monitor *mo = mon_find_locked((uintptr_t)x, true);
+	mo->users++;
+	clj_lock_unlock(&mon_lock);
+	if (atomic_load_explicit(&mo->owner, memory_order_relaxed) == me) {
+		mo->count++;
+		me->cmutex_held++;
+		return CLJ_TRUE;
+	}
+	if (!clj_cmutex_trylock(&mo->m)) {
+		clj_lock_lock(&mon_lock);
+		mon_drop_locked(mo);
+		clj_lock_unlock(&mon_lock);
+		return CLJ_FALSE;
+	}
+	atomic_store_explicit(&mo->owner, me, memory_order_relaxed);
+	mo->count = 1;
+	me->cmutex_held++;
+	return CLJ_TRUE;
+}
+
 clj_value clj_monitor_exit(clj_value x) {
 	clj_coro *me = clj_coro_current();
 	clj_lock_lock(&mon_lock);

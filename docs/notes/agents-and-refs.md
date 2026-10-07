@@ -25,3 +25,18 @@
 - [ ] **Sends are not checked against a shut-down pool**: `shutdown-agents` is a no-op (docs/jvm-differences.md),
   so nothing refuses a send after it. Trigger: a host that must stop agent work at exit — then the runtime needs a
   shutdown of its own, for every spawn and not for agents alone.
+- **A ref is a `deftype` of an id and three atoms** (the committed value, the config, the meta). The id comes
+  from a counter and orders the locks; the state atom is the monitor a transaction holds the ref by, not the ref
+  itself, so a user's `locking` on a ref does not meet a transaction. A transaction is a map of volatiles in
+  `*tx*` with its owner coroutine: `locked` (a set), `top` (the highest id held), `vals`, `commuted`, `wanted`
+  (the ref a try refused), `sends` and `doomed`. `tx-lock` waits (`monitor-enter*`) above `top` and only tries
+  (`monitor-try-enter*`, the cmutex's `trylock` behind the reentrant monitor) at or below it; a refusal marks the
+  transaction doomed and throws `{::retry tx}`, and `run-in-transaction*` retries with every ref touched so far
+  taken in id order before the body runs again. Every `tx-lock` of a doomed transaction throws again, and a body
+  that ends doomed retries, so swallowing the signal changes nothing. The commit validates every written value,
+  then writes them all under `shielded*`; the unlock is shielded too. Watches and the held agent sends run after
+  the unlock, as `LockingTransaction.run`'s `finally` does. Not benchmarked; 8 futures × 200 transactions
+  over two refs taken in opposite orders converge (`RefTests.transactionsAreAtomicUnderContention`).
+- [ ] **A lock waited for in id order has no timeout**, so a transaction that waits for a second one it started
+  itself on the same refs never ends (docs/jvm-differences.md). Trigger: a program that needs it; the fix is a
+  timed park in `monitor-enter*` whose expiry retries, as the JVM's `LOCK_WAIT_MSECS` does.

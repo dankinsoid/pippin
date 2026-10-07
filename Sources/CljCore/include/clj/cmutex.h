@@ -48,6 +48,8 @@ bool clj_debug_lot_queued(const void *key);
 // (locking x ...): a reentrant monitor per object, looked up by identity; monitor-exit* by a non-owner throws.
 clj_value clj_monitor_enter(clj_value x);
 clj_value clj_monitor_exit(clj_value x);
+// The monitor if it is free or already this execution's: true, as monitor-enter; false at once otherwise.
+clj_value clj_monitor_try_enter(clj_value x);
 size_t    clj_debug_live_monitors(void);
 
 #endif

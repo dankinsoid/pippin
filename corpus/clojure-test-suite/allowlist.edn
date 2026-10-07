@@ -17,7 +17,6 @@
   {:file "test/clojure/core_test/bigint.cljc" :line 6 :reason "Unable to resolve symbol: clojure.lang.BigInt in this context" :missing [clojure.lang.BigInt]}
   {:file "test/clojure/core_test/parents.cljc" :line 5 :reason "Unable to resolve symbol: clojure.core_test.parents.TestParentsProtocol in this context" :missing [clojure.core_test.parents.TestParentsProtocol]}
   {:file "test/clojure/core_test/portability.cljc" :line 38 :name lazy-seq? :reason "Unable to resolve symbol: clojure.lang.LazySeq in this context" :missing [clojure.lang.LazySeq]}
-  {:file "test/clojure/core_test/remove_watch.cljc" :line 5 :reason "Unable to resolve symbol: ref in this context" :missing [ref]}
   {:file "test/clojure/core_test/short.cljc" :line 5 :reason "Index 2 out of bounds for length 2" :missing []}
   {:file "test/clojure/core_test/taps.cljc" :line 5 :reason "Unable to resolve symbol: clojure.lang.IPending in this context" :missing [clojure.lang.IPending]}
   {:file "test/clojure/edn_test/read_string.cljc" :line 1 :reason "Could not locate clojure/edn.cljc or clojure/edn.clj on load path." :missing [clojure/edn]}
@@ -50,6 +49,7 @@
   {:name clojure.core-test.persistent-bang/test-persistent! :status :fail :reason "(p/thrown? (persistent! coll))" :missing [] :note "transient is identity here, so (persistent! {}) cannot throw"}
   {:name clojure.core-test.pop-bang/test-pop! :status :fail :reason "(p/thrown? (pop! t))" :missing [] :note "transient is identity here, so pop! on a persistent vector cannot throw"}
   {:name clojure.core-test.realized-qmark/test-realized? :status :fail :reason "(false? (realized? ftr3))" :missing [] :note "the suite's sleep is (Thread/sleep ms) under :clj and has no :default branch, and the manifest sets no features, so (future (sleep 1)) is a no-op body that usually finishes on its carrier before realized? asks; with :clj the future parks on the timer and the test passes" :flaky true}
+  {:name clojure.core-test.remove-watch/test-remove-watch :status :error :reason "add-watch expects an atom, got: var" :missing [] :note "watches live on atoms, agents and refs here, not on vars, so the suite's var block throws at (add-watch #'watchable ...) and the ref and agent blocks behind it never run (docs/jvm-differences.md)"}
   {:name clojure.core-test.remove/test-remove :status :error :reason "Unbound var: #'clojure.core-test.portability/lazy-seq?" :missing [clojure.core-test.portability/lazy-seq?]}
   {:name clojure.core-test.repeat/test-repeat :status :error :reason "boolean cannot be cast to a number" :missing [] :note "the suite puts the JVM's throwing (repeat true :a) under :clj and jank's [:a] under :default, and the manifest sets no features; (repeat true :a) throws here, as on the JVM"}
   {:name clojure.core-test.select-keys/test-select-keys :status :fail :reason "(p/thrown? (select-keys \"\" [:a]))" :missing [] :note "select-keys answers {} for a collection with no lookup where the JVM throws: (select-keys \"\" [:a])"}

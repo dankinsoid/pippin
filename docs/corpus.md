@@ -59,8 +59,8 @@ Top reasons (forms and tests):
 ## clojure-test-suite
 
 - namespaces: 249 requested, 0 failed to load entirely
-- top-level forms that failed to load: 9
-- tests: 238 ran, 203 passed, 23 failed, 12 errored
+- top-level forms that failed to load: 8
+- tests: 239 ran, 203 passed, 23 failed, 13 errored
 - skipped by the suite's own when-var-exists (the var does not exist here): 1
 - tests past the watchdog's deadline: 0
 - live objects a second run of the same tests leaves: 4
@@ -94,6 +94,7 @@ Top reasons (forms and tests):
 | 1 | assertion: (p/thrown? (val [1 2])) |
 | 1 | assertion: (special-symbol? (quote case*)) |
 | 1 | error: assoc expects even number of arguments after map/vector, found odd number |
+| 1 | error: add-watch expects an atom, got: var |
 | 1 | error: boolean cannot be cast to a number |
 | 1 | error: integer overflow |
 | 1 | missing `clojure.core_test.parents.TestParentsProtocol` |
@@ -103,7 +104,6 @@ Top reasons (forms and tests):
 | 1 | missing `clojure.lang.PersistentHashSet` |
 | 1 | missing `clojure/edn` |
 | 1 | missing `e` |
-| 1 | missing `ref` |
 
 Skipped vars: `clojure.edn/read-string`
 

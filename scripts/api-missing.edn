@@ -5,17 +5,6 @@
 
  :verdicts
  {;; ── Refs and STM: §10 promises them; cljs lacks them because JS has one thread ─────────────────
- ref                   {:verdict :keep :why "§10 promises it; §8 already fixes the mechanism (2PL by ref id, not MVCC). Absent from cljs only because JS has one thread"}
- ref-set               {:verdict :keep :why "with `ref`"}
- alter                 {:verdict :keep :why "with `ref`"}
- commute               {:verdict :keep :why "with `ref`; the commutative path of the same 2PL"}
- ensure                {:verdict :keep :why "with `ref`"}
- dosync                {:verdict :keep :why "with `ref`; the transaction is a coroutine-mutex scope"}
- sync                  {:verdict :keep :why "with `ref`; the pre-1.0 spelling of `dosync`, still public upstream"}
- io!                   {:verdict :keep :why "with `ref`; the guard that makes a retry visible, so it belongs to the same mechanism"}
- ref-history-count     {:verdict :keep :why "with `ref`; history is the one place 2PL still has to answer, even with 0"}
- ref-max-history       {:verdict :keep :why "with `ref`"}
- ref-min-history       {:verdict :keep :why "with `ref`"}
 
  ;; ── Agents: §10 promises them; cljs lacks them because JS has one thread ───────────────────────
  set-agent-send-executor!     {:verdict :repoint :why "the word stays, the argument is our carrier pool, not a `java.util.concurrent.ExecutorService`"}

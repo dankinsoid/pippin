@@ -700,6 +700,11 @@ static clj_value b_monitor_enter(const clj_value *args, size_t n) {
 	return clj_monitor_enter(args[0]);
 }
 
+static clj_value b_monitor_try_enter(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_monitor_try_enter(args[0]);
+}
+
 static clj_value b_monitor_exit(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_monitor_exit(args[0]);
@@ -1513,6 +1518,7 @@ static const entry entries[] = {
 	{"swap!", b_swap, 2, ANY},     {"swap-vals!", b_swap_vals, 2, ANY}, {"compare-and-set!", b_compare_and_set, 3, 3},
 	{"add-watch", b_add_watch, 3, 3}, {"remove-watch", b_remove_watch, 2, 2}, {"set-validator!", b_set_validator, 2, 2},
 	{"get-validator", b_get_validator, 1, 1}, {"monitor-enter*", b_monitor_enter, 1, 1}, {"monitor-exit*", b_monitor_exit, 1, 1},
+	{"monitor-try-enter*", b_monitor_try_enter, 1, 1},
 };
 
 void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uint32_t max) {

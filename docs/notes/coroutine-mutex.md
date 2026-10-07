@@ -14,7 +14,7 @@
   and a wait from a bare thread or under a host call blocks the thread.
 - **Holders**: every atom (`enter`/`leave` with the owner being the execution, the nested-swap trap unchanged),
   `locking` (a reentrant monitor per object in a table keyed by identity, records living while held or waited
-  on: `monitor-enter*`/`monitor-exit*`, `clj_debug_live_monitors`), and a lazy seq being forced (a one-shot wait
+  on: `monitor-enter*`/`monitor-exit*`, `clj_debug_live_monitors`; `monitor-try-enter*` is the trylock a transaction takes a ref out of id order with, NOTES "Agents and refs"), and a lazy seq being forced (a one-shot wait
   on the lot with `FORCING_WAITED` as the "someone parked" state — the `sched_yield` spin is gone; "Recursive
   realization" stays). A channel with a transducer holds it around its step ("Channels"); `promise`/`future` are plain promise-buffered channels, a runtime-only section under a `clj_lock`.
 - **Lock audit** (design §4, "under `clj_lock` runs neither user code nor IO"; every `clj_lock_lock` at the time
