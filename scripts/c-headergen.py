@@ -289,9 +289,10 @@ def scalar_probe(args, lang, include, texts):
 	return out
 
 
-def encode_type(spelled, desugared, is_return, extra=None):
+def encode_type(spelled, desugared, is_return, extra=None, structs=None):
 	"""The type encoding of one parameter or return, or Unencodable with what stopped it."""
 	extra = extra or {}
+	structs = structs or {}
 	alias = bare_type(spelled)
 	if alias in OBJC_ALIASES:
 		return OBJC_ALIASES[alias]
@@ -324,11 +325,92 @@ def encode_type(spelled, desugared, is_return, extra=None):
 		if IDENTIFIER.match(inner):
 			return "@"	 # a typedef chain ends at a builtin, a tag or an Objective-C class; only the last is left
 		raise Unencodable(f"a pointer to {inner}")
+	if text.startswith("struct ") and text in structs:
+		found = structs[text]
+		if isinstance(found, Unencodable):
+			raise found
+		return found
 	if text.startswith(("struct ", "union ")):
 		raise Unencodable(f"a {text} by value")
 	if "[" in text:
 		raise Unencodable(f"an array ({text})")
 	raise Unencodable(f"the type {spelled}")
+
+
+# ---- a struct by value: its encoding with the header's member names, {CGPoint="x"d"y"d}
+
+
+def struct_tag(spelling):
+	"""The tag of a struct by value (`struct CGRect` -> CGRect), or None for anything else."""
+	t = bare_type(spelling)
+	m = re.match(r"^struct ([A-Za-z_][A-Za-z0-9_]*)$", t)
+	return m.group(1) if m else None
+
+
+def record_fields(args, lang, include, tag):
+	"""[(name, spelled, desugared)] of the definition of struct <tag>, or why there is none to cross."""
+	status, out, err = clang(args, lang, include + "\n", ["-Xclang", "-ast-dump=json", "-Xclang", "-ast-dump-filter", "-Xclang", tag])
+	if status != 0:
+		raise Failed(f"clang failed dumping struct {tag}:\n{err}")
+	for node in ast_objects(out):
+		if node.get("kind") != "RecordDecl" or node.get("name") != tag or not node.get("completeDefinition"):
+			continue
+		if node.get("tagUsed") != "struct":
+			return f"a {node.get('tagUsed')}, whose members overlap"
+		fields = []
+		for f in node.get("inner", []):
+			if f.get("kind") != "FieldDecl":
+				continue
+			if f.get("isBitfield"):
+				return f"a bit-field member ({f.get('name')})"
+			if not f.get("name"):
+				return "an unnamed member"
+			t = f.get("type", {})
+			fields.append((f["name"], t.get("qualType", ""), t.get("desugaredQualType")))
+		return fields or "no members"
+	return "no definition the header shows"
+
+
+def struct_records(args, lang, include, spellings):
+	"""Every struct reached by value from these spellings, its members' structs included: tag -> fields or why."""
+	records = {}
+	todo = sorted({t for t in map(struct_tag, spellings) if t})
+	while todo:
+		tag = todo.pop()
+		if tag in records:
+			continue
+		records[tag] = record_fields(args, lang, include, tag)
+		if isinstance(records[tag], list):
+			todo += [t for t in (struct_tag(d or s) for _n, s, d in records[tag]) if t and t not in records]
+	return records
+
+
+def struct_encodings(records, extra):
+	"""`struct Tag` -> its encoding, or the Unencodable that a parameter of it is refused with."""
+	out = {}
+
+	def encode(tag, seen):
+		fields = records.get(tag)
+		if isinstance(fields, str):
+			raise Unencodable(f"a struct {tag} by value, which is {fields}")
+		if fields is None or tag in seen:
+			raise Unencodable(f"a struct {tag} by value, whose definition the parse did not reach")
+		parts = []
+		for name, spelled, desugared in fields:
+			inner = struct_tag(desugared or spelled)
+			enc = encode(inner, seen | {tag}) if inner else encode_type(spelled, desugared, False, extra)
+			# A pointer member has no owner the header names, and an object one no place in a C struct under ARC.
+			if enc[0] in "@#:*^":
+				raise Unencodable(f"a struct {tag} by value, whose member {name} is a pointer ({spelled})")
+			parts.append(f'"{name}"{enc}')
+		return "{" + tag + "=" + "".join(parts) + "}"
+
+	for tag in records:
+		try:
+			out[f"struct {tag}"] = encode(tag, frozenset())
+		except Unencodable as e:
+			out[f"struct {tag}"] = e
+	return out
 
 
 # A pointer global crosses as a level-1 return of its encoding does, which is a value or an immortal handle.
@@ -338,30 +420,26 @@ CONST_POINTER = re.compile(r"^(.*\*)\s*const$")
 
 
 def global_of(spelled, desugared):
-	"""The kind keyword c-global* reads this global by, or (None, why).
+	"""(kind keyword c-global* reads it by, mutable?) of this global, or (None, why).
 
-	Constness is the pointer's own for a pointer and the value's for a scalar: either way a global the
-	program may reassign is refused, since a snapshot taken at load stops being its value.
+	Constness is the pointer's own for a pointer and the value's for a scalar. A const global is a snapshot
+	taken at load; one the program may reassign is a reference whose deref reads it now (design §5).
 	"""
 	d = re.sub(r"\s+", " ", ATTRS.sub(" ", desugared)).strip()
 	pointer = CONST_POINTER.match(d)
-	if pointer:
+	if pointer or d.endswith("*"):
 		try:
-			enc = encode_type(spelled, pointer.group(1), False)
+			enc = encode_type(spelled, pointer.group(1) if pointer else d, False)
 		except Unencodable as e:
 			return None, f"a global of type {spelled}, which is {e}"
 		if enc not in POINTER_KINDS:
 			return None, (f"a raw pointer global ({spelled}): what it points at has no owner the bridge can name, "
 			              f"and releasing it would be a guess")
-		return POINTER_KINDS[enc], None
-	if d.endswith("*"):
-		return None, f"a mutable pointer global ({spelled}): a pointer read once at load would not be its value later"
+		return (POINTER_KINDS[enc], not pointer), None
 	bare = d.removeprefix("const ").strip()
 	if bare not in GLOBAL_KINDS:
-		return None, f"a global of type {spelled}: only a scalar and a const pointer cross"
-	if not d.startswith("const "):
-		return None, f"a mutable global ({spelled}): a value read once at load would not be its value later"
-	return GLOBAL_KINDS[bare], None
+		return None, f"a global of type {spelled}: only a scalar and a pointer to an object or a C string cross"
+	return (GLOBAL_KINDS[bare], not d.startswith("const ")), None
 
 
 def split_signature(qual):
@@ -423,7 +501,7 @@ def classify(args, lang, include, name, why):
 			found, why = global_of(spelled, t.get("desugaredQualType", spelled))
 			return (("global", found, spelled), None) if found else (None, why)
 		if kind == "RecordDecl" or kind == "EnumDecl" or kind == "TypedefDecl":
-			return None, f"a type ({kind}): structs are deflayout, which is not in this slice"
+			return None, f"a type ({kind}): a struct crosses as a map where a function takes or returns one, and a type of its own needs deflayout, which is not built"
 		if kind == "ObjCInterfaceDecl":
 			return None, "an Objective-C class: level 1 reaches it with (objc-class \"name\")"
 	return None, why
@@ -457,17 +535,17 @@ MAX_INT_SLOTS = 8
 MAX_FP_SLOTS = 8
 
 
-def encode_function(ret_spelling, ret_desugared, types, extra=None):
+def encode_function(ret_spelling, ret_desugared, types, extra=None, structs=None):
 	"""("i", ["i", "@"]) for one function, or a refusal string."""
 	try:
-		ret = encode_type(ret_spelling, ret_desugared, True, extra)
+		ret = encode_type(ret_spelling, ret_desugared, True, extra, structs)
 	except Unencodable as e:
 		return f"a function returning {e}, which the bridge cannot carry"
 	argv = []
 	ints = fps = floats = 0
 	for i, (spelled, desugared) in enumerate(types):
 		try:
-			enc = encode_type(spelled, desugared, False, extra)
+			enc = encode_type(spelled, desugared, False, extra, structs)
 		except Unencodable as e:
 			return f"a function taking {e} as argument {i + 1}, which the bridge cannot carry"
 		argv.append(enc)
@@ -535,6 +613,18 @@ def fingerprint(args, module, header, lang, names, version):
 # ---- the generated file
 
 
+# Linking is the program's fact, not the header's: a dlsym miss or an ABI refusal costs one name, not the module.
+PRELUDE = """\
+(defn- c-bind! [sym make]
+  (try (intern *ns* sym (make))
+       (catch :default e (alter-meta! *ns* assoc-in [:pippin/c-refused sym] (ex-message e)))))
+
+(defn- c-global-ref [name kind]
+  (c-global* name kind)
+  (reify IDeref (-deref [_] (c-global* name kind))))
+"""
+
+
 def emit(module, header, meta, values, globals_, fns, refused):
 	lines = [
 		f";; Generated by scripts/c-headergen.py from <{header}>; do not edit (design §5 «C — уровень 0»).",
@@ -542,18 +632,23 @@ def emit(module, header, meta, values, globals_, fns, refused):
 		"  {:pippin/c-parse " + render_map(meta) + ",",
 		"   :pippin/c-refused (quote " + render_map({k: refused[k] for k in sorted(refused)}) + ")})",
 		"",
+		PRELUDE,
 	]
 	for name in sorted(values):
 		lines.append(f"(def {name} {values[name]})")
 	for name in sorted(globals_):
-		kind, spelled = globals_[name]
-		lines.append(f";; {spelled}")
-		lines.append(f'(def {name} (c-global* "{name}" {kind}))')
+		(kind, mutable), spelled = globals_[name]
+		if mutable:
+			lines.append(f";; {spelled}, mutable: deref reads it now")
+			lines.append(f"(c-bind! '{name} #(c-global-ref \"{name}\" {kind}))")
+		else:
+			lines.append(f";; {spelled}")
+			lines.append(f"(c-bind! '{name} #(c-global* \"{name}\" {kind}))")
 	for name in sorted(fns):
 		ret, argv, spelled = fns[name]
 		lines.append(f";; {spelled}")
 		argl = " ".join(json.dumps(a) for a in argv)
-		lines.append(f'(def {name} (c-fn* "{name}" "{ret}" [{argl}]))')
+		lines.append(f"(c-bind! '{name} #(c-fn* \"{name}\" {json.dumps(ret)} [{argl}]))")
 	return "\n".join(lines) + "\n"
 
 
@@ -600,10 +695,16 @@ def one(args, module, header, names, version):
 	spellings = set()
 	for name, (ret_spelling, types) in raw_fns.items():
 		spellings.update([ret_spelling, kinds.get(name) or ""] + [t for pair in types for t in pair if t])
+	# A dump per struct reached by value, its members' structs too; their members join the scalar probe.
+	records = struct_records(args, lang, include, spellings)
+	for fields in records.values():
+		if isinstance(fields, list):
+			spellings.update(t for _n, s, d in fields for t in (s, d) if t)
 	extra = scalar_probe(args, lang, include, scalar_candidates(spellings))
+	structs = struct_encodings(records, extra)
 	fns = {}
 	for name, (ret_spelling, types) in raw_fns.items():
-		encoded = encode_function(ret_spelling, kinds.get(name), types, extra)
+		encoded = encode_function(ret_spelling, kinds.get(name), types, extra, structs)
 		if isinstance(encoded, str):
 			refused[name] = encoded
 			continue

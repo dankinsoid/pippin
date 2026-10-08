@@ -241,6 +241,7 @@ typedef struct {
 	size_t      namelen;
 	uint32_t    size, align;
 	uint8_t     nfields;
+	bool        named; // every member carries its name from the header
 } sinfo;
 
 static bool struct_info(const char *enc, sinfo *si);
@@ -308,6 +309,17 @@ static bool member_layout(const char **p, uint32_t *size, uint32_t *align) {
 	return true;
 }
 
+// Only a header's encoding names members ("x"d); it holds no '@' member, whose "Class" suffix reads alike.
+static bool skip_field_name(const char **p, const char **name, size_t *len) {
+	if (name) *name = NULL;
+	if (**p != '"') return true;
+	const char *close = strchr(*p + 1, '"');
+	if (!close) return false;
+	if (name) *name = *p + 1, *len = (size_t)(close - *p - 1);
+	*p = close + 1;
+	return true;
+}
+
 // A union is refused here: its members overlap, so no Clojure value is faithful to one.
 static bool struct_info(const char *enc, sinfo *si) {
 	if (*enc != '{') return false;
@@ -320,8 +332,10 @@ static bool struct_info(const char *enc, sinfo *si) {
 	uint32_t    off = 0, align = 1;
 	uint8_t     n = 0;
 	const char *p = si->body;
+	si->named = *p == '"';
 	while (*p && *p != '}') {
 		uint32_t sz, al;
+		if (!skip_field_name(&p, NULL, NULL)) return false;
 		if (n == CLJ_OBJC_MAX_FIELDS || !member_layout(&p, &sz, &al)) return false;
 		off = (off + al - 1) & ~(al - 1);
 		off += sz;
@@ -339,6 +353,8 @@ static bool struct_info(const char *enc, sinfo *si) {
 typedef struct {
 	const char *p;
 	uint32_t    off;
+	const char *name; // the member's name when the encoding carries names, else NULL
+	size_t      namelen;
 } fcursor;
 
 static void fields_begin(const sinfo *si, fcursor *c) {
@@ -348,6 +364,7 @@ static void fields_begin(const sinfo *si, fcursor *c) {
 
 static bool field_next(fcursor *c, const char **enc, uint32_t *off) {
 	if (!*c->p || *c->p == '}') return false;
+	if (!skip_field_name(&c->p, &c->name, &c->namelen)) return false;
 	const char *at = skip_qualifiers(c->p);
 	uint32_t    sz, al;
 	if (!member_layout(&c->p, &sz, &al)) return false;
@@ -884,19 +901,29 @@ static clj_value read_scalar(char enc, const unsigned char *at) {
 	return from_int_return(raw, enc, false);
 }
 
-// A listed struct takes a map of its field keywords, any struct a vector; buf is zeroed and big enough.
+// The key of the cursor's member: the header's name when the encoding carries one, else the table's (ks >= 0).
+static clj_value member_key(const fcursor *c, int ks, unsigned i) {
+	if (!c->name) return field_key(ks, i);
+	char text[128];
+	if (c->namelen >= sizeof text) return CLJ_NIL;
+	memcpy(text, c->name, c->namelen);
+	text[c->namelen] = '\0';
+	return clj_keyword_from_cstr(text);
+}
+
+// A named struct (header or table) takes a map, any struct a vector; buf is zeroed and big enough.
 static bool encode_struct(const char *enc, clj_value v, unsigned char *buf) {
 	sinfo si;
 	if (!struct_info(enc, &si)) return false;
-	int  ks = known_index(&si);
+	int  ks = si.named ? -1 : known_index(&si);
 	bool from_map = clj_is_map(v);
-	if (from_map ? ks < 0 || clj_map_count(v) != si.nfields : !clj_is_vector(v) || clj_vector_count(v) != si.nfields) return false;
+	if (from_map ? (!si.named && ks < 0) || clj_map_count(v) != si.nfields : !clj_is_vector(v) || clj_vector_count(v) != si.nfields) return false;
 	fcursor     c;
 	const char *f;
 	uint32_t    off;
 	fields_begin(&si, &c);
 	for (unsigned i = 0; field_next(&c, &f, &off); i++) {
-		clj_value fv = from_map ? clj_map_get(v, field_key(ks, i), CLJ_UNBOUND) : clj_vector_nth(v, i);
+		clj_value fv = from_map ? clj_map_get(v, member_key(&c, ks, i), CLJ_UNBOUND) : clj_vector_nth(v, i);
 		if (fv == CLJ_UNBOUND) return false;
 		if (*f == '{' ? !encode_struct(f, fv, buf + off) : !write_scalar(*f, fv, buf + off)) return false;
 	}
@@ -906,7 +933,8 @@ static bool encode_struct(const char *enc, clj_value v, unsigned char *buf) {
 static clj_value decode_struct(const char *enc, const unsigned char *buf) {
 	sinfo si;
 	if (!struct_info(enc, &si)) return CLJ_NIL;
-	int         ks = known_index(&si);
+	int         ks = si.named ? -1 : known_index(&si);
+	bool        keyed = si.named || ks >= 0;
 	clj_value   items[CLJ_OBJC_MAX_FIELDS * 2];
 	unsigned    n = 0;
 	fcursor     c;
@@ -914,11 +942,11 @@ static clj_value decode_struct(const char *enc, const unsigned char *buf) {
 	uint32_t    off;
 	fields_begin(&si, &c);
 	for (unsigned i = 0; field_next(&c, &f, &off); i++) {
-		if (ks >= 0) items[n++] = field_key(ks, i);
+		if (keyed) items[n++] = member_key(&c, ks, i);
 		items[n++] = *f == '{' ? decode_struct(f, buf + off) : read_scalar(*f, buf + off);
 	}
-	clj_value out = ks >= 0 ? clj_map_from_items(items, n, NULL) : clj_vector_from_array(items, n);
-	for (unsigned i = ks >= 0 ? 1 : 0; i < n; i += ks >= 0 ? 2 : 1) clj_release(items[i]);
+	clj_value out = keyed ? clj_map_from_items(items, n, NULL) : clj_vector_from_array(items, n);
+	for (unsigned i = keyed ? 1 : 0; i < n; i += keyed ? 2 : 1) clj_release(items[i]);
 	return out;
 }
 
@@ -929,13 +957,20 @@ static void describe_struct(const char *enc, char *out, size_t cap) {
 		snprintf(out, cap, "%s", enc);
 		return;
 	}
-	int ks = known_index(&si);
-	if (ks < 0) {
+	int ks = si.named ? -1 : known_index(&si);
+	if (!si.named && ks < 0) {
 		snprintf(out, cap, "%.*s, a vector of %u", (int)si.namelen, si.name, si.nfields);
 		return;
 	}
-	size_t used = (size_t)snprintf(out, cap, "%.*s, a map of", (int)si.namelen, si.name);
-	for (unsigned i = 0; i < si.nfields && used < cap; i++) used += (size_t)snprintf(out + used, cap - used, " :%s", known_structs[ks].field[i]);
+	size_t      used = (size_t)snprintf(out, cap, "%.*s, a map of", (int)si.namelen, si.name);
+	fcursor     c;
+	const char *f;
+	uint32_t    off;
+	fields_begin(&si, &c);
+	for (unsigned i = 0; field_next(&c, &f, &off) && used < cap; i++) {
+		if (c.name) used += (size_t)snprintf(out + used, cap - used, " :%.*s", (int)c.namelen, c.name);
+		else used += (size_t)snprintf(out + used, cap - used, " :%s", known_structs[ks].field[i]);
+	}
 	if (used < cap) snprintf(out + used, cap - used, " or a vector of %u", si.nfields);
 }
 

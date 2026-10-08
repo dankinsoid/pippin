@@ -30,13 +30,14 @@
   without the compiler emitting anything (a compiled unit runs its own `ns` form and finds the module parsed). It
   resolves only in a linked image: the test has to touch `NSAppKitVersion.current` from Swift for AppKit to be
   linked into the test binary at all.
-- [~] **A mutable global is refused, and that is a correction to the design.** §5 said "`extern const` и глобалы";
-  but `NSFoundationVersionNumber` and `kCFCoreFoundationVersionNumber` are declared *without* `const`, and a value
-  snapshotted into a var at load is not that global's value later. Constness is read where the ABI puts it — at the
-  pointer for a pointer global, at the value for a scalar — so AppKit's `NSWindowDidResizeNotification`, declared
-  without `const`, is refused while UIKit's and Foundation's notification names, `NSString *const`, are read.
-  Reading per access needs a var form that is not a constant — a getter fn, or a var kind that re-reads. Not done.
-  Trigger: an API whose mutable global is the API.
+- **A mutable global is a reference, `@Name` reads it now.** `NSFoundationVersionNumber` and
+  `kCFCoreFoundationVersionNumber` are declared *without* `const`, and a value snapshotted into a var at load is not
+  that global's value later. Constness is read where the ABI puts it — at the pointer for a pointer global, at the
+  value for a scalar — so AppKit's `NSWindowDidResizeNotification`, declared without `const`, is a reference while
+  UIKit's and Foundation's notification names, `NSString *const`, are values. The reference is a `reify` of `IDeref`
+  in the generated file (`c-global-ref`), whose deref is one more `c-global*`: a `dlsym` per read, which is what a
+  global the program may reassign costs; the load still reads it once, so a miss is a load-time report line. An
+  object global read this way races its writer exactly as any C reader of it does.
 - **An object global is a value, which is what settled its ownership.** A `const NSString *` is read once by
   `dlsym` at load and crosses as a level-1 `@` return does: an `NSString` or `NSNumber` as ours, any other object
   as a handle whose +1 is never given back — right, because an immortal global has nobody to give it back to. So
@@ -65,7 +66,9 @@
   both: `sizeof(T)` and `((T)-1 < (T)0)` are two more expressions for the same `enum : long long` fold, and the
   pair gives the encoding char. A spelling for which neither folds — a struct, a union — is left to be refused,
   because `sizeof` folds for those too and the signedness cast does not.
-- **Structs (`deflayout`) are still a line of the report.** Trigger: §10 step 8b's own remainder.
+- [ ] **A struct type is not itself a value.** A struct a function takes or returns by value crosses as a map
+  (below), but naming the type in `:refer` is still a report line: `deflayout` (design §4) is not built. Trigger:
+  `deflayout`.
 - **Swift's import of the same header renames and retypes it, and the test is the evidence.** Reading the fixture's
   own global from Swift does not compile as `NSAppKitVersionNumber` — swiftc answers "has been renamed to
   `NSAppKitVersion.current`" and the value is a `RawRepresentable` struct over the double. The header gives the C
@@ -80,18 +83,22 @@
   `inline` alone is not the test; a declaration with no prototype; a shape past the eight integer or eight
   floating-point slots, or mixing `float` and `double`; and a functional macro, which the value probe refuses with
   clang's diagnostic as it always did.
-- [ ] **An aggregate by value is refused, which is the one place `classify_struct` is not yet reached from C.**
-  The AAPCS64 classification is shared and ready, but the parse has no struct encoding to hand it:
-  `{CGRect={CGPoint=dd}{CGSize=dd}}` is not in the JSON AST, and `@encode` exists only in generated code, not in
-  a dump. Building it means walking the `RecordDecl`'s fields recursively, one more dump per struct type. Not
-  done. Trigger: an API where a struct by value *is* the API (`CGContextFillRect`, `UIGraphicsBeginImageContextWithOptions`).
-- [ ] **A `dlsym` miss at load takes the module, not the one name.** `c-fn*` and `c-global*` throw when the header
-  declares a symbol nothing in the program exports, which fails the `def`, which fails the generated file's
-  `load-file` — so the program loses every constant of that module instead of one report line. The parse cannot
-  know: whether a symbol is linked is a fact about the program, not about the header. Not done; it wants the
-  generated file to record the miss into `:pippin/c-refused` rather than abort, which is a core helper the `def`s
-  go through. Trigger: a module whose header declares more than the program links — a framework reached through a
-  dev client, or AppKit in a test binary that only touches Foundation.
+- **A struct by value is a map of the header's member names** (design §5 «C — уровень 0», third slice). The
+  JSON AST carries no `@encode` text, so the parse builds the encoding itself: one `-ast-dump-filter <tag>` dump
+  per struct reached by value, the `RecordDecl` with `completeDefinition` its fields, recursively for a member
+  struct, the members' enums through the same scalar probe as a parameter's. The encoding names each member as an
+  ivar's does, `{_NSRange="location"Q"length"Q}`, so objc.c's one classifier and marshaller read it; a named
+  encoding wins over level 1's built-in table, which is the fallback for runtime encodings that never carry names.
+  Refused by the parse, with the struct named: a pointer or object member (no owner the header names; and an
+  `@"Class"` suffix would read as the next member's name), a bit-field, a union, an array member, a struct with no
+  definition the header shows. The filter matches by substring, so the dump of `CGPoint` prints `CGPointMake` and
+  the rest too; the definition is picked out by name.
+- **A `dlsym` miss or an ABI refusal at load is one name's report line.** Whether a symbol is linked is a fact about
+  the program, not about the header, and whether a struct shape passes is a fact about the architecture
+  (`CGRect` by value on x86_64). The generated file binds each global and function through its private
+  `c-bind!`, which interns the value or writes `(ex-message e)` into the namespace's `:pippin/c-refused`, so
+  `require-c` names that one symbol "Unable to resolve" with the reason and the module's other names load. The
+  fixture's `clj_fixture.h` declares two symbols nothing links.
 - **The compiler calls through the same dispatcher, and the design's "direct call" is a later slice.** §5 wanted
   `#include` of the header and an unboxed call out of the generated C. The headers of an Apple framework are
   Objective-C and a unit is compiled as C17 (`-std=c17 -Wall -Wextra -Wpedantic -Werror`, `CljCompiler/jit.c`), so

@@ -22,8 +22,11 @@ private let generated: Result<Void, any Error> = Result {
 	process.arguments = ["python3", packageRoot.appendingPathComponent("scripts/c-headergen.py").path,
 	                     "--scan", fixtureDir.appendingPathComponent("decls.clj").path,
 	                     "--out", out.path, "--cache", work.appendingPathComponent("cache").path,
-	                     "--module", "AppKit",
-	                     "--refer", "NSTextAlignmentCenter,NSLog,NSUIntegerMax,NSWindowDidResizeNotification,NSMaxRange,NSStringFromRect,kCFRunLoopDefaultMode"]
+	                     "-I", fixtureDir.path,
+	                     "--module", "AppKit", "--header", "AppKit/AppKit.h",
+	                     "--refer", "NSTextAlignmentCenter,NSLog,NSUIntegerMax,NSMaxRange,kCFRunLoopDefaultMode",
+	                     "--module", "CljFixture", "--header", "clj_fixture.h",
+	                     "--refer", "clj_fixture_missing_global,clj_fixture_missing_fn"]
 	process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR"].contains($0.key) }
 	let pipe = Pipe()
 	process.standardOutput = pipe

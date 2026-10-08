@@ -11,11 +11,15 @@ true "Cannot send to a raw '^v' pointer"
 true
 "NSBundleDidLoadNotification" true
 "NSBundleDidLoadNotification" true
+"{3, 4}" {:length 6, :location 5} {:length 10, :location 1}
+"{1.5, -2}" "Argument 1 of NSStringFromRange: a map is not _NSRange, a map of :location :length or a vector of 2"
+true true
+7
+clj_fixture_missing_fn - Unable to resolve C function: clj_fixture_missing_fn is declared in the header but not exported by anything this program links (design §5 «C — уровень 0»)
+clj_fixture_missing_global - Unable to resolve C global: clj_fixture_missing_global is declared in the header but not exported by anything this program links (design §5 «C — уровень 0»)
 NSLog - a variadic function: on arm64 Apple a variadic argument rides the stack, which a fixed prototype does not place
 NSMaxRange - a static inline function: its body lives in the header and in no binary, so the interpreter needs a thin C stub (design §5 «Только в заголовке»)
-NSStringFromRect - a function taking a struct CGRect by value as argument 1, which the bridge cannot carry
 NSUIntegerMax - enumerator value is not representable in the underlying type 'long long'
-NSWindowDidResizeNotification - a mutable pointer global (NSNotificationName _Nonnull): a pointer read once at load would not be its value later
 kCFRunLoopDefaultMode - a raw pointer global (const CFRunLoopMode): what it points at has no owner the bridge can name, and releasing it would be a guess
 "Unable to resolve AppKit/NSLog: a variadic function: on arm64 Apple a variadic argument rides the stack, which a fixed prototype does not place"
 "Unable to resolve AppKit/NSNoSuchSymbolHere: no ns form the parse scanned asked for it"

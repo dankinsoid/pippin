@@ -3,8 +3,11 @@
   (:require-c [AppKit :as ak :refer [NSTextAlignmentJustified NSUnderlineStyleDouble NSAppKitVersionNumber
                                      NSBundleDidLoadNotification NSClassFromString NSHomeDirectory
                                      NSSearchPathForDirectoriesInDomains NSApplicationDirectory NSUserDomainMask
-                                     NSSelectorFromString NSStringFromSelector abs free malloc strlen]]
-              [Math :header "math.h" :refer [FP_INFINITE]]))
+                                     NSSelectorFromString NSStringFromSelector abs free malloc strlen
+                                     NSStringFromRange NSRangeFromString NSUnionRange NSStringFromPoint
+                                     NSFoundationVersionNumber NSWindowDidResizeNotification]]
+              [Math :header "math.h" :refer [FP_INFINITE]]
+              [CljFixture :header "clj_fixture.h" :refer [CLJ_FIXTURE_CONSTANT]]))
 
 (defn show [& xs] (apply println (map pr-str xs)))
 
@@ -53,6 +56,19 @@
   (.post-notification-name centre NSBundleDidLoadNotification :object nil)
   (.remove-observer centre token)
   (show @seen (= @seen NSBundleDidLoadNotification)))
+
+;; A struct by value is a map of the header's member names, in the registers its ABI class picks.
+(show (NSStringFromRange {:location 3 :length 4}) (NSRangeFromString "{5, 6}")
+      (NSUnionRange {:location 1 :length 2} {:location 10 :length 1}))
+(show (NSStringFromPoint {:x 1.5 :y -2.0}) (try (NSStringFromRange {:location 3}) (catch :default e (ex-message e))))
+
+;; A global the program may reassign is a reference: deref reads it now.
+(show (number? @NSFoundationVersionNumber) (string? @NSWindowDidResizeNotification))
+
+;; Nothing links clj_fixture.h's two symbols: each is a report line, and the module's constant still loads.
+(show CLJ_FIXTURE_CONSTANT)
+(doseq [[sym why] (sort-by key (:pippin/c-refused (meta (find-ns 'CljFixture))))]
+  (println sym "-" why))
 
 ;; What the parse refused and why: the report is part of the product, so a wrong number cannot be silent.
 (doseq [[sym why] (sort-by key (:pippin/c-refused (meta (find-ns 'AppKit))))]
