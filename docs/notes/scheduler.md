@@ -105,6 +105,9 @@
   `DISPATCH_TIMER_STRICT`: a leeway of 0 alone still let the OS coalesce it, and 10 and 20 ms timeouts fired 25–35%
   late (12.5 and 25–27 ms on an Intel Mac, 10.07 and 20.1 strict), which a corpus library's 10 ms producer against
   its 20 ms read timeout turned into a lost item (enos, NOTES "Corpus"; `ChanTests.aFarTimeoutFiresOnItsDeadline`).
+  A deadline's timer is cleared from its coroutine by its own firing, live or not: the timer thread frees it once
+  the callback returns, and a disarm that read it after — a coroutine finishing as its deadline fired — was a
+  use-after-free, which the on-time timer made frequent enough for ASan to catch (run 37833744893).
   Trigger for a heap: profiles with thousands of live timeouts.
 - **The timers' clock stops while the device sleeps.** `clj_profile_now` is `CLOCK_UPTIME_RAW` (Darwin's
   `mach_absolute_time`) and `far_wait` arms its dispatch timer off `DISPATCH_TIME_NOW`: neither advances across

@@ -1124,12 +1124,11 @@ static void deadline_fire(void *arg) {
 	deadline_ctx *d = arg;
 	clj_coro     *c = d->coro;
 	pthread_mutex_lock(&c->lock);
+	// The timer thread frees this timer when the call returns, live or not: no disarm may read it after.
+	if (c->deadline_timer && c->deadline_timer->ctx == d) c->deadline_timer = NULL;
 	bool live = d->serial == c->deadline_serial && atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_DONE && c->shadow;
 	clj_waiter *w = NULL;
-	if (live) {
-		c->deadline_timer = NULL;
-		w = cancel_locked(c, CLJ_CANCEL_DEADLINE, CLJ_NIL);
-	}
+	if (live) w = cancel_locked(c, CLJ_CANCEL_DEADLINE, CLJ_NIL);
 	pthread_mutex_unlock(&c->lock);
 	if (w) {
 		if (clj_waiter_claim(w)) clj_resume_far(w);
