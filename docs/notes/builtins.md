@@ -79,3 +79,34 @@
 - **Error messages are Clojure-like, not Clojure-identical**: type names are the runtime's
   (`string cannot be cast to a number`, not `java.lang.String ... java.lang.Number`).
 
+- **`jvm-hash` is JVM Clojure 1.12.6's `hash`, computed over our layouts** (jvm_hash.c; design §10, the fuzzing
+  item): `hash` stays ours, and a key shared with a JVM process (a shard, a cache key) asks for this one. It is
+  `Util.hasheq` case by case: Murmur3 `hashLong` for a long and for a bigint in the long range, `Double.hashCode`
+  with -0.0 as 0.0 and the canonical NaN, `BigInteger.hashCode` over the limbs for a larger bigint and for a
+  ratio's two parts, `BigDecimal.hashCode` after `stripTrailingZeros` (zero is 0), `String.hashCode` then
+  `hashInt` over the UTF-16 units our UTF-8 decodes to, `Symbol.hasheq` (its name by `hashUnencodedChars`, its
+  namespace by `String.hashCode`) and a keyword's golden-ratio offset, `Character.hashCode`, the booleans' 1231
+  and 1237, `UUID.hashCode` and `Date.hashCode` (which `hash` already answers), `hashOrdered` over a sequential
+  value, `hashUnordered` over a map's entries or a set, and a record's map hash xor'd with the hash of its class
+  name, the symbol `ns.Name` with the namespace's dashes as `namespace-munge` writes them. Every number in
+  `JvmHashTests` and in the compiler fixture is the JVM's, and the fuzzer compares `jvm-hash` of every outcome
+  with the oracle's `hash` (NOTES "Fuzzing"). A value the JVM hashes by identity (a deftype instance, an atom, a
+  fn, a regex, a var) or has no counterpart for is refused with its type named, never answered with a number no
+  JVM would give: a key that cannot agree across processes is the bug to report. So is a char past the BMP,
+  which no JVM char holds, and a URI, which `java.net.URI` hashes after folding case and escapes that our
+  textual equality keeps apart. The walk stops at `clj_stack_limit` with "Stack overflow" rather than faulting.
+- [ ] **`jvm-hash` of a tagged literal is refused**, where the JVM answers `TaggedLiteral.hashCode`, which is
+  built from Java's `hashCode` of the tag and the form (`List.hashCode`, `Long.hashCode`, not `hasheq`), a second
+  hash family over every value. Trigger: a key that holds a tagged literal.
+- **A URI is a value of the core** (uri.c; design §3 «"Наш хост" — это C-ядро»): `parse-uri` splits an RFC 3986
+  reference by its appendix B (scheme, `//authority`, path, `?query`, `#fragment`) and validates each component
+  against its character set, a percent escape and, as `java.net.URI`'s "other" class, any non-ASCII byte; a
+  relative reference whose first segment holds a colon, a port past `Integer.MAX_VALUE` or an unclosed IP literal
+  is nil. The value keeps the text and spans into it, so the components (`:scheme :user-info :host :port :path
+  :query :fragment`) are keyword lookups that cut a string on demand; an empty host is nil, as `java.net.URI`
+  answers for `file:///x`. `=` and `hash` are the text's, `str` is the text, and `pr` is `#object[URI "…"]`,
+  since the JVM's default readers have no tag for one to read back.
+- [ ] **No bridge converts a URI, a uuid or an inst.** The ObjC bridge carries strings and numbers by value
+  (design §5 «Что конвертируется само»), so an `NSURL`, an `NSUUID` or an `NSDate` crosses as a handle and ours
+  is refused as an argument. Trigger: an API taking or answering one of the three; the conversion is the
+  bridge's, by the parameter's or the return's class, and the core values stay as they are.

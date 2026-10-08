@@ -413,6 +413,11 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		char text[40];
 		clj_inst_format(v, text, sizeof text);
 		put_fmt(b, "#inst \"%s\"", text);
+	} else if (clj_is_uri(v)) {
+		// No reader tag: the JVM's default readers have none for a URI, so it prints as the JVM prints its object.
+		put_cstr(b, "#object[URI ");
+		put_string_literal(b, clj_uri_text(v));
+		put_char(b, ']');
 	} else if (clj_is_keyword(v)) {
 		put_char(b, ':');
 		put_symbol_text(b, clj_keyword_ns(v), clj_keyword_name(v));

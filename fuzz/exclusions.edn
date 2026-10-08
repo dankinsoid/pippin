@@ -151,8 +151,8 @@
   {:id :no-hash
    :mechanism :generator
    :design "docs/design/10-first-steps.md"
-   :cite "совпадать ли с JVM по значениям `hash`"
-   :why "`hash`, `hash-ordered-coll`, `hash-unordered-coll` and `mix-collection-hash` are not generated, and no hash value reaches a compared outcome. §10 leaves the question open, so the fuzzer must not answer it by failing."}]
+   :cite "`hash` — свой и детерминированный"
+   :why "`hash`, `hash-ordered-coll`, `hash-unordered-coll` and `mix-collection-hash` are not generated: §10 decided that `hash` is ours, not the JVM's. What is compared instead is `jvm-hash` of every outcome against the oracle's `hash` of the same value (fuzz/prelude.clj)."}]
 
  ;; Each line here is a reason, not a divergence; widening the generator is what removes one.
  :uncovered

@@ -11,6 +11,7 @@ typedef struct {
 	clj_slot   mappings; // map symbol → var interned here
 	clj_slot   refers;   // map symbol → var referred from other namespaces
 	clj_slot   aliases;  // map symbol → namespace
+	clj_slot   imports;  // map symbol → var of another namespace whose root is a type (`import`, design §3)
 	clj_slot   excludes; // set of clojure.core names this namespace does not see unqualified, or nil
 	clj_slot   meta;     // map or nil: the ns form's attr-map, alter-meta!; the facts pass reads :facts/warnings
 } clj_ns;
@@ -30,7 +31,9 @@ clj_value clj_ns_all(void);
 // The var mapped to sym in ns, created unbound when missing. sym must be unqualified.
 clj_value clj_ns_intern(clj_value ns, clj_value sym);
 void      clj_ns_refer(clj_value ns, clj_value sym, clj_value var);
-// Removes sym from the namespace's own mappings and refers; a var that was mapped stays alive (vars are immortal).
+// Maps sym to var in the import table, which resolution reads after the refers.
+void      clj_ns_import(clj_value ns, clj_value sym, clj_value var);
+// Removes sym from the namespace's own mappings, refers and imports; a var that was mapped stays alive (vars are immortal).
 void      clj_ns_unmap(clj_value ns, clj_value sym);
 // The namespace leaves the registry and all-ns, borrowed, or nil; it stays alive for whatever still names it.
 clj_value clj_ns_remove(clj_value name);
@@ -44,6 +47,7 @@ void      clj_ns_set_meta(clj_value ns, clj_value m);
 clj_value clj_ns_mappings(clj_value ns);
 clj_value clj_ns_refers(clj_value ns);
 clj_value clj_ns_aliases(clj_value ns);
+clj_value clj_ns_imports(clj_value ns);
 // The clojure.core names the unqualified fallback skips (:refer-clojure :exclude). excludes is a set or nil.
 void      clj_ns_set_excludes(clj_value ns, clj_value excludes);
 // Qualified symbols reach private vars too: the analyzer refuses those, (var ns/x) does not.

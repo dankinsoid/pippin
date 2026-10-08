@@ -25,6 +25,9 @@ static inline clj_symbol *clj_symbol_of(clj_value v) { return (clj_symbol *)clj_
 static inline clj_value clj_symbol_ns(clj_value s) { return clj_symbol_of(s)->ns.v; }
 static inline clj_value clj_symbol_name(clj_value s) { return clj_symbol_of(s)->name.v; }
 
+// The C identifier the compiler gives ns/name (ns may be NULL), malloc'd: what munge returns.
+char *clj_mangle(const char *ns, const char *name);
+
 // Process-wide counter behind gensym and the reader's auto-gensym; the first call returns 1.
 uint64_t clj_next_id(void);
 

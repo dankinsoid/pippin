@@ -40,6 +40,7 @@
 #include "shape.h"   // IWYU pragma: export
 #include "sorted.h"  // IWYU pragma: export
 #include "string.h"  // IWYU pragma: export
+#include "uri.h"     // IWYU pragma: export
 #include "uuid.h"    // IWYU pragma: export
 #include "symbol.h"  // IWYU pragma: export
 #include "value.h"   // IWYU pragma: export

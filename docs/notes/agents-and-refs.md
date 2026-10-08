@@ -25,6 +25,9 @@
 - [ ] **Sends are not checked against a shut-down pool**: `shutdown-agents` is a no-op (docs/jvm-differences.md),
   so nothing refuses a send after it. Trigger: a host that must stop agent work at exit — then the runtime needs a
   shutdown of its own, for every spawn and not for agents alone.
+- **`send` and `send-off` dispatch through two private atoms** that `set-agent-send-executor!` and
+  `set-agent-send-off-executor!` reset, holding `send-via`'s kind of executor; `await` sends, so it goes through
+  the replaced one too, as on the JVM. A non-fn is refused at the set, where the JVM refuses it at the field's type.
 - **A ref is a `deftype` of an id and three atoms** (the committed value, the config, the meta). The id comes
   from a counter and orders the locks; the state atom is the monitor a transaction holds the ref by, not the ref
   itself, so a user's `locking` on a ref does not meet a transaction. A transaction is a map of volatiles in

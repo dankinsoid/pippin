@@ -80,46 +80,7 @@ static void sb_c_string(sb *b, const char *s, size_t n) {
 
 // ---- name mangling (NOTES.md, "Compiler": the demangling rule)
 
-static void munge_into(sb *b, const char *s) {
-	for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
-		unsigned char ch = *p;
-		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) sb_put(b, (const char *)&ch, 1);
-		else if (ch == '-' || ch == '.') sb_puts(b, "_");
-		else if (ch == '_') sb_puts(b, "_USCORE_");
-		else if (ch == '?') sb_puts(b, "_QMARK_");
-		else if (ch == '!') sb_puts(b, "_BANG_");
-		else if (ch == '*') sb_puts(b, "_STAR_");
-		else if (ch == '+') sb_puts(b, "_PLUS_");
-		else if (ch == '>') sb_puts(b, "_GT_");
-		else if (ch == '<') sb_puts(b, "_LT_");
-		else if (ch == '=') sb_puts(b, "_EQ_");
-		else if (ch == '/') sb_puts(b, "_SLASH_");
-		else if (ch == '\'') sb_puts(b, "_QUOTE_");
-		else if (ch == '&') sb_puts(b, "_AMP_");
-		else if (ch == '%') sb_puts(b, "_PCT_");
-		else if (ch == '#') sb_puts(b, "_HASH_");
-		else if (ch == ':') sb_puts(b, "_COLON_");
-		else if (ch == '$') sb_puts(b, "_DOLLAR_");
-		else sb_printf(b, "_u%02x_", ch);
-	}
-}
-
-char *cljc_mangle(const char *ns, const char *name) {
-	sb b = {0};
-	if (ns && *ns) {
-		munge_into(&b, ns);
-		sb_puts(&b, "_");
-	}
-	munge_into(&b, name);
-	if (b.len == 0 || (b.s[0] >= '0' && b.s[0] <= '9')) {
-		sb p = {0};
-		sb_puts(&p, "_");
-		sb_puts(&p, b.s ? b.s : "");
-		sb_free(&b);
-		return p.s;
-	}
-	return b.s;
-}
+char *cljc_mangle(const char *ns, const char *name) { return clj_mangle(ns, name); }
 
 // ---- pools: constants, vars, intrinsic ops, fusion vars, each deduplicated by text
 
@@ -3265,7 +3226,7 @@ static const char *const core_roots[] = {
 static const char *const reflective_roots[] = {
     "resolve", "ns-resolve", "find-var", "requiring-resolve", "intern",
     "eval", "load-string", "load-file", "load",
-    "ns-publics", "ns-interns", "ns-map", "ns-refers", "all-ns", "alter-var-root",
+    "ns-publics", "ns-interns", "ns-map", "ns-refers", "ns-imports", "all-ns", "alter-var-root",
 };
 
 typedef struct {

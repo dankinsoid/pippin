@@ -1154,6 +1154,10 @@ static bool put_str(buf *b, clj_value v) {
 		buf_put(b, text, 36);
 		return true;
 	}
+	if (clj_is_uri(v)) {
+		buf_put(b, clj_string_bytes(clj_uri_text(v)), clj_string_len(clj_uri_text(v)));
+		return true;
+	}
 	// Date.toString would be "Fri Apr 12 ..." in the host zone; the printed form is the useful one (docs/jvm-differences.md).
 	if (clj_is_inst(v)) {
 		char text[40];
@@ -1655,9 +1659,11 @@ void clj_builtins_install(void) {
 	clj_array_builtins_install();
 	clj_regex_builtins_install();
 	clj_uuid_builtins_install();
+	clj_uri_builtins_install();
 	clj_inst_builtins_install();
 	clj_format_builtins_install();
 	clj_io_builtins_install();
+	clj_jvm_hash_builtins_install();
 	clj_objc_builtins_install();
 	clj_host_module_builtins_install();
 	clj_cdecl_builtins_install();

@@ -12,6 +12,8 @@ public final class Session {
 	private var inFlight: (id: String, coro: Value)?
 	private var pending: [() -> Void] = []
 	private var lines: Value?
+	// The text a `read` left on its line, for the next `read` or `read-line` of any later eval of this session.
+	private let pushback = Value(owning: clj_volatile_new(CLJ_NIL))
 	private var partialLine = ""
 	private var inputEnded = false
 
@@ -72,7 +74,7 @@ public final class Session {
 			return .nil_
 		}
 		return withExtendedLifetime((channel, request)) {
-			Value([Value(keyword: "lines"): channel, Value(keyword: "request"): request])
+			Value([Value(keyword: "lines"): channel, Value(keyword: "request"): request, Value(keyword: "pushback"): pushback])
 		}
 	}
 

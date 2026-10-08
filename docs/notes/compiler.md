@@ -529,7 +529,7 @@
   unless `--allow-refused`): a constant that does not print and read back; `eval`/`load-string` in a
   `--closed` user unit. Every node kind is expressible; nothing in core.clj, the embedded libs, medley or the
   suite is refused in dev mode, and in closed mode only the suite's `eval` test is.
-- **Names.** `cljc_mangle`: `.` and `-` become `_`, `_` becomes `_USCORE_`, `? ! * + > < = / ' & % # : $`
+- **Names.** `cljc_mangle` is the core's `clj_mangle` (symbol.c), which `munge` answers too: `.` and `-` become `_`, `_` becomes `_USCORE_`, `? ! * + > < = / ' & % # : $`
   become `_QMARK_ _BANG_ _STAR_ _PLUS_ _GT_ _LT_ _EQ_ _SLASH_ _QUOTE_ _AMP_ _PCT_ _HASH_ _COLON_ _DOLLAR_`,
   anything else `_u<hex>_`; `clojure.core/map` is `clojure_core_map`, its arities `clojure_core_map_a1 ..`,
   the fns nested in a top-level form `<base>__<k>` in pre-order (`user_my_fn__3`), a form that is no def

@@ -111,7 +111,7 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
-		// They agree with this core's hash; whether that hash is the JVM's is design §10's open question.
+		// They agree with this core's hash, which is ours; jvm-hash is the JVM's (design §10).
 		@Test func collectionHashesAgreeWithHash() throws {
 			let before = clj_debug_live_objects()
 			do {

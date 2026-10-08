@@ -43,9 +43,11 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   element of a collection literal. A round evaluates every candidate as one case file and takes the first that
   still diverges, so a round costs one process per runner and not one per candidate.
 
-- **`hash` is out of the comparison**, §10 leaving open whether to match the JVM's values (`:no-hash`). Deciding
-  it would cost the JVM's murmur3 over our own collection layouts and a decision about `hash` of a record,
-  which `docs/jvm-differences.md` already answers differently; the fuzzer must not answer it by failing.
+- **Every outcome carries `jvm-hash` of its value, and the oracle's carries `hash` of the same value.**
+  `fz-out` appends ` #fz/hash <n>`, `fz-hash` being `clojure.core/jvm-hash` where it resolves and `hash` on the
+  JVM, which has no such var; so a generated value whose `jvm-hash` drifts from the JVM's diverges like a wrong
+  answer, and one `jvm-hash` refuses shows as a throw against the oracle's number. Our own `hash`,
+  `hash-ordered-coll` and the rest are still not generated (`:no-hash`): §10 decided `hash` is ours.
 
 - [~] **What the pass covers.** Numbers of all ranks but decimals, strings over ASCII, vectors, lists, lazy
   seqs, hash and sorted maps and sets, ratios, `let`, `loop`/`recur`, `fn`, destructuring, `if`/`cond`/`try`,

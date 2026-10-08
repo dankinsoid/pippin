@@ -1648,6 +1648,29 @@
        ~@(map (fn [f] (if (seq? f) `(~(first f) ~gx ~@(next f)) `(~f ~gx))) forms)
        ~gx)))
 
+;; The general .method form reaches a deftype's protocol method as well as an ObjC one (design §5 «Как пишется вызов»).
+(defn- method-call [target form]
+  (if (seq? form)
+    `(~(symbol (str "." (first form))) ~target ~@(next form))
+    `(~(symbol (str "." form)) ~target)))
+
+(defmacro ..
+  "form => methodName-symbol or (methodName-symbol args*)
+
+  Calls the first member on x, then the next member on its result, and so on: (.. v (init-with-frame r) layout)
+  is (.layout (.init-with-frame v r)). A member is a .method call."
+  ([x form] (method-call x form))
+  ([x form & more] `(.. ~(method-call x form) ~@more)))
+
+(defmacro memfn
+  "Expands into code that creates a fn that expects to be passed an object and any args and calls the named
+  method on the object passing the args. A keyword among args is a selector label, a symbol a parameter:
+  (memfn add-target t :action a) is (fn [target t a] (.add-target target t :action a))."
+  [name & args]
+  (let [target (with-meta (gensym "target") (meta name))
+        params (vec (remove keyword? args))]
+    `(fn [~target ~@params] ~(method-call target (cons name args)))))
+
 (defmacro cond->
   "Threads expr through the forms whose test is logical true, as ->."
   [expr & clauses]
@@ -2195,19 +2218,74 @@
 (alter-meta! #'*flush-on-newline* dissoc :dynamic)
 
 (def ^:dynamic *in*
-  "Where read-line takes from, installed by a host REPL: {:lines <channel of lines, closed at end of input>
-  :request <fn that asks the host's client for more>}. nil outside a REPL, so read-line is end of input there."
+  "Where read-line and read take from, installed by a host REPL or with-in-str: {:lines <channel of lines,
+  closed at end of input> :request <fn that asks the host's client for more> :pushback <volatile of the text a
+  read left unconsumed, or nil>}. nil outside a REPL, so reading there is at end of input."
   nil)
+
+(defn- take-line
+  "The next line of the reader map's channel; nil at end of input."
+  [in]
+  (let [lines (:lines in)]
+    (or (chan-poll* lines)
+        (when-not (chan-closed?* lines)
+          ((:request in))
+          (chan-take* lines)))))
+
+(defn- pushback-of [in]
+  (or (:pushback in) (throw (ex-info "This *in* has no :pushback, so a read could not leave the rest of a line" {:in in}))))
 
 (defn read-line
   "The next line of *in* without its newline; nil at end of input. Parks while the line has not arrived."
   []
   (when-let [in *in*]
-    (let [lines (:lines in)]
-      (or (chan-poll* lines)
-          (when-not (chan-closed?* lines)
-            ((:request in))
-            (chan-take* lines))))))
+    (let [pb (:pushback in)
+          text (when pb @pb)]
+      (if (seq text)
+        (let [i (str-index-of* text "\n")]
+          (vreset! pb (when i (subs text (inc i))))
+          (if i (subs text 0 i) text))
+        (take-line in)))))
+
+;; The rest of the line after a form stays in :pushback, which the next read or read-line takes first.
+(defn- read-in [in eof-error? eof-value]
+  (if (nil? in)
+    (if eof-error? (throw (ex-info "EOF while reading" {})) [eof-value ""])
+    (let [pb (pushback-of in)]
+      (loop [text (or @pb "")]
+        (let [r (read-prefix* text)]
+          (if (vector? r)
+            (do (vreset! pb (nth r 1)) [(nth r 0) (nth r 2)])
+            (if-let [line (take-line in)]
+              (recur (str text line "\n"))
+              (do (vreset! pb nil)
+                  (if (or eof-error? (= r :incomplete))
+                    (throw (ex-info "EOF while reading" {}))
+                    [eof-value (str-trim* text)])))))))))
+
+(defn read
+  "Reads the next object from stream, a reader map as *in* holds (*in* when none is given). At end of input it
+  throws, or with eof-error? false answers eof-value; opts takes {:eof value} in their place."
+  ([] (read *in*))
+  ([stream] (read stream true nil))
+  ([stream eof-error? eof-value] (read stream eof-error? eof-value false))
+  ([stream eof-error? eof-value recursive?] (nth (read-in stream eof-error? eof-value) 0))
+  ([opts stream] (nth (read-in stream (not (contains? opts :eof)) (:eof opts)) 0)))
+
+(defn read+string
+  "Like read, and taking the same args. Returns a vector containing the object read and the (whitespace-trimmed)
+  string read."
+  ([] (read+string *in*))
+  ([stream] (read+string stream true nil))
+  ([stream eof-error? eof-value] (read+string stream eof-error? eof-value false))
+  ([stream eof-error? eof-value recursive?] (read-in stream eof-error? eof-value))
+  ([opts stream] (read-in stream (not (contains? opts :eof)) (:eof opts))))
+
+(defmacro with-in-str
+  "Evaluates body in a context in which *in* is bound to a fresh reader map over the string s."
+  [s & body]
+  `(binding [*in* {:lines (doto (chan*) chan-close*) :request (fn []) :pushback (volatile! ~s)}]
+     ~@body))
 
 ;; REPL history: a host REPL sets these after each form (clojure.main's own repl, nREPL's Evaluator); the
 ;; language does not set them itself.
@@ -2987,18 +3065,39 @@
 (defn- pooled-executor [run] (spawn-detached* run false))
 (defn- solo-executor [run] (spawn-detached* run true))
 
+(def ^:private send-executor (atom pooled-executor))
+(def ^:private send-off-executor (atom solo-executor))
+
+(defn- set-executor! [cell executor]
+  (when-not (ifn? executor)
+    (throw (ex-info (str "An executor is a fn of one argument, got: " (pr-str (type executor))) {:executor executor})))
+  (reset! cell executor))
+
+(defn set-agent-send-executor!
+  "Sets the executor send dispatches through: a fn of one argument, the action's run as a fn of no arguments,
+  which it starts where it chooses, as send-via takes. The default runs it as a coroutine on the carriers."
+  [executor]
+  (set-executor! send-executor executor))
+
+(defn set-agent-send-off-executor!
+  "Sets the executor send-off dispatches through, of the kind set-agent-send-executor! takes. The default runs
+  the action on the blocking pool that runs thread bodies."
+  [executor]
+  (set-executor! send-off-executor executor))
+
 (defn send
   "Dispatches an action to an agent and returns the agent at once. The action runs as a coroutine on the
-  carriers: (apply action-fn state-of-agent args) becomes the agent's state. For actions that are not
-  CPU-bound and may block in a host call, use send-off."
+  carriers, or through the executor set-agent-send-executor! set: (apply action-fn state-of-agent args) becomes
+  the agent's state. For actions that are not CPU-bound and may block in a host call, use send-off."
   [a f & args]
-  (apply send-via pooled-executor a f args))
+  (apply send-via @send-executor a f args))
 
 (defn send-off
   "Dispatches a potentially blocking action to an agent and returns the agent at once. The action runs on the
-  blocking pool that runs thread bodies: (apply action-fn state-of-agent args) becomes the agent's state."
+  blocking pool that runs thread bodies, or through the executor set-agent-send-off-executor! set:
+  (apply action-fn state-of-agent args) becomes the agent's state."
   [a f & args]
-  (apply send-via solo-executor a f args))
+  (apply send-via @send-off-executor a f args))
 
 (defn release-pending-sends
   "Normally, actions sent directly or indirectly during another action are held until the action completes
@@ -3674,10 +3773,28 @@
       (when-let [a (:as opts)] (alias a module))
       (when-let [r (:refer opts)] (refer module :refer r)))))
 
+(defmacro import
+  "import-list => (package-symbol class-name-symbols*)
+
+  For each name in class-name-symbols, adds a mapping from name to the type package.name names to the current
+  namespace: a deftype or defrecord of namespace package, else a host type a bridge provides (the host's
+  resolver as package/name, then the Objective-C runtime by class name). A name nothing provides is left
+  unmapped, and its use is the error. Returns the last type imported. Use :import in the ns macro in preference
+  to calling this directly."
+  [& import-symbols-or-lists]
+  (let [specs (map (fn [s] (if (and (seq? s) (= 'quote (first s))) (second s) s)) import-symbols-or-lists)]
+    `(import* '~specs)))
+
+(defn munge
+  "The C identifier the compiler gives the name s: a symbol for a symbol, a string otherwise. C is this
+  runtime's host, as JavaScript is ClojureScript's (docs/jvm-differences.md)."
+  [s]
+  ((if (symbol? s) symbol str) (mangle* (str s))))
+
 (defmacro ns
   "(ns name docstring? attr-map? references*): sets the current namespace, creating it when needed, and
-  processes (:refer-clojure ...), (:require ...), (:require-swift ...), (:require-c ...) and (:use ...). (:import ...) and (:gen-class) name JVM
-  classes and are ignored; a class named later fails to resolve where it is used (NOTES.md)."
+  processes (:refer-clojure ...), (:require ...), (:require-swift ...), (:require-c ...), (:use ...) and
+  (:import ...). (:gen-class) names a JVM class and is ignored."
   [name & references]
   (let [docstring (when (string? (first references)) (first references))
         references (if docstring (next references) references)
@@ -3691,7 +3808,7 @@
                     (= kname :require-swift) `(require-swift ~@(quote-all args))
                     (= kname :require-c) `(require-c ~@(quote-all args))
                     (= kname :use) `(use ~@(quote-all args))
-                    (= kname :import) nil
+                    (= kname :import) `(import ~@args)
                     (= kname :gen-class) nil
                     :else (throw (ex-info (str "Unsupported ns reference: " kname) {}))))
         refers-clojure? (some (fn [r] (= :refer-clojure (first r))) references)]

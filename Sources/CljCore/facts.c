@@ -1907,7 +1907,7 @@ static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset
                                          "alter-var-root", "set-validator!", "add-watch", "remove-watch", "alter-meta!", "reset-meta!"};
 // The waits the coroutine parks on; deref is not among them because @atom does not park and @future does (design §4).
 static const char *const park_names[] = {"chan-take*", "chan-put*", "chan-alts*", "chan-deref*", "sleep*",
-                                         "read-line"}; // core.clj, but named: its body is gone under -DCLJ_COMPILED_CORE
+                                         "read-line", "read", "read+string"}; // core.clj, but named: its body is gone under -DCLJ_COMPILED_CORE
 
 static bool named_in(const char *name, const char *const *list, size_t n) {
 	for (size_t i = 0; i < n; i++) {

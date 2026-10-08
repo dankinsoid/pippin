@@ -34,6 +34,11 @@
 (defn fz-emit [i s]
   (println (str i "\t" (if (> (count s) fz-max-chars) (str (subs s 0 fz-max-chars) " #fz/cut") s))))
 
+;; Our jvm-hash against the oracle's own hash of the same value; the JVM's core has no jvm-hash to resolve.
+(def fz-hash (if-let [v (resolve 'clojure.core/jvm-hash)] (deref v) hash))
+
+(defn fz-out [x] (str (fz-norm x) " #fz/hash " (fz-hash x)))
+
 ;; Which error was thrown is out of the comparison: a JVM class and an ex-type are not one alphabet.
 (defmacro fz [i expr]
-  (list 'fz-emit i (list 'try (list 'fz-norm expr) (list 'catch 'Throwable 'fz-t "#fz/throw"))))
+  (list 'fz-emit i (list 'try (list 'fz-out expr) (list 'catch 'Throwable 'fz-t "#fz/throw"))))

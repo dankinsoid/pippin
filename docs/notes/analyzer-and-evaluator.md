@@ -307,8 +307,8 @@
   one, else the root, so `in-ns` inside a load moves only that load. `Runtime.eval`, `load-file`,
   `load-string` and `require` push `{*ns* (current) *file* path}` around their forms, as Clojure's `load`
   does; `cljEval` in the tests does not, and a test that moves must come back (`inUser`). A namespace
-  holds mappings, refers, aliases and an `excludes` set: unqualified resolution is mappings → refers →
-  clojure.core minus its private vars and the excludes (so `:refer-clojure :exclude/:only/:rename` are
+  holds mappings, refers, aliases, imports and an `excludes` set: unqualified resolution is mappings → refers →
+  imports → clojure.core minus its private vars and the excludes (so `:refer-clojure :exclude/:only/:rename` are
   the excludes plus refers under the new names, and core stays implicitly visible: a core var defined
   later is visible too, where Clojure's refer snapshot would miss it); a qualified symbol resolves its
   prefix through the aliases first, then the registry, and reads the target's own mappings only (a var
@@ -318,13 +318,30 @@
   `clj_load_path_set` / `Runtime.loadPath` after the embedded libs (`<embedded>/clojure/set.clj` and
   friends, `libs_clj.inc`), records it in `*loaded-libs*` (an atom, not a ref) after a successful load,
   and fails with "namespace 'x' not found after loading" when the file defines no such ns. `ns` handles
-  `:refer-clojure`, `:require`, `:use`; `:import` and `:gen-class` name JVM classes and expand to nothing,
-  so a class shows up as "Unable to resolve symbol" where it is used; `:load` throws. No ns metadata
+  `:refer-clojure`, `:require`, `:use` and `:import`; `:gen-class` names a JVM class and expands to nothing;
+  `:load` throws. No ns metadata
   (the docstring and attr-map are dropped), no `ns-unalias`, no `remove-ns`, no `*loaded-libs*` as a
   sorted set, no `load` of a classpath resource by path. A load error is rethrown as
   "Syntax error compiling at (file:line:col). <message>" with `{:file :line :column}` data and the original
   as the cause, like CompilerException. Namespaces are immortal like vars: tests create theirs before
   taking a baseline.
+- **An import is a var, so neither backend learns anything new** (`import*`, builtins_ns.c; design §3 «"Наш хост" —
+  это C-ядро»). The import table maps a name to the var holding the type: a program's `defrecord`/`deftype`
+  brings its own var (`pkg` or `pkg` with `_` as `-`, the JVM's spelling of a record's package), and a bridge's
+  answer is interned as `pkg/Name` and bound to the type, so the imported name, the qualified spelling and a
+  compiled unit's var reference all reach one value. The bridges are a table tried in order: the host's
+  resolver (`clj_host_type_named` of `pkg/Name`, what a qualified symbol and `catch` mean), then
+  `clj_objc_class` by the bare name. A JVM package (`java`, `javax`, `jdk`, `sun`, `clojure.lang`) asks no bridge,
+  because `java.lang.Object` would otherwise find ObjC's root class `Object`. The import runs when its form runs,
+  so a name imported in a `do` is not yet resolvable in that same `do`, as on the JVM, where the class must
+  exist at compile time. An import of a name already mapped to another var, interned or referred, is refused
+  with the JVM's "already refers to"; one over a clojure.core name is not, since the core's fallback is no
+  mapping and the JVM's core has no such var.
+- [ ] **An ObjC class imported in a Swift host is the host type, not the class object.** The host's resolver
+  answers first and reaches every ObjC class through its `So…C` mangle, so `(import '[UIKit UIView])` binds
+  what `UIKit/UIView` means, which `catch` and `instance?` on a host error take but a `.method` send refuses;
+  `objc-class` is the send's receiver. Trigger: code importing a class to send to it; then a host type whose
+  mangle is `So…C` carries its `Class` and `clj_objc_send` takes it.
 - **Var meta carries `:file`** when `*file*` is bound (a load); the host's `eval` and the tests bind none.
 - **`set!` is a rewrite**, not a node: `(set! sym v)` becomes `(clojure.core/var-set (var sym) v)` in the
   analyzer, so it serializes as an invoke. A local target is "Cannot assign to non-mutable"; deftype

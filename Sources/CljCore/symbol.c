@@ -1,4 +1,6 @@
 // @ai-generated(solo)
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "clj/string.h"
@@ -82,4 +84,71 @@ clj_value clj_symbol_from_cstr(const char *s) {
 	clj_release(ns);
 	clj_release(name);
 	return sym;
+}
+
+// ---- the C identifier of a name (NOTES "Compiler", "Names")
+
+typedef struct {
+	char  *s;
+	size_t len, cap;
+} mangle_buf;
+
+static void mangle_put(mangle_buf *b, const char *s, size_t n) {
+	if (b->len + n + 1 > b->cap) {
+		size_t cap = b->cap ? b->cap * 2 : 32;
+		while (cap < b->len + n + 1) cap *= 2;
+		char *grown = realloc(b->s, cap);
+		if (!grown) clj_fatal("out of memory");
+		b->s = grown;
+		b->cap = cap;
+	}
+	memcpy(b->s + b->len, s, n);
+	b->len += n;
+	b->s[b->len] = '\0';
+}
+
+static void mangle_name(mangle_buf *b, const char *s) {
+	static const struct {
+		char        ch;
+		const char *token;
+	} tokens[] = {{'_', "_USCORE_"}, {'?', "_QMARK_"}, {'!', "_BANG_"}, {'*', "_STAR_"},   {'+', "_PLUS_"}, {'>', "_GT_"},
+	              {'<', "_LT_"},     {'=', "_EQ_"},    {'/', "_SLASH_"}, {'\'', "_QUOTE_"}, {'&', "_AMP_"},  {'%', "_PCT_"},
+	              {'#', "_HASH_"},   {':', "_COLON_"}, {'$', "_DOLLAR_"}};
+	for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+		unsigned char ch = *p;
+		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+			mangle_put(b, (const char *)&ch, 1);
+			continue;
+		}
+		if (ch == '-' || ch == '.') {
+			mangle_put(b, "_", 1);
+			continue;
+		}
+		const char *token = NULL;
+		for (size_t i = 0; i < sizeof tokens / sizeof *tokens && !token; i++) {
+			if (tokens[i].ch == (char)ch) token = tokens[i].token;
+		}
+		char hex[8];
+		if (!token) {
+			snprintf(hex, sizeof hex, "_u%02x_", ch);
+			token = hex;
+		}
+		mangle_put(b, token, strlen(token));
+	}
+}
+
+char *clj_mangle(const char *ns, const char *name) {
+	mangle_buf b = {0};
+	// A C identifier cannot start with a digit, and the empty name needs a character.
+	mangle_put(&b, "_", 1);
+	if (ns && *ns) {
+		mangle_name(&b, ns);
+		mangle_put(&b, "_", 1);
+	}
+	mangle_name(&b, name);
+	if (b.len > 1 && !(b.s[1] >= '0' && b.s[1] <= '9')) {
+		memmove(b.s, b.s + 1, b.len);
+		b.len--;
+	}
+	return b.s;
 }

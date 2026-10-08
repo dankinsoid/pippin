@@ -126,8 +126,13 @@
   interrupt and the rest of the session protocol are unaffected — CIDER connects and evaluates.
 - [~] **`*in*` is a map, `read-line` is Clojure, and the wait is a channel take.** `stdin` feeds a per-session
   channel of whole lines (`Session.acceptInput`); `*in*` (core.clj, next to the print family) holds
-  `{:lines <channel> :request <fn>}`, and `read-line` polls the channel, calling `:request` and parking on
-  `chan-take*` only when it is empty. The two-part value is what the protocol forces: nREPL wants a `need-input`
+  `{:lines <channel> :request <fn> :pushback <volatile>}`, and `read-line` polls the channel, calling `:request` and
+  parking on `chan-take*` only when it is empty. `read` and `read+string` take whole lines until `read-prefix*`
+  finds a form and leave the rest of the last line in `:pushback`, which `read-line` and the next `read` take
+  first, so `(read)` then `(read-line)` answers the line's rest, `""` at its end, as the JVM's
+  `LineNumberingPushbackReader` does; the session holds one `:pushback` across its evals. A reader error that
+  starts with "EOF while reading" asks for another line and is the error only at end of input. `with-in-str` is
+  the same map over a closed channel with the whole string in `:pushback`. The two-part value is what the protocol forces: nREPL wants a `need-input`
   status on the eval's own id *before* the reader waits, and the wait must be a park — a Swift blocking wait
   would be a park under `host_depth` (an error, design §5), and parking in C would put nREPL's line protocol in
   the core. So the signal is a native fn the eval's own coroutine calls (a native fn called from Clojure does not

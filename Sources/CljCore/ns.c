@@ -21,6 +21,7 @@ static void ns_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(n->mappings.v, ctx);
 	visit(n->refers.v, ctx);
 	visit(n->aliases.v, ctx);
+	visit(n->imports.v, ctx);
 	visit(n->excludes.v, ctx);
 	visit(n->meta.v, ctx);
 }
@@ -50,6 +51,7 @@ static clj_value find_or_create_locked(clj_value name) {
 	clj_slot_init(&n->h, &n->mappings, clj_map_empty());
 	clj_slot_init(&n->h, &n->refers, clj_map_empty());
 	clj_slot_init(&n->h, &n->aliases, clj_map_empty());
+	clj_slot_init(&n->h, &n->imports, clj_map_empty());
 	ns = clj_from_ptr(n);
 	if (clj_is_nil(registry)) registry = clj_map_empty();
 	clj_root_store(&registry, clj_map_assoc(registry, name, ns));
@@ -101,11 +103,19 @@ void clj_ns_refer(clj_value ns, clj_value sym, clj_value var) {
 	clj_lock_unlock(&lock);
 }
 
+void clj_ns_import(clj_value ns, clj_value sym, clj_value var) {
+	clj_ns *n = clj_ns_of(ns);
+	clj_lock_lock(&lock);
+	clj_slot_store(&n->h, &n->imports, clj_map_assoc(n->imports.v, sym, var));
+	clj_lock_unlock(&lock);
+}
+
 void clj_ns_unmap(clj_value ns, clj_value sym) {
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
 	clj_slot_store(&n->h, &n->mappings, clj_map_dissoc(n->mappings.v, sym));
 	clj_slot_store(&n->h, &n->refers, clj_map_dissoc(n->refers.v, sym));
+	clj_slot_store(&n->h, &n->imports, clj_map_dissoc(n->imports.v, sym));
 	clj_lock_unlock(&lock);
 }
 
@@ -144,6 +154,7 @@ void clj_ns_alias(clj_value ns, clj_value alias, clj_value target) {
 clj_value clj_ns_mappings(clj_value ns) { return clj_ns_of(ns)->mappings.v; }
 clj_value clj_ns_refers(clj_value ns) { return clj_ns_of(ns)->refers.v; }
 clj_value clj_ns_aliases(clj_value ns) { return clj_ns_of(ns)->aliases.v; }
+clj_value clj_ns_imports(clj_value ns) { return clj_ns_of(ns)->imports.v; }
 
 void clj_ns_set_excludes(clj_value ns, clj_value excludes) {
 	CLJ_ASSERT(clj_is_nil(excludes) || clj_is_set(excludes), "excludes must be a set or nil");
@@ -167,6 +178,7 @@ clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 	if (clj_is_nil(clj_symbol_ns(sym))) {
 		var = clj_map_get(n->mappings.v, sym, CLJ_NIL);
 		if (clj_is_nil(var)) var = clj_map_get(n->refers.v, sym, CLJ_NIL);
+		if (clj_is_nil(var)) var = clj_map_get(n->imports.v, sym, CLJ_NIL);
 		if (clj_is_nil(var) && !clj_is_nil(core_ns) && core_ns != ns && !(!clj_is_nil(n->excludes.v) && clj_set_contains(n->excludes.v, sym))) {
 			var = clj_map_get(clj_ns_of(core_ns)->mappings.v, sym, CLJ_NIL);
 			if (!clj_is_nil(var) && clj_var_is_private(var)) var = CLJ_NIL;

@@ -42,7 +42,6 @@
   {:file "test/clojure/test_clojure/errors.clj" :line 69 :name extract-ex-data :reason "Unable to resolve symbol: RuntimeException. in this context" :missing [RuntimeException.]}
   {:file "test/clojure/test_clojure/errors.clj" :line 76 :name Throwable->map-test :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
   {:file "test/clojure/test_clojure/errors.clj" :line 110 :name ex-info-allows-nil-data :reason "Unable to resolve symbol: Throwable. in this context" :missing [Throwable.]}
-  {:file "test/clojure/test_clojure/evaluation.clj" :line 20 :reason "Unable to resolve symbol: import in this context" :missing [import]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 37 :name Eval :reason "Unable to resolve symbol: Compiler/eval in this context" :missing [Compiler/eval]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 47 :name class-for-name :reason "Unable to resolve symbol: java.lang.Class/forName in this context" :missing [java.lang.Class/forName]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 62 :name Literals :reason "Unable to resolve symbol: Boolean/TRUE in this context" :missing [Boolean/TRUE]}

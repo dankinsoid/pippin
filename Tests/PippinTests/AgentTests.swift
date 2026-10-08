@@ -21,7 +21,7 @@ extension CoreTests {
 		init() throws {
 			clj_init()
 			try cljTimingSupport()
-			for k in ["bound", "root", "from-future", "ok", "x", "y", "w", "bad", "k", "z", "fail", "continue", "sent", "untouched"] { _ = kw(k) }
+			for k in ["bound", "root", "from-future", "ok", "x", "y", "w", "bad", "k", "z", "fail", "continue", "sent", "untouched", "send", "send-off"] { _ = kw(k) }
 			_ = try cljEvalScoped("""
 			(ns agent-tests)
 			(def ^:dynamic *v* :root)
@@ -112,6 +112,31 @@ extension CoreTests {
 			let base = CoroBaseline()
 			do {
 				#expect(try eval("[(seque 3 (range 10)) (seque [1 nil 2]) (take 5 (seque 2 (range))) (seque 1 [])]") == [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, nil, 2], [0, 1, 2, 3, 4], []])
+			}
+			base.check()
+		}
+
+		// An executor is a fn of the action's run (design §3 «"Наш хост" — это C-ядро»); each wraps the default it replaces.
+		@Test func sendAndSendOffGoThroughTheExecutorsSet() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+				(let [pooled (var-get #'clojure.core/pooled-executor) solo (var-get #'clojure.core/solo-executor)
+				      seen (atom [])
+				      a (agent 0)]
+				  (try
+				    (set-agent-send-executor! (fn [run] (swap! seen conj :send) (pooled run)))
+				    (set-agent-send-off-executor! (fn [run] (swap! seen conj :send-off) (solo run)))
+				    (send a inc)
+				    (await a)
+				    (send-off a inc)
+				    (await a)
+				    [@a (some #{:send} @seen) (some #{:send-off} @seen)]
+				    (finally
+				      (set-agent-send-executor! pooled)
+				      (set-agent-send-off-executor! solo))))
+				""") == [2, kw("send"), kw("send-off")])
+				#expect(try eval("[(msg #(set-agent-send-executor! 5)) (msg #(set-agent-send-off-executor! nil))]") == ["An executor is a fn of one argument, got: long", "An executor is a fn of one argument, got: nil"])
 			}
 			base.check()
 		}
