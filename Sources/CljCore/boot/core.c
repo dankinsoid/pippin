@@ -1815,6 +1815,7 @@ static clj_value top_302(void);
 clj_value clojure_core_make_hierarchy_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_INLINE clj_value clojure_core_make_hierarchy_a0_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_core_make_hierarchy(void *ctx, const clj_value *args, size_t n);
+static clj_value lazy_303(const void *code, clj_value env);
 static clj_value top_303(void);
 static clj_value top_304(void);
 clj_value clojure_core_isa_QMARK__a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
@@ -129062,7 +129063,9 @@ L1: ;
 	return CLJ_THROWN;
 }
 
-static clj_value top_303(void) {
+static clj_value lazy_303(const void *code, clj_value env) {
+	(void)code;
+	(void)env;
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
 	clj_eval_top_enter();
@@ -129089,16 +129092,30 @@ static clj_value top_303(void) {
 	if (t0 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_var_bind_root(V[452], t0);
-	clj_release(t0);
-	clj_value t2 = clj_retain(K[1518]);
-	clj_value t3 = clj_c_def(V[452], t2, false, false);
-	clj_release(t2);
-	if (t3 == CLJ_THROWN) {
+	clj_eval_top_leave();
+	return t0;
+L1: ;
+	clj_eval_top_leave();
+	return CLJ_THROWN;
+}
+
+static clj_value top_303(void) {
+	clj_cframe fr = {NULL, NULL, 0, NULL};
+	(void)fr;
+	clj_eval_top_enter();
+#line 2664 "Sources/CljCore/boot/core.clj"
+	clj_value t0 = clj_c_lazy_def(V[452], 1, lazy_303);
+	if (t0 == CLJ_THROWN) {
+	goto L1;
+	}
+	clj_value t1 = clj_retain(K[1518]);
+	clj_value t2 = clj_c_def(V[452], t1, false, false);
+	clj_release(t1);
+	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
 	clj_eval_top_leave();
-	return t3;
+	return t2;
 L1: ;
 	clj_eval_top_leave();
 	return CLJ_THROWN;
