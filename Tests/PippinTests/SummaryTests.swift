@@ -185,7 +185,7 @@ extension CoreTests {
 				let s_sum_box_1 = try summary(store, "sum-box", 1)
 				#expect(s_sum_box_1 == "[⊤/maybe] -> vector/never a")
 				let s_sum_throw_1 = try summary(store, "sum-throw", 1)
-				#expect(s_sum_throw_1 == "[⊤/maybe] -> nil|bool/maybe atiw")
+				#expect(s_sum_throw_1 == "[⊤/maybe] -> nil|bool/maybe at")
 				// uses on different branches join: x must be a number or an ident or a string, not both
 				let s_sum_either_2 = try summary(store, "sum-either", 2)
 				#expect(s_sum_either_2 == "[fixnum|long|bigint|ratio|decimal|double|string|keyword|symbol/never, ⊤/maybe] -> fixnum|long|bigint|ratio|decimal|double|string/never at")

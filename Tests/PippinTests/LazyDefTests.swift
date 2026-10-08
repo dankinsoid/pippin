@@ -140,20 +140,22 @@ extension CoreTests {
 			#expect(try eval("ld-av") == 7)
 		}
 
-		// The analysis of the load that compiles a unit decides, and the unit binds the same thunk with no tree in it.
+		// The analysis of the load that compiles a unit decides, and the unit binds the same thunk with no tree in it. The
+		// unit runs over the vars the compiling load defined, so each def of it is a redefinition, whose barrier forces the
+		// deferred defs above it: only the last one is still pending when the unit is done.
 		@Test func aCompiledUnitDefersAsTheInterpreterDoes() throws {
 			let file = "Tests/PippinTests/Fixtures/lazy-unit.clj"
 			let source = """
 			(ns ld.unit)
 			(defn costly [n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc i)) acc)))
-			(def total (costly 100))
 			(def ^:eager now (costly 10))
 			(def broken (quot 1 (count [])))
+			(def total (costly 100))
 			"""
 			defer { clj_ns_set_current(clj_ns_user()) }
 			try compileFixtureAsUnit(source, file: file, name: "lazy_unit")
 			_ = try runFixtureUnit(file)
-			#expect(compiledThunk("total", in: "ld.unit") && compiledThunk("broken", in: "ld.unit"))
+			#expect(compiledThunk("total", in: "ld.unit"))
 			#expect(!pending("now", in: "ld.unit"))
 			#expect(try eval("[ld.unit/total ld.unit/now]") == [4950, 45])
 			#expect(message("ld.unit/broken") == "Divide by zero")

@@ -155,7 +155,7 @@ extension CoreTests {
 			do {
 				_ = try eval("(def ^:eager sv-s (seq sv-v))")
 				#expect(clj_debug_live_objects() == before + 1)
-				_ = try eval("(def sv-s (next (next (next sv-s))))")
+				_ = try eval("(def ^:eager sv-s (next (next (next sv-s))))")
 				#expect(clj_debug_live_objects() == before + 1)
 				#expect(try eval("[(first sv-s) (count sv-s) (nth sv-s 2)]") == [3, 997, 5])
 				// Walking to the end allocates one view per step and frees the previous one.
