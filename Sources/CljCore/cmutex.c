@@ -72,7 +72,7 @@ static lot_node *dequeue_locked(lot_bucket *b, const void *key, bool *more) {
 	return found;
 }
 
-void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx) {
+void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx, clj_wake wake) {
 	lot_bucket *b = bucket_of(key);
 	clj_lock_lock(&b->lock);
 	if (!wait_if(key, ctx)) {
@@ -82,7 +82,7 @@ void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), 
 	clj_waiter *w = waiter_here();
 	enqueue_locked(b, w, key);
 	clj_lock_unlock(&b->lock);
-	clj_park_uncancellable(w);
+	clj_park(w, wake);
 	clj_waiter_release(w);
 }
 
@@ -155,7 +155,7 @@ static __attribute__((noinline)) bool lock_attempt(clj_cmutex *m) {
 	enqueue_locked(b, w, m);
 	clj_lock_unlock(&b->lock);
 	// Woken without the lock: the unlocker freed it, and whoever gets there first takes it (Go's normal mode).
-	clj_park_uncancellable(w);
+	clj_park(w, clj_wake_holder());
 	clj_waiter_release(w);
 	return false;
 }

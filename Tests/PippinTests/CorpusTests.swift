@@ -433,8 +433,8 @@ extension CoreTests {
 			lines.append(";; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.")
 			lines.append(";; :second-run-live-objects is what a second run of the same tests leaves alive once the cycle collector ran")
 			lines.append(";; (NOTES.md, RC): what the library keeps, or a cycle the collector does not see. A different number fails.")
-			lines.append(";; :abandoned-coroutines is the most its own tests may leave parked for the harness to cancel: an")
-			lines.append(";; upper bound, not a count, a library's own race deciding it, and 0 for a library that leaves none.")
+			lines.append(";; :abandoned-coroutines is the most its own tests may leave parked where the cycle collector cannot judge")
+			lines.append(";; them, for the harness to cancel: an upper bound, not a count, and 0 for a library that leaves none.")
 			lines.append("{:abandoned-coroutines \(max(abandonedCoroutines, previous.abandonedCoroutines))")
 			lines.append(" :second-run-live-objects \(liveAfterSecondRun)")
 			lines.append(" :forms")
@@ -528,13 +528,28 @@ extension CoreTests {
 			return problems
 		}
 
-		// Every deftest has ended, so a coroutine still parked was abandoned by the library's own test code: a
-		// cycle through the channel nobody drains, which RC cannot free (NOTES.md, "Corpus"). Left alone, the only
-		// thing that reclaims it is the watchdog deadline its spawn conveyed, so the wait is CLJ_CORPUS_TIMEOUT_MS.
+		// Every deftest has ended, so a coroutine still parked was abandoned by the library's own test code. The cycle
+		// collector cancels each park nothing can wake (design §7, «Фаза 3»); the rest are parks it cannot judge, whose
+		// cycle a frame's own reference holds (NOTES.md, "Corpus"), cancelled here and counted against the bound.
 		// @ai-generated(guided)
 		private static func reclaimAbandoned(_ lib: Library) -> Int {
+			var s = [Int64](repeating: 0, count: CLJ_CC_STAT_COUNT)
+			clj_debug_cc_stats(&s)
+			let before = s[CLJ_CC_STAT_COROUTINES]
+			var seen = before, live = clj_debug_live_coros()
+			// A cancelled park unwinds on a carrier: collect again until neither count moves.
+			for _ in 0..<100 {
+				clj_cc_collect()
+				usleep(20_000)
+				clj_debug_cc_stats(&s)
+				let now = clj_debug_live_coros()
+				if s[CLJ_CC_STAT_COROUTINES] == seen && now == live { break }
+				seen = s[CLJ_CC_STAT_COROUTINES]
+				live = now
+			}
+			if seen > before { progress("corpus: \(lib.name): the cycle collector cancelled \(seen - before) coroutines its tests abandoned parked") }
 			let asked = clj_debug_cancel_live_coros()
-			if asked > 0 { progress("corpus: \(lib.name): cancelled \(asked) coroutines its tests abandoned parked") }
+			if asked > 0 { progress("corpus: \(lib.name): cancelled \(asked) abandoned parked coroutines the collector could not judge") }
 			return asked
 		}
 

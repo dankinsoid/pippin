@@ -348,7 +348,7 @@ static void enqueue_output(const char *bytes, size_t len) {
 		n->next = out_waiters;
 		out_waiters = n;
 		pthread_mutex_unlock(&out_mu);
-		clj_park_uncancellable(w);
+		clj_park(w, clj_wake_thread());
 		clj_waiter_release(w);
 		pthread_mutex_lock(&out_mu);
 	}

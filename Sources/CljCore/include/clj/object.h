@@ -182,6 +182,14 @@ struct clj_type {
 	// ctx) under it, false without running when the lock is busy. Its objects carry CLJ_FLAG_CC_LOCKED, so a store
 	// into one needs no barrier. NULL: each_child is read without a lock (cc.c, the lock-free protocol).
 	bool (*cc_locked)(void *self, void (*inside)(void *self, void *ctx), void *ctx);
+	// The coroutines parked on an object of this type, which its waiters hold without a reference: the collector's
+	// wake edges (cc.c, design §7 «Фаза 3»). Runs inside cc_locked; visit gets each coroutine while its waiter is
+	// unclaimed, so the coroutine is alive. NULL: none.
+	void (*cc_wakes)(void *self, void (*visit)(void *coro, void *ctx), void *ctx);
+	// References the object owns outside each_child, which its finalize releases: a channel's callback waiters' fns.
+	// The collector counts them as edges (inside cc_locked); detach hands each to visit and forgets it, so a garbage
+	// cycle's teardown releases it once. NULL: none.
+	void (*cc_held)(void *self, clj_visitor visit, void *ctx, bool detach);
 };
 
 extern const clj_type clj_type_type;

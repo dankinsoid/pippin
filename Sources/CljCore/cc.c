@@ -60,8 +60,8 @@ static struct timespec wall_at(uint64_t ns) {
 	return (struct timespec){.tv_sec = (time_t)(ns / 1000000000u), .tv_nsec = (long)(ns % 1000000000u)};
 }
 
-// Registries hold execs and descriptors without a reference; a coroutine's frames are invisible (design §7).
-static bool opaque(const clj_type *t) { return t->unlink || t == &clj_type_type || t == &clj_coro_type; }
+// Registries hold execs and descriptors without a reference (design §7).
+static bool opaque(const clj_type *t) { return t->unlink || t == &clj_type_type; }
 
 // CLJ_CC=0 keeps the bits and drops every candidate: the control of a cost measurement.
 static int enabled_state;
@@ -246,6 +246,19 @@ static void deep_push(clj_header *h) {
 	pthread_mutex_unlock(&buf_mu);
 }
 
+// The entry owns the bit and holds no reference, as one a release files.
+void clj_cc_file(clj_header *h) {
+	if (!clj_cc_enabled()) return;
+	uint32_t cur = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	while (!(cur & CLJ_RC_BUFFERED) && (cur & CLJ_RC_COUNT_MASK)) {
+		if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, cur | CLJ_RC_BUFFERED, memory_order_seq_cst, memory_order_relaxed)) {
+			stat_add(CLJ_CC_STAT_CANDIDATES, 1);
+			shared_push(h, true);
+			return;
+		}
+	}
+}
+
 static _Thread_local int64_t deep_filed_here;
 
 // The decrement and the bit in one CAS, as for a shared candidate. An object an entry already names is left to that
@@ -385,11 +398,13 @@ enum { N_ROOT = 1, N_LOST = 2, N_BLACK = 4, N_WHITE = 8, N_BUFFERED = 16, N_HELD
 typedef struct {
 	clj_header *h;
 	uint32_t    count;    // the count when watched, the collector's own references included
-	uint32_t    internal; // recorded edges into it
+	uint32_t    internal; // recorded edges into it, and a parked coroutine's own references
 	uint32_t    ours;     // references the collector holds
 	uint32_t    edge_lo, edge_n;
+	uint32_t    queued, woken; // a parked coroutine: the channel queues holding its waiter, and those found
 	uint8_t     flags;
 	uint8_t     attempt; // a retry's attempt + 1, 0 when no retry names it
+	uint8_t     coro;    // CLJ_CORO_CC_* of a coroutine node
 } node;
 
 typedef struct {
@@ -407,6 +422,10 @@ typedef struct {
 	uint32_t  cur;        // whose children are being visited
 	bool      lockfree;   // cur is a mutable object read without its lock
 	bool      cur_failed; // a child of cur could not be held: cur's edges are incomplete
+	// Wake edges, channel → parked coroutine, as pairs: uncounted, and blackness crosses them both ways.
+	uint32_t *wakes;
+	size_t    nwakes, wakes_cap;
+	bool      kept; // the white set holds a parked coroutine: cancelled, nothing freed (design §7, «Фаза 3»)
 } graph;
 
 static uint32_t slot_of(const graph *g, const clj_header *h) {
@@ -468,16 +487,30 @@ static void edge_push(graph *g, uint32_t to) {
 	g->nodes[to].internal++;
 }
 
+static void wake_push(graph *g, uint32_t from, uint32_t to) {
+	if (g->nwakes + 2 > g->wakes_cap) {
+		g->wakes_cap = g->wakes_cap ? g->wakes_cap * 2 : 64;
+		g->wakes = realloc(g->wakes, g->wakes_cap * sizeof *g->wakes);
+		if (!g->wakes) clj_fatal("out of memory");
+	}
+	g->wakes[g->nwakes++] = from;
+	g->wakes[g->nwakes++] = to;
+	g->nodes[to].woken++;
+}
+
 static void graph_free(graph *g) {
 	free(g->nodes);
 	free(g->edges);
 	free(g->table);
 	free(g->work);
+	free(g->wakes);
 }
 
 static bool enterable(const graph *g, const clj_header *c) {
 	uint32_t f = c->flags;
 	if (f & CLJ_FLAG_IMMORTAL) return false;
+	// A coroutine has no REACH: the shared walk enters it by type (design §7, «Фаза 3»), the deep one never.
+	if (c->type == &clj_coro_type) return g->shared && !g->deep;
 	if (g->deep ? !(f & CLJ_FLAG_SHARED) || !(f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY))
 	    : g->shared ? (f & (CLJ_FLAG_SHARED | CLJ_FLAG_REACH)) != (CLJ_FLAG_SHARED | CLJ_FLAG_REACH)
 	                : (f & (CLJ_FLAG_SHARED | CLJ_FLAG_REACH_LOCAL)) != CLJ_FLAG_REACH_LOCAL)
@@ -543,11 +576,42 @@ static void watch(graph *g, uint32_t i) {
 	nd->count = w & CLJ_RC_COUNT_MASK;
 }
 
+// A coroutine parked on the object being visited: an uncounted edge to it. One that cannot be held is not recorded,
+// and then its waiter's queues are not all found, which blackens it.
+static void visit_wake(void *coro, void *ctx) {
+	graph      *g = ctx;
+	clj_header *k = coro;
+	if (g->cur_failed || !enterable(g, k)) return;
+	uint32_t i = find(g, k);
+	if (i == NONE) {
+		if (!try_retain(k)) return;
+		i = add_node(g, k, 1, 0);
+	}
+	wake_push(g, g->cur, i);
+}
+
 static void visit_locked(void *self, void *ctx) {
 	graph *g = ctx;
 	watch(g, g->cur);
 	clj_header *h = self;
 	if (h->type->each_child) h->type->each_child(h, visit_child, g);
+	if (h->type->cc_held) h->type->cc_held(h, visit_child, g, false);
+	if (h->type->cc_wakes) h->type->cc_wakes(h, visit_wake, g);
+}
+
+// Under the coroutine's lock, sched.c judging it: a live one is black and its edges are not read.
+static void visit_coro_locked(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx) {
+	graph *g = ctx;
+	node  *nd = &g->nodes[g->cur];
+	watch(g, g->cur);
+	nd->coro = (uint8_t)verdict;
+	if (verdict == CLJ_CORO_CC_LIVE) {
+		nd->flags |= N_LOST;
+		return;
+	}
+	nd->internal += internal;
+	nd->queued = queued;
+	clj_coro_type.each_child(c, visit_child, g);
 }
 
 // Its own frame, the one scripts/tsan.supp names: the slots are read while their writers store without a lock.
@@ -571,6 +635,11 @@ static void visit(graph *g, uint32_t i) {
 		else if (rc & CLJ_RC_BUFFERED) g->nodes[i].flags |= N_BUFFERED;
 		g->nodes[i].count = rc & CLJ_RC_COUNT_MASK;
 		if (t->each_child) t->each_child(h, visit_child, g);
+	} else if (t == &clj_coro_type) {
+		if (!clj_coro_cc_locked((clj_coro *)h, visit_coro_locked, g)) {
+			g->nodes[i].flags |= N_LOST;
+			if (g->nodes[i].flags & N_ROOT) atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_BUFFERED, memory_order_seq_cst);
+		}
 	} else if (t->cc_locked) {
 		if (!t->cc_locked(h, visit_locked, g)) {
 			g->nodes[i].flags |= N_LOST;
@@ -597,25 +666,52 @@ static void validate(graph *g) {
 	}
 }
 
+// A parked coroutine with a channel queue outside the graph has a wake source the walk cannot judge.
+static void judge_wakes(graph *g) {
+	for (uint32_t i = 0; i < g->n; i++) {
+		node *nd = &g->nodes[i];
+		if (nd->coro == CLJ_CORO_CC_PARKED && nd->woken != nd->queued) nd->flags |= N_LOST;
+	}
+}
+
+static void blacken_mark(graph *g, uint32_t j) {
+	if (g->nodes[j].flags & N_BLACK) return;
+	g->nodes[j].flags |= N_BLACK;
+	work_push(g, j);
+}
+
 static void blacken(graph *g) {
+	// The wake pairs as adjacency both ways: a live channel can wake the coroutine, a live coroutine read the channel.
+	uint32_t *wlo = NULL, *wadj = NULL;
+	if (g->nwakes) {
+		wlo = calloc(g->n + 1, sizeof *wlo);
+		wadj = malloc(g->nwakes * sizeof *wadj);
+		uint32_t *fill = malloc((g->n + 1) * sizeof *fill);
+		if (!wlo || !wadj || !fill) clj_fatal("out of memory");
+		for (size_t k = 0; k < g->nwakes; k++) wlo[g->wakes[k] + 1]++;
+		for (uint32_t i = 0; i < g->n; i++) wlo[i + 1] += wlo[i];
+		memcpy(fill, wlo, (g->n + 1) * sizeof *fill);
+		for (size_t k = 0; k < g->nwakes; k += 2) {
+			uint32_t a = g->wakes[k], b = g->wakes[k + 1];
+			wadj[fill[a]++] = b;
+			wadj[fill[b]++] = a;
+		}
+		free(fill);
+	}
 	g->nw = 0;
 	for (uint32_t i = 0; i < g->n; i++) {
 		node *nd = &g->nodes[i];
-		if ((nd->flags & N_LOST) || nd->count > nd->internal + nd->ours) {
-			nd->flags |= N_BLACK;
-			work_push(g, i);
-		}
+		if ((nd->flags & N_LOST) || nd->count > nd->internal + nd->ours) blacken_mark(g, i);
 	}
 	while (g->nw) {
-		node *nd = &g->nodes[g->work[--g->nw]];
-		for (uint32_t e = 0; e < nd->edge_n; e++) {
-			uint32_t j = g->edges[nd->edge_lo + e];
-			if (!(g->nodes[j].flags & N_BLACK)) {
-				g->nodes[j].flags |= N_BLACK;
-				work_push(g, j);
-			}
+		uint32_t v = g->work[--g->nw];
+		for (uint32_t e = 0; e < g->nodes[v].edge_n; e++) blacken_mark(g, g->edges[g->nodes[v].edge_lo + e]);
+		if (wlo) {
+			for (uint32_t e = wlo[v]; e < wlo[v + 1]; e++) blacken_mark(g, wadj[e]);
 		}
 	}
+	free(wlo);
+	free(wadj);
 }
 
 static void release_outside(clj_value v, void *ctx) {
@@ -634,12 +730,25 @@ static int64_t free_whites(graph *g) {
 		if (!(g->nodes[i].flags & N_BLACK)) {
 			g->nodes[i].flags |= N_WHITE;
 			freed++;
+			if (g->nodes[i].coro == CLJ_CORO_CC_PARKED) g->kept = true;
 		}
 	}
 	if (!freed) return 0;
+	// Its frames may read any white object through a borrowed reference: nothing is freed, the coroutine is cancelled
+	// and its unwind lets go through RC (design §7, «Фаза 3»). The collector's references hold the set meanwhile.
+	if (g->kept) {
+		for (uint32_t i = 0; i < g->n; i++) {
+			node *nd = &g->nodes[i];
+			if ((nd->flags & N_WHITE) && nd->coro == CLJ_CORO_CC_PARKED && clj_coro_cc_cancel((clj_coro *)nd->h))
+				stat_add(CLJ_CC_STAT_COROUTINES, 1);
+		}
+		return 0;
+	}
 	for (uint32_t i = 0; i < g->n; i++) {
 		clj_header *h = g->nodes[i].h;
-		if ((g->nodes[i].flags & N_WHITE) && h->type->each_child) h->type->each_child(h, release_outside, g);
+		if (!(g->nodes[i].flags & N_WHITE)) continue;
+		if (h->type->each_child) h->type->each_child(h, release_outside, g);
+		if (h->type->cc_held) h->type->cc_held(h, release_outside, g, true);
 	}
 	for (uint32_t i = 0; i < g->n; i++) {
 		clj_header *h = g->nodes[i].h;
@@ -657,17 +766,20 @@ static int64_t free_whites(graph *g) {
 
 // The collector's references on the survivors. A shared root black only because a mutator touched it mid-collection
 // is filed again: the touch may have been its last outside reference going. A deep one is a retry (retry_deep).
+// A white root kept for a cancelled coroutine is filed again too: what of its set outlives the unwind is judged anew.
 static void release_survivors(graph *g) {
 	for (uint32_t i = 0; i < g->n; i++) {
 		node *nd = &g->nodes[i];
-		if (nd->flags & N_WHITE) continue;
-		if (g->shared && !g->deep && (nd->flags & (N_ROOT | N_LOST)) == (N_ROOT | N_LOST)) {
+		bool  white = nd->flags & N_WHITE;
+		if (white && !g->kept) continue;
+		bool lost = (nd->flags & (N_ROOT | N_LOST)) == (N_ROOT | N_LOST);
+		if (g->shared && !g->deep && (lost || (white && (nd->flags & N_ROOT)))) {
 			uint32_t cur = atomic_load_explicit(&nd->h->rc, memory_order_relaxed);
 			while (!(cur & CLJ_RC_BUFFERED)) {
 				if (atomic_compare_exchange_weak_explicit(&nd->h->rc, &cur, cur | CLJ_RC_BUFFERED, memory_order_seq_cst,
 				                                          memory_order_relaxed)) {
-					stat_add(CLJ_CC_STAT_INTERFERED, 1);
-					shared_push(nd->h, false);
+					if (lost) stat_add(CLJ_CC_STAT_INTERFERED, 1);
+					shared_push(nd->h, white);
 					break;
 				}
 			}
@@ -683,6 +795,7 @@ static int64_t run(graph *g, clj_header **roots, size_t n) {
 		else if (g->shared) g->nodes[i].ours++;
 	}
 	while (g->nw) visit(g, g->work[--g->nw]);
+	judge_wakes(g);
 	if (g->shared) validate(g);
 	blacken(g);
 	int64_t freed = free_whites(g);
@@ -974,6 +1087,7 @@ static void hand_off_all(clj_coro *c) {
 int64_t clj_cc_collect(void) {
 	clj_coro *c = clj_coro_current();
 	int64_t   freed = 0;
+	clj_coro_cc_file_parked();
 	for (int round = 0; round < COLLECT_ROUNDS; round++) {
 		int64_t got = 0;
 		while (c->cc_local && ((cand_vec *)c->cc_local)->n && !c->cc_collecting) got += collect_local(c, SIZE_MAX);

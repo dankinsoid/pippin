@@ -38,9 +38,7 @@ static inline void clj_cmutex_unlock(clj_cmutex *m) {
 	clj_cmutex_unlock_slow(m);
 }
 
-// A one-shot wait on any address; wait_if runs under the bucket's lock and false returns at once.
-void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx);
-// Resumes every waiter parked on key.
+// Resumes every waiter parked on key (clj_lot_park, coro_internal.h).
 void clj_lot_unpark_all(const void *key);
 // Debug: a waiter is queued on key and not yet resumed.
 bool clj_debug_lot_queued(const void *key);

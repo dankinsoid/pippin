@@ -469,11 +469,13 @@ bool clj_park_allowed(void) {
 }
 
 // A pool coroutine switches out holding its lock, so a resumer that wants the lock sees it parked or not at all.
-static void park(clj_waiter *w, bool cancellable) {
+// The one switch out of a running body besides its finish (make park-audit).
+void clj_park(clj_waiter *w, clj_wake wake) {
+	CLJ_ASSERT(wake.kind, "a park without a wake source");
 	clj_coro *c = clj_coro_current();
 	pthread_mutex_lock(&c->lock);
 	bool block = c->implicit || w->blocking;
-	if (!cancellable) w = NULL;
+	if (!wake.cancellable) w = NULL;
 	// A cancellation that landed between the caller's check and here found no waiter to wake: the park is skipped
 	// by claiming the waiter ourselves (a concurrent completion that won the claim resumes us instead).
 	if (w && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed) && clj_waiter_claim(w)) {
@@ -494,6 +496,7 @@ static void park(clj_waiter *w, bool cancellable) {
 		return;
 	}
 	c->waiter = w;
+	c->park_kind = wake.kind;
 	if (__builtin_expect(!c->linked, 0)) clj_coro_live_link(c);
 	c->parks++;
 	atomic_store_explicit(&c->state, CLJ_CORO_PARKED, memory_order_release);
@@ -501,13 +504,10 @@ static void park(clj_waiter *w, bool cancellable) {
 	clj_coro_switch_out(c);
 	pthread_mutex_lock(&c->lock);
 	c->waiter = NULL;
+	c->park_kind = 0;
 	c->resume_pending = false;
 	pthread_mutex_unlock(&c->lock);
 }
-
-void clj_park(clj_waiter *w) { park(w, true); }
-
-void clj_park_uncancellable(clj_waiter *w) { park(w, false); }
 
 static void run_callback(clj_waiter *w) {
 	if (clj_is_nil(w->callback)) return;
@@ -535,6 +535,10 @@ static void resume(clj_waiter *w, bool handoff) {
 		return;
 	}
 	if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED) {
+		// A collection that judged it parked sees the wake (design §7, «Фаза 3»).
+		if (__builtin_expect(atomic_load_explicit(&clj_cc_running, memory_order_seq_cst), 0) &&
+		    (atomic_load_explicit(&c->h.rc, memory_order_seq_cst) & CLJ_RC_WATCH))
+			clj_cc_unwatch(&c->h);
 		atomic_store_explicit(&c->state, CLJ_CORO_RUNNABLE, memory_order_relaxed);
 		pthread_mutex_unlock(&c->lock);
 		clj_sched_enqueue(c, handoff);
@@ -614,13 +618,17 @@ static void finish(clj_coro *c) {
 	if (c->on_done) c->on_done(c, c->done_ctx);
 	else if (c->threw) clj_coro_report_uncaught(c);
 	c->on_done = NULL;
+	clj_value done = c->done_value.v;
+	clj_slot_clear(&c->done_value);
+	clj_release(done);
 	clj_value fn = c->fn.v;
 	clj_slot_clear(&c->fn);
 	clj_release(fn);
 	for (size_t i = 0; i < c->nargs; i++) clj_release(c->args[i].v);
 	c->nargs = 0;
-	// Under the lock: a canceller and the sweep read c->shadow and c->map under it.
+	// Under the lock: a canceller and the sweep read c->shadow and c->map under it, the collector the slots.
 	pthread_mutex_lock(&c->lock);
+	c->finished = true;
 	clj_coro_free_stack(c);
 	c->signaled = true;
 	pthread_cond_broadcast(&c->cond);
@@ -633,7 +641,7 @@ static void finish(clj_coro *c) {
 	clj_release(clj_from_ptr(c));
 }
 
-static clj_value spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx, bool detached) {
+static clj_value spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx, clj_value done_value, bool detached) {
 	if (affinity == CLJ_AFFINITY_MAIN && !main_carrier) return clj_throw_msg("No main carrier: the host has not installed one (clj_sched_main_install)");
 	clj_sched_init();
 	clj_coro *parent = clj_coro_current();
@@ -645,6 +653,7 @@ static clj_value spawn(clj_value f, const clj_value *args, size_t n, int affinit
 		for (size_t i = 0; i < n; i++) clj_slot_store(&c->h, &c->args[i], clj_retain(args[i]));
 	}
 	c->nargs = n;
+	if (!clj_is_nil(done_value)) clj_slot_store(&c->h, &c->done_value, clj_retain(done_value));
 	c->bindings = detached ? NULL : clj_var_bindings_share();
 	c->captures = clj_output_captures_share();
 	c->pending = c->pending_trace = CLJ_NIL;
@@ -669,11 +678,15 @@ static clj_value spawn(clj_value f, const clj_value *args, size_t n, int affinit
 }
 
 clj_value clj_coro_spawn(clj_value f, const clj_value *args, size_t n, int affinity, void (*on_done)(clj_coro *c, void *ctx), void *ctx) {
-	return spawn(f, args, n, affinity, on_done, ctx, false);
+	return spawn(f, args, n, affinity, on_done, ctx, CLJ_NIL, false);
 }
 
 clj_value clj_coro_spawn_detached(clj_value f, void (*on_done)(clj_coro *c, void *ctx), void *ctx) {
-	return spawn(f, NULL, 0, CLJ_AFFINITY_POOL, on_done, ctx, true);
+	return spawn(f, NULL, 0, CLJ_AFFINITY_POOL, on_done, ctx, CLJ_NIL, true);
+}
+
+clj_value clj_coro_spawn_into(clj_value f, int affinity, void (*on_done)(clj_coro *c, void *ctx), clj_value done_value, bool detached) {
+	return spawn(f, NULL, 0, detached ? CLJ_AFFINITY_POOL : affinity, on_done, NULL, done_value, detached);
 }
 
 clj_value clj_coro_result(clj_value coro, bool *threw) {
@@ -795,6 +808,52 @@ void clj_coro_cancel(clj_value coro) {
 	clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
 }
 
+// ---- the cycle collector's view (design §7, «Фаза 3»)
+
+// Under c->lock. queued: the channel queues the collector must find holding the waiter.
+static int cc_verdict(clj_coro *c, uint32_t *internal, uint32_t *queued) {
+	*internal = *queued = 0;
+	int state = atomic_load_explicit(&c->state, memory_order_acquire);
+	if (c->implicit) return CLJ_CORO_CC_LIVE;
+	if (state == CLJ_CORO_DONE) return c->finished ? CLJ_CORO_CC_DONE : CLJ_CORO_CC_LIVE;
+	if (state != CLJ_CORO_PARKED || c->cc_collected || atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE)
+		return CLJ_CORO_CC_LIVE;
+	// A host waits for its on_done: a waiter RC does not see.
+	if (c->on_done && clj_is_nil(c->done_value.v)) return CLJ_CORO_CC_LIVE;
+	if (c->park_kind == CLJ_WAKE_CHANNEL) {
+		// An uncancellable park leaves no waiter here: a cancel would not end it.
+		clj_waiter *w = c->waiter;
+		if (!w || claimed(w)) return CLJ_CORO_CC_LIVE;
+		*queued = atomic_load_explicit(&w->queued, memory_order_relaxed);
+	} else if (c->park_kind == CLJ_WAKE_HANDLE) {
+		if (!atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed)) return CLJ_CORO_CC_LIVE;
+	} else {
+		return CLJ_CORO_CC_LIVE;
+	}
+	// The execution's own reference, released by finish; and its deadline timer's, whose firing is a cancellation too.
+	*internal = 1 + (c->deadline_timer != NULL);
+	return CLJ_CORO_CC_PARKED;
+}
+
+bool clj_coro_cc_locked(clj_coro *c, void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx) {
+	if (pthread_mutex_trylock(&c->lock) != 0) return false;
+	uint32_t internal, queued;
+	int      verdict = cc_verdict(c, &internal, &queued);
+	inside(c, verdict, internal, queued, ctx);
+	pthread_mutex_unlock(&c->lock);
+	return true;
+}
+
+// The collection holds a reference and saw no wake since it judged c (resume clears the watch), so c is still parked.
+bool clj_coro_cc_cancel(clj_coro *c) {
+	pthread_mutex_lock(&c->lock);
+	bool take = !c->cc_collected && atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED;
+	if (take) c->cc_collected = true;
+	pthread_mutex_unlock(&c->lock);
+	if (take) clj_coro_cancel_kind(c, CLJ_CANCEL_REQUESTED);
+	return take;
+}
+
 void clj_coro_uncancel_scope(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	if (atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_SCOPE && c->shadow) {
@@ -881,7 +940,7 @@ bool clj_coro_suspend_point(void) {
 		c->shadow->countdown = 1;
 		return atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
 	}
-	clj_lot_park(c, suspend_wait_if, NULL);
+	clj_lot_park(c, suspend_wait_if, NULL, clj_wake_handle());
 	// The gate is left by a resume! (the deadline is restored: no throw) or by a cancellation (it stays poisoned).
 	return atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed);
 }
@@ -1161,7 +1220,7 @@ clj_value clj_sched_sleep_ms(int64_t ms) {
 	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
 	clj_waiter_retain(w);
 	clj_sched_timer(ms < 0 ? 0 : (uint64_t)ms * 1000000u, sleep_fire, w);
-	clj_park(w);
+	clj_park(w, clj_wake_timer());
 	clj_waiter_release(w);
 	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) return clj_throw_cancelled(clj_coro_cancel_is_deadline(c));
 	return CLJ_NIL;
@@ -1287,7 +1346,7 @@ void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
 	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
 	clj_waiter_retain(w);
 	job *j = submit(&jobs_pool, fn, ctx, size, w);
-	clj_park_uncancellable(w);
+	clj_park(w, clj_wake_thread());
 	memcpy(ctx, j->ctx_copy, size);
 	free(j);
 	clj_waiter_release(w);
@@ -1338,7 +1397,8 @@ static bool runtime_idle(size_t coros) {
 
 // A coroutine's count drops at its finalize, before its children are freed: the object count must hold still too.
 bool clj_debug_runtime_settle(size_t coros, uint64_t ms) {
-	uint64_t deadline = clj_profile_now() + ms * 1000000u;
+	enum { COLLECT_EVERY_NS = 20000000 };
+	uint64_t deadline = clj_profile_now() + ms * 1000000u, collect_at = 0;
 	for (;;) {
 		if (runtime_idle(coros)) {
 			clj_cc_collect();
@@ -1346,6 +1406,10 @@ bool clj_debug_runtime_settle(size_t coros, uint64_t ms) {
 			int64_t objects = clj_debug_live_objects();
 			usleep(1000);
 			if (runtime_idle(coros) && clj_debug_live_objects() == objects) return true;
+		} else if (clj_debug_live_coros() > coros && clj_profile_now() >= collect_at) {
+			// A coroutine parked on garbage leaves only when a collection cancels it (design §7, «Фаза 3»).
+			clj_cc_collect();
+			collect_at = clj_profile_now() + COLLECT_EVERY_NS;
 		}
 		if (clj_profile_now() > deadline) return false;
 		usleep(200);

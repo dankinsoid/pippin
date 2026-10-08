@@ -186,7 +186,7 @@
   (`clj_coro_deadline_arm`, a serial per arm so a stale firing is a no-op) whose firing is `cancel_locked` with the
   deadline kind: a coroutine parked past its deadline is woken too, where before only a running one met it at a
   tick; clearing the deadline disarms the timer and lifts a deadline cancellation. A blocking-pool wait is not
-  cancellable (`clj_park_uncancellable`): the job's result would have no owner. The flag is sticky: after the
+  cancellable (`clj_wake_thread()`): the job's result would have no owner. The flag is sticky: after the
   first throw every later park point throws again, so cleanup that must wait does so in a `catch`. An operation
   that completes without a wait (a ready value, a closed channel) has only the check before it, and a cancellation
   landing after that check is met at the next one: taking the value and then throwing would lose it. Deadlines are
@@ -272,29 +272,39 @@
   out channels and nothing hands out a coroutine. Unlike `cancel!` it does not remember a request that arrives
   before a `thread` body attached (there is no `cancel_early` twin) — a suspension is done to a running body.
   `suspended?` answers the flag, not the park: the body may still be a few calls short of its gate.
-- [ ] **A coroutine abandoned while parked is a cycle, and nothing frees it.** A `go` holds the channel it waits on
-  in its frames, and that channel's queue holds a waiter that holds the coroutine; the `go`'s own result channel
-  holds it too. So a `go-loop` whose channel the program has dropped — an untapped `mult`, an `onto-chan!` into a
-  buffer nobody drains — is unreachable and still alive, where the JVM's GC collects the same parked block. It is
-  the cycle of design §7, not a leak of the scheduler's. Collecting one is legitimate and strictly better than not:
-  the cycle is collectable exactly when nothing outside it refers to either end, which means nothing can put to the
-  channel, close it, cancel the coroutine or await it — so the park already cannot return, and collection recognizes
-  that rather than deciding it. The `finally` does not run either way. Three things are missing, and none follows
-  from what §7 already decided: neither edge is visible to a graph walk, since the coroutine's `each_child` visits
-  `fn`, args, result and cancel cause but not the suspended frames, and the channel's visits the buffer and the
-  putters' values but not the waiters, whose references are released on finalize instead; neither type is in §7's
-  may-cycle list; and `coro_finalize` asserts `!c->map`, so a parked coroutine cannot be freed at all until its
-  stack is given back. core.async's own `async_test.clj` makes 20 or 21 of them in one file, which is what the
-  corpus harness's `reclaimAbandoned` cancels (NOTES "Corpus"); a program has only `cancel!`. Trial deletion
-  exists (NOTES "RC") and does not reach this cycle: the waiter's `coro` is a bare pointer and a parked frame's
-  counted reference to its channel is invisible, so the channel always reads as held from outside. Design §7
-  ("Фаза 3") decided the open question — a collected coroutine is unwound by a cancel, not discarded, since only the
-  unwinding releases what its frames own — and records what is missing: the waiter edge as a strong edge, every
-  source that can wake a park (all ports of an `alts!` — a `timeout` port is held by the timer thread, so a
-  coroutine whose other channel was dropped still wakes —, a deadline, a `suspend!` gate, a blocking job, a cmutex
-  queue, a lazy seq claim), and an exact enumeration of what frames own across a park (stack maps for compiled code, the interpreter's frame
-  records, a rule for C builtins on the stack). Trigger: that enumeration, or a profile where abandoned parked
-  coroutines grow without bound.
+- **Every park names what wakes it** (design §7, «Фаза 3»): `clj_park(w, wake)` and `clj_lot_park(key, wait_if, ctx,
+  wake)` are the only parks, and `clj_wake` comes from a constructor (`coro_internal.h`) naming the kind and whether a
+  cancel ends it: channels (`<!`, `>!`, `alts!`, a promise's or future's `deref`; uncancellable for a scope's join),
+  the handle (the suspend gate), the timer (`Thread/sleep`), a runtime thread (a blocking job, the output writer's
+  backpressure) or a holder (a cmutex, a lazy seq's forcing claim). The park records the kind on the coroutine
+  (`park_kind`, under `c->lock`). `make park-audit` (in `make gates`) fails on a switch out of a coroutine anywhere but
+  `clj_park`, the finish and the bench's bounce, on a park call without a `clj_wake_*` constructor and on a
+  `clj_wake` literal.
+- [~] **A coroutine abandoned while parked is collected by cancelling it** (design §7, «Фаза 3», which holds the why;
+  `cc.c`, `cc_verdict` in `sched.c`, `chan_cc_wakes` and `chan_cc_held` in `chan.c`). The collector enters a coroutine
+  by type: it is `MUTABLE` from birth, so it never carries `REACH` and the release of a handle files nothing. It reads
+  one under `c->lock`, and `cc_verdict` answers PARKED for a cancellable channel park or a suspend gate with no cancel
+  standing, no host `on_done` (a coroutine with an `on_done` and no `done_value`) and no earlier collection; DONE once
+  `finish` ran (`finished`); LIVE otherwise, which is black with no edges read. A parked one's own reference and its
+  deadline timer's are internal. A channel gives an uncounted wake edge to each coroutine whose unclaimed waiter its
+  queues hold (`cc_wakes`) and counted edges to its `put!`/`take!` callback waiters' fns (`cc_held`, handed to the
+  teardown and forgotten when the channel is garbage, so its finalize does not release them twice). A waiter counts
+  the channel queues holding it (`queued`); a parked coroutine whose queues the graph did not all find is black, and
+  blackness crosses wake edges both ways. A white set holding a PARKED coroutine is not freed: each such coroutine is
+  cancelled once (`cc_collected`, `CLJ_CC_STAT_COROUTINES`), its white roots are filed again, and its unwind releases
+  the rest through RC, `finally` and `with-open` included. `go` and `future` keep their channel for `on_done` in the
+  coroutine's `done_value` slot, so the walk sees that edge; `resume` clears the watch bit of a coroutine it wakes.
+  Triggers: a channel released to nonzero, as for any cycle; the evacuation sweep, which files a park two passes saw and
+  again after 2, 4 … 256 passes while it lasts (`cc_sweep_file`); `clj_cc_collect`, which files every parked coroutine
+  (`clj_coro_cc_file_parked`). `clj_debug_runtime_settle` collects every 20 ms while more coroutines live than it
+  waits for, so a baseline waits out a collected park's unwind. `CoroCollectTests`: a dropped `go-loop` (resident and
+  evacuated), a `mult` with no taps, `onto-chan!` into an undrained buffer, a `future` on an undelivered promise, a park
+  inside `with-open`, one under a pending deadline and one at a suspend gate are collected and unwind; `alts!` over a
+  dropped channel and a live `timeout` waits for the timeout; a channel Swift holds keeps its park. Not collected, as
+  before: a cycle a frame's own reference holds — `alts!`'s port vector, which the caller owns as a temporary
+  (`(go-loop [] (alts! [in stop]) …)`, `mix`), a channel made in the go body's own `let` — and a park of a pinned kind.
+  Trigger: a leak report of that kind or the corpus's residue (NOTES "Corpus"); the fix is design §7's option 2 with 1
+  or 4, the user's choice.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.

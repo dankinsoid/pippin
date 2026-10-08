@@ -105,7 +105,10 @@ static void chan_each_child(void *self, clj_visitor visit, void *ctx) {
 static void free_nodes(qnode *n) {
 	while (n) {
 		qnode *next = n->next;
-		if (n->w) clj_waiter_release(n->w);
+		if (n->w) {
+			if (n->w->coro) atomic_fetch_sub_explicit(&n->w->queued, 1, memory_order_relaxed);
+			clj_waiter_release(n->w);
+		}
 		free(n);
 		n = next;
 	}
@@ -122,6 +125,8 @@ static void chan_finalize(void *self) {
 
 static bool chan_lock_held(const void *self);
 static bool chan_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx);
+static void chan_cc_wakes(void *self, void (*visit)(void *coro, void *ctx), void *ctx);
+static void chan_cc_held(void *self, clj_visitor visit, void *ctx, bool detach);
 
 const clj_type clj_chan_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
@@ -133,6 +138,8 @@ const clj_type clj_chan_type = {
 	.equals = identity_equals,
 	.debug_lock_held = chan_lock_held,
 	.cc_locked = chan_cc_locked,
+	.cc_wakes = chan_cc_wakes,
+	.cc_held = chan_cc_held,
 };
 
 static clj_value chan_alloc(int kind, uint32_t cap, int role) {
@@ -262,6 +269,36 @@ static bool chan_cc_locked(void *self, void (*inside)(void *self, void *ctx), vo
 	return true;
 }
 
+// Under the section: a node unlinks only under it, and an unclaimed waiter's coroutine has not woken, so it lives.
+static void chan_cc_wakes(void *self, void (*visit)(void *coro, void *ctx), void *ctx) {
+	clj_chan *ch = self;
+	qnode    *queues[2] = {ch->takers, ch->putters};
+	for (int q = 0; q < 2; q++) {
+		for (qnode *n = queues[q]; n; n = n->next) {
+			clj_waiter *w = n->w;
+			if (!w || !w->coro) continue;
+			clj_lock_lock(&w->lock);
+			if (!atomic_load_explicit(&w->claimed, memory_order_acquire)) visit(w->coro, ctx);
+			clj_lock_unlock(&w->lock);
+		}
+	}
+}
+
+// A put!/take! callback waiter sits in one node, which holds its only reference: its fn is the channel's edge.
+static void chan_cc_held(void *self, clj_visitor visit, void *ctx, bool detach) {
+	clj_chan *ch = self;
+	qnode    *queues[2] = {ch->takers, ch->putters};
+	for (int q = 0; q < 2; q++) {
+		for (qnode *n = queues[q]; n; n = n->next) {
+			clj_waiter *w = n->w;
+			if (!w || w->coro || clj_is_nil(w->callback)) continue;
+			clj_value fn = w->callback;
+			if (detach) w->callback = CLJ_NIL;
+			visit(fn, ctx);
+		}
+	}
+}
+
 #if CLJ_DEBUG
 static bool chan_lock_held(const void *self) {
 	const clj_chan *ch = self;
@@ -291,6 +328,7 @@ static qnode *node_new(clj_chan *ch, clj_waiter *w, clj_value value, uint32_t in
 	qnode *n = malloc(sizeof *n);
 	if (!n) clj_fatal("out of memory");
 	if (w) clj_waiter_retain(w);
+	if (w && w->coro) atomic_fetch_add_explicit(&w->queued, 1, memory_order_relaxed);
 	n->w = w;
 	clj_slot_store(&ch->h, &n->value, value);
 	n->index = index;
@@ -680,7 +718,7 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	if (!w) return clj_bool(ok);
-	clj_park(w);
+	clj_park(w, clj_wake_channels());
 	ok = w->ok;
 	clj_waiter_release(w);
 	if (cancelled_here()) return cancelled_throw();
@@ -710,8 +748,7 @@ static clj_value chan_take(clj_value chv, bool uncancellable) {
 	chan_unlock(ch);
 	flush_wakes(&ws, true);
 	if (!w) return out;
-	if (uncancellable) clj_park_uncancellable(w);
-	else clj_park(w);
+	clj_park(w, uncancellable ? clj_wake_channels_uncancellable() : clj_wake_channels());
 	out = w->value;
 	w->value = CLJ_NIL;
 	clj_waiter_release(w);
@@ -965,7 +1002,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 					clj_waiter_release(w);
 					return pending_error(is_put);
 				}
-				clj_park(w);
+				clj_park(w, clj_wake_channels());
 				result = parked_result(w);
 				clj_waiter_release(w);
 				return result;
@@ -994,7 +1031,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 			return pair(dflt, kw_default);
 		}
 	}
-	clj_park(w);
+	clj_park(w, clj_wake_channels());
 	if (cancelled_here()) {
 		clj_release(parked_result(w));
 		clj_waiter_release(w);
@@ -1127,15 +1164,15 @@ static void deliver_result(clj_value chv, clj_value v) {
 }
 
 static void go_done(clj_coro *c, void *ctx) {
-	clj_value chv = clj_from_ptr(ctx);
+	(void)ctx;
 	if (c->threw) clj_coro_report_uncaught(c);
-	deliver_result(chv, c->threw ? CLJ_NIL : c->result.v);
-	clj_release(chv);
+	deliver_result(c->done_value.v, c->threw ? CLJ_NIL : c->result.v);
 }
 
 // A future keeps the thrown value for its derefs instead of reporting it.
 static void future_done(clj_coro *c, void *ctx) {
-	clj_value chv = clj_from_ptr(ctx);
+	(void)ctx;
+	clj_value chv = c->done_value.v;
 	clj_chan *ch = chan_of(chv);
 	if (c->threw) {
 		chan_lock(ch);
@@ -1143,14 +1180,12 @@ static void future_done(clj_coro *c, void *ctx) {
 		chan_unlock(ch);
 	}
 	deliver_result(chv, c->threw ? CLJ_NIL : c->result.v);
-	clj_release(chv);
 }
 
+// The coroutine keeps chv for its on_done in a slot, which the cycle collector follows (design §7, «Фаза 3»).
 static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*done)(clj_coro *c, void *ctx), bool detached) {
-	clj_retain(chv);
-	clj_value coro = detached ? clj_coro_spawn_detached(f, done, clj_to_ptr(chv)) : clj_coro_spawn(f, NULL, 0, affinity, done, clj_to_ptr(chv));
+	clj_value coro = clj_coro_spawn_into(f, affinity, done, chv, detached);
 	if (coro == CLJ_THROWN) {
-		clj_release(chv);
 		clj_release(chv);
 		return CLJ_THROWN;
 	}

@@ -6,8 +6,8 @@
 ;; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.
 ;; :second-run-live-objects is what a second run of the same tests leaves alive once the cycle collector ran
 ;; (NOTES.md, RC): what the library keeps, or a cycle the collector does not see. A different number fails.
-;; :abandoned-coroutines is the most its own tests may leave parked for the harness to cancel: an
-;; upper bound, not a count, a library's own race deciding it, and 0 for a library that leaves none.
+;; :abandoned-coroutines is the most its own tests may leave parked where the cycle collector cannot judge
+;; them, for the harness to cancel: an upper bound, not a count, and 0 for a library that leaves none.
 {:abandoned-coroutines 0
  :second-run-live-objects 0
  :forms

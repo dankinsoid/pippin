@@ -21,6 +21,7 @@ enum {
 	CLJ_CC_STAT_DEEP_FILED,      // entries a replaced var root's release filed for the deep walk
 	CLJ_CC_STAT_DEEP_RETRIES,    // rings a deep walk found alive, and touched roots, filed again for a later walk
 	CLJ_CC_STAT_DEEP_CUT,        // deep collections that stopped adding nodes at their cap
+	CLJ_CC_STAT_COROUTINES,      // parked coroutines found garbage and cancelled (design §7, «Фаза 3»)
 	CLJ_CC_STAT_COUNT
 };
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]);

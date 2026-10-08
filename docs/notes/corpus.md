@@ -70,27 +70,24 @@
   item, 11 pass whole and 4 leave `t-1` an orphan — the mult read the source's nil while `@cs` was still empty, so it
   closed no tap and `(<!! t-1)` never returns, which the watchdog ends as `:timeout`. The entry is `:flaky`: all three
   verdicts are its.
-- **What the file's 20–21 leftover coroutines were, and what reclaims them.** They are abandoned parked by the tests
+- [~] **What the file's leftover coroutines are, and what reclaims them.** They are abandoned parked by the tests
   themselves: fifteen `onto-chan!` fillers of a `(chan n xf)` whose takers have all reported and nobody drains again
   (`check-expanding-transducer`, run 81 times), the `mult` and `mix` loops of `ops-tests`, and the two `future`s that
-  `unfulfilled-readers-block` and `expanding-transducer-puts-can-ignore-buffer-fullness` leave waiting on purpose.
-  Each is a reference cycle through the channel it waits on, which RC cannot free (NOTES "Coroutines": a parked
-  coroutine abandoned is a cycle), so nothing frees one — except the per-deftest watchdog deadline its spawn
-  conveyed. That is the whole of the 20–55 s drain: the wait is `CLJ_CORPUS_TIMEOUT_MS` from the last such spawn,
-  measured 7.99 s at a budget of 8000 and 5.0 s at 5000, and the Makefile exports 60000, which is why it showed in a
-  full corpus run and not when the library ran alone at the 5 s default. So the harness reclaims them: every deftest
-  has ended when a run returns, so a coroutine still parked is the library's leftover, and `reclaimAbandoned`
-  (`clj_debug_cancel_live_coros`) cancels it before the memory check. The count is not pinned but bounded:
-  `:abandoned-coroutines` in the allowlist is the most a library's own tests may leave parked, 0 for every
-  library but this one — so the old "nothing may be left" check holds everywhere else — and 24 here against 20
-  or 21 measured over twenty runs, the margin being the few of the 81 `check-expanding-transducer` calls whose
-  filler parks or not by a race (it parks when the items the takers did not consume do not fit the buffer, which
-  the expanding step may overfill). A run past the bound fails the step. A coroutine that never parked is not on
-  the live list, so a runaway loop is not reclaimed there and still fails the settle, which is how the
-  `(apply f (range))` one was caught. The
-  library's two runs take 9.7 s together and leave 0 live objects; before, the settle waited out 10 s and failed, and
-  the second run's baseline was taken while the first run's coroutines were still being reaped, so the delta came out
-  negative (−5 in one run).
+  `unfulfilled-readers-block` and `expanding-transducer-puts-can-ignore-buffer-fullness` leave waiting on purpose. Each
+  is a reference cycle through the channel it waits on (NOTES "Coroutines", the abandoned park), and every deftest has
+  ended when a run returns, so a coroutine still parked is the library's leftover. `reclaimAbandoned` lets the cycle
+  collector judge them first — `clj_cc_collect` until neither the count it cancelled nor the live count moves — which
+  cancels the fillers, the futures and the `mult` loops: their cycles run through heap edges and their watchdog
+  deadline counts as their own. What is left is a park whose cycle a frame's own reference holds: the two `mix` loops,
+  whose `alts!` port vector the loop owns, and the ASYNC-127 `mult` when its race leaves a tap's `put!` pending with
+  the tap in the loop's own `chs`. Those it cancels (`clj_debug_cancel_live_coros`) before the memory check, and
+  `:abandoned-coroutines` in the allowlist bounds that residue: 0 for every library but this one, so the old "nothing
+  may be left" check holds everywhere else, and 3 here. A run past the bound fails the step. Left alone, the only end
+  of such a park is the per-deftest watchdog deadline its spawn conveyed, `CLJ_CORPUS_TIMEOUT_MS` from the last spawn
+  (60 s as the Makefile exports it): the 20–55 s drain this harness once waited out. A coroutine that never parked is
+  not on the live list, so a runaway loop is not reclaimed there and still fails the settle, which is how the
+  `(apply f (range))` one was caught. Trigger for dropping the residue's cancel: design §7's frame enumeration
+  (NOTES "Coroutines").
 - **The other seven files of core.async's suite are out by subject, and `pipeline_test.clj` by cost.**
   `buffers_test` and `timers_test` name `clojure.core.async.impl.protocols` (`full?`/`add!`/`remove!`/`close-buf!`)
   and `impl.timers`: the buffers here are the spec objects `chan` reads, not containers with those methods, and the
@@ -171,7 +168,8 @@
   lines (`when-var-exists`), runs each namespace through `clojure.test/test-ns` under a collecting
   reporter and folds the events into pass/fail/error per var; a second run over the loaded namespaces is
   the memory check (baseline after the first), with `reclaimAbandoned` between them: every deftest has ended,
-  so a coroutine still parked was abandoned by the library's own tests and is cancelled rather than waited out. Allowlist rule: a failing form, test or skip not in the
+  so a coroutine still parked was abandoned by the library's own tests, and it is collected, or cancelled where the
+  collector cannot judge it, rather than waited out. Allowlist rule: a failing form, test or skip not in the
   allowlist fails; a listed one that now loads, passes or runs fails too (stale); an entry carries
   `:missing` (the symbols the runtime lacks, extracted from the message), `:design-line` (a line of design §8)
   or `:note` — a hand-written sentence saying whether the failure is an accepted deviation or a runtime bug

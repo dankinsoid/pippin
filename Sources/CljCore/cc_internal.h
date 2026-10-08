@@ -25,6 +25,8 @@ int  clj_cc_deep_release(clj_header *h);
 extern _Atomic bool clj_cc_running;
 // After the teardown of a buffered object: the entry gives the cell back when it is processed.
 void clj_cc_zombie(clj_header *h);
+// Files a live shared object as a candidate without a release: a parked coroutine (design §7, «Фаза 3»).
+void clj_cc_file(clj_header *h);
 
 // rc.c: the free of an object at zero, and a decrement that never makes a candidate (the collector's own references).
 // deep: what the teardown leaves at a nonzero count is filed by clj_cc_deep_release.

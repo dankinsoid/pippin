@@ -170,6 +170,7 @@ static void coro_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(c->fn.v, ctx);
 	for (size_t i = 0; i < c->nargs; i++) visit(c->args[i].v, ctx);
 	visit(c->result.v, ctx);
+	visit(c->done_value.v, ctx);
 	// The cancel cause is an edge out of the coroutine while it unwinds: trial deletion must see it.
 	visit(clj_slot_load(&c->cancel_cause, memory_order_relaxed), ctx);
 }
@@ -280,8 +281,9 @@ clj_coro *clj_coro_alloc(void) {
 	}
 	clj_coro *c = clj_alloc(&clj_coro_type, sizeof *c); // zeroed by the allocator
 	coro_init(c);
-	// The handle is held by the spawner and released by a carrier: atomic RC from birth.
-	c->h.flags |= CLJ_FLAG_SHARED;
+	// Atomic RC from birth: the spawner holds the handle, a carrier releases it. MUTABLE keeps REACH off, so a
+	// handle's release files no candidate; the collector enters it by type, under c->lock (design §7, «Фаза 3»).
+	c->h.flags |= CLJ_FLAG_SHARED | CLJ_FLAG_MUTABLE | CLJ_FLAG_CC_LOCKED;
 	atomic_fetch_add_explicit(&live_coros, 1, memory_order_seq_cst);
 	c->map = base;
 	c->map_size = size;
@@ -642,6 +644,22 @@ static clj_coro **live_snapshot(size_t *n) {
 	return all;
 }
 
+// The cycle collector's backstop (design §7, «Фаза 3»): a park two passes saw is filed as a candidate, then again
+// after 2, 4 … 256 passes while it lasts, for a collection that met it running or touched, or an outside reference
+// that went without a candidate. Under c->lock.
+static void cc_sweep_file(clj_coro *c) {
+	enum { CC_WAIT_MAX = 256 };
+	if (c->cc_park != c->parks) {
+		c->cc_park = c->parks;
+		c->cc_wait = c->cc_left = 1;
+		return;
+	}
+	if (--c->cc_left) return;
+	if (c->cc_wait < CC_WAIT_MAX) c->cc_wait *= 2;
+	c->cc_left = c->cc_wait;
+	clj_cc_file(&c->h);
+}
+
 // `all` takes every parked coroutine; a periodic pass takes those the previous pass saw in the same park.
 static size_t sweep(bool all) {
 	size_t     n, done = 0;
@@ -649,10 +667,12 @@ static size_t sweep(bool all) {
 	for (size_t i = 0; i < n; i++) {
 		clj_coro *c = cs[i];
 		pthread_mutex_lock(&c->lock);
-		if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED && c->map && !c->evacuated) {
+		bool parked = atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED && c->map;
+		if (parked && !c->evacuated) {
 			if (all || c->cold_at == c->parks) done += clj_coro_evacuate_locked(c);
 			else c->cold_at = c->parks;
 		}
+		if (parked && !all && !c->cc_collected) cc_sweep_file(c);
 		pthread_mutex_unlock(&c->lock);
 		clj_release(clj_from_ptr(c));
 	}
@@ -661,6 +681,18 @@ static size_t sweep(bool all) {
 }
 
 size_t clj_coro_evacuate_all(void) { return sweep(true); }
+
+// Under the stripe lock a linked coroutine is alive: finish unlinks it before it lets go of itself.
+void clj_coro_cc_file_parked(void) {
+	for (size_t k = 0; k < LIVE_STRIPES; k++) {
+		live_stripe *st = &live[k];
+		clj_lock_lock(&st->lock);
+		for (clj_coro *c = st->head; c; c = c->live_next) {
+			if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED) clj_cc_file(&c->h);
+		}
+		clj_lock_unlock(&st->lock);
+	}
+}
 
 // The sweep timer runs while coroutines live and re-arms itself; the first spawn after it stopped arms it again.
 static _Atomic uint64_t sweep_ms = 250;

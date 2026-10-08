@@ -303,7 +303,7 @@ static bool still_forcing(const void *key, void *ctx) {
 
 // A one-shot wait for the forcer, on the lot: a park, or a block on a bare thread (design §4, lazy seq under the
 // coroutine mutex).
-static void wait_forcer(clj_value v) { clj_lot_park(clj_to_ptr(v), still_forcing, NULL); }
+static void wait_forcer(clj_value v) { clj_lot_park(clj_to_ptr(v), still_forcing, NULL, clj_wake_holder()); }
 
 static void set_state(clj_value v, uint32_t st) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);

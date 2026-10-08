@@ -31,6 +31,29 @@ enum { CLJ_CANCEL_NONE = 0, CLJ_CANCEL_REQUESTED = 1, CLJ_CANCEL_DEADLINE = 2, C
 
 typedef struct clj_timer clj_timer;
 
+// What can wake a park (design §7, «Фаза 3»): the cycle collector judges a parked coroutine by it. A value is made
+// only by the clj_wake_* constructors below, never as a literal (make park-audit).
+enum {
+	CLJ_WAKE_CHANNEL = 1, // an operation on a channel whose queue holds the waiter, or a cancel
+	CLJ_WAKE_HANDLE,      // resume! or cancel! through a handle on the coroutine: the suspend gate
+	CLJ_WAKE_TIMER,       // the timer thread, after which the body goes on: Thread/sleep
+	CLJ_WAKE_THREAD,      // a runtime thread working for the parker: a blocking job, the output writer
+	CLJ_WAKE_HOLDER,      // the execution holding what it waits for: a cmutex, a lazy seq's forcing claim
+};
+
+typedef struct {
+	uint8_t kind;
+	bool    cancellable; // a cancel claims the waiter and wakes the park
+} clj_wake;
+
+static inline clj_wake clj_wake_channels(void) { return (clj_wake){CLJ_WAKE_CHANNEL, true}; }
+// A scope's join: the channel alone ends it, a cancel does not.
+static inline clj_wake clj_wake_channels_uncancellable(void) { return (clj_wake){CLJ_WAKE_CHANNEL, false}; }
+static inline clj_wake clj_wake_handle(void) { return (clj_wake){CLJ_WAKE_HANDLE, false}; }
+static inline clj_wake clj_wake_timer(void) { return (clj_wake){CLJ_WAKE_TIMER, true}; }
+static inline clj_wake clj_wake_thread(void) { return (clj_wake){CLJ_WAKE_THREAD, false}; }
+static inline clj_wake clj_wake_holder(void) { return (clj_wake){CLJ_WAKE_HOLDER, false}; }
+
 // One frame of the spawner's trace, kept as names and numbers: the nodes may die before the child throws.
 typedef struct {
 	clj_value name; // symbol or nil, retained
@@ -72,7 +95,8 @@ struct clj_coro {
 	bool             signaled;       // implicit: the block was released
 	pthread_mutex_t  lock;           // guards state, waiter and the park/resume handshake
 	pthread_cond_t   cond;           // implicit: what the thread blocks on
-	clj_waiter      *waiter;         // the park it is in, NULL while running
+	clj_waiter      *waiter;         // the park it is in, NULL while running and in an uncancellable park
+	uint8_t          park_kind;      // CLJ_WAKE_* of the park it is in, 0 while running
 	struct clj_coro *next;           // run-queue link
 	clj_carrier     *carrier;        // the carrier running it now
 	clj_slot         fn;             // the body, shared at spawn
@@ -80,8 +104,12 @@ struct clj_coro {
 	size_t           nargs;
 	clj_slot         result;         // the body's value, or the thrown value with `threw`
 	bool             threw;
+	bool             finished;       // finish ran, under lock: the slots hold still for the collector
 	void (*on_done)(struct clj_coro *c, void *ctx); // runs on the carrier after the body returned
 	void            *done_ctx;
+	// on_done's own value (a go or future channel), released after it: an edge, so the collector sees it. A
+	// coroutine with an on_done and no value has a host waiting for it, which no walk sees.
+	clj_slot         done_value;
 	clj_spawn_frame *spawn_trace;    // spawn_inline for a short trace: no malloc per spawn
 	uint32_t         nspawn;
 	clj_spawn_frame  spawn_inline[CLJ_CORO_SPAWN_TRACE_INLINE];
@@ -106,6 +134,9 @@ struct clj_coro {
 	// ---- the cycle collector (cc.c): candidates among the unshared objects this execution owns
 	void            *cc_local;
 	bool             cc_collecting;
+	bool             cc_collected;   // cancelled as garbage (design §7, «Фаза 3»): never judged again
+	uint32_t         cc_park;        // the park the sweep last saw, and the passes to its next filing
+	uint16_t         cc_wait, cc_left;
 #if CLJ_DEBUG
 	uint32_t         debug_owner;     // the tag its unshared objects carry (object.h, CLJ_OWNER_SHIFT)
 #endif
@@ -162,6 +193,9 @@ struct clj_waiter {
 	bool             ok;
 	bool             blocking; // set before enqueueing: the park blocks the thread instead of switching (host_depth > 0)
 	const void      *wait_chan; // the channel it was last queued on, for clj_debug_coro_dump; never dereferenced else
+	// Channel queues holding a node of it, for a coroutine's: the collector finds that many or judges it live.
+	// Exact while unclaimed, since only a claim or the channel's death unlinks such a node.
+	_Atomic uint32_t queued;
 };
 
 clj_waiter *clj_waiter_new(clj_coro *c, clj_value callback);
@@ -174,9 +208,11 @@ bool clj_waiter_claim(clj_waiter *w);
 int clj_waiter_claim_pair(clj_waiter *actor, clj_waiter *other);
 // Ask before enqueueing w: a park is illegal under a host call, a clj_lock or a cancellation (exception pending).
 bool clj_park_allowed(void);
-void clj_park(clj_waiter *w);
-// The same, invisible to cancel!: for a wait whose other side still uses the parker's stack (a blocking job).
-void clj_park_uncancellable(clj_waiter *w);
+// The one way to park: wake names what ends it. An uncancellable one is invisible to cancel!, for a wait whose
+// other side still uses the parker's stack (a blocking job) or must outlast a cancellation (a scope's join).
+void clj_park(clj_waiter *w, clj_wake wake);
+// A one-shot wait on any address; wait_if runs under the bucket's lock and false returns at once (cmutex.c).
+void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx, clj_wake wake);
 // Makes the coroutine of a claimed waiter runnable; a callback waiter runs its fn with w->value on the caller.
 // clj_resume hands the carrier over (the resumer is about to park: a channel); clj_resume_far queues it for
 // any carrier (the resumer keeps running: a lock's unlock).
@@ -267,6 +303,21 @@ clj_value clj_sched_sleep_ms(int64_t ms);
 void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size);
 // fn(ctx) on a blocking thread, the caller continues (thread).
 void clj_blocking_detach(void (*fn)(void *ctx), void *ctx);
+
+// The body f on a pool or main coroutine whose on_done gets done_value back in c->done_value (go, future): the
+// collector sees that edge. Detached: neither bindings nor deadline conveyed.
+clj_value clj_coro_spawn_into(clj_value f, int affinity, void (*on_done)(clj_coro *c, void *ctx), clj_value done_value, bool detached);
+
+// The cycle collector's view of a coroutine (cc.c, design §7 «Фаза 3»). LIVE: running, queued, or parked where a
+// collection cannot judge it — black. PARKED: in a collectable park, its self and deadline references internal and
+// `queued` channel queues to find. DONE: finished, an ordinary node.
+enum { CLJ_CORO_CC_LIVE, CLJ_CORO_CC_PARKED, CLJ_CORO_CC_DONE };
+// inside runs under c->lock; false without running when the lock is busy.
+bool clj_coro_cc_locked(clj_coro *c, void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx);
+// A white parked coroutine is cancelled once; true when this call did it.
+bool clj_coro_cc_cancel(clj_coro *c);
+// Files every parked coroutine as a cycle candidate (clj_cc_collect).
+void clj_coro_cc_file_parked(void);
 
 // Counters for tests and the bench.
 uint64_t clj_debug_coro_switches(void);
