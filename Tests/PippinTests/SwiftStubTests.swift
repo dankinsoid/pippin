@@ -186,15 +186,16 @@ extension CoreTests {
 			func reason(_ name: String) -> String? { refusals.first { $0.swiftName == name }?.reason }
 			#expect(reason("total(_:)")?.hasPrefix("variadic-parameter") == true)
 			#expect(reason("first(_:)")?.hasPrefix("generic") == true)
-			#expect(reason("origin()")?.contains("(Int, Int)") == true)
-			#expect(reason("maybe(_:)")?.contains("optional") == true)
+			#expect(reason("bounds(_:)")?.contains("labelled tuple") == true)
+			#expect(reason("doubly(_:)")?.contains("optional of an optional") == true)
 			#expect(reason("FixtureError.tooBig(_:)")?.hasPrefix("enum case") == true)
 			#expect(reason("Point.hash(into:)") != nil)
 			#expect(reason("Size.init(w:)")?.contains("crosses as a map") == true)
 			#expect(reason("Size.w")?.contains("crosses as a map") == true)
 			// Overloads by type: both refused, neither picked.
 			#expect(refusals.filter { $0.swiftName == "width(_:)" && $0.reason.hasPrefix("overload") }.count == 2)
-			for generated in ["moved(_:by:)", "risky(_:)", "later(_:)", "Point.move(by:)", "Counter.init(name:)", "applyTwice(_:to:)"] {
+			for generated in ["moved(_:by:)", "risky(_:)", "later(_:)", "Point.move(by:)", "Counter.init(name:)", "applyTwice(_:to:)",
+			                  "maybe(_:)", "origin()", "echo(_:)", "Point.init(nonNegative:)", "widths(_:_:_:)"] {
 				#expect(reason(generated) == nil, "\(generated)")
 			}
 			// A refused symbol is no var: the analyzer reports the name, as for any unresolved one.
@@ -212,7 +213,7 @@ extension CoreTests {
 			#expect(try doc("safe") == Value("Swift: safe(_:)"))
 			#expect(try doc("apply-twice") == Value("Swift: applyTwice(_:to:) rethrows"))
 			#expect(try doc("fetch") == Value("Swift: fetch(_:) async throws"))
-			#expect(try doc("Point.") == Value("Swift: Point.init(validating:) throws\nPoint.init(x:y:)"))
+			#expect(try doc("Point.") == Value("Swift: Point.init(nonNegative:)\nPoint.init(validating:) throws\nPoint.init(x:y:)"))
 			#expect(try doc("Screen.title") == Value("Swift: Screen.title() @MainActor"))
 		}
 

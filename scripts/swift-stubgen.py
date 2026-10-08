@@ -32,8 +32,14 @@ _spec = importlib.util.spec_from_file_location("swift_reprint", os.path.join(HER
 reprint = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(reprint)
 
-# What crosses by value, each through Pippin's ValueCodable conformance.
-SCALARS = {"s:Si": "Int", "s:Sd": "Double", "s:Sb": "Bool", "s:SS": "String"}
+# What crosses by value, each through Pippin's ValueCodable conformance; a fixed-width number checks its range.
+SCALARS = {
+	"s:Si": "Int", "s:Sd": "Double", "s:Sb": "Bool", "s:SS": "String", "s:Su": "UInt", "s:Sf": "Float",
+	"s:s4Int8V": "Int8", "s:s5Int16V": "Int16", "s:s5Int32V": "Int32", "s:s5Int64V": "Int64",
+	"s:s5UInt8V": "UInt8", "s:s6UInt16V": "UInt16", "s:s6UInt32V": "UInt32", "s:s6UInt64V": "UInt64",
+	"s:14CoreFoundation7CGFloatV": "CGFloat", "s:14CoreGraphics7CGFloatV": "CGFloat",
+}
+OPTIONAL, ARRAY, DICTIONARY, SET = "s:Sq", "s:Sa", "s:SD", "s:Sh"
 
 # Why a refused symbol is refused: the classifier's group-3 causes.
 CAUSE_TEXT = {
@@ -108,8 +114,144 @@ def stored_property_owners(paths, idx):
 	return owners
 
 
+class Form:
+	"""How one type crosses: Swift expressions that decode a `Value` into it and encode it back (design §5).
+
+	A composite form is built from its parts' forms, so an element crosses inside a collection exactly as it
+	would alone. `x` is a Swift expression; a nested form's expression sees its own closure's `$0`."""
+	kind = None
+
+	def decode(self, x):
+		raise NotImplementedError
+
+	def encode(self, x):
+		raise NotImplementedError
+
+
+class Void(Form):
+	kind = "void"
+
+
+class Scalar(Form):
+	kind = "scalar"
+
+	def __init__(self, t):
+		self.t = t
+
+	def decode(self, x):
+		return f"try {self.t}(decoding: {x})"
+
+	def encode(self, x):
+		return f"{x}.asValue"
+
+
+class Box(Form):
+	kind = "box"
+
+	def __init__(self, t):
+		self.t = t
+
+	def decode(self, x):
+		return f"try Pippin.SwiftStubs.unbox({x}, as: {self.t}.self)"
+
+	def encode(self, x):
+		return f"Pippin.SwiftStubs.box({x})"
+
+
+class Object(Form):
+	kind = "object"
+
+	def __init__(self, t):
+		self.t = t
+
+	def decode(self, x):
+		return f"try Pippin.SwiftStubs.unbox(object: {x}, as: {self.t}.self)"
+
+	def encode(self, x):
+		return f"Pippin.SwiftStubs.box(object: {x})"
+
+
+class Closure(Form):
+	kind = "closure"
+
+	def __init__(self, t):
+		self.t = t
+
+	def decode(self, x):
+		return f"try {x}.closure() as {self.t}"
+
+
+class Optional(Form):
+	kind = "optional"
+
+	def __init__(self, inner):
+		self.inner = inner
+
+	def decode(self, x):
+		return f"try Pippin.SwiftStubs.optional({x}) {{ {self.inner.decode('$0')} }}"
+
+	def encode(self, x):
+		return f"Pippin.SwiftStubs.optional({x}) {{ {self.inner.encode('$0')} }}"
+
+
+class Array(Form):
+	kind = "array"
+
+	def __init__(self, element):
+		self.element = element
+
+	def decode(self, x):
+		return f"try Pippin.SwiftStubs.array({x}) {{ {self.element.decode('$0')} }}"
+
+	def encode(self, x):
+		return f"Pippin.SwiftStubs.vector({x}) {{ {self.element.encode('$0')} }}"
+
+
+class Set(Form):
+	kind = "set"
+
+	def __init__(self, element):
+		self.element = element
+
+	def decode(self, x):
+		return f"try Pippin.SwiftStubs.set({x}) {{ {self.element.decode('$0')} }}"
+
+	def encode(self, x):
+		return f"Pippin.SwiftStubs.hashSet({x}) {{ {self.element.encode('$0')} }}"
+
+
+class Dictionary(Form):
+	kind = "dictionary"
+
+	def __init__(self, key, value):
+		self.key, self.value = key, value
+
+	def decode(self, x):
+		return (f"try Pippin.SwiftStubs.dictionary({x}, key: {{ {self.key.decode('$0')} }}, "
+			f"value: {{ {self.value.decode('$0')} }})")
+
+	def encode(self, x):
+		return (f"Pippin.SwiftStubs.map({x}, key: {{ {self.key.encode('$0')} }}, "
+			f"value: {{ {self.value.encode('$0')} }})")
+
+
+class Tuple(Form):
+	kind = "tuple"
+
+	def __init__(self, elements):
+		self.elements = elements
+
+	def decode(self, x):
+		parts = ", ".join(e.decode(f"t[{i}]") for i, e in enumerate(self.elements))
+		return f"try Pippin.SwiftStubs.tuple({x}, count: {len(self.elements)}) {{ t in ({parts}) }}"
+
+	def encode(self, x):
+		parts = ", ".join(e.encode(f"t.{i}") for i, e in enumerate(self.elements))
+		return f"Pippin.SwiftStubs.vector(tuple: {x}) {{ t in [{parts}] }}"
+
+
 class Types:
-	"""How a slot's type crosses: ('scalar'|'box'|'object', spelling), ('closure', params, result), ('void',)."""
+	"""How a slot's type crosses, as a Form; a type no form fits is a refusal naming it."""
 
 	def __init__(self, idx, map_structs):
 		self.idx = idx
@@ -117,7 +259,7 @@ class Types:
 
 	def nominal(self, usr, spelling, what):
 		if usr in SCALARS:
-			return ("scalar", spelling)
+			return Scalar(spelling)
 		rec = self.idx.by_usr.get(usr)
 		if rec and rec["kind"] in ("swift.struct", "swift.class") and rec["generic"]:
 			raise Refused(f"{what} `{spelling}` is generic: the instantiation set comes from call sites (design §5)")
@@ -125,26 +267,63 @@ class Types:
 			if usr in self.map_structs:
 				raise Refused(f"{what} `{spelling}` has public stored properties, so it crosses as a map (design §5), "
 					"which is not built")
-			return ("box", spelling)
+			return Box(spelling)
 		if rec and rec["kind"] == "swift.class":
-			return ("object", spelling)
+			return Object(spelling)
 		return None
 
 	def form(self, role, text, usrs):
 		t = NEUTRAL_MODIFIERS.sub("", text.strip()).strip()
 		if role == "result" and t in ("", "Void", "()"):
-			return ("void",)
+			return Void()
+		return self.parse(role, t, usrs)
+
+	def parse(self, role, t, usrs):
+		"""role: what the refusal calls the slot; only a parameter, or an optional one, takes a closure."""
+		t = t.strip()
 		if reprint._find_top(t, "->") >= 0:
 			if role != "parameter":
 				raise Refused(f"{role} `{t}` is a closure, which crosses only as a parameter")
 			return self.closure(t, usrs)
+		if t.endswith(("?", "!")):
+			return self.optional(role, t, t[:-1], usrs)
+		if t.startswith("(") and t.endswith(")") and reprint._balanced(t[1:-1]):
+			parts = [p.strip() for p in reprint._split_top(t[1:-1], [","])]
+			if len(parts) == 1:
+				return self.parse(role, parts[0], usrs)
+			if any(reprint._find_top(p, ":") >= 0 for p in parts):
+				raise Refused(f"{role} `{t}` is a labelled tuple, whose form is a map by its labels (design §5), "
+					"which is not built")
+			return Tuple([self.parse("tuple element", p, usrs) for p in parts])
+		if t.startswith("[") and t.endswith("]") and reprint._balanced(t[1:-1]):
+			parts = reprint._split_top(t[1:-1], [":"])
+			if len(parts) == 2:
+				return Dictionary(self.parse("dictionary key", parts[0], usrs), self.parse("dictionary value", parts[1], usrs))
+			return Array(self.parse("array element", t[1:-1], usrs))
+		m = re.match(r"^([\w.]+)\s*<(.*)>$", t, re.S)
+		if m and reprint._balanced(m.group(2)):
+			head = usrs.get(m.group(1)) or usrs.get(m.group(1).split(".")[-1])
+			args = [a.strip() for a in reprint._split_top(m.group(2), [","])]
+			if head == OPTIONAL and len(args) == 1:
+				return self.optional(role, t, args[0], usrs)
+			if head == ARRAY and len(args) == 1:
+				return Array(self.parse("array element", args[0], usrs))
+			if head == SET and len(args) == 1:
+				return Set(self.parse("set element", args[0], usrs))
+			if head == DICTIONARY and len(args) == 2:
+				return Dictionary(self.parse("dictionary key", args[0], usrs), self.parse("dictionary value", args[1], usrs))
 		form = self.nominal(usrs.get(t) or usrs.get(t.split(".")[-1]), t, role)
 		if form:
 			return form
-		if t.endswith(("?", "!")):
-			raise Refused(f"{role} `{t}` is an optional, which no stub converts yet")
 		what = reprint.classify_type(t, usrs, None, self.idx.alias_closures)
 		raise Refused(f"{role} `{t}` crosses as {what}, which no stub converts yet")
+
+	def optional(self, role, t, inner, usrs):
+		# Clojure has one nil, so `.some(nil)` and `nil` of a double optional would be one value.
+		form = self.parse(role, inner, usrs)
+		if isinstance(form, Optional):
+			raise Refused(f"{role} `{t}` is an optional of an optional, whose two nils Clojure cannot tell apart")
+		return Optional(form)
 
 	def closure(self, t, usrs):
 		"""Only what `rethrows` needs (design §5 «`throws` — четыре формы»): a throwing function of scalars."""
@@ -167,11 +346,15 @@ class Types:
 		result = result.strip()
 		if result not in ("Void", "()") and usrs.get(result) not in SCALARS:
 			raise Refused(f"{why}: its result `{result}` is not Int, Double, Bool, String or Void")
-		return ("closure", f"@Sendable ({', '.join(parts)}) throws -> {result}")
+		return Closure(f"@Sendable ({', '.join(parts)}) throws -> {result}")
 
 
 def swift_name(rec):
 	return ".".join(rec["path"])
+
+
+def owner_form(owner, spelling):
+	return Box(spelling) if owner["kind"] == "swift.struct" else Object(spelling)
 
 
 def owner_of(rec, idx, types):
@@ -237,7 +420,7 @@ def plans(rec, idx, types):
 	owner, owner_spelling = owner_of(rec, idx, types)
 	receiver = None
 	if owner is not None and kind in ("swift.method", "swift.property"):
-		receiver = ("box" if owner["kind"] == "swift.struct" else "object", owner_spelling)
+		receiver = owner_form(owner, owner_spelling)
 	throws, typed = effects_of(rec)
 	is_async = rec.get("async", False)
 	base = dict(rec=rec, owner=owner_spelling, receiver=receiver, isolation=rec["isolation"], is_async=is_async,
@@ -246,19 +429,15 @@ def plans(rec, idx, types):
 	if kind in reprint.PROPERTY_KINDS:
 		name = rec["path"][-1]
 		value = types.form("property", rec["slots"][0][1], rec["slot_usrs"][0])
-		if value[0] == "closure":
-			raise Refused("property of a function type: a closure crosses only as a parameter")
 		get = dict(base, role="get", member=name, swift=swift_name(rec), params=[], result=value, mutating=False)
 		out = [get]
 		if settable(rec):
 			# A setter neither throws nor suspends; a struct's is `mutating set`, so it answers the new value.
 			out.append(dict(base, role="set", member=name, swift=f"{swift_name(rec)} (set)", throws="none", typed=None,
-				is_async=False, params=[(None, value, False)], result=("void",),
-				mutating=receiver is not None and receiver[0] == "box"))
+				is_async=False, params=[(None, value, False)], result=Void(),
+				mutating=receiver is not None and receiver.kind == "box"))
 		return out
 
-	if kind == "swift.init" and re.search(r"\binit[?!]", rec["decl"]):
-		raise Refused("failable initializer: its result is an optional, which no stub converts yet")
 	labels = reprint.labels_of(rec["title"]) or []
 	params, slots = [], [(s, u) for s, u in zip(rec["slots"], rec["slot_usrs"]) if s[0] == "param"]
 	if len(labels) != len(slots):
@@ -270,15 +449,17 @@ def plans(rec, idx, types):
 		inout = bool(re.search(r"\binout\b", mod))
 		t = re.sub(r"^\s*inout\s+", "", text)
 		form = types.form("parameter", t, usrs)
-		if inout and form[0] == "closure":
+		if inout and reprint._find_top(t, "->") >= 0:
 			raise Refused(f"parameter `{text}`: an inout closure has no stub form")
 		params.append((None if label == "_" else label, form, inout))
 	if kind == "swift.init":
-		result = ("box" if owner["kind"] == "swift.struct" else "object", owner_spelling)
+		result = owner_form(owner, owner_spelling)
+		if re.search(r"\binit[?!]", rec["decl"]):
+			result = Optional(result)
 	else:
 		ret = next(((text, usrs) for (role, text, _b), usrs in zip(rec["slots"], rec["slot_usrs"]) if role == "return"), ("", {}))
 		result = types.form("result", ret[0], ret[1])
-	mutating = bool(re.search(r"\bmutating\b", rec["decl"])) and receiver is not None and receiver[0] == "box"
+	mutating = bool(re.search(r"\bmutating\b", rec["decl"])) and receiver is not None and receiver.kind == "box"
 	member = "" if kind == "swift.init" else rec["title"].split("(")[0]
 	role = "init" if kind == "swift.init" else ("method" if receiver else ("static" if owner else "func"))
 	return [dict(base, role=role, member=member, swift=swift_name(rec), params=params, result=result, mutating=mutating)]
@@ -322,23 +503,11 @@ def swift_string(s):
 
 
 def decode(form, arg):
-	kind, t = form[0], form[1]
-	if kind == "scalar":
-		return f"try {t}(decoding: {arg})"
-	if kind == "box":
-		return f"try Pippin.SwiftStubs.unbox({arg}, as: {t}.self)"
-	if kind == "object":
-		return f"try Pippin.SwiftStubs.unbox(object: {arg}, as: {t}.self)"
-	return f"try {arg}.closure() as {t}"
+	return form.decode(arg)
 
 
 def encode(form, expr):
-	kind = form[0]
-	if kind == "scalar":
-		return f"{expr}.asValue"
-	if kind == "box":
-		return f"Pippin.SwiftStubs.box({expr})"
-	return f"Pippin.SwiftStubs.box(object: {expr})"
+	return form.encode(expr)
 
 
 def effects_text(stub):
@@ -383,7 +552,7 @@ def emit_function(stub):
 	for i, (_label, form, inout) in enumerate(stub["params"]):
 		if inout:
 			outs.append(encode(form, f"a{k + i}"))
-	if stub["result"][0] == "void":
+	if stub["result"].kind == "void":
 		body.append(call)
 	else:
 		body.append(f"let r = {call}")

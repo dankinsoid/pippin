@@ -89,3 +89,13 @@
         (Thread/sleep 20)
         [(future-cancel waiting)
          (loop [i 0] (if (or (< cancels (fx/cancellations)) (> i 2000)) (- (fx/cancellations) cancels) (do (Thread/sleep 1) (recur (inc i)))))]))
+
+;; Optionals, collections, tuples and fixed-width numbers: a slot's form is built from its parts' forms.
+(show (fx/maybe 3) (fx/maybe -1) (fx/or-zero nil) (fx/or-zero 4) (fx/lookup nil) (fx/lookup p))
+(show (fx/Point. :non-negative -1) (describe (fx/Point. :non-negative 2)))
+(show (fx/sum :of [1 2 3]) (fx/sum :of (range 4)) (fx/sum :of []) (mapv describe (fx/points 2)) (fx/xs :of [p q]))
+(show (= {"a" 2 "b" 1} (fx/counts ["a" "b" "a"])) (= #{1 2 3} (fx/unique [1 2 2 3])) (fx/size :of #{"x" "y"}))
+(show (fx/echo {"k" [1 nil 3]}) (fx/origin) (fx/swap-pair [1 "one"]))
+(show (fx/widths 200 2.5 1000000007) (fx/max-u-int) (fx/widths 1 1.0 (fx/max-u-int)))
+(show (try (fx/widths 300 1.0 1) (catch :default e (ex-message e))))
+(show (try (fx/size :of ["x"]) (catch :default e (ex-message e))) (try (fx/swap-pair [1]) (catch :default e (ex-message e))))

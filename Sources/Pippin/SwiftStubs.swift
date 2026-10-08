@@ -302,6 +302,93 @@ public enum SwiftStubs {
 		}
 	}
 
+	// MARK: Composite forms (design §5 «Опционалы, коллекции, кортежи»): a generated stub passes each part's own
+	// conversion, so an element crosses inside a collection as it would alone.
+
+	/// nil is Swift's nil; anything else is the wrapped type's.
+	public static func optional<T>(_ v: Value, _ decode: (Value) throws -> T) rethrows -> T? {
+		v.isNil ? nil : try decode(v)
+	}
+
+	public static func optional<T>(_ v: T?, _ encode: (T) -> Value) -> Value { v.map(encode) ?? .nil_ }
+
+	/// A vector or any seq, realized: the copy design §5 accepts for a collection of values at level 2.
+	public static func array<T>(_ v: Value, _ decode: (Value) throws -> T) throws -> [T] {
+		guard let items = v.array ?? v.list else { throw ValueTypeMismatch(value: v, expected: "vector or seq") }
+		return try items.map(decode)
+	}
+
+	public static func vector<T>(_ v: [T], _ encode: (T) -> Value) -> Value { Value(v.map(encode)) }
+
+	/// A set only: a vector with repeats would collapse silently.
+	public static func set<T: Hashable>(_ v: Value, _ decode: (Value) throws -> T) throws -> Set<T> {
+		guard clj_is_set(v.raw) else { throw ValueTypeMismatch(value: v, expected: "set") }
+		var items: [Value] = []
+		withExtendedLifetime(v) {
+			withUnsafeMutablePointer(to: &items) { p in
+				clj_set_each(v.raw, { item, ctx in
+					ctx!.assumingMemoryBound(to: [Value].self).pointee.append(Value(borrowing: item))
+					return true
+				}, p)
+			}
+		}
+		var out = Set<T>(minimumCapacity: items.count)
+		for item in items {
+			if !out.insert(try decode(item)).inserted {
+				throw ClojureError(thrown: Value(exInfo: "Two elements of \(v) are one \(T.self): a Swift Set would drop one"))
+			}
+		}
+		return out
+	}
+
+	public static func hashSet<T>(_ v: Set<T>, _ encode: (T) -> Value) -> Value {
+		let items = v.map(encode)
+		let set = Value(owning: withExtendedLifetime(items) {
+			items.map(\.raw).withUnsafeBufferPointer { clj_set_from_array($0.baseAddress, $0.count) }
+		})
+		// Each element's conversion is faithful, so distinct Swift elements stay distinct Clojure values.
+		precondition(clj_set_count(set.raw) == UInt32(v.count), "two elements of a Swift Set became one Clojure value")
+		return set
+	}
+
+	/// Two keys of the map that decode to one Swift key are an error, not "the last one wins".
+	public static func dictionary<K: Hashable, V>(_ v: Value, key: (Value) throws -> K, value: (Value) throws -> V) throws -> [K: V] {
+		guard let entries = v.dictionary else { throw ValueTypeMismatch(value: v, expected: "map") }
+		var out: [K: V] = [:]
+		out.reserveCapacity(entries.count)
+		for (k, val) in entries {
+			if out.updateValue(try value(val), forKey: try key(k)) != nil {
+				throw ClojureError(thrown: Value(exInfo: "Two keys of \(v) are one \(K.self): a Swift Dictionary would drop one"))
+			}
+		}
+		return out
+	}
+
+	public static func map<K, V>(_ v: [K: V], key: (K) -> Value, value: (V) -> Value) -> Value {
+		var items: [Value] = []
+		items.reserveCapacity(v.count * 2)
+		for (k, val) in v {
+			items.append(key(k))
+			items.append(value(val))
+		}
+		var dup: UInt32 = 0
+		let map = Value(owning: withExtendedLifetime(items) {
+			items.map(\.raw).withUnsafeBufferPointer { clj_map_from_items($0.baseAddress, UInt32($0.count), &dup) }
+		})
+		precondition(map.raw != CLJ_UNBOUND, "two keys of a Swift Dictionary became one Clojure value")
+		return map
+	}
+
+	/// An unlabelled tuple is a vector of exactly its arity.
+	public static func tuple<T>(_ v: Value, count: Int, _ decode: ([Value]) throws -> T) throws -> T {
+		guard let items = v.array, items.count == count else {
+			throw ValueTypeMismatch(value: v, expected: "vector of \(count)")
+		}
+		return try decode(items)
+	}
+
+	public static func vector<T>(tuple v: T, _ encode: (T) -> [Value]) -> Value { Value(encode(v)) }
+
 	// MARK: Boxes
 
 	/// A struct as a Clojure value, boxed with a copy (design §5): `=` and `hash` are the type's own `==` and

@@ -75,6 +75,60 @@ extension Bool: ValueCodable {
 	public init(decoding value: Value) { self = value.isTruthy }
 }
 
+// A fixed-width integer is a long in range: a value past the type's ends is an error, never a wrap or a trap.
+public protocol ValueFixedWidthInteger: FixedWidthInteger, ValueCodable {}
+
+extension ValueFixedWidthInteger {
+	public var asValue: Value {
+		if let n = Int64(exactly: self) { return Value(owning: clj_long_new(n)) }
+		let text = String(self)
+		return Value(owning: text.withCString { clj_bigint_parse($0, text.utf8.count, 10) })
+	}
+
+	public init(decoding value: Value) throws {
+		if let n = value.int, let v = Self(exactly: n) {
+			self = v
+			return
+		}
+		// Only a UInt64 or UInt holds a value past a long, and such a value arrives as a bigint.
+		if clj_is_bigint(value.raw), let text = (withExtendedLifetime(value) { Value(owning: clj_bigint_to_string(value.raw)) }).string,
+		   let v = Self(text) {
+			self = v
+			return
+		}
+		throw ValueTypeMismatch(value: value, expected: "\(Self.self) (\(Self.min)...\(Self.max))")
+	}
+}
+
+extension Int8: ValueFixedWidthInteger {}
+extension Int16: ValueFixedWidthInteger {}
+extension Int32: ValueFixedWidthInteger {}
+extension Int64: ValueFixedWidthInteger {}
+extension UInt8: ValueFixedWidthInteger {}
+extension UInt16: ValueFixedWidthInteger {}
+extension UInt32: ValueFixedWidthInteger {}
+extension UInt64: ValueFixedWidthInteger {}
+extension UInt: ValueFixedWidthInteger {}
+
+extension Float: ValueCodable {
+	public var asValue: Value { Value(Double(self)) }
+	/// A double that rounds to a Float; one past its range is an error, not an infinity.
+	public init(decoding value: Value) throws {
+		guard let d = value.double, d.isNaN || d.isInfinite || Float(d).isFinite else {
+			throw ValueTypeMismatch(value: value, expected: "Float")
+		}
+		self = Float(d)
+	}
+}
+
+extension CGFloat: ValueCodable {
+	public var asValue: Value { Value(Double(self)) }
+	public init(decoding value: Value) throws {
+		guard let d = value.double else { throw ValueTypeMismatch(value: value, expected: "CGFloat") }
+		self = CGFloat(d)
+	}
+}
+
 extension Optional: ValueEncodable where Wrapped: ValueEncodable {
 	public var asValue: Value { self?.asValue ?? .nil_ }
 }

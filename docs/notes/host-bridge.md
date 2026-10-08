@@ -261,13 +261,26 @@
   (`SwiftStubs.refusals(of:)`); a stub swiftc rejects moves to the report with swiftc's message and the rest is
   built again, so one symbol cannot take a module down. A refused name is no var, so a call to it is the analyzer's
   "Unable to resolve".
-- [ ] **What the generator does not generate.** Slots cross as `Int`, `Double`, `Bool`, `String`, `Void`, a module
-  struct with no public stored property (a box), a module class (a box of the object), and as a parameter the
-  throwing scalar closure above. Refused with a reason: generics (functions and types), optionals (`init?` too),
-  collections, tuples, enums and their members and cases, protocols' members, actors, other closures, operators,
-  subscripts, isolation other than `@MainActor`, `isolated`/`sending` parameters, types of other modules, structs
-  with public stored properties (§5 moves those as a map) and their members. Trigger: the first symbol of that list
-  an application needs; generics come with the call-site instantiation list.
+- **A slot's form is built from its parts' forms** (`Form` in the generator; design §5 «Опционалы, коллекции,
+  кортежи»). Each form prints a decode and an encode expression, and a composite one passes its parts' as closures
+  to a `SwiftStubs` helper (`optional`, `array`/`vector`, `dictionary`/`map`, `set`/`hashSet`, `tuple`), so an
+  element inside a collection crosses exactly as it would alone and a refused element refuses the whole slot with its
+  own reason. A nested form's closure sees its own `$0`, and a tuple's decode names its vector `t`; a nested tuple's
+  `t` shadows the outer one only inside its own closure, after the outer `t[i]` was passed in. A map whose two keys
+  decode to one Swift key and a set whose two elements do are errors; the encode side asserts the converse, which
+  faithful element encodings make unreachable.
+- **A fixed-width number is a long in range** (`ValueFixedWidthInteger`, Closure.swift): a value past the type's
+  ends is a `ValueTypeMismatch` naming the range, never a wrap or a trap, and a `UInt64` past `Long/MAX_VALUE` crosses
+  as a bigint both ways (through its decimal text: the core has no unsigned 64-bit constructor). `Float` refuses a
+  finite double it would round to an infinity.
+- [ ] **What the generator does not generate.** Slots cross as the scalars (`Int`, `Double`, `Bool`, `String`, the
+  fixed-width numbers, `Float`, `CGFloat`), `Void`, a module struct with no public stored property (a box), a module
+  class (a box of the object), optionals, arrays, dictionaries, sets and unlabelled tuples of those, and as a
+  parameter the throwing scalar closure above. Refused with a reason: generics (functions and types), a double
+  optional, a labelled tuple, enums and their members and cases, protocols' members, actors, other closures,
+  operators, subscripts, isolation other than `@MainActor`, `isolated`/`sending` parameters, types of other modules,
+  structs with public stored properties (§5 moves those as a map) and their members. Trigger: the first symbol of
+  that list an application needs; generics come with the call-site instantiation list.
 - **The classifier the generator shares with the measurement reads a declaration's own head and effects**
   (`decl_parts`): a closure parameter's `throws`, `async` or `@MainActor` is not the function's, `nonisolated` drops
   the owner's actor, the `>` of `->` closes no bracket, and a property's type stops before its `{ get }`.

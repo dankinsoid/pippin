@@ -253,9 +253,45 @@ public func total(_ xs: Int...) -> Int { xs.reduce(0, +) }
 
 public func first<T>(_ xs: [T]) -> T? { xs.first }
 
+public func doubly(_ n: Int??) -> Int { (n ?? 0) ?? 0 }
+
+public func bounds(_ xs: [Int]) -> (min: Int, max: Int) { (xs.min() ?? 0, xs.max() ?? 0) }
+
+// Optionals, collections, tuples and fixed-width numbers: a slot's form is built from its parts' forms.
 public func origin() -> (Int, Int) { (0, 0) }
 
-public func maybe(_ n: Int) -> Int? { n }
+public func maybe(_ n: Int) -> Int? { n < 0 ? nil : n }
+
+public func orZero(_ n: Int?) -> Int { n ?? 0 }
+
+public func lookup(_ p: Point?) -> String { p.map { "\($0)" } ?? "none" }
+
+public func sum(of xs: [Int]) -> Int { xs.reduce(0, +) }
+
+public func points(_ n: Int) -> [Point] { (0..<n).map { Point(x: $0, y: $0) } }
+
+public func xs(of ps: [Point]) -> [Int] { ps.map(\.x) }
+
+public func counts(_ words: [String]) -> [String: Int] { words.reduce(into: [:]) { $0[$1, default: 0] += 1 } }
+
+public func unique(_ xs: [Int]) -> Set<Int> { Set(xs) }
+
+public func size(of s: Set<String>) -> Int { s.count }
+
+public func echo(_ m: [String: [Int?]]) -> [String: [Int?]] { m }
+
+public func swapPair(_ p: (Int, String)) -> (String, Int) { (p.1, p.0) }
+
+public func widths(_ b: UInt8, _ f: Float, _ big: UInt64) -> [Int32] { [Int32(b), Int32(f), Int32(big % 1000)] }
+
+public func maxUInt() -> UInt64 { .max }
+
+extension Point {
+	public init?(nonNegative x: Int) {
+		guard x >= 0 else { return nil }
+		self.init(x: x, y: x)
+	}
+}
 
 /// Overloads by type: labels cannot tell them apart, so both are refused.
 public func width(_ n: Int) -> Int { n }
