@@ -20,7 +20,7 @@
 ;; A double argument in a v register beside a pointer one in an x register.
 (let [epoch (.date-with-time-interval-since1970 (objc-class "NSDate") 0.0)
       d (.init-with-time-interval (.alloc (objc-class "NSDate")) 1.5 :since-date epoch)]
-  (show (.time-interval-since1970 d) (.is-equal-to-date d epoch)))
+  (show (.time-interval-since1970 (ns-object d)) (.is-equal-to-date (ns-object d) epoch)))
 
 (show (objc-send (objc-class "NSNumber") "numberWithDouble:" 2.5)
       (objc-send (objc-class "NSNumber") "numberWithBool:" true)
@@ -141,3 +141,10 @@
 (show (try (objc-reify {:superclass "NoSuchClass"} (["x" "v@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-reify {} (["big" "{big=ddddddddddddddddd}@:"] [self] 1)) (catch :default e (ex-message e))))
 (show (try (objc-block "v@?[4i]" [x] x) (catch :default e (ex-message e))))
+
+;; The core's inst, uuid and URI cross as NSDate, NSUUID and NSURL both ways; ns-object is the object itself.
+(let [u (.uuid-string (ns-object #uuid "6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
+      url (.url-with-string (objc-class "NSURL") "https://x.dev/a?q=1")]
+  (show u (.init-with-uuid-string (.alloc (objc-class "NSUUID")) u) url (:host url))
+  (show (.absolute-string (ns-object (parse-uri "https://x.dev/b"))) (.date-with-time-interval-since1970 (objc-class "NSDate") 1.0019)
+        (.time-interval-since1970 (ns-object #inst "1970-01-01T00:00:02.500-00:00"))))

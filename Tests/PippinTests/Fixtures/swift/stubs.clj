@@ -110,3 +110,8 @@
 (show (try (fx/widen (dissoc fr :tags)) (catch :default e (ex-message e))))
 ;; A private stored property keeps a struct a box; one with no init taking its fields crosses out only.
 (show (fx/Reading.value (fx/Reading. :value 5)) (fx/stamp))
+
+;; The core's inst, uuid and URI are Date, UUID and URL in Swift; an inst keeps whole milliseconds.
+(show (fx/epoch) (fx/shifted #inst "2026-10-08T00:00:00.000-00:00" :by 1.5))
+(show (fx/id-text #uuid "6ba7b810-9dad-11d1-80b4-00c04fd430c8") (fx/fixed-id))
+(show (fx/host :of (parse-uri "https://example.org/p?q=1")) (fx/resolved) (= (fx/resolved) (parse-uri "https://x.dev/a/b/c?q=1")))

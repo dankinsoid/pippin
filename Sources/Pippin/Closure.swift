@@ -129,6 +129,58 @@ extension CGFloat: ValueCodable {
 	}
 }
 
+// Foundation's value types cross as the core's own values (design §5 «Значения ядра на границе»).
+
+extension Date: ValueCodable {
+	/// An inst holds whole milliseconds: the sub-millisecond rest is dropped, toward the past.
+	public var asValue: Value {
+		Value(owning: clj_inst_new(Int64((timeIntervalSince1970 * 1000).rounded(.down))))
+	}
+
+	public init(decoding value: Value) throws {
+		guard clj_is_inst(value.raw) else { throw ValueTypeMismatch(value: value, expected: "inst") }
+		self = Date(timeIntervalSince1970: Double(withExtendedLifetime(value) { clj_inst_ms(value.raw) }) / 1000)
+	}
+}
+
+extension UUID: ValueCodable {
+	public var asValue: Value {
+		let b = uuid
+		let hi = [b.0, b.1, b.2, b.3, b.4, b.5, b.6, b.7].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+		let lo = [b.8, b.9, b.10, b.11, b.12, b.13, b.14, b.15].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+		return Value(owning: clj_uuid_new(Int64(bitPattern: hi), Int64(bitPattern: lo)))
+	}
+
+	public init(decoding value: Value) throws {
+		guard clj_is_uuid(value.raw) else { throw ValueTypeMismatch(value: value, expected: "uuid") }
+		let (hi, lo) = withExtendedLifetime(value) {
+			(UInt64(bitPattern: clj_uuid_of(value.raw).pointee.hi), UInt64(bitPattern: clj_uuid_of(value.raw).pointee.lo))
+		}
+		func byte(_ half: UInt64, _ i: Int) -> UInt8 { UInt8(truncatingIfNeeded: half >> (56 - 8 * i)) }
+		self = UUID(uuid: (byte(hi, 0), byte(hi, 1), byte(hi, 2), byte(hi, 3), byte(hi, 4), byte(hi, 5), byte(hi, 6), byte(hi, 7),
+		                   byte(lo, 0), byte(lo, 1), byte(lo, 2), byte(lo, 3), byte(lo, 4), byte(lo, 5), byte(lo, 6), byte(lo, 7)))
+	}
+}
+
+extension URL: ValueCodable {
+	/// The absolute text as a URI; one the RFC 3986 parse refuses stays a box, as level 1 keeps such an NSURL a handle.
+	public var asValue: Value {
+		let text = Value(absoluteString)
+		let uri = Value(owning: withExtendedLifetime(text) { clj_uri_parse(text.raw) })
+		return uri.isNil ? SwiftStubs.box(self) : uri
+	}
+
+	public init(decoding value: Value) throws {
+		if !clj_is_uri(value.raw) {
+			self = try SwiftStubs.unbox(value, as: URL.self)
+			return
+		}
+		let text = withExtendedLifetime(value) { Value(borrowing: clj_uri_text(value.raw)).string ?? "" }
+		guard let url = URL(string: text) else { throw ValueTypeMismatch(value: value, expected: "URL") }
+		self = url
+	}
+}
+
 extension Optional: ValueEncodable where Wrapped: ValueEncodable {
 	public var asValue: Value { self?.asValue ?? .nil_ }
 }

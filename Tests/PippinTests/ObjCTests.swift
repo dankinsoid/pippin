@@ -72,7 +72,7 @@ extension CoreTests {
 			#expect(try rt.eval("""
 			(let [epoch (objc-send (objc-class "NSDate") "dateWithTimeIntervalSince1970:" 0.0)
 			      d (objc-send (objc-send (objc-class "NSDate") "alloc") "initWithTimeInterval:sinceDate:" 1.5 epoch)]
-			  (objc-send d "timeIntervalSince1970"))
+			  (objc-send (ns-object d) "timeIntervalSince1970"))
 			""") == 1.5)
 			#expect(try rt.eval(#"(objc-send (objc-class "NSNumber") "numberWithFloat:" 0.5)"#) == 0.5)
 		}
@@ -128,7 +128,7 @@ extension CoreTests {
 			#expect(try rt.eval("""
 			(let [epoch (.date-with-time-interval-since1970 (objc-class "NSDate") 0.0)
 			      d (.init-with-time-interval (.alloc (objc-class "NSDate")) 1.5 :since-date epoch)]
-			  (.time-interval-since1970 d))
+			  (.time-interval-since1970 (ns-object d)))
 			""") == 1.5)
 			#expect(try rt.eval(#"(.length nil)"#) == nil)
 		}

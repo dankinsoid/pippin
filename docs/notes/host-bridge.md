@@ -273,6 +273,12 @@
   ends is a `ValueTypeMismatch` naming the range, never a wrap or a trap, and a `UInt64` past `Long/MAX_VALUE` crosses
   as a bigint both ways (through its decimal text: the core has no unsigned 64-bit constructor). `Float` refuses a
   finite double it would round to an infinity.
+- [~] **`Date`, `UUID` and `URL` are scalars of the generator, the core's inst, uuid and URI** (`ValueCodable`
+  conformances in Closure.swift; design §5 «Значения ядра на границе»). A `Date` keeps whole milliseconds, floored;
+  a `URL` crosses as its `absoluteString` parsed by the core's RFC 3986 parse, and one the parse refuses stays a
+  box of the `URL`, which a `URL` slot also takes back, as level 1 keeps such an `NSURL` a handle. The stub file
+  imports Foundation to name them. `Data` and `Decimal` (design §5 lists byte arrays and `bigdec`) are not built.
+  Trigger: an application symbol taking or answering one.
 - **An enum without payloads is a keyword, an all-public struct a map** (design §5 «Перечисление кейвордом,
   структура мапой»). `Shapes` in the generator decides which: an enum none of whose cases has a payload, and a
   struct whose stored properties, read off a second symbol graph extracted at `-minimum-access-level private`, are

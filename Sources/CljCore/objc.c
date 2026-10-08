@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include "clj/objc.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -658,6 +659,59 @@ static id to_ns_number(clj_value v) {
 	return ((id (*)(id, SEL, double))objc_msgSend)((id)c, sel_registerName("numberWithDouble:"), clj_num_to_double(v));
 }
 
+// The core's inst, uuid and uri cross as Foundation's own (design §5 «Значения ядра на границе»), autoreleased.
+static id to_ns_date(clj_value v) {
+	static Class ns_date;
+	Class        c = class_named("NSDate", &ns_date);
+	if (!c) return NULL;
+	return ((id (*)(id, SEL, double))objc_msgSend)((id)c, sel_registerName("dateWithTimeIntervalSince1970:"),
+	                                                (double)clj_inst_ms(v) / 1000.0);
+}
+
+static id to_ns_uuid(clj_value v) {
+	static Class ns_uuid;
+	Class        c = class_named("NSUUID", &ns_uuid);
+	if (!c) return NULL;
+	unsigned char bytes[16];
+	uint64_t      halves[2] = {(uint64_t)clj_uuid_of(v)->hi, (uint64_t)clj_uuid_of(v)->lo};
+	for (int i = 0; i < 16; i++) bytes[i] = (unsigned char)(halves[i / 8] >> (56 - 8 * (i % 8)));
+	id raw = ((id (*)(id, SEL))objc_msgSend)((id)c, sel_registerName("alloc"));
+	return objc_autorelease(((id (*)(id, SEL, const unsigned char *))objc_msgSend)(raw, sel_registerName("initWithUUIDBytes:"), bytes));
+}
+
+// NULL for a text NSURL refuses, which the caller reports as an argument that does not convert.
+static id to_ns_url(clj_value v) {
+	static Class ns_url;
+	Class        c = class_named("NSURL", &ns_url);
+	if (!c) return NULL;
+	return ((id (*)(id, SEL, id))objc_msgSend)((id)c, sel_registerName("URLWithString:"), to_ns_string(clj_uri_text(v)));
+}
+
+// A date keeps whole milliseconds, as an inst does: the sub-millisecond rest is dropped, toward the past.
+static clj_value from_ns_date(id obj) {
+	double s = ((double (*)(id, SEL))objc_msgSend)(obj, sel_registerName("timeIntervalSince1970"));
+	return clj_inst_new((int64_t)floor(s * 1000.0));
+}
+
+static clj_value from_ns_uuid(id obj) {
+	unsigned char bytes[16];
+	((void (*)(id, SEL, unsigned char *))objc_msgSend)(obj, sel_registerName("getUUIDBytes:"), bytes);
+	uint64_t halves[2] = {0, 0};
+	for (int i = 0; i < 16; i++) halves[i / 8] = (halves[i / 8] << 8) | bytes[i];
+	return clj_uuid_new((int64_t)halves[0], (int64_t)halves[1]);
+}
+
+// A relative NSURL arrives resolved against its base; a text the RFC 3986 parse refuses stays a handle.
+static clj_value from_ns_url(id obj) {
+	id          text = ((id (*)(id, SEL))objc_msgSend)(obj, sel_registerName("absoluteString"));
+	const char *utf8 = text ? ((const char *(*)(id, SEL))objc_msgSend)(text, sel_registerName("UTF8String")) : NULL;
+	if (!utf8) return CLJ_NIL;
+	clj_value s = clj_string_from_cstr(utf8);
+	clj_value u = clj_uri_parse(s);
+	clj_release(s);
+	return u;
+}
+
 // A returned NSString or NSNumber crosses as a value; every other object stays an opaque wrapper. Mutability
 // cannot decide it: __NSCFString is registered under NSMutableString whether or not it is mutable, so the
 // test would split strings by length (tagged pointer or not) and not by what the caller can do with them.
@@ -685,6 +739,15 @@ static clj_value from_object(id obj, bool owned) {
 		if (owned) objc_release(obj);
 		return n;
 	}
+	static Class ns_date, ns_uuid, ns_url;
+	clj_value    v = CLJ_NIL;
+	if (is_kind_of(obj, class_named("NSDate", &ns_date))) v = from_ns_date(obj);
+	else if (is_kind_of(obj, class_named("NSUUID", &ns_uuid))) v = from_ns_uuid(obj);
+	else if (is_kind_of(obj, class_named("NSURL", &ns_url))) v = from_ns_url(obj);
+	if (!clj_is_nil(v)) {
+		if (owned) objc_release(obj);
+		return v;
+	}
 	return owned ? clj_objc_wrap_owned(obj) : clj_objc_wrap(obj);
 }
 
@@ -695,6 +758,12 @@ static bool to_int_slot(clj_value v, char enc, long long *out) {
 		if (clj_is_objc_object(v)) return *out = (long long)(intptr_t)clj_objc_id(v), true;
 		if (clj_is_string(v)) return *out = (long long)(intptr_t)to_ns_string(v), true;
 		if (clj_is_number(v) || clj_is_bool(v)) return *out = (long long)(intptr_t)to_ns_number(v), true;
+		if (clj_is_inst(v)) return *out = (long long)(intptr_t)to_ns_date(v), true;
+		if (clj_is_uuid(v)) return *out = (long long)(intptr_t)to_ns_uuid(v), true;
+		if (clj_is_uri(v)) {
+			id url = to_ns_url(v);
+			return *out = (long long)(intptr_t)url, url != NULL;
+		}
 		return false;
 	case '#':
 	case '^':
@@ -1104,6 +1173,18 @@ clj_value clj_objc_to_string(clj_value v, bool mutable) {
 	id str = ((id (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(
 	    raw, sel_registerName("initWithBytes:length:encoding:"), clj_string_bytes(v), (unsigned long)clj_string_len(v), 4 /* NSUTF8StringEncoding */);
 	return str ? clj_objc_wrap_owned(str) : clj_throw_msg("%s: not UTF-8", name);
+}
+
+// The same for the core's values Foundation has a class for: each crosses as a value, so its object is asked for.
+clj_value clj_objc_to_object(clj_value v) {
+	if (clj_is_string(v)) return clj_objc_to_string(v, false);
+	if (!clj_is_inst(v) && !clj_is_uuid(v) && !clj_is_uri(v))
+		return clj_throw_msg("ns-object expects a string, an inst, a uuid or a URI, got: %s", clj_type_name(v));
+	pool_scope p = pool_enter();
+	id         obj = clj_is_inst(v) ? to_ns_date(v) : clj_is_uuid(v) ? to_ns_uuid(v) : to_ns_url(v);
+	clj_value  out = obj ? clj_objc_wrap(obj) : clj_throw_msg("ns-object: NSURL refuses %s", clj_string_bytes(clj_uri_text(v)));
+	pool_leave(p);
+	return out;
 }
 
 clj_value clj_objc_from_string(clj_value v) {
@@ -2244,6 +2325,11 @@ clj_value clj_objc_from_string(clj_value v) {
 	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
 }
 
+clj_value clj_objc_to_object(clj_value v) {
+	(void)v;
+	return clj_throw_msg("The Objective-C bridge needs an Apple platform");
+}
+
 #endif
 
 // ---- builtins
@@ -2308,6 +2394,11 @@ static clj_value b_ns_string_to_str(const clj_value *args, size_t n) {
 	return clj_objc_from_string(args[0]);
 }
 
+static clj_value b_ns_object(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_objc_to_object(args[0]);
+}
+
 static clj_value b_objc_reify(const clj_value *args, size_t n) {
 	(void)n;
 	return clj_objc_reify(args[0], args[1], args[2], args[3], args[4]);
@@ -2338,6 +2429,7 @@ void clj_objc_builtins_install(void) {
 	clj_builtin_bind_extension("ns-string", b_ns_string, 1, 1);
 	clj_builtin_bind_extension("ns-mutable-string", b_ns_mutable_string, 1, 1);
 	clj_builtin_bind_extension("ns-string->str", b_ns_string_to_str, 1, 1);
+	clj_builtin_bind_extension("ns-object", b_ns_object, 1, 1);
 	clj_builtin_bind_extension("ns-dictionary->map", b_ns_dictionary_to_map, 1, 1);
 	clj_builtin_bind_extension("objc-class", b_objc_class, 1, 1);
 	clj_builtin_bind_extension("objc-send", b_objc_send, 2, CLJ_ARITY_ANY);

@@ -39,3 +39,5 @@ nil
 "objc-reify: no such class: NoSuchClass"
 "objc-reify: big has a shape the bridge cannot implement: {big=ddddddddddddddddd}@:"
 "objc-block: a shape the bridge cannot implement: v@?[4i]"
+"6BA7B810-9DAD-11D1-80B4-00C04FD430C8" #uuid "6ba7b810-9dad-11d1-80b4-00c04fd430c8" #object[URI "https://x.dev/a?q=1"] "x.dev"
+"https://x.dev/b" #inst "1970-01-01T00:00:01.001-00:00" 2.5

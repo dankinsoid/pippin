@@ -52,3 +52,6 @@ true 9 {:w 4} {:w 5}
 ":extra is not a key of PippinFixture.Frame: its keys are :heading :label :origin :tags"
 "PippinFixture.Frame needs :tags, which the map lacks"
 5 {:at 7}
+#inst "1970-01-01T00:00:00.001-00:00" #inst "2026-10-08T00:00:01.500-00:00"
+"6BA7B810-9DAD-11D1-80B4-00C04FD430C8" #uuid "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+"example.org" #object[URI "https://x.dev/a/b/c?q=1"] true

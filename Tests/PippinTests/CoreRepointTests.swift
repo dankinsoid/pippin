@@ -63,12 +63,13 @@ extension CoreTests {
 
 		@Test func dotDotAndMemfnSendTheGeneralMethodForm() throws {
 			#expect(try eval("[(.. (repoint.model/->Box 1) greet) (.. (repoint.model/->Box 2) shout) (map (memfn greet) [(repoint.model/->Box 3)])]").description == "[\"hi 1\" \"HI 2\" (\"hi 3\")]")
-			#expect(try eval("(.. (objc-class \"NSDate\") (date-with-time-interval-since-reference-date 2.5) time-interval-since-reference-date)") == 2.5)
+			#expect(try eval("(pos? (.. (objc-class \"NSProcessInfo\") process-info process-identifier))") == true)
+			// An NSDate answered crosses as an inst, and an inst argument as an NSDate (design §5).
 			#expect(try eval("""
 			(let [epoch (.date-with-time-interval-since-reference-date (objc-class "NSDate") 0.0)
 			      init (memfn init-with-time-interval t :since-date d)]
-			  (.time-interval-since-reference-date (init (.alloc (objc-class "NSDate")) 1.5 epoch)))
-			""") == 1.5)
+			  (inst-ms (init (.alloc (objc-class "NSDate")) 1.5 epoch)))
+			""") == 978_307_201_500)
 		}
 
 		// The C identifier clj-compile gives a name (NOTES "Compiler", "Names"), not the JVM's munge.

@@ -131,6 +131,19 @@ public enum Shade: String {
 
 public func shade(_ s: Shade) -> String { s.rawValue }
 
+// The core's inst, uuid and URI are Foundation's Date, UUID and URL here.
+public func epoch() -> Date { Date(timeIntervalSince1970: 0.0019) }
+
+public func shifted(_ d: Date, by s: Double) -> Date { d.addingTimeInterval(s) }
+
+public func idText(_ u: UUID) -> String { u.uuidString }
+
+public func fixedID() -> UUID { UUID(uuidString: "6BA7B810-9DAD-11D1-80B4-00C04FD430C8")! }
+
+public func host(of u: URL) -> String? { u.host }
+
+public func resolved() -> URL { URL(string: "b/c?q=1", relativeTo: URL(string: "https://x.dev/a/"))! }
+
 public func headings(_ hs: Set<Heading>) -> [Heading: Int] { Dictionary(uniqueKeysWithValues: hs.map { ($0, $0.degrees) }) }
 
 /// A class with neither conformance: its boxes compare by the object.

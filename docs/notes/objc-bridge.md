@@ -89,6 +89,13 @@ Swift, because a Swift dispatcher would pay `clj_host_invoke` on every call (~64
   A level-2 handle to a Swift struct is a pointer to a box holding a *copy*, where identity would mean
   "the same box", so design §5 has the generator print `==` and `hash(into:)` from the type's own
   `Equatable`/`Hashable` and refuse to be a map key where the type has neither.
+- [~] **An `NSDate`, `NSUUID` or `NSURL` crosses as the core's inst, uuid or URI, both ways** (design §5 «Значения
+  ядра на границе»): an `@` argument converts ours by its type, a return converts by `isKindOfClass:`, and
+  `ns-object` hands back the object itself, as `ns-string` does for a string. A date keeps whole milliseconds
+  (floored), a URL arrives as its `absoluteString`, so a relative one is resolved against its base, and an
+  `NSURL` whose text the RFC 3986 parse refuses stays a handle; a URI `NSURL` refuses as an argument is the
+  argument error. The cost on every other object return is three more `isKindOfClass:` sends; trigger for a
+  class-pointer cache in their place: an object-returning send in a profile.
 - **The analyzer builds the selector, no backend resolves anything from the call's shape.**
   `(.add-target btn self :action sel :for-control-events e)` becomes one `CLJ_NODE_OBJC_SEND` carrying
   the string `add-target:action:for-control-events:`; labels are the odd items and arguments the even

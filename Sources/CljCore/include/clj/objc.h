@@ -58,6 +58,8 @@ clj_value clj_objc_from_collection(clj_value v, bool as_map);
 // Every NSString crosses back as a value, so the object itself is asked for by name (design §5).
 clj_value clj_objc_to_string(clj_value v, bool mutable);
 clj_value clj_objc_from_string(clj_value v);
+// An inst, a uuid or a URI crosses as the core's value both ways; ns-object is the NSDate, NSUUID or NSURL itself.
+clj_value clj_objc_to_object(clj_value v);
 
 // One class per shape, never disposed, bodies under host_depth (design §5); an encoding is nil when a
 // protocol or the superclass already declares that selector.

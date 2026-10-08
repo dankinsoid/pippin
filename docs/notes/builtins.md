@@ -106,7 +106,6 @@
   :query :fragment`) are keyword lookups that cut a string on demand; an empty host is nil, as `java.net.URI`
   answers for `file:///x`. `=` and `hash` are the text's, `str` is the text, and `pr` is `#object[URI "…"]`,
   since the JVM's default readers have no tag for one to read back.
-- [ ] **No bridge converts a URI, a uuid or an inst.** The ObjC bridge carries strings and numbers by value
-  (design §5 «Что конвертируется само»), so an `NSURL`, an `NSUUID` or an `NSDate` crosses as a handle and ours
-  is refused as an argument. Trigger: an API taking or answering one of the three; the conversion is the
-  bridge's, by the parameter's or the return's class, and the core values stay as they are.
+- **The bridges convert a URI, a uuid and an inst; the core values stay as they are.** Level 1 carries them as
+  `NSURL`, `NSUUID` and `NSDate` by the argument's type and the return's class (NOTES "ObjC bridge"), level 2 as
+  `URL`, `UUID` and `Date` by the slot's type (NOTES "Host bridge"); neither defines what the values are.
