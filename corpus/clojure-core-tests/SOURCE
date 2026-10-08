@@ -24,6 +24,8 @@ in-tree helpers they require):
   test/clojure/test_clojure/logic.clj              -> test/clojure/test_clojure/logic.clj
   test/clojure/test_clojure/macros.clj             -> test/clojure/test_clojure/macros.clj
   test/clojure/test_clojure/multimethods.clj       -> test/clojure/test_clojure/multimethods.clj
+  test/clojure/test_clojure/ns_libs.clj            -> test/clojure/test_clojure/ns_libs.clj
+  test/clojure/test_clojure/ns_libs_load_later.clj -> test/clojure/test_clojure/ns_libs_load_later.clj
   test/clojure/test_clojure/numbers.clj            -> test/clojure/test_clojure/numbers.clj
   test/clojure/test_clojure/other_functions.clj    -> test/clojure/test_clojure/other_functions.clj
   test/clojure/test_clojure/predicates.clj         -> test/clojure/test_clojure/predicates.clj

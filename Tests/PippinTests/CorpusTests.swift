@@ -97,50 +97,54 @@ private let harnessSource = """
            (corpus-deadline* 0)
            (clojure.test/do-report {:type :error :message "watchdog" :expected nil :actual e})))))
 
-;; A deadline per deftest: the runtime throws timeout-msg at the first call or loop turn past it.
-(defn run-ns [ns-sym budget-ms]
-  (let [events (atom [])
-        escaped (atom nil)
-        tests (into {} (keep (fn [v] (when-let [t (:test (meta v))] [v t])) (vals (ns-interns ns-sym))))]
-    (try
-      (doseq [[v t] tests] (alter-meta! v assoc :test (guard-expiry t)))
-      (binding [clojure.test/report
-                (fn [m]
-                  (let [t (:type m)]
-                    (swap! events conj m)
-                    (cond
-                      (= t :begin-test-var) (do (corpus-progress* (str (:var m))) (corpus-deadline* budget-ms))
-                      (= t :end-test-var) (corpus-deadline* 0))))]
-        (try
-          (clojure.test/test-ns ns-sym)
-          (catch :cancelled e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
-          (finally (corpus-deadline* 0))))
-      (finally (doseq [[v t] tests] (alter-meta! v assoc :test t))))
-    (loop [es (seq @events) cur nil out []]
-      (if-not es
-        (cond
-          ;; escaped past the guard (a fixture): the open test is what it interrupted
-          cur (conj out (if-let [r @escaped] [(nth cur 0) (if (= r timeout-msg) :timeout :error) r] cur))
-          @escaped (conj out [(str ns-sym) (if (= @escaped timeout-msg) :timeout :error) @escaped])
-          :else out)
-        (let [m (first es) t (:type m)]
-          (cond
-            (= t :begin-test-var)
-            (let [v (:var m) mt (meta v)]
-              (recur (next es) [(str (:ns mt) "/" (:name mt)) :pass nil] out))
-            (= t :end-test-var) (recur (next es) nil (conj out cur))
-            (and cur (= t :error))
-            (let [r (reason-of m)]
-              (recur (next es)
-                     (if (or (= :pass (nth cur 1)) (= r timeout-msg))
-                       [(nth cur 0) (if (= r timeout-msg) :timeout :error) r]
-                       cur)
-                     out))
-            (and cur (= t :fail))
-            (recur (next es)
-                   (if (= :pass (nth cur 1)) [(nth cur 0) :fail (pr-str (:expected m))] cur)
-                   out)
-            :else (recur (next es) cur out)))))))
+;; A deadline per deftest: the runtime throws timeout-msg at the first call or loop turn past it. A var named in
+;; skip ("ns/name") runs without its :test, so test-ns passes it by.
+(defn run-ns
+  ([ns-sym budget-ms] (run-ns ns-sym budget-ms #{}))
+  ([ns-sym budget-ms skip]
+   (let [events (atom [])
+         escaped (atom nil)
+         tests (into {} (keep (fn [v] (when-let [t (:test (meta v))] [v t])) (vals (ns-interns ns-sym))))]
+     (try
+       (doseq [[v t] tests]
+         (alter-meta! v assoc :test (when-not (contains? skip (str (:ns (meta v)) "/" (:name (meta v)))) (guard-expiry t))))
+       (binding [clojure.test/report
+                 (fn [m]
+                   (let [t (:type m)]
+                     (swap! events conj m)
+                     (cond
+                       (= t :begin-test-var) (do (corpus-progress* (str (:var m))) (corpus-deadline* budget-ms))
+                       (= t :end-test-var) (corpus-deadline* 0))))]
+         (try
+           (clojure.test/test-ns ns-sym)
+           (catch :cancelled e (corpus-deadline* 0) (reset! escaped (reason-of {:actual e})))
+           (finally (corpus-deadline* 0))))
+       (finally (doseq [[v t] tests] (alter-meta! v assoc :test t))))
+     (loop [es (seq @events) cur nil out []]
+       (if-not es
+         (cond
+           ;; escaped past the guard (a fixture): the open test is what it interrupted
+           cur (conj out (if-let [r @escaped] [(nth cur 0) (if (= r timeout-msg) :timeout :error) r] cur))
+           @escaped (conj out [(str ns-sym) (if (= @escaped timeout-msg) :timeout :error) @escaped])
+           :else out)
+         (let [m (first es) t (:type m)]
+           (cond
+             (= t :begin-test-var)
+             (let [v (:var m) mt (meta v)]
+               (recur (next es) [(str (:ns mt) "/" (:name mt)) :pass nil] out))
+             (= t :end-test-var) (recur (next es) nil (conj out cur))
+             (and cur (= t :error))
+             (let [r (reason-of m)]
+               (recur (next es)
+                      (if (or (= :pass (nth cur 1)) (= r timeout-msg))
+                        [(nth cur 0) (if (= r timeout-msg) :timeout :error) r]
+                        cur)
+                      out))
+             (and cur (= t :fail))
+             (recur (next es)
+                    (if (= :pass (nth cur 1)) [(nth cur 0) :fail (pr-str (:expected m))] cur)
+                    out)
+             :else (recur (next es) cur out))))))))
 """
 
 private struct Library {
@@ -338,7 +342,7 @@ private struct LiveCensus {
 
 extension CoreTests {
 	@Suite struct CorpusTests {
-		private static func run(_ lib: Library) throws -> RunResult {
+		private static func run(_ lib: Library, skipping once: Set<String> = []) throws -> RunResult {
 			var result = RunResult()
 			Runtime.loadPath = lib.loadPath
 			Runtime.readerFeatures = lib.features
@@ -374,7 +378,8 @@ extension CoreTests {
 					let loaded = try cljEval("(some? (find-ns '\(ns)))")
 					if loaded != true { continue }
 					progress("corpus: testing \(ns)")
-					let rows = try cljEval("(corpus-harness/run-ns '\(ns) \(testBudgetMs))")
+					let skip = "#{" + once.sorted().map(ednString).joined(separator: " ") + "}"
+					let rows = try cljEval("(corpus-harness/run-ns '\(ns) \(testBudgetMs) \(skip))")
 					for row in rows.array ?? [] {
 						let cells = row.array ?? []
 						result.tests.append(TestOutcome(name: cells[0].string ?? "?", status: String(cells[1].description.dropFirst()),
@@ -415,12 +420,18 @@ extension CoreTests {
 			if let line = d[kw("design-line")] { out.append(("design-line", line.description)) }
 			if let note = d[kw("note")] { out.append(("note", note.description)) }
 			if isFlaky(e) { out.append(("flaky", "true")) }
+			if isOnce(e) { out.append(("once", "true")) }
 			return out
 		}
 
 		// :flaky true: the outcome is not a function of the code alone — timing, or state the first run left (the
 		// :note says which), so the entry is tolerated either way and left out of the two-runs-agree check.
 		private static func isFlaky(_ e: Value?) -> Bool { e?.dictionary?[kw("flaky")]?.bool == true }
+
+		// :once true: the test's subject is state that outlives a run by the language's definition — a namespace it
+		// creates, a lib it loads — so a second run is a different test, on the JVM as well. It runs in the first run
+		// only, its verdict there checked against :status, and stays out of the second run and its live count.
+		private static func isOnce(_ e: Value?) -> Bool { e?.dictionary?[kw("once")]?.bool == true }
 
 		private static func writeAllowlist(_ lib: Library, _ r: RunResult, liveAfterSecondRun: Int, abandonedCoroutines: Int) throws -> String {
 			let previous = try readAllowlist(lib)
@@ -431,6 +442,8 @@ extension CoreTests {
 			lines.append(";; anything else — a deviation or a runtime bug still open — carries :note, whose text says which and how to repro.")
 			lines.append(";; :flaky true marks a test whose outcome is not a function of the code alone — timing, or state the first run")
 			lines.append(";; left (its :note says which); it is tolerated either way and left out of the two-runs-agree check.")
+			lines.append(";; :once true marks a test whose subject outlives a run (a namespace it creates, a lib it loads): it runs in the")
+			lines.append(";; first run only, its :status there is checked (:pass included), and the second run and its live count skip it.")
 			lines.append(";; :second-run-live-objects is what a second run of the same tests leaves alive once the cycle collector ran")
 			lines.append(";; (NOTES.md, RC): what the library keeps, or a cycle the collector does not see. A different number fails.")
 			lines.append(";; :abandoned-coroutines is the most its own tests may leave parked where the cycle collector cannot judge")
@@ -460,6 +473,9 @@ extension CoreTests {
 			}
 			// A flaky entry that passed this run is kept as it was: the next run may see it fail again.
 			let passedNow = Set(r.tests.filter { $0.status == "pass" }.map(\.name))
+			for (name, e) in previous.tests where isOnce(e) && !isFlaky(e) && passedNow.contains(name) {
+				testLines.append((name, entry([("name", name), ("status", ":pass"), ("reason", "\"\""), ("missing", "[]")] + kept(e))))
+			}
 			for (name, e) in previous.tests where isFlaky(e) && passedNow.contains(name) {
 				let d = e.dictionary ?? [:]
 				testLines.append((name, entry([("name", name), ("status", d[kw("status")]?.description ?? ":fail"), ("reason", ednString(d[kw("reason")]?.string ?? "")),
@@ -516,8 +532,13 @@ extension CoreTests {
 			for key in allow.forms.keys.sorted() where !failingForms.contains(key) { problems.append("\(lib.name): stale allowlist form entry, it loads now: \(key)") }
 			// A test that fails on an allowlisted refusal (refused.edn) is that refusal's consequence, not a new failure.
 			let failingTests = Dictionary(r.tests.filter { $0.status != "pass" && !(compiledMode && ($0.reason ?? "").hasPrefix("compiler refused")) }.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-			for name in failingTests.keys.sorted() where allow.tests[name] == nil { problems.append("\(lib.name): test fails and is not allowlisted: \(name) — \(truncated(failingTests[name]?.reason ?? "", 100))") }
-			for name in allow.tests.keys.sorted() where failingTests[name] == nil && !isFlaky(allow.tests[name]) { problems.append("\(lib.name): stale allowlist test entry, it passes now: \(name)") }
+			let expectsPass = { (e: Value?) in isOnce(e) && !isFlaky(e) && e?.dictionary?[kw("status")]?.description == ":pass" }
+			for name in failingTests.keys.sorted() where allow.tests[name] == nil || expectsPass(allow.tests[name]) {
+				problems.append("\(lib.name): test fails and is not allowlisted: \(name) — \(truncated(failingTests[name]?.reason ?? "", 100))")
+			}
+			for name in allow.tests.keys.sorted() where failingTests[name] == nil && !isFlaky(allow.tests[name]) && !expectsPass(allow.tests[name]) {
+				problems.append("\(lib.name): stale allowlist test entry, it passes now: \(name)")
+			}
 			for name in r.skipped.sorted() where !allow.skipped.contains(name) { problems.append("\(lib.name): skipped var not allowlisted: \(name)") }
 			for name in allow.skipped.sorted() where !r.skipped.contains(name) { problems.append("\(lib.name): stale skipped entry, the var exists now: \(name)") }
 			for (_, e) in allow.tests.sorted(by: { $0.key < $1.key }) {
@@ -557,13 +578,13 @@ extension CoreTests {
 		// is a leak only when the runs before took every path the measured one takes, and a test the watchdog cut short
 		// did not (NOTES "Corpus"). Such a measurement is taken again, the measured run as one more warm-up; the third stands.
 		// @ai-generated(solo)
-		private static func measureSecondRun(_ lib: Library, first: RunResult, expected: Int?, abandoned: inout Int) throws -> (live: Int, run: RunResult) {
+		private static func measureSecondRun(_ lib: Library, first: RunResult, expected: Int?, once: Set<String>, abandoned: inout Int) throws -> (live: Int, run: RunResult) {
 			var warmed = first.cutShort.isEmpty
 			for attempt in 1...3 {
 				runtimeSettled("before \(lib.name)'s second run")
 				let census = LiveCensus()
 				let before = clj_debug_live_objects()
-				let run = try Self.run(lib)
+				let run = try Self.run(lib, skipping: once)
 				abandoned = max(abandoned, Self.reclaimAbandoned(lib))
 				runtimeSettled("after \(lib.name)'s second run")
 				let live = Int(clj_debug_live_objects() - before)
@@ -638,13 +659,14 @@ extension CoreTests {
 				if compiledMode { try compileLibrary(lib) }
 				let first = try Self.run(lib)
 				let flaky = Set(try Self.readAllowlist(lib).tests.filter { Self.isFlaky($0.value) }.keys)
+				let once = Set(try Self.readAllowlist(lib).tests.filter { Self.isOnce($0.value) }.keys)
 				try writeReport(lib, first, flaky: flaky)
 				// Loading interns vars and keywords for the process; the second run over the loaded namespaces is the memory check.
 				// A library's go blocks, thread bodies and timeouts outlive the deftest that started them.
 				var abandoned = Self.reclaimAbandoned(lib)
 				let (live, second) = try Self.measureSecondRun(lib, first: first, expected: Self.update ? nil : try Self.readAllowlist(lib).liveAfterSecondRun,
-				                                               abandoned: &abandoned)
-				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) }.map(\.status) }
+				                                               once: once, abandoned: &abandoned)
+				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) && !once.contains($0.name) }.map(\.status) }
 				#expect(steady(second) == steady(first), "\(lib.name): the two runs disagree")
 				doc += Self.summary(lib, first, liveAfterSecondRun: live)
 				if Self.update {

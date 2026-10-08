@@ -18,6 +18,7 @@
                    clojure.test-clojure.logic
                    clojure.test-clojure.macros
                    clojure.test-clojure.multimethods
+                   clojure.test-clojure.ns-libs
                    clojure.test-clojure.numbers
                    clojure.test-clojure.other-functions
                    clojure.test-clojure.predicates
