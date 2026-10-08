@@ -66,6 +66,17 @@
   both: `sizeof(T)` and `((T)-1 < (T)0)` are two more expressions for the same `enum : long long` fold, and the
   pair gives the encoding char. A spelling for which neither folds — a struct, a union — is left to be refused,
   because `sizeof` folds for those too and the signedness cast does not.
+- [ ] **A function-pointer parameter is a raw `^?`, and no Clojure fn becomes one.** A callback with a `void
+  *context` (`qsort_r`, `dispatch_async_f`, CF observers) needs only the context to carry the fn and a trampoline per
+  return shape, which level 1's calling-in already has; a bare pointer with no context needs an entry point per
+  closure, which without JIT on iOS is a prebuilt pool, as libffi's closures are there (design §5 «Вызов
+  внутрь»). Neither is built: the parse encodes the parameter `^?` and a fn in it is the argument error. Trigger:
+  an API whose callback is the API (`CFRunLoopObserverCreate`, `qsort_r`).
+- [ ] **No provider runs the parse on demand.** `require-c` of a module whose `pippin/c/<Module>.clj` is not on the
+  load path is the "No declarations" error naming the command, in dev as on a device; a REPL that adds a name to
+  `:refer` reruns the generator by hand. The core cannot spawn clang, so the provider is a host hook like
+  `SwiftStubs.generator` (design §3 «Dev client»). Trigger: the dev client's REPL, or a second module declared
+  from a REPL session.
 - [ ] **A `static inline` function is still a refusal, and with structs as maps it is the cheap tail.** Its body is
   in the header and in no binary, so the interpreter would need a thin C stub built by clang and `dlopen`ed (on a
   device, linked into the dev client), plus a `c-load*` builtin and a second name for the dispatcher's messages.
