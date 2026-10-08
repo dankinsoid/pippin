@@ -122,9 +122,23 @@ extension CoreTests {
 				#expect(try eval("(let [a (chan) b (chan) g (go (let [[v p] (alts! [a b])] [v (identical? p b)]))] (<!! (timeout 5)) (>!! b :b) [(<!! g) (offer! a 1)])") == [[kw("b"), true], nil])
 				// Two alts! putters racing for one taker: exactly one wins, the other's other port completes it.
 				#expect(try eval("(let [c (chan) d (chan) g1 (go (first (alts! [[c 1] d]))) g2 (go (first (alts! [[c 2] d])))] (<!! (timeout 5)) (let [got (<!! c)] (>!! d :d) (let [s (set [(<!! g1) (<!! g2) got])] [(count s) (contains? s true) (contains? s :d) (contains? s got)])))") == [3, true, true, true])
+				// enos's <!+ hands alts! the (keys m) of a channel-to-index map: the JVM reads ports by count and nth.
+				#expect(try eval("(let [a (chan 1) b (chan 1) m {a 0 b 1}] (>!! b :b) (let [[v p] (alts!! (keys m))] [v (get m p)]))") == [kw("b"), 1])
 				#expect(message("(alts!! [])") == "alts! must have at least one channel operation")
 				#expect(message("(alts!! [1])") == "alts! expects channels or [channel value] pairs, got: long")
 				#expect(message("(alts!! [[(chan) nil]])") == "Can't put nil on channel")
+			}
+			base.check()
+		}
+
+		// A dispatch timer the OS coalesced fired 10 and 20 ms timeouts a quarter late, so enos's 10 ms producer outran
+		// its 20 ms read timeout. The median is the OS's slack; a single late round is load.
+		@Test func aFarTimeoutFiresOnItsDeadline() throws {
+			let base = CoroBaseline()
+			do {
+				let late = try eval("(sort (repeatedly 7 #(let [t (nano-time*)] (<!! (timeout 20)) (- (nano-time*) t 20000000))))")
+				let median = (late.array ?? [])[3].int ?? Int.max
+				#expect(median < 2_500_000, "median lateness \(median) ns")
 			}
 			base.check()
 		}

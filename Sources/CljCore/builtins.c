@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "clj/cdecl.h"
 #include "clj/chan.h"
@@ -781,6 +782,34 @@ static clj_value b_nano_time(const clj_value *args, size_t n) {
 	(void)args;
 	(void)n;
 	return clj_long_new((int64_t)clj_profile_now());
+}
+
+static clj_value b_current_time_millis(const clj_value *args, size_t n) {
+	(void)args;
+	(void)n;
+	struct timespec t;
+	clock_gettime(CLOCK_REALTIME, &t);
+	return clj_long_new((int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000);
+}
+
+// System/currentTimeMillis and System/nanoTime, the shape Thread/sleep has: library code times itself with them.
+static void install_system_ns(void) {
+	static const struct {
+		const char   *name;
+		clj_native_fn fn;
+	} statics[] = {{"currentTimeMillis", b_current_time_millis}, {"nanoTime", b_nano_time}};
+	clj_value ns_name = clj_symbol_from_cstr("System");
+	clj_value ns = clj_ns_find_or_create(ns_name);
+	for (size_t i = 0; i < sizeof statics / sizeof *statics; i++) {
+		clj_value name = clj_symbol_from_cstr(statics[i].name);
+		clj_value qualified = clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(name));
+		clj_value f = clj_fn_native(qualified, statics[i].fn, 0, 0);
+		clj_var_bind_root(clj_ns_intern(ns, name), f);
+		clj_release(f);
+		clj_release(qualified);
+		clj_release(name);
+	}
+	clj_release(ns_name);
 }
 
 static clj_value b_monitor_try_enter(const clj_value *args, size_t n) {
@@ -1673,4 +1702,5 @@ void clj_builtins_install(void) {
 	clj_objc_builtins_install();
 	clj_host_module_builtins_install();
 	clj_cdecl_builtins_install();
+	install_system_ns();
 }

@@ -1,4 +1,0 @@
-{:name "pipeline-extras"
- :load-path ["src/main/clojurec" "test/clojure"]
- :features #{:clj}
- :test-namespaces [pipeline-extras.core-test]}

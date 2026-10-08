@@ -36,6 +36,12 @@ extension CoreTests {
 			""")
 		}
 
+		// Library tests time themselves with these two (enos, clj-bucket); every other System static stays unresolved.
+		@Test func systemClockStaticsResolve() throws {
+			#expect(try eval("(let [ms (System/currentTimeMillis) a (System/nanoTime) _ (Thread/sleep 5) b (System/nanoTime)] [(> ms 1700000000000) (>= (- b a) 5000000)])") == [true, true])
+			#expect(message("(System/getProperty \"x\")")?.hasPrefix("Unable to resolve symbol: System/getProperty") == true)
+		}
+
 		@Test func importNamesATypeOfTheProgram() throws {
 			#expect(try eval("[(User. \"a\") (instance? User (repoint.model/->User \"b\")) (identical? User repoint.model/User) (Thing.)]").description
 				== "[#repoint.model.User{:name \"a\"} true true #repoint.dashed-ns.Thing{}]")

@@ -1,4 +1,0 @@
-{:name "asyncflow"
- :load-path ["src/clj" "test/clj"]
- :features #{}
- :test-namespaces [cav.asyncflow-test]}

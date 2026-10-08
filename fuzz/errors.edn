@@ -36,7 +36,7 @@
  :ours
  [["^Wrong number of args|takes \\d+ argument\\(s\\), got" :arity]
   ["out of bounds|(?i:index out of range)" :index]
-  ["^Divide by zero$|overflow" :arith]
+  ["^Divide by zero$|overflow|^Non-terminating decimal expansion" :arith]
   ["^Can't pop empty" :state]
-  ["^No value supplied for key|^Value out of range for|^bit operation not supported|^Argument must be an integer" :argument]
+  ["^No value supplied for key|^Value out of range for|^Argument must be an integer|^Infinite or NaN$" :argument]
   ["cannot be cast|not supported on (this )?type|expects an? |Don't know how to create ISeq|cannot be invoked|is not a number" :type]]}

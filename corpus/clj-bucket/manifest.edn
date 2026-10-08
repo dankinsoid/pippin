@@ -1,4 +1,0 @@
-{:name "clj-bucket"
- :load-path ["src" "test"]
- :features #{}
- :test-namespaces [clj-bucket.core_test]}

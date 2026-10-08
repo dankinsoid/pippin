@@ -1287,6 +1287,14 @@ void clj_proto_install(void) {
 			bind_core("clojure.lang.IEditableCollection", interfaces[i].proto);
 			clj_core_mark_extension("clojure.lang.IEditableCollection");
 		}
+		// (instance? Throwable e) is how portable code asks whether a value is an error: ex-info or a host error.
+		if (interfaces[i].bits == CLJ_CORE_ERROR) {
+			static const char *const throwables[] = {"Throwable", "Exception", "java.lang.Throwable", "java.lang.Exception"};
+			for (size_t j = 0; j < sizeof throwables / sizeof *throwables; j++) {
+				bind_core(throwables[j], interfaces[i].proto);
+				clj_core_mark_extension(throwables[j]);
+			}
+		}
 		if (interfaces[i].bits == CLJ_CORE_RECORD) {
 			bind_core("clojure.lang.IRecord", interfaces[i].proto);
 			clj_core_mark_extension("clojure.lang.IRecord");

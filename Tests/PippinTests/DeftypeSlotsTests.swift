@@ -204,6 +204,8 @@ extension CoreTests {
 				#expect(try rt.eval("(try (throw (->Fail 7)) (catch ExceptionInfo e [(ex-message e) (ex-data e) (ex-cause e) (instance? Fail e)]))")
 					== ["failed with 7", [kw("code"): 7], nil, true])
 				#expect(try rt.eval("[(satisfies? IExceptionInfo (->Fail 1)) (instance? ExceptionInfo (->Fail 1)) (instance? IExceptionInfo (->Fail 1))]") == [true, false, true])
+				// Portable code asks (instance? Throwable e) of an error value (async-error's throw-err).
+				#expect(try rt.eval("[(instance? Throwable (->Fail 1)) (instance? Exception (ex-info \"m\" {})) (instance? java.lang.Throwable (ex-info \"m\" {})) (instance? Throwable :k) (instance? Exception nil)]") == [true, true, true, false, false])
 				// Methods the form leaves out read as nil, like Throwable's getMessage.
 				#expect(try rt.eval("(try (throw (->Plain)) (catch ExceptionInfo e [(ex-message e) (ex-data e)]))") == [nil, nil])
 				// A deftype error may be the cause of an ex-info.

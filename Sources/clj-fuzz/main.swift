@@ -40,7 +40,7 @@ if let dir = unitsDir {
 		guard cells.count == 2 else { fail("\(dir)/units.txt: a line is not cname<TAB>path") }
 		guard let text = try? String(contentsOfFile: "\(dir)/\(cells[0]).c", encoding: .utf8) else { fail("no \(dir)/\(cells[0]).c") }
 		var err = [CChar](repeating: 0, count: 2048)
-		if !cljc_build_dylib(&o, cells[0], text, &err, err.count) { fail(String(cString: err)) }
+		if !cljc_build_dylib(&o, cells[0], text, &err, err.count) { fail(String(decoding: err.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)) }
 		guard let unit = cljc_open_dylib("\(dir)/\(cells[0]).dylib") else { fail("\(Value(owning: clj_take_pending()))") }
 		clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
 	}

@@ -1,9 +1,0 @@
-clj-bucket — a token bucket over core.async (sgerguri)
-
-Repository: https://github.com/sgerguri/clj-bucket
-Commit:     8313b6e38ea737a81b9af96e1705329113d35efd (0.1.0 plus 10 commits; pinned commit)
-License:    Eclipse Public License (LICENSE)
-
-Files taken, unmodified:
-  src/clj_bucket/core.clj       -> src/clj_bucket/core.clj
-  test/clj_bucket/core_test.clj -> test/clj_bucket/core_test.clj

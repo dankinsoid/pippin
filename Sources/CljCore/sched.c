@@ -1009,7 +1009,7 @@ static bool far_wait(uint64_t when, uint64_t wait) {
 	if (!far_timer) {
 		// Higher than the carriers on purpose: a deadline must fire on time whatever the class of the work it ends,
 		// and firing it is a wake, not the work.
-		far_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+		far_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, DISPATCH_TIMER_STRICT, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
 		if (!far_timer) return false;
 		dispatch_source_set_event_handler_f(far_timer, far_fire);
 		dispatch_resume(far_timer);

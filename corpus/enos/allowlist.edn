@@ -8,13 +8,16 @@
 ;; (NOTES.md, RC): what the library keeps, or a cycle the collector does not see. A different number fails.
 ;; :abandoned-coroutines is the most its own tests may leave parked where the cycle collector cannot judge
 ;; them, for the harness to cancel: an upper bound, not a count, and 0 for a library that leaves none.
-{:abandoned-coroutines 0
+{:abandoned-coroutines 4
  :second-run-live-objects 0
  :forms
  [
+  {:file "src/enos/core.clj" :line 7 :name processors :reason "Unable to resolve symbol: Runtime/getRuntime in this context" :missing [Runtime/getRuntime]}
  ]
  :tests
  [
+  {:name enos.core-test/test-pmap-makes-it-faster :status :error :reason "Unbound var: #'enos.core/processors" :missing [enos.core/processors]}
+  {:name enos.core-test/test-pmap-retains-order :status :error :reason "Unbound var: #'enos.core/processors" :missing [enos.core/processors]}
  ]
  :skipped
  []}

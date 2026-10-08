@@ -12,6 +12,7 @@
  :second-run-live-objects 0
  :forms
  [
+  {:file "test/turbine/core_test.clj" :line 26 :name make-topology-test :reason "Unable to resolve symbol: Character/isLowerCase in this context" :missing [Character/isLowerCase]}
  ]
  :tests
  [

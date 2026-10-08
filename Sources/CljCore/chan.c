@@ -1448,7 +1448,28 @@ static clj_value b_close(const clj_value *args, size_t n) {
 	return clj_chan_close(args[0]);
 }
 
-static clj_value b_alts(const clj_value *args, size_t n) { return clj_chan_alts(args[0], n > 1 ? args[1] : CLJ_NIL); }
+// The JVM's do-alts reads ports by count and nth, so a seq of ports, (keys m) say, is as good as a vector.
+static clj_value b_alts(const clj_value *args, size_t n) {
+	clj_value opts = n > 1 ? args[1] : CLJ_NIL;
+	if (clj_is_vector(args[0]) || !clj_has_core(args[0], CLJ_CORE_SEQUENTIAL)) return clj_chan_alts(args[0], opts);
+	clj_value ports = clj_vector_empty();
+	for (clj_value s = clj_seq(args[0]); !clj_is_nil(s);) {
+		clj_value x = s == CLJ_THROWN ? CLJ_THROWN : clj_first(s);
+		if (x == CLJ_THROWN) {
+			if (s != CLJ_THROWN) clj_release(s);
+			clj_release(ports);
+			return CLJ_THROWN;
+		}
+		ports = clj_vector_conj(ports, x);
+		clj_release(x);
+		clj_value next = clj_next(s);
+		clj_release(s);
+		s = next;
+	}
+	clj_value r = clj_chan_alts(ports, opts);
+	clj_release(ports);
+	return r;
+}
 
 static clj_value b_timeout(const clj_value *args, size_t n) {
 	(void)n;
