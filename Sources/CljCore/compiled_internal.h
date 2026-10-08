@@ -116,6 +116,7 @@ static inline clj_value clj_c_var_borrow(clj_value var, bool *owned) {
 	const clj_header *h = clj_header_of(root);
 	if ((h->flags & CLJ_FLAG_IMMORTAL) || h->type == &clj_fn_type) return root;
 	*owned = true;
+	if (__builtin_expect(h->type == &clj_lazy_def_type, 0)) return clj_var_root_value(var);
 	return clj_retain(root);
 }
 

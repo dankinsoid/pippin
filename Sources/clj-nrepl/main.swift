@@ -4,6 +4,7 @@ import Darwin
 #else
 import Glibc
 #endif
+import CljCore
 import CljNREPL
 import Foundation
 
@@ -42,6 +43,9 @@ do {
 	FileHandle.standardError.write(Data("clj-nrepl: \(error)\n".utf8))
 	exit(1)
 }
+
+// The dev flag of design §4 «Var и ленивые def»: a load forces what it deferred, so an init's error shows at the load.
+if ProcessInfo.processInfo.environment["CLJ_LAZY_DEFS"] == nil { clj_lazy_defs_set_default(CLJ_LAZY_DEFS_AFTER_LOAD) }
 
 nonisolated(unsafe) var portFile: String?
 if let portFilePath {

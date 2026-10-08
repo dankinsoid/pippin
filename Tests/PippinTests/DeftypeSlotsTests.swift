@@ -372,7 +372,7 @@ extension CoreTests {
 		@Test func concurrentWalkOfSharedSeq() throws {
 			try declare("Down", "->Down", "shared")
 			_ = try rt.eval(Self.down)
-			_ = try rt.eval("(def shared (->Down 200))")
+			_ = try rt.eval("(def ^:eager shared (->Down 200))")
 			let before = clj_debug_live_objects()
 			do {
 				let threads = 8, rounds = 20

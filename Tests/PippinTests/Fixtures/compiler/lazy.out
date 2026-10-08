@@ -1,0 +1,14 @@
+after registrations [:eager-effect]
+before deref [:eager-effect]
+:on-demand :on-demand [:eager-effect :on-demand]
+loaded past broken
+Divide by zero
+true
+Recursive definition of #'fixture.lazy/self: its value is read while it is being computed
+derived 11 base 2
+twice 25
+forced 25
+forced again 61
+altered 5
+true {0 0, 2 4, 3 9, 1 1}
+49 :a-kind [:eager-effect :on-demand :method]

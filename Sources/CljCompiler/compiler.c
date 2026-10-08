@@ -430,6 +430,7 @@ typedef struct fnctx {
 	uint32_t       last_line;
 	const clj_load_form *form;
 	bool                 top; // the top-level form's own context, where a def names its fn after itself
+	uint32_t             lazy_fn; // 1 + n of the lazy_<n> holding the init of the lazy def that is the form, 0 for none
 	int32_t              stub; // S[] index of the frame fn being emitted, -1 in a top-level form
 	bool                 has_direct; // the body calls a compiled fn directly: not a leaf (NOTES.md "Compiler", inlining)
 	const uint8_t       *wkinds;     // a worker: the ukind of each parameter, which arrives as a C value in a typed slot
@@ -2117,7 +2118,11 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 
 static temp emit_def(fnctx *f, const clj_node *n) {
 	size_t vi = var_index(f->u, n->u.def.var.v);
-	if (n->u.def.init) {
+	if (n->u.def.init && f->lazy_fn && n->id == 0) {
+		temp d = new_temp(f, OWN_NO);
+		sb_printf(&f->out, "\tclj_value %s = clj_c_lazy_def(V[%zu], %u, lazy_%u);\n", d.name, vi, n->u.def.lazy, f->lazy_fn - 1);
+		check_thrown(f, d.name);
+	} else if (n->u.def.init) {
 		// only the def that is the form itself takes the form's base: two defs under one let each get a nested name
 		bool named = n->u.def.init->kind == CLJ_NODE_FN && f->top && n->id == 0 && *f->fn_counter == 0;
 		if (named) fn_line(f, n->u.def.init);
@@ -3150,34 +3155,32 @@ static clj_facts *form_facts(cljc_compiler *c, const clj_node *n) {
 	return facts;
 }
 
-static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n) {
-	uint32_t counter = 0;
-	ndirect_names = 0;
-	fnctx    f;
+// One function over the top-level tree n evaluating x in n's frame: top_<k>(void) for the form, or lazy_<k>, a
+// clj_lazy_def_fn, for the init of the lazy def that is the form (design §4 «Var и ленивые def»).
+static size_t emit_top_fn(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n, const clj_node *x, clj_facts *facts,
+                          char *base, uint32_t *counter, uint32_t nslots, uint32_t top, bool lazy_fn, uint32_t lazy_of) {
+	fnctx f;
 	memset(&f, 0, sizeof f);
 	f.c = c;
 	f.u = u;
 	f.frame = "fr";
-	f.fn_counter = &counter;
+	f.fn_counter = counter;
 	f.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	f.form = form;
 	f.stub = -1;
 	f.top = true;
-	c->emitting = n;
-	open_form(c, u, &f, form);
-	char *base = form_base(c, u, n);
 	f.base = base;
-	record_direct(c, u, n, base);
-	slot_count sc = {0};
-	count_slots(n, &sc);
-	clj_facts *facts = form_facts(c, n);
 	f.facts = facts;
-	count_facts_slots(u, facts);
-	promote_slots(&f, NULL, NULL, false, n, sc.nslots);
-	uint32_t arr = array_slots(&f, sc.nslots);
-	uint32_t top = u->ntops++;
-	sb_printf(&u->protos, "static clj_value top_%u(void);\n", top);
-	sb_printf(&f.out, "static clj_value top_%u(void) {\n", top);
+	f.lazy_fn = lazy_of;
+	promote_slots(&f, NULL, NULL, false, n, nslots);
+	uint32_t arr = array_slots(&f, nslots);
+	if (lazy_fn) {
+		sb_printf(&u->protos, "static clj_value lazy_%u(const void *code, clj_value env);\n", top);
+		sb_printf(&f.out, "static clj_value lazy_%u(const void *code, clj_value env) {\n\t(void)code;\n\t(void)env;\n", top);
+	} else {
+		sb_printf(&u->protos, "static clj_value top_%u(void);\n", top);
+		sb_printf(&f.out, "static clj_value top_%u(void) {\n", top);
+	}
 	if (arr) sb_printf(&f.out, "\tclj_value s[%u];\n\tclj_cframe fr = {s, NULL, 0, NULL};\n\tfor (uint32_t i = 0; i < %u; i++) s[i] = CLJ_NIL;\n", arr, arr);
 	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, NULL, 0, NULL};\n");
 	sb_puts(&f.out, "\t(void)fr;\n");
@@ -3185,7 +3188,7 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	sb_puts(&f.out, "\tclj_eval_top_enter();\n");
 	int fail = new_label(&f);
 	push_handler(&f, fail);
-	temp    r = emit(&f, n);
+	temp    r = emit(&f, x);
 	handler h = pop_handler(&f);
 	emit_frame_teardown(&f, arr);
 	sb_printf(&f.out, "\tclj_eval_top_leave();\n\treturn %s;\n", r.name);
@@ -3195,18 +3198,45 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 		sb_puts(&f.out, "\tclj_eval_top_leave();\n\treturn CLJ_THROWN;\n");
 	}
 	sb_puts(&f.out, "}\n\n");
-	size_t before = u->fns.len;
 	sb_put(&u->fns, f.out.s, f.out.len);
+	size_t len = f.out.len;
+	fnctx_free(&f);
+	return len;
+}
+
+static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n) {
+	uint32_t counter = 0;
+	ndirect_names = 0;
+	fnctx    scratch;
+	memset(&scratch, 0, sizeof scratch);
+	scratch.c = c;
+	scratch.u = u;
+	scratch.form = form;
+	scratch.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
+	scratch.stub = -1;
+	c->emitting = n;
+	open_form(c, u, &scratch, form);
+	fnctx_free(&scratch);
+	char *base = form_base(c, u, n);
+	record_direct(c, u, n, base);
+	slot_count sc = {0};
+	count_slots(n, &sc);
+	clj_facts *facts = form_facts(c, n);
+	count_facts_slots(u, facts);
+	uint32_t top = u->ntops++;
+	size_t   bytes = 0;
+	bool     lazy = n->kind == CLJ_NODE_DEF && n->u.def.init && n->u.def.lazy != CLJ_DEF_EAGER;
+	if (lazy) bytes += emit_top_fn(c, u, form, n, n->u.def.init, facts, base, &counter, sc.nslots, top, true, 0);
+	bytes += emit_top_fn(c, u, form, n, n, facts, base, &counter, sc.nslots, top, false, lazy ? top + 1 : 0);
 	if (n->kind == CLJ_NODE_DEF) {
 		u->slots.defs++;
-		u->slots.def_bytes += u->fns.len - before;
-		def_size_add(u, n->u.def.var.v, u->fns.len - before, false);
+		u->slots.def_bytes += bytes;
+		def_size_add(u, n->u.def.var.v, bytes, false);
 	}
 	clj_facts_free(facts);
 	if (c->opts.eval_result) sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto fail;\n", top);
 	else sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto F%u;\n\tclj_release(r);\n", top, u->nforms);
 	free(base);
-	fnctx_free(&f);
 }
 
 // ---- tree shaking of a closed set (design §6; NOTES.md, "Compiler": the nine rows of the root set)
@@ -3350,7 +3380,8 @@ static bool shake_candidate(const cljc_compiler *c, const unit *u, const clj_nod
 	if (n->kind != CLJ_NODE_DEF || !n->u.def.init) return false;
 	clj_value var = n->u.def.var.v;
 	if (shake_forced(c, var)) return true;
-	if (n->u.def.init->kind != CLJ_NODE_FN) return false;                 // 1: a tripwire root is loud when called, not when read
+	// 1: an eager init runs at load, and dropping the def would drop that run; a lazy one runs at a deref, if ever
+	if (n->u.def.init->kind != CLJ_NODE_FN && n->u.def.lazy == CLJ_DEF_EAGER) return false;
 	if (!u->embedded) return false;                                       // 2: the program has no declared entry point
 	if (n->u.def.dynamic || clj_var_is_dynamic(var)) return false;        // 3: a host binding frame reaches it by var
 	if (clj_fusion_find(var)) return false;                               // 4: a tripwire root would pass clj_fusion_guard

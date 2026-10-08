@@ -235,13 +235,25 @@
   no such lookup — its 69 `(:k m)` sites are 58 on locals (parameters, constrained by requirement only, and
   `(:k m)` requires nothing) and 11 below derefs and other calls — so the report's record row stays 0 → 0 for
   want of a site, not of a mechanism.
-- **Effects, as far as they fall out.** Six bits, `alloc`, `throw`, `io`, `atom` (atom-write), `park` and
-  `opaque`, joined up the walk: a vector, map, set or fn literal allocates; `throw` throws; a `def` is
-  everything (registration); a known core call takes `clj_facts_core_effects` — nothing for a predicate,
+- **Effects, as far as they fall out.** Seven bits, `alloc`, `throw`, `io`, `atom` (atom-write), `park`, `opaque`
+  and `state`, joined up the walk: a vector, map, set or fn literal allocates; `throw` throws; a `def` is
+  everything (registration); a read of a dynamic var is `state` (with a store: what the read answers depends on who
+  reads, which a lazy def must not defer); a known core call takes `clj_facts_core_effects` — nothing for a predicate,
   `not`, `identity`, `boolean`, `meta`, `type`; io for `print`/`println`/`slurp`/…; atom for
   `swap!`/`reset!`/`alter-var-root`/…; park for `chan-take*`/`chan-put*`/`chan-alts*`/`chan-deref*`/`sleep*`;
-  alloc|throw for the rest of the named list; `CLJ_EFFECT_ANY` for anything unnamed — and a callee with a
-  summary takes the summary's. A closure body's effects are its own, not its definer's. `clojure.core.async`'s
+  alloc|throw for the rest of the named list, which also names the data-in, data-out builtins (`merge`, `range`,
+  `concat`, `ex-info`, `comp`, …); `CLJ_EFFECT_ANY` for anything unnamed — and a callee with a summary takes the
+  summary's, except a named core call, whose table wins over its body (`named_effects`), so a library's effects are
+  the same over the interpreted and the compiled core. A closure body's effects are its own, not its definer's.
+- **A core higher-order call's effects are its function arguments'** (`hof_positions`, `fn_arg_effects`): `map`,
+  `filter`, `reduce`, `into` with a transducer, `sort` with a comparator, `update`, `apply`, `lazy-seq*` and the rest of
+  the table do alloc|throw themselves, plus what calling the argument at each function position does — a fn literal's
+  arities, a var's every arity by its summaries (a native by the name table), a keyword or a data root called as a
+  lookup, anything else `opaque`. Positions depend on the argument count: `(sort xs)` calls nothing, `(sort cmp xs)`
+  calls `cmp`. A FUSED node is the same rule over its arguments, its programs reading them as locals the walk cannot
+  see through (`fused_effects`). This is what lets `(def t (into {} (map f xs)))` be a
+  lazy def (NOTES "Analyzer and evaluator"). A realized seq's thunks run when it is realized, which the call's effects
+  count as if at once. `clojure.core.async`'s
   `<!`/`>!`/`<!!`/`>!!`/`alts!`/`alts!!` and `Thread/sleep` are named as well (`is_park_var`), although their
   bodies do reach the builtins: under `-DCLJ_COMPILED_CORE` there is no body to walk, and the whole lint went
   dark in the compiled gate before they were named.

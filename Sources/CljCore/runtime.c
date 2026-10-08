@@ -170,7 +170,8 @@ static bool immortalize_root(clj_value sym, clj_value var, void *ctx) {
 	(void)sym;
 	(void)ctx;
 	clj_value root = clj_var_root(var);
-	if (clj_is_ptr(root) && !clj_is_type(root)) clj_header_of(root)->flags |= CLJ_FLAG_IMMORTAL;
+	// an immortal thunk would read as the value itself (eval_borrowed returns an immortal root as is)
+	if (clj_is_ptr(root) && !clj_is_type(root) && !clj_is_lazy_def(root)) clj_header_of(root)->flags |= CLJ_FLAG_IMMORTAL;
 	return true;
 }
 
@@ -193,6 +194,7 @@ static void init(void) {
 	clj_fn_intern_keywords();
 	clj_load_file_var();
 	clj_builtins_install();
+	clj_lazy_defs_install();
 	clj_proto_install();
 	clj_queue_install();
 	clj_chan_install();

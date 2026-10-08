@@ -11,6 +11,8 @@ void clj_exec_derive(clj_value exec);
 void clj_exec_forget(clj_exec *e);
 // Re-derives every exec whose derivation read the var's root; clj_var_bind_root calls it after the epoch bump.
 void clj_exec_root_rebound(clj_value var);
+// The effects of a subtree under the dev store (facts.c, clj_facts_effects_of), for the lazy def decision.
+uint32_t clj_specialize_effects_of(const clj_node *n);
 // Puts the specialized entries back after clj_exec_count restored the generic ones.
 void clj_exec_reapply(clj_value exec);
 // The entry a node runs with no counting and no specialization: its keyword-site entry when it has a cache, else the kind's.

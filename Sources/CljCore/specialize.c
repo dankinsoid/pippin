@@ -8,6 +8,7 @@
 #include "clj/lock.h"
 #include "clj/summary.h"
 #include "clj/var.h"
+#include "facts_internal.h"
 #include "specialize_internal.h"
 
 // Re-derivations one trigger (one new exec) may cause: bounds the incremental fixpoint over the call graph.
@@ -373,6 +374,13 @@ static void drain_and_unlock(uint32_t trigger, uint32_t done) {
 	clj_lock_unlock(&lock);
 	for (uint32_t i = 0; i < nspent; i++) clj_release(clj_from_ptr(spent[i]));
 	free(spent);
+}
+
+uint32_t clj_specialize_effects_of(const clj_node *n) {
+	clj_lock_lock(&lock);
+	uint32_t effects = clj_facts_effects_of(n, store_locked());
+	clj_lock_unlock(&lock);
+	return effects;
 }
 
 void clj_exec_derive(clj_value exec) {

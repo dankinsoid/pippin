@@ -888,6 +888,8 @@ int main(int argc, char **argv) {
 	const char *out = argc > 2 ? argv[2] : "docs/facts-coverage.md";
 	const char *cost_out = argc > 3 ? argv[3] : NULL;
 	clj_init();
+	// the report is about what a var read shows a fact, so every def a load deferred has its value before the walk
+	clj_lazy_defs_set_default(CLJ_LAZY_DEFS_AFTER_LOAD);
 	sums = clj_summaries_new();
 	sums_noann = clj_summaries_new();
 	clj_summaries_use_annotations(sums_noann, false);

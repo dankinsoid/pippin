@@ -24,7 +24,9 @@ private let libSource = """
 (defn twice-defined [] :first)
 (defn twice-defined [] :second)
 (defn called-at-load [] :load)
-(def load-time-result (called-at-load))
+(def ^:eager load-time-result (called-at-load))
+(defn called-by-lazy [] :lazy)
+(def lazy-result (called-by-lazy))
 (defmacro only-a-macro [x] x)
 """
 
@@ -82,9 +84,9 @@ extension CoreTests {
 		@Test func dropsOnlyWhatNothingReaches() throws {
 			let r = try shakeRun()
 			#expect(r.report.ran)
-			// Nothing names these, and nothing names what the first one calls.
+			// Nothing names these, and nothing names what the first one calls; a lazy def's init never ran at load.
 			#expect(r.dropped == ["fixture.shake.lib/dead-caller", "fixture.shake.lib/chain-dead", "fixture.shake.lib/dead-leaf",
-			                      "fixture.shake.lib/only-a-macro"])
+			                      "fixture.shake.lib/only-a-macro", "fixture.shake.lib/lazy-result", "fixture.shake.lib/called-by-lazy"])
 			// Row 7 through the app, and one hop further.
 			#expect(r.kept.contains("fixture.shake.lib/reached-from-app"))
 			#expect(r.kept.contains("fixture.shake.lib/chain-live"))

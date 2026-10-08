@@ -363,8 +363,47 @@
     JVM's "already refers" error, of a core name a warning naming the references above that meant core;
   - `(declare m)`, a call `(m 1 2)`, then `(defmacro m …)` calls the macro fn without `&form`/`&env`; the
     `defmacro` should warn.
-- [ ] **`def` is eager and vars are plain roots.** No lazy thunk state (design §4 "Var и ленивые def").
-  Trigger: the first ns whose load-time cost shows.
+- **Lazy `def`** (design §4 "Var и ленивые def"; `def_laziness` in analyzer.c, `eval_def`, var.c, `emit_top_fn` in
+  compiler.c, `clj_c_lazy_def`, `force_deferred` in load.c). The analyzer decides once, after the optimizer, and the
+  DEF node carries it (`clj_def_lazy`, in the codec as `:eager`/`:inferred`/`:explicit`), so the interpreter and a
+  unit compiled from the same load agree. A def is inferred lazy when it is the whole top-level form, has an init
+  with a call outside a nested fn (a literal or a var read costs less than the thunk), is neither `^:dynamic` nor a
+  macro, its init reads no unbound var and no var whose root is an atom, an array or a host value, and the init's
+  effects under the dev store are within `alloc|throw` (`clj_specialize_effects_of`, NOTES "Facts"). `^:eager` and
+  `^:lazy` overrule the inference; `^:lazy` alone is honored on a dynamic var. The root becomes a `clj_lazy_def`:
+  the interpreter's holds the form's exec and runs the init in a fresh frame of it (`lazy_init`), a unit's holds
+  `lazy_<n>`, a C function beside `top_<n>` with the same frame, and no tree. The var keeps the thunk in its `lazy`
+  slot until the next def, so a reader that loaded the root at +0 never meets it freed when another thread's force
+  replaces the root; the thunk keeps the value it produced, which is what a reader that saw the state FORCED returns.
+  Reading the var checks the thunk type on the branch that already loads the root's header to decide the retain
+  (`eval_borrowed`, `clj_c_var_borrow`), so a non-lazy read pays nothing; `clj_var_deref`, `var-get`,
+  `alter-var-root`, `var-root*` force (`clj_var_root_value`), `resolve` and `bound?` do not. Forcing takes the lazy
+  seq's claim (force_internal.h, seq.c): a second execution parks in the lot on the thunk, a re-entry by the
+  forcing execution reads the root the def replaced (`prev`, so `(def x (inc x))` deferred still reads the old x)
+  or, for a first def and for `^:lazy`, throws "Recursive definition of #'ns/x". A throw is kept and rethrown by
+  every deref with its first trace; a cancellation is not kept, and the next deref forces again. A force is a root
+  bind for the epochs and the derivations (`root_moved`). The redefinition barrier: binding the root of a bound
+  non-dynamic var first forces every pending inferred thunk but the var's own (a registry in def order, `lazy_entries`),
+  each failure staying in its var. `*lazy-defs*` is interned by C (`clj_lazy_defs_install`, root from
+  `CLJ_LAZY_DEFS`): `:after-load` makes `clj_load_source` and `run_unit` force what the load deferred and report the
+  first failure as the failing form at the def's `:line`/`:column` (lenient loading records each and goes on),
+  `:eager` makes `eval_def` and `clj_c_lazy_def` run the init at the def; `clj-nrepl` sets `:after-load` and
+  `clj-facts` too, so the coverage report reads values, not thunks. `clj_isa_install` forces `global-hierarchy`, the one
+  inferred lazy def of core.clj, before `clj_ex_isa` reads its root raw; `immortalize_root` leaves a thunk mortal, as
+  an immortal one would read as a value. Tested by `LazyDefTests` and `Fixtures/compiler/lazy.clj`.
+- [ ] **What the lazy def leaves open.** Each with its trigger.
+  - The barrier forces everything pending, not what reads the rebound var: a load whose top level rebinds a var
+    (`derive`, `alter-var-root`, a second `def` of a name) after deferred defs forces them all. The facts table knows
+    the vars an init rested on (its deps with epochs); trigger: a library whose load forces its deferred defs this
+    way in a profile.
+  - A definition cycle forced from two executions at once is a mutual wait, not an error: each claim is only checked
+    against its own execution's stack. Trigger: the first such hang; then the forcer in the thunk and what a coroutine
+    waits for in the coroutine.
+  - The compiled eval (`CLJ_EVAL=compiled`) defers only defs over core calls and fn literals: a fn it compiled is a
+    native with no body to summarize, so a call of it is an unknown effect. A unit compiled from a file is decided by
+    the interpreted load that compiles it and does not lose anything. Trigger: summaries for compiled fns.
+  - Under `:after-load` the defs below a failing one are defined when the error surfaces, at the end of the load;
+    an eager load stopped at the failing form. Trigger: a dev flow that reads the half-loaded namespace.
 - [~] **Dynamic vars** (var.c): a per-thread stack of frames, each a persistent map var → box (a volatile)
   merged with the frame below, pushed by `push-thread-bindings` and popped by `pop-thread-bindings`
   (`binding` is the `try`/`finally` pair over them, `with-bindings*`, `bound-fn*` and `with-redefs-fn` are

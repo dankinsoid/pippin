@@ -109,7 +109,7 @@ extension CoreTests {
 			do {
 				_ = try rt.eval("(defn tr-deep [n] (if (pos? n) (tr-deep (dec n)) (throw (ex-info \"deep\" nil))))")
 				let holding = clj_debug_live_objects()
-				_ = try rt.eval("(def tr-held (try (tr-deep 64) (catch :default e e)))")
+				_ = try rt.eval("(def ^:eager tr-held (try (tr-deep 64) (catch :default e e)))")
 				#expect(clj_debug_live_objects() - holding < 16, "\(clj_debug_live_objects() - holding) objects for a 65-frame trace")
 				#expect(try rt.eval("(count (ex-trace tr-held))") == 65)
 				#expect(try rt.eval("(= (ex-trace tr-held) (ex-trace tr-held))") == true)

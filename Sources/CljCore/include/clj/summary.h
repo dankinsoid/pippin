@@ -13,8 +13,9 @@ enum {
 	CLJ_EFFECT_ATOM   = 1u << 3, // atom-write
 	CLJ_EFFECT_PARK   = 1u << 4, // a wait that suspends the coroutine: <!, >!, alts!, a future or promise deref, sleep
 	CLJ_EFFECT_OPAQUE = 1u << 5, // the walk did not see the whole body: anything may happen, a park included
+	CLJ_EFFECT_STATE  = 1u << 6, // reads a dynamic var: the value depends on who reads, so a lazy def cannot defer it
 	// PARK stays out: the :effects ladder needs "known to park" apart from the "may park" OPAQUE already carries.
-	CLJ_EFFECT_ANY = CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW | CLJ_EFFECT_IO | CLJ_EFFECT_ATOM | CLJ_EFFECT_OPAQUE,
+	CLJ_EFFECT_ANY = CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW | CLJ_EFFECT_IO | CLJ_EFFECT_ATOM | CLJ_EFFECT_OPAQUE | CLJ_EFFECT_STATE,
 };
 
 // What a parameter is allowed to do: the :effects of the properties map in the parameter's :=> schema (design §4).

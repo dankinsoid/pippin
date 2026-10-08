@@ -81,6 +81,18 @@ clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *e
 	return clj_fn_native_env(name, fn, env, nenv, arities, min_arity, max_arity);
 }
 
+clj_value clj_c_lazy_def(clj_value var, uint8_t lazy, clj_lazy_def_fn fn) {
+	if (clj_def_defers(lazy)) {
+		clj_var_bind_lazy(var, fn, NULL, CLJ_NIL, lazy == CLJ_DEF_LAZY_INFERRED);
+		return CLJ_NIL;
+	}
+	clj_value v = fn(NULL, CLJ_NIL);
+	if (v == CLJ_THROWN) return CLJ_THROWN;
+	clj_var_bind_root(var, v);
+	clj_release(v);
+	return CLJ_NIL;
+}
+
 clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic) {
 	if (!clj_is_map(meta)) return clj_throw_msg("def metadata must be a map, got: %s", clj_type_name(meta));
 	clj_var_set_meta(var, meta);

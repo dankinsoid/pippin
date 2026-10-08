@@ -290,6 +290,7 @@ static inline clj_value eval_borrowed(const clj_node *n, clj_frame *f, bool *own
 		const clj_header *h = clj_header_of(root);
 		if ((h->flags & CLJ_FLAG_IMMORTAL) || h->type == &clj_fn_type) return root;
 		*owned = true;
+		if (__builtin_expect(h->type == &clj_lazy_def_type, 0)) return clj_var_root_value(n->u.var.v);
 		return clj_retain(root);
 	}
 	default:
@@ -1039,8 +1040,18 @@ static bool kw_get_site(const clj_node *n) {
 	       clj_is_keyword(n->u.intrinsic.args[1]->u.value.v);
 }
 
+static clj_value exec_run_at(const clj_exec *e, const clj_node *n);
+
+// The thunk of a lazy def: the init in a frame of its own, over the exec of the def's form (code is the DEF node).
+static clj_value lazy_init(const void *code, clj_value exec) {
+	return exec_run_at(clj_exec_of(exec), ((const clj_node *)code)->u.def.init);
+}
+
 static clj_value eval_def(const clj_node *n, clj_frame *f) {
-	if (n->u.def.init) {
+	if (n->u.def.init && clj_def_defers(n->u.def.lazy)) {
+		// a lazy def is the whole form, so the frame holds nothing the init reads from outside it
+		clj_var_bind_lazy(n->u.def.var.v, lazy_init, n, clj_from_ptr((void *)f->exec), n->u.def.lazy == CLJ_DEF_LAZY_INFERRED);
+	} else if (n->u.def.init) {
 		clj_value v = eval_child(n->u.def.init, f);
 		if (v == CLJ_THROWN) return CLJ_THROWN;
 		clj_var_bind_root(n->u.def.var.v, v);
@@ -1565,8 +1576,9 @@ clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args) {
 	return clj_invoke(c->f, args, c->n);
 }
 
-clj_value clj_exec_run(clj_value exec) {
-	const clj_exec *e = clj_exec_of(exec);
+clj_value clj_exec_run(clj_value exec) { return exec_run_at(clj_exec_of(exec), clj_exec_of(exec)->root); }
+
+static clj_value exec_run_at(const clj_exec *e, const clj_node *n) {
 	uint32_t        nslots = e->nslots;
 	clj_value       small[SMALL_SLOTS];
 	clj_value      *slots = small;
@@ -1577,7 +1589,7 @@ clj_value clj_exec_run(clj_value exec) {
 	memset(slots, 0, nslots * sizeof *slots);
 	clj_frame frame = {slots, NULL, e, 0, NULL};
 	execution.exec_depth++;
-	clj_value v = eval_child(e->root, &frame);
+	clj_value v = eval_child(n, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
 	slots_release(&frame, nslots);
 	if (slots != small) free(slots);

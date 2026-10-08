@@ -7,6 +7,7 @@
 #include "fusion.h"
 #include "intrinsics.h"
 #include "runtime.h"
+#include "var.h"
 
 // Runtime side of the C the compiler (Sources/CljCompiler) emits; the inline helpers are in compiled_internal.h.
 
@@ -57,6 +58,9 @@ const clj_fusion_var *clj_c_fusion_var(const char *qualified);
 clj_value clj_c_closure(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity);
 // The rest of a def after its root is bound: meta (borrowed, a map), the flags; returns the var retained.
 clj_value clj_c_def(clj_value var, clj_value meta, bool macro, bool dynamic);
+// The root of a def the analyzer made lazy (lazy: clj_def_lazy): a thunk of fn, or fn's value now when
+// clj_def_defers says no, as the interpreter's eval_def does. nil, or CLJ_THROWN when the init threw.
+clj_value clj_c_lazy_def(clj_value var, uint8_t lazy, clj_lazy_def_fn fn);
 // A def --closed tree shaking left out of the unit (NOTES.md, "Compiler": tree shaking). The var is still
 // interned and carries :pippin/shaken, and its root is a clj_shaken_type tripwire (shaken.h): using the def —
 // a call, a get, a seq — is a fatal naming the var, never a silently unbound or missing root.

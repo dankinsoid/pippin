@@ -273,12 +273,7 @@ static clj_value b_ns_p(const clj_value *args, size_t n) {
 // The root, never a thread binding: a rebind of the root under a binding must not write the bound value back.
 static clj_value var_root_arg(const char *who, clj_value v) {
 	if (var_arg(who, v) == CLJ_THROWN) return CLJ_THROWN;
-	clj_value root = clj_var_root(v);
-	if (root == CLJ_UNBOUND) {
-		clj_value ns = clj_symbol_name(clj_var_ns(v)), name = clj_symbol_name(clj_var_name(v));
-		return clj_throw_msg("Unbound var: #'%s/%s", clj_string_bytes(ns), clj_string_bytes(name));
-	}
-	return clj_retain(root);
+	return clj_var_root_value(v);
 }
 
 static clj_value b_var_root(const clj_value *args, size_t n) {

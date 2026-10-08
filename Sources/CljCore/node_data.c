@@ -18,7 +18,7 @@
 //           | [:intrinsic ns/name arg*]     a listed core var at the arity of the args; unknown pairs are refused
 //           | [:fused [ns/name+] [arg*] fused original]   guard vars of the fusion table; the programs read the
 //                                                          args as locals 0..n-1 (optimizer.c)
-//           | [:def ns/name init-or-nil meta macro dynamic]
+//           | [:def ns/name init-or-nil meta macro dynamic lazy]  lazy :eager, :inferred or :explicit (clj_def_lazy)
 //           | [:try body [catch*] finally-or-nil]
 //           | [:throw node]
 //   arity   = [nparams variadic self-slot-or-nil nslots body]
@@ -50,10 +50,13 @@
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
 	kw_direct_fn, kw_direct_call, kw_invoke, kw_intrinsic, kw_fused, kw_def, kw_vector, kw_map, kw_set, kw_try, kw_throw, kw_all, kw_error,
-	kw_catch_kw, kw_catch_type, kw_catch_host, kw_objc_send;
+	kw_catch_kw, kw_catch_type, kw_catch_host, kw_objc_send, kw_lazy_kinds[3];
 
 static void intern_keywords(void) {
 	kw_const = clj_keyword_from_cstr("const");
+	kw_lazy_kinds[CLJ_DEF_EAGER] = clj_keyword_from_cstr("eager");
+	kw_lazy_kinds[CLJ_DEF_LAZY_INFERRED] = clj_keyword_from_cstr("inferred");
+	kw_lazy_kinds[CLJ_DEF_LAZY_EXPLICIT] = clj_keyword_from_cstr("explicit");
 	kw_local = clj_keyword_from_cstr("local");
 	kw_last = clj_keyword_from_cstr("last");
 	kw_captured = clj_keyword_from_cstr("captured");
@@ -360,9 +363,9 @@ static clj_value encode_kind(const clj_node *n) {
 		return v;
 	}
 	case CLJ_NODE_DEF: {
-		clj_value items[6] = {kw_def, qualified(n->u.def.var.v), encode_opt(n->u.def.init), encode(n->u.def.meta), clj_bool(n->u.def.macro),
-		                      clj_bool(n->u.def.dynamic)};
-		return vec_take(items, 6);
+		clj_value items[7] = {kw_def, qualified(n->u.def.var.v), encode_opt(n->u.def.init), encode(n->u.def.meta), clj_bool(n->u.def.macro),
+		                      clj_bool(n->u.def.dynamic), kw_lazy_kinds[n->u.def.lazy]};
+		return vec_take(items, 7);
 	}
 	case CLJ_NODE_TRY: return encode_try(n);
 	case CLJ_NODE_THROW: return vec2(kw_throw, encode(n->u.throw_));
@@ -601,13 +604,17 @@ static clj_node *decode_direct_call(clj_value data, dframe *fr) {
 }
 
 static clj_node *decode_def(clj_value data, dframe *fr) {
-	clj_value var = clj_vector_count(data) == 6 ? var_named(clj_vector_nth(data, 1)) : CLJ_NIL;
-	if (clj_is_nil(var) || !clj_is_bool(clj_vector_nth(data, 4)) || !clj_is_bool(clj_vector_nth(data, 5)))
-		return fail_data(data, "expected [ns/name init meta macro dynamic]");
+	clj_value var = clj_vector_count(data) == 7 ? var_named(clj_vector_nth(data, 1)) : CLJ_NIL;
+	clj_value lazy = clj_is_nil(var) ? CLJ_NIL : clj_vector_nth(data, 6);
+	uint8_t   kind = CLJ_DEF_EAGER;
+	while (kind <= CLJ_DEF_LAZY_EXPLICIT && kw_lazy_kinds[kind] != lazy) kind++;
+	if (clj_is_nil(var) || !clj_is_bool(clj_vector_nth(data, 4)) || !clj_is_bool(clj_vector_nth(data, 5)) || kind > CLJ_DEF_LAZY_EXPLICIT)
+		return fail_data(data, "expected [ns/name init meta macro dynamic lazy]");
 	clj_node *n = clj_node_alloc(CLJ_NODE_DEF);
 	clj_slot_init(&n->h, &n->u.def.var, clj_retain(var));
 	n->u.def.macro = clj_vector_nth(data, 4) == CLJ_TRUE;
 	n->u.def.dynamic = clj_vector_nth(data, 5) == CLJ_TRUE;
+	n->u.def.lazy = kind;
 	clj_value init = clj_vector_nth(data, 2);
 	if (!clj_is_nil(init) && !(n->u.def.init = decode(init, fr))) return drop(n);
 	return (n->u.def.meta = decode(clj_vector_nth(data, 3), fr)) ? n : drop(n);

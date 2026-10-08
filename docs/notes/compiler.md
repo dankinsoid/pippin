@@ -39,7 +39,8 @@
   the owned slots. `loop`/`recur` and a fn-body `recur` are a label and `goto` after the slots are rebound;
   a direct fn is `<base>_a<n>(outer, captured, slots, owned)` with the caller's filled slot array, the
   static link `clj_c_outer(&fr, depth)`, and `OUTER` reads walk it; `DEF` binds the root, evaluates the meta
-  and calls `clj_c_def`; literals go through `clj_vector_from_array`/`clj_c_map_literal`/`clj_c_set_literal`
+  and calls `clj_c_def`, and a lazy def (NOTES "Analyzer and evaluator") binds through `clj_c_lazy_def` a thunk of
+  `lazy_N`, the init emitted as a function of its own beside `top_N` over the same frame; literals go through `clj_vector_from_array`/`clj_c_map_literal`/`clj_c_set_literal`
   (with the duplicate-key check). A top-level form is `top_N(void)` under `clj_eval_top_enter/leave`, the
   bracket `clj_exec_run` puts around a form so a def inside parks fn roots; the unit's `init` runs them in
   file order, each behind `clj_load_form_failed` (lenient: record and go on; else the CompilerException wrap
@@ -238,9 +239,9 @@
   `scripts/shake.sh` force-drops `clojure.core/when` and `clojure.core/defn` beside the live fn and probes both
   argument shapes against the same binary; `ShakeTests` holds the reference and the meta, which a process can
   survive.
-- **The root set**, nine rows, each a check in `shake_candidate` or `shake_run`. 1. A def whose init is not a `fn`:
-  a fn's init only builds a closure, while any other init is code that runs at load, and dropping the def drops
-  that run — `(def _ (register!))` left out is an effect that never happens and no later read to trip the wire,
+- **The root set**, nine rows, each a check in `shake_candidate` or `shake_run`. 1. A def whose init is not a `fn`
+  and that is not a lazy def: a fn's init only builds a closure and a lazy def's runs at a deref if ever, while any
+  other init is code that runs at load, and dropping the def drops that run — `(def _ (register!))` left out is an effect that never happens and no later read to trip the wire,
   which is the one failure the tripwire cannot cover. Measured with the row off over the fixture set: 305
   candidates instead of 293 but only one more def dropped (`default-data-readers`), core.c 969 618 against
   971 084 bytes and the release binary 1 528 312 against 1 528 408, 96 bytes (`__text` −1 052, the rest the

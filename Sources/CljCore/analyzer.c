@@ -23,8 +23,11 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/facts.h"
+#include "clj/summary.h"
 #include "guard_internal.h"
 #include "node.h"
+#include "specialize_internal.h"
 
 static void visit_node(const clj_node *n, clj_visitor visit, void *ctx) {
 	if (n) visit(clj_from_ptr((void *)n), ctx);
@@ -183,6 +186,7 @@ typedef struct {
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_line, kw_column, kw_end_line, kw_end_column, kw_ns, kw_name, kw_doc, kw_macro, kw_dynamic, kw_file, kw_suggestion, sym_with_meta;
+static clj_value      kw_lazy, kw_eager;
 
 static void intern_keywords(void) {
 	sym_with_meta = clj_symbol_from_cstr("with-meta");
@@ -197,6 +201,8 @@ static void intern_keywords(void) {
 	kw_doc = clj_keyword_from_cstr("doc");
 	kw_macro = clj_keyword_from_cstr("macro");
 	kw_dynamic = clj_keyword_from_cstr("dynamic");
+	kw_lazy = clj_keyword_from_cstr("lazy");
+	kw_eager = clj_keyword_from_cstr("eager");
 }
 
 void clj_analyzer_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
@@ -1174,6 +1180,8 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	// Var.isMacro reads :macro from the var's meta on the JVM, so a def carrying it defines a macro; core.clj
 	// defines defmacro and the macros above it that way (NOTES "Analyzer and evaluator").
 	node->u.def.macro = clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_macro, CLJ_NIL));
+	if (clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_eager, CLJ_NIL))) node->u.def.asked = CLJ_DEF_ASKED_EAGER;
+	else if (clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_lazy, CLJ_NIL))) node->u.def.asked = CLJ_DEF_ASKED_LAZY;
 	clj_release(sym_meta);
 	if (name != sym) clj_release(name);
 	clj_value meta_form = def_meta_form(a, sym, node->u.def.var.v, doc);
@@ -1579,6 +1587,50 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	return node_const(a, form);
 }
 
+// Whether the init does work worth deferring: a call outside a nested fn. A literal or a var read costs less than a thunk.
+static void find_call(const clj_node *n, void *ctx) {
+	bool *found = ctx;
+	if (*found) return;
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: return;
+	case CLJ_NODE_INVOKE:
+	case CLJ_NODE_INTRINSIC:
+	case CLJ_NODE_DIRECT_CALL:
+	case CLJ_NODE_FUSED:
+	case CLJ_NODE_OBJC_SEND: *found = true; return;
+	default: clj_node_children(n, find_call, ctx);
+	}
+}
+
+// A root read now that the force would read later and see otherwise: unbound (the JVM's load throws) or a reference
+// or a container another execution writes. Another lazy def is fine: reading it forces it.
+static void find_unstable_read(const clj_node *n, void *ctx) {
+	bool *found = ctx;
+	if (*found) return;
+	if (n->kind == CLJ_NODE_VAR && clj_is_var(n->u.var.v)) {
+		clj_value root = clj_var_root(n->u.var.v);
+		const uint32_t mutable_kinds = CLJ_T_ATOM | CLJ_T_ARRAY | CLJ_T_HOST;
+		if (root == CLJ_UNBOUND || (!clj_is_lazy_def(root) && (clj_fact_kind_of_value(root) & mutable_kinds))) *found = true;
+		return;
+	}
+	clj_node_children(n, find_unstable_read, ctx);
+}
+
+// Design §4 «Var и ленивые def»: only a def that is the whole form, so its init reads no frame but its own.
+static clj_def_lazy def_laziness(const clj_node *n) {
+	if (!n->u.def.init || n->u.def.asked == CLJ_DEF_ASKED_EAGER || n->u.def.macro) return CLJ_DEF_EAGER;
+	if (n->u.def.asked == CLJ_DEF_ASKED_LAZY) return CLJ_DEF_LAZY_EXPLICIT;
+	if (n->u.def.dynamic || clj_lazy_defs_mode_now() == CLJ_LAZY_DEFS_EAGER) return CLJ_DEF_EAGER;
+	bool call = false, unstable = false;
+	find_call(n->u.def.init, &call);
+	if (!call) return CLJ_DEF_EAGER;
+	find_unstable_read(n->u.def.init, &unstable);
+	if (unstable) return CLJ_DEF_EAGER;
+	uint32_t effects = clj_specialize_effects_of(n->u.def.init);
+	return (effects & ~(uint32_t)(CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW)) ? CLJ_DEF_EAGER : CLJ_DEF_LAZY_INFERRED;
+}
+
 clj_node *clj_analyze(clj_value form, const clj_env *env) {
 	analyzer  a = analyzer_for(env);
 	scope     top = {0};
@@ -1588,6 +1640,7 @@ clj_node *clj_analyze(clj_value form, const clj_env *env) {
 	if (node) {
 		clj_optimize(node);
 		clj_node_number(node);
+		if (node->kind == CLJ_NODE_DEF) node->u.def.lazy = (uint8_t)def_laziness(node);
 	}
 	return node;
 }

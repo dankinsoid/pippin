@@ -1115,6 +1115,33 @@ static uint32_t arg_effects(pass *p, const clj_node *a, uint32_t nargs) {
 	return CLJ_EFFECT_OPAQUE;
 }
 
+// Kinds whose call may run code of the program's own: anything else called is a lookup or a throw.
+#define CALLS_CODE (CLJ_T_FN | CLJ_T_HOST | CLJ_T_VAR)
+
+// What calling a function passed as an argument does: arg_effects, plus a constant or a data root called (a lookup),
+// a var's every arity, and the state bit of a dynamic var read for its fn.
+static uint32_t fn_arg_effects(pass *p, const clj_node *a) {
+	if (a->kind == CLJ_NODE_CONST) return clj_fact_kind_of_value(a->u.value.v) & CALLS_CODE ? CLJ_EFFECT_OPAQUE : 0;
+	if (a->kind == CLJ_NODE_FN) return arg_effects(p, a, 0);
+	if (a->kind != CLJ_NODE_VAR || !clj_is_var(a->u.var.v) || !p->f->sums) return CLJ_EFFECT_OPAQUE;
+	clj_value var = a->u.var.v;
+	uint32_t  r = clj_var_is_dynamic(var) ? CLJ_EFFECT_STATE : 0;
+	clj_value root = clj_var_root(var);
+	if (root != CLJ_UNBOUND && !(clj_fact_kind_of_value(root) & CALLS_CODE)) return r;
+	if (root == CLJ_UNBOUND || !clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_CLOSURE) return r | unknown_var_effects(var);
+	const clj_node *fn = clj_fn_of(root)->u.node;
+	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
+		const clj_fn_arity *ar = i <= CLJ_FN_MAX_FIXED ? fn->u.fn.fixed[i] : fn->u.fn.variadic;
+		if (!ar) continue;
+		const clj_summary *s = summary_of(p, var, ar->nparams);
+		r |= s ? s->effects : CLJ_EFFECT_OPAQUE;
+	}
+	return r;
+}
+
+#define NOT_NAMED UINT32_MAX
+static uint32_t named_effects(pass *p, const char *name, const clj_node *const *args, uint32_t nargs);
+
 // The ladder of design §4, by whether the effect is impossible here or only bad practice.
 static void require_effects(pass *p, const clj_node *arg, const clj_effects_req *req, clj_value callee, uint32_t i) {
 	if (req->allowed == CLJ_EFFECTS_FREE || !p->record || p->dead) return;
@@ -1136,11 +1163,12 @@ static void require_effects(pass *p, const clj_node *arg, const clj_effects_req 
 	}
 }
 
+// effects false: the call's effects are the named table's, not the body's (named_effects).
 static void apply_summary(pass *p, env *e, const clj_summary *sum, const clj_node *const *args, uint32_t n, const clj_fact *have,
-                          clj_value callee) {
+                          clj_value callee, bool effects) {
 	if (!sum) return;
 	if (p->record) p->f->hits++;
-	p->effects |= sum->effects;
+	if (effects) p->effects |= sum->effects;
 	// the rest parameter's requirement is on the seq, not on one element
 	for (uint32_t i = 0; i < n && i < sum->nparams; i++) {
 		bool declared = sum->annotated && sum->param_line[i] == 0;
@@ -1267,13 +1295,16 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 	else record_site(p, site, var, n, have);
 	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
-	if (!sum) {
+	uint32_t           named = name ? named_effects(p, name, args, n) : NOT_NAMED;
+	if (named != NOT_NAMED) {
+		p->effects |= named;
+	} else if (!sum) {
 		uint32_t eff = unknown_var_effects(var);
 		// @atom never parks, @future and @promise do: the fact is the argument's, not the symbol's (design §4)
 		if (name && n >= 1 && have[0].types == CLJ_T_ATOM && strcmp(name, "deref") == 0) eff &= ~(uint32_t)CLJ_EFFECT_OPAQUE;
 		p->effects |= eff;
 	}
-	apply_summary(p, e, sum, args, n, have, var);
+	apply_summary(p, e, sum, args, n, have, var, named == NOT_NAMED);
 	clj_fact r = s ? sig_result(s, have, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
 	const clj_summary *spec = specialized_of(p, var, n, have, sum);
 	if (have != inline_have) free(have);
@@ -1358,10 +1389,24 @@ static clj_fact infer_try(pass *p, const clj_node *n, env *e, use_kind use) {
 	return r;
 }
 
+// A pipeline of core HOFs (fusion.c) over its arguments: its own work is pure, and what it calls is an argument. An
+// argument computed by an expression may come out a function, unless its fact excludes one.
+static uint32_t fused_effects(pass *p, const clj_node *n, const clj_fact *args) {
+	uint32_t r = CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
+	for (uint32_t i = 0; i < n->u.fused.nargs; i++) {
+		const clj_node *a = n->u.fused.args[i];
+		if (a->kind == CLJ_NODE_CONST || a->kind == CLJ_NODE_FN || a->kind == CLJ_NODE_VAR) r |= fn_arg_effects(p, a);
+		else if (args[i].types & CALLS_CODE) r |= CLJ_EFFECT_OPAQUE;
+	}
+	return r;
+}
+
 static clj_fact infer_fused(pass *p, const clj_node *n, env *e) {
 	clj_fact *args = xalloc(n->u.fused.nargs + 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < n->u.fused.nargs; i++) args[i] = infer(p, n->u.fused.args[i], e, USE_ESCAPE);
 	clj_fact r = clj_fact_top();
+	// the programs call their arguments as locals, which the walk cannot see through: fused_effects says what they do
+	uint32_t effects = p->effects | fused_effects(p, n, args);
 	if (p->record) {
 		uint32_t nslots = n->u.fused.nargs;
 		max_slot(n->u.fused.fused, &nslots);
@@ -1387,6 +1432,7 @@ static clj_fact infer_fused(pass *p, const clj_node *n, env *e) {
 		env_free(&copy);
 		env_free(&fe);
 	}
+	p->effects = effects;
 	free(args);
 	return r;
 }
@@ -1534,7 +1580,7 @@ static clj_fact infer_direct_call(pass *p, const clj_node *n, env *e) {
 	for (uint32_t i = 0; i < n->u.direct.n; i++) have[i] = infer(p, n->u.direct.args[i], e, USE_ESCAPE);
 	const clj_summary *sum = p->f->sums ? clj_summary_of_arity(p->f->sums, n->u.direct.fn, n->u.direct.arity) : NULL;
 	if (!sum) p->effects |= CLJ_EFFECT_ANY;
-	apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL);
+	apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL, true);
 	if (have != inline_have) free(have);
 	return result_with_summary(p, clj_fact_top(), sum);
 }
@@ -1566,6 +1612,7 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		if (p->f->sums && clj_is_var(n->u.var.v)) {
 			r = clj_summary_var_fact(p->f->sums, n->u.var.v);
 			add_dep(p->f, n->u.var.v);
+			if (clj_var_is_dynamic(n->u.var.v)) p->effects |= CLJ_EFFECT_STATE;
 		}
 		break;
 	case CLJ_NODE_IF: r = infer_if(p, n, e, use); break;
@@ -1634,10 +1681,7 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		p->effects |= CLJ_EFFECT_THROW;
 		r = clj_fact_bottom();
 		break;
-	case CLJ_NODE_FUSED:
-		p->effects |= CLJ_EFFECT_ANY;
-		r = infer_fused(p, n, e);
-		break;
+	case CLJ_NODE_FUSED: r = infer_fused(p, n, e); break;
 	// A method's return type is an Objective-C fact, and the lattice has no host types yet.
 	case CLJ_NODE_OBJC_SEND:
 		infer(p, n->u.objc.target, e, USE_ESCAPE);
@@ -1717,6 +1761,26 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	free(p.alias_from);
 	free(p.alias_to);
 	free_scratch(&f);
+}
+
+uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums) {
+	clj_facts f = {0};
+	f.conflict_node = UINT32_MAX;
+	f.sums = sums;
+	pass p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
+	if (sums) warm_summaries(n, sums);
+	uint32_t nslots = 0;
+	max_slot(n, &nslots);
+	frame_ctx fc = {NULL, 0, push_frame(&p, UINT32_MAX, 0, n, nslots), NULL};
+	env       e = env_new(nslots);
+	p.frame = &fc;
+	infer(&p, n, &e, USE_ESCAPE);
+	env_free(&e);
+	free(p.alias_from);
+	free(p.alias_to);
+	free_scratch(&f);
+	if (sums) clj_summaries_forget_arities(sums);
+	return p.effects;
 }
 
 void clj_facts_free(clj_facts *f) {
@@ -1901,6 +1965,14 @@ static const char *const pure_names[] = {
 	"=", "not=", "==", "<", "<=", ">", ">=", "compare", "vector", "list", "hash-map", "hash-set", "conj", "assoc", "dissoc",
 	"cons", "inc", "dec", "+", "-", "*", "/", "quot", "rem", "mod", "min", "max", "zero?", "pos?", "neg?", "even?", "odd?",
 	"empty?", "contains?", "keys", "vals", "vec", "set", "into", "with-meta", "subs", "long", "int", "double", "char",
+	// data in, data out, no function of the caller's called (a function-taking arity is in hof_positions)
+	"ex-info", "ex-message", "ex-data", "ex-cause", "list*", "second", "last", "butlast", "reverse", "concat", "subvec", "peek",
+	"pop", "disj", "find", "select-keys", "merge", "zipmap", "frequencies", "distinct", "range", "repeat", "take", "drop",
+	"take-last", "drop-last", "nthrest", "nthnext", "partition", "partition-all", "interleave", "interpose", "flatten",
+	"get-in", "assoc-in", "not-empty", "empty", "array-map", "sorted-map", "sorted-set", "re-pattern", "re-find",
+	"re-matches", "re-seq", "bit-and", "bit-or", "bit-xor", "bit-not", "bit-shift-left", "bit-shift-right", "abs", "sort",
+	"sequence", "comp", "partial", "juxt", "complement", "constantly", "fnil", "some-fn", "every-pred", "nnext", "fnext",
+	"ffirst", "doall", "dorun", "dedupe",
 };
 static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "load", "require"};
 static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset-vals!", "compare-and-set!", "vreset!", "vswap!",
@@ -1916,7 +1988,44 @@ static bool named_in(const char *name, const char *const *list, size_t n) {
 	return false;
 }
 
+// The core calls whose own work is pure and which call the functions at these argument positions: their effects are
+// those functions' (design §4 «Var и ленивые def»: `(def t (mapv f xs))` is as pure as f). By argument count, since
+// one name is both: `(sort xs)` calls nothing, `(sort cmp xs)` calls cmp.
+static uint32_t hof_positions(const char *name, uint32_t nargs) {
+	static const char *const first[] = {"map", "mapv", "filter", "filterv", "remove", "keep", "mapcat", "map-indexed", "keep-indexed",
+	                                    "some", "every?", "not-any?", "not-every?", "take-while", "drop-while", "partition-by",
+	                                    "group-by", "iterate", "max-key", "min-key", "run!", "reduce", "reduce-kv", "merge-with",
+	                                    "apply", "trampoline", "lazy-seq*"};
+	if (named_in(name, first, sizeof first / sizeof *first)) return nargs ? 1u : 0;
+	if (strcmp(name, "sort") == 0 || strcmp(name, "sequence") == 0) return nargs >= 2 ? 1u : 0;
+	if (strcmp(name, "sort-by") == 0) return nargs == 3 ? 3u : 1u;
+	if (strcmp(name, "transduce") == 0) return 3u;
+	if (strcmp(name, "into") == 0) return nargs == 3 ? 2u : 0;
+	if (strcmp(name, "update") == 0 || strcmp(name, "update-in") == 0) return nargs >= 3 ? 4u : 0;
+	if (strcmp(name, "repeatedly") == 0) return nargs == 1 ? 1u : nargs == 2 ? 2u : 0;
+	return 0;
+}
+
+// A clojure.core call the tables name, whose effects they decide whatever the body's summary says, so a library's
+// facts agree whether core.clj is interpreted (bodies) or compiled (names alone); NOT_NAMED otherwise.
+static uint32_t named_effects(pass *p, const char *name, const clj_node *const *args, uint32_t nargs) {
+	uint32_t at = hof_positions(name, nargs);
+	if (at) {
+		uint32_t r = CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
+		for (uint32_t i = 0; i < nargs && i < 32; i++) {
+			if ((at >> i) & 1) r |= fn_arg_effects(p, args[i]);
+		}
+		return r;
+	}
+	return clj_facts_core_named(name) ? clj_facts_core_effects(name) : NOT_NAMED;
+}
+
 // A predicate neither allocates nor throws; the rest of the pure list allocates or throws on a wrong argument but no more.
+bool clj_facts_core_named(const char *name) {
+	return named_in(name, park_names, sizeof park_names / sizeof *park_names) || named_in(name, io_names, sizeof io_names / sizeof *io_names) ||
+	       named_in(name, atom_names, sizeof atom_names / sizeof *atom_names) || named_in(name, pure_names, sizeof pure_names / sizeof *pure_names);
+}
+
 uint32_t clj_facts_core_effects(const char *name) {
 	if (named_in(name, park_names, sizeof park_names / sizeof *park_names)) return CLJ_EFFECT_ANY | CLJ_EFFECT_PARK;
 	if (named_in(name, io_names, sizeof io_names / sizeof *io_names)) return CLJ_EFFECT_ANY;

@@ -150,10 +150,10 @@ extension CoreTests {
 		@Test func seqOnVectorIsAView() throws {
 			clj_init()
 			try declare("sv-v", "sv-s")
-			_ = try eval("(def sv-v (vec (range 1000)))")
+			_ = try eval("(def ^:eager sv-v (vec (range 1000)))")
 			let before = clj_debug_live_objects()
 			do {
-				_ = try eval("(def sv-s (seq sv-v))")
+				_ = try eval("(def ^:eager sv-s (seq sv-v))")
 				#expect(clj_debug_live_objects() == before + 1)
 				_ = try eval("(def sv-s (next (next (next sv-s))))")
 				#expect(clj_debug_live_objects() == before + 1)

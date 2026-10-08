@@ -224,7 +224,7 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try Tree("(def fold-x (+ 1 2))").data()
-					== Value(reading: "[:def user/fold-x [:const 3 1 13] [:const {:ns user :name fold-x :line 1 :column 1} 1 1] false false 1 1]"))
+					== Value(reading: "[:def user/fold-x [:const 3 1 13] [:const {:ns user :name fold-x :line 1 :column 1} 1 1] false false :eager 1 1]"))
 				_ = try rt.eval("(def fold-x (+ 1 2))")
 				#expect(try rt.eval("[fold-x (:line (meta #'fold-x)) (:column (meta #'fold-x)) (:name (meta #'fold-x))]") == [3, 1, 1, Value(symbol: "fold-x")])
 				_ = try rt.eval("(defn fold-boom [] (nth [1] 5))\n(defn fold-boom-x [x] (nth [1] x))")

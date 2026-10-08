@@ -13,6 +13,7 @@
 #include "clj/string.h"
 #include "clj/vector.h"
 #include "coro_internal.h"
+#include "force_internal.h"
 #include "shadow_internal.h"
 
 // ---- view metadata
@@ -240,8 +241,7 @@ clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
 
 // ---- lazy-seq
 
-// FORCING_WAITED: some execution parked on the object in the lot (cmutex.c); the publisher unparks them.
-enum { UNFORCED = 0, FORCING = 1, FORCED = 2, FORCING_WAITED = 3 };
+enum { UNFORCED = CLJ_FORCE_UNFORCED, FORCING = CLJ_FORCE_FORCING, FORCED = CLJ_FORCE_FORCED, FORCING_WAITED = CLJ_FORCE_WAITED };
 
 static void lazy_seq_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_lazy_seq *s = self;
@@ -288,56 +288,67 @@ clj_value clj_lazy_seq_new(clj_value fn) {
 	return clj_from_ptr(s);
 }
 
-// The forcer's exchange sees FORCING_WAITED, or the waiter's CAS sees FORCED: no wakeup is lost either way.
+// The forcer's exchange sees FORCING_WAITED, or the waiter's CAS sees the published state: no wakeup is lost either way.
 static bool still_forcing(const void *key, void *ctx) {
-	(void)ctx;
-	clj_lazy_seq *s = clj_lazy_seq_of(clj_from_ptr((void *)key));
+	(void)key;
+	_Atomic uint32_t *state = ctx;
 	for (;;) {
-		uint32_t st = atomic_load_explicit(&s->state, memory_order_acquire);
+		uint32_t st = atomic_load_explicit(state, memory_order_acquire);
 		if (st != FORCING && st != FORCING_WAITED) return false;
 		if (st == FORCING_WAITED) return true;
 		uint32_t expected = FORCING;
-		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING_WAITED, memory_order_acq_rel, memory_order_acquire)) return true;
+		if (atomic_compare_exchange_weak_explicit(state, &expected, FORCING_WAITED, memory_order_acq_rel, memory_order_acquire)) return true;
 	}
 }
 
 // A one-shot wait for the forcer, on the lot: a park, or a block on a bare thread (design §4, lazy seq under the
 // coroutine mutex).
-static void wait_forcer(clj_value v) { clj_lot_park(clj_to_ptr(v), still_forcing, NULL, clj_wake_holder()); }
-
-static void set_state(clj_value v, uint32_t st) {
-	clj_lazy_seq *s = clj_lazy_seq_of(v);
-	uint32_t      was = atomic_exchange_explicit(&s->state, st, memory_order_acq_rel);
-	if (was == FORCING_WAITED) clj_lot_unpark_all(clj_to_ptr(v));
+void clj_force_wait(clj_value obj, _Atomic uint32_t *state) {
+	clj_lot_park(clj_to_ptr(obj), still_forcing, (void *)state, clj_wake_holder());
 }
+
+void clj_force_set(clj_value obj, _Atomic uint32_t *state, uint32_t st) {
+	uint32_t was = atomic_exchange_explicit(state, st, memory_order_acq_rel);
+	if (was == FORCING_WAITED) clj_lot_unpark_all(clj_to_ptr(obj));
+}
+
+static void wait_forcer(clj_value v) { clj_force_wait(v, &clj_lazy_seq_of(v)->state); }
+
+static void set_state(clj_value v, uint32_t st) { clj_force_set(v, &clj_lazy_seq_of(v)->state, st); }
 
 bool clj_lazy_seq_realized(clj_value ls) {
 	return atomic_load_explicit(&clj_lazy_seq_of(ls)->state, memory_order_acquire) == FORCED;
 }
 
-// Objects this thread is forcing, innermost first: a thunk reaching its own object throws, not spins.
-typedef struct forcing {
-	clj_value       obj;
-	struct forcing *prev;
-} forcing;
+#define forcing_top (*(clj_forcing **)&clj_coro_current()->forcing_top)
 
-#define forcing_top (*(forcing **)&clj_coro_current()->forcing_top)
-
-static bool forcing_here(clj_value obj) {
-	for (const forcing *f = forcing_top; f; f = f->prev) {
+bool clj_force_here(clj_value obj) {
+	for (const clj_forcing *f = forcing_top; f; f = f->prev) {
 		if (f->obj == obj) return true;
 	}
 	return false;
 }
 
-// UNFORCED -> FORCING, or false with the object FORCED (its value is now readable) or CLJ_THROWN pending.
+void clj_force_push(clj_forcing *f, clj_value obj) {
+	f->obj = obj;
+	f->prev = forcing_top;
+	forcing_top = f;
+}
+
+void clj_force_pop(const clj_forcing *f) { forcing_top = f->prev; }
+
 // The claim, not the thunk's frame, is the window: wait_forcer parks readers until the publish (sched.c).
+void clj_force_claimed(void) { clj_coro_current()->forcing_held++; }
+
+void clj_force_unclaimed(void) { clj_coro_current()->forcing_held--; }
+
+// UNFORCED -> FORCING, or false with the object FORCED (its value is now readable) or CLJ_THROWN pending.
 static bool claimed(void) {
-	clj_coro_current()->forcing_held++;
+	clj_force_claimed();
 	return true;
 }
 
-static void unclaimed(void) { clj_coro_current()->forcing_held--; }
+static void unclaimed(void) { clj_force_unclaimed(); }
 
 static bool claim(clj_value v, bool *thrown) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
@@ -356,7 +367,7 @@ static bool claim(clj_value v, bool *thrown) {
 		uint32_t expected = UNFORCED;
 		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING, memory_order_acq_rel, memory_order_acquire)) return claimed();
 		if (expected == FORCED) return false;
-		if (forcing_here(v)) {
+		if (clj_force_here(v)) {
 			*thrown = clj_throw_msg("Recursive realization of a lazy seq") == CLJ_THROWN;
 			return false;
 		}
@@ -383,10 +394,10 @@ static void unclaim(clj_value v) {
 // of its own, and an infinite lazy seq is realized one cell per turn here.
 static clj_value run_thunk(clj_value v) {
 	if (clj_deadline_tick()) return CLJ_THROWN;
-	forcing frame = {v, forcing_top};
-	forcing_top = &frame;
+	clj_forcing frame;
+	clj_force_push(&frame, v);
 	clj_value r = clj_invoke(clj_lazy_seq_of(v)->fn.v, NULL, 0);
-	forcing_top = frame.prev;
+	clj_force_pop(&frame);
 	return r;
 }
 

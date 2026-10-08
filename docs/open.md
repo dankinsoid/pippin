@@ -101,7 +101,7 @@ file. 110 open, 102 partly done.
 - [~] `throw` accepts any value — Trigger: the analyzer's `:strict` mode, which should warn on "throw of a non-error value" (JVM/Swift strictness as a lint, not a runtime rule).
 - [ ] An ObjC class imported in a Swift host is the host type, not the class object. — Trigger: code importing a class to send to it
 - [ ] Declaration-order diagnostics — Not done, until the first code written for pippin rather than ported: four diagnostics.
-- [ ] `def` is eager and vars are plain roots. — Trigger: the first ns whose load-time cost shows.
+- [ ] What the lazy def leaves open. — **What the lazy def leaves open.** Each with its trigger.
 - [~] Dynamic vars — … trigger: `bound-fn` across threads with a mutable graph, then `clj_share` in `push_entry`).
 - [~] A side cell of an exec node is a shared mutable cell — Trigger: the var inline cache of the design.
 - [~] Var lookup is a root load on every evaluation — trigger: that showing in a profile.

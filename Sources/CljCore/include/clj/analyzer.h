@@ -64,6 +64,10 @@ typedef struct {
 } clj_catch;
 
 
+// A def's init runs at the def, or on the first deref (design §4 «Var и ленивые def»): pure by the facts, or ^:lazy.
+typedef enum { CLJ_DEF_EAGER, CLJ_DEF_LAZY_INFERRED, CLJ_DEF_LAZY_EXPLICIT } clj_def_lazy;
+typedef enum { CLJ_DEF_ASKED_NONE, CLJ_DEF_ASKED_LAZY, CLJ_DEF_ASKED_EAGER } clj_def_asked;
+
 // Where a closure takes a captured value from in the frame that creates it: its slots, its environment, or
 // a slot of the frame `depth` static links up when the closure is made inside a direct fn body.
 typedef enum { CLJ_CAPTURE_LOCAL, CLJ_CAPTURE_CAPTURED, CLJ_CAPTURE_OUTER } clj_capture_kind;
@@ -144,6 +148,8 @@ struct clj_node {
 			const clj_node *meta;    // the var's meta: the symbol's meta plus :ns :name :line :column, evaluated at def time
 			bool            macro;   // :macro true in the symbol's meta (defmacro puts it there)
 			bool            dynamic; // :dynamic in the symbol's meta
+			uint8_t         lazy;    // clj_def_lazy: the analyzer's decision, which both backends carry out
+			uint8_t         asked;   // clj_def_asked: ^:lazy or ^:eager on the symbol
 		} def;
 		struct {
 			const clj_node *body;

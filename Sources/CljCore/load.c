@@ -364,6 +364,24 @@ bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value
 	return true;
 }
 
+// *lazy-defs* :after-load: the defs this load deferred are forced in def order, and the first failure is the load's
+// own, at its def's position as an eager def's would be (design §4 «Var и ленивые def», the dev flag).
+static clj_value force_deferred(uint64_t mark, clj_value file) {
+	if (clj_lazy_defs_mode_now() != CLJ_LAZY_DEFS_AFTER_LOAD) return CLJ_NIL;
+	clj_value var;
+	// a failed def no longer counts as deferred, so a lenient load goes on with the next one
+	while (clj_lazy_defs_force_since(mark, &var) == CLJ_THROWN) {
+		if (clj_is_cancellation(clj_pending())) return CLJ_THROWN;
+		clj_value m = clj_var_meta(var);
+		clj_value line = clj_is_map(m) ? clj_map_get(m, clj_keyword_from_cstr("line"), CLJ_NIL) : CLJ_NIL;
+		clj_value col = clj_is_map(m) ? clj_map_get(m, clj_keyword_from_cstr("column"), CLJ_NIL) : CLJ_NIL;
+		uint32_t  at_line = clj_is_fixnum(line) ? (uint32_t)clj_fixnum_val(line) : 0;
+		uint32_t  at_col = clj_is_fixnum(col) ? (uint32_t)clj_fixnum_val(col) : 0;
+		if (!clj_load_form_failed(file, at_line, at_col, clj_var_name(var))) return CLJ_THROWN;
+	}
+	return CLJ_NIL;
+}
+
 // A registered unit runs under the bindings a source load has: its init sees the same *ns* and *file*.
 static clj_value run_unit(clj_compiled_init init, clj_value file) {
 	clj_value bindings = load_bindings(file);
@@ -374,10 +392,15 @@ static clj_value run_unit(clj_compiled_init init, clj_value file) {
 	// The unit's forms run outside clj_eval, so the recovery point of guard.h is here.
 	clj_recovery rec;
 	clj_recovery_push(&rec);
+	uint64_t  mark = clj_lazy_defs_mark();
 	clj_value r;
 	if (sigsetjmp(rec.buf, 0)) r = clj_recovery_throw(&rec);
 	else r = init();
 	clj_recovery_pop(&rec);
+	if (r != CLJ_THROWN) {
+		clj_release(r);
+		r = force_deferred(mark, file);
+	}
 	if (clj_var_pop_bindings() == CLJ_THROWN) clj_fatal("load bindings vanished");
 	if (r == CLJ_THROWN) return r;
 	clj_release(r);
@@ -393,6 +416,7 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 	clj_reader_init(&r, bytes, len);
 	clj_reader_use_namespaces(&r);
 	clj_value result = CLJ_NIL;
+	uint64_t  mark = clj_lazy_defs_mark();
 	for (;;) {
 		clj_value       form;
 		clj_read_status st = clj_read(&r, &form);
@@ -444,6 +468,7 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 		clj_release(v);
 		clj_release(form);
 	}
+	if (result != CLJ_THROWN) result = force_deferred(mark, file);
 	if (clj_var_pop_bindings() == CLJ_THROWN) clj_fatal("load bindings vanished");
 	return result;
 }
