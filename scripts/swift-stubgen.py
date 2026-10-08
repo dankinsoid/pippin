@@ -18,6 +18,7 @@ reason in report.json beside the dylib and in the dylib's own registration.
 """
 
 import argparse
+import collections
 import hashlib
 import importlib.util
 import json
@@ -61,6 +62,13 @@ class Refused(Exception):
 	pass
 
 
+# One part of a symbol refused while the rest is generated: a setter whose value has no way in.
+Refusal = collections.namedtuple("Refusal", "swift reason")
+
+# A receiver of these is a value: a mutating member answers its new value.
+VALUE_KINDS = ("box", "map", "keyword")
+
+
 def progress(msg):
 	print(msg, file=sys.stderr, flush=True)
 
@@ -99,19 +107,83 @@ def fingerprint(args, module_file, compiler):
 # ---------------------------------------------------------------------------
 # Classification: the classifier's record, then the stubs it becomes.
 
-def stored_property_owners(paths, idx):
-	"""Structs with a public stored property: design §5 moves those as a map, which is not built."""
-	owners = set()
+def stored_fields(paths, idx):
+	"""Every stored instance property of the module's types at any access level, from the private graph: the
+	public one cannot tell a struct whose state is all public from one with a private field beside it."""
+	fields = {}
 	for p in paths:
 		for sym in reprint.iter_symbols(p):
 			if sym["kind"]["identifier"] != "swift.property":
 				continue
 			decl = reprint.frag_text(sym.get("declarationFragments", []))
-			if "{" not in decl:
-				owner = idx.member_of.get(sym["identifier"]["precise"])
-				if owner:
-					owners.add(owner)
-	return owners
+			owner = idx.member_of.get(sym["identifier"]["precise"])
+			if "{" in decl or not owner:
+				continue
+			fields.setdefault(owner, []).append(dict(
+				name=sym["pathComponents"][-1], access=sym.get("accessLevel"), decl=decl,
+				type=reprint.decl_value_type(decl), usrs=reprint.frag_usrs(sym.get("declarationFragments", [])),
+				settable=bool(re.search(r"\bvar\b", decl)) and not re.search(r"\(set\)", decl)))
+	return fields
+
+
+def same_type(a, b):
+	return re.sub(r"\s+", "", a) == re.sub(r"\s+", "", b)
+
+
+class Shapes:
+	"""Which of the module's own types cross as data (design §5 «Перечисление кейвордом, структура мапой»): an enum
+	without payloads as a keyword, a struct whose stored properties are all public and cross as a map."""
+
+	def __init__(self, idx, fields, cases, inits):
+		self.idx = idx
+		self.keywords = {}		# enum USR -> case names, sorted
+		self.maps = {}			# struct USR -> its fields, sorted by name
+		self.inits = inits		# struct USR -> [(labels, param texts, throws)] of its public non-failable inits
+		self.back = {}			# map struct USR -> (labels of the init, fields set after it, throws) or None
+		self.checking = set()	# map structs a check_decode is inside of: a field may reach its own type
+		for usr, cs in cases.items():
+			rec = idx.by_usr.get(usr)
+			if rec and not rec["generic"] and cs and not any(payload for _n, payload, _p in cs):
+				self.keywords[usr] = sorted(n for n, _p, _q in cs)
+		for usr, fs in fields.items():
+			rec = idx.by_usr.get(usr)
+			if (rec and rec["kind"] == "swift.struct" and not rec["generic"] and fs
+					and all(f["access"] in ("public", "open") and not re.search(r"\blazy\b", f["decl"]) for f in fs)):
+				self.maps[usr] = sorted(fs, key=lambda f: f["name"])
+
+	def settle(self, types):
+		"""A struct is a map only when every field crosses; a field may be another map, so this is a fixpoint."""
+		changed = True
+		while changed:
+			changed = False
+			for usr, fs in list(self.maps.items()):
+				try:
+					for f in fs:
+						f["form"] = types.parse("field", f["type"], f["usrs"])
+				except Refused:
+					del self.maps[usr]
+					changed = True
+		for usr, fs in self.maps.items():
+			self.back[usr] = self.way_back(usr, fs)
+
+	def way_back(self, usr, fs):
+		"""The public init whose labels are fields of the same types, the rest assigned after it; the widest wins."""
+		names = {f["name"]: f for f in fs}
+		best = None
+		for labels, texts, throws in self.inits.get(usr, []):
+			if any(l not in names or not same_type(names[l]["type"], t) for l, t in zip(labels, texts)):
+				continue
+			rest = [f for f in fs if f["name"] not in labels]
+			if any(not f["settable"] for f in rest):
+				continue
+			if best is None or len(labels) > len(best[0]):
+				best = (labels, [f["name"] for f in rest], throws)
+		return best
+
+	def demote(self, usr):
+		self.keywords.pop(usr, None)
+		self.maps.pop(usr, None)
+		self.back.pop(usr, None)
 
 
 class Form:
@@ -126,6 +198,58 @@ class Form:
 
 	def encode(self, x):
 		raise NotImplementedError
+
+	def check_decode(self):
+		"""Refuses a form that can cross out but not in: a map struct with no public way back from a map."""
+		for part in self.parts():
+			part.check_decode()
+
+	def parts(self):
+		return []
+
+
+class Keyword(Form):
+	"""An enum without payloads: one generated pair of functions per type."""
+	kind = "keyword"
+
+	def __init__(self, t):
+		self.t = t
+
+	def decode(self, x):
+		return f"try dec_{ident(self.t)}({x})"
+
+	def encode(self, x):
+		return f"enc_{ident(self.t)}({x})"
+
+
+class MapStruct(Form):
+	kind = "map"
+
+	def __init__(self, t, usr, shapes):
+		self.t, self.usr, self.shapes = t, usr, shapes
+
+	def decode(self, x):
+		return f"try dec_{ident(self.t)}({x})"
+
+	def encode(self, x):
+		return f"enc_{ident(self.t)}({x})"
+
+	def check_decode(self):
+		if self.usr in self.shapes.checking:
+			return
+		if self.shapes.back.get(self.usr) is None:
+			raise Refused(f"`{self.t}` crosses out as a map but has no public init taking its stored properties "
+				"by name, so no map comes back as one (design §5 «Структуры несимметричны»)")
+		self.shapes.checking.add(self.usr)
+		try:
+			for f in self.shapes.maps[self.usr]:
+				f["form"].check_decode()
+		finally:
+			self.shapes.checking.discard(self.usr)
+
+
+def ident(spelling):
+	return spelling.replace(".", "_")
 
 
 class Void(Form):
@@ -187,6 +311,9 @@ class Optional(Form):
 	def __init__(self, inner):
 		self.inner = inner
 
+	def parts(self):
+		return [self.inner]
+
 	def decode(self, x):
 		return f"try Pippin.SwiftStubs.optional({x}) {{ {self.inner.decode('$0')} }}"
 
@@ -199,6 +326,9 @@ class Array(Form):
 
 	def __init__(self, element):
 		self.element = element
+
+	def parts(self):
+		return [self.element]
 
 	def decode(self, x):
 		return f"try Pippin.SwiftStubs.array({x}) {{ {self.element.decode('$0')} }}"
@@ -213,6 +343,9 @@ class Set(Form):
 	def __init__(self, element):
 		self.element = element
 
+	def parts(self):
+		return [self.element]
+
 	def decode(self, x):
 		return f"try Pippin.SwiftStubs.set({x}) {{ {self.element.decode('$0')} }}"
 
@@ -225,6 +358,9 @@ class Dictionary(Form):
 
 	def __init__(self, key, value):
 		self.key, self.value = key, value
+
+	def parts(self):
+		return [self.key, self.value]
 
 	def decode(self, x):
 		return (f"try Pippin.SwiftStubs.dictionary({x}, key: {{ {self.key.decode('$0')} }}, "
@@ -241,6 +377,9 @@ class Tuple(Form):
 	def __init__(self, elements):
 		self.elements = elements
 
+	def parts(self):
+		return self.elements
+
 	def decode(self, x):
 		parts = ", ".join(e.decode(f"t[{i}]") for i, e in enumerate(self.elements))
 		return f"try Pippin.SwiftStubs.tuple({x}, count: {len(self.elements)}) {{ t in ({parts}) }}"
@@ -253,22 +392,28 @@ class Tuple(Form):
 class Types:
 	"""How a slot's type crosses, as a Form; a type no form fits is a refusal naming it."""
 
-	def __init__(self, idx, map_structs):
+	def __init__(self, idx, shapes):
 		self.idx = idx
-		self.map_structs = map_structs
+		self.shapes = shapes
 
 	def nominal(self, usr, spelling, what):
 		if usr in SCALARS:
 			return Scalar(spelling)
 		rec = self.idx.by_usr.get(usr)
-		if rec and rec["kind"] in ("swift.struct", "swift.class") and rec["generic"]:
+		if rec and rec["kind"] in ("swift.struct", "swift.class", "swift.enum") and rec["generic"]:
 			raise Refused(f"{what} `{spelling}` is generic: the instantiation set comes from call sites (design §5)")
-		if rec and rec["kind"] == "swift.struct":
-			if usr in self.map_structs:
-				raise Refused(f"{what} `{spelling}` has public stored properties, so it crosses as a map (design §5), "
-					"which is not built")
-			return Box(spelling)
-		if rec and rec["kind"] == "swift.class":
+		if rec:
+			return self.of_type(rec, spelling)
+		return None
+
+	def of_type(self, rec, spelling):
+		"""The form of a type of this module, by what it is and what Shapes made of it."""
+		usr, kind = rec["usr"], rec["kind"]
+		if kind == "swift.struct":
+			return MapStruct(spelling, usr, self.shapes) if usr in self.shapes.maps else Box(spelling)
+		if kind == "swift.enum":
+			return Keyword(spelling) if usr in self.shapes.keywords else Box(spelling)
+		if kind == "swift.class":
 			return Object(spelling)
 		return None
 
@@ -353,30 +498,21 @@ def swift_name(rec):
 	return ".".join(rec["path"])
 
 
-def owner_form(owner, spelling):
-	return Box(spelling) if owner["kind"] == "swift.struct" else Object(spelling)
-
-
 def owner_of(rec, idx, types):
 	"""(owner record, spelling) of a member of a type of this module, or (None, None) for a free symbol."""
 	path = rec["path"]
 	if len(path) == 1:
 		return None, None
 	owner = idx.by_path.get(path[:-1])
-	if owner is not None and owner["kind"] == "swift.struct" and owner["usr"] in types.map_structs:
-		raise Refused(f"member of `{'.'.join(path[:-1])}`, which has public stored properties, so it crosses as a "
-			"map (design §5), which is not built")
 	if owner is None:
 		raise Refused("member of a type of another module: no stub reaches it")
 	kind = owner["kind"]
 	spelling = ".".join(path[:-1])
-	if kind == "swift.enum":
-		raise Refused("member of an enum: an enum crosses as a keyword (design §5), which is not built")
 	if kind == "swift.protocol":
 		raise Refused("protocol member: generic over the conformer, whose instantiations come from call sites (design §5)")
 	if kind == "swift.actor":
 		raise Refused("actor member: isolation to an actor instance is not built")
-	if kind not in ("swift.struct", "swift.class"):
+	if kind not in ("swift.struct", "swift.class", "swift.enum"):
 		raise Refused(f"member of a {kind}: no stub form")
 	for k in range(1, len(path) - 1):
 		if (idx.by_path.get(path[:k]) or {}).get("generic"):
@@ -420,11 +556,15 @@ def plans(rec, idx, types):
 	owner, owner_spelling = owner_of(rec, idx, types)
 	receiver = None
 	if owner is not None and kind in ("swift.method", "swift.property"):
-		receiver = owner_form(owner, owner_spelling)
+		receiver = types.of_type(owner, owner_spelling)
 	throws, typed = effects_of(rec)
 	is_async = rec.get("async", False)
 	base = dict(rec=rec, owner=owner_spelling, receiver=receiver, isolation=rec["isolation"], is_async=is_async,
 		throws=throws, typed=typed, rethrows=rec["throws"] == "rethrows")
+
+	if receiver is not None:
+		receiver.check_decode()
+	value_receiver = receiver is not None and receiver.kind in VALUE_KINDS
 
 	if kind in reprint.PROPERTY_KINDS:
 		name = rec["path"][-1]
@@ -432,10 +572,13 @@ def plans(rec, idx, types):
 		get = dict(base, role="get", member=name, swift=swift_name(rec), params=[], result=value, mutating=False)
 		out = [get]
 		if settable(rec):
-			# A setter neither throws nor suspends; a struct's is `mutating set`, so it answers the new value.
-			out.append(dict(base, role="set", member=name, swift=f"{swift_name(rec)} (set)", throws="none", typed=None,
-				is_async=False, params=[(None, value, False)], result=Void(),
-				mutating=receiver is not None and receiver.kind == "box"))
+			# A setter neither throws nor suspends; a value type's is `mutating set`, so it answers the new value.
+			try:
+				value.check_decode()
+				out.append(dict(base, role="set", member=name, swift=f"{swift_name(rec)} (set)", throws="none",
+					typed=None, is_async=False, params=[(None, value, False)], result=Void(), mutating=value_receiver))
+			except Refused as why:
+				out.append(Refusal(f"{swift_name(rec)} (set)", str(why)))
 		return out
 
 	labels = reprint.labels_of(rec["title"]) or []
@@ -451,15 +594,16 @@ def plans(rec, idx, types):
 		form = types.form("parameter", t, usrs)
 		if inout and reprint._find_top(t, "->") >= 0:
 			raise Refused(f"parameter `{text}`: an inout closure has no stub form")
+		form.check_decode()
 		params.append((None if label == "_" else label, form, inout))
 	if kind == "swift.init":
-		result = owner_form(owner, owner_spelling)
+		result = types.of_type(owner, owner_spelling)
 		if re.search(r"\binit[?!]", rec["decl"]):
 			result = Optional(result)
 	else:
 		ret = next(((text, usrs) for (role, text, _b), usrs in zip(rec["slots"], rec["slot_usrs"]) if role == "return"), ("", {}))
 		result = types.form("result", ret[0], ret[1])
-	mutating = bool(re.search(r"\bmutating\b", rec["decl"])) and receiver is not None and receiver.kind == "box"
+	mutating = bool(re.search(r"\bmutating\b", rec["decl"])) and value_receiver
 	member = "" if kind == "swift.init" else rec["title"].split("(")[0]
 	role = "init" if kind == "swift.init" else ("method" if receiver else ("static" if owner else "func"))
 	return [dict(base, role=role, member=member, swift=swift_name(rec), params=params, result=result, mutating=mutating)]
@@ -582,16 +726,61 @@ def emit_function(stub):
 	return f"{head}) {{ args in\n{pre}{flat}\t\t}},\n"
 
 
-def emit(module, generated, refused):
+def emit_keyword(module, t, names):
+	n = ident(t)
+	out = [f"private let keys_{n} = Pippin.SwiftStubs.Keys(type: {swift_string(f'{module}.{t}')}, "
+		f"[{', '.join(swift_string(c) for c in names)}])\n\n",
+		f"private func enc_{n}(_ v: {t}) -> Pippin.Value {{\n\tswitch v {{\n"]
+	out += [f"\tcase .`{c}`: return keys_{n}[{i}]\n" for i, c in enumerate(names)]
+	out.append(f"\t}}\n}}\n\nprivate func dec_{n}(_ v: Pippin.Value) throws -> {t} {{\n\tswitch try keys_{n}.index(of: v) {{\n")
+	out += [f"\tcase {i}: return .`{c}`\n" for i, c in enumerate(names)]
+	out.append("\tdefault: preconditionFailure(\"an index past the cases\")\n\t}\n}\n\n")
+	return "".join(out)
+
+
+def emit_map(module, t, fields, back):
+	n = ident(t)
+	out = [f"private let keys_{n} = Pippin.SwiftStubs.Keys(type: {swift_string(f'{module}.{t}')}, "
+		f"[{', '.join(swift_string(f['name']) for f in fields)}])\n\n",
+		f"private func enc_{n}(_ v: {t}) -> Pippin.Value {{\n",
+		f"\treturn keys_{n}.map([{', '.join(f['form'].encode('v.`' + f['name'] + '`') for f in fields)}])\n}}\n\n"]
+	if back is not None:
+		labels, rest, throws = back
+		required = ", ".join("false" if isinstance(f["form"], Optional) else "true" for f in fields)
+		out.append(f"private func dec_{n}(_ v: Pippin.Value) throws -> {t} {{\n"
+			f"\tlet f = try keys_{n}.fields(of: v, required: [{required}])\n")
+		index = {f["name"]: i for i, f in enumerate(fields)}
+		out += [f"\tlet a{i} = {f['form'].decode(f'f[{i}]')}\n" for i, f in enumerate(fields)]
+		call = f"{t}({', '.join(f'{l}: a{index[l]}' for l in labels)})"
+		out.append(f"\t{'var' if rest else 'let'} s = {'try ' if throws else ''}{call}\n")
+		out += [f"\ts.`{name}` = a{index[name]}\n" for name in rest]
+		out.append("\treturn s\n}\n\n")
+	return "".join(out)
+
+
+def emit(module, generated, refused, shapes, idx):
+	"""The stub file and which stub or type each line belongs to, so swiftc's error can be blamed on it."""
 	out = [f"// Generated by scripts/swift-stubgen.py from the symbol graph of {module}; do not edit.\n",
-		"import Pippin\n", f"import {module}\n\n",
-		f"@_cdecl(\"pippin_stubs_register_{module}\")\n",
+		"import Pippin\n", f"import {module}\n\n"]
+	lines = {}
+
+	def at():
+		return sum(s.count("\n") for s in out) + 1
+
+	for usr, names in sorted(shapes.keywords.items()):
+		lines[at()] = ("type", usr)
+		out.append(emit_keyword(module, ".".join(idx.by_usr[usr]["path"]), names))
+	for usr, fields in sorted(shapes.maps.items()):
+		lines[at()] = ("type", usr)
+		out.append(emit_map(module, ".".join(idx.by_usr[usr]["path"]), fields, shapes.back.get(usr)))
+	lines[at()] = None
+	out += [f"@_cdecl(\"pippin_stubs_register_{module}\")\n",
 		f"public func pippin_stubs_register_{module}() {{\n",
 		f"\tPippin.SwiftStubs.register(module: {swift_string(module)}, functions: [\n"]
-	lines = {}
 	for stub in generated:
-		lines[sum(s.count("\n") for s in out) + 1] = stub
+		lines[at()] = stub
 		out.append("\t\t" + emit_function(stub))
+	lines[at()] = None
 	out.append("\t], refusals: [\n")
 	for name, reason in refused:
 		out.append(f"\t\tPippin.SwiftStubs.Refusal(swiftName: {swift_string(name)}, reason: {swift_string(reason)}),\n")
@@ -600,7 +789,7 @@ def emit(module, generated, refused):
 
 
 def blamed_stub(text_lines, line):
-	"""The generated stub whose emission covers a 1-based line of the file."""
+	"""The generated stub, or ("type", usr), whose emission covers a 1-based line of the file."""
 	starts = sorted(k for k in text_lines if k <= line)
 	return text_lines[starts[-1]] if starts else None
 
@@ -611,8 +800,31 @@ def blamed_stub(text_lines, line):
 UNCALLABLE = {
 	"swift.subscript": "subscript: §5's call forms have no spelling for one",
 	"swift.type.subscript": "subscript: §5's call forms have no spelling for one",
-	"swift.enum.case": "enum case: an enum crosses as a keyword (design §5), which is not built",
 }
+
+
+def build(recs, idx, types, shapes, cases, refused_before):
+	"""The stubs and the refusals for the current Shapes; a type swiftc rejected has been demoted already."""
+	refused = list(refused_before)
+	for usr, cs in cases.items():
+		if usr in shapes.keywords:
+			continue
+		for name, payload, path in cs:
+			refused.append((path, "enum case with a payload: its enum crosses as a box, and a case has no constructor "
+				"yet (design §5)" if payload else "enum case: its enum crosses as a box (see the type's refusal)"))
+	generated = []
+	for rec in sorted(recs, key=swift_name):
+		try:
+			for item in plans(rec, idx, types):
+				if isinstance(item, Refusal):
+					refused.append(tuple(item))
+				else:
+					generated.append(item)
+		except Refused as why:
+			refused.append((swift_name(rec), str(why)))
+	generated = refuse_clashes(generated, refused)
+	refused.sort()
+	return generated, refused
 
 
 def main():
@@ -647,32 +859,46 @@ def main():
 	reprint.extract(module, target, sdk, graph_dir, os.path.dirname(module_file), progress)
 	paths = reprint.graph_files(graph_dir)
 	idx = reprint.scan_types(paths, lambda _m: None)
-	types = Types(idx, stored_property_owners(paths, idx))
-	recs, refused = [], []
+	private_dir = os.path.join(work, "graph-private")
+	reprint.extract(module, target, sdk, private_dir, os.path.dirname(module_file), progress, access="private")
+	private_paths = reprint.graph_files(private_dir)
+	fields = stored_fields(private_paths, reprint.scan_types(private_paths, lambda _m: None))
+
+	recs, uncallable, cases = [], [], {}
 	for p in paths:
 		for sym in reprint.iter_symbols(p):
 			kind = sym["kind"]["identifier"]
-			if any(c.startswith("_") for c in sym["pathComponents"]):
+			path = sym["pathComponents"]
+			if any(c.startswith("_") for c in path):
 				continue
-			if kind in UNCALLABLE:
-				refused.append((".".join(sym["pathComponents"]), UNCALLABLE[kind]))
+			if kind == "swift.enum.case":
+				decl = reprint.frag_text(sym.get("declarationFragments", []))
+				owner = idx.member_of.get(sym["identifier"]["precise"])
+				cases.setdefault(owner, []).append((path[-1].split("(")[0], "(" in decl, ".".join(path)))
+			elif kind in UNCALLABLE:
+				uncallable.append((".".join(path), UNCALLABLE[kind]))
 			elif kind in reprint.FUNCLIKE_KINDS | reprint.OPERATOR_KINDS | reprint.PROPERTY_KINDS or kind == "swift.macro":
 				recs.append(reprint.symbol_record(sym, idx))
+	inits = {}
+	for rec in recs:
+		owner = idx.by_path.get(rec["path"][:-1])
+		labels = reprint.labels_of(rec["title"]) or []
+		if (rec["kind"] != "swift.init" or owner is None or owner["kind"] != "swift.struct" or "_" in labels
+				or re.search(r"\binit[?!]", rec["decl"]) or rec.get("async")):
+			continue
+		texts = [text for role, text, _b in rec["slots"] if role == "param"]
+		inits.setdefault(owner["usr"], []).append((labels, texts, rec["throws"] != "none"))
+	shapes = Shapes(idx, fields, cases, inits)
+	types = Types(idx, shapes)
+	shapes.settle(types)
 
-	generated = []
-	for rec in sorted(recs, key=swift_name):
-		try:
-			generated += plans(rec, idx, types)
-		except Refused as why:
-			refused.append((swift_name(rec), str(why)))
-	generated = refuse_clashes(generated, refused)
-	refused.sort()
-
-	# One stub swiftc rejects moves to the report with swiftc's words, so it cannot take the module down.
+	# What swiftc rejects goes to the report, a rejected type falls back to a box: one symbol never takes the module down.
 	source = os.path.join(work, "stubs.swift")
 	dylib = os.path.join(work, dylib_name)
+	rejected = list(uncallable)
 	while True:
-		text, lines = emit(module, generated, refused)
+		generated, refused = build(recs, idx, types, shapes, cases, rejected)
+		text, lines = emit(module, generated, refused, shapes, idx)
 		with open(source, "w") as f:
 			f.write(text)
 		cmd = ["xcrun", "swiftc", "-emit-library", "-parse-as-library", "-swift-version", "5",
@@ -692,20 +918,27 @@ def main():
 			break
 		blamed = {}
 		for m in re.finditer(r"stubs\.swift:(\d+):\d+: error: (.*)", res.stderr):
-			stub = blamed_stub(lines, int(m.group(1)))
-			if stub is not None:
-				blamed.setdefault(id(stub), (stub, m.group(2)))
+			owner = blamed_stub(lines, int(m.group(1)))
+			if owner is not None:
+				blamed.setdefault(owner[1] if isinstance(owner, tuple) else id(owner), (owner, m.group(2)))
 		if not blamed:
 			shutil.rmtree(work, ignore_errors=True)
 			sys.exit(f"swift-stubgen: swiftc failed on the stubs of {module}:\n{res.stderr}")
-		for stub, error in blamed.values():
-			generated.remove(stub)
-			refused.append((stub["swift"], f"swiftc rejected the stub: {error}"))
+		for owner, error in blamed.values():
+			if isinstance(owner, tuple):
+				name = ".".join(idx.by_usr[owner[1]]["path"])
+				shapes.demote(owner[1])
+				rejected.append((name, f"swiftc rejected its keyword or map form, so it crosses as a box: {error}"))
+			else:
+				rejected.append((owner["swift"], f"swiftc rejected the stub: {error}"))
+		shapes.settle(types)
 
 	report = {
 		"module": module, "fingerprint": key, "compiler": compiler, "target": target,
 		"generated": [{"swift": s["swift"], "owner": s["owner"], "base": var_base(s), "labels": labels_of(s),
 			"isolation": s["isolation"], "effects": effects_text(s)} for s in generated],
+		"keywords": sorted(".".join(idx.by_usr[u]["path"]) for u in shapes.keywords),
+		"maps": sorted(".".join(idx.by_usr[u]["path"]) for u in shapes.maps),
 		"refused": [{"swift": n, "reason": why} for n, why in refused],
 	}
 	with open(os.path.join(work, "report.json"), "w") as f:
@@ -721,3 +954,5 @@ def main():
 
 if __name__ == "__main__":
 	main()
+
+

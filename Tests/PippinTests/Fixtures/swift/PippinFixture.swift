@@ -62,11 +62,76 @@ public struct Blob {
 	let size: Int
 }
 
-/// Public stored state: it crosses as a map (design §5), so it and its members are refused.
+/// Every stored property public: it crosses as a map, and init(w:) is the way back from one.
 public struct Size {
 	public var w: Int
 	public init(w: Int) { self.w = w }
 }
+
+/// A map holding a map, an optional, a collection and a keyword.
+public struct Frame {
+	public var origin: Size
+	public var label: String?
+	public var tags: [String]
+	public var heading: Heading
+
+	public init(origin: Size, label: String?, tags: [String], heading: Heading) {
+		self.origin = origin
+		self.label = label
+		self.tags = tags
+		self.heading = heading
+	}
+
+	public var area: Int { origin.w * origin.w }
+
+	public mutating func grow(by d: Int) { origin.w += d }
+}
+
+public func frame(_ w: Int) -> Frame { Frame(origin: Size(w: w), label: nil, tags: ["t\(w)"], heading: .north) }
+
+public func widen(_ f: Frame) -> Frame {
+	var g = f
+	g.origin.w += 1
+	return g
+}
+
+/// A stored property that is not public: a map would lose it, so this is a box.
+public struct Reading {
+	public let value: Int
+	let secret: Int
+	public init(value: Int) {
+		self.value = value
+		secret = value * 2
+	}
+}
+
+/// All public, but no initializer takes `at`: it crosses out as a map and cannot come back in.
+public struct Stamp {
+	public let at: Int
+	public init(seconds: Int) { at = seconds }
+}
+
+public func stamp() -> Stamp { Stamp(seconds: 7) }
+
+public func age(_ s: Stamp) -> Int { s.at }
+
+/// No payloads: a keyword.
+public enum Heading {
+	case north, southEast
+
+	public var degrees: Int { self == .north ? 0 : 135 }
+}
+
+public func turn(_ h: Heading) -> Heading { h == .north ? .southEast : .north }
+
+/// A raw value does not change the keyword: the case's name is its identity.
+public enum Shade: String {
+	case light, dark
+}
+
+public func shade(_ s: Shade) -> String { s.rawValue }
+
+public func headings(_ hs: Set<Heading>) -> [Heading: Int] { Dictionary(uniqueKeysWithValues: hs.map { ($0, $0.degrees) }) }
 
 /// A class with neither conformance: its boxes compare by the object.
 public final class Counter {

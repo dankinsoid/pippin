@@ -273,14 +273,26 @@
   ends is a `ValueTypeMismatch` naming the range, never a wrap or a trap, and a `UInt64` past `Long/MAX_VALUE` crosses
   as a bigint both ways (through its decimal text: the core has no unsigned 64-bit constructor). `Float` refuses a
   finite double it would round to an infinity.
+- **An enum without payloads is a keyword, an all-public struct a map** (design §5 «Перечисление кейвордом,
+  структура мапой»). `Shapes` in the generator decides which: an enum none of whose cases has a payload, and a
+  struct whose stored properties, read off a second symbol graph extracted at `-minimum-access-level private`, are
+  all public, none `lazy`, and all cross — a fixpoint, since a field may be another map struct. Each such type gets
+  a `Keys` (the kebab keywords of its case or field names, sorted) and a pair `enc_T`/`dec_T` printed above the
+  registration; `dec_T` of a map exists only when a public non-failable init takes fields by their names and types and
+  every other field is a settable `var` (`Shapes.way_back`), and `Form.check_decode` refuses every input slot of a
+  type without one. A type whose functions swiftc rejects is demoted to a box and everything is planned again,
+  the report naming it.
+- **The second graph costs one more `symbolgraph-extract`** per module, under a second each for an app module. It
+  is the only way to see a non-public stored property: the public graph shows a struct with a private field
+  exactly as it shows a struct without one.
 - [ ] **What the generator does not generate.** Slots cross as the scalars (`Int`, `Double`, `Bool`, `String`, the
-  fixed-width numbers, `Float`, `CGFloat`), `Void`, a module struct with no public stored property (a box), a module
-  class (a box of the object), optionals, arrays, dictionaries, sets and unlabelled tuples of those, and as a
-  parameter the throwing scalar closure above. Refused with a reason: generics (functions and types), a double
-  optional, a labelled tuple, enums and their members and cases, protocols' members, actors, other closures,
+  fixed-width numbers, `Float`, `CGFloat`), `Void`, a module struct as a map or a box, a module enum as a keyword or a
+  box, a module class (a box of the object), optionals, arrays, dictionaries, sets and unlabelled tuples of those,
+  and as a parameter the throwing scalar closure above. Refused with a reason: generics (functions and types), a
+  double optional, a labelled tuple, an enum case with a payload, protocols' members, actors, other closures,
   operators, subscripts, isolation other than `@MainActor`, `isolated`/`sending` parameters, types of other modules,
-  structs with public stored properties (§5 moves those as a map) and their members. Trigger: the first symbol of
-  that list an application needs; generics come with the call-site instantiation list.
+  and the input slots of a map struct with no init taking its fields. Trigger: the first symbol of that list an
+  application needs; generics come with the call-site instantiation list.
 - **The classifier the generator shares with the measurement reads a declaration's own head and effects**
   (`decl_parts`): a closure parameter's `throws`, `async` or `@MainActor` is not the function's, `nonisolated` drops
   the owner's actor, the `>` of `->` closes no bracket, and a property's type stops before its `{ get }`.

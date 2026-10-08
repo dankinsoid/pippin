@@ -1168,13 +1168,15 @@ def summarize(recs, idx):
 # ---------------------------------------------------------------------------
 # Extraction.
 
-def extract(module, target, sdk, out_dir, import_path, progress, required=True):
+def extract(module, target, sdk, out_dir, import_path, progress, required=True, access=None):
 	if os.path.isdir(out_dir) and graph_files(out_dir):
 		progress(f"{module}: reusing {out_dir}")
 		return out_dir
 	os.makedirs(out_dir, exist_ok=True)
 	cmd = ["xcrun", "swift-symbolgraph-extract", "-module-name", module,
 		"-target", target, "-sdk", sdk, "-output-dir", out_dir]
+	if access:
+		cmd += ["-minimum-access-level", access]
 	if import_path:
 		cmd += ["-I", import_path]
 	progress(f"{module}: extracting")

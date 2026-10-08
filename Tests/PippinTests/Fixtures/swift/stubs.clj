@@ -99,3 +99,14 @@
 (show (fx/widths 200 2.5 1000000007) (fx/max-u-int) (fx/widths 1 1.0 (fx/max-u-int)))
 (show (try (fx/widths 300 1.0 1) (catch :default e (ex-message e))))
 (show (try (fx/size :of ["x"]) (catch :default e (ex-message e))) (try (fx/swap-pair [1]) (catch :default e (ex-message e))))
+
+;; An enum without payloads is a keyword, an all-public struct a map; the map is closed both ways.
+(show (fx/turn :north) (fx/turn :south-east) (fx/Heading.degrees :south-east) (fx/shade :dark) (fx/Shade. :raw-value "light"))
+(show (try (fx/turn :west) (catch :default e (ex-message e))) (= {:north 0 :south-east 135} (fx/headings #{:north :south-east})))
+(def fr (fx/frame 3))
+(show (= fr {:origin {:w 3} :label nil :tags ["t3"] :heading :north}) (fx/Frame.area fr) (:origin (fx/widen fr)) (:origin (fx/Frame.grow fr :by 2)))
+(show (:label (fx/widen (assoc fr :label "x"))) (:label (fx/widen (dissoc fr :label))) (fx/Size. :w 4) (:heading (fx/Frame.set-heading fr :south-east)))
+(show (try (fx/widen (assoc fr :extra 1)) (catch :default e (ex-message e))))
+(show (try (fx/widen (dissoc fr :tags)) (catch :default e (ex-message e))))
+;; A private stored property keeps a struct a box; one with no init taking its fields crosses out only.
+(show (fx/Reading.value (fx/Reading. :value 5)) (fx/stamp))

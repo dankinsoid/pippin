@@ -389,6 +389,64 @@ public enum SwiftStubs {
 
 	public static func vector<T>(tuple v: T, _ encode: (T) -> [Value]) -> Value { Value(encode(v)) }
 
+	/// An enum's cases or a map struct's fields as kebab keywords (design §5 «Перечисление кейвордом, структура мапой»).
+	public final class Keys: Sendable {
+		let type: String
+		let keys: [Value]
+		// Two Swift names may kebab alike (`url`, `URL`); such a type refuses every crossing rather than pick one.
+		let clash: String?
+
+		public init(type: String, _ names: [String]) {
+			self.type = type
+			keys = names.map { Value(keyword: SwiftStubs.kebab($0)) }
+			let spelled = Dictionary(grouping: names, by: SwiftStubs.kebab).filter { $0.value.count > 1 }
+			clash = spelled.first.map { ":\($0.key) spells \($0.value.joined(separator: " and "))" }
+		}
+
+		public subscript(i: Int) -> Value { keys[i] }
+
+		private var listed: String { keys.map(\.description).joined(separator: " ") }
+
+		private func checkClash() throws {
+			if let clash { throw ClojureError(thrown: Value(exInfo: "\(type) has no keyword form: \(clash)")) }
+		}
+
+		/// The case a keyword names; anything else is an error listing the cases.
+		public func index(of v: Value) throws -> Int {
+			try checkClash()
+			if let i = keys.firstIndex(of: v) { return i }
+			throw ClojureError(thrown: Value(exInfo: "\(v) is not a case of \(type): \(listed)"))
+		}
+
+		/// A map of these keys in order.
+		public func map(_ values: [Value]) -> Value {
+			precondition(clash == nil, "\(type) has no keyword form")
+			var items: [Value] = []
+			items.reserveCapacity(values.count * 2)
+			for (k, v) in zip(keys, values) {
+				items.append(k)
+				items.append(v)
+			}
+			return Value(owning: withExtendedLifetime(items) {
+				items.map(\.raw).withUnsafeBufferPointer { clj_map_from_items($0.baseAddress, UInt32($0.count), nil) }
+			})
+		}
+
+		/// The map is closed: an unknown key is an error, and so is a missing one unless its field is optional.
+		public func fields(of v: Value, required: [Bool]) throws -> [Value] {
+			try checkClash()
+			guard let entries = v.dictionary else { throw ValueTypeMismatch(value: v, expected: "map of \(type)") }
+			if let extra = entries.keys.first(where: { !keys.contains($0) }) {
+				throw ClojureError(thrown: Value(exInfo: "\(extra) is not a key of \(type): its keys are \(listed)"))
+			}
+			return try zip(keys, required).map { key, needed in
+				if let value = entries[key] { return value }
+				if needed { throw ClojureError(thrown: Value(exInfo: "\(type) needs \(key), which the map lacks")) }
+				return .nil_
+			}
+		}
+	}
+
 	// MARK: Boxes
 
 	/// A struct as a Clojure value, boxed with a copy (design §5): `=` and `hash` are the type's own `==` and
