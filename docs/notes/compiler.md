@@ -164,6 +164,9 @@
   generator refuses too. `(var x)` constants are `V[]` entries. The filled `K[]` is published
   (`clj_c_publish`: shared, then immortal, as the keyword table's entries): every execution running the unit
   reads it, where the interpreter's constants are shared through the def of the fn whose tree holds them.
+- **A C string literal escapes a `?` that follows a `?`** (`sb_c_string`): the units build as standard C, where
+  `??-`, `??/` and the rest are trigraphs, so a name like `<??-test` (async-error's deftest, NOTES "Corpus") read
+  as `<~test` in the pools and clang refused it under `-Werror,-Wtrigraphs`.
 - **A constant's metadata is not in its printed form**, so the pool rebuilds it: `clj_c_with_meta` over the
   bare value and its meta map, and `const_ok` refuses the text path for any value carrying metadata so that a
   collection with a meta'd element goes through the constructors instead (`meta_is_position_only`,

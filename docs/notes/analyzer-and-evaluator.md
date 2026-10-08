@@ -142,6 +142,13 @@
   What it is worth: one `(is (thrown? IllegalArgumentException ...))` clause used to refuse the whole deftest
   around it, and 24 deftests of Clojure's own suite were lost that way, 20 of which pass
   (docs/notes/corpus.md, docs/jvm-differences.md).
+- **`Throwable`, `Exception`, `Object` and `ExceptionInfo` are core vars, so syntax-quote qualifies them**:
+  a macro's `` `(catch Throwable t# ...) `` reads `clojure.core/Throwable`, and `catch` takes that spelling of the
+  four as the bare name (`core_catch_name`, analyzer.c) instead of a host type to resolve. `Throwable` and
+  `Exception` are the error interface outside `catch` (proto.c), so `(instance? Throwable e)` — how portable
+  `.cljc` code asks whether a channel delivered an error — answers for ex-info and host errors. Found by
+  async-error's `go-try`; `clojure.core/ExceptionInfo` had been refused the same way, and Clojure's own
+  `transducers` had lost `build-results` to it (NOTES "Corpus"; `TryCatchTests.aSyntaxQuotedCatchAllIsStillTheCatchAll`).
 - **`catch` takes a fourth kind, `CLJ_CATCH_KEYWORD`, for any keyword but `:default`**: matched at
   unwind by `clj_ex_isa(thrown, c->keyword)` (eval.c), `isa?`'s scalar case reimplemented in C rather
   than called — a catch selector is always a bare keyword literal (design §4, "Селектор держать

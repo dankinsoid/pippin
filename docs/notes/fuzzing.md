@@ -99,6 +99,8 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
 
 - **Measured** (arm64 CI). With the oracle and the interpreter alone the pass was 8000 forms over eight seeds in
   9 s, 13 s end to end, the oracle the whole cost. With the unit runner beside them and the seeds one after
-  another it took 41.3 s (run 37829828629); the seeds are independent processes, so the driver runs them side
-  by side (`pmap`), which took the oracle-only pass on an Intel Mac from 20.5 to 11.2 s. The hand pass of 80000
-  forms over eighty seeds took 88 s before the unit runner joined `make fuzz-long`.
+  another it took 41.3 s (run 37829828629). The seeds are independent processes, so the driver runs them side
+  by side (`pmap`), which took the oracle-only pass on an Intel Mac from 20.5 to 11.2 s but the three-runner pass
+  on the 3-core arm64 runner only to 39.5 s: clang and the JVM already fill the cores. The gate is 50 s against
+  27 s on main (run 37834676178 against 37780771278), 23 s more for the compiled backend on every gate run; the
+  hand pass of 80000 forms over eighty seeds took 88 s before the unit runner joined `make fuzz-long`.

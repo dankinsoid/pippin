@@ -92,6 +92,46 @@
   not on the live list, so a runaway loop is not reclaimed there and still fails the settle, which is how the
   `(apply f (range))` one was caught. Trigger for dropping the residue's cancel: design §7's frame enumeration
   (NOTES "Coroutines").
+- **Code written on core.async: five libraries are in, chosen by measurement** (design §10, «Цель, не взятая»).
+  About sixty repositories from GitHub and Clojars were screened by grep for Java interop, `clojure.lang.*` and
+  `clojure.core.async.impl.*`; nine passed closely enough to run their own tests on the JVM (all nine pass there),
+  eight were vendored and run here, five are in. Each is vendored unmodified with its `SOURCE` (commit, license):
+  - `parallel-async` (Stuart Sierra, MIT): `parallel` and `pmax` over go blocks, `thread`, `alts!`, `add-watch`.
+    All 4 deftests pass. The tests wait on purpose (`(timeout (rand-int 100))` per item, a 50 ms producer), so
+    it is the costly one: 9.5 s per corpus pass, interpreted or compiled, against 4.3 s for one run on the JVM.
+  - `async-error` (Alexander Kiel, v0.3, EPL): `<?`, `<??` and `go-try`, `.cljc` under `:features #{:clj}`. All
+    5 pass, and it found two bugs: `(instance? Throwable e)` did not resolve, so `throw-err` and everything over
+    it was lost; then `Throwable`, once a core var, made the macro's syntax-quoted `(catch Throwable ...)` read
+    `clojure.core/Throwable`, which `catch` took for a host type — the same fate `clojure.core/ExceptionInfo` had
+    had all along, and the reason Clojure's own `transducers` lost `build-results` ("Analyzer and evaluator").
+    Its `<??-test` deftest also put `"<??-test"` into a compiled unit's pools, which clang read as the trigraph
+    `<~test` and refused under `-Werror` (NOTES "Compiler"; `Fixtures/compiler/const.clj`).
+  - `turbine` (Timothy Renner, Apache 2.0): topologies of transducers over `thread`, `<!!`/`>!!`, `alts!!`. 3 of
+    its 4 deftests run and pass; `make-topology-test` calls `Character/isLowerCase`.
+  - `enos` (grammati, MIT by its `project.clj`, no LICENSE file in the repository): `pmap<`, `fork` over `mult`,
+    `chan->seq`, generators, `<!+` over `alts!`. 8 deftests: 3 pass, 2 error on `processors`, a `delay` over
+    `(Runtime/getRuntime)`, and 3 assert 10 ms wall-clock margins and are `:flaky` (a 10 ms producer against a
+    20 ms read timeout; under three ASan shards a window that small is not kept, here or on the JVM). It found
+    two bugs: the far timer was a coalesced dispatch timer, so a 10 or 20 ms timeout fired a quarter late and the
+    producer outran the read timeout every time (NOTES "Scheduler"), and `alts!` refused a seq of ports — `<!+`
+    passes `(keys m)`, which the JVM reads by `count` and `nth` (NOTES "Channels"). Its parks abandoned by the
+    tests (an infinite `fib` generator, `arange` producers nobody drains) are what `:abandoned-coroutines 4`
+    bounds. And it is why `System/currentTimeMillis` and `System/nanoTime` resolve (`docs/jvm-differences.md`).
+  - `throwing-puts` (reducecombine, EPL): `>!!`/`>!` that throw on a full channel past a timeout; both deftests
+    pass (the file defines `>!!` twice, so three `deftest` forms make two vars), including the `binding` of the
+    dynamic default timeout.
+  Refused after the measurement: `asyncflow` (sethyuan) — its one deftest builds `(Exception. "sync error.")`, so
+  nothing runs; `clj-bucket` (sgerguri) — `IllegalArgumentException.` and `Math/round` in the library's own
+  `bucket` and `throttle`; `pipeline-extras` (andreyorst) — both pipelines build the JVM's default ex-handler from
+  `Thread/currentThread` (design §8), and its suite takes 50 s on the JVM. Refused by the static screen: those
+  over `clojure.core.async.impl.*` (a `chan?` built on `ReadPort` or `ManyToManyChannel` is the commonest single
+  line) — superv.async, full.async (also `PersistentQueue/EMPTY`), zelkova (a `deftype` over the impl protocols),
+  more.async, wsscode-async, core.async-helpers, async-style, otplike, naiad, exoscale/interceptor, vow, alens,
+  chantrix; those whose tests are midje (throttler, nomis-async); and those needing other libraries (muse: cats and
+  manifold; tele: `clojure.spec.alpha`; papaline: `java.util.concurrent`). Cost (arm64 CI, run 37834676178): the
+  five add 15.4 s to the interpreted corpus pass and 18.5 s to the compiled one, 19 of the 34 being
+  parallel-async; the on-time timer took core-async from 23 s to 10 s a pass, so `corpus-compiled` grew by 24 s
+  (245 → 269 s against main's run 37780771278), and `CorpusTests` under ASan in `make test` went from 143 to 91 s.
 - **The other seven files of core.async's suite are out by subject, and `pipeline_test.clj` by cost.**
   `buffers_test` and `timers_test` name `clojure.core.async.impl.protocols` (`full?`/`add!`/`remove!`/`close-buf!`)
   and `impl.timers`: the buffers here are the spec objects `chan` reads, not containers with those methods, and the

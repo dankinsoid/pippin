@@ -30,6 +30,8 @@
   continuation moves to whoever won; a port that completes immediately claims the waiter under that port's lock,
   and an earlier port's node is then stale. `:priority` keeps the order, otherwise a per-thread xorshift
   shuffles it; `:default` never enqueues. `alt!` is the JVM's `do-alt` expansion (a put clause is `[[ch v]]`).
+  Ports may be any sequential collection, which `chan-alts*` copies into a vector: the JVM's `do-alts` reads them
+  by `count` and `nth`, and a library passes `(keys m)` (enos's `<!+`, NOTES "Corpus").
 - **A parked `alts!` takes its result out of the waiter** (`parked_result`). The waiter outlives the park in
   the stale nodes of the ports that lost, which are dropped only when their queue is next walked; had it kept
   the `port` it was woken on, two `alts!` over `[[c v] d]`, one winning on `c` and the other on `d`, could leave
