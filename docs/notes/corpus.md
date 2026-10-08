@@ -2,7 +2,7 @@
 
 - **What is vendored**: `corpus/medley` (medley.core and its test, EPL), `corpus/clojure-test-suite`
   (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0),
-  `corpus/clojure-core-tests` (26 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0) and
+  `corpus/clojure-core-tests` (27 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0) and
   `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0) and
   `corpus/dependency` (Stuart Sierra's dependency 1.0.0 and its test, EPL 1.0), and five libraries written over
   core.async — `parallel-async`, `async-error`, `turbine`, `enos`, `throwing-puts` (below) — each with a
@@ -151,10 +151,10 @@
 - **Clojure's own suite: what is in and what is out.** `corpus/clojure-core-tests` holds the portable part of
   `test/clojure/test_clojure/` at tag `clojure-1.12.6`, the version `docs/api-parity.md` diffs against:
   the nine files design §10 names — `sequences`, `data_structures`, `control`, `fn`, `def`, `macros`, `logic`,
-  `string`, `numbers` — and seventeen more — `transducers`, `vectors`, `other_functions`, `special`,
+  `string`, `numbers` — and eighteen more — `transducers`, `vectors`, `other_functions`, `special`,
   `clojure_set`, `multimethods`, `vars`, `clojure_walk`, `transients`, `errors`, `evaluation`,
-  `for`, `atoms`, `delays`, `predicates`, `volatiles`, `keywords` — plus `test/clojure/test_helper.clj`,
-  which seven of them require. Unmodified, headers kept. The rule for the
+  `for`, `atoms`, `delays`, `predicates`, `volatiles`, `keywords`, and `ns_libs` (below) — plus
+  `test/clojure/test_helper.clj`, which seven of them require, and `ns_libs_load_later.clj`, which `ns_libs` loads. Unmodified, headers kept. The rule for the
   rest: a file is in when its subject is the language or a namespace this core carries. Out by subject: the
   host files (`java_interop`, `reflect`, `genclass`, `proxy/`, `param_tags`, `method_thunks`, `annotations`,
   `array_symbols`, `data_structures_interop`, `serialization`, `streams`, `generated_*`), the JVM concurrency
