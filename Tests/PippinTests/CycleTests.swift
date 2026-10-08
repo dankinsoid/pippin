@@ -228,7 +228,7 @@ extension CoreTests {
 			  (run! deref fs)
 			  (reset! st nil)
 			  nil)
-			""", cycles: 1)
+			""", cycles: 0) // the reset! breaks the only ring, so RC frees it all; what is checked is no leak and no early free
 			try collected("""
 			(let [c (a/chan 64)
 			      fs (doall (for [i (range 8)]
