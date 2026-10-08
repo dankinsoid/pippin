@@ -66,7 +66,6 @@ typedef struct {
 	// The root this def replaced, or CLJ_UNBOUND: what the init reads of its own var while it is forced, as an eager
 	// redefinition's init would (`(def x (inc x))`). Released by the force.
 	clj_slot         prev;
-	clj_value        var; // borrowed: vars are immortal
 } clj_lazy_def;
 
 extern const clj_type clj_lazy_def_type;

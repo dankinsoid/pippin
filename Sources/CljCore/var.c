@@ -495,7 +495,6 @@ void clj_var_bind_lazy(clj_value var, clj_lazy_def_fn fn, const void *code, clj_
 	t->inferred = inferred;
 	t->fn = fn;
 	t->code = code;
-	t->var = var;
 	clj_slot_init(&t->h, &t->env, clj_retain(env));
 	clj_slot_init(&t->h, &t->value, CLJ_NIL);
 	clj_slot_init(&t->h, &t->error, CLJ_NIL);
