@@ -383,8 +383,8 @@
   or, for a first def and for `^:lazy`, throws "Recursive definition of #'ns/x". A throw is kept and rethrown by
   every deref with its first trace; a cancellation is not kept, and the next deref forces again. A force moves its
   var's epoch and re-derives the execs that read the root (`root_moved`), not the world's epoch: whatever read the
-  thunk read ⊤ there, which stays sound, and bumping the world per first deref recomputed 2480 summaries instead of
-  86 over the facts report's load. The redefinition barrier: binding the root of a bound
+  thunk read ⊤ there, which stays sound, and a world bump per first deref would empty every protocol cache and
+  every summary past its deps at a moment the program does not choose. The redefinition barrier: binding the root of a bound
   non-dynamic var first forces every pending inferred thunk but the var's own (a registry in def order, `lazy_entries`),
   each failure staying in its var. `*lazy-defs*` is interned by C (`clj_lazy_defs_install`, root from
   `CLJ_LAZY_DEFS`): `:after-load` makes `clj_load_source` and `run_unit` force what the load deferred and report the
