@@ -105,6 +105,19 @@ void clj_debug_live_report(void) {
 	}
 }
 
+size_t clj_debug_live_by_type(const clj_type **types, int64_t *counts, size_t cap) {
+	size_t n = 0;
+	for (size_t i = 0; i < TYPE_SLOTS && n < cap; i++) {
+		const clj_type *type = atomic_load_explicit(&type_counts[i].type, memory_order_acquire);
+		int64_t         live = type ? atomic_load(&type_counts[i].live) : 0;
+		// A slot outlives its descriptor: only a type with live instances is known to be there.
+		if (!live) continue;
+		types[n] = type;
+		counts[n++] = live;
+	}
+	return n;
+}
+
 #define LIVE_ADD(type, n) live_add((type), (n))
 #else
 int64_t clj_debug_live_objects(void) { return -1; }
@@ -113,7 +126,11 @@ int64_t clj_debug_live_objects_of(const clj_type *type) {
 	(void)type;
 	return -1;
 }
-void clj_debug_live_report(void) {}
+void   clj_debug_live_report(void) {}
+size_t clj_debug_live_by_type(const clj_type **types, int64_t *counts, size_t cap) {
+	(void)types, (void)counts, (void)cap;
+	return 0;
+}
 #define LIVE_ADD(type, n) ((void)0)
 #endif
 

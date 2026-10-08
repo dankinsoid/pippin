@@ -232,6 +232,8 @@ void clj_debug_live_objects_exclude(int64_t n);
 int64_t clj_debug_live_objects_of(const clj_type *type);
 // "type: count" per type with live objects, to stderr: what a leaking test left behind.
 void clj_debug_live_report(void);
+// Every type with live objects and its count, up to cap; the number written, 0 when untracked.
+size_t clj_debug_live_by_type(const clj_type **types, int64_t *counts, size_t cap);
 // True when v and everything reachable from it is shared or immortal. No other thread may write a slot it reaches.
 bool clj_debug_all_shared(clj_value v);
 // The calling thread checks one clj_share cutoff in n (NOTES "RC"); 0 restores the default.

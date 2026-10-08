@@ -195,6 +195,18 @@
   so a leak elsewhere in the process shows up here too. A generated symbol or keyword interns for good ("Symbol /
   keyword"), so it has to be picked deterministically, which is why the generator shims seed themselves: a
   differing pick between the two runs moved the number from run to run.
+- **A run the watchdog cut short does not warm the next, so its count is taken again.** A path's first run
+  allocates for the process: a `reify` site makes its type on its first call and keeps it (`reify_type`, proto.c),
+  and a name interns for good. The second run's count is a leak only when the first took every path the second
+  does. core-async's `ops-tests` orphans `t-1` at its ASYNC-127 block now and then (the `:flaky` entry above) and the
+  watchdog ends it at `CLJ_CORPUS_TIMEOUT_MS`; on x86_64 that fell in the first run twice (runs 37447701922 and
+  37700500770), so `mix` and `pub` ran for the first time in the measured run and the count read 22 and 18 against
+  0. Forced by a hang at that block in the first run only, both architectures read 18 — fn +10, vector +4, type +2,
+  string +2: the two `reify` types with their ten methods (run 37754231933). The same cut in the measured run reads
+  0 (37614772790), since that run then takes fewer paths. So a count that is off after a run with a `:timeout`, or
+  in one, is measured again with the measured run as one more warm-up, at most three times; the hang probe's second
+  measurement read 0. A count that is off prints the live objects by type (`clj_debug_live_by_type`), the tests cut
+  short in each run, what the scheduler and the cycle collector still hold, and the live coroutines.
 - **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
   reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
   section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run

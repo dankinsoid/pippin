@@ -306,6 +306,34 @@ private struct RunResult {
 	var tests: [TestOutcome] = []
 	var skipped: Set<String> = []
 	var loadErrors: [String: String] = [:] // ns → message when the require itself failed
+	var cutShort: [String] { tests.filter { $0.status == "timeout" }.map(\.name) }
+}
+
+// Live objects per type (debug builds), to name what a run left behind.
+// @ai-generated(solo)
+private struct LiveCensus {
+	private var live: [UInt: (name: String, count: Int64)] = [:]
+
+	init() {
+		let cap = 1024
+		var types = [UnsafePointer<clj_type>?](repeating: nil, count: cap)
+		var counts = [Int64](repeating: 0, count: cap)
+		let n = clj_debug_live_by_type(&types, &counts, cap)
+		for i in 0..<n {
+			guard let t = types[i] else { continue }
+			live[UInt(bitPattern: t)] = (t.pointee.name.map { String(cString: $0) } ?? "?", counts[i])
+		}
+	}
+
+	// "name +n" for every type whose count moved, the largest moves first.
+	func moves(since base: LiveCensus) -> [String] {
+		var out: [(String, Int64)] = []
+		for key in Set(live.keys).union(base.live.keys) {
+			let d = (live[key]?.count ?? 0) - (base.live[key]?.count ?? 0)
+			if d != 0 { out.append(((live[key] ?? base.live[key])!.name, d)) }
+		}
+		return out.sorted { abs($0.1) > abs($1.1) }.map { "\($0.0) \($0.1 > 0 ? "+" : "")\($0.1)" }
+	}
 }
 
 extension CoreTests {
@@ -510,6 +538,42 @@ extension CoreTests {
 			return asked
 		}
 
+		// A path's first run allocates for the process: interned names, call-site caches, specializations. So the count
+		// is a leak only when the runs before took every path the measured one takes, and a test the watchdog cut short
+		// did not (NOTES "Corpus"). Such a measurement is taken again, the measured run as one more warm-up; the third stands.
+		// @ai-generated(solo)
+		private static func measureSecondRun(_ lib: Library, first: RunResult, expected: Int?, abandoned: inout Int) throws -> (live: Int, run: RunResult) {
+			var warmed = first.cutShort.isEmpty
+			for attempt in 1...3 {
+				runtimeSettled("before \(lib.name)'s second run")
+				let census = LiveCensus()
+				let before = clj_debug_live_objects()
+				let run = try Self.run(lib)
+				abandoned = max(abandoned, Self.reclaimAbandoned(lib))
+				runtimeSettled("after \(lib.name)'s second run")
+				let live = Int(clj_debug_live_objects() - before)
+				let whole = warmed && run.cutShort.isEmpty
+				if let expected, live != expected { reportLeftovers(lib, live: live, expected: expected, since: census, first: first, run: run) }
+				if attempt > 1 { progress("corpus: \(lib.name): measurement \(attempt): \(live) live objects, cut short \(run.cutShort)") }
+				if whole || attempt == 3 || live == expected { return (live, run) }
+				progress("corpus: \(lib.name): measurement \(attempt) (\(live) live objects) is taken again: a test was cut short by the watchdog before or in it")
+				warmed = warmed || run.cutShort.isEmpty
+			}
+			fatalError("unreachable")
+		}
+
+		// A count alone cannot be diagnosed: what the objects are, and what of the runtime was still busy.
+		// @ai-generated(solo)
+		private static func reportLeftovers(_ lib: Library, live: Int, expected: Int, since census: LiveCensus, first: RunResult, run: RunResult) {
+			progress("corpus: \(lib.name): the second run left \(live) live objects against \(expected); by type: \(LiveCensus().moves(since: census).joined(separator: ", "))")
+			progress("corpus: \(lib.name): cut short by the watchdog: first run \(first.cutShort), second run \(run.cutShort)")
+			progress("corpus: \(lib.name): \(clj_debug_live_coros()) coroutines, \(clj_debug_timers_held()) timers, \(clj_debug_blocking_held()) blocking jobs; cycle candidates \(clj_debug_cc_pending_local()) local, \(clj_debug_cc_pending_shared()) shared; deep retries \(clj_debug_cc_deep_retries())")
+			if clj_debug_live_coros() > 0 {
+				clj_debug_sched_dump()
+				clj_debug_coro_dump()
+			}
+		}
+
 		private static let update = ProcessInfo.processInfo.environment["CLJ_CORPUS_UPDATE"] != nil
 
 		// On by default (a second of a debug run); CLJ_CORPUS=0 skips it, CLJ_CORPUS_LIB=name runs one library,
@@ -562,13 +626,9 @@ extension CoreTests {
 				try writeReport(lib, first, flaky: flaky)
 				// Loading interns vars and keywords for the process; the second run over the loaded namespaces is the memory check.
 				// A library's go blocks, thread bodies and timeouts outlive the deftest that started them.
-				let abandonedFirst = Self.reclaimAbandoned(lib)
-				runtimeSettled("before \(lib.name)'s second run")
-				let before = clj_debug_live_objects()
-				let second = try Self.run(lib)
-				let abandoned = max(abandonedFirst, Self.reclaimAbandoned(lib))
-				runtimeSettled("after \(lib.name)'s second run")
-				let live = Int(clj_debug_live_objects() - before)
+				var abandoned = Self.reclaimAbandoned(lib)
+				let (live, second) = try Self.measureSecondRun(lib, first: first, expected: Self.update ? nil : try Self.readAllowlist(lib).liveAfterSecondRun,
+				                                               abandoned: &abandoned)
 				let steady = { (r: RunResult) in r.tests.filter { !flaky.contains($0.name) }.map(\.status) }
 				#expect(steady(second) == steady(first), "\(lib.name): the two runs disagree")
 				doc += Self.summary(lib, first, liveAfterSecondRun: live)
