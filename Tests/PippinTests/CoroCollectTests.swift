@@ -42,7 +42,7 @@ extension CoreTests {
 			clj_init()
 			try cljTimingSupport()
 			_ = try cljEvalScoped("""
-			(ns coro-collect-tests (:require [clojure.core.async :refer [chan <! >! >!! timeout go go-loop alts! mult onto-chan! suspend!]]))
+			(ns coro-collect-tests (:require [clojure.core.async :refer [chan <! >! >!! timeout go go-loop alts! mult onto-chan! suspend! close!]]))
 			(refer 'test-support)
 			(defprotocol Res (-close [r]))
 			(deftype Held [closed] Res (-close [_] (reset! closed true)))
@@ -93,7 +93,9 @@ extension CoreTests {
 		}
 
 		// mult's loop parks on its source with no taps; the mult, the source and the loop's channel are all dropped.
+		// A first mult registers its reify type for the process: that one runs to its end before the baseline.
 		@Test func aDroppedMultWithNoTaps() throws {
+			_ = try eval("(let [c (chan)] (mult c) (close! c))")
 			let base = CoroBaseline()
 			let before = cancelledByCollection()
 			_ = try eval("(let [c (chan)] (mult c) nil)")
