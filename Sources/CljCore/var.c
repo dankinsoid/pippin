@@ -75,9 +75,11 @@ clj_value clj_var_root(clj_value var) { return clj_slot_load(&clj_var_of(var)->r
 
 static void redefinition_barrier(clj_value except);
 
-static void root_moved(clj_value var) {
+// A force moves only its var's epoch: what read the thunk read ⊤ there, which stays sound, so the world's caches
+// (protocol tables, summaries past their deps) keep what they hold.
+static void root_moved(clj_value var, bool world) {
 	atomic_fetch_add_explicit(&clj_var_of(var)->epoch, 1, memory_order_release);
-	clj_epoch_bump();
+	if (world) clj_epoch_bump();
 	clj_exec_root_rebound(var);
 }
 
@@ -88,7 +90,7 @@ static void bind_unbarriered(clj_value var, clj_value val, clj_value lazy) {
 	clj_value old = clj_slot_exchange(&v->h, &v->root, clj_retain(val), memory_order_acq_rel);
 	clj_release(clj_slot_exchange(&v->h, &v->lazy, clj_retain(lazy), memory_order_acq_rel));
 	if (old != CLJ_UNBOUND && !clj_eval_retire_root(old)) clj_rc_release_root(old);
-	root_moved(var);
+	root_moved(var, true);
 }
 
 void clj_var_bind_root(clj_value var, clj_value val) {
@@ -356,7 +358,7 @@ static clj_value run_lazy(clj_value var, clj_lazy_def *t) {
 	// thunk's alone
 	if (clj_slot_cas(&v->h, &v->root, &expected, r, memory_order_acq_rel, memory_order_acquire)) {
 		clj_release(tv);
-		root_moved(var);
+		root_moved(var, false);
 	} else {
 		clj_release(r);
 	}
