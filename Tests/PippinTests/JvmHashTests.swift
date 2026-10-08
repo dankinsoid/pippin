@@ -11,6 +11,7 @@ extension CoreTests {
 	@Suite struct JvmHashTests {
 		init() throws {
 			clj_init()
+			for k in ["a", "ns/a", "abc/def-ghi"] { _ = Value(keyword: k) }
 			_ = try cljEvalScoped("""
 			(ns jvm-hash-tests)
 			(defrecord R [a b])

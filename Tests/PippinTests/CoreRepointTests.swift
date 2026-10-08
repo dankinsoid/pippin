@@ -20,7 +20,7 @@ extension CoreTests {
 	@Suite struct CoreRepointTests {
 		init() throws {
 			clj_init()
-			for k in ["scheme", "user-info", "host", "port", "path", "query", "fragment", "eof", "e", "z", "none", "x"] { _ = kw(k) }
+			for k in ["scheme", "user-info", "host", "port", "path", "query", "fragment", "eof", "e", "z", "none", "x", "nope", "d", "k"] { _ = kw(k) }
 			_ = try cljEvalScoped("""
 			(ns repoint.model)
 			(defrecord User [name])
@@ -47,7 +47,7 @@ extension CoreTests {
 			// A JVM class and a name no namespace or bridge provides stay unmapped; using one is the error.
 			#expect(try eval("[(import '[nowhere.at.all Nothing] 'java.util.UUID 'NoPackage) (contains? (ns-imports *ns*) 'Date) (contains? (ns-imports *ns*) 'Nothing)]") == [nil, false, false])
 			#expect(message("Nothing")?.contains("Unable to resolve symbol: Nothing") == true)
-			#expect(try eval("(do (in-ns 'repoint.other) (msg #(import 'repoint.model.Box)))") == "Box already refers to: #'repoint.other/Box in namespace: repoint.other")
+			#expect(try eval("(do (in-ns 'repoint.other) (repoint-tests/msg #(import 'repoint.model.Box)))") == "Box already refers to: #'repoint.other/Box in namespace: repoint.other")
 			#expect(try eval("[(msg #(import 5)) (msg #(import '[5 A])) (msg #(import '[repoint.model 5]))]") == [
 				"import expects a symbol or a list (package Name*), got: long", "import expects a package symbol first, got: long",
 				"import expects an unqualified class name, got: long",
@@ -55,10 +55,10 @@ extension CoreTests {
 			#expect(try eval("(do (ns-unmap *ns* 'Box) (import 'repoint.model.Box) [(contains? (ns-imports *ns*) 'Box) (do (ns-unmap *ns* 'Box) (contains? (ns-imports *ns*) 'Box))])") == [true, false])
 		}
 
-		// The host's resolver answers first, so the import names what the qualified symbol names.
+		// Not NSError: a host type prints the spelling that interned it first, and HostErrorTests reads that one.
 		@Test func importNamesAHostTypeThroughABridge() throws {
-			#expect(try eval("(some? (import '[Foundation NSError]))") == true)
-			#expect(try eval("[(identical? NSError Foundation/NSError) (identical? NSError (get (ns-imports *ns*) 'NSError)) (identical? NSError (host-type 'Foundation/NSError))]") == [true, true, true])
+			#expect(try eval("(some? (import '[Foundation NSNotification]))") == true)
+			#expect(try eval("[(identical? NSNotification Foundation/NSNotification) (identical? NSNotification (get (ns-imports *ns*) 'NSNotification)) (identical? NSNotification (host-type 'Foundation/NSNotification))]") == [true, true, true])
 		}
 
 		@Test func dotDotAndMemfnSendTheGeneralMethodForm() throws {
