@@ -82,7 +82,9 @@
   whose `alts!` port vector the loop owns, and the ASYNC-127 `mult` when its race leaves a tap's `put!` pending with
   the tap in the loop's own `chs`. Those it cancels (`clj_debug_cancel_live_coros`) before the memory check, and
   `:abandoned-coroutines` in the allowlist bounds that residue: 0 for every library but this one, so the old "nothing
-  may be left" check holds everywhere else, and 3 here. A run past the bound fails the step. Left alone, the only end
+  may be left" check holds everywhere else, and 3 here. Measured (arm64 CI, run 37767954601, both runs alike): by the
+  time a run returns the background collector has taken all but four, the reclaim's collection takes one, and three
+  are left for its cancel — where 20 or 21 were waiting before. A run past the bound fails the step. Left alone, the only end
   of such a park is the per-deftest watchdog deadline its spawn conveyed, `CLJ_CORPUS_TIMEOUT_MS` from the last spawn
   (60 s as the Makefile exports it): the 20–55 s drain this harness once waited out. A coroutine that never parked is
   not on the live list, so a runaway loop is not reclaimed there and still fails the settle, which is how the

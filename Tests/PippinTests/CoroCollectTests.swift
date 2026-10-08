@@ -51,7 +51,6 @@ extension CoreTests {
 			(def from-swift (atom nil))
 			(def alts-done (atom nil))
 			(def suspended nil)
-			(defn put-v [c] (>!! c :v))
 			""")
 			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future"] { _ = kw(k) }
 		}
@@ -85,7 +84,7 @@ extension CoreTests {
 			try reset()
 			let base = CoroBaseline()
 			let before = cancelledByCollection()
-			_ = try eval("(let [c (chan)] (go (let [[_ p] (alts! [c (timeout 400)])] (reset! alts-done (if (= p c) :chan :timeout)))) nil)")
+			_ = try eval("(let [c (chan)] (go (let [[_ p] (alts! [c (timeout 3000)])] (reset! alts-done (if (= p c) :chan :timeout)))) nil)")
 			#expect(noneCollected(since: before))
 			#expect(try eval("@alts-done").isNil)
 			#expect(eventually { (try? eval("@alts-done")) == kw("timeout") })
@@ -129,7 +128,8 @@ extension CoreTests {
 			do {
 				let held = try eval("(let [c (chan)] (go (reset! from-swift (<! c))) c)")
 				#expect(noneCollected(since: before))
-				_ = try eval("put-v")(held)
+				// From this bare thread, not through a host call, under which a put may not park.
+				_ = Value(owning: clj_chan_put(held.raw, kw("v").raw))
 				#expect(eventually { (try? eval("@from-swift")) == kw("v") })
 			}
 			#expect(cancelledByCollection() == before)
