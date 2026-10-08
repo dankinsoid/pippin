@@ -172,6 +172,13 @@ extension CoreTests {
 			try collected("(let [c (a/chan 4)] (a/>!! c {:k [c]}) (a/>!! c 1) nil)", cycles: 1)
 		}
 
+		// A pending put!/take! callback is the channel's edge (cc_held); the garbage channel's teardown releases it once.
+		@Test func aCycleThroughAPendingCallback() throws {
+			try collected("(let [c (a/chan)] (a/put! c 1 (fn [_] c)) nil)", cycles: 1)
+			try collected("(let [c (a/chan)] (a/take! c (fn [_] c)) nil)", cycles: 1)
+			try collected("(let [c (a/chan) d (a/chan)] (a/take! c (fn [_] d)) (a/put! d 1 (fn [_] c)) nil)", cycles: 1)
+		}
+
 		// letfn's cells are volatiles holding the fns that deref them: a cycle per call (NOTES "Corpus").
 		@Test func letfnCells() throws {
 			try collected("(dotimes [i 1000] (letfn [(f [n] (if (pos? n) (g (dec n)) n)) (g [n] (f n))] (f 3)))", cycles: 1000)
