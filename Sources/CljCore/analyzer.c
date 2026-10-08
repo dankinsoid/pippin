@@ -1627,8 +1627,8 @@ static clj_def_lazy def_laziness(const clj_node *n) {
 	if (!call) return CLJ_DEF_EAGER;
 	find_unstable_read(n->u.def.init, &unstable);
 	if (unstable) return CLJ_DEF_EAGER;
-	uint32_t effects = clj_specialize_effects_of(n->u.def.init);
-	return (effects & ~(uint32_t)(CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW)) ? CLJ_DEF_EAGER : CLJ_DEF_LAZY_INFERRED;
+	const uint32_t impure = ~(uint32_t)(CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW);
+	return clj_specialize_effects_of(n->u.def.init, impure) & impure ? CLJ_DEF_EAGER : CLJ_DEF_LAZY_INFERRED;
 }
 
 clj_node *clj_analyze(clj_value form, const clj_env *env) {

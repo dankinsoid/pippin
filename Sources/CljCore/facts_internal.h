@@ -15,8 +15,9 @@ static inline const clj_fn_arity *clj_facts_arity_for(const clj_node *fn, uint32
 // Fills nparams, variadic, params with their positions, ret, effects and inferred; records nothing else. params enters
 // the parameters at those facts instead of TOP (a specialized summary), NULL for TOP.
 void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *arity, clj_summaries *sums, clj_summary *out, const clj_fact *params);
-// The effects of evaluating n, a subtree of a numbered tree, under the store's summaries: a walk that records nothing.
-uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums);
+// The effects of evaluating n, a subtree of a numbered tree, under the store's summaries: a walk that records nothing,
+// and stops at the first effect among stop (0: never).
+uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums, uint32_t stop);
 // Whether the tables of clj_facts_core_effects name it.
 bool clj_facts_core_named(const char *name);
 // Effects of a clojure.core call by name: none for a predicate, IO and atom-write from short lists, else alloc|throw.

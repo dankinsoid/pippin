@@ -58,6 +58,7 @@ typedef struct {
 struct clj_summaries {
 	entry  **slots;
 	uint32_t cap, count;
+	uint32_t nvars; // entries keyed by a var: the rest are a tree's arities, which every table drops at its end
 	entry   *stack[MAX_DEPTH + 1]; // entries being computed, innermost last
 	uint32_t depth;
 	uint32_t invalidated, rounds, widenings;
@@ -648,6 +649,7 @@ static const clj_summary *compute_var(clj_summaries *s, entry *e, clj_value var,
 static const clj_summary *summary_of_var_keyed(clj_summaries *s, clj_value var, uint32_t nargs, const clj_domain *domains) {
 	if (!clj_is_var(var)) return NULL;
 	entry *e = entry_for(s, clj_to_ptr(var), domains_key(nargs, domains));
+	if (!e->is_var) s->nvars++;
 	e->is_var = true;
 	if (e->state == STATE_RUNNING) {
 		e->s.recursive = true;
@@ -697,8 +699,9 @@ const clj_summary *clj_summary_of_arity(clj_summaries *s, const clj_node *fn, co
 	return &e->s;
 }
 
+// Every table built with the store ends here, so the rebuild is skipped when no arity was asked for.
 void clj_summaries_forget_arities(clj_summaries *s) {
-	if (s->depth) return;
+	if (s->depth || s->count == s->nvars) return;
 	entry **fresh = xalloc(s->cap, sizeof(entry *));
 	uint32_t count = 0;
 	for (uint32_t i = 0; i < s->cap; i++) {

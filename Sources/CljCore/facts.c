@@ -471,6 +471,7 @@ typedef struct {
 	uint32_t      in_fused; // fused programs the walk is inside of
 	bool          summary; // a summary walk: nothing is stored, and a BOTTOM argument makes a call unreachable
 	bool          bounded; // a store's walk: cut past CLJ_FACTS_MAX_WALK_DEPTH, the C stack being shared with the asker
+	uint32_t      stop;    // effects that end the walk: the asker wants only whether one of them happens
 	char         *stack_limit; // the walk descends no lower: it runs under specialize.c's lock, where a fault is fatal
 	// The def'd arity being walked, whose own sites (same var, same arity, in its own frame) are no recorded sites but
 	// the self fixpoint's: joined into self_join when it is set, dropped otherwise (NOTES.md "Facts", the caller join).
@@ -1447,6 +1448,7 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use);
 
 // Out of stack answers the depth cut's TOP: a subtree with no facts costs optimization, never correctness (§3).
 static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
+	if (p->effects & p->stop) return clj_fact_top();
 	char here;
 	if ((p->bounded && walk_depth >= CLJ_FACTS_MAX_WALK_DEPTH) || &here < p->stack_limit) {
 		p->effects |= CLJ_EFFECT_ANY;
@@ -1763,11 +1765,12 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	free_scratch(&f);
 }
 
-uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums) {
+uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums, uint32_t stop) {
 	clj_facts f = {0};
 	f.conflict_node = UINT32_MAX;
 	f.sums = sums;
-	pass p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
+	pass p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .stop = stop, .self_var = CLJ_NIL,
+	          .stack_limit = clj_stack_limit()};
 	if (sums) warm_summaries(n, sums);
 	uint32_t nslots = 0;
 	max_slot(n, &nslots);

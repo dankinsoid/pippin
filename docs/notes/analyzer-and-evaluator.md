@@ -369,7 +369,7 @@
   unit compiled from the same load agree. A def is inferred lazy when it is the whole top-level form, has an init
   with a call outside a nested fn (a literal or a var read costs less than the thunk), is neither `^:dynamic` nor a
   macro, its init reads no unbound var and no var whose root is an atom, an array or a host value, and the init's
-  effects under the dev store are within `alloc|throw` (`clj_specialize_effects_of`, NOTES "Facts"). `^:eager` and
+  effects under the dev store are within `alloc|throw` (`clj_specialize_effects_of`, NOTES "Facts"; the walk stops at the first other effect). `^:eager` and
   `^:lazy` overrule the inference; `^:lazy` alone is honored on a dynamic var. The root becomes a `clj_lazy_def`:
   the interpreter's holds the form's exec and runs the init in a fresh frame of it (`lazy_init`), a unit's holds
   `lazy_<n>`, a C function beside `top_<n>` with the same frame, and no tree. The var keeps the thunk in its `lazy`
