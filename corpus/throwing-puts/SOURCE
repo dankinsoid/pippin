@@ -1,0 +1,9 @@
+throwing-puts — core.async puts that throw on a closed channel
+
+Repository: https://github.com/reducecombine/throwing-puts
+Commit:     ce5f1b883de96adfba8e8da180ac8220efc7921b (no tags; pinned commit)
+License:    Eclipse Public License (LICENSE)
+
+Files taken, unmodified:
+  src/throwing_puts/core.clj       -> src/throwing_puts/core.clj
+  test/throwing_puts/core_test.clj -> test/throwing_puts/core_test.clj

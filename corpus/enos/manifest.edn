@@ -1,0 +1,4 @@
+{:name "enos"
+ :load-path ["src" "test"]
+ :features #{}
+ :test-namespaces [enos.core-test]}

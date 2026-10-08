@@ -1,0 +1,4 @@
+{:name "async-error"
+ :load-path ["src" "test/cljc"]
+ :features #{:clj}
+ :test-namespaces [async-error.core-test]}

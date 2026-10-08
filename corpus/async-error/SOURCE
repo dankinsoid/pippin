@@ -1,0 +1,9 @@
+async-error — error handling over core.async: <?, go-try (Alexander Kiel)
+
+Repository: https://github.com/alexanderkiel/async-error
+Commit:     c92b650294b1815ca8d49b81b45a417794cd1302 (v0.3)
+License:    Eclipse Public License 1.0 (LICENSE)
+
+Files taken, unmodified:
+  src/async_error/core.cljc            -> src/async_error/core.cljc
+  test/cljc/async_error/core_test.cljc -> test/cljc/async_error/core_test.cljc

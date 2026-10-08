@@ -1,0 +1,4 @@
+{:name "throwing-puts"
+ :load-path ["src" "test"]
+ :features #{}
+ :test-namespaces [throwing-puts.core-test]}

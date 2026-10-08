@@ -1,0 +1,11 @@
+turbine — topologies of transducers over core.async channels (Timothy Renner)
+
+Repository: https://github.com/timothyrenner/turbine
+Commit:     cabe7f3aa156878218cab621ebb85adad47afe0f (no tags; pinned commit)
+License:    Apache License 2.0 (LICENSE)
+
+Files taken, unmodified:
+  src/turbine/core.clj         -> src/turbine/core.clj
+  src/turbine/routes.clj       -> src/turbine/routes.clj
+  test/turbine/core_test.clj   -> test/turbine/core_test.clj
+  test/turbine/routes_test.clj -> test/turbine/routes_test.clj

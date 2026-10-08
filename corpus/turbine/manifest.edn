@@ -1,0 +1,4 @@
+{:name "turbine"
+ :load-path ["src" "test"]
+ :features #{}
+ :test-namespaces [turbine.core-test turbine.routes-test]}

@@ -1,0 +1,9 @@
+asyncflow (cav/asyncflow) — sequential-looking flow over go blocks and delays (Seth Yuan)
+
+Repository: https://github.com/sethyuan/cljasyncflow
+Commit:     be0267d79dd11072b23b69a87b728880a8be7f8c (no tags; pinned commit)
+License:    MIT (LICENSE)
+
+Files taken, unmodified:
+  src/clj/cav/asyncflow.clj       -> src/clj/cav/asyncflow.clj
+  test/clj/cav/asyncflow_test.clj -> test/clj/cav/asyncflow_test.clj

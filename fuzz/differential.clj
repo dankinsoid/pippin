@@ -79,6 +79,9 @@
 (def ^:private idx-lits [0 0 1 1 2 3 4 5 6])
 (def ^:private pos-lits [1 1 2 2 3 4 5])
 (def ^:private shift-lits [0 1 2 7 31 32 62 63 64 65])
+;; Scale is part of a decimal's value: 1.50M and 1.5M are not `=`, and print as written.
+(def ^:private dec-lits [0M 1M -1M 1.5M -2.25M 0.1M 100M 1.50M 3.14159M 100.00M])
+(def ^:private dec-divisors [1M 2M 4M 0.5M 8M 5M 3M])
 
 (def ^:private scalar-types [:int :num :str :bool :kw :char :nil])
 (def ^:private any-types [:int :num :str :bool :kw :char :nil :vec :seq])
@@ -102,6 +105,7 @@
          ['inc :num] ['dec :num] ['min :num :num] ['max :num :num]
          ['double :num] ['quot :num :num] ['rem :num :num] ['mod :num :num]
          ['reduce '+ :num :seqint] ['apply 'max :seqint] ['apply 'min :seqint]
+         ['double :dec]
          :op/int :op/let :op/if]
    :bool [['= :any :any] ['= :any :any] ['not= :any :any] ['= :map :map] ['= :set :set]
           ['< :num :num] ['<= :num :num] ['> :num :num] ['>= :num :num] ['== :num :num]
@@ -119,6 +123,7 @@
           ['boolean :any] ['< :ratio :ratio] ['= :ratio :ratio]
           ['= :sortedmap :sortedmap] ['= :sortedset :sortedset]
           ['contains? :sortedmap :ikey] ['contains? :sortedset :ikey]
+          ['= :dec :dec] ['== :dec :dec] ['< :dec :dec] ['zero? :dec] ['pos? :dec] ['decimal? :any]
           :op/let :op/if]
    :str [['str :scalar :scalar] ['str :scalar] ['str :vec]
          ['subs :str :idx] ['subs :str :idx :idx]
@@ -150,6 +155,8 @@
          ['split-at :idx :seq] ['split-with :pred1 :seq]
          ['reverse :seq] ['distinct :seq] ['dedupe :seq] ['flatten :seq] ['sort :seqint]
          ['sort ['map 'pr-str :seq]]
+         ['sort [:lit '>] :seqint] ['sort-by [:lit '-] :seqint] ['sort-by 'str :seqs]
+         ['sort-by [:lit '(fn [x] (mod x 3))] :seqint] ['sort-by [:lit '(fn [x] (mod x 3))] [:lit '>] :seqint]
          ['take :idx ['iterate :fn1 :any]] ['take :idx ['cycle :seq]] ['take :idx ['repeat :any]]
          ['repeat :idx :any] ['lazy-seq :seq] ['seq :vec] ['seq :seqint]
          ['apply 'list :seq] ['sequence [:lit '(map inc)] :seqint]
@@ -168,13 +175,31 @@
                ['assoc :sortedmap :ikey :any] ['dissoc :sortedmap :ikey]
                ['merge :sortedmap :sortedmap] ['into [:lit '(sorted-map)] :sortedmap]
                ['into :sortedmap :sortedmap] ['update :sortedmap :ikey :fn1]
-               ['empty :sortedmap]]
+               ['empty :sortedmap] ['sorted-map-by [:lit '>] :ikey :any :ikey :any]
+               ['into [:lit '(sorted-map-by >)] :sortedmap]]
    :sortedset [['sorted-set :ikey :ikey] ['sorted-set :ikey :ikey :ikey]
                ['conj :sortedset :ikey] ['disj :sortedset :ikey]
                ['into [:lit '(sorted-set)] :sortedset] ['into :sortedset :sortedset]
                ['clojure.set/union :sortedset :sortedset]
                ['clojure.set/intersection :sortedset :sortedset]
-               ['clojure.set/difference :sortedset :sortedset] ['empty :sortedset]]
+               ['clojure.set/difference :sortedset :sortedset] ['empty :sortedset]
+               ['sorted-set-by [:lit '>] :ikey :ikey :ikey] ['into [:lit '(sorted-set-by >)] :sortedset]]
+   :dec [['+ :dec :dec] ['- :dec :dec] ['* :dec :dec] ['+ :dec :int] ['* :dec :int] ['- :dec]
+         ['inc :dec] ['dec :dec] ['max :dec :dec] ['min :dec :dec] ['bigdec :int] ['bigdec :dec]
+         ['/ :dec :decdiv] ['reduce '+ :dec :seqint]]
+   ;; A collection that may carry metadata, read back with `meta`: which operations keep it is the JVM's choice per
+   ;; operation (conj, assoc, empty, into and select-keys keep it; seq, rest, vec of a vector and subvec drop it).
+   :metavec [['with-meta :vec :metamap] ['with-meta :vec :metamap]
+             ['conj :metavec :any] ['assoc :metavec :idx :any] ['pop :metavec] ['subvec :metavec :idx]
+             ['into :metavec :seq] ['empty :metavec] ['vec :metavec] ['update :metavec :idx :fn1]
+             ['vary-meta :metavec 'assoc :kw :scalar] ['with-meta :metavec :metamap] ['mapv :fn1 :metavec]]
+   :metamapv [['with-meta :map :metamap] ['with-meta :map :metamap]
+              ['assoc :metamapv :key :any] ['dissoc :metamapv :key] ['merge :metamapv :map]
+              ['select-keys :metamapv :vec] ['update :metamapv :key :fn1] ['into :metamapv :map]
+              ['empty :metamapv] ['vary-meta :metamapv 'dissoc :kw]]
+   :metaset [['with-meta :set :metamap] ['with-meta :set :metamap]
+             ['conj :metaset :any] ['disj :metaset :any] ['into :metaset :seq] ['empty :metaset]
+             ['vary-meta :metaset 'assoc :kw :scalar]]
    :seqs [:op/scalar-vec :op/scalar-vec
           ['range :small] ['range :small :small] ['range :small :small :posidx]
           ['map 'inc :seqint] ['take :idx :seqs] ['drop :idx :seqs]
@@ -209,7 +234,10 @@
          ['identity :any] ['when :bool :any] ['or :any :any] ['and :any :any]
          ['max-key 'count :vec :vec] ['min-key 'count :vec :vec]
          :op/int :op/num :op/str :op/bool :op/vec :op/seq
-         :op/let :op/if :op/cond :op/try :op/destructure :op/apply-fn]
+         :op/let :op/if :op/cond :op/try :op/destructure :op/apply-fn
+         :op/dec :op/cell :op/cell
+         ['meta :metavec] ['meta :metamapv] ['meta :metaset] ['meta ['seq :metavec]] ['meta ['rest :metavec]]
+         ['meta ['sorted-map]] ['identity :metavec]]
    :fn1 [:op/fn1 :op/leaf]
    :pred1 [:op/pred1 :op/leaf]
    :fn2 [:op/fn2 :op/leaf]
@@ -278,9 +306,17 @@
         :fn1 (pick! st ['inc 'dec 'identity 'count 'first 'reverse 'list 'vector 'name 'boolean])
         :pred1 (pick! st ['even? 'odd? 'pos? 'neg? 'zero? 'string? 'number? 'keyword? 'nil? 'some?
                           'identity 'coll?])
-        :fn2 (pick! st ['+ '- '* 'max 'min 'conj 'vector 'list])))))
+        :fn2 (pick! st ['+ '- '* 'max 'min 'conj 'vector 'list])
+        :dec (pick! st dec-lits)
+        :decdiv (pick! st dec-divisors)
+        :metamap (when-not (coin! st 4)
+                   (let [ks (vec (distinct (repeatedly (rint! st 3) #(pick! st kw-lits))))]
+                     (zipmap ks (repeatedly (count ks) #(leaf st :scalar env)))))
+        :metavec (list 'with-meta (leaf st :vec env) (leaf st :metamap env))
+        :metamapv (list 'with-meta (leaf st :map env) (leaf st :metamap env))
+        :metaset (list 'with-meta (leaf st :set env) (leaf st :metamap env))))))
 
-(def ^:private leaf-only #{:kw :char :nil :key :ikey :ikeyvec :small :idx :posidx :shift :nzint :nznum :scalar})
+(def ^:private leaf-only #{:kw :char :nil :key :ikey :ikeyvec :small :idx :posidx :shift :nzint :nznum :scalar :decdiv :metamap})
 
 (defn- special [st op t env depth]
   (let [d (dec depth)]
@@ -290,6 +326,24 @@
       :op/int [nil {:delegate (gen st :int env d)}]
       :op/num [nil {:delegate (gen st :num env d)}]
       :op/str [nil {:delegate (gen st :str env d)}]
+      :op/dec [nil {:delegate (gen st :dec env d)}]
+      ;; An atom or a volatile is local to the expression, so its outcome is the seed's and not a schedule's.
+      :op/cell (let [c (fresh! st "c")
+                     shape (rint! st 7)
+                     cell (if (< shape 5) 'atom 'volatile!)]
+                 [(list 'let [c (list cell '__h1)]
+                        (case shape
+                          0 (list 'do (list 'swap! c '__h2) (list 'deref c))
+                          1 (list 'do (list 'swap! c '__h2 '__h3) (list 'deref c))
+                          2 [(list 'swap-vals! c '__h2) (list 'deref c)]
+                          3 [(list 'reset-vals! c '__h3) (list 'deref c)]
+                          4 [(list 'compare-and-set! c (list 'deref c) '__h3) (list 'deref c)]
+                          5 (list 'do (list 'vswap! c '__h2) (list 'deref c))
+                          6 [(list 'vreset! c '__h3) (list 'deref c)]))
+                  (cond-> {'__h1 (gen st :any env d)}
+                    (#{0 2 5} shape) (assoc '__h2 (gen st :fn1 env d))
+                    (= 1 shape) (assoc '__h2 (gen st :fn2 env d) '__h3 (gen st :any env d))
+                    (#{3 4 6} shape) (assoc '__h3 (gen st :any env d)))])
       :op/bool [nil {:delegate (gen st :bool env d)}]
       :op/vec [nil {:delegate (gen st :vec env d)}]
       :op/seq [nil {:delegate (gen st :seq env d)}]
@@ -391,7 +445,7 @@
 (defn gen-form [st depth order-raw?]
   (if (and order-raw? (coin! st 4))
     (gen-template st :any {} depth (pick! st raw-order-ops))
-    (gen st (pick! st [:int :int :num :str :bool :vec :seq :map :set :any :any :seqint :ratio :sortedmap :sortedset]) {} depth)))
+    (gen st (pick! st [:int :int :num :str :bool :vec :seq :map :set :any :any :seqint :ratio :sortedmap :sortedset :dec]) {} depth)))
 
 ;; ---------------------------------------------------------------- case files
 
@@ -457,10 +511,17 @@
 ;; ---------------------------------------------------------------- errors
 
 ;; A throw compares by family (fuzz/errors.edn): the JVM's class and our ex-type are not one alphabet, the families are.
-(def ^:private error-rules
-  (delay (let [t (edn/read-string (slurp "fuzz/errors.edn"))]
-           {:jvm (mapv (fn [[c m f]] [(re-pattern c) (some-> m re-pattern) f]) (:jvm t))
-            :ours (mapv (fn [[m f]] [(re-pattern m) f]) (:ours t))})))
+;; An :errors exclusion puts its rule ahead of the table's: a deliberate difference in which error is thrown.
+(def ^:private error-rules (atom nil))
+
+(defn- load-error-rules! [ex]
+  (let [t (edn/read-string (slurp "fuzz/errors.edn"))
+        excluded (filter #(= :errors (:mechanism %)) (:exclusions ex))]
+    (reset! error-rules
+            {:jvm (mapv (fn [[c m f]] [(re-pattern c) (some-> m re-pattern) f])
+                        (concat (keep :jvm-rule excluded) (:jvm t)))
+             :ours (mapv (fn [[m f]] [(re-pattern m) f])
+                         (concat (keep :ours-rule excluded) (:ours t)))})))
 
 (defn- error-family [head message]
   (let [rules @error-rules]
@@ -510,11 +571,13 @@
   {:int 0 :num 0 :str "" :bool true :kw :a :char \a :nil nil :key :a :small 0 :idx 0 :posidx 1
    :shift 0 :nzint 1 :nznum 1 :ratio 1 :ikey 0 :ikeyvec [] :scalar nil
    :sortedmap (list 'sorted-map) :sortedset (list 'sorted-set) :any nil :vec [] :seq [] :seqint [] :seqs [] :map {} :set #{} :coll []
-   :fn1 'identity :pred1 'identity :fn2 'vector})
+   :fn1 'identity :pred1 'identity :fn2 'vector
+   :dec 0M :decdiv 1M :metamap nil :metavec [] :metamapv {} :metaset #{}})
 
 (def ^:private fits
   {:any (set any-types) :scalar (set scalar-types) :num #{:int :num}
-   :ratio #{:ratio :int} :ikey #{:ikey :int} :seq #{:seq :vec :seqint :seqs} :seqs #{:seqs :seqint} :coll #{:vec :seq :seqint :seqs :map :set}})
+   :ratio #{:ratio :int} :ikey #{:ikey :int} :dec #{:dec :int}
+   :metavec #{:metavec :vec} :metamapv #{:metamapv :map} :metaset #{:metaset :set} :seq #{:seq :vec :seqint :seqs} :seqs #{:seqs :seqint} :coll #{:vec :seq :seqint :seqs :map :set}})
 
 (defn- fits? [target source]
   (or (= target source) (contains? (get fits target #{}) source)))
@@ -707,6 +770,7 @@
         (println "fuzz: an exclusion without a resolving citation is refused:")
         (doseq [p problems] (println "  " p)))
       (System/exit 1))
+    (load-error-rules! ex)
     (when-not (= "1.12.6" (clojure-version))
       (binding [*out* *err*]
         (println "fuzz: the oracle must be the pinned JVM Clojure 1.12.6, not" (clojure-version)))

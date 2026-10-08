@@ -1,0 +1,9 @@
+enos — core.async utilities: pmap<, batching, dechunking (grammati)
+
+Repository: https://github.com/grammati/enos
+Commit:     5f2fa5726ab033d86777b7e691a136f8617297c9 (no tags; pinned commit)
+License:    MIT, as project.clj declares; the repository carries no LICENSE file
+
+Files taken, unmodified:
+  src/enos/core.clj       -> src/enos/core.clj
+  test/enos/core_test.clj -> test/enos/core_test.clj

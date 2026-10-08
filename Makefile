@@ -221,17 +221,21 @@ FUZZ = clojure -Sdeps '$(JVM_DEPS)' -M fuzz/differential.clj
 FUZZ_INTERP = --runner interp=$(abspath $(PLAIN))/debug/clj-fuzz
 FUZZ_NOREUSE = --runner noreuse=$(abspath $(BUILD_ROOT))/noreuse/debug/clj-fuzz
 FUZZ_COMPILED = --runner compiled="CLJ_EVAL=compiled CLJ_EVAL_ROOT=$(PWD) $(abspath $(PLAIN))/debug/clj-fuzz"
+FUZZ_UNIT = --runner unit="CLJ_EVAL_ROOT=$(PWD) sh fuzz/compiled.sh $(abspath $(PLAIN))/debug"
 
-# The gate: the committed regressions, then a bounded seeded pass of the interpreter against the oracle. The
-# compiled backend pays a clang run per form (~1 form/s), so it stays in fuzz-long, as test-eval-compiled does.
+# The gate: the committed regressions, then a bounded seeded pass of the interpreter and the compiled backend
+# against the oracle. The compiled runner is the case file as one clj-compile unit, one clang run per seed.
 fuzz:
 	swift build --scratch-path $(PLAIN) --product clj-fuzz
-	$(FUZZ) replay $(FUZZ_INTERP)
-	$(FUZZ) run --seeds $(FUZZ_SEEDS) --forms $(FUZZ_FORMS) $(FUZZ_INTERP)
+	swift build --scratch-path $(PLAIN) --product clj-compile
+	$(FUZZ) replay $(FUZZ_INTERP) $(FUZZ_UNIT)
+	$(FUZZ) run --seeds $(FUZZ_SEEDS) --forms $(FUZZ_FORMS) $(FUZZ_INTERP) $(FUZZ_UNIT)
 
-# Opt-in, by hand, in the background: all four runners of design §3 item 2, the compiled pair on few seeds.
+# Opt-in, by hand, in the background: every runner of design §3 item 2. CLJ_EVAL=compiled is the per-form eval
+# of the REPL path, a clang run per top-level form (~1 form/s), so it runs on few seeds.
 fuzz-long:
 	swift build --scratch-path $(PLAIN) --product clj-fuzz
+	swift build --scratch-path $(PLAIN) --product clj-compile
 	swift build --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE --product clj-fuzz
-	$(FUZZ) run --seeds 1-64 --forms 1000 $(FUZZ_INTERP) $(FUZZ_NOREUSE)
+	$(FUZZ) run --seeds 1-64 --forms 1000 $(FUZZ_INTERP) $(FUZZ_NOREUSE) $(FUZZ_UNIT)
 	$(FUZZ) run --seeds 1-4 --forms 300 --group 25 $(FUZZ_INTERP) $(FUZZ_COMPILED)

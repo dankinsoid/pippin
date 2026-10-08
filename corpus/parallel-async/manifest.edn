@@ -1,0 +1,4 @@
+{:name "parallel-async"
+ :load-path ["src" "test"]
+ :features #{}
+ :test-namespaces [com.stuartsierra.parallel-test]}

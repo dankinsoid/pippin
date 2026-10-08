@@ -148,6 +148,12 @@
    :row "`(min -0.0 0.0)` is `0.0`; the JVM answers `-0.0` or `0.0`"
    :why "-0.0 is not in the double literal pool. It is still reachable through arithmetic, `(* -1.5 0.0)`, so this exclusion thins the class rather than closing it; what would close it is the JVM settling on one of its two answers."}
 
+  {:id :int-cast-range-error
+   :mechanism :errors
+   :row "`(int x)` of a long outside the int range throws \"Value out of range for int: x\""
+   :jvm-rule ["^java\\.lang\\.ArithmeticException$" "^integer overflow$" :argument]
+   :why "The JVM's `RT.intCast(long)` is `Math.toIntExact`, the one narrowing cast that throws ArithmeticException; ours throws the range error every other cast throws on both sides. \"integer overflow\" is that cast's text alone on the JVM (its long arithmetic says \"long overflow\"), so the rule names it as the range error it is."}
+
   {:id :no-hash
    :mechanism :generator
    :design "docs/design/10-first-steps.md"

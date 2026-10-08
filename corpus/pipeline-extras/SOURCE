@@ -1,0 +1,9 @@
+pipeline-extras — unordered pipeline variants over core.async (Andrey Listopadov)
+
+Repository: https://github.com/andreyorst/pipeline-extras
+Commit:     137aed430801e3c7b88179b88f2dec327e8a910a (no tags; pinned commit)
+License:    Eclipse Public License (LICENSE)
+
+Files taken, unmodified:
+  src/main/clojurec/pipeline_extras/core.cljc -> src/main/clojurec/pipeline_extras/core.cljc
+  test/clojure/pipeline_extras/core_test.clj  -> test/clojure/pipeline_extras/core_test.clj

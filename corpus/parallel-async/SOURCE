@@ -1,0 +1,9 @@
+parallel-async — parallel processing over core.async channels (Stuart Sierra)
+
+Repository: https://github.com/stuartsierra/parallel-async
+Commit:     3952ec025a7238f75b8f1ebe28d9f9b4984b0be5 (no tags; pinned commit)
+License:    MIT (LICENSE)
+
+Files taken, unmodified:
+  src/com/stuartsierra/parallel.clj       -> src/com/stuartsierra/parallel.clj
+  test/com/stuartsierra/parallel_test.clj -> test/com/stuartsierra/parallel_test.clj

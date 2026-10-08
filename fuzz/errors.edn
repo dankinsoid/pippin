@@ -28,6 +28,7 @@
   ["^java\\.lang\\.IllegalStateException$" nil :state]
   ["^java\\.lang\\.IllegalArgumentException$" "^Don't know how to create ISeq from" :type]
   ["^java\\.lang\\.IllegalArgumentException$" "^(Key|Index) must be integer" :type]
+  ["^java\\.lang\\.IllegalArgumentException$" "^bit operation not supported for" :type]
   ["^java\\.lang\\.(IllegalArgumentException|NumberFormatException)$" nil :argument]
   ["^java\\.lang\\.(ClassCastException|NullPointerException|UnsupportedOperationException)$" nil :type]]
 
