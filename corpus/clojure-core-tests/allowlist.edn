@@ -136,7 +136,6 @@
   {:file "test/clojure/test_clojure/transducers.clj" :line 88 :name gen-action :reason "Unable to resolve symbol: gen/one-of in this context" :missing [gen/one-of]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 96 :name gen-actions :reason "Unable to resolve symbol: gen/vector in this context" :missing [gen/vector]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 99 :name gen-coll :reason "Unable to resolve symbol: gen/vector in this context" :missing [gen/vector]}
-  {:file "test/clojure/test_clojure/transducers.clj" :line 129 :name build-results :reason "Unable to resolve host type: clojure.test-clojure.transducers/Throwable" :missing []}
   {:file "test/clojure/test_clojure/transducers.clj" :line 144 :name result-gen :reason "Unable to resolve symbol: gen/fmap in this context" :missing [gen/fmap]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 153 :name seq-and-transducer :reason "Unable to resolve symbol: prop/for-all* in this context" :missing [prop/for-all*]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 168 :name test-transduce :reason "Unable to resolve symbol: Integer/TYPE in this context" :missing [Integer/TYPE]}
