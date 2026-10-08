@@ -7,21 +7,21 @@
  {;; ── Refs and STM: §10 promises them; cljs lacks them because JS has one thread ─────────────────
 
  ;; ── Agents: §10 promises them; cljs lacks them because JS has one thread ───────────────────────
- set-agent-send-executor!     {:verdict :repoint :why "the word stays, the argument is our carrier pool, not a `java.util.concurrent.ExecutorService`"}
- set-agent-send-off-executor! {:verdict :repoint :why "with `set-agent-send-executor!`: our blocking pool in place of a JVM executor"}
+ set-agent-send-executor!     {:verdict :repoint :why "the word stays, the argument is an executor of ours, not a `java.util.concurrent.ExecutorService`: a fn of one argument that starts the action's run where it chooses, the shape `send-via` takes; the carriers by default"}
+ set-agent-send-off-executor! {:verdict :repoint :why "with `set-agent-send-executor!`: the executor `send-off` uses, the blocking pool by default"}
 
  ;; ── Printing and REPL dynamic vars cljs keeps ─────────────────────────────────────────────────
 
- ;; ── Host interop: cljs repointed the word at Closure, we repoint it at ObjC ────────────────────
- import                {:verdict :repoint :why "design §3's own example: in cljs a macro over Google Closure classes, here over ObjC classes (`objc-class`)"}
- ns-imports            {:verdict :repoint :why "with `import`: the ns import table, ours mapping a symbol to an ObjC class"}
- ..                    {:verdict :repoint :why "cljs chains JS property access, we chain `(.method target)` — the `CLJ_NODE_OBJC_SEND` form exists already (§5)"}
- memfn                 {:verdict :repoint :why "with `..`: a method as a fn, over `objc-send` instead of a JS call"}
- munge                 {:verdict :repoint :why "cljs munges to a JS identifier; ours is the symbol mangle the compiler and host-type resolution already use (NOTES \"Host bridge\")"}
- uri?                  {:verdict :repoint :why "cljs tests a `goog.Uri`; ours tests an `NSURL` coming through the bridge"}
+ ;; ── Host interop: cljs repointed the word at Closure, we repoint it at the core and its bridges ──
+ import                {:verdict :repoint :why "design §3's own example: in cljs a macro over Google Closure classes; ours names a type a qualified name reaches, a `defrecord` of another namespace or a host type through whichever bridge provides it"}
+ ns-imports            {:verdict :repoint :why "with `import`: the namespace's import table, a symbol to the type it names"}
+ ..                    {:verdict :repoint :why "cljs chains JS property access; we chain our `.method` form, which reaches a deftype's protocol method as well as an ObjC method (§5 «Как пишется вызов»)"}
+ memfn                 {:verdict :repoint :why "with `..`: a method as a fn, over the same `.method` form"}
+ munge                 {:verdict :repoint :why "cljs munges to a JS identifier; ours to the C identifier the compiler gives a name (NOTES \"Compiler\"), C being our host"}
+ uri?                  {:verdict :repoint :why "cljs tests a `goog.Uri`; ours tests a URI value of the core, as `uuid` and `inst` are ours; a bridge converts it to `NSURL`, it does not define it"}
  read                  {:verdict :repoint :why "the word stays, the source is our `*in*` (a map with a channel, NOTES \"nREPL\"), not a `java.io.PushbackReader`; `read-string` is already ours"}
  read+string           {:verdict :repoint :why "with `read`"}
- with-in-str           {:verdict :repoint :why "with `read`: ours seeds the `*in*` map's line channel instead of binding a `StringReader`"}
+ with-in-str           {:verdict :repoint :why "with `read`: binds `*in*` to a reader map over the string instead of a `StringReader`"}
 
  ;; ── Numbers: cljs dropped the tower, we have it (design §3) ───────────────────────────────────
 

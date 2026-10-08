@@ -120,17 +120,17 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 
 | uses | name | cljs | why |
 |---|---|---|---|
-| 3 | `..` | yes | cljs chains JS property access, we chain `(.method target)` — the `CLJ_NODE_OBJC_SEND` form exists already (§5) |
-| 2 | `import` | yes | design §3's own example: in cljs a macro over Google Closure classes, here over ObjC classes (`objc-class`) |
-| 1 | `uri?` | yes | cljs tests a `goog.Uri`; ours tests an `NSURL` coming through the bridge |
-| 0 | `memfn` | yes | with `..`: a method as a fn, over `objc-send` instead of a JS call |
-| 0 | `munge` | yes | cljs munges to a JS identifier; ours is the symbol mangle the compiler and host-type resolution already use (NOTES "Host bridge") |
-| 0 | `ns-imports` | yes | with `import`: the ns import table, ours mapping a symbol to an ObjC class |
+| 3 | `..` | yes | cljs chains JS property access; we chain our `.method` form, which reaches a deftype's protocol method as well as an ObjC method (§5 «Как пишется вызов») |
+| 2 | `import` | yes | design §3's own example: in cljs a macro over Google Closure classes; ours names a type a qualified name reaches, a `defrecord` of another namespace or a host type through whichever bridge provides it |
+| 1 | `uri?` | yes | cljs tests a `goog.Uri`; ours tests a URI value of the core, as `uuid` and `inst` are ours; a bridge converts it to `NSURL`, it does not define it |
+| 0 | `memfn` | yes | with `..`: a method as a fn, over the same `.method` form |
+| 0 | `munge` | yes | cljs munges to a JS identifier; ours to the C identifier the compiler gives a name (NOTES "Compiler"), C being our host |
+| 0 | `ns-imports` | yes | with `import`: the namespace's import table, a symbol to the type it names |
 | 0 | `read` | no | the word stays, the source is our `*in*` (a map with a channel, NOTES "nREPL"), not a `java.io.PushbackReader`; `read-string` is already ours |
 | 0 | `read+string` | no | with `read` |
-| 0 | `set-agent-send-executor!` | no | the word stays, the argument is our carrier pool, not a `java.util.concurrent.ExecutorService` |
-| 0 | `set-agent-send-off-executor!` | no | with `set-agent-send-executor!`: our blocking pool in place of a JVM executor |
-| 0 | `with-in-str` | no | with `read`: ours seeds the `*in*` map's line channel instead of binding a `StringReader` |
+| 0 | `set-agent-send-executor!` | no | the word stays, the argument is an executor of ours, not a `java.util.concurrent.ExecutorService`: a fn of one argument that starts the action's run where it chooses, the shape `send-via` takes; the carriers by default |
+| 0 | `set-agent-send-off-executor!` | no | with `set-agent-send-executor!`: the executor `send-off` uses, the blocking pool by default |
+| 0 | `with-in-str` | no | with `read`: binds `*in*` to a reader map over the string instead of a `StringReader` |
 
 ### drop — rejected, with the §8 row that carries the reason
 
