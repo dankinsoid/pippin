@@ -2427,10 +2427,20 @@
                          acc))]
         (if (seq bindings) (list `(let ~bindings ~@body)) body)))))
 
+;; Clojure's own message, which its ns_libs suite matches; unchecked, the constructor fn the expansion builds
+;; refuses a keyword field as a binding form, which names the expansion and not the definition.
+(defn- validate-fields [nm fields]
+  (let [non-syms (remove symbol? fields)]
+    (when (seq non-syms)
+      (throw (ex-info (str "defrecord and deftype fields must be symbols, " *ns* "." nm " had: "
+                           (apply str (interpose ", " non-syms)))
+                      nil)))))
+
 ;; Name and ->Name come first so a method body can construct or test for its own type.
 (defmacro deftype
   "(deftype Name [field ...] proto (m [this a] ...) ...): a type, its ->Name constructor and the impls."
   [nm fields & impls]
+  (validate-fields nm fields)
   (let [groups (group-impls impls)
         ctor (with-meta (symbol (str "->" (name nm))) (inherited-meta nm))
         wrap (field-wrap fields)]
@@ -2445,6 +2455,7 @@
   "(defrecord Name [field ...] proto (m [this a] ...) ...): a record type, its ->Name and map->Name
   constructors and the impls."
   [nm fields & impls]
+  (validate-fields nm fields)
   (let [groups (group-impls impls)
         ctor (with-meta (symbol (str "->" (name nm))) (inherited-meta nm))
         from-map (with-meta (symbol (str "map->" (name nm))) (inherited-meta nm))

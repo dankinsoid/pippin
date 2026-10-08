@@ -121,6 +121,12 @@ extension CoreTests {
 			try unbind("Nullary", "->Nullary", "map->Nullary")
 		}
 
+		// Clojure's ns_libs matches this text, so it is the macro's check and not the constructor fn's binding error.
+		@Test func aFieldThatIsNotASymbolIsNamedWithItsType() throws {
+			#expect(message(rt, "(defrecord BadRecord [a :shutdown-fn \"s\"])")?.contains("defrecord and deftype fields must be symbols, user.BadRecord had: :shutdown-fn, s") == true)
+			#expect(message(rt, "(deftype BadType [:key1])")?.contains("defrecord and deftype fields must be symbols, user.BadType had: :key1") == true)
+		}
+
 		@Test func equalityHashAndMeta() throws {
 			try definePoint()
 			try declare("Other", "->Other", "map->Other")

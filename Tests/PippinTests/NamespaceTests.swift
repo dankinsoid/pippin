@@ -42,7 +42,7 @@ extension CoreTests {
 				#expect(try eval("@#'ns-test.a/hidden") == 2)
 				#expect(message("x") == "Unable to resolve symbol: x in this context")
 				#expect(try eval("(in-ns 'user) (ns-name *ns*)") == sym("user"))
-				#expect(try eval("(str *ns*)") == "#object[namespace]")
+				#expect(try eval("[(str *ns*) (pr-str *ns*)]") == ["user", "#object[namespace]"])
 				#expect(try eval("(ns? *ns*)") == true)
 				#expect(try eval("[(ns? 'user) (var? #'clojure.core/eval) (var? 1)]") == [false, true, false])
 			}

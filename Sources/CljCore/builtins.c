@@ -1165,6 +1165,12 @@ static bool put_str(buf *b, clj_value v) {
 		buf_put(b, text, strlen(text));
 		return true;
 	}
+	// Namespace.toString is the name, where print-method prints #object.
+	if (clj_is_ns(v)) {
+		clj_value name = clj_symbol_name(clj_ns_name(v));
+		buf_put(b, clj_string_bytes(name), clj_string_len(name));
+		return true;
+	}
 	// Pattern.toString is the pattern text, where print-method wraps it in #"".
 	if (clj_is_regex(v)) {
 		clj_value p = clj_regex_pattern(v);
