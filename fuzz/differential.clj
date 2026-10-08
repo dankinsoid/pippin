@@ -454,10 +454,41 @@
           (when (> (count names) 1)
             (for [[a b] (partition 2 1 names)] [a b]))))
 
+;; ---------------------------------------------------------------- errors
+
+;; A throw compares by family (fuzz/errors.edn): the JVM's class and our ex-type are not one alphabet, the families are.
+(def ^:private error-rules
+  (delay (let [t (edn/read-string (slurp "fuzz/errors.edn"))]
+           {:jvm (mapv (fn [[c m f]] [(re-pattern c) (some-> m re-pattern) f]) (:jvm t))
+            :ours (mapv (fn [[m f]] [(re-pattern m) f]) (:ours t))})))
+
+(defn- error-family [head message]
+  (let [rules @error-rules]
+    (if (str/starts-with? head "class ")
+      (let [cls (subs head 6)]
+        (some (fn [[c m f]] (when (and (re-find c cls) (or (nil? m) (and message (re-find m message)))) f)) (:jvm rules)))
+      (let [t (edn/read-string head)]
+        (if (some? t)
+          t
+          (some (fn [[m f]] (when (and message (re-find m message)) f)) (:ours rules)))))))
+
+;; "#fz/throw class java.lang.X \"msg\"" from the oracle, "#fz/throw nil \"msg\"" from ours, a bare "#fz/throw" from a
+;; regression file written before families. An unclassified throw keeps its raw text, so it diverges.
+(defn- outcome [s]
+  (if-let [[_ rest] (and (string? s) (re-matches #"#fz/throw(?: (.*))?" s))]
+    (if (nil? rest)
+      [:throw]
+      (if-let [[_ head msg] (re-matches #"(class \S+|\S+) (.*)" rest)]
+        [:throw (or (error-family head (edn/read-string msg)) s)]
+        [:throw s]))
+    s))
+
+(defn- diverge? [x y] (not= (outcome x) (outcome y)))
+
 (defn- divergences [n a b]
   (for [i (range n)
         :let [x (get a i ::missing) y (get b i ::missing)]
-        :when (not= x y)]
+        :when (diverge? x y)]
     {:index i :a x :b y}))
 
 ;; ---------------------------------------------------------------- shrinking
@@ -531,7 +562,7 @@
               a (get srcs an) b (get srcs bn)
               hit (first (for [i (range (count cands))
                                :let [x (get a i ::missing) y (get b i ::missing)]
-                               :when (and (not= x y) (not= ::missing x) (not= ::missing y))]
+                               :when (and (diverge? x y) (not= ::missing x) (not= ::missing y))]
                            i))]
           (if-not hit
             form

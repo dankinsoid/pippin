@@ -39,6 +39,12 @@
 
 (defn fz-out [x] (str (fz-norm x) " #fz/hash " (fz-hash x)))
 
-;; Which error was thrown is out of the comparison: a JVM class and an ex-type are not one alphabet.
+;; What was thrown, raw: the JVM's class or our ex-type, and the message. The driver maps both to one error family
+;; (fuzz/errors.edn); `type` is the class on the JVM, which has no ex-type to resolve.
+(def fz-ex-type (when-let [v (resolve 'clojure.core/ex-type)] (deref v)))
+
+(defn fz-throw [t]
+  (str "#fz/throw " (if fz-ex-type (pr-str (fz-ex-type t)) (str (type t))) " " (pr-str (ex-message t))))
+
 (defmacro fz [i expr]
-  (list 'fz-emit i (list 'try (list 'fz-out expr) (list 'catch 'Throwable 'fz-t "#fz/throw"))))
+  (list 'fz-emit i (list 'try (list 'fz-out expr) (list 'catch 'Throwable 'fz-t (list 'fz-throw 'fz-t)))))

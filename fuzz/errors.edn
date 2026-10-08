@@ -1,0 +1,41 @@
+;; Which error was thrown, as one alphabet for both sides (docs/notes/fuzzing.md, "Errors").
+
+;; A JVM throw is its class and message, ours its ex-type and message. Each side maps to a family by the first rule
+
+;; that matches; the comparison is of families, so the same mistake reported in other words still agrees and a
+
+;; different mistake does not. A throw no rule matches stays its raw text and diverges from everything, which is how
+
+;; a new message asks to be classified.
+
+;; Our runtime errors carry no ex-type (design §4 «Тип ошибки, `catch` по кейворду, отмена»: everything else is nil),
+
+;; so ours are classified by message; an ex-type that is not nil is its own family.
+
+{:families
+ {:index "an index or a range outside its collection or string"
+  :arith "integer overflow, or an integer divided by zero"
+  :arity "a fn called with a count of arguments it has no arity for"
+  :state "an operation the value's state refuses: `pop` of an empty vector"
+  :argument "an argument of the right type with a value the operation refuses"
+  :type "an argument of a type the operation does not take, nil included"}
+
+ ;; [class-regex message-regex-or-nil family], first match wins.
+ :jvm
+ [["^java\\.lang\\.(String|Array)?IndexOutOfBoundsException$" nil :index]
+  ["^java\\.lang\\.ArithmeticException$" nil :arith]
+  ["^clojure\\.lang\\.ArityException$" nil :arity]
+  ["^java\\.lang\\.IllegalStateException$" nil :state]
+  ["^java\\.lang\\.IllegalArgumentException$" "^Don't know how to create ISeq from" :type]
+  ["^java\\.lang\\.IllegalArgumentException$" "^(Key|Index) must be integer" :type]
+  ["^java\\.lang\\.(IllegalArgumentException|NumberFormatException)$" nil :argument]
+  ["^java\\.lang\\.(ClassCastException|NullPointerException|UnsupportedOperationException)$" nil :type]]
+
+ ;; [message-regex family], first match wins, for a throw whose ex-type is nil.
+ :ours
+ [["^Wrong number of args|takes \\d+ argument\\(s\\), got" :arity]
+  ["out of bounds|(?i:index out of range)" :index]
+  ["^Divide by zero$|overflow" :arith]
+  ["^Can't pop empty" :state]
+  ["^No value supplied for key|^Value out of range for|^bit operation not supported|^Argument must be an integer" :argument]
+  ["cannot be cast|not supported on (this )?type|expects an? |Don't know how to create ISeq|cannot be invoked|is not a number" :type]]}
