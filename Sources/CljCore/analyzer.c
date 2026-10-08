@@ -1354,8 +1354,27 @@ static bool is_jvm_throwable_name(clj_value sym) {
 	return (l > 9 && memcmp(n + l - 9, "Exception", 9) == 0) || (l > 5 && memcmp(n + l - 5, "Error", 5) == 0);
 }
 
+// A class catch takes by name, as syntax-quote spells it: Throwable is a core var, so `Throwable becomes
+// clojure.core/Throwable. The bare name, else NULL.
+static const char *core_catch_name(clj_value cls) {
+	static const char *const names[] = {"Throwable", "Exception", "Object", "ExceptionInfo"};
+	if (!clj_is_symbol(cls) || clj_is_nil(clj_symbol_ns(cls)) || strcmp(clj_string_bytes(clj_symbol_ns(cls)), "clojure.core") != 0) return NULL;
+	const char *name = clj_string_bytes(clj_symbol_name(cls));
+	for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+		if (strcmp(name, names[i]) == 0) return names[i];
+	}
+	return NULL;
+}
+
 // @ai-generated(guided)
 static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
+	const char *core_name = core_catch_name(cls);
+	if (core_name) {
+		clj_value bare = clj_symbol_from_cstr(core_name);
+		bool      ok = catch_kind_of(a, bare, c);
+		clj_release(bare);
+		return ok;
+	}
 	if (clj_is_keyword(cls)) {
 		if (clj_is_nil(clj_keyword_ns(cls)) && strcmp(clj_string_bytes(clj_keyword_name(cls)), "default") == 0) {
 			c->kind = CLJ_CATCH_ALL;

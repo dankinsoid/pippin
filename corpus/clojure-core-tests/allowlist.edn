@@ -45,7 +45,6 @@
   {:file "test/clojure/test_clojure/evaluation.clj" :line 37 :name Eval :reason "Unable to resolve symbol: Compiler/eval in this context" :missing [Compiler/eval]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 47 :name class-for-name :reason "Unable to resolve symbol: java.lang.Class/forName in this context" :missing [java.lang.Class/forName]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 62 :name Literals :reason "Unable to resolve symbol: Boolean/TRUE in this context" :missing [Boolean/TRUE]}
-  {:file "test/clojure/test_clojure/evaluation.clj" :line 92 :name throws-with-msg :reason "Unable to resolve symbol: Exception in this context" :missing [Exception]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 111 :name SymbolResolution :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 184 :name struct-with-symbols :reason "Unable to resolve symbol: defstruct in this context" :missing [defstruct]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 186 :name Metadata :reason "Unable to resolve symbol: struct in this context" :missing [struct]}

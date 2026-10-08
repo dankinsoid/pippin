@@ -164,23 +164,23 @@
  :uncovered
  [{:what "records, deftype, reify, protocols, multimethods, hierarchies"
    :why "A type has to be defined in the case file and its printed form carries our namespace; the dispatch tables are their own differential."}
-  {:what "atoms, volatiles, refs, agents, futures, channels, `go`"
-   :why "An outcome that depends on a schedule is design §3's item 4, the seeded scheduler, not a value differential."}
+  {:what "refs, agents, futures, channels, `go`; an atom or a volatile that escapes its expression or meets another thread"
+   :why "An outcome that depends on a schedule is design §3's item 4, the seeded scheduler, not a value differential. An atom or a volatile made, changed and read inside one expression is generated (:op/cell)."}
   {:what "vars, `def`, `declare`, namespaces, `require`, `eval`, `resolve`, `intern`"
    :why "The case file's own harness owns the namespace; a generated `def` would make the forms order-dependent."}
-  {:what "`sorted-map-by`, `sorted-set-by`, `sort` with a comparator"
-   :why "A comparator is a function, and a function has no EDN form: the collection could only be compared by a projection, and its order already is one."}
+  {:what "a generated comparator: `sort`, `sort-by` and the sorted collections take `<`, `>`, `-` or a fixed `mod` key only"
+   :why "A comparator over the generated types throws on mixed types on both sides by different routes, and `compare`'s own result is excluded (:no-compare); the fixed ones exercise the order, the stability of `sort-by` and a sorted collection's comparator through its operations."}
   {:what "host interop: `Class/member`, `.method`, `new`, `instance?` on host types, `proxy`"
    :why "Interop is design §5, and the JVM's answer there is a JVM answer by definition."}
   {:what "`format`, `printf`, `print-str`, `*print-length*`, `*print-level*`, `pr` of a cyclic value"
    :why "Printing is compared through fz-norm, so the print family would be comparing the harness with itself."}
   {:what "`#inst`, `#uuid`, `random-uuid`, `rand`, `shuffle`, `gensym`, `time`"
    :why "Not a function of the seed."}
-  {:what "metadata as a value: `with-meta`, `vary-meta`, `meta` of a collection"
-   :why "fz-norm prints a value, not its metadata; comparing metadata needs its own projection."}
+  {:what "metadata on a seq, a list or a sorted collection, and metadata through `seq` functions other than `seq` and `rest`"
+   :why "Metadata is generated on vectors, maps and sets and read back with `meta` after the collection operations (:metavec, :metamapv, :metaset); a quoted list's metadata is excluded (:no-quoted-meta), and a lazy seq's is the JVM's chunking."}
   {:what "deep recursion and large collections"
    :why "A case is bounded so that the oracle and the runner finish: the stack-depth and size limits are their own subject (NOTES \"Guard\")."}
-  {:what "decimals: `M` literals, `bigdec`, `with-precision`"
-   :why "No production generates one yet; `bigdec` of a double can keep a trailing zero the JVM drops (NOTES \"Numeric tower\"), which a production would have to project away first."}
+  {:what "decimals meeting a double or a ratio, `bigdec` of a double, `quot`/`rem` of decimals, `with-precision`"
+   :why "Decimals are generated in their own :dec chain over integers, with + - * /, min, max and comparison; `bigdec` of a double can keep a trailing zero the JVM drops (NOTES \"Numeric tower\"), which a production would have to project away first."}
   {:what "strings outside ASCII, surrogate pairs, astral characters"
    :why "Excluded by the ascii-only row above; the Unicode tables are the same missing data for case, categories and `compare`."}]}

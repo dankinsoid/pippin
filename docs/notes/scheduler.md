@@ -101,8 +101,11 @@
   `pthread_cond_timedwait` answers ~0.7 µs later than one woken out of `pthread_cond_wait` (the kernel arms a
   deadline per wait; `(<! (timeout 0))` measured 2.1 → 2.9 µs whenever any far timer was pending — the
   evacuation sweep's timer made that permanent), so a deadline farther than 2 ms is kept by one reprogrammed
-  dispatch timer (`far_wait`) that signals the condition, and the thread waits untimed. Trigger for a heap:
-  profiles with thousands of live timeouts.
+  dispatch timer (`far_wait`) that signals the condition, and the thread waits untimed. The dispatch timer is
+  `DISPATCH_TIMER_STRICT`: a leeway of 0 alone still let the OS coalesce it, and 10 and 20 ms timeouts fired 25–35%
+  late (12.5 and 25–27 ms on an Intel Mac, 10.07 and 20.1 strict), which a corpus library's 10 ms producer against
+  its 20 ms read timeout turned into a lost item (enos, NOTES "Corpus"; `ChanTests.aFarTimeoutFiresOnItsDeadline`).
+  Trigger for a heap: profiles with thousands of live timeouts.
 - **The timers' clock stops while the device sleeps.** `clj_profile_now` is `CLOCK_UPTIME_RAW` (Darwin's
   `mach_absolute_time`) and `far_wait` arms its dispatch timer off `DISPATCH_TIME_NOW`: neither advances across
   a device sleep, so a `timeout` armed before the screen locked fires that long after the wake rather than at

@@ -221,6 +221,18 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A macro's syntax-quote qualifies Throwable to clojure.core/Throwable, Throwable being a core var (async-error's go-try).
+		@Test func aSyntaxQuotedCatchAllIsStillTheCatchAll() throws {
+			_ = try rt.eval("(defmacro tc-guard [x] `(try ~x (catch Throwable t# [:caught (ex-message t#)]))) (defmacro tc-info [x] `(try ~x (catch ExceptionInfo t# :info)))")
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try rt.eval("(tc-guard (throw (ex-info \"m\" {})))") == [kw("caught"), "m"])
+				#expect(try rt.eval("(tc-info (throw (ex-info \"m\" {})))") == kw("info"))
+				#expect(try rt.eval("[(instance? Throwable (ex-info \"m\" {})) (instance? Exception :k)]") == [true, false])
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		// ex-type is total: keyword -> itself, ex-info -> its lifted :type, everything else -> nil.
 		@Test func exTypeIsTotal() throws {
 			_ = try rt.eval("(defrecord TcExTypeRec [a])")

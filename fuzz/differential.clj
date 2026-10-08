@@ -665,12 +665,16 @@
         missing (preflight opts runners)]
     (doseq [m missing] (println "fuzz:" m))
     (when (seq missing) (swap! tally update :bad + (count missing)))
-    (doseq [seed (:seeds opts)]
-      (let [st (new-st seed)
-            pairs (vec (repeatedly (:forms opts) #(gen-form st (:depth opts) (:order-raw? opts))))
-            forms (mapv first pairs)
-            res (eval-batch forms (assoc opts :seed seed) runners (str "seed" seed))
-            srcs (sources res)]
+    ;; Seeds are independent processes, so they run side by side; the report and the shrinking stay in seed order.
+    (doseq [{:keys [seed pairs forms res]}
+            (pmap (fn [seed]
+                    (let [st (new-st seed)
+                          pairs (vec (repeatedly (:forms opts) #(gen-form st (:depth opts) (:order-raw? opts))))
+                          forms (mapv first pairs)]
+                      {:seed seed :pairs pairs :forms forms
+                       :res (eval-batch forms (assoc opts :seed seed) runners (str "seed" seed))}))
+                  (:seeds opts))]
+      (let [srcs (sources res)]
         (swap! tally update :forms + (count forms))
         (doseq [[n v] (:runners res)]
           (when (report-runner-exit seed n v (count forms)) (swap! tally update :bad inc)))

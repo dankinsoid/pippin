@@ -16,6 +16,9 @@
  ]
  :tests
  [
+  {:name enos.core-test/test-dochan :status :fail :reason "(= 45 (clojure.core/deref a))" :missing [] :note "Asserts wall-clock margins of 10 ms: a producer pausing 10 ms per item against a 20 ms read timeout (test-fork, test-lazy-seq) or 10 items of 10 ms against a 150 ms pause (test-dochan). On time when the runner is idle; beside three ASan shards a 10 ms window is not, so a run may lose an item on the JVM as here" :flaky true}
+  {:name enos.core-test/test-fork :status :fail :reason "(= (range 10) s1 s2 s3)" :missing [] :note "Asserts wall-clock margins of 10 ms: a producer pausing 10 ms per item against a 20 ms read timeout (test-fork, test-lazy-seq) or 10 items of 10 ms against a 150 ms pause (test-dochan). On time when the runner is idle; beside three ASan shards a 10 ms window is not, so a run may lose an item on the JVM as here" :flaky true}
+  {:name enos.core-test/test-lazy-seq :status :fail :reason "(= (range 10) (chan->seq (arange 10 10) 20))" :missing [] :note "Asserts wall-clock margins of 10 ms: a producer pausing 10 ms per item against a 20 ms read timeout (test-fork, test-lazy-seq) or 10 items of 10 ms against a 150 ms pause (test-dochan). On time when the runner is idle; beside three ASan shards a 10 ms window is not, so a run may lose an item on the JVM as here" :flaky true}
   {:name enos.core-test/test-pmap-makes-it-faster :status :error :reason "Unbound var: #'enos.core/processors" :missing [enos.core/processors]}
   {:name enos.core-test/test-pmap-retains-order :status :error :reason "Unbound var: #'enos.core/processors" :missing [enos.core/processors]}
  ]

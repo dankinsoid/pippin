@@ -1289,7 +1289,7 @@ void clj_proto_install(void) {
 		}
 		// (instance? Throwable e) is how portable code asks whether a value is an error: ex-info or a host error.
 		if (interfaces[i].bits == CLJ_CORE_ERROR) {
-			static const char *const throwables[] = {"Throwable", "Exception", "java.lang.Throwable", "java.lang.Exception"};
+			static const char *const throwables[] = {"Throwable", "Exception"};
 			for (size_t j = 0; j < sizeof throwables / sizeof *throwables; j++) {
 				bind_core(throwables[j], interfaces[i].proto);
 				clj_core_mark_extension(throwables[j]);

@@ -15,8 +15,6 @@
   {:file "src/medley/core.cljc" :line 102 :name map-entry :reason "Unable to resolve symbol: clojure.lang.MapEntry. in this context" :missing [clojure.lang.MapEntry.]}
   {:file "src/medley/core.cljc" :line 451 :name partition-between :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
   {:file "src/medley/core.cljc" :line 515 :name window :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
-  {:file "src/medley/core.cljc" :line 666 :name ex-message :reason "Unable to resolve symbol: Throwable in this context" :missing [Throwable]}
-  {:file "src/medley/core.cljc" :line 675 :name ex-cause :reason "Unable to resolve symbol: Throwable in this context" :missing [Throwable]}
   {:file "src/medley/core.cljc" :line 691 :name uuid :reason "Unable to resolve symbol: java.util.UUID/fromString in this context" :missing [java.util.UUID/fromString]}
   {:file "src/medley/core.cljc" :line 699 :name random-uuid :reason "Unable to resolve symbol: java.util.UUID/randomUUID in this context" :missing [java.util.UUID/randomUUID]}
   {:file "src/medley/core.cljc" :line 707 :name regexp? :reason "Unable to resolve symbol: java.util.regex.Pattern in this context" :missing [java.util.regex.Pattern]}

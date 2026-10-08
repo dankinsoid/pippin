@@ -136,7 +136,7 @@ extension CoreTests {
 		@Test func aFarTimeoutFiresOnItsDeadline() throws {
 			let base = CoroBaseline()
 			do {
-				let late = try eval("(sort (repeatedly 7 #(let [t (nano-time*)] (<!! (timeout 20)) (- (nano-time*) t 20000000))))")
+				let late = try eval("(vec (sort (repeatedly 7 #(let [t (nano-time*)] (<!! (timeout 20)) (- (nano-time*) t 20000000)))))")
 				let median = (late.array ?? [])[3].int ?? Int.max
 				#expect(median < 2_500_000, "median lateness \(median) ns")
 			}
