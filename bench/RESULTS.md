@@ -2039,3 +2039,38 @@ head/base ratio:
   against base 65–117), "swap! assoc, 4 threads" went from 1.9× to 0.99 once the store primitives read the atom's
   header once. Four workers on three virtual cpus make the row bimodal on both sides (base alone 65–117 and
   291–811), so its size is below what this runner resolves; NOTES "RC" holds it as the open cost.
+
+## Lazy def — 2026-10-08, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release; pool, then system malloc)
+
+`CLJ_BENCH_ONLY=lazy-def` through `make bench` (`make_args: CLJ_BENCH_ONLY=lazy-def`), design §4 «Var и ленивые
+def», NOTES "Analyzer and evaluator". Each of 7 rounds runs the binary twice, `CLJ_LAZY_DEFS=eager` then the default,
+a fresh process each: `clj_init` (the interpreted core), then the corpus libraries loaded one after another
+(lenient, as the corpus harness loads them: medley, math.combinatorics and dependency with their tests, core.async's
+test file, the 26 namespaces of clojure-core-tests), then, lazy only, the deferred inits forced — the cost that moved
+to the first deref. Medians, ms. Run 37776617661 on `3606485`; run 37775536780 on `d47128a`, before the decision's
+effects walk stopped at the first impure effect, measured the walk at +7 % and +9 % of clojure-core-tests' load.
+
+| row | eager, pool | lazy, pool | eager, malloc | lazy, malloc |
+|---|---:|---:|---:|---:|
+| `clj_init` | 57.5 | 61.7 | 71.2 | 66.2 |
+| load: medley | 57.7 | 63.5 | 77.7 | 68.1 |
+| load: math-combinatorics | 41.3 | 40.3 | 50.3 | 49.8 |
+| load: dependency | 19.3 | 18.4 | 20.0 | 22.7 |
+| load: core-async tests | 32.1 | 29.1 | 36.8 | 35.9 |
+| load: clojure-core-tests | 624.3 | 629.6 | 576.0 | 572.3 |
+| load: all | 756.6 | 775.0 | 778.1 | 755.3 |
+| inferred lazy defs bound by the loads | 0 | 4 | 0 | 4 |
+| forcing them | — | 0.28 | — | 0.27 |
+
+- **No start moves, because nothing here defers.** core.clj has one inferred lazy def (`global-hierarchy`, forced by
+  `clj_isa_install` at boot), the corpus four (one in dependency, three in clojure-core-tests), and their inits cost
+  0.28 ms together. Every other non-fn def of this code builds an atom, reads a dynamic var, calls something the facts
+  cannot see into, or is a literal. The eager and lazy columns differ by the runner's noise (±10 % between the two
+  allocator passes of one job, in both directions).
+- **What the decision costs.** The effects walk of a candidate def shares the summaries the exec's derivation computes
+  right after; what it adds is the walk itself, now cut at the first effect outside alloc|throw, and in the table
+  above it is below the noise. Before the cut and the store's skipped rebuild (`clj_summaries_forget_arities` when no
+  arity was asked for) it was +40 and +60 ms on clojure-core-tests' load.
+- **Where the gain is.** A program whose top level builds data from pure calls — tables, parsed constants, derived
+  maps — rather than a library of fns and a test suite. Such code is not in the corpus; the device startup the design
+  aims at is the trigger for measuring one.
