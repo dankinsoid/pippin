@@ -71,7 +71,8 @@ static void sb_c_string(sb *b, const char *s, size_t n) {
 	sb_puts(b, "\"");
 	for (size_t i = 0; i < n; i++) {
 		unsigned char ch = (unsigned char)s[i];
-		if (ch == '"' || ch == '\\') sb_printf(b, "\\%c", ch);
+		// An unescaped ?? starts a trigraph: <??-test would read as <~test.
+		if (ch == '"' || ch == '\\' || (ch == '?' && i > 0 && s[i - 1] == '?')) sb_printf(b, "\\%c", ch);
 		else if (ch >= 32 && ch < 127) sb_put(b, (const char *)&ch, 1);
 		else sb_printf(b, "\\%03o", ch);
 	}

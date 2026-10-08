@@ -4,7 +4,8 @@
   (jank-lang's cross-dialect clojure.core suite, the whole `test/` tree, MPL 2.0),
   `corpus/clojure-core-tests` (26 files of Clojure's own `test/clojure/test_clojure/`, EPL 1.0) and
   `corpus/math-combinatorics` (org.clojure's math.combinatorics v0.3.2 and its test, EPL 1.0) and
-  `corpus/dependency` (Stuart Sierra's dependency 1.0.0 and its test, EPL 1.0), each with a
+  `corpus/dependency` (Stuart Sierra's dependency 1.0.0 and its test, EPL 1.0), and five libraries written over
+  core.async — `parallel-async`, `async-error`, `turbine`, `enos`, `throwing-puts` (below) — each with a
   `SOURCE` (repo, commit, license, files) and a `manifest.edn` (`:load-path`, `:features` for `#?`, the test
   namespaces or `:test-dirs` to scan). No submodules.
 - **Of design §10's eight named libraries, only core.async is this core's to begin with.** Each of the other
@@ -176,12 +177,15 @@
   `:missing` (the symbols the runtime lacks, extracted from the message), `:design-line` (a line of design §8)
   or `:note` — a hand-written sentence saying whether the failure is an accepted deviation or a runtime bug
   still open, with the repro. A test entry with none of the three fails the check, and a regeneration carries
-  `:design-line` and `:note` over, so the review is not lost. `:flaky true` marks a test whose outcome is not a function of
+  `:design-line` and `:note` over, so the review is not lost. `:once true` marks a test whose subject outlives a
+  run — a namespace it creates, a lib it loads, a `defonce` table it edits: it runs in the first run only, with its
+  `:status` there checked (`:pass` included, which is why a passing test can have an entry), and the second run
+  passes it by with its `:test` meta cleared, so neither the two-runs-agree check nor the live count sees it.
+  `:flaky true` marks a test whose outcome is not a function of
   the code alone — timing, or state the first run left — and whose `:note` says which: it is tolerated either way,
-  left out of the two-runs-agree check and kept by a regeneration when it happened to pass. Two so far:
-  `realized?` on a `future` whose body is a no-op because the suite's `sleep` has no `:default` branch, and
-  `multimethods/methods-test`, whose `defmulti` is `defonce`, so the `remove-method` of the first run reaches
-  the second — not re-runnable on the JVM either. Forms are not annotated: a form's reason is its
+  left out of the two-runs-agree check and kept by a regeneration when it happened to pass: `realized?` on a
+  `future` whose body is a no-op because the suite's `sleep` has no `:default` branch, core-async's ASYNC-127
+  block, and enos's three tests of 10 ms wall-clock margins. Forms are not annotated: a form's reason is its
   own classification (a reader gap or an unresolved symbol). `:second-run-live-objects` is what a second run
   of the same tests leaves alive; a different number fails.
 - **On by default** (`CLJ_CORPUS=0` skips it). `make corpus` runs it alone, `make corpus-update` regenerates
@@ -300,18 +304,25 @@
   `Eduction`'s `Sequential`. `apply` was the one worth the whole portion: a `(future (apply sample (range)))`
   in `vars.clj` never returned, and the harness reported it as 12.5M live objects in a library whose own tests
   had not changed.
-- [ ] **`ns_libs` is portable and still out, for the memory check.** `refer-error-messages` makes a namespace
-  from a `gensym` and `eval`s a `def` into it, and a namespace, a var and their name symbols are permanent here
-  ("Analyzer and evaluator": vars are immortal), so the file alone put 11 lasting objects into
-  `:second-run-live-objects` where the rest of the library leaves 0. The two backends also disagreed on the
-  number — 11 interpreted against 10 compiled, the quoted form's reader position the compiled constant does not
-  carry (`docs/jvm-differences.md`) — and the allowlist holds one number, so the disagreement had nowhere to go.
-  It is the one file whose own subject (namespaces, `require`, `refer`) this core carries and that is not taken.
-  It earned its place first: three of the eleven bugs this portion found are its — `require`/`use` swallowing an
-  unknown flag and an empty argument list, `load-lib` aliasing only one of `:as` and `:as-alias`, and
-  `ns-resolve`'s env argument not shadowing a var ("core.clj"). Trigger for taking it: a namespace that
-  `remove-ns` makes collectable, or a live-object baseline per test rather than per library.
-- **Ten deftests of Clojure's own suite are not re-runnable**, and the harness runs everything twice. One
-  survives as `:flaky` (`multimethods/methods-test`, whose `defmulti` is `defonce`, so the `remove-method` of
-  the first run reaches the second); the rest went out with `ns_libs`. The property is the JVM's too: a second
-  `test-ns` over those namespaces fails there in the same places.
+- **`ns_libs` is in, and what kept it out was a test whose subject outlives a run.** `refer-error-messages`
+  makes a namespace from a `gensym` and `eval`s a `def` into it, and a namespace, a var and their name symbols
+  are permanent here ("Analyzer and evaluator": vars are immortal) as they are in the JVM's namespace registry,
+  so each run of it leaves a namespace and a var — measured as 9 objects in the second run (symbol +2, map-node
+  +2, map +2, string +1, namespace +1, var +1; run 37825279916), 11 against 10 compiled when it was first tried,
+  the quoted form's reader position being the difference. `require-as-alias-then-load-later` asserts a lib is not
+  loaded yet and loads it, so its second run fails, on the JVM too. Neither is a leak and neither is re-runnable,
+  so both are `:once` (harness entry below): they run in the first run, their verdict there is checked, and the
+  second run and its live count skip them. The library's `:second-run-live-objects` stays 0. Of the file's ten
+  deftests eight run and pass; `naming-types` is `definterface` (a §8 drop) and
+  `test-defrecord-deftype-err-msg` is `clojure.lang.Compiler$CompilerException`. The file had earned its place
+  before it was taken — three of the eleven bugs of the second portion are its (`require`/`use` swallowing an
+  unknown flag and an empty argument list, `load-lib` aliasing only one of `:as` and `:as-alias`, `ns-resolve`'s
+  env not shadowing a var) — and taking it found two more: a non-symbol `defrecord`/`deftype` field was refused
+  by the constructor fn's binding check ("Unsupported binding form: :shutdown-fn") where Clojure's
+  `validate-fields` says "defrecord and deftype fields must be symbols, user.MyRecord had: :shutdown-fn", and
+  `(str *ns*)` printed `#object[namespace]` where `Namespace.toString` is the name ("core.clj";
+  `RecordTests.aFieldThatIsNotASymbolIsNamedWithItsType`, `NamespaceTests.inNsDefAndResolution`).
+- **Three deftests of Clojure's own suite are not re-runnable**, and the harness runs everything twice: the two
+  of `ns_libs` above and `multimethods/methods-test`, whose `defmulti` is `defonce`, so the `remove-method` of
+  the first run reaches the second. All three are `:once`; the property is the JVM's too, a second `test-ns` over
+  those namespaces fails there in the same places.

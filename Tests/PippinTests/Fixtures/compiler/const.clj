@@ -15,3 +15,6 @@
 (show (meta (quote ^:dynamic p)) (meta (second (second (quote (do (declare ^:dynamic p) p))))))
 (show (meta (:k (quote {:k ^{:tag long} v}))) (meta (first (quote [^{:a 1 :b "two"} x]))))
 (show (meta (first (quote (^:private f 1)))) (mapv meta (quote [^:a x ^:b y])))
+;; A ?? before - or / is a C trigraph unless escaped (async-error's <??-test).
+(defn <??-x [] "a??-b??/c")
+(show (<??-x) (quote <??=y))

@@ -16,9 +16,23 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
 - **The outcome of one expression is its value as one canonical text, or that it threw.** `fz-norm` prints a
   value itself instead of calling `pr-str` on the whole of it, so that a map's and a set's order can be sorted
   away (`:map-seq-order`), an integer's digits can be printed without the JVM's `N` type marker
-  (`:no-bigint-marker`), and sequentials print alike. Which error was thrown is not compared: a JVM class and
-  an `ex-type` are not one alphabet, and a mapping between them is work for the day a wrong-error bug is
-  suspected. A runner that dies takes its transcript's tail with it, and the missing indices are the finding.
+  (`:no-bigint-marker`), and sequentials print alike. A runner that dies takes its transcript's tail with it, and
+  the missing indices are the finding.
+
+- **Which error was thrown is compared by family** (`fuzz/errors.edn`). A throw prints raw — `#fz/throw class
+  java.lang.ClassCastException "msg"` from the oracle (`type` of the throwable), `#fz/throw nil "msg"` from ours
+  (`ex-type`, resolved like `jvm-hash`) — and the driver maps each side to one of six families (`:index`,
+  `:arith`, `:arity`, `:state`, `:argument`, `:type`) by the first rule that matches: the JVM's by class and,
+  where a class covers two mistakes, message (`IllegalArgumentException` "Don't know how to create ISeq" or "bit
+  operation not supported" is `:type`, any other is `:argument`); ours by message, since our runtime errors carry
+  no `ex-type` (design §4 «Тип ошибки»: everything else is nil) and an `ex-type` that is not nil is its own family.
+  So the same mistake in other words agrees and a different mistake diverges, and a throw no rule matches keeps
+  its raw text and diverges from everything — how a new message asks to be classified (the first CI pass asked
+  for two: our "Non-terminating decimal expansion" and "Infinite or NaN"). The table was built from the oracle's
+  own throws over 16000 forms: 8 classes, every one mapped. An `:errors` exclusion puts its rule ahead of the
+  table, which is how a deliberate difference in *which* error is cited: `:int-cast-range-error`, the JVM's
+  `(int x)` of a long being the one narrowing cast that throws ArithmeticException (`Math.toIntExact`).
+  Regression files written before families keep the bare `#fz/throw`, which still compares as a throw.
 
 - **The exclusion list is `fuzz/exclusions.edn`**, and `fuzz/differential.clj audit` (part of every run) refuses
   an entry whose citation does not resolve: `:row` must be a verbatim slice of a row of
@@ -49,12 +63,19 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   answer, and one `jvm-hash` refuses shows as a throw against the oracle's number. Our own `hash`,
   `hash-ordered-coll` and the rest are still not generated (`:no-hash`): §10 decided `hash` is ours.
 
-- [~] **What the pass covers.** Numbers of all ranks but decimals, strings over ASCII, vectors, lists, lazy
-  seqs, hash and sorted maps and sets, ratios, `let`, `loop`/`recur`, `fn`, destructuring, `if`/`cond`/`try`,
-  `->>`, `apply`, and the seq, string and set function families. Not covered, each with its reason, in
-  `:uncovered` of `fuzz/exclusions.edn`: records and protocols, anything whose outcome depends on a schedule,
-  vars and namespaces, host interop, regexes, `format`, metadata, transients, and non-ASCII text. The trigger
-  for widening is the next pass finding nothing over many seeds.
+- [~] **What the pass covers.** Numbers of all ranks, strings over ASCII, vectors, lists, lazy seqs, hash and
+  sorted maps and sets, ratios, `let`, `loop`/`recur`, `fn`, destructuring, `if`/`cond`/`try`, `->>`, `apply`,
+  the seq, string and set function families, and four areas taken from `:uncovered` (2026-10-08): an atom or a
+  volatile made, changed and read inside one expression (`swap!` with one and two arguments, `swap-vals!`,
+  `reset-vals!`, `compare-and-set!` against its own deref, `vswap!`, `vreset!`); metadata on vectors, maps and
+  sets read back with `meta` after `conj`, `assoc`, `pop`, `subvec`, `into`, `empty`, `vec`, `update`, `mapv`,
+  `merge`, `select-keys`, `disj`, `vary-meta`, `seq` and `rest`; fixed comparators in `sort`, `sort-by` (a
+  `mod 3` key, which makes ties, so stability is compared) and `sorted-map-by`/`sorted-set-by` through their
+  operations; and decimals in their own chain with + - * /, min, max, comparison, `bigdec` of an integer and
+  `double` of a decimal, scale included. The first passes over them found no value divergence. Not covered,
+  each with its reason, in `:uncovered`: records and protocols, schedules, vars and namespaces, host interop,
+  regexes, `format`, metadata on seqs and sorted collections, transients, decimals meeting doubles or ratios,
+  and non-ASCII text. The trigger for widening is the next pass finding nothing over many seeds.
 
 - [~] **-0.0 through arithmetic is still a noise source.** `min` and `max` tie on signed zeros and the JVM
   answers two ways (its row in `docs/jvm-differences.md`), so -0.0 left the literal pool; it is still reachable
@@ -68,12 +89,16 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   second, and most of them are the JVM answering one expression two ways, by whether its compiler saw a
   primitive long.
 
-- **Measured.** The gate is 8000 forms over eight seeds in 13 s end to end, the pass itself 9 s, 850 forms a
-  second against the oracle; the oracle is the whole cost, our runner evaluating the same file in well under a
-  second. Three runners (oracle, interpreter, no-reuse) make 700 forms a second, and the hand pass of 80000
-  forms over eighty seeds takes 88 s.
+- **The compiled backend is a gate runner, as one unit per case** (`fuzz/compiled.sh`, `clj-fuzz --units`):
+  `clj-compile --file` writes the whole case file as one C unit — compiling evaluates it, so that transcript is
+  the interpreter's and is dropped — and `clj-fuzz` builds it with one clang run, registers it and loads the
+  file, which runs the compiled unit. A 1000-form case is a 5.9 MB C file, 4 s on an Intel Mac end to end. So
+  `make fuzz` has three runners (oracle, `interp`, `unit`), and the compiled backend is compared with the oracle
+  and with the interpreter on every gate run. `CLJ_EVAL=compiled` is the REPL path, a clang run per top-level
+  form (~1 form/s, `--group` not helping: the cost is per form), and stays in `make fuzz-long`.
 
-- **The compiled backend is the slow runner**: `CLJ_EVAL=compiled` pays a clang run per top-level form, about
-  one form a second, and `--group N` wrapping N expressions in one `do` does not help, the cost being per form
-  and not per clang. That is why the gate is the interpreter against the oracle and `make fuzz-long` carries the
-  compiled and the `-DCLJ_NO_REUSE` runners, the way `test-eval-compiled` is kept out of the gates.
+- **Measured** (arm64 CI). With the oracle and the interpreter alone the pass was 8000 forms over eight seeds in
+  9 s, 13 s end to end, the oracle the whole cost. With the unit runner beside them and the seeds one after
+  another it took 41.3 s (run 37829828629); the seeds are independent processes, so the driver runs them side
+  by side (`pmap`), which took the oracle-only pass on an Intel Mac from 20.5 to 11.2 s. The hand pass of 80000
+  forms over eighty seeds took 88 s before the unit runner joined `make fuzz-long`.
