@@ -90,6 +90,8 @@ uint64_t clj_lazy_defs_mark(void);
 // Forces every inferred lazy def bound since mark, in def order; CLJ_THROWN with the first failure pending, its var in
 // *failed (meta :line/:column/:file name the def), else nil.
 clj_value clj_lazy_defs_force_since(uint64_t mark, clj_value *failed);
+// Inferred lazy defs bound since clj_init: what a load deferred, for the bench.
+uint64_t clj_debug_lazy_defs_bound(void);
 // Interns clojure.core/*lazy-defs* with its root from CLJ_LAZY_DEFS; clj_init calls it before core.clj.
 void clj_lazy_defs_install(void);
 

@@ -321,7 +321,8 @@ static void drop_inputs(clj_lazy_def *t) {
 	clj_slot_store(&t->h, &t->env, CLJ_NIL);
 	clj_slot_store(&t->h, &t->prev, CLJ_UNBOUND);
 	clj_release(env);
-	clj_release(prev);
+	// a replaced root, as bind releases one: a ring a realization closed through the var has no other way out
+	clj_rc_release_root(prev);
 }
 
 // The claim is held: runs the init, publishes the value as the root or the exception as the thunk's own.
@@ -425,6 +426,7 @@ static lazy_entry      *lazy_entries;
 static size_t           nlazy, clazy;
 static uint64_t         lazy_seq;
 static _Atomic size_t   lazy_count; // nlazy, read without the lock by the barrier's fast path
+static _Atomic uint64_t lazy_bound;
 
 // Under lazy_lock.
 static void lazy_compact(void) {
@@ -503,8 +505,13 @@ void clj_var_bind_lazy(clj_value var, clj_lazy_def_fn fn, const void *code, clj_
 	clj_value tv = clj_from_ptr(t);
 	bind_unbarriered(var, tv, tv);
 	clj_release(tv);
-	if (inferred) lazy_register(var);
+	if (inferred) {
+		lazy_register(var);
+		atomic_fetch_add_explicit(&lazy_bound, 1, memory_order_relaxed);
+	}
 }
+
+uint64_t clj_debug_lazy_defs_bound(void) { return atomic_load_explicit(&lazy_bound, memory_order_relaxed); }
 
 uint64_t clj_lazy_defs_mark(void) {
 	clj_lock_lock(&lazy_lock);

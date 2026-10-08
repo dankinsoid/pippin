@@ -324,6 +324,106 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "boot" {
 	exit(0)
 }
 
+// CLJ_BENCH_ONLY=lazy-def: what lazy defs move out of the start (design §4 «Var и ленивые def»). Each round runs this
+// binary twice, CLJ_LAZY_DEFS=eager then the default, one fresh process each: clj_init, then the corpus libraries
+// loaded one after another (lenient, as the corpus harness loads them), then, in the lazy one, the deferred inits
+// forced, which is the cost that moved to the first deref. Medians of the rounds.
+struct LazyDefLib {
+	let name: String
+	let roots: [String]
+	let features: Set<String>
+	let namespaces: [String]
+}
+
+let lazyDefLibs: [LazyDefLib] = [
+	LazyDefLib(name: "medley", roots: ["src", "test"], features: ["clj"], namespaces: ["medley.core", "medley.core-test"]),
+	LazyDefLib(name: "math-combinatorics", roots: ["src", "test"], features: ["clj"],
+	           namespaces: ["clojure.math.combinatorics", "clojure.math.test-combinatorics"]),
+	LazyDefLib(name: "dependency", roots: ["src", "test"], features: ["clj"],
+	           namespaces: ["com.stuartsierra.dependency", "com.stuartsierra.dependency-test"]),
+	LazyDefLib(name: "core-async", roots: ["test"], features: ["clj"], namespaces: ["clojure.core.async-test"]),
+	LazyDefLib(name: "clojure-core-tests", roots: ["shim", "test"], features: [],
+	           namespaces: ["atoms", "clojure-set", "clojure-walk", "control", "data-structures", "def", "delays", "errors", "evaluation", "fn",
+	                        "for", "keywords", "logic", "macros", "multimethods", "numbers", "other-functions", "predicates", "sequences",
+	                        "special", "string", "transducers", "transients", "vars", "vectors", "volatiles"].map { "clojure.test-clojure.\($0)" }),
+]
+
+func lazyDefChild() -> Never {
+	func ms(_ from: UInt64) -> Double { Double(DispatchTime.now().uptimeNanoseconds - from) / 1e6 }
+	let t0 = DispatchTime.now().uptimeNanoseconds
+	clj_init()
+	print("lazy-def-row boot \(ms(t0))")
+	let runtime = Runtime()
+	_ = runtime
+	let corpus = FileManager.default.currentDirectoryPath + "/corpus"
+	clj_load_set_lenient(true)
+	let mark = clj_lazy_defs_mark()
+	var total = 0.0
+	for lib in lazyDefLibs {
+		Runtime.loadPath = lib.roots.map { "\(corpus)/\(lib.name)/\($0)" }
+		Runtime.readerFeatures = lib.features
+		let deferred0 = clj_debug_lazy_defs_bound()
+		let t = DispatchTime.now().uptimeNanoseconds
+		for ns in lib.namespaces {
+			let form = try! Value(reading: "(require '\(ns))")
+			let r = withExtendedLifetime(form) { clj_eval(form.raw, nil) }
+			if r == CLJ_THROWN { clj_release(clj_take_pending()) } else { clj_release(r) }
+		}
+		let took = ms(t)
+		total += took
+		print("lazy-def-row load:\(lib.name) \(took)")
+		print("lazy-def-row deferred:\(lib.name) \(clj_debug_lazy_defs_bound() - deferred0)")
+	}
+	_ = Value(owning: clj_load_take_failures())
+	print("lazy-def-row load:all \(total)")
+	var failed: clj_value = CLJ_NIL
+	let t = DispatchTime.now().uptimeNanoseconds
+	while clj_lazy_defs_force_since(mark, &failed) == CLJ_THROWN { clj_release(clj_take_pending()) }
+	print("lazy-def-row force:all \(ms(t))")
+	fflush(stdout)
+	exit(0)
+}
+
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "lazy-def-child" { lazyDefChild() }
+
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "lazy-def" {
+	let rounds = Int(ProcessInfo.processInfo.environment["CLJ_BENCH_ROUNDS"] ?? "") ?? 7
+	var rows: [String: [String: [Double]]] = ["eager": [:], "lazy": [:]]
+	var order: [String] = []
+	for _ in 0..<rounds {
+		for mode in ["eager", "lazy"] {
+			let p = Process()
+			p.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+			var env = ProcessInfo.processInfo.environment
+			env["CLJ_BENCH_ONLY"] = "lazy-def-child"
+			env["CLJ_LAZY_DEFS"] = mode
+			p.environment = env
+			let pipe = Pipe()
+			p.standardOutput = pipe
+			try! p.run()
+			let out = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+			p.waitUntilExit()
+			for line in out.split(separator: "\n") where line.hasPrefix("lazy-def-row ") {
+				let parts = line.split(separator: " ")
+				guard parts.count == 3, let v = Double(parts[2]) else { continue }
+				let key = String(parts[1])
+				if !order.contains(key) { order.append(key) }
+				rows[mode]![key, default: []].append(v)
+			}
+		}
+	}
+	func median(_ xs: [Double]?) -> String {
+		guard let xs, !xs.isEmpty else { return "—" }
+		let s = xs.sorted()
+		return String(format: "%.2f", s[s.count / 2])
+	}
+	print("lazy-def: medians of \(rounds) rounds, ms (deferred: inferred lazy defs a library's load bound)")
+	print("| row | CLJ_LAZY_DEFS=eager | lazy |")
+	print("|---|---:|---:|")
+	for key in order { print("| \(key) | \(median(rows["eager"]![key])) | \(median(rows["lazy"]![key])) |") }
+	exit(0)
+}
+
 // CLJ_BENCH_ONLY=rc-share on a debug binary: the share of retain/release pairs on the shared (atomic) path
 // with the application state in one atom (design §4, "Проверка, закрывающая вопрос"); release builds count nothing.
 if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "rc-share" {
