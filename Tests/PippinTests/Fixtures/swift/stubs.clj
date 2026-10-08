@@ -111,6 +111,17 @@
 ;; A private stored property keeps a struct a box; one with no init taking its fields crosses out only.
 (show (fx/Reading.value (fx/Reading. :value 5)) (fx/stamp))
 
+;; A closure parameter takes a fn of any crossing shape, nil where it is optional; an async one runs on a coroutine.
+(show (fx/twice inc 1) (mapv describe (fx/map-points [p q] (fn [pt] (when (= pt p) (fx/Point.scaled pt :by 10))))))
+(show (let [seen (atom [])] (fx/each [:north :south-east] (fn [h i] (swap! seen conj [h i]))) @seen)
+      (fx/maybe-call nil) (fx/maybe-call (fn [] "called")))
+(show (fx/await-apply (fn [x] (* x 5)) :to 4) (try (fx/twice :k 1) (catch :default e (ex-message e))))
+;; A one-method protocol takes a fn through an adapter, or a box of a value that conforms; its members are vars.
+(show (fx/welcome (fn [n] (str "hi " n)) "ann") (fx/welcome (fx/Polite.) "bob") (fx/Greeter.greet (fx/polite-greeter) "cy"))
+;; An actor is a box of the object: its isolated members park the caller, a nonisolated one does not.
+(def tally (fx/Tally.))
+(show (fx/Tally.add tally 2) (fx/Tally.add tally 3) (fx/Tally.total tally) (fx/Tally.name tally))
+
 ;; The core's inst, uuid and URI are Date, UUID and URL in Swift; an inst keeps whole milliseconds.
 (show (fx/epoch) (fx/shifted #inst "2026-10-08T00:00:00.000-00:00" :by 1.5))
 (show (fx/id-text #uuid "6ba7b810-9dad-11d1-80b4-00c04fd430c8") (fx/fixed-id))

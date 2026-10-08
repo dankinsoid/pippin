@@ -131,6 +131,42 @@ public enum Shade: String {
 
 public func shade(_ s: Shade) -> String { s.rawValue }
 
+// Closures of any crossing shape, a protocol with one method, an actor.
+public func twice(_ f: (Int) -> Int, _ x: Int) -> Int { f(f(x)) }
+
+public func mapPoints(_ ps: [Point], _ f: (Point) -> Point?) -> [Point] { ps.compactMap(f) }
+
+public func each(_ hs: [Heading], _ f: (Heading, Int) -> Void) {
+	for (i, h) in hs.enumerated() { f(h, i) }
+}
+
+public func awaitApply(_ f: @escaping @Sendable (Int) async throws -> Int, to x: Int) async throws -> Int { try await f(x) }
+
+public func maybeCall(_ f: (() -> String)?) -> String { f?() ?? "none" }
+
+public protocol Greeter {
+	func greet(_ name: String) -> String
+}
+
+public struct Polite: Greeter {
+	public init() {}
+	public func greet(_ name: String) -> String { "Good day, \(name)" }
+}
+
+public func welcome(_ g: any Greeter, _ name: String) -> String { g.greet(name) }
+
+public func politeGreeter() -> any Greeter { Polite() }
+
+public actor Tally {
+	public var total = 0
+	public init() {}
+	public func add(_ n: Int) -> Int {
+		total += n
+		return total
+	}
+	public nonisolated func name() -> String { "tally" }
+}
+
 // The core's inst, uuid and URI are Foundation's Date, UUID and URL here.
 public func epoch() -> Date { Date(timeIntervalSince1970: 0.0019) }
 

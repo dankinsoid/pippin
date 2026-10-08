@@ -191,13 +191,15 @@ extension CoreTests {
 			#expect(reason("FixtureError.tooBig(_:)")?.hasPrefix("enum case") == true)
 			#expect(reason("Point.hash(into:)") != nil)
 			#expect(reason("FixtureError.tooBig(_:)")?.contains("payload") == true)
+			#expect(reason("Tally.total (set)")?.contains("only from inside the actor") == true)
 			// Out as a map, never back in: no public init takes `at`.
 			#expect(reason("age(_:)")?.contains("no public init taking its stored properties") == true)
 			// Overloads by type: both refused, neither picked.
 			#expect(refusals.filter { $0.swiftName == "width(_:)" && $0.reason.hasPrefix("overload") }.count == 2)
 			for generated in ["moved(_:by:)", "risky(_:)", "later(_:)", "Point.move(by:)", "Counter.init(name:)", "applyTwice(_:to:)",
 			                  "maybe(_:)", "origin()", "echo(_:)", "Point.init(nonNegative:)", "widths(_:_:_:)",
-			                  "Size.init(w:)", "Frame.grow(by:)", "turn(_:)", "Heading.degrees", "Reading.value", "stamp()"] {
+			                  "Size.init(w:)", "Frame.grow(by:)", "turn(_:)", "Heading.degrees", "Reading.value", "stamp()",
+			                  "twice(_:_:)", "each(_:_:)", "welcome(_:_:)", "Greeter.greet(_:)", "Tally.add(_:)"] {
 				#expect(reason(generated) == nil, "\(generated)")
 			}
 			// A refused symbol is no var: the analyzer reports the name, as for any unresolved one.

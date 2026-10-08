@@ -225,10 +225,22 @@
   caught by `PippinFixture/FixtureError` — and comes back to Swift as itself from `Value.apply` or a closure adapter.
   The classifier reads effects off the text between the parameter list and `->` (`decl_parts`), so a closure
   parameter's `throws` is not the function's.
-- **A closure parameter exists for `rethrows`**: a throwing function type of at most three `Int`/`Double`/`Bool`/
-  `String` arguments and such a result or `Void`, decoded with `Value.closure()`. A Clojure fn throwing a host error
-  hands Swift the Swift error, a Clojure throw arrives as `ClojureError` and comes back out of the stub as the value
-  thrown. Anything else in a function type is refused with the reason.
+- **A closure parameter is a Swift closure the stub prints** (`Closure` and `call_body` in the generator; design §5
+  «Замыкание любой переезжающей формы»): `SwiftStubs.function` checks the fn's arity once and the printed closure
+  encodes its arguments by their forms, calls `f.apply` (`f.applyAsync` for an `async` one, on a coroutine of its
+  own) and decodes the result. A throwing closure hands Swift `ClojureError`, or the Swift error a host fn threw,
+  and the stub's caller gets the value thrown back; a non-throwing one traps with the Clojure trace
+  (`Value.trap`), dev's policy. The closure is `@Sendable` whatever the parameter asks, since it captures only the
+  fn. Refused with the reason: a closure result, an isolated or attributed function type, typed `throws(E)`, an
+  `inout` or function-typed argument. The typed adapters (`Value.closure()`) stay the API for hand-written Swift.
+- **A one-method protocol takes a fn; an actor is a class box** (design §5, same paragraph). `Shapes.find_protocols`
+  keeps the module's protocols with no associated type, no `Self` requirement, no isolation and nothing refined but
+  `AnyObject`/`Sendable`, read off `requirementOf` edges; one with exactly one method requirement whose slots cross
+  gets `Adapter_P`, a private class whose method is `call_body`'s. `SwiftStubs.conformer` takes a fn through the
+  adapter or a box whose payload casts to `any P` (a struct box through `AnyBoxed`, a class box as the object),
+  and an `any P` result is a plain box of the existential. The graph files an actor as `swift.class`, so its
+  declaration's `actor` is the test; an instance member not marked `nonisolated` is generated `async`, an isolated
+  property's setter refused. A rejected adapter keeps the protocol's boxes and drops only the fn form.
 - **An `async` stub parks its caller** (design §5 «`async`-функция модуля»): `Function(async:)` decodes on the
   caller's thread, asks `clj_host_park_allowed` before any Swift code runs (under a synchronous host call the error
   comes first, with the caller's frames), then answers `Value.pendingCall`, a `Task.detached`. The parked caller's
@@ -293,12 +305,13 @@
   exactly as it shows a struct without one.
 - [ ] **What the generator does not generate.** Slots cross as the scalars (`Int`, `Double`, `Bool`, `String`, the
   fixed-width numbers, `Float`, `CGFloat`), `Void`, a module struct as a map or a box, a module enum as a keyword or a
-  box, a module class (a box of the object), optionals, arrays, dictionaries, sets and unlabelled tuples of those,
-  and as a parameter the throwing scalar closure above. Refused with a reason: generics (functions and types), a
-  double optional, a labelled tuple, an enum case with a payload, protocols' members, actors, other closures,
-  operators, subscripts, isolation other than `@MainActor`, `isolated`/`sending` parameters, types of other modules,
-  and the input slots of a map struct with no init taking its fields. Trigger: the first symbol of that list an
-  application needs; generics come with the call-site instantiation list.
+  box, a module class or actor (a box of the object), a simple protocol's existential, `Date`/`UUID`/`URL`,
+  optionals, arrays, dictionaries, sets and unlabelled tuples of those, and as a parameter a closure of those.
+  Refused with a reason: generics (functions and types), the members of a protocol with associated types or `Self`,
+  a double optional, a labelled tuple, an enum case with a payload, closure results and isolated closure types,
+  operators, subscripts, isolation other than `@MainActor` and an actor's own, `isolated`/`sending` parameters,
+  types of other modules but Foundation's three, and the input slots of a map struct with no init taking its fields.
+  Trigger: the first symbol of that list an application needs; generics come with the call-site instantiation list.
 - **The classifier the generator shares with the measurement reads a declaration's own head and effects**
   (`decl_parts`): a closure parameter's `throws`, `async` or `@MainActor` is not the function's, `nonisolated` drops
   the owner's actor, the `>` of `->` closes no bracket, and a property's type stops before its `{ get }`.

@@ -66,6 +66,13 @@
   both: `sizeof(T)` and `((T)-1 < (T)0)` are two more expressions for the same `enum : long long` fold, and the
   pair gives the encoding char. A spelling for which neither folds — a struct, a union — is left to be refused,
   because `sizeof` folds for those too and the signedness cast does not.
+- [ ] **A `static inline` function is still a refusal, and with structs as maps it is the cheap tail.** Its body is
+  in the header and in no binary, so the interpreter would need a thin C stub built by clang and `dlopen`ed (on a
+  device, linked into the dev client), plus a `c-load*` builtin and a second name for the dispatcher's messages.
+  The common inline functions are the `*Make` constructors (`NSMakeRange`, `CGPointMake`, `UIEdgeInsetsMake`),
+  which a map literal replaces now that a struct by value is a map, and the rest are one-line expressions of their
+  arguments (`NSMaxRange`, `NSLocationInRange`). Trigger: an inline function that is not such an expression, or a
+  header whose API is mostly inline (`simd`).
 - [ ] **A struct type is not itself a value.** A struct a function takes or returns by value crosses as a map
   (below), but naming the type in `:refer` is still a report line: `deflayout` (design §4) is not built. Trigger:
   `deflayout`.

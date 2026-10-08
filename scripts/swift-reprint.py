@@ -578,7 +578,8 @@ def symbol_record(sym, idx):
 	causes = []
 	if kind == "swift.macro":
 		causes.append("macro")
-	if re.search(r"\beach\b|\brepeat\b", decl):
+	# `each T` and `repeat each T`/`repeat (…)`, not a function or parameter that happens to be named each.
+	if re.search(r"(?<!func )\beach\s+[A-Za-z_]|\brepeat\s+(?:each\b|\()", decl):
 		causes.append("parameter-pack")
 	if "~Copyable" in decl or (all_usrs & idx.noncopyable) or (parent and parent["usr"] in idx.noncopyable):
 		causes.append("noncopyable")

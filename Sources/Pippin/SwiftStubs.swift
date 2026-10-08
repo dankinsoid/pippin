@@ -379,6 +379,25 @@ public enum SwiftStubs {
 		return map
 	}
 
+	/// The arity is checked once, here: the closure `make` prints calls the fn with no check of its own (design §5).
+	public static func function<T>(_ v: Value, arity: Int, _ make: (Value) -> T) throws -> T {
+		guard v.isFn, withExtendedLifetime(v, { clj_fn_accepts(v.raw, arity) }) else {
+			throw ClosureSignatureMismatch(fn: v, arity: arity)
+		}
+		return make(v)
+	}
+
+	/// A value of a protocol type: a box of a value that conforms, or a fn the one-method adapter `adapt` wraps.
+	public static func conformer<T>(_ v: Value, as type: T.Type, arity: Int, _ adapt: ((Value) -> T)?) throws -> T {
+		if v.isFn, let adapt { return try function(v, arity: arity, adapt) }
+		if clj_is_host_box(v.raw) {
+			let payload = withExtendedLifetime(v) { Unmanaged<AnyObject>.fromOpaque(clj_host_box_payload(v.raw)!).takeUnretainedValue() }
+			if let boxed = payload as? AnyBoxed, let value = boxed.anyValue as? T { return value }
+			if !(payload is AnyBoxed), let value = payload as? T { return value }
+		}
+		throw ValueTypeMismatch(value: v, expected: adapt == nil ? String(reflecting: type) : "\(String(reflecting: type)) or a fn")
+	}
+
 	/// An unlabelled tuple is a vector of exactly its arity.
 	public static func tuple<T>(_ v: Value, count: Int, _ decode: ([Value]) throws -> T) throws -> T {
 		guard let items = v.array, items.count == count else {
@@ -525,9 +544,15 @@ public enum SwiftStubs {
 	}
 }
 
-private final class Boxed<T>: @unchecked Sendable {
+// The payload of a struct box, typed away, so a protocol type can be cast from it.
+private protocol AnyBoxed {
+	var anyValue: Any { get }
+}
+
+private final class Boxed<T>: AnyBoxed, @unchecked Sendable {
 	let value: T
 	init(_ value: T) { self.value = value }
+	var anyValue: Any { value }
 }
 
 // One per boxed Swift type, never freed: the core's descriptor points at it for the life of the process.

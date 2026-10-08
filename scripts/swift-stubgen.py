@@ -57,7 +57,6 @@ CAUSE_TEXT = {
 # Ownership that changes nothing for a copyable value (design §5 «`mutating`, `inout`»); ~Copyable is refused earlier.
 NEUTRAL_MODIFIERS = re.compile(r"^\s*(?:borrowing|consuming|__owned|__shared)\s+")
 CLOSURE = re.compile(r"^(?:@escaping\s+|@Sendable\s+)*\((.*)\)\s*(async\s+)?(throws(?:\s*\([^)]*\))?\s+)?->\s*(.+)$", re.S)
-MAX_CLOSURE_PARAMS = 3			# the arities of Value.closure()
 
 
 class Refused(Exception):
@@ -143,6 +142,9 @@ class Shapes:
 		self.inits = inits		# struct USR -> [(labels, param texts, throws)] of its public non-failable inits
 		self.back = {}			# map struct USR -> (labels of the init, fields set after it, throws) or None
 		self.checking = set()	# map structs a check_decode is inside of: a field may reach its own type
+		self.protocols = {}		# protocol USR -> its one-method adapter, or None when only a conformer crosses
+		self.requirements = {}
+		self.no_adapter = set()	# protocols whose adapter swiftc rejected
 		for usr, cs in cases.items():
 			rec = idx.by_usr.get(usr)
 			if rec and not rec["generic"] and cs and not any(payload for _n, payload, _p in cs):
@@ -182,10 +184,50 @@ class Shapes:
 				best = (labels, [f["name"] for f in rest], throws)
 		return best
 
+	def find_protocols(self, recs, requirements):
+		"""The protocols an existential of crosses: no associated type, no Self, no actor, refining nothing with
+		requirements of its own; requirements maps a protocol USR to its requirement records."""
+		self.protocols = {}
+		self.requirements = requirements
+		for usr, rec in self.idx.by_usr.items():
+			if rec["kind"] != "swift.protocol" or rec["generic"] or usr in self.idx.proto_selfreq:
+				continue
+			inherits = re.search(r"\bprotocol\s+\w+\s*:\s*([^{]*)", rec["decl"])
+			if rec["path"] in self.idx._proto_assoc or rec["isolation"] or (
+					inherits and set(re.split(r"[\s,&]+", inherits.group(1).strip())) - {"AnyObject", "Sendable", ""}):
+				continue
+			self.protocols[usr] = None
+
+	def settle_protocols(self, types):
+		"""A protocol whose one requirement is a method a fn can stand for gets an adapter (design §4 «reify»)."""
+		for usr in list(self.protocols):
+			reqs = self.requirements.get(usr, [])
+			self.protocols[usr] = None
+			if usr in self.no_adapter or len(reqs) != 1 or reqs[0]["kind"] != "swift.method":
+				continue
+			rec = reqs[0]
+			if rec["throws"] == "throws(E)" or rec["generics"] or any(re.search(r"\binout\b", m) for m in rec["mods"]):
+				continue
+			try:
+				params = [types.parse("requirement argument", NEUTRAL_MODIFIERS.sub("", text), u)
+					for (role, text, _b), u in zip(rec["slots"], rec["slot_usrs"]) if role == "param"]
+				ret = next(((t, u) for (role, t, _b), u in zip(rec["slots"], rec["slot_usrs"]) if role == "return"), ("", {}))
+				result = types.form("result", ret[0], ret[1])
+				result.check_decode()
+			except Refused:
+				continue
+			labels = reprint.labels_of(rec["title"]) or []
+			texts = [text for role, text, _b in rec["slots"] if role == "param"]
+			if len(labels) != len(texts):
+				continue
+			self.protocols[usr] = dict(rec=rec, arity=len(params), params=params, texts=texts, labels=labels,
+				result=result, result_text=ret[0].strip() or "Void")
+
 	def demote(self, usr):
 		self.keywords.pop(usr, None)
 		self.maps.pop(usr, None)
 		self.back.pop(usr, None)
+		self.protocols.pop(usr, None)
 
 
 class Form:
@@ -297,14 +339,51 @@ class Object(Form):
 		return f"Pippin.SwiftStubs.box(object: {x})"
 
 
+def call_body(params, result, throws, is_async, indent):
+	"""The body of a Swift function that calls the Clojure fn `f` with its parameters p0... (design §5)."""
+	args = ", ".join(form.encode(f"p{i}") for i, form in enumerate(params))
+	call = f"try await f.applyAsync([{args}])" if is_async else f"try f.apply([{args}])"
+	lines = [f"_ = {call}"] if result.kind == "void" else [f"let v = {call}", f"return {result.decode('v')}"]
+	if not throws:
+		# A Swift caller that cannot catch: the stub's failure policy, dev's trap with the Clojure trace.
+		lines = ["do {"] + [f"\t{l}" for l in lines] + ["} catch {", "\treturn Pippin.Value.trap(error)", "}"]
+	return "".join(f"{indent}{l}\n" for l in lines)
+
+
 class Closure(Form):
+	"""A closure parameter: a Clojure fn, wrapped in a Swift closure the stub prints for this signature."""
 	kind = "closure"
 
-	def __init__(self, t):
-		self.t = t
+	def __init__(self, texts, params, result_text, result, throws, is_async):
+		self.texts, self.params, self.result_text, self.result = texts, params, result_text, result
+		self.throws, self.is_async = throws, is_async
+
+	def parts(self):
+		return [self.result]
 
 	def decode(self, x):
-		return f"try {x}.closure() as {self.t}"
+		head = ", ".join(f"p{i}: {t}" for i, t in enumerate(self.texts))
+		effects = ("async " if self.is_async else "") + ("throws " if self.throws else "")
+		ret = "Void" if self.result.kind == "void" else self.result_text
+		body = call_body(self.params, self.result, self.throws, self.is_async, "\t\t\t\t")
+		return (f"try Pippin.SwiftStubs.function({x}, arity: {len(self.params)}) {{ f in {{ @Sendable ({head}) {effects}-> {ret} in\n"
+			f"{body}\t\t\t}} }}")
+
+
+class Protocol(Form):
+	"""`any P` or `some P` of a protocol of this module: a box of a conformer, or a fn when P has one method."""
+	kind = "protocol"
+
+	def __init__(self, t, adapter):
+		self.t, self.adapter = t, adapter		# adapter: (class name, the method's arity) or None
+
+	def decode(self, x):
+		make = f"{{ {self.adapter[0]}($0) }}" if self.adapter else "nil"
+		arity = self.adapter[1] if self.adapter else 0
+		return f"try Pippin.SwiftStubs.conformer({x}, as: (any {self.t}).self, arity: {arity}, {make})"
+
+	def encode(self, x):
+		return f"Pippin.SwiftStubs.box({x} as any {self.t})"
 
 
 class Optional(Form):
@@ -402,7 +481,7 @@ class Types:
 		if usr in SCALARS:
 			return Scalar(spelling)
 		rec = self.idx.by_usr.get(usr)
-		if rec and rec["kind"] in ("swift.struct", "swift.class", "swift.enum") and rec["generic"]:
+		if rec and rec["kind"] in ("swift.struct", "swift.class", "swift.enum", "swift.actor") and rec["generic"]:
 			raise Refused(f"{what} `{spelling}` is generic: the instantiation set comes from call sites (design §5)")
 		if rec:
 			return self.of_type(rec, spelling)
@@ -415,8 +494,11 @@ class Types:
 			return MapStruct(spelling, usr, self.shapes) if usr in self.shapes.maps else Box(spelling)
 		if kind == "swift.enum":
 			return Keyword(spelling) if usr in self.shapes.keywords else Box(spelling)
-		if kind == "swift.class":
+		if kind in ("swift.class", "swift.actor"):
 			return Object(spelling)
+		if kind == "swift.protocol" and usr in self.shapes.protocols:
+			adapter = self.shapes.protocols[usr]
+			return Protocol(spelling, (f"Adapter_{ident(spelling)}", adapter["arity"]) if adapter else None)
 		return None
 
 	def form(self, role, text, usrs):
@@ -447,6 +529,11 @@ class Types:
 			if len(parts) == 2:
 				return Dictionary(self.parse("dictionary key", parts[0], usrs), self.parse("dictionary value", parts[1], usrs))
 			return Array(self.parse("array element", t[1:-1], usrs))
+		m = re.match(r"^(?:any|some)\s+([\w.]+)$", t)
+		if m:
+			rec = self.idx.by_usr.get(usrs.get(m.group(1)) or usrs.get(m.group(1).split(".")[-1]))
+			if rec and rec["kind"] == "swift.protocol" and rec["usr"] in self.shapes.protocols:
+				return self.of_type(rec, m.group(1))
 		m = re.match(r"^([\w.]+)\s*<(.*)>$", t, re.S)
 		if m and reprint._balanced(m.group(2)):
 			head = usrs.get(m.group(1)) or usrs.get(m.group(1).split(".")[-1])
@@ -473,27 +560,23 @@ class Types:
 		return Optional(form)
 
 	def closure(self, t, usrs):
-		"""Only what `rethrows` needs (design §5 «`throws` — четыре формы»): a throwing function of scalars."""
+		"""A function type whose arguments cross out and whose result crosses back (design §5 «Замыкания»)."""
 		m = CLOSURE.match(t)
 		why = f"closure parameter `{t}`"
 		if not m:
-			raise Refused(f"{why}: not a plain function type")
+			raise Refused(f"{why}: not a plain function type (an isolated or attributed one is not built)")
 		params, is_async, throws, result = m.groups()
-		if is_async:
-			raise Refused(f"{why} is async, which no stub adapts yet")
-		if not throws or re.search(r"\bNever\b", throws):
-			raise Refused(f"{why} does not throw: it needs the onFailure policy configured at the stub (design §5), "
-				"which has no configuration yet")
 		parts = [p.strip() for p in reprint._split_top(params, [","])] if params.strip() else []
-		if len(parts) > MAX_CLOSURE_PARAMS:
-			raise Refused(f"{why} takes more than {MAX_CLOSURE_PARAMS} arguments")
+		forms = []
 		for p in parts:
-			if usrs.get(p) not in SCALARS:
-				raise Refused(f"{why}: its argument `{p}` is not Int, Double, Bool or String")
+			if re.match(r"^(inout|isolated|sending)\b", p) or reprint._find_top(p, "->") >= 0:
+				raise Refused(f"{why}: its argument `{p}` has no stub form")
+			forms.append(self.parse("closure argument", NEUTRAL_MODIFIERS.sub("", p), usrs))
 		result = result.strip()
-		if result not in ("Void", "()") and usrs.get(result) not in SCALARS:
-			raise Refused(f"{why}: its result `{result}` is not Int, Double, Bool, String or Void")
-		return Closure(f"@Sendable ({', '.join(parts)}) throws -> {result}")
+		ret = Void() if result in ("Void", "()") else self.parse("closure result", result, usrs)
+		ret.check_decode()
+		typed_never = bool(throws) and bool(re.search(r"\bNever\b", throws))
+		return Closure(parts, forms, result, ret, bool(throws) and not typed_never, bool(is_async))
 
 
 def swift_name(rec):
@@ -510,11 +593,11 @@ def owner_of(rec, idx, types):
 		raise Refused("member of a type of another module: no stub reaches it")
 	kind = owner["kind"]
 	spelling = ".".join(path[:-1])
-	if kind == "swift.protocol":
+	if kind == "swift.protocol" and owner["usr"] not in types.shapes.protocols:
 		raise Refused("protocol member: generic over the conformer, whose instantiations come from call sites (design §5)")
-	if kind == "swift.actor":
-		raise Refused("actor member: isolation to an actor instance is not built")
-	if kind not in ("swift.struct", "swift.class", "swift.enum"):
+	if kind == "swift.protocol" and rec["kind"] in ("swift.type.method", "swift.type.property", "swift.init"):
+		raise Refused("static protocol member: an existential has no type to call it on")
+	if kind not in ("swift.struct", "swift.class", "swift.enum", "swift.actor", "swift.protocol"):
 		raise Refused(f"member of a {kind}: no stub form")
 	for k in range(1, len(path) - 1):
 		if (idx.by_path.get(path[:k]) or {}).get("generic"):
@@ -561,6 +644,11 @@ def plans(rec, idx, types):
 		receiver = types.of_type(owner, owner_spelling)
 	throws, typed = effects_of(rec)
 	is_async = rec.get("async", False)
+	# Reaching an actor from outside is an await: its isolated member crosses as an async one (design §5).
+	# The graph files an actor under swift.class; only its declaration says `actor`.
+	actor_isolated = (receiver is not None and re.search(r"\bactor\s+\w", owner["decl"])
+		and not re.search(r"\bnonisolated\b", reprint.decl_parts(rec["decl"], kind)[0]))
+	is_async = is_async or actor_isolated
 	base = dict(rec=rec, owner=owner_spelling, receiver=receiver, isolation=rec["isolation"], is_async=is_async,
 		throws=throws, typed=typed, rethrows=rec["throws"] == "rethrows")
 
@@ -573,7 +661,9 @@ def plans(rec, idx, types):
 		value = types.form("property", rec["slots"][0][1], rec["slot_usrs"][0])
 		get = dict(base, role="get", member=name, swift=swift_name(rec), params=[], result=value, mutating=False)
 		out = [get]
-		if settable(rec):
+		if settable(rec) and actor_isolated:
+			out.append(Refusal(f"{swift_name(rec)} (set)", "an actor's isolated property is set only from inside the actor"))
+		elif settable(rec):
 			# A setter neither throws nor suspends; a value type's is `mutating set`, so it answers the new value.
 			try:
 				value.check_decode()
@@ -760,6 +850,19 @@ def emit_map(module, t, fields, back):
 	return "".join(out)
 
 
+def emit_adapter(t, a):
+	"""A class whose one method calls a Clojure fn: what a one-method protocol takes for a fn (design §4 «reify»)."""
+	rec = a["rec"]
+	head = ", ".join(f"{label} p{i}: {text}" for i, (label, text) in enumerate(zip(a["labels"], a["texts"])))
+	throws = rec["throws"] in ("throws", "rethrows")
+	effects = ("async " if rec.get("async") else "") + ("throws " if throws else "")
+	name = rec["title"].split("(")[0]
+	body = call_body(a["params"], a["result"], throws, rec.get("async"), "\t\t")
+	return (f"private final class Adapter_{ident(t)}: {t}, @unchecked Sendable {{\n"
+		"\tlet f: Pippin.Value\n\tinit(_ f: Pippin.Value) { self.f = f }\n"
+		f"\tfunc {name}({head}) {effects}-> {a['result_text']} {{\n{body}\t}}\n}}\n\n")
+
+
 def emit(module, generated, refused, shapes, idx):
 	"""The stub file and which stub or type each line belongs to, so swiftc's error can be blamed on it."""
 	out = [f"// Generated by scripts/swift-stubgen.py from the symbol graph of {module}; do not edit.\n",
@@ -775,6 +878,10 @@ def emit(module, generated, refused, shapes, idx):
 	for usr, fields in sorted(shapes.maps.items()):
 		lines[at()] = ("type", usr)
 		out.append(emit_map(module, ".".join(idx.by_usr[usr]["path"]), fields, shapes.back.get(usr)))
+	for usr, adapter in sorted(shapes.protocols.items()):
+		if adapter:
+			lines[at()] = ("type", usr)
+			out.append(emit_adapter(".".join(idx.by_usr[usr]["path"]), adapter))
 	lines[at()] = None
 	out += [f"@_cdecl(\"pippin_stubs_register_{module}\")\n",
 		f"public func pippin_stubs_register_{module}() {{\n",
@@ -815,12 +922,13 @@ def build(recs, idx, types, shapes, cases, refused_before):
 			refused.append((path, "enum case with a payload: its enum crosses as a box, and a case has no constructor "
 				"yet (design §5)" if payload else "enum case: its enum crosses as a box (see the type's refusal)"))
 	generated = []
+	rejected = {name for name, _why in refused_before}
 	for rec in sorted(recs, key=swift_name):
 		try:
 			for item in plans(rec, idx, types):
 				if isinstance(item, Refusal):
 					refused.append(tuple(item))
-				else:
+				elif item["swift"] not in rejected:
 					generated.append(item)
 		except Refused as why:
 			refused.append((swift_name(rec), str(why)))
@@ -890,9 +998,17 @@ def main():
 			continue
 		texts = [text for role, text, _b in rec["slots"] if role == "param"]
 		inits.setdefault(owner["usr"], []).append((labels, texts, rec["throws"] != "none"))
+	by_usr = {rec["usr"]: rec for rec in recs}
+	requirements = {}
+	for p in paths:
+		for tag, rel in reprint.iter_graph(p, want_relationships=True):
+			if tag == "rel" and rel["kind"] in ("requirementOf", "optionalRequirementOf") and rel["source"] in by_usr:
+				requirements.setdefault(rel["target"], []).append(by_usr[rel["source"]])
 	shapes = Shapes(idx, fields, cases, inits)
 	types = Types(idx, shapes)
+	shapes.find_protocols(recs, requirements)
 	shapes.settle(types)
+	shapes.settle_protocols(types)
 
 	# What swiftc rejects goes to the report, a rejected type falls back to a box: one symbol never takes the module down.
 	source = os.path.join(work, "stubs.swift")
@@ -927,13 +1043,17 @@ def main():
 			shutil.rmtree(work, ignore_errors=True)
 			sys.exit(f"swift-stubgen: swiftc failed on the stubs of {module}:\n{res.stderr}")
 		for owner, error in blamed.values():
-			if isinstance(owner, tuple):
+			if isinstance(owner, tuple) and owner[1] in shapes.protocols:
+				shapes.no_adapter.add(owner[1])
+				rejected.append((".".join(idx.by_usr[owner[1]]["path"]), f"swiftc rejected its fn adapter: {error}"))
+			elif isinstance(owner, tuple):
 				name = ".".join(idx.by_usr[owner[1]]["path"])
 				shapes.demote(owner[1])
 				rejected.append((name, f"swiftc rejected its keyword or map form, so it crosses as a box: {error}"))
 			else:
 				rejected.append((owner["swift"], f"swiftc rejected the stub: {error}"))
 		shapes.settle(types)
+		shapes.settle_protocols(types)
 
 	report = {
 		"module": module, "fingerprint": key, "compiler": compiler, "target": target,
