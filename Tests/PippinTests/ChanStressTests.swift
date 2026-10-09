@@ -85,6 +85,42 @@ extension CoreTests {
 			}
 		}
 
+		// t-pmax-slow-input (parallel-async) reads the sink before its last swap!; read after the sink, nothing is lost.
+		// @ai-generated(solo)
+		@Test func pmaxLosesNoValueOnceItsSinkFinished() throws {
+			_ = try eval("""
+				(defn pmax-slow-input-run []
+				  (let [input (chan) output (chan) result (atom [])
+				        sunk (go (loop [] (when-let [v (<! output)] (swap! result conj v) (recur))))
+				        pmax (fn [max f input output]
+				               (go (loop [tasks #{input}]
+				                     (when (seq tasks)
+				                       (let [[value task] (a/alts! (vec tasks))]
+				                         (if (= task input)
+				                           (if (nil? value)
+				                             (recur (disj tasks task))
+				                             (recur (conj (if (= max (count tasks)) (disj tasks input) tasks) (f value))))
+				                           (do (when-not (nil? value) (>! output value))
+				                               (recur (-> tasks (disj task) (conj input))))))))))
+				        f (fn [x] (go (<! (timeout (rand-int 10))) x))]
+				    (go (loop [i 0] (if (< i 50) (do (<! (timeout 5)) (>! input i) (recur (inc i))) (a/close! input))))
+				    (<!! (pmax 5 f input output))
+				    (let [early (set @result)]
+				      (a/close! output)
+				      (<!! sunk)
+				      (cond (not= (set (range 50)) (set @result)) [:lost (count @result)]
+				            (= 50 (count early)) :complete
+				            :else :read-before-the-sink))))
+				""")
+			var early = 0
+			for i in 0..<10 {
+				let got = try eval("(pmax-slow-input-run)")
+				if got == Value(keyword: "read-before-the-sink") { early += 1; continue }
+				#expect(got == Value(keyword: "complete"), "round \(i)")
+			}
+			print("pmax: read before the sink's last swap! in \(early) of 10 rounds")
+		}
+
 		// Every idle pool thread takes a body that waits for the last one, which needs a thread of its own.
 		// @ai-generated(solo)
 		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))

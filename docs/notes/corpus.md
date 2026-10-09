@@ -97,7 +97,11 @@
   `clojure.core.async.impl.*`; nine passed closely enough to run their own tests on the JVM (all nine pass there),
   eight were vendored and run here, five are in. Each is vendored unmodified with its `SOURCE` (commit, license):
   - `parallel-async` (Stuart Sierra, MIT): `parallel` and `pmax` over go blocks, `thread`, `alts!`, `add-watch`.
-    All 4 deftests pass. The tests wait on purpose (`(timeout (rand-int 100))` per item, a 50 ms producer), so
+    All 4 deftests pass, and all 4 are `:flaky`: each reads its sink's atom as soon as the block it waits on
+    returns, while the sink's go-loop may still hold the last value between its `<!` and its `swap!` (the JVM's
+    too); the woken sink waits in the next slot of the carrier finishing the producer's block while the bare thread
+    wakes on its own core (gates run 37960239297; `ChanStressTests.pmaxLosesNoValueOnceItsSinkFinished` reads after
+    the sink and loses nothing). The tests wait on purpose (`(timeout (rand-int 100))` per item, a 50 ms producer), so
     it is the costly one: 9.5 s per corpus pass, interpreted or compiled, against 4.3 s for one run on the JVM.
   - `async-error` (Alexander Kiel, v0.3, EPL): `<?`, `<??` and `go-try`, `.cljc` under `:features #{:clj}`. All
     5 pass, and it found two bugs: `(instance? Throwable e)` did not resolve, so `throw-err` and everything over
@@ -226,7 +230,7 @@
   the code alone — timing, or state the first run left — and whose `:note` says which: it is tolerated either way,
   left out of the two-runs-agree check and kept by a regeneration when it happened to pass: `realized?` on a
   `future` whose body is a no-op because the suite's `sleep` has no `:default` branch, core-async's ASYNC-127
-  block, and enos's three tests of 10 ms wall-clock margins. Forms are not annotated: a form's reason is its
+  block, enos's three tests of 10 ms wall-clock margins, and parallel-async's four reads of a sink still running. Forms are not annotated: a form's reason is its
   own classification (a reader gap or an unresolved symbol). `:second-run-live-objects` is what a second run
   of the same tests leaves alive; a different number fails.
 - **On by default** (`CLJ_CORPUS=0` skips it). `make corpus` runs it alone, `make corpus-update` regenerates
