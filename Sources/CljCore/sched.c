@@ -1798,8 +1798,22 @@ void clj_sched_seed_enter(clj_coro *c) {
 	pthread_mutex_unlock(&seed_mu);
 }
 
+clj_coro *clj_sched_seed_outer_enter(void) {
+	clj_coro *c = clj_coro_current();
+	if (!c->implicit || c->seed_in || c->seed_outer) return NULL;
+	clj_sched_seed_enter(c);
+	if (!c->seed_in) return NULL;
+	c->seed_outer = true;
+	return c;
+}
+
+void clj_sched_seed_outer_leave(clj_coro *c) {
+	c->seed_outer = false;
+	clj_sched_seed_leave(c);
+}
+
 void clj_sched_seed_leave(clj_coro *c) {
-	if (!c->seed_in) return;
+	if (!c->seed_in || c->seed_outer) return;
 	pthread_mutex_lock(&seed_mu);
 	c->seed_in = false;
 	running_bare--;

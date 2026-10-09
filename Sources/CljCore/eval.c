@@ -1690,12 +1690,14 @@ static clj_value eval_form(clj_value form, const clj_env *given);
 
 // Every top-level form is a recovery point (guard.h): the first form of a thread makes its shadow stack too.
 clj_value clj_eval(clj_value form, const clj_env *given) {
+	clj_coro    *turn = __builtin_expect(clj_sched_seed_on, 0) ? clj_sched_seed_outer_enter() : NULL;
 	clj_recovery r;
 	clj_recovery_push(&r);
 	clj_value v;
 	if (sigsetjmp(r.buf, 0)) v = clj_recovery_throw(&r);
 	else v = eval_form(form, given);
 	clj_recovery_pop(&r);
+	if (turn) clj_sched_seed_outer_leave(turn);
 	return v;
 }
 

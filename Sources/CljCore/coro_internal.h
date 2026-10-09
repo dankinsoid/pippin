@@ -97,7 +97,8 @@ struct clj_coro {
 	bool             signaled;       // implicit: the block was released
 	// Implicit, seeded mode, under the scheduler's seed_mu (sched.c): inside an evaluation and holding the turn;
 	// chosen by the seeded pick to run again; parked (SEED_PARKED_*), which lets the virtual clock move.
-	bool             seed_in, seed_picked;
+	// seed_outer: the turn was taken by clj_eval, before the analysis, and only its own end gives it back.
+	bool             seed_in, seed_picked, seed_outer;
 	uint8_t          seed_parked;
 	pthread_mutex_t  lock;           // guards state, waiter and the park/resume handshake
 	pthread_cond_t   cond;           // implicit: what the thread blocks on
@@ -198,6 +199,9 @@ uint64_t clj_sched_tick_now(void);
 // A bare thread's evaluation begins and ends (exec_depth 0 -> 1 and back): the turn is taken and given back.
 void clj_sched_seed_enter(clj_coro *c);
 void clj_sched_seed_leave(clj_coro *c);
+// clj_eval's turn, spanning the analysis, whose macros run Clojure code: NULL when the caller holds one already.
+clj_coro *clj_sched_seed_outer_enter(void);
+void      clj_sched_seed_outer_leave(clj_coro *c);
 // The program's randomness in seeded mode (alts! order, rand), a stream apart from the schedule's.
 uint64_t clj_sched_seed_random(void);
 // System/currentTimeMillis: the real start plus the virtual time since, in seeded mode.
