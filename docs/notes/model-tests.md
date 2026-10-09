@@ -48,9 +48,9 @@ of every suite run (`make test`, `test-compiled`, `test-noreuse`), `make model-l
   source, `compiled` and `closed` as one unit (`compileFixtureAsUnit`, a clang run per batch; `closed` refuses
   `eval`, which is why the expected values are spelled and never read back). `make test-compiled` runs all three
   over the compiled core, `make test-noreuse` with every in-place path off. The bounded pass is 8 interpreted
-  batches and one of each compiled kind; on the arm64 runner, with 6 and 1, ModelTests took 7.6 s in the ASan
-  shard of `make test` (3.0 s interpreted, 4.6 s for the one compiled batch) and 2.2 s in `make test-compiled`
-  (run 37935456617).
+  batches (320 sequences) and one batch of each compiled kind: on the arm64 runner it adds 12.0 s to the ASan
+  shard of `make test` (4.9 s interpreted, 3.7 s compiled, 3.3 s closed; run 37937702510), which runs beside the
+  other shard; with 6 interpreted batches and no closed one `make test-compiled` took 2.2 s (run 37935456617).
 
 - **A failure shrinks and replays.** The first failing sequence of a batch is shrunk greedily — dropping a step
   (its readers pointed at its source), a retained check, the defs, a wrapper, an argument of a multi-argument
