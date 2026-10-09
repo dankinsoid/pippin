@@ -11,6 +11,7 @@
 #include "clj/reduce.h"
 #include "clj/shape.h"
 #include "clj/vector.h"
+#include "rc_internal.h"
 
 enum { BITS = 5, MASK = 31 };
 
@@ -43,11 +44,13 @@ static inline size_t   bit_index(uint32_t bitmap, uint32_t bit) { return popcoun
 static inline size_t   bnode_slots(const bnode *n) { return 2 * popcount(n->datamap) + popcount(n->nodemap); }
 static inline size_t   node_slot(const bnode *n, size_t total, uint32_t bit) { return total - 1 - bit_index(n->nodemap, bit); }
 
-static void bnode_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void bnode_children(void *self, clj_visitor visit, void *ctx) {
 	bnode *n = self;
 	size_t total = bnode_slots(n);
 	for (size_t i = 0; i < total; i++) visit(n->slots[i].v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(bnode, bnode_children)
 
 static void cnode_each_child(void *self, clj_visitor visit, void *ctx) {
 	cnode *c = self;
@@ -58,6 +61,7 @@ static const clj_type bnode_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "map-node",
 	.each_child = bnode_each_child,
+	.drop = bnode_drop,
 };
 
 static const clj_type cnode_type = {
@@ -424,7 +428,7 @@ static bool node_each(clj_value node, clj_map_entry_fn fn, void *ctx) {
 	return true;
 }
 
-static void map_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void map_children(void *self, clj_visitor visit, void *ctx) {
 	clj_header *h = self;
 	if (h->flags & CLJ_FLAG_SHAPE) {
 		clj_shape_map *m = self;
@@ -435,6 +439,8 @@ static void map_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(((clj_map *)self)->root.v, ctx);
 	visit(((clj_map *)self)->meta.v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(map, map_children)
 
 uint32_t clj_map_entry_hash(clj_value key, clj_value val) {
 	return clj_mix_coll_hash(31 * (31 + clj_hash(key)) + clj_hash(val), 2);
@@ -645,6 +651,7 @@ const clj_type clj_map_type = {
 	.core_bits = CLJ_CORE_SEQABLE | CLJ_CORE_COLL | CLJ_CORE_COUNTED | CLJ_CORE_LOOKUP | CLJ_CORE_ASSOCIATIVE | CLJ_CORE_FN | CLJ_CORE_MAP |
 	             CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE | CLJ_CORE_EDITABLE,
 	.each_child = map_each_child,
+	.drop = map_drop,
 	.hash = map_hash,
 	.equals = map_equals,
 	.seq = map_seq,

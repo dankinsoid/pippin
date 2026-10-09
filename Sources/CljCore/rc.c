@@ -6,6 +6,7 @@
 
 #include "alloc.h"
 #include "cc_internal.h"
+#include "rc_internal.h"
 #include "stats_internal.h"
 
 // CLJ_CRASH_EXIT: a plain exit, since a wedged crash reporter can leave the aborting process unkillable (NOTES "Guard").
@@ -83,15 +84,10 @@ static clj_header *get_dead_next(clj_header *h) {
 	return (clj_header *)(link & ~(uintptr_t)7);
 }
 
-// A buffered dead object waits aside, not as a link: a candidate entry reads its header (cc.c, the zombie).
-typedef struct {
-	clj_header  *stack;
-	clj_header **aside;
-	size_t       naside, caside;
-	bool         deep;
-} dead_list;
+// Nothing to tear down: no child, no finalizer, no registry to leave.
+static inline bool is_leaf(const clj_type *t) { return !t->each_child && !t->finalize && !t->unlink; }
 
-static void bury(dead_list *d, clj_header *h) {
+static void bury(clj_drop *d, clj_header *h) {
 	assert_children_shared(h);
 #if CLJ_STATS
 	// Here, not at the dealloc: set_dead_next overwrites the flags the census reads.
@@ -108,25 +104,45 @@ static void bury(dead_list *d, clj_header *h) {
 		d->aside[d->naside++] = h;
 		return;
 	}
+	if (is_leaf(h->type)) {
+		clj_dealloc(h);
+		return;
+	}
 	set_dead_next(h, d->stack);
 	d->stack = h;
 }
 
-static void release_child(clj_value child, void *ctx) {
-	if (!clj_is_ptr(child)) return;
-	dead_list  *d = ctx;
-	clj_header *h = clj_header_of(child);
-	int         deep = d->deep ? clj_cc_deep_release(h) : -1;
+// Unshared at an exact count of 1: no candidate buffer names it, and assert_children_shared has nothing to check.
+void clj_drop_dead(clj_drop *d, clj_header *h) {
+	const clj_type *t = h->type;
+	if (is_leaf(t)) {
+		clj_dealloc(h);
+		return;
+	}
+#if CLJ_STATS
+	clj_census_death(h);
+#endif
+	if (t->unlink) t->unlink(h);
+	set_dead_next(h, d->stack);
+	d->stack = h;
+}
+
+void clj_drop_slow(clj_drop *d, clj_header *h) {
+	int deep = d->deep ? clj_cc_deep_release(h) : -1;
 	if (deep < 0 ? release_reaches_zero(h) : deep > 0) {
 		if ((h->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(h, d->deep)) return;
 		bury(d, h);
 	}
 }
 
+static void release_child(clj_value child, void *ctx) {
+	if (clj_is_ptr(child)) clj_drop_slow(ctx, clj_header_of(child));
+}
+
 // Iterative so a million-element list does not overflow the C stack.
 static void free_object(clj_header *dead, bool deep) {
 	if ((dead->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(dead, deep)) return;
-	dead_list d = {.deep = deep};
+	clj_drop d = {.deep = deep};
 	bury(&d, dead);
 	for (;;) {
 		clj_header *h;
@@ -140,7 +156,8 @@ static void free_object(clj_header *dead, bool deep) {
 			break;
 		}
 		const clj_type *t = h->type;
-		if (t->each_child) t->each_child(h, release_child, &d);
+		if (t->drop) t->drop(h, &d);
+		else if (t->each_child) t->each_child(h, release_child, &d);
 		if (t->finalize) t->finalize(h);
 		if (zombie) clj_cc_zombie(h);
 		else clj_dealloc(h);

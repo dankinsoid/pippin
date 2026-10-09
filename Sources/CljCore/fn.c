@@ -17,14 +17,17 @@
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/vector.h"
+#include "rc_internal.h"
 
-static void fn_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void fn_children(void *self, clj_visitor visit, void *ctx) {
 	clj_fn *f = self;
 	visit(f->name.v, ctx);
 	visit(f->code.v, ctx);
 	visit(f->meta.v, ctx);
 	for (uint32_t i = 0; i < f->nenv; i++) visit(f->env[i].v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(fn, fn_children)
 
 static uint32_t fn_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
 
@@ -87,6 +90,7 @@ const clj_type clj_fn_type = {
 	.name = "fn",
 	.core_bits = CLJ_CORE_FN | CLJ_CORE_META | CLJ_CORE_OBJ,
 	.each_child = fn_each_child,
+	.drop = fn_drop,
 	.finalize = fn_finalize,
 	.hash = fn_hash,
 	.equals = fn_equals,

@@ -14,6 +14,7 @@
 #include "clj/vector.h"
 #include "coro_internal.h"
 #include "force_internal.h"
+#include "rc_internal.h"
 #include "shadow_internal.h"
 
 // ---- view metadata
@@ -51,12 +52,14 @@ clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
 
 // ---- vector-seq
 
-static void vector_seq_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void vector_seq_children(void *self, clj_visitor visit, void *ctx) {
 	clj_vector_seq *s = self;
 	visit(s->vec.v, ctx);
 	// Guarded, not visit(clj_meta_trailing(…)): a walk allocates and frees a view per step, and the call costs.
 	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(vector_seq, vector_seq_children)
 
 static clj_value vector_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_vector_seq)); }
 
@@ -87,6 +90,7 @@ const clj_type clj_vector_seq_type = {
 	.name = "vector-seq",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = vector_seq_each_child,
+	.drop = vector_seq_drop,
 	.seq = clj_aseq_seq,
 	.first = vector_seq_first,
 	.next = vector_seq_next,
@@ -106,11 +110,13 @@ clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
 
 // ---- string-seq
 
-static void string_seq_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void string_seq_children(void *self, clj_visitor visit, void *ctx) {
 	clj_string_seq *s = self;
 	visit(s->str.v, ctx);
 	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(string_seq, string_seq_children)
 
 static clj_value string_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_string_seq)); }
 
@@ -158,6 +164,7 @@ const clj_type clj_string_seq_type = {
 	.name = "string-seq",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = string_seq_each_child,
+	.drop = string_seq_drop,
 	.seq = clj_aseq_seq,
 	.first = string_seq_first,
 	.next = string_seq_next,
@@ -243,12 +250,14 @@ clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
 
 enum { UNFORCED = CLJ_FORCE_UNFORCED, FORCING = CLJ_FORCE_FORCING, FORCED = CLJ_FORCE_FORCED, FORCING_WAITED = CLJ_FORCE_WAITED };
 
-static void lazy_seq_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void lazy_seq_children(void *self, clj_visitor visit, void *ctx) {
 	clj_lazy_seq *s = self;
 	visit(s->fn.v, ctx);
 	visit(s->value.v, ctx);
 	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(lazy_seq, lazy_seq_children)
 
 static clj_value lazy_seq_seq(clj_value self) {
 	clj_value v = clj_lazy_seq_force(self);
@@ -273,6 +282,7 @@ const clj_type clj_lazy_seq_type = {
 	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.mutable_children = true,
 	.each_child = lazy_seq_each_child,
+	.drop = lazy_seq_drop,
 	.seq = lazy_seq_seq,
 	.reduce = clj_reduce_iter,
 	.meta = lazy_seq_meta,

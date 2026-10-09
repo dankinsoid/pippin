@@ -7,6 +7,7 @@
 #include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/vector.h"
+#include "rc_internal.h"
 
 enum { BITS = 5, WIDTH = 32, MASK = 31 };
 
@@ -50,15 +51,18 @@ _Static_assert(offsetof(tuple, count) == offsetof(clj_vector, count) && offsetof
                    offsetof(tuple, hash) == offsetof(clj_vector, hash) && offsetof(tuple, meta) == offsetof(clj_vector, meta),
                "the tuple and the trie wrapper share their prefix");
 
-static void node_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void node_children(void *self, clj_visitor visit, void *ctx) {
 	node *n = self;
 	for (size_t i = 0; i < n->len; i++) visit(n->slots[i].v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(node, node_children)
 
 static const clj_type node_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "vector-node",
 	.each_child = node_each_child,
+	.drop = node_drop,
 };
 
 static inline node       *node_of(clj_value v) { return clj_to_ptr(v); }
@@ -201,7 +205,7 @@ static clj_value node_assoc(clj_value nv, uint32_t shift, uint32_t i, clj_value 
 	return clj_from_ptr(n);
 }
 
-static void vector_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void vector_children(void *self, clj_visitor visit, void *ctx) {
 	clj_vector *v = self;
 	visit(v->meta.v, ctx);
 	if (is_tuple(v)) {
@@ -212,6 +216,8 @@ static void vector_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(v->root.v, ctx);
 	visit(v->tail.v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(vector, vector_children)
 
 // Element by element in either layout, so a tuple and a trie with the same elements hash alike.
 static uint32_t vector_hash(void *self) {
@@ -308,6 +314,7 @@ const clj_type clj_vector_type = {
 	             CLJ_CORE_ASSOCIATIVE | CLJ_CORE_INDEXED | CLJ_CORE_FN | CLJ_CORE_VECTOR | CLJ_CORE_META | CLJ_CORE_OBJ | CLJ_CORE_REDUCE |
 	             CLJ_CORE_EDITABLE,
 	.each_child = vector_each_child,
+	.drop = vector_drop,
 	.hash = vector_hash,
 	.equals = vector_equals,
 	.seq = vector_seq,

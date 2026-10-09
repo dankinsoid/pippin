@@ -100,6 +100,8 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 #define CLJ_RC_COUNT_MASK    (CLJ_RC_BUFFERED - 1)
 
 typedef void (*clj_visitor)(clj_value child, void *ctx);
+// One teardown's worklist (rc_internal.h); opaque outside rc.c and the types' drop slots.
+typedef struct clj_drop clj_drop;
 
 // Core interfaces a type implements, mirroring Clojure's: `(map? x)` is one AND on the bitset.
 // A slot may exist without the bit (a string has lookup and count, as RT.get/RT.count special-case it),
@@ -140,8 +142,11 @@ struct clj_type {
 	uint64_t    core_bits;
 	// Children replaced after publication (an atom's value): checked at the store (CLJ_SLOT_CHECK), not by a walk.
 	bool        mutable_children;
-	// NULL for leaf types. Drives both drop and share.
+	// NULL for leaf types. Drives share, the collector and the debug walks, and drop where `drop` is NULL.
 	void (*each_child)(void *self, clj_visitor visit, void *ctx);
+	// The release of every child each_child visits, through clj_drop_value (rc_internal.h): a free specialized by
+	// type, with no call per child. NULL: each_child with a generic visitor.
+	void (*drop)(void *self, clj_drop *d);
 	// Resources beyond child values (mutex, external buffer). NULL if none.
 	void (*finalize)(void *self);
 	// Runs as the last reference drops, header still intact, before the children go: for a registry that holds

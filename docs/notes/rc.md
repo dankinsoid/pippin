@@ -4,6 +4,17 @@
   points depends on the counter is now enforced, not just written down. Off, the flag costs nothing — one
   `#ifdef` arm. Four tests assert that an address survives an in-place step and are gated on
   `clj_reuse_enabled()`; the rest degrade to a copy with the same values, which is what the mode checks.
+- **The teardown is specialized by type** (`clj_type.drop`, `rc_internal.h`; Perceus' drop). A dying object's
+  children are released by its type's `drop`, which is the type's `each_child` body instantiated with the inline
+  `clj_drop_value` as the visitor (`CLJ_CHILDREN_SLOTS`): a fixnum, nil or an immortal child costs a test, an unshared
+  one the decrement `clj_release` makes inline, and only a death or a shared/`REACH_LOCAL` child leaves the function
+  (`clj_drop_dead`, `clj_drop_slow`, the latter the generic path with the deep walk and the deferred frees). A dead
+  object with nothing to tear down (no `each_child`, `finalize` or `unlink`: a box, a string) is returned to the
+  allocator at once instead of becoming a worklist link. The worklist stays the only way down, so a chain of any
+  length costs no C stack (`RCTests.aMixedChainDropsOnASmallStack`, 300k links on a 64 KB thread). Typed: cons and
+  list, fn, lazy seq, vector-seq, string-seq, vector, vector node, map, map node, sorted node; every other type
+  goes through `each_child` with the generic visitor, which is what `drop` NULL means. The order of `finalize`
+  calls is that of the worklist as before; a leaf has none, and a `finalize` reads only its own memory (below).
 - **A type's `unlink` slot runs as the last reference drops, before the header becomes the worklist link**
   (`free_object` and `release_child`; `finalize` runs later, after the children). It is for a registry that
   holds objects *without* a reference: the specialize index of execs per var (`dependents`) is the one. The

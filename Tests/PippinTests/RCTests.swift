@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 import CljCore
 import Darwin
+import Foundation
 import Testing
 @testable import Pippin
 
@@ -84,6 +85,39 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before + 1_000_000)
 			clj_release(head)
 			#expect(clj_debug_live_objects() == before)
+		}
+
+		// A 64 KB stack: a teardown recursing per link would overflow it long before 300k links.
+		@Test func aMixedChainDropsOnASmallStack() {
+			let before = clj_debug_live_objects()
+			let probe = clj_double_new(0.5)
+			let doubleType = clj_type_of(probe)
+			clj_release(probe)
+			let doubles = clj_debug_live_objects_of(doubleType)
+			nonisolated(unsafe) var during: Int64 = 0
+			let done = DispatchSemaphore(value: 0)
+			let t = Thread {
+				var head = CLJ_NIL
+				for i in 0..<300_000 {
+					let d = clj_double_new(Double(i) + 0.5)
+					let v = [d, head].withUnsafeBufferPointer { clj_vector_from_array($0.baseAddress, 2) }
+					clj_release(d)
+					clj_release(head)
+					head = clj_cons_new(v, CLJ_NIL)
+					clj_release(v)
+				}
+				during = clj_debug_live_objects()
+				clj_release(head)
+				done.signal()
+			}
+			t.stackSize = 64 * 1024
+			t.start()
+			done.wait()
+			if before >= 0 {
+				#expect(during == before + 900_000)
+				#expect(clj_debug_live_objects() == before)
+				#expect(clj_debug_live_objects_of(doubleType) == doubles)
+			}
 		}
 
 		@Test func shareMarksReachableGraph() {

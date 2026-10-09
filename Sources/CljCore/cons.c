@@ -2,15 +2,18 @@
 #include "clj/cons.h"
 #include "clj/list.h"
 #include "clj/reduce.h"
+#include "rc_internal.h"
 
 static clj_slot *meta_slot(clj_cons *c) { return clj_meta_slot_at(c, sizeof *c); }
 
-static void cons_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void cons_children(void *self, clj_visitor visit, void *ctx) {
 	clj_cons *c = self;
 	visit(c->first.v, ctx);
 	visit(c->rest.v, ctx);
 	if (c->h.flags & CLJ_FLAG_META) visit(meta_slot(c)->v, ctx);
 }
+
+CLJ_CHILDREN_SLOTS(cons, cons_children)
 
 static clj_value cons_first(clj_value self) { return clj_retain(clj_cons_of(self)->first.v); }
 
@@ -64,6 +67,7 @@ const clj_type clj_cons_type = {
 	.name = "cons",
 	CLJ_ASEQ_TRAIT(CLJ_CORE_META | CLJ_CORE_OBJ),
 	.each_child = cons_each_child,
+	.drop = cons_drop,
 	.seq = clj_aseq_seq,
 	.first = cons_first,
 	.next = cons_next,
@@ -80,6 +84,7 @@ const clj_type clj_list_type = {
 	CLJ_ASEQ_TRAIT_BASE(CLJ_CORE_LIST | CLJ_CORE_META | CLJ_CORE_OBJ),
 	.conj = list_conj,
 	.each_child = cons_each_child,
+	.drop = cons_drop,
 	.seq = clj_aseq_seq,
 	.first = cons_first,
 	.next = cons_next,

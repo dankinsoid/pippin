@@ -12,6 +12,7 @@
 #include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/sorted.h"
+#include "rc_internal.h"
 #include "clj/string.h"
 #include "clj/vector.h"
 
@@ -25,7 +26,7 @@ typedef struct {
 	uint32_t   red;
 } tnode;
 
-static void tnode_each_child(void *self, clj_visitor visit, void *ctx) {
+CLJ_CHILDREN_INLINE void tnode_children(void *self, clj_visitor visit, void *ctx) {
 	tnode *n = self;
 	visit(n->key.v, ctx);
 	visit(n->val.v, ctx);
@@ -33,10 +34,13 @@ static void tnode_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(n->right.v, ctx);
 }
 
+CLJ_CHILDREN_SLOTS(tnode, tnode_children)
+
 static const clj_type tnode_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "sorted-node",
 	.each_child = tnode_each_child,
+	.drop = tnode_drop,
 };
 
 static inline tnode    *tnode_of(clj_value v) { return clj_to_ptr(v); }
