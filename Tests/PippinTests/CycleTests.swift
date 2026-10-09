@@ -286,5 +286,25 @@ extension CoreTests {
 			}
 			base.check()
 		}
+
+		// Any thread retaining a var reads its header, so a store into the var must not write it (design §7: no reach bit).
+		// @ai-generated(solo)
+		@Test func aVarStoreLeavesItsHeaderAlone() throws {
+			_ = try eval("(def reach-var nil)")
+			let v = try eval("(var reach-var)")
+			let reaching = try eval("{:a (atom 1)}")
+			let lazy = try eval("{:s (lazy-seq nil)}")
+			var thread: pthread_t?
+			_ = pthread_create(&thread, nil, { arg in
+				let v = UInt(bitPattern: arg)
+				for _ in 0..<20_000 { clj_release(clj_cons_new(v, CLJ_NIL)) }
+				return nil
+			}, UnsafeMutableRawPointer(bitPattern: v.raw))
+			for i in 0..<2_000 { clj_var_set_meta(v.raw, (i % 2 == 0 ? reaching : lazy).raw) }
+			pthread_join(thread!, nil)
+			clj_var_set_meta(v.raw, CLJ_NIL)
+			let bits = UInt32(CLJ_FLAG_REACH) | UInt32(CLJ_FLAG_REACH_LOCAL) | UInt32(CLJ_FLAG_LAZY)
+			#expect(clj_header_of(v.raw).pointee.flags & bits == 0)
+		}
 	}
 }
