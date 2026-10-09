@@ -400,7 +400,7 @@ void clj_sched_enqueue(clj_coro *c, bool handoff) {
 		seed_enqueue(c);
 		return;
 	}
-	clj_coro    *me = clj_coro_tls;
+	clj_coro    *me = clj_coro_here();
 	clj_carrier *car = handoff && me && me->carrier && me->carrier->pooled ? me->carrier : NULL;
 	run_lock();
 	if (car) {
@@ -1945,7 +1945,7 @@ void clj_sched_seed_settling(int delta) {
 
 // Where parking is refused the execution goes on, as it would have; a cancelled one meets its cancel at the park.
 void clj_sched_point_slow(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	if (!c || c->locks_held) return;
 	if (c->implicit) {
 		if (!c->seed_in) return;

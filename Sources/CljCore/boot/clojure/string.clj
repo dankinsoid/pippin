@@ -41,12 +41,8 @@
 
 (defn join
   "Returns a string of the items of coll, separated by separator (default none)."
-  ([coll] (apply str coll))
-  ([separator coll]
-   (loop [sb "" more (seq coll) first? true]
-     (if more
-       (recur (str sb (if first? "" separator) (first more)) (next more) false)
-       sb))))
+  ([coll] (str-join* "" coll))
+  ([separator coll] (str-join* separator coll)))
 
 (defn capitalize
   "Converts the first character of s to upper-case and the rest to lower-case."
@@ -93,14 +89,7 @@
   "Returns s with each character mapped by cmap (char → replacement) replaced; other characters stay."
   [s cmap]
   (when-not (string? s) (throw (ex-info (str "escape expects a string, got: " (type s)) {})))
-  (loop [index 0 buffer ""]
-    (if (= (count s) index)
-      buffer
-      (let [ch (nth s index)]
-        (recur (inc index)
-               (if-let [replacement (cmap ch)]
-                 (str buffer replacement)
-                 (str buffer ch)))))))
+  (str-join* "" (map (fn [ch] (if-let [replacement (cmap ch)] replacement ch)) s)))
 
 (defn index-of
   "The index of value (a string or char) in s, from from-index; nil when absent."

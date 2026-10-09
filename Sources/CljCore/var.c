@@ -149,7 +149,7 @@ typedef struct frame {
 static frame *top_frame(void) { return frames; }
 
 clj_value clj_var_thread_binding(clj_value var) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	frame    *f = c ? c->bindings : NULL;
 	if (!f) return CLJ_NIL;
 	return clj_map_get(f->bindings, var, CLJ_NIL);

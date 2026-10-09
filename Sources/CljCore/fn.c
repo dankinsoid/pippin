@@ -313,20 +313,35 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 		return CLJ_THROWN;
 	}
 
-	size_t     cap = 8, taken = 0;
-	clj_value *spread = malloc(cap * sizeof *spread);
-	if (!spread) clj_fatal("out of memory");
-	bool failed = false;
+	// fixed args then the spread, contiguous: the common call never touches malloc (group-freq: 3M an iteration).
+	clj_value  local[CLJ_FN_MAX_FIXED + 2];
+	size_t     cap = sizeof local / sizeof *local, taken = 0;
+	clj_value *all = local;
+	if (fixed + 1 > cap) {
+		cap = fixed + 8;
+		all = malloc(cap * sizeof *all);
+		if (!all) clj_fatal("out of memory");
+	}
+	memcpy(all, args, fixed * sizeof *all);
+	clj_value *spread = all + fixed;
+	bool       failed = false;
 	while (!clj_is_nil(tail) && taken < probe) {
 		clj_value x = clj_first(tail);
 		if (x == CLJ_THROWN) {
 			failed = true;
 			break;
 		}
-		if (taken == cap) {
+		if (fixed + taken == cap) {
 			cap *= 2;
-			spread = realloc(spread, cap * sizeof *spread);
-			if (!spread) clj_fatal("out of memory");
+			if (all == local) {
+				all = malloc(cap * sizeof *all);
+				if (!all) clj_fatal("out of memory");
+				memcpy(all, local, (fixed + taken) * sizeof *all);
+			} else {
+				all = realloc(all, cap * sizeof *all);
+				if (!all) clj_fatal("out of memory");
+			}
+			spread = all + fixed;
 		}
 		spread[taken++] = x;
 		clj_value nx = clj_next(tail);
@@ -342,13 +357,7 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	if (failed) {
 		r = CLJ_THROWN;
 	} else if (clj_is_nil(tail)) {
-		size_t     total = fixed + taken;
-		clj_value *all = malloc((total ? total : 1) * sizeof *all);
-		if (!all) clj_fatal("out of memory");
-		memcpy(all, args, fixed * sizeof *all);
-		memcpy(all + fixed, spread, taken * sizeof *all);
-		r = clj_invoke(f, all, total);
-		free(all);
+		r = clj_invoke(f, all, fixed + taken);
 	} else if (over == SIZE_MAX) {
 		r = clj_arity_error_over(f, bound);
 	} else {
@@ -365,17 +374,15 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 			clj_release(tail);
 			tail = c;
 		}
-		size_t     head = over < fixed ? over : fixed;
-		clj_value *all = malloc((over + 1) * sizeof *all);
-		if (!all) clj_fatal("out of memory");
-		memcpy(all, args, head * sizeof *all);
-		memcpy(all + head, spread, keep * sizeof *all);
+		// The conses hold what they took; all[over] is about to be the seq, so those slots stop owning.
+		for (size_t i = keep; i < taken; i++) clj_release(spread[i]);
+		taken = keep;
+		// all[0, over) is already args then spread[0, keep): over < fixed means keep == 0.
 		all[over] = tail;
 		r = clj_invoke(f, all, CLJ_NARGS_REST);
-		free(all);
 	}
 	for (size_t i = 0; i < taken; i++) clj_release(spread[i]);
-	free(spread);
+	if (all != local) free(all);
 	clj_release(tail);
 	clj_release(held);
 	return r;

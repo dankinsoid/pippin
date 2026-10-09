@@ -155,11 +155,7 @@ enum { SWITCH_FRAME = 64, SWITCH_LR = 48, SWITCH_FP = 40 };
 
 // ---- the coroutine object
 
-_Thread_local clj_coro *clj_coro_tls;
-
-static pthread_once_t key_once = PTHREAD_ONCE_INIT;
-static pthread_key_t  key;
-static _Atomic bool   key_ready;
+pthread_key_t clj_carrier_key;
 static _Atomic size_t live_coros;
 // 1 MB, not 512 KB: ASan triples the facts walk's frame, and 512 KB left a third of headroom over the
 // deepest form the corpus has (NOTES "Guard").
@@ -357,6 +353,8 @@ size_t clj_coro_stack_size(void) { return stack_size; }
 
 static void thread_exit(void *p) {
 	clj_carrier *car = p;
+	// The slot is NULL by now; what the teardown frees may still ask for the running execution.
+	pthread_setspecific(clj_carrier_key, car);
 	clj_guard_thread_exit(car);
 	clj_coro *c = car->implicit;
 	if (c) {
@@ -370,13 +368,12 @@ static void thread_exit(void *p) {
 		pthread_cond_destroy(&c->cond);
 		free(c);
 	}
+	pthread_setspecific(clj_carrier_key, NULL);
 	free(car);
 }
 
-static void make_key(void) {
-	if (pthread_key_create(&key, thread_exit) != 0) clj_fatal("pthread_key_create failed");
-	atomic_store_explicit(&key_ready, true, memory_order_release);
-}
+// Before main: clj_coro_here and the signal handlers read the slot without a once.
+__attribute__((constructor)) static void make_key(void) { clj_tsd_key_create(&clj_carrier_key, thread_exit); }
 
 // Off the pool allocator and immortal: a thread's own execution outlives every test's live-object baseline.
 static clj_coro *implicit_init(void) {
@@ -395,23 +392,21 @@ static clj_coro *implicit_init(void) {
 	clj_shadow_stack_bounds(c->shadow);
 	c->carrier = car;
 	car->implicit = car->current = c;
-	clj_coro_tls = c;
 	clj_shadow_tls = c->shadow;
-	pthread_once(&key_once, make_key);
-	pthread_setspecific(key, car);
+	pthread_setspecific(clj_carrier_key, car);
 	clj_guard_thread_init(car);
 	return c;
 }
 
 clj_coro *clj_coro_current(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	return c ? c : implicit_init();
 }
 
 // Not inlined and not pure: two calls around a park must both reach the TLS afresh (lock.h).
 __attribute__((noinline)) uint32_t *clj_locks_held_slot(void) {
 	__asm__ volatile("" ::: "memory");
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	if (!c) c = implicit_init();
 	return &c->locks_held;
 }
@@ -419,7 +414,7 @@ __attribute__((noinline)) uint32_t *clj_locks_held_slot(void) {
 #if CLJ_DEBUG
 __attribute__((noinline)) uint32_t clj_debug_owner_here(void) {
 	__asm__ volatile("" ::: "memory");
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	return c ? c->debug_owner : 0;
 }
 
@@ -434,8 +429,7 @@ uint32_t clj_debug_owner_assume(uint32_t tag) {
 clj_shadow_stack *clj_shadow_stack_init(void) { return clj_coro_current()->shadow; }
 
 const clj_carrier *clj_carrier_current(void) {
-	if (!atomic_load_explicit(&key_ready, memory_order_acquire)) return NULL;
-	return pthread_getspecific(key);
+	return clj_tsd_get(clj_carrier_key);
 }
 
 clj_carrier *clj_carrier_here(void) { return clj_coro_current()->carrier; }
@@ -446,12 +440,12 @@ const clj_shadow_stack *clj_shadow_stack_current(void) {
 }
 
 bool clj_coro_in_coroutine(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	return c && !c->implicit;
 }
 
 bool clj_coro_on_main_carrier(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	return c && c->carrier->is_main;
 }
 
@@ -464,7 +458,6 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	if (__builtin_expect(c->evacuated, 0)) evac_restore(c);
 	c->carrier = car;
 	__atomic_store_n(&car->current, c, __ATOMIC_RELAXED); // clj_debug_sched_dump reads it from another thread
-	clj_coro_tls = c;
 	clj_shadow_tls = c->shadow;
 	atomic_store_explicit(&c->state, CLJ_CORO_RUNNING, memory_order_relaxed);
 	atomic_fetch_add_explicit(&switches, 1, memory_order_relaxed);
@@ -473,7 +466,6 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	clj_ctx_switch(&car->return_sp, c->sp);
 	ASAN_FINISH(car->asan_fake);
 	__atomic_store_n(&car->current, car->implicit, __ATOMIC_RELAXED);
-	clj_coro_tls = car->implicit;
 	clj_shadow_tls = car->implicit->shadow;
 }
 
@@ -489,7 +481,7 @@ void clj_coro_switch_out(clj_coro *c) {
 }
 
 void clj_coro_entry(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	ASAN_FINISH(c->asan_fake);
 	clj_eval_top_enter();
 	clj_recovery rec;
@@ -873,7 +865,7 @@ void clj_debug_coro_dump(void) {
 // ---- bench: a coroutine that switches straight back, n times
 
 static void bounce(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	// Without the entry half, the first switch out starts a fiber switch inside one and ASan kills the run.
 	ASAN_FINISH(c->asan_fake);
 	for (;;) clj_coro_switch_out(c);

@@ -94,4 +94,6 @@
          (:i (apply max-key :a (map (fn [i] {:a i :i i}) (range 21)))) (apply str (range 25)))
 (println (apply um (range 22)) (apply ug 1 2 3 4 (range 5 30)))
 (println (um 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22) (ug 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22))
+;; More fixed arguments than apply's stack buffer holds.
+(println (apply str 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 [25 26]) (apply um 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 [24]))
 (println (err ug 1 2) "|" (err ug))

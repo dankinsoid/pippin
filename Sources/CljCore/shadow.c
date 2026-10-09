@@ -100,7 +100,7 @@ const clj_type clj_trace_type = {
 clj_value clj_shadow_stack_trace(size_t max) {
 	clj_trace_frame frames[TRACE_MAX];
 	size_t          n = clj_trace_collect(frames, max < TRACE_MAX ? max : TRACE_MAX, NULL);
-	const clj_coro *c = clj_coro_tls;
+	const clj_coro *c = clj_coro_here();
 	uint32_t        spawned = c ? c->nspawn : 0;
 	clj_trace_capture *t = clj_alloc(&clj_trace_type, sizeof *t + (n + spawned) * sizeof *t->frames);
 	t->n = (uint32_t)n + spawned;
@@ -164,7 +164,7 @@ clj_value clj_coro_append_spawn_trace(clj_value trace, const clj_coro *c) {
 void clj_coro_capture_spawn_trace(clj_coro *c) {
 	clj_trace_frame frames[CLJ_CORO_SPAWN_TRACE_MAX];
 	size_t          n = clj_trace_collect(frames, CLJ_CORO_SPAWN_TRACE_MAX, NULL);
-	const clj_coro *parent = clj_coro_tls;
+	const clj_coro *parent = clj_coro_here();
 	uint32_t        inherited = parent ? parent->nspawn : 0;
 	if (n + inherited > CLJ_CORO_SPAWN_TRACE_MAX) inherited = (uint32_t)(CLJ_CORO_SPAWN_TRACE_MAX - n);
 	if (n + inherited == 0) return;

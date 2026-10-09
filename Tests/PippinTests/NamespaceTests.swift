@@ -208,6 +208,11 @@ extension CoreTests {
 				#expect(try eval("[(str/index-of \"héllo\" \"l\") (str/index-of \"hello\" \\l 3) (str/index-of \"hello\" \"z\") (str/index-of \"hello\" \"l\" 10) (str/last-index-of \"hello\" \"l\") (str/last-index-of \"hello\" \"l\" 2) (str/last-index-of \"hello\" \"z\")]") == [2, 3, nil, nil, 3, 2, nil])
 				#expect(try eval("[(str/starts-with? \"hello\" \"he\") (str/starts-with? \"h\" \"he\") (str/ends-with? \"hello\" \"lo\") (str/ends-with? \"hello\" \"x\") (str/includes? \"hello\" \"ell\") (str/includes? \"hello\" \"z\")]") == [true, false, true, false, true, false])
 				#expect(try eval("(str/escape \"a<b>\" {\\< \"&lt;\" \\> \"&gt;\"})") == "a&lt;b&gt;")
+				#expect(try eval("[(str/join \"-\" [nil 1 nil]) (str/join nil [1 2]) (str/join \\, \"abc\") (str/join \", \" (map inc (range 3))) (str/escape \"héllo\" {\\é \"e\"})]") == ["-1-", "12", "a,b,c", "1, 2, 3", "hello"])
+				#expect(message("(str/join \",\" (map #(if (= % 2) (throw (ex-info \"boom\" {})) %) (range 5)))") == "boom")
+				// Copying the prefix per element, as a (str acc sep x) loop does, is ~200 GB here: it times out.
+				#expect(try eval("(count (str/join \",\" (repeat 200000 \"abcdefghij\")))") == 2_199_999)
+				#expect(try eval("(count (str/escape (apply str (repeat 100000 \"a<\")) {\\< \"&lt;\"}))") == 500_000)
 				#expect(try eval("[(subs \"héllo\" 1) (subs \"héllo\" 1 3) (subs \"abc\" 3) (subs \"abc\" 0 0)]") == ["éllo", "él", "", ""])
 				#expect(message("(subs \"abc\" 4)") == "String index out of range: 4")
 				#expect(message("(subs \"abc\" 2 1)") == "String index out of range: 1")

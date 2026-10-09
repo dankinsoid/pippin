@@ -1110,7 +1110,7 @@ void clj_cc_seed_collect(void) {
 }
 
 void clj_cc_main_idle(void) {
-	clj_coro *c = clj_coro_tls;
+	clj_coro *c = clj_coro_here();
 	if (!c || !c->cc_local || c->cc_collecting) return;
 	uint64_t start = clj_profile_now();
 	while (((cand_vec *)c->cc_local)->n && clj_profile_now() - start < MAIN_IDLE_BUDGET_NS) collect_local(c, MAIN_IDLE_SLICE);

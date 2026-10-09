@@ -112,9 +112,9 @@
   blocking-pool thread, the timer thread) runs on an *implicit* coroutine made on first use (`implicit_init`:
   calloc'd, immortal to RC and freed by the thread's exit, its shadow ring calloc'd, its stack the thread's)
   whose park is a `pthread_cond_wait` — nothing there ever switches, so every entry point works exactly as
-  before. The switch stores two thread-locals
-  (`clj_coro_tls`, and `clj_shadow_tls` as its mirror so `run_body` still pays one TLS load) and `car->current`
-  (read by the signal handler through the pthread key). Retired roots are per coroutine, not per carrier as
+  before. The switch stores `car->current`, which is the running execution for everyone (`clj_coro_here`
+  reads it through the carrier's pthread key, NOTES "Allocator", thread-local access), and `clj_shadow_tls` as
+  its mirror so `run_body` still pays one load. Retired roots are per coroutine, not per carrier as
   the brief said: a parked coroutine keeps its +0 reads across the carriers it migrates over, and a drain
   keyed to another execution's flight would free a root it still borrows.
 - [~] **TLS across a park is the one rule every runtime file obeys.** Clang computes a `_Thread_local`'s address

@@ -1253,6 +1253,38 @@ static clj_value b_str(const clj_value *args, size_t n) {
 
 clj_value clj_str_value(clj_value v) { return b_str(&v, 1); }
 
+// clojure.string/join: one buffer over the walk; (str sb sep x) per element copied the prefix each time.
+// @ai-generated(solo)
+static clj_value b_str_join(const clj_value *args, size_t n) {
+	(void)n;
+	buf       b = {0}, sep = {0};
+	clj_value tail = CLJ_THROWN;
+	if (!put_str(&sep, args[0])) goto fail;
+	tail = clj_seq(args[1]);
+	if (tail == CLJ_THROWN) goto fail;
+	for (bool first = true; !clj_is_nil(tail); first = false) {
+		if (!first) buf_put(&b, sep.data, sep.len);
+		clj_value x = clj_first(tail);
+		if (x == CLJ_THROWN) goto fail;
+		bool put = put_str(&b, x);
+		clj_release(x);
+		if (!put) goto fail;
+		clj_value nx = clj_next(tail);
+		if (nx == CLJ_THROWN) goto fail;
+		clj_release(tail);
+		tail = nx;
+	}
+	clj_value s = clj_string_new(b.data, b.len);
+	free(b.data);
+	free(sep.data);
+	return s;
+fail:
+	if (tail != CLJ_THROWN) clj_release(tail);
+	free(b.data);
+	free(sep.data);
+	return CLJ_THROWN;
+}
+
 static clj_value b_pr_str(const clj_value *args, size_t n) {
 	buf b = {0};
 	if (!join(&b, args, n, put_pr, true)) return CLJ_THROWN;
@@ -1633,7 +1665,7 @@ static const entry entries[] = {
 	{"count", b_count, 1, 1},      {"conj", b_conj, 0, ANY},     {"nth", b_nth, 2, 3}, {"vector-pop*", b_vector_pop, 1, 1},          {"first", b_first, 1, 1},
 	{"rest", b_rest, 1, 1},        {"next", b_next, 1, 1},       {"cons", b_cons, 2, 2},        {"list", b_list, 0, ANY},
 	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
-	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY},    {"pr-str", b_pr_str, 0, ANY},
+	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY}, {"str-join*", b_str_join, 2, 2},    {"pr-str", b_pr_str, 0, ANY},
 	{"sorted-map-by", b_sorted_map_by, 1, ANY}, {"sorted-set-by", b_sorted_set_by, 1, ANY}, {"sorted?", b_sorted_p, 1, 1},
 	{"sorted-map*", b_sorted_map, 0, ANY}, {"sorted-set*", b_sorted_set, 0, ANY}, {"sort-by*", b_sort_by, 2, 3},
 	{"sorted-seq*", b_sorted_seq, 2, 2}, {"sorted-seq-from*", b_sorted_seq_from, 3, 3}, {"sorted-compare*", b_sorted_compare, 3, 3},

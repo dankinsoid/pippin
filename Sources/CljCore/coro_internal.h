@@ -11,6 +11,7 @@
 #include "clj/lock.h"
 #include "load_internal.h"
 #include "shadow_internal.h"
+#include "tsd_internal.h"
 
 typedef struct clj_carrier clj_carrier;
 typedef struct clj_waiter  clj_waiter;
@@ -171,8 +172,14 @@ struct clj_carrier {
 	pthread_cond_t      park_cv;
 };
 
-// The running execution; NULL until the thread's first use. Not for Swift: a _Thread_local does not import.
-extern _Thread_local clj_coro *clj_coro_tls;
+// The thread's carrier; its value is NULL until the thread's first use.
+extern pthread_key_t clj_carrier_key;
+
+// The running execution; NULL until the thread's first use.
+static inline clj_coro *clj_coro_here(void) {
+	clj_carrier *car = clj_tsd_get(clj_carrier_key);
+	return car ? __atomic_load_n(&car->current, __ATOMIC_RELAXED) : NULL;
+}
 
 // The running execution, making the thread's implicit one on first use.
 clj_coro *clj_coro_current(void);

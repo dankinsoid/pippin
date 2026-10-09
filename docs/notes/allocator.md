@@ -2,13 +2,26 @@
 
 - **An exiting thread's heap goes whole to the next thread that needs one.** The blocking pools retire idle
   threads (NOTES "Scheduler", "Blocking pool"), so a burst of `thread` bodies every few minutes would otherwise
-  leave a heap of slabs per thread for ever. A pthread key's destructor (`heap_abandon`) pushes the heap on a
-  list under a mutex and clears `tls_heap`; `my_heap` pops one before it callocs. The heap, not its slabs, is
-  the unit: a slab's `owner` stays the heap, so `pool_free` sees the adopter's frees as local at once and
-  everyone else's as foreign, which the adopter drains as before. The destructor gets the heap as the key's
-  value, not from `tls_heap`: Darwin may have torn the thread's TLS down first. `tls_heap` is cleared because a
-  later destructor's free must take the foreign path — the heap may already have its next owner. A heap stays
-  on the list until a thread starts, so its slabs hold their cells meanwhile (the empty-slab item below).
+  leave a heap of slabs per thread for ever. The heap is the value of a pthread key, whose destructor
+  (`heap_abandon`) pushes it on a list under a mutex; `my_heap` pops one before it callocs. The heap, not its
+  slabs, is the unit: a slab's `owner` stays the heap, so `pool_free` sees the adopter's frees as local at once
+  and everyone else's as foreign, which the adopter drains as before. The slot is NULL by the time the
+  destructor runs (POSIX), so a later destructor's free takes the foreign path — the heap may already have its
+  next owner. A heap stays on the list until a thread starts, so its slabs hold their cells meanwhile (the
+  empty-slab item below).
+- **Thread-local access is a pthread key read off the thread register** (`tsd_internal.h`, `clj_tsd_get`):
+  the heap here and the carrier (`coro.c`, whose `current` is the running execution). Darwin's `_Thread_local`
+  is a call into dyld's `_tlv_get_addr` on every access; Mach-O has no initial-exec model (clang emits the
+  same `TLVPPAGE` call under `-ftls-model=initial-exec` or the `tls_model` attribute), so that call was 5–12.5 %
+  of the closed build's samples on the data workloads, from `pool_alloc`, `pool_free` and `clj_coro_current`
+  (bench/RESULTS.md "Corpus workloads"). The inline read is the load `pthread_getspecific` itself does,
+  `tsd[key]` off `TPIDRRO_EL0`/`%gs`, as Go's runtime does for its own key; the keys are made before main
+  (`clj_tsd_key_create`), which fails loudly when the read and `pthread_setspecific` disagree. Writes stay
+  `pthread_setspecific`, which also enrolls the key in the thread's destructor pass. The asm is `volatile`, so a
+  coroutine resumed on another carrier never reuses the old thread's base (NOTES "Coroutines", TLS across a
+  park). What stays `_Thread_local`: the shadow ring's mirror (`clj_shadow_tls`, interpreted calls only) and the
+  colder per-thread state (the protocol reader window, compiled inline caches, rand state). Platform spot:
+  docs/portability.md.
 - [ ] **Empty slabs are never returned to the OS.** Peak memory stays resident. Trigger: an app whose peak
   working set is a real fraction of the jetsam limit — the §10 app with a UI and data, not the first iOS
   run, which says nothing (NOTES "iOS"): the twelve probe forms leave 11–12 MB of `phys_footprint` behind

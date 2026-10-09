@@ -7,6 +7,7 @@
 
 #include "alloc.h"
 #include "stats_internal.h"
+#include "tsd_internal.h"
 
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
@@ -42,25 +43,22 @@ struct heap {
 	heap *next_abandoned;
 };
 
-static _Thread_local heap *tls_heap;
-static pthread_once_t      heap_key_once = PTHREAD_ONCE_INIT;
 static pthread_key_t       heap_key;
 static pthread_mutex_t     abandoned_mu = PTHREAD_MUTEX_INITIALIZER;
 static heap               *abandoned;
 
-// The heap comes as the key's value: Darwin may have torn the thread's TLS down before this destructor runs.
+// The slot is NULL by now, so a later destructor's free takes the foreign path: the next owner may be using it.
 static void heap_abandon(void *p) {
 	heap *h = p;
-	// A later destructor's free must take the foreign path: the next owner may already be using the heap.
-	tls_heap = NULL;
 	pthread_mutex_lock(&abandoned_mu);
 	h->next_abandoned = abandoned;
 	abandoned = h;
 	pthread_mutex_unlock(&abandoned_mu);
 }
 
-static void make_heap_key(void) {
-	if (pthread_key_create(&heap_key, heap_abandon) != 0) clj_fatal("pthread_key_create failed");
+// Before main: pool_free reads the slot on threads that never allocated.
+__attribute__((constructor)) static void make_heap_key(void) {
+	clj_tsd_key_create(&heap_key, heap_abandon);
 }
 
 #if CLJ_DEBUG
@@ -174,21 +172,22 @@ static inline void *cell_next(void *p) {
 
 static inline void cell_set_next(void *p, void *n) { memcpy(p, &n, sizeof n); }
 
-// The owner test of pool_free compares slab owners with tls_heap, so an adopted heap's slabs are local at once.
+static inline heap *heap_here(void) { return clj_tsd_get(heap_key); }
+
+// The owner test of pool_free compares slab owners with heap_here, so an adopted heap's slabs are local at once.
 static heap *my_heap(void) {
-	if (!tls_heap) {
-		pthread_once(&heap_key_once, make_heap_key);
+	heap *h = heap_here();
+	if (!h) {
 		pthread_mutex_lock(&abandoned_mu);
-		heap *h = abandoned;
+		h = abandoned;
 		if (h) abandoned = h->next_abandoned;
 		pthread_mutex_unlock(&abandoned_mu);
 		if (!h) h = calloc(1, sizeof *h);
 		if (!h) clj_fatal("out of memory");
 		h->next_abandoned = NULL;
-		tls_heap = h;
 		pthread_setspecific(heap_key, h);
 	}
-	return tls_heap;
+	return h;
 }
 
 // mmap gives zeroed pages but only page alignment; map twice the size and trim to an aligned slab.
@@ -253,7 +252,7 @@ static void *pool_alloc(uint32_t cls, size_t zero) {
 
 static void pool_free(void *p) {
 	slab *s = slab_of(p);
-	if (s->owner == tls_heap) {
+	if (s->owner == heap_here()) {
 		cell_set_next(p, s->free);
 		s->free = p;
 		s->used--;
@@ -365,7 +364,7 @@ size_t clj_debug_cell_size(size_t size) {
 }
 
 size_t clj_debug_pool_used_bytes(void) {
-	heap *h = tls_heap;
+	heap *h = heap_here();
 	if (!h || use_system_alloc()) return 0;
 	size_t total = 0;
 	for (int c = 0; c < NCLASSES; c++) {
