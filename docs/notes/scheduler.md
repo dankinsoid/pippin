@@ -158,3 +158,8 @@
   evaluation (it keeps the carrier waiting), a coroutine blocked under `host_depth` (stderr says so), identity
   hashes other than a channel's, two bare threads inside evaluations at once. Tests of the pool itself or of an
   outside thread are disabled under it (`outsideTheSeededModel`).
+- [ ] **One seeded SIGSEGV not reproduced.** Run 37928937581, seed 9: `CmutexTests.lockingContendedFromFourCarriers`
+  died with a SIGSEGV at `0x15e956` and no Clojure frame on the faulting stack, on a build whose quiet counted from
+  the carrier's last run rather than the host's last act, so a timer could fire at a real-time-dependent moment.
+  The same build and seed replayed clean twice (run 37930901223), and no later run met it. Trigger: a second
+  occurrence, whose crash report `make test-seeded` now keeps beside the seed logs.
