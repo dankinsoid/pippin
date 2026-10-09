@@ -16,12 +16,14 @@
     (a/<!! (a/reduce + 0 out))))
 
 (defn- broadcast [n]
-  (let [src (a/to-chan! (range n))
+  (let [src (a/chan)
         m (a/mult src)
         evens (a/chan 32 (filter even?))
         squares (a/chan 32 (map #(* % %)))]
     (a/tap m evens)
     (a/tap m squares)
+    ;; A mult drops what arrives before its first tap, so the source fills only now.
+    (a/onto-chan! src (range n))
     (a/<!! (a/reduce + 0 (a/merge [evens squares])))))
 
 (defn- fan-in [blocks per]

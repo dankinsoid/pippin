@@ -16,6 +16,7 @@
    (count (c/selections [:a :b :c] k))
    (c/count-permutations (range (+ k 4)))
    (reduce + (map #(weigh (c/nth-permutation (range 10) %)) (range 0 3628800 9973)))
-   (reduce + (map #(weigh (c/nth-combination (range 30) 5 %)) (range 0 142506 211)))])
+   ;; 20 items, not more: all-different? applies distinct? to them (docs/notes/compiler.md, apply over 21).
+   (reduce + (map #(weigh (c/nth-combination (range 20) 5 %)) (range 0 15504 23)))])
 
 (defn run [] (run* 8))

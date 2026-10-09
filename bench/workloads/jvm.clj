@@ -26,14 +26,14 @@
     (let [t1 (now-ms)
           first-result (run)
           first-ms (- (now-ms) t1)
-          ;; C2 settles within seconds; the warm-up runs at least 10 iterations and 10 s.
+          ;; C2 settles within seconds; the warm-up runs at least 5 iterations and 5 s.
           warm-start (now-ms)
           warm (loop [k 0]
-                 (if (or (< k 10) (< (- (now-ms) warm-start) 10000.0))
+                 (if (or (< k 5) (< (- (now-ms) warm-start) 5000.0))
                    (do (run) (recur (inc k)))
                    k))
           times (loop [acc []]
-                  (if (or (< (count acc) 10) (and (< (reduce + acc) 5000.0) (< (count acc) 50)))
+                  (if (or (< (count acc) 5) (and (< (reduce + acc) 3000.0) (< (count acc) 50)))
                     (let [t (now-ms)]
                       (run)
                       (recur (conj acc (- (now-ms) t))))

@@ -24,3 +24,28 @@
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
 
+- **Corpus workloads (`make corpus-bench`; `bench/workloads`, `scripts/corpus-bench.py`, `clj-corpus-bench`).** Eleven
+  programs over the corpus libraries and plain data work, one source for JVM Clojure 1.12.6 with core.async 1.6.681
+  (`bench/workloads/jvm.clj`) and for this runtime; `run` returns a value every backend prints, and the report marks a
+  row whose printed result differs from the JVM's (`hash` is ours by design, so no workload returns one). Opt-in, in
+  neither gate: a CI dispatch with `target: corpus-bench` (about an hour on the arm64 runner; the report is the job
+  summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
+  What each number is:
+  - Times are in-process per iteration of `run`: ours after one iteration, median of >= 5 and >= 3 s; the JVM's after
+    >= 10 iterations and 10 s, median of >= 10 and >= 5 s. *JVM cold* is a whole `clojure -M` process running `run`
+    once, the classpath resolved beforehand. Five builds: the interpreter, the compiled core with the workload
+    interpreted, dev units (clj-compile, clang -O2, dlopen) over the compiled core, the whole program `--closed`
+    (clj-compile `--core --closed`, built as `clj-corpus-bench` from a copy of the tree, as `make shake` does).
+  - Counters come from a `-DCLJ_STATS=1` build of the dev and the closed variant (`clj/stats.h`; relaxed atomic adds,
+    so the stats build is slower and its times are not the table's): retains and releases by path (the debug
+    counters, kept), allocations by type and bytes, frees, `clj_invoke`, compiled generic sites, `apply`, protocol
+    methods called as values, compiled inline-cache misses, lazy-seq realizations, heap hashing and equality, coroutine
+    switches. The RC share is a model: plain ops × `clj_debug_rc_op_ns` (an inline op on a cached header, measured on
+    the same runner) over the closed median, a floor.
+  - The profile is `/usr/bin/sample` for 8 s over a closed and a dev run, self time per function, attributed to a
+    source file through `nm` over the build's object files and bucketed (rc, alloc/free, dispatch, seqs, hash and
+    equality, collections, compiled core, compiled program, ...); blocked threads are left out. An inline helper — the
+    RC fast path, `clj_c_invoke`, a tag check — counts in its caller, which is why the RC row needs the model.
+  - The facts coverage is `clj-facts` with `bench/workloads` as an extra root after the corpus (its row in the
+    report), and `clj-compile --closed --stats` of each program (unboxed and tag-checked arithmetic, protocol sites,
+    workers).

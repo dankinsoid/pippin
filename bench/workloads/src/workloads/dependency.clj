@@ -29,4 +29,4 @@
     [(count order) forward (count sorted) (count (dep/nodes g)) trans dependents hits
      (count (dep/nodes pruned))]))
 
-(defn run [] (run* 3000))
+(defn run [] (run* 1500))

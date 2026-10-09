@@ -129,12 +129,14 @@ Runtime.loadPath = opts.loadPath
 Runtime.readerFeatures = opts.features
 // The corpus libraries lose a form or two to JVM interop (docs/corpus.md); the workloads do not call those.
 clj_load_set_lenient(true)
+// Not require, which --closed shakes out of a program that never names it; the path is the units' registry key.
+let relative = opts.ns.replacingOccurrences(of: "-", with: "_").replacingOccurrences(of: ".", with: "/")
+let candidates = opts.loadPath.flatMap { ["\($0)/\(relative).cljc", "\($0)/\(relative).clj"] }
+guard let file = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else { fail("no file for \(opts.ns) on the load path") }
 let loadStart = nowMs()
-do {
-	_ = try runtime.eval("(require '\(opts.ns))")
-} catch {
-	fail("require \(opts.ns): \(error)")
-}
+let loaded = withExtendedLifetime(Value(file)) { clj_load_file($0.raw) }
+if loaded == CLJ_THROWN { fail("load \(file): \(Value(owning: clj_take_pending()))") }
+clj_release(loaded)
 out("load_ms \(nowMs() - loadStart)")
 let failures = Value(owning: clj_load_take_failures())
 let failureCount = withExtendedLifetime(failures) { clj_is_nil(failures.raw) ? 0 : Int(clj_fixnum_val(clj_count(failures.raw))) }

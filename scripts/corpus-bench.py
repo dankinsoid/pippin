@@ -19,7 +19,9 @@ FEATURES = "clj"
 # The Clojure the fuzzer and make api-diff pin, and the core.async make api-diff diffs ours against.
 JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH) + '] :deps {org.clojure/clojure {:mvn/version '
             '"1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"}}}')
-RUN_TIMEOUT = 1800
+# A run past this is a hang: sampled into the logs, killed, and an error of the report. The slowest workload takes
+# about 20 s interpreted.
+RUN_TIMEOUT = 240
 SAMPLE_SECONDS = 8
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -108,16 +110,31 @@ class Bench:
 
 	# ---- runs
 
+	def bounded(self, cmd, env, name):
+		"""(completed process, ms), or (None, ms) for a run past RUN_TIMEOUT, whose threads are sampled first."""
+		t0 = time.monotonic()
+		proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+		try:
+			out, err = proc.communicate(timeout=RUN_TIMEOUT)
+		except subprocess.TimeoutExpired:
+			subprocess.run(["/usr/bin/sample", str(proc.pid), "2", "-mayDie", "-file",
+			                os.path.join(self.logs, name + ".hang.txt")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+			proc.kill()
+			out, err = proc.communicate()
+			self.keep(name + ".txt", out + "\n--- stderr\n" + err)
+			return None, (time.monotonic() - t0) * 1000
+		return subprocess.CompletedProcess(cmd, proc.returncode, out, err), (time.monotonic() - t0) * 1000
+
 	def ours(self, tag, workload, binary, extra=(), env=None):
-		cmd = [binary] + self.lp + ["--features", FEATURES] + list(extra) + ["workloads." + workload]
+		cmd = [binary] + self.lp + ["--features", FEATURES, "--min-iterations", "3", "--min-seconds", "2"] + list(extra) + \
+		      ["workloads." + workload]
 		e = dict(self.env)
 		e["CLJ_EVAL_ROOT"] = ROOT
 		if env:
 			e.update(env)
-		try:
-			p, ms = sh(cmd, env=e, timeout=RUN_TIMEOUT, check=False)
-		except subprocess.TimeoutExpired:
-			self.errors.append("%s %s: timed out after %d s" % (workload, tag, RUN_TIMEOUT))
+		p, ms = self.bounded(cmd, e, "%s.%s" % (workload, tag))
+		if p is None:
+			self.errors.append("%s %s: hung past %d s; its stacks are logs/%s.%s.hang.txt" % (workload, tag, RUN_TIMEOUT, workload, tag))
 			return None
 		self.keep("%s.%s.txt" % (workload, tag), p.stdout + "\n--- stderr\n" + p.stderr)
 		if p.returncode != 0:
@@ -132,10 +149,9 @@ class Bench:
 		cmd = ["clojure", "-Sdeps", JVM_DEPS, "-M", "bench/workloads/jvm.clj", "workloads." + workload]
 		if mode:
 			cmd.append(mode)
-		try:
-			p, ms = sh(cmd, timeout=RUN_TIMEOUT, check=False)
-		except subprocess.TimeoutExpired:
-			self.errors.append("%s jvm: timed out" % workload)
+		p, ms = self.bounded(cmd, None, "%s.jvm%s" % (workload, "-" + mode if mode else ""))
+		if p is None:
+			self.errors.append("%s jvm %s: hung past %d s" % (workload, mode or "", RUN_TIMEOUT))
 			return None
 		self.keep("%s.jvm%s.txt" % (workload, "-" + mode if mode else ""), p.stdout + "\n--- stderr\n" + p.stderr)
 		if p.returncode != 0:
@@ -203,7 +219,11 @@ class Bench:
 			return None
 		s = subprocess.run(["/usr/bin/sample", pid, str(SAMPLE_SECONDS), "-mayDie", "-file", path],
 		                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-		rest, err = proc.communicate(timeout=RUN_TIMEOUT)
+		try:
+			proc.communicate(timeout=RUN_TIMEOUT)
+		except subprocess.TimeoutExpired:
+			proc.kill()
+			proc.communicate()
 		if s.returncode != 0 or not os.path.exists(path):
 			self.errors.append("%s %s sample: /usr/bin/sample exited %d: %s" % (workload, tag, s.returncode, s.stderr[-400:]))
 			return None
@@ -216,11 +236,10 @@ class Bench:
 		res = self.results[w]
 		if not self.args.skip_jvm:
 			res["jvm"] = self.jvm(w)
-			colds = [self.jvm(w, "once") for _ in range(3)]
-			colds = [c for c in colds if c]
-			if colds:
-				res["jvm_cold_process_ms"] = sorted(c["process_ms"] for c in colds)[len(colds) // 2]
-				res["jvm_cold_first_ms"] = sorted(c["first_ms"] for c in colds)[len(colds) // 2]
+			cold = self.jvm(w, "once")
+			if cold:
+				res["jvm_cold_process_ms"] = cold["process_ms"]
+				res["jvm_cold_first_ms"] = cold.get("first_ms")
 		res["interp"] = self.ours("interp", w, self.bin["interp"])
 		res["dev-core"] = self.ours("dev-core", w, self.bin["dev"])
 		units = self.dev_units(w)
@@ -228,16 +247,16 @@ class Bench:
 			res["dev"] = self.ours("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
 			res["dev-stats"] = self.ours("dev-stats", w, self.bin["dev-stats"],
 			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats"])
-			if not self.args.skip_sample:
-				res["dev-sample"] = self.sample("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir",
-				                                                            units + "-dylib"])
-				res["dev-symbols"] = self.symbols("dev")
 		if self.args.skip_closed:
 			return
 		tree = self.closed_tree(w)
 		if not tree:
 			return
-		closed = self.build("closed", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED"], package=tree)
+		try:
+			closed = self.build("closed", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED"], package=tree)
+		except RuntimeError as e:
+			self.errors.append("%s: the closed build failed: %s" % (w, str(e)[-800:]))
+			return
 		res["closed"] = self.ours("closed", w, closed)
 		if not self.args.skip_sample:
 			res["closed-sample"] = self.sample("closed", w, closed)
@@ -245,7 +264,11 @@ class Bench:
 		if "rc_op_ns" not in self.__dict__:
 			cal = subprocess.run([closed, "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env)
 			self.rc_op_ns = parse(cal.stdout).get("rc_op_ns")
-		stats = self.build("closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
+		try:
+			stats = self.build("closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
+		except RuntimeError as e:
+			self.errors.append("%s: the closed stats build failed: %s" % (w, str(e)[-800:]))
+			return
 		res["closed-stats"] = self.ours("closed-stats", w, stats, ["--stats"])
 
 	def symbols(self, scratch):
@@ -394,8 +417,8 @@ def write_report(b, facts_path, xctrace):
 	head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stdout=subprocess.PIPE, text=True).stdout.strip()
 	add("# corpus-bench — %s, %s, %s cpus, %s" % (head, machine, ncpu, os.uname().machine))
 	add("")
-	add("ms per iteration of `run`, median after a warm-up (ours: 1 iteration, then >= 5 and >= 3 s; the JVM: >= 10 "
-	    "iterations and 10 s, then >= 10 and >= 5 s). *JVM cold* is a fresh `clojure -M` process running `run` once, "
+	add("ms per iteration of `run`, median after a warm-up (ours: 1 iteration, then >= 3 and >= 2 s; the JVM: >= 5 "
+	    "iterations and 5 s, then >= 5 and >= 3 s). *JVM cold* is a fresh `clojure -M` process running `run` once, "
 	    "start to exit; *1st* is that first iteration in-process. *core+interp* is the compiled core with the workload "
 	    "interpreted (dev mode before compiling the program); *dev* the workload compiled by clj-compile at -O2 over the "
 	    "compiled core; *closed* the whole program `--closed` (tree-shaken, direct calls).")
@@ -482,7 +505,7 @@ def write_report(b, facts_path, xctrace):
 		for w in b.args.only) + ".")
 	add("")
 
-	for tag in ("closed", "dev"):
+	for tag in ("closed",):
 		add("## Sampled profile, %s (`/usr/bin/sample`, %d s at 1 ms, self time, idle threads left out)" % (tag, SAMPLE_SECONDS))
 		add("")
 		add("Self samples by where the code lives: runtime C by source file (an inline helper — the RC fast path, "
