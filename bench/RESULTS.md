@@ -2157,3 +2157,54 @@ does not rank. What the callers say, from run 1's call graphs:
   blocks (21 %).
 - `clj_fn_native_env` (2–3 % self in dependency, pipelines, combinatorics) is the closure each `lazy-seq` body
   allocates, `concat`'s for the most part; the fn and lazy-seq counts match one to one in the table above.
+
+## Allocation census — e4314ba, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (closed `-DCLJ_STATS=1` build)
+
+`make corpus-bench`, run 37980973531 (docs/notes/benchmarks.md, "Corpus workloads", the census bullet). Every object
+allocated in the two stats iterations of the closed build, by where it died against the Clojure fn frame it was born
+in; a frame is an interpreted or compiled fn body, core.clj's and the libraries' included, so a C builtin's
+allocation belongs to the fn calling it. Every workload's objects all died within the iterations (alive 0.0 %, no
+stale record), and no data workload's object left the outermost fn or its execution.
+
+What each mechanism could address, % of the allocations (the classes partition; reuse, linear and built overlap them):
+
+| workload | born/iter | frame region (frame + callee) | interprocedural (up1 / up2 / up3+) | drop-reuse ≤4 (≤1) | linear (never retained) | escaping (other exec) | built |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| medley | 1.31M | 14.9 | 85.1 (23.3 / 45.0 / 16.8) | 4.0 (3.6) | 12.7 | 0.0 | 52.2 |
+| combinatorics | 5.13M | 6.8 | 93.2 (37.8 / 32.0 / 23.4) | 3.5 (1.5) | 8.5 | 0.0 | 16.2 |
+| dependency | 14.55M | 14.7 | 85.3 (19.3 / 24.9 / 41.1) | 24.1 (4.9) | 11.2 | 0.0 | 0.1 |
+| nested-update | 3.36M | 58.5 | 41.5 (4.0 / 3.9 / 33.6) | 11.0 (11.0) | 40.7 | 0.0 | 0.0 |
+| group-freq | 5.96M | 32.4 | 67.6 (48.2 / 11.1 / 8.4) | 1.7 (1.7) | 31.6 | 0.0 | 39.5 |
+| pipelines | 12.45M | 10.1 | 89.9 (48.8 / 30.3 / 10.8) | 4.8 (4.8) | 27.3 | 0.0 | 9.9 |
+| strings | 1.16M | 44.6 | 55.4 (21.4 / 13.2 / 20.9) | 20.1 (14.9) | 44.6 | 0.0 | 29.5 |
+| render | 1.68M | 42.7 | 57.3 (27.4 / 21.1 / 8.7) | 20.4 (19.7) | 48.2 | 0.0 | 0.0 |
+| suite-data | 1.62M | 4.2 | 95.8 (55.3 / 28.4 / 12.2) | 0.8 (0.1) | 5.8 | 0.0 | 45.6 |
+| async-pipeline | 41.6k | 0.0 | 0.3 | 0.0 | 24.1 | 99.7 | 0.0 |
+| async-libs | 290k | 65.4 | 31.1 (31.1 / 0 / 0) | 10.7 (10.4) | 79.2 | 3.5 | 37.7 |
+| async-broadcast | 310k | 19.4 | 80.6 (35.5 / 32.3 / 12.9) | 6.5 (6.5) | 22.6 | 0.0 | 0.0 |
+
+Over the nine data workloads, weighted by allocations (47.2M an iteration): frame region 19.4 %, interprocedural
+80.6 % (up1 33.3 %, up2+ 47.3 %), drop-reuse 11.4 % within 4 allocations and 5.1 % as the very next one, linear 21.8 %,
+built 13.1 %, escaping 0 %.
+
+By type (the job summary has the top six of every workload), the lifetime follows the type more than the workload:
+
+- `fn` and `lazy-seq`, born in pairs by `lazy-seq` bodies (dependency 3.29M/3.29M, pipelines 2.03M/2.03M,
+  combinatorics 983k/923k): 0–2 % in the frame, 57–92 % two frames up in medley, combinatorics and pipelines and 84 %
+  three or more in dependency, 79–100 % retained, no reuse pair. A lazy seq is consumed far from the fn that made it.
+- `cons`: up1/up2, always retained; but in dependency 82 % has a reuse pair within 4 allocations (a `concat` step
+  freeing the previous cell and making the next).
+- `vector-seq` (the seq over a vector) dies in its frame 22–100 % (nested-update 100 %, strings and render 83 %) with
+  up to 27 % reuse pairs: the type a frame region takes most of.
+- `string` (strings, render): 58–68 % in the frame, 26–41 % reuse pairs, 17–42 % retained.
+- `map`, `map-node`, `vector`, `sorted-node`: up1 to up3+, 85–100 % retained; in medley, group-freq and suite-data 70–86 %
+  of the map nodes are born under a builder (`into`, `group-by`, `frequencies`, ...).
+- `list` in group-freq dies in a callee (94 %), in dependency in its frame (82 %); `double` (pipelines 1.50M) up1 80 %,
+  never retained.
+- async-pipeline's objects (channels, fns, vectors) die in another coroutine: 99.7 %.
+
+Inline RC, measured: 0.85 ns per op on a cached header, 18.1 ns on a header missed in the cache (1M shuffled; the
+closed shipping build, `--calibrate`), 2.37 ns in the stats build (its counters). With 3.9–74.7M plain ops an
+iteration, 4–8 per object, the cached cost is 1–9 % of the closed median; the miss cost would exceed the whole run
+(99–193 %), so most ops do hit a header just touched, and the true share lies between and is bounded by the samples.
+No reuse-at-rc==1 counter exists yet (`drop-cheap` has none).

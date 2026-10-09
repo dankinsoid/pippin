@@ -93,7 +93,36 @@
      The closed build's call cuts did not show in time, so devirtualizing further ranks last among the measured.
   Not supported as a lever by these runs: hashing and equality (≤ 3.3 %, 650k hashes at most), boxing (doubles
   1.5M in pipelines, ≤ 0.2 % self), coroutine switches (the async workloads are 2–6× faster than the JVM, and their
-  busy samples are idle carriers spinning in `carrier_main`). Unmeasured: the cost of the inline RC ops beyond the
-  model; how much of `bnode_copy`/`node_own` (collections, 4–31 %) reuse at rc 1 avoids — no counter counts reuse
+  busy samples are idle carriers spinning in `carrier_main`). The inline RC ops are bracketed, not measured in place:
+  0.85 ns on a cached header (1–9 % of the closed median) to 18.1 ns on a missed one, which would exceed the whole run
+  (the census entry below). Unmeasured: how much of `bnode_copy`/`node_own` (collections, 4–31 %) reuse at rc 1 avoids — no counter counts reuse
   hits; the cost per generic call (`clj_c_invoke` is inlined into its callers); async-pipeline's closed build
   being slower than dev in all three runs; x86_64.
+- **Where objects die against where they are born** (the allocation census, one `corpus-bench` run, bench/RESULTS.md
+  "Allocation census"; % of allocations, the nine data workloads weighted by count, 47.2M an iteration). Every
+  object of the data workloads dies inside the iteration and in the execution it was born in: nothing escapes for
+  real (async-pipeline's channel traffic is the exception, 99.7 % dying in another coroutine). What each mechanism
+  could take:
+  - A frame region (stack allocation of what dies in its frame or below): 19.4 % (nested-update, strings and render
+    43–59 %, the seq-heavy workloads 4–15 %; async-libs 65 %). By type it is `vector-seq`, `string`,
+    `list` and the frame-local `vector`s.
+  - An interprocedural region: the other 80.6 %, of which 33.3 % one frame up and 47.3 % two or more. Frames are fn
+    bodies, core.clj's included, so "up 2" is typically the user fn above a `map`/`concat` that built the value; a
+    region would have to cross the library. The 3+ bucket (up to 41 % in dependency) includes values that die near
+    `run` itself, where a region is the whole iteration.
+  - Drop-reuse (an allocation of the dying cell's size class in the same frame within 4 allocations): 11.4 %, 5.1 %
+    as the very next allocation; concentrated in dependency's `cons` (82 % of them, the `concat` step), strings and
+    render (`string`, 26–41 %) and nested-update (`map`, `vector-seq`, 18–21 %). Near zero for maps, map nodes, fns
+    and lazy seqs.
+  - Flat/linear representations (never retained: the count never passed 1): 21.8 % (6–48 % by workload). The
+    persistent collections and the fn/lazy-seq pairs are 85–100 % retained, so a linearity-based in-place path covers
+    mostly strings, doubles, `vector-seq`s and builder-local lists. Born under a builder (`into`, transients,
+    `frequencies`, `group-by`, ...): 13.1 % (up to 52 % in medley); the map nodes of group-freq/suite-data are 70–86 %
+    built.
+  - The `fn` + `lazy-seq` pair (33–45 % of the allocations of dependency, pipelines, combinatorics) lives 2–3+ frames
+    and is always retained: neither a frame region nor reuse takes it; removing the separate thunk object (the step
+    already ranked first above) does.
+  Method limits: frame identity is a fn body, not a `let` or a loop turn; C builtins and the fused drivers are not
+  frames; reuse counts the next allocations of the execution, not of the frame, and ignores type; "retained" counts a
+  borrow-then-release as sharing; one run on one runner. `drop-cheap`'s `clj_drop_dead` (not merged) bypasses `bury`:
+  after it the census sees such a death only at `clj_dealloc`, with the flags already overwritten.
