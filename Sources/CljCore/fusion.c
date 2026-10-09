@@ -1,6 +1,7 @@
 // @ai-generated(guided)
 #include "clj/fusion.h"
 #include "shadow_internal.h"
+#include "stats_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -223,7 +224,14 @@ clj_value clj_fused_into(const clj_value *args, size_t n) {
 	(void)n;
 	bottom *b = bottom_new(BOTTOM_INTO);
 	b->acc = clj_retain(args[0]);
+#if CLJ_STATS
+	clj_census_builder(1);
+	clj_value r = drive(b, args[1], args[2]);
+	clj_census_builder(-1);
+	return r;
+#else
 	return drive(b, args[1], args[2]);
+#endif
 }
 
 clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll) {

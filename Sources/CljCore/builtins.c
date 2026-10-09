@@ -22,6 +22,7 @@
 #include "clj/seq.h"
 #include "clj/sorted.h"
 #include "coro_internal.h"
+#include "stats_internal.h"
 #include "profile_internal.h"
 
 // ---- numbers
@@ -658,7 +659,7 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 
 // (into to from) conj's every item in C; (into to xform from) runs the fused-into* driver under the xform, so the
 // accumulator is the driver's own and a vector grows in place (fusion.c).
-static clj_value b_into(const clj_value *args, size_t n) {
+static clj_value into(const clj_value *args, size_t n) {
 	if (n == 3) return clj_into_xform(args[0], args[1], args[2]);
 	clj_value s = clj_seq(args[1]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
@@ -672,6 +673,17 @@ static clj_value b_into(const clj_value *args, size_t n) {
 		return CLJ_THROWN;
 	}
 	return r;
+}
+
+static clj_value b_into(const clj_value *args, size_t n) {
+#if CLJ_STATS
+	clj_census_builder(1);
+	clj_value r = into(args, n);
+	clj_census_builder(-1);
+	return r;
+#else
+	return into(args, n);
+#endif
 }
 
 static clj_value b_reduce(const clj_value *args, size_t n) {

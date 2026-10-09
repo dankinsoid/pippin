@@ -30,6 +30,7 @@
 #include "proto_internal.h"
 #include "shadow_internal.h"
 #include "shape_internal.h"
+#include "stats_internal.h"
 #include "coro_internal.h"
 #include "specialize_internal.h"
 #include "trace_internal.h"
@@ -515,6 +516,9 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 	}
 	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site, __builtin_frame_address(0)};
 	s->depth++;
+#if CLJ_STATS
+	clj_census_mark census = clj_census_enter(code);
+#endif
 	// Read once: a profiler started or stopped mid-body counts only calls timed from their entry.
 	uint8_t  instrument = clj_instrument;
 	uint64_t t0 = 0;
@@ -540,6 +544,10 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 	}
 	if (__builtin_expect(--s->depth == 0, 0) && execution.nretired) drain_retired();
 	slots_release(frame, arity->nslots);
+#if CLJ_STATS
+	// After the frame's own drops, which die in it.
+	clj_census_leave(census);
+#endif
 	return v;
 }
 

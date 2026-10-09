@@ -50,6 +50,17 @@
     source file through `nm` over the build's object files and bucketed (rc, alloc/free, dispatch, seqs, hash and
     equality, collections, compiled core, compiled program, ...); blocked threads are left out. An inline helper — the
     RC fast path, `clj_c_invoke`, a tag check — counts in its caller, which is why the RC row needs the model.
+  - The allocation census (`--census` on both stats runs, stats.c): every object allocated in the two stats
+    iterations gets a record by address (sharded table) with its birth frame — a census frame pushed by the
+    interpreter's `run_body` and by every compiled body (`CLJC_ENTER`, popped by a cleanup on `cc` after the frame's
+    teardown) — and is classified at its death (rc.c `bury`, or `clj_dealloc` for the collector and shape.c): died
+    in the birth frame, deeper, 1/2/3+ frames up (the closest frame still running that held it all along), out of the
+    outermost fn, in another execution, born outside any fn, or alive at the end. Beside that: a Perceus reuse pair
+    (an allocation of the same size class in the frame of the death within the next 1 or 4 allocations), whether the
+    count ever passed 1 (`CLJ_FLAG_RETAINED`, set by the stats build's retain), and whether it was born under a
+    builder (`into`, the transient ops, `frequencies`, `group-by`, `zipmap`, `mapv`, `filterv`, by fn name). C
+    builtins push no frame: what they allocate belongs to the calling fn. `--calibrate` also times the inline
+    retain/release over 1M shuffled headers (`clj_debug_rc_op_ns_cold`), the miss the hot number leaves out.
   - The facts coverage is `clj-facts` with `bench/workloads` as an extra root after the corpus (its row in the
     report), and `clj-compile --closed --stats` of each program (unboxed and tag-checked arithmetic, protocol sites,
     workers).

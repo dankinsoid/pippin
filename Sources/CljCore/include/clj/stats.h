@@ -40,5 +40,20 @@ bool clj_debug_stats_rc(uint64_t out[3]);
 size_t clj_debug_allocs_by_type(const char **names, uint64_t *counts, size_t cap);
 // ns per inline retain or release of an unshared object on this machine, the unit the RC share is estimated in.
 double clj_debug_rc_op_ns(size_t ops);
+// The same over `objects` objects visited in a shuffled order: a header the cache no longer holds.
+double clj_debug_rc_op_ns_cold(size_t objects, size_t ops);
+
+// The allocation census (stats.c): where each object allocated between begin and end dies relative to the fn frame
+// it was born in. Begin is false, and the rest do nothing, in a build without -DCLJ_STATS.
+bool clj_debug_census_begin(void);
+void clj_debug_census_end(void);
+// `census <type> <field> <count / iterations>` lines on stdout, the fields named in stats.c.
+void clj_debug_census_print(unsigned iterations);
+
+// A census frame's entry: the execution's ring and the depth to return to (clj_census_enter, stats_internal.h).
+typedef struct {
+	void    *ring;
+	uint32_t depth;
+} clj_census_mark;
 
 #endif

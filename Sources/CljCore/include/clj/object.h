@@ -86,6 +86,8 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // Reaches a lazy seq, OR'd like REACH: a realization adds an edge no bit records, so the walk of a replaced var root
 // (clj_rc_release_root) descends through it as well as through REACH.
 #define CLJ_FLAG_LAZY        ((uint32_t)1 << 9)
+// -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
+#define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
 #define CLJ_OWNER_SHIFT 16
 
@@ -410,6 +412,9 @@ static inline clj_value clj_retain(clj_value v) {
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT(rc > 0, "retain of a freed object");
 	CLJ_RC_UNSHARED_STORE(h, rc + 1);
+#if CLJ_STATS
+	h->flags |= CLJ_FLAG_RETAINED;
+#endif
 	return v;
 }
 

@@ -24,6 +24,9 @@ typedef struct {
 	uint64_t t0;
 	uint64_t signpost;
 	uint8_t  instrument;
+#if CLJ_STATS
+	clj_census_mark census;
+#endif
 } clj_ccall;
 
 // A compiled fn's code and the stub that names it in a trace; the unit registers its table once (trace.c).

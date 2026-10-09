@@ -27,6 +27,7 @@
 #include "coro_internal.h"
 #include "guard_internal.h"
 #include "profile_internal.h"
+#include "stats_internal.h"
 #include "trace_internal.h"
 
 #if defined(__has_feature)
@@ -325,6 +326,9 @@ void clj_coro_free_stack(clj_coro *c) {
 	evac_drop(c);
 	if (!map_keep(c->map, c->map_size)) munmap(c->map, c->map_size);
 	c->map = NULL;
+#if CLJ_STATS
+	clj_census_ring_free(c->shadow);
+#endif
 	c->shadow = NULL;
 	TSAN_FIBER_FREE(c);
 }
@@ -359,6 +363,9 @@ static void thread_exit(void *p) {
 		clj_cc_execution_free(c);
 		free(c->retired);
 		free(c->shadow->frames);
+#if CLJ_STATS
+		clj_census_ring_free(c->shadow);
+#endif
 		pthread_mutex_destroy(&c->lock);
 		pthread_cond_destroy(&c->cond);
 		free(c);

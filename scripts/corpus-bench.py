@@ -54,19 +54,27 @@ def sh(cmd, env=None, timeout=None, cwd=ROOT, check=True):
 
 
 def parse(text):
-	"""The report lines of clj-corpus-bench and jvm.clj: `key value`, `stat name n`, `alloc_type name n`."""
-	r = {"stat": {}, "alloc_type": {}}
+	"""The report lines of clj-corpus-bench and jvm.clj: `key value`, `stat name n`, `alloc_type name n`,
+	`census type field n`."""
+	r = {"stat": {}, "alloc_type": {}, "census": {}}
 	for line in text.splitlines():
 		parts = line.split(" ", 1)
 		if len(parts) != 2:
 			continue
 		key, rest = parts
-		if key in ("stat", "alloc_type"):
+		if key == "census":
+			cells = rest.split(" ")
+			if len(cells) == 3:
+				# Two types may share a name (a deftype's and a core one): summed.
+				row = r["census"].setdefault(cells[0], {})
+				row[cells[1]] = row.get(cells[1], 0.0) + float(cells[2])
+		elif key in ("stat", "alloc_type"):
 			name, value = rest.rsplit(" ", 1)
 			r[key][name] = float(value)
 		elif key in ("result", "expected"):
 			r[key] = rest
-		elif key in ("load_ms", "first_ms", "median_ms", "min_ms", "stats_ms", "clang_ms", "rc_op_ns"):
+		elif key in ("load_ms", "first_ms", "median_ms", "min_ms", "stats_ms", "clang_ms", "rc_op_ns",
+		             "rc_op_ns_cold", "rc_op_ns_stats"):
 			r[key] = float(rest)
 		elif key in ("iterations", "load_failures", "warmup_iterations", "held_iterations"):
 			r[key] = int(rest)
@@ -280,7 +288,7 @@ class Bench:
 			res["dev"] = self.ours("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
 			yield
 			res["dev-stats"] = self.ours("dev-stats", w, self.bin["dev-stats"],
-			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats"])
+			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats", "--census"])
 			yield
 			if not self.args.skip_sample:
 				res["dev-sample"] = self.sample("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
@@ -304,13 +312,14 @@ class Bench:
 			res["closed-symbols"] = self.symbols("closed")
 		if "rc_op_ns" not in self.__dict__:
 			cal = subprocess.run([closed, "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env, timeout=RUN_TIMEOUT)
-			self.rc_op_ns = parse(cal.stdout).get("rc_op_ns")
+			c = parse(cal.stdout)
+			self.rc_op_ns, self.rc_op_ns_cold = c.get("rc_op_ns"), c.get("rc_op_ns_cold")
 		try:
 			stats = self.build("closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
 		except RuntimeError as e:
 			self.errors.append("%s: the closed stats build failed: %s" % (w, str(e)[-800:]))
 			return
-		res["closed-stats"] = self.ours("closed-stats", w, stats, ["--stats"])
+		res["closed-stats"] = self.ours("closed-stats", w, stats, ["--stats", "--census"])
 		yield
 
 	def symbols(self, scratch):
@@ -451,6 +460,91 @@ def median_of(r):
 	return r.get("median_ms") if r else None
 
 
+KINDS = ["frame", "callee", "up1", "up2", "up3", "escaped", "other_exec", "outside"]
+
+
+def census_rows(census):
+	"""Per type and for all types: born, deaths by kind, alive at the end, and the attribute counts over all kinds."""
+	rows = {}
+	total = {}
+	for name, f in census.items():
+		if name == "_meta":
+			continue
+		row = {"born": f.get("born", 0.0), "born_built": f.get("born_built", 0.0)}
+		for kind in KINDS:
+			row[kind] = f.get(kind, 0.0)
+			for attr in ("retained", "shared", "built", "reuse1", "reuse4"):
+				row[attr] = row.get(attr, 0.0) + f.get(kind + "." + attr, 0.0)
+				row[kind + "." + attr] = f.get(kind + "." + attr, 0.0)
+		row["alive"] = row["born"] - sum(row[kind] for kind in KINDS)
+		rows[name] = row
+		for key, v in row.items():
+			total[key] = total.get(key, 0.0) + v
+	return rows, total
+
+
+def census_section(b, add):
+	add("## Allocation census (`--census`, closed stats build; dev where closed did not run)")
+	add("")
+	add("Every object allocated in the two stats iterations, by where it died against the Clojure fn frame it was born "
+	    "in (interpreted `run_body` and compiled bodies push a census frame; C builtins are not frames, so their "
+	    "allocations belong to the calling fn). *frame*: died in its birth frame; *callee*: died deeper while the birth "
+	    "frame still ran; *up1/up2/up3+*: the birth frame returned and the closest frame that held it all along is 1, 2, "
+	    "3+ calls above; *escaped*: out of the outermost fn (back to the host); *other exec*: died in another coroutine "
+	    "or thread; *outside*: born outside any fn; *alive*: not dead when the iterations ended. *reuse≤1/≤4*: the "
+	    "death was followed, in the frame it happened in, by an allocation of its size class as the next / within the "
+	    "next 4 allocations of that execution (a Perceus reuse pair). *retained*: its count passed 1 at least once. "
+	    "*built*: born under `into`, a transient op, `frequencies`, `group-by`, `zipmap`, `mapv`, `filterv`, "
+	    "`update-vals`/`-keys`. Percentages of the type's born; types are the top 6 by count.")
+	add("")
+	add("| workload | type | born/iter | frame | callee | up1 | up2 | up3+ | escaped | other exec | outside | alive | reuse≤1 | reuse≤4 | retained | built |")
+	add("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+
+	def pct(row, key):
+		return "%.1f" % (100.0 * row.get(key, 0.0) / row["born"]) if row.get("born") else "—"
+
+	def k(v):
+		return "%.2fM" % (v / 1e6) if v >= 1e6 else "%.1fk" % (v / 1e3) if v >= 1e3 else "%.0f" % v
+
+	shares = []
+	for w in b.args.only:
+		r = b.results[w]
+		s = r.get("closed-stats") or r.get("dev-stats")
+		census = (s or {}).get("census")
+		if not census:
+			add("| %s | — |" % w)
+			continue
+		rows, total = census_rows(census)
+		top = sorted(rows.items(), key=lambda kv: -kv[1]["born"])[:6]
+		for name, row in [("**all**", total)] + top:
+			cells = [pct(row, key) for key in KINDS + ["alive", "reuse1", "reuse4", "retained", "born_built"]]
+			add("| %s | %s | %s | %s |" % (w, name, k(row["born"]), " | ".join(cells)))
+		shares.append((w, total, census.get("_meta", {}).get("stale", 0.0)))
+	add("")
+	add("What each mechanism could address, % of all allocations (overlapping: a reuse pair or a linear object is "
+	    "also in one lifetime class). *frame region*: frame + callee; *interprocedural region*: up1–up3+ (up1 alone in "
+	    "parentheses); *drop-reuse*: reuse≤4 (≤1 in parentheses); *linear*: died never retained; *escaping*: escaped + "
+	    "other exec + alive; *built*: born under a builder.")
+	add("")
+	add("| workload | born/iter | frame region | interprocedural (up1) | drop-reuse (≤1) | linear | escaping | outside | built | stale records |")
+	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	for w, t, stale in shares:
+		born = t["born"] or 1.0
+		died = sum(t[kind] for kind in KINDS)
+
+		def p(v):
+			return "%.1f" % (100.0 * v / born)
+		add("| %s | %s | %s | %s (%s) | %s (%s) | %s | %s | %s | %s | %.0f |" % (
+			w, k(t["born"]), p(t["frame"] + t["callee"]), p(t["up1"] + t["up2"] + t["up3"]), p(t["up1"]),
+			p(t["reuse4"]), p(t["reuse1"]), p(died - t["retained"]), p(t["escaped"] + t["other_exec"] + t["alive"]),
+			p(t["outside"]), p(t["born_built"]), stale))
+	add("")
+	add("Inline RC, measured: `clj_debug_rc_op_ns` %s ns per op on a cached header, %s ns over 1M headers in a shuffled "
+	    "order (the closed shipping build, `--calibrate`); the counts are the rc columns above." % (
+		fmt(getattr(b, "rc_op_ns", None), 2), fmt(getattr(b, "rc_op_ns_cold", None), 2)))
+	add("")
+
+
 def write_report(b, facts_path, xctrace):
 	lines = []
 	add = lines.append
@@ -495,12 +589,14 @@ def write_report(b, facts_path, xctrace):
 	add("")
 	add("RC ops are every `clj_retain`/`clj_release` that reached a heap object (plain = unshared, the inline path; "
 	    "shared = atomic; immortal = skipped). *rc est.* is plain ops × %s ns (`clj_debug_rc_op_ns`, an inline op on a "
-	    "cached header, measured on this runner) over the closed median: a floor, since a miss on the header costs more. "
+	    "cached header, measured on this runner) over the closed median: a floor, since a miss on the header costs more; "
+	    "*cold* the same at %s ns, a miss on every header (`clj_debug_rc_op_ns_cold`, 1M headers shuffled). "
 	    "Calls: `clj_invoke` (generic), compiled generic sites (`clj_c_invoke`), `apply`, protocol methods called as "
-	    "values and compiled inline-cache misses. Allocation types are the top ones by count." % fmt(getattr(b, "rc_op_ns", None), 2))
+	    "values and compiled inline-cache misses. Allocation types are the top ones by count." % (
+		fmt(getattr(b, "rc_op_ns", None), 2), fmt(getattr(b, "rc_op_ns_cold", None), 2)))
 	add("")
-	add("| workload | stats ms | rc plain | rc shared | rc immortal | rc est. | allocs | MB | frees | doubles | longs | lazy forced | invoke | c_invoke | apply | proto generic | proto miss | hash | equals | coro switches |")
-	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	add("| workload | stats ms | rc plain | rc shared | rc immortal | rc est. | rc est. cold | allocs | MB | frees | doubles | longs | lazy forced | invoke | c_invoke | apply | proto generic | proto miss | hash | equals | coro switches |")
+	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
 	def k(v):
 		if v is None:
@@ -519,12 +615,14 @@ def write_report(b, facts_path, xctrace):
 			continue
 		st, at = s["stat"], s["alloc_type"]
 		closed = median_of(r.get("closed"))
-		est = None
+		est = cold = None
 		if closed and getattr(b, "rc_op_ns", None):
 			est = 100.0 * st.get("rc_plain", 0) * b.rc_op_ns / (closed * 1e6)
-		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+		if closed and getattr(b, "rc_op_ns_cold", None):
+			cold = 100.0 * st.get("rc_plain", 0) * b.rc_op_ns_cold / (closed * 1e6)
+		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
 			w, fmt(s.get("stats_ms"), 0), k(st.get("rc_plain")), k(st.get("rc_shared")), k(st.get("rc_immortal")),
-			fmt(est, 0) + " %" if est is not None else "—", k(st.get("alloc")), fmt(st.get("alloc_bytes", 0) / 1e6, 1),
+			fmt(est, 0) + " %" if est is not None else "—", fmt(cold, 0) + " %" if cold is not None else "—", k(st.get("alloc")), fmt(st.get("alloc_bytes", 0) / 1e6, 1),
 			k(st.get("free")), k(at.get("double")), k(at.get("long")), k(st.get("lazy_force")), k(st.get("invoke")),
 			k(st.get("c_invoke")), k(st.get("apply")), k(st.get("proto_generic")), k(st.get("proto_miss")),
 			k(st.get("hash")), k(st.get("equals")), k(st.get("coro_switches"))))
@@ -545,6 +643,8 @@ def write_report(b, facts_path, xctrace):
 			k(((b.results[w].get("closed-stats") or {}).get("stat") or {}).get("c_invoke")))
 		for w in b.args.only) + ".")
 	add("")
+
+	census_section(b, add)
 
 	for tag in ("closed", "dev"):
 		add("## Sampled profile, %s (`/usr/bin/sample`, %d s at 1 ms, self time, idle threads left out)" % (tag, SAMPLE_SECONDS))

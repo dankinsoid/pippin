@@ -36,6 +36,7 @@
 #include "proto_internal.h"
 #include "shadow_internal.h"
 #include "shape_internal.h"
+#include "stats_internal.h"
 
 // A catch selector that names a type answers CLJ_TRUE/CLJ_FALSE or throws; *undecided stops the chain.
 static inline bool clj_c_catch_selected(clj_value m, bool *undecided) {
@@ -158,12 +159,18 @@ static inline void clj_c_release_slots(const clj_cframe *f, uint32_t n) {
 #define CLJC_SITE(stub) ((void)0)
 #endif
 
+#if CLJ_STATS
+#define CLJC_CENSUS_ENTER(stub, cc) ((cc)->census = clj_census_enter(stub))
+#else
+#define CLJC_CENSUS_ENTER(stub, cc) ((void)(cc))
+#endif
+
 // The profiler and signposts of run_body, only in a unit built with CLJC_INSTRUMENT (clj-compile --instrument).
 #ifdef CLJC_INSTRUMENT
-#define CLJC_ENTER(stub, cc) clj_c_instrument_enter(stub, cc)
+#define CLJC_ENTER(stub, cc) (clj_c_instrument_enter(stub, cc), CLJC_CENSUS_ENTER(stub, cc))
 #define CLJC_LEAVE(stub, cc) clj_c_instrument_leave(stub, cc)
 #else
-#define CLJC_ENTER(stub, cc) ((void)(cc))
+#define CLJC_ENTER(stub, cc) CLJC_CENSUS_ENTER(stub, cc)
 #define CLJC_LEAVE(stub, cc) ((void)(cc))
 #endif
 
@@ -404,5 +411,12 @@ typedef struct {
 
 // items alternate key and value.
 clj_value clj_c_map_shaped(clj_cmap_site *site, const clj_value *items, uint32_t n);
+
+#if CLJ_STATS
+static inline void clj_c_census_leave(clj_ccall *c) { clj_census_leave(c->census); }
+// A body's census frame pops as its `cc` leaves scope: after the teardown, whose drops die in the frame. Last in the
+// file, where `clj_ccall` names only the emitted locals.
+#define clj_ccall clj_ccall __attribute__((cleanup(clj_c_census_leave)))
+#endif
 
 #endif

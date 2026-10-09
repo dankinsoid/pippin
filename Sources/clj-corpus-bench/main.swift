@@ -15,6 +15,7 @@ struct Options {
 	var opt = "-O2"
 	var size: Int?
 	var stats = false
+	var census = false
 	var statIterations = 2
 	var hold: Double?
 	var calibrate = false
@@ -27,10 +28,11 @@ struct Options {
 func usage() -> Never {
 	FileHandle.standardError.write(Data("""
 	usage: clj-corpus-bench [--load-path P]... [--features k,...] [--units DIR [--dylib-dir DIR] [--opt -O2]]
-	                        [--size N | --stats | --hold SECONDS | --calibrate] NS
+	                        [--size N | --stats [--census] | --hold SECONDS | --calibrate] NS
 	--units registers clj-compile's units of DIR (units.txt), built here by clang; NS/run is then compiled code.
 	--size runs (NS/run* N) once and prints its result; --stats prints the runtime's event counts per iteration
-	(a -DCLJ_STATS=1 build); --hold keeps iterating for SECONDS after the first, for a sampling profiler.
+	(a -DCLJ_STATS=1 build), with --census where each object of those iterations died against the fn frame it was
+	born in (stats.c); --hold keeps iterating for SECONDS after the first, for a sampling profiler.
 
 	""".utf8))
 	exit(64)
@@ -67,6 +69,7 @@ while !args.isEmpty {
 	case "--opt": opts.opt = need()
 	case "--size": opts.size = int(need())
 	case "--stats": opts.stats = true
+	case "--census": opts.census = true
 	case "--stat-iterations": opts.statIterations = int(need())
 	case "--hold": opts.hold = double(need())
 	case "--calibrate": opts.calibrate = true
@@ -90,6 +93,7 @@ let runtime = Runtime()
 if opts.calibrate {
 	_ = clj_debug_rc_op_ns(10_000_000)
 	out("rc_op_ns \(clj_debug_rc_op_ns(200_000_000))")
+	out("rc_op_ns_cold \(clj_debug_rc_op_ns_cold(1 << 20, 50_000_000))")
 	exit(0)
 }
 if opts.ns.isEmpty { usage() }
@@ -214,8 +218,10 @@ if opts.stats {
 	var names0 = [UnsafePointer<CChar>?](repeating: nil, count: cap), counts0 = [UInt64](repeating: 0, count: cap)
 	let n0 = clj_debug_allocs_by_type(&names0, &counts0, cap)
 	let sw0 = clj_debug_coro_switches()
+	if opts.census { _ = clj_debug_census_begin() }
 	var ms = 0.0
 	for _ in 0..<opts.statIterations { ms += timed() }
+	if opts.census { clj_debug_census_end() }
 	let sw1 = clj_debug_coro_switches()
 	_ = clj_debug_stats(&s1)
 	_ = clj_debug_stats_rc(&rc1)
@@ -226,6 +232,8 @@ if opts.stats {
 	for i in 0..<Int(CLJ_STAT_COUNT.rawValue) { out("stat \(String(cString: clj_debug_stat_name(Int32(i)))) \(Double(s1[i] - s0[i]) / k)") }
 	for (i, name) in ["rc_plain", "rc_shared", "rc_immortal"].enumerated() { out("stat \(name) \(Double(rc1[i] - rc0[i]) / k)") }
 	out("stat coro_switches \(Double(sw1 - sw0) / k)")
+	out("rc_op_ns_stats \(clj_debug_rc_op_ns(20_000_000))")
+	if opts.census { clj_debug_census_print(UInt32(opts.statIterations)) }
 	// Two types may share a name (a deftype's and a core one), so the rows are summed by name.
 	var before: [String: UInt64] = [:], after: [String: UInt64] = [:]
 	for i in 0..<n0 { before[String(cString: names0[i]!), default: 0] += counts0[i] }

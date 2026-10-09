@@ -28,6 +28,9 @@ typedef struct {
 	void             *recovery;    // innermost clj_recovery of the execution, NULL outside the host boundary (guard.c)
 	size_t            noverflow;   // the frames the guard handler collected before landing (guard.c)
 	clj_trace_frame  *overflow;    // CLJ_TRACE_MAX entries, after the frames
+#if CLJ_STATS
+	void             *census;      // the allocation census's frames of this execution (stats.c), made on first use
+#endif
 } clj_shadow_stack;
 
 // The arrays of a ring, laid out frames then overflow.

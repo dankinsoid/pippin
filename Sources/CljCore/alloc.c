@@ -268,12 +268,14 @@ static void pool_free(void *p) {
 void *clj_alloc(const clj_type *type, size_t size) {
 	CLJ_ASSERT(size >= sizeof(clj_header), "object smaller than its header");
 	clj_header *h;
+	uint32_t    cls = CLJ_CENSUS_LARGE;
 	if (size > MAX_SMALL || use_system_alloc()) {
 		h = calloc(1, size);
 		if (!h) clj_fatal("out of memory");
 		h->flags = CLJ_FLAG_LARGE;
 	} else {
-		h = pool_alloc(size_class(size), size);
+		cls = size_class(size);
+		h = pool_alloc(cls, size);
 	}
 	atomic_init(&h->rc, 1);
 	h->type = type;
@@ -282,12 +284,23 @@ void *clj_alloc(const clj_type *type, size_t size) {
 #endif
 	LIVE_ADD(type, 1);
 #if CLJ_STATS
-	clj_stats_alloc(type, size);
+	clj_stats_alloc(h, type, size, cls);
 #endif
 	return h;
 }
 
+static void *realloc_cell(void *obj, size_t size);
+
 void *clj_realloc(void *obj, size_t size) {
+	void *n = realloc_cell(obj, size);
+#if CLJ_STATS
+	bool large = ((clj_header *)n)->flags & CLJ_FLAG_LARGE;
+	clj_census_move(obj, n, large ? CLJ_CENSUS_LARGE : size_class(size));
+#endif
+	return n;
+}
+
+static void *realloc_cell(void *obj, size_t size) {
 	clj_header *h = obj;
 	CLJ_ASSERT(!(h->flags & CLJ_FLAG_IMMORTAL) && atomic_load_explicit(&h->rc, memory_order_relaxed) == 1,
 	           "realloc of a non-unique object");
@@ -321,6 +334,9 @@ void *clj_realloc(void *obj, size_t size) {
 }
 
 void clj_dealloc(clj_header *h) {
+#if CLJ_STATS
+	clj_census_death(h);
+#endif
 	LIVE_ADD(h->type, -1);
 	CLJ_STAT(CLJ_STAT_FREE);
 	if (h->flags & CLJ_FLAG_LARGE) free(h);
@@ -329,6 +345,9 @@ void clj_dealloc(clj_header *h) {
 
 void clj_dealloc_dead(clj_header *h) {
 	(void)h;
+#if CLJ_STATS
+	clj_census_death(h);
+#endif
 	LIVE_ADD(h->type, -1);
 	CLJ_STAT(CLJ_STAT_FREE);
 }

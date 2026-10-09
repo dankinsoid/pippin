@@ -6,6 +6,7 @@
 
 #include "alloc.h"
 #include "cc_internal.h"
+#include "stats_internal.h"
 
 // CLJ_CRASH_EXIT: a plain exit, since a wedged crash reporter can leave the aborting process unkillable (NOTES "Guard").
 void clj_fatal(const char *msg) {
@@ -92,6 +93,10 @@ typedef struct {
 
 static void bury(dead_list *d, clj_header *h) {
 	assert_children_shared(h);
+#if CLJ_STATS
+	// Here, not at the dealloc: set_dead_next overwrites the flags the census reads.
+	clj_census_death(h);
+#endif
 	if (h->type->unlink) h->type->unlink(h);
 	if (atomic_load_explicit(&h->rc, memory_order_relaxed) & CLJ_RC_BUFFERED) {
 		if (d->naside == d->caside) {
@@ -160,6 +165,10 @@ void clj_retain_slow(clj_header *h) {
 	uint32_t prev = atomic_fetch_add_explicit(&h->rc, 1, memory_order_relaxed);
 	CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "retain of a freed shared object");
 	if (__builtin_expect(prev & CLJ_RC_WATCH, 0)) clj_cc_unwatch(h);
+#if CLJ_STATS
+	// Other threads write the flags of a shared header too: an RMW, so none of their bits is lost.
+	if (!(h->flags & CLJ_FLAG_RETAINED)) atomic_fetch_or_explicit((_Atomic uint32_t *)&h->flags, CLJ_FLAG_RETAINED, memory_order_relaxed);
+#endif
 }
 
 void clj_release_slow(clj_header *h) {
