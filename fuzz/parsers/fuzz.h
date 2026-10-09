@@ -21,6 +21,8 @@ _Noreturn void fz_finding(const char *fmt, ...) __attribute__((format(printf, 1,
 void fz_drop(clj_value v);
 // Body twice; the second run must end with the live count it began with. The first interns keywords, which are permanent.
 int fz_run(fz_body body, const uint8_t *data, size_t size);
+// Each nested syntax-quote multiplies the expansion, on the JVM too: past a few, the input is big, not wrong.
+bool fz_syntax_quotes_ok(const uint8_t *data, size_t size);
 // Strict UTF-8, no NUL: what a host may hand the runtime as a string. Other inputs are not the parser's to take.
 bool fz_utf8(const uint8_t *data, size_t size);
 // Owned string of a text that passed fz_utf8.

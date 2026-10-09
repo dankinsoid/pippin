@@ -58,6 +58,12 @@ clj_value fz_eval(const char *src) {
 	return v;
 }
 
+bool fz_syntax_quotes_ok(const uint8_t *data, size_t size) {
+	size_t quotes = 0;
+	for (size_t i = 0; i < size; i++) quotes += data[i] == '`';
+	return quotes <= 5;
+}
+
 bool fz_utf8(const uint8_t *s, size_t n) {
 	for (size_t i = 0; i < n;) {
 		uint8_t c = s[i];

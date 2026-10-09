@@ -130,6 +130,6 @@ static void parse(const uint8_t *data, size_t size) {
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-	if (!fz_utf8(data, size)) return -1;
+	if (!fz_utf8(data, size) || !fz_syntax_quotes_ok(data, size)) return -1;
 	return fz_run(parse, data, size);
 }

@@ -42,8 +42,14 @@ static void end(clj_value pattern) {
 	if (took > DEADLINE_MS + SLACK_MS) fz_finding("%s ran %llu ms past a %d ms deadline: %s", op_name, (unsigned long long)(took - DEADLINE_MS), DEADLINE_MS, fz_cstr(pattern));
 }
 
-// A pattern prints as #"..." and must read back as a pattern with the same groups.
+// A pattern prints as #"..." and must read back as a pattern with the same groups. Printing is verbatim, as
+// RT.print's is, so a bare `"` in the text prints unreadably on the JVM too.
 static void round_trip(clj_value re, clj_value pattern) {
+	const char *s = fz_cstr(pattern);
+	for (size_t i = 0; s[i]; i++) {
+		if (s[i] == '\\' && s[i + 1]) i++;
+		else if (s[i] == '"') return;
+	}
 	clj_value text = clj_pr_str(re);
 	if (text == CLJ_THROWN) fz_finding("a pattern does not print: %s", fz_cstr(pattern));
 	clj_value back;

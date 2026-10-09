@@ -75,6 +75,9 @@ private let errorCases: [(text: String, line: Int, column: Int, message: String)
 	("08", 1, 1, "Invalid number: 08"),
 	("1r1", 1, 1, "Radix out of range: 1r1"),
 	("#:a/b{:b 1}", 1, 1, "Namespaced map must specify a valid namespace: a/b"),
+	// Found by the parser fuzzer: a symbol 4/t, which reads back as no symbol at all.
+	("#:4{t 1}", 1, 1, "Namespaced map must specify a valid namespace: 4"),
+	("#:nil{:a 1}", 1, 1, "Namespaced map must specify a valid namespace: nil"),
 	("#cpp x", 1, 1, "No reader function for tag cpp"),
 	("#?(:default #cpp x :jank 1)", 1, 13, "No reader function for tag cpp"),
 	("#=(+ 1 2)", 1, 1, "Read-eval is not supported yet"),

@@ -1209,7 +1209,10 @@ static clj_read_status read_ns_map_prefix(parser *p, uint32_t line, uint32_t col
 	const char *name = tok + 1 + auto_ns;
 	size_t      len = n - 1 - auto_ns;
 	if (!auto_ns && len == 0) return fail(p, line, col, "Namespaced map must specify a namespace");
-	if (memchr(name, '/', len)) return fail(p, line, col, "Namespaced map must specify a valid namespace: %.*s", (int)len, name);
+	// LispReader reads the prefix as a form and takes a symbol only: `#:4{}` and `#:nil{}` are refused there.
+	bool literal = (len == 3 && memcmp(name, "nil", 3) == 0) || (len == 4 && memcmp(name, "true", 4) == 0) || (len == 5 && memcmp(name, "false", 5) == 0);
+	if (memchr(name, '/', len) || (len && (literal || !valid_symbol_text(name, len, false))))
+		return fail(p, line, col, "Namespaced map must specify a valid namespace: %.*s", (int)len, name);
 	clj_value ns;
 	if (auto_ns) {
 		if (!r->resolve_ns) return fail(p, line, col, "Auto-resolved namespaced maps (#::) need a current namespace");

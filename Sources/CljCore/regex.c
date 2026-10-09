@@ -336,7 +336,8 @@ static re_class *shorthand_class(char kind, bool negated) {
 // The escape past the backslash. is_char false means an alphanumeric the caller must interpret.
 static bool escape_char(comp *c, uint32_t *out, bool *is_char) {
 	size_t start = c->pos;
-	char   e = peek(c);
+	if (at_end(c)) return fail(c, "Unexpected internal error", start);
+	char e = peek(c);
 	c->pos++;
 	*is_char = true;
 	switch (e) {

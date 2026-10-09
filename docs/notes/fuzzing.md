@@ -105,3 +105,44 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   on the 3-core arm64 runner only to 39.5 s: clang and the JVM already fill the cores. The gate is 50 s against
   27 s on main (run 37834676178 against 37780771278), 23 s more for the compiled backend on every gate run; the
   hand pass of 80000 forms over eighty seeds took 88 s before the unit runner joined `make fuzz-long`.
+
+## Parser fuzzing (fuzz/parsers/, design §3 item 5)
+
+- **Parser fuzzing.** Four libFuzzer harnesses over the C parsers: `reader` (raw bytes as a host hands source,
+  every form to EOF), `regex` (pattern, NUL, subject: compile, find, matches, a matcher scan, replace, split),
+  `number` (one text through the reader, `parse-long`, `parse-double`, `bigint`, `bigdec` and
+  `clj_bigint_parse` in four radixes) and `format` (format string, NUL, one byte per argument from a fixed
+  palette). `make fuzz-parsers` builds CljCore with coverage under ASan and UBSan (`-fno-sanitize-recover`,
+  `-DCLJ_DEBUG=1`) and runs each in fork mode for its time (`FUZZ_PARSERS_TIME`), so one finding does not end
+  the run; it then reproduces every finding, groups them by message, minimizes four groups per target and prints
+  the minimal inputs. Opt-in, like `test-tsan`: in neither `gates` nor `gates-full`. On CI the grown corpus is a
+  cache and the findings an artifact (`fuzz-parsers-<arch>`). Every phase runs under `timeout`: the first run
+  sat three hours in minimizing OOM inputs, each attempt of which filled the RSS limit slowly.
+
+- **The toolchain.** Xcode's clang takes `-fsanitize=fuzzer-no-link` but ships no `libclang_rt.fuzzer_osx.a`,
+  so `fuzz/parsers/libfuzzer.sh` builds libFuzzer from the compiler-rt 21.1.8 release tarball (sha256 checked)
+  with the same clang. A Homebrew LLVM would have been a second compiler for CljCore under `-Werror` and a
+  second sanitizer runtime; an in-tree driver would redo fork mode, dictionaries and minimization.
+
+- **Leaks are a live-object count.** Apple's ASan refuses `detect_leaks`, so `fz_run` runs each input twice and
+  fails when the second run ends with more live objects than it began with (`clj_debug_live_objects` after
+  `clj_cc_collect`); the first run interns the input's keywords, which are permanent. A finding names the types
+  that grew.
+
+- **Oracles beside the sanitizers.** A form the reader made prints as text that reads back `=` (NaN aside), and
+  from the second read on its print is a fixed point: the first read's metadata turns a shape map into a trie
+  (NOTES "Shapes") and so changes its order, which printing does not carry. A number prints and reads back as the
+  same kind and value; the reader and `parse-double`/`parse-long` agree on the grammar they share. A regex
+  operation ends within its 200 ms deadline plus 3 s; a compiled pattern prints and reads back with its groups,
+  unless its text holds a bare `"`, which `RT.print` prints unreadably too; a syntax error carries ex-data.
+
+- **Inputs refused** (the harness returns -1): more than five backticks, since each nested syntax-quote
+  multiplies the expansion on the JVM too (the number harness's first OOMs were ten of them); invalid UTF-8
+  where the input becomes a string, which no host hands the runtime; a `format` width or precision from 100000
+  to `INT_MAX`, which is padding asked for. One past `INT_MAX` is still taken.
+
+- **Found by the first run** (37933639934, arm64): `(re-pattern "\\")`, a lone trailing backslash, compiled and
+  printed as the unreadable `#"\"`; it is now "Unexpected internal error near index 1", as on the JVM.
+  `#:4{t 1}` read as a map keyed by the symbol `4/t`, which reads back as no symbol at all; a namespaced-map
+  prefix must now be symbol text, as LispReader's is (`#:nil{}` too). Both have their test and seed
+  (`fuzz/parsers/seeds/`).

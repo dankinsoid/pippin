@@ -8,7 +8,7 @@
 int LLVMFuzzerInitialize(int *argc, char ***argv);
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
 
-enum { MAX_FORMS = 64, MAX_SYNTAX_QUOTES = 5 };
+enum { MAX_FORMS = 64 };
 
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
 	(void)argc, (void)argv;
@@ -19,7 +19,8 @@ int LLVMFuzzerInitialize(int *argc, char ***argv) {
 	return 0;
 }
 
-// pr-str is a fixed point after one read; metadata is not printed, so it is not compared.
+// A printed form reads back equal, and its print is a fixed point from the second read on: the first read's
+// metadata can change a map's layout and so its order (docs/jvm-differences.md), which printing does not carry.
 static void round_trip(clj_value form) {
 	clj_value text = clj_pr_str(form);
 	if (text == CLJ_THROWN) {
@@ -30,10 +31,18 @@ static void round_trip(clj_value form) {
 	char      msg[256];
 	if (fz_read(fz_cstr(text), clj_string_len(text), &back, msg, sizeof msg) != CLJ_READ_OK)
 		fz_finding("a printed form does not read back: %s: %s", fz_cstr(text), msg);
+	// NaN is not equal to itself, so a form holding one is compared by its print alone.
+	if (!strstr(fz_cstr(text), "##NaN") && !clj_equals(form, back)) fz_finding("a printed form reads back as another value: %s", fz_cstr(text));
 	clj_value again = clj_pr_str(back);
 	if (again == CLJ_THROWN) fz_finding("a printed form reads back as one that cannot print: %s", fz_cstr(text));
-	if (clj_string_len(again) != clj_string_len(text) || memcmp(fz_cstr(again), fz_cstr(text), clj_string_len(text)) != 0)
-		fz_finding("pr-str is not a fixed point: %s reads back as %s", fz_cstr(text), fz_cstr(again));
+	clj_value third;
+	if (fz_read(fz_cstr(again), clj_string_len(again), &third, msg, sizeof msg) != CLJ_READ_OK)
+		fz_finding("a printed form does not read back: %s: %s", fz_cstr(again), msg);
+	clj_value last = clj_pr_str(third);
+	if (last == CLJ_THROWN || strcmp(fz_cstr(last), fz_cstr(again)) != 0)
+		fz_finding("pr-str is not a fixed point: %s reads back as %s", fz_cstr(again), last == CLJ_THROWN ? "a throw" : fz_cstr(last));
+	clj_release(last);
+	clj_release(third);
 	clj_release(again);
 	clj_release(back);
 	clj_release(text);
@@ -58,9 +67,6 @@ static void read_all(const uint8_t *data, size_t size) {
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-	// Each nested syntax-quote multiplies the expansion, on the JVM too: deep nesting is a big input, not a bug.
-	size_t quotes = 0;
-	for (size_t i = 0; i < size; i++) quotes += data[i] == '`';
-	if (quotes > MAX_SYNTAX_QUOTES) return -1;
+	if (!fz_syntax_quotes_ok(data, size)) return -1;
 	return fz_run(read_all, data, size);
 }

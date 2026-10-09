@@ -254,6 +254,8 @@ extension CoreTests {
 				#expect(message("(re-pattern \"(?i)*\")") == "Dangling meta character near index 5\\n(?i)*")
 				#expect(message("(re-pattern \"a{5001}\")") == "Repetition count too large near index 1\\na{5001}")
 				#expect(message("(re-pattern \"(?z)a\")") == "Unknown inline modifier near index 2\\n(?z)a")
+				// Found by the parser fuzzer (docs/notes/fuzzing.md, "Parser fuzzing"): it compiled and printed as #"\".
+				#expect(message("(re-pattern \"\\\\\")") == "Unexpected internal error near index 1\\n\\\\")
 				#expect(try eval("(ex-data (try (re-pattern \"a(b\") (catch :default e e)))").description
 					== "{:offset 3, :pattern \"a(b\"}")
 				#expect(message("(re-pattern 1)") == "long cannot be cast to a pattern")
