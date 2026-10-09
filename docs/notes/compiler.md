@@ -167,6 +167,10 @@
 - **A C string literal escapes a `?` that follows a `?`** (`sb_c_string`): the units build as standard C, where
   `??-`, `??/` and the rest are trigraphs, so a name like `<??-test` (async-error's deftest, NOTES "Corpus") read
   as `<~test` in the pools and clang refused it under `-Werror,-Wtrigraphs`.
+- **A text past 4095 bytes is emitted as an array, not a string literal** (`sb_c_string`): ISO C bounds a literal
+  there and clang refuses a longer one under `-Werror,-Woverlength-strings`, so a constant whose printed form is
+  longer — a 1200-element vector, a long string a macro made — failed the whole unit. The model tests (NOTES
+  "Model tests") met it at their first compiled batch; `Fixtures/compiler/const.clj` holds both shapes.
 - **A constant's metadata is not in its printed form**, so the pool rebuilds it: `clj_c_with_meta` over the
   bare value and its meta map, and `const_ok` refuses the text path for any value carrying metadata so that a
   collection with a meta'd element goes through the constructors instead (`meta_is_position_only`,

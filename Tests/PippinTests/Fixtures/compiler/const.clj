@@ -18,3 +18,8 @@
 ;; A ?? before - or / is a C trigraph unless escaped (async-error's <??-test).
 (defn <??-x [] "a??-b??/c")
 (show (<??-x) (quote <??=y))
+;; A constant whose text passes ISO C's 4095-byte string literal is emitted as an array.
+(defmacro long-text [] (apply str (repeat 2100 "ab")))
+(defmacro long-vector [] (vec (range 1200)))
+(defn long-constants [] [(long-text) (long-vector)])
+(show (count (first (long-constants))) (subs (first (long-constants)) 4198) (count (second (long-constants))) (reduce + (second (long-constants))))

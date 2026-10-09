@@ -66,8 +66,17 @@ static char *xstrdup(const char *s) {
 	return d;
 }
 
-// A C string literal of arbitrary bytes: octal escapes are bounded to three digits, so a digit may follow.
+// ISO C bounds a string literal at 4095 bytes and clang enforces it under -Wpedantic -Werror (-Woverlength-strings).
+enum { C_STRING_MAX = 4095 };
+
+// A C string of arbitrary bytes: octal escapes are bounded to three digits, so a digit may follow.
 static void sb_c_string(sb *b, const char *s, size_t n) {
+	if (n > C_STRING_MAX) {
+		sb_puts(b, "(const char *)(const unsigned char[]){");
+		for (size_t i = 0; i < n; i++) sb_printf(b, "%u,", (unsigned char)s[i]);
+		sb_puts(b, "0}");
+		return;
+	}
 	sb_puts(b, "\"");
 	for (size_t i = 0; i < n; i++) {
 		unsigned char ch = (unsigned char)s[i];
