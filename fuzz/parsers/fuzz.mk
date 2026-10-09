@@ -8,7 +8,7 @@ FUZZP = $(BUILD_ROOT)/fuzz-parsers
 FUZZP_CC = xcrun clang
 FUZZP_CXX = xcrun clang++
 FUZZP_TARGETS = reader regex number format
-# Seconds per target; the reader and the regex engine have the most grammar to cover.
+# Seconds per target, a nightly budget; a check run passes about 30 min in all.
 FUZZ_PARSERS_TIME ?= reader=1200 regex=1200 number=600 format=600
 
 # Xcode's clang takes -fsanitize=fuzzer-no-link but ships no libFuzzer runtime, so it is built from this release.

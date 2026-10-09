@@ -140,6 +140,10 @@ extension CoreTests {
 				#expect(message(#"(format "%5.f" 1.0)"#) == "format: missing precision in %5.")
 				#expect(message(#"(format "%s %s" 1)"#) == "format: missing argument for %s")
 				#expect(message(#"(format "%3$s" 1 2)"#) == "format: missing argument for %3$s")
+				// Found by the parser fuzzer (docs/notes/fuzzing.md, "Parser fuzzing"): the int parse of these overflowed.
+				#expect(message(#"(format "%9999999999d" 1)"#) == "format: width out of range in %9999999999")
+				#expect(message(#"(format "%.9999999999f" 1.0)"#) == "format: precision out of range in %.9999999999")
+				#expect(message(#"(format "%9999999999$s" 1)"#) == "format: missing argument for %9999999999$s")
 				#expect(message(#"(format "%d" "1")"#) == "format: d != string in %d")
 				#expect(message(#"(format "%d" 1.5)"#) == "format: d != double in %d")
 				#expect(message(#"(format "%x" 12N)"#) == "format: x != bigint in %x")

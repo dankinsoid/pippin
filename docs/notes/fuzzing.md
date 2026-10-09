@@ -114,7 +114,7 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   `clj_bigint_parse` in four radixes) and `format` (format string, NUL, one byte per argument from a fixed
   palette). `make fuzz-parsers` builds CljCore with coverage under ASan and UBSan (`-fno-sanitize-recover`,
   `-DCLJ_DEBUG=1`) and runs each in fork mode for its time (`FUZZ_PARSERS_TIME`), so one finding does not end
-  the run; it then reproduces every finding, groups them by message, minimizes four groups per target and prints
+  the run; it then reproduces every finding, groups them by message, minimizes three groups per target and prints
   the minimal inputs. Opt-in, like `test-tsan`: in neither `gates` nor `gates-full`. On CI the grown corpus is a
   cache and the findings an artifact (`fuzz-parsers-<arch>`). Every phase runs under `timeout`: the first run
   sat three hours in minimizing OOM inputs, each attempt of which filled the RSS limit slowly.
@@ -134,7 +134,8 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   (NOTES "Shapes") and so changes its order, which printing does not carry. A number prints and reads back as the
   same kind and value; the reader and `parse-double`/`parse-long` agree on the grammar they share. A regex
   operation ends within its 200 ms deadline plus 3 s; a compiled pattern prints and reads back with its groups,
-  unless its text holds a bare `"`, which `RT.print` prints unreadably too; a syntax error carries ex-data.
+  unless its text holds a bare `"` or ends in a backslash inside `\Q`, which `RT.print`, verbatim as ours,
+  prints unreadably too; a syntax error carries ex-data.
 
 - **Inputs refused** (the harness returns -1): more than five backticks, since each nested syntax-quote
   multiplies the expansion on the JVM too (the number harness's first OOMs were ten of them); invalid UTF-8
@@ -146,3 +147,15 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   `#:4{t 1}` read as a map keyed by the symbol `4/t`, which reads back as no symbol at all; a namespaced-map
   prefix must now be symbol text, as LispReader's is (`#:nil{}` too). Both have their test and seed
   (`fuzz/parsers/seeds/`).
+
+- **Found by the second run** (37958337609): `format` parsed a width, a precision and an argument index into an
+  `int` with no bound, so `%9999999999d` was signed overflow (UBSan, 1243 hits). A count past `INT_MAX` is now
+  "width out of range" or "precision out of range", as `Integer.parseInt` refuses it in Formatter, and an index
+  past it names no argument. The rest of that run was the harnesses' own: a NUL byte cut the NaN check of the
+  reader's `=`, and a pattern ending in a backslash inside `\Q` prints unreadably on the JVM as well.
+
+- **Measured** (arm64, 3 jobs; the second run, 20 min each for the reader and regex, 10 for number and format):
+  the reader at ~360 exec/s reached 3454 edges (3323 on replaying its 1065-unit corpus); regex ~30 exec/s, its
+  200 ms deadline and backtracking patterns being most of the time, 1899 edges; number ~6900 exec/s, 3432 edges,
+  no finding; format 956 edges (its exec/s read 0 because every job ended on the overflow). Each input runs
+  twice for the leak check, so these are half the parser's own rate.

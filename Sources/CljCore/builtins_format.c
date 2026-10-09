@@ -1,5 +1,7 @@
 // @ai-generated(solo)
+#include <limits.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +44,13 @@ typedef struct {
 
 static clj_value spec_error(const spec *s, const char *what) { return clj_throw_msg("format: %s in %.*s", what, (int)s->len, s->start); }
 
+// Digits at *q as an int, -1 past INT_MAX: Formatter parses them with Integer.parseInt and refuses what it cannot.
+static int parse_count(const char **q, const char *end) {
+	int64_t v = 0;
+	for (; *q < end && **q >= '0' && **q <= '9'; (*q)++) v = v > INT_MAX ? v : v * 10 + (**q - '0');
+	return v > INT_MAX ? -1 : (int)v;
+}
+
 // false with the exception pending on a malformed spec.
 static bool parse_spec(const char *p, const char *end, spec *s) {
 	const char *q = p + 1;
@@ -52,7 +61,10 @@ static bool parse_spec(const char *p, const char *end, spec *s) {
 	const char *digits = q;
 	while (q < end && *q >= '0' && *q <= '9') q++;
 	if (q < end && *q == '$' && q > digits) {
-		s->index = (size_t)atoi(digits);
+		const char *d = digits;
+		int         index = parse_count(&d, q);
+		// An index past INT_MAX names no argument, as one past the last does.
+		s->index = index < 0 ? SIZE_MAX : (size_t)index;
 		q++;
 	} else {
 		q = digits;
@@ -71,8 +83,12 @@ static bool parse_spec(const char *p, const char *end, spec *s) {
 		}
 	}
 	if (q < end && *q >= '1' && *q <= '9') {
-		s->width = 0;
-		while (q < end && *q >= '0' && *q <= '9') s->width = s->width * 10 + (*q++ - '0');
+		s->width = parse_count(&q, end);
+		if (s->width < 0) {
+			s->len = (size_t)(q - p);
+			spec_error(s, "width out of range");
+			return false;
+		}
 	}
 	if (q < end && *q == '.') {
 		q++;
@@ -81,8 +97,12 @@ static bool parse_spec(const char *p, const char *end, spec *s) {
 			spec_error(s, "missing precision");
 			return false;
 		}
-		s->precision = 0;
-		while (q < end && *q >= '0' && *q <= '9') s->precision = s->precision * 10 + (*q++ - '0');
+		s->precision = parse_count(&q, end);
+		if (s->precision < 0) {
+			s->len = (size_t)(q - p);
+			spec_error(s, "precision out of range");
+			return false;
+		}
 	}
 	if (q >= end) {
 		s->len = (size_t)(q - p);
@@ -262,7 +282,8 @@ static clj_value format_float(buf *b, const spec *s, clj_value v) {
 	if (clj_is_double(v)) x = clj_double_val(v);
 	else if (clj_is_decimal(v)) x = clj_num_to_double(v);
 	else return clj_throw_msg("format: %c != %s in %.*s", s->conv, clj_type_name(v), (int)s->len, s->start);
-	int  precision = s->precision < 0 ? 6 : s->precision;
+	// The text buffer caps the digits anyway; the clamp keeps exp + precision inside an int.
+	int  precision = s->precision < 0 ? 6 : s->precision > 1000 ? 1000 : s->precision;
 	char text[400];
 	bool negative = signbit(x) && !isnan(x);
 	if (isnan(x) || isinf(x)) {

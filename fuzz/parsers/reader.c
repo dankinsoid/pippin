@@ -32,7 +32,7 @@ static void round_trip(clj_value form) {
 	if (fz_read(fz_cstr(text), clj_string_len(text), &back, msg, sizeof msg) != CLJ_READ_OK)
 		fz_finding("a printed form does not read back: %s: %s", fz_cstr(text), msg);
 	// NaN is not equal to itself, so a form holding one is compared by its print alone.
-	if (!strstr(fz_cstr(text), "##NaN") && !clj_equals(form, back)) fz_finding("a printed form reads back as another value: %s", fz_cstr(text));
+	if (!memmem(fz_cstr(text), clj_string_len(text), "##NaN", 5) && !clj_equals(form, back)) fz_finding("a printed form reads back as another value: %s", fz_cstr(text));
 	clj_value again = clj_pr_str(back);
 	if (again == CLJ_THROWN) fz_finding("a printed form reads back as one that cannot print: %s", fz_cstr(text));
 	clj_value third;
