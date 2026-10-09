@@ -1,4 +1,4 @@
-.PHONY: bench-ab port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: model-long bench-ab port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -66,6 +66,15 @@ test-noreuse:
 
 # Every sanitizer and allocator mode has its own incremental build.
 test-all: test test-pool test-ubsan test-noreuse
+
+# The collection model tests (NOTES "Model tests") over many seeds, opt-in like fuzz-long: the bounded pass of
+# `make test` widened, in the ASan, compiled-core and no-reuse builds.
+MODEL_LONG = CLJ_MODEL_BATCHES=$(or $(MODEL_BATCHES),400) CLJ_MODEL_COMPILED=$(or $(MODEL_COMPILED),16) CLJ_TEST_HANG_S=7200
+model-long: TEST_TIMEOUT = 7200
+model-long:
+	$(MODEL_LONG) CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(ASAN) --sanitize=address --filter ModelTests
+	$(MODEL_LONG) $(TEST) --scratch-path $(COMPILED) -Xcc -DCLJ_COMPILED_CORE --filter ModelTests
+	$(MODEL_LONG) $(TEST) --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE --filter ModelTests
 
 # Every suite alone, one process each: a live-object baseline that only holds after another suite's one-time
 # allocations fails here and not in the full run. Periodic, not a gate (NOTES.md, "Symbol / keyword").
