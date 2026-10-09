@@ -89,7 +89,7 @@
   "Returns s with each character mapped by cmap (char → replacement) replaced; other characters stay."
   [s cmap]
   (when-not (string? s) (throw (ex-info (str "escape expects a string, got: " (type s)) {})))
-  (str-join* "" (map (fn [ch] (if-let [replacement (cmap ch)] replacement ch)) s)))
+  (str-escape* s cmap))
 
 (defn index-of
   "The index of value (a string or char) in s, from from-index; nil when absent."

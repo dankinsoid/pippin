@@ -1285,6 +1285,38 @@ fail:
 	return CLJ_THROWN;
 }
 
+// clojure.string/escape over a string: cmap per code point, no seq of chars between.
+// @ai-generated(solo)
+static clj_value b_str_escape(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value   s = args[0], cmap = args[1];
+	const char *bytes = clj_string_bytes(s);
+	size_t      len = clj_string_len(s);
+	buf         b = {0};
+	for (size_t pos = 0; pos < len;) {
+		uint32_t  cp;
+		size_t    w = clj_utf8_decode(bytes, len, pos, &cp);
+		clj_value ch = clj_char(cp);
+		clj_value r = clj_invoke(cmap, &ch, 1);
+		if (r == CLJ_THROWN) {
+			free(b.data);
+			return CLJ_THROWN;
+		}
+		bool put = true;
+		if (clj_truthy(r)) put = put_str(&b, r);
+		else buf_put(&b, bytes + pos, w);
+		clj_release(r);
+		if (!put) {
+			free(b.data);
+			return CLJ_THROWN;
+		}
+		pos += w;
+	}
+	clj_value out = clj_string_new(b.data, b.len);
+	free(b.data);
+	return out;
+}
+
 static clj_value b_pr_str(const clj_value *args, size_t n) {
 	buf b = {0};
 	if (!join(&b, args, n, put_pr, true)) return CLJ_THROWN;
@@ -1665,7 +1697,7 @@ static const entry entries[] = {
 	{"count", b_count, 1, 1},      {"conj", b_conj, 0, ANY},     {"nth", b_nth, 2, 3}, {"vector-pop*", b_vector_pop, 1, 1},          {"first", b_first, 1, 1},
 	{"rest", b_rest, 1, 1},        {"next", b_next, 1, 1},       {"cons", b_cons, 2, 2},        {"list", b_list, 0, ANY},
 	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
-	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY}, {"str-join*", b_str_join, 2, 2},    {"pr-str", b_pr_str, 0, ANY},
+	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY}, {"str-join*", b_str_join, 2, 2}, {"str-escape*", b_str_escape, 2, 2},    {"pr-str", b_pr_str, 0, ANY},
 	{"sorted-map-by", b_sorted_map_by, 1, ANY}, {"sorted-set-by", b_sorted_set_by, 1, ANY}, {"sorted?", b_sorted_p, 1, 1},
 	{"sorted-map*", b_sorted_map, 0, ANY}, {"sorted-set*", b_sorted_set, 0, ANY}, {"sort-by*", b_sort_by, 2, 3},
 	{"sorted-seq*", b_sorted_seq, 2, 2}, {"sorted-seq-from*", b_sorted_seq_from, 3, 3}, {"sorted-compare*", b_sorted_compare, 3, 3},
