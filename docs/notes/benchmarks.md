@@ -29,7 +29,8 @@
   (`bench/workloads/jvm.clj`) and for this runtime. Each file's header states its input, its work and its output, and
   its `expected` is what `run` returns on the JVM, checked with `=` in every runtime (`hash` is ours by design, so no
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
-  and killed, so a hang fails the target and names itself. Opt-in, in
+  and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
+  stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
   neither gate: a CI dispatch with `target: corpus-bench` (about an hour on the arm64 runner; the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
   What each number is:

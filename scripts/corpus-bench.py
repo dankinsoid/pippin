@@ -4,6 +4,8 @@
 compiled time goes (docs/notes/benchmarks.md, "Corpus workloads"). Writes <out>/report.md and prints it."""
 
 import argparse
+import queue
+import threading
 import os
 import re
 import shutil
@@ -23,6 +25,8 @@ JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH) + '] :deps {or
 # about 20 s interpreted.
 RUN_TIMEOUT = 240
 SAMPLE_SECONDS = 8
+# Past this the remaining workloads are reported as not run; the CI step's own cap is above it.
+TOTAL_BUDGET = 150 * 60
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -78,6 +82,8 @@ class Bench:
 		self.lp = [a for p in LOAD_PATH for a in ("--load-path", p)]
 		self.results = {w: {} for w in args.only}
 		self.errors = []
+		# A workload that hung once is not run again: each further run would hang the same and cost RUN_TIMEOUT.
+		self.hung = set()
 		os.makedirs(self.logs, exist_ok=True)
 
 	def keep(self, name, text):
@@ -134,6 +140,7 @@ class Bench:
 			e.update(env)
 		p, ms = self.bounded(cmd, e, "%s.%s" % (workload, tag))
 		if p is None:
+			self.hung.add(workload)
 			self.errors.append("%s %s: hung past %d s; its stacks are logs/%s.%s.hang.txt" % (workload, tag, RUN_TIMEOUT, workload, tag))
 			return None
 		self.keep("%s.%s.txt" % (workload, tag), p.stdout + "\n--- stderr\n" + p.stderr)
@@ -208,17 +215,28 @@ class Bench:
 			e.update(env)
 		path = os.path.join(self.logs, "%s.%s.sample.txt" % (workload, tag))
 		proc = subprocess.Popen(cmd, cwd=ROOT, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-		pid = None
-		for line in proc.stdout:
+		# The first iteration may hang (docs/notes/channels.md): the wait for "ready" is bounded like any run.
+		lines = queue.Queue()
+		threading.Thread(target=lambda: [lines.put(l) for l in proc.stdout] and None, daemon=True).start()
+		pid, deadline = None, time.monotonic() + RUN_TIMEOUT
+		while pid is None and time.monotonic() < deadline and proc.poll() is None:
+			try:
+				line = lines.get(timeout=1)
+			except queue.Empty:
+				continue
 			if line.startswith("ready "):
 				pid = line.split()[1]
-				break
 		if pid is None:
+			subprocess.run(["/usr/bin/sample", str(proc.pid), "2", "-mayDie", "-file",
+			                os.path.join(self.logs, "%s.%s.hang.txt" % (workload, tag))],
+			               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+			proc.kill()
 			proc.wait()
-			self.errors.append("%s %s sample: the run never got ready" % (workload, tag))
+			self.hung.add(workload)
+			self.errors.append("%s %s sample: no first iteration within %d s" % (workload, tag, RUN_TIMEOUT))
 			return None
 		s = subprocess.run(["/usr/bin/sample", pid, str(SAMPLE_SECONDS), "-mayDie", "-file", path],
-		                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+		                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=RUN_TIMEOUT)
 		try:
 			proc.communicate(timeout=RUN_TIMEOUT)
 		except subprocess.TimeoutExpired:
@@ -234,19 +252,36 @@ class Bench:
 
 	def run_workload(self, w):
 		res = self.results[w]
+		try:
+			for _ in self.steps(w, res):
+				if w in self.hung:
+					log("%s hung; its remaining runs are skipped" % w)
+					return
+		except subprocess.TimeoutExpired as e:
+			self.hung.add(w)
+			self.errors.append("%s: %s ran past %s s" % (w, " ".join(e.cmd[:2]), e.timeout))
+
+	def steps(self, w, res):
+		"""The runs of one workload, a yield after each so a hang ends the workload."""
 		if not self.args.skip_jvm:
 			res["jvm"] = self.jvm(w)
+			yield
 			cold = self.jvm(w, "once")
+			yield
 			if cold:
 				res["jvm_cold_process_ms"] = cold["process_ms"]
 				res["jvm_cold_first_ms"] = cold.get("first_ms")
 		res["interp"] = self.ours("interp", w, self.bin["interp"])
+		yield
 		res["dev-core"] = self.ours("dev-core", w, self.bin["dev"])
+		yield
 		units = self.dev_units(w)
 		if units:
 			res["dev"] = self.ours("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
+			yield
 			res["dev-stats"] = self.ours("dev-stats", w, self.bin["dev-stats"],
 			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats"])
+			yield
 		if self.args.skip_closed:
 			return
 		tree = self.closed_tree(w)
@@ -258,11 +293,13 @@ class Bench:
 			self.errors.append("%s: the closed build failed: %s" % (w, str(e)[-800:]))
 			return
 		res["closed"] = self.ours("closed", w, closed)
+		yield
 		if not self.args.skip_sample:
 			res["closed-sample"] = self.sample("closed", w, closed)
+			yield
 			res["closed-symbols"] = self.symbols("closed")
 		if "rc_op_ns" not in self.__dict__:
-			cal = subprocess.run([closed, "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env)
+			cal = subprocess.run([closed, "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env, timeout=RUN_TIMEOUT)
 			self.rc_op_ns = parse(cal.stdout).get("rc_op_ns")
 		try:
 			stats = self.build("closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
@@ -270,6 +307,7 @@ class Bench:
 			self.errors.append("%s: the closed stats build failed: %s" % (w, str(e)[-800:]))
 			return
 		res["closed-stats"] = self.ours("closed-stats", w, stats, ["--stats"])
+		yield
 
 	def symbols(self, scratch):
 		"""Symbol -> the source file it was compiled from, over the object files of a build (nm)."""
@@ -593,7 +631,11 @@ def main():
 		# The classpath is resolved once, outside every timed process.
 		sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
 	xctrace = b.xctrace_probe()
+	start = time.monotonic()
 	for w in args.only:
+		if time.monotonic() - start > TOTAL_BUDGET:
+			b.errors.append("%s: not run, the target's %d min budget was spent" % (w, TOTAL_BUDGET // 60))
+			continue
 		log("=== " + w)
 		b.run_workload(w)
 	facts = None if args.skip_facts else b.facts()

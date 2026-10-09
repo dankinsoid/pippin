@@ -130,6 +130,8 @@ jobs:
         run: (ls -d .build/swift-stubs/*/*/ .build/swift-stubs/cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/stubs-before"
 
       - name: make ${{ inputs.target || 'gates' }}
+        # corpus-bench caps itself at 150 min (scripts/corpus-bench.py); this is the backstop for its builds.
+        timeout-minutes: ${{ inputs.target == 'corpus-bench' && 180 || 330 }}
         env:
           TARGET: ${{ inputs.target || 'gates' }}
           MAKE_ARGS: ${{ inputs.make_args }}
