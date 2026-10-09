@@ -24,6 +24,66 @@ extension CoreTests {
 			base.check()
 		}
 
+		// The step holding y completes the alts! on x, then unlocks y, before the alts! runs: two wakes, one per park.
+		// @ai-generated(solo)
+		@Test func altsWokenOnAnEarlierPortWhileParkedOnALaterPortsMutex() throws {
+			let race = """
+				(let [gate (chan) x (chan) y (chan 1 (map (fn [v] (<! gate) (>! x :x) v)))]
+				  (go (>! y :y))
+				  (<!! (timeout 20))
+				  (let [m (go (first (a/alts! [x y] :priority true)))]
+				    (<!! (timeout 20))
+				    (>!! gate :open)
+				    (let [[v p] (a/alts!! [m (timeout 1000)] :priority true)]
+				      (if (= p m) v :hung))))
+				"""
+			for i in 0..<20 {
+				let got = try eval(race)
+				if got != Value(keyword: "x") {
+					Issue.record("round \(i): \(got)")
+					clj_debug_sched_dump()
+					clj_debug_coro_dump()
+					break
+				}
+			}
+		}
+
+		// The corpus-bench shape that hung (NOTES "Channels"): two transducing taps of a mult, merged, side by side.
+		// A watchdog bounds the wait: a timeout's timer would outlive a passing round and stall the next settle.
+		// @ai-generated(solo)
+		@Test func multOverTwoTransducingTapsMergedSideBySide() throws {
+			let run = try eval("""
+				(fn []
+				  (let [n 5000
+				        one (fn []
+				              (let [src (chan) m (a/mult src) x (chan 32 (filter even?)) y (chan 32 (map #(* % %)))]
+				                (a/tap m x)
+				                (a/tap m y)
+				                (a/onto-chan! src (range n))
+				                (<!! (a/reduce + 0 (a/merge [x y])))))
+				        want (+ (reduce + (filter even? (range n))) (reduce + (map #(* % %) (range n))))
+				        got (<!! (a/into [] (a/merge (doall (repeatedly 8 #(thread (one)))))))]
+				    (if (every? #(= want %) got) :ok [want got])))
+				""")
+			for i in 0..<4 {
+				let done = DispatchSemaphore(value: 0), gone = DispatchSemaphore(value: 0)
+				let watchdog = Thread {
+					if done.wait(timeout: .now() + .seconds(120)) == .timedOut {
+						FileHandle.standardError.write(Data("mult over two transducing taps: round \(i) hung for 120 s\n".utf8))
+						clj_debug_sched_dump()
+						clj_debug_coro_dump()
+						exit(3)
+					}
+					gone.signal()
+				}
+				watchdog.start()
+				let got = try run.apply([])
+				done.signal()
+				gone.wait()
+				#expect(got == Value(keyword: "ok"), "round \(i)")
+			}
+		}
+
 		// Every idle pool thread takes a body that waits for the last one, which needs a thread of its own.
 		// @ai-generated(solo)
 		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
