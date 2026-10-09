@@ -1442,19 +1442,29 @@ static bool runtime_idle(size_t coros) {
 }
 
 // A coroutine's count drops at its finalize, before its children are freed: the object count must hold still too.
+static bool seed_hold(void);
+static void seed_unhold(void);
+
+// Seeded, a settle's collection runs with the pool stopped: what it cancels lands between two runs, not inside one.
+static void settle_collect(void) {
+	bool held = clj_sched_seed_on && seed_hold();
+	clj_cc_collect();
+	if (held) seed_unhold();
+}
+
 static bool runtime_settle(size_t coros, uint64_t ms) {
 	enum { COLLECT_EVERY_NS = 20000000 };
 	uint64_t deadline = clj_profile_now() + ms * 1000000u, collect_at = 0;
 	for (;;) {
 		if (runtime_idle(coros)) {
-			clj_cc_collect();
+			settle_collect();
 			clj_output_flush();
 			int64_t objects = clj_debug_live_objects();
 			usleep(1000);
 			if (runtime_idle(coros) && clj_debug_live_objects() == objects) return true;
 		} else if (clj_debug_live_coros() > coros && clj_profile_now() >= collect_at) {
 			// A coroutine parked on garbage leaves only when a collection cancels it (design §7, «Фаза 3»).
-			clj_cc_collect();
+			settle_collect();
 			collect_at = clj_profile_now() + COLLECT_EVERY_NS;
 		}
 		if (clj_profile_now() > deadline) return false;
@@ -1895,6 +1905,24 @@ static void seed_turn_take(clj_coro *me) {
 	pthread_mutex_lock(&seed_mu);
 	parked_bare--;
 	turn_take_locked(me);
+	pthread_mutex_unlock(&seed_mu);
+}
+
+static bool seed_hold(void) {
+	clj_coro *c = clj_coro_current();
+	if (!c->implicit || c->seed_in || c->carrier == __atomic_load_n(&seed_car, __ATOMIC_ACQUIRE)) return false;
+	pthread_mutex_lock(&seed_mu);
+	turn_take_locked(c);
+	pthread_mutex_unlock(&seed_mu);
+	return true;
+}
+
+static void seed_unhold(void) {
+	clj_coro *c = clj_coro_current();
+	pthread_mutex_lock(&seed_mu);
+	c->seed_in = false;
+	running_bare--;
+	pthread_cond_broadcast(&seed_cv);
 	pthread_mutex_unlock(&seed_mu);
 }
 

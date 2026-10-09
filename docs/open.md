@@ -309,7 +309,7 @@ file. 112 open, 102 partly done.
 ### [Scheduler (Sources/CljCore/sched.c)](notes/scheduler.md)
 
 - [~] Blocking pool — Trigger for a heap: profiles with thousands of live timeouts.
-- [ ] One seeded SIGSEGV not reproduced. — Trigger: a second occurrence, whose crash report `make test-seeded` now keeps beside the seed logs.
+- [ ] A forced collection beside a finishing coroutine crashed in `exec_finalize`. — Trigger: a reproduction off the seeded mode — a stress of coroutines finishing under repeated `clj_cc_collect` — or the crash met anywhere else.
 
 ### [Set (Sources/CljCore/set.c)](notes/set.md)
 

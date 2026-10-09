@@ -158,8 +158,14 @@
   evaluation (it keeps the carrier waiting), a coroutine blocked under `host_depth` (stderr says so), identity
   hashes other than a channel's, two bare threads inside evaluations at once. Tests of the pool itself or of an
   outside thread are disabled under it (`outsideTheSeededModel`).
-- [ ] **One seeded SIGSEGV not reproduced.** Run 37928937581, seed 9: `CmutexTests.lockingContendedFromFourCarriers`
-  died with a SIGSEGV at `0x15e956` and no Clojure frame on the faulting stack, on a build whose quiet counted from
-  the carrier's last run rather than the host's last act, so a timer could fire at a real-time-dependent moment.
-  The same build and seed replayed clean twice (run 37930901223), and no later run met it. Trigger: a second
-  occurrence, whose crash report `make test-seeded` now keeps beside the seed logs.
+- [ ] **A forced collection beside a finishing coroutine crashed in `exec_finalize`.** Three seeded runs died at
+  the end of `CmutexTests.lockingContendedFromFourCarriers` (run 37928937581 seed 9; run 37931452245 seeds 6 and
+  28, its crash reports in that run's shard logs): the carrier's `finish` released a body's fn, the last reference
+  to its exec, and `exec_finalize`'s `free_ic` walk met a node pointer into unmapped memory (`0x4b932f`,
+  `0x2c62b6`), while the test thread sat in `CoroBaseline.check`'s settle, whose `clj_cc_collect` forces a deep
+  collection. The schedule did not replay (same build and seed, run 37930901223), since that collection ran on the
+  test thread beside the pool, outside the model; seeded mode now holds the pool stopped for a settle's collection
+  (`settle_collect`), which makes the runs deterministic and hides the overlap. Not shown in the default mode, where
+  a settle seldom meets a coroutine still finishing; what the seeded timing makes common is a forced deep walk
+  while the last reference to an exec goes. Trigger: a reproduction off the seeded mode — a stress of coroutines
+  finishing under repeated `clj_cc_collect` — or the crash met anywhere else.
