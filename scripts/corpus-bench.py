@@ -282,6 +282,10 @@ class Bench:
 			res["dev-stats"] = self.ours("dev-stats", w, self.bin["dev-stats"],
 			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats"])
 			yield
+			if not self.args.skip_sample:
+				res["dev-sample"] = self.sample("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
+				yield
+				res["dev-symbols"] = self.symbols("dev")
 		if self.args.skip_closed:
 			return
 		tree = self.closed_tree(w)
@@ -542,7 +546,7 @@ def write_report(b, facts_path, xctrace):
 		for w in b.args.only) + ".")
 	add("")
 
-	for tag in ("closed",):
+	for tag in ("closed", "dev"):
 		add("## Sampled profile, %s (`/usr/bin/sample`, %d s at 1 ms, self time, idle threads left out)" % (tag, SAMPLE_SECONDS))
 		add("")
 		add("Self samples by where the code lives: runtime C by source file (an inline helper — the RC fast path, "
