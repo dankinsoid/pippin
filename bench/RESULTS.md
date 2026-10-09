@@ -2261,3 +2261,60 @@ Self time, closed, % of busy samples (the buckets of the table above; *TLS* is `
 - **render**: run 1's 164 ms was the `(map f s)` escape (allocs 1.68M → 3.33M, `string-seq` 476k); with
   `str-escape*` allocs are 1.26M and the time 88 ms.
 - The other workloads move within the runner's ±20–30 %, so no per-workload claim is made for them.
+
+## Drop by type, unzeroed cells, inline lazy-seq thunks — 9b85c82, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Branch `drop-cheap` over `cheap-runtime`: the teardown specialized by type (`clj_type.drop`, docs/notes/rc.md), hot
+constructors on an unzeroed cell (`clj_alloc_uninit`, docs/notes/allocator.md), and a compiled `lazy-seq` site whose
+cell holds the thunk's code and captures instead of a fn object (docs/notes/compiler.md). One `corpus-bench` run,
+37986257348; every workload returned the JVM's value. *before* is "Cheap runtime" above (its runs 1 and 2); this
+run's runner was the faster kind (JVM warm medley 32 ms against 29 and 67), so the closed/JVM ratio is the fairer
+comparison.
+
+| workload | closed before (run 1 / run 2) | closed | closed/JVM before | closed/JVM | allocs before | allocs |
+|---|---:|---:|---:|---:|---:|---:|
+| medley | 100 / 118 | 75 | 3.4× / 1.8× | 2.3× | 1.31M | 1.22M |
+| combinatorics | 228 / 258 | 206 | 2.8× / 2.3× | 3.0× | 5.13M | 4.21M |
+| dependency | 753 / 1066 | 704 | 2.2× / 2.5× | 2.2× | 14.55M | 11.26M |
+| nested-update | 284 / 293 | 268 | 3.0× / 3.5× | 2.7× | 3.36M | 3.36M |
+| group-freq | 369 / 594 | 421 | 3.0× / 4.0× | 3.2× | 5.96M | 5.61M |
+| pipelines | 694 / 785 | 772 | 4.0× / 4.2× | 4.0× | 12.45M | 10.42M |
+| strings | 88 / 85 | 80 | 2.6× / 2.4× | 2.0× | 1.05M | 0.98M |
+| render | 164 / 88 | 73 | 4.2× / 2.1× | 1.6× | 1.26M | 1.04M |
+| suite-data | 105 / 126 | 90 | 2.8× / 2.8× | 2.4× | 1.62M | 1.45M |
+
+Self time, closed, % of the report's busy samples, from the runs' `sample` logs (run 2 of "Cheap runtime" against
+this one). *Freeing* is rc.c's teardown (`free_object`, `bury`, `release_reaches_zero`, `release_child`,
+`clj_drop_dead`, `clj_drop_slow`, `clj_release_slow`) plus every type's `*_each_child` (before) or `*_drop` (after):
+the typed drops count in their types' own files, so the report's buckets move them out of "rc" into "collections"
+and "seqs". *memset* is `_platform_memset`/`bzero`, all of it the pool's zeroing before.
+
+| workload | freeing before | freeing | of it in `*_drop` | alloc.c before | alloc.c | memset before | memset |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| medley | 39.3 | 27.5 | 18.9 | 11.4 | 12.5 | 3.3 | 0.9 |
+| combinatorics | 25.7 | 21.0 | 8.4 | 18.9 | 19.7 | 3.0 | 0.9 |
+| dependency | 31.6 | 22.0 | 12.2 | 15.4 | 13.6 | 4.8 | 0.4 |
+| nested-update | 26.4 | 18.4 | 9.5 | 10.4 | 11.5 | 2.2 | 0.9 |
+| group-freq | 24.6 | 17.2 | 6.9 | 12.9 | 13.2 | 1.6 | 1.0 |
+| pipelines | 24.9 | 19.5 | 8.0 | 14.9 | 16.8 | 2.3 | 0.6 |
+| strings | 13.4 | 8.6 | 3.3 | 11.5 | 9.7 | 3.0 | 1.1 |
+| render | 17.5 | 14.1 | 4.0 | 12.8 | 11.4 | 2.9 | 0.8 |
+| suite-data | 30.6 | 21.4 | 11.0 | 12.1 | 12.2 | 1.8 | 0.9 |
+
+- **Freeing: 13–39 % → 9–28 %, 4–12 points off every data workload.** What is left is the decrement and the death of
+  each child, now inline in the type's drop (`bnode_drop` alone is 14 % of medley, 7 % of dependency: a map node's
+  slots touched once each), and `free_object`'s loop and `clj_dealloc` per dead object.
+- **The zeroing is gone from the profile**: `memset` 1.6–4.8 % → 0.4–1.1 % (what remains is `clj_alloc`'s types
+  kept on it: tuples, vector nodes, shape maps). `alloc.c` moved within ±2 points; `clj_alloc_uninit` is 2.0–2.4 %
+  self where it shows, the debug poison being compiled out.
+- **Allocations: the `fn` row left every workload's top 8** where `lazy-seq` paired with it: dependency 14.55M →
+  11.26M (−3.29M, the fns of `concat` and `mapcat`), pipelines 12.45M → 10.42M (−2.03M), combinatorics 5.13M →
+  4.21M, render, suite-data and medley by their lazy seqs' count. `c_invoke` falls by the same count (dependency
+  6.70M → 3.41M), since such a site no longer calls `lazy-seq*`. `lazy forced` is unchanged (3.28M in dependency):
+  realization itself is the next cost there, `publish` 4–6 % and `clj_coro_current` 3–5 % self.
+- **Time**: seven of the nine read below both "before" runs (group-freq and pipelines between them); with one run and the runner's ±20–30 %, no per-workload claim is made beyond the counters and the profile.
+- **Reuse at rc 1, first measured** (`-DCLJ_STATS`, `clj_is_unique` answers per type, report "Reuse at rc 1"):
+  nested-update reuses in place 6.56M against 1.20M copies (vectors 3.30M/67k), dependency 2.72M/2.19M (map nodes
+  1.31M/1.45M); medley 41k/689k, group-freq 102k/1.04M, pipelines 656k/2.43M and suite-data 180k/861k copy
+  almost every map node they touch (sorted nodes 1.9k/283k), which is where `bnode_copy` and `node_own` (4–12 %)
+  come from: a map reached from a var or another map has a count above 1 at every assoc.

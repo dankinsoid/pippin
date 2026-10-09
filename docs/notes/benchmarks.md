@@ -71,14 +71,14 @@
   measurable. Dev and closed perform the same RC ops and allocations to the unit in all twelve workloads; the closed
   build cuts generic calls by 2–83 % (nested-update: `clj_invoke` 2.61M → 0.44M) without a time change past the
   runner's spread. In order of what the evidence says would move:
-  1. Allocation and its free: 38–51 % of the samples, strings aside. The free cascade (rc.c: `release_child`
-     through `each_child`, `release_reaches_zero`, `bury`) 12–29 %, alloc.c and system malloc 9–28 %, `pool_alloc`'s
-     zeroing 3–8 %, and two thirds of the TLS row below; 1.2–14.6M objects an iteration. The inline retain/release on top is a modelled
-     5–13 % (plain ops × 1.35 ns), not a sample. The compiler step with counter support: a `lazy-seq` whose thunk is
-     not a separate fn object (code pointer and captures in the lazy-seq itself) — fn and lazy-seq allocations pair
-     one to one (dependency 3.29M/3.29M, pipelines 2.03M/2.03M, combinatorics 983k/923k), so it removes 16–23 % of
-     those workloads' allocations with their frees and RC. Then reuse of a dying cell for the next allocation of its
-     size class and a free specialized by type in compiled code (Perceus' reuse and drop), aimed at the cascade.
+  1. Allocation and its free: 38–51 % of the samples, strings aside; 1.2–14.6M objects an iteration. Done
+     (bench/RESULTS.md "Drop by type, unzeroed cells, inline lazy-seq thunks"): the teardown is specialized by type
+     (docs/notes/rc.md), freeing 13–39 % → 9–28 %; the hot constructors take unzeroed cells, `memset` 1.6–4.8 % →
+     0.4–1.1 %; a compiled `lazy-seq` site needs no fn object, dependency 14.55M → 11.26M allocations and pipelines
+     12.45M → 10.42M. What is left of it is the per-child decrement inside the drops (`bnode_drop` 7–14 % on the
+     map workloads), `pool_alloc`/`clj_dealloc` per object, and the copies reuse at rc 1 does not take (below).
+     Open: the interpreter's `lazy-seq` thunk (docs/notes/compiler.md) and the size-class hand-off, which the census
+     bounds at 5.1 % of allocations (docs/notes/allocator.md); the inline retain/release on top is a modelled 5–13 %.
   2. Thread-local access: done (bench/RESULTS.md "Cheap runtime"). The heap and the carrier are pthread keys read
      off the thread register (docs/notes/allocator.md), and dyld's `_tlv_get_addr` fell from 5–12.5 % to under 1 %.
      What is left is `clj_coro_current` itself, 2–5 % self, called once per realization by the lazy-seq
@@ -96,8 +96,9 @@
   1.5M in pipelines, ≤ 0.2 % self), coroutine switches (the async workloads are 2–6× faster than the JVM, and their
   busy samples are idle carriers spinning in `carrier_main`). The inline RC ops are bracketed, not measured in place:
   0.85 ns on a cached header (1–9 % of the closed median) to 18.1 ns on a missed one, which would exceed the whole run
-  (the census entry below). Unmeasured: how much of `bnode_copy`/`node_own` (collections, 4–31 %) reuse at rc 1 avoids — no counter counts reuse
-  hits; the cost per generic call (`clj_c_invoke` is inlined into its callers); async-pipeline's closed build
+  (the census entry below). Reuse at rc 1 is counted (`reuse_type`, the RESULTS section above): nested-update
+  and dependency reuse most of what they ask about, medley, group-freq, pipelines and suite-data copy 65–100 % of
+  their map and sorted nodes, the source of `bnode_copy`/`node_own`. Unmeasured: the cost per generic call (`clj_c_invoke` is inlined into its callers); async-pipeline's closed build
   being slower than dev in all three runs; x86_64.
 - **Where objects die against where they are born** (the allocation census, one `corpus-bench` run, bench/RESULTS.md
   "Allocation census"; % of allocations, the nine data workloads weighted by count, 47.2M an iteration). Every
