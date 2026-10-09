@@ -25,15 +25,6 @@
 #include "coro_internal.h"
 #include "profile_internal.h"
 
-// DIAG timer-late
-static _Atomic bool         diag_on;
-static uint64_t             diag_far_dispatched;
-static int                  diag_far_qos;
-static uint64_t             diag_loops;
-static clj_diag_timer       diag_rec;
-static _Thread_local uint64_t diag_woke;
-static bool                 diag_tracking;
-
 // ---- the run queue and the carriers
 
 static pthread_once_t   init_once = PTHREAD_ONCE_INIT;
@@ -523,7 +514,6 @@ void clj_park(clj_waiter *w, clj_wake wake) {
 	if (block) {
 		bool seeded = __builtin_expect(clj_sched_seed_on, 0) && seed_block(c);
 		while (!w->resumed) pthread_cond_wait(&c->cond, &c->lock);
-		if (atomic_load(&diag_on)) diag_woke = clj_profile_now();
 		c->waiter = NULL;
 		c->parked_on = NULL;
 		pthread_mutex_unlock(&c->lock);
@@ -569,7 +559,6 @@ static void resume(clj_waiter *w, bool handoff) {
 		return;
 	}
 	if (c->implicit || w->blocking) {
-		if (diag_tracking) diag_rec.signalled = clj_profile_now();
 		pthread_cond_signal(&c->cond);
 		if (__builtin_expect(clj_sched_seed_on, 0) && c->implicit) seed_bare_ready(c);
 		pthread_mutex_unlock(&c->lock);
@@ -1025,7 +1014,6 @@ void clj_coro_join_blocking(clj_value coro) {
 
 struct clj_timer {
 	uint64_t when;
-	uint64_t ns; // DIAG
 	void (*fn)(void *ctx);
 	void      *ctx;
 	clj_timer *next;
@@ -1046,24 +1034,12 @@ static pthread_cond_t  timer_fired_cv = PTHREAD_COND_INITIALIZER;
 // A timed wait wakes ~0.7 µs later than an untimed one: far deadlines go to a dispatch timer, the wait is untimed.
 enum { FAR_NS = 2000000 };
 
-// DIAG timer-late
-
-void clj_diag_timer_enable(bool on) { atomic_store(&diag_on, on); }
-void clj_diag_timer_last(clj_diag_timer *out) {
-	pthread_mutex_lock(&timer_mu);
-	*out = diag_rec;
-	pthread_mutex_unlock(&timer_mu);
-}
-uint64_t clj_diag_bare_woke(void) { return diag_woke; }
-
 #ifdef __APPLE__
 static dispatch_source_t far_timer;
 static uint64_t          far_when; // under timer_mu
 
 static void far_fire(void *ctx) {
 	(void)ctx;
-	diag_far_dispatched = clj_profile_now();
-	diag_far_qos = qos_class_self();
 	pthread_mutex_lock(&timer_mu);
 	far_when = 0;
 	pthread_cond_signal(&timer_cv);
@@ -1111,7 +1087,6 @@ static void *timer_main(void *arg) {
 			continue;
 		}
 		uint64_t now = clj_profile_now();
-		diag_loops++;
 		if (timers->when > now) {
 			uint64_t wait = timers->when - now;
 			if (wait > FAR_NS && far_wait(timers->when, wait)) continue;
@@ -1122,11 +1097,6 @@ static void *timer_main(void *arg) {
 		timers = t->next;
 		bool held = t->ctx != NULL;
 		timer_firing = true;
-		diag_tracking = atomic_load(&diag_on) && t->ns == 20000000;
-		if (diag_tracking) {
-			diag_rec = (clj_diag_timer){.when = t->when, .dispatched = diag_far_dispatched, .popped = now, .loops = diag_loops, .timer_qos = qos_class_self(), .dispatch_qos = diag_far_qos};
-		}
-		diag_loops = 0;
 		pthread_mutex_unlock(&timer_mu);
 		t->fn(t->ctx);
 		free(t);
@@ -1169,7 +1139,6 @@ clj_timer *clj_sched_timer(uint64_t ns, void (*fn)(void *ctx), void *ctx) {
 	clj_timer *t = malloc(sizeof *t);
 	if (!t) clj_fatal("out of memory");
 	t->when = clj_sched_now() + ns;
-	t->ns = ns;
 	t->fn = fn;
 	t->ctx = ctx;
 	pthread_mutex_lock(&timer_mu);

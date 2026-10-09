@@ -110,6 +110,16 @@
   `DISPATCH_TIMER_STRICT`: a leeway of 0 alone still let the OS coalesce it, and 10 and 20 ms timeouts fired 25–35%
   late (12.5 and 25–27 ms on an Intel Mac, 10.07 and 20.1 strict), which a corpus library's 10 ms producer against
   its 20 ms read timeout turned into a lost item (enos, NOTES "Corpus"; `ChanTests.aFarTimeoutFiresOnItsDeadline`).
+  A far deadline reaches its taker in three thread wakes — the dispatch handler, the timer thread, the parked
+  taker — and on a saturated runner (3 cores, ASan, two shards of parallel suites) each wake waited milliseconds:
+  stamped per hop over 15 rounds, deadline → handler 0.04–16 ms, handler → timer thread 0.01–16 ms, signal →
+  taker 0.01–8 ms, our own work between them ~10 µs; a 20 ms timeout landed a median 4.4 ms late (run
+  37968679587). The handler was on a global queue, whose worker the kernel admits only when a core looks free,
+  and the timer thread inherited the class of whichever thread armed the first timer (`DEFAULT` under the test
+  runner). The handler now runs on a private serial queue (overcommit: a worker is created, not admitted) and the
+  timer thread sets `USER_INITIATED` itself; the same load measured a median 0.27 ms, handler → timer thread
+  ~18 µs (run 37971082959). The taker's own wake is its class against the load, not ours, so the test asks for one
+  on-time round of up to 30 rather than an on-time median: coalescing makes every round late.
   A deadline's timer is cleared from its coroutine by its own firing, live or not: the timer thread frees it once
   the callback returns, and a disarm that read it after — a coroutine finishing as its deadline fired — was a
   use-after-free, which the on-time timer made frequent enough for ASan to catch (run 37833744893).

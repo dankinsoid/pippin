@@ -69,15 +69,6 @@ uint64_t clj_debug_coro_restores(void);
 // The trace of a parked coroutine, from its ring and stack (or its blob): nil when it is not parked.
 clj_value clj_coro_parked_trace(clj_value coro);
 
-// DIAG timer-late (temporary): the path of the last 20 ms timer, stamped while enabled.
-typedef struct {
-	uint64_t when, dispatched, popped, signalled, loops;
-	int      timer_qos, dispatch_qos;
-} clj_diag_timer;
-void     clj_diag_timer_enable(bool on);
-void     clj_diag_timer_last(clj_diag_timer *out);
-uint64_t clj_diag_bare_woke(void);
-
 // Live spawned coroutines (the implicit ones of threads are not counted).
 size_t   clj_debug_live_coros(void);
 // Waits up to ms for the live count to fall to target: a test's quiesce before its live-object check.
