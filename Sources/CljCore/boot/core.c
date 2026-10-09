@@ -3079,18 +3079,13 @@ CLJC_INLINE clj_value clojure_core_concat_a0_i(clj_value self, const clj_value *
 	CLJC_ENTER(&S[0], &cc);
 #line 14 "Sources/CljCore/boot/core.clj"
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[0]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_concat__0_a0, NULL, 0);
+	} else {
+	clj_value th0 = clj_c_closure(CLJ_NIL, clojure_core_concat__0, NULL, 0, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th0, 1);
+	clj_release(th0);
 	}
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_concat__0, NULL, 0, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[0]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -3138,20 +3133,15 @@ CLJC_INLINE clj_value clojure_core_concat_a1_i(clj_value self, const clj_value *
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 15 "Sources/CljCore/boot/core.clj"
+	clj_value c0[1] = {fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[0]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_concat__1_a0, c0, 1);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_concat__1, c0, 1, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[1] = {fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_concat__1, c1, 1, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[0]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -3292,20 +3282,15 @@ CLJC_INLINE clj_value clojure_core_concat_a2_i(clj_value self, const clj_value *
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 17 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[0], fr.slots[2], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[0]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_concat__2_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_concat__2, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[0], fr.slots[2], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_concat__2, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[0]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -3498,20 +3483,15 @@ CLJC_INLINE clj_value clojure_core_concat__3_a2_i(clj_value self, const clj_valu
 	clj_ccall cc;
 	CLJC_ENTER(&S[4], &cc);
 #line 24 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[0], fr.slots[2], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[4]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_concat__3__4_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_concat__3__4, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[0], fr.slots[2], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_concat__3__4, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[4]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -28908,20 +28888,15 @@ CLJC_INLINE clj_value clojure_core_map_a2_i(clj_value self, const clj_value *cap
 	clj_ccall cc;
 	CLJC_ENTER(&S[72], &cc);
 #line 625 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[72]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_map__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_map__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_map__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[72]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -29152,20 +29127,15 @@ CLJC_INLINE clj_value clojure_core_map_a3_i(clj_value self, const clj_value *cap
 	clj_ccall cc;
 	CLJC_ENTER(&S[72], &cc);
 #line 629 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[1], fr.slots[2], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[72]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_map__3_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_map__3, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[1], fr.slots[2], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_map__3, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[72]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -29466,20 +29436,15 @@ CLJC_INLINE clj_value clojure_core_map_a4_i(clj_value self, const clj_value *cap
 	clj_ccall cc;
 	CLJC_ENTER(&S[72], &cc);
 #line 634 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[1], fr.slots[2], fr.slots[3], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[72]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_map__4_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_map__4, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[1], fr.slots[2], fr.slots[3], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_map__4, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[72]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -29712,20 +29677,15 @@ CLJC_INLINE clj_value clojure_core_map__5_a1_i(clj_value self, const clj_value *
 	clj_ccall cc;
 	CLJC_ENTER(&S[78], &cc);
 #line 640 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[78]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_map__5__6_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_map__5__6, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_map__5__6, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[78]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -30298,20 +30258,15 @@ CLJC_INLINE clj_value clojure_core_filter_a2_i(clj_value self, const clj_value *
 	clj_ccall cc;
 	CLJC_ENTER(&S[81], &cc);
 #line 656 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[81]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_filter__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_filter__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_filter__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[81]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -30942,20 +30897,15 @@ CLJC_INLINE clj_value clojure_core_keep_a2_i(clj_value self, const clj_value *ca
 	clj_ccall cc;
 	CLJC_ENTER(&S[86], &cc);
 #line 681 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[86]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_keep__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_keep__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_keep__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[86]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -31509,20 +31459,15 @@ CLJC_INLINE clj_value clojure_core_take_a2_i(clj_value self, const clj_value *ca
 	clj_ccall cc;
 	CLJC_ENTER(&S[90], &cc);
 #line 703 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[90]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_take__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_take__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_take__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[90]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -32013,20 +31958,15 @@ CLJC_INLINE clj_value clojure_core_drop_a2_i(clj_value self, const clj_value *ca
 	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_core_drop__2, NULL, 0, 0x4, 2, 2);
 	clj_c_set(&fr, 2, t0);
 #line 726 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t1;
-	bool o2;
-	clj_value t2 = clj_c_var_borrow(V[1], &o2);
-	CLJC_SITE(&S[94]);
-	if (t2 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t1 = clj_lazy_seq_code(clojure_core_drop__3_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_drop__3, c0, 3, 0x1, 0, 0);
+	t1 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t3 = clj_c_closure(CLJ_NIL, clojure_core_drop__3, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t3};
-	(void)a0;
-	t1 = clj_c_invoke(t2, a0, 1);
-	clj_release(t3);
-	if (o2) clj_release(t2);
 	CLJC_SITE(&S[94]);
 	if (t1 == CLJ_THROWN) {
 	goto L1;
@@ -32430,20 +32370,15 @@ CLJC_INLINE clj_value clojure_core_take_while_a2_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[99], &cc);
 #line 738 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[99]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_take_while__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_take_while__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_take_while__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[99]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -32914,20 +32849,15 @@ CLJC_INLINE clj_value clojure_core_drop_while_a2_i(clj_value self, const clj_val
 	clj_value t0 = clj_c_closure(CLJ_NIL, clojure_core_drop_while__2, NULL, 0, 0x4, 2, 2);
 	clj_c_set(&fr, 2, t0);
 #line 763 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t1;
-	bool o2;
-	clj_value t2 = clj_c_var_borrow(V[1], &o2);
-	CLJC_SITE(&S[103]);
-	if (t2 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t1 = clj_lazy_seq_code(clojure_core_drop_while__3_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_drop_while__3, c0, 3, 0x1, 0, 0);
+	t1 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t3 = clj_c_closure(CLJ_NIL, clojure_core_drop_while__3, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t3};
-	(void)a0;
-	t1 = clj_c_invoke(t2, a0, 1);
-	clj_release(t3);
-	if (o2) clj_release(t2);
 	CLJC_SITE(&S[103]);
 	if (t1 == CLJ_THROWN) {
 	goto L1;
@@ -33049,41 +32979,36 @@ CLJC_INLINE clj_value clojure_core_iterate_a2_i(clj_value self, const clj_value 
 	CLJC_ENTER(&S[108], &cc);
 #line 768 "Sources/CljCore/boot/core.clj"
 	clj_value t0 = fr.slots[1];
+	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t1;
-	bool o2;
-	clj_value t2 = clj_c_var_borrow(V[1], &o2);
-	CLJC_SITE(&S[108]);
-	if (t2 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t1 = clj_lazy_seq_code(clojure_core_iterate__0_a0, c1, 2);
+	} else {
+	clj_value th2 = clj_c_closure(CLJ_NIL, clojure_core_iterate__0, c1, 2, 0x1, 0, 0);
+	t1 = clj_c_intrinsic_fallback(V[1], &th2, 1);
+	clj_release(th2);
 	}
-	clj_value c2[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t3 = clj_c_closure(CLJ_NIL, clojure_core_iterate__0, c2, 2, 0x1, 0, 0);
-	clj_value a1[1] = {t3};
-	(void)a1;
-	t1 = clj_c_invoke(t2, a1, 1);
-	clj_release(t3);
-	if (o2) clj_release(t2);
 	CLJC_SITE(&S[108]);
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
 	clj_value a0[2] = {t0, t1};
 	(void)a0;
-	clj_value t4;
+	clj_value t2;
 	if (CLJC_GUARD(V[3], B[1])) {
-	t4 = clj_seq_cons(t0, t1);
+	t2 = clj_seq_cons(t0, t1);
 	} else {
-	t4 = clj_c_intrinsic_fallback(V[3], a0, 2);
+	t2 = clj_c_intrinsic_fallback(V[3], a0, 2);
 	}
 	clj_release(t1);
 	(void)t0;
 	CLJC_SITE(&S[108]);
-	if (t4 == CLJ_THROWN) {
+	if (t2 == CLJ_THROWN) {
 	goto L1;
 	}
 	CLJC_LEAVE(&S[108], &cc);
 	clj_c_release_slots(&fr, 2);
-	return t4;
+	return t2;
 L1: ;
 	CLJC_LEAVE(&S[108], &cc);
 	clj_c_release_slots(&fr, 2);
@@ -33196,20 +33121,15 @@ CLJC_INLINE clj_value clojure_core_repeat_a1_i(clj_value self, const clj_value *
 	clj_ccall cc;
 	CLJC_ENTER(&S[110], &cc);
 #line 772 "Sources/CljCore/boot/core.clj"
+	clj_value c0[1] = {fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[110]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_repeat__0_a0, c0, 1);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_repeat__0, c0, 1, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[1] = {fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_repeat__0, c1, 1, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[110]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -33965,20 +33885,15 @@ CLJC_INLINE clj_value clojure_core_interleave_a1_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[115], &cc);
 #line 794 "Sources/CljCore/boot/core.clj"
+	clj_value c0[1] = {fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[115]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_interleave__0_a0, c0, 1);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_interleave__0, c0, 1, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[1] = {fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_interleave__0, c1, 1, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[115]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -34213,20 +34128,15 @@ CLJC_INLINE clj_value clojure_core_interleave_a2_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[115], &cc);
 #line 796 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[115]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_interleave__1_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_interleave__1, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_interleave__1, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[115]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -34528,20 +34438,15 @@ CLJC_FRAME clj_value clojure_core_interleave_v2(clj_value self, const clj_value 
 	clj_ccall cc;
 	CLJC_ENTER(&S[115], &cc);
 #line 801 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[115]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_interleave__2_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_interleave__2, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_interleave__2, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[115]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -35221,20 +35126,15 @@ CLJC_INLINE clj_value clojure_core_mapcat__0_a1_i(clj_value self, const clj_valu
 	clj_ccall cc;
 	CLJC_ENTER(&S[123], &cc);
 #line 828 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[123]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_mapcat__0__1_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_mapcat__0__1, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_mapcat__0__1, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[123]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -36070,20 +35970,15 @@ CLJC_INLINE clj_value clojure_core_partition_a3_i(clj_value self, const clj_valu
 	clj_ccall cc;
 	CLJC_ENTER(&S[128], &cc);
 #line 858 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[128]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partition__0_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partition__0, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partition__0, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[128]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -36426,20 +36321,15 @@ CLJC_INLINE clj_value clojure_core_partition_a4_i(clj_value self, const clj_valu
 	clj_ccall cc;
 	CLJC_ENTER(&S[128], &cc);
 #line 864 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[3], fr.slots[0], fr.slots[1], fr.slots[2]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[128]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partition__1_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partition__1, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[3], fr.slots[0], fr.slots[1], fr.slots[2]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partition__1, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[128]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -36772,20 +36662,15 @@ CLJC_INLINE clj_value clojure_core_partitionv_a3_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[131], &cc);
 #line 875 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[131]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partitionv__0_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partitionv__0, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partitionv__0, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[131]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -37144,20 +37029,15 @@ CLJC_INLINE clj_value clojure_core_partitionv_a4_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[131], &cc);
 #line 881 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[3], fr.slots[0], fr.slots[1], fr.slots[2]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[131]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partitionv__1_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partitionv__1, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[3], fr.slots[0], fr.slots[1], fr.slots[2]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partitionv__1, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[131]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -37497,20 +37377,15 @@ CLJC_INLINE clj_value clojure_core_reductions_a2_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[135], &cc);
 #line 897 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[135]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_reductions__0_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_reductions__0, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_reductions__0, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[135]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -37730,39 +37605,34 @@ CLJC_INLINE clj_value clojure_core_reductions_a3_i(clj_value self, const clj_val
 #line 904 "Sources/CljCore/boot/core.clj"
 	clj_value t10 = fr.slots[1];
 #line 905 "Sources/CljCore/boot/core.clj"
+	clj_value c4[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t11;
-	bool o12;
-	clj_value t12 = clj_c_var_borrow(V[1], &o12);
-	CLJC_SITE(&S[135]);
-	if (t12 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t11 = clj_lazy_seq_code(clojure_core_reductions__1_a0, c4, 3);
+	} else {
+	clj_value th5 = clj_c_closure(CLJ_NIL, clojure_core_reductions__1, c4, 3, 0x1, 0, 0);
+	t11 = clj_c_intrinsic_fallback(V[1], &th5, 1);
+	clj_release(th5);
 	}
-	clj_value c5[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t13 = clj_c_closure(CLJ_NIL, clojure_core_reductions__1, c5, 3, 0x1, 0, 0);
-	clj_value a4[1] = {t13};
-	(void)a4;
-	t11 = clj_c_invoke(t12, a4, 1);
-	clj_release(t13);
-	if (o12) clj_release(t12);
 	CLJC_SITE(&S[135]);
 	if (t11 == CLJ_THROWN) {
 	goto L1;
 	}
 	clj_value a3[2] = {t10, t11};
 	(void)a3;
-	clj_value t14;
+	clj_value t12;
 	if (CLJC_GUARD(V[3], B[1])) {
-	t14 = clj_seq_cons(t10, t11);
+	t12 = clj_seq_cons(t10, t11);
 	} else {
-	t14 = clj_c_intrinsic_fallback(V[3], a3, 2);
+	t12 = clj_c_intrinsic_fallback(V[3], a3, 2);
 	}
 	clj_release(t11);
 	(void)t10;
 	CLJC_SITE(&S[135]);
-	if (t14 == CLJ_THROWN) {
+	if (t12 == CLJ_THROWN) {
 	goto L1;
 	}
-	t4 = t14;
+	t4 = t12;
 	}
 	CLJC_LEAVE(&S[135], &cc);
 	clj_c_release_slots(&fr, 3);
@@ -38502,20 +38372,15 @@ CLJC_INLINE clj_value clojure_core_partition_all_a3_i(clj_value self, const clj_
 	clj_ccall cc;
 	CLJC_ENTER(&S[138], &cc);
 #line 933 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[138]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partition_all__2_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partition_all__2, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partition_all__2, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[138]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -38853,20 +38718,15 @@ CLJC_INLINE clj_value clojure_core_partitionv_all_a3_i(clj_value self, const clj
 	clj_ccall cc;
 	CLJC_ENTER(&S[142], &cc);
 #line 943 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[142]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partitionv_all__0_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partitionv_all__0, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[2], fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partitionv_all__0, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[142]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -39302,20 +39162,15 @@ CLJC_INLINE clj_value clojure_core_map_indexed__2_a2_i(clj_value self, const clj
 	clj_ccall cc;
 	CLJC_ENTER(&S[147], &cc);
 #line 959 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[1], fr.captured[0], fr.slots[0], fr.slots[2]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[147]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_map_indexed__2__3_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_map_indexed__2__3, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[1], fr.captured[0], fr.slots[0], fr.slots[2]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_map_indexed__2__3, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[147]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -39903,20 +39758,15 @@ CLJC_INLINE clj_value clojure_core_keep_indexed__2_a2_i(clj_value self, const cl
 	clj_ccall cc;
 	CLJC_ENTER(&S[152], &cc);
 #line 978 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[1], fr.captured[0], fr.slots[0], fr.slots[2]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[152]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_keep_indexed__2__3_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_keep_indexed__2__3, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[1], fr.captured[0], fr.slots[0], fr.slots[2]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_keep_indexed__2__3, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[152]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -40598,20 +40448,15 @@ CLJC_INLINE clj_value clojure_core_sequence__2_a1_i(clj_value self, const clj_va
 	clj_ccall cc;
 	CLJC_ENTER(&S[157], &cc);
 #line 996 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[0], fr.captured[0], fr.captured[1], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[157]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_sequence__2__3_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_sequence__2__3, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[0], fr.captured[0], fr.captured[1], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_sequence__2__3, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[157]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -41448,20 +41293,15 @@ CLJC_INLINE clj_value clojure_core_sequence__6_a1_i(clj_value self, const clj_va
 	clj_ccall cc;
 	CLJC_ENTER(&S[161], &cc);
 #line 1013 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[0], fr.captured[0], fr.captured[1], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[161]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_sequence__6__7_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_sequence__6__7, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[0], fr.captured[0], fr.captured[1], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_sequence__6__7, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[161]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -42789,20 +42629,15 @@ CLJC_INLINE clj_value clojure_core_distinct__2_a2_i(clj_value self, const clj_va
 	clj_ccall cc;
 	CLJC_ENTER(&S[172], &cc);
 #line 1072 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[0], fr.slots[1], fr.slots[2]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[172]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_distinct__2__3_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_distinct__2__3, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[0], fr.slots[1], fr.slots[2]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_distinct__2__3, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[172]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -53695,20 +53530,15 @@ CLJC_INLINE clj_value clojure_core_cycle__0_a1_i(clj_value self, const clj_value
 	clj_ccall cc;
 	CLJC_ENTER(&S[254], &cc);
 #line 1369 "Sources/CljCore/boot/core.clj"
+	clj_value c0[3] = {fr.slots[0], fr.slots[1], fr.captured[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[254]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_cycle__0__1_a0, c0, 3);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_cycle__0__1, c0, 3, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[3] = {fr.slots[0], fr.slots[1], fr.captured[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_cycle__0__1, c1, 3, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[254]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -53806,20 +53636,15 @@ CLJC_INLINE clj_value clojure_core_cycle_a1_i(clj_value self, const clj_value *c
 	clj_value t0 = clj_c_closure(K[628], clojure_core_cycle__0, c0, 1, 0x2, 1, 1);
 	clj_c_set(&fr, 1, t0);
 #line 1370 "Sources/CljCore/boot/core.clj"
+	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t1;
-	bool o2;
-	clj_value t2 = clj_c_var_borrow(V[1], &o2);
-	CLJC_SITE(&S[253]);
-	if (t2 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t1 = clj_lazy_seq_code(clojure_core_cycle__2_a0, c1, 2);
+	} else {
+	clj_value th2 = clj_c_closure(CLJ_NIL, clojure_core_cycle__2, c1, 2, 0x1, 0, 0);
+	t1 = clj_c_intrinsic_fallback(V[1], &th2, 1);
+	clj_release(th2);
 	}
-	clj_value c2[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t3 = clj_c_closure(CLJ_NIL, clojure_core_cycle__2, c2, 2, 0x1, 0, 0);
-	clj_value a1[1] = {t3};
-	(void)a1;
-	t1 = clj_c_invoke(t2, a1, 1);
-	clj_release(t3);
-	if (o2) clj_release(t2);
 	CLJC_SITE(&S[253]);
 	if (t1 == CLJ_THROWN) {
 	goto L1;
@@ -53949,20 +53774,15 @@ CLJC_INLINE clj_value clojure_core_repeatedly_a1_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[257], &cc);
 #line 1374 "Sources/CljCore/boot/core.clj"
+	clj_value c0[1] = {fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[257]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_repeatedly__0_a0, c0, 1);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_repeatedly__0, c0, 1, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[1] = {fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_repeatedly__0, c1, 1, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[257]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -54671,20 +54491,15 @@ CLJC_INLINE clj_value clojure_core_take_nth_a2_i(clj_value self, const clj_value
 	clj_ccall cc;
 	CLJC_ENTER(&S[260], &cc);
 #line 1395 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[260]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_take_nth__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_take_nth__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_take_nth__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[260]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -56026,20 +55841,15 @@ CLJC_INLINE clj_value clojure_core_flatten__0_a1_i(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[274], &cc);
 #line 1428 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[274]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_flatten__0__1_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_flatten__0__1, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_flatten__0__1, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[274]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -63095,21 +62905,15 @@ static CLJC_FRAME clj_value clojure_core_partition_by__2_a0(clj_value self, cons
 	}
 #endif
 	clj_value t21 = fr.captured[1];
+	clj_value c9[2] = {fr.slots[4], fr.slots[1]};
 	clj_value t22;
-	bool o23;
-	clj_value t23 = clj_c_var_borrow(V[1], &o23);
-	CLJC_SITE(&S[295]);
-	if (t23 == CLJ_THROWN) {
-	if (o20) clj_release(t20);
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t22 = clj_lazy_seq_code(clojure_core_partition_by__2__4_a0, c9, 2);
+	} else {
+	clj_value th10 = clj_c_closure(CLJ_NIL, clojure_core_partition_by__2__4, c9, 2, 0x1, 0, 0);
+	t22 = clj_c_intrinsic_fallback(V[1], &th10, 1);
+	clj_release(th10);
 	}
-	clj_value c10[2] = {fr.slots[4], fr.slots[1]};
-	clj_value t24 = clj_c_closure(CLJ_NIL, clojure_core_partition_by__2__4, c10, 2, 0x1, 0, 0);
-	clj_value a9[1] = {t24};
-	(void)a9;
-	t22 = clj_c_invoke(t23, a9, 1);
-	clj_release(t24);
-	if (o23) clj_release(t23);
 	CLJC_SITE(&S[295]);
 	if (t22 == CLJ_THROWN) {
 	if (o20) clj_release(t20);
@@ -63134,19 +62938,19 @@ static CLJC_FRAME clj_value clojure_core_partition_by__2_a0(clj_value self, cons
 	}
 	clj_value a7[2] = {t18, t19};
 	(void)a7;
-	clj_value t25;
+	clj_value t23;
 	if (CLJC_GUARD(V[3], B[1])) {
-	t25 = clj_seq_cons(t18, t19);
+	t23 = clj_seq_cons(t18, t19);
 	} else {
-	t25 = clj_c_intrinsic_fallback(V[3], a7, 2);
+	t23 = clj_c_intrinsic_fallback(V[3], a7, 2);
 	}
 	clj_release(t19);
 	(void)t18;
 	CLJC_SITE(&S[295]);
-	if (t25 == CLJ_THROWN) {
+	if (t23 == CLJ_THROWN) {
 	goto L1;
 	}
-	t4 = t25;
+	t4 = t23;
 	} else {
 	t4 = CLJ_NIL;
 	}
@@ -63182,20 +62986,15 @@ CLJC_INLINE clj_value clojure_core_partition_by_a2_i(clj_value self, const clj_v
 	clj_ccall cc;
 	CLJC_ENTER(&S[292], &cc);
 #line 1548 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[1], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[292]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_partition_by__2_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_partition_by__2, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[1], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_partition_by__2, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[292]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -63344,20 +63143,15 @@ CLJC_INLINE clj_value clojure_core_tree_seq__0_a1_i(clj_value self, const clj_va
 	clj_ccall cc;
 	CLJC_ENTER(&S[299], &cc);
 #line 1559 "Sources/CljCore/boot/core.clj"
+	clj_value c0[4] = {fr.slots[0], fr.captured[0], fr.slots[1], fr.captured[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[299]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_tree_seq__0__1_a0, c0, 4);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_tree_seq__0__1, c0, 4, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[4] = {fr.slots[0], fr.captured[0], fr.slots[1], fr.captured[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_tree_seq__0__1, c1, 4, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[299]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -64224,20 +64018,15 @@ CLJC_INLINE clj_value clojure_core_re_seq__0_a0_i(clj_value self, const clj_valu
 	clj_ccall cc;
 	CLJC_ENTER(&S[305], &cc);
 #line 1584 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.captured[0], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[305]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_re_seq__0__1_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_re_seq__0__1, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.captured[0], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_re_seq__0__1, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[305]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -93236,20 +93025,15 @@ CLJC_INLINE clj_value clojure_core_pmap__2_a2_i(clj_value self, const clj_value 
 	clj_value t9 = clj_c_local(&fr, 3, true);
 	clj_c_set(&fr, 9, t9);
 #line 1986 "Sources/CljCore/boot/core.clj"
+	clj_value c3[5] = {fr.slots[1], fr.slots[7], fr.slots[2], fr.slots[8], fr.slots[9]};
 	clj_value t10;
-	bool o11;
-	clj_value t11 = clj_c_var_borrow(V[1], &o11);
-	CLJC_SITE(&S[378]);
-	if (t11 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t10 = clj_lazy_seq_code(clojure_core_pmap__2__3_a0, c3, 5);
+	} else {
+	clj_value th4 = clj_c_closure(CLJ_NIL, clojure_core_pmap__2__3, c3, 5, 0x1, 0, 0);
+	t10 = clj_c_intrinsic_fallback(V[1], &th4, 1);
+	clj_release(th4);
 	}
-	clj_value c4[5] = {fr.slots[1], fr.slots[7], fr.slots[2], fr.slots[8], fr.slots[9]};
-	clj_value t12 = clj_c_closure(CLJ_NIL, clojure_core_pmap__2__3, c4, 5, 0x1, 0, 0);
-	clj_value a3[1] = {t12};
-	(void)a3;
-	t10 = clj_c_invoke(t11, a3, 1);
-	clj_release(t12);
-	if (o11) clj_release(t11);
 	CLJC_SITE(&S[378]);
 	if (t10 == CLJ_THROWN) {
 	goto L1;
@@ -93630,20 +93414,15 @@ CLJC_INLINE clj_value clojure_core_pmap__4_a1_i(clj_value self, const clj_value 
 	clj_ccall cc;
 	CLJC_ENTER(&S[380], &cc);
 #line 1993 "Sources/CljCore/boot/core.clj"
+	clj_value c0[2] = {fr.slots[0], fr.slots[1]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[380]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_pmap__4__5_a0, c0, 2);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_pmap__4__5, c0, 2, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[2] = {fr.slots[0], fr.slots[1]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_pmap__4__5, c1, 2, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[380]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -99158,39 +98937,34 @@ CLJC_INLINE clj_value clojure_core_line_seq_a1_i(clj_value self, const clj_value
 	clj_c_rebind(&l2, t5);
 #line 2125 "Sources/CljCore/boot/core.clj"
 	clj_value t6 = l2;
+	clj_value c2[1] = {fr.slots[0]};
 	clj_value t7;
-	bool o8;
-	clj_value t8 = clj_c_var_borrow(V[1], &o8);
-	CLJC_SITE(&S[405]);
-	if (t8 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t7 = clj_lazy_seq_code(clojure_core_line_seq__0_a0, c2, 1);
+	} else {
+	clj_value th3 = clj_c_closure(CLJ_NIL, clojure_core_line_seq__0, c2, 1, 0x1, 0, 0);
+	t7 = clj_c_intrinsic_fallback(V[1], &th3, 1);
+	clj_release(th3);
 	}
-	clj_value c3[1] = {fr.slots[0]};
-	clj_value t9 = clj_c_closure(CLJ_NIL, clojure_core_line_seq__0, c3, 1, 0x1, 0, 0);
-	clj_value a2[1] = {t9};
-	(void)a2;
-	t7 = clj_c_invoke(t8, a2, 1);
-	clj_release(t9);
-	if (o8) clj_release(t8);
 	CLJC_SITE(&S[405]);
 	if (t7 == CLJ_THROWN) {
 	goto L1;
 	}
 	clj_value a1[2] = {t6, t7};
 	(void)a1;
-	clj_value t10;
+	clj_value t8;
 	if (CLJC_GUARD(V[3], B[1])) {
-	t10 = clj_seq_cons(t6, t7);
+	t8 = clj_seq_cons(t6, t7);
 	} else {
-	t10 = clj_c_intrinsic_fallback(V[3], a1, 2);
+	t8 = clj_c_intrinsic_fallback(V[3], a1, 2);
 	}
 	clj_release(t7);
 	(void)t6;
 	CLJC_SITE(&S[405]);
-	if (t10 == CLJ_THROWN) {
+	if (t8 == CLJ_THROWN) {
 	goto L1;
 	}
-	t4 = t10;
+	t4 = t8;
 	} else {
 	t4 = CLJ_NIL;
 	}
@@ -124724,21 +124498,15 @@ CLJC_INLINE clj_value clojure_core_iteration__0__1_a1_i(clj_value self, const cl
 	clj_value t16 = clj_c_local(&fr, 2, true);
 	clj_c_set(&fr, 3, t16);
 #line 2554 "Sources/CljCore/boot/core.clj"
+	clj_value c5[3] = {fr.slots[1], fr.captured[3], fr.slots[3]};
 	clj_value t17;
-	bool o18;
-	clj_value t18 = clj_c_var_borrow(V[1], &o18);
-	CLJC_SITE(&S[480]);
-	if (t18 == CLJ_THROWN) {
-	clj_release(t5);
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t17 = clj_lazy_seq_code(clojure_core_iteration__0__1__2_a0, c5, 3);
+	} else {
+	clj_value th6 = clj_c_closure(CLJ_NIL, clojure_core_iteration__0__1__2, c5, 3, 0x1, 0, 0);
+	t17 = clj_c_intrinsic_fallback(V[1], &th6, 1);
+	clj_release(th6);
 	}
-	clj_value c6[3] = {fr.slots[1], fr.captured[3], fr.slots[3]};
-	clj_value t19 = clj_c_closure(CLJ_NIL, clojure_core_iteration__0__1__2, c6, 3, 0x1, 0, 0);
-	clj_value a5[1] = {t19};
-	(void)a5;
-	t17 = clj_c_invoke(t18, a5, 1);
-	clj_release(t19);
-	if (o18) clj_release(t18);
 	CLJC_SITE(&S[480]);
 	if (t17 == CLJ_THROWN) {
 	clj_release(t5);
@@ -124748,19 +124516,19 @@ CLJC_INLINE clj_value clojure_core_iteration__0__1_a1_i(clj_value self, const cl
 	}
 	clj_value a1[2] = {t5, t14};
 	(void)a1;
-	clj_value t20;
+	clj_value t18;
 	if (CLJC_GUARD(V[3], B[1])) {
-	t20 = clj_seq_cons(t5, t14);
+	t18 = clj_seq_cons(t5, t14);
 	} else {
-	t20 = clj_c_intrinsic_fallback(V[3], a1, 2);
+	t18 = clj_c_intrinsic_fallback(V[3], a1, 2);
 	}
 	clj_release(t14);
 	clj_release(t5);
 	CLJC_SITE(&S[480]);
-	if (t20 == CLJ_THROWN) {
+	if (t18 == CLJ_THROWN) {
 	goto L1;
 	}
-	t4 = t20;
+	t4 = t18;
 	} else {
 	t4 = CLJ_NIL;
 	}
@@ -157799,20 +157567,15 @@ CLJC_INLINE clj_value clojure_core_seque__3_a0_i(clj_value self, const clj_value
 	clj_ccall cc;
 	CLJC_ENTER(&S[632], &cc);
 #line 3423 "Sources/CljCore/boot/core.clj"
+	clj_value c0[6] = {fr.captured[0], fr.captured[1], fr.captured[2], fr.captured[3], fr.captured[4], fr.slots[0]};
 	clj_value t0;
-	bool o1;
-	clj_value t1 = clj_c_var_borrow(V[1], &o1);
-	CLJC_SITE(&S[632]);
-	if (t1 == CLJ_THROWN) {
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t0 = clj_lazy_seq_code(clojure_core_seque__3__4_a0, c0, 6);
+	} else {
+	clj_value th1 = clj_c_closure(CLJ_NIL, clojure_core_seque__3__4, c0, 6, 0x1, 0, 0);
+	t0 = clj_c_intrinsic_fallback(V[1], &th1, 1);
+	clj_release(th1);
 	}
-	clj_value c1[6] = {fr.captured[0], fr.captured[1], fr.captured[2], fr.captured[3], fr.captured[4], fr.slots[0]};
-	clj_value t2 = clj_c_closure(CLJ_NIL, clojure_core_seque__3__4, c1, 6, 0x1, 0, 0);
-	clj_value a0[1] = {t2};
-	(void)a0;
-	t0 = clj_c_invoke(t1, a0, 1);
-	clj_release(t2);
-	if (o1) clj_release(t1);
 	CLJC_SITE(&S[632]);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -157958,21 +157721,15 @@ CLJC_FRAME clj_value clojure_core_seque_a2(clj_value self, const clj_value *capt
 	if (t18 == CLJ_THROWN) {
 	goto L1;
 	}
+	clj_value c6[1] = {fr.slots[1]};
 	clj_value t19;
-	bool o20;
-	clj_value t20 = clj_c_var_borrow(V[1], &o20);
-	CLJC_SITE(&S[628]);
-	if (t20 == CLJ_THROWN) {
-	if (o18) clj_release(t18);
-	goto L1;
+	if (CLJC_LAZY_SEQ_INLINE(V[1])) {
+	t19 = clj_lazy_seq_code(clojure_core_seque__0_a0, c6, 1);
+	} else {
+	clj_value th7 = clj_c_closure(CLJ_NIL, clojure_core_seque__0, c6, 1, 0x1, 0, 0);
+	t19 = clj_c_intrinsic_fallback(V[1], &th7, 1);
+	clj_release(th7);
 	}
-	clj_value c7[1] = {fr.slots[1]};
-	clj_value t21 = clj_c_closure(CLJ_NIL, clojure_core_seque__0, c7, 1, 0x1, 0, 0);
-	clj_value a6[1] = {t21};
-	(void)a6;
-	t19 = clj_c_invoke(t20, a6, 1);
-	clj_release(t21);
-	if (o20) clj_release(t20);
 	CLJC_SITE(&S[628]);
 	if (t19 == CLJ_THROWN) {
 	if (o18) clj_release(t18);
@@ -157990,52 +157747,52 @@ CLJC_FRAME clj_value clojure_core_seque_a2(clj_value self, const clj_value *capt
 	clj_c_set(&fr, 5, t17);
 #line 3411 "Sources/CljCore/boot/core.clj"
 	clj_value c8[2] = {fr.slots[2], fr.slots[4]};
-	clj_value t22 = clj_c_closure(CLJ_NIL, clojure_core_seque__1, c8, 2, 0x2, 1, 1);
-	clj_c_set(&fr, 6, t22);
+	clj_value t20 = clj_c_closure(CLJ_NIL, clojure_core_seque__1, c8, 2, 0x2, 1, 1);
+	clj_c_set(&fr, 6, t20);
 #line 3412 "Sources/CljCore/boot/core.clj"
 	clj_value c9[4] = {fr.slots[6], fr.slots[2], fr.slots[3], fr.slots[4]};
-	clj_value t23 = clj_c_closure(CLJ_NIL, clojure_core_seque__2, c9, 4, 0x2, 1, 1);
-	clj_c_set(&fr, 7, t23);
+	clj_value t21 = clj_c_closure(CLJ_NIL, clojure_core_seque__2, c9, 4, 0x2, 1, 1);
+	clj_c_set(&fr, 7, t21);
 #line 3422 "Sources/CljCore/boot/core.clj"
 	clj_value c10[5] = {fr.slots[2], fr.slots[4], fr.slots[5], fr.slots[7], fr.slots[3]};
-	clj_value t24 = clj_c_closure(K[2060], clojure_core_seque__3, c10, 5, 0x1, 0, 0);
-	clj_c_rebind(&l8, t24);
+	clj_value t22 = clj_c_closure(K[2060], clojure_core_seque__3, c10, 5, 0x1, 0, 0);
+	clj_c_rebind(&l8, t22);
 #line 3406 "Sources/CljCore/boot/core.clj"
 #line 3430 "Sources/CljCore/boot/core.clj"
-	clj_value t25;
-	bool o26;
-	clj_value t26 = clj_c_var_borrow(V[554], &o26);
+	clj_value t23;
+	bool o24;
+	clj_value t24 = clj_c_var_borrow(V[554], &o24);
 	CLJC_SITE(&S[628]);
-	if (t26 == CLJ_THROWN) {
+	if (t24 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t27 = fr.slots[5];
-	clj_value t28 = fr.slots[7];
-	clj_value a11[2] = {t27, t28};
+	clj_value t25 = fr.slots[5];
+	clj_value t26 = fr.slots[7];
+	clj_value a11[2] = {t25, t26};
 	(void)a11;
-	t25 = clj_c_invoke(t26, a11, 2);
-	(void)t28;
-	(void)t27;
-	if (o26) clj_release(t26);
+	t23 = clj_c_invoke(t24, a11, 2);
+	(void)t26;
+	(void)t25;
+	if (o24) clj_release(t24);
 	CLJC_SITE(&S[628]);
-	if (t25 == CLJ_THROWN) {
+	if (t23 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_release(t25);
+	clj_release(t23);
 #line 3431 "Sources/CljCore/boot/core.clj"
-	clj_value t29;
-	clj_value t30 = l8;
+	clj_value t27;
+	clj_value t28 = l8;
 	const clj_value *a12 = NULL;
-	t29 = clj_c_invoke(t30, a12, 0);
-	(void)t30;
+	t27 = clj_c_invoke(t28, a12, 0);
+	(void)t28;
 	CLJC_SITE(&S[628]);
-	if (t29 == CLJ_THROWN) {
+	if (t27 == CLJ_THROWN) {
 	goto L1;
 	}
 	CLJC_LEAVE(&S[628], &cc);
 	clj_release(l8);
 	clj_c_release_slots(&fr, 8);
-	return t29;
+	return t27;
 L1: ;
 	CLJC_LEAVE(&S[628], &cc);
 	clj_release(l8);

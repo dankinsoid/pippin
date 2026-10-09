@@ -50,10 +50,17 @@ static inline bool clj_c_catch_selected(clj_value m, bool *undecided) {
 #ifdef CLJ_CLOSED
 #define CLJC_GUARD(var, boot) 1
 #define CLJC_FUSED(guards, n) 1
+#define CLJC_LAZY_SEQ_INLINE(var) 1
 #else
 #define CLJC_GUARD(var, boot) (clj_var_root_relaxed(var) == (boot))
 #define CLJC_FUSED(guards, n) clj_fusion_guard(guards, n)
+#define CLJC_LAZY_SEQ_INLINE(var) clj_c_lazy_seq_inline(clj_var_root_relaxed(var))
 #endif
+
+// The var still holds the builtin, a with-meta copy of it included: a site may build its cell without the fn.
+static inline bool clj_c_lazy_seq_inline(clj_value root) {
+	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_NATIVE && clj_fn_of(root)->u.native.fn == clj_lazy_seq_star;
+}
 
 static inline bool clj_c_slot_owned(const clj_cframe *f, uint32_t i) { return i >= 64 || (f->owned >> i) & 1; }
 

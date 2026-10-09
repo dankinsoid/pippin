@@ -4,6 +4,7 @@
 
 #include "clj/cmutex.h"
 #include "clj/coll.h"
+#include "clj/core.h"
 #include "clj/error.h"
 #include "clj/fn.h"
 #include "clj/list.h"
@@ -250,10 +251,12 @@ clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
 
 enum { UNFORCED = CLJ_FORCE_UNFORCED, FORCING = CLJ_FORCE_FORCING, FORCED = CLJ_FORCE_FORCED, FORCING_WAITED = CLJ_FORCE_WAITED };
 
+// A cell with captures never has META: its meta word would be captured[0] (lazy_seq_with_meta copies instead).
 CLJ_CHILDREN_INLINE void lazy_seq_children(void *self, clj_visitor visit, void *ctx) {
 	clj_lazy_seq *s = self;
 	visit(s->fn.v, ctx);
 	visit(s->value.v, ctx);
+	for (uint32_t i = 0; i < s->ncaptured; i++) visit(s->captured[i].v, ctx);
 	if (s->h.flags & CLJ_FLAG_META) visit(clj_meta_slot_at(s, sizeof *s)->v, ctx);
 }
 
@@ -273,7 +276,20 @@ static clj_value lazy_seq_with_meta(clj_value self, clj_value m) {
 		clj_release(self);
 		return CLJ_THROWN;
 	}
-	return clj_view_with_meta(self, m, sizeof(clj_lazy_seq));
+	const clj_lazy_seq *s = clj_lazy_seq_of(self);
+	if (!s->ncaptured) return clj_view_with_meta(self, m, sizeof(clj_lazy_seq));
+	if (clj_is_nil(m)) return self;
+	clj_lazy_seq *c = clj_alloc_uninit(&clj_lazy_seq_type, sizeof *c + sizeof(clj_value));
+	atomic_init(&c->state, FORCED);
+	c->ncaptured = 0;
+	c->code = NULL;
+	c->h.flags |= s->h.flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_LAZY);
+	clj_slot_clear(&c->fn);
+	clj_slot_init_copied(&c->h, &c->value, clj_retain(s->value.v));
+	c->h.flags |= CLJ_FLAG_META;
+	clj_slot_init(&c->h, clj_meta_slot_at(c, sizeof *c), clj_retain(m));
+	clj_release(self);
+	return clj_from_ptr(c);
 }
 
 const clj_type clj_lazy_seq_type = {
@@ -293,11 +309,31 @@ clj_value clj_lazy_seq_new(clj_value fn) {
 	CLJ_ASSERT(clj_is_fn(fn), "lazy-seq thunk must be a fn");
 	clj_lazy_seq *s = clj_alloc_uninit(&clj_lazy_seq_type, sizeof *s);
 	atomic_init(&s->state, UNFORCED);
+	s->ncaptured = 0;
+	s->code = NULL;
 	clj_slot_init(&s->h, &s->fn, clj_retain(fn));
 	clj_slot_clear(&s->value);
 	// After the thunk's bits: a realization adds none, LAZY stands for what it may add (design §7, a lazy seq).
 	s->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_LAZY;
 	return clj_from_ptr(s);
+}
+
+clj_value clj_lazy_seq_code(clj_lazy_code code, const clj_value *captured, uint32_t ncaptured) {
+	clj_lazy_seq *s = clj_alloc_uninit(&clj_lazy_seq_type, sizeof *s + ncaptured * sizeof(clj_slot));
+	atomic_init(&s->state, UNFORCED);
+	s->ncaptured = ncaptured;
+	s->code = code;
+	clj_slot_clear(&s->fn);
+	clj_slot_clear(&s->value);
+	for (uint32_t i = 0; i < ncaptured; i++) clj_slot_init(&s->h, &s->captured[i], clj_retain(captured[i]));
+	s->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_LAZY;
+	return clj_from_ptr(s);
+}
+
+clj_value clj_lazy_seq_star(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_fn(args[0])) return clj_throw_msg("lazy-seq* expects a fn, got: %s", clj_type_name(args[0]));
+	return clj_lazy_seq_new(args[0]);
 }
 
 // The forcer's exchange sees FORCING_WAITED, or the waiter's CAS sees the published state: no wakeup is lost either way.
@@ -387,14 +423,25 @@ static bool claim(clj_value v, bool *thrown) {
 	}
 }
 
+// The thunk goes after the publish: its release may tear down whatever it held.
 static void publish(clj_value v, clj_value value) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
 	clj_slot_store(&s->h, &s->value, value);
 	clj_value fn = s->fn.v;
 	clj_slot_store(&s->h, &s->fn, CLJ_NIL);
+	uint32_t   n = s->ncaptured;
+	clj_value  small[8];
+	clj_value *held = n <= 8 ? small : malloc(n * sizeof *held);
+	if (!held) clj_fatal("out of memory");
+	for (uint32_t i = 0; i < n; i++) {
+		held[i] = s->captured[i].v;
+		clj_slot_store(&s->h, &s->captured[i], CLJ_NIL);
+	}
 	set_state(v, FORCED);
 	unclaimed();
 	clj_release(fn);
+	for (uint32_t i = 0; i < n; i++) clj_release(held[i]);
+	if (held != small) free(held);
 }
 
 static void unclaim(clj_value v) {
@@ -408,7 +455,8 @@ static clj_value run_thunk(clj_value v) {
 	if (clj_deadline_tick()) return CLJ_THROWN;
 	clj_forcing frame;
 	clj_force_push(&frame, v);
-	clj_value r = clj_invoke(clj_lazy_seq_of(v)->fn.v, NULL, 0);
+	const clj_lazy_seq *s = clj_lazy_seq_of(v);
+	clj_value           r = s->code ? s->code(CLJ_NIL, clj_slot_values(s->captured), NULL, 0) : clj_invoke(s->fn.v, NULL, 0);
 	clj_force_pop(&frame);
 	return r;
 }

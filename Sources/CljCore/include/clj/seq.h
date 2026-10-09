@@ -54,21 +54,32 @@ clj_value clj_range_new(int64_t start, int64_t end, int64_t step);
 // at + step, false when it leaves the int64: the range is then over, as every bound lies inside it.
 static inline bool clj_range_step(int64_t at, int64_t step, int64_t *out) { return !__builtin_add_overflow(at, step, out); }
 
+// A compiled closure arity's entry (`<base>_a0`): self and the captures as its frame reads them, then the arguments.
+typedef clj_value (*clj_lazy_code)(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+
 // A thunk forced at most once; the realized seq is cached for the object's life, so a walk may borrow
 // it. Nested lazy seqs are unwrapped iteratively (a thunk returning a lazy seq does not recurse).
 // state: 0 unforced, 1 forcing, 2 forced. Forcing a shared object claims it with a CAS and other
 // threads spin until the value is published; a thunk that forces its own object throws.
+// The thunk is a fn, or compiled code with its captures in the cell itself; both are cleared once forced.
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t state;
-	clj_slot         fn;    // thunk; nil once forced
-	clj_slot         value; // realized seq or nil; meaningful once forced
+	uint32_t         ncaptured; // captured[] of a code thunk; 0 with a fn thunk and under CLJ_FLAG_META
+	clj_slot         fn;        // fn thunk; nil once forced and with a code thunk
+	clj_slot         value;     // realized seq or nil; meaningful once forced
+	clj_lazy_code    code;      // NULL with a fn thunk
+	clj_slot         captured[];
 } clj_lazy_seq;
 
 extern const clj_type clj_lazy_seq_type;
 
 // fn is retained and called with no arguments; its result is seq'd.
 clj_value clj_lazy_seq_new(clj_value fn);
+// The thunk code(nil, captured, NULL, 0) of a closure arity that reads no self; captured is borrowed and retained.
+clj_value clj_lazy_seq_code(clj_lazy_code code, const clj_value *captured, uint32_t ncaptured);
+// The lazy-seq* builtin: (lazy-seq* f) with f a fn. A compiled site builds its cell inline while the var holds it.
+clj_value clj_lazy_seq_star(const clj_value *args, size_t n);
 // Borrowed realized seq (nil when empty), valid while ls is. CLJ_THROWN when the thunk throws; the
 // object stays unforced and a later force runs the thunk again.
 clj_value clj_lazy_seq_force(clj_value ls);

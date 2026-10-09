@@ -147,6 +147,27 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A compiled lazy-seq site keeps its captures in the cell (seq.c, clj_lazy_seq_code): the publish lets them go.
+		@Test func aRealizedLazySeqLetsItsCapturesGo() throws {
+			clj_init()
+			try declare("lc-s", "lc-n", "lc-m")
+			let vectorType = clj_type_of(try eval("[]").raw)
+			let before = clj_debug_live_objects()
+			let vectors = clj_debug_live_objects_of(vectorType)
+			do {
+				_ = try eval("(def ^:eager lc-s (let [v (vec (range 100))] (lazy-seq (when (pos? (count v)) (list (count v))))))")
+				if vectors >= 0 { #expect(clj_debug_live_objects_of(vectorType) == vectors + 1) }
+				_ = try eval("(def ^:eager lc-n (first lc-s))")
+				if vectors >= 0 { #expect(clj_debug_live_objects_of(vectorType) == vectors) }
+				#expect(try eval("lc-n") == 100)
+				#expect(try eval("(def ^:eager lc-m (with-meta (concat [1] [2]) {:k 1})) [(meta lc-m) lc-m (meta (with-meta lc-m nil))]") == [Value(reading: "{:k 1}"), list([1, 2]), nil])
+				#expect(try eval("(count (apply concat (repeat 20000 [1 2])))") == 40000)
+				#expect(try eval("(let [a 1 b 2 c 3 d 4 e 5 f 6 g 7 h 8 i 9] (first (lazy-seq (list (+ a b c d e f g h i)))))") == 45)
+				try unbind("lc-s", "lc-n", "lc-m")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func seqOnVectorIsAView() throws {
 			clj_init()
 			try declare("sv-v", "sv-s")

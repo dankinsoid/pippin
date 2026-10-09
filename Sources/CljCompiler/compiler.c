@@ -1586,30 +1586,33 @@ static void fn_arity_bounds(const clj_node *n, uint32_t *mask, uint32_t *min, ui
 	if (*min == UINT32_MAX) *min = 0;
 }
 
-static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
-	emit_fn_functions(f, n, base);
+// The fn's captures as a C array named into caps ("NULL" when it has none).
+static void emit_captures(fnctx *f, const clj_node *n, char caps[32]) {
 	uint32_t nc = n->u.fn.ncaptures;
-	char     caps[32] = "NULL";
-	if (nc) {
-		snprintf(caps, sizeof caps, "c%d", f->naux++);
-		sb_printf(&f->out, "\tclj_value %s[%u] = {", caps, nc);
-		for (uint32_t i = 0; i < nc; i++) {
-			const clj_capture *cp = &n->u.fn.captures[i];
-			if (i) sb_puts(&f->out, ", ");
-			switch (cp->kind) {
-			case CLJ_CAPTURE_LOCAL:
-				check_array_slot(f, 0, cp->index);
-				sb_printf(&f->out, "%s.slots[%u]", f->frame, cp->index);
-				break;
-			case CLJ_CAPTURE_CAPTURED: sb_printf(&f->out, "%s.captured[%u]", f->frame, cp->index); break;
-			case CLJ_CAPTURE_OUTER:
-				check_array_slot(f, cp->depth, cp->index);
-				sb_printf(&f->out, "clj_c_outer(&%s, %u)->slots[%u]", f->frame, cp->depth, cp->index);
-				break;
-			}
+	snprintf(caps, 32, "NULL");
+	if (!nc) return;
+	snprintf(caps, 32, "c%d", f->naux++);
+	sb_printf(&f->out, "\tclj_value %s[%u] = {", caps, nc);
+	for (uint32_t i = 0; i < nc; i++) {
+		const clj_capture *cp = &n->u.fn.captures[i];
+		if (i) sb_puts(&f->out, ", ");
+		switch (cp->kind) {
+		case CLJ_CAPTURE_LOCAL:
+			check_array_slot(f, 0, cp->index);
+			sb_printf(&f->out, "%s.slots[%u]", f->frame, cp->index);
+			break;
+		case CLJ_CAPTURE_CAPTURED: sb_printf(&f->out, "%s.captured[%u]", f->frame, cp->index); break;
+		case CLJ_CAPTURE_OUTER:
+			check_array_slot(f, cp->depth, cp->index);
+			sb_printf(&f->out, "clj_c_outer(&%s, %u)->slots[%u]", f->frame, cp->depth, cp->index);
+			break;
 		}
-		sb_puts(&f->out, "};\n");
 	}
+	sb_puts(&f->out, "};\n");
+}
+
+// The clj_c_closure call of a fn node whose functions are emitted under base, over the captures array caps.
+static void closure_expr(fnctx *f, const clj_node *n, const char *base, const char *caps, char *out, size_t cap) {
 	uint32_t mask, min, max;
 	fn_arity_bounds(n, &mask, &min, &max);
 	char name[64] = "CLJ_NIL", maxs[32] = "CLJ_ARITY_ANY";
@@ -1618,8 +1621,16 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 		snprintf(name, sizeof name, "K[%zu]", const_index(f, n->u.fn.name.v, &ok));
 	}
 	if (max != CLJ_ARITY_ANY) snprintf(maxs, sizeof maxs, "%u", max);
+	snprintf(out, cap, "clj_c_closure(%s, %s, %s, %u, 0x%x, %u, %s)", name, base, caps, n->u.fn.ncaptures, mask, min, maxs);
+}
+
+static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
+	emit_fn_functions(f, n, base);
+	char caps[32], expr[512];
+	emit_captures(f, n, caps);
+	closure_expr(f, n, base, caps, expr, sizeof expr);
 	temp t = new_temp(f, OWN_YES);
-	sb_printf(&f->out, "\tclj_value %s = clj_c_closure(%s, %s, %s, %u, 0x%x, %u, %s);\n", t.name, name, base, caps, nc, mask, min, maxs);
+	sb_printf(&f->out, "\tclj_value %s = %s;\n", t.name, expr);
 	live_push(f, t);
 	return t;
 }
@@ -2046,9 +2057,41 @@ static itemp emit_prim_raw(fnctx *f, const clj_node *n) {
 	return emit_prim(f, n, &pc, NULL, true);
 }
 
+// (lazy-seq* (fn* [] body)): a thunk of one arity, no rest and no self reference needs no fn object.
+static bool inline_thunk(const clj_node *n) {
+	const clj_node *head = n->u.invoke.fn;
+	if (head->kind != CLJ_NODE_VAR || n->u.invoke.n != 1 || !var_named(head->u.var.v, "clojure.core", "lazy-seq*")) return false;
+	const clj_node *fn = n->u.invoke.args[0];
+	if (fn->kind != CLJ_NODE_FN || fn->u.fn.variadic || !fn->u.fn.fixed[0] || fn->u.fn.fixed[0]->self_slot >= 0) return false;
+	for (uint32_t i = 1; i <= CLJ_FN_MAX_FIXED; i++) {
+		if (fn->u.fn.fixed[i]) return false;
+	}
+	return fn->u.fn.ncaptures <= UINT16_MAX;
+}
+
+// The cell holds the 0-arity entry and the captures (clj_lazy_seq_code); a rebound lazy-seq* gets the closure.
+static temp emit_lazy_seq(fnctx *f, const clj_node *n) {
+	const clj_node *fn = n->u.invoke.args[0];
+	char            base[256], caps[32], expr[512];
+	snprintf(base, sizeof base, "%s__%u", f->base, (*f->fn_counter)++);
+	emit_fn_functions(f, fn, base);
+	emit_captures(f, fn, caps);
+	closure_expr(f, fn, base, caps, expr, sizeof expr);
+	size_t vi = var_index(f->u, n->u.invoke.fn->u.var.v);
+	temp   r = new_temp(f, OWN_YES);
+	int    k = f->naux++;
+	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_LAZY_SEQ_INLINE(V[%zu])) {\n\t%s = clj_lazy_seq_code(%s_a0, %s, %u);\n\t} else {\n", r.name, vi, r.name, base,
+	          caps, fn->u.fn.ncaptures);
+	sb_printf(&f->out, "\tclj_value th%d = %s;\n\t%s = clj_c_intrinsic_fallback(V[%zu], &th%d, 1);\n\tclj_release(th%d);\n\t}\n", k, expr, r.name, vi, k, k);
+	check_thrown(f, r.name);
+	live_push(f, r);
+	return r;
+}
+
 static temp emit_invoke(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
+	if (inline_thunk(n)) return emit_lazy_seq(f, n);
 	if (f->c->opts.closed && !f->u->embedded && head->kind == CLJ_NODE_VAR && (var_named(head->u.var.v, "clojure.core", "eval") || var_named(head->u.var.v, "clojure.core", "load-string"))) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}

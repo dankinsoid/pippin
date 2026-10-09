@@ -546,12 +546,6 @@ static clj_value b_hash_map(const clj_value *args, size_t n) {
 
 // ---- seqs
 
-static clj_value b_lazy_seq_star(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_fn(args[0])) return clj_throw_msg("lazy-seq* expects a fn, got: %s", clj_type_name(args[0]));
-	return clj_lazy_seq_new(args[0]);
-}
-
 static clj_value b_realized_p(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_lazy_seq(args[0])) return clj_throw_msg("realized? not supported on this type: %s", clj_type_name(args[0]));
@@ -1702,7 +1696,7 @@ static const entry entries[] = {
 	{"sorted-map*", b_sorted_map, 0, ANY}, {"sorted-set*", b_sorted_set, 0, ANY}, {"sort-by*", b_sort_by, 2, 3},
 	{"sorted-seq*", b_sorted_seq, 2, 2}, {"sorted-seq-from*", b_sorted_seq_from, 3, 3}, {"sorted-compare*", b_sorted_compare, 3, 3},
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
-	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", b_lazy_seq_star, 1, 1},
+	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", clj_lazy_seq_star, 1, 1},
 	{"lazy-seq-realized?*", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
 	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1},
 	{"into", b_into, 2, 3},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
