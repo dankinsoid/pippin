@@ -216,14 +216,13 @@ void clj_rc_drop(clj_header *h, bool deep) {
 	if ((prev & CLJ_RC_COUNT_MASK) == 1) free_object(h, deep);
 }
 
-bool clj_is_unique(clj_value v) {
+static bool is_unique(clj_value v) {
 #ifdef CLJ_NO_REUSE
 	// The §7 invariant: nothing outside the RC entry points may depend on the counter, so a build that
 	// answers "not unique" everywhere must still pass every suite — a copy, never a wrong result.
 	(void)v;
 	return false;
 #else
-	if (!clj_is_ptr(v)) return false;
 	clj_header *h = clj_header_of(v);
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
@@ -231,6 +230,15 @@ bool clj_is_unique(clj_value v) {
 	CLJ_OWNER_CHECK(h);
 	return CLJ_RC_UNSHARED_LOAD(h) == 1;
 #endif
+}
+
+bool clj_is_unique(clj_value v) {
+	if (!clj_is_ptr(v)) return false;
+	bool unique = is_unique(v);
+#if CLJ_STATS
+	clj_stats_reuse(clj_type_of(v), unique);
+#endif
+	return unique;
 }
 
 bool clj_reuse_enabled(void) {

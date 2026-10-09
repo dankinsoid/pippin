@@ -25,6 +25,8 @@ static const char *const names[CLJ_STAT_COUNT] = {
 	[CLJ_STAT_LAZY_FORCE] = "lazy_force",
 	[CLJ_STAT_HASH] = "hash",
 	[CLJ_STAT_EQUALS] = "equals",
+	[CLJ_STAT_REUSE_TAKEN] = "reuse_taken",
+	[CLJ_STAT_REUSE_COPIED] = "reuse_copied",
 };
 
 const char *clj_debug_stat_name(int k) { return k >= 0 && k < CLJ_STAT_COUNT ? names[k] : "?"; }
@@ -74,7 +76,7 @@ enum { TYPE_SLOTS = 1024 };
 
 typedef struct {
 	_Atomic(const clj_type *) type;
-	_Atomic uint64_t          allocs;
+	_Atomic uint64_t          allocs, reuse_taken, reuse_copied;
 	_Atomic uint64_t          born, born_built;
 	_Atomic uint64_t          count[NFIELD][NKIND];
 } type_allocs;
@@ -415,6 +417,12 @@ void clj_stats_alloc(clj_header *h, const clj_type *type, size_t size, uint32_t 
 	if (atomic_load_explicit(&census_on, memory_order_relaxed)) census_birth(h, type, cls);
 }
 
+void clj_stats_reuse(const clj_type *type, bool taken) {
+	CLJ_STAT(taken ? CLJ_STAT_REUSE_TAKEN : CLJ_STAT_REUSE_COPIED);
+	type_allocs *row = &by_type[type_index(type)];
+	bump(taken ? &row->reuse_taken : &row->reuse_copied);
+}
+
 bool clj_debug_stats(uint64_t out[CLJ_STAT_COUNT]) {
 	for (int k = 0; k < CLJ_STAT_COUNT; k++) out[k] = atomic_load_explicit(&clj_stats[k], memory_order_relaxed);
 	return true;
@@ -435,6 +443,18 @@ size_t clj_debug_allocs_by_type(const char **type_names, uint64_t *counts, size_
 	}
 	return n;
 }
+
+size_t clj_debug_reuse_by_type(const char **type_names, uint64_t *taken, uint64_t *copied, size_t cap) {
+	size_t n = 0;
+	for (size_t i = 0; i < TYPE_SLOTS && n < cap; i++) {
+		const clj_type *type = atomic_load_explicit(&by_type[i].type, memory_order_acquire);
+		if (!type) continue;
+		type_names[n] = type->name;
+		taken[n] = atomic_load_explicit(&by_type[i].reuse_taken, memory_order_relaxed);
+		copied[n++] = atomic_load_explicit(&by_type[i].reuse_copied, memory_order_relaxed);
+	}
+	return n;
+}
 #else
 bool clj_debug_stats(uint64_t out[CLJ_STAT_COUNT]) {
 	(void)out;
@@ -449,6 +469,14 @@ bool clj_debug_stats_rc(uint64_t out[3]) {
 size_t clj_debug_allocs_by_type(const char **type_names, uint64_t *counts, size_t cap) {
 	(void)type_names;
 	(void)counts;
+	(void)cap;
+	return 0;
+}
+
+size_t clj_debug_reuse_by_type(const char **type_names, uint64_t *taken, uint64_t *copied, size_t cap) {
+	(void)type_names;
+	(void)taken;
+	(void)copied;
 	(void)cap;
 	return 0;
 }

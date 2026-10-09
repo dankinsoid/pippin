@@ -20,6 +20,9 @@ typedef enum {
 	CLJ_STAT_LAZY_FORCE,
 	CLJ_STAT_HASH,
 	CLJ_STAT_EQUALS,
+	// clj_is_unique asked of a heap object: in place (rc 1) or a copy.
+	CLJ_STAT_REUSE_TAKEN,
+	CLJ_STAT_REUSE_COPIED,
 	CLJ_STAT_COUNT
 } clj_stat;
 
@@ -38,6 +41,8 @@ const char *clj_debug_stat_name(int k);
 bool clj_debug_stats_rc(uint64_t out[3]);
 // Objects allocated per type since the start, by type name; 0 in a build without -DCLJ_STATS.
 size_t clj_debug_allocs_by_type(const char **names, uint64_t *counts, size_t cap);
+// clj_is_unique's answers per type of the object asked, since the start; 0 in a build without -DCLJ_STATS.
+size_t clj_debug_reuse_by_type(const char **names, uint64_t *taken, uint64_t *copied, size_t cap);
 // ns per inline retain or release of an unshared object on this machine, the unit the RC share is estimated in.
 double clj_debug_rc_op_ns(size_t ops);
 // The same over `objects` objects visited in a shuffled order: a header the cache no longer holds.

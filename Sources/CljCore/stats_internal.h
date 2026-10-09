@@ -10,6 +10,8 @@ enum { CLJ_CENSUS_LARGE = 255 };
 
 #if CLJ_STATS
 void clj_stats_alloc(clj_header *h, const clj_type *type, size_t size, uint32_t cls);
+// clj_is_unique's answer about an object of type: reused in place, or copied.
+void clj_stats_reuse(const clj_type *type, bool taken);
 // The object's last reference went: rc.c's bury and every dealloc; a second call for one object finds nothing.
 void clj_census_death(clj_header *h);
 void clj_census_move(clj_header *from, clj_header *to, uint32_t cls);

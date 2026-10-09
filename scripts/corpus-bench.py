@@ -55,8 +55,8 @@ def sh(cmd, env=None, timeout=None, cwd=ROOT, check=True):
 
 def parse(text):
 	"""The report lines of clj-corpus-bench and jvm.clj: `key value`, `stat name n`, `alloc_type name n`,
-	`census type field n`."""
-	r = {"stat": {}, "alloc_type": {}, "census": {}}
+	`census type field n`, `reuse_type name taken copied`."""
+	r = {"stat": {}, "alloc_type": {}, "census": {}, "reuse_type": {}}
 	for line in text.splitlines():
 		parts = line.split(" ", 1)
 		if len(parts) != 2:
@@ -71,6 +71,9 @@ def parse(text):
 		elif key in ("stat", "alloc_type"):
 			name, value = rest.rsplit(" ", 1)
 			r[key][name] = float(value)
+		elif key == "reuse_type":
+			name, taken, copied = rest.rsplit(" ", 2)
+			r[key][name] = (float(taken), float(copied))
 		elif key in ("result", "expected"):
 			r[key] = rest
 		elif key in ("load_ms", "first_ms", "median_ms", "min_ms", "stats_ms", "clang_ms", "rc_op_ns",
@@ -634,6 +637,16 @@ def write_report(b, facts_path, xctrace):
 		if s:
 			top = sorted(s["alloc_type"].items(), key=lambda kv: -kv[1])[:8]
 			add("- **%s**: %s" % (w, ", ".join("%s %s" % (n, k(c)) for n, c in top)))
+	add("")
+	add("Reuse at rc 1 (closed, per iteration; `clj_is_unique` asked of a heap object, in place / copied, top 6 types):")
+	add("")
+	for w in b.args.only:
+		s = b.results[w].get("closed-stats") or b.results[w].get("dev-stats")
+		if s:
+			st = s["stat"]
+			top = sorted(s.get("reuse_type", {}).items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:6]
+			add("- **%s**: %s in place / %s copied; %s" % (w, k(st.get("reuse_taken")), k(st.get("reuse_copied")),
+			    ", ".join("%s %s/%s" % (n, k(t), k(c)) for n, (t, c) in top) or "none"))
 	add("")
 	add("Dev against closed, the generic-call counters (dev / closed): " + "; ".join(
 		"%s invoke %s/%s c_invoke %s/%s" % (

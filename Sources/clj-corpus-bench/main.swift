@@ -217,6 +217,8 @@ if opts.stats {
 	let cap = 1024
 	var names0 = [UnsafePointer<CChar>?](repeating: nil, count: cap), counts0 = [UInt64](repeating: 0, count: cap)
 	let n0 = clj_debug_allocs_by_type(&names0, &counts0, cap)
+	var rnames0 = [UnsafePointer<CChar>?](repeating: nil, count: cap), taken0 = [UInt64](repeating: 0, count: cap), copied0 = taken0
+	let r0 = clj_debug_reuse_by_type(&rnames0, &taken0, &copied0, cap)
 	let sw0 = clj_debug_coro_switches()
 	if opts.census { _ = clj_debug_census_begin() }
 	var ms = 0.0
@@ -227,6 +229,8 @@ if opts.stats {
 	_ = clj_debug_stats_rc(&rc1)
 	var names1 = [UnsafePointer<CChar>?](repeating: nil, count: cap), counts1 = [UInt64](repeating: 0, count: cap)
 	let n1 = clj_debug_allocs_by_type(&names1, &counts1, cap)
+	var rnames1 = [UnsafePointer<CChar>?](repeating: nil, count: cap), taken1 = [UInt64](repeating: 0, count: cap), copied1 = taken1
+	let r1 = clj_debug_reuse_by_type(&rnames1, &taken1, &copied1, cap)
 	let k = Double(opts.statIterations)
 	out("stats_ms \(ms / k)")
 	for i in 0..<Int(CLJ_STAT_COUNT.rawValue) { out("stat \(String(cString: clj_debug_stat_name(Int32(i)))) \(Double(s1[i] - s0[i]) / k)") }
@@ -240,6 +244,22 @@ if opts.stats {
 	for i in 0..<n1 { after[String(cString: names1[i]!), default: 0] += counts1[i] }
 	for (name, count) in after.map({ ($0.key, $0.value - (before[$0.key] ?? 0)) }).filter({ $0.1 > 0 }).sorted(by: { $0.1 > $1.1 }).prefix(20) {
 		out("alloc_type \(name.replacingOccurrences(of: " ", with: "_")) \(Double(count) / k)")
+	}
+	var reuseBefore: [String: (UInt64, UInt64)] = [:], reuseAfter: [String: (UInt64, UInt64)] = [:]
+	for i in 0..<r0 {
+		let name = String(cString: rnames0[i]!), old = reuseBefore[name] ?? (0, 0)
+		reuseBefore[name] = (old.0 + taken0[i], old.1 + copied0[i])
+	}
+	for i in 0..<r1 {
+		let name = String(cString: rnames1[i]!), old = reuseAfter[name] ?? (0, 0)
+		reuseAfter[name] = (old.0 + taken1[i], old.1 + copied1[i])
+	}
+	let reuse = reuseAfter.map { name, a -> (String, UInt64, UInt64) in
+		let b = reuseBefore[name] ?? (0, 0)
+		return (name, a.0 - b.0, a.1 - b.1)
+	}
+	for (name, taken, copied) in reuse.filter({ $0.1 + $0.2 > 0 }).sorted(by: { $0.1 + $0.2 > $1.1 + $1.2 }).prefix(12) {
+		out("reuse_type \(name.replacingOccurrences(of: " ", with: "_")) \(Double(taken) / k) \(Double(copied) / k)")
 	}
 	out("result \(expected)")
 	exit(0)
