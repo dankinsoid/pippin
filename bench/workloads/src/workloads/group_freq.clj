@@ -33,8 +33,7 @@
         ps (people xs)
         by-dept (group-by :dept ps)
         payroll (update-vals by-dept #(reduce + (map :salary %)))
-        ;; reduce, not apply: apply of a compiled variadic past 21 arguments (docs/notes/compiler.md).
-        oldest (update-vals by-dept #(:id (reduce (fn [a b] (max-key (fn [p] (+ (* 1000000 (:age p)) (:id p))) a b)) %)))
+        oldest (update-vals by-dept #(:id (apply max-key (fn [p] (+ (* 1000000 (:age p)) (:id p))) %)))
         by-city-age (frequencies (map (juxt :city #(quot (:age %) 10)) ps))
         merged (apply merge-with + (map (fn [p] {(:city p) (:salary p)}) ps))
         ranked (take 100 (sort-by (juxt (comp - :salary) :id) ps))
