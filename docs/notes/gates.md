@@ -32,6 +32,15 @@
   It is periodic because that startup cost repeats for every suite; the shard runner (`--isolated`) runs as
   many of those processes side by side as it would run shards. All live-object assertions also remain
   active in the ordinary full-suite and corpus runs.
+- **`make test-seeded` is the interleaving instrument** (design §3 item 4's second half; NOTES "Scheduler",
+  "Seeded mode"): the concurrency suites under `CLJ_SCHED_SEED`, one process per seed of `SEEDS` (1–16 by default,
+  commas allowed for CI's `make_args`), on the plain debug build. Opt-in like `test-tsan`, in neither `gates` nor
+  `gates-full`. On the arm64 runner a seed takes 15–20 s, 122 tests (run 37929936644): virtual time makes every
+  timeout instant. A failure prints its `✘` lines, the scheduler's dump of a hang (`CLJ_TEST_HANG_S` 180 s here)
+  and a replay command per failed test; the seed logs and any crash report (`CLJ_CRASH_EXIT=0` under it, so the
+  system writes one) land in `.build/plain/shards/seeded/`, which CI uploads with the shard logs. It also fails
+  when `SeededTests` printed differently under two seeds: those lines reseed themselves and must not depend on the
+  process's seed.
 - **`make test-tsan` is the data-race instrument** (design §3 item 4's first half; the seeded scheduler is the
   other). The whole suite under `swift build --sanitize=thread` with `CLJ_SYSTEM_ALLOC=1`, the hand-written
   context switch annotated with TSan's fiber API, so an access is attributed to the coroutine and a report
