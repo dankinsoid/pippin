@@ -261,5 +261,30 @@ extension CoreTests {
 		@Test func membersWithFinalizers() throws {
 			try collected("(dotimes [i 100] (let [c (a/chan 2) d (a/chan 2)] (a/>!! c d) (a/>!! d c) (a/>!! c (atom c))))", cycles: 100)
 		}
+
+		// A collection running as a go body's exec dies defers its node tree, and frees it at its end on this thread.
+		// The ring dropped last keeps a collection busy at the body's finish; 1500 sites make exec_finalize long.
+		// @ai-generated(solo)
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func execsDyingOnCarriersBesideCollections() throws {
+			let sites = Array(repeating: "(:k m)", count: 1500).joined(separator: " ")
+			let form = """
+			(dotimes [t 4]
+			  (a/go (let [m (hash-map :k t)
+			              v [\(sites)]]
+			          (let [x (atom nil)] (reset! x (mapv (fn [_] x) (range 200))))
+			          v)))
+			"""
+			let base = CoroBaseline()
+			for _ in 0..<200 {
+				_ = try eval(form)
+				var spins = 0
+				while clj_debug_live_coros() > base.coros && spins < 1_000_000 {
+					clj_cc_collect()
+					spins += 1
+				}
+			}
+			base.check()
+		}
 	}
 }
