@@ -127,31 +127,34 @@
   `memcpy`, runtime only), the string is what was written when the capture pops, and a child still holding it
   writes into a buffer nobody reads (`FutureTests.withOutStrIsConveyedToAGoBlock`).
 
-- **Seeded mode** (`CLJ_SCHED_SEED=<n>`, read by `clj_init`; design §3 «Корректность реализации», item 4): a run is a
-  function of the seed. One carrier (`seed_carrier_main`) runs the pool and takes the next runnable out of a bag by
-  a SplitMix64 pick; the queue, the `next` slot, stealing and spinning are not used. A spawn, a channel operation
-  and an atom write are preemption points (`clj_sched_point` in the builtins, a global load and a predicted
-  branch otherwise), and so is a coroutine's tick: every ring of a seeded run holds the poison (`poisoned_locked`
-  answers true), the real deadline waits in `deadline_before`, and the tick's slow path asks
+- **Seeded mode** (`CLJ_SCHED_SEED=<n>`, read by `clj_init`; design §3 «Корректность реализации», item 4): a run is
+  a function of the seed. One carrier (`seed_carrier_main`) runs the pool and takes the next runnable out of a bag
+  by a SplitMix64 pick; the queue, the `next` slot, stealing and spinning are not used. A spawn, a channel
+  operation and an atom write are preemption points (`clj_sched_point` in the builtins: a global load and a
+  predicted branch otherwise), and so is a coroutine's tick: every ring of a seeded run holds the poison
+  (`poisoned_locked` answers true), the real deadline waits in `deadline_before`, and the tick's slow path asks
   `clj_sched_seed_tick` — cancelled, suspended, past the deadline, else a seeded yield, after which a cancel that
   came meanwhile is met at the next tick. At a point, with probability 2^-k, k from the seed, a coroutine parks
   with `clj_wake_yield()` and the carrier puts it straight back in the bag; where a park is refused
-  (`host_depth`, a `clj_lock`, a cancel) it goes on. A bare thread holds the turn from its outermost evaluation's entry (`exec_depth` 0 → 1: `exec_run_at`,
+  (`host_depth`, a `clj_lock`, a cancel) it goes on. A bare thread holds the turn from its outermost evaluation's
+  entry (`clj_eval` before the analysis, whose macros run code too; `exec_depth` 0 → 1 in `exec_run_at`,
   `clj_host_invoke`, `clj_eval_top_enter`) to its leave or a landing past it; the carrier waits while one runs and
-  works while it is parked, and a woken bare thread is put in the bag and goes on only when the pick names it. An
-  entry waits for the carrier to drain the bag (at most `SEED_DRAIN_MAX` runs), so its starting state does not
-  depend on how long the host stayed outside. Timers and deadlines (`clj_sched_now`), `nano-time*`,
-  `System/nanoTime` and `System/currentTimeMillis` read a virtual clock from a fixed origin; it jumps to the next
-  timer when the bag is empty and a bare thread is parked (in an evaluation or not) or a settle runs, and after 20 ms of
-  real quiet when the host is outside (a Swift polling loop); a tick adds 100 µs per 1024 calls, so a
-  runaway loop under a deadline ends the same way every run. `thread` and `send-off` bodies are coroutines,
-  `clj_blocking` jobs run in place, the cycle collector has no thread and collects when the model is stuck or a
-  settle asks, the evacuation sweep is off, `alts!` order and `rand` draw from a second PRNG stream, and a channel
-  hashes by a serial. `BootedTrait` reseeds before each test from the process seed and the test's id, so a failed
-  test replays alone; `make test-seeded` runs the concurrency suites over `SEEDS` (16 by default), one process
-  each, prints the seed and the replay command of a failure, and checks that `SeededTests` printed the same lines
-  under every seed. Outside the model, as the design lists: host threads (Swift `async`, a `Thread`, dispatch),
-  `go-main`, the writer's timing, a park only an outside thread ends (the next timer fires first), a bare
-  thread's busy wait inside an evaluation (it keeps the carrier waiting), a coroutine blocked under `host_depth` (stderr says so), identity hashes other than
-  a channel's, two bare threads inside evaluations at once. Tests of the pool itself or of an outside thread are
-  disabled under it (`outsideTheSeededModel`).
+  works while it is parked, and a woken bare thread is put in the bag and goes on only when the pick names it.
+  While the host is outside, the carrier drains the bag for at most `SEED_DRAIN_MAX` (64) runs and then waits for
+  it, or for 20 ms of quiet; an entry begins at that point, so its starting state does not depend on how long the
+  host stayed outside, and a coroutine that never ends does not tick the clock away meanwhile. Timers and
+  deadlines (`clj_sched_now`), `nano-time*`, `System/nanoTime` and `System/currentTimeMillis` read a virtual clock
+  from a fixed origin; it jumps to the next timer when the bag is empty and a bare thread is parked (in an
+  evaluation or not) or a settle runs, and after 20 ms of real quiet when the host is outside (a Swift polling
+  loop); a tick adds 100 µs per 1024 calls, so a runaway loop under a deadline ends the same way every run.
+  `thread` and `send-off` bodies are coroutines, `clj_blocking` jobs run in place, the cycle collector has no
+  thread and collects when the model is stuck or a settle asks, the evacuation sweep is off, `alts!` order and
+  `rand` draw from a second PRNG stream, and a channel hashes by a serial. `BootedTrait` reseeds before each test
+  from the process seed and the test's id (and restarts the test thread's ticks), so a failed test replays alone;
+  `make test-seeded` runs the concurrency suites over `SEEDS` (16 by default), one process each, prints the seed and
+  the replay command of a failure, and checks that `SeededTests` printed the same lines under every seed. Outside
+  the model, as the design lists: host threads (Swift `async`, a `Thread`, dispatch), `go-main`, the writer's
+  timing, a park only an outside thread ends (the next timer fires first), a bare thread's busy wait inside an
+  evaluation (it keeps the carrier waiting), a coroutine blocked under `host_depth` (stderr says so), identity
+  hashes other than a channel's, two bare threads inside evaluations at once. Tests of the pool itself or of an
+  outside thread are disabled under it (`outsideTheSeededModel`).
