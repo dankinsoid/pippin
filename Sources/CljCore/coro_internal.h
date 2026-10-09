@@ -96,8 +96,9 @@ struct clj_coro {
 	bool             resume_pending; // resumed before it parked: the park returns at once
 	bool             signaled;       // implicit: the block was released
 	// Implicit, seeded mode, under the scheduler's seed_mu (sched.c): inside an evaluation and holding the turn;
-	// parked there waiting for a wake; chosen by the seeded pick to run again.
-	bool             seed_in, seed_parked, seed_picked;
+	// chosen by the seeded pick to run again; parked (SEED_PARKED_*), which lets the virtual clock move.
+	bool             seed_in, seed_picked;
+	uint8_t          seed_parked;
 	pthread_mutex_t  lock;           // guards state, waiter and the park/resume handshake
 	pthread_cond_t   cond;           // implicit: what the thread blocks on
 	clj_waiter      *waiter;         // the park it is in, NULL while running and in an uncancellable park

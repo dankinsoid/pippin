@@ -1515,8 +1515,9 @@ enum {
 	// Runs an entry waits for at most before it begins: a pool that never runs dry still lets the host in.
 	SEED_DRAIN_MAX = 100000,
 };
+enum { SEED_PARKED_NO, SEED_PARKED_BARE, SEED_PARKED_TURN };
 // Real quiet before a host waiting outside the runtime lets virtual time pass.
-static const uint64_t SEED_GRACE_NS = 50000000;
+static const uint64_t SEED_GRACE_NS = 20000000;
 // Real time every execution sat parked with no timer pending before the report.
 static const uint64_t SEED_STUCK_NS = 1000000000;
 // A fixed origin: nano-time reads the same in every run of a seed.
@@ -1793,25 +1794,28 @@ static bool seed_block(clj_coro *c) {
 		}
 		return false;
 	}
-	if (!c->seed_in) return false;
+	// A park outside an evaluation (a host's direct call) holds no turn, but it too waits on the model.
+	bool turn = c->seed_in;
 	pthread_mutex_lock(&seed_mu);
 	c->seed_in = false;
-	c->seed_parked = true;
-	running_bare--;
+	c->seed_parked = turn ? SEED_PARKED_TURN : SEED_PARKED_BARE;
+	running_bare -= turn;
 	parked_bare++;
 	pthread_cond_broadcast(&seed_cv);
 	pthread_mutex_unlock(&seed_mu);
-	return true;
+	return turn;
 }
 
 // Under c->lock, from the resume: the woken bare thread runs again when the pick names it, not at once.
 static void seed_bare_ready(clj_coro *c) {
 	pthread_mutex_lock(&seed_mu);
 	if (c->seed_parked) {
-		c->seed_parked = false;
+		if (c->seed_parked == SEED_PARKED_TURN) {
+			bag_push_locked(c);
+			if (carrier_idle) pthread_cond_broadcast(&seed_cv);
+		}
+		c->seed_parked = SEED_PARKED_NO;
 		parked_bare--;
-		bag_push_locked(c);
-		if (carrier_idle) pthread_cond_broadcast(&seed_cv);
 	}
 	pthread_mutex_unlock(&seed_mu);
 }
