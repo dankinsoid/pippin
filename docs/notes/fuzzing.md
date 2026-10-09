@@ -64,7 +64,8 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   `hash-ordered-coll` and the rest are still not generated (`:no-hash`): §10 decided `hash` is ours.
 
 - [~] **What the pass covers.** Numbers of all ranks, strings over ASCII, vectors, lists, lazy seqs, hash and
-  sorted maps and sets, ratios, `let`, `loop`/`recur`, `fn`, destructuring, `if`/`cond`/`try`, `->>`, `apply`,
+  sorted maps and sets, ratios, `let`, `loop`/`recur`, `fn`, destructuring, `if`/`cond`/`try`, `->>`, `apply`
+  (also over `(range n)` with n around `CLJ_FN_MAX_FIXED`, into core fns and a multi-arity variadic `fn`),
   the seq, string and set function families, and four areas taken from `:uncovered` (2026-10-08): an atom or a
   volatile made, changed and read inside one expression (`swap!` with one and two arguments, `swap-vals!`,
   `reset-vals!`, `compare-and-set!` against its own deref, `vswap!`, `vreset!`); metadata on vectors, maps and

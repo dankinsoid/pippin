@@ -79,6 +79,8 @@
 (def ^:private idx-lits [0 0 1 1 2 3 4 5 6])
 (def ^:private pos-lits [1 1 2 2 3 4 5])
 (def ^:private shift-lits [0 1 2 7 31 32 62 63 64 65])
+;; Spread counts around CLJ_FN_MAX_FIXED (20): past 21 apply hands a variadic callee its rest as one seq.
+(def ^:private wide-lits [0 1 19 20 21 22 23 40 100])
 ;; Scale is part of a decimal's value: 1.50M and 1.5M are not `=`, and print as written.
 (def ^:private dec-lits [0M 1M -1M 1.5M -2.25M 0.1M 100M 1.50M 3.14159M 100.00M])
 (def ^:private dec-divisors [1M 2M 4M 0.5M 8M 5M 3M])
@@ -99,6 +101,7 @@
          ['count :coll] ['count :str] ['long :int] ['int :int] ['inc' :int] ['dec' :int]
          ['+' :int :int] ['-' :int :int] ['*' :int :int] ['bigint :int]
          ['apply '+ :seqint] ['apply '* :seqint] ['reduce '+ :seqint]
+         ['apply 'max :int ['range :wide]] ['apply '+ :int :int ['range :wide]]
          ['reduce '+ :int :seqint] ['transduce [:lit '(map inc)] '+ :seqint]
          :op/let :op/if :op/loop]
    :num [['+ :num :num] ['- :num :num] ['* :num :num]
@@ -116,7 +119,7 @@
           ['contains? :map :key] ['contains? :vec :idx] ['contains? :set :any]
           ['every? :pred1 :seq] ['not-any? :pred1 :seq] ['every? :pred1 :seqint]
           ['not :bool] ['and :bool :bool] ['or :bool :bool] ['bit-test :int :shift]
-          ['distinct? :any :any] ['distinct? :any :any :any]
+          ['distinct? :any :any] ['distinct? :any :any :any] ['apply 'distinct? :int ['range :wide]]
           ['clojure.string/starts-with? :str :str] ['clojure.string/ends-with? :str :str]
           ['clojure.string/includes? :str :str] ['clojure.string/blank? :str]
           ['clojure.set/subset? :set :set] ['clojure.set/superset? :set :set]
@@ -127,7 +130,7 @@
           :op/let :op/if]
    :str [['str :scalar :scalar] ['str :scalar] ['str :vec]
          ['subs :str :idx] ['subs :str :idx :idx]
-         ['clojure.string/join :seqs] ['clojure.string/join :str :seqs]
+         ['clojure.string/join :seqs] ['clojure.string/join :str :seqs] ['apply 'str ['range :wide]]
          ['clojure.string/upper-case :str] ['clojure.string/lower-case :str]
          ['clojure.string/capitalize :str] ['clojure.string/trim :str]
          ['clojure.string/triml :str] ['clojure.string/trimr :str]
@@ -234,7 +237,7 @@
          ['identity :any] ['when :bool :any] ['or :any :any] ['and :any :any]
          ['max-key 'count :vec :vec] ['min-key 'count :vec :vec]
          :op/int :op/num :op/str :op/bool :op/vec :op/seq
-         :op/let :op/if :op/cond :op/try :op/destructure :op/apply-fn
+         :op/let :op/if :op/cond :op/try :op/destructure :op/apply-fn :op/apply-wide
          :op/dec :op/cell :op/cell
          ['meta :metavec] ['meta :metamapv] ['meta :metaset] ['meta ['seq :metavec]] ['meta ['rest :metavec]]
          ['meta ['sorted-map]] ['identity :metavec]]
@@ -286,6 +289,7 @@
         :idx (pick! st idx-lits)
         :posidx (pick! st pos-lits)
         :shift (pick! st shift-lits)
+        :wide (pick! st wide-lits)
         :nzint (pick! st (remove zero? int-lits))
         :ratio (pick! st [1 2 3 7])
         :ikey (pick! st [-2 -1 0 1 2 3 5 100])
@@ -316,7 +320,7 @@
         :metamapv (list 'with-meta (leaf st :map env) (leaf st :metamap env))
         :metaset (list 'with-meta (leaf st :set env) (leaf st :metamap env))))))
 
-(def ^:private leaf-only #{:kw :char :nil :key :ikey :ikeyvec :small :idx :posidx :shift :nzint :nznum :scalar :decdiv :metamap})
+(def ^:private leaf-only #{:kw :char :nil :key :ikey :ikeyvec :small :idx :posidx :shift :wide :nzint :nznum :scalar :decdiv :metamap})
 
 (defn- special [st op t env depth]
   (let [d (dec depth)]
@@ -387,6 +391,11 @@
                             '__h2 (gen st t (update env :any (fnil into []) [a b]) d)}]))
       :op/apply-fn (let [f (pick! st ['vector 'list 'max 'min 'conj])]
                      [(list 'apply f '__h1) {'__h1 (gen st :seq env d)}])
+      ;; A multi-arity variadic fn: its rest arity's position is not its lowest arity's.
+      :op/apply-wide (let [hs (mapv (fn [i] (symbol (str "__h" (inc i)))) (range (rint! st 5)))]
+                       [(apply list 'apply '(fn ([] :a0) ([a] [:a1 a]) ([a b] [:a2 a b]) ([a b c & r] [:v a b c r]))
+                               (conj hs (list 'range (leaf st :wide env))))
+                        (into {} (map (fn [h] [h (gen st :any env d)]) hs))])
       :op/kw-get (let [k (pick! st kw-lits)]
                    (if (coin! st 2)
                      [(list k '__h1) {'__h1 (gen st :map env d)}]
@@ -569,7 +578,7 @@
 
 (def ^:private min-lit
   {:int 0 :num 0 :str "" :bool true :kw :a :char \a :nil nil :key :a :small 0 :idx 0 :posidx 1
-   :shift 0 :nzint 1 :nznum 1 :ratio 1 :ikey 0 :ikeyvec [] :scalar nil
+   :shift 0 :wide 0 :nzint 1 :nznum 1 :ratio 1 :ikey 0 :ikeyvec [] :scalar nil
    :sortedmap (list 'sorted-map) :sortedset (list 'sorted-set) :any nil :vec [] :seq [] :seqint [] :seqs [] :map {} :set #{} :coll []
    :fn1 'identity :pred1 'identity :fn2 'vector
    :dec 0M :decdiv 1M :metamap nil :metavec [] :metamapv {} :metaset #{}})

@@ -35,9 +35,16 @@ static void fn_finalize(void *self) {
 	if (f->kind == CLJ_FN_NATIVE_CTX && f->u.native_ctx.release) f->u.native_ctx.release(f->u.native_ctx.ctx);
 }
 
+// clj_fn_native_env makes a compiled closure its own ctx, which a host block never is.
+static bool is_compiled_closure(const clj_fn *fn, clj_value f) {
+	return fn->kind == CLJ_FN_NATIVE_CTX && fn->u.native_ctx.ctx == clj_to_ptr(f);
+}
+
 static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
 	const clj_fn *fn = clj_fn_of(f);
 	if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
+	// Its dispatcher refuses a count itself, and its min_arity is the rest arity's, above a fixed one it may have.
+	if (is_compiled_closure(fn, f)) return fn->u.native_ctx.fn(fn->u.native_ctx.ctx, args, n);
 	if (n < fn->min_arity || (fn->max_arity != CLJ_ARITY_ANY && n > fn->max_arity)) return clj_arity_error(f, n);
 	if (fn->kind == CLJ_FN_NATIVE_CTX) return fn->u.native_ctx.fn(fn->u.native_ctx.ctx, args, n);
 	return fn->u.native.fn(args, n);
@@ -149,8 +156,7 @@ clj_value clj_rest_args(const clj_value *args, size_t nargs, uint32_t nparams) {
 
 // The argument counts f accepts, as a bit per count below *variadic, and *variadic the count from which
 // every larger one is accepted too (CLJ_ARITY_ANY when f is bounded). Read through clj_fn_accepts and not
-// off the fn's own fields: a compiled closure keeps only its lowest arity where an interpreted one keeps
-// the rest arity's own count, so the fields would answer differently in the two backends.
+// off the fn's own fields: an interpreted closure keeps its arities in its code and not in those fields.
 // Anything that is not a fn answers nothing: its invoke slot checks on the call.
 // @ai-generated(solo)
 static uint32_t fn_arities(clj_value f, uint32_t *variadic) {
@@ -221,26 +227,15 @@ static clj_value arity_data(clj_value f, size_t n, uint32_t bits, uint32_t varia
 	return data;
 }
 
-// Whether the counts answer that this very call was fine. Then they are not the truth about f and must
-// not be shown: a compiled closure's bounds keep one minimum for its fixed and its rest arity, so a fn
-// whose rest arity takes more fixed parameters than one of its fixed ones over-accepts the gap through
-// clj_fn_accepts, and naming the gap as accepted would contradict the refusal beside it.
-static bool arities_disagree(uint32_t bits, uint32_t variadic, size_t n) {
-	if (variadic != CLJ_ARITY_ANY && n >= variadic) return true;
-	return n <= CLJ_FN_MAX_FIXED && ((bits >> n) & 1);
-}
-
 static clj_value arity_error(clj_value f, const char *over, size_t n) {
 	clj_value name = clj_is_fn(f) && !clj_is_nil(clj_fn_of(f)->name.v) ? clj_fn_of(f)->name.v : CLJ_NIL;
 	clj_value text = clj_is_nil(name) && clj_is_fn(f) ? clj_string_from_cstr("fn") : clj_pr_str_max(clj_is_nil(name) ? f : name, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	uint32_t variadic, bits = fn_arities(f, &variadic);
-	// An exact count disagreeing with the refusal drops the counts whole; "> n" is a lower bound and says
-	// nothing about which count was passed, so it is not checked against them.
-	if (!*over && arities_disagree(bits, variadic, n)) {
-		bits = 0;
-		variadic = CLJ_ARITY_ANY;
-	}
+	// Every refusal is where clj_fn_accepts says no, so counts naming n beside it are a bug. "> n" is a lower
+	// bound and names no count.
+	CLJ_ASSERT(*over || !((variadic != CLJ_ARITY_ANY && n >= variadic) || (n <= CLJ_FN_MAX_FIXED && ((bits >> n) & 1))),
+	           "an arity refused where clj_fn_accepts takes it");
 	char      takes[256];
 	clj_value message = arities_text(bits, variadic, takes, sizeof takes)
 	                        ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, clj_string_bytes(text), takes)
@@ -278,11 +273,6 @@ clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	clj_value r = clj_throw_msg("%s cannot be invoked", clj_string_bytes(text));
 	clj_release(text);
 	return r;
-}
-
-// clj_fn_native_env makes a compiled closure its own ctx, which a host block never is.
-static bool is_compiled_closure(const clj_fn *fn, clj_value f) {
-	return fn->kind == CLJ_FN_NATIVE_CTX && fn->u.native_ctx.ctx == clj_to_ptr(f);
 }
 
 // A hand-written native takes a flat array whatever its arity, so only a closure's rest parameter takes a seq.

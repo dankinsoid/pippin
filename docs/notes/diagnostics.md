@@ -44,14 +44,11 @@
   which takes at least 3" where a reader passed none and may pass one or more. The count was the
   expander's before the arities were added and the arities inherit its offset. Trigger: the macro bit
   reaching the throw — it is on the var, and `clj_arity_error` holds only the fn.
-- [ ] **`clj_fn_accepts` over-accepts in a compiled unit** for a fn whose rest arity takes more fixed
-  parameters than one of its fixed arities (`([a] …) ([a b c & r] …)` answers true for 2), because
-  `fn_arity_bounds` (compiler.c) keeps one minimum for the fixed and the rest arity. The call still throws,
-  in the dispatcher, so the only visible effect is on the arities: the counts would name 2 as accepted
-  beside a refusal of 2, so `arities_disagree` drops them whole and the compiled message names none where
-  the interpreted one says "1 or at least 3". Fix: emit the rest arity's own count as `min`, the mask
-  already carrying the fixed ones. Trigger: a `make boot`, since the committed compiled core holds the
-  emitted bounds and would keep the old ones until it is regenerated.
+- **The counts are one predicate's in both backends.** A compiled closure carries its fixed arities as a
+  mask and its rest arity's own count as `min_arity` (`fn_arity_bounds`, compiler.c), so `clj_fn_accepts`
+  answers `([a] …) ([a b c & r] …)` as the interpreter does, "1 or at least 3". Every refusal is where the
+  predicate says no, so a count it would name beside the refusal of that count is a bug: `arities_disagree`
+  asserts it under `CLJ_DEBUG`.
 - **The nearest-name suggestion is the one §3-07 permits and no more** (`nearest_name`, analyzer.c):
   Levenshtein over the locals in scope and then the namespace's own, referred and `clojure.core`
   mappings — the three sets `clj_ns_resolve` itself walks — with the threshold at a third of the name, so

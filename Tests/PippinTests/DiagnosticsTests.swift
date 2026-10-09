@@ -90,8 +90,6 @@ extension CoreTests {
 		}
 
 		// A fn whose rest arity takes more fixed parameters than one of its fixed arities: the gap is named.
-		// A compiled unit keeps one minimum for both and so cannot see the gap; it then names no arities at
-		// all rather than naming the gap as accepted (docs/notes/diagnostics.md).
 		@Test func theAritiesSkipTheGap() throws {
 			clj_init()
 			defer { clj_ns_set_current(clj_ns_user()) }

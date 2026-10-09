@@ -1578,8 +1578,9 @@ static void fn_arity_bounds(const clj_node *n, uint32_t *mask, uint32_t *min, ui
 		if (i < *min) *min = i;
 		if (i > *max) *max = i;
 	}
+	// The rest arity's own count, not the lowest: apply hands the rest seq over at that position (fn.c rest_at).
 	if (n->u.fn.variadic) {
-		if (n->u.fn.variadic->nparams < *min) *min = n->u.fn.variadic->nparams;
+		*min = n->u.fn.variadic->nparams;
 		*max = CLJ_ARITY_ANY;
 	}
 	if (*min == UINT32_MAX) *min = 0;

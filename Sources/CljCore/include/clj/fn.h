@@ -47,6 +47,7 @@ clj_value clj_fn_native(clj_value name, clj_native_fn fn, uint32_t min_arity, ui
 clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, void (*release)(void *ctx), uint32_t min_arity, uint32_t max_arity);
 // A compiled closure: ctx is the fn object itself, its captured values retained in env; arities has bit n set
 // for each fixed arity n, and max_arity CLJ_ARITY_ANY with min_arity the variadic one's count when there is one.
+// That min_arity is where apply hands the rest seq over, so it is not the lowest count when a fixed arity is lower.
 clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity);
 // node is a fn node of exec's tree; env items are borrowed and retained.
 clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, const clj_value *env, uint32_t nenv);

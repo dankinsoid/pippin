@@ -609,6 +609,16 @@
   implementors, which today only a constructor-derived fact reaches; the entry protocol is gone (the empty
   prologue entry) and the row sits at 7.6–7.8: what stands between that and the design's 5 is the boxed
   argument array and the loop around the call.
+- **A compiled closure's `min_arity` is its rest arity's own count**, not its lowest, when it has a rest arity
+  (`fn_arity_bounds`; the mask carries the fixed ones). Past `CLJ_FN_MAX_FIXED` + 1 spread arguments `clj_apply`
+  hands the rest over as one seq at that position (`rest_at`, fn.c, docs/notes/analyzer-and-evaluator.md), as an
+  interpreted closure's variadic arity answers it; `fn_invoke` leaves the count to the dispatcher, since the
+  bounds are not a range. With the lowest count, `(apply max (range 22))` under the compiled core put the seq in
+  `max`'s `y` and the `_v2` arity read its rest one slot past the array: "cons cannot be cast to a number", and
+  garbage from `(apply distinct? (range 30))` (found by `make corpus-bench`). `Fixtures/compiler/apply.clj` holds
+  apply with 0-4 leading arguments at 0, 1, 20, 21, 22 and 100 spread over core fns, single- and multi-arity
+  variadic `defn`s, a capturing closure, a var and `partial`, in every backend; `fuzz/regressions/apply-wide.clj`
+  and the generator's wide `apply` hold it against the JVM.
 - [ ] **Deviations and skips, each with its trigger.** Trace positions as above; trigger: a host wanting caller lines from compiled code, then a line
   in each `CLJC_SITE` marker (the emitter knows the call's position) read by the walk in place of the fn's own. A closed unit binds a direct call to the registry's
   latest entry at its first call and never again, so redefining a var across compiled-eval forms under

@@ -697,7 +697,7 @@ static clj_value top_4(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 10 "<embedded>/clojure/set.clj"
-	clj_value t0 = clj_c_closure(K[7], clojure_set_union, NULL, 0, 0x7, 0, CLJ_ARITY_ANY);
+	clj_value t0 = clj_c_closure(K[7], clojure_set_union, NULL, 0, 0x7, 2, CLJ_ARITY_ANY);
 	clj_var_bind_root(V[8], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[9]);
@@ -1124,7 +1124,7 @@ static clj_value top_5(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 22 "<embedded>/clojure/set.clj"
-	clj_value t0 = clj_c_closure(K[11], clojure_set_intersection, NULL, 0, 0x6, 1, CLJ_ARITY_ANY);
+	clj_value t0 = clj_c_closure(K[11], clojure_set_intersection, NULL, 0, 0x6, 2, CLJ_ARITY_ANY);
 	clj_var_bind_root(V[16], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[12]);
@@ -1444,7 +1444,7 @@ static clj_value top_6(void) {
 	(void)fr;
 	clj_eval_top_enter();
 #line 37 "<embedded>/clojure/set.clj"
-	clj_value t0 = clj_c_closure(K[14], clojure_set_difference, NULL, 0, 0x6, 1, CLJ_ARITY_ANY);
+	clj_value t0 = clj_c_closure(K[14], clojure_set_difference, NULL, 0, 0x6, 2, CLJ_ARITY_ANY);
 	clj_var_bind_root(V[20], t0);
 	clj_release(t0);
 	clj_value t1 = clj_retain(K[15]);

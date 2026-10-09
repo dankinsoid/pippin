@@ -458,7 +458,8 @@
   realizing forever. The sentinel needs no dispatch change — no fixed arity answers `SIZE_MAX`, and
   `n >= nparams` still picks the variadic one — and both backends read it through one helper,
   `clj_rest_args`, which `closure_run` and the emitted `_v` arity both call (compiler.c), so the lazy
-  hand-over cannot reach one backend alone. Past `CLJ_FN_MAX_FIXED` (20) no fixed arity exists, so the
+  hand-over cannot reach one backend alone. The seq goes at the variadic arity's own `nparams`, read off the
+  fn node of a closure and off `min_arity` of a compiled one (docs/notes/compiler.md). Past `CLJ_FN_MAX_FIXED` (20) no fixed arity exists, so the
   walk stops there and what it took past the rest parameter is consed back in front of the seq; a callee
   with no rest parameter is walked one argument past its own ceiling, which tells a whole spread from an
   arity error, and the error says `(> 20)` rather than a count the reader cannot act on — Clojure's own
