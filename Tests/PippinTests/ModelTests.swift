@@ -16,7 +16,7 @@ private func setting(_ name: String, _ fallback: Int) -> Int {
 }
 
 private enum Backend: String {
-	case interpreted, compiled
+	case interpreted, compiled, closed
 }
 
 nonisolated(unsafe) private var runs = 0
@@ -32,8 +32,8 @@ private func run(_ source: String, _ backend: Backend, name: String) throws -> S
 	switch backend {
 	case .interpreted:
 		return try capturingOutput { try loadFixtureSource(source, file: file) }
-	case .compiled:
-		try compileFixtureAsUnit(source, file: file, name: "model_\(name)_\(runs)")
+	case .compiled, .closed:
+		try compileFixtureAsUnit(source, file: file, name: "model_\(name)_\(runs)", closed: backend == .closed)
 		return try runFixtureUnit(file)
 	}
 }
@@ -76,7 +76,7 @@ private func pass(_ backend: Backend, seeds: Range<Int>, replay: String) {
 		}
 		let prefix = Model.prefix(seed: UInt64(seed), i)
 		// Each compiled candidate is a clang run.
-		let minimal = Model.shrink(batch.seqs[i], budget: backend == .interpreted ? 400 : 40) { c in
+		let minimal = Model.shrink(batch.seqs[i], budget: backend == .interpreted ? 400 : 30) { c in
 			guard let p = Model.program(prelude: prelude, c, prefix: prefix), let o = try? run(p, backend, name: "shrink") else { return false }
 			return !failures(o).isEmpty
 		}
@@ -96,12 +96,17 @@ extension CoreTests {
 	@Suite struct ModelTests {
 		@Test func interpreted() {
 			let first = setting("CLJ_MODEL_SEED", 1)
-			pass(.interpreted, seeds: first..<(first + setting("CLJ_MODEL_BATCHES", 6)), replay: "CLJ_MODEL_SEED")
+			pass(.interpreted, seeds: first..<(first + setting("CLJ_MODEL_BATCHES", 8)), replay: "CLJ_MODEL_SEED")
 		}
 
 		@Test func compiled() {
 			let first = setting("CLJ_MODEL_COMPILED_SEED", 10_001)
 			pass(.compiled, seeds: first..<(first + setting("CLJ_MODEL_COMPILED", 1)), replay: "CLJ_MODEL_COMPILED_SEED")
+		}
+
+		@Test func closed() {
+			let first = setting("CLJ_MODEL_CLOSED_SEED", 20_001)
+			pass(.closed, seeds: first..<(first + setting("CLJ_MODEL_CLOSED", 1)), replay: "CLJ_MODEL_CLOSED_SEED")
 		}
 	}
 }

@@ -69,7 +69,8 @@ test-all: test test-pool test-ubsan test-noreuse
 
 # The collection model tests (NOTES "Model tests") over many seeds, opt-in like fuzz-long: the bounded pass of
 # `make test` widened, in the ASan, compiled-core and no-reuse builds.
-MODEL_LONG = CLJ_MODEL_BATCHES=$(or $(MODEL_BATCHES),400) CLJ_MODEL_COMPILED=$(or $(MODEL_COMPILED),16) CLJ_TEST_HANG_S=7200
+MODEL_LONG = CLJ_MODEL_BATCHES=$(or $(MODEL_BATCHES),400) CLJ_MODEL_COMPILED=$(or $(MODEL_COMPILED),12) \
+	CLJ_MODEL_CLOSED=$(or $(MODEL_COMPILED),12) CLJ_TEST_HANG_S=7200
 model-long: TEST_TIMEOUT = 7200
 model-long:
 	$(MODEL_LONG) CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(ASAN) --sanitize=address --filter ModelTests

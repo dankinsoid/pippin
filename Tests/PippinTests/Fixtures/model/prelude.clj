@@ -6,6 +6,7 @@
 (def mt-a1 (atom 1 :meta {:mt 1}))
 (def mt-a2 (atom 2 :meta {:mt 2}))
 (def mt-box (atom nil))
+(def ^:dynamic *mt-d* nil)
 
 (defn mt-q [& xs] (into clojure.lang.PersistentQueue/EMPTY xs))
 (defn mt-yes [] (some? mt-box))
@@ -41,10 +42,8 @@
     (vector? exp) (every? (fn [i] (= (nth v i) (nth exp i))) (range (count exp)))
     :else true))
 
-;; exp is nil for a value whose text is too long to spell twice; it is rebuilt from the text then.
 (defn mt-chk [tag v n txt exp mtxt]
-  (let [exp (if (nil? exp) (eval (read-string txt)) exp)
-        p (mt-pr v)]
+  (let [p (mt-pr v)]
     (cond
       (not= (count v) n) (mt-fail tag [:count (count v) n])
       (not= p txt) (mt-fail tag [:value p txt])

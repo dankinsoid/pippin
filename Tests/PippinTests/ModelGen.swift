@@ -54,9 +54,10 @@ enum Model {
 		case conj(Arg), assoc(Arg, Arg), dissoc(Arg), disj(Arg), pop
 	}
 
-	// The paths into a collection: the builtin's conj loop, the fused driver, the transducer arity, a reduce.
+	// The paths into a collection: the builtin's conj loop, the fused driver, the transducer arity, `reduce` with
+	// the builtin and with a fn of its own (its accumulator a borrowed parameter), `transduce`.
 	enum Via: CaseIterable {
-		case plain, fused, xform, reduce
+		case plain, fused, xform, reduce, reduceFn, transduce
 	}
 
 	struct Init {
@@ -92,7 +93,8 @@ enum Model {
 
 	// How the step's source reaches the operation: each is a different ownership path in both backends.
 	enum Wrap: CaseIterable {
-		case plain, ifTrue, letAlias, fnCall, loopOnce, tryBody, capture, publish, future, apply, reduce, swap, vswap
+		case plain, ifTrue, letAlias, fnCall, letFn, restArgs, vecDestructure, mapDestructure, binding, loopOnce, tryBody,
+		     capture, publish, future, apply, reduce, swap, vswap
 		// A seq or a lazy seq over the source, taken before the operation and realized after it.
 		case seqView, lazyView
 	}
@@ -609,6 +611,8 @@ enum Model {
 			case .fused: return .call("into", ["(map identity \(code(a)))"])
 			case .xform: return .call("into", ["(map identity)", code(a)])
 			case .reduce: return .raw { s in "(reduce conj \(s) \(code(a)))" }
+			case .reduceFn: return .raw { s in "(reduce (fn [acc x] (conj acc x)) \(s) \(code(a)))" }
+			case .transduce: return .raw { s in "(transduce (map identity) conj \(s) \(code(a)))" }
 			}
 		case .subvec(let a, let b): return .call("subvec", ["\(a)", "\(b)"])
 		case .withMeta(let m): return .call("with-meta", [metaText(m)])
@@ -620,6 +624,8 @@ enum Model {
 			case .fused: return .raw { s in "(vec (map identity \(s)))" }
 			case .xform: return .raw { s in "(into [] (map identity) \(s))" }
 			case .reduce: return .raw { s in "(mapv identity \(s))" }
+			case .reduceFn: return .raw { s in "(reduce (fn [acc x] (conj acc x)) [] \(s))" }
+			case .transduce: return .raw { s in "(transduce (map identity) conj [] \(s))" }
 			}
 		case .selectKeys(let ks): return .call("select-keys", ["[" + ks.map(code).joined(separator: " ") + "]"])
 		case .get(let k): return .call("get", [code(k)])
@@ -641,7 +647,8 @@ enum Model {
 	static func wraps(_ op: Op) -> [Wrap] {
 		switch op {
 		case .make: return [.plain]
-		case .transient, .into(_, .reduce), .vec(.fused), .vec(.xform), .vec(.reduce):
+		case .transient, .into(_, .reduce), .into(_, .reduceFn), .into(_, .transduce), .vec(.fused), .vec(.xform), .vec(.reduce),
+		     .vec(.reduceFn), .vec(.transduce):
 			return Wrap.allCases.filter { ![.apply, .reduce, .swap, .vswap].contains($0) }
 		case .conj, .dissoc, .disj: return Wrap.allCases
 		default: return Wrap.allCases.filter { $0 != .reduce }
@@ -668,6 +675,11 @@ enum Model {
 		case .ifTrue: return "(if (mt-yes) \(x(src)) (mt-no))"
 		case .letAlias: return "(let [t \(src)] \(x("t")))"
 		case .fnCall: return "((fn [t] \(x("t"))) \(src))"
+		case .letFn: return "(let [g (fn [t] \(x("t")))] (g \(src)))"
+		case .restArgs: return "((fn [& ts] \(x("(first ts)"))) \(src))"
+		case .vecDestructure: return "(let [[t] [\(src)]] \(x("t")))"
+		case .mapDestructure: return "(let [{t :k} {:k \(src)}] \(x("t")))"
+		case .binding: return "(binding [*mt-d* \(src)] \(x("*mt-d*")))"
 		case .loopOnce: return "(loop [t \(src) i 0] (if (zero? i) (recur \(x("t")) 1) t))"
 		case .tryBody: return "(try \(x(src)) (catch Exception e (mt-no)))"
 		case .capture: return "(let [g (fn [] \(src))] \(x("(g)")))"
@@ -692,27 +704,36 @@ enum Model {
 		"\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
 	}
 
-	// nil makes mt-chk rebuild a long expected value from its text, which keeps the program small.
 	static func check(_ tag: String, _ e: String, _ c: Coll) -> String {
 		let t = text(c)
-		let exp = t.utf8.count <= 400 ? t : "nil"
-		return "(mt-chk \(quoted(tag)) \(e) \(c.count) \(quoted(t)) \(exp) \(quoted(metaText(metaOf(c)))))"
+		return "(mt-chk \(quoted(tag)) \(e) \(c.count) \(quoted(t)) \(t) \(quoted(metaText(metaOf(c)))))"
 	}
 
 	// The sequence as top-level forms; tags start with the prefix, which the output's MT-FAIL lines carry.
 	static func emit(_ s: Seq, prefix: String) -> String? {
 		guard let h = replay(s) else { return nil }
 		let global = "mt-g-" + prefix.replacingOccurrences(of: ".", with: "-")
+		var globals: [Int: String] = [:]
 		var out = ""
-		if s.viaVar, case .make(let i) = s.steps[0].op { out += "(def \(global) \(i.expr))\n" }
+		if s.viaVar, case .make(let i) = s.steps[0].op {
+			globals[0] = global
+			out += "(def \(global) \(i.expr))\n"
+			// A second def over the first: a deferred init reading another var's root.
+			if s.steps.count > 1, s.steps[1].src == 0, handles(s.steps[1].op).allSatisfy({ $0 == 0 }) {
+				let e = expr(s.steps[1], tag: "\(prefix).1", source: h[0])
+				let over = e.replacingOccurrences(of: #"\bh0\b"#, with: global, options: .regularExpression)
+				globals[1] = global + "-1"
+				out += "(def \(global)-1 \(over))\n"
+			}
+		}
 		out += "(mt-run \(quoted(prefix)) (fn []\n  (let ["
 		for (i, st) in s.steps.enumerated() {
-			let e = i == 0 && s.viaVar ? global : expr(st, tag: "\(prefix).\(i)", source: st.src.map { h[$0] })
+			let e = globals[i] ?? expr(st, tag: "\(prefix).\(i)", source: st.src.map { h[$0] })
 			out += (i == 0 ? "" : "\n        ") + "h\(i) " + check("\(prefix).\(i)", e, h[i])
 		}
 		out += "]\n"
 		for j in s.retained.sorted() { out += "    " + check("\(prefix).r\(j)", "h\(j)", h[j]) + "\n" }
-		if s.viaVar { out += "    " + check("\(prefix).var", global, h[0]) + "\n" }
+		for (i, g) in globals.sorted(by: { $0.key < $1.key }) { out += "    " + check("\(prefix).var\(i)", g, h[i]) + "\n" }
 		out += "    nil)))\n"
 		return out
 	}
