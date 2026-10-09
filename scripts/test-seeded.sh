@@ -12,7 +12,8 @@ export CLJ_TEST_HANG_S=${SEEDED_HANG_S:-180}
 SUITES=${SUITES:-ChanTests ChanStressTests AsyncLibTests CoroTests CycleTests AgentTests RefTests FutureTests DeadlineTests CmutexTests SeededTests}
 TIMEOUT=${TEST_TIMEOUT:-1200}
 filter="CoreTests/($(echo $SUITES | tr ' ' '|'))/"
-logs=$SCRATCH/seeded
+# Under shards/, which CI uploads with the shard logs.
+logs=$SCRATCH/shards/seeded
 mkdir -p "$logs"
 
 swift build --build-tests --scratch-path "$SCRATCH" || exit 1
@@ -28,7 +29,7 @@ for seed in $SEEDS; do
 	[ -z "$first" ] && first=$seed
 	[ "$rc" = 0 ] && continue
 	failed="$failed $seed"
-	grep -E '✘|fatal|seeded scheduler|hang:' "$log" | head -40
+	grep -E '✘|fatal|seeded scheduler|hang:|^sched:|^  carrier|^coro' "$log" | head -60
 	# A test is reseeded from the process seed and its own name, so it replays alone (EvalSupport.swift).
 	tests=$(sed -n 's/.*✘ Test \([A-Za-z0-9_]*\)() recorded an issue at \([A-Za-z0-9_]*\)\.swift.*/\2\/\1/p' "$log" | sort -u)
 	for t in $tests; do

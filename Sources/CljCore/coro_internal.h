@@ -205,6 +205,8 @@ uint64_t clj_sched_wall_ms(void);
 // A test's settle in progress: seeded, the clock and the collector move the model without waiting for quiet.
 void clj_sched_seed_settling(int delta);
 void clj_sched_point_slow(void);
+// The deadline tick of a seeded run, where every ring reads the poison: true to throw, as deadline_reached.
+bool clj_sched_seed_tick(void);
 // Channel identity hashes count from here again (chan.c): a reseeded run hashes as a fresh process does.
 void clj_chan_serial_reset(void);
 

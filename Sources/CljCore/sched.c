@@ -686,8 +686,15 @@ static clj_value spawn(clj_value f, const clj_value *args, size_t n, int affinit
 	// A cancelled parent hands the child its deadline as it was, not the cancel flag: past it the child meets it at once.
 	bool parent_cancelled = atomic_load_explicit(&parent->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE;
 	// A shield hides the deadline from the parent's own ticks, not from the children spawned there.
-	uint64_t deadline = detached ? 0 : parent_cancelled || parent->shield ? parent->deadline_before : clj_shadow_deadline(parent->shadow);
+	uint64_t ring = clj_shadow_deadline(parent->shadow);
+	bool     seeded = __builtin_expect(clj_sched_seed_on, 0);
+	uint64_t deadline = detached ? 0 : parent_cancelled || parent->shield || (seeded && ring == 1) ? parent->deadline_before : ring;
 	atomic_store_explicit(&c->shadow->deadline, deadline, memory_order_relaxed);
+	if (seeded) {
+		// The seeded tick's poison from birth: every tick reaches the scheduler, which may preempt there.
+		c->deadline_before = deadline;
+		atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
+	}
 	c->shadow->countdown = 1024;
 	atomic_store_explicit(&c->shadow->unwinds, 64, memory_order_relaxed);
 	clj_coro_capture_spawn_trace(c);
@@ -732,8 +739,10 @@ static void deadline_poison_locked(clj_coro *c) {
 	atomic_store_explicit(&c->shadow->deadline, 1, memory_order_relaxed);
 }
 
+// Seeded, the poison never lifts: the tick is where a running coroutine can be preempted (clj_sched_seed_tick).
 static bool poisoned_locked(const clj_coro *c) {
-	return atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE || atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed);
+	return atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE || atomic_load_explicit(&c->shadow->suspend, memory_order_relaxed) ||
+	       clj_sched_seed_on;
 }
 
 static void deadline_poison_if_locked(clj_coro *c) {
@@ -1197,7 +1206,7 @@ static void deadline_disarm(clj_coro *c) {
 void clj_coro_deadline_arm(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	disarm_locked(c);
-	uint64_t deadline = c->shield ? c->deadline_before : (c->shadow ? clj_shadow_deadline(c->shadow) : 0);
+	uint64_t deadline = __builtin_expect(clj_sched_seed_on, 0) ? deadline_own_locked(c) : c->shield ? c->deadline_before : (c->shadow ? clj_shadow_deadline(c->shadow) : 0);
 	if (deadline > 1) {
 		deadline_ctx *d = malloc(sizeof *d);
 		if (!d) clj_fatal("out of memory");
@@ -1887,6 +1896,17 @@ void clj_sched_point_slow(void) {
 	yielder = w;
 	clj_park(w, clj_wake_yield());
 	clj_waiter_release(w);
+}
+
+bool clj_sched_seed_tick(void) {
+	clj_coro         *c = clj_coro_current();
+	clj_shadow_stack *s = c->shadow;
+	if (atomic_load_explicit(&s->cancelled, memory_order_relaxed)) return true;
+	if (atomic_load_explicit(&s->suspend, memory_order_relaxed)) return clj_coro_suspend_point();
+	uint64_t own = clj_coro_deadline_own(c);
+	if (own > 1 && clj_sched_now() >= own) return true;
+	clj_sched_point_slow();
+	return atomic_load_explicit(&s->cancelled, memory_order_relaxed);
 }
 
 void clj_debug_sched_reseed(uint64_t seed) {

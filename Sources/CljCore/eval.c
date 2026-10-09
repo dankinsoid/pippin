@@ -69,6 +69,7 @@ static inline bool deadline_reached(clj_shadow_stack *s) {
 	if (--s->countdown) return false;
 	s->countdown = DEADLINE_CHECK_EVERY;
 	if (clj_sched_tick_now() < clj_shadow_deadline(s)) return false;
+	if (__builtin_expect(clj_sched_seed_on, 0)) return clj_sched_seed_tick();
 	// A suspend request poisons the deadline the way a cancellation does, and is met here: it parks and the call
 	// goes on, so the tick must answer "no throw" for it or both backends would unwind (sched.c).
 	if (__builtin_expect(atomic_load_explicit(&s->suspend, memory_order_relaxed), 0)) return clj_coro_suspend_point();
@@ -108,7 +109,9 @@ static void deadline_apply(uint64_t deadline) {
 
 void clj_deadline_set_ms(uint64_t ms) { deadline_apply(ms ? clj_sched_now() + ms * 1000000u : 0); }
 
+// Seeded, the ring always reads the tick's poison and the deadline itself is kept aside.
 uint64_t clj_deadline_get(void) {
+	if (__builtin_expect(clj_sched_seed_on, 0)) return clj_coro_deadline_own(clj_coro_current());
 	clj_shadow_stack *s = clj_shadow_tls;
 	return s ? clj_shadow_deadline(s) : 0;
 }
@@ -145,6 +148,10 @@ void clj_shield_push(void) { clj_coro_shield_enter(clj_coro_current()); }
 void clj_shield_pop(void) { clj_coro_shield_leave(clj_coro_current()); }
 
 bool clj_deadline_expired(void) {
+	if (__builtin_expect(clj_sched_seed_on, 0)) {
+		uint64_t own = clj_coro_deadline_own(clj_coro_current());
+		return own > 1 && clj_sched_now() >= own;
+	}
 	clj_shadow_stack *s = clj_shadow_tls;
 	return s && clj_shadow_deadline(s) && clj_sched_now() >= clj_shadow_deadline(s);
 }
