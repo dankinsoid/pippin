@@ -1541,8 +1541,8 @@ static uint32_t        yield_shift;         // a preemption point yields with pr
 static clj_coro      **bag;                 // the runnable, bare threads among them; under seed_mu
 static size_t          bag_n, bag_cap;
 static clj_carrier    *seed_car;            // written once by the carrier before it runs anything
-// Under seed_mu: bare threads running inside an evaluation, parked inside one, waiting to begin one; settles.
-static uint32_t running_bare, parked_bare, entering, settling;
+// Under seed_mu: bare threads running inside an evaluation, parked, waiting to begin one, inside one; settles.
+static uint32_t running_bare, parked_bare, entering, evaluations, settling;
 static bool     carrier_idle = true; // the carrier is waiting, so a bare thread may take the turn
 static uint64_t drain_steps;         // coroutine runs since the last bare thread left its evaluation
 static bool     blocked_warned;
@@ -1692,7 +1692,7 @@ static void *seed_carrier_main(void *arg) {
 	__atomic_store_n(&carriers, car, __ATOMIC_RELEASE);
 	pthread_mutex_unlock(&run_mu);
 	__atomic_store_n(&seed_car, car, __ATOMIC_RELEASE);
-	uint64_t quiet_since = 0, stuck_since = 0;
+	uint64_t quiet_since = 0, stuck_since = 0, capped_since = 0;
 	bool     collected = false, reported = false;
 	pthread_mutex_lock(&seed_mu);
 	for (;;) {
@@ -1700,6 +1700,18 @@ static void *seed_carrier_main(void *arg) {
 		if (running_bare || (entering && (!bag_n || drain_steps >= SEED_DRAIN_MAX))) {
 			seed_wait_locked(0);
 			continue;
+		}
+		// With the host outside, runs stop at the cap until it comes back or stays out for a quiet: a run that never
+		// parks would otherwise go on for as long as the host takes, its ticks moving the clock.
+		if (bag_n && !evaluations && !parked_bare && !settling && drain_steps >= SEED_DRAIN_MAX) {
+			uint64_t real = clj_profile_now();
+			if (!capped_since) capped_since = real;
+			if (real - capped_since < SEED_GRACE_NS) {
+				seed_wait_locked(capped_since + SEED_GRACE_NS - real);
+				continue;
+			}
+			capped_since = 0;
+			drain_steps = 0;
 		}
 		carrier_idle = false;
 		uint64_t now = atomic_load_explicit(&vclock, memory_order_relaxed);
@@ -1781,6 +1793,7 @@ void clj_sched_seed_enter(clj_coro *c) {
 	// The carrier's own thread runs timer callbacks and the collector between coroutines: the turn is its already.
 	if (!c->implicit || c->seed_in || c->carrier == __atomic_load_n(&seed_car, __ATOMIC_ACQUIRE)) return;
 	pthread_mutex_lock(&seed_mu);
+	evaluations++;
 	turn_take_locked(c);
 	pthread_mutex_unlock(&seed_mu);
 }
@@ -1790,6 +1803,7 @@ void clj_sched_seed_leave(clj_coro *c) {
 	pthread_mutex_lock(&seed_mu);
 	c->seed_in = false;
 	running_bare--;
+	evaluations--;
 	drain_steps = 0;
 	pthread_cond_broadcast(&seed_cv);
 	pthread_mutex_unlock(&seed_mu);
@@ -1922,6 +1936,8 @@ void clj_debug_sched_reseed(uint64_t seed) {
 	reseed_locked(seed);
 	drain_steps = 0;
 	pthread_mutex_unlock(&seed_mu);
+	// The caller's ticks restart too: where its next one falls is part of the schedule.
+	clj_coro_current()->shadow->countdown = 1024;
 }
 
 static void seed_dump(void) {

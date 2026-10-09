@@ -55,7 +55,7 @@ extension CoreTests {
 				// The nested send runs after the action, so it reads the state the action left.
 				#expect(try eval("(let [c (agent []) d (agent nil)] (send c (fn [s] (send d (fn [_] @c)) (conj s 1))) (await c) (await d) @d)") == [1])
 				// Released, the send runs while the action still waits for it, so it reads the state before the action's.
-				#expect(try eval("(let [c (agent []) d (agent nil) p (promise)] (send c (fn [s] (send d (fn [_] (deliver p @c) @c)) (let [r (release-pending-sends)] @p [r (release-pending-sends)]))) (await c) (await d) [@c @d])") == [[1, 0], []])
+				#expect(try eval("(let [c (agent []) d (agent nil) p (promise)] (send c (fn [s] (send d (fn [_] (let [v @c] (deliver p v) v))) (let [r (release-pending-sends)] @p [r (release-pending-sends)]))) (await c) (await d) [@c @d])") == [[1, 0], []])
 				#expect(try eval("(release-pending-sends)") == 0)
 				// A future spawned inside the action is not the action: its send goes out at once.
 				#expect(try eval("(let [o (agent 0) p (agent nil)] (send o (fn [s] @(future (send p (fn [_] :from-future))) (Thread/sleep 20) @p)) (await o) @o)") == kw("from-future"))
