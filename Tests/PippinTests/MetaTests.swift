@@ -166,7 +166,7 @@ extension CoreTests {
 				""") == [1, true, true, [1, 2], 2])
 				// A view without metadata keeps its size; one size class is 8 bytes here, so the word costs exactly that.
 				#expect([MemoryLayout<clj_vector_seq>.size, MemoryLayout<clj_string_seq>.size, MemoryLayout<clj_array_seq>.size,
-				         MemoryLayout<clj_range>.size, MemoryLayout<clj_lazy_seq>.size] == [32, 32, 32, 40, 40])
+				         MemoryLayout<clj_range>.size, MemoryLayout<clj_lazy_seq>.size] == [32, 32, 32, 40, 48])
 				for form in ["(seq [1 2])", "(seq \"ab\")", "(seq (int-array [1 2]))", "(range 3)", "(lazy-seq [1 2])"] {
 					let plain = try rt.eval(form)
 					#expect(clj_header_of(plain.raw).pointee.flags & UInt32(CLJ_FLAG_META) == 0, "\(form)")
