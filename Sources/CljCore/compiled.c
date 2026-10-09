@@ -45,7 +45,9 @@ clj_value clj_c_const(const char *edn, size_t len) {
 void clj_c_publish(const clj_value *pool, size_t n) {
 	for (size_t i = 0; i < n; i++) {
 		clj_share(pool[i]);
-		if (clj_is_ptr(pool[i])) clj_header_of(pool[i])->flags |= CLJ_FLAG_IMMORTAL;
+		// An interned keyword is immortal already, and other threads read its header.
+		if (clj_is_ptr(pool[i]) && !(clj_header_of(pool[i])->flags & CLJ_FLAG_IMMORTAL))
+			clj_header_of(pool[i])->flags |= CLJ_FLAG_IMMORTAL;
 	}
 }
 

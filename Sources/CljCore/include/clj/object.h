@@ -299,13 +299,18 @@ extern _Atomic uint64_t clj_debug_rc_counters[3];
 
 // The reach bits of a new edge into owner, whose flags the caller read once: a contended reference type's header is
 // read once per store. A MUTABLE owner keeps the bits it was born with: a reference type that can close a cycle has
-// them from birth, and a lazy seq's realization must not give them (design §7). The owner is unshared, or shared and
-// unique, so the plain write races with no reader.
+// them from birth, and a lazy seq's realization must not give them (design §7). An IMMORTAL owner (var, namespace)
+// gets none: the collector never enters it. Only a new bit is written, into an unshared or a shared unique owner, so
+// the plain write races with no reader; an ex-info's trace, stored after publication, brings none.
 static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
-	if (!clj_is_ptr(v) || (flags & CLJ_FLAG_MUTABLE)) return;
+	if (!clj_is_ptr(v) || (flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL))) return;
 	uint32_t f = clj_header_of(v)->flags;
-	owner->flags |= (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
-	                ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
+	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
+	               ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
+	if (!(add & ~flags)) return;
+	CLJ_ASSERT(!(flags & CLJ_FLAG_SHARED) || atomic_load_explicit(&owner->rc, memory_order_relaxed) == 1,
+	           "reach bits into a published owner another reference can read");
+	owner->flags |= add;
 }
 
 // After a store into owner: a shared reference type tells a running collection its slots moved.

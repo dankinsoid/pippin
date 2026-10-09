@@ -158,6 +158,16 @@
   `CLJ_CC=0` keeps the bits and files no entry, the control of a cost measurement. `runtimeSettled` collects first,
   so a test baseline is after collection. `scripts/tsan.supp` names `visit_lockfree`, the frame that reads a
   volatile's, an array's or a lazy seq's slots without their writer's lock.
+- **A published header is not written while another reference can read it** (`clj_reach_from` in `object.h`).
+  Every retain and release reads `flags` plainly, so the reach bits skip a `MUTABLE` or `IMMORTAL` owner and write
+  only a bit the owner lacks, which a shared owner takes only while unique (debug builds assert `rc == 1` there). A
+  var and a namespace are immortal and replace slots while any thread retains them: their stores used to OR the
+  value's `REACH`/`LAZY` into the header, which TSan caught as `clj_var_set_meta` against a carrier releasing a fn
+  tree that held the var (`CoroTests.tenThousandParked`, run 37958511733). An ex-info's trace, stored by CAS after
+  publication, brings no bit (a trace capture's names are not slots). `clj_c_publish`, which runs at a `require`,
+  sets `IMMORTAL` only on a pool value without it: an interned keyword has it and is read everywhere. The other
+  header writers touch an unpublished or unique object, or run inside `clj_init`'s once (`immortalize_root`,
+  `bind_static`). `CycleTests.aVarStoreLeavesItsHeaderAlone` reproduces the race under TSan.
 - **The deep walk of a replaced var root** (`clj_rc_release_root` in `rc.c`, `clj_cc_deep_release` and
   `collect_deep` in `cc.c`; design §7 «Сборщик циклов: как он устроен», «Корень вара», which holds the why). A
   lazy seq realized into a value that reaches it back through a var (`(def s (lazy-seq (cons 1 s)))`, then a
