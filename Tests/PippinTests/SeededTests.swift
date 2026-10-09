@@ -20,8 +20,8 @@ extension CoreTests {
 			    (dotimes [i 4] (go (dotimes [j 3] (<! (timeout (rand-int 3))) (swap! log conj [i j]) (>! c [i j]))))
 			    (dotimes [_ 12] (<!! c))
 			    @log))
-			;; The ASYNC-127 block of corpus/core-async's ops-tests, verbatim, its verdict classified; an orphaned
-			;; t-1 is the corpus watchdog's :timeout.
+			;; The ASYNC-127 block of corpus/core-async's ops-tests, verbatim, with the corpus's three verdicts: an
+			;; orphaned t-1 is its watchdog's :timeout.
 			(defn async-127 []
 			  (let [ch (to-chan! [1 2 3])
 			        m (mult ch)
@@ -35,14 +35,14 @@ extension CoreTests {
 			    (try
 			      (with-deadline 1000
 			        (let [r [(<!! t-1) (poll! t-1) (<!! t-2) (<!! t-1) (poll! t-1)]]
-			          (cond (= r [1 nil 1 2 nil]) :pass
-			                (and (number? (first r)) (> (first r) 1)) :later-item
-			                :else [:other r])))
-			      (catch :timeout e :orphan))))
+			          (if (= r [1 nil 1 2 nil]) :pass :fail)))
+			      (catch :timeout e :timeout))))
 			""")
 		}
 
+		// What a race leaves parked holds itself through its own frame, out of the collector's reach (NOTES "Corpus").
 		private func run(_ seed: UInt64, _ form: String) throws -> Value {
+			_ = clj_debug_cancel_live_coros()
 			runtimeSettled("before seed \(seed)")
 			clj_debug_sched_reseed(seed)
 			return try eval(form)
@@ -60,7 +60,7 @@ extension CoreTests {
 			#expect(schedules.count > 8, "16 seeds made \(schedules.count) schedules")
 		}
 
-		// The corpus measured 285 later items, 11 passes and 4 orphans in 300 real runs (NOTES "Corpus").
+		// The corpus measured 285 fails, 11 passes and 4 timeouts in 300 real runs (NOTES "Corpus").
 		@Test func async127ReachesEachVerdictBySomeSeed() throws {
 			var first: [String: UInt64] = [:]
 			var counts: [String: Int] = [:]
@@ -70,7 +70,7 @@ extension CoreTests {
 				if first[verdict] == nil { first[verdict] = seed }
 			}
 			print("seeded: ASYNC-127 over seeds 0..<300: \(counts.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: ", "))")
-			for verdict in [":pass", ":later-item", ":orphan"] {
+			for verdict in [":pass", ":fail", ":timeout"] {
 				guard let seed = first[verdict] else {
 					Issue.record("no seed of 0..<300 reached \(verdict)")
 					continue

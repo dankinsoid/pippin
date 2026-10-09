@@ -1521,8 +1521,9 @@ bool clj_sched_seed_on;
 enum {
 	// What one deadline tick (1024 calls or loop turns) stands for on the virtual clock.
 	SEED_TICK_NS = 100000,
-	// Runs an entry waits for at most before it begins: a pool that never runs dry still lets the host in.
-	SEED_DRAIN_MAX = 100000,
+	// Runs an entry waits for at most: a pool that never runs dry lets the host in, before ticks have moved the
+	// clock far past what the host's next call would have seen.
+	SEED_DRAIN_MAX = 64,
 };
 enum { SEED_PARKED_NO, SEED_PARKED_BARE, SEED_PARKED_TURN };
 // Real quiet before a host waiting outside the runtime lets virtual time pass.
@@ -1905,8 +1906,9 @@ bool clj_sched_seed_tick(void) {
 	if (atomic_load_explicit(&s->suspend, memory_order_relaxed)) return clj_coro_suspend_point();
 	uint64_t own = clj_coro_deadline_own(c);
 	if (own > 1 && clj_sched_now() >= own) return true;
+	// A cancel that came while it yielded is met at the next tick, as one landing at a real moment would be.
 	clj_sched_point_slow();
-	return atomic_load_explicit(&s->cancelled, memory_order_relaxed);
+	return false;
 }
 
 void clj_debug_sched_reseed(uint64_t seed) {
