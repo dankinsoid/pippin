@@ -52,8 +52,9 @@ extension CoreTests {
 		// A watchdog bounds the wait: a timeout's timer would outlive a passing round and stall the next settle.
 		// @ai-generated(solo)
 		@Test func multOverTwoTransducingTapsMergedSideBySide() throws {
-			let run = try eval("""
-				(fn []
+			// A var called by eval, not a fn applied from Swift: <!! under a host call refuses to park.
+			_ = try eval("""
+				(defn mult-merge-run []
 				  (let [n 5000
 				        one (fn []
 				              (let [src (chan) m (a/mult src) x (chan 32 (filter even?)) y (chan 32 (map #(* % %)))]
@@ -77,7 +78,7 @@ extension CoreTests {
 					gone.signal()
 				}
 				watchdog.start()
-				let got = try run.apply([])
+				let got = try eval("(mult-merge-run)")
 				done.signal()
 				gone.wait()
 				#expect(got == Value(keyword: "ok"), "round \(i)")
