@@ -1,6 +1,6 @@
 #!/bin/sh
 # @ai-generated(solo)
-# usage: run.sh <out dir> <target>=<seconds>...
+# usage: run.sh <out dir> <target>=<seconds>[,<target>=<seconds>]...
 # Fork mode, so one finding does not end a target's run.
 set -u
 out=$1
@@ -18,7 +18,8 @@ python3 fuzz/parsers/seeds.py . "$out/seeds" || exit 1
 summary="$out/logs/summary.txt"
 : > "$summary"
 found=0
-for spec in "$@"; do
+# Commas separate too: the CI dispatch's make_args splits on spaces.
+for spec in $(echo "$@" | tr , ' '); do
 	t=${spec%%=*}
 	secs=${spec#*=}
 	bin="$out/bin/fuzz-$t"
