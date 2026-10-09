@@ -95,7 +95,7 @@ const clj_type clj_list_type = {
 };
 
 clj_value clj_cons_alloc(const clj_type *type, clj_value first, clj_value rest, clj_value m, bool with_meta) {
-	clj_cons *c = clj_alloc(type, sizeof *c + (with_meta ? sizeof(clj_value) : 0));
+	clj_cons *c = clj_alloc_uninit(type, sizeof *c + (with_meta ? sizeof(clj_value) : 0));
 	clj_slot_init(&c->h, &c->first, clj_retain(first));
 	clj_slot_init(&c->h, &c->rest, clj_retain(rest));
 	if (with_meta) {

@@ -102,7 +102,7 @@ const clj_type clj_vector_seq_type = {
 
 clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
 	CLJ_ASSERT(i < clj_vector_count(vec), "vector-seq past the end");
-	clj_vector_seq *s = clj_alloc(&clj_vector_seq_type, sizeof *s);
+	clj_vector_seq *s = clj_alloc_uninit(&clj_vector_seq_type, sizeof *s);
 	s->i = i;
 	clj_slot_init(&s->h, &s->vec, clj_retain(vec));
 	return clj_from_ptr(s);
@@ -291,8 +291,10 @@ const clj_type clj_lazy_seq_type = {
 
 clj_value clj_lazy_seq_new(clj_value fn) {
 	CLJ_ASSERT(clj_is_fn(fn), "lazy-seq thunk must be a fn");
-	clj_lazy_seq *s = clj_alloc(&clj_lazy_seq_type, sizeof *s);
+	clj_lazy_seq *s = clj_alloc_uninit(&clj_lazy_seq_type, sizeof *s);
+	atomic_init(&s->state, UNFORCED);
 	clj_slot_init(&s->h, &s->fn, clj_retain(fn));
+	clj_slot_clear(&s->value);
 	// After the thunk's bits: a realization adds none, LAZY stands for what it may add (design §7, a lazy seq).
 	s->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_LAZY;
 	return clj_from_ptr(s);

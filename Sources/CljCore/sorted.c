@@ -50,9 +50,11 @@ static inline clj_value right_of(clj_value node) { return clj_is_nil(node) ? CLJ
 
 
 static clj_value node_new(clj_value key, clj_value val) {
-	tnode *n = clj_alloc(&tnode_type, sizeof *n);
+	tnode *n = clj_alloc_uninit(&tnode_type, sizeof *n);
 	clj_slot_init(&n->h, &n->key, clj_retain(key));
 	clj_slot_init(&n->h, &n->val, clj_retain(val));
+	clj_slot_clear(&n->left);
+	clj_slot_clear(&n->right);
 	n->red = 1;
 	return clj_from_ptr(n);
 }
@@ -61,7 +63,7 @@ static clj_value node_new(clj_value key, clj_value val) {
 static tnode *node_own(clj_value node) {
 	tnode *n = tnode_of(node);
 	if (clj_is_unique(node)) return n;
-	tnode *c = clj_alloc(&tnode_type, sizeof *c);
+	tnode *c = clj_alloc_uninit(&tnode_type, sizeof *c);
 	clj_slot_init(&c->h, &c->key, clj_retain(n->key.v));
 	clj_slot_init(&c->h, &c->val, clj_retain(n->val.v));
 	clj_slot_init(&c->h, &c->left, clj_retain(n->left.v));

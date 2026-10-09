@@ -220,6 +220,8 @@ static inline clj_value clj_meta_trailing(void *obj, size_t obj_size) {
 // Zero-filled, rc = 1. Zero memory reads as nil, so value slots need no init.
 // Size-class pool per thread; CLJ_SYSTEM_ALLOC=1 in the environment routes to calloc/realloc/free.
 void *clj_alloc(const clj_type *type, size_t size);
+// clj_alloc for a constructor that writes every field: no zeroing, and in debug builds a poison that faults when read.
+void *clj_alloc_uninit(const clj_type *type, size_t size);
 // obj must be unique (rc == 1): the object may move, so no one else can hold its address.
 // Children are untouched; bytes beyond the old size are uninitialized. Same size class keeps the address.
 void *clj_realloc(void *obj, size_t size);

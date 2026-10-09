@@ -82,14 +82,15 @@ static inline cnode *cnode_of(clj_value v) { return clj_to_ptr(v); }
 
 
 static bnode *bnode_alloc(uint32_t datamap, uint32_t nodemap, size_t total) {
-	bnode *n = clj_alloc(&bnode_type, sizeof *n + total * sizeof(clj_value));
+	// Every caller fills all `total` slots before the node is reachable.
+	bnode *n = clj_alloc_uninit(&bnode_type, sizeof *n + total * sizeof(clj_value));
 	n->datamap = datamap;
 	n->nodemap = nodemap;
 	return n;
 }
 
 static cnode *cnode_alloc(uint32_t hash, uint32_t count) {
-	cnode *c = clj_alloc(&cnode_type, sizeof *c + 2 * (size_t)count * sizeof(clj_value));
+	cnode *c = clj_alloc_uninit(&cnode_type, sizeof *c + 2 * (size_t)count * sizeof(clj_value));
 	c->hash = hash;
 	c->count = count;
 	return c;
@@ -632,10 +633,11 @@ static clj_value map_with_meta(clj_value self, clj_value m) {
 	clj_map *map = clj_map_of(self);
 	if (clj_is_nil(m) && clj_is_nil(map->meta.v)) return self;
 	if (!clj_is_unique(self)) {
-		clj_map *c = clj_alloc(&clj_map_type, sizeof *c);
+		clj_map *c = clj_alloc_uninit(&clj_map_type, sizeof *c);
 		c->count = map->count;
-		atomic_store_explicit(&c->hash, clj_hash_cache_load(&map->hash), memory_order_relaxed);
+		atomic_init(&c->hash, clj_hash_cache_load(&map->hash));
 		clj_slot_init(&c->h, &c->root, clj_retain(map->root.v));
+		clj_slot_clear(&c->meta);
 		clj_release(self);
 		map = c;
 	}
@@ -672,8 +674,11 @@ clj_map clj_map_empty_object = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_map_type}, .roo
 clj_value clj_map_empty(void) { return clj_from_ptr(&clj_map_empty_object); }
 
 clj_value clj_map_empty_new(void) {
-	clj_map *m = clj_alloc(&clj_map_type, sizeof *m);
+	clj_map *m = clj_alloc_uninit(&clj_map_type, sizeof *m);
+	m->count = 0;
+	atomic_init(&m->hash, 0);
 	clj_slot_init(&m->h, &m->root, clj_from_ptr(&empty_root));
+	clj_slot_clear(&m->meta);
 	return clj_from_ptr(m);
 }
 
@@ -716,8 +721,10 @@ static clj_value map_commit(clj_value map, bool unique, clj_value root, edit e, 
 		return map;
 	}
 	if (!unique) {
-		clj_map *c = clj_alloc(&clj_map_type, sizeof *c);
+		clj_map *c = clj_alloc_uninit(&clj_map_type, sizeof *c);
 		c->count = m->count;
+		atomic_init(&c->hash, 0);
+		clj_slot_clear(&c->root);
 		clj_slot_init(&c->h, &c->meta, clj_retain(m->meta.v));
 		clj_release(map);
 		m = c;

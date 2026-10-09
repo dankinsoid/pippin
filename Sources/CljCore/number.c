@@ -28,7 +28,7 @@ const clj_type clj_double_type = {
 };
 
 clj_value clj_double_new(double d) {
-	clj_double *b = clj_alloc(&clj_double_type, sizeof *b);
+	clj_double *b = clj_alloc_uninit(&clj_double_type, sizeof *b);
 	b->val = d;
 	return clj_from_ptr(b);
 }

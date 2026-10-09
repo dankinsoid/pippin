@@ -22,6 +22,18 @@
   park). What stays `_Thread_local`: the shadow ring's mirror (`clj_shadow_tls`, interpreted calls only) and the
   colder per-thread state (the protocol reader window, compiled inline caches, rand state). Platform spot:
   docs/portability.md.
+- **`clj_alloc_uninit` skips the zeroing for a constructor that writes every field** (`object.h`, alloc.c).
+  `clj_alloc` clears a reused cell (`memset` in `slab_take`; a bump cell is zero already), the `memset` the corpus
+  profile counted at 3–8 % (bench/RESULTS.md, "Corpus workloads"). The hot constructors write each field instead:
+  cons and list, double, long, string (its hash cache), map node and collision node, a trie map's three copy
+  paths, sorted node, vector-seq, lazy seq, and the compiled and interpreted closures. Debug builds fill the body
+  with `0xF0`, which reads as a pointer with a non-canonical address, so a field a constructor misses faults at its
+  first read in every debug suite instead of reading as nil. What those constructors left to the zeroing before
+  (each a field `clj_alloc`'s contract filled, now written): a string's hash cache, a sorted node's two children, a
+  copied map's meta or hash, a lazy seq's state and value, and of a closure its arities, meta and native release.
+  Kept on `clj_alloc` because their callers fill a prefix and rely on nil past it: a tuple (spare capacity, hash,
+  meta), a vector node (`sizes`, flags, the slots past `len`), a shape map (`clj_shape_map_alloc` hands out empty
+  slots), and every less frequent type. `AllocTests.aStringInAReusedCellHashesItsOwnBytes` sees a stale hash cache.
 - [ ] **Empty slabs are never returned to the OS.** Peak memory stays resident. Trigger: an app whose peak
   working set is a real fraction of the jetsam limit — the §10 app with a UI and data, not the first iOS
   run, which says nothing (NOTES "iOS"): the twelve probe forms leave 11–12 MB of `phys_footprint` behind

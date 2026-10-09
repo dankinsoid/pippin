@@ -25,7 +25,7 @@ const clj_type clj_long_type = {
 
 clj_value clj_long_box(int64_t v) {
 	CLJ_ASSERT(v < CLJ_FIXNUM_MIN || v > CLJ_FIXNUM_MAX, "boxed long inside the fixnum range");
-	clj_long *b = clj_alloc(&clj_long_type, sizeof *b);
+	clj_long *b = clj_alloc_uninit(&clj_long_type, sizeof *b);
 	b->val = v;
 	return clj_from_ptr(b);
 }

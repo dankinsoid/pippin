@@ -127,7 +127,7 @@ clj_value clj_fn_native_ctx(clj_value name, clj_native_ctx_fn fn, void *ctx, voi
 // @ai-generated(solo)
 clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_value *env, uint32_t nenv, uint32_t arities, uint32_t min_arity, uint32_t max_arity) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
-	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
+	clj_fn *f = clj_alloc_uninit(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
 	clj_slot_init(&f->h, &f->name, clj_retain(name));
 	f->kind = CLJ_FN_NATIVE_CTX;
 	f->arities = arities;
@@ -135,6 +135,9 @@ clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_valu
 	f->max_arity = max_arity;
 	f->u.native_ctx.fn = fn;
 	f->u.native_ctx.ctx = f;
+	f->u.native_ctx.release = NULL;
+	clj_slot_clear(&f->code);
+	clj_slot_clear(&f->meta);
 	f->nenv = nenv;
 	for (uint32_t i = 0; i < nenv; i++) clj_slot_init(&f->h, &f->env[i], clj_retain(env[i]));
 	return clj_from_ptr(f);
@@ -143,11 +146,14 @@ clj_value clj_fn_native_env(clj_value name, clj_native_ctx_fn fn, const clj_valu
 clj_value clj_fn_closure(clj_value exec, const clj_node *node, clj_value name, const clj_value *env, uint32_t nenv) {
 	CLJ_ASSERT(clj_is_nil(name) || clj_is_symbol(name), "fn name must be a symbol or nil");
 	CLJ_ASSERT(node->kind == CLJ_NODE_FN, "closure code must be a fn node");
-	clj_fn *f = clj_alloc(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
+	clj_fn *f = clj_alloc_uninit(&clj_fn_type, sizeof *f + nenv * sizeof *f->env);
 	clj_slot_init(&f->h, &f->name, clj_retain(name));
 	f->kind = CLJ_FN_CLOSURE;
+	f->min_arity = f->max_arity = f->arities = 0;
+	memset(&f->u, 0, sizeof f->u);
 	f->u.node = node;
 	clj_slot_init(&f->h, &f->code, clj_retain(exec));
+	clj_slot_clear(&f->meta);
 	f->nenv = nenv;
 	for (uint32_t i = 0; i < nenv; i++) clj_slot_init(&f->h, &f->env[i], clj_retain(env[i]));
 	return clj_from_ptr(f);

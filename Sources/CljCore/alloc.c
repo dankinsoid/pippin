@@ -288,6 +288,35 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	return h;
 }
 
+void *clj_alloc_uninit(const clj_type *type, size_t size) {
+	CLJ_ASSERT(size >= sizeof(clj_header), "object smaller than its header");
+	clj_header *h;
+	uint32_t    cls = CLJ_CENSUS_LARGE;
+	if (size > MAX_SMALL || use_system_alloc()) {
+		h = malloc(size);
+		if (!h) clj_fatal("out of memory");
+		h->flags = CLJ_FLAG_LARGE;
+	} else {
+		cls = size_class(size);
+		h = pool_alloc(cls, 0);
+		h->flags = 0;
+	}
+#if CLJ_DEBUG
+	// A pointer tag with a non-canonical address: a field the constructor missed faults where it is read.
+	memset((char *)h + sizeof *h, 0xF0, size - sizeof *h);
+#endif
+	atomic_init(&h->rc, 1);
+	h->type = type;
+#if CLJ_DEBUG
+	h->flags |= clj_debug_owner_here() << CLJ_OWNER_SHIFT;
+#endif
+	LIVE_ADD(type, 1);
+#if CLJ_STATS
+	clj_stats_alloc(h, type, size, cls);
+#endif
+	return h;
+}
+
 static void *realloc_cell(void *obj, size_t size);
 
 void *clj_realloc(void *obj, size_t size) {

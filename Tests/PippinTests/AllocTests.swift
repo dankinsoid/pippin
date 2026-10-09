@@ -69,6 +69,28 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// clj_string_new takes an unzeroed cell: a stale hash cache from the cell's last string would answer here.
+		@Test func aStringInAReusedCellHashesItsOwnBytes() {
+			let before = clj_debug_live_objects()
+			let reference = clj_string_from_cstr("xyz")
+			let expected = clj_hash(reference)
+			var reused = false
+			for _ in 0..<64 {
+				let old = clj_string_from_cstr("abc")
+				_ = clj_hash(old)
+				clj_release(old)
+				let fresh = clj_string_from_cstr("xyz")
+				reused = reused || fresh == old
+				#expect(clj_hash(fresh) == expected)
+				clj_release(fresh)
+			}
+			clj_release(reference)
+			if clj_debug_pool_enabled() {
+				#expect(reused)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func reallocWithinClassKeepsAddress() {
 			guard clj_debug_pool_enabled() else { return }
 			let before = clj_debug_live_objects()

@@ -97,7 +97,8 @@ const clj_type clj_string_type = {
 
 clj_value clj_string_new(const char *bytes, size_t len) {
 	if (len > UINT32_MAX) clj_fatal("string longer than 4 GiB");
-	clj_string *s = clj_alloc(&clj_string_type, sizeof *s + len + 1);
+	clj_string *s = clj_alloc_uninit(&clj_string_type, sizeof *s + len + 1);
+	atomic_init(&s->hash, 0);
 	s->len = (uint32_t)len;
 	if (len) memcpy(s->bytes, bytes, len);
 	s->bytes[len] = '\0';
