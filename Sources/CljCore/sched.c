@@ -1074,8 +1074,10 @@ static void far_fire(void *ctx) {
 static bool far_wait(uint64_t when, uint64_t wait) {
 	if (!far_timer) {
 		// Higher than the carriers on purpose: a deadline must fire on time whatever the class of the work it ends,
-		// and firing it is a wake, not the work.
-		far_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, DISPATCH_TIMER_STRICT, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
+		// and firing it is a wake, not the work. A serial queue is overcommit: a global queue's handler waits for
+		// the kernel to admit a worker, which a saturated machine delays by milliseconds.
+		dispatch_queue_attr_t attr = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0);
+		far_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, DISPATCH_TIMER_STRICT, dispatch_queue_create("clj.timer", attr));
 		if (!far_timer) return false;
 		dispatch_source_set_event_handler_f(far_timer, far_fire);
 		dispatch_resume(far_timer);
@@ -1097,6 +1099,11 @@ static bool far_wait(uint64_t when, uint64_t wait) {
 
 static void *timer_main(void *arg) {
 	(void)arg;
+#ifdef __APPLE__
+	// The dispatch timer's class, for the same reason: the thread is the second hop of every far deadline, and
+	// created by whichever thread armed the first timer it would otherwise inherit that thread's class.
+	pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
 	pthread_mutex_lock(&timer_mu);
 	for (;;) {
 		if (!timers) {
