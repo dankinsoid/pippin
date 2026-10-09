@@ -176,6 +176,7 @@ static bool immortalize_root(clj_value sym, clj_value var, void *ctx) {
 }
 
 static void init(void) {
+	clj_sched_seed_configure();
 	clj_trace_register_image((const void *)&clj_init);
 	clj_guard_install();
 	clj_value core = clj_ns_core();

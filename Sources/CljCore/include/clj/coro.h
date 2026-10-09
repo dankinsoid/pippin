@@ -95,6 +95,10 @@ size_t clj_debug_sched_sleeping(void);
 size_t clj_debug_sched_carriers(void);
 uint64_t clj_debug_coro_switches(void);
 uint64_t clj_debug_coro_spawned(void);
+// The seeded scheduler (design §3 «Корректность реализации», item 4): on when clj_init found CLJ_SCHED_SEED.
+bool clj_sched_seeded(uint64_t *seed);
+// Waits for the pool to go idle, then restarts the schedule's and the program's PRNGs from seed: one per test.
+void clj_debug_sched_reseed(uint64_t seed);
 // Replaces the stderr report of an error a coroutine did not catch (a go block without a handler).
 void clj_coro_set_uncaught_handler(void (*fn)(clj_value ex, clj_value trace));
 // Bench: n round trips carrier → coroutine → carrier on the calling thread; ns per switch.

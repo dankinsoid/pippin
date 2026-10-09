@@ -68,7 +68,7 @@ enum {
 static inline bool deadline_reached(clj_shadow_stack *s) {
 	if (--s->countdown) return false;
 	s->countdown = DEADLINE_CHECK_EVERY;
-	if (clj_profile_now() < clj_shadow_deadline(s)) return false;
+	if (clj_sched_tick_now() < clj_shadow_deadline(s)) return false;
 	// A suspend request poisons the deadline the way a cancellation does, and is met here: it parks and the call
 	// goes on, so the tick must answer "no throw" for it or both backends would unwind (sched.c).
 	if (__builtin_expect(atomic_load_explicit(&s->suspend, memory_order_relaxed), 0)) return clj_coro_suspend_point();
@@ -106,7 +106,7 @@ static void deadline_apply(uint64_t deadline) {
 	else clj_coro_deadline_cleared(c);
 }
 
-void clj_deadline_set_ms(uint64_t ms) { deadline_apply(ms ? clj_profile_now() + ms * 1000000u : 0); }
+void clj_deadline_set_ms(uint64_t ms) { deadline_apply(ms ? clj_sched_now() + ms * 1000000u : 0); }
 
 uint64_t clj_deadline_get(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
@@ -118,7 +118,7 @@ void clj_deadline_restore(uint64_t deadline) { deadline_apply(deadline); }
 // @ai-generated(solo)
 bool clj_deadline_push_ms(uint64_t ms, uint64_t *prev) {
 	uint64_t had = clj_coro_deadline_own(clj_coro_current());
-	uint64_t now = clj_profile_now();
+	uint64_t now = clj_sched_now();
 	// Saturating: an absurd ms is a deadline that never comes, where wrapping would make one already past.
 	uint64_t mine = ms > (UINT64_MAX - now) / 1000000u ? UINT64_MAX : now + ms * 1000000u;
 	*prev = had;
@@ -134,7 +134,7 @@ bool clj_deadline_pop(uint64_t prev, bool mine) {
 	clj_coro *c = clj_coro_current();
 	uint64_t own = clj_coro_deadline_own(c);
 	// An explicit cancel outranks the expiry, or the timeout would swallow a cancellation from outside.
-	bool fired = clj_coro_cancel_is_deadline(c) || (!clj_coro_current_cancelled() && own && clj_profile_now() >= own);
+	bool fired = clj_coro_cancel_is_deadline(c) || (!clj_coro_current_cancelled() && own && clj_sched_now() >= own);
 	clj_coro_deadline_cleared(c);
 	deadline_apply(prev);
 	return fired;
@@ -146,7 +146,7 @@ void clj_shield_pop(void) { clj_coro_shield_leave(clj_coro_current()); }
 
 bool clj_deadline_expired(void) {
 	clj_shadow_stack *s = clj_shadow_tls;
-	return s && clj_shadow_deadline(s) && clj_profile_now() >= clj_shadow_deadline(s);
+	return s && clj_shadow_deadline(s) && clj_sched_now() >= clj_shadow_deadline(s);
 }
 
 // ---- call-site caches
@@ -1578,6 +1578,17 @@ clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args) {
 
 clj_value clj_exec_run(clj_value exec) { return exec_run_at(clj_exec_of(exec), clj_exec_of(exec)->root); }
 
+// A bare thread's outermost evaluation holds the seeded scheduler's turn (sched.c).
+static inline void exec_depth_enter(clj_coro *c) {
+	if (c->exec_depth++ == 0 && __builtin_expect(clj_sched_seed_on, 0)) clj_sched_seed_enter(c);
+}
+
+static inline void exec_depth_leave(clj_coro *c) {
+	if (--c->exec_depth) return;
+	if (c->nretired) drain_retired();
+	if (__builtin_expect(clj_sched_seed_on, 0)) clj_sched_seed_leave(c);
+}
+
 static clj_value exec_run_at(const clj_exec *e, const clj_node *n) {
 	uint32_t        nslots = e->nslots;
 	clj_value       small[SMALL_SLOTS];
@@ -1588,12 +1599,12 @@ static clj_value exec_run_at(const clj_exec *e, const clj_node *n) {
 	}
 	memset(slots, 0, nslots * sizeof *slots);
 	clj_frame frame = {slots, NULL, e, 0, NULL};
-	execution.exec_depth++;
+	exec_depth_enter(clj_coro_current());
 	clj_value v = eval_child(n, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
 	slots_release(&frame, nslots);
 	if (slots != small) free(slots);
-	if (--execution.exec_depth == 0 && execution.nretired) drain_retired();
+	exec_depth_leave(clj_coro_current());
 	return v;
 }
 
@@ -1634,17 +1645,23 @@ bool clj_eval_deadline_hit(void *shadow_stack) {
 	return true;
 }
 
-void clj_eval_top_enter(void) { execution.exec_depth++; }
+void clj_eval_top_enter(void) { exec_depth_enter(clj_coro_current()); }
 
 uint32_t clj_eval_exec_depth(void) { return execution.exec_depth; }
 
-void clj_eval_exec_depth_set(uint32_t depth) { execution.exec_depth = depth; }
+// A landing past the outermost evaluation gives the seeded turn back, as its leave would have.
+void clj_eval_exec_depth_set(uint32_t depth) {
+	clj_coro *c = clj_coro_current();
+	bool      left = c->exec_depth && !depth;
+	c->exec_depth = depth;
+	if (left && __builtin_expect(clj_sched_seed_on, 0)) clj_sched_seed_leave(c);
+}
 
 // The host's synchronous trampoline: a park under it is an error (design §5, host_depth), never a block.
 clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
 	// The bracket opens before the point is pushed, so a landing restores the depth to the open bracket.
 	clj_coro *c = clj_coro_current();
-	c->exec_depth++;
+	exec_depth_enter(c);
 	c->host_depth++;
 	clj_recovery r;
 	clj_recovery_push(&r);
@@ -1653,15 +1670,13 @@ clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
 	else v = clj_invoke(f, args, n);
 	clj_recovery_pop(&r);
 	c->host_depth--;
-	if (--c->exec_depth == 0 && c->nretired) drain_retired();
+	exec_depth_leave(c);
 	return v;
 }
 
 bool clj_host_park_allowed(void) { return clj_park_allowed(); }
 
-void clj_eval_top_leave(void) {
-	if (--execution.exec_depth == 0 && execution.nretired) drain_retired();
-}
+void clj_eval_top_leave(void) { exec_depth_leave(clj_coro_current()); }
 
 
 static clj_value eval_form(clj_value form, const clj_env *given);

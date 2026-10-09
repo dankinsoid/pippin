@@ -26,7 +26,8 @@ extension CoreTests {
 
 		// Every idle pool thread takes a body that waits for the last one, which needs a thread of its own.
 		// @ai-generated(solo)
-		@Test func aThreadBodyNeverQueuesBehindBodiesWaitingForIt() throws {
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func aThreadBodyNeverQueuesBehindBodiesWaitingForIt() throws {
 			_ = try eval("(let [gate (chan)] (dotimes [_ 4] (thread (<!! gate))) (<!! (timeout 50)) (a/close! gate))")
 			runtimeSettled("before the pool is counted")
 			let idle = clj_debug_blocking_threads()
@@ -72,7 +73,8 @@ extension CoreTests {
 		// An idle pool thread exits after the keep-alive; a binding frame conveyed past that exit stays its body's,
 		// though the next thread's execution likely sits at the same address.
 		// @ai-generated(solo)
-		@Test func idlePoolThreadsRetire() throws {
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func idlePoolThreadsRetire() throws {
 			_ = try eval("(def ^:dynamic *conveyed* :root)")
 			clj_debug_blocking_keep_alive_ms(50)
 			defer { clj_debug_blocking_keep_alive_ms(0) }
@@ -123,7 +125,8 @@ extension CoreTests {
 
 		// Spent tick budgets on a reused thread would throw an early cancel! at the body's call, outside its try.
 		// @ai-generated(solo)
-		@Test func aReusedPoolThreadStartsWithFreshTicks() throws {
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func aReusedPoolThreadStartsWithFreshTicks() throws {
 			clj_debug_blocking_keep_alive_ms(50)
 			defer { clj_debug_blocking_keep_alive_ms(0) }
 			func until(_ ok: () -> Bool) -> Bool {
@@ -208,7 +211,8 @@ extension CoreTests {
 		// A lost wakeup shows as a hang: a go from outside the pool while every carrier sleeps must wake one.
 		// Rounds past 10 ms are the OS scheduling the woken thread late (11 on the 3-core arm64 runner); a lost wake
 		// rescued late would make most of the 900-odd cold rounds late.
-		@Test func goFromMainWithAColdPoolRunsAtOnce() throws {
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func goFromMainWithAColdPoolRunsAtOnce() throws {
 			let f = try eval("(fn [] (<!! (go 1)))")
 			let carriers = clj_debug_sched_carriers()
 			var cold = 0, late = 0

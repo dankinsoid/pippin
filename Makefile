@@ -1,4 +1,4 @@
-.PHONY: bench-ab port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: bench-ab port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -54,6 +54,11 @@ test-tsan: TEST_TIMEOUT = 3600
 test-tsan:
 	CLJ_SYSTEM_ALLOC=1 CLJ_TEST_HANG_S=1800 TSAN_OPTIONS="abort_on_error=0 suppressions=$(abspath scripts/tsan.supp)" \
 		$(SHARDS) --gate test-tsan -- --scratch-path $(BUILD_ROOT)/tsan --sanitize=thread
+
+# The concurrency suites under the seeded scheduler over SEEDS, a process each (NOTES "Scheduler"). Opt-in like
+# test-tsan; a failure prints its seed and the command that replays the test alone.
+test-seeded:
+	TEST_TIMEOUT=$(TEST_TIMEOUT) sh scripts/test-seeded.sh
 
 # The §7 invariant: clj_is_unique always false, so every in-place path degrades to a copy (NOTES.md, RC).
 test-noreuse:

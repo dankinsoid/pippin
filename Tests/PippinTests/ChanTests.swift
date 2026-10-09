@@ -54,7 +54,8 @@ extension CoreTests {
 
 		// Both outlive their caller holding objects (docs/notes/gates.md, "Settled baselines").
 		// @ai-generated(solo)
-		@Test func settlingWaitsForTimersAndBlockingJobs() throws {
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func settlingWaitsForTimersAndBlockingJobs() throws {
 			_ = try eval("(do (timeout 2000) nil)")
 			#expect(clj_debug_timers_held() == 1)
 			#expect(!clj_debug_runtime_settle(0, 20))

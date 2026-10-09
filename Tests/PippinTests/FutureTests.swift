@@ -75,7 +75,9 @@ extension CoreTests {
 		}
 
 		// A cancelled future is realized? before its body unwound; the timeout must still bound the wait.
-		@Test func derefWithTimeoutOfACancelledFutureStillTimesOut() throws {
+		// Seeded, the FIFO read is done in place and holds the only carrier until the writer comes.
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func derefWithTimeoutOfACancelledFutureStillTimesOut() throws {
 			let base = CoroBaseline()
 			do {
 				// load-file reads on the blocking pool, an uncancellable park: a FIFO with no writer holds it there.

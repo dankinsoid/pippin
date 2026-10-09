@@ -507,11 +507,17 @@ size_t clj_debug_live_coros(void) { return atomic_load_explicit(&live_coros, mem
 // A finished coroutine is released last on its carrier, so the count reaching the target means every finish ran.
 bool clj_debug_coro_settle(size_t target, uint64_t ms) {
 	uint64_t deadline = clj_profile_now() + ms * 1000000u;
+	bool     settled = true;
+	clj_sched_seed_settling(1);
 	while (atomic_load_explicit(&live_coros, memory_order_acquire) > target) {
-		if (clj_profile_now() > deadline) return false;
+		if (clj_profile_now() > deadline) {
+			settled = false;
+			break;
+		}
 		usleep(200);
 	}
-	return true;
+	clj_sched_seed_settling(-1);
+	return settled;
 }
 
 size_t clj_debug_phys_footprint(void) {
@@ -702,7 +708,8 @@ static void sweep_fire(void *ctx);
 // Arms the timer when coroutines live and nobody has: the exchange makes one arming per idle period.
 static void sweep_wanted(void) {
 	uint64_t ms = atomic_load_explicit(&sweep_ms, memory_order_relaxed);
-	if (!ms || !atomic_load_explicit(&live_coros, memory_order_seq_cst)) return;
+	// Seeded, a timer that re-arms for ever would keep the virtual clock from ever running out of timers.
+	if (!ms || clj_sched_seed_on || !atomic_load_explicit(&live_coros, memory_order_seq_cst)) return;
 	if (atomic_load_explicit(&sweep_armed, memory_order_seq_cst)) return;
 	if (atomic_exchange_explicit(&sweep_armed, true, memory_order_seq_cst)) return;
 	clj_sched_timer(ms * 1000000u, sweep_fire, NULL);

@@ -83,6 +83,7 @@ typedef struct {
 	clj_slot   add_fn;     // (xform rf), nil without a transducer
 	clj_slot   ex_handler; // fn or nil
 	clj_slot   error;      // a future whose body threw: the value deref rethrows
+	uint64_t   serial;     // seeded mode: the identity hash's source, since an address is not the same run to run
 #if CLJ_DEBUG
 	_Atomic(clj_coro *) lock_owner; // the execution inside the plain section, for clj_slot_store's lock check
 #endif
@@ -128,13 +129,23 @@ static bool chan_cc_locked(void *self, void (*inside)(void *self, void *ctx), vo
 static void chan_cc_wakes(void *self, void (*visit)(void *coro, void *ctx), void *ctx);
 static void chan_cc_held(void *self, clj_visitor visit, void *ctx, bool detach);
 
+static _Atomic uint64_t chan_serials;
+
+void clj_chan_serial_reset(void) { atomic_store_explicit(&chan_serials, 0, memory_order_relaxed); }
+
+// (keys m) over channels orders a mult's puts, so a seeded run must not hash them by address.
+static uint32_t chan_hash(void *self) {
+	clj_chan *ch = self;
+	return ch->serial ? clj_fmix32((uint32_t)ch->serial) : identity_hash(self);
+}
+
 const clj_type clj_chan_type = {
 	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
 	.name = "channel",
 	.mutable_children = true,
 	.each_child = chan_each_child,
 	.finalize = chan_finalize,
-	.hash = identity_hash,
+	.hash = chan_hash,
 	.equals = identity_equals,
 	.debug_lock_held = chan_lock_held,
 	.cc_locked = chan_cc_locked,
@@ -152,6 +163,7 @@ static clj_value chan_alloc(int kind, uint32_t cap, int role) {
 	ch->kind = (uint8_t)kind;
 	ch->role = (uint8_t)role;
 	ch->cap = cap;
+	if (__builtin_expect(clj_sched_seed_on, 0)) ch->serial = atomic_fetch_add_explicit(&chan_serials, 1, memory_order_relaxed) + 1;
 	ch->ring_cap = cap;
 	if (cap) {
 		ch->ring = malloc(cap * sizeof *ch->ring);
@@ -914,11 +926,13 @@ static void intern_keywords(void) {
 static void shuffle(uint32_t *order, uint32_t n) {
 	static _Thread_local uint64_t state;
 	if (!state) state = (uint64_t)(uintptr_t)&state * 0x9E3779B97F4A7C15ull | 1;
+	bool seeded = __builtin_expect(clj_sched_seed_on, 0);
 	for (uint32_t i = n; i > 1; i--) {
 		state ^= state << 13;
 		state ^= state >> 7;
 		state ^= state << 17;
-		uint32_t j = (uint32_t)(state % i), t = order[i - 1];
+		uint64_t r = seeded ? clj_sched_seed_random() : state;
+		uint32_t j = (uint32_t)(r % i), t = order[i - 1];
 		order[i - 1] = order[j];
 		order[j] = t;
 	}
@@ -1261,6 +1275,8 @@ static void thread_run(void *ctx) {
 }
 
 static clj_value chan_thread(clj_value f, bool detached) {
+	// Seeded, a body is a coroutine of the one carrier: a pool thread would run beside the schedule.
+	if (__builtin_expect(clj_sched_seed_on, 0)) return spawn_into(f, clj_chan_new(CLJ_NIL), CLJ_AFFINITY_POOL, go_done, detached);
 	clj_value   chv = chan_alloc(CLJ_BUF_NONE, 0, CLJ_CHAN_THREAD);
 	thread_job *j = malloc(sizeof *j);
 	if (!j) clj_fatal("out of memory");
@@ -1384,6 +1400,12 @@ uint32_t clj_debug_chan_pending(clj_value chv, bool puts) {
 
 // ---- builtins
 
+// A seeded preemption point after an operation other executions can see.
+static clj_value point(clj_value r) {
+	if (r != CLJ_THROWN) clj_sched_point();
+	return r;
+}
+
 static clj_value b_chan(const clj_value *args, size_t n) {
 	if (n < 2) return clj_chan_new(n ? args[0] : CLJ_NIL);
 	return clj_chan_new_xform(args[0], args[1], n > 2 ? args[2] : CLJ_NIL);
@@ -1422,36 +1444,36 @@ static clj_value b_unblocking_buffer_p(const clj_value *args, size_t n) {
 	return clj_bool(kind == CLJ_BUF_DROPPING || kind == CLJ_BUF_SLIDING || kind == CLJ_BUF_PROMISE);
 }
 
-static clj_value b_take(const clj_value *args, size_t n) { return chan_take(args[0], n > 1 && clj_truthy(args[1])); }
+static clj_value b_take(const clj_value *args, size_t n) { return point(chan_take(args[0], n > 1 && clj_truthy(args[1]))); }
 
 static clj_value b_put(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_put(args[0], args[1]);
+	return point(clj_chan_put(args[0], args[1]));
 }
 
 static clj_value b_poll(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_poll(args[0]);
+	return point(clj_chan_poll(args[0]));
 }
 
 static clj_value b_offer(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_offer(args[0], args[1]);
+	return point(clj_chan_offer(args[0], args[1]));
 }
 
-static clj_value b_put_cb(const clj_value *args, size_t n) { return clj_chan_put_cb(args[0], args[1], n > 2 ? args[2] : CLJ_NIL, n > 3 ? clj_truthy(args[3]) : true); }
+static clj_value b_put_cb(const clj_value *args, size_t n) { return point(clj_chan_put_cb(args[0], args[1], n > 2 ? args[2] : CLJ_NIL, n > 3 ? clj_truthy(args[3]) : true)); }
 
-static clj_value b_take_cb(const clj_value *args, size_t n) { return clj_chan_take_cb(args[0], args[1], n > 2 ? clj_truthy(args[2]) : true); }
+static clj_value b_take_cb(const clj_value *args, size_t n) { return point(clj_chan_take_cb(args[0], args[1], n > 2 ? clj_truthy(args[2]) : true)); }
 
 static clj_value b_close(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_close(args[0]);
+	return point(clj_chan_close(args[0]));
 }
 
 // The JVM's do-alts reads ports by count and nth, so a seq of ports, (keys m) say, is as good as a vector.
 static clj_value b_alts(const clj_value *args, size_t n) {
 	clj_value opts = n > 1 ? args[1] : CLJ_NIL;
-	if (clj_is_vector(args[0]) || !clj_has_core(args[0], CLJ_CORE_SEQUENTIAL)) return clj_chan_alts(args[0], opts);
+	if (clj_is_vector(args[0]) || !clj_has_core(args[0], CLJ_CORE_SEQUENTIAL)) return point(clj_chan_alts(args[0], opts));
 	clj_value ports = clj_vector_empty();
 	for (clj_value s = clj_seq(args[0]); !clj_is_nil(s);) {
 		clj_value x = s == CLJ_THROWN ? CLJ_THROWN : clj_first(s);
@@ -1468,7 +1490,7 @@ static clj_value b_alts(const clj_value *args, size_t n) {
 	}
 	clj_value r = clj_chan_alts(ports, opts);
 	clj_release(ports);
-	return r;
+	return point(r);
 }
 
 static clj_value b_timeout(const clj_value *args, size_t n) {
@@ -1479,7 +1501,7 @@ static clj_value b_timeout(const clj_value *args, size_t n) {
 
 static clj_value b_go(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_go(args[0], CLJ_AFFINITY_POOL);
+	return point(clj_chan_go(args[0], CLJ_AFFINITY_POOL));
 }
 
 static clj_value b_go_main(const clj_value *args, size_t n) {
@@ -1489,7 +1511,7 @@ static clj_value b_go_main(const clj_value *args, size_t n) {
 
 static clj_value b_thread(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_thread(args[0]);
+	return point(clj_chan_thread(args[0]));
 }
 
 // An agent action's run (core.clj): the action carries its sender's bindings itself, and what the execution
@@ -1497,13 +1519,13 @@ static clj_value b_thread(const clj_value *args, size_t n) {
 static clj_value b_spawn_detached(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_has_core(args[0], CLJ_CORE_FN)) return clj_throw_msg("spawn-detached* expects a fn, got: %s", clj_type_name(args[0]));
-	if (clj_truthy(args[1])) return chan_thread(args[0], true);
-	return spawn_into(args[0], clj_chan_new(CLJ_NIL), CLJ_AFFINITY_POOL, go_done, true);
+	if (clj_truthy(args[1])) return point(chan_thread(args[0], true));
+	return point(spawn_into(args[0], clj_chan_new(CLJ_NIL), CLJ_AFFINITY_POOL, go_done, true));
 }
 
 static clj_value b_future(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_future(args[0]);
+	return point(clj_chan_future(args[0]));
 }
 
 static clj_value b_promise(const clj_value *args, size_t n) {
@@ -1514,7 +1536,7 @@ static clj_value b_promise(const clj_value *args, size_t n) {
 
 static clj_value b_deliver(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_deliver(args[0], args[1]);
+	return point(clj_chan_deliver(args[0], args[1]));
 }
 
 static clj_value b_deref(const clj_value *args, size_t n) {
@@ -1532,7 +1554,7 @@ static clj_value b_realized_p(const clj_value *args, size_t n) {
 
 static clj_value b_cancel(const clj_value *args, size_t n) {
 	(void)n;
-	return clj_chan_cancel(args[0]);
+	return point(clj_chan_cancel(args[0]));
 }
 
 static clj_value b_suspend(const clj_value *args, size_t n) {

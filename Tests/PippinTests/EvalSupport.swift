@@ -13,11 +13,28 @@ struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
 		clj_init()
 		if test.isSuite { return try await function() }
 		runtimeSettled("before \(test.name)")
+		// A test's schedule depends on the seed and its own name only, so it replays alone (make test-seeded).
+		if let seed = schedulerSeed { clj_debug_sched_reseed(seed ^ stableHash("\(test.id)")) }
 		let watch = DispatchWorkItem { reportHang(test.name) }
 		DispatchQueue.global().asyncAfter(deadline: .now() + hangSeconds, execute: watch)
 		defer { watch.cancel() }
 		try await function()
 	}
+}
+
+// CLJ_SCHED_SEED's value when the seeded scheduler runs the process (design §3 «Корректность реализации», item 4).
+let schedulerSeed: UInt64? = {
+	clj_init()
+	var seed: UInt64 = 0
+	return clj_sched_seeded(&seed) ? seed : nil
+}()
+
+// What the seeded scheduler cannot run as the test means it, named once for every such test.
+let outsideTheSeededModel = "seeded mode runs no pool threads and keeps virtual time (design §3, item 4)"
+
+// FNV-1a: Swift's own hash is seeded per process.
+func stableHash(_ s: String) -> UInt64 {
+	s.utf8.reduce(0xcbf29ce484222325) { ($0 ^ UInt64($1)) &* 0x100000001b3 }
 }
 
 // The run's time bound kills a hung test without a trace (docs/notes/gates.md, "CI").

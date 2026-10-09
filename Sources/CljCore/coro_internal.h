@@ -39,6 +39,7 @@ enum {
 	CLJ_WAKE_TIMER,       // the timer thread, after which the body goes on: Thread/sleep
 	CLJ_WAKE_THREAD,      // a runtime thread working for the parker: a blocking job, the output writer
 	CLJ_WAKE_HOLDER,      // the execution holding what it waits for: a cmutex, a lazy seq's forcing claim
+	CLJ_WAKE_YIELD,       // the seeded scheduler itself: a preemption, runnable again at once
 };
 
 typedef struct {
@@ -53,6 +54,7 @@ static inline clj_wake clj_wake_handle(void) { return (clj_wake){CLJ_WAKE_HANDLE
 static inline clj_wake clj_wake_timer(void) { return (clj_wake){CLJ_WAKE_TIMER, true}; }
 static inline clj_wake clj_wake_thread(void) { return (clj_wake){CLJ_WAKE_THREAD, false}; }
 static inline clj_wake clj_wake_holder(void) { return (clj_wake){CLJ_WAKE_HOLDER, false}; }
+static inline clj_wake clj_wake_yield(void) { return (clj_wake){CLJ_WAKE_YIELD, false}; }
 
 // One frame of the spawner's trace, kept as names and numbers: the nodes may die before the child throws.
 typedef struct {
@@ -93,6 +95,9 @@ struct clj_coro {
 	bool             implicit;      // a bare thread's own execution
 	bool             resume_pending; // resumed before it parked: the park returns at once
 	bool             signaled;       // implicit: the block was released
+	// Implicit, seeded mode, under the scheduler's seed_mu (sched.c): inside an evaluation and holding the turn;
+	// parked there waiting for a wake; chosen by the seeded pick to run again.
+	bool             seed_in, seed_parked, seed_picked;
 	pthread_mutex_t  lock;           // guards state, waiter and the park/resume handshake
 	pthread_cond_t   cond;           // implicit: what the thread blocks on
 	clj_waiter      *waiter;         // the park it is in, NULL while running and in an uncancellable park
@@ -179,6 +184,33 @@ uint32_t clj_debug_owner_assume(uint32_t tag);
 // The carrier of the calling thread through the pthread key: async-signal-safe, NULL where none was made.
 const clj_carrier *clj_carrier_current(void);
 clj_carrier       *clj_carrier_here(void);
+
+// ---- the seeded scheduler (design §3 «Корректность реализации», item 4; NOTES "Scheduler")
+
+// Set once by clj_init from CLJ_SCHED_SEED, before any runtime thread exists.
+extern bool clj_sched_seed_on;
+void        clj_sched_seed_configure(void);
+// The clock of timers and deadlines: virtual in seeded mode.
+uint64_t clj_sched_now(void);
+// The deadline tick's read: in seeded mode it moves the virtual clock by the work the tick stands for.
+uint64_t clj_sched_tick_now(void);
+// A bare thread's evaluation begins and ends (exec_depth 0 -> 1 and back): the turn is taken and given back.
+void clj_sched_seed_enter(clj_coro *c);
+void clj_sched_seed_leave(clj_coro *c);
+// The program's randomness in seeded mode (alts! order, rand), a stream apart from the schedule's.
+uint64_t clj_sched_seed_random(void);
+// System/currentTimeMillis: the real start plus the virtual time since, in seeded mode.
+uint64_t clj_sched_wall_ms(void);
+// A test's settle in progress: seeded, the clock and the collector move the model without waiting for quiet.
+void clj_sched_seed_settling(int delta);
+void clj_sched_point_slow(void);
+// Channel identity hashes count from here again (chan.c): a reseeded run hashes as a fresh process does.
+void clj_chan_serial_reset(void);
+
+// A preemption point after a spawn, a channel operation or an atom write: in seeded mode the execution may yield.
+static inline void clj_sched_point(void) {
+	if (__builtin_expect(clj_sched_seed_on, 0)) clj_sched_point_slow();
+}
 
 // The unit of parking, shared by every queue it sits in (alts!): the claim winner resumes, stale nodes are dropped.
 struct clj_waiter {

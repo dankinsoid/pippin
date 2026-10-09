@@ -21,6 +21,7 @@
 #include "clj/runtime.h"
 #include "clj/seq.h"
 #include "clj/sorted.h"
+#include "coro_internal.h"
 #include "profile_internal.h"
 
 // ---- numbers
@@ -778,18 +779,17 @@ static clj_value b_find_keyword(const clj_value *args, size_t n) {
 	return kw;
 }
 
+// Both read the timers' clock: a seeded run measures what its timeouts wait, and reads the same every run.
 static clj_value b_nano_time(const clj_value *args, size_t n) {
 	(void)args;
 	(void)n;
-	return clj_long_new((int64_t)clj_profile_now());
+	return clj_long_new((int64_t)clj_sched_now());
 }
 
 static clj_value b_current_time_millis(const clj_value *args, size_t n) {
 	(void)args;
 	(void)n;
-	struct timespec t;
-	clock_gettime(CLOCK_REALTIME, &t);
-	return clj_long_new((int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000);
+	return clj_long_new((int64_t)clj_sched_wall_ms());
 }
 
 // System/currentTimeMillis and System/nanoTime, the shape Thread/sleep has: library code times itself with them.
@@ -827,32 +827,38 @@ static clj_value b_atom_p(const clj_value *args, size_t n) {
 	return clj_bool(clj_is_atom(args[0]));
 }
 
+// A seeded preemption point after a write other executions can see.
+static clj_value point(clj_value r) {
+	if (r != CLJ_THROWN) clj_sched_point();
+	return r;
+}
+
 static clj_value b_reset(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_atom(args[0])) return not_an_atom("reset!", args[0]);
-	return clj_atom_reset(args[0], args[1]);
+	return point(clj_atom_reset(args[0], args[1]));
 }
 
 static clj_value b_reset_vals(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_atom(args[0])) return not_an_atom("reset-vals!", args[0]);
-	return clj_atom_reset_vals(args[0], args[1]);
+	return point(clj_atom_reset_vals(args[0], args[1]));
 }
 
 static clj_value b_swap(const clj_value *args, size_t n) {
 	if (!clj_is_atom(args[0])) return not_an_atom("swap!", args[0]);
-	return clj_atom_swap(args[0], args[1], args + 2, n - 2);
+	return point(clj_atom_swap(args[0], args[1], args + 2, n - 2));
 }
 
 static clj_value b_swap_vals(const clj_value *args, size_t n) {
 	if (!clj_is_atom(args[0])) return not_an_atom("swap-vals!", args[0]);
-	return clj_atom_swap_vals(args[0], args[1], args + 2, n - 2);
+	return point(clj_atom_swap_vals(args[0], args[1], args + 2, n - 2));
 }
 
 static clj_value b_compare_and_set(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_atom(args[0])) return not_an_atom("compare-and-set!", args[0]);
-	return clj_atom_compare_and_set(args[0], args[1], args[2]);
+	return point(clj_atom_compare_and_set(args[0], args[1], args[2]));
 }
 
 static clj_value b_add_watch(const clj_value *args, size_t n) {
@@ -1530,6 +1536,7 @@ static clj_value b_rand_star(const clj_value *args, size_t n) {
 	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
 	z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
 	z ^= z >> 31;
+	if (__builtin_expect(clj_sched_seed_on, 0)) z = clj_sched_seed_random();
 	return clj_double_new((double)(z >> 11) * (1.0 / 9007199254740992.0));
 }
 

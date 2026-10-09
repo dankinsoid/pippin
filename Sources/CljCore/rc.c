@@ -10,6 +10,8 @@
 // CLJ_CRASH_EXIT: a plain exit, since a wedged crash reporter can leave the aborting process unkillable (NOTES "Guard").
 void clj_fatal(const char *msg) {
 	fprintf(stderr, "clj: fatal: %s\n", msg);
+	const char *seed = getenv("CLJ_SCHED_SEED");
+	if (seed && *seed) fprintf(stderr, "clj: under the seeded scheduler, CLJ_SCHED_SEED=%s\n", seed);
 	fflush(stderr);
 	const char *e = getenv("CLJ_CRASH_EXIT");
 	if (e && *e && strcmp(e, "0") != 0) _exit(134);

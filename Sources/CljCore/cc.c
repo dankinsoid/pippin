@@ -167,6 +167,8 @@ static void *cc_main(void *arg) {
 }
 
 static void start_thread(void) {
+	// Seeded, collections happen where the schedule puts them (sched.c), never at a real moment.
+	if (clj_sched_seed_on) return;
 	pthread_t      t;
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
@@ -1098,6 +1100,13 @@ int64_t clj_cc_collect(void) {
 		if (!got) break;
 	}
 	return freed;
+}
+
+void clj_cc_seed_collect(void) {
+	pthread_mutex_lock(&buf_mu);
+	bool pending = shared_n || deep_n || retries.n;
+	pthread_mutex_unlock(&buf_mu);
+	if (pending) clj_cc_collect();
 }
 
 void clj_cc_main_idle(void) {

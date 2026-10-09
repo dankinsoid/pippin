@@ -44,6 +44,8 @@ void  clj_cc_execution_done(clj_coro *c);
 void  clj_cc_execution_free(clj_coro *c);
 // The main run loop is about to sleep: its execution's candidates, within a time budget.
 void  clj_cc_main_idle(void);
+// Seeded mode, where no background thread runs: a full collection when anything waits for one.
+void  clj_cc_seed_collect(void);
 
 // clj_share without the owner check: a dying thread's TLS is gone.
 void clj_share_unowned(clj_value v);
