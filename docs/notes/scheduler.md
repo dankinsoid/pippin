@@ -52,8 +52,13 @@
   freed or recycled when the spawner finishes. An epoch per frame would only tell us the trace is lost.
 - **Park and resume** (`clj_park`, `clj_resume`, `clj_waiter`): a park takes the coroutine's own pthread mutex,
   stores `PARKED`, and switches out *holding it* — the carrier unlocks after the switch on its own stack — so a
-  resumer that acquires the mutex finds the context fully saved or the coroutine not yet parked; in the second
-  case it sets `resume_pending` and the park returns at once. A waiter is the unit of parking: refcounted,
+  resumer that acquires the mutex finds the context fully saved or the coroutine not yet parked. The wake token
+  is the waiter's (`resumed`, under the coroutine's mutex), and a park on `w` ends only on `w`'s resume
+  (`parked_on`): a resume that comes first makes that park return at once, and one for another waiter of the same
+  coroutine leaves the park alone. A coroutine holds two live waiters when an `alts!` queued on one port parks on
+  a later port's cmutex; with one `resume_pending` flag per coroutine, cleared at every switch in, a wake landing
+  while it was runnable was lost, and a mult over two transducing taps merged hung under load (corpus-bench,
+  `ChanStressTests.altsWokenOnAnEarlierPortWhileParkedOnALaterPortsMutex`). A waiter is the unit of parking: refcounted,
   malloc'd, shared by every queue it sits in (an `alts!` puts one in each port), claimed once under its own
   `clj_lock` (`clj_waiter_claim`; `clj_waiter_claim_pair` claims the two sides of a hand-off together under both
   locks in address order, so two channels pairing the same waiters cannot deadlock — core.async's

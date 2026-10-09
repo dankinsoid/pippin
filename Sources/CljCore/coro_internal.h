@@ -93,8 +93,7 @@ struct clj_coro {
 	_Atomic int      state;
 	uint8_t          affinity;
 	bool             implicit;      // a bare thread's own execution
-	bool             resume_pending; // resumed before it parked: the park returns at once
-	bool             signaled;       // implicit: the block was released
+	bool             signaled;       // finished: a blocking join's wait is over (clj_coro_join_blocking)
 	// Implicit, seeded mode, under the scheduler's seed_mu (sched.c): inside an evaluation and holding the turn;
 	// chosen by the seeded pick to run again; parked (SEED_PARKED_*), which lets the virtual clock move.
 	// seed_outer: the turn was taken by clj_eval, before the analysis, and only its own end gives it back.
@@ -103,6 +102,7 @@ struct clj_coro {
 	pthread_mutex_t  lock;           // guards state, waiter and the park/resume handshake
 	pthread_cond_t   cond;           // implicit: what the thread blocks on
 	clj_waiter      *waiter;         // the park it is in, NULL while running and in an uncancellable park
+	clj_waiter      *parked_on;      // the park it is in, of any kind: only this waiter's resume ends it
 	uint8_t          park_kind;      // CLJ_WAKE_* of the park it is in, 0 while running
 	struct clj_coro *next;           // run-queue link
 	clj_carrier     *carrier;        // the carrier running it now
@@ -231,6 +231,7 @@ struct clj_waiter {
 	uint32_t         index;
 	bool             ok;
 	bool             blocking; // set before enqueueing: the park blocks the thread instead of switching (host_depth > 0)
+	bool             resumed;  // under the coroutine's lock; the token is per waiter, as a coroutine may hold two (clj_park)
 	const void      *wait_chan; // the channel it was last queued on, for clj_debug_coro_dump; never dereferenced else
 	// Channel queues holding a node of it, for a coroutine's: the collector finds that many or judges it live.
 	// Exact while unclaimed, since only a claim or the channel's death unlinks such a node.

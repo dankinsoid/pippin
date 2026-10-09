@@ -841,9 +841,10 @@ void clj_debug_coro_dump(void) {
 		clj_coro *c = cs[i];
 		pthread_mutex_lock(&c->lock);
 		int         state = atomic_load_explicit(&c->state, memory_order_acquire);
-		clj_waiter *w = c->waiter;
-		fprintf(stderr, "  coro %p %s parks %llu evacuated %d resume_pending %d waiter %p claimed %u\n", (void *)c, state_name(state),
-		        (unsigned long long)c->parks, c->evacuated, c->resume_pending, (void *)w, w ? atomic_load_explicit(&w->claimed, memory_order_relaxed) : 0);
+		clj_waiter *w = c->parked_on;
+		fprintf(stderr, "  coro %p %s parks %llu evacuated %d waiter %p claimed %u resumed %d\n", (void *)c, state_name(state),
+		        (unsigned long long)c->parks, c->evacuated, (void *)w, w ? atomic_load_explicit(&w->claimed, memory_order_relaxed) : 0,
+		        w ? w->resumed : 0);
 		char where[160] = "";
 		if (w && w->wait_chan) clj_debug_chan_describe(w->wait_chan, where, sizeof where);
 		pthread_mutex_unlock(&c->lock);

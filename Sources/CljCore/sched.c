@@ -491,35 +491,35 @@ static void seed_bare_wait_pick(clj_coro *c);
 static void seed_bare_ready(clj_coro *c);
 
 // A pool coroutine switches out holding its lock, so a resumer that wants the lock sees it parked or not at all.
+// Only w's resume ends it: an alts! waiter stays queued on one port while another port's mutex parks the coroutine.
 // The one switch out of a running body besides its finish (make park-audit).
 void clj_park(clj_waiter *w, clj_wake wake) {
 	CLJ_ASSERT(wake.kind, "a park without a wake source");
 	clj_coro *c = clj_coro_current();
 	pthread_mutex_lock(&c->lock);
-	bool block = c->implicit || w->blocking;
-	if (!wake.cancellable) w = NULL;
-	// A cancellation that landed between the caller's check and here found no waiter to wake: the park is skipped
-	// by claiming the waiter ourselves (a concurrent completion that won the claim resumes us instead).
-	if (w && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed) && clj_waiter_claim(w)) {
+	if (w->resumed) {
 		pthread_mutex_unlock(&c->lock);
 		return;
 	}
+	bool        block = c->implicit || w->blocking;
+	clj_waiter *cw = wake.cancellable ? w : NULL;
+	// A cancellation that landed between the caller's check and here found no waiter to wake: the park is skipped
+	// by claiming the waiter ourselves (a concurrent completion that won the claim resumes us instead).
+	if (cw && atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed) && clj_waiter_claim(cw)) {
+		pthread_mutex_unlock(&c->lock);
+		return;
+	}
+	c->waiter = cw;
+	c->parked_on = w;
 	if (block) {
-		c->waiter = w;
-		bool seeded = __builtin_expect(clj_sched_seed_on, 0) && !c->signaled && seed_block(c);
-		while (!c->signaled) pthread_cond_wait(&c->cond, &c->lock);
-		c->signaled = false;
+		bool seeded = __builtin_expect(clj_sched_seed_on, 0) && seed_block(c);
+		while (!w->resumed) pthread_cond_wait(&c->cond, &c->lock);
 		c->waiter = NULL;
+		c->parked_on = NULL;
 		pthread_mutex_unlock(&c->lock);
 		if (seeded) seed_bare_wait_pick(c);
 		return;
 	}
-	if (c->resume_pending) {
-		c->resume_pending = false;
-		pthread_mutex_unlock(&c->lock);
-		return;
-	}
-	c->waiter = w;
 	c->park_kind = wake.kind;
 	if (__builtin_expect(!c->linked, 0)) clj_coro_live_link(c);
 	c->parks++;
@@ -528,8 +528,8 @@ void clj_park(clj_waiter *w, clj_wake wake) {
 	clj_coro_switch_out(c);
 	pthread_mutex_lock(&c->lock);
 	c->waiter = NULL;
+	c->parked_on = NULL;
 	c->park_kind = 0;
-	c->resume_pending = false;
 	pthread_mutex_unlock(&c->lock);
 }
 
@@ -552,25 +552,27 @@ static void resume(clj_waiter *w, bool handoff) {
 		return;
 	}
 	pthread_mutex_lock(&c->lock);
+	w->resumed = true;
+	// Not parked yet, or parked on another waiter of its own: its park on w returns at once.
+	if (c->parked_on != w) {
+		pthread_mutex_unlock(&c->lock);
+		return;
+	}
 	if (c->implicit || w->blocking) {
-		c->signaled = true;
 		pthread_cond_signal(&c->cond);
 		if (__builtin_expect(clj_sched_seed_on, 0) && c->implicit) seed_bare_ready(c);
 		pthread_mutex_unlock(&c->lock);
 		return;
 	}
-	if (atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED) {
-		// A collection that judged it parked sees the wake (design §7, «Фаза 3»).
-		if (__builtin_expect(atomic_load_explicit(&clj_cc_running, memory_order_seq_cst), 0) &&
-		    (atomic_load_explicit(&c->h.rc, memory_order_seq_cst) & CLJ_RC_WATCH))
-			clj_cc_unwatch(&c->h);
-		atomic_store_explicit(&c->state, CLJ_CORO_RUNNABLE, memory_order_relaxed);
-		pthread_mutex_unlock(&c->lock);
-		clj_sched_enqueue(c, handoff);
-		return;
-	}
-	c->resume_pending = true;
+	// One claim, one resume: a coroutine parked on w is still PARKED here.
+	CLJ_ASSERT(atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED, "a resume of a waiter whose park already ended");
+	// A collection that judged it parked sees the wake (design §7, «Фаза 3»).
+	if (__builtin_expect(atomic_load_explicit(&clj_cc_running, memory_order_seq_cst), 0) &&
+	    (atomic_load_explicit(&c->h.rc, memory_order_seq_cst) & CLJ_RC_WATCH))
+		clj_cc_unwatch(&c->h);
+	atomic_store_explicit(&c->state, CLJ_CORO_RUNNABLE, memory_order_relaxed);
 	pthread_mutex_unlock(&c->lock);
+	clj_sched_enqueue(c, handoff);
 }
 
 void clj_resume(clj_waiter *w) { resume(w, true); }
