@@ -2074,3 +2074,86 @@ effects walk stopped at the first impure effect, measured the walk at +7 % and +
 - **Where the gain is.** A program whose top level builds data from pure calls — tables, parsed constants, derived
   maps — rather than a library of fns and a test suite. Such code is not in the corpus; the device startup the design
   aims at is the trigger for measuring one.
+
+## Corpus workloads — 5d57824, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+`make corpus-bench` (docs/notes/benchmarks.md, "Corpus workloads"), three complete runs: 37968263389 and 37970747188
+on `5d57824`, 37971132972 on `5085f7e` (the same code, the script sampling the dev run too). Every workload returned
+the JVM's `expected` value in every runtime. ms per iteration of `run`; each cell is the median of the three runs'
+medians, the range of the three in parentheses. *core+interp* is the compiled core with the workload interpreted,
+*dev* the workload's units compiled over it, *closed* the whole program `--closed`.
+
+| workload | JVM warm | JVM cold | interp | core+interp | dev | closed | closed/JVM | interp/closed |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| medley | 46 (38–47) | 1669 (875–1749) | 197 (149–236) | 172 (148–219) | 120 (116–126) | 114 (103–154) | 2.5× | 1.7× |
+| combinatorics | 97 (78–112) | 1691 (1661–1899) | 513 (468–553) | 309 (300–312) | 254 (246–291) | 281 (262–328) | 2.9× | 1.8× |
+| dependency | 344 (333–407) | 1558 (1375–1925) | 1217 (1210–1439) | 906 (893–1002) | 845 (827–882) | 893 (892–1052) | 2.6× | 1.4× |
+| nested-update | 94 (94–96) | 1044 (1014–1305) | 648 (617–737) | 357 (347–381) | 325 (319–328) | 298 (298–357) | 3.2× | 2.2× |
+| group-freq | 129 (103–132) | 1093 (957–1224) | 736 (733–742) | 649 (635–659) | 540 (498–556) | 525 (456–617) | 4.1× | 1.4× |
+| pipelines | 175 (163–205) | 1430 (971–1632) | 1285 (1124–1434) | 804 (740–944) | 898 (783–950) | 720 (656–863) | 4.1× | 1.8× |
+| strings | 33 (27–40) | 909 (789–1350) | 550 (532–642) | 491 (441–729) | 678 (415–717) | 511 (409–524) | 15.7× | 1.1× |
+| render | 41 (37–42) | 822 (615–995) | 189 (176–198) | 140 (131–147) | 116 (113–124) | 119 (116–153) | 2.9× | 1.6× |
+| suite-data | 41 (34–44) | 937 (785–1160) | 176 (150–186) | 130 (113–134) | 113 (106–132) | 143 (120–168) | 3.5× | 1.2× |
+| async-pipeline | 1414 (1386–1458) | 4680 (4327–6328) | 113 (103–243) | 121 (108–243) | 124 (112–233) | 229 (157–251) | 0.2× | 0.5× |
+| async-libs | 100 (89–168) | 3503 (2892–4077) | 89 (74–117) | 107 (67–116) | 52 (51–112) | 50 (48–53) | 0.5× | 1.8× |
+| async-broadcast | 70 (63–150) | 2981 (2407–3605) | 62 (44–82) | 43 (32–54) | 49 (32–54) | 38 (35–46) | 0.5× | 1.7× |
+
+- **The runner's spread is ±20–30 % per cell**, so the dev and closed columns are one number: their order flips
+  between runs on combinatorics, medley, render and suite-data. The one consistent gap is async-pipeline, closed
+  slower than dev in all three runs (229/124, 251/233, 157/112), on a workload whose own range is 2×; unexplained.
+- **Compiling the core is the step that pays** (interp → core+interp: 1.1–1.8×); compiling the program on top takes
+  0–30 % more off and the closed world nothing measurable. On the data workloads the closed build is 2.5–4× the warm
+  JVM, strings 16×; the three core.async workloads run 2–6× faster than on the JVM. Our process start is not
+  measured, so the JVM cold column has no counterpart.
+
+Counters per iteration (`-DCLJ_STATS=1`; identical in all three runs, and between the dev and the closed build in
+every column except the call counts). *rc est.* is the plain RC ops × 1.35 ns (`clj_debug_rc_op_ns` on this runner)
+over run 1's closed median, a floor for the inline retain/release that the profile counts in its callers.
+
+| workload | rc plain | rc est. | allocs | MB | lazy forced | invoke dev → closed | c_invoke dev → closed | apply | hash | top allocations |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| medley | 10.6M | 13 % | 1.31M | 128 | 53k | 1.22M → 0.79M | 1.27M → 0.84M | 41k | 12k | map-node 409k, map 210k, vector 149k |
+| combinatorics | 19.8M | 8 % | 5.13M | 289 | 871k | 3.64M → 2.37M | 4.24M → 2.97M | 24k | 2k | fn 983k, lazy-seq 923k, cons 807k |
+| dependency | 74.7M | 11 % | 14.55M | 998 | 3.28M | 7.45M → 7.29M | 6.86M → 6.70M | 27k | 0 | fn 3.29M, lazy-seq 3.29M, cons 3.15M |
+| nested-update | 20.8M | 8 % | 3.36M | 228 | 0.6k | 2.61M → 0.44M | 3.24M → 1.07M | 234k | 0 | vector-seq 1.13M, vector 667k, map 621k |
+| group-freq | 34.1M | 9 % | 5.96M | 366 | 350k | 8.68M → 7.46M | 8.63M → 7.41M | 3.15M | 650k | vector 1.78M, list 1.68M, fn 450k |
+| pipelines | 52.4M | 10 % | 12.45M | 757 | 1.36M | 17.72M → 14.41M | 21.24M → 17.93M | 19k | 0 | vector-seq 2.25M, fn 2.03M, lazy-seq 2.03M, double 1.50M |
+| strings | 3.9M | 1 % | 1.16M | 5400 | 67k | 0.75M → 0.46M | 1.12M → 0.83M | 0 | 40k | string 578k, vector-seq 168k |
+| render | 4.5M | 5 % | 1.68M | 86 | 212k | 1.40M → 0.93M | 2.14M → 1.68M | 80k | 0 | string 748k, fn 256k, lazy-seq 212k |
+| suite-data | 7.5M | 6 % | 1.62M | 136 | 148k | 1.76M → 1.21M | 1.78M → 1.23M | 2k | 4k | sorted-node 284k, map-node 201k, fn 170k |
+| async-pipeline | 0.01M | 0 % | 0.04M | 5 | 0 | 0.58M → 0.11M | 1.31M → 0.84M | 0 | 0 | channel 21k; 157k coroutine switches |
+| async-libs | 0.2M | 1 % | 0.25M | 19 | 0 | 0.28M → 0.15M | 0.57M → 0.44M | 0 | 51k | list 103k; 31k switches |
+| async-broadcast | 1.0M | 4 % | 0.31M | 18 | 60k | 0.49M → 0.23M | 0.81M → 0.55M | 0 | 0 | fn 80k, vector 70k; 64k switches |
+
+Sampled self time, closed, % of busy samples (8 s of `/usr/bin/sample` at 1 ms, blocked threads left out), the mean
+of the three runs; the dev profile of run 3 agrees with it within 1–4 points per bucket. *free cascade* is rc.c
+(`release_child`, `release_reaches_zero`, `bury`, `free_object`: a dying object's children released through its
+type's `each_child`); *alloc/free* is alloc.c and system malloc; *TLS* is dyld's `_tlv_get_addr`; *zero/copy* is
+`memset`/`memmove`.
+
+| workload | free cascade | alloc/free | TLS | zero/copy | collections | seqs | compiled core | dispatch | builtins | program |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| medley | 28.7 | 11.3 | 6.7 | 5.9 | 26.8 | 6.1 | 3.0 | 2.8 | 2.0 | 3.0 |
+| combinatorics | 20.6 | 14.3 | 12.5 | 4.6 | 9.4 | 17.8 | 7.1 | 5.4 | 4.8 | 2.2 |
+| dependency | 23.1 | 11.7 | 11.0 | 7.2 | 16.6 | 14.9 | 6.5 | 6.2 | 0.6 | 0.7 |
+| nested-update | 20.4 | 10.5 | 5.3 | 3.6 | 30.5 | 8.1 | 9.4 | 1.2 | 4.6 | 4.5 |
+| group-freq | 15.1 | 28.4 | 6.3 | 7.8 | 12.1 | 9.0 | 6.1 | 7.4 | 1.1 | 1.1 |
+| pipelines | 18.9 | 13.6 | 10.2 | 3.7 | 11.5 | 11.6 | 11.2 | 6.1 | 4.6 | 2.6 |
+| strings | 2.4 | 4.4 | 1.4 | 60.9 | 0.9 | 0.6 | 0.8 | 0.1 | 0.6 | 0.3 |
+| render | 11.7 | 24.2 | 7.7 | 10.5 | 3.6 | 10.2 | 6.0 | 3.4 | 5.8 | 4.2 |
+| suite-data | 24.0 | 9.2 | 8.3 | 3.9 | 21.4 | 7.6 | 4.9 | 4.6 | 4.7 | 4.3 |
+
+The async workloads' busy samples are 41–45 % `mach_absolute_time` and condvar signals in `carrier_main`'s spin and
+`clj_sched_enqueue`: idle carriers spinning for work on a 3-cpu runner, not the program's path, so their profile
+does not rank. What the callers say, from run 1's call graphs:
+
+- `_tlv_get_addr` comes from `pool_alloc` (~35 %) and `clj_dealloc` (~30 %) reading `tls_heap`, and from
+  `clj_coro_current` (~25 %), which `clj_lazy_seq_force`'s claim/publish calls once per realization.
+- The `memset` under *zero/copy* is `pool_alloc` zeroing each new object (alloc.c), all of it on the data workloads.
+- group-freq's system malloc and free (≈ 20 % of its samples) are `clj_apply`'s two argument arrays, one pair per
+  call, 3.15M calls an iteration from `juxt`'s variadic arity.
+- strings: 96 % of `b_str`'s time is `clojure.string/join`'s 2-arity, which grows its result with `(str sb sep x)`
+  per element, quadratic: 5.4 GB copied per iteration, the `memmove` (61 %) and the `madvise` behind the freed large
+  blocks (21 %).
+- `clj_fn_native_env` (2–3 % self in dependency, pipelines, combinatorics) is the closure each `lazy-seq` body
+  allocates, `concat`'s for the most part; the fn and lazy-seq counts match one to one in the table above.
