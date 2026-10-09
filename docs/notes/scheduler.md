@@ -11,6 +11,17 @@
   then sleeps. Measured (bench/RESULTS.md, "Coroutines and channels", "One wake per burst"): ping-pong round
   trip ~500 ns on the pool against 461 on one carrier; `(<! (timeout 0))` 1.9 µs (the timer thread's wake and
   the carrier's); a `go` from the main thread 535 ns spawn + finish, ~560 in bursts of 100 (was 1.65 µs).
+- [ ] **The idle tail costs energy on a phone.** After every burst a carrier spins up to 20 µs and then polls on a
+  timer every 50 µs for 1 ms before it sleeps; a fully idle app pays nothing, but work arriving in small bursts
+  (an animation frame, a scroll event, a timer tick at 120 Hz) leaves a tail per burst — up to ~1 ms of activity
+  a frame, and the polling phase's timer wakeups keep the core out of deep idle, which is where ARM spends energy.
+  The corpus benchmark's async wins over the JVM are partly this: wall time, with idle carriers busy in
+  `carrier_main` while the JVM's pool sleeps. Candidates, none measured: `wfe` on arm64 on the scheduler's
+  work word instead of the spin (low-power wait, woken by the cache line's write); no timer polling — sleep right
+  after the short spin, woken by our own signal; spin only on carriers serving interactive QoS; no spin in Low
+  Power Mode or at a high `ProcessInfo.thermalState`. The `next`-slot hand-off, not the spin, is what makes
+  ping-pong fast, so it should survive. Trigger: the first run on a real iPhone, measured with Instruments'
+  Energy Log (or `powermetrics` on a Mac) — before App Store, design §10.
 - **The wake protocol (Go's `wakep`)**: every idle carrier waits on *its own* mutex and condition
   (`park_mu`/`park_cv`), listed on `idle_head` under `run_mu`, most recent first. An enqueue pushes under
   `run_mu` and pops at most one carrier to wake, and only when nobody spins and no popped carrier is still on its
