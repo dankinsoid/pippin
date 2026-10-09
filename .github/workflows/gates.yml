@@ -129,6 +129,15 @@ jobs:
       - name: Swift stubs cache contents before
         run: (ls -d .build/swift-stubs/*/*/ .build/swift-stubs/cache/*/*/ 2>/dev/null || true) | sort > "$RUNNER_TEMP/stubs-before"
 
+      # The parser fuzzers' grown corpus carries from run to run (docs/notes/fuzzing.md, "Parser fuzzing").
+      - name: Restore the parser fuzzing corpus
+        if: ${{ inputs.target == 'fuzz-parsers' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: .build/fuzz-parsers/corpus
+          key: fuzz-parsers-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: fuzz-parsers-${{ runner.arch }}-
+
       - name: make ${{ inputs.target || 'gates' }}
         # corpus-bench caps itself at 150 min (scripts/corpus-bench.py); this is the backstop for its builds.
         timeout-minutes: ${{ inputs.target == 'corpus-bench' && 180 || 330 }}
@@ -166,6 +175,25 @@ jobs:
             .build/corpus-bench/facts-coverage.md
             .build/corpus-bench/logs
           retention-days: 30
+
+      - name: Save the parser fuzzing corpus
+        if: ${{ !cancelled() && inputs.target == 'fuzz-parsers' }}
+        uses: actions/cache/save@v6
+        with:
+          path: .build/fuzz-parsers/corpus
+          key: fuzz-parsers-${{ runner.arch }}-${{ github.run_id }}
+
+      # Each finding as found and minimized, the logs that reproduce it, and the grown corpus.
+      - name: Parser fuzzing findings
+        if: ${{ !cancelled() && inputs.target == 'fuzz-parsers' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-parsers-${{ matrix.arch }}
+          path: |
+            .build/fuzz-parsers/findings
+            .build/fuzz-parsers/logs
+            .build/fuzz-parsers/corpus
+          retention-days: 14
           if-no-files-found: ignore
 
       # Each shard's log and event stream, and times.json for `scripts/test-shards.py record`.

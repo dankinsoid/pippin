@@ -260,3 +260,6 @@ fuzz-long:
 	swift build --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE --product clj-fuzz
 	$(FUZZ) run --seeds 1-64 --forms 1000 $(FUZZ_INTERP) $(FUZZ_NOREUSE) $(FUZZ_UNIT)
 	$(FUZZ) run --seeds 1-4 --forms 300 --group 25 $(FUZZ_INTERP) $(FUZZ_COMPILED)
+
+# ---- the parser fuzzers (fuzz/parsers/, docs/notes/fuzzing.md "Parser fuzzing")
+include fuzz/parsers/fuzz.mk

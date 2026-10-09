@@ -1,0 +1,4 @@
+; c
+#! shebang
+(a ; b
+ c) #_#_ d e f
