@@ -31,6 +31,7 @@ typedef struct {
 	const clj_node *root;   // retained
 	uint32_t        nslots; // frame slots the root needs at top level
 	uint32_t        nsites; // invoke nodes in the tree
+	uint32_t        nnodes; // of nodes[]: finalize reads this, not the tree it no longer holds
 	clj_call_site  *sites;  // their inline caches, indexed by clj_node.site (eval.c)
 	clj_derivation *derived; // the facts the specialized entries rest on (specialize.c); NULL when none
 	clj_exec_node   nodes[]; // indexed by node id

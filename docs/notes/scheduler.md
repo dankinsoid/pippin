@@ -158,14 +158,11 @@
   evaluation (it keeps the carrier waiting), a coroutine blocked under `host_depth` (stderr says so), identity
   hashes other than a channel's, two bare threads inside evaluations at once. Tests of the pool itself or of an
   outside thread are disabled under it (`outsideTheSeededModel`).
-- [ ] **A forced collection beside a finishing coroutine crashed in `exec_finalize`.** Three seeded runs died at
-  the end of `CmutexTests.lockingContendedFromFourCarriers` (run 37928937581 seed 9; run 37931452245 seeds 6 and
-  28, its crash reports in that run's shard logs): the carrier's `finish` released a body's fn, the last reference
-  to its exec, and `exec_finalize`'s `free_ic` walk met a node pointer into unmapped memory (`0x4b932f`,
-  `0x2c62b6`), while the test thread sat in `CoroBaseline.check`'s settle, whose `clj_cc_collect` forces a deep
-  collection. The schedule did not replay (same build and seed, run 37930901223), since that collection ran on the
-  test thread beside the pool, outside the model; seeded mode now holds the pool stopped for a settle's collection
-  (`settle_collect`), which makes the runs deterministic and hides the overlap. Not shown in the default mode, where
-  a settle seldom meets a coroutine still finishing; what the seeded timing makes common is a forced deep walk
-  while the last reference to an exec goes. Trigger: a reproduction off the seeded mode — a stress of coroutines
-  finishing under repeated `clj_cc_collect` — or the crash met anywhere else.
+- **A seeded settle collects with the pool stopped** (`settle_collect`): what its collection cancels lands
+  between two runs, so a seeded run replays. Colliding with the pool instead found a real race (three runs died in
+  `exec_finalize` at the end of `CmutexTests.lockingContendedFromFourCarriers`: run 37928937581 seed 9, run
+  37931452245 seeds 6 and 28; the RC entry on `finalize` has the cause), but no such failure replays, and the
+  overlap it hit — a collection's whole span around a mutator's teardown — is not a point of the model: a
+  collection runs between runs. What explores that overlap is real concurrency: the background collector in every
+  suite, `CycleTests.execsDyingOnCarriersBesideCollections` under ASan, and `make test-tsan`. A model of it would
+  make the collector a participant preempted at seeded points inside its span.

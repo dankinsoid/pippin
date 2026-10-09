@@ -13,6 +13,15 @@
   `make test-compiled` run of `EvacTests`). `exec_unlink` removes the exec under that lock while the count
   still reads, and `push_work` retains an exec only from a count above zero (`retain_if_live`): one that reads
   0 is on its way to `exec_unlink`, which waits for the lock the walk holds.
+- **A `finalize` reads only its own memory, never a child** (`free_object` runs it after `each_child` has
+  released the children). A shared child that reaches zero while a collection runs is deferred to it
+  (`clj_cc_defer_free`) and freed at its `deactivate`, on the collector's thread, possibly before the parent's
+  `finalize` returns; a child another holder keeps is freed whenever that holder lets go. `exec_finalize` frees
+  the inline caches from the exec's own `nodes[]` by id (`clj_exec.nnodes`), not by walking the node tree: the
+  walk crashed when a body fn's last reference went on a carrier beside a settle's `clj_cc_collect`, whose end
+  freed the tree mid-walk (NOTES "Scheduler", the seeded settle). The same walk raced `eval_form`'s release of its
+  node reference when the exec died between that and `clj_eval_node`'s release of the exec.
+  `CycleTests.execsDyingOnCarriersBesideCollections` drives the first race under ASan.
 - [ ] **Live-object counter is one process-wide atomic** (debug only). Trigger: debug builds visibly slow
   under many threads. Fix: per-thread counters summed on read.
 - [ ] **Copy path retains every child and then replaces one slot**: one spare retain/release pair per

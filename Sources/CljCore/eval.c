@@ -1458,19 +1458,14 @@ static void exec_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(clj_from_ptr((void *)e->root), ctx);
 }
 
-static void free_ic(const clj_node *n, void *ctx) {
-	clj_exec *e = ctx;
-	free(e->nodes[n->id].ic);
-	clj_node_children(n, free_ic, e);
-}
-
 // The dependents index (specialize.c) holds execs without a reference: the entry leaves under its lock while the
 // header still says how many references the exec has, so a rebind that meets a dying one can see it die.
 static void exec_unlink(void *self) { clj_exec_forget(self); }
 
+// The tree is released before finalize: a collection running then defers it and may free it on its own thread.
 static void exec_finalize(void *self) {
 	clj_exec *e = self;
-	free_ic(e->root, e);
+	for (uint32_t i = 0; i < e->nnodes; i++) free(e->nodes[i].ic);
 	for (uint32_t i = 0; i < e->nsites; i++) free(atomic_load_explicit(&e->sites[i].proto, memory_order_relaxed));
 	free(e->sites);
 }
@@ -1547,6 +1542,7 @@ clj_value clj_exec_new(const clj_node *root) {
 	clj_exec *e = clj_alloc(&clj_exec_type, sizeof *e + root->nnodes * sizeof *e->nodes);
 	clj_retain(clj_from_ptr((void *)root));
 	e->root = root;
+	e->nnodes = root->nnodes;
 	build_ctx b = {e, true};
 	build(root, &b);
 	if (e->nsites) {
