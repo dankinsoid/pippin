@@ -97,6 +97,11 @@ let package = Package(
 				.unsafeFlags(["-Wall", "-Wextra", "-Wpedantic", "-Werror"]),
 			]
 		),
+		// One workload of bench/workloads timed in-process: make corpus-bench (docs/notes/benchmarks.md).
+		.executableTarget(
+			name: "clj-corpus-bench",
+			dependencies: ["CljCore", "CljCompiler", "Pippin"]
+		),
 		.executableTarget(
 			name: "clj-bench",
 			dependencies: [

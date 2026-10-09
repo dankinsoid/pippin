@@ -453,6 +453,7 @@ static clj_value no_impl(const method_ctx *m, clj_value v) {
 }
 
 clj_value clj_protocol_method_invoke(void *ctx, const clj_value *args, size_t n) {
+	CLJ_STAT(CLJ_STAT_PROTO_GENERIC);
 	const method_ctx *m = ctx;
 	clj_value         f = impl_of(m->proto, m->idx, args[0]);
 	if (clj_is_nil(f)) return no_impl(m, args[0]);

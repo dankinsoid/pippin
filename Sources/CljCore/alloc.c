@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 
 #include "alloc.h"
+#include "stats_internal.h"
 
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
@@ -280,6 +281,9 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	h->flags |= clj_debug_owner_here() << CLJ_OWNER_SHIFT;
 #endif
 	LIVE_ADD(type, 1);
+#if CLJ_STATS
+	clj_stats_alloc(type, size);
+#endif
 	return h;
 }
 
@@ -318,6 +322,7 @@ void *clj_realloc(void *obj, size_t size) {
 
 void clj_dealloc(clj_header *h) {
 	LIVE_ADD(h->type, -1);
+	CLJ_STAT(CLJ_STAT_FREE);
 	if (h->flags & CLJ_FLAG_LARGE) free(h);
 	else pool_free(h);
 }
@@ -325,6 +330,7 @@ void clj_dealloc(clj_header *h) {
 void clj_dealloc_dead(clj_header *h) {
 	(void)h;
 	LIVE_ADD(h->type, -1);
+	CLJ_STAT(CLJ_STAT_FREE);
 }
 
 void clj_dealloc_cell(clj_header *h) {

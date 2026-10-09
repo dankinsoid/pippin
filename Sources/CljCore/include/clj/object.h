@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "stats.h"
 #include "value.h"
 
 // Ownership convention: arguments are borrowed (+0), return values are owned (+1).
@@ -284,7 +285,12 @@ void clj_debug_slot_check(const clj_header *owner, clj_value v);
 	} while (0)
 #else
 #define CLJ_ASSERT(cond, msg) ((void)0)
+#if CLJ_STATS
+extern _Atomic uint64_t clj_debug_rc_counters[3];
+#define CLJ_RC_COUNT(path) atomic_fetch_add_explicit(&clj_debug_rc_counters[path], 1, memory_order_relaxed)
+#else
 #define CLJ_RC_COUNT(path) ((void)0)
+#endif
 #define CLJ_OWNER_CHECK(h) ((void)0)
 #define CLJ_SLOT_CHECK(owner, v) ((void)0)
 #define CLJ_SLOT_STORE_CHECK(owner, v) ((void)0)

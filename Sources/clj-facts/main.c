@@ -883,6 +883,36 @@ static void write_report(const char *path, const char *cost_path) {
 	fprintf(stderr, "clj-facts: wrote %s\n", path);
 }
 
+// A directory with a manifest.edn (:load-path, :features, :tests-only), measured as one library named name.
+static void run_root(const char *name, const char *root) {
+	clj_value m = manifest_of(root);
+	if (clj_is_nil(m)) return;
+	clj_value lp = kw("load-path"), fk = kw("features"), tk = kw("tests-only");
+	clj_value paths = clj_get2(m, lp), features = clj_get2(m, fk), declared = clj_get2(m, tk);
+	bool      tests_only = clj_truthy(declared);
+	clj_release(declared);
+	clj_release(tk);
+	clj_release(lp);
+	clj_release(fk);
+	const char *roots[MAX_ROOTS];
+	char        bufs[MAX_ROOTS][128];
+	size_t      nroots = 0;
+	clj_value   count = clj_count(paths);
+	intptr_t    np = clj_is_fixnum(count) ? clj_fixnum_val(count) : 0;
+	clj_release(count);
+	for (intptr_t k = 0; k < np && nroots < MAX_ROOTS; k++) {
+		clj_value idx = clj_fixnum(k), head = clj_nth2(paths, idx);
+		snprintf(bufs[nroots], sizeof bufs[0], "%s", clj_string_bytes(head));
+		roots[nroots] = bufs[nroots];
+		nroots++;
+		clj_release(head);
+	}
+	run_library(name, root, roots, nroots, features, tests_only);
+	clj_release(features);
+	clj_release(paths);
+	clj_release(m);
+}
+
 int main(int argc, char **argv) {
 	const char *repo = argc > 1 ? argv[1] : ".";
 	const char *out = argc > 2 ? argv[2] : "docs/facts-coverage.md";
@@ -954,33 +984,13 @@ int main(int argc, char **argv) {
 		for (int i = 0; i < n; i++) {
 			char root[512];
 			snprintf(root, sizeof root, "%s/%s", corpus, names[i]);
-			clj_value m = manifest_of(root);
-			if (clj_is_nil(m)) continue;
-			clj_value lp = kw("load-path"), fk = kw("features"), tk = kw("tests-only");
-			clj_value paths = clj_get2(m, lp), features = clj_get2(m, fk), declared = clj_get2(m, tk);
-			bool      tests_only = clj_truthy(declared);
-			clj_release(declared);
-			clj_release(tk);
-			clj_release(lp);
-			clj_release(fk);
-			const char *roots[MAX_ROOTS];
-			char        bufs[MAX_ROOTS][128];
-			size_t      nroots = 0;
-			clj_value   count = clj_count(paths);
-			intptr_t    np = clj_is_fixnum(count) ? clj_fixnum_val(count) : 0;
-			clj_release(count);
-			for (intptr_t k = 0; k < np && nroots < MAX_ROOTS; k++) {
-				clj_value idx = clj_fixnum(k), head = clj_nth2(paths, idx);
-				snprintf(bufs[nroots], sizeof bufs[0], "%s", clj_string_bytes(head));
-				roots[nroots] = bufs[nroots];
-				nroots++;
-				clj_release(head);
-			}
-			run_library(names[i], root, roots, nroots, features, tests_only);
-			clj_release(features);
-			clj_release(paths);
-			clj_release(m);
+			run_root(names[i], root);
 		}
+	}
+	// Extra roots after the corpus, so a library they require is the corpus's, already loaded and measured there.
+	for (int a = 4; a < argc; a++) {
+		const char *slash = strrchr(argv[a], '/');
+		run_root(slash && slash[1] ? slash + 1 : argv[a], argv[a]);
 	}
 	join_rounds();
 	write_report(out, cost_out);

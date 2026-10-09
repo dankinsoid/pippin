@@ -267,6 +267,7 @@ bool clj_fn_accepts(clj_value f, size_t n) {
 }
 
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
+	CLJ_STAT(CLJ_STAT_INVOKE);
 	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
 	clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
@@ -292,6 +293,7 @@ static bool spreads_everything(clj_value f) {
 }
 
 clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
+	CLJ_STAT(CLJ_STAT_APPLY);
 	CLJ_ASSERT(n >= 1, "apply needs the sequence argument");
 	// A var invokes its value, so its value answers for the shape; the call still names the var in an error.
 	clj_value held = clj_is_var(f) ? clj_var_deref(f) : CLJ_NIL;

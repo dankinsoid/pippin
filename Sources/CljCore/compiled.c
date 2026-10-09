@@ -212,6 +212,7 @@ static bool method_accepts(clj_value method, size_t n) {
 // lookup still stands, releasing the previous one through the retire list, since a call on this thread may be in it.
 // @ai-generated(solo)
 clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value *args, size_t n, const clj_type *t, uint64_t epoch) {
+	CLJ_STAT(CLJ_STAT_PROTO_MISS);
 	if (!clj_is_protocol_method(method)) return clj_c_invoke(method, args, n);
 	if (!method_accepts(method, n)) return clj_arity_error(method, n);
 	clj_value impl = clj_protocol_method_impl(method, args[0]);

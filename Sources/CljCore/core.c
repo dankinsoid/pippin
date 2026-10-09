@@ -37,12 +37,14 @@ uint32_t clj_mix_coll_hash(uint32_t hash, uint32_t count) {
 }
 
 uint32_t clj_hash_slow(clj_value v) {
+	CLJ_STAT(CLJ_STAT_HASH);
 	const clj_type *t = clj_header_of(v)->type;
 	if (!t->hash) clj_fatal("value of a type without hash used as a key");
 	return t->hash(clj_to_ptr(v));
 }
 
 bool clj_equals_slow(clj_value a, clj_value b) {
+	CLJ_STAT(CLJ_STAT_EQUALS);
 	clj_value self = clj_is_ptr(a) ? a : b;
 	clj_value other = self == a ? b : a;
 	const clj_type *t = clj_header_of(self)->type;

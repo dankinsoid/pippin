@@ -1,0 +1,585 @@
+#!/usr/bin/env python3
+# @ai-generated(solo)
+"""make corpus-bench: the workloads of bench/workloads on JVM Clojure and on every backend here, with where the
+compiled time goes (docs/notes/benchmarks.md, "Corpus workloads"). Writes <out>/report.md and prints it."""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+WORKLOADS = ["medley", "combinatorics", "dependency", "nested-update", "group-freq", "pipelines", "strings",
+             "render", "suite-data", "async-pipeline", "async-libs"]
+LOAD_PATH = ["bench/workloads/src", "corpus/medley/src", "corpus/math-combinatorics/src", "corpus/dependency/src",
+             "corpus/parallel-async/src", "corpus/turbine/src"]
+FEATURES = "clj"
+# The Clojure the fuzzer and make api-diff pin, and the core.async make api-diff diffs ours against.
+JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH) + '] :deps {org.clojure/clojure {:mvn/version '
+            '"1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"}}}')
+RUN_TIMEOUT = 1800
+SAMPLE_SECONDS = 8
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def log(msg):
+	print("corpus-bench: " + msg, flush=True)
+
+
+def swift_env(sdkroot):
+	# /usr/bin/python3 is an xcrun shim that sets SDKROOT; a build under another one rebuilds everything.
+	env = dict(os.environ)
+	if sdkroot is not None:
+		env.pop("SDKROOT", None)
+		if sdkroot:
+			env["SDKROOT"] = sdkroot
+	return env
+
+
+def sh(cmd, env=None, timeout=None, cwd=ROOT, check=True):
+	t0 = time.monotonic()
+	p = subprocess.run(cmd, cwd=cwd, env=env, timeout=timeout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+	if check and p.returncode != 0:
+		raise RuntimeError("%s exited %d\n%s\n%s" % (" ".join(cmd), p.returncode, p.stdout[-4000:], p.stderr[-4000:]))
+	return p, (time.monotonic() - t0) * 1000
+
+
+def parse(text):
+	"""The report lines of clj-corpus-bench and jvm.clj: `key value`, `stat name n`, `alloc_type name n`."""
+	r = {"stat": {}, "alloc_type": {}}
+	for line in text.splitlines():
+		parts = line.split(" ", 1)
+		if len(parts) != 2:
+			continue
+		key, rest = parts
+		if key in ("stat", "alloc_type"):
+			name, value = rest.rsplit(" ", 1)
+			r[key][name] = float(value)
+		elif key == "result":
+			r["result"] = rest
+		elif key in ("load_ms", "first_ms", "median_ms", "min_ms", "stats_ms", "clang_ms", "rc_op_ns"):
+			r[key] = float(rest)
+		elif key in ("iterations", "load_failures", "warmup_iterations", "held_iterations"):
+			r[key] = int(rest)
+	return r
+
+
+class Bench:
+	def __init__(self, args):
+		self.args = args
+		self.out = os.path.join(ROOT, args.out)
+		self.logs = os.path.join(self.out, "logs")
+		self.env = swift_env(args.sdkroot)
+		self.lp = [a for p in LOAD_PATH for a in ("--load-path", p)]
+		self.results = {w: {} for w in args.only}
+		self.errors = []
+		os.makedirs(self.logs, exist_ok=True)
+
+	def keep(self, name, text):
+		with open(os.path.join(self.logs, name), "w") as f:
+			f.write(text)
+
+	# ---- builds
+
+	def build(self, scratch, flags, package=None):
+		cmd = ["swift", "build", "-c", "release", "--scratch-path", os.path.join(self.out, scratch),
+		       "--product", "clj-corpus-bench"]
+		if package:
+			cmd += ["--package-path", package]
+		for f in flags:
+			cmd += ["-Xcc", f]
+		log("build %s %s" % (scratch, " ".join(flags)))
+		_, ms = sh(cmd, env=self.env, timeout=3600)
+		log("build %s took %.0f s" % (scratch, ms / 1000))
+		return os.path.join(self.out, scratch, "release", "clj-corpus-bench")
+
+	def tools(self):
+		sh(["swift", "build", "--scratch-path", os.path.join(ROOT, ".build/plain"), "--product", "clj-compile"],
+		   env=self.env, timeout=3600)
+		self.compile = os.path.join(ROOT, ".build/plain/debug/clj-compile")
+		self.bin = {
+			"interp": self.build("interp", []),
+			"dev": self.build("dev", ["-DCLJ_COMPILED_CORE"]),
+			"dev-stats": self.build("dev-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_STATS=1"]),
+		}
+
+	# ---- runs
+
+	def ours(self, tag, workload, binary, extra=(), env=None):
+		cmd = [binary] + self.lp + ["--features", FEATURES] + list(extra) + ["workloads." + workload]
+		e = dict(self.env)
+		e["CLJ_EVAL_ROOT"] = ROOT
+		if env:
+			e.update(env)
+		try:
+			p, ms = sh(cmd, env=e, timeout=RUN_TIMEOUT, check=False)
+		except subprocess.TimeoutExpired:
+			self.errors.append("%s %s: timed out after %d s" % (workload, tag, RUN_TIMEOUT))
+			return None
+		self.keep("%s.%s.txt" % (workload, tag), p.stdout + "\n--- stderr\n" + p.stderr)
+		if p.returncode != 0:
+			self.errors.append("%s %s: exit %d: %s" % (workload, tag, p.returncode, p.stderr.strip()[-600:]))
+			return None
+		r = parse(p.stdout)
+		r["process_ms"] = ms
+		log("%s %s: %s" % (workload, tag, {k: v for k, v in r.items() if k in ("median_ms", "first_ms", "stats_ms")}))
+		return r
+
+	def jvm(self, workload, mode=None):
+		cmd = ["clojure", "-Sdeps", JVM_DEPS, "-M", "bench/workloads/jvm.clj", "workloads." + workload]
+		if mode:
+			cmd.append(mode)
+		try:
+			p, ms = sh(cmd, timeout=RUN_TIMEOUT, check=False)
+		except subprocess.TimeoutExpired:
+			self.errors.append("%s jvm: timed out" % workload)
+			return None
+		self.keep("%s.jvm%s.txt" % (workload, "-" + mode if mode else ""), p.stdout + "\n--- stderr\n" + p.stderr)
+		if p.returncode != 0:
+			self.errors.append("%s jvm %s: exit %d: %s" % (workload, mode or "", p.returncode, p.stderr.strip()[-600:]))
+			return None
+		r = parse(p.stdout)
+		r["process_ms"] = ms
+		return r
+
+	def dev_units(self, workload):
+		d = os.path.join(self.out, "units", workload, "dev")
+		shutil.rmtree(d, ignore_errors=True)
+		os.makedirs(d)
+		p, _ = sh([self.compile, "--lenient", "--allow-refused"] + self.lp + ["--features", FEATURES, "--ns",
+		          "workloads." + workload, "--out", d], env=self.env, timeout=RUN_TIMEOUT, check=False)
+		self.keep("%s.compile-dev.txt" % workload, p.stderr)
+		if p.returncode not in (0, 2):
+			self.errors.append("%s: clj-compile (dev) exited %d: %s" % (workload, p.returncode, p.stderr[-600:]))
+			return None
+		return d
+
+	def closed_tree(self, workload):
+		"""clj-compile --core --closed of the workload, written over a copy of the sources (scripts/shake.sh)."""
+		boot = os.path.join(self.out, "units", workload, "closed")
+		shutil.rmtree(boot, ignore_errors=True)
+		os.makedirs(boot)
+		p, ms = sh([self.compile, "--core", "--closed", "--stats", "--lenient", "--allow-refused"] + self.lp +
+		           ["--features", FEATURES, "--ns", "workloads." + workload, "--out", boot],
+		           env=self.env, timeout=RUN_TIMEOUT, check=False)
+		self.keep("%s.compile-closed.txt" % workload, p.stderr)
+		if p.returncode not in (0, 2):
+			self.errors.append("%s: clj-compile --closed exited %d: %s" % (workload, p.returncode, p.stderr[-600:]))
+			return None
+		self.results[workload]["compile_stats"] = p.stderr
+		tree = os.path.join(self.out, "tree")
+		os.makedirs(tree, exist_ok=True)
+		sh(["rsync", "-a", "--delete", "--exclude", ".build", "--exclude", ".git", "Sources", "Tests", "Package.swift",
+		    "Package.resolved", tree + "/"])
+		bootdir = os.path.join(tree, "Sources/CljCore/boot")
+		for f in os.listdir(bootdir):
+			if f.endswith(".c"):
+				os.remove(os.path.join(bootdir, f))
+		for f in os.listdir(boot):
+			if f.endswith(".c"):
+				shutil.copy(os.path.join(boot, f), bootdir)
+		return tree
+
+	def sample(self, tag, workload, binary, extra=(), env=None):
+		cmd = [binary] + self.lp + ["--features", FEATURES] + list(extra) + ["--hold", str(SAMPLE_SECONDS + 4),
+		                                                                    "workloads." + workload]
+		e = dict(self.env)
+		e["CLJ_EVAL_ROOT"] = ROOT
+		if env:
+			e.update(env)
+		path = os.path.join(self.logs, "%s.%s.sample.txt" % (workload, tag))
+		proc = subprocess.Popen(cmd, cwd=ROOT, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+		pid = None
+		for line in proc.stdout:
+			if line.startswith("ready "):
+				pid = line.split()[1]
+				break
+		if pid is None:
+			proc.wait()
+			self.errors.append("%s %s sample: the run never got ready" % (workload, tag))
+			return None
+		s = subprocess.run(["/usr/bin/sample", pid, str(SAMPLE_SECONDS), "-mayDie", "-file", path],
+		                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+		rest, err = proc.communicate(timeout=RUN_TIMEOUT)
+		if s.returncode != 0 or not os.path.exists(path):
+			self.errors.append("%s %s sample: /usr/bin/sample exited %d: %s" % (workload, tag, s.returncode, s.stderr[-400:]))
+			return None
+		with open(path) as f:
+			return f.read()
+
+	# ---- the per-workload sequence
+
+	def run_workload(self, w):
+		res = self.results[w]
+		if not self.args.skip_jvm:
+			res["jvm"] = self.jvm(w)
+			colds = [self.jvm(w, "once") for _ in range(3)]
+			colds = [c for c in colds if c]
+			if colds:
+				res["jvm_cold_process_ms"] = sorted(c["process_ms"] for c in colds)[len(colds) // 2]
+				res["jvm_cold_first_ms"] = sorted(c["first_ms"] for c in colds)[len(colds) // 2]
+		res["interp"] = self.ours("interp", w, self.bin["interp"])
+		res["dev-core"] = self.ours("dev-core", w, self.bin["dev"])
+		units = self.dev_units(w)
+		if units:
+			res["dev"] = self.ours("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
+			res["dev-stats"] = self.ours("dev-stats", w, self.bin["dev-stats"],
+			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats"])
+			if not self.args.skip_sample:
+				res["dev-sample"] = self.sample("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir",
+				                                                            units + "-dylib"])
+				res["dev-symbols"] = self.symbols("dev")
+		if self.args.skip_closed:
+			return
+		tree = self.closed_tree(w)
+		if not tree:
+			return
+		closed = self.build("closed", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED"], package=tree)
+		res["closed"] = self.ours("closed", w, closed)
+		if not self.args.skip_sample:
+			res["closed-sample"] = self.sample("closed", w, closed)
+			res["closed-symbols"] = self.symbols("closed")
+		if "rc_op_ns" not in self.__dict__:
+			cal = subprocess.run([closed, "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env)
+			self.rc_op_ns = parse(cal.stdout).get("rc_op_ns")
+		stats = self.build("closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
+		res["closed-stats"] = self.ours("closed-stats", w, stats, ["--stats"])
+
+	def symbols(self, scratch):
+		"""Symbol -> the source file it was compiled from, over the object files of a build (nm)."""
+		if scratch == "dev" and getattr(self, "dev_symbols", None):
+			return self.dev_symbols
+		base = os.path.join(self.out, scratch, "release")
+		table = {}
+		for target in ("CljCore.build", "CljCompiler.build"):
+			top = os.path.join(base, target)
+			for dirpath, _, files in os.walk(top):
+				for f in files:
+					if not f.endswith(".o"):
+						continue
+					path = os.path.join(dirpath, f)
+					p = subprocess.run(["nm", "-U", "-j", path], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+					src = os.path.relpath(path, top)[:-2]
+					for name in p.stdout.split():
+						table.setdefault(name[1:] if name.startswith("_") else name, src)
+		if scratch == "dev":
+			self.dev_symbols = table
+		return table
+
+	def facts(self):
+		sh(["swift", "build", "--scratch-path", os.path.join(ROOT, ".build/release"), "-c", "release", "--product",
+		    "clj-facts"], env=self.env, timeout=3600)
+		report = os.path.join(self.out, "facts-coverage.md")
+		p, _ = sh([os.path.join(ROOT, ".build/release/release/clj-facts"), ".", report,
+		           os.path.join(self.out, "facts-cost.md"), "bench/workloads"], env=self.env, timeout=3600, check=False)
+		self.keep("facts.txt", p.stdout + p.stderr)
+		if p.returncode != 0:
+			self.errors.append("clj-facts exited %d (its gate: a ⊥ or a declaration conflict): %s" % (p.returncode, p.stderr[-600:]))
+		return report if os.path.exists(report) else None
+
+	def xctrace_probe(self):
+		try:
+			p = subprocess.run(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--time-limit", "2s",
+			                    "--output", os.path.join(self.out, "probe.trace"), "--launch", "--", "/bin/sleep", "1"],
+			                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
+		except (OSError, subprocess.TimeoutExpired) as e:
+			return "did not run: %s" % e
+		shutil.rmtree(os.path.join(self.out, "probe.trace"), ignore_errors=True)
+		return "exit %d: %s" % (p.returncode, " ".join(p.stdout.split())[-300:])
+
+
+# ---- the sampled profile
+
+IDLE = re.compile(r"^(__psynch_cvwait|__semwait_signal|mach_msg2?_trap|__workq_kernreturn|kevent.*|__ulock_wait2?|"
+                  r"__psynch_mutexwait|__select|__wait4|poll|__sigsuspend|semaphore_.*wait.*|__psynch_rw_.*|swtch_pri)$")
+
+FILE_BUCKETS = [
+	("rc", ["rc.c"]),
+	("cycle collector", ["cc.c"]),
+	("alloc/free", ["alloc.c"]),
+	("generic dispatch", ["fn.c", "proto.c", "record.c"]),
+	("seqs and laziness", ["seq.c", "cons.c", "list.c", "coll.c", "reduce.c", "fusion.c"]),
+	("hash/equality", ["core.c", "jvm_hash.c", "compare.c"]),
+	("collections", ["map.c", "vector.c", "set.c", "shape.c", "sorted.c", "array.c", "queue.c", "box.c"]),
+	("strings/printing/regex", ["string.c", "builtins_string.c", "regex.c", "printer.c", "builtins_format.c"]),
+	("numbers", ["number.c", "long.c", "bigint.c", "ratio.c", "decimal.c", "builtins_number.c"]),
+	("coroutines/channels", ["coro.c", "sched.c", "chan.c", "cmutex.c", "atom.c"]),
+	("C builtins", ["builtins.c", "builtins_array.c", "builtins_ns.c", "intrinsics.c"]),
+	("vars/ns/symbols", ["var.c", "ns.c", "symbol.c", "keyword.c"]),
+	("compiled-code support", ["compiled.c"]),
+	("interpreter", ["eval.c", "analyzer.c", "optimizer.c", "specialize.c", "facts.c", "summary.c", "epoch.c",
+	                 "callers.c", "load.c", "node_data.c", "reader.c"]),
+]
+FILE_TO_BUCKET = {f: b for b, files in FILE_BUCKETS for f in files}
+
+
+def bucket(symbol, image, symbols):
+	if IDLE.match(symbol):
+		return "idle (a blocked thread)"
+	if symbol in ("clj_double_new", "clj_long_box"):
+		return "boxing"
+	if re.search(r"(_finalize|_free|_dealloc|_destroy|release_children|dealloc_\w+)$", symbol):
+		return "alloc/free"
+	if re.search(r"(_hash|_equals|_equiv|hasheq)$", symbol):
+		return "hash/equality"
+	if "libsystem_malloc" in image:
+		return "alloc/free"
+	if image.endswith(".dylib") and re.match(r"u\d+_", image):
+		return "compiled program"
+	src = symbols.get(symbol)
+	if src:
+		if src.startswith("boot/unit_"):
+			return "compiled program"
+		if src.startswith("boot/"):
+			return "compiled core.clj and libs"
+		b = FILE_TO_BUCKET.get(os.path.basename(src))
+		if b:
+			return b
+		return "runtime: " + os.path.basename(src)
+	if "libsystem_kernel" in image:
+		return "kernel"
+	if "libsystem_platform" in image:
+		return "memmove/memset"
+	return "other: " + image
+
+
+TOP = re.compile(r"^\s+(.+?)\s+\(in (.+?)\)\s+(\d+)\s*$")
+
+
+def profile(text, symbols):
+	"""Self samples per bucket and per function, from the 'Sort by top of stack' section of sample's report."""
+	section = text.split("Sort by top of stack", 1)
+	if len(section) < 2:
+		return None
+	body = section[1].split("Binary Images", 1)[0]
+	buckets, funcs, idle, total = {}, {}, 0, 0
+	for line in body.splitlines()[1:]:
+		m = TOP.match(line)
+		if not m:
+			continue
+		sym, image, n = m.group(1), m.group(2), int(m.group(3))
+		sym = re.sub(r"\s+\+\s+\d+$", "", sym)
+		b = bucket(sym, image, symbols)
+		if b.startswith("idle"):
+			idle += n
+			continue
+		total += n
+		buckets[b] = buckets.get(b, 0) + n
+		funcs[(sym, b)] = funcs.get((sym, b), 0) + n
+	return {"buckets": buckets, "funcs": funcs, "busy": total, "idle": idle}
+
+
+# ---- the report
+
+def fmt(v, digits=1):
+	if v is None:
+		return "—"
+	if isinstance(v, float):
+		return ("%." + str(digits) + "f") % v
+	return str(v)
+
+
+def median_of(r):
+	return r.get("median_ms") if r else None
+
+
+def write_report(b, facts_path, xctrace):
+	lines = []
+	add = lines.append
+	machine = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], stdout=subprocess.PIPE, text=True).stdout.strip()
+	ncpu = subprocess.run(["sysctl", "-n", "hw.ncpu"], stdout=subprocess.PIPE, text=True).stdout.strip()
+	head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stdout=subprocess.PIPE, text=True).stdout.strip()
+	add("# corpus-bench — %s, %s, %s cpus, %s" % (head, machine, ncpu, os.uname().machine))
+	add("")
+	add("ms per iteration of `run`, median after a warm-up (ours: 1 iteration, then >= 5 and >= 3 s; the JVM: >= 10 "
+	    "iterations and 10 s, then >= 10 and >= 5 s). *JVM cold* is a fresh `clojure -M` process running `run` once, "
+	    "start to exit; *1st* is that first iteration in-process. *core+interp* is the compiled core with the workload "
+	    "interpreted (dev mode before compiling the program); *dev* the workload compiled by clj-compile at -O2 over the "
+	    "compiled core; *closed* the whole program `--closed` (tree-shaken, direct calls).")
+	add("")
+	add("| workload | JVM warm | JVM 1st | JVM cold | interp | core+interp | dev | closed | closed/JVM | interp/closed | same result |")
+	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+	for w in b.args.only:
+		r = b.results[w]
+		jvm = r.get("jvm")
+		closed = median_of(r.get("closed"))
+		jw = median_of(jvm)
+		results = {k: r[k].get("result") for k in ("jvm", "interp", "dev-core", "dev", "closed", "dev-stats", "closed-stats")
+		           if r.get(k) and r[k].get("result") is not None}
+		ref = results.get("jvm")
+		same = "—" if ref is None else ("yes" if all(v == ref for v in results.values()) else
+		                                "NO: " + ", ".join(k for k, v in results.items() if v != ref))
+		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+			w, fmt(jw, 2), fmt(r.get("jvm_cold_first_ms"), 0), fmt(r.get("jvm_cold_process_ms"), 0),
+			fmt(median_of(r.get("interp"))), fmt(median_of(r.get("dev-core"))), fmt(median_of(r.get("dev"))), fmt(closed),
+			fmt(closed / jw if closed and jw else None, 1) + "×" if closed and jw else "—",
+			fmt(median_of(r.get("interp")) / closed if closed and r.get("interp") else None, 1) + "×" if closed and r.get("interp") else "—",
+			same))
+	add("")
+	add("Load (ms, in-process `require`, after boot): " + ", ".join(
+		"%s %s/%s/%s" % (w, fmt((b.results[w].get("interp") or {}).get("load_ms"), 0),
+		                 fmt((b.results[w].get("dev") or {}).get("load_ms"), 0),
+		                 fmt((b.results[w].get("closed") or {}).get("load_ms"), 0)) for w in b.args.only) +
+	    " (interp/dev/closed). Forms lost to JVM interop in a lenient load: " + ", ".join(
+		"%s %s" % (w, (b.results[w].get("interp") or {}).get("load_failures", "—")) for w in b.args.only) + ".")
+	add("")
+
+	add("## Runtime counters, per iteration (`-DCLJ_STATS=1`, closed; dev in parentheses where it differs)")
+	add("")
+	add("RC ops are every `clj_retain`/`clj_release` that reached a heap object (plain = unshared, the inline path; "
+	    "shared = atomic; immortal = skipped). *rc est.* is plain ops × %s ns (`clj_debug_rc_op_ns`, an inline op on a "
+	    "cached header, measured on this runner) over the closed median: a floor, since a miss on the header costs more. "
+	    "Calls: `clj_invoke` (generic), compiled generic sites (`clj_c_invoke`), `apply`, protocol methods called as "
+	    "values and compiled inline-cache misses. Allocation types are the top ones by count." % fmt(getattr(b, "rc_op_ns", None), 2))
+	add("")
+	add("| workload | stats ms | rc plain | rc shared | rc immortal | rc est. | allocs | MB | frees | doubles | longs | lazy forced | invoke | c_invoke | apply | proto generic | proto miss | hash | equals | coro switches |")
+	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+
+	def k(v):
+		if v is None:
+			return "—"
+		if v >= 1e6:
+			return "%.2fM" % (v / 1e6)
+		if v >= 1e3:
+			return "%.1fk" % (v / 1e3)
+		return "%.0f" % v
+
+	for w in b.args.only:
+		r = b.results[w]
+		s = r.get("closed-stats") or r.get("dev-stats")
+		if not s:
+			add("| %s | — |" % w)
+			continue
+		st, at = s["stat"], s["alloc_type"]
+		closed = median_of(r.get("closed"))
+		est = None
+		if closed and getattr(b, "rc_op_ns", None):
+			est = 100.0 * st.get("rc_plain", 0) * b.rc_op_ns / (closed * 1e6)
+		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+			w, fmt(s.get("stats_ms"), 0), k(st.get("rc_plain")), k(st.get("rc_shared")), k(st.get("rc_immortal")),
+			fmt(est, 0) + " %" if est is not None else "—", k(st.get("alloc")), fmt(st.get("alloc_bytes", 0) / 1e6, 1),
+			k(st.get("free")), k(at.get("double")), k(at.get("long")), k(st.get("lazy_force")), k(st.get("invoke")),
+			k(st.get("c_invoke")), k(st.get("apply")), k(st.get("proto_generic")), k(st.get("proto_miss")),
+			k(st.get("hash")), k(st.get("equals")), k(st.get("coro_switches"))))
+	add("")
+	add("Allocations by type (closed, per iteration, top 8):")
+	add("")
+	for w in b.args.only:
+		s = b.results[w].get("closed-stats") or b.results[w].get("dev-stats")
+		if s:
+			top = sorted(s["alloc_type"].items(), key=lambda kv: -kv[1])[:8]
+			add("- **%s**: %s" % (w, ", ".join("%s %s" % (n, k(c)) for n, c in top)))
+	add("")
+	add("Dev against closed, the generic-call counters (dev / closed): " + "; ".join(
+		"%s invoke %s/%s c_invoke %s/%s" % (
+			w, k(((b.results[w].get("dev-stats") or {}).get("stat") or {}).get("invoke")),
+			k(((b.results[w].get("closed-stats") or {}).get("stat") or {}).get("invoke")),
+			k(((b.results[w].get("dev-stats") or {}).get("stat") or {}).get("c_invoke")),
+			k(((b.results[w].get("closed-stats") or {}).get("stat") or {}).get("c_invoke")))
+		for w in b.args.only) + ".")
+	add("")
+
+	for tag in ("closed", "dev"):
+		add("## Sampled profile, %s (`/usr/bin/sample`, %d s at 1 ms, self time, idle threads left out)" % (tag, SAMPLE_SECONDS))
+		add("")
+		add("Self samples by where the code lives: runtime C by source file (an inline helper — the RC fast path, "
+		    "`clj_c_invoke` — counts in its caller), compiled core.clj and the embedded libs (`boot/`), the compiled "
+		    "program (the workload and the corpus library), system malloc and the kernel.")
+		add("")
+		names = []
+		profs = {}
+		for w in b.args.only:
+			r = b.results[w]
+			text = r.get(tag + "-sample")
+			if text:
+				p = profile(text, r.get(tag + "-symbols") or {})
+				if p:
+					profs[w] = p
+					for name in p["buckets"]:
+						if name not in names:
+							names.append(name)
+		totals = {n: sum(p["buckets"].get(n, 0) / max(p["busy"], 1) for p in profs.values()) for n in names}
+		names.sort(key=lambda n: -totals[n])
+		if profs:
+			add("| workload | busy samples | " + " | ".join(names) + " |")
+			add("|---|---:|" + "---:|" * len(names))
+			for w, p in profs.items():
+				add("| %s | %d | " % (w, p["busy"]) + " | ".join(
+					"%.1f" % (100.0 * p["buckets"].get(n, 0) / max(p["busy"], 1)) for n in names) + " |")
+			add("")
+			for w, p in profs.items():
+				top = sorted(p["funcs"].items(), key=lambda kv: -kv[1])[:12]
+				add("- **%s** top functions: %s" % (w, ", ".join(
+					"`%s` %.1f %%" % (sym, 100.0 * n / max(p["busy"], 1)) for (sym, _), n in top)))
+			add("")
+		else:
+			add("No profile.")
+			add("")
+
+	add("## What the compiler consumed (`clj-compile --closed --stats`, the program's own units)")
+	add("")
+	for w in b.args.only:
+		text = b.results[w].get("compile_stats") or ""
+		rows = [l for l in text.splitlines() if l.startswith("slots: ") and "<embedded>" not in l and "core.clj" not in l]
+		for row in rows:
+			add("- %s: %s" % (w, row[len("slots: "):]))
+	add("")
+	if facts_path:
+		add("## Facts coverage with the workloads as a library (`clj-facts . <out> <cost> bench/workloads`)")
+		add("")
+		with open(facts_path) as f:
+			text = f.read()
+		for line in text.splitlines():
+			if line.startswith("| library") or line.startswith("|---") or line.startswith("| workloads ") or \
+			   line.startswith("| **library code**"):
+				add(line)
+		add("")
+	add("xctrace: " + xctrace)
+	add("")
+	if b.errors:
+		add("## Errors")
+		add("")
+		for e in b.errors:
+			add("- " + e.replace("\n", " "))
+		add("")
+	path = os.path.join(b.out, "report.md")
+	with open(path, "w") as f:
+		f.write("\n".join(lines))
+	print("\n".join(lines), flush=True)
+
+
+def main():
+	ap = argparse.ArgumentParser()
+	ap.add_argument("--only", default=",".join(WORKLOADS), help="comma-separated workloads")
+	ap.add_argument("--out", default=".build/corpus-bench")
+	ap.add_argument("--sdkroot", help="the caller's SDKROOT, empty for none")
+	ap.add_argument("--skip-jvm", action="store_true")
+	ap.add_argument("--skip-closed", action="store_true")
+	ap.add_argument("--skip-sample", action="store_true")
+	ap.add_argument("--skip-facts", action="store_true")
+	args = ap.parse_args()
+	args.only = [w for w in args.only.split(",") if w]
+	unknown = [w for w in args.only if w not in WORKLOADS]
+	if unknown:
+		sys.exit("corpus-bench: unknown workloads " + ", ".join(unknown))
+	b = Bench(args)
+	b.tools()
+	if not args.skip_jvm:
+		# The classpath is resolved once, outside every timed process.
+		sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
+	xctrace = b.xctrace_probe()
+	for w in args.only:
+		log("=== " + w)
+		b.run_workload(w)
+	facts = None if args.skip_facts else b.facts()
+	write_report(b, facts, xctrace)
+	# A missing number is a failed run: the report says which, and the target fails.
+	if b.errors:
+		sys.exit(1)
+
+
+if __name__ == "__main__":
+	main()

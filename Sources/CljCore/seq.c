@@ -425,6 +425,7 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 	if (atomic_load_explicit(&s->state, memory_order_acquire) == FORCED) return s->value.v;
 	bool thrown;
 	if (!claim(ls, &thrown)) return thrown ? CLJ_THROWN : s->value.v;
+	CLJ_STAT(CLJ_STAT_LAZY_FORCE);
 
 	// Nested lazy seqs are unwrapped in a loop, so nesting depth costs no C stack (LazySeq.seq()).
 	chain inner = {.n = 0, .cap = 16};

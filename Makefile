@@ -1,4 +1,4 @@
-.PHONY: model-long bench-ab port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: model-long bench-ab corpus-bench port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -158,6 +158,12 @@ bench:
 # Release bench of BASE (default main) against this tree, alternated in one job: BASE=<ref> ROUNDS=<n> ONLY="<sel> ...".
 bench-ab:
 	sh scripts/bench-ab.sh
+
+# The workloads of bench/workloads on JVM Clojure 1.12.6, the interpreter, compiled dev and --closed, with runtime
+# counters, a sampled profile and the facts coverage (docs/notes/benchmarks.md, "Corpus workloads"). Opt-in and in
+# neither gate: about an hour on CI. CORPUS_BENCH_ARGS=--only=medley,strings narrows it.
+corpus-bench:
+	python3 scripts/corpus-bench.py --sdkroot='$(SDKROOT)' $(CORPUS_BENCH_ARGS)
 
 # One file through the C core under ASan: FILE=x.clj make load-asan. A crash lands on the stack that caused it,
 # where the swift-testing run prints "<empty stack>".

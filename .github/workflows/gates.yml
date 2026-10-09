@@ -149,6 +149,23 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           git status --short
 
+      - name: Corpus bench report
+        if: ${{ !cancelled() && inputs.target == 'corpus-bench' }}
+        run: cat .build/corpus-bench/report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      # Per-run logs and the sampled profiles, which the report only summarizes.
+      - name: Corpus bench logs
+        if: ${{ !cancelled() && inputs.target == 'corpus-bench' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corpus-bench-${{ matrix.arch }}
+          path: |
+            .build/corpus-bench/report.md
+            .build/corpus-bench/facts-coverage.md
+            .build/corpus-bench/logs
+          retention-days: 30
+          if-no-files-found: ignore
+
       # Each shard's log and event stream, and times.json for `scripts/test-shards.py record`.
       - name: Shard logs
         if: ${{ !cancelled() }}

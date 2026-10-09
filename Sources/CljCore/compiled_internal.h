@@ -267,6 +267,7 @@ static inline void clj_c_retain_params(clj_cframe *f, uint32_t nparams) {
 
 // What the interpreter calls a native at the head with: its arity check, then the C function.
 static inline clj_value clj_c_invoke(clj_value f, const clj_value *args, size_t n) {
+	CLJ_STAT(CLJ_STAT_C_INVOKE);
 	if (clj_is_fn(f) && clj_fn_of(f)->kind == CLJ_FN_NATIVE) {
 		const clj_fn *nf = clj_fn_of(f);
 		if (n < nf->min_arity || (nf->max_arity != CLJ_ARITY_ANY && n > nf->max_arity)) return clj_arity_error(f, n);

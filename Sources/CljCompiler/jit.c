@@ -89,6 +89,9 @@ static bool run_clang(const cljc_eval_options *o, const char *cfile, const char 
 #if CLJ_DEBUG
 	argv[n++] = "-DCLJ_DEBUG=1";
 #endif
+#if CLJ_STATS
+	argv[n++] = "-DCLJ_STATS=1";
+#endif
 	argv[n++] = inc1;
 	argv[n++] = inc2;
 	argv[n++] = "-Wl,-undefined,dynamic_lookup";

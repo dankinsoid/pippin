@@ -1,0 +1,5 @@
+;; Read by clj-facts when make corpus-bench passes this directory as an extra root; the libraries the workloads
+;; require are on the corpus manifests' load paths, measured first.
+{:name "workloads"
+ :load-path ["src"]
+ :features #{:clj}}
