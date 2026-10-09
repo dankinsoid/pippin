@@ -79,16 +79,17 @@
      one to one (dependency 3.29M/3.29M, pipelines 2.03M/2.03M, combinatorics 983k/923k), so it removes 16–23 % of
      those workloads' allocations with their frees and RC. Then reuse of a dying cell for the next allocation of its
      size class and a free specialized by type in compiled code (Perceus' reuse and drop), aimed at the cascade.
-  2. Thread-local access, a runtime fix: dyld's `_tlv_get_addr` is 5–12.5 %, called per object by `pool_alloc` and
-     `clj_dealloc` (`tls_heap`) and per realization by `clj_coro_current` from the lazy-seq claim/publish. Caching
-     the heap and the coroutine where the caller already has them, or a direct thread-register read, is a
-     portability spot (docs/portability.md).
+  2. Thread-local access: done (bench/RESULTS.md "Cheap runtime"). The heap and the carrier are pthread keys read
+     off the thread register (docs/notes/allocator.md), and dyld's `_tlv_get_addr` fell from 5–12.5 % to under 1 %.
+     What is left is `clj_coro_current` itself, 2–5 % self, called once per realization by the lazy-seq
+     claim/publish; passing the execution down from the caller that has it is the next step there.
   3. Lazy realization: the seqs bucket 6–18 %, `lazy forced` up to 3.28M an iteration (dependency, through `concat`
      and `mapcat` in the library code). Fusion reaches only `reduce`/`into` over a pipeline in the program; a library
      building its result with `concat` is outside it, and no work item in design §6b covers it.
-  4. Runtime builtins with a single cause each: `clojure.string/join` is quadratic (`(str sb sep x)` per element,
-     5.4 GB copied an iteration, strings at 16× the JVM, 61 % `memmove` and 21 % `madvise`); `clj_apply` mallocs and
-     frees two argument arrays per call (group-freq: 3.15M calls, ≈ 20 % of its samples in system malloc).
+  4. Runtime builtins with a single cause each: done (bench/RESULTS.md "Cheap runtime"). `clojure.string/join` and
+     `escape` build one buffer in C (strings 511 → 85–88 ms, 15.7× → 2.5× the JVM); `clj_apply`'s arguments sit in
+     one stack array up to `CLJ_FN_MAX_FIXED + 2`, so group-freq's system malloc left the profile (alloc/free
+     28 → 14 %); its 3.15M `apply` calls an iteration, 7–8 % self in `clj_apply`, are `juxt`'s variadic arity.
   5. Generic calls and inline-cache misses: dispatch is 1–7 % self, protocol misses appear only in suite-data (60k).
      The closed build's call cuts did not show in time, so devirtualizing further ranks last among the measured.
   Not supported as a lever by these runs: hashing and equality (≤ 3.3 %, 650k hashes at most), boxing (doubles

@@ -2208,3 +2208,56 @@ closed shipping build, `--calibrate`), 2.37 ns in the stats build (its counters)
 iteration, 4–8 per object, the cached cost is 1–9 % of the closed median; the miss cost would exceed the whole run
 (99–193 %), so most ops do hit a header just touched, and the true share lies between and is bounded by the samples.
 No reuse-at-rc==1 counter exists yet (`drop-cheap` has none).
+
+## Cheap runtime — 128359f and c1ceaea, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+The three runtime causes the "Corpus workloads" ranking named, fixed on branch `cheap-runtime`: `clojure.string/join`
+through one buffer (`str-join*`), `clj_apply` with fixed and spread arguments in one stack array up to
+`CLJ_FN_MAX_FIXED + 2`, and the per-thread heap and carrier as pthread keys read off the thread register instead of
+`_Thread_local` (docs/notes/allocator.md, thread-local access). Two `corpus-bench` runs: 37978641684 on `128359f`,
+37981452973 on `c1ceaea`, which also moves `clojure.string/escape` into C (`str-escape*`) after the first run put
+render 38 % slower through `(map f s)` over its characters. Every workload returned the JVM's value in both runs.
+Closed build, ms per iteration; *before* is the median of the three runs above. Run 2's runner was slow: its JVM warm
+column is 10–130 % above run 1's (medley 67 against 29, dependency 428 against 338), so the closed/JVM ratio is the
+fairer comparison across runs.
+
+| workload | closed before | run 1 | run 2 | closed/JVM before | run 1 | run 2 |
+|---|---:|---:|---:|---:|---:|---:|
+| medley | 114 | 100 | 118 | 2.5× | 3.4× | 1.8× |
+| combinatorics | 281 | 228 | 258 | 2.9× | 2.8× | 2.3× |
+| dependency | 893 | 753 | 1066 | 2.6× | 2.2× | 2.5× |
+| nested-update | 298 | 284 | 293 | 3.2× | 3.0× | 3.5× |
+| group-freq | 525 | 369 | 594 | 4.1× | 3.0× | 4.0× |
+| pipelines | 720 | 694 | 785 | 4.1× | 4.0× | 4.2× |
+| strings | 511 | 88 | 85 | 15.7× | 2.6× | 2.4× |
+| render | 119 | 164 | 88 | 2.9× | 4.2× | 2.1× |
+| suite-data | 143 | 105 | 126 | 3.5× | 2.8× | 2.8× |
+
+Self time, closed, % of busy samples (the buckets of the table above; *TLS* is `libdyld.dylib`, where
+`_tlv_get_addr` lives; `clj_coro_current` is that function's own self time, a top-function line of the report).
+
+| workload | TLS before | run 1 | run 2 | `clj_coro_current` run 1 / run 2 | alloc/free before | run 1 | run 2 | zero/copy before | run 1 | run 2 |
+|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|
+| medley | 6.7 | 0.5 | 0.5 | — | 11.3 | 13.0 | 14.1 | 5.9 | 6.0 | 4.8 |
+| combinatorics | 12.5 | 0.4 | 0.3 | 3.8 / 3.5 | 14.3 | 21.0 | 20.2 | 4.6 | 3.6 | 3.8 |
+| dependency | 11.0 | 0.5 | 0.6 | 4.4 / 4.7 | 11.7 | 16.9 | 17.2 | 7.2 | 6.4 | 6.7 |
+| nested-update | 5.3 | 0.0 | 0.0 | — | 10.5 | 11.4 | 12.0 | 3.6 | 2.7 | 2.9 |
+| group-freq | 6.3 | 0.3 | 0.2 | — | 28.4 | 13.5 | 14.3 | 7.8 | 2.5 | 3.0 |
+| pipelines | 10.2 | 0.9 | 0.8 | 3.4 / 3.3 | 13.6 | 17.5 | 17.8 | 3.7 | 2.3 | 2.4 |
+| strings | 1.4 | 0.2 | 0.1 | — | 4.4 | 22.0 | 22.3 | 60.9 | 10.6 | 10.4 |
+| render | 7.7 | 0.6 | 0.3 | 5.0 / 2.3 | 24.2 | 22.1 | 24.2 | 10.5 | 6.7 | 8.6 |
+| suite-data | 8.3 | 0.9 | 0.9 | 2.1 / — | 9.2 | 13.9 | 12.9 | 3.9 | 3.5 | 2.9 |
+
+- **strings: 511 → 85–88 ms, 15.7× → 2.4–2.6× the JVM.** 5400 MB allocated an iteration → 81.5 MB, `memmove` 61 →
+  10 %. What is left is spread: `string_count` 7 %, the regex engine 6 %, `vfprintf` 5 % (number printing).
+- **group-freq: system malloc is gone from the profile** (alloc/free 28.4 → 13.5–14.3 %, the rest is the pool),
+  `apply` still 3.15M calls. The time moved 525 → 369 ms on run 1 and to 594 on run 2, whose runner was slow by the
+  JVM column; the ratio to the JVM is 3.0–4.0× against 4.1×. `clj_apply`'s own walk of the seq is 7–8 % self.
+- **TLS: dyld's `_tlv_get_addr` went from 5–12.5 % to under 1 %** on every data workload (what remains is the
+  `_Thread_local`s left: the shadow ring's mirror and the compiled inline caches). Part of it reappears as
+  `clj_coro_current`'s own 2–5 %: a call per lazy-seq realization still, now a key load and two dependent loads
+  inside it. The alloc/free bucket rose 1–7 points on the allocation-heavy workloads because `pool_alloc` and
+  `clj_dealloc` now hold the thread lookup inline, which the profile used to book under dyld.
+- **render**: run 1's 164 ms was the `(map f s)` escape (allocs 1.68M → 3.33M, `string-seq` 476k); with
+  `str-escape*` allocs are 1.26M and the time 88 ms.
+- The other workloads move within the runner's ±20–30 %, so no per-workload claim is made for them.
