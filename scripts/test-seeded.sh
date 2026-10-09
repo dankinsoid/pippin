@@ -18,6 +18,11 @@ mkdir -p "$logs"
 
 swift build --build-tests --scratch-path "$SCRATCH" || exit 1
 
+# A crash leaves a native report (DiagnosticReports) instead of the plain exit, so the stack is in the logs.
+export CLJ_CRASH_EXIT=0
+reports=$HOME/Library/Logs/DiagnosticReports
+touch "$logs/.start"
+
 failed=""
 first=""
 for seed in $SEEDS; do
@@ -37,6 +42,9 @@ for seed in $SEEDS; do
 	done
 	[ -n "$tests" ] || echo "replay: CLJ_SCHED_SEED=$seed swift test --disable-xctest --scratch-path $SCRATCH --filter '$filter'"
 done
+
+find "$reports" -newer "$logs/.start" -name '*.ips' -exec cp {} "$logs" \; 2>/dev/null
+ls "$logs"/*.ips 2>/dev/null && echo "seeded: crash reports copied beside the seed logs"
 
 # SeededTests reseeds every run itself, so its lines must read the same under every process seed.
 mismatch=""
