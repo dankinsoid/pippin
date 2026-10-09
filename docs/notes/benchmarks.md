@@ -26,8 +26,10 @@
 
 - **Corpus workloads (`make corpus-bench`; `bench/workloads`, `scripts/corpus-bench.py`, `clj-corpus-bench`).** Eleven
   programs over the corpus libraries and plain data work, one source for JVM Clojure 1.12.6 with core.async 1.6.681
-  (`bench/workloads/jvm.clj`) and for this runtime; `run` returns a value every backend prints, and the report marks a
-  row whose printed result differs from the JVM's (`hash` is ours by design, so no workload returns one). Opt-in, in
+  (`bench/workloads/jvm.clj`) and for this runtime. Each file's header states its input, its work and its output, and
+  its `expected` is what `run` returns on the JVM, checked with `=` in every runtime (`hash` is ours by design, so no
+  workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
+  and killed, so a hang fails the target and names itself. Opt-in, in
   neither gate: a CI dispatch with `target: corpus-bench` (about an hour on the arm64 runner; the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
   What each number is:

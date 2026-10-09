@@ -1,5 +1,10 @@
 ;; @ai-generated(solo)
-;; medley.core over a table of records; map-entry, window and partition-between need JVM classes here.
+;; medley.core over a table of records (map-entry, window and partition-between need JVM classes here).
+;; Input: n = 20000 records {:id i, :group x mod 37, :score x mod 1000, :tags #{:a :b} if x even else #{:c},
+;; :parent x mod i (nil for i = 0)}, x the i-th state of util/lcg from seed 42. Work: index-by, map-vals,
+;; filter-vals/-keys, remove-vals, group-by totals, collate-by, deep-merge of 2000 records, distinct-by, dedupe-by,
+;; greatest-by, find-first, take-upto, update-existing-in, dissoc-in, assoc-some, interleave-all, indexed.
+;; Output: a vector of 18 counts and sums, `expected` below.
 (ns workloads.medley
   (:require [medley.core :as m]
             [workloads.util :refer [lcg-vec]]))
@@ -48,3 +53,6 @@
      (reduce + (map :n (vals nested))) (count pruned) (count some-assoc) interleaved indexed]))
 
 (defn run [] (run* 20000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[10115 10115 10000 19981 10035672 10035672 37 1944 1000 18013 nil 460 89 10035672 20 4999 3000 2246395904])

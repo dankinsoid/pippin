@@ -1,5 +1,8 @@
 ;; @ai-generated(solo)
-;; core.async: a producer, a transducing channel, pipeline, mult/tap, merge and a fan-in of many go blocks.
+;; core.async on go blocks. Input: the integers 0..n-1, n = 20000. Work: (1) a producer go-loop into a 64-slot
+;; channel, piped into a channel with (comp (map inc) (filter odd?)), through (pipeline 4 (map #(* 3 %))), summed
+;; by a/reduce; (2) 500 go blocks each putting n/100 values (+ block i) on one 128-slot channel, summed; (3) n
+;; round trips of ping-pong between two go-loops over unbuffered channels, summing (inc i). Output: the three sums.
 (ns workloads.async-pipeline
   (:require [clojure.core.async :as a]))
 
@@ -14,17 +17,6 @@
     (a/pipe src mid)
     (a/pipeline 4 out (map #(* 3 %)) mid)
     (a/<!! (a/reduce + 0 out))))
-
-(defn- broadcast [n]
-  (let [src (a/chan)
-        m (a/mult src)
-        evens (a/chan 32 (filter even?))
-        squares (a/chan 32 (map #(* % %)))]
-    (a/tap m evens)
-    (a/tap m squares)
-    ;; A mult drops what arrives before its first tap, so the source fills only now.
-    (a/onto-chan! src (range n))
-    (a/<!! (a/reduce + 0 (a/merge [evens squares])))))
 
 (defn- fan-in [blocks per]
   (let [out (a/chan 128)
@@ -55,6 +47,9 @@
       r)))
 
 (defn run* [n]
-  [(staged n) (broadcast n) (fan-in 500 (quot n 100)) (ping-pong n)])
+  [(staged n) (fan-in 500 (quot n 100)) (ping-pong n)])
 
 (defn run [] (run* 20000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[300000000 34900000 200010000])

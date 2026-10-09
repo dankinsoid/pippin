@@ -1,5 +1,9 @@
 ;; @ai-generated(solo)
 ;; A screen as hiccup, rendered to HTML text: the rendering half of design §10's app, without a UI.
+;; Input: n = 4000 list items, each [:li {:class :data-id} [:span.title text] [:div {:style} 0-3 links]], under
+;; html/head/body/h1/ul/footer. Work: render recursively to one string, escaping text and attribute values and
+;; sorting attributes by name; then render every item on its own. Output: the page length, the summed item lengths
+;; and the first 200 characters of the page, `expected` below.
 (ns workloads.render
   (:require [clojure.string :as str]))
 
@@ -47,3 +51,6 @@
     [(count html) small (subs html 0 200)]))
 
 (defn run [] (run* 4000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[670236 670117 "<html><head><title>List</title></head><body><h1>Items</h1><ul id=\"items\"><li class=\"even\" data-id=\"0\"><span.title>Item &lt;0&gt; &amp; co</span.title><div style=\"color: red\"></div></li><li class=\"odd\""])

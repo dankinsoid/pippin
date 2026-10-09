@@ -1,5 +1,9 @@
 ;; @ai-generated(solo)
 ;; com.stuartsierra.dependency: a random DAG through its protocols, sorted and queried.
+;; Input: n = 1500 nodes; node i >= 1 depends on (a mod i) and (b mod i), a and b the next two util/lcg states
+;; (seed 7, continuing). Work: topo-sort, a check of every edge against the order, sort by topo-comparator of every
+;; third node, transitive-dependencies of the last 40 nodes, transitive-dependents of node 0, depends? of every
+;; 41st node on 0, remove-all of every fifth node. Output: a vector of 8 counts, `expected` below.
 (ns workloads.dependency
   (:require [com.stuartsierra.dependency :as dep]
             [workloads.util :refer [lcg]]))
@@ -30,3 +34,6 @@
      (count (dep/nodes pruned))]))
 
 (defn run [] (run* 1500))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[1500 2995 500 1500 3238 1499 37 1200])

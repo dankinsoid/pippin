@@ -168,17 +168,30 @@ do { run = try runtime.eval("\(opts.ns)/run") } catch { fail("\(error)") }
 
 // A run that is not a function of its input would make the comparison with the JVM meaningless.
 var expected = ""
+var verdict = "absent"
+let spec = try? runtime.eval("\(opts.ns)/expected")
+let equals = try? runtime.eval("clojure.core/=")
 @MainActor func timed() -> Double {
 	let t = nowMs()
 	let r = call(run)
 	let ms = nowMs() - t
 	let text = printed(r)
+	if expected.isEmpty {
+		expected = text
+		if let spec, let equals {
+			let same = withExtendedLifetime(spec) { call(equals, [r, spec.raw]) }
+			verdict = clj_truthy(same) ? "same" : "DIFFERENT"
+			clj_release(same)
+		}
+	} else if text != expected {
+		fail("an iteration printed \(text), the first \(expected)")
+	}
 	clj_release(r)
-	if expected.isEmpty { expected = text } else if text != expected { fail("an iteration printed \(text), the first \(expected)") }
 	return ms
 }
 
 out("first_ms \(timed())")
+out("expected \(verdict)")
 
 if let hold = opts.hold {
 	out("ready \(getpid())")

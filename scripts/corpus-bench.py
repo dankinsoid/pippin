@@ -12,7 +12,7 @@ import sys
 import time
 
 WORKLOADS = ["medley", "combinatorics", "dependency", "nested-update", "group-freq", "pipelines", "strings",
-             "render", "suite-data", "async-pipeline", "async-libs"]
+             "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast"]
 LOAD_PATH = ["bench/workloads/src", "corpus/medley/src", "corpus/math-combinatorics/src", "corpus/dependency/src",
              "corpus/parallel-async/src", "corpus/turbine/src"]
 FEATURES = "clj"
@@ -60,8 +60,8 @@ def parse(text):
 		if key in ("stat", "alloc_type"):
 			name, value = rest.rsplit(" ", 1)
 			r[key][name] = float(value)
-		elif key == "result":
-			r["result"] = rest
+		elif key in ("result", "expected"):
+			r[key] = rest
 		elif key in ("load_ms", "first_ms", "median_ms", "min_ms", "stats_ms", "clang_ms", "rc_op_ns"):
 			r[key] = float(rest)
 		elif key in ("iterations", "load_failures", "warmup_iterations", "held_iterations"):
@@ -430,11 +430,10 @@ def write_report(b, facts_path, xctrace):
 		jvm = r.get("jvm")
 		closed = median_of(r.get("closed"))
 		jw = median_of(jvm)
-		results = {k: r[k].get("result") for k in ("jvm", "interp", "dev-core", "dev", "closed", "dev-stats", "closed-stats")
-		           if r.get(k) and r[k].get("result") is not None}
-		ref = results.get("jvm")
-		same = "—" if ref is None else ("yes" if all(v == ref for v in results.values()) else
-		                                "NO: " + ", ".join(k for k, v in results.items() if v != ref))
+		# `=` against the workload's expected value, in each runtime; the stats runs check none.
+		verdicts = {k: r[k].get("expected") for k in ("jvm", "interp", "dev-core", "dev", "closed") if r.get(k)}
+		same = "—" if not verdicts else ("yes" if all(v == "same" for v in verdicts.values()) else
+		                                 "NO: " + ", ".join("%s %s" % (k, v) for k, v in verdicts.items() if v != "same"))
 		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
 			w, fmt(jw, 2), fmt(r.get("jvm_cold_first_ms"), 0), fmt(r.get("jvm_cold_process_ms"), 0),
 			fmt(median_of(r.get("interp"))), fmt(median_of(r.get("dev-core"))), fmt(median_of(r.get("dev"))), fmt(closed),

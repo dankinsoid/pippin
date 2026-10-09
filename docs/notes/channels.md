@@ -64,3 +64,13 @@
   core.async's own tests call `Thread/currentThread`, and an identity that changes carrier at every park is
   not that (design §8, `docs/jvm-differences.md`).
 
+- [ ] **A mult over two transducing taps, merged, deadlocks under load** (found by `make corpus-bench`, the
+  `async-broadcast` workload; docs/notes/benchmarks.md). `(let [src (a/chan) m (a/mult src) x (a/chan 32 (filter
+  even?)) y (a/chan 32 (map #(* % %)))] (a/tap m x) (a/tap m y) (a/onto-chan! src (range 20000)) (a/<!! (a/reduce + 0
+  (a/merge [x y]))))` passes alone, 30 times in a row on a debug build, and on the JVM; with eight such processes
+  side by side on an 8-core Intel Mac every one hangs on its first call, all carriers parked, the main thread in
+  `chan_take` under `b_take`; a 64-slot source hangs the same. Two plain taps merged, one transducing tap alone
+  (`filter` or `map`) and the pipelines without a mult pass under the same load. So it takes two transducing
+  channels (`chan_lock`'s cmutex path) fed by the mult's `put!` callbacks and drained by `merge`'s `alts!`: a wake
+  lost between them, not yet narrowed further. The first CI run of `make corpus-bench` hung 70 minutes in the
+  workload that held this shape (an older `async-pipeline`).

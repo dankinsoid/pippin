@@ -1,5 +1,9 @@
 ;; @ai-generated(solo)
 ;; reduce, transduce and lazy-seq pipelines over ranges and vectors, integer and double.
+;; Input: n = 300000, v = (vec (range n)). Work: 18 folds — transduce with map/filter, reduce over lazy map/filter,
+;; partition-all, a map built by reduce, maps of maps, iterate, mapcat + dedupe, reductions, repeat, keep, distinct,
+;; two double sums, a two-sequence map over v and (rseq v), a first-difference, a hand loop over seq/next,
+;; reduce-kv, group-by. Output: a vector of 18 numbers, `expected` below.
 (ns workloads.pipelines)
 
 (defn run* [n]
@@ -24,3 +28,6 @@
      (count (group-by #(mod % 7) (take (quot n 4) v)))]))
 
 (defn run [] (run* 300000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[73500000 22500150000 18750 44999850000 22500000000 2499150080 300000 2812462500 2812512500 14999850000 1000 2.2499925E10 1.499995E10 4499955000100000 299999 44999850000 134999849999 7])

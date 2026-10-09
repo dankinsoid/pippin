@@ -1,6 +1,10 @@
 ;; @ai-generated(solo)
 ;; The breadth clojure-test-suite exercises, as work: records, protocols, multimethods, sets, sorted and transient
-;; collections, sequence functions.
+;; collections, sequence functions. Input: n = 30000; shapes cycle Circle r = i mod 10, Rect (i mod 7, i mod 5),
+;; Tri (i mod 9, i mod 4); figures cycle {:kind :point}, {:kind :segment}, {:kind :other}. Work: protocol calls
+;; (area, scale), record field reads, a multimethod on :kind, clojure.set union/intersection/difference/select/index,
+;; merge-with, zipmap, partition, interleave, sort, a sorted map, a vector used as a stack, transients, postwalk,
+;; flatten. Output: a vector of 18 values, `expected` below.
 (ns workloads.suite-data
   (:require [clojure.set :as set]
             [clojure.walk :as walk]))
@@ -65,3 +69,6 @@
      (reduce + (map #(or (:x %) 0) walked)) nested]))
 
 (defn run [] (run* 30000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[951644 3809910 124993 30000 450015000 [20000 5000 10000 5000 3] 60000 1000 2998 17997000 [10006 10006 10006 10005 10005] [0 29261] [1008 29619] 10001 30000 777 6700 13495500])

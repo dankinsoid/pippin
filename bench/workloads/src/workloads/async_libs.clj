@@ -1,5 +1,9 @@
 ;; @ai-generated(solo)
 ;; Libraries written over core.async: parallel-async on go blocks, turbine on threads.
+;; Input: n = 20000. Work: parallel-async's parallel with 4 go blocks squaring 0..n-1; its pmax with 8 at most, each
+;; value through its own go block (inc), over 0..n/2-1; a turbine topology over 0..n/4-1 — scatter to (map inc) and
+;; (map #(* 2 %)), union through (filter even?), a sink summing into an atom — on its thread routes.
+;; Output: the three sums, `expected` below.
 (ns workloads.async-libs
   (:require [clojure.core.async :as a]
             [com.stuartsierra.parallel :as p]
@@ -42,3 +46,6 @@
   [(parallel-sum n) (pmax-sum (quot n 2)) (turbine-sum (quot n 4))])
 
 (defn run [] (run* 20000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[2666466670000 50005000 31247500])

@@ -1,5 +1,9 @@
 ;; @ai-generated(solo)
 ;; Building a CSV text, parsing it back and reshaping strings with clojure.string.
+;; Input: n = 20000 rows "i,name-(i mod 97),3i,yes|no,C(i mod 13)". Work: join, split-lines, split on a regex,
+;; parse-long, frequencies, upper-case, starts-with?, interpose + apply str, replace (string and regex), trim,
+;; a growing and halving string, split/capitalize/join, reverse, index-of.
+;; Output: a vector of 12 counts and the first 64 characters of the capitalized text, `expected` below.
 (ns workloads.strings
   (:require [clojure.string :as str]))
 
@@ -26,3 +30,6 @@
      trimmed (count built) (count caps) rev idx (subs caps 0 64)]))
 
 (defn run [] (run* 20000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[517727 599970000 97 2275 23889 457727 139865 118316 2818 45999 299 1217 "Alpha Beta Gamma Delta Alpha Beta Gamma Delta Alpha Beta Gamma D"])

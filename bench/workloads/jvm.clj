@@ -17,6 +17,7 @@
     (let [t1 (now-ms)
           r (run)]
       (println "first_ms" (- (now-ms) t1))
+      (println "expected" (if (= r @(resolve (symbol ns-name "expected"))) "same" "DIFFERENT"))
       (println "result" (pr-str r)))
 
     mode
@@ -43,6 +44,7 @@
       (println "iterations" (count times))
       (println "median_ms" (median times))
       (println "min_ms" (apply min times))
+      (println "expected" (if (= first-result @(resolve (symbol ns-name "expected"))) "same" "DIFFERENT"))
       (println "result" (pr-str first-result)))))
 (flush)
 (System/exit 0)

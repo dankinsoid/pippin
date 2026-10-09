@@ -1,5 +1,9 @@
 ;; @ai-generated(solo)
 ;; An application state as nested maps and vectors, driven by a stream of events.
+;; Input: n = 200000 events, x the successive util/lcg states from seed 1; the event kind is (x/7) mod 6 and the user
+;; x mod 500. Work: assoc-in a name, update-in a visit counter (fnil inc), conj a tag, bump :ok/:err and keep the last
+;; 100 users in a log vector, update a user map, assoc-in an index cell; every step also reads two paths with get-in.
+;; Output: a vector of 9 counts and sums over the final state, `expected` below.
 (ns workloads.nested-update
   (:require [workloads.util :refer [lcg]]))
 
@@ -35,3 +39,6 @@
          reads]))))
 
 (defn run [] (run* 200000))
+
+;; What run returns on JVM Clojure 1.12.6; clj-corpus-bench and jvm.clj check every run against it.
+(def expected '[500 33455 33367 199514 14394 18992 24901 175 7385498])
