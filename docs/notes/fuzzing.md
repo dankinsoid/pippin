@@ -154,8 +154,10 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   past it names no argument. The rest of that run was the harnesses' own: a NUL byte cut the NaN check of the
   reader's `=`, and a pattern ending in a backslash inside `\Q` prints unreadably on the JVM as well.
 
-- **Measured** (arm64, 3 jobs; the second run, 20 min each for the reader and regex, 10 for number and format):
-  the reader at ~360 exec/s reached 3454 edges (3323 on replaying its 1065-unit corpus); regex ~30 exec/s, its
-  200 ms deadline and backtracking patterns being most of the time, 1899 edges; number ~6900 exec/s, 3432 edges,
-  no finding; format 956 edges (its exec/s read 0 because every job ended on the overflow). Each input runs
-  twice for the leak check, so these are half the parser's own rate.
+- **Measured** (arm64, 3 jobs). Run 37972076536, the check budget of 30 min on the corpus the earlier runs grew,
+  found nothing in 36 min end to end: the reader at ~400 exec/s reached 3497 edges (3362 on replaying its
+  1186-unit corpus), regex ~14 exec/s and 1903 edges (its 200 ms deadline and backtracking patterns are most of
+  the time), number ~2200 exec/s and 3570 edges, format ~9500 exec/s and 967 edges. Each input runs twice for
+  the leak check, so these are half the parsers' own rates. A check run passes
+  `FUZZ_PARSERS_TIME=reader=600,regex=600,number=300,format=300` and is capped at 70 min; the Makefile's default
+  (20 + 20 + 10 + 10 min) is the nightly budget.
