@@ -137,6 +137,21 @@ extension CoreTests {
 		@Test func aFarTimeoutFiresOnItsDeadline() throws {
 			let base = CoroBaseline()
 			do {
+				// DIAG timer-late
+				clj_diag_timer_enable(true)
+				for round in 0..<15 {
+					let r = try eval("(let [t (nano-time*)] (<!! (timeout 20)) [t (nano-time*)])")
+					let woke = clj_diag_bare_woke()
+					var d = clj_diag_timer()
+					clj_diag_timer_last(&d)
+					let observed = UInt64((r.array ?? [])[1].int ?? 0)
+					let s0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+					usleep(20000)
+					let control = Int64(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - s0) - 20_000_000
+					func us(_ a: UInt64, _ b: UInt64) -> Int64 { (Int64(bitPattern: a) - Int64(bitPattern: b)) / 1000 }
+					print("DIAG timer-late round \(round): total \(us(observed, d.when)) us = deadline->dispatch \(us(d.dispatched, d.when)) + dispatch->pop \(us(d.popped, d.dispatched)) (loops \(d.loops)) + pop->signal \(us(d.signalled, d.popped)) + signal->woke \(us(woke, d.signalled)) + woke->observed \(us(observed, woke)); qos timer \(d.timer_qos) dispatch \(d.dispatch_qos) test \(qos_class_self().rawValue); control usleep late \(control / 1000) us")
+				}
+				clj_diag_timer_enable(false)
 				let late = try eval("(vec (sort (repeatedly 7 #(let [t (nano-time*)] (<!! (timeout 20)) (- (nano-time*) t 20000000)))))")
 				let median = (late.array ?? [])[3].int ?? Int.max
 				#expect(median < 2_500_000, "median lateness \(median) ns")
