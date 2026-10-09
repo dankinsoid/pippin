@@ -16,4 +16,4 @@ partial :ok :ok :ok
 21 3 true false 20 0123456789101112131415161718192021222324
 [:v 0 1 2 (3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21)] [:gv 1 2 3 4 (5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29)]
 [:v 0 1 2 (3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)] [:gv 1 2 3 4 (5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)]
-Wrong number of args (2) passed to: ug, which takes 1 or at least 4 | Wrong number of args (0) passed to: ug, which takes 1 or at least 4
+Wrong number of args (2) passed to: fixture.apply/ug, which takes 1 or at least 4 | Wrong number of args (0) passed to: fixture.apply/ug, which takes 1 or at least 4
