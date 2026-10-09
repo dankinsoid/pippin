@@ -52,6 +52,10 @@ of every suite run (`make test`, `test-compiled`, `test-noreuse`), `make model-l
   shard of `make test` (4.9 s interpreted, 3.7 s compiled, 3.3 s closed; run 37937702510), which runs beside the
   other shard; with 6 interpreted batches and no closed one `make test-compiled` took 2.2 s (run 37935456617).
 
+- **`make model-long`** runs 400 interpreted batches and 12 of each compiled kind in each of the ASan,
+  compiled-core and no-reuse builds: 48000 interpreted and 2880 compiled sequences. On the arm64 runner the tests
+  took 298, 101 and 113 s, the job 15 min with its three builds (run 37937706539, clean).
+
 - **A failure shrinks and replays.** The first failing sequence of a batch is shrunk greedily — dropping a step
   (its readers pointed at its source), a retained check, the defs, a wrapper, an argument of a multi-argument
   operation, a transient sub-step — re-running each candidate until none fails, 400 runs at most (30 for a
