@@ -124,6 +124,8 @@ class Bench:
 			"dev": self.build("dev", ["-DCLJ_COMPILED_CORE"]),
 			"dev-stats": self.build("dev-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_STATS=1"]),
 		}
+		if self.args.interp_ab:
+			self.bin["interp-stats"] = self.build("interp-stats", ["-DCLJ_STATS=1"])
 
 	# ---- runs
 
@@ -284,6 +286,14 @@ class Bench:
 				res["jvm_cold_first_ms"] = cold.get("first_ms")
 		res["interp"] = self.ours("interp", w, self.bin["interp"])
 		yield
+		if self.args.interp_ab:
+			off = {self.args.interp_ab: "1"}
+			res["interp-off"] = self.ours("interp-off", w, self.bin["interp"], env=off)
+			yield
+			res["interp-stats"] = self.ours("interp-stats", w, self.bin["interp-stats"], ["--stats"])
+			yield
+			res["interp-stats-off"] = self.ours("interp-stats-off", w, self.bin["interp-stats"], ["--stats"], env=off)
+			yield
 		res["dev-core"] = self.ours("dev-core", w, self.bin["dev"])
 		yield
 		units = self.dev_units(w)
@@ -486,6 +496,30 @@ def census_rows(census):
 	return rows, total
 
 
+def interp_ab_section(b, add):
+	def k(v):
+		if v is None:
+			return "—"
+		return "%.2fM" % (v / 1e6) if v >= 1e6 else "%.1fk" % (v / 1e3) if v >= 1e3 else "%.0f" % v
+
+	var = b.args.interp_ab
+	add("## Interpreter A/B (`%s=1` is *off*; ms the interp build's median, counters `-DCLJ_STATS=1` per iteration)" % var)
+	add("")
+	add("| workload | ms on | ms off | allocs on | allocs off | MB on | MB off | invoke on | invoke off | lazy forced | fn on | fn off | lazy-seq on | lazy-seq off |")
+	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	for w in b.args.only:
+		r = b.results[w]
+		on, off = r.get("interp-stats") or {}, r.get("interp-stats-off") or {}
+		so, sf = on.get("stat") or {}, off.get("stat") or {}
+		ao, af = on.get("alloc_type") or {}, off.get("alloc_type") or {}
+		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+			w, fmt(median_of(r.get("interp"))), fmt(median_of(r.get("interp-off"))), k(so.get("alloc")), k(sf.get("alloc")),
+			fmt(so.get("alloc_bytes", 0) / 1e6, 1) if so else "—", fmt(sf.get("alloc_bytes", 0) / 1e6, 1) if sf else "—",
+			k(so.get("invoke")), k(sf.get("invoke")), k(so.get("lazy_force")), k(ao.get("fn")), k(af.get("fn")),
+			k(ao.get("lazy-seq")), k(af.get("lazy-seq"))))
+	add("")
+
+
 def census_section(b, add):
 	add("## Allocation census (`--census`, closed stats build; dev where closed did not run)")
 	add("")
@@ -570,7 +604,7 @@ def write_report(b, facts_path, xctrace):
 		closed = median_of(r.get("closed"))
 		jw = median_of(jvm)
 		# `=` against the workload's expected value, in each runtime; the stats runs check none.
-		verdicts = {k: r[k].get("expected") for k in ("jvm", "interp", "dev-core", "dev", "closed") if r.get(k)}
+		verdicts = {k: r[k].get("expected") for k in ("jvm", "interp", "interp-off", "dev-core", "dev", "closed") if r.get(k)}
 		same = "—" if not verdicts else ("yes" if all(v == "same" for v in verdicts.values()) else
 		                                 "NO: " + ", ".join("%s %s" % (k, v) for k, v in verdicts.items() if v != "same"))
 		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
@@ -673,6 +707,9 @@ def write_report(b, facts_path, xctrace):
 		for w in b.args.only) + ".")
 	add("")
 
+	if b.args.interp_ab:
+		interp_ab_section(b, add)
+
 	census_section(b, add)
 
 	for tag in ("closed", "dev"):
@@ -753,6 +790,7 @@ def main():
 	ap.add_argument("--skip-closed", action="store_true")
 	ap.add_argument("--skip-sample", action="store_true")
 	ap.add_argument("--skip-facts", action="store_true")
+	ap.add_argument("--interp-ab", metavar="VAR", help="also time and count the interpreter with VAR=1 in its environment")
 	args = ap.parse_args()
 	args.only = [w for w in args.only.split(",") if w]
 	unknown = [w for w in args.only if w not in WORKLOADS]

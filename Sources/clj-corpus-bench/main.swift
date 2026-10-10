@@ -89,6 +89,8 @@ func out(_ line: String) {
 	fflush(stdout)
 }
 
+// CLJ_BENCH_NO_LAZY_INLINE=1: an interpreted lazy-seq site makes its closure, the control for the cells without one.
+if ProcessInfo.processInfo.environment["CLJ_BENCH_NO_LAZY_INLINE"] != nil { clj_lazy_seq_inline_enable(false) }
 let runtime = Runtime()
 if opts.calibrate {
 	_ = clj_debug_rc_op_ns(10_000_000)
