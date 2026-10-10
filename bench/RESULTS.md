@@ -2354,3 +2354,52 @@ Self time, closed, % of busy samples, from the runs' `sample` logs. *printf* is 
 - **Time**: strings 80 → 50 ms and closed/JVM 2.0× → 1.1× (this run's JVM was the slower kind, 45.7 against 39.7 ms,
   so the ratio overstates the gain somewhat); render 72.5 → 64 ms. One run, the runner's ±20–30 %: the counters and
   the profile are the claim, the milliseconds the direction.
+
+## Flat transient maps — 8fd3720, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Branch `flat-transient`: a map's transient is a flat open-addressing table edited in place at any count, kept by
+`persistent!` up to 16 entries and turned into the trie above (docs/notes/map.md); `frequencies` and `group-by` build
+through it. Two runs: `make bench CLJ_BENCH_ONLY=flat` (38037862367) for the threshold, `corpus-bench` (38038970741)
+against "Drop by type" above (37986257348).
+
+**The threshold**, pool run; ns per entry for the builds (a reduce fn's `assoc!` on a borrowed accumulator, then
+`persistent!`), per op otherwise. *shared*: the map is still referenced, so an assoc copies — the flat map whole, the
+trie its path.
+
+| n | build, trie (today) | build, flat kept | build, flat → trie | get, flat | get, trie | shared assoc, flat | shared assoc, trie | shared new key, flat | shared new key, trie |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 4 | 152.4 | 101.6 | 136.8 | 4.5 | 4.0 | 39.8 | 47.8 | 53.9 | 64.0 |
+| 8 | 127.1 | 77.4 | 107.5 | 4.6 | 4.0 | 60.2 | 53.3 | 67.6 | 74.8 |
+| 16 | 125.7 | 64.9 | 92.5 | 4.7 | 4.5 | 83.7 | 83.0 | 87.0 | 91.0 |
+| 24 | 130.2 | 60.6 | 88.2 | 6.2 | 5.5 | 99.1 | 90.3 | 125.4 | 124.3 |
+| 32 | 154.1 | 64.7 | 96.5 | 6.7 | 6.3 | 148.5 | 100.2 | 150.0 | 117.6 |
+| 64 | 158.1 | 54.7 | 87.7 | 6.2 | 6.6 | 273.0 | 124.0 | 272.8 | 147.8 |
+| 128 | 178.9 | 58.3 | 96.3 | 6.0 | 7.7 | 485.3 | 137.2 | 560.3 | 157.4 |
+
+- A shared flat map's copy costs what the trie's path copy does up to 16 entries and up to 3.5× more past it, so 16
+  is where `persistent!` stops keeping the table: below it the kept table saves 30–40 ns an entry over converting.
+- The build through the flat transient is 1.7–3× cheaper than today's trie at every size, the conversion included.
+- Lookups: the flat map is ~0.5 ns slower up to 16 entries (hash, index cell, entry), even at 32–64, faster at 128.
+- Builders at n = 50000, ns per element, flat / off: `frequencies` over 628 integers 319 / 498 (1.6×), 13 integers
+  318 / 377 (1.2×), 628 strings 522 / 709 (1.4×); `group-by` into 23 keys 209 / 312 (1.5×). The system-malloc run
+  agrees within 10 %.
+
+**The corpus**, closed build; *before* is "Drop by type". Every workload returned the JVM's value. The counters are
+deterministic; the times are one run each on a runner whose JVM warm column moved 25 % on medley and group-freq.
+
+| workload | closed ms before → after | closed/JVM | stats ms | allocs | MB | rc plain | map-node in place / copied | map in place / copied |
+|---|---|---|---|---|---|---|---|---|
+| medley | 75.3 → 65.6 | 2.3× → 2.7× | 160 → 99 | 1.22M → 760k | 121 → 61 | 10.54M → 4.85M | 42 / 383.4k → 261.4k / 57.1k | 36 / 188.1k → 90.3k / 57.9k |
+| group-freq | 420.5 → 349.7 | 3.2× → 3.4× | 935 → 643 | 5.61M → 5.17M | 338 → 274 | 33.65M → 28.17M | 0 / 336.3k → 1.2k / 100.1k | 0 / 300.3k → 717 / 100.2k |
+| pipelines | 772.2 → 577.8 | 4.0× → 2.9× | 1468 → 1457 | 10.42M → 10.27M | 595 → 582 | 50.38M → 49.63M | 0 / 698.0k → 0 / 623.0k | 0 / 376.0k → 0 / 301.0k |
+| suite-data | 89.5 → 83.8 | 2.4× → 2.2× | 210 → 261 | 1.45M → 1.20M | 122 → 89 | 7.32M → 5.56M | 105.0k / 192.7k → 106.6k / 36.7k | 36.3k / 100.5k → 37.1k / 10.5k |
+
+- **Map-node copies: −85 % in medley, −70 % in group-freq, −81 % in suite-data**; medley's allocations −38 % and its
+  bytes halved, its RC operations −54 %. A transient's in-place edits are not `clj_is_unique` questions, so the
+  "in place" column counts only what the persistent paths reuse; medley's rise there is the tries `persistent!`
+  builds past the threshold, at rc 1.
+- **pipelines keeps 623k map-node copies**: its maps are updated by `assoc` in its own reduce fns, not through a
+  builder, so a transient does not reach them — the persistent path copying at a count of 2 is still the cost there.
+  Its time moved within the runner's spread (stats ms unchanged).
+- group-freq's remaining 100k map copies are `merge-with`'s and the `update`-into-`{}` reduce of the workload, the
+  same pattern; its stats build is 31 % faster. suite-data's stats ms rose while every counter fell: one run, no claim.
