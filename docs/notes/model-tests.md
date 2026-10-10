@@ -28,7 +28,9 @@ of every suite run (`make test`, `test-compiled`, `test-noreuse`), `make model-l
   `(vec (range n))` and `into []` at 5–8, 31–34, 63–65, 95–97, 1023–1025 and 1055–1057 (the tuple's 6→7, the
   tail's 32, the root's 1024, the height past 1056), `conj []`, `subvec`; shape maps by literal and `hash-map`,
   keyword `zipmap`s of 30–33 keys (across the shape's 32), integer tries of up to 40 keys, a map with meta, `into {}`
-  with `nil` and string keys; hash sets of up to 33, sorted maps and sets of up to 40, lists, queues. The first
+  with `nil` and string keys, flat maps (NOTES "Map": a `reduce` fn's `assoc!` into `(transient {})`, then
+  `persistent!`, at 1, 3, 7–9, 15–17 and 31–33 keys across any threshold, integers, strings, keywords and the
+  collision keys mixed or keywords alone, a `dissoc!` hole in some); hash sets of up to 33, sorted maps and sets of up to 40, lists, queues. The first
   one may be an inferred lazy `def`, and the first step a second `def` over that var. Operations: `conj` (one to
   three), `conj` of an entry, `assoc`, `dissoc`, `disj`, `pop`, `update` (`mt-wrap`, `constantly`, `conj`),
   `update-in`, `assoc-in`, `merge`, `into` six ways (the builtin, the fused `(map identity …)` driver, the
