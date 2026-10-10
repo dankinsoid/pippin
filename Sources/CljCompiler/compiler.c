@@ -2063,18 +2063,6 @@ static itemp emit_prim_raw(fnctx *f, const clj_node *n) {
 	return emit_prim(f, n, &pc, NULL, true);
 }
 
-// (lazy-seq* (fn* [] body)): a thunk of one arity, no rest and no self reference needs no fn object.
-static bool inline_thunk(const clj_node *n) {
-	const clj_node *head = n->u.invoke.fn;
-	if (head->kind != CLJ_NODE_VAR || n->u.invoke.n != 1 || !var_named(head->u.var.v, "clojure.core", "lazy-seq*")) return false;
-	const clj_node *fn = n->u.invoke.args[0];
-	if (fn->kind != CLJ_NODE_FN || fn->u.fn.variadic || !fn->u.fn.fixed[0] || fn->u.fn.fixed[0]->self_slot >= 0) return false;
-	for (uint32_t i = 1; i <= CLJ_FN_MAX_FIXED; i++) {
-		if (fn->u.fn.fixed[i]) return false;
-	}
-	return fn->u.fn.ncaptures <= UINT16_MAX;
-}
-
 // The cell holds the 0-arity entry and the captures (clj_lazy_seq_code); a rebound lazy-seq* gets the closure.
 static temp emit_lazy_seq(fnctx *f, const clj_node *n) {
 	const clj_node *fn = n->u.invoke.args[0];
@@ -2097,7 +2085,7 @@ static temp emit_lazy_seq(fnctx *f, const clj_node *n) {
 static temp emit_invoke(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
-	if (inline_thunk(n)) return emit_lazy_seq(f, n);
+	if (clj_lazy_seq_site(n)) return emit_lazy_seq(f, n);
 	if (f->c->opts.closed && !f->u->embedded && head->kind == CLJ_NODE_VAR && (var_named(head->u.var.v, "clojure.core", "eval") || var_named(head->u.var.v, "clojure.core", "load-string"))) {
 		return emit_refused(f, n, "eval and load-string need the interpreter; refused under --closed");
 	}

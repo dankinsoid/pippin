@@ -33,6 +33,10 @@
   stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
   neither gate: a CI dispatch with `target: corpus-bench` (about 20 min on the arm64 runner; the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
+  `--interp-ab=VAR` adds a stats build of the interpreter and runs the interpreter and its counters twice, the second
+  time with `VAR=1` in the environment (a switch the runtime or `clj-corpus-bench` reads, `CLJ_BENCH_NO_LAZY_INLINE`
+  the first), into an "Interpreter A/B" table: the stats runs below are compiled code, so this is the only place an
+  interpreter-side change shows in the counters.
   What each number is:
   - Times are in-process per iteration of `run`: ours after one iteration, median of >= 3 and >= 2 s; the JVM's after
     >= 5 iterations and 5 s, median of >= 5 and >= 3 s. One runner's numbers spread ±20–30 % from the next's: read

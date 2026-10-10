@@ -193,6 +193,10 @@ typedef struct {
 // them on every list), falling back to env's position.
 clj_node *clj_analyze(clj_value form, const clj_env *env);
 
+// (clojure.core/lazy-seq* (fn* [] body)) whose fn has that one arity and no self slot: a site both backends build
+// the cell of without a fn object, the thunk's captures in the cell (seq.h), while the var holds the builtin.
+bool clj_lazy_seq_site(const clj_node *n);
+
 // EDN-shaped encoding of a tree (the grammar heads node_data.c): owned data, or CLJ_THROWN "not serializable:
 // <type>" for a constant that would not read back (a protocol, a deftype descriptor, a host value, a fn).
 clj_value clj_node_to_data(const clj_node *root);

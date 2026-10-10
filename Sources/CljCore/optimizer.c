@@ -8,6 +8,7 @@
 #include "clj/error.h"
 #include "clj/fusion.h"
 #include "clj/intrinsics.h"
+#include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
@@ -728,4 +729,17 @@ void clj_optimize(clj_node *root) {
 	optimize(root, NULL);
 	live_frame(root, 0);
 	live_fns(root, NULL);
+}
+
+// @ai-generated(solo)
+bool clj_lazy_seq_site(const clj_node *n) {
+	if (n->kind != CLJ_NODE_INVOKE || n->u.invoke.n != 1 || n->u.invoke.fn->kind != CLJ_NODE_VAR) return false;
+	const clj_node *fn = n->u.invoke.args[0];
+	if (fn->kind != CLJ_NODE_FN || fn->u.fn.variadic || !fn->u.fn.fixed[0] || fn->u.fn.fixed[0]->self_slot >= 0) return false;
+	for (uint32_t i = 1; i <= CLJ_FN_MAX_FIXED; i++) {
+		if (fn->u.fn.fixed[i]) return false;
+	}
+	clj_value var = n->u.invoke.fn->u.var.v;
+	return fn->u.fn.ncaptures <= UINT16_MAX && strcmp(clj_string_bytes(clj_symbol_name(clj_var_ns(var))), "clojure.core") == 0 &&
+	       strcmp(clj_string_bytes(clj_symbol_name(clj_var_name(var))), "lazy-seq*") == 0;
 }

@@ -168,6 +168,43 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// The cell holds the fn node and the captures (eval.c, eval_lazy_seq): no closure is made.
+		@Test func anInterpretedLazySeqSiteMakesNoFn() throws {
+			clj_init()
+			try declare("li-s", "li-dyn", "li-boom")
+			let fnType = clj_type_of(try eval("inc").raw)
+			let before = clj_debug_live_objects()
+			let fns = clj_debug_live_objects_of(fnType)
+			do {
+				_ = try eval("(def ^:eager li-s (let [[a b] [1 2] {:keys [c]} {:c 3}] (lazy-seq (list a b c))))")
+				if fns >= 0 { #expect(clj_debug_live_objects_of(fnType) == fns) }
+				#expect(try eval("li-s") == list([1, 2, 3]))
+				#expect(try eval("(let [a (atom 0)] (first (lazy-seq (if (< (swap! a inc) 3) (recur) (list @a)))))") == 3)
+				#expect(try eval("(first (lazy-seq (let [a 1 b 2 c 3 d 4 e 5 f 6 g 7 h 8 i 9 j 10 k 11 l 12 m 13 n 14 o 15 p 16 q 17] (list (+ a q)))))") == 18)
+				// The forcer's bindings, not the creator's: Clojure's lazy-seq conveys none.
+				_ = try eval("(def ^:dynamic li-dyn 1)")
+				#expect(try eval("(first (binding [li-dyn 2] (lazy-seq (list li-dyn))))") == 1)
+				// The closure path and this one report the same frames.
+				let form = "(try (first (li-boom)) (catch :default e (ex-trace e)))"
+				_ = try eval("(defn li-boom [] (lazy-seq (throw (ex-info \"boom\" {}))))")
+				let inline = try eval(form)
+				clj_lazy_seq_inline_enable(false)
+				_ = try eval("(defn li-boom [] (lazy-seq (throw (ex-info \"boom\" {}))))")
+				let closure = try eval(form)
+				clj_lazy_seq_inline_enable(true)
+				#expect(inline == closure)
+				try unbind("li-s", "li-dyn", "li-boom")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// The guard compares the root with the builtin per evaluation.
+		@Test func aReboundLazySeqStarTakesTheClosure() throws {
+			clj_init()
+			#expect(try eval("(let [orig lazy-seq* n (atom 0)] [(with-redefs [lazy-seq* (fn [f] (swap! n inc) (orig f))] (doall (lazy-seq [7]))) (pos? @n)])") == [list([7]), true])
+			#expect(try eval("(let [n (atom 0)] [(doall (lazy-seq [7])) @n])") == [list([7]), 0])
+		}
+
 		@Test func seqOnVectorIsAView() throws {
 			clj_init()
 			try declare("sv-v", "sv-s")

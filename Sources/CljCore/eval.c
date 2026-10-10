@@ -17,6 +17,7 @@
 #include "clj/map.h"
 #include "clj/printer.h"
 #include "clj/proto.h"
+#include "clj/seq.h"
 #include "clj/set.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
@@ -444,9 +445,8 @@ static clj_value eval_recur(const clj_node *n, clj_frame *f) {
 	return ok ? CLJ_RECUR : CLJ_THROWN;
 }
 
-static clj_value eval_fn(const clj_node *n, clj_frame *f) {
-	clj_value  small[SMALL_ARGS];
-	clj_value *env = buf_alloc(small, n->u.fn.ncaptures);
+// The fn node's captured values as the creating frame holds them, borrowed.
+static void gather_env(const clj_node *n, const clj_frame *f, clj_value *env) {
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
 		const clj_capture *c = &n->u.fn.captures[i];
 		switch (c->kind) {
@@ -455,6 +455,12 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 		case CLJ_CAPTURE_OUTER: env[i] = outer_frame(f, c->depth)->slots[c->index]; break;
 		}
 	}
+}
+
+static clj_value eval_fn(const clj_node *n, clj_frame *f) {
+	clj_value  small[SMALL_ARGS];
+	clj_value *env = buf_alloc(small, n->u.fn.ncaptures);
+	gather_env(n, f, env);
 	clj_value fn = clj_fn_closure(clj_from_ptr((void *)f->exec), n, n->u.fn.name.v, env, n->u.fn.ncaptures);
 	buf_free(small, env);
 	return fn;
@@ -714,6 +720,39 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	}
 	if (fn_owned) clj_release(fn);
 	return result;
+}
+
+// (lazy-seq* (fn* [] body)) while the var holds the builtin: the cell takes the thunk's captures and its fn node,
+// so no closure is made; a rebound lazy-seq* (with-redefs, a def) gets the closure through the generic call.
+// @ai-generated(solo)
+static clj_value eval_lazy_seq(const clj_node *n, clj_frame *f) {
+	if (__builtin_expect(!clj_lazy_seq_star_is(clj_var_root_relaxed(n->u.invoke.fn->u.var.v)), 0)) return eval_invoke(n, f);
+	const clj_node *code = n->u.invoke.args[0];
+	clj_value       small[SMALL_ARGS];
+	clj_value      *env = buf_alloc(small, code->u.fn.ncaptures);
+	gather_env(code, f, env);
+	clj_value cell = clj_lazy_seq_node(clj_from_ptr((void *)f->exec), code, env, code->u.fn.ncaptures);
+	buf_free(small, env);
+	return cell;
+}
+
+// The realization of such a cell: the arity's body in a fresh frame whose environment is the cell's captures, as a
+// call of the closure from a native would run it (no call site). The cell is claimed and keeps exec and captured
+// alive until its publish, after this returns.
+// @ai-generated(solo)
+clj_value clj_lazy_thunk_run(clj_value exec, const clj_node *code, const clj_value *captured) {
+	const clj_fn_arity *arity = code->u.fn.fixed[0];
+	clj_value           small[SMALL_SLOTS];
+	clj_value          *slots = small;
+	if (arity->nslots > SMALL_SLOTS) {
+		slots = malloc(arity->nslots * sizeof *slots);
+		if (!slots) clj_fatal("out of memory");
+	}
+	for (uint32_t i = 0; i < arity->nslots; i++) slots[i] = CLJ_NIL;
+	clj_frame frame = {slots, captured, clj_exec_of(exec), arity->nslots > 64 ? UINT64_MAX : 0, NULL};
+	clj_value v = run_body(code, arity, &frame, NULL);
+	if (slots != small) free(slots);
+	return v;
 }
 
 #if CLJ_DEBUG
@@ -1314,7 +1353,14 @@ static void count_on(const clj_node *n, void *ctx) {
 	clj_node_children(n, count_on, e);
 }
 
+static bool lazy_inline = true;
+
+void clj_lazy_seq_inline_enable(bool on) { lazy_inline = on; }
+
+static bool lazy_seq_site(const clj_node *n) { return lazy_inline && clj_lazy_seq_site(n); }
+
 clj_eval_fn clj_eval_site_entry(const clj_exec *e, const clj_node *n) {
+	if (lazy_seq_site(n)) return eval_lazy_seq;
 	if (!e->nodes[n->id].ic) return clj_node_eval_fn(n->kind);
 	if (n->kind == CLJ_NODE_INVOKE) return eval_kw_invoke;
 	if (n->kind == CLJ_NODE_INTRINSIC) return eval_get_kw;
@@ -1511,6 +1557,8 @@ static void build(const clj_node *n, void *ctx) {
 		if (kw_invoke_site(n)) {
 			b->exec->nodes[n->id].ic = kw_ic_new();
 			CLJ_NODE_ENTRY_SET(b->exec, n->id, eval_kw_invoke);
+		} else if (lazy_seq_site(n)) {
+			CLJ_NODE_ENTRY_SET(b->exec, n->id, eval_lazy_seq);
 		}
 		break;
 	case CLJ_NODE_INTRINSIC:

@@ -552,6 +552,24 @@
   `letfn` fns of the corpora would be demoted (2 passed as a value, 2 calling themselves under
   `lazy-seq`, 1 captured by a `defn`, 2 variadic), so the form would buy nothing measured and leave
   `:second-run-live-objects` where it is.
+- **An interpreted `lazy-seq` site** (eval.c `eval_lazy_seq`, `clj_lazy_thunk_run`; seq.c `clj_lazy_seq_node`;
+  docs/notes/compiler.md for the compiled cell): `(lazy-seq* (fn* [] body))` of the shape `clj_lazy_seq_site` names
+  (one arity `[]`, no self slot) gets an exec entry of its own at `clj_exec_new`, as a keyword invoke does, so the
+  tree, the codec, the facts and the emitter see the plain INVOKE. While `lazy-seq*`'s root is the builtin
+  (`clj_lazy_seq_star_is`, a relaxed load per evaluation, the compiled guard's own test) the entry gathers the fn
+  node's captures as `eval_fn` does and builds one cell holding them, the fn node and the exec it lives in; a rebound
+  var (`with-redefs`, a `def`) takes `eval_invoke`, the closure through the var. The cell is the compiled one: its
+  `owner` slot tells the three thunks apart (a fn; an exec, with `node` beside it; nil, with `code`), so the struct
+  stays 48 bytes + 8 per capture and `clj_lazy_seq_code`'s ABI is untouched, where a field of its own would grow
+  every cell. Realization runs the arity's body through `run_body` in a fresh frame whose environment is the
+  cell's captures and whose call site is NULL — what `clj_invoke` of the closure from the force did — so the shadow
+  frame, the trace, the profiler, the census frame, the deadline check, a `recur` to the arity and a heap frame
+  past 16 slots are the closure's; the cell is claimed, so its exec and captures live until the publish clears
+  them and releases them after it. No bindings are conveyed, as with the closure and Clojure's `LazySeq`: the
+  body sees the forcer's. A seq costs one allocation of 48 + 8n bytes instead of a fn (88 + 8n) and a cell.
+  `clj_lazy_seq_inline_enable(false)` keeps the closure path for execs built after it (the A/B of
+  `corpus-bench --interp-ab=CLJ_BENCH_NO_LAZY_INLINE`). `SeqTests.anInterpretedLazySeqSiteMakesNoFn`,
+  `aReboundLazySeqStarTakesTheClosure`.
 - **The definition epoch** (epoch.h) is one process-wide counter bumped by every root bind (`def`,
   `defmacro`, boot, a host bind), every `extend`, every type creation (`deftype`, a reify site's first
   evaluation) and every `deftype` descriptor's death; `protocol-epoch*` returns it. The protocol call

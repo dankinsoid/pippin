@@ -609,22 +609,19 @@
   implementors, which today only a constructor-derived fact reaches; the entry protocol is gone (the empty
   prologue entry) and the row sits at 7.6–7.8: what stands between that and the design's 5 is the boxed
   argument array and the loop around the call.
-- **A `lazy-seq` site builds its cell without a fn object** (`inline_thunk`, `emit_lazy_seq` in compiler.c;
-  `clj_lazy_seq_code` in seq.c). `(lazy-seq* (fn* [] body))` whose fn has the one arity, no rest and no self slot
+- **A `lazy-seq` site builds its cell without a fn object** (`clj_lazy_seq_site`, optimizer.c, the shape both
+  backends test; `emit_lazy_seq` in compiler.c; `clj_lazy_seq_code` in seq.c). `(lazy-seq* (fn* [] body))` whose fn has the one arity, no rest and no self slot
   emits the fn's functions as usual, then `clj_lazy_seq_code(<base>_a0, captures, n)`: the cell holds the arity's
   entry and the captures in its own trailing slots, and forcing calls the entry with them as `captured` and nil as
   `self` (nothing reads `self` without a self slot). The publish clears the captures as it clears a fn thunk (design
   §7, cycles), releasing them after the state is published; `each_child` visits them while unrealized. A cell
   with captures is never given a meta word, which would be `captured[0]`: `with-meta` copies it into a plain forced
-  cell. The guard is `CLJC_LAZY_SEQ_INLINE(V[lazy-seq*])` (the root is still the builtin, `clj_c_lazy_seq_inline`;
+  cell. The guard is `CLJC_LAZY_SEQ_INLINE(V[lazy-seq*])` (the root is still the builtin, `clj_lazy_seq_star_is`;
   constant under `CLJ_CLOSED`), its other arm the closure through `clj_c_intrinsic_fallback`; such a site no longer
   counts a `c_invoke`. The compiled core has 48 such sites (`concat`, `map`, `filter`, `take`, ...); a lazy seq's
   allocations go from two (the fn and the cell, 40 + 88 + 8 per capture bytes) to one (48 + 8 per capture).
-  `SeqTests.aRealizedLazySeqLetsItsCapturesGo`.
-- [ ] **The interpreter's `lazy-seq` still allocates the thunk fn.** An interpreted cell would hold the fn node and
-  its exec beside the captures, and run the arity through `run_body` with them as the frame's environment; the site
-  needs a dispatch of its own (an INVOKE entry chosen per node, as `eval_kw_invoke` is), not a test in every
-  `eval_invoke`. Trigger: a profile of interpreted code in which `clj_fn_closure` under `lazy-seq` ranks.
+  `SeqTests.aRealizedLazySeqLetsItsCapturesGo`. The interpreter builds the same cell from the same site
+  (docs/notes/analyzer-and-evaluator.md, "An interpreted `lazy-seq` site").
 - [~] **Drop-guided reuse** (design §7 «Perceus и Lean 4», drop-guided reuse and reuse specialization; Sources/CljCompiler
   `reuse.c` the pass, `reuse_pair`/`emit_consume` in compiler.c; Sources/CljCore `reuse.c`, `reuse_internal.h`).
   *The pass.* `promote_slots` ends by planning the frame (`cljc_reuse_plan_frame`) over its *owned* slots: promoted,

@@ -4,6 +4,7 @@
 
 #include <stdatomic.h>
 
+#include "fn.h"
 #include "object.h"
 
 // Seq types on the descriptor slots: views over a vector and a string, a fixnum range and the lazy seq.
@@ -61,15 +62,20 @@ typedef clj_value (*clj_lazy_code)(clj_value self, const clj_value *captured, co
 // it. Nested lazy seqs are unwrapped iteratively (a thunk returning a lazy seq does not recurse).
 // state: 0 unforced, 1 forcing, 2 forced. Forcing a shared object claims it with a CAS and other
 // threads spin until the value is published; a thunk that forces its own object throws.
-// The thunk is a fn, or compiled code with its captures in the cell itself; both are cleared once forced.
+// The thunk is one of three, told apart by `owner`: a fn (the closure path), the exec of an interpreted thunk's
+// tree with `node` its fn node, or nil with `code` a compiled arity. The last two keep the captures in the cell
+// itself; owner and captures are cleared once forced.
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t state;
-	uint32_t         ncaptured; // captured[] of a code thunk; 0 with a fn thunk and under CLJ_FLAG_META
-	clj_slot         fn;        // fn thunk; nil once forced and with a code thunk
+	uint32_t         ncaptured; // captured[] of a code or node thunk; 0 with a fn thunk and under CLJ_FLAG_META
+	clj_slot         owner;     // the fn thunk, or the exec a node thunk runs in; nil once forced and with a code thunk
 	clj_slot         value;     // realized seq or nil; meaningful once forced
-	clj_lazy_code    code;      // NULL with a fn thunk
-	clj_slot         captured[];
+	union {
+		clj_lazy_code          code; // owner nil
+		const struct clj_node *node; // owner an exec: a fn node of its tree with the one arity [] and no self slot
+	};
+	clj_slot captured[];
 } clj_lazy_seq;
 
 extern const clj_type clj_lazy_seq_type;
@@ -78,8 +84,15 @@ extern const clj_type clj_lazy_seq_type;
 clj_value clj_lazy_seq_new(clj_value fn);
 // The thunk code(nil, captured, NULL, 0) of a closure arity that reads no self; captured is borrowed and retained.
 clj_value clj_lazy_seq_code(clj_lazy_code code, const clj_value *captured, uint32_t ncaptured);
-// The lazy-seq* builtin: (lazy-seq* f) with f a fn. A compiled site builds its cell inline while the var holds it.
+// The interpreter's thunk: node's arity run over exec with captured as the frame's environment (clj_lazy_thunk_run,
+// eval.c). exec and captured are borrowed and retained.
+clj_value clj_lazy_seq_node(clj_value exec, const struct clj_node *node, const clj_value *captured, uint32_t ncaptured);
+// The lazy-seq* builtin: (lazy-seq* f) with f a fn. A site builds its cell without the fn while the var holds it.
 clj_value clj_lazy_seq_star(const clj_value *args, size_t n);
+// The var's root is still the builtin, a with-meta copy of it included: what both backends' inline cells check.
+static inline bool clj_lazy_seq_star_is(clj_value root) {
+	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_NATIVE && clj_fn_of(root)->u.native.fn == clj_lazy_seq_star;
+}
 // Borrowed realized seq (nil when empty), valid while ls is. CLJ_THROWN when the thunk throws; the
 // object stays unforced and a later force runs the thunk again.
 clj_value clj_lazy_seq_force(clj_value ls);

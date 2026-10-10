@@ -172,6 +172,13 @@ static inline clj_value clj_call_invoke(const clj_call *c, const clj_value *args
 	return clj_call_invoke_slow(c, args);
 }
 
+// Realizes a cell of clj_lazy_seq_node (seq.c calls it): code's arity [] over exec, the frame's environment captured.
+// Owned result or CLJ_THROWN.
+clj_value clj_lazy_thunk_run(clj_value exec, const clj_node *code, const clj_value *captured);
+// Whether an exec built from now on makes a clj_lazy_seq_site a cell without a closure (on by default); off is the
+// closure path, for an A/B measurement (clj-corpus-bench reads CLJ_BENCH_NO_LAZY_INLINE).
+void clj_lazy_seq_inline_enable(bool on);
+
 // Arity dispatch and body evaluation of a closure; clj_invoke calls it.
 clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n);
 // The same with the invoke node for the shadow frame (shadow.h); NULL when there is none.
