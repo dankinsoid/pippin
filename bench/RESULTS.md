@@ -2403,3 +2403,42 @@ deterministic; the times are one run each on a runner whose JVM warm column move
   Its time moved within the runner's spread (stats ms unchanged).
 - group-freq's remaining 100k map copies are `merge-with`'s and the `update`-into-`{}` reduce of the workload, the
   same pattern; its stats build is 31 % faster. suite-data's stats ms rose while every counter fell: one run, no claim.
+
+## Drop-guided reuse — 9ac65d7, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Branch `reuse-token` (docs/notes/compiler.md, "Drop-guided reuse"): a `cons` built in the cell of a slot's value dying
+there, a cons over a dying cons keeping its unchanged fields, `next`/`rest` of a dying slot stepping a unique
+vector-seq, range or string-seq in place. One `corpus-bench` run, 38046679837; every workload returned the JVM's
+value. Tokens per iteration (`-DCLJ_STATS`): *made* a site offered a dying value, *taken* the value was unique and
+unshared, *used* a new object was built in its cell — one allocation and one free fewer each —, *skipped* fields left
+in place. The dev and the closed build count exactly the same in every column: the pass and the text are one.
+
+| workload | made | taken | used | skipped | used by type | allocs | used / allocs | closed ms (before) | closed/JVM (before) |
+|---|---:|---:|---:|---:|---|---:|---:|---|---|
+| medley | 132.8k | 40.0k | 40.0k | 22.0k | vector-seq 22.0k, cons 18.0k | 710.1k | 5.6 % | 58.7 (65.6) | 2.1× (2.7×) |
+| combinatorics | 1.15M | 45.0k | 42.5k | 5.9k | range 30.1k, cons 6.6k, vector-seq 5.9k | 3.80M | 1.1 % | 180.3 (206) | 2.4× (3.0×) |
+| dependency | 3.43M | 24.1k | 6.1k | 3.1k | cons 6.1k | 11.25M | 0.05 % | 718.9 (704) | 1.9× (2.2×) |
+| nested-update | 1.13M | 796.5k | 599.3k | 599.3k | vector-seq 599.3k | 2.73M | 22 % | 269.1 (268) | 2.8× (2.7×) |
+| group-freq | 349.8k | 49.5k | 49.5k | 49.5k | vector-seq 49.5k | 5.07M | 1.0 % | 441.5 (349.7) | 2.9× (3.4×) |
+| pipelines | 2.10M | 300.0k | 300.0k | 2 | cons 300.0k | 9.97M | 3.0 % | 575.0 (577.8) | 2.8× (2.9×) |
+| strings | 70.0k | 2 | 2 | 0 | — | 807.2k | 0 % | 48.8 (50.3) | 1.6× (1.1×) |
+| render | 188.0k | 64.0k | 64.0k | 64.0k | vector-seq 64.0k | 928.1k | 6.9 % | 56.8 (64.1) | 1.6× (1.5×) |
+| suite-data | 156.6k | 9.3k | 9.0k | 0 | cons 9.0k | 1.19M | 0.8 % | 69.9 (83.8) | 2.1× (2.2×) |
+| async-broadcast | 100.0k | 20.0k | 20.0k | 0 | cons 20.0k | 230.1k | 8.7 % | 49.5 (38) | 0.3× (0.5×) |
+
+*before* is the latest section that measured the workload: "Strings" for strings and render, "Flat transient maps" for
+medley, group-freq, pipelines and suite-data, "Drop by type" for the rest.
+
+- **nested-update: vector-seq allocations 1.13M → 533k an iteration.** `get-in`'s loop `(recur v (next ks))` and the
+  `[k & ks]` of `assoc-in` and `update-in`'s `up` step the path's vector-seq in its own cell; what is left is the
+  first `(seq ks)` of every call and the callee's copy when a vector-seq is passed down (a parameter is +0, so the
+  callee sees it at rc 2). render's 64k are the same shape, pipelines' 300k cons are cells of dying vector-seqs.
+- **dependency: 3.43M tokens made, 24.1k taken.** The tokens sit in `concat`'s and `map`'s thunks, whose `s` is the
+  realized seq the captured coll still holds: shared at the cons, so the inline check releases it, as the frame's exit
+  did. The census's 82 % of dependency's cons in reuse pairs are deaths in the runtime's cascade (a lazy cell's publish
+  releasing the previous cell), which no frame sees — a parameter or capture would have to be owned (`-O2` borrow
+  inference) for these to pair. strings builds its strings in runtime calls, so nothing pairs there.
+- **Time**: this run's runner was the slow kind (JVM warm 28.5 ms medley against 23.9 and 32, dependency 374 against
+  293), so closed/JVM is the fairer column, and the times stay within the runner's ±20–30 %; no per-workload claim
+  beyond the counters. `reuse.c` itself is ≤ 0.4 % self time, 1.1 % in nested-update; the sites that find a shared
+  value cost the release they replace.
