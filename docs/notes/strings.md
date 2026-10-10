@@ -42,3 +42,6 @@
   bridge API that passes an index across.
 - [ ] **Small strings in the value (tag `100`) and the borrow-bytes API** are design §4's next steps, in that
   order after this one. Trigger: the census share of 8–11-byte strings, or the borrow API's first caller.
+- [ ] **The ASCII scan reads every new string's bytes once more**: `clj_string_new` is 5 % of the strings workload
+  (bench/RESULTS.md, "Strings"). A builder that knows its parts' bits (`str`, `join`, `subs` of an ASCII string)
+  could pass the answer in. Trigger: `clj_string_new` above the copy itself in a profile.
