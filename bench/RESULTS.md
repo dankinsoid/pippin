@@ -2318,3 +2318,39 @@ and "seqs". *memset* is `_platform_memset`/`bzero`, all of it the pool's zeroing
   1.31M/1.45M); medley 41k/689k, group-freq 102k/1.04M, pipelines 656k/2.43M and suite-data 180k/861k copy
   almost every map node they touch (sorted nodes 1.9k/283k), which is where `bnode_copy` and `node_own` (4–12 %)
   come from: a map reached from a var or another map has a count above 1 at every assoc.
+
+## Strings: code point indexes, the ASCII bit, integer text, literal patterns — 68e4fc2, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Branch `strings` (design §4 «Строки», NOTES "Strings"): `CLJ_STRING_ASCII` makes `count`/`subs`/`nth`/`index-of`
+O(1) on an ASCII string, a non-ASCII one past 64 bytes carries its count and crumbs, integers print through
+`clj_int64_decimal` instead of `vsnprintf` (and `str` of an integer no longer goes through `pr-str`), and `split`/
+`replace` with a literal pattern search bytes instead of running the matcher. One `corpus-bench` run, 38039019573;
+every workload returned the JVM's value. *before* is "Drop by type…" above (run 37986257348).
+
+| workload | closed before | closed | JVM warm before | JVM warm | closed/JVM before | closed/JVM | allocs before | allocs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| strings | 80.0 | 50.3 | 39.65 | 45.68 | 2.0× | 1.1× | 983.2k | 868.2k |
+| render | 73.0 | 64.1 | — | 41.76 | 1.6× | 1.5× | 1.04M | 992.1k |
+
+Self time, closed, % of busy samples, from the runs' `sample` logs. *printf* is `__vfprintf`, `__v2printf`,
+`__ultoa`, `__sfvwrite`; *regex* is regex.c's matcher and scans; *find* is `clj_bytes_find` and `memchr`.
+
+| workload | `string_count` | printf | regex | `clj_string_new` | find |
+|---|---:|---:|---:|---:|---:|
+| strings before | 7.2 | 10.6 | 11.3 | 0.8 | 0 |
+| strings | 0.1 | 0.0 | 7.6 | 5.1 | 2.9 |
+| render before | 0.4 | 6.0 | 0 | 1.2 | 0 |
+| render | 0.0 | 0.0 | 0 | 2.6 | 0 |
+
+- **`string_count` and printf leave the profile**: 7.2 % and 10.6 % of strings, 6.0 % printf of render. The
+  count was `(count csv)` and friends scanning half a megabyte; the printf was `str` of an integer formatting
+  through `vsnprintf` twice (size, then text) into a temporary `pr-str` string, which is also the 115k fewer
+  allocations in strings and 48k in render.
+- **Regex 11.3 → 7.6 %**: `(str/split line #",")` and `(str/split … #" ")` take the literal path; what stays is
+  `#"[0-9]+"`, a class the engine must run.
+- **The ASCII scan is the new cost**: `clj_string_new` 0.8 → 5.1 % of strings, 1.2 → 2.6 % of render — every
+  byte of every new string is read once more after the copy. Next lever: a builder that knows its parts' bits
+  (`str`, `join`, `subs` of an ASCII string) passes the answer in instead of scanning.
+- **Time**: strings 80 → 50 ms and closed/JVM 2.0× → 1.1× (this run's JVM was the slower kind, 45.7 against 39.7 ms,
+  so the ratio overstates the gain somewhat); render 73 → 64 ms. One run, the runner's ±20–30 %: the counters and
+  the profile are the claim, the milliseconds the direction.
