@@ -2442,3 +2442,29 @@ medley, group-freq, pipelines and suite-data, "Drop by type" for the rest.
   293), so closed/JVM is the fairer column, and the times stay within the runner's ±20–30 %; no per-workload claim
   beyond the counters. `reuse.c` itself is ≤ 0.4 % self time, 1.1 % in nested-update; the sites that find a shared
   value cost the release they replace.
+
+## Interpreted lazy-seq cells without a fn — 2ed2090, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Branch `lazy-interp`: an interpreted `(lazy-seq* (fn* [] body))` site builds the compiled path's cell, the thunk's fn
+node, exec and captures in it, instead of a closure and a cell (docs/notes/analyzer-and-evaluator.md, "An interpreted
+`lazy-seq` site"). One `corpus-bench --interp-ab=CLJ_BENCH_NO_LAZY_INLINE` run, 38047007191: the interpreter build
+timed and the interpreter stats build counted twice in the same job, *off* being the closure path
+(`clj_lazy_seq_inline_enable(false)`). Every workload returned the JVM's value both ways. Counters per iteration are
+deterministic; *stats ms* is the stats build's own time, one sample each.
+
+| workload | allocs off → on | MB off → on | fn off → on | `clj_invoke` off → on | interp ms off → on (min) | stats ms off → on |
+|---|---|---|---|---|---|---|
+| dependency | 14.55M → 11.26M (−22.6 %) | 1024 → 735 | 3.29M → 5.2k | 3.45M → 165k | 1191 → 1019 (1137 → 1003) | 1615 → 1289 |
+| pipelines | 12.30M → 10.27M (−16.5 %) | 760 → 582 | 2.03M → 86 | 3.22M → 1.27M | 1452 → 1463 (1271 → 1438) | 1563 → 1506 |
+| combinatorics | 4.76M → 3.84M (−19.3 %) | 280 → 199 | 983k → 60k | 1.84M → 971k | 493 → 756 (444 → 562) | 577 → 499 |
+| nested-update (control) | 3.33M → 3.32M | 227 → 227 | 167k → 167k | 237k → 237k | 672 → 938 (651 → 813) | 789 → 794 |
+
+- **One allocation per lazy seq instead of two**: the `fn` count falls by the `lazy-seq` count on every workload that
+  builds them (dependency 3.29M lazy seqs, pipelines 2.03M, combinatorics 923k), and the bytes by 88 per seq. The
+  interpreter's allocations now equal the compiled core's (dependency 11.26M, "Drop by type" above). `clj_invoke`
+  falls by the same count: the force no longer calls a closure through the invoke slot but runs the body itself.
+  medley −10.7 %, group-freq −6.4 %, render −17 %, suite-data −12.4 %, async-broadcast −19 % allocations.
+- **Time is the runner's**: nested-update, which builds 552 lazy seqs and whose every counter is identical both ways,
+  moved 40 % between its two release runs, so the release columns carry no claim. The stats build's times, sampled
+  next to each other, agree with the counters on dependency (−20 %) and combinatorics (−14 %), pipelines −4 %,
+  nested-update within 1 %.

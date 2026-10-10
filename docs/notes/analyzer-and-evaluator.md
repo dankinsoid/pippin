@@ -566,7 +566,9 @@
   frame, the trace, the profiler, the census frame, the deadline check, a `recur` to the arity and a heap frame
   past 16 slots are the closure's; the cell is claimed, so its exec and captures live until the publish clears
   them and releases them after it. No bindings are conveyed, as with the closure and Clojure's `LazySeq`: the
-  body sees the forcer's. A seq costs one allocation of 48 + 8n bytes instead of a fn (88 + 8n) and a cell.
+  body sees the forcer's. A seq costs one allocation of 48 + 8n bytes instead of a fn (88 + 8n) and a cell:
+  interpreted allocations −22.6 % on dependency, −16.5 % on pipelines, −19.3 % on combinatorics, `clj_invoke` down
+  by the lazy-seq count (bench/RESULTS.md, "Interpreted lazy-seq cells without a fn").
   `clj_lazy_seq_inline_enable(false)` keeps the closure path for execs built after it (the A/B of
   `corpus-bench --interp-ab=CLJ_BENCH_NO_LAZY_INLINE`). `SeqTests.anInterpretedLazySeqSiteMakesNoFn`,
   `aReboundLazySeqStarTakesTheClosure`.
