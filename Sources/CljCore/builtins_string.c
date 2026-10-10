@@ -13,37 +13,17 @@ static bool is_whitespace(uint32_t cp) {
 
 static clj_value not_a_string(const char *what, clj_value v) { return clj_throw_msg("%s expects a string, got: %s", what, clj_type_name(v)); }
 
-// Byte offset of code point index i, or the length for i == count; -1 past the end.
-static intptr_t cp_offset(clj_value s, intptr_t i) {
-	if (i < 0) return -1;
-	const char *bytes = clj_string_bytes(s);
-	size_t      len = clj_string_len(s), pos = 0;
-	uint32_t    cp;
-	for (intptr_t k = 0; k < i; k++) {
-		if (pos >= len) return -1;
-		pos += clj_utf8_decode(bytes, len, pos, &cp);
-	}
-	return (intptr_t)pos;
-}
-
-// Code points before byte offset pos.
-static intptr_t cp_index(clj_value s, size_t pos) {
-	const char *bytes = clj_string_bytes(s);
-	size_t      len = clj_string_len(s), at = 0;
-	intptr_t    i = 0;
-	uint32_t    cp;
-	while (at < pos && at < len) {
-		at += clj_utf8_decode(bytes, len, at, &cp);
-		i++;
-	}
-	return i;
+// Byte offset of code point index i, or the length for i == count; -1 outside [0, count].
+static intptr_t cp_offset(clj_value s, intptr_t i, intptr_t count) {
+	if (i < 0 || i > count) return -1;
+	return (intptr_t)clj_string_offset(s, (size_t)i);
 }
 
 static clj_value b_subs(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return not_a_string("subs", args[0]);
-	intptr_t start, end = (intptr_t)clj_string_count(args[0]);
+	intptr_t count = (intptr_t)clj_string_count(args[0]), start, end = count;
 	if (!clj_index_arg(args[1], &start) || (n == 3 && !clj_index_arg(args[2], &end))) return clj_throw_msg("subs expects integer indices");
-	intptr_t from = cp_offset(args[0], start), to = end < start ? -1 : cp_offset(args[0], end);
+	intptr_t from = cp_offset(args[0], start, count), to = end < start ? -1 : cp_offset(args[0], end, count);
 	if (from < 0 || to < 0) return clj_throw_msg("String index out of range: %ld", (long)(from < 0 ? start : end));
 	return clj_string_new(clj_string_bytes(args[0]) + from, (size_t)(to - from));
 }
@@ -98,18 +78,12 @@ static clj_value b_index_of(const clj_value *args, size_t n) {
 	}
 	const char *hay = clj_string_bytes(args[0]), *nd = clj_string_bytes(needle);
 	size_t      hlen = clj_string_len(args[0]), nlen = clj_string_len(needle);
-	intptr_t    start = cp_offset(args[0], from);
-	clj_value   r = CLJ_NIL;
-	if (start >= 0) {
-		for (size_t pos = (size_t)start; pos + nlen <= hlen; pos++) {
-			if (memcmp(hay + pos, nd, nlen) == 0) {
-				r = clj_fixnum(cp_index(args[0], pos));
-				break;
-			}
-		}
-	}
+	intptr_t    count = (intptr_t)clj_string_count(args[0]);
+	// String.indexOf clamps a start past the end, where an empty needle still matches.
+	size_t      start = (size_t)cp_offset(args[0], from < count ? from : count, count);
+	const char *hit = clj_bytes_find(hay + start, hlen - start, nd, nlen);
 	clj_release(needle);
-	return r;
+	return hit ? clj_fixnum((intptr_t)clj_string_index_at(args[0], (size_t)(hit - hay))) : CLJ_NIL;
 }
 
 static clj_value b_last_index_of(const clj_value *args, size_t n) {
@@ -125,7 +99,7 @@ static clj_value b_last_index_of(const clj_value *args, size_t n) {
 			clj_release(needle);
 			return clj_throw_msg("last-index-of expects an integer index");
 		}
-		intptr_t off = from < 0 ? -1 : cp_offset(args[0], from);
+		intptr_t off = cp_offset(args[0], from, (intptr_t)clj_string_count(args[0]));
 		last = off < 0 ? (from < 0 ? -1 : (intptr_t)hlen) : off;
 	}
 	clj_value r = CLJ_NIL;
@@ -133,7 +107,7 @@ static clj_value b_last_index_of(const clj_value *args, size_t n) {
 		size_t pos = (size_t)last < hlen - nlen ? (size_t)last : hlen - nlen;
 		for (;;) {
 			if (memcmp(hay + pos, nd, nlen) == 0) {
-				r = clj_fixnum(cp_index(args[0], pos));
+				r = clj_fixnum((intptr_t)clj_string_index_at(args[0], pos));
 				break;
 			}
 			if (pos == 0) break;
@@ -259,18 +233,15 @@ static clj_value replace(clj_value s, clj_value match, clj_value repl, bool firs
 		}
 		if (first_only && pos < hlen) put(&b, hay + pos, hlen - pos);
 	} else {
-		size_t pos = 0;
-		bool   done = false;
-		while (pos < hlen) {
-			if (!done && pos + mlen <= hlen && memcmp(hay + pos, m, mlen) == 0) {
-				put(&b, r, rlen);
-				pos += mlen;
-				if (first_only) done = true;
-			} else {
-				put(&b, hay + pos, 1);
-				pos++;
-			}
+		size_t      pos = 0;
+		const char *hit;
+		while ((hit = clj_bytes_find(hay + pos, hlen - pos, m, mlen))) {
+			put(&b, hay + pos, (size_t)(hit - hay) - pos);
+			put(&b, r, rlen);
+			pos = (size_t)(hit - hay) + mlen;
+			if (first_only) break;
 		}
+		put(&b, hay + pos, hlen - pos);
 	}
 	clj_value out = clj_string_new(b.data, b.len);
 	free(b.data);
@@ -354,21 +325,19 @@ static clj_value b_split(const clj_value *args, size_t n) {
 	}
 	size_t   start = 0, pos = 0;
 	uint32_t cp;
-	while (pos < hlen) {
-		bool at_limit = limit > 0 && (intptr_t)p.n == limit - 1;
-		if (at_limit) break;
+	while (pos < hlen && !(limit > 0 && (intptr_t)p.n == limit - 1)) {
 		if (slen == 0) {
 			size_t w = clj_utf8_decode(hay, hlen, pos, &cp);
 			if (pos + w >= hlen) break;
 			add_part(&p, hay + pos, w);
 			pos += w;
 			start = pos;
-		} else if (pos + slen <= hlen && memcmp(hay + pos, sep, slen) == 0) {
-			add_part(&p, hay + start, pos - start);
-			pos += slen;
-			start = pos;
 		} else {
-			pos++;
+			const char *hit = clj_bytes_find(hay + pos, hlen - pos, sep, slen);
+			if (!hit) break;
+			add_part(&p, hay + start, (size_t)(hit - hay) - start);
+			pos = (size_t)(hit - hay) + slen;
+			start = pos;
 		}
 	}
 	add_part(&p, hay + start, hlen - start);

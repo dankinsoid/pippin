@@ -38,6 +38,12 @@
    :row "`compare` returns −1/0/1 only and orders strings by code point"
    :why "`compare` is not generated; `sort` and the sorted collections are, since only the sign of the comparison reaches their result. Generated strings are ASCII, where code-point order and UTF-16 order agree."}
 
+  {:id :astral-strings
+   :mechanism :generator
+   :design "docs/design/04-18-strings.md"
+   :cite "дифференциальный фаззер исключает из сравнения с JVM строки вне BMP"
+   :why "A generated form whose text holds a character outside the BMP is not compared (`astral-form?`): an index counts code points here and UTF-16 units on the JVM. The literal pools are BMP today, so this guards their widening; fuzz/regressions/strings-unicode.clj compares the astral forms whose answers agree."}
+
   {:id :ascii-only
    :mechanism :generator
    :row "`upper-case`/`lower-case`/`capitalize` and a pattern's `(?i)`, `\\w`, `\\p{L}` map ASCII letters only"

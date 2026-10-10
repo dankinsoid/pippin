@@ -561,7 +561,8 @@
         :when (diverge? x y)]
     {:index i :a x :b y}))
 
-;; ---------------------------------------------------------------- shrinking
+;; Design §4 «Строки»: indexes count code points here, UTF-16 units on the JVM, which differ only outside the BMP.
+(defn- astral-form? [form] (boolean (some #(Character/isSurrogate (char %)) (pr-str form))))
 
 (defn- prefix? [p q] (and (<= (count p) (count q)) (= (vec p) (subvec (vec q) 0 (count p)))))
 (defn- strict-prefix? [p q] (and (< (count p) (count q)) (prefix? p q)))
@@ -693,7 +694,9 @@
                            (str seed) (str (:exit (:oracle res))) (:file res)))
           (println (str/trim (:err (:oracle res)))))
         (doseq [[an bn] (pairs-to-check (map first runners))
-                d (take (:per-seed opts) (divergences (count forms) (get srcs an) (get srcs bn)))]
+                d (take (:per-seed opts)
+                        (remove #(and (:skip-astral? opts) (astral-form? (nth forms (:index %))))
+                                (divergences (count forms) (get srcs an) (get srcs bn))))]
           (swap! tally update :bad inc)
           (let [i (:index d)]
             (println (format "\nseed %s form %d: %s vs %s" (str seed) i an bn))
@@ -792,6 +795,7 @@
           opts (assoc opts
                       :sort-unordered? (contains? have :map-seq-order)
                       :bare-integers? (contains? have :no-bigint-marker)
+                      :skip-astral? (contains? have :astral-strings)
                       :order-raw? (not (contains? have :map-seq-order)))]
       (when-not (contains? have :map-seq-order)
         (println "fuzz: exclusion :map-seq-order is OFF, so a map's and a set's order is being compared"))

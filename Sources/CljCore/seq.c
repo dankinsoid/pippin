@@ -154,10 +154,7 @@ static clj_value string_seq_next(clj_value self) {
 
 static clj_value string_seq_count(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
-	const unsigned char  *p = (const unsigned char *)clj_string_bytes(s->str.v);
-	size_t                n = clj_string_len(s->str.v), count = 0;
-	for (size_t i = s->pos; i < n; i++) count += (p[i] & 0xC0) != 0x80;
-	return clj_fixnum((intptr_t)count);
+	return clj_fixnum((intptr_t)(clj_string_count(s->str.v) - clj_string_index_at(s->str.v, s->pos)));
 }
 
 const clj_type clj_string_seq_type = {

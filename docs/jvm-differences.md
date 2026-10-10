@@ -89,6 +89,7 @@ A closed difference is deleted, not kept, so the page is the open list. No **Fix
 
 | Difference | Class | Decision |
 |---|---|---|
+| `count`, `subs`, `nth`, `get`, `seq`, `index-of`, `last-index-of` and `format`'s width and precision count code points, not UTF-16 units: `(count "😀")` is 1 and `(subs "a😀" 1)` is `"😀"`, where the JVM answers 2 and a lone surrogate | Deliberate | Design §4 «Строки»: strings are UTF-8, and UTF-16 indexes would need WTF-8 to hold a lone surrogate. Only a character outside the BMP shows it; `jvm-hash` still hashes UTF-16 units, and a pattern matches code points on both sides. |
 | `upper-case`/`lower-case`/`capitalize` and a pattern's `(?i)`, `\w`, `\p{L}` map ASCII letters only | Deferred | One missing table serves all of them: trigger is non-ASCII case or a non-ASCII class in a corpus library, and the fix is the Unicode case and category data, not a range table. |
 | No `#=` read-eval, no `tagged-literal`/`reader-conditional` values | Deferred | `#=` is a code-loading hole nobody wants on a phone; a tag without a reader is an error here as on the JVM unless `*default-data-reader-fn*` says otherwise, and a library that wants the unresolved tag kept as data binds its own fn. Trigger: a corpus library using `tagged-literal`. |
 | `str` of a `#inst` is its `#inst` text without the tag; `Date.toString` is `Thu Jan 01 … UTC 1970` in the host zone | Deliberate | The JVM's text is locale- and zone-dependent and reads back as nothing; the printed form is what a log or a test wants. |

@@ -7,6 +7,8 @@
   error path that prints arbitrary runtime data uses it — "cannot be invoked", the arity error, "No value
   supplied for key", "Duplicate key", the protocol and node-data messages; `pr-str` itself is unbounded, as
   Clojure's is with `*print-length*` nil.
+- **An integer prints through `clj_int64_decimal`**, as `str` and `format`'s `%d` do (NOTES "Strings"); a double
+  through `put_double`'s shortest round trip, which still calls `snprintf`/`strtod`.
 - **Control characters print as `\uXXXX`** inside strings and as char literals; Clojure prints them raw.
   Readable by both, but `(pr-str "\u0001")` differs from the JVM byte for byte.
 - **`*print-length*` and `*print-level*` are read by `clj_pr_str_dynamic`**, the entry `pr`, `prn`, `print`,

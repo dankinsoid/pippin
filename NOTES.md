@@ -37,6 +37,7 @@ Collections and values
 - [Arrays](docs/notes/arrays.md) — inline elements, ten element kinds, `vector-of`.
 - [Numeric tower](docs/notes/numeric-tower.md) — six kinds, JVM promotion, bigint/ratio/decimal, no float.
 - [Symbol / keyword](docs/notes/symbol-keyword.md) — interning and its permanence.
+- [Strings](docs/notes/strings.md) — UTF-8 with code point indexes, the ASCII bit, the count and crumbs tail, integer text, literal-pattern split and replace.
 
 Reading, analysis, evaluation
 - [Reader](docs/notes/reader.md) — tagged literals, reader conditionals, syntax-quote, positions.

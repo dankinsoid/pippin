@@ -476,3 +476,30 @@ clj_value clj_num_cmp(clj_value a, clj_value b, int *out) {
 	default: *out = clj_bigint_cmp(a, b); return CLJ_NIL;
 	}
 }
+
+// @ai-generated(solo)
+size_t clj_int64_decimal(int64_t v, char out[20]) {
+	static const char pairs[201] = "00010203040506070809101112131415161718192021222324252627282930313233343536373839"
+	                               "40414243444546474849505152535455565758596061626364656667686970717273747576777879"
+	                               "8081828384858687888990919293949596979899";
+	// -INT64_MIN does not fit an int64_t.
+	uint64_t mag = v < 0 ? 0 - (uint64_t)v : (uint64_t)v;
+	char     tmp[20];
+	size_t   n = sizeof tmp;
+	while (mag >= 100) {
+		const char *d = pairs + 2 * (mag % 100);
+		mag /= 100;
+		tmp[--n] = d[1];
+		tmp[--n] = d[0];
+	}
+	if (mag >= 10) {
+		tmp[--n] = pairs[2 * mag + 1];
+		tmp[--n] = pairs[2 * mag];
+	} else {
+		tmp[--n] = (char)('0' + mag);
+	}
+	size_t len = v < 0;
+	if (len) out[0] = '-';
+	memcpy(out + len, tmp + n, sizeof tmp - n);
+	return len + sizeof tmp - n;
+}

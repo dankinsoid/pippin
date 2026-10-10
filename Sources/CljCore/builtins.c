@@ -1150,6 +1150,11 @@ static bool put_str(buf *b, clj_value v) {
 		buf_put(b, clj_string_bytes(v), clj_string_len(v));
 		return true;
 	}
+	if (clj_is_fixnum(v) || clj_is_long(v)) {
+		char digits[20];
+		buf_put(b, digits, clj_int64_decimal(clj_is_fixnum(v) ? clj_fixnum_val(v) : clj_long_val(v), digits));
+		return true;
+	}
 	if (clj_is_double(v) && !isfinite(clj_double_val(v))) {
 		double d = clj_double_val(v);
 		const char *text = d != d ? "NaN" : d < 0 ? "-Infinity" : "Infinity";

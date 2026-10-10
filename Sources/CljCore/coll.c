@@ -115,18 +115,6 @@ clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found) 
 	return clj_retain(not_found);
 }
 
-// Code point at index i, or false past the end.
-static bool string_nth(clj_value s, size_t i, uint32_t *out) {
-	const char *p = clj_string_bytes(s);
-	size_t      n = clj_string_len(s), pos = 0;
-	for (size_t k = 0; pos < n; k++) {
-		size_t len = clj_utf8_decode(p, n, pos, out);
-		if (k == i) return true;
-		pos += len;
-	}
-	return false;
-}
-
 clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value not_found) {
 	intptr_t i;
 	if (!clj_index_arg(index, &i)) return clj_throw_msg("Key must be integer");
@@ -146,7 +134,7 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		count = clj_array_count(coll);
 	} else if (t == &clj_string_type) {
 		uint32_t cp;
-		if (i >= 0 && string_nth(coll, (size_t)i, &cp)) return clj_char(cp);
+		if (i >= 0 && clj_string_char_at(coll, (size_t)i, &cp)) return clj_char(cp);
 		count = clj_string_count(coll);
 	} else if (t == &clj_matcher_type) {
 		// RT.nth indexes a Matcher by group, which no interface of its own carries.

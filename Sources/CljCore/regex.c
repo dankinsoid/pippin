@@ -30,6 +30,13 @@ static void text_of(clj_value s, re_text *t) {
 	t->cp = malloc((len + 1) * sizeof *t->cp);
 	t->off = malloc((len + 2) * sizeof *t->off);
 	if (!t->cp || !t->off) clj_fatal("out of memory");
+	if (clj_string_is_ascii(s)) {
+		for (; n < len; n++) {
+			t->off[n] = (uint32_t)n;
+			t->cp[n] = (unsigned char)bytes[n];
+		}
+		pos = len;
+	}
 	while (pos < len) {
 		uint32_t cp;
 		t->off[n] = (uint32_t)pos;
@@ -40,7 +47,9 @@ static void text_of(clj_value s, re_text *t) {
 	t->n = (uint32_t)n;
 }
 
+// No text: from and to are byte offsets already, as a literal pattern's scan produces them.
 static clj_value text_slice(const re_text *t, clj_value s, uint32_t from, uint32_t to) {
+	if (!t) return clj_string_new(clj_string_bytes(s) + from, to - from);
 	return clj_string_new(clj_string_bytes(s) + t->off[from], t->off[to] - t->off[from]);
 }
 
@@ -155,10 +164,13 @@ typedef struct {
 	re_class **classes;
 	uint32_t   nclasses, ccap;
 	uint32_t   nslots, nmarks;
+	char      *literal; // the pattern's UTF-8 when it matches only itself, else NULL
+	uint32_t   literal_len;
 } re_prog;
 
 static void prog_free(re_prog *p) {
 	if (!p) return;
+	free(p->literal);
 	for (uint32_t i = 0; i < p->nclasses; i++) class_free(p->classes[i]);
 	free(p->classes);
 	free(p->inst);
@@ -1292,6 +1304,33 @@ static clj_value syntax_error(clj_value pattern, const char *desc, size_t offset
 	return clj_throw(ex);
 }
 
+// Plain characters and backslash-quoted ASCII punctuation only; an empty pattern stays with the engine (zero-width).
+static void literal_of(re_prog *p, const char *src, size_t len) {
+	if (!len) return;
+	char  *out = malloc(len);
+	size_t n = 0;
+	if (!out) clj_fatal("out of memory");
+	for (size_t i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)src[i];
+		if (c == '\\') {
+			unsigned char q = i + 1 < len ? (unsigned char)src[i + 1] : 0;
+			if (!q || q >= 0x80 || (q >= '0' && q <= '9') || (q >= 'A' && q <= 'Z') || (q >= 'a' && q <= 'z')) {
+				free(out);
+				return;
+			}
+			out[n++] = (char)q;
+			i++;
+		} else if (c && strchr("^$.|?*+()[]{}", c)) {
+			free(out);
+			return;
+		} else {
+			out[n++] = (char)c;
+		}
+	}
+	p->literal = out;
+	p->literal_len = (uint32_t)n;
+}
+
 clj_value clj_regex_new(clj_value pattern) {
 	if (!clj_is_string(pattern)) return clj_throw_msg("%s cannot be cast to a pattern", clj_type_name(pattern));
 	re_prog *p = calloc(1, sizeof *p);
@@ -1318,6 +1357,7 @@ clj_value clj_regex_new(clj_value pattern) {
 		if (p->inst[i].op == RE_MARK || p->inst[i].op == RE_PROGRESS) p->inst[i].a += bounds;
 	}
 	p->nslots = bounds + p->nmarks;
+	literal_of(p, c.src, c.len);
 	clj_regex *r = clj_alloc(&clj_regex_type, sizeof *r);
 	clj_slot_init(&r->h, &r->pattern, clj_retain(pattern));
 	clj_slot_init(&r->h, &r->names, c.names);
@@ -1437,12 +1477,55 @@ static void buf_put(buf *b, const char *s, size_t n) {
 }
 
 static void buf_slice(buf *b, const re_text *t, clj_value s, uint32_t from, uint32_t to) {
-	buf_put(b, clj_string_bytes(s) + t->off[from], t->off[to] - t->off[from]);
+	if (t) {
+		from = t->off[from];
+		to = t->off[to];
+	}
+	buf_put(b, clj_string_bytes(s) + from, to - from);
+}
+
+static clj_value byte_slice(clj_value s, size_t from, size_t to) { return clj_string_new(clj_string_bytes(s) + from, to - from); }
+
+// Agrees with the engine on valid UTF-8 only: malformed input (the reader does not validate) may decode differently.
+static intptr_t literal_find(const re_prog *p, clj_value s, size_t at) {
+	const char *hay = clj_string_bytes(s);
+	const char *hit = clj_bytes_find(hay + at, clj_string_len(s) - at, p->literal, p->literal_len);
+	return hit ? hit - hay : -1;
+}
+
+// clj_regex_split's scan over bytes: a literal match is never empty, so no zero-width rule applies.
+static clj_value literal_split(const re_prog *p, clj_value s, intptr_t limit) {
+	size_t    len = clj_string_len(s), index = 0;
+	clj_value parts = clj_vector_empty();
+	bool      none = true;
+	intptr_t  from;
+	while ((from = literal_find(p, s, index)) >= 0) {
+		none = false;
+		if (limit > 0 && (intptr_t)clj_vector_count(parts) == limit - 1) break;
+		clj_value piece = byte_slice(s, index, (size_t)from);
+		parts = clj_vector_conj(parts, piece);
+		clj_release(piece);
+		index = (size_t)from + p->literal_len;
+	}
+	if (none) return clj_vector_conj(parts, s);
+	if (limit <= 0 || (intptr_t)clj_vector_count(parts) < limit) {
+		clj_value tail = byte_slice(s, index, len);
+		parts = clj_vector_conj(parts, tail);
+		clj_release(tail);
+	}
+	if (limit == 0) {
+		uint32_t n = clj_vector_count(parts);
+		while (n > 0 && clj_string_len(clj_vector_nth(parts, n - 1)) == 0) n--;
+		while (clj_vector_count(parts) > n) parts = clj_vector_pop(parts);
+	}
+	return parts;
 }
 
 // Java's Pattern.split, including the leading zero-width match it drops and the trailing empties.
 clj_value clj_regex_split(clj_value re, clj_value s, intptr_t limit) {
 	if (!clj_is_regex(re) || !clj_is_string(s)) return bad_args("split", re, s);
+	const re_prog *prog = clj_regex_of(re)->prog;
+	if (prog->literal) return literal_split(prog, s, limit);
 	re_text t = {0};
 	text_of(s, &t);
 	int32_t *g = malloc(2 * (clj_regex_group_count(re) + 1) * sizeof *g);
@@ -1559,9 +1642,48 @@ static bool expand(buf *b, clj_value re, clj_value s, const re_text *t, const in
 	return true;
 }
 
-// The scan both replace forms share; f nil means the literal replacement.
+// f nil means the replacement string.
+static bool put_replacement(buf *b, clj_value re, clj_value s, const re_text *t, const int32_t *g, clj_value repl, clj_value f) {
+	if (clj_is_nil(f)) return expand(b, re, s, t, g, repl);
+	clj_value arg = result_of(re, s, t, g);
+	clj_value out = clj_invoke(f, &arg, 1);
+	clj_release(arg);
+	if (out == CLJ_THROWN) return false;
+	if (!clj_is_string(out)) {
+		clj_throw_msg("%s cannot be cast to a string", clj_type_name(out));
+		clj_release(out);
+		return false;
+	}
+	buf_put(b, clj_string_bytes(out), clj_string_len(out));
+	clj_release(out);
+	return true;
+}
+
+static clj_value literal_replace(const re_prog *p, clj_value re, clj_value s, clj_value repl, clj_value f, bool first_only) {
+	buf      b = {0};
+	size_t   copied = 0;
+	intptr_t from;
+	while ((from = literal_find(p, s, copied)) >= 0) {
+		int32_t g[2] = {(int32_t)from, (int32_t)(from + p->literal_len)};
+		buf_put(&b, clj_string_bytes(s) + copied, (size_t)from - copied);
+		if (!put_replacement(&b, re, s, NULL, g, repl, f)) {
+			free(b.data);
+			return CLJ_THROWN;
+		}
+		copied = (size_t)g[1];
+		if (first_only) break;
+	}
+	buf_put(&b, clj_string_bytes(s) + copied, clj_string_len(s) - copied);
+	clj_value out = clj_string_new(b.data, b.len);
+	free(b.data);
+	return out;
+}
+
+// The scan both replace forms share; f nil means the replacement string.
 static clj_value replace_scan(clj_value re, clj_value s, clj_value repl, clj_value f, bool first_only) {
 	if (!clj_is_regex(re) || !clj_is_string(s)) return bad_args("replace", re, s);
+	const re_prog *prog = clj_regex_of(re)->prog;
+	if (prog->literal) return literal_replace(prog, re, s, repl, f, first_only);
 	re_text t = {0};
 	text_of(s, &t);
 	int32_t *g = malloc(2 * (clj_regex_group_count(re) + 1) * sizeof *g);
@@ -1580,27 +1702,9 @@ static clj_value replace_scan(clj_value re, clj_value s, clj_value repl, clj_val
 		if (!hit) break;
 		uint32_t from = (uint32_t)g[0], to = (uint32_t)g[1];
 		buf_slice(&b, &t, s, copied, from);
-		if (clj_is_nil(f)) {
-			if (!expand(&b, re, s, &t, g, repl)) {
-				thrown = true;
-				break;
-			}
-		} else {
-			clj_value arg = result_of(re, s, &t, g);
-			clj_value out = clj_invoke(f, &arg, 1);
-			clj_release(arg);
-			if (out == CLJ_THROWN) {
-				thrown = true;
-				break;
-			}
-			if (!clj_is_string(out)) {
-				clj_throw_msg("%s cannot be cast to a string", clj_type_name(out));
-				clj_release(out);
-				thrown = true;
-				break;
-			}
-			buf_put(&b, clj_string_bytes(out), clj_string_len(out));
-			clj_release(out);
+		if (!put_replacement(&b, re, s, &t, g, repl, f)) {
+			thrown = true;
+			break;
 		}
 		copied = to;
 		at = to == from ? to + 1 : to;

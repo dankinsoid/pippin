@@ -69,4 +69,7 @@ void clj_num_as_fraction(clj_value v, clj_value *num, clj_value *den);
 clj_value clj_double_quot(double p, double q);
 clj_value clj_double_rem(double p, double q);
 
+// The decimal digits of v after a '-' when negative, no NUL; returns their count, at most 20.
+size_t clj_int64_decimal(int64_t v, char out[20]);
+
 #endif

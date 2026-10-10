@@ -68,16 +68,8 @@ static clj_value string_count(clj_value self) { return clj_fixnum((intptr_t)clj_
 
 // (get "abc" 1) is \b, as RT.get special-cases strings; a string is still no ILookup (no bit).
 static clj_value string_lookup(clj_value self, clj_value key, clj_value not_found) {
-	if (clj_is_fixnum(key) && clj_fixnum_val(key) >= 0) {
-		const char *p = clj_string_bytes(self);
-		size_t      n = clj_string_len(self), pos = 0;
-		uint32_t    cp;
-		for (intptr_t k = 0; pos < n; k++) {
-			size_t len = clj_utf8_decode(p, n, pos, &cp);
-			if (k == clj_fixnum_val(key)) return clj_char(cp);
-			pos += len;
-		}
-	}
+	uint32_t cp;
+	if (clj_is_fixnum(key) && clj_fixnum_val(key) >= 0 && clj_string_char_at(self, (size_t)clj_fixnum_val(key), &cp)) return clj_char(cp);
 	return clj_retain(not_found);
 }
 
@@ -95,13 +87,40 @@ const clj_type clj_string_type = {
 	.reduce = clj_reduce_iter,
 };
 
+static bool all_ascii(const char *p, size_t n) {
+	uint64_t acc = 0;
+	size_t   i = 0;
+	for (; i + 8 <= n; i += 8) {
+		uint64_t w;
+		memcpy(&w, p + i, 8);
+		acc |= w;
+	}
+	for (; i < n; i++) acc |= (unsigned char)p[i];
+	return !(acc & 0x8080808080808080ull);
+}
+
+// Inline, not a side allocation: freeing one would take strings off rc.c's leaf path, every string's death with them.
+typedef struct {
+	_Atomic uint32_t count;   // code points, 0 until built; crumb is valid once it is not
+	_Atomic uint32_t crumb[]; // crumb[k]: the byte offset of code point (k + 1) * CLJ_STRING_CRUMB_STRIDE
+} string_tail;
+
+static inline size_t tail_offset(size_t len) { return (sizeof(clj_string) + len + 1 + 3) & ~(size_t)3; }
+// Code points never outnumber bytes, so this bounds the crumbs below the last code point.
+static inline size_t       tail_crumbs(size_t len) { return (len - 1) / CLJ_STRING_CRUMB_STRIDE; }
+static inline string_tail *tail_of(const clj_string *s) { return (string_tail *)((char *)s + tail_offset(s->len)); }
+
 clj_value clj_string_new(const char *bytes, size_t len) {
 	if (len > UINT32_MAX) clj_fatal("string longer than 4 GiB");
-	clj_string *s = clj_alloc_uninit(&clj_string_type, sizeof *s + len + 1);
+	bool   ascii = all_ascii(bytes, len), tail = !ascii && len > CLJ_STRING_CRUMB_BYTES;
+	size_t size = tail ? tail_offset(len) + sizeof(string_tail) + tail_crumbs(len) * sizeof(uint32_t) : sizeof(clj_string) + len + 1;
+	clj_string *s = clj_alloc_uninit(&clj_string_type, size);
 	atomic_init(&s->hash, 0);
 	s->len = (uint32_t)len;
 	if (len) memcpy(s->bytes, bytes, len);
 	s->bytes[len] = '\0';
+	if (ascii) s->h.flags |= CLJ_STRING_ASCII;
+	if (tail) atomic_init(&tail_of(s)->count, 0);
 	return clj_from_ptr(s);
 }
 
@@ -117,9 +136,105 @@ size_t clj_utf8_decode(const char *bytes, size_t len, size_t pos, uint32_t *out)
 	return n;
 }
 
-size_t clj_string_count(clj_value s) {
-	const unsigned char *p = (const unsigned char *)clj_string_bytes(s);
-	size_t               n = clj_string_len(s), count = 0;
-	for (size_t i = 0; i < n; i++) count += (p[i] & 0xC0) != 0x80;
+static inline bool is_lead(unsigned char c) { return (c & 0xC0) != 0x80; }
+
+static size_t count_leads(const unsigned char *p, size_t from, size_t to) {
+	size_t count = 0;
+	for (size_t i = from; i < to; i++) count += is_lead(p[i]);
 	return count;
+}
+
+// Racing builders store the same values; the release on count publishes the crumbs to an acquiring reader.
+static uint32_t tail_build(const clj_string *s, string_tail *t) {
+	const unsigned char *p = (const unsigned char *)s->bytes;
+	uint32_t             count = 0;
+	for (uint32_t i = 0; i < s->len; i++) {
+		if (!is_lead(p[i])) continue;
+		if (count && count % CLJ_STRING_CRUMB_STRIDE == 0)
+			atomic_store_explicit(&t->crumb[count / CLJ_STRING_CRUMB_STRIDE - 1], i, memory_order_relaxed);
+		count++;
+	}
+	atomic_store_explicit(&t->count, count, memory_order_release);
+	return count;
+}
+
+// 0 only for malformed bytes without a single lead byte, which then rebuild on every call.
+static uint32_t tail_count(const clj_string *s, string_tail *t) {
+	uint32_t count = atomic_load_explicit(&t->count, memory_order_acquire);
+	return count ? count : tail_build(s, t);
+}
+
+size_t clj_string_count_slow(clj_value v) {
+	const clj_string *s = clj_string_of(v);
+	if (s->len > CLJ_STRING_CRUMB_BYTES) return tail_count(s, tail_of(s));
+	return count_leads((const unsigned char *)s->bytes, 0, s->len);
+}
+
+static size_t skip_points(const unsigned char *p, size_t len, size_t pos, size_t k) {
+	for (; k && pos < len; k--) {
+		pos++;
+		while (pos < len && !is_lead(p[pos])) pos++;
+	}
+	return pos;
+}
+
+size_t clj_string_offset_slow(clj_value v, size_t i) {
+	const clj_string    *s = clj_string_of(v);
+	const unsigned char *p = (const unsigned char *)s->bytes;
+	size_t               pos = 0, k = i;
+	if (s->len > CLJ_STRING_CRUMB_BYTES && i >= CLJ_STRING_CRUMB_STRIDE) {
+		string_tail *t = tail_of(s);
+		if (i >= tail_count(s, t)) return s->len;
+		size_t c = i / CLJ_STRING_CRUMB_STRIDE;
+		pos = atomic_load_explicit(&t->crumb[c - 1], memory_order_relaxed);
+		k = i - c * CLJ_STRING_CRUMB_STRIDE;
+	}
+	return skip_points(p, s->len, pos, k);
+}
+
+size_t clj_string_index_slow(clj_value v, size_t pos) {
+	const clj_string    *s = clj_string_of(v);
+	const unsigned char *p = (const unsigned char *)s->bytes;
+	size_t               from = 0, base = 0;
+	if (pos > s->len) pos = s->len;
+	if (s->len > CLJ_STRING_CRUMB_BYTES && pos > CLJ_STRING_CRUMB_STRIDE) {
+		string_tail *t = tail_of(s);
+		uint32_t     count = tail_count(s, t);
+		// lo ends as the number of crumbs at or before pos; crumbs increase.
+		size_t lo = 0, hi = count ? (count - 1) / CLJ_STRING_CRUMB_STRIDE : 0;
+		while (lo < hi) {
+			size_t mid = lo + (hi - lo) / 2;
+			if (atomic_load_explicit(&t->crumb[mid], memory_order_relaxed) <= pos) lo = mid + 1;
+			else hi = mid;
+		}
+		if (lo) {
+			from = atomic_load_explicit(&t->crumb[lo - 1], memory_order_relaxed);
+			base = lo * CLJ_STRING_CRUMB_STRIDE;
+		}
+	}
+	return base + count_leads(p, from, pos);
+}
+
+bool clj_string_char_at(clj_value s, size_t i, uint32_t *out) {
+	if (clj_string_is_ascii(s)) {
+		if (i >= clj_string_len(s)) return false;
+		*out = (unsigned char)clj_string_bytes(s)[i];
+		return true;
+	}
+	if (i >= clj_string_count_slow(s)) return false;
+	clj_utf8_decode(clj_string_bytes(s), clj_string_len(s), clj_string_offset_slow(s, i), out);
+	return true;
+}
+
+const char *clj_bytes_find(const char *hay, size_t hlen, const char *nd, size_t nlen) {
+	if (nlen == 0) return hay;
+	if (nlen > hlen) return NULL;
+	const char *end = hay + (hlen - nlen) + 1;
+	for (const char *p = hay; p < end;) {
+		p = memchr(p, nd[0], (size_t)(end - p));
+		if (!p) return NULL;
+		if (memcmp(p + 1, nd + 1, nlen - 1) == 0) return p;
+		p++;
+	}
+	return NULL;
 }

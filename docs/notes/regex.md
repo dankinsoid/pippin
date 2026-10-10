@@ -12,7 +12,11 @@
 - **The matcher works on code points, not bytes** (`re_text`: the input decoded once into a code point
   array plus a byte offset per index), as `subs` and `index-of` do. A matcher object keeps its `re_text`,
   so `re-seq` over one input is linear in it rather than quadratic; `split` and `replace` keep one
-  `re_ctx` across the matches of a scan, so only the first match allocates (bench/RESULTS.md).
+  `re_ctx` across the matches of a scan, so only the first match allocates (bench/RESULTS.md). An ASCII input
+  fills the arrays without decoding (`CLJ_STRING_ASCII`).
+- **A literal pattern does not reach the matcher in `split` and `replace`**: plain characters and
+  backslash-quoted ASCII punctuation keep their bytes in `re_prog.literal`, and the two scans search bytes
+  (NOTES "Strings").
 - **A group's bounds live in an int32 slot array with an undo log.** Every `SAVE` records the old value,
   and a backtrack point holds the log's height, so restoring a group is popping the log. The same array
   holds the loop marks an unbounded quantifier needs: `MARK`/`PROGRESS` refuse an iteration that consumed

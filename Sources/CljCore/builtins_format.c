@@ -166,9 +166,11 @@ static clj_value format_integer(buf *b, const spec *s, clj_value v) {
 		clj_release(t);
 	} else if (clj_int64_of(v, &n)) {
 		negative = n < 0;
-		uint64_t mag = negative ? 0u - (uint64_t)n : (uint64_t)n;
-		if (s->conv == 'd') snprintf(text, sizeof text, "%llu", (unsigned long long)mag);
-		else if (s->conv == 'x') snprintf(text, sizeof text, "%llx", (unsigned long long)n), negative = false;
+		if (s->conv == 'd') {
+			size_t len = clj_int64_decimal(n, text);
+			text[len] = '\0';
+			if (negative) memmove(text, text + 1, len);
+		} else if (s->conv == 'x') snprintf(text, sizeof text, "%llx", (unsigned long long)n), negative = false;
 		else snprintf(text, sizeof text, "%llo", (unsigned long long)n), negative = false;
 	} else {
 		return clj_throw_msg("format: %c != %s in %.*s", s->conv, clj_type_name(v), (int)s->len, s->start);

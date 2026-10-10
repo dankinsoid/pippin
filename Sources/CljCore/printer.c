@@ -381,10 +381,9 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		put_cstr(b, "true");
 	} else if (v == CLJ_FALSE) {
 		put_cstr(b, "false");
-	} else if (clj_is_fixnum(v)) {
-		put_fmt(b, "%lld", (long long)clj_fixnum_val(v));
-	} else if (clj_is_long(v)) {
-		put_fmt(b, "%lld", (long long)clj_long_val(v));
+	} else if (clj_is_fixnum(v) || clj_is_long(v)) {
+		char digits[20];
+		put_bytes(b, digits, clj_int64_decimal(clj_is_fixnum(v) ? clj_fixnum_val(v) : clj_long_val(v), digits));
 	} else if (clj_is_char(v)) {
 		if (readably) put_char_literal(b, clj_char_val(v));
 		else put_utf8(b, clj_char_val(v));
