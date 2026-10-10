@@ -1148,6 +1148,98 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "tuples" {
 }
 // bench-ab: }
 
+// The flat layout against the trie by size, for the threshold under which persistent! keeps it flat (bench/RESULTS.md,
+// "Flat transient maps"): CLJ_BENCH_ONLY=flat.
+// bench-ab: head only {
+// @ai-generated(solo)
+func flatBench() {
+	let sizes = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 128]
+	// A flat map of n integer keys at any size, and the trie of the same keys.
+	func flatOf(_ n: Int) -> clj_value {
+		clj_debug_flat_max(1 << 30)
+		var t = clj_map_transient(clj_map_empty())
+		for i in 0..<n { t = clj_map_assoc(t, clj_fixnum(i), clj_fixnum(i)) }
+		let p = clj_map_persistent(t)
+		clj_release(t)
+		clj_debug_flat_max(0)
+		precondition(clj_map_is_flat(p))
+		return p
+	}
+	func trieOf(_ n: Int) -> clj_value {
+		var m = clj_map_empty()
+		for i in 0..<n { m = clj_map_assoc(m, clj_fixnum(i), clj_fixnum(i)) }
+		precondition(!clj_map_is_flat(m))
+		return m
+	}
+	func gets(_ m: clj_value, _ n: Int, _ k: Int) -> UInt64 {
+		var acc: UInt64 = 0
+		for i in 0..<k { acc &+= UInt64(clj_map_get(m, clj_fixnum(i % n), CLJ_NIL)) }
+		return acc
+	}
+	// The map stays referenced, so each assoc copies: an existing key, or a key it lacks.
+	func sharedAssoc(_ m: clj_value, _ n: Int, _ k: Int, fresh: Bool) -> UInt64 {
+		var acc: UInt64 = 0
+		for i in 0..<k {
+			_ = clj_retain(m)
+			let r = clj_map_assoc(m, clj_fixnum(fresh ? n + i : i % n), clj_fixnum(-1))
+			acc &+= UInt64(clj_map_count(r))
+			clj_release(r)
+		}
+		return acc
+	}
+	let build = cljEval("(fn [n] (count (persistent! (reduce (fn [t i] (assoc! t i i)) (transient {}) (range n)))))")
+	print("| n | build, trie today | build, flat kept | build, flat → trie | get, flat | get, trie | shared assoc, flat | shared assoc, trie | shared new key, flat | shared new key, trie |")
+	print("|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+	for n in sizes {
+		let fix = clj_fixnum(n)
+		clj_flat_enable(false)
+		let today = measure(ops: n) { cljCall(build, fix) }
+		clj_flat_enable(true)
+		clj_debug_flat_max(1 << 30)
+		let kept = measure(ops: n) { cljCall(build, fix) }
+		clj_debug_flat_max(1)
+		let converted = measure(ops: n) { cljCall(build, fix) }
+		clj_debug_flat_max(0)
+		let f = flatOf(n), t = trieOf(n)
+		let k = 100_000
+		clj_debug_flat_max(1 << 30)
+		let row = [today, kept, converted,
+		           measure(ops: k) { gets(f, n, k) }, measure(ops: k) { gets(t, n, k) },
+		           measure(ops: k) { sharedAssoc(f, n, k, fresh: false) }, measure(ops: k) { sharedAssoc(t, n, k, fresh: false) },
+		           measure(ops: k) { sharedAssoc(f, n, k, fresh: true) }, measure(ops: k) { sharedAssoc(t, n, k, fresh: true) }]
+		clj_debug_flat_max(0)
+		print("| \(n) | " + row.map(fmt).joined(separator: " | ") + " |")
+		clj_release(f)
+		clj_release(t)
+	}
+	print("\nns per entry for the builds (a reduce fn's borrowed accumulator, persistent! included), per op otherwise; medians of \(reps) runs")
+	// The builders this layout is for, over the corpus bench's sizes.
+	let freqs = cljEval("(fn [n] (count (frequencies (map #(mod % 628) (range n)))))")
+	let small = cljEval("(fn [n] (count (frequencies (map #(mod % 13) (range n)))))")
+	let groups = cljEval("(fn [n] (count (group-by #(mod % 23) (range n))))")
+	let words = cljEval("(fn [n] (count (frequencies (map #(str \"w\" (mod % 628)) (range n)))))")
+	print("\n| builder, n = 50000 | flat | trie (off) | off / flat |")
+	print("|---|---:|---:|---:|")
+	for (name, f) in [("frequencies, 628 integers", freqs), ("frequencies, 13 integers", small), ("group-by, 23 integers", groups),
+	                  ("frequencies, 628 strings", words)] {
+		let n = clj_fixnum(50_000)
+		clj_flat_enable(false)
+		let off = measure(ops: 50_000) { cljCall(f, n) }
+		clj_flat_enable(true)
+		let on = measure(ops: 50_000) { cljCall(f, n) }
+		print("| \(name) | \(fmt(on)) | \(fmt(off)) | \(ratio(on, off)) |")
+	}
+	print("\nns per element")
+	for v in [build, freqs, small, groups, words] { clj_release(v) }
+}
+
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "flat" {
+	clj_init()
+	flatBench()
+	exit(0)
+}
+// bench-ab: }
+
 // (reduce + (map inc (range n))), (reduce + (map inc (filter even? (range n)))), (count (vec (map inc (range n)))):
 // pipelines the optimizer fuses into their transducer form.
 func cReduceMapRange(_ f: clj_value, _ n: Int) -> UInt64 { cljCall(f, clj_fixnum(n)) }

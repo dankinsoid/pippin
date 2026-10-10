@@ -63,6 +63,19 @@ clj_value clj_map_reduce_kv(clj_value map, clj_value f, clj_value init);
 typedef bool (*clj_map_entry_fn)(clj_value key, clj_value val, void *ctx);
 void clj_map_each(clj_value map, clj_map_entry_fn fn, void *ctx);
 
+// The flat layout (NOTES "Map"). (transient coll) and (persistent! coll), borrowed in: a non-map comes back itself.
+clj_value clj_map_transient(clj_value coll);
+clj_value clj_map_persistent(clj_value coll);
+bool      clj_map_is_flat(clj_value v);
+bool      clj_map_is_transient(clj_value v);
+// Process-wide switch, the bench's control: off, a transient is its map (existing flat maps keep working).
+void      clj_flat_enable(bool on);
+bool      clj_flat_enabled(void);
+// The threshold: the most entries a persistent flat map keeps; 0 restores the default.
+void      clj_debug_flat_max(uint32_t n);
+// Entry capacity of a flat map's table, 0 for another layout.
+uint32_t  clj_debug_flat_capacity(clj_value map);
+
 // Structural comparison of the tries; collision nodes compare as sets. Shape maps compare by shape.
 bool clj_debug_map_same_shape(clj_value a, clj_value b);
 // A hash map's trie root and cached hash (0 when none); a shape map has neither.

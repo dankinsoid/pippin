@@ -1078,18 +1078,25 @@
                           (cons f (step (rest s) (conj seen f)))))))))]
      (step coll #{}))))
 
+;; A map's transient is the flat layout, edited in place at any count (NOTES "Map"); every other collection's is the
+;; collection itself, its persistent operations reusing it at a count of one.
+(defn transient "Returns a transient of coll: a flat table for a small map, coll itself otherwise." [coll] (transient* coll))
+(defn persistent! "Returns the persistent value of a transient (see transient)." [coll] (persistent!* coll))
+(defn assoc! "assoc on a transient (see transient)." ([coll k v] (assoc coll k v)) ([coll k v & kvs] (apply assoc coll k v kvs)))
+
 (defn group-by
   "Returns a map from each (f x) to the vector of the xs with that key, in order."
   [f coll]
-  (reduce (fn [ret x]
-            (let [k (f x)]
-              (assoc ret k (conj (get ret k []) x))))
-          {} coll))
+  (persistent!
+    (reduce (fn [ret x]
+              (let [k (f x)]
+                (assoc! ret k (conj (get ret k []) x))))
+            (transient {}) coll)))
 
 (defn frequencies
   "Returns a map from each distinct item of coll to the number of times it appears."
   [coll]
-  (reduce (fn [counts x] (assoc counts x (inc (get counts x 0)))) {} coll))
+  (persistent! (reduce (fn [counts x] (assoc! counts x (inc (get counts x 0)))) (transient {}) coll)))
 
 (defn zipmap
   "Returns a map of the keys to the corresponding vals, ending with the shorter."
@@ -1586,11 +1593,7 @@
                    (cons found (step)))))]
     (step)))
 
-;; Transients are the persistent operations themselves: no separate mutable phase (NOTES.md).
-(defn transient "Returns coll itself: persistent operations stand in for transients here." [coll] coll)
-(defn persistent! "Returns coll itself (see transient)." [coll] coll)
 (defn conj! "conj on a transient (see transient)." ([] (transient [])) ([coll] coll) ([coll x] (conj coll x)))
-(defn assoc! "assoc on a transient (see transient)." ([coll k v] (assoc coll k v)) ([coll k v & kvs] (apply assoc coll k v kvs)))
 (defn dissoc! "dissoc on a transient (see transient)." ([m k] (dissoc m k)) ([m k & ks] (apply dissoc m k ks)))
 (defn disj! "disj on a transient (see transient)." ([s k] (disj s k)) ([s k & ks] (apply disj s k ks)))
 (defn pop! "pop on a transient (see transient)." [coll] (pop coll))

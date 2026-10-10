@@ -983,11 +983,40 @@ enum Model {
 					return Init(expr: "(subvec (vec (range \(n))) \(a) \(b))", value: Coll(.vec, (a..<b).map(int)))
 				}
 			case "hmap":
-				switch rng.below(7) {
+				switch rng.below(9) {
 				case 0, 1:
 					var m = Coll(.hmap)
 					for k in kws.shuffled(using: &rng).prefix(rng.below(6)) { m = assoc(m, .scalar(":" + k), int(rng.below(20)))! }
 					return Init(expr: text(m), value: m)
+				case 7, 8:
+					// The flat layout (a borrowed accumulator, every threshold a measurement may pick, holes, collisions).
+					let n = rng.pick([1, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33])
+					let keywordsOnly = rng.chance(0.2)
+					var m = Coll(.hmap)
+					var items: [(V, V)] = []
+					for i in 0..<n {
+						let k: V
+						if keywordsOnly { k = .scalar(":k\(i)") } else {
+							switch rng.below(6) {
+							case 0: k = rng.pick(collisions)
+							case 1: k = .scalar("\"s\(i)\"")
+							case 2: k = .scalar(":k\(i)")
+							default: k = int(i)
+							}
+						}
+						let v = scalar()
+						m = assoc(m, k, v)!
+						items.append((k, v))
+					}
+					var expr = "(persistent! (reduce (fn [t [k v]] (assoc! t k v)) (transient {}) ["
+						+ items.map { "[\(text($0.0)) \(text($0.1))]" }.joined(separator: " ") + "])"
+					if rng.chance(0.3), let k = items.first?.0 {
+						m = dissoc(m, k)!
+						expr = "(persistent! (dissoc! " + expr.dropFirst("(persistent! ".count) + " \(text(k))))"
+					} else {
+						expr += ")"
+					}
+					return Init(expr: expr, value: m)
 				case 2:
 					var m = Coll(.hmap)
 					var expr = "(hash-map"

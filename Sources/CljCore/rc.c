@@ -70,6 +70,7 @@ static void assert_children_shared(clj_header *h) {
 
 // A dead object's rc+flags become the intrusive worklist link; bit 0 keeps CLJ_FLAG_LARGE for dealloc,
 // bits 1 and 2 CLJ_FLAG_META and CLJ_FLAG_SHAPE, which each_child reads (objects are at least 8-byte aligned).
+// No bit is left: a further layout is told apart by its body, which death leaves whole (map.c's flat map, the tuple).
 // memcpy rather than a cast to stay clear of aliasing rules; it compiles to a plain store.
 static void set_dead_next(clj_header *h, clj_header *next) {
 	uintptr_t link = (uintptr_t)next | ((h->flags & CLJ_FLAG_LARGE) ? 1 : 0) | ((h->flags & CLJ_FLAG_META) ? 2 : 0) |

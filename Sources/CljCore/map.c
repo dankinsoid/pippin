@@ -10,7 +10,9 @@
 #include "clj/record.h"
 #include "clj/reduce.h"
 #include "clj/shape.h"
+#include "clj/keyword.h"
 #include "clj/vector.h"
+#include "alloc.h"
 #include "rc_internal.h"
 
 enum { BITS = 5, MASK = 31 };
@@ -72,9 +74,12 @@ static const clj_type cnode_type = {
 
 static inline bool   is_cnode(clj_value v) { return clj_header_of(v)->type == &cnode_type; }
 static inline bool   is_shape(clj_value v) { return clj_header_of(v)->flags & CLJ_FLAG_SHAPE; }
-// The trie layout; a shape map never reaches it.
+// A non-shape map whose root word is nil is flat (flat_map below): the trie's root never is.
+static inline bool   is_flat_body(const void *self) { return ((const clj_map *)self)->root.v == CLJ_NIL; }
+static inline bool   is_flat(clj_value v) { return !is_shape(v) && is_flat_body(clj_to_ptr(v)); }
+// The trie layout; a shape or flat map never reaches it.
 static inline clj_map *clj_map_of(clj_value v) {
-	CLJ_ASSERT(!is_shape(v), "a shape map has no trie");
+	CLJ_ASSERT(!is_shape(v) && !is_flat_body(clj_to_ptr(v)), "a shape or flat map has no trie");
 	return (clj_map *)clj_to_ptr(v);
 }
 static inline bnode *bnode_of(clj_value v) { return clj_to_ptr(v); }
@@ -429,12 +434,316 @@ static bool node_each(clj_value node, clj_map_entry_fn fn, void *ctx) {
 	return true;
 }
 
+// ---- the flat layout (design §4 «Плоское представление по линейности»)
+
+// What a transient builds: entries appended in insertion order, an index of entry + 1 probed linearly at load ≤ 1/2.
+typedef struct {
+	clj_header       h;
+	uint32_t         count;
+	_Atomic uint32_t hash; // see clj_hash_cache_load
+	uintptr_t        nil_root; // 0 where the trie keeps its root: the layout, readable on a dead object (rc.c)
+	uint32_t         used; // entries appended, holes included
+	uint8_t          lcap; // log2 of the entry capacity
+	bool             transient;
+	clj_slot         kv[]; // 2 << lcap slots, then uint32_t hashes[1 << lcap], then the index of 2 << lcap cells
+} flat_map;
+
+_Static_assert(offsetof(flat_map, nil_root) == offsetof(clj_map, root), "the flat layout's tag is the trie's root word");
+
+// The key of a dissoc'd entry: never a stored key, so no lookup matches it, and no pointer, so no visitor follows it.
+static const clj_value HOLE = CLJ_UNBOUND;
+
+enum {
+	FLAT_MIN_LCAP = 2,
+	// Index cells are bytes up to 128 entries, words beyond.
+	FLAT_BYTE_LCAP = 7,
+	FLAT_MAX_DEFAULT = 16,
+};
+
+static _Atomic bool     flat_on = true;
+static _Atomic uint32_t flat_max = FLAT_MAX_DEFAULT;
+
+static inline flat_map *flat_of(clj_value v) { return (flat_map *)clj_to_ptr(v); }
+static inline size_t    flat_cap(uint8_t lcap) { return (size_t)1 << lcap; }
+static inline size_t    flat_cell(uint8_t lcap) { return lcap <= FLAT_BYTE_LCAP ? 1 : 4; }
+static inline size_t    flat_bytes(uint8_t lcap) {
+	   return sizeof(flat_map) + flat_cap(lcap) * (2 * sizeof(clj_slot) + sizeof(uint32_t)) + 2 * flat_cap(lcap) * flat_cell(lcap);
+}
+static inline uint32_t *flat_hashes(const flat_map *m) { return (uint32_t *)(m->kv + 2 * flat_cap(m->lcap)); }
+static inline void     *flat_index(const flat_map *m) { return flat_hashes(m) + flat_cap(m->lcap); }
+static inline size_t    flat_mask(const flat_map *m) { return 2 * flat_cap(m->lcap) - 1; }
+static inline size_t    flat_home(uint32_t h, size_t mask) { return (h ^ (h >> 16)) & mask; }
+
+static inline uint32_t cell_get(const flat_map *m, size_t i) {
+	return m->lcap <= FLAT_BYTE_LCAP ? ((const uint8_t *)flat_index(m))[i] : ((const uint32_t *)flat_index(m))[i];
+}
+
+static inline void cell_set(flat_map *m, size_t i, uint32_t e) {
+	if (m->lcap <= FLAT_BYTE_LCAP) ((uint8_t *)flat_index(m))[i] = (uint8_t)e;
+	else ((uint32_t *)flat_index(m))[i] = e;
+}
+
+static uint8_t lcap_for(uint32_t n) {
+	uint8_t l = FLAT_MIN_LCAP;
+	while (flat_cap(l) < n) l++;
+	return l;
+}
+
+static flat_map *flat_alloc(uint8_t lcap, bool transient) {
+	flat_map *m = clj_alloc_uninit(&clj_map_type, flat_bytes(lcap));
+	m->count = 0;
+	atomic_init(&m->hash, 0);
+	m->nil_root = 0;
+	m->used = 0;
+	m->lcap = lcap;
+	m->transient = transient;
+	memset(flat_index(m), 0, 2 * flat_cap(lcap) * flat_cell(lcap));
+	return m;
+}
+
+// The entry holding key, -1 when none.
+static int64_t flat_find(const flat_map *m, clj_value key, uint32_t h) {
+	const uint32_t *hashes = flat_hashes(m);
+	size_t          mask = flat_mask(m);
+	for (size_t i = flat_home(h, mask);; i = (i + 1) & mask) {
+		uint32_t e = cell_get(m, i);
+		if (!e) return -1;
+		e--;
+		clj_value k = m->kv[2 * e].v;
+		if (hashes[e] == h && k != HOLE && clj_equals(k, key)) return e;
+	}
+}
+
+// m has room (used < capacity). key and val are owned; a published m publishes them (clj_slot_store).
+static void flat_append(flat_map *m, clj_value key, clj_value val, uint32_t h) {
+	uint32_t e = m->used;
+	clj_slot_store(&m->h, &m->kv[2 * e], key);
+	clj_slot_store(&m->h, &m->kv[2 * e + 1], val);
+	// after the slots: a published map's each_child may run on the collector's thread meanwhile (cc.c)
+	__atomic_store_n(&m->used, e + 1, __ATOMIC_RELEASE);
+	flat_hashes(m)[e] = h;
+	size_t mask = flat_mask(m), i = flat_home(h, mask);
+	while (cell_get(m, i)) i = (i + 1) & mask;
+	cell_set(m, i, e + 1);
+	m->count++;
+}
+
+// m's live entries but `skip`, compacted. move: m is unique, its children move and its shell is freed.
+static flat_map *flat_rebuilt(flat_map *m, uint8_t lcap, bool transient, int64_t skip, bool move) {
+	flat_map *c = flat_alloc(lcap, transient);
+	// a unique published map's stand-in, whose children are all shared already (shape.c does the same)
+	if (move) c->h.flags |= m->h.flags & CLJ_FLAG_SHARED;
+	clj_reach_copy(&c->h, &m->h);
+	const uint32_t *hashes = flat_hashes(m);
+	uint32_t       *chashes = flat_hashes(c);
+	size_t          mask = flat_mask(c);
+	for (uint32_t e = 0; e < m->used; e++) {
+		clj_value k = m->kv[2 * e].v, v = m->kv[2 * e + 1].v;
+		if (k == HOLE) continue;
+		if ((int64_t)e == skip) {
+			if (move) {
+				clj_release(k);
+				clj_release(v);
+			}
+			continue;
+		}
+		uint32_t n = c->used++;
+		clj_slot_init_copied(&c->h, &c->kv[2 * n], move ? k : clj_retain(k));
+		clj_slot_init_copied(&c->h, &c->kv[2 * n + 1], move ? v : clj_retain(v));
+		chashes[n] = hashes[e];
+		size_t i = flat_home(hashes[e], mask);
+		while (cell_get(c, i)) i = (i + 1) & mask;
+		cell_set(c, i, n + 1);
+	}
+	c->count = c->used;
+	if (move) clj_dealloc(&m->h);
+	return c;
+}
+
+// A transient edits at any count: by its contract only the returned value is used again, and a builder's accumulator
+// is a borrowed parameter, so rc == 1 would almost never hold. A published one copies (the collector reads it
+// lock-free), and so does a self-insertion (a cycle no collector sees).
+static bool flat_editable(clj_value map, clj_value key, clj_value val) {
+	const flat_map *m = flat_of(map);
+	if (!m->transient || (m->h.flags & CLJ_FLAG_SHARED)) return clj_is_unique(map);
+	return key != map && val != map;
+}
+
+static bool flat_all_keywords(const flat_map *m) {
+	for (uint32_t e = 0; e < m->used; e++) {
+		clj_value k = m->kv[2 * e].v;
+		if (k != HOLE && !clj_is_keyword(k)) return false;
+	}
+	return true;
+}
+
+static clj_value hash_map_assoc_hashed(clj_value map, clj_value key, clj_value val, uint32_t hash);
+
+// Consumes map; the trie of its entries, inserted in order with the hashes kept.
+static clj_value flat_to_trie(clj_value map) {
+	const flat_map *m = flat_of(map);
+	const uint32_t *hashes = flat_hashes(m);
+	clj_value       t = clj_map_empty();
+	for (uint32_t e = 0; e < m->used; e++) {
+		clj_value k = m->kv[2 * e].v;
+		if (k != HOLE) t = hash_map_assoc_hashed(t, k, m->kv[2 * e + 1].v, hashes[e]);
+	}
+	clj_release(map);
+	clj_debug_map_generic(CLJ_MAPS_FLAT_TRIE);
+	return t;
+}
+
+static clj_value flat_assoc(clj_value map, clj_value key, clj_value val) {
+	clj_refusal_drop();
+	uint32_t h = clj_hash(key);
+	if (clj_refusal_rethrow()) {
+		clj_release(map);
+		return CLJ_THROWN;
+	}
+	flat_map *m = flat_of(map);
+	int64_t   e = flat_find(m, key, h);
+	if (e >= 0 && m->kv[2 * e + 1].v == val) return map;
+	// One way, as shape → trie: a persistent flat map stays under the threshold, so a copy is bounded.
+	if (e < 0 && !m->transient && m->count >= atomic_load_explicit(&flat_max, memory_order_relaxed)) {
+		return hash_map_assoc_hashed(flat_to_trie(map), key, val, h);
+	}
+	bool edit = flat_editable(map, key, val);
+	if (e >= 0) {
+		if (!edit) {
+			m = flat_rebuilt(m, m->lcap, m->transient, -1, false);
+			clj_release(map);
+			e = flat_find(m, key, h);
+		}
+		clj_value old = m->kv[2 * e + 1].v;
+		clj_slot_store(&m->h, &m->kv[2 * e + 1], clj_retain(val));
+		clj_release(old);
+		atomic_store_explicit(&m->hash, 0, memory_order_relaxed);
+		return clj_from_ptr(m);
+	}
+	if (!edit || m->used == flat_cap(m->lcap)) {
+		// Doubling when at least half the entries are live, so a growing table costs O(1) a key amortized.
+		uint8_t lcap = edit ? lcap_for(m->count + 1 > 2 * m->count ? m->count + 1 : 2 * m->count) : lcap_for(m->count + 1);
+		// A transient with other references keeps its object, whose address they hold; the copy is the new value.
+		bool move = edit && clj_is_unique(map);
+		m = flat_rebuilt(m, lcap, m->transient, -1, move);
+		if (!move) clj_release(map);
+	}
+	flat_append(m, clj_retain(key), clj_retain(val), h);
+	atomic_store_explicit(&m->hash, 0, memory_order_relaxed);
+	return clj_from_ptr(m);
+}
+
+static clj_value flat_dissoc(clj_value map, clj_value key) {
+	uint32_t h = clj_hash(key);
+	clj_refusal_drop();
+	flat_map *m = flat_of(map);
+	int64_t   e = flat_find(m, key, h);
+	if (e < 0) return map;
+	if (!flat_editable(map, key, CLJ_NIL)) {
+		flat_map *c = flat_rebuilt(m, lcap_for(m->count), m->transient, e, false);
+		clj_release(map);
+		return clj_from_ptr(c);
+	}
+	clj_value k = m->kv[2 * e].v, v = m->kv[2 * e + 1].v;
+	clj_slot_store(&m->h, &m->kv[2 * e], HOLE);
+	clj_slot_clear(&m->kv[2 * e + 1]);
+	m->count--;
+	atomic_store_explicit(&m->hash, 0, memory_order_relaxed);
+	clj_release(k);
+	clj_release(v);
+	return map;
+}
+
+// A transient's entry is retained across fn, which may dissoc! it from the map being walked (reduce-kv).
+static void flat_each(clj_value map, clj_map_entry_fn fn, void *ctx) {
+	const flat_map *m = flat_of(map);
+	bool            guard = m->transient;
+	// used is read again each round: an assoc! from fn appends; a growth makes a new object and leaves this one be
+	for (uint32_t e = 0; e < m->used; e++) {
+		clj_value k = m->kv[2 * e].v, v = m->kv[2 * e + 1].v;
+		if (k == HOLE) continue;
+		if (!guard) {
+			if (!fn(k, v, ctx)) return;
+			continue;
+		}
+		clj_retain(k);
+		clj_retain(v);
+		bool more = fn(k, v, ctx);
+		clj_release(k);
+		clj_release(v);
+		if (!more) return;
+	}
+}
+
+// The keys come from a map, so their hashes were taken once already and cannot refuse.
+static bool flat_take_entry(clj_value key, clj_value val, void *ctx) {
+	flat_append(ctx, clj_retain(key), clj_retain(val), clj_hash(key));
+	return true;
+}
+
+static flat_map *flat_from_entries(clj_value coll, uint32_t n) {
+	flat_map *m = flat_alloc(lcap_for(2 * n), true);
+	if (n) clj_map_each(coll, flat_take_entry, m);
+	return m;
+}
+
+void clj_flat_enable(bool on) { atomic_store_explicit(&flat_on, on, memory_order_relaxed); }
+bool clj_flat_enabled(void) { return atomic_load_explicit(&flat_on, memory_order_relaxed); }
+
+void clj_debug_flat_max(uint32_t n) { atomic_store_explicit(&flat_max, n ? n : FLAT_MAX_DEFAULT, memory_order_relaxed); }
+
+bool clj_map_is_flat(clj_value v) { return clj_is_map(v) && is_flat(v); }
+bool clj_map_is_transient(clj_value v) { return clj_map_is_flat(v) && flat_of(v)->transient; }
+
+// Flat only where the copy is bounded; a larger trie, or one with meta (no word for it), is its own transient.
+clj_value clj_map_transient(clj_value coll) {
+	if (!clj_is_map(coll) || !clj_flat_enabled()) return clj_retain(coll);
+	if (!is_shape(coll) && !is_flat(coll)) {
+		const clj_map *t = clj_map_of(coll);
+		if (t->count > atomic_load_explicit(&flat_max, memory_order_relaxed) || !clj_is_nil(t->meta.v)) return clj_retain(coll);
+	}
+	clj_debug_map_generic(CLJ_MAPS_FLAT);
+	return clj_from_ptr(flat_from_entries(coll, clj_map_count(coll)));
+}
+
+// Under the threshold the transient itself becomes the value, O(1); above it the trie, O(n) once against the n
+// insertions that built it. Keyword keys alone go back through the shape transitions, as an assoc chain into {} does,
+// dictionary rule included: a keyword map is a shape map whichever way it was built.
+clj_value clj_map_persistent(clj_value coll) {
+	if (!clj_map_is_transient(coll)) return clj_retain(coll);
+	flat_map *m = flat_of(coll);
+	m->transient = false;
+	if (m->count == 0) return clj_map_empty();
+	if (m->count <= CLJ_SHAPE_MAX_KEYS && flat_all_keywords(m)) {
+		clj_value r = clj_map_empty();
+		for (uint32_t e = 0; e < m->used && r != CLJ_THROWN; e++) {
+			clj_value k = m->kv[2 * e].v;
+			if (k != HOLE) r = clj_map_assoc(r, k, m->kv[2 * e + 1].v);
+		}
+		clj_debug_map_generic(CLJ_MAPS_FLAT_SHAPE);
+		return r;
+	}
+	if (m->count > atomic_load_explicit(&flat_max, memory_order_relaxed)) return flat_to_trie(clj_retain(coll));
+	clj_debug_map_generic(CLJ_MAPS_FLAT_KEPT);
+	// a table grown and emptied again by dissoc! is not kept at its peak size
+	if (m->lcap > lcap_for(m->count + 1) + 1) return clj_from_ptr(flat_rebuilt(m, lcap_for(m->count + 1), false, -1, false));
+	return clj_retain(coll);
+}
+
+// ---- the type
+
 CLJ_CHILDREN_INLINE void map_children(void *self, clj_visitor visit, void *ctx) {
 	clj_header *h = self;
 	if (h->flags & CLJ_FLAG_SHAPE) {
 		clj_shape_map *m = self;
 		uint32_t       n = clj_shape_nkeys(m->shape);
 		for (uint32_t i = 0; i < n; i++) visit(m->slots[i].v, ctx);
+		return;
+	}
+	if (is_flat_body(self)) {
+		flat_map *m = self;
+		uint32_t  n = 2 * __atomic_load_n(&m->used, __ATOMIC_ACQUIRE);
+		for (uint32_t i = 0; i < n; i++) visit(m->kv[i].v, ctx);
 		return;
 	}
 	visit(((clj_map *)self)->root.v, ctx);
@@ -460,6 +769,14 @@ static uint32_t map_hash(void *self) {
 		uint32_t sum = 0;
 		clj_map_each(me, hash_entry, &sum);
 		return clj_mix_coll_hash(sum, clj_map_count(me));
+	}
+	if (is_flat_body(self)) {
+		flat_map *f = self;
+		uint32_t  h = clj_hash_cache_load(&f->hash);
+		if (h) return h;
+		uint32_t sum = 0;
+		flat_each(me, hash_entry, &sum);
+		return clj_hash_cache_store(&f->hash, clj_mix_coll_hash(sum, f->count));
 	}
 	clj_map *m = self;
 	uint32_t h = clj_hash_cache_load(&m->hash);
@@ -620,14 +937,14 @@ static clj_value map_invoke(clj_value self, const clj_value *args, size_t n) {
 	return map_lookup(self, args[0], n == 2 ? args[1] : CLJ_NIL);
 }
 
-static clj_value map_meta(clj_value self) { return is_shape(self) ? CLJ_NIL : clj_retain(clj_map_of(self)->meta.v); }
+static clj_value map_meta(clj_value self) { return is_shape(self) || is_flat(self) ? CLJ_NIL : clj_retain(clj_map_of(self)->meta.v); }
 
-// A shape map carries no meta: with-meta gives the trie layout up, one way (design §4).
+// A shape or flat map carries no meta: with-meta gives the layout up for the trie, one way (design §4).
 // @ai-generated(guided)
 static clj_value map_with_meta(clj_value self, clj_value m) {
-	if (is_shape(self)) {
+	if (is_shape(self) || is_flat(self)) {
 		if (clj_is_nil(m)) return self;
-		self = clj_shape_map_to_hash_map(self);
+		self = is_shape(self) ? clj_shape_map_to_hash_map(self) : flat_to_trie(self);
 		clj_debug_map_generic(CLJ_MAPS_TRIE_META);
 	}
 	clj_map *map = clj_map_of(self);
@@ -683,7 +1000,15 @@ clj_value clj_map_empty_new(void) {
 }
 
 uint32_t clj_map_count(clj_value map) {
-	return is_shape(map) ? clj_shape_nkeys(clj_shape_map_of(map)->shape) : clj_map_of(map)->count;
+	if (is_shape(map)) return clj_shape_nkeys(clj_shape_map_of(map)->shape);
+	return is_flat_body(clj_to_ptr(map)) ? flat_of(map)->count : clj_map_of(map)->count;
+}
+
+// A key that refused its hash is in no map, since storing it throws: "absent" is the true answer.
+static int64_t flat_lookup(clj_value map, clj_value key) {
+	uint32_t h = clj_hash(key);
+	clj_refusal_drop();
+	return flat_find(flat_of(map), key, h);
 }
 
 clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found) {
@@ -692,12 +1017,17 @@ clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found) {
 		int32_t              i = clj_shape_index(m->shape, key);
 		return i >= 0 ? m->slots[i].v : not_found;
 	}
+	if (is_flat_body(clj_to_ptr(map))) {
+		int64_t e = flat_lookup(map, key);
+		return e >= 0 ? flat_of(map)->kv[2 * e + 1].v : not_found;
+	}
 	const clj_slot  *found = map_find(map, key);
 	return found ? found->v : not_found;
 }
 
 bool clj_map_contains(clj_value map, clj_value key) {
 	if (is_shape(map)) return clj_shape_index(clj_shape_map_of(map)->shape, key) >= 0;
+	if (is_flat_body(clj_to_ptr(map))) return flat_lookup(map, key) >= 0;
 	return map_find(map, key) != NULL;
 }
 
@@ -708,6 +1038,10 @@ void clj_map_each(clj_value map, clj_map_entry_fn fn, void *ctx) {
 		for (uint32_t i = 0; i < n; i++) {
 			if (!fn(clj_shape_key(m->shape, i), m->slots[i].v, ctx)) return;
 		}
+		return;
+	}
+	if (is_flat_body(clj_to_ptr(map))) {
+		flat_each(map, fn, ctx);
 		return;
 	}
 	node_each(clj_map_of(map)->root.v, fn, ctx);
@@ -743,6 +1077,10 @@ clj_value clj_hash_map_assoc(clj_value map, clj_value key, clj_value val) {
 		clj_release(map);
 		return CLJ_THROWN;
 	}
+	return hash_map_assoc_hashed(map, key, val, hash);
+}
+
+static clj_value hash_map_assoc_hashed(clj_value map, clj_value key, clj_value val, uint32_t hash) {
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root.v : clj_retain(m->root.v);
@@ -765,6 +1103,7 @@ clj_value clj_hash_map_dissoc(clj_value map, clj_value key) {
 // An empty map without meta is where the shape tree starts; a non-empty trie stays one (the one-way rule).
 clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val) {
 	if (is_shape(map)) return clj_shape_map_assoc(map, key, val);
+	if (is_flat_body(clj_to_ptr(map))) return flat_assoc(map, key, val);
 	clj_map *m = clj_map_of(map);
 	if (m->count == 0 && clj_is_nil(m->meta.v)) {
 		clj_value s = clj_shape_map_single(key, val);
@@ -778,6 +1117,7 @@ clj_value clj_map_assoc(clj_value map, clj_value key, clj_value val) {
 
 clj_value clj_map_dissoc(clj_value map, clj_value key) {
 	if (is_shape(map)) return clj_shape_map_dissoc(map, key);
+	if (is_flat_body(clj_to_ptr(map))) return flat_dissoc(map, key);
 	return clj_hash_map_dissoc(map, key);
 }
 
@@ -833,10 +1173,16 @@ static bool node_same_shape(clj_value a, clj_value b) {
 
 bool clj_debug_map_same_shape(clj_value a, clj_value b) {
 	if (is_shape(a) || is_shape(b)) return is_shape(a) && is_shape(b) && clj_shape_map_of(a)->shape == clj_shape_map_of(b)->shape;
+	if (is_flat(a) || is_flat(b)) return is_flat(a) && is_flat(b) && flat_of(a)->count == flat_of(b)->count;
 	return clj_map_of(a)->count == clj_map_of(b)->count &&
 	       node_same_shape(clj_map_of(a)->root.v, clj_map_of(b)->root.v);
 }
 
 clj_value clj_debug_map_root(clj_value map) { return clj_map_of(map)->root.v; }
 
-uint32_t clj_debug_map_cached_hash(clj_value map) { return is_shape(map) ? 0 : clj_hash_cache_load(&clj_map_of(map)->hash); }
+uint32_t clj_debug_map_cached_hash(clj_value map) {
+	if (is_shape(map)) return 0;
+	return clj_hash_cache_load(is_flat(map) ? &flat_of(map)->hash : &clj_map_of(map)->hash);
+}
+
+uint32_t clj_debug_flat_capacity(clj_value map) { return clj_map_is_flat(map) ? (uint32_t)flat_cap(flat_of(map)->lcap) : 0; }

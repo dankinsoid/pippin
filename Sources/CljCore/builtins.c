@@ -680,6 +680,16 @@ static clj_value b_into(const clj_value *args, size_t n) {
 #endif
 }
 
+static clj_value b_transient(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_map_transient(args[0]);
+}
+
+static clj_value b_persistent(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_map_persistent(args[0]);
+}
+
 static clj_value b_reduce(const clj_value *args, size_t n) {
 	return n == 3 ? clj_reduce(args[0], args[1], args[2]) : clj_reduce(args[0], CLJ_UNBOUND, args[1]);
 }
@@ -1704,7 +1714,8 @@ static const entry entries[] = {
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", clj_lazy_seq_star, 1, 1},
 	{"lazy-seq-realized?*", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
 	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1},
-	{"into", b_into, 2, 3},        {"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
+	{"into", b_into, 2, 3},        {"transient*", b_transient, 1, 1}, {"persistent!*", b_persistent, 1, 1},
+	{"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
 	{"ex-info", b_ex_info, 2, 3},  {"ex-message", b_ex_message, 1, 1}, {"ex-data", b_ex_data, 1, 1}, {"ex-cause", b_ex_cause, 1, 1},
 	{"ex-trace", b_ex_trace, 1, 1}, {"ex-type", b_ex_type, 1, 1}, {"cancelled?*", b_coro_cancelled_p, 0, 0},

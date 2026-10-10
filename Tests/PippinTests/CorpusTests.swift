@@ -506,7 +506,7 @@ extension CoreTests {
 			// Process-wide and order-dependent, so the log rather than the committed report.
 			var maps = [Int64](repeating: 0, count: Int(CLJ_MAPS_COUNTERS))
 			clj_debug_map_stats(&maps)
-			progress("corpus: \(lib.name): maps by layout so far (shape.h): shape from a key set \(maps[0]), from an assoc into {} \(maps[1]); trie by a non-keyword key \(maps[2]), by with-meta \(maps[3]), by the 33rd key \(maps[4]), by a dictionary-like shape \(maps[5]), by the shape cap \(maps[6]), with shapes off \(maps[7]); shapes \(clj_debug_shape_count())")
+			progress("corpus: \(lib.name): maps by layout so far (shape.h): shape from a key set \(maps[0]), from an assoc into {} \(maps[1]); trie by a non-keyword key \(maps[2]), by with-meta \(maps[3]), by the 33rd key \(maps[4]), by a dictionary-like shape \(maps[5]), by the shape cap \(maps[6]), with shapes off \(maps[7]); flat transients \(maps[8]), kept flat by persistent! \(maps[9]), back to a shape \(maps[10]), flat to trie \(maps[11]); shapes \(clj_debug_shape_count())")
 			var vectors = [Int64](repeating: 0, count: Int(CLJ_VECTORS_COUNTERS))
 			clj_debug_vector_stats(&vectors)
 			progress("corpus: \(lib.name): vectors by layout so far (vector.h): tuples \(vectors[0]), promoted past six \(vectors[1]); tries begun by a conj onto [] \(vectors[2]), with tuples off \(vectors[3])")

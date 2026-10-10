@@ -59,6 +59,10 @@ enum {
 	CLJ_MAPS_TRIE_DICT, // a transition through a dictionary-like shape
 	CLJ_MAPS_TRIE_CAP,  // the shape cap
 	CLJ_MAPS_TRIE_OFF,  // shapes switched off
+	CLJ_MAPS_FLAT,       // a transient took the flat layout (map.c)
+	CLJ_MAPS_FLAT_KEPT,  // persistent! kept it flat
+	CLJ_MAPS_FLAT_SHAPE, // persistent! of keyword keys alone went back through the shapes
+	CLJ_MAPS_FLAT_TRIE,  // a flat map became a trie: past the threshold, or with-meta
 	CLJ_MAPS_COUNTERS
 };
 void clj_debug_map_stats(int64_t out[CLJ_MAPS_COUNTERS]);
