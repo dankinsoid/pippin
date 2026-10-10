@@ -625,6 +625,56 @@
   its exec beside the captures, and run the arity through `run_body` with them as the frame's environment; the site
   needs a dispatch of its own (an INVOKE entry chosen per node, as `eval_kw_invoke` is), not a test in every
   `eval_invoke`. Trigger: a profile of interpreted code in which `clj_fn_closure` under `lazy-seq` ranks.
+- [~] **Drop-guided reuse** (design §7 «Perceus и Lean 4», drop-guided reuse and reuse specialization; Sources/CljCompiler
+  `reuse.c` the pass, `reuse_pair`/`emit_consume` in compiler.c; Sources/CljCore `reuse.c`, `reuse_internal.h`).
+  *The pass.* `promote_slots` ends by planning the frame (`cljc_reuse_plan_frame`) over its *owned* slots: promoted,
+  not borrowed, not typed — C variables that hold nil or a reference of their own for the whole frame, the only
+  ones a drop can move. It runs optimizer.c's liveness again (same evaluation order, loop and recur fixpoints, `try`
+  handlers live through the body, direct-fn pins) because the analyzer's `last` marks answer only for reads a consumer
+  owns; the pass needs the live-out set at every candidate node and the *held* set, the slots a pending call's earlier
+  operand borrows. Two pairs. *Token*: at a `cons` INTRINSIC, a slot dead after it (not in its live-out), not held,
+  not a direct operand of the cons (borrowed until the cell exists), read inside its operands — preferring a read as
+  the operand of `first`/`next`/`rest`/`seq`, then a slot a `next`/`rest` before it would consume, then any read the
+  facts allow to be a seq. After the operands are evaluated and inside the intrinsic guard: `k = clj_drop_reuse(lS);
+  lS = CLJ_NIL; r = clj_seq_cons_at(k, a0, a1)`. *Consume*: at `next`/`rest` whose operand is a slot dead after it and
+  not held, the slot is taken and `clj_next_owned`/`clj_rest_owned` get it at +1. A token wins over a consume of the
+  same slot before it (the consume is dropped): a dying cons is worth a whole cell to the cons and only a free to the
+  step. *The runtime.* `clj_drop_reuse` (inline reject: not a pointer, shared, immortal or MUTABLE, or a count word
+  other than 1 — which also excludes `BUFFERED` — costs the release the slot would have paid at the frame's exit;
+  `clj_rc_token_ok` adds no `finalize`/`unlink` and honours `-DCLJ_NO_REUSE`) hands back the cell with its children
+  still in it. `clj_seq_cons_into` picks the type and tail as `clj_seq_cons` does (a non-seq tail is seq'd first; its
+  throw frees the token). A cons or list cell without meta is rewritten in place: a field whose new value is the old
+  one is neither released nor written (`token_skipped`), the others retained, stored, the old released; the header is
+  reborn (`clj_cell_reborn`: flags back to `LARGE` and the owner tag, so stale `REACH`/`REACH_LOCAL`/`LAZY`/`SHAPE`/
+  `META` bits go, then each kept field's reach bits again through `clj_reach_from`). Any other cell goes through
+  `clj_alloc_at`: only a pool cell of the same size class (a vector-seq or string-seq into a cons, all 32 bytes), its
+  children dropped by the type's `drop` (`clj_rc_drop_children`, rc.c's worklist), the body poisoned in
+  debug builds before the constructor writes it; a system-allocated cell has no recorded size and is freed, so under
+  `CLJ_SYSTEM_ALLOC` (the ASan suites) only the same-layout path runs. `clj_next_owned` steps a unique vector-seq,
+  range or string-seq without meta in its cell (the vector or string is kept, `token_skipped`) and releases it at
+  its end; anything else is `clj_next` plus the release. *Soundness*: an owned slot's value at rc 1 has no other
+  counted holder, and every uncounted alias in compiled code is a borrowed temp of the same frame (a held operand,
+  excluded) or of a callee that has returned; the new fields are held by the caller across the call, so releasing the
+  old ones frees none of them; nothing runs between the drop and the build but the build's own `seq`. A slot
+  dropped early would have been released at the frame's exit or the next rebind anyway, and liveness says nothing
+  reads it before then. *Census and counters*: a reused cell is a death and a birth at one address
+  (`clj_census_death`, then `clj_stats_reborn` — the census birth without the allocation counter), so `alloc`
+  counts what the allocator handed out; `-DCLJ_STATS` adds `token_made`/`token_taken`/`token_used`/`token_skipped`
+  and `token_type` rows (clj-corpus-bench, scripts/corpus-bench.py), debug builds per-thread counts
+  (`clj_debug_reuse_counts`, `CompilerFixtureTests.reuseTokensTakeDyingCells`). `clj-compile --stats` counts the
+  sites: core.clj 32 tokens and 102 consumes, of which the lazy-seq thunks (`map`, `filter`, `concat`, `take` ...)
+  carry tokens that find their value shared at run time. Fixtures: `reuse.clj` (every shape, a var, an atom, an
+  alias, a capture, a handler, meta and a lazy seq that lend nothing), `reuse-rebind.clj` (the guard's fallback arms).
+  What does not pair, and why: a parameter is +0, so a value a fn receives never lends its
+  cell in it — the census's pairs in dependency are cascade deaths in the runtime (a `concat` cell freed by the
+  previous lazy cell's publish) and nested-update's map copies are of `update-in`'s borrowed `m`; borrow inference
+  (`-O2`, owned parameters) is what reaches them. A string is built by runtime calls (`str`, `subs`), never by the
+  compiled code, so a token for one needs string entries that take a cell, which none has; the census counts 26–41 %
+  of strings and render's strings in pairs (worth it once those workloads rank on `pool_alloc` of strings). Fn and lazy-seq cells: ≈0 pairs
+  by the census, not chased. Not done: destructive match (`(let [[a b] pair] …)` moving fields out of a unique tuple) and
+  dup/drop fusion inside bodies; owned-parameter entries for the runtime's `assoc`/`conj` to take a token; the
+  interpreter — triggers: a profile where `bnode_copy` stays after `-O2` borrow inference, or a hot destructuring of
+  fresh tuples.
 - **A compiled closure's `min_arity` is its rest arity's own count**, not its lowest, when it has a rest arity
   (`fn_arity_bounds`; the mask carries the fixed ones). Past `CLJ_FN_MAX_FIXED` + 1 spread arguments `clj_apply`
   hands the rest over as one seq at that position (`rest_at`, fn.c, docs/notes/analyzer-and-evaluator.md), as an

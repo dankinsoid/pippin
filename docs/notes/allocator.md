@@ -39,8 +39,8 @@
   cell of the current slab is the next one handed out, for one load of its link. What a per-class slot in the heap
   would add is the cell of a non-current slab, at the price of a branch and a store on every free and alloc, and
   the TLS read both already make (`tls_heap`, a spot another change owns). The reuse that pays is the compiler's
-  (Perceus' reuse token: `(map f xs)` over an `xs` it owns builds each new cell in the one it drops), a pass over
-  last uses, not an allocator change. The census bounds what either could reach (bench/RESULTS.md, "Allocation
+  reuse token, which builds the new cell in the one it drops (docs/notes/compiler.md, "Drop-guided reuse"), not an
+  allocator change. The census bounds what either could reach (bench/RESULTS.md, "Allocation
   census"): a death followed by an allocation of its class as the very next one of its frame is 5.1 % of the data
   workloads' allocations, within four 11.4 % (dependency 24 %, `cons` from `concat`). Trigger: the `reuse_type`
   rows of a corpus-bench run showing a structure whose copies stay high while its input dies at the same site, or
