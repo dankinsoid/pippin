@@ -104,22 +104,28 @@ extension CoreTests {
 			// A second run replaces the first run's definitions one for one, so what it adds is what the source itself
 			// keeps per run (a deftype's descriptor, a parked root); the compiled backend must not add more.
 			let live0 = clj_debug_live_objects()
+			let census0 = LiveCensus()
 			_ = try capturingOutput { try loadFixtureSource(source, file: file) }
 			let interpretedGrowth = clj_debug_live_objects() - live0
+			let interpretedMoves = LiveCensus().moves(since: census0).joined(separator: ", ")
 			try compileFixtureAsUnit(source, file: file, name: name)
 			let compiled = try runFixtureUnit(file)
 			#expect(compiled == expected, "compiled output of \(name)")
 			let live1 = clj_debug_live_objects()
+			let census1 = LiveCensus()
 			let again = try runFixtureUnit(file)
 			#expect(again == expected, "second compiled output of \(name)")
-			#expect(clj_debug_live_objects() - live1 <= interpretedGrowth, "compiled run of \(name) leaks")
+			#expect(clj_debug_live_objects() - live1 <= interpretedGrowth,
+			        "compiled run of \(name) leaks: \(LiveCensus().moves(since: census1).joined(separator: ", ")); interpreted \(interpretedMoves)")
 			// closed: no guards, direct calls, int64 loop variables; a fixture that rebinds vars or evals stays dev-only
 			guard !source.contains("with-redefs") && !source.contains("(eval ") && !source.contains("load-string") else { return }
 			try compileFixtureAsUnit(source, file: file, name: name + "_closed", closed: true)
 			#expect(try runFixtureUnit(file) == expected, "closed compiled output of \(name)")
 			let live2 = clj_debug_live_objects()
+			let census2 = LiveCensus()
 			#expect(try runFixtureUnit(file) == expected, "second closed compiled output of \(name)")
-			#expect(clj_debug_live_objects() - live2 <= interpretedGrowth, "closed compiled run of \(name) leaks")
+			#expect(clj_debug_live_objects() - live2 <= interpretedGrowth,
+			        "closed compiled run of \(name) leaks: \(LiveCensus().moves(since: census2).joined(separator: ", ")); interpreted \(interpretedMoves)")
 		}
 
 		// A closed site whose receiver the join names takes the direct arm; a receiver the join never saw and an

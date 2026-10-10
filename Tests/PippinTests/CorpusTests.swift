@@ -315,7 +315,7 @@ private struct RunResult {
 
 // Live objects per type (debug builds), to name what a run left behind.
 // @ai-generated(solo)
-private struct LiveCensus {
+struct LiveCensus {
 	private var live: [UInt: (name: String, count: Int64)] = [:]
 
 	init() {
