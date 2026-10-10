@@ -665,6 +665,9 @@
   sites: core.clj 32 tokens and 102 consumes, of which the lazy-seq thunks (`map`, `filter`, `concat`, `take` ...)
   carry tokens that find their value shared at run time. Fixtures: `reuse.clj` (every shape, a var, an atom, an
   alias, a capture, a handler, meta and a lazy seq that lend nothing), `reuse-rebind.clj` (the guard's fallback arms).
+  Measured (bench/RESULTS.md, "Drop-guided reuse"): nested-update builds 599k of its 2.73M objects an iteration in
+  dying cells (its vector-seqs 1.13M → 533k), render 7 %, medley 6 %, pipelines 3 %, dependency 0.05 %; dev and
+  closed count the same; time within the runner's spread.
   What does not pair, and why: a parameter is +0, so a value a fn receives never lends its
   cell in it — the census's pairs in dependency are cascade deaths in the runtime (a `concat` cell freed by the
   previous lazy cell's publish) and nested-update's map copies are of `update-in`'s borrowed `m`; borrow inference
