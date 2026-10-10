@@ -2330,7 +2330,7 @@ every workload returned the JVM's value. *before* is "Drop by type…" above (ru
 | workload | closed before | closed | JVM warm before | JVM warm | closed/JVM before | closed/JVM | allocs before | allocs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | strings | 80.0 | 50.3 | 39.65 | 45.68 | 2.0× | 1.1× | 983.2k | 868.2k |
-| render | 73.0 | 64.1 | — | 41.76 | 1.6× | 1.5× | 1.04M | 992.1k |
+| render | 72.5 | 64.1 | 44.11 | 41.76 | 1.6× | 1.5× | 1.04M | 992.1k |
 
 Self time, closed, % of busy samples, from the runs' `sample` logs. *printf* is `__vfprintf`, `__v2printf`,
 `__ultoa`, `__sfvwrite`; *regex* is regex.c's matcher and scans; *find* is `clj_bytes_find` and `memchr`.
@@ -2352,5 +2352,5 @@ Self time, closed, % of busy samples, from the runs' `sample` logs. *printf* is 
   byte of every new string is read once more after the copy. Next lever: a builder that knows its parts' bits
   (`str`, `join`, `subs` of an ASCII string) passes the answer in instead of scanning.
 - **Time**: strings 80 → 50 ms and closed/JVM 2.0× → 1.1× (this run's JVM was the slower kind, 45.7 against 39.7 ms,
-  so the ratio overstates the gain somewhat); render 73 → 64 ms. One run, the runner's ±20–30 %: the counters and
+  so the ratio overstates the gain somewhat); render 72.5 → 64 ms. One run, the runner's ±20–30 %: the counters and
   the profile are the claim, the milliseconds the direction.
