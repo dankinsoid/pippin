@@ -13,3 +13,4 @@
 (println (take 5 (iterate inc 0)) (partition 2 [1 2 3 4 5]) (group-by odd? (range 6)) (frequencies "abca") (sort-by - [3 1 2]) (some even? [1 3 4]) (every? odd? [1 3]))
 (println (let [a (atom {:n 0})] (swap! a update :n inc) (reset! a (assoc @a :m 1)) @a) (deref (delay :d)) (force (delay 1)) ((memoize identity) 3))
 (println (loop [s (seq [1 2 3]) acc []] (if s (recur (next s) (conj acc (first s))) acc)) (doall (map inc [1 2])) (dorun (map inc [1 2])) (interleave [1 2] [:a :b]))
+(println (let [t (transient {}) _ (assoc! t :a 1) p (persistent! t)] (assoc! t :b 2) p) (let [t (transient {}) _ (assoc! t 1 1) p (persistent! t)] (assoc! t 2 2) (dissoc! t 1) (conj! t [3 3]) [p (identical? p (persistent! t))]) (let [m (zipmap (range 20) (range 20)) t (transient m) p (persistent! t)] (assoc! t 0 :x) (dissoc! t 1) [(get p 0) (count p) (get m 1)]))

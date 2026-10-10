@@ -25,6 +25,11 @@
   amortized. Copies instead: a published transient (the collector reads immutable objects lock-free) and an entry
   that is the map itself (a cycle no collector sees). A walk of a transient (`reduce-kv`) retains each entry across
   its fn, which may `dissoc!` it from the map being walked. Stale references see stale contents, as on the JVM.
+  *A transient used after `persistent!`* does not throw as on the JVM: `persistent!` clears the flag on the object it
+  may return as the value, so the stale handle and the value are one persistent map and an `assoc!`/`dissoc!`/`conj!`
+  through either copies while the other holds it — the value never changes (a compiler fixture in `seqs.clj`, both
+  backends). Throwing would need the value to be a different object than the transient, an O(n) copy per
+  `persistent!`; a trie that is its own transient was persistent all along.
 - **`transient` and `persistent!` are `transient*`/`persistent!*`** (`clj_map_transient`/`clj_map_persistent`);
   any other collection's transient is the collection itself, as before. `(transient m)` is flat for a shape map, a
   flat one and a trie of at most the threshold without meta (a bounded copy); a larger trie or one with meta is its

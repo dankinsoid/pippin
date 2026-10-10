@@ -114,6 +114,27 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// The JVM throws on a transient used after persistent!; here persistent! clears the flag, so the object is a
+		// persistent value and the stale handle's edits copy while the value has another holder.
+		@Test func useAfterPersistentLeavesTheValue() {
+			let before = clj_debug_live_objects()
+			var t = clj_map_transient(clj_map_empty())
+			t = clj_map_assoc(t, clj_fixnum(1), clj_fixnum(1))
+			let p = clj_map_persistent(t)
+			#expect(p == t)
+			for op in 0..<3 {
+				_ = clj_retain(t)
+				let r = op == 0 ? clj_map_assoc(t, clj_fixnum(2), clj_fixnum(2))
+					: op == 1 ? clj_map_dissoc(t, clj_fixnum(1)) : clj_map_assoc(t, clj_fixnum(1), clj_fixnum(9))
+				#expect(r != p)
+				clj_release(r)
+				#expect(clj_map_count(p) == 1 && clj_map_get(p, clj_fixnum(1), missing) == clj_fixnum(1))
+			}
+			clj_release(t)
+			clj_release(p)
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func thresholdIsOneWay() {
 			let before = clj_debug_live_objects()
 			clj_debug_flat_max(8)
