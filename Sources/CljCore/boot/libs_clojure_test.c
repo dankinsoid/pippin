@@ -1723,15 +1723,14 @@ L3: ;
 	clj_release(t21);
 #line 53 "<embedded>/clojure/test.clj"
 	clj_value t43 = l3;
-	clj_value a9[1] = {t43};
-	(void)a9;
+	l3 = CLJ_NIL;
 	clj_value t44;
 	if (CLJC_GUARD(V[40], B[4])) {
-	t44 = clj_next(t43);
+	t44 = clj_next_owned(t43);
 	} else {
-	t44 = clj_c_intrinsic_fallback(V[40], a9, 1);
+	t44 = clj_c_intrinsic_fallback(V[40], &t43, 1);
+	clj_release(t43);
 	}
-	(void)t43;
 	CLJC_SITE(&S[5]);
 	if (t44 == CLJ_THROWN) {
 	goto L1;
@@ -30448,15 +30447,14 @@ L3: ;
 	clj_release(t13);
 #line 309 "<embedded>/clojure/test.clj"
 	clj_value t17 = l0;
-	clj_value a6[1] = {t17};
-	(void)a6;
+	l0 = CLJ_NIL;
 	clj_value t18;
 	if (CLJC_GUARD(V[40], B[4])) {
-	t18 = clj_next(t17);
+	t18 = clj_next_owned(t17);
 	} else {
-	t18 = clj_c_intrinsic_fallback(V[40], a6, 1);
+	t18 = clj_c_intrinsic_fallback(V[40], &t17, 1);
+	clj_release(t17);
 	}
-	(void)t17;
 	CLJC_SITE(&S[44]);
 	if (t18 == CLJ_THROWN) {
 	goto L1;
@@ -30793,15 +30791,14 @@ L3: ;
 	clj_release(t36);
 #line 303 "<embedded>/clojure/test.clj"
 	clj_value t39 = l1;
-	clj_value a14[1] = {t39};
-	(void)a14;
+	l1 = CLJ_NIL;
 	clj_value t40;
 	if (CLJC_GUARD(V[40], B[4])) {
-	t40 = clj_next(t39);
+	t40 = clj_next_owned(t39);
 	} else {
-	t40 = clj_c_intrinsic_fallback(V[40], a14, 1);
+	t40 = clj_c_intrinsic_fallback(V[40], &t39, 1);
+	clj_release(t39);
 	}
-	(void)t39;
 	CLJC_SITE(&S[43]);
 	if (t40 == CLJ_THROWN) {
 	goto L1;

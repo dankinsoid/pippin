@@ -23,6 +23,12 @@ typedef enum {
 	// clj_is_unique asked of a heap object: in place (rc 1) or a copy.
 	CLJ_STAT_REUSE_TAKEN,
 	CLJ_STAT_REUSE_COPIED,
+	// Drop-guided reuse in compiled code (reuse.c): a dying value offered its cell, a cell taken (unique and
+	// unshared), a cell a new object was built in, and the fields a same-type reuse kept instead of rewriting.
+	CLJ_STAT_TOKEN_MADE,
+	CLJ_STAT_TOKEN_TAKEN,
+	CLJ_STAT_TOKEN_USED,
+	CLJ_STAT_TOKEN_SKIPPED,
 	CLJ_STAT_COUNT
 } clj_stat;
 
@@ -43,6 +49,8 @@ bool clj_debug_stats_rc(uint64_t out[3]);
 size_t clj_debug_allocs_by_type(const char **names, uint64_t *counts, size_t cap);
 // clj_is_unique's answers per type of the object asked, since the start; 0 in a build without -DCLJ_STATS.
 size_t clj_debug_reuse_by_type(const char **names, uint64_t *taken, uint64_t *copied, size_t cap);
+// Cells reused by a reuse token per type of the object built in them, since the start; 0 without -DCLJ_STATS.
+size_t clj_debug_tokens_by_type(const char **names, uint64_t *used, size_t cap);
 // ns per inline retain or release of an unshared object on this machine, the unit the RC share is estimated in.
 double clj_debug_rc_op_ns(size_t ops);
 // The same over `objects` objects visited in a shuffled order: a header the cache no longer holds.

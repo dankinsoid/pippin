@@ -27,6 +27,10 @@ static const char *const names[CLJ_STAT_COUNT] = {
 	[CLJ_STAT_EQUALS] = "equals",
 	[CLJ_STAT_REUSE_TAKEN] = "reuse_taken",
 	[CLJ_STAT_REUSE_COPIED] = "reuse_copied",
+	[CLJ_STAT_TOKEN_MADE] = "token_made",
+	[CLJ_STAT_TOKEN_TAKEN] = "token_taken",
+	[CLJ_STAT_TOKEN_USED] = "token_used",
+	[CLJ_STAT_TOKEN_SKIPPED] = "token_skipped",
 };
 
 const char *clj_debug_stat_name(int k) { return k >= 0 && k < CLJ_STAT_COUNT ? names[k] : "?"; }
@@ -76,7 +80,7 @@ enum { TYPE_SLOTS = 1024 };
 
 typedef struct {
 	_Atomic(const clj_type *) type;
-	_Atomic uint64_t          allocs, reuse_taken, reuse_copied;
+	_Atomic uint64_t          allocs, reuse_taken, reuse_copied, token_used;
 	_Atomic uint64_t          born, born_built;
 	_Atomic uint64_t          count[NFIELD][NKIND];
 } type_allocs;
@@ -417,6 +421,12 @@ void clj_stats_alloc(clj_header *h, const clj_type *type, size_t size, uint32_t 
 	if (atomic_load_explicit(&census_on, memory_order_relaxed)) census_birth(h, type, cls);
 }
 
+void clj_stats_reborn(clj_header *h, const clj_type *type, uint32_t cls) {
+	CLJ_STAT(CLJ_STAT_TOKEN_USED);
+	bump(&by_type[type_index(type)].token_used);
+	if (atomic_load_explicit(&census_on, memory_order_relaxed)) census_birth(h, type, cls);
+}
+
 void clj_stats_reuse(const clj_type *type, bool taken) {
 	CLJ_STAT(taken ? CLJ_STAT_REUSE_TAKEN : CLJ_STAT_REUSE_COPIED);
 	type_allocs *row = &by_type[type_index(type)];
@@ -455,7 +465,24 @@ size_t clj_debug_reuse_by_type(const char **type_names, uint64_t *taken, uint64_
 	}
 	return n;
 }
+size_t clj_debug_tokens_by_type(const char **type_names, uint64_t *used, size_t cap) {
+	size_t n = 0;
+	for (size_t i = 0; i < TYPE_SLOTS && n < cap; i++) {
+		const clj_type *type = atomic_load_explicit(&by_type[i].type, memory_order_acquire);
+		if (!type) continue;
+		type_names[n] = type->name;
+		used[n++] = atomic_load_explicit(&by_type[i].token_used, memory_order_relaxed);
+	}
+	return n;
+}
 #else
+size_t clj_debug_tokens_by_type(const char **type_names, uint64_t *used, size_t cap) {
+	(void)type_names;
+	(void)used;
+	(void)cap;
+	return 0;
+}
+
 bool clj_debug_stats(uint64_t out[CLJ_STAT_COUNT]) {
 	(void)out;
 	return false;

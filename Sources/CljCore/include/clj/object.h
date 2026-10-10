@@ -230,6 +230,8 @@ void *clj_realloc(void *obj, size_t size);
 // §7 invariant that only clj_is_unique reads the counter, so the suites pass with reuse off. A test that
 // asserts an address survived an in-place operation gates on this.
 bool      clj_reuse_enabled(void);
+// The calling thread's reuse tokens of compiled code (reuse.c): cells taken, built in, fields kept; -1 outside debug.
+void      clj_debug_reuse_counts(int64_t out[3]);
 
 void      clj_retain_slow(clj_header *h);
 void      clj_release_slow(clj_header *h);

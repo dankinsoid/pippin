@@ -219,6 +219,8 @@ if opts.stats {
 	let n0 = clj_debug_allocs_by_type(&names0, &counts0, cap)
 	var rnames0 = [UnsafePointer<CChar>?](repeating: nil, count: cap), taken0 = [UInt64](repeating: 0, count: cap), copied0 = taken0
 	let r0 = clj_debug_reuse_by_type(&rnames0, &taken0, &copied0, cap)
+	var tnames0 = [UnsafePointer<CChar>?](repeating: nil, count: cap), used0 = [UInt64](repeating: 0, count: cap)
+	let t0 = clj_debug_tokens_by_type(&tnames0, &used0, cap)
 	let sw0 = clj_debug_coro_switches()
 	if opts.census { _ = clj_debug_census_begin() }
 	var ms = 0.0
@@ -231,6 +233,8 @@ if opts.stats {
 	let n1 = clj_debug_allocs_by_type(&names1, &counts1, cap)
 	var rnames1 = [UnsafePointer<CChar>?](repeating: nil, count: cap), taken1 = [UInt64](repeating: 0, count: cap), copied1 = taken1
 	let r1 = clj_debug_reuse_by_type(&rnames1, &taken1, &copied1, cap)
+	var tnames1 = [UnsafePointer<CChar>?](repeating: nil, count: cap), used1 = [UInt64](repeating: 0, count: cap)
+	let t1 = clj_debug_tokens_by_type(&tnames1, &used1, cap)
 	let k = Double(opts.statIterations)
 	out("stats_ms \(ms / k)")
 	for i in 0..<Int(CLJ_STAT_COUNT.rawValue) { out("stat \(String(cString: clj_debug_stat_name(Int32(i)))) \(Double(s1[i] - s0[i]) / k)") }
@@ -260,6 +264,12 @@ if opts.stats {
 	}
 	for (name, taken, copied) in reuse.filter({ $0.1 + $0.2 > 0 }).sorted(by: { $0.1 + $0.2 > $1.1 + $1.2 }).prefix(12) {
 		out("reuse_type \(name.replacingOccurrences(of: " ", with: "_")) \(Double(taken) / k) \(Double(copied) / k)")
+	}
+	var tokensBefore: [String: UInt64] = [:], tokensAfter: [String: UInt64] = [:]
+	for i in 0..<t0 { tokensBefore[String(cString: tnames0[i]!), default: 0] += used0[i] }
+	for i in 0..<t1 { tokensAfter[String(cString: tnames1[i]!), default: 0] += used1[i] }
+	for (name, used) in tokensAfter.map({ ($0.key, $0.value - (tokensBefore[$0.key] ?? 0)) }).filter({ $0.1 > 0 }).sorted(by: { $0.1 > $1.1 }).prefix(8) {
+		out("token_type \(name.replacingOccurrences(of: " ", with: "_")) \(Double(used) / k)")
 	}
 	out("result \(expected)")
 	exit(0)

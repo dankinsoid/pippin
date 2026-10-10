@@ -197,6 +197,34 @@ extension CoreTests {
 			base.check()
 		}
 
+		// A freed cell comes back at the same address anyway (the free list is LIFO): only the counters tell reuse apart.
+		@Test func reuseTokensTakeDyingCells() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.reuse)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval {
+				_ = try cljEval("(defn cr-bump [n l] (loop [i 0 l l] (if (< i n) (let [x (first l) r (rest l)] (recur (inc i) (cons (inc x) r))) l)))")
+				_ = try cljEval("(defn cr-sum [v] (loop [n 0 s (seq v)] (if s (recur (+ n (first s)) (next s)) n)))")
+			}
+			_ = try cljEval("(def cr-kept (list 1 2 3))")
+			var c0 = [Int64](repeating: 0, count: 3), c1 = c0, c2 = c0
+			clj_debug_reuse_counts(&c0)
+			#expect(try cljEval("(cr-bump 3 (list 1 2 3))") == Value(list: [4, 2, 3]))
+			#expect(try cljEval("(cr-sum [1 2 3 4])") == 10)
+			clj_debug_reuse_counts(&c1)
+			// shared by the var: the first step copies, and every later cell is the loop's own
+			#expect(try cljEval("[(cr-bump 1 cr-kept) cr-kept]") == [Value(list: [2, 2, 3]), Value(list: [1, 2, 3])])
+			clj_debug_reuse_counts(&c2)
+			if clj_reuse_enabled() {
+				// cr-bump: steps 2 and 3 in place, each keeping the tail; cr-sum: four cells taken, the last one ends the walk
+				#expect(c1[0] - c0[0] == 6 && c1[1] - c0[1] == 5, "taken \(c1[0] - c0[0]), used \(c1[1] - c0[1])")
+				#expect(c1[2] - c0[2] == 5, "kept fields \(c1[2] - c0[2])")
+				#expect(c2[0] == c1[0], "a shared value lends its cell")
+			} else {
+				#expect(c2 == c0)
+			}
+		}
+
 		// The guard page lands "Stack overflow" at the host boundary, past any try in between (guard.c); the loop tick
 		// stops a loop without calls.
 		@Test func endlessRecursionAndLoopAreStopped() throws {

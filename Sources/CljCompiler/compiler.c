@@ -10,6 +10,7 @@
 #include "clj/facts.h"
 #include "clj/summary.h"
 #include "cljc/compiler.h"
+#include "reuse.h"
 
 // ---- string builder
 
@@ -445,6 +446,7 @@ typedef struct fnctx {
 	bool                 has_direct; // the body calls a compiled fn directly: not a leaf (NOTES.md "Compiler", inlining)
 	const uint8_t       *wkinds;     // a worker: the ukind of each parameter, which arrives as a C value in a typed slot
 	uint32_t             wnparams;
+	cljc_reuse_plan     *reuse;      // the frame's drop-guided reuse pairs (reuse.c)
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -638,6 +640,10 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 	for (uint32_t i = 0; i < nslots; i++) {
 		if (wparam(f, i) && !in_typed(f, i)) return false;
 	}
+	uint32_t nrecur = a ? a->nparams + (a->variadic ? 1 : 0) : 0;
+	cljc_reuse_plan_free(f->reuse);
+	f->reuse = cljc_reuse_plan_frame(body, f->facts, f->promoted & ~f->borrowed & ~f->ints & ~f->dbls,
+	                                 nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1);
 	return true;
 }
 
@@ -2447,6 +2453,32 @@ static temp emit_tag_checked(fnctx *f, const clj_node *n, unbox_op uop, const uk
 	return r;
 }
 
+// A split's fast branch types more slots than the plan saw.
+static const cljc_reuse_pair *reuse_pair(const fnctx *f, const clj_node *n) {
+	const cljc_reuse_pair *p = cljc_reuse_at(f->reuse, n->id);
+	if (!p || !promoted(f, p->slot) || borrowed_slot(f, p->slot) || slot_kind(f, p->slot) != UK_NONE || wparam(f, p->slot)) return NULL;
+	return p;
+}
+
+// s is handed over, so a unique view can step in its own cell.
+static temp emit_consume(fnctx *f, const clj_node *n, uint32_t slot) {
+	const clj_intrinsic *op = n->u.intrinsic.op;
+	size_t               oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var.v);
+	const char          *owned = strcmp(op->name, "clojure.core/next") == 0 ? "clj_next_owned" : "clj_rest_owned";
+	fn_line(f, n->u.intrinsic.args[0]);
+	temp a = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s = l%u;\n\tl%u = CLJ_NIL;\n", a.name, slot, slot);
+	live_push(f, a);
+	temp r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\t%s = %s(%s);\n\t} else {\n", r.name, vi, oi, r.name, owned, a.name);
+	sb_printf(&f->out, "\t%s = clj_c_intrinsic_fallback(V[%zu], &%s, 1);\n\tclj_release(%s);\n\t}\n", r.name, vi, a.name, a.name);
+	live_forget(f, &a);
+	check_thrown(f, r.name);
+	live_push(f, r);
+	f->u->slots.reuse_consumes++;
+	return r;
+}
+
 static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
 	unbox_op             uop = unbox_op_of(op);
@@ -2464,6 +2496,8 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		if (all_unboxable && ok) return emit_unboxed(f, n, uop);
 		if (all_typed && ok) return emit_tag_checked(f, n, uop, kinds);
 	}
+	const cljc_reuse_pair *pair = reuse_pair(f, n);
+	if (pair && pair->kind == CLJC_REUSE_CONSUME) return emit_consume(f, n, pair->slot);
 	size_t oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var.v);
 	char   array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
@@ -2486,6 +2520,12 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
 		sb_printf(&f->out, "\t%s = clj_c_kw_get(KC_%u_get(), %s, %s, %s);\n", r.name, ic, args[1].name, args[0].name, n->u.intrinsic.n == 3 ? args[2].name : "CLJ_NIL");
 		f->u->slots.kw_sites++;
+	} else if (pair && pair->kind == CLJC_REUSE_TOKEN && !consuming) {
+		// the operands hold references of their own: nothing they point at goes with the dying value's children
+		int k = f->naux++;
+		sb_printf(&f->out, "\tclj_reuse_token k%d = clj_drop_reuse(l%u);\n\tl%u = CLJ_NIL;\n\t%s = clj_seq_cons_at(k%d, %s, %s);\n", k, pair->slot, pair->slot, r.name, k,
+		          args[0].name, args[1].name);
+		f->u->slots.reuse_tokens++;
 	} else {
 		emit_intrinsic_call(f, op, op->cname, args, r.name);
 	}
@@ -2700,6 +2740,7 @@ static void frame_add(unit *u, const char *name, uint32_t stub) {
 }
 
 static void fnctx_free(fnctx *f) {
+	cljc_reuse_plan_free(f->reuse);
 	sb_free(&f->out);
 	free(f->live);
 	free(f->handlers);

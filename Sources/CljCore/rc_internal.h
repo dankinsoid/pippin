@@ -20,6 +20,11 @@ void clj_drop_slow(clj_drop *d, clj_header *h);
 // An unshared child whose count just reached zero: freed now when it has nothing to tear down, else queued.
 void clj_drop_dead(clj_drop *d, clj_header *h);
 
+// The last reference of an object whose cell a reuse token takes (reuse.c): nothing runs at its death but the drop.
+bool clj_rc_token_ok(const clj_header *h);
+// Releases the children of such an object, the dead below torn down as usual; its own cell stays.
+void clj_rc_drop_children(clj_header *h);
+
 // No deep test: clj_cc_deep_release leaves every unshared object to the plain release.
 static inline void clj_drop_value(clj_drop *d, clj_value v) {
 	if (!clj_is_ptr(v)) return;

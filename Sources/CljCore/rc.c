@@ -141,10 +141,8 @@ static void release_child(clj_value child, void *ctx) {
 }
 
 // Iterative so a million-element list does not overflow the C stack.
-static void free_object(clj_header *dead, bool deep) {
-	if ((dead->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(dead, deep)) return;
-	clj_drop d = {.deep = deep};
-	bury(&d, dead);
+static void drain(clj_drop *d_) {
+	clj_drop d = *d_;
 	for (;;) {
 		clj_header *h;
 		bool        zombie = !d.stack;
@@ -164,6 +162,35 @@ static void free_object(clj_header *dead, bool deep) {
 		else clj_dealloc(h);
 	}
 	if (d.aside) free(d.aside);
+}
+
+static void free_object(clj_header *dead, bool deep) {
+	if ((dead->flags & CLJ_FLAG_SHARED) && clj_cc_defer_free(dead, deep)) return;
+	clj_drop d = {.deep = deep};
+	bury(&d, dead);
+	drain(&d);
+}
+
+void clj_rc_drop_children(clj_header *h) {
+	clj_drop        d = {.deep = false};
+	const clj_type *t = h->type;
+	if (t->drop) t->drop(h, &d);
+	else if (t->each_child) t->each_child(h, release_child, &d);
+	drain(&d);
+}
+
+bool clj_rc_token_ok(const clj_header *h) {
+#ifdef CLJ_NO_REUSE
+	(void)h;
+	return false;
+#else
+	// A reference type replaces slots under its own protocol, and a finalizer or a registry runs at death.
+	if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_MUTABLE)) return false;
+	if (h->type->finalize || h->type->unlink) return false;
+	CLJ_OWNER_CHECK(h);
+	// The whole word: a candidate buffer's BUFFERED bit means it still names the cell.
+	return CLJ_RC_UNSHARED_LOAD(h) == 1;
+#endif
 }
 
 #if CLJ_DEBUG

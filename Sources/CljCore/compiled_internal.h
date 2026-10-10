@@ -34,6 +34,7 @@
 #include "epoch_internal.h"
 #include "profile_internal.h"
 #include "proto_internal.h"
+#include "reuse_internal.h"
 #include "shadow_internal.h"
 #include "shape_internal.h"
 #include "stats_internal.h"

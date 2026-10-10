@@ -642,15 +642,14 @@ CLJC_FRAME clj_value clojure_set_union_v2(clj_value self, const clj_value *captu
 	goto L1;
 	}
 	clj_value t13 = l3;
-	clj_value a4[1] = {t13};
-	(void)a4;
+	l3 = CLJ_NIL;
 	clj_value t14;
 	if (CLJC_GUARD(V[15], B[5])) {
-	t14 = clj_rest(t13);
+	t14 = clj_rest_owned(t13);
 	} else {
-	t14 = clj_c_intrinsic_fallback(V[15], a4, 1);
+	t14 = clj_c_intrinsic_fallback(V[15], &t13, 1);
+	clj_release(t13);
 	}
-	(void)t13;
 	CLJC_SITE(&S[2]);
 	if (t14 == CLJ_THROWN) {
 	clj_release(t12);
@@ -1070,15 +1069,14 @@ CLJC_FRAME clj_value clojure_set_intersection_v2(clj_value self, const clj_value
 	goto L1;
 	}
 	clj_value t13 = l3;
-	clj_value a4[1] = {t13};
-	(void)a4;
+	l3 = CLJ_NIL;
 	clj_value t14;
 	if (CLJC_GUARD(V[15], B[5])) {
-	t14 = clj_rest(t13);
+	t14 = clj_rest_owned(t13);
 	} else {
-	t14 = clj_c_intrinsic_fallback(V[15], a4, 1);
+	t14 = clj_c_intrinsic_fallback(V[15], &t13, 1);
+	clj_release(t13);
 	}
-	(void)t13;
 	CLJC_SITE(&S[3]);
 	if (t14 == CLJ_THROWN) {
 	clj_release(t12);

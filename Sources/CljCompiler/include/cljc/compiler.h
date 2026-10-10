@@ -83,6 +83,8 @@ typedef struct {
 	uint64_t prim_sites;     // direct call sites written with a worker path
 	uint64_t prim_bound;     // of those, bound to a worker of the set
 	uint64_t kw_sites;       // keyword-lookup sites with an inline cache: (:k m) and (get m :k) with a literal keyword
+	uint64_t reuse_tokens;   // cons sites built in the cell of a value dying there (drop-guided reuse)
+	uint64_t reuse_consumes; // next/rest sites that hand their dying operand over
 	uint64_t defs;           // top-level defs of the unit
 	uint64_t defs_dropped;   // of those, the ones the shaker left out (closed only)
 	uint64_t def_bytes;      // C bytes the kept defs' functions take, as emitted

@@ -156,6 +156,7 @@ if opts.stats {
 		protocol sites direct \(st.proto_direct), switch \(st.proto_switch), cache \(st.proto_cache), satisfies?/extends? folded \(st.proto_folded); \
 		direct-call arrays \(st.direct_array) of \(st.direct_slots) callee slots; \
 		workers \(st.workers), primitive sites \(st.prim_sites) of which bound \(st.prim_bound); keyword-lookup sites \(st.kw_sites); \
+		reuse: cons in a dying cell \(st.reuse_tokens), next/rest handed over \(st.reuse_consumes); \
 		defs \(st.defs) of which dropped \(st.defs_dropped), kept \(st.def_bytes) C bytes
 
 		""".utf8))

@@ -55,8 +55,8 @@ def sh(cmd, env=None, timeout=None, cwd=ROOT, check=True):
 
 def parse(text):
 	"""The report lines of clj-corpus-bench and jvm.clj: `key value`, `stat name n`, `alloc_type name n`,
-	`census type field n`, `reuse_type name taken copied`."""
-	r = {"stat": {}, "alloc_type": {}, "census": {}, "reuse_type": {}}
+	`census type field n`, `reuse_type name taken copied`, `token_type name used`."""
+	r = {"stat": {}, "alloc_type": {}, "census": {}, "reuse_type": {}, "token_type": {}}
 	for line in text.splitlines():
 		parts = line.split(" ", 1)
 		if len(parts) != 2:
@@ -68,7 +68,7 @@ def parse(text):
 				# Two types may share a name (a deftype's and a core one): summed.
 				row = r["census"].setdefault(cells[0], {})
 				row[cells[1]] = row.get(cells[1], 0.0) + float(cells[2])
-		elif key in ("stat", "alloc_type"):
+		elif key in ("stat", "alloc_type", "token_type"):
 			name, value = rest.rsplit(" ", 1)
 			r[key][name] = float(value)
 		elif key == "reuse_type":
@@ -647,6 +647,22 @@ def write_report(b, facts_path, xctrace):
 			top = sorted(s.get("reuse_type", {}).items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:6]
 			add("- **%s**: %s in place / %s copied; %s" % (w, k(st.get("reuse_taken")), k(st.get("reuse_copied")),
 			    ", ".join("%s %s/%s" % (n, k(t), k(c)) for n, (t, c) in top) or "none"))
+	add("")
+	add("Reuse tokens of compiled code (per iteration, dev / closed; made: a dying value offered its cell, taken: unique "
+	    "and unshared, used: a new object built in it, skipped: fields kept in place; top 4 types built):")
+	add("")
+	for w in b.args.only:
+		cells = []
+		for kind in ("dev-stats", "closed-stats"):
+			s = b.results[w].get(kind)
+			if s:
+				st = s["stat"]
+				top = sorted(s.get("token_type", {}).items(), key=lambda kv: -kv[1])[:4]
+				cells.append("%s made, %s taken, %s used, %s skipped (%s)" % (
+					k(st.get("token_made")), k(st.get("token_taken")), k(st.get("token_used")), k(st.get("token_skipped")),
+					", ".join("%s %s" % (n, k(u)) for n, u in top) or "none"))
+		if cells:
+			add("- **%s**: %s" % (w, " / ".join(cells)))
 	add("")
 	add("Dev against closed, the generic-call counters (dev / closed): " + "; ".join(
 		"%s invoke %s/%s c_invoke %s/%s" % (
