@@ -1694,6 +1694,8 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		r = clj_fact_bottom();
 		break;
 	case CLJ_NODE_FUSED: r = infer_fused(p, n, e); break;
+	case CLJ_NODE_ROOT_IS: r = fact_of(CLJ_T_BOOL); break;
+	case CLJ_NODE_INLINE: r = infer(p, n->u.inline_.body, e, use); break;
 	// A method's return type is an Objective-C fact, and the lattice has no host types yet.
 	case CLJ_NODE_OBJC_SEND:
 		infer(p, n->u.objc.target, e, USE_ESCAPE);

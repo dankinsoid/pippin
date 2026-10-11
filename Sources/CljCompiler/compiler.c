@@ -169,6 +169,7 @@ typedef struct {
 	pool  leaves;    // the arity functions with an always_inline twin <name>_i: small bodies without direct calls
 	pool  workers;   // the primitive entries emitted, "<base>_a<n>_<sig>", with "1" when a leaf (NOTES.md "Compiler")
 	pool  prims;     // the primitive call sites written, by target, with their count
+	pool  inlines;   // the inlined calls' targets "base_aN": a closed set that binds the var to that fn drops the guard
 	uint32_t nstubs, ntops, nforms;
 	uint32_t nics; // inline caches of the unit, numbered across its functions (file scope, behind getters)
 	cljc_slot_stats slots;
@@ -365,6 +366,7 @@ static void unit_free(unit *u) {
 	pool_free(&u->leaves);
 	pool_free(&u->workers);
 	pool_free(&u->prims);
+	pool_free(&u->inlines);
 	free(u);
 }
 
@@ -450,6 +452,7 @@ typedef struct fnctx {
 	const uint8_t       *wkinds;     // a worker: the ukind of each parameter, which arrives as a C value in a typed slot
 	uint32_t             wnparams;
 	cljc_reuse_plan     *reuse;      // the frame's drop-guided reuse pairs (reuse.c)
+	uint32_t             inlining;   // inlined bodies being emitted (emit_inline)
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -458,7 +461,7 @@ static void emit_site(fnctx *f) {
 }
 
 static void fn_line(fnctx *f, const clj_node *n) {
-	if (!f->c->opts.line || !n->line || n->line == f->last_line) return;
+	if (!f->c->opts.line || !n->line || n->line == f->last_line || f->inlining) return;
 	f->last_line = n->line;
 	sb_printf(&f->out, "#line %u ", n->line);
 	sb_c_string(&f->out, f->u->file, strlen(f->u->file));
@@ -1290,7 +1293,8 @@ static bool const_ok(clj_value v) {
 
 static const char *kind_name(clj_node_kind k) {
 	static const char *const names[] = {"const", "local", "captured", "outer", "var", "if", "do", "let", "loop", "recur", "fn", "invoke",
-	                                    "def", "vector", "map", "set", "try", "throw", "intrinsic", "fused", "direct-fn", "direct-call", "objc-send"};
+	                                    "def", "vector", "map", "set", "try", "throw", "intrinsic", "fused", "direct-fn", "direct-call", "objc-send",
+	                                    "root-is", "inline"};
 	return (size_t)k < sizeof names / sizeof *names ? names[k] : "?";
 }
 
@@ -1311,6 +1315,7 @@ static temp emit(fnctx *f, const clj_node *n);
 static temp emit_borrowed(fnctx *f, const clj_node *n);
 static void emit_fn_functions(fnctx *f, const clj_node *n, const char *base);
 static void emit_direct_fn_functions(fnctx *f, const clj_node *n, const char *base);
+static uint32_t stub_inlined_new(unit *u, fnctx *f, const clj_node *code, uint32_t in);
 
 static temp emit_refused(fnctx *f, const clj_node *n, const char *reason) {
 	refuse(f, n, reason);
@@ -2673,6 +2678,49 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+// An inlined call (optimizer.c): the body's guard is 1 in a closed set that binds the var to the very fn the body was
+// copied from (CLJC_INL_<target>, decided at write time as the direct targets are), the dispatcher's identity in the
+// unit that compiled that fn, and the call alone where neither can hold.
+// @ai-generated(solo)
+static temp emit_inlined_call(fnctx *f, const clj_node *n) {
+	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_;
+	const fn_base  *fb = fn_base_of(f->c, clj_fn_of(g->u.root_is.expect.v)->u.node);
+	// another unit's fn can only be bound in a closed set: a dev unit would carry a body no guard ever takes
+	if (!fb || (fb->u != f->u && !f->c->opts.closed) || clj_opt_off(CLJ_NO_OPT_INLINE)) return emit(f, call);
+	char target[300];
+	snprintf(target, sizeof target, "%s_a%u", fb->base, call->u.invoke.n);
+	bool fresh;
+	pool_intern(&f->u->inlines, target, NULL, &fresh);
+	temp b = new_temp(f, OWN_NO);
+	sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b.name);
+	if (fb->u == f->u) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b.name, var_index(f->u, g->u.root_is.var.v), fb->base);
+	else sb_printf(&f->out, "\tbool %s = false;\n", b.name);
+	sb_puts(&f->out, "#endif\n");
+	temp r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
+	temp then = emit(f, n->u.if_.then);
+	sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, then.name);
+	live_forget(f, &then);
+	temp e = emit(f, call);
+	sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, e.name);
+	live_forget(f, &e);
+	live_push(f, r);
+	f->u->slots.inlined++;
+	return r;
+}
+
+// The body under a stub of its own whose chain goes on to the frame's, so the markers of its calls name the callee.
+static temp emit_inline(fnctx *f, const clj_node *n) {
+	int32_t saved = f->stub;
+	if (saved >= 0) f->stub = (int32_t)stub_inlined_new(f->u, f, n->u.inline_.fn, (uint32_t)saved);
+	// the body's lines are the callee's file's, and #line names this unit's
+	f->inlining++;
+	temp t = emit(f, n->u.inline_.body);
+	f->inlining--;
+	f->stub = saved;
+	return t;
+}
+
 static temp emit(fnctx *f, const clj_node *n) {
 	fn_line(f, n);
 	switch (n->kind) {
@@ -2681,7 +2729,7 @@ static temp emit(fnctx *f, const clj_node *n) {
 	case CLJ_NODE_CAPTURED: return emit_captured(f, n, false);
 	case CLJ_NODE_OUTER: return emit_outer(f, n);
 	case CLJ_NODE_VAR: return emit_var(f, n, false);
-	case CLJ_NODE_IF: return emit_if(f, n);
+	case CLJ_NODE_IF: return n->u.if_.test->kind == CLJ_NODE_ROOT_IS ? emit_inlined_call(f, n) : emit_if(f, n);
 	case CLJ_NODE_DO: return emit_do(f, n);
 	case CLJ_NODE_LET: return emit_let(f, n);
 	case CLJ_NODE_LOOP: return emit_loop(f, n);
@@ -2704,6 +2752,8 @@ static temp emit(fnctx *f, const clj_node *n) {
 		return t;
 	}
 	case CLJ_NODE_DIRECT_CALL: return emit_direct_call(f, n);
+	case CLJ_NODE_INLINE: return emit_inline(f, n);
+	case CLJ_NODE_ROOT_IS: break; // only as the test of an inlined call, which emit_inlined_call reads itself
 	}
 	clj_ice("emit/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
@@ -2728,6 +2778,17 @@ static uint32_t stub_new(unit *u, fnctx *f, clj_value name, uint32_t line, uint3
 		snprintf(sym, sizeof sym, "K[%zu]", const_index(f, name, &ok));
 	}
 	sb_printf(&u->init, "\tclj_c_stub_init(&S[%u], %s, %u, %u);\n", id, sym, line, col);
+	return id;
+}
+
+static uint32_t stub_inlined_new(unit *u, fnctx *f, const clj_node *code, uint32_t in) {
+	uint32_t id = u->nstubs++;
+	char     sym[64] = "CLJ_NIL";
+	if (!clj_is_nil(code->u.fn.name.v)) {
+		bool ok;
+		snprintf(sym, sizeof sym, "K[%zu]", const_index(f, code->u.fn.name.v, &ok));
+	}
+	sb_printf(&u->init, "\tclj_c_stub_inlined(&S[%u], %s, %u, %u, &S[%u]);\n", id, sym, code->line, code->col, in);
 	return id;
 }
 
@@ -2790,7 +2851,7 @@ static itemp emit_result(fnctx *f, const clj_node *n, ukind k) {
 	fn_line(f, n);
 	switch (n->kind) {
 	case CLJ_NODE_IF: {
-		if (!n->u.if_.else_) break;
+		if (!n->u.if_.else_ || n->u.if_.test->kind == CLJ_NODE_ROOT_IS) break;
 		temp test = emit_borrowed(f, n->u.if_.test);
 		temp b = new_temp(f, OWN_NO);
 		sb_printf(&f->out, "\tbool %s = clj_truthy(%s);\n", b.name, test.name);
@@ -3875,6 +3936,11 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 			sb_printf(out, "static CLJC_WFN_%s CLJC_FN_%s;\n", target, target);
 		}
 		else sb_printf(out, "#define CLJC_DIRECT_%s 1\nstatic clj_compiled_fn CLJC_FN_%s;\n", target, target);
+	}
+	for (size_t i = 0; i < u->inlines.n; i++) {
+		const char *target = u->inlines.keys[i], *sig;
+		uint32_t    arity;
+		if (target_entry(c, target, &arity, &sig)) sb_printf(out, "#define CLJC_INL_%s 1\n", target);
 	}
 }
 

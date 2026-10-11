@@ -139,6 +139,10 @@ CLJC_FRAME clj_value clojure_template_apply_template_a3(clj_value self, const cl
 	(void)l1;
 	clj_value l2 = args[2];
 	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
+	clj_value l5 = CLJ_NIL;
+	clj_value l6 = CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 6 "<embedded>/clojure/template.clj"
@@ -402,9 +406,17 @@ CLJC_FRAME clj_value clojure_template_apply_template_a3(clj_value self, const cl
 	goto L1;
 	}
 	CLJC_LEAVE(&S[0], &cc);
+	clj_release(l3);
+	clj_release(l4);
+	clj_release(l5);
+	clj_release(l6);
 	return t32;
 L1: ;
 	CLJC_LEAVE(&S[0], &cc);
+	clj_release(l3);
+	clj_release(l4);
+	clj_release(l5);
+	clj_release(l6);
 	return CLJ_THROWN;
 }
 

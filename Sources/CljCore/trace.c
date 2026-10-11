@@ -205,13 +205,13 @@ typedef struct {
 	uintptr_t       key; // the frame's stack address: lower is deeper
 } compiled_frame;
 
-// Appends the frames a return address stands for: the inlined callee a marker names, then the frame's own fn.
+// Appends the frames a return address stands for: the fns a marker's stub chain names down to the frame's own (a body
+// inlined by the emitter names the body it sits in, one inlined by clang ends its chain), then the frame's own fn.
 static size_t frames_at(uintptr_t ra, uintptr_t key, compiled_frame *out, size_t n, size_t cap) {
 	uintptr_t          end;
 	const frame_range *r = frame_of(ra, &end);
 	if (!r) return n;
-	const clj_node *inlined = site_stub(ra, end);
-	if (inlined && inlined != r->stub && n < cap) out[n++] = (compiled_frame){inlined, key};
+	for (const clj_node *s = site_stub(ra, end); s && s != r->stub && n < cap; s = s->u.fn.inlined_in) out[n++] = (compiled_frame){s, key};
 	if (n < cap) out[n++] = (compiled_frame){r->stub, key};
 	return n;
 }

@@ -80,6 +80,8 @@ clj_value clj_c_set_literal(const clj_value *items, uint32_t n);
 clj_value clj_c_arity_error(clj_value f, size_t n);
 // A fn stub for traces and the profiler: an immortal FN node carrying only a name and a position.
 void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col);
+// The stub of a fn body inlined into the body `in` stands for: a trace through it names the fn and then `in`'s chain.
+void clj_c_stub_inlined(clj_node *stub, clj_value name, uint32_t line, uint32_t col, const clj_node *in);
 // The unit's frame table: each fn's code runs to the next one's in the __cljframe section (trace.c).
 void clj_c_register_frames(const clj_frame_entry *entries, size_t n);
 // Whether core.clj's fns report to the profiler: the interpreted core, or the compiled one built with CLJC_INSTRUMENT.

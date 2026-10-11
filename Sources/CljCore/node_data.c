@@ -332,6 +332,8 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_OUTER: return vec2(kw_outer, vec2(clj_fixnum(n->u.outer.depth), clj_fixnum(n->u.outer.index)));
 	case CLJ_NODE_VAR: return vec2(kw_var, qualified(n->u.var.v));
 	case CLJ_NODE_IF: {
+		// An inlined call is its call: the closure its guard holds is no data, and the call is the whole meaning.
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) return encode_kind(n->u.if_.else_);
 		const clj_node *arms[3] = {n->u.if_.test, n->u.if_.then, n->u.if_.else_};
 		return tagged(kw_if, arms, n->u.if_.else_ ? 3 : 2);
 	}
@@ -381,6 +383,8 @@ static clj_value encode_kind(const clj_node *n) {
 		return v;
 	}
 	case CLJ_NODE_FUSED: return encode_fused(n);
+	case CLJ_NODE_ROOT_IS:
+	case CLJ_NODE_INLINE: break; // only inside the if of an inlined call, which encodes as its call
 	}
 	clj_ice("codec/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }

@@ -13,6 +13,8 @@ void clj_exec_forget(clj_exec *e);
 void clj_exec_root_rebound(clj_value var);
 // The effects of a subtree under the dev store (facts.c, clj_facts_effects_of), for the lazy def decision.
 uint32_t clj_specialize_effects_of(const clj_node *n, uint32_t stop);
+// The effects of the var's root at nargs as its summary under the dev store has them; every bit without a walked body.
+uint32_t clj_specialize_var_effects(clj_value var, uint32_t nargs);
 // Puts the specialized entries back after clj_exec_count restored the generic ones.
 void clj_exec_reapply(clj_value exec);
 // The entry a node runs with no counting and no specialization: its keyword-site entry when it has a cache, else the kind's.

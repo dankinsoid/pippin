@@ -559,6 +559,45 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 	return v;
 }
 
+// The guard of an inlined call (optimizer.c): the root the call would read, compared with the closure the body was
+// copied from. A dynamic var's root is not what a thread binding makes the call reach.
+static clj_value eval_root_is(const clj_node *n, clj_frame *f) {
+	(void)f;
+	clj_value var = n->u.root_is.var.v;
+	return clj_bool(!clj_var_is_dynamic(var) && clj_var_root(var) == n->u.root_is.expect.v);
+}
+
+// An inlined body in the caller's frame: the shadow frame and the instrumentation of run_body, so a trace and a profile
+// see the callee; no stack check (the body cannot recurse into itself), no deadline (its loops tick), no census frame.
+// @ai-generated(solo)
+static clj_value eval_inline(const clj_node *n, clj_frame *f) {
+	clj_shadow_stack *s = clj_shadow_tls;
+	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
+	const clj_node *code = n->u.inline_.fn;
+	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, n, __builtin_frame_address(0)};
+	s->depth++;
+	uint8_t  instrument = clj_instrument;
+	uint64_t t0 = 0;
+#ifdef __APPLE__
+	os_signpost_id_t signpost = 0;
+#endif
+	if (__builtin_expect(instrument, 0)) {
+		if (instrument & CLJ_INSTRUMENT_PROFILE) t0 = clj_profile_now();
+#ifdef __APPLE__
+		if (instrument & CLJ_INSTRUMENT_SIGNPOSTS) signpost = clj_signpost_begin(code->u.fn.name.v);
+#endif
+	}
+	clj_value v = eval_child(n->u.inline_.body, f);
+	if (__builtin_expect(instrument, 0)) {
+#ifdef __APPLE__
+		if (signpost) clj_signpost_end(signpost);
+#endif
+		if (instrument & CLJ_INSTRUMENT_PROFILE) clj_profile_record(code, clj_profile_now() - t0);
+	}
+	if (__builtin_expect(--s->depth == 0, 0) && execution.nretired) drain_retired();
+	return v;
+}
+
 // A closure call: the fixed params (and the self slot) borrowed, the rest owned as `owned` says; the frame's
 // exec and environment are the closure's own.
 static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, const clj_fn_arity *arity, clj_value *slots, uint64_t owned, const clj_node *site) {
@@ -1338,6 +1377,8 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_OUTER: return eval_outer;
 	case CLJ_NODE_DIRECT_FN: return eval_direct_fn;
 	case CLJ_NODE_DIRECT_CALL: return eval_direct_call;
+	case CLJ_NODE_ROOT_IS: return eval_root_is;
+	case CLJ_NODE_INLINE: return eval_inline;
 	}
 	clj_ice("eval/unknown-kind", NULL, "node kind %u", (unsigned)kind);
 }

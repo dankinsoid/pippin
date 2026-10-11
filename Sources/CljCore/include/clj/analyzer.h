@@ -38,7 +38,13 @@ typedef enum {
 	CLJ_NODE_DIRECT_FN, // a let/loop-bound fn only ever called: no closure, its slot holds nil (optimizer.c)
 	CLJ_NODE_DIRECT_CALL, // a call of a direct fn's arity in a fresh frame linked to the defining one
 	CLJ_NODE_OBJC_SEND,   // (.method target args*) with literal keyword labels (design §5, level 1)
+	// An inlined call (optimizer.c, design §6 «Инлайнинг без JIT») is (if ROOT_IS (INLINE body) (f args)), its args
+	// bound by an enclosing let or substituted: the body runs only while the var holds the closure it was copied from.
+	CLJ_NODE_ROOT_IS, // whether a var's root is still the closure an inlined body was copied from
+	CLJ_NODE_INLINE,  // a callee's arity body copied into the calling frame: a frame of the callee in a trace, nothing else
 } clj_node_kind;
+
+#define CLJ_NODE_KIND_LAST CLJ_NODE_INLINE
 
 // Clojure's limit; more parameters go through the rest argument.
 #define CLJ_FN_MAX_FIXED 20
@@ -118,7 +124,12 @@ struct clj_node {
 			clj_slot       name; // symbol or nil
 			clj_fn_arity  *fixed[CLJ_FN_MAX_FIXED + 1];
 			clj_fn_arity  *variadic; // NULL on a direct fn
-			clj_capture   *captures; // none on a direct fn: its body reads the defining frame through OUTER nodes
+			union {
+				clj_capture   *captures; // none on a direct fn: its body reads the defining frame through OUTER nodes
+				// A compiled unit's stub (compiled.c) of a body inlined into another frame fn: the stub of the body it
+				// sits in, so a trace names every fn of the chain (trace.c). A stub has no captures.
+				const clj_node *inlined_in;
+			};
 			uint32_t       ncaptures;
 		} fn; // fn, direct fn
 		// fn is the DIRECT_FN node bound at `slot` of the frame `depth` static links up from the calling one,
@@ -135,6 +146,17 @@ struct clj_node {
 			const clj_node **args;
 			uint32_t         n;
 		} invoke;
+		// The guard of an inlined body: expect is the closure the body was copied from (its node is the INLINE's fn),
+		// held so that its identity is never reused; a var redefined, rebound or dynamic fails it.
+		struct {
+			clj_slot var;
+			clj_slot expect;
+		} root_is;
+		// fn is the callee's fn node, borrowed: the ROOT_IS beside it holds the closure that holds its tree.
+		struct {
+			const clj_node *fn;
+			const clj_node *body;
+		} inline_;
 		// Labels are syntax, folded into one selector here, so no backend reads them again (design §5).
 		struct {
 			clj_slot         selector; // string: base plus every label, each colon-terminated

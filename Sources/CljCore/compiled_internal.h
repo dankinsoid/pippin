@@ -124,6 +124,13 @@ static inline clj_value clj_c_var_borrow(clj_value var, bool *owned) {
 	return clj_retain(root);
 }
 
+// The dev guard of an inlined call (optimizer.c): the var still holds a closure of the fn compiled as `code`.
+static inline bool clj_c_root_runs(clj_value var, clj_native_ctx_fn code) {
+	if (clj_var_of(var)->dynamic) return false;
+	clj_value root = clj_var_root(var);
+	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_NATIVE_CTX && clj_fn_of(root)->u.native_ctx.fn == code;
+}
+
 static inline void clj_c_release_slots(const clj_cframe *f, uint32_t n) {
 	if (n > 64) {
 		for (uint32_t i = 0; i < n; i++) clj_release(f->slots[i]);

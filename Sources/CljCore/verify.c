@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/fn.h"
 #include "clj/fusion.h"
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
@@ -37,6 +38,7 @@ typedef struct {
 	uint32_t              next_id, next_site;
 	char                 *stack_limit; // past it the rest goes unchecked: a fault under the specialize lock is fatal
 	bool                  gave_up;
+	const clj_node       *root_is, *inline_; // the guard and the body of the inlined call being walked: nowhere else
 } vctx;
 
 static bool stack_low(vctx *c) {
@@ -67,6 +69,7 @@ typedef struct vframe {
 	const clj_node      *fused; // a fused program's frame: the FUSED node
 	uint8_t             *bound;
 	const clj_node     **direct; // the DIRECT_FN bound at a slot while it is in scope
+	uint32_t             inlines; // INLINE bodies the walk is inside of, in this frame
 } vframe;
 
 typedef struct {
@@ -75,7 +78,7 @@ typedef struct {
 } vtarget;
 
 static vframe frame_new(uint32_t nslots) {
-	vframe f = {NULL, nslots, 0, false, NULL, calloc(nslots ? nslots : 1, 1), calloc(nslots ? nslots : 1, sizeof(clj_node *))};
+	vframe f = {NULL, nslots, 0, false, NULL, calloc(nslots ? nslots : 1, 1), calloc(nslots ? nslots : 1, sizeof(clj_node *)), 0};
 	if (!f.bound || !f.direct) clj_fatal("out of memory");
 	return f;
 }
@@ -91,7 +94,8 @@ static const vframe *linked(const vframe *f, uint32_t depth) {
 }
 
 static bool optimizer_kind(clj_node_kind k) {
-	return k == CLJ_NODE_INTRINSIC || k == CLJ_NODE_FUSED || k == CLJ_NODE_DIRECT_FN || k == CLJ_NODE_DIRECT_CALL;
+	return k == CLJ_NODE_INTRINSIC || k == CLJ_NODE_FUSED || k == CLJ_NODE_DIRECT_FN || k == CLJ_NODE_DIRECT_CALL || k == CLJ_NODE_ROOT_IS ||
+	       k == CLJ_NODE_INLINE;
 }
 
 // What eval_fused's frame can hold: the arguments as locals, the calls over them and the transducer vector.
@@ -266,6 +270,33 @@ static bool walk_fused(vctx *c, vframe *f, const clj_node *n) {
 	return ok;
 }
 
+// (if ROOT_IS[var, closure] (let [fresh...] INLINE[fn, body]) (var args...)): the guard compares the root with the closure
+// whose arity the body is a copy of, and the else branch is that very call, so a failed guard runs what the program
+// said. A guard or a body anywhere else would run a copy no guard checks.
+// @ai-generated(solo)
+static bool walk_inlined(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail) {
+	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_, *inl = n->u.if_.then;
+	if (inl && inl->kind == CLJ_NODE_LET) inl = inl->u.let.body;
+	if (!inl || inl->kind != CLJ_NODE_INLINE) return bad(c, "verify/inline-shape", n, "an inline guard whose then branch is no inlined body");
+	if (!call || call->kind != CLJ_NODE_INVOKE || call->u.invoke.fn->kind != CLJ_NODE_VAR || call->u.invoke.fn->u.var.v != g->u.root_is.var.v)
+		return bad(c, "verify/inline-shape", n, "an inline guard whose else branch is no call of its var");
+	clj_value expect = g->u.root_is.expect.v;
+	if (!clj_is_var(g->u.root_is.var.v) || !clj_is_fn(expect) || clj_fn_of(expect)->kind != CLJ_FN_CLOSURE || clj_fn_of(expect)->nenv)
+		return bad(c, "verify/inline-guard", n, "an inline guard that holds no closure without an environment");
+	const clj_node *code = clj_fn_of(expect)->u.node;
+	if (inl->u.inline_.fn != code) return bad(c, "verify/inline-guard", n, "an inlined body of another fn than its guard checks");
+	if (call->u.invoke.n > CLJ_FN_MAX_FIXED || !code->u.fn.fixed[call->u.invoke.n])
+		return bad(c, "verify/inline-guard", n, "an inlined call of %u args to a fn without that fixed arity", call->u.invoke.n);
+	if (f->inlines >= CLJ_INLINE_DEPTH_MAX) return bad(c, "verify/inline-depth", n, "an inlined body %u deep, past the budget of %u", f->inlines + 1, CLJ_INLINE_DEPTH_MAX);
+	const clj_node *outer_root_is = c->root_is, *outer_inline = c->inline_;
+	c->root_is = g;
+	c->inline_ = inl;
+	bool ok = walk(c, f, NULL, g, false, false) && walk(c, f, t, n->u.if_.then, tail, false) && walk(c, f, t, call, tail, false);
+	c->root_is = outer_root_is;
+	c->inline_ = outer_inline;
+	return ok;
+}
+
 // @ai-generated(solo)
 static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail, bool init) {
 	switch (n->kind) {
@@ -289,6 +320,7 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 		if (f->fused && !guarded(f->fused, n->u.var.v)) return bad(c, "verify/fused-unguarded-var", n, "a fused program names a var none of its guards checks");
 		return true;
 	case CLJ_NODE_IF:
+		if (n->u.if_.test && n->u.if_.test->kind == CLJ_NODE_ROOT_IS) return walk_inlined(c, f, t, n, tail);
 		return walk(c, f, NULL, n->u.if_.test, false, false) && walk(c, f, t, n->u.if_.then, tail, false) &&
 		       (!n->u.if_.else_ || walk(c, f, t, n->u.if_.else_, tail, false));
 	case CLJ_NODE_DO: {
@@ -352,6 +384,19 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 	case CLJ_NODE_OBJC_SEND:
 		if (!clj_is_string(n->u.objc.selector.v)) return bad(c, "verify/objc-selector", n, "a send without a selector string");
 		return walk(c, f, NULL, n->u.objc.target, false, false) && walk_all(c, f, n->u.objc.args, n->u.objc.n, n);
+	case CLJ_NODE_ROOT_IS:
+		if (n != c->root_is) return bad(c, "verify/inline-shape", n, "an inline guard that is no test of an inlined call");
+		c->root_is = NULL;
+		return true;
+	case CLJ_NODE_INLINE: {
+		if (n != c->inline_) return bad(c, "verify/inline-shape", n, "an inlined body outside the then branch of its guard");
+		c->inline_ = NULL;
+		// the body is the callee's arity body: no recur of the caller reaches through it
+		f->inlines++;
+		bool ok = walk(c, f, NULL, n->u.inline_.body, false, false);
+		f->inlines--;
+		return ok;
+	}
 	}
 	return bad(c, "verify/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
@@ -360,7 +405,7 @@ static bool walk(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool t
 	if (stack_low(c)) return true;
 	if (!n) return bad(c, "verify/missing-child", NULL, "a node is missing where its parent needs one");
 	if (n->h.type != &clj_node_type) return bad(c, "verify/not-a-node", NULL, "a child pointer that reaches no node");
-	if ((uint32_t)n->kind > CLJ_NODE_OBJC_SEND) return bad(c, "verify/unknown-kind", NULL, "node kind %u", (unsigned)n->kind);
+	if ((uint32_t)n->kind > CLJ_NODE_KIND_LAST) return bad(c, "verify/unknown-kind", NULL, "node kind %u", (unsigned)n->kind);
 	uint32_t id = c->next_id++;
 	if (c->flags & CLJ_VERIFY_NUMBERED) {
 		if (n->id != id) return bad(c, "verify/numbering", n, "id %u where the pre-order says %u: a node shared or moved after numbering", n->id, id);
@@ -606,6 +651,8 @@ static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned) {
 		lv(x, n->u.throw_, s, true);
 		return no_way_out;
 	case CLJ_NODE_TRY: return lv_try(x, n, s, owned);
+	case CLJ_NODE_INLINE: return lv(x, n->u.inline_.body, s, owned);
+	case CLJ_NODE_ROOT_IS: return s;
 	}
 	return s;
 }
@@ -632,7 +679,7 @@ static void lv_frames(const clj_node *n, void *ctx) {
 }
 
 bool clj_verify_tree_check(const clj_node *root, uint32_t flags, clj_verify_violation *out) {
-	vctx c = {flags, out, false, root->id, 0, clj_stack_limit(), false};
+	vctx c = {flags, out, false, root->id, 0, clj_stack_limit(), false, NULL, NULL};
 	out->kind = NULL;
 	out->at = NULL;
 	out->message[0] = '\0';
@@ -741,6 +788,11 @@ static void digest(const clj_node *n, void *ctx) {
 		x = mix(x, n->u.objc.selector.v);
 		x = mix(x, n->u.objc.n);
 		break;
+	case CLJ_NODE_ROOT_IS:
+		x = mix(x, n->u.root_is.var.v);
+		x = mix(x, n->u.root_is.expect.v);
+		break;
+	case CLJ_NODE_INLINE: x = mix(x, (uintptr_t)n->u.inline_.fn); break;
 	}
 	*h = x;
 	clj_node_children(n, digest, ctx);

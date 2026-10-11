@@ -205,6 +205,8 @@ CLJC_FRAME clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captu
 	(void)l1;
 	clj_value l2 = args[2];
 	(void)l2;
+	clj_value l3 = CLJ_NIL;
+	clj_value l4 = CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 8 "<embedded>/clojure/walk.clj"
@@ -718,10 +720,14 @@ CLJC_FRAME clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captu
 	t3 = t20;
 	}
 	CLJC_LEAVE(&S[0], &cc);
+	clj_release(l3);
+	clj_release(l4);
 	clj_c_release_slots(&fr, 1);
 	return t3;
 L1: ;
 	CLJC_LEAVE(&S[0], &cc);
+	clj_release(l3);
+	clj_release(l4);
 	clj_c_release_slots(&fr, 1);
 	return CLJ_THROWN;
 }

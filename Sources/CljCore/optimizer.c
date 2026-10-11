@@ -6,16 +6,19 @@
 #include "clj/analyzer.h"
 #include "clj/decimal.h"
 #include "clj/error.h"
+#include "clj/fn.h"
 #include "clj/fusion.h"
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/string.h"
+#include "clj/summary.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
 #include "clj/verify.h"
 #include "ice_internal.h"
 #include "node.h"
+#include "specialize_internal.h"
 
 static void *zalloc(size_t n, size_t size) {
 	void *p = calloc(n ? n : 1, size);
@@ -529,6 +532,460 @@ static void optimize(const clj_node *n, void *ctx) {
 	else if (m->kind == CLJ_NODE_IF) fold_if(m);
 }
 
+// ---- inlining (design §6 «Инлайнинг без JIT», §10 step 7a): (f a b) of a var holding a small closure becomes
+//   (if ROOT_IS[f, closure] (let [p a'] INLINE[fn, body']) (f a b))
+// The guard reads the root before the arguments, as the call does, and the call itself is the else branch, so a
+// redefined or rebound var runs what it ran before. Copied bodies are never inlined into again: no unrolling.
+
+enum {
+	INLINE_CALLEE_MAX = 32,  // nodes of the callee's arity body: what "small" means
+	INLINE_GROWTH_MIN = 64,  // nodes a frame may grow by, or by its own size when that is larger
+	INLINE_SLOTS_SMALL = 16, // eval.c's SMALL_SLOTS: a frame past it goes to the heap, so a small frame stays small
+	INLINE_SLOTS_MAX = 64,   // the owned mask and the last-use marks stop at 64 slots
+};
+
+// An inlined body runs where the call ran, inside the caller's frame: only effects with no order to keep.
+#define INLINE_EFFECTS (CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW)
+#define SLOT_NONE UINT32_MAX
+
+typedef struct {
+	const uint32_t  *map;   // callee slot -> slot of this frame; SLOT_NONE for a substituted parameter and the self slot
+	const clj_node **subst; // per callee slot: the read a parameter's local reads become, or NULL
+	uint32_t         nmap;
+	const clj_node **from, **to; // direct fns copied so far, for their calls
+	uint32_t         nfn, cfn;
+	uint32_t         nodes;  // made
+	uint32_t         depth;  // INLINE nodes around the copy point within the frame, the new one included
+} copy_ctx;
+
+// `level`: direct fn bodies entered below the callee's frame; VERBATIM is another frame, whose slots stay as they are.
+enum { VERBATIM = -1 };
+
+static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level);
+
+static const clj_node **copy_all(const clj_node *const *nodes, uint32_t n, copy_ctx *c, int level) {
+	const clj_node **out = zalloc(n, sizeof *out);
+	for (uint32_t i = 0; i < n; i++) out[i] = copy_node(nodes[i], c, level);
+	return out;
+}
+
+static uint32_t copy_slot(const copy_ctx *c, int level, uint32_t slot, const clj_node *at) {
+	if (level != 0) return slot;
+	if (slot >= c->nmap || c->map[slot] == SLOT_NONE) clj_ice("optimize/inline-slot", at, "slot %u of an inlined body has no slot in its new frame", slot);
+	return c->map[slot];
+}
+
+static uint32_t *copy_slots(const copy_ctx *c, int level, const uint32_t *slots, uint32_t n, const clj_node *at) {
+	uint32_t *out = zalloc(n, sizeof *out);
+	for (uint32_t i = 0; i < n; i++) out[i] = copy_slot(c, level, slots[i], at);
+	return out;
+}
+
+// A callee has no environment, so a static link reaches at most its own frame.
+static uint32_t copy_linked(const copy_ctx *c, int level, uint32_t depth, uint32_t slot, const clj_node *at) {
+	if (level == VERBATIM || depth < (uint32_t)level) return slot;
+	if (depth > (uint32_t)level) clj_ice("optimize/inline-outer", at, "a static-link reference %u up from %d frames into an inlined body", depth, level);
+	return copy_slot(c, 0, slot, at);
+}
+
+static void fn_map_add(copy_ctx *c, const clj_node *from, const clj_node *to) {
+	if (c->nfn == c->cfn) {
+		c->cfn = c->cfn ? c->cfn * 2 : 8;
+		c->from = realloc(c->from, c->cfn * sizeof *c->from);
+		c->to = realloc(c->to, c->cfn * sizeof *c->to);
+		if (!c->from || !c->to) clj_fatal("out of memory");
+	}
+	c->from[c->nfn] = from;
+	c->to[c->nfn++] = to;
+}
+
+// A verbatim copy of an argument may call a direct fn bound outside it, which the call keeps.
+static const clj_node *copy_direct_target(const copy_ctx *c, const clj_node *from, int level, const clj_node *at) {
+	for (uint32_t i = c->nfn; i-- > 0;) {
+		if (c->from[i] == from) return c->to[i];
+	}
+	if (level == VERBATIM) return from;
+	clj_ice("optimize/inline-direct-call", at, "a direct call whose fn was not copied before it");
+}
+
+static clj_capture copy_capture(const copy_ctx *c, int level, const clj_capture *cap, const clj_node *at) {
+	clj_capture out = *cap;
+	if (level == VERBATIM) return out;
+	switch (cap->kind) {
+	case CLJ_CAPTURE_LOCAL: out.index = copy_slot(c, level, cap->index, at); break;
+	case CLJ_CAPTURE_OUTER: out.index = copy_linked(c, level, cap->depth, cap->index, at); break;
+	case CLJ_CAPTURE_CAPTURED: clj_ice("optimize/inline-captured", at, "a capture of an environment the inlined closure does not have");
+	}
+	return out;
+}
+
+// @ai-generated(solo)
+static clj_node *copy_fn(const clj_node *n, copy_ctx *c, int level) {
+	clj_node *m = node_at(n->kind, (position){n->line, n->col});
+	c->nodes++;
+	clj_slot_store(&m->h, &m->u.fn.name, clj_retain(n->u.fn.name.v));
+	if (n->kind == CLJ_NODE_DIRECT_FN) fn_map_add(c, n, m);
+	if (n->u.fn.ncaptures) {
+		clj_capture *caps = zalloc(n->u.fn.ncaptures, sizeof *caps);
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) caps[i] = copy_capture(c, level, &n->u.fn.captures[i], n);
+		m->u.fn.captures = caps;
+		m->u.fn.ncaptures = n->u.fn.ncaptures;
+	}
+	// A closure's arities are frames of their own; a direct fn's reach this one one static link further up.
+	int      inner = n->kind == CLJ_NODE_DIRECT_FN && level != VERBATIM ? level + 1 : VERBATIM;
+	uint32_t depth = c->depth;
+	if (inner == VERBATIM) c->depth = 0;
+	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED + 1; k++) {
+		const clj_fn_arity *a = k <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[k] : n->u.fn.variadic;
+		if (!a) continue;
+		clj_fn_arity *b = zalloc(1, sizeof *b);
+		*b = *a;
+		b->body = copy_node(a->body, c, inner);
+		if (k <= CLJ_FN_MAX_FIXED) m->u.fn.fixed[k] = b;
+		else m->u.fn.variadic = b;
+	}
+	c->depth = depth;
+	return m;
+}
+
+// Every last-use mark is dropped: the liveness pass marks the frame the copy lands in afresh.
+// @ai-generated(solo)
+static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
+	if (n->kind == CLJ_NODE_FN || n->kind == CLJ_NODE_DIRECT_FN) return copy_fn(n, c, level);
+	// A nested inline past the depth keeps its call: the guard's else branch is the call as it was.
+	if (n->kind == CLJ_NODE_IF && n->u.if_.test->kind == CLJ_NODE_ROOT_IS && level != VERBATIM && c->depth + 1 > CLJ_INLINE_DEPTH_MAX)
+		return copy_node(n->u.if_.else_, c, level);
+	if (n->kind == CLJ_NODE_LOCAL && level == 0 && n->u.local.index < c->nmap && c->subst[n->u.local.index])
+		return copy_node(c->subst[n->u.local.index], c, VERBATIM);
+	clj_node *m = node_at(n->kind, (position){n->line, n->col});
+	c->nodes++;
+	switch (n->kind) {
+	case CLJ_NODE_CONST: clj_slot_store(&m->h, &m->u.value, clj_retain(n->u.value.v)); break;
+	case CLJ_NODE_LOCAL: m->u.local.index = copy_slot(c, level, n->u.local.index, n); break;
+	case CLJ_NODE_CAPTURED:
+		if (level != VERBATIM) clj_ice("optimize/inline-captured", n, "a read of an environment the inlined closure does not have");
+		m->u.index = n->u.index;
+		break;
+	case CLJ_NODE_OUTER:
+		m->u.outer.depth = n->u.outer.depth;
+		m->u.outer.index = copy_linked(c, level, n->u.outer.depth, n->u.outer.index, n);
+		break;
+	case CLJ_NODE_VAR: clj_slot_store(&m->h, &m->u.var, clj_retain(n->u.var.v)); break;
+	case CLJ_NODE_IF:
+		m->u.if_.test = copy_node(n->u.if_.test, c, level);
+		m->u.if_.then = copy_node(n->u.if_.then, c, level);
+		m->u.if_.else_ = n->u.if_.else_ ? copy_node(n->u.if_.else_, c, level) : NULL;
+		break;
+	case CLJ_NODE_DO:
+	case CLJ_NODE_VECTOR:
+	case CLJ_NODE_MAP:
+	case CLJ_NODE_SET:
+		m->u.seq.items = copy_all(n->u.seq.items, n->u.seq.n, c, level);
+		m->u.seq.n = n->u.seq.n;
+		break;
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		m->u.let.slots = copy_slots(c, level, n->u.let.slots, n->u.let.n, n);
+		m->u.let.inits = copy_all(n->u.let.inits, n->u.let.n, c, level);
+		m->u.let.n = n->u.let.n;
+		m->u.let.body = copy_node(n->u.let.body, c, level);
+		break;
+	case CLJ_NODE_RECUR:
+		m->u.recur.slots = copy_slots(c, level, n->u.recur.slots, n->u.recur.n, n);
+		m->u.recur.args = copy_all(n->u.recur.args, n->u.recur.n, c, level);
+		m->u.recur.n = n->u.recur.n;
+		break;
+	case CLJ_NODE_INVOKE:
+		m->u.invoke.fn = copy_node(n->u.invoke.fn, c, level);
+		m->u.invoke.args = copy_all(n->u.invoke.args, n->u.invoke.n, c, level);
+		m->u.invoke.n = n->u.invoke.n;
+		break;
+	case CLJ_NODE_DIRECT_CALL: {
+		const clj_node *fn = copy_direct_target(c, n->u.direct.fn, level, n);
+		m->u.direct.fn = fn;
+		m->u.direct.arity = fn->u.fn.fixed[n->u.direct.n];
+		m->u.direct.args = copy_all(n->u.direct.args, n->u.direct.n, c, level);
+		m->u.direct.n = n->u.direct.n;
+		m->u.direct.depth = n->u.direct.depth;
+		m->u.direct.slot = copy_linked(c, level, n->u.direct.depth, n->u.direct.slot, n);
+		break;
+	}
+	case CLJ_NODE_OBJC_SEND:
+		clj_slot_store(&m->h, &m->u.objc.selector, clj_retain(n->u.objc.selector.v));
+		m->u.objc.target = copy_node(n->u.objc.target, c, level);
+		m->u.objc.args = copy_all(n->u.objc.args, n->u.objc.n, c, level);
+		m->u.objc.n = n->u.objc.n;
+		break;
+	case CLJ_NODE_DEF:
+		clj_slot_store(&m->h, &m->u.def.var, clj_retain(n->u.def.var.v));
+		m->u.def.init = n->u.def.init ? copy_node(n->u.def.init, c, level) : NULL;
+		m->u.def.meta = copy_node(n->u.def.meta, c, level);
+		m->u.def.macro = n->u.def.macro;
+		m->u.def.dynamic = n->u.def.dynamic;
+		m->u.def.lazy = n->u.def.lazy;
+		m->u.def.asked = n->u.def.asked;
+		break;
+	case CLJ_NODE_TRY: {
+		m->u.try_.body = copy_node(n->u.try_.body, c, level);
+		clj_catch *ks = zalloc(n->u.try_.ncatches, sizeof *ks);
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			const clj_catch *k = &n->u.try_.catches[i];
+			ks[i] = *k;
+			ks[i].slot = copy_slot(c, level, k->slot, n);
+			if (k->kind == CLJ_CATCH_TYPE || k->kind == CLJ_CATCH_HOST) clj_retain(k->selector);
+			ks[i].handler = copy_node(k->handler, c, level);
+		}
+		m->u.try_.catches = ks;
+		m->u.try_.ncatches = n->u.try_.ncatches;
+		m->u.try_.finally_ = n->u.try_.finally_ ? copy_node(n->u.try_.finally_, c, level) : NULL;
+		break;
+	}
+	case CLJ_NODE_THROW: m->u.throw_ = copy_node(n->u.throw_, c, level); break;
+	case CLJ_NODE_INTRINSIC:
+		m->u.intrinsic.op = n->u.intrinsic.op;
+		clj_slot_store(&m->h, &m->u.intrinsic.var, clj_retain(n->u.intrinsic.var.v));
+		m->u.intrinsic.args = copy_all(n->u.intrinsic.args, n->u.intrinsic.n, c, level);
+		m->u.intrinsic.n = n->u.intrinsic.n;
+		break;
+	case CLJ_NODE_FUSED: {
+		const clj_fusion_var **guards = zalloc(n->u.fused.nguards, sizeof *guards);
+		memcpy(guards, n->u.fused.guards, n->u.fused.nguards * sizeof *guards);
+		m->u.fused.guards = guards;
+		m->u.fused.nguards = n->u.fused.nguards;
+		m->u.fused.args = copy_all(n->u.fused.args, n->u.fused.nargs, c, level);
+		m->u.fused.nargs = n->u.fused.nargs;
+		// the two programs read the argument frame and nothing else
+		m->u.fused.fused = copy_node(n->u.fused.fused, c, VERBATIM);
+		m->u.fused.original = copy_node(n->u.fused.original, c, VERBATIM);
+		break;
+	}
+	case CLJ_NODE_ROOT_IS:
+		clj_slot_store(&m->h, &m->u.root_is.var, clj_retain(n->u.root_is.var.v));
+		clj_slot_store(&m->h, &m->u.root_is.expect, clj_retain(n->u.root_is.expect.v));
+		break;
+	case CLJ_NODE_INLINE:
+		m->u.inline_.fn = n->u.inline_.fn;
+		c->depth++;
+		m->u.inline_.body = copy_node(n->u.inline_.body, c, level);
+		c->depth--;
+		break;
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: break; // copy_fn
+	}
+	return m;
+}
+
+static void copy_ctx_free(copy_ctx *c) {
+	free(c->from);
+	free(c->to);
+}
+
+// What a candidate needs to know of its callee's arity body.
+typedef struct {
+	uint32_t nparams, self;
+	uint64_t local_only;  // params read only by local reads of the arity's own frame: a substituted read may stand in
+	bool     arity_recur; // a recur back to the arity, which its copy would have nothing to go back to
+	bool     self_read;   // the fn's own name, which no frame here holds
+	bool     has_fn;      // a fn inside: each copy would be a closure, and in C functions, of its own
+	int      level;       // direct fn bodies entered
+	bool     in_loop;     // a recur here goes back to a loop of the body
+} callee_scan;
+
+static void scan_callee_uses(callee_scan *s, uint32_t slot) {
+	if (slot == s->self) s->self_read = true;
+	if (slot < s->nparams && slot < 64) s->local_only &= ~((uint64_t)1 << slot);
+}
+
+// @ai-generated(solo)
+static void scan_callee(const clj_node *n, void *ctx) {
+	callee_scan *s = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL:
+		if (s->level == 0 && n->u.local.index == s->self) s->self_read = true;
+		return;
+	case CLJ_NODE_OUTER:
+		if ((int)n->u.outer.depth == s->level) scan_callee_uses(s, n->u.outer.index);
+		return;
+	case CLJ_NODE_RECUR:
+		if (s->level == 0 && !s->in_loop) s->arity_recur = true;
+		break;
+	case CLJ_NODE_LOOP: {
+		for (uint32_t i = 0; i < n->u.let.n; i++) scan_callee(n->u.let.inits[i], s);
+		bool in_loop = s->in_loop;
+		s->in_loop = true;
+		scan_callee(n->u.let.body, s);
+		s->in_loop = in_loop;
+		return;
+	}
+	case CLJ_NODE_FN:
+		s->has_fn = true;
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			const clj_capture *cap = &n->u.fn.captures[i];
+			if ((cap->kind == CLJ_CAPTURE_LOCAL && s->level == 0) || (cap->kind == CLJ_CAPTURE_OUTER && (int)cap->depth == s->level)) scan_callee_uses(s, cap->index);
+		}
+		return;
+	case CLJ_NODE_DIRECT_FN: {
+		s->has_fn = true;
+		callee_scan inner = *s;
+		inner.level++;
+		inner.in_loop = false;
+		clj_node_children(n, scan_callee, &inner);
+		s->local_only = inner.local_only;
+		s->self_read = inner.self_read;
+		return;
+	}
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) scan_callee(n->u.fused.args[i], s);
+		return;
+	default: break;
+	}
+	clj_node_children(n, scan_callee, ctx);
+}
+
+static bool trivial_read(const clj_node *n) {
+	return n->kind == CLJ_NODE_CONST || n->kind == CLJ_NODE_LOCAL || n->kind == CLJ_NODE_CAPTURED || n->kind == CLJ_NODE_OUTER;
+}
+
+static void count_nodes(const clj_node *n, void *ctx) {
+	(*(uint32_t *)ctx)++;
+	clj_node_children(n, count_nodes, ctx);
+}
+
+// Folds what substituted constants made constant: the copy is the analyzer's tree again, never a fused program's.
+static void fold_walk(const clj_node *n, void *ctx) {
+	clj_node *m = (clj_node *)n;
+	if (m->kind == CLJ_NODE_FUSED) {
+		for (uint32_t i = 0; i < m->u.fused.nargs; i++) fold_walk(m->u.fused.args[i], ctx);
+		return;
+	}
+	clj_node_children(m, fold_walk, ctx);
+	if (m->kind == CLJ_NODE_INTRINSIC) fold_intrinsic(m);
+	else if (m->kind == CLJ_NODE_IF) fold_if(m);
+}
+
+typedef struct {
+	clj_fn_arity *arity; // the frame the sites below are in; NULL outside every fn
+	uint32_t      grown, budget;
+	clj_value     def_var; // a call of the var a def is binding reaches the old root, never the fn being defined
+} inline_frame;
+
+// @ai-generated(solo)
+static void try_inline(clj_node *n, inline_frame *fr) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	if (head->kind != CLJ_NODE_VAR || nargs > CLJ_FN_MAX_FIXED) return;
+	clj_value var = head->u.var.v;
+	if (!clj_is_var(var) || clj_var_is_dynamic(var) || var == fr->def_var) return;
+	clj_value root = clj_var_root(var);
+	if (!clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_CLOSURE || clj_fn_of(root)->nenv) return;
+	const clj_node     *code = clj_fn_of(root)->u.node;
+	const clj_fn_arity *a = code->u.fn.fixed[nargs];
+	if (!a || a->body->nnodes > INLINE_CALLEE_MAX) return;
+	callee_scan s = {a->nparams, a->self_slot >= 0 ? (uint32_t)a->self_slot : SLOT_NONE, UINT64_MAX, false, false, false, 0, false};
+	scan_callee(a->body, &s);
+	if (s.arity_recur || s.self_read || s.has_fn) return;
+	const clj_node *subst[CLJ_FN_MAX_FIXED + 1] = {0};
+	uint32_t        added = a->nslots - (s.self != SLOT_NONE ? 1 : 0), cost = a->body->nnodes + 4;
+	for (uint32_t i = 0; i < nargs; i++) {
+		const clj_node *arg = n->u.invoke.args[i];
+		if (trivial_read(arg) && i < 64 && ((s.local_only >> i) & 1)) {
+			subst[i] = arg;
+			added--;
+		} else {
+			count_nodes(arg, &cost);
+		}
+	}
+	uint32_t before = fr->arity->nslots, after = before + added;
+	if (after > INLINE_SLOTS_MAX || (before <= INLINE_SLOTS_SMALL && after > INLINE_SLOTS_SMALL)) return;
+	if (fr->grown + cost > fr->budget) return;
+	// Last: the summary may walk the callee's tree.
+	if (clj_specialize_var_effects(var, nargs) & ~(uint32_t)INLINE_EFFECTS) return;
+
+	uint32_t        *map = zalloc(a->nslots, sizeof *map);
+	const clj_node **sub = zalloc(a->nslots, sizeof *sub);
+	uint32_t         next = before;
+	for (uint32_t k = 0; k < a->nslots; k++) {
+		if (k < nargs && subst[k]) sub[k] = subst[k];
+		map[k] = (k < nargs && subst[k]) || k == s.self ? SLOT_NONE : next++;
+	}
+	position at = {n->line, n->col};
+	copy_ctx c = {map, sub, a->nslots, NULL, NULL, 0, 0, 0, 1};
+	clj_node *inl = node_at(CLJ_NODE_INLINE, at);
+	inl->u.inline_.fn = code;
+	inl->u.inline_.body = copy_node(a->body, &c, 0);
+	clj_node *then = inl;
+	uint32_t  nbound = 0;
+	for (uint32_t i = 0; i < nargs; i++) nbound += !subst[i];
+	copy_ctx args = {NULL, NULL, 0, NULL, NULL, 0, 0, 0, 0};
+	if (nbound) {
+		clj_node *let = node_at(CLJ_NODE_LET, at);
+		uint32_t *slots = zalloc(nbound, sizeof *slots);
+		const clj_node **inits = zalloc(nbound, sizeof *inits);
+		for (uint32_t i = 0, k = 0; i < nargs; i++) {
+			if (subst[i]) continue;
+			slots[k] = map[i];
+			inits[k++] = copy_node(n->u.invoke.args[i], &args, VERBATIM);
+		}
+		let->u.let.slots = slots;
+		let->u.let.inits = inits;
+		let->u.let.n = nbound;
+		let->u.let.body = inl;
+		then = let;
+	}
+	fold_walk(then, NULL);
+	clj_node *test = node_at(CLJ_NODE_ROOT_IS, at);
+	clj_slot_store(&test->h, &test->u.root_is.var, clj_retain(var));
+	clj_slot_store(&test->h, &test->u.root_is.expect, clj_retain(root));
+	clj_node *call = node_at(CLJ_NODE_INVOKE, at);
+	call->u.invoke = n->u.invoke;
+	n->kind = CLJ_NODE_IF;
+	n->u.if_.test = test;
+	n->u.if_.then = then;
+	n->u.if_.else_ = call;
+	fr->arity->nslots = next;
+	fr->grown += c.nodes + args.nodes + 4;
+	copy_ctx_free(&c);
+	copy_ctx_free(&args);
+	free(map);
+	free(sub);
+}
+
+// Children first: an argument is inlined into before the call it is passed to, and the copy of it carries that.
+// @ai-generated(solo)
+static void inline_walk(const clj_node *n, void *ctx) {
+	inline_frame *fr = ctx;
+	clj_node     *m = (clj_node *)n;
+	switch (m->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED + 1; k++) {
+			clj_fn_arity *a = k <= CLJ_FN_MAX_FIXED ? m->u.fn.fixed[k] : m->u.fn.variadic;
+			if (!a) continue;
+			uint32_t size = 0;
+			count_nodes(a->body, &size);
+			inline_frame inner = {a, 0, size > INLINE_GROWTH_MIN ? size : INLINE_GROWTH_MIN, fr->def_var};
+			inline_walk(a->body, &inner);
+		}
+		return;
+	case CLJ_NODE_FUSED:
+		// the programs are a frame of their own, and calls there are the fusion table's
+		for (uint32_t i = 0; i < m->u.fused.nargs; i++) inline_walk(m->u.fused.args[i], ctx);
+		return;
+	case CLJ_NODE_DEF: {
+		// a macro runs at expansion, where the copy is all cost
+		if (m->u.def.macro) return;
+		clj_value saved = fr->def_var;
+		fr->def_var = m->u.def.var.v;
+		clj_node_children(m, inline_walk, ctx);
+		fr->def_var = saved;
+		return;
+	}
+	default: break;
+	}
+	clj_node_children(m, inline_walk, ctx);
+	if (m->kind == CLJ_NODE_INVOKE && fr->arity) try_inline(m, fr);
+}
+
 // ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path
 // is flagged `last`, and the evaluator hands the frame's reference to the consumer instead of borrowing it,
 // so a conj/assoc on a local nobody else holds runs in place. Backward liveness over the evaluation order of
@@ -667,10 +1124,12 @@ static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use)
 			if (n->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.fn.captures[i].index);
 		}
 		return out;
+	case CLJ_NODE_INLINE: return live(n->u.inline_.body, out, c, use);
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
 	case CLJ_NODE_VAR:
+	case CLJ_NODE_ROOT_IS:
 	case CLJ_NODE_DIRECT_FN: return out;
 	}
 	clj_ice("optimize/unknown-kind", n, "node kind %u", (unsigned)n->kind);
@@ -735,6 +1194,12 @@ void clj_optimize(clj_node *root) {
 	clj_ice_pass("optimize/rewrite");
 	optimize(root, NULL);
 	CLJ_VERIFY_TREE(root, "optimize/rewrite", 0);
+	if (!clj_opt_off(CLJ_NO_OPT_INLINE)) {
+		clj_ice_pass("optimize/inline");
+		inline_frame top = {NULL, 0, 0, CLJ_NIL};
+		inline_walk(root, &top);
+		CLJ_VERIFY_TREE(root, "optimize/inline", 0);
+	}
 	clj_ice_pass("optimize/liveness");
 	live_frame(root, 0);
 	live_fns(root, NULL);

@@ -55,7 +55,7 @@ clj_value clj_ice_current_file(void) {
 
 static const char *const kind_names[] = {
 	"const", "local", "captured", "outer", "var", "if", "do", "let", "loop", "recur", "fn", "invoke", "def", "vector",
-	"map", "set", "try", "throw", "intrinsic", "fused", "direct-fn", "direct-call", "objc-send",
+	"map", "set", "try", "throw", "intrinsic", "fused", "direct-fn", "direct-call", "objc-send", "root-is", "inline",
 };
 
 const char *clj_node_kind_name(int kind) {
@@ -108,7 +108,7 @@ static const clj_ice_frame *innermost(void) {
 	return s ? s->ice : NULL;
 }
 
-static const char *const opt_names[] = {"reuse", "passes", "specialize", "lazy-seq", "layouts", "compiled", "emit"};
+static const char *const opt_names[] = {"reuse", "passes", "specialize", "lazy-seq", "layouts", "compiled", "emit", "inline"};
 enum { NOPT = sizeof opt_names / sizeof *opt_names };
 
 static void put_opts(sink *s, uint32_t mask) {
@@ -300,7 +300,7 @@ void clj_no_opt_configure(void) {
 	uint32_t    mask = clj_no_opt_parse(spec);
 	if (mask == UINT32_MAX) {
 		char msg[300];
-		snprintf(msg, sizeof msg, "CLJ_NO_OPT=%.200s names no optimization: 1, all, or reuse,passes,specialize,lazy-seq,layouts,compiled,emit", spec);
+		snprintf(msg, sizeof msg, "CLJ_NO_OPT=%.200s names no optimization: 1, all, or reuse,passes,specialize,lazy-seq,layouts,compiled,emit,inline", spec);
 		clj_fatal(msg);
 	}
 	clj_no_opt_set(mask);

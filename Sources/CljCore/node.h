@@ -13,6 +13,8 @@ clj_node *clj_node_alloc(clj_node_kind kind);
 // intrinsic on constants and an `if` on a constant test into what they yield. Runs on an analyzed, unnumbered
 // tree; a tree read from data is taken as already optimized.
 void clj_optimize(clj_node *root);
+// Inlined bodies inside one another within one frame (optimizer.c): the budget, which the verifier holds the tree to.
+#define CLJ_INLINE_DEPTH_MAX 2
 // Assigns ids in pre-order from 0 and every nnodes; the last step before a tree is handed out.
 void clj_node_number(clj_node *root);
 // What a folded constant may hold: a value the codec reads back as the same type (node_data.c). Never throws.

@@ -242,10 +242,12 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 			if (n->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.fn.captures[i].index);
 		}
 		return out;
+	case CLJ_NODE_INLINE: return live(n->u.inline_.body, out, c);
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
 	case CLJ_NODE_VAR:
+	case CLJ_NODE_ROOT_IS:
 	case CLJ_NODE_DIRECT_FN: return out;
 	}
 	clj_ice("emit/reuse-unknown-kind", n, "node kind %u", (unsigned)n->kind);
