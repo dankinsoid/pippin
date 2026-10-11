@@ -156,7 +156,8 @@ extension CoreTests {
 			_ = try eval("(with-deadline 60000 (let [c (chan)] (go (try (<! c) (finally (reset! unwound :deadline)))) nil))")
 			#expect(collected(atLeast: 1, since: before))
 			#expect(eventually { (try? eval("@unwound")) == kw("deadline") })
-			#expect(clj_debug_timers_held() == 0)
+			// The finally runs inside the unwind; the deadline drops its timer when the coroutine finishes, after it.
+			#expect(eventually { clj_debug_timers_held() == 0 })
 			base.check()
 		}
 
