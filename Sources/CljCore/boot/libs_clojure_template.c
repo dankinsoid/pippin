@@ -528,7 +528,7 @@ CLJC_FRAME clj_value clojure_template_do_template_v4(clj_value self, const clj_v
 	(void)a0;
 	clj_value t1;
 	if (CLJC_GUARD(V[13], B[1])) {
-	t1 = clj_count(t0);
+	t1 = clj_c_count(t0);
 	} else {
 	t1 = clj_c_intrinsic_fallback(V[13], a0, 1);
 	}

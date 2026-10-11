@@ -1613,7 +1613,7 @@ L3: ;
 	(void)a3;
 	clj_value t20;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t20 = clj_first(t19);
+	t20 = clj_c_first(t19);
 	} else {
 	t20 = clj_c_intrinsic_fallback(V[38], a3, 1);
 	}
@@ -3548,7 +3548,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	(void)a1;
 	clj_value t6;
 	if (CLJC_GUARD(V[48], B[5])) {
-	t6 = clj_eq(t2, t3);
+	t6 = clj_c_eq(t2, t3);
 	} else {
 	t6 = clj_c_intrinsic_fallback(V[48], a1, 2);
 	}
@@ -3587,7 +3587,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	(void)a3;
 	clj_value t15;
 	if (CLJC_GUARD(V[48], B[5])) {
-	t15 = clj_eq(t11, t12);
+	t15 = clj_c_eq(t11, t12);
 	} else {
 	t15 = clj_c_intrinsic_fallback(V[48], a3, 2);
 	}
@@ -3654,7 +3654,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	(void)a7;
 	clj_value t27;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t27 = clj_first(t26);
+	t27 = clj_c_first(t26);
 	} else {
 	t27 = clj_c_intrinsic_fallback(V[38], a7, 1);
 	}
@@ -4124,7 +4124,7 @@ CLJC_FRAME clj_value clojure_test_assert_predicate_a2(clj_value self, const clj_
 	(void)a1;
 	clj_value t3;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t3 = clj_first(t2);
+	t3 = clj_c_first(t2);
 	} else {
 	t3 = clj_c_intrinsic_fallback(V[38], a1, 1);
 	}
@@ -10547,7 +10547,7 @@ CLJC_INLINE clj_value clojure_test_form39__0_a2_i(clj_value self, const clj_valu
 	(void)a2;
 	clj_value t10;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t10 = clj_first(t9);
+	t10 = clj_c_first(t9);
 	} else {
 	t10 = clj_c_intrinsic_fallback(V[38], a2, 1);
 	}
@@ -11160,7 +11160,7 @@ static CLJC_FRAME clj_value clojure_test_form42__0_a2(clj_value self, const clj_
 	(void)a2;
 	clj_value t8;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t8 = clj_first(t7);
+	t8 = clj_c_first(t7);
 	} else {
 	t8 = clj_c_intrinsic_fallback(V[38], a2, 1);
 	}
@@ -11469,7 +11469,7 @@ static CLJC_FRAME clj_value clojure_test_form44__0_a2(clj_value self, const clj_
 	(void)a9;
 	clj_value t19;
 	if (CLJC_GUARD(V[64], B[12])) {
-	t19 = clj_nth2(t17, t18);
+	t19 = clj_c_nth2(t17, t18);
 	} else {
 	t19 = clj_c_intrinsic_fallback(V[64], a9, 2);
 	}
@@ -11560,7 +11560,7 @@ static CLJC_FRAME clj_value clojure_test_form44__0_a2(clj_value self, const clj_
 	(void)a12;
 	clj_value t27;
 	if (CLJC_GUARD(V[64], B[12])) {
-	t27 = clj_nth2(t25, t26);
+	t27 = clj_c_nth2(t25, t26);
 	} else {
 	t27 = clj_c_intrinsic_fallback(V[64], a12, 2);
 	}
@@ -17190,7 +17190,7 @@ static CLJC_FRAME clj_value clojure_test_form48__0_a2(clj_value self, const clj_
 	(void)a0;
 	clj_value t2;
 	if (CLJC_GUARD(V[64], B[12])) {
-	t2 = clj_nth2(t0, t1);
+	t2 = clj_c_nth2(t0, t1);
 	} else {
 	t2 = clj_c_intrinsic_fallback(V[64], a0, 2);
 	}
@@ -17208,7 +17208,7 @@ static CLJC_FRAME clj_value clojure_test_form48__0_a2(clj_value self, const clj_
 	(void)a1;
 	clj_value t5;
 	if (CLJC_GUARD(V[64], B[12])) {
-	t5 = clj_nth2(t3, t4);
+	t5 = clj_c_nth2(t3, t4);
 	} else {
 	t5 = clj_c_intrinsic_fallback(V[64], a1, 2);
 	}
@@ -25061,7 +25061,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)a3;
 	clj_value t13;
 	if (CLJC_GUARD(V[74], B[16])) {
-	t13 = clj_count(t12);
+	t13 = clj_c_count(t12);
 	} else {
 	t13 = clj_c_intrinsic_fallback(V[74], a3, 1);
 	}
@@ -25102,7 +25102,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)a5;
 	clj_value t20;
 	if (CLJC_GUARD(V[74], B[16])) {
-	t20 = clj_count(t19);
+	t20 = clj_c_count(t19);
 	} else {
 	t20 = clj_c_intrinsic_fallback(V[74], a5, 1);
 	}
@@ -25153,7 +25153,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)a8;
 	clj_value t29;
 	if (CLJC_GUARD(V[74], B[16])) {
-	t29 = clj_count(t28);
+	t29 = clj_c_count(t28);
 	} else {
 	t29 = clj_c_intrinsic_fallback(V[74], a8, 1);
 	}
@@ -25168,7 +25168,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)a9;
 	clj_value t31;
 	if (CLJC_GUARD(V[74], B[16])) {
-	t31 = clj_count(t30);
+	t31 = clj_c_count(t30);
 	} else {
 	t31 = clj_c_intrinsic_fallback(V[74], a9, 1);
 	}
@@ -30407,7 +30407,7 @@ L3: ;
 	(void)a1;
 	clj_value t6;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t6 = clj_first(t5);
+	t6 = clj_c_first(t5);
 	} else {
 	t6 = clj_c_intrinsic_fallback(V[38], a1, 1);
 	}
@@ -30629,7 +30629,7 @@ L3: ;
 	(void)a3;
 	clj_value t12;
 	if (CLJC_GUARD(V[38], B[3])) {
-	t12 = clj_first(t11);
+	t12 = clj_c_first(t11);
 	} else {
 	t12 = clj_c_intrinsic_fallback(V[38], a3, 1);
 	}
@@ -30646,7 +30646,7 @@ L3: ;
 	(void)a4;
 	clj_value t16;
 	if (CLJC_GUARD(V[64], B[19])) {
-	t16 = clj_nth3(t13, t14, t15);
+	t16 = clj_c_nth3(t13, t14, t15);
 	} else {
 	t16 = clj_c_intrinsic_fallback(V[64], a4, 3);
 	}
@@ -30665,7 +30665,7 @@ L3: ;
 	(void)a5;
 	clj_value t20;
 	if (CLJC_GUARD(V[64], B[19])) {
-	t20 = clj_nth3(t17, t18, t19);
+	t20 = clj_c_nth3(t17, t18, t19);
 	} else {
 	t20 = clj_c_intrinsic_fallback(V[64], a5, 3);
 	}
@@ -32794,7 +32794,7 @@ CLJC_INLINE clj_value clojure_test_successful_QMARK__a1_i(clj_value self, const 
 	(void)a0;
 	clj_value t4;
 	if (CLJC_GUARD(V[75], B[17])) {
-	t4 = clj_zero_p(t0);
+	t4 = clj_c_zero_p(t0);
 	} else {
 	t4 = clj_c_intrinsic_fallback(V[75], a0, 1);
 	}
@@ -32828,7 +32828,7 @@ CLJC_INLINE clj_value clojure_test_successful_QMARK__a1_i(clj_value self, const 
 	(void)a2;
 	clj_value t12;
 	if (CLJC_GUARD(V[75], B[17])) {
-	t12 = clj_zero_p(t8);
+	t12 = clj_c_zero_p(t8);
 	} else {
 	t12 = clj_c_intrinsic_fallback(V[75], a2, 1);
 	}

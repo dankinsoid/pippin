@@ -1036,7 +1036,7 @@ CLJC_INLINE clj_value clojure_walk_keywordize_keys__0_a1_i(clj_value self, const
 	(void)a0;
 	clj_value t4;
 	if (CLJC_GUARD(V[23], B[5])) {
-	t4 = clj_nth3(t1, t2, t3);
+	t4 = clj_c_nth3(t1, t2, t3);
 	} else {
 	t4 = clj_c_intrinsic_fallback(V[23], a0, 3);
 	}
@@ -1055,7 +1055,7 @@ CLJC_INLINE clj_value clojure_walk_keywordize_keys__0_a1_i(clj_value self, const
 	(void)a1;
 	clj_value t8;
 	if (CLJC_GUARD(V[23], B[5])) {
-	t8 = clj_nth3(t5, t6, t7);
+	t8 = clj_c_nth3(t5, t6, t7);
 	} else {
 	t8 = clj_c_intrinsic_fallback(V[23], a1, 3);
 	}
@@ -1430,7 +1430,7 @@ CLJC_INLINE clj_value clojure_walk_stringify_keys__0_a1_i(clj_value self, const 
 	(void)a0;
 	clj_value t4;
 	if (CLJC_GUARD(V[23], B[5])) {
-	t4 = clj_nth3(t1, t2, t3);
+	t4 = clj_c_nth3(t1, t2, t3);
 	} else {
 	t4 = clj_c_intrinsic_fallback(V[23], a0, 3);
 	}
@@ -1449,7 +1449,7 @@ CLJC_INLINE clj_value clojure_walk_stringify_keys__0_a1_i(clj_value self, const 
 	(void)a1;
 	clj_value t8;
 	if (CLJC_GUARD(V[23], B[5])) {
-	t8 = clj_nth3(t5, t6, t7);
+	t8 = clj_c_nth3(t5, t6, t7);
 	} else {
 	t8 = clj_c_intrinsic_fallback(V[23], a1, 3);
 	}
