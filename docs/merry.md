@@ -260,37 +260,37 @@ Hot reload: в dev вызовы через таблицу; в release новые
     объявлений, для исследования и REPL; квалифицированные (`:person/name`) — объявленные атрибуты модели.
     Объявления можно получать из наблюдённых данных: shapes pippin или `(infer-attrs sample)` печатает
     `deftype`.
-  - **Объявление атрибутов** (вариант). Чьё пространство у атрибута — модуля или типа — выбор:
-
-    | | Пространство — модуль | Пространство — тип |
-    |---|---|---|
-    | полное имя | `:shop.person/id` | `:shop.person.Person/id` |
-    | в коде | `::p/id` через алиас модуля | `:Person/id` через импортированный тип |
-    | два типа в модуле с разным `:id` | конфликт: разные модули или имена | без конфликта |
-    | переименование типа | атрибуты не меняются | меняет имена атрибутов — ломает данные и EDN |
-    | соответствие | обычаю Clojure (сущность — `ns`) | идее «структура — пространство имён», `\Person.id` в Swift |
-
-    Вариант с типом:
+  - **Объявление атрибутов.** Три варианта: атрибуты неявно из полей типа в пространстве модуля
+    (`:shop.person/id`), неявно в пространстве типа (`:shop.person.Person/id`; две косые в кейворде Clojure не
+    поддерживает), или **только явно** (идея автора, к ней склоняюсь). Явный вариант — модель spec2
+    (`schema`/`select`) и схемы Datomic: атрибут объявляется отдельно, тип только выбирает объявленные.
     ```clojure
     (ns shop.person)
 
-    (deftype Person
-      [[:id :uuid]                                        ; declares :shop.person.Person/id
-       [:name :string]
-       [:email {:optional true} [:string {:pii true}]]])  ; entry props: the selection; schema props: the attribute
+    (defattrs                                   ; a macro over defattr; namespace: this module
+      {:id    :uuid
+       :name  :string
+       :email [:string {:pii true}]})           ; schema props belong to the attribute
 
-    (defattr nickname :string)                            ; not tied to a type: :shop.person/nickname
+    (deftype Person [::id ::name [::email {:optional true}]])   ; entry props: the selection
+    (deftype Point  [[:x :double] [:y :double]])                ; unqualified: local fields, no attributes
 
-    (ns shop.order (:require [shop.person :refer [Person]]))
+    (ns shop.order (:require [shop.person :as p]))
 
-    (deftype Order [[:id :uuid] [:lines [:vector Line]] :Person/id])   ; a bare keyword includes a declared attribute
-    (defn customer-of [o] (:Person/id o))
+    (deftype Order [[:id :uuid] [:lines [:vector Line]] ::p/id])
+    (defn customer-of [o] (::p/id o))
     ```
-    Часть кейворда до `/` разрешается сначала как тип в области видимости, потом как алиас модуля; типы с
-    заглавной, алиасы со строчной — не путаются. Две косые в кейворде (`:shop.person/Person/id`) Clojure не
-    поддерживает, поэтому тип входит в пространство через точку. Повторное объявление с той же схемой — тот же
-    атрибут, с другой — ошибка. Мелким структурам (`Point`) — `{:local true}`: поля не атрибуты, а
-    структурная строка. `(attr :Person/email)` возвращает объявление данными.
+    Что это упрощает:
+    - одно правило вместо исключений: неквалифицированное поле в типе — локальное, квалифицированный кейворд —
+      ссылка на объявленный атрибут; `{:local true}` не нужен;
+    - тип не создаёт глобальных имён: переименование типа данные не трогает;
+    - смысл (атрибут) и ситуация (тип) разделены, как у Хики;
+    - пространство выбирает объявляющий: по умолчанию модуль, `(defattrs {:ns Address} ...)` — для второй
+      сущности в модуле.
+
+    Цена — повтор: атрибут называется при объявлении и при выборке. Снимает макрос `defentity` (объявить и
+    выбрать все разом) — явный, его разворачивание видно. Повторное объявление с той же схемой — тот же
+    атрибут, с другой — ошибка. `(attr ::p/email)` возвращает объявление данными.
   - **Куда можно довести:**
     - функции как резолверы (Pathom): вход и выход — наборы атрибутов; `(resolve {:order/id id} :person/name)`
       — компилятор строит цепочку вызовов (`order/id → order/customer-id → person/name`), как Dagger строит
