@@ -549,7 +549,14 @@
 - **Gates.** `CompilerFixtureTests`: each `Tests/PippinTests/Fixtures/compiler/<kind>.clj` prints through
   the interpreter and, as one unit built and registered in-process, through the compiled backend, both
   against `<kind>.out` (`CLJ_FIXTURE_UPDATE=1` rewrites), and a second compiled run must not grow the live
-  count by more than a second interpreted run does. `make test-compiled`: the suite on the compiled core in
+  count by more than a second interpreted run does. Each of those counts is taken with the runtime settled
+  (`runtimeSettled`, NOTES "Gates"): `repoint.clj`'s `await` returns when its count-down action delivers the
+  latch, while the action's coroutine (and the `inc` one that queued it) still finishes on a carrier holding the
+  dropped agent, its atoms, queue and `held` volatile, the action vectors and the latch. A loaded runner counted
+  that as 26–30 over the interpreted 9 (runs 37940057732, 37969837275 attempt 1, 38044791679); looped 300 times
+  beside six spinning threads, 2 runs counted with 1–2 coroutines alive (+3, and +37 naming `clojure.core.Agent`,
+  `coroutine` +2, `PersistentQueue` +3, `volatile` +1), and every run settled back to 0 (run 38162836357).
+  `make test-compiled`: the suite on the compiled core in
   the pool mode (`make test-compiled-asan` adds ASan on demand). `make corpus-compiled`: `clj-compile --lenient` per library in a child process,
   clang per file, `dlopen`, `clj_compiled_register` by path so the harness's `require`s run the units, and
   the per-line report (`CLJ_CORPUS_REPORT`) diffed against the interpreter's — identical for both corpora;

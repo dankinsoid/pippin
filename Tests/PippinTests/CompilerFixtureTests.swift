@@ -103,28 +103,33 @@ extension CoreTests {
 			#expect(interpreted == expected, "interpreter output of \(name)")
 			// A second run replaces the first run's definitions one for one, so what it adds is what the source itself
 			// keeps per run (a deftype's descriptor, a parked root); the compiled backend must not add more.
-			let live0 = clj_debug_live_objects()
+			// A run can return with work still on a carrier (repoint's await wakes before the agent's action ends).
+			func settledLive(_ when: String) -> Int64 {
+				runtimeSettled("\(name): \(when)")
+				return clj_debug_live_objects()
+			}
+			let live0 = settledLive("before the second interpreted run")
 			let census0 = LiveCensus()
 			_ = try capturingOutput { try loadFixtureSource(source, file: file) }
-			let interpretedGrowth = clj_debug_live_objects() - live0
+			let interpretedGrowth = settledLive("after the second interpreted run") - live0
 			let interpretedMoves = LiveCensus().moves(since: census0).joined(separator: ", ")
 			try compileFixtureAsUnit(source, file: file, name: name)
 			let compiled = try runFixtureUnit(file)
 			#expect(compiled == expected, "compiled output of \(name)")
-			let live1 = clj_debug_live_objects()
+			let live1 = settledLive("before the second compiled run")
 			let census1 = LiveCensus()
 			let again = try runFixtureUnit(file)
 			#expect(again == expected, "second compiled output of \(name)")
-			#expect(clj_debug_live_objects() - live1 <= interpretedGrowth,
+			#expect(settledLive("after the second compiled run") - live1 <= interpretedGrowth,
 			        "compiled run of \(name) leaks: \(LiveCensus().moves(since: census1).joined(separator: ", ")); interpreted \(interpretedMoves)")
 			// closed: no guards, direct calls, int64 loop variables; a fixture that rebinds vars or evals stays dev-only
 			guard !source.contains("with-redefs") && !source.contains("(eval ") && !source.contains("load-string") else { return }
 			try compileFixtureAsUnit(source, file: file, name: name + "_closed", closed: true)
 			#expect(try runFixtureUnit(file) == expected, "closed compiled output of \(name)")
-			let live2 = clj_debug_live_objects()
+			let live2 = settledLive("before the second closed run")
 			let census2 = LiveCensus()
 			#expect(try runFixtureUnit(file) == expected, "second closed compiled output of \(name)")
-			#expect(clj_debug_live_objects() - live2 <= interpretedGrowth,
+			#expect(settledLive("after the second closed run") - live2 <= interpretedGrowth,
 			        "closed compiled run of \(name) leaks: \(LiveCensus().moves(since: census2).joined(separator: ", ")); interpreted \(interpretedMoves)")
 		}
 

@@ -110,7 +110,8 @@
   channel, a sleeper's waiter, a deadline's coroutine; the evacuation sweep holds none), no blocking-pool job is
   queued or running, the output writer is drained, and the live-object count holds still across 1 ms (a
   coroutine's count drops at its finalize, before its children are freed). `BootedTrait` settles before every
-  test under `CoreTests`, `CoroBaseline` at both ends, the corpus around its second run. Without it a baseline
+  test under `CoreTests`, `CoroBaseline` at both ends, the corpus around its second run, `CompilerFixtureTests`
+  at each of its in-test counts (NOTES "Compiler", "Gates"). Without it a baseline
   counted whatever finished on another thread a moment later — a warm-up's joined go block still in its
   epilogue on a carrier, a `timeout` that lost an `alts!` firing later, a `thread` body releasing after it
   delivered — and the check found those objects gone (`CoroTests.everyCancellationIsCancelledType`,
