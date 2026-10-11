@@ -177,7 +177,7 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 	clj_slot_store(&stub->h, &stub->u.fn.name, clj_retain(name));
 }
 
-void clj_c_stub_inlined(clj_node *stub, clj_value name, uint32_t line, uint32_t col, const clj_node *in) {
+CLJ_UNIT_ENTRY void clj_c_stub_inlined(clj_node *stub, clj_value name, uint32_t line, uint32_t col, const clj_node *in) {
 	clj_c_stub_init(stub, name, line, col);
 	stub->u.fn.inlined_in = in;
 }

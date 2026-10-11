@@ -503,4 +503,8 @@ static inline bool clj_equals(clj_value a, clj_value b) {
 	return clj_equals_slow(a, b);
 }
 
+// A runtime function only generated units call: `used` keeps it in a host linked with -dead_strip, where a dlopen'd
+// dev unit would otherwise bind it to nothing and jump to 0.
+#define CLJ_UNIT_ENTRY __attribute__((used))
+
 #endif

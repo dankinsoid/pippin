@@ -261,7 +261,7 @@ static clj_value fused_reduce(const clj_value *args, size_t n, clj_value coll, c
 
 clj_value clj_fused_reduce(const clj_value *args, size_t n) { return fused_reduce(args, n - 2, args[n - 2], args[n - 1], NULL); }
 
-clj_value clj_fused_reduce_step(const clj_value *args, size_t n, clj_value coll, clj_fused_step step, void *ctx) {
+CLJ_UNIT_ENTRY clj_value clj_fused_reduce_step(const clj_value *args, size_t n, clj_value coll, clj_fused_step step, void *ctx) {
 	mono m = {CLJ_NIL, step, ctx};
 	return fused_reduce(args, n, coll, CLJ_NIL, &m);
 }
@@ -280,7 +280,7 @@ clj_value clj_fused_into(const clj_value *args, size_t n) {
 #endif
 }
 
-clj_value clj_fused_into_step(clj_value to, clj_value coll, clj_fused_step step, void *ctx) {
+CLJ_UNIT_ENTRY clj_value clj_fused_into_step(clj_value to, clj_value coll, clj_fused_step step, void *ctx) {
 	bottom *b = bottom_new(BOTTOM_INTO);
 	b->acc = clj_retain(to);
 	mono m = {CLJ_NIL, step, ctx};
@@ -320,7 +320,7 @@ clj_value clj_fused_count(const clj_value *args, size_t n) {
 	return fused_count(args[0], args[1], NULL);
 }
 
-clj_value clj_fused_count_step(clj_value coll, clj_fused_step step, void *ctx) {
+CLJ_UNIT_ENTRY clj_value clj_fused_count_step(clj_value coll, clj_fused_step step, void *ctx) {
 	mono m = {CLJ_NIL, step, ctx};
 	return fused_count(coll, CLJ_NIL, &m);
 }
