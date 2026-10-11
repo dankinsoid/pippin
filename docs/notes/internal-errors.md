@@ -141,8 +141,8 @@ checks the tree and the facts between passes in debug builds; one option turns e
   12. A lazy-seq site's shape is `clj_lazy_seq_site` itself, which both backends ask at build time; what the
       verifier adds is the arity and capture checks the site's fn gets as any fn.
 - **What is not checked, and why.** An `if`'s fact as the join of its branches', a `let`'s as its body's: `require_arg`
-  narrows an argument's node fact after its parent took the wider one, so the relation is not an invariant of the
-  table. Stack: past `clj_stack_limit()` a walk gives up instead of failing, since a fault under the specialize lock
+  narrows the fact of a node that is a call's argument and not the facts of the nodes it is made of, so the relation
+  is not an invariant of the table. Stack: past `clj_stack_limit()` a walk gives up instead of failing, since a fault under the specialize lock
   is fatal (NOTES "Guard").
 - [ ] **The codec round trip is not part of the verifier.** `to_data` then `from_data` of every tree, compared by
   digest, would check serializability; `CoreSerializableTests` checks it for core.clj and the type macros. Trigger: a
