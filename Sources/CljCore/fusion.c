@@ -154,21 +154,58 @@ static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 	clj_ice("fusion/bottom-kind", NULL, "a driver bottom of kind %u", (unsigned)b->kind);
 }
 
+// A compiled site's stages as one step over the bottom (clj_fused_step): what the transducer stack would do, for
+// stages that only map and filter, so they see nil as the result too and pass it through.
+typedef struct {
+	clj_value      bot; // owned
+	clj_fused_step step;
+	void          *ctx;
+} mono;
+
+static clj_value mono_rf(void *ctx, const clj_value *args, size_t n) {
+	mono *m = ctx;
+	if (n == 1) return clj_invoke(m->bot, args, 1);
+	// the step's ctx is the site's frame: a source that kept the fn past its reduce meets this, not a dead frame
+	if (!m->step) return clj_throw_msg("reducing fn called after its reduce finished");
+	clj_value y, k = m->step(m->ctx, args[1], &y);
+	if (k == CLJ_THROWN) return CLJ_THROWN;
+	if (k == CLJ_FALSE) return clj_retain(args[0]);
+	clj_value in[2] = {args[0], y};
+	clj_value r = clj_invoke(m->bot, in, 2);
+	clj_release(y);
+	return r;
+}
+
+static void mono_free(void *ctx) {
+	mono *m = ctx;
+	clj_release(m->bot);
+	free(m);
+}
+
 // The caller keeps bot alive across the walk to read its state after; false with the exception pending. The
 // transducers see nil as the result, so a non-nil one is theirs (halt-when's reduced map) and completes as
-// on the JVM: *done is the completion's answer, owned, which replaces the accumulator.
-static bool run(clj_value bot, clj_value coll, clj_value xfs, clj_value *done) {
+// on the JVM: *done is the completion's answer, owned, which replaces the accumulator. With m, its step stands for xfs.
+static bool run(clj_value bot, clj_value coll, clj_value xfs, const mono *m, clj_value *done) {
 	*done = CLJ_NIL;
-	if (!clj_is_vector(xfs)) {
-		clj_throw_msg("fused driver expects a vector of transducers, got: %s", clj_type_name(xfs));
-		return false;
-	}
-	clj_value rf = clj_retain(bot);
-	for (uint32_t i = 0, n = clj_vector_count(xfs); i < n; i++) {
-		clj_value next = clj_invoke(clj_vector_nth(xfs, i), &rf, 1);
-		clj_release(rf);
-		rf = next;
-		if (rf == CLJ_THROWN) return false;
+	clj_value rf;
+	mono     *own = NULL;
+	if (m) {
+		own = malloc(sizeof *own);
+		if (!own) clj_fatal("out of memory");
+		*own = (mono){clj_retain(bot), m->step, m->ctx};
+		rf = clj_fn_native_ctx(CLJ_NIL, mono_rf, own, mono_free, 1, 2);
+	} else {
+		if (!clj_is_vector(xfs)) {
+			clj_throw_msg("fused driver expects a vector of transducers, got: %s", clj_type_name(xfs));
+			return false;
+		}
+		rf = clj_retain(bot);
+		for (uint32_t i = 0, n = clj_vector_count(xfs); i < n; i++) {
+			clj_value next = clj_invoke(clj_vector_nth(xfs, i), &rf, 1);
+			clj_release(rf);
+			rf = next;
+			if (rf == CLJ_THROWN) return false;
+		}
 	}
 	clj_value r = clj_reduce(rf, CLJ_NIL, coll);
 	bool      ok = r != CLJ_THROWN;
@@ -178,6 +215,7 @@ static bool run(clj_value bot, clj_value coll, clj_value xfs, clj_value *done) {
 		ok = *done != CLJ_THROWN;
 		if (!ok) *done = CLJ_NIL;
 	}
+	if (own) own->step = NULL;
 	clj_release(rf);
 	return ok;
 }
@@ -191,7 +229,7 @@ static bottom *bottom_new(bottom_kind kind) {
 }
 
 // Runs the walk and hands back the accumulator (owned) or CLJ_THROWN; the fn owns b from here on.
-static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
+static clj_value drive(bottom *b, clj_value coll, clj_value xfs, const mono *m) {
 	if (clj_deadline_tick()) {
 		if (b->acc != CLJ_UNBOUND) clj_release(b->acc);
 		free(b);
@@ -199,7 +237,7 @@ static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
 	}
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
 	clj_value done;
-	bool      ok = run(bot, coll, xfs, &done);
+	bool      ok = run(bot, coll, xfs, m, &done);
 	b->done = true;
 	clj_value acc = b->acc;
 	b->acc = CLJ_NIL;
@@ -213,12 +251,19 @@ static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
 	return done;
 }
 
-clj_value clj_fused_reduce(const clj_value *args, size_t n) {
+static clj_value fused_reduce(const clj_value *args, size_t n, clj_value coll, clj_value xfs, const mono *m) {
 	bottom *b = bottom_new(BOTTOM_REDUCE);
 	b->call = clj_call_prepare(args[0], 2);
-	b->acc = n == 4 ? clj_retain(args[1]) : CLJ_UNBOUND;
-	clj_value acc = drive(b, args[n - 2], args[n - 1]);
+	b->acc = n == 2 ? clj_retain(args[1]) : CLJ_UNBOUND;
+	clj_value acc = drive(b, coll, xfs, m);
 	return acc == CLJ_UNBOUND ? clj_invoke(args[0], NULL, 0) : acc;
+}
+
+clj_value clj_fused_reduce(const clj_value *args, size_t n) { return fused_reduce(args, n - 2, args[n - 2], args[n - 1], NULL); }
+
+clj_value clj_fused_reduce_step(const clj_value *args, size_t n, clj_value coll, clj_fused_step step, void *ctx) {
+	mono m = {CLJ_NIL, step, ctx};
+	return fused_reduce(args, n, coll, CLJ_NIL, &m);
 }
 
 clj_value clj_fused_into(const clj_value *args, size_t n) {
@@ -227,11 +272,25 @@ clj_value clj_fused_into(const clj_value *args, size_t n) {
 	b->acc = clj_retain(args[0]);
 #if CLJ_STATS
 	clj_census_builder(1);
-	clj_value r = drive(b, args[1], args[2]);
+	clj_value r = drive(b, args[1], args[2], NULL);
 	clj_census_builder(-1);
 	return r;
 #else
-	return drive(b, args[1], args[2]);
+	return drive(b, args[1], args[2], NULL);
+#endif
+}
+
+clj_value clj_fused_into_step(clj_value to, clj_value coll, clj_fused_step step, void *ctx) {
+	bottom *b = bottom_new(BOTTOM_INTO);
+	b->acc = clj_retain(to);
+	mono m = {CLJ_NIL, step, ctx};
+#if CLJ_STATS
+	clj_census_builder(1);
+	clj_value r = drive(b, coll, CLJ_NIL, &m);
+	clj_census_builder(-1);
+	return r;
+#else
+	return drive(b, coll, CLJ_NIL, &m);
 #endif
 }
 
@@ -239,20 +298,29 @@ clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll) {
 	bottom   *b = bottom_new(BOTTOM_INTO);
 	clj_value xfs = clj_vector_from_array(&xform, 1);
 	b->acc = clj_retain(to);
-	clj_value r = drive(b, coll, xfs);
+	clj_value r = drive(b, coll, xfs, NULL);
 	clj_release(xfs);
 	return r;
 }
 
-clj_value clj_fused_count(const clj_value *args, size_t n) {
-	(void)n;
+static clj_value fused_count(clj_value coll, clj_value xfs, const mono *m) {
 	bottom   *b = bottom_new(BOTTOM_COUNT);
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
 	clj_value done;
-	bool      ok = run(bot, args[0], args[1], &done);
+	bool      ok = run(bot, coll, xfs, m, &done);
 	b->done = true;
 	int64_t count = b->count;
 	clj_release(bot);
 	clj_release(done);
 	return ok ? clj_fixnum(count) : CLJ_THROWN;
+}
+
+clj_value clj_fused_count(const clj_value *args, size_t n) {
+	(void)n;
+	return fused_count(args[0], args[1], NULL);
+}
+
+clj_value clj_fused_count_step(clj_value coll, clj_fused_step step, void *ctx) {
+	mono m = {CLJ_NIL, step, ctx};
+	return fused_count(coll, CLJ_NIL, &m);
 }

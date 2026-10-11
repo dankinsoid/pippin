@@ -391,12 +391,12 @@ uint32_t clj_specialize_effects_of(const clj_node *n, uint32_t stop) {
 	return effects;
 }
 
-uint32_t clj_specialize_var_effects(clj_value var, uint32_t nargs) {
+bool clj_specialize_var_inlinable(clj_value var, uint32_t nargs, uint32_t allowed) {
 	clj_lock_lock(&lock);
 	const clj_summary *sum = clj_summary_of_var(store_locked(), var, nargs);
-	uint32_t           effects = sum && sum->inferred ? sum->effects : CLJ_EFFECT_ANY;
+	bool               ok = sum && sum->inferred && !sum->recursive && !(sum->effects & ~allowed);
 	clj_lock_unlock(&lock);
-	return effects;
+	return ok;
 }
 
 void clj_exec_derive(clj_value exec) {

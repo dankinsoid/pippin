@@ -1,0 +1,2 @@
+9 [1 2] [true [fixture.inline/boom fixture.inline/use-boom fixture.inline/trace-names]] [[1 2] [1 2]] 0 2
+[35 [3 4 5 6] [2 4 6 8 10] 2] stage

@@ -10,6 +10,7 @@
 #include "clj/bigint.h"
 #include "clj/coll.h"
 #include "clj/compiled.h"
+#include "clj/cons.h"
 #include "clj/core.h"
 #include "clj/decimal.h"
 #include "clj/error.h"
@@ -122,6 +123,76 @@ static inline clj_value clj_c_var_borrow(clj_value var, bool *owned) {
 	*owned = true;
 	if (__builtin_expect(h->type == &clj_lazy_def_type, 0)) return clj_var_root_value(var);
 	return clj_retain(root);
+}
+
+// ---- the fast arms of the intrinsics (design §6 «Инлайнинг без JIT»: a tag switch at the site, the slow path a call):
+// each answers exactly what the table's function answers for the representation it tests, and calls it otherwise.
+
+#define CLJ_C_FIX2(a, b) (clj_is_fixnum(a) && clj_is_fixnum(b))
+
+static inline clj_value clj_c_add(clj_value a, clj_value b) {
+	intptr_t r;
+	if (CLJ_C_FIX2(a, b) && !__builtin_add_overflow(clj_fixnum_val(a), clj_fixnum_val(b), &r)) return clj_long_new(r);
+	return clj_add(a, b);
+}
+
+static inline clj_value clj_c_sub(clj_value a, clj_value b) {
+	intptr_t r;
+	if (CLJ_C_FIX2(a, b) && !__builtin_sub_overflow(clj_fixnum_val(a), clj_fixnum_val(b), &r)) return clj_long_new(r);
+	return clj_sub(a, b);
+}
+
+static inline clj_value clj_c_mul(clj_value a, clj_value b) {
+	intptr_t r;
+	if (CLJ_C_FIX2(a, b) && !__builtin_mul_overflow(clj_fixnum_val(a), clj_fixnum_val(b), &r)) return clj_long_new(r);
+	return clj_mul(a, b);
+}
+
+static inline clj_value clj_c_inc(clj_value v) { return clj_is_fixnum(v) ? clj_long_new(clj_fixnum_val(v) + 1) : clj_inc(v); }
+static inline clj_value clj_c_dec(clj_value v) { return clj_is_fixnum(v) ? clj_long_new(clj_fixnum_val(v) - 1) : clj_dec(v); }
+static inline clj_value clj_c_lt(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(clj_fixnum_val(a) < clj_fixnum_val(b)) : clj_lt(a, b); }
+static inline clj_value clj_c_le(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(clj_fixnum_val(a) <= clj_fixnum_val(b)) : clj_le(a, b); }
+static inline clj_value clj_c_gt(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(clj_fixnum_val(a) > clj_fixnum_val(b)) : clj_gt(a, b); }
+static inline clj_value clj_c_ge(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(clj_fixnum_val(a) >= clj_fixnum_val(b)) : clj_ge(a, b); }
+// A long is a fixnum whenever one can hold it (clj_long_new), so two fixnums are equal exactly when identical.
+static inline clj_value clj_c_eq(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(a == b) : clj_eq(a, b); }
+static inline clj_value clj_c_neq(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(a != b) : clj_neq(a, b); }
+static inline clj_value clj_c_zero_p(clj_value v) { return clj_is_fixnum(v) ? clj_bool(clj_fixnum_val(v) == 0) : clj_zero_p(v); }
+static inline clj_value clj_c_pos_p(clj_value v) { return clj_is_fixnum(v) ? clj_bool(clj_fixnum_val(v) > 0) : clj_pos_p(v); }
+static inline clj_value clj_c_neg_p(clj_value v) { return clj_is_fixnum(v) ? clj_bool(clj_fixnum_val(v) < 0) : clj_neg_p(v); }
+
+static inline clj_value clj_c_count(clj_value v) {
+	if (clj_is_vector(v)) return clj_fixnum((intptr_t)clj_vector_head_of(v)->count);
+	return clj_count(v);
+}
+
+// A vector's item at a fixnum index within bounds, retained: one load in a tuple, the trie walk otherwise.
+static inline bool clj_c_vector_at(clj_value v, clj_value i, clj_value *out) {
+	if (!clj_is_vector(v) || !clj_is_fixnum(i)) return false;
+	const clj_vector_head *h = clj_vector_head_of(v);
+	intptr_t               k = clj_fixnum_val(i);
+	if (k < 0 || (uint64_t)k >= h->count) return false;
+	*out = clj_retain(h->shift == CLJ_VECTOR_TUPLE_SHIFT ? h->items[k].v : clj_vector_nth(v, (uint32_t)k));
+	return true;
+}
+
+static inline clj_value clj_c_nth2(clj_value v, clj_value i) {
+	clj_value r;
+	return clj_c_vector_at(v, i, &r) ? r : clj_nth2(v, i);
+}
+
+static inline clj_value clj_c_nth3(clj_value v, clj_value i, clj_value not_found) {
+	clj_value r;
+	return clj_c_vector_at(v, i, &r) ? r : clj_nth3(v, i, not_found);
+}
+
+static inline clj_value clj_c_first(clj_value v) {
+	if (clj_is_ptr(v)) {
+		const clj_type *t = clj_header_of(v)->type;
+		if (t == &clj_cons_type || t == &clj_list_type) return clj_retain(clj_cons_of(v)->first.v);
+		if (t == &clj_vector_type) return clj_c_nth3(v, clj_fixnum(0), CLJ_NIL);
+	}
+	return clj_first(v);
 }
 
 // The dev guard of an inlined call (optimizer.c): the var still holds a closure of the fn compiled as `code`.

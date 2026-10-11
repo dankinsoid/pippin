@@ -42,4 +42,13 @@ clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll);
 // (fused-count* coll xfs)
 clj_value clj_fused_count(const clj_value *args, size_t n);
 
+// A compiled site's stages as one step (design §6b «Итераторы Rust», monomorphized stages): over a borrowed item it
+// answers CLJ_TRUE with what comes out in *out (owned), CLJ_FALSE when nothing does, or CLJ_THROWN. Map and filter
+// stages only: they keep no state and pass the driver's nil result through.
+typedef clj_value (*clj_fused_step)(void *ctx, clj_value x, clj_value *out);
+// The drivers over such a step: reduce's args are (f) or (f init) as n says, into's `to`.
+clj_value clj_fused_reduce_step(const clj_value *args, size_t n, clj_value coll, clj_fused_step step, void *ctx);
+clj_value clj_fused_into_step(clj_value to, clj_value coll, clj_fused_step step, void *ctx);
+clj_value clj_fused_count_step(clj_value coll, clj_fused_step step, void *ctx);
+
 #endif

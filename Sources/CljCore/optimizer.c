@@ -537,6 +537,14 @@ static void optimize(const clj_node *n, void *ctx) {
 // The guard reads the root before the arguments, as the call does, and the call itself is the else branch, so a
 // redefined or rebound var runs what it ran before. Copied bodies are never inlined into again: no unrolling.
 
+static bool inline_enabled = true;
+
+bool clj_inline_set_enabled(bool on) {
+	bool was = inline_enabled;
+	inline_enabled = on;
+	return was;
+}
+
 enum {
 	INLINE_CALLEE_MAX = 32,  // nodes of the callee's arity body: what "small" means
 	INLINE_GROWTH_MIN = 64,  // nodes a frame may grow by, or by its own size when that is larger
@@ -787,6 +795,8 @@ typedef struct {
 	bool     arity_recur; // a recur back to the arity, which its copy would have nothing to go back to
 	bool     self_read;   // the fn's own name, which no frame here holds
 	bool     has_fn;      // a fn inside: each copy would be a closure, and in C functions, of its own
+	bool     calls_def;   // a call of the var being defined: the copy would make the caller its own callee
+	clj_value def_var;
 	int      level;       // direct fn bodies entered
 	bool     in_loop;     // a recur here goes back to a loop of the body
 } callee_scan;
@@ -837,6 +847,9 @@ static void scan_callee(const clj_node *n, void *ctx) {
 	case CLJ_NODE_FUSED:
 		for (uint32_t i = 0; i < n->u.fused.nargs; i++) scan_callee(n->u.fused.args[i], s);
 		return;
+	case CLJ_NODE_INVOKE:
+		if (n->u.invoke.fn->kind == CLJ_NODE_VAR && n->u.invoke.fn->u.var.v == s->def_var) s->calls_def = true;
+		break;
 	default: break;
 	}
 	clj_node_children(n, scan_callee, ctx);
@@ -849,18 +862,6 @@ static bool trivial_read(const clj_node *n) {
 static void count_nodes(const clj_node *n, void *ctx) {
 	(*(uint32_t *)ctx)++;
 	clj_node_children(n, count_nodes, ctx);
-}
-
-// Folds what substituted constants made constant: the copy is the analyzer's tree again, never a fused program's.
-static void fold_walk(const clj_node *n, void *ctx) {
-	clj_node *m = (clj_node *)n;
-	if (m->kind == CLJ_NODE_FUSED) {
-		for (uint32_t i = 0; i < m->u.fused.nargs; i++) fold_walk(m->u.fused.args[i], ctx);
-		return;
-	}
-	clj_node_children(m, fold_walk, ctx);
-	if (m->kind == CLJ_NODE_INTRINSIC) fold_intrinsic(m);
-	else if (m->kind == CLJ_NODE_IF) fold_if(m);
 }
 
 typedef struct {
@@ -881,9 +882,9 @@ static void try_inline(clj_node *n, inline_frame *fr) {
 	const clj_node     *code = clj_fn_of(root)->u.node;
 	const clj_fn_arity *a = code->u.fn.fixed[nargs];
 	if (!a || a->body->nnodes > INLINE_CALLEE_MAX) return;
-	callee_scan s = {a->nparams, a->self_slot >= 0 ? (uint32_t)a->self_slot : SLOT_NONE, UINT64_MAX, false, false, false, 0, false};
+	callee_scan s = {a->nparams, a->self_slot >= 0 ? (uint32_t)a->self_slot : SLOT_NONE, UINT64_MAX, false, false, false, false, fr->def_var, 0, false};
 	scan_callee(a->body, &s);
-	if (s.arity_recur || s.self_read || s.has_fn) return;
+	if (s.arity_recur || s.self_read || s.has_fn || s.calls_def) return;
 	const clj_node *subst[CLJ_FN_MAX_FIXED + 1] = {0};
 	uint32_t        added = a->nslots - (s.self != SLOT_NONE ? 1 : 0), cost = a->body->nnodes + 4;
 	for (uint32_t i = 0; i < nargs; i++) {
@@ -899,7 +900,7 @@ static void try_inline(clj_node *n, inline_frame *fr) {
 	if (after > INLINE_SLOTS_MAX || (before <= INLINE_SLOTS_SMALL && after > INLINE_SLOTS_SMALL)) return;
 	if (fr->grown + cost > fr->budget) return;
 	// Last: the summary may walk the callee's tree.
-	if (clj_specialize_var_effects(var, nargs) & ~(uint32_t)INLINE_EFFECTS) return;
+	if (!clj_specialize_var_inlinable(var, nargs, INLINE_EFFECTS)) return;
 
 	uint32_t        *map = zalloc(a->nslots, sizeof *map);
 	const clj_node **sub = zalloc(a->nslots, sizeof *sub);
@@ -932,7 +933,6 @@ static void try_inline(clj_node *n, inline_frame *fr) {
 		let->u.let.body = inl;
 		then = let;
 	}
-	fold_walk(then, NULL);
 	clj_node *test = node_at(CLJ_NODE_ROOT_IS, at);
 	clj_slot_store(&test->h, &test->u.root_is.var, clj_retain(var));
 	clj_slot_store(&test->h, &test->u.root_is.expect, clj_retain(root));
@@ -1194,7 +1194,7 @@ void clj_optimize(clj_node *root) {
 	clj_ice_pass("optimize/rewrite");
 	optimize(root, NULL);
 	CLJ_VERIFY_TREE(root, "optimize/rewrite", 0);
-	if (!clj_opt_off(CLJ_NO_OPT_INLINE)) {
+	if (!clj_opt_off(CLJ_NO_OPT_INLINE) && inline_enabled) {
 		clj_ice_pass("optimize/inline");
 		inline_frame top = {NULL, 0, 0, CLJ_NIL};
 		inline_walk(root, &top);

@@ -46,7 +46,11 @@ typedef struct {
 	clj_slot         items[];
 } tuple;
 
-enum { TUPLE = 0, TUPLE_MAX = 6 };
+enum { TUPLE = CLJ_VECTOR_TUPLE_SHIFT, TUPLE_MAX = 6 };
+
+_Static_assert(sizeof(tuple) == sizeof(clj_vector_head) && offsetof(tuple, count) == offsetof(clj_vector_head, count) &&
+                   offsetof(tuple, shift) == offsetof(clj_vector_head, shift) && offsetof(tuple, items) == offsetof(clj_vector_head, items),
+               "clj_vector_head is the tuple layout");
 
 _Static_assert(offsetof(tuple, count) == offsetof(clj_vector, count) && offsetof(tuple, shift) == offsetof(clj_vector, shift) &&
                    offsetof(tuple, hash) == offsetof(clj_vector, hash) && offsetof(tuple, meta) == offsetof(clj_vector, meta),

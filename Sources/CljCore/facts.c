@@ -471,6 +471,9 @@ typedef struct {
 	uint32_t      joined;  // frames whose parameters came from a caller join the walk is inside of
 	uint32_t      in_fn;   // fn bodies the walk is inside of
 	uint32_t      in_fused; // fused programs the walk is inside of
+	// Inlined bodies the walk is inside of: what their checks would say the callee's own walk says at its def, and the
+	// call beside them is checked against its summary, so they add no diagnostic, conflict or narrowing count.
+	uint32_t      inlined;
 	bool          summary; // a summary walk: nothing is stored, and a BOTTOM argument makes a call unreachable
 	bool          bounded; // a store's walk: cut past CLJ_FACTS_MAX_WALK_DEPTH, the C stack being shared with the asker
 	uint32_t      stop;    // effects that end the walk: the asker wants only whether one of them happens
@@ -851,7 +854,7 @@ static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_
 // ---- refinement (occurrence typing on predicates, design §3)
 
 // A round of a loop's fixpoint sees the variables before they are widened, so only the recording pass counts.
-static uint32_t *conflict_sink(pass *p) { return p->record ? &p->f->conflicts : NULL; }
+static uint32_t *conflict_sink(pass *p) { return p->record && !p->inlined ? &p->f->conflicts : NULL; }
 
 static void refine_slot(pass *p, env *e, uint32_t slot, clj_fact narrow, bool subtract) {
 	if (slot >= e->n) return;
@@ -860,7 +863,7 @@ static void refine_slot(pass *p, env *e, uint32_t slot, clj_fact narrow, bool su
 		cur.types &= ~narrow.types;
 		// MAYBE is "says nothing about nil", so its complement must subtract nothing
 		if (narrow.null != CLJ_NULL_MAYBE) cur.null = (uint8_t)(cur.null & ~narrow.null);
-		if (cur.types == CLJ_T_BOTTOM && e->slots[slot].types != CLJ_T_BOTTOM && p->record) p->f->conflicts++;
+		if (cur.types == CLJ_T_BOTTOM && e->slots[slot].types != CLJ_T_BOTTOM && p->record && !p->inlined) p->f->conflicts++;
 		e->slots[slot] = clj_fact_cap(cur);
 		return;
 	}
@@ -939,6 +942,10 @@ static refinement predicate_of(const clj_node *n, bool *negated) {
 		if (strcmp(name, "instance?") == 0) return refinement_instance(n->u.invoke.args, n->u.invoke.n);
 		return refinement_call(sig_of_var(n->u.invoke.fn->u.var.v, n->u.invoke.n), n->u.invoke.args, n->u.invoke.n);
 	}
+	case CLJ_NODE_IF:
+		// an inlined call refines as the call it stands for
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) return predicate_of(n->u.if_.else_, negated);
+		return no_refinement();
 	default: return no_refinement();
 	}
 }
@@ -1054,6 +1061,7 @@ static const clj_summary *summary_of(pass *p, clj_value var, uint32_t nargs) {
 static void add_diagnostic(pass *p, clj_diag_kind kind, const clj_node *arg, uint32_t use_line, uint32_t use_col, clj_value callee,
                            uint32_t i, clj_fact have, clj_fact req) {
 	clj_facts *f = p->f;
+	if (p->inlined) return;
 	if (f->ndiags == f->cdiags) {
 		f->cdiags = f->cdiags ? f->cdiags * 2 : 8;
 		f->diags = xgrow(f->diags, f->cdiags, sizeof(clj_diagnostic));
@@ -1086,7 +1094,7 @@ static void require_arg(pass *p, env *e, const clj_node *arg, clj_fact have, clj
 		uint8_t dead = p->f->nodes[arg->id].unreachable;
 		p->f->nodes[arg->id] = m;
 		p->f->nodes[arg->id].unreachable = dead;
-		p->f->narrowed++;
+		if (!p->inlined) p->f->narrowed++;
 	}
 	if (arg->kind != CLJ_NODE_LOCAL || arg->u.local.index >= e->n) return;
 	uint32_t slot = arg->u.local.index;
@@ -1148,7 +1156,7 @@ static uint32_t named_effects(pass *p, const char *name, const clj_node *const *
 
 // The ladder of design §4, by whether the effect is impossible here or only bad practice.
 static void require_effects(pass *p, const clj_node *arg, const clj_effects_req *req, clj_value callee, uint32_t i) {
-	if (req->allowed == CLJ_EFFECTS_FREE || !p->record || p->dead) return;
+	if (req->allowed == CLJ_EFFECTS_FREE || !p->record || p->dead || p->inlined) return;
 	uint32_t forbidden = ~req->allowed & CLJ_EFFECTS_CHECKED;
 	if (!forbidden) return;
 	uint32_t have = arg_effects(p, arg, req->nargs);
@@ -1695,7 +1703,11 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		break;
 	case CLJ_NODE_FUSED: r = infer_fused(p, n, e); break;
 	case CLJ_NODE_ROOT_IS: r = fact_of(CLJ_T_BOOL); break;
-	case CLJ_NODE_INLINE: r = infer(p, n->u.inline_.body, e, use); break;
+	case CLJ_NODE_INLINE:
+		p->inlined++;
+		r = infer(p, n->u.inline_.body, e, use);
+		p->inlined--;
+		break;
 	// A method's return type is an Objective-C fact, and the lattice has no host types yet.
 	case CLJ_NODE_OBJC_SEND:
 		infer(p, n->u.objc.target, e, USE_ESCAPE);

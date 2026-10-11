@@ -35,6 +35,20 @@ void clj_vector_each(clj_value vec, clj_vector_item_fn fn, void *ctx);
 
 static inline bool clj_is_vector(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_vector_type; }
 
+// The head both layouts share and a tuple's items right after it (vector.c): what a compiled site's fast arm of
+// count, nth and first reads without a call (design §6 «Инлайнинг без JIT»).
+typedef struct {
+	clj_header       h;
+	uint32_t         count;
+	uint32_t         shift; // CLJ_VECTOR_TUPLE_SHIFT for a tuple, whose items follow meta
+	_Atomic uint32_t hash;
+	clj_slot         meta;
+	clj_slot         items[];
+} clj_vector_head;
+enum { CLJ_VECTOR_TUPLE_SHIFT = 0 };
+
+static inline const clj_vector_head *clj_vector_head_of(clj_value v) { return (const clj_vector_head *)clj_to_ptr(v); }
+
 // Process-wide switch, the bench's control: off, clj_vector_from_array builds tries (existing tuples keep working).
 void clj_tuples_enable(bool on);
 bool clj_tuples_enabled(void);

@@ -13,6 +13,9 @@ private final class Facts {
 	init(_ source: String) throws {
 		let form = try Value(reading: source)
 		var env = clj_env(ns: clj_ns_user(), line: 0, col: 0)
+		// the facts of a call, not of the body an inlined call would copy in its place
+		let inlining = clj_inline_set_enabled(false)
+		defer { _ = clj_inline_set_enabled(inlining) }
 		guard let node = withExtendedLifetime(form, { clj_analyze(form.raw, &env) }) else { throw ClojureError.takePending() }
 		self.node = node
 		table = clj_facts_of(node)!
