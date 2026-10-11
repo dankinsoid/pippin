@@ -70,6 +70,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `layouts` | tuples, shape maps, flat transients |
   | `compiled` | the compiled core (a `-DCLJ_COMPILED_CORE` build boots core.clj from its embedded source), registered units, `CLJ_EVAL=compiled` |
   | `emit` | facts in the C emitter: promoted and typed slots, unboxing, protocol arms, workers, reuse tokens |
+  | `inline` | the inlining pass of `clj_optimize` (NOTES "Compiler", inlining on the AST), and in the emitter the intrinsics' fast arms at the site and the monomorphized fused stages |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
@@ -89,7 +90,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | after | what |
   |---|---|
   | `analyze` | the tree, and no node kind only the optimizer makes, no last-use mark |
-  | `optimize/direct`, `optimize/rewrite` | the tree |
+  | `optimize/direct`, `optimize/rewrite`, `optimize/inline` | the tree |
   | `optimize/liveness` | the tree and its marks |
   | `number`, `codec` (`clj_node_from_data`), `emit input` | the tree, its marks and its numbering |
   | `facts` | the table; the tree unchanged across the pass |
@@ -146,7 +147,13 @@ checks the tree and the facts between passes in debug builds; one option turns e
       int and double; no promoted slot read by address (a capture, a static-link read, re-derived by
       `clj_verify_frame_slots` apart from `pin_walk`) or past 64; a borrowed slot is a closure's param or self slot
       no recur rebinds.
-  12. A lazy-seq site's shape is `clj_lazy_seq_site` itself, which both backends ask at build time; what the
+  12. Inlined calls (`walk_inlined`): a `ROOT_IS` only as the test of an `if` whose then branch is an `INLINE`
+      (behind a let of fresh slots or bare) and whose else branch is the call of that very var; the guard holds a
+      closure without an environment whose fn node is the `INLINE`'s and has a fixed arity for the call's count; an
+      `INLINE` only there; at most `CLJ_INLINE_DEPTH_MAX` inlined bodies inside one another in a frame; no recur
+      crosses into the body (it is walked with no target). The guard compares the root with that closure, so a body
+      under another fn's guard, or a guard with no call beside it, would run a copy nothing checks.
+  13. A lazy-seq site's shape is `clj_lazy_seq_site` itself, which both backends ask at build time; what the
       verifier adds is the arity and capture checks the site's fn gets as any fn.
 - **What is not checked, and why.** An `if`'s fact as the join of its branches', a `let`'s as its body's: `require_arg`
   narrows the fact of a node that is a call's argument and not the facts of the nodes it is made of, so the relation

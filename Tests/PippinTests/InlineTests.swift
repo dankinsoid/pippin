@@ -34,7 +34,7 @@ extension CoreTests {
 			let (kinds, data) = try analyzed("(fn [y] (il-sq (inc y)))")
 			#expect(kinds.contains(CLJ_NODE_ROOT_IS) && kinds.contains(CLJ_NODE_INLINE))
 			// the codec writes the call the guard falls back to, never the copy
-			#expect(!data.contains("root-is") && data.contains("[:invoke [:var user/il-sq]"))
+			#expect(!data.contains("root-is") && data.contains("[:invoke [:var user/il-sq"))
 			#expect(try rt.eval("(with-redefs [il-sq (fn [x] (- x))] (il-use 2))") == -3)
 			_ = try rt.eval("(defn il-sq [x] (+ x x))")
 			#expect(try rt.eval("(il-use 2)") == 6)

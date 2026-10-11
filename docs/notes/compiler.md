@@ -76,8 +76,11 @@
   first marker at or past it within F's range names the fn whose body made the call; a marker naming another
   fn than F is an inlined callee, and the trace shows `[callee, F]`. The marker sits in the call's own basic
   block, so block reordering (a cold throw path moved to the function's end) cannot separate them, and every
-  call site being marked is what makes "first marker at or past" the right one. *Inlining is one level deep by
-  construction* (below), so the chain never needs a third name. *The guard page.* A thread's stack ends in the
+  call site being marked is what makes "first marker at or past" the right one. A body the optimizer inlined on the
+  AST (the "Inlining on the AST" entry) marks its calls with a stub of its own whose `inlined_in` names the stub of
+  the body it sits in (`clj_c_stub_inlined`), and `frames_at` follows that chain down to the frame's own stub, so
+  the trace shows `[callee, caller, F]` whatever clang then inlines; a leaf clang inlined ends its chain at once
+  (below). *The guard page.* A thread's stack ends in the
   system's guard page; `clj_init` installs SIGSEGV and SIGBUS handlers (`clj_guard_install`, chaining to the
   previous action — the sanitizer's — for any other fault) and every thread that makes a shadow stack gets a
   256 KB alternate signal stack (`sigaltstack`, an `mmap` of its own: ASan's thread teardown unmaps whatever
@@ -138,8 +141,8 @@
   of a cross-unit call needs) and passing nil as `self` when the arity binds no self slot; a cross-unit target
   keeps the registry pointer, a top-level form keeps calling the frame function (it is no frame itself, so the
   callee's frame must be the callee's own). A direct fn under a frame fn is inlined the same way, without a
-  wrapper: its definer is its only caller. One level deep by construction: a leaf calls nothing directly, so
-  what a marker names inside a frame is at most the leaf inside the frame. `otool -v -s __TEXT __cljframe` of
+  wrapper: its definer is its only caller. A leaf calls nothing directly, so what clang adds to a marker's
+  chain is at most the leaf inside the frame. `otool -v -s __TEXT __cljframe` of
   the bench's `bench_sq_closed.dylib`: `bench_sq_to_a1` holds the `mul`/`smulh` of `(* x x)` and no `bl` to
   `bench_sq_a1`, whose only reference is the dispatcher's `b`; the standalone `bench_sq_a1` is 22
   instructions — frame record, the tag check, the multiply with its overflow check, the fixnum range check,
