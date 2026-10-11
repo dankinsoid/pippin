@@ -310,7 +310,7 @@ static clj_value rethrow_positioned(const analyzer *a) {
 static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
 	clj_value text = clj_pr_str(form);
 	if (text == CLJ_THROWN) return NULL;
-	clj_node *r = fail(a, fmt, clj_string_bytes(text));
+	clj_node *r = fail(a, fmt, CLJ_STR(text).bytes);
 	clj_release(text);
 	return r;
 }
@@ -360,13 +360,13 @@ static bool nearer(clj_value sym, clj_value best) {
 	clj_value a = clj_symbol_name(sym), b = clj_symbol_name(best);
 	uint32_t  na = clj_string_len(a), nb = clj_string_len(b);
 	if (na != nb) return na < nb;
-	return memcmp(clj_string_bytes(a), clj_string_bytes(b), na) < 0;
+	return memcmp(CLJ_STR(a).bytes, CLJ_STR(b).bytes, na) < 0;
 }
 
 static void offer(nearest *n, clj_value sym, bool local) {
 	if (!clj_is_symbol(sym) || !clj_is_nil(clj_symbol_ns(sym))) return;
 	clj_value text = clj_symbol_name(sym);
-	uint32_t  d = edit_distance(n->name, n->len, clj_string_bytes(text), clj_string_len(text), n->max);
+	uint32_t  d = edit_distance(n->name, n->len, CLJ_STR(text).bytes, clj_string_len(text), n->max);
 	if (d > n->max || d == 0) return;
 	if (d < n->distance || (d == n->distance && nearer(sym, n->best))) {
 		n->distance = d;
@@ -392,7 +392,7 @@ static clj_value nearest_name(const analyzer *a, scope *s, clj_value sym) {
 	// rustc's rule: a third of the name, so a three-letter name admits one edit and a shorter one none.
 	uint32_t max = len / 3 > 3 ? 3 : (uint32_t)(len / 3);
 	if (!max) return CLJ_NIL;
-	nearest n = {clj_string_bytes(text), len, max, CLJ_NIL, max + 1, false};
+	nearest n = {CLJ_STR(text).bytes, len, max, CLJ_NIL, max + 1, false};
 	for (scope *sc = s; sc; sc = sc->parent) {
 		for (uint32_t i = 0; i < sc->nlocals; i++) offer(&n, sc->locals[i].sym, true);
 	}
@@ -412,7 +412,7 @@ static clj_value nearest_name(const analyzer *a, scope *s, clj_value sym) {
 static clj_node *fail_unresolved(const analyzer *a, scope *s, clj_value sym) {
 	clj_value text = clj_pr_str(sym);
 	if (text == CLJ_THROWN) return NULL;
-	clj_value message = clj_error_message("Unable to resolve symbol: %s in this context", clj_string_bytes(text));
+	clj_value message = clj_error_message("Unable to resolve symbol: %s in this context", CLJ_STR(text).bytes);
 	clj_release(text);
 	clj_value data = with_position(a, CLJ_NIL);
 	clj_value hint = nearest_name(a, s, sym);
@@ -577,7 +577,7 @@ static bool resolve_local(scope *s, clj_value sym, bool *captured, uint32_t *ind
 static bool is_unqualified_symbol(clj_value v) { return clj_is_symbol(v) && clj_is_nil(clj_symbol_ns(v)); }
 
 static bool symbol_is(clj_value sym, const char *name) {
-	return is_unqualified_symbol(sym) && strcmp(clj_string_bytes(clj_symbol_name(sym)), name) == 0;
+	return is_unqualified_symbol(sym) && strcmp(CLJ_STR(clj_symbol_name(sym)).bytes, name) == 0;
 }
 
 typedef enum {
@@ -599,7 +599,7 @@ static const struct {
 
 static special special_of(clj_value sym) {
 	if (!is_unqualified_symbol(sym)) return SP_NONE;
-	const char *name = clj_string_bytes(clj_symbol_name(sym));
+	const char *name = CLJ_STR(clj_symbol_name(sym)).bytes;
 	for (size_t i = 0; i < sizeof specials / sizeof *specials; i++) {
 		if (strcmp(specials[i].name, name) == 0) return specials[i].kind;
 	}
@@ -638,7 +638,7 @@ static clj_value qualified_text(clj_value sym);
 static clj_node *host_type_symbol(analyzer *a, scope *s, clj_value sym) {
 	if (clj_is_nil(clj_symbol_ns(sym))) return NULL;
 	clj_value text = qualified_text(sym);
-	bool      known = !clj_is_nil(clj_host_type_named(clj_string_bytes(text), clj_string_len(text)));
+	bool      known = !clj_is_nil(clj_host_type_named(CLJ_STR(text).bytes, clj_string_len(text)));
 	clj_node *node = NULL;
 	if (known) {
 		clj_value items[2] = {clj_symbol_from_cstr("clojure.core/host-type"), text};
@@ -728,7 +728,7 @@ static clj_value expand_all(analyzer *a, scope *s, clj_value form) {
 			clj_value text = clj_pr_str(cur);
 			clj_release(cur);
 			if (text == CLJ_THROWN) return CLJ_THROWN;
-			clj_value r = fail_value(a, "Macro expansion exceeded %d steps at: %s", MAX_EXPANSION_STEPS, clj_string_bytes(text));
+			clj_value r = fail_value(a, "Macro expansion exceeded %d steps at: %s", MAX_EXPANSION_STEPS, CLJ_STR(text).bytes);
 			clj_release(text);
 			return r;
 		}
@@ -1222,7 +1222,7 @@ static clj_value ctor_head_type(const analyzer *a, clj_value v) {
 	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return CLJ_NIL;
 	clj_value   name = clj_symbol_name(v);
 	size_t      len = clj_string_len(name);
-	const char *bytes = clj_string_bytes(name);
+	const char *bytes = CLJ_STR(name).bytes;
 	if (len < 2 || len > 250 || bytes[len - 1] != '.' || bytes[0] == '.') return CLJ_NIL;
 	char stem_bytes[256];
 	memcpy(stem_bytes, bytes, len - 1);
@@ -1244,7 +1244,7 @@ static clj_value ctor_head_type(const analyzer *a, clj_value v) {
 static bool is_method_head(clj_value v) {
 	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return false;
 	clj_value name = clj_symbol_name(v);
-	return clj_string_len(name) > 1 && clj_string_bytes(name)[0] == '.';
+	return clj_string_len(name) > 1 && CLJ_STR(name).bytes[0] == '.';
 }
 
 static bool spell_append(char *buf, size_t cap, size_t *used, const char *bytes, size_t len) {
@@ -1262,7 +1262,7 @@ static clj_value method_selector(analyzer *a, const clj_value *items, uint32_t n
 	char      buf[512];
 	size_t    used = 0;
 	buf[0] = '\0';
-	if (!spell_append(buf, sizeof buf, &used, clj_string_bytes(base) + 1, clj_string_len(base) - 1)) return fail_value(a, "Method name too long: %s", clj_string_bytes(base));
+	if (!spell_append(buf, sizeof buf, &used, CLJ_STR(base).bytes + 1, clj_string_len(base) - 1)) return fail_value(a, "Method name too long: %s", CLJ_STR(base).bytes);
 	*nargs = n > 2 ? 1 : 0;
 	if (n > 2 && !spell_append(buf, sizeof buf, &used, ":", 1)) return fail_value(a, "Selector too long");
 	for (uint32_t i = 3; i < n; i += 2) {
@@ -1275,7 +1275,7 @@ static clj_value method_selector(analyzer *a, const clj_value *items, uint32_t n
 			return CLJ_THROWN;
 		}
 		clj_value label = clj_keyword_name(items[i]);
-		if (!spell_append(buf, sizeof buf, &used, clj_string_bytes(label), clj_string_len(label)) || !spell_append(buf, sizeof buf, &used, ":", 1))
+		if (!spell_append(buf, sizeof buf, &used, CLJ_STR(label).bytes, clj_string_len(label)) || !spell_append(buf, sizeof buf, &used, ":", 1))
 			return fail_value(a, "Selector too long");
 		(*nargs)++;
 	}
@@ -1329,8 +1329,8 @@ static try_clause try_clause_of(clj_value item) {
 // against the Swift type would be false always (design §4).
 static bool is_cancellation_type(clj_value cls) {
 	clj_value ns = clj_symbol_ns(cls);
-	return !clj_is_nil(ns) && strcmp(clj_string_bytes(ns), "Swift") == 0 &&
-	       strcmp(clj_string_bytes(clj_symbol_name(cls)), "CancellationError") == 0;
+	return !clj_is_nil(ns) && strcmp(CLJ_STR(ns).bytes, "Swift") == 0 &&
+	       strcmp(CLJ_STR(clj_symbol_name(cls)).bytes, "CancellationError") == 0;
 }
 
 // "Module/Name" as one string: what the host resolver takes and what the clause prints as.
@@ -1338,9 +1338,9 @@ static clj_value qualified_text(clj_value sym) {
 	clj_value ns = clj_symbol_ns(sym), name = clj_symbol_name(sym);
 	size_t    nlen = clj_string_len(ns), mlen = clj_string_len(name);
 	char     *text = zalloc(nlen + mlen + 2, 1);
-	memcpy(text, clj_string_bytes(ns), nlen);
+	memcpy(text, CLJ_STR(ns).bytes, nlen);
 	text[nlen] = '/';
-	memcpy(text + nlen + 1, clj_string_bytes(name), mlen);
+	memcpy(text + nlen + 1, CLJ_STR(name).bytes, mlen);
 	clj_value v = clj_string_new(text, nlen + mlen + 1);
 	free(text);
 	return v;
@@ -1350,7 +1350,7 @@ static clj_value qualified_text(clj_value sym) {
 // package-qualified name is excluded: `java.lang.Exception` names a host type and is refused as one.
 static bool is_jvm_throwable_name(clj_value sym) {
 	clj_value   name = clj_symbol_name(sym);
-	const char *n = clj_string_bytes(name);
+	const char *n = CLJ_STR(name).bytes;
 	size_t      l = clj_string_len(name);
 	if (memchr(n, '.', l)) return false;
 	return (l > 9 && memcmp(n + l - 9, "Exception", 9) == 0) || (l > 5 && memcmp(n + l - 5, "Error", 5) == 0);
@@ -1360,8 +1360,8 @@ static bool is_jvm_throwable_name(clj_value sym) {
 // clojure.core/Throwable. The bare name, else NULL.
 static const char *core_catch_name(clj_value cls) {
 	static const char *const names[] = {"Throwable", "Exception", "Object", "ExceptionInfo"};
-	if (!clj_is_symbol(cls) || clj_is_nil(clj_symbol_ns(cls)) || strcmp(clj_string_bytes(clj_symbol_ns(cls)), "clojure.core") != 0) return NULL;
-	const char *name = clj_string_bytes(clj_symbol_name(cls));
+	if (!clj_is_symbol(cls) || clj_is_nil(clj_symbol_ns(cls)) || strcmp(CLJ_STR(clj_symbol_ns(cls)).bytes, "clojure.core") != 0) return NULL;
+	const char *name = CLJ_STR(clj_symbol_name(cls)).bytes;
 	for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
 		if (strcmp(name, names[i]) == 0) return names[i];
 	}
@@ -1378,7 +1378,7 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 		return ok;
 	}
 	if (clj_is_keyword(cls)) {
-		if (clj_is_nil(clj_keyword_ns(cls)) && strcmp(clj_string_bytes(clj_keyword_name(cls)), "default") == 0) {
+		if (clj_is_nil(clj_keyword_ns(cls)) && strcmp(CLJ_STR(clj_keyword_name(cls)).bytes, "default") == 0) {
 			c->kind = CLJ_CATCH_ALL;
 		} else {
 			c->kind = CLJ_CATCH_KEYWORD;
@@ -1405,7 +1405,7 @@ static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 		}
 		clj_value text = qualified_text(cls);
 		// clj_host_boot installs the resolver before analysis, so an unreachable name here is a typo.
-		if (clj_host_type_available() && clj_is_nil(clj_host_type_named(clj_string_bytes(text), clj_string_len(text)))) {
+		if (clj_host_type_available() && clj_is_nil(clj_host_type_named(CLJ_STR(text).bytes, clj_string_len(text)))) {
 			clj_release(text);
 			return fail_form(a, "Unable to resolve host type: %s", cls) != NULL;
 		}

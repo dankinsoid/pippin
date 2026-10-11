@@ -6,7 +6,7 @@ import Testing
 
 private func text(_ s: clj_value) -> String? {
 	guard clj_is_string(s) else { return nil }
-	return String(cString: clj_string_bytes(s))
+	return Value.decode(s)
 }
 
 extension CoreTests {

@@ -395,7 +395,7 @@ clj_value clj_node_to_data(const clj_node *root) {
 static clj_node *fail_data(clj_value data, const char *what) {
 	clj_value text = clj_pr_str_max(data, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return NULL;
-	clj_throw_msg("malformed node data, %s: %s", what, clj_string_bytes(text));
+	clj_throw_msg("malformed node data, %s: %s", what, CLJ_STR(text).bytes);
 	clj_release(text);
 	return NULL;
 }

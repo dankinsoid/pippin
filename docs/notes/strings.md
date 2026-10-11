@@ -40,8 +40,39 @@
 - [ ] **No UTF-16 view yet.** The crumbs are code point → byte; the Apple boundary's `NSRange` indexes (design §4
   «Строки», "На границе с Apple индексы UTF-16") need code point ↔ UTF-16 on the same crumbs. Trigger: the first
   bridge API that passes an index across.
-- [ ] **Small strings in the value (tag `100`) and the borrow-bytes API** are design §4's next steps, in that
-  order after this one. Trigger: the census share of 8–11-byte strings, or the borrow API's first caller.
+- **Bytes are borrowed, never read through the object** (design §4 «Строки», the first step of small strings). The
+  layout is string.c's: string.h defines `clj_string` for its own inline accessors, then poisons the name
+  (`#define clj_string clj_string_layout_is_private_to_string_c`) and undefines `CLJ_STRING_ASCII` unless the
+  includer defined `CLJ_STRING_LAYOUT`, which only string.c does, so a field read anywhere else does not compile —
+  SwiftPM's module builds included, which export the macro with the header. On the value, no buffer:
+  `clj_string_len`, `clj_string_is_ascii`, `clj_string_count`/`offset`/`index_at`. The bytes: `clj_string_borrow(s,
+  &buf)` returns `clj_str {bytes, len}` with `bytes[len]` NUL, valid while `s` lives and the caller's `clj_str_buf`
+  (8 bytes, where a word string will unpack) is in scope; `CLJ_STR(s)` borrows into a compound literal that lives
+  to the end of the enclosing block, and is the form of ~290 of the 324 sites. A pointer kept past its block takes
+  a named buffer (`gensym`'s prefix, `c-fn*`'s encodings one per argument, clj-facts' `what`), or a macro that keeps
+  the literal in the caller's block (compiler.c `VAR_NAME_BYTES`, the parser harness's `fz_cstr`). Swift reads
+  through `Value.withStringBytes`/`Value.decode`, the buffer living inside the closure. The view carries no ASCII
+  bit: four callers want it, and `clj_string_is_ascii` reads the value.
+- **Bytes that outlive a borrow are materialized**: `clj_string_materialize` (+1, a heap string; today the string
+  retained) and `clj_string_heap_bytes`. `slurp`, `spit` and `file-seq` hand their path and text to a pool thread
+  while the caller parks (the parker's frame is nobody else's, design §4), and a `deftype`'s `t.name` points into
+  its `name` slot for the type's life. objc.c's `'*'` (a `char *` argument, struct field, return or `objc-write!`)
+  reads `clj_string_heap_bytes` of the value itself, with no owner: the pointer lives as long as the value, as
+  before.
+- **Neutral by construction**: every accessor inlines to the field load it replaced. At -O2 the assembly of
+  printer.c, reader.c, seq.c, coll.c, compare.c, jvm_hash.c, reuse.c and builtins_format.c is identical to the
+  direct reads; string.c, builtins_string.c, regex.c and builtins.c differ in register allocation and block order,
+  and per function the instruction count moves by at most 2 (`clj_string_char_at` −1, `b_atom`'s cold error tail
+  +2). The generated C reads no
+  string bytes: constants go through `clj_string_new`, checks through `&clj_string_type`.
+- [ ] **Small strings in the value (tag `100`)** are design §4's next step. Over the borrow API it adds one tag
+  branch per borrow (unpack ≤ 7 bytes and a NUL into the buffer) and per `clj_string_len`/`is_ascii` (from the
+  word), a heap copy in `clj_string_materialize`, and an assertion of a heap string in `clj_string_heap_bytes`.
+  Undecided there: an owner for objc.c's `'*'` copy (the call's for an argument; for a return, a struct field or
+  `objc-write!` none exists, an autorelease would be one); whether a materialized heap string of ≤ 7 bytes may meet
+  a word one in `=`/`hash` (compare bytes) or must never escape as a value; and the other half of the inventory,
+  code that takes `clj_is_string` to imply `clj_is_ptr` (`clj_header_of`, RC, `clj_is_unique` reuse), which this
+  step did not touch. Trigger: the census share of strings of at most 7 bytes (8–11 for the packed encodings).
 - [ ] **The ASCII scan reads every new string's bytes once more**: `clj_string_new` is 5 % of the strings workload
   (bench/RESULTS.md, "Strings"). A builder that knows its parts' bits (`str`, `join`, `subs` of an ASCII string)
   could pass the answer in. Trigger: `clj_string_new` above the copy itself in a profile.

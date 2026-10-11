@@ -25,14 +25,14 @@ static clj_value b_subs(const clj_value *args, size_t n) {
 	if (!clj_index_arg(args[1], &start) || (n == 3 && !clj_index_arg(args[2], &end))) return clj_throw_msg("subs expects integer indices");
 	intptr_t from = cp_offset(args[0], start, count), to = end < start ? -1 : cp_offset(args[0], end, count);
 	if (from < 0 || to < 0) return clj_throw_msg("String index out of range: %ld", (long)(from < 0 ? start : end));
-	return clj_string_new(clj_string_bytes(args[0]) + from, (size_t)(to - from));
+	return clj_string_new(CLJ_STR(args[0]).bytes + from, (size_t)(to - from));
 }
 
 static clj_value map_ascii(clj_value s, bool upper) {
 	uint32_t len = clj_string_len(s);
 	char    *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
-	memcpy(text, clj_string_bytes(s), len + 1);
+	memcpy(text, CLJ_STR(s).bytes, len + 1);
 	for (uint32_t i = 0; i < len; i++) {
 		char c = text[i];
 		if (upper && c >= 'a' && c <= 'z') text[i] = (char)(c - 32);
@@ -76,7 +76,7 @@ static clj_value b_index_of(const clj_value *args, size_t n) {
 		}
 		if (from < 0) from = 0;
 	}
-	const char *hay = clj_string_bytes(args[0]), *nd = clj_string_bytes(needle);
+	const char *hay = CLJ_STR(args[0]).bytes, *nd = CLJ_STR(needle).bytes;
 	size_t      hlen = clj_string_len(args[0]), nlen = clj_string_len(needle);
 	intptr_t    count = (intptr_t)clj_string_count(args[0]);
 	// String.indexOf clamps a start past the end, where an empty needle still matches.
@@ -90,7 +90,7 @@ static clj_value b_last_index_of(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return not_a_string("last-index-of", args[0]);
 	clj_value needle = needle_of(args[1]);
 	if (needle == CLJ_THROWN) return CLJ_THROWN;
-	const char *hay = clj_string_bytes(args[0]), *nd = clj_string_bytes(needle);
+	const char *hay = CLJ_STR(args[0]).bytes, *nd = CLJ_STR(needle).bytes;
 	size_t      hlen = clj_string_len(args[0]), nlen = clj_string_len(needle);
 	intptr_t    last = (intptr_t)hlen;
 	if (n == 3 && !clj_is_nil(args[2])) {
@@ -119,7 +119,7 @@ static clj_value b_last_index_of(const clj_value *args, size_t n) {
 }
 
 static clj_value trim(clj_value s, bool left, bool right) {
-	const char *bytes = clj_string_bytes(s);
+	const char *bytes = CLJ_STR(s).bytes;
 	size_t      len = clj_string_len(s), start = 0, end = len;
 	uint32_t    cp;
 	if (left) {
@@ -163,7 +163,7 @@ static clj_value b_blank_p(const clj_value *args, size_t n) {
 	(void)n;
 	if (clj_is_nil(args[0])) return CLJ_TRUE;
 	if (!clj_is_string(args[0])) return not_a_string("blank?", args[0]);
-	const char *bytes = clj_string_bytes(args[0]);
+	const char *bytes = CLJ_STR(args[0]).bytes;
 	size_t      len = clj_string_len(args[0]), pos = 0;
 	uint32_t    cp;
 	while (pos < len) {
@@ -182,7 +182,7 @@ static clj_value b_whitespace_p(const clj_value *args, size_t n) {
 static clj_value b_reverse_str(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return not_a_string("reverse", args[0]);
-	const char *bytes = clj_string_bytes(args[0]);
+	const char *bytes = CLJ_STR(args[0]).bytes;
 	size_t      len = clj_string_len(args[0]), pos = 0, out = len;
 	char       *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
@@ -218,7 +218,7 @@ static void put(buf *b, const char *s, size_t n) {
 
 // Literal replacement, as String.replace(CharSequence, CharSequence): an empty match sits between every char and at both ends.
 static clj_value replace(clj_value s, clj_value match, clj_value repl, bool first_only) {
-	const char *hay = clj_string_bytes(s), *m = clj_string_bytes(match), *r = clj_string_bytes(repl);
+	const char *hay = CLJ_STR(s).bytes, *m = CLJ_STR(match).bytes, *r = CLJ_STR(repl).bytes;
 	size_t      hlen = clj_string_len(s), mlen = clj_string_len(match), rlen = clj_string_len(repl);
 	buf         b = {0};
 	if (mlen == 0) {
@@ -315,7 +315,7 @@ static clj_value b_split(const clj_value *args, size_t n) {
 		clj_release(needle);
 		return clj_throw_msg("split expects an integer limit");
 	}
-	const char *hay = clj_string_bytes(args[0]), *sep = clj_string_bytes(needle);
+	const char *hay = CLJ_STR(args[0]).bytes, *sep = CLJ_STR(needle).bytes;
 	size_t      hlen = clj_string_len(args[0]), slen = clj_string_len(needle);
 	parts       p = {0};
 	if (hlen == 0) {
@@ -348,7 +348,7 @@ static clj_value b_split(const clj_value *args, size_t n) {
 static clj_value b_split_lines(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return not_a_string("split-lines", args[0]);
-	const char *hay = clj_string_bytes(args[0]);
+	const char *hay = CLJ_STR(args[0]).bytes;
 	size_t      hlen = clj_string_len(args[0]), start = 0;
 	parts       p = {0};
 	if (hlen == 0) {

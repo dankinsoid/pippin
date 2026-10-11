@@ -168,7 +168,7 @@ static const tag_types value_tags[] = {
 };
 
 static bool tag_is(clj_value v, const char *name) {
-	return clj_is_keyword(v) && clj_is_nil(clj_keyword_ns(v)) && strcmp(clj_string_bytes(clj_keyword_name(v)), name) == 0;
+	return clj_is_keyword(v) && clj_is_nil(clj_keyword_ns(v)) && strcmp(CLJ_STR(clj_keyword_name(v)).bytes, name) == 0;
 }
 
 static clj_fact fact_of_types(uint32_t types) {
@@ -334,7 +334,7 @@ static const struct {
 
 static bool qualified_tag_is(clj_value v, const char *ns, const char *name) {
 	if (!clj_is_keyword(v) || clj_is_nil(clj_keyword_ns(v))) return false;
-	return strcmp(clj_string_bytes(clj_keyword_ns(v)), ns) == 0 && strcmp(clj_string_bytes(clj_keyword_name(v)), name) == 0;
+	return strcmp(CLJ_STR(clj_keyword_ns(v)).bytes, ns) == 0 && strcmp(CLJ_STR(clj_keyword_name(v)).bytes, name) == 0;
 }
 
 static bool effect_member(clj_value item, void *ctx) {
@@ -558,8 +558,8 @@ static void finish(entry *e) {
 
 static uint32_t core_effects_of(clj_value var) {
 	clj_value ns = clj_var_ns(var);
-	if (!clj_is_symbol(ns) || strcmp(clj_string_bytes(clj_symbol_name(ns)), "clojure.core") != 0) return CLJ_EFFECT_ANY;
-	return clj_facts_core_effects(clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	if (!clj_is_symbol(ns) || strcmp(CLJ_STR(clj_symbol_name(ns)).bytes, "clojure.core") != 0) return CLJ_EFFECT_ANY;
+	return clj_facts_core_effects(CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes);
 }
 
 // A walk started this deep would be cut at once (facts.c); it is left for a caller with headroom.

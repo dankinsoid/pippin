@@ -853,7 +853,7 @@ void clj_debug_coro_dump(void) {
 		if (!clj_is_nil(trace)) {
 			clj_value frames = clj_trace_realize(trace);
 			clj_value text = clj_pr_str_max(frames, 2000);
-			fprintf(stderr, "    %.*s\n", (int)clj_string_len(text), clj_string_bytes(text));
+			fprintf(stderr, "    %.*s\n", (int)clj_string_len(text), CLJ_STR(text).bytes);
 			clj_release(text);
 			clj_release(frames);
 		}

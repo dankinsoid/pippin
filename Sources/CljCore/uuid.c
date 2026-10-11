@@ -98,7 +98,7 @@ static clj_value b_uuid_p(const clj_value *args, size_t n) {
 static clj_value b_parse_uuid(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("%s cannot be cast to a string", clj_type_name(args[0]));
-	return clj_uuid_parse(clj_string_bytes(args[0]), clj_string_len(args[0]));
+	return clj_uuid_parse(CLJ_STR(args[0]).bytes, clj_string_len(args[0]));
 }
 
 static clj_value b_random_uuid(const clj_value *args, size_t n) {
@@ -110,8 +110,8 @@ static clj_value b_random_uuid(const clj_value *args, size_t n) {
 // The #uuid data reader: clojure.uuid/default-uuid-reader, which refuses what fromString refuses.
 clj_value clj_uuid_read(clj_value form) {
 	if (!clj_is_string(form)) return clj_throw_msg("#uuid literal expects a string, got: %s", clj_type_name(form));
-	clj_value u = clj_uuid_parse(clj_string_bytes(form), clj_string_len(form));
-	if (clj_is_nil(u)) return clj_throw_msg("Invalid UUID string: %s", clj_string_bytes(form));
+	clj_value u = clj_uuid_parse(CLJ_STR(form).bytes, clj_string_len(form));
+	if (clj_is_nil(u)) return clj_throw_msg("Invalid UUID string: %s", CLJ_STR(form).bytes);
 	return u;
 }
 

@@ -145,7 +145,7 @@ static void put_double(buf *b, double d) {
 }
 
 static void put_string_literal(buf *b, clj_value s) {
-	const unsigned char *p = (const unsigned char *)clj_string_bytes(s);
+	const unsigned char *p = (const unsigned char *)CLJ_STR(s).bytes;
 	size_t n = clj_string_len(s);
 	put_char(b, '"');
 	for (size_t i = 0; i < n; i++) {
@@ -182,10 +182,10 @@ static void put_char_literal(buf *b, uint32_t cp) {
 
 static void put_symbol_text(buf *b, clj_value ns, clj_value name) {
 	if (!clj_is_nil(ns)) {
-		put_bytes(b, clj_string_bytes(ns), clj_string_len(ns));
+		put_bytes(b, CLJ_STR(ns).bytes, clj_string_len(ns));
 		put_char(b, '/');
 	}
-	put_bytes(b, clj_string_bytes(name), clj_string_len(name));
+	put_bytes(b, CLJ_STR(name).bytes, clj_string_len(name));
 }
 
 typedef enum { F_SEQ, F_QUEUE, F_VECTOR, F_MAP, F_SET, F_ARRAY } frame_kind;
@@ -299,7 +299,7 @@ static bool print_hook(buf *b, clj_value v, bool *thrown) {
 		return true;
 	}
 	bool printed = clj_is_string(text);
-	if (printed) put_bytes(b, clj_string_bytes(text), clj_string_len(text));
+	if (printed) put_bytes(b, CLJ_STR(text).bytes, clj_string_len(text));
 	clj_release(text);
 	return printed;
 }
@@ -326,7 +326,7 @@ static void put_meta(buf *b, clj_value v, const limits *lim, bool *thrown) {
 		return;
 	}
 	put_char(b, '^');
-	put_bytes(b, clj_string_bytes(text), clj_string_len(text));
+	put_bytes(b, CLJ_STR(text).bytes, clj_string_len(text));
 	put_char(b, ' ');
 	clj_release(text);
 }
@@ -359,7 +359,7 @@ static void open_map(buf *b, frame *f, const limits *lim) {
 	}
 	f->owned_keys = true;
 	put_cstr(b, "#:");
-	put_bytes(b, clj_string_bytes(ns), clj_string_len(ns));
+	put_bytes(b, CLJ_STR(ns).bytes, clj_string_len(ns));
 	put_char(b, '{');
 }
 
@@ -392,17 +392,17 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 	} else if (clj_is_bigint(v) || clj_is_ratio(v) || clj_is_decimal(v)) {
 		// (str 1N) is "1" and (pr-str 1N) is "1N", as the JVM's print-method appends the tag.
 		clj_value text = clj_is_bigint(v) ? clj_bigint_to_string(v) : clj_is_ratio(v) ? clj_ratio_to_string(v) : clj_decimal_to_string(v);
-		put_bytes(b, clj_string_bytes(text), clj_string_len(text));
+		put_bytes(b, CLJ_STR(text).bytes, clj_string_len(text));
 		if (readably && !clj_is_ratio(v)) put_char(b, clj_is_bigint(v) ? 'N' : 'M');
 		clj_release(text);
 	} else if (clj_is_string(v)) {
 		if (readably) put_string_literal(b, v);
-		else put_bytes(b, clj_string_bytes(v), clj_string_len(v));
+		else put_bytes(b, CLJ_STR(v).bytes, clj_string_len(v));
 	} else if (clj_is_regex(v)) {
 		// The text is verbatim in both directions: the reader applies no string escapes inside #"".
 		clj_value p = clj_regex_pattern(v);
 		if (readably) put_cstr(b, "#\"");
-		put_bytes(b, clj_string_bytes(p), clj_string_len(p));
+		put_bytes(b, CLJ_STR(p).bytes, clj_string_len(p));
 		if (readably) put_char(b, '"');
 	} else if (clj_is_uuid(v)) {
 		char text[37];

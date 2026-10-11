@@ -16,7 +16,7 @@ static clj_value         keys[K_COUNT];
 
 static clj_value span_string(const clj_uri *u, clj_uri_span sp) {
 	if (sp.len < 0) return CLJ_NIL;
-	return clj_string_new(clj_string_bytes(u->text.v) + sp.from, (size_t)sp.len);
+	return clj_string_new(CLJ_STR(u->text.v).bytes + sp.from, (size_t)sp.len);
 }
 
 static clj_value uri_lookup(clj_value self, clj_value key, clj_value not_found) {
@@ -163,7 +163,7 @@ clj_value clj_uri_parse(clj_value text) {
 	size_t len = clj_string_len(text);
 	if (len > INT32_MAX) return CLJ_NIL;
 	clj_uri parsed;
-	if (!parse((const unsigned char *)clj_string_bytes(text), (int32_t)len, &parsed)) return CLJ_NIL;
+	if (!parse((const unsigned char *)CLJ_STR(text).bytes, (int32_t)len, &parsed)) return CLJ_NIL;
 	clj_uri *u = clj_alloc(&clj_uri_type, sizeof *u);
 	u->scheme = parsed.scheme;
 	u->user_info = parsed.user_info;

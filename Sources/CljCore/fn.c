@@ -248,8 +248,8 @@ static clj_value arity_error(clj_value f, const char *over, size_t n) {
 	           "an arity refused where clj_fn_accepts takes it");
 	char      takes[256];
 	clj_value message = arities_text(bits, variadic, takes, sizeof takes)
-	                        ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, clj_string_bytes(text), takes)
-	                        : clj_error_message("Wrong number of args (%s%zu) passed to: %s", over, n, clj_string_bytes(text));
+	                        ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, CLJ_STR(text).bytes, takes)
+	                        : clj_error_message("Wrong number of args (%s%zu) passed to: %s", over, n, CLJ_STR(text).bytes);
 	clj_release(text);
 	clj_value data = arity_data(f, n, bits, variadic);
 	clj_value ex = clj_ex_info(message, data);
@@ -281,7 +281,7 @@ clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
 	clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("%s cannot be invoked", clj_string_bytes(text));
+	clj_value r = clj_throw_msg("%s cannot be invoked", CLJ_STR(text).bytes);
 	clj_release(text);
 	return r;
 }

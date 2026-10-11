@@ -41,7 +41,7 @@ static void print_value(clj_value v) {
 		clj_release(ex);
 		return;
 	}
-	printf("%.*s\n", (int)clj_string_len(text), clj_string_bytes(text));
+	printf("%.*s\n", (int)clj_string_len(text), CLJ_STR(text).bytes);
 	clj_release(text);
 }
 

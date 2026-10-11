@@ -106,7 +106,7 @@ static clj_value b_infinite_p(const clj_value *args, size_t n) {
 static clj_value range_error(const char *what, clj_value v) {
 	clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Value out of range for %s: %s", what, clj_string_bytes(text));
+	clj_value r = clj_throw_msg("Value out of range for %s: %s", what, CLJ_STR(text).bytes);
 	clj_release(text);
 	return r;
 }
@@ -179,8 +179,8 @@ static clj_value b_bigint(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value v = args[0];
 	if (clj_is_string(v)) {
-		clj_value r = clj_bigint_parse(clj_string_bytes(v), clj_string_len(v), 10);
-		return clj_is_nil(r) ? clj_throw_msg("Invalid number: %s", clj_string_bytes(v)) : r;
+		clj_value r = clj_bigint_parse(CLJ_STR(v).bytes, clj_string_len(v), 10);
+		return clj_is_nil(r) ? clj_throw_msg("Invalid number: %s", CLJ_STR(v).bytes) : r;
 	}
 	if (clj_is_double(v) && !isfinite(clj_double_val(v))) return clj_throw_msg("Cannot convert %s to a bigint", clj_type_name(v));
 	if (!clj_is_number(v)) return not_a_number(v);
@@ -192,8 +192,8 @@ static clj_value b_bigdec(const clj_value *args, size_t n) {
 	clj_value v = args[0];
 	if (clj_is_decimal(v)) return clj_retain(v);
 	if (clj_is_string(v)) {
-		clj_value r = clj_decimal_parse(clj_string_bytes(v), clj_string_len(v));
-		return clj_is_nil(r) ? clj_throw_msg("Invalid number: %s", clj_string_bytes(v)) : r;
+		clj_value r = clj_decimal_parse(CLJ_STR(v).bytes, clj_string_len(v));
+		return clj_is_nil(r) ? clj_throw_msg("Invalid number: %s", CLJ_STR(v).bytes) : r;
 	}
 	if (clj_is_integer(v)) return clj_decimal_new(v, 0);
 	if (clj_is_double(v)) {
@@ -245,7 +245,7 @@ static clj_value b_denominator(const clj_value *args, size_t n) {
 static clj_value b_parse_long(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("%s cannot be cast to a string", clj_type_name(args[0]));
-	const char *s = clj_string_bytes(args[0]);
+	const char *s = CLJ_STR(args[0]).bytes;
 	size_t      len = clj_string_len(args[0]);
 	size_t      i = len > 0 && (s[0] == '+' || s[0] == '-') ? 1 : 0;
 	if (i == len) return CLJ_NIL;
@@ -271,7 +271,7 @@ static bool all_digits(const char *s, size_t from, size_t to) {
 static clj_value b_parse_double(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("%s cannot be cast to a string", clj_type_name(args[0]));
-	const char *s = clj_string_bytes(args[0]);
+	const char *s = CLJ_STR(args[0]).bytes;
 	size_t      len = clj_string_len(args[0]);
 	size_t      i = len > 0 && (s[0] == '+' || s[0] == '-') ? 1 : 0;
 	bool        neg = i == 1 && s[0] == '-';

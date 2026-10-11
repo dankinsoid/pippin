@@ -218,7 +218,7 @@ static const clj_type *designated_type(clj_value type) {
 	if (clj_is_protocol(type) && clj_protocol_of(type)->core_bits) return &interface_of(type)->type;
 	clj_value text = clj_pr_str(type);
 	if (text == CLJ_THROWN) return NULL;
-	clj_throw_msg("%s is not a type", clj_string_bytes(text));
+	clj_throw_msg("%s is not a type", CLJ_STR(text).bytes);
 	clj_release(text);
 	return NULL;
 }
@@ -284,7 +284,7 @@ static clj_value method_named(const clj_type *t, const char *name, size_t len) {
 			clj_value methods = clj_protocol_of(tbl->entries[i].proto)->methods.v;
 			for (uint32_t k = 0; k < clj_vector_count(methods); k++) {
 				clj_value   sym = clj_symbol_name(clj_vector_nth(methods, k));
-				const char *s = clj_string_bytes(sym);
+				const char *s = CLJ_STR(sym).bytes;
 				size_t      n = clj_string_len(sym);
 				bool        match = pass == 0 ? n == len && memcmp(s, name, len) == 0 : n == len + 1 && s[0] == '-' && memcmp(s + 1, name, len) == 0;
 				if (!match) continue;
@@ -299,7 +299,7 @@ static clj_value method_named(const clj_type *t, const char *name, size_t len) {
 }
 
 clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs) {
-	const char *sel = clj_string_bytes(selector);
+	const char *sel = CLJ_STR(selector).bytes;
 	clj_value   f = method_named(clj_type_of(target), sel, strcspn(sel, ":"));
 	if (clj_is_nil(f)) return CLJ_UNBOUND;
 	clj_value  small[8];
@@ -387,7 +387,7 @@ static bool is_unqualified_symbol(clj_value v) { return clj_is_symbol(v) && clj_
 static clj_value bad_sigs(clj_value sigs) {
 	clj_value text = clj_pr_str(sigs);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("protocol* expects [[method [params...]] ...], got: %s", clj_string_bytes(text));
+	clj_value r = clj_throw_msg("protocol* expects [[method [params...]] ...], got: %s", CLJ_STR(text).bytes);
 	clj_release(text);
 	return r;
 }
@@ -426,7 +426,7 @@ clj_value clj_protocol_new(clj_value name, clj_value sigs) {
 			if (clj_equals(clj_vector_nth(methods, j), method)) {
 				clj_release(methods);
 				clj_release(arities);
-				return clj_throw_msg("Duplicate method %s in protocol %s", clj_string_bytes(clj_symbol_name(method)), clj_string_bytes(clj_symbol_name(name)));
+				return clj_throw_msg("Duplicate method %s in protocol %s", CLJ_STR(clj_symbol_name(method)).bytes, CLJ_STR(clj_symbol_name(name)).bytes);
 			}
 		}
 		methods = clj_vector_conj(methods, method);
@@ -449,8 +449,8 @@ static _Atomic uint64_t method_serials;
 static clj_value no_impl(const method_ctx *m, clj_value v) {
 	const clj_protocol *p = clj_protocol_of(m->proto);
 	clj_value           method = clj_vector_nth(p->methods.v, m->idx);
-	return clj_throw_msg("No implementation of method: :%s of protocol: #'%s/%s found for type: %s", clj_string_bytes(clj_symbol_name(method)),
-	                     clj_string_bytes(clj_symbol_ns(p->name.v)), clj_string_bytes(clj_symbol_name(p->name.v)), clj_type_name(v));
+	return clj_throw_msg("No implementation of method: :%s of protocol: #'%s/%s found for type: %s", CLJ_STR(clj_symbol_name(method)).bytes,
+	                     CLJ_STR(clj_symbol_ns(p->name.v)).bytes, CLJ_STR(clj_symbol_name(p->name.v)).bytes, clj_type_name(v));
 }
 
 clj_value clj_protocol_method_invoke(void *ctx, const clj_value *args, size_t n) {
@@ -470,7 +470,7 @@ clj_value clj_protocol_method_impl(clj_value method, clj_value v) {
 
 clj_value clj_protocol_no_impl(clj_value method, clj_value v) { return no_impl(clj_fn_of(method)->u.native_ctx.ctx, v); }
 
-static bool is_amp(clj_value v) { return is_unqualified_symbol(v) && strcmp(clj_string_bytes(clj_symbol_name(v)), "&") == 0; }
+static bool is_amp(clj_value v) { return is_unqualified_symbol(v) && strcmp(CLJ_STR(clj_symbol_name(v)).bytes, "&") == 0; }
 
 clj_value clj_protocol_method(clj_value proto, uint32_t idx) {
 	const clj_protocol *p = clj_protocol_of(proto);
@@ -594,8 +594,8 @@ static clj_value impl_vector(clj_value proto, clj_value method_map) {
 	if (c.bad_key != CLJ_UNBOUND || c.bad_val != CLJ_UNBOUND) {
 		clj_value text = clj_pr_str_max(c.bad_key != CLJ_UNBOUND ? c.bad_key : c.bad_val, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) r = CLJ_THROWN;
-		else if (c.bad_key != CLJ_UNBOUND) r = clj_throw_msg("No method %s in protocol %s", clj_string_bytes(text), clj_string_bytes(clj_symbol_name(p->name.v)));
-		else r = clj_throw_msg("Method implementation must be a fn, got: %s", clj_string_bytes(text));
+		else if (c.bad_key != CLJ_UNBOUND) r = clj_throw_msg("No method %s in protocol %s", CLJ_STR(text).bytes, CLJ_STR(clj_symbol_name(p->name.v)).bytes);
+		else r = clj_throw_msg("Method implementation must be a fn, got: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 	} else {
 		r = clj_vector_from_array(fns, n);
@@ -607,7 +607,7 @@ static clj_value impl_vector(clj_value proto, clj_value method_map) {
 clj_value clj_proto_extend(clj_value type, clj_value proto, clj_value method_map) {
 	if (!clj_is_protocol(proto)) return clj_throw_msg("%s is not a protocol", clj_type_name(proto));
 	const clj_protocol *p = clj_protocol_of(proto);
-	if (p->core_bits) return clj_throw_msg("%s is a core interface, not a protocol: the core-interface slots of a type are write-once", clj_string_bytes(clj_symbol_name(p->name.v)));
+	if (p->core_bits) return clj_throw_msg("%s is a core interface, not a protocol: the core-interface slots of a type are write-once", CLJ_STR(clj_symbol_name(p->name.v)).bytes);
 	const clj_type *t = designated_type(type);
 	if (!t) return CLJ_THROWN;
 	if (!clj_is_nil(method_map) && !clj_is_map(method_map)) return clj_throw_msg("extend expects a map of method fns, got: %s", clj_type_name(method_map));
@@ -940,7 +940,7 @@ typedef struct {
 static clj_value refuse_method(const core_collect_ctx *c, clj_value key, const char *why) {
 	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("%s %s in interface %s", why, clj_string_bytes(text), clj_string_bytes(clj_symbol_name(c->iface->name.v)));
+	clj_value r = clj_throw_msg("%s %s in interface %s", why, CLJ_STR(text).bytes, CLJ_STR(clj_symbol_name(c->iface->name.v)).bytes);
 	clj_release(text);
 	return r;
 }
@@ -952,7 +952,7 @@ static bool collect_core_method(clj_value key, clj_value val, void *ctx) {
 		c->thrown = refuse_method(c, key, "No method");
 		return false;
 	}
-	const char *name = clj_string_bytes(clj_keyword_name(key));
+	const char *name = CLJ_STR(clj_keyword_name(key)).bytes;
 	for (size_t i = 0; i < sizeof method_rows / sizeof *method_rows; i++) {
 		if (method_rows[i].iface != c->iface->core_bits || strcmp(method_rows[i].name, name) != 0) continue;
 		if (!clj_has_core(val, CLJ_CORE_FN)) {
@@ -975,7 +975,7 @@ static bool collect_core_method(clj_value key, clj_value val, void *ctx) {
 static clj_value implement_interface(clj_user_type *ut, clj_value iface, clj_value method_map) {
 	const clj_protocol *p = clj_protocol_of(iface);
 	uint64_t            implied = implied_bits(p->core_bits);
-	if (!implied) return clj_throw_msg("%s cannot be implemented by deftype: no slots behind it", clj_string_bytes(clj_symbol_name(p->name.v)));
+	if (!implied) return clj_throw_msg("%s cannot be implemented by deftype: no slots behind it", CLJ_STR(clj_symbol_name(p->name.v)).bytes);
 	ut->t.core_bits |= implied;
 	core_collect_ctx c = {ut, p, CLJ_NIL};
 	if (!clj_is_nil(method_map)) clj_map_each(method_map, collect_core_method, &c);
@@ -998,17 +998,20 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 		clj_release(clj_from_ptr(ut));
 		return CLJ_THROWN;
 	}
-	const char *ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
-	const char *bare = clj_string_bytes(clj_symbol_name(name));
+	const char *ns = CLJ_STR(clj_symbol_name(clj_ns_name(clj_ns_current()))).bytes;
+	const char *bare = CLJ_STR(clj_symbol_name(name)).bytes;
 	size_t      len = strlen(ns) + 1 + strlen(bare);
 	char       *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
 	snprintf(text, len + 1, "%s.%s", ns, bare);
-	clj_slot_init(&ut->t.h, &ut->name, clj_string_new(text, len));
+	clj_value spelled = clj_string_new(text, len);
 	free(text);
+	// t.name points into it for the type's life.
+	clj_slot_init(&ut->t.h, &ut->name, clj_string_materialize(spelled));
+	clj_release(spelled);
 	clj_slot_init(&ut->t.h, &ut->fields, clj_retain(fields));
 	ut->nfields = clj_vector_count(fields);
-	ut->t.name = clj_string_bytes(ut->name.v);
+	ut->t.name = clj_string_heap_bytes(ut->name.v);
 	ut->t.each_child = instance_each_child;
 	ut->t.hash = identity_hash;
 	ut->t.equals = identity_equals;
@@ -1182,7 +1185,7 @@ static clj_value reify_type(clj_value name, clj_value fields, const clj_value *i
 		// Gensym names are unique per process; a tree loaded from elsewhere may reuse one for another site.
 		if (((clj_user_type *)clj_to_ptr(type))->nfields != clj_vector_count(fields)) {
 			clj_lock_unlock(&reify_lock);
-			return clj_throw_msg("reify type %s already exists with a different shape", clj_string_bytes(clj_symbol_name(name)));
+			return clj_throw_msg("reify type %s already exists with a different shape", CLJ_STR(clj_symbol_name(name)).bytes);
 		}
 		clj_retain(type);
 	} else if ((type = reify_type_new(name, fields, impls, nimpls)) != CLJ_THROWN) {

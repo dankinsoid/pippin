@@ -597,11 +597,11 @@ void clj_coro_report_uncaught(clj_coro *c) {
 	}
 	clj_value msg = clj_ex_message(ex);
 	put("clj: uncaught exception in a coroutine: ");
-	if (clj_is_string(msg)) put(clj_string_bytes(msg));
+	if (clj_is_string(msg)) put(CLJ_STR(msg).bytes);
 	else {
 		clj_value text = clj_pr_str(ex);
 		if (text != CLJ_THROWN) {
-			put(clj_string_bytes(text));
+			put(CLJ_STR(text).bytes);
 			clj_release(text);
 		}
 	}
@@ -611,7 +611,7 @@ void clj_coro_report_uncaught(clj_coro *c) {
 		clj_value text = clj_pr_str(trace);
 		if (text != CLJ_THROWN) {
 			put("  ");
-			put(clj_string_bytes(text));
+			put(CLJ_STR(text).bytes);
 			put("\n");
 			clj_release(text);
 		}
@@ -1497,7 +1497,7 @@ bool clj_debug_park_under_lock_is_error(void) {
 	if (allowed) return false;
 	clj_value ex = clj_take_pending();
 	clj_value msg = clj_ex_message(ex);
-	bool ok = clj_is_string(msg) && strcmp(clj_string_bytes(msg), "Cannot park while a runtime lock is held") == 0;
+	bool ok = clj_is_string(msg) && strcmp(CLJ_STR(msg).bytes, "Cannot park while a runtime lock is held") == 0;
 	clj_release(msg);
 	clj_release(ex);
 	return ok;

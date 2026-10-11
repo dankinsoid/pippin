@@ -19,6 +19,7 @@ static clj_value path_arg(const char *what, clj_value v) {
 	return clj_throw_msg("%s expects a path string, got: %s", what, clj_type_name(v));
 }
 
+// A job's strings are read on a pool thread while the caller parks: materialized, never borrowed onto its stack.
 typedef struct {
 	const char *path;
 	char       *bytes;
@@ -51,11 +52,13 @@ static void slurp_run(void *ctx) {
 static clj_value b_slurp(const clj_value *args, size_t n) {
 	(void)n;
 	if (path_arg("slurp", args[0]) == CLJ_THROWN) return CLJ_THROWN;
-	slurp_job job = {clj_string_bytes(args[0]), NULL, 0, 0};
+	clj_value path = clj_string_materialize(args[0]);
+	slurp_job job = {clj_string_heap_bytes(path), NULL, 0, 0};
 	clj_blocking(slurp_run, &job, sizeof job);
+	clj_release(path);
 	if (job.err) {
 		free(job.bytes);
-		return io_error(clj_string_bytes(args[0]), job.err);
+		return io_error(CLJ_STR(args[0]).bytes, job.err);
 	}
 	clj_value s = clj_string_new(job.bytes ? job.bytes : "", job.len);
 	free(job.bytes);
@@ -84,9 +87,12 @@ static clj_value b_spit(const clj_value *args, size_t n) {
 	(void)n;
 	if (path_arg("spit", args[0]) == CLJ_THROWN) return CLJ_THROWN;
 	if (!clj_is_string(args[1])) return clj_throw_msg("spit* expects the text as a string, got: %s", clj_type_name(args[1]));
-	spit_job job = {clj_string_bytes(args[0]), clj_string_bytes(args[1]), clj_string_len(args[1]), clj_truthy(args[2]), 0};
+	clj_value path = clj_string_materialize(args[0]), text = clj_string_materialize(args[1]);
+	spit_job  job = {clj_string_heap_bytes(path), clj_string_heap_bytes(text), clj_string_len(text), clj_truthy(args[2]), 0};
 	clj_blocking(spit_run, &job, sizeof job);
-	return job.err ? io_error(clj_string_bytes(args[0]), job.err) : CLJ_NIL;
+	clj_release(path);
+	clj_release(text);
+	return job.err ? io_error(CLJ_STR(args[0]).bytes, job.err) : CLJ_NIL;
 }
 
 typedef struct {
@@ -124,10 +130,12 @@ static void list_run(void *ctx) {
 static clj_value b_dir_children(const clj_value *args, size_t n) {
 	(void)n;
 	if (path_arg("file-seq", args[0]) == CLJ_THROWN) return CLJ_THROWN;
-	list_job job = {clj_string_bytes(args[0]), NULL, 0, false};
+	clj_value path = clj_string_materialize(args[0]);
+	list_job  job = {clj_string_heap_bytes(path), NULL, 0, false};
 	clj_blocking(list_run, &job, sizeof job);
+	clj_release(path);
 	if (!job.dir) return CLJ_NIL;
-	const char *dir = clj_string_bytes(args[0]);
+	const char *dir = CLJ_STR(args[0]).bytes;
 	size_t      dlen = clj_string_len(args[0]);
 	bool        slash = dlen && dir[dlen - 1] == '/';
 	clj_value   v = clj_vector_empty();

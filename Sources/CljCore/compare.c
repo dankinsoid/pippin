@@ -9,7 +9,7 @@
 static int compare_strings(clj_value a, clj_value b) {
 	uint32_t la = clj_string_len(a), lb = clj_string_len(b);
 	uint32_t n = la < lb ? la : lb;
-	int      c = memcmp(clj_string_bytes(a), clj_string_bytes(b), n);
+	int      c = memcmp(CLJ_STR(a).bytes, CLJ_STR(b).bytes, n);
 	if (c) return c < 0 ? -1 : 1;
 	return la < lb ? -1 : la > lb ? 1 : 0;
 }

@@ -222,10 +222,10 @@ static void put_symbol(clj_value sym) {
 	}
 	clj_value ns = clj_symbol_ns(sym);
 	if (!clj_is_nil(ns)) {
-		put(clj_string_bytes(ns), clj_string_len(ns));
+		put(CLJ_STR(ns).bytes, clj_string_len(ns));
 		put_cstr("/");
 	}
-	put(clj_string_bytes(clj_symbol_name(sym)), clj_string_len(clj_symbol_name(sym)));
+	put(CLJ_STR(clj_symbol_name(sym)).bytes, clj_string_len(clj_symbol_name(sym)));
 }
 
 void clj_trace_write(int fd, const clj_trace_origin *origin) {

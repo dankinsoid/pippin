@@ -13,7 +13,7 @@ static clj_value b_require_swift_star(const clj_value *args, size_t n) {
 	}
 	if (!loader) {
 		return clj_throw_msg("require-swift %s: this host has no Swift bridge, a C-only host cannot load level-2 stubs (design §5)",
-		                     clj_string_bytes(clj_symbol_name(args[0])));
+		                     CLJ_STR(clj_symbol_name(args[0])).bytes);
 	}
 	return loader(args[0]);
 }

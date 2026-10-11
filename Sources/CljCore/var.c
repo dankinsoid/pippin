@@ -167,8 +167,8 @@ static bool push_entry(clj_value key, clj_value val, void *ctx) {
 		return false;
 	}
 	if (!clj_var_is_dynamic(key)) {
-		c->error = clj_throw_msg("Can't dynamically bind non-dynamic var: %s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(key))),
-		                         clj_string_bytes(clj_symbol_name(clj_var_name(key))));
+		c->error = clj_throw_msg("Can't dynamically bind non-dynamic var: %s/%s", CLJ_STR(clj_symbol_name(clj_var_ns(key))).bytes,
+		                         CLJ_STR(clj_symbol_name(clj_var_name(key))).bytes);
 		return false;
 	}
 	clj_value box = clj_volatile_new(val);
@@ -274,13 +274,13 @@ static frame *binding_frame(clj_value var) {
 clj_value clj_var_set(clj_value var, clj_value val) {
 	clj_value box = clj_var_thread_binding(var);
 	if (clj_is_nil(box)) {
-		return clj_throw_msg("Can't change/establish root binding of: %s/%s with set", clj_string_bytes(clj_symbol_name(clj_var_ns(var))),
-		                     clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+		return clj_throw_msg("Can't change/establish root binding of: %s/%s with set", CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes,
+		                     CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes);
 	}
 	frame *f = binding_frame(var);
 	if (f && f->owner != clj_coro_current()->id) {
-		return clj_throw_msg("Can't set!: %s/%s from non-binding thread", clj_string_bytes(clj_symbol_name(clj_var_ns(var))),
-		                     clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+		return clj_throw_msg("Can't set!: %s/%s from non-binding thread", CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes,
+		                     CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes);
 	}
 	return clj_volatile_reset(box, val);
 }
@@ -314,7 +314,7 @@ const clj_type clj_lazy_def_type = {
 
 static clj_value unbound(clj_value var) {
 	clj_value ns = clj_symbol_name(clj_var_ns(var)), name = clj_symbol_name(clj_var_name(var));
-	return clj_throw_msg("Unbound var: #'%s/%s", clj_string_bytes(ns), clj_string_bytes(name));
+	return clj_throw_msg("Unbound var: #'%s/%s", CLJ_STR(ns).bytes, CLJ_STR(name).bytes);
 }
 
 // The init and the root it replaced are of no more use once the thunk holds its outcome.
@@ -375,8 +375,8 @@ static clj_value own_read(clj_value var, clj_lazy_def *t) {
 	clj_value prev = t->prev.v;
 	if (prev == CLJ_UNBOUND) {
 		clj_value ns = clj_symbol_name(clj_var_ns(var)), name = clj_symbol_name(clj_var_name(var));
-		return clj_throw_msg("Recursive definition of #'%s/%s: its value is read while it is being computed", clj_string_bytes(ns),
-		                     clj_string_bytes(name));
+		return clj_throw_msg("Recursive definition of #'%s/%s: its value is read while it is being computed", CLJ_STR(ns).bytes,
+		                     CLJ_STR(name).bytes);
 	}
 	return clj_is_lazy_def(prev) ? thunk_value(var, clj_lazy_def_of(prev)) : clj_retain(prev);
 }

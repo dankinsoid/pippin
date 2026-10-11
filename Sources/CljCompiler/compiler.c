@@ -319,7 +319,7 @@ static unit *unit_new(const char *file) {
 		clj_value text = clj_pr_str(str);
 		sb        init = {0};
 		sb_puts(&init, "clj_c_const(");
-		sb_c_string(&init, clj_string_bytes(text), clj_string_len(text));
+		sb_c_string(&init, CLJ_STR(text).bytes, clj_string_len(text));
 		sb_printf(&init, ", %u)", clj_string_len(text));
 		bool fresh;
 		pool_intern(&u->consts, "file", init.s, &fresh);
@@ -382,7 +382,7 @@ static void def_size_add(unit *u, clj_value var, uint64_t bytes, bool dropped) {
 		if (!u->dsizes) clj_fatal("out of memory");
 	}
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(var))), clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	snprintf(key, sizeof key, "%s/%s", CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes, CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes);
 	u->dsizes[u->ndsizes++] = (struct def_size){xstrdup(key), bytes, dropped};
 }
 
@@ -441,7 +441,6 @@ typedef struct fnctx {
 	int            recur_live_mark;
 	const char    *base;        // C symbol base of the enclosing top-level definition
 	uint32_t      *fn_counter;  // anonymous fns numbered within the top-level form
-	const char    *ns;          // current namespace name, for anonymous fn names
 	uint32_t       last_line;
 	const clj_load_form *form;
 	bool                 top; // the top-level form's own context, where a def names its fn after itself
@@ -1187,7 +1186,7 @@ static bool const_expr(fnctx *f, clj_value v, sb *out) {
 			return false;
 		}
 		sb_puts(out, "clj_c_const(");
-		sb_c_string(out, clj_string_bytes(text), clj_string_len(text));
+		sb_c_string(out, CLJ_STR(text).bytes, clj_string_len(text));
 		sb_printf(out, ", %u)", clj_string_len(text));
 		clj_release(text);
 		return true;
@@ -1236,7 +1235,7 @@ static size_t const_index(fnctx *f, clj_value v, bool *ok) {
 
 static size_t var_index(unit *u, clj_value var) {
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(var))), clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	snprintf(key, sizeof key, "%s/%s", CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes, CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes);
 	bool fresh;
 	return pool_intern(&u->vars, key, NULL, &fresh);
 }
@@ -1695,7 +1694,7 @@ static void release_args(fnctx *f, temp *ts, uint32_t n) {
 }
 
 static bool var_named(clj_value var, const char *ns, const char *name) {
-	return strcmp(clj_string_bytes(clj_symbol_name(clj_var_ns(var))), ns) == 0 && strcmp(clj_string_bytes(clj_symbol_name(clj_var_name(var))), name) == 0;
+	return strcmp(CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes, ns) == 0 && strcmp(CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes, name) == 0;
 }
 
 // ---- protocol call sites: CHA arms from the receiver fact, the per-site inline cache (NOTES.md "Compiler")
@@ -1970,7 +1969,7 @@ static bool emit_extends(fnctx *f, const clj_node *n, const temp *fn, const temp
 static direct_entry *direct_of_head(cljc_compiler *c, const clj_node *head) {
 	if (head->kind != CLJ_NODE_VAR) return NULL;
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(head->u.var.v))), clj_string_bytes(clj_symbol_name(clj_var_name(head->u.var.v))));
+	snprintf(key, sizeof key, "%s/%s", CLJ_STR(clj_symbol_name(clj_var_ns(head->u.var.v))).bytes, CLJ_STR(clj_symbol_name(clj_var_name(head->u.var.v))).bytes);
 	return direct_find(c, key);
 }
 
@@ -2741,7 +2740,6 @@ static fnctx fnctx_child(fnctx *parent, const char *base) {
 	f.facts = parent->facts;
 	f.base = base;
 	f.fn_counter = parent->fn_counter;
-	f.ns = parent->ns;
 	f.form = parent->form;
 	f.stub = -1;
 	return f;
@@ -3144,10 +3142,10 @@ static void count_slots(const clj_node *n, void *ctx) {
 
 // The symbol base of a top-level form: the def's name, else the namespace plus a form ordinal.
 static char *form_base(cljc_compiler *c, unit *u, const clj_node *n) {
-	const char *ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
+	const char *ns = CLJ_STR(clj_symbol_name(clj_ns_name(clj_ns_current()))).bytes;
 	char       *base;
 	if (n->kind == CLJ_NODE_DEF) {
-		base = cljc_mangle(clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var.v))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var.v))));
+		base = cljc_mangle(CLJ_STR(clj_symbol_name(clj_var_ns(n->u.def.var.v))).bytes, CLJ_STR(clj_symbol_name(clj_var_name(n->u.def.var.v))).bytes);
 	} else {
 		char ordinal[32];
 		// compiled-eval units are one form each: number them per compiler, or every unit's impls share a registry name
@@ -3204,7 +3202,7 @@ static void open_form(cljc_compiler *c, unit *u, fnctx *scratch, const clj_load_
 static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const char *base) {
 	if (n->kind != CLJ_NODE_DEF || !n->u.def.init) return;
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(n->u.def.var.v))), clj_string_bytes(clj_symbol_name(clj_var_name(n->u.def.var.v))));
+	snprintf(key, sizeof key, "%s/%s", CLJ_STR(clj_symbol_name(clj_var_ns(n->u.def.var.v))).bytes, CLJ_STR(clj_symbol_name(clj_var_name(n->u.def.var.v))).bytes);
 	direct_entry *d = direct_add(c, key);
 	bool          fresh;
 	if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.init->u.fn.ncaptures) pool_intern(&u->defined, base, key, &fresh);
@@ -3276,7 +3274,6 @@ static size_t emit_top_fn(cljc_compiler *c, unit *u, const clj_load_form *form, 
 	f.u = u;
 	f.frame = "fr";
 	f.fn_counter = counter;
-	f.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	f.form = form;
 	f.stub = -1;
 	f.top = true;
@@ -3323,7 +3320,6 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	scratch.c = c;
 	scratch.u = u;
 	scratch.form = form;
-	scratch.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	scratch.stub = -1;
 	clj_ice_frame frame = {.pass = "emit", .backend = c->opts.closed ? CLJ_BACKEND_CLOSED : CLJ_BACKEND_DEV, .file = form->file, .line = form->line, .col = form->col};
 	clj_ice_enter(&frame);
@@ -3480,12 +3476,13 @@ static bool named_in(const char *const *table, size_t n, const char *name) {
 	return false;
 }
 
-static const char *var_name_bytes(clj_value var) { return clj_string_bytes(clj_symbol_name(clj_var_name(var))); }
-static const char *var_ns_bytes(clj_value var) { return clj_string_bytes(clj_symbol_name(clj_var_ns(var))); }
+// Macros: the borrow's buffer lives in the caller's block.
+#define VAR_NAME_BYTES(var) CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes
+#define VAR_NS_BYTES(var)   CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes
 
 static bool shake_forced(const cljc_compiler *c, clj_value var) {
 	char key[600];
-	snprintf(key, sizeof key, "%s/%s", var_ns_bytes(var), var_name_bytes(var));
+	snprintf(key, sizeof key, "%s/%s", VAR_NS_BYTES(var), VAR_NAME_BYTES(var));
 	for (size_t i = 0; i < c->opts.nforce_drop; i++) {
 		if (strcmp(c->opts.force_drop[i], key) == 0) return true;
 	}
@@ -3505,7 +3502,7 @@ static bool shake_candidate(const cljc_compiler *c, const unit *u, const clj_nod
 	for (uint32_t a = 1; a <= 3; a++) {
 		if (clj_intrinsic_find(var, a)) return false;                     // 5: clj_intrinsics_install wants a native root
 	}
-	return !named_in(core_roots, sizeof core_roots / sizeof *core_roots, var_name_bytes(var)); // 6
+	return !named_in(core_roots, sizeof core_roots / sizeof *core_roots, VAR_NAME_BYTES(var)); // 6
 }
 
 static void shake_escape_add(cljc_compiler *c, const clj_load_form *form, const char *name) {
@@ -3515,7 +3512,7 @@ static void shake_escape_add(cljc_compiler *c, const clj_load_form *form, const 
 		if (!c->escapes) clj_fatal("out of memory");
 	}
 	cljc_refusal *e = &c->escapes[c->nescapes++];
-	e->file = xstrdup(clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>");
+	e->file = xstrdup(clj_is_string(form->file) ? CLJ_STR(form->file).bytes : "<host>");
 	e->line = form->line;
 	e->col = form->col;
 	e->kind = "reflective";
@@ -3532,12 +3529,12 @@ static void shake_reach_var(shake_form *forms, size_t n, clj_value var, size_t *
 
 // An unqualified symbol matches the name in every namespace of the set, a qualified one only its own.
 static void shake_reach_sym(shake_form *forms, size_t n, clj_value sym, size_t *queue, size_t *nqueue) {
-	const char *name = clj_string_bytes(clj_symbol_name(sym));
-	const char *ns = clj_is_nil(clj_symbol_ns(sym)) ? NULL : clj_string_bytes(clj_symbol_ns(sym));
+	const char *name = CLJ_STR(clj_symbol_name(sym)).bytes;
+	const char *ns = clj_is_nil(clj_symbol_ns(sym)) ? NULL : CLJ_STR(clj_symbol_ns(sym)).bytes;
 	for (size_t i = 0; i < n; i++) {
 		if (clj_is_nil(forms[i].def_var) || forms[i].live) continue;
-		if (strcmp(var_name_bytes(forms[i].def_var), name) != 0) continue;
-		if (ns && strcmp(var_ns_bytes(forms[i].def_var), ns) != 0) continue;
+		if (strcmp(VAR_NAME_BYTES(forms[i].def_var), name) != 0) continue;
+		if (ns && strcmp(VAR_NS_BYTES(forms[i].def_var), ns) != 0) continue;
 		forms[i].live = true;
 		queue[(*nqueue)++] = i;
 	}
@@ -3617,9 +3614,9 @@ static void shake_run(cljc_compiler *c) {
 		if (forms[i].live) {
 			for (size_t k = 0; k < forms[i].refs.n; k++) {
 				clj_value v = forms[i].refs.v[k];
-				if (strcmp(var_ns_bytes(v), "clojure.core") == 0 &&
-				    named_in(reflective_roots, sizeof reflective_roots / sizeof *reflective_roots, var_name_bytes(v)))
-					shake_escape_add(c, &c->pending[i].form, var_name_bytes(v));
+				if (strcmp(VAR_NS_BYTES(v), "clojure.core") == 0 &&
+				    named_in(reflective_roots, sizeof reflective_roots / sizeof *reflective_roots, VAR_NAME_BYTES(v)))
+					shake_escape_add(c, &c->pending[i].form, VAR_NAME_BYTES(v));
 			}
 		}
 		free(forms[i].refs.v);
@@ -3670,7 +3667,7 @@ static pending_form *pend(cljc_compiler *c, unit *u, const clj_load_form *form) 
 static clj_value on_form(const clj_load_form *form, const clj_node *node, void *ctx, bool *handled) {
 	cljc_compiler *c = ctx;
 	*handled = false;
-	const char *file = clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>";
+	const char *file = clj_is_string(form->file) ? CLJ_STR(form->file).bytes : "<host>";
 	if (skipped(c, file)) return CLJ_NIL;
 	unit         *u = unit_for(c, file);
 	pending_form *p = pend(c, u, form);
@@ -3710,7 +3707,7 @@ static void pimpls_forget(cljc_compiler *c, const unit *u) {
 }
 
 char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node *node) {
-	unit *u = unit_new(clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>");
+	unit *u = unit_new(clj_is_string(form->file) ? CLJ_STR(form->file).bytes : "<host>");
 	u->eval_result = c->opts.eval_result;
 	emit_top(c, u, form, node);
 	char *text = unit_text(c, u, NULL);
@@ -3721,7 +3718,7 @@ char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node
 
 static void on_failed(const clj_load_form *form, clj_value message, void *ctx) {
 	cljc_compiler *c = ctx;
-	const char    *file = clj_is_string(form->file) ? clj_string_bytes(form->file) : "<host>";
+	const char    *file = clj_is_string(form->file) ? CLJ_STR(form->file).bytes : "<host>";
 	if (skipped(c, file)) return;
 	pending_form *p = pend(c, unit_for(c, file), form);
 	p->message = clj_retain(message);
@@ -3735,7 +3732,7 @@ static void emit_failed(cljc_compiler *c, unit *u, const clj_load_form *form, cl
 	scratch.stub = -1;
 	open_form(c, u, &scratch, form);
 	sb_puts(&u->init, "\tr = clj_throw_msg(\"%s\", ");
-	sb_c_string(&u->init, clj_string_bytes(message), clj_string_len(message));
+	sb_c_string(&u->init, CLJ_STR(message).bytes, clj_string_len(message));
 	sb_printf(&u->init, ");\n\tgoto F%u;\n", u->nforms);
 	close_form(u);
 	fnctx_free(&scratch);

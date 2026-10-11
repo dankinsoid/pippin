@@ -231,7 +231,7 @@ static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type
 
 static bool symbol_named(clj_value v, const char *ns, const char *name) {
 	if (!clj_is_symbol(v) || clj_is_nil(clj_symbol_ns(v))) return false;
-	return strcmp(clj_string_bytes(clj_symbol_ns(v)), ns) == 0 && strcmp(clj_string_bytes(clj_symbol_name(v)), name) == 0;
+	return strcmp(CLJ_STR(clj_symbol_ns(v)).bytes, ns) == 0 && strcmp(CLJ_STR(clj_symbol_name(v)).bytes, name) == 0;
 }
 
 static bool is_tagged(clj_value form, const char *name) {
@@ -244,7 +244,7 @@ static bool is_auto_gensym(clj_value sym) {
 	if (!clj_is_nil(clj_symbol_ns(sym))) return false;
 	clj_value name = clj_symbol_name(sym);
 	uint32_t  len = clj_string_len(name);
-	return len > 1 && clj_string_bytes(name)[len - 1] == '#';
+	return len > 1 && CLJ_STR(name).bytes[len - 1] == '#';
 }
 
 // Owned; the same symbol for the same name within one syntax-quote.
@@ -255,7 +255,7 @@ static clj_value gensym_for(sq *q, clj_value sym) {
 	size_t    cap = clj_string_len(name) + 32;
 	char     *text = malloc(cap);
 	if (!text) clj_fatal("out of memory");
-	snprintf(text, cap, "%.*s__%llu__auto__", (int)clj_string_len(name) - 1, clj_string_bytes(name), (unsigned long long)clj_next_id());
+	snprintf(text, cap, "%.*s__%llu__auto__", (int)clj_string_len(name) - 1, CLJ_STR(name).bytes, (unsigned long long)clj_next_id());
 	clj_value gs = clj_symbol_from_cstr(text);
 	free(text);
 	q->gensyms = clj_map_assoc(q->gensyms, sym, gs);
@@ -508,8 +508,8 @@ static clj_value fn_param(const fn_args *a, uint32_t i) {
 
 // Owned rewrite of form; nil with a->error set on a bad arg literal. Recursive over the literal's own nesting.
 static clj_value fn_walk(fn_args *a, clj_value form) {
-	if (clj_is_symbol(form) && clj_is_nil(clj_symbol_ns(form)) && clj_string_bytes(clj_symbol_name(form))[0] == '%') {
-		const char *text = clj_string_bytes(clj_symbol_name(form)) + 1;
+	if (clj_is_symbol(form) && clj_is_nil(clj_symbol_ns(form)) && CLJ_STR(clj_symbol_name(form)).bytes[0] == '%') {
+		const char *text = CLJ_STR(clj_symbol_name(form)).bytes + 1;
 		uint32_t    i;
 		if (*text == '\0') i = 1;
 		else if (strcmp(text, "&") == 0) i = 0;
@@ -668,7 +668,7 @@ static clj_read_status splice(parser *p, clj_value chosen, line_col at) {
 
 clj_value clj_default_data_reader(clj_value tag, clj_value form) {
 	if (!clj_is_nil(clj_symbol_ns(tag))) return CLJ_UNBOUND;
-	const char *name = clj_string_bytes(clj_symbol_name(tag));
+	const char *name = CLJ_STR(clj_symbol_name(tag)).bytes;
 	if (strcmp(name, "inst") == 0) return clj_inst_read(form);
 	if (strcmp(name, "uuid") == 0) return clj_uuid_read(form);
 	return CLJ_UNBOUND;
@@ -681,12 +681,12 @@ static clj_value read_tagged(parser *p, const frame *f, clj_value tag, clj_value
 	if (v == CLJ_THROWN) {
 		clj_value ex = clj_take_pending();
 		clj_value msg = clj_ex_message(ex);
-		fail(p, f->line, f->col, "%s", clj_is_string(msg) ? clj_string_bytes(msg) : "tag reader threw");
+		fail(p, f->line, f->col, "%s", clj_is_string(msg) ? CLJ_STR(msg).bytes : "tag reader threw");
 		clj_release(msg);
 		clj_release(ex);
 		v = CLJ_UNBOUND;
 	} else if (v == CLJ_UNBOUND) {
-		fail(p, f->line, f->col, "No reader function for tag %s", clj_string_bytes(clj_symbol_name(tag)));
+		fail(p, f->line, f->col, "No reader function for tag %s", CLJ_STR(clj_symbol_name(tag)).bytes);
 	}
 	clj_release(tag);
 	clj_release(form);
@@ -699,7 +699,7 @@ static clj_value namespaced_key(clj_value key, clj_value ns) {
 	if (!kw && !clj_is_symbol(key)) return clj_retain(key);
 	clj_value kns = kw ? clj_keyword_ns(key) : clj_symbol_ns(key), name = kw ? clj_keyword_name(key) : clj_symbol_name(key);
 	if (clj_is_nil(kns)) kns = ns;
-	else if (clj_string_len(kns) == 1 && clj_string_bytes(kns)[0] == '_') kns = CLJ_NIL;
+	else if (clj_string_len(kns) == 1 && CLJ_STR(kns).bytes[0] == '_') kns = CLJ_NIL;
 	else return clj_retain(key);
 	return kw ? clj_keyword_intern(kns, name) : clj_symbol_new(kns, name);
 }
@@ -713,7 +713,7 @@ static clj_value namespaced_map(parser *p, const frame *f, clj_value m, clj_valu
 	clj_value out = clj_map_from_items(entries, (uint32_t)n, &dup);
 	if (out == CLJ_UNBOUND) {
 		clj_value text = clj_pr_str(entries[dup]);
-		fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+		fail(p, f->line, f->col, "Duplicate key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 	}
 	for (size_t i = 0; i < n; i += 2) clj_release(entries[i]);
@@ -1125,7 +1125,7 @@ static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col, bool c
 		if (re == CLJ_THROWN) {
 			clj_value ex = clj_take_pending();
 			clj_value msg = clj_ex_message(ex);
-			st = fail(p, line, col, "%s", clj_is_string(msg) ? clj_string_bytes(msg) : "Invalid pattern");
+			st = fail(p, line, col, "%s", clj_is_string(msg) ? CLJ_STR(msg).bytes : "Invalid pattern");
 			clj_release(msg);
 			clj_release(ex);
 		} else st = push_value(p, re);
@@ -1311,7 +1311,7 @@ static clj_read_status close_map(parser *p, const frame *f, clj_value *out) {
 	clj_value m = clj_map_from_items(p->vals + f->start, (uint32_t)n, &dup);
 	if (m == CLJ_UNBOUND) {
 		clj_value       text = clj_pr_str(p->vals[f->start + dup]);
-		clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+		clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return st;
 	}
@@ -1325,7 +1325,7 @@ static clj_read_status close_set(parser *p, const frame *f, clj_value *out) {
 		clj_value item = p->vals[i];
 		if (clj_set_contains(s, item)) {
 			clj_value text = clj_pr_str(item);
-			clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", clj_string_bytes(text));
+			clj_read_status st = fail(p, f->line, f->col, "Duplicate key: %s", CLJ_STR(text).bytes);
 			clj_release(text);
 			clj_release(s);
 			return st;

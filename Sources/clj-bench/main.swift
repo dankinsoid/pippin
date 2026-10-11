@@ -258,7 +258,7 @@ func cljEval(_ source: String) -> clj_value {
 				if last == CLJ_THROWN {
 					let ex = clj_take_pending()
 					let text = clj_pr_str(ex)
-					fatalError("bench eval failed: \(String(cString: clj_string_bytes(text)))")
+					fatalError("bench eval failed: \(Value.decode(text))")
 				}
 			}
 		}
@@ -270,7 +270,7 @@ func benchThrew() -> Never {
 	let captured = clj_take_pending_trace()
 	let trace = clj_pr_str(clj_trace_realize(captured))
 	let text = clj_pr_str(clj_take_pending())
-	fatalError("bench call threw: \(text == CLJ_THROWN ? "?" : String(cString: clj_string_bytes(text))) at \(trace == CLJ_THROWN ? "?" : String(cString: clj_string_bytes(trace)))")
+	fatalError("bench call threw: \(text == CLJ_THROWN ? "?" : Value.decode(text)) at \(trace == CLJ_THROWN ? "?" : Value.decode(trace))")
 }
 
 func cljCall0(_ f: clj_value) -> UInt64 {

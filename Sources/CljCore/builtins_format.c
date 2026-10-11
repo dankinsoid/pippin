@@ -161,8 +161,8 @@ static clj_value format_integer(buf *b, const spec *s, clj_value v) {
 	bool    negative;
 	if (clj_is_bigint(v) && s->conv == 'd') {
 		clj_value t = clj_bigint_to_string(v);
-		negative = clj_string_bytes(t)[0] == '-';
-		snprintf(text, sizeof text, "%s", clj_string_bytes(t) + negative);
+		negative = CLJ_STR(t).bytes[0] == '-';
+		snprintf(text, sizeof text, "%s", CLJ_STR(t).bytes + negative);
 		clj_release(t);
 	} else if (clj_int64_of(v, &n)) {
 		negative = n < 0;
@@ -327,7 +327,7 @@ static clj_value format_text(buf *b, const spec *s, clj_value v) {
 		text = clj_is_nil(v) ? clj_string_from_cstr("null") : clj_str_value(v);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 	}
-	const char *bytes = clj_string_bytes(text);
+	const char *bytes = CLJ_STR(text).bytes;
 	size_t      len = clj_string_len(text);
 	if (s->precision >= 0) {
 		// The precision counts characters; a code point is never split.
@@ -361,7 +361,7 @@ static clj_value format_text(buf *b, const spec *s, clj_value v) {
 
 static clj_value b_format(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return clj_throw_msg("format expects a string, got: %s", clj_type_name(args[0]));
-	const char *p = clj_string_bytes(args[0]), *end = p + clj_string_len(args[0]);
+	const char *p = CLJ_STR(args[0]).bytes, *end = p + clj_string_len(args[0]);
 	buf         b = {0};
 	size_t      next = 1; // the ordinary argument index, independent of explicit ones as in Formatter
 	clj_value   err = CLJ_NIL;

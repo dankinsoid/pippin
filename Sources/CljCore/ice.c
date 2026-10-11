@@ -138,7 +138,7 @@ static void write_context(sink *s, const clj_node *at, bool full) {
 		const clj_ice_frame *named = p;
 		while (named && !clj_is_string(named->file)) named = named->prev;
 		put(s, "\nclj:   form: ");
-		if (named) put_n(s, clj_string_bytes(named->file), clj_string_len(named->file));
+		if (named) put_n(s, CLJ_STR(named->file).bytes, clj_string_len(named->file));
 		else put(s, "<no file>");
 		put(s, ":");
 		put_u(s, p->line);

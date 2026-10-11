@@ -126,7 +126,7 @@ static void print_trace(clj_value trace) {
 	for (uint32_t i = 0; i < clj_vector_count(trace); i++) {
 		clj_value frame = clj_vector_nth(trace, i), fn = clj_map_get(frame, kw_fn, CLJ_NIL);
 		clj_value name = clj_is_nil(fn) ? clj_string_from_cstr("fn") : clj_pr_str(fn);
-		fprintf(stderr, "  at %s (%ld:%ld)\n", clj_string_bytes(name), (long)clj_fixnum_val(clj_map_get(frame, kw_line, clj_fixnum(0))),
+		fprintf(stderr, "  at %s (%ld:%ld)\n", CLJ_STR(name).bytes, (long)clj_fixnum_val(clj_map_get(frame, kw_line, clj_fixnum(0))),
 		        (long)clj_fixnum_val(clj_map_get(frame, kw_column, clj_fixnum(0))));
 		clj_release(name);
 	}
@@ -155,7 +155,7 @@ static void load_core(void) {
 			clj_value ex = clj_take_pending();
 			clj_value text = clj_pr_str(ex);
 			print_trace(trace);
-			boot_failed("exception", r.form_line, r.form_col, clj_string_bytes(text));
+			boot_failed("exception", r.form_line, r.form_col, CLJ_STR(text).bytes);
 		}
 		clj_release(v);
 	}
@@ -213,7 +213,7 @@ static void init(void) {
 			clj_value ex = clj_take_pending();
 			clj_value text = clj_pr_str(ex);
 			print_trace(trace);
-			boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : clj_string_bytes(text));
+			boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : CLJ_STR(text).bytes);
 		}
 		clj_compiled_libs_register();
 	}
@@ -405,7 +405,7 @@ static clj_value core_var_value(const char *name) {
 
 // #ns.Name{...} and #ns.Name[...]: the record type behind the var Name of namespace ns, as LispReader's CtorReader.
 static clj_value read_record_literal(clj_value tag, clj_value form) {
-	const char *text = clj_string_bytes(clj_symbol_name(tag));
+	const char *text = CLJ_STR(clj_symbol_name(tag)).bytes;
 	const char *dot = strrchr(text, '.');
 	clj_value   ns_name = clj_string_new(text, (size_t)(dot - text));
 	clj_value   ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
@@ -437,7 +437,7 @@ static clj_value read_record_literal(clj_value tag, clj_value form) {
 // LispReader's order: a dotted tag is a constructor, then *data-readers*, default-data-readers, *default-data-reader-fn*.
 clj_value clj_reader_read_tag(clj_value tag, clj_value form, void *ctx) {
 	(void)ctx;
-	if (clj_is_nil(clj_symbol_ns(tag)) && strchr(clj_string_bytes(clj_symbol_name(tag)), '.')) return read_record_literal(tag, form);
+	if (clj_is_nil(clj_symbol_ns(tag)) && strchr(CLJ_STR(clj_symbol_name(tag)).bytes, '.')) return read_record_literal(tag, form);
 	clj_value readers = core_var_value("*data-readers*");
 	clj_value f = clj_is_nil(readers) ? CLJ_NIL : clj_get(readers, tag, CLJ_NIL);
 	clj_release(readers);

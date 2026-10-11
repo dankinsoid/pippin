@@ -108,7 +108,7 @@ clj_value clj_diagnostic_position(clj_value ex, bool with_file) {
 static bool wraps(clj_value outer, clj_value inner) {
 	if (!clj_is_string(outer) || !clj_is_string(inner)) return false;
 	uint32_t no = clj_string_len(outer), ni = clj_string_len(inner);
-	return no >= ni && memcmp(clj_string_bytes(outer) + (no - ni), clj_string_bytes(inner), ni) == 0;
+	return no >= ni && memcmp(CLJ_STR(outer).bytes + (no - ni), CLJ_STR(inner).bytes, ni) == 0;
 }
 
 // The link whose message is the diagnostic's, retained; nil when no link has one.
@@ -164,7 +164,7 @@ static clj_value innermost_data(clj_value ex) {
 // @ai-generated(solo)
 static char *source_line(clj_value file, int64_t line, size_t *len) {
 	if (!clj_is_string(file) || line <= 0) return NULL;
-	FILE *f = fopen(clj_string_bytes(file), "rb");
+	FILE *f = fopen(CLJ_STR(file).bytes, "rb");
 	if (!f) return NULL;
 	char  *text = NULL;
 	size_t n = 0, cap = 0;
@@ -261,11 +261,11 @@ clj_value clj_diagnostic_render(clj_value ex) {
 	clj_value pos = clj_is_nil(quotable) ? any : quotable;
 
 	out o = {0};
-	put_fmt(&o, "error: %.*s\n", (int)clj_string_len(message), clj_string_bytes(message));
+	put_fmt(&o, "error: %.*s\n", (int)clj_string_len(message), CLJ_STR(message).bytes);
 	if (!clj_is_nil(pos)) {
 		clj_value file = clj_map_get(pos, kw_file, CLJ_NIL);
 		int64_t   line = number(pos, kw_line), col = number(pos, kw_column);
-		if (clj_is_string(file)) put_fmt(&o, " --> %s:%lld:%lld\n", clj_string_bytes(file), (long long)line, (long long)col);
+		if (clj_is_string(file)) put_fmt(&o, " --> %s:%lld:%lld\n", CLJ_STR(file).bytes, (long long)line, (long long)col);
 		else put_fmt(&o, " --> %lld:%lld\n", (long long)line, (long long)col);
 		put_excerpt(&o, file, line, col, number(pos, kw_end_line), number(pos, kw_end_column));
 	}
@@ -274,7 +274,7 @@ clj_value clj_diagnostic_render(clj_value ex) {
 		if (!clj_is_nil(hint)) {
 			clj_value text = clj_pr_str_max(hint, CLJ_ERROR_PRINT_MAX);
 			if (text != CLJ_THROWN) {
-				put_fmt(&o, " = help: did you mean %.*s?\n", (int)clj_string_len(text), clj_string_bytes(text));
+				put_fmt(&o, " = help: did you mean %.*s?\n", (int)clj_string_len(text), CLJ_STR(text).bytes);
 				clj_release(text);
 			}
 		}
@@ -291,7 +291,7 @@ clj_value clj_diagnostic_render(clj_value ex) {
 	while (!clj_is_nil(below)) {
 		clj_value note = clj_ex_message(below);
 		if (clj_is_string(note) && !wraps(shown, note) && !wraps(note, shown)) {
-			put_fmt(&o, " = note: caused by: %.*s\n", (int)clj_string_len(note), clj_string_bytes(note));
+			put_fmt(&o, " = note: caused by: %.*s\n", (int)clj_string_len(note), CLJ_STR(note).bytes);
 			clj_release(shown);
 			shown = clj_retain(note);
 		}

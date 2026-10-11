@@ -202,7 +202,7 @@ static clj_value load_bindings(clj_value file) {
 	bindings = clj_map_assoc(bindings, clj_load_file_var(), file);
 	clj_value name = CLJ_NIL;
 	if (clj_is_string(file)) {
-		const char *s = clj_string_bytes(file), *slash = strrchr(s, '/');
+		const char *s = CLJ_STR(file).bytes, *slash = strrchr(s, '/');
 		name = clj_string_from_cstr(slash ? slash + 1 : s);
 	}
 	bindings = clj_map_assoc(bindings, source_path_var, name);
@@ -294,7 +294,7 @@ clj_value clj_load_take_failures(void) {
 clj_value clj_load_form_name(clj_value form) {
 	if (!clj_is_list(form) || clj_is_empty_list(form)) return CLJ_NIL;
 	clj_value head = clj_cons_of(form)->first.v;
-	if (!clj_is_symbol(head) || strncmp(clj_string_bytes(clj_symbol_name(head)), "def", 3) != 0) return CLJ_NIL;
+	if (!clj_is_symbol(head) || strncmp(CLJ_STR(clj_symbol_name(head)).bytes, "def", 3) != 0) return CLJ_NIL;
 	clj_value rest = clj_cons_of(form)->rest.v;
 	if (!clj_is_list(rest) || clj_is_empty_list(rest)) return CLJ_NIL;
 	clj_value name = clj_cons_of(rest)->first.v;
@@ -333,8 +333,8 @@ static clj_value wrap_pending(clj_value file, uint32_t line, uint32_t col) {
 	clj_value at_file = clj_is_nil(inner) ? file : clj_map_get(inner, clj_keyword_from_cstr("file"), CLJ_NIL);
 	uint32_t  at_line = clj_is_nil(inner) ? line : (uint32_t)clj_fixnum_val(clj_map_get(inner, clj_keyword_from_cstr("line"), clj_fixnum(line)));
 	uint32_t  at_col = clj_is_nil(inner) ? col : (uint32_t)clj_fixnum_val(clj_map_get(inner, clj_keyword_from_cstr("column"), clj_fixnum(col)));
-	clj_value msg = clj_error_message("Syntax error compiling at (%s:%u:%u).%s%s", clj_is_string(at_file) ? clj_string_bytes(at_file) : "NO_SOURCE_PATH",
-	                                  at_line, at_col, clj_is_string(cause_msg) ? " " : "", clj_is_string(cause_msg) ? clj_string_bytes(cause_msg) : "");
+	clj_value msg = clj_error_message("Syntax error compiling at (%s:%u:%u).%s%s", clj_is_string(at_file) ? CLJ_STR(at_file).bytes : "NO_SOURCE_PATH",
+	                                  at_line, at_col, clj_is_string(cause_msg) ? " " : "", clj_is_string(cause_msg) ? CLJ_STR(cause_msg).bytes : "");
 	clj_release(cause_msg);
 	clj_value data = clj_is_nil(inner) ? position_data(file, line, col) : clj_retain(inner);
 	data = clj_map_assoc(data, clj_keyword_from_cstr("form-line"), clj_fixnum(line));
@@ -504,7 +504,7 @@ static void read_file(void *ctx) {
 
 clj_value clj_load_file(clj_value path) {
 	if (!clj_is_string(path)) return clj_throw_msg("load-file expects a path string, got: %s", clj_type_name(path));
-	const char *text = clj_string_bytes(path);
+	const char *text = CLJ_STR(path).bytes;
 	clj_compiled_init unit = nunits && !clj_opt_off(CLJ_NO_OPT_COMPILED) ? clj_compiled_find(text) : NULL;
 	if (unit) return run_unit(unit, path);
 	if (strncmp(text, embedded_prefix, sizeof embedded_prefix - 1) == 0) {

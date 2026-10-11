@@ -33,7 +33,7 @@ static int threw(clj_value r, const char *what) {
 	clj_value ex = clj_take_pending();
 	clj_value text = clj_pr_str(ex);
 	if (text != CLJ_THROWN) {
-		printf("pippin-app: %s threw: %.*s\n", what, (int)clj_string_len(text), clj_string_bytes(text));
+		printf("pippin-app: %s threw: %.*s\n", what, (int)clj_string_len(text), CLJ_STR(text).bytes);
 		clj_release(text);
 	}
 	clj_release(ex);

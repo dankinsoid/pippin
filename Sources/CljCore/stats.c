@@ -151,7 +151,7 @@ static bool builder_name(const void *fn_node) {
 	                                       "zipmap",    "mapv",        "filterv",     "update-vals", "update-keys"};
 	clj_value name = ((const clj_node *)fn_node)->u.fn.name.v;
 	if (!clj_is_symbol(name)) return false;
-	const char *s = clj_string_bytes(clj_symbol_name(name));
+	const char *s = CLJ_STR(clj_symbol_name(name)).bytes;
 	for (size_t i = 0; i < sizeof builders / sizeof *builders; i++)
 		if (strcmp(s, builders[i]) == 0) return true;
 	return false;

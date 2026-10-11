@@ -100,9 +100,19 @@ public struct Value: Sendable {
 		return withExtendedLifetime(self) { Self.decode(raw) }
 	}
 
-	// `s` must be a string the caller keeps alive.
-	private static func decode(_ s: clj_value) -> String {
-		String(decoding: UnsafeRawBufferPointer(start: clj_string_bytes(s), count: Int(clj_string_len(s))), as: UTF8.self)
+	/// The bytes of a string `s` the caller keeps alive, NUL past the last, valid inside `body` only: a short string
+	/// is to live in the value word and unpack into a buffer that ends with the call (design §4 «Строки»).
+	public static func withStringBytes<R>(_ s: clj_value, _ body: (UnsafeBufferPointer<CChar>) throws -> R) rethrows -> R {
+		var buf = clj_str_buf()
+		return try withUnsafeMutablePointer(to: &buf) { at in
+			let v = clj_string_borrow(s, at)
+			return try body(UnsafeBufferPointer(start: v.bytes, count: v.len))
+		}
+	}
+
+	/// The text of a string `s` the caller keeps alive; embedded NULs stay.
+	public static func decode(_ s: clj_value) -> String {
+		withStringBytes(s) { String(decoding: UnsafeRawBufferPointer($0), as: UTF8.self) }
 	}
 
 	private static func qualifiedName(ns: clj_value, name: clj_value) -> String {

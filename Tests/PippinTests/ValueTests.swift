@@ -95,8 +95,8 @@ extension CoreTests {
 					#expect(s.typeName == "symbol")
 					#expect(k.string == nil && s.string == nil)
 					#expect(!clj_equals(k.raw, s.raw))
-					#expect(String(cString: clj_string_bytes(clj_symbol_ns(s.raw))) == "user")
-					#expect(String(cString: clj_string_bytes(clj_keyword_name(k.raw))) == "name")
+					#expect(Value.decode(clj_symbol_ns(s.raw)) == "user")
+					#expect(Value.decode(clj_keyword_name(k.raw)) == "name")
 					#expect(clj_debug_all_shared(s.raw))
 				}
 			}

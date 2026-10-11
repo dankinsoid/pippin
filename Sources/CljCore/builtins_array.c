@@ -123,7 +123,7 @@ CTOR(b_object_array, CLJ_ARRAY_OBJECT)
 static clj_value kind_arg(const char *what, clj_value v, clj_array_kind *out) {
 	if (clj_array_kind_named(v, out)) return CLJ_NIL;
 	clj_value text = clj_pr_str(v);
-	clj_value e = clj_throw_msg("%s: unknown array kind: %s", what, clj_string_bytes(text));
+	clj_value e = clj_throw_msg("%s: unknown array kind: %s", what, CLJ_STR(text).bytes);
 	clj_release(text);
 	return e;
 }

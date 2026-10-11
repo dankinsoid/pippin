@@ -1194,7 +1194,7 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 			if (clj_map_contains(result, items[i])) {
 				clj_value text = clj_pr_str_max(items[i], CLJ_ERROR_PRINT_MAX);
 				clj_release(result);
-				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
+				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", CLJ_STR(text).bytes);
 				clj_release(text);
 				break;
 			}
@@ -1218,7 +1218,7 @@ static clj_value eval_set(const clj_node *n, clj_frame *f) {
 			if (clj_set_contains(result, items[i])) {
 				clj_value text = clj_pr_str_max(items[i], CLJ_ERROR_PRINT_MAX);
 				clj_release(result);
-				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
+				result = text == CLJ_THROWN ? CLJ_THROWN : clj_throw_msg("Duplicate key: %s", CLJ_STR(text).bytes);
 				clj_release(text);
 				break;
 			}
@@ -1727,7 +1727,7 @@ static bool is_do_form(clj_value form, clj_seq_iter *it) {
 	*it = clj_seq_iter_start(form);
 	clj_value head;
 	if (!clj_seq_iter_next(it, &head)) return false;
-	if (clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(clj_string_bytes(clj_symbol_name(head)), "do") == 0) return true;
+	if (clj_is_symbol(head) && clj_is_nil(clj_symbol_ns(head)) && strcmp(CLJ_STR(clj_symbol_name(head)).bytes, "do") == 0) return true;
 	clj_seq_iter_close(it);
 	return false;
 }

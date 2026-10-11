@@ -62,14 +62,14 @@ static bool utf16_next(utf16_iter *it, uint32_t *unit) {
 }
 
 static uint32_t string_hash_code(clj_value s) {
-	utf16_iter it = {clj_string_bytes(s), clj_string_len(s), 0, 0};
+	utf16_iter it = {CLJ_STR(s).bytes, clj_string_len(s), 0, 0};
 	uint32_t   h = 0, unit;
 	while (utf16_next(&it, &unit)) h = 31 * h + unit;
 	return h;
 }
 
 static uint32_t hash_unencoded_chars(clj_value s) {
-	utf16_iter it = {clj_string_bytes(s), clj_string_len(s), 0, 0};
+	utf16_iter it = {CLJ_STR(s).bytes, clj_string_len(s), 0, 0};
 	uint32_t   h1 = 0, n = 0, a, b;
 	while (utf16_next(&it, &a)) {
 		n++;

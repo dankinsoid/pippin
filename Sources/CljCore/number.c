@@ -306,7 +306,7 @@ static bool math_context(clj_math_context *mc) {
 	if (clj_is_keyword(m) && clj_is_nil(clj_keyword_ns(m))) {
 		clj_value name = clj_keyword_name(m);
 		for (int i = 0; i < (int)(sizeof modes / sizeof *modes); i++) {
-			if (strlen(modes[i]) == clj_string_len(name) && memcmp(modes[i], clj_string_bytes(name), clj_string_len(name)) == 0) mode = i;
+			if (strlen(modes[i]) == clj_string_len(name) && memcmp(modes[i], CLJ_STR(name).bytes, clj_string_len(name)) == 0) mode = i;
 		}
 	}
 	bool ok = clj_int64_of(p, &digits) && digits >= 0 && digits <= INT32_MAX && mode >= 0;
@@ -315,7 +315,7 @@ static bool math_context(clj_math_context *mc) {
 	if (!ok) {
 		clj_value text = clj_pr_str_max(ctx, 200);
 		clj_release(ctx);
-		clj_throw_msg("*math-context* must be nil or {:precision n :rounding mode}, not %s", clj_string_bytes(text));
+		clj_throw_msg("*math-context* must be nil or {:precision n :rounding mode}, not %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return false;
 	}

@@ -662,7 +662,7 @@ static id to_ns_string(clj_value s) {
 	if (!c) return NULL;
 	id raw = ((id (*)(id, SEL))objc_msgSend)((id)c, sel_registerName("alloc"));
 	id str = ((id (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(
-	    raw, sel_registerName("initWithBytes:length:encoding:"), clj_string_bytes(s), (unsigned long)clj_string_len(s), 4 /* NSUTF8StringEncoding */);
+	    raw, sel_registerName("initWithBytes:length:encoding:"), CLJ_STR(s).bytes, (unsigned long)clj_string_len(s), 4 /* NSUTF8StringEncoding */);
 	return objc_autorelease(str);
 }
 
@@ -789,10 +789,12 @@ static bool to_int_slot(clj_value v, char enc, long long *out) {
 		return clj_is_objc_object(v) ? (*out = (long long)(intptr_t)clj_objc_id(v), true) : false;
 	case ':':
 		if (clj_is_nil(v)) return *out = 0, true;
-		return clj_is_string(v) ? (*out = (long long)(intptr_t)sel_registerName(clj_string_bytes(v)), true) : false;
+		return clj_is_string(v) ? (*out = (long long)(intptr_t)sel_registerName(CLJ_STR(v).bytes), true) : false;
 	case '*':
 		if (clj_is_nil(v)) return *out = 0, true;
-		return clj_is_string(v) ? (*out = (long long)(intptr_t)clj_string_bytes(v), true) : false;
+		// Into an argument, a struct field, a return or foreign memory, kept for as long as v lives and no longer:
+		// no borrow outlasts this function, so these are the heap bytes (NOTES "Strings", small strings).
+		return clj_is_string(v) ? (*out = (long long)(intptr_t)clj_string_heap_bytes(v), true) : false;
 	default:
 		break;
 	}
@@ -1207,7 +1209,7 @@ clj_value clj_objc_to_string(clj_value v, bool mutable) {
 	id raw = ((id (*)(id, SEL))objc_msgSend)((id)c, sel_registerName("alloc"));
 	// -initWithBytes: takes over the allocation, so a nil answer has already released it.
 	id str = ((id (*)(id, SEL, const void *, unsigned long, unsigned long))objc_msgSend)(
-	    raw, sel_registerName("initWithBytes:length:encoding:"), clj_string_bytes(v), (unsigned long)clj_string_len(v), 4 /* NSUTF8StringEncoding */);
+	    raw, sel_registerName("initWithBytes:length:encoding:"), CLJ_STR(v).bytes, (unsigned long)clj_string_len(v), 4 /* NSUTF8StringEncoding */);
 	return str ? clj_objc_wrap_owned(str) : clj_throw_msg("%s: not UTF-8", name);
 }
 
@@ -1218,7 +1220,7 @@ clj_value clj_objc_to_object(clj_value v) {
 		return clj_throw_msg("ns-object expects a string, an inst, a uuid or a URI, got: %s", clj_type_name(v));
 	pool_scope p = pool_enter();
 	id         obj = clj_is_inst(v) ? to_ns_date(v) : clj_is_uuid(v) ? to_ns_uuid(v) : to_ns_url(v);
-	clj_value  out = obj ? clj_objc_wrap(obj) : clj_throw_msg("ns-object: NSURL refuses %s", clj_string_bytes(clj_uri_text(v)));
+	clj_value  out = obj ? clj_objc_wrap(obj) : clj_throw_msg("ns-object: NSURL refuses %s", CLJ_STR(clj_uri_text(v)).bytes);
 	pool_leave(p);
 	return out;
 }
@@ -1386,14 +1388,14 @@ clj_value clj_objc_send(clj_value target, clj_value selector, const clj_value *a
 	}
 	if (clj_is_host_box(target) && clj_is_string(selector))
 		return clj_throw_msg("Cannot send .%s to a %s: a Swift type's members are vars of its module, Module/Type.member (design §5)",
-		                     clj_string_bytes(selector), clj_type_name(target));
+		                     CLJ_STR(selector).bytes, clj_type_name(target));
 	if (!clj_is_objc_object(target)) return clj_throw_msg("Cannot send to a %s: not an Objective-C object", clj_type_name(target));
 	if (!clj_is_string(selector)) return clj_throw_msg("A selector must be a string, got: %s", clj_type_name(selector));
 
 	clj_objc_object *recv = (clj_objc_object *)clj_to_ptr(target);
 	if (recv->pointee) return clj_throw_msg("Cannot send to a raw '^%c' pointer", recv->pointee);
 	Class cls = object_getClass((id)recv->obj);
-	const char      *spelling = clj_string_bytes(selector);
+	const char      *spelling = CLJ_STR(selector).bytes;
 	size_t           len = clj_string_len(selector);
 
 	const objc_sig *sig = NULL;
@@ -1605,7 +1607,7 @@ static void report_uncaught(const char *what) {
 	(void)!write(2, "clj: uncaught error in ", 23);
 	(void)!write(2, what, strlen(what));
 	(void)!write(2, ": ", 2);
-	if (text != CLJ_THROWN) (void)!write(2, clj_string_bytes(text), clj_string_len(text));
+	if (text != CLJ_THROWN) (void)!write(2, CLJ_STR(text).bytes, clj_string_len(text));
 	(void)!write(2, "\n", 1);
 	if (text != CLJ_THROWN) clj_release(text);
 	clj_release(msg);
@@ -1863,13 +1865,13 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 	uint32_t n = clj_vector_count(sels);
 	char    *key = NULL;
 	size_t   klen = 0, kcap = 0;
-	key_append(&key, &klen, &kcap, clj_is_nil(super) ? "NSObject" : clj_string_bytes(super));
-	for (uint32_t i = 0; i < clj_vector_count(protos); i++) key_append(&key, &klen, &kcap, clj_string_bytes(clj_vector_nth(protos, i)));
+	key_append(&key, &klen, &kcap, clj_is_nil(super) ? "NSObject" : CLJ_STR(super).bytes);
+	for (uint32_t i = 0; i < clj_vector_count(protos); i++) key_append(&key, &klen, &kcap, CLJ_STR(clj_vector_nth(protos, i)).bytes);
 	key_append(&key, &klen, &kcap, "|");
 	for (uint32_t i = 0; i < n; i++) {
-		key_append(&key, &klen, &kcap, clj_string_bytes(clj_vector_nth(sels, i)));
+		key_append(&key, &klen, &kcap, CLJ_STR(clj_vector_nth(sels, i)).bytes);
 		clj_value e = clj_vector_nth(encs, i);
-		key_append(&key, &klen, &kcap, clj_is_nil(e) ? "" : clj_string_bytes(e));
+		key_append(&key, &klen, &kcap, clj_is_nil(e) ? "" : CLJ_STR(e).bytes);
 	}
 	uint32_t h = 2166136261u;
 	for (size_t i = 0; i < klen; i++) h = clj_hash_combine(h, (uint32_t)(unsigned char)key[i]);
@@ -1886,7 +1888,7 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 	reify_class *rc = calloc(1, sizeof *rc);
 	if (!rc) clj_fatal("out of memory building an objc reify class");
 
-	const char *super_name = clj_is_nil(super) ? "NSObject" : clj_string_bytes(super);
+	const char *super_name = clj_is_nil(super) ? "NSObject" : CLJ_STR(super).bytes;
 	Class       sup = objc_getClass(super_name);
 	if (!sup) {
 		*err = clj_throw_msg("objc-reify: no such class: %s", super_name);
@@ -1903,7 +1905,7 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 	rc->n = n;
 
 	for (uint32_t i = 0; i < clj_vector_count(protos); i++) {
-		const char *pn = clj_string_bytes(clj_vector_nth(protos, i));
+		const char *pn = CLJ_STR(clj_vector_nth(protos, i)).bytes;
 		Protocol   *p = objc_getProtocol(pn);
 		if (!p) {
 			*err = clj_throw_msg("objc-reify: no such protocol: %s", pn);
@@ -1914,13 +1916,13 @@ static reify_class *reify_class_for(clj_value super, clj_value protos, clj_value
 
 	for (uint32_t i = 0; i < n; i++) {
 		clj_value   sv = clj_vector_nth(sels, i), ev = clj_vector_nth(encs, i);
-		const char *spelling = clj_string_bytes(sv);
+		const char *spelling = CLJ_STR(sv).bytes;
 		size_t      len = clj_string_len(sv);
-		const char *types = clj_is_nil(ev) ? NULL : clj_string_bytes(ev);
+		const char *types = clj_is_nil(ev) ? NULL : CLJ_STR(ev).bytes;
 		SEL         sel = NULL;
 		const char *found = NULL;
 		for (uint32_t k = 0; k < clj_vector_count(protos) && !found; k++)
-			found = protocol_types(objc_getProtocol(clj_string_bytes(clj_vector_nth(protos, k))), spelling, len, &sel);
+			found = protocol_types(objc_getProtocol(CLJ_STR(clj_vector_nth(protos, k)).bytes), spelling, len, &sel);
 		if (!found) found = inherited_types(sup, spelling, len, &sel);
 		if (!types) {
 			if (!found) {
@@ -2194,11 +2196,11 @@ static block_kind *block_kind_for(const char *signature, const char *who, clj_va
 clj_value clj_objc_block(clj_value signature, clj_value fn) {
 	if (!clj_is_string(signature)) return clj_throw_msg("objc-block expects a signature string, got: %s", clj_type_name(signature));
 	clj_value   err = CLJ_NIL;
-	block_kind *k = block_kind_for(clj_string_bytes(signature), "objc-block", &err);
+	block_kind *k = block_kind_for(CLJ_STR(signature).bytes, "objc-block", &err);
 	if (!k) return err == CLJ_NIL ? clj_throw_msg("objc-block failed") : err;
 	if (!k->invoke)
 		return clj_throw_msg("objc-block: a struct of %u bytes returned through x8, a size the bridge has no return shape for: %s",
-		                     k->sig.ret_abi.size, clj_string_bytes(signature));
+		                     k->sig.ret_abi.size, CLJ_STR(signature).bytes);
 
 	// Built on the stack and copied, exactly as a compiler-generated block is: _Block_copy runs the copy
 	// helper, so the heap block owns the fn and the dispose helper gives it back.
@@ -2373,7 +2375,7 @@ clj_value clj_objc_to_object(clj_value v) {
 static clj_value b_objc_class(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("objc-class expects a string, got: %s", clj_type_name(args[0]));
-	return clj_objc_class(clj_string_bytes(args[0]));
+	return clj_objc_class(CLJ_STR(args[0]).bytes);
 }
 
 // The escape hatch of design §5: the full Objective-C selector text, for a name that is not a literal.
@@ -2390,8 +2392,8 @@ static clj_value b_objc_kebab(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("objc-kebab* expects a string, got: %s", clj_type_name(args[0]));
 	char   buf[512];
-	size_t want = clj_objc_kebab(clj_string_bytes(args[0]), buf, sizeof buf);
-	if (want >= sizeof buf) return clj_throw_msg("Selector too long: %s", clj_string_bytes(args[0]));
+	size_t want = clj_objc_kebab(CLJ_STR(args[0]).bytes, buf, sizeof buf);
+	if (want >= sizeof buf) return clj_throw_msg("Selector too long: %s", CLJ_STR(args[0]).bytes);
 	return clj_string_new(buf, want);
 }
 

@@ -23,7 +23,7 @@ bool clj_array_kind_named(clj_value v, clj_array_kind *out) {
 	clj_value name = clj_is_keyword(v) ? clj_keyword_name(v) : clj_is_symbol(v) ? clj_symbol_name(v) : clj_is_string(v) ? v : CLJ_NIL;
 	if (clj_is_nil(name)) return false;
 	if (!clj_is_nil(clj_is_keyword(v) ? clj_keyword_ns(v) : clj_is_symbol(v) ? clj_symbol_ns(v) : CLJ_NIL)) return false;
-	const char *text = clj_string_bytes(name);
+	const char *text = CLJ_STR(name).bytes;
 	size_t      len = clj_string_len(name);
 	for (int i = 0; i < CLJ_ARRAY_KIND_COUNT; i++) {
 		if (strlen(kind_name[i]) == len && !memcmp(kind_name[i], text, len)) {
@@ -40,7 +40,7 @@ bool clj_array_kind_named(clj_value v, clj_array_kind *out) {
 
 static clj_value out_of_range(clj_array_kind kind, clj_value v) {
 	clj_value text = clj_pr_str(v);
-	clj_value e = clj_throw_msg("Value out of range for %s: %s", kind_name[kind], clj_string_bytes(text));
+	clj_value e = clj_throw_msg("Value out of range for %s: %s", kind_name[kind], CLJ_STR(text).bytes);
 	clj_release(text);
 	return e;
 }

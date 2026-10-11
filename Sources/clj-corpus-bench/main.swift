@@ -151,7 +151,7 @@ if failureCount > 0 { FileHandle.standardError.write(Data("load failures: \(fail
 
 func printed(_ v: clj_value) -> String {
 	let s = Value(owning: clj_pr_str(v))
-	return withExtendedLifetime(s) { String(cString: clj_string_bytes(s.raw)) }
+	return withExtendedLifetime(s) { Value.decode(s.raw) }
 }
 
 @MainActor func call(_ f: Value, _ args: [clj_value] = []) -> clj_value {

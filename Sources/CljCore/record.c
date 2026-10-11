@@ -362,7 +362,7 @@ clj_value clj_record_type_new(clj_value name, clj_value fields, const clj_value 
 	for (size_t i = 0; i < nimpls; i += 2) {
 		if (!clj_is_protocol(impls[i]) || !clj_protocol_of(impls[i])->core_bits) continue;
 		return clj_throw_msg("%s cannot be implemented by defrecord: the map interfaces are the record's own",
-		                     clj_string_bytes(clj_symbol_name(clj_protocol_of(impls[i])->name.v)));
+		                     CLJ_STR(clj_symbol_name(clj_protocol_of(impls[i])->name.v)).bytes);
 	}
 	if (!clj_is_vector(fields)) return clj_throw_msg("defrecord fields must be a vector, got: %s", clj_type_name(fields));
 	uint32_t         n = clj_vector_count(fields);

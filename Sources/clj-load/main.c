@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 	clj_value text = clj_diagnostic_render(ex);
 	// A throw while printing the throw: the first one is still what the caller needs.
 	if (text != CLJ_THROWN) {
-		fprintf(stderr, "%.*s", (int)clj_string_len(text), clj_string_bytes(text));
+		fprintf(stderr, "%.*s", (int)clj_string_len(text), CLJ_STR(text).bytes);
 		clj_release(text);
 	}
 	clj_release(ex);

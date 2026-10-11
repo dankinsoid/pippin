@@ -481,7 +481,7 @@ clj_value clj_decimal_from_double(double d) {
 
 double clj_decimal_to_double(clj_value v) {
 	clj_value s = clj_decimal_to_string(v);
-	double    d = strtod(clj_string_bytes(s), NULL);
+	double    d = strtod(CLJ_STR(s).bytes, NULL);
 	clj_release(s);
 	return d;
 }

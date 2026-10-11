@@ -750,6 +750,6 @@ bool clj_lazy_seq_site(const clj_node *n) {
 		if (fn->u.fn.fixed[i]) return false;
 	}
 	clj_value var = n->u.invoke.fn->u.var.v;
-	return fn->u.fn.ncaptures <= UINT16_MAX && strcmp(clj_string_bytes(clj_symbol_name(clj_var_ns(var))), "clojure.core") == 0 &&
-	       strcmp(clj_string_bytes(clj_symbol_name(clj_var_name(var))), "lazy-seq*") == 0;
+	return fn->u.fn.ncaptures <= UINT16_MAX && strcmp(CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes, "clojure.core") == 0 &&
+	       strcmp(CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes, "lazy-seq*") == 0;
 }

@@ -27,8 +27,8 @@ bool fz_syntax_quotes_ok(const uint8_t *data, size_t size);
 bool fz_utf8(const uint8_t *data, size_t size);
 // Owned string of a text that passed fz_utf8.
 clj_value fz_string(const uint8_t *data, size_t size);
-// The C string of a string value, borrowed.
-static inline const char *fz_cstr(clj_value s) { return clj_string_bytes(s); }
+// The C string of a string value, borrowed into a buffer of the caller's block, hence a macro.
+#define fz_cstr(s) CLJ_STR(s).bytes
 // The first form of text, read with the runtime's resolvers; msg takes the message of an error.
 clj_read_status fz_read(const char *bytes, size_t len, clj_value *out, char *msg, size_t cap);
 

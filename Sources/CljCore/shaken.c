@@ -21,7 +21,7 @@ static clj_value reached(clj_value self, const char *op) {
 	clj_value var = clj_shaken_var(self);
 	char      msg[400];
 	snprintf(msg, sizeof msg, "%s/%s was dropped by --closed tree shaking and the program reached it (%s): the root set missed it (NOTES.md, \"Compiler\": tree shaking)",
-	         clj_string_bytes(clj_symbol_name(clj_var_ns(var))), clj_string_bytes(clj_symbol_name(clj_var_name(var))), op);
+	         CLJ_STR(clj_symbol_name(clj_var_ns(var))).bytes, CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes, op);
 	clj_ice("closed/shaken-reached", NULL, "%s", msg);
 }
 

@@ -51,7 +51,7 @@ const clj_fusion_var *clj_fusion_find(clj_value var) {
 
 const clj_fusion_var *clj_fusion_find_named(clj_value qualified_sym) {
 	if (!clj_is_symbol(qualified_sym) || clj_is_nil(clj_symbol_ns(qualified_sym))) return NULL;
-	const char *ns = clj_string_bytes(clj_symbol_ns(qualified_sym)), *name = clj_string_bytes(clj_symbol_name(qualified_sym));
+	const char *ns = CLJ_STR(clj_symbol_ns(qualified_sym)).bytes, *name = CLJ_STR(clj_symbol_name(qualified_sym)).bytes;
 	size_t      ns_len = strlen(ns);
 	for (size_t i = 0; i < N; i++) {
 		const char *full = table[i].name;

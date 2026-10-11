@@ -1,9 +1,13 @@
 // @ai-generated(solo)
+// The one file that sees a string's layout (string.h).
+#define CLJ_STRING_LAYOUT
 #include <string.h>
 
 #include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/string.h"
+
+static inline clj_string *clj_string_of(clj_value v) { return (clj_string *)clj_to_ptr(v); }
 
 static inline uint32_t rotl32(uint32_t x, int r) { return (x << r) | (x >> (32 - r)); }
 
@@ -50,18 +54,19 @@ static bool string_equals(void *self, clj_value other) {
 static clj_value string_seq(clj_value self) { return clj_string_len(self) ? clj_string_seq_new(self, 0) : CLJ_NIL; }
 
 static clj_value string_first(clj_value self) {
-	if (!clj_string_len(self)) return CLJ_NIL;
+	clj_str s = CLJ_STR(self);
+	if (!s.len) return CLJ_NIL;
 	uint32_t cp;
-	clj_utf8_decode(clj_string_bytes(self), clj_string_len(self), 0, &cp);
+	clj_utf8_decode(s.bytes, s.len, 0, &cp);
 	return clj_char(cp);
 }
 
 static clj_value string_next(clj_value self) {
-	uint32_t len = clj_string_len(self);
-	if (!len) return CLJ_NIL;
+	clj_str s = CLJ_STR(self);
+	if (!s.len) return CLJ_NIL;
 	uint32_t cp;
-	size_t   next = clj_utf8_decode(clj_string_bytes(self), len, 0, &cp);
-	return next < len ? clj_string_seq_new(self, (uint32_t)next) : CLJ_NIL;
+	size_t   next = clj_utf8_decode(s.bytes, s.len, 0, &cp);
+	return next < s.len ? clj_string_seq_new(self, (uint32_t)next) : CLJ_NIL;
 }
 
 static clj_value string_count(clj_value self) { return clj_fixnum((intptr_t)clj_string_count(self)); }
@@ -216,15 +221,18 @@ size_t clj_string_index_slow(clj_value v, size_t pos) {
 }
 
 bool clj_string_char_at(clj_value s, size_t i, uint32_t *out) {
+	clj_str v = CLJ_STR(s);
 	if (clj_string_is_ascii(s)) {
-		if (i >= clj_string_len(s)) return false;
-		*out = (unsigned char)clj_string_bytes(s)[i];
+		if (i >= v.len) return false;
+		*out = (unsigned char)v.bytes[i];
 		return true;
 	}
 	if (i >= clj_string_count_slow(s)) return false;
-	clj_utf8_decode(clj_string_bytes(s), clj_string_len(s), clj_string_offset_slow(s, i), out);
+	clj_utf8_decode(v.bytes, v.len, clj_string_offset_slow(s, i), out);
 	return true;
 }
+
+uint32_t clj_string_cached_hash(clj_value s) { return clj_hash_cache_load(&clj_string_of(s)->hash); }
 
 const char *clj_bytes_find(const char *hay, size_t hlen, const char *nd, size_t nlen) {
 	if (nlen == 0) return hay;

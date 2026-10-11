@@ -249,7 +249,7 @@ static clj_value int_arg(clj_value v, intptr_t *out) {
 	if (!clj_is_fixnum(v)) {
 		clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
-		clj_value r = clj_throw_msg("Argument must be an integer: %s", clj_string_bytes(text));
+		clj_value r = clj_throw_msg("Argument must be an integer: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return r;
 	}
@@ -537,7 +537,7 @@ static clj_value b_hash_map(const clj_value *args, size_t n) {
 	if (n % 2) {
 		clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
-		clj_value r = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
+		clj_value r = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return r;
 	}
@@ -560,7 +560,7 @@ static clj_value b_range_star(const clj_value *args, size_t n) {
 		if (!clj_int64_of(args[i], &v[i])) {
 			clj_value text = clj_pr_str_max(args[i], CLJ_ERROR_PRINT_MAX);
 			if (text == CLJ_THROWN) return CLJ_THROWN;
-			clj_value e = clj_throw_msg("range bound outside the 64-bit long: %s", clj_string_bytes(text));
+			clj_value e = clj_throw_msg("range bound outside the 64-bit long: %s", CLJ_STR(text).bytes);
 			clj_release(text);
 			return e;
 		}
@@ -755,14 +755,14 @@ static clj_value b_atom(const clj_value *args, size_t n) {
 	if (n % 2 == 0) {
 		clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
-		clj_value r = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
+		clj_value r = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return r;
 	}
 	clj_value meta = CLJ_NIL, validator = CLJ_NIL;
 	for (size_t i = 1; i < n; i += 2) {
 		if (!clj_is_keyword(args[i])) continue;
-		const char *name = clj_string_bytes(clj_keyword_name(args[i]));
+		const char *name = CLJ_STR(clj_keyword_name(args[i])).bytes;
 		if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "meta") == 0) meta = args[i + 1];
 		else if (clj_is_nil(clj_keyword_ns(args[i])) && strcmp(name, "validator") == 0) validator = args[i + 1];
 	}
@@ -786,7 +786,7 @@ static clj_value b_find_keyword(const clj_value *args, size_t n) {
 	} else if (clj_is_symbol(args[0])) {
 		sym = clj_symbol_new(clj_symbol_ns(args[0]), clj_symbol_name(args[0]));
 	} else if (clj_is_string(args[0])) {
-		sym = clj_symbol_from_cstr(clj_string_bytes(args[0]));
+		sym = clj_symbol_from_cstr(CLJ_STR(args[0]).bytes);
 	} else {
 		return CLJ_NIL;
 	}
@@ -903,7 +903,7 @@ static clj_value b_get_validator(const clj_value *args, size_t n) {
 
 // Splits "ns/name" at the first slash, as the reader does; "/" alone is a name.
 static void split_name(clj_value text, clj_value *ns, clj_value *name) {
-	const char *s = clj_string_bytes(text);
+	const char *s = CLJ_STR(text).bytes;
 	size_t      len = clj_string_len(text);
 	const char *slash = memchr(s, '/', len);
 	if (!slash || len == 1) {
@@ -982,9 +982,10 @@ static clj_value b_namespace(const clj_value *args, size_t n) {
 
 static clj_value b_gensym(const clj_value *args, size_t n) {
 	const char *prefix = "G__";
+	clj_str_buf buf;
 	if (n == 1) {
-		if (clj_is_string(args[0])) prefix = clj_string_bytes(args[0]);
-		else if (clj_is_symbol(args[0])) prefix = clj_string_bytes(clj_symbol_name(args[0]));
+		if (clj_is_string(args[0])) prefix = clj_string_borrow(args[0], &buf).bytes;
+		else if (clj_is_symbol(args[0])) prefix = clj_string_borrow(clj_symbol_name(args[0]), &buf).bytes;
 		else return clj_throw_msg("gensym prefix must be a string or symbol, got: %s", clj_type_name(args[0]));
 	}
 	size_t cap = strlen(prefix) + 24;
@@ -1058,10 +1059,10 @@ static clj_value b_host_type(const clj_value *args, size_t n) {
 		return r;
 	}
 	if (!clj_is_string(name)) return clj_throw_msg("host-type expects a string or a symbol, got: %s", clj_type_name(name));
-	clj_value t = clj_host_type_named(clj_string_bytes(name), clj_string_len(name));
+	clj_value t = clj_host_type_named(CLJ_STR(name).bytes, clj_string_len(name));
 	if (clj_is_nil(t)) {
 		return clj_throw_msg(clj_host_type_available() ? "Unable to resolve host type: %s" : "No host type resolver: %s",
-		                     clj_string_bytes(name));
+		                     CLJ_STR(name).bytes);
 	}
 	return t;
 }
@@ -1148,7 +1149,7 @@ static void buf_put(buf *b, const char *s, size_t n) {
 // Consumes an owned string, or CLJ_THROWN.
 static bool put_text(buf *b, clj_value s) {
 	if (s == CLJ_THROWN) return false;
-	buf_put(b, clj_string_bytes(s), clj_string_len(s));
+	buf_put(b, CLJ_STR(s).bytes, clj_string_len(s));
 	clj_release(s);
 	return true;
 }
@@ -1157,7 +1158,7 @@ static bool put_text(buf *b, clj_value s) {
 static bool put_str(buf *b, clj_value v) {
 	if (clj_is_nil(v)) return true;
 	if (clj_is_string(v)) {
-		buf_put(b, clj_string_bytes(v), clj_string_len(v));
+		buf_put(b, CLJ_STR(v).bytes, clj_string_len(v));
 		return true;
 	}
 	if (clj_is_fixnum(v) || clj_is_long(v)) {
@@ -1174,7 +1175,7 @@ static bool put_str(buf *b, clj_value v) {
 	// BigInt.toString and BigDecimal.toString carry no tag, where print-method appends N and M.
 	if (clj_is_bigint(v) || clj_is_decimal(v)) {
 		clj_value t = clj_is_bigint(v) ? clj_bigint_to_string(v) : clj_decimal_to_string(v);
-		buf_put(b, clj_string_bytes(t), clj_string_len(t));
+		buf_put(b, CLJ_STR(t).bytes, clj_string_len(t));
 		clj_release(t);
 		return true;
 	}
@@ -1211,7 +1212,7 @@ static bool put_str(buf *b, clj_value v) {
 		return true;
 	}
 	if (clj_is_uri(v)) {
-		buf_put(b, clj_string_bytes(clj_uri_text(v)), clj_string_len(clj_uri_text(v)));
+		buf_put(b, CLJ_STR(clj_uri_text(v)).bytes, clj_string_len(clj_uri_text(v)));
 		return true;
 	}
 	// Date.toString would be "Fri Apr 12 ..." in the host zone; the printed form is the useful one (docs/jvm-differences.md).
@@ -1224,13 +1225,13 @@ static bool put_str(buf *b, clj_value v) {
 	// Namespace.toString is the name, where print-method prints #object.
 	if (clj_is_ns(v)) {
 		clj_value name = clj_symbol_name(clj_ns_name(v));
-		buf_put(b, clj_string_bytes(name), clj_string_len(name));
+		buf_put(b, CLJ_STR(name).bytes, clj_string_len(name));
 		return true;
 	}
 	// Pattern.toString is the pattern text, where print-method wraps it in #"".
 	if (clj_is_regex(v)) {
 		clj_value p = clj_regex_pattern(v);
-		buf_put(b, clj_string_bytes(p), clj_string_len(p));
+		buf_put(b, CLJ_STR(p).bytes, clj_string_len(p));
 		return true;
 	}
 	return put_text(b, clj_pr_str(v));
@@ -1299,7 +1300,7 @@ fail:
 static clj_value b_str_escape(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value   s = args[0], cmap = args[1];
-	const char *bytes = clj_string_bytes(s);
+	const char *bytes = CLJ_STR(s).bytes;
 	size_t      len = clj_string_len(s);
 	buf         b = {0};
 	for (size_t pos = 0; pos < len;) {
@@ -1631,7 +1632,7 @@ static clj_value b_rand_star(const clj_value *args, size_t n) {
 static clj_value sorted_from_args(bool map, clj_value cmp, const clj_value *args, size_t n) {
 	if (map && n % 2) {
 		clj_value text = clj_pr_str(args[n - 1]);
-		clj_value e = clj_throw_msg("No value supplied for key: %s", clj_string_bytes(text));
+		clj_value e = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return e;
 	}

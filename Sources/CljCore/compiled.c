@@ -143,7 +143,7 @@ static clj_value duplicate_key(clj_value result, clj_value key) {
 	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	clj_release(result);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Duplicate key: %s", clj_string_bytes(text));
+	clj_value r = clj_throw_msg("Duplicate key: %s", CLJ_STR(text).bytes);
 	clj_release(text);
 	return r;
 }

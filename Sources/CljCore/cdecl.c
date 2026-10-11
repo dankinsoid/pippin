@@ -126,13 +126,13 @@ static clj_value b_c_global_star(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("c-global* expects a symbol name string, got: %s", clj_type_name(args[0]));
 	if (!clj_is_keyword(args[1])) return clj_throw_msg("c-global* expects a type keyword, got: %s", clj_type_name(args[1]));
-	const char       *want = clj_string_bytes(clj_keyword_name(args[1]));
+	const char       *want = CLJ_STR(clj_keyword_name(args[1])).bytes;
 	const global_kind *kind = NULL;
 	for (size_t i = 0; i < sizeof kinds / sizeof *kinds && !kind; i++) {
 		if (strcmp(kinds[i].kind, want) == 0) kind = &kinds[i];
 	}
 	if (!kind) return clj_throw_msg("c-global* does not read a %s", want);
-	const char *name = clj_string_bytes(args[0]);
+	const char *name = CLJ_STR(args[0]).bytes;
 	void       *addr = dlsym(RTLD_DEFAULT, name);
 	if (!addr) {
 		return clj_throw_msg("Unable to resolve C global: %s is declared in the header but not exported by anything "
@@ -167,14 +167,15 @@ static clj_value b_c_fn_star(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return clj_throw_msg("c-fn* expects a symbol name string, got: %s", clj_type_name(args[0]));
 	if (!clj_is_string(args[1])) return clj_throw_msg("c-fn* expects a return encoding string, got: %s", clj_type_name(args[1]));
 	if (!clj_is_vector(args[2])) return clj_throw_msg("c-fn* expects a vector of argument encodings, got: %s", clj_type_name(args[2]));
-	const char *name = clj_string_bytes(args[0]);
+	const char *name = CLJ_STR(args[0]).bytes;
 	uint32_t    nargs = clj_vector_count(args[2]);
 	const char *argv[16];
+	clj_str_buf bufs[16];
 	if (nargs > sizeof argv / sizeof *argv) return clj_throw_msg("c-fn* %s: %u arguments is past any ABI the bridge knows", name, nargs);
 	for (uint32_t i = 0; i < nargs; i++) {
 		clj_value e = clj_vector_nth(args[2], i);
 		if (!clj_is_string(e)) return clj_throw_msg("c-fn* %s: argument %u's encoding is a %s", name, i + 1, clj_type_name(e));
-		argv[i] = clj_string_bytes(e);
+		argv[i] = clj_string_borrow(e, &bufs[i]).bytes;
 	}
 	void *addr = dlsym(RTLD_DEFAULT, name);
 	if (!addr) {
@@ -183,7 +184,7 @@ static clj_value b_c_fn_star(const clj_value *args, size_t n) {
 		                     name);
 	}
 	const char *why = NULL;
-	const void *sig = clj_objc_c_signature(clj_string_bytes(args[1]), argv, nargs, &why);
+	const void *sig = clj_objc_c_signature(CLJ_STR(args[1]).bytes, argv, nargs, &why);
 	if (!sig) return clj_throw_msg("Unable to resolve C function: %s has %s", name, why);
 	c_fn *f = (c_fn *)calloc(1, sizeof *f);
 	char *copy = strdup(name);

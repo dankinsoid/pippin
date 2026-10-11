@@ -128,7 +128,7 @@ static clj_value string_seq_with_meta(clj_value self, clj_value m) { return clj_
 static clj_value string_seq_first(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
 	uint32_t              cp;
-	clj_utf8_decode(clj_string_bytes(s->str.v), clj_string_len(s->str.v), s->pos, &cp);
+	clj_utf8_decode(CLJ_STR(s->str.v).bytes, clj_string_len(s->str.v), s->pos, &cp);
 	return clj_char(cp);
 }
 
@@ -149,7 +149,7 @@ static clj_value string_seq_alloc(clj_value str, uint32_t pos, clj_value m) {
 static clj_value string_seq_next(clj_value self) {
 	const clj_string_seq *s = clj_string_seq_of(self);
 	uint32_t              cp, len = clj_string_len(s->str.v);
-	size_t                next = s->pos + clj_utf8_decode(clj_string_bytes(s->str.v), len, s->pos, &cp);
+	size_t                next = s->pos + clj_utf8_decode(CLJ_STR(s->str.v).bytes, len, s->pos, &cp);
 	if (next >= len) return CLJ_NIL;
 	return string_seq_alloc(s->str.v, (uint32_t)next, clj_meta_trailing(clj_to_ptr(self), sizeof *s));
 }

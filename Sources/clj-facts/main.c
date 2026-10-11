@@ -299,9 +299,10 @@ static void measure_table(stats *s, const char *path, clj_node *root, clj_facts 
 		find_ctx fc = {clj_facts_conflict_node(f), NULL};
 		find_node(root, &fc);
 		const char *what = "?";
+		clj_str_buf what_buf;
 		if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC) what = fc.found->u.intrinsic.op->name;
 		else if (fc.found && fc.found->kind == CLJ_NODE_INVOKE && fc.found->u.invoke.fn->kind == CLJ_NODE_VAR)
-			what = clj_string_bytes(clj_symbol_name(clj_var_name(fc.found->u.invoke.fn->u.var.v)));
+			what = clj_string_borrow(clj_symbol_name(clj_var_name(fc.found->u.invoke.fn->u.var.v)), &what_buf).bytes;
 		else if (fc.found && fc.found->kind == CLJ_NODE_LOCAL) what = "local";
 		uint32_t argtypes = 0;
 		if (fc.found && fc.found->kind == CLJ_NODE_INTRINSIC && fc.found->u.intrinsic.n == 1) {
@@ -902,7 +903,7 @@ static void run_root(const char *name, const char *root) {
 	clj_release(count);
 	for (intptr_t k = 0; k < np && nroots < MAX_ROOTS; k++) {
 		clj_value idx = clj_fixnum(k), head = clj_nth2(paths, idx);
-		snprintf(bufs[nroots], sizeof bufs[0], "%s", clj_string_bytes(head));
+		snprintf(bufs[nroots], sizeof bufs[0], "%s", CLJ_STR(head).bytes);
 		roots[nroots] = bufs[nroots];
 		nroots++;
 		clj_release(head);

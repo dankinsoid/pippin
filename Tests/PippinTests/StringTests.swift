@@ -4,7 +4,7 @@ import Testing
 @testable import Pippin
 
 private func bytes(_ s: clj_value) -> [UInt8] {
-	Array(UnsafeRawBufferPointer(start: clj_string_bytes(s), count: Int(clj_string_len(s))))
+	Value.withStringBytes(s) { Array(UnsafeRawBufferPointer($0)) }
 }
 
 extension CoreTests {
@@ -15,7 +15,7 @@ extension CoreTests {
 			#expect(clj_is_string(s))
 			#expect(String(cString: clj_type_name(s)) == "string")
 			#expect(clj_string_len(s) == 5)
-			#expect(String(cString: clj_string_bytes(s)) == "hello")
+			#expect(Value.decode(s) == "hello")
 			#expect(clj_is_unique(s) == clj_reuse_enabled())
 			#expect(clj_debug_live_objects() == before + 1)
 			clj_release(s)
@@ -27,8 +27,8 @@ extension CoreTests {
 			let a = clj_string_from_cstr("")
 			let b = clj_string_new(nil, 0)
 			#expect(clj_string_len(a) == 0 && clj_string_len(b) == 0)
-			#expect(clj_string_bytes(a).pointee == 0)
-			#expect(clj_string_bytes(b).pointee == 0)
+			#expect(Value.withStringBytes(a) { $0.baseAddress!.pointee } == 0)
+			#expect(Value.withStringBytes(b) { $0.baseAddress!.pointee } == 0)
 			#expect(clj_equals(a, b))
 			#expect(clj_hash(a) == clj_hash(b))
 			clj_release(a)
@@ -44,7 +44,7 @@ extension CoreTests {
 			}
 			#expect(Int(clj_string_len(s)) == text.utf8.count)
 			#expect(bytes(s) == Array(text.utf8))
-			#expect(clj_string_bytes(s)[Int(clj_string_len(s))] == 0)
+			#expect(Value.withStringBytes(s) { $0.baseAddress![$0.count] } == 0)
 
 			let raw: [UInt8] = [0x61, 0x00, 0x62]
 			let n = raw.withUnsafeBufferPointer { buf in

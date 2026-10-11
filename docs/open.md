@@ -357,7 +357,7 @@ file. 127 open, 104 partly done.
 ### [Strings (Sources/CljCore/string.c, include/clj/string.h; design §4 «Строки»)](notes/strings.md)
 
 - [ ] No UTF-16 view yet. — Trigger: the first bridge API that passes an index across.
-- [ ] Small strings in the value (tag `100`) and the borrow-bytes API — Trigger: the census share of 8–11-byte strings, or the borrow API's first caller.
+- [ ] Small strings in the value (tag `100`) — Trigger: the census share of strings of at most 7 bytes (8–11 for the packed encodings).
 - [ ] The ASCII scan reads every new string's bytes once more — Trigger: `clj_string_new` above the copy itself in a profile.
 
 ### [Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)](notes/symbol-keyword.md)

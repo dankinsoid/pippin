@@ -168,7 +168,7 @@ static clj_value node_find(clj_value node, clj_value key, const clj_call *call) 
 static clj_value bad_key(clj_value key) {
 	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
-	clj_value r = clj_throw_msg("Default comparator requires nil, Number, or Comparable: %s", clj_string_bytes(text));
+	clj_value r = clj_throw_msg("Default comparator requires nil, Number, or Comparable: %s", CLJ_STR(text).bytes);
 	clj_release(text);
 	return r;
 }

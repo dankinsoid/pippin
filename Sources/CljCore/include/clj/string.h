@@ -7,6 +7,8 @@
 // Immutable UTF-8. bytes carry a trailing NUL for C callers; len counts embedded NULs too. Indexes count code points
 // (design §4 «Строки»). A non-ASCII string past CLJ_STRING_CRUMB_BYTES carries a tail after its NUL: its code point
 // count and the byte offset of every CLJ_STRING_CRUMB_STRIDE-th code point, both built on the first indexed access.
+// The layout is string.c's: a short string is to live in the value word (tag 100) with no bytes in memory, so every
+// other reader borrows them (clj_string_borrow). Past the inline accessors below the struct's name is poisoned.
 typedef struct {
 	clj_header       h;
 	_Atomic uint32_t hash; // see clj_hash_cache_load
@@ -25,12 +27,38 @@ extern const clj_type clj_string_type;
 clj_value clj_string_new(const char *bytes, size_t len);
 clj_value clj_string_from_cstr(const char *s);
 
-static inline bool        clj_is_string(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_string_type; }
-static inline clj_string *clj_string_of(clj_value v) { return (clj_string *)clj_to_ptr(v); }
-// Borrowed: valid while s is.
-static inline const char *clj_string_bytes(clj_value s) { return clj_string_of(s)->bytes; }
-static inline uint32_t    clj_string_len(clj_value s) { return clj_string_of(s)->len; }
-static inline bool        clj_string_is_ascii(clj_value s) { return clj_header_of(s)->flags & CLJ_STRING_ASCII; }
+static inline bool     clj_is_string(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_string_type; }
+static inline uint32_t clj_string_len(clj_value s) { return ((const clj_string *)clj_to_ptr(s))->len; }
+static inline bool     clj_string_is_ascii(clj_value s) { return clj_header_of(s)->flags & CLJ_STRING_ASCII; }
+
+// A string's bytes, borrowed; bytes[len] is NUL.
+typedef struct {
+	const char *bytes;
+	size_t      len;
+} clj_str;
+
+// Where a string kept in the value word unpacks: 7 bytes and the NUL.
+typedef struct {
+	char b[8];
+} clj_str_buf;
+
+// Valid while s lives and buf is in scope; never across a park, never to another thread (clj_string_materialize).
+static inline clj_str clj_string_borrow(clj_value s, clj_str_buf *buf) {
+	(void)buf;
+	const clj_string *o = (const clj_string *)clj_to_ptr(s);
+	return (clj_str){o->bytes, o->len};
+}
+
+// clj_string_borrow into a buffer that lives to the end of the enclosing block, not of the statement: a pointer
+// taken from it must not be kept past that block, nor returned.
+#define CLJ_STR(s) clj_string_borrow((s), &(clj_str_buf){{0}})
+
+// A heap string equal to s, +1: the one form whose bytes outlive a borrow (across a park, on a pool thread, in a
+// struct that keeps a C string). Every string is on the heap so far, so this is s retained.
+static inline clj_value clj_string_materialize(clj_value s) { return clj_retain(s); }
+// The bytes of a heap string, NUL-terminated, for as long as it lives: one clj_string_materialize returned, or any
+// string where a `char *` leaves for C with no owner (objc.c's '*', which must materialize once strings can be small).
+static inline const char *clj_string_heap_bytes(clj_value h) { return ((const clj_string *)clj_to_ptr(h))->bytes; }
 
 // Decodes the code point at byte offset pos (< len) into *out; returns its byte length. Malformed
 // bytes decode to whatever they hold rather than failing (the reader does not validate UTF-8, NOTES.md).
@@ -49,7 +77,15 @@ static inline size_t clj_string_index_at(clj_value s, size_t pos) { return clj_s
 // Code point i, or false past the end.
 bool clj_string_char_at(clj_value s, size_t i, uint32_t *out);
 
+// clj_hash_cache_load of the string's hash: 0 until computed.
+uint32_t clj_string_cached_hash(clj_value s);
+
 // The first occurrence of nd in hay, NULL when none; an empty nd is found at hay. memmem is not in C11.
 const char *clj_bytes_find(const char *hay, size_t hlen, const char *nd, size_t nlen);
+
+#ifndef CLJ_STRING_LAYOUT
+#define clj_string       clj_string_layout_is_private_to_string_c
+#undef CLJ_STRING_ASCII
+#endif
 
 #endif

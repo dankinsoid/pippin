@@ -26,10 +26,10 @@ static inline os_signpost_id_t clj_signpost_begin(clj_value name) {
 	if (clj_is_nil(name)) {
 		os_signpost_interval_begin(clj_signposts_log, id, "invoke", "%{public}s", "fn");
 	} else if (clj_is_nil(clj_symbol_ns(name))) {
-		os_signpost_interval_begin(clj_signposts_log, id, "invoke", "%{public}s", clj_string_bytes(clj_symbol_name(name)));
+		os_signpost_interval_begin(clj_signposts_log, id, "invoke", "%{public}s", CLJ_STR(clj_symbol_name(name)).bytes);
 	} else {
-		os_signpost_interval_begin(clj_signposts_log, id, "invoke", "%{public}s/%{public}s", clj_string_bytes(clj_symbol_ns(name)),
-		                           clj_string_bytes(clj_symbol_name(name)));
+		os_signpost_interval_begin(clj_signposts_log, id, "invoke", "%{public}s/%{public}s", CLJ_STR(clj_symbol_ns(name)).bytes,
+		                           CLJ_STR(clj_symbol_name(name)).bytes);
 	}
 	return id;
 }

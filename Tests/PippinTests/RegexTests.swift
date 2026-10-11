@@ -203,7 +203,7 @@ extension CoreTests {
 				#expect(clj_is_regex(p))
 				#expect(String(cString: clj_type_name(p)) == "regex")
 				#expect(clj_regex_group_count(p) == 1)
-				#expect(String(cString: clj_string_bytes(clj_regex_pattern(p))) == "a(b)c")
+				#expect(Value.decode(clj_regex_pattern(p)) == "a(b)c")
 				let input = clj_string_from_cstr("xa bc abc")
 				let m = clj_matcher_new(p, input)
 				clj_release(input)

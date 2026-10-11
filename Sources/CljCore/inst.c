@@ -188,7 +188,7 @@ static clj_value b_inst_ms(const clj_value *args, size_t n) {
 // The #inst data reader: clojure.instant/read-instant-date.
 clj_value clj_inst_read(clj_value form) {
 	if (!clj_is_string(form)) return clj_throw_msg("#inst literal expects a string, got: %s", clj_type_name(form));
-	return clj_inst_parse(clj_string_bytes(form), clj_string_len(form));
+	return clj_inst_parse(CLJ_STR(form).bytes, clj_string_len(form));
 }
 
 static clj_value b_read_inst(const clj_value *args, size_t n) {

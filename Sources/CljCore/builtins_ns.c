@@ -15,7 +15,7 @@ static clj_value the_ns(clj_value v) {
 	if (clj_is_ns(v)) return v;
 	if (!clj_is_symbol(v)) return clj_throw_msg("%s cannot be cast to a namespace", clj_type_name(v));
 	clj_value ns = clj_ns_find(v);
-	if (clj_is_nil(ns)) return clj_throw_msg("No namespace: %s found", clj_string_bytes(clj_symbol_name(v)));
+	if (clj_is_nil(ns)) return clj_throw_msg("No namespace: %s found", CLJ_STR(clj_symbol_name(v)).bytes);
 	return ns;
 }
 
@@ -116,8 +116,8 @@ static clj_value b_alias(const clj_value *args, size_t n) {
 	clj_value ns = clj_ns_current();
 	clj_value existing = clj_map_get(clj_ns_aliases(ns), args[0], CLJ_NIL);
 	if (!clj_is_nil(existing) && existing != target) {
-		return clj_throw_msg("Alias %s already exists in namespace %s, aliasing %s", clj_string_bytes(clj_symbol_name(args[0])),
-		                     clj_string_bytes(clj_symbol_name(clj_ns_name(ns))), clj_string_bytes(clj_symbol_name(clj_ns_name(existing))));
+		return clj_throw_msg("Alias %s already exists in namespace %s, aliasing %s", CLJ_STR(clj_symbol_name(args[0])).bytes,
+		                     CLJ_STR(clj_symbol_name(clj_ns_name(ns))).bytes, CLJ_STR(clj_symbol_name(clj_ns_name(existing))).bytes);
 	}
 	clj_ns_alias(ns, args[0], target);
 	return CLJ_NIL;
@@ -304,7 +304,7 @@ static clj_value b_load_file(const clj_value *args, size_t n) {
 static clj_value b_load_resource_star(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("load-resource* expects a string, got: %s", clj_type_name(args[0]));
-	return clj_load_resource_path(clj_string_bytes(args[0]));
+	return clj_load_resource_path(CLJ_STR(args[0]).bytes);
 }
 
 // a.b-c → "a/b_c"
@@ -317,7 +317,7 @@ static clj_value b_lib_path_star(const clj_value *args, size_t n) {
 	uint32_t len = clj_string_len(name);
 	char    *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
-	memcpy(text, clj_string_bytes(name), len + 1);
+	memcpy(text, CLJ_STR(name).bytes, len + 1);
 	for (uint32_t i = 0; i < len; i++) {
 		if (text[i] == '.') text[i] = '/';
 		else if (text[i] == '-') text[i] = '_';
@@ -332,7 +332,7 @@ static clj_value b_read_string(const clj_value *args, size_t n) {
 	if (clj_is_nil(s)) return clj_throw_msg("read-string of nil");
 	if (!clj_is_string(s)) return clj_throw_msg("read-string expects a string, got: %s", clj_type_name(s));
 	clj_reader r;
-	clj_reader_init(&r, clj_string_bytes(s), clj_string_len(s));
+	clj_reader_init(&r, CLJ_STR(s).bytes, clj_string_len(s));
 	clj_reader_use_namespaces(&r);
 	clj_value       form;
 	clj_read_status st = clj_read(&r, &form);
@@ -350,7 +350,7 @@ static clj_value b_read_prefix_star(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value s = args[0];
 	if (!clj_is_string(s)) return clj_throw_msg("read-prefix* expects a string, got: %s", clj_type_name(s));
-	const char *bytes = clj_string_bytes(s);
+	const char *bytes = CLJ_STR(s).bytes;
 	size_t      len = clj_string_len(s);
 	clj_reader  r;
 	clj_reader_init(&r, bytes, len);
@@ -375,7 +375,7 @@ static clj_value b_read_prefix_star(const clj_value *args, size_t n) {
 static clj_value b_mangle_star(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("mangle* expects a string, got: %s", clj_type_name(args[0]));
-	char     *m = clj_mangle(NULL, clj_string_bytes(args[0]));
+	char     *m = clj_mangle(NULL, CLJ_STR(args[0]).bytes);
 	clj_value out = clj_string_from_cstr(m);
 	free(m);
 	return out;
@@ -389,7 +389,7 @@ static clj_value b_eval(const clj_value *args, size_t n) {
 static clj_value b_load_string(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return clj_throw_msg("load-string expects a string, got: %s", clj_type_name(args[0]));
-	return clj_load_source(clj_string_bytes(args[0]), clj_string_len(args[0]), CLJ_NIL);
+	return clj_load_source(CLJ_STR(args[0]).bytes, clj_string_len(args[0]), CLJ_NIL);
 }
 
 static clj_value b_special_symbol_p(const clj_value *args, size_t n) {
@@ -432,7 +432,7 @@ static clj_value program_type_var(clj_value pkg, clj_value name) {
 		uint32_t    len = clj_string_len(text);
 		char       *dashed = malloc(len + 1);
 		if (!dashed) clj_fatal("out of memory");
-		memcpy(dashed, clj_string_bytes(text), len + 1);
+		memcpy(dashed, CLJ_STR(text).bytes, len + 1);
 		for (uint32_t i = 0; i < len; i++) {
 			if (dashed[i] == '_') dashed[i] = '-';
 		}
@@ -475,17 +475,17 @@ static clj_value import_type_var(clj_value pkg, clj_value name) {
 	clj_value var = program_type_var(pkg, name);
 	if (!clj_is_nil(var)) return var;
 	clj_value   ptext = clj_symbol_name(pkg), ntext = clj_symbol_name(name);
-	const char *p = clj_string_bytes(ptext);
+	const char *p = CLJ_STR(ptext).bytes;
 	size_t      plen = clj_string_len(ptext);
 	if (is_jvm_package(p, plen)) return CLJ_NIL;
 	clj_value t = CLJ_NIL;
-	for (size_t i = 0; i < sizeof bridges / sizeof *bridges && clj_is_nil(t); i++) t = bridges[i](p, plen, clj_string_bytes(ntext), clj_string_len(ntext));
+	for (size_t i = 0; i < sizeof bridges / sizeof *bridges && clj_is_nil(t); i++) t = bridges[i](p, plen, CLJ_STR(ntext).bytes, clj_string_len(ntext));
 	if (clj_is_nil(t)) return CLJ_NIL;
 	var = clj_ns_intern(clj_ns_find_or_create(pkg), name);
 	clj_value root = clj_var_root(var);
 	if (root != CLJ_UNBOUND && !is_type_value(root) && !clj_is_objc_object(root)) {
 		clj_release(t);
-		return clj_throw_msg("Cannot import %s.%s: %s/%s is a var holding a %s", p, clj_string_bytes(ntext), p, clj_string_bytes(ntext), clj_type_name(root));
+		return clj_throw_msg("Cannot import %s.%s: %s/%s is a var holding a %s", p, CLJ_STR(ntext).bytes, p, CLJ_STR(ntext).bytes, clj_type_name(root));
 	}
 	clj_var_bind_root(var, t);
 	clj_release(t);
@@ -505,8 +505,8 @@ static clj_value import_into(clj_value ns, clj_value pkg, clj_value name, clj_va
 	if (!clj_is_nil(prior) && prior != var) {
 		clj_value text = clj_pr_str(prior);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
-		clj_value r = clj_throw_msg("%s already refers to: %s in namespace: %s", clj_string_bytes(clj_symbol_name(name)), clj_string_bytes(text),
-		                            clj_string_bytes(clj_symbol_name(clj_ns_name(ns))));
+		clj_value r = clj_throw_msg("%s already refers to: %s in namespace: %s", CLJ_STR(clj_symbol_name(name)).bytes, CLJ_STR(text).bytes,
+		                            CLJ_STR(clj_symbol_name(clj_ns_name(ns))).bytes);
 		clj_release(text);
 		return r;
 	}
@@ -525,7 +525,7 @@ static clj_value b_import_star(const clj_value *args, size_t n) {
 		clj_value spec = clj_first(s), r = CLJ_NIL;
 		if (clj_is_symbol(spec) && clj_is_nil(clj_symbol_ns(spec))) {
 			clj_value   text = clj_symbol_name(spec);
-			const char *bytes = clj_string_bytes(text);
+			const char *bytes = CLJ_STR(text).bytes;
 			const char *dot = strrchr(bytes, '.');
 			// A name with no package reaches no namespace, and every bridge takes a package.
 			if (dot && dot != bytes && dot[1]) {

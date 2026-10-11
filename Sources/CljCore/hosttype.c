@@ -122,7 +122,7 @@ bool clj_host_type_instance(clj_value type, clj_value v) {
 }
 
 clj_value clj_host_type_catches(clj_value name, clj_value ex) {
-	const char *text = clj_string_bytes(name);
+	const char *text = CLJ_STR(name).bytes;
 	clj_value   type = clj_host_type_named(text, clj_string_len(name));
 	if (clj_is_nil(type)) {
 		// The refusal interrupts an unwind, so ex arrives as its cause instead of being dropped.

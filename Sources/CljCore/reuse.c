@@ -127,7 +127,7 @@ static bool step_in_place(clj_header *h) {
 	if (h->type == &clj_string_seq_type) {
 		clj_string_seq *s = (clj_string_seq *)h;
 		uint32_t        cp, len = clj_string_len(s->str.v);
-		size_t          next = s->pos + clj_utf8_decode(clj_string_bytes(s->str.v), len, s->pos, &cp);
+		size_t          next = s->pos + clj_utf8_decode(CLJ_STR(s->str.v).bytes, len, s->pos, &cp);
 		if (next >= len) return false;
 		s->pos = (uint32_t)next;
 		count_skipped(1);

@@ -246,7 +246,7 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 			size_t    len = clj_string_len(s);
 			if (it->pos >= len) return done(it, false);
 			uint32_t cp;
-			it->pos += clj_utf8_decode(clj_string_bytes(s), len, it->pos, &cp);
+			it->pos += clj_utf8_decode(CLJ_STR(s).bytes, len, it->pos, &cp);
 			*out = clj_char(cp);
 			return true;
 		}

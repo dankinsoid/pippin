@@ -366,7 +366,7 @@ static const struct {
 
 static bool var_in_ns(clj_value var, const char *ns_name) {
 	clj_value ns = clj_var_ns(var);
-	return clj_is_symbol(ns) && strcmp(clj_string_bytes(clj_symbol_name(ns)), ns_name) == 0;
+	return clj_is_symbol(ns) && strcmp(CLJ_STR(clj_symbol_name(ns)).bytes, ns_name) == 0;
 }
 
 static bool is_core_var(clj_value var) { return var_in_ns(var, "clojure.core"); }
@@ -375,7 +375,7 @@ static bool is_core_var(clj_value var) { return var_in_ns(var, "clojure.core"); 
 // depend on how the library was built.
 static bool is_park_var(clj_value var) {
 	static const char *const waits[] = {"<!", ">!", "<!!", ">!!", "alts!", "alts!!"};
-	const char              *name = clj_string_bytes(clj_symbol_name(clj_var_name(var)));
+	const char              *name = CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes;
 	if (var_in_ns(var, "Thread")) return strcmp(name, "sleep") == 0;
 	if (!var_in_ns(var, "clojure.core.async")) return false;
 	for (size_t i = 0; i < sizeof waits / sizeof *waits; i++) {
@@ -387,7 +387,7 @@ static bool is_park_var(clj_value var) {
 // What a var with no summary does: a core builtin by name, a parking primitive, anything otherwise.
 static uint32_t unknown_var_effects(clj_value var) {
 	if (!clj_is_var(var)) return CLJ_EFFECT_ANY;
-	if (is_core_var(var)) return clj_facts_core_effects(clj_string_bytes(clj_symbol_name(clj_var_name(var))));
+	if (is_core_var(var)) return clj_facts_core_effects(CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes);
 	return is_park_var(var) ? CLJ_EFFECT_ANY | CLJ_EFFECT_PARK : CLJ_EFFECT_ANY;
 }
 
@@ -402,7 +402,7 @@ static const fact_sig *sig_named(const char *name, uint32_t arity) {
 // Keyed on the var's own name, never its root: the pass stays pure and speculates (NOTES.md, "Facts").
 static const fact_sig *sig_of_var(clj_value var, uint32_t arity) {
 	if (!clj_is_var(var) || !is_core_var(var)) return NULL;
-	return sig_named(clj_string_bytes(clj_symbol_name(clj_var_name(var))), arity);
+	return sig_named(CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes, arity);
 }
 
 static const fact_sig *sig_of_intrinsic(const clj_intrinsic *op) {
@@ -898,7 +898,7 @@ static refinement refinement_equality(const clj_node *const *args, uint32_t narg
 static refinement refinement_instance(const clj_node *const *args, uint32_t nargs) {
 	if (nargs != 2 || args[0]->kind != CLJ_NODE_VAR || !clj_is_var(args[0]->u.var.v) || !is_core_var(args[0]->u.var.v))
 		return no_refinement();
-	const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(args[0]->u.var.v)));
+	const char *name = CLJ_STR(clj_symbol_name(clj_var_name(args[0]->u.var.v))).bytes;
 	for (size_t i = 0; i < sizeof type_names / sizeof *type_names; i++) {
 		if (strcmp(type_names[i].name, name) == 0)
 			return refinement_at(args[1], type_names[i].types, CLJ_NULL_NEVER, type_names[i].exact);
@@ -929,7 +929,7 @@ static refinement predicate_of(const clj_node *n, bool *negated) {
 	case CLJ_NODE_INVOKE: {
 		if (n->u.invoke.fn->kind != CLJ_NODE_VAR || !clj_is_var(n->u.invoke.fn->u.var.v) || !is_core_var(n->u.invoke.fn->u.var.v))
 			return no_refinement();
-		const char *name = clj_string_bytes(clj_symbol_name(clj_var_name(n->u.invoke.fn->u.var.v)));
+		const char *name = CLJ_STR(clj_symbol_name(clj_var_name(n->u.invoke.fn->u.var.v))).bytes;
 		if (strcmp(name, "not") == 0 && n->u.invoke.n == 1) {
 			refinement r = predicate_of(n->u.invoke.args[0], negated);
 			*negated = !*negated;
@@ -1297,7 +1297,7 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 		p->self_hit = true;
 	}
 	else record_site(p, site, var, n, have);
-	const char *name = clj_is_var(var) && is_core_var(var) ? clj_string_bytes(clj_symbol_name(clj_var_name(var))) : NULL;
+	const char *name = clj_is_var(var) && is_core_var(var) ? CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
 	uint32_t           named = name ? named_effects(p, name, args, n) : NOT_NAMED;
 	if (named != NOT_NAMED) {
@@ -2018,8 +2018,8 @@ const char *clj_diagnostic_message(const clj_diagnostic *d, char *buf, size_t n)
 	fact_text(d->required, req, sizeof req);
 	fact_text(d->passed, have, sizeof have);
 	if (clj_is_var(d->callee)) {
-		snprintf(name, sizeof name, "%s/%s", clj_string_bytes(clj_symbol_name(clj_var_ns(d->callee))),
-		         clj_string_bytes(clj_symbol_name(clj_var_name(d->callee))));
+		snprintf(name, sizeof name, "%s/%s", CLJ_STR(clj_symbol_name(clj_var_ns(d->callee))).bytes,
+		         CLJ_STR(clj_symbol_name(clj_var_name(d->callee))).bytes);
 	}
 	else snprintf(name, sizeof name, "a direct fn");
 	const char *tail = d->caught ? ", caught by the enclosing try" : "";

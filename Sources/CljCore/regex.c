@@ -26,7 +26,7 @@ static void text_free(re_text *t) {
 }
 
 static void text_of(clj_value s, re_text *t) {
-	const char *bytes = clj_string_bytes(s);
+	const char *bytes = CLJ_STR(s).bytes;
 	size_t      len = clj_string_len(s), pos = 0, n = 0;
 	t->cp = malloc((len + 1) * sizeof *t->cp);
 	t->off = malloc((len + 2) * sizeof *t->off);
@@ -50,8 +50,8 @@ static void text_of(clj_value s, re_text *t) {
 
 // No text: from and to are byte offsets already, as a literal pattern's scan produces them.
 static clj_value text_slice(const re_text *t, clj_value s, uint32_t from, uint32_t to) {
-	if (!t) return clj_string_new(clj_string_bytes(s) + from, to - from);
-	return clj_string_new(clj_string_bytes(s) + t->off[from], t->off[to] - t->off[from]);
+	if (!t) return clj_string_new(CLJ_STR(s).bytes + from, to - from);
+	return clj_string_new(CLJ_STR(s).bytes + t->off[from], t->off[to] - t->off[from]);
 }
 
 // ---- character classes
@@ -1297,7 +1297,7 @@ static clj_value syntax_error(clj_value pattern, const char *desc, size_t offset
 	data = clj_map_assoc(data, kw, clj_fixnum((intptr_t)offset));
 	clj_release(kw);
 	char msg[512];
-	snprintf(msg, sizeof msg, "%s near index %zu\n%.256s", desc, offset, clj_string_bytes(pattern));
+	snprintf(msg, sizeof msg, "%s near index %zu\n%.256s", desc, offset, CLJ_STR(pattern).bytes);
 	clj_value text = clj_string_from_cstr(msg);
 	clj_value ex = clj_ex_info(text, data);
 	clj_release(text);
@@ -1337,7 +1337,7 @@ clj_value clj_regex_new(clj_value pattern) {
 	re_prog *p = calloc(1, sizeof *p);
 	if (!p) clj_fatal("out of memory");
 	comp c = {0};
-	c.src = clj_string_bytes(pattern);
+	c.src = CLJ_STR(pattern).bytes;
 	c.len = clj_string_len(pattern);
 	c.p = p;
 	c.names = CLJ_NIL;
@@ -1482,14 +1482,14 @@ static void buf_slice(buf *b, const re_text *t, clj_value s, uint32_t from, uint
 		from = t->off[from];
 		to = t->off[to];
 	}
-	buf_put(b, clj_string_bytes(s) + from, to - from);
+	buf_put(b, CLJ_STR(s).bytes + from, to - from);
 }
 
-static clj_value byte_slice(clj_value s, size_t from, size_t to) { return clj_string_new(clj_string_bytes(s) + from, to - from); }
+static clj_value byte_slice(clj_value s, size_t from, size_t to) { return clj_string_new(CLJ_STR(s).bytes + from, to - from); }
 
 // Agrees with the engine on valid UTF-8 only: malformed input (the reader does not validate) may decode differently.
 static intptr_t literal_find(const re_prog *p, clj_value s, size_t at) {
-	const char *hay = clj_string_bytes(s);
+	const char *hay = CLJ_STR(s).bytes;
 	const char *hit = clj_bytes_find(hay + at, clj_string_len(s) - at, p->literal, p->literal_len);
 	return hit ? hit - hay : -1;
 }
@@ -1588,7 +1588,7 @@ clj_value clj_regex_split(clj_value re, clj_value s, intptr_t limit) {
 
 // $0..$n and ${name} name groups; a backslash quotes the next character.
 static bool expand(buf *b, clj_value re, clj_value s, const re_text *t, const int32_t *g, clj_value repl) {
-	const char *r = clj_string_bytes(repl);
+	const char *r = CLJ_STR(repl).bytes;
 	size_t      n = clj_string_len(repl);
 	uint32_t    count = clj_regex_group_count(re);
 	for (size_t i = 0; i < n; i++) {
@@ -1655,7 +1655,7 @@ static bool put_replacement(buf *b, clj_value re, clj_value s, const re_text *t,
 		clj_release(out);
 		return false;
 	}
-	buf_put(b, clj_string_bytes(out), clj_string_len(out));
+	buf_put(b, CLJ_STR(out).bytes, clj_string_len(out));
 	clj_release(out);
 	return true;
 }
@@ -1666,7 +1666,7 @@ static clj_value literal_replace(const re_prog *p, clj_value re, clj_value s, cl
 	intptr_t from;
 	while ((from = literal_find(p, s, copied)) >= 0) {
 		int32_t g[2] = {(int32_t)from, (int32_t)(from + p->literal_len)};
-		buf_put(&b, clj_string_bytes(s) + copied, (size_t)from - copied);
+		buf_put(&b, CLJ_STR(s).bytes + copied, (size_t)from - copied);
 		if (!put_replacement(&b, re, s, NULL, g, repl, f)) {
 			free(b.data);
 			return CLJ_THROWN;
@@ -1674,7 +1674,7 @@ static clj_value literal_replace(const re_prog *p, clj_value re, clj_value s, cl
 		copied = (size_t)g[1];
 		if (first_only) break;
 	}
-	buf_put(&b, clj_string_bytes(s) + copied, clj_string_len(s) - copied);
+	buf_put(&b, CLJ_STR(s).bytes + copied, clj_string_len(s) - copied);
 	clj_value out = clj_string_new(b.data, b.len);
 	free(b.data);
 	return out;
@@ -1736,7 +1736,7 @@ clj_value clj_regex_replace_by(clj_value re, clj_value s, clj_value f, bool firs
 
 clj_value clj_regex_quote_replacement(clj_value s) {
 	if (!clj_is_string(s)) return clj_throw_msg("re-quote-replacement expects a string, got: %s", clj_type_name(s));
-	const char *bytes = clj_string_bytes(s);
+	const char *bytes = CLJ_STR(s).bytes;
 	size_t      n = clj_string_len(s);
 	buf         b = {0};
 	for (size_t i = 0; i < n; i++) {
