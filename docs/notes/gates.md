@@ -215,7 +215,9 @@
   `RuntimeTests.defAndRedefinition` counted the meta map of a var it defined as one object, a shape map; after
   `QueueTests`' maps a shape on that path had become a dictionary (`CLJ_SHAPE_MAX_CHILDREN`, shape.c) and the meta
   map was a hash map, two objects (runs 37190622763–37191593504, x86_64). The test now declares the var before its
-  baseline, as it does its other defs. `HostErrorTests.deriveGroupsAHostError` measured a
+  baseline, as it does its other defs. `ShapeTests` met the same mark on `{:a}` after `ModelTests.compiled()` when
+  a new suite moved the deal (run 38037525105); its layout assertions use keys of its own (NOTES "Shapes").
+  `HostErrorTests.deriveGroupsAHostError` measured a
   `derive`/`underive` round trip on the process-global hierarchy, which is object-neutral only while no other
   suite has derived into it: `underive` rebuilds the hierarchy from `(make-hierarchy)`, and the value it
   replaces stays alive in the method cache of every multimethod that dispatched against it (core.clj,

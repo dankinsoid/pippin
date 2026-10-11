@@ -5,6 +5,9 @@ import Testing
 
 private func kw(_ s: String) -> Value { Value(keyword: s) }
 
+// CoreTests runs its suites serially.
+nonisolated(unsafe) private var dictionaryRuns = 0
+
 private func message(_ rt: Runtime, _ source: String) -> String? {
 	do {
 		_ = try rt.eval(source)
@@ -49,12 +52,14 @@ private final class Tree {
 
 extension CoreTests {
 	// Shapes by observation (shape.c): a keyword-keyed map is a shape map, and a lookup site caches slot indices per shape.
+	// Dictionary marks are process-wide and permanent: assoc layouts are asserted on `:st/` keys no other suite uses.
 	@Suite struct ShapeTests {
 		let rt = Runtime()
 
 		init() {
 			for k in ["a", "b", "c", "d", "e", "f", "g", "h", "id", "name", "count", "x", "y", "z", "m", "none", "k1", "k2", "k3", "k4", "k5", "k6", "k7",
 			          "k8", "k9", "k10", "line", "column", "p", "q", "w", "found", "redefined", "keys", "as", "a/x", "b/x"] { _ = kw(k) }
+			for k in ["a", "b", "c", "d", "e", "f", "g", "k1", "k2", "k3"] { _ = kw("st/\(k)") }
 			for i in 0..<40 { _ = kw("key\(i)") }
 		}
 
@@ -82,9 +87,9 @@ extension CoreTests {
 				#expect(try shaped("{:a 1 :b 2}"))
 				#expect(try shaped("(hash-map :a 1 :b 2)"))
 				#expect(try shaped("(assoc {} :a 1)"))
-				#expect(try shaped("(into {} [[:a 1] [:b 2]])"))
-				#expect(try shaped("(zipmap [:a :b] [1 2])"))
-				#expect(try shaped("(let [m {:a 1}] (assoc m :b 2))"))
+				#expect(try shaped("(into {} [[:st/a 1] [:st/b 2]])"))
+				#expect(try shaped("(zipmap [:st/a :st/b] [1 2])"))
+				#expect(try shaped("(let [m {:st/a 1}] (assoc m :st/b 2))"))
 				// Anything but a keyword key is a hash map, and stays one.
 				#expect(try !shaped("{}"))
 				#expect(try !shaped("{1 2}"))
@@ -123,24 +128,24 @@ extension CoreTests {
 		@Test func transitionsAndCanonicalization() throws {
 			let before = clj_debug_live_objects()
 			do {
-				#expect(try shape("{:a 1 :b 2}") == shape("(assoc {:a 1} :b 2)"))
-				#expect(try shape("{:a 1 :b 2}") == shape("(assoc (assoc {} :a 1) :b 2)"))
-				#expect(try shape("{:a 1}") == shape("(dissoc {:a 1 :b 2} :b)"))
-				#expect(try shape("{:a 1}") != shape("{:a 1 :b 2}"))
-				#expect(try shape("{:a 1}") != shape("{:b 1}"))
+				#expect(try shape("{:st/a 1 :st/b 2}") == shape("(assoc {:st/a 1} :st/b 2)"))
+				#expect(try shape("{:st/a 1 :st/b 2}") == shape("(assoc (assoc {} :st/a 1) :st/b 2)"))
+				#expect(try shape("{:st/a 1}") == shape("(dissoc {:st/a 1 :st/b 2} :st/b)"))
+				#expect(try shape("{:st/a 1}") != shape("{:st/a 1 :st/b 2}"))
+				#expect(try shape("{:st/a 1}") != shape("{:st/b 1}"))
 				// One shape per key set: the order of construction does not split the site.
-				#expect(try shape("{:a 1 :b 2}") == shape("{:b 2 :a 1}"))
-				#expect(try shape("{:a 1 :b 2}") == shape("(assoc {:b 2} :a 1)"))
-				#expect(try shape("{:a 1 :b 2}") == shape("(dissoc {:b 2 :c 3 :a 1} :c)"))
-				#expect(try shape("{:a 1 :b 2}") == shape("(into {} [[:b 2] [:a 1]])"))
+				#expect(try shape("{:st/a 1 :st/b 2}") == shape("{:st/b 2 :st/a 1}"))
+				#expect(try shape("{:st/a 1 :st/b 2}") == shape("(assoc {:st/b 2} :st/a 1)"))
+				#expect(try shape("{:st/a 1 :st/b 2}") == shape("(dissoc {:st/b 2 :st/c 3 :st/a 1} :st/c)"))
+				#expect(try shape("{:st/a 1 :st/b 2}") == shape("(into {} [[:st/b 2] [:st/a 1]])"))
 				// The values follow the permutation into the canonical order.
-				#expect(try rt.eval("(let [m (assoc {:b 2} :a 1)] [(:a m) (:b m) (vec (keys m)) (vec (vals m))])") == [1, 2, [kw("a"), kw("b")], [1, 2]])
-				#expect(try rt.eval("(let [m (dissoc {:b 2 :c 3 :a 1} :c)] [(:a m) (:b m) (:c m) (count m)])") == [1, 2, nil, 2])
-				#expect(try rt.eval("(let [m (assoc {:c 3 :b 2} :a 1)] [(:a m) (:b m) (:c m) (= (vec (keys m)) (vec (keys {:a 1 :b 2 :c 3})))])") == [1, 2, 3, true])
+				#expect(try rt.eval("(let [m (assoc {:st/b 2} :st/a 1)] [(:st/a m) (:st/b m) (vec (keys m)) (vec (vals m))])") == [1, 2, [kw("st/a"), kw("st/b")], [1, 2]])
+				#expect(try rt.eval("(let [m (dissoc {:st/b 2 :st/c 3 :st/a 1} :st/c)] [(:st/a m) (:st/b m) (:st/c m) (count m)])") == [1, 2, nil, 2])
+				#expect(try rt.eval("(let [m (assoc {:st/c 3 :st/b 2} :st/a 1)] [(:st/a m) (:st/b m) (:st/c m) (= (vec (keys m)) (vec (keys {:st/a 1 :st/b 2 :st/c 3})))])") == [1, 2, 3, true])
 				// The canonical order of a key set is compare's, whatever order built it.
 				#expect(try rt.eval("(vec (keys {:k3 1 :k2 2 :k1 3}))") == [kw("k1"), kw("k2"), kw("k3")])
 				#expect(try rt.eval("(vec (keys {:k1 3 :k2 2 :k3 1}))") == [kw("k1"), kw("k2"), kw("k3")])
-				#expect(try rt.eval("(vec (keys (assoc {:k3 1 :k2 2} :k1 3)))") == [kw("k1"), kw("k2"), kw("k3")])
+				#expect(try rt.eval("(vec (keys (assoc {:st/k3 1 :st/k2 2} :st/k1 3)))") == [kw("st/k1"), kw("st/k2"), kw("st/k3")])
 				#expect(try rt.eval("(vec (keys {:b/x 1 :a 2 :a/x 3}))") == [kw("a"), kw("a/x"), kw("b/x")])
 				// A dissoc of the last key answers an empty map that is equal to, but not the same object as, {}.
 				#expect(try rt.eval("(let [e (dissoc {:a 1} :a)] [(= e {}) (identical? e {}) (count e) (map? e)])") == [true, false, 0, true])
@@ -151,19 +156,25 @@ extension CoreTests {
 		}
 
 		@Test func dictionaryDetector() throws {
+			// The mark is for good, so each run marks a shape of its own.
+			dictionaryRuns += 1
+			let ns = "st.dict\(dictionaryRuns)"
+			for k in ["p"] + (1...10).map({ "key\($0)" }) { _ = kw("\(ns)/\(k)") }
 			let before = clj_debug_live_objects()
 			do {
 				// Nine distinct keys after the same first key: the shape {:p} is dictionary-like and grows no more.
-				let base = "{:p 0}"
-				for i in 1...9 { _ = try rt.eval("(assoc \(base) :key\(i) \(i))") }
+				let base = "{:\(ns)/p 0}"
+				for i in 1...8 { #expect(try shaped("(assoc \(base) :\(ns)/key\(i) \(i))")) }
 				let p = try shape(base)
-				#expect(p != nil && clj_shape_is_dictionary(p))
+				#expect(p != nil && !clj_shape_is_dictionary(p))
+				#expect(try !shaped("(assoc \(base) :\(ns)/key9 9)"))
+				#expect(clj_shape_is_dictionary(p))
 				#expect(clj_debug_shape_children(p) == UInt32(CLJ_SHAPE_MAX_CHILDREN))
-				#expect(try !shaped("(assoc \(base) :key10 10)"))
-				#expect(try !shaped("(assoc \(base) :key1 1)"))
-				#expect(try rt.eval("(let [m (assoc \(base) :key10 10)] [(count m) (:p m) (:key10 m) (= m {:p 0 :key10 10})])") == [2, 0, 10, true])
+				#expect(try !shaped("(assoc \(base) :\(ns)/key10 10)"))
+				#expect(try !shaped("(assoc \(base) :\(ns)/key1 1)"))
+				#expect(try rt.eval("(let [m (assoc \(base) :\(ns)/key10 10)] [(count m) (:\(ns)/p m) (:\(ns)/key10 m) (= m {:\(ns)/p 0 :\(ns)/key10 10})])") == [2, 0, 10, true])
 				// A literal of the same keys does not go through the transition and keeps its shape.
-				#expect(try shaped("{:p 0 :key10 10}"))
+				#expect(try shaped("{:\(ns)/p 0 :\(ns)/key10 10}"))
 				// The root is exempt: every first key of the program hangs off it.
 				for i in 0..<12 { #expect(try shaped("{:key\(i) 1}")) }
 				#expect(!clj_shape_is_dictionary(clj_shape_root()))
@@ -177,8 +188,9 @@ extension CoreTests {
 			do {
 				// The same map built as a trie (shapes off) and as a shape map.
 				clj_shapes_enable(false)
-				let trie = try rt.eval("(hash-map :a 1 :b [2] :c \"three\")")
+				let built = Result { try rt.eval("(hash-map :a 1 :b [2] :c \"three\")") }
 				clj_shapes_enable(true)
+				let trie = try built.get()
 				#expect(withExtendedLifetime(trie) { !clj_is_shape_map(trie.raw) })
 				let name = Value(symbol: "sh-trie")
 				withExtendedLifetime((trie, name)) { clj_var_bind_root(clj_ns_resolve(clj_ns_user(), name.raw), trie.raw) }
@@ -200,7 +212,7 @@ extension CoreTests {
 				#expect(try rt.eval("[(pr-str {:k7 1 :k8 \"x\"}) (str {:k8 2 :k7 1}) (pr-str {:a {:b {:c 1}}})]") == ["{:k7 1, :k8 \"x\"}", "{:k7 1, :k8 2}", "{:a {:b {:c 1}}}"])
 				#expect(message(rt, "(let [k :a j :a] {k 1 j 2})") == "Duplicate key: :a")
 				#expect(try rt.eval("(let [k :a] {k 1 :b 2})") == Value([kw("a"): 1, kw("b"): 2]))
-				#expect(try shaped("(let [k :a] {k 1 :b 2})"))
+				#expect(try shaped("(let [k :st/a] {k 1 :st/b 2})"))
 				#expect(try rt.eval("(let [{:keys [a b] :as m} {:a 1 :b 2}] [a b (count m)])") == [1, 2, 2])
 				#expect(try rt.eval("(apply hash-map [:a 1 :b 2])") == Value([kw("a"): 1, kw("b"): 2]))
 				#expect(try rt.eval("(vec (for [[k v] {:a 1 :b 2}] [v k]))") == [[1, kw("a")], [2, kw("b")]])
@@ -227,7 +239,7 @@ extension CoreTests {
 		@Test(.enabled(if: clj_reuse_enabled())) func uniqueAssocWritesInPlace() throws {
 			let before = clj_debug_live_objects()
 			do {
-				let a = clj_keyword_from_cstr("a"), g = clj_keyword_from_cstr("g")
+				let a = clj_keyword_from_cstr("st/a"), g = clj_keyword_from_cstr("st/g")
 				var m = clj_map_assoc(clj_map_empty(), a, clj_fixnum(1))
 				#expect(clj_is_shape_map(m) && clj_is_unique(m))
 				let p = m
@@ -237,7 +249,7 @@ extension CoreTests {
 				#expect(clj_map_get(m, a, CLJ_NIL) == clj_fixnum(2))
 				#expect(clj_debug_live_objects() == live)
 				// A new key grows the object: same pool class, same address; otherwise it moves (the system allocator may always), still one object.
-				for k in ["b", "c", "d", "e", "f"] { m = clj_map_assoc(m, clj_keyword_from_cstr(k), clj_fixnum(0)) }
+				for k in ["st/b", "st/c", "st/d", "st/e", "st/f"] { m = clj_map_assoc(m, clj_keyword_from_cstr(k), clj_fixnum(0)) }
 				#expect(clj_debug_live_objects() == live)
 				let six = m
 				m = clj_map_assoc(m, g, clj_fixnum(7))
@@ -262,20 +274,20 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				let x = clj_string_from_cstr("x")
-				var m = clj_map_assoc(clj_map_assoc(clj_map_empty(), clj_keyword_from_cstr("a"), clj_fixnum(1)), clj_keyword_from_cstr("b"), x)
+				var m = clj_map_assoc(clj_map_assoc(clj_map_empty(), clj_keyword_from_cstr("st/a"), clj_fixnum(1)), clj_keyword_from_cstr("st/b"), x)
 				clj_release(x)
 				clj_share(m)
 				#expect(clj_debug_all_shared(m))
 				// A unique published map is updated in place, or replaced by a copy that is published too: the new value is shared.
 				let s = clj_string_from_cstr("y")
-				m = clj_map_assoc(m, clj_keyword_from_cstr("c"), s)
+				m = clj_map_assoc(m, clj_keyword_from_cstr("st/c"), s)
 				#expect(clj_debug_all_shared(m) && clj_is_shared(s))
-				m = clj_map_assoc(m, clj_keyword_from_cstr("b"), s)
+				m = clj_map_assoc(m, clj_keyword_from_cstr("st/b"), s)
 				clj_release(s)
 				#expect(clj_debug_all_shared(m))
 				#expect(clj_map_count(m) == 3)
 				// A second reference makes a copy of its own, unshared, with the original left whole.
-				let copy = clj_map_assoc(clj_retain(m), clj_keyword_from_cstr("d"), clj_fixnum(4))
+				let copy = clj_map_assoc(clj_retain(m), clj_keyword_from_cstr("st/d"), clj_fixnum(4))
 				#expect(!clj_is_shared(copy) && clj_debug_all_shared(m))
 				clj_release(copy)
 				clj_release(m)
@@ -393,12 +405,12 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				clj_shapes_enable(false)
+				defer { clj_shapes_enable(true) }
 				#expect(try !shaped("{:a 1}"))
 				#expect(try !shaped("(assoc {} :a 1)"))
 				#expect(try rt.eval("[(:a {:a 1}) (= {:a 1 :b 2} (assoc {:b 2} :a 1))]") == [1, true])
-				clj_shapes_enable(true)
-				#expect(try shaped("{:a 1}"))
 			}
+			#expect(try shaped("{:a 1}"))
 			#expect(clj_debug_live_objects() == before)
 		}
 	}

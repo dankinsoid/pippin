@@ -99,3 +99,13 @@
   namespace tables keyed by symbols, the suites' own data), six by `with-meta`, none by the 33rd key, the
   dictionary rule or the cap (the `CorpusTests` log prints the counters per library).
 
+- **Tests and the process-wide table.** Shapes, their edges and the dictionary mark outlive every test, so what an
+  assoc onto a non-empty map makes depends on what ran earlier in the process: `ModelTests.compiled()` assocs nine
+  distinct keys onto `{:a}`, and every later `(assoc {:a 1} :b 2)` in that process is a trie. `ShapeTests` failed so
+  when a deal put it after `ModelTests` (run 38037525105; reproduced on main with that shard's suites in one
+  process, run 38162313324, where a probe after each test named `ModelTests.compiled()`). An assertion on the
+  layout of an assoc, `persistent!` or a computed-key literal uses keys of its suite's own namespace (`:st/` in
+  `ShapeTests`, `:ft/` in `FlatMapTests`); a literal, `hash-map` or an assoc into `{}` (the key-set path and the
+  exempt root) may use any. The dictionary detector marks a namespace of its own per run, the mark being for good.
+  The cap is not guarded: a suite that makes 65536 shapes would turn every new key set into a trie for the rest of
+  the process; the corpus makes 321.

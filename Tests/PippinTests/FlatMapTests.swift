@@ -194,15 +194,16 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// persistent! takes the shape transitions, which other suites' dictionary marks cut: `:ft/` keys are this test's own.
 		@Test func keywordKeysGoBackToAShape() throws {
-			let shaped = try rt.eval("(persistent! (-> (transient {}) (assoc! :a 1) (assoc! :b 2)))")
+			let shaped = try rt.eval("(persistent! (-> (transient {}) (assoc! :ft/a 1) (assoc! :ft/b 2)))")
 			#expect(withExtendedLifetime(shaped) { clj_is_shape_map(shaped.raw) })
 			let mixed = try rt.eval("(persistent! (-> (transient {}) (assoc! :a 1) (assoc! \"b\" 2)))")
 			#expect(withExtendedLifetime(mixed) { clj_map_is_flat(mixed.raw) && !clj_map_is_transient(mixed.raw) })
 			// a shape map's transient is a copy; the source keeps its layout and contents
-			let src = try rt.eval("(def flat-src {:a 1 :b 2}) (persistent! (assoc! (transient flat-src) :c 3))")
+			let src = try rt.eval("(def flat-src {:ft/a 1 :ft/b 2}) (persistent! (assoc! (transient flat-src) :ft/c 3))")
 			#expect(withExtendedLifetime(src) { clj_is_shape_map(src.raw) && clj_map_count(src.raw) == 3 })
-			#expect(try rt.eval("flat-src").description == "{:a 1, :b 2}")
+			#expect(try rt.eval("flat-src").description == "{:ft/a 1, :ft/b 2}")
 		}
 
 		@Test func printsInInsertionOrder() throws {
