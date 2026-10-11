@@ -260,26 +260,37 @@ Hot reload: в dev вызовы через таблицу; в release новые
     объявлений, для исследования и REPL; квалифицированные (`:person/name`) — объявленные атрибуты модели.
     Объявления можно получать из наблюдённых данных: shapes pippin или `(infer-attrs sample)` печатает
     `deftype`.
-  - **Объявление атрибутов** (вариант). Атрибут принадлежит модулю; свойства схемы — атрибуту, свойства
-    записи в типе — выборке, как в malli:
+  - **Объявление атрибутов** (вариант). Чьё пространство у атрибута — модуля или типа — выбор:
+
+    | | Пространство — модуль | Пространство — тип |
+    |---|---|---|
+    | полное имя | `:shop.person/id` | `:shop.person.Person/id` |
+    | в коде | `::p/id` через алиас модуля | `:Person/id` через импортированный тип |
+    | два типа в модуле с разным `:id` | конфликт: разные модули или имена | без конфликта |
+    | переименование типа | атрибуты не меняются | меняет имена атрибутов — ломает данные и EDN |
+    | соответствие | обычаю Clojure (сущность — `ns`) | идее «структура — пространство имён», `\Person.id` в Swift |
+
+    Вариант с типом:
     ```clojure
     (ns shop.person)
 
     (deftype Person
-      [[:id :uuid]                                        ; declares :shop.person/id
+      [[:id :uuid]                                        ; declares :shop.person.Person/id
        [:name :string]
        [:email {:optional true} [:string {:pii true}]]])  ; entry props: the selection; schema props: the attribute
 
-    (defattr nickname :string)                            ; an attribute not tied to a type
+    (defattr nickname :string)                            ; not tied to a type: :shop.person/nickname
 
-    (ns shop.order (:require [shop.person :as p]))
+    (ns shop.order (:require [shop.person :refer [Person]]))
 
-    (deftype Order [[:id :uuid] [:lines [:vector Line]] ::p/id])   ; a bare keyword includes a declared attribute
-    (defn customer-of [o] (::p/id o))
+    (deftype Order [[:id :uuid] [:lines [:vector Line]] :Person/id])   ; a bare keyword includes a declared attribute
+    (defn customer-of [o] (:Person/id o))
     ```
-    Повторное объявление в модуле с той же схемой — тот же атрибут, с другой — ошибка; поэтому две сущности с
-    разным `:id` — разные модули или разные имена. Мелким структурам (`Point`) — `{:local true}`: поля не
-    атрибуты, а структурная строка. `(attr ::p/email)` возвращает объявление данными.
+    Часть кейворда до `/` разрешается сначала как тип в области видимости, потом как алиас модуля; типы с
+    заглавной, алиасы со строчной — не путаются. Две косые в кейворде (`:shop.person/Person/id`) Clojure не
+    поддерживает, поэтому тип входит в пространство через точку. Повторное объявление с той же схемой — тот же
+    атрибут, с другой — ошибка. Мелким структурам (`Point`) — `{:local true}`: поля не атрибуты, а
+    структурная строка. `(attr :Person/email)` возвращает объявление данными.
   - **Куда можно довести:**
     - функции как резолверы (Pathom): вход и выход — наборы атрибутов; `(resolve {:order/id id} :person/name)`
       — компилятор строит цепочку вызовов (`order/id → order/customer-id → person/name`), как Dagger строит
