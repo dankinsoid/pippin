@@ -685,6 +685,74 @@
   dup/drop fusion inside bodies; owned-parameter entries for the runtime's `assoc`/`conj` to take a token; the
   interpreter — triggers: a profile where `bnode_copy` stays after `-O2` borrow inference, or a hot destructuring of
   fresh tuples.
+- [~] **Inlining on the AST** (design §6 «Инлайнинг без JIT», §10 step 7a; optimizer.c `inline_walk`, `try_inline`,
+  `copy_node`; eval.c `eval_root_is`, `eval_inline`; compiler.c `emit_inlined_call`, `emit_inline`; verify.c
+  `walk_inlined`). A pass of `clj_optimize` between the rewrites and the liveness marks, so both backends get it: a
+  call `(f a b)` becomes `(if ROOT_IS[f, closure] (let [p a'] INLINE[fn, body']) (f a b))`. The guard reads the root
+  before the arguments run, as the call does, and the else branch is the call itself, untouched: a redefinition, a
+  `with-redefs`, an `alter-var-root` or a dynamic var runs exactly what it ran before (`Fixtures/compiler/inline-rebind.clj`).
+  `body'` is the arity body copied into the caller's frame, its slots renumbered past the frame's own (direct fns,
+  their calls and static links, captures, catches and nested inlines follow; a closure's body and a fused program
+  are copied as they are). A parameter whose argument is a local, captured or constant read, and which the body
+  reads only as a local of its own frame, becomes a copy of that read (beta-reduction of a trivial argument); every
+  other one is bound by the let to a copy of its argument, which runs where the call would have run it, once, in
+  order. A copy is never folded: the operators in it keep their guards, so a later rebinding of `*` reaches it
+  (`Fixtures/compiler/rebind.clj`). **Who is inlined**: a call inside a fn arity (a top-level form runs once) whose head is a
+  non-dynamic var holding a closure without an environment, at a fixed arity of at most `INLINE_CALLEE_MAX` (32)
+  body nodes, with no fn inside (each copy would be a closure, and C functions, of its own), no recur back to the
+  arity, the fn's own name unread and no call of the var being defined; its summary under the dev store walked, not
+  recursive, with no effect past alloc and throw (`clj_specialize_var_inlinable`); not inside a macro's def, not in a
+  fused program. A copied body is never inlined into again, so recursion is never unrolled; what nests is what the
+  callee's own tree inlined, cut at `CLJ_INLINE_DEPTH_MAX` (2) by keeping its call. **Budget per frame**: growth of at
+  most `max(64, its own size)` nodes, at most 64 slots (the owned mask and the marks), and a frame of at most 16
+  slots stays within 16 (eval.c's `SMALL_SLOTS`: past it a call's frame is malloc'd). **What the copy does not do**
+  that a call does: the stack check (the body cannot recurse into itself), the deadline check at entry (its loops
+  tick), the census frame (that is the point: what the body allocates is born in the caller's frame). **Traces**: the
+  interpreter's `INLINE` pushes the callee's shadow frame at the call's position and drives the profiler and
+  signposts as `run_body` does; the compiler marks the body's calls with a stub of its own chained to the frame's
+  (the empty prologue entry). **Facts**: an inlined call refines an `if` as the call does (`predicate_of` reads the
+  else branch); the body's checks would repeat the callee's own at its def, so its diagnostics, conflicts and
+  narrowings are not counted (`pass.inlined`), the call beside it is checked against the summary. **The codec**
+  writes the call, so a tree read back is the program without the copy. **Compiled**: the guard is `1` in a closed
+  set that binds the var to the very fn the body was copied from (`CLJC_INL_<base>_a<n>`, decided at write time as the
+  direct targets are), the dispatcher's identity (`clj_c_root_runs`) in the unit that compiled that fn, and where
+  neither can hold — a dev unit calling another unit's fn — the call alone is written, since dev units have no direct
+  link to guard. `CLJ_NO_OPT=inline` (and `passes`) turns the pass off, `clj_inline_set_enabled` is the tests'
+  switch, `clj-compile --stats` counts the written sites. **Cost** (x86_64, the same Intel host, min of three clang
+  runs, `-O0 -DCLJ_DEBUG=1` / `-O2 -DCLJ_CLOSED`, before = origin/main 01168b2, after = this entry with the next two):
+  `boot/core.c` 4 839 623 → 5 044 995 bytes (+4.2 %), clang 3.54 → 3.67 s (+3.7 %) and 19.76 → 20.53 s (+3.9 %), 104
+  inlined sites; the libs +0–1 % but `clojure/string.clj` +12.6 % (seven calls of the private `text`, whose throw path
+  is most of the copy); five corpus libraries' dev units (medley, math-combinatorics, dependency, enos, turbine, 12
+  units, 7.66 MB) +0.7 % bytes and clang within this host's spread. **Effect** (bench/RESULTS.md, "AST inlining"): over
+  the nine data workloads of the closed census, died in the birth frame 17.4 → 18.6 %, 0.14M fewer allocations an
+  iteration; medley +9.5 points, pipelines +3.0, suite-data +2.8, the lazy-seq-bound workloads unmoved. **Not done**, each with its trigger: a guard
+  in a dev unit for another unit's fn (the registry by name, or a digest of the fn's tree as its identity) — when dev
+  units are measured as the dev loop; the inlined body's profile in a `--instrument` compiled unit; a literal fn
+  argument beta-reduced into the body that calls it (`update`'s `f`) — callees whose summary is open in a parameter
+  are not inlined now, which is most higher-order core; scalar replacement of what the copy now allocates in the
+  caller's frame is step 7b.
+- [~] **The intrinsics' fast arms at the site** (design §6 «Инлайнинг без JIT»: a tag switch, the slow path a call;
+  compiled_internal.h `clj_c_add` … `clj_c_first`, compiler.c `fast_cname`). Where the facts leave an intrinsic's
+  arguments untyped, the guarded path calls a static inline arm instead of the table's function: `+ - *` and
+  `inc dec` on fixnums with the overflow check, `< <= > >= = not=` and `zero? pos? neg?` on fixnums (two fixnums are
+  equal exactly when identical: a long is a fixnum whenever one can hold it), `count` of a vector from its head,
+  `nth` of a vector at a fixnum index within bounds (one load in a tuple, `clj_vector_nth` in a trie), `first` of a
+  cons, a list or a vector; anything else calls the function, so each arm answers what the function answers for the
+  representation it tests. The vector's shared head and the tuple's items are `clj_vector_head` (vector.h, asserted
+  against vector.c's layouts). `get` with a literal keyword and `(:k m)` already have their site cache. Not done: `get`
+  of another key, `next`/`rest` (their owned forms are the reuse planner's); trigger: a profile with `clj_get2` or
+  `clj_next` under a compiled caller.
+- [~] **Fused stages over literal fns run as one step** (design §6b «Итераторы Rust», monomorphization of the stages;
+  compiler.c `mono_plan_of`, `emit_mono_step`; fusion.c `clj_fused_reduce_step` and friends). A `FUSED` site whose
+  stages are all `map`, `filter` or `remove` over a literal `fn` with a fixed arity 1 is written, behind the same
+  fusion guard, as one step function `<base>__fz<n>(ctx, x, &out)` that calls each stage's arity function by name —
+  its `always_inline` twin when the stage is a leaf, so the stage bodies sit in the step — and a driver
+  (`clj_fused_*_step`) that runs it under the source's `reduce` with the usual bottom: no transducer closure is made
+  and no stage is reached through `clj_invoke`. The step is a frame fn under the consumer's name, which a trace shows
+  where the driver's transducer frames were; a stage body inlined into it names its own stub. A stage given any other
+  value, another stage kind or a variadic fn keeps the generic program. Not done: `keep`, `take`, `drop` and the
+  stateful stages; the per-item indirect call from the source's `reduce` into the step (a loop over a vector source
+  written in the step itself); trigger: `fused-reduce*`'s share in a closed profile.
 - **A compiled closure's `min_arity` is its rest arity's own count**, not its lowest, when it has a rest arity
   (`fn_arity_bounds`; the mask carries the fixed ones). Past `CLJ_FN_MAX_FIXED` + 1 spread arguments `clj_apply`
   hands the rest over as one seq at that position (`rest_at`, fn.c, docs/notes/analyzer-and-evaluator.md), as an

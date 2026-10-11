@@ -2468,3 +2468,58 @@ deterministic; *stats ms* is the stats build's own time, one sample each.
   moved 40 % between its two release runs, so the release columns carry no claim. The stats build's times, sampled
   next to each other, agree with the counters on dependency (−20 %) and combinatorics (−14 %), pipelines −4 %,
   nested-update within 1 %.
+
+## AST inlining, the intrinsics' fast arms, monomorphized fused stages — 52b624f, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7a (docs/notes/compiler.md, "Inlining on the AST" and the two entries after it). Two `corpus-bench`
+runs, one each: 38170995926 on origin/main 01168b2 (*before*) and 38173785197 on branch `inline-7a` (*after*). Every
+workload returned the JVM's value in every runtime both times. The census is the closed stats build's, a frame being a
+fn body as before: an inlined body pushes none, so what it allocates is born in its caller's frame.
+
+| workload | born/iter before → after | died in its birth frame | frame + callee | inlined sites / fused steps (closed, the program's units) |
+|---|---|---|---|---|
+| medley | 750.1k → 709.5k | 19.3 → 28.8 | 24.7 → 34.5 | 12 / 1 |
+| combinatorics | 3.84M → 3.84M | 9.0 → 9.2 | 9.1 → 9.3 | 89 / 2 |
+| dependency | 11.26M → 11.26M | 18.7 → 18.8 | 18.9 → 19.0 | 17 / 2 |
+| nested-update | 3.32M → 3.32M | 55.0 → 55.0 | 58.0 → 58.0 | 16 / 0 |
+| group-freq | 5.12M → 5.02M | 5.9 → 6.0 | 36.7 → 37.4 | 9 / 0 |
+| pipelines | 10.27M → 10.27M | 12.1 → 15.1 | 12.3 → 15.3 | 15 / 1 |
+| strings | 807.2k → 807.2k | 36.2 → 36.2 | 36.2 → 36.2 | 5 / 1 |
+| render | 992.1k → 992.1k | 24.6 → 24.6 | 24.6 → 24.6 | 5 / 1 |
+| suite-data | 1.20M → 1.20M | 3.0 → 5.8 | 5.6 → 5.9 | 34 / 4 |
+| async-libs | 273.1k → 263.5k | 63.3 → 77.2 | 63.3 → 77.2 | 7 / 0 |
+| async-broadcast | 250.1k → 250.1k | 24.0 → 24.0 | 24.0 → 24.0 | 1 / 0 |
+
+- **Frame-local, weighted over the nine data workloads** (37.6M → 37.4M allocations an iteration): died in the birth
+  frame 17.4 % → 18.6 %, frame + callee 22.2 % → 23.3 %, so 0.42M more objects an iteration die where they were born,
+  and 0.14M fewer are made (medley −40.6k, group-freq −100k, async-libs −9.6k: transducer closures and the
+  intermediate values of copied bodies). The gain sits in medley (+9.5 points), pipelines (+3.0) and suite-data
+  (+2.8); dependency, combinatorics and nested-update do not move, because what they allocate is born by `lazy-seq`
+  bodies, `concat` and `update-in`, which the budget leaves alone (a fn in the body, a parameter called as a fn).
+  The interprocedural classes are still 77 % of all allocations: this is the precondition of 7b, not a region.
+- **Time** (ms per iteration; closed/JVM in parentheses, the fairer column: the second run's runner was the slow kind,
+  JVM warm medley 25.7 → 47.0, render 30.9 → 38.9):
+
+  | workload | dev before → after | closed before → after |
+  |---|---|---|
+  | medley | 56.7 → 57.2 | 61.4 (2.4×) → 102.8 (2.2×) |
+  | combinatorics | 203.4 → 243.7 | 160.7 (2.4×) → 225.5 (2.6×) |
+  | dependency | 672.8 → 647.0 | 561.4 (2.0×) → 626.8 (1.9×) |
+  | nested-update | 237.8 → 291.5 | 212.0 (2.8×) → 227.9 (2.4×) |
+  | group-freq | 284.8 → 308.0 | 296.0 (2.9×) → 297.7 (2.6×) |
+  | pipelines | 634.0 → 837.3 | 561.9 (3.6×) → 616.9 (3.2×) |
+  | strings | 44.5 → 54.0 | 47.3 (1.3×) → 54.3 (1.4×) |
+  | render | 70.2 → 74.9 | 57.9 (1.9×) → 66.6 (1.7×) |
+  | suite-data | 73.5 → 80.9 | 71.0 (2.2×) → 73.6 (1.8×) |
+
+  One run each on runners ±20–30 % apart: closed/JVM improves on seven of nine and worsens on two, all within the
+  noise; no per-workload claim. The dev units inline only within a unit (a dev unit has no direct link to another
+  unit's fn to guard), so dev moves less than closed by construction.
+- **Compile cost** (the x86_64 dev host, the minimum of three clang runs per unit, before = origin/main's headers and
+  units): `boot/core.c` 4 839 623 → 5 044 995 bytes (+4.2 %), clang `-O0 -DCLJ_DEBUG=1` 3.54 → 3.67 s (+3.7 %),
+  `-O2 -DCLJ_CLOSED` 19.76 → 20.53 s (+3.9 %); the six libs +0–1 % except `clojure.string` +12.6 % bytes (+5 % `-O2`):
+  seven inlined calls of the private `text`, whose throw path is most of each copy. Five corpus libraries compiled as
+  CorpusTests' compiled mode does (medley, math-combinatorics, dependency, enos, turbine: 12 units, 7.66 MB) +0.7 %
+  bytes; clang `-O0` −7 to +4 % per unit, `-O2 -DCLJ_CLOSED` −1 to +11 % (math-combinatorics +3.5 % bytes, +8 %;
+  medley's test unit +0.4 % bytes, +11 %, which is this host's spread on a 12 s compile). Under the step's ~15 % bound
+  everywhere.
