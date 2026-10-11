@@ -260,6 +260,26 @@ Hot reload: в dev вызовы через таблицу; в release новые
     объявлений, для исследования и REPL; квалифицированные (`:person/name`) — объявленные атрибуты модели.
     Объявления можно получать из наблюдённых данных: shapes pippin или `(infer-attrs sample)` печатает
     `deftype`.
+  - **Объявление атрибутов** (вариант). Атрибут принадлежит модулю; свойства схемы — атрибуту, свойства
+    записи в типе — выборке, как в malli:
+    ```clojure
+    (ns shop.person)
+
+    (deftype Person
+      [[:id :uuid]                                        ; declares :shop.person/id
+       [:name :string]
+       [:email {:optional true} [:string {:pii true}]]])  ; entry props: the selection; schema props: the attribute
+
+    (defattr nickname :string)                            ; an attribute not tied to a type
+
+    (ns shop.order (:require [shop.person :as p]))
+
+    (deftype Order [[:id :uuid] [:lines [:vector Line]] ::p/id])   ; a bare keyword includes a declared attribute
+    (defn customer-of [o] (::p/id o))
+    ```
+    Повторное объявление в модуле с той же схемой — тот же атрибут, с другой — ошибка; поэтому две сущности с
+    разным `:id` — разные модули или разные имена. Мелким структурам (`Point`) — `{:local true}`: поля не
+    атрибуты, а структурная строка. `(attr ::p/email)` возвращает объявление данными.
   - **Куда можно довести:**
     - функции как резолверы (Pathom): вход и выход — наборы атрибутов; `(resolve {:order/id id} :person/name)`
       — компилятор строит цепочку вызовов (`order/id → order/customer-id → person/name`), как Dagger строит
@@ -286,6 +306,7 @@ Hot reload: в dev вызовы через таблицу; в release новые
       определению, переименование, поиск использований работают; зависимость от модуля видна, глобального
       реестра нет. Пишется кейвордом, а не символом `person-id`, потому что тот же атрибут стоит в литералах
       данных, путях и EDN — имена кода и данных одни;
+      объявление — ниже, «Объявление атрибутов»;
     - одно имя с разным смыслом в разных контекстах (`:order/status` — строка в API v1, перечисление внутри)
       требует отдельных атрибутов, и они плодятся;
     - мелким обобщённым структурам (`Point {x y}`, пары) атрибуты избыточны — локальные поля остаются;
