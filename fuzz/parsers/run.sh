@@ -51,7 +51,7 @@ for spec in $(echo "$@" | tr , ' '); do
 		rep="$out/logs/$t-$(basename "$f").log"
 		timeout -k 10 60 "$bin" -timeout=30 -rss_limit_mb=2048 "$f" > "$rep" 2>&1
 		# One bug saved many times reproduces with one message; addresses, pids and operands differ, the words do not.
-		sig=$(grep -m1 -E 'fuzz finding: |ERROR: |runtime error: |clj: fatal' "$rep" | sed -E 's/0x[0-9a-f]+|[0-9]+//g' | cut -c1-160)
+		sig=$(grep -m1 -E 'fuzz finding: |ERROR: |runtime error: |clj: fatal|clj: internal error' "$rep" | sed -E 's/0x[0-9a-f]+|[0-9]+//g' | cut -c1-160)
 		grep -qxF "$sig" "$seen" && continue
 		echo "$sig" >> "$seen"
 		distinct=$((distinct + 1))
@@ -62,7 +62,7 @@ for spec in $(echo "$@" | tr , ' '); do
 		timeout -k 10 60 "$bin" -timeout=30 -rss_limit_mb=2048 "$f.min" > "$rep" 2>&1
 		echo "---- fuzz-parsers $t finding $(basename "$f"), minimized to $(wc -c < "$f.min" | tr -d ' ') bytes:"
 		python3 -c 'import sys; print(repr(open(sys.argv[1], "rb").read()))' "$f.min"
-		grep -E 'ERROR: |SUMMARY: |fuzz finding: |runtime error: |clj: fatal|Assertion|deadly signal|timeout after' "$rep" | head -6
+		grep -E 'ERROR: |SUMMARY: |fuzz finding: |runtime error: |clj: fatal|clj: internal error|Assertion|deadly signal|timeout after' "$rep" | head -6
 		grep -E '^ +#[0-9]+ ' "$rep" | head -14
 	done
 	echo "fuzz-parsers $t: $distinct distinct of $n findings:" | tee -a "$summary"

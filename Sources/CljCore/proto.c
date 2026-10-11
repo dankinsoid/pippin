@@ -11,6 +11,7 @@
 #include "clj/error.h"
 #include "clj/hosttype.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/lock.h"
@@ -207,7 +208,7 @@ static const core_interface *interface_of(clj_value proto) {
 	for (size_t i = 0; i < NINTERFACES; i++) {
 		if (interfaces[i].bits == bits) return &interfaces[i];
 	}
-	clj_fatal("core interface without a descriptor");
+	clj_ice("proto/core-interface", NULL, "a core interface without a descriptor");
 }
 
 // The descriptor a type designator names, or NULL with the exception pending.

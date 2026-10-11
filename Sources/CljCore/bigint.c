@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "clj/bigint.h"
+#include "clj/ice.h"
 #include "clj/long.h"
 #include "clj/string.h"
 
@@ -297,7 +298,7 @@ clj_value clj_bigint_quot(clj_value a, clj_value b, clj_value *rem) {
 	view x, y;
 	view_of(a, &x);
 	view_of(b, &y);
-	if (y.sign == 0) clj_fatal("bigint division by zero");
+	if (y.sign == 0) clj_ice("bigint/division-by-zero", NULL, "bigint division by zero");
 	if (mag_cmp(x.limbs, x.n, y.limbs, y.n) < 0) {
 		if (rem) {
 			clj_bigint *r = raw_new(x.n);

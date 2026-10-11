@@ -4,6 +4,7 @@
 
 #include "clj/coll.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/ns.h"
 #include "clj/string.h"
@@ -124,7 +125,7 @@ clj_value clj_intrinsic_call(const clj_intrinsic *op, const clj_value *args) {
 	case CLJ_INTRINSIC_2: return op->fn.f2(args[0], args[1]);
 	case CLJ_INTRINSIC_3: return op->fn.f3(args[0], args[1], args[2]);
 	}
-	clj_fatal("unknown intrinsic kind");
+	clj_ice("intrinsic/kind", NULL, "%s of kind %u", op->name, (unsigned)op->kind);
 }
 
 #if CLJ_DEBUG
@@ -157,13 +158,13 @@ const clj_intrinsic *clj_intrinsic_consuming(clj_value fn, uint32_t arity) {
 void clj_intrinsics_install(void) {
 	clj_value core = clj_ns_core();
 	for (size_t i = 0; i < N; i++) {
-		if (table[i].arity != (uint32_t)table[i].kind) clj_fatal("intrinsic arity does not match its kind");
+		if (table[i].arity != (uint32_t)table[i].kind) clj_ice("boot/intrinsic-table", NULL, "%s: arity does not match its kind", table[i].name);
 		clj_value sym = clj_symbol_from_cstr(strchr(table[i].name, '/') + 1);
 		clj_value var = clj_ns_resolve(core, sym);
 		clj_release(sym);
-		if (clj_is_nil(var)) clj_fatal("intrinsic names no core var");
+		if (clj_is_nil(var)) clj_ice("boot/intrinsic-table", NULL, "%s names no core var", table[i].name);
 		clj_value fn = clj_var_root(var);
-		if (!clj_is_fn(fn) || clj_fn_of(fn)->kind != CLJ_FN_NATIVE) clj_fatal("intrinsic names a core var with no builtin root");
+		if (!clj_is_fn(fn) || clj_fn_of(fn)->kind != CLJ_FN_NATIVE) clj_ice("boot/intrinsic-table", NULL, "%s names a core var with no builtin root", table[i].name);
 		vars[i] = var;
 		builtins[i] = clj_retain(fn);
 		if (clj_intrinsic_consumes(&table[i])) clj_fn_of(fn)->u.native.consuming = &table[i];

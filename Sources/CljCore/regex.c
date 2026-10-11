@@ -6,6 +6,7 @@
 
 #include "clj/coll.h"
 #include "clj/core.h"
+#include "clj/ice.h"
 #include "clj/regex.h"
 
 // ---- input text
@@ -1163,7 +1164,7 @@ static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 			pc = (uint32_t)((int32_t)pc + i->x);
 			break;
 		}
-		default: clj_fatal("unknown regex instruction");
+		default: clj_ice("regex/instruction", NULL, "unknown regex instruction");
 		}
 		if (!bad) continue;
 		if (!--c->budget) {

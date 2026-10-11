@@ -12,6 +12,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/ns.h"
 #include "clj/number.h"
@@ -78,9 +79,9 @@ void clj_fusion_install(void) {
 		clj_value sym = clj_symbol_from_cstr(strchr(table[i].name, '/') + 1);
 		clj_value var = clj_ns_resolve(core, sym);
 		clj_release(sym);
-		if (clj_is_nil(var)) clj_fatal("fusion names no core var");
+		if (clj_is_nil(var)) clj_ice("boot/fusion-table", NULL, "%s names no core var", table[i].name);
 		clj_value root = clj_var_root(var);
-		if (root == CLJ_UNBOUND) clj_fatal("fusion names an unbound core var");
+		if (root == CLJ_UNBOUND) clj_ice("boot/fusion-table", NULL, "%s is unbound", table[i].name);
 		roots[i] = clj_retain(root);
 		vars[i] = var;
 	}
@@ -150,7 +151,7 @@ static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 		return CLJ_NIL;
 	}
 	}
-	clj_fatal("unknown bottom kind");
+	clj_ice("fusion/bottom-kind", NULL, "a driver bottom of kind %u", (unsigned)b->kind);
 }
 
 // The caller keeps bot alive across the walk to read its state after; false with the exception pending. The

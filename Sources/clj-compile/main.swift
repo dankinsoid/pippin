@@ -21,15 +21,19 @@ struct Options {
 	var stats = false
 	var noShake = false
 	var shakeDrop: [String] = []
+	var noOpt: UInt32 = 0
 }
 
 func usage() -> Never {
 	FileHandle.standardError.write(Data("""
 	usage: clj-compile [--out DIR] [--closed] [--instrument] [--no-line] [--lenient] [--load-path P]... [--features k,...]
-	                   [--core] [--with-embedded] [--allow-refused] [--stats] [--no-shake] [--shake-drop NS/NAME]... (--file F | --ns NS)...
+	                   [--core] [--with-embedded] [--allow-refused] [--stats] [--no-shake] [--shake-drop NS/NAME]... [--no-opt[=LIST]]
+	                   (--file F | --ns NS)...
 	--instrument emits the profiler and signpost hooks in every fn (a plain unit has none; core.c takes -DCLJC_INSTRUMENT).
 	--closed with --core and a --file/--ns entry shakes the core and the embedded libs: a def of theirs that the
 	root set does not reach is left out and its var gets a tripwire root (NOTES.md, "Compiler": tree shaking).
+	--no-opt[=LIST] is the kill switch (NOTES.md, "Internal errors"): the trees go unoptimized and the emitter reads no facts;
+	LIST narrows it to some of reuse,passes,specialize,lazy-seq,layouts,compiled,emit, as CLJ_NO_OPT does.
 	--no-shake keeps every def, which is the before half of the size measurement; --shake-drop drops a named def
 	however reachable it is, which is how the gate proves the tripwire fires.
 	--stats reports per unit the frame slots the facts pass calls local, the ones emitted as C variables and as int64_t, the arithmetic nodes emitted unboxed or behind a tag check, the protocol sites by their dispatch (direct arm, switch, cache), and the slot arrays direct callers allocate against their callees' frames.
@@ -64,11 +68,16 @@ while !args.isEmpty {
 	case "--shake-drop": opts.shakeDrop.append(need())
 	case "--file": opts.inputs.append(("file", need()))
 	case "--ns": opts.inputs.append(("ns", need()))
+	case "--no-opt": opts.noOpt = clj_no_opt_parse("all")
+	case let flag where flag.hasPrefix("--no-opt="):
+		opts.noOpt = clj_no_opt_parse(String(flag.dropFirst("--no-opt=".count)))
+		if opts.noOpt == UInt32.max { usage() }
 	default: usage()
 	}
 }
 if !opts.core && opts.inputs.isEmpty { usage() }
 
+clj_no_opt_set(opts.noOpt)
 // The hook must be in place before clj_init so that core.clj's own forms pass through it.
 var copts = cljc_options()
 copts.closed = opts.closed

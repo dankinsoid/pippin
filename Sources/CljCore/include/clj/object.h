@@ -226,7 +226,7 @@ void *clj_alloc_uninit(const clj_type *type, size_t size);
 // Children are untouched; bytes beyond the old size are uninitialized. Same size class keeps the address.
 void *clj_realloc(void *obj, size_t size);
 
-// False in a -DCLJ_NO_REUSE build, where clj_is_unique always answers "not unique" (make test-noreuse): the
+// False under CLJ_NO_OPT=reuse or a -DCLJ_NO_REUSE build, where clj_is_unique always answers "not unique": the
 // §7 invariant that only clj_is_unique reads the counter, so the suites pass with reuse off. A test that
 // asserts an address survived an in-place operation gates on this.
 bool      clj_reuse_enabled(void);
@@ -241,7 +241,9 @@ bool      clj_is_shared(clj_value v);
 void      clj_cc_note_store(clj_header *owner, uint32_t flags);
 // Marks v and everything reachable from it shared. Call before handing v to another thread.
 void      clj_share(clj_value v);
+// An environment failure (out of memory, a thread that would not start); an invariant is clj_ice (ice.h).
 void      clj_fatal(const char *msg) __attribute__((noreturn));
+void      clj_ice_assert(const char *msg, const char *file, int line) __attribute__((noreturn));
 
 // Declared regardless of CLJ_DEBUG: the Swift importer reads this header without the C target's defines.
 // Returns -1 when the build does not track it.
@@ -277,7 +279,7 @@ enum { CLJ_RC_PLAIN, CLJ_RC_SHARED, CLJ_RC_IMMORTAL };
 void clj_debug_rc_ops(int64_t out[3]);
 
 #if CLJ_DEBUG
-#define CLJ_ASSERT(cond, msg) do { if (!(cond)) clj_fatal(msg); } while (0)
+#define CLJ_ASSERT(cond, msg) do { if (!(cond)) clj_ice_assert((msg), __FILE_NAME__, __LINE__); } while (0)
 extern _Atomic uint64_t clj_debug_rc_counters[3];
 #define CLJ_RC_COUNT(path) atomic_fetch_add_explicit(&clj_debug_rc_counters[path], 1, memory_order_relaxed)
 // Out of line: the running execution is read through a call, never a TLS address cached across a park.

@@ -3,6 +3,7 @@
 
 #include "clj/core.h"
 #include "clj/error.h"
+#include "clj/ice.h"
 #include "clj/shaken.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
@@ -21,7 +22,7 @@ static clj_value reached(clj_value self, const char *op) {
 	char      msg[400];
 	snprintf(msg, sizeof msg, "%s/%s was dropped by --closed tree shaking and the program reached it (%s): the root set missed it (NOTES.md, \"Compiler\": tree shaking)",
 	         clj_string_bytes(clj_symbol_name(clj_var_ns(var))), clj_string_bytes(clj_symbol_name(clj_var_name(var))), op);
-	clj_fatal(msg);
+	clj_ice("closed/shaken-reached", NULL, "%s", msg);
 }
 
 static clj_value shaken_invoke(clj_value self, const clj_value *args, size_t n) {

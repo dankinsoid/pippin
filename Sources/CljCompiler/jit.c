@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "clj/core.h"
+#include "clj/ice.h"
 #include "cljc/compiler.h"
 
 static cljc_eval_options options;
@@ -213,7 +214,11 @@ static clj_value on_form(const clj_load_form *form, const clj_node *node, void *
 		pool_objects += made;
 		clj_debug_live_objects_exclude(made);
 	}
-	return unit->init();
+	clj_ice_frame run = {.pass = "run", .backend = options.closed ? CLJ_BACKEND_CLOSED : CLJ_BACKEND_DEV};
+	clj_ice_enter(&run);
+	clj_value r = unit->init();
+	clj_ice_leave(&run);
+	return r;
 }
 
 bool cljc_eval_enable(const cljc_eval_options *o) {
@@ -254,7 +259,7 @@ uint64_t cljc_eval_dlopen_ns(void) { return dlopen_ns; }
 // clj_init's weak hook: CLJ_EVAL=compiled turns the compiled eval on for the process (the tests' opt-in gate).
 void clj_compiled_eval_boot(void) {
 	const char *mode = getenv("CLJ_EVAL");
-	if (!mode || strcmp(mode, "compiled") != 0) return;
+	if (!mode || strcmp(mode, "compiled") != 0 || (clj_no_opt() & CLJ_NO_OPT_COMPILED)) return;
 	const char *root = getenv("CLJ_EVAL_ROOT");
 	const char *dir = getenv("CLJ_EVAL_DIR");
 	if (!root) {

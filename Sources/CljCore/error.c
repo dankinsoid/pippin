@@ -8,6 +8,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/hosttype.h"
+#include "clj/ice.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/ns.h"
@@ -182,10 +183,10 @@ void clj_isa_install(void) {
 	clj_value sym = clj_symbol_from_cstr("global-hierarchy");
 	hierarchy_var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
-	if (clj_is_nil(hierarchy_var)) clj_fatal("isa bridge names no core var");
+	if (clj_is_nil(hierarchy_var)) clj_ice("boot/isa", NULL, "the isa bridge names no core var");
 	// clj_ex_isa reads the root as a map, never a lazy def's thunk (design §4 «Var и ленивые def»)
 	clj_value h = clj_var_root_value(hierarchy_var);
-	if (h == CLJ_THROWN) clj_fatal("global-hierarchy failed to compute");
+	if (h == CLJ_THROWN) clj_ice("boot/isa", NULL, "global-hierarchy failed to compute");
 	clj_release(h);
 }
 

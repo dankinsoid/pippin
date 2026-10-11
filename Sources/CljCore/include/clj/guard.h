@@ -17,6 +17,7 @@ typedef struct clj_recovery {
 	size_t               depth;
 	uint32_t             exec_depth;
 	void                *bindings;
+	void                *ice; // the clj_ice_frame a landing restores
 } clj_recovery;
 
 void      clj_recovery_push(clj_recovery *r);

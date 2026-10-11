@@ -7,6 +7,7 @@
 #include "clj/core.h"
 #include "clj/error.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/ns.h"
@@ -18,12 +19,13 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "compiled_internal.h"
+#include "ice_internal.h"
 #include "node.h"
 
 clj_value clj_c_with_meta(clj_value v, clj_value meta) {
 	clj_value r = clj_with_meta(v, meta);
 	clj_release(meta);
-	if (r == CLJ_THROWN) clj_fatal("compiled constant cannot carry metadata");
+	if (r == CLJ_THROWN) clj_ice("compiled/constant", NULL, "a compiled constant cannot carry its metadata");
 	return r;
 }
 
@@ -36,9 +38,9 @@ clj_value clj_c_const(const char *edn, size_t len) {
 	if (clj_read(&r, &v) != CLJ_READ_OK) {
 		char msg[300];
 		snprintf(msg, sizeof msg, "compiled constant does not read back: %s", clj_reader_message(&r));
-		clj_fatal(msg);
+		clj_ice("compiled/constant", NULL, "%s", msg);
 	}
-	if (v == CLJ_THROWN) clj_fatal("compiled constant threw while reading");
+	if (v == CLJ_THROWN) clj_ice("compiled/constant", NULL, "a compiled constant threw while reading");
 	return v;
 }
 
@@ -67,7 +69,7 @@ const clj_intrinsic *clj_c_intrinsic(const char *qualified, uint32_t arity) {
 	clj_value            sym = clj_symbol_from_cstr(qualified);
 	const clj_intrinsic *op = clj_intrinsic_find_named(sym, arity);
 	clj_release(sym);
-	if (!op) clj_fatal("compiled unit names an unknown intrinsic");
+	if (!op) clj_ice("compiled/unknown-intrinsic", NULL, "a compiled unit names an unknown intrinsic");
 	return op;
 }
 
@@ -75,7 +77,7 @@ const clj_fusion_var *clj_c_fusion_var(const char *qualified) {
 	clj_value             sym = clj_symbol_from_cstr(qualified);
 	const clj_fusion_var *fv = clj_fusion_find_named(sym);
 	clj_release(sym);
-	if (!fv) clj_fatal("compiled unit names an unknown fusion var");
+	if (!fv) clj_ice("compiled/unknown-fusion-var", NULL, "a compiled unit names an unknown fusion var");
 	return fv;
 }
 
@@ -177,7 +179,7 @@ void clj_c_stub_init(clj_node *stub, clj_value name, uint32_t line, uint32_t col
 
 bool clj_core_instrumented(void) {
 #if defined(CLJ_COMPILED_CORE) && !defined(CLJC_INSTRUMENT)
-	return false;
+	return clj_opt_off(CLJ_NO_OPT_COMPILED);
 #else
 	return true;
 #endif

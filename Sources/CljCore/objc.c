@@ -1,4 +1,5 @@
 // @ai-generated(solo)
+#include "clj/ice.h"
 #include "clj/objc.h"
 
 #include <math.h>
@@ -1711,7 +1712,7 @@ static void reify_dispatch(id self, SEL cmd, const long long *ints, const double
 	const reify_class *rc = st->rc;
 	uint32_t           at = 0;
 	while (at < rc->n && rc->m[at].sel != cmd) at++;
-	if (at == rc->n) clj_fatal("an Objective-C trampoline was reached by a selector it was not installed for");
+	if (at == rc->n) clj_ice("objc/trampoline", NULL, "an Objective-C trampoline was reached by a selector it was not installed for");
 	call_in(&rc->m[at].sig, clj_vector_nth(st->fns, at), clj_objc_wrap(self), sel_getName(cmd), ints, fps, rbuf);
 	TSAN_CALLBACK_DONE(self);
 }

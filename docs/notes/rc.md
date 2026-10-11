@@ -1,9 +1,10 @@
 ## RC (Sources/CljCore/rc.c, object.h)
-- **`-DCLJ_NO_REUSE` makes `clj_is_unique` always false** (`make test-noreuse`, `clj_reuse_enabled()` says
-  which build this is), and every suite passes in it: the §7 invariant that nothing outside the RC entry
-  points depends on the counter is now enforced, not just written down. Off, the flag costs nothing — one
-  `#ifdef` arm. Four tests assert that an address survives an in-place step and are gated on
-  `clj_reuse_enabled()`; the rest degrade to a copy with the same values, which is what the mode checks.
+- **`CLJ_NO_OPT=reuse` makes `clj_is_unique` and `clj_rc_token_ok` always false** (the kill switch, NOTES
+  "Internal errors"; `-DCLJ_NO_REUSE` sets the bit for its build: `make test-noreuse`; `clj_reuse_enabled()` says
+  which is in force), and every suite passes under it: the §7 invariant that nothing outside the RC entry points
+  depends on the counter is enforced, not just written down. On, the check costs one relaxed load of the switch.
+  Four tests assert that an address survives an in-place step and are gated on `clj_reuse_enabled()`; the rest
+  degrade to a copy with the same values, which is what the mode checks.
 - **The teardown is specialized by type** (`clj_type.drop`, `rc_internal.h`; Perceus' drop). A dying object's
   children are released by its type's `drop`, which is the type's `each_child` body instantiated with the inline
   `clj_drop_value` as the visitor (`CLJ_CHILDREN_SLOTS`): a fixnum, nil or an immortal child costs a test, an unshared

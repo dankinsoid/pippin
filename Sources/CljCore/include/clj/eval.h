@@ -57,6 +57,8 @@ struct clj_frame {
 clj_value clj_exec_new(const clj_node *root);
 // The interpreter's eval for a node kind: what an exec table holds when no rewrite is on.
 clj_eval_fn clj_node_eval_fn(clj_node_kind kind);
+// Debug builds: every entry is one its node's kind and shape admit (NOTES "Tree verifier"); else an internal error.
+void clj_verify_exec(const clj_exec *e, const char *pass);
 // Swaps every node's eval for a hit-counting wrapper and back; off costs nothing, not even a branch.
 void     clj_exec_count(clj_value exec, bool on);
 uint64_t clj_exec_hits(clj_value exec, uint32_t id);

@@ -3,9 +3,11 @@
 // native stack, where the swift-testing run prints "<empty stack>" (NOTES.md, "Guard").
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "clj/core.h"
 #include "clj/diagnostic.h"
+#include "clj/ice.h"
 #include "clj/printer.h"
 #include "clj/runtime.h"
 
@@ -34,8 +36,15 @@ static char *read_all(const char *path, size_t *len) {
 }
 
 int main(int argc, char **argv) {
-	if (argc != 2) {
-		fprintf(stderr, "usage: clj-load <file.clj>\n");
+	// --no-opt[=reuse,passes,...]: the kill switch of design §3 (NOTES "Internal errors"), as CLJ_NO_OPT names it.
+	uint32_t no_opt = 0;
+	if (argc == 3 && strncmp(argv[1], "--no-opt", 8) == 0 && (argv[1][8] == '\0' || argv[1][8] == '=')) {
+		no_opt = clj_no_opt_parse(argv[1][8] ? argv[1] + 9 : "all");
+		argv++;
+		argc--;
+	}
+	if (argc != 2 || no_opt == UINT32_MAX) {
+		fprintf(stderr, "usage: clj-load [--no-opt[=reuse,passes,specialize,lazy-seq,layouts,compiled,emit]] <file.clj>\n");
 		return 2;
 	}
 	size_t len = 0;
@@ -45,6 +54,7 @@ int main(int argc, char **argv) {
 		return 2;
 	}
 	free(src);
+	clj_no_opt_set(no_opt);
 	clj_init();
 	clj_value path = clj_string_from_cstr(argv[1]);
 	// Only clj_load_file consults the compiled-unit registry, where a whole-program build puts the entry file.

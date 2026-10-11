@@ -8,6 +8,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/list.h"
 #include "clj/long.h"
 #include "clj/reduce.h"
@@ -236,7 +237,7 @@ const clj_type clj_range_type = {
 };
 
 clj_value clj_range_new(int64_t start, int64_t end, int64_t step) {
-	if (step == 0) clj_fatal("range with step 0");
+	if (step == 0) clj_ice("seq/range-step", NULL, "range with step 0");
 	if (step > 0 ? start >= end : start <= end) return clj_list_empty();
 	clj_range *r = clj_alloc(&clj_range_type, sizeof *r);
 	r->start = start;

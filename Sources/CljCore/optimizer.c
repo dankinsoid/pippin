@@ -7,11 +7,14 @@
 #include "clj/decimal.h"
 #include "clj/error.h"
 #include "clj/fusion.h"
+#include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/verify.h"
+#include "ice_internal.h"
 #include "node.h"
 
 static void *zalloc(size_t n, size_t size) {
@@ -353,7 +356,7 @@ static clj_capture remap_capture(const clj_capture *table, uint32_t depth, const
 	case CLJ_CAPTURE_CAPTURED: return (clj_capture){CLJ_CAPTURE_CAPTURED, 0, t->index};
 	case CLJ_CAPTURE_OUTER: return (clj_capture){CLJ_CAPTURE_OUTER, depth + 1 + t->depth, t->index};
 	}
-	clj_fatal("unknown capture kind");
+	clj_ice("optimize/capture-kind", NULL, "capture kind %u", (unsigned)t->kind);
 }
 
 static void remap(const clj_node *n, void *ctx);
@@ -670,7 +673,7 @@ static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use)
 	case CLJ_NODE_VAR:
 	case CLJ_NODE_DIRECT_FN: return out;
 	}
-	clj_fatal("unknown node kind");
+	clj_ice("optimize/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
 
 typedef struct {
@@ -725,10 +728,17 @@ static void live_fns(const clj_node *n, void *ctx) {
 }
 
 void clj_optimize(clj_node *root) {
+	if (clj_opt_off(CLJ_NO_OPT_PASSES)) return;
+	clj_ice_pass("optimize/direct");
 	direct_pass(root, NULL);
+	CLJ_VERIFY_TREE(root, "optimize/direct", 0);
+	clj_ice_pass("optimize/rewrite");
 	optimize(root, NULL);
+	CLJ_VERIFY_TREE(root, "optimize/rewrite", 0);
+	clj_ice_pass("optimize/liveness");
 	live_frame(root, 0);
 	live_fns(root, NULL);
+	CLJ_VERIFY_TREE(root, "optimize/liveness", CLJ_VERIFY_MARKS);
 }
 
 // @ai-generated(solo)

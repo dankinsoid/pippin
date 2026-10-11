@@ -11,6 +11,7 @@
 #include "clj/eval.h"
 #include "clj/fn.h"
 #include "clj/hosttype.h"
+#include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/list.h"
 #include "clj/long.h"
@@ -23,6 +24,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/verify.h"
 #include "cc_internal.h"
 #include "epoch_internal.h"
 #include "guard_internal.h"
@@ -1337,7 +1339,7 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_DIRECT_FN: return eval_direct_fn;
 	case CLJ_NODE_DIRECT_CALL: return eval_direct_call;
 	}
-	clj_fatal("unknown node kind");
+	clj_ice("eval/unknown-kind", NULL, "node kind %u", (unsigned)kind);
 }
 
 // The exec is const to the frame only by convention; the table is its own mutable state.
@@ -1365,6 +1367,50 @@ clj_eval_fn clj_eval_site_entry(const clj_exec *e, const clj_node *n) {
 	if (n->kind == CLJ_NODE_INVOKE) return eval_kw_invoke;
 	if (n->kind == CLJ_NODE_INTRINSIC) return eval_get_kw;
 	return eval_map_shaped;
+}
+
+#if CLJ_DEBUG
+typedef struct {
+	const clj_exec *e;
+	const char     *pass;
+} exec_check;
+
+// Each node's entry is one its kind and shape admit: a rewrite keyed by the wrong id runs one node's code on another.
+static bool entry_admitted(const clj_exec *e, const clj_node *n, clj_eval_fn fn) {
+	if (fn == clj_node_eval_fn(n->kind) || fn == eval_counting) return true;
+	switch (n->kind) {
+	case CLJ_NODE_INVOKE: return (fn == eval_kw_invoke && kw_invoke_site(n) && e->nodes[n->id].ic) || (fn == eval_lazy_seq && clj_lazy_seq_site(n));
+	case CLJ_NODE_INTRINSIC: {
+		if (fn == eval_get_kw) return kw_get_site(n) && e->nodes[n->id].ic;
+		const spec_entry *s = spec_entry_of(n->u.intrinsic.op);
+		return s && fn && (fn == s->fix || fn == s->dbl || fn == s->fd || fn == s->df);
+	}
+	case CLJ_NODE_MAP: return fn == eval_map_shaped && e->nodes[n->id].ic;
+	default: return false;
+	}
+}
+
+static void check_entry(const clj_node *n, void *ctx) {
+	const exec_check *c = ctx;
+	if (n->id >= c->e->nnodes) clj_ice("verify/exec-table", n, "node id %u past an exec table of %u; the exec as %s left it", n->id, c->e->nnodes, c->pass);
+	if (n->kind == CLJ_NODE_INVOKE && n->site >= c->e->nsites)
+		clj_ice("verify/exec-table", n, "invoke site %u past %u call sites; the exec as %s left it", n->site, c->e->nsites, c->pass);
+	if (!entry_admitted(c->e, n, CLJ_NODE_ENTRY(c->e, n->id)))
+		clj_ice("verify/exec-entry", n, "the exec entry of a %s node is no entry of its kind; the exec as %s left it", clj_node_kind_name((int)n->kind), c->pass);
+	clj_node_children(n, check_entry, ctx);
+}
+#endif
+
+void clj_verify_exec(const clj_exec *e, const char *pass) {
+#if CLJ_DEBUG
+	if (!clj_verify_enabled()) return;
+	if (e->nnodes != e->root->nnodes) clj_ice("verify/exec-table", e->root, "an exec table of %u for a tree of %u; the exec as %s left it", e->nnodes, e->root->nnodes, pass);
+	exec_check c = {e, pass};
+	check_entry(e->root, &c);
+#else
+	(void)e;
+	(void)pass;
+#endif
 }
 
 static void count_off(const clj_node *n, void *ctx) {
@@ -1606,6 +1652,7 @@ clj_value clj_exec_new(const clj_node *root) {
 		if (!e->sites) clj_fatal("out of memory");
 	}
 	clj_exec_derive(clj_from_ptr(e));
+	clj_verify_exec(e, "specialize");
 	return clj_from_ptr(e);
 }
 
@@ -1770,8 +1817,11 @@ static clj_value eval_form(clj_value form, const clj_env *given) {
 		file_owned = true;
 	}
 	clj_load_analysis_failed = true;
+	clj_ice_frame frame = {.pass = "macroexpand", .backend = CLJ_BACKEND_INTERPRETER, .file = clj_ice_current_file(), .line = local.line, .col = local.col};
+	clj_ice_enter(&frame);
 	clj_value expanded = clj_macroexpand(form, env);
 	if (expanded == CLJ_THROWN) {
+		clj_ice_leave(&frame);
 		if (file_owned) clj_release(arm.form.file);
 		return CLJ_THROWN;
 	}
@@ -1796,13 +1846,18 @@ static clj_value eval_form(clj_value form, const clj_env *given) {
 		if (node) {
 			clj_load_analysis_failed = false;
 			bool handled = false;
-			if (arm.armed) v = hook->form(&arm.form, node, hook->ctx, &handled);
+			if (arm.armed) {
+				clj_ice_pass("load hook");
+				v = hook->form(&arm.form, node, hook->ctx, &handled);
+			}
+			clj_ice_pass("run");
 			if (!handled) v = clj_eval_node(node);
 			clj_release(clj_from_ptr((void *)node));
 		} else {
 			v = CLJ_THROWN;
 		}
 	}
+	clj_ice_leave(&frame);
 	if (file_owned) clj_release(arm.form.file);
 	clj_release(expanded);
 	return v;

@@ -5,9 +5,11 @@
 
 #include "clj/error.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/lock.h"
 #include "clj/summary.h"
 #include "clj/var.h"
+#include "clj/verify.h"
 #include "facts_internal.h"
 #include "specialize_internal.h"
 
@@ -295,6 +297,9 @@ static void derive(clj_exec *e, uint32_t trigger) {
 	clj_derivation *old = e->derived;
 	uint32_t        rounds = old ? old->rounds : 0, in_trigger = old && old->trigger == trigger ? old->in_trigger : 0;
 	if (in_trigger >= MAX_PER_EXEC) return;
+	clj_ice_frame   frame = {.pass = "specialize"};
+	clj_ice_enter(&frame);
+	uint64_t        digest = CLJ_VERIFY_DIGEST(e->root);
 	clj_facts      *f = clj_facts_of_with(e->root, store_locked());
 	clj_derivation *d = xalloc(1, sizeof *d);
 	d->rounds = rounds + 1;
@@ -352,6 +357,9 @@ static void derive(clj_exec *e, uint32_t trigger) {
 	}
 	clj_facts_free(f);
 	for (uint32_t k = 0; k < ntouched; k++) enqueue_if_stale(touched[k], e);
+	CLJ_VERIFY_UNCHANGED(e->root, digest, "specialize");
+	clj_verify_exec(e, "specialize");
+	clj_ice_leave(&frame);
 }
 
 // The queue's references are dropped after the unlock: an exec dying there forgets itself under the lock.

@@ -8,8 +8,11 @@
 #include "clj/core.h"
 #include "clj/eval.h"
 #include "clj/facts.h"
+#include "clj/ice.h"
 #include "clj/summary.h"
+#include "clj/verify.h"
 #include "cljc/compiler.h"
+#include "ice_internal.h"
 #include "reuse.h"
 
 // ---- string builder
@@ -189,6 +192,7 @@ typedef struct {
 	clj_value      ns;      // the current namespace at the hook
 	clj_value      message; // of a failure, retained
 	bool           dropped; // the shaker left this def out of its unit
+	uint64_t       digest;  // of node at the hook: the interpreter runs it before it is emitted
 } pending_form;
 
 // A closure fn node the compiler emitted: how a protocol impl found in the tables as an interpreted closure is named.
@@ -494,7 +498,7 @@ static void live_forget(fnctx *f, const temp *t) {
 			return;
 		}
 	}
-	clj_fatal("compiler: temp not live");
+	clj_ice("emit/temp-not-live", NULL, "temp %s is released twice or never was live", t->name);
 }
 
 static void emit_release_of(sb *out, const temp *t) {
@@ -594,6 +598,26 @@ static uint32_t facts_frame(const clj_facts *facts, const clj_node *owner, const
 	return UINT32_MAX;
 }
 
+#if CLJ_DEBUG
+// The plan against the frame, re-derived apart from pin_walk: what emit_set, check_array_slot and the typed reads
+// assume of it (NOTES "Tree verifier").
+static void verify_slot_plan(const fnctx *f, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
+	if (!clj_verify_enabled()) return;
+	uint64_t linked, captured, written, params = 0;
+	clj_verify_frame_slots(body, &linked, &captured, &written);
+	for (uint32_t i = 0; a && i < a->nparams && i < 64; i++) params |= (uint64_t)1 << i;
+	if (a && a->self_slot >= 0 && a->self_slot < 64) params |= (uint64_t)1 << a->self_slot;
+	uint64_t typed = f->ints | f->dbls, wide = nslots > 64 ? ~(uint64_t)0 : 0;
+	const char *what = NULL;
+	if ((f->borrowed & ~f->promoted) || (typed & ~f->promoted) || (f->ints & f->dbls) || (typed & f->borrowed)) what = "a borrowed or typed slot that is not promoted, or both kinds";
+	else if (f->promoted & (linked | captured | wide)) what = "a promoted slot that is read by address";
+	else if (f->borrowed & (written | ~params)) what = "a borrowed slot that is no parameter or is rebound";
+	else if (f->borrowed && !closure) what = "a borrowed parameter of a frame whose caller owns its arguments";
+	if (what) clj_ice("verify/slot-plan", body, "%s (promoted %#llx, borrowed %#llx, typed %#llx); the plan as emit/slots left it", what,
+	                  (unsigned long long)f->promoted, (unsigned long long)f->borrowed, (unsigned long long)typed);
+}
+#endif
+
 // Sets f->promoted and f->borrowed. A promoted slot is owned-or-nil for its whole life, or (a closure's param or
 // self slot no recur rebinds) borrowed for its whole life; a direct fn's params are owned by the caller's mask.
 static void select_typed_slots(fnctx *f, const clj_node *body);
@@ -644,6 +668,9 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 	cljc_reuse_plan_free(f->reuse);
 	f->reuse = cljc_reuse_plan_frame(body, f->facts, f->promoted & ~f->borrowed & ~f->ints & ~f->dbls,
 	                                 nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1);
+#if CLJ_DEBUG
+	verify_slot_plan(f, a, closure, body, nslots);
+#endif
 	return true;
 }
 
@@ -944,8 +971,8 @@ static void emit_slot_arrival(fnctx *f, uint32_t slot, const char *value) {
 
 // The store of an owned value into a slot: slot_set of eval.c, or the rebind of a C variable.
 static void emit_set(fnctx *f, uint32_t slot, const char *value) {
-	if (borrowed_slot(f, slot)) clj_fatal("compiler: a borrowed slot is rebound");
-	if (slot_kind(f, slot) != UK_NONE) clj_fatal("compiler: a typed slot takes a boxed value");
+	if (borrowed_slot(f, slot)) clj_ice("emit/borrowed-slot-rebound", NULL, "slot %u holds a +0 parameter for the whole call and is rebound", slot);
+	if (slot_kind(f, slot) != UK_NONE) clj_ice("emit/typed-slot-boxed", NULL, "typed slot %u takes a boxed value", slot);
 	if (promoted(f, slot)) sb_printf(&f->out, "\tclj_c_rebind(&l%u, %s);\n", slot, value);
 	else sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, slot, value);
 }
@@ -1060,7 +1087,7 @@ static itemp emit_raw(fnctx *f, const clj_node *n) {
 		return t;
 	}
 	case CLJ_NODE_INVOKE: return emit_prim_raw(f, n);
-	default: clj_fatal("compiler: not an unboxable node");
+	default: clj_ice("emit/not-unboxable", n, "a %s node emitted unboxed", clj_node_kind_name((int)n->kind));
 	}
 }
 
@@ -1075,7 +1102,7 @@ static const char *unbox_compare(unbox_op op) {
 	case UNBOX_ZERO: return "==";
 	case UNBOX_POS: return ">";
 	case UNBOX_NEG: return "<";
-	default: clj_fatal("compiler: not a comparison");
+	default: clj_ice("emit/not-a-comparison", NULL, "unbox op %u emitted as a comparison", (unsigned)op);
 	}
 }
 
@@ -1189,7 +1216,7 @@ static bool const_expr(fnctx *f, clj_value v, sb *out) {
 }
 
 static size_t const_index(fnctx *f, clj_value v, bool *ok) {
-	if (clj_is_var(v)) clj_fatal("compiler: a var is not a pool constant");
+	if (clj_is_var(v)) clj_ice("emit/var-constant", NULL, "a var in the constant pool");
 	// Keyed by identity within the form, not by text: two literals the reader made separately stay two objects
 	// (a NaN is only = to its own box), while a value a macro copied into two nodes stays one, as it is for the interpreter.
 	sb   init = {0};
@@ -1365,9 +1392,9 @@ static temp emit_captured(fnctx *f, const clj_node *n, bool borrowed) {
 
 // A slot read through the array must not be a C variable: the scan that decides promotion has to have seen this read.
 static void check_array_slot(const fnctx *f, uint32_t depth, uint32_t index) {
-	for (; depth && f; depth--) f = f->definer;
-	if (!f) clj_fatal("compiler: no frame that many links up");
-	if (promoted(f, index)) clj_fatal("compiler: a promoted slot is read through the frame");
+	for (uint32_t d = depth; d && f; d--) f = f->definer;
+	if (!f) clj_ice("emit/outer-past-static-chain", NULL, "no frame %u links up", depth);
+	if (promoted(f, index)) clj_ice("emit/promoted-slot-by-address", NULL, "promoted slot %u is read through the frame", index);
 }
 
 static temp emit_outer(fnctx *f, const clj_node *n) {
@@ -1557,7 +1584,7 @@ static temp emit_recur(fnctx *f, const clj_node *n) {
 		live_forget(f, &vals[i]);
 	}
 	free(vals);
-	if (!f->recur_label) clj_fatal("compiler: recur outside a loop or fn body");
+	if (!f->recur_label) clj_ice("emit/recur-without-target", n, "recur outside a loop or fn body");
 	if (f->recur_loop) {
 		sb_printf(&f->out, "\t{\n\tbool tick = clj_c_loop_tick(tk%d);\n", f->recur_label);
 		emit_site(f);
@@ -1779,7 +1806,8 @@ static bool arms_add(proto_arms *a, const clj_type *t, const char *guard) {
 // by its var's root; the protocol's user implementors stand in for a `host`/`record` fact without a descriptor when
 // there is exactly one. Empty for TOP, a seq (many descriptors) and anything past the cap.
 static proto_arms receiver_arms(fnctx *f, const clj_node *receiver, clj_value proto) {
-	proto_arms      a = {{{0}}, 0, false};
+	proto_arms a = {{{0}}, 0, false};
+	if (!f->facts) return a;
 	const clj_fact *fact = clj_facts_node(f->facts, receiver->id);
 	if (clj_fact_is_top(*fact) || fact->types == CLJ_T_TOP || fact->types == CLJ_T_BOTTOM) return a;
 	uint32_t types = fact->types;
@@ -2059,7 +2087,7 @@ static itemp emit_prim(fnctx *f, const clj_node *n, const prim_site *pc, const c
 
 static itemp emit_prim_raw(fnctx *f, const clj_node *n) {
 	prim_site pc;
-	if (!prim_site_of(f, n, direct_of_head(f->c, n->u.invoke.fn), &pc)) clj_fatal("compiler: not a primitive call site");
+	if (!prim_site_of(f, n, direct_of_head(f->c, n->u.invoke.fn), &pc)) clj_ice("emit/not-a-primitive-site", n, "a call emitted through a worker it has none of");
 	return emit_prim(f, n, &pc, NULL, true);
 }
 
@@ -2286,14 +2314,14 @@ static temp emit_try(fnctx *f, const clj_node *n) {
 			case CLJ_CATCH_HOST: {
 				bool   ok;
 				size_t ki = const_index(f, c->selector, &ok);
-				if (!ok) clj_fatal("compiler: a catch host type name does not print and read back");
+				if (!ok) clj_ice("emit/catch-selector", n, "a catch host type name does not print and read back");
 				sb_printf(&f->out, "\t%sif (%sclj_c_catch_selected(clj_host_type_catches(K[%zu], ex%d), &u%d)) {\n", lead, guard, ki, k, k);
 				break;
 			}
 			case CLJ_CATCH_KEYWORD: {
 				bool   ok;
 				size_t ki = const_index(f, c->selector, &ok);
-				if (!ok) clj_fatal("compiler: a catch keyword does not print and read back");
+				if (!ok) clj_ice("emit/catch-selector", n, "a catch keyword does not print and read back");
 				sb_printf(&f->out, "\t%sif (%sclj_ex_isa(ex%d, K[%zu])) {\n", lead, guard, k, ki);
 				break;
 			}
@@ -2602,7 +2630,7 @@ static direct_name *direct_name_entry(const clj_node *fn) {
 	for (size_t i = ndirect_names; i-- > 0;) {
 		if (direct_names[i].fn == fn) return &direct_names[i];
 	}
-	clj_fatal("compiler: direct call before its fn");
+	clj_ice("emit/direct-call-before-fn", fn, "a direct call emitted before its fn");
 }
 
 static const char *direct_name_of(const clj_node *fn) { return direct_name_entry(fn)->base; }
@@ -2624,7 +2652,7 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 	uint32_t nslots = direct_array_slots(n->u.direct.fn, arity);
 	f->u->slots.direct_slots += arity->nslots;
 	f->u->slots.direct_array += nslots;
-	if (nslots < nargs) clj_fatal("compiler: a direct fn's params outside its array");
+	if (nslots < nargs) clj_ice("emit/direct-params", n, "%u args into an array of %u slots", nargs, nslots);
 	if (nslots == 0) nslots = 1;
 	sb_printf(&f->out, "\tclj_value ds%d[%u] = {", k, nslots);
 	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", args[i].name);
@@ -2678,7 +2706,7 @@ static temp emit(fnctx *f, const clj_node *n) {
 	}
 	case CLJ_NODE_DIRECT_CALL: return emit_direct_call(f, n);
 	}
-	clj_fatal("compiler: unknown node kind");
+	clj_ice("emit/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
 
 static temp emit_borrowed(fnctx *f, const clj_node *n) {
@@ -2957,7 +2985,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	const char *wt = wtype(wret);
 	if (worker) {
 		direct_entry *d = direct_of_base(f.c, base);
-		if (!d) clj_fatal("compiler: a worker for a fn that is no direct target");
+		if (!d) clj_ice("emit/worker-without-target", n, "a worker for a fn that is no direct target");
 		free(d->wsig[a->nparams]);
 		d->wsig[a->nparams] = xstrdup(sig);
 		snprintf(wname, sizeof wname, "%s_%s", name, sig);
@@ -3297,6 +3325,10 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	scratch.form = form;
 	scratch.ns = clj_string_bytes(clj_symbol_name(clj_ns_name(clj_ns_current())));
 	scratch.stub = -1;
+	clj_ice_frame frame = {.pass = "emit", .backend = c->opts.closed ? CLJ_BACKEND_CLOSED : CLJ_BACKEND_DEV, .file = form->file, .line = form->line, .col = form->col};
+	clj_ice_enter(&frame);
+	CLJ_VERIFY_TREE(n, "emit input", CLJ_VERIFY_NUMBERED | CLJ_VERIFY_MARKS);
+	uint64_t digest = CLJ_VERIFY_DIGEST(n);
 	c->emitting = n;
 	open_form(c, u, &scratch, form);
 	fnctx_free(&scratch);
@@ -3304,8 +3336,8 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	record_direct(c, u, n, base);
 	slot_count sc = {0};
 	count_slots(n, &sc);
-	clj_facts *facts = form_facts(c, n);
-	count_facts_slots(u, facts);
+	clj_facts *facts = clj_opt_off(CLJ_NO_OPT_EMIT) ? NULL : form_facts(c, n);
+	if (facts) count_facts_slots(u, facts);
 	uint32_t top = u->ntops++;
 	size_t   bytes = 0;
 	bool     lazy = n->kind == CLJ_NODE_DEF && n->u.def.init && n->u.def.lazy != CLJ_DEF_EAGER;
@@ -3320,6 +3352,8 @@ static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const
 	if (c->opts.eval_result) sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto fail;\n", top);
 	else sb_printf(&u->init, "\tr = top_%u();\n\tif (r == CLJ_THROWN) goto F%u;\n\tclj_release(r);\n", top, u->nforms);
 	free(base);
+	CLJ_VERIFY_UNCHANGED(n, digest, "emit");
+	clj_ice_leave(&frame);
 }
 
 // ---- tree shaking of a closed set (design §6; NOTES.md, "Compiler": the nine rows of the root set)
@@ -3641,6 +3675,7 @@ static clj_value on_form(const clj_load_form *form, const clj_node *node, void *
 	unit         *u = unit_for(c, file);
 	pending_form *p = pend(c, u, form);
 	p->node = node;
+	p->digest = CLJ_VERIFY_DIGEST(node);
 	clj_retain(clj_from_ptr((void *)node));
 	return CLJ_NIL;
 }
@@ -3651,6 +3686,7 @@ static void flush_pending(cljc_compiler *c) {
 	for (size_t i = 0; i < c->npending; i++) {
 		pending_form *p = &c->pending[i];
 		clj_ns_set_current(p->ns);
+		if (p->node) CLJ_VERIFY_UNCHANGED(p->node, p->digest, "run");
 		if (p->dropped) emit_shaken(p->u, p->node);
 		else if (p->node) emit_top(c, p->u, &p->form, p->node);
 		else emit_failed(c, p->u, &p->form, p->message);
@@ -3804,9 +3840,7 @@ static const direct_entry *target_entry(const cljc_compiler *c, const char *targ
 		if (!*sig) return d;
 		if (!d->wsig[*arity]) return NULL;
 		if (strcmp(d->wsig[*arity], *sig) != 0) {
-			char msg[600];
-			snprintf(msg, sizeof msg, "compiler: %s expects a worker %s, the set emitted %s", target, *sig, d->wsig[*arity]);
-			clj_fatal(msg);
+			clj_ice("emit/worker-signature", NULL, "%s expects a worker %s, the set emitted %s", target, *sig, d->wsig[*arity]);
 		}
 		return d;
 	}

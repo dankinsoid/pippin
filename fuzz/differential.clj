@@ -665,8 +665,11 @@
   (when (not= 0 (:exit (:run v)))
     (println (format "seed %s: runner %s exited %s, %d of %d forms reported"
                      (str seed) n (str (:exit (:run v))) (count (:t v)) nforms))
-    (let [e (str/trim (:err (:run v)))]
-      (when (seq e) (println "  stderr:" (last (str/split-lines e)))))
+    ;; An internal error is a finding without the oracle: its first line names the kind (NOTES "Internal errors").
+    (let [e (str/trim (:err (:run v)))
+          lines (str/split-lines e)]
+      (when (seq e)
+        (println "  stderr:" (or (first (filter #(str/starts-with? % "clj: internal error") lines)) (last lines)))))
     true))
 
 (defn run-pass [opts runners]

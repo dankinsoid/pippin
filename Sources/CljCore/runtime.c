@@ -13,6 +13,7 @@
 #include "clj/error.h"
 #include "clj/eval.h"
 #include "clj/fusion.h"
+#include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
@@ -31,6 +32,7 @@
 #include "clj/vector.h"
 #include "clj/compiled.h"
 #include "guard_internal.h"
+#include "ice_internal.h"
 #include "coro_internal.h"
 #include "load_internal.h"
 
@@ -115,7 +117,7 @@ const char *clj_core_source(size_t *len) {
 static void boot_failed(const char *what, uint32_t line, uint32_t col, const char *detail) {
 	char msg[640];
 	snprintf(msg, sizeof msg, "core.clj failed to load: %s at %u:%u: %s", what, line, col, detail);
-	clj_fatal(msg);
+	clj_ice("boot/core-load", NULL, "%s", msg);
 }
 
 static void print_trace(clj_value trace) {
@@ -130,7 +132,6 @@ static void print_trace(clj_value trace) {
 	}
 }
 
-#ifndef CLJ_COMPILED_CORE
 // Evaluates core.clj in clojure.core; the caller has made it the current namespace for the resolver.
 // The load hook sees every form under this path, which is what the compiler names in its #line directives.
 static void load_core(void) {
@@ -160,7 +161,6 @@ static void load_core(void) {
 	}
 	clj_release(file);
 }
-#endif
 
 // Every root bound by boot outlives the process, so a read of it needs no retain (eval_borrowed): what a
 // later rebind of the var "releases" is a no-op, a bounded leak per redefinition. Type descriptors are left
@@ -176,6 +176,7 @@ static bool immortalize_root(clj_value sym, clj_value var, void *ctx) {
 }
 
 static void init(void) {
+	clj_no_opt_configure();
 	clj_sched_seed_configure();
 	clj_trace_register_image((const void *)&clj_init);
 	clj_guard_install();
@@ -203,14 +204,19 @@ static void init(void) {
 	clj_intrinsics_install();
 	clj_ns_set_current(core);
 #ifdef CLJ_COMPILED_CORE
-	if (clj_compiled_core_init() == CLJ_THROWN) {
-		clj_value trace = clj_take_pending_trace();
-		clj_value ex = clj_take_pending();
-		clj_value text = clj_pr_str(ex);
-		print_trace(trace);
-		boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : clj_string_bytes(text));
+	// The embedded source is in every build, so the kill switch boots it interpreted.
+	if (clj_opt_off(CLJ_NO_OPT_COMPILED)) {
+		load_core();
+	} else {
+		if (clj_compiled_core_init() == CLJ_THROWN) {
+			clj_value trace = clj_take_pending_trace();
+			clj_value ex = clj_take_pending();
+			clj_value text = clj_pr_str(ex);
+			print_trace(trace);
+			boot_failed("exception", 0, 0, text == CLJ_THROWN ? "unprintable" : clj_string_bytes(text));
+		}
+		clj_compiled_libs_register();
 	}
-	clj_compiled_libs_register();
 #else
 	load_core();
 #endif

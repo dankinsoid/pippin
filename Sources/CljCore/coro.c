@@ -16,6 +16,7 @@
 #include "clj/eval.h"
 #include "clj/fn.h"
 #include "clj/guard.h"
+#include "clj/ice.h"
 #include "clj/objc.h"
 #include "clj/printer.h"
 #include "clj/profile.h"
@@ -496,7 +497,7 @@ void clj_coro_entry(void) {
 	clj_slot_store(&c->h, &c->result, result);
 	atomic_store_explicit(&c->state, CLJ_CORO_DONE, memory_order_release);
 	clj_coro_switch_out(c);
-	clj_fatal("a finished coroutine was resumed");
+	clj_ice("coro/resume-finished", NULL, "a finished coroutine was resumed");
 }
 
 uint64_t clj_debug_coro_switches(void) { return atomic_load_explicit(&switches, memory_order_relaxed); }

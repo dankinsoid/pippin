@@ -9,6 +9,7 @@
 #include "clj/diagnostic.h"
 #include "clj/eval.h"
 #include "clj/guard.h"
+#include "clj/ice.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/lock.h"
@@ -23,6 +24,7 @@
 #include "clj/vector.h"
 
 #include "coro_internal.h"
+#include "ice_internal.h"
 #include "libs_clj.inc"
 #include "load_internal.h"
 
@@ -401,7 +403,7 @@ static clj_value run_unit(clj_compiled_init init, clj_value file) {
 		clj_release(r);
 		r = force_deferred(mark, file);
 	}
-	if (clj_var_pop_bindings() == CLJ_THROWN) clj_fatal("load bindings vanished");
+	if (clj_var_pop_bindings() == CLJ_THROWN) clj_ice("load/bindings", NULL, "the load bindings vanished");
 	if (r == CLJ_THROWN) return r;
 	clj_release(r);
 	return CLJ_NIL;
@@ -469,7 +471,7 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 		clj_release(form);
 	}
 	if (result != CLJ_THROWN) result = force_deferred(mark, file);
-	if (clj_var_pop_bindings() == CLJ_THROWN) clj_fatal("load bindings vanished");
+	if (clj_var_pop_bindings() == CLJ_THROWN) clj_ice("load/bindings", NULL, "the load bindings vanished");
 	return result;
 }
 
@@ -503,7 +505,7 @@ static void read_file(void *ctx) {
 clj_value clj_load_file(clj_value path) {
 	if (!clj_is_string(path)) return clj_throw_msg("load-file expects a path string, got: %s", clj_type_name(path));
 	const char *text = clj_string_bytes(path);
-	clj_compiled_init unit = nunits ? clj_compiled_find(text) : NULL;
+	clj_compiled_init unit = nunits && !clj_opt_off(CLJ_NO_OPT_COMPILED) ? clj_compiled_find(text) : NULL;
 	if (unit) return run_unit(unit, path);
 	if (strncmp(text, embedded_prefix, sizeof embedded_prefix - 1) == 0) {
 		const char *lib = text + sizeof embedded_prefix - 1;

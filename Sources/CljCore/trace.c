@@ -10,6 +10,7 @@
 #endif
 
 #include "clj/compiled.h"
+#include "clj/ice.h"
 #include "clj/lock.h"
 #include "shadow_internal.h"
 #include "trace_internal.h"
@@ -131,7 +132,7 @@ void clj_c_register_frames(const clj_frame_entry *entries, size_t n) {
 	clj_lock_lock(&lock);
 	const image *im = register_image((const void *)entries[0].fn);
 	for (size_t i = 0; im && i < n; i++) {
-		if (fresh[i].start < im->frames_lo || fresh[i].start >= im->frames_hi) clj_fatal("compiled unit: a frame function is outside its section");
+		if (fresh[i].start < im->frames_lo || fresh[i].start >= im->frames_hi) clj_ice("trace/frame-section", NULL, "a compiled unit's frame function is outside its section");
 	}
 	frame_table *old = atomic_load_explicit(&frames, memory_order_relaxed);
 	size_t       total = (old ? old->n : 0) + n;

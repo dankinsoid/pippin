@@ -94,8 +94,10 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   `clj-compile --file` writes the whole case file as one C unit — compiling evaluates it, so that transcript is
   the interpreter's and is dropped — and `clj-fuzz` builds it with one clang run, registers it and loads the
   file, which runs the compiled unit. A 1000-form case is a 5.9 MB C file, 4 s on an Intel Mac end to end. So
-  `make fuzz` has three runners (oracle, `interp`, `unit`), and the compiled backend is compared with the oracle
-  and with the interpreter on every gate run. `CLJ_EVAL=compiled` is the REPL path, a clang run per top-level
+  `make fuzz` has four runners (oracle, `interp`, `noopt`, `unit`), and the compiled backend is compared with the
+  oracle and with the interpreter on every gate run; `noopt` is `clj-fuzz --no-opt`, the interpreter under the
+  kill switch (NOTES "Internal errors"), between the optimized interpreter and the oracle. A runner that dies of an
+  internal error reports its first line, the kind (`clj: internal error [verify/…]`), not the trace's last. `CLJ_EVAL=compiled` is the REPL path, a clang run per top-level
   form (~1 form/s, `--group` not helping: the cost is per form), and stays in `make fuzz-long`.
 
 - **Measured** (arm64 CI). With the oracle and the interpreter alone the pass was 8000 forms over eight seeds in

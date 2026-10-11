@@ -6,19 +6,9 @@
 
 #include "alloc.h"
 #include "cc_internal.h"
+#include "ice_internal.h"
 #include "rc_internal.h"
 #include "stats_internal.h"
-
-// CLJ_CRASH_EXIT: a plain exit, since a wedged crash reporter can leave the aborting process unkillable (NOTES "Guard").
-void clj_fatal(const char *msg) {
-	fprintf(stderr, "clj: fatal: %s\n", msg);
-	const char *seed = getenv("CLJ_SCHED_SEED");
-	if (seed && *seed) fprintf(stderr, "clj: under the seeded scheduler, CLJ_SCHED_SEED=%s\n", seed);
-	fflush(stderr);
-	const char *e = getenv("CLJ_CRASH_EXIT");
-	if (e && *e && strcmp(e, "0") != 0) _exit(134);
-	abort();
-}
 
 // A nonzero release of an object that may lie on a cycle leaves an entry in a candidate buffer (cc.c).
 static bool release_reaches_zero(clj_header *h) {
@@ -51,7 +41,7 @@ static void fatal_unshared_child(const char *where, const clj_header *parent, cl
 	char msg[256];
 	snprintf(msg, sizeof msg, "%s: shared %s over unshared %s", where, parent ? parent->type->name : "object",
 	         clj_type_of(child)->name);
-	clj_fatal(msg);
+	clj_ice("rc/unshared-child", NULL, "%s", msg);
 }
 
 static void assert_child_shared(clj_value child, void *ctx) {
@@ -180,17 +170,13 @@ void clj_rc_drop_children(clj_header *h) {
 }
 
 bool clj_rc_token_ok(const clj_header *h) {
-#ifdef CLJ_NO_REUSE
-	(void)h;
-	return false;
-#else
+	if (clj_opt_off(CLJ_NO_OPT_REUSE)) return false;
 	// A reference type replaces slots under its own protocol, and a finalizer or a registry runs at death.
 	if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_MUTABLE)) return false;
 	if (h->type->finalize || h->type->unlink) return false;
 	CLJ_OWNER_CHECK(h);
 	// The whole word: a candidate buffer's BUFFERED bit means it still names the cell.
 	return CLJ_RC_UNSHARED_LOAD(h) == 1;
-#endif
 }
 
 #if CLJ_DEBUG
@@ -245,19 +231,15 @@ void clj_rc_drop(clj_header *h, bool deep) {
 }
 
 static bool is_unique(clj_value v) {
-#ifdef CLJ_NO_REUSE
-	// The §7 invariant: nothing outside the RC entry points may depend on the counter, so a build that
-	// answers "not unique" everywhere must still pass every suite — a copy, never a wrong result.
-	(void)v;
-	return false;
-#else
+	// The §7 invariant: nothing outside the RC entry points may depend on the counter, so answering
+	// "not unique" everywhere must still pass every suite — a copy, never a wrong result.
+	if (clj_opt_off(CLJ_NO_OPT_REUSE)) return false;
 	clj_header *h = clj_header_of(v);
 	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
 	if (h->flags & CLJ_FLAG_SHARED) return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
 	CLJ_OWNER_CHECK(h);
 	return CLJ_RC_UNSHARED_LOAD(h) == 1;
-#endif
 }
 
 bool clj_is_unique(clj_value v) {
@@ -269,13 +251,7 @@ bool clj_is_unique(clj_value v) {
 	return unique;
 }
 
-bool clj_reuse_enabled(void) {
-#ifdef CLJ_NO_REUSE
-	return false;
-#else
-	return true;
-#endif
-}
+bool clj_reuse_enabled(void) { return !clj_opt_off(CLJ_NO_OPT_REUSE); }
 
 bool clj_is_shared(clj_value v) {
 	return clj_is_ptr(v) && (clj_header_of(v)->flags & CLJ_FLAG_SHARED) != 0;
@@ -381,7 +357,7 @@ void clj_debug_slot_store_check(const clj_header *owner, clj_value v) {
 	if (owner->type->debug_lock_held(owner)) return;
 	char msg[256];
 	snprintf(msg, sizeof msg, "store into a slot of %s without its lock (design §4, «Запись в слот»)", owner->type->name);
-	clj_fatal(msg);
+	clj_ice("rc/store-without-lock", NULL, "%s", msg);
 }
 #else
 void clj_debug_share_check_every(uint32_t n) { (void)n; }
@@ -443,6 +419,6 @@ void clj_debug_owner_check(const clj_header *h) {
 	char msg[256];
 	snprintf(msg, sizeof msg, "unshared %s of execution %u touched by execution %u (NOTES \"RC\", owner check)",
 	         h->type->name, owner, here);
-	clj_fatal(msg);
+	clj_ice("rc/owner", NULL, "%s", msg);
 }
 #endif

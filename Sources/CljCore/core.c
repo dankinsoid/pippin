@@ -1,5 +1,6 @@
 // @ai-generated(solo)
 #include "clj/core.h"
+#include "clj/ice.h"
 
 const char *clj_type_name(clj_value v) {
 	if (clj_is_nil(v)) return "nil";
@@ -17,7 +18,7 @@ uint32_t clj_debug_cached_hash(clj_value v) {
 	if (clj_is_map(v)) return clj_debug_map_cached_hash(v);
 	if (clj_is_vector(v)) return clj_debug_vector_cached_hash(v);
 	if (clj_is_set(v)) return clj_hash_cache_load(&clj_set_of(v)->hash);
-	clj_fatal("value of a type without a hash cache");
+	clj_ice("type/no-hash-cache", NULL, "a value of a type without a hash cache");
 }
 
 uint32_t (*clj_debug_hash_override)(clj_value v);
@@ -39,7 +40,7 @@ uint32_t clj_mix_coll_hash(uint32_t hash, uint32_t count) {
 uint32_t clj_hash_slow(clj_value v) {
 	CLJ_STAT(CLJ_STAT_HASH);
 	const clj_type *t = clj_header_of(v)->type;
-	if (!t->hash) clj_fatal("value of a type without hash used as a key");
+	if (!t->hash) clj_ice("type/no-hash", NULL, "a value of a type without hash used as a key");
 	return t->hash(clj_to_ptr(v));
 }
 
@@ -48,6 +49,6 @@ bool clj_equals_slow(clj_value a, clj_value b) {
 	clj_value self = clj_is_ptr(a) ? a : b;
 	clj_value other = self == a ? b : a;
 	const clj_type *t = clj_header_of(self)->type;
-	if (!t->equals) clj_fatal("value of a type without equals compared");
+	if (!t->equals) clj_ice("type/no-equals", NULL, "a value of a type without equals compared");
 	return t->equals(clj_to_ptr(self), other);
 }

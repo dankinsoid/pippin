@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/ice.h"
+
 // optimizer.c's liveness again: its marks name only reads a consumer owns, a pair needs the set after any node.
 
 struct cljc_reuse_plan {
@@ -246,7 +248,7 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 	case CLJ_NODE_VAR:
 	case CLJ_NODE_DIRECT_FN: return out;
 	}
-	clj_fatal("compiler: unknown node kind");
+	clj_ice("emit/reuse-unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
 
 typedef struct {

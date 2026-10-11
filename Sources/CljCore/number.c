@@ -4,6 +4,7 @@
 
 #include "clj/core.h"
 #include "clj/error.h"
+#include "clj/ice.h"
 #include "clj/number.h"
 
 // -0.0 is folded into 0.0 first: they are equal, so they must hash alike.
@@ -45,7 +46,7 @@ double clj_num_to_double(clj_value v) {
 	case CLJ_NUM_DECIMAL: return clj_decimal_to_double(v);
 	case CLJ_NUM_NONE: break;
 	}
-	clj_fatal("clj_num_to_double on a non-number");
+	clj_ice("number/not-a-number", NULL, "clj_num_to_double on a non-number");
 }
 
 int clj_num_sign(clj_value v) {
@@ -64,7 +65,7 @@ int clj_num_sign(clj_value v) {
 	case CLJ_NUM_DECIMAL: return clj_bigint_sign(clj_decimal_unscaled(v));
 	case CLJ_NUM_NONE: break;
 	}
-	clj_fatal("clj_num_sign on a non-number");
+	clj_ice("number/not-a-number", NULL, "clj_num_sign on a non-number");
 }
 
 void clj_num_as_fraction(clj_value v, clj_value *num, clj_value *den) {
@@ -88,7 +89,7 @@ void clj_num_as_fraction(clj_value v, clj_value *num, clj_value *den) {
 		return;
 	default: break;
 	}
-	clj_fatal("clj_num_as_fraction on a value that is not rational");
+	clj_ice("number/not-rational", NULL, "clj_num_as_fraction on a value that is not rational");
 }
 
 clj_value clj_num_truncate(clj_value v) {
@@ -101,7 +102,7 @@ clj_value clj_num_truncate(clj_value v) {
 	case CLJ_NUM_RATIO: return clj_bigint_quot(clj_ratio_num(v), clj_ratio_den(v), NULL);
 	case CLJ_NUM_NONE: break;
 	}
-	clj_fatal("clj_num_truncate on a non-number");
+	clj_ice("number/not-a-number", NULL, "clj_num_truncate on a non-number");
 }
 
 static clj_value not_a_number(clj_value v) { return clj_throw_msg("%s cannot be cast to a number", clj_type_name(v)); }
@@ -143,7 +144,7 @@ static clj_value double_arith(double p, double q, clj_num_op op) {
 	case CLJ_OP_QUOT: return clj_double_quot(p, q);
 	case CLJ_OP_REM: return clj_double_rem(p, q);
 	}
-	clj_fatal("unknown arithmetic op");
+	clj_ice("number/unknown-op", NULL, "unknown arithmetic op");
 }
 
 // demote is set for a long-rank pair, whose integral result narrows back to the canonical integer.
@@ -166,7 +167,7 @@ static clj_value integer_arith(clj_value a, clj_value b, clj_num_op op, bool dem
 		if (clj_num_sign(b) == 0) return clj_throw_msg("Divide by zero");
 		clj_release(clj_bigint_quot(a, b, &r));
 		break;
-	default: clj_fatal("unknown arithmetic op");
+	default: clj_ice("number/unknown-op", NULL, "unknown arithmetic op");
 	}
 	if (!demote) return r;
 	clj_value narrow = clj_bigint_demote(r);
@@ -418,7 +419,7 @@ static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
 		clj_release(whole);
 		break;
 	}
-	default: clj_fatal("unknown arithmetic op");
+	default: clj_ice("number/unknown-op", NULL, "unknown arithmetic op");
 	}
 	clj_release(x);
 	clj_release(y);

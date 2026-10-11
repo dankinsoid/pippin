@@ -7,6 +7,7 @@
 
 #include "clj/array.h"
 #include "clj/core.h"
+#include "clj/ice.h"
 
 _Static_assert(offsetof(clj_array, data) % 8 == 0, "inline elements must stay 8-aligned");
 
@@ -110,7 +111,7 @@ static clj_value cast_into(clj_array_kind kind, clj_value v, void *slot) {
 			return CLJ_NIL;
 		}
 		return clj_throw_msg("%s cannot be cast to a char", clj_type_name(v));
-	default: clj_fatal("an object array's element is stored by clj_array_set");
+	default: clj_ice("array/object-store", NULL, "an object array's element is stored by clj_array_set");
 	}
 }
 

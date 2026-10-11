@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "clj/error.h"
+#include "clj/ice.h"
 #include "clj/lock.h"
 #include "clj/string.h"
 #include "coro_internal.h"
@@ -156,6 +157,7 @@ static void __attribute__((noreturn)) fatal_fault(int sig, siginfo_t *info, void
 	if (uap) clj_guard_origin(uap, &origin);
 	else origin = (clj_trace_origin){0, 0, (uintptr_t)__builtin_frame_address(0), 0};
 	clj_trace_write(2, &origin);
+	clj_ice_write_context(2);
 	struct sigaction *p = &previous[sig == SIGBUS];
 	if (p->sa_flags & SA_SIGINFO && p->sa_sigaction) {
 		p->sa_sigaction(sig, info, uap);
@@ -228,6 +230,7 @@ void clj_recovery_push(clj_recovery *r) {
 	r->depth = s->depth;
 	r->exec_depth = clj_eval_exec_depth();
 	r->bindings = clj_var_bindings_mark();
+	r->ice = s->ice;
 	s->recovery = r;
 }
 
@@ -240,6 +243,7 @@ clj_value clj_recovery_throw(clj_recovery *r) {
 	clj_shadow_stack *s = r->shadow;
 	ASAN_LANDED(s);
 	s->depth = r->depth;
+	s->ice = r->ice;
 	clj_eval_exec_depth_set(r->exec_depth);
 	clj_var_bindings_unwind(r->bindings);
 	clj_release(clj_take_pending());

@@ -11,6 +11,7 @@
 #include "clj/error.h"
 #include "clj/fn.h"
 #include "clj/hosttype.h"
+#include "clj/ice.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/map.h"
@@ -23,6 +24,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/verify.h"
 #include "clj/facts.h"
 #include "clj/summary.h"
 #include "guard_internal.h"
@@ -1651,15 +1653,22 @@ static clj_def_lazy def_laziness(const clj_node *n) {
 }
 
 clj_node *clj_analyze(clj_value form, const clj_env *env) {
-	analyzer  a = analyzer_for(env);
+	analyzer      a = analyzer_for(env);
+	clj_ice_frame frame = {.pass = "analyze", .file = clj_ice_current_file(), .line = a.line, .col = a.col};
+	clj_ice_enter(&frame);
 	scope     top = {0};
 	clj_node *node = analyze(&a, &top, form, false);
 	free(top.locals);
 	clj_release(a.keeps);
 	if (node) {
+		CLJ_VERIFY_TREE(node, "analyze", CLJ_VERIFY_ANALYZED);
 		clj_optimize(node);
+		clj_ice_pass("number");
 		clj_node_number(node);
+		CLJ_VERIFY_TREE(node, "number", CLJ_VERIFY_NUMBERED | CLJ_VERIFY_MARKS);
+		clj_ice_pass("analyze/lazy-def");
 		if (node->kind == CLJ_NODE_DEF) node->u.def.lazy = (uint8_t)def_laziness(node);
 	}
+	clj_ice_leave(&frame);
 	return node;
 }

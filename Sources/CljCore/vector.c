@@ -4,6 +4,7 @@
 #include "clj/coll.h"
 #include "clj/error.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/vector.h"
@@ -73,7 +74,7 @@ static inline size_t      tuple_size(uint32_t n) { return sizeof(tuple) + n * si
 static inline uint32_t    tail_off(uint32_t count) { return count < WIDTH ? 0 : ((count - 1) >> BITS) << BITS; }
 
 static inline size_t slot_index(const node *n, uint32_t i, uint32_t shift) {
-	if (n->flags & NODE_RELAXED) clj_fatal("relaxed nodes are not implemented");
+	if (n->flags & NODE_RELAXED) clj_ice("vector/relaxed-node", NULL, "relaxed nodes are not implemented");
 	return (i >> shift) & MASK;
 }
 
@@ -342,7 +343,7 @@ uint32_t clj_vector_count(clj_value vec) { return vector_of(vec)->count; }
 
 clj_value clj_vector_nth(clj_value vec, uint32_t i) {
 	const clj_vector *v = vector_of(vec);
-	if (i >= v->count) clj_fatal("vector index out of bounds");
+	if (i >= v->count) clj_ice("vector/index", NULL, "vector index out of bounds");
 	if (is_tuple(v)) return ((const tuple *)v)->items[i].v;
 	return leaf_for(v, i)->slots[i & MASK].v;
 }
@@ -498,7 +499,7 @@ clj_value clj_vector_conj(clj_value vec, clj_value val) {
 clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val) {
 	uint32_t count = vector_of(vec)->count;
 	if (i == count) return clj_vector_conj(vec, val);
-	if (i > count) clj_fatal("vector index out of bounds");
+	if (i > count) clj_ice("vector/index", NULL, "vector index out of bounds");
 	if (is_tuple(vector_of(vec))) return tuple_assoc(vec, i, val);
 	clj_vector *v = vector_own(vec);
 	if (i >= tail_off(count)) {
@@ -515,7 +516,7 @@ clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val) {
 
 clj_value clj_vector_pop(clj_value vec) {
 	uint32_t count = vector_of(vec)->count;
-	if (count == 0) clj_fatal("pop of an empty vector");
+	if (count == 0) clj_ice("vector/pop-empty", NULL, "pop of an empty vector");
 	if (count == 1 && clj_is_nil(vector_of(vec)->meta.v)) {
 		clj_release(vec);
 		return clj_vector_empty();

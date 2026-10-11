@@ -34,6 +34,7 @@
 #include "clj/cons.h"
 #include "clj/core.h"
 #include "clj/error.h"
+#include "clj/ice.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/map.h"
@@ -45,6 +46,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/verify.h"
 #include "node.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
@@ -256,7 +258,7 @@ static clj_value encode_capture(const clj_capture *c) {
 	case CLJ_CAPTURE_CAPTURED: return vec2(kw_captured, clj_fixnum(c->index));
 	case CLJ_CAPTURE_OUTER: return vec2(kw_outer, vec2(clj_fixnum(c->depth), clj_fixnum(c->index)));
 	}
-	clj_fatal("unknown capture kind");
+	clj_ice("codec/capture-kind", NULL, "capture kind %u", (unsigned)c->kind);
 }
 
 static clj_value encode_fn(const clj_node *n) {
@@ -380,7 +382,7 @@ static clj_value encode_kind(const clj_node *n) {
 	}
 	case CLJ_NODE_FUSED: return encode_fused(n);
 	}
-	clj_fatal("unknown node kind");
+	clj_ice("codec/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
 
 clj_value clj_node_to_data(const clj_node *root) {
@@ -920,5 +922,6 @@ clj_node *clj_node_from_data(clj_value data) {
 	check_bounds(root, &top);
 	if (!top.ok) return drop(root);
 	clj_node_number(root);
+	CLJ_VERIFY_TREE(root, "codec", CLJ_VERIFY_NUMBERED | CLJ_VERIFY_MARKS);
 	return root;
 }

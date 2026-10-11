@@ -12,6 +12,7 @@
 #include "clj/error.h"
 #include "clj/facts.h"
 #include "clj/fn.h"
+#include "clj/ice.h"
 #include "clj/inst.h"
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
@@ -32,6 +33,7 @@
 #include "clj/uuid.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "clj/verify.h"
 #include "clj/proto.h"
 #include "facts_internal.h"
 #include "guard_internal.h"
@@ -1079,7 +1081,8 @@ static void require_arg(pass *p, env *e, const clj_node *arg, clj_fact have, clj
 	// a declaration is an explicit ask to be typed here: TOP at its door is what was asked to be told (design §3)
 	if (declared && p->f->warn && p->record && !p->dead && clj_fact_is_top(have))
 		add_diagnostic(p, CLJ_DIAG_TOP_INTO_DECL, arg, 0, 0, callee, i, have, req);
-	if (p->record && arg->id < p->f->nnodes && !clj_fact_eq(m, have)) {
+	if (p->record && !clj_fact_eq(m, have)) {
+		if (arg->id >= p->f->nnodes) clj_ice("facts/id-outside-table", arg, "node id %u past a table of %u: facts over a subtree", arg->id, p->f->nnodes);
 		uint8_t dead = p->f->nodes[arg->id].unreachable;
 		p->f->nodes[arg->id] = m;
 		p->f->nodes[arg->id].unreachable = dead;
@@ -1537,18 +1540,24 @@ static clj_fact infer_if(pass *p, const clj_node *n, env *e, use_kind use) {
 	return clj_fact_join(a, b);
 }
 
+// No captured facts is a walk without the closure (a summary, the top level): TOP. An index past them is a bug.
+static clj_fact captured_fact(const pass *p, const clj_node *at, uint32_t i) {
+	if (!p->frame->captured) return clj_fact_top();
+	if (i >= p->frame->ncaptured) clj_ice("facts/capture-outside-environment", at, "entry %u of %u captured facts", i, p->frame->ncaptured);
+	return p->frame->captured[i];
+}
+
 static clj_fact infer_fn(pass *p, const clj_node *n, env *e) {
 	clj_fact *caps = xalloc(n->u.fn.ncaptures + 1, sizeof(clj_fact));
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
 		const clj_capture *c = &n->u.fn.captures[i];
 		switch (c->kind) {
 		case CLJ_CAPTURE_LOCAL:
+			if (c->index >= e->n) clj_ice("facts/slot-outside-frame", n, "a capture of slot %u of a frame of %u", c->index, e->n);
 			mark_escape(p, c->index, CLJ_ESCAPE_CAPTURED);
-			caps[i] = c->index < e->n ? e->slots[c->index] : clj_fact_top();
+			caps[i] = e->slots[c->index];
 			break;
-		case CLJ_CAPTURE_CAPTURED:
-			caps[i] = p->frame->captured && c->index < p->frame->ncaptured ? p->frame->captured[c->index] : clj_fact_top();
-			break;
+		case CLJ_CAPTURE_CAPTURED: caps[i] = captured_fact(p, n, c->index); break;
 		default:
 			mark_outer(p, c->depth, c->index);
 			caps[i] = clj_fact_top();
@@ -1596,13 +1605,13 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		break;
 	case CLJ_NODE_LOCAL: {
 		uint32_t i = n->u.local.index;
+		// max_slot sized the frame over every read: a slot past it is a tree no frame holds, not an unknown value
+		if (i >= e->n) clj_ice("facts/slot-outside-frame", n, "slot %u of a frame of %u", i, e->n);
 		if (use == USE_ESCAPE) mark_escape(p, i, CLJ_ESCAPE_ESCAPES);
-		r = i < e->n ? e->slots[i] : clj_fact_top();
+		r = e->slots[i];
 		break;
 	}
-	case CLJ_NODE_CAPTURED:
-		r = p->frame->captured && n->u.index < p->frame->ncaptured ? p->frame->captured[n->u.index] : clj_fact_top();
-		break;
+	case CLJ_NODE_CAPTURED: r = captured_fact(p, n, n->u.index); break;
 	case CLJ_NODE_OUTER:
 		mark_outer(p, n->u.outer.depth, n->u.outer.index);
 		r = clj_fact_top();
@@ -1638,7 +1647,8 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		for (uint32_t i = 0; i < n->u.recur.n; i++) {
 			clj_fact a = infer(p, n->u.recur.args[i], e, USE_NONE);
 			alias(p, n->u.recur.args[i], n->u.recur.slots[i]);
-			if (!p->recur || i >= p->recur->n) continue;
+			// every walk that reaches a recur set its loop or arity as the target first
+			if (!p->recur || i >= p->recur->n) clj_ice("facts/recur-target", n, "recur value %u with no target slot for it", i);
 			clj_fact j = clj_fact_join(p->recur->slots[i], a);
 			if (!clj_fact_eq(j, p->recur->slots[i])) {
 				p->recur->slots[i] = j;
@@ -1691,9 +1701,10 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		p->effects |= CLJ_EFFECT_ANY;
 		r = clj_fact_top();
 		break;
-	default: clj_fatal("unknown node kind");
+	default: clj_ice("facts/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 	}
-	if (p->record && n->id < p->f->nnodes) {
+	if (p->record) {
+		if (n->id >= p->f->nnodes) clj_ice("facts/id-outside-table", n, "node id %u past a table of %u: facts over a subtree", n->id, p->f->nnodes);
 		r.unreachable = p->dead;
 		p->f->nodes[n->id] = r;
 	}
@@ -1702,7 +1713,86 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 
 // ---- the table
 
+#if CLJ_DEBUG
+typedef struct {
+	const clj_node **byid;
+	uint32_t         n;
+} id_table;
+
+static void collect_ids(const clj_node *n, void *ctx) {
+	id_table *t = ctx;
+	if (n->id < t->n) t->byid[n->id] = n;
+	clj_node_children(n, collect_ids, ctx);
+}
+
+// What normalize and the union cap leave in every fact a node stores (the lattice above).
+static void verify_fact(const clj_fact *x, const clj_node *at, const char *what) {
+	uint32_t t = x->types, members = popcount(t);
+	uint32_t capped = popcount(t & ~(uint32_t)T_NUM) + ((t & T_NUM) ? 1u : 0u);
+	if ((t & ~(uint32_t)CLJ_T_TOP) || x->null > CLJ_NULL_MAYBE || x->unreachable > CLJ_DEAD_LITERAL)
+		clj_ice("verify/fact-range", at, "%s: a fact outside the lattice (types %#x, null %u)", what, t, x->null);
+	if (capped > CLJ_FACT_UNION_MAX && t != CLJ_T_TOP) clj_ice("verify/fact-cap", at, "%s: %u members past the union cap", what, capped);
+	if ((t != CLJ_T_BOTTOM && x->null == CLJ_NULL_BOTTOM) || (!(t & CLJ_T_NIL) && (x->null & CLJ_NULL_ALWAYS)) ||
+	    (t == CLJ_T_NIL && (x->null & CLJ_NULL_NEVER)))
+		clj_ice("verify/fact-null", at, "%s: nullability %u contradicts types %#x", what, x->null, t);
+	if ((x->singleton != CLJ_UNBOUND && (members != 1 || clj_fact_kind_of_value(x->singleton) != t)) || (x->desc && members != 1) ||
+	    (x->elem && t != CLJ_T_ARRAY))
+		clj_ice("verify/fact-pinned", at, "%s: a singleton, descriptor or element kind beside types %#x", what, t);
+}
+
+// A table indexed by the tree it was built over, its frames and loops on the nodes they name, every fact normal,
+// and a loop variable at least what its init was: the join only climbs.
+static void verify_table(const clj_facts *f) {
+	if (!clj_verify_enabled()) return;
+	const clj_node *root = f->root;
+	if (root->id != 0 || f->nnodes != root->nnodes) clj_ice("verify/facts-table", root, "a table of %u over a tree of %u from id %u", f->nnodes, root->nnodes, root->id);
+	id_table t = {xalloc(f->nnodes, sizeof(clj_node *)), f->nnodes};
+	collect_ids(root, &t);
+	for (uint32_t i = 0; i < f->nnodes; i++) {
+		if (!t.byid[i]) clj_ice("verify/facts-table", root, "no node has id %u", i);
+		verify_fact(&f->nodes[i], t.byid[i], "a node's fact");
+	}
+	for (uint32_t i = 0; i < f->nframes; i++) {
+		const clj_facts_frame *fr = &f->frames[i];
+		const clj_node        *owner = fr->owner == UINT32_MAX ? NULL : fr->owner < f->nnodes ? t.byid[fr->owner] : root;
+		bool owner_ok = fr->owner == UINT32_MAX ||
+		                (fr->owner < f->nnodes && (owner->kind == CLJ_NODE_FN || owner->kind == CLJ_NODE_DIRECT_FN || owner->kind == CLJ_NODE_FUSED));
+		if (!owner_ok || fr->first >= f->nnodes || t.byid[fr->first]->nnodes != fr->nnodes || fr->slot + fr->nslots > f->nslots)
+			clj_ice("verify/facts-frame", owner, "frame %u names no frame of the tree", i);
+	}
+	for (uint32_t i = 0; i < f->nslots; i++) {
+		if (f->escape[i] > CLJ_ESCAPE_ESCAPES) clj_ice("verify/facts-frame", root, "escape %u outside its lattice", f->escape[i]);
+	}
+	for (uint32_t i = 0; i < f->nloops; i++) {
+		const clj_facts_loop *l = &f->loops[i];
+		const clj_node       *loop = l->node < f->nnodes ? t.byid[l->node] : NULL;
+		if (!loop || loop->kind != CLJ_NODE_LOOP || loop->u.let.n != l->n || l->first + l->n > f->nvars)
+			clj_ice("verify/facts-loop", loop ? loop : root, "loop entry %u names no loop of %u variables", i, l->n);
+		for (uint32_t k = 0; k < l->n; k++) {
+			const clj_fact *var = &f->vars[l->first + k], *init = &f->nodes[loop->u.let.inits[k]->id];
+			verify_fact(var, loop, "a loop variable");
+			if ((init->types & ~var->types) || (init->null & ~var->null))
+				clj_ice("verify/facts-monotone", loop, "loop variable %u (types %#x) below its init (types %#x)", k, var->types, init->types);
+		}
+	}
+	free(t.byid);
+}
+#endif
+
+static clj_facts *finish(clj_facts *f, uint64_t digest) {
+#if CLJ_DEBUG
+	CLJ_VERIFY_UNCHANGED(f->root, digest, "facts");
+	verify_table(f);
+#else
+	(void)digest;
+#endif
+	return f;
+}
+
 clj_facts *clj_facts_of(const clj_node *root) {
+	clj_ice_frame frame = {.pass = "facts"};
+	clj_ice_enter(&frame);
+	uint64_t   digest = CLJ_VERIFY_DIGEST(root);
 	clj_facts *f = xalloc(1, sizeof *f);
 	f->root = (const clj_node *)clj_to_ptr(clj_retain(clj_from_ptr((void *)root)));
 	f->nnodes = root->nnodes;
@@ -1713,10 +1803,15 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL, NULL);
 	free(p.alias_from);
 	free(p.alias_to);
+	finish(f, digest);
+	clj_ice_leave(&frame);
 	return f;
 }
 
 clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
+	clj_ice_frame frame = {.pass = "facts"};
+	clj_ice_enter(&frame);
+	uint64_t   digest = CLJ_VERIFY_DIGEST(root);
 	clj_facts *f = xalloc(1, sizeof *f);
 	f->root = (const clj_node *)clj_to_ptr(clj_retain(clj_from_ptr((void *)root)));
 	f->nnodes = root->nnodes;
@@ -1731,6 +1826,8 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	free(p.alias_from);
 	free(p.alias_to);
 	if (sums) clj_summaries_forget_arities(sums);
+	finish(f, digest);
+	clj_ice_leave(&frame);
 	return f;
 }
 

@@ -26,6 +26,7 @@ typedef struct {
 	_Atomic bool      cancelled;   // a cancellation of the coroutine (its kind is on the clj_coro): the deadline throw becomes it
 	_Atomic bool      suspend;     // a standing suspend!: the same poisoned deadline, but the tick parks on a gate (sched.c)
 	void             *recovery;    // innermost clj_recovery of the execution, NULL outside the host boundary (guard.c)
+	void             *ice;         // innermost clj_ice_frame (ice.c)
 	size_t            noverflow;   // the frames the guard handler collected before landing (guard.c)
 	clj_trace_frame  *overflow;    // CLJ_TRACE_MAX entries, after the frames
 #if CLJ_STATS

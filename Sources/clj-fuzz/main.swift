@@ -8,16 +8,23 @@ import Pippin
 // CljCompiler linked in is what CLJ_EVAL=compiled needs.
 
 var args = Array(CommandLine.arguments.dropFirst())
+// The kill switch (NOTES "Internal errors"): the interpreter's reading of the tree and nothing else.
+var noOpt: UInt32 = 0
+if let first = args.first, first == "--no-opt" || first.hasPrefix("--no-opt=") {
+	noOpt = clj_no_opt_parse(first == "--no-opt" ? "all" : String(first.dropFirst("--no-opt=".count)))
+	args.removeFirst()
+}
 // clj-compile's output for the file: one clang run per case, not one per form (fuzz/compiled.sh).
 var unitsDir: String?
 if args.count == 3 && args[0] == "--units" {
 	unitsDir = args[1]
 	args.removeFirst(2)
 }
-guard args.count == 1 else {
-	FileHandle.standardError.write(Data("usage: clj-fuzz [--units DIR] <file.clj>\n".utf8))
+guard args.count == 1, noOpt != UInt32.max else {
+	FileHandle.standardError.write(Data("usage: clj-fuzz [--no-opt[=LIST]] [--units DIR] <file.clj>\n".utf8))
 	exit(2)
 }
+clj_no_opt_set(noOpt)
 
 func fail(_ message: String) -> Never {
 	FileHandle.standardError.write(Data("clj-fuzz: \(message)\n".utf8))
