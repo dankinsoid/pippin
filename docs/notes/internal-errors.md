@@ -97,6 +97,14 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `emit` | the tree unchanged; the slot plan of every frame (`emit/slots`) |
   | `run` | a form the compiler pended is unchanged when it is emitted, after the interpreter ran it |
 
+- **Cost: below what the CI runners can resolve.** `make test` (ASan, two shards) on one commit, the verifier on (in
+  `gates`) against `CLJ_VERIFY=0` (a `test` dispatch beside it), shard seconds: 152/150 against 124/127 (runs
+  38164621545, 38164630018) and 177/176 against 160/159 (runs 38165088626, 38165094451). The same runs' `swift
+  build` took 128 against 93 s and 156 against 134 s, so the runners differed by as much as the pairs do; scaled by
+  the build, the verifier's side is the faster one in both pairs. Nothing is sampled: every tree of every pass is
+  checked. Trigger for sampling: a pair on one runner (both `make test` passes in one job) that shows the verifier
+  past a tenth of the suite.
+
 - **The invariants**, each with what reads it.
   1. Structure: every child present and a node of a known kind; a `do` of at least one item (`eval_do` reads item
      n−1); a map literal of even items; a def with its meta node; a catch selector of its kind's type; a send's
