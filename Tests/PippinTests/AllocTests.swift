@@ -173,7 +173,7 @@ extension CoreTests {
 			}
 			t.start()
 			done.wait()
-			#expect(clj_debug_live_objects() == before)
+			#expect(settledLiveObjects("after the other thread released it") == before)
 
 			var seen: [clj_value] = []
 			var reused = false
@@ -205,7 +205,7 @@ extension CoreTests {
 			done.wait()
 			#expect(clj_debug_live_objects() == before + 5000)
 			for v in made { clj_release(v) }
-			#expect(clj_debug_live_objects() == before)
+			#expect(settledLiveObjects("after the release") == before)
 		}
 	}
 }

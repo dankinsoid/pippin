@@ -111,11 +111,18 @@
   queued or running, the output writer is drained, and the live-object count holds still across 1 ms (a
   coroutine's count drops at its finalize, before its children are freed). `BootedTrait` settles before every
   test under `CoreTests`, `CoroBaseline` at both ends, the corpus around its second run, `CompilerFixtureTests`
-  at each of its in-test counts (NOTES "Compiler", "Gates"). Without it a baseline
+  at each of its in-test counts (NOTES "Compiler", "Gates"), `DynamicVarTests` and the cross-thread checks of
+  `AllocTests` at theirs (`settledLiveObjects`). Without it a baseline
   counted whatever finished on another thread a moment later — a warm-up's joined go block still in its
   epilogue on a carrier, a `timeout` that lost an `alts!` firing later, a `thread` body releasing after it
   delivered — and the check found those objects gone (`CoroTests.everyCancellationIsCancelledType`,
-  `ChanTests.altsWithDefaultTimeoutAndPriority`, `AsyncLibTests.aScopeCancellationCarriesItsCause` on CI). The
+  `ChanTests.altsWithDefaultTimeoutAndPriority`, `AsyncLibTests.aScopeCancellationCarriesItsCause` on CI). A
+  background collection is work in flight too: it holds what it walks and defers every shared object reaching
+  zero until it ends (cc.c, `clj_cc_defer_free`), and the settle's own `clj_cc_collect` waits for it.
+  `DynamicVarTests.bindingsArePerThread` counted +30 once (run 37963402881): exactly what its body holds before
+  it ends (its three fns, their execs and trees), freed after the count. Looped 300 times beside spinning
+  threads and a thread re-filing 3000 atoms as candidates, 31% of the unsettled counts grew by 7–147 (`fn`,
+  `exec`, `node`, `map`, `list`), 13% with the thread joined, none settled (run 38168891962). The
   wait is for work in flight, not for the count, so a leak still fails the check; it is bounded at 10 s and
   fails loudly, once — later settles only look, so one leaked coroutine does not stall every test after it into
   the run's bound. The failure prints `clj_debug_coro_dump` beside the scheduler's state: every coroutine that
@@ -124,8 +131,14 @@
   threads: the nREPL server's connection threads hold its sessions
   until they see the client hang up, so `NReplTests` waits for the server to be freed (`overTheWire`) — a
   `NamespaceTests` baseline counted them otherwise. A test that starts host threads holding values joins them
-  before it returns. A blocking-pool thread that retires frees nothing the count sees (its implicit coroutine
+  before it returns (`onFreshThread`: a Foundation `Thread` frees its block's captures when its last reference
+  goes, which may be the exiting thread's). A blocking-pool thread that retires frees nothing the count sees (its implicit coroutine
   and carrier are calloc'd, its heap is handed on), so the settle waits for jobs, not for threads.
+- [ ] **Most in-test counts are not settled.** `BootedTrait` settles before a test, but a check at its end reads
+  `clj_debug_live_objects()` at once, and a background collection in flight then (another test's candidates, a deep
+  retry) holds or defers what the body just freed. Only the suites named above settle there. Trigger: the next
+  such check failing on CI by what its own body held; then the end check of every `CoreTests` suite goes through
+  `settledLiveObjects`, as a helper beside the baseline, not one suite at a time.
 - **The `test-compiled` hangs on CI were the blocking pool** (NOTES "Scheduler", "Blocking pool"). The report
   above named the test (`AsyncLibTests.pipelines`), and its coroutine dump showed the deadlock: both pool threads
   in `>!!`, the results loop parked on the channel a queued `thread` body would have fed. The first such hang

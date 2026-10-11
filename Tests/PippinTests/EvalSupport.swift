@@ -70,6 +70,37 @@ func runtimeSettled(_ when: String, coros: Int = 0, sourceLocation: SourceLocati
 	return false
 }
 
+// A background collection holds what it walks and defers every shared object reaching zero until it ends.
+// @ai-generated(solo)
+func settledLiveObjects(_ when: String, sourceLocation: SourceLocation = #_sourceLocation) -> Int64 {
+	runtimeSettled(when, sourceLocation: sourceLocation)
+	return clj_debug_live_objects()
+}
+
+private final class PthreadBody: @unchecked Sendable {
+	let run: () -> Void
+	init(_ run: @escaping () -> Void) { self.run = run }
+}
+
+// A Foundation Thread may free its block's captures on the exiting thread, after a live count; this joins first.
+// @ai-generated(solo)
+func onFreshThread<T>(_ body: () throws -> T) throws -> T {
+	var result: Result<T, any Error>?
+	withoutActuallyEscaping(body) { body in
+		let box = PthreadBody { result = Result { try body() } }
+		withExtendedLifetime(box) {
+			var thread: pthread_t?
+			let created = pthread_create(&thread, nil, { arg in
+				Unmanaged<PthreadBody>.fromOpaque(arg).takeUnretainedValue().run()
+				return nil
+			}, Unmanaged.passUnretained(box).toOpaque())
+			precondition(created == 0, "pthread_create: \(created)")
+			pthread_join(thread!, nil)
+		}
+	}
+	return try result!.get()
+}
+
 extension Trait where Self == BootedTrait {
 	static var booted: BootedTrait { BootedTrait() }
 }

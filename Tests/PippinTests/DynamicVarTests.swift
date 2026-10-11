@@ -20,7 +20,7 @@ extension CoreTests {
 		@Test func bindingNestsAndRestores() throws {
 			clj_init()
 			_ = try eval("(def ^:dynamic dv-x 1) (def ^:dynamic dv-y :root) (def dv-plain 1) (defn dv-read [] dv-x) (def dv-unbound) (def ^:dynamic dv-f (fn [] :root)) [:inner :bound]")
-			let before = clj_debug_live_objects()
+			let before = settledLiveObjects("before the body")
 			do {
 				#expect(try eval("[dv-x (binding [dv-x 2] [dv-x (dv-read)]) dv-x]") == [1, [2, 2], 1])
 				#expect(try eval("(binding [dv-x 2] (binding [dv-x 3 dv-y :inner] [dv-x dv-y]))") == [3, kw("inner")])
@@ -44,42 +44,32 @@ extension CoreTests {
 				#expect(try eval("(binding [dv-f (fn [] :bound)] (dv-f))") == kw("bound"))
 				#expect(try eval("(dv-f)") == kw("root"))
 			}
-			#expect(clj_debug_live_objects() == before)
+			#expect(settledLiveObjects("after the body") == before)
 		}
 
 		@Test func bindingsArePerThread() throws {
 			clj_init()
 			_ = try eval("(def ^:dynamic dv-t 1)")
-			let before = clj_debug_live_objects()
+			let before = settledLiveObjects("before the body")
 			do {
 				let f = try eval("(fn [] (binding [dv-t 2] dv-t))")
 				let g = try eval("(fn [] dv-t)")
 				let boundFn = try eval("(binding [dv-t 3] (bound-fn [] dv-t))")
-				nonisolated(unsafe) var seen: [Value] = []
-				// isFinished is a poll, not a release: handing `seen` back needs an edge of its own.
-				let done = DispatchSemaphore(value: 0)
-				let thread = Thread {
-					// A fresh thread has no frames: it sees the root even while this thread is inside a binding.
-					seen.append(try! g())
-					seen.append(try! f())
-					seen.append(try! boundFn())
-					done.signal()
-				}
 				_ = try eval("(push-thread-bindings {#'dv-t 10})")
-				thread.start()
-				done.wait()
+				// A fresh thread has no frames: it sees the root even while this thread is inside a binding.
+				let seen = Result { try onFreshThread { [try g(), try f(), try boundFn()] } }
 				_ = try eval("(pop-thread-bindings)")
-				#expect(seen == [1, 2, 3])
+				#expect(try seen.get() == [1, 2, 3])
 				#expect(try eval("dv-t") == 1)
 				#expect(try eval("(binding [dv-t 5] ((bound-fn* (fn [] dv-t))))") == 5)
 			}
-			#expect(clj_debug_live_objects() == before)
+			#expect(settledLiveObjects("after the body") == before)
 		}
 
 		@Test func withRedefsSwapsRootsAndRestores() throws {
 			clj_init()
 			_ = try eval("(defn dv-target [] :orig) (def dv-value 1) (def ^:dynamic dv-dyn 1) [:temp :orig]")
-			let before = clj_debug_live_objects()
+			let before = settledLiveObjects("before the body")
 			do {
 				#expect(try eval("[(with-redefs [dv-target (fn [] :temp)] (dv-target)) (dv-target)]") == [kw("temp"), kw("orig")])
 				#expect(try eval("(with-redefs [dv-value 2 dv-dyn 3] [dv-value dv-dyn])") == [2, 3])
@@ -90,20 +80,20 @@ extension CoreTests {
 				#expect(try eval("(alter-var-root #'dv-value (constantly 1))") == 1)
 				#expect(message("(with-redefs [dv-value] 1)") == "with-redefs requires an even number of forms in binding vector")
 			}
-			#expect(clj_debug_live_objects() == before)
+			#expect(settledLiveObjects("after the body") == before)
 		}
 
 		// A binding of *ns* is what a load runs under: in-ns inside it does not leak out.
 		@Test func currentNamespaceIsABinding() throws {
 			clj_init()
 			_ = try eval("(in-ns 'dv-ns.other) (in-ns 'user)")
-			let before = clj_debug_live_objects()
+			let before = settledLiveObjects("before the body")
 			do {
 				#expect(try eval("(binding [*ns* *ns*] (in-ns 'dv-ns.other) (ns-name *ns*))") == Value(symbol: "dv-ns.other"))
 				#expect(try eval("(ns-name *ns*)") == Value(symbol: "user"))
 				#expect(try eval("(binding [*ns* (the-ns 'dv-ns.other)] (ns-name *ns*))") == Value(symbol: "dv-ns.other"))
 			}
-			#expect(clj_debug_live_objects() == before)
+			#expect(settledLiveObjects("after the body") == before)
 		}
 	}
 }
