@@ -1026,7 +1026,7 @@ static void emit_drops(fnctx *f, const clj_node *n, uint32_t at) {
 		uint32_t s = (uint32_t)__builtin_ctzll(m);
 		if (!promoted(f, s) || borrowed_slot(f, s)) clj_ice("emit/drop-slot", n, "a drop of slot %u, which the frame does not own as a C variable", s);
 		if (slot_kind(f, s) != UK_NONE) continue;
-		sb_printf(&f->out, "\tclj_c_rebind(&l%u, CLJ_NIL);\n", s);
+		sb_printf(&f->out, "\tclj_c_drop(&l%u);\n", s);
 		f->u->slots.drops++;
 	}
 }

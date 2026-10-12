@@ -1116,7 +1116,7 @@ CLJC_INLINE clj_value clojure_walk_keywordize_keys__0_a1_i(clj_value self, const
 	goto L1;
 	}
 	clj_c_rebind(&l3, t8);
-	clj_c_rebind(&l1, CLJ_NIL);
+	clj_c_drop(&l1);
 	clj_value t9 = l2;
 	clj_value a2[1] = {t9};
 	(void)a2;
@@ -1511,7 +1511,7 @@ CLJC_INLINE clj_value clojure_walk_stringify_keys__0_a1_i(clj_value self, const 
 	goto L1;
 	}
 	clj_c_rebind(&l3, t8);
-	clj_c_rebind(&l1, CLJ_NIL);
+	clj_c_drop(&l1);
 	clj_value t9 = l2;
 	clj_value a2[1] = {t9};
 	(void)a2;

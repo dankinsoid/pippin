@@ -82,6 +82,14 @@ static inline void clj_c_rebind(clj_value *slot, clj_value v) {
 	clj_release(old);
 }
 
+// Only a core collection or seq goes early: a host API may hold anything else unretained (a weak delegate).
+static inline void clj_c_drop(clj_value *slot) {
+	clj_value v = *slot;
+	if (!clj_is_ptr(v)) return;
+	const clj_type *t = clj_type_of(v);
+	if ((t->core_bits & (CLJ_CORE_COLL | CLJ_CORE_SEQ)) && (t->h.flags & CLJ_FLAG_IMMORTAL)) clj_c_rebind(slot, CLJ_NIL);
+}
+
 // A slot taken at a call after its operand was read borrowed (a late take, a hand-over to an owned parameter): the
 // operands between must not have rebound it, or the take would leak the new value and free the read one.
 #if CLJ_DEBUG

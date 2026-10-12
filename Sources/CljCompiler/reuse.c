@@ -63,6 +63,7 @@ typedef struct {
 	cljc_owned_positions positions; // HAND pairs, NULL for none
 	void                *pctx;
 	bool       drops;
+	uint64_t   droppable; // read somewhere as a value clj_c_drop may let go, by the facts
 	bool       tail;  // only the frame's exit runs after the node
 	uint64_t   loose; // died under the node at a borrowing read, and no point inside it dropped them
 	drop_site *dropv;
@@ -392,20 +393,26 @@ static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail);
 
 static bool dropping(const ctx *c) { return c->mark && c->drops; }
 
-// A read after which the slot is dead and which leaves the value in it.
-static void note_death(ctx *c, uint32_t slot, uint64_t out) {
+// What clj_c_drop may let go: a core collection or seq; HOST stands for every kind the facts do not name.
+enum { DROPPABLE = CLJ_T_LIST | CLJ_T_VECTOR | CLJ_T_MAP | CLJ_T_SET | CLJ_T_SORTED_MAP | CLJ_T_SORTED_SET | CLJ_T_HOST };
+
+// A read after which the slot is dead and which leaves the value in it; read: its LOCAL, NULL for a capture.
+static void note_death(ctx *c, uint32_t slot, uint64_t out, const clj_node *read) {
 	uint64_t b = slot_bit(slot);
-	if (dropping(c) && !(out & b)) c->loose |= b & c->owned;
+	if (!dropping(c) || (out & b)) return;
+	const clj_fact *f = read ? clj_facts_node(c->facts, read->id) : NULL;
+	if (f && !(f->types & DROPPABLE)) return;
+	c->loose |= b & c->owned;
 }
 
 // A pending operand's read of a slot lasts until its call: such a slot is left to a point after the call.
 static uint64_t drop_at(ctx *c, const clj_node *n, uint32_t at, uint64_t dying) {
-	uint64_t d = dying & c->owned & ~c->held;
+	uint64_t d = dying & c->owned & c->droppable & ~c->held;
 	if (d) {
 		c->dropv = grow(c->dropv, &c->cdropv, c->ndropv, sizeof *c->dropv);
 		c->dropv[c->ndropv++] = (drop_site){n->id, at, d};
 	}
-	return dying & c->owned & ~d;
+	return dying & c->owned & c->droppable & ~d;
 }
 
 // A slot a call takes (a late take, a hand-over, a consumed next or rest) leaves nothing to drop.
@@ -463,8 +470,10 @@ static uint64_t live_fixpoint(const clj_node *body, uint64_t out, target *t, ctx
 static uint64_t live_bindings(const clj_node *n, uint64_t in, ctx *c, uint64_t dying) {
 	for (uint32_t i = n->u.let.n; i-- > 0;) {
 		uint64_t b = slot_bit(n->u.let.slots[i]);
+		const clj_node  *init = n->u.let.inits[i];
+		const clj_fact  *f = clj_facts_node(c->facts, init->id);
 		// a direct fn's slot holds nil: its arities are reached by name
-		uint64_t self = dropping(c) && !(in & b) && n->u.let.inits[i]->kind != CLJ_NODE_DIRECT_FN ? b & c->owned : 0;
+		uint64_t self = dropping(c) && !(in & b) && init->kind != CLJ_NODE_DIRECT_FN && (!f || (f->types & DROPPABLE)) ? b & c->owned : 0;
 		in &= ~b;
 		uint64_t loose = c->loose;
 		c->loose = 0;
@@ -480,7 +489,7 @@ static uint64_t live_bindings(const clj_node *n, uint64_t in, ctx *c, uint64_t d
 static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail) {
 	switch (n->kind) {
 	case CLJ_NODE_LOCAL:
-		if (!n->u.local.last) note_death(c, n->u.local.index, out);
+		if (!n->u.local.last) note_death(c, n->u.local.index, out, n);
 		return out | slot_bit(n->u.local.index);
 	case CLJ_NODE_IF: {
 		uint64_t loose = c->loose;
@@ -583,7 +592,7 @@ static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail) {
 	case CLJ_NODE_FN:
 		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
 			if (n->u.fn.captures[i].kind != CLJ_CAPTURE_LOCAL) continue;
-			note_death(c, n->u.fn.captures[i].index, out);
+			note_death(c, n->u.fn.captures[i].index, out, NULL);
 			out |= slot_bit(n->u.fn.captures[i].index);
 		}
 		return out;
@@ -591,7 +600,7 @@ static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail) {
 	case CLJ_NODE_LOWERED: // the literal's captures are read after the operands
 		for (uint32_t i = 0; i < n->u.lowered.fn->u.fn.ncaptures; i++) {
 			if (n->u.lowered.fn->u.fn.captures[i].kind != CLJ_CAPTURE_LOCAL) continue;
-			note_death(c, n->u.lowered.fn->u.fn.captures[i].index, out);
+			note_death(c, n->u.lowered.fn->u.fn.captures[i].index, out, NULL);
 			out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
 		}
 		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, out, c, NULL);
@@ -606,6 +615,44 @@ static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail) {
 }
 
 static uint64_t live(const clj_node *n, uint64_t out, ctx *c) { return live_tail(n, out, c, false); }
+
+typedef struct {
+	const clj_facts *facts;
+	uint64_t         slots;
+} droppable_scan;
+
+static bool droppable_fact(const clj_facts *facts, const clj_node *n) {
+	const clj_fact *f = clj_facts_node(facts, n->id);
+	return !f || (f->types & DROPPABLE);
+}
+
+// The frame's slots read or bound as a value the facts do not rule out for clj_c_drop; a capture counts as such.
+static void droppable_walk(const clj_node *n, void *arg) {
+	droppable_scan *d = arg;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL:
+		if (droppable_fact(d->facts, n)) d->slots |= slot_bit(n->u.local.index);
+		return;
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		for (uint32_t i = 0; i < n->u.let.n; i++) {
+			if (droppable_fact(d->facts, n->u.let.inits[i])) d->slots |= slot_bit(n->u.let.slots[i]);
+		}
+		break;
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			if (n->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) d->slots |= slot_bit(n->u.fn.captures[i].index);
+		}
+		return;
+	case CLJ_NODE_LOWERED: droppable_walk(n->u.lowered.fn, arg); break;
+	case CLJ_NODE_DIRECT_FN: return;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) droppable_walk(n->u.fused.args[i], arg);
+		return;
+	default: break;
+	}
+	clj_node_children(n, droppable_walk, arg);
+}
 
 typedef struct {
 	uint32_t  depth;
@@ -652,6 +699,11 @@ cljc_reuse_plan *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *fa
 	target self = {recur_slots, 0};
 	ctx    c = {.held = pinned, .recur = &self, .mark = true, .owned = owned & ~pinned, .facts = facts, .late = takes, .positions = positions, .pctx = pctx,
 	            .drops = drops};
+	if (drops) {
+		droppable_scan d = {facts, 0};
+		droppable_walk(body, &d);
+		c.droppable = d.slots;
+	}
 	live_fixpoint(body, 0, &self, &c, true);
 	cljc_reuse_plan *plan = calloc(1, sizeof *plan);
 	if (!plan) clj_fatal("out of memory");
