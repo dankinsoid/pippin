@@ -44,6 +44,13 @@ private func inlines(_ source: String) throws -> (hows: [clj_inline_how], guards
 	return (hows, guards)
 }
 
+// A compiled core's fns are no closures: nothing of theirs is copied or stood for.
+func coreRunsInterpreted() -> Bool {
+	let sym = Value(symbol: "assoc-in")
+	let root = withExtendedLifetime(sym) { clj_var_root(clj_ns_resolve(clj_ns_core(), sym.raw)) }
+	return clj_is_fn(root) && clj_fn_of(root).pointee.kind == CLJ_FN_CLOSURE
+}
+
 extension CoreTests {
 	// Design §10 step 7a, optimizer.c: a small pure closure's arity body copied into its caller behind a guard on the root.
 	@Suite struct InlineTests {
@@ -113,6 +120,12 @@ extension CoreTests {
 		// get-in, assoc-in and update-in over a literal path: one guard over the var and the core vars it stands for,
 		// a level per frame of core's recursion; a path past four keys or not a vector literal stays a call.
 		@Test func aKnownPathUnrolls() throws {
+			#expect(try rt.eval("((fn [m k] (update-in m [:a k] (fn [x] (inc x)))) {:a {:b 1}} :b)") == Value(reading: "{:a {:b 2}}"))
+			#expect(try rt.eval("((fn [m] (get-in m [:r :s])) {:r (reduced {:s 9})})") == Value(reading: "{:s 9}"))
+			guard coreRunsInterpreted() else {
+				#expect(try inlines("(fn [m k] (assoc-in m [:a k :c] 1))").hows.isEmpty)
+				return
+			}
 			let assoc = try inlines("(fn [m k] (assoc-in m [:a k :c] 1))")
 			#expect(assoc.guards == [4] && assoc.hows == [CLJ_INLINE_PATH, CLJ_INLINE_LEVEL, CLJ_INLINE_LEVEL])
 			let update = try inlines("(fn [m k] (update-in m [:a k] (fn [x] (inc x))))")
@@ -122,8 +135,6 @@ extension CoreTests {
 			#expect(try inlines("(fn [m] (get-in m [:a :b :c :d :e]))").hows == [CLJ_INLINE_COPY])
 			#expect(try inlines("(fn [m ks] (get-in m ks))").hows == [CLJ_INLINE_COPY])
 			#expect(try inlines("(fn [m] (assoc-in m [:a :b :c :d :e] 1))").hows.isEmpty)
-			#expect(try rt.eval("((fn [m k] (update-in m [:a k] (fn [x] (inc x)))) {:a {:b 1}} :b)") == Value(reading: "{:a {:b 2}}"))
-			#expect(try rt.eval("((fn [m] (get-in m [:r :s])) {:r (reduced {:s 9})})") == Value(reading: "{:s 9}"))
 		}
 	}
 }

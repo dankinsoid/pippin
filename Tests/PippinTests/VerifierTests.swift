@@ -125,6 +125,7 @@ extension CoreTests {
 			copy.pointee.u.inline_.fn = passed
 			#expect(check(lit, everything).ok)
 
+			guard coreRunsInterpreted() else { return }
 			let path = try #require(analyzed("(fn [m k] (assoc-in m [:a k] 1))"))
 			defer { release(path) }
 			#expect(check(path, everything).ok)
