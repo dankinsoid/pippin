@@ -917,10 +917,13 @@
   never had one (`lowered.clj` reads `ex-trace`). Beside it `clj_call_prepare` resolves a native with a context, and a
   compiled closure, to a direct call of its C function, so a reduce slot reaches either without `clj_invoke` per item.
   **Cost** (the x86_64 dev host, min of three clang runs, before = this tree under `--no-opt=lower`): `boot/core.c`
-  5 092 878 → 5 124 041 bytes (+0.6 %), clang `-O0 -DCLJ_DEBUG=1` 4.08 → 3.99 s, `-O2 -DCLJ_CLOSED` 22.71 → 21.74 s
+  5 092 878 → 5 124 668 bytes (+0.6 %), clang `-O0 -DCLJ_DEBUG=1` 4.08 → 3.99 s, `-O2 -DCLJ_CLOSED` 22.71 → 21.74 s
   (this host's spread); the five corpus libraries' dev units (6 units, 2.12 MB) +0.26 % bytes — dependency +0.9 %,
   medley +0.5 %, math-combinatorics +0.2 %, enos and turbine none — and clang within the spread. A site costs a step
-  and a maker function of two lines each and the operands' copy, which the frame's inline budget bounds.
+  and a maker function of two lines each and the operands' copy, bounded per site (`LOWER_COST_MAX`, 64 operand
+  nodes) rather than by the frame's inline budget, as a known path is: it copies no body. Effect (bench/RESULTS.md,
+  "Lowered natives"): allocations hardly move — a site saves one closure per call of the builtin, and the workloads'
+  reduces run a few times an iteration — but `clj_invoke` per iteration falls 13–42 % over the data workloads.
   Not done, each with its trigger: the accumulator at +1 (the step passes it at +0 as a closure call does, so
   `(reduce (fn [m x] (assoc m …)) {} xs)` copies per step; an owned entry for literal-fn arities, design §10 step 7в,
   makes assoc and conj update in place) — when 7в's owned entries land; a fused site's reducing fn

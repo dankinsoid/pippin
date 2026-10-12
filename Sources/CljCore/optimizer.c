@@ -1574,8 +1574,10 @@ static bool try_path(clj_node *n, inline_frame *fr) {
 // The native's own C function runs over the literal's arity reached without a closure (eval_lowered, emit_lowered), so
 // the walk, the lock and every other rule of the call are the native's. The else branch is the call, as for an inline.
 
+enum { LOWER_COST_MAX = 64 }; // nodes of the operands a lowered site copies
+
 // @ai-generated(solo)
-static bool try_lower(clj_node *n, inline_frame *fr) {
+static bool try_lower(clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
 	clj_lowered_how how;
@@ -1590,9 +1592,10 @@ static bool try_lower(clj_node *n, inline_frame *fr) {
 	if (lit->kind != CLJ_NODE_FN || arity > CLJ_FN_MAX_FIXED || !lit->u.fn.fixed[arity]) return false;
 	// no fn object stands behind the arity for its own name to read
 	if (scan_arity(lit->u.fn.fixed[arity], CLJ_NIL).self_read) return false;
+	// a site's own bound, as a known path's: it copies the operands and no body, so its growth is linear in the source
 	uint32_t cost = 2;
 	for (uint32_t i = 0; i < nargs; i++) cost += i == at ? 0 : nodes_in(n->u.invoke.args[i]);
-	if (fr->grown + cost > fr->budget) return false;
+	if (cost > LOWER_COST_MAX) return false;
 	position         at_pos = {n->line, n->col};
 	copy_ctx         argc = {.depth = 0};
 	const clj_node **ops = zalloc(nargs - 1, sizeof *ops);
@@ -1605,7 +1608,6 @@ static bool try_lower(clj_node *n, inline_frame *fr) {
 	low->u.lowered.n = nargs - 1;
 	low->u.lowered.how = (uint8_t)how;
 	guarded_call(n, low, var, root, NULL, 0);
-	fr->grown += argc.nodes + 2;
 	copy_ctx_free(&argc);
 	return true;
 }
@@ -1642,7 +1644,7 @@ static void inline_walk(const clj_node *n, void *ctx) {
 	default: break;
 	}
 	clj_node_children(m, inline_walk, ctx);
-	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_lower(m, fr) && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
+	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_lower(m) && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
 }
 
 // ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path

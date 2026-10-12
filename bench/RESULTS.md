@@ -2624,3 +2624,42 @@ the JVM's value in every runtime. Counters per iteration, closed stats build.
   bytes (nine owned call sites, each four arms), clang +11 % `-O0` / +3 % `-O2` on a 0.5 s compile; the closed
   nested-update unit 157.2k → 161.0k bytes (+2.4 %), clang 0.85 → 0.87 s at `-O2`. The inference itself (a second
   facts table per def'd fn before emission) adds 0.01–0.04 s to a 0.5 s whole-program `clj-compile --core --closed`.
+## Lowered natives — 5e013e6, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7a′ (docs/notes/compiler.md, "Lowered natives"): `reduce`, `reduce-kv`, `swap!` and `swap-vals!` over a
+literal fn run the builtin over the literal's arity with no closure, and `clj_call_prepare` calls a compiled closure's
+dispatcher (or a native with a context) directly. One `corpus-bench` run, 38243464909 on branch `lower-hof` 5e013e6;
+*before* is 38231371023 (813b9e1), the "Literal fns, known paths" section's *after*: this run predates owned parameters, the section above, which is measured against the same baseline. Every workload returned the JVM's value in every
+runtime. Counters are the closed stats build's, per iteration.
+
+| workload | lowered sites (program's units) | allocs | `fn` objects | `clj_invoke` | closed ms (closed/JVM) |
+|---|---:|---|---|---|---|
+| medley | 1 | 669.5k → 669.5k | — | 684.1k → 475.4k | 54.7 (1.45×) → 72.3 (1.43×) |
+| combinatorics | 1 (the library) | 3.80M → 3.77M | 59.7k → 37.5k | 1.49M → 1.22M | 180.2 (2.04×) → 206.9 (1.78×) |
+| dependency | 1 (the library) | 11.20M → 11.20M | — | 3.97M → 3.31M | 755.8 (2.16×) → 718.7 (1.87×) |
+| nested-update | 0 | 1.56M → 1.56M | 166.7k → 166.7k | 272.4k → 270.9k | 221.2 (2.12×) → 184.4 (1.83×) |
+| group-freq | 1 | 4.97M → 4.97M | — | 7.11M → 5.18M | 386.3 (2.62×) → 340.8 (1.92×) |
+| pipelines | 2 | 9.97M → 9.97M | — | 10.85M → 7.25M | 703.8 (3.33×) → 655.4 (2.80×) |
+| strings | 1 | 807.2k → 807.2k | — | 295.6k → 200.6k | 45.9 (1.54×) → 51.9 (1.44×) |
+| render | 0 | 928.1k → 928.1k | 44.0k → 44.0k | 712.3k → 692.3k | 67.9 (1.73×) → 100.0 (2.69×) |
+| suite-data | 3 | 1.19M → 1.19M | — | 768.4k → 446.5k | 72.3 (2.02×) → 84.9 (2.11×) |
+| async-libs | 0 (core.async's 6) | 275.4k → 254.1k | 10.1k → 10.1k | 150.1k → 150.1k | 56.8 (0.54×) → 64.1 (0.42×) |
+
+`—`: no `fn` among the workload's top eight types either side.
+
+- **The closures were not where the allocations are.** A lowered site saves one closure per call of the builtin, and
+  the workloads' reduces run a few times an iteration over thousands of items: the per-item work dominates, so allocs
+  hardly move. What moved: combinatorics' 22k closures an iteration (a `reduce` in a library fn it calls per
+  combination) and async-libs' 21k objects (core.async's own lowered sites; its census birth-frame share 78.1 → 76.3 %).
+  The four sites of medley's `run*` that reduce over `(take n rs)` are `FUSED` and keep their closure: that is the
+  open "fused site's reducing fn" item, and three calls an iteration would not show here either.
+- **The calls moved.** `clj_invoke` per iteration falls 13–42 % across the data workloads (group-freq 1.93M, pipelines
+  3.60M, suite-data 322k fewer): a reduce slot, a fused driver and `swap!` now reach a compiled closure's dispatcher, or
+  a lowered literal's step, without the generic invoke. `c_invoke` (the compiled generic call sites) is unchanged.
+- **Time**: this run's runner is slower (JVM warm medley 37.8 → 50.6 ms, group-freq 147.7 → 177.7) and noisy (render's
+  closed 67.9 → 100.0 ms with no counter moved); closed/JVM improves on seven of nine data workloads, group-freq 2.62 →
+  1.92× and pipelines 3.33 → 2.80× most, which fits the dropped invokes, but one run is no per-workload claim.
+- **Compile cost** (the x86_64 dev host, min of three clang runs, before = the same tree under `--no-opt=lower`):
+  `boot/core.c` 5 092 878 → 5 124 668 bytes (+0.6 %, 18 lowered sites), clang `-O0 -DCLJ_DEBUG=1` 4.08 → 3.99 s,
+  `-O2 -DCLJ_CLOSED` 22.71 → 21.74 s; the five corpus libraries' dev units (6 units, 2.12 MB) +0.26 % bytes, clang
+  within the host's spread. Far under the 15 % bar: a site adds a two-line step and maker and copies its operands.
