@@ -248,10 +248,14 @@ bool clj_lazy_seq_site(const clj_node *n);
 // The inlining pass of the optimizer (optimizer.c), on by default; returns the previous setting. For tests that
 // read the facts of a call: CLJ_NO_OPT=inline is the switch.
 bool clj_inline_set_enabled(bool on);
+// Whether a call of a closure of this fn node may be inlined at some arity: what a unit offers other units' copies.
+bool clj_inline_callee_shaped(const clj_node *fn);
 
 // EDN-shaped encoding of a tree (the grammar heads node_data.c): owned data, or CLJ_THROWN "not serializable:
 // <type>" for a constant that would not read back (a protocol, a deftype descriptor, a host value, a fn).
 clj_value clj_node_to_data(const clj_node *root);
+// A tree's identity across processes: the encoding names vars and prints constants. False for one it refuses.
+bool clj_node_tree_digest(const clj_node *root, uint64_t out[2]);
 // Owned tree from that data with fresh ids, or NULL with the exception pending on a malformed shape. A var
 // resolves by its qualified symbol and is interned when missing, so the tree never dangles.
 clj_node *clj_node_from_data(clj_value data);

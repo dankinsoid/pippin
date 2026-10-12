@@ -32969,6 +32969,23 @@ L1: ;
 	return CLJ_THROWN;
 }
 
+#ifndef CLJ_CLOSED
+static const clj_compiled_tree XR[12] = {
+	{clojure_test_testing_contexts_str, {0x1fc5761a7830bfd5ULL, 0x04692da692566bdaULL}},
+	{clojure_test_inc_report_counter, {0x78f60090479fc4f5ULL, 0xf4f7a36fbb432f8dULL}},
+	{clojure_test_is, {0x4b0a8ef67eda8235ULL, 0x9bd9dfb7e6a1913fULL}},
+	{clojure_test_default_fixture, {0xbfd5a57e4d2994eeULL, 0x418ae651834dbefdULL}},
+	{clojure_test_compose_fixtures, {0xaddedb988da9e534ULL, 0x1db09f63a1649765ULL}},
+	{clojure_test_join_fixtures, {0x6720675dec08f54dULL, 0x19e5341b2daba9c2ULL}},
+	{clojure_test_ns_key, {0x0511152ad2ece37eULL, 0xab64c39d2ca9e065ULL}},
+	{clojure_test_test_all_vars, {0x9eb90f4042750418ULL, 0xb96d5f21f520dadaULL}},
+	{clojure_test_run_tests, {0xcd59304c499e53e7ULL, 0x714c3fa4c1b91039ULL}},
+	{clojure_test_run_all_tests, {0x70b5dae14be5949aULL, 0x49fc9ac96f880ae1ULL}},
+	{clojure_test_run_test_var, {0x0754eddb8e1c2dc7ULL, 0xc1b3d942c9405db0ULL}},
+	{clojure_test_successful_QMARK_, {0x18995481dd686b81ULL, 0xc3e6b387ab8cd8d0ULL}},
+};
+#endif
+
 static const clj_frame_entry FR[59] = {
 	{(clj_code)clojure_test_with_test_out_v2, &S[0]},
 	{(clj_code)clojure_test_testing_vars_str_a1_o1, &S[1]},
@@ -33037,6 +33054,9 @@ static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
 	clj_c_register_frames(FR, 59);
+#ifndef CLJ_CLOSED
+	clj_compiled_register_trees(XR, 12);
+#endif
 	V[0] = clj_c_var("clojure.core", "in-ns");
 	V[1] = clj_c_var("clojure.core", "refer-clojure");
 	V[2] = clj_c_var("clojure.core", "require");

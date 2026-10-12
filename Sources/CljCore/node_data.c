@@ -395,6 +395,28 @@ clj_value clj_node_to_data(const clj_node *root) {
 	return encode(root);
 }
 
+// @ai-generated(solo)
+bool clj_node_tree_digest(const clj_node *root, uint64_t out[2]) {
+	clj_value data = clj_node_to_data(root);
+	clj_value text = data == CLJ_THROWN ? CLJ_THROWN : clj_pr_str(data);
+	clj_release(data);
+	if (text == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return false;
+	}
+	clj_str  s = CLJ_STR(text);
+	uint64_t a = 0xcbf29ce484222325ULL, b = 0x6a09e667f3bcc909ULL ^ s.len;
+	for (size_t i = 0; i < s.len; i++) {
+		uint8_t ch = (uint8_t)s.bytes[i];
+		a = (a ^ ch) * 0x100000001b3ULL;
+		b = ((b ^ ch) << 5 | (b ^ ch) >> 59) * 0x9e3779b97f4a7c15ULL;
+	}
+	clj_release(text);
+	out[0] = a;
+	out[1] = b ^ (b >> 29);
+	return true;
+}
+
 // ---- decoding
 
 static clj_node *fail_data(clj_value data, const char *what) {

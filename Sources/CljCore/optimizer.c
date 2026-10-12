@@ -556,6 +556,14 @@ enum {
 	INLINE_SLOTS_MAX = 64,   // the owned mask and the last-use marks stop at 64 slots
 };
 
+bool clj_inline_callee_shaped(const clj_node *fn) {
+	if (fn->u.fn.ncaptures) return false;
+	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+		if (fn->u.fn.fixed[k] && fn->u.fn.fixed[k]->body->nnodes <= INLINE_CALLEE_MAX) return true;
+	}
+	return false;
+}
+
 // An inlined body runs where the call ran, inside the caller's frame: only effects with no order to keep.
 #define INLINE_EFFECTS (CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW)
 #define SLOT_NONE UINT32_MAX

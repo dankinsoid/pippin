@@ -350,6 +350,15 @@ L1: ;
 	return CLJ_THROWN;
 }
 
+#ifndef CLJ_CLOSED
+static const clj_compiled_tree XR[4] = {
+	{clojure_core_async_impl_buffers_fixed_buffer, {0x02bd8d8b5940bf0aULL, 0x15d21c9382419166ULL}},
+	{clojure_core_async_impl_buffers_dropping_buffer, {0x517aeef4fa67acd8ULL, 0xd1529bc40d8c9e0fULL}},
+	{clojure_core_async_impl_buffers_sliding_buffer, {0x0da72713fca58ba7ULL, 0x8973765b80f4baf9ULL}},
+	{clojure_core_async_impl_buffers_promise_buffer, {0xff33d1fc743b8c3fULL, 0xe599c8b077ece1a3ULL}},
+};
+#endif
+
 static const clj_frame_entry FR[4] = {
 	{(clj_code)clojure_core_async_impl_buffers_fixed_buffer_a1, &S[0]},
 	{(clj_code)clojure_core_async_impl_buffers_dropping_buffer_a1, &S[1]},
@@ -363,6 +372,9 @@ static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
 	clj_c_register_frames(FR, 4);
+#ifndef CLJ_CLOSED
+	clj_compiled_register_trees(XR, 4);
+#endif
 	V[0] = clj_c_var("clojure.core", "in-ns");
 	V[1] = clj_c_var("clojure.core", "refer-clojure");
 	V[2] = clj_c_var("clojure.core.async.impl.buffers", "fixed-buffer");

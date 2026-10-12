@@ -571,6 +571,95 @@ extension CoreTests {
 			#expect(clj_debug_coro_settle(coros, 5000))
 		}
 
+		// One compile of the sources as files, each unit loaded and registered for its path.
+		private func loadUnits(_ sources: [(source: String, file: String)], tag: String) throws {
+			var opts = cljc_options()
+			opts.line = true
+			opts.skip_embedded = true
+			let c = cljc_new(&opts)!
+			defer { cljc_free(c) }
+			cljc_begin(c)
+			_ = try capturingOutput { for s in sources { try loadFixtureSource(s.source, file: s.file) } }
+			cljc_end(c)
+			try #require(cljc_unit_count(c) == sources.count)
+			var o = evalOptions()
+			for i in 0..<sources.count {
+				let text = cljc_unit_text(c, i, nil)!
+				defer { free(text) }
+				guard let unit = cljc_load_dylib(&o, "xu_\(tag)_\(i)", text) else { throw ClojureError.takePending() }
+				clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
+			}
+		}
+
+		// A copy of another unit's fn runs only under a root compiled from the same tree, a reloaded one included.
+		@Test func crossUnitInlineFollowsTheCalleesTree() throws {
+			clj_init()
+			defer { clj_ns_set_current(clj_ns_user()) }
+			let dir = String(cString: jitDir!)
+			let lib = "(ns cp.xu-lib)\n(defn sq [x] (* x x))\n"
+			try loadUnits([(lib, "\(dir)/xu/lib.clj"), ("(ns cp.xu-app)\n(defn f [y] (cp.xu-lib/sq (inc y)))\n", "\(dir)/xu/app.clj")], tag: "a")
+			_ = try runFixtureUnit("\(dir)/xu/lib.clj")
+			_ = try runFixtureUnit("\(dir)/xu/app.clj")
+			let inlining = clj_no_opt() & (clj_no_opt_parse("inline") | clj_no_opt_parse("passes")) == 0
+			let hit0 = clj_debug_tree_matches(true), miss0 = clj_debug_tree_matches(false)
+			#expect(try cljEval("(cp.xu-app/f 2)") == 9)
+			if inlining { #expect(clj_debug_tree_matches(true) > hit0, "the copy never ran") }
+			#expect(try cljEval("(with-redefs [cp.xu-lib/sq (fn [x] (- x))] (cp.xu-app/f 2))") == -3)
+			#expect(try cljEval("(cp.xu-app/f 2)") == 9)
+			_ = try cljEval("(alter-var-root #'cp.xu-lib/sq (constantly (fn [x] (+ x 100))))")
+			#expect(try cljEval("(cp.xu-app/f 2)") == 103)
+			_ = try cljEval("(in-ns 'cp.xu-lib) (defn sq [x] (+ x x))")
+			#expect(try cljEval("(cp.xu-app/f 2)") == 6)
+			// another body compiled: another digest, so the copy of the first one must not run
+			try loadUnits([("(ns cp.xu-lib)\n(defn sq [x] (- x x))\n", "\(dir)/xu/lib2.clj")], tag: "b")
+			_ = try runFixtureUnit("\(dir)/xu/lib2.clj")
+			#expect(try cljEval("(cp.xu-app/f 2)") == 0)
+			if inlining { #expect(clj_debug_tree_matches(false) > miss0, "the other body was never looked up") }
+			// the same body in a new unit: a new dispatcher of the copied tree
+			let hit1 = clj_debug_tree_matches(true)
+			try loadUnits([(lib, "\(dir)/xu/lib3.clj")], tag: "c")
+			_ = try runFixtureUnit("\(dir)/xu/lib3.clj")
+			#expect(try cljEval("(cp.xu-app/f 2)") == 9)
+			if inlining { #expect(clj_debug_tree_matches(true) > hit1, "the reloaded tree was not recognized") }
+		}
+
+		// clj-compile's core is interpreted, so its unit carries copies of core fns that this compiled core must vouch for.
+		@Test func devUnitCopiesOfCoreFollowTheirVars() throws {
+			clj_init()
+			defer { clj_ns_set_current(clj_ns_user()) }
+			guard !coreRunsInterpreted() else { return }
+			let tool = ProcessInfo.processInfo.environment["CLJ_COMPILE"] ?? packageRoot.appendingPathComponent(".build/plain/debug/clj-compile").path
+			try #require(FileManager.default.isExecutableFile(atPath: tool), "\(tool): make test-compiled builds the plain clj-compile first")
+			let file = packageRoot.appendingPathComponent("Tests/PippinTests/Fixtures/dev-inline/core.clj").path
+			let expected = try String(contentsOfFile: packageRoot.appendingPathComponent("Tests/PippinTests/Fixtures/dev-inline/core.out").path, encoding: .utf8)
+			let out = URL(fileURLWithPath: String(cString: jitDir!)).appendingPathComponent("dev-inline")
+			try? FileManager.default.removeItem(at: out)
+			try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+			let proc = Process()
+			proc.executableURL = URL(fileURLWithPath: tool)
+			proc.arguments = ["--stats", "--file", file, "--out", out.path]
+			let stderr = Pipe()
+			proc.standardError = stderr
+			proc.standardOutput = FileHandle.nullDevice
+			try proc.run()
+			let stats = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+			proc.waitUntilExit()
+			try #require(proc.terminationStatus == 0, "clj-compile: \(stats)")
+			let inlining = clj_no_opt() & (clj_no_opt_parse("inline") | clj_no_opt_parse("passes")) == 0
+			if inlining { #expect(stats.contains("of which from another unit 3,"), "\(stats)") }
+			var o = evalOptions()
+			for line in try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8).split(separator: "\n") {
+				let cells = line.split(separator: "\t", maxSplits: 1).map(String.init)
+				let text = try String(contentsOf: out.appendingPathComponent("\(cells[0]).c"), encoding: .utf8)
+				guard let unit = cljc_load_dylib(&o, "devinline_\(cells[0])", text) else { throw ClojureError.takePending() }
+				#expect(String(cString: unit.pointee.path) == cells[1])
+				clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
+			}
+			let hit0 = clj_debug_tree_matches(true)
+			#expect(try runFixtureUnit(file) == expected)
+			if inlining { #expect(clj_debug_tree_matches(true) > hit0, "no copy of a core fn ran") }
+		}
+
 		// Under --closed a form the generator refuses is an error naming the node and its position, not a fallback.
 		@Test func closedRefusesEval() throws {
 			clj_init()

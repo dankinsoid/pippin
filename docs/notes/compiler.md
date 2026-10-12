@@ -905,9 +905,8 @@
   narrowings are not counted (`pass.inlined`), the call beside it is checked against the summary. **The codec**
   writes the call, so a tree read back is the program without the copy. **Compiled**: the guard is `1` in a closed
   set that binds the var to the very fn the body was copied from (`CLJC_INL_<base>_a<n>`, decided at write time as the
-  direct targets are), the dispatcher's identity (`clj_c_root_runs`) in the unit that compiled that fn, and where
-  neither can hold — a dev unit calling another unit's fn — the call alone is written, since dev units have no direct
-  link to guard. `CLJ_NO_OPT=inline` (and `passes`) turns the pass off, `clj_inline_set_enabled` is the tests'
+  direct targets are), the dispatcher's identity (`clj_c_root_runs`) in the unit that compiled that fn, and in a dev
+  unit calling another unit's fn the digest of the copied tree (the next entry). `CLJ_NO_OPT=inline` (and `passes`) turns the pass off, `clj_inline_set_enabled` is the tests'
   switch, `clj-compile --stats` counts the written sites. **Cost** (x86_64, the same Intel host, min of three clang
   runs, `-O0 -DCLJ_DEBUG=1` / `-O2 -DCLJ_CLOSED`, before = origin/main 01168b2, after = this entry with the next two):
   `boot/core.c` 4 839 623 → 5 044 995 bytes (+4.2 %), clang 3.54 → 3.67 s (+3.7 %) and 19.76 → 20.53 s (+3.9 %), 104
@@ -928,13 +927,54 @@
   291.5 → 226.0 ms. dependency −60k objects; the other workloads did not move: lazy-seq cells, accumulators kept one
   frame up, callees with a fn inside. Over the nine data workloads the birth-frame share is 18.6 → 14.7 %, the
   objects that outlive their frame 30.46M → 30.38M.
-  **Not done**, each with its trigger: a guard
-  in a dev unit for another unit's fn (the registry by name, or a digest of the fn's tree as its identity) — when dev
-  units are measured as the dev loop; the inlined body's profile in a `--instrument` compiled unit; a callee with a fn
+  **Not done**, each with its trigger: the inlined body's profile in a `--instrument` compiled unit; a callee with a fn
   inside that captures only the literal it is given (`mapv`, `filterv`, `run!` reduce over such a closure) — a
   closure specialized to its literal (defunctionalization), when they rank in a census; `swap!`, `reduce` and the
   like are natives with no body to copy, and a literal fn of theirs is lowered instead (the "Lowered natives" entry);
   scalar replacement of what the copy now allocates in the caller's frame is step 7b.
+- [~] **Another unit's fn in a dev unit: the tree's digest as the guard** (design §6 «Инлайнинг без JIT», §10 step
+  7a; compiler.c `emit_inlined_call`, `copy_pays`, `tree_digest_text`; node_data.c `clj_node_tree_digest`; load.c
+  `clj_compiled_register_trees`, `clj_compiled_tree_is`; compiled_internal.h `clj_c_root_tree`). clj-compile runs on
+  the interpreted core, so a dev unit's compile has every core fn's tree and the optimizer copies them as it copies
+  the unit's own; what was missing was a guard naming another unit's compiled fn. A name is not one: a unit reloaded
+  with another body registers the same name. The guard is the copied tree's **digest** — two 64-bit hashes of the
+  codec's printed encoding of the fn node, which names vars and prints constants, so clj-compile's interpreted core
+  and the core.c `make boot` wrote from the same core.clj give one digest (checked on the five corpus libraries: all
+  34 distinct guarded digests match a registered tree). Every unit registers, in its pools and under `#ifndef
+  CLJ_CLOSED`, a table `XR[]` pairing the dispatcher of each def'd fn that could be inlined somewhere
+  (`clj_inline_callee_shaped`: no captures, a fixed arity of at most 32 nodes) with its tree's digest — core.c 229
+  entries. A site's guard (`XG[]`, one per distinct digest in the unit) holds while the var is not dynamic and its root
+  is a compiled closure whose dispatcher the registry pairs with that digest: the dispatcher last found and the one
+  last refused are cached in the entry (relaxed atomics; units are never unloaded, so an address keeps naming one
+  tree), so the steady state is the same unit's guard plus one compare, and `clj_c_root_tree_slow` (a
+  `CLJ_UNIT_ENTRY`) looks a new dispatcher up once. **Exact under redefinition**: an eval'd `defn` makes an
+  interpreted closure, `with-redefs` and `alter-var-root` another root, a reload of the other unit with another body
+  another dispatcher of another digest — each runs the call, the else branch; the unit reloaded with the same body is
+  a new dispatcher of the same tree and runs the copy again; a toolchain whose core.clj differs from the binary's
+  passes no guard, never a wrong one. Fixtures: `CompilerFixtureTests.crossUnitInlineFollowsTheCalleesTree` (two units
+  in one compile: the copy runs, then `with-redefs`, `alter-var-root`, an eval'd `defn`, the lib reloaded with
+  another body and with the same one) and `devUnitCopiesOfCoreFollowTheirVars` (test-compiled only, which builds the
+  plain clj-compile first: `Fixtures/dev-inline/core.clj` compiled by it, run over the compiled core — `mod` and
+  `max-key` copied, under `with-redefs`, `alter-var-root`, an eval'd `defn` in clojure.core and the root put back;
+  `clj_debug_tree_matches` shows the copies ran). **What a dev unit writes**: a cross-unit copy only when it pays
+  (`copy_pays`): the site specialized it (a literal fn copied in, a nested copy, a lowered or fused call) or it is
+  straight-line intrinsic code with no loop or kept call, where the saved call is most of the cost; `(range n)` is
+  `(range 0 n 1)`, `vec` is `into`, `zipmap` a loop, and those copies doubled a site's C to save one call (before the
+  rule the five libraries' dev units took 268 cross-unit copies and medley's core −O2 clang +20.6 %, combinatorics'
+  +25 %; after it 52). A unit of the same set in a closed build keeps `CLJC_INL_`, so `make boot`'s libs units, whose
+  compile is a dev one, now carry core's bodies too and run them with the guard 1 under `-DCLJ_CLOSED`. `clj-compile
+  --stats` counts them ("of which from another unit"). `CLJ_NO_OPT=inline` writes the call, as before. **Cost**
+  (x86_64 dev host, min of three clang runs alternated, before = origin/main eb276f7): the five libraries' 12 dev units
+  7 531 046 → 7 614 875 bytes (+1.1 %), clang `-O0 -DCLJ_DEBUG=1` 7.27 → 7.28 s (+0.2 %), `-O2` 37.25 → 37.72 s
+  (+1.3 %); per unit medley's core +10.8 % bytes, +7.9 % / +10.6 % clang (30 copies of `find`, `val`, `map-entry?`),
+  the rest within ±6 % and the host's spread; nested-update's own unit +38 % bytes and 0.66 → 0.92 s at `-O2` (14
+  copies of `mod` in a 40-line program); clj-compile itself +3–4 % (medley 0.62 → 0.65 s), the digests and the extra
+  text. `boot/core.c` 5 188 707 → 5 206 296 bytes (+0.34 %, the table), clang `-O0` 3.89 → 3.81 s, `-O2
+  -DCLJ_CLOSED` 22.24 → 22.39 s; the libs' units +0–4 % bytes (`clojure.set` +4.0 %, `clojure.walk` +4.1 %,
+  `clojure.string` +2.3 %), clang within the host's spread. Not done: the interpreter over the compiled core (the dev mode that interprets the edits) gets
+  neither copies nor known paths — the roots are compiled fns with no tree in the binary, so `try_inline` and
+  `try_path` see no closure; core's trees serialized into core.c would give it both, and the same digest would name
+  them — when that mode is measured as the dev loop. A dev unit's copy of its own unit's fn takes no `copy_pays`.
 - [~] **Known paths: `get-in`, `assoc-in`, `update-in` over a literal path** (design §10 step 7a; optimizer.c
   `try_path`; `CLJ_NO_OPT=path`). A call of one of the three whose path is a vector literal of 1 to
   `CLJ_INLINE_PATH_MAX` (4) keys, constant or not, becomes core's own recursion unrolled — a specialization of a

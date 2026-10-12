@@ -190,6 +190,20 @@ bool clj_core_instrumented(void) {
 #endif
 }
 
+static _Atomic int64_t tree_matches[2];
+
+// A root alternating between two dispatchers of different verdicts looks up on every switch.
+// @ai-generated(solo)
+CLJ_UNIT_ENTRY bool clj_c_root_tree_slow(clj_ctree *t, clj_native_ctx_fn code) {
+	if (code == atomic_load_explicit(&t->miss, memory_order_relaxed)) return false;
+	bool same = clj_compiled_tree_is(code, t->digest);
+	atomic_store_explicit(same ? &t->hit : &t->miss, code, memory_order_relaxed);
+	atomic_fetch_add_explicit(&tree_matches[same], 1, memory_order_relaxed);
+	return same;
+}
+
+int64_t clj_debug_tree_matches(bool matched) { return atomic_load_explicit(&tree_matches[matched], memory_order_relaxed); }
+
 // ---- protocol call sites (compiled_internal.h)
 
 #if CLJ_DEBUG

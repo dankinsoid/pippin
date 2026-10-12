@@ -127,5 +127,12 @@ clj_compiled_fn clj_compiled_symbol(const char *name);
 void              clj_compiled_register_impl(const char *name, clj_native_ctx_fn fn);
 clj_native_ctx_fn clj_compiled_impl(const char *name);
 const char       *clj_compiled_impl_name(clj_native_ctx_fn fn);
+// A unit's def'd fns by the digest of their trees: a copy in another unit runs only under such a root.
+typedef struct {
+	clj_native_ctx_fn code;
+	uint64_t          digest[2];
+} clj_compiled_tree;
+void clj_compiled_register_trees(const clj_compiled_tree *table, size_t n);
+bool clj_compiled_tree_is(clj_native_ctx_fn code, const uint64_t digest[2]);
 
 #endif

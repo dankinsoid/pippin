@@ -172,6 +172,46 @@ const char *clj_compiled_impl_name(clj_native_ctx_fn fn) {
 	return found;
 }
 
+typedef struct {
+	const clj_compiled_tree *table;
+	size_t                   n;
+} tree_table;
+
+static tree_table *trees;
+static size_t      ntrees, trees_cap;
+
+// Units are never unloaded, so a dispatcher's address names one tree for the life of the process.
+// @ai-generated(solo)
+CLJ_UNIT_ENTRY void clj_compiled_register_trees(const clj_compiled_tree *table, size_t n) {
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < ntrees; i++) {
+		if (trees[i].table == table) {
+			clj_lock_unlock(&lock);
+			return;
+		}
+	}
+	if (ntrees == trees_cap) {
+		trees_cap = trees_cap ? trees_cap * 2 : 16;
+		trees = realloc(trees, trees_cap * sizeof *trees);
+		if (!trees) clj_fatal("out of memory");
+	}
+	trees[ntrees++] = (tree_table){table, n};
+	clj_lock_unlock(&lock);
+}
+
+bool clj_compiled_tree_is(clj_native_ctx_fn code, const uint64_t digest[2]) {
+	bool found = false;
+	clj_lock_lock(&lock);
+	for (size_t i = 0; i < ntrees && !found; i++) {
+		for (size_t k = 0; k < trees[i].n && !found; k++) {
+			const clj_compiled_tree *t = &trees[i].table[k];
+			found = t->code == code && t->digest[0] == digest[0] && t->digest[1] == digest[1];
+		}
+	}
+	clj_lock_unlock(&lock);
+	return found;
+}
+
 clj_compiled_init clj_compiled_find(const char *path) {
 	clj_compiled_init found = NULL;
 	clj_lock_lock(&lock);

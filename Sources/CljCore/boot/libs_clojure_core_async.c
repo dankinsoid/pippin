@@ -30799,6 +30799,73 @@ L1: ;
 	return CLJ_THROWN;
 }
 
+#ifndef CLJ_CLOSED
+static const clj_compiled_tree XR[62] = {
+	{clojure_core_async_buffer, {0xffd5905e5e2bdfcaULL, 0xe2271f0db2b9d42eULL}},
+	{clojure_core_async_dropping_buffer, {0x5169258e0e043c30ULL, 0x61e0ee2f5e1587e2ULL}},
+	{clojure_core_async_sliding_buffer, {0x405dde214dd9d0ebULL, 0xe4a1e1580396ffc5ULL}},
+	{clojure_core_async_unblocking_buffer_QMARK_, {0x2e3bdb9c621ae122ULL, 0x482717b0567c0210ULL}},
+	{clojure_core_async_chan, {0x2a81f6160470ab36ULL, 0x9eef649a899d9aadULL}},
+	{clojure_core_async_promise_chan, {0xcd5daa57c3c72e3bULL, 0x29c0f0cbc7769e15ULL}},
+	{clojure_core_async_timeout, {0x81b9500eaacaae65ULL, 0x70ecb3f1ad1cd452ULL}},
+	{clojure_core_async__LT__BANG_, {0x9ddadc5398c84ce2ULL, 0x3e598eec9e3ef928ULL}},
+	{clojure_core_async__GT__BANG_, {0xc6adfca1642b4242ULL, 0x84aca734b33eb874ULL}},
+	{clojure_core_async_take_BANG_, {0x56d2ae924c7409c9ULL, 0x4a583a23f2c085d7ULL}},
+	{clojure_core_async_put_BANG_, {0x9b74d784be924bfaULL, 0xbf648317b77ff4e9ULL}},
+	{clojure_core_async_close_BANG_, {0xb26336b8675bc364ULL, 0x90cff8dc5645dc88ULL}},
+	{clojure_core_async_offer_BANG_, {0x3b5683c8d60abbaaULL, 0xb6cc2ef2385c56afULL}},
+	{clojure_core_async_poll_BANG_, {0x560aeb93f94c0019ULL, 0x4692b43ff144b520ULL}},
+	{clojure_core_async_scope_new, {0xa5804e0efabbb9a3ULL, 0x76c838422bbc6ee3ULL}},
+	{clojure_core_async_scope_cancel_children_BANG_, {0xf7acd4dda996a644ULL, 0xd2c1c24aabf04cb5ULL}},
+	{clojure_core_async_scope_child_done_BANG_, {0x3e804efdd7f971cbULL, 0x5d4023b7c0705f83ULL}},
+	{clojure_core_async_spawn_STAR_, {0x8081144744317238ULL, 0x493260ed49bdbcdeULL}},
+	{clojure_core_async_go_STAR_, {0xd8a599393102d780ULL, 0xd2fa9d5d64d481aaULL}},
+	{clojure_core_async_go_main_STAR_, {0xbcfcd384e3e75983ULL, 0x2b13f8f4916929acULL}},
+	{clojure_core_async_scope_join_BANG_, {0xeb4d10eb1f799e01ULL, 0xf33c9bee29c407ecULL}},
+	{clojure_core_async_thread_call, {0xe09dee1dc06421f7ULL, 0x7f78ab84e4451ad3ULL}},
+	{clojure_core_async_cancel_BANG_, {0xa35dbce7312ec66cULL, 0x8de43589a34d6a7bULL}},
+	{clojure_core_async_cancelled_QMARK_, {0x044294c8eb0c7f12ULL, 0xda7add330432e043ULL}},
+	{clojure_core_async_suspend_BANG_, {0xb74755864ec7d512ULL, 0x105a00a8115841bbULL}},
+	{clojure_core_async_resume_BANG_, {0x7aa3a7974b85134dULL, 0x664503c0ba84926bULL}},
+	{clojure_core_async_suspended_QMARK_, {0xb3d3e04824abda55ULL, 0xef5233bd0373f44dULL}},
+	{clojure_core_async_pipe, {0x6d47bf31df79841fULL, 0x38587ec4f0ddfd12ULL}},
+	{clojure_core_async_pipeline, {0xac77ebff05fd9f84ULL, 0x690176d8666526baULL}},
+	{clojure_core_async_pipeline_blocking, {0xd2fb8533f6b16d8dULL, 0xa7d0709e0a0856acULL}},
+	{clojure_core_async_pipeline_async, {0x54065457e02ec231ULL, 0xcef6eb248341e761ULL}},
+	{clojure_core_async_split, {0x6846641efd0d2609ULL, 0xf97e9dbcc54a0da8ULL}},
+	{clojure_core_async_transduce, {0x9d02bde26e967624ULL, 0x03ad5e3f71a82933ULL}},
+	{clojure_core_async_bounded_count, {0x5a904fb1b8294462ULL, 0x48569a6617239f33ULL}},
+	{clojure_core_async_onto_chan_BANG_, {0x5c30cfac206508b7ULL, 0x62166147d0759de3ULL}},
+	{clojure_core_async_onto_chan, {0xbc4bad7154bdd44cULL, 0xb84dc9ca60914cd9ULL}},
+	{clojure_core_async_to_chan, {0xa412085bf8eefe41ULL, 0xfb0c649e951fa046ULL}},
+	{clojure_core_async_onto_chan_BANG__BANG_, {0x437ea362463d3afdULL, 0xe4b61bcd1b1c1c5cULL}},
+	{clojure_core_async_tap, {0x6b0f2f6f7a8f575bULL, 0x96aba158a88ba668ULL}},
+	{clojure_core_async_untap, {0x87076fa657e21e76ULL, 0x4efdba00dbd8d270ULL}},
+	{clojure_core_async_untap_all, {0xf065eb9f51e2b797ULL, 0xdb9511f3d818dee7ULL}},
+	{clojure_core_async_admix, {0xb057af15400ea4eaULL, 0x5f9816203847c1d7ULL}},
+	{clojure_core_async_unmix, {0xee0f0bd72695b113ULL, 0xcab87468f1584512ULL}},
+	{clojure_core_async_unmix_all, {0x76ad46a0fd95fffaULL, 0x1541d5d845b135ceULL}},
+	{clojure_core_async_toggle, {0xf32b52204b56d6ecULL, 0xb1ea954b39bb3ce8ULL}},
+	{clojure_core_async_solo_mode, {0x4f3316e2c8097419ULL, 0x8f981fe993fb7e6dULL}},
+	{clojure_core_async_pub, {0x4f79e8176a1a5cf6ULL, 0x857ba50f5bdfa47bULL}},
+	{clojure_core_async_sub, {0xb11b35fff5584961ULL, 0xc7965e74653d26b5ULL}},
+	{clojure_core_async_unsub, {0xcdb2e46933d996afULL, 0xb5f0f1fbcb468bbdULL}},
+	{clojure_core_async_unsub_all, {0x549d8b9f5719e500ULL, 0x11f08be1a7af1a43ULL}},
+	{clojure_core_async_map, {0xc538b25b74040392ULL, 0xcc9fe67f640410d9ULL}},
+	{clojure_core_async_merge, {0x3b8803c7d57d2bf7ULL, 0x0394f1c58973a358ULL}},
+	{clojure_core_async_into, {0xb3863561e78a6c97ULL, 0x1445ede51f1faa00ULL}},
+	{clojure_core_async_take, {0xcbd47584dafa75e7ULL, 0xd64c17b22766536cULL}},
+	{clojure_core_async_remove_GT_, {0xaff88fa6577639b6ULL, 0x5faaf264f3e6d1a3ULL}},
+	{clojure_core_async_filter_LT_, {0xbb625376ac1bdf37ULL, 0x24c91b914552df2cULL}},
+	{clojure_core_async_remove_LT_, {0x5c0cfff97392e25eULL, 0x17de871b6659275dULL}},
+	{clojure_core_async_mapcat_LT_, {0x888f12e76a3766abULL, 0xbcb62e423eb32189ULL}},
+	{clojure_core_async_mapcat_GT_, {0x6772844377199260ULL, 0x3faf0e905856a75aULL}},
+	{clojure_core_async_unique, {0x7d930d10cae17bd7ULL, 0x2dc06465928ced02ULL}},
+	{clojure_core_async_partition, {0x1cd1554ed773caebULL, 0xdc33591b4bfb8401ULL}},
+	{clojure_core_async_partition_by, {0xfa06bf030fac1721ULL, 0x3546c6ffd1de447fULL}},
+};
+#endif
+
 static const clj_frame_entry FR[183] = {
 	{(clj_code)clojure_core_async_buffer_a1, &S[0]},
 	{(clj_code)clojure_core_async_dropping_buffer_a1, &S[1]},
@@ -30991,6 +31058,9 @@ static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
 	clj_c_register_frames(FR, 183);
+#ifndef CLJ_CLOSED
+	clj_compiled_register_trees(XR, 62);
+#endif
 	V[0] = clj_c_var("clojure.core", "in-ns");
 	V[1] = clj_c_var("clojure.core", "refer-clojure");
 	V[2] = clj_c_var("clojure.core.async", "buffer");

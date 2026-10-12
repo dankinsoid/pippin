@@ -173,6 +173,8 @@ typedef struct {
 	pool  workers;   // the primitive entries emitted, "<base>_a<n>_<sig>", with "1" when a leaf (NOTES.md "Compiler")
 	pool  prims;     // the primitive call sites written, by target, with their count
 	pool  inlines;   // the inlined calls' targets "base_aN": a closed set that binds the var to that fn drops the guard
+	pool  trees;     // the dispatchers of its def'd fns another unit may inline, with their trees' digests
+	pool  xguards;   // the digests of other units' trees inlined here: one guard cache each
 	uint32_t nstubs, ntops, nforms;
 	uint32_t nics; // inline caches of the unit, numbered across its functions (file scope, behind getters)
 	cljc_slot_stats slots;
@@ -287,6 +289,14 @@ static const fn_base *fn_base_of(const cljc_compiler *c, const clj_node *node) {
 	return NULL;
 }
 
+// The digest as C initializer text, "" for a tree the codec refuses. Not cached by node: a freed tree's address may
+// name another one later in a long-lived compiler (compiled eval).
+static void tree_digest_text(const clj_node *node, char *out, size_t cap) {
+	uint64_t d[2];
+	if (clj_node_tree_digest(node, d)) snprintf(out, cap, "0x%016llxULL, 0x%016llxULL", (unsigned long long)d[0], (unsigned long long)d[1]);
+	else out[0] = 0;
+}
+
 static bool candidate(const cljc_compiler *c, const clj_node *node) {
 	for (size_t i = 0; i < c->ncandidates; i++) {
 		if (c->candidates[i] == node) return true;
@@ -382,6 +392,8 @@ static void unit_free(unit *u) {
 	pool_free(&u->workers);
 	pool_free(&u->prims);
 	pool_free(&u->inlines);
+	pool_free(&u->trees);
+	pool_free(&u->xguards);
 	free(u);
 }
 
@@ -3230,9 +3242,54 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+typedef struct {
+	bool specialized; // the site made the copy its own: a literal fn copied in, a nested copy, a lowered or fused call
+	bool heavy;       // a loop or a call the copy keeps, beside which the saved call is small
+	bool light;       // an intrinsic or a keyword lookup, whose fast arm the call would have reached anyway
+} payoff;
+
+static void find_payoff(const clj_node *n, void *ctx) {
+	payoff *p = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_INLINE:
+	case CLJ_NODE_LOWERED:
+	case CLJ_NODE_FUSED: p->specialized = true; return;
+	case CLJ_NODE_IF:
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) {
+			p->specialized = true;
+			return;
+		}
+		break;
+	case CLJ_NODE_THROW: return; // a cold path
+	case CLJ_NODE_LOOP:
+	case CLJ_NODE_DIRECT_CALL: p->heavy = true; break;
+	case CLJ_NODE_INTRINSIC: p->light = true; break;
+	case CLJ_NODE_INVOKE:
+		if (n->u.invoke.fn->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.invoke.fn->u.value.v)) p->light = true;
+		else p->heavy = true;
+		break;
+	default: break;
+	}
+	clj_node_children(n, find_payoff, ctx);
+}
+
+// Otherwise a copy doubles the site's C to save one call, and a dev unit's clang time is the edit loop's latency.
+static bool copy_pays(const clj_node *body) {
+	payoff p = {false, false, false};
+	find_payoff(body, &p);
+	return p.specialized || (p.light && !p.heavy);
+}
+
+// The else branch written alone: its drops stand before it, the only path left.
+static temp emit_call_alone(fnctx *f, const clj_node *n) {
+	emit_drops(f, n, 1);
+	return emit(f, n->u.if_.else_);
+}
+
 // An inlined call (optimizer.c): the body's guard is 1 in a closed set that binds the var to the very fn the body was
 // copied from (CLJC_INL_<target>, decided at write time as the direct targets are), the dispatcher's identity in the
-// unit that compiled that fn, and the call alone where neither can hold.
+// unit that compiled that fn, the digest of the copied tree in another dev unit (clj_c_root_tree), and the call alone
+// where none can hold.
 // @ai-generated(solo)
 static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_;
@@ -3250,17 +3307,36 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 		sb_printf(&f->out, "};\n\t(void)g%d;\n\tbool %s = CLJC_FUSED(g%d, %u);\n", k, b.name, k, g->u.root_is.nguards);
 		f->u->slots.paths++;
 	} else {
-		const fn_base *fb = fn_base_of(f->c, clj_fn_of(g->u.root_is.expect.v)->u.node);
-		// another unit's fn can only be bound in a closed set: a dev unit would carry a body no guard ever takes
-		if (!fb || (fb->u != f->u && !f->c->opts.closed)) return emit(f, call);
-		char target[300];
-		snprintf(target, sizeof target, "%s_a%u", fb->base, call->u.invoke.n);
-		bool fresh;
-		pool_intern(&f->u->inlines, target, NULL, &fresh);
-		sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b.name);
-		if (fb->u == f->u) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b.name, var_index(f->u, g->u.root_is.var.v), fb->base);
+		const clj_node *code = clj_fn_of(g->u.root_is.expect.v)->u.node, *inl = n->u.if_.then;
+		if (inl->kind == CLJ_NODE_LET) inl = inl->u.let.body;
+		// the guard names the tree by its digest or its dispatcher: a body of another tree would run under it
+		if (inl->kind != CLJ_NODE_INLINE || inl->u.inline_.fn != code) clj_ice("emit/inline-tree", n, "an inlined body of another fn than its guard checks");
+		const fn_base *fb = fn_base_of(f->c, code);
+		bool           local = fb && fb->u == f->u;
+		// another unit's tree, in a dev unit: the root's dispatcher compiled from a tree of the same digest
+		size_t xg = SIZE_MAX;
+		if (!local && !f->c->opts.closed && !copy_pays(inl->u.inline_.body)) return emit_call_alone(f, n);
+		if (!local && !f->c->opts.closed) {
+			char text[64];
+			bool fresh;
+			tree_digest_text(code, text, sizeof text);
+			if (text[0]) xg = pool_intern(&f->u->xguards, text, NULL, &fresh);
+		}
+		if (!fb && xg == SIZE_MAX) return emit_call_alone(f, n);
+		if (fb) {
+			char target[300];
+			snprintf(target, sizeof target, "%s_a%u", fb->base, call->u.invoke.n);
+			bool fresh;
+			pool_intern(&f->u->inlines, target, NULL, &fresh);
+			sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b.name);
+		}
+		if (local) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b.name, var_index(f->u, g->u.root_is.var.v), fb->base);
+		else if (xg != SIZE_MAX)
+			sb_printf(&f->out, "#ifdef CLJ_CLOSED\n\tbool %s = false;\n#else\n\tbool %s = clj_c_root_tree(V[%zu], &XG[%zu]);\n#endif\n", b.name, b.name,
+			          var_index(f->u, g->u.root_is.var.v), xg);
 		else sb_printf(&f->out, "\tbool %s = false;\n", b.name);
-		sb_puts(&f->out, "#endif\n");
+		if (fb) sb_puts(&f->out, "#endif\n");
+		if (!local) f->u->slots.inlined_cross++;
 	}
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
@@ -3799,6 +3875,12 @@ static void emit_fn_functions(fnctx *parent, const clj_node *n, const char *base
 	bool exported = strcmp(base, parent->base) == 0 && parent->top;
 	fn_base_add(parent->c, n, base, u, entry_arities(n));
 	if (candidate(parent->c, n) && entry_arities(n)) impl_reg_add(u, base, entry_arities(n));
+	if (exported && !parent->c->opts.closed && clj_inline_callee_shaped(n)) {
+		char text[64];
+		bool fresh;
+		tree_digest_text(n, text, sizeof text);
+		if (text[0]) pool_intern(&u->trees, base, text, &fresh);
+	}
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (n->u.fn.fixed[i]) emit_closure_arity(parent, n, n->u.fn.fixed[i], base, stub, exported);
 	}
@@ -4848,7 +4930,17 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	emit_direct_prelude(c, u, &out);
 	emit_pimpl_prelude(c, u, &out);
 	sb_puts(&out, "#endif\n\n");
+	if (u->xguards.n) {
+		sb_printf(&out, "#ifndef CLJ_CLOSED\nstatic clj_ctree XG[%zu] = {\n", u->xguards.n);
+		for (size_t k = 0; k < u->xguards.n; k++) sb_printf(&out, "\t{{%s}, NULL, NULL},\n", u->xguards.keys[k]);
+		sb_puts(&out, "};\n#endif\n\n");
+	}
 	sb_put(&out, u->fns.s ? u->fns.s : "", u->fns.len);
+	if (u->trees.n) {
+		sb_printf(&out, "#ifndef CLJ_CLOSED\nstatic const clj_compiled_tree XR[%zu] = {\n", u->trees.n);
+		for (size_t k = 0; k < u->trees.n; k++) sb_printf(&out, "\t{%s, {%s}},\n", u->trees.keys[k], u->trees.extra[k]);
+		sb_puts(&out, "};\n#endif\n\n");
+	}
 	// The range table of trace.c: the frame functions, which the section keeps contiguous whatever clang's order.
 	sb_printf(&out, "static const clj_frame_entry FR[%zu] = {\n", u->frames.n ? u->frames.n : 1);
 	for (size_t k = 0; k < u->frames.n; k++) sb_printf(&out, "\t{(clj_code)%s, &S[%s]},\n", u->frames.keys[k], u->frames.extra[k]);
@@ -4857,6 +4949,7 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	// The pools are filled before any form runs: reading a constant or interning a var has no effect on the program.
 	sb_puts(&out, "static bool pools_filled;\n\nstatic void unit_pools(void) {\n\t(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;\n\tpools_filled = true;\n");
 	sb_printf(&out, "\tclj_c_register_frames(FR, %zu);\n", u->frames.n);
+	if (u->trees.n) sb_printf(&out, "#ifndef CLJ_CLOSED\n\tclj_compiled_register_trees(XR, %zu);\n#endif\n", u->trees.n);
 	for (size_t k = 0; k < u->vars.n; k++) {
 		const char *slash = strchr(u->vars.keys[k], '/');
 		if (slash == u->vars.keys[k] || !slash) slash = strrchr(u->vars.keys[k], '/');

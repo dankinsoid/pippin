@@ -228,6 +228,23 @@ static inline bool clj_c_root_runs(clj_value var, clj_native_ctx_fn code) {
 	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_NATIVE_CTX && clj_fn_of(root)->u.native_ctx.fn == code;
 }
 
+// The dev guard of a body copied from another unit's tree; hit and miss cache verdicts, as a dispatcher keeps its tree.
+typedef struct {
+	uint64_t                   digest[2];
+	_Atomic(clj_native_ctx_fn) hit, miss;
+} clj_ctree;
+
+bool clj_c_root_tree_slow(clj_ctree *t, clj_native_ctx_fn code);
+
+static inline bool clj_c_root_tree(clj_value var, clj_ctree *t) {
+	if (clj_var_of(var)->dynamic) return false;
+	clj_value root = clj_var_root(var);
+	if (!clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_NATIVE_CTX) return false;
+	clj_native_ctx_fn code = clj_fn_of(root)->u.native_ctx.fn;
+	if (code == atomic_load_explicit(&t->hit, memory_order_relaxed)) return true;
+	return clj_c_root_tree_slow(t, code);
+}
+
 static inline void clj_c_release_slots(const clj_cframe *f, uint32_t n) {
 	if (n > 64) {
 		for (uint32_t i = 0; i < n; i++) clj_release(f->slots[i]);

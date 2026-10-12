@@ -95,11 +95,14 @@ corpus-update:
 
 # ---- the compiler (Sources/CljCompiler, NOTES.md "Compiler")
 
-# The whole suite on the compiled core with the pool allocator.
+# The whole suite on the compiled core with the pool allocator. The plain clj-compile builds the dev units whose
+# copies of core fns the compiled core vouches for (CompilerFixtureTests.devUnitCopiesOfCoreFollowTheirVars).
 test-compiled:
+	swift build --scratch-path $(PLAIN) --product clj-compile
 	$(SHARDS) --gate test-compiled -- --scratch-path $(COMPILED) -Xcc -DCLJ_COMPILED_CORE
 
 test-compiled-asan:
+	swift build --scratch-path $(PLAIN) --product clj-compile
 	CLJ_SYSTEM_ALLOC=1 $(SHARDS) --gate test-compiled-asan -- --scratch-path $(COMPILED_ASAN) -Xcc -DCLJ_COMPILED_CORE --sanitize=address
 
 # Both corpora through compiled user code: clj-compile per library, clang per file, dlopen; the per-test report
