@@ -12,7 +12,9 @@
 typedef struct {
 	clj_value       var;
 	uint32_t        order, ndefs;
-	const clj_node *fn; // the FN of a def with no captures; NULL for any other init
+	// The fixed arities of a def whose init is a FN without captures, 0 for any other init. Not the node: a compiled
+	// eval's tree dies with its form, and the entry outlives it.
+	uint32_t        fixed;
 	bool            scanned;
 	uint64_t        cand[CLJ_FN_MAX_FIXED + 1];
 	uint64_t        local[CLJ_FN_MAX_FIXED + 1];
@@ -103,7 +105,10 @@ void cljc_owned_declare(cljc_owned *o, const clj_node *root, uint32_t order) {
 	const clj_node *init = root->u.def.init;
 	bool fn = init->kind == CLJ_NODE_FN && !init->u.fn.ncaptures && !root->u.def.dynamic && !root->u.def.macro;
 	if (e->ndefs++ == 0) e->order = order;
-	e->fn = e->ndefs == 1 && fn ? init : NULL;
+	e->fixed = 0;
+	for (uint32_t k = 0; e->ndefs == 1 && fn && k <= CLJ_FN_MAX_FIXED; k++) {
+		if (init->u.fn.fixed[k]) e->fixed |= (uint32_t)1 << k;
+	}
 }
 
 static uint64_t bit(uint32_t i) { return i < 64 ? (uint64_t)1 << i : 0; }
@@ -188,7 +193,7 @@ static uint64_t scan_positions(void *arg, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	if (head->kind != CLJ_NODE_VAR || n->u.invoke.n > CLJ_FN_MAX_FIXED) return 0;
 	const entry *e = find(s->o, head->u.var.v);
-	if (!e || !e->fn || e->order > s->order || !e->fn->u.fn.fixed[n->u.invoke.n]) return 0;
+	if (!e || e->ndefs != 1 || e->order > s->order || !((e->fixed >> n->u.invoke.n) & 1)) return 0;
 	s->sites = grow(s->sites, &s->sites_cap, s->nsites, sizeof *s->sites);
 	s->sites[s->nsites++] = (site){n->id, (uint32_t)(e - s->o->entries), n->u.invoke.n};
 	return bit(n->u.invoke.n) - 1;
@@ -213,13 +218,15 @@ static void last_reads(const clj_node *n, void *ctx) {
 void cljc_owned_scan(cljc_owned *o, const clj_node *root, const clj_facts *facts) {
 	if (!enabled() || !facts || root->kind != CLJ_NODE_DEF) return;
 	entry *e = find(o, root->u.def.var.v);
-	if (!e || !e->fn || e->fn != root->u.def.init || e->scanned) return;
+	// a var defined once: root is that very def
+	if (!e || e->ndefs != 1 || !e->fixed || e->scanned) return;
+	const clj_node *fn = root->u.def.init;
 	e->scanned = true;
 	uint32_t self = (uint32_t)(e - o->entries);
 	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
-		const clj_fn_arity *a = e->fn->u.fn.fixed[k];
+		const clj_fn_arity *a = fn->u.fn.fixed[k];
 		if (!a) continue;
-		uint64_t cand = cljc_owned_candidates(e->fn, a, facts);
+		uint64_t cand = cljc_owned_candidates(fn, a, facts);
 		e->cand[k] = cand;
 		if (!cand) continue;
 		uint64_t lets = 0;
@@ -256,7 +263,7 @@ void cljc_owned_scan(cljc_owned *o, const clj_node *root, const clj_facts *facts
 void cljc_owned_settle(cljc_owned *o) {
 	for (size_t i = 0; i < o->n; i++) {
 		entry *e = &o->entries[i];
-		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) e->mask[k] = e->fn ? e->local[k] : 0;
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) e->mask[k] = e->fixed ? e->local[k] : 0;
 	}
 	// The masks only grow, a bit per parameter, so the closure ends; no widening is needed.
 	for (bool changed = true; changed;) {
@@ -266,7 +273,7 @@ void cljc_owned_settle(cljc_owned *o) {
 			const edge *g = &o->edges[i];
 			entry      *from = &o->entries[g->from];
 			const entry *to = &o->entries[g->to];
-			if (!to->fn || !((to->mask[g->to_arity] >> g->pos) & 1) || (from->mask[g->arity] & bit(g->param))) continue;
+			if (!to->fixed || !((to->mask[g->to_arity] >> g->pos) & 1) || (from->mask[g->arity] & bit(g->param))) continue;
 			from->mask[g->arity] |= bit(g->param);
 			changed = true;
 		}
@@ -276,7 +283,7 @@ void cljc_owned_settle(cljc_owned *o) {
 uint64_t cljc_owned_mask(const cljc_owned *o, clj_value var, uint32_t arity) {
 	if (!o || !enabled() || arity > CLJ_FN_MAX_FIXED) return 0;
 	const entry *e = find(o, var);
-	return e && e->fn && e->ndefs == 1 ? e->mask[arity] : 0;
+	return e && e->fixed && e->ndefs == 1 ? e->mask[arity] : 0;
 }
 
 void cljc_owned_stats_of(const cljc_owned *o, cljc_owned_stats *out) {
@@ -285,7 +292,7 @@ void cljc_owned_stats_of(const cljc_owned *o, cljc_owned_stats *out) {
 	out->rounds = o->rounds;
 	for (size_t i = 0; i < o->n; i++) {
 		const entry *e = &o->entries[i];
-		if (!e->fn || e->ndefs != 1) continue;
+		if (!e->fixed || e->ndefs != 1) continue;
 		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
 			uint64_t m = e->mask[k];
 			if (!m) continue;
