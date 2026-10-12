@@ -221,6 +221,26 @@ extension CoreTests {
 			}
 		}
 
+		// A known path's guard: a rebind of its var, or of a core var its unrolling took away, runs core's call. In a
+		// child: next, apply and reduce rebound under the suites running beside it would break them.
+		@Test(.enabled(if: exitChecks)) func aRebindOfACoreVarAPathStandsForRunsTheCall() async {
+			await #expect(processExitsWith: .success) {
+				clj_init()
+				func ev(_ source: String) -> Value { Value(owning: clj_eval_node(analyzed(source)!)) }
+				_ = ev("(defn vt-ai [m] (assoc-in m [:a :b] 1))")
+				_ = ev("(defn vt-ui [m] (update-in m [:a] inc))")
+				_ = ev("(defn vt-gi [m] (get-in m [:a :b]))")
+				_ = ev("(defn vt-gi3 [m] (get-in m [:a :b] :nf))")
+				let got = ev("""
+				[(vt-ai {}) (with-redefs [next (fn [_] nil)] (vt-ai {})) (with-redefs [assoc-in (fn [m ks v] :redef)] (vt-ai {}))
+				 (with-redefs [apply (fn [f & _] :redef)] (vt-ui {:a 1})) (with-redefs [reduce (fn [f init coll] :redef)] (vt-gi {:a {:b 2}}))
+				 (with-redefs [next (fn [_] nil)] (vt-gi3 {:a {:b 2}})) (vt-ai {}) (vt-gi3 {:a {:b 2}})]
+				""")
+				let want = try! Value(reading: "[{:a {:b 1}} {:a 1} :redef {:a :redef} :redef {:b 2} {:a {:b 1}} 2]")
+				exit(got == want ? 0 : 1)
+			}
+		}
+
 		// CLJ_NO_OPT=1: no optimizer pass, no reuse, no layouts, and the program still answers.
 		@Test(.enabled(if: exitChecks)) func theKillSwitchTurnsEverythingOff() async {
 			await #expect(processExitsWith: .success) {
