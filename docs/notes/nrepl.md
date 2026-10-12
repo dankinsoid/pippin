@@ -150,6 +150,12 @@
   completed no line. `make api-diff` lists `*in*` under "dynamic mismatches" and stays that way: the JVM's own
   meta says `:dynamic false` because `RT` sets the flag on the var rather than through metadata, while ours is
   `^:dynamic`, which is what `binding` needs (`with-in-str` binds it on the JVM too).
+- [ ] **`done` goes out before the session's frame is stored.** `Evaluator.run` replies `done` inside the
+  read loop, but the `defer` that stores the captured frame (`session.updateFrame`) runs only on return, so a
+  client that sends `clone` or the next `eval` right after `done` can see the old frame (`*1` one form behind).
+  Seen once on CI: `NReplTests.sessionCarriesItsWholeBindingFrame` failed in gates 38289645022 attempt 1
+  (`branch-drop`, unrelated code), green on retry. Fix: store the frame before the final `done`, keeping the
+  cancelled-eval rule; the trigger was this sighting.
 - [ ] **`readLineParksUntilStdinArrives` asked for input three times twice.** Seen on a standalone
   `make test-compiled` and once on CI, in the `test` gate's shard 1 (run 37318497402, arm64), never
   reproduced on asking: the test feeds `"one\ntwo\n"` to
