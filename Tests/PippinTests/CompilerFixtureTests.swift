@@ -261,13 +261,13 @@ extension CoreTests {
 			}
 		}
 
-		// A parent the var keeps gives nothing up; a fresh one handed over gives up both levels' children.
+		// The levels are written out: a unit over the compiled core gets no known path.
 		@Test func takeOutGetMovesTheChildOutOfAUniqueParent() throws {
 			clj_init()
 			_ = try cljEval("(ns cp.takeout)")
 			defer { clj_ns_set_current(clj_ns_user()) }
 			try compiledEval(closed: true) {
-				_ = try cljEval("(defn to-bump [m] (update-in m [:a :b] conj 1))")
+				_ = try cljEval("(defn to-bump [m] (assoc m :a (let [c (get m :a)] (assoc c :b (conj (get c :b) 1)))))")
 				_ = try cljEval("(defn to-fresh [] (to-bump (hash-map :a (hash-map :b (vector 0)))))")
 			}
 			_ = try cljEval("(def to-kept {:a {:b [0]}})")
