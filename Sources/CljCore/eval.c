@@ -15,6 +15,7 @@
 #include "clj/intrinsics.h"
 #include "clj/list.h"
 #include "clj/long.h"
+#include "clj/lowered.h"
 #include "clj/map.h"
 #include "clj/printer.h"
 #include "clj/proto.h"
@@ -610,7 +611,8 @@ static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, co
 // A call with the arguments already in a buffer: the frame copies them. Frames past SMALL_SLOTS live on the
 // heap, past 64 slots they retain every param (eval.h).
 // @ai-generated(guided)
-static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
+static inline __attribute__((always_inline)) clj_value frame_run(clj_value self, const clj_node *code, const clj_value *env, const clj_exec *exec,
+                                                                 const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
 	clj_value  small[SMALL_SLOTS];
 	clj_value *slots = small;
 	if (arity->nslots > SMALL_SLOTS) {
@@ -626,10 +628,16 @@ static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_v
 		owned |= (uint64_t)1 << arity->nparams;
 	}
 	for (uint32_t i = filled; i < arity->nslots; i++) slots[i] = CLJ_NIL;
-	if (arity->self_slot >= 0) slots[arity->self_slot] = big ? clj_retain(f) : f;
-	clj_value v = run_frame(f, arity, slots, owned, site);
+	if (arity->self_slot >= 0) slots[arity->self_slot] = big ? clj_retain(self) : self;
+	clj_frame frame = {slots, env, exec, owned, NULL};
+	clj_value v = run_body(code, arity, &frame, site);
 	if (slots != small) free(slots);
 	return v;
+}
+
+static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
+	const clj_fn *fn = clj_fn_of(f);
+	return frame_run(f, fn->u.node, clj_slot_values(fn->env), clj_exec_of(fn->code.v), arity, args, n, site);
 }
 
 static clj_value call_impl(clj_value impl, const clj_fn_arity *arity, const clj_value *args, uint32_t n, const clj_node *at) {
@@ -1049,6 +1057,50 @@ static clj_value eval_fused(const clj_node *n, clj_frame *f) {
 	return result;
 }
 
+// A lowered call's literal (optimizer.c try_lower): its arity run as closure_run runs it, with no fn object, over the
+// creating frame's slots as its environment. The optimizer leaves the fn's own name unread there.
+typedef struct {
+	const clj_node     *code;
+	const clj_fn_arity *arity;
+	const clj_value    *env;
+	const clj_exec     *exec;
+} lowered_fn;
+
+static clj_value lowered_step(void *ctx, const clj_value *args, size_t n) {
+	const lowered_fn *l = ctx;
+	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL);
+}
+
+static clj_value lowered_make(void *ctx) {
+	const lowered_fn *l = ctx;
+	return clj_fn_closure(clj_from_ptr((void *)l->exec), l->code, l->code->u.fn.name.v, l->env, l->code->u.fn.ncaptures);
+}
+
+// @ai-generated(solo)
+static clj_value eval_lowered(const clj_node *n, clj_frame *f) {
+	const clj_node *code = n->u.lowered.fn;
+	uint32_t        nops = n->u.lowered.n, nargs = nops + 1, at, arity;
+	clj_lowered_shape(n->u.lowered.how, nargs, &at, &arity);
+	clj_value  small_ops[SMALL_ARGS], small_args[SMALL_ARGS], small_env[SMALL_ARGS];
+	clj_value *ops = buf_alloc(small_ops, nops);
+	uint64_t   owned;
+	clj_value  result = CLJ_THROWN;
+	if (eval_all(n->u.lowered.args, nops, f, ops, &owned)) {
+		clj_value *args = buf_alloc(small_args, nargs), *env = buf_alloc(small_env, code->u.fn.ncaptures);
+		// after the operands, where the call would already hold the closure: nothing between rebinds what it captures
+		gather_env(code, f, env);
+		for (uint32_t i = 0, k = 0; i < nargs; i++) args[i] = i == at ? CLJ_NIL : ops[k++];
+		lowered_fn  lf = {code, code->u.fn.fixed[arity], env, f->exec};
+		clj_lowered l = {lowered_step, lowered_make, &lf, arity, CLJ_NIL};
+		result = clj_lowered_call(n->u.lowered.how, args, nargs, &l);
+		release_owned(ops, nops, owned);
+		buf_free(small_env, env);
+		buf_free(small_args, args);
+	}
+	buf_free(small_ops, ops);
+	return result;
+}
+
 // Root first, then meta, then the flags, as DefExpr.eval does.
 // ---- keyword-lookup sites (NOTES.md "Shapes", the cache)
 
@@ -1380,6 +1432,7 @@ clj_eval_fn clj_node_eval_fn(clj_node_kind kind) {
 	case CLJ_NODE_DIRECT_CALL: return eval_direct_call;
 	case CLJ_NODE_ROOT_IS: return eval_root_is;
 	case CLJ_NODE_INLINE: return eval_inline;
+	case CLJ_NODE_LOWERED: return eval_lowered;
 	}
 	clj_ice("eval/unknown-kind", NULL, "node kind %u", (unsigned)kind);
 }
@@ -1707,14 +1760,19 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 }
 
 clj_call clj_call_prepare(clj_value f, size_t n) {
-	clj_call c = {f, n, NULL, NULL, NULL};
+	clj_call c = {f, n, NULL, NULL, NULL, NULL, NULL};
 	if (!clj_is_fn(f)) return c;
 	const clj_fn *fn = clj_fn_of(f);
+	bool          accepts = n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity);
 	if (fn->kind == CLJ_FN_CLOSURE) {
 		c.arity = arity_for(fn->u.node, n);
-	} else if (fn->kind == CLJ_FN_NATIVE && n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity)) {
+	} else if (fn->kind == CLJ_FN_NATIVE && accepts) {
 		c.native = fn->u.native.fn;
 		c.consuming = clj_intrinsic_consuming(f, (uint32_t)n);
+	} else if (fn->kind == CLJ_FN_NATIVE_CTX && (accepts || fn->u.native_ctx.ctx == clj_to_ptr(f))) {
+		// fn_invoke's own branches: a compiled closure, its own ctx, refuses a count in its dispatcher
+		c.ctx_fn = fn->u.native_ctx.fn;
+		c.ctx = fn->u.native_ctx.ctx;
 	}
 	return c;
 }

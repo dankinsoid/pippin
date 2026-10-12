@@ -6,6 +6,7 @@
 #include "clj/map.h"
 #include "clj/record.h"
 #include "clj/vector.h"
+#include "proto_internal.h"
 #include "shadow_internal.h"
 
 clj_reducer clj_reducer_start(clj_value f, clj_value init, size_t nargs) {
@@ -96,6 +97,13 @@ clj_value clj_reduce(clj_value f, clj_value init, clj_value coll) {
 	clj_value r = clj_is_nil(s) ? clj_reduce_empty(f, init) : clj_type_of(s)->reduce ? clj_type_of(s)->reduce(s, f, init) : clj_reduce_iter(s, f, init);
 	clj_release(s);
 	return r;
+}
+
+// A coll without a slot is seq'd first, and its seq may be a user type.
+bool clj_reduce_fn_stays(clj_value coll) {
+	if (clj_is_nil(coll)) return true;
+	const clj_type *t = clj_is_ptr(coll) ? clj_type_of(coll) : NULL;
+	return t && t->reduce && !clj_proto_reduce_is_user(t);
 }
 
 clj_value clj_reduce_kv(clj_value f, clj_value init, clj_value coll) {

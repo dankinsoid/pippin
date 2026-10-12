@@ -164,6 +164,8 @@ typedef struct {
 	clj_native_fn        native;    // of a plain native accepting n, else NULL
 	const clj_intrinsic *consuming; // the consuming entry when f is its boot builtin (conj, assoc, ...), else NULL: a
 	                                // driver that owns its accumulator hands it over through clj_intrinsic_call_consuming
+	clj_native_ctx_fn    ctx_fn;    // of a native with a context accepting n, or of a compiled closure, else NULL
+	void                *ctx;
 } clj_call;
 
 clj_call  clj_call_prepare(clj_value f, size_t n);
@@ -171,6 +173,7 @@ clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args);
 // args: n of them, borrowed. Owned result or CLJ_THROWN.
 static inline clj_value clj_call_invoke(const clj_call *c, const clj_value *args) {
 	if (c->native) return c->native(args, c->n);
+	if (c->ctx_fn) return c->ctx_fn(c->ctx, args, c->n);
 	return clj_call_invoke_slow(c, args);
 }
 

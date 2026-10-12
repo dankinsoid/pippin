@@ -52,7 +52,8 @@ enum {
 	CLJ_NO_OPT_BETA       = 1u << 8, // inlining a body that calls a parameter, and the fn argument copied where it is called
 	CLJ_NO_OPT_PATH       = 1u << 9, // get-in, assoc-in and update-in unrolled over a literal path
 	CLJ_NO_OPT_OWNED      = 1u << 10, // owned parameters and the late take of a dying slot: every parameter +0
-	CLJ_NO_OPT_ALL        = (1u << 11) - 1,
+	CLJ_NO_OPT_LOWER      = 1u << 11, // reduce, reduce-kv, swap! and swap-vals! over a literal fn without its closure
+	CLJ_NO_OPT_ALL        = (1u << 12) - 1,
 };
 // "1"/"all", ""/"0", or a comma list of the names above; UINT32_MAX for an unknown word.
 uint32_t clj_no_opt_parse(const char *spec);

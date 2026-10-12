@@ -384,7 +384,8 @@ static clj_value encode_kind(const clj_node *n) {
 	}
 	case CLJ_NODE_FUSED: return encode_fused(n);
 	case CLJ_NODE_ROOT_IS:
-	case CLJ_NODE_INLINE: break; // only inside the if of an inlined call, which encodes as its call
+	case CLJ_NODE_INLINE:
+	case CLJ_NODE_LOWERED: break; // only inside the if of an inlined or lowered call, which encodes as its call
 	}
 	clj_ice("codec/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }

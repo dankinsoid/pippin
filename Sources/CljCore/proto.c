@@ -877,6 +877,8 @@ static clj_value user_reduce(clj_value self, clj_value f, clj_value init) {
 	return r;
 }
 
+bool clj_proto_reduce_is_user(const clj_type *t) { return t->reduce == user_reduce; }
+
 // hash/equals cannot throw (NOTES.md drop_thrown): a hasheq that throws or yields a non-integer hashes 0,
 // an equiv that throws compares unequal, the exception dropped.
 static uint32_t user_hash(void *self) {

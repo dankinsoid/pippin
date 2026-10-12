@@ -74,6 +74,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `beta` | inlining a callee that calls a parameter, and with it a literal fn argument copied where the callee calls it |
   | `path` | `get-in`, `assoc-in` and `update-in` unrolled over a literal path (NOTES "Compiler", known paths) |
   | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry |
+  | `lower` | `reduce`, `reduce-kv`, `swap!` and `swap-vals!` over a literal fn run without its closure (NOTES "Compiler", lowered natives); `inline` turns it off too |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
@@ -166,7 +167,14 @@ checks the tree and the facts between passes in debug builds; one option turns e
       at most `CLJ_INLINE_DEPTH_MAX` guarded bodies inside one another in a frame; no recur crosses into a body (it is
       walked with no target). The guard compares the root with that closure, so a body under another fn's guard, a
       copy of a fn nothing passes, or a guard with no call beside it, would run code nothing checks.
-  13. A lazy-seq site's shape is `clj_lazy_seq_site` itself, which both backends ask at build time; what the
+  13. Lowered calls (`walk_lowered`, design §10 step 7a′): a `LOWERED` only as the then branch of an `if` whose test
+      is a `ROOT_IS` with no core vars, holding the builtin `clj_lowered_root` names for the native, and whose else
+      branch is a call of that var at a count the native has a lowering for; the `LOWERED`'s fn is that call's literal
+      `fn` argument, the node itself, with the fixed arity the native calls, and its operands are the call's other
+      arguments in order. Last-use marks: no operand hands over a slot the fn captures, since `LOWERED` reads the
+      captures after its operands. A `LOWERED` anywhere else, or over another node than its call's argument, would run
+      a builtin no guard checks or read an environment no closure would have had.
+  14. A lazy-seq site's shape is `clj_lazy_seq_site` itself, which both backends ask at build time; what the
       verifier adds is the arity and capture checks the site's fn gets as any fn.
 - **What is not checked, and why.** An `if`'s fact as the join of its branches', a `let`'s as its body's: `require_arg`
   narrows the fact of a node that is a call's argument and not the facts of the nodes it is made of, so the relation

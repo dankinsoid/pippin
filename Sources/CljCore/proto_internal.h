@@ -31,6 +31,9 @@ static inline clj_proto_reader *clj_proto_window_open_inline(void) {
 
 static inline void clj_proto_window_close_inline(clj_proto_reader *r) { atomic_store_explicit(&r->active, 0, memory_order_seq_cst); }
 
+// The slot that hands its fn to the type's IReduceInit method, Clojure code that may keep it.
+bool clj_proto_reduce_is_user(const clj_type *t);
+
 // Pseudo-descriptors for the immediates (proto.c): what clj_dispatch_type answers for them.
 extern const clj_type clj_nil_dispatch_type, clj_boolean_dispatch_type, clj_char_dispatch_type;
 

@@ -29,6 +29,8 @@ void clj_reducer_drop(clj_reducer *r);
 // empty coll, as on the JVM. init CLJ_UNBOUND is the 2-arity: the first element seeds, (f) answers an empty coll.
 // Owned result or CLJ_THROWN ("Don't know how to create ISeq from" for a non-seqable).
 clj_value clj_reduce(clj_value f, clj_value init, clj_value coll);
+// Whether clj_reduce over coll hands f to C code only, which never keeps it past the call.
+bool clj_reduce_fn_stays(clj_value coll);
 // (reduce-kv f init coll) for a map (f acc k v) or a vector (f acc i x); nil yields init.
 clj_value clj_reduce_kv(clj_value f, clj_value init, clj_value coll);
 // The seq-walking reducer the slotless types and the cons/lazy-seq/string slots use: closes the iterator on an early stop.

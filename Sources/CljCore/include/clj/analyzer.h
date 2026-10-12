@@ -42,9 +42,12 @@ typedef enum {
 	// bound by an enclosing let or substituted: the body runs only while the var holds the closure it was copied from.
 	CLJ_NODE_ROOT_IS, // whether a var's root is still the closure an inlined body was copied from
 	CLJ_NODE_INLINE,  // a fn's body in the calling frame (clj_inline_how): a frame of that fn in a trace, nothing else
+	// A native higher-order fn called with a literal fn that never becomes a closure (optimizer.c try_lower, design
+	// §10 step 7a′): the then branch of a guard whose else branch is the call, as an inlined body is.
+	CLJ_NODE_LOWERED,
 } clj_node_kind;
 
-#define CLJ_NODE_KIND_LAST CLJ_NODE_INLINE
+#define CLJ_NODE_KIND_LAST CLJ_NODE_LOWERED
 
 // What an INLINE stands for; each is a frame of its fn in a trace.
 typedef enum {
@@ -172,6 +175,14 @@ struct clj_node {
 			const clj_node *body;
 			uint8_t         how; // clj_inline_how
 		} inline_;
+		// how: the native (clj_lowered_how). fn is borrowed from the else branch's call, where it is argument `at`;
+		// args are that call's other arguments, copied, in order. fn's captures are read after them, from this frame.
+		struct {
+			const clj_node  *fn;
+			const clj_node **args;
+			uint32_t         n;
+			uint8_t          how;
+		} lowered;
 		// Labels are syntax, folded into one selector here, so no backend reads them again (design §5).
 		struct {
 			clj_slot         selector; // string: base plus every label, each colon-terminated

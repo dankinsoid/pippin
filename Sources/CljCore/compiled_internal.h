@@ -52,10 +52,12 @@ static inline bool clj_c_catch_selected(clj_value m, bool *undecided) {
 #ifdef CLJ_CLOSED
 #define CLJC_GUARD(var, boot) 1
 #define CLJC_FUSED(guards, n) 1
+#define CLJC_LOWERED(var, how) 1
 #define CLJC_LAZY_SEQ_INLINE(var) 1
 #else
 #define CLJC_GUARD(var, boot) (clj_var_root_relaxed(var) == (boot))
 #define CLJC_FUSED(guards, n) clj_fusion_guard(guards, n)
+#define CLJC_LOWERED(var, how) (clj_var_root_relaxed(var) == clj_lowered_root(how))
 #define CLJC_LAZY_SEQ_INLINE(var) clj_lazy_seq_star_is(clj_var_root_relaxed(var))
 #endif
 

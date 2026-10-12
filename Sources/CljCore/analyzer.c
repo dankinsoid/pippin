@@ -106,6 +106,7 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit(n->u.root_is.expect.v, ctx);
 		break;
 	case CLJ_NODE_INLINE: visit_node(n->u.inline_.body, visit, ctx); break;
+	case CLJ_NODE_LOWERED: visit_nodes(n->u.lowered.args, n->u.lowered.n, visit, ctx); break;
 	}
 }
 
@@ -147,6 +148,7 @@ static void node_finalize(void *self) {
 		break;
 	case CLJ_NODE_OBJC_SEND: free(n->u.objc.args); break;
 	case CLJ_NODE_ROOT_IS: free(n->u.root_is.guards); break;
+	case CLJ_NODE_LOWERED: free(n->u.lowered.args); break;
 	default: break;
 	}
 }
@@ -511,6 +513,7 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_ROOT_IS: break;
 	case CLJ_NODE_INLINE: child(n->u.inline_.body, visit, ctx); break;
+	case CLJ_NODE_LOWERED: children(n->u.lowered.args, n->u.lowered.n, visit, ctx); break;
 	}
 }
 
@@ -1627,6 +1630,7 @@ static void find_call(const clj_node *n, void *ctx) {
 	case CLJ_NODE_INTRINSIC:
 	case CLJ_NODE_DIRECT_CALL:
 	case CLJ_NODE_FUSED:
+	case CLJ_NODE_LOWERED:
 	case CLJ_NODE_OBJC_SEND: *found = true; return;
 	default: clj_node_children(n, find_call, ctx);
 	}

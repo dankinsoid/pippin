@@ -11,6 +11,7 @@
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
+#include "clj/lowered.h"
 #include "clj/string.h"
 #include "clj/var.h"
 #include "clj/verify.h"
@@ -39,6 +40,7 @@ typedef struct {
 	char                 *stack_limit; // past it the rest goes unchecked: a fault under the specialize lock is fatal
 	bool                  gave_up;
 	const clj_node       *root_is, *inline_; // the guard and the body of the inlined call being walked: nowhere else
+	const clj_node       *lowered; // the then branch of the lowered call being walked: nowhere else
 	const clj_node       *path;   // the PATH body being walked, whose levels sit inside it
 	uint32_t              levels; // LEVEL bodies around the walk within that PATH body
 	// The guarded calls of this frame whose then branch is being walked: their literal fn arguments are what a LITERAL
@@ -101,7 +103,7 @@ static const vframe *linked(const vframe *f, uint32_t depth) {
 
 static bool optimizer_kind(clj_node_kind k) {
 	return k == CLJ_NODE_INTRINSIC || k == CLJ_NODE_FUSED || k == CLJ_NODE_DIRECT_FN || k == CLJ_NODE_DIRECT_CALL || k == CLJ_NODE_ROOT_IS ||
-	       k == CLJ_NODE_INLINE;
+	       k == CLJ_NODE_INLINE || k == CLJ_NODE_LOWERED;
 }
 
 // What eval_fused's frame can hold: the arguments as locals, the calls over them and the transducer vector.
@@ -296,9 +298,39 @@ static bool walk_fused(vctx *c, vframe *f, const clj_node *n) {
 // said. A guard or a body anywhere else would run a copy no guard checks.
 static bool path_guard_ok(vctx *c, const clj_node *g, const clj_node *at);
 
+// (if ROOT_IS[native var, builtin] LOWERED[fn, args] (var args...)): the guard checks the root the lowered call runs,
+// the else branch is the call whose literal fn LOWERED borrows, and LOWERED's args are the call's others, in order.
+// @ai-generated(solo)
+static bool walk_lowered(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail) {
+	const clj_node *g = n->u.if_.test, *low = n->u.if_.then, *call = n->u.if_.else_;
+	if (!call || call->kind != CLJ_NODE_INVOKE || call->u.invoke.fn->kind != CLJ_NODE_VAR || call->u.invoke.fn->u.var.v != g->u.root_is.var.v)
+		return bad(c, "verify/lowered-shape", n, "a lowered call whose else branch is no call of its guard's var");
+	clj_lowered_how how;
+	uint32_t        nargs = call->u.invoke.n, at, arity;
+	if (!clj_lowered_find(g->u.root_is.var.v, nargs, &how) || how != low->u.lowered.how)
+		return bad(c, "verify/lowered-shape", n, "a lowered call of a var at %u args that has no such lowering", nargs);
+	if (g->u.root_is.nguards || g->u.root_is.expect.v != clj_lowered_root(how))
+		return bad(c, "verify/lowered-guard", n, "a lowered call whose guard does not check its var at the builtin it runs");
+	clj_lowered_shape(how, nargs, &at, &arity);
+	const clj_node *fn = low->u.lowered.fn;
+	if (low->u.lowered.n + 1 != nargs || fn != call->u.invoke.args[at])
+		return bad(c, "verify/lowered-shape", n, "a lowered call whose fn or operands are not its call's");
+	if (fn->kind != CLJ_NODE_FN || arity > CLJ_FN_MAX_FIXED || !fn->u.fn.fixed[arity])
+		return bad(c, "verify/lowered-shape", n, "a lowered call over a literal without the arity %u its native calls", arity);
+	if (low->u.lowered.n && !low->u.lowered.args) return bad(c, "verify/missing-child", n, "lowered operands without an array");
+	const clj_node *outer_root_is = c->root_is, *outer_lowered = c->lowered;
+	c->root_is = g;
+	c->lowered = low;
+	bool ok = walk(c, f, NULL, g, false, false) && walk(c, f, t, low, tail, false) && walk(c, f, t, call, tail, false);
+	c->root_is = outer_root_is;
+	c->lowered = outer_lowered;
+	return ok;
+}
+
 // @ai-generated(solo)
 static bool walk_inlined(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_, *inl = n->u.if_.then;
+	if (inl && inl->kind == CLJ_NODE_LOWERED) return walk_lowered(c, f, t, n, tail);
 	if (inl && inl->kind == CLJ_NODE_LET) inl = inl->u.let.body;
 	if (!inl || inl->kind != CLJ_NODE_INLINE) return bad(c, "verify/inline-shape", n, "an inline guard whose then branch is no inlined body");
 	if (!call || call->kind != CLJ_NODE_INVOKE || call->u.invoke.fn->kind != CLJ_NODE_VAR || call->u.invoke.fn->u.var.v != g->u.root_is.var.v)
@@ -469,6 +501,10 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 		if (n != c->root_is) return bad(c, "verify/inline-shape", n, "an inline guard that is no test of an inlined call");
 		c->root_is = NULL;
 		return true;
+	case CLJ_NODE_LOWERED:
+		if (n != c->lowered) return bad(c, "verify/lowered-shape", n, "a lowered call outside the then branch of its guard");
+		c->lowered = NULL;
+		return walk_all(c, f, n->u.lowered.args, n->u.lowered.n, n);
 	case CLJ_NODE_INLINE: {
 		uint8_t how = n->u.inline_.how;
 		if (how == CLJ_INLINE_LEVEL || how == CLJ_INLINE_LITERAL) return walk_nested_inline(c, f, n);
@@ -742,6 +778,16 @@ static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned) {
 		return no_way_out;
 	case CLJ_NODE_TRY: return lv_try(x, n, s, owned);
 	case CLJ_NODE_INLINE: return lv(x, n->u.inline_.body, s, owned);
+	case CLJ_NODE_LOWERED: {
+		s = lv_operands(x, NULL, n->u.lowered.args, n->u.lowered.n, 0, s);
+		const clj_node *fn = n->u.lowered.fn;
+		for (uint32_t i = 0; i < fn->u.fn.ncaptures; i++) {
+			const clj_capture *cp = &fn->u.fn.captures[i];
+			if (cp->kind == CLJ_CAPTURE_LOCAL && (s.dead & bit(cp->index)))
+				bad(c, "verify/read-after-last-use", n, "a lowered call reads captured slot %u after a last use handed its value over", cp->index);
+		}
+		return s;
+	}
 	case CLJ_NODE_ROOT_IS: return s;
 	}
 	return s;
@@ -887,6 +933,10 @@ static void digest(const clj_node *n, void *ctx) {
 	case CLJ_NODE_INLINE:
 		x = mix(x, (uintptr_t)n->u.inline_.fn);
 		x = mix(x, n->u.inline_.how);
+		break;
+	case CLJ_NODE_LOWERED:
+		x = mix(x, (uintptr_t)n->u.lowered.fn);
+		x = mix(x, ((uint64_t)n->u.lowered.how << 32) | n->u.lowered.n);
 		break;
 	}
 	*h = x;

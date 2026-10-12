@@ -1580,6 +1580,19 @@ static clj_fact infer_fn(pass *p, const clj_node *n, env *e) {
 	return fact_of(CLJ_T_FN);
 }
 
+// The call it lowers is its guard's else branch, walked there with its effects; here the operands run and the literal's
+// captures are read from this frame, after them.
+static clj_fact infer_lowered(pass *p, const clj_node *n, env *e) {
+	for (uint32_t i = 0; i < n->u.lowered.n; i++) infer(p, n->u.lowered.args[i], e, USE_ESCAPE);
+	const clj_node *fn = n->u.lowered.fn;
+	for (uint32_t i = 0; i < fn->u.fn.ncaptures; i++) {
+		const clj_capture *c = &fn->u.fn.captures[i];
+		if (c->kind == CLJ_CAPTURE_LOCAL) mark_escape(p, c->index, CLJ_ESCAPE_CAPTURED);
+		else if (c->kind == CLJ_CAPTURE_OUTER) mark_outer(p, c->depth, c->index);
+	}
+	return clj_fact_top();
+}
+
 static clj_fact infer_invoke(pass *p, const clj_node *n, env *e) {
 	const clj_node *head = n->u.invoke.fn;
 	p->head = head->kind == CLJ_NODE_VAR;
@@ -1708,6 +1721,7 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		break;
 	case CLJ_NODE_FUSED: r = infer_fused(p, n, e); break;
 	case CLJ_NODE_ROOT_IS: r = fact_of(CLJ_T_BOOL); break;
+	case CLJ_NODE_LOWERED: r = infer_lowered(p, n, e); break;
 	case CLJ_NODE_INLINE:
 		p->inlined++;
 		r = infer(p, n->u.inline_.body, e, use);

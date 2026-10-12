@@ -89,6 +89,7 @@ typedef struct {
 	uint64_t mono_fused;     // fused sites whose stages over literal fns run as one step function
 	uint64_t literals;       // literal fn arguments written as their body where the inlined callee calls them
 	uint64_t paths;          // get-in, assoc-in and update-in sites written over their literal path
+	uint64_t lowered;        // reduce, reduce-kv, swap! and swap-vals! sites over a literal fn written without its closure
 	uint64_t defs;           // top-level defs of the unit
 	uint64_t defs_dropped;   // of those, the ones the shaker left out (closed only)
 	uint64_t def_bytes;      // C bytes the kept defs' functions take, as emitted

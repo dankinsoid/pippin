@@ -1673,8 +1673,7 @@ static void closure_expr(fnctx *f, const clj_node *n, const char *base, const ch
 	snprintf(out, cap, "clj_c_closure(%s, %s, %s, %u, 0x%x, %u, %s)", name, base, caps, n->u.fn.ncaptures, mask, min, maxs);
 }
 
-static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
-	emit_fn_functions(f, n, base);
+static temp emit_closure_of(fnctx *f, const clj_node *n, const char *base) {
 	char caps[32], expr[512];
 	emit_captures(f, n, caps);
 	closure_expr(f, n, base, caps, expr, sizeof expr);
@@ -1684,7 +1683,34 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 	return t;
 }
 
+static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
+	emit_fn_functions(f, n, base);
+	return emit_closure_of(f, n, base);
+}
+
+// The literal fns a lowered call of this top-level form emitted: the else branch's closure takes the same functions.
+typedef struct {
+	const clj_node *fn;
+	char            base[256];
+} lowered_fn;
+
+static lowered_fn *lowered_fns;
+static size_t      nlowered_fns, lowered_fns_cap;
+
+static const char *lowered_base_of(const clj_node *fn) {
+	for (size_t i = nlowered_fns; i-- > 0;) {
+		if (lowered_fns[i].fn == fn) return lowered_fns[i].base;
+	}
+	return NULL;
+}
+
 static temp emit_fn(fnctx *f, const clj_node *n) {
+	const char *done = lowered_base_of(n);
+	if (done) {
+		char base[256];
+		snprintf(base, sizeof base, "%s", done);
+		return emit_closure_of(f, n, base);
+	}
 	char base[256];
 	snprintf(base, sizeof base, "%s__%u", f->base, (*f->fn_counter)++);
 	return emit_fn_as(f, n, base);
@@ -3069,9 +3095,13 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 // @ai-generated(solo)
 static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_;
-	if (clj_opt_off(CLJ_NO_OPT_INLINE)) return emit(f, call);
+	bool            lowered = n->u.if_.then->kind == CLJ_NODE_LOWERED;
+	if (clj_opt_off(CLJ_NO_OPT_INLINE) || (lowered && clj_opt_off(CLJ_NO_OPT_LOWER))) return emit(f, call);
 	temp b = new_temp(f, OWN_NO);
-	if (g->u.root_is.nguards) {
+	if (lowered) {
+		// the builtin the lowered call runs, which any unit can check: 1 in a closed build, as a fusion guard
+		sb_printf(&f->out, "\tbool %s = CLJC_LOWERED(V[%zu], %u);\n", b.name, var_index(f->u, g->u.root_is.var.v), (unsigned)n->u.if_.then->u.lowered.how);
+	} else if (g->u.root_is.nguards) {
 		// a known path stands for core's own fn, whose boot root any unit can check: the fusion guard, 1 when closed
 		int k = f->naux++;
 		sb_printf(&f->out, "\tconst clj_fusion_var *g%d[%u] = {", k, g->u.root_is.nguards);
@@ -3100,7 +3130,55 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, e.name);
 	live_forget(f, &e);
 	live_push(f, r);
-	f->u->slots.inlined++;
+	if (!lowered) f->u->slots.inlined++;
+	return r;
+}
+
+// A lowered call (optimizer.c try_lower): the native runs over a per-site step that calls the literal's arity, its
+// environment a C array of the captures read from this frame after the operands, as eval_lowered reads them.
+// @ai-generated(solo)
+static temp emit_lowered(fnctx *f, const clj_node *n) {
+	const clj_node *lit = n->u.lowered.fn;
+	uint32_t        nops = n->u.lowered.n, nargs = nops + 1, at, arity;
+	clj_lowered_shape(n->u.lowered.how, nargs, &at, &arity);
+	int   k = f->naux++;
+	temp *ops = calloc(nops ? nops : 1, sizeof *ops);
+	if (!ops) clj_fatal("out of memory");
+	for (uint32_t i = 0; i < nops; i++) ops[i] = emit_borrowed(f, n->u.lowered.args[i]);
+	char        base[256];
+	const char *done = lowered_base_of(lit);
+	if (done) {
+		snprintf(base, sizeof base, "%s", done);
+	} else {
+		snprintf(base, sizeof base, "%s__%u", f->base, (*f->fn_counter)++);
+		emit_fn_functions(f, lit, base);
+		if (nlowered_fns == lowered_fns_cap) {
+			lowered_fns_cap = lowered_fns_cap ? lowered_fns_cap * 2 : 8;
+			lowered_fns = realloc(lowered_fns, lowered_fns_cap * sizeof *lowered_fns);
+			if (!lowered_fns) clj_fatal("out of memory");
+		}
+		lowered_fns[nlowered_fns].fn = lit;
+		snprintf(lowered_fns[nlowered_fns++].base, sizeof lowered_fns->base, "%s", base);
+	}
+	char caps[32], step[300], target[300], expr[512];
+	emit_captures(f, lit, caps);
+	snprintf(step, sizeof step, "%s__lw%u", f->base, (*f->fn_counter)++);
+	snprintf(target, sizeof target, "%s_a%u", base, arity);
+	closure_expr(f, lit, base, "(const clj_value *)ctx", expr, sizeof expr);
+	sb_printf(&f->u->protos, "static clj_value %s(void *ctx, const clj_value *args, size_t n);\nstatic clj_value %s_mk(void *ctx);\n", step, step);
+	sb_printf(&f->u->fns, "static clj_value %s(void *ctx, const clj_value *args, size_t n) { return %s%s(CLJ_NIL, ctx, args, n); }\n", step, target,
+	          pool_has(&f->u->leaves, target) ? "_i" : "");
+	sb_printf(&f->u->fns, "static clj_value %s_mk(void *ctx) {\n\t(void)ctx;\n\treturn %s;\n}\n\n", step, expr);
+	sb_printf(&f->out, "\tclj_value la%d[%u] = {", k, nargs);
+	for (uint32_t i = 0, j = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", i == at ? "CLJ_NIL" : ops[j++].name);
+	sb_printf(&f->out, "};\n\tclj_lowered lw%d = {%s, %s_mk, (void *)%s, %u, CLJ_NIL};\n", k, step, step, caps, arity);
+	temp r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s = clj_lowered_call(%u, la%d, %u, &lw%d);\n", r.name, (unsigned)n->u.lowered.how, k, nargs, k);
+	check_thrown(f, r.name);
+	for (uint32_t i = nops; i-- > 0;) release_temp(f, &ops[i]);
+	free(ops);
+	live_push(f, r);
+	f->u->slots.lowered++;
 	return r;
 }
 
@@ -3149,6 +3227,7 @@ static temp emit(fnctx *f, const clj_node *n) {
 	}
 	case CLJ_NODE_DIRECT_CALL: return emit_direct_call(f, n);
 	case CLJ_NODE_INLINE: return emit_inline(f, n);
+	case CLJ_NODE_LOWERED: return emit_lowered(f, n);
 	case CLJ_NODE_ROOT_IS: break; // only as the test of an inlined call, which emit_inlined_call reads itself
 	}
 	clj_ice("emit/unknown-kind", n, "node kind %u", (unsigned)n->kind);
@@ -3807,6 +3886,7 @@ static size_t emit_top_fn(cljc_compiler *c, unit *u, const clj_load_form *form, 
 static void emit_top(cljc_compiler *c, unit *u, const clj_load_form *form, const clj_node *n) {
 	uint32_t counter = 0;
 	ndirect_names = 0;
+	nlowered_fns = 0;
 	fnctx    scratch;
 	memset(&scratch, 0, sizeof scratch);
 	scratch.c = c;

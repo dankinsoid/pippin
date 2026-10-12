@@ -6,6 +6,7 @@
 #include "fn.h"
 #include "fusion.h"
 #include "intrinsics.h"
+#include "lowered.h"
 #include "runtime.h"
 #include "var.h"
 

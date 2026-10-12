@@ -15,6 +15,7 @@
 #include "clj/fusion.h"
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
+#include "clj/lowered.h"
 #include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/ns.h"
@@ -196,6 +197,7 @@ static void init(void) {
 	clj_fn_intern_keywords();
 	clj_load_file_var();
 	clj_builtins_install();
+	clj_lowered_install();
 	clj_lazy_defs_install();
 	clj_proto_install();
 	clj_queue_install();

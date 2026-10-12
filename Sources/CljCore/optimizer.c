@@ -11,6 +11,7 @@
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
+#include "clj/lowered.h"
 #include "clj/string.h"
 #include "clj/summary.h"
 #include "clj/symbol.h"
@@ -737,11 +738,12 @@ static const clj_node *copy_direct_target(const copy_ctx *c, const clj_node *fro
 	clj_ice("optimize/inline-direct-call", at, "a direct call whose fn was not copied before it");
 }
 
-static const clj_node *copied_literal(const copy_ctx *c, const clj_node *inl) {
+// A body or a lowered call that borrows a literal fn argument of its guarded call, which is copied before it.
+static const clj_node *copied_literal(const copy_ctx *c, const clj_node *fn, const clj_node *at) {
 	for (uint32_t i = c->nfn; i-- > 0;) {
-		if (c->from[i] == inl->u.inline_.fn) return c->to[i];
+		if (c->from[i] == fn) return c->to[i];
 	}
-	clj_ice("optimize/inline-literal", inl, "a copied literal fn body whose guarded call was not copied before it");
+	clj_ice("optimize/inline-literal", at, "a copied literal fn whose guarded call was not copied before it");
 }
 
 static clj_capture copy_capture(const copy_ctx *c, int level, const clj_capture *cap, const clj_node *at) {
@@ -961,13 +963,19 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 	case CLJ_NODE_INLINE: {
 		// a guard's body is a level of the budget; a literal fn's body and a path's levels sit inside one
 		bool guarded = n->u.inline_.how == CLJ_INLINE_COPY || n->u.inline_.how == CLJ_INLINE_PATH;
-		m->u.inline_.fn = n->u.inline_.how == CLJ_INLINE_LITERAL ? copied_literal(c, n) : n->u.inline_.fn;
+		m->u.inline_.fn = n->u.inline_.how == CLJ_INLINE_LITERAL ? copied_literal(c, n->u.inline_.fn, n) : n->u.inline_.fn;
 		m->u.inline_.how = n->u.inline_.how;
 		c->depth += guarded;
 		m->u.inline_.body = copy_node(n->u.inline_.body, c, level);
 		c->depth -= guarded;
 		break;
 	}
+	case CLJ_NODE_LOWERED:
+		m->u.lowered.fn = copied_literal(c, n->u.lowered.fn, n);
+		m->u.lowered.args = copy_all(n->u.lowered.args, n->u.lowered.n, c, level);
+		m->u.lowered.n = n->u.lowered.n;
+		m->u.lowered.how = n->u.lowered.how;
+		break;
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN: break; // copy_fn
 	}
@@ -1561,6 +1569,47 @@ static bool try_path(clj_node *n, inline_frame *fr) {
 	return true;
 }
 
+// ---- lowered natives (design §10 step 7a′): a call of reduce, reduce-kv, swap! or swap-vals! whose fn is a literal
+//   (if ROOT_IS[reduce, builtin] LOWERED[fn, init' coll'] (reduce (fn ...) init coll))
+// The native's own C function runs over the literal's arity reached without a closure (eval_lowered, emit_lowered), so
+// the walk, the lock and every other rule of the call are the native's. The else branch is the call, as for an inline.
+
+// @ai-generated(solo)
+static bool try_lower(clj_node *n, inline_frame *fr) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	clj_lowered_how how;
+	if (head->kind != CLJ_NODE_VAR || clj_opt_off(CLJ_NO_OPT_LOWER)) return false;
+	clj_value var = head->u.var.v;
+	if (!clj_is_var(var) || clj_var_is_dynamic(var) || !clj_lowered_find(var, nargs, &how)) return false;
+	clj_value root = clj_var_root(var);
+	if (root != clj_lowered_root(how)) return false;
+	uint32_t at, arity;
+	clj_lowered_shape(how, nargs, &at, &arity);
+	const clj_node *lit = n->u.invoke.args[at];
+	if (lit->kind != CLJ_NODE_FN || arity > CLJ_FN_MAX_FIXED || !lit->u.fn.fixed[arity]) return false;
+	// no fn object stands behind the arity for its own name to read
+	if (scan_arity(lit->u.fn.fixed[arity], CLJ_NIL).self_read) return false;
+	uint32_t cost = 2;
+	for (uint32_t i = 0; i < nargs; i++) cost += i == at ? 0 : nodes_in(n->u.invoke.args[i]);
+	if (fr->grown + cost > fr->budget) return false;
+	position         at_pos = {n->line, n->col};
+	copy_ctx         argc = {.depth = 0};
+	const clj_node **ops = zalloc(nargs - 1, sizeof *ops);
+	for (uint32_t i = 0, k = 0; i < nargs; i++) {
+		if (i != at) ops[k++] = copy_node(n->u.invoke.args[i], &argc, VERBATIM);
+	}
+	clj_node *low = node_at(CLJ_NODE_LOWERED, at_pos);
+	low->u.lowered.fn = lit;
+	low->u.lowered.args = ops;
+	low->u.lowered.n = nargs - 1;
+	low->u.lowered.how = (uint8_t)how;
+	guarded_call(n, low, var, root, NULL, 0);
+	fr->grown += argc.nodes + 2;
+	copy_ctx_free(&argc);
+	return true;
+}
+
 // Children first: an argument is inlined into before the call it is passed to, and the copy of it carries that.
 // @ai-generated(solo)
 static void inline_walk(const clj_node *n, void *ctx) {
@@ -1593,7 +1642,7 @@ static void inline_walk(const clj_node *n, void *ctx) {
 	default: break;
 	}
 	clj_node_children(m, inline_walk, ctx);
-	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
+	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_lower(m, fr) && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
 }
 
 // ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path
@@ -1735,6 +1784,11 @@ static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use)
 		}
 		return out;
 	case CLJ_NODE_INLINE: return live(n->u.inline_.body, out, c, use);
+	case CLJ_NODE_LOWERED: // the literal's captures are read after the operands
+		for (uint32_t i = 0; i < n->u.lowered.fn->u.fn.ncaptures; i++) {
+			if (n->u.lowered.fn->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
+		}
+		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, 0, out, c);
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
