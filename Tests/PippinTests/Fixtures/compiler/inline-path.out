@@ -1,0 +1,4 @@
+[{:b {:c {:d 4}}} {:c {:d 4}} {:d 4} 4 :nf {:c {:d 4}} :nf nil {:s 9} 20 nil :nf nil :deep] [nil nil nil nil :nf :nf :nf nil nil nil :nf :nf nil :deep]
+[{:a 1, :v [1 2]} {:a {:b 2}, :v [1 2]} {:x {:y {:z 3}}} {:a {:b 0}, :v [:zero 2]} {:a {:b 1}} [{:a 1}] {:a {:b {:c {:d 4}}}} {:a {:b {:c {:d {:e 5}}}}}] [{:a {:b 2}} {:a {:b 31}} {:a {:b 1}, :n 1} {:a {:b 100}} {:p {:q {:r {:s [1]}}}} {:a {:b 1, :c 3}} {:a {:b -9}} {:a {:b -14}} {:a {:b 108}} {:a {:b nil}}]
+[{:a {:b 11}} {:c 5} 1 2 [:m :k1 :k2 :f :x :m2 :k3 :v :m3 :k4 :nf :m4 :k5]]
+[assoc not supported on this type: long [clojure.core/assoc-in clojure.core/assoc-in clojure.core/assoc-in fixture.inline-path/assoc-boom fixture.inline-path/names]] boom [boom up up clojure.core/update-in fixture.inline-path/update-boom] nil cannot be cast to a number

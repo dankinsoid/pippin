@@ -4100,56 +4100,56 @@ CLJC_FRAME clj_value clojure_string_includes_QMARK__a2(clj_value self, const clj
 	clj_ccall cc;
 	CLJC_ENTER(&S[29], &cc);
 #line 120 "<embedded>/clojure/string.clj"
-	clj_value t0;
-	bool o1 = false;
-	clj_value t1 = CLJ_NIL;
+	clj_value t1;
+	bool o2 = false;
+	clj_value t2 = CLJ_NIL;
 #ifndef CLJC_LOCAL_clojure_core_some_QMARK__a1
-	t1 = clj_c_var_borrow(V[60], &o1);
+	t2 = clj_c_var_borrow(V[60], &o2);
+	CLJC_SITE(&S[29]);
+	if (t2 == CLJ_THROWN) {
+	goto L1;
+	}
+#endif
+	clj_value t3;
+	bool o4;
+	clj_value t4 = clj_c_var_borrow(V[52], &o4);
+	CLJC_SITE(&S[29]);
+	if (t4 == CLJ_THROWN) {
+	if (o2) clj_release(t2);
+	goto L1;
+	}
+	clj_value t5 = l0;
+	clj_value t6 = l1;
+	clj_value a1[2] = {t5, t6};
+	(void)a1;
+	t3 = clj_c_invoke(t4, a1, 2);
+	(void)t6;
+	(void)t5;
+	if (o4) clj_release(t4);
+	CLJC_SITE(&S[29]);
+	if (t3 == CLJ_THROWN) {
+	if (o2) clj_release(t2);
+	goto L1;
+	}
+	clj_value a0[1] = {t3};
+	(void)a0;
+#ifdef CLJC_LOCAL_clojure_core_some_QMARK__a1
+	t1 = CLJC_CALL_clojure_core_some_QMARK__a1(CLJ_NIL, NULL, a0, 1);
+#elif defined(CLJC_DIRECT_clojure_core_some_QMARK__a1)
+	if (!CLJC_FN_clojure_core_some_QMARK__a1) CLJC_FN_clojure_core_some_QMARK__a1 = clj_compiled_symbol("clojure_core_some_QMARK__a1");
+	t1 = CLJC_FN_clojure_core_some_QMARK__a1 ? CLJC_FN_clojure_core_some_QMARK__a1(clj_var_root_relaxed(V[60]), NULL, a0, 1) : clj_c_invoke(t2, a0, 1);
+#else
+	t1 = clj_c_invoke(t2, a0, 1);
+#endif
+	clj_release(t3);
+	if (o2) clj_release(t2);
 	CLJC_SITE(&S[29]);
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-#endif
-	clj_value t2;
-	bool o3;
-	clj_value t3 = clj_c_var_borrow(V[52], &o3);
-	CLJC_SITE(&S[29]);
-	if (t3 == CLJ_THROWN) {
-	if (o1) clj_release(t1);
-	goto L1;
-	}
-	clj_value t4 = l0;
-	clj_value t5 = l1;
-	clj_value a1[2] = {t4, t5};
-	(void)a1;
-	t2 = clj_c_invoke(t3, a1, 2);
-	(void)t5;
-	(void)t4;
-	if (o3) clj_release(t3);
-	CLJC_SITE(&S[29]);
-	if (t2 == CLJ_THROWN) {
-	if (o1) clj_release(t1);
-	goto L1;
-	}
-	clj_value a0[1] = {t2};
-	(void)a0;
-#ifdef CLJC_LOCAL_clojure_core_some_QMARK__a1
-	t0 = CLJC_CALL_clojure_core_some_QMARK__a1(CLJ_NIL, NULL, a0, 1);
-#elif defined(CLJC_DIRECT_clojure_core_some_QMARK__a1)
-	if (!CLJC_FN_clojure_core_some_QMARK__a1) CLJC_FN_clojure_core_some_QMARK__a1 = clj_compiled_symbol("clojure_core_some_QMARK__a1");
-	t0 = CLJC_FN_clojure_core_some_QMARK__a1 ? CLJC_FN_clojure_core_some_QMARK__a1(clj_var_root_relaxed(V[60]), NULL, a0, 1) : clj_c_invoke(t1, a0, 1);
-#else
-	t0 = clj_c_invoke(t1, a0, 1);
-#endif
-	clj_release(t2);
-	if (o1) clj_release(t1);
-	CLJC_SITE(&S[29]);
-	if (t0 == CLJ_THROWN) {
-	goto L1;
-	}
 	CLJC_LEAVE(&S[29], &cc);
 	clj_release(l2);
-	return t0;
+	return t1;
 L1: ;
 	CLJC_LEAVE(&S[29], &cc);
 	clj_release(l2);

@@ -149,6 +149,8 @@ static const clj_slot *run_at(const clj_vector *v, uint32_t i, uint32_t *start, 
 	return leaf_for(v, i)->slots;
 }
 
+const clj_slot *clj_vector_run(clj_value vec, uint32_t i, uint32_t *start, uint32_t *end) { return run_at(vector_of(vec), i, start, end); }
+
 // Consumes leaf: a chain of single-child nodes down to it.
 static clj_value new_path(uint32_t shift, clj_value leaf) {
 	if (shift == 0) return leaf;

@@ -29,6 +29,9 @@ clj_value clj_vector_from_array(const clj_value *items, uint32_t n);
 clj_value clj_vector_reduce_from(clj_value vec, uint32_t from, clj_value f, clj_value init);
 clj_value clj_vector_reduce_kv(clj_value vec, clj_value f, clj_value init);
 
+// The run of items holding item i, borrowed: items start..end-1, a trie's leaf or a tuple's whole, read without a call.
+const clj_slot *clj_vector_run(clj_value vec, uint32_t i, uint32_t *start, uint32_t *end);
+
 // Return false to stop. Items are borrowed and visited in order.
 typedef bool (*clj_vector_item_fn)(clj_value item, void *ctx);
 void clj_vector_each(clj_value vec, clj_vector_item_fn fn, void *ctx);

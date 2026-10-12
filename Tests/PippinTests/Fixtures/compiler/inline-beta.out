@@ -1,0 +1,4 @@
+{:a 3} {:n 2} {:k #{1}} {:k #{0 1}} {:a 6}
+5 nil true false true true false
+[6 6 [2 2] 3 2 3 [4 2]] [30 -2 [10 10] 3 2 3 4] [0 2 6] {:a {:b 6}} {:a [6 4 24 25 23 7]} {:a (0 -1 1 0 0 2)} [3 :thrown 5 [:a :b :c :d :e :f [:body 5 6]]]
+[lit fixture.inline-beta/app fixture.inline-beta/app-boom] [lit2 clojure.core/update fixture.inline-beta/bump-boom]

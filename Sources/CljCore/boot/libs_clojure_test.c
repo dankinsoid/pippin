@@ -1098,74 +1098,74 @@ CLJC_FRAME clj_value clojure_test_testing_contexts_str_a0(clj_value self, const 
 	if (o1) clj_release(t1);
 	goto L1;
 	}
-	clj_value t3;
-	bool o4 = false;
-	clj_value t4 = CLJ_NIL;
+	clj_value t4;
+	bool o5 = false;
+	clj_value t5 = CLJ_NIL;
 #ifndef CLJC_LOCAL_clojure_core_interpose_a2
-	t4 = clj_c_var_borrow(V[24], &o4);
+	t5 = clj_c_var_borrow(V[24], &o5);
+	CLJC_SITE(&S[3]);
+	if (t5 == CLJ_THROWN) {
+	if (o2) clj_release(t2);
+	if (o1) clj_release(t1);
+	goto L1;
+	}
+#endif
+	clj_value t6 = K[36];
+	clj_value t7;
+	bool o8;
+	clj_value t8 = clj_c_var_borrow(V[19], &o8);
+	CLJC_SITE(&S[3]);
+	if (t8 == CLJ_THROWN) {
+	if (o5) clj_release(t5);
+	if (o2) clj_release(t2);
+	if (o1) clj_release(t1);
+	goto L1;
+	}
+	bool o9;
+	clj_value t9 = clj_c_var_borrow(V[9], &o9);
+	CLJC_SITE(&S[3]);
+	if (t9 == CLJ_THROWN) {
+	if (o8) clj_release(t8);
+	if (o5) clj_release(t5);
+	if (o2) clj_release(t2);
+	if (o1) clj_release(t1);
+	goto L1;
+	}
+	clj_value a2[1] = {t9};
+	(void)a2;
+	t7 = clj_c_invoke(t8, a2, 1);
+	if (o9) clj_release(t9);
+	if (o8) clj_release(t8);
+	CLJC_SITE(&S[3]);
+	if (t7 == CLJ_THROWN) {
+	if (o5) clj_release(t5);
+	if (o2) clj_release(t2);
+	if (o1) clj_release(t1);
+	goto L1;
+	}
+	clj_value a1[2] = {t6, t7};
+	(void)a1;
+#ifdef CLJC_LOCAL_clojure_core_interpose_a2
+	t4 = CLJC_CALL_clojure_core_interpose_a2(CLJ_NIL, NULL, a1, 2);
+#elif defined(CLJC_DIRECT_clojure_core_interpose_a2)
+	if (!CLJC_FN_clojure_core_interpose_a2) CLJC_FN_clojure_core_interpose_a2 = clj_compiled_symbol("clojure_core_interpose_a2");
+	t4 = CLJC_FN_clojure_core_interpose_a2 ? CLJC_FN_clojure_core_interpose_a2(clj_var_root_relaxed(V[24]), NULL, a1, 2) : clj_c_invoke(t5, a1, 2);
+#else
+	t4 = clj_c_invoke(t5, a1, 2);
+#endif
+	clj_release(t7);
+	(void)t6;
+	if (o5) clj_release(t5);
 	CLJC_SITE(&S[3]);
 	if (t4 == CLJ_THROWN) {
 	if (o2) clj_release(t2);
 	if (o1) clj_release(t1);
 	goto L1;
 	}
-#endif
-	clj_value t5 = K[36];
-	clj_value t6;
-	bool o7;
-	clj_value t7 = clj_c_var_borrow(V[19], &o7);
-	CLJC_SITE(&S[3]);
-	if (t7 == CLJ_THROWN) {
-	if (o4) clj_release(t4);
-	if (o2) clj_release(t2);
-	if (o1) clj_release(t1);
-	goto L1;
-	}
-	bool o8;
-	clj_value t8 = clj_c_var_borrow(V[9], &o8);
-	CLJC_SITE(&S[3]);
-	if (t8 == CLJ_THROWN) {
-	if (o7) clj_release(t7);
-	if (o4) clj_release(t4);
-	if (o2) clj_release(t2);
-	if (o1) clj_release(t1);
-	goto L1;
-	}
-	clj_value a2[1] = {t8};
-	(void)a2;
-	t6 = clj_c_invoke(t7, a2, 1);
-	if (o8) clj_release(t8);
-	if (o7) clj_release(t7);
-	CLJC_SITE(&S[3]);
-	if (t6 == CLJ_THROWN) {
-	if (o4) clj_release(t4);
-	if (o2) clj_release(t2);
-	if (o1) clj_release(t1);
-	goto L1;
-	}
-	clj_value a1[2] = {t5, t6};
-	(void)a1;
-#ifdef CLJC_LOCAL_clojure_core_interpose_a2
-	t3 = CLJC_CALL_clojure_core_interpose_a2(CLJ_NIL, NULL, a1, 2);
-#elif defined(CLJC_DIRECT_clojure_core_interpose_a2)
-	if (!CLJC_FN_clojure_core_interpose_a2) CLJC_FN_clojure_core_interpose_a2 = clj_compiled_symbol("clojure_core_interpose_a2");
-	t3 = CLJC_FN_clojure_core_interpose_a2 ? CLJC_FN_clojure_core_interpose_a2(clj_var_root_relaxed(V[24]), NULL, a1, 2) : clj_c_invoke(t4, a1, 2);
-#else
-	t3 = clj_c_invoke(t4, a1, 2);
-#endif
-	clj_release(t6);
-	(void)t5;
-	if (o4) clj_release(t4);
-	CLJC_SITE(&S[3]);
-	if (t3 == CLJ_THROWN) {
-	if (o2) clj_release(t2);
-	if (o1) clj_release(t1);
-	goto L1;
-	}
-	clj_value a0[2] = {t2, t3};
+	clj_value a0[2] = {t2, t4};
 	(void)a0;
 	t0 = clj_c_invoke(t1, a0, 2);
-	clj_release(t3);
+	clj_release(t4);
 	if (o2) clj_release(t2);
 	if (o1) clj_release(t1);
 	CLJC_SITE(&S[3]);
@@ -15121,1960 +15121,1960 @@ static CLJC_FRAME clj_value clojure_test_form46__0_a2(clj_value self, const clj_
 	}
 	clj_c_rebind(&l2, t0);
 #line 165 "<embedded>/clojure/test.clj"
-	clj_value t3;
-	bool o4 = false;
-	clj_value t4 = CLJ_NIL;
+	clj_value t4;
+	bool o5 = false;
+	clj_value t5 = CLJ_NIL;
 #ifndef CLJC_LOCAL_clojure_core_nthnext_a2
-	t4 = clj_c_var_borrow(V[66], &o4);
+	t5 = clj_c_var_borrow(V[66], &o5);
+	CLJC_SITE(&S[23]);
+	if (t5 == CLJ_THROWN) {
+	goto L1;
+	}
+#endif
+	clj_value t6 = l1;
+	clj_value t7 = K[176];
+	clj_value a1[2] = {t6, t7};
+	(void)a1;
+#ifdef CLJC_LOCAL_clojure_core_nthnext_a2
+	t4 = CLJC_CALL_clojure_core_nthnext_a2(CLJ_NIL, NULL, a1, 2);
+#elif defined(CLJC_DIRECT_clojure_core_nthnext_a2)
+	if (!CLJC_FN_clojure_core_nthnext_a2) CLJC_FN_clojure_core_nthnext_a2 = clj_compiled_symbol("clojure_core_nthnext_a2");
+	t4 = CLJC_FN_clojure_core_nthnext_a2 ? CLJC_FN_clojure_core_nthnext_a2(clj_var_root_relaxed(V[66]), NULL, a1, 2) : clj_c_invoke(t5, a1, 2);
+#else
+	t4 = clj_c_invoke(t5, a1, 2);
+#endif
+	(void)t7;
+	(void)t6;
+	if (o5) clj_release(t5);
 	CLJC_SITE(&S[23]);
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-#endif
-	clj_value t5 = l1;
-	clj_value t6 = K[176];
-	clj_value a1[2] = {t5, t6};
-	(void)a1;
-#ifdef CLJC_LOCAL_clojure_core_nthnext_a2
-	t3 = CLJC_CALL_clojure_core_nthnext_a2(CLJ_NIL, NULL, a1, 2);
-#elif defined(CLJC_DIRECT_clojure_core_nthnext_a2)
-	if (!CLJC_FN_clojure_core_nthnext_a2) CLJC_FN_clojure_core_nthnext_a2 = clj_compiled_symbol("clojure_core_nthnext_a2");
-	t3 = CLJC_FN_clojure_core_nthnext_a2 ? CLJC_FN_clojure_core_nthnext_a2(clj_var_root_relaxed(V[66]), NULL, a1, 2) : clj_c_invoke(t4, a1, 2);
-#else
-	t3 = clj_c_invoke(t4, a1, 2);
-#endif
-	(void)t6;
-	(void)t5;
-	if (o4) clj_release(t4);
+	clj_c_rebind(&l3, t4);
+#line 164 "<embedded>/clojure/test.clj"
+	clj_value t8;
+	bool o9;
+	clj_value t9 = clj_c_var_borrow(V[13], &o9);
 	CLJC_SITE(&S[23]);
-	if (t3 == CLJ_THROWN) {
+	if (t9 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_rebind(&l3, t3);
-#line 164 "<embedded>/clojure/test.clj"
-	clj_value t7;
-	bool o8;
-	clj_value t8 = clj_c_var_borrow(V[13], &o8);
+	clj_value t10;
+	bool o11;
+	clj_value t11 = clj_c_var_borrow(V[8], &o11);
+	CLJC_SITE(&S[23]);
+	if (t11 == CLJ_THROWN) {
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t12 = K[195];
+	clj_value a4[1] = {t12};
+	(void)a4;
+	t10 = clj_c_invoke(t11, a4, 1);
+	(void)t12;
+	if (o11) clj_release(t11);
+	CLJC_SITE(&S[23]);
+	if (t10 == CLJ_THROWN) {
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t13 = l3;
+	clj_value t14;
+	bool o15;
+	clj_value t15 = clj_c_var_borrow(V[8], &o15);
+	CLJC_SITE(&S[23]);
+	if (t15 == CLJ_THROWN) {
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t16;
+	bool o17 = false;
+	clj_value t17 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t17 = clj_c_var_borrow(V[13], &o17);
+	CLJC_SITE(&S[23]);
+	if (t17 == CLJ_THROWN) {
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+#endif
+	clj_value t18;
+	bool o19;
+	clj_value t19 = clj_c_var_borrow(V[8], &o19);
+	CLJC_SITE(&S[23]);
+	if (t19 == CLJ_THROWN) {
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t20 = K[196];
+	clj_value a8[1] = {t20};
+	(void)a8;
+	t18 = clj_c_invoke(t19, a8, 1);
+	(void)t20;
+	if (o19) clj_release(t19);
+	CLJC_SITE(&S[23]);
+	if (t18 == CLJ_THROWN) {
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t21;
+	bool o22;
+	clj_value t22 = clj_c_var_borrow(V[8], &o22);
+	CLJC_SITE(&S[23]);
+	if (t22 == CLJ_THROWN) {
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t23;
+	bool o24;
+	clj_value t24 = clj_c_var_borrow(V[23], &o24);
+	CLJC_SITE(&S[23]);
+	if (t24 == CLJ_THROWN) {
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	bool o25;
+	clj_value t25 = clj_c_var_borrow(V[60], &o25);
+	CLJC_SITE(&S[23]);
+	if (t25 == CLJ_THROWN) {
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t26;
+	bool o27;
+	clj_value t27 = clj_c_var_borrow(V[13], &o27);
+	CLJC_SITE(&S[23]);
+	if (t27 == CLJ_THROWN) {
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t28;
+	bool o29;
+	clj_value t29 = clj_c_var_borrow(V[8], &o29);
+	CLJC_SITE(&S[23]);
+	if (t29 == CLJ_THROWN) {
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t30 = K[197];
+	clj_value a13[1] = {t30};
+	(void)a13;
+	t28 = clj_c_invoke(t29, a13, 1);
+	(void)t30;
+	if (o29) clj_release(t29);
+	CLJC_SITE(&S[23]);
+	if (t28 == CLJ_THROWN) {
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t31;
+	bool o32;
+	clj_value t32 = clj_c_var_borrow(V[8], &o32);
+	CLJC_SITE(&S[23]);
+	if (t32 == CLJ_THROWN) {
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t33 = K[3];
+	clj_value a14[1] = {t33};
+	(void)a14;
+	t31 = clj_c_invoke(t32, a14, 1);
+	(void)t33;
+	if (o32) clj_release(t32);
+	CLJC_SITE(&S[23]);
+	if (t31 == CLJ_THROWN) {
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t34;
+	bool o35;
+	clj_value t35 = clj_c_var_borrow(V[8], &o35);
+	CLJC_SITE(&S[23]);
+	if (t35 == CLJ_THROWN) {
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t36 = K[198];
+	clj_value a15[1] = {t36};
+	(void)a15;
+	t34 = clj_c_invoke(t35, a15, 1);
+	(void)t36;
+	if (o35) clj_release(t35);
+	CLJC_SITE(&S[23]);
+	if (t34 == CLJ_THROWN) {
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t37;
+	bool o38;
+	clj_value t38 = clj_c_var_borrow(V[8], &o38);
+	CLJC_SITE(&S[23]);
+	if (t38 == CLJ_THROWN) {
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t39;
+	bool o40 = false;
+	clj_value t40 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t40 = clj_c_var_borrow(V[13], &o40);
+	CLJC_SITE(&S[23]);
+	if (t40 == CLJ_THROWN) {
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+#endif
+	clj_value t41;
+	bool o42;
+	clj_value t42 = clj_c_var_borrow(V[8], &o42);
+	CLJC_SITE(&S[23]);
+	if (t42 == CLJ_THROWN) {
+	if (o40) clj_release(t40);
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t43 = K[199];
+	clj_value a19[1] = {t43};
+	(void)a19;
+	t41 = clj_c_invoke(t42, a19, 1);
+	(void)t43;
+	if (o42) clj_release(t42);
+	CLJC_SITE(&S[23]);
+	if (t41 == CLJ_THROWN) {
+	if (o40) clj_release(t40);
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t44;
+	bool o45;
+	clj_value t45 = clj_c_var_borrow(V[8], &o45);
+	CLJC_SITE(&S[23]);
+	if (t45 == CLJ_THROWN) {
+	clj_release(t41);
+	if (o40) clj_release(t40);
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t46 = l1;
+	clj_value a20[1] = {t46};
+	(void)a20;
+	t44 = clj_c_invoke(t45, a20, 1);
+	(void)t46;
+	if (o45) clj_release(t45);
+	CLJC_SITE(&S[23]);
+	if (t44 == CLJ_THROWN) {
+	clj_release(t41);
+	if (o40) clj_release(t40);
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a18[2] = {t41, t44};
+	(void)a18;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t39 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a18, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t39 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a18, 2) : clj_c_invoke(t40, a18, 2);
+#else
+	t39 = clj_c_invoke(t40, a18, 2);
+#endif
+	clj_release(t44);
+	clj_release(t41);
+	if (o40) clj_release(t40);
+	CLJC_SITE(&S[23]);
+	if (t39 == CLJ_THROWN) {
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a17[1] = {t39};
+	(void)a17;
+	clj_value t47;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t47 = clj_seq(t39);
+	} else {
+	t47 = clj_c_intrinsic_fallback(V[12], a17, 1);
+	}
+	clj_release(t39);
+	CLJC_SITE(&S[23]);
+	if (t47 == CLJ_THROWN) {
+	if (o38) clj_release(t38);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a16[1] = {t47};
+	(void)a16;
+	t37 = clj_c_invoke(t38, a16, 1);
+	clj_release(t47);
+	if (o38) clj_release(t38);
+	CLJC_SITE(&S[23]);
+	if (t37 == CLJ_THROWN) {
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t48;
+	bool o49;
+	clj_value t49 = clj_c_var_borrow(V[8], &o49);
+	CLJC_SITE(&S[23]);
+	if (t49 == CLJ_THROWN) {
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t50 = K[200];
+	clj_value a21[1] = {t50};
+	(void)a21;
+	t48 = clj_c_invoke(t49, a21, 1);
+	(void)t50;
+	if (o49) clj_release(t49);
+	CLJC_SITE(&S[23]);
+	if (t48 == CLJ_THROWN) {
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t51;
+	bool o52;
+	clj_value t52 = clj_c_var_borrow(V[8], &o52);
+	CLJC_SITE(&S[23]);
+	if (t52 == CLJ_THROWN) {
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t53 = l0;
+	clj_value a22[1] = {t53};
+	(void)a22;
+	t51 = clj_c_invoke(t52, a22, 1);
+	(void)t53;
+	if (o52) clj_release(t52);
+	CLJC_SITE(&S[23]);
+	if (t51 == CLJ_THROWN) {
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t54;
+	bool o55;
+	clj_value t55 = clj_c_var_borrow(V[8], &o55);
+	CLJC_SITE(&S[23]);
+	if (t55 == CLJ_THROWN) {
+	clj_release(t51);
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t56 = K[201];
+	clj_value a23[1] = {t56};
+	(void)a23;
+	t54 = clj_c_invoke(t55, a23, 1);
+	(void)t56;
+	if (o55) clj_release(t55);
+	CLJC_SITE(&S[23]);
+	if (t54 == CLJ_THROWN) {
+	clj_release(t51);
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t57;
+	bool o58;
+	clj_value t58 = clj_c_var_borrow(V[8], &o58);
+	CLJC_SITE(&S[23]);
+	if (t58 == CLJ_THROWN) {
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t59 = K[202];
+	clj_value a24[1] = {t59};
+	(void)a24;
+	t57 = clj_c_invoke(t58, a24, 1);
+	(void)t59;
+	if (o58) clj_release(t58);
+	CLJC_SITE(&S[23]);
+	if (t57 == CLJ_THROWN) {
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a12[8] = {t28, t31, t34, t37, t48, t51, t54, t57};
+	(void)a12;
+	t26 = clj_c_invoke(t27, a12, 8);
+	clj_release(t57);
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t48);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	clj_release(t28);
+	if (o27) clj_release(t27);
+	CLJC_SITE(&S[23]);
+	if (t26 == CLJ_THROWN) {
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a11[1] = {t26};
+	(void)a11;
+	clj_value t60;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t60 = clj_seq(t26);
+	} else {
+	t60 = clj_c_intrinsic_fallback(V[12], a11, 1);
+	}
+	clj_release(t26);
+	CLJC_SITE(&S[23]);
+	if (t60 == CLJ_THROWN) {
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a10[2] = {t25, t60};
+	(void)a10;
+	t23 = clj_c_invoke(t24, a10, 2);
+	clj_release(t60);
+	if (o25) clj_release(t25);
+	if (o24) clj_release(t24);
+	CLJC_SITE(&S[23]);
+	if (t23 == CLJ_THROWN) {
+	if (o22) clj_release(t22);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a9[1] = {t23};
+	(void)a9;
+	t21 = clj_c_invoke(t22, a9, 1);
+	clj_release(t23);
+	if (o22) clj_release(t22);
+	CLJC_SITE(&S[23]);
+	if (t21 == CLJ_THROWN) {
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a7[2] = {t18, t21};
+	(void)a7;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t16 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a7, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t16 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a7, 2) : clj_c_invoke(t17, a7, 2);
+#else
+	t16 = clj_c_invoke(t17, a7, 2);
+#endif
+	clj_release(t21);
+	clj_release(t18);
+	if (o17) clj_release(t17);
+	CLJC_SITE(&S[23]);
+	if (t16 == CLJ_THROWN) {
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a6[1] = {t16};
+	(void)a6;
+	clj_value t61;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t61 = clj_seq(t16);
+	} else {
+	t61 = clj_c_intrinsic_fallback(V[12], a6, 1);
+	}
+	clj_release(t16);
+	CLJC_SITE(&S[23]);
+	if (t61 == CLJ_THROWN) {
+	if (o15) clj_release(t15);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a5[1] = {t61};
+	(void)a5;
+	t14 = clj_c_invoke(t15, a5, 1);
+	clj_release(t61);
+	if (o15) clj_release(t15);
+	CLJC_SITE(&S[23]);
+	if (t14 == CLJ_THROWN) {
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t62;
+	bool o63;
+	clj_value t63 = clj_c_var_borrow(V[8], &o63);
+	CLJC_SITE(&S[23]);
+	if (t63 == CLJ_THROWN) {
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t64;
+	bool o65;
+	clj_value t65 = clj_c_var_borrow(V[13], &o65);
+	CLJC_SITE(&S[23]);
+	if (t65 == CLJ_THROWN) {
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t66;
+	bool o67;
+	clj_value t67 = clj_c_var_borrow(V[8], &o67);
+	CLJC_SITE(&S[23]);
+	if (t67 == CLJ_THROWN) {
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t68 = K[203];
+	clj_value a28[1] = {t68};
+	(void)a28;
+	t66 = clj_c_invoke(t67, a28, 1);
+	(void)t68;
+	if (o67) clj_release(t67);
+	CLJC_SITE(&S[23]);
+	if (t66 == CLJ_THROWN) {
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t69;
+	bool o70;
+	clj_value t70 = clj_c_var_borrow(V[8], &o70);
+	CLJC_SITE(&S[23]);
+	if (t70 == CLJ_THROWN) {
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t71 = l2;
+	clj_value a29[1] = {t71};
+	(void)a29;
+	t69 = clj_c_invoke(t70, a29, 1);
+	(void)t71;
+	if (o70) clj_release(t70);
+	CLJC_SITE(&S[23]);
+	if (t69 == CLJ_THROWN) {
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t72;
+	bool o73;
+	clj_value t73 = clj_c_var_borrow(V[8], &o73);
+	CLJC_SITE(&S[23]);
+	if (t73 == CLJ_THROWN) {
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t74 = K[204];
+	clj_value a30[1] = {t74};
+	(void)a30;
+	t72 = clj_c_invoke(t73, a30, 1);
+	(void)t74;
+	if (o73) clj_release(t73);
+	CLJC_SITE(&S[23]);
+	if (t72 == CLJ_THROWN) {
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t75;
+	bool o76;
+	clj_value t76 = clj_c_var_borrow(V[8], &o76);
+	CLJC_SITE(&S[23]);
+	if (t76 == CLJ_THROWN) {
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t77;
+	bool o78 = false;
+	clj_value t78 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t78 = clj_c_var_borrow(V[13], &o78);
+	CLJC_SITE(&S[23]);
+	if (t78 == CLJ_THROWN) {
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+#endif
+	clj_value t79;
+	bool o80;
+	clj_value t80 = clj_c_var_borrow(V[8], &o80);
+	CLJC_SITE(&S[23]);
+	if (t80 == CLJ_THROWN) {
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t81 = K[205];
+	clj_value a34[1] = {t81};
+	(void)a34;
+	t79 = clj_c_invoke(t80, a34, 1);
+	(void)t81;
+	if (o80) clj_release(t80);
+	CLJC_SITE(&S[23]);
+	if (t79 == CLJ_THROWN) {
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t82;
+	bool o83;
+	clj_value t83 = clj_c_var_borrow(V[8], &o83);
+	CLJC_SITE(&S[23]);
+	if (t83 == CLJ_THROWN) {
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t84;
+	bool o85;
+	clj_value t85 = clj_c_var_borrow(V[23], &o85);
+	CLJC_SITE(&S[23]);
+	if (t85 == CLJ_THROWN) {
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	bool o86;
+	clj_value t86 = clj_c_var_borrow(V[60], &o86);
+	CLJC_SITE(&S[23]);
+	if (t86 == CLJ_THROWN) {
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t87;
+	bool o88;
+	clj_value t88 = clj_c_var_borrow(V[13], &o88);
+	CLJC_SITE(&S[23]);
+	if (t88 == CLJ_THROWN) {
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t89;
+	bool o90;
+	clj_value t90 = clj_c_var_borrow(V[8], &o90);
+	CLJC_SITE(&S[23]);
+	if (t90 == CLJ_THROWN) {
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t91 = K[197];
+	clj_value a39[1] = {t91};
+	(void)a39;
+	t89 = clj_c_invoke(t90, a39, 1);
+	(void)t91;
+	if (o90) clj_release(t90);
+	CLJC_SITE(&S[23]);
+	if (t89 == CLJ_THROWN) {
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t92;
+	bool o93;
+	clj_value t93 = clj_c_var_borrow(V[8], &o93);
+	CLJC_SITE(&S[23]);
+	if (t93 == CLJ_THROWN) {
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t94 = K[204];
+	clj_value a40[1] = {t94};
+	(void)a40;
+	t92 = clj_c_invoke(t93, a40, 1);
+	(void)t94;
+	if (o93) clj_release(t93);
+	CLJC_SITE(&S[23]);
+	if (t92 == CLJ_THROWN) {
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t95;
+	bool o96;
+	clj_value t96 = clj_c_var_borrow(V[8], &o96);
+	CLJC_SITE(&S[23]);
+	if (t96 == CLJ_THROWN) {
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t97 = K[198];
+	clj_value a41[1] = {t97};
+	(void)a41;
+	t95 = clj_c_invoke(t96, a41, 1);
+	(void)t97;
+	if (o96) clj_release(t96);
+	CLJC_SITE(&S[23]);
+	if (t95 == CLJ_THROWN) {
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t98;
+	bool o99;
+	clj_value t99 = clj_c_var_borrow(V[8], &o99);
+	CLJC_SITE(&S[23]);
+	if (t99 == CLJ_THROWN) {
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t100;
+	bool o101 = false;
+	clj_value t101 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t101 = clj_c_var_borrow(V[13], &o101);
+	CLJC_SITE(&S[23]);
+	if (t101 == CLJ_THROWN) {
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+#endif
+	clj_value t102;
+	bool o103;
+	clj_value t103 = clj_c_var_borrow(V[8], &o103);
+	CLJC_SITE(&S[23]);
+	if (t103 == CLJ_THROWN) {
+	if (o101) clj_release(t101);
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t104 = K[206];
+	clj_value a45[1] = {t104};
+	(void)a45;
+	t102 = clj_c_invoke(t103, a45, 1);
+	(void)t104;
+	if (o103) clj_release(t103);
+	CLJC_SITE(&S[23]);
+	if (t102 == CLJ_THROWN) {
+	if (o101) clj_release(t101);
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t105;
+	bool o106;
+	clj_value t106 = clj_c_var_borrow(V[8], &o106);
+	CLJC_SITE(&S[23]);
+	if (t106 == CLJ_THROWN) {
+	clj_release(t102);
+	if (o101) clj_release(t101);
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t107 = l1;
+	clj_value a46[1] = {t107};
+	(void)a46;
+	t105 = clj_c_invoke(t106, a46, 1);
+	(void)t107;
+	if (o106) clj_release(t106);
+	CLJC_SITE(&S[23]);
+	if (t105 == CLJ_THROWN) {
+	clj_release(t102);
+	if (o101) clj_release(t101);
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a44[2] = {t102, t105};
+	(void)a44;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t100 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a44, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t100 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a44, 2) : clj_c_invoke(t101, a44, 2);
+#else
+	t100 = clj_c_invoke(t101, a44, 2);
+#endif
+	clj_release(t105);
+	clj_release(t102);
+	if (o101) clj_release(t101);
+	CLJC_SITE(&S[23]);
+	if (t100 == CLJ_THROWN) {
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a43[1] = {t100};
+	(void)a43;
+	clj_value t108;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t108 = clj_seq(t100);
+	} else {
+	t108 = clj_c_intrinsic_fallback(V[12], a43, 1);
+	}
+	clj_release(t100);
+	CLJC_SITE(&S[23]);
+	if (t108 == CLJ_THROWN) {
+	if (o99) clj_release(t99);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a42[1] = {t108};
+	(void)a42;
+	t98 = clj_c_invoke(t99, a42, 1);
+	clj_release(t108);
+	if (o99) clj_release(t99);
+	CLJC_SITE(&S[23]);
+	if (t98 == CLJ_THROWN) {
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t109;
+	bool o110;
+	clj_value t110 = clj_c_var_borrow(V[8], &o110);
+	CLJC_SITE(&S[23]);
+	if (t110 == CLJ_THROWN) {
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t111 = K[200];
+	clj_value a47[1] = {t111};
+	(void)a47;
+	t109 = clj_c_invoke(t110, a47, 1);
+	(void)t111;
+	if (o110) clj_release(t110);
+	CLJC_SITE(&S[23]);
+	if (t109 == CLJ_THROWN) {
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t112;
+	bool o113;
+	clj_value t113 = clj_c_var_borrow(V[8], &o113);
+	CLJC_SITE(&S[23]);
+	if (t113 == CLJ_THROWN) {
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t114 = l0;
+	clj_value a48[1] = {t114};
+	(void)a48;
+	t112 = clj_c_invoke(t113, a48, 1);
+	(void)t114;
+	if (o113) clj_release(t113);
+	CLJC_SITE(&S[23]);
+	if (t112 == CLJ_THROWN) {
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t115;
+	bool o116;
+	clj_value t116 = clj_c_var_borrow(V[8], &o116);
+	CLJC_SITE(&S[23]);
+	if (t116 == CLJ_THROWN) {
+	clj_release(t112);
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t117 = K[201];
+	clj_value a49[1] = {t117};
+	(void)a49;
+	t115 = clj_c_invoke(t116, a49, 1);
+	(void)t117;
+	if (o116) clj_release(t116);
+	CLJC_SITE(&S[23]);
+	if (t115 == CLJ_THROWN) {
+	clj_release(t112);
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t118;
+	bool o119;
+	clj_value t119 = clj_c_var_borrow(V[8], &o119);
+	CLJC_SITE(&S[23]);
+	if (t119 == CLJ_THROWN) {
+	clj_release(t115);
+	clj_release(t112);
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t120 = K[207];
+	clj_value a50[1] = {t120};
+	(void)a50;
+	t118 = clj_c_invoke(t119, a50, 1);
+	(void)t120;
+	if (o119) clj_release(t119);
+	CLJC_SITE(&S[23]);
+	if (t118 == CLJ_THROWN) {
+	clj_release(t115);
+	clj_release(t112);
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a38[8] = {t89, t92, t95, t98, t109, t112, t115, t118};
+	(void)a38;
+	t87 = clj_c_invoke(t88, a38, 8);
+	clj_release(t118);
+	clj_release(t115);
+	clj_release(t112);
+	clj_release(t109);
+	clj_release(t98);
+	clj_release(t95);
+	clj_release(t92);
+	clj_release(t89);
+	if (o88) clj_release(t88);
+	CLJC_SITE(&S[23]);
+	if (t87 == CLJ_THROWN) {
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a37[1] = {t87};
+	(void)a37;
+	clj_value t121;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t121 = clj_seq(t87);
+	} else {
+	t121 = clj_c_intrinsic_fallback(V[12], a37, 1);
+	}
+	clj_release(t87);
+	CLJC_SITE(&S[23]);
+	if (t121 == CLJ_THROWN) {
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a36[2] = {t86, t121};
+	(void)a36;
+	t84 = clj_c_invoke(t85, a36, 2);
+	clj_release(t121);
+	if (o86) clj_release(t86);
+	if (o85) clj_release(t85);
+	CLJC_SITE(&S[23]);
+	if (t84 == CLJ_THROWN) {
+	if (o83) clj_release(t83);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a35[1] = {t84};
+	(void)a35;
+	t82 = clj_c_invoke(t83, a35, 1);
+	clj_release(t84);
+	if (o83) clj_release(t83);
+	CLJC_SITE(&S[23]);
+	if (t82 == CLJ_THROWN) {
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a33[2] = {t79, t82};
+	(void)a33;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t77 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a33, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t77 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a33, 2) : clj_c_invoke(t78, a33, 2);
+#else
+	t77 = clj_c_invoke(t78, a33, 2);
+#endif
+	clj_release(t82);
+	clj_release(t79);
+	if (o78) clj_release(t78);
+	CLJC_SITE(&S[23]);
+	if (t77 == CLJ_THROWN) {
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a32[1] = {t77};
+	(void)a32;
+	clj_value t122;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t122 = clj_seq(t77);
+	} else {
+	t122 = clj_c_intrinsic_fallback(V[12], a32, 1);
+	}
+	clj_release(t77);
+	CLJC_SITE(&S[23]);
+	if (t122 == CLJ_THROWN) {
+	if (o76) clj_release(t76);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a31[1] = {t122};
+	(void)a31;
+	t75 = clj_c_invoke(t76, a31, 1);
+	clj_release(t122);
+	if (o76) clj_release(t76);
+	CLJC_SITE(&S[23]);
+	if (t75 == CLJ_THROWN) {
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t123;
+	bool o124;
+	clj_value t124 = clj_c_var_borrow(V[8], &o124);
+	CLJC_SITE(&S[23]);
+	if (t124 == CLJ_THROWN) {
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value t125 = K[204];
+	clj_value a51[1] = {t125};
+	(void)a51;
+	t123 = clj_c_invoke(t124, a51, 1);
+	(void)t125;
+	if (o124) clj_release(t124);
+	CLJC_SITE(&S[23]);
+	if (t123 == CLJ_THROWN) {
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a27[5] = {t66, t69, t72, t75, t123};
+	(void)a27;
+	t64 = clj_c_invoke(t65, a27, 5);
+	clj_release(t123);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	clj_release(t66);
+	if (o65) clj_release(t65);
+	CLJC_SITE(&S[23]);
+	if (t64 == CLJ_THROWN) {
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a26[1] = {t64};
+	(void)a26;
+	clj_value t126;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t126 = clj_seq(t64);
+	} else {
+	t126 = clj_c_intrinsic_fallback(V[12], a26, 1);
+	}
+	clj_release(t64);
+	CLJC_SITE(&S[23]);
+	if (t126 == CLJ_THROWN) {
+	if (o63) clj_release(t63);
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a25[1] = {t126};
+	(void)a25;
+	t62 = clj_c_invoke(t63, a25, 1);
+	clj_release(t126);
+	if (o63) clj_release(t63);
+	CLJC_SITE(&S[23]);
+	if (t62 == CLJ_THROWN) {
+	clj_release(t14);
+	clj_release(t10);
+	if (o9) clj_release(t9);
+	goto L1;
+	}
+	clj_value a3[4] = {t10, t13, t14, t62};
+	(void)a3;
+	t8 = clj_c_invoke(t9, a3, 4);
+	clj_release(t62);
+	clj_release(t14);
+	(void)t13;
+	clj_release(t10);
+	if (o9) clj_release(t9);
 	CLJC_SITE(&S[23]);
 	if (t8 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t9;
-	bool o10;
-	clj_value t10 = clj_c_var_borrow(V[8], &o10);
-	CLJC_SITE(&S[23]);
-	if (t10 == CLJ_THROWN) {
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t11 = K[195];
-	clj_value a4[1] = {t11};
-	(void)a4;
-	t9 = clj_c_invoke(t10, a4, 1);
-	(void)t11;
-	if (o10) clj_release(t10);
-	CLJC_SITE(&S[23]);
-	if (t9 == CLJ_THROWN) {
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t12 = l3;
-	clj_value t13;
-	bool o14;
-	clj_value t14 = clj_c_var_borrow(V[8], &o14);
-	CLJC_SITE(&S[23]);
-	if (t14 == CLJ_THROWN) {
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t15;
-	bool o16 = false;
-	clj_value t16 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t16 = clj_c_var_borrow(V[13], &o16);
-	CLJC_SITE(&S[23]);
-	if (t16 == CLJ_THROWN) {
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-#endif
-	clj_value t17;
-	bool o18;
-	clj_value t18 = clj_c_var_borrow(V[8], &o18);
-	CLJC_SITE(&S[23]);
-	if (t18 == CLJ_THROWN) {
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t19 = K[196];
-	clj_value a8[1] = {t19};
-	(void)a8;
-	t17 = clj_c_invoke(t18, a8, 1);
-	(void)t19;
-	if (o18) clj_release(t18);
-	CLJC_SITE(&S[23]);
-	if (t17 == CLJ_THROWN) {
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t20;
-	bool o21;
-	clj_value t21 = clj_c_var_borrow(V[8], &o21);
-	CLJC_SITE(&S[23]);
-	if (t21 == CLJ_THROWN) {
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t22;
-	bool o23;
-	clj_value t23 = clj_c_var_borrow(V[23], &o23);
-	CLJC_SITE(&S[23]);
-	if (t23 == CLJ_THROWN) {
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	bool o24;
-	clj_value t24 = clj_c_var_borrow(V[60], &o24);
-	CLJC_SITE(&S[23]);
-	if (t24 == CLJ_THROWN) {
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t25;
-	bool o26;
-	clj_value t26 = clj_c_var_borrow(V[13], &o26);
-	CLJC_SITE(&S[23]);
-	if (t26 == CLJ_THROWN) {
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t27;
-	bool o28;
-	clj_value t28 = clj_c_var_borrow(V[8], &o28);
-	CLJC_SITE(&S[23]);
-	if (t28 == CLJ_THROWN) {
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t29 = K[197];
-	clj_value a13[1] = {t29};
-	(void)a13;
-	t27 = clj_c_invoke(t28, a13, 1);
-	(void)t29;
-	if (o28) clj_release(t28);
-	CLJC_SITE(&S[23]);
-	if (t27 == CLJ_THROWN) {
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t30;
-	bool o31;
-	clj_value t31 = clj_c_var_borrow(V[8], &o31);
-	CLJC_SITE(&S[23]);
-	if (t31 == CLJ_THROWN) {
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t32 = K[3];
-	clj_value a14[1] = {t32};
-	(void)a14;
-	t30 = clj_c_invoke(t31, a14, 1);
-	(void)t32;
-	if (o31) clj_release(t31);
-	CLJC_SITE(&S[23]);
-	if (t30 == CLJ_THROWN) {
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t33;
-	bool o34;
-	clj_value t34 = clj_c_var_borrow(V[8], &o34);
-	CLJC_SITE(&S[23]);
-	if (t34 == CLJ_THROWN) {
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t35 = K[198];
-	clj_value a15[1] = {t35};
-	(void)a15;
-	t33 = clj_c_invoke(t34, a15, 1);
-	(void)t35;
-	if (o34) clj_release(t34);
-	CLJC_SITE(&S[23]);
-	if (t33 == CLJ_THROWN) {
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t36;
-	bool o37;
-	clj_value t37 = clj_c_var_borrow(V[8], &o37);
-	CLJC_SITE(&S[23]);
-	if (t37 == CLJ_THROWN) {
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t38;
-	bool o39 = false;
-	clj_value t39 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t39 = clj_c_var_borrow(V[13], &o39);
-	CLJC_SITE(&S[23]);
-	if (t39 == CLJ_THROWN) {
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-#endif
-	clj_value t40;
-	bool o41;
-	clj_value t41 = clj_c_var_borrow(V[8], &o41);
-	CLJC_SITE(&S[23]);
-	if (t41 == CLJ_THROWN) {
-	if (o39) clj_release(t39);
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t42 = K[199];
-	clj_value a19[1] = {t42};
-	(void)a19;
-	t40 = clj_c_invoke(t41, a19, 1);
-	(void)t42;
-	if (o41) clj_release(t41);
-	CLJC_SITE(&S[23]);
-	if (t40 == CLJ_THROWN) {
-	if (o39) clj_release(t39);
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t43;
-	bool o44;
-	clj_value t44 = clj_c_var_borrow(V[8], &o44);
-	CLJC_SITE(&S[23]);
-	if (t44 == CLJ_THROWN) {
-	clj_release(t40);
-	if (o39) clj_release(t39);
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t45 = l1;
-	clj_value a20[1] = {t45};
-	(void)a20;
-	t43 = clj_c_invoke(t44, a20, 1);
-	(void)t45;
-	if (o44) clj_release(t44);
-	CLJC_SITE(&S[23]);
-	if (t43 == CLJ_THROWN) {
-	clj_release(t40);
-	if (o39) clj_release(t39);
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a18[2] = {t40, t43};
-	(void)a18;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t38 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a18, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t38 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a18, 2) : clj_c_invoke(t39, a18, 2);
-#else
-	t38 = clj_c_invoke(t39, a18, 2);
-#endif
-	clj_release(t43);
-	clj_release(t40);
-	if (o39) clj_release(t39);
-	CLJC_SITE(&S[23]);
-	if (t38 == CLJ_THROWN) {
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a17[1] = {t38};
-	(void)a17;
-	clj_value t46;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t46 = clj_seq(t38);
-	} else {
-	t46 = clj_c_intrinsic_fallback(V[12], a17, 1);
-	}
-	clj_release(t38);
-	CLJC_SITE(&S[23]);
-	if (t46 == CLJ_THROWN) {
-	if (o37) clj_release(t37);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a16[1] = {t46};
-	(void)a16;
-	t36 = clj_c_invoke(t37, a16, 1);
-	clj_release(t46);
-	if (o37) clj_release(t37);
-	CLJC_SITE(&S[23]);
-	if (t36 == CLJ_THROWN) {
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t47;
-	bool o48;
-	clj_value t48 = clj_c_var_borrow(V[8], &o48);
-	CLJC_SITE(&S[23]);
-	if (t48 == CLJ_THROWN) {
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t49 = K[200];
-	clj_value a21[1] = {t49};
-	(void)a21;
-	t47 = clj_c_invoke(t48, a21, 1);
-	(void)t49;
-	if (o48) clj_release(t48);
-	CLJC_SITE(&S[23]);
-	if (t47 == CLJ_THROWN) {
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t50;
-	bool o51;
-	clj_value t51 = clj_c_var_borrow(V[8], &o51);
-	CLJC_SITE(&S[23]);
-	if (t51 == CLJ_THROWN) {
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t52 = l0;
-	clj_value a22[1] = {t52};
-	(void)a22;
-	t50 = clj_c_invoke(t51, a22, 1);
-	(void)t52;
-	if (o51) clj_release(t51);
-	CLJC_SITE(&S[23]);
-	if (t50 == CLJ_THROWN) {
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t53;
-	bool o54;
-	clj_value t54 = clj_c_var_borrow(V[8], &o54);
-	CLJC_SITE(&S[23]);
-	if (t54 == CLJ_THROWN) {
-	clj_release(t50);
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t55 = K[201];
-	clj_value a23[1] = {t55};
-	(void)a23;
-	t53 = clj_c_invoke(t54, a23, 1);
-	(void)t55;
-	if (o54) clj_release(t54);
-	CLJC_SITE(&S[23]);
-	if (t53 == CLJ_THROWN) {
-	clj_release(t50);
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t56;
-	bool o57;
-	clj_value t57 = clj_c_var_borrow(V[8], &o57);
-	CLJC_SITE(&S[23]);
-	if (t57 == CLJ_THROWN) {
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t58 = K[202];
-	clj_value a24[1] = {t58};
-	(void)a24;
-	t56 = clj_c_invoke(t57, a24, 1);
-	(void)t58;
-	if (o57) clj_release(t57);
-	CLJC_SITE(&S[23]);
-	if (t56 == CLJ_THROWN) {
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a12[8] = {t27, t30, t33, t36, t47, t50, t53, t56};
-	(void)a12;
-	t25 = clj_c_invoke(t26, a12, 8);
-	clj_release(t56);
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t47);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	clj_release(t27);
-	if (o26) clj_release(t26);
-	CLJC_SITE(&S[23]);
-	if (t25 == CLJ_THROWN) {
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a11[1] = {t25};
-	(void)a11;
-	clj_value t59;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t59 = clj_seq(t25);
-	} else {
-	t59 = clj_c_intrinsic_fallback(V[12], a11, 1);
-	}
-	clj_release(t25);
-	CLJC_SITE(&S[23]);
-	if (t59 == CLJ_THROWN) {
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a10[2] = {t24, t59};
-	(void)a10;
-	t22 = clj_c_invoke(t23, a10, 2);
-	clj_release(t59);
-	if (o24) clj_release(t24);
-	if (o23) clj_release(t23);
-	CLJC_SITE(&S[23]);
-	if (t22 == CLJ_THROWN) {
-	if (o21) clj_release(t21);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a9[1] = {t22};
-	(void)a9;
-	t20 = clj_c_invoke(t21, a9, 1);
-	clj_release(t22);
-	if (o21) clj_release(t21);
-	CLJC_SITE(&S[23]);
-	if (t20 == CLJ_THROWN) {
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a7[2] = {t17, t20};
-	(void)a7;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t15 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a7, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t15 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a7, 2) : clj_c_invoke(t16, a7, 2);
-#else
-	t15 = clj_c_invoke(t16, a7, 2);
-#endif
-	clj_release(t20);
-	clj_release(t17);
-	if (o16) clj_release(t16);
-	CLJC_SITE(&S[23]);
-	if (t15 == CLJ_THROWN) {
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a6[1] = {t15};
-	(void)a6;
-	clj_value t60;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t60 = clj_seq(t15);
-	} else {
-	t60 = clj_c_intrinsic_fallback(V[12], a6, 1);
-	}
-	clj_release(t15);
-	CLJC_SITE(&S[23]);
-	if (t60 == CLJ_THROWN) {
-	if (o14) clj_release(t14);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a5[1] = {t60};
-	(void)a5;
-	t13 = clj_c_invoke(t14, a5, 1);
-	clj_release(t60);
-	if (o14) clj_release(t14);
-	CLJC_SITE(&S[23]);
-	if (t13 == CLJ_THROWN) {
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t61;
-	bool o62;
-	clj_value t62 = clj_c_var_borrow(V[8], &o62);
-	CLJC_SITE(&S[23]);
-	if (t62 == CLJ_THROWN) {
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t63;
-	bool o64;
-	clj_value t64 = clj_c_var_borrow(V[13], &o64);
-	CLJC_SITE(&S[23]);
-	if (t64 == CLJ_THROWN) {
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t65;
-	bool o66;
-	clj_value t66 = clj_c_var_borrow(V[8], &o66);
-	CLJC_SITE(&S[23]);
-	if (t66 == CLJ_THROWN) {
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t67 = K[203];
-	clj_value a28[1] = {t67};
-	(void)a28;
-	t65 = clj_c_invoke(t66, a28, 1);
-	(void)t67;
-	if (o66) clj_release(t66);
-	CLJC_SITE(&S[23]);
-	if (t65 == CLJ_THROWN) {
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t68;
-	bool o69;
-	clj_value t69 = clj_c_var_borrow(V[8], &o69);
-	CLJC_SITE(&S[23]);
-	if (t69 == CLJ_THROWN) {
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t70 = l2;
-	clj_value a29[1] = {t70};
-	(void)a29;
-	t68 = clj_c_invoke(t69, a29, 1);
-	(void)t70;
-	if (o69) clj_release(t69);
-	CLJC_SITE(&S[23]);
-	if (t68 == CLJ_THROWN) {
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t71;
-	bool o72;
-	clj_value t72 = clj_c_var_borrow(V[8], &o72);
-	CLJC_SITE(&S[23]);
-	if (t72 == CLJ_THROWN) {
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t73 = K[204];
-	clj_value a30[1] = {t73};
-	(void)a30;
-	t71 = clj_c_invoke(t72, a30, 1);
-	(void)t73;
-	if (o72) clj_release(t72);
-	CLJC_SITE(&S[23]);
-	if (t71 == CLJ_THROWN) {
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t74;
-	bool o75;
-	clj_value t75 = clj_c_var_borrow(V[8], &o75);
-	CLJC_SITE(&S[23]);
-	if (t75 == CLJ_THROWN) {
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t76;
-	bool o77 = false;
-	clj_value t77 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t77 = clj_c_var_borrow(V[13], &o77);
-	CLJC_SITE(&S[23]);
-	if (t77 == CLJ_THROWN) {
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-#endif
-	clj_value t78;
-	bool o79;
-	clj_value t79 = clj_c_var_borrow(V[8], &o79);
-	CLJC_SITE(&S[23]);
-	if (t79 == CLJ_THROWN) {
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t80 = K[205];
-	clj_value a34[1] = {t80};
-	(void)a34;
-	t78 = clj_c_invoke(t79, a34, 1);
-	(void)t80;
-	if (o79) clj_release(t79);
-	CLJC_SITE(&S[23]);
-	if (t78 == CLJ_THROWN) {
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t81;
-	bool o82;
-	clj_value t82 = clj_c_var_borrow(V[8], &o82);
-	CLJC_SITE(&S[23]);
-	if (t82 == CLJ_THROWN) {
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t83;
-	bool o84;
-	clj_value t84 = clj_c_var_borrow(V[23], &o84);
-	CLJC_SITE(&S[23]);
-	if (t84 == CLJ_THROWN) {
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	bool o85;
-	clj_value t85 = clj_c_var_borrow(V[60], &o85);
-	CLJC_SITE(&S[23]);
-	if (t85 == CLJ_THROWN) {
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t86;
-	bool o87;
-	clj_value t87 = clj_c_var_borrow(V[13], &o87);
-	CLJC_SITE(&S[23]);
-	if (t87 == CLJ_THROWN) {
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t88;
-	bool o89;
-	clj_value t89 = clj_c_var_borrow(V[8], &o89);
-	CLJC_SITE(&S[23]);
-	if (t89 == CLJ_THROWN) {
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t90 = K[197];
-	clj_value a39[1] = {t90};
-	(void)a39;
-	t88 = clj_c_invoke(t89, a39, 1);
-	(void)t90;
-	if (o89) clj_release(t89);
-	CLJC_SITE(&S[23]);
-	if (t88 == CLJ_THROWN) {
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t91;
-	bool o92;
-	clj_value t92 = clj_c_var_borrow(V[8], &o92);
-	CLJC_SITE(&S[23]);
-	if (t92 == CLJ_THROWN) {
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t93 = K[204];
-	clj_value a40[1] = {t93};
-	(void)a40;
-	t91 = clj_c_invoke(t92, a40, 1);
-	(void)t93;
-	if (o92) clj_release(t92);
-	CLJC_SITE(&S[23]);
-	if (t91 == CLJ_THROWN) {
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t94;
-	bool o95;
-	clj_value t95 = clj_c_var_borrow(V[8], &o95);
-	CLJC_SITE(&S[23]);
-	if (t95 == CLJ_THROWN) {
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t96 = K[198];
-	clj_value a41[1] = {t96};
-	(void)a41;
-	t94 = clj_c_invoke(t95, a41, 1);
-	(void)t96;
-	if (o95) clj_release(t95);
-	CLJC_SITE(&S[23]);
-	if (t94 == CLJ_THROWN) {
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t97;
-	bool o98;
-	clj_value t98 = clj_c_var_borrow(V[8], &o98);
-	CLJC_SITE(&S[23]);
-	if (t98 == CLJ_THROWN) {
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t99;
-	bool o100 = false;
-	clj_value t100 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t100 = clj_c_var_borrow(V[13], &o100);
-	CLJC_SITE(&S[23]);
-	if (t100 == CLJ_THROWN) {
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-#endif
-	clj_value t101;
-	bool o102;
-	clj_value t102 = clj_c_var_borrow(V[8], &o102);
-	CLJC_SITE(&S[23]);
-	if (t102 == CLJ_THROWN) {
-	if (o100) clj_release(t100);
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t103 = K[206];
-	clj_value a45[1] = {t103};
-	(void)a45;
-	t101 = clj_c_invoke(t102, a45, 1);
-	(void)t103;
-	if (o102) clj_release(t102);
-	CLJC_SITE(&S[23]);
-	if (t101 == CLJ_THROWN) {
-	if (o100) clj_release(t100);
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t104;
-	bool o105;
-	clj_value t105 = clj_c_var_borrow(V[8], &o105);
-	CLJC_SITE(&S[23]);
-	if (t105 == CLJ_THROWN) {
-	clj_release(t101);
-	if (o100) clj_release(t100);
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t106 = l1;
-	clj_value a46[1] = {t106};
-	(void)a46;
-	t104 = clj_c_invoke(t105, a46, 1);
-	(void)t106;
-	if (o105) clj_release(t105);
-	CLJC_SITE(&S[23]);
-	if (t104 == CLJ_THROWN) {
-	clj_release(t101);
-	if (o100) clj_release(t100);
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a44[2] = {t101, t104};
-	(void)a44;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t99 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a44, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t99 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a44, 2) : clj_c_invoke(t100, a44, 2);
-#else
-	t99 = clj_c_invoke(t100, a44, 2);
-#endif
-	clj_release(t104);
-	clj_release(t101);
-	if (o100) clj_release(t100);
-	CLJC_SITE(&S[23]);
-	if (t99 == CLJ_THROWN) {
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a43[1] = {t99};
-	(void)a43;
-	clj_value t107;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t107 = clj_seq(t99);
-	} else {
-	t107 = clj_c_intrinsic_fallback(V[12], a43, 1);
-	}
-	clj_release(t99);
-	CLJC_SITE(&S[23]);
-	if (t107 == CLJ_THROWN) {
-	if (o98) clj_release(t98);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a42[1] = {t107};
-	(void)a42;
-	t97 = clj_c_invoke(t98, a42, 1);
-	clj_release(t107);
-	if (o98) clj_release(t98);
-	CLJC_SITE(&S[23]);
-	if (t97 == CLJ_THROWN) {
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t108;
-	bool o109;
-	clj_value t109 = clj_c_var_borrow(V[8], &o109);
-	CLJC_SITE(&S[23]);
-	if (t109 == CLJ_THROWN) {
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t110 = K[200];
-	clj_value a47[1] = {t110};
-	(void)a47;
-	t108 = clj_c_invoke(t109, a47, 1);
-	(void)t110;
-	if (o109) clj_release(t109);
-	CLJC_SITE(&S[23]);
-	if (t108 == CLJ_THROWN) {
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t111;
-	bool o112;
-	clj_value t112 = clj_c_var_borrow(V[8], &o112);
-	CLJC_SITE(&S[23]);
-	if (t112 == CLJ_THROWN) {
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t113 = l0;
-	clj_value a48[1] = {t113};
-	(void)a48;
-	t111 = clj_c_invoke(t112, a48, 1);
-	(void)t113;
-	if (o112) clj_release(t112);
-	CLJC_SITE(&S[23]);
-	if (t111 == CLJ_THROWN) {
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t114;
-	bool o115;
-	clj_value t115 = clj_c_var_borrow(V[8], &o115);
-	CLJC_SITE(&S[23]);
-	if (t115 == CLJ_THROWN) {
-	clj_release(t111);
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t116 = K[201];
-	clj_value a49[1] = {t116};
-	(void)a49;
-	t114 = clj_c_invoke(t115, a49, 1);
-	(void)t116;
-	if (o115) clj_release(t115);
-	CLJC_SITE(&S[23]);
-	if (t114 == CLJ_THROWN) {
-	clj_release(t111);
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t117;
-	bool o118;
-	clj_value t118 = clj_c_var_borrow(V[8], &o118);
-	CLJC_SITE(&S[23]);
-	if (t118 == CLJ_THROWN) {
-	clj_release(t114);
-	clj_release(t111);
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t119 = K[207];
-	clj_value a50[1] = {t119};
-	(void)a50;
-	t117 = clj_c_invoke(t118, a50, 1);
-	(void)t119;
-	if (o118) clj_release(t118);
-	CLJC_SITE(&S[23]);
-	if (t117 == CLJ_THROWN) {
-	clj_release(t114);
-	clj_release(t111);
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a38[8] = {t88, t91, t94, t97, t108, t111, t114, t117};
-	(void)a38;
-	t86 = clj_c_invoke(t87, a38, 8);
-	clj_release(t117);
-	clj_release(t114);
-	clj_release(t111);
-	clj_release(t108);
-	clj_release(t97);
-	clj_release(t94);
-	clj_release(t91);
-	clj_release(t88);
-	if (o87) clj_release(t87);
-	CLJC_SITE(&S[23]);
-	if (t86 == CLJ_THROWN) {
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a37[1] = {t86};
-	(void)a37;
-	clj_value t120;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t120 = clj_seq(t86);
-	} else {
-	t120 = clj_c_intrinsic_fallback(V[12], a37, 1);
-	}
-	clj_release(t86);
-	CLJC_SITE(&S[23]);
-	if (t120 == CLJ_THROWN) {
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a36[2] = {t85, t120};
-	(void)a36;
-	t83 = clj_c_invoke(t84, a36, 2);
-	clj_release(t120);
-	if (o85) clj_release(t85);
-	if (o84) clj_release(t84);
-	CLJC_SITE(&S[23]);
-	if (t83 == CLJ_THROWN) {
-	if (o82) clj_release(t82);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a35[1] = {t83};
-	(void)a35;
-	t81 = clj_c_invoke(t82, a35, 1);
-	clj_release(t83);
-	if (o82) clj_release(t82);
-	CLJC_SITE(&S[23]);
-	if (t81 == CLJ_THROWN) {
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a33[2] = {t78, t81};
-	(void)a33;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t76 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a33, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t76 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a33, 2) : clj_c_invoke(t77, a33, 2);
-#else
-	t76 = clj_c_invoke(t77, a33, 2);
-#endif
-	clj_release(t81);
-	clj_release(t78);
-	if (o77) clj_release(t77);
-	CLJC_SITE(&S[23]);
-	if (t76 == CLJ_THROWN) {
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a32[1] = {t76};
-	(void)a32;
-	clj_value t121;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t121 = clj_seq(t76);
-	} else {
-	t121 = clj_c_intrinsic_fallback(V[12], a32, 1);
-	}
-	clj_release(t76);
-	CLJC_SITE(&S[23]);
-	if (t121 == CLJ_THROWN) {
-	if (o75) clj_release(t75);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a31[1] = {t121};
-	(void)a31;
-	t74 = clj_c_invoke(t75, a31, 1);
-	clj_release(t121);
-	if (o75) clj_release(t75);
-	CLJC_SITE(&S[23]);
-	if (t74 == CLJ_THROWN) {
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t122;
-	bool o123;
-	clj_value t123 = clj_c_var_borrow(V[8], &o123);
-	CLJC_SITE(&S[23]);
-	if (t123 == CLJ_THROWN) {
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value t124 = K[204];
-	clj_value a51[1] = {t124};
-	(void)a51;
-	t122 = clj_c_invoke(t123, a51, 1);
-	(void)t124;
-	if (o123) clj_release(t123);
-	CLJC_SITE(&S[23]);
-	if (t122 == CLJ_THROWN) {
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a27[5] = {t65, t68, t71, t74, t122};
-	(void)a27;
-	t63 = clj_c_invoke(t64, a27, 5);
-	clj_release(t122);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	clj_release(t65);
-	if (o64) clj_release(t64);
-	CLJC_SITE(&S[23]);
-	if (t63 == CLJ_THROWN) {
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a26[1] = {t63};
-	(void)a26;
-	clj_value t125;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t125 = clj_seq(t63);
-	} else {
-	t125 = clj_c_intrinsic_fallback(V[12], a26, 1);
-	}
-	clj_release(t63);
-	CLJC_SITE(&S[23]);
-	if (t125 == CLJ_THROWN) {
-	if (o62) clj_release(t62);
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a25[1] = {t125};
-	(void)a25;
-	t61 = clj_c_invoke(t62, a25, 1);
-	clj_release(t125);
-	if (o62) clj_release(t62);
-	CLJC_SITE(&S[23]);
-	if (t61 == CLJ_THROWN) {
-	clj_release(t13);
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	goto L1;
-	}
-	clj_value a3[4] = {t9, t12, t13, t61};
-	(void)a3;
-	t7 = clj_c_invoke(t8, a3, 4);
-	clj_release(t61);
-	clj_release(t13);
-	(void)t12;
-	clj_release(t9);
-	if (o8) clj_release(t8);
-	CLJC_SITE(&S[23]);
-	if (t7 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_value a2[1] = {t7};
+	clj_value a2[1] = {t8};
 	(void)a2;
-	clj_value t126;
+	clj_value t127;
 	if (CLJC_GUARD(V[12], B[0])) {
-	t126 = clj_seq(t7);
+	t127 = clj_seq(t8);
 	} else {
-	t126 = clj_c_intrinsic_fallback(V[12], a2, 1);
+	t127 = clj_c_intrinsic_fallback(V[12], a2, 1);
 	}
-	clj_release(t7);
+	clj_release(t8);
 	CLJC_SITE(&S[23]);
-	if (t126 == CLJ_THROWN) {
+	if (t127 == CLJ_THROWN) {
 	goto L1;
 	}
 	CLJC_LEAVE(&S[23], &cc);
@@ -17083,7 +17083,7 @@ static CLJC_FRAME clj_value clojure_test_form46__0_a2(clj_value self, const clj_
 	clj_release(l4);
 	clj_release(l5);
 	clj_release(l6);
-	return t126;
+	return t127;
 L1: ;
 	CLJC_LEAVE(&S[23], &cc);
 	clj_release(l2);
@@ -17220,5334 +17220,5334 @@ static CLJC_FRAME clj_value clojure_test_form48__0_a2(clj_value self, const clj_
 	}
 	clj_c_rebind(&l3, t5);
 #line 177 "<embedded>/clojure/test.clj"
-	clj_value t6;
-	bool o7 = false;
-	clj_value t7 = CLJ_NIL;
+	clj_value t7;
+	bool o8 = false;
+	clj_value t8 = CLJ_NIL;
 #ifndef CLJC_LOCAL_clojure_core_nthnext_a2
-	t7 = clj_c_var_borrow(V[66], &o7);
+	t8 = clj_c_var_borrow(V[66], &o8);
+	CLJC_SITE(&S[24]);
+	if (t8 == CLJ_THROWN) {
+	goto L1;
+	}
+#endif
+	clj_value t9 = l1;
+	clj_value t10 = K[210];
+	clj_value a2[2] = {t9, t10};
+	(void)a2;
+#ifdef CLJC_LOCAL_clojure_core_nthnext_a2
+	t7 = CLJC_CALL_clojure_core_nthnext_a2(CLJ_NIL, NULL, a2, 2);
+#elif defined(CLJC_DIRECT_clojure_core_nthnext_a2)
+	if (!CLJC_FN_clojure_core_nthnext_a2) CLJC_FN_clojure_core_nthnext_a2 = clj_compiled_symbol("clojure_core_nthnext_a2");
+	t7 = CLJC_FN_clojure_core_nthnext_a2 ? CLJC_FN_clojure_core_nthnext_a2(clj_var_root_relaxed(V[66]), NULL, a2, 2) : clj_c_invoke(t8, a2, 2);
+#else
+	t7 = clj_c_invoke(t8, a2, 2);
+#endif
+	(void)t10;
+	(void)t9;
+	if (o8) clj_release(t8);
 	CLJC_SITE(&S[24]);
 	if (t7 == CLJ_THROWN) {
 	goto L1;
 	}
-#endif
-	clj_value t8 = l1;
-	clj_value t9 = K[210];
-	clj_value a2[2] = {t8, t9};
-	(void)a2;
-#ifdef CLJC_LOCAL_clojure_core_nthnext_a2
-	t6 = CLJC_CALL_clojure_core_nthnext_a2(CLJ_NIL, NULL, a2, 2);
-#elif defined(CLJC_DIRECT_clojure_core_nthnext_a2)
-	if (!CLJC_FN_clojure_core_nthnext_a2) CLJC_FN_clojure_core_nthnext_a2 = clj_compiled_symbol("clojure_core_nthnext_a2");
-	t6 = CLJC_FN_clojure_core_nthnext_a2 ? CLJC_FN_clojure_core_nthnext_a2(clj_var_root_relaxed(V[66]), NULL, a2, 2) : clj_c_invoke(t7, a2, 2);
-#else
-	t6 = clj_c_invoke(t7, a2, 2);
-#endif
-	(void)t9;
-	(void)t8;
-	if (o7) clj_release(t7);
+	clj_c_rebind(&l4, t7);
+#line 175 "<embedded>/clojure/test.clj"
+	clj_value t11;
+	bool o12;
+	clj_value t12 = clj_c_var_borrow(V[13], &o12);
 	CLJC_SITE(&S[24]);
-	if (t6 == CLJ_THROWN) {
+	if (t12 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_rebind(&l4, t6);
-#line 175 "<embedded>/clojure/test.clj"
-	clj_value t10;
-	bool o11;
-	clj_value t11 = clj_c_var_borrow(V[13], &o11);
+	clj_value t13;
+	bool o14;
+	clj_value t14 = clj_c_var_borrow(V[8], &o14);
+	CLJC_SITE(&S[24]);
+	if (t14 == CLJ_THROWN) {
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t15 = K[211];
+	clj_value a5[1] = {t15};
+	(void)a5;
+	t13 = clj_c_invoke(t14, a5, 1);
+	(void)t15;
+	if (o14) clj_release(t14);
+	CLJC_SITE(&S[24]);
+	if (t13 == CLJ_THROWN) {
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t16 = l4;
+	clj_value t17;
+	bool o18;
+	clj_value t18 = clj_c_var_borrow(V[8], &o18);
+	CLJC_SITE(&S[24]);
+	if (t18 == CLJ_THROWN) {
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t19;
+	bool o20 = false;
+	clj_value t20 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t20 = clj_c_var_borrow(V[13], &o20);
+	CLJC_SITE(&S[24]);
+	if (t20 == CLJ_THROWN) {
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t21;
+	bool o22;
+	clj_value t22 = clj_c_var_borrow(V[8], &o22);
+	CLJC_SITE(&S[24]);
+	if (t22 == CLJ_THROWN) {
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t23 = K[212];
+	clj_value a9[1] = {t23};
+	(void)a9;
+	t21 = clj_c_invoke(t22, a9, 1);
+	(void)t23;
+	if (o22) clj_release(t22);
+	CLJC_SITE(&S[24]);
+	if (t21 == CLJ_THROWN) {
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t24;
+	bool o25;
+	clj_value t25 = clj_c_var_borrow(V[8], &o25);
+	CLJC_SITE(&S[24]);
+	if (t25 == CLJ_THROWN) {
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t26;
+	bool o27;
+	clj_value t27 = clj_c_var_borrow(V[23], &o27);
+	CLJC_SITE(&S[24]);
+	if (t27 == CLJ_THROWN) {
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	bool o28;
+	clj_value t28 = clj_c_var_borrow(V[60], &o28);
+	CLJC_SITE(&S[24]);
+	if (t28 == CLJ_THROWN) {
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t29;
+	bool o30;
+	clj_value t30 = clj_c_var_borrow(V[13], &o30);
+	CLJC_SITE(&S[24]);
+	if (t30 == CLJ_THROWN) {
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t31;
+	bool o32;
+	clj_value t32 = clj_c_var_borrow(V[8], &o32);
+	CLJC_SITE(&S[24]);
+	if (t32 == CLJ_THROWN) {
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t33 = K[213];
+	clj_value a14[1] = {t33};
+	(void)a14;
+	t31 = clj_c_invoke(t32, a14, 1);
+	(void)t33;
+	if (o32) clj_release(t32);
+	CLJC_SITE(&S[24]);
+	if (t31 == CLJ_THROWN) {
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t34;
+	bool o35;
+	clj_value t35 = clj_c_var_borrow(V[8], &o35);
+	CLJC_SITE(&S[24]);
+	if (t35 == CLJ_THROWN) {
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t36 = K[3];
+	clj_value a15[1] = {t36};
+	(void)a15;
+	t34 = clj_c_invoke(t35, a15, 1);
+	(void)t36;
+	if (o35) clj_release(t35);
+	CLJC_SITE(&S[24]);
+	if (t34 == CLJ_THROWN) {
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t37;
+	bool o38;
+	clj_value t38 = clj_c_var_borrow(V[8], &o38);
+	CLJC_SITE(&S[24]);
+	if (t38 == CLJ_THROWN) {
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t39 = K[214];
+	clj_value a16[1] = {t39};
+	(void)a16;
+	t37 = clj_c_invoke(t38, a16, 1);
+	(void)t39;
+	if (o38) clj_release(t38);
+	CLJC_SITE(&S[24]);
+	if (t37 == CLJ_THROWN) {
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t40;
+	bool o41;
+	clj_value t41 = clj_c_var_borrow(V[8], &o41);
+	CLJC_SITE(&S[24]);
+	if (t41 == CLJ_THROWN) {
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t42;
+	bool o43 = false;
+	clj_value t43 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t43 = clj_c_var_borrow(V[13], &o43);
+	CLJC_SITE(&S[24]);
+	if (t43 == CLJ_THROWN) {
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t44;
+	bool o45;
+	clj_value t45 = clj_c_var_borrow(V[8], &o45);
+	CLJC_SITE(&S[24]);
+	if (t45 == CLJ_THROWN) {
+	if (o43) clj_release(t43);
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t46 = K[215];
+	clj_value a20[1] = {t46};
+	(void)a20;
+	t44 = clj_c_invoke(t45, a20, 1);
+	(void)t46;
+	if (o45) clj_release(t45);
+	CLJC_SITE(&S[24]);
+	if (t44 == CLJ_THROWN) {
+	if (o43) clj_release(t43);
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t47;
+	bool o48;
+	clj_value t48 = clj_c_var_borrow(V[8], &o48);
+	CLJC_SITE(&S[24]);
+	if (t48 == CLJ_THROWN) {
+	clj_release(t44);
+	if (o43) clj_release(t43);
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t49 = l1;
+	clj_value a21[1] = {t49};
+	(void)a21;
+	t47 = clj_c_invoke(t48, a21, 1);
+	(void)t49;
+	if (o48) clj_release(t48);
+	CLJC_SITE(&S[24]);
+	if (t47 == CLJ_THROWN) {
+	clj_release(t44);
+	if (o43) clj_release(t43);
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a19[2] = {t44, t47};
+	(void)a19;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t42 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a19, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t42 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a19, 2) : clj_c_invoke(t43, a19, 2);
+#else
+	t42 = clj_c_invoke(t43, a19, 2);
+#endif
+	clj_release(t47);
+	clj_release(t44);
+	if (o43) clj_release(t43);
+	CLJC_SITE(&S[24]);
+	if (t42 == CLJ_THROWN) {
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a18[1] = {t42};
+	(void)a18;
+	clj_value t50;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t50 = clj_seq(t42);
+	} else {
+	t50 = clj_c_intrinsic_fallback(V[12], a18, 1);
+	}
+	clj_release(t42);
+	CLJC_SITE(&S[24]);
+	if (t50 == CLJ_THROWN) {
+	if (o41) clj_release(t41);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a17[1] = {t50};
+	(void)a17;
+	t40 = clj_c_invoke(t41, a17, 1);
+	clj_release(t50);
+	if (o41) clj_release(t41);
+	CLJC_SITE(&S[24]);
+	if (t40 == CLJ_THROWN) {
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t51;
+	bool o52;
+	clj_value t52 = clj_c_var_borrow(V[8], &o52);
+	CLJC_SITE(&S[24]);
+	if (t52 == CLJ_THROWN) {
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t53 = K[216];
+	clj_value a22[1] = {t53};
+	(void)a22;
+	t51 = clj_c_invoke(t52, a22, 1);
+	(void)t53;
+	if (o52) clj_release(t52);
+	CLJC_SITE(&S[24]);
+	if (t51 == CLJ_THROWN) {
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t54;
+	bool o55;
+	clj_value t55 = clj_c_var_borrow(V[8], &o55);
+	CLJC_SITE(&S[24]);
+	if (t55 == CLJ_THROWN) {
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t56 = l0;
+	clj_value a23[1] = {t56};
+	(void)a23;
+	t54 = clj_c_invoke(t55, a23, 1);
+	(void)t56;
+	if (o55) clj_release(t55);
+	CLJC_SITE(&S[24]);
+	if (t54 == CLJ_THROWN) {
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t57;
+	bool o58;
+	clj_value t58 = clj_c_var_borrow(V[8], &o58);
+	CLJC_SITE(&S[24]);
+	if (t58 == CLJ_THROWN) {
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t59 = K[217];
+	clj_value a24[1] = {t59};
+	(void)a24;
+	t57 = clj_c_invoke(t58, a24, 1);
+	(void)t59;
+	if (o58) clj_release(t58);
+	CLJC_SITE(&S[24]);
+	if (t57 == CLJ_THROWN) {
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t60;
+	bool o61;
+	clj_value t61 = clj_c_var_borrow(V[8], &o61);
+	CLJC_SITE(&S[24]);
+	if (t61 == CLJ_THROWN) {
+	clj_release(t57);
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t62 = K[218];
+	clj_value a25[1] = {t62};
+	(void)a25;
+	t60 = clj_c_invoke(t61, a25, 1);
+	(void)t62;
+	if (o61) clj_release(t61);
+	CLJC_SITE(&S[24]);
+	if (t60 == CLJ_THROWN) {
+	clj_release(t57);
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a13[8] = {t31, t34, t37, t40, t51, t54, t57, t60};
+	(void)a13;
+	t29 = clj_c_invoke(t30, a13, 8);
+	clj_release(t60);
+	clj_release(t57);
+	clj_release(t54);
+	clj_release(t51);
+	clj_release(t40);
+	clj_release(t37);
+	clj_release(t34);
+	clj_release(t31);
+	if (o30) clj_release(t30);
+	CLJC_SITE(&S[24]);
+	if (t29 == CLJ_THROWN) {
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a12[1] = {t29};
+	(void)a12;
+	clj_value t63;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t63 = clj_seq(t29);
+	} else {
+	t63 = clj_c_intrinsic_fallback(V[12], a12, 1);
+	}
+	clj_release(t29);
+	CLJC_SITE(&S[24]);
+	if (t63 == CLJ_THROWN) {
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a11[2] = {t28, t63};
+	(void)a11;
+	t26 = clj_c_invoke(t27, a11, 2);
+	clj_release(t63);
+	if (o28) clj_release(t28);
+	if (o27) clj_release(t27);
+	CLJC_SITE(&S[24]);
+	if (t26 == CLJ_THROWN) {
+	if (o25) clj_release(t25);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a10[1] = {t26};
+	(void)a10;
+	t24 = clj_c_invoke(t25, a10, 1);
+	clj_release(t26);
+	if (o25) clj_release(t25);
+	CLJC_SITE(&S[24]);
+	if (t24 == CLJ_THROWN) {
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a8[2] = {t21, t24};
+	(void)a8;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t19 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a8, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t19 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a8, 2) : clj_c_invoke(t20, a8, 2);
+#else
+	t19 = clj_c_invoke(t20, a8, 2);
+#endif
+	clj_release(t24);
+	clj_release(t21);
+	if (o20) clj_release(t20);
+	CLJC_SITE(&S[24]);
+	if (t19 == CLJ_THROWN) {
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a7[1] = {t19};
+	(void)a7;
+	clj_value t64;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t64 = clj_seq(t19);
+	} else {
+	t64 = clj_c_intrinsic_fallback(V[12], a7, 1);
+	}
+	clj_release(t19);
+	CLJC_SITE(&S[24]);
+	if (t64 == CLJ_THROWN) {
+	if (o18) clj_release(t18);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a6[1] = {t64};
+	(void)a6;
+	t17 = clj_c_invoke(t18, a6, 1);
+	clj_release(t64);
+	if (o18) clj_release(t18);
+	CLJC_SITE(&S[24]);
+	if (t17 == CLJ_THROWN) {
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t65;
+	bool o66;
+	clj_value t66 = clj_c_var_borrow(V[8], &o66);
+	CLJC_SITE(&S[24]);
+	if (t66 == CLJ_THROWN) {
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t67;
+	bool o68;
+	clj_value t68 = clj_c_var_borrow(V[13], &o68);
+	CLJC_SITE(&S[24]);
+	if (t68 == CLJ_THROWN) {
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t69;
+	bool o70;
+	clj_value t70 = clj_c_var_borrow(V[8], &o70);
+	CLJC_SITE(&S[24]);
+	if (t70 == CLJ_THROWN) {
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t71 = K[219];
+	clj_value a29[1] = {t71};
+	(void)a29;
+	t69 = clj_c_invoke(t70, a29, 1);
+	(void)t71;
+	if (o70) clj_release(t70);
+	CLJC_SITE(&S[24]);
+	if (t69 == CLJ_THROWN) {
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t72;
+	bool o73;
+	clj_value t73 = clj_c_var_borrow(V[8], &o73);
+	CLJC_SITE(&S[24]);
+	if (t73 == CLJ_THROWN) {
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t74 = l2;
+	clj_value a30[1] = {t74};
+	(void)a30;
+	t72 = clj_c_invoke(t73, a30, 1);
+	(void)t74;
+	if (o73) clj_release(t73);
+	CLJC_SITE(&S[24]);
+	if (t72 == CLJ_THROWN) {
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t75;
+	bool o76;
+	clj_value t76 = clj_c_var_borrow(V[8], &o76);
+	CLJC_SITE(&S[24]);
+	if (t76 == CLJ_THROWN) {
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t77 = K[220];
+	clj_value a31[1] = {t77};
+	(void)a31;
+	t75 = clj_c_invoke(t76, a31, 1);
+	(void)t77;
+	if (o76) clj_release(t76);
+	CLJC_SITE(&S[24]);
+	if (t75 == CLJ_THROWN) {
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t78;
+	bool o79;
+	clj_value t79 = clj_c_var_borrow(V[8], &o79);
+	CLJC_SITE(&S[24]);
+	if (t79 == CLJ_THROWN) {
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t80;
+	bool o81;
+	clj_value t81 = clj_c_var_borrow(V[13], &o81);
+	CLJC_SITE(&S[24]);
+	if (t81 == CLJ_THROWN) {
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t82;
+	bool o83;
+	clj_value t83 = clj_c_var_borrow(V[8], &o83);
+	CLJC_SITE(&S[24]);
+	if (t83 == CLJ_THROWN) {
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t84 = K[221];
+	clj_value a35[1] = {t84};
+	(void)a35;
+	t82 = clj_c_invoke(t83, a35, 1);
+	(void)t84;
+	if (o83) clj_release(t83);
+	CLJC_SITE(&S[24]);
+	if (t82 == CLJ_THROWN) {
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t85;
+	bool o86;
+	clj_value t86 = clj_c_var_borrow(V[8], &o86);
+	CLJC_SITE(&S[24]);
+	if (t86 == CLJ_THROWN) {
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t87;
+	bool o88;
+	clj_value t88 = clj_c_var_borrow(V[23], &o88);
+	CLJC_SITE(&S[24]);
+	if (t88 == CLJ_THROWN) {
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	bool o89;
+	clj_value t89 = clj_c_var_borrow(V[59], &o89);
+	CLJC_SITE(&S[24]);
+	if (t89 == CLJ_THROWN) {
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t90;
+	bool o91 = false;
+	clj_value t91 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t91 = clj_c_var_borrow(V[13], &o91);
+	CLJC_SITE(&S[24]);
+	if (t91 == CLJ_THROWN) {
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t92;
+	bool o93;
+	clj_value t93 = clj_c_var_borrow(V[8], &o93);
+	CLJC_SITE(&S[24]);
+	if (t93 == CLJ_THROWN) {
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t94 = K[222];
+	clj_value a40[1] = {t94};
+	(void)a40;
+	t92 = clj_c_invoke(t93, a40, 1);
+	(void)t94;
+	if (o93) clj_release(t93);
+	CLJC_SITE(&S[24]);
+	if (t92 == CLJ_THROWN) {
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t95;
+	bool o96;
+	clj_value t96 = clj_c_var_borrow(V[8], &o96);
+	CLJC_SITE(&S[24]);
+	if (t96 == CLJ_THROWN) {
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t97;
+	bool o98 = false;
+	clj_value t98 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t98 = clj_c_var_borrow(V[13], &o98);
+	CLJC_SITE(&S[24]);
+	if (t98 == CLJ_THROWN) {
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t99;
+	bool o100;
+	clj_value t100 = clj_c_var_borrow(V[8], &o100);
+	CLJC_SITE(&S[24]);
+	if (t100 == CLJ_THROWN) {
+	if (o98) clj_release(t98);
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t101 = K[223];
+	clj_value a44[1] = {t101};
+	(void)a44;
+	t99 = clj_c_invoke(t100, a44, 1);
+	(void)t101;
+	if (o100) clj_release(t100);
+	CLJC_SITE(&S[24]);
+	if (t99 == CLJ_THROWN) {
+	if (o98) clj_release(t98);
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t102;
+	bool o103;
+	clj_value t103 = clj_c_var_borrow(V[8], &o103);
+	CLJC_SITE(&S[24]);
+	if (t103 == CLJ_THROWN) {
+	clj_release(t99);
+	if (o98) clj_release(t98);
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t104 = K[220];
+	clj_value a45[1] = {t104};
+	(void)a45;
+	t102 = clj_c_invoke(t103, a45, 1);
+	(void)t104;
+	if (o103) clj_release(t103);
+	CLJC_SITE(&S[24]);
+	if (t102 == CLJ_THROWN) {
+	clj_release(t99);
+	if (o98) clj_release(t98);
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a43[2] = {t99, t102};
+	(void)a43;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t97 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a43, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t97 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a43, 2) : clj_c_invoke(t98, a43, 2);
+#else
+	t97 = clj_c_invoke(t98, a43, 2);
+#endif
+	clj_release(t102);
+	clj_release(t99);
+	if (o98) clj_release(t98);
+	CLJC_SITE(&S[24]);
+	if (t97 == CLJ_THROWN) {
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a42[1] = {t97};
+	(void)a42;
+	clj_value t105;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t105 = clj_seq(t97);
+	} else {
+	t105 = clj_c_intrinsic_fallback(V[12], a42, 1);
+	}
+	clj_release(t97);
+	CLJC_SITE(&S[24]);
+	if (t105 == CLJ_THROWN) {
+	if (o96) clj_release(t96);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a41[1] = {t105};
+	(void)a41;
+	t95 = clj_c_invoke(t96, a41, 1);
+	clj_release(t105);
+	if (o96) clj_release(t96);
+	CLJC_SITE(&S[24]);
+	if (t95 == CLJ_THROWN) {
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a39[2] = {t92, t95};
+	(void)a39;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t90 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a39, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t90 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a39, 2) : clj_c_invoke(t91, a39, 2);
+#else
+	t90 = clj_c_invoke(t91, a39, 2);
+#endif
+	clj_release(t95);
+	clj_release(t92);
+	if (o91) clj_release(t91);
+	CLJC_SITE(&S[24]);
+	if (t90 == CLJ_THROWN) {
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a38[1] = {t90};
+	(void)a38;
+	clj_value t106;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t106 = clj_seq(t90);
+	} else {
+	t106 = clj_c_intrinsic_fallback(V[12], a38, 1);
+	}
+	clj_release(t90);
+	CLJC_SITE(&S[24]);
+	if (t106 == CLJ_THROWN) {
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a37[2] = {t89, t106};
+	(void)a37;
+	t87 = clj_c_invoke(t88, a37, 2);
+	clj_release(t106);
+	if (o89) clj_release(t89);
+	if (o88) clj_release(t88);
+	CLJC_SITE(&S[24]);
+	if (t87 == CLJ_THROWN) {
+	if (o86) clj_release(t86);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a36[1] = {t87};
+	(void)a36;
+	t85 = clj_c_invoke(t86, a36, 1);
+	clj_release(t87);
+	if (o86) clj_release(t86);
+	CLJC_SITE(&S[24]);
+	if (t85 == CLJ_THROWN) {
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t107;
+	bool o108;
+	clj_value t108 = clj_c_var_borrow(V[8], &o108);
+	CLJC_SITE(&S[24]);
+	if (t108 == CLJ_THROWN) {
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t109;
+	bool o110;
+	clj_value t110 = clj_c_var_borrow(V[13], &o110);
+	CLJC_SITE(&S[24]);
+	if (t110 == CLJ_THROWN) {
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t111;
+	bool o112;
+	clj_value t112 = clj_c_var_borrow(V[8], &o112);
+	CLJC_SITE(&S[24]);
+	if (t112 == CLJ_THROWN) {
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t113 = K[224];
+	clj_value a49[1] = {t113};
+	(void)a49;
+	t111 = clj_c_invoke(t112, a49, 1);
+	(void)t113;
+	if (o112) clj_release(t112);
+	CLJC_SITE(&S[24]);
+	if (t111 == CLJ_THROWN) {
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t114;
+	bool o115;
+	clj_value t115 = clj_c_var_borrow(V[8], &o115);
+	CLJC_SITE(&S[24]);
+	if (t115 == CLJ_THROWN) {
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t116;
+	bool o117;
+	clj_value t117 = clj_c_var_borrow(V[13], &o117);
+	CLJC_SITE(&S[24]);
+	if (t117 == CLJ_THROWN) {
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t118;
+	bool o119;
+	clj_value t119 = clj_c_var_borrow(V[8], &o119);
+	CLJC_SITE(&S[24]);
+	if (t119 == CLJ_THROWN) {
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t120 = K[225];
+	clj_value a53[1] = {t120};
+	(void)a53;
+	t118 = clj_c_invoke(t119, a53, 1);
+	(void)t120;
+	if (o119) clj_release(t119);
+	CLJC_SITE(&S[24]);
+	if (t118 == CLJ_THROWN) {
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t121;
+	bool o122;
+	clj_value t122 = clj_c_var_borrow(V[8], &o122);
+	CLJC_SITE(&S[24]);
+	if (t122 == CLJ_THROWN) {
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t123;
+	bool o124 = false;
+	clj_value t124 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t124 = clj_c_var_borrow(V[13], &o124);
+	CLJC_SITE(&S[24]);
+	if (t124 == CLJ_THROWN) {
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t125;
+	bool o126;
+	clj_value t126 = clj_c_var_borrow(V[8], &o126);
+	CLJC_SITE(&S[24]);
+	if (t126 == CLJ_THROWN) {
+	if (o124) clj_release(t124);
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t127 = K[226];
+	clj_value a57[1] = {t127};
+	(void)a57;
+	t125 = clj_c_invoke(t126, a57, 1);
+	(void)t127;
+	if (o126) clj_release(t126);
+	CLJC_SITE(&S[24]);
+	if (t125 == CLJ_THROWN) {
+	if (o124) clj_release(t124);
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t128;
+	bool o129;
+	clj_value t129 = clj_c_var_borrow(V[8], &o129);
+	CLJC_SITE(&S[24]);
+	if (t129 == CLJ_THROWN) {
+	clj_release(t125);
+	if (o124) clj_release(t124);
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t130 = K[222];
+	clj_value a58[1] = {t130};
+	(void)a58;
+	t128 = clj_c_invoke(t129, a58, 1);
+	(void)t130;
+	if (o129) clj_release(t129);
+	CLJC_SITE(&S[24]);
+	if (t128 == CLJ_THROWN) {
+	clj_release(t125);
+	if (o124) clj_release(t124);
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a56[2] = {t125, t128};
+	(void)a56;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t123 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a56, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t123 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a56, 2) : clj_c_invoke(t124, a56, 2);
+#else
+	t123 = clj_c_invoke(t124, a56, 2);
+#endif
+	clj_release(t128);
+	clj_release(t125);
+	if (o124) clj_release(t124);
+	CLJC_SITE(&S[24]);
+	if (t123 == CLJ_THROWN) {
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a55[1] = {t123};
+	(void)a55;
+	clj_value t131;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t131 = clj_seq(t123);
+	} else {
+	t131 = clj_c_intrinsic_fallback(V[12], a55, 1);
+	}
+	clj_release(t123);
+	CLJC_SITE(&S[24]);
+	if (t131 == CLJ_THROWN) {
+	if (o122) clj_release(t122);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a54[1] = {t131};
+	(void)a54;
+	t121 = clj_c_invoke(t122, a54, 1);
+	clj_release(t131);
+	if (o122) clj_release(t122);
+	CLJC_SITE(&S[24]);
+	if (t121 == CLJ_THROWN) {
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t132;
+	bool o133;
+	clj_value t133 = clj_c_var_borrow(V[8], &o133);
+	CLJC_SITE(&S[24]);
+	if (t133 == CLJ_THROWN) {
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t134;
+	bool o135 = false;
+	clj_value t135 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t135 = clj_c_var_borrow(V[13], &o135);
+	CLJC_SITE(&S[24]);
+	if (t135 == CLJ_THROWN) {
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t136;
+	bool o137;
+	clj_value t137 = clj_c_var_borrow(V[8], &o137);
+	CLJC_SITE(&S[24]);
+	if (t137 == CLJ_THROWN) {
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t138 = K[227];
+	clj_value a62[1] = {t138};
+	(void)a62;
+	t136 = clj_c_invoke(t137, a62, 1);
+	(void)t138;
+	if (o137) clj_release(t137);
+	CLJC_SITE(&S[24]);
+	if (t136 == CLJ_THROWN) {
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t139;
+	bool o140;
+	clj_value t140 = clj_c_var_borrow(V[8], &o140);
+	CLJC_SITE(&S[24]);
+	if (t140 == CLJ_THROWN) {
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t141;
+	bool o142;
+	clj_value t142 = clj_c_var_borrow(V[13], &o142);
+	CLJC_SITE(&S[24]);
+	if (t142 == CLJ_THROWN) {
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t143;
+	bool o144;
+	clj_value t144 = clj_c_var_borrow(V[8], &o144);
+	CLJC_SITE(&S[24]);
+	if (t144 == CLJ_THROWN) {
+	if (o142) clj_release(t142);
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t145 = K[228];
+	clj_value a66[1] = {t145};
+	(void)a66;
+	t143 = clj_c_invoke(t144, a66, 1);
+	(void)t145;
+	if (o144) clj_release(t144);
+	CLJC_SITE(&S[24]);
+	if (t143 == CLJ_THROWN) {
+	if (o142) clj_release(t142);
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t146;
+	bool o147;
+	clj_value t147 = clj_c_var_borrow(V[8], &o147);
+	CLJC_SITE(&S[24]);
+	if (t147 == CLJ_THROWN) {
+	clj_release(t143);
+	if (o142) clj_release(t142);
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t148 = l3;
+	clj_value a67[1] = {t148};
+	(void)a67;
+	t146 = clj_c_invoke(t147, a67, 1);
+	(void)t148;
+	if (o147) clj_release(t147);
+	CLJC_SITE(&S[24]);
+	if (t146 == CLJ_THROWN) {
+	clj_release(t143);
+	if (o142) clj_release(t142);
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t149;
+	bool o150;
+	clj_value t150 = clj_c_var_borrow(V[8], &o150);
+	CLJC_SITE(&S[24]);
+	if (t150 == CLJ_THROWN) {
+	clj_release(t146);
+	clj_release(t143);
+	if (o142) clj_release(t142);
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t151 = K[222];
+	clj_value a68[1] = {t151};
+	(void)a68;
+	t149 = clj_c_invoke(t150, a68, 1);
+	(void)t151;
+	if (o150) clj_release(t150);
+	CLJC_SITE(&S[24]);
+	if (t149 == CLJ_THROWN) {
+	clj_release(t146);
+	clj_release(t143);
+	if (o142) clj_release(t142);
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a65[3] = {t143, t146, t149};
+	(void)a65;
+	t141 = clj_c_invoke(t142, a65, 3);
+	clj_release(t149);
+	clj_release(t146);
+	clj_release(t143);
+	if (o142) clj_release(t142);
+	CLJC_SITE(&S[24]);
+	if (t141 == CLJ_THROWN) {
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a64[1] = {t141};
+	(void)a64;
+	clj_value t152;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t152 = clj_seq(t141);
+	} else {
+	t152 = clj_c_intrinsic_fallback(V[12], a64, 1);
+	}
+	clj_release(t141);
+	CLJC_SITE(&S[24]);
+	if (t152 == CLJ_THROWN) {
+	if (o140) clj_release(t140);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a63[1] = {t152};
+	(void)a63;
+	t139 = clj_c_invoke(t140, a63, 1);
+	clj_release(t152);
+	if (o140) clj_release(t140);
+	CLJC_SITE(&S[24]);
+	if (t139 == CLJ_THROWN) {
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a61[2] = {t136, t139};
+	(void)a61;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t134 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a61, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t134 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a61, 2) : clj_c_invoke(t135, a61, 2);
+#else
+	t134 = clj_c_invoke(t135, a61, 2);
+#endif
+	clj_release(t139);
+	clj_release(t136);
+	if (o135) clj_release(t135);
+	CLJC_SITE(&S[24]);
+	if (t134 == CLJ_THROWN) {
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a60[1] = {t134};
+	(void)a60;
+	clj_value t153;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t153 = clj_seq(t134);
+	} else {
+	t153 = clj_c_intrinsic_fallback(V[12], a60, 1);
+	}
+	clj_release(t134);
+	CLJC_SITE(&S[24]);
+	if (t153 == CLJ_THROWN) {
+	if (o133) clj_release(t133);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a59[1] = {t153};
+	(void)a59;
+	t132 = clj_c_invoke(t133, a59, 1);
+	clj_release(t153);
+	if (o133) clj_release(t133);
+	CLJC_SITE(&S[24]);
+	if (t132 == CLJ_THROWN) {
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a52[3] = {t118, t121, t132};
+	(void)a52;
+	t116 = clj_c_invoke(t117, a52, 3);
+	clj_release(t132);
+	clj_release(t121);
+	clj_release(t118);
+	if (o117) clj_release(t117);
+	CLJC_SITE(&S[24]);
+	if (t116 == CLJ_THROWN) {
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a51[1] = {t116};
+	(void)a51;
+	clj_value t154;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t154 = clj_seq(t116);
+	} else {
+	t154 = clj_c_intrinsic_fallback(V[12], a51, 1);
+	}
+	clj_release(t116);
+	CLJC_SITE(&S[24]);
+	if (t154 == CLJ_THROWN) {
+	if (o115) clj_release(t115);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a50[1] = {t154};
+	(void)a50;
+	t114 = clj_c_invoke(t115, a50, 1);
+	clj_release(t154);
+	if (o115) clj_release(t115);
+	CLJC_SITE(&S[24]);
+	if (t114 == CLJ_THROWN) {
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t155;
+	bool o156;
+	clj_value t156 = clj_c_var_borrow(V[8], &o156);
+	CLJC_SITE(&S[24]);
+	if (t156 == CLJ_THROWN) {
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t157;
+	bool o158 = false;
+	clj_value t158 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t158 = clj_c_var_borrow(V[13], &o158);
+	CLJC_SITE(&S[24]);
+	if (t158 == CLJ_THROWN) {
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t159;
+	bool o160;
+	clj_value t160 = clj_c_var_borrow(V[8], &o160);
+	CLJC_SITE(&S[24]);
+	if (t160 == CLJ_THROWN) {
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t161 = K[229];
+	clj_value a72[1] = {t161};
+	(void)a72;
+	t159 = clj_c_invoke(t160, a72, 1);
+	(void)t161;
+	if (o160) clj_release(t160);
+	CLJC_SITE(&S[24]);
+	if (t159 == CLJ_THROWN) {
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t162;
+	bool o163;
+	clj_value t163 = clj_c_var_borrow(V[8], &o163);
+	CLJC_SITE(&S[24]);
+	if (t163 == CLJ_THROWN) {
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t164;
+	bool o165;
+	clj_value t165 = clj_c_var_borrow(V[23], &o165);
+	CLJC_SITE(&S[24]);
+	if (t165 == CLJ_THROWN) {
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	bool o166;
+	clj_value t166 = clj_c_var_borrow(V[60], &o166);
+	CLJC_SITE(&S[24]);
+	if (t166 == CLJ_THROWN) {
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t167;
+	bool o168;
+	clj_value t168 = clj_c_var_borrow(V[13], &o168);
+	CLJC_SITE(&S[24]);
+	if (t168 == CLJ_THROWN) {
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t169;
+	bool o170;
+	clj_value t170 = clj_c_var_borrow(V[8], &o170);
+	CLJC_SITE(&S[24]);
+	if (t170 == CLJ_THROWN) {
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t171 = K[213];
+	clj_value a77[1] = {t171};
+	(void)a77;
+	t169 = clj_c_invoke(t170, a77, 1);
+	(void)t171;
+	if (o170) clj_release(t170);
+	CLJC_SITE(&S[24]);
+	if (t169 == CLJ_THROWN) {
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t172;
+	bool o173;
+	clj_value t173 = clj_c_var_borrow(V[8], &o173);
+	CLJC_SITE(&S[24]);
+	if (t173 == CLJ_THROWN) {
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t174 = K[220];
+	clj_value a78[1] = {t174};
+	(void)a78;
+	t172 = clj_c_invoke(t173, a78, 1);
+	(void)t174;
+	if (o173) clj_release(t173);
+	CLJC_SITE(&S[24]);
+	if (t172 == CLJ_THROWN) {
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t175;
+	bool o176;
+	clj_value t176 = clj_c_var_borrow(V[8], &o176);
+	CLJC_SITE(&S[24]);
+	if (t176 == CLJ_THROWN) {
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t177 = K[214];
+	clj_value a79[1] = {t177};
+	(void)a79;
+	t175 = clj_c_invoke(t176, a79, 1);
+	(void)t177;
+	if (o176) clj_release(t176);
+	CLJC_SITE(&S[24]);
+	if (t175 == CLJ_THROWN) {
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t178;
+	bool o179;
+	clj_value t179 = clj_c_var_borrow(V[8], &o179);
+	CLJC_SITE(&S[24]);
+	if (t179 == CLJ_THROWN) {
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t180;
+	bool o181 = false;
+	clj_value t181 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t181 = clj_c_var_borrow(V[13], &o181);
+	CLJC_SITE(&S[24]);
+	if (t181 == CLJ_THROWN) {
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t182;
+	bool o183;
+	clj_value t183 = clj_c_var_borrow(V[8], &o183);
+	CLJC_SITE(&S[24]);
+	if (t183 == CLJ_THROWN) {
+	if (o181) clj_release(t181);
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t184 = K[230];
+	clj_value a83[1] = {t184};
+	(void)a83;
+	t182 = clj_c_invoke(t183, a83, 1);
+	(void)t184;
+	if (o183) clj_release(t183);
+	CLJC_SITE(&S[24]);
+	if (t182 == CLJ_THROWN) {
+	if (o181) clj_release(t181);
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t185;
+	bool o186;
+	clj_value t186 = clj_c_var_borrow(V[8], &o186);
+	CLJC_SITE(&S[24]);
+	if (t186 == CLJ_THROWN) {
+	clj_release(t182);
+	if (o181) clj_release(t181);
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t187 = l1;
+	clj_value a84[1] = {t187};
+	(void)a84;
+	t185 = clj_c_invoke(t186, a84, 1);
+	(void)t187;
+	if (o186) clj_release(t186);
+	CLJC_SITE(&S[24]);
+	if (t185 == CLJ_THROWN) {
+	clj_release(t182);
+	if (o181) clj_release(t181);
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a82[2] = {t182, t185};
+	(void)a82;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t180 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a82, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t180 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a82, 2) : clj_c_invoke(t181, a82, 2);
+#else
+	t180 = clj_c_invoke(t181, a82, 2);
+#endif
+	clj_release(t185);
+	clj_release(t182);
+	if (o181) clj_release(t181);
+	CLJC_SITE(&S[24]);
+	if (t180 == CLJ_THROWN) {
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a81[1] = {t180};
+	(void)a81;
+	clj_value t188;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t188 = clj_seq(t180);
+	} else {
+	t188 = clj_c_intrinsic_fallback(V[12], a81, 1);
+	}
+	clj_release(t180);
+	CLJC_SITE(&S[24]);
+	if (t188 == CLJ_THROWN) {
+	if (o179) clj_release(t179);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a80[1] = {t188};
+	(void)a80;
+	t178 = clj_c_invoke(t179, a80, 1);
+	clj_release(t188);
+	if (o179) clj_release(t179);
+	CLJC_SITE(&S[24]);
+	if (t178 == CLJ_THROWN) {
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t189;
+	bool o190;
+	clj_value t190 = clj_c_var_borrow(V[8], &o190);
+	CLJC_SITE(&S[24]);
+	if (t190 == CLJ_THROWN) {
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t191 = K[216];
+	clj_value a85[1] = {t191};
+	(void)a85;
+	t189 = clj_c_invoke(t190, a85, 1);
+	(void)t191;
+	if (o190) clj_release(t190);
+	CLJC_SITE(&S[24]);
+	if (t189 == CLJ_THROWN) {
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t192;
+	bool o193;
+	clj_value t193 = clj_c_var_borrow(V[8], &o193);
+	CLJC_SITE(&S[24]);
+	if (t193 == CLJ_THROWN) {
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t194 = l0;
+	clj_value a86[1] = {t194};
+	(void)a86;
+	t192 = clj_c_invoke(t193, a86, 1);
+	(void)t194;
+	if (o193) clj_release(t193);
+	CLJC_SITE(&S[24]);
+	if (t192 == CLJ_THROWN) {
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t195;
+	bool o196;
+	clj_value t196 = clj_c_var_borrow(V[8], &o196);
+	CLJC_SITE(&S[24]);
+	if (t196 == CLJ_THROWN) {
+	clj_release(t192);
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t197 = K[217];
+	clj_value a87[1] = {t197};
+	(void)a87;
+	t195 = clj_c_invoke(t196, a87, 1);
+	(void)t197;
+	if (o196) clj_release(t196);
+	CLJC_SITE(&S[24]);
+	if (t195 == CLJ_THROWN) {
+	clj_release(t192);
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t198;
+	bool o199;
+	clj_value t199 = clj_c_var_borrow(V[8], &o199);
+	CLJC_SITE(&S[24]);
+	if (t199 == CLJ_THROWN) {
+	clj_release(t195);
+	clj_release(t192);
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t200 = K[231];
+	clj_value a88[1] = {t200};
+	(void)a88;
+	t198 = clj_c_invoke(t199, a88, 1);
+	(void)t200;
+	if (o199) clj_release(t199);
+	CLJC_SITE(&S[24]);
+	if (t198 == CLJ_THROWN) {
+	clj_release(t195);
+	clj_release(t192);
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a76[8] = {t169, t172, t175, t178, t189, t192, t195, t198};
+	(void)a76;
+	t167 = clj_c_invoke(t168, a76, 8);
+	clj_release(t198);
+	clj_release(t195);
+	clj_release(t192);
+	clj_release(t189);
+	clj_release(t178);
+	clj_release(t175);
+	clj_release(t172);
+	clj_release(t169);
+	if (o168) clj_release(t168);
+	CLJC_SITE(&S[24]);
+	if (t167 == CLJ_THROWN) {
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a75[1] = {t167};
+	(void)a75;
+	clj_value t201;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t201 = clj_seq(t167);
+	} else {
+	t201 = clj_c_intrinsic_fallback(V[12], a75, 1);
+	}
+	clj_release(t167);
+	CLJC_SITE(&S[24]);
+	if (t201 == CLJ_THROWN) {
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a74[2] = {t166, t201};
+	(void)a74;
+	t164 = clj_c_invoke(t165, a74, 2);
+	clj_release(t201);
+	if (o166) clj_release(t166);
+	if (o165) clj_release(t165);
+	CLJC_SITE(&S[24]);
+	if (t164 == CLJ_THROWN) {
+	if (o163) clj_release(t163);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a73[1] = {t164};
+	(void)a73;
+	t162 = clj_c_invoke(t163, a73, 1);
+	clj_release(t164);
+	if (o163) clj_release(t163);
+	CLJC_SITE(&S[24]);
+	if (t162 == CLJ_THROWN) {
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a71[2] = {t159, t162};
+	(void)a71;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t157 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a71, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t157 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a71, 2) : clj_c_invoke(t158, a71, 2);
+#else
+	t157 = clj_c_invoke(t158, a71, 2);
+#endif
+	clj_release(t162);
+	clj_release(t159);
+	if (o158) clj_release(t158);
+	CLJC_SITE(&S[24]);
+	if (t157 == CLJ_THROWN) {
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a70[1] = {t157};
+	(void)a70;
+	clj_value t202;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t202 = clj_seq(t157);
+	} else {
+	t202 = clj_c_intrinsic_fallback(V[12], a70, 1);
+	}
+	clj_release(t157);
+	CLJC_SITE(&S[24]);
+	if (t202 == CLJ_THROWN) {
+	if (o156) clj_release(t156);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a69[1] = {t202};
+	(void)a69;
+	t155 = clj_c_invoke(t156, a69, 1);
+	clj_release(t202);
+	if (o156) clj_release(t156);
+	CLJC_SITE(&S[24]);
+	if (t155 == CLJ_THROWN) {
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t203;
+	bool o204;
+	clj_value t204 = clj_c_var_borrow(V[8], &o204);
+	CLJC_SITE(&S[24]);
+	if (t204 == CLJ_THROWN) {
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t205;
+	bool o206 = false;
+	clj_value t206 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t206 = clj_c_var_borrow(V[13], &o206);
+	CLJC_SITE(&S[24]);
+	if (t206 == CLJ_THROWN) {
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t207;
+	bool o208;
+	clj_value t208 = clj_c_var_borrow(V[8], &o208);
+	CLJC_SITE(&S[24]);
+	if (t208 == CLJ_THROWN) {
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t209 = K[232];
+	clj_value a92[1] = {t209};
+	(void)a92;
+	t207 = clj_c_invoke(t208, a92, 1);
+	(void)t209;
+	if (o208) clj_release(t208);
+	CLJC_SITE(&S[24]);
+	if (t207 == CLJ_THROWN) {
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t210;
+	bool o211;
+	clj_value t211 = clj_c_var_borrow(V[8], &o211);
+	CLJC_SITE(&S[24]);
+	if (t211 == CLJ_THROWN) {
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t212;
+	bool o213;
+	clj_value t213 = clj_c_var_borrow(V[23], &o213);
+	CLJC_SITE(&S[24]);
+	if (t213 == CLJ_THROWN) {
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	bool o214;
+	clj_value t214 = clj_c_var_borrow(V[60], &o214);
+	CLJC_SITE(&S[24]);
+	if (t214 == CLJ_THROWN) {
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t215;
+	bool o216;
+	clj_value t216 = clj_c_var_borrow(V[13], &o216);
+	CLJC_SITE(&S[24]);
+	if (t216 == CLJ_THROWN) {
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t217;
+	bool o218;
+	clj_value t218 = clj_c_var_borrow(V[8], &o218);
+	CLJC_SITE(&S[24]);
+	if (t218 == CLJ_THROWN) {
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t219 = K[213];
+	clj_value a97[1] = {t219};
+	(void)a97;
+	t217 = clj_c_invoke(t218, a97, 1);
+	(void)t219;
+	if (o218) clj_release(t218);
+	CLJC_SITE(&S[24]);
+	if (t217 == CLJ_THROWN) {
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t220;
+	bool o221;
+	clj_value t221 = clj_c_var_borrow(V[8], &o221);
+	CLJC_SITE(&S[24]);
+	if (t221 == CLJ_THROWN) {
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t222 = K[220];
+	clj_value a98[1] = {t222};
+	(void)a98;
+	t220 = clj_c_invoke(t221, a98, 1);
+	(void)t222;
+	if (o221) clj_release(t221);
+	CLJC_SITE(&S[24]);
+	if (t220 == CLJ_THROWN) {
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t223;
+	bool o224;
+	clj_value t224 = clj_c_var_borrow(V[8], &o224);
+	CLJC_SITE(&S[24]);
+	if (t224 == CLJ_THROWN) {
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t225 = K[214];
+	clj_value a99[1] = {t225};
+	(void)a99;
+	t223 = clj_c_invoke(t224, a99, 1);
+	(void)t225;
+	if (o224) clj_release(t224);
+	CLJC_SITE(&S[24]);
+	if (t223 == CLJ_THROWN) {
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t226;
+	bool o227;
+	clj_value t227 = clj_c_var_borrow(V[8], &o227);
+	CLJC_SITE(&S[24]);
+	if (t227 == CLJ_THROWN) {
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t228;
+	bool o229 = false;
+	clj_value t229 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_concat_a2
+	t229 = clj_c_var_borrow(V[13], &o229);
+	CLJC_SITE(&S[24]);
+	if (t229 == CLJ_THROWN) {
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+#endif
+	clj_value t230;
+	bool o231;
+	clj_value t231 = clj_c_var_borrow(V[8], &o231);
+	CLJC_SITE(&S[24]);
+	if (t231 == CLJ_THROWN) {
+	if (o229) clj_release(t229);
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t232 = K[233];
+	clj_value a103[1] = {t232};
+	(void)a103;
+	t230 = clj_c_invoke(t231, a103, 1);
+	(void)t232;
+	if (o231) clj_release(t231);
+	CLJC_SITE(&S[24]);
+	if (t230 == CLJ_THROWN) {
+	if (o229) clj_release(t229);
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t233;
+	bool o234;
+	clj_value t234 = clj_c_var_borrow(V[8], &o234);
+	CLJC_SITE(&S[24]);
+	if (t234 == CLJ_THROWN) {
+	clj_release(t230);
+	if (o229) clj_release(t229);
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t235 = l1;
+	clj_value a104[1] = {t235};
+	(void)a104;
+	t233 = clj_c_invoke(t234, a104, 1);
+	(void)t235;
+	if (o234) clj_release(t234);
+	CLJC_SITE(&S[24]);
+	if (t233 == CLJ_THROWN) {
+	clj_release(t230);
+	if (o229) clj_release(t229);
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a102[2] = {t230, t233};
+	(void)a102;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t228 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a102, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t228 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a102, 2) : clj_c_invoke(t229, a102, 2);
+#else
+	t228 = clj_c_invoke(t229, a102, 2);
+#endif
+	clj_release(t233);
+	clj_release(t230);
+	if (o229) clj_release(t229);
+	CLJC_SITE(&S[24]);
+	if (t228 == CLJ_THROWN) {
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a101[1] = {t228};
+	(void)a101;
+	clj_value t236;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t236 = clj_seq(t228);
+	} else {
+	t236 = clj_c_intrinsic_fallback(V[12], a101, 1);
+	}
+	clj_release(t228);
+	CLJC_SITE(&S[24]);
+	if (t236 == CLJ_THROWN) {
+	if (o227) clj_release(t227);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a100[1] = {t236};
+	(void)a100;
+	t226 = clj_c_invoke(t227, a100, 1);
+	clj_release(t236);
+	if (o227) clj_release(t227);
+	CLJC_SITE(&S[24]);
+	if (t226 == CLJ_THROWN) {
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t237;
+	bool o238;
+	clj_value t238 = clj_c_var_borrow(V[8], &o238);
+	CLJC_SITE(&S[24]);
+	if (t238 == CLJ_THROWN) {
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t239 = K[216];
+	clj_value a105[1] = {t239};
+	(void)a105;
+	t237 = clj_c_invoke(t238, a105, 1);
+	(void)t239;
+	if (o238) clj_release(t238);
+	CLJC_SITE(&S[24]);
+	if (t237 == CLJ_THROWN) {
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t240;
+	bool o241;
+	clj_value t241 = clj_c_var_borrow(V[8], &o241);
+	CLJC_SITE(&S[24]);
+	if (t241 == CLJ_THROWN) {
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t242 = l0;
+	clj_value a106[1] = {t242};
+	(void)a106;
+	t240 = clj_c_invoke(t241, a106, 1);
+	(void)t242;
+	if (o241) clj_release(t241);
+	CLJC_SITE(&S[24]);
+	if (t240 == CLJ_THROWN) {
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t243;
+	bool o244;
+	clj_value t244 = clj_c_var_borrow(V[8], &o244);
+	CLJC_SITE(&S[24]);
+	if (t244 == CLJ_THROWN) {
+	clj_release(t240);
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t245 = K[217];
+	clj_value a107[1] = {t245};
+	(void)a107;
+	t243 = clj_c_invoke(t244, a107, 1);
+	(void)t245;
+	if (o244) clj_release(t244);
+	CLJC_SITE(&S[24]);
+	if (t243 == CLJ_THROWN) {
+	clj_release(t240);
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t246;
+	bool o247;
+	clj_value t247 = clj_c_var_borrow(V[8], &o247);
+	CLJC_SITE(&S[24]);
+	if (t247 == CLJ_THROWN) {
+	clj_release(t243);
+	clj_release(t240);
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t248 = K[218];
+	clj_value a108[1] = {t248};
+	(void)a108;
+	t246 = clj_c_invoke(t247, a108, 1);
+	(void)t248;
+	if (o247) clj_release(t247);
+	CLJC_SITE(&S[24]);
+	if (t246 == CLJ_THROWN) {
+	clj_release(t243);
+	clj_release(t240);
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a96[8] = {t217, t220, t223, t226, t237, t240, t243, t246};
+	(void)a96;
+	t215 = clj_c_invoke(t216, a96, 8);
+	clj_release(t246);
+	clj_release(t243);
+	clj_release(t240);
+	clj_release(t237);
+	clj_release(t226);
+	clj_release(t223);
+	clj_release(t220);
+	clj_release(t217);
+	if (o216) clj_release(t216);
+	CLJC_SITE(&S[24]);
+	if (t215 == CLJ_THROWN) {
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a95[1] = {t215};
+	(void)a95;
+	clj_value t249;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t249 = clj_seq(t215);
+	} else {
+	t249 = clj_c_intrinsic_fallback(V[12], a95, 1);
+	}
+	clj_release(t215);
+	CLJC_SITE(&S[24]);
+	if (t249 == CLJ_THROWN) {
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a94[2] = {t214, t249};
+	(void)a94;
+	t212 = clj_c_invoke(t213, a94, 2);
+	clj_release(t249);
+	if (o214) clj_release(t214);
+	if (o213) clj_release(t213);
+	CLJC_SITE(&S[24]);
+	if (t212 == CLJ_THROWN) {
+	if (o211) clj_release(t211);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a93[1] = {t212};
+	(void)a93;
+	t210 = clj_c_invoke(t211, a93, 1);
+	clj_release(t212);
+	if (o211) clj_release(t211);
+	CLJC_SITE(&S[24]);
+	if (t210 == CLJ_THROWN) {
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a91[2] = {t207, t210};
+	(void)a91;
+#ifdef CLJC_LOCAL_clojure_core_concat_a2
+	t205 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a91, 2);
+#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
+	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
+	t205 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a91, 2) : clj_c_invoke(t206, a91, 2);
+#else
+	t205 = clj_c_invoke(t206, a91, 2);
+#endif
+	clj_release(t210);
+	clj_release(t207);
+	if (o206) clj_release(t206);
+	CLJC_SITE(&S[24]);
+	if (t205 == CLJ_THROWN) {
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a90[1] = {t205};
+	(void)a90;
+	clj_value t250;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t250 = clj_seq(t205);
+	} else {
+	t250 = clj_c_intrinsic_fallback(V[12], a90, 1);
+	}
+	clj_release(t205);
+	CLJC_SITE(&S[24]);
+	if (t250 == CLJ_THROWN) {
+	if (o204) clj_release(t204);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a89[1] = {t250};
+	(void)a89;
+	t203 = clj_c_invoke(t204, a89, 1);
+	clj_release(t250);
+	if (o204) clj_release(t204);
+	CLJC_SITE(&S[24]);
+	if (t203 == CLJ_THROWN) {
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a48[4] = {t111, t114, t155, t203};
+	(void)a48;
+	t109 = clj_c_invoke(t110, a48, 4);
+	clj_release(t203);
+	clj_release(t155);
+	clj_release(t114);
+	clj_release(t111);
+	if (o110) clj_release(t110);
+	CLJC_SITE(&S[24]);
+	if (t109 == CLJ_THROWN) {
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a47[1] = {t109};
+	(void)a47;
+	clj_value t251;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t251 = clj_seq(t109);
+	} else {
+	t251 = clj_c_intrinsic_fallback(V[12], a47, 1);
+	}
+	clj_release(t109);
+	CLJC_SITE(&S[24]);
+	if (t251 == CLJ_THROWN) {
+	if (o108) clj_release(t108);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a46[1] = {t251};
+	(void)a46;
+	t107 = clj_c_invoke(t108, a46, 1);
+	clj_release(t251);
+	if (o108) clj_release(t108);
+	CLJC_SITE(&S[24]);
+	if (t107 == CLJ_THROWN) {
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a34[3] = {t82, t85, t107};
+	(void)a34;
+	t80 = clj_c_invoke(t81, a34, 3);
+	clj_release(t107);
+	clj_release(t85);
+	clj_release(t82);
+	if (o81) clj_release(t81);
+	CLJC_SITE(&S[24]);
+	if (t80 == CLJ_THROWN) {
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a33[1] = {t80};
+	(void)a33;
+	clj_value t252;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t252 = clj_seq(t80);
+	} else {
+	t252 = clj_c_intrinsic_fallback(V[12], a33, 1);
+	}
+	clj_release(t80);
+	CLJC_SITE(&S[24]);
+	if (t252 == CLJ_THROWN) {
+	if (o79) clj_release(t79);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a32[1] = {t252};
+	(void)a32;
+	t78 = clj_c_invoke(t79, a32, 1);
+	clj_release(t252);
+	if (o79) clj_release(t79);
+	CLJC_SITE(&S[24]);
+	if (t78 == CLJ_THROWN) {
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t253;
+	bool o254;
+	clj_value t254 = clj_c_var_borrow(V[8], &o254);
+	CLJC_SITE(&S[24]);
+	if (t254 == CLJ_THROWN) {
+	clj_release(t78);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value t255 = K[220];
+	clj_value a109[1] = {t255};
+	(void)a109;
+	t253 = clj_c_invoke(t254, a109, 1);
+	(void)t255;
+	if (o254) clj_release(t254);
+	CLJC_SITE(&S[24]);
+	if (t253 == CLJ_THROWN) {
+	clj_release(t78);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a28[5] = {t69, t72, t75, t78, t253};
+	(void)a28;
+	t67 = clj_c_invoke(t68, a28, 5);
+	clj_release(t253);
+	clj_release(t78);
+	clj_release(t75);
+	clj_release(t72);
+	clj_release(t69);
+	if (o68) clj_release(t68);
+	CLJC_SITE(&S[24]);
+	if (t67 == CLJ_THROWN) {
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a27[1] = {t67};
+	(void)a27;
+	clj_value t256;
+	if (CLJC_GUARD(V[12], B[0])) {
+	t256 = clj_seq(t67);
+	} else {
+	t256 = clj_c_intrinsic_fallback(V[12], a27, 1);
+	}
+	clj_release(t67);
+	CLJC_SITE(&S[24]);
+	if (t256 == CLJ_THROWN) {
+	if (o66) clj_release(t66);
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a26[1] = {t256};
+	(void)a26;
+	t65 = clj_c_invoke(t66, a26, 1);
+	clj_release(t256);
+	if (o66) clj_release(t66);
+	CLJC_SITE(&S[24]);
+	if (t65 == CLJ_THROWN) {
+	clj_release(t17);
+	clj_release(t13);
+	if (o12) clj_release(t12);
+	goto L1;
+	}
+	clj_value a4[4] = {t13, t16, t17, t65};
+	(void)a4;
+	t11 = clj_c_invoke(t12, a4, 4);
+	clj_release(t65);
+	clj_release(t17);
+	(void)t16;
+	clj_release(t13);
+	if (o12) clj_release(t12);
 	CLJC_SITE(&S[24]);
 	if (t11 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t12;
-	bool o13;
-	clj_value t13 = clj_c_var_borrow(V[8], &o13);
-	CLJC_SITE(&S[24]);
-	if (t13 == CLJ_THROWN) {
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t14 = K[211];
-	clj_value a5[1] = {t14};
-	(void)a5;
-	t12 = clj_c_invoke(t13, a5, 1);
-	(void)t14;
-	if (o13) clj_release(t13);
-	CLJC_SITE(&S[24]);
-	if (t12 == CLJ_THROWN) {
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t15 = l4;
-	clj_value t16;
-	bool o17;
-	clj_value t17 = clj_c_var_borrow(V[8], &o17);
-	CLJC_SITE(&S[24]);
-	if (t17 == CLJ_THROWN) {
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t18;
-	bool o19 = false;
-	clj_value t19 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t19 = clj_c_var_borrow(V[13], &o19);
-	CLJC_SITE(&S[24]);
-	if (t19 == CLJ_THROWN) {
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t20;
-	bool o21;
-	clj_value t21 = clj_c_var_borrow(V[8], &o21);
-	CLJC_SITE(&S[24]);
-	if (t21 == CLJ_THROWN) {
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t22 = K[212];
-	clj_value a9[1] = {t22};
-	(void)a9;
-	t20 = clj_c_invoke(t21, a9, 1);
-	(void)t22;
-	if (o21) clj_release(t21);
-	CLJC_SITE(&S[24]);
-	if (t20 == CLJ_THROWN) {
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t23;
-	bool o24;
-	clj_value t24 = clj_c_var_borrow(V[8], &o24);
-	CLJC_SITE(&S[24]);
-	if (t24 == CLJ_THROWN) {
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t25;
-	bool o26;
-	clj_value t26 = clj_c_var_borrow(V[23], &o26);
-	CLJC_SITE(&S[24]);
-	if (t26 == CLJ_THROWN) {
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	bool o27;
-	clj_value t27 = clj_c_var_borrow(V[60], &o27);
-	CLJC_SITE(&S[24]);
-	if (t27 == CLJ_THROWN) {
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t28;
-	bool o29;
-	clj_value t29 = clj_c_var_borrow(V[13], &o29);
-	CLJC_SITE(&S[24]);
-	if (t29 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t30;
-	bool o31;
-	clj_value t31 = clj_c_var_borrow(V[8], &o31);
-	CLJC_SITE(&S[24]);
-	if (t31 == CLJ_THROWN) {
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t32 = K[213];
-	clj_value a14[1] = {t32};
-	(void)a14;
-	t30 = clj_c_invoke(t31, a14, 1);
-	(void)t32;
-	if (o31) clj_release(t31);
-	CLJC_SITE(&S[24]);
-	if (t30 == CLJ_THROWN) {
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t33;
-	bool o34;
-	clj_value t34 = clj_c_var_borrow(V[8], &o34);
-	CLJC_SITE(&S[24]);
-	if (t34 == CLJ_THROWN) {
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t35 = K[3];
-	clj_value a15[1] = {t35};
-	(void)a15;
-	t33 = clj_c_invoke(t34, a15, 1);
-	(void)t35;
-	if (o34) clj_release(t34);
-	CLJC_SITE(&S[24]);
-	if (t33 == CLJ_THROWN) {
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t36;
-	bool o37;
-	clj_value t37 = clj_c_var_borrow(V[8], &o37);
-	CLJC_SITE(&S[24]);
-	if (t37 == CLJ_THROWN) {
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t38 = K[214];
-	clj_value a16[1] = {t38};
-	(void)a16;
-	t36 = clj_c_invoke(t37, a16, 1);
-	(void)t38;
-	if (o37) clj_release(t37);
-	CLJC_SITE(&S[24]);
-	if (t36 == CLJ_THROWN) {
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t39;
-	bool o40;
-	clj_value t40 = clj_c_var_borrow(V[8], &o40);
-	CLJC_SITE(&S[24]);
-	if (t40 == CLJ_THROWN) {
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t41;
-	bool o42 = false;
-	clj_value t42 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t42 = clj_c_var_borrow(V[13], &o42);
-	CLJC_SITE(&S[24]);
-	if (t42 == CLJ_THROWN) {
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t43;
-	bool o44;
-	clj_value t44 = clj_c_var_borrow(V[8], &o44);
-	CLJC_SITE(&S[24]);
-	if (t44 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t45 = K[215];
-	clj_value a20[1] = {t45};
-	(void)a20;
-	t43 = clj_c_invoke(t44, a20, 1);
-	(void)t45;
-	if (o44) clj_release(t44);
-	CLJC_SITE(&S[24]);
-	if (t43 == CLJ_THROWN) {
-	if (o42) clj_release(t42);
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t46;
-	bool o47;
-	clj_value t47 = clj_c_var_borrow(V[8], &o47);
-	CLJC_SITE(&S[24]);
-	if (t47 == CLJ_THROWN) {
-	clj_release(t43);
-	if (o42) clj_release(t42);
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t48 = l1;
-	clj_value a21[1] = {t48};
-	(void)a21;
-	t46 = clj_c_invoke(t47, a21, 1);
-	(void)t48;
-	if (o47) clj_release(t47);
-	CLJC_SITE(&S[24]);
-	if (t46 == CLJ_THROWN) {
-	clj_release(t43);
-	if (o42) clj_release(t42);
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a19[2] = {t43, t46};
-	(void)a19;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t41 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a19, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t41 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a19, 2) : clj_c_invoke(t42, a19, 2);
-#else
-	t41 = clj_c_invoke(t42, a19, 2);
-#endif
-	clj_release(t46);
-	clj_release(t43);
-	if (o42) clj_release(t42);
-	CLJC_SITE(&S[24]);
-	if (t41 == CLJ_THROWN) {
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a18[1] = {t41};
-	(void)a18;
-	clj_value t49;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t49 = clj_seq(t41);
-	} else {
-	t49 = clj_c_intrinsic_fallback(V[12], a18, 1);
-	}
-	clj_release(t41);
-	CLJC_SITE(&S[24]);
-	if (t49 == CLJ_THROWN) {
-	if (o40) clj_release(t40);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a17[1] = {t49};
-	(void)a17;
-	t39 = clj_c_invoke(t40, a17, 1);
-	clj_release(t49);
-	if (o40) clj_release(t40);
-	CLJC_SITE(&S[24]);
-	if (t39 == CLJ_THROWN) {
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t50;
-	bool o51;
-	clj_value t51 = clj_c_var_borrow(V[8], &o51);
-	CLJC_SITE(&S[24]);
-	if (t51 == CLJ_THROWN) {
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t52 = K[216];
-	clj_value a22[1] = {t52};
-	(void)a22;
-	t50 = clj_c_invoke(t51, a22, 1);
-	(void)t52;
-	if (o51) clj_release(t51);
-	CLJC_SITE(&S[24]);
-	if (t50 == CLJ_THROWN) {
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t53;
-	bool o54;
-	clj_value t54 = clj_c_var_borrow(V[8], &o54);
-	CLJC_SITE(&S[24]);
-	if (t54 == CLJ_THROWN) {
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t55 = l0;
-	clj_value a23[1] = {t55};
-	(void)a23;
-	t53 = clj_c_invoke(t54, a23, 1);
-	(void)t55;
-	if (o54) clj_release(t54);
-	CLJC_SITE(&S[24]);
-	if (t53 == CLJ_THROWN) {
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t56;
-	bool o57;
-	clj_value t57 = clj_c_var_borrow(V[8], &o57);
-	CLJC_SITE(&S[24]);
-	if (t57 == CLJ_THROWN) {
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t58 = K[217];
-	clj_value a24[1] = {t58};
-	(void)a24;
-	t56 = clj_c_invoke(t57, a24, 1);
-	(void)t58;
-	if (o57) clj_release(t57);
-	CLJC_SITE(&S[24]);
-	if (t56 == CLJ_THROWN) {
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t59;
-	bool o60;
-	clj_value t60 = clj_c_var_borrow(V[8], &o60);
-	CLJC_SITE(&S[24]);
-	if (t60 == CLJ_THROWN) {
-	clj_release(t56);
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t61 = K[218];
-	clj_value a25[1] = {t61};
-	(void)a25;
-	t59 = clj_c_invoke(t60, a25, 1);
-	(void)t61;
-	if (o60) clj_release(t60);
-	CLJC_SITE(&S[24]);
-	if (t59 == CLJ_THROWN) {
-	clj_release(t56);
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a13[8] = {t30, t33, t36, t39, t50, t53, t56, t59};
-	(void)a13;
-	t28 = clj_c_invoke(t29, a13, 8);
-	clj_release(t59);
-	clj_release(t56);
-	clj_release(t53);
-	clj_release(t50);
-	clj_release(t39);
-	clj_release(t36);
-	clj_release(t33);
-	clj_release(t30);
-	if (o29) clj_release(t29);
-	CLJC_SITE(&S[24]);
-	if (t28 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a12[1] = {t28};
-	(void)a12;
-	clj_value t62;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t62 = clj_seq(t28);
-	} else {
-	t62 = clj_c_intrinsic_fallback(V[12], a12, 1);
-	}
-	clj_release(t28);
-	CLJC_SITE(&S[24]);
-	if (t62 == CLJ_THROWN) {
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a11[2] = {t27, t62};
-	(void)a11;
-	t25 = clj_c_invoke(t26, a11, 2);
-	clj_release(t62);
-	if (o27) clj_release(t27);
-	if (o26) clj_release(t26);
-	CLJC_SITE(&S[24]);
-	if (t25 == CLJ_THROWN) {
-	if (o24) clj_release(t24);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a10[1] = {t25};
-	(void)a10;
-	t23 = clj_c_invoke(t24, a10, 1);
-	clj_release(t25);
-	if (o24) clj_release(t24);
-	CLJC_SITE(&S[24]);
-	if (t23 == CLJ_THROWN) {
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a8[2] = {t20, t23};
-	(void)a8;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t18 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a8, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t18 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a8, 2) : clj_c_invoke(t19, a8, 2);
-#else
-	t18 = clj_c_invoke(t19, a8, 2);
-#endif
-	clj_release(t23);
-	clj_release(t20);
-	if (o19) clj_release(t19);
-	CLJC_SITE(&S[24]);
-	if (t18 == CLJ_THROWN) {
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a7[1] = {t18};
-	(void)a7;
-	clj_value t63;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t63 = clj_seq(t18);
-	} else {
-	t63 = clj_c_intrinsic_fallback(V[12], a7, 1);
-	}
-	clj_release(t18);
-	CLJC_SITE(&S[24]);
-	if (t63 == CLJ_THROWN) {
-	if (o17) clj_release(t17);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a6[1] = {t63};
-	(void)a6;
-	t16 = clj_c_invoke(t17, a6, 1);
-	clj_release(t63);
-	if (o17) clj_release(t17);
-	CLJC_SITE(&S[24]);
-	if (t16 == CLJ_THROWN) {
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t64;
-	bool o65;
-	clj_value t65 = clj_c_var_borrow(V[8], &o65);
-	CLJC_SITE(&S[24]);
-	if (t65 == CLJ_THROWN) {
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t66;
-	bool o67;
-	clj_value t67 = clj_c_var_borrow(V[13], &o67);
-	CLJC_SITE(&S[24]);
-	if (t67 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t68;
-	bool o69;
-	clj_value t69 = clj_c_var_borrow(V[8], &o69);
-	CLJC_SITE(&S[24]);
-	if (t69 == CLJ_THROWN) {
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t70 = K[219];
-	clj_value a29[1] = {t70};
-	(void)a29;
-	t68 = clj_c_invoke(t69, a29, 1);
-	(void)t70;
-	if (o69) clj_release(t69);
-	CLJC_SITE(&S[24]);
-	if (t68 == CLJ_THROWN) {
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t71;
-	bool o72;
-	clj_value t72 = clj_c_var_borrow(V[8], &o72);
-	CLJC_SITE(&S[24]);
-	if (t72 == CLJ_THROWN) {
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t73 = l2;
-	clj_value a30[1] = {t73};
-	(void)a30;
-	t71 = clj_c_invoke(t72, a30, 1);
-	(void)t73;
-	if (o72) clj_release(t72);
-	CLJC_SITE(&S[24]);
-	if (t71 == CLJ_THROWN) {
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t74;
-	bool o75;
-	clj_value t75 = clj_c_var_borrow(V[8], &o75);
-	CLJC_SITE(&S[24]);
-	if (t75 == CLJ_THROWN) {
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t76 = K[220];
-	clj_value a31[1] = {t76};
-	(void)a31;
-	t74 = clj_c_invoke(t75, a31, 1);
-	(void)t76;
-	if (o75) clj_release(t75);
-	CLJC_SITE(&S[24]);
-	if (t74 == CLJ_THROWN) {
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t77;
-	bool o78;
-	clj_value t78 = clj_c_var_borrow(V[8], &o78);
-	CLJC_SITE(&S[24]);
-	if (t78 == CLJ_THROWN) {
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t79;
-	bool o80;
-	clj_value t80 = clj_c_var_borrow(V[13], &o80);
-	CLJC_SITE(&S[24]);
-	if (t80 == CLJ_THROWN) {
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t81;
-	bool o82;
-	clj_value t82 = clj_c_var_borrow(V[8], &o82);
-	CLJC_SITE(&S[24]);
-	if (t82 == CLJ_THROWN) {
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t83 = K[221];
-	clj_value a35[1] = {t83};
-	(void)a35;
-	t81 = clj_c_invoke(t82, a35, 1);
-	(void)t83;
-	if (o82) clj_release(t82);
-	CLJC_SITE(&S[24]);
-	if (t81 == CLJ_THROWN) {
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t84;
-	bool o85;
-	clj_value t85 = clj_c_var_borrow(V[8], &o85);
-	CLJC_SITE(&S[24]);
-	if (t85 == CLJ_THROWN) {
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t86;
-	bool o87;
-	clj_value t87 = clj_c_var_borrow(V[23], &o87);
-	CLJC_SITE(&S[24]);
-	if (t87 == CLJ_THROWN) {
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	bool o88;
-	clj_value t88 = clj_c_var_borrow(V[59], &o88);
-	CLJC_SITE(&S[24]);
-	if (t88 == CLJ_THROWN) {
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t89;
-	bool o90 = false;
-	clj_value t90 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t90 = clj_c_var_borrow(V[13], &o90);
-	CLJC_SITE(&S[24]);
-	if (t90 == CLJ_THROWN) {
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t91;
-	bool o92;
-	clj_value t92 = clj_c_var_borrow(V[8], &o92);
-	CLJC_SITE(&S[24]);
-	if (t92 == CLJ_THROWN) {
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t93 = K[222];
-	clj_value a40[1] = {t93};
-	(void)a40;
-	t91 = clj_c_invoke(t92, a40, 1);
-	(void)t93;
-	if (o92) clj_release(t92);
-	CLJC_SITE(&S[24]);
-	if (t91 == CLJ_THROWN) {
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t94;
-	bool o95;
-	clj_value t95 = clj_c_var_borrow(V[8], &o95);
-	CLJC_SITE(&S[24]);
-	if (t95 == CLJ_THROWN) {
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t96;
-	bool o97 = false;
-	clj_value t97 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t97 = clj_c_var_borrow(V[13], &o97);
-	CLJC_SITE(&S[24]);
-	if (t97 == CLJ_THROWN) {
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t98;
-	bool o99;
-	clj_value t99 = clj_c_var_borrow(V[8], &o99);
-	CLJC_SITE(&S[24]);
-	if (t99 == CLJ_THROWN) {
-	if (o97) clj_release(t97);
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t100 = K[223];
-	clj_value a44[1] = {t100};
-	(void)a44;
-	t98 = clj_c_invoke(t99, a44, 1);
-	(void)t100;
-	if (o99) clj_release(t99);
-	CLJC_SITE(&S[24]);
-	if (t98 == CLJ_THROWN) {
-	if (o97) clj_release(t97);
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t101;
-	bool o102;
-	clj_value t102 = clj_c_var_borrow(V[8], &o102);
-	CLJC_SITE(&S[24]);
-	if (t102 == CLJ_THROWN) {
-	clj_release(t98);
-	if (o97) clj_release(t97);
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t103 = K[220];
-	clj_value a45[1] = {t103};
-	(void)a45;
-	t101 = clj_c_invoke(t102, a45, 1);
-	(void)t103;
-	if (o102) clj_release(t102);
-	CLJC_SITE(&S[24]);
-	if (t101 == CLJ_THROWN) {
-	clj_release(t98);
-	if (o97) clj_release(t97);
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a43[2] = {t98, t101};
-	(void)a43;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t96 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a43, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t96 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a43, 2) : clj_c_invoke(t97, a43, 2);
-#else
-	t96 = clj_c_invoke(t97, a43, 2);
-#endif
-	clj_release(t101);
-	clj_release(t98);
-	if (o97) clj_release(t97);
-	CLJC_SITE(&S[24]);
-	if (t96 == CLJ_THROWN) {
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a42[1] = {t96};
-	(void)a42;
-	clj_value t104;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t104 = clj_seq(t96);
-	} else {
-	t104 = clj_c_intrinsic_fallback(V[12], a42, 1);
-	}
-	clj_release(t96);
-	CLJC_SITE(&S[24]);
-	if (t104 == CLJ_THROWN) {
-	if (o95) clj_release(t95);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a41[1] = {t104};
-	(void)a41;
-	t94 = clj_c_invoke(t95, a41, 1);
-	clj_release(t104);
-	if (o95) clj_release(t95);
-	CLJC_SITE(&S[24]);
-	if (t94 == CLJ_THROWN) {
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a39[2] = {t91, t94};
-	(void)a39;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t89 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a39, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t89 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a39, 2) : clj_c_invoke(t90, a39, 2);
-#else
-	t89 = clj_c_invoke(t90, a39, 2);
-#endif
-	clj_release(t94);
-	clj_release(t91);
-	if (o90) clj_release(t90);
-	CLJC_SITE(&S[24]);
-	if (t89 == CLJ_THROWN) {
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a38[1] = {t89};
-	(void)a38;
-	clj_value t105;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t105 = clj_seq(t89);
-	} else {
-	t105 = clj_c_intrinsic_fallback(V[12], a38, 1);
-	}
-	clj_release(t89);
-	CLJC_SITE(&S[24]);
-	if (t105 == CLJ_THROWN) {
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a37[2] = {t88, t105};
-	(void)a37;
-	t86 = clj_c_invoke(t87, a37, 2);
-	clj_release(t105);
-	if (o88) clj_release(t88);
-	if (o87) clj_release(t87);
-	CLJC_SITE(&S[24]);
-	if (t86 == CLJ_THROWN) {
-	if (o85) clj_release(t85);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a36[1] = {t86};
-	(void)a36;
-	t84 = clj_c_invoke(t85, a36, 1);
-	clj_release(t86);
-	if (o85) clj_release(t85);
-	CLJC_SITE(&S[24]);
-	if (t84 == CLJ_THROWN) {
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t106;
-	bool o107;
-	clj_value t107 = clj_c_var_borrow(V[8], &o107);
-	CLJC_SITE(&S[24]);
-	if (t107 == CLJ_THROWN) {
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t108;
-	bool o109;
-	clj_value t109 = clj_c_var_borrow(V[13], &o109);
-	CLJC_SITE(&S[24]);
-	if (t109 == CLJ_THROWN) {
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t110;
-	bool o111;
-	clj_value t111 = clj_c_var_borrow(V[8], &o111);
-	CLJC_SITE(&S[24]);
-	if (t111 == CLJ_THROWN) {
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t112 = K[224];
-	clj_value a49[1] = {t112};
-	(void)a49;
-	t110 = clj_c_invoke(t111, a49, 1);
-	(void)t112;
-	if (o111) clj_release(t111);
-	CLJC_SITE(&S[24]);
-	if (t110 == CLJ_THROWN) {
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t113;
-	bool o114;
-	clj_value t114 = clj_c_var_borrow(V[8], &o114);
-	CLJC_SITE(&S[24]);
-	if (t114 == CLJ_THROWN) {
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t115;
-	bool o116;
-	clj_value t116 = clj_c_var_borrow(V[13], &o116);
-	CLJC_SITE(&S[24]);
-	if (t116 == CLJ_THROWN) {
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t117;
-	bool o118;
-	clj_value t118 = clj_c_var_borrow(V[8], &o118);
-	CLJC_SITE(&S[24]);
-	if (t118 == CLJ_THROWN) {
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t119 = K[225];
-	clj_value a53[1] = {t119};
-	(void)a53;
-	t117 = clj_c_invoke(t118, a53, 1);
-	(void)t119;
-	if (o118) clj_release(t118);
-	CLJC_SITE(&S[24]);
-	if (t117 == CLJ_THROWN) {
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t120;
-	bool o121;
-	clj_value t121 = clj_c_var_borrow(V[8], &o121);
-	CLJC_SITE(&S[24]);
-	if (t121 == CLJ_THROWN) {
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t122;
-	bool o123 = false;
-	clj_value t123 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t123 = clj_c_var_borrow(V[13], &o123);
-	CLJC_SITE(&S[24]);
-	if (t123 == CLJ_THROWN) {
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t124;
-	bool o125;
-	clj_value t125 = clj_c_var_borrow(V[8], &o125);
-	CLJC_SITE(&S[24]);
-	if (t125 == CLJ_THROWN) {
-	if (o123) clj_release(t123);
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t126 = K[226];
-	clj_value a57[1] = {t126};
-	(void)a57;
-	t124 = clj_c_invoke(t125, a57, 1);
-	(void)t126;
-	if (o125) clj_release(t125);
-	CLJC_SITE(&S[24]);
-	if (t124 == CLJ_THROWN) {
-	if (o123) clj_release(t123);
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t127;
-	bool o128;
-	clj_value t128 = clj_c_var_borrow(V[8], &o128);
-	CLJC_SITE(&S[24]);
-	if (t128 == CLJ_THROWN) {
-	clj_release(t124);
-	if (o123) clj_release(t123);
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t129 = K[222];
-	clj_value a58[1] = {t129};
-	(void)a58;
-	t127 = clj_c_invoke(t128, a58, 1);
-	(void)t129;
-	if (o128) clj_release(t128);
-	CLJC_SITE(&S[24]);
-	if (t127 == CLJ_THROWN) {
-	clj_release(t124);
-	if (o123) clj_release(t123);
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a56[2] = {t124, t127};
-	(void)a56;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t122 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a56, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t122 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a56, 2) : clj_c_invoke(t123, a56, 2);
-#else
-	t122 = clj_c_invoke(t123, a56, 2);
-#endif
-	clj_release(t127);
-	clj_release(t124);
-	if (o123) clj_release(t123);
-	CLJC_SITE(&S[24]);
-	if (t122 == CLJ_THROWN) {
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a55[1] = {t122};
-	(void)a55;
-	clj_value t130;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t130 = clj_seq(t122);
-	} else {
-	t130 = clj_c_intrinsic_fallback(V[12], a55, 1);
-	}
-	clj_release(t122);
-	CLJC_SITE(&S[24]);
-	if (t130 == CLJ_THROWN) {
-	if (o121) clj_release(t121);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a54[1] = {t130};
-	(void)a54;
-	t120 = clj_c_invoke(t121, a54, 1);
-	clj_release(t130);
-	if (o121) clj_release(t121);
-	CLJC_SITE(&S[24]);
-	if (t120 == CLJ_THROWN) {
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t131;
-	bool o132;
-	clj_value t132 = clj_c_var_borrow(V[8], &o132);
-	CLJC_SITE(&S[24]);
-	if (t132 == CLJ_THROWN) {
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t133;
-	bool o134 = false;
-	clj_value t134 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t134 = clj_c_var_borrow(V[13], &o134);
-	CLJC_SITE(&S[24]);
-	if (t134 == CLJ_THROWN) {
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t135;
-	bool o136;
-	clj_value t136 = clj_c_var_borrow(V[8], &o136);
-	CLJC_SITE(&S[24]);
-	if (t136 == CLJ_THROWN) {
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t137 = K[227];
-	clj_value a62[1] = {t137};
-	(void)a62;
-	t135 = clj_c_invoke(t136, a62, 1);
-	(void)t137;
-	if (o136) clj_release(t136);
-	CLJC_SITE(&S[24]);
-	if (t135 == CLJ_THROWN) {
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t138;
-	bool o139;
-	clj_value t139 = clj_c_var_borrow(V[8], &o139);
-	CLJC_SITE(&S[24]);
-	if (t139 == CLJ_THROWN) {
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t140;
-	bool o141;
-	clj_value t141 = clj_c_var_borrow(V[13], &o141);
-	CLJC_SITE(&S[24]);
-	if (t141 == CLJ_THROWN) {
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t142;
-	bool o143;
-	clj_value t143 = clj_c_var_borrow(V[8], &o143);
-	CLJC_SITE(&S[24]);
-	if (t143 == CLJ_THROWN) {
-	if (o141) clj_release(t141);
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t144 = K[228];
-	clj_value a66[1] = {t144};
-	(void)a66;
-	t142 = clj_c_invoke(t143, a66, 1);
-	(void)t144;
-	if (o143) clj_release(t143);
-	CLJC_SITE(&S[24]);
-	if (t142 == CLJ_THROWN) {
-	if (o141) clj_release(t141);
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t145;
-	bool o146;
-	clj_value t146 = clj_c_var_borrow(V[8], &o146);
-	CLJC_SITE(&S[24]);
-	if (t146 == CLJ_THROWN) {
-	clj_release(t142);
-	if (o141) clj_release(t141);
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t147 = l3;
-	clj_value a67[1] = {t147};
-	(void)a67;
-	t145 = clj_c_invoke(t146, a67, 1);
-	(void)t147;
-	if (o146) clj_release(t146);
-	CLJC_SITE(&S[24]);
-	if (t145 == CLJ_THROWN) {
-	clj_release(t142);
-	if (o141) clj_release(t141);
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t148;
-	bool o149;
-	clj_value t149 = clj_c_var_borrow(V[8], &o149);
-	CLJC_SITE(&S[24]);
-	if (t149 == CLJ_THROWN) {
-	clj_release(t145);
-	clj_release(t142);
-	if (o141) clj_release(t141);
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t150 = K[222];
-	clj_value a68[1] = {t150};
-	(void)a68;
-	t148 = clj_c_invoke(t149, a68, 1);
-	(void)t150;
-	if (o149) clj_release(t149);
-	CLJC_SITE(&S[24]);
-	if (t148 == CLJ_THROWN) {
-	clj_release(t145);
-	clj_release(t142);
-	if (o141) clj_release(t141);
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a65[3] = {t142, t145, t148};
-	(void)a65;
-	t140 = clj_c_invoke(t141, a65, 3);
-	clj_release(t148);
-	clj_release(t145);
-	clj_release(t142);
-	if (o141) clj_release(t141);
-	CLJC_SITE(&S[24]);
-	if (t140 == CLJ_THROWN) {
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a64[1] = {t140};
-	(void)a64;
-	clj_value t151;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t151 = clj_seq(t140);
-	} else {
-	t151 = clj_c_intrinsic_fallback(V[12], a64, 1);
-	}
-	clj_release(t140);
-	CLJC_SITE(&S[24]);
-	if (t151 == CLJ_THROWN) {
-	if (o139) clj_release(t139);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a63[1] = {t151};
-	(void)a63;
-	t138 = clj_c_invoke(t139, a63, 1);
-	clj_release(t151);
-	if (o139) clj_release(t139);
-	CLJC_SITE(&S[24]);
-	if (t138 == CLJ_THROWN) {
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a61[2] = {t135, t138};
-	(void)a61;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t133 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a61, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t133 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a61, 2) : clj_c_invoke(t134, a61, 2);
-#else
-	t133 = clj_c_invoke(t134, a61, 2);
-#endif
-	clj_release(t138);
-	clj_release(t135);
-	if (o134) clj_release(t134);
-	CLJC_SITE(&S[24]);
-	if (t133 == CLJ_THROWN) {
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a60[1] = {t133};
-	(void)a60;
-	clj_value t152;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t152 = clj_seq(t133);
-	} else {
-	t152 = clj_c_intrinsic_fallback(V[12], a60, 1);
-	}
-	clj_release(t133);
-	CLJC_SITE(&S[24]);
-	if (t152 == CLJ_THROWN) {
-	if (o132) clj_release(t132);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a59[1] = {t152};
-	(void)a59;
-	t131 = clj_c_invoke(t132, a59, 1);
-	clj_release(t152);
-	if (o132) clj_release(t132);
-	CLJC_SITE(&S[24]);
-	if (t131 == CLJ_THROWN) {
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a52[3] = {t117, t120, t131};
-	(void)a52;
-	t115 = clj_c_invoke(t116, a52, 3);
-	clj_release(t131);
-	clj_release(t120);
-	clj_release(t117);
-	if (o116) clj_release(t116);
-	CLJC_SITE(&S[24]);
-	if (t115 == CLJ_THROWN) {
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a51[1] = {t115};
-	(void)a51;
-	clj_value t153;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t153 = clj_seq(t115);
-	} else {
-	t153 = clj_c_intrinsic_fallback(V[12], a51, 1);
-	}
-	clj_release(t115);
-	CLJC_SITE(&S[24]);
-	if (t153 == CLJ_THROWN) {
-	if (o114) clj_release(t114);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a50[1] = {t153};
-	(void)a50;
-	t113 = clj_c_invoke(t114, a50, 1);
-	clj_release(t153);
-	if (o114) clj_release(t114);
-	CLJC_SITE(&S[24]);
-	if (t113 == CLJ_THROWN) {
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t154;
-	bool o155;
-	clj_value t155 = clj_c_var_borrow(V[8], &o155);
-	CLJC_SITE(&S[24]);
-	if (t155 == CLJ_THROWN) {
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t156;
-	bool o157 = false;
-	clj_value t157 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t157 = clj_c_var_borrow(V[13], &o157);
-	CLJC_SITE(&S[24]);
-	if (t157 == CLJ_THROWN) {
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t158;
-	bool o159;
-	clj_value t159 = clj_c_var_borrow(V[8], &o159);
-	CLJC_SITE(&S[24]);
-	if (t159 == CLJ_THROWN) {
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t160 = K[229];
-	clj_value a72[1] = {t160};
-	(void)a72;
-	t158 = clj_c_invoke(t159, a72, 1);
-	(void)t160;
-	if (o159) clj_release(t159);
-	CLJC_SITE(&S[24]);
-	if (t158 == CLJ_THROWN) {
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t161;
-	bool o162;
-	clj_value t162 = clj_c_var_borrow(V[8], &o162);
-	CLJC_SITE(&S[24]);
-	if (t162 == CLJ_THROWN) {
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t163;
-	bool o164;
-	clj_value t164 = clj_c_var_borrow(V[23], &o164);
-	CLJC_SITE(&S[24]);
-	if (t164 == CLJ_THROWN) {
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	bool o165;
-	clj_value t165 = clj_c_var_borrow(V[60], &o165);
-	CLJC_SITE(&S[24]);
-	if (t165 == CLJ_THROWN) {
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t166;
-	bool o167;
-	clj_value t167 = clj_c_var_borrow(V[13], &o167);
-	CLJC_SITE(&S[24]);
-	if (t167 == CLJ_THROWN) {
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t168;
-	bool o169;
-	clj_value t169 = clj_c_var_borrow(V[8], &o169);
-	CLJC_SITE(&S[24]);
-	if (t169 == CLJ_THROWN) {
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t170 = K[213];
-	clj_value a77[1] = {t170};
-	(void)a77;
-	t168 = clj_c_invoke(t169, a77, 1);
-	(void)t170;
-	if (o169) clj_release(t169);
-	CLJC_SITE(&S[24]);
-	if (t168 == CLJ_THROWN) {
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t171;
-	bool o172;
-	clj_value t172 = clj_c_var_borrow(V[8], &o172);
-	CLJC_SITE(&S[24]);
-	if (t172 == CLJ_THROWN) {
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t173 = K[220];
-	clj_value a78[1] = {t173};
-	(void)a78;
-	t171 = clj_c_invoke(t172, a78, 1);
-	(void)t173;
-	if (o172) clj_release(t172);
-	CLJC_SITE(&S[24]);
-	if (t171 == CLJ_THROWN) {
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t174;
-	bool o175;
-	clj_value t175 = clj_c_var_borrow(V[8], &o175);
-	CLJC_SITE(&S[24]);
-	if (t175 == CLJ_THROWN) {
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t176 = K[214];
-	clj_value a79[1] = {t176};
-	(void)a79;
-	t174 = clj_c_invoke(t175, a79, 1);
-	(void)t176;
-	if (o175) clj_release(t175);
-	CLJC_SITE(&S[24]);
-	if (t174 == CLJ_THROWN) {
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t177;
-	bool o178;
-	clj_value t178 = clj_c_var_borrow(V[8], &o178);
-	CLJC_SITE(&S[24]);
-	if (t178 == CLJ_THROWN) {
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t179;
-	bool o180 = false;
-	clj_value t180 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t180 = clj_c_var_borrow(V[13], &o180);
-	CLJC_SITE(&S[24]);
-	if (t180 == CLJ_THROWN) {
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t181;
-	bool o182;
-	clj_value t182 = clj_c_var_borrow(V[8], &o182);
-	CLJC_SITE(&S[24]);
-	if (t182 == CLJ_THROWN) {
-	if (o180) clj_release(t180);
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t183 = K[230];
-	clj_value a83[1] = {t183};
-	(void)a83;
-	t181 = clj_c_invoke(t182, a83, 1);
-	(void)t183;
-	if (o182) clj_release(t182);
-	CLJC_SITE(&S[24]);
-	if (t181 == CLJ_THROWN) {
-	if (o180) clj_release(t180);
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t184;
-	bool o185;
-	clj_value t185 = clj_c_var_borrow(V[8], &o185);
-	CLJC_SITE(&S[24]);
-	if (t185 == CLJ_THROWN) {
-	clj_release(t181);
-	if (o180) clj_release(t180);
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t186 = l1;
-	clj_value a84[1] = {t186};
-	(void)a84;
-	t184 = clj_c_invoke(t185, a84, 1);
-	(void)t186;
-	if (o185) clj_release(t185);
-	CLJC_SITE(&S[24]);
-	if (t184 == CLJ_THROWN) {
-	clj_release(t181);
-	if (o180) clj_release(t180);
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a82[2] = {t181, t184};
-	(void)a82;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t179 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a82, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t179 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a82, 2) : clj_c_invoke(t180, a82, 2);
-#else
-	t179 = clj_c_invoke(t180, a82, 2);
-#endif
-	clj_release(t184);
-	clj_release(t181);
-	if (o180) clj_release(t180);
-	CLJC_SITE(&S[24]);
-	if (t179 == CLJ_THROWN) {
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a81[1] = {t179};
-	(void)a81;
-	clj_value t187;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t187 = clj_seq(t179);
-	} else {
-	t187 = clj_c_intrinsic_fallback(V[12], a81, 1);
-	}
-	clj_release(t179);
-	CLJC_SITE(&S[24]);
-	if (t187 == CLJ_THROWN) {
-	if (o178) clj_release(t178);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a80[1] = {t187};
-	(void)a80;
-	t177 = clj_c_invoke(t178, a80, 1);
-	clj_release(t187);
-	if (o178) clj_release(t178);
-	CLJC_SITE(&S[24]);
-	if (t177 == CLJ_THROWN) {
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t188;
-	bool o189;
-	clj_value t189 = clj_c_var_borrow(V[8], &o189);
-	CLJC_SITE(&S[24]);
-	if (t189 == CLJ_THROWN) {
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t190 = K[216];
-	clj_value a85[1] = {t190};
-	(void)a85;
-	t188 = clj_c_invoke(t189, a85, 1);
-	(void)t190;
-	if (o189) clj_release(t189);
-	CLJC_SITE(&S[24]);
-	if (t188 == CLJ_THROWN) {
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t191;
-	bool o192;
-	clj_value t192 = clj_c_var_borrow(V[8], &o192);
-	CLJC_SITE(&S[24]);
-	if (t192 == CLJ_THROWN) {
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t193 = l0;
-	clj_value a86[1] = {t193};
-	(void)a86;
-	t191 = clj_c_invoke(t192, a86, 1);
-	(void)t193;
-	if (o192) clj_release(t192);
-	CLJC_SITE(&S[24]);
-	if (t191 == CLJ_THROWN) {
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t194;
-	bool o195;
-	clj_value t195 = clj_c_var_borrow(V[8], &o195);
-	CLJC_SITE(&S[24]);
-	if (t195 == CLJ_THROWN) {
-	clj_release(t191);
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t196 = K[217];
-	clj_value a87[1] = {t196};
-	(void)a87;
-	t194 = clj_c_invoke(t195, a87, 1);
-	(void)t196;
-	if (o195) clj_release(t195);
-	CLJC_SITE(&S[24]);
-	if (t194 == CLJ_THROWN) {
-	clj_release(t191);
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t197;
-	bool o198;
-	clj_value t198 = clj_c_var_borrow(V[8], &o198);
-	CLJC_SITE(&S[24]);
-	if (t198 == CLJ_THROWN) {
-	clj_release(t194);
-	clj_release(t191);
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t199 = K[231];
-	clj_value a88[1] = {t199};
-	(void)a88;
-	t197 = clj_c_invoke(t198, a88, 1);
-	(void)t199;
-	if (o198) clj_release(t198);
-	CLJC_SITE(&S[24]);
-	if (t197 == CLJ_THROWN) {
-	clj_release(t194);
-	clj_release(t191);
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a76[8] = {t168, t171, t174, t177, t188, t191, t194, t197};
-	(void)a76;
-	t166 = clj_c_invoke(t167, a76, 8);
-	clj_release(t197);
-	clj_release(t194);
-	clj_release(t191);
-	clj_release(t188);
-	clj_release(t177);
-	clj_release(t174);
-	clj_release(t171);
-	clj_release(t168);
-	if (o167) clj_release(t167);
-	CLJC_SITE(&S[24]);
-	if (t166 == CLJ_THROWN) {
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a75[1] = {t166};
-	(void)a75;
-	clj_value t200;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t200 = clj_seq(t166);
-	} else {
-	t200 = clj_c_intrinsic_fallback(V[12], a75, 1);
-	}
-	clj_release(t166);
-	CLJC_SITE(&S[24]);
-	if (t200 == CLJ_THROWN) {
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a74[2] = {t165, t200};
-	(void)a74;
-	t163 = clj_c_invoke(t164, a74, 2);
-	clj_release(t200);
-	if (o165) clj_release(t165);
-	if (o164) clj_release(t164);
-	CLJC_SITE(&S[24]);
-	if (t163 == CLJ_THROWN) {
-	if (o162) clj_release(t162);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a73[1] = {t163};
-	(void)a73;
-	t161 = clj_c_invoke(t162, a73, 1);
-	clj_release(t163);
-	if (o162) clj_release(t162);
-	CLJC_SITE(&S[24]);
-	if (t161 == CLJ_THROWN) {
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a71[2] = {t158, t161};
-	(void)a71;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t156 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a71, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t156 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a71, 2) : clj_c_invoke(t157, a71, 2);
-#else
-	t156 = clj_c_invoke(t157, a71, 2);
-#endif
-	clj_release(t161);
-	clj_release(t158);
-	if (o157) clj_release(t157);
-	CLJC_SITE(&S[24]);
-	if (t156 == CLJ_THROWN) {
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a70[1] = {t156};
-	(void)a70;
-	clj_value t201;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t201 = clj_seq(t156);
-	} else {
-	t201 = clj_c_intrinsic_fallback(V[12], a70, 1);
-	}
-	clj_release(t156);
-	CLJC_SITE(&S[24]);
-	if (t201 == CLJ_THROWN) {
-	if (o155) clj_release(t155);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a69[1] = {t201};
-	(void)a69;
-	t154 = clj_c_invoke(t155, a69, 1);
-	clj_release(t201);
-	if (o155) clj_release(t155);
-	CLJC_SITE(&S[24]);
-	if (t154 == CLJ_THROWN) {
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t202;
-	bool o203;
-	clj_value t203 = clj_c_var_borrow(V[8], &o203);
-	CLJC_SITE(&S[24]);
-	if (t203 == CLJ_THROWN) {
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t204;
-	bool o205 = false;
-	clj_value t205 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t205 = clj_c_var_borrow(V[13], &o205);
-	CLJC_SITE(&S[24]);
-	if (t205 == CLJ_THROWN) {
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t206;
-	bool o207;
-	clj_value t207 = clj_c_var_borrow(V[8], &o207);
-	CLJC_SITE(&S[24]);
-	if (t207 == CLJ_THROWN) {
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t208 = K[232];
-	clj_value a92[1] = {t208};
-	(void)a92;
-	t206 = clj_c_invoke(t207, a92, 1);
-	(void)t208;
-	if (o207) clj_release(t207);
-	CLJC_SITE(&S[24]);
-	if (t206 == CLJ_THROWN) {
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t209;
-	bool o210;
-	clj_value t210 = clj_c_var_borrow(V[8], &o210);
-	CLJC_SITE(&S[24]);
-	if (t210 == CLJ_THROWN) {
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t211;
-	bool o212;
-	clj_value t212 = clj_c_var_borrow(V[23], &o212);
-	CLJC_SITE(&S[24]);
-	if (t212 == CLJ_THROWN) {
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	bool o213;
-	clj_value t213 = clj_c_var_borrow(V[60], &o213);
-	CLJC_SITE(&S[24]);
-	if (t213 == CLJ_THROWN) {
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t214;
-	bool o215;
-	clj_value t215 = clj_c_var_borrow(V[13], &o215);
-	CLJC_SITE(&S[24]);
-	if (t215 == CLJ_THROWN) {
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t216;
-	bool o217;
-	clj_value t217 = clj_c_var_borrow(V[8], &o217);
-	CLJC_SITE(&S[24]);
-	if (t217 == CLJ_THROWN) {
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t218 = K[213];
-	clj_value a97[1] = {t218};
-	(void)a97;
-	t216 = clj_c_invoke(t217, a97, 1);
-	(void)t218;
-	if (o217) clj_release(t217);
-	CLJC_SITE(&S[24]);
-	if (t216 == CLJ_THROWN) {
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t219;
-	bool o220;
-	clj_value t220 = clj_c_var_borrow(V[8], &o220);
-	CLJC_SITE(&S[24]);
-	if (t220 == CLJ_THROWN) {
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t221 = K[220];
-	clj_value a98[1] = {t221};
-	(void)a98;
-	t219 = clj_c_invoke(t220, a98, 1);
-	(void)t221;
-	if (o220) clj_release(t220);
-	CLJC_SITE(&S[24]);
-	if (t219 == CLJ_THROWN) {
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t222;
-	bool o223;
-	clj_value t223 = clj_c_var_borrow(V[8], &o223);
-	CLJC_SITE(&S[24]);
-	if (t223 == CLJ_THROWN) {
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t224 = K[214];
-	clj_value a99[1] = {t224};
-	(void)a99;
-	t222 = clj_c_invoke(t223, a99, 1);
-	(void)t224;
-	if (o223) clj_release(t223);
-	CLJC_SITE(&S[24]);
-	if (t222 == CLJ_THROWN) {
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t225;
-	bool o226;
-	clj_value t226 = clj_c_var_borrow(V[8], &o226);
-	CLJC_SITE(&S[24]);
-	if (t226 == CLJ_THROWN) {
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t227;
-	bool o228 = false;
-	clj_value t228 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_concat_a2
-	t228 = clj_c_var_borrow(V[13], &o228);
-	CLJC_SITE(&S[24]);
-	if (t228 == CLJ_THROWN) {
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-#endif
-	clj_value t229;
-	bool o230;
-	clj_value t230 = clj_c_var_borrow(V[8], &o230);
-	CLJC_SITE(&S[24]);
-	if (t230 == CLJ_THROWN) {
-	if (o228) clj_release(t228);
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t231 = K[233];
-	clj_value a103[1] = {t231};
-	(void)a103;
-	t229 = clj_c_invoke(t230, a103, 1);
-	(void)t231;
-	if (o230) clj_release(t230);
-	CLJC_SITE(&S[24]);
-	if (t229 == CLJ_THROWN) {
-	if (o228) clj_release(t228);
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t232;
-	bool o233;
-	clj_value t233 = clj_c_var_borrow(V[8], &o233);
-	CLJC_SITE(&S[24]);
-	if (t233 == CLJ_THROWN) {
-	clj_release(t229);
-	if (o228) clj_release(t228);
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t234 = l1;
-	clj_value a104[1] = {t234};
-	(void)a104;
-	t232 = clj_c_invoke(t233, a104, 1);
-	(void)t234;
-	if (o233) clj_release(t233);
-	CLJC_SITE(&S[24]);
-	if (t232 == CLJ_THROWN) {
-	clj_release(t229);
-	if (o228) clj_release(t228);
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a102[2] = {t229, t232};
-	(void)a102;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t227 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a102, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t227 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a102, 2) : clj_c_invoke(t228, a102, 2);
-#else
-	t227 = clj_c_invoke(t228, a102, 2);
-#endif
-	clj_release(t232);
-	clj_release(t229);
-	if (o228) clj_release(t228);
-	CLJC_SITE(&S[24]);
-	if (t227 == CLJ_THROWN) {
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a101[1] = {t227};
-	(void)a101;
-	clj_value t235;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t235 = clj_seq(t227);
-	} else {
-	t235 = clj_c_intrinsic_fallback(V[12], a101, 1);
-	}
-	clj_release(t227);
-	CLJC_SITE(&S[24]);
-	if (t235 == CLJ_THROWN) {
-	if (o226) clj_release(t226);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a100[1] = {t235};
-	(void)a100;
-	t225 = clj_c_invoke(t226, a100, 1);
-	clj_release(t235);
-	if (o226) clj_release(t226);
-	CLJC_SITE(&S[24]);
-	if (t225 == CLJ_THROWN) {
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t236;
-	bool o237;
-	clj_value t237 = clj_c_var_borrow(V[8], &o237);
-	CLJC_SITE(&S[24]);
-	if (t237 == CLJ_THROWN) {
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t238 = K[216];
-	clj_value a105[1] = {t238};
-	(void)a105;
-	t236 = clj_c_invoke(t237, a105, 1);
-	(void)t238;
-	if (o237) clj_release(t237);
-	CLJC_SITE(&S[24]);
-	if (t236 == CLJ_THROWN) {
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t239;
-	bool o240;
-	clj_value t240 = clj_c_var_borrow(V[8], &o240);
-	CLJC_SITE(&S[24]);
-	if (t240 == CLJ_THROWN) {
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t241 = l0;
-	clj_value a106[1] = {t241};
-	(void)a106;
-	t239 = clj_c_invoke(t240, a106, 1);
-	(void)t241;
-	if (o240) clj_release(t240);
-	CLJC_SITE(&S[24]);
-	if (t239 == CLJ_THROWN) {
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t242;
-	bool o243;
-	clj_value t243 = clj_c_var_borrow(V[8], &o243);
-	CLJC_SITE(&S[24]);
-	if (t243 == CLJ_THROWN) {
-	clj_release(t239);
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t244 = K[217];
-	clj_value a107[1] = {t244};
-	(void)a107;
-	t242 = clj_c_invoke(t243, a107, 1);
-	(void)t244;
-	if (o243) clj_release(t243);
-	CLJC_SITE(&S[24]);
-	if (t242 == CLJ_THROWN) {
-	clj_release(t239);
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t245;
-	bool o246;
-	clj_value t246 = clj_c_var_borrow(V[8], &o246);
-	CLJC_SITE(&S[24]);
-	if (t246 == CLJ_THROWN) {
-	clj_release(t242);
-	clj_release(t239);
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t247 = K[218];
-	clj_value a108[1] = {t247};
-	(void)a108;
-	t245 = clj_c_invoke(t246, a108, 1);
-	(void)t247;
-	if (o246) clj_release(t246);
-	CLJC_SITE(&S[24]);
-	if (t245 == CLJ_THROWN) {
-	clj_release(t242);
-	clj_release(t239);
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a96[8] = {t216, t219, t222, t225, t236, t239, t242, t245};
-	(void)a96;
-	t214 = clj_c_invoke(t215, a96, 8);
-	clj_release(t245);
-	clj_release(t242);
-	clj_release(t239);
-	clj_release(t236);
-	clj_release(t225);
-	clj_release(t222);
-	clj_release(t219);
-	clj_release(t216);
-	if (o215) clj_release(t215);
-	CLJC_SITE(&S[24]);
-	if (t214 == CLJ_THROWN) {
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a95[1] = {t214};
-	(void)a95;
-	clj_value t248;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t248 = clj_seq(t214);
-	} else {
-	t248 = clj_c_intrinsic_fallback(V[12], a95, 1);
-	}
-	clj_release(t214);
-	CLJC_SITE(&S[24]);
-	if (t248 == CLJ_THROWN) {
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a94[2] = {t213, t248};
-	(void)a94;
-	t211 = clj_c_invoke(t212, a94, 2);
-	clj_release(t248);
-	if (o213) clj_release(t213);
-	if (o212) clj_release(t212);
-	CLJC_SITE(&S[24]);
-	if (t211 == CLJ_THROWN) {
-	if (o210) clj_release(t210);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a93[1] = {t211};
-	(void)a93;
-	t209 = clj_c_invoke(t210, a93, 1);
-	clj_release(t211);
-	if (o210) clj_release(t210);
-	CLJC_SITE(&S[24]);
-	if (t209 == CLJ_THROWN) {
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a91[2] = {t206, t209};
-	(void)a91;
-#ifdef CLJC_LOCAL_clojure_core_concat_a2
-	t204 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a91, 2);
-#elif defined(CLJC_DIRECT_clojure_core_concat_a2)
-	if (!CLJC_FN_clojure_core_concat_a2) CLJC_FN_clojure_core_concat_a2 = clj_compiled_symbol("clojure_core_concat_a2");
-	t204 = CLJC_FN_clojure_core_concat_a2 ? CLJC_FN_clojure_core_concat_a2(clj_var_root_relaxed(V[13]), NULL, a91, 2) : clj_c_invoke(t205, a91, 2);
-#else
-	t204 = clj_c_invoke(t205, a91, 2);
-#endif
-	clj_release(t209);
-	clj_release(t206);
-	if (o205) clj_release(t205);
-	CLJC_SITE(&S[24]);
-	if (t204 == CLJ_THROWN) {
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a90[1] = {t204};
-	(void)a90;
-	clj_value t249;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t249 = clj_seq(t204);
-	} else {
-	t249 = clj_c_intrinsic_fallback(V[12], a90, 1);
-	}
-	clj_release(t204);
-	CLJC_SITE(&S[24]);
-	if (t249 == CLJ_THROWN) {
-	if (o203) clj_release(t203);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a89[1] = {t249};
-	(void)a89;
-	t202 = clj_c_invoke(t203, a89, 1);
-	clj_release(t249);
-	if (o203) clj_release(t203);
-	CLJC_SITE(&S[24]);
-	if (t202 == CLJ_THROWN) {
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a48[4] = {t110, t113, t154, t202};
-	(void)a48;
-	t108 = clj_c_invoke(t109, a48, 4);
-	clj_release(t202);
-	clj_release(t154);
-	clj_release(t113);
-	clj_release(t110);
-	if (o109) clj_release(t109);
-	CLJC_SITE(&S[24]);
-	if (t108 == CLJ_THROWN) {
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a47[1] = {t108};
-	(void)a47;
-	clj_value t250;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t250 = clj_seq(t108);
-	} else {
-	t250 = clj_c_intrinsic_fallback(V[12], a47, 1);
-	}
-	clj_release(t108);
-	CLJC_SITE(&S[24]);
-	if (t250 == CLJ_THROWN) {
-	if (o107) clj_release(t107);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a46[1] = {t250};
-	(void)a46;
-	t106 = clj_c_invoke(t107, a46, 1);
-	clj_release(t250);
-	if (o107) clj_release(t107);
-	CLJC_SITE(&S[24]);
-	if (t106 == CLJ_THROWN) {
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a34[3] = {t81, t84, t106};
-	(void)a34;
-	t79 = clj_c_invoke(t80, a34, 3);
-	clj_release(t106);
-	clj_release(t84);
-	clj_release(t81);
-	if (o80) clj_release(t80);
-	CLJC_SITE(&S[24]);
-	if (t79 == CLJ_THROWN) {
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a33[1] = {t79};
-	(void)a33;
-	clj_value t251;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t251 = clj_seq(t79);
-	} else {
-	t251 = clj_c_intrinsic_fallback(V[12], a33, 1);
-	}
-	clj_release(t79);
-	CLJC_SITE(&S[24]);
-	if (t251 == CLJ_THROWN) {
-	if (o78) clj_release(t78);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a32[1] = {t251};
-	(void)a32;
-	t77 = clj_c_invoke(t78, a32, 1);
-	clj_release(t251);
-	if (o78) clj_release(t78);
-	CLJC_SITE(&S[24]);
-	if (t77 == CLJ_THROWN) {
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t252;
-	bool o253;
-	clj_value t253 = clj_c_var_borrow(V[8], &o253);
-	CLJC_SITE(&S[24]);
-	if (t253 == CLJ_THROWN) {
-	clj_release(t77);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value t254 = K[220];
-	clj_value a109[1] = {t254};
-	(void)a109;
-	t252 = clj_c_invoke(t253, a109, 1);
-	(void)t254;
-	if (o253) clj_release(t253);
-	CLJC_SITE(&S[24]);
-	if (t252 == CLJ_THROWN) {
-	clj_release(t77);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a28[5] = {t68, t71, t74, t77, t252};
-	(void)a28;
-	t66 = clj_c_invoke(t67, a28, 5);
-	clj_release(t252);
-	clj_release(t77);
-	clj_release(t74);
-	clj_release(t71);
-	clj_release(t68);
-	if (o67) clj_release(t67);
-	CLJC_SITE(&S[24]);
-	if (t66 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a27[1] = {t66};
-	(void)a27;
-	clj_value t255;
-	if (CLJC_GUARD(V[12], B[0])) {
-	t255 = clj_seq(t66);
-	} else {
-	t255 = clj_c_intrinsic_fallback(V[12], a27, 1);
-	}
-	clj_release(t66);
-	CLJC_SITE(&S[24]);
-	if (t255 == CLJ_THROWN) {
-	if (o65) clj_release(t65);
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a26[1] = {t255};
-	(void)a26;
-	t64 = clj_c_invoke(t65, a26, 1);
-	clj_release(t255);
-	if (o65) clj_release(t65);
-	CLJC_SITE(&S[24]);
-	if (t64 == CLJ_THROWN) {
-	clj_release(t16);
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	goto L1;
-	}
-	clj_value a4[4] = {t12, t15, t16, t64};
-	(void)a4;
-	t10 = clj_c_invoke(t11, a4, 4);
-	clj_release(t64);
-	clj_release(t16);
-	(void)t15;
-	clj_release(t12);
-	if (o11) clj_release(t11);
-	CLJC_SITE(&S[24]);
-	if (t10 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_value a3[1] = {t10};
+	clj_value a3[1] = {t11};
 	(void)a3;
-	clj_value t256;
+	clj_value t257;
 	if (CLJC_GUARD(V[12], B[0])) {
-	t256 = clj_seq(t10);
+	t257 = clj_seq(t11);
 	} else {
-	t256 = clj_c_intrinsic_fallback(V[12], a3, 1);
+	t257 = clj_c_intrinsic_fallback(V[12], a3, 1);
 	}
-	clj_release(t10);
+	clj_release(t11);
 	CLJC_SITE(&S[24]);
-	if (t256 == CLJ_THROWN) {
+	if (t257 == CLJ_THROWN) {
 	goto L1;
 	}
 	CLJC_LEAVE(&S[24], &cc);
@@ -22557,7 +22557,7 @@ static CLJC_FRAME clj_value clojure_test_form48__0_a2(clj_value self, const clj_
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l7);
-	return t256;
+	return t257;
 L1: ;
 	CLJC_LEAVE(&S[24], &cc);
 	clj_release(l2);
@@ -30533,7 +30533,6 @@ CLJC_FRAME clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *
 	clj_value l5 = CLJ_NIL;
 	clj_value l6 = CLJ_NIL;
 	clj_value l8 = CLJ_NIL;
-	clj_value l9 = CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[43], &cc);
 #line 303 "<embedded>/clojure/test.clj"
@@ -30836,7 +30835,7 @@ L3: ;
 	if (t43 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_c_rebind(&l9, t43);
+	clj_c_rebind(&l8, t43);
 	clj_value t46;
 	bool o47;
 	clj_value t47 = clj_c_var_borrow(V[92], &o47);
@@ -30859,7 +30858,7 @@ L3: ;
 	if (o47) clj_release(t47);
 	goto L1;
 	}
-	clj_value t50 = l9;
+	clj_value t50 = l8;
 	clj_value a13[3] = {t48, t49, t50};
 	(void)a13;
 	t46 = clj_c_invoke(t47, a13, 3);
@@ -30966,7 +30965,6 @@ L3: ;
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l8);
-	clj_release(l9);
 	clj_c_release_slots(&fr, 8);
 	return t10;
 L1: ;
@@ -30977,7 +30975,6 @@ L1: ;
 	clj_release(l5);
 	clj_release(l6);
 	clj_release(l8);
-	clj_release(l9);
 	clj_c_release_slots(&fr, 8);
 	return CLJ_THROWN;
 }

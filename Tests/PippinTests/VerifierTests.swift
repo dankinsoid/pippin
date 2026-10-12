@@ -36,6 +36,29 @@ private func check(_ node: UnsafeMutablePointer<clj_node>, _ flags: UInt32) -> (
 
 private let everything = CLJ_VERIFY_NUMBERED | CLJ_VERIFY_MARKS
 
+// The first node in pre-order the predicate takes.
+private func find(_ root: UnsafeMutablePointer<clj_node>, _ pred: (UnsafePointer<clj_node>) -> Bool) -> UnsafeMutablePointer<clj_node>? {
+	var found: UnsafePointer<clj_node>?
+	func walk(_ n: UnsafePointer<clj_node>) {
+		if found != nil { return }
+		if pred(n) {
+			found = n
+			return
+		}
+		var children: [UnsafePointer<clj_node>] = []
+		withUnsafeMutablePointer(to: &children) { ctx in
+			clj_node_children(n, { child, ctx in ctx!.assumingMemoryBound(to: [UnsafePointer<clj_node>].self).pointee.append(child!) }, ctx)
+		}
+		for c in children { walk(c) }
+	}
+	walk(root)
+	return found.map(mutable)
+}
+
+private func inlineOf(_ how: clj_inline_how) -> (UnsafePointer<clj_node>) -> Bool {
+	{ $0.pointee.kind == CLJ_NODE_INLINE && UInt32($0.pointee.u.inline_.how) == how.rawValue }
+}
+
 extension CoreTests {
 	// Design §3 «Корректность реализации», items 1 and 6 (NOTES "Internal errors", "Tree verifier").
 	@Suite struct VerifierTests {
@@ -86,6 +109,40 @@ extension CoreTests {
 			#expect(check(node, CLJ_VERIFY_MARKS).kind == "verify/recur-not-in-tail")
 			body.pointee.u.if_.test = test
 			body.pointee.u.if_.then = then
+		}
+
+		// Invariant 12 for the shapes of beta-reduction and known paths: a literal fn's body only for a fn its guarded call
+		// passes, a path guard over its own var at the boot root, a path body only under a path guard.
+		@Test func inlinedShapesHoldTheirGuards() throws {
+			_ = try rt.eval("(defn vt-app [f x] (f x))")
+			let lit = try #require(analyzed("(fn [y] (vt-app (fn [x] (+ x y)) 1))"))
+			defer { release(lit) }
+			#expect(check(lit, everything).ok)
+			let copy = try #require(find(lit, inlineOf(CLJ_INLINE_LITERAL)))
+			let passed = copy.pointee.u.inline_.fn
+			copy.pointee.u.inline_.fn = UnsafePointer(lit)
+			#expect(check(lit, everything).kind == "verify/inline-literal")
+			copy.pointee.u.inline_.fn = passed
+			#expect(check(lit, everything).ok)
+
+			let path = try #require(analyzed("(fn [m k] (assoc-in m [:a k] 1))"))
+			defer { release(path) }
+			#expect(check(path, everything).ok)
+			let guardNode = try #require(find(path) { $0.pointee.kind == CLJ_NODE_ROOT_IS && $0.pointee.u.root_is.nguards > 0 })
+			let own = guardNode.pointee.u.root_is.guards[0]
+			let map = Value(symbol: "clojure.core/map")
+			guardNode.pointee.u.root_is.guards[0] = withExtendedLifetime(map) { clj_fusion_find_named(map.raw) }
+			#expect(check(path, everything).kind == "verify/inline-guard")
+			guardNode.pointee.u.root_is.guards[0] = own
+			let body = try #require(find(path, inlineOf(CLJ_INLINE_PATH)))
+			body.pointee.u.inline_.how = UInt8(CLJ_INLINE_COPY.rawValue)
+			#expect(check(path, everything).kind == "verify/inline-shape")
+			body.pointee.u.inline_.how = UInt8(CLJ_INLINE_PATH.rawValue)
+			let level = try #require(find(path, inlineOf(CLJ_INLINE_LEVEL)))
+			level.pointee.u.inline_.how = UInt8(CLJ_INLINE_LITERAL.rawValue)
+			#expect(check(path, everything).kind == "verify/inline-literal")
+			level.pointee.u.inline_.how = UInt8(CLJ_INLINE_LEVEL.rawValue)
+			#expect(check(path, everything).ok)
 		}
 
 		@Test func theDigestSeesAWrite() throws {
@@ -150,6 +207,18 @@ extension CoreTests {
 			#expect(stderr.contains("clj: internal error [verify/read-after-last-use]"))
 			#expect(stderr.contains("pass: optimize/liveness"))
 			#expect(stderr.contains("the tree as optimize/liveness left it"))
+		}
+
+		// CLJ_NO_OPT=beta,path: a callee calling its parameter keeps its call, and so does a literal path.
+		@Test(.enabled(if: exitChecks)) func theSwitchTurnsBetaAndPathOff() async {
+			await #expect(processExitsWith: .success) {
+				setenv("CLJ_NO_OPT", "beta,path", 1)
+				clj_init()
+				clj_release(clj_eval_node(analyzed("(defn vt-app2 [f x] (f x))")!))
+				let beta = analyzed("(fn [y] (vt-app2 (fn [x] x) y))")!, path = analyzed("(fn [m] (assoc-in m [:a :b] 1))")!
+				let none = { (n: UnsafePointer<clj_node>) in n.pointee.kind == CLJ_NODE_INLINE }
+				exit(find(beta, none) == nil && find(path, none) == nil && Value(owning: clj_eval_node(analyzed("((fn [y] (vt-app2 inc y)) 1)")!)) == 2 ? 0 : 1)
+			}
 		}
 
 		// CLJ_NO_OPT=1: no optimizer pass, no reuse, no layouts, and the program still answers.

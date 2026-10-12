@@ -737,6 +737,13 @@ static const clj_node *copy_direct_target(const copy_ctx *c, const clj_node *fro
 	clj_ice("optimize/inline-direct-call", at, "a direct call whose fn was not copied before it");
 }
 
+static const clj_node *copied_literal(const copy_ctx *c, const clj_node *inl) {
+	for (uint32_t i = c->nfn; i-- > 0;) {
+		if (c->from[i] == inl->u.inline_.fn) return c->to[i];
+	}
+	clj_ice("optimize/inline-literal", inl, "a copied literal fn body whose guarded call was not copied before it");
+}
+
 static clj_capture copy_capture(const copy_ctx *c, int level, const clj_capture *cap, const clj_node *at) {
 	clj_capture out = *cap;
 	if (level == VERBATIM) return out;
@@ -844,6 +851,16 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 	case CLJ_NODE_VAR: clj_slot_store(&m->h, &m->u.var, clj_retain(n->u.var.v)); break;
 	case CLJ_NODE_IF:
 		m->u.if_.test = copy_node(n->u.if_.test, c, level);
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) {
+			// the call first: a literal fn copied into the then branch names the fn node the copied call passes
+			m->u.if_.else_ = copy_node(n->u.if_.else_, c, level);
+			const clj_node *from = n->u.if_.else_, *to = m->u.if_.else_;
+			for (uint32_t i = 0; i < from->u.invoke.n; i++) {
+				if (from->u.invoke.args[i]->kind == CLJ_NODE_FN) fn_map_add(c, from->u.invoke.args[i], to->u.invoke.args[i]);
+			}
+			m->u.if_.then = copy_node(n->u.if_.then, c, level);
+			break;
+		}
 		m->u.if_.then = copy_node(n->u.if_.then, c, level);
 		m->u.if_.else_ = n->u.if_.else_ ? copy_node(n->u.if_.else_, c, level) : NULL;
 		break;
@@ -944,7 +961,7 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 	case CLJ_NODE_INLINE: {
 		// a guard's body is a level of the budget; a literal fn's body and a path's levels sit inside one
 		bool guarded = n->u.inline_.how == CLJ_INLINE_COPY || n->u.inline_.how == CLJ_INLINE_PATH;
-		m->u.inline_.fn = n->u.inline_.fn;
+		m->u.inline_.fn = n->u.inline_.how == CLJ_INLINE_LITERAL ? copied_literal(c, n) : n->u.inline_.fn;
 		m->u.inline_.how = n->u.inline_.how;
 		c->depth += guarded;
 		m->u.inline_.body = copy_node(n->u.inline_.body, c, level);

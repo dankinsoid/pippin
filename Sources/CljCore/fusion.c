@@ -1,5 +1,6 @@
 // @ai-generated(guided)
 #include "clj/fusion.h"
+#include "ice_internal.h"
 #include "shadow_internal.h"
 #include "stats_internal.h"
 
@@ -38,6 +39,8 @@ static const clj_fusion_var table[] = {
 	OTHER("apply", CLJ_FUSION_GUARD),          OTHER("reduced?", CLJ_FUSION_GUARD),       OTHER("unreduced", CLJ_FUSION_GUARD),
 	OTHER("volatile!", CLJ_FUSION_GUARD),      OTHER("deref", CLJ_FUSION_GUARD),          OTHER("vreset!", CLJ_FUSION_GUARD),
 	OTHER("reduced", CLJ_FUSION_GUARD),        OTHER("ensure-reduced", CLJ_FUSION_GUARD), OTHER("not", CLJ_FUSION_GUARD),
+	OTHER("inc", CLJ_FUSION_GUARD),            OTHER("dec", CLJ_FUSION_GUARD),            OTHER("pos?", CLJ_FUSION_GUARD),
+	OTHER("nil?", CLJ_FUSION_GUARD),           OTHER("complement", CLJ_FUSION_GUARD),
 };
 
 enum { N = sizeof table / sizeof *table };
@@ -172,14 +175,49 @@ static clj_value mono_rf(void *ctx, const clj_value *args, size_t n) {
 	if (n == 1) return clj_invoke(m->bot, args, 1);
 	// the step's ctx is the site's frame: a source that kept the fn past its reduce meets this, not a dead frame
 	if (!m->step) return clj_throw_msg("reducing fn called after its reduce finished");
-	clj_value y, k = m->step(m->ctx, args[1], &y);
-	if (k == CLJ_THROWN) return CLJ_THROWN;
-	if (k == CLJ_FALSE) return clj_retain(args[0]);
-	clj_value in[2] = {args[0], y};
-	clj_value r = clj_invoke(m->bot, in, 2);
-	clj_release(y);
-	return r;
+	clj_value y, r;
+	int       k = m->step(m->ctx, args[1], &y);
+	if (k < 0) return CLJ_THROWN;
+	if (k & CLJ_FUSED_EMIT) {
+		clj_value in[2] = {args[0], y};
+		r = clj_invoke(m->bot, in, 2);
+		clj_release(y);
+		if (r == CLJ_THROWN) return r;
+	} else {
+		r = clj_retain(args[0]);
+	}
+	if (!(k & CLJ_FUSED_HALT) || clj_is_reduced(r)) return r;
+	// take's ensure-reduced, take-while's reduced
+	clj_value halted = clj_reduced_new(r);
+	clj_release(r);
+	return halted;
 }
+
+// A vector source walked a leaf at a time with the step and the bottom called directly, as the vector's reduce would
+// call them through the rf; false with the exception pending.
+static bool walk_vector(bottom *b, clj_value vec, const mono *m) {
+	for (uint32_t i = 0, n = clj_vector_count(vec), start, end; i < n;) {
+		const clj_slot *run = clj_vector_run(vec, i, &start, &end);
+		for (; i < end; i++) {
+			clj_value y;
+			int       k = m->step(m->ctx, run[i - start].v, &y);
+			if (k < 0) return false;
+			if (k & CLJ_FUSED_EMIT) {
+				clj_value in[2] = {CLJ_NIL, y};
+				clj_value r = bottom_fn(b, in, 2);
+				clj_release(y);
+				if (r == CLJ_THROWN) return false;
+				bool done = clj_is_reduced(r);
+				clj_release(r);
+				if (done) return true;
+			}
+			if (k & CLJ_FUSED_HALT) return true;
+		}
+	}
+	return true;
+}
+
+static bool walks_vector(clj_value coll, const mono *m) { return m && clj_is_vector(coll) && !clj_opt_off(CLJ_NO_OPT_INLINE); }
 
 static void mono_free(void *ctx) {
 	mono *m = ctx;
@@ -240,13 +278,22 @@ static clj_value drive(bottom *b, clj_value coll, clj_value xfs, const mono *m) 
 		free(b);
 		return CLJ_THROWN;
 	}
-	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
-	clj_value done;
-	bool      ok = run(bot, coll, xfs, m, &done);
-	b->done = true;
-	clj_value acc = b->acc;
-	b->acc = CLJ_NIL;
-	clj_release(bot);
+	clj_value done = CLJ_NIL, acc;
+	bool      ok;
+	if (walks_vector(coll, m)) {
+		ok = walk_vector(b, coll, m);
+		// the stages' completions hand the result on to the bottom's, which answers the accumulator
+		if (ok) done = bottom_fn(b, &done, 1);
+		acc = b->acc;
+		free(b);
+	} else {
+		clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
+		ok = run(bot, coll, xfs, m, &done);
+		b->done = true;
+		acc = b->acc;
+		b->acc = CLJ_NIL;
+		clj_release(bot);
+	}
 	if (!ok) {
 		if (acc != CLJ_UNBOUND) clj_release(acc);
 		return CLJ_THROWN;
@@ -309,7 +356,13 @@ clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll) {
 }
 
 static clj_value fused_count(clj_value coll, clj_value xfs, const mono *m) {
-	bottom   *b = bottom_new(BOTTOM_COUNT);
+	bottom *b = bottom_new(BOTTOM_COUNT);
+	if (walks_vector(coll, m)) {
+		bool    ok = walk_vector(b, coll, m);
+		int64_t count = b->count;
+		free(b);
+		return ok ? clj_fixnum((intptr_t)count) : CLJ_THROWN;
+	}
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
 	clj_value done;
 	bool      ok = run(bot, coll, xfs, m, &done);
