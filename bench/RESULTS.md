@@ -2773,3 +2773,41 @@ medley −1.1 % allocations; nested-update, async-pipeline and async-libs moved 
   headers): `boot/core.c` 5 186 794 → 5 188 273 bytes (+0.03 %; 26 tail conses of its 33 tokens, one line each),
   clang `-O0 -DCLJ_DEBUG=1` 4.16 → 3.79 s, `-O2 -DCLJ_CLOSED` 23.69 → 23.06 s (the host's spread); the embedded libs
   have no site.
+
+## Dead slots dropped — d12c165, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §7 «Мёртвые слоты» (docs/notes/compiler.md, "Dead slots dropped where they die"): a compiled frame releases a
+slot whose last read only borrowed where the slot dies, not at its next binding, when it holds a core collection or
+seq. Two `corpus-bench` runs side by side: 38289663352 on branch `branch-drop` d12c165, *before* 38288275413 on main
+eb276f7. Every workload returned the JVM's value in every runtime. Counters per iteration, closed stats build.
+
+| workload | allocs | MB | rc plain | map copies | map-node copies | tokens taken | closed ms (closed/JVM) |
+|---|---|---|---|---|---|---|---|
+| nested-update | 812.9k → 570.7k (−29.8 %) | 63.9 → 40.0 | 5.73M → 3.79M (−33.9 %) | 199.4k → 33.2k | 86.0k → 52 | — | 150.5 (1.1×) → 170.9 (1.1×) |
+| async-libs | 299.7k → 237.5k (−20.8 %) | 20.8 → 18.5 | 201.9k → 171.5k (−15.1 %) | 3 → 4 | 3 → 4 | 26 → 30.0k | 99.5 (0.8×) → 96.5 (1.0×) |
+| async-broadcast | 210.0k → 190.1k (−9.5 %) | 11.6 → 10.8 | 930.0k → 910.0k | — | — | 40.0k → 60.0k | 52.3 (0.4×) → 50.2 (0.7×) |
+| combinatorics | 3.52M → 3.19M (−9.4 %) | 184.8 → 174.2 | 17.22M → 16.88M (−2.0 %) | — | — | 265.3k → 599.4k | 206.0 (2.0×) → 387.4 (5.2×) |
+| pipelines | 8.67M → 8.07M (−6.9 %) | 411.4 → 392.2 | 38.20M → 37.60M (−1.6 %) | — | — | 525.1k → 1.13M | 672.9 (3.8×) → 749.7 (4.3×) |
+| dependency | 6.28M → 6.04M (−3.8 %) | 369.8 → 361.9 | 45.23M → 45.22M | — | — | 2.90M → 3.14M | 703.9 (2.1×) → 671.1 (1.6×) |
+
+medley −0.6 % allocations; group-freq, strings, render, suite-data and async-pipeline moved no counter.
+
+- **nested-update: the lingering levels.** The unrolled `(get-in st [:users uid :visits] 0)` and `(get-in st [:index
+  …])` kept the users map, the user map and the index map in their levels' let slots across `(step st x)`; dropped
+  at the branch or binding where each dies, they leave `step` the only holder, and its take-outs reach them: 166k of
+  the 199k map copies an iteration and all but 52 of the 86k map-node copies become updates in place, reuse in place
+  7.30M → 7.56M; the census's map allocations 193.7k → 34.8k, map-node 83.5k → 191.
+- **The seq stages: tokens taken.** A seq a let slot held past its last read kept the next cell's realized seq at rc 2,
+  so the token of the `cons` built from it was refused; dropped, it is unique: cons allocated in combinatorics 580.1k →
+  246.1k, pipelines 755.0k → 155.0k, dependency 251.1k → 5.2k, and `range` cells reused in async-libs (30.0k) and
+  async-broadcast (20.0k).
+- **Time**: the runners differ (JVM warm combinatorics 101.6 vs 74.8 ms, nested-update 137.6 vs 154.8, async-broadcast
+  131.5 vs 73.6), so closed/JVM is the fairer column and one run is no per-workload claim; the stats build's own
+  nested-update time on each runner went 373 → 251 ms. combinatorics' closed column (206 → 387 ms) disagrees with its
+  stats build (541 → 562 ms), with dev (264.8 → 276.8) and with every counter, all down; its closed profile has the
+  same breakdown over 3852 busy samples against 5304 in the same 8 s, so the process sat off the CPU on this runner.
+  No regression the counters show; trigger to look again: the gap on a rerun.
+- **Compile cost** (the x86_64 dev host, min of three clang runs, before = this tree's compiler under `--no-opt=drop`,
+  byte-identical to main's boot units): `boot/core.c` 5 188 707 → 5 205 626 bytes (+0.33 %; 932 drops), clang
+  `-O0 -DCLJ_DEBUG=1` 3.94 → 3.91 s, `-O2 -DCLJ_CLOSED` 22.07 → 22.45 s (+1.7 %); the closed nested-update unit
+  162 012 → 162 343 bytes (18 drops). A drop is one inline call: a type test and a release.

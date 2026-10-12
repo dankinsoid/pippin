@@ -765,12 +765,10 @@
   group-by's vectors are conj'd in place (50k an iteration in group-freq, 75k in pipelines, 20k in medley).
   *Not done, each with its trigger.* A value moved out to an opaque call is still copied there, +0 (group-freq's
   `(fnil conj #{})`) — when such a site ranks in a profile; records, sorted maps and a path that is not a literal
-  give nothing up — when their copies under an assoc of the same key rank in a census. A let slot keeps its value
-  past its last read until it is bound again when that read sits in a branch the other branch does not mirror with
-  a drop: nested-update's `(get-in st [:users …] 0)` leaves the users map in such a slot across `(step st x)`, which
-  then meets it at rc 2 and copies it and its node path (its 199k map and 86k node copies left) — the trigger is
-  that residue. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry) and a lazy-seq thunk
-  lets its captures go at its tail cons (the next entry); any other literal fn's or a let-bound direct fn's
+  give nothing up — when their copies under an assoc of the same key rank in a census. A slot whose last read only
+  borrows is dropped where it dies (the "Dead slots dropped" entry), so the unrolled reads of nested-update no longer
+  hold the users map across `(step st x)`. A lowered reduce's literal owns its accumulator (the "Lowered natives"
+  entry) and a lazy-seq thunk lets its captures go at its tail cons (the next entry); any other literal fn's or a let-bound direct fn's
   parameters and a variadic arity stay +0 — triggers: a closure called per element in a profile (a literal given to
   `mapv` or `filterv`, a `FUSED` site's reducing fn). The interpreter keeps +0 throughout but for that accumulator.
 - [~] **A lazy-seq thunk lets its captures go at its tail cons** (design §7 «Владеющие параметры»; `thunk.c`
@@ -809,6 +807,51 @@
   coll), keeps its captures to the publish — when such a thunk's cascade ranks in a census; the release cascade now runs inside `clj_lazy_seq_let_go` (5.7 %
   self in dependency, where `publish` and the frees fell), a deferred drop would take it off the thunk — with the
   deferred release of design §7.
+- **Dead slots dropped where they die** (design §7 «Мёртвые слоты»; reuse.c `note_death`, `drop_at`,
+  `droppable_walk`, `cljc_reuse_drops`; compiler.c `emit_drops`; compiled_internal.h `clj_c_drop`; verify.c
+  `clj_verify_drops`; `CLJ_NO_OPT=drop`). A promoted slot owns
+  its value until a hand-over moves it (a last-use mark, a late take, a hand-over to an owned parameter, a consumed
+  next or rest), a rebind replaces it or the teardown releases it. A last read that only borrows — a get's map, a
+  `count`, an `if` test, a call argument — moved nothing, so the value stayed until the slot was bound again:
+  nested-update's unrolled `(get-in st [:users uid :visits] 0)` left the users map and the user map in the levels'
+  slots across `(step st x)`, which met both at rc 2 and copied them and their node path. The optimizer's marks were
+  right; what was missing was a release in the slot plan, which both backends share. *The plan.* reuse.c's marking
+  pass places a drop where an owned slot dies, over the converged live sets: at a branch's entry, what died in the test
+  and what only the other branch reads; past a let or loop binding's store, what died in its init and the binding's
+  own slot when nothing reads it; past a let's or loop's body, what died there and no point inside dropped, unless
+  only the frame's exit follows; past a `do`'s item; before a recur rebinds, what died in its operands but the
+  target's own slots, which the rebinding releases. A death stays loose from its read to the first point that may
+  drop it: a slot an earlier operand of an enclosing call still borrows (the liveness's `held`) waits for a point past
+  that call, and a slot a take, hand-over or consumed next or rest moves out leaves nothing. The emitter writes
+  `clj_c_drop(&l<s>)` at the point (`if`, an inlined call's guard, `do`, `let`, `loop`, `recur`, the typed arms of
+  `emit_result`), skipping a slot a split's fast branch types. *Only collections go early.* `clj_c_drop` releases the
+  value only when its type is a core collection or seq (an immortal type with the coll or seq bit): those are what an
+  update can reuse, and anything else keeps the scope's lifetime, which a host API holding it unretained relies on —
+  a Cocoa delegate is weak, and the objc fixture's `(.set-delegate p d)` was the reify's last read, so an unconditional
+  drop freed it before `(.parse p)` called it (gates 38288264197). The interpreter keeps every slot to the rebind, so
+  a host value must not go earlier in compiled code either; a host object reached through a collection is the
+  collection's to hold. reuse.c leaves out a death whose read the facts prove holds no such value and the slots no
+  read or binding of the frame may hold one (`DROPPABLE`: the seq, vector, map, set and sorted kinds, and HOST for
+  every kind the facts do not name), so an inlined `mod` or `lcg` gets no drop. *Exact.* A drop moves a release earlier and
+  adds none: the slot holds nil past it, so the rebind and the teardown release nil. It stands only where the slot is
+  dead on every path from the point — a try body keeps what its handlers and finally read live throughout, a slot
+  bound outside a loop is live across the recur — and never on a slot a pending operand borrows or a direct fn body
+  reads through the static link. A point an emitter path skips (`CLJ_NO_OPT=inline` emits a guarded call alone) keeps
+  the old release. Debug builds check each frame's plan forward in `clj_verify_drops` (Internal errors, invariant 11).
+  *Interpreter*: unchanged, its slots keep their values to the rebind. A drop there would free nothing a consumer could
+  then update in place: its calls pass +0 and it makes no take-out, so the parent and its children are copied whether
+  or not a slot still holds the child; only two slots aliasing one value, one of them handed to a consuming intrinsic,
+  would gain, and inlining hands a let init's last use over rather than aliasing it. `--stats` counts "dead slots
+  dropped": core.c 932, the embedded libs 259 (core.async 183), the closed nested-update unit 18. Fixtures:
+  `drop.clj` (a branch, a handler and a finally reading the slot, a slot read across a loop, a held operand, a recur,
+  a capture, a `do`, an unread binding, an update after the drop with the parent held elsewhere, a throw),
+  `objc.clj`'s delegate (the host value kept), `CompilerFixtureTests.deadSlotIsDroppedBeforeTheUpdate` (the take-outs
+  a lingering child would refuse).
+  Measured (bench/RESULTS.md, "Dead slots dropped", runs 38289663352 against 38288275413): nested-update's map copies
+  199.4k → 33.2k an iteration and map-node copies 86.0k → 52, allocations −29.8 %, plain RC ops −33.9 %; a seq a
+  slot held no longer refuses the next cons its token, so tokens taken rise in combinatorics (265k → 599k, −9.4 %
+  allocations), pipelines (525k → 1.13M, −6.9 %), dependency (2.90M → 3.14M, −3.8 %), async-libs (−20.8 %) and
+  async-broadcast (−9.5 %). Cost: core.c +0.33 % bytes (932 drops), clang −O0 within the spread, −O2 +1.7 %.
 - [~] **Inlining on the AST** (design §6 «Инлайнинг без JIT», §10 step 7a; optimizer.c `inline_walk`, `try_inline`,
   `copy_node`, `literal_call`; eval.c `eval_root_is`, `eval_inline`; compiler.c `emit_inlined_call`, `emit_inline`;
   verify.c `walk_inlined`, `walk_nested_inline`). A pass of `clj_optimize` between the rewrites and the liveness marks, so both backends get it: a

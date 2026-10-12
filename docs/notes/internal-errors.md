@@ -156,7 +156,12 @@ checks the tree and the facts between passes in debug builds; one option turns e
       once" true. Beside it, always on: a caller asking for another owned mask than the callee's entry took
       (`emit/owned-mask`, both read one inference), a hand-over or late take at an operand that does not read the
       slot (`emit/hand-slot`, `emit/take-slot`), and in debug units `CLJC_TAKE_CHECK`: the slot still holds what
-      its borrowed read saw when the call takes it.
+      its borrowed read saw when the call takes it. The frame's drops (`clj_verify_drops`, apart from reuse.c's
+      backward placement): forward over the frame with invariant 7's fixpoints, no read of a slot after a drop
+      until a binding rebinds it (`verify/read-after-drop`), and no drop of a slot an earlier operand of a pending
+      call borrows or a direct fn body reads (`verify/drop-of-held-slot`); a drop of a slot the frame does not own
+      as a C variable stops the emitter (`emit/drop-slot`). A drop leaves nil or, for a value it keeps (not a core
+      collection or seq), the value itself, so the rebind or the teardown releases each reference once.
   12. Inlined calls (`walk_inlined`, `walk_nested_inline`): a `ROOT_IS` only as the test of an `if` whose then branch
       is an `INLINE` (behind a let of fresh slots or bare) and whose else branch is the call of that very var; the
       guard holds a closure without an environment whose fn node is the `INLINE`'s. A guard without core vars is a
