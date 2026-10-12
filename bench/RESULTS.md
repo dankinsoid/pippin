@@ -2698,3 +2698,43 @@ or copy counter.
   headers): `boot/core.c` 5 177 636 → 5 186 794 bytes (+0.18 %; 12 of its 18 lowered sites own the accumulator), clang `-O0 -DCLJ_DEBUG=1` 4.15 →
   4.14 s, `-O2 -DCLJ_CLOSED` 21.43 → 21.13 s; `libs_clojure_set.c` +5.0 % (all 10 sites, set-building reduces),
   core.async +0.2 % (3 of 6), walk +1.0 % (1 of 1). An owned site adds a one-line step and a +0 wrapper of two lines.
+
+## Take-out get — f0ea740, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §7 «Статус take-out `get`» (docs/notes/compiler.md, "Owned parameters", the take-out get): a get whose value an
+assoc of the same slot and key puts back moves a unique child out of its unique parent at +1, so the child's own
+consumer updates it in place. Two `corpus-bench` runs side by side: 38270897697 on branch `take-out` f0ea740, *before*
+38270902667 on main 74d53f8. Every workload returned the JVM's value in every runtime. Counters per iteration, closed
+stats build; `taken out` is the new `stat taken_out`.
+
+| workload | taken out | allocs | MB | rc plain | in place / copied (types that moved) | closed ms (closed/JVM) |
+|---|---|---|---|---|---|---|
+| nested-update | 200.1k | 1.30M → 813.5k | 138.6 → 63.9 | 13.23M → 5.73M | map 260.8k/366.1k → 427.5k/199.4k, map-node 0/404.4k → 318.4k/86.0k | 170.5 (2.0×) → 137.6 (1.4×) |
+| group-freq | 100.0k | 4.87M → 4.77M | 241.7 → 227.2 | 26.05M → 24.95M | vector 150.1k/100.0k → 200.1k/50.0k, vector-node 156.2k/102.2k → 206.9k/51.5k | 364.6 (2.7×) → 346.3 (2.3×) |
+| pipelines | 75.0k | 9.05M → 8.90M | 440.5 → 418.6 | 38.85M → 38.35M | vector 318.8k/675.0k → 393.8k/600.0k, vector-node 336.7k/677.0k → 413.7k/600.0k | 681.3 (3.5×) → 507.2 (2.5×) |
+| medley | 20.0k | 669.5k → 629.6k | 53.5 → 47.8 | 4.50M → 4.07M | vector 40.0k/38.0k → 60.0k/18.1k | 64.2 (1.5×) → 53.4 (1.1×) |
+| combinatorics | 5.5k | 3.75M → 3.74M | 192.4 → 191.9 | 17.28M → 17.25M | vector 231.5k/363.1k → 236.9k/357.6k | 254.0 (3.2×) → 177.4 (1.5×) |
+
+suite-data took 297 values out and moved nothing else; dependency, strings, render and the async workloads take
+nothing out and moved no counter.
+
+- **nested-update: the inner levels stop copying.** 167k of its 366k map copies and 318k of its 404k map-node copies
+  an iteration become updates in place: −37 % allocations, −54 % MB, −57 % plain RC ops. The copies left are the
+  levels under `:users` on the steps where the loop's reads still hold that map: `run*`'s `(get-in st [:users …] 0)`
+  binds each level to a let slot of the unrolled path, and the slot keeps its value until it is bound again on the
+  next iteration (the last read sits in a branch the other branch does not mirror with a drop), so `step` meets the
+  users map at rc 2 and copies it and its node path.
+- **group-freq, pipelines, medley: group-by's vectors.** core's `group-by` is `(assoc! ret k (conj (get ret k []) x))`
+  over a transient accumulator; `assoc!` inlined makes it the let shape, so each group's vector is conj'd in place:
+  50k vectors an iteration in group-freq, 75k in pipelines, 20k in medley. group-freq's other 50k are its `buckets`
+  sets: taken out of the reduce's own map and handed to `(fnil conj #{})`, an opaque fn that takes them +0, so
+  nothing is saved there, and that assoc changes the map on 115 of the 50k steps (a conj of a city the set holds
+  answers the same set); its map copies are `merge-with`'s, whose fns are let-bound.
+- **Time**: the runners differ (JVM warm nested-update 85.1 vs 101.3 ms, combinatorics 78.4 vs 118.1), so
+  closed/JVM is the fairer column, and one run is no per-workload claim; nested-update 2.0 → 1.4× and group-freq
+  2.7 → 2.3× are the ones the counters back. Dev takes values out too (core's compiled update, assoc-in, group-by):
+  nested-update dev 197.6 → 173.9 ms, 166.7k taken out an iteration.
+- **Compile cost** (the x86_64 dev host, min of three clang runs, -O2 min of six alternated, before = 74d53f8's boot
+  units under this tree's headers): `boot/core.c` 5 186 794 → 5 187 228 bytes (+0.008 %; 10 take-out gets), clang
+  `-O0 -DCLJ_DEBUG=1` 4.76 → 4.79 s, `-O2 -DCLJ_CLOSED` 26.52 → 26.48 s; `libs_clojure_set.c` 148 178 → 148 246
+  bytes, clang 0.58 → 0.57 s / 1.23 → 1.18 s. A site changes one call and adds a flag and its test.

@@ -758,10 +758,17 @@
   aliasing (the child or the parent held elsewhere, a capture of the parent), a throw inside f with and without a
   handler reading the parent, nil, the same child and an absent key put back, a trie, a flat map, a tuple and a
   cached hash; the model's updates call `mt-boom` too, a throw caught around the update. `--stats` counts the
-  "take-out gets", the corpus bench's `stat taken_out` the values moved out.
+  "take-out gets" (core.c 10), the corpus bench's `stat taken_out` the values moved out. Measured (bench/RESULTS.md
+  "Take-out get"): nested-update takes 200k values out an iteration, 167k of its 366k map copies and 318k of its
+  404k map-node copies become updates in place, allocations −37 %, plain RC ops −57 %, closed/JVM 2.0 → 1.4×;
+  group-by's vectors are conj'd in place (50k an iteration in group-freq, 75k in pipelines, 20k in medley).
   *Not done, each with its trigger.* A value moved out to an opaque call is still copied there, +0 (group-freq's
   `(fnil conj #{})`) — when such a site ranks in a profile; records, sorted maps and a path that is not a literal
-  give nothing up — when their copies under an assoc of the same key rank in a census. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry); any other
+  give nothing up — when their copies under an assoc of the same key rank in a census. A let slot keeps its value
+  past its last read until it is bound again when that read sits in a branch the other branch does not mirror with
+  a drop: nested-update's `(get-in st [:users …] 0)` leaves the users map in such a slot across `(step st x)`, which
+  then meets it at rc 2 and copies it and its node path (its 199k map and 86k node copies left) — the trigger is
+  that residue. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry); any other
   literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one shot: the thunk could own them;
   dependency's cascade pairs) and a variadic arity stay +0 — triggers: a closure called per element in a profile (a
   literal given to `mapv` or `filterv`, a `FUSED` site's reducing fn), a profile of `concat`/`map` cells. The
@@ -976,9 +983,9 @@
   lowered accumulator at +1"): dependency's 2.0M map and node copies an iteration become updates in place (−18 %
   allocations, −36 % plain RC ops), pipelines' 924k and suite-data's 283k sorted-node copies are gone (−9 % and −44 %
   allocations); group-freq's `buckets` reduce owns its map, and a closed build inlines core's `update` into it and
-  takes the map at the assoc, which changes it on 115 of the 50k steps anyway (a conj of a city the set holds
-  answers the same set); group-freq's map copies are `merge-with`'s, whose fns are let-bound. Cost: core.c +0.18 %
-  bytes, clang within the host's spread.
+  takes the map at the assoc, which changes the map on 115 of the 50k steps (a conj of a city the set holds answers
+  the same set); group-freq's map copies are `merge-with`'s, whose fns are let-bound. Cost: core.c +0.18 % bytes,
+  clang within the host's spread.
   Not done, each with its trigger: an owned accumulator passed on to a call that takes it +0 (a dev unit's
   `(update m k (fnil conj #{}) v)`: core's update is not inlined there, and another unit's owned entry is not
   reached) — when its map copies rank in a profile; a fused site's reducing fn
