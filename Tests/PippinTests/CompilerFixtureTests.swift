@@ -323,7 +323,10 @@ extension CoreTests {
 			let owned = clj_no_opt() & clj_no_opt_parse("owned") == 0
 			if clj_reuse_enabled() {
 				let want: Int64 = owned ? 8 : 1
-				#expect(c1[0] - c0[0] == want && c1[1] - c0[1] == want, "taken \(c1[0] - c0[0]), used \(c1[1] - c0[1])")
+				// the system allocator records no size, so a vector-seq's cell takes no cons: only the outer stage's
+				let system = getenv("CLJ_SYSTEM_ALLOC").map { $0.pointee != 0 && $0.pointee != 0x30 } ?? false
+				let used: Int64 = system ? (owned ? 4 : 0) : want
+				#expect(c1[0] - c0[0] == want && c1[1] - c0[1] == used, "taken \(c1[0] - c0[0]), used \(c1[1] - c0[1])")
 			} else {
 				#expect(c1[1] == c0[1])
 			}
