@@ -677,7 +677,8 @@
   closed count the same; time within the runner's spread.
   What does not pair, and why: a +0 parameter, a capture and a value the runtime holds lend no cell — the
   census's pairs in dependency are cascade deaths in the runtime (a `concat` cell freed by the previous lazy cell's
-  publish), which no frame sees; a def'd fn's owned parameter (the owned parameters entry below) does lend its. A string is built by runtime calls (`str`, `subs`), never by the
+  publish), which no frame sees but a thunk's tail cons, where the thunk lets its captures go first (the entry on it
+  below); a def'd fn's owned parameter (the owned parameters entry below) does lend its. A string is built by runtime calls (`str`, `subs`), never by the
   compiled code, so a token for one needs string entries that take a cell, which none has; the census counts 26–41 %
   of strings and render's strings in pairs (worth it once those workloads rank on `pool_alloc` of strings). Fn and lazy-seq cells: ≈0 pairs
   by the census, not chased. Not done: destructive match (`(let [[a b] pair] …)` moving fields out of a unique tuple) and
@@ -768,11 +769,46 @@
   past its last read until it is bound again when that read sits in a branch the other branch does not mirror with
   a drop: nested-update's `(get-in st [:users …] 0)` leaves the users map in such a slot across `(step st x)`, which
   then meets it at rc 2 and copies it and its node path (its 199k map and 86k node copies left) — the trigger is
-  that residue. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry); any other
-  literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one shot: the thunk could own them;
-  dependency's cascade pairs) and a variadic arity stay +0 — triggers: a closure called per element in a profile (a
-  literal given to `mapv` or `filterv`, a `FUSED` site's reducing fn), a profile of `concat`/`map` cells. The
-  interpreter keeps +0 throughout but for that accumulator.
+  that residue. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry) and a lazy-seq thunk
+  lets its captures go at its tail cons (the next entry); any other literal fn's or a let-bound direct fn's
+  parameters and a variadic arity stay +0 — triggers: a closure called per element in a profile (a literal given to
+  `mapv` or `filterv`, a `FUSED` site's reducing fn). The interpreter keeps +0 throughout but for that accumulator.
+- [~] **A lazy-seq thunk lets its captures go at its tail cons** (design §7 «Владеющие параметры»; `thunk.c`
+  `cljc_thunk_let_go`, compiler.c `emit_let_go`, compiled_internal.h `clj_c_thunk_let_go`, seq.c
+  `clj_lazy_seq_let_go`; `CLJ_NO_OPT=owned` turns it off, at emission and, for the boot units, at run time). *Not at
+  most once.* A thunk whose run throws leaves its cell unclaimed, and the next force runs it again (seq.c `unclaim`,
+  `SeqTests` "the next force runs it again", the waiters of a cancelled forcer), so the thunk cannot own its captures
+  from entry: one consumed before a later throw would be gone for the rerun. *What holds instead*: past the operands
+  of a `cons` in tail position — through `if`, `let`, `loop`, `do` and an inlined body, never a `try`, whose `finally`
+  or handler still runs — whose tail is a seq or nil, nothing can fail before the publish, so the cell never runs the
+  thunk again. There, inside the intrinsic guard and before drop-guided reuse draws its token (the site must have one),
+  the cell's captures are stored nil and released, all but one an operand of the cons reads directly, which is
+  borrowed; the publish then clears nil. The token's value is then often unique: in `map`, `filter`, `concat` and the
+  rest, `s` is the realized seq of the captured `coll`, which only the capture held — the cascade death the census
+  counted in the previous cell's publish — and the cons is built in its cell. A tail the cons would seq (it may throw)
+  keeps the captures to the publish. *Which caller.* The cell calls the arity with `self` nil; its closure (a rebound
+  `lazy-seq*`, which may call it twice) passes itself, and `clj_c_thunk_let_go` tests that; nothing else calls a
+  lazy-seq site's arity. `clj_lazy_seq_let_go` finds the cell from its own `captured` array; debug builds check that
+  the cell is the top of this execution's forcing stack, claimed, with a code thunk and the mask within its captures
+  (`seq/let-go-outside-its-force`), and the emitter that the site sits in the thunk's own frame (`emit/let-go-frame`).
+  *Concurrency and the collector.* The claim spans the whole run and a waiter reads no capture; the store is the
+  publish's own `clj_slot_store`, the releases after it, as the collector's lock-free protocol asks. A coroutine parked
+  in the thunk is parked before the point, so an abandoned park holds what it held before. *Interpreter*: it keeps the
+  captures to the publish; with no tokens there is nothing to gain. `--stats` counts the sites: core.c 26 tail conses
+  of its 33 tokens (`concat`, `map` ×4, `filter`, `keep`, `take`, `take-while`, `partition`, `distinct`, ...), the
+  embedded libs none. Fixtures: `lazy-let-go.clj` (a capture read by the cons, a loop, a throw before the cons and a
+  tail the cons must seq — both rerun with every capture —, a stage held by a let, a rebound `lazy-seq*` calling the
+  closure twice), `CompilerFixtureTests.lazyThunksLetTheirCapturesGoAtTheTailCons` (counts, and a shared seq forced
+  from eight threads). Measured (bench/RESULTS.md, "A lazy-seq thunk lets its captures go"): dependency's tokens taken
+  6.1k → 2.90M an iteration, its cons 3.14M → 251k, allocations −31.5 %, MB −20 %; combinatorics' tokens used 43.6k →
+  264k, allocations −5.9 %; render −6.0 %, pipelines −2.5 %; plain RC ops within 0.4 %, since the release only moves
+  earlier. Cost: core.c +0.03 % bytes, clang within the host's spread. Not done, each with its trigger: the lazy cell
+  that dies at the let-go and the one the operands just built are a same-size pair no token takes (the new cell exists
+  before the old one dies) — when `captures_cell` and the lazy-seq frees rank above the cons ones they replaced
+  (dependency 4.9 % self); a thunk whose tail is a call, not a cons (`filter`'s skipped item, `concat` past its first
+  coll), keeps its captures to the publish — when such a thunk's cascade ranks in a census; the release cascade now runs inside `clj_lazy_seq_let_go` (5.7 %
+  self in dependency, where `publish` and the frees fell), a deferred drop would take it off the thunk — with the
+  deferred release of design §7.
 - [~] **Inlining on the AST** (design §6 «Инлайнинг без JIT», §10 step 7a; optimizer.c `inline_walk`, `try_inline`,
   `copy_node`, `literal_call`; eval.c `eval_root_is`, `eval_inline`; compiler.c `emit_inlined_call`, `emit_inline`;
   verify.c `walk_inlined`, `walk_nested_inline`). A pass of `clj_optimize` between the rewrites and the liveness marks, so both backends get it: a

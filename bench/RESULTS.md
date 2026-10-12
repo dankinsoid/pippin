@@ -2738,3 +2738,38 @@ nothing out and moved no counter.
   units under this tree's headers): `boot/core.c` 5 186 794 → 5 187 228 bytes (+0.008 %; 10 take-out gets), clang
   `-O0 -DCLJ_DEBUG=1` 4.76 → 4.79 s, `-O2 -DCLJ_CLOSED` 26.52 → 26.48 s; `libs_clojure_set.c` 148 178 → 148 246
   bytes, clang 0.58 → 0.57 s / 1.23 → 1.18 s. A site changes one call and adds a flag and its test.
+
+## A lazy-seq thunk lets its captures go — b4848e9, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §7 «Захваты thunk'а `lazy-seq`» (docs/notes/compiler.md, "A lazy-seq thunk lets its captures go at its tail
+cons"): past the operands of a tail `cons` the thunk cannot fail, so the cell's captures are released before the
+token is drawn, and the realized seq only a capture held reaches it at rc 1. Two `corpus-bench` runs side by side:
+38269462034 on branch `lazy-own` b4848e9, *before* 38269468020 on main 74d53f8. Every workload returned the JVM's
+value in every runtime. Counters per iteration, closed stats build (dev counts the same tokens).
+
+| workload | allocs | MB | rc plain | cons allocated | tokens taken / used | closed ms (closed/JVM) |
+|---|---|---|---|---|---|---|
+| dependency | 9.17M → 6.28M (−31.5 %) | 462.4 → 369.8 | 45.34M → 45.23M | 3.14M → 251.1k | 6.1k/6.1k → 2.90M/2.90M | 561.4 (1.8×) → 662.7 (1.9×) |
+| combinatorics | 3.75M → 3.53M (−5.9 %) | 192.4 → 185.4 | 17.28M → 17.24M | 800.4k → 580.1k | 46.0k/43.6k → 266.4k/263.9k | 207.3 (2.4×) → 232.1 (1.9×) |
+| render | 928.1k → 872.1k (−6.0 %) | 52.4 → 50.6 | 3.46M → 3.44M | 124.0k → 68.0k | 64.0k/64.0k → 124.0k/120.0k | 71.2 (1.9×) → 68.6 (1.8×) |
+| async-broadcast | 230.0k → 210.0k (−8.7 %) | 12.2 → 11.6 | 930.0k → 930.0k | — | 20.0k/20.0k → 40.0k/40.0k | 55.3 (0.7×) → 43.5 (0.4×) |
+| strings | 766.6k → 736.6k (−3.9 %) | 58.3 → 57.4 | 2.36M → 2.33M | 72.0k → 42.0k | 2/2 → 55.0k/30.0k | 45.1 (1.6×) → 49.1 (1.2×) |
+| pipelines | 9.05M → 8.82M (−2.5 %) | 440.5 → 433.3 | 38.85M → 38.70M | 980.1k → 755.0k | 300.0k/300.0k → 525.1k/525.1k | 683.7 (3.7×) → 603.2 (3.0×) |
+| suite-data | 670.4k → 652.1k (−2.7 %) | 39.9 → 39.3 | 2.49M → 2.49M | 130.3k → 112.0k | 9.3k/9.0k → 97.6k/27.3k | 54.8 (1.5×) → 69.4 (1.7×) |
+| group-freq | 4.87M → 4.77M (−2.1 %) | 241.7 → 238.5 | 26.05M → 25.95M | 300.3k → 200.1k | 49.5k/49.5k → 249.4k/149.7k | 316.3 (2.7×) → 407.1 (1.9×) |
+
+medley −1.1 % allocations; nested-update, async-pipeline and async-libs moved no counter but by a few thousand.
+
+- **dependency: the cascade pairs pair.** The census's 82 % of its cons in reuse pairs were deaths in the publish of
+  the previous lazy cell, which released the captured `coll` whose realized seq `concat`'s and `map`'s `s` is; that
+  release now comes before the cons, so 2.90M of 3.14M cons an iteration are built in the cell of the one they
+  replace, with 2.89M fields kept in place.
+- **RC ops do not move**: the release only comes earlier, and an in-place cons saves the release and retain of a kept
+  field against the token's own work.
+- **Time**: the runners differ (JVM warm medley 31.9 vs 63.7 ms), so closed/JVM is the fairer column, and one run is
+  no per-workload claim. In dependency's closed profile `publish` falls 7.9 → 5.0 % self and `pool_alloc` 5.9 →
+  4.3 %, while `clj_lazy_seq_let_go` takes 5.7 %: the release cascade the publish ran now runs there.
+- **Compile cost** (the x86_64 dev host, min of three clang runs, before = 74d53f8's boot units under this tree's
+  headers): `boot/core.c` 5 186 794 → 5 188 273 bytes (+0.03 %; 26 tail conses of its 33 tokens, one line each),
+  clang `-O0 -DCLJ_DEBUG=1` 4.16 → 3.79 s, `-O2 -DCLJ_CLOSED` 23.69 → 23.06 s (the host's spread); the embedded libs
+  have no site.

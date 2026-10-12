@@ -73,7 +73,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `inline` | the inlining pass of `clj_optimize` (NOTES "Compiler", inlining on the AST), so `beta` and `path` with it; in the emitter the intrinsics' fast arms at the site and the monomorphized fused stages; at run time the fused drivers' own walk of a vector |
   | `beta` | inlining a callee that calls a parameter, and with it a literal fn argument copied where the callee calls it |
   | `path` | `get-in`, `assoc-in` and `update-in` unrolled over a literal path (NOTES "Compiler", known paths) |
-  | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry |
+  | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry; a lazy-seq thunk keeps its captures to the publish |
   | `lower` | `reduce`, `reduce-kv`, `swap!` and `swap-vals!` over a literal fn run without its closure (NOTES "Compiler", lowered natives); `inline` turns it off too |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
