@@ -731,8 +731,10 @@
   one new case is a borrowed source retained for an owned parameter, so an abandoned park whose ring passes
   through such a parameter stays — the class of the channel bound by a `go` body's `let`, under the same trigger.
   *Numbers* (`--stats`): core.clj 63 arities over 72 parameters, 62 owned call sites handing 26 dying slots over, 8
-  late takes; the closed nested-update unit 14 late takes (its known paths' levels); bench/RESULTS.md "Owned
-  parameters". *Not done, each with its trigger.* The child a parent map holds is still copied: `(assoc m k (f (get
+  late takes; the closed nested-update unit 14 late takes (its known paths' levels). Measured (bench/RESULTS.md
+  "Owned parameters"): nested-update 260k of its 627k map copies an iteration become updates in place, allocations
+  −16.7 %, plain RC ops −15 %, closed 221 → 162 ms; dependency, group-freq and pipelines move no counter — their
+  values reach callees through `reduce`, lazy-seq captures and core's higher-order fns, all +0 by construction. *Not done, each with its trigger.* The child a parent map holds is still copied: `(assoc m k (f (get
   m k)))` updates `m` in place but `(get m k)` leaves the child at rc 2 — a take-out get (the slot of a unique `m`
   emptied, the child handed over at +1, Lean's `modify`) is the next lever, trigger: nested-update's inner
   `bnode_copy` in a profile. A literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one

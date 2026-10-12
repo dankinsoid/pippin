@@ -2575,3 +2575,52 @@ value in every runtime. The census is the closed stats build's, a frame being a 
   path sites in a 40-line program, each level a guarded `get` and `assoc`), clang `-O2` on it 0.99 → 1.02 s. The path
   sites are bounded per site (160 nodes) rather than by the frame's budget — their growth is linear in the paths the
   source writes — which is where that unit's growth comes from; nowhere else did a budget let a frame past the bound.
+
+## Owned parameters — 0ca5977, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7в (docs/notes/compiler.md, "Owned parameters"): a def'd fn's parameter that the frame consumes
+arrives at +1 through an owned entry, a direct call hands its dying slot over, and a consuming intrinsic takes a slot
+that a later operand read again (the late take). One `corpus-bench` run, 38243983039 on branch `owned-params`
+0ca5977; *before* is "Literal fns, known paths, stateful fused stages" (38231371023, 813b9e1). Every workload returned
+the JVM's value in every runtime. Counters per iteration, closed stats build.
+
+| workload | allocs before → after | MB | rc plain | maps in place / copied | vectors in place / copied | tokens taken |
+|---|---|---|---|---|---|---|
+| nested-update | 1.56M → 1.30M | 153.5 → 138.6 | 15.54M → 13.23M | 0 / 626.9k → 260.8k / 366.1k | 3.30M / 66.8k → same | 2 → 2 |
+| combinatorics | 3.84M → 3.82M | 196.9 → 194.6 | 17.78M → 17.72M | 42.7k / 13.9k → same | 221.6k / 372.9k → 231.5k / 363.1k | 45.0k → 45.0k |
+| dependency | 11.20M → 11.20M | 732.4 → 732.4 | 70.58M → 70.54M | 707.4k / 712.5k → same | — | 6.1k → 6.1k |
+| group-freq | 4.97M → 4.97M | 256.5 → 256.5 | 27.67M → 27.67M | 717 / 100.2k → same | 100.0k / 150.1k → same | 49.5k → 49.5k |
+| pipelines | 9.97M → 9.97M | 572.2 → 572.2 | 49.33M → 49.33M | 0 / 301.0k → same | 318.8k / 675.0k → same | 300.0k → 300.0k |
+
+- **nested-update: 260k map copies an iteration become updates in place** (−16.7 % allocations, −15 % plain RC ops):
+  `run*`'s loop hands `st` to `step` at its death, and the known path's top `assoc` takes it at the call (the late
+  take: the level's `(get m k)` read it first). The 366k copies left are the inner levels: `(get m k)` leaves the
+  child at rc 2, held by its parent until the parent's `assoc` replaces it — a take-out `get` is the lever there, not
+  ownership (NOTES, the entry's "Not done"). Census: died in the birth frame 14.8 → 15.4 %.
+- **dependency, group-freq, pipelines: no counter moved, and that is the finding.** dependency's pairs are the cells
+  `concat` and `map` build in `lazy-seq` thunks, whose source is a capture, not a parameter; group-freq's map is
+  `reduce`'s accumulator, handed to its fn by the runtime at +0 (`clj_invoke`); pipelines is core's higher-order fns
+  over literal fns. All three wait on a +1 argument from a caller that is not a direct call of a def — the 7a′
+  lowering of `reduce` with a literal fn and a one-shot thunk owning its captures are the triggers (NOTES).
+  combinatorics: 10k vectors in place more (its own def'd helpers handing a vector on).
+- **Time** (ms per iteration, closed/JVM in parentheses; the runner was another kind — JVM warm dependency 350 → 498,
+  medley 38 → 44 —, so closed/JVM is the fairer column and only nested-update has counters behind it):
+
+  | workload | dev before → after | closed before → after |
+  |---|---|---|
+  | nested-update | 226.0 → 219.3 | 221.2 (2.1×) → 162.2 (1.7×) |
+  | dependency | 736.5 → 893.7 | 755.8 (2.2×) → 683.7 (1.4×) |
+  | group-freq | 373.7 → 348.8 | 386.3 (2.6×) → 335.2 (2.0×) |
+  | pipelines | 640.7 → 616.4 | 703.8 (3.3×) → 599.1 (3.3×) |
+  | combinatorics | 229.9 → 263.8 | 180.2 (2.0×) → 181.5 (2.2×) |
+
+  Closed is ahead of dev on eight of the nine data workloads in this run (suite-data 100.7 against 74.9 is the
+  exception, its counters unchanged): before it trailed dev on dependency, group-freq, pipelines and render. The dev
+  units take the owned entry only within a unit (the dispatcher's identity is the guard), so nested-update's dev
+  column moves by its `step` call alone (generic invokes 1.84M → 1.64M).
+- **Compile cost** (the x86_64 dev host, the minimum of three clang runs, before = origin/main 214145d): `boot/core.c`
+  5 092 878 → 5 145 358 bytes (+1.0 %; 63 owned entries over 72 parameters, 62 owned call sites, 8 late takes), clang
+  `-O0 -DCLJ_DEBUG=1` 4.21 → 4.37 s (+3.8 %), `-O2 -DCLJ_CLOSED` 22.1 → 22.4 s (+1.4 %); `clojure.string` +6.5 %
+  bytes (nine owned call sites, each four arms), clang +11 % `-O0` / +3 % `-O2` on a 0.5 s compile; the closed
+  nested-update unit 157.2k → 161.0k bytes (+2.4 %), clang 0.85 → 0.87 s at `-O2`. The inference itself (a second
+  facts table per def'd fn before emission) adds 0.01–0.04 s to a 0.5 s whole-program `clj-compile --core --closed`.
