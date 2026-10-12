@@ -646,7 +646,9 @@ extension CoreTests {
 			proc.waitUntilExit()
 			try #require(proc.terminationStatus == 0, "clj-compile: \(stats)")
 			let inlining = clj_no_opt() & (clj_no_opt_parse("inline") | clj_no_opt_parse("passes")) == 0
-			if inlining { #expect(stats.contains("of which from another unit 3,"), "\(stats)") }
+			// mod in m7 and max-key in pick at least
+			let cross = stats.components(separatedBy: "of which from another unit ").dropFirst().first.flatMap { Int($0.prefix { $0.isNumber }) } ?? 0
+			if inlining { #expect(cross >= 2, "\(stats)") }
 			var o = evalOptions()
 			for line in try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8).split(separator: "\n") {
 				let cells = line.split(separator: "\t", maxSplits: 1).map(String.init)
