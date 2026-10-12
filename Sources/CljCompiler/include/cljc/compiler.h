@@ -86,7 +86,9 @@ typedef struct {
 	uint64_t reuse_tokens;   // cons sites built in the cell of a value dying there (drop-guided reuse)
 	uint64_t reuse_consumes; // next/rest sites that hand their dying operand over
 	uint64_t inlined;        // inlined calls written with their body (optimizer.c), the guard 1 in a closed set binding the fn
-	uint64_t mono_fused;     // fused sites whose map/filter/remove stages over literal fns run as one step function
+	uint64_t mono_fused;     // fused sites whose stages over literal fns run as one step function
+	uint64_t literals;       // literal fn arguments written as their body where the inlined callee calls them
+	uint64_t paths;          // get-in, assoc-in and update-in sites written over their literal path
 	uint64_t defs;           // top-level defs of the unit
 	uint64_t defs_dropped;   // of those, the ones the shaker left out (closed only)
 	uint64_t def_bytes;      // C bytes the kept defs' functions take, as emitted

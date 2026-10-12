@@ -18,6 +18,9 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *arity, clj_sum
 // The effects of evaluating n, a subtree of a numbered tree, under the store's summaries: a walk that records nothing,
 // and stops at the first effect among stop (0: never).
 uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums, uint32_t stop);
+// The same without the calls of the slots in free_calls of n's own frame: a copied body's code apart from the calls it
+// makes of values it was given (optimizer.c).
+uint32_t clj_facts_effects_calling(const clj_node *n, clj_summaries *sums, uint32_t stop, uint64_t free_calls);
 // Whether the tables of clj_facts_core_effects name it.
 bool clj_facts_core_named(const char *name);
 // Effects of a clojure.core call by name: none for a predicate, IO and atom-write from short lists, else alloc|throw.

@@ -41,10 +41,21 @@ typedef enum {
 	// An inlined call (optimizer.c, design §6 «Инлайнинг без JIT») is (if ROOT_IS (INLINE body) (f args)), its args
 	// bound by an enclosing let or substituted: the body runs only while the var holds the closure it was copied from.
 	CLJ_NODE_ROOT_IS, // whether a var's root is still the closure an inlined body was copied from
-	CLJ_NODE_INLINE,  // a callee's arity body copied into the calling frame: a frame of the callee in a trace, nothing else
+	CLJ_NODE_INLINE,  // a fn's body in the calling frame (clj_inline_how): a frame of that fn in a trace, nothing else
 } clj_node_kind;
 
 #define CLJ_NODE_KIND_LAST CLJ_NODE_INLINE
+
+// What an INLINE stands for; each is a frame of its fn in a trace.
+typedef enum {
+	CLJ_INLINE_COPY,    // the guard's closure's arity body, copied: the then branch of its guard
+	CLJ_INLINE_PATH,    // a known-path specialization of get-in, assoc-in or update-in: the then branch of its guard
+	CLJ_INLINE_LEVEL,   // one level of the recursion a known-path specialization unrolled, inside its PATH body
+	CLJ_INLINE_LITERAL, // a literal fn argument of a guarded call, its arity body where the callee calls it (beta-reduction)
+} clj_inline_how;
+
+// The longest path a known-path specialization unrolls (optimizer.c): its levels, which the verifier bounds.
+#define CLJ_INLINE_PATH_MAX 4
 
 // Clojure's limit; more parameters go through the rest argument.
 #define CLJ_FN_MAX_FIXED 20
@@ -148,14 +159,18 @@ struct clj_node {
 		} invoke;
 		// The guard of an inlined body: expect is the closure the body was copied from (its node is the INLINE's fn),
 		// held so that its identity is never reused; a var redefined, rebound or dynamic fails it.
+		// guards: a known-path specialization's core vars that must hold their boot roots (fusion.h), the var among them.
 		struct {
-			clj_slot var;
-			clj_slot expect;
+			clj_slot               var;
+			clj_slot               expect;
+			const clj_fusion_var **guards;
+			uint32_t               nguards;
 		} root_is;
-		// fn is the callee's fn node, borrowed: the ROOT_IS beside it holds the closure that holds its tree.
+		// fn is borrowed: the guard's closure holds the callee's tree, its else branch a literal argument's FN node.
 		struct {
 			const clj_node *fn;
 			const clj_node *body;
+			uint8_t         how; // clj_inline_how
 		} inline_;
 		// Labels are syntax, folded into one selector here, so no backend reads them again (design §5).
 		struct {

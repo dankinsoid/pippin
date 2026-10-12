@@ -477,6 +477,7 @@ typedef struct {
 	bool          summary; // a summary walk: nothing is stored, and a BOTTOM argument makes a call unreachable
 	bool          bounded; // a store's walk: cut past CLJ_FACTS_MAX_WALK_DEPTH, the C stack being shared with the asker
 	uint32_t      stop;    // effects that end the walk: the asker wants only whether one of them happens
+	uint64_t      free_calls; // slots of the walk's own frame whose calls the asker leaves out of the effects
 	char         *stack_limit; // the walk descends no lower: it runs under specialize.c's lock, where a fault is fatal
 	// The def'd arity being walked, whose own sites (same var, same arity, in its own frame) are no recorded sites but
 	// the self fixpoint's: joined into self_join when it is set, dropped otherwise (NOTES.md "Facts", the caller join).
@@ -1590,6 +1591,10 @@ static clj_fact infer_invoke(pass *p, const clj_node *n, env *e) {
 		infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
 		return clj_fact_top();
 	}
+	if (head->kind == CLJ_NODE_LOCAL && p->in_fn == 0 && head->u.local.index < 64 && ((p->free_calls >> head->u.local.index) & 1)) {
+		infer_args(p, n->u.invoke.args, n->u.invoke.n, e, NULL, NULL);
+		return clj_fact_top();
+	}
 	return infer_call(p, n, n->u.invoke.args, n->u.invoke.n, e, NULL, CLJ_NIL);
 }
 
@@ -1876,11 +1881,13 @@ void clj_facts_walk_arity(const clj_node *fn, const clj_fn_arity *a, clj_summari
 	free_scratch(&f);
 }
 
-uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums, uint32_t stop) {
+uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums, uint32_t stop) { return clj_facts_effects_calling(n, sums, stop, 0); }
+
+uint32_t clj_facts_effects_calling(const clj_node *n, clj_summaries *sums, uint32_t stop, uint64_t free_calls) {
 	clj_facts f = {0};
 	f.conflict_node = UINT32_MAX;
 	f.sums = sums;
-	pass p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .stop = stop, .self_var = CLJ_NIL,
+	pass p = {.f = &f, .def_var = CLJ_NIL, .summary = true, .bounded = true, .stop = stop, .free_calls = free_calls, .self_var = CLJ_NIL,
 	          .stack_limit = clj_stack_limit()};
 	if (sums) warm_summaries(n, sums);
 	uint32_t nslots = 0;

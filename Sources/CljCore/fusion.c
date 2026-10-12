@@ -33,6 +33,11 @@ static const clj_fusion_var table[] = {
 	OTHER("reduce", CLJ_FUSION_CONSUMER),      OTHER("into", CLJ_FUSION_CONSUMER),       OTHER("vec", CLJ_FUSION_CONSUMER),
 	OTHER("count", CLJ_FUSION_CONSUMER),       OTHER("fused-reduce*", CLJ_FUSION_DRIVER), OTHER("fused-into*", CLJ_FUSION_DRIVER),
 	OTHER("fused-count*", CLJ_FUSION_DRIVER),
+	OTHER("get-in", CLJ_FUSION_GUARD),         OTHER("assoc-in", CLJ_FUSION_GUARD),       OTHER("update-in", CLJ_FUSION_GUARD),
+	OTHER("seq", CLJ_FUSION_GUARD),            OTHER("first", CLJ_FUSION_GUARD),          OTHER("next", CLJ_FUSION_GUARD),
+	OTHER("apply", CLJ_FUSION_GUARD),          OTHER("reduced?", CLJ_FUSION_GUARD),       OTHER("unreduced", CLJ_FUSION_GUARD),
+	OTHER("volatile!", CLJ_FUSION_GUARD),      OTHER("deref", CLJ_FUSION_GUARD),          OTHER("vreset!", CLJ_FUSION_GUARD),
+	OTHER("reduced", CLJ_FUSION_GUARD),        OTHER("ensure-reduced", CLJ_FUSION_GUARD), OTHER("not", CLJ_FUSION_GUARD),
 };
 
 enum { N = sizeof table / sizeof *table };

@@ -49,7 +49,9 @@ enum {
 	CLJ_NO_OPT_COMPILED   = 1u << 5, // the compiled core, registered units, the compiled eval
 	CLJ_NO_OPT_EMIT       = 1u << 6, // facts in the C emitter: promoted and typed slots, unboxing, arms, workers, tokens
 	CLJ_NO_OPT_INLINE     = 1u << 7, // inlined fn bodies, the emitter's fast arms of an intrinsic and its inlined fused stages
-	CLJ_NO_OPT_ALL        = (1u << 8) - 1,
+	CLJ_NO_OPT_BETA       = 1u << 8, // inlining a body that calls a parameter, and the fn argument copied where it is called
+	CLJ_NO_OPT_PATH       = 1u << 9, // get-in, assoc-in and update-in unrolled over a literal path
+	CLJ_NO_OPT_ALL        = (1u << 10) - 1,
 };
 // "1"/"all", ""/"0", or a comma list of the names above; UINT32_MAX for an unknown word.
 uint32_t clj_no_opt_parse(const char *spec);

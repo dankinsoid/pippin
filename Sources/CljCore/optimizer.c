@@ -10,6 +10,7 @@
 #include "clj/fusion.h"
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
+#include "clj/keyword.h"
 #include "clj/string.h"
 #include "clj/summary.h"
 #include "clj/symbol.h"
@@ -536,6 +537,8 @@ static void optimize(const clj_node *n, void *ctx) {
 //   (if ROOT_IS[f, closure] (let [p a'] INLINE[fn, body']) (f a b))
 // The guard reads the root before the arguments, as the call does, and the call itself is the else branch, so a
 // redefined or rebound var runs what it ran before. Copied bodies are never inlined into again: no unrolling.
+// A parameter the body calls keeps its call there, unless the argument is a literal fn, whose arity body is then
+// copied in its place (beta-reduction), or a var of an intrinsic or of a closure this pass would inline.
 
 static bool inline_enabled = true;
 
@@ -557,14 +560,132 @@ enum {
 #define SLOT_NONE UINT32_MAX
 
 typedef struct {
-	const uint32_t  *map;   // callee slot -> slot of this frame; SLOT_NONE for a substituted parameter and the self slot
-	const clj_node **subst; // per callee slot: the read a parameter's local reads become, or NULL
-	uint32_t         nmap;
-	const clj_node **from, **to; // direct fns copied so far, for their calls
-	uint32_t         nfn, cfn;
-	uint32_t         nodes;  // made
-	uint32_t         depth;  // INLINE nodes around the copy point within the frame, the new one included
+	const uint32_t    *map;     // callee slot -> slot of this frame; SLOT_NONE for a substituted parameter and the self slot
+	const clj_node   **subst;   // per callee slot: the read a parameter's local reads become, or NULL
+	const clj_node   **literal; // per callee slot: the literal fn whose body the parameter's calls become, or NULL
+	uint32_t           nmap;
+	const clj_capture *caps;    // a literal fn's captures: its environment's reads become reads of this frame
+	uint32_t           ncaps;
+	uint32_t          *next;    // the frame's next free slot, for the slots of a literal fn's body
+	const clj_node   **from, **to; // direct fns copied so far, for their calls
+	uint32_t           nfn, cfn;
+	clj_node         **heads;   // calls whose head a substituted var became: rewritten or inlined after the copy
+	uint32_t           nheads, cheads;
+	uint32_t           nodes;   // made
+	uint32_t           depth;   // COPY and PATH bodies around the copy point within the frame, the new one included
 } copy_ctx;
+
+// What a candidate needs to know of its callee's arity body, or of a literal fn's.
+typedef struct {
+	uint32_t  nparams, self;
+	uint64_t  local_only;  // params read only by local reads of the arity's own frame: a substituted read may stand in
+	uint64_t  head_only;   // params read only as the head of a call in the arity's own frame
+	uint64_t  head_looped; // such a call inside a loop of the body
+	uint32_t  heads[CLJ_FN_MAX_FIXED + 1];       // per param: the calls it heads
+	uint32_t  head_counts[CLJ_FN_MAX_FIXED + 1]; // per param, bit k: a call of k args
+	bool      arity_recur; // a recur back to the arity, which its copy would have nothing to go back to
+	bool      self_read;   // the fn's own name, which no frame here holds
+	bool      has_fn;      // a fn inside: each copy would be a closure, and in C functions, of its own
+	bool      calls_def;   // a call of the var being defined: the copy would make the caller its own callee
+	clj_value def_var;
+	int       level;       // direct fn bodies entered
+	bool      in_loop;     // a recur here goes back to a loop of the body
+} callee_scan;
+
+static uint64_t param_bit(uint32_t slot) { return slot < 64 ? (uint64_t)1 << slot : 0; }
+
+static void scan_callee_uses(callee_scan *s, uint32_t slot) {
+	if (slot == s->self) s->self_read = true;
+	if (slot < s->nparams) {
+		s->local_only &= ~param_bit(slot);
+		s->head_only &= ~param_bit(slot);
+	}
+}
+
+// @ai-generated(solo)
+static void scan_callee(const clj_node *n, void *ctx) {
+	callee_scan *s = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL:
+		if (s->level == 0 && n->u.local.index == s->self) s->self_read = true;
+		if (s->level == 0 && n->u.local.index < s->nparams) s->head_only &= ~param_bit(n->u.local.index);
+		return;
+	case CLJ_NODE_OUTER:
+		if ((int)n->u.outer.depth == s->level) scan_callee_uses(s, n->u.outer.index);
+		return;
+	case CLJ_NODE_RECUR:
+		if (s->level == 0 && !s->in_loop) s->arity_recur = true;
+		break;
+	case CLJ_NODE_LOOP: {
+		for (uint32_t i = 0; i < n->u.let.n; i++) scan_callee(n->u.let.inits[i], s);
+		bool in_loop = s->in_loop;
+		s->in_loop = true;
+		scan_callee(n->u.let.body, s);
+		s->in_loop = in_loop;
+		return;
+	}
+	case CLJ_NODE_FN:
+		s->has_fn = true;
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			const clj_capture *cap = &n->u.fn.captures[i];
+			if ((cap->kind == CLJ_CAPTURE_LOCAL && s->level == 0) || (cap->kind == CLJ_CAPTURE_OUTER && (int)cap->depth == s->level)) scan_callee_uses(s, cap->index);
+		}
+		return;
+	case CLJ_NODE_DIRECT_FN: {
+		s->has_fn = true;
+		callee_scan inner = *s;
+		inner.level++;
+		inner.in_loop = false;
+		clj_node_children(n, scan_callee, &inner);
+		s->local_only = inner.local_only;
+		s->head_only = inner.head_only;
+		s->self_read = inner.self_read;
+		return;
+	}
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) scan_callee(n->u.fused.args[i], s);
+		return;
+	case CLJ_NODE_INVOKE: {
+		const clj_node *h = n->u.invoke.fn;
+		if (s->level == 0 && h->kind == CLJ_NODE_LOCAL && h->u.local.index < s->nparams) {
+			uint32_t p = h->u.local.index;
+			s->heads[p]++;
+			// past the fixed arities a call spreads its arguments into a rest list, which no copy has
+			if (n->u.invoke.n <= CLJ_FN_MAX_FIXED) s->head_counts[p] |= 1u << n->u.invoke.n;
+			else s->head_only &= ~param_bit(p);
+			if (s->in_loop) s->head_looped |= param_bit(p);
+			for (uint32_t i = 0; i < n->u.invoke.n; i++) scan_callee(n->u.invoke.args[i], s);
+			return;
+		}
+		if (h->kind == CLJ_NODE_VAR && h->u.var.v == s->def_var) s->calls_def = true;
+		break;
+	}
+	default: break;
+	}
+	clj_node_children(n, scan_callee, ctx);
+}
+
+static callee_scan scan_arity(const clj_fn_arity *a, clj_value def_var) {
+	callee_scan s = {.nparams = a->nparams, .self = a->self_slot >= 0 ? (uint32_t)a->self_slot : SLOT_NONE, .local_only = UINT64_MAX,
+	                 .head_only = UINT64_MAX, .def_var = def_var};
+	scan_callee(a->body, &s);
+	return s;
+}
+
+static bool trivial_read(const clj_node *n) {
+	return n->kind == CLJ_NODE_CONST || n->kind == CLJ_NODE_LOCAL || n->kind == CLJ_NODE_CAPTURED || n->kind == CLJ_NODE_OUTER;
+}
+
+static void count_nodes(const clj_node *n, void *ctx) {
+	(*(uint32_t *)ctx)++;
+	clj_node_children(n, count_nodes, ctx);
+}
+
+static uint32_t nodes_in(const clj_node *n) {
+	uint32_t k = 0;
+	count_nodes(n, &k);
+	return k;
+}
 
 // `level`: direct fn bodies entered below the callee's frame; VERBATIM is another frame, whose slots stay as they are.
 enum { VERBATIM = -1 };
@@ -656,6 +777,40 @@ static clj_node *copy_fn(const clj_node *n, copy_ctx *c, int level) {
 	return m;
 }
 
+// A literal fn's environment read, as the read of this frame the fn's capture took it from.
+static clj_node *env_read(copy_ctx *c, const clj_node *n) {
+	if (n->u.index >= c->ncaps) clj_ice("optimize/inline-captured", n, "entry %u of an environment of %u", n->u.index, c->ncaps);
+	const clj_capture *cap = &c->caps[n->u.index];
+	position           at = {n->line, n->col};
+	c->nodes++;
+	switch (cap->kind) {
+	case CLJ_CAPTURE_LOCAL: return local_node(cap->index, at);
+	case CLJ_CAPTURE_CAPTURED: {
+		clj_node *m = node_at(CLJ_NODE_CAPTURED, at);
+		m->u.index = cap->index;
+		return m;
+	}
+	case CLJ_CAPTURE_OUTER: {
+		clj_node *m = node_at(CLJ_NODE_OUTER, at);
+		m->u.outer.depth = cap->depth;
+		m->u.outer.index = cap->index;
+		return m;
+	}
+	}
+	clj_ice("optimize/capture-kind", n, "capture kind %u", (unsigned)cap->kind);
+}
+
+static void head_add(copy_ctx *c, clj_node *call) {
+	if (c->nheads == c->cheads) {
+		c->cheads = c->cheads ? c->cheads * 2 : 4;
+		c->heads = realloc(c->heads, c->cheads * sizeof *c->heads);
+		if (!c->heads) clj_fatal("out of memory");
+	}
+	c->heads[c->nheads++] = call;
+}
+
+static clj_node *literal_call(const clj_node *lit, const clj_node **args, uint32_t nargs, position at, uint32_t *next, uint32_t depth, uint32_t *nodes);
+
 // Every last-use mark is dropped: the liveness pass marks the frame the copy lands in afresh.
 // @ai-generated(solo)
 static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
@@ -665,6 +820,14 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 		return copy_node(n->u.if_.else_, c, level);
 	if (n->kind == CLJ_NODE_LOCAL && level == 0 && n->u.local.index < c->nmap && c->subst[n->u.local.index])
 		return copy_node(c->subst[n->u.local.index], c, VERBATIM);
+	if (n->kind == CLJ_NODE_CAPTURED && level == 0 && c->caps) return env_read(c, n);
+	if (n->kind == CLJ_NODE_INVOKE && level == 0 && c->literal && n->u.invoke.fn->kind == CLJ_NODE_LOCAL) {
+		uint32_t p = n->u.invoke.fn->u.local.index;
+		if (p < c->nmap && c->literal[p]) {
+			const clj_node **args = copy_all(n->u.invoke.args, n->u.invoke.n, c, level);
+			return literal_call(c->literal[p], args, n->u.invoke.n, (position){n->line, n->col}, c->next, c->depth, &c->nodes);
+		}
+	}
 	clj_node *m = node_at(n->kind, (position){n->line, n->col});
 	c->nodes++;
 	switch (n->kind) {
@@ -707,6 +870,7 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 		m->u.invoke.fn = copy_node(n->u.invoke.fn, c, level);
 		m->u.invoke.args = copy_all(n->u.invoke.args, n->u.invoke.n, c, level);
 		m->u.invoke.n = n->u.invoke.n;
+		if (level == 0 && n->u.invoke.fn->kind == CLJ_NODE_LOCAL && m->u.invoke.fn->kind == CLJ_NODE_VAR) head_add(c, m);
 		break;
 	case CLJ_NODE_DIRECT_CALL: {
 		const clj_node *fn = copy_direct_target(c, n->u.direct.fn, level, n);
@@ -770,13 +934,23 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 	case CLJ_NODE_ROOT_IS:
 		clj_slot_store(&m->h, &m->u.root_is.var, clj_retain(n->u.root_is.var.v));
 		clj_slot_store(&m->h, &m->u.root_is.expect, clj_retain(n->u.root_is.expect.v));
+		if (n->u.root_is.nguards) {
+			const clj_fusion_var **guards = zalloc(n->u.root_is.nguards, sizeof *guards);
+			memcpy(guards, n->u.root_is.guards, n->u.root_is.nguards * sizeof *guards);
+			m->u.root_is.guards = guards;
+			m->u.root_is.nguards = n->u.root_is.nguards;
+		}
 		break;
-	case CLJ_NODE_INLINE:
+	case CLJ_NODE_INLINE: {
+		// a guard's body is a level of the budget; a literal fn's body and a path's levels sit inside one
+		bool guarded = n->u.inline_.how == CLJ_INLINE_COPY || n->u.inline_.how == CLJ_INLINE_PATH;
 		m->u.inline_.fn = n->u.inline_.fn;
-		c->depth++;
+		m->u.inline_.how = n->u.inline_.how;
+		c->depth += guarded;
 		m->u.inline_.body = copy_node(n->u.inline_.body, c, level);
-		c->depth--;
+		c->depth -= guarded;
 		break;
+	}
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN: break; // copy_fn
 	}
@@ -786,168 +960,588 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 static void copy_ctx_free(copy_ctx *c) {
 	free(c->from);
 	free(c->to);
+	free(c->heads);
 }
 
-// What a candidate needs to know of its callee's arity body.
-typedef struct {
-	uint32_t nparams, self;
-	uint64_t local_only;  // params read only by local reads of the arity's own frame: a substituted read may stand in
-	bool     arity_recur; // a recur back to the arity, which its copy would have nothing to go back to
-	bool     self_read;   // the fn's own name, which no frame here holds
-	bool     has_fn;      // a fn inside: each copy would be a closure, and in C functions, of its own
-	bool     calls_def;   // a call of the var being defined: the copy would make the caller its own callee
-	clj_value def_var;
-	int      level;       // direct fn bodies entered
-	bool     in_loop;     // a recur here goes back to a loop of the body
-} callee_scan;
-
-static void scan_callee_uses(callee_scan *s, uint32_t slot) {
-	if (slot == s->self) s->self_read = true;
-	if (slot < s->nparams && slot < 64) s->local_only &= ~((uint64_t)1 << slot);
+static clj_node *let_node(uint32_t *slots, const clj_node **inits, uint32_t n, clj_node *body, position at) {
+	clj_node *let = node_at(CLJ_NODE_LET, at);
+	let->u.let.slots = slots;
+	let->u.let.inits = inits;
+	let->u.let.n = n;
+	let->u.let.body = body;
+	return let;
 }
 
+static clj_node *inline_node(const clj_node *fn, clj_inline_how how, clj_node *body, position at) {
+	clj_node *inl = node_at(CLJ_NODE_INLINE, at);
+	inl->u.inline_.fn = fn;
+	inl->u.inline_.how = (uint8_t)how;
+	inl->u.inline_.body = body;
+	return inl;
+}
+
+// (L a...) of a literal fn L, as L's arity body in this frame: (let [q a'] INLINE[L, body]) over fresh slots, a trivial
+// argument read wherever the body reads its parameter. L's captures are reads of this frame, the one L was made in,
+// and none of them is rebound between the call's arguments and here. Takes args and its nodes.
 // @ai-generated(solo)
-static void scan_callee(const clj_node *n, void *ctx) {
-	callee_scan *s = ctx;
-	switch (n->kind) {
-	case CLJ_NODE_LOCAL:
-		if (s->level == 0 && n->u.local.index == s->self) s->self_read = true;
-		return;
-	case CLJ_NODE_OUTER:
-		if ((int)n->u.outer.depth == s->level) scan_callee_uses(s, n->u.outer.index);
-		return;
-	case CLJ_NODE_RECUR:
-		if (s->level == 0 && !s->in_loop) s->arity_recur = true;
-		break;
-	case CLJ_NODE_LOOP: {
-		for (uint32_t i = 0; i < n->u.let.n; i++) scan_callee(n->u.let.inits[i], s);
-		bool in_loop = s->in_loop;
-		s->in_loop = true;
-		scan_callee(n->u.let.body, s);
-		s->in_loop = in_loop;
-		return;
-	}
-	case CLJ_NODE_FN:
-		s->has_fn = true;
-		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
-			const clj_capture *cap = &n->u.fn.captures[i];
-			if ((cap->kind == CLJ_CAPTURE_LOCAL && s->level == 0) || (cap->kind == CLJ_CAPTURE_OUTER && (int)cap->depth == s->level)) scan_callee_uses(s, cap->index);
+static clj_node *literal_call(const clj_node *lit, const clj_node **args, uint32_t nargs, position at, uint32_t *next, uint32_t depth, uint32_t *nodes) {
+	const clj_fn_arity *a = lit->u.fn.fixed[nargs];
+	if (!a) clj_ice("optimize/inline-literal", lit, "a literal fn without the arity of %u its copy was planned for", nargs);
+	callee_scan      s = scan_arity(a, CLJ_NIL);
+	uint32_t        *map = zalloc(a->nslots, sizeof *map);
+	const clj_node **sub = zalloc(a->nslots, sizeof *sub);
+	uint32_t         nbound = 0;
+	for (uint32_t k = 0; k < a->nslots; k++) {
+		if (k < nargs && trivial_read(args[k]) && ((s.local_only >> k) & 1)) {
+			sub[k] = args[k];
+			map[k] = SLOT_NONE;
+		} else if (k == s.self) {
+			map[k] = SLOT_NONE;
+		} else {
+			map[k] = (*next)++;
+			nbound += k < nargs;
 		}
-		return;
-	case CLJ_NODE_DIRECT_FN: {
-		s->has_fn = true;
-		callee_scan inner = *s;
-		inner.level++;
-		inner.in_loop = false;
-		clj_node_children(n, scan_callee, &inner);
-		s->local_only = inner.local_only;
-		s->self_read = inner.self_read;
-		return;
 	}
-	case CLJ_NODE_FUSED:
-		for (uint32_t i = 0; i < n->u.fused.nargs; i++) scan_callee(n->u.fused.args[i], s);
-		return;
-	case CLJ_NODE_INVOKE:
-		if (n->u.invoke.fn->kind == CLJ_NODE_VAR && n->u.invoke.fn->u.var.v == s->def_var) s->calls_def = true;
-		break;
-	default: break;
+	copy_ctx  c = {.map = map, .subst = sub, .nmap = a->nslots, .caps = lit->u.fn.captures, .ncaps = lit->u.fn.ncaptures, .next = next, .depth = depth};
+	clj_node *r = inline_node(lit, CLJ_INLINE_LITERAL, copy_node(a->body, &c, 0), at);
+	*nodes += c.nodes + 1;
+	if (nbound) {
+		uint32_t        *slots = zalloc(nbound, sizeof *slots);
+		const clj_node **inits = zalloc(nbound, sizeof *inits);
+		for (uint32_t k = 0, b = 0; k < nargs; k++) {
+			if (sub[k]) continue;
+			slots[b] = map[k];
+			inits[b++] = args[k];
+		}
+		r = let_node(slots, inits, nbound, r, at);
+		(*nodes)++;
 	}
-	clj_node_children(n, scan_callee, ctx);
-}
-
-static bool trivial_read(const clj_node *n) {
-	return n->kind == CLJ_NODE_CONST || n->kind == CLJ_NODE_LOCAL || n->kind == CLJ_NODE_CAPTURED || n->kind == CLJ_NODE_OUTER;
-}
-
-static void count_nodes(const clj_node *n, void *ctx) {
-	(*(uint32_t *)ctx)++;
-	clj_node_children(n, count_nodes, ctx);
+	for (uint32_t k = 0; k < nargs; k++) {
+		if (sub[k]) clj_release(clj_from_ptr((void *)args[k]));
+	}
+	free(args);
+	free(map);
+	free(sub);
+	copy_ctx_free(&c);
+	return r;
 }
 
 typedef struct {
 	clj_fn_arity *arity; // the frame the sites below are in; NULL outside every fn
 	uint32_t      grown, budget;
+	uint32_t      orig;    // the frame's slots before the pass: what the analyzer bound
 	clj_value     def_var; // a call of the var a def is binding reaches the old root, never the fn being defined
 } inline_frame;
 
-// @ai-generated(solo)
-static void try_inline(clj_node *n, inline_frame *fr) {
-	const clj_node *head = n->u.invoke.fn;
-	uint32_t        nargs = n->u.invoke.n;
-	if (head->kind != CLJ_NODE_VAR || nargs > CLJ_FN_MAX_FIXED) return;
-	clj_value var = head->u.var.v;
-	if (!clj_is_var(var) || clj_var_is_dynamic(var) || var == fr->def_var) return;
-	clj_value root = clj_var_root(var);
-	if (!clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_CLOSURE || clj_fn_of(root)->nenv) return;
-	const clj_node     *code = clj_fn_of(root)->u.node;
-	const clj_fn_arity *a = code->u.fn.fixed[nargs];
-	if (!a || a->body->nnodes > INLINE_CALLEE_MAX) return;
-	callee_scan s = {a->nparams, a->self_slot >= 0 ? (uint32_t)a->self_slot : SLOT_NONE, UINT64_MAX, false, false, false, false, fr->def_var, 0, false};
-	scan_callee(a->body, &s);
-	if (s.arity_recur || s.self_read || s.has_fn || s.calls_def) return;
-	const clj_node *subst[CLJ_FN_MAX_FIXED + 1] = {0};
-	uint32_t        added = a->nslots - (s.self != SLOT_NONE ? 1 : 0), cost = a->body->nnodes + 4;
-	for (uint32_t i = 0; i < nargs; i++) {
-		const clj_node *arg = n->u.invoke.args[i];
-		if (trivial_read(arg) && i < 64 && ((s.local_only >> i) & 1)) {
-			subst[i] = arg;
-			added--;
-		} else {
-			count_nodes(arg, &cost);
+// One past the highest slot a let, loop or catch of n's own frame binds.
+static void bound_top(const clj_node *n, void *ctx) {
+	uint32_t *top = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: return;
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		for (uint32_t i = 0; i < n->u.let.n; i++) {
+			if (n->u.let.slots[i] + 1 > *top) *top = n->u.let.slots[i] + 1;
 		}
+		break;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			if (n->u.try_.catches[i].slot + 1 > *top) *top = n->u.try_.catches[i].slot + 1;
+		}
+		break;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) bound_top(n->u.fused.args[i], ctx);
+		return;
+	default: break;
 	}
-	uint32_t before = fr->arity->nslots, after = before + added;
-	if (after > INLINE_SLOTS_MAX || (before <= INLINE_SLOTS_SMALL && after > INLINE_SLOTS_SMALL)) return;
-	if (fr->grown + cost > fr->budget) return;
-	// Last: the summary may walk the callee's tree.
-	if (!clj_specialize_var_inlinable(var, nargs, INLINE_EFFECTS)) return;
+	clj_node_children(n, bound_top, ctx);
+}
 
-	uint32_t        *map = zalloc(a->nslots, sizeof *map);
-	const clj_node **sub = zalloc(a->nslots, sizeof *sub);
-	uint32_t         next = before;
-	for (uint32_t k = 0; k < a->nslots; k++) {
-		if (k < nargs && subst[k]) sub[k] = subst[k];
-		map[k] = (k < nargs && subst[k]) || k == s.self ? SLOT_NONE : next++;
+// Where a site's fresh slots start: past the analyzer's and past any its own subtree binds. Sites side by side share
+// numbers, whose bindings never overlap; nested ones never do. Every backend takes a slot rebound in its turn, as a
+// loop's let rebinds it.
+static uint32_t fresh_base(const inline_frame *fr, const clj_node *site) {
+	uint32_t top = fr->orig;
+	bound_top(site, &top);
+	return top;
+}
+
+static bool slots_fit(const inline_frame *fr, uint64_t after) {
+	uint32_t before = fr->arity->nslots;
+	if (after < before) after = before;
+	return after <= INLINE_SLOTS_MAX && (before > INLINE_SLOTS_SMALL || after <= INLINE_SLOTS_SMALL);
+}
+
+typedef enum { ARG_BIND, ARG_SUBST, ARG_VAR, ARG_LITERAL, ARG_DIRECT } arg_how;
+
+// A literal fn the calls of a parameter can become: a fixed arity for every count they pass, each small and pure and
+// free of a fn, its own name and a recur to itself, none of which its copy in the calling frame has. Its nodes and
+// slots, of the largest arity.
+// @ai-generated(solo)
+static bool literal_ok(const clj_node *lit, uint32_t counts, uint32_t *nodes, uint32_t *slots) {
+	*nodes = *slots = 0;
+	if (lit->kind != CLJ_NODE_FN || !counts) return false;
+	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+		if (!((counts >> k) & 1)) continue;
+		const clj_fn_arity *a = lit->u.fn.fixed[k];
+		if (!a) return false;
+		// the site's tree is not numbered yet
+		uint32_t size = nodes_in(a->body);
+		if (size > INLINE_CALLEE_MAX) return false;
+		callee_scan s = scan_arity(a, CLJ_NIL);
+		if (s.arity_recur || s.self_read || s.has_fn) return false;
+		if (clj_specialize_effects_of(a->body, ~(uint32_t)INLINE_EFFECTS) & ~(uint32_t)INLINE_EFFECTS) return false;
+		if (size + k + 2 > *nodes) *nodes = size + k + 2;
+		if (a->nslots > *slots) *slots = a->nslots;
 	}
-	position at = {n->line, n->col};
-	copy_ctx c = {map, sub, a->nslots, NULL, NULL, 0, 0, 0, 1};
-	clj_node *inl = node_at(CLJ_NODE_INLINE, at);
-	inl->u.inline_.fn = code;
-	inl->u.inline_.body = copy_node(a->body, &c, 0);
-	clj_node *then = inl;
-	uint32_t  nbound = 0;
-	for (uint32_t i = 0; i < nargs; i++) nbound += !subst[i];
-	copy_ctx args = {NULL, NULL, 0, NULL, NULL, 0, 0, 0, 0};
-	if (nbound) {
-		clj_node *let = node_at(CLJ_NODE_LET, at);
-		uint32_t *slots = zalloc(nbound, sizeof *slots);
-		const clj_node **inits = zalloc(nbound, sizeof *inits);
-		for (uint32_t i = 0, k = 0; i < nargs; i++) {
-			if (subst[i]) continue;
-			slots[k] = map[i];
-			inits[k++] = copy_node(n->u.invoke.args[i], &args, VERBATIM);
-		}
-		let->u.let.slots = slots;
-		let->u.let.inits = inits;
-		let->u.let.n = nbound;
-		let->u.let.body = inl;
-		then = let;
+	return true;
+}
+
+// A literal fn too big to copy, called as a direct fn of the frame: its arity, no closure (try_direct decides).
+static bool direct_ok(const clj_node *lit, uint32_t counts) {
+	if (lit->kind != CLJ_NODE_FN || lit->u.fn.variadic || !counts) return false;
+	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+		if (((counts >> k) & 1) && !lit->u.fn.fixed[k]) return false;
 	}
+	return true;
+}
+
+// A var argument whose call can read the var where it calls, as a call of the var: an intrinsic on its builtin or a
+// closure this pass would inline, both pure. The caller makes the read exact: once, and only pure code in between.
+static bool var_head_ok(const clj_node *arg, uint32_t counts) {
+	if (arg->kind != CLJ_NODE_VAR || !clj_is_var(arg->u.var.v) || clj_var_is_dynamic(arg->u.var.v) || __builtin_popcount(counts) != 1) return false;
+	uint32_t             k = (uint32_t)__builtin_ctz(counts);
+	clj_value            var = arg->u.var.v, root = clj_var_root(var);
+	const clj_intrinsic *op = clj_intrinsic_find(var, k);
+	if (op) return op->pure && root == clj_intrinsic_builtin(op);
+	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_CLOSURE && !clj_fn_of(root)->nenv && clj_specialize_var_inlinable(var, k, INLINE_EFFECTS);
+}
+
+static bool trivial_from(const clj_node *const *args, uint32_t from, uint32_t n) {
+	for (uint32_t i = from; i < n; i++) {
+		if (!trivial_read(args[i])) return false;
+	}
+	return true;
+}
+
+static clj_node *guarded_call(clj_node *n, clj_node *then, clj_value var, clj_value root, const clj_fusion_var **guards, uint32_t nguards) {
+	position  at = {n->line, n->col};
 	clj_node *test = node_at(CLJ_NODE_ROOT_IS, at);
 	clj_slot_store(&test->h, &test->u.root_is.var, clj_retain(var));
 	clj_slot_store(&test->h, &test->u.root_is.expect, clj_retain(root));
+	test->u.root_is.guards = guards;
+	test->u.root_is.nguards = nguards;
 	clj_node *call = node_at(CLJ_NODE_INVOKE, at);
 	call->u.invoke = n->u.invoke;
 	n->kind = CLJ_NODE_IF;
 	n->u.if_.test = test;
 	n->u.if_.then = then;
 	n->u.if_.else_ = call;
-	fr->arity->nslots = next;
-	fr->grown += c.nodes + args.nodes + 4;
+	return n;
+}
+
+static bool try_inline(clj_node *n, inline_frame *fr, uint32_t depth, uint32_t base);
+
+// A call a substituted var became: the intrinsic it names, or that closure's body in turn, one level deeper.
+static void inline_heads(copy_ctx *c, inline_frame *fr, uint32_t depth, uint32_t base) {
+	for (uint32_t i = 0; i < c->nheads; i++) {
+		rewrite_invoke(c->heads[i]);
+		if (c->heads[i]->kind == CLJ_NODE_INVOKE && try_inline(c->heads[i], fr, depth, base)) base = fr->arity->nslots;
+	}
+}
+
+// depth: COPY and PATH bodies around the site within the frame; base: the site's first fresh slot.
+// @ai-generated(solo)
+static bool try_inline(clj_node *n, inline_frame *fr, uint32_t depth, uint32_t base) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	if (head->kind != CLJ_NODE_VAR || nargs > CLJ_FN_MAX_FIXED || depth + 1 > CLJ_INLINE_DEPTH_MAX) return false;
+	clj_value var = head->u.var.v;
+	if (!clj_is_var(var) || clj_var_is_dynamic(var) || var == fr->def_var) return false;
+	clj_value root = clj_var_root(var);
+	if (!clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_CLOSURE || clj_fn_of(root)->nenv) return false;
+	const clj_node     *code = clj_fn_of(root)->u.node;
+	const clj_fn_arity *a = code->u.fn.fixed[nargs];
+	if (!a || a->body->nnodes > INLINE_CALLEE_MAX) return false;
+	callee_scan s = scan_arity(a, fr->def_var);
+	if (s.arity_recur || s.self_read || s.has_fn || s.calls_def) return false;
+	const clj_node *const *args = n->u.invoke.args;
+	// A parameter the body calls is called where the body calls it: only the copy's own code need be pure.
+	bool calls = false;
+	for (uint32_t i = 0; i < nargs; i++) calls = calls || s.heads[i];
+	if (calls && clj_opt_off(CLJ_NO_OPT_BETA)) return false;
+	arg_how  how[CLJ_FN_MAX_FIXED + 1];
+	int64_t  added = (int64_t)a->nslots - (s.self != SLOT_NONE ? 1 : 0);
+	uint32_t cost = a->body->nnodes + 4;
+	for (uint32_t i = 0; i < nargs; i++) {
+		uint32_t lnodes, lslots;
+		bool     only = s.heads[i] && ((s.head_only >> i) & 1);
+		how[i] = ARG_BIND;
+		if (only && literal_ok(args[i], s.head_counts[i], &lnodes, &lslots)) {
+			how[i] = ARG_LITERAL;
+			added += (int64_t)s.heads[i] * lslots - 1;
+			cost += s.heads[i] * lnodes;
+		} else if (only && direct_ok(args[i], s.head_counts[i])) {
+			how[i] = ARG_DIRECT;
+		} else if (trivial_read(args[i]) && ((s.local_only >> i) & 1) && (!s.heads[i] || args[i]->kind == CLJ_NODE_LOCAL)) {
+			how[i] = ARG_SUBST;
+			added--;
+		}
+	}
+	// A var argument is read at its one call, not at the argument, when only pure code runs between the two: no loop
+	// around the call, trivial arguments after it, and no call of a value nobody knows.
+	uint64_t vars = 0;
+	bool     unknown = false;
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (!s.heads[i] || how[i] == ARG_LITERAL) continue;
+		if (((s.head_only >> i) & 1) && s.heads[i] == 1 && !((s.head_looped >> i) & 1) && trivial_from(args, i + 1, nargs) &&
+		    var_head_ok(args[i], s.head_counts[i]))
+			vars |= param_bit(i);
+		else unknown = true;
+	}
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (!unknown && ((vars >> i) & 1)) {
+			how[i] = ARG_VAR;
+			added--;
+			cost++;
+		}
+		if (how[i] == ARG_BIND || how[i] == ARG_DIRECT) cost += nodes_in(args[i]);
+	}
+	if (!slots_fit(fr, (uint64_t)base + (uint64_t)(added > 0 ? added : 0)) || fr->grown + cost > fr->budget) return false;
+	// Last: the summary may walk the callee's tree. A call of a parameter leaves it open, so then only that it was walked.
+	if (!clj_specialize_var_inlinable(var, nargs, calls ? UINT32_MAX : INLINE_EFFECTS)) return false;
+
+	uint32_t        *map = zalloc(a->nslots, sizeof *map);
+	const clj_node **sub = zalloc(a->nslots, sizeof *sub), **lit = zalloc(a->nslots, sizeof *lit);
+	uint32_t         next = base;
+	uint64_t         free_calls = 0; // the slots whose calls in the copy are the callee's calls of a parameter
+	for (uint32_t k = 0; k < a->nslots; k++) {
+		arg_how h = k < nargs ? how[k] : ARG_BIND;
+		if (h == ARG_SUBST || h == ARG_VAR) {
+			sub[k] = args[k];
+			map[k] = SLOT_NONE;
+			if (s.heads[k] && h == ARG_SUBST) free_calls |= param_bit(args[k]->u.local.index);
+		} else if (h == ARG_LITERAL) {
+			lit[k] = args[k];
+			map[k] = SLOT_NONE;
+		} else if (k == s.self) {
+			map[k] = SLOT_NONE;
+		} else {
+			map[k] = next++;
+			if (k < nargs && s.heads[k]) free_calls |= param_bit(map[k]);
+		}
+	}
+	position  at = {n->line, n->col};
+	copy_ctx  c = {.map = map, .subst = sub, .literal = lit, .nmap = a->nslots, .next = &next, .depth = depth + 1};
+	clj_node *inl = inline_node(code, CLJ_INLINE_COPY, copy_node(a->body, &c, 0), at);
+	if (calls && (clj_specialize_effects_calling(inl->u.inline_.body, ~(uint32_t)INLINE_EFFECTS, free_calls) & ~(uint32_t)INLINE_EFFECTS)) {
+		clj_release(clj_from_ptr(inl));
+		copy_ctx_free(&c);
+		free(map);
+		free(sub);
+		free(lit);
+		return false;
+	}
+	clj_node *then = inl;
+	uint32_t  nbound = 0;
+	for (uint32_t i = 0; i < nargs; i++) nbound += how[i] == ARG_BIND || how[i] == ARG_DIRECT;
+	copy_ctx argc = {.depth = 0};
+	if (nbound) {
+		uint32_t        *slots = zalloc(nbound, sizeof *slots);
+		const clj_node **inits = zalloc(nbound, sizeof *inits);
+		for (uint32_t i = 0, k = 0; i < nargs; i++) {
+			if (how[i] != ARG_BIND && how[i] != ARG_DIRECT) continue;
+			slots[k] = map[i];
+			inits[k++] = copy_node(args[i], &argc, VERBATIM);
+		}
+		then = let_node(slots, inits, nbound, inl, at);
+		for (uint32_t i = 0, k = 0; i < nargs; i++) {
+			if (how[i] != ARG_BIND && how[i] != ARG_DIRECT) continue;
+			if (how[i] == ARG_DIRECT) try_direct(then, k);
+			k++;
+		}
+	}
+	guarded_call(n, then, var, root, NULL, 0);
+	if (next > fr->arity->nslots) fr->arity->nslots = next;
+	fr->grown += c.nodes + argc.nodes + 4;
+	inline_heads(&c, fr, depth + 1, next);
 	copy_ctx_free(&c);
-	copy_ctx_free(&args);
+	copy_ctx_free(&argc);
 	free(map);
 	free(sub);
+	free(lit);
+	return true;
+}
+
+// ---- known paths: (get-in m [k1 k2] nf), (assoc-in m [k1 k2] v), (update-in m [k1 k2] f a...) over a literal path
+// vector of at most CLJ_INLINE_PATH_MAX keys become the gets and assocs core's own recursion makes, each level an
+// INLINE of the fn whose frame it is, so a trace shows the frames the recursion would. Recursion is never unrolled in
+// general: this is core's definition over a path whose length the site says. The guard: the var and each core var
+// whose calls the unrolling took away (the destructuring's seq, first and next; apply; reduce) hold their boot roots;
+// the gets and assocs stay calls of their vars, as in core's body. A redefinition by code the path itself runs (a
+// get on a user's ILookup) is seen from the next call on, not from the next level.
+
+typedef enum { PATH_GET_IN2, PATH_GET_IN3, PATH_ASSOC_IN, PATH_UPDATE_IN } path_kind;
+// update-in's arguments past f; the vars a guard checks; the nodes a site may grow by, its argument copies included
+enum { PATH_EXTRA_MAX = 4, PATH_GUARDS_MAX = 5, PATH_COST_MAX = 160 };
+
+static const char *const path_guard_names[][PATH_GUARDS_MAX] = {
+	[PATH_GET_IN2] = {"clojure.core/get-in", "clojure.core/reduce", "clojure.core/reduced?", "clojure.core/unreduced", NULL},
+	[PATH_GET_IN3] = {"clojure.core/get-in", "clojure.core/seq", "clojure.core/first", "clojure.core/next", NULL},
+	[PATH_ASSOC_IN] = {"clojure.core/assoc-in", "clojure.core/seq", "clojure.core/first", "clojure.core/next", NULL},
+	[PATH_UPDATE_IN] = {"clojure.core/update-in", "clojure.core/seq", "clojure.core/first", "clojure.core/next", "clojure.core/apply"},
+};
+
+// An operand of the call: a trivial read copied at each use, or the slot its value was bound to where the call ran it.
+typedef struct {
+	const clj_node *read;
+	uint32_t        slot;
+} operand;
+
+typedef struct {
+	path_kind       kind;
+	position        at;
+	uint32_t       *next;
+	copy_ctx        copies; // of the trivial operands, verbatim
+	uint32_t        depth;  // COPY and PATH bodies around the levels, the PATH one included
+	const clj_node *level_fn;
+	position        level_at; // where core's recursion calls the next level: a trace shows a level's frame there
+	uint32_t        nkeys, nextra;
+	operand         m, keys[CLJ_INLINE_PATH_MAX], last, f, extra[PATH_EXTRA_MAX]; // last: get-in's not-found, assoc-in's v
+	const clj_node *literal; // update-in's f, a literal fn copied where it is called
+	clj_value       f_var;   // update-in's f, a var read where it is called; nil otherwise
+	uint32_t        nodes;
+	clj_value       get2, get3, assoc, identical, reduced_p, unreduced, not_found;
+} path_ctx;
+
+static clj_value table_var(const char *qualified, uint32_t arity) {
+	clj_value            sym = clj_symbol_from_cstr(qualified);
+	const clj_intrinsic *op = clj_intrinsic_find_named(sym, arity);
+	const clj_fusion_var *fv = op ? NULL : clj_fusion_find_named(sym);
+	clj_release(sym);
+	return op ? clj_intrinsic_var(op) : fv ? clj_fusion_var_of(fv) : CLJ_NIL;
+}
+
+static clj_node *use(path_ctx *p, const operand *o) { return o->read ? copy_node(o->read, &p->copies, VERBATIM) : local_node(o->slot, p->at); }
+
+// (var a b c) of the first n, an intrinsic as core's body has it.
+static clj_node *core_call(path_ctx *p, clj_value var, uint32_t n, clj_node *a, clj_node *b, clj_node *c) {
+	clj_node        *in[3] = {a, b, c};
+	const clj_node **args = zalloc(n, sizeof *args);
+	for (uint32_t i = 0; i < n; i++) args[i] = in[i];
+	clj_node *call = invoke_node(var_node(var, p->at), args, n, p->at);
+	rewrite_invoke(call);
+	return call;
+}
+
+static clj_node *let1(uint32_t slot, clj_node *init, clj_node *body, position at) {
+	uint32_t        *slots = zalloc(1, sizeof *slots);
+	const clj_node **inits = zalloc(1, sizeof *inits);
+	slots[0] = slot;
+	inits[0] = init;
+	return let_node(slots, inits, 1, body, at);
+}
+
+static clj_node *if_node(clj_node *test, clj_node *then, clj_node *else_, position at) {
+	clj_node *n = node_at(CLJ_NODE_IF, at);
+	n->u.if_.test = test;
+	n->u.if_.then = then;
+	n->u.if_.else_ = else_;
+	return n;
+}
+
+static operand fresh(path_ctx *p) { return (operand){NULL, (*p->next)++}; }
+
+// (reduce get m ks): a reduced value ends the walk unwrapped, as reduce's step does.
+static clj_node *path_get2(path_ctx *p, uint32_t i, operand cur) {
+	clj_node *g = core_call(p, p->get2, 2, use(p, &cur), use(p, &p->keys[i]), NULL);
+	if (i + 1 == p->nkeys) return core_call(p, p->unreduced, 1, g, NULL, NULL);
+	operand   a = fresh(p);
+	clj_node *done = core_call(p, p->unreduced, 1, use(p, &a), NULL, NULL);
+	return let1(a.slot, g, if_node(core_call(p, p->reduced_p, 1, use(p, &a), NULL, NULL), done, path_get2(p, i + 1, a), p->at), p->at);
+}
+
+// get-in's loop: (get m k ::not-found) per key, not-found at the first miss.
+static clj_node *path_get3(path_ctx *p, uint32_t i, operand cur) {
+	operand   v = fresh(p);
+	clj_node *g = core_call(p, p->get3, 3, use(p, &cur), use(p, &p->keys[i]), const_node(p->not_found, p->at));
+	clj_node *miss = core_call(p, p->identical, 2, use(p, &v), const_node(p->not_found, p->at), NULL);
+	clj_node *hit = i + 1 == p->nkeys ? use(p, &v) : path_get3(p, i + 1, v);
+	return let1(v.slot, g, if_node(miss, use(p, &p->last), hit, p->at), p->at);
+}
+
+// update-in's (apply f (get m k) args), the args spread at the site.
+static clj_node *path_call_f(path_ctx *p, clj_node *x) {
+	uint32_t         n = 1 + p->nextra;
+	const clj_node **args = zalloc(n, sizeof *args);
+	args[0] = x;
+	for (uint32_t i = 0; i < p->nextra; i++) args[1 + i] = use(p, &p->extra[i]);
+	// apply, a native, enters f with no call site of its own: the frame stands at the fn
+	if (p->literal) return literal_call(p->literal, args, n, (position){p->literal->line, p->literal->col}, p->next, p->depth, &p->nodes);
+	clj_node *call = invoke_node(clj_is_nil(p->f_var) ? use(p, &p->f) : var_node(p->f_var, p->at), args, n, (position){0, 0});
+	if (!clj_is_nil(p->f_var)) head_add(&p->copies, call);
+	return call;
+}
+
+// (assoc m k (assoc-in (get m k) ks v)) per level, (assoc m k v) at the last.
+static clj_node *path_assoc(path_ctx *p, uint32_t i, operand cur) {
+	clj_node *val;
+	if (i + 1 == p->nkeys) {
+		val = p->kind == PATH_ASSOC_IN ? use(p, &p->last) : path_call_f(p, core_call(p, p->get2, 2, use(p, &cur), use(p, &p->keys[i]), NULL));
+	} else {
+		operand   m = fresh(p);
+		clj_node *get = core_call(p, p->get2, 2, use(p, &cur), use(p, &p->keys[i]), NULL);
+		val = let1(m.slot, get, inline_node(p->level_fn, CLJ_INLINE_LEVEL, path_assoc(p, i + 1, m), p->level_at), p->at);
+	}
+	return core_call(p, p->assoc, 3, use(p, &cur), use(p, &p->keys[i]), val);
+}
+
+// update-in's (let [up (fn up [m ks f args] ...)] (up m ks f args)): the fn whose frames its levels are.
+static const clj_node *update_in_level_fn(const clj_node *code) {
+	const clj_fn_arity *a = code->u.fn.variadic;
+	if (!a || a->nparams != 3 || a->body->kind != CLJ_NODE_LET || a->body->u.let.n != 1) return NULL;
+	const clj_node *up = a->body->u.let.inits[0];
+	return up->kind == CLJ_NODE_FN || up->kind == CLJ_NODE_DIRECT_FN ? up : NULL;
+}
+
+typedef struct {
+	const clj_node *fn;  // a direct call of it
+	clj_value       var; // or a call of the var
+	position        at;
+	bool            found;
+} call_find;
+
+static void find_call(const clj_node *n, void *ctx) {
+	call_find *c = ctx;
+	if (c->found) return;
+	if ((n->kind == CLJ_NODE_DIRECT_CALL && n->u.direct.fn == c->fn) ||
+	    (n->kind == CLJ_NODE_INVOKE && n->u.invoke.fn->kind == CLJ_NODE_VAR && n->u.invoke.fn->u.var.v == c->var)) {
+		c->at = (position){n->line, n->col};
+		c->found = true;
+		return;
+	}
+	clj_node_children(n, find_call, ctx);
+}
+
+// The position of the first call of fn (direct) or var in body; dflt when there is none.
+static position call_at(const clj_node *body, const clj_node *fn, clj_value var, position dflt) {
+	call_find c = {fn, var, dflt, false};
+	find_call(body, &c);
+	return c.at;
+}
+
+// The operand at an argument, a binding of its own when it is not a trivial read: the let runs them in the call's order.
+static operand bind_operand(path_ctx *p, const clj_node *arg, uint32_t *slots, const clj_node **inits, uint32_t *nbound) {
+	if (trivial_read(arg)) return (operand){arg, 0};
+	operand o = fresh(p);
+	slots[*nbound] = o.slot;
+	inits[(*nbound)++] = copy_node(arg, &p->copies, VERBATIM);
+	return o;
+}
+
+// @ai-generated(solo)
+static bool try_path(clj_node *n, inline_frame *fr) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	if (head->kind != CLJ_NODE_VAR || clj_opt_off(CLJ_NO_OPT_PATH)) return false;
+	clj_value             var = head->u.var.v;
+	const clj_fusion_var *self = clj_fusion_find(var);
+	if (!self || self->role != CLJ_FUSION_GUARD || clj_var_is_dynamic(var)) return false;
+	const char *name = strchr(self->name, '/') + 1;
+	path_kind   kind;
+	if (strcmp(name, "get-in") == 0 && (nargs == 2 || nargs == 3)) kind = nargs == 2 ? PATH_GET_IN2 : PATH_GET_IN3;
+	else if (strcmp(name, "assoc-in") == 0 && nargs == 3) kind = PATH_ASSOC_IN;
+	else if (strcmp(name, "update-in") == 0 && nargs >= 3 && nargs <= 3 + PATH_EXTRA_MAX) kind = PATH_UPDATE_IN;
+	else return false;
+	clj_value root = clj_var_root(var);
+	if (root != clj_fusion_boot_root(self) || !clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_CLOSURE || clj_fn_of(root)->nenv) return false;
+	const clj_node *code = clj_fn_of(root)->u.node, *level_fn = kind == PATH_UPDATE_IN ? update_in_level_fn(code) : code;
+	if (!level_fn) return false;
+	const clj_node *path = n->u.invoke.args[1];
+	bool            literal = path->kind == CLJ_NODE_VECTOR;
+	uint32_t        nkeys = literal ? path->u.seq.n : path->kind == CLJ_NODE_CONST && clj_is_vector(path->u.value.v) ? clj_vector_count(path->u.value.v) : 0;
+	if (nkeys == 0 || nkeys > CLJ_INLINE_PATH_MAX) return false;
+	const clj_fusion_var *guards[PATH_GUARDS_MAX];
+	uint32_t              nguards = 0;
+	for (uint32_t i = 0; i < PATH_GUARDS_MAX && path_guard_names[kind][i]; i++) {
+		clj_value sym = clj_symbol_from_cstr(path_guard_names[kind][i]);
+		guards[nguards] = clj_fusion_find_named(sym);
+		clj_release(sym);
+		if (!guards[nguards++]) return false;
+	}
+
+	uint32_t base = fresh_base(fr, n), next = base;
+	path_ctx p = {.kind = kind, .at = {n->line, n->col}, .next = &next, .depth = 1, .level_fn = level_fn, .nkeys = nkeys, .f_var = CLJ_NIL,
+	              .get2 = table_var("clojure.core/get", 2), .get3 = table_var("clojure.core/get", 3), .assoc = table_var("clojure.core/assoc", 3),
+	              .identical = table_var("clojure.core/identical?", 2), .reduced_p = table_var("clojure.core/reduced?", 1),
+	              .unreduced = table_var("clojure.core/unreduced", 1), .not_found = clj_keyword_from_cstr("clojure.core/not-found")};
+	if (clj_is_nil(p.get2) || clj_is_nil(p.get3) || clj_is_nil(p.assoc) || clj_is_nil(p.identical) || clj_is_nil(p.reduced_p) || clj_is_nil(p.unreduced))
+		return false;
+	position entry = p.at;
+	p.level_at = p.at;
+	if (kind == PATH_ASSOC_IN && code->u.fn.fixed[3]) p.level_at = call_at(code->u.fn.fixed[3]->body, NULL, var, p.at);
+	if (kind == PATH_UPDATE_IN) {
+		entry = call_at(code->u.fn.variadic->body->u.let.body, level_fn, CLJ_NIL, p.at);
+		// up's one arity, [m ks f args]
+		if (level_fn->u.fn.fixed[4]) p.level_at = call_at(level_fn->u.fn.fixed[4]->body, level_fn, CLJ_NIL, p.at);
+	}
+	const clj_node *const *args = n->u.invoke.args;
+	uint32_t               slots[2 + CLJ_INLINE_PATH_MAX + 1 + PATH_EXTRA_MAX], nbound = 0;
+	const clj_node        *inits[2 + CLJ_INLINE_PATH_MAX + 1 + PATH_EXTRA_MAX];
+	clj_node              *consts[CLJ_INLINE_PATH_MAX] = {0};
+	// the operands in the order the call runs them: m, the path's items, then not-found, v, or f and its arguments
+	p.m = bind_operand(&p, args[0], slots, inits, &nbound);
+	for (uint32_t i = 0; i < nkeys; i++) {
+		if (literal) {
+			p.keys[i] = bind_operand(&p, path->u.seq.items[i], slots, inits, &nbound);
+		} else {
+			consts[i] = const_node(clj_vector_nth(path->u.value.v, i), p.at);
+			p.keys[i] = (operand){consts[i], 0};
+		}
+	}
+	if (kind == PATH_UPDATE_IN) {
+		p.nextra = nargs - 3;
+		uint32_t lnodes, lslots, counts = 1u << (1 + p.nextra);
+		if (literal_ok(args[2], counts, &lnodes, &lslots)) p.literal = args[2];
+		else if (var_head_ok(args[2], counts) && trivial_from(args, 3, nargs)) p.f_var = args[2]->u.var.v;
+		else p.f = bind_operand(&p, args[2], slots, inits, &nbound);
+		for (uint32_t i = 0; i < p.nextra; i++) p.extra[i] = bind_operand(&p, args[3 + i], slots, inits, &nbound);
+	} else if (kind != PATH_GET_IN2) {
+		p.last = bind_operand(&p, args[2], slots, inits, &nbound);
+	}
+	clj_node *body;
+	switch (kind) {
+	case PATH_GET_IN2: body = path_get2(&p, 0, p.m); break;
+	case PATH_GET_IN3: body = path_get3(&p, 0, p.m); break;
+	case PATH_ASSOC_IN: body = path_assoc(&p, 0, p.m); break;
+	case PATH_UPDATE_IN: body = inline_node(level_fn, CLJ_INLINE_LEVEL, path_assoc(&p, 0, p.m), entry); break;
+	}
+	clj_node *then = inline_node(code, CLJ_INLINE_PATH, body, p.at);
+	if (nbound) {
+		uint32_t        *s = zalloc(nbound, sizeof *s);
+		const clj_node **in = zalloc(nbound, sizeof *in);
+		memcpy(s, slots, nbound * sizeof *s);
+		memcpy(in, inits, nbound * sizeof *in);
+		then = let_node(s, in, nbound, then, p.at);
+	}
+	for (uint32_t i = 0; i < nkeys; i++) {
+		if (consts[i]) clj_release(clj_from_ptr(consts[i]));
+	}
+	uint32_t cost = nodes_in(then) + 4;
+	// a site's own bound, not the frame's budget: the growth is linear in the paths the source writes, as fast arms are
+	if (!slots_fit(fr, next) || cost > PATH_COST_MAX) {
+		clj_release(clj_from_ptr(then));
+		copy_ctx_free(&p.copies);
+		return false;
+	}
+	const clj_fusion_var **g = zalloc(nguards, sizeof *g);
+	memcpy(g, guards, nguards * sizeof *g);
+	guarded_call(n, then, var, root, g, nguards);
+	if (next > fr->arity->nslots) fr->arity->nslots = next;
+	inline_heads(&p.copies, fr, 1, next);
+	copy_ctx_free(&p.copies);
+	return true;
 }
 
 // Children first: an argument is inlined into before the call it is passed to, and the copy of it carries that.
@@ -961,9 +1555,8 @@ static void inline_walk(const clj_node *n, void *ctx) {
 		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED + 1; k++) {
 			clj_fn_arity *a = k <= CLJ_FN_MAX_FIXED ? m->u.fn.fixed[k] : m->u.fn.variadic;
 			if (!a) continue;
-			uint32_t size = 0;
-			count_nodes(a->body, &size);
-			inline_frame inner = {a, 0, size > INLINE_GROWTH_MIN ? size : INLINE_GROWTH_MIN, fr->def_var};
+			uint32_t     size = nodes_in(a->body);
+			inline_frame inner = {a, 0, size > INLINE_GROWTH_MIN ? size : INLINE_GROWTH_MIN, a->nslots, fr->def_var};
 			inline_walk(a->body, &inner);
 		}
 		return;
@@ -983,7 +1576,7 @@ static void inline_walk(const clj_node *n, void *ctx) {
 	default: break;
 	}
 	clj_node_children(m, inline_walk, ctx);
-	if (m->kind == CLJ_NODE_INVOKE && fr->arity) try_inline(m, fr);
+	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
 }
 
 // ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path
@@ -1196,7 +1789,7 @@ void clj_optimize(clj_node *root) {
 	CLJ_VERIFY_TREE(root, "optimize/rewrite", 0);
 	if (!clj_opt_off(CLJ_NO_OPT_INLINE) && inline_enabled) {
 		clj_ice_pass("optimize/inline");
-		inline_frame top = {NULL, 0, 0, CLJ_NIL};
+		inline_frame top = {NULL, 0, 0, 0, CLJ_NIL};
 		inline_walk(root, &top);
 		CLJ_VERIFY_TREE(root, "optimize/inline", 0);
 	}

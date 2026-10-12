@@ -13,6 +13,8 @@ void clj_exec_forget(clj_exec *e);
 void clj_exec_root_rebound(clj_value var);
 // The effects of a subtree under the dev store (facts.c, clj_facts_effects_of), for the lazy def decision.
 uint32_t clj_specialize_effects_of(const clj_node *n, uint32_t stop);
+// clj_facts_effects_calling under the dev store: an inlined copy's own effects, for the optimizer.
+uint32_t clj_specialize_effects_calling(const clj_node *n, uint32_t stop, uint64_t free_calls);
 // Whether the var's root at nargs is a body the dev store walked, not recursive, with no effect outside `allowed`.
 bool clj_specialize_var_inlinable(clj_value var, uint32_t nargs, uint32_t allowed);
 // Puts the specialized entries back after clj_exec_count restored the generic ones.

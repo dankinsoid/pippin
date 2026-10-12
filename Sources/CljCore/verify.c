@@ -39,6 +39,12 @@ typedef struct {
 	char                 *stack_limit; // past it the rest goes unchecked: a fault under the specialize lock is fatal
 	bool                  gave_up;
 	const clj_node       *root_is, *inline_; // the guard and the body of the inlined call being walked: nowhere else
+	const clj_node       *path;   // the PATH body being walked, whose levels sit inside it
+	uint32_t              levels; // LEVEL bodies around the walk within that PATH body
+	// The guarded calls of this frame whose then branch is being walked: their literal fn arguments are what a LITERAL
+	// body may be a copy of.
+	const clj_node *calls[2 * CLJ_INLINE_DEPTH_MAX];
+	uint32_t        ncalls;
 } vctx;
 
 static bool stack_low(vctx *c) {
@@ -145,6 +151,8 @@ static bool arity_ok(vctx *c, const clj_node *fn, const clj_fn_arity *a, uint32_
 	return true;
 }
 
+static bool walk_arities(vctx *c, vframe *f, const clj_node *n, bool direct);
+
 static bool walk_fn(vctx *c, vframe *f, const clj_node *n, bool init) {
 	bool direct = n->kind == CLJ_NODE_DIRECT_FN;
 	if (direct) {
@@ -168,6 +176,19 @@ static bool walk_fn(vctx *c, vframe *f, const clj_node *n, bool init) {
 			}
 		}
 	}
+	// an arity is a frame of its own: no inlined body of the enclosing one reaches into it
+	const clj_node *path = c->path;
+	uint32_t        levels = c->levels, ncalls = c->ncalls;
+	c->path = NULL;
+	c->levels = c->ncalls = 0;
+	bool ok = walk_arities(c, f, n, direct);
+	c->path = path;
+	c->levels = levels;
+	c->ncalls = ncalls;
+	return ok;
+}
+
+static bool walk_arities(vctx *c, vframe *f, const clj_node *n, bool direct) {
 	bool any = false;
 	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED + 1; k++) {
 		const clj_fn_arity *a = k <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[k] : n->u.fn.variadic;
@@ -273,6 +294,8 @@ static bool walk_fused(vctx *c, vframe *f, const clj_node *n) {
 // (if ROOT_IS[var, closure] (let [fresh...] INLINE[fn, body]) (var args...)): the guard compares the root with the closure
 // whose arity the body is a copy of, and the else branch is that very call, so a failed guard runs what the program
 // said. A guard or a body anywhere else would run a copy no guard checks.
+static bool path_guard_ok(vctx *c, const clj_node *g, const clj_node *at);
+
 // @ai-generated(solo)
 static bool walk_inlined(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_, *inl = n->u.if_.then;
@@ -284,17 +307,75 @@ static bool walk_inlined(vctx *c, vframe *f, const vtarget *t, const clj_node *n
 	if (!clj_is_var(g->u.root_is.var.v) || !clj_is_fn(expect) || clj_fn_of(expect)->kind != CLJ_FN_CLOSURE || clj_fn_of(expect)->nenv)
 		return bad(c, "verify/inline-guard", n, "an inline guard that holds no closure without an environment");
 	const clj_node *code = clj_fn_of(expect)->u.node;
+	uint32_t        nargs = call->u.invoke.n;
 	if (inl->u.inline_.fn != code) return bad(c, "verify/inline-guard", n, "an inlined body of another fn than its guard checks");
-	if (call->u.invoke.n > CLJ_FN_MAX_FIXED || !code->u.fn.fixed[call->u.invoke.n])
-		return bad(c, "verify/inline-guard", n, "an inlined call of %u args to a fn without that fixed arity", call->u.invoke.n);
+	if (g->u.root_is.nguards) {
+		if (!path_guard_ok(c, g, n)) return false;
+		if (inl->u.inline_.how != CLJ_INLINE_PATH) return bad(c, "verify/inline-shape", n, "a path guard whose then branch is no path body");
+		if (!(nargs <= CLJ_FN_MAX_FIXED && code->u.fn.fixed[nargs]) && !(code->u.fn.variadic && code->u.fn.variadic->nparams <= nargs))
+			return bad(c, "verify/inline-guard", n, "a path specialization of %u args to a fn without that arity", nargs);
+	} else {
+		if (inl->u.inline_.how != CLJ_INLINE_COPY) return bad(c, "verify/inline-shape", n, "a guard whose then branch is no copied body");
+		if (nargs > CLJ_FN_MAX_FIXED || !code->u.fn.fixed[nargs])
+			return bad(c, "verify/inline-guard", n, "an inlined call of %u args to a fn without that fixed arity", nargs);
+	}
 	if (f->inlines >= CLJ_INLINE_DEPTH_MAX) return bad(c, "verify/inline-depth", n, "an inlined body %u deep, past the budget of %u", f->inlines + 1, CLJ_INLINE_DEPTH_MAX);
+	if (c->ncalls == sizeof c->calls / sizeof *c->calls) return bad(c, "verify/inline-depth", n, "guards nested %u deep", c->ncalls + 1);
 	const clj_node *outer_root_is = c->root_is, *outer_inline = c->inline_;
 	c->root_is = g;
 	c->inline_ = inl;
-	bool ok = walk(c, f, NULL, g, false, false) && walk(c, f, t, n->u.if_.then, tail, false) && walk(c, f, t, call, tail, false);
+	bool ok = walk(c, f, NULL, g, false, false);
+	// a literal fn argument is copied into the then branch, never into the call that passes it
+	c->calls[c->ncalls++] = call;
+	ok = ok && walk(c, f, t, n->u.if_.then, tail, false);
+	c->ncalls--;
+	ok = ok && walk(c, f, t, call, tail, false);
 	c->root_is = outer_root_is;
 	c->inline_ = outer_inline;
 	return ok;
+}
+
+// A known-path guard: entries of the fusion table, among them the var's own at the closure the guard expects, and a
+// var a specialization exists for.
+static bool path_guard_ok(vctx *c, const clj_node *g, const clj_node *at) {
+	if (!g->u.root_is.guards) return bad(c, "verify/missing-child", at, "%u path guards and no array", g->u.root_is.nguards);
+	bool own = false;
+	for (uint32_t i = 0; i < g->u.root_is.nguards; i++) {
+		const clj_fusion_var *gv = g->u.root_is.guards[i];
+		if (!gv || clj_fusion_find(clj_fusion_var_of(gv)) != gv) return bad(c, "verify/inline-guard", at, "path guard %u is no entry of the fusion table", i);
+		if (clj_fusion_var_of(gv) == g->u.root_is.var.v) own = gv->role == CLJ_FUSION_GUARD && clj_fusion_boot_root(gv) == g->u.root_is.expect.v;
+	}
+	if (!own) return bad(c, "verify/inline-guard", at, "a path guard that does not check its own var at its boot root");
+	const char *name = strchr(clj_fusion_find(g->u.root_is.var.v)->name, '/') + 1;
+	if (strcmp(name, "get-in") != 0 && strcmp(name, "assoc-in") != 0 && strcmp(name, "update-in") != 0)
+		return bad(c, "verify/inline-guard", at, "a path specialization of %s, which has none", name);
+	return true;
+}
+
+static bool literal_arg(const vctx *c, const clj_node *fn) {
+	for (uint32_t k = 0; k < c->ncalls; k++) {
+		for (uint32_t i = 0; i < c->calls[k]->u.invoke.n; i++) {
+			if (c->calls[k]->u.invoke.args[i] == fn) return true;
+		}
+	}
+	return false;
+}
+
+// The bodies a guard's body holds: a level of a path, a copy of a literal fn argument.
+static bool walk_nested_inline(vctx *c, vframe *f, const clj_node *n) {
+	const clj_node *fn = n->u.inline_.fn;
+	if (!fn || fn->h.type != &clj_node_type || (fn->kind != CLJ_NODE_FN && fn->kind != CLJ_NODE_DIRECT_FN))
+		return bad(c, "verify/inline-shape", n, "an inlined body of no fn node");
+	if (n->u.inline_.how == CLJ_INLINE_LEVEL) {
+		if (!c->path) return bad(c, "verify/inline-shape", n, "a path level outside a path body");
+		if (c->levels >= CLJ_INLINE_PATH_MAX) return bad(c, "verify/inline-depth", n, "a path level %u deep, past %u", c->levels + 1, CLJ_INLINE_PATH_MAX);
+		c->levels++;
+		bool ok = walk(c, f, NULL, n->u.inline_.body, false, false);
+		c->levels--;
+		return ok;
+	}
+	if (fn->kind != CLJ_NODE_FN || !literal_arg(c, fn)) return bad(c, "verify/inline-literal", n, "a copied fn that no guarded call around it passes");
+	return walk(c, f, NULL, n->u.inline_.body, false, false);
 }
 
 // @ai-generated(solo)
@@ -389,12 +470,21 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 		c->root_is = NULL;
 		return true;
 	case CLJ_NODE_INLINE: {
+		uint8_t how = n->u.inline_.how;
+		if (how == CLJ_INLINE_LEVEL || how == CLJ_INLINE_LITERAL) return walk_nested_inline(c, f, n);
+		if (how != CLJ_INLINE_COPY && how != CLJ_INLINE_PATH) return bad(c, "verify/inline-shape", n, "an inlined body of kind %u", how);
 		if (n != c->inline_) return bad(c, "verify/inline-shape", n, "an inlined body outside the then branch of its guard");
 		c->inline_ = NULL;
-		// the body is the callee's arity body: no recur of the caller reaches through it
+		// the body is the callee's arity body or core's path over it: no recur of the caller reaches through it
+		const clj_node *path = c->path;
+		uint32_t        levels = c->levels;
+		c->path = how == CLJ_INLINE_PATH ? n : NULL;
+		c->levels = 0;
 		f->inlines++;
 		bool ok = walk(c, f, NULL, n->u.inline_.body, false, false);
 		f->inlines--;
+		c->path = path;
+		c->levels = levels;
 		return ok;
 	}
 	}
@@ -679,7 +769,7 @@ static void lv_frames(const clj_node *n, void *ctx) {
 }
 
 bool clj_verify_tree_check(const clj_node *root, uint32_t flags, clj_verify_violation *out) {
-	vctx c = {flags, out, false, root->id, 0, clj_stack_limit(), false, NULL, NULL};
+	vctx c = {.flags = flags, .out = out, .next_id = root->id, .stack_limit = clj_stack_limit()};
 	out->kind = NULL;
 	out->at = NULL;
 	out->message[0] = '\0';
@@ -791,8 +881,13 @@ static void digest(const clj_node *n, void *ctx) {
 	case CLJ_NODE_ROOT_IS:
 		x = mix(x, n->u.root_is.var.v);
 		x = mix(x, n->u.root_is.expect.v);
+		x = mix(x, n->u.root_is.nguards);
+		for (uint32_t i = 0; i < n->u.root_is.nguards; i++) x = mix(x, (uintptr_t)n->u.root_is.guards[i]);
 		break;
-	case CLJ_NODE_INLINE: x = mix(x, (uintptr_t)n->u.inline_.fn); break;
+	case CLJ_NODE_INLINE:
+		x = mix(x, (uintptr_t)n->u.inline_.fn);
+		x = mix(x, n->u.inline_.how);
+		break;
 	}
 	*h = x;
 	clj_node_children(n, digest, ctx);

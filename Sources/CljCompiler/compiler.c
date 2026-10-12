@@ -2826,18 +2826,28 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 // @ai-generated(solo)
 static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_;
-	const fn_base  *fb = fn_base_of(f->c, clj_fn_of(g->u.root_is.expect.v)->u.node);
-	// another unit's fn can only be bound in a closed set: a dev unit would carry a body no guard ever takes
-	if (!fb || (fb->u != f->u && !f->c->opts.closed) || clj_opt_off(CLJ_NO_OPT_INLINE)) return emit(f, call);
-	char target[300];
-	snprintf(target, sizeof target, "%s_a%u", fb->base, call->u.invoke.n);
-	bool fresh;
-	pool_intern(&f->u->inlines, target, NULL, &fresh);
+	if (clj_opt_off(CLJ_NO_OPT_INLINE)) return emit(f, call);
 	temp b = new_temp(f, OWN_NO);
-	sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b.name);
-	if (fb->u == f->u) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b.name, var_index(f->u, g->u.root_is.var.v), fb->base);
-	else sb_printf(&f->out, "\tbool %s = false;\n", b.name);
-	sb_puts(&f->out, "#endif\n");
+	if (g->u.root_is.nguards) {
+		// a known path stands for core's own fn, whose boot root any unit can check: the fusion guard, 1 when closed
+		int k = f->naux++;
+		sb_printf(&f->out, "\tconst clj_fusion_var *g%d[%u] = {", k, g->u.root_is.nguards);
+		for (uint32_t i = 0; i < g->u.root_is.nguards; i++) sb_printf(&f->out, "%sF[%zu]", i ? ", " : "", fusion_index(f->u, g->u.root_is.guards[i]));
+		sb_printf(&f->out, "};\n\t(void)g%d;\n\tbool %s = CLJC_FUSED(g%d, %u);\n", k, b.name, k, g->u.root_is.nguards);
+		f->u->slots.paths++;
+	} else {
+		const fn_base *fb = fn_base_of(f->c, clj_fn_of(g->u.root_is.expect.v)->u.node);
+		// another unit's fn can only be bound in a closed set: a dev unit would carry a body no guard ever takes
+		if (!fb || (fb->u != f->u && !f->c->opts.closed)) return emit(f, call);
+		char target[300];
+		snprintf(target, sizeof target, "%s_a%u", fb->base, call->u.invoke.n);
+		bool fresh;
+		pool_intern(&f->u->inlines, target, NULL, &fresh);
+		sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b.name);
+		if (fb->u == f->u) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b.name, var_index(f->u, g->u.root_is.var.v), fb->base);
+		else sb_printf(&f->out, "\tbool %s = false;\n", b.name);
+		sb_puts(&f->out, "#endif\n");
+	}
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
 	temp then = emit(f, n->u.if_.then);
@@ -2855,6 +2865,7 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 static temp emit_inline(fnctx *f, const clj_node *n) {
 	int32_t saved = f->stub;
 	if (saved >= 0) f->stub = (int32_t)stub_inlined_new(f->u, f, n->u.inline_.fn, (uint32_t)saved);
+	if (n->u.inline_.how == CLJ_INLINE_LITERAL) f->u->slots.literals++;
 	// the body's lines are the callee's file's, and #line names this unit's
 	f->inlining++;
 	temp t = emit(f, n->u.inline_.body);

@@ -564,7 +564,8 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 static clj_value eval_root_is(const clj_node *n, clj_frame *f) {
 	(void)f;
 	clj_value var = n->u.root_is.var.v;
-	return clj_bool(!clj_var_is_dynamic(var) && clj_var_root(var) == n->u.root_is.expect.v);
+	return clj_bool(!clj_var_is_dynamic(var) && clj_var_root(var) == n->u.root_is.expect.v &&
+	                (!n->u.root_is.nguards || clj_fusion_guard(n->u.root_is.guards, n->u.root_is.nguards)));
 }
 
 // An inlined body in the caller's frame: the shadow frame and the instrumentation of run_body, so a trace and a profile

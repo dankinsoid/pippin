@@ -10,6 +10,7 @@ typedef enum {
 	CLJ_FUSION_STAGE,    // map, filter, take, ...: a transducer arity one below the lazy one
 	CLJ_FUSION_CONSUMER, // reduce, into, vec, count
 	CLJ_FUSION_DRIVER,   // the natives below
+	CLJ_FUSION_GUARD,    // a core var a known-path specialization or a fused step takes the boot behavior of
 } clj_fusion_role;
 
 typedef struct {

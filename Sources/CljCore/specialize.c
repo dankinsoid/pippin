@@ -384,9 +384,11 @@ static void drain_and_unlock(uint32_t trigger, uint32_t done) {
 	free(spent);
 }
 
-uint32_t clj_specialize_effects_of(const clj_node *n, uint32_t stop) {
+uint32_t clj_specialize_effects_of(const clj_node *n, uint32_t stop) { return clj_specialize_effects_calling(n, stop, 0); }
+
+uint32_t clj_specialize_effects_calling(const clj_node *n, uint32_t stop, uint64_t free_calls) {
 	clj_lock_lock(&lock);
-	uint32_t effects = clj_facts_effects_of(n, store_locked(), stop);
+	uint32_t effects = clj_facts_effects_calling(n, store_locked(), stop, free_calls);
 	clj_lock_unlock(&lock);
 	return effects;
 }
