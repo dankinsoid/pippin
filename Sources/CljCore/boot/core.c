@@ -3444,6 +3444,7 @@ CLJC_INLINE clj_value clojure_core_concat__2_a0_i(clj_value self, const clj_valu
 	(void)a1;
 	clj_value t12;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t7);
 	clj_reuse_token k5 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t12 = clj_seq_cons_at(k5, t6, t7);
@@ -3595,6 +3596,7 @@ static CLJC_FRAME clj_value clojure_core_concat__3__4_a0(clj_value self, const c
 	(void)a1;
 	clj_value t12;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t7);
 	clj_reuse_token k5 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t12 = clj_seq_cons_at(k5, t6, t7);
@@ -29431,6 +29433,7 @@ static CLJC_FRAME clj_value clojure_core_map__2_a0(clj_value self, const clj_val
 	(void)a1;
 	clj_value t15;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t10);
 	clj_reuse_token k6 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t15 = clj_seq_cons_at(k6, t6, t10);
@@ -29668,6 +29671,7 @@ static CLJC_FRAME clj_value clojure_core_map__3_a0(clj_value self, const clj_val
 	(void)a2;
 	clj_value t25;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t18);
 	clj_reuse_token k8 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t25 = clj_seq_cons_at(k8, t12, t18);
@@ -29972,6 +29976,7 @@ static CLJC_FRAME clj_value clojure_core_map__4_a0(clj_value self, const clj_val
 	(void)a3;
 	clj_value t36;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0xf), t27);
 	clj_reuse_token k10 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t36 = clj_seq_cons_at(k10, t19, t27);
@@ -30341,6 +30346,7 @@ L3: ;
 	(void)a7;
 	clj_value t40;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t34);
 	clj_reuse_token k11 = clj_drop_reuse(l2);
 	l2 = CLJ_NIL;
 	t40 = clj_seq_cons_at(k11, t30, t34);
@@ -30889,6 +30895,7 @@ static CLJC_FRAME clj_value clojure_core_filter__2_a0(clj_value self, const clj_
 	(void)a4;
 	clj_value t20;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t16);
 	clj_reuse_token k6 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t20 = clj_seq_cons_at(k6, t15, t16);
@@ -31564,6 +31571,7 @@ static CLJC_FRAME clj_value clojure_core_keep__2_a0(clj_value self, const clj_va
 	(void)a6;
 	clj_value t25;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t20);
 	clj_reuse_token k9 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t25 = clj_seq_cons_at(k9, t19, t20);
@@ -32128,6 +32136,7 @@ static CLJC_FRAME clj_value clojure_core_take__2_a0(clj_value self, const clj_va
 	(void)a2;
 	clj_value t18;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t12);
 	clj_reuse_token k7 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t18 = clj_seq_cons_at(k7, t11, t12);
@@ -33040,6 +33049,7 @@ static CLJC_FRAME clj_value clojure_core_take_while__2_a0(clj_value self, const 
 	(void)a3;
 	clj_value t19;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t14);
 	clj_reuse_token k7 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t19 = clj_seq_cons_at(k7, t13, t14);
@@ -34802,6 +34812,7 @@ static CLJC_FRAME clj_value clojure_core_interleave__1_a0(clj_value self, const 
 	(void)a2;
 	clj_value t23;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t22);
 	clj_reuse_token k9 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t23 = clj_seq_cons_at(k9, t13, t22);
@@ -37256,6 +37267,7 @@ L4: ;
 	(void)a9;
 	clj_value t67;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t39);
 	clj_reuse_token k17 = clj_drop_reuse(l4);
 	l4 = CLJ_NIL;
 	t67 = clj_seq_cons_at(k17, t38, t39);
@@ -37815,6 +37827,7 @@ L4: ;
 	(void)a9;
 	clj_value t68;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0xf), t39);
 	clj_reuse_token k17 = clj_drop_reuse(l4);
 	l4 = CLJ_NIL;
 	t68 = clj_seq_cons_at(k17, t38, t39);
@@ -38384,6 +38397,7 @@ L3: ;
 	(void)a5;
 	clj_value t48;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t20);
 	clj_reuse_token k13 = clj_drop_reuse(l4);
 	l4 = CLJ_NIL;
 	t48 = clj_seq_cons_at(k13, t19, t20);
@@ -38793,6 +38807,7 @@ L3: ;
 	(void)a5;
 	clj_value t49;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0xf), t20);
 	clj_reuse_token k13 = clj_drop_reuse(l4);
 	l4 = CLJ_NIL;
 	t49 = clj_seq_cons_at(k13, t19, t20);
@@ -40532,6 +40547,7 @@ L4: ;
 	(void)a7;
 	clj_value t61;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t33);
 	clj_reuse_token k15 = clj_drop_reuse(l4);
 	l4 = CLJ_NIL;
 	t61 = clj_seq_cons_at(k15, t32, t33);
@@ -40884,6 +40900,7 @@ static CLJC_FRAME clj_value clojure_core_partitionv_all__0_a0(clj_value self, co
 	(void)a3;
 	clj_value t22;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t14);
 	clj_reuse_token k6 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t22 = clj_seq_cons_at(k6, t13, t14);
@@ -41329,6 +41346,7 @@ CLJC_INLINE clj_value clojure_core_map_indexed__2__3_a0_i(clj_value self, const 
 	(void)a1;
 	clj_value t17;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0xf), t11);
 	clj_reuse_token k7 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t17 = clj_seq_cons_at(k7, t6, t11);
@@ -41925,6 +41943,7 @@ static CLJC_FRAME clj_value clojure_core_keep_indexed__2__3_a0(clj_value self, c
 	(void)a7;
 	clj_value t28;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0xf), t22);
 	clj_reuse_token k11 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t28 = clj_seq_cons_at(k11, t21, t22);
@@ -45127,6 +45146,7 @@ L3: ;
 	(void)a4;
 	clj_value t25;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t18);
 	clj_reuse_token k8 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t25 = clj_seq_cons_at(k8, t17, t18);
@@ -58531,6 +58551,7 @@ CLJC_INLINE clj_value clojure_core_cycle__0__1_a0_i(clj_value self, const clj_va
 	(void)a1;
 	clj_value t12;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x7), t8);
 	clj_reuse_token k5 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t12 = clj_seq_cons_at(k5, t7, t8);
@@ -59507,6 +59528,7 @@ static CLJC_FRAME clj_value clojure_core_take_nth__2_a0(clj_value self, const cl
 	(void)a1;
 	clj_value t15;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t8);
 	clj_reuse_token k5 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t15 = clj_seq_cons_at(k5, t7, t8);
@@ -60853,6 +60875,7 @@ static CLJC_FRAME clj_value clojure_core_flatten__0__1_a0(clj_value self, const 
 	(void)a7;
 	clj_value t26;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t22);
 	clj_reuse_token k10 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t26 = clj_seq_cons_at(k10, t21, t22);
@@ -98429,6 +98452,7 @@ static CLJC_FRAME clj_value clojure_core_pmap__2__3_a0(clj_value self, const clj
 	(void)a1;
 	clj_value t14;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x1f), t9);
 	clj_reuse_token k5 = clj_drop_reuse(l1);
 	l1 = CLJ_NIL;
 	t14 = clj_seq_cons_at(k5, t6, t9);
@@ -99030,6 +99054,7 @@ L3: ;
 	(void)a7;
 	clj_value t40;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3), t34);
 	clj_reuse_token k11 = clj_drop_reuse(l2);
 	l2 = CLJ_NIL;
 	t40 = clj_seq_cons_at(k11, t30, t34);
@@ -170082,6 +170107,7 @@ static CLJC_FRAME clj_value clojure_core_seque__3__4_a0(clj_value self, const cl
 	(void)a5;
 	clj_value t27;
 	if (CLJC_GUARD(V[3], B[1])) {
+	clj_c_thunk_let_go(self, captured, UINT64_C(0x3f), t25);
 	clj_reuse_token k8 = clj_drop_reuse(l0);
 	l0 = CLJ_NIL;
 	t27 = clj_seq_cons_at(k8, t22, t25);

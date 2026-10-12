@@ -1,4 +1,5 @@
 // @ai-generated(guided)
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,6 +18,7 @@
 #include "clj/vector.h"
 #include "coro_internal.h"
 #include "force_internal.h"
+#include "ice_internal.h"
 #include "rc_internal.h"
 #include "shadow_internal.h"
 
@@ -458,6 +460,29 @@ static void publish(clj_value v, clj_value value) {
 static void unclaim(clj_value v) {
 	set_state(v, UNFORCED);
 	unclaimed();
+}
+
+// @ai-generated(solo)
+// Only a success may cost the cell its captures: a throw unclaims it and the next force runs the thunk again.
+CLJ_UNIT_ENTRY void clj_lazy_seq_let_go(const clj_value *captured, uint64_t mask) {
+	clj_lazy_seq *s = (clj_lazy_seq *)(void *)((char *)(uintptr_t)captured - offsetof(clj_lazy_seq, captured));
+#if CLJ_DEBUG
+	const clj_forcing *top = forcing_top;
+	uint32_t           st = atomic_load_explicit(&s->state, memory_order_relaxed);
+	if (!top || top->obj != clj_from_ptr(s) || s->h.type != &clj_lazy_seq_type || !clj_is_nil(s->owner.v) || (st != FORCING && st != FORCING_WAITED) ||
+	    (s->ncaptured < 64 && mask >> s->ncaptured)) {
+		clj_ice("seq/let-go-outside-its-force", NULL, "captures %#llx let go by a thunk that is not the running thunk of its cell", (unsigned long long)mask);
+	}
+#endif
+	if (clj_opt_off(CLJ_NO_OPT_OWNED)) return;
+	clj_value held[64];
+	uint32_t  n = 0;
+	for (; mask; mask &= mask - 1) {
+		uint32_t i = (uint32_t)__builtin_ctzll(mask);
+		held[n++] = s->captured[i].v;
+		clj_slot_store(&s->h, &s->captured[i], CLJ_NIL);
+	}
+	for (uint32_t i = 0; i < n; i++) clj_release(held[i]);
 }
 
 // Runs the thunk of a claimed object. Owned result. The deadline is checked per cell: a compiled thunk has no check

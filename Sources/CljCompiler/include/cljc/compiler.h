@@ -102,6 +102,7 @@ typedef struct {
 	uint64_t reuse_takeouts; // gets whose value an assoc of the same slot and key puts back: moved out at +1
 	uint64_t owned_lowered;  // lowered literals' arities emitted with an owned entry for the accumulator
 	uint64_t owned_steps;    // lowered sites whose reducer hands the accumulator over through an owned step
+	uint64_t thunk_let_go;   // lazy-seq thunks' tail cons sites that release the dead captures before the token
 } cljc_slot_stats;
 
 // After cljc_end: the protocol counters are resolved against the set as the units' text is.

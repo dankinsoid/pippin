@@ -308,6 +308,44 @@ extension CoreTests {
 			if consuming >= 0 && on && getenv("CLJ_EVAL") == nil { #expect(clj_debug_consuming_calls() - consuming == 3) }
 		}
 
+		// Without the let-go only the inner stage's first cell, a fresh vector-seq, reaches its token at rc 1.
+		@Test func lazyThunksLetTheirCapturesGoAtTheTailCons() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.letgo)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval {
+				_ = try cljEval("(defn lg-map [f coll] (lazy-seq (when-let [s (seq coll)] (cons (f (first s)) (lg-map f (rest s))))))")
+			}
+			var c0 = [Int64](repeating: 0, count: 3), c1 = c0
+			clj_debug_reuse_counts(&c0)
+			#expect(try cljEval("(doall (lg-map inc (lg-map inc [1 2 3 4])))") == Value(list: [3, 4, 5, 6]))
+			clj_debug_reuse_counts(&c1)
+			let owned = clj_no_opt() & clj_no_opt_parse("owned") == 0
+			if clj_reuse_enabled() {
+				let want: Int64 = owned ? 8 : 1
+				#expect(c1[0] - c0[0] == want && c1[1] - c0[1] == want, "taken \(c1[0] - c0[0]), used \(c1[1] - c0[1])")
+			} else {
+				#expect(c1[1] == c0[1])
+			}
+			// Shared: every thread parks on a cell another one is forcing, and each sees the whole seq.
+			let s = try cljEval("(def lg-shared (lg-map inc (lg-map inc (vec (range 2000))))) lg-shared")
+			#expect(clj_is_shared(s.raw))
+			let threads = 8
+			var sums = [Int](repeating: 0, count: threads)
+			sums.withUnsafeMutableBufferPointer { sp in
+				// Each iteration writes its own index; the closure outlives nothing.
+				nonisolated(unsafe) let sp = sp
+				DispatchQueue.concurrentPerform(iterations: threads) { i in
+					var it = clj_seq_iter_start(s.raw)
+					var item: clj_value = CLJ_NIL
+					var sum = 0
+					while clj_seq_iter_next(&it, &item) { sum += clj_fixnum_val(item) }
+					sp[i] = sum
+				}
+			}
+			#expect(sums.allSatisfy { $0 == 2_003_000 })
+		}
+
 		// The guard page lands "Stack overflow" at the host boundary, past any try in between (guard.c); the loop tick
 		// stops a loop without calls.
 		@Test func endlessRecursionAndLoopAreStopped() throws {

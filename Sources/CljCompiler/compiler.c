@@ -15,6 +15,7 @@
 #include "ice_internal.h"
 #include "owned.h"
 #include "reuse.h"
+#include "thunk.h"
 
 // ---- string builder
 
@@ -249,6 +250,7 @@ struct cljc_compiler {
 	cljc_owned       *owned;       // the owned parameters of the set's def'd fns (owned.c)
 	uint32_t          owned_order; // forms declared to it so far, in load order
 	lowering_ctx      lowering;
+	const clj_node   *thunk_site; // the lazy-seq site whose thunk's functions are being emitted
 	bool          installed;
 };
 
@@ -477,6 +479,8 @@ typedef struct fnctx {
 	uint32_t             inlining;   // inlined bodies being emitted (emit_inline)
 	put_site            *puts;       // the latest last: a tree emitted twice declares its flags again
 	uint32_t             nputs, puts_cap;
+	cljc_let_go          let_go[CLJC_LET_GO_MAX]; // a lazy-seq thunk's tail cons sites and the captures each lets go
+	size_t               nlet_go;
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -2191,7 +2195,10 @@ static temp emit_lazy_seq(fnctx *f, const clj_node *n) {
 	const clj_node *fn = n->u.invoke.args[0];
 	char            base[256], caps[32], expr[512];
 	snprintf(base, sizeof base, "%s__%u", f->base, (*f->fn_counter)++);
+	const clj_node *outer = f->c->thunk_site;
+	f->c->thunk_site = n;
 	emit_fn_functions(f, fn, base);
+	f->c->thunk_site = outer;
 	emit_captures(f, fn, caps);
 	closure_expr(f, fn, base, caps, expr, sizeof expr);
 	size_t vi = var_index(f->u, n->u.invoke.fn->u.var.v);
@@ -2658,6 +2665,17 @@ static const cljc_reuse_pair *reuse_pair(const fnctx *f, const clj_node *n) {
 	return p;
 }
 
+// A thunk's dead captures go before the token is drawn: the value it takes may be one only a capture still held.
+static void emit_let_go(fnctx *f, const clj_node *n, const char *tail) {
+	for (size_t i = 0; i < f->nlet_go; i++) {
+		if (f->let_go[i].node != n->id) continue;
+		if (strcmp(f->frame, "fr") != 0) clj_ice("emit/let-go-frame", n, "a thunk's tail cons emitted outside the thunk's own frame");
+		sb_printf(&f->out, "\tclj_c_thunk_let_go(self, captured, UINT64_C(%#llx), %s);\n", (unsigned long long)f->let_go[i].mask, tail);
+		f->u->slots.thunk_let_go++;
+		return;
+	}
+}
+
 // s is handed over, so a unique view can step in its own cell.
 static temp emit_consume(fnctx *f, const clj_node *n, uint32_t slot) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
@@ -2773,6 +2791,7 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		f->u->slots.kw_sites++;
 	} else if (pair && pair->kind == CLJC_REUSE_TOKEN && !consuming) {
 		// the operands hold references of their own: nothing they point at goes with the dying value's children
+		emit_let_go(f, n, args[1].name);
 		int k = f->naux++;
 		sb_printf(&f->out, "\tclj_reuse_token k%d = clj_drop_reuse(l%u);\n\tl%u = CLJ_NIL;\n\t%s = clj_seq_cons_at(k%d, %s, %s);\n", k, pair->slot, pair->slot, r.name, k,
 		          args[0].name, args[1].name);
@@ -3612,6 +3631,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	if (omask) sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", entry);
 	sb_puts(&f.out, "\t(void)self; (void)captured; (void)args; (void)nargs;\n");
 	promote_slots(&f, n, a, true, a->body, a->nslots);
+	if (f.c->thunk_site && f.c->thunk_site->u.invoke.args[0] == n) f.nlet_go = cljc_thunk_let_go(f.c->thunk_site, f.reuse, f.let_go);
 	uint32_t arr = array_slots(&f, a->nslots);
 	if (arr) sb_printf(&f.out, "\tclj_value s[%u];\n\tclj_cframe fr = {s, captured, 0, NULL};\n", arr);
 	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, captured, 0, NULL};\n");

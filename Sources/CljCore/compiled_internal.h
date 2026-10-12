@@ -61,6 +61,11 @@ static inline bool clj_c_catch_selected(clj_value m, bool *undecided) {
 #define CLJC_LAZY_SEQ_INLINE(var) clj_lazy_seq_star_is(clj_var_root_relaxed(var))
 #endif
 
+// A cell runs its thunk with self nil, the closure path with the fn; a non-seq tail is seq'd by the cons and may throw.
+static inline void clj_c_thunk_let_go(clj_value self, const clj_value *captured, uint64_t mask, clj_value tail) {
+	if (self == CLJ_NIL && (clj_is_nil(tail) || clj_is_seq(tail))) clj_lazy_seq_let_go(captured, mask);
+}
+
 static inline bool clj_c_slot_owned(const clj_cframe *f, uint32_t i) { return i >= 64 || (f->owned >> i) & 1; }
 
 static inline void clj_c_set(clj_cframe *f, uint32_t i, clj_value v) {

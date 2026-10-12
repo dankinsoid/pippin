@@ -84,6 +84,9 @@ extern const clj_type clj_lazy_seq_type;
 clj_value clj_lazy_seq_new(clj_value fn);
 // The thunk code(nil, captured, NULL, 0) of a closure arity that reads no self; captured is borrowed and retained.
 clj_value clj_lazy_seq_code(clj_lazy_code code, const clj_value *captured, uint32_t ncaptured);
+// From the compiled thunk the cell is running, past the point where it can fail: the captures in mask go now, not at
+// the publish. captured is the cell's own array (clj_c_thunk_let_go).
+void clj_lazy_seq_let_go(const clj_value *captured, uint64_t mask);
 // The interpreter's thunk: node's arity run over exec with captured as the frame's environment (clj_lazy_thunk_run,
 // eval.c). exec and captured are borrowed and retained.
 clj_value clj_lazy_seq_node(clj_value exec, const struct clj_node *node, const clj_value *captured, uint32_t ncaptured);
