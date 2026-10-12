@@ -31,6 +31,7 @@ static const char *const names[CLJ_STAT_COUNT] = {
 	[CLJ_STAT_TOKEN_TAKEN] = "token_taken",
 	[CLJ_STAT_TOKEN_USED] = "token_used",
 	[CLJ_STAT_TOKEN_SKIPPED] = "token_skipped",
+	[CLJ_STAT_TAKEN_OUT] = "taken_out",
 };
 
 const char *clj_debug_stat_name(int k) { return k >= 0 && k < CLJ_STAT_COUNT ? names[k] : "?"; }

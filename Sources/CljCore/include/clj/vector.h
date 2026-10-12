@@ -19,6 +19,8 @@ clj_value clj_vector_peek(clj_value vec);
 clj_value clj_vector_conj(clj_value vec, clj_value val);
 // i == count appends; i > count aborts.
 clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val);
+// clj_map_get_take's vector: get's answer, or the item moved out when the vector, its path and the item are unique.
+clj_value clj_vector_get_take(clj_value vec, clj_value key, clj_value not_found, bool *taken);
 // Aborts on an empty vector.
 clj_value clj_vector_pop(clj_value vec);
 

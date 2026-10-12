@@ -12,6 +12,7 @@
 (defn mt-yes [] (some? mt-box))
 (defn mt-no [] (throw (ex-info "model: the branch not taken ran" {})))
 (defn mt-wrap [x] [x])
+(defn mt-boom [& _] (throw (ex-info "model: boom" {})))
 
 ;; Published by the atom, then unique again once the caller drops the argument.
 (defn mt-pub [x] (reset! mt-box x) (reset! mt-box nil) x)

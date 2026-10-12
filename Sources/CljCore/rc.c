@@ -251,6 +251,11 @@ bool clj_is_unique(clj_value v) {
 	return unique;
 }
 
+bool clj_is_unique_unshared(clj_value v) {
+	if (!clj_is_ptr(v) || (clj_header_of(v)->flags & CLJ_FLAG_SHARED)) return false;
+	return is_unique(v);
+}
+
 bool clj_reuse_enabled(void) { return !clj_opt_off(CLJ_NO_OPT_REUSE); }
 
 bool clj_is_shared(clj_value v) {

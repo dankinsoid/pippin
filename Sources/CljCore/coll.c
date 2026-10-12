@@ -9,6 +9,7 @@
 #include "clj/map.h"
 #include "clj/regex.h"
 #include "clj/seq.h"
+#include "clj/stats.h"
 #include "clj/string.h"
 #include "clj/vector.h"
 
@@ -106,6 +107,36 @@ clj_value clj_get(clj_value coll, clj_value key, clj_value not_found) {
 	const clj_type *t = type_or_null(coll);
 	if (t && t->lookup) return t->lookup(coll, key, not_found);
 	return clj_retain(not_found);
+}
+
+#if CLJ_DEBUG
+// Per thread, as reuse.c's token counts: a test counts its own take-outs while other suites run beside it.
+static _Thread_local int64_t debug_taken_out;
+#define DEBUG_TAKEN_OUT() (debug_taken_out++)
+#else
+#define DEBUG_TAKEN_OUT() ((void)0)
+#endif
+
+int64_t clj_debug_taken_out(void) {
+#if CLJ_DEBUG
+	return debug_taken_out;
+#else
+	return -1;
+#endif
+}
+
+// @ai-generated(solo)
+CLJ_UNIT_ENTRY clj_value clj_get_take(clj_value coll, clj_value key, clj_value not_found, bool *taken) {
+	bool      took = false;
+	clj_value v = clj_is_map(coll)      ? clj_map_get_take(coll, key, not_found, &took)
+	              : clj_is_vector(coll) ? clj_vector_get_take(coll, key, not_found, &took)
+	                                    : clj_get(coll, key, not_found);
+	if (took) {
+		*taken = true;
+		CLJ_STAT(CLJ_STAT_TAKEN_OUT);
+		DEBUG_TAKEN_OUT();
+	}
+	return v;
 }
 
 clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found) {

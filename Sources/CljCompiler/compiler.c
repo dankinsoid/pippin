@@ -432,6 +432,14 @@ typedef struct {
 	bool used;
 } handler;
 
+// An assoc that puts back what a take-out get moved out (reuse.c, CLJC_REUSE_TAKEOUT), from the emission of the node
+// around both on.
+typedef struct {
+	uint32_t        node;
+	const clj_node *assoc;
+	int             flag; // tko<flag>: the get moved the value out, so the assoc runs the builtin it was moved for
+} put_site;
+
 typedef struct fnctx {
 	cljc_compiler *c;
 	unit          *u;
@@ -467,6 +475,8 @@ typedef struct fnctx {
 	cljc_reuse_plan     *reuse;      // the frame's drop-guided reuse pairs (reuse.c)
 	uint64_t             owned_params; // the params an owned entry receives at +1: owned slots, never borrowed
 	uint32_t             inlining;   // inlined bodies being emitted (emit_inline)
+	put_site            *puts;       // the latest last: a tree emitted twice declares its flags again
+	uint32_t             nputs, puts_cap;
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -1481,7 +1491,33 @@ static temp emit_do(fnctx *f, const clj_node *n) {
 	return emit(f, n->u.seq.items[n->u.seq.n - 1]);
 }
 
+// The flags of the take-out gets whose assoc n is, or which n's inits and body hold (reuse.c, CLJC_REUSE_TAKEOUT).
+// @ai-generated(solo)
+static void takeout_declare(fnctx *f, const clj_node *n) {
+	size_t from = 0;
+	for (const cljc_reuse_pair *p; (p = cljc_reuse_takeout_declared(f->reuse, n->id, &from));) {
+		// reuse_pair's test of the get's slot, which the get makes again where it is emitted
+		if (!promoted(f, p->slot) || borrowed_slot(f, p->slot) || slot_kind(f, p->slot) != UK_NONE || wparam(f, p->slot)) continue;
+		int flag = f->naux++;
+		sb_printf(&f->out, "\tbool tko%d = false;\n", flag);
+		if (f->nputs == f->puts_cap) {
+			f->puts_cap = f->puts_cap ? 2 * f->puts_cap : 4;
+			f->puts = realloc(f->puts, f->puts_cap * sizeof *f->puts);
+			if (!f->puts) clj_fatal("out of memory");
+		}
+		f->puts[f->nputs++] = (put_site){p->arg, p->put, flag};
+	}
+}
+
+static const put_site *put_find(const fnctx *f, uint32_t assoc) {
+	for (uint32_t i = f->nputs; i-- > 0;) {
+		if (f->puts[i].node == assoc) return &f->puts[i];
+	}
+	return NULL;
+}
+
 static void emit_bindings(fnctx *f, const clj_node *n) {
+	if (n->kind == CLJ_NODE_LET) takeout_declare(f, n);
 	for (uint32_t i = 0; i < n->u.let.n; i++) {
 		const clj_node *init = n->u.let.inits[i];
 		if (init->kind == CLJ_NODE_DIRECT_FN) {
@@ -2641,6 +2677,42 @@ static temp emit_consume(fnctx *f, const clj_node *n, uint32_t slot) {
 	return r;
 }
 
+// The value at the key leaves its parent at +1 when both are unique, and the assoc that puts it back runs the builtin.
+// The assoc's guard is read here, before the hole is made: a with-redefs of assoc by the code computing the new value
+// then reaches the assoc's next call, not this one (JVM Clojure reads the root before the operands as well).
+// @ai-generated(solo)
+static temp emit_takeout(fnctx *f, const clj_node *n, const cljc_reuse_pair *pair) {
+	const put_site *p = put_find(f, pair->arg);
+	if (!p) clj_ice("emit/takeout-unpaired", n, "a take-out get emitted outside the assoc %u that puts its value back", pair->arg);
+	const clj_node *a0 = n->u.intrinsic.args[0];
+	if (a0->kind != CLJ_NODE_LOCAL || a0->u.local.index != pair->slot) clj_ice("emit/takeout-slot", n, "a take-out of slot %u at a get that does not read it", pair->slot);
+	const clj_intrinsic *op = n->u.intrinsic.op;
+	size_t               oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var.v);
+	size_t               aoi = op_index(f->u, p->assoc->u.intrinsic.op), avi = var_index(f->u, p->assoc->u.intrinsic.var.v);
+	char                 array[24];
+	snprintf(array, sizeof array, "a%d", f->naux++);
+	temp       *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
+	temp        r = new_temp(f, OWN_YES);
+	const char *nf = n->u.intrinsic.n == 3 ? args[2].name : "CLJ_NIL";
+	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", r.name, vi, oi);
+	if (n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.intrinsic.args[1]->u.value.v)) {
+		uint32_t ic = f->u->nics++;
+		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
+		sb_printf(&f->out, "\t%s = clj_c_kw_take(KC_%u_get(), %s, %s, %s, CLJC_GUARD(V[%zu], B[%zu]), &tko%d);\n", r.name, ic, args[1].name, args[0].name, nf, avi, aoi,
+		          p->flag);
+		f->u->slots.kw_sites++;
+	} else {
+		sb_printf(&f->out, "\t%s = clj_c_get_take(%s, %s, %s, CLJC_GUARD(V[%zu], B[%zu]), &tko%d);\n", r.name, args[0].name, args[1].name, nf, avi, aoi, p->flag);
+	}
+	sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n\t}\n", r.name, vi, array, n->u.intrinsic.n);
+	for (uint32_t i = n->u.intrinsic.n; i-- > 0;) release_temp(f, &args[i]);
+	free(args);
+	check_thrown(f, r.name);
+	live_push(f, r);
+	f->u->slots.reuse_takeouts++;
+	return r;
+}
+
 static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
 	unbox_op             uop = unbox_op_of(op);
@@ -2660,10 +2732,17 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	}
 	const cljc_reuse_pair *pair = reuse_pair(f, n);
 	if (pair && pair->kind == CLJC_REUSE_CONSUME) return emit_consume(f, n, pair->slot);
+	if (pair && pair->kind == CLJC_REUSE_TAKEOUT) return emit_takeout(f, n, pair);
 	size_t oi = op_index(f->u, op), vi = var_index(f->u, n->u.intrinsic.var.v);
-	char   array[24];
+	uint32_t puts_mark = f->nputs;
+	takeout_declare(f, n);
+	char array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
-	temp *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
+	temp           *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
+	const put_site *put = put_find(f, n->id);
+	int             flag = put ? put->flag : -1;
+	// the operands' own lets are emitted, and the flag is read
+	f->nputs = puts_mark;
 	if (pair && pair->kind == CLJC_REUSE_TAKE && args[0].own == OWN_NO) {
 		const clj_node *a0 = n->u.intrinsic.args[0];
 		if (a0->kind != CLJ_NODE_LOCAL || a0->u.local.index != pair->slot) clj_ice("emit/take-slot", n, "a take of slot %u at an operand that does not read it", pair->slot);
@@ -2676,7 +2755,8 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	temp  r = new_temp(f, OWN_YES);
 	bool  consuming = clj_intrinsic_consumes(op) && args[0].own != OWN_NO;
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
-	sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", vi, oi);
+	if (flag >= 0) sb_printf(&f->out, "\tif (tko%d || CLJC_GUARD(V[%zu], B[%zu])) {\n", flag, vi, oi);
+	else sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", vi, oi);
 	if (consuming && args[0].own == OWN_YES) {
 		emit_intrinsic_call(f, op, op->cconsume, args, r.name);
 	} else if (consuming) {
@@ -3346,6 +3426,7 @@ static void fnctx_free(fnctx *f) {
 	sb_free(&f->out);
 	free(f->live);
 	free(f->handlers);
+	free(f->puts);
 }
 
 // The releases at a frame's exit: the promoted slots, then the owned entries of the array.

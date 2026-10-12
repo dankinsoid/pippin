@@ -261,6 +261,27 @@ extension CoreTests {
 			}
 		}
 
+		// A parent the var keeps gives nothing up; a fresh one handed over gives up both levels' children.
+		@Test func takeOutGetMovesTheChildOutOfAUniqueParent() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.takeout)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval(closed: true) {
+				_ = try cljEval("(defn to-bump [m] (update-in m [:a :b] conj 1))")
+				_ = try cljEval("(defn to-fresh [] (to-bump (hash-map :a (hash-map :b (vector 0)))))")
+			}
+			_ = try cljEval("(def to-kept {:a {:b [0]}})")
+			let t0 = clj_debug_taken_out()
+			#expect(try cljEval("[(to-bump to-kept) to-kept]") == cljEval("[{:a {:b [0 1]}} {:a {:b [0]}}]"))
+			let t1 = clj_debug_taken_out()
+			#expect(try cljEval("(to-fresh)") == cljEval("{:a {:b [0 1]}}"))
+			let t2 = clj_debug_taken_out()
+			if t0 >= 0 && clj_reuse_enabled() && clj_no_opt() & clj_no_opt_parse("owned") == 0 {
+				#expect(t1 == t0, "taken out of the var's map: \(t1 - t0)")
+				#expect(t2 - t1 == 2, "taken out \(t2 - t1)")
+			}
+		}
+
 		// Step 1's accumulator is the var's, so only the later steps reach the cons at rc 1.
 		@Test func loweredReduceHandsTheAccumulatorOver() throws {
 			clj_init()

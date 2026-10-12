@@ -520,6 +520,38 @@ clj_value clj_vector_assoc(clj_value vec, uint32_t i, clj_value val) {
 	return clj_from_ptr(v);
 }
 
+// @ai-generated(solo)
+clj_value clj_vector_get_take(clj_value vec, clj_value key, clj_value not_found, bool *taken) {
+	clj_vector *v = vector_of(vec);
+	if (!clj_is_fixnum(key)) return clj_retain(not_found);
+	intptr_t k = clj_fixnum_val(key);
+	if (k < 0 || (uintptr_t)k >= v->count) return clj_retain(not_found);
+	uint32_t  i = (uint32_t)k;
+	bool      owned = clj_is_unique_unshared(vec);
+	clj_slot *s;
+	if (is_tuple(v)) {
+		s = &tuple_of(vec)->items[i];
+	} else {
+		bool      in_tail = i >= tail_off(v->count);
+		clj_value nv = in_tail ? v->tail.v : v->root.v;
+		for (uint32_t shift = in_tail ? 0 : v->shift;; shift -= BITS) {
+			if (owned) owned = clj_is_unique_unshared(nv);
+			node *n = node_of(nv);
+			if (shift == 0) {
+				s = &n->slots[i & MASK];
+				break;
+			}
+			nv = n->slots[slot_index(n, i, shift)].v;
+		}
+	}
+	clj_value x = s->v;
+	if (!owned || !clj_is_unique_unshared(x)) return clj_retain(x);
+	clj_slot_clear(s);
+	atomic_store_explicit(&v->hash, 0, memory_order_relaxed);
+	*taken = true;
+	return x;
+}
+
 clj_value clj_vector_pop(clj_value vec) {
 	uint32_t count = vector_of(vec)->count;
 	if (count == 0) clj_ice("vector/pop-empty", NULL, "pop of an empty vector");

@@ -29,6 +29,8 @@ typedef enum {
 	CLJ_STAT_TOKEN_TAKEN,
 	CLJ_STAT_TOKEN_USED,
 	CLJ_STAT_TOKEN_SKIPPED,
+	// A take-out get moved a unique child out of its unique parent for the assoc that puts it back.
+	CLJ_STAT_TAKEN_OUT,
 	CLJ_STAT_COUNT
 } clj_stat;
 

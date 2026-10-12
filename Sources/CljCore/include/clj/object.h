@@ -236,6 +236,9 @@ void      clj_debug_reuse_counts(int64_t out[3]);
 void      clj_retain_slow(clj_header *h);
 void      clj_release_slow(clj_header *h);
 bool      clj_is_unique(clj_value v);
+// clj_is_unique without its stats count and false for a published object: a holder about to leave the object
+// briefly inconsistent (a take-out get's hole) asks this, so no other thread may read it meanwhile.
+bool      clj_is_unique_unshared(clj_value v);
 bool      clj_is_shared(clj_value v);
 // A store into a shared MUTABLE owner, after the slot was written and before the old value is released (cc.c).
 void      clj_cc_note_store(clj_header *owner, uint32_t flags);

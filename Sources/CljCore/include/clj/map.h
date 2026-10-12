@@ -39,6 +39,10 @@ uint32_t  clj_map_count(clj_value map);
 // Borrowed (+0): valid while map is.
 clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found);
 bool      clj_map_contains(clj_value map, clj_value key);
+// clj_map_get retained, or for a take-out get (NOTES "Owned parameters") the value moved out, *taken set, when the
+// map (a transient too), every trie node on the way and the value are unique and unpublished: the entry holds nil
+// until the caller assocs the new value back.
+clj_value clj_map_get_take(clj_value map, clj_value key, clj_value not_found, bool *taken);
 
 // map is consumed (+1 in) and may be updated in place when unique; retain it first to keep the old version.
 // Either layout in, either out: an empty map takes a keyword key as a shape map, a shape map that cannot hold the

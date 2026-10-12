@@ -734,10 +734,34 @@
   late takes; the closed nested-update unit 14 late takes (its known paths' levels). Measured (bench/RESULTS.md
   "Owned parameters"): nested-update 260k of its 627k map copies an iteration become updates in place, allocations
   −16.7 %, plain RC ops −15 %, closed 221 → 162 ms; dependency, group-freq and pipelines move no counter — their
-  values reach callees through `reduce`, lazy-seq captures and core's higher-order fns, all +0 by construction. *Not done, each with its trigger.* The child a parent map holds is still copied: `(assoc m k (f (get
-  m k)))` updates `m` in place but `(get m k)` leaves the child at rc 2 — a take-out get (the slot of a unique `m`
-  emptied, the child handed over at +1, Lean's `modify`) is the next lever, trigger: nested-update's inner
-  `bnode_copy` in a profile. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry); any other
+  values reach callees through `reduce`, lazy-seq captures and core's higher-order fns, all +0 by construction.
+  *The take-out get* (`CLJC_REUSE_TAKEOUT`; reuse.c `note_takeout`, `note_takeout_let`; compiler.c `emit_takeout`,
+  `takeout_declare`; `clj_get_take`, `clj_map_get_take`, `clj_vector_get_take`; Lean's `modify`): the late take
+  updates `m` in place in `(assoc m k (f (get m k)))`, but the get left the child at rc 2, held by `m` until the
+  assoc replaced it, so every inner level copied. A get of a slot whose value an assoc of that slot at the same key
+  puts back moves the value out when the map (a transient too) or vector, every trie node on the way and the value
+  are unique and unpublished (`clj_is_unique_unshared`: rc 1, not `SHARED`, reuse on): the entry holds nil until
+  the assoc fills it, the hash cache is cleared (the assoc may find nil there already and change nothing), and the
+  value reaches its consumer at rc 1 — a known path's let-bound level, a consuming intrinsic's collection, a copied
+  literal's parameter. Anything else is the plain get, in the same lookup. Two shapes: the get in the value operand
+  of an assoc that TAKEs the slot (update, update-in, assoc-in), and the get in a let's init with the assoc reading
+  the slot last in the let's body (`assoc!` inlined: group-by's `(assoc! ret k (conj (get ret k []) x))`). *Exact*:
+  from the get on nothing reads the slot but the assoc — the get is its one read in the value operand, or the two are
+  its only reads in the let, run at most once (no loop body, fn or fused program between them), the key the same
+  constant, capture, or local nothing rebinds — and the slot is owned, dead past the assoc, read by no handler (the
+  liveness counts them) and borrowed by no pending operand, so no one sees the hole: a throw in between, or a branch
+  that skips the assoc, leaves the parent to its release. The assoc's guard is read at the get, before the hole, and
+  once a value was moved out the assoc runs the builtin (`tko<n>`): a `with-redefs` of `assoc` by the code computing
+  the new value reaches its next call, not this one, as in JVM Clojure, which reads the root before the operands.
+  Compiled only: the interpreter makes no late take, so its parent copies anyway. `CLJ_NO_OPT=owned` (no TAKE, no
+  take-out) and `reuse` (`clj_is_unique_unshared` answers no) turn it off. `Fixtures/compiler/takeout.clj` holds the
+  aliasing (the child or the parent held elsewhere, a capture of the parent), a throw inside f with and without a
+  handler reading the parent, nil, the same child and an absent key put back, a trie, a flat map, a tuple and a
+  cached hash; the model's updates call `mt-boom` too, a throw caught around the update. `--stats` counts the
+  "take-out gets", the corpus bench's `stat taken_out` the values moved out.
+  *Not done, each with its trigger.* A value moved out to an opaque call is still copied there, +0 (group-freq's
+  `(fnil conj #{})`) — when such a site ranks in a profile; records, sorted maps and a path that is not a literal
+  give nothing up — when their copies under an assoc of the same key rank in a census. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry); any other
   literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one shot: the thunk could own them;
   dependency's cascade pairs) and a variadic arity stay +0 — triggers: a closure called per element in a profile (a
   literal given to `mapv` or `filterv`, a `FUSED` site's reducing fn), a profile of `concat`/`map` cells. The
@@ -951,11 +975,13 @@
   `--stats` counts the owned steps (core.c 12 of 18 sites, clojure.set 10 of 10). Measured (bench/RESULTS.md, "The
   lowered accumulator at +1"): dependency's 2.0M map and node copies an iteration become updates in place (−18 %
   allocations, −36 % plain RC ops), pipelines' 924k and suite-data's 283k sorted-node copies are gone (−9 % and −44 %
-  allocations); group-freq's `buckets` reduce owns its map but hands it to core's `update` through a generic call,
-  +0, so it still copies. Cost: core.c +0.18 % bytes, clang within the host's spread.
-  Not done, each with its trigger: an owned accumulator passed on to a call that takes it +0 (group-freq's
-  `(update m k (fnil conj #{}) v)`: that arity is not inlined, and the call reaches no owned entry) — when its map
-  copies rank in a profile; a fused site's reducing fn
+  allocations); group-freq's `buckets` reduce owns its map, and a closed build inlines core's `update` into it and
+  takes the map at the assoc, which changes it on 115 of the 50k steps anyway (a conj of a city the set holds
+  answers the same set); group-freq's map copies are `merge-with`'s, whose fns are let-bound. Cost: core.c +0.18 %
+  bytes, clang within the host's spread.
+  Not done, each with its trigger: an owned accumulator passed on to a call that takes it +0 (a dev unit's
+  `(update m k (fnil conj #{}) v)`: core's update is not inlined there, and another unit's owned entry is not
+  reached) — when its map copies rank in a profile; a fused site's reducing fn
   (`(reduce (fn …) init (map …))` is `FUSED`, whose driver still gets a closure) — when `fused-reduce*` ranks in a
   closed profile; the fn a caller passes to `mapv`, `filterv`, `run!` (core's inner fn is lowered, the caller's literal
   is still a closure: a closure specialized to its literal) — when they rank in a census; a literal that reads its own

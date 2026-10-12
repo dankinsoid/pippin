@@ -37,6 +37,11 @@ clj_value clj_count(clj_value coll);
 clj_value clj_conj(clj_value coll, clj_value x);
 // not_found for nil and for types without lookup.
 clj_value clj_get(clj_value coll, clj_value key, clj_value not_found);
+// clj_get, or a take-out get's: the value moved out of a unique map or vector, *taken set (clj_map_get_take), for the
+// caller to assoc the new value back into.
+clj_value clj_get_take(clj_value coll, clj_value key, clj_value not_found, bool *taken);
+// The calling thread's take-outs so far; -1 outside a debug build.
+int64_t   clj_debug_taken_out(void);
 // The same for equality across map representations: a sorted lookup's comparator throw is dropped, as clj_equals cannot throw.
 clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found);
 // Indexed types, strings (code points) and sequential seqs (walked). Out of range throws, or yields not_found when has_not_found.

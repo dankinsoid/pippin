@@ -48,6 +48,8 @@ enum Model {
 		case wrap
 		case const(Arg)
 		case conj(Arg)
+		// f throws: the step is the update in a try whose handler answers {}, the source dead past it unless retained
+		case boom
 	}
 
 	enum Sub {
@@ -317,6 +319,7 @@ enum Model {
 			if isNil(old) { return .coll(Coll(.list, [x])) }
 			guard case .coll(let c) = old, !c.kind.isMap else { return nil }
 			return conj1(c, x).map { .coll($0) }
+		case .boom: return nil
 		}
 	}
 
@@ -411,6 +414,10 @@ enum Model {
 			}
 			return r
 		case .pop: return pop(c)
+		case .update(let k, .boom): return get(c, value(k, h)) == nil ? nil : Coll(.hmap)
+		case .updateIn(let k1, let k2, .boom):
+			guard c.kind.isMap, nested(c, value(k1, h), value(k2, h), h, { $0 }) != nil else { return nil }
+			return Coll(.hmap)
 		case .update(let k, let f):
 			guard let old = get(c, value(k, h)), let new = upd(f, old, h) else { return nil }
 			return assoc(c, value(k, h), new)
@@ -502,7 +509,7 @@ enum Model {
 
 	static func remap(_ u: Upd, _ f: (Int) -> Int?) -> Upd? {
 		switch u {
-		case .wrap: return u
+		case .wrap, .boom: return u
 		case .const(let a): return remap(a, f).map { .const($0) }
 		case .conj(let a): return remap(a, f).map { .conj($0) }
 		}
@@ -589,6 +596,7 @@ enum Model {
 		case .wrap: return ["mt-wrap"]
 		case .const(let a): return ["(constantly \(code(a)))"]
 		case .conj(let a): return ["conj", code(a)]
+		case .boom: return ["mt-boom"]
 		}
 	}
 
@@ -601,6 +609,8 @@ enum Model {
 		case .dissoc(let ks): return .call("dissoc", ks.map(code))
 		case .disj(let xs): return .call("disj", xs.map(code))
 		case .pop: return .call("pop", [])
+		case .update(let k, .boom): return .raw { s in "(try (update \(s) \(code(k)) mt-boom) (catch Exception e {}))" }
+		case .updateIn(let k1, let k2, .boom): return .raw { s in "(try (update-in \(s) [\(code(k1)) \(code(k2))] mt-boom) (catch Exception e {}))" }
 		case .update(let k, let u): return .call("update", [code(k)] + updArgs(u))
 		case .updateIn(let k1, let k2, let u): return .call("update-in", ["[\(code(k1)) \(code(k2))]"] + updArgs(u))
 		case .assocIn(let k1, let k2, let v): return .call("assoc-in", ["[\(code(k1)) \(code(k2))]", code(v)])
@@ -854,10 +864,11 @@ enum Model {
 		}
 
 		mutating func updFn() -> Upd {
-			switch rng.below(10) {
+			switch rng.below(12) {
 			case 0..<4: return .wrap
 			case 4..<7: return .const(elem())
-			default: return .conj(elem())
+			case 7..<10: return .conj(elem())
+			default: return .boom
 			}
 		}
 

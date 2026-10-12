@@ -99,6 +99,7 @@ typedef struct {
 	uint64_t owned_sites;    // direct call sites written with the owned entry
 	uint64_t owned_handed;   // arguments those sites hand over from a dying slot; the rest arrive fresh or retained
 	uint64_t reuse_takes;    // conj/assoc/dissoc/with-meta sites that take a slot dying at the call
+	uint64_t reuse_takeouts; // gets whose value an assoc of the same slot and key puts back: moved out at +1
 	uint64_t owned_lowered;  // lowered literals' arities emitted with an owned entry for the accumulator
 	uint64_t owned_steps;    // lowered sites whose reducer hands the accumulator over through an owned step
 } cljc_slot_stats;

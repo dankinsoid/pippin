@@ -497,6 +497,18 @@ static inline clj_value clj_c_kw_get(clj_ckw_ic *ic, clj_value key, clj_value m,
 	return clj_c_kw_miss(ic, key, m, not_found);
 }
 
+// (get m k) whose value an (assoc m k v) puts back (compiler reuse.c, CLJC_REUSE_TAKEOUT): put is that assoc's
+// guard read now, and *taken tells the assoc to run the builtin the hole was made for.
+static inline clj_value clj_c_get_take(clj_value m, clj_value key, clj_value not_found, bool put, bool *taken) {
+	return put ? clj_get_take(m, key, not_found, taken) : clj_get(m, key, not_found);
+}
+
+// The inline cache reads a shared parent; a unique one gives its slot up where it lies.
+static inline clj_value clj_c_kw_take(clj_ckw_ic *ic, clj_value key, clj_value m, clj_value not_found, bool put, bool *taken) {
+	if (put && clj_is_unique_unshared(m)) return clj_get_take(m, key, not_found, taken);
+	return clj_c_kw_get(ic, key, m, not_found);
+}
+
 // A site building a map literal whose keys are literal keywords: the shape, resolved once, and the slot of each key.
 typedef struct {
 	_Atomic(const clj_shape *) shape;

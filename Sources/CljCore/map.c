@@ -1025,6 +1025,60 @@ clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found) {
 	return found ? found->v : not_found;
 }
 
+// map_find, clearing *owned at a node on the way that is shared or published.
+static clj_slot *trie_find(clj_value map, clj_value key, bool *owned) {
+	uint32_t hash = clj_hash(key);
+	clj_refusal_drop();
+	clj_value node = clj_map_of(map)->root.v;
+	for (uint32_t shift = 0;; shift += BITS) {
+		if (*owned) *owned = clj_is_unique_unshared(node);
+		if (is_cnode(node)) {
+			cnode *c = cnode_of(node);
+			if (c->hash != hash) return NULL;
+			for (size_t i = 0; i < 2 * (size_t)c->count; i += 2) {
+				if (clj_equals(c->slots[i].v, key)) return &c->slots[i + 1];
+			}
+			return NULL;
+		}
+		bnode   *n = bnode_of(node);
+		uint32_t bit = bit_pos(hash, shift);
+		if (n->datamap & bit) {
+			size_t i = 2 * bit_index(n->datamap, bit);
+			return clj_equals(n->slots[i].v, key) ? &n->slots[i + 1] : NULL;
+		}
+		if (!(n->nodemap & bit)) return NULL;
+		node = n->slots[node_slot(n, bnode_slots(n), bit)].v;
+	}
+}
+
+// @ai-generated(solo)
+clj_value clj_map_get_take(clj_value map, clj_value key, clj_value not_found, bool *taken) {
+	bool              owned = clj_is_unique_unshared(map);
+	clj_slot         *s;
+	_Atomic uint32_t *hash = NULL;
+	if (is_shape(map)) {
+		clj_shape_map *m = clj_shape_map_of(map);
+		int32_t        i = clj_shape_index(m->shape, key);
+		s = i >= 0 ? &m->slots[i] : NULL;
+	} else if (is_flat_body(clj_to_ptr(map))) {
+		flat_map *m = flat_of(map);
+		int64_t   e = flat_lookup(map, key);
+		s = e >= 0 ? &m->kv[2 * e + 1] : NULL;
+		hash = &m->hash;
+	} else {
+		s = trie_find(map, key, &owned);
+		hash = &clj_map_of(map)->hash;
+	}
+	if (!s) return clj_retain(not_found);
+	clj_value v = s->v;
+	if (!owned || !clj_is_unique_unshared(v)) return clj_retain(v);
+	clj_slot_clear(s);
+	// the entry reads nil until the put-back, whose assoc may find nil there already and change nothing
+	if (hash) atomic_store_explicit(hash, 0, memory_order_relaxed);
+	*taken = true;
+	return v;
+}
+
 bool clj_map_contains(clj_value map, clj_value key) {
 	if (is_shape(map)) return clj_shape_index(clj_shape_map_of(map)->shape, key) >= 0;
 	if (is_flat_body(clj_to_ptr(map))) return flat_lookup(map, key) >= 0;

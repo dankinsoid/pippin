@@ -166,7 +166,7 @@ if opts.stats {
 		direct-call arrays \(st.direct_array) of \(st.direct_slots) callee slots; \
 		workers \(st.workers), primitive sites \(st.prim_sites) of which bound \(st.prim_bound); keyword-lookup sites \(st.kw_sites); \
 		reuse: cons in a dying cell \(st.reuse_tokens), next/rest handed over \(st.reuse_consumes); inlined calls \(st.inlined), of which known paths \(st.paths), literal fns copied \(st.literals), monomorphized fused sites \(st.mono_fused), lowered calls \(st.lowered); \
-		owned entries \(st.owned_arities) over \(st.owned_params) params (\(st.owned_array) in the array), owned call sites \(st.owned_sites) handing over \(st.owned_handed), late takes \(st.reuse_takes), lowered literals owning their accumulator \(st.owned_lowered) at \(st.owned_steps) sites; \
+		owned entries \(st.owned_arities) over \(st.owned_params) params (\(st.owned_array) in the array), owned call sites \(st.owned_sites) handing over \(st.owned_handed), late takes \(st.reuse_takes), take-out gets \(st.reuse_takeouts), lowered literals owning their accumulator \(st.owned_lowered) at \(st.owned_steps) sites; \
 		defs \(st.defs) of which dropped \(st.defs_dropped), kept \(st.def_bytes) C bytes
 
 		""".utf8))

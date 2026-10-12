@@ -2568,18 +2568,19 @@ static CLJC_FRAME clj_value clojure_set_index__0_a2_o1(clj_value self, const clj
 	}
 	clj_c_rebind(&l2, t0);
 #line 84 "<embedded>/clojure/set.clj"
+	bool tko1 = false;
 	clj_value t4 = l0;
 	clj_value t5 = l2;
 	clj_value t6 = l0;
 	clj_value t7 = l2;
 	clj_value t8 = K[33];
-	clj_value a3[3] = {t6, t7, t8};
-	(void)a3;
+	clj_value a4[3] = {t6, t7, t8};
+	(void)a4;
 	clj_value t9;
 	if (CLJC_GUARD(V[33], B[13])) {
-	t9 = clj_get(t6, t7, t8);
+	t9 = clj_c_get_take(t6, t7, t8, CLJC_GUARD(V[32], B[11]), &tko1);
 	} else {
-	t9 = clj_c_intrinsic_fallback(V[33], a3, 3);
+	t9 = clj_c_intrinsic_fallback(V[33], a4, 3);
 	}
 	(void)t8;
 	(void)t7;
@@ -2589,13 +2590,13 @@ static CLJC_FRAME clj_value clojure_set_index__0_a2_o1(clj_value self, const clj
 	goto L1;
 	}
 	clj_value t10 = l1;
-	clj_value a2[2] = {t9, t10};
-	(void)a2;
+	clj_value a3[2] = {t9, t10};
+	(void)a3;
 	clj_value t11;
 	if (CLJC_GUARD(V[12], B[8])) {
 	t11 = clj_conj(t9, t10);
 	} else {
-	t11 = clj_c_intrinsic_fallback(V[12], a2, 2);
+	t11 = clj_c_intrinsic_fallback(V[12], a3, 2);
 	clj_release(t9);
 	}
 	(void)t10;
@@ -2603,15 +2604,15 @@ static CLJC_FRAME clj_value clojure_set_index__0_a2_o1(clj_value self, const clj
 	if (t11 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value a1[3] = {t4, t5, t11};
-	(void)a1;
+	clj_value a2[3] = {t4, t5, t11};
+	(void)a2;
 	CLJC_TAKE_CHECK(l0, t4);
 	l0 = CLJ_NIL;
 	clj_value t12;
-	if (CLJC_GUARD(V[32], B[11])) {
+	if (tko1 || CLJC_GUARD(V[32], B[11])) {
 	t12 = clj_assoc_owned(t4, t5, t11);
 	} else {
-	t12 = clj_c_intrinsic_fallback(V[32], a1, 3);
+	t12 = clj_c_intrinsic_fallback(V[32], a2, 3);
 	clj_release(t4);
 	}
 	clj_release(t11);
