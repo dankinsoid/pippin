@@ -821,9 +821,9 @@
   in a dev unit for another unit's fn (the registry by name, or a digest of the fn's tree as its identity) — when dev
   units are measured as the dev loop; the inlined body's profile in a `--instrument` compiled unit; a callee with a fn
   inside that captures only the literal it is given (`mapv`, `filterv`, `run!` reduce over such a closure) — a
-  closure specialized to its literal (defunctionalization), when they rank in a census; `swap!` and `reduce` are
-  natives with no body to copy, a literal reducing fn reaches its arity through the fused step at best (the "Fused
-  stages" entry); scalar replacement of what the copy now allocates in the caller's frame is step 7b.
+  closure specialized to its literal (defunctionalization), when they rank in a census; `swap!`, `reduce` and the
+  like are natives with no body to copy, and a literal fn of theirs is lowered instead (the "Lowered natives" entry);
+  scalar replacement of what the copy now allocates in the caller's frame is step 7b.
 - [~] **Known paths: `get-in`, `assoc-in`, `update-in` over a literal path** (design §10 step 7a; optimizer.c
   `try_path`; `CLJ_NO_OPT=path`). A call of one of the three whose path is a vector literal of 1 to
   `CLJ_INLINE_PATH_MAX` (4) keys, constant or not, becomes core's own recursion unrolled — a specialization of a
@@ -883,8 +883,50 @@
   The step is a frame fn under the consumer's name, which a trace shows
   where the driver's transducer frames were; a stage body inlined into it names its own stub. A stage given any other
   value, another stage kind or a variadic fn keeps the generic program. Not done: `mapcat`, `keep-indexed`,
-  `interpose`, `dedupe`, `distinct`; reduce's literal f called by its arity from the driver (it is reached through
-  `clj_call_invoke`); a range source walked as the vector is; trigger: `fused-reduce*`'s share in a closed profile.
+  `interpose`, `dedupe`, `distinct`; reduce's literal f called by its arity from the driver (it is a closure, which
+  `clj_call_invoke` reaches by its dispatcher); a range source walked as the vector is; trigger: `fused-reduce*`'s share in a closed profile.
+- [~] **Lowered natives: `reduce`, `reduce-kv`, `swap!`, `swap-vals!` over a literal fn** (design §10 step 7a′;
+  optimizer.c `try_lower`, lowered.c `clj_lowered_call`, eval.c `eval_lowered`, compiler.c `emit_lowered`, verify.c
+  `walk_lowered`; `CLJ_NO_OPT=lower`, and `inline` with it). The four are C builtins: the inliner has no tree to copy,
+  and their literal fn argument was a closure per call and a `clj_invoke` per call of it. A call whose fn argument is
+  a `fn` literal with the fixed arity the builtin calls (reduce 2, reduce-kv 3, swap! one more than its extra
+  arguments) and whose own name that arity does not read becomes `(if ROOT_IS[var, builtin] LOWERED[fn, operands']
+  (call))`: the guard reads the root before the operands, as the call does, and the else branch is the call itself.
+  `LOWERED` runs the call's other arguments in order, reads the literal's captures from this frame after them (nothing
+  between rebinds a captured slot; liveness keeps them live through the operands, verifier invariant 13), and calls
+  the builtin's own C function with, at the fn's position, a fn object on the C stack whose entry runs the literal's
+  arity directly: `frame_run` over the gathered environment in the interpreter (the frame, the shadow frame and the
+  census a closure call has, minus the closure), a per-site step `<base>__lw<n>` in a unit that calls the arity
+  `_a<k>` (its `_i` twin for a leaf) with self nil and the captures as a C array. So every rule of the call is the
+  builtin's own code, not restated: each source's reduce slot and its walk, `reduced`, the 2-arity's seed and `(f)` over
+  an empty coll, the atom's lock with f run once under it, the validator, the watches, the nested-swap trap, the
+  values returned, the scheduling point after a swap. **Where the fn would get out of C** the literal is made a closure
+  first and the call runs as written: a source whose reduce slot is a user type's `IReduceInit` (it gets the fn as a
+  value and may keep it; `Fixtures/compiler/lowered.clj` keeps it in an atom and calls it after), a source with no
+  slot (it is seq'd, and its seq may be such a type), and a call of the fn at another count (reduce's `(f)`, which is
+  also how an arity error reads as the closure's). reduce-kv's walks are all C and swap!'s `apply_under_lock` only
+  calls its fn. The stack fn is immortal, so a retain or release of it does nothing, and nothing that runs past the
+  call reaches it. **Guards**: the builtins' vars and roots are recorded before core.clj loads
+  (`clj_lowered_install`), so core's own fns lower too — `mapv`, `filterv`, `run!`, `frequencies`, `group-by`,
+  `merge`, `update-vals`, `update-keys`, `juxt`, `derive` and eight more: the `(fn [acc x] …)` they reduce with is no
+  closure now (18 sites in core.c, 10 in clojure.set, 6 in core.async, 1 in clojure.walk). Compiled:
+  `CLJC_LOWERED(var, how)`, the root against `clj_lowered_root`, 1 in a closed build; the literal's functions are
+  emitted once, and the else branch's closure takes the same base (`lowered_base_of`). A `with-redefs` of any of the four runs the call
+  (`Fixtures/compiler/lowered-rebind.clj`). **Traces**: the literal's frame as before, the builtin none, as a native
+  never had one (`lowered.clj` reads `ex-trace`). Beside it `clj_call_prepare` resolves a native with a context, and a
+  compiled closure, to a direct call of its C function, so a reduce slot reaches either without `clj_invoke` per item.
+  **Cost** (the x86_64 dev host, min of three clang runs, before = this tree under `--no-opt=lower`): `boot/core.c`
+  5 092 878 → 5 124 041 bytes (+0.6 %), clang `-O0 -DCLJ_DEBUG=1` 4.08 → 3.99 s, `-O2 -DCLJ_CLOSED` 22.71 → 21.74 s
+  (this host's spread); the five corpus libraries' dev units (6 units, 2.12 MB) +0.26 % bytes — dependency +0.9 %,
+  medley +0.5 %, math-combinatorics +0.2 %, enos and turbine none — and clang within the spread. A site costs a step
+  and a maker function of two lines each and the operands' copy, which the frame's inline budget bounds.
+  Not done, each with its trigger: the accumulator at +1 (the step passes it at +0 as a closure call does, so
+  `(reduce (fn [m x] (assoc m …)) {} xs)` copies per step; an owned entry for literal-fn arities, design §10 step 7в,
+  makes assoc and conj update in place) — when 7в's owned entries land; a fused site's reducing fn
+  (`(reduce (fn …) init (map …))` is `FUSED`, whose driver still gets a closure) — when `fused-reduce*` ranks in a
+  closed profile; the fn a caller passes to `mapv`, `filterv`, `run!` (core's inner fn is lowered, the caller's literal
+  is still a closure: a closure specialized to its literal) — when they rank in a census; a literal that reads its own
+  name — when one shows up in a profile.
 - **A compiled closure's `min_arity` is its rest arity's own count**, not its lowest, when it has a rest arity
   (`fn_arity_bounds`; the mask carries the fixed ones). Past `CLJ_FN_MAX_FIXED` + 1 spread arguments `clj_apply`
   hands the rest over as one seq at that position (`rest_at`, fn.c, docs/notes/analyzer-and-evaluator.md), as an
