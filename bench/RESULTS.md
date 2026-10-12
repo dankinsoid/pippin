@@ -2523,3 +2523,55 @@ fn body as before: an inlined body pushes none, so what it allocates is born in 
   bytes; clang `-O0` −7 to +4 % per unit, `-O2 -DCLJ_CLOSED` −1 to +11 % (math-combinatorics +3.5 % bytes, +8 %;
   medley's test unit +0.4 % bytes, +11 %, which is this host's spread on a 12 s compile). Under the step's ~15 % bound
   everywhere.
+
+## Literal fns, known paths, stateful fused stages — 813b9e1, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7a, second part (docs/notes/compiler.md: "Inlining on the AST" — a callee that calls a parameter,
+"Known paths", "Fused stages over literal fns run as one step"). One `corpus-bench` run, 38231371023 on branch
+`inline-7a2` 813b9e1; *before* is the previous section's *after* (38173785197). Every workload returned the JVM's
+value in every runtime. The census is the closed stats build's, a frame being a fn body as before.
+
+| workload | born/iter before → after | died in its birth frame | frame + callee | inlined / of them paths / fused steps (closed, the program's units) |
+|---|---|---|---|---|
+| medley | 709.5k → 709.5k | 28.8 → 28.8 | 34.5 → 34.5 | 12 / 0 / 4 (was 12 / 1) |
+| combinatorics | 3.84M → 3.84M | 9.2 → 9.2 | 9.3 → 9.3 | 103 / 7 / 6 (was 89 / 2) |
+| dependency | 11.26M → 11.20M | 18.8 → 18.5 | 19.0 → 18.6 | 22 / 4 / 2 (was 17 / 2) |
+| nested-update | 3.32M → 1.56M | 55.0 → 8.4 | 58.0 → 12.7 | 28 / 10 / 0 (was 16 / 0) |
+| group-freq | 5.02M → 5.02M | 6.0 → 6.0 | 37.4 → 37.4 | 10 / 0 / 0 (was 9 / 0) |
+| pipelines | 10.27M → 10.27M | 15.1 → 15.1 | 15.3 → 15.3 | 15 / 0 / 3 (was 15 / 1) |
+| strings | 807.2k → 807.2k | 36.2 → 36.2 | 36.2 → 36.2 | 5 / 0 / 2 (was 5 / 1) |
+| render | 992.1k → 992.1k | 24.6 → 24.6 | 24.6 → 24.6 | 5 / 0 / 1 (was 5 / 1) |
+| suite-data | 1.20M → 1.20M | 5.8 → 5.8 | 5.9 → 5.9 | 34 / 0 / 5 (was 34 / 4) |
+| async-libs | 263.5k → 275.4k | 77.2 → 78.1 | 77.2 → 78.1 | 7 / 0 / 0 (was 7 / 0) |
+| async-broadcast | 250.1k → 250.1k | 24.0 → 24.0 | 24.0 → 24.0 | 1 / 0 / 0 (was 1 / 0) |
+
+- **What moved is what the known paths delete.** nested-update makes 1.76M fewer objects an iteration (−53 %): its
+  1.13M vector-seqs (the destructuring of `[k & ks]` per level, all of them died in their frame; now under the top
+  six's 67k) and 600k of its 667k vectors (the path literals, 90 % in their frame) are gone, so the share that dies in
+  its birth frame falls 55.0 → 8.4 % while the objects that outlive their frame stay (1.49M → 1.43M). Those moved closer to where
+  they are kept: the maps the path's `assoc`s build were born three or more calls below `step` (up3+ 74 %) and are
+  now born in it (up1 79 %), and over all objects up3+ falls 34.0 → 14.8 %, up1 rises 4.0 → 65.8 % — the shape 7b
+  needs, the map one return away from its holder. dependency's four `update-in`s over `[node]` drop 18k path vectors
+  and move its graph maps the same way (up1 92.9 → 97.2 %); its 6.4M lazy-seq and cons cells, born in `concat` and
+  `lazy-seq` thunks, are untouched.
+- **What did not move, and why.** Over the nine data workloads (37.4M → 35.6M an iteration) the birth-frame share
+  falls 18.6 → 14.7 %, which is nested-update's deletions; the objects that outlive their frame are 30.46M → 30.38M.
+  combinatorics and dependency are lazy-seq-bound (their allocations are cells of `lazy-seq` bodies, which no rule
+  here copies); group-freq's `(update m k (fnil conj #{}) v)` now inlines around the call of the fnil closure, but the
+  map it builds is the reduce's accumulator, kept one frame up either way; `mapv`/`update-vals` bodies hold a fn and
+  stay calls. No workload copies a literal fn on its hot path: nested-update's `(update … :log (fn [log] …))` sits in a
+  frame whose budget its seven inlined `mod`s already spent, and `update-in`'s literal is bigger than 32 nodes once its
+  own `update` is inlined into it.
+- **Time** (ms per iteration; closed/JVM in parentheses). nested-update: dev 291.5 → 226.0 (the paths run in dev units
+  too: their guard is the fusion table's, which needs no body of another unit), closed 227.9 (2.4×) → 221.2 (2.1×). The
+  rest move by the runner: JVM warm group-freq 114 → 148, medley 47 → 38, and closed medley 102.8 → 54.7 rides the
+  previous run's slow runner. One run each; no per-workload claim beyond nested-update's dev column.
+- **Compile cost** (the x86_64 dev host, the minimum of three clang runs per unit, before = origin/main 918c5f1):
+  `boot/core.c` 5 044 995 → 5 092 878 bytes (+0.9 %; 104 → 126 inlined bodies, 2 of them literal copies), clang `-O0
+  -DCLJ_DEBUG=1` 3.80 → 3.83 s (+0.8 %), `-O2 -DCLJ_CLOSED` 26.07 → 26.78 s (+2.7 %). The five corpus libraries' dev units
+  (12 units, 7.72 MB) +0.3 % bytes — dependency.cljc +3.8 % (its `update-in`s), math-combinatorics +1.7 % — and clang
+  `-O0` −2.6 to +3.3 %, `-O2` −5.5 to +7.9 % per unit, this host's spread. The closed trees of six workloads (core,
+  libs and units) +1.6 to +4.0 % bytes; their own units −0.5 to +2.9 %, but nested-update's +32 % (134.6k → 178.2k: ten
+  path sites in a 40-line program, each level a guarded `get` and `assoc`), clang `-O2` on it 0.99 → 1.02 s. The path
+  sites are bounded per site (160 nodes) rather than by the frame's budget — their growth is linear in the paths the
+  source writes — which is where that unit's growth comes from; nowhere else did a budget let a frame past the bound.

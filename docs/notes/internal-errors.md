@@ -70,7 +70,9 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `layouts` | tuples, shape maps, flat transients |
   | `compiled` | the compiled core (a `-DCLJ_COMPILED_CORE` build boots core.clj from its embedded source), registered units, `CLJ_EVAL=compiled` |
   | `emit` | facts in the C emitter: promoted and typed slots, unboxing, protocol arms, workers, reuse tokens |
-  | `inline` | the inlining pass of `clj_optimize` (NOTES "Compiler", inlining on the AST), and in the emitter the intrinsics' fast arms at the site and the monomorphized fused stages |
+  | `inline` | the inlining pass of `clj_optimize` (NOTES "Compiler", inlining on the AST), so `beta` and `path` with it; in the emitter the intrinsics' fast arms at the site and the monomorphized fused stages; at run time the fused drivers' own walk of a vector |
+  | `beta` | inlining a callee that calls a parameter, and with it a literal fn argument copied where the callee calls it |
+  | `path` | `get-in`, `assoc-in` and `update-in` unrolled over a literal path (NOTES "Compiler", known paths) |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
@@ -147,12 +149,17 @@ checks the tree and the facts between passes in debug builds; one option turns e
       int and double; no promoted slot read by address (a capture, a static-link read, re-derived by
       `clj_verify_frame_slots` apart from `pin_walk`) or past 64; a borrowed slot is a closure's param or self slot
       no recur rebinds.
-  12. Inlined calls (`walk_inlined`): a `ROOT_IS` only as the test of an `if` whose then branch is an `INLINE`
-      (behind a let of fresh slots or bare) and whose else branch is the call of that very var; the guard holds a
-      closure without an environment whose fn node is the `INLINE`'s and has a fixed arity for the call's count; an
-      `INLINE` only there; at most `CLJ_INLINE_DEPTH_MAX` inlined bodies inside one another in a frame; no recur
-      crosses into the body (it is walked with no target). The guard compares the root with that closure, so a body
-      under another fn's guard, or a guard with no call beside it, would run a copy nothing checks.
+  12. Inlined calls (`walk_inlined`, `walk_nested_inline`): a `ROOT_IS` only as the test of an `if` whose then branch
+      is an `INLINE` (behind a let of fresh slots or bare) and whose else branch is the call of that very var; the
+      guard holds a closure without an environment whose fn node is the `INLINE`'s. A guard without core vars is a
+      `COPY`'s, of a fixed arity for the call's count; a guard with them is a known path's: entries of the fusion
+      table, the var's own among them at that closure as its boot root, a var of `get-in`, `assoc-in` or `update-in`,
+      a `PATH` body of an arity the count reaches. A `COPY` or `PATH` only there; a `LEVEL` only inside a `PATH` body,
+      at most `CLJ_INLINE_PATH_MAX` inside one another; a `LITERAL` only in the then branch of a guard whose call, or
+      an enclosing guard's in the same frame, passes its fn node — never in the call itself, never in another frame;
+      at most `CLJ_INLINE_DEPTH_MAX` guarded bodies inside one another in a frame; no recur crosses into a body (it is
+      walked with no target). The guard compares the root with that closure, so a body under another fn's guard, a
+      copy of a fn nothing passes, or a guard with no call beside it, would run code nothing checks.
   13. A lazy-seq site's shape is `clj_lazy_seq_site` itself, which both backends ask at build time; what the
       verifier adds is the arity and capture checks the site's fn gets as any fn.
 - **What is not checked, and why.** An `if`'s fact as the join of its branches', a `let`'s as its body's: `require_arg`
@@ -166,5 +173,6 @@ checks the tree and the facts between passes in debug builds; one option turns e
   [w v]))`, where `v` is read again, is `verify/read-after-last-use`; the exit test runs the verifier as
   `optimize/liveness` on it and finds the kind, the pass and "the tree as optimize/liveness left it" on the child's
   stderr. A slot past the frame, an id out of pre-order, a mark before liveness and a recur moved into an `if`'s test
-  have their kinds; the digest sees a mark flip; the report carries kind, claim, pass, backend, form and node; and
+  have their kinds, and so do a literal copy of a fn no guarded call passes, a path guard that lost its own var and a
+  path body under a copy's guard (`inlinedShapesHoldTheirGuards`); the digest sees a mark flip; the report carries kind, claim, pass, backend, form and node; and
   `CLJ_NO_OPT=1` leaves `(+ 1 2)` an invoke, reuse, tuples, shapes and specialization off, and the answer 3.
