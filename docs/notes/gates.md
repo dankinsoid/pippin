@@ -49,7 +49,11 @@
   128 s build and 504 s of tests in two shards of 498 s and 235 s, `CorpusTests` alone 316 s of them (16 s
   under ASan), at 2.5 GB a shard (ASan's `test` peaks at 2.1 GB). With no times of its own recorded it is dealt
   by `test`'s, which put the corpus beside 42 other suites. Its `TEST_TIMEOUT` is 3600 s, a target-specific
-  value that wins over CI's 1200 from the environment, and its `CLJ_TEST_HANG_S` 1800 s. The footprint gates
+  value that wins over CI's 1200 from the environment, and its `CLJ_TEST_HANG_S` 1800 s. Its corpus watchdog
+  (`CLJ_CORPUS_TIMEOUT_MS`) is 300 s, 5× every other build's: under TSan the interpreter runs
+  `test-combinatorics/test-partitions` in 50–61 s on that runner (6–8 s under ASan), so the shared 60 s cut it
+  short in run 38243987082 and passed it at 60.3 s in 38245908044 (it took 38–41 s in run 37446273380). A hang
+  still fails, at 300 s a run; four of them fit `CLJ_TEST_HANG_S` beside the corpus's 380 s. The footprint gates
   of `CoroTests` and `EvacTests` are off under it (`underSanitizer`: TSan keeps a thread state and a trace per
   fiber), and so are the exit tests of
   `RCTests` and `TraceTests`, as under ASan: the runtime strips itself from `DYLD_INSERT_LIBRARIES` before a
@@ -222,7 +226,8 @@
   `CompilerFixtureTests`' own compiled eval); `.build/swift-stubs` (the fixture module and every generator entry
   are built in a `.tmp-<pid>` directory and renamed into place, the loser discarding its copy); the corpus cache
   (a lock per library); the nREPL server (port 0). The corpus watchdog's budget is the one timing collision:
-  `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 60 s ("CI").
+  `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 60 s ("CI"), and TSan's
+  300 s ("TSan").
 - **A deal can fail a test the serial run passes.** Each shard is another history before each of its suites, so a
   live-object count that holds only after some other suite's allocations, or a layout they decide, fails in one
   deal and passes in the next; a deal is fixed by `scripts/test-times.json`, so it fails the same way every run.

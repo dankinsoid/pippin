@@ -50,7 +50,10 @@ test-ubsan:
 
 # Data races, with the coroutine switch annotated by TSan's fiber API (docs/notes/gates.md, "TSan"). Opt-in like
 # test-ubsan. TSan sees object boundaries only with the system allocator, as ASan does.
+# The interpreter runs some 8× slower under TSan than under ASan: test-partitions takes 50–61 s on the arm64 runner
+# against 6–8 s, so the corpus watchdog's budget is 5× everyone else's (docs/notes/gates.md, "TSan").
 test-tsan: TEST_TIMEOUT = 3600
+test-tsan: CLJ_CORPUS_TIMEOUT_MS = 300000
 test-tsan:
 	CLJ_SYSTEM_ALLOC=1 CLJ_TEST_HANG_S=1800 TSAN_OPTIONS="abort_on_error=0 suppressions=$(abspath scripts/tsan.supp)" \
 		$(SHARDS) --gate test-tsan -- --scratch-path $(BUILD_ROOT)/tsan --sanitize=thread

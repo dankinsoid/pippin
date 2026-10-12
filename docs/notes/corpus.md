@@ -256,13 +256,13 @@
   in one, is measured again with the measured run as one more warm-up, at most three times; the hang probe's second
   measurement read 0. A count that is off prints the live objects by type (`clj_debug_live_by_type`), the tests cut
   short in each run, what the scheduler and the cycle collector still hold, and the live coroutines.
-- **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default) armed by the collecting
-  reporter on `:begin-test-var` and cleared on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator
-  section). A test past it is `:timeout` and counts as a failure, so one spinning form no longer takes the run
-  with it. The expiry is a `:cancelled`, which the `:default` catches of `is` and `test-var` let by, so `run-ns`
-  wraps each test fn in a `catch :cancelled` for the run (`guard-expiry`, the `:test` meta restored after): the
-  expiry becomes that test's error and the namespace goes on under a fresh deadline; one that still escapes (a
-  fixture) is the open test's verdict. `CLJ_CORPUS_LOG=<file>` writes the progress lines to a file as well as stderr: the test runner
+- **The watchdog**: a deadline per deftest (`CLJ_CORPUS_TIMEOUT_MS`, 5 s by default, 60 s from the Makefile and
+  300 s under `make test-tsan`, NOTES "Gates") armed by the collecting reporter on `:begin-test-var` and cleared
+  on `:end-test-var` (`clj_deadline_set_ms`, analyzer/evaluator section). A test past it is `:timeout` and counts
+  as a failure, so one spinning form no longer takes the run with it. The expiry is a `:cancelled`, which the
+  `:default` catches of `is` and `test-var` let by, so `run-ns` wraps each test fn in a `catch :cancelled` for
+  the run (`guard-expiry`, the `:test` meta restored after): the expiry becomes that test's error and the
+  namespace goes on under a fresh deadline; one that still escapes (a fixture) is the open test's verdict. `CLJ_CORPUS_LOG=<file>` writes the progress lines to a file as well as stderr: the test runner
   forwards stderr through a pipe and drops what it has not flushed when a killed run dies, which is why the
   earlier hang appeared to be in a different test each time.
 - **What the earlier hang was**: `((juxt (range)))` in `clojure.core-test.juxt` — calling a value that is not
