@@ -2195,6 +2195,7 @@ clj_value clojure_core_release_held_a1(clj_value self, const clj_value *captured
 static clj_value clojure_core_release_held(void *ctx, const clj_value *args, size_t n);
 static clj_value top_399(void);
 clj_value clojure_core_agent_run__r2_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_core_agent_run__r2_a2_o2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_core_agent_run__r2__0_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_TLS_IC(clj_ckw_ic, KC_83)
 CLJC_TLS_IC(clj_ckw_ic, KC_84)
@@ -155383,7 +155384,12 @@ static clj_value clojure_core_agent_run__r2__1(void *ctx, const clj_value *args,
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-CLJC_FRAME clj_value clojure_core_agent_run__r2_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_core_agent_run__r2_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[1]);
+	return clojure_core_agent_run__r2_a2_o2(self, captured, args, nargs);
+}
+
+CLJC_FRAME clj_value clojure_core_agent_run__r2_a2_o2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[9];
 	clj_cframe fr = {s, captured, 0, NULL};
@@ -155404,7 +155410,8 @@ CLJC_FRAME clj_value clojure_core_agent_run__r2_a2(clj_value self, const clj_val
 	clj_ccall cc;
 	CLJC_ENTER(&S[679], &cc);
 #line 3040 "Sources/CljCore/boot/core.clj"
-	clj_value t0 = clj_retain(l1);
+	clj_value t0 = l1;
+	l1 = CLJ_NIL;
 	clj_c_rebind(&l2, t0);
 	clj_value t1 = l2;
 	clj_value t2 = K[35];
@@ -155887,6 +155894,7 @@ L6: ;
 	goto L1;
 	}
 	CLJC_LEAVE(&S[679], &cc);
+	clj_release(l1);
 	clj_release(l2);
 	clj_release(l5);
 	clj_release(l6);
@@ -155900,6 +155908,7 @@ L6: ;
 	return t80;
 L1: ;
 	CLJC_LEAVE(&S[679], &cc);
+	clj_release(l1);
 	clj_release(l2);
 	clj_release(l5);
 	clj_release(l6);
@@ -190186,7 +190195,7 @@ static const clj_frame_entry FR[862] = {
 	{(clj_code)clojure_core_agent_enqueue_a2, &S[676]},
 	{(clj_code)clojure_core_agent_dispatch_a2, &S[677]},
 	{(clj_code)clojure_core_release_held_a1, &S[678]},
-	{(clj_code)clojure_core_agent_run__r2_a2, &S[679]},
+	{(clj_code)clojure_core_agent_run__r2_a2_o2, &S[679]},
 	{(clj_code)clojure_core_agent_run__r2__0_a0, &S[680]},
 	{(clj_code)clojure_core_agent_run__r2__1_a1, &S[682]},
 	{(clj_code)clojure_core_send_via_v3, &S[683]},
@@ -194003,6 +194012,7 @@ clj_value clj_compiled_core_init(void) {
 	clj_compiled_register_symbol("clojure_core_agent_dispatch_a2", clojure_core_agent_dispatch_a2);
 	clj_compiled_register_symbol("clojure_core_release_held_a1", clojure_core_release_held_a1);
 	clj_compiled_register_symbol("clojure_core_agent_run__r2_a2", clojure_core_agent_run__r2_a2);
+	clj_compiled_register_symbol("clojure_core_agent_run__r2_a2_o2", clojure_core_agent_run__r2_a2_o2);
 	clj_compiled_register_symbol("clojure_core_pooled_executor_a1", clojure_core_pooled_executor_a1);
 	clj_compiled_register_symbol("clojure_core_solo_executor_a1", clojure_core_solo_executor_a1);
 	clj_compiled_register_symbol("clojure_core_set_executor_BANG__a2", clojure_core_set_executor_BANG__a2);

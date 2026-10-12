@@ -97,10 +97,11 @@ void cljc_owned_free(cljc_owned *o) {
 static bool enabled(void) { return !clj_opt_off(CLJ_NO_OPT_OWNED) && !clj_opt_off(CLJ_NO_OPT_EMIT); }
 
 void cljc_owned_declare(cljc_owned *o, const clj_node *root, uint32_t order) {
-	if (!enabled() || root->kind != CLJ_NODE_DEF) return;
-	entry *e = intern(o, root->u.def.var.v);
+	// a (declare f) is no definition: record_direct counts only a def with an init
+	if (!enabled() || root->kind != CLJ_NODE_DEF || !root->u.def.init) return;
+	entry          *e = intern(o, root->u.def.var.v);
 	const clj_node *init = root->u.def.init;
-	bool fn = init && init->kind == CLJ_NODE_FN && !init->u.fn.ncaptures && !root->u.def.dynamic && !root->u.def.macro;
+	bool fn = init->kind == CLJ_NODE_FN && !init->u.fn.ncaptures && !root->u.def.dynamic && !root->u.def.macro;
 	if (e->ndefs++ == 0) e->order = order;
 	e->fn = e->ndefs == 1 && fn ? init : NULL;
 }

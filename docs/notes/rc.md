@@ -208,7 +208,8 @@
 - [ ] **What the collector does not see.** A type descriptor (the `users` registry holds it without a reference) and an
   exec (the specializer's dependents index resurrects one through `retain_if_live`) are never entered: their references
   count as external, so a cycle through one stays. A coroutine is entered (NOTES "Coroutines", the abandoned park), but
-  not its frames: what they own counts as external, so a cycle a frame's own reference holds stays. A cycle through
+  not its frames: what they own counts as external, so a cycle a frame's own reference holds stays — an owned
+  parameter's too (NOTES "Compiler", owned parameters), where a caller retained a borrowed value for it. A cycle through
   Swift or an ObjC object (a host box shows no children; a reify instance keeps its fns past `each_child`) is design
   §7's boundary. A ring through a lazy seq let go by something other than a var root's replacement stays: an atom's
   store (`(reset! a (lazy-seq (cons 1 @a)))` with `a` a global, then `(reset! a nil)`), a binding's `set!` or its

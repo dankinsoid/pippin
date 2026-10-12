@@ -73,6 +73,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `inline` | the inlining pass of `clj_optimize` (NOTES "Compiler", inlining on the AST), so `beta` and `path` with it; in the emitter the intrinsics' fast arms at the site and the monomorphized fused stages; at run time the fused drivers' own walk of a vector |
   | `beta` | inlining a callee that calls a parameter, and with it a literal fn argument copied where the callee calls it |
   | `path` | `get-in`, `assoc-in` and `update-in` unrolled over a literal path (NOTES "Compiler", known paths) |
+  | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
@@ -148,7 +149,12 @@ checks the tree and the facts between passes in debug builds; one option turns e
   11. The compiled slot plan (`promote_slots`): borrowed and typed slots promoted, typed not borrowed, no slot both
       int and double; no promoted slot read by address (a capture, a static-link read, re-derived by
       `clj_verify_frame_slots` apart from `pin_walk`) or past 64; a borrowed slot is a closure's param or self slot
-      no recur rebinds.
+      no recur rebinds; an owned parameter is a closure's param, neither borrowed nor typed — owned slots are
+      released by the teardown at both exits and borrowed ones never, so this is what keeps "released exactly
+      once" true. Beside it, always on: a caller asking for another owned mask than the callee's entry took
+      (`emit/owned-mask`, both read one inference), a hand-over or late take at an operand that does not read the
+      slot (`emit/hand-slot`, `emit/take-slot`), and in debug units `CLJC_TAKE_CHECK`: the slot still holds what
+      its borrowed read saw when the call takes it.
   12. Inlined calls (`walk_inlined`, `walk_nested_inline`): a `ROOT_IS` only as the test of an `if` whose then branch
       is an `INLINE` (behind a let of fresh slots or bare) and whose else branch is the call of that very var; the
       guard holds a closure without an environment whose fn node is the `INLINE`'s. A guard without core vars is a

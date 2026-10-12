@@ -26,8 +26,8 @@
   nargs)` (`_v<n>` for the variadic one), and a dispatcher `<base>(void *ctx, args, n)` that is the fn's
   `CLJ_FN_NATIVE_CTX` callback; the closure is `clj_fn_native_env` — a `clj_fn` whose ctx is the fn object
   itself and whose captured values sit in its own `env[]`, so a closure is one allocation as in the
-  interpreter and `self` is the ctx. Arguments are +0, results +1, `CLJ_THROWN` checked after every call that
-  can throw. The frame is `clj_cframe` — the interpreter's frame without the exec: a C array of slots, the
+  interpreter and `self` is the ctx. Arguments are +0 (but at a def'd arity's owned entry, the owned parameters
+  entry below), results +1, `CLJ_THROWN` checked after every call that can throw. The frame is `clj_cframe` — the interpreter's frame without the exec: a C array of slots, the
   captured pointer, the owned bitmask, the static link — and every step of a body is the corresponding step
   of eval.c through the inline helpers (`clj_c_set` is `slot_set`, `clj_c_take` the last-use hand-over,
   `clj_c_var_borrow` the var case of `eval_borrowed`, `clj_c_loop_tick` the deadline check of a loop turn;
@@ -675,16 +675,70 @@
   Measured (bench/RESULTS.md, "Drop-guided reuse"): nested-update builds 599k of its 2.73M objects an iteration in
   dying cells (its vector-seqs 1.13M → 533k), render 7 %, medley 6 %, pipelines 3 %, dependency 0.05 %; dev and
   closed count the same; time within the runner's spread.
-  What does not pair, and why: a parameter is +0, so a value a fn receives never lends its
-  cell in it — the census's pairs in dependency are cascade deaths in the runtime (a `concat` cell freed by the
-  previous lazy cell's publish) and nested-update's map copies are of `update-in`'s borrowed `m`; borrow inference
-  (`-O2`, owned parameters) is what reaches them. A string is built by runtime calls (`str`, `subs`), never by the
+  What does not pair, and why: a +0 parameter, a capture and a value the runtime holds lend no cell — the
+  census's pairs in dependency are cascade deaths in the runtime (a `concat` cell freed by the previous lazy cell's
+  publish), which no frame sees; a def'd fn's owned parameter (the owned parameters entry below) does lend its. A string is built by runtime calls (`str`, `subs`), never by the
   compiled code, so a token for one needs string entries that take a cell, which none has; the census counts 26–41 %
   of strings and render's strings in pairs (worth it once those workloads rank on `pool_alloc` of strings). Fn and lazy-seq cells: ≈0 pairs
   by the census, not chased. Not done: destructive match (`(let [[a b] pair] …)` moving fields out of a unique tuple) and
   dup/drop fusion inside bodies; owned-parameter entries for the runtime's `assoc`/`conj` to take a token; the
-  interpreter — triggers: a profile where `bnode_copy` stays after `-O2` borrow inference, or a hot destructuring of
+  interpreter — triggers: a profile where `bnode_copy` stays after owned parameters, or a hot destructuring of
   fresh tuples.
+- [~] **Owned parameters** (design §7 «Владеющие параметры», §10 step 7в; `owned.c` the inference, `reuse.c` the
+  `TAKE` and `HAND` pairs, compiler.c `infer_owned`, `owned_entry_mask`, `emit_owned_call`, `emit_devo_prelude`;
+  `CLJ_NO_OPT=owned` turns all of it off, every parameter +0 and no late take). *Inference.* Before any form is
+  emitted (`flush_pending`; per form in the compiled eval), every top-level `(def f (fn …))` of the set without
+  captures, defined once, neither dynamic nor a macro, is declared in load order. A fixed arity's *candidates* are
+  the parameters that can be owned slots: at most 64 slots, not read by address (a capture or a static-link read:
+  the facts' `captured` and a pin scan that is compiler.c's), and not in a numeric domain by the caller join (a
+  number has no cell to reuse, and an all-numeric arity keeps its primitive worker). A candidate is *consumed* when
+  the frame gives it to an owning consumer at its death: a read the optimizer marked last (returned, let- or
+  loop-bound, a recur argument, a consuming intrinsic's collection), a cons token or a `next`/`rest` step of
+  drop-guided reuse, a late take (below), or — the edge — an argument of a direct call to a def emitted earlier in
+  the load, at a position whose parameter is owned, the slot dead after the call, borrowed by no pending operand
+  and passed as no other operand of that call. The masks close over the edges bottom-up; they only grow, a bit per
+  parameter, so the fixpoint ends without widening. The rest stay +0: a read-only parameter would cost every call
+  a retain at the caller and a release in the callee for nothing (design §7, the cost argument). *Convention.* An
+  arity with a mask M is two entries: `<base>_a<n>_o<M>`, the frame fn with the body, whose owned parameters
+  arrive at +1 in owned promoted slots (`l<i> = args[i]`, released at both exits, moved by their last uses,
+  rebound by a fn-body recur like a loop slot — so such a parameter no longer stays in the array for its recur);
+  and `<base>_a<n>`, the +0 entry the dispatcher, `clj_invoke`, `apply`, protocol arms and the registry's plain name
+  reach, no frame (a trace shows the fn once), which retains the masked arguments and calls the owned entry. The
+  mask is in the symbol, as a worker's signature is: `target_entry` stops the compile on a caller asking for
+  another mask than the callee took, and binds nothing when the callee has no owned entry. A call site
+  (`emit_owned_call`) first makes every masked argument +1 — the dying slot taken (`l<s> = CLJ_NIL`, a `HAND`
+  pair), a borrowed value retained, a fresh one as it is — and then one arm consumes each exactly once: the owned
+  entry by name (closed, this unit), through the registry (closed, another unit), by the dispatcher's identity
+  while the var still holds this unit's fn (dev, `CLJC_DEVO_<target>`, `clj_c_root_runs` as an inlined call's
+  guard), or the +0 call followed by the releases (a rebound var, an unregistered symbol, another dev unit, the
+  host). Nothing between the takes and the call can throw, and a throw inside the callee is its teardown's to
+  release. *The late take* (`CLJC_REUSE_TAKE`): in `(assoc m k (f (get m k)))` the first read of `m` is no last
+  use, so `assoc` copied a map nobody else holds. When a consuming intrinsic's collection is a slot dead after the
+  call, borrowed by no enclosing operand and passed as no other operand of it (`(assoc m m 1)` in place would
+  store a map in itself), its read stays borrowed and the slot is taken at the call; `CLJC_TAKE_CHECK` (debug)
+  checks that nothing rebound the slot between the read and the take, for a hand-over too. *Soundness.* An owned
+  slot holds a reference of its own, so a value reaches a callee's owned parameter at rc 1 only when no other
+  counted holder exists; the uncounted aliases are borrowed temps, and none of them survives a hand-over: a
+  pending operand's slot is held (never taken), the call's own other operands exclude the slot, a borrowed source
+  (a +0 parameter, a capture, a var root) is retained, never taken, and a callee that borrowed has returned. Reuse
+  itself stays the run-time test it was (rc 1, not `SHARED`, not immortal, `-DCLJ_NO_REUSE` off), so a wrong
+  inference costs a retain or a copy, never a result; what the convention must get right is the count, and the
+  fixtures' second runs compare the live objects with the interpreter's (`Fixtures/compiler/owned.clj`: a taken
+  slot, a later operand, the same value twice, a throw inside the callee and one before the call, recur over owned
+  parameters, a capture, the +0 entries; `owned-rebind.clj`: `with-redefs` over a dev hand-over). *Coroutines and
+  the collector.* A frame's owned parameter is a reference the collector does not enumerate (design §7, Фаза 3,
+  вариант 5): leak-only, never unsound. A hand-over only moves a frame-owned reference from caller to callee; the
+  one new case is a borrowed source retained for an owned parameter, so an abandoned park whose ring passes
+  through such a parameter stays — the class of the channel bound by a `go` body's `let`, under the same trigger.
+  *Numbers* (`--stats`): core.clj 63 arities over 72 parameters, 62 owned call sites handing 26 dying slots over, 8
+  late takes; the closed nested-update unit 14 late takes (its known paths' levels); bench/RESULTS.md "Owned
+  parameters". *Not done, each with its trigger.* The child a parent map holds is still copied: `(assoc m k (f (get
+  m k)))` updates `m` in place but `(get m k)` leaves the child at rc 2 — a take-out get (the slot of a unique `m`
+  emptied, the child handed over at +1, Lean's `modify`) is the next lever, trigger: nested-update's inner
+  `bnode_copy` in a profile. A literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one
+  shot: the thunk could own them; dependency's cascade pairs) and a variadic arity stay +0 — triggers: the 7a′
+  lowering calling a literal fn per element, a profile of `concat`/`map` cells. The interpreter keeps +0
+  throughout.
 - [~] **Inlining on the AST** (design §6 «Инлайнинг без JIT», §10 step 7a; optimizer.c `inline_walk`, `try_inline`,
   `copy_node`, `literal_call`; eval.c `eval_root_is`, `eval_inline`; compiler.c `emit_inlined_call`, `emit_inline`;
   verify.c `walk_inlined`, `walk_nested_inline`). A pass of `clj_optimize` between the rewrites and the liveness marks, so both backends get it: a
