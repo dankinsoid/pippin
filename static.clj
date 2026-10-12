@@ -1,6 +1,5 @@
 ;; @ai-generated(guided)
-;; Merry sketch (docs/merry.md), not runnable. `;; =>` contract, `;; ?` friction, `;; variant:` one of the doc's options.
-;;   args -> result ! <effects>   [:map ::a ...r] open row   ^u unique ^b borrowed ^l local   lowercase type: variable
+;; Merry sketch (docs/merry.md), not runnable: `;; =>` contract, `;; ?` friction, `;; variant:` one doc option.
 
 
 ;;; ── Attributes: the domain vocabulary ──────────────────────────────────────
@@ -32,7 +31,7 @@
 ;; (+ usd eur) does not check: IAdd is Self, & Self -> Self, there is no mixed arithmetic
 
 (defn scale [m n] {:cents (* (:cents m) n)})
-;; => [:map [:cents Int] ...r]^b, Int -> [:map [:cents Int] ...r] ! <>
+;; => [:=> [[:map [:cents :int] & r] :int] [:map [:cents :int] & r] {:eff #{}}]
 
 
 (ns shop.order
@@ -62,11 +61,11 @@
 
 (defn line-total [{:keys [qty price]}]
   (scale price qty))
-;; => [:map [:qty Qty] [:price Usd] ...r]^b -> Usd ! <>
+;; => [:=> [[:map [:qty Qty] [:price Usd] & r]] Usd {:eff #{}}]
 
 (defn total [cart]
   (transduce (map line-total) + (zero Usd) (::lines cart)))
-;; => [:map ::lines ...r]^b -> Usd ! <>     (zero Usd): the neutral element comes from a type, never from context
+;; => [:=> [[:map ::lines & r]] Usd {:eff #{}}]     (zero Usd): the neutral element comes from a type, not context
 
 (defn add-line [cart line]
   (update cart ::lines
@@ -74,15 +73,15 @@
             (if-let [i (index-where #(= (:sku %) (:sku line)) lines)]
               (update-in lines [i :qty] #(Qty (+ % (:qty line))))
               (conj lines line)))))
-;; => [:map ::lines ...r]^u, Line^b -> [:map ::lines ...r] ! <Fail [:invalid Qty]>     ^u: in place at refcount 1
+;; => [:=> [[:map ::lines & r] Line] [:map ::lines & r]
+;;     {:eff #{[Fail [:invalid Qty]]} :modes {cart :unique, line :borrowed}}]
 
 (defn receipt [cart]
   (let [sb (string-builder)]
     (doseq [{:keys [sku qty price]} (::lines cart)]
       (sb-append! sb sku " x" qty " " (:cents price) "\n"))
     (str sb)))
-;; => [:map ::lines ...r]^b -> String ! <>
-;; sb is ^l: it never escapes, so it lives in the frame's arena.
+;; => [:=> [[:map ::lines & r]] :string {:eff #{} :modes {cart :borrowed, sb :local}}]
 
 (defn customer-of [::p/id] (p/find-name id))
 ;; the parameter takes its type from the attribute: neither inferred nor written
@@ -93,8 +92,8 @@
 ;; std: (defprotocol IAdd (add [self other :- Self] :- Self) (add* [self & more :- Self] :- Self :default ...))
 
 (defprotocol Describe
-  (describe [x] :! <>)                    ; the effect bound every implementation must fit
-  (title    [x] :! <> :default (fn [x] (str (type-name x)))))
+  (describe [x] {:eff #{}})               ; the effect bound every implementation must fit
+  (title    [x] {:eff #{} :default (fn [x] (str (type-name x)))}))
 
 (extend Cart Describe
   (describe [c] (str (title c) ": " (count (::lines c)) " lines"))
@@ -108,8 +107,7 @@
   {:delegate {Describe Cart}})
 ;; variant: explicit delegation list. IAdd is refused: two Self in, Self out cannot merge two audit trails.
 
-;; Equality, hash, printing, codecs and generators come from the schema; nothing to declare.
-;; (= cart-a audited-a) compares content across types; Person keeps its own :eq-by inside its type.
+;; =, hash, printing, codecs come from the schema; equality crosses types unless a type sets :eq-by.
 
 
 ;;; ── Multimethods: dispatch on a sum's tag ──────────────────────────────────
@@ -122,7 +120,7 @@
 
 ;; variant: two explicit forms. defmulti is static: its methods see the narrowed payload,
 ;; completeness is checked, it compiles to a switch on the tag.
-(defmulti on-event [e :- OrderEvent] :- :unit :! <Log>)
+(defmulti on-event {:eff #{Log}} [e :- OrderEvent] :- :unit)
 (defmethod on-event :order/created   [[_ order]] (Log/info "created" (::id order)))
 (defmethod on-event :order/paid      [[_ paid]]  (Log/info "paid" (::total paid)))
 (defmethod on-event :order/cancelled [[_ c]]     (Log/warn "cancelled" (:reason c)))
@@ -157,25 +155,22 @@
   (into (empty person)
         (map (fn [[a v]]
                (case a
-                 ::p/email [a "***"]      ; here v : String, the tag fixes the value's type
+                 ::p/email [a "***"]      ; here v is a string: the tag fixes the value's type
                  [a v])))
         person))
-;; ? a generic redact over every :pii attribute needs a case per attribute; phase 1 could generate it
-;;   from (attrs T), but no macro for that is spelled here.
+;; ? a generic redact over all :pii attributes needs a case per attribute, generated from (attrs T) in phase 1.
 
 
 ;;; ── Effects: ports and adapters ────────────────────────────────────────────
 
 (ns shop.checkout
-  {:effects-bound [Inventory Payments Async Fail Log]}   ; inside the bound, the interface does not change
+  {:effects-bound #{Inventory Payments Async Fail Log}}   ; inside the bound, the interface does not change
   (:require [shop.order :as o :refer [Cart Line Order CheckoutError total]]
             [shop.catalog :refer [Usd]]
             [std.http :as http]
             [std.json :as json]))
 
-;; From std, for reference:
-;;   (defeffect (Fail e) (fail [err :- e] :- :never))
-;;   (defeffect Async (spawn [f :- ^1 (-> a ! <Async | e>)] :- (Task a)) (await [t :- (Task a)] :- a))
+;; std: (defeffect (Fail e) (fail [err :- e] :- :never)), Async with spawn/await; the scheduler is a handler.
 
 (defeffect Inventory                      ; a port: the caller's environment decides the implementation
   (stock    [sku :- Sku] :- :int)
@@ -190,7 +185,7 @@
     (doseq [[line n] (zip lines left)
             :when (< n (:qty line))]
       (fail [:out-of-stock {:sku (:sku line) :left n}]))))
-;; => [:vector Line]^b -> Unit ! <Inventory, Async, Fail [:out-of-stock ...]>
+;; => [:=> [[:vector Line]] :unit {:eff #{Inventory Async [Fail [:out-of-stock ...]]}}]
 
 (defn checkout
   "Reserves stock and charges the card; returns the reservation id."
@@ -206,8 +201,7 @@
       [:ok _]         reservation
       [:declined why] (do (Inventory/release! reservation)   ; a compensation, not a rollback
                           (fail [:card-declined why])))))
-;; => [:map ::o/id ::o/lines ...r]^b -> Uuid ! <Inventory, Payments, Async, Fail CheckoutError>
-;; The Fail row is inferred as exactly three tags; CheckoutError is checked against it, not required.
+;; => [:=> [[:map ::o/id ::o/lines & r]] :uuid {:eff #{Inventory Payments Async [Fail CheckoutError]}}]
 
 
 ;;; ── Handlers: adapters, installed by scope ─────────────────────────────────
@@ -221,7 +215,7 @@
   (release! [id]
     (http/delete (str base-url "/reservations/" id))
     nil))
-;; => String -> (Handler Inventory) ! <Net, Async, Fail [:or http/Error [:invalid ...]]>
+;; => [:=> [:string] (Handler Inventory) {:eff #{Net Async [Fail [:or http/Error [:invalid ...]]]}}]
 
 (defhandler fake-inventory [stock] Inventory
   (stock    [sku] (get stock sku 0))
@@ -238,7 +232,7 @@
   (handle (checkout (as Cart (json/read cart-json (:body req))))
     (return [id] {:status 201 :body {:reservation id}})
     (fail [e]    {:status (if (= (first e) :invalid) 400 409) :body e})))
-;; => [:map [:body String] ...r]^b -> Response ! <Inventory, Payments, Async>
+;; => [:=> [[:map [:body :string] & r]] Response {:eff #{Inventory Payments Async}}]
 
 (defn schedule-sync [cart-id]
   (Scheduler/later 5000
@@ -270,11 +264,11 @@
 
 (defn revenue [orders :- [:vector Order {:layout :columns}]]
   (transduce paid-totals + (zero Usd) orders))
-;; => [:vector Order]^b -> Usd ! <>   columns: the pass reads ::status and ::total only
+;; => [:=> [[:vector Order]] Usd {:eff #{}}]     columns: the pass reads ::status and ::total only
 
 (defn revenue-feed [in]
   (pipe in (chan 64 paid-totals)))
-;; => (Chan Order) -> (Chan Usd) ! <Async>   the same xf; Async comes from the channel, not from xf
+;; => [:=> [(Chan Order)] (Chan Usd) {:eff #{Async}}]     the same xf; Async comes from the channel
 
 
 ;;; ── Memory: a guarantee on a hot path ──────────────────────────────────────
@@ -291,7 +285,7 @@
 
 (defn add-to-cart! [id line]
   (swap! carts update id o/add-line line))
-;; => ::o/id, Line -> Unit ! <Ref carts, Fail [:invalid Qty]>
+;; => [:=> [::o/id Line] :unit {:eff #{[Ref carts] [Fail [:invalid Qty]]}}]
 ;; ? swap! keeps the old value for its CAS, so add-line copies here.
 
 (defmigration Cart [old]
@@ -310,25 +304,23 @@
 
 ;;; ── Entry point ────────────────────────────────────────────────────────────
 
-(defn -main [& _] :! <Env, Net>
+(defn -main {:eff #{Env Net}} [& _]     ; a closed row: the program's capability policy
   (with [(scheduler {:threads 8})
          (http-inventory (env/get "INVENTORY_URL"))
          (stripe-payments (env/get "STRIPE_KEY"))
          (stdout-log)]
     (http/serve {:port 8080} handle-checkout)))
-;; the closed row is the program's capability policy: a dependency that starts writing files is an
-;; error naming the chain that requires it
+;; a dependency that starts writing files is an error naming the chain that requires it
 
 
 (comment
   ;; REPL session
 
   user=> (contract checkout)
-  {:in  [[:map ::o/id ::o/lines ...r]]
-   :out :uuid
-   :eff #{Inventory Payments Async [Fail CheckoutError]}
-   :modes {cart :borrow}
-   :meta {:doc "Reserves stock and charges the card; returns the reservation id." :example [...]}}
+  [:=> [[:map ::o/id ::o/lines & r]] :uuid
+   {:eff   #{Inventory Payments Async [Fail CheckoutError]}
+    :modes {cart :borrowed}
+    :doc   "Reserves stock and charges the card; returns the reservation id."}]
 
   user=> (checkout c)
   ;; error: Inventory, Payments are not handled
@@ -338,22 +330,23 @@
   ;; Fail: [:out-of-stock {:sku "ABC-0001" :left 1}]
 
   user=> (def d (json/read-dyn (slurp "cart.json")))
-  ;; d : Dyn
+  user=> (type-of d)
+  ;; => Dyn
   user=> (as Cart d)
   ;; Fail: [:invalid Cart {:missing [::o/id]}]
 
   user=> (entry person ::p/email)
-  ;; => [::p/email "bob@x.com"] : [::p/email String]
+  ;; => [::p/email "bob@x.com"]
 
   user=> (attr ::p/email)
   ;; => {:ident :shop.person/email, :schema [:string {:pii true}], :module shop.person}
 
   user=> (as? Describe d)
-  ;; => nil   d's type has no Describe
+  ;; => nil
 
   user=> (compile-profile 'shop.order)
-  ;; phase 1: 41 ms   (openapi/schema 30, s/merge 6, ...)   check: 12 ms
+  ;; => {:phase-1-ms 41, :by {openapi/schema 30, s/merge 6}, :check-ms 12}
 
-  user=> (eval '(+ 1 2))
-  ;; => 3   ! <Eval>; a release binary without the compiler rejects Eval at link time
+  user=> (contract eval)
+  ;; => [:=> [:any] Dyn {:eff #{Eval}}]   a release binary without the compiler rejects Eval at link time
   )
