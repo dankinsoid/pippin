@@ -961,7 +961,8 @@
   straight-line intrinsic code with no loop or kept call, where the saved call is most of the cost; `(range n)` is
   `(range 0 n 1)`, `vec` is `into`, `zipmap` a loop, and those copies doubled a site's C to save one call (before the
   rule the five libraries' dev units took 268 cross-unit copies and medley's core −O2 clang +20.6 %, combinatorics'
-  +25 %; after it 52). A unit of the same set in a closed build keeps `CLJC_INL_`, so `make boot`'s libs units, whose
+  +25 %; after it 52). A site written as the call alone puts the else branch's dead-slot drops before it
+  (`emit_call_alone`), its only path; a written copy gets the guard's drops on both branches and its own lets'. A unit of the same set in a closed build keeps `CLJC_INL_`, so `make boot`'s libs units, whose
   compile is a dev one, now carry core's bodies too and run them with the guard 1 under `-DCLJ_CLOSED`. `clj-compile
   --stats` counts them ("of which from another unit"). `CLJ_NO_OPT=inline` writes the call, as before. **Cost**
   (x86_64 dev host, min of three clang runs alternated, before = origin/main eb276f7): the five libraries' 12 dev units
