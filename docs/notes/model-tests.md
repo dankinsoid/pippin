@@ -34,7 +34,7 @@ of every suite run (`make test`, `test-compiled`, `test-noreuse`), `make model-l
   one may be an inferred lazy `def`, and the first step a second `def` over that var. Operations: `conj` (one to
   three), `conj` of an entry, `assoc`, `dissoc`, `disj`, `pop`, `update` (`mt-wrap`, `constantly`, `conj`),
   `update-in`, `assoc-in`, `merge`, `into` six ways (the builtin, the fused `(map identity …)` driver, the
-  transducer arity, `reduce conj`, `reduce` with a fn of its own, whose accumulator is a borrowed parameter,
+  transducer arity, `reduce conj`, `reduce` with a fn of its own, whose accumulator the lowered reduce hands over owned,
   `transduce`), `subvec`, `with-meta`, `vary-meta`, `empty`, `vec` six ways (`vec`, fused, `into [] xform`, `mapv`,
   a `reduce` fn, `transduce`), `select-keys`, `get` and `first` of a nested collection, and `transient` with
   `conj!`/`assoc!`/`dissoc!`/`disj!`/`pop!` on vectors, hash maps and hash sets. Elements: integers, keywords,

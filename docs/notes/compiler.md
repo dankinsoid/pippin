@@ -737,10 +737,11 @@
   values reach callees through `reduce`, lazy-seq captures and core's higher-order fns, all +0 by construction. *Not done, each with its trigger.* The child a parent map holds is still copied: `(assoc m k (f (get
   m k)))` updates `m` in place but `(get m k)` leaves the child at rc 2 — a take-out get (the slot of a unique `m`
   emptied, the child handed over at +1, Lean's `modify`) is the next lever, trigger: nested-update's inner
-  `bnode_copy` in a profile. A literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one
-  shot: the thunk could own them; dependency's cascade pairs) and a variadic arity stay +0 — triggers: the 7a′
-  lowering calling a literal fn per element, a profile of `concat`/`map` cells. The interpreter keeps +0
-  throughout.
+  `bnode_copy` in a profile. A lowered reduce's literal owns its accumulator (the "Lowered natives" entry); any other
+  literal fn's or a let-bound direct fn's parameters, a lazy-seq thunk's captures (one shot: the thunk could own them;
+  dependency's cascade pairs) and a variadic arity stay +0 — triggers: a closure called per element in a profile (a
+  literal given to `mapv` or `filterv`, a `FUSED` site's reducing fn), a profile of `concat`/`map` cells. The
+  interpreter keeps +0 throughout but for that accumulator.
 - [~] **Inlining on the AST** (design §6 «Инлайнинг без JIT», §10 step 7a; optimizer.c `inline_walk`, `try_inline`,
   `copy_node`, `literal_call`; eval.c `eval_root_is`, `eval_inline`; compiler.c `emit_inlined_call`, `emit_inline`;
   verify.c `walk_inlined`, `walk_nested_inline`). A pass of `clj_optimize` between the rewrites and the liveness marks, so both backends get it: a
@@ -924,10 +925,37 @@
   nodes) rather than by the frame's inline budget, as a known path is: it copies no body. Effect (bench/RESULTS.md,
   "Lowered natives"): allocations hardly move — a site saves one closure per call of the builtin, and the workloads'
   reduces run a few times an iteration — but `clj_invoke` per iteration falls 13–42 % over the data workloads.
-  Not done, each with its trigger: the accumulator at +1 (the step passes it at +0 as a closure call does, so
-  `(reduce (fn [m x] (assoc m …)) {} xs)` copies per step; the owned entries of "Owned parameters" are a def'd fn's
-  only, and one for a literal's arity, called by the step with the reducer's own reference, makes assoc and conj
-  update the accumulator in place) — when owned inference covers literal-fn arities; a fused site's reducing fn
+  **The accumulator at +1** (`CLJ_NO_OPT=owned` turns it off with the rest of owned parameters). `clj_reducer` owns
+  its accumulator, and every reduce slot and reduce-kv walk steps through it, so the contract sits there and nowhere
+  else: `clj_call_prepare` of the stack fn at its arity (`clj_lowered_prepare`) gives the step itself and, when the
+  site has one, its owned twin in `clj_call.owned`, which takes `args[0]` at +1 as a consuming intrinsic does; the
+  reducer calls it with `r->acc` and keeps the result without a release. Every other caller — swap!'s
+  `apply_under_lock`, `clj_invoke` — reaches the +0 step, so a driver that does not opt in is exact as
+  before. The seed, `reduced`, the empty coll's `(f)`, a throw (the step's teardown releases what it took; the reducer
+  then holds `CLJ_THROWN`) and a user `IReduceInit` (a closure, as before) are the reducer's and the native's own
+  paths. *Compiled*: `cljc_owned_literal` asks of the literal's arity what the scan asks of a def'd fn's — a candidate
+  (not captured, not read through a static link, not numeric by a join, ≤ 64 slots) consumed by a last read, a reuse
+  pair or a hand-over to a settled owned parameter — among the parameters the driver offers (reduce and reduce-kv: the
+  accumulator; swap!: none) and not rebound by a fn-body recur (a typed slot cannot arrive owned). The arity is then
+  emitted with an owned entry `_a<k>_o1` and its +0 wrapper `_a<k>` (the closure's dispatcher, the +0 step), and the
+  site gets a second step `<base>__lw<n>_o` over the owned entry (its `_i` twin for a leaf). `emit/lowered-owned-mask`
+  stops the compile when the arity was emitted with another mask than the step asked. *Interpreter*: the lowered
+  frame owns slot 0 whenever the reducer hands it over, consumed or not — its last read moves it, else the teardown
+  makes the release the reducer would have made after a +0 step, so owning it costs nothing. Exact by construction:
+  the hand-over moves the reducer's reference, which nothing else counts; reuse stays the run-time test (rc 1, not
+  `SHARED`), so an init the caller keeps, a seed the coll holds, an accumulator an atom or a capture keeps copy as
+  before (`Fixtures/compiler/lowered-owned.clj`, both backends with live-object counts). *swap! is not owned*: the
+  atom holds the old value while f runs — other readers deref it, the watches and the validator get it, a throw or a
+  failed validation leaves it — so the value f sees is never at rc 1 and owning it would only add a retain. *The
+  collector*: the reference moves from the reducer's C struct, which it does not enumerate either, into the frame.
+  `--stats` counts the owned steps (core.c 12 of 18 sites, clojure.set 10 of 10). Measured (bench/RESULTS.md, "The
+  lowered accumulator at +1"): dependency's 2.0M map and node copies an iteration become updates in place (−18 %
+  allocations, −36 % plain RC ops), pipelines' 924k and suite-data's 283k sorted-node copies are gone (−9 % and −44 %
+  allocations); group-freq's `buckets` reduce owns its map but hands it to core's `update` through a generic call,
+  +0, so it still copies. Cost: core.c +0.18 % bytes, clang within the host's spread.
+  Not done, each with its trigger: an owned accumulator passed on to a call that takes it +0 (group-freq's
+  `(update m k (fnil conj #{}) v)`: that arity is not inlined, and the call reaches no owned entry) — when its map
+  copies rank in a profile; a fused site's reducing fn
   (`(reduce (fn …) init (map …))` is `FUSED`, whose driver still gets a closure) — when `fused-reduce*` ranks in a
   closed profile; the fn a caller passes to `mapv`, `filterv`, `run!` (core's inner fn is lowered, the caller's literal
   is still a closure: a closure specialized to its literal) — when they rank in a census; a literal that reads its own

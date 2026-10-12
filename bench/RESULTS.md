@@ -2663,3 +2663,38 @@ runtime. Counters are the closed stats build's, per iteration.
   `boot/core.c` 5 092 878 → 5 124 668 bytes (+0.6 %, 18 lowered sites), clang `-O0 -DCLJ_DEBUG=1` 4.08 → 3.99 s,
   `-O2 -DCLJ_CLOSED` 22.71 → 21.74 s; the five corpus libraries' dev units (6 units, 2.12 MB) +0.26 % bytes, clang
   within the host's spread. Far under the 15 % bar: a site adds a two-line step and maker and copies its operands.
+
+## The lowered accumulator at +1 — 7070461, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7a′ (docs/notes/compiler.md, "Lowered natives", "The accumulator at +1"): a lowered `reduce` or
+`reduce-kv` hands its accumulator to the literal's arity at +1, so `assoc`, `conj` and a cons token take it in place.
+Two `corpus-bench` runs side by side: 38260103719 on branch `owned-acc` 7070461, *before* 38260108354 on main 045ee46.
+Every workload returned the JVM's value in every runtime. Counters per iteration, closed stats build.
+
+| workload | allocs | MB | rc plain | in place / copied (types that moved) | closed ms (closed/JVM) |
+|---|---|---|---|---|---|
+| dependency | 11.20M → 9.17M | 732.4 → 462.4 | 70.54M → 45.34M | map 707.4k/712.5k → 1.37M/53.4k, map-node 1.31M/1.45M → 2.67M/86.0k | 717.5 (1.4×) → 564.1 (0.8×) |
+| pipelines | 9.97M → 9.05M | 572.2 → 440.5 | 49.33M → 38.85M | map 0/301.0k → 300.0k/1.0k, map-node 0/623.0k → 620.9k/2.0k | 646.7 (2.8×) → 489.5 (3.0×) |
+| suite-data | 1.19M → 670.4k | 88.2 → 39.9 | 5.74M → 2.49M | sorted-node 1.9k/283.2k → 285.1k/0, vector 887/120.5k → 80.9k/40.5k, map 37.1k/10.5k → 47.4k/231 | 80.3 (1.8×) → 61.3 (1.8×) |
+| group-freq | 4.97M → 4.87M | 256.5 → 241.7 | 27.67M → 26.05M | vector 100.0k/150.1k → 150.1k/100.0k; map 717/100.2k → 842/100.1k | 355.4 (2.6×) → 302.1 (2.7×) |
+| strings | 807.2k → 766.6k | 64.2 → 58.3 | 2.84M → 2.36M | vector 108.0k/40.0k → 128.0k/20.0k | 74.0 (1.9×) → 45.4 (1.3×) |
+| async-libs | 287.2k → 264.7k | 20.4 → 19.6 | 201.8k → 201.5k | — | 76.5 (0.5×) → 53.1 (0.7×) |
+
+medley, combinatorics (rc plain −2 %), nested-update, render, async-pipeline and async-broadcast moved no allocation
+or copy counter.
+
+- **dependency, pipelines, suite-data: the builder reduces stop copying.** dependency's graph maps are
+  `(reduce (fn [m …] (assoc m …)) {} …)` folds: 2.0M map and node copies an iteration become updates in place, −18 %
+  allocations, −37 % MB, −36 % plain RC ops. pipelines' 924k map copies are all gone (−9 % allocations, −23 % MB);
+  suite-data's sorted map is no longer copied per step (−44 % allocations, −55 % MB). The previous section's "no
+  counter moved" for dependency and pipelines was this +0 accumulator.
+- **group-freq's maps stay copied.** Its `buckets` reduce is lowered and owns the accumulator, but hands it on to
+  core's `update` through a generic call (`clj_c_invoke`, +0), which copies; `merge-with` reduces with a let-bound fn,
+  not a literal. 50k vectors more in place come from core's own lowered sites.
+- **Time**: the two runners differ (JVM warm medley 33.6 vs 58.9 ms, async-libs 146.6 vs 80.0, with no counter
+  moved), so closed/JVM is the fairer column, and one run is no per-workload claim; dependency 1.4 → 0.8× is the one
+  that the counters back.
+- **Compile cost** (the x86_64 dev host, min of three clang runs, before = 045ee46's boot units under this tree's
+  headers): `boot/core.c` 5 177 636 → 5 186 794 bytes (+0.18 %; 12 of its 18 lowered sites own the accumulator), clang `-O0 -DCLJ_DEBUG=1` 4.15 →
+  4.14 s, `-O2 -DCLJ_CLOSED` 21.43 → 21.13 s; `libs_clojure_set.c` +5.0 % (all 10 sites, set-building reduces),
+  core.async +0.2 % (3 of 6), walk +1.0 % (1 of 1). An owned site adds a one-line step and a +0 wrapper of two lines.

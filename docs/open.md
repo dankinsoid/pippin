@@ -185,7 +185,7 @@ file. 127 open, 112 partly done.
 - [~] Known paths: `get-in`, `assoc-in`, `update-in` over a literal path — Not done: a path past 4 keys, a path that is a local bound to a vector, update-in past 4 extra args
 - [~] The intrinsics' fast arms at the site — Not done: `get` of another key, `next`/`rest` (their owned forms are the reuse planner's)
 - [~] Fused stages over literal fns run as one step — Not done: `mapcat`, `keep-indexed`, `interpose`, `dedupe`, `distinct`
-- [~] Lowered natives: `reduce`, `reduce-kv`, `swap!`, `swap-vals!` over a literal fn — Not done, each with its trigger: the accumulator at +1 (the step passes it at +0 as a closure call does, so `(reduce (fn [m x] (assoc m …)) {} xs)` copies per step
+- [~] Lowered natives: `reduce`, `reduce-kv`, `swap!`, `swap-vals!` over a literal fn — Not done, each with its trigger: an owned accumulator passed on to a call that takes it +0 (group-freq's `(update m k (fnil conj #{}) v)`: that arity is not inlined, and the call reaches no owned entry) — when its map …
 - [ ] Deviations and skips, each with its trigger. — **Deviations and skips, each with its trigger.** Trace positions as above
 
 ### [core.clj (Sources/CljCore/boot/core.clj)](notes/core-clj.md)
