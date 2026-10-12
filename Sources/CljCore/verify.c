@@ -279,7 +279,7 @@ static bool walk_fused(vctx *c, vframe *f, const clj_node *n) {
 	if (!n->u.fused.nguards || !n->u.fused.guards) return bad(c, "verify/fused-guard", n, "a fused node without guards");
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) {
 		const clj_fusion_var *g = n->u.fused.guards[i];
-		if (!g || clj_fusion_find(clj_fusion_var_of(g)) != g) return bad(c, "verify/fused-guard", n, "guard %u is no entry of the fusion table", i);
+		if (!g || g->role == CLJ_FUSION_GUARD || clj_fusion_find(clj_fusion_var_of(g)) != g) return bad(c, "verify/fused-guard", n, "guard %u is no stage, consumer or driver of the fusion table", i);
 	}
 	if (!n->u.fused.nargs) return bad(c, "verify/fused-args", n, "a fused node without arguments");
 	if (!walk_all(c, f, n->u.fused.args, n->u.fused.nargs, n)) return false;

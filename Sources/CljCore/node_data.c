@@ -763,7 +763,9 @@ static clj_node *decode_fused(clj_value data, dframe *fr) {
 	n->u.fused.nguards = clj_vector_count(guards);
 	n->u.fused.guards = zalloc(n->u.fused.nguards, sizeof *n->u.fused.guards);
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) {
-		if (!(n->u.fused.guards[i] = clj_fusion_find_named(clj_vector_nth(guards, i)))) {
+		// a known path's or a fused step's guard var is no guard of a fused program
+		n->u.fused.guards[i] = clj_fusion_find_named(clj_vector_nth(guards, i));
+		if (!n->u.fused.guards[i] || n->u.fused.guards[i]->role == CLJ_FUSION_GUARD) {
 			fail_data(guards, "unknown fusion var");
 			return drop(n);
 		}
