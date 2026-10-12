@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clj/ice.h"
+#include "clj/intrinsics.h"
 
 // optimizer.c's liveness again: its marks name only reads a consumer owns, a pair needs the set after any node.
 
@@ -30,6 +31,12 @@ typedef struct {
 	bool     dropped; // the slot is left to a cons that takes its cell
 } consume_site;
 
+// A TAKE or HAND pair: the slot leaves the frame at the call, so no cons around it may build in its cell.
+typedef struct {
+	uint32_t        node, slot, arg;
+	cljc_reuse_kind kind;
+} take_site;
+
 typedef struct {
 	uint64_t         held; // borrowed by a pending operand or pinned by a direct fn body: never dropped early
 	target          *recur;
@@ -40,9 +47,16 @@ typedef struct {
 	size_t           nconses, cconses;
 	consume_site    *consumes;
 	size_t           nconsumes, cconsumes;
+	take_site       *takes;
+	size_t           ntakes, ctakes;
+	bool             late;      // TAKE pairs
+	cljc_owned_positions positions; // HAND pairs, NULL for none
+	void                *pctx;
 } ctx;
 
 static uint64_t slot_bit(uint32_t slot) { return slot < 64 ? (uint64_t)1 << slot : 0; }
+
+static uint64_t local_bit(const clj_node *n) { return n->kind == CLJ_NODE_LOCAL ? slot_bit(n->u.local.index) : 0; }
 
 static void *grow(void *items, size_t *cap, size_t n, size_t size) {
 	if (n < *cap) return items;
@@ -52,9 +66,9 @@ static void *grow(void *items, size_t *cap, size_t n, size_t size) {
 	return items;
 }
 
-static void plan_add(cljc_reuse_plan *p, uint32_t node, cljc_reuse_kind kind, uint32_t slot) {
+static void plan_add(cljc_reuse_plan *p, uint32_t node, cljc_reuse_kind kind, uint32_t slot, uint32_t arg) {
 	p->pairs = grow(p->pairs, &p->cap, p->n, sizeof *p->pairs);
-	p->pairs[p->n++] = (cljc_reuse_pair){node, kind, slot};
+	p->pairs[p->n++] = (cljc_reuse_pair){node, kind, slot, arg};
 }
 
 static bool op_named(const clj_node *n, const char *name, uint32_t arity) {
@@ -118,28 +132,70 @@ static void note_consume(ctx *c, const clj_node *n, uint64_t out) {
 	c->consumes[c->nconsumes++] = (consume_site){n->id, a->u.local.index, false};
 }
 
+// The slots read directly as an operand other than `skip`: borrowed aliases the call receives beside the taken one,
+// which an update in place would change under them ((assoc m m 1) must not store m in itself).
+static uint64_t other_operands(const clj_node *const *args, uint32_t n, uint32_t skip) {
+	uint64_t b = 0;
+	for (uint32_t i = 0; i < n; i++) {
+		if (i != skip) b |= local_bit(args[i]);
+	}
+	return b;
+}
+
+static void take_add(ctx *c, uint32_t node, uint32_t slot, uint32_t arg, cljc_reuse_kind kind) {
+	c->takes = grow(c->takes, &c->ctakes, c->ntakes, sizeof *c->takes);
+	c->takes[c->ntakes++] = (take_site){node, slot, arg, kind};
+}
+
+// A last-use read already hands the slot over where it is read (the optimizer's mark); this is the read that is not
+// the last one only because a later operand reads the slot too.
+static void note_take(ctx *c, const clj_node *n, uint64_t out) {
+	const clj_node *a = n->u.intrinsic.args[0];
+	if (a->kind != CLJ_NODE_LOCAL || a->u.local.last) return;
+	uint64_t b = slot_bit(a->u.local.index);
+	if (!(b & c->owned & ~out & ~c->held & ~other_operands(n->u.intrinsic.args, n->u.intrinsic.n, 0))) return;
+	take_add(c, n->id, a->u.local.index, 0, CLJC_REUSE_TAKE);
+}
+
+// before: the direct operands read before each argument (live_args), the head among them.
+static void note_hands(ctx *c, const clj_node *n, uint64_t out, const uint64_t *before) {
+	uint64_t pos = c->positions(c->pctx, n);
+	for (uint32_t i = 0; pos && i < n->u.invoke.n && i < 64; i++) {
+		const clj_node *a = n->u.invoke.args[i];
+		if (!((pos >> i) & 1) || a->kind != CLJ_NODE_LOCAL) continue;
+		uint64_t b = slot_bit(a->u.local.index);
+		if (!(b & c->owned & ~out & ~c->held & ~before[i] & ~other_operands(n->u.invoke.args, n->u.invoke.n, i))) continue;
+		take_add(c, n->id, a->u.local.index, i, CLJC_REUSE_HAND);
+	}
+}
+
 // A dying cons cell is worth more to a cons than to a next or rest before it: built in place it keeps the fields it
 // holds again, where the step only frees it. A view (vector-seq, range) breaks even either way.
 static void decide(ctx *c, cljc_reuse_plan *p) {
 	for (size_t i = 0; i < c->nconses; i++) {
 		const cons_site *k = &c->conses[i];
-		uint64_t         stepped = 0;
+		uint64_t         stepped = 0, gone = 0;
 		for (size_t j = 0; j < c->nconsumes; j++) {
 			if (c->consumes[j].node < k->end) stepped |= slot_bit(c->consumes[j].slot);
 		}
-		uint64_t pick = k->safe & k->seqops;
-		if (!pick) pick = k->safe & stepped;
-		if (!pick) pick = k->safe & k->reads;
+		// a value taken by a call inside the operands is the callee's: in place there, it lends no cell here
+		for (size_t j = 0; j < c->ntakes; j++) {
+			if (c->takes[j].node >= k->node && c->takes[j].node < k->end) gone |= slot_bit(c->takes[j].slot);
+		}
+		uint64_t pick = k->safe & ~gone & k->seqops;
+		if (!pick) pick = k->safe & ~gone & stepped;
+		if (!pick) pick = k->safe & ~gone & k->reads;
 		if (!pick) continue;
 		uint32_t slot = (uint32_t)__builtin_ctzll(pick);
-		plan_add(p, k->node, CLJC_REUSE_TOKEN, slot);
+		plan_add(p, k->node, CLJC_REUSE_TOKEN, slot, 0);
 		for (size_t j = 0; j < c->nconsumes; j++) {
 			if (c->consumes[j].node < k->end && c->consumes[j].slot == slot) c->consumes[j].dropped = true;
 		}
 	}
 	for (size_t j = 0; j < c->nconsumes; j++) {
-		if (!c->consumes[j].dropped) plan_add(p, c->consumes[j].node, CLJC_REUSE_CONSUME, c->consumes[j].slot);
+		if (!c->consumes[j].dropped) plan_add(p, c->consumes[j].node, CLJC_REUSE_CONSUME, c->consumes[j].slot, 0);
 	}
+	for (size_t j = 0; j < c->ntakes; j++) plan_add(p, c->takes[j].node, c->takes[j].kind, c->takes[j].slot, c->takes[j].arg);
 }
 
 static uint64_t live(const clj_node *n, uint64_t out, ctx *c);
@@ -149,8 +205,9 @@ static uint64_t live_seq(const clj_node *const *nodes, uint32_t n, uint64_t out,
 	return out;
 }
 
-// A direct local operand is read at +0 and used only once every later operand has run: held until the call.
-static uint64_t live_args(const clj_node *head, const clj_node *const *nodes, uint32_t n, uint64_t out, ctx *c) {
+// A direct local operand is read at +0 and used only once every later operand has run: held until the call. call:
+// the INVOKE whose owned arguments may be handed over, NULL otherwise.
+static uint64_t live_args(const clj_node *head, const clj_node *const *nodes, uint32_t n, uint64_t out, ctx *c, const clj_node *call) {
 	uint64_t  small[16];
 	uint64_t *before = small;
 	if (n > 16) {
@@ -162,6 +219,7 @@ static uint64_t live_args(const clj_node *head, const clj_node *const *nodes, ui
 		before[i] = borrowed;
 		if (nodes[i]->kind == CLJ_NODE_LOCAL) borrowed |= slot_bit(nodes[i]->u.local.index);
 	}
+	if (call && c->mark && c->positions) note_hands(c, call, out, before);
 	for (uint32_t i = n; i-- > 0;) {
 		c->held = held | before[i];
 		out = live(nodes[i], out, c);
@@ -206,7 +264,7 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 	case CLJ_NODE_DO: return live_seq(n->u.seq.items, n->u.seq.n, out, c);
 	case CLJ_NODE_VECTOR:
 	case CLJ_NODE_MAP:
-	case CLJ_NODE_SET: return live_args(NULL, n->u.seq.items, n->u.seq.n, out, c);
+	case CLJ_NODE_SET: return live_args(NULL, n->u.seq.items, n->u.seq.n, out, c, NULL);
 	case CLJ_NODE_LET: return live_bindings(n, live(n->u.let.body, out, c), c);
 	case CLJ_NODE_LOOP: {
 		target t = {0, 0};
@@ -214,14 +272,15 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 		return live_bindings(n, live_fixpoint(n->u.let.body, out, &t, c), c);
 	}
 	case CLJ_NODE_RECUR: return live_seq(n->u.recur.args, n->u.recur.n, c->recur->body_in & ~c->recur->slots, c);
-	case CLJ_NODE_INVOKE: return live_args(n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, out, c);
-	case CLJ_NODE_OBJC_SEND: return live_args(n->u.objc.target, n->u.objc.args, n->u.objc.n, out, c);
+	case CLJ_NODE_INVOKE: return live_args(n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, out, c, n);
+	case CLJ_NODE_OBJC_SEND: return live_args(n->u.objc.target, n->u.objc.args, n->u.objc.n, out, c, NULL);
 	case CLJ_NODE_INTRINSIC:
 		if (c->mark && op_named(n, "clojure.core/cons", 2)) note_cons(c, n, out);
 		else if (c->mark && (op_named(n, "clojure.core/next", 1) || op_named(n, "clojure.core/rest", 1))) note_consume(c, n, out);
-		return live_args(NULL, n->u.intrinsic.args, n->u.intrinsic.n, out, c);
-	case CLJ_NODE_DIRECT_CALL: return live_args(NULL, n->u.direct.args, n->u.direct.n, out, c);
-	case CLJ_NODE_FUSED: return live_args(NULL, n->u.fused.args, n->u.fused.nargs, out, c);
+		else if (c->mark && c->late && clj_intrinsic_consumes(n->u.intrinsic.op)) note_take(c, n, out);
+		return live_args(NULL, n->u.intrinsic.args, n->u.intrinsic.n, out, c, NULL);
+	case CLJ_NODE_DIRECT_CALL: return live_args(NULL, n->u.direct.args, n->u.direct.n, out, c, NULL);
+	case CLJ_NODE_FUSED: return live_args(NULL, n->u.fused.args, n->u.fused.nargs, out, c, NULL);
 	case CLJ_NODE_DEF: {
 		out = live(n->u.def.meta, out, c);
 		return n->u.def.init ? live(n->u.def.init, out, c) : out;
@@ -283,19 +342,21 @@ static void pin_scan(const clj_node *n, void *arg) {
 	}
 }
 
-cljc_reuse_plan *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *facts, uint64_t owned, uint64_t recur_slots) {
+cljc_reuse_plan *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *facts, uint64_t owned, uint64_t recur_slots, bool takes,
+                                       cljc_owned_positions positions, void *pctx) {
 	if (!owned || !facts) return NULL;
 	uint64_t pinned = 0;
 	pin_ctx  p = {0, &pinned};
 	pin_scan(body, &p);
 	target self = {recur_slots, 0};
-	ctx    c = {.held = pinned, .recur = &self, .mark = true, .owned = owned & ~pinned, .facts = facts};
+	ctx    c = {.held = pinned, .recur = &self, .mark = true, .owned = owned & ~pinned, .facts = facts, .late = takes, .positions = positions, .pctx = pctx};
 	live_fixpoint(body, 0, &self, &c);
 	cljc_reuse_plan *plan = calloc(1, sizeof *plan);
 	if (!plan) clj_fatal("out of memory");
 	decide(&c, plan);
 	free(c.conses);
 	free(c.consumes);
+	free(c.takes);
 	if (plan->n) return plan;
 	free(plan);
 	return NULL;
@@ -303,10 +364,21 @@ cljc_reuse_plan *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *fa
 
 const cljc_reuse_pair *cljc_reuse_at(const cljc_reuse_plan *p, uint32_t node) {
 	for (size_t i = 0; p && i < p->n; i++) {
-		if (p->pairs[i].node == node) return &p->pairs[i];
+		if (p->pairs[i].node == node && p->pairs[i].kind != CLJC_REUSE_HAND) return &p->pairs[i];
 	}
 	return NULL;
 }
+
+const cljc_reuse_pair *cljc_reuse_hand_at(const cljc_reuse_plan *p, uint32_t node, uint32_t arg) {
+	for (size_t i = 0; p && i < p->n; i++) {
+		if (p->pairs[i].node == node && p->pairs[i].kind == CLJC_REUSE_HAND && p->pairs[i].arg == arg) return &p->pairs[i];
+	}
+	return NULL;
+}
+
+size_t cljc_reuse_count(const cljc_reuse_plan *p) { return p ? p->n : 0; }
+
+const cljc_reuse_pair *cljc_reuse_pair_at(const cljc_reuse_plan *p, size_t i) { return &p->pairs[i]; }
 
 void cljc_reuse_plan_free(cljc_reuse_plan *p) {
 	if (!p) return;

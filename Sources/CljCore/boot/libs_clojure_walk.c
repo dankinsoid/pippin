@@ -64,8 +64,8 @@ static clj_value clojure_walk_macroexpand_all(void *ctx, const clj_value *args, 
 #ifdef CLJ_CLOSED
 #define CLJC_DIRECT_clojure_core_map_a2 1
 static clj_compiled_fn CLJC_FN_clojure_core_map_a2;
-#define CLJC_DIRECT_clojure_core_doall_a1 1
-static clj_compiled_fn CLJC_FN_clojure_core_doall_a1;
+#define CLJC_DIRECT_clojure_core_doall_a1_o1 1
+static clj_compiled_fn CLJC_FN_clojure_core_doall_a1_o1;
 #define CLJC_DIRECT_clojure_core_map_a1 1
 static clj_compiled_fn CLJC_FN_clojure_core_map_a1;
 #define CLJC_DIRECT_clojure_core_partial_a2 1
@@ -357,7 +357,7 @@ CLJC_FRAME clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captu
 	clj_value t24;
 	bool o25 = false;
 	clj_value t25 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_doall_a1
+#ifndef CLJC_LOCAL_clojure_core_doall_a1_o1
 	t25 = clj_c_var_borrow(V[10], &o25);
 	CLJC_SITE(&S[0]);
 	if (t25 == CLJ_THROWN) {
@@ -397,15 +397,25 @@ CLJC_FRAME clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captu
 	}
 	clj_value a9[1] = {t26};
 	(void)a9;
-#ifdef CLJC_LOCAL_clojure_core_doall_a1
-	t24 = CLJC_CALL_clojure_core_doall_a1(CLJ_NIL, NULL, a9, 1);
-#elif defined(CLJC_DIRECT_clojure_core_doall_a1)
-	if (!CLJC_FN_clojure_core_doall_a1) CLJC_FN_clojure_core_doall_a1 = clj_compiled_symbol("clojure_core_doall_a1");
-	t24 = CLJC_FN_clojure_core_doall_a1 ? CLJC_FN_clojure_core_doall_a1(clj_var_root_relaxed(V[10]), NULL, a9, 1) : clj_c_invoke(t25, a9, 1);
+#ifdef CLJC_LOCAL_clojure_core_doall_a1_o1
+	t24 = CLJC_CALL_clojure_core_doall_a1_o1(CLJ_NIL, NULL, a9, 1);
+#elif defined(CLJC_DIRECT_clojure_core_doall_a1_o1)
+	if (!CLJC_FN_clojure_core_doall_a1_o1) CLJC_FN_clojure_core_doall_a1_o1 = clj_compiled_symbol("clojure_core_doall_a1_o1");
+	if (CLJC_FN_clojure_core_doall_a1_o1) t24 = CLJC_FN_clojure_core_doall_a1_o1(clj_var_root_relaxed(V[10]), NULL, a9, 1);
+	else {
+	t24 = clj_c_invoke(t25, a9, 1);
+	clj_release(t26);
+	}
+#elif defined(CLJC_DEVO_clojure_core_doall_a1_o1)
+	if (clj_c_root_runs(V[10], CLJC_DEVO_clojure_core_doall_a1_o1)) t24 = clojure_core_doall_a1_o1(t25, NULL, a9, 1);
+	else {
+	t24 = clj_c_invoke(t25, a9, 1);
+	clj_release(t26);
+	}
 #else
 	t24 = clj_c_invoke(t25, a9, 1);
-#endif
 	clj_release(t26);
+#endif
 	if (o25) clj_release(t25);
 	CLJC_SITE(&S[0]);
 	if (t24 == CLJ_THROWN) {

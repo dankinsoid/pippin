@@ -75,6 +75,17 @@ static inline void clj_c_rebind(clj_value *slot, clj_value v) {
 	clj_release(old);
 }
 
+// A slot taken at a call after its operand was read borrowed (a late take, a hand-over to an owned parameter): the
+// operands between must not have rebound it, or the take would leak the new value and free the read one.
+#if CLJ_DEBUG
+#define CLJC_TAKE_CHECK(slot, read)                                                                                                                  \
+	do {                                                                                                                                             \
+		if ((slot) != (read)) clj_fatal("compiled take: the slot was rebound between its read and the call");                                       \
+	} while (0)
+#else
+#define CLJC_TAKE_CHECK(slot, read) ((void)0)
+#endif
+
 // An owned read of a slot; a last use hands the frame's reference over.
 static inline clj_value clj_c_local(clj_cframe *f, uint32_t i, bool last) {
 	clj_value v = f->slots[i];

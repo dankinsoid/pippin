@@ -24,19 +24,22 @@ static clj_value top_4(void);
 clj_value clojure_set_union_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_INLINE clj_value clojure_set_union_a0_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 clj_value clojure_set_union_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-CLJC_INLINE clj_value clojure_set_union_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_set_union_a1_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+CLJC_INLINE clj_value clojure_set_union_a1_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 clj_value clojure_set_union_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_INLINE clj_value clojure_set_union_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 clj_value clojure_set_union_v2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_union(void *ctx, const clj_value *args, size_t n);
 static clj_value top_5(void);
 clj_value clojure_set_intersection_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-CLJC_INLINE clj_value clojure_set_intersection_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_set_intersection_a1_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+CLJC_INLINE clj_value clojure_set_intersection_a1_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 clj_value clojure_set_intersection_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_set_intersection_a2_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_intersection__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_INLINE clj_value clojure_set_intersection__0_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_intersection__0(void *ctx, const clj_value *args, size_t n);
-CLJC_INLINE clj_value clojure_set_intersection_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+CLJC_INLINE clj_value clojure_set_intersection_a2_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 clj_value clojure_set_intersection_v2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_intersection__1_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_INLINE clj_value clojure_set_intersection__1_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
@@ -44,7 +47,8 @@ static clj_value clojure_set_intersection__1(void *ctx, const clj_value *args, s
 static clj_value clojure_set_intersection(void *ctx, const clj_value *args, size_t n);
 static clj_value top_6(void);
 clj_value clojure_set_difference_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-CLJC_INLINE clj_value clojure_set_difference_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_set_difference_a1_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+CLJC_INLINE clj_value clojure_set_difference_a1_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 clj_value clojure_set_difference_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_difference__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 CLJC_INLINE clj_value clojure_set_difference__0_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
@@ -115,6 +119,7 @@ CLJC_INLINE clj_value clojure_set_superset_QMARK___0_a1_i(clj_value self, const 
 static clj_value clojure_set_superset_QMARK___0(void *ctx, const clj_value *args, size_t n);
 static clj_value clojure_set_superset_QMARK_(void *ctx, const clj_value *args, size_t n);
 
+#define CLJC_DEVO_clojure_set_intersection_a2_o1 clojure_set_intersection
 #ifdef CLJ_CLOSED
 #define CLJC_DIRECT_clojure_core_remove_a2 1
 static clj_compiled_fn CLJC_FN_clojure_core_remove_a2;
@@ -128,8 +133,8 @@ static clj_compiled_fn CLJC_FN_clojure_core_map_a2;
 static clj_compiled_fn CLJC_FN_clojure_core_keys_a1;
 #define CLJC_LOCAL_clojure_set_rename_keys_a2 1
 #define CLJC_CALL_clojure_set_rename_keys_a2 clojure_set_rename_keys_a2
-#define CLJC_LOCAL_clojure_set_intersection_a2 1
-#define CLJC_CALL_clojure_set_intersection_a2 clojure_set_intersection_a2_i
+#define CLJC_LOCAL_clojure_set_intersection_a2_o1 1
+#define CLJC_CALL_clojure_set_intersection_a2_o1 clojure_set_intersection_a2_o1_i
 #define CLJC_LOCAL_clojure_set_index_a2 1
 #define CLJC_CALL_clojure_set_index_a2 clojure_set_index_a2_i
 #define CLJC_LOCAL_clojure_set_map_invert_a1 1
@@ -384,7 +389,12 @@ CLJC_INLINE clj_value clojure_set_union_a0_i(clj_value self, const clj_value *ca
 
 CLJC_FRAME clj_value clojure_set_union_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_union_a0_i(self, captured, args, nargs); }
 
-CLJC_INLINE clj_value clojure_set_union_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_set_union_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	return clojure_set_union_a1_o1(self, captured, args, nargs);
+}
+
+CLJC_INLINE clj_value clojure_set_union_a1_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_cframe fr = {NULL, captured, 0, NULL};
 	(void)fr;
@@ -393,12 +403,14 @@ CLJC_INLINE clj_value clojure_set_union_a1_i(clj_value self, const clj_value *ca
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 10 "<embedded>/clojure/set.clj"
-	clj_value t0 = clj_retain(l0);
+	clj_value t0 = l0;
+	l0 = CLJ_NIL;
 	CLJC_LEAVE(&S[2], &cc);
+	clj_release(l0);
 	return t0;
 }
 
-CLJC_FRAME clj_value clojure_set_union_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_union_a1_i(self, captured, args, nargs); }
+CLJC_FRAME clj_value clojure_set_union_a1_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_union_a1_o1_i(self, captured, args, nargs); }
 
 CLJC_INLINE clj_value clojure_set_union_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
@@ -712,7 +724,12 @@ L1: ;
 	return CLJ_THROWN;
 }
 
-CLJC_INLINE clj_value clojure_set_intersection_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_set_intersection_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	return clojure_set_intersection_a1_o1(self, captured, args, nargs);
+}
+
+CLJC_INLINE clj_value clojure_set_intersection_a1_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_cframe fr = {NULL, captured, 0, NULL};
 	(void)fr;
@@ -721,12 +738,14 @@ CLJC_INLINE clj_value clojure_set_intersection_a1_i(clj_value self, const clj_va
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
 #line 22 "<embedded>/clojure/set.clj"
-	clj_value t0 = clj_retain(l0);
+	clj_value t0 = l0;
+	l0 = CLJ_NIL;
 	CLJC_LEAVE(&S[3], &cc);
+	clj_release(l0);
 	return t0;
 }
 
-CLJC_FRAME clj_value clojure_set_intersection_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_intersection_a1_i(self, captured, args, nargs); }
+CLJC_FRAME clj_value clojure_set_intersection_a1_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_intersection_a1_o1_i(self, captured, args, nargs); }
 
 CLJC_INLINE clj_value clojure_set_intersection__0_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
@@ -799,12 +818,18 @@ static clj_value clojure_set_intersection__0(void *ctx, const clj_value *args, s
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-CLJC_INLINE clj_value clojure_set_intersection_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_set_intersection_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	return clojure_set_intersection_a2_o1(self, captured, args, nargs);
+}
+
+CLJC_INLINE clj_value clojure_set_intersection_a2_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[2];
 	clj_cframe fr = {s, captured, 0, NULL};
 	(void)fr;
-	s[0] = args[0];
+	clj_value l0 = args[0];
+	(void)l0;
 	s[1] = args[1];
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
@@ -824,7 +849,7 @@ L2: ;
 	if (t1 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value t2 = fr.slots[0];
+	clj_value t2 = l0;
 	clj_value a2[1] = {t2};
 	(void)a2;
 	clj_value t3;
@@ -868,8 +893,9 @@ L2: ;
 	if (t7) {
 #line 27 "<embedded>/clojure/set.clj"
 	clj_value t9 = clj_c_local(&fr, 1, true);
-	clj_value t10 = clj_c_local(&fr, 0, true);
-	clj_c_set(&fr, 0, t9);
+	clj_value t10 = l0;
+	l0 = CLJ_NIL;
+	clj_c_rebind(&l0, t9);
 	clj_c_set(&fr, 1, t10);
 	goto L2;
 	clj_value t11 = CLJ_NIL;
@@ -885,8 +911,8 @@ L2: ;
 	}
 	clj_value c4[1] = {fr.slots[1]};
 	clj_value t14 = clj_c_closure(CLJ_NIL, clojure_set_intersection__0, c4, 1, 0x4, 2, 2);
-	clj_value t15 = fr.slots[0];
-	clj_value t16 = fr.slots[0];
+	clj_value t15 = l0;
+	clj_value t16 = l0;
 	clj_value a3[3] = {t14, t15, t16};
 	(void)a3;
 	t12 = clj_c_invoke(t13, a3, 3);
@@ -901,15 +927,17 @@ L2: ;
 	t8 = t12;
 	}
 	CLJC_LEAVE(&S[3], &cc);
+	clj_release(l0);
 	clj_c_release_slots(&fr, 2);
 	return t8;
 L1: ;
 	CLJC_LEAVE(&S[3], &cc);
+	clj_release(l0);
 	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
 
-CLJC_FRAME clj_value clojure_set_intersection_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_intersection_a2_i(self, captured, args, nargs); }
+CLJC_FRAME clj_value clojure_set_intersection_a2_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_intersection_a2_o1_i(self, captured, args, nargs); }
 
 CLJC_INLINE clj_value clojure_set_intersection__1_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
@@ -1138,7 +1166,12 @@ L1: ;
 	return CLJ_THROWN;
 }
 
-CLJC_INLINE clj_value clojure_set_difference_a1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_set_difference_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	return clojure_set_difference_a1_o1(self, captured, args, nargs);
+}
+
+CLJC_INLINE clj_value clojure_set_difference_a1_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_cframe fr = {NULL, captured, 0, NULL};
 	(void)fr;
@@ -1147,12 +1180,14 @@ CLJC_INLINE clj_value clojure_set_difference_a1_i(clj_value self, const clj_valu
 	clj_ccall cc;
 	CLJC_ENTER(&S[6], &cc);
 #line 37 "<embedded>/clojure/set.clj"
-	clj_value t0 = clj_retain(l0);
+	clj_value t0 = l0;
+	l0 = CLJ_NIL;
 	CLJC_LEAVE(&S[6], &cc);
+	clj_release(l0);
 	return t0;
 }
 
-CLJC_FRAME clj_value clojure_set_difference_a1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_difference_a1_i(self, captured, args, nargs); }
+CLJC_FRAME clj_value clojure_set_difference_a1_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_set_difference_a1_o1_i(self, captured, args, nargs); }
 
 CLJC_INLINE clj_value clojure_set_difference__0_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
@@ -2835,7 +2870,7 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	clj_value t10;
 	bool o11 = false;
 	clj_value t11 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_set_intersection_a2
+#ifndef CLJC_LOCAL_clojure_set_intersection_a2_o1
 	t11 = clj_c_var_borrow(V[16], &o11);
 	CLJC_SITE(&S[20]);
 	if (t11 == CLJ_THROWN) {
@@ -2979,16 +3014,26 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	}
 	clj_value a2[2] = {t12, t18};
 	(void)a2;
-#ifdef CLJC_LOCAL_clojure_set_intersection_a2
-	t10 = CLJC_CALL_clojure_set_intersection_a2(CLJ_NIL, NULL, a2, 2);
-#elif defined(CLJC_DIRECT_clojure_set_intersection_a2)
-	if (!CLJC_FN_clojure_set_intersection_a2) CLJC_FN_clojure_set_intersection_a2 = clj_compiled_symbol("clojure_set_intersection_a2");
-	t10 = CLJC_FN_clojure_set_intersection_a2 ? CLJC_FN_clojure_set_intersection_a2(clj_var_root_relaxed(V[16]), NULL, a2, 2) : clj_c_invoke(t11, a2, 2);
+#ifdef CLJC_LOCAL_clojure_set_intersection_a2_o1
+	t10 = CLJC_CALL_clojure_set_intersection_a2_o1(CLJ_NIL, NULL, a2, 2);
+#elif defined(CLJC_DIRECT_clojure_set_intersection_a2_o1)
+	if (!CLJC_FN_clojure_set_intersection_a2_o1) CLJC_FN_clojure_set_intersection_a2_o1 = clj_compiled_symbol("clojure_set_intersection_a2_o1");
+	if (CLJC_FN_clojure_set_intersection_a2_o1) t10 = CLJC_FN_clojure_set_intersection_a2_o1(clj_var_root_relaxed(V[16]), NULL, a2, 2);
+	else {
+	t10 = clj_c_invoke(t11, a2, 2);
+	clj_release(t12);
+	}
+#elif defined(CLJC_DEVO_clojure_set_intersection_a2_o1)
+	if (clj_c_root_runs(V[16], CLJC_DEVO_clojure_set_intersection_a2_o1)) t10 = clojure_set_intersection_a2_o1(t11, NULL, a2, 2);
+	else {
+	t10 = clj_c_invoke(t11, a2, 2);
+	clj_release(t12);
+	}
 #else
 	t10 = clj_c_invoke(t11, a2, 2);
+	clj_release(t12);
 #endif
 	clj_release(t18);
-	clj_release(t12);
 	if (o11) clj_release(t11);
 	CLJC_SITE(&S[20]);
 	if (t10 == CLJ_THROWN) {
@@ -4144,15 +4189,15 @@ static const clj_frame_entry FR[37] = {
 	{(clj_code)clojure_set_bubble_max_key_a2, &S[0]},
 	{(clj_code)clojure_set_bubble_max_key__0_a1, &S[1]},
 	{(clj_code)clojure_set_union_a0, &S[2]},
-	{(clj_code)clojure_set_union_a1, &S[2]},
+	{(clj_code)clojure_set_union_a1_o1, &S[2]},
 	{(clj_code)clojure_set_union_a2, &S[2]},
 	{(clj_code)clojure_set_union_v2, &S[2]},
-	{(clj_code)clojure_set_intersection_a1, &S[3]},
-	{(clj_code)clojure_set_intersection_a2, &S[3]},
+	{(clj_code)clojure_set_intersection_a1_o1, &S[3]},
+	{(clj_code)clojure_set_intersection_a2_o1, &S[3]},
 	{(clj_code)clojure_set_intersection__0_a2, &S[4]},
 	{(clj_code)clojure_set_intersection_v2, &S[3]},
 	{(clj_code)clojure_set_intersection__1_a1, &S[5]},
-	{(clj_code)clojure_set_difference_a1, &S[6]},
+	{(clj_code)clojure_set_difference_a1_o1, &S[6]},
 	{(clj_code)clojure_set_difference_a2, &S[6]},
 	{(clj_code)clojure_set_difference__0_a2, &S[7]},
 	{(clj_code)clojure_set_difference_v2, &S[6]},
@@ -4327,10 +4372,14 @@ clj_value clj_compiled_lib_init_clojure_set(void) {
 	clj_compiled_register_symbol("clojure_set_bubble_max_key_a2", clojure_set_bubble_max_key_a2);
 	clj_compiled_register_symbol("clojure_set_union_a0", clojure_set_union_a0);
 	clj_compiled_register_symbol("clojure_set_union_a1", clojure_set_union_a1);
+	clj_compiled_register_symbol("clojure_set_union_a1_o1", clojure_set_union_a1_o1);
 	clj_compiled_register_symbol("clojure_set_union_a2", clojure_set_union_a2);
 	clj_compiled_register_symbol("clojure_set_intersection_a1", clojure_set_intersection_a1);
+	clj_compiled_register_symbol("clojure_set_intersection_a1_o1", clojure_set_intersection_a1_o1);
 	clj_compiled_register_symbol("clojure_set_intersection_a2", clojure_set_intersection_a2);
+	clj_compiled_register_symbol("clojure_set_intersection_a2_o1", clojure_set_intersection_a2_o1);
 	clj_compiled_register_symbol("clojure_set_difference_a1", clojure_set_difference_a1);
+	clj_compiled_register_symbol("clojure_set_difference_a1_o1", clojure_set_difference_a1_o1);
 	clj_compiled_register_symbol("clojure_set_difference_a2", clojure_set_difference_a2);
 	clj_compiled_register_symbol("clojure_set_select_a2", clojure_set_select_a2);
 	clj_compiled_register_symbol("clojure_set_project_a2", clojure_set_project_a2);

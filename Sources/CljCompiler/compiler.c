@@ -13,6 +13,7 @@
 #include "clj/verify.h"
 #include "cljc/compiler.h"
 #include "ice_internal.h"
+#include "owned.h"
 #include "reuse.h"
 
 // ---- string builder
@@ -145,6 +146,7 @@ typedef struct {
 	int32_t  variadic;  // nparams of the variadic arity, -1 when none
 	bool     dynamic;
 	char    *wsig[CLJ_FN_MAX_FIXED + 1]; // the worker's signature ("w_ld_l") per fixed arity, NULL without one
+	uint64_t omask[CLJ_FN_MAX_FIXED + 1]; // the owned parameters its owned entry "<base>_a<n>_o<mask>" takes, 0 without one
 } direct_entry;
 
 // What one top-level def cost the unit's C text, and whether the shaker left it out.
@@ -236,6 +238,8 @@ struct cljc_compiler {
 	cljc_shake_report shake;
 	cljc_refusal     *escapes; // reachable sites that name a var the pass cannot read
 	size_t            nescapes, escapes_cap;
+	cljc_owned       *owned;       // the owned parameters of the set's def'd fns (owned.c)
+	uint32_t          owned_order; // forms declared to it so far, in load order
 	bool          installed;
 };
 
@@ -452,6 +456,7 @@ typedef struct fnctx {
 	const uint8_t       *wkinds;     // a worker: the ukind of each parameter, which arrives as a C value in a typed slot
 	uint32_t             wnparams;
 	cljc_reuse_plan     *reuse;      // the frame's drop-guided reuse pairs (reuse.c)
+	uint64_t             owned_params; // the params an owned entry receives at +1: owned slots, never borrowed
 	uint32_t             inlining;   // inlined bodies being emitted (emit_inline)
 } fnctx;
 
@@ -615,6 +620,7 @@ static void verify_slot_plan(const fnctx *f, const clj_fn_arity *a, bool closure
 	else if (f->promoted & (linked | captured | wide)) what = "a promoted slot that is read by address";
 	else if (f->borrowed & (written | ~params)) what = "a borrowed slot that is no parameter or is rebound";
 	else if (f->borrowed && !closure) what = "a borrowed parameter of a frame whose caller owns its arguments";
+	else if (f->owned_params & (f->borrowed | typed | ~params | (closure ? 0 : ~(uint64_t)0))) what = "an owned parameter that is borrowed, typed, no parameter, or of a frame without an owned entry";
 	if (what) clj_ice("verify/slot-plan", body, "%s (promoted %#llx, borrowed %#llx, typed %#llx); the plan as emit/slots left it", what,
 	                  (unsigned long long)f->promoted, (unsigned long long)f->borrowed, (unsigned long long)typed);
 }
@@ -626,6 +632,8 @@ static void select_typed_slots(fnctx *f, const clj_node *body);
 static bool in_typed(const fnctx *f, uint32_t i);
 
 static bool wparam(const fnctx *f, uint32_t i) { return f->wkinds && i < f->wnparams; }
+
+static uint64_t owned_positions(void *ctx, const clj_node *invoke);
 
 // False for a worker whose parameter cannot be a C value: read by address (a capture, an OUTER read) or not unboxable
 // at every fn-body recur.
@@ -648,7 +656,9 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 			f->promoted |= (uint64_t)1 << i;
 			continue;
 		}
-		if (param && (!closure || ((p.rebound >> i) & 1))) {
+		bool owned = (f->owned_params >> i) & 1 && i < 64;
+		// an owned param is the frame's own from entry, so a recur rebinding it changes no owner
+		if (param && !owned && (!closure || ((p.rebound >> i) & 1))) {
 			if (e == CLJ_ESCAPE_LOCAL) st->local_param++;
 			continue;
 		}
@@ -658,7 +668,7 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 		}
 		if (e == CLJ_ESCAPE_CAPTURED) continue;
 		f->promoted |= (uint64_t)1 << i;
-		if (param) f->borrowed |= (uint64_t)1 << i;
+		if (param && !owned) f->borrowed |= (uint64_t)1 << i;
 		st->promoted++;
 		if (e == CLJ_ESCAPE_LOCAL) st->promoted_local++;
 	}
@@ -669,7 +679,7 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 	uint32_t nrecur = a ? a->nparams + (a->variadic ? 1 : 0) : 0;
 	cljc_reuse_plan_free(f->reuse);
 	f->reuse = cljc_reuse_plan_frame(body, f->facts, f->promoted & ~f->borrowed & ~f->ints & ~f->dbls,
-	                                 nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1);
+	                                 nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1, !clj_opt_off(CLJ_NO_OPT_OWNED), owned_positions, f);
 #if CLJ_DEBUG
 	verify_slot_plan(f, a, closure, body, nslots);
 #endif
@@ -955,7 +965,7 @@ static void emit_promoted_decls(fnctx *f) {
 		if (wparam(f, i)) sb_printf(&f->out, "\t%s l%u = p%u;\n\t(void)l%u;\n", ctype(slot_kind(f, i)), i, i, i);
 		else if (int_slot(f, i)) sb_printf(&f->out, "\tint64_t l%u = 0;\n\t(void)l%u;\n", i, i);
 		else if (dbl_slot(f, i)) sb_printf(&f->out, "\tdouble l%u = 0;\n\t(void)l%u;\n", i, i);
-		else if (promoted(f, i) && !borrowed_slot(f, i)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
+		else if (promoted(f, i) && !borrowed_slot(f, i) && !((f->owned_params >> i) & 1)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
 	}
 }
 
@@ -2116,6 +2126,19 @@ static temp emit_lazy_seq(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+// The owned parameters a call reaches through the callee's owned entry: a direct call of a def of the set whose arity
+// was inferred to take them (owned.c); 0 where the call stays +0 (clj_invoke, a protocol method, a dynamic var).
+static uint64_t owned_call_mask(const fnctx *f, const clj_node *n) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	if (head->kind != CLJ_NODE_VAR || nargs > CLJ_FN_MAX_FIXED) return 0;
+	direct_entry *d = direct_of_head(f->c, head);
+	if (!d || d->dynamic || !((d->fixed >> nargs) & 1)) return 0;
+	return cljc_owned_mask(f->c->owned, head->u.var.v, nargs);
+}
+
+static uint64_t owned_positions(void *ctx, const clj_node *invoke) { return owned_call_mask(ctx, invoke); }
+
 static temp emit_invoke(fnctx *f, const clj_node *n) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
@@ -2136,13 +2159,63 @@ static temp emit_invoke(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+// The HAND pair of a call's argument, when the slot is one the frame owns as a C variable.
+static const cljc_reuse_pair *reuse_hand(const fnctx *f, const clj_node *n, uint32_t arg) {
+	const cljc_reuse_pair *p = cljc_reuse_hand_at(f->reuse, n->id, arg);
+	if (!p || !promoted(f, p->slot) || borrowed_slot(f, p->slot) || slot_kind(f, p->slot) != UK_NONE || wparam(f, p->slot)) return NULL;
+	return p;
+}
+
+// A direct call of an owned entry (design §7 «Владеющие параметры»): every owned argument is made +1 first — a dying
+// slot taken, a borrowed value retained, a fresh one as is — so that each arm below consumes it exactly once: the
+// owned entry by convention, the +0 fallbacks by releasing it after the call. Nothing between the takes and the call
+// can throw, and a throw inside the callee is the callee's to release.
+static void emit_owned_call(fnctx *f, const clj_node *n, const direct_entry *d, uint64_t omask, const char *target, const temp *fn, const temp *args,
+                            const char *array, const temp *r) {
+	uint32_t nargs = n->u.invoke.n;
+	bool     fresh;
+	pool_intern(&f->u->externs, target, NULL, &fresh);
+	f->has_direct = true;
+	f->u->slots.owned_sites++;
+	for (uint32_t i = 0; i < nargs; i++) {
+		if (!((omask >> i) & 1)) continue;
+		const temp            *t = &args[i];
+		const cljc_reuse_pair *h = t->own == OWN_NO ? reuse_hand(f, n, i) : NULL;
+		if (h && (n->u.invoke.args[i]->kind != CLJ_NODE_LOCAL || n->u.invoke.args[i]->u.local.index != h->slot)) clj_ice("emit/hand-slot", n, "a hand-over of slot %u at an argument that does not read it", h->slot);
+		if (h) {
+			sb_printf(&f->out, "\tCLJC_TAKE_CHECK(l%u, %s);\n\tl%u = CLJ_NIL;\n", h->slot, t->name, h->slot);
+			f->u->slots.owned_handed++;
+		} else if (t->own == OWN_NO) sb_printf(&f->out, "\tclj_retain(%s);\n", t->name);
+		else if (t->own == OWN_DYN) sb_printf(&f->out, "\tif (!%s) clj_retain(%s);\n", t->flag, t->name);
+	}
+	sb      rel = {0};
+	for (uint32_t i = 0; i < nargs; i++) {
+		if ((omask >> i) & 1) sb_printf(&rel, "\tclj_release(%s);\n", args[i].name);
+	}
+	size_t      vi = var_index(f->u, n->u.invoke.fn->u.var.v);
+	const char *callee = f->stub >= 0 ? "CLJC_CALL_" : "";
+	sb_printf(&f->out, "#ifdef CLJC_LOCAL_%s\n", target);
+	if ((d->self_used >> nargs) & 1) sb_printf(&f->out, "\t%s = %s%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u);\n", r->name, callee, target, vi, array, nargs);
+	else sb_printf(&f->out, "\t%s = %s%s(CLJ_NIL, NULL, %s, %u);\n", r->name, callee, target, array, nargs);
+	sb_printf(&f->out, "#elif defined(CLJC_DIRECT_%s)\n\tif (!CLJC_FN_%s) CLJC_FN_%s = clj_compiled_symbol(\"%s\");\n", target, target, target, target);
+	sb_printf(&f->out, "\tif (CLJC_FN_%s) %s = CLJC_FN_%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u);\n\telse {\n\t%s = clj_c_invoke(%s, %s, %u);\n%s\t}\n", target, r->name, target, vi,
+	          array, nargs, r->name, fn->name, array, nargs, rel.s);
+	// dev: the same unit's fn while the var still holds it, as an inlined call's guard reads it
+	sb_printf(&f->out, "#elif defined(CLJC_DEVO_%s)\n\tif (clj_c_root_runs(V[%zu], CLJC_DEVO_%s)) %s = %s(%s, NULL, %s, %u);\n\telse {\n\t%s = clj_c_invoke(%s, %s, %u);\n%s\t}\n", target, vi,
+	          target, r->name, target, fn->name, array, nargs, r->name, fn->name, array, nargs, rel.s);
+	sb_printf(&f->out, "#else\n\t%s = clj_c_invoke(%s, %s, %u);\n%s#endif\n", r->name, fn->name, array, nargs, rel.s);
+	sb_free(&rel);
+}
+
 // The call as written without a worker, into rname: a protocol chain, a folded predicate, a direct call by name or
 // through the registry, or the generic invoke.
 static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool direct, const char *rname) {
 	const clj_node *head = n->u.invoke.fn;
 	uint32_t        nargs = n->u.invoke.n;
 	char            target[300];
-	if (direct) snprintf(target, sizeof target, "%s_a%u", d->base, nargs);
+	uint64_t        omask = direct ? owned_call_mask(f, n) : 0;
+	if (direct && omask) snprintf(target, sizeof target, "%s_a%u_o%llu", d->base, nargs, (unsigned long long)omask);
+	else if (direct) snprintf(target, sizeof target, "%s_a%u", d->base, nargs);
 	temp fn;
 	if (direct) {
 		// A target of this unit is called by name: its var is read only where the call may fall back to it.
@@ -2162,6 +2235,7 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	memset(&r, 0, sizeof r);
 	snprintf(r.name, sizeof r.name, "%s", rname);
 	r.own = OWN_YES;
+	uint64_t consumed = 0; // arguments the call took over
 	// a var of the set may hold a protocol method (defprotocol's def) or a builtin (a (def satisfies? ...) shadows it)
 	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
 	bool      folded = false;
@@ -2175,6 +2249,9 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
 		sb_printf(&f->out, "\t%s = clj_c_kw_get(KC_%u_get(), %s, %s[0], %s);\n", r.name, ic, fn.name, array, nargs == 2 ? args[1].name : "CLJ_NIL");
 		f->u->slots.kw_sites++;
+	} else if (!folded && direct && omask) {
+		emit_owned_call(f, n, d, omask, target, &fn, args, array, &r);
+		consumed = omask;
 	} else if (!folded && direct) {
 		// The definition may still be superseded: the prelude decides at write time (CLJC_LOCAL_*, CLJC_DIRECT_*).
 		bool fresh;
@@ -2194,7 +2271,11 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	} else if (!folded) {
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
 	}
-	release_args(f, args, nargs);
+	for (uint32_t i = nargs; i-- > 0;) {
+		if (!((consumed >> i) & 1)) release_temp(f, &args[i]);
+		else if (args[i].own != OWN_NO) live_forget(f, &args[i]);
+	}
+	free(args);
 	release_temp(f, &fn);
 }
 
@@ -2540,6 +2621,15 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	char   array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
 	temp *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
+	if (pair && pair->kind == CLJC_REUSE_TAKE && args[0].own == OWN_NO) {
+		const clj_node *a0 = n->u.intrinsic.args[0];
+		if (a0->kind != CLJ_NODE_LOCAL || a0->u.local.index != pair->slot) clj_ice("emit/take-slot", n, "a take of slot %u at an operand that does not read it", pair->slot);
+		// the later operands have read the slot; it dies here, so the collection is the call's to update in place
+		sb_printf(&f->out, "\tCLJC_TAKE_CHECK(l%u, %s);\n\tl%u = CLJ_NIL;\n", pair->slot, args[0].name, pair->slot);
+		args[0].own = OWN_YES;
+		live_push(f, args[0]);
+		f->u->slots.reuse_takes++;
+	}
 	temp  r = new_temp(f, OWN_YES);
 	bool  consuming = clj_intrinsic_consumes(op) && args[0].own != OWN_NO;
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
@@ -3284,14 +3374,27 @@ static void worker_checks(sb *out, const uint8_t *kinds, uint32_t n) {
 	sb_puts(out, ") {\n");
 }
 
-// One arity of a closure: the frame, the body under a recur label, teardown.
+// The owned parameters of the def'd fn's arity being emitted (owned.c), 0 for any other fn.
+static uint64_t owned_entry_mask(const fnctx *parent, const clj_node *n, const clj_fn_arity *a, bool exported) {
+	const clj_node *root = parent->c->emitting;
+	if (!exported || a->variadic || !root || root->kind != CLJ_NODE_DEF || root->u.def.init != n) return 0;
+	return cljc_owned_mask(parent->c->owned, root->u.def.var.v, a->nparams);
+}
+
+// One arity of a closure: the frame, the body under a recur label, teardown. With owned parameters the body is the
+// owned entry "<name>_o<mask>", and "<name>" the +0 entry that retains them and calls it.
 static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, bool exported) {
-	fnctx f = fnctx_child(parent, base);
-	char  name[300];
+	fnctx    f = fnctx_child(parent, base);
+	char     name[340], entry[340];
+	uint64_t omask = owned_entry_mask(parent, n, a, exported);
 	snprintf(name, sizeof name, "%s_%c%u", base, a->variadic ? 'v' : 'a', a->nparams);
+	if (omask) snprintf(entry, sizeof entry, "%s_o%llu", name, (unsigned long long)omask);
+	else snprintf(entry, sizeof entry, "%s", name);
 	f.stub = (int32_t)stub;
-	frame_add(f.u, name, stub);
+	f.owned_params = omask;
+	frame_add(f.u, entry, stub);
 	sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", name);
+	if (omask) sb_printf(&f.u->protos, "clj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", entry);
 	sb_puts(&f.out, "\t(void)self; (void)captured; (void)args; (void)nargs;\n");
 	promote_slots(&f, n, a, true, a->body, a->nslots);
 	uint32_t arr = array_slots(&f, a->nslots);
@@ -3302,6 +3405,18 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		char arg[24];
 		snprintf(arg, sizeof arg, "args[%u]", i);
 		emit_slot_arrival(&f, i, arg);
+		if ((omask >> i) & 1 && !promoted(&f, i)) {
+			// the facts the emitter reads pinned it after all: an owned entry of the array, released by the teardown
+			sb_printf(&f.out, "\tfr.owned |= (uint64_t)1 << %u;\n", i);
+			f.u->slots.owned_array++;
+		}
+	}
+	if (omask) {
+		f.u->slots.owned_arities++;
+		f.u->slots.owned_params += (uint64_t)__builtin_popcountll(omask);
+		direct_entry *d = direct_of_base(f.c, base);
+		if (!d) clj_ice("emit/owned-without-target", n, "an owned entry for a fn that is no direct target");
+		d->omask[a->nparams] = omask;
 	}
 	if (a->nparams < arr) sb_printf(&f.out, "\tfor (uint32_t i = %u; i < %u; i++) s[i] = CLJ_NIL;\n", a->nparams, arr);
 	emit_promoted_decls(&f);
@@ -3345,7 +3460,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	char    sig[40], wname[340], wparams[400];
 	bool    wleaf = false;
 	uint8_t kinds[CLJ_SUMMARY_DOMAINS_MAX];
-	bool    worker = exported && emit_worker(parent, n, a, base, stub, &wout, sig, sizeof sig, &wleaf, kinds);
+	bool    worker = exported && !omask && emit_worker(parent, n, a, base, stub, &wout, sig, sizeof sig, &wleaf, kinds);
 	ukind       wret = worker && sig[strlen(sig) - 1] == 'd' ? UK_DBL : UK_INT;
 	const char *wt = wtype(wret);
 	if (worker) {
@@ -3374,6 +3489,15 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	// A leaf gets an always_inline twin that same-unit direct calls take; the frame function wraps it. With a leaf
 	// worker the twin tries the worker first, behind the tags of the arguments: a boxed caller then unboxes once.
 	static const char params[] = "(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs)";
+	if (omask) {
+		// no frame: a trace shows the owned entry it calls, once
+		sb_printf(&f.u->fns, "%sclj_value %s%s {\n", exported ? "" : "static ", name, params);
+		for (uint32_t i = 0; i < a->nparams; i++) {
+			if ((omask >> i) & 1) sb_printf(&f.u->fns, "\tclj_retain(args[%u]);\n", i);
+		}
+		sb_printf(&f.u->fns, "\treturn %s(self, captured, args, nargs);\n}\n\n", entry);
+		snprintf(name, sizeof name, "%s", entry);
+	}
 	if (!a->variadic && leaf_body(&f)) {
 		bool fresh;
 		pool_intern(&f.u->leaves, name, NULL, &fresh);
@@ -3583,6 +3707,7 @@ static void record_direct(cljc_compiler *c, unit *u, const clj_node *n, const ch
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		free(d->wsig[i]);
 		d->wsig[i] = NULL;
+		d->omask[i] = 0;
 	}
 	const clj_node *init = n->u.def.init;
 	if (init->kind != CLJ_NODE_FN || init->u.fn.ncaptures) return;
@@ -4044,8 +4169,32 @@ static clj_value on_form(const clj_load_form *form, const clj_node *node, void *
 	return CLJ_NIL;
 }
 
+// The owned parameters of every def'd fn of the set, before any form is emitted: a caller needs its callee's
+// convention, and a callee may come after it in the load (owned.c).
+static void infer_owned(cljc_compiler *c, pending_form *forms, size_t n) {
+	for (size_t i = 0; i < n; i++) {
+		if (forms[i].node && !forms[i].dropped) cljc_owned_declare(c->owned, forms[i].node, c->owned_order + (uint32_t)i);
+	}
+	c->owned_order += (uint32_t)n;
+	clj_value previous = clj_ns_current();
+	for (size_t i = 0; i < n; i++) {
+		const clj_node *node = forms[i].node;
+		if (!node || forms[i].dropped || node->kind != CLJ_NODE_DEF || !node->u.def.init || node->u.def.init->kind != CLJ_NODE_FN) continue;
+		clj_ns_set_current(forms[i].ns);
+		clj_ice_frame frame = {.pass = "owned", .backend = c->opts.closed ? CLJ_BACKEND_CLOSED : CLJ_BACKEND_DEV, .file = forms[i].form.file, .line = forms[i].form.line, .col = forms[i].form.col};
+		clj_ice_enter(&frame);
+		clj_facts *facts = clj_opt_off(CLJ_NO_OPT_EMIT) || clj_opt_off(CLJ_NO_OPT_OWNED) ? NULL : form_facts(c, node);
+		cljc_owned_scan(c->owned, node, facts);
+		clj_facts_free(facts);
+		clj_ice_leave(&frame);
+	}
+	clj_ns_set_current(previous);
+	cljc_owned_settle(c->owned);
+}
+
 // Emits every pending form in load order, each in the namespace the hook saw it in.
 static void flush_pending(cljc_compiler *c) {
+	infer_owned(c, c->pending, c->npending);
 	clj_value previous = clj_ns_current();
 	for (size_t i = 0; i < c->npending; i++) {
 		pending_form *p = &c->pending[i];
@@ -4076,6 +4225,8 @@ static void pimpls_forget(cljc_compiler *c, const unit *u) {
 char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node *node) {
 	unit *u = unit_new(clj_is_string(form->file) ? CLJ_STR(form->file).bytes : "<host>");
 	u->eval_result = c->opts.eval_result;
+	pending_form one = {.u = u, .form = *form, .node = node, .ns = clj_ns_current()};
+	infer_owned(c, &one, 1);
 	emit_top(c, u, form, node);
 	char *text = unit_text(c, u, NULL);
 	pimpls_forget(c, u);
@@ -4109,6 +4260,7 @@ cljc_compiler *cljc_new(const cljc_options *opts) {
 	cljc_compiler *c = calloc(1, sizeof *c);
 	if (!c) clj_fatal("out of memory");
 	c->opts = *opts;
+	c->owned = cljc_owned_new();
 	return c;
 }
 
@@ -4138,6 +4290,7 @@ void cljc_free(cljc_compiler *c) {
 	for (size_t i = 0; i < c->npimpls; i++) free(c->pimpls[i].name);
 	free(c->pimpls);
 	free(c->candidates);
+	cljc_owned_free(c->owned);
 	free(c);
 }
 
@@ -4175,14 +4328,24 @@ static bool sig_at(const char *p) {
 	return k > p + 2 && k[0] == '_' && (k[1] == 'l' || k[1] == 'd') && k[2] == '\0';
 }
 
-// "<base>_a<n>" or "<base>_a<n>_<sig>" apart; false for anything else. A name may itself contain "_w_" (my-w-fn),
-// so the signature is the last "_w_" tail that reads as one.
-static bool parse_target(const char *target, char *base, size_t cap, uint32_t *arity, const char **sig) {
+// "_o<mask>" at the end of a target: the owned entry of the arity before it. A plain target ends in "_a<n>".
+static size_t owned_suffix(const char *target, uint64_t *omask) {
+	size_t len = strlen(target), k = len;
+	while (k > 0 && target[k - 1] >= '0' && target[k - 1] <= '9') k--;
+	if (k == len || k < 2 || target[k - 1] != 'o' || target[k - 2] != '_') return len;
+	*omask = strtoull(target + k, NULL, 10);
+	return k - 2;
+}
+
+// "<base>_a<n>", "<base>_a<n>_<sig>" or "<base>_a<n>_o<mask>" apart; false for anything else. A name may itself contain
+// "_w_" (my-w-fn), so the signature is the last "_w_" tail that reads as one.
+static bool parse_target(const char *target, char *base, size_t cap, uint32_t *arity, const char **sig, uint64_t *omask) {
 	const char *w = NULL;
+	*omask = 0;
 	for (const char *p = strstr(target, "_w_"); p; p = strstr(p + 1, "_w_")) {
 		if (sig_at(p + 1)) w = p;
 	}
-	size_t end = w ? (size_t)(w - target) : strlen(target);
+	size_t end = w ? (size_t)(w - target) : owned_suffix(target, omask);
 	size_t      k = end;
 	while (k > 0 && target[k - 1] >= '0' && target[k - 1] <= '9') k--;
 	if (k == end || k < 2 || target[k - 1] != 'a' || target[k - 2] != '_') return false;
@@ -4196,11 +4359,19 @@ static bool parse_target(const char *target, char *base, size_t cap, uint32_t *a
 // name, with a worker of exactly that signature. A worker of the same arity under another signature is a bug: both
 // sides derive it from one store entry, so the compile stops rather than bind the wrong entry.
 static const direct_entry *target_entry(const cljc_compiler *c, const char *target, uint32_t *arity, const char **sig) {
-	char base[300];
-	if (!parse_target(target, base, sizeof base, arity, sig)) return NULL;
+	char     base[300];
+	uint64_t omask;
+	if (!parse_target(target, base, sizeof base, arity, sig, &omask)) return NULL;
 	for (size_t j = 0; j < c->ndirects; j++) {
 		const direct_entry *d = &c->directs[j];
 		if (d->defs != 1 || d->dynamic || strcmp(d->base, base) != 0 || !((d->fixed >> *arity) & 1)) continue;
+		if (omask) {
+			// both sides read one inference: another mask is a compiler bug, no entry at all a callee left +0
+			if (!d->omask[*arity]) return NULL;
+			if (d->omask[*arity] != omask) clj_ice("emit/owned-mask", NULL, "%s expects owned parameters %#llx, the callee took %#llx", target, (unsigned long long)omask,
+			                                       (unsigned long long)d->omask[*arity]);
+			return d;
+		}
 		if (!*sig) return d;
 		if (!d->wsig[*arity]) return NULL;
 		if (strcmp(d->wsig[*arity], *sig) != 0) {
@@ -4247,6 +4418,23 @@ static void emit_direct_prelude(cljc_compiler *c, unit *u, sb *out) {
 		const char *target = u->inlines.keys[i], *sig;
 		uint32_t    arity;
 		if (target_entry(c, target, &arity, &sig)) sb_printf(out, "#define CLJC_INL_%s 1\n", target);
+	}
+}
+
+// Dev: an owned entry of this unit, which a call takes while the var still holds the fn compiled here (the dispatcher
+// is what the guard compares).
+static void emit_devo_prelude(cljc_compiler *c, unit *u, sb *out) {
+	for (size_t i = 0; i < u->externs.n; i++) {
+		const char         *target = u->externs.keys[i], *sig;
+		uint32_t            arity;
+		uint64_t            omask = 0;
+		char                base[300];
+		if (!parse_target(target, base, sizeof base, &arity, &sig, &omask) || !omask) continue;
+		const direct_entry *d = target_entry(c, target, &arity, &sig);
+		if (!d) continue;
+		bool local = false;
+		for (size_t k = 0; k < u->defined.n && !local; k++) local = strcmp(u->defined.keys[k], d->base) == 0;
+		if (local) sb_printf(out, "#define CLJC_DEVO_%s %s\n", target, d->base);
 	}
 }
 
@@ -4360,6 +4548,7 @@ static void emit_direct_registrations(cljc_compiler *c, unit *u, sb *out) {
 		for (uint32_t a = 0; a <= CLJ_FN_MAX_FIXED; a++) {
 			if (!((d->fixed >> a) & 1)) continue;
 			sb_printf(out, "\tclj_compiled_register_symbol(\"%s_a%u\", %s_a%u);\n", d->base, a, d->base, a);
+			if (d->omask[a]) sb_printf(out, "\tclj_compiled_register_symbol(\"%s_a%u_o%llu\", %s_a%u_o%llu);\n", d->base, a, (unsigned long long)d->omask[a], d->base, a, (unsigned long long)d->omask[a]);
 			// the signature is the symbol: a caller compiled against other facts finds nothing rather than the wrong entry
 			if (d->wsig[a]) sb_printf(out, "\tclj_compiled_register_worker(\"%s_a%u_%s\", (void (*)(void))%s_a%u_%s);\n", d->base, a, d->wsig[a], d->base, a, d->wsig[a]);
 		}
@@ -4380,7 +4569,9 @@ static char *unit_text(cljc_compiler *c, unit *u, const char *init_name) {
 	sb_puts(&out, "static void unit_pools(void);\n");
 	sb_puts(&out, "\n");
 	sb_put(&out, u->protos.s ? u->protos.s : "", u->protos.len);
-	sb_puts(&out, "\n#ifdef CLJ_CLOSED\n");
+	sb_puts(&out, "\n");
+	emit_devo_prelude(c, u, &out);
+	sb_puts(&out, "#ifdef CLJ_CLOSED\n");
 	emit_direct_prelude(c, u, &out);
 	emit_pimpl_prelude(c, u, &out);
 	sb_puts(&out, "#endif\n\n");

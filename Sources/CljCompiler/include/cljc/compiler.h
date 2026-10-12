@@ -92,6 +92,12 @@ typedef struct {
 	uint64_t defs;           // top-level defs of the unit
 	uint64_t defs_dropped;   // of those, the ones the shaker left out (closed only)
 	uint64_t def_bytes;      // C bytes the kept defs' functions take, as emitted
+	uint64_t owned_arities;  // def'd arities emitted with an owned entry beside the +0 one (design §7 «Владеющие параметры»)
+	uint64_t owned_params;   // their owned parameters
+	uint64_t owned_array;    // of those, kept in the slot array with the owned bit: read by address after all
+	uint64_t owned_sites;    // direct call sites written with the owned entry
+	uint64_t owned_handed;   // arguments those sites hand over from a dying slot; the rest arrive fresh or retained
+	uint64_t reuse_takes;    // conj/assoc/dissoc/with-meta sites that take a slot dying at the call
 } cljc_slot_stats;
 
 // After cljc_end: the protocol counters are resolved against the set as the units' text is.

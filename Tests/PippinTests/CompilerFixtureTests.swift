@@ -236,6 +236,31 @@ extension CoreTests {
 			}
 		}
 
+		// The first step's list is also the host's, so only the later steps reach co-head at rc 1.
+		@Test func ownedParametersTakeTheCallersDyingValue() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.owned)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval(closed: true) {
+				// the recursion keeps co-head a call rather than a body inlined into the loop
+				_ = try cljEval("(defn co-head [s] (if (empty? s) (co-head (list 0)) (cons (inc (first s)) (rest s))))")
+				_ = try cljEval("(defn co-steps [n s] (loop [i 0 s s] (if (< i n) (recur (inc i) (co-head s)) s)))")
+			}
+			_ = try cljEval("(def co-kept (list 1 2 3))")
+			var c0 = [Int64](repeating: 0, count: 3), c1 = c0, c2 = c0
+			clj_debug_reuse_counts(&c0)
+			#expect(try cljEval("(co-steps 3 (list 1 2 3))") == Value(list: [4, 2, 3]))
+			clj_debug_reuse_counts(&c1)
+			#expect(try cljEval("[(co-head co-kept) co-kept]") == [Value(list: [2, 2, 3]), Value(list: [1, 2, 3])])
+			clj_debug_reuse_counts(&c2)
+			if clj_reuse_enabled() && clj_no_opt() & clj_no_opt_parse("owned") == 0 {
+				#expect(c1[0] - c0[0] == 2 && c1[1] - c0[1] == 2, "taken \(c1[0] - c0[0]), used \(c1[1] - c0[1])")
+				#expect(c2[0] == c1[0], "a value the var keeps lends its cell")
+			} else {
+				#expect(c1[1] == c0[1] && c2[1] == c0[1])
+			}
+		}
+
 		// The guard page lands "Stack overflow" at the host boundary, past any try in between (guard.c); the loop tick
 		// stops a loop without calls.
 		@Test func endlessRecursionAndLoopAreStopped() throws {
