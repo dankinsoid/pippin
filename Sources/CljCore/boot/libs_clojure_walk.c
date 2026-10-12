@@ -17,9 +17,11 @@ static clj_value top_2(void);
 static clj_value top_3(void);
 clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_walk_walk__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
-CLJC_INLINE clj_value clojure_walk_walk__0_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+static clj_value clojure_walk_walk__0_a2_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+CLJC_INLINE clj_value clojure_walk_walk__0_a2_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_walk_walk__0(void *ctx, const clj_value *args, size_t n);
 static clj_value clojure_walk_walk__lw1(void *ctx, const clj_value *args, size_t n);
+static clj_value clojure_walk_walk__lw1_o(void *ctx, const clj_value *args, size_t n);
 static clj_value clojure_walk_walk__lw1_mk(void *ctx);
 static clj_value clojure_walk_walk(void *ctx, const clj_value *args, size_t n);
 static clj_value top_4(void);
@@ -141,7 +143,12 @@ static clj_value top_2(void) {
 	return t0;
 }
 
-CLJC_INLINE clj_value clojure_walk_walk__0_a2_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+static clj_value clojure_walk_walk__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	return clojure_walk_walk__0_a2_o1(self, captured, args, nargs);
+}
+
+CLJC_INLINE clj_value clojure_walk_walk__0_a2_o1_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_cframe fr = {NULL, captured, 0, NULL};
 	(void)fr;
@@ -153,6 +160,7 @@ CLJC_INLINE clj_value clojure_walk_walk__0_a2_i(clj_value self, const clj_value 
 	CLJC_ENTER(&S[1], &cc);
 #line 12 "<embedded>/clojure/walk.clj"
 	clj_value t0 = l0;
+	l0 = CLJ_NIL;
 	clj_value t1;
 	clj_value t2 = fr.captured[0];
 	clj_value t3 = l1;
@@ -163,30 +171,33 @@ CLJC_INLINE clj_value clojure_walk_walk__0_a2_i(clj_value self, const clj_value 
 	(void)t2;
 	CLJC_SITE(&S[1]);
 	if (t1 == CLJ_THROWN) {
+	clj_release(t0);
 	goto L1;
 	}
 	clj_value a0[2] = {t0, t1};
 	(void)a0;
 	clj_value t4;
 	if (CLJC_GUARD(V[13], B[3])) {
-	t4 = clj_conj2(t0, t1);
+	t4 = clj_conj(t0, t1);
 	} else {
 	t4 = clj_c_intrinsic_fallback(V[13], a0, 2);
+	clj_release(t0);
 	}
 	clj_release(t1);
-	(void)t0;
 	CLJC_SITE(&S[1]);
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
 	CLJC_LEAVE(&S[1], &cc);
+	clj_release(l0);
 	return t4;
 L1: ;
 	CLJC_LEAVE(&S[1], &cc);
+	clj_release(l0);
 	return CLJ_THROWN;
 }
 
-static CLJC_FRAME clj_value clojure_walk_walk__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_walk_walk__0_a2_i(self, captured, args, nargs); }
+static CLJC_FRAME clj_value clojure_walk_walk__0_a2_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_walk_walk__0_a2_o1_i(self, captured, args, nargs); }
 
 static clj_value clojure_walk_walk__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
@@ -197,7 +208,8 @@ static clj_value clojure_walk_walk__0(void *ctx, const clj_value *args, size_t n
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-static CLJC_FRAME clj_value clojure_walk_walk__lw1(void *ctx, const clj_value *args, size_t n) { return clojure_walk_walk__0_a2_i(CLJ_NIL, ctx, args, n); }
+static clj_value clojure_walk_walk__lw1(void *ctx, const clj_value *args, size_t n) { return clojure_walk_walk__0_a2(CLJ_NIL, ctx, args, n); }
+static CLJC_FRAME clj_value clojure_walk_walk__lw1_o(void *ctx, const clj_value *args, size_t n) { return clojure_walk_walk__0_a2_o1_i(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_walk_walk__lw1_mk(void *ctx) {
 	(void)ctx;
 	return clj_c_closure(CLJ_NIL, clojure_walk_walk__0, (const clj_value *)ctx, 1, 0x4, 2, 2);
@@ -505,7 +517,7 @@ CLJC_FRAME clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captu
 	clj_value t44 = l2;
 	clj_value c15[1] = {fr.slots[0]};
 	clj_value la14[3] = {CLJ_NIL, t43, t44};
-	clj_lowered lw14 = {clojure_walk_walk__lw1, clojure_walk_walk__lw1_mk, (void *)c15, 2, CLJ_NIL};
+	clj_lowered lw14 = {clojure_walk_walk__lw1, clojure_walk_walk__lw1_mk, (void *)c15, 2, CLJ_NIL, clojure_walk_walk__lw1_o};
 	clj_value t45 = clj_lowered_call(0, la14, 3, &lw14);
 	CLJC_SITE(&S[0]);
 	if (t45 == CLJ_THROWN) {
@@ -2272,8 +2284,8 @@ L1: ;
 
 static const clj_frame_entry FR[17] = {
 	{(clj_code)clojure_walk_walk_a3, &S[0]},
-	{(clj_code)clojure_walk_walk__0_a2, &S[1]},
-	{(clj_code)clojure_walk_walk__lw1, &S[1]},
+	{(clj_code)clojure_walk_walk__0_a2_o1, &S[1]},
+	{(clj_code)clojure_walk_walk__lw1_o, &S[1]},
 	{(clj_code)clojure_walk_postwalk_a2, &S[2]},
 	{(clj_code)clojure_walk_prewalk_a2, &S[3]},
 	{(clj_code)clojure_walk_keywordize_keys_a1, &S[4]},

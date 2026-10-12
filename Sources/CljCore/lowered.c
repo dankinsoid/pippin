@@ -72,6 +72,16 @@ static clj_value entry(void *ctx, const clj_value *args, size_t n) {
 	return clj_invoke(closure_of(l), args, n);
 }
 
+bool clj_lowered_prepare(const clj_fn *fn, size_t n, clj_native_ctx_fn *step, clj_native_ctx_fn *owned, void **ctx) {
+	if (fn->kind != CLJ_FN_NATIVE_CTX || fn->u.native_ctx.fn != entry) return false;
+	const clj_lowered *l = fn->u.native_ctx.ctx;
+	if (n != l->arity) return false;
+	*step = l->step;
+	*owned = l->owned;
+	*ctx = l->ctx;
+	return true;
+}
+
 CLJ_UNIT_ENTRY clj_value clj_lowered_call(clj_lowered_how how, clj_value *args, size_t n, clj_lowered *l) {
 	// Immortal, so a retain or release of it is a no-op; nothing past the call reaches it (fn_stays).
 	clj_fn fn = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_fn_type}, .kind = CLJ_FN_NATIVE_CTX, .min_arity = 0, .max_arity = CLJ_ARITY_ANY};

@@ -261,6 +261,32 @@ extension CoreTests {
 			}
 		}
 
+		// Step 1's accumulator is the var's, so only the later steps reach the cons at rc 1.
+		@Test func loweredReduceHandsTheAccumulatorOver() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.lowacc)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval(closed: true) {
+				_ = try cljEval("(defn la-steps [l xs] (reduce (fn [s x] (cons (+ x (first s)) (rest s))) l xs))")
+			}
+			_ = try cljEval("(def la-kept (list 0 1 2))")
+			_ = try cljEval("(defn li-steps [m xs] (reduce (fn [a x] (assoc a x x)) m xs))")
+			let on = clj_no_opt() == 0
+			var c0 = [Int64](repeating: 0, count: 3), c1 = c0
+			clj_debug_reuse_counts(&c0)
+			#expect(try cljEval("[(la-steps la-kept [1 2 3]) la-kept]") == [Value(list: [6, 1, 2]), Value(list: [0, 1, 2])])
+			clj_debug_reuse_counts(&c1)
+			if clj_reuse_enabled() && on {
+				#expect(c1[0] - c0[0] == 2 && c1[1] - c0[1] == 2, "taken \(c1[0] - c0[0]), used \(c1[1] - c0[1])")
+			} else if !on {
+				#expect(c1[1] - c0[1] <= 2)
+			}
+			let consuming = clj_debug_consuming_calls()
+			#expect(try cljEval("(li-steps {} [1 2 3])") == cljEval("{1 1 2 2 3 3}"))
+			// -1 outside a debug build; under CLJ_EVAL=compiled li-steps is compiled, whose assoc calls its owned form directly
+			if consuming >= 0 && on && getenv("CLJ_EVAL") == nil { #expect(clj_debug_consuming_calls() - consuming == 3) }
+		}
+
 		// The guard page lands "Stack overflow" at the host boundary, past any try in between (guard.c); the loop tick
 		// stops a loop without calls.
 		@Test func endlessRecursionAndLoopAreStopped() throws {

@@ -29,6 +29,7 @@
 #include "cc_internal.h"
 #include "epoch_internal.h"
 #include "guard_internal.h"
+#include "ice_internal.h"
 #include "load_internal.h"
 #include "profile_internal.h"
 #include "proto_internal.h"
@@ -609,10 +610,11 @@ static inline __attribute__((always_inline)) clj_value run_frame(clj_value f, co
 }
 
 // A call with the arguments already in a buffer: the frame copies them. Frames past SMALL_SLOTS live on the
-// heap, past 64 slots they retain every param (eval.h).
+// heap, past 64 slots they retain every param (eval.h). The params in `given` arrive at +1 and are the frame's own.
 // @ai-generated(guided)
 static inline __attribute__((always_inline)) clj_value frame_run(clj_value self, const clj_node *code, const clj_value *env, const clj_exec *exec,
-                                                                 const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
+                                                                 const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site,
+                                                                 uint64_t given) {
 	clj_value  small[SMALL_SLOTS];
 	clj_value *slots = small;
 	if (arity->nslots > SMALL_SLOTS) {
@@ -620,9 +622,9 @@ static inline __attribute__((always_inline)) clj_value frame_run(clj_value self,
 		if (!slots) clj_fatal("out of memory");
 	}
 	bool     big = arity->nslots > 64;
-	uint64_t owned = big ? UINT64_MAX : 0;
+	uint64_t owned = big ? UINT64_MAX : given;
 	uint32_t filled = arity->nparams;
-	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big ? clj_retain(args[i]) : args[i];
+	for (uint32_t i = 0; i < arity->nparams; i++) slots[i] = big && !(i < 64 && ((given >> i) & 1)) ? clj_retain(args[i]) : args[i];
 	if (arity->variadic) {
 		slots[filled++] = clj_rest_args(args, n, arity->nparams);
 		owned |= (uint64_t)1 << arity->nparams;
@@ -637,7 +639,7 @@ static inline __attribute__((always_inline)) clj_value frame_run(clj_value self,
 
 static clj_value closure_run(clj_value f, const clj_fn_arity *arity, const clj_value *args, size_t n, const clj_node *site) {
 	const clj_fn *fn = clj_fn_of(f);
-	return frame_run(f, fn->u.node, clj_slot_values(fn->env), clj_exec_of(fn->code.v), arity, args, n, site);
+	return frame_run(f, fn->u.node, clj_slot_values(fn->env), clj_exec_of(fn->code.v), arity, args, n, site, 0);
 }
 
 static clj_value call_impl(clj_value impl, const clj_fn_arity *arity, const clj_value *args, uint32_t n, const clj_node *at) {
@@ -1068,7 +1070,14 @@ typedef struct {
 
 static clj_value lowered_step(void *ctx, const clj_value *args, size_t n) {
 	const lowered_fn *l = ctx;
-	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL);
+	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL, 0);
+}
+
+// The accumulator the driver hands over is the frame's own: its last read moves it, else the teardown releases it,
+// the release the driver would have made after the step. So every literal takes it, consumed or not.
+static clj_value lowered_step_owned(void *ctx, const clj_value *args, size_t n) {
+	const lowered_fn *l = ctx;
+	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL, 1);
 }
 
 static clj_value lowered_make(void *ctx) {
@@ -1091,7 +1100,7 @@ static clj_value eval_lowered(const clj_node *n, clj_frame *f) {
 		gather_env(code, f, env);
 		for (uint32_t i = 0, k = 0; i < nargs; i++) args[i] = i == at ? CLJ_NIL : ops[k++];
 		lowered_fn  lf = {code, code->u.fn.fixed[arity], env, f->exec};
-		clj_lowered l = {lowered_step, lowered_make, &lf, arity, CLJ_NIL};
+		clj_lowered l = {lowered_step, lowered_make, &lf, arity, CLJ_NIL, clj_opt_off(CLJ_NO_OPT_OWNED) ? NULL : lowered_step_owned};
 		result = clj_lowered_call(n->u.lowered.how, args, nargs, &l);
 		release_owned(ops, nops, owned);
 		buf_free(small_env, env);
@@ -1760,7 +1769,7 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 }
 
 clj_call clj_call_prepare(clj_value f, size_t n) {
-	clj_call c = {f, n, NULL, NULL, NULL, NULL, NULL};
+	clj_call c = {f, n, NULL, NULL, NULL, NULL, NULL, NULL};
 	if (!clj_is_fn(f)) return c;
 	const clj_fn *fn = clj_fn_of(f);
 	bool          accepts = n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity);
@@ -1769,7 +1778,8 @@ clj_call clj_call_prepare(clj_value f, size_t n) {
 	} else if (fn->kind == CLJ_FN_NATIVE && accepts) {
 		c.native = fn->u.native.fn;
 		c.consuming = clj_intrinsic_consuming(f, (uint32_t)n);
-	} else if (fn->kind == CLJ_FN_NATIVE_CTX && (accepts || fn->u.native_ctx.ctx == clj_to_ptr(f))) {
+	} else if (fn->kind == CLJ_FN_NATIVE_CTX && !clj_lowered_prepare(fn, n, &c.ctx_fn, &c.owned, &c.ctx) &&
+	           (accepts || fn->u.native_ctx.ctx == clj_to_ptr(f))) {
 		// fn_invoke's own branches: a compiled closure, its own ctx, refuses a count in its dispatcher
 		c.ctx_fn = fn->u.native_ctx.fn;
 		c.ctx = fn->u.native_ctx.ctx;

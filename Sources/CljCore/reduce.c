@@ -31,10 +31,11 @@ static bool take(clj_reducer *r, clj_value v, bool consumed) {
 	return true;
 }
 
-// args[0] is acc: a consuming rf (conj as the fn of a reduce) takes the reducer's own reference, so a unique
-// accumulator is updated in place; any other fn sees it at +0.
+// args[0] is acc: a consuming rf (conj as the fn of a reduce) or a lowered literal's owned step takes the reducer's
+// own reference, so a unique accumulator is updated in place; any other fn sees it at +0.
 static bool step(clj_reducer *r) {
 	if (r->call.consuming) return take(r, clj_intrinsic_call_consuming(r->call.consuming, r->args), true);
+	if (r->call.owned) return take(r, r->call.owned(r->call.ctx, r->args, r->call.n), true);
 	return take(r, clj_call_invoke(&r->call, r->args), false);
 }
 

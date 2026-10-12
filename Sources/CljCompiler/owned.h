@@ -5,6 +5,7 @@
 
 #include "clj/analyzer.h"
 #include "clj/facts.h"
+#include "reuse.h"
 
 typedef struct cljc_owned cljc_owned;
 
@@ -22,6 +23,11 @@ void cljc_owned_settle(cljc_owned *o);
 uint64_t cljc_owned_mask(const cljc_owned *o, clj_value var, uint32_t arity);
 // The parameters of a fixed arity of a def'd fn that can be owned slots: what both the scan and the emitter test.
 uint64_t cljc_owned_candidates(const clj_node *fn, const clj_fn_arity *a, const clj_facts *facts);
+
+// The parameters among `offer` of a literal fn's fixed arity that its body consumes, as the scan counts it, a hand-over
+// to a settled owned parameter included (positions: the emitter's). For a lowered call's step, whose driver offers
+// its own reference; a fn-body recur's parameters are left out, since a typed slot cannot arrive owned.
+uint64_t cljc_owned_literal(const clj_node *fn, const clj_fn_arity *a, const clj_facts *facts, uint64_t offer, cljc_owned_positions positions, void *ctx);
 
 typedef struct {
 	uint64_t arities;   // fixed arities with an owned parameter

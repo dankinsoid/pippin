@@ -216,6 +216,14 @@ typedef struct {
 	uint32_t        nargs;
 } pimpl;
 
+// The literal of the lowered call whose functions are being emitted, its step's arity, the owned mask asked of that
+// arity and the one it was emitted with. A literal's body may lower a call of its own, so emit_lowered nests it.
+typedef struct {
+	const clj_node *fn;
+	uint32_t        arity;
+	uint64_t        asked, got;
+} lowering_ctx;
+
 struct cljc_compiler {
 	cljc_options  opts;
 	unit        **units;
@@ -240,6 +248,7 @@ struct cljc_compiler {
 	size_t            nescapes, escapes_cap;
 	cljc_owned       *owned;       // the owned parameters of the set's def'd fns (owned.c)
 	uint32_t          owned_order; // forms declared to it so far, in load order
+	lowering_ctx      lowering;
 	bool          installed;
 };
 
@@ -1692,6 +1701,7 @@ static temp emit_fn_as(fnctx *f, const clj_node *n, const char *base) {
 typedef struct {
 	const clj_node *fn;
 	char            base[256];
+	uint64_t        omask; // of the arity the step calls
 } lowered_fn;
 
 static lowered_fn *lowered_fns;
@@ -1702,6 +1712,13 @@ static const char *lowered_base_of(const clj_node *fn) {
 		if (lowered_fns[i].fn == fn) return lowered_fns[i].base;
 	}
 	return NULL;
+}
+
+static uint64_t lowered_omask_of(const clj_node *fn) {
+	for (size_t i = nlowered_fns; i-- > 0;) {
+		if (lowered_fns[i].fn == fn) return lowered_fns[i].omask;
+	}
+	return 0;
 }
 
 static temp emit_fn(fnctx *f, const clj_node *n) {
@@ -3134,8 +3151,23 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+// The step of a lowered call: <step>(ctx, args, n) calls the arity <target> with self nil and the captures as ctx.
+// A leaf's body is inlined into the step, which then stands for the arity's frame in a trace.
+static void emit_lowered_step(fnctx *f, const char *step, const char *target) {
+	bool leaf = pool_has(&f->u->leaves, target);
+	for (size_t i = 0; leaf && i < f->u->frames.n; i++) {
+		if (strcmp(f->u->frames.keys[i], target) == 0) frame_add(f->u, step, (uint32_t)strtoul(f->u->frames.extra[i], NULL, 10));
+	}
+	sb_printf(&f->u->protos, "static clj_value %s(void *ctx, const clj_value *args, size_t n);\n", step);
+	sb_printf(&f->u->fns, "static %sclj_value %s(void *ctx, const clj_value *args, size_t n) { return %s%s(CLJ_NIL, ctx, args, n); }\n", leaf ? "CLJC_FRAME " : "",
+	          step, target, leaf ? "_i" : "");
+}
+
 // A lowered call (optimizer.c try_lower): the native runs over a per-site step that calls the literal's arity, its
-// environment a C array of the captures read from this frame after the operands, as eval_lowered reads them.
+// environment a C array of the captures read from this frame after the operands, as eval_lowered reads them. A reduce
+// or reduce-kv whose literal consumes its accumulator (owned.c) gets an owned step too, over the arity's owned entry:
+// the reducer hands it its own reference (clj_call.owned), so assoc and conj update a unique accumulator in place.
+// swap! offers nothing: the atom holds the old value while f runs, for other readers, the watches and the validator.
 // @ai-generated(solo)
 static temp emit_lowered(fnctx *f, const clj_node *n) {
 	const clj_node *lit = n->u.lowered.fn;
@@ -3146,18 +3178,30 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 	if (!ops) clj_fatal("out of memory");
 	for (uint32_t i = 0; i < nops; i++) ops[i] = emit_borrowed(f, n->u.lowered.args[i]);
 	char        base[256];
+	uint64_t    omask;
 	const char *done = lowered_base_of(lit);
 	if (done) {
 		snprintf(base, sizeof base, "%s", done);
+		omask = lowered_omask_of(lit);
 	} else {
 		snprintf(base, sizeof base, "%s__%u", f->base, (*f->fn_counter)++);
+		bool     accumulates = n->u.lowered.how == CLJ_LOWER_REDUCE || n->u.lowered.how == CLJ_LOWER_REDUCE_KV;
+		uint64_t asked = accumulates ? cljc_owned_literal(lit, lit->u.fn.fixed[arity], f->facts, 1, owned_positions, f) : 0;
+		lowering_ctx outer = f->c->lowering;
+		f->c->lowering = (lowering_ctx){lit, arity, asked, 0};
 		emit_fn_functions(f, lit, base);
+		omask = f->c->lowering.got;
+		f->c->lowering = outer;
+		if (omask != asked)
+			clj_ice("emit/lowered-owned-mask", n, "the step asks the literal's arity %u for owned mask %#llx, which was emitted with %#llx", arity,
+			        (unsigned long long)asked, (unsigned long long)omask);
 		if (nlowered_fns == lowered_fns_cap) {
 			lowered_fns_cap = lowered_fns_cap ? lowered_fns_cap * 2 : 8;
 			lowered_fns = realloc(lowered_fns, lowered_fns_cap * sizeof *lowered_fns);
 			if (!lowered_fns) clj_fatal("out of memory");
 		}
 		lowered_fns[nlowered_fns].fn = lit;
+		lowered_fns[nlowered_fns].omask = omask;
 		snprintf(lowered_fns[nlowered_fns++].base, sizeof lowered_fns->base, "%s", base);
 	}
 	char caps[32], step[300], target[300], expr[512];
@@ -3165,18 +3209,21 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 	snprintf(step, sizeof step, "%s__lw%u", f->base, (*f->fn_counter)++);
 	snprintf(target, sizeof target, "%s_a%u", base, arity);
 	closure_expr(f, lit, base, "(const clj_value *)ctx", expr, sizeof expr);
-	sb_printf(&f->u->protos, "static clj_value %s(void *ctx, const clj_value *args, size_t n);\nstatic clj_value %s_mk(void *ctx);\n", step, step);
-	// a leaf's body is inlined into the step, which then stands for the arity's frame in a trace
-	bool leaf = pool_has(&f->u->leaves, target);
-	for (size_t i = 0; leaf && i < f->u->frames.n; i++) {
-		if (strcmp(f->u->frames.keys[i], target) == 0) frame_add(f->u, step, (uint32_t)strtoul(f->u->frames.extra[i], NULL, 10));
+	emit_lowered_step(f, step, target);
+	char owned[320] = "NULL";
+	if (omask) {
+		char ostep[320], otarget[340];
+		snprintf(ostep, sizeof ostep, "%s_o", step);
+		snprintf(otarget, sizeof otarget, "%s_o%llu", target, (unsigned long long)omask);
+		emit_lowered_step(f, ostep, otarget);
+		snprintf(owned, sizeof owned, "%s", ostep);
+		f->u->slots.owned_steps++;
 	}
-	sb_printf(&f->u->fns, "static %sclj_value %s(void *ctx, const clj_value *args, size_t n) { return %s%s(CLJ_NIL, ctx, args, n); }\n", leaf ? "CLJC_FRAME " : "",
-	          step, target, leaf ? "_i" : "");
+	sb_printf(&f->u->protos, "static clj_value %s_mk(void *ctx);\n", step);
 	sb_printf(&f->u->fns, "static clj_value %s_mk(void *ctx) {\n\t(void)ctx;\n\treturn %s;\n}\n\n", step, expr);
 	sb_printf(&f->out, "\tclj_value la%d[%u] = {", k, nargs);
 	for (uint32_t i = 0, j = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", i == at ? "CLJ_NIL" : ops[j++].name);
-	sb_printf(&f->out, "};\n\tclj_lowered lw%d = {%s, %s_mk, (void *)%s, %u, CLJ_NIL};\n", k, step, step, caps, arity);
+	sb_printf(&f->out, "};\n\tclj_lowered lw%d = {%s, %s_mk, (void *)%s, %u, CLJ_NIL, %s};\n", k, step, step, caps, arity, owned);
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s = clj_lowered_call(%u, la%d, %u, &lw%d);\n", r.name, (unsigned)n->u.lowered.how, k, nargs, k);
 	check_thrown(f, r.name);
@@ -3458,8 +3505,11 @@ static void worker_checks(sb *out, const uint8_t *kinds, uint32_t n) {
 	sb_puts(out, ") {\n");
 }
 
-// The owned parameters of the def'd fn's arity being emitted (owned.c), 0 for any other fn.
+// The owned parameters of the def'd fn's arity being emitted (owned.c), or of a lowered literal's arity its step
+// hands the accumulator to (emit_lowered); 0 for any other fn.
 static uint64_t owned_entry_mask(const fnctx *parent, const clj_node *n, const clj_fn_arity *a, bool exported) {
+	const cljc_compiler *c = parent->c;
+	if (c->lowering.fn == n && !a->variadic && a->nparams == c->lowering.arity) return c->lowering.asked;
 	const clj_node *root = parent->c->emitting;
 	if (!exported || a->variadic || !root || root->kind != CLJ_NODE_DEF || root->u.def.init != n) return 0;
 	return cljc_owned_mask(parent->c->owned, root->u.def.var.v, a->nparams);
@@ -3478,7 +3528,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 	f.owned_params = omask;
 	frame_add(f.u, entry, stub);
 	sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", name);
-	if (omask) sb_printf(&f.u->protos, "clj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", entry);
+	if (omask) sb_printf(&f.u->protos, "%sclj_value %s(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);\n", exported ? "" : "static ", entry);
 	sb_puts(&f.out, "\t(void)self; (void)captured; (void)args; (void)nargs;\n");
 	promote_slots(&f, n, a, true, a->body, a->nslots);
 	uint32_t arr = array_slots(&f, a->nslots);
@@ -3495,7 +3545,11 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 			f.u->slots.owned_array++;
 		}
 	}
-	if (omask) {
+	if (omask && f.c->lowering.fn == n) {
+		// its one caller is the lowered step, which names the entry
+		f.c->lowering.got = omask;
+		f.u->slots.owned_lowered++;
+	} else if (omask) {
 		f.u->slots.owned_arities++;
 		f.u->slots.owned_params += (uint64_t)__builtin_popcountll(omask);
 		direct_entry *d = direct_of_base(f.c, base);

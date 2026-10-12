@@ -21,9 +21,15 @@ typedef struct {
 	void     *ctx;
 	uint32_t  arity;
 	clj_value closure; // made on the first need; clj_lowered_call releases it
+	// The step with args[0] at +1, which it consumes, or NULL. Only a driver that owns its accumulator calls it
+	// (clj_reducer, through clj_call.owned); every other caller reaches step.
+	clj_native_ctx_fn owned;
 } clj_lowered;
 
 // The fn the native gets lives on this C stack: it must not outlive the call.
 clj_value clj_lowered_call(clj_lowered_how how, clj_value *args, size_t n, clj_lowered *l);
+// For fn the stack fn of a lowered call and n its arity: the step, its owned twin (or NULL) and their context, so a
+// prepared call skips the count test. False for any other fn or count.
+bool clj_lowered_prepare(const clj_fn *fn, size_t n, clj_native_ctx_fn *step, clj_native_ctx_fn *owned, void **ctx);
 
 #endif

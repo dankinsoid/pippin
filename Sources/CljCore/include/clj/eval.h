@@ -166,6 +166,8 @@ typedef struct {
 	                                // driver that owns its accumulator hands it over through clj_intrinsic_call_consuming
 	clj_native_ctx_fn    ctx_fn;    // of a native with a context accepting n, or of a compiled closure, else NULL
 	void                *ctx;
+	clj_native_ctx_fn    owned;     // ctx_fn with args[0] at +1, which it consumes (a lowered step), else NULL: a driver
+	                                // that owns its accumulator hands it over, as through `consuming`
 } clj_call;
 
 clj_call  clj_call_prepare(clj_value f, size_t n);

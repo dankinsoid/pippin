@@ -215,6 +215,48 @@ static void last_reads(const clj_node *n, void *ctx) {
 	}
 }
 
+static uint64_t let_slots(const clj_fn_arity *a) {
+	uint64_t lets = 0;
+	for (uint32_t i = a->nparams; i < a->nslots && i < 64; i++) {
+		if ((int32_t)i != a->self_slot) lets |= bit(i);
+	}
+	return lets;
+}
+
+static uint64_t param_slots(const clj_fn_arity *a) { return a->nparams >= 64 ? UINT64_MAX : bit(a->nparams) - 1; }
+
+// The slots a recur of this frame rebinds; a direct fn's recur rebinds its own frame's.
+static void recur_slots(const clj_node *n, void *ctx) {
+	uint64_t *out = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_RECUR:
+		for (uint32_t i = 0; i < n->u.recur.n; i++) *out |= bit(n->u.recur.slots[i]);
+		break;
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: return;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) recur_slots(n->u.fused.args[i], ctx);
+		return;
+	default: break;
+	}
+	clj_node_children(n, recur_slots, ctx);
+}
+
+uint64_t cljc_owned_literal(const clj_node *fn, const clj_fn_arity *a, const clj_facts *facts, uint64_t offer, cljc_owned_positions positions, void *ctx) {
+	if (!enabled() || !offer) return 0;
+	uint64_t rebound = 0;
+	recur_slots(a->body, &rebound);
+	uint64_t cand = cljc_owned_candidates(fn, a, facts) & offer & ~rebound;
+	if (!cand) return 0;
+	uint64_t reads = 0;
+	last_reads(a->body, &reads);
+	cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | let_slots(a), param_slots(a), true, positions, ctx);
+	uint64_t         paired = 0;
+	for (size_t i = 0; i < cljc_reuse_count(plan); i++) paired |= bit(cljc_reuse_pair_at(plan, i)->slot);
+	cljc_reuse_plan_free(plan);
+	return (reads | paired) & cand;
+}
+
 void cljc_owned_scan(cljc_owned *o, const clj_node *root, const clj_facts *facts) {
 	if (!enabled() || !facts || root->kind != CLJ_NODE_DEF) return;
 	entry *e = find(o, root->u.def.var.v);
@@ -229,15 +271,10 @@ void cljc_owned_scan(cljc_owned *o, const clj_node *root, const clj_facts *facts
 		uint64_t cand = cljc_owned_candidates(fn, a, facts);
 		e->cand[k] = cand;
 		if (!cand) continue;
-		uint64_t lets = 0;
-		for (uint32_t i = a->nparams; i < a->nslots && i < 64; i++) {
-			if ((int32_t)i != a->self_slot) lets |= bit(i);
-		}
 		uint64_t reads = 0;
 		last_reads(a->body, &reads);
 		scan_ctx         sc = {o, e->order, NULL, 0, 0};
-		uint64_t         recur = a->nparams >= 64 ? UINT64_MAX : bit(a->nparams) - 1;
-		cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | lets, recur, true, scan_positions, &sc);
+		cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | let_slots(a), param_slots(a), true, scan_positions, &sc);
 		uint64_t         paired = 0;
 		for (size_t i = 0; i < cljc_reuse_count(plan); i++) {
 			const cljc_reuse_pair *p = cljc_reuse_pair_at(plan, i);
