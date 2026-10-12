@@ -197,7 +197,7 @@ static clj_value clojure_walk_walk__0(void *ctx, const clj_value *args, size_t n
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-static clj_value clojure_walk_walk__lw1(void *ctx, const clj_value *args, size_t n) { return clojure_walk_walk__0_a2_i(CLJ_NIL, ctx, args, n); }
+static CLJC_FRAME clj_value clojure_walk_walk__lw1(void *ctx, const clj_value *args, size_t n) { return clojure_walk_walk__0_a2_i(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_walk_walk__lw1_mk(void *ctx) {
 	(void)ctx;
 	return clj_c_closure(CLJ_NIL, clojure_walk_walk__0, (const clj_value *)ctx, 1, 0x4, 2, 2);
@@ -2270,9 +2270,10 @@ L1: ;
 	return CLJ_THROWN;
 }
 
-static const clj_frame_entry FR[16] = {
+static const clj_frame_entry FR[17] = {
 	{(clj_code)clojure_walk_walk_a3, &S[0]},
 	{(clj_code)clojure_walk_walk__0_a2, &S[1]},
+	{(clj_code)clojure_walk_walk__lw1, &S[1]},
 	{(clj_code)clojure_walk_postwalk_a2, &S[2]},
 	{(clj_code)clojure_walk_prewalk_a2, &S[3]},
 	{(clj_code)clojure_walk_keywordize_keys_a1, &S[4]},
@@ -2294,7 +2295,7 @@ static bool pools_filled;
 static void unit_pools(void) {
 	(void)K; (void)V; (void)B; (void)OP; (void)F; (void)S;
 	pools_filled = true;
-	clj_c_register_frames(FR, 16);
+	clj_c_register_frames(FR, 17);
 	V[0] = clj_c_var("clojure.core", "in-ns");
 	V[1] = clj_c_var("clojure.core", "refer-clojure");
 	V[2] = clj_c_var("clojure.walk", "walk");

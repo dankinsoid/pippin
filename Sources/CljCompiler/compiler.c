@@ -3166,8 +3166,13 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 	snprintf(target, sizeof target, "%s_a%u", base, arity);
 	closure_expr(f, lit, base, "(const clj_value *)ctx", expr, sizeof expr);
 	sb_printf(&f->u->protos, "static clj_value %s(void *ctx, const clj_value *args, size_t n);\nstatic clj_value %s_mk(void *ctx);\n", step, step);
-	sb_printf(&f->u->fns, "static clj_value %s(void *ctx, const clj_value *args, size_t n) { return %s%s(CLJ_NIL, ctx, args, n); }\n", step, target,
-	          pool_has(&f->u->leaves, target) ? "_i" : "");
+	// a leaf's body is inlined into the step, which then stands for the arity's frame in a trace
+	bool leaf = pool_has(&f->u->leaves, target);
+	for (size_t i = 0; leaf && i < f->u->frames.n; i++) {
+		if (strcmp(f->u->frames.keys[i], target) == 0) frame_add(f->u, step, (uint32_t)strtoul(f->u->frames.extra[i], NULL, 10));
+	}
+	sb_printf(&f->u->fns, "static %sclj_value %s(void *ctx, const clj_value *args, size_t n) { return %s%s(CLJ_NIL, ctx, args, n); }\n", leaf ? "CLJC_FRAME " : "",
+	          step, target, leaf ? "_i" : "");
 	sb_printf(&f->u->fns, "static clj_value %s_mk(void *ctx) {\n\t(void)ctx;\n\treturn %s;\n}\n\n", step, expr);
 	sb_printf(&f->out, "\tclj_value la%d[%u] = {", k, nargs);
 	for (uint32_t i = 0, j = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", i == at ? "CLJ_NIL" : ops[j++].name);

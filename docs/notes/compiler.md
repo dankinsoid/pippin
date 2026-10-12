@@ -897,7 +897,8 @@
   the builtin's own C function with, at the fn's position, a fn object on the C stack whose entry runs the literal's
   arity directly: `frame_run` over the gathered environment in the interpreter (the frame, the shadow frame and the
   census a closure call has, minus the closure), a per-site step `<base>__lw<n>` in a unit that calls the arity
-  `_a<k>` (its `_i` twin for a leaf) with self nil and the captures as a C array. So every rule of the call is the
+  `_a<k>` with self nil and the captures as a C array — for a leaf its `_i` twin, the step then a frame fn under the
+  literal's stub, so the trace still names the literal. So every rule of the call is the
   builtin's own code, not restated: each source's reduce slot and its walk, `reduced`, the 2-arity's seed and `(f)` over
   an empty coll, the atom's lock with f run once under it, the validator, the watches, the nested-swap trap, the
   values returned, the scheduling point after a swap. **Where the fn would get out of C** the literal is made a closure
