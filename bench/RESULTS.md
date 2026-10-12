@@ -2811,3 +2811,36 @@ medley −0.6 % allocations; group-freq, strings, render, suite-data and async-p
   byte-identical to main's boot units): `boot/core.c` 5 188 707 → 5 205 626 bytes (+0.33 %; 932 drops), clang
   `-O0 -DCLJ_DEBUG=1` 3.94 → 3.91 s, `-O2 -DCLJ_CLOSED` 22.07 → 22.45 s (+1.7 %); the closed nested-update unit
   162 012 → 162 343 bytes (18 drops). A drop is one inline call: a type test and a release.
+
+## Another unit's fn in a dev unit — e996ea0, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7a, third part (docs/notes/compiler.md, "Another unit's fn in a dev unit: the tree's digest as the
+guard"): a dev unit copies small fns of core and of other units under a guard on the copied tree's digest. Three
+`corpus-bench` pairs, branch `dev-inline` against main: 38290225426 / 38290229644 (e8b9457 / eb276f7, all
+workloads), 38295084296 / 38295088235 (e996ea0 / 5e004a7, all workloads), 38297936485 / 38297940533 (the same
+commits, six workloads). Every workload returned the JVM's value in every runtime. The closed counters did not move
+by one (a closed unit's guard was already `CLJC_INL_`); what moved is the dev units' generic calls.
+
+| workload | dev invoke | dev c_invoke | dev ms, pair 1 | pair 2 | pair 3 |
+|---|---|---|---|---|---|
+| nested-update | 1.64M → 704.7k (−57 %) | 2.47M → 1.54M | 159.2 → 205.2 | 160.6 → 208.9 | 176.0 → 171.6 |
+| pipelines | 10.56M → 8.75M (−17 %) | 18.19M → 16.38M | 541.7 → 611.9 | 539.5 → 598.1 | 593.7 → 543.0 |
+| suite-data | 962.0k → 682.0k (−29 %) | 1.39M → 1.11M | 64.8 → 83.9 | 71.8 → 66.3 | 69.1 → 64.3 |
+| medley | 806.5k → 613.7k (−24 %) | 1.05M → 856.5k | 57.6 → 63.3 | 60.2 → 78.9 | 93.0 → 53.5 |
+| group-freq | 6.18M → 5.88M (−5 %) | 8.06M → 7.76M | 291.7 → 405.6 | 295.3 → 346.2 | 399.3 → 343.7 |
+| strings | 417.6k → 377.6k (−10 %) | 772.6k → 732.6k | 47.5 → 63.6 | 51.0 → 55.0 | — |
+| dependency, combinatorics, render, async-* | ±0.2 % | | | | |
+
+- **nested-update: 14 copies of `mod` and one of `lcg`** take 935k generic calls an iteration away; in its dev profile
+  `clojure_core_mod_a2`'s 262 samples are gone and the guard (`clj_c_root_tree`) shows 6. pipelines, suite-data and
+  medley lose the calls of core's small predicates and accessors (`val`, `find`, `map-entry?`, `some?`).
+- **Time is the runners'.** The branch's runner was the slower one in pairs 1 and 2 (JVM warm nested-update 82.7 →
+  114.9 and 81.0 → 98.1 ms) and main's in pair 3 (163.4 → 94.3), and the dev column follows the runner in each: no
+  per-workload time claim stands on these runs. The counters are the result.
+- **Compile cost** (the x86_64 dev host, min of three clang runs alternated, before = eb276f7): the five corpus
+  libraries' 12 dev units 7 531 046 → 7 614 875 bytes (+1.1 %), clang `-O0 -DCLJ_DEBUG=1` 7.27 → 7.28 s, `-O2`
+  37.25 → 37.72 s; medley's core unit +10.8 % bytes, clang +7.9 % / +10.6 %, the others within the host's spread;
+  nested-update's own unit +38 % bytes and 0.66 → 0.92 s at `-O2`; clj-compile +3–4 %. Without the rule that writes a
+  copy only when it pays (a forwarder like `(range n)` → `(range 0 n 1)` doubled each site's C) the same units took
+  268 copies instead of 52 and medley's and combinatorics' core units +20.6 % and +25 % at `-O2`. `boot/core.c`
+  +0.34 % (its 229-entry tree table), clang within the spread.

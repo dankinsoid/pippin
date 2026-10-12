@@ -972,7 +972,9 @@
   copies of `mod` in a 40-line program); clj-compile itself +3–4 % (medley 0.62 → 0.65 s), the digests and the extra
   text. `boot/core.c` 5 188 707 → 5 206 296 bytes (+0.34 %, the table), clang `-O0` 3.89 → 3.81 s, `-O2
   -DCLJ_CLOSED` 22.24 → 22.39 s; the libs' units +0–4 % bytes (`clojure.set` +4.0 %, `clojure.walk` +4.1 %,
-  `clojure.string` +2.3 %), clang within the host's spread. Not done: the interpreter over the compiled core (the dev mode that interprets the edits) gets
+  `clojure.string` +2.3 %), clang within the host's spread. **Effect** (bench/RESULTS.md, "Another unit's fn in a
+  dev unit", three corpus-bench pairs): dev generic calls an iteration nested-update 1.64M → 705k, suite-data −29 %,
+  medley −24 %, pipelines −17 %; the dev times moved with the runners, not measurably with the change. Not done: the interpreter over the compiled core (the dev mode that interprets the edits) gets
   neither copies nor known paths — the roots are compiled fns with no tree in the binary, so `try_inline` and
   `try_path` see no closure; core's trees serialized into core.c would give it both, and the same digest would name
   them — when that mode is measured as the dev loop. A dev unit's copy of its own unit's fn takes no `copy_pays`.
