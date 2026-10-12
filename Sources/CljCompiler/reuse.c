@@ -306,7 +306,7 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 		for (uint32_t i = 0; i < n->u.lowered.fn->u.fn.ncaptures; i++) {
 			if (n->u.lowered.fn->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
 		}
-		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, out, c);
+		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, out, c, NULL);
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
