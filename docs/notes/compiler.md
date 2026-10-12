@@ -925,8 +925,9 @@
   "Lowered natives"): allocations hardly move — a site saves one closure per call of the builtin, and the workloads'
   reduces run a few times an iteration — but `clj_invoke` per iteration falls 13–42 % over the data workloads.
   Not done, each with its trigger: the accumulator at +1 (the step passes it at +0 as a closure call does, so
-  `(reduce (fn [m x] (assoc m …)) {} xs)` copies per step; an owned entry for literal-fn arities, design §10 step 7в,
-  makes assoc and conj update in place) — when 7в's owned entries land; a fused site's reducing fn
+  `(reduce (fn [m x] (assoc m …)) {} xs)` copies per step; the owned entries of "Owned parameters" are a def'd fn's
+  only, and one for a literal's arity, called by the step with the reducer's own reference, makes assoc and conj
+  update the accumulator in place) — when owned inference covers literal-fn arities; a fused site's reducing fn
   (`(reduce (fn …) init (map …))` is `FUSED`, whose driver still gets a closure) — when `fused-reduce*` ranks in a
   closed profile; the fn a caller passes to `mapv`, `filterv`, `run!` (core's inner fn is lowered, the caller's literal
   is still a closure: a closure specialized to its literal) — when they rank in a census; a literal that reads its own
