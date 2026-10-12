@@ -28,6 +28,10 @@ bool clj_verify_enabled(void);
 // The body's own frame: slots a direct fn body reads through the static link, slots a closure made here
 // captures, slots it rebinds.
 void clj_verify_frame_slots(const clj_node *body, uint64_t *linked, uint64_t *captured, uint64_t *written);
+// A compiled frame's drop points, numbered as reuse.h's cljc_reuse_drops numbers them.
+typedef uint64_t (*clj_verify_drop_fn)(void *ctx, const clj_node *node, uint32_t at);
+// Forward, apart from the plan's backward pass: no read after a drop, no drop of a held or pinned slot.
+bool clj_verify_drops(const clj_node *body, uint64_t recur_slots, clj_verify_drop_fn drops, void *ctx, clj_verify_violation *out);
 
 #if CLJ_DEBUG
 #define CLJ_VERIFY_TREE(root, pass, flags) clj_verify_tree((root), (pass), (flags))

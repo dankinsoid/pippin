@@ -39,9 +39,13 @@ typedef struct cljc_reuse_plan cljc_reuse_plan;
 typedef uint64_t (*cljc_owned_positions)(void *ctx, const clj_node *invoke);
 
 // owned: slots holding nil or their own reference all frame long, the only ones a drop may move. positions: NULL
-// for no HAND pair; takes: whether TAKE pairs are planned. NULL: no pair.
+// for no HAND pair; takes: whether TAKE pairs are planned; drops: whether dead slots are dropped. NULL: no pair.
 cljc_reuse_plan       *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *facts, uint64_t owned, uint64_t recur_slots, bool takes,
-                                             cljc_owned_positions positions, void *ctx);
+                                             bool drops, cljc_owned_positions positions, void *ctx);
+// The owned slots released at a point of node because they die there, read last by a consumer that only borrowed:
+// at an IF's branch entry (at 0 then, 1 else), past a LET's or LOOP's binding i (at i, after its store) or its body
+// (at n, the bindings' count), past a DO's item i that is not its last, before a RECUR rebinds (at 0). 0 for none.
+uint64_t               cljc_reuse_drops(const cljc_reuse_plan *p, const clj_node *node, uint32_t at);
 // The TOKEN, CONSUME, TAKE or TAKEOUT pair at an INTRINSIC.
 const cljc_reuse_pair *cljc_reuse_at(const cljc_reuse_plan *p, uint32_t node);
 // The TAKEOUT pairs whose flag the node declares, one a call: *from starts at 0.

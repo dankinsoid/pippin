@@ -355,6 +355,7 @@ CLJC_INLINE clj_value clojure_string_text_a1_o1_i(clj_value self, const clj_valu
 	clj_release(t1);
 	clj_value t3;
 	if (t2) {
+	clj_c_rebind(&l0, CLJ_NIL);
 #line 17 "<embedded>/clojure/string.clj"
 	clj_value t4;
 	bool o5;
@@ -517,6 +518,7 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	clj_release(t3);
 	clj_value t5;
 	if (t4) {
+	clj_c_rebind(&l1, CLJ_NIL);
 	clj_value t6;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[8], &o7);
@@ -630,6 +632,7 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	t1 = t19;
 	}
 	clj_c_rebind(&l5, t1);
+	clj_c_rebind(&l1, CLJ_NIL);
 #line 24 "<embedded>/clojure/string.clj"
 	clj_value t22 = l4;
 	bool t23 = clj_truthy(t22);
@@ -674,6 +677,7 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	clj_release(t27);
 	clj_value t31;
 	if (t30) {
+	clj_c_rebind(&l6, CLJ_NIL);
 	clj_value t32;
 	bool o33;
 	clj_value t33 = clj_c_var_borrow(V[15], &o33);
@@ -724,6 +728,7 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	clj_value t43 = clj_retain(l7);
 	t42 = t43;
 	} else {
+	clj_c_rebind(&l7, CLJ_NIL);
 	clj_value t44 = l2;
 	clj_value a8[1] = {t44};
 	(void)a8;
@@ -740,6 +745,7 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	}
 	t42 = t45;
 	}
+	clj_c_rebind(&l7, CLJ_NIL);
 	bool t46 = clj_truthy(t42);
 	clj_release(t42);
 	clj_value t47;
@@ -818,6 +824,8 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	}
 	t57 = t58;
 	} else {
+	clj_c_rebind(&l5, CLJ_NIL);
+	clj_c_rebind(&l6, CLJ_NIL);
 #line 30 "<embedded>/clojure/string.clj"
 	clj_value t63;
 	bool o64;
@@ -889,6 +897,8 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	}
 	t47 = t57;
 	} else {
+	clj_c_rebind(&l5, CLJ_NIL);
+	clj_c_rebind(&l6, CLJ_NIL);
 #line 31 "<embedded>/clojure/string.clj"
 	clj_value t74;
 	bool o75;
@@ -1360,6 +1370,7 @@ CLJC_FRAME clj_value clojure_string_capitalize_a1_o1(clj_value self, const clj_v
 	clj_release(t3);
 	clj_value t5;
 	if (t4) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t6;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[8], &o7);
@@ -1473,6 +1484,7 @@ CLJC_FRAME clj_value clojure_string_capitalize_a1_o1(clj_value self, const clj_v
 	t1 = t19;
 	}
 	clj_c_rebind(&l1, t1);
+	clj_c_rebind(&l0, CLJ_NIL);
 #line 51 "<embedded>/clojure/string.clj"
 	clj_value t22 = l1;
 	clj_value a6[1] = {t22};
@@ -1732,6 +1744,7 @@ CLJC_FRAME clj_value clojure_string_upper_case_a1_o1(clj_value self, const clj_v
 	clj_release(t5);
 	clj_value t7;
 	if (t6) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t8;
 	bool o9;
 	clj_value t9 = clj_c_var_borrow(V[8], &o9);
@@ -1946,6 +1959,7 @@ CLJC_FRAME clj_value clojure_string_lower_case_a1_o1(clj_value self, const clj_v
 	clj_release(t5);
 	clj_value t7;
 	if (t6) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t8;
 	bool o9;
 	clj_value t9 = clj_c_var_borrow(V[8], &o9);
@@ -2619,6 +2633,7 @@ CLJC_FRAME clj_value clojure_string_trim_newline_a1_o1(clj_value self, const clj
 	clj_release(t3);
 	clj_value t5;
 	if (t4) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t6;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[8], &o7);
@@ -2732,6 +2747,7 @@ CLJC_FRAME clj_value clojure_string_trim_newline_a1_o1(clj_value self, const clj
 	t1 = t19;
 	}
 	clj_c_rebind(&l1, t1);
+	clj_c_rebind(&l0, CLJ_NIL);
 #line 76 "<embedded>/clojure/string.clj"
 	clj_value t22 = l1;
 	clj_value a5[1] = {t22};
@@ -2775,6 +2791,8 @@ L3: ;
 	clj_release(t25);
 	clj_value t28;
 	if (t27) {
+	clj_c_rebind(&l1, CLJ_NIL);
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t29 = clj_retain(K[79]);
 	t28 = t29;
 	} else {
@@ -2845,9 +2863,11 @@ L3: ;
 	(void)t39;
 	clj_value t41;
 	if (t40) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t42 = clj_retain(l4);
 	t41 = t42;
 	} else {
+	clj_c_rebind(&l4, CLJ_NIL);
 	clj_value t43 = l3;
 	clj_value t44 = K[81];
 	clj_value a11[2] = {t43, t44};
@@ -2866,6 +2886,8 @@ L3: ;
 	}
 	t41 = t45;
 	}
+	clj_c_rebind(&l3, CLJ_NIL);
+	clj_c_rebind(&l4, CLJ_NIL);
 	bool t46 = clj_truthy(t41);
 	clj_release(t41);
 	clj_value t47;
@@ -3476,6 +3498,7 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_release(t3);
 	clj_value t5;
 	if (t4) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t6;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[8], &o7);
@@ -3589,6 +3612,7 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	t1 = t19;
 	}
 	clj_c_rebind(&l2, t1);
+	clj_c_rebind(&l0, CLJ_NIL);
 #line 108 "<embedded>/clojure/string.clj"
 	clj_value t22 = l1;
 	clj_value a5[1] = {t22};
@@ -3737,6 +3761,7 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	(void)t44;
 	clj_value t46;
 	if (t45) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t47 = l1;
 	clj_value t48;
 	bool o49;
@@ -3789,6 +3814,7 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	}
 	t46 = t54;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t55 = l3;
 	l3 = CLJ_NIL;
 	t46 = t55;
@@ -3879,6 +3905,7 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_release(t3);
 	clj_value t5;
 	if (t4) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t6;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[8], &o7);
@@ -3992,6 +4019,7 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	t1 = t19;
 	}
 	clj_c_rebind(&l2, t1);
+	clj_c_rebind(&l0, CLJ_NIL);
 #line 115 "<embedded>/clojure/string.clj"
 	clj_value t22 = l1;
 	clj_value a5[1] = {t22};
@@ -4140,6 +4168,7 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	(void)t44;
 	clj_value t46;
 	if (t45) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t47 = l1;
 	clj_value t48;
 	bool o49;
@@ -4237,6 +4266,7 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	}
 	t46 = t59;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t60 = l3;
 	l3 = CLJ_NIL;
 	t46 = t60;

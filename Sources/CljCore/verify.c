@@ -635,6 +635,8 @@ typedef struct {
 	uint64_t  pinned; // read through the static link by a direct fn body
 	ltarget  *t;
 	uint64_t *any; // slots handed over anywhere in the innermost try body or handler
+	clj_verify_drop_fn drops; // NULL for the marks alone
+	void              *dctx;
 } lctx;
 
 static lstate join(lstate a, lstate b) {
@@ -646,6 +648,18 @@ static lstate join(lstate a, lstate b) {
 static const lstate no_way_out = {0, false};
 
 static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned);
+
+static lstate dropped(lctx *x, const clj_node *n, uint32_t at, lstate s) {
+	if (!x->drops || !s.reach) return s;
+	uint64_t d = x->drops(x->dctx, n, at);
+	if (d & (x->held | x->pinned)) {
+		bad(x->c, "verify/drop-of-held-slot", n, "a drop at point %u releases slots %#llx, which an earlier operand borrows or a direct fn body reads", at,
+		    (unsigned long long)(d & (x->held | x->pinned)));
+	}
+	s.dead |= d;
+	if (x->any) *x->any |= d;
+	return s;
+}
 
 // eval_all with borrowing: an operand read at +0 is used only once every later operand has run (optimizer.c, live_args).
 static lstate lv_operands(lctx *x, const clj_node *head, const clj_node *const *ops, uint32_t n, uint32_t owned, lstate s) {
@@ -667,6 +681,7 @@ static lstate lv_bindings(lctx *x, const clj_node *n, lstate s) {
 	for (uint32_t i = 0; i < n->u.let.n; i++) {
 		s = lv(x, n->u.let.inits[i], s, true);
 		s.dead &= ~bit(n->u.let.slots[i]);
+		s = dropped(x, n, i, s);
 	}
 	return s;
 }
@@ -717,7 +732,8 @@ static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned) {
 		uint32_t i = n->u.local.index;
 		uint64_t b = bit(i);
 		if (s.dead & b) {
-			bad(c, "verify/read-after-last-use", n, "slot %u is read after a last use handed its value over", i);
+			if (x->drops) bad(c, "verify/read-after-drop", n, "slot %u is read after a drop released it or a last use handed it over", i);
+			else bad(c, "verify/read-after-last-use", n, "slot %u is read after a last use handed its value over", i);
 			return s;
 		}
 		if (!n->u.local.last) return s;
@@ -742,23 +758,25 @@ static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned) {
 		return s;
 	case CLJ_NODE_IF: {
 		s = lv(x, n->u.if_.test, s, false);
-		lstate a = lv(x, n->u.if_.then, s, owned);
-		return join(a, n->u.if_.else_ ? lv(x, n->u.if_.else_, s, owned) : s);
+		lstate a = lv(x, n->u.if_.then, dropped(x, n, 0, s), owned);
+		lstate e = dropped(x, n, 1, s);
+		return join(a, n->u.if_.else_ ? lv(x, n->u.if_.else_, e, owned) : e);
 	}
 	case CLJ_NODE_DO: {
 		uint32_t last = n->u.seq.n - 1;
-		for (uint32_t i = 0; i < last; i++) s = lv(x, n->u.seq.items[i], s, false);
+		for (uint32_t i = 0; i < last; i++) s = dropped(x, n, i, lv(x, n->u.seq.items[i], s, false));
 		return lv(x, n->u.seq.items[last], s, owned);
 	}
-	case CLJ_NODE_LET: return lv(x, n->u.let.body, lv_bindings(x, n, s), owned);
+	case CLJ_NODE_LET: return dropped(x, n, n->u.let.n, lv(x, n->u.let.body, lv_bindings(x, n, s), owned));
 	case CLJ_NODE_LOOP: {
 		s = lv_bindings(x, n, s);
 		uint64_t slots = 0;
 		for (uint32_t i = 0; i < n->u.let.n; i++) slots |= bit(n->u.let.slots[i]);
-		return lv_target(x, n->u.let.body, slots, s.dead);
+		return dropped(x, n, n->u.let.n, lv_target(x, n->u.let.body, slots, s.dead));
 	}
 	case CLJ_NODE_RECUR:
 		for (uint32_t i = 0; i < n->u.recur.n; i++) s = lv(x, n->u.recur.args[i], s, true);
+		s = dropped(x, n, 0, s);
 		if (x->t) x->t->acc |= s.dead & ~x->t->slots;
 		return no_way_out;
 	case CLJ_NODE_INVOKE: return lv_operands(x, n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, 0, s);
@@ -796,8 +814,20 @@ static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned) {
 static void lv_frame(vctx *c, const clj_node *body, uint64_t recur_slots) {
 	uint64_t linked, captured, written;
 	clj_verify_frame_slots(body, &linked, &captured, &written);
-	lctx x = {c, 0, linked, NULL, NULL};
+	lctx x = {c, 0, linked, NULL, NULL, NULL, NULL};
 	lv_target(&x, body, recur_slots, 0);
+}
+
+bool clj_verify_drops(const clj_node *body, uint64_t recur_slots, clj_verify_drop_fn drops, void *ctx, clj_verify_violation *out) {
+	vctx c = {.out = out, .stack_limit = clj_stack_limit()};
+	out->kind = NULL;
+	out->at = NULL;
+	out->message[0] = '\0';
+	uint64_t linked, captured, written;
+	clj_verify_frame_slots(body, &linked, &captured, &written);
+	lctx x = {&c, 0, linked, NULL, NULL, drops, ctx};
+	lv_target(&x, body, recur_slots, 0);
+	return !c.failed;
 }
 
 static void lv_frames(const clj_node *n, void *ctx) {

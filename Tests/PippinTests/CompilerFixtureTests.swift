@@ -282,6 +282,29 @@ extension CoreTests {
 			}
 		}
 
+		// u held to its rebinding would leave the child at rc 2 for the update, which then copies both levels.
+		@Test func deadSlotIsDroppedBeforeTheUpdate() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.drop)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval(closed: true) {
+				_ = try cljEval("""
+				(defn dr-steps [n]
+				  (loop [i 0 st (hash-map :u (hash-map :a (vector 0))) acc 0]
+				    (if (< i n)
+				      (let [c (let [u (get st :u)] (if (nil? u) 0 (count (get u :a))))]
+				        (recur (inc i) (assoc st :u (let [m (get st :u)] (assoc m :a (conj (get m :a) i)))) (+ acc c)))
+				      [st acc])))
+				""")
+			}
+			let t0 = clj_debug_taken_out()
+			#expect(try cljEval("(dr-steps 3)") == cljEval("[{:u {:a [0 0 1 2]}} 6]"))
+			let t1 = clj_debug_taken_out()
+			if t0 >= 0 && clj_reuse_enabled() && clj_no_opt() & clj_no_opt_parse("owned,drop") == 0 {
+				#expect(t1 - t0 == 6, "taken out \(t1 - t0)")
+			}
+		}
+
 		// Step 1's accumulator is the var's, so only the later steps reach the cons at rc 1.
 		@Test func loweredReduceHandsTheAccumulatorOver() throws {
 			clj_init()

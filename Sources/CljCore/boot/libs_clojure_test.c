@@ -902,6 +902,7 @@ CLJC_FRAME clj_value clojure_test_testing_vars_str_a1_o1(clj_value self, const c
 	t4 = t8;
 	}
 	clj_c_rebind(&l2, t4);
+	clj_c_rebind(&l1, CLJ_NIL);
 	clj_value t9 = l2;
 	clj_value t10 = K[26];
 	clj_value a2[2] = {t9, t10};
@@ -936,6 +937,7 @@ CLJC_FRAME clj_value clojure_test_testing_vars_str_a1_o1(clj_value self, const c
 	goto L1;
 	}
 	clj_c_rebind(&l4, t14);
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 33 "<embedded>/clojure/test.clj"
 	clj_value t15;
 	bool o16;
@@ -1017,9 +1019,11 @@ CLJC_FRAME clj_value clojure_test_testing_vars_str_a1_o1(clj_value self, const c
 	clj_value t28 = clj_retain(l5);
 	t27 = t28;
 	} else {
+	clj_c_rebind(&l5, CLJ_NIL);
 	clj_value t29 = clj_retain(K[30]);
 	t27 = t29;
 	}
+	clj_c_rebind(&l5, CLJ_NIL);
 #line 33 "<embedded>/clojure/test.clj"
 	clj_value t30 = K[31];
 	clj_value t31 = l4;
@@ -1394,9 +1398,11 @@ static clj_value top_15(void) {
 	clj_release(t2);
 	clj_value t6;
 	if (t5) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t7 = clj_retain(K[3]);
 	t6 = t7;
 	} else {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t8;
 	bool o9 = false;
 	clj_value t9 = CLJ_NIL;
@@ -1612,6 +1618,7 @@ CLJC_FRAME clj_value clojure_test_print_trace_a1(clj_value self, const clj_value
 	goto L1;
 	}
 	clj_c_rebind(&l3, t15);
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_shadow_stack *tk3 = clj_c_tick_ring();
 L3: ;
 	clj_value t16 = l3;
@@ -1665,9 +1672,11 @@ L3: ;
 	clj_value t30 = clj_retain(l5);
 	t29 = t30;
 	} else {
+	clj_c_rebind(&l5, CLJ_NIL);
 	clj_value t31 = clj_retain(K[53]);
 	t29 = t31;
 	}
+	clj_c_rebind(&l5, CLJ_NIL);
 	clj_value t32;
 	bool o33;
 	clj_value t33 = clj_c_var_borrow(V[18], &o33);
@@ -1738,6 +1747,7 @@ L3: ;
 	goto L1;
 	}
 	clj_release(t21);
+	clj_c_rebind(&l4, CLJ_NIL);
 #line 53 "<embedded>/clojure/test.clj"
 	clj_value t43 = l3;
 	l3 = CLJ_NIL;
@@ -1764,10 +1774,12 @@ L3: ;
 	clj_value t45 = CLJ_NIL;
 	t18 = t45;
 	} else {
+	clj_c_rebind(&l3, CLJ_NIL);
 	t18 = CLJ_NIL;
 	}
 	t5 = t18;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	t5 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[5], &cc);
@@ -2251,8 +2263,10 @@ static CLJC_FRAME clj_value clojure_test_form21__0_a1(clj_value self, const clj_
 	if (t24 == CLJ_THROWN) {
 	goto L1;
 	}
+	clj_c_rebind(&l2, CLJ_NIL);
 	t22 = t24;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	t22 = CLJ_NIL;
 	}
 	clj_release(t22);
@@ -2653,8 +2667,10 @@ static CLJC_FRAME clj_value clojure_test_form23__0_a1(clj_value self, const clj_
 	if (t24 == CLJ_THROWN) {
 	goto L1;
 	}
+	clj_c_rebind(&l2, CLJ_NIL);
 	t22 = t24;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	t22 = CLJ_NIL;
 	}
 	clj_release(t22);
@@ -3602,6 +3618,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	l1 = CLJ_NIL;
 	t9 = t10;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	clj_value t11 = K[105];
 	clj_value t12;
 	clj_value t13 = K[104];
@@ -3639,6 +3656,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	(void)t16;
 	clj_value t18;
 	if (t17) {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t19;
 	clj_value t20 = K[106];
 	clj_value t21 = l0;
@@ -3671,6 +3689,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	clj_value t23 = clj_retain(l2);
 	t18 = t23;
 	}
+	clj_c_rebind(&l2, CLJ_NIL);
 	bool t24 = clj_truthy(t18);
 	clj_release(t18);
 	clj_value t25;
@@ -3720,9 +3739,11 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	(void)t31;
 	clj_value t33;
 	if (t32) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t34 = clj_retain(l4);
 	t33 = t34;
 	} else {
+	clj_c_rebind(&l4, CLJ_NIL);
 	clj_value t35 = K[107];
 	clj_value t36;
 	clj_value t37 = K[107];
@@ -3812,6 +3833,8 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	}
 	t33 = t47;
 	}
+	clj_c_rebind(&l3, CLJ_NIL);
+	clj_c_rebind(&l4, CLJ_NIL);
 	clj_value t48 = l0;
 	clj_value a8[2] = {t33, t48};
 	(void)a8;
@@ -3966,6 +3989,7 @@ CLJC_FRAME clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_v
 	(void)t14;
 	clj_value t16;
 	if (t15) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t17;
 	clj_value t18 = K[111];
 	clj_value t19;
@@ -4013,6 +4037,7 @@ CLJC_FRAME clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_v
 	(void)t23;
 	clj_value t25;
 	if (t24) {
+	clj_c_rebind(&l4, CLJ_NIL);
 	clj_value t26;
 	bool o27;
 	clj_value t27 = clj_c_var_borrow(V[56], &o27);
@@ -4045,18 +4070,21 @@ CLJC_FRAME clj_value clojure_test_function_QMARK__a1(clj_value self, const clj_v
 	}
 	t25 = t29;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t30 = l4;
 	l4 = CLJ_NIL;
 	t25 = t30;
 	}
 	t16 = t25;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t31 = l3;
 	l3 = CLJ_NIL;
 	t16 = t31;
 	}
 	t9 = t16;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	t9 = CLJ_NIL;
 	}
 	t3 = t9;
@@ -10647,9 +10675,11 @@ static clj_value top_39(void) {
 	clj_release(t2);
 	clj_value t6;
 	if (t5) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t7 = clj_retain(K[3]);
 	t6 = t7;
 	} else {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t8;
 	bool o9 = false;
 	clj_value t9 = CLJ_NIL;
@@ -11178,6 +11208,7 @@ static CLJC_FRAME clj_value clojure_test_form42__0_a2(clj_value self, const clj_
 	(void)t2;
 	clj_value t4;
 	if (t3) {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t5;
 	bool o6 = false;
 	clj_value t6 = CLJ_NIL;
@@ -11224,6 +11255,7 @@ static CLJC_FRAME clj_value clojure_test_form42__0_a2(clj_value self, const clj_
 	clj_value t9 = clj_retain(l2);
 	t4 = t9;
 	}
+	clj_c_rebind(&l2, CLJ_NIL);
 	bool t10 = clj_truthy(t4);
 	clj_release(t4);
 	clj_value t11;
@@ -24171,6 +24203,7 @@ CLJC_FRAME clj_value clojure_test_is_a4(clj_value self, const clj_value *capture
 	t6 = t10;
 	}
 	clj_c_rebind(&l5, t6);
+	clj_c_rebind(&l4, CLJ_NIL);
 	clj_value t11 = l5;
 	clj_value t12 = K[251];
 	clj_value a3[2] = {t11, t12};
@@ -24205,6 +24238,7 @@ CLJC_FRAME clj_value clojure_test_is_a4(clj_value self, const clj_value *capture
 	goto L1;
 	}
 	clj_c_rebind(&l7, t16);
+	clj_c_rebind(&l5, CLJ_NIL);
 	clj_value t17;
 	bool o18;
 	clj_value t18 = clj_c_var_borrow(V[13], &o18);
@@ -25058,6 +25092,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)t2;
 	clj_value t4;
 	if (t3) {
+	clj_c_rebind(&l5, CLJ_NIL);
 	clj_value t5 = l4;
 	clj_value a1[1] = {t5};
 	(void)a1;
@@ -25088,6 +25123,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	clj_value t11 = clj_retain(l6);
 	t10 = t11;
 	} else {
+	clj_c_rebind(&l6, CLJ_NIL);
 #line 211 "<embedded>/clojure/test.clj"
 	clj_value t12 = l2;
 	clj_value a3[1] = {t12};
@@ -25129,6 +25165,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)t16;
 	clj_value t18;
 	if (t17) {
+	clj_c_rebind(&l7, CLJ_NIL);
 #line 212 "<embedded>/clojure/test.clj"
 	clj_value t19 = l4;
 	clj_value a5[1] = {t19};
@@ -25170,6 +25207,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	(void)t23;
 	clj_value t25;
 	if (t24) {
+	clj_c_rebind(&l8, CLJ_NIL);
 #line 213 "<embedded>/clojure/test.clj"
 	clj_value t26;
 	bool o27 = false;
@@ -25254,13 +25292,16 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	clj_value t34 = clj_retain(l8);
 	t25 = t34;
 	}
+	clj_c_rebind(&l8, CLJ_NIL);
 	t18 = t25;
 	} else {
 	clj_value t35 = clj_retain(l7);
 	t18 = t35;
 	}
+	clj_c_rebind(&l7, CLJ_NIL);
 	t10 = t18;
 	}
+	clj_c_rebind(&l6, CLJ_NIL);
 	bool t36 = clj_truthy(t10);
 	clj_release(t10);
 	clj_value t37;
@@ -25470,6 +25511,7 @@ CLJC_FRAME clj_value clojure_test_are_v4(clj_value self, const clj_value *captur
 	}
 	t37 = t58;
 	} else {
+	clj_c_rebind(&l4, CLJ_NIL);
 #line 215 "<embedded>/clojure/test.clj"
 	clj_value t59;
 	bool o60;
@@ -26538,6 +26580,7 @@ CLJC_FRAME clj_value clojure_test_with_test_v3(clj_value self, const clj_value *
 	}
 	t2 = t42;
 	} else {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t43 = clj_retain(l2);
 	t2 = t43;
 	}
@@ -27488,6 +27531,7 @@ CLJC_FRAME clj_value clojure_test_deftest_v3(clj_value self, const clj_value *ca
 	}
 	t2 = t65;
 	} else {
+	clj_c_rebind(&l3, CLJ_NIL);
 	t2 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[30], &cc);
@@ -28441,6 +28485,7 @@ CLJC_FRAME clj_value clojure_test_deftest__v3(clj_value self, const clj_value *c
 	}
 	t2 = t67;
 	} else {
+	clj_c_rebind(&l3, CLJ_NIL);
 	t2 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[31], &cc);
@@ -28990,6 +29035,7 @@ CLJC_FRAME clj_value clojure_test_set_test_v3(clj_value self, const clj_value *c
 	}
 	t2 = t42;
 	} else {
+	clj_c_rebind(&l3, CLJ_NIL);
 	t2 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[32], &cc);
@@ -29124,9 +29170,11 @@ static clj_value top_59(void) {
 	clj_release(t2);
 	clj_value t6;
 	if (t5) {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t7 = clj_retain(K[3]);
 	t6 = t7;
 	} else {
+	clj_c_rebind(&l0, CLJ_NIL);
 	clj_value t8;
 	bool o9 = false;
 	clj_value t9 = CLJ_NIL;
@@ -30235,6 +30283,8 @@ L8: ;
 	goto L3;
 	}
 	clj_release(t42);
+	clj_c_rebind(&l2, CLJ_NIL);
+	clj_c_rebind(&l3, CLJ_NIL);
 #line 297 "<embedded>/clojure/test.clj"
 	clj_value t43;
 	bool o44 = false;
@@ -30316,6 +30366,7 @@ L10: ;
 	}
 	t7 = t52;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	t7 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[42], &cc);
@@ -30536,6 +30587,7 @@ L3: ;
 	clj_value t19 = CLJ_NIL;
 	t4 = t19;
 	} else {
+	clj_c_rebind(&l0, CLJ_NIL);
 	t4 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[46], &cc);
@@ -30717,6 +30769,7 @@ L3: ;
 	goto L1;
 	}
 	clj_c_set(&fr, 4, t20);
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 304 "<embedded>/clojure/test.clj"
 	clj_value t21;
 	bool o22;
@@ -30757,6 +30810,7 @@ L3: ;
 	goto L1;
 	}
 	clj_c_rebind(&l5, t25);
+	clj_c_rebind(&l3, CLJ_NIL);
 #line 305 "<embedded>/clojure/test.clj"
 #ifdef CLJC_INL_clojure_test_join_fixtures_a1
 	bool t26 = true;
@@ -30812,6 +30866,7 @@ L3: ;
 	if (t31 == CLJ_THROWN) {
 	goto L1;
 	}
+	clj_c_rebind(&l8, CLJ_NIL);
 	t27 = t31;
 	} else {
 	clj_value t36;
@@ -30877,6 +30932,7 @@ L3: ;
 	goto L1;
 	}
 	clj_c_rebind(&l8, t43);
+	clj_c_rebind(&l5, CLJ_NIL);
 	clj_value t46;
 	bool o47;
 	clj_value t47 = clj_c_var_borrow(V[92], &o47);
@@ -30911,6 +30967,7 @@ L3: ;
 	if (t46 == CLJ_THROWN) {
 	goto L1;
 	}
+	clj_c_rebind(&l8, CLJ_NIL);
 	t42 = t46;
 	} else {
 	clj_value t51;
@@ -30955,6 +31012,7 @@ L3: ;
 	t42 = t51;
 	}
 	clj_c_set(&fr, 7, t42);
+	clj_c_rebind(&l5, CLJ_NIL);
 #line 307 "<embedded>/clojure/test.clj"
 	clj_value t56;
 	clj_value t57 = l6;
@@ -30970,6 +31028,7 @@ L3: ;
 	if (t56 == CLJ_THROWN) {
 	goto L1;
 	}
+	clj_c_rebind(&l6, CLJ_NIL);
 	clj_release(t56);
 #line 303 "<embedded>/clojure/test.clj"
 	clj_value t59 = l1;
@@ -30997,6 +31056,7 @@ L3: ;
 	clj_value t61 = CLJ_NIL;
 	t10 = t61;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	t10 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[43], &cc);
@@ -31098,6 +31158,7 @@ CLJC_INLINE clj_value clojure_test_test_all_vars__0_a1_i(clj_value self, const c
 	l1 = CLJ_NIL;
 	t7 = t8;
 	} else {
+	clj_c_rebind(&l1, CLJ_NIL);
 	clj_value t9 = clj_retain(K[40]);
 	t7 = t9;
 	}
@@ -31491,8 +31552,10 @@ CLJC_FRAME clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *ca
 	if (t28 == CLJ_THROWN) {
 	goto L3;
 	}
+	clj_c_rebind(&l3, CLJ_NIL);
 	t26 = t28;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 327 "<embedded>/clojure/test.clj"
 	clj_value t32;
 	bool o33 = false;
@@ -31568,6 +31631,7 @@ CLJC_FRAME clj_value clojure_test_test_ns_a1(clj_value self, const clj_value *ca
 	if (t35 == CLJ_THROWN) {
 	goto L3;
 	}
+	clj_c_rebind(&l1, CLJ_NIL);
 	clj_release(t35);
 #line 322 "<embedded>/clojure/test.clj"
 	clj_value t42;
@@ -31814,6 +31878,7 @@ CLJC_FRAME clj_value clojure_test_run_tests_v0(clj_value self, const clj_value *
 	goto L1;
 	}
 	clj_c_rebind(&l1, t10);
+	clj_c_rebind(&l0, CLJ_NIL);
 #line 338 "<embedded>/clojure/test.clj"
 	clj_value t11;
 	bool o12 = false;
@@ -32539,6 +32604,7 @@ CLJC_FRAME clj_value clojure_test_run_test_a3(clj_value self, const clj_value *c
 	clj_release(t4);
 	clj_value t6;
 	if (t5) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t7;
 	bool o8;
 	clj_value t8 = clj_c_var_borrow(V[77], &o8);
@@ -32634,6 +32700,7 @@ CLJC_FRAME clj_value clojure_test_run_test_a3(clj_value self, const clj_value *c
 	clj_release(t21);
 	clj_value t23;
 	if (t22) {
+	clj_c_rebind(&l3, CLJ_NIL);
 	clj_value t24;
 	bool o25;
 	clj_value t25 = clj_c_var_borrow(V[77], &o25);
@@ -32847,6 +32914,7 @@ CLJC_INLINE clj_value clojure_test_successful_QMARK__a1_i(clj_value self, const 
 	(void)t5;
 	clj_value t7;
 	if (t6) {
+	clj_c_rebind(&l1, CLJ_NIL);
 #line 371 "<embedded>/clojure/test.clj"
 	clj_value t8;
 	clj_value t9 = K[390];

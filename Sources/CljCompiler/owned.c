@@ -250,7 +250,7 @@ uint64_t cljc_owned_literal(const clj_node *fn, const clj_fn_arity *a, const clj
 	if (!cand) return 0;
 	uint64_t reads = 0;
 	last_reads(a->body, &reads);
-	cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | let_slots(a), param_slots(a), true, positions, ctx);
+	cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | let_slots(a), param_slots(a), true, false, positions, ctx);
 	uint64_t         paired = 0;
 	for (size_t i = 0; i < cljc_reuse_count(plan); i++) paired |= bit(cljc_reuse_pair_at(plan, i)->slot);
 	cljc_reuse_plan_free(plan);
@@ -274,7 +274,7 @@ void cljc_owned_scan(cljc_owned *o, const clj_node *root, const clj_facts *facts
 		uint64_t reads = 0;
 		last_reads(a->body, &reads);
 		scan_ctx         sc = {o, e->order, NULL, 0, 0};
-		cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | let_slots(a), param_slots(a), true, scan_positions, &sc);
+		cljc_reuse_plan *plan = cljc_reuse_plan_frame(a->body, facts, cand | let_slots(a), param_slots(a), true, false, scan_positions, &sc);
 		uint64_t         paired = 0;
 		for (size_t i = 0; i < cljc_reuse_count(plan); i++) {
 			const cljc_reuse_pair *p = cljc_reuse_pair_at(plan, i);

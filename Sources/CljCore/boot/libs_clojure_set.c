@@ -661,6 +661,7 @@ CLJC_FRAME clj_value clojure_set_union_v2(clj_value self, const clj_value *captu
 	goto L1;
 	}
 	clj_c_rebind(&l3, t0);
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 20 "<embedded>/clojure/set.clj"
 	clj_value t8;
 	bool o9;
@@ -1139,6 +1140,7 @@ CLJC_FRAME clj_value clojure_set_intersection_v2(clj_value self, const clj_value
 	goto L1;
 	}
 	clj_c_rebind(&l3, t0);
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 35 "<embedded>/clojure/set.clj"
 	clj_value t8;
 	bool o9;
@@ -2019,6 +2021,7 @@ CLJC_INLINE clj_value clojure_set_rename_keys__0_a2_o1_i(clj_value self, const c
 	goto L1;
 	}
 	clj_c_rebind(&l4, t8);
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 67 "<embedded>/clojure/set.clj"
 	clj_value t9 = fr.captured[0];
 	clj_value t10 = l3;
@@ -2078,6 +2081,8 @@ CLJC_INLINE clj_value clojure_set_rename_keys__0_a2_o1_i(clj_value self, const c
 	}
 	t13 = t19;
 	} else {
+	clj_c_rebind(&l3, CLJ_NIL);
+	clj_c_rebind(&l4, CLJ_NIL);
 #line 67 "<embedded>/clojure/set.clj"
 	clj_value t20 = l0;
 	l0 = CLJ_NIL;
@@ -2802,6 +2807,7 @@ CLJC_INLINE clj_value clojure_set_map_invert__0_a2_o1_i(clj_value self, const cl
 	goto L1;
 	}
 	clj_c_rebind(&l4, t8);
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t9 = l0;
 	l0 = CLJ_NIL;
 	clj_value t10 = l4;
@@ -3129,6 +3135,7 @@ static CLJC_FRAME clj_value clojure_set_join__0_a2_o1(clj_value self, const clj_
 	}
 	t8 = t10;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 104 "<embedded>/clojure/set.clj"
 	clj_value t19 = l0;
 	l0 = CLJ_NIL;
@@ -3200,6 +3207,7 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	(void)t2;
 	clj_value t4;
 	if (t3) {
+	clj_c_rebind(&l2, CLJ_NIL);
 	clj_value t5 = l1;
 	clj_value a1[1] = {t5};
 	(void)a1;
@@ -3219,6 +3227,7 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	clj_value t7 = clj_retain(l2);
 	t4 = t7;
 	}
+	clj_c_rebind(&l2, CLJ_NIL);
 	bool t8 = clj_truthy(t4);
 	clj_release(t4);
 	clj_value t9;
@@ -3520,6 +3529,7 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	goto L1;
 	}
 	clj_c_rebind(&l6, t46);
+	clj_c_rebind(&l4, CLJ_NIL);
 #line 101 "<embedded>/clojure/set.clj"
 	clj_value t47;
 	bool o48 = false;
@@ -3551,6 +3561,7 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	goto L1;
 	}
 	clj_c_set(&fr, 7, t47);
+	clj_c_rebind(&l5, CLJ_NIL);
 #line 102 "<embedded>/clojure/set.clj"
 	bool t51 = CLJC_LOWERED(V[11], 0);
 	clj_value t52;
@@ -3864,6 +3875,7 @@ static CLJC_FRAME clj_value clojure_set_join__4_a2_o1(clj_value self, const clj_
 	}
 	t13 = t15;
 	} else {
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 116 "<embedded>/clojure/set.clj"
 	clj_value t24 = l0;
 	l0 = CLJ_NIL;
@@ -4088,6 +4100,7 @@ CLJC_FRAME clj_value clojure_set_join_a3(clj_value self, const clj_value *captur
 	goto L1;
 	}
 	clj_c_set(&fr, 6, t30);
+	clj_c_rebind(&l3, CLJ_NIL);
 #line 113 "<embedded>/clojure/set.clj"
 	clj_value t31;
 	bool o32 = false;
@@ -4147,6 +4160,7 @@ CLJC_FRAME clj_value clojure_set_join_a3(clj_value self, const clj_value *captur
 	goto L1;
 	}
 	clj_c_set(&fr, 7, t31);
+	clj_c_rebind(&l4, CLJ_NIL);
 #line 114 "<embedded>/clojure/set.clj"
 	bool t37 = CLJC_LOWERED(V[11], 0);
 	clj_value t38;
@@ -4350,6 +4364,7 @@ CLJC_FRAME clj_value clojure_set_subset_QMARK__a2(clj_value self, const clj_valu
 	(void)t7;
 	clj_value t9;
 	if (t8) {
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 125 "<embedded>/clojure/set.clj"
 	clj_value t11;
 	bool o12 = false;
@@ -4548,6 +4563,7 @@ CLJC_FRAME clj_value clojure_set_superset_QMARK__a2(clj_value self, const clj_va
 	(void)t7;
 	clj_value t9;
 	if (t8) {
+	clj_c_rebind(&l2, CLJ_NIL);
 #line 131 "<embedded>/clojure/set.clj"
 	clj_value t11;
 	bool o12 = false;

@@ -629,6 +629,8 @@ static uint32_t facts_frame(const clj_facts *facts, const clj_node *owner, const
 }
 
 #if CLJ_DEBUG
+static uint64_t plan_drops(void *plan, const clj_node *n, uint32_t at) { return cljc_reuse_drops(plan, n, at); }
+
 // The plan against the frame, re-derived apart from pin_walk: what emit_set, check_array_slot and the typed reads
 // assume of it (NOTES "Tree verifier").
 static void verify_slot_plan(const fnctx *f, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
@@ -646,6 +648,11 @@ static void verify_slot_plan(const fnctx *f, const clj_fn_arity *a, bool closure
 	else if (f->owned_params & (f->borrowed | typed | ~params | (closure ? 0 : ~(uint64_t)0))) what = "an owned parameter that is borrowed, typed, no parameter, or of a frame without an owned entry";
 	if (what) clj_ice("verify/slot-plan", body, "%s (promoted %#llx, borrowed %#llx, typed %#llx); the plan as emit/slots left it", what,
 	                  (unsigned long long)f->promoted, (unsigned long long)f->borrowed, (unsigned long long)typed);
+	if (!f->reuse) return;
+	uint32_t             nrecur = a ? a->nparams + (a->variadic ? 1 : 0) : 0;
+	clj_verify_violation v;
+	if (!clj_verify_drops(body, nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1, plan_drops, f->reuse, &v))
+		clj_ice(v.kind, v.at, "%s; the drops as reuse.c planned them", v.message);
 }
 #endif
 
@@ -702,7 +709,8 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 	uint32_t nrecur = a ? a->nparams + (a->variadic ? 1 : 0) : 0;
 	cljc_reuse_plan_free(f->reuse);
 	f->reuse = cljc_reuse_plan_frame(body, f->facts, f->promoted & ~f->borrowed & ~f->ints & ~f->dbls,
-	                                 nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1, !clj_opt_off(CLJ_NO_OPT_OWNED), owned_positions, f);
+	                                 nrecur >= 64 ? UINT64_MAX : ((uint64_t)1 << nrecur) - 1, !clj_opt_off(CLJ_NO_OPT_OWNED), !clj_opt_off(CLJ_NO_OPT_DROP),
+	                                 owned_positions, f);
 #if CLJ_DEBUG
 	verify_slot_plan(f, a, closure, body, nslots);
 #endif
@@ -1010,6 +1018,17 @@ static void emit_set(fnctx *f, uint32_t slot, const char *value) {
 	if (slot_kind(f, slot) != UK_NONE) clj_ice("emit/typed-slot-boxed", NULL, "typed slot %u takes a boxed value", slot);
 	if (promoted(f, slot)) sb_printf(&f->out, "\tclj_c_rebind(&l%u, %s);\n", slot, value);
 	else sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, slot, value);
+}
+
+// A split's fast branch types more slots than the plan saw: those hold no reference.
+static void emit_drops(fnctx *f, const clj_node *n, uint32_t at) {
+	for (uint64_t m = cljc_reuse_drops(f->reuse, n, at); m; m &= m - 1) {
+		uint32_t s = (uint32_t)__builtin_ctzll(m);
+		if (!promoted(f, s) || borrowed_slot(f, s)) clj_ice("emit/drop-slot", n, "a drop of slot %u, which the frame does not own as a C variable", s);
+		if (slot_kind(f, s) != UK_NONE) continue;
+		sb_printf(&f->out, "\tclj_c_rebind(&l%u, CLJ_NIL);\n", s);
+		f->u->slots.drops++;
+	}
 }
 
 // An unboxed temp: an int64_t or a double.
@@ -1467,9 +1486,11 @@ static temp emit_if(fnctx *f, const clj_node *n) {
 	release_temp(f, &test);
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
+	emit_drops(f, n, 0);
 	temp then = emit(f, n->u.if_.then);
 	sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, then.name);
 	live_forget(f, &then);
+	emit_drops(f, n, 1);
 	if (n->u.if_.else_) {
 		temp e = emit(f, n->u.if_.else_);
 		sb_printf(&f->out, "\t%s = %s;\n", r.name, e.name);
@@ -1491,6 +1512,7 @@ static temp emit_do(fnctx *f, const clj_node *n) {
 	for (uint32_t i = 0; i + 1 < n->u.seq.n; i++) {
 		temp t = emit_borrowed(f, n->u.seq.items[i]);
 		release_temp(f, &t);
+		emit_drops(f, n, i);
 	}
 	return emit(f, n->u.seq.items[n->u.seq.n - 1]);
 }
@@ -1533,16 +1555,15 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 			}
 			// a promoted slot of a direct fn starts at nil and is never rebound
 			if (!promoted(f, n->u.let.slots[i])) emit_set(f, n->u.let.slots[i], "CLJ_NIL");
-			continue;
-		}
-		if (slot_kind(f, n->u.let.slots[i]) != UK_NONE) {
+		} else if (slot_kind(f, n->u.let.slots[i]) != UK_NONE) {
 			itemp t = emit_raw(f, init);
 			sb_printf(&f->out, "\tl%u = %s;\n", n->u.let.slots[i], t.name);
-			continue;
+		} else {
+			temp t = emit(f, init);
+			emit_set(f, n->u.let.slots[i], t.name);
+			live_forget(f, &t);
 		}
-		temp t = emit(f, init);
-		emit_set(f, n->u.let.slots[i], t.name);
-		live_forget(f, &t);
+		emit_drops(f, n, i);
 	}
 }
 
@@ -1593,14 +1614,17 @@ static temp emit_split(fnctx *f, const clj_node *n, uint64_t checked, uint64_t i
 
 static temp emit_let(fnctx *f, const clj_node *n) {
 	emit_bindings(f, n);
-	return emit(f, n->u.let.body);
+	temp r = emit(f, n->u.let.body);
+	emit_drops(f, n, n->u.let.n);
+	return r;
 }
 
 static temp emit_loop(fnctx *f, const clj_node *n) {
 	emit_bindings(f, n);
 	uint64_t checked, ints, dbls;
-	if (select_split(f, n, &checked, &ints, &dbls)) return emit_split(f, n, checked, ints, dbls);
-	return emit_loop_body(f, n);
+	temp     r = select_split(f, n, &checked, &ints, &dbls) ? emit_split(f, n, checked, ints, dbls) : emit_loop_body(f, n);
+	emit_drops(f, n, n->u.let.n);
+	return r;
 }
 
 static temp emit_loop_body(fnctx *f, const clj_node *n) {
@@ -1640,6 +1664,7 @@ static temp emit_recur(fnctx *f, const clj_node *n) {
 			vals[i] = emit(f, n->u.recur.args[i]);
 		}
 	}
+	emit_drops(f, n, 0);
 	for (uint32_t i = 0; i < n->u.recur.n; i++) {
 		if (slot_kind(f, n->u.recur.slots[i]) != UK_NONE) {
 			sb_printf(&f->out, "\tl%u = %s;\n", n->u.recur.slots[i], vals[i].name);
@@ -3239,9 +3264,11 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	}
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
+	emit_drops(f, n, 0);
 	temp then = emit(f, n->u.if_.then);
 	sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, then.name);
 	live_forget(f, &then);
+	emit_drops(f, n, 1);
 	temp e = emit(f, call);
 	sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, e.name);
 	live_forget(f, &e);
@@ -3485,8 +3512,10 @@ static itemp emit_result(fnctx *f, const clj_node *n, ukind k) {
 		release_temp(f, &test);
 		itemp r = new_itemp(f, k);
 		sb_printf(&f->out, "\t%s %s;\n\tif (%s) {\n", ctype(k), r.name, b.name);
+		emit_drops(f, n, 0);
 		itemp x = emit_result(f, n->u.if_.then, k);
 		sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, x.name);
+		emit_drops(f, n, 1);
 		itemp y = emit_result(f, n->u.if_.else_, k);
 		sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, y.name);
 		return r;
@@ -3496,11 +3525,15 @@ static itemp emit_result(fnctx *f, const clj_node *n, ukind k) {
 		for (uint32_t i = 0; i + 1 < n->u.seq.n; i++) {
 			temp t = emit_borrowed(f, n->u.seq.items[i]);
 			release_temp(f, &t);
+			emit_drops(f, n, i);
 		}
 		return emit_result(f, n->u.seq.items[n->u.seq.n - 1], k);
-	case CLJ_NODE_LET:
+	case CLJ_NODE_LET: {
 		emit_bindings(f, n);
-		return emit_result(f, n->u.let.body, k);
+		itemp r = emit_result(f, n->u.let.body, k);
+		emit_drops(f, n, n->u.let.n);
+		return r;
+	}
 	default: break;
 	}
 	return emit_unbox(f, emit(f, n), k);

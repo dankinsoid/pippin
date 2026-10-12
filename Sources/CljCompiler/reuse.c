@@ -10,9 +10,16 @@
 
 // optimizer.c's liveness again: its marks name only reads a consumer owns, a pair needs the set after any node.
 
+typedef struct {
+	uint32_t node, at;
+	uint64_t slots;
+} drop_site;
+
 struct cljc_reuse_plan {
 	cljc_reuse_pair *pairs;
 	size_t           n, cap;
+	drop_site       *drops; // by node, then at
+	size_t           ndrops;
 };
 
 typedef struct {
@@ -55,6 +62,11 @@ typedef struct {
 	bool             late;      // TAKE pairs
 	cljc_owned_positions positions; // HAND pairs, NULL for none
 	void                *pctx;
+	bool       drops;
+	bool       tail;  // only the frame's exit runs after the node
+	uint64_t   loose; // died under the node at a borrowing read, and no point inside it dropped them
+	drop_site *dropv;
+	size_t     ndropv, cdropv;
 } ctx;
 
 static uint64_t slot_bit(uint32_t slot) { return slot < 64 ? (uint64_t)1 << slot : 0; }
@@ -376,6 +388,31 @@ static void decide(ctx *c, cljc_reuse_plan *p) {
 }
 
 static uint64_t live(const clj_node *n, uint64_t out, ctx *c);
+static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail);
+
+static bool dropping(const ctx *c) { return c->mark && c->drops; }
+
+// A read after which the slot is dead and which leaves the value in it.
+static void note_death(ctx *c, uint32_t slot, uint64_t out) {
+	uint64_t b = slot_bit(slot);
+	if (dropping(c) && !(out & b)) c->loose |= b & c->owned;
+}
+
+// A pending operand's read of a slot lasts until its call: such a slot is left to a point after the call.
+static uint64_t drop_at(ctx *c, const clj_node *n, uint32_t at, uint64_t dying) {
+	uint64_t d = dying & c->owned & ~c->held;
+	if (d) {
+		c->dropv = grow(c->dropv, &c->cdropv, c->ndropv, sizeof *c->dropv);
+		c->dropv[c->ndropv++] = (drop_site){n->id, at, d};
+	}
+	return dying & c->owned & ~d;
+}
+
+// A slot a call takes (a late take, a hand-over, a consumed next or rest) leaves nothing to drop.
+static void taken_since(ctx *c, size_t takes, size_t consumes) {
+	for (size_t i = takes; i < c->ntakes; i++) c->loose &= ~slot_bit(c->takes[i].slot);
+	for (size_t i = consumes; i < c->nconsumes; i++) c->loose &= ~slot_bit(c->consumes[i].slot);
+}
 
 static uint64_t live_seq(const clj_node *const *nodes, uint32_t n, uint64_t out, ctx *c) {
 	while (n-- > 0) out = live(nodes[n], out, c);
@@ -406,7 +443,7 @@ static uint64_t live_args(const clj_node *head, const clj_node *const *nodes, ui
 	return head ? live(head, out, c) : out;
 }
 
-static uint64_t live_fixpoint(const clj_node *body, uint64_t out, target *t, ctx *c) {
+static uint64_t live_fixpoint(const clj_node *body, uint64_t out, target *t, ctx *c, bool tail) {
 	target *saved = c->recur;
 	bool    mark = c->mark;
 	c->recur = t;
@@ -417,54 +454,122 @@ static uint64_t live_fixpoint(const clj_node *body, uint64_t out, target *t, ctx
 		t->body_in = in;
 	}
 	c->mark = mark;
-	uint64_t in = mark ? live(body, out, c) : t->body_in;
+	uint64_t in = mark ? live_tail(body, out, c, tail) : t->body_in;
 	c->recur = saved;
 	return in;
 }
 
-static uint64_t live_bindings(const clj_node *n, uint64_t in, ctx *c) {
+// dying: what died in the body and its end left. A binding's own slot that nothing after it reads dies at its store.
+static uint64_t live_bindings(const clj_node *n, uint64_t in, ctx *c, uint64_t dying) {
 	for (uint32_t i = n->u.let.n; i-- > 0;) {
-		in &= ~slot_bit(n->u.let.slots[i]);
+		uint64_t b = slot_bit(n->u.let.slots[i]);
+		// a direct fn's slot holds nil: its arities are reached by name
+		uint64_t self = dropping(c) && !(in & b) && n->u.let.inits[i]->kind != CLJ_NODE_DIRECT_FN ? b & c->owned : 0;
+		in &= ~b;
+		uint64_t loose = c->loose;
+		c->loose = 0;
 		in = live(n->u.let.inits[i], in, c);
+		uint64_t died = c->loose | self;
+		c->loose = loose;
+		dying |= dropping(c) ? drop_at(c, n, i, died) : died;
 	}
+	c->loose |= dying;
 	return in;
 }
 
-static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
+static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail) {
 	switch (n->kind) {
-	case CLJ_NODE_LOCAL: return out | slot_bit(n->u.local.index);
+	case CLJ_NODE_LOCAL:
+		if (!n->u.local.last) note_death(c, n->u.local.index, out);
+		return out | slot_bit(n->u.local.index);
 	case CLJ_NODE_IF: {
-		uint64_t then = live(n->u.if_.then, out, c);
-		uint64_t else_ = n->u.if_.else_ ? live(n->u.if_.else_, out, c) : out;
-		return live(n->u.if_.test, then | else_, c);
+		uint64_t loose = c->loose;
+		c->loose = 0;
+		uint64_t then = live_tail(n->u.if_.then, out, c, tail), lthen = c->loose;
+		c->loose = 0;
+		uint64_t else_ = n->u.if_.else_ ? live_tail(n->u.if_.else_, out, c, tail) : out, lelse = c->loose;
+		c->loose = 0;
+		uint64_t in = live(n->u.if_.test, then | else_, c), ltest = c->loose;
+		// a branch drops what died in the test and what only the other branch reads
+		if (dropping(c)) {
+			lthen |= drop_at(c, n, 0, (else_ & ~then) | ltest);
+			lelse |= drop_at(c, n, 1, (then & ~else_) | ltest);
+		}
+		c->loose = loose | lthen | lelse;
+		return in;
 	}
-	case CLJ_NODE_DO: return live_seq(n->u.seq.items, n->u.seq.n, out, c);
+	case CLJ_NODE_DO: {
+		if (n->u.seq.n == 0) return out;
+		uint32_t last = n->u.seq.n - 1;
+		out = live_tail(n->u.seq.items[last], out, c, tail);
+		for (uint32_t i = last; i-- > 0;) {
+			uint64_t loose = c->loose;
+			c->loose = 0;
+			out = live(n->u.seq.items[i], out, c);
+			uint64_t died = c->loose;
+			c->loose = loose | (dropping(c) ? drop_at(c, n, i, died) : died);
+		}
+		return out;
+	}
 	case CLJ_NODE_VECTOR:
 	case CLJ_NODE_MAP:
 	case CLJ_NODE_SET: return live_args(NULL, n->u.seq.items, n->u.seq.n, out, c, NULL);
 	case CLJ_NODE_LET:
-		if (c->mark && c->late) note_takeout_let(c, n, out);
-		return live_bindings(n, live(n->u.let.body, out, c), c);
 	case CLJ_NODE_LOOP: {
-		target t = {0, 0};
-		for (uint32_t i = 0; i < n->u.let.n; i++) t.slots |= slot_bit(n->u.let.slots[i]);
-		return live_bindings(n, live_fixpoint(n->u.let.body, out, &t, c), c);
+		if (n->kind == CLJ_NODE_LET && c->mark && c->late) note_takeout_let(c, n, out);
+		uint64_t loose = c->loose, in;
+		c->loose = 0;
+		if (n->kind == CLJ_NODE_LET) {
+			in = live_tail(n->u.let.body, out, c, tail);
+		} else {
+			target t = {0, 0};
+			for (uint32_t i = 0; i < n->u.let.n; i++) t.slots |= slot_bit(n->u.let.slots[i]);
+			in = live_fixpoint(n->u.let.body, out, &t, c, tail);
+		}
+		// the end's drop would only come before the frame's own releases
+		uint64_t dying = dropping(c) && !tail ? drop_at(c, n, n->u.let.n, c->loose) : c->loose;
+		c->loose = 0;
+		in = live_bindings(n, in, c, dying);
+		c->loose |= loose;
+		return in;
 	}
-	case CLJ_NODE_RECUR: return live_seq(n->u.recur.args, n->u.recur.n, c->recur->body_in & ~c->recur->slots, c);
-	case CLJ_NODE_INVOKE: return live_args(n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, out, c, n);
+	case CLJ_NODE_RECUR: {
+		uint64_t loose = c->loose;
+		c->loose = 0;
+		uint64_t in = live_seq(n->u.recur.args, n->u.recur.n, c->recur->body_in & ~c->recur->slots, c);
+		// the rebinding releases the target's own slots, and nothing runs after the jump
+		if (dropping(c)) drop_at(c, n, 0, c->loose & ~c->recur->slots);
+		c->loose = loose;
+		return in;
+	}
+	case CLJ_NODE_INVOKE: {
+		size_t   takes = c->ntakes;
+		uint64_t in = live_args(n->u.invoke.fn, n->u.invoke.args, n->u.invoke.n, out, c, n);
+		taken_since(c, takes, c->nconsumes);
+		return in;
+	}
 	case CLJ_NODE_OBJC_SEND: return live_args(n->u.objc.target, n->u.objc.args, n->u.objc.n, out, c, NULL);
-	case CLJ_NODE_INTRINSIC:
+	case CLJ_NODE_INTRINSIC: {
+		size_t takes = c->ntakes, consumes = c->nconsumes;
 		if (c->mark && op_named(n, "clojure.core/cons", 2)) note_cons(c, n, out);
 		else if (c->mark && (op_named(n, "clojure.core/next", 1) || op_named(n, "clojure.core/rest", 1))) note_consume(c, n, out);
 		else if (c->mark && c->late && clj_intrinsic_consumes(n->u.intrinsic.op)) note_take(c, n, out);
-		return live_args(NULL, n->u.intrinsic.args, n->u.intrinsic.n, out, c, NULL);
+		uint64_t in = live_args(NULL, n->u.intrinsic.args, n->u.intrinsic.n, out, c, NULL);
+		taken_since(c, takes, consumes);
+		return in;
+	}
 	case CLJ_NODE_DIRECT_CALL: return live_args(NULL, n->u.direct.args, n->u.direct.n, out, c, NULL);
 	case CLJ_NODE_FUSED: return live_args(NULL, n->u.fused.args, n->u.fused.nargs, out, c, NULL);
 	case CLJ_NODE_DEF: {
 		out = live(n->u.def.meta, out, c);
 		return n->u.def.init ? live(n->u.def.init, out, c) : out;
 	}
-	case CLJ_NODE_THROW: return live(n->u.throw_, out, c);
+	case CLJ_NODE_THROW: {
+		// the unwind releases every slot
+		uint64_t loose = c->loose, in = live(n->u.throw_, out, c);
+		c->loose = loose;
+		return in;
+	}
 	case CLJ_NODE_TRY: {
 		// any point of the body may throw: what the handlers and finally read is live all through it
 		uint64_t after = n->u.try_.finally_ ? live(n->u.try_.finally_, out, c) : out;
@@ -477,13 +582,17 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 	}
 	case CLJ_NODE_FN:
 		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
-			if (n->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.fn.captures[i].index);
+			if (n->u.fn.captures[i].kind != CLJ_CAPTURE_LOCAL) continue;
+			note_death(c, n->u.fn.captures[i].index, out);
+			out |= slot_bit(n->u.fn.captures[i].index);
 		}
 		return out;
-	case CLJ_NODE_INLINE: return live(n->u.inline_.body, out, c);
+	case CLJ_NODE_INLINE: return live_tail(n->u.inline_.body, out, c, tail);
 	case CLJ_NODE_LOWERED: // the literal's captures are read after the operands
 		for (uint32_t i = 0; i < n->u.lowered.fn->u.fn.ncaptures; i++) {
-			if (n->u.lowered.fn->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
+			if (n->u.lowered.fn->u.fn.captures[i].kind != CLJ_CAPTURE_LOCAL) continue;
+			note_death(c, n->u.lowered.fn->u.fn.captures[i].index, out);
+			out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
 		}
 		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, out, c, NULL);
 	case CLJ_NODE_CONST:
@@ -495,6 +604,8 @@ static uint64_t live(const clj_node *n, uint64_t out, ctx *c) {
 	}
 	clj_ice("emit/reuse-unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }
+
+static uint64_t live(const clj_node *n, uint64_t out, ctx *c) { return live_tail(n, out, c, false); }
 
 typedef struct {
 	uint32_t  depth;
@@ -526,15 +637,22 @@ static void pin_scan(const clj_node *n, void *arg) {
 	}
 }
 
+static int drop_order(const void *a, const void *b) {
+	const drop_site *x = a, *y = b;
+	if (x->node != y->node) return x->node < y->node ? -1 : 1;
+	return x->at < y->at ? -1 : x->at > y->at;
+}
+
 cljc_reuse_plan *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *facts, uint64_t owned, uint64_t recur_slots, bool takes,
-                                       cljc_owned_positions positions, void *pctx) {
+                                       bool drops, cljc_owned_positions positions, void *pctx) {
 	if (!owned || !facts) return NULL;
 	uint64_t pinned = 0;
 	pin_ctx  p = {0, &pinned};
 	pin_scan(body, &p);
 	target self = {recur_slots, 0};
-	ctx    c = {.held = pinned, .recur = &self, .mark = true, .owned = owned & ~pinned, .facts = facts, .late = takes, .positions = positions, .pctx = pctx};
-	live_fixpoint(body, 0, &self, &c);
+	ctx    c = {.held = pinned, .recur = &self, .mark = true, .owned = owned & ~pinned, .facts = facts, .late = takes, .positions = positions, .pctx = pctx,
+	            .drops = drops};
+	live_fixpoint(body, 0, &self, &c, true);
 	cljc_reuse_plan *plan = calloc(1, sizeof *plan);
 	if (!plan) clj_fatal("out of memory");
 	decide(&c, plan);
@@ -542,9 +660,26 @@ cljc_reuse_plan *cljc_reuse_plan_frame(const clj_node *body, const clj_facts *fa
 	free(c.consumes);
 	free(c.takes);
 	free(c.takeouts);
-	if (plan->n) return plan;
-	free(plan);
+	if (c.ndropv) qsort(c.dropv, c.ndropv, sizeof *c.dropv, drop_order);
+	plan->drops = c.dropv;
+	plan->ndrops = c.ndropv;
+	if (plan->n || plan->ndrops) return plan;
+	cljc_reuse_plan_free(plan);
 	return NULL;
+}
+
+uint64_t cljc_reuse_drops(const cljc_reuse_plan *p, const clj_node *node, uint32_t at) {
+	if (!p) return 0;
+	size_t lo = 0, hi = p->ndrops;
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2;
+		const drop_site *d = &p->drops[mid];
+		if (d->node < node->id || (d->node == node->id && d->at < at)) lo = mid + 1;
+		else hi = mid;
+	}
+	uint64_t slots = 0;
+	for (; lo < p->ndrops && p->drops[lo].node == node->id && p->drops[lo].at == at; lo++) slots |= p->drops[lo].slots;
+	return slots;
 }
 
 const cljc_reuse_pair *cljc_reuse_at(const cljc_reuse_plan *p, uint32_t node) {
@@ -578,5 +713,6 @@ const cljc_reuse_pair *cljc_reuse_pair_at(const cljc_reuse_plan *p, size_t i) { 
 void cljc_reuse_plan_free(cljc_reuse_plan *p) {
 	if (!p) return;
 	free(p->pairs);
+	free(p->drops);
 	free(p);
 }

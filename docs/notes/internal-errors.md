@@ -75,6 +75,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `path` | `get-in`, `assoc-in` and `update-in` unrolled over a literal path (NOTES "Compiler", known paths) |
   | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry; a lazy-seq thunk keeps its captures to the publish |
   | `lower` | `reduce`, `reduce-kv`, `swap!` and `swap-vals!` over a literal fn run without its closure (NOTES "Compiler", lowered natives); `inline` turns it off too |
+  | `drop` | a compiled frame's dead slot released where it dies, not at its rebind or the frame's exit (NOTES "Compiler", dead slots dropped); decided at emission, so the boot units keep theirs |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
