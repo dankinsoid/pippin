@@ -59,7 +59,7 @@
 
 ;;; ── Pure core: rows, modes, refinements ────────────────────────────────────
 
-(defn line-total [{:keys [qty price]}]
+(defn line-total [{& [qty price]}]
   (scale price qty))
 ;; => [:=> [[:map [:qty Qty] [:price Usd] & r]] Usd {:eff #{}}]
 
@@ -78,7 +78,7 @@
 
 (defn receipt [cart]
   (let [sb (string-builder)]
-    (doseq [{:keys [sku qty price]} (::lines cart)]
+    (doseq [{& [sku qty price]} (::lines cart)]
       (sb-append! sb sku " x" qty " " (:cents price) "\n"))
     (str sb)))
 ;; => [:=> [[:map ::lines & r]] :string {:eff #{} :modes {cart :borrowed, sb :local}}]
@@ -127,6 +127,66 @@
 
 ;; defdispatch is dynamic: any dispatch function over Dyn, a missing method fails at runtime.
 (defdispatch webhook (fn [d] (get d "type")))
+
+
+;;; ── Patterns: destructuring, match, case ───────────────────────────────────
+
+(defn shipping-label [{:address {:city city :zip zip} & [name :or {name "customer"}]}]
+  (str name ", " zip " " city))
+;; key → pattern, as in a data literal; `& [...]` names fields, the rest, :as and defaults
+
+(defn paid-amount [e :- OrderEvent] :- [:maybe Usd]
+  (match e
+    (or [:order/created {::status :paid ::total t}]   ; a literal inside compares
+        [:order/paid {::total t}])        t           ; both alternatives bind t of one type
+    (or [:order/created _]
+        [:order/cancelled _])             nil))
+;; without the last branch: error, not covered: [:order/cancelled {:reason _}]
+;; {& [::total]} would bind `total` and shadow the function above: a warning
+;; [:order/paid p extra] is an error, not a fall to `_`: the variant has one field
+
+(defn classify [line :- Line, limit :- Qty]
+  (match line
+    {:qty (= limit)}                              :at-limit   ; compare with a name in scope
+    {:qty (> 100) :sku (re-matches #"VIP-\d{4}" $)} :bulk-vip ; the value goes first, `$` elsewhere
+    {:qty q :price {:cents c}} :when (> (* q c) 100000) :expensive
+    _                                             :regular))
+;; {:qty limit} binds a fresh name; the shadowing warning suggests (= limit)
+
+(defn merge-pair [a :- Line, b :- Line] :- [:maybe Line]
+  (match [a b]
+    [{:sku s :qty x} {:sku s :qty y}] (assoc a :qty (Qty (+ x y)))   ; a repeated name is equality
+    _                                 nil))
+;; => [:=> [Line Line] [:maybe Line] {:eff #{[Fail [:invalid Qty]]}}]
+
+(defn clamp-qty [n :- :int] :- Qty
+  (match n
+    (Qty q) q                             ; the checking constructor: a failed check goes to the next branch
+    (< 1)   (Qty 1)
+    _       (Qty 999)))
+;; => [:=> [:int] Qty {:eff #{}}]     the literals are checked in phase 1, so no Fail
+
+(defn parse-line [s :- :string] :- Line
+  (let [[sku qty cents :or (fail [:bad-line s])] (str/split s #",")]   ; let-else
+    {:sku (Sku sku) :qty (Qty (parse-long qty)) :price {:cents (parse-long cents)}}))
+;; without :or it does not compile: [a b c] does not cover [:vector :string], use match or let-else
+;; ? :or {cents "0"} beside :or (fail ...): one key, two meanings
+
+(def max-lines 50)
+
+(defn cart-state [cart]
+  (case (count (::lines cart))
+    0         :empty
+    max-lines :full                       ; a phase-1 constant: compared by value, not as a symbol
+    _         :open))
+
+(defn status-code [o]
+  (case (::status o) :new 202 :paid 200 :cancelled 410))
+;; a closed enum needs no `_`; a new status is an error here, and an extra `_` a warning
+
+;; variant: defpattern expands to structure, so exhaustiveness sees through it
+(defpattern (priced c) {:price {:cents c}})
+(defn cheap? [line] (match line (priced (< 100)) true _ false))
 
 
 ;;; ── Types as data, phase 1 ─────────────────────────────────────────────────
@@ -197,7 +257,7 @@
     (fail [:empty-cart]))
   (check-stock (::o/lines cart))
   (let [reservation (Inventory/reserve! (::o/lines cart))]
-    (case (Payments/charge! (::o/id cart) (total cart))
+    (match (Payments/charge! (::o/id cart) (total cart))
       [:ok _]         reservation
       [:declined why] (do (Inventory/release! reservation)   ; a compensation, not a rollback
                           (fail [:card-declined why])))))
@@ -231,7 +291,7 @@
 (defn handle-checkout [req]
   (handle (checkout (as Cart (json/read cart-json (:body req))))
           (return [id] {:status 201 :body {:reservation id}})
-          (fail [e]    {:status (if (= (first e) :invalid) 400 409) :body e})))
+          (fail [e]    {:status (match e [:invalid & _] 400 _ 409) :body e})))
 ;; => [:=> [[:map [:body :string] & r]] Response {:eff #{Inventory Payments Async}}]
 
 (defn schedule-sync [cart-id]
