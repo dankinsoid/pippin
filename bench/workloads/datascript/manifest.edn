@@ -1,0 +1,4 @@
+;; corpus-bench's clj-facts root for the port: a manifest in corpus/datascript would give it a test suite to run.
+{:name "datascript"
+ :load-path ["../../../corpus/datascript/src"]
+ :features #{:clj}}

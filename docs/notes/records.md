@@ -35,7 +35,10 @@
   every slot behind one — `seq`, `count`, `valAt`, `invoke`, `meta`, `reduce`, `hasheq`, `equiv` — is the
   record's own, and a trampoline over it would break the map contract that `record?` promises. A record
   reaches `IDeref` and every other `defprotocol` exactly as a deftype does, through `extend`. Trigger for
-  opening it up: a library that puts `IExceptionInfo` or `IFn` on a record.
+  opening it up: a library that puts `IExceptionInfo` or `IFn` on a record. datascript's `defrecord-updatable` is
+  the other shape of demand: it replaces the generated `hasheq`, `equiv`, `count` and `empty` of its DB (the
+  datoms' hash and count) by rewriting the JVM's `deftype*` form; the port keeps the record's own
+  (corpus/datascript/SOURCE), which the workload never asks for.
 - **`record*` is a builtin call in the expansion, so the descriptor is runtime state**, never a node
   constant: a record instance is as unserializable as a deftype instance (node_data.c refuses both), and a
   macro that embeds one fails the same way. `#ns.Name{…}` prints but does not read back

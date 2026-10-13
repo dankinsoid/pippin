@@ -1,0 +1,62 @@
+datascript — an immutable in-memory database with Datalog queries (Nikita Prokopov), and its index,
+persistent-sorted-set, ported to this runtime for make corpus-bench (docs/notes/benchmarks.md, "Corpus workloads")
+
+Repository: https://github.com/tonsky/datascript
+Version:    1.8.1, the Clojars jar datascript-1.8.1.jar (its pom's scm tag 34915cf673c02cbc64779fe56e0288d70fea63f8;
+            src/datascript/db.cljc of that commit is byte for byte the jar's)
+License:    Eclipse Public License 1.0 (LICENSE)
+
+Repository: https://github.com/tonsky/persistent-sorted-set
+Version:    0.3.2, the Clojars jar persistent-sorted-set-0.3.2.jar (scm tag 361ce7d72946212a27454e5abb0698cdee7c59e8);
+            datascript 1.8.1 asks for 0.3.1, and every runtime here takes 0.3.2, whose cljs rslice has a fix
+License:    MIT (LICENSE-persistent-sorted-set)
+
+Files taken, from the jars:
+  datascript/util.cljc, lru.cljc, inline.clj, db.cljc, impl/entity.cljc, built_ins.cljc, parser.cljc,
+  pull_parser.cljc, pull_api.cljc, query.cljc                  -> src/datascript/
+  me/tonsky/persistent_sorted_set/arrays.cljc                  -> src/me/tonsky/persistent_sorted_set/arrays.cljc
+  me/tonsky/persistent_sorted_set.cljs                         -> src/me/tonsky/persistent_sorted_set.clj
+
+Not taken: datascript.core and what only it loads — conn (its Conn is extend-clj's deftype-atom, a JVM library),
+storage (java.io, java.lang.ref), serialize, pprint (clojure.pprint), datafy, js, query_v3. The workload calls the
+namespaces core delegates to (bench/workloads/src/workloads/datascript.clj).
+
+What is ported, and why. This runtime reads the :clj branches (corpus-bench's features are #{:clj}); there the
+index is persistent-sorted-set's Java classes, and datascript's types implement JVM interfaces and Object. Every
+change is a `pippin:` comment at its place, and pippin.diff is the whole diff against the jars' files. What the
+workload reaches behaves as upstream (its result is the JVM's and ClojureScript's, checked with = on every run);
+what behaves otherwise, or not at all, is named below.
+
+- persistent_sorted_set.clj is the ClojureScript implementation (B+ tree of arrays, branching 32 where the Java one
+  takes 512) with its cljs protocols spelled as the JVM interfaces this runtime's deftype implements (ISeqable ->
+  Seqable seq, IReduce -> IReduceInit reduce, ILookup -> valAt ...); js/Math constants as longs, Math.floor of a
+  division as a floor quot, .slice as aslice. Not carried: the chunked seq (Chunk: no chunked seqs here), toString
+  and the printer, -clone, -empty, -disjoin and the transient protocols (transient is persistent here), and the
+  BTSet's _hash cache (a mutable field). rseq of a slice goes through a protocol of the file's own: a deftype has no
+  Reversible slot.
+- arrays.cljc: object-array, aget/aset/alength, loops for System/arraycopy and Arrays/copyOf, sort for
+  Arrays/parallelSort, the array type for .getClass/.isArray.
+- db.cljc: no clojure.data (DB's Diff and EqualityPartition go); defrecord-updatable keeps the protocols only, since
+  a record here takes protocols only: DB and FilteredDB hash, compare, count and empty as records do, not as
+  datascript overrides (the datom set's hash, its count); Datom keeps IHashEq, Seqable, IPersistentCollection
+  (equiv, count, cons) and ILookup, and loses Object (toString, hashCode: hasheq is hash-datom, uncached), empty,
+  Indexed and Associative (nth, find, contains? and assoc of a datom do not work here); datom-set-idx throws (no
+  mutable field; only serialize calls it); AutoTempid loses Object toString; defcomp makes a fn, as for cljs,
+  where the JVM reifies java.util.Comparator; .compareTo and .equals are compare and =, class is type,
+  Util/hashCombine and Util/hasheq are hash-combine and hash; patch-tag drops cljs's boolean and number tags.
+- impl/entity.cljc: Entity keeps IHashEq, Seqable, IPersistentCollection (equiv, count, cons), ILookup and IFn,
+  and loses Object and Associative (contains?, find and assoc of an entity do not work here); its hash has no
+  System/identityHashCode of the db, which = does not need.
+- lru.cljc: LRU keeps ILookup; cache calls assoc-lru, which LRU's Associative assoc is.
+- query.cljc, pull_api.cljc: da/array? for .getClass .isArray, get for .valAt, vec for LazilyPersistentVector,
+  first, next and cons for ISeq's methods, read-string for clojure.edn's (no clojure.edn here).
+- util.cljc: log expands as on a JVM without -Ddatascript.debug.
+
+Load failures left (the harness loads leniently; the workload reaches none of them): squuid (UUID/randomUUID),
+dedupe-interfaces (IllegalArgumentException., unused by the ported defrecord-updatable), and the four top-level
+(set! *warn-on-reflection* ...) and (set! *unchecked-math* ...) forms.
+
+The language gaps behind the port are NOTES entries: "Type descriptor" (mutable fields, Indexed and Associative on a
+deftype, a Reversible slot, Object methods), "Records" (a record's own hash, = and count), "Corpus" (clojure.data,
+clojure.edn). There is no manifest.edn: this directory is not a corpus library with a suite of its own, and
+bench/workloads/datascript/manifest.edn is its root for corpus-bench's clj-facts.

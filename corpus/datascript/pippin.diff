@@ -1,0 +1,1215 @@
+--- upstream/datascript/src/datascript/util.cljc
++++ corpus/datascript/src/datascript/util.cljc
+@@ -7,9 +7,10 @@
+ (def ^:dynamic *debug*
+   false)
+ 
++;; pippin: no system properties here; the JVM without -Ddatascript.debug, the default.
+ #?(:clj
+    (defmacro log [& body]
+-     (when (System/getProperty "datascript.debug")
++     (when false
+        `(when *debug*
+           (println ~@body)))))
+ 
+--- upstream/datascript/src/datascript/lru.cljc
++++ corpus/datascript/src/datascript/lru.cljc
+@@ -14,14 +14,12 @@
+      (-pr-writer [_ writer opts]
+        (-pr-writer key-value writer opts)))
+    :clj
++   ;; pippin: a deftype cannot implement Associative here (NOTES "Type descriptor"); cache below calls
++   ;; assoc-lru, the method's body, itself.
+    (deftype LRU [^clojure.lang.Associative key-value gen-key key-gen gen limit]
+      clojure.lang.ILookup
+-     (valAt [_ k]           (.valAt key-value k))
+-     (valAt [_ k not-found] (.valAt key-value k not-found))
+-     clojure.lang.Associative
+-     (containsKey [_ k] (.containsKey key-value k))
+-     (entryAt [_ k]     (.entryAt key-value k))
+-     (assoc [this k v]  (assoc-lru this k v))))
++     (valAt [_ k]           (get key-value k))
++     (valAt [_ k not-found] (get key-value k not-found))))
+ 
+ (defn assoc-lru [^LRU lru k v]
+   (let [key-value (.-key-value lru)
+@@ -73,8 +71,8 @@
+     (reify ICache
+       (-get [_ key compute-fn]
+         (if-some [cached (get @*impl key nil)]
+-          (do (vswap! *impl assoc key cached)
++          (do (vswap! *impl assoc-lru key cached)
+             cached)
+           (let [computed (compute-fn)]
+-            (vswap! *impl assoc key computed)
++            (vswap! *impl assoc-lru key computed)
+             computed))))))
+--- upstream/datascript/src/datascript/inline.clj
++++ corpus/datascript/src/datascript/inline.clj
+@@ -9,14 +9,15 @@
+      ([m k v & kvs]
+       (assert (even? (count kvs)))
+       `(assoc (assoc ~m ~k ~v) ~@kvs)))}
+-  ([map key val] (clojure.lang.RT/assoc map key val))
++  ;; pippin: clojure.core/assoc is RT.assoc; ex-info for the JVM exception constructor.
++  ([map key val] (clojure.core/assoc map key val))
+   ([map key val & kvs]
+-   (let [ret (clojure.lang.RT/assoc map key val)]
++   (let [ret (clojure.core/assoc map key val)]
+      (if kvs
+        (if (next kvs)
+          (recur ret (first kvs) (second kvs) (nnext kvs))
+-         (throw (IllegalArgumentException.
+-                  "assoc expects even number of arguments after map/vector, found odd number")))
++         (throw (ex-info
++                  "assoc expects even number of arguments after map/vector, found odd number" {})))
+        ret))))
+ 
+ (defn update
+--- upstream/datascript/src/datascript/db.cljc
++++ corpus/datascript/src/datascript/db.cljc
+@@ -2,7 +2,7 @@
+   (:require
+     #?(:cljs [goog.array :as garray])
+     [clojure.walk]
+-    [clojure.data]
++    ;; pippin: no clojure.data here (NOTES "Corpus"); DB's Diff and EqualityPartition go with it.
+     #?(:clj [datascript.inline :refer [update]])
+     [datascript.lru :as lru]
+     [datascript.util :as util]
+@@ -45,12 +45,8 @@
+   (and (not (string? x))
+     #?(:cljs (or (cljs.core/seqable? x)
+                (arrays/array? x))
+-       :clj  (or (seq? x)
+-               (instance? clojure.lang.Seqable x)
+-               (nil? x)
+-               (instance? Iterable x)
+-               (arrays/array? x)
+-               (instance? java.util.Map x)))))
++       ;; pippin: clojure.core/seqable? is RT.canSeq, the JVM's clauses below with Iterable and Map
++     :clj  (clojure.core/seqable? x))))
+ 
+ ;; ----------------------------------------------------------------------------
+ ;; macros and funcs to support writing defrecords and updating
+@@ -72,12 +68,14 @@
+      (if (cljs-env? &env) then else)))
+ 
+ #?(:clj
++   ;; pippin: the JVM swaps cljs's tags for its classes, which a symbol tag would not resolve to; there are no
++   ;; classes here, so the tag goes.
+    (defn patch-tag [meta cljs-env?]
+      (if cljs-env?
+        meta
+        (condp = (:tag meta)
+-         'boolean (assoc meta :tag java.lang.Boolean)
+-         'number  (assoc meta :tag clojure.core$long)
++         'boolean (dissoc meta :tag)
++         'number  (dissoc meta :tag)
+          meta))))
+ 
+ #?(:clj
+@@ -104,7 +102,8 @@
+          `(defn ~name' ~@rest)))))
+ 
+ (defn combine-hashes [x y]
+-  #?(:clj  (clojure.lang.Util/hashCombine x y)
++  ;; pippin: hash-combine is Util/hashCombine's ours, as hash is.
++  #?(:clj  (hash-combine x y)
+      :cljs (hash-combine x y)))
+ 
+ #?(:clj
+@@ -129,19 +128,21 @@
+        (list* deftype* tagname classname fields implements (vec (distinct interfaces)) rest))))
+ 
+ #?(:clj
++   ;; pippin: a record takes protocols only (NOTES "Records"), so the JVM interfaces and Object go: DB and
++   ;; FilteredDB keep a record's hash, =, count and empty where datascript's are the datoms' (hash and = of the
++   ;; datom set, count of the datoms) and its transient is the record's (transient is persistent here).
+    (defn- make-record-updatable-clj [name fields & impls]
+-     (let [impl-map (->> impls (map (juxt get-sig identity)) (filter first) (into {}))
+-           body     (macroexpand-1 (list* 'defrecord name fields impls))]
+-       (clojure.walk/postwalk
+-         (fn [form]
+-           (if (and (sequential? form) (= 'deftype* (first form)))
+-             (->> form
+-               dedupe-interfaces
+-               (remove (fn [method]
+-                         (when-some [impl (-> method get-sig impl-map)]
+-                           (not= method impl)))))
+-             form))
+-         body))))
++     (let [protocol? (fn [head]
++                       (and (simple-symbol? head)
++                         (not= 'Object head)
++                         (not-any? #{\.} (clojure.core/name head))))
++           impls     (loop [impls impls keep? false acc []]
++                       (if-some [[x & more] (seq impls)]
++                         (if (symbol? x)
++                           (recur more (protocol? x) (if (protocol? x) (conj acc x) acc))
++                           (recur more keep? (if keep? (conj acc x) acc)))
++                         acc))]
++       `(defrecord ~name ~fields ~@impls))))
+ 
+ #?(:clj
+    (defn- make-record-updatable-cljs [name fields & impls]
+@@ -187,7 +188,8 @@
+   (datom-tx [d] (if (pos? tx) tx (- tx)))
+   (datom-added [d] (pos? tx))
+   (datom-get-idx [_] idx)
+-  (datom-set-idx [_ value] (set! idx (int value)))
++  ;; pippin: no mutable fields (NOTES "Type descriptor"); serialize, which is not here, is the only caller.
++  (datom-set-idx [_ value] (throw (ex-info "datom-set-idx needs a mutable field" {})))
+ 
+   #?@(:cljs
+       [IHash
+@@ -216,40 +218,24 @@
+          (pr-sequential-writer writer pr-writer
+            "#datascript/Datom [" " " "]"
+            opts [(.-e d) (.-a d) (.-v d) (datom-tx d) (datom-added d)]))]
++      ;; pippin: hasheq is hashCode's hash-datom without the _hash cache, a mutable field; no Object (toString,
++      ;; hashCode), no empty slot, and Indexed and Associative cannot be implemented by a deftype here, so
++      ;; nth, find, contains? and assoc of a datom are not (NOTES "Type descriptor").
+       :clj
+-      [Object
+-       (hashCode [d]
+-         (if (zero? _hash)
+-           (let [h (int (hash-datom d))]
+-             (set! _hash h)
+-             h)
+-           _hash))
+-       (toString [d] (pr-str d))
+-
+-       clojure.lang.IHashEq
+-       (hasheq [d] (.hashCode d))
++      [clojure.lang.IHashEq
++       (hasheq [d] (hash-datom d))
+ 
+        clojure.lang.Seqable
+        (seq [d] (seq-datom d))
+ 
+        clojure.lang.IPersistentCollection
+        (equiv [d o] (and (instance? Datom o) (equiv-datom d o)))
+-       (empty [d] (throw (UnsupportedOperationException. "empty is not supported on Datom")))
+        (count [d] 5)
+        (cons [d [k v]] (assoc-datom d k v))
+-        
+-       clojure.lang.Indexed
+-       (nth [this i]           (nth-datom this i))
+-       (nth [this i not-found] (nth-datom this i not-found))
+ 
+        clojure.lang.ILookup
+        (valAt [d k] (val-at-datom d k nil))
+-       (valAt [d k nf] (val-at-datom d k nf))
+-
+-       clojure.lang.Associative
+-       (entryAt [d k] (some->> (val-at-datom d k nil) (clojure.lang.MapEntry k)))
+-       (containsKey [e k] (#{:e :a :v :tx :added} k))
+-       (assoc [d k v] (assoc-datom d k v))]))
++       (valAt [d k nf] (val-at-datom d k nf))]))
+ 
+ #?(:cljs (goog/exportSymbol "datascript.db.Datom" Datom))
+ 
+@@ -306,7 +292,7 @@
+      2 (.-v d)
+      3 (datom-tx d)
+      4 (datom-added d)
+-     #?(:clj  (throw (IndexOutOfBoundsException.))
++     #?(:clj  (throw (ex-info (str "Datom/nth: Index out of bounds: " i) {}))
+         :cljs (throw (js/Error. (str "Datom/-nth: Index out of bounds: " i))))))
+   ([^Datom d ^long i not-found]
+    (case i
+@@ -324,7 +310,7 @@
+     :v     (datom (.-e d) (.-a d) v       (datom-tx d) (datom-added d))
+     :tx    (datom (.-e d) (.-a d) (.-v d) v            (datom-added d))
+     :added (datom (.-e d) (.-a d) (.-v d) (datom-tx d) v)
+-    (throw (IllegalArgumentException. (str "invalid key for #datascript/Datom: " k)))))
++    (throw (ex-info (str "invalid key for #datascript/Datom: " k) {}))))
+ 
+ ;; printing and reading
+ ;; #datomic/DB {:schema <map>, :datoms <vector of [e a v tx]>}
+@@ -381,7 +367,8 @@
+ (defn class-identical?
+   #?(:clj  {:inline (fn [x y] `(identical? (class ~x) (class ~y)))})
+   [x y]
+-  #?(:clj  (identical? (class x) (class y))
++  ;; pippin: no class; type is the descriptor, as for cljs.
++  #?(:clj  (identical? (type x) (type y))
+      :cljs (identical? (type x) (type y))))
+ 
+ #?(:clj
+@@ -390,7 +377,8 @@
+       (fn [x]
+         `(let [^Object x# ~x]
+            (if (nil? x#) x# (.getName (. x# (getClass))))))}
+-     ^String [^Object x] (if (nil? x) x (.getName (. x (getClass))))))
++     ;; pippin: the type's name, which is not the JVM class's, so values of mixed types order differently.
++     ^String [^Object x] (if (nil? x) x (str (type x)))))
+ 
+ (defn class-compare
+   ^long [x y]
+@@ -406,7 +394,8 @@
+ (defn ihash
+   {:inline (fn [x] `(. clojure.lang.Util (hasheq ~x)))}
+   ^long [x]
+-  #?(:clj  (. clojure.lang.Util (hasheq x))
++  ;; pippin: Util.hasheq is hash.
++  #?(:clj  (hash x)
+      :cljs (hash x)))
+ 
+ #?(:clj  (declare value-compare)
+@@ -450,8 +439,11 @@
+     (cond
+       (= x y) 0
+       (and (sequential? x) (sequential? y)) (seq-compare x y)
+-      #?@(:clj  [(instance? Number x)       (clojure.lang.Numbers/compare x y)])
+-      #?@(:clj  [(instance? Comparable x)   (.compareTo ^Comparable x y)]
++      ;; pippin: compare is Numbers.compare and compareTo; no Number or Comparable to ask, so the types here
++      ;; that are Comparable on the JVM are named. compare throws on another type as compareTo does.
++      #?@(:clj  [(number? x)       (compare x y)])
++      #?@(:clj  [(or (string? x) (keyword? x) (symbol? x) (boolean? x) (char? x) (uuid? x) (inst? x))
++                 (compare x y)]
+           :cljs [(satisfies? IComparable x) (-compare x y)])
+       (not (class-identical? x y)) (class-compare x y)
+       #?@(:cljs [(or (number? x) (string? x) (array? x) (true? x) (false? x)) (garray/defaultCompare x y)])
+@@ -481,21 +473,9 @@
+    (defmacro defcomp [sym [arg1 arg2] & body]
+      (let [a1 (with-meta arg1 {})
+            a2 (with-meta arg2 {})]
+-       `(if-cljs
+-          (defn ~sym [~arg1 ~arg2]
+-            ~@body)
+-          (def ~sym
+-            (reify
+-              java.util.Comparator
+-              (compare [_# ~a1 ~a2]
+-                (let [~arg1 ~arg1 ~arg2 ~arg2]
+-                  ~@body))
+-              clojure.lang.IFn
+-              (invoke [this# ~a1 ~a2]
+-                (.compare this# ~a1 ~a2))
+-              IFn$OOL
+-              (invokePrim [this# ~a1 ~a2]
+-                (.compare this# ~a1 ~a2))))))))
++       ;; pippin: a comparator is a fn here, as for cljs; the JVM's reify is a java.util.Comparator.
++       `(defn ~sym [~arg1 ~arg2]
++          ~@body))))
+ 
+ (defcomp cmp-datoms-eavt ^long [^Datom d1, ^Datom d2]
+   (combine-cmp
+@@ -531,8 +511,9 @@
+      (if (keyword? a1)
+        (-compare a1 a2)
+        (garray/defaultCompare a1 a2))
++     ;; pippin: compare is compareTo on keywords and strings.
+      :clj
+-     (.compareTo ^Comparable a1 a2)))
++     (compare a1 a2)))
+ 
+ (defcomp cmp-datoms-eav-quick ^long [^Datom d1, ^Datom d2]
+   (combine-cmp
+@@ -667,11 +648,12 @@
+     (update :avet persistent!)))
+ 
+ #?(:clj
++   ;; pippin: = for .equals, which it is on strings and keywords.
+    (defn vpred [v]
+      (cond
+-       (string? v)  (fn [x] (if (string? x) (.equals ^String v x) false))
++       (string? v)  (fn [x] (if (string? x) (= v x) false))
+        (int? v)     (fn [x] (if (int? x) (= (long v) (long x)) false))
+-       (keyword? v) (fn [x] (.equals ^Object v x))
++       (keyword? v) (fn [x] (= v x))
+        (nil? v)     (fn [x] (nil? x))
+        :else        (fn [x] (= v x)))))
+ 
+@@ -784,23 +766,15 @@
+       (resolve-datom db nil attr start nil e0 tx0)
+       (resolve-datom db nil attr end nil emax txmax)))
+                 
+-  clojure.data/EqualityPartition
+-  (equality-partition [x] :datascript/db)
+-
+-  clojure.data/Diff
+-  (diff-similar [a b]
+-    (diff-sorted (:eavt a) (:eavt b) cmp-datoms-eav-quick)))
++  ;; pippin: clojure.data/EqualityPartition and Diff, see the ns form.
++  )
+ 
+ (defn db? [x]
++  ;; pippin: a protocol is no interface class here, satisfies? answers for both clauses.
+   #?(:clj
+-     (or
+-       (and x
+-         (instance? datascript.db.ISearch x)
+-         (instance? datascript.db.IIndexAccess x)
+-         (instance? datascript.db.IDB x))
+-       (and (satisfies? ISearch x)
+-         (satisfies? IIndexAccess x)
+-         (satisfies? IDB x)))
++     (and (satisfies? ISearch x)
++       (satisfies? IIndexAccess x)
++       (satisfies? IDB x))
+      :cljs
+      (and (satisfies? ISearch x)
+        (satisfies? IIndexAccess x)
+@@ -1195,7 +1169,8 @@
+ (defn find-datom [db index c0 c1 c2 c3]
+   (validate-indexed db index c0 c1 c2 c3)
+   (let [set     (get db index)
+-        cmp     #?(:clj (.comparator ^clojure.lang.Sorted set) :cljs (.-comparator set))
++        ;; pippin: the set is persistent-sorted-set's cljs BTSet, whose comparator is a field.
++        cmp     #?(:clj (.-comparator set) :cljs (.-comparator set))
+         from    (components->pattern db index c0 c1 c2 c3 e0 tx0)
+         to      (components->pattern db index c0 c1 c2 c3 emax txmax)
+         datom   (some-> set seq (set/seek from) first)]
+@@ -1378,10 +1353,9 @@
+       [IPrintWithWriter
+        (-pr-writer [d writer opts]
+          (pr-sequential-writer writer pr-writer "#datascript/AutoTempid [" " " "]" opts [id]))]
++      ;; pippin: no Object methods (NOTES "Type descriptor"); the printer is print-method's.
+       :clj
+-      [Object
+-       (toString [d]
+-         (str "#datascript/AutoTempid [" id "]"))]))
++      []))
+ 
+ #?(:clj
+    (defmethod print-method AutoTempid [^AutoTempid id, ^java.io.Writer w]
+@@ -1458,10 +1432,11 @@
+ #?(:clj
+    (defn- ^Boolean tx-id?
+      [e]
++     ;; pippin: = for String.equals.
+      (or (identical? :db/current-tx e)
+-       (.equals ":db/current-tx" e) ;; for datascript.js interop
+-       (.equals "datomic.tx" e)
+-       (.equals "datascript.tx" e)))
++       (= ":db/current-tx" e) ;; for datascript.js interop
++       (= "datomic.tx" e)
++       (= "datascript.tx" e)))
+ 
+    :cljs
+    (defn- ^boolean tx-id?
+--- upstream/datascript/src/datascript/impl/entity.cljc
++++ corpus/datascript/src/datascript/impl/entity.cljc
+@@ -127,23 +127,19 @@
+        (-pr-writer [_ writer opts]
+          (-pr-writer (assoc @cache :db/id eid) writer opts))]
+ 
++      ;; pippin: hasheq for hashCode, which Clojure's hash falls back to; no Object (toString, equals: = is
++      ;; equiv), no empty slot, and Associative cannot be implemented by a deftype here, so contains?, find and
++      ;; assoc of an entity are not (NOTES "Type descriptor"); cons throws as the JVM's does.
+       :clj
+-      [Object
+-       (toString [e]      (pr-str (assoc @cache :db/id eid)))
+-       (hashCode [e]      (hash-entity e))
+-       (equals [e o]      (equiv-entity e o))
++      [clojure.lang.IHashEq
++       (hasheq [e]        (hash-entity e))
+ 
+        clojure.lang.Seqable
+        (seq [e]           (touch e) (seq @cache))
+ 
+-       clojure.lang.Associative
++       clojure.lang.IPersistentCollection
+        (equiv [e o]       (equiv-entity e o))
+-       (containsKey [e k] (not= ::nf (lookup-entity e k ::nf)))
+-       (entryAt [e k]     (some->> (lookup-entity e k) (clojure.lang.MapEntry. k)))
+-
+-       (empty [e]         (throw (UnsupportedOperationException.)))
+-       (assoc [e k v]     (throw (UnsupportedOperationException.)))
+-       (cons  [e [k v]]   (throw (UnsupportedOperationException.)))
++       (cons  [e [k v]]   (throw (ex-info "cons is not supported on Entity" {})))
+        (count [e]         (touch e) (count @(.-cache e)))
+ 
+        clojure.lang.ILookup
+@@ -175,7 +171,9 @@
+   (db/combine-hashes
+     (hash (.-eid e))
+     ;; A hash compatible with `identical?`. Consistent with `=`.
+-    (#?(:clj System/identityHashCode :cljs goog/getUid) (.-db e))))
++    ;; pippin: no identity hash; one value for every db is consistent with = too, and hashing the db is the cost
++    ;; the identity hash avoids.
++    (#?(:clj (constantly 0) :cljs goog/getUid) (.-db e))))
+ 
+ (defn- lookup-entity
+   ([this attr] (lookup-entity this attr nil))
+--- upstream/datascript/src/datascript/pull_api.cljc
++++ corpus/datascript/src/datascript/pull_api.cljc
+@@ -14,20 +14,22 @@
+ 
+ (declare pull-impl attrs-frame ref-frame ->ReverseAttrsFrame)
+ 
++;; pippin: ISeq's methods are not callable by name here; first, next and cons are them (RT.first and RT.next on a
++;; seq, a seq's cons).
+ (defn- first-seq [#?(:clj ^ISeq xs :cljs ^seq xs)]
+   (if (nil? xs)
+     nil
+-    #?(:clj (.first xs) :cljs (-first xs))))
++    #?(:clj (first xs) :cljs (-first xs))))
+ 
+ (defn- next-seq [#?(:clj ^ISeq xs :cljs ^seq xs)]
+   (if (nil? xs)
+     nil
+-    #?(:clj (.next xs) :cljs (-next xs))))
++    #?(:clj (next xs) :cljs (-next xs))))
+ 
+ (defn- conj-seq [#?(:clj ^ISeq xs :cljs ^seq xs) x]
+   (if (nil? xs)
+     (list x)
+-    #?(:clj (.cons xs x) :cljs (-conj xs x))))
++    #?(:clj (cons x xs) :cljs (-conj xs x))))
+ 
+ (defn- assoc-some! [m k v]
+   (if (nil? v) m (assoc! m k v)))
+--- upstream/datascript/src/datascript/query.cljc
++++ corpus/datascript/src/datascript/query.cljc
+@@ -1,6 +1,7 @@
+ (ns ^:no-doc datascript.query
+   (:require
+-    [#?(:cljs cljs.reader :clj clojure.edn) :as edn]
++    ;; pippin: no clojure.edn here (NOTES "Corpus"); parse-rules reads with read-string.
++    #?(:cljs [cljs.reader :as edn])
+     [clojure.set :as set]
+     [clojure.string :as str]
+     [clojure.walk :as walk]
+@@ -103,16 +104,17 @@
+ #?(:clj (set! *unchecked-math* true))
+ 
+ #?(:clj
++   ;; pippin: no class to ask isArray of; da/array? asks the type, here and below.
+    (defn join-tuples [t1 ^{:tag "[[Ljava.lang.Object;"} idxs1
+                       t2 ^{:tag "[[Ljava.lang.Object;"} idxs2]
+      (let [l1  (alength idxs1)
+            l2  (alength idxs2)
+            res (da/make-array (+ l1 l2))]
+-       (if (.isArray (.getClass ^Object t1))
++       (if (da/array? t1)
+          (dotimes [i l1] (aset res i (aget ^objects t1 (aget idxs1 i))))
+          (dotimes [i l1] (aset res i (get t1 (aget idxs1 i)))))
+-       (if (.isArray (.getClass ^Object t2))
+-         (dotimes [i l2] (aset res (+ l1 i) (get ^objects t2 (aget idxs2 i))))
++       (if (da/array? t2)
++         (dotimes [i l2](aset res (+ l1 i) (get ^objects t2 (aget idxs2 i))))
+          (dotimes [i l2] (aset res (+ l1 i) (get t2 (aget idxs2 i)))))
+        res))
+    :cljs
+@@ -187,7 +189,7 @@
+ ;;
+ 
+ (defn parse-rules [rules]
+-  (let [rules (if (string? rules) (edn/read-string rules) rules)] ;; for datascript.js interop
++  (let [rules (if (string? rules) #?(:cljs (edn/read-string rules) :clj (read-string rules)) rules)] ;; for datascript.js interop
+     (dp/parse-rules rules) ;; validation
+     (group-by ffirst rules)))
+ 
+@@ -278,7 +280,7 @@
+         (let [idx (int idx)]
+           (fn contained-int-getter-fn [tuple]
+             (let [eid #?(:cljs (da/aget tuple idx)
+-                         :clj (if (.isArray (.getClass ^Object tuple))
++                         :clj (if (da/array? tuple)
+                                 (aget ^objects tuple idx)
+                                 (nth tuple idx)))]
+               (cond
+@@ -288,8 +290,9 @@
+                 :else             eid))))
+         ;; If the index is not an int?, the target can never be an array
+         (fn contained-getter-fn [tuple]
++          ;; pippin: get is ILookup.valAt.
+           (let [eid #?(:cljs (da/aget tuple idx)
+-                       :clj (.valAt ^ILookup tuple idx))]
++                       :clj (get tuple idx))]
+             (cond
+               (number? eid)     eid ;; quick path to avoid fn call
+               (sequential? eid) (resolve-fn eid)
+@@ -299,20 +302,22 @@
+         (let [idx (int idx)]
+           (fn int-getter [tuple]
+             #?(:cljs (da/aget tuple idx)
+-               :clj (if (.isArray (.getClass ^Object tuple))
++               :clj (if (da/array? tuple)
+                       (aget ^objects tuple idx)
+                       (nth tuple idx)))))
+         ;; If the index is not an int?, the target can never be an array
+         (fn getter [tuple]
+           #?(:cljs (da/aget tuple idx)
+-             :clj (.valAt ^ILookup tuple idx)))))))
++             :clj (get tuple idx)))))))
+ 
+ (defn tuple-key-fn
+   [attrs common-attrs]
+   (let [n (count common-attrs)]
+     (if (== n 1)
+       (getter-fn attrs (first common-attrs))
+-      (let [^objects getters-arr #?(:clj (into-array Object common-attrs)
++      ;; pippin: object-array for into-array and make-array of Object; vec copies the array that
++      ;; LazilyPersistentVector/createOwning takes over.
++      (let [^objects getters-arr #?(:clj (object-array common-attrs)
+                                     :cljs (into-array common-attrs))]
+         (loop [i 0]
+           (if (< i n)
+@@ -321,13 +326,13 @@
+               (recur (unchecked-inc i)))
+             #?(:clj
+                (fn [tuple]
+-                 (let [^objects arr (make-array Object n)]
++                 (let [^objects arr (object-array n)]
+                    (loop [i 0]
+                      (if (< i n)
+                        (do
+                          (aset arr i ((aget getters-arr i) tuple))
+                          (recur (unchecked-inc i)))
+-                       (LazilyPersistentVector/createOwning arr)))))
++                       (vec arr)))))
+                :cljs (fn [tuple]
+                        (list* (.map getters-arr #(% tuple)))))))))))
+ 
+@@ -870,7 +875,7 @@
+               (fn [t2]
+                 (let [res (aclone t1)]
+                   #?(:clj
+-                     (if (.isArray (.getClass ^Object t2))
++                     (if (da/array? t2)
+                        (dotimes [i len]
+                          (when-some [idx (aget ^objects copy-map i)]
+                            (aset res i (aget ^objects t2 idx))))
+--- upstream/persistent-sorted-set/src-clojure/me/tonsky/persistent_sorted_set/arrays.cljc
++++ corpus/datascript/src/me/tonsky/persistent_sorted_set/arrays.cljc
+@@ -4,6 +4,9 @@
+   (:refer-clojure :exclude [make-array into-array array amap aget aset alength array? aclone])
+   #?(:cljs (:require-macros me.tonsky.persistent-sorted-set.arrays))
+   #?(:clj  (:import [java.util Arrays])))
++
++;; pippin: the :clj branches below are this runtime's: object arrays and loops where the JVM's are Java
++;; (Arrays, System/arraycopy, RT); corpus/datascript/SOURCE.
+ 
+ 
+ (defn- if-cljs [env then else]
+@@ -13,23 +16,23 @@
+ #?(:cljs
+    (defn ^array make-array [size] (js/Array. size))
+    :clj 
+-   (defn make-array ^{:tag "[[Ljava.lang.Object;"} [size]
+-     (clojure.core/make-array java.lang.Object size)))
++   (defn make-array [size]
++     (clojure.core/object-array size)))
+ 
+ 
+ #?(:cljs
+    (defn ^array into-array [aseq]
+      (reduce (fn [a x] (.push a x) a) (js/Array.) aseq))
+    :clj
+-   (defn into-array ^{:tag "[[Ljava.lang.Object;"} [aseq]
+-     (clojure.core/into-array java.lang.Object aseq)))
++   (defn into-array [aseq]
++     (clojure.core/object-array aseq)))
+ 
+ 
+ #?(:clj
+   (defmacro aget [arr i]
+     (if-cljs &env
+       (list 'js* "(~{}[~{}])" arr i)
+-     `(clojure.lang.RT/aget ~(vary-meta arr assoc :tag "[[Ljava.lang.Object;") (int ~i)))))
++     `(clojure.core/aget ~arr ~i))))
+ 
+ 
+ #?(:clj
+@@ -37,14 +40,14 @@
+     (if-cljs &env
+       (-> (list 'js* "~{}.length" arr)
+           (vary-meta assoc :tag 'number))
+-     `(clojure.lang.RT/alength ~(vary-meta arr assoc :tag "[[Ljava.lang.Object;")))))
++     `(clojure.core/alength ~arr))))
+ 
+ 
+ #?(:clj
+   (defmacro aset [arr i v]
+     (if-cljs &env
+       (list 'js* "(~{}[~{}] = ~{})" arr i v)
+-     `(clojure.lang.RT/aset ~(vary-meta arr assoc :tag "[[Ljava.lang.Object;") (int ~i) ~v))))
++     `(clojure.core/aset ~arr ~i ~v))))
+ 
+ 
+ #?(:clj
+@@ -54,11 +57,9 @@
+         (list* 'js* (str "[" (str/join "," (repeat (count args) "~{}")) "]") args)
+         (vary-meta assoc :tag 'array))
+       (let [len (count args)]
+-        (if (zero? len)
+-          'clojure.lang.RT/EMPTY_ARRAY
+-         `(let [arr# (clojure.core/make-array java.lang.Object ~len)]
+-            (doto ^{:tag "[[Ljava.lang.Object;"} arr#
+-            ~@(map #(list 'aset % (nth args %)) (range len)))))))))
++        `(let [arr# (clojure.core/object-array ~len)]
++           (doto arr#
++             ~@(map #(list 'clojure.core/aset % (nth args %)) (range len))))))))
+ 
+ 
+ #?(:clj
+@@ -68,12 +69,12 @@
+         (dotimes [i# l#]
+           (aset ~to (+ i# ~to-start) (aget ~from (+ i# ~from-start)))))
+      `(let [l# (- ~from-end ~from-start)]
+-        (when (pos? l#)
+-          (System/arraycopy ~from ~from-start ~to ~to-start l#))))))
++        (dotimes [i# l#]
++          (clojure.core/aset ~to (+ i# ~to-start) (clojure.core/aget ~from (+ i# ~from-start))))))))
+ 
+ 
+ (defn aclone [from]
+-  #?(:clj  (Arrays/copyOf ^{:tag "[[Ljava.lang.Object;"} from (alength from))
++  #?(:clj  (clojure.core/aclone from)
+      :cljs (.slice from 0)))
+ 
+ 
+@@ -81,8 +82,9 @@
+   #?(:cljs (.concat a b)
+      :clj  (let [al  (alength a)
+                  bl  (alength b)
+-                 res (Arrays/copyOf ^{:tag "[[Ljava.lang.Object;"} a (+ al bl))]
+-             (System/arraycopy ^{:tag "[[Ljava.lang.Object;"} b 0 res al bl)
++                 res (clojure.core/object-array (+ al bl))]
++             (acopy a 0 al res 0)
++             (acopy b 0 bl res al)
+              res)))
+ 
+ 
+@@ -92,7 +94,7 @@
+    :clj
+    (defn amap 
+      ([f arr]
+-      (amap f Object arr))
++      (amap f :object arr))
+      ([f type arr] ;; TODO check if faster in Java
+       (let [res (clojure.core/make-array type (alength arr))]
+         (dotimes [i (alength arr)]
+@@ -102,7 +104,10 @@
+ 
+ (defn asort [arr cmp]
+   #?(:cljs (.sort arr cmp)
+-     :clj  (doto arr (Arrays/parallelSort cmp))))
++     :clj  (let [sorted (vec (sort cmp arr))]
++             (dotimes [i (alength arr)]
++               (aset arr i (nth sorted i)))
++             arr)))
+ 
+ 
+ #?(:cljs
+@@ -111,8 +116,10 @@
+        (.isArray js/Array x)
+        (instance? js/Array x)))
+    :clj
+-   (defn array? [^Object x]
+-     (some-> x .getClass .isArray)))
++   (do
++     (def ^:private object-array-type (type (clojure.core/object-array 0)))
++     (defn array? [x]
++       (identical? object-array-type (type x)))))
+ 
+ 
+ #?(:clj
+@@ -130,4 +137,4 @@
+   (def array-type
+     (memoize
+       (fn [type]
+-        (.getClass ^Object (java.lang.reflect.Array/newInstance ^Class type 0))))))
++        (clojure.core/type (clojure.core/make-array type 0))))))
+--- upstream/persistent-sorted-set/src-clojure/me/tonsky/persistent_sorted_set.cljs
++++ corpus/datascript/src/me/tonsky/persistent_sorted_set.clj
+@@ -4,9 +4,11 @@
+   me.tonsky.persistent-sorted-set
+   (:refer-clojure :exclude [iter conj disj sorted-set sorted-set-by])
+   (:require
+-    [me.tonsky.persistent-sorted-set.arrays :as arrays])
+-  (:require-macros
+     [me.tonsky.persistent-sorted-set.arrays :as arrays]))
++
++;; pippin: persistent_sorted_set.cljs as Clojure for this runtime, whose JVM side is Java; every change is a
++;; `pippin:` comment, corpus/datascript/SOURCE has the list. A path is a long: below max-safe-level the bit
++;; operations are the cljs ones, above it floor-quot stands for Math.floor of the double division.
+ 
+ ; B+ tree
+ ; -------
+@@ -40,14 +42,14 @@
+ 
+ (def ^:const max-safe-path
+   "js limitation for bit ops"
+-  (js/Math.pow 2 31))
++  2147483648)
+ 
+ (def ^:const bits-per-level
+   "tunable param"
+   5)
+ 
+ (def ^:const max-len
+-  (js/Math.pow 2 bits-per-level)) ;; 32
++  (bit-shift-left 1 bits-per-level)) ;; 32
+ 
+ (def ^:const min-len
+   (/ max-len 2)) ;; 16
+@@ -56,13 +58,29 @@
+   (arrays/half (+ max-len min-len))) ;; 24
+ 
+ (def ^:const max-safe-level
+-  (js/Math.floor (/ 31 bits-per-level))) ;; 6
++  (quot 31 bits-per-level)) ;; 6
+ 
+ (def ^:const bit-mask
+   (- max-len 1)) ;; 0b011111 = 5 bit
+ 
+ (def factors
+-  (arrays/into-array (map #(js/Math.pow 2 %) (range 0 52 bits-per-level))))
++  (arrays/into-array (map #(bit-shift-left 1 %) (range 0 52 bits-per-level))))
++
++;; pippin: Math.floor of a division, which rounds a negative path down where quot rounds toward zero.
++(defn- floor-quot [x y]
++  (let [q (quot x y)]
++    (if (and (neg? x) (not (== x (* q y))))
++      (dec q)
++      q)))
++
++;; pippin: Array.prototype.slice.
++(defn- aslice
++  ([arr from]
++   (aslice arr from (arrays/alength arr)))
++  ([arr from to]
++   (let [res (arrays/make-array (- to from))]
++     (arrays/acopy arr from to res 0)
++     res)))
+ 
+ (def ^:const empty-path 0)
+ 
+@@ -72,8 +90,7 @@
+       (unsigned-bit-shift-right (* level bits-per-level))
+       (bit-and bit-mask))
+     (-> path
+-      (/ (arrays/aget factors level))
+-      (js/Math.floor)
++      (floor-quot (arrays/aget factors level))
+       (bit-and bit-mask))))
+ 
+ (defn- path-set ^number [^number path ^number level ^number idx]
+@@ -115,14 +132,14 @@
+       (unsigned-bit-shift-right path1 bits-per-level)
+       (unsigned-bit-shift-right path2 bits-per-level))
+     (== 
+-      (Math/floor (/ path1 max-len))
+-      (Math/floor (/ path2 max-len)))))
++      (floor-quot path1 max-len)
++      (floor-quot path2 max-len))))
+ 
+ (defn- path-str [^number path]
+   (loop [res ()
+          path path]
+     (if (not= path 0)
+-      (recur (cljs.core/conj res (mod path max-len)) (Math/floor (/ path max-len)))
++      (recur (clojure.core/conj res (mod path max-len)) (floor-quot path max-len))
+       (vec res))))
+ 
+ (defn- binary-search-l [cmp arr r k]
+@@ -322,10 +339,10 @@
+             ;; gotta split it up
+             (let [middle  (arrays/half (arrays/alength new-pointers))]
+               (arrays/array
+-                (Node. (.slice new-keys     0 middle)
+-                       (.slice new-pointers 0 middle))
+-                (Node. (.slice new-keys     middle)
+-                       (.slice new-pointers middle)))))))))
++                (Node. (aslice new-keys     0 middle)
++                       (aslice new-pointers 0 middle))
++                (Node. (aslice new-keys     middle)
++                       (aslice new-pointers middle)))))))))
+ 
+   (node-disj [_ cmp key root? left right]
+     (let [idx (lookup-range cmp keys key)]
+@@ -381,12 +398,12 @@
+             (if (> idx middle)
+               ;; new key goes to the second half
+               (arrays/array
+-                (Leaf. (.slice keys 0 middle))
++                (Leaf. (aslice keys 0 middle))
+                 (Leaf. (cut-n-splice keys middle keys-l idx idx (arrays/array key))))
+               ;; new key goes to the first half
+               (arrays/array
+                 (Leaf. (cut-n-splice keys 0 middle idx idx (arrays/array key)))
+-                (Leaf. (.slice keys middle keys-l)))))
++                (Leaf. (aslice keys middle keys-l)))))
+        
+         ;; ok as is
+         :else
+@@ -404,88 +421,55 @@
+ 
+ (def ^:private ^:const uninitialized-hash nil)
+ 
+-(deftype BTSet [root shift cnt comparator meta ^:mutable _hash]
+-  Object
+-  (toString [this] (pr-str* this))
+-
+-  ICloneable
+-  (-clone [_] (BTSet. root shift cnt comparator meta _hash))
+-
+-  IWithMeta
+-  (-with-meta [_ new-meta] (BTSet. root shift cnt comparator new-meta _hash))
+-
+-  IMeta
+-  (-meta [_] meta)
+-
+-  IEmptyableCollection
+-  (-empty [_] (BTSet. (Leaf. (arrays/array)) 0 0 comparator meta uninitialized-hash))
+-
+-  IEquiv
+-  (-equiv [this other]
++;; pippin: clojure.core/rseq takes vectors and sorted colls only, so the reverse iterators are reached through
++;; this protocol (rslice); a deftype has no Reversible slot (NOTES "Type descriptor").
++(defprotocol IReversible
++  (-rseq [this]))
++
++;; pippin: the cljs protocols by their JVM interface names. Not here: toString and the printer (no slot),
++;; -clone, -empty and -disjoin (no slot for empty or disj), the transient protocols (transient, conj! and
++;; persistent! are the persistent operations here), and the _hash cache, which needs a mutable field
++;; (NOTES "Type descriptor"): hasheq hashes the elements on every call.
++(deftype BTSet [root shift cnt comparator meta _hash]
++  IObj
++  (meta [_] meta)
++  (withMeta [_ new-meta] (BTSet. root shift cnt comparator new-meta _hash))
++
++  IHashEq
++  (hasheq [this] (hash-unordered-coll this))
++
++  IPersistentCollection
++  (equiv [this other]
+     (and
+       (set? other)
+       (== cnt (count other))
+       (every? #(contains? this %) other)))
+-
+-  IHash
+-  (-hash [this] (caching-hash this hash-unordered-coll _hash))
+-
+-  ICollection
+-  (-conj [this key] (conj this key comparator))
+-
+-  ISet
+-  (-disjoin [this key] (disj this key comparator))
+-
+-  ILookup 
+-  (-lookup [_ k]
++  (cons [this key] (conj this key comparator))
++  (seq [this] (btset-iter this))
++  (count [_] cnt)
++
++  Counted
++
++  ILookup
++  (valAt [_ k]
+     (node-lookup root comparator k))
+-  (-lookup [_ k not-found]
++  (valAt [_ k not-found]
+     (or (node-lookup root comparator k) not-found))
+ 
+-  ISeqable
+-  (-seq [this] (btset-iter this))
+-
+-  IReduce
+-  (-reduce [this f]
++  IReduceInit
++  (reduce [this f start]
+     (if-let [i (btset-iter this)]
+-      (-reduce i f)
+-      (f)))
+-  (-reduce [this f start]
+-    (if-let [i (btset-iter this)]
+-      (-reduce i f start)
++      (reduce f start i)
+       start))
+-           
++
+   IReversible
+   (-rseq [this]
+-    (rseq (btset-iter this)))
+-
+-  ; ISorted
+-  ; (-sorted-seq [this ascending?])
+-  ; (-sorted-seq-from [this k ascending?])
+-  ; (-entry-key [this entry] entry)
+-  ; (-comparator [this] comparator)
+-
+-  ICounted
+-  (-count [_] cnt)
+-
+-  IEditableCollection
+-  (-as-transient [this] this)
+-
+-  ITransientCollection
+-  (-conj! [this key] (conj this key comparator))
+-  (-persistent! [this] this)
+-
+-  ITransientSet
+-  (-disjoin! [this key] (disj this key comparator))
++    (some-> (btset-iter this) -rseq))
+ 
+   IFn
+-  (-invoke [this k] (-lookup this k))
+-  (-invoke [this k not-found] (-lookup this k not-found))
+-
+-  IPrintWithWriter
+-  (-pr-writer [this writer opts]
+-    (pr-sequential-writer writer pr-writer "#{" " " "}" opts (seq this))))
+-  
++  (invoke [this k] (node-lookup root comparator k))
++  (invoke [this k not-found] (or (node-lookup root comparator k) not-found)))
++
+ (defn- keys-for [set path]
+   (loop [level (.-shift set)
+          node  (.-root set)]
+@@ -599,40 +583,7 @@
+           right (next-path set rpath)]
+       (iter set left right))))
+ 
+-;; replace with cljs.core/ArrayChunk after https://dev.clojure.org/jira/browse/CLJS-2470
+-(deftype Chunk [arr off end]
+-  ICounted
+-  (-count [_] (- end off))
+-
+-  IIndexed
+-  (-nth [this i]
+-    (aget arr (+ off i)))
+-  
+-  (-nth [this i not-found]
+-    (if (and (>= i 0) (< i (- end off)))
+-      (aget arr (+ off i))
+-      not-found))
+-
+-  IChunk
+-  (-drop-first [this]
+-    (if (== off end)
+-      (throw (js/Error. "-drop-first of empty chunk"))
+-      (ArrayChunk. arr (inc off) end)))
+-
+-  IReduce
+-  (-reduce [this f]
+-    (if (== off end)
+-      (f)
+-      (-reduce (-drop-first this) f (aget arr off))))
+-  
+-  (-reduce [this f start]
+-    (loop [val start, n off]
+-      (if (< n end)
+-        (let [val' (f val (aget arr n))]
+-          (if (reduced? val')
+-            @val'
+-            (recur val' (inc n))))
+-        val))))
++;; pippin: Chunk is cljs.core's IChunk for IChunkedSeq; this runtime has no chunked seqs (NOTES "Type descriptor").
+ 
+ (defprotocol IIter
+   (-copy [this left right]))
+@@ -644,28 +595,24 @@
+ 
+ (declare -seek* -rseek*)
+ 
++;; pippin: Sequential gives the cljs equiv-sequential; no IChunkedSeq (see Chunk) and no printer.
+ (deftype Iter [set left right keys idx]
+   IIter
+   (-copy [_ l r]
+     (Iter. set l r (keys-for set l) (path-get l 0)))
+ 
+-  IEquiv
+-  (-equiv [this other] (equiv-sequential this other))
+-
+-  ISequential
+-  ISeqable
+-  (-seq [this] (when keys this))
+-
++  Sequential
+   ISeq
+-  (-first [this]
++  (seq [this] (when keys this))
++
++  (first [this]
+     (when keys
+       (arrays/aget keys idx)))
+ 
+-  (-rest [this]
+-    (or (-next this) ()))
+-
+-  INext
+-  (-next [this]
++  (more [this]
++    (or (next this) ()))
++
++  (next [this]
+     (when keys
+       (if (< (inc idx) (arrays/alength keys))
+         ;; can use cached array to move forward
+@@ -676,35 +623,8 @@
+           (when (path-lt left' right)
+             (-copy this left' right))))))
+ 
+-  IChunkedSeq
+-  (-chunked-first [this]
+-    (let [end-idx (if (path-same-leaf left right)
+-                    ;; right is in the same node
+-                    (path-get right 0)
+-                    ;; right is in a different node
+-                    (arrays/alength keys))]
+-      (Chunk. keys idx end-idx)))
+-
+-  (-chunked-rest [this]
+-    (or (-chunked-next this) ()))
+-
+-  IChunkedNext
+-  (-chunked-next [this]
+-    (let [last  (path-set left 0 (dec (arrays/alength keys)))
+-          left' (next-path set last)]
+-      (when (path-lt left' right)
+-        (-copy this left' right))))
+-           
+-  IReduce
+-  (-reduce [this f]
+-    (if (nil? keys)
+-      (f)
+-      (let [first (-first this)]
+-        (if-some [next (-next this)]
+-          (-reduce next f first)
+-          first))))
+-
+-  (-reduce [this f start]
++  IReduceInit
++  (reduce [this f start]
+     (loop [left left
+            keys keys
+            idx  idx
+@@ -736,53 +656,42 @@
+   ISeek
+   (-seek [this key]
+     (-seek this key (.-comparator set)))
+-  
++
+   (-seek [this key cmp]
+     (cond
+       (nil? key)
+-      (throw (js/Error. "seek can't be called with a nil key!"))
+-      
++      (throw (ex-info "seek can't be called with a nil key!" {}))
++
+       (nat-int? (cmp (arrays/aget keys idx) key))
+       this
+-      
++
+       :else
+       (when-some [left' (-seek* set key cmp)]
+-        (Iter. set left' right (keys-for set left') (path-get left' 0)))))
+-
+-  Object
+-  (toString [this] (pr-str* this))
+-
+-  IPrintWithWriter
+-  (-pr-writer [this writer opts]
+-    (pr-sequential-writer writer pr-writer "(" " " ")" opts (seq this))))
++        (Iter. set left' right (keys-for set left') (path-get left' 0))))))
+ 
+ (defn iter [set left right]
+   (Iter. set left right (keys-for set left) (path-get left 0)))
+ 
+ ;; reverse iteration
+ 
++;; pippin: as Iter.
+ (deftype ReverseIter [set left right keys idx]
+   IIter
+   (-copy [_ l r]
+     (ReverseIter. set l r (keys-for set r) (path-get r 0)))
+ 
+-  IEquiv
+-  (-equiv [this other] (equiv-sequential this other))
+-
+-  ISequential
+-  ISeqable
+-  (-seq [this] (when keys this))
+-
++  Sequential
+   ISeq
+-  (-first [this]
++  (seq [this] (when keys this))
++
++  (first [this]
+     (when keys
+       (arrays/aget keys idx)))
+ 
+-  (-rest [this]
+-    (or (-next this) ()))
+-
+-  INext
+-  (-next [this]
++  (more [this]
++    (or (next this) ()))
++
++  (next [this]
+     (when keys
+       (if (> idx 0)
+         ;; can use cached array to advance
+@@ -805,25 +714,18 @@
+   (-seek [this key cmp]
+     (cond
+       (nil? key)
+-      (throw (js/Error. "seek can't be called with a nil key!"))
+-      
++      (throw (ex-info "seek can't be called with a nil key!" {}))
++
+       (nat-int? (cmp key (arrays/aget keys idx)))
+       this
+-      
++
+       :else
+       (let [right' (prev-path set (-rseek* set key cmp))]
+         (when (and
+                 (nat-int? right')
+                 (path-lte left right')
+                 (path-lt  right' right))
+-          (ReverseIter. set left right' (keys-for set right') (path-get right' 0))))))
+-
+-  Object
+-  (toString [this] (pr-str* this))
+-
+-  IPrintWithWriter
+-  (-pr-writer [this writer opts]
+-    (pr-sequential-writer writer pr-writer "(" " " ")" opts (seq this))))
++          (ReverseIter. set left right' (keys-for set right') (path-get right' 0)))))))
+ 
+ (defn riter [set left right]
+   (ReverseIter. set left right (keys-for set right) (path-get right 0)))
+@@ -938,14 +840,14 @@
+         (let [rest (- len pos)]
+           (cond
+             (<= rest max-len)
+-              (conj! acc (.slice arr pos))
++              (conj! acc (aslice arr pos))
+             (>= rest (+ chunk-len min-len))
+               (do
+-                (conj! acc (.slice arr pos (+ pos chunk-len)))
++                (conj! acc (aslice arr pos (+ pos chunk-len)))
+                 (recur (+ pos chunk-len)))
+             :else
+               (let [piece-len (arrays/half rest)]
+-                (conj! acc (.slice arr pos (+ pos piece-len)))
++                (conj! acc (aslice arr pos (+ pos piece-len)))
+                 (recur (+ pos piece-len)))))))
+     (to-array (persistent! acc))))
+ 
+@@ -1046,11 +948,11 @@
+    `(rslice set from to)` returns backwards iterator for all Xs where from <= X <= to.
+    Optionally pass in comparator that will override the one that set uses. Supports efficient [[clojure.core/rseq]]."
+   ([set key]
+-    (some-> (-slice set key key (.-comparator set)) rseq))
++    (some-> (-slice set key key (.-comparator set)) -rseq))
+   ([set key-from key-to]
+-    (some-> (-slice set key-to key-from (.-comparator set)) rseq))
++    (some-> (-slice set key-to key-from (.-comparator set)) -rseq))
+   ([set key-from key-to comparator]
+-    (some-> (-slice set key-to key-from comparator) rseq)))
++    (some-> (-slice set key-to key-from comparator) -rseq)))
+ 
+ 
+ (defn seek

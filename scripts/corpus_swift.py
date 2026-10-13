@@ -14,6 +14,7 @@ SOURCES = "bench/workloads/swift"
 FLAGS = ["-O", "-wmo"]
 NA = {w: "structured concurrency or actors would be a different program from core.async's channels and go blocks"
       for w in ("async-pipeline", "async-libs", "async-broadcast")}
+NA["datascript"] = "not hand-ported: its subject is the Datascript library, a Datalog engine over a B-tree index"
 
 
 def binary(refs, w):
@@ -91,9 +92,12 @@ def section(b, refs, add, fmt, median_of):
 			fmt(r.get("swift_cold_first_ms"), 1), fmt(r.get("swift_cold_process_ms"), 0), " | ".join(ratios),
 			(r.get("swift") or {}).get("expected", "—")))
 	add("")
-	na = sorted({why for (ref, _), why in refs.na.items() if ref == "swift"})
+	na = {}
+	for (ref, w), why in refs.na.items():
+		if ref == "swift":
+			na.setdefault(why, []).append(w)
 	if na:
-		add("n/a: the async workloads; %s." % "; ".join(na))
+		add("n/a: " + "; ".join("%s: %s" % (", ".join(sorted(ws)), why) for why, ws in sorted(na.items())) + ".")
 		add("")
 	add("Wall time: the Swift builds %.1f min, the runs %.1f min." % (refs.cost.get("swift-build", 0) / 60,
 	                                                                refs.cost.get("swift", 0) / 60))

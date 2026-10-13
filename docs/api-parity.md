@@ -29,11 +29,11 @@ Occurrences of the name in `corpus/**/*.clj*` (unqualified or `clojure.core/`-qu
 
 | uses | name | cljs | JVM arglists |
 |---|---|---|---|
-| 45 | `class` | no | `([x])` |
-| 5 | `*warn-on-reflection*` | no | `nil` |
+| 47 | `class` | no | `([x])` |
+| 7 | `*warn-on-reflection*` | no | `nil` |
+| 5 | `*unchecked-math*` | no | `nil` |
 | 5 | `cast` | no | `([c x])` |
 | 4 | `struct` | no | `([s & vals])` |
-| 3 | `*unchecked-math*` | no | `nil` |
 | 3 | `defstruct` | no | `([name & keys])` |
 | 2 | `definterface` | no | `([name & sigs])` |
 | 2 | `iterator-seq` | no | `([iter])` |
@@ -125,11 +125,11 @@ The cljs column is the evidence, not the verdict. A name cljs keeps obliges us t
 
 | uses | name | cljs | §8 | why |
 |---|---|---|---|---|
-| 45 | `class` | no | «`class`, `class?`, `supers`, `bases`, `cast`» | a `Class` object with a superclass chain; here a host type is a value and recognition is a cast, not a name (§4) — `type` returns it |
-| 5 | `*warn-on-reflection*` | no | «Флаги и имена JVM-компилятора и загрузчика классов» | there is no reflection to warn about: a host call is resolved or it is a diagnostic (§3, §5) |
+| 47 | `class` | no | «`class`, `class?`, `supers`, `bases`, `cast`» | a `Class` object with a superclass chain; here a host type is a value and recognition is a cast, not a name (§4) — `type` returns it |
+| 7 | `*warn-on-reflection*` | no | «Флаги и имена JVM-компилятора и загрузчика классов» | there is no reflection to warn about: a host call is resolved or it is a diagnostic (§3, §5) |
+| 5 | `*unchecked-math*` | no | «Флаги и имена JVM-компилятора и загрузчика классов» | a global arithmetic switch; cost here is a fact and the unchecked ops are explicit twins (§3) |
 | 5 | `cast` | no | «`class`, `class?`, `supers`, `bases`, `cast`» | with `class`; it exists to make the JVM compiler emit a checkcast |
 | 4 | `struct` | no | «Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)» | with `defstruct` |
-| 3 | `*unchecked-math*` | no | «Флаги и имена JVM-компилятора и загрузчика классов» | a global arithmetic switch; cost here is a fact and the unchecked ops are explicit twins (§3) |
 | 3 | `defstruct` | no | «Структуры (`defstruct`, `create-struct`, `struct`, `struct-map`, `accessor`)» | superseded by `defrecord` and shapes (§4); deprecated in practice upstream and dropped by cljs |
 | 2 | `definterface` | no | «`gen-class`, `gen-interface`, `definterface`» | with `gen-class`; §10 names it a permitted exception, and a protocol here is a descriptor slot, not an interface (§4) |
 | 2 | `iterator-seq` | no | «Seq'и и редьюсы над JVM-типами» | with `enumeration-seq` |

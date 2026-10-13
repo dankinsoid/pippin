@@ -18,13 +18,17 @@ import time
 import corpus_refs
 
 WORKLOADS = ["medley", "combinatorics", "dependency", "nested-update", "group-freq", "pipelines", "strings",
-             "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast"]
+             "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast", "datascript"]
 LOAD_PATH = ["bench/workloads/src", "corpus/medley/src", "corpus/math-combinatorics/src", "corpus/dependency/src",
-             "corpus/parallel-async/src", "corpus/turbine/src"]
+             "corpus/parallel-async/src", "corpus/turbine/src", "corpus/datascript/src"]
+# Ours only (not corpus_refs.PORTS, the other-language references): datascript ported here would shadow the jars, whose
+# persistent-sorted-set is Java, on the JVM's classpath.
+OURS_ONLY = ["corpus/datascript/src"]
+DATASCRIPT_DEPS = 'datascript/datascript {:mvn/version "1.8.1"} persistent-sorted-set/persistent-sorted-set {:mvn/version "0.3.2"}'
 FEATURES = "clj"
 # The Clojure the fuzzer and make api-diff pin, and the core.async make api-diff diffs ours against.
-JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH) + '] :deps {org.clojure/clojure {:mvn/version '
-            '"1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"}}}')
+JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH if p not in OURS_ONLY)+ '] :deps {org.clojure/clojure '
+            '{:mvn/version "1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"} ' + DATASCRIPT_DEPS + '}}')
 # A run past this is a hang: sampled into the logs, killed, and an error of the report. The slowest workload takes
 # about 20 s interpreted.
 RUN_TIMEOUT = 240
@@ -457,8 +461,10 @@ class Bench:
 		sh(["swift", "build", "--scratch-path", os.path.join(ROOT, ".build/release"), "-c", "release", "--product",
 		    "clj-facts"], env=self.env, timeout=3600)
 		report = os.path.join(self.out, "facts-coverage.md")
+		# corpus/datascript has no manifest of its own (no test suite to run): its root for this report is apart.
 		p, _ = sh([os.path.join(ROOT, ".build/release/release/clj-facts"), ".", report,
-		           os.path.join(self.out, "facts-cost.md"), "bench/workloads"], env=self.env, timeout=3600, check=False)
+		           os.path.join(self.out, "facts-cost.md"), "bench/workloads/datascript", "bench/workloads"],
+		          env=self.env, timeout=3600, check=False)
 		self.keep("facts.txt", p.stdout + p.stderr)
 		if p.returncode != 0:
 			self.errors.append("clj-facts exited %d (its gate: a ⊥ or a declaration conflict): %s" % (p.returncode, p.stderr[-600:]))

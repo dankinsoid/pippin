@@ -20,13 +20,17 @@ REF_LABEL = {"jvm": "JVM", "bb": "bb", "cljs-node": "cljs-node", "cljs-hermes": 
 PORTS = {"swift": corpus_swift, "dart": corpus_dart, "cljd-aot": corpus_cljd.AOT, "cljd-jit": corpus_cljd.JIT}
 CLJS_VERSION = "1.12.145"
 CLJS_DEPS = ('{:deps {org.clojure/clojurescript {:mvn/version "%s"} org.clojure/core.async {:mvn/version '
-             '"1.6.681"}}}' % CLJS_VERSION)
+             '"1.6.681"} datascript/datascript {:mvn/version "1.8.1"} persistent-sorted-set/persistent-sorted-set '
+             '{:mvn/version "0.3.2"}}}' % CLJS_VERSION)
 CLJS_LOAD_PATH = ["corpus/medley/src", "corpus/math-combinatorics/src", "corpus/dependency/src"]
 # The per-target sources: workloads.util's generator and the async workloads without <!!.
 CLJS_SHIMS = "bench/workloads/cljs/src"
 # Workloads whose ClojureScript run returns a channel: the harness times it to its delivery.
 CLJS_CHANNEL = {"async-pipeline", "async-broadcast"}
 CLJS_NA = {"async-libs": "turbine runs its routes on threads (`thread`, `<!!`, `>!!`), which ClojureScript has not"}
+BB_NA = {"datascript": "its Datom, Entity and LRU are deftypes over clojure.lang interfaces (`ILookup`, `Seqable`, "
+                       "`IPersistentCollection`, `IHashEq`), where babashka's deftype takes protocols, `Object` and "
+                       "whole map types, and on the JVM its index is persistent-sorted-set's Java classes"}
 
 
 def ns_file(workload):
@@ -83,10 +87,11 @@ class Refs:
 			if not self.build_cljs([w for w in workloads if w not in CLJS_NA]):
 				self.refs = [r for r in self.refs if not r.startswith("cljs-")]
 		for w in workloads:
-			if w in CLJS_NA:
-				for ref in self.refs:
-					if ref.startswith("cljs-"):
-						self.na[(ref, w)] = CLJS_NA[w]
+			for ref in self.refs:
+				if ref.startswith("cljs-") and w in CLJS_NA:
+					self.na[(ref, w)] = CLJS_NA[w]
+				if ref == "bb" and w in BB_NA:
+					self.na[(ref, w)] = BB_NA[w]
 			for ref in self.refs:
 				if ref in PORTS and w in PORTS[ref].NA:
 					self.na[(ref, w)] = PORTS[ref].NA[w]
@@ -244,14 +249,16 @@ def clj_section(b, refs, add, fmt, median_of):
 		                                 "NO: " + ", ".join("%s %s" % (k, v) for k, v in verdicts.items() if v != "same"))
 		add("| %s | %s | %s | %s |" % (w, fmt(median_of(r.get("jvm")), 1), " | ".join(cells), same))
 	add("")
-	na = sorted({(w, why) for (ref, w), why in refs.na.items()})
+	na = sorted({(w, "babashka" if ref == "bb" else "ClojureScript", why) for (ref, w), why in refs.na.items() if ref in others})
 	if na:
-		add("n/a: " + "; ".join("%s on ClojureScript: %s" % (w, why) for w, why in na) + ".")
+		add("n/a: " + "; ".join("%s on %s: %s" % (w, on, why) for w, on, why in na) + ".")
 		add("")
 	add("Per-target sources (`bench/workloads/cljs/src`): `workloads.util` computes the generator's product with "
 	    "`Math/imul` (a double loses the low bits past 2^53; the states are the JVM's), and async-pipeline and "
 	    "async-broadcast return the channel of their result where the JVM blocks on it with `<!!`, which one thread "
-	    "lacks; their work is the .clj file's. The rest compile unchanged.")
+	    "lacks; their work is the .clj file's. The rest compile unchanged. datascript runs datascript 1.8.1 and "
+	    "persistent-sorted-set 0.3.2 from their jars on the JVM and ClojureScript, and their port to this runtime "
+	    "here (`corpus/datascript/SOURCE`).")
 	add("")
 	# `=` holds across a JS number's long/double ambiguity, so the printed result is compared to the JVM's too.
 	diffs = []

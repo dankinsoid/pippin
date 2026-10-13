@@ -25,9 +25,12 @@
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
 
-- **Corpus workloads (`make corpus-bench`; `bench/workloads`, `scripts/corpus-bench.py`, `clj-corpus-bench`).** Eleven
+- **Corpus workloads (`make corpus-bench`; `bench/workloads`, `scripts/corpus-bench.py`, `clj-corpus-bench`).** Thirteen
   programs over the corpus libraries and plain data work, one source for JVM Clojure 1.12.6 with core.async 1.6.681
-  (`bench/workloads/jvm.clj`) and for this runtime. Each file's header states its input, its work and its output, and
+  (`bench/workloads/jvm.clj`) and for this runtime. datascript's library is the one exception: the JVM (and
+  ClojureScript) run Datascript 1.8.1 and persistent-sorted-set 0.3.2 from their jars, this runtime their port in
+  `corpus/datascript`, which is on our load path only (`PORTED`: on the JVM's classpath it would shadow the jars),
+  and clj-facts takes the port as a root of its own, `bench/workloads/datascript`, ahead of the workloads.Each file's header states its input, its work and its output, and
   its `expected` is what `run` returns on the JVM, checked with `=` in every runtime (`hash` is ours by design, so no
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
   and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
@@ -103,7 +106,9 @@
   "References" table has each one's warm, 1st and cold, `closed/bb`, `interp/bb`, `closed/node`, `closed/hermes`
   (ours over theirs), its `=` verdict against `expected`, and below it every printed result that differs from the JVM's.
   - **bb** runs `bench/workloads/jvm.clj` and the sources unchanged (`bb -cp <the load path>`), core.async included:
-    all twelve return `expected`.
+    all twelve it runs return `expected`. datascript is n/a there (`BB_NA`): its Datom, Entity and LRU are deftypes
+    over `clojure.lang` interfaces, which babashka's deftype does not take (protocols, `Object` and whole map types
+    only), and on the JVM its index is Java.
   - **ClojureScript** is `cljs.build.api` 1.12.145 (`bench/workloads/cljs/build.clj`), `:advanced`, `:language-out
     :es5`, one bundle per workload as the closed build is one binary per workload, built before the workloads and
     outside every time (about a minute for all). The sources are copied to `.cljs` unchanged, except what

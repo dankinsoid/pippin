@@ -77,6 +77,7 @@ PATCHES = {
 }
 NA = {w: "ClojureDart has no core.async (its concurrency is Dart's Futures and Streams on one isolate)"
       for w in ("async-pipeline", "async-libs", "async-broadcast")}
+NA["datascript"] = ("Datascript has no ClojureDart side: its cljs branches are JavaScript (js arrays, goog.array) and its index is persistent-sorted-set's cljs or Java")
 MODES = ["cljd-aot", "cljd-jit"]
 
 
@@ -252,8 +253,13 @@ def section(b, refs, add, fmt, median_of):
 		                                 "NO: " + ", ".join("%s %s" % (k, v) for k, v in verdicts.items() if v != "same"))
 		add("| %s | %s | %s | %s |" % (w, fmt(median_of(r.get("closed")), 1), " | ".join(cells), same))
 	add("")
-	add("n/a: the async workloads; %s." % NA["async-libs"])
-	add("")
+	na = {}
+	for w in sorted(b.args.only):
+		if w in NA:
+			na.setdefault(NA[w], []).append(w)
+	if na:
+		add("n/a: " + "; ".join("%s: %s" % (", ".join(ws), why) for why, ws in sorted(na.items())) + ".")
+		add("")
 	diffs = []
 	for w in b.args.only:
 		r = b.results[w]
