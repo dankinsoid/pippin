@@ -2844,3 +2844,45 @@ by one (a closed unit's guard was already `CLJC_INL_`); what moved is the dev un
   copy only when it pays (a forwarder like `(range n)` → `(range 0 n 1)` doubled each site's C) the same units took
   268 copies instead of 52 and medley's and combinatorics' core units +20.6 % and +25 % at `-O2`. `boot/core.c`
   +0.34 % (its 229-entry tree table), clang within the spread.
+
+## Same-runner A/A — dda8c54, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+`make corpus-bench` with `--base` (docs/notes/benchmarks.md, "Corpus workloads", the `--base` bullet) on branch
+`bench-same-runner`, whose runtime is main's, against `origin/main`: 38377968041 (head 1e7adad, base dda8c54) and
+38386101053 (head ad631be, base 9ffb1f6, which differs from dda8c54 in `Sources/CljNREPL` alone, not linked into
+`clj-corpus-bench`). Eight alternated pairs per workload and mode. Every workload returned the JVM's value on both
+sides. Cell: median of the pairs' head/base ratios of each run's fastest iteration, the sign test's 93 % interval
+in brackets (run 1 recomputed from its logs; the run itself reported the ratio of run medians).
+
+| workload | interp, run 1 | run 2 | core+interp, run 1 | run 2 | dev, run 1 | run 2 | closed, run 1 | run 2 |
+|---|---|---|---|---|---|---|---|---|
+| medley | 0.991 [0.94–1.02] | 1.003 [0.98–1.05] | 0.992 [0.97–1.04] | 0.999 [0.97–1.05] | 0.990 [0.97–1.00] | 1.008 [0.96–1.09] | 0.984 [0.98–1.00] | 1.003 [0.99–1.02] |
+| combinatorics | 1.027 [1.00–1.05]* | 0.975 [0.95–1.02] | 0.995 [0.96–1.02] | 0.979 [0.94–1.00] | 0.986 [0.93–1.12] | 1.005 [0.98–1.10] | 1.007 [0.94–1.03] | 0.981 [0.95–1.03] |
+| dependency | 0.962 [0.89–1.00] | 1.009 [0.98–1.04] | 0.985 [0.94–1.01] | 1.016 [0.92–1.10] | 1.009 [0.95–1.10] | 0.988 [0.90–1.04] | 1.017 [0.97–1.06] | 1.024 [0.98–1.08] |
+| nested-update | 0.988 [0.91–1.03] | 0.937 [0.80–1.07] | 1.002 [0.97–1.04] | 0.994 [0.90–1.03] | 0.992 [0.92–1.03] | 1.070 [1.00–1.19] | 0.964 [0.92–0.99]* | 0.985 [0.88–1.01] |
+| group-freq | 1.004 [0.95–1.14] | 1.031 [0.91–1.10] | 0.965 [0.92–1.16] | 0.984 [0.96–1.09] | 1.003 [0.91–1.10] | 0.981 [0.90–1.04] | 0.993 [0.93–1.05] | 1.042 [1.00–1.08] |
+| pipelines | 1.021 [0.98–1.03] | 1.005 [0.90–1.20] | 0.959 [0.93–1.03] | 1.035 [0.97–1.12] | 0.986 [0.95–1.08] | 1.007 [0.98–1.11] | 0.979 [0.96–1.01] | 1.050 [0.97–1.18] |
+| strings | 0.989 [0.93–1.02] | 0.985 [0.96–1.09] | 1.000 [0.98–1.03] | 0.988 [0.96–1.04] | 1.002 [0.98–1.03] | 1.002 [0.96–1.02] | 1.006 [0.98–1.06] | 0.988 [0.93–1.02] |
+| render | 1.001 [0.98–1.03] | 1.051 [0.99–1.09] | 1.005 [0.99–1.02] | 0.990 [0.92–1.03] | 1.018 [0.98–1.03] | 1.001 [0.98–1.07] | 0.989 [0.95–1.01] | 1.015 [1.00–1.07]* |
+| suite-data | 1.029 [0.99–1.11] | 1.007 [0.99–1.02] | 0.989 [0.94–1.02] | 0.965 [0.91–1.03] | 0.959 [0.95–1.00]* | 1.004 [0.95–1.04] | 1.036 [0.98–1.06] | 1.001 [0.94–1.04] |
+| async-pipeline | 0.899 [0.87–1.08] | 0.983 [0.82–1.13] | 0.964 [0.79–1.51] | 1.056 [0.91–1.17] | 0.966 [0.79–1.07] | 1.015 [0.94–1.20] | 1.034 [0.91–1.06] | 1.016 [0.93–1.11] |
+| async-libs | 1.049 [0.98–1.08] | 0.907 [0.77–1.22] | 0.966 [0.87–1.03] | 0.943 [0.87–1.00]* | 1.029 [1.01–1.41]* | 1.001 [0.70–1.22] | 1.015 [0.71–1.11] | 0.942 [0.81–1.06] |
+| async-broadcast | 1.034 [0.91–1.14] | 1.021 [1.00–1.08] | 0.971 [0.95–1.08] | 0.993 [0.91–1.02] | 0.953 [0.88–1.08] | 0.997 [0.97–1.09] | 1.004 [0.85–1.12] | 1.005 [0.95–1.05] |
+| *geomean* | 0.999 | 0.992 | 0.983 | 0.995 | 0.991 | 1.006 | 1.002 | 1.004 |
+
+- **The noise floor.** With nothing changed, a data workload's median ratio sits within ±4 % (run 1) and ±7 %
+  (run 2; nested-update interp 0.937, dev 1.070), typically ±1–1.5 %; a mode's geomean within ±2 %. The interval
+  is 8 and 11 % wide at the median data cell, up to 34 % on a data cell and more on the async ones (async-pipeline
+  core+interp 0.79–1.51).
+  `*` fell on 4 and 2 of 48 cells, the interval's 7 % (3.4 cells). A change reads as one when its cell's interval
+  excludes 1 and it repeats across workloads or modes; one marked cell is not evidence.
+- **Why the fastest iteration.** Over the same pairs the run medians' intervals were 14 and 13 % wide at the median
+  data cell (up to 30 and 53 %), the fastest iterations' 8 and 11 % (up to 26 and 34 %): the runner's
+  interference only adds time, so the minimum carries less of it.
+- **Against two runs on two runners**: the earlier pairs differed by up to 2× on one cell (JVM warm medley 31.9
+  against 63.7 ms; combinatorics closed 206 against 387) and the dev column followed the runner in every
+  `dev-inline` pair. Within one job the base and head medians of the same build agree to a few percent.
+- **Counters** of the nine data workloads are equal to the unit on both sides in both runs (dev and closed); the
+  async ones move by up to 7 % in allocations and 27 % in `apply` (a count of 7) between two runs of one tree.
+- **Cost**: the `make corpus-bench` step took 67 and 70 min against about 20 for one tree; builds before the workloads
+  7.3 and 8.9 min, the workloads 59.2 and 61.0 min.

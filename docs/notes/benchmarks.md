@@ -19,7 +19,8 @@
   is a `workflow_dispatch` with `target: bench-ab` and `make_args: BASE=<full sha>` (a short sha does not fetch;
   `arches: arm64` is the M1 runner, 3 cpus, virtualized): two
   separate runs land on two runners, and the runner-to-runner spread is larger than the effects worth measuring.
-  Round 1 of the side that runs first reads warm-up on that runner; compare rounds 2 and on.
+  Round 1 of the side that runs first reads warm-up on that runner; compare rounds 2 and on. The base worktree
+  comes from `scripts/base-tree.sh`, which `corpus-bench --base` shares; an `origin/` prefix is stripped for the fetch.
 - [ ] Not yet measured: multi-threaded reads of a shared map, assoc from a shared base across threads,
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
@@ -31,13 +32,37 @@
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
   and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
   stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
-  neither gate: a CI dispatch with `target: corpus-bench` (about 20 min on the arm64 runner; the report is the job
+  neither gate: a CI dispatch with `target: corpus-bench` (about 20 min on the arm64 runner for one tree, 67 with the default base; the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
   `--interp-ab=VAR` adds a stats build of the interpreter and runs the interpreter and its counters twice, the second
   time with `VAR=1` in the environment (a switch the runtime or `clj-corpus-bench` reads, `CLJ_BENCH_NO_LAZY_INLINE`
   the first), into an "Interpreter A/B" table: the stats runs below are compiled code, so this is the only place an
   interpreter-side change shows in the counters.
   What each number is:
+  - **A change is timed with `--base=<ref>`, never by two runs.** Two dispatches land on two runners and the
+    runner moves every time column by more than a change does (JVM warm medley 31.9 against 63.7 ms in one pair;
+    the dev column followed the runner in all three `dev-inline` pairs). `--base` (`CORPUS_BENCH_BASE=<ref>`; the
+    workflow's `base` input, default `origin/main`, empty for one tree) builds the ref in a worktree
+    (`.build/corpus-bench/base-src`, removed at the end) with this tree's `clj-corpus-bench` harness, or its own when
+    this one does not build there, and gives it its own builds (`base-*` beside each scratch directory, its own
+    clj-compile, dev units and closed tree; `CLJ_EVAL_ROOT` is the base tree, whose headers the units compile
+    against). Both sides run this tree's workload sources. Per workload, after both sides' builds, `--reps` repetitions
+    (8 by default with a base) each run interp, core+interp, dev and closed on both sides back to back, the base
+    first in even repetitions and the head first in odd ones; then both sides' dev and closed stats runs; the
+    profile, census, calibration and facts stay the head's, and the JVM runs once. The report's "Same runner"
+    section has, per workload and mode, the median over the pairs of head/base of each run's fastest iteration, the
+    sign test's interval for that median in brackets (the 2nd and 7th of 8 ratios, 93 % coverage) and `*` where the
+    interval excludes 1, a mark the A/A runs put on 4 and 2 of 48 cells; a geomean row over the workloads; both
+    sides' ms (median of the runs' fastest and of their medians); and the dev and closed counters of the head with
+    their change against the base. *same result* covers
+    the base's runs. The fastest iteration and not the median: over two A/A runs the pairs of run medians gave an
+    interval 14 and 13 % wide (median over the 36 data cells), the fastest iterations 8 and 11 %, and 3 and 1 of the
+    36 excluded 1, about the 7 % the interval promises. What that leaves resolvable (bench/RESULTS.md "Same-runner
+    A/A"): a data workload's cell moves up to ±4–7 % with nothing changed, a mode's geomean ±2 %; a smaller claim
+    needs more `--reps`, with `--only` to keep them inside the 150 min. Cost on the arm64 runner: 67–70 min for the step against about 20 for
+    one tree (7–9 min of builds before the workloads, the workloads 59–61; a dev run recompiles its units with clang,
+    about 3 s of each). The async workloads' counters move between two runs of one tree (scheduling); the others'
+    are exact, so any counter change there is the head's.
   - Times are in-process per iteration of `run`: ours after one iteration, median of >= 3 and >= 2 s; the JVM's after
     >= 5 iterations and 5 s, median of >= 5 and >= 3 s. One runner's numbers spread ±20–30 % from the next's: read
     a backend's column against another only over several runs (bench/RESULTS.md, "Corpus workloads"). *JVM cold*

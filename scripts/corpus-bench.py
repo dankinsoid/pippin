@@ -377,8 +377,8 @@ class Bench:
 					if r and r.get("median_ms") is not None:
 						rs = runs.setdefault(side.prefix + mode, [])
 						rs.append(r)
-						# The pairs compare fastest iterations: an A/A run on the shared runner put their ratio's
-						# interval at half the width of the medians' (docs/notes/benchmarks.md).
+						# The pairs compare fastest iterations: in two A/A runs on the shared runner their ratio's
+						# interval was narrower than the medians' (docs/notes/benchmarks.md).
 						got[side.name] = r.get("min_ms")
 						mins = [x["min_ms"] for x in rs if x.get("min_ms") is not None]
 						# A side's number is the median over repetitions of each run's median.
