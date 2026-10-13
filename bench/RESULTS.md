@@ -2941,3 +2941,46 @@ Gates: 38402668442 (dd8bd54, the fixtures over the same compiler) green.
   core and the embedded libs keep their copies.
 - **Not taken**: outlining the copies that do not pay too (forwarders and loops, which stay calls) — the 22 units
   +3.1 % bytes over this rule, the dependency workload's unit +16 % over main, for one generic dispatch per call.
+
+## References: babashka, ClojureScript on Node and Hermes — 31265b5, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+`make corpus-bench` with the default `--refs=jvm,bb,cljs-node,cljs-hermes` and `--base=origin/main` (docs/notes/benchmarks.md,
+"Reference runtimes"), run 38401719457: babashka 1.13.226, ClojureScript 1.12.145 `:advanced` on Node 24.21.0 and on
+the Hermes CLI v0.13.0 (engine 0.12.0, `hermesc -O` bytecode). ms per iteration; ours are the head's closed and
+interp medians of the same job, so every ratio is one runner's. Ratios are ours over theirs: below 1, ours is faster.
+
+| workload | JVM warm | closed | interp | bb warm / 1st / cold | node warm / 1st / cold | hermes warm / 1st / cold | closed/bb | interp/bb | closed/node | closed/hermes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| medley | 43.1 | 56.7 | 108.0 | 128.6 / 155 / 220 | 92.6 / 292 / 375 | 1446 / 1277 / 1294 | 0.44× | 0.84× | 0.61× | 0.04× |
+| combinatorics | 82.2 | 212.5 | 398.6 | 217.0 / 221 / 259 | 272.7 / 297 / 354 | 3644 / 3623 / 3643 | 0.98× | 1.84× | 0.78× | 0.06× |
+| dependency | 411.4 | 569.0 | 926.8 | 678.9 / 698 / 774 | 843.0 / 1207 / 1288 | 16942 / 16169 / 16195 | 0.84× | 1.37× | 0.67× | 0.03× |
+| nested-update | 136.6 | 147.1 | 561.4 | 348.9 / 409 / 447 | 212.8 / 263 / 340 | 6525 / 6758 / 6781 | 0.42× | 1.61× | 0.69× | 0.02× |
+| group-freq | 138.1 | 368.0 | 548.4 | 315.7 / 261 / 295 | 316.9 / 540 / 592 | 5946 / 6426 / 6442 | 1.17× | 1.74× | 1.16× | 0.06× |
+| pipelines | 267.3 | 613.8 | 1243.8 | 540.7 / 471 / 506 | 766.4 / 954 / 1028 | 9990 / 9295 / 9311 | 1.14× | 2.30× | 0.80× | 0.06× |
+| strings | 39.8 | 52.7 | 73.4 | 66.7 / 102 / 135 | 60.4 / 140 / 201 | 640 / 617 / 629 | 0.79× | 1.10× | 0.87× | 0.08× |
+| render | 41.8 | 78.7 | 124.3 | 140.8 / 154 / 217 | 100.2 / 187 / 269 | 1155 / 1293 / 1316 | 0.56× | 0.88× | 0.79× | 0.07× |
+| suite-data | 48.7 | 73.5 | 129.3 | 164.3 / 210 / 278 | 94.6 / 322 / 410 | 1831 / 1812 / 1832 | 0.45× | 0.79× | 0.78× | 0.04× |
+| async-pipeline | 1596.4 | 179.1 | 173.3 | 4697.7 / 4913 / 4994 | 66.3 / 149 / 227 | 1783 / 2622 / 2641 | 0.04× | 0.04× | 2.70× | 0.10× |
+| async-libs | 158.0 | 68.4 | 85.5 | 199.8 / 191 / 225 | n/a | n/a | 0.34× | 0.43× | n/a | n/a |
+| async-broadcast | 82.6 | 31.3 | 48.8 | 321.5 / 561 / 587 | 33.6 / 76 / 122 | 845 / 856 / 867 | 0.10× | 0.15× | 0.93× | 0.04× |
+
+- **Same result everywhere it ran.** Every reference returned `expected` (`=`) on every workload it ran. The printed
+  results match the JVM's except pipelines on both ClojureScript engines, whose two double sums print `22499925000`
+  and `14999950000` for the JVM's `2.2499925E10` and `1.499995E10`: a JS number has no long/double distinction, and `=`
+  cannot see it. async-libs is n/a on ClojureScript (turbine's routes are threads); `workloads.util`'s generator and
+  the two other async workloads are per-target sources (`bench/workloads/cljs/src`).
+- **Against Hermes, the closed build is 10–50× faster** (0.02–0.10×) on every workload it ran; Hermes is an
+  interpreter here (0.12 has no JIT), 16–48× the JVM's warm time on the data workloads. This is React Native 0.75's
+  engine; the newer one is the open item in the NOTES entry.
+- **Against Node, closed is faster on 9 of 11** (0.61–0.93×); group-freq is 1.16× and async-pipeline 2.70×: V8's
+  single-threaded go blocks hand over a value without a thread or a lock, 66 ms against our 179.
+- **Against babashka, the interpreter is slower on 6 of the 9 data workloads** (1.10–2.30×: pipelines, combinatorics,
+  group-freq, nested-update, dependency, strings) and faster on medley, render and suite-data (0.79–0.88×) and on
+  the async ones, where bb's go blocks are threads. Closed is faster than bb on 7 of 9 data workloads; group-freq and
+  pipelines, the two where closed is furthest from the JVM, are 1.17× and 1.14× bb.
+- **Cold**: on the data workloads bb starts and runs a workload in 135–774 ms, Node in 201–1288 ms, the JVM in
+  964–2029 ms; there is no cold column for our builds yet.
+- **Cost**: the `make corpus-bench` step took 78.6 min against 67–70 for the two A/A runs (the same `--base`
+  configuration); the references themselves 10.4 min (bb 2.6, Node 1.7, Hermes 4.3, the ClojureScript build 0.9).
+  One run on one runner: the reference columns carry the ±20–30 % runner-to-runner spread, the ratios within the job
+  do not.

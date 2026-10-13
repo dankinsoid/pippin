@@ -32,7 +32,7 @@
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
   and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
   stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
-  neither gate: a CI dispatch with `target: corpus-bench` (about 20 min on the arm64 runner for one tree, 67 with the default base; the report is the job
+  neither gate: a CI dispatch with `target: corpus-bench` (on the arm64 runner about 20 min for one tree plus 10 for the reference runtimes, 79 with the default base; the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
   `--interp-ab=VAR` adds a stats build of the interpreter and runs the interpreter and its counters twice, the second
   time with `VAR=1` in the environment (a switch the runtime or `clj-corpus-bench` reads, `CLJ_BENCH_NO_LAZY_INLINE`
@@ -120,6 +120,9 @@
   - Numerics: `=` cannot see a JS number's long/double ambiguity, so the printed results are compared too. pipelines'
     two double sums print `22499925000` and `14999950000` where the JVM prints `2.2499925E10` and `1.499995E10`; no
     workload has a string outside the BMP or a product past 2^53 other than the generator's.
+  - Cost: about 10 min of the step on the arm64 runner (bb 2.6, Node 1.7, Hermes 4.3, the build 0.9; bench/RESULTS.md
+    "References"), the step 78.6 min with the default base against 67–70 without them: inside the 150 min, so the
+    default runs all four.
   - CI: `scripts/corpus-refs-install.sh` fetches babashka 1.13.226 and the Hermes CLI, checked against pinned
     sha256s, into `~/.cache/corpus-bench-refs`, cached with the ClojureScript jars (`CORPUS_BENCH_M2`); Node
     24.21.0 is `actions/setup-node`.
