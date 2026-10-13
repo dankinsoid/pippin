@@ -4,9 +4,11 @@
   me.tonsky.persistent-sorted-set
   (:refer-clojure :exclude [iter conj disj sorted-set sorted-set-by])
   (:require
-    [me.tonsky.persistent-sorted-set.arrays :as arrays])
-  (:require-macros
     [me.tonsky.persistent-sorted-set.arrays :as arrays]))
+
+;; pippin: persistent_sorted_set.cljs as Clojure for this runtime, whose JVM side is Java; every change is a
+;; `pippin:` comment, corpus/datascript/SOURCE has the list. A path is a long: below max-safe-level the bit
+;; operations are the cljs ones, above it floor-quot stands for Math.floor of the double division.
 
 ; B+ tree
 ; -------
@@ -40,14 +42,14 @@
 
 (def ^:const max-safe-path
   "js limitation for bit ops"
-  (js/Math.pow 2 31))
+  2147483648)
 
 (def ^:const bits-per-level
   "tunable param"
   5)
 
 (def ^:const max-len
-  (js/Math.pow 2 bits-per-level)) ;; 32
+  (bit-shift-left 1 bits-per-level)) ;; 32
 
 (def ^:const min-len
   (/ max-len 2)) ;; 16
@@ -56,13 +58,29 @@
   (arrays/half (+ max-len min-len))) ;; 24
 
 (def ^:const max-safe-level
-  (js/Math.floor (/ 31 bits-per-level))) ;; 6
+  (quot 31 bits-per-level)) ;; 6
 
 (def ^:const bit-mask
   (- max-len 1)) ;; 0b011111 = 5 bit
 
 (def factors
-  (arrays/into-array (map #(js/Math.pow 2 %) (range 0 52 bits-per-level))))
+  (arrays/into-array (map #(bit-shift-left 1 %) (range 0 52 bits-per-level))))
+
+;; pippin: Math.floor of a division, which rounds a negative path down where quot rounds toward zero.
+(defn- floor-quot [x y]
+  (let [q (quot x y)]
+    (if (and (neg? x) (not (== x (* q y))))
+      (dec q)
+      q)))
+
+;; pippin: Array.prototype.slice.
+(defn- aslice
+  ([arr from]
+   (aslice arr from (arrays/alength arr)))
+  ([arr from to]
+   (let [res (arrays/make-array (- to from))]
+     (arrays/acopy arr from to res 0)
+     res)))
 
 (def ^:const empty-path 0)
 
@@ -72,8 +90,7 @@
       (unsigned-bit-shift-right (* level bits-per-level))
       (bit-and bit-mask))
     (-> path
-      (/ (arrays/aget factors level))
-      (js/Math.floor)
+      (floor-quot (arrays/aget factors level))
       (bit-and bit-mask))))
 
 (defn- path-set ^number [^number path ^number level ^number idx]
@@ -115,14 +132,14 @@
       (unsigned-bit-shift-right path1 bits-per-level)
       (unsigned-bit-shift-right path2 bits-per-level))
     (== 
-      (Math/floor (/ path1 max-len))
-      (Math/floor (/ path2 max-len)))))
+      (floor-quot path1 max-len)
+      (floor-quot path2 max-len))))
 
 (defn- path-str [^number path]
   (loop [res ()
          path path]
     (if (not= path 0)
-      (recur (cljs.core/conj res (mod path max-len)) (Math/floor (/ path max-len)))
+      (recur (clojure.core/conj res (mod path max-len)) (floor-quot path max-len))
       (vec res))))
 
 (defn- binary-search-l [cmp arr r k]
@@ -322,10 +339,10 @@
             ;; gotta split it up
             (let [middle  (arrays/half (arrays/alength new-pointers))]
               (arrays/array
-                (Node. (.slice new-keys     0 middle)
-                       (.slice new-pointers 0 middle))
-                (Node. (.slice new-keys     middle)
-                       (.slice new-pointers middle)))))))))
+                (Node. (aslice new-keys     0 middle)
+                       (aslice new-pointers 0 middle))
+                (Node. (aslice new-keys     middle)
+                       (aslice new-pointers middle)))))))))
 
   (node-disj [_ cmp key root? left right]
     (let [idx (lookup-range cmp keys key)]
@@ -381,12 +398,12 @@
             (if (> idx middle)
               ;; new key goes to the second half
               (arrays/array
-                (Leaf. (.slice keys 0 middle))
+                (Leaf. (aslice keys 0 middle))
                 (Leaf. (cut-n-splice keys middle keys-l idx idx (arrays/array key))))
               ;; new key goes to the first half
               (arrays/array
                 (Leaf. (cut-n-splice keys 0 middle idx idx (arrays/array key)))
-                (Leaf. (.slice keys middle keys-l)))))
+                (Leaf. (aslice keys middle keys-l)))))
        
         ;; ok as is
         :else
@@ -404,88 +421,55 @@
 
 (def ^:private ^:const uninitialized-hash nil)
 
-(deftype BTSet [root shift cnt comparator meta ^:mutable _hash]
-  Object
-  (toString [this] (pr-str* this))
+;; pippin: clojure.core/rseq takes vectors and sorted colls only, so the reverse iterators are reached through
+;; this protocol (rslice); a deftype has no Reversible slot (NOTES "Type descriptor").
+(defprotocol IReversible
+  (-rseq [this]))
 
-  ICloneable
-  (-clone [_] (BTSet. root shift cnt comparator meta _hash))
+;; pippin: the cljs protocols by their JVM interface names. Not here: toString and the printer (no slot),
+;; -clone, -empty and -disjoin (no slot for empty or disj), the transient protocols (transient, conj! and
+;; persistent! are the persistent operations here), and the _hash cache, which needs a mutable field
+;; (NOTES "Type descriptor"): hasheq hashes the elements on every call.
+(deftype BTSet [root shift cnt comparator meta _hash]
+  IObj
+  (meta [_] meta)
+  (withMeta [_ new-meta] (BTSet. root shift cnt comparator new-meta _hash))
 
-  IWithMeta
-  (-with-meta [_ new-meta] (BTSet. root shift cnt comparator new-meta _hash))
+  IHashEq
+  (hasheq [this] (hash-unordered-coll this))
 
-  IMeta
-  (-meta [_] meta)
-
-  IEmptyableCollection
-  (-empty [_] (BTSet. (Leaf. (arrays/array)) 0 0 comparator meta uninitialized-hash))
-
-  IEquiv
-  (-equiv [this other]
+  IPersistentCollection
+  (equiv [this other]
     (and
       (set? other)
       (== cnt (count other))
       (every? #(contains? this %) other)))
+  (cons [this key] (conj this key comparator))
+  (seq [this] (btset-iter this))
+  (count [_] cnt)
 
-  IHash
-  (-hash [this] (caching-hash this hash-unordered-coll _hash))
+  Counted
 
-  ICollection
-  (-conj [this key] (conj this key comparator))
-
-  ISet
-  (-disjoin [this key] (disj this key comparator))
-
-  ILookup 
-  (-lookup [_ k]
+  ILookup
+  (valAt [_ k]
     (node-lookup root comparator k))
-  (-lookup [_ k not-found]
+  (valAt [_ k not-found]
     (or (node-lookup root comparator k) not-found))
 
-  ISeqable
-  (-seq [this] (btset-iter this))
-
-  IReduce
-  (-reduce [this f]
+  IReduceInit
+  (reduce [this f start]
     (if-let [i (btset-iter this)]
-      (-reduce i f)
-      (f)))
-  (-reduce [this f start]
-    (if-let [i (btset-iter this)]
-      (-reduce i f start)
+      (reduce f start i)
       start))
-           
+
   IReversible
   (-rseq [this]
-    (rseq (btset-iter this)))
-
-  ; ISorted
-  ; (-sorted-seq [this ascending?])
-  ; (-sorted-seq-from [this k ascending?])
-  ; (-entry-key [this entry] entry)
-  ; (-comparator [this] comparator)
-
-  ICounted
-  (-count [_] cnt)
-
-  IEditableCollection
-  (-as-transient [this] this)
-
-  ITransientCollection
-  (-conj! [this key] (conj this key comparator))
-  (-persistent! [this] this)
-
-  ITransientSet
-  (-disjoin! [this key] (disj this key comparator))
+    (some-> (btset-iter this) -rseq))
 
   IFn
-  (-invoke [this k] (-lookup this k))
-  (-invoke [this k not-found] (-lookup this k not-found))
+  (invoke [this k] (node-lookup root comparator k))
+  (invoke [this k not-found] (or (node-lookup root comparator k) not-found)))
 
-  IPrintWithWriter
-  (-pr-writer [this writer opts]
-    (pr-sequential-writer writer pr-writer "#{" " " "}" opts (seq this))))
-  
 (defn- keys-for [set path]
   (loop [level (.-shift set)
          node  (.-root set)]
@@ -599,40 +583,7 @@
           right (next-path set rpath)]
       (iter set left right))))
 
-;; replace with cljs.core/ArrayChunk after https://dev.clojure.org/jira/browse/CLJS-2470
-(deftype Chunk [arr off end]
-  ICounted
-  (-count [_] (- end off))
-
-  IIndexed
-  (-nth [this i]
-    (aget arr (+ off i)))
-  
-  (-nth [this i not-found]
-    (if (and (>= i 0) (< i (- end off)))
-      (aget arr (+ off i))
-      not-found))
-
-  IChunk
-  (-drop-first [this]
-    (if (== off end)
-      (throw (js/Error. "-drop-first of empty chunk"))
-      (ArrayChunk. arr (inc off) end)))
-
-  IReduce
-  (-reduce [this f]
-    (if (== off end)
-      (f)
-      (-reduce (-drop-first this) f (aget arr off))))
-  
-  (-reduce [this f start]
-    (loop [val start, n off]
-      (if (< n end)
-        (let [val' (f val (aget arr n))]
-          (if (reduced? val')
-            @val'
-            (recur val' (inc n))))
-        val))))
+;; pippin: Chunk is cljs.core's IChunk for IChunkedSeq; this runtime has no chunked seqs (NOTES "Type descriptor").
 
 (defprotocol IIter
   (-copy [this left right]))
@@ -644,28 +595,24 @@
 
 (declare -seek* -rseek*)
 
+;; pippin: Sequential gives the cljs equiv-sequential; no IChunkedSeq (see Chunk) and no printer.
 (deftype Iter [set left right keys idx]
   IIter
   (-copy [_ l r]
     (Iter. set l r (keys-for set l) (path-get l 0)))
 
-  IEquiv
-  (-equiv [this other] (equiv-sequential this other))
-
-  ISequential
-  ISeqable
-  (-seq [this] (when keys this))
-
+  Sequential
   ISeq
-  (-first [this]
+  (seq [this] (when keys this))
+
+  (first [this]
     (when keys
       (arrays/aget keys idx)))
 
-  (-rest [this]
-    (or (-next this) ()))
+  (more [this]
+    (or (next this) ()))
 
-  INext
-  (-next [this]
+  (next [this]
     (when keys
       (if (< (inc idx) (arrays/alength keys))
         ;; can use cached array to move forward
@@ -676,35 +623,8 @@
           (when (path-lt left' right)
             (-copy this left' right))))))
 
-  IChunkedSeq
-  (-chunked-first [this]
-    (let [end-idx (if (path-same-leaf left right)
-                    ;; right is in the same node
-                    (path-get right 0)
-                    ;; right is in a different node
-                    (arrays/alength keys))]
-      (Chunk. keys idx end-idx)))
-
-  (-chunked-rest [this]
-    (or (-chunked-next this) ()))
-
-  IChunkedNext
-  (-chunked-next [this]
-    (let [last  (path-set left 0 (dec (arrays/alength keys)))
-          left' (next-path set last)]
-      (when (path-lt left' right)
-        (-copy this left' right))))
-           
-  IReduce
-  (-reduce [this f]
-    (if (nil? keys)
-      (f)
-      (let [first (-first this)]
-        (if-some [next (-next this)]
-          (-reduce next f first)
-          first))))
-
-  (-reduce [this f start]
+  IReduceInit
+  (reduce [this f start]
     (loop [left left
            keys keys
            idx  idx
@@ -736,53 +656,42 @@
   ISeek
   (-seek [this key]
     (-seek this key (.-comparator set)))
-  
+
   (-seek [this key cmp]
     (cond
       (nil? key)
-      (throw (js/Error. "seek can't be called with a nil key!"))
-      
+      (throw (ex-info "seek can't be called with a nil key!" {}))
+
       (nat-int? (cmp (arrays/aget keys idx) key))
       this
-      
+
       :else
       (when-some [left' (-seek* set key cmp)]
-        (Iter. set left' right (keys-for set left') (path-get left' 0)))))
-
-  Object
-  (toString [this] (pr-str* this))
-
-  IPrintWithWriter
-  (-pr-writer [this writer opts]
-    (pr-sequential-writer writer pr-writer "(" " " ")" opts (seq this))))
+        (Iter. set left' right (keys-for set left') (path-get left' 0))))))
 
 (defn iter [set left right]
   (Iter. set left right (keys-for set left) (path-get left 0)))
 
 ;; reverse iteration
 
+;; pippin: as Iter.
 (deftype ReverseIter [set left right keys idx]
   IIter
   (-copy [_ l r]
     (ReverseIter. set l r (keys-for set r) (path-get r 0)))
 
-  IEquiv
-  (-equiv [this other] (equiv-sequential this other))
-
-  ISequential
-  ISeqable
-  (-seq [this] (when keys this))
-
+  Sequential
   ISeq
-  (-first [this]
+  (seq [this] (when keys this))
+
+  (first [this]
     (when keys
       (arrays/aget keys idx)))
 
-  (-rest [this]
-    (or (-next this) ()))
+  (more [this]
+    (or (next this) ()))
 
-  INext
-  (-next [this]
+  (next [this]
     (when keys
       (if (> idx 0)
         ;; can use cached array to advance
@@ -805,25 +714,18 @@
   (-seek [this key cmp]
     (cond
       (nil? key)
-      (throw (js/Error. "seek can't be called with a nil key!"))
-      
+      (throw (ex-info "seek can't be called with a nil key!" {}))
+
       (nat-int? (cmp key (arrays/aget keys idx)))
       this
-      
+
       :else
       (let [right' (prev-path set (-rseek* set key cmp))]
         (when (and
                 (nat-int? right')
                 (path-lte left right')
                 (path-lt  right' right))
-          (ReverseIter. set left right' (keys-for set right') (path-get right' 0))))))
-
-  Object
-  (toString [this] (pr-str* this))
-
-  IPrintWithWriter
-  (-pr-writer [this writer opts]
-    (pr-sequential-writer writer pr-writer "(" " " ")" opts (seq this))))
+          (ReverseIter. set left right' (keys-for set right') (path-get right' 0)))))))
 
 (defn riter [set left right]
   (ReverseIter. set left right (keys-for set right) (path-get right 0)))
@@ -938,14 +840,14 @@
         (let [rest (- len pos)]
           (cond
             (<= rest max-len)
-              (conj! acc (.slice arr pos))
+              (conj! acc (aslice arr pos))
             (>= rest (+ chunk-len min-len))
               (do
-                (conj! acc (.slice arr pos (+ pos chunk-len)))
+                (conj! acc (aslice arr pos (+ pos chunk-len)))
                 (recur (+ pos chunk-len)))
             :else
               (let [piece-len (arrays/half rest)]
-                (conj! acc (.slice arr pos (+ pos piece-len)))
+                (conj! acc (aslice arr pos (+ pos piece-len)))
                 (recur (+ pos piece-len)))))))
     (to-array (persistent! acc))))
 
@@ -1046,11 +948,11 @@
    `(rslice set from to)` returns backwards iterator for all Xs where from <= X <= to.
    Optionally pass in comparator that will override the one that set uses. Supports efficient [[clojure.core/rseq]]."
   ([set key]
-    (some-> (-slice set key key (.-comparator set)) rseq))
+    (some-> (-slice set key key (.-comparator set)) -rseq))
   ([set key-from key-to]
-    (some-> (-slice set key-to key-from (.-comparator set)) rseq))
+    (some-> (-slice set key-to key-from (.-comparator set)) -rseq))
   ([set key-from key-to comparator]
-    (some-> (-slice set key-to key-from comparator) rseq)))
+    (some-> (-slice set key-to key-from comparator) -rseq)))
 
 
 (defn seek

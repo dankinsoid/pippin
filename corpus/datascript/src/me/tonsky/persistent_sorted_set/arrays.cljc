@@ -5,6 +5,9 @@
   #?(:cljs (:require-macros me.tonsky.persistent-sorted-set.arrays))
   #?(:clj  (:import [java.util Arrays])))
 
+;; pippin: the :clj branches below are this runtime's: object arrays and loops where the JVM's are Java
+;; (Arrays, System/arraycopy, RT); corpus/datascript/SOURCE.
+
 
 (defn- if-cljs [env then else]
   (if (:ns env) then else))
@@ -13,23 +16,23 @@
 #?(:cljs
    (defn ^array make-array [size] (js/Array. size))
    :clj 
-   (defn make-array ^{:tag "[[Ljava.lang.Object;"} [size]
-     (clojure.core/make-array java.lang.Object size)))
+   (defn make-array [size]
+     (clojure.core/object-array size)))
 
 
 #?(:cljs
    (defn ^array into-array [aseq]
      (reduce (fn [a x] (.push a x) a) (js/Array.) aseq))
    :clj
-   (defn into-array ^{:tag "[[Ljava.lang.Object;"} [aseq]
-     (clojure.core/into-array java.lang.Object aseq)))
+   (defn into-array [aseq]
+     (clojure.core/object-array aseq)))
 
 
 #?(:clj
   (defmacro aget [arr i]
     (if-cljs &env
       (list 'js* "(~{}[~{}])" arr i)
-     `(clojure.lang.RT/aget ~(vary-meta arr assoc :tag "[[Ljava.lang.Object;") (int ~i)))))
+     `(clojure.core/aget ~arr ~i))))
 
 
 #?(:clj
@@ -37,14 +40,14 @@
     (if-cljs &env
       (-> (list 'js* "~{}.length" arr)
           (vary-meta assoc :tag 'number))
-     `(clojure.lang.RT/alength ~(vary-meta arr assoc :tag "[[Ljava.lang.Object;")))))
+     `(clojure.core/alength ~arr))))
 
 
 #?(:clj
   (defmacro aset [arr i v]
     (if-cljs &env
       (list 'js* "(~{}[~{}] = ~{})" arr i v)
-     `(clojure.lang.RT/aset ~(vary-meta arr assoc :tag "[[Ljava.lang.Object;") (int ~i) ~v))))
+     `(clojure.core/aset ~arr ~i ~v))))
 
 
 #?(:clj
@@ -54,11 +57,9 @@
         (list* 'js* (str "[" (str/join "," (repeat (count args) "~{}")) "]") args)
         (vary-meta assoc :tag 'array))
       (let [len (count args)]
-        (if (zero? len)
-          'clojure.lang.RT/EMPTY_ARRAY
-         `(let [arr# (clojure.core/make-array java.lang.Object ~len)]
-            (doto ^{:tag "[[Ljava.lang.Object;"} arr#
-            ~@(map #(list 'aset % (nth args %)) (range len)))))))))
+        `(let [arr# (clojure.core/object-array ~len)]
+           (doto arr#
+             ~@(map #(list 'clojure.core/aset % (nth args %)) (range len))))))))
 
 
 #?(:clj
@@ -68,12 +69,12 @@
         (dotimes [i# l#]
           (aset ~to (+ i# ~to-start) (aget ~from (+ i# ~from-start)))))
      `(let [l# (- ~from-end ~from-start)]
-        (when (pos? l#)
-          (System/arraycopy ~from ~from-start ~to ~to-start l#))))))
+        (dotimes [i# l#]
+          (clojure.core/aset ~to (+ i# ~to-start) (clojure.core/aget ~from (+ i# ~from-start))))))))
 
 
 (defn aclone [from]
-  #?(:clj  (Arrays/copyOf ^{:tag "[[Ljava.lang.Object;"} from (alength from))
+  #?(:clj  (clojure.core/aclone from)
      :cljs (.slice from 0)))
 
 
@@ -81,8 +82,9 @@
   #?(:cljs (.concat a b)
      :clj  (let [al  (alength a)
                  bl  (alength b)
-                 res (Arrays/copyOf ^{:tag "[[Ljava.lang.Object;"} a (+ al bl))]
-             (System/arraycopy ^{:tag "[[Ljava.lang.Object;"} b 0 res al bl)
+                 res (clojure.core/object-array (+ al bl))]
+             (acopy a 0 al res 0)
+             (acopy b 0 bl res al)
              res)))
 
 
@@ -92,7 +94,7 @@
    :clj
    (defn amap 
      ([f arr]
-      (amap f Object arr))
+      (amap f :object arr))
      ([f type arr] ;; TODO check if faster in Java
       (let [res (clojure.core/make-array type (alength arr))]
         (dotimes [i (alength arr)]
@@ -102,7 +104,10 @@
 
 (defn asort [arr cmp]
   #?(:cljs (.sort arr cmp)
-     :clj  (doto arr (Arrays/parallelSort cmp))))
+     :clj  (let [sorted (vec (sort cmp arr))]
+             (dotimes [i (alength arr)]
+               (aset arr i (nth sorted i)))
+             arr)))
 
 
 #?(:cljs
@@ -111,8 +116,10 @@
        (.isArray js/Array x)
        (instance? js/Array x)))
    :clj
-   (defn array? [^Object x]
-     (some-> x .getClass .isArray)))
+   (do
+     (def ^:private object-array-type (type (clojure.core/object-array 0)))
+     (defn array? [x]
+       (identical? object-array-type (type x)))))
 
 
 #?(:clj
@@ -130,4 +137,4 @@
   (def array-type
     (memoize
       (fn [type]
-        (.getClass ^Object (java.lang.reflect.Array/newInstance ^Class type 0))))))
+        (clojure.core/type (clojure.core/make-array type 0))))))
