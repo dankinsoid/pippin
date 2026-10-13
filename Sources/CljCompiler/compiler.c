@@ -3107,13 +3107,32 @@ static void mono_conj(fnctx *f, sb *s, const char *slot) {
 
 typedef struct {
 	char     call[MONO_STAGES_MAX][700];
-	char     base[300];
+	char     step[300];
 	uint32_t stub;
+	bool     cont[MONO_STAGES_MAX]; // <step>k<i>, the stages below i, emitted
 } mono_emit;
 
-// Stages from..0 as the function `name`; a mapcat ends it, the stages below in a continuation emitted first.
+static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32_t from, bool first, const char *name);
+
+// The call handing v to the stages below stage i, a function emitted once per site whoever asks (mapcat, a full
+// partition-all buffer, the completion, the begin); the sink itself below stage 0.
+static void mono_cont(fnctx *f, const mono_plan *p, mono_emit *e, uint32_t i, char *call, size_t cap) {
+	if (i == 0) {
+		snprintf(call, cap, "sink->emit(sink, v)");
+		return;
+	}
+	char name[340];
+	snprintf(name, sizeof name, "%sk%u", e->step, i);
+	if (!e->cont[i]) {
+		e->cont[i] = true;
+		emit_mono_segment(f, p, e, i - 1, false, name);
+	}
+	snprintf(call, cap, "%s(ctx, &v, sink)", name);
+}
+
+// Stages from..0 as the function `name`; a mapcat or a full partition-all ends it, handing on to mono_cont's.
 // @ai-generated(solo)
-static void emit_mono_segment(fnctx *f, const mono_plan *p, const mono_emit *e, uint32_t from, bool first, const char *name) {
+static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32_t from, bool first, const char *name) {
 	frame_add(f->u, name, e->stub);
 	sb_printf(&f->u->protos, "static int %s(void *ctx, const clj_value *xs, clj_fused_sink *sink);\n", name);
 	sb s = {0};
@@ -3239,14 +3258,20 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, const mono_emit *e, 
 			sb_printf(&s, MONO_THROW_V, "t");
 			sb_puts(&s, "\tif (!clj_truthy(t)) {\n\tclj_release(t);\n\treturn h;\n\t}\n\tclj_release(t);\n");
 			sb_printf(&s, "\tv = %s;\n\t%s = clj_vector_empty();\n", slot, slot);
-			break;
+			// the stages below as the completion runs them: one copy for both
+			char call[400];
+			mono_cont(f, p, e, i, call, sizeof call);
+			sb_printf(&s, "\t{\n\tint r = %s;\n\tclj_release(v);\n\treturn h | r;\n\t}\n}\n\n", call);
+			sb_put(&f->u->fns, s.s, s.len);
+			sb_free(&s);
+			return;
 		}
 		case MONO_MAPCAT: {
 			// (comp (map f) cat): f's coll handed item by item to the stages below, preserving-reduced's halt ending the walk
-			char cont[340] = "NULL";
+			char cont[340] = "NULL", call[400];
 			if (i > 0) {
-				snprintf(cont, sizeof cont, "%sc%u", name, i);
-				emit_mono_segment(f, p, e, i - 1, false, cont);
+				mono_cont(f, p, e, i, call, sizeof call);
+				snprintf(cont, sizeof cont, "%sk%u", e->step, i);
 			}
 			sb_puts(&s, "\ta[0] = v;\n");
 			mono_call(&s, e->call[i], i, 1, e->stub);
@@ -3266,7 +3291,7 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, const mono_emit *e, 
 // The completion, (xf result) from the input side down: each partition-all hands a buffer it still holds to the stages
 // below, through a continuation of their own, and a halt there is unreduced away, as the transducer's completion does.
 // @ai-generated(solo)
-static void emit_mono_flush(fnctx *f, const mono_plan *p, const mono_emit *e, const char *step, const char *name) {
+static void emit_mono_flush(fnctx *f, const mono_plan *p, mono_emit *e, const char *name) {
 	frame_add(f->u, name, e->stub);
 	sb_printf(&f->u->protos, "static int %s(void *ctx, clj_fused_sink *sink);\n", name);
 	sb s = {0};
@@ -3275,28 +3300,21 @@ static void emit_mono_flush(fnctx *f, const mono_plan *p, const mono_emit *e, co
 	for (uint32_t i = p->nstages; i-- > 0;) {
 		bool scan = p->kind[i] == MONO_SCAN && p->init[i] == UINT32_MAX;
 		if (p->kind[i] != MONO_PARTITION_ALL && !scan) continue;
-		char slot[32], cont[340] = "NULL";
+		char slot[32], call[400];
 		snprintf(slot, sizeof slot, "fz[%u]", p->nstages + p->state[i]);
-		if (i > 0) {
-			snprintf(cont, sizeof cont, "%sp%u", step, i);
-			emit_mono_segment(f, p, e, i - 1, false, cont);
-		}
+		mono_cont(f, p, e, i, call, sizeof call);
 		if (scan) {
 			// (list (f)) over an empty coll: its only item, data even when reduced
 			sb_printf(&s, "\tif (!clj_truthy(fz[%u])) {\n\tfz[%u] = CLJ_TRUE;\n\tv = clj_c_invoke(fz[%u], NULL, 0);\n", p->nstages + p->state[i] + 1,
 			          p->nstages + p->state[i] + 1, i);
-			sb_puts(&s, "\tif (v == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
-			if (i > 0) sb_printf(&s, "\tr = %s(ctx, &v, sink);\n", cont);
-			else sb_puts(&s, "\tr = sink->emit(sink, v);\n");
+			sb_printf(&s, "\tif (v == CLJ_THROWN) return CLJ_FUSED_THROWN;\n\tr = %s;\n", call);
 			sb_puts(&s, "\tclj_release(v);\n\tif (r == CLJ_FUSED_THROWN) return CLJ_FUSED_THROWN;\n\t}\n");
 			continue;
 		}
 		// (if (empty? @a) result (let [v @a] (vreset! a []) (unreduced (rf result v))))
 		mono_intrinsic(f, &s, "empty?", slot, "t");
 		sb_puts(&s, "\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
-		sb_printf(&s, "\tif (!clj_truthy(t)) {\n\tv = %s;\n\t%s = clj_vector_empty();\n", slot, slot);
-		if (i > 0) sb_printf(&s, "\tr = %s(ctx, &v, sink);\n", cont);
-		else sb_puts(&s, "\tr = sink->emit(sink, v);\n");
+		sb_printf(&s, "\tif (!clj_truthy(t)) {\n\tv = %s;\n\t%s = clj_vector_empty();\n\tr = %s;\n", slot, slot, call);
 		sb_puts(&s, "\tclj_release(v);\n\tif (r == CLJ_FUSED_THROWN) return CLJ_FUSED_THROWN;\n\t}\n");
 	}
 	sb_puts(&s, "\treturn CLJ_FUSED_GO;\n}\n\n");
@@ -3307,21 +3325,15 @@ static void emit_mono_flush(fnctx *f, const mono_plan *p, const mono_emit *e, co
 // What reaches the sink before the source's first item: each scan's init, the consumer's side first, as the outer of
 // two nested reductions hands its init on before it pulls the inner's; a reduced init is the scan's only item.
 // @ai-generated(solo)
-static void emit_mono_begin(fnctx *f, const mono_plan *p, const mono_emit *e, const char *step, const char *name) {
+static void emit_mono_begin(fnctx *f, const mono_plan *p, mono_emit *e, const char *name) {
 	frame_add(f->u, name, e->stub);
 	sb_printf(&f->u->protos, "static int %s(void *ctx, clj_fused_sink *sink);\n", name);
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t;\n\tint r;\n", name);
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		if (p->kind[i] != MONO_SCAN || p->init[i] == UINT32_MAX) continue;
-		char cont[340] = "", call[400];
-		if (i > 0) {
-			snprintf(cont, sizeof cont, "%ss%u", step, i);
-			emit_mono_segment(f, p, e, i - 1, false, cont);
-			snprintf(call, sizeof call, "%s(ctx, &v, sink)", cont);
-		} else {
-			snprintf(call, sizeof call, "sink->emit(sink, v)");
-		}
+		char call[400];
+		mono_cont(f, p, e, i, call, sizeof call);
 		uint32_t acc = p->nstages + p->state[i];
 		sb_printf(&s, "\tfz[%u] = CLJ_TRUE;\n\tt = fz[%u];\n", acc + 1, acc + 2);
 		sb_printf(&s, "\tif (clj_is_reduced(t)) {\n\tv = clj_retain(clj_reduced_value(t));\n\tr = %s;\n\tclj_release(v);\n", call);
@@ -3338,6 +3350,7 @@ static void emit_mono_begin(fnctx *f, const mono_plan *p, const mono_emit *e, co
 // @ai-generated(solo)
 static bool emit_mono_step(fnctx *f, const clj_node *n, const mono_plan *p, char *name, size_t cap, char *flush, size_t fcap, char *begin, size_t bcap) {
 	mono_emit e;
+	memset(e.cont, 0, sizeof e.cont);
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		bool fn = p->argk[i] == MONO_ARG_FN && p->how[i] == MONO_CALL_FN;
 		const fn_base *fb = fn ? fn_base_of(f->c, n->u.fused.args[p->arg[i]]) : NULL;
@@ -3370,6 +3383,7 @@ static bool emit_mono_step(fnctx *f, const clj_node *n, const mono_plan *p, char
 		snprintf(e.call[i], sizeof e.call[i], "%s%s(fz[%u], clj_slot_values(clj_fn_of(fz[%u])->env), a, %u)", target, pool_has(&f->u->leaves, target) ? "_i" : "", i, i, n_);
 	}
 	snprintf(name, cap, "%s__fz%u", f->base, (*f->fn_counter)++);
+	snprintf(e.step, sizeof e.step, "%s", name);
 	clj_value consumer = clj_var_name(clj_fusion_var_of(n->u.fused.guards[0]));
 	e.stub = stub_new(f->u, f, consumer, n->line, n->col);
 	emit_mono_segment(f, p, &e, p->nstages - 1, true, name);
@@ -3377,14 +3391,14 @@ static bool emit_mono_step(fnctx *f, const clj_node *n, const mono_plan *p, char
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		if (p->kind[i] != MONO_PARTITION_ALL && !(p->kind[i] == MONO_SCAN && p->init[i] == UINT32_MAX)) continue;
 		snprintf(flush, fcap, "%sf", name);
-		emit_mono_flush(f, p, &e, name, flush);
+		emit_mono_flush(f, p, &e, flush);
 		break;
 	}
 	snprintf(begin, bcap, "NULL");
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		if (p->kind[i] != MONO_SCAN || p->init[i] == UINT32_MAX) continue;
 		snprintf(begin, bcap, "%sb", name);
-		emit_mono_begin(f, p, &e, name, begin);
+		emit_mono_begin(f, p, &e, begin);
 		break;
 	}
 	return true;
