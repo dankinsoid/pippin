@@ -776,7 +776,12 @@
   stops the walk without the completion, which the lazy seq never reaches; and there `sequence`'s coll is the
   source, since a stage below it feeds it several inputs per item or ends it early
   (`Fixtures/compiler/fused-seq.clj` traces both forms' calls; `sequenceAndMultiCollAgainstTheLazyPath`).
-  `CLJ_NO_OPT=fuse` turns off the sequence, multi-coll and `mapv` forms. Serialized as `[:fused [vars] [args] fused original]`; the two programs' slots are
+  **`(into to XF P)` and `(transduce XF f [init] P)`** take XF's stages nearest the consumer and P's below, guard
+  `into` or `transduce`: into is the `fused-into*` its own 3-arity runs (`clj_into_xform`), transduce is `fused*` in its
+  mode, `(f)` first when there is no init and f's 1-arity over the result after the stages' completion. Inside an XF
+  `partition-all` is a stage too (`CLJ_FUSION_XF_STAGE`): its transducer is what the form names, while its lazy arity,
+  whose items are seqs, stays out of P. `CLJ_NO_OPT=fuse` turns off the sequence, multi-coll, `mapv`, XF-into and
+  transduce forms. Serialized as `[:fused [vars] [args] fused original]`; the two programs' slots are
   bounds-checked against the args, not the enclosing frame. The guard: every core var the two programs
   name (consumer, stages, driver) still holds the root it had when core.clj finished loading, recorded
   by `clj_fusion_install` in a static table the node points into, as an INTRINSIC points into the
@@ -805,7 +810,9 @@
   `run!`/`doseq` (a reduce with early exit; design §6b item 9); a last-use source of `mapv`/`into` (the result
   written into the source's nodes, design §6b item 10); stages inlined into one C loop in compiled code (it calls
   the same driver today, design §6b «Итераторы Rust»); the barriers `sort`/`group-by` (cut a pipeline today);
-  `partition-all` (above); `transduce`, `frequencies`, `group-by` and `(apply str P)` as consumers.
+  `partition-all` at its lazy arity (above); `frequencies`, `group-by` and `(apply str P)` as consumers, which the
+  driver would have to do in C behind guards on every core fn their bodies call; `reductions` as a stage (it has
+  no transducer arity).
 - [ ] **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
   the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
   callee's frame; the generic path adds `closure_run` with its own 16 slots): on the order of 0.6 KB

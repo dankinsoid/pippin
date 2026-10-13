@@ -34,7 +34,8 @@ static const clj_fusion_var table[] = {
 	OTHER("reduce", CLJ_FUSION_CONSUMER),      OTHER("into", CLJ_FUSION_CONSUMER),       OTHER("vec", CLJ_FUSION_CONSUMER),
 	OTHER("count", CLJ_FUSION_CONSUMER),       OTHER("fused-reduce*", CLJ_FUSION_DRIVER), OTHER("fused-into*", CLJ_FUSION_DRIVER),
 	OTHER("fused-count*", CLJ_FUSION_DRIVER),      OTHER("fused*", CLJ_FUSION_DRIVER),        OTHER("mapv", CLJ_FUSION_CONSUMER),
-	OTHER("sequence", CLJ_FUSION_FORM),        OTHER("comp", CLJ_FUSION_FORM),
+	OTHER("sequence", CLJ_FUSION_FORM),        OTHER("comp", CLJ_FUSION_FORM),        OTHER("transduce", CLJ_FUSION_CONSUMER),
+	{"clojure.core/partition-all", CLJ_FUSION_XF_STAGE, 2},
 	OTHER("get-in", CLJ_FUSION_GUARD),         OTHER("assoc-in", CLJ_FUSION_GUARD),       OTHER("update-in", CLJ_FUSION_GUARD),
 	OTHER("seq", CLJ_FUSION_GUARD),            OTHER("first", CLJ_FUSION_GUARD),          OTHER("next", CLJ_FUSION_GUARD),
 	OTHER("apply", CLJ_FUSION_GUARD),          OTHER("reduced?", CLJ_FUSION_GUARD),       OTHER("unreduced", CLJ_FUSION_GUARD),
@@ -43,7 +44,7 @@ static const clj_fusion_var table[] = {
 	OTHER("inc", CLJ_FUSION_GUARD),            OTHER("dec", CLJ_FUSION_GUARD),            OTHER("pos?", CLJ_FUSION_GUARD),
 	OTHER("nil?", CLJ_FUSION_GUARD),           OTHER("complement", CLJ_FUSION_GUARD),     OTHER("cat", CLJ_FUSION_GUARD),
 	OTHER("preserving-reduced", CLJ_FUSION_GUARD), OTHER("=", CLJ_FUSION_GUARD),          OTHER("contains?", CLJ_FUSION_GUARD),
-	OTHER("conj", CLJ_FUSION_GUARD),
+	OTHER("conj", CLJ_FUSION_GUARD),           OTHER("count", CLJ_FUSION_GUARD),          OTHER("empty?", CLJ_FUSION_GUARD),
 };
 
 enum { N = sizeof table / sizeof *table };
@@ -306,7 +307,8 @@ static int consume(out *o, clj_value y) {
 		return acc == CLJ_THROWN ? CLJ_FUSED_THROWN : CLJ_FUSED_GO;
 	}
 	case CLJ_FUSED_MODE_REDUCE:
-	case CLJ_FUSED_MODE_SEQ_REDUCE: {
+	case CLJ_FUSED_MODE_SEQ_REDUCE:
+	case CLJ_FUSED_MODE_TRANSDUCE: {
 		if (o->acc == CLJ_UNBOUND) {
 			o->acc = clj_retain(y);
 			return CLJ_FUSED_GO;
@@ -519,10 +521,13 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 	switch (mode) {
 	case CLJ_FUSED_MODE_REDUCE:
 	case CLJ_FUSED_MODE_SEQ_REDUCE:
+	case CLJ_FUSED_MODE_TRANSDUCE:
 		CLJ_ASSERT(nlead == 1 || nlead == 2, "a fused reduce takes f [init]");
 		o.f = lead[0];
 		o.call = clj_call_prepare(lead[0], 2);
 		o.acc = nlead == 2 ? clj_retain(lead[1]) : CLJ_UNBOUND;
+		// (transduce xform f coll) is (transduce xform f (f) coll)
+		if (mode == CLJ_FUSED_MODE_TRANSDUCE && nlead == 1 && (o.acc = clj_invoke(o.f, NULL, 0)) == CLJ_THROWN) return CLJ_THROWN;
 		break;
 	case CLJ_FUSED_MODE_INTO:
 	case CLJ_FUSED_MODE_SEQ_INTO:
@@ -551,6 +556,12 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 		return CLJ_THROWN;
 	}
 	if (mode == CLJ_FUSED_MODE_COUNT) return clj_fixnum((intptr_t)o.count);
+	if (mode == CLJ_FUSED_MODE_TRANSDUCE) {
+		// the stages' completion ends in f's: (f (reduce (xform f) init coll))
+		clj_value done = clj_invoke(o.f, &o.acc, 1);
+		clj_release(o.acc);
+		return done;
+	}
 	return o.acc == CLJ_UNBOUND ? clj_invoke(o.f, NULL, 0) : o.acc;
 }
 
@@ -625,7 +636,7 @@ clj_value clj_fused_run(const clj_value *args, size_t n) {
 	if (ncolls > SOURCES_MAX) return clj_throw_msg("fused* walks at most %d colls", SOURCES_MAX);
 	clj_fused_mode m = (clj_fused_mode)clj_fixnum_val(mode);
 	uint32_t       nlead = clj_vector_count(lead);
-	bool           reduce = m == CLJ_FUSED_MODE_REDUCE || m == CLJ_FUSED_MODE_SEQ_REDUCE;
+	bool           reduce = m == CLJ_FUSED_MODE_REDUCE || m == CLJ_FUSED_MODE_SEQ_REDUCE || m == CLJ_FUSED_MODE_TRANSDUCE;
 	if (reduce ? nlead != 1 && nlead != 2 : nlead != (m == CLJ_FUSED_MODE_COUNT ? 0u : 1u)) return clj_throw_msg("fused* got %u lead args for mode %d", nlead, (int)m);
 	xf_bottom *b = malloc(sizeof *b);
 	if (!b) clj_fatal("out of memory");

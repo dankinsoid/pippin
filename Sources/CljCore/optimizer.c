@@ -51,7 +51,8 @@ static void rewrite_invoke(clj_node *n) {
 }
 
 // ---- fusion: (reduce f [init] P), (into to P), (vec P), (count P), (mapv f P), P stage calls over a source, a multi-coll
-// map innermost, or (sequence XF src) as the consumer's coll, XF a stage's transducer or a comp of them
+// map innermost, or (sequence XF src) as the consumer's coll, XF a stage's transducer or a comp of them; and
+// (into to XF P), (transduce XF f [init] P)
 
 enum { MAX_STAGES = 64, MAX_SOURCES = 3, MAX_SPINE = 2 * MAX_STAGES };
 
@@ -66,6 +67,8 @@ typedef struct {
 	const clj_fusion_var *fv; // the consumer
 	const clj_node       *consumer;
 	uint32_t              nlead;
+	uint32_t              lead_arg[2];  // the consumer's args that are its lead: f [init], to
+	uint32_t              lead_slot[2]; // their FUSED locals
 	stage                 stages[MAX_STAGES]; // consumer-first: the last one sees each input first
 	uint32_t              nstages;
 	bool                  sequence;
@@ -89,7 +92,8 @@ static bool fv_is(const clj_fusion_var *fv, const char *name) { return fv && str
 
 static bool consumer_arity_ok(const clj_fusion_var *fv, uint32_t n) {
 	if (fv_is(fv, "reduce")) return n == 2 || n == 3;
-	if (fv_is(fv, "into")) return n == 2;
+	if (fv_is(fv, "into")) return n == 2 || (n == 3 && !clj_opt_off(CLJ_NO_OPT_FUSE));
+	if (fv_is(fv, "transduce")) return (n == 3 || n == 4) && !clj_opt_off(CLJ_NO_OPT_FUSE);
 	if (fv_is(fv, "mapv")) return n >= 2 && n <= 1 + MAX_SOURCES && !clj_opt_off(CLJ_NO_OPT_FUSE);
 	return n == 1; // vec, count
 }
@@ -117,6 +121,7 @@ static void form_add(pipeline *p, const clj_node *call) {
 // XF's stages, pushed consumer-first: a comp's last transducer is the one nearest the consumer.
 static bool xform_stages(pipeline *p, const clj_node *xf) {
 	const clj_fusion_var *fv = fusion_head(xf, CLJ_FUSION_STAGE);
+	if (!fv) fv = fusion_head(xf, CLJ_FUSION_XF_STAGE);
 	if (fv) return xf->u.invoke.n + 1 == fv->arity && spine_add(p, xf) && stage_add(p, fv, xf, xf->u.invoke.n);
 	if (!fv_is(fusion_head(xf, CLJ_FUSION_FORM), "comp") || xf->u.invoke.n == 0 || !spine_add(p, xf)) return false;
 	form_add(p, xf);
@@ -144,6 +149,14 @@ static bool match(const clj_node *n, pipeline *p) {
 	spine_add(p, n);
 	const clj_node *coll = n->u.invoke.args[n->u.invoke.n - 1];
 	p->nlead = n->u.invoke.n - 1;
+	for (uint32_t i = 0; i < p->nlead && i < 2; i++) p->lead_arg[i] = i;
+	// (into to XF coll) and (transduce XF f [init] coll): the XF's stages nearest the consumer, P's below
+	const clj_node *xf = fv_is(p->fv, "into") && n->u.invoke.n == 3 ? n->u.invoke.args[1] : fv_is(p->fv, "transduce") ? n->u.invoke.args[0] : NULL;
+	if (xf) {
+		if (!xform_stages(p, xf)) return false;
+		p->nlead = fv_is(p->fv, "into") ? 1 : n->u.invoke.n - 2;
+		for (uint32_t i = 0; i < p->nlead; i++) p->lead_arg[i] = fv_is(p->fv, "into") ? 0 : 1 + i;
+	}
 	if (fv_is(p->fv, "mapv")) {
 		// (into [] (map f c…)): the map is a stage of the consumer's own call
 		p->nlead = 0;
@@ -248,7 +261,12 @@ static void collect(pipeline *p, const clj_node *n, const clj_node **args, uint3
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		if (p->stages[i].call == n) p->stages[i].slot = *k;
 	}
-	for (uint32_t i = 0; i < n->u.invoke.n; i++) collect(p, n->u.invoke.args[i], args, k);
+	for (uint32_t i = 0; i < n->u.invoke.n; i++) {
+		for (uint32_t j = 0; n == p->consumer && j < p->nlead; j++) {
+			if (p->lead_arg[j] == i) p->lead_slot[j] = *k;
+		}
+		collect(p, n->u.invoke.args[i], args, k);
+	}
 }
 
 // The spine again over the locals, in the same order.
@@ -268,6 +286,10 @@ static const clj_fusion_var *named(const char *qualified) {
 // fused-reduce*, fused-into* and fused-count* keep the shapes they had; the rest is fused* with a mode.
 static const clj_fusion_var *driver_for(const pipeline *p, clj_fused_mode *mode) {
 	bool many = p->nsources > 1, buf = buffered(p);
+	if (fv_is(p->fv, "transduce")) {
+		*mode = CLJ_FUSED_MODE_TRANSDUCE;
+		return named("clojure.core/fused*");
+	}
 	if (fv_is(p->fv, "reduce")) *mode = buf ? CLJ_FUSED_MODE_SEQ_REDUCE : CLJ_FUSED_MODE_REDUCE;
 	else if (fv_is(p->fv, "count")) *mode = CLJ_FUSED_MODE_COUNT;
 	else *mode = buf ? CLJ_FUSED_MODE_SEQ_INTO : CLJ_FUSED_MODE_INTO;
@@ -290,7 +312,7 @@ static clj_node *build_fused(const pipeline *p, position at) {
 	if (fv_is(driver, "fused*")) {
 		const clj_node **lead = zalloc(nlead, sizeof *lead);
 		if (into_empty) lead[k++] = const_node(clj_vector_empty(), at);
-		for (uint32_t i = 0; i < p->nlead; i++) lead[k++] = local_node(i, at);
+		for (uint32_t i = 0; i < p->nlead; i++) lead[k++] = local_node(p->lead_slot[i], at);
 		const clj_node **args = zalloc(3 + p->nsources, sizeof *args);
 		args[0] = const_node(clj_fixnum(mode), at);
 		args[1] = vector_node(lead, nlead, at);
@@ -301,7 +323,7 @@ static clj_node *build_fused(const pipeline *p, position at) {
 	// (driver lead... source xfs); vec's `to` is the literal []
 	const clj_node **args = zalloc(nlead + 2, sizeof *args);
 	if (into_empty) args[k++] = const_node(clj_vector_empty(), at);
-	for (uint32_t i = 0; i < p->nlead; i++) args[k++] = local_node(i, at);
+	for (uint32_t i = 0; i < p->nlead; i++) args[k++] = local_node(p->lead_slot[i], at);
 	args[k++] = local_node(p->source, at);
 	args[k++] = xv;
 	return invoke_node(var_node(clj_fusion_var_of(driver), at), args, k, at);

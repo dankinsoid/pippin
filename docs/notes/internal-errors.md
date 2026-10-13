@@ -76,7 +76,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry; a lazy-seq thunk keeps its captures to the publish |
   | `lower` | `reduce`, `reduce-kv`, `swap!` and `swap-vals!` over a literal fn run without its closure (NOTES "Compiler", lowered natives); `inline` turns it off too |
   | `drop` | a compiled frame's dead slot released where it dies, not at its rebind or the frame's exit (NOTES "Compiler", dead slots dropped); decided at emission, so the boot units keep theirs |
-  | `fuse` | the fusion pass over `(sequence XF src)`, a map over two or three colls and `mapv` (NOTES "Analyzer and evaluator", the fusion pass), and the compiled step's mapcat, dedupe and distinct stages (NOTES "Compiler", fused stages) |
+  | `fuse` | the fusion pass over `(sequence XF src)`, a map over two or three colls, `mapv`, `(into to XF P)` and `transduce` (NOTES "Analyzer and evaluator", the fusion pass), and the compiled step's mapcat, dedupe, distinct and partition-all stages and its stage fns that are a core var or a keyword (NOTES "Compiler", fused stages) |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing

@@ -12,6 +12,7 @@ typedef enum {
 	CLJ_FUSION_DRIVER,   // the natives below
 	CLJ_FUSION_GUARD,    // a core var a known-path specialization or a fused step takes the boot behavior of
 	CLJ_FUSION_FORM,     // sequence, comp: a core fn the original program calls between the consumer and the stages
+	CLJ_FUSION_XF_STAGE, // partition-all: a stage at its transducer arity alone, its lazy arity's items being others
 } clj_fusion_role;
 
 typedef struct {
@@ -53,6 +54,7 @@ typedef enum {
 	// over (sequence xf …): an input's outputs reach the consumer after its stage calls, as the lazy seq hands them on
 	CLJ_FUSED_MODE_SEQ_REDUCE,
 	CLJ_FUSED_MODE_SEQ_INTO,
+	CLJ_FUSED_MODE_TRANSDUCE, // lead [f] or [f init]: init (f) when absent, and f's completion over the result
 	CLJ_FUSED_MODES,
 } clj_fused_mode;
 

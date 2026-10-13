@@ -1047,10 +1047,14 @@
   compiler.c `mono_plan_of`, `emit_mono_segment`; fusion.c `clj_fused_run_step`, `clj_fused_cat`). A `FUSED` site whose
   stages are `map`, `filter`, `remove`, `keep`, `take-while`, `drop-while`, `mapcat` over a literal `fn` with a fixed
   arity 1, `map-indexed` over one with arity 2, the innermost `map` of two or three colls over one with that arity,
-  `take` and `drop` of any count, `dedupe` and `distinct`, is written, behind the same fusion guard, as one step function
+  `take`, `drop` and `partition-all` of any count, `dedupe` and `distinct`, is written, behind the same fusion guard, as one step function
   `<base>__fz<n>(ctx, xs, sink)` that calls each stage's arity function by name — its `always_inline` twin when the
   stage is a leaf, so the stage bodies sit in the step — and hands each output to the driver's sink
-  (`sink->emit`): no transducer closure is made and no stage is reached through `clj_invoke`. The step answers
+  (`sink->emit`): no transducer closure is made and no stage is reached through `clj_invoke`. A stage fn may also be
+  a core var with an intrinsic at the arity the stage calls (`(map inc …)`, `(filter pos? …)`, `(map - a b)`): the
+  step compares the value the argument read with the intrinsic's builtin and calls the fast arm, anything else through
+  `clj_c_invoke`, so a var rebound before the site read it calls what it read; or a keyword (`(map :v …)`), a
+  keyword-lookup site of its own, as `(:v m)` compiles. The step answers
   `CLJ_FUSED_GO`, `CLJ_FUSED_HALT` when a take or take-while ends the walk or the sink is done (the consumer's
   `reduced`), or `CLJ_FUSED_THROWN`. **mapcat** is `(comp (map f) cat)`: the step calls f and hands its coll to
   `clj_fused_cat` with the stages below as a continuation `<base>__fz<n>c<i>`, a function of its own (none when mapcat
@@ -1063,21 +1067,29 @@
   so a count of 2.5 takes three items as the lazy take does; drop-while's flag; map-indexed's index; dedupe's prior
   item, `:clojure.core/none` at the start and compared with `=` after the slot takes the new one, as core's body
   orders it; distinct's set, which the slot alone holds, so `conj`'s consuming form adds in place where the
-  transducer's `vswap!` copied. **Guards**: the core vars the transducers call are checked as core's bodies would see
+  transducer's `vswap!` copied; partition-all's buffer the same way, handed downstream when `(= n (count buf))` and
+  replaced by `[]`. **The completion**: a site with a partition-all gets `<base>__fz<n>f`, which the driver runs where
+  the transducers' `(xf result)` would run — every walk but a sequence mode's whose consumer is done — and which hands
+  each non-empty buffer, from the input side down, to the stages below through a continuation `<base>__fz<n>p<i>`,
+  a halt there `unreduced` away as the transducer's completion does. **Guards**: the core vars the transducers call are checked as core's bodies would see
   them — the site takes the step only while each holds its boot root (`volatile!`, `deref`, `vreset!`, `reduced`,
-  `ensure-reduced`, `complement`, `=`, `contains?`, `conj`, mapcat's `comp`, `map`, `cat`, `preserving-reduced`,
-  `reduce`, `reduced?`, and the intrinsics; fusion table, `CLJ_FUSION_GUARD`), the original program otherwise, and the
-  step calls `dec`, `inc`, `pos?`, `not`, `nil?`, `=`, `contains?`, `conj` through their vars' guards
-  (`Fixtures/compiler/fused-stages.clj`, `fused-seq.clj`; `inline-guards.clj` rebinding `dec` and `pos?`,
-  `fused-seq-rebind.clj` rebinding `cat` and `dedupe`). **The driver** (`clj_fused_run_step`, mode and lead as
+  `ensure-reduced`, `complement`, `=`, `contains?`, `conj`, `count`, `empty?`, `unreduced`, mapcat's `comp`, `map`,
+  `cat`, `preserving-reduced`, `reduce`, `reduced?`, and the intrinsics; fusion table, `CLJ_FUSION_GUARD`), the original
+  program otherwise, and the step calls `dec`, `inc`, `pos?`, `not`, `nil?`, `=`, `contains?`, `conj`, `count`,
+  `empty?` through their vars' guards
+  (`Fixtures/compiler/fused-stages.clj`, `fused-seq.clj`, `fused-xform.clj`; `inline-guards.clj` rebinding `dec` and
+  `pos?`, `fused-seq-rebind.clj` rebinding `cat`, `dedupe` and `partition-all`). **The driver** (`clj_fused_run_step`, mode and lead as
   `fused*`'s, analyzer-and-evaluator.md) walks a vector source itself, leaf by leaf (`clj_vector_run`), and any other
   single source through its `reduce` under a native rf; two or three sources go through `clj_seq` and one
   `clj_seq_iter` each, every one advanced per step before the shortest ends the walk, as a multi-coll map seqs them.
   `CLJ_NO_OPT=inline` takes the reduce path for vectors too and keeps every site generic; `CLJ_NO_OPT=fuse` keeps
-  mapcat, dedupe and distinct generic. The step is a frame fn under the consumer's name, which a trace shows where
+  mapcat, dedupe, distinct, partition-all and the stage fns that are no literal generic. A transduce site's mode calls
+  f's completion over the result after the stages' (fusion.c, `CLJ_FUSED_MODE_TRANSDUCE`), and `(f)` first when it
+  has no init. The step is a frame fn under the consumer's name, which a trace shows where
   the driver's transducer frames were; a stage body inlined into it names its own stub. A stage given any other
-  value, another stage kind or a variadic fn keeps the generic program. Not done: `keep-indexed`, `interpose`, a stage
-  fn that is a var of a core fn (`(map inc …)`, `(filter pos? …)`, pipelines f2 and f15) or a keyword; reduce's
+  value, another stage kind or a variadic fn keeps the generic program. Not done: `keep-indexed`, `interpose`,
+  `reductions` (no transducer arity in core to stand for); a stage fn that is a var of a core fn without an intrinsic;
+  reduce's
   literal f called by its arity from the driver (it is a closure, which `clj_call_invoke` reaches by its dispatcher);
   a range source walked as the vector is, and `(range)` as a counter instead of iterate's cells; trigger:
   `clj_fused_run_step`'s share in a closed profile.

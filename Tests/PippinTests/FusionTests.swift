@@ -224,7 +224,7 @@ extension CoreTests {
 				#expect(try Tree("(reduce conj [] (clojure.core/map inc [1]))", ns: ns).fusedNodes.count == 1)
 				#expect(try Tree("(reduce conj [] (clojure.core/map inc [1]))", ns: ns).run() == [2])
 				for source in ["(first (map inc [1 2]))", "(seq (map inc []))", "(doall (map inc [1]))", "(map inc [1])", "(reduce + [1 2])", "(reduce + 0 (range 3))",
-				               "(let [p (map inc [1 2])] (reduce + p))", "(count (partition-all 2 [1 2 3]))", "(into [] (map inc) [1])", "(reduce + (eduction (map inc) [1]))",
+				               "(let [p (map inc [1 2])] (reduce + p))", "(count (partition-all 2 [1 2 3]))", "(into [] identity [1])", "(reduce + (eduction (map inc) [1]))",
 				               "(vec (map inc [1] [2] [3] [4]))", "(count (interpose 0))", "(reduce + (map inc))", "(let [s (sequence (map inc) [1])] (count s))",
 				               "(count (sequence [1 2]))", "(count (sequence (comp) [1]))", "(count (sequence (comp (map inc) identity) [1]))",
 				               "(count (sequence (map inc) [1] [2]))", "(mapv inc [1])", "(vec (mapcat vector [1] [2]))"] {
@@ -475,7 +475,8 @@ extension CoreTests {
 				let below = try Tree("(into [] (sequence (map inc) (map inc [1 2])))")
 				#expect(below.fusedNodes.count == 1 && below.fusedNodes[0].pointee.u.fused.nargs == 3)
 				#expect(try below.run() == [3, 4])
-				#expect(try Tree("(count (sequence (map inc) (map inc [1 2])))").fusedNodes[0].pointee.u.fused.nargs == 3)
+				let counted = try Tree("(count (sequence (map inc) (map inc [1 2])))")
+				#expect(counted.fusedNodes[0].pointee.u.fused.nargs == 3)
 			}
 			#expect(clj_debug_live_objects() == before)
 		}
@@ -487,7 +488,9 @@ extension CoreTests {
 			               "{:a 1 :b 2}", "5", "(take 6 (iterate inc 1))"]
 			let xforms = ["(map inc)", "(comp (mapcat (fn [x] [x x])) (dedupe))", "(comp (filter odd?) (take 2))", "(distinct)", "(comp (take 3) (mapcat (fn [x] [x x])))",
 			              "(comp (map-indexed vector) (keep-indexed (fn [i x] (when (odd? i) x))))", "(interpose 0)", "(comp (drop 1) (take-while (fn [x] (< x 4))))",
-			              "(comp (dedupe) (distinct) (map str))", "(comp (mapcat (fn [x] (repeat 2 x))) (take 3))", "(comp (take 0) (map inc))", "(mapcat identity)"]
+			              "(comp (dedupe) (distinct) (map str))", "(comp (mapcat (fn [x] (repeat 2 x))) (take 3))", "(comp (take 0) (map inc))", "(mapcat identity)",
+			              "(partition-all 2)", "(comp (partition-all 3) (map count))", "(comp (take 3) (partition-all 2))", "(comp (partition-all 2) (take 1))",
+			              "(comp (mapcat (fn [x] [x x])) (partition-all 3) (partition-all 2))"]
 			let consumers = ["(count %)", "(vec %)", "(into [0] %)", "(into #{} %)", "(reduce + %)", "(reduce + 10 %)", "(reduce conj [] %)", "(reduce conj %)",
 			                 "(reduce (fn [a x] (if (= x 3) (reduced a) [a x])) [] %)", "(reduce (fn [a x] [a x]) %)", "(into () %)", "(into {} %)"]
 			let pairs = [("[1 2 3]", "[10 20]"), ("'(1 2)", "(range)"), ("(range 3)", "(lazy-seq [4 5 6 7])"), ("[]", "[1]"), ("nil", "nil"), ("\"ab\"", "[1 2 3]"),
@@ -499,6 +502,13 @@ extension CoreTests {
 			for consumer in consumers {
 				for xform in xforms {
 					for source in sources { forms.append(consumer.replacingOccurrences(of: "%", with: "(sequence \(xform) \(source))")) }
+				}
+			}
+			// into and transduce over an XF take the transducer's semantics, the completion's flush included
+			for consumer in ["(into [] % $)", "(into #{} % $)", "(transduce % + $)", "(transduce % conj [] $)", "(transduce % (completing conj (fn [a] [:done a])) [:i] $)",
+			                 "(transduce % (fn ([] :none) ([a] a) ([a x] (if (= x 3) (reduced [:at a]) [a x]))) $)"] {
+				for xform in xforms {
+					for source in sources { forms.append(consumer.replacingOccurrences(of: "$", with: source).replacingOccurrences(of: "%", with: xform)) }
 				}
 			}
 			for m in multis {
@@ -567,7 +577,7 @@ extension CoreTests {
 			do {
 				#expect(try cljEval("[(fused* 0 [+] [(map inc)] [1 2 3]) (fused* 0 [+ 10] [] [1 2]) (fused* 1 [[]] [(map +)] [1 2] [10 20 30]) (fused* 2 [] [(map vector)] [1 2] (range) \"abc\")]") == [9, 13, [11, 22], 2])
 				#expect(try cljEval("[(fused* 3 [+ 0] [(mapcat (fn [x] [x x]))] [1 2]) (fused* 4 [[:a]] [(dedupe)] [1 1 2]) (fused* 0 [(fn [] :e)] [] [])]") == [6, [kw("a"), 1, 2], kw("e")])
-				#expect(evalMessage("(fused* 9 [] [] [1])") == "fused* expects a mode below 5, got: long")
+				#expect(evalMessage("(fused* 9 [] [] [1])") == "fused* expects a mode below 6, got: long")
 				#expect(evalMessage("(fused* 2 [1] [] [1])") == "fused* got 1 lead args for mode 2")
 				#expect(evalMessage("(fused* 2 [] (map inc) [1])") == "fused* expects vectors of the lead args and the transducers")
 				#expect(evalMessage("(let [keep (volatile! nil)] (fused* 2 [] [(fn [rf] (vreset! keep rf) rf)] [1]) (@keep nil 1))") == "reducing fn called after its reduce finished")

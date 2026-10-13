@@ -313,7 +313,7 @@ static bool fused_run_ok(vctx *c, const clj_node *n) {
 		return bad(c, "verify/fused-run", n, "fused*'s mode is no constant below %d", (int)CLJ_FUSED_MODES);
 	clj_fused_mode mode = (clj_fused_mode)clj_fixnum_val(a[0]->u.value.v);
 	uint32_t       want = mode == CLJ_FUSED_MODE_COUNT ? 0 : 1, nlead = a[1]->kind == CLJ_NODE_VECTOR ? a[1]->u.seq.n : UINT32_MAX;
-	bool           reduce = mode == CLJ_FUSED_MODE_REDUCE || mode == CLJ_FUSED_MODE_SEQ_REDUCE;
+	bool           reduce = mode == CLJ_FUSED_MODE_REDUCE || mode == CLJ_FUSED_MODE_SEQ_REDUCE || mode == CLJ_FUSED_MODE_TRANSDUCE;
 	if (reduce ? nlead != 1 && nlead != 2 : nlead != want) return bad(c, "verify/fused-run", n, "fused*'s lead does not fit mode %d", (int)mode);
 	if (a[2]->kind != CLJ_NODE_VECTOR || !a[2]->u.seq.n) return bad(c, "verify/fused-run", n, "fused*'s transducers are no vector of stages");
 	for (uint32_t i = 3; i < na; i++) {

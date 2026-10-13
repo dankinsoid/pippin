@@ -2873,8 +2873,11 @@ typedef enum {
 	MONO_MAPCAT,
 	MONO_DEDUPE,
 	MONO_DISTINCT,
+	MONO_PARTITION_ALL,
 } mono_kind;
 typedef enum { MONO_ARG_FN, MONO_ARG_COUNT, MONO_ARG_NONE } mono_arg;
+// A stage fn: a literal fn's arity by name, a core intrinsic's var through the value it read, a keyword's lookup.
+typedef enum { MONO_CALL_FN, MONO_CALL_OP, MONO_CALL_KW } mono_call_how;
 
 static const struct {
 	const char *name;
@@ -2897,6 +2900,7 @@ static const struct {
 	{"clojure.core/mapcat", MONO_MAPCAT, MONO_ARG_FN, 1, false, true, "comp map cat preserving-reduced reduce reduced? reduced "},
 	{"clojure.core/dedupe", MONO_DEDUPE, MONO_ARG_NONE, 0, true, true, "volatile! deref vreset! = "},
 	{"clojure.core/distinct", MONO_DISTINCT, MONO_ARG_NONE, 0, true, true, "volatile! deref vreset! contains? conj "},
+	{"clojure.core/partition-all", MONO_PARTITION_ALL, MONO_ARG_COUNT, 0, true, true, "volatile! deref vreset! conj = count empty? unreduced "},
 };
 
 typedef struct {
@@ -2910,6 +2914,9 @@ typedef struct {
 	mono_kind             kind[MONO_STAGES_MAX];
 	uint32_t              arg[MONO_STAGES_MAX];   // the FUSED arg holding the stage's fn or count; UINT32_MAX for none
 	uint32_t              arity[MONO_STAGES_MAX]; // a fn stage's arity it is called at
+	mono_arg              argk[MONO_STAGES_MAX];
+	mono_call_how         how[MONO_STAGES_MAX];
+	const clj_intrinsic  *op[MONO_STAGES_MAX];
 	uint32_t              state[MONO_STAGES_MAX]; // a stateful stage's ctx slot, counted from nstages
 	uint32_t              nstate;
 	const clj_fusion_var *helpers[MONO_HELPERS_MAX];
@@ -3018,6 +3025,7 @@ static bool mono_plan_of(const clj_node *n, mono_plan *p) {
 			if (innermost) arity = p->nsources;
 		}
 		p->arity[i] = arity;
+		p->argk[i] = mono_stages[k].arg;
 		p->kind[i] = mono_stages[k].kind;
 		p->arg[i] = UINT32_MAX;
 		if (mono_stages[k].arg == MONO_ARG_NONE) {
@@ -3026,7 +3034,13 @@ static bool mono_plan_of(const clj_node *n, mono_plan *p) {
 			uint32_t a;
 			if (st->u.invoke.n != 1 || !local_of(st->u.invoke.args[0], n->u.fused.nargs, &a)) return false;
 			const clj_node *fn = n->u.fused.args[a];
-			if (mono_stages[k].arg == MONO_ARG_FN && (fn->kind != CLJ_NODE_FN || !fn->u.fn.fixed[arity])) return false;
+			p->how[i] = MONO_CALL_FN;
+			if (mono_stages[k].arg == MONO_ARG_FN && (fn->kind != CLJ_NODE_FN || !fn->u.fn.fixed[arity])) {
+				bool fuse = !clj_opt_off(CLJ_NO_OPT_FUSE);
+				if (fuse && fn->kind == CLJ_NODE_VAR && (p->op[i] = clj_intrinsic_find(fn->u.var.v, arity))) p->how[i] = MONO_CALL_OP;
+				else if (fuse && fn->kind == CLJ_NODE_CONST && clj_is_keyword(fn->u.value.v) && arity == 1) p->how[i] = MONO_CALL_KW;
+				else return false;
+			}
 			p->arg[i] = a;
 		}
 		if (mono_stages[k].state) p->state[i] = p->nstate++;
@@ -3059,15 +3073,31 @@ static void mono_intrinsic_n(fnctx *f, sb *s, const char *name, uint32_t arity, 
 
 static void mono_intrinsic(fnctx *f, sb *s, const char *name, const char *arg, const char *result) { mono_intrinsic_n(f, s, name, 1, &arg, result); }
 
-// The stage fn i called on what a holds; t is its answer.
+// The stage fn called on what a holds, call being the expression emit_mono_step made for it; t is its answer.
 static void mono_call(sb *s, const char *call, uint32_t i, uint32_t n, uint32_t stub) {
-	sb_printf(s, "\tt = %s(fz[%u], clj_slot_values(clj_fn_of(fz[%u])->env), a, %u);\n\tCLJC_SITE(&S[%u]);\n", call, i, i, n, stub);
+	(void)i;
+	(void)n;
+	sb_printf(s, "\tt = %s;\n\tCLJC_SITE(&S[%u]);\n", call, stub);
 }
 
 #define MONO_THROW_V "\tif (%s == CLJ_THROWN) {\n\tclj_release(v);\n\treturn CLJ_FUSED_THROWN;\n\t}\n"
 
+// slot = (conj slot v) through conj's guard: the slot alone holds its coll, so the consuming form adds in place.
+static void mono_conj(fnctx *f, sb *s, const char *slot) {
+	clj_value            sym = clj_symbol_from_cstr("clojure.core/conj");
+	const clj_intrinsic *op = clj_intrinsic_find_named(sym, 2);
+	clj_release(sym);
+	if (!op || !op->cconsume) clj_ice("emit/mono-conj", NULL, "conj is no consuming intrinsic of two arguments");
+	size_t oi = op_index(f->u, op), vi = var_index(f->u, clj_intrinsic_var(op));
+	sb_printf(s, "\tt = %s;\n\t%s = CLJ_NIL;\n", slot, slot);
+	sb_printf(s, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\tu = %s(t, v);\n\t} else {\n\ta[0] = t;\n\ta[1] = v;\n", vi, oi, op->cconsume);
+	sb_printf(s, "\tu = clj_c_intrinsic_fallback(V[%zu], a, 2);\n\tclj_release(t);\n\t}\n", vi);
+	sb_printf(s, MONO_THROW_V, "u");
+	sb_printf(s, "\t%s = u;\n", slot);
+}
+
 typedef struct {
-	char     call[MONO_STAGES_MAX][320];
+	char     call[MONO_STAGES_MAX][700];
 	char     base[300];
 	uint32_t stub;
 } mono_emit;
@@ -3172,16 +3202,23 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, const mono_emit *e, 
 			mono_intrinsic_n(f, &s, "contains?", 2, in, "u");
 			sb_printf(&s, MONO_THROW_V, "u");
 			sb_puts(&s, "\tif (clj_truthy(u)) {\n\tclj_release(u);\n\tclj_release(v);\n\treturn h;\n\t}\n\tclj_release(u);\n");
-			clj_value            sym = clj_symbol_from_cstr("clojure.core/conj");
-			const clj_intrinsic *op = clj_intrinsic_find_named(sym, 2);
-			clj_release(sym);
-			if (!op || !op->cconsume) clj_ice("emit/mono-conj", NULL, "conj is no consuming intrinsic of two arguments");
-			size_t oi = op_index(f->u, op), vi = var_index(f->u, clj_intrinsic_var(op));
-			sb_printf(&s, "\tt = %s;\n\t%s = CLJ_NIL;\n", slot, slot);
-			sb_printf(&s, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\tu = %s(t, v);\n\t} else {\n\ta[0] = t;\n\ta[1] = v;\n", vi, oi, op->cconsume);
-			sb_printf(&s, "\tu = clj_c_intrinsic_fallback(V[%zu], a, 2);\n\tclj_release(t);\n\t}\n", vi);
-			sb_printf(&s, MONO_THROW_V, "u");
-			sb_printf(&s, "\t%s = u;\n", slot);
+			mono_conj(f, &s, slot);
+			break;
+		}
+		case MONO_PARTITION_ALL: {
+			// (vswap! a conj input) (if (= n (count @a)) (let [v @a] (vreset! a []) (rf result v)) result)
+			char n_slot[32];
+			snprintf(n_slot, sizeof n_slot, "fz[%u]", i);
+			const char *eq[2] = {n_slot, "w"};
+			mono_conj(f, &s, slot);
+			sb_puts(&s, "\tclj_release(v);\n\tv = CLJ_NIL;\n");
+			mono_intrinsic(f, &s, "count", slot, "w");
+			sb_printf(&s, MONO_THROW_V, "w");
+			mono_intrinsic_n(f, &s, "=", 2, eq, "t");
+			sb_puts(&s, "\tclj_release(w);\n");
+			sb_printf(&s, MONO_THROW_V, "t");
+			sb_puts(&s, "\tif (!clj_truthy(t)) {\n\tclj_release(t);\n\treturn h;\n\t}\n\tclj_release(t);\n");
+			sb_printf(&s, "\tv = %s;\n\t%s = clj_vector_empty();\n", slot, slot);
 			break;
 		}
 		case MONO_MAPCAT: {
@@ -3206,24 +3243,83 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, const mono_emit *e, 
 	sb_free(&s);
 }
 
-// The step function over the stage fns and state ctx holds, in the plan's order; its name, or false when a stage's fn
-// was not emitted under a base (it always is: the args are emitted first).
+// The completion, (xf result) from the input side down: each partition-all hands a buffer it still holds to the stages
+// below, through a continuation of their own, and a halt there is unreduced away, as the transducer's completion does.
 // @ai-generated(solo)
-static bool emit_mono_step(fnctx *f, const clj_node *n, const mono_plan *p, char *name, size_t cap) {
+static void emit_mono_flush(fnctx *f, const mono_plan *p, const mono_emit *e, const char *step, const char *name) {
+	frame_add(f->u, name, e->stub);
+	sb_printf(&f->u->protos, "static int %s(void *ctx, clj_fused_sink *sink);\n", name);
+	sb s = {0};
+	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t, a[4];\n\tint r;\n", name);
+	sb_puts(&s, "\t(void)v;\n\t(void)r;\n");
+	for (uint32_t i = p->nstages; i-- > 0;) {
+		if (p->kind[i] != MONO_PARTITION_ALL) continue;
+		char slot[32], cont[340] = "NULL";
+		snprintf(slot, sizeof slot, "fz[%u]", p->nstages + p->state[i]);
+		if (i > 0) {
+			snprintf(cont, sizeof cont, "%sp%u", step, i);
+			emit_mono_segment(f, p, e, i - 1, false, cont);
+		}
+		// (if (empty? @a) result (let [v @a] (vreset! a []) (unreduced (rf result v))))
+		mono_intrinsic(f, &s, "empty?", slot, "t");
+		sb_puts(&s, "\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
+		sb_printf(&s, "\tif (!clj_truthy(t)) {\n\tv = %s;\n\t%s = clj_vector_empty();\n", slot, slot);
+		if (i > 0) sb_printf(&s, "\tr = %s(ctx, &v, sink);\n", cont);
+		else sb_puts(&s, "\tr = sink->emit(sink, v);\n");
+		sb_puts(&s, "\tclj_release(v);\n\tif (r == CLJ_FUSED_THROWN) return CLJ_FUSED_THROWN;\n\t}\n");
+	}
+	sb_puts(&s, "\treturn CLJ_FUSED_GO;\n}\n\n");
+	sb_put(&f->u->fns, s.s, s.len);
+	sb_free(&s);
+}
+
+// The step function over the stage fns and state ctx holds, in the plan's order; its name, and its completion's when a
+// stage has one, or false when a stage's fn was not emitted under a base (it always is: the args are emitted first).
+// @ai-generated(solo)
+static bool emit_mono_step(fnctx *f, const clj_node *n, const mono_plan *p, char *name, size_t cap, char *flush, size_t fcap) {
 	mono_emit e;
 	for (uint32_t i = 0; i < p->nstages; i++) {
+		bool fn = p->argk[i] == MONO_ARG_FN && p->how[i] == MONO_CALL_FN;
+		const fn_base *fb = fn ? fn_base_of(f->c, n->u.fused.args[p->arg[i]]) : NULL;
+		if (fn && (!fb || fb->u != f->u)) return false;
+	}
+	for (uint32_t i = 0; i < p->nstages; i++) {
 		e.call[i][0] = '\0';
-		if (p->arg[i] == UINT32_MAX || p->kind[i] == MONO_TAKE || p->kind[i] == MONO_DROP) continue;
+		if (p->argk[i] != MONO_ARG_FN) continue;
+		uint32_t n_ = p->arity[i];
+		if (p->how[i] == MONO_CALL_OP) {
+			// the value the arg read is the builtin, whose semantics the intrinsic is, or anything else, called
+			const clj_intrinsic *op = p->op[i];
+			size_t               oi = op_index(f->u, op);
+			int                  k = snprintf(e.call[i], sizeof e.call[i], "fz[%u] == B[%zu] ? %s(", i, oi, fast_cname(op));
+			for (uint32_t j = 0; j < n_; j++) k += snprintf(e.call[i] + k, sizeof e.call[i] - (size_t)k, "%sa[%u]", j ? ", " : "", j);
+			snprintf(e.call[i] + k, sizeof e.call[i] - (size_t)k, ") : clj_c_invoke(fz[%u], a, %u)", i, n_);
+			continue;
+		}
+		if (p->how[i] == MONO_CALL_KW) {
+			// (:k x): the keyword-lookup site, as a (:k m) call compiles
+			uint32_t ic = f->u->nics++;
+			sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
+			snprintf(e.call[i], sizeof e.call[i], "clj_c_kw_get(KC_%u_get(), fz[%u], a[0], CLJ_NIL)", ic, i);
+			f->u->slots.kw_sites++;
+			continue;
+		}
 		const fn_base *fb = fn_base_of(f->c, n->u.fused.args[p->arg[i]]);
-		if (!fb || fb->u != f->u) return false;
-		char target[300];
-		snprintf(target, sizeof target, "%s_a%u", fb->base, p->arity[i]);
-		snprintf(e.call[i], sizeof e.call[i], "%s%s", target, pool_has(&f->u->leaves, target) ? "_i" : "");
+		char           target[300];
+		snprintf(target, sizeof target, "%s_a%u", fb->base, n_);
+		snprintf(e.call[i], sizeof e.call[i], "%s%s(fz[%u], clj_slot_values(clj_fn_of(fz[%u])->env), a, %u)", target, pool_has(&f->u->leaves, target) ? "_i" : "", i, i, n_);
 	}
 	snprintf(name, cap, "%s__fz%u", f->base, (*f->fn_counter)++);
 	clj_value consumer = clj_var_name(clj_fusion_var_of(n->u.fused.guards[0]));
 	e.stub = stub_new(f->u, f, consumer, n->line, n->col);
 	emit_mono_segment(f, p, &e, p->nstages - 1, true, name);
+	snprintf(flush, fcap, "NULL");
+	for (uint32_t i = 0; i < p->nstages; i++) {
+		if (p->kind[i] != MONO_PARTITION_ALL) continue;
+		snprintf(flush, fcap, "%sf", name);
+		emit_mono_flush(f, p, &e, name, flush);
+		break;
+	}
 	return true;
 }
 
@@ -3236,6 +3332,7 @@ static void mono_state_init(fnctx *f, const mono_plan *p, const char *array, int
 		case MONO_DROP: sb_printf(&f->out, "\tsk%d[%u] = clj_retain(%s[%u]);\n", k, st, array, p->arg[i]); break;
 		case MONO_DROP_WHILE: sb_printf(&f->out, "\tsk%d[%u] = CLJ_TRUE;\n", k, st); break;
 		case MONO_MAP_INDEXED: sb_printf(&f->out, "\tsk%d[%u] = clj_fixnum(-1);\n", k, st); break;
+		case MONO_PARTITION_ALL: sb_printf(&f->out, "\tsk%d[%u] = clj_vector_empty();\n", k, st); break;
 		case MONO_DEDUPE:
 		case MONO_DISTINCT: {
 			bool      ok;
@@ -3272,8 +3369,8 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 		}
 	}
 	mono_plan plan;
-	char      step[300];
-	bool      mono = !clj_opt_off(CLJ_NO_OPT_INLINE) && mono_plan_of(n, &plan) && emit_mono_step(f, n, &plan, step, sizeof step);
+	char      step[300], flush[310];
+	bool      mono = !clj_opt_off(CLJ_NO_OPT_INLINE) && mono_plan_of(n, &plan) && emit_mono_step(f, n, &plan, step, sizeof step, flush, sizeof flush);
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
 	sb_printf(&f->out, "\t{\n\tconst clj_fusion_var *g%d[%u] = {", k, n->u.fused.nguards);
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) sb_printf(&f->out, "%sF[%zu]", i ? ", " : "", fusion_index(f->u, n->u.fused.guards[i]));
@@ -3300,7 +3397,7 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 		if (!nl) sb_puts(&f->out, "CLJ_NIL");
 		sb_printf(&f->out, "};\n\t(void)ld%d;\n\tclj_value sc%d[%u] = {", k, k, plan.nsources);
 		for (uint32_t i = 0; i < plan.nsources; i++) sb_printf(&f->out, "%s%s[%u]", i ? ", " : "", array, plan.sources[i]);
-		sb_printf(&f->out, "};\n\tclj_fused_site st%d = {%s, NULL, sk%d};\n", k, step, k);
+		sb_printf(&f->out, "};\n\tclj_fused_site st%d = {%s, %s, sk%d};\n", k, step, flush, k);
 		sb_printf(&f->out, "\t%s = clj_fused_run_step(%d, ld%d, %u, sc%d, %u, &st%d);\n", r.name, (int)plan.mode, k, nl, k, plan.nsources, k);
 		for (uint32_t i = 0; i < plan.nstate; i++) sb_printf(&f->out, "\tclj_release(sk%d[%u]);\n", k, plan.nstages + i);
 		check_thrown(f, r.name);
