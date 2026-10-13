@@ -761,9 +761,10 @@
   driver native with
   the stages' transducer arities in a vector literal (`(fused-reduce* f coll [(map g) (filter p)])`,
   `fused-into*`, `fused-count*`; `vec` is `fused-into*` onto `[]`), the original one is the spine rebuilt over the
-  locals. Two or three colls, `mapv` and the buffered modes below go through `(fused* mode [lead…] [xf…] coll…)`
-  (fusion.c `clj_fused_run`, the mode a constant: reduce, into, count, and the sequence modes), one walker for the
-  transducer stack and the compiled step alike (compiler.md, "Fused stages…"): each coll is seq'd and advanced per
+  locals. Two or three colls, `mapv`, a reductions and the consumers below go through `(fused* mode [lead…] [xf…] coll…)`
+  (fusion.c `clj_fused_run`, the mode a constant: reduce, into, count, the sequence modes, transduce, frequencies,
+  group-by), one walker for the transducer stack and the compiled step alike (compiler.md, "Fused stages…"): each
+  coll is seq'd and advanced per
   step, all of them before the shortest ends the walk, so a longer lazy coll is realized one item past the shortest
   as the lazy map's `(seq c2)` realizes it, and the innermost transducer, `(map f)`, takes one input per coll.
   **`(sequence XF src)` as the consumer's coll**, `XF` a stage's transducer call or a `comp` of them, flattened,
