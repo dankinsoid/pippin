@@ -298,9 +298,24 @@ static clj_value method_named(const clj_type *t, const char *name, size_t len) {
 	return f;
 }
 
+// The field of t named name, or -1.
+static int64_t field_named(const clj_user_type *t, const char *name, size_t len) {
+	clj_value fields = t->fields.v;
+	for (uint32_t i = 0; i < t->nfields; i++) {
+		clj_value s = clj_symbol_name(clj_vector_nth(fields, i));
+		if (clj_string_len(s) == len && memcmp(CLJ_STR(s).bytes, name, len) == 0) return i;
+	}
+	return -1;
+}
+
 clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs) {
 	const char *sel = CLJ_STR(selector).bytes;
-	clj_value   f = method_named(clj_type_of(target), sel, strcspn(sel, ":"));
+	const clj_user_type *ut = (const clj_user_type *)clj_type_of(target);
+	if (sel[0] == '-' && nargs == 0 && !ut->reified) {
+		int64_t i = field_named(ut, sel + 1, clj_string_len(selector) - 1);
+		if (i >= 0) return clj_retain(clj_instance_field(target, (uint32_t)i));
+	}
+	clj_value f = method_named(&ut->t, sel, strcspn(sel, ":"));
 	if (clj_is_nil(f)) return CLJ_UNBOUND;
 	clj_value  small[8];
 	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
@@ -1013,6 +1028,7 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 	clj_release(spelled);
 	clj_slot_init(&ut->t.h, &ut->fields, clj_retain(fields));
 	ut->nfields = clj_vector_count(fields);
+	ut->reified = false;
 	ut->t.name = clj_string_heap_bytes(ut->name.v);
 	ut->t.each_child = instance_each_child;
 	ut->t.hash = identity_hash;
@@ -1161,6 +1177,7 @@ static clj_value reify_type_new(clj_value name, clj_value fields, const clj_valu
 		with_fns[made + 1] = c.map;
 	}
 	if (type != CLJ_THROWN) type = clj_user_type_new(name, fields, with_fns, nimpls);
+	if (type != CLJ_THROWN) ((clj_user_type *)clj_to_ptr(type))->reified = true;
 	for (size_t i = 1; i < made; i += 2) clj_release(with_fns[i]);
 	free(with_fns);
 	return type;
@@ -1289,10 +1306,13 @@ void clj_proto_install(void) {
 		interfaces[i].proto = protocol_alloc(qualified, empty, empty, interfaces[i].bits);
 		bind_core(interfaces[i].name, interfaces[i].proto);
 		clj_core_mark_extension(interfaces[i].name);
-		// Libraries spell the marker interfaces of instance? out in full; the bare name is ours.
-		if (interfaces[i].bits == CLJ_CORE_EDITABLE) {
-			bind_core("clojure.lang.IEditableCollection", interfaces[i].proto);
-			clj_core_mark_extension("clojure.lang.IEditableCollection");
+		// A .clj library spells the interface out in full, in instance? and in a deftype body; the bare name is
+		// ours. IEquiv is ClojureScript's, the JVM has no such class.
+		if (interfaces[i].bits != CLJ_CORE_EQUIV) {
+			char full[64];
+			snprintf(full, sizeof full, "clojure.lang.%s", interfaces[i].name);
+			bind_core(full, interfaces[i].proto);
+			clj_core_mark_extension(full);
 		}
 		// (instance? Throwable e) is how portable code asks whether a value is an error: ex-info or a host error.
 		if (interfaces[i].bits == CLJ_CORE_ERROR) {
@@ -1301,10 +1321,6 @@ void clj_proto_install(void) {
 				bind_core(throwables[j], interfaces[i].proto);
 				clj_core_mark_extension(throwables[j]);
 			}
-		}
-		if (interfaces[i].bits == CLJ_CORE_RECORD) {
-			bind_core("clojure.lang.IRecord", interfaces[i].proto);
-			clj_core_mark_extension("clojure.lang.IRecord");
 		}
 		clj_release(qualified);
 		clj_release(name);

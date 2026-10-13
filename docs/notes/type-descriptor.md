@@ -15,8 +15,9 @@
 - [~] **`deftype`/`reify` implement core interfaces through slot trampolines.** `deftype*` takes every
   `interface method-map` pair of the form: a core interface fills the descriptor's slots with C
   trampolines into the method fns (`core_fns` on `clj_user_type`, visited by `type_each_child`) and
-  ORs its bits into `core_bits`; a protocol goes through `extend`. The canonical table (JVM method
-  names, so Clojure code reads as is):
+  ORs its bits into `core_bits`; a protocol goes through `extend`. An interface is named bare or, as a .clj
+  library spells it, `clojure.lang.<Name>` (one var each in clojure.core; `IEquiv` is ClojureScript's and
+  bare only). The canonical table (JVM method names, so Clojure code reads as is):
 
   | interface | methods (`this` first) | slot | bits |
   |---|---|---|---|
@@ -73,13 +74,16 @@
   called through `apply` or from a native (no INVOKE node), a nil impl (the error path). Trigger for
   a megamorphic cutoff: a site cycling through more than four receivers in a profile. A compiled site has
   its own cells — direct arms from the receiver fact and a per-thread cache ("Compiler", protocol calls).
-- [ ] **No `.-field` access, no protocol inheritance.** A deftype's fields are positional
-  slots read through `field*`, visible as locals inside its own method bodies only; from outside
-  there is no accessor. A deftype carries meta only by implementing `IObj` itself (a field for it);
-  a record has the slot (see "Records").
-  A protocol cannot extend another. `extend-type` on a core interface as the *type*
-  (`(extend-type ISeq P ...)`) covers every type with those bits, on the concrete type missing; a
-  user protocol cannot be a type designator. Trigger: the first `(.-x o)`.
+- **`(.-field x)` reads a field of a deftype or record by name** (`clj_instance_send`, which both backends
+  reach through `clj_objc_send`): a scan of the type's field names per call, then, with no such field, the
+  protocol method named `-field` as before. A reify has none to read: its slots are its method closures,
+  named after the methods (`reified`). Inside its own method bodies a field is a local over `field*`; a deftype
+  carries meta only by implementing `IObj` itself (a field for it), a record has the slot (see "Records").
+  Trigger for an index cached per site: a field read in a profile (corpus/datascript's datom comparators read
+  `.-e`, `.-a`, `.-v` on every comparison).
+- [ ] **No protocol inheritance.** A protocol cannot extend another. `extend-type` on a core interface as the
+  *type* (`(extend-type ISeq P ...)`) covers every type with those bits, on the concrete type missing; a
+  user protocol cannot be a type designator. Trigger: a library whose protocol extends another.
 - [~] **`reify` expands to data and var references only**: `(new* (reify-type* 'reify__N '[m ...] P {:m 0}
   ...) closures...)`. `reify-type*` makes the type on the site's first evaluation and keeps it in a
   process-wide registry under the gensym'd name (its own mutex, taken before the protocol one), so a

@@ -541,6 +541,21 @@ static clj_value b_long_value_of(const clj_value *args, size_t n) {
 	return clj_retain(args[0]);
 }
 
+// Integer.compare's -1, 0 or 1; a long here is the JVM's int widened, so the order is the same.
+static clj_value b_integer_compare(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t x, y;
+	if (!clj_int64_of(args[0], &x) || !clj_int64_of(args[1], &y))
+		return clj_throw_msg("Integer/compare expects two integers, got: %s and %s", clj_type_name(args[0]), clj_type_name(args[1]));
+	return clj_fixnum(x < y ? -1 : x > y ? 1 : 0);
+}
+
+static clj_value b_math_sqrt(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_number(args[0])) return not_a_number(args[0]);
+	return clj_double_new(sqrt(clj_num_to_double(args[0])));
+}
+
 static void bind_static_fn(const char *ns_name, const char *name, clj_native_fn fn, uint32_t min, uint32_t max) {
 	clj_value ns_sym = clj_symbol_from_cstr(ns_name);
 	clj_value sym = clj_symbol_from_cstr(name);
@@ -564,6 +579,8 @@ static void install_boxed_classes(void) {
 	bind_static("Double", "POSITIVE_INFINITY", clj_double_new((double)INFINITY));
 	bind_static_fn("Long", "valueOf", b_long_value_of, 1, 1);
 	bind_static_fn("Double", "isNaN", b_nan_p, 1, 1);
+	bind_static_fn("Integer", "compare", b_integer_compare, 2, 2);
+	bind_static_fn("Math", "sqrt", b_math_sqrt, 1, 1);
 }
 
 void clj_number_builtins_install(void) {

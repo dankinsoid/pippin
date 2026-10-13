@@ -282,8 +282,8 @@
   runner the test took 20.4 s (run 37188956209) ("Gates", "Shards"). `CorpusTests.anExpiredTestIsATimeoutAndTheNamespaceGoesOn` and
   `DeadlineTests.anExpiryInsideEqualsOrHashIsNotAnAnswer` reproduce it with a 100 ms budget.
 - **Symbols the suite and medley need from the JVM**: `clojure.lang.LazySeq` (`p/lazy-seq?`), `Throwable` in
-  `catch` works, `instance?` of a JVM class works only for the names bound in core (`clojure.lang.IEditableCollection`,
-  `clojure.lang.IRecord`, `clojure.lang.PersistentQueue`, `java.util.UUID`, `java.util.Date`); a static call
+  `catch` works, `instance?` of a JVM class works only for the names bound in core (every core interface as
+  `clojure.lang.<Name>` (NOTES "Type descriptor"), `clojure.lang.PersistentQueue`, `java.util.UUID`, `java.util.Date`); a static call
   such as `java.util.UUID/fromString` is interop and stays unresolved. The suite's parse-uuid test expects
   `fromString`'s lenient grouping under `:clj` and nil under `:default`; with no features set it fails
   here for answering as the JVM does (allowlist note).
