@@ -464,7 +464,8 @@ static int walk_one(out *o, const clj_fused_site *site, clj_value coll) {
 		for (uint32_t i = 0, n = clj_vector_count(coll), start, end; i < n;) {
 			const clj_slot *run = clj_vector_run(coll, i, &start, &end);
 			for (; i < end; i++) {
-				int r = input(o, site, &run[i - start].v);
+				clj_value x = run[i - start].v;
+				int       r = input(o, site, &x);
 				if (r != CLJ_FUSED_GO) return r;
 			}
 		}
@@ -556,7 +557,8 @@ CLJ_UNIT_ENTRY int clj_fused_cat(void *ctx, clj_value coll, clj_fused_step cont,
 		for (uint32_t i = 0, n = clj_vector_count(coll), start, end; i < n;) {
 			const clj_slot *run = clj_vector_run(coll, i, &start, &end);
 			for (; i < end; i++) {
-				int r = cont ? cont(ctx, &run[i - start].v, sink) : sink->emit(sink, run[i - start].v);
+				clj_value x = run[i - start].v;
+				int       r = cont ? cont(ctx, &x, sink) : sink->emit(sink, x);
 				if (r != CLJ_FUSED_GO) return r;
 			}
 		}
