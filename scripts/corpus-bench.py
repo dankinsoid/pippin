@@ -29,8 +29,8 @@ FEATURES = "clj"
 # The Clojure the fuzzer and make api-diff pin, and the core.async make api-diff diffs ours against.
 JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH if p not in OURS_ONLY)+ '] :deps {org.clojure/clojure '
             '{:mvn/version "1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"} ' + DATASCRIPT_DEPS + '}}')
-# A run past this is a hang: sampled into the logs, killed, and an error of the report. The slowest workload takes
-# about 20 s interpreted.
+# A run past this is a hang: sampled into the logs, killed, and an error of the report. The slowest workload,
+# datascript, takes about 30 s interpreted.
 RUN_TIMEOUT = 240
 SAMPLE_SECONDS = 8
 # Past this the remaining workloads are reported as not run; the CI step's own cap is above it.

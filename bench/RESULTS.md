@@ -3114,3 +3114,33 @@ head's medians over 8 repetitions in the same job. Ratios are ours over theirs.
 - **Cost**: the Dart builds 0.2 min and runs 0.2 min, the ClojureDart build 1.0 min (the compile to Dart, nine
   executables, nine kernels) and runs 0.4 (aot) and 1.6 (jit): 3.4 min. The step took 78.4 min against 73.5 for the
   Swift run, inside the runner's spread, and the 150 min cap is far.
+
+## Datascript — 08ca7b8, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+The thirteenth corpus workload, `datascript` (docs/notes/benchmarks.md, "Corpus workloads"): 400 users, 100 products
+and 1200 orders built in batches of entity maps, then upserts, retractions and `retractEntity` of component orders,
+11 queries, pulls, entity navigation and index access, about 14k datoms. The JVM and ClojureScript run Datascript 1.8.1
+and persistent-sorted-set 0.3.2 from their jars; ours run the port in `corpus/datascript`. Run 38449549446 is
+`make corpus-bench` for this tree alone (`CORPUS_BENCH_BASE=`), so every column is one runner's; runs 38420112950 and
+38434662229 had the default `--base=origin/main`, where the base cannot load the port (no `.-field`, `new` or
+`clojure.lang.*` names there), so datascript has no same-runner pairs until main carries them. ms per iteration.
+
+| | JVM warm | JVM 1st | JVM cold | interp | core+interp | dev | closed | closed/JVM | node warm / 1st / cold | hermes warm / 1st / cold | closed/node | closed/hermes |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 38449549446 | 164.0 | 579 | 2799 | 6427.7 | 6877.6 | 4663.5 | 4926.7 | 30.1× | 374.3 / 611 / 687 | 4521 / 4807 / 4827 | 13.2× | 1.09× |
+| 38420112950 | 147.1 | 495 | 2354 | 5446.7 | 5356.3 | 4386.0 | 4258.9 | 29.0× | 294.3 / 493 / 551 | 4502 / 4444 / 4461 | 14.5× | 0.95× |
+
+- **Same result everywhere it ran**: `=` to `expected` on the JVM, Node, Hermes and all four of our modes, and the
+  printed result is the JVM's text on both engines. babashka is n/a: datascript's Datom, Entity and LRU are deftypes
+  over `clojure.lang` interfaces, which its deftype does not take, and on the JVM the index is Java.
+- **Where the time goes**: in the closed build 66.8 % of the busy samples are the cycle collector (`visit_child` 42 %,
+  `add_node` 8.5 %, `blacken` 7.5 %, `visit` 4.4 %) and 10.2 % more is `array_each_child` under it; the compiled
+  program is 4.4 %, generic dispatch 3.0 %, rc 2.4 %, alloc/free 3.5 %. The dev build's profile is the same (66.3 %
+  collector). The index is a B+ tree of object arrays, an array is born `REACH`, and the local collections walk the
+  tree again and again to find it alive (NOTES "Reference counting", the new open entry). Per iteration: 2.37M
+  allocations (507k arrays, 101k tree nodes), 40M plain and 5.5M shared RC ops, 16M compiled generic calls.
+- **Against the other data workloads** closed runs at 1.1–3.2× the JVM and here at 30×; interp/closed is 1.3×,
+  since the collector costs both alike. Node is 2.3× the JVM; Hermes, an interpreter, is level with our closed build.
+- **Cost**: datascript took 7.3 min of this one-tree run (its references included: JVM, Node, Hermes 4.5 s an
+  iteration) and 22 min of run 38420112950, whose base side failed at load; with both sides timed it should take
+  about 40 min, which puts the default `--base` step near 118 min against 78.6, inside the 150 min budget.
