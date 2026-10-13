@@ -151,12 +151,7 @@ Compatibility with Clojure is a non-goal. A call is described by a *contract* al
 (HM with row polymorphism), effects (Koka-style rows), modes (ownership and lifetime), cost, refinements,
 meta — each with its own checker and its own price.
 
-The roles: pippin for exploration, UI glue and the Clojure ecosystem; Merry for hot modules and libraries
-with contracts. The allocator, RC with reuse, coroutines, channels, interop and the stub generator, the
-reader, nREPL and the gates carry over almost as they are. Whether Merry is worth building depends on
-a measurement not yet taken: pippin, Swift and hand-written "what Merry would emit" C on the same kernels.
-
-Nothing here is decided beyond the goals. The ideas are in [docs/merry.md](docs/merry.md) (Russian), and
+The ideas are in [docs/merry.md](docs/merry.md) (Russian), and
 [static.clj](static.clj) is a checkout service written in the sketched syntax with the inferred contracts
 in comments.
 
