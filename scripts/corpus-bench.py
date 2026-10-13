@@ -63,8 +63,9 @@ def sh(cmd, env=None, timeout=None, cwd=ROOT, check=True):
 
 def parse(text):
 	"""The report lines of clj-corpus-bench and jvm.clj: `key value`, `stat name n`, `alloc_type name n`,
-	`census type field n`, `reuse_type name taken copied`, `token_type name used`."""
-	r = {"stat": {}, "alloc_type": {}, "census": {}, "reuse_type": {}, "token_type": {}}
+	`census type field n`, `census_site type fn@line:col born frame callee`, `reuse_type name taken copied`,
+	`token_type name used`."""
+	r = {"stat": {}, "alloc_type": {}, "census": {}, "census_site": [], "reuse_type": {}, "token_type": {}}
 	for line in text.splitlines():
 		parts = line.split(" ", 1)
 		if len(parts) != 2:
@@ -76,6 +77,10 @@ def parse(text):
 				# Two types may share a name (a deftype's and a core one): summed.
 				row = r["census"].setdefault(cells[0], {})
 				row[cells[1]] = row.get(cells[1], 0.0) + float(cells[2])
+		elif key == "census_site":
+			cells = rest.split(" ")
+			if len(cells) == 5:
+				r["census_site"].append((cells[0], cells[1], float(cells[2]), float(cells[3]), float(cells[4])))
 		elif key in ("stat", "alloc_type", "token_type"):
 			name, value = rest.rsplit(" ", 1)
 			r[key][name] = float(value)
@@ -765,6 +770,23 @@ def census_section(b, add):
 			w, k(t["born"]), p(t["frame"] + t["callee"]), p(t["up1"] + t["up2"] + t["up3"]), p(t["up1"]),
 			p(t["reuse4"]), p(t["reuse1"]), p(died - t["retained"]), p(t["escaped"] + t["other_exec"] + t["alive"]),
 			p(t["outside"]), p(t["born_built"]), stale))
+	add("")
+	add("Birth sites of the frame region: per workload, the (fn, type) pairs whose objects died in their birth frame "
+	    "or a callee, the top 8 by that count. *site* is the birth frame's fn as `name@line:col` (`fn` when "
+	    "anonymous); *share* is of all the workload's allocations.")
+	add("")
+	add("| workload | type | site | born/iter | frame | callee | share |")
+	add("|---|---|---|---:|---:|---:|---:|")
+	for w in b.args.only:
+		r = b.results[w]
+		s = r.get("closed-stats") or r.get("dev-stats") or {}
+		census = s.get("census")
+		if not census:
+			continue
+		_, total = census_rows(census)
+		every = total.get("born") or 1.0
+		for tname, site, born, frame, callee in sorted(s.get("census_site", []), key=lambda e: -(e[3] + e[4]))[:8]:
+			add("| %s | %s | `%s` | %s | %s | %s | %.1f |" % (w, tname, site, k(born), k(frame), k(callee), 100.0 * (frame + callee) / every))
 	add("")
 	add("Inline RC, measured: `clj_debug_rc_op_ns` %s ns per op on a cached header, %s ns over 1M headers in a shuffled "
 	    "order (the closed shipping build, `--calibrate`); the counts are the rc columns above." % (

@@ -101,8 +101,9 @@ static uint32_t type_index(const clj_type *type) {
 static inline void bump(_Atomic uint64_t *c) { atomic_fetch_add_explicit(c, 1, memory_order_relaxed); }
 
 typedef struct {
-	uint64_t serial;
-	uint32_t builders; // builder frames from the bottom up to this one
+	uint64_t    serial;
+	uint32_t    builders; // builder frames from the bottom up to this one
+	const void *fn;       // the fn node (or compiled stub) whose body the frame is
 } census_frame;
 
 // A death waiting for an allocation of its size class in its frame (Perceus' reuse pairing).
@@ -181,7 +182,7 @@ clj_census_mark clj_census_enter(const void *fn_node) {
 		r->frames = grown;
 	}
 	uint32_t below = r->depth ? r->frames[r->depth - 1].builders : 0;
-	r->frames[r->depth++] = (census_frame){r->exec | ++r->next, below + (is_builder(fn_node) ? 1 : 0)};
+	r->frames[r->depth++] = (census_frame){r->exec | ++r->next, below + (is_builder(fn_node) ? 1 : 0), fn_node};
 	return m;
 }
 
@@ -197,11 +198,12 @@ void clj_census_builder(int delta) {
 // ---- the records, by address: sharded open addressing, linear probes, deletion by backward shift
 
 typedef struct {
-	uintptr_t addr; // 0: empty
-	uint64_t  serial;
-	uint32_t  depth;
-	uint16_t  type;
-	uint8_t   cls, built;
+	uintptr_t   addr; // 0: empty
+	uint64_t    serial;
+	const void *fn; // the birth frame's fn node
+	uint32_t    depth;
+	uint16_t    type;
+	uint8_t     cls, built;
 } record;
 
 typedef struct {
@@ -304,6 +306,32 @@ static void put(record rec) {
 
 static inline uint32_t class_slot(uint32_t cls) { return cls < POOL_CLASSES ? cls : POOL_CLASSES; }
 
+// ---- birth sites: per (birth fn, type), what the frame region (died in the frame or in a callee) holds. Keyed by
+// the node's address and the type's slot in one word, so a lost race is a probe on, never a lock.
+
+enum { SITE_SLOTS = 1 << 15 };
+
+typedef struct {
+	_Atomic uint64_t key; // (fn << 10 | type) + 1; 0: empty
+	_Atomic uint64_t born, frame, callee;
+} site_row;
+
+static site_row         sites[SITE_SLOTS];
+static _Atomic uint64_t sites_dropped;
+
+static site_row *site_of(const void *fn, uint16_t type) {
+	if (!fn) return NULL;
+	uint64_t key = (((uint64_t)(uintptr_t)fn << 10) | type) + 1;
+	size_t   i = (size_t)(mix((uintptr_t)key) & (SITE_SLOTS - 1));
+	for (size_t probes = 0; probes < SITE_SLOTS / 4; probes++, i = (i + 1) & (SITE_SLOTS - 1)) {
+		uint64_t cur = atomic_load_explicit(&sites[i].key, memory_order_acquire);
+		if (!cur && atomic_compare_exchange_strong_explicit(&sites[i].key, &cur, key, memory_order_acq_rel, memory_order_acquire)) cur = key;
+		if (cur == key) return &sites[i];
+	}
+	atomic_fetch_add_explicit(&sites_dropped, 1, memory_order_relaxed);
+	return NULL;
+}
+
 static int classify(const record *rec, const census_ring *r) {
 	if (!rec->serial) return K_OUTSIDE;
 	if (!r || (rec->serial >> EXEC_SHIFT) != (r->exec >> EXEC_SHIFT)) return K_OTHER_EXEC;
@@ -329,6 +357,7 @@ static void census_birth(clj_header *h, const clj_type *type, uint32_t cls) {
 		r->allocs++;
 		if (r->depth) {
 			rec.serial = r->frames[r->depth - 1].serial;
+			rec.fn = r->frames[r->depth - 1].fn;
 			rec.depth = r->depth;
 			rec.built = r->frames[r->depth - 1].builders > 0;
 		}
@@ -345,6 +374,8 @@ static void census_birth(clj_header *h, const clj_type *type, uint32_t cls) {
 	}
 	bump(&by_type[rec.type].born);
 	if (rec.built) bump(&by_type[rec.type].born_built);
+	site_row *site = site_of(rec.fn, rec.type);
+	if (site) bump(&site->born);
 	atomic_fetch_add_explicit(&census_tracked, 1, memory_order_relaxed);
 	put(rec);
 }
@@ -363,6 +394,10 @@ void clj_census_death(clj_header *h) {
 	if (flags & CLJ_FLAG_RETAINED) bump(&t->count[F_RETAINED][k]);
 	if (flags & CLJ_FLAG_SHARED) bump(&t->count[F_SHARED][k]);
 	if (rec.built) bump(&t->count[F_BUILT][k]);
+	if (k == K_FRAME || k == K_CALLEE) {
+		site_row *site = site_of(rec.fn, rec.type);
+		if (site) bump(k == K_FRAME ? &site->frame : &site->callee);
+	}
 	if (!r || !atomic_load_explicit(&census_on, memory_order_relaxed)) return;
 	// the oldest way of the class, or a free one
 	pending *ways = r->recent[class_slot(rec.cls)], *slot = ways;
@@ -411,7 +446,26 @@ void clj_debug_census_print(unsigned iterations) {
 			}
 		}
 	}
+	// census_site <type> <fn>@<line>:<col> born frame callee
+	for (size_t i = 0; i < SITE_SLOTS; i++) {
+		uint64_t key = atomic_load_explicit(&sites[i].key, memory_order_acquire);
+		uint64_t frame = atomic_load_explicit(&sites[i].frame, memory_order_relaxed), callee = atomic_load_explicit(&sites[i].callee, memory_order_relaxed);
+		if (!key || !(frame + callee)) continue;
+		const clj_node *fn = (const clj_node *)(uintptr_t)((key - 1) >> 10);
+		const clj_type *type = atomic_load_explicit(&by_type[(key - 1) & 1023].type, memory_order_acquire);
+		char tname[128], fname[160];
+		snprintf(tname, sizeof tname, "%s", type ? type->name : "?");
+		for (char *c = tname; *c; c++)
+			if (*c == ' ') *c = '_';
+		clj_value name = fn->u.fn.name.v;
+		snprintf(fname, sizeof fname, "%s@%u:%u", clj_is_symbol(name) ? CLJ_STR(clj_symbol_name(name)).bytes : "fn", fn->line, fn->col);
+		for (char *c = fname; *c; c++)
+			if (*c == ' ') *c = '_';
+		printf("census_site %s %s %.1f %.1f %.1f\n", tname, fname, (double)atomic_load_explicit(&sites[i].born, memory_order_relaxed) / per,
+		       (double)frame / per, (double)callee / per);
+	}
 	printf("census _meta stale %llu\n", (unsigned long long)atomic_load(&census_stale));
+	printf("census _meta sites_dropped %llu\n", (unsigned long long)atomic_load(&sites_dropped));
 	fflush(stdout);
 }
 
