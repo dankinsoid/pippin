@@ -152,7 +152,8 @@
   - **swift** (`scripts/corpus_swift.py`, `bench/workloads/swift`): one binary per workload from `swiftc -O -wmo`
     (a release build: optimized, whole-module), the harness in `harness/` and the port in `workloads/<name>.swift`,
     built before the workloads and outside every time; its own report table, "Idiomatic Swift", with `closed/swift`
-    and `interp/swift`. Judgment calls:
+    and `interp/swift`. Cost: 0.3 min of builds and 0.2 min of runs on the arm64 runner, on by default (bench/RESULTS.md
+    "Idiomatic Swift"). Judgment calls:
     - all: Clojure's `count` and `subs` of a string are Java's UTF-16 length and indexes, so the ports count
       `utf16.count` (O(1) on an ASCII native string) and slice by UTF-16 offsets; `count` would walk graphemes.
     - medley: a `Record` struct; `#{:a :b}` and `#{:c}` are one shared `Set` each, as the literal is one value;

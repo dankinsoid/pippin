@@ -2984,6 +2984,7 @@ interp medians of the same job, so every ratio is one runner's. Ratios are ours 
   configuration); the references themselves 10.4 min (bb 2.6, Node 1.7, Hermes 4.3, the ClojureScript build 0.9).
   One run on one runner: the reference columns carry the ±20–30 % runner-to-runner spread, the ratios within the job
   do not.
+
 ## Scalar replacement — 243a93d, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
 
 Design §10 step 7б (docs/notes/compiler.md, "Scalar replacement: a let-bound literal in slots, a map entry as its key
@@ -3036,3 +3037,36 @@ geomeans 1.005–1.009.
   4.26 s, `-O2 -DCLJ_CLOSED` 25.41 → 26.00 s (+2.3 %), both the host's spread; the five corpus libraries' 12 dev units
   7 475 089 → 7 481 018 bytes (+0.08 %), only dependency's unit changed (+3.5 %, its two twins), its clang −O0 0.28 →
   0.27 s, −O2 1.13 → 1.17 s; clojure.set +1 guard per `join` arity, core.async one twin.
+
+## Idiomatic Swift — e91e8ec, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+`make corpus-bench` with `--base=origin/main` and the default `--refs`, now with `swift` (docs/notes/benchmarks.md,
+"Hand-ported references"), run 38418385153: the nine data workloads hand-ported to Swift, `swiftc -O -wmo`, Apple
+Swift 6.3.3 (Xcode 26.6). ms per iteration; Swift and ours both take our AOT policy, the JVM its own; ours are the
+head's medians over 8 repetitions in the same job. Ratios are ours over Swift's.
+
+| workload | JVM warm | closed | interp | swift warm / 1st / cold | closed/swift | interp/swift | swift/JVM |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| medley | 42.5 | 58.2 | 117.5 | 7.1 / 11 / 16 | 8.16× | 16.49× | 0.17× |
+| combinatorics | 81.9 | 195.8 | 339.6 | 41.2 / 42 / 46 | 4.75× | 8.24× | 0.50× |
+| dependency | 315.1 | 492.5 | 823.6 | 74.9 / 89 / 94 | 6.58× | 11.00× | 0.24× |
+| nested-update | 97.5 | 127.4 | 438.1 | 17.3 / 18 / 21 | 7.38× | 25.36× | 0.18× |
+| group-freq | 117.1 | 290.8 | 476.8 | 23.8 / 27 / 31 | 12.21× | 20.02× | 0.20× |
+| pipelines | 168.5 | 561.5 | 1118.8 | 21.3 / 22 / 25 | 26.33× | 52.46× | 0.13× |
+| strings | 30.3 | 43.6 | 64.1 | 67.2 / 72 / 77 | 0.65× | 0.95× | 2.22× |
+| render | 43.8 | 64.5 | 100.8 | 42.6 / 47 / 51 | 1.52× | 2.37× | 0.97× |
+| suite-data | 37.2 | 59.7 | 111.6 | 12.4 / 14 / 18 | 4.83× | 9.03× | 0.33× |
+
+- **Same result on all nine**: every port printed the workload's `expected` literal. The async three are n/a.
+- **Against idiomatic Swift, the closed build is 4.8–26× slower on seven of nine** (geomean of those seven 8.4×);
+  Swift is also 2–8× faster than the warm JVM on them. The gap is widest where the program is collection
+  plumbing over small values: pipelines (26×: `.lazy` chains over an `[Int]` against lazy seqs and boxed longs),
+  group-freq (12×), medley (8×), nested-update (7×, structs mutated in place against `assoc-in`/`update-in`).
+- **Strings and render are the exceptions**: closed is 0.65× Swift on strings (faster) and 1.5× on render, and
+  Swift is 2.2× the JVM on strings and level with it on render. Both are Swift's `String`: grapheme-aware
+  `split(separator:)`, `Character` iteration in `escape`, Foundation's bridged `replacingOccurrences`, and a
+  string per node concatenated by its parent. The strings port already takes Foundation's replace and regex over
+  the standard library's `replacing` and Swift Regex, which took 5× and 10× as long in a one-off run.
+- **Cold**: a Swift process runs a workload start to exit in 16–94 ms.
+- **Cost**: the Swift builds 0.3 min and the runs 0.2 min; the step took 73.5 min against 78.6 for the last run with
+  the references, inside the runner's spread, and the 150 min cap is far.
