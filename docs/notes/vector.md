@@ -9,6 +9,11 @@
 - **No identity short-circuit in `assoc`**: storing the element already there still copies the path
   when shared and resets the hash cache. Clojure does the same.
 - **Index and count are `uint32_t`**; a negative index from a higher layer must be rejected there.
+- **`rseq` of a vector is a view walking down** (`clj_rvector_seq_type`, seq.c; `rvec-seq*`, builtins.c), the
+  JVM's `APersistentVector$RSeq`: the vector-seq's layout with `i` the index of its first item, counted, reducible
+  in C, metadata in the trailing word; `clj_seq_iter` walks it in place. It was `(seq (reverse v))`, a list built
+  up front. A `vector?` value that is not the core vector (a deftype on `IPersistentVector`) is still reversed
+  eagerly. Drop-guided reuse does not step it in its own cell as it does a vector-seq — when an `rseq` walk ranks.
 
 - [~] **Tuples are the vector's second layout** (design §4 «Tuples»). `clj_vector_type` stays the one type; a
   vector built by `clj_vector_from_array` from one to six items — a literal in both backends (`eval_vector`, the

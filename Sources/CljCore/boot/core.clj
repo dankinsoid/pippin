@@ -1306,7 +1306,7 @@
   [v]
   (cond
     (sorted? v) (sorted-seq* v false)
-    (vector? v) (seq (reverse v))
+    (vector? v) (rvec-seq* v)
     :else (throw (ex-info (str "rseq not supported on this type: " (type v)) {}))))
 
 (defn keys "Returns a seq of the map's keys." {:=> [:=> [:cat [:maybe :map]] [:maybe :seq]]} [m] (seq (map (fn [e] (nth e 0)) m)))

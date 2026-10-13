@@ -113,6 +113,58 @@ clj_value clj_vector_seq_new(clj_value vec, uint32_t i) {
 	return clj_from_ptr(s);
 }
 
+// ---- rvector-seq
+
+// @ai-generated(solo)
+// rseq of a vector, APersistentVector$RSeq: the vector-seq's layout with i walking down to 0.
+static clj_value rvector_seq_meta(clj_value self) { return clj_view_meta(self, sizeof(clj_vector_seq)); }
+
+static clj_value rvector_seq_with_meta(clj_value self, clj_value m) { return clj_view_with_meta(self, m, sizeof(clj_vector_seq)); }
+
+static clj_value rvector_seq_first(clj_value self) {
+	const clj_vector_seq *s = clj_vector_seq_of(self);
+	return clj_retain(clj_vector_nth(s->vec.v, s->i));
+}
+
+static clj_value rvector_seq_next(clj_value self) {
+	const clj_vector_seq *s = clj_vector_seq_of(self);
+	return s->i ? clj_rvector_seq_new(s->vec.v, s->i - 1) : CLJ_NIL;
+}
+
+static clj_value rvector_seq_count(clj_value self) { return clj_fixnum((intptr_t)clj_vector_seq_of(self)->i + 1); }
+
+static clj_value rvector_seq_reduce(clj_value self, clj_value f, clj_value init) {
+	const clj_vector_seq *s = clj_vector_seq_of(self);
+	clj_reducer           red = clj_reducer_start(f, init, 2);
+	for (uint32_t i = s->i + 1; i > 0; i--) {
+		if (!clj_reducer_step(&red, clj_vector_nth(s->vec.v, i - 1))) break;
+	}
+	return clj_reducer_finish(&red);
+}
+
+const clj_type clj_rvector_seq_type = {
+	.h = {1, CLJ_FLAG_IMMORTAL, &clj_type_type},
+	.name = "rvector-seq",
+	CLJ_ASEQ_TRAIT(CLJ_CORE_COUNTED | CLJ_CORE_REDUCE | CLJ_CORE_META | CLJ_CORE_OBJ),
+	.each_child = vector_seq_each_child,
+	.drop = vector_seq_drop,
+	.seq = clj_aseq_seq,
+	.first = rvector_seq_first,
+	.next = rvector_seq_next,
+	.count = rvector_seq_count,
+	.reduce = rvector_seq_reduce,
+	.meta = rvector_seq_meta,
+	.with_meta = rvector_seq_with_meta,
+};
+
+clj_value clj_rvector_seq_new(clj_value vec, uint32_t i) {
+	CLJ_ASSERT(i < clj_vector_count(vec), "rvector-seq past the start");
+	clj_vector_seq *s = clj_alloc_uninit(&clj_rvector_seq_type, sizeof *s);
+	s->i = i;
+	clj_slot_init(&s->h, &s->vec, clj_retain(vec));
+	return clj_from_ptr(s);
+}
+
 // ---- string-seq
 
 CLJ_CHILDREN_INLINE void string_seq_children(void *self, clj_visitor visit, void *ctx) {

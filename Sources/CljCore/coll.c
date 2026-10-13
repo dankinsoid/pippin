@@ -223,6 +223,7 @@ static void iter_enter(clj_seq_iter *it, clj_value v) {
 	if (!clj_is_ptr(v)) return;
 	const clj_type *t = clj_type_of(v);
 	if (t == &clj_vector_seq_type) it->pos = clj_vector_seq_of(v)->i;
+	else if (t == &clj_rvector_seq_type) it->pos = (uintptr_t)clj_vector_seq_of(v)->i + 1;
 	else if (t == &clj_string_seq_type) it->pos = clj_string_seq_of(v)->pos;
 	else if (t == &clj_range_type) it->at = clj_range_of(v)->start;
 }
@@ -270,6 +271,11 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 			clj_value vec = t == &clj_vector_type ? cur : clj_vector_seq_of(cur)->vec.v;
 			if (it->pos >= clj_vector_count(vec)) return done(it, false);
 			*out = clj_vector_nth(vec, (uint32_t)it->pos++);
+			return true;
+		}
+		if (t == &clj_rvector_seq_type) {
+			if (!it->pos) return done(it, false);
+			*out = clj_vector_nth(clj_vector_seq_of(cur)->vec.v, (uint32_t)--it->pos);
 			return true;
 		}
 		if (t == &clj_string_type || t == &clj_string_seq_type) {

@@ -28,6 +28,12 @@ extern const clj_type clj_vector_seq_type;
 // i < count. vec is retained.
 clj_value clj_vector_seq_new(clj_value vec, uint32_t i);
 
+// (rseq v): the same view from index i down to 0; next is one index lower.
+extern const clj_type clj_rvector_seq_type;
+
+// i < count. vec is retained.
+clj_value clj_rvector_seq_new(clj_value vec, uint32_t i);
+
 // Code points of a string from byte offset pos.
 typedef struct {
 	clj_header h;

@@ -49,6 +49,7 @@ extension CoreTests {
 				("type", Value(borrowing: clj_from_ptr(UnsafeMutableRawPointer(mutating: clj_header_of(Value(list: []).raw).pointee.type))), 0),
 				("lazy-seq", try eval("(lazy-seq [1])"), ASEQ | IOBJ),
 				("vector-seq", try eval("(seq [1 2])"), ASEQ | COUNTED | REDUCE | IOBJ),
+				("rvector-seq", try eval("(rseq [1 2])"), ASEQ | COUNTED | REDUCE | IOBJ),
 				("string-seq", try eval("(seq \"ab\")"), ASEQ | IOBJ),
 				("range", try eval("(range 3)"), ASEQ | COUNTED | REDUCE | IOBJ),
 				("reduced", try eval("(reduced 1)"), 0),
@@ -87,7 +88,7 @@ extension CoreTests {
 
 		@Test func fastPathsOnlyWhereSeqIsAView() throws {
 			clj_init()
-			let fast = ["vector", "string", "range", "vector-seq", "string-seq", "list", "cons", "empty-list"]
+			let fast = ["vector", "string", "range", "vector-seq", "rvector-seq", "string-seq", "list", "cons", "empty-list"]
 			for (name, value, _) in try samples() {
 				let t = clj_type_of(value.raw).pointee
 				#expect((t.first != nil && t.next != nil) == fast.contains(name), "\(name)")
