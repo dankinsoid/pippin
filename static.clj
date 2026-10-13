@@ -185,8 +185,8 @@
 ;; a closed enum needs no `_`; a new status is an error here, and an extra `_` a warning
 
 ;; variant: defpattern expands to structure, so exhaustiveness sees through it
-(defpattern (priced c) {:price {:cents c}})
-(defn cheap? [line] (match line (priced (< 100)) true _ false))
+(defpattern (Priced c) {:price {:cents c}})   ; capitalized: its arguments are patterns, not expressions
+(defn cheap? [line] (match line (Priced (< 100)) true _ false))
 
 
 ;;; ── Types as data, phase 1 ─────────────────────────────────────────────────
