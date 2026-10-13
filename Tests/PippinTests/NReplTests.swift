@@ -1,6 +1,6 @@
 // @ai-generated(solo)
 import CljCore
-import CljNREPL
+@testable import CljNREPL
 import Foundation
 import Testing
 
@@ -303,6 +303,32 @@ extension CoreTests {
 				#expect(try eval(parent, "10", "*1").contains { $0["value"]?.asString == "nil" })
 
 			}
+		}
+
+		// A client may clone, complete or info a session on `done`: by then its frame must be stored.
+		// @ai-generated(solo)
+		@Test func frameIsStoredBeforeDone() throws {
+			final class Seen { var namespaces: [String] = [] }
+			let session = Session()
+			let cases = [
+				("(in-ns 'nrepl-done.eof)", "nrepl-done.eof", "done"),
+				("(in-ns 'nrepl-done.error) (/ 1 0)", "nrepl-done.error", "eval-error"),
+				("(in-ns 'nrepl-done.reader) (", "nrepl-done.reader", "eval-error"),
+			]
+			for (code, ns, status) in cases {
+				let seen = Seen()
+				let finished = DispatchSemaphore(value: 0)
+				spawnCoroutine({
+					Evaluator.run(code: code, overrideNamespace: nil, session: session, id: ns, send: { message in
+						if message["status"]?.asStringList?.contains(status) == true {
+							seen.namespaces.append(session.currentNamespace)
+						}
+					})
+				}, onDone: { finished.signal() })
+				finished.wait()
+				#expect(seen.namespaces == [ns], "the frame \(code) left was not stored when `\(status)` went out")
+			}
+			#expect(clj_debug_coro_settle(0, 2000), "leftover nREPL eval coroutines after the test")
 		}
 	}
 }

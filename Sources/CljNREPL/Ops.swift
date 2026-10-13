@@ -48,7 +48,7 @@ enum Ops {
 		let bindings = printBindings(msg)
 		session.scheduleEval {
 			let coro = spawnCoroutine({
-				Evaluator.run(code: code, overrideNamespace: ns, session: session, id: id, conn: conn, bindings: bindings)
+				Evaluator.run(code: code, overrideNamespace: ns, session: session, id: id, send: conn.send, bindings: bindings)
 			}, onDone: session.finishEval)
 			session.setInFlight(id: id, coro: coro)
 		}
@@ -66,7 +66,7 @@ enum Ops {
 		}
 		session.scheduleEval {
 			let coro = spawnCoroutine({
-				Evaluator.run(code: code, overrideNamespace: nil, session: session, id: id, conn: conn, onlyLastValue: true, bindings: bindings)
+				Evaluator.run(code: code, overrideNamespace: nil, session: session, id: id, send: conn.send, onlyLastValue: true, bindings: bindings)
 			}, onDone: session.finishEval)
 			session.setInFlight(id: id, coro: coro)
 		}

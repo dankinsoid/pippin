@@ -66,11 +66,11 @@ public final class Session {
 	}
 
 	/// `*in*` for one eval: the session's lines plus the fn that asks this request's client for the next chunk.
-	func inputBinding(id: String, conn: Connection) -> Value {
+	func inputBinding(id: String, send: @escaping ([String: BValue]) -> Void) -> Value {
 		let channel = lock.withLock { linesChannel() }
 		let sessionID = self.id
 		let request = Value(function: "clj-nrepl/need-input", arity: 0...0) { _ in
-			conn.send(["id": .string(id), "session": .string(sessionID), "status": .list([.string("need-input")])])
+			send(["id": .string(id), "session": .string(sessionID), "status": .list([.string("need-input")])])
 			return .nil_
 		}
 		return withExtendedLifetime((channel, request)) {
