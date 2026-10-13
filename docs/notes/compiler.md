@@ -1196,7 +1196,11 @@
   in the five corpus libraries' own code, two in clojure.set (`join`), one in the workloads (render's `[opts children]`);
   entry twins: one in core.c, two in clojure.set, one in core.async, one in dependency. The census of the frame region
   by birth site says why: what dies in its frame is made by natives (map entries of a reduce or a `find`, the
-  vector-seqs of `[x & more]`, rest-arg lists, a set's seq), not by literals.
+  vector-seqs of `[x & more]`, rest-arg lists, a set's seq), not by literals. **Measured** (run 38412557944 against
+  main): dependency −10.9 % allocations (the 660k entries of `remove-from-map`'s reduce), −5.8 % RC, 3–3.5 % faster in
+  interp, core+interp and closed; render −4.1 % allocations (the 36k `[opts children]` tuples), 1.2–2.5 % faster; the
+  nine data workloads' frame region 22.6 → 20.8 % of 30.66M → 29.96M objects; every other counter equal. Cost:
+  core.c +0.10 % bytes, the five libraries' units +0.08 %, clang within the host's spread.
   **Stack allocation (design §7 «Стек») is not done**, and not for this population: what dies in its frame without a
   field-split is a native's product passed to another call (`find`'s entry to `val`, a vector-seq to `first`/`next`, a
   path vector to `update-existing-in`), so a stack object needs every callee proven not to keep it — parameter escape

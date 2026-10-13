@@ -2984,3 +2984,55 @@ interp medians of the same job, so every ratio is one runner's. Ratios are ours 
   configuration); the references themselves 10.4 min (bb 2.6, Node 1.7, Hermes 4.3, the ClojureScript build 0.9).
   One run on one runner: the reference columns carry the ±20–30 % runner-to-runner spread, the ratios within the job
   do not.
+## Scalar replacement — 243a93d, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7б (docs/notes/compiler.md, "Scalar replacement: a let-bound literal in slots, a map entry as its key
+and value"). The population first, then three `corpus-bench` runs: 38397801063 (main 68d6505 with the census's birth
+sites, one tree), 38406684720 (the literal pass alone, 3cad575, against 68d6505) and 38412557944 (the step, 243a93d,
+against 2b89bba). Every workload returned the JVM's value in every runtime.
+
+**Where the frame region is born** (run 38397801063, closed stats, allocations an iteration that died in their birth
+frame or a callee, by birth fn and type; the top sites of each data workload):
+
+| what | site | frame region | share of the workload |
+|---|---|---:|---:|
+| a let-bound tuple literal (an `if` of two) | render `render`, `[opts children]` | 36.0k | 3.6 % |
+| map entries of a reduce over a map with `[k v]` | dependency `remove-from-map` | 659.7k | 7.2 % |
+| map entries of `find` read by `val` | medley `update-existing-in`'s `up`, `collate-by` | 60.0k | 9.0 % |
+| a path vector literal passed to a call | medley workload's `update-existing-in` path | 20.0k | 3.0 % |
+| vector-seqs of `[x & more]` and seq walks | strings `join`, render `render`, pipelines `run*`, medley | 100–300k each | 3–13 % |
+| a set's seq as a list | dependency `topo-sort` | 1.19M | 12.9 % |
+| rest-arg and `apply` lists | group-freq `sort-by` (callee), async-libs | 1.5M, 110k | 31 %, 42 % |
+| closures | nested-update `step` (`fnil`) | 66.6k | 11.7 % |
+
+Statically the literal case is rare: none in core.clj, none in the five corpus libraries' own code, two in clojure.set
+(`join`), one in the workloads. What dies in its frame is made by natives; the map entry of a reduce is the one of
+those whose shape is fixed by contract and whose reader is a literal fn the compiler has, hence the entry twin.
+
+**Counters** (run 38412557944; closed and dev agree): dependency allocations 6.04M → 5.38M (−10.9 %), MB 361.9 → 325.0,
+plain RC ops 45.22M → 42.59M (−5.8 %): the 660k entries of `remove-from-map`'s reduce are gone, the twin taking the
+key and value from the map's walk with the accumulator still +1 (map copies unchanged, 170.5k). render 872.1k →
+836.1k (−4.1 %), RC −5.9 %: the 36k `[opts children]` tuples. Every other data workload equal to the unit; async-libs
++14.7 % allocations in closed and dev alike, in the coroutine-scheduled counters that move between two runs of one tree
+("Same-runner A/A" above); its code is not touched by the pass (no site in it or its libs). Census over the
+nine data workloads (two stats iterations' objects an iteration): 30.66M → 29.96M born, the frame region (frame +
+callee) 22.6 → 20.8 %; dependency's 23.9 → 18.0 %, render's 24.6 → 21.8 %.
+
+**Same runner** (head/base of each run's fastest iteration, 8 pairs, the sign test's 93 % interval):
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| dependency | 0.965 [0.926–0.998]* | 0.969 [0.948–0.996]* | 0.965 [0.951–1.001] | 0.970 [0.928–1.000]* |
+| render | 0.988 [0.979–0.993]* | 0.983 [0.951–0.987]* | 0.995 [0.968–1.034] | 0.975 [0.968–0.983]* |
+| *geomean, 12 workloads* | 1.000 | 0.994 | 0.991 | 0.983 |
+
+The two workloads the counters move are faster by 1–3.5 % in three modes of four each, beyond the noise floor; the
+other cells are within the A/A spread (±4–7 %), with async-pipeline's 0.87–0.92 the scheduling's. The literal pass
+alone (run 38406684720) moved render's counters the same and nothing else; its cells were all within the spread, its
+geomeans 1.005–1.009.
+
+- **Compile cost** (the arm64 dev host, min of three clang runs, before = main's units): `boot/core.c` 5 223 215 →
+  5 228 483 bytes (+0.10 %: one twin, the `clj_lowered` initializers' two fields), clang `-O0 -DCLJ_DEBUG=1` 4.70 →
+  4.26 s, `-O2 -DCLJ_CLOSED` 25.41 → 26.00 s (+2.3 %), both the host's spread; the five corpus libraries' 12 dev units
+  7 475 089 → 7 481 018 bytes (+0.08 %), only dependency's unit changed (+3.5 %, its two twins), its clang −O0 0.28 →
+  0.27 s, −O2 1.13 → 1.17 s; clojure.set +1 guard per `join` arity, core.async one twin.
