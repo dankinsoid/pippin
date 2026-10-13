@@ -62,6 +62,18 @@
   evaluator section. Transducer state (`take`, `partition-all`, `dedupe`, ...) lives in volatiles,
   so one transducer application (one `(xf rf)`) belongs to one thread. Trigger: a transducer
   shared across threads; Clojure's contract is the same.
+- [~] **`(vswap! v conj x)` conj's a vector only the volatile holds in place** (core.clj `vswap!`, builtins.c
+  `vswap-take*`, coll.c `clj_volatile_conj_take`): the macro expands to `vswap-take*` when f is the symbol `conj`
+  and x a symbol or a literal, whose evaluation cannot touch the volatile, so the deref after it reads what
+  Clojure's deref before it would. At run time, with f the boot `conj` and the cell's vector unique and unshared,
+  the vector leaves the cell (nil stored) for the consuming conj and the result goes back: a vector's conj runs
+  none of the caller's code and cannot throw, so nothing sees the empty cell. Anything else — another f, a held
+  vector, a set — is `(vreset! v (f @v x))`. The take counts as a take-out (`stat taken_out`,
+  `clj_debug_taken_out`). `partition-all`, `partition-by` and the multi-coll `sequence` buffer this way (pipelines:
+  600k vector and 600k node copies an iteration in `partition-all`). Not done: a set or a map (`distinct`'s
+  seen-set): their conj and assoc hash and compare x, which may run the caller's code (a lazy seq realized, a
+  deftype's `equiv`) while the cell is empty and may throw past it, so the take needs a restore on the throw or
+  an x proven inert. Trigger: `distinct` or a `(vswap! m assoc k v)` in a profile.
 - **`sort-by` keys each item once** (compare.c `sort_by_keys`; design §3, the divergences beyond the cljs
   limit; docs/jvm-differences.md): keyfn runs over the items in order into a C array, a stable bottom-up merge
   sorts a permutation of indexes by those keys, and the list is built from the items in permuted order; no

@@ -183,6 +183,27 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// partition-all's (vswap! a conj input): a vector only the volatile holds leaves the cell for the conj.
+		@Test func vswapConjGrowsAnUnheldVectorInPlace() throws {
+			clj_init()
+			let before = clj_debug_live_objects()
+			do {
+				let t0 = clj_debug_taken_out()
+				#expect(try eval("(let [v (volatile! (vec (range 1)))] (dotimes [i 4] (vswap! v conj i)) @v)") == [0, 0, 1, 2, 3])
+				let t1 = clj_debug_taken_out()
+				#expect(try eval("(let [v (volatile! (vec (range 1))) h @v] (vswap! v conj 1) [h @v])") == [[0], [0, 1]])
+				let t2 = clj_debug_taken_out()
+				#expect(try eval("(let [v (volatile! (vec (range 1)))] (vswap! v conj (inc 0)) (vswap! v (fn [c x] (conj c x)) 2) @v)") == [0, 1, 2])
+				let t3 = clj_debug_taken_out()
+				if t0 >= 0 && clj_reuse_enabled() {
+					#expect(t1 - t0 == 4, "taken out \(t1 - t0)")
+					#expect(t2 == t1, "a held vector taken out: \(t2 - t1)")
+					#expect(t3 == t2, "taken out past an argument that is a call, or an f that is not conj: \(t3 - t2)")
+				}
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func transduceInitAndCompletion() throws {
 			clj_init()
 			for k in ["init", "done", "a"] { _ = kw(k) }

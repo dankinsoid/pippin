@@ -42,6 +42,9 @@ clj_value clj_get(clj_value coll, clj_value key, clj_value not_found);
 clj_value clj_get_take(clj_value coll, clj_value key, clj_value not_found, bool *taken);
 // The calling thread's take-outs so far; -1 outside a debug build.
 int64_t   clj_debug_taken_out(void);
+// (vswap! vol conj x) of a vector only vol holds: conj'd in place, *out the new value (owned); false leaves vol as it
+// was for the caller's own conj. vol is a volatile.
+bool clj_volatile_conj_take(clj_value vol, clj_value x, clj_value *out);
 // The same for equality across map representations: a sorted lookup's comparator throw is dropped, as clj_equals cannot throw.
 clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found);
 // Indexed types, strings (code points) and sequential seqs (walked). Out of range throws, or yields not_found when has_not_found.

@@ -4,6 +4,7 @@
 #include "clj/coll.h"
 #include "clj/core.h"
 #include "clj/error.h"
+#include "clj/ice.h"
 #include "clj/list.h"
 #include "clj/long.h"
 #include "clj/map.h"
@@ -137,6 +138,22 @@ CLJ_UNIT_ENTRY clj_value clj_get_take(clj_value coll, clj_value key, clj_value n
 		DEBUG_TAKEN_OUT();
 	}
 	return v;
+}
+
+// @ai-generated(solo)
+// A vector's conj runs none of the caller's code and cannot throw, so nothing sees the cell empty while it runs.
+bool clj_volatile_conj_take(clj_value vol, clj_value x, clj_value *out) {
+	clj_volatile *v = clj_to_ptr(vol);
+	clj_value     cur = v->value.v;
+	if (!clj_is_vector(cur) || !clj_is_unique_unshared(cur)) return false;
+	clj_slot_store(&v->h, &v->value, CLJ_NIL);
+	clj_value r = clj_conj(cur, x);
+	if (r == CLJ_THROWN) clj_ice("coll/volatile-conj-take", NULL, "conj onto a vector threw");
+	clj_slot_store(&v->h, &v->value, r);
+	CLJ_STAT(CLJ_STAT_TAKEN_OUT);
+	DEBUG_TAKEN_OUT();
+	*out = clj_retain(r);
+	return true;
 }
 
 clj_value clj_equals_lookup(clj_value coll, clj_value key, clj_value not_found) {

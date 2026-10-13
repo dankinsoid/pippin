@@ -114,9 +114,9 @@
   `deftype` implementing `Seqable` (through `sequence`) and `IReduceInit` (through `transduce`),
   not a C type: the slot trampoline already existed, so the type is four lines, and it prints as
   `#object[clojure.core.Eduction]` where Clojure prints the items. `vswap!` is a macro over
-  `vreset!`/`deref`, as Clojure's. A transducer's stateful step (`partition-all`'s buffer) copies
-  its vector per input for the same rc-2 reason, and `distinct`'s seen-set is conj'd at rc 2 the same
-  way (a path copy per new element). `halt-when` substitutes the result with its `{::halt v}` map, which the
+  `vreset!`/`deref`, as Clojure's, but `(vswap! v conj x)` grows a vector buffer in place (NOTES
+  "Builtins", the vswap! entry); `distinct`'s seen-set is still conj'd at rc 2 (a path copy per new
+  element). `halt-when` substitutes the result with its `{::halt v}` map, which the
   fused `into`/`reduce` drivers (fusion.c) could not see while their bottom fn ignored `result`: the walk's
   final result now goes through the completion arity, whose answer replaces the accumulator, and the bottom's
   completion answers the accumulator so `retf` gets it, as `transduce`'s rf does. `sequence` drops the

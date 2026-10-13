@@ -1424,6 +1424,28 @@ static clj_value b_deref(const clj_value *args, size_t n) {
 	return clj_throw_msg("deref not supported on this type: %s", clj_type_name(args[0]));
 }
 
+// @ai-generated(solo)
+// (vswap! vol f x) with x a symbol or a literal (the macro), so a deref after x's evaluation reads the same value.
+static clj_value b_vswap_take(const clj_value *args, size_t n) {
+	(void)n;
+	clj_value vol = args[0], f = args[1], x = args[2];
+	if (clj_is_volatile(vol) && clj_is_fn(f) && clj_fn_of(f)->kind == CLJ_FN_NATIVE) {
+		const clj_intrinsic *op = clj_intrinsic_consuming(f, 2);
+		clj_value            r;
+		if (op && op->consume.f2 == clj_conj && clj_volatile_conj_take(vol, x, &r)) return r;
+	}
+	clj_value cur = b_deref(&vol, 1);
+	if (cur == CLJ_THROWN) return cur;
+	clj_value in[2] = {cur, x};
+	clj_value r = clj_invoke(f, in, 2);
+	clj_release(cur);
+	if (r == CLJ_THROWN) return r;
+	clj_value both[2] = {vol, r};
+	clj_value out = b_vreset(both, 2);
+	clj_release(r);
+	return out;
+}
+
 // ---- metadata
 
 static clj_value b_meta(const clj_value *args, size_t n) {
@@ -1732,7 +1754,7 @@ static const entry entries[] = {
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", clj_lazy_seq_star, 1, 1},
 	{"lazy-seq-realized?*", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
-	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1}, {"rvec-seq*", b_rvec_seq, 1, 1}, {"sequence-xf*", b_sequence_xform, 2, 2},
+	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1}, {"rvec-seq*", b_rvec_seq, 1, 1}, {"vswap-take*", b_vswap_take, 3, 3}, {"sequence-xf*", b_sequence_xform, 2, 2},
 	{"into", b_into, 2, 3},        {"transient*", b_transient, 1, 1}, {"persistent!*", b_persistent, 1, 1},
 	{"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},
