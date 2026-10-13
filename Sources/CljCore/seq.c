@@ -381,10 +381,10 @@ bool clj_lazy_seq_realized(clj_value ls) {
 	return atomic_load_explicit(&clj_lazy_seq_of(ls)->state, memory_order_acquire) == FORCED;
 }
 
-#define forcing_top (*(clj_forcing **)&clj_coro_current()->forcing_top)
+#define forcing_top_here (*(clj_forcing **)&clj_coro_current()->forcing_top)
 
 bool clj_force_here(clj_value obj) {
-	for (const clj_forcing *f = forcing_top; f; f = f->prev) {
+	for (const clj_forcing *f = forcing_top_here; f; f = f->prev) {
 		if (f->obj == obj) return true;
 	}
 	return false;
@@ -392,26 +392,35 @@ bool clj_force_here(clj_value obj) {
 
 void clj_force_push(clj_forcing *f, clj_value obj) {
 	f->obj = obj;
-	f->prev = forcing_top;
-	forcing_top = f;
+	f->prev = forcing_top_here;
+	forcing_top_here = f;
 }
 
-void clj_force_pop(const clj_forcing *f) { forcing_top = f->prev; }
+void clj_force_pop(const clj_forcing *f) { forcing_top_here = f->prev; }
 
 // The claim, not the thunk's frame, is the window: wait_forcer parks readers until the publish (sched.c).
 void clj_force_claimed(void) { clj_coro_current()->forcing_held++; }
 
 void clj_force_unclaimed(void) { clj_coro_current()->forcing_held--; }
 
+// A lazy-seq force reads the TLS once and passes its execution down: the coroutine object stays the same across a
+// park inside the thunk, wherever it resumes; only a TLS read must not be reused across one.
+static bool here_on(const clj_coro *co, clj_value obj) {
+	for (const clj_forcing *f = co->forcing_top; f; f = f->prev) {
+		if (f->obj == obj) return true;
+	}
+	return false;
+}
+
 // UNFORCED -> FORCING, or false with the object FORCED (its value is now readable) or CLJ_THROWN pending.
-static bool claimed(void) {
-	clj_force_claimed();
+static bool claimed(clj_coro *co) {
+	co->forcing_held++;
 	return true;
 }
 
-static void unclaimed(void) { clj_force_unclaimed(); }
+static void unclaimed(clj_coro *co) { co->forcing_held--; }
 
-static bool claim(clj_value v, bool *thrown) {
+static bool claim(clj_coro *co, clj_value v, bool *thrown) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
 	*thrown = false;
 	if (!(s->h.flags & CLJ_FLAG_SHARED)) {
@@ -422,13 +431,13 @@ static bool claim(clj_value v, bool *thrown) {
 			return false;
 		}
 		atomic_store_explicit(&s->state, FORCING, memory_order_relaxed);
-		return claimed();
+		return claimed(co);
 	}
 	for (;;) {
 		uint32_t expected = UNFORCED;
-		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING, memory_order_acq_rel, memory_order_acquire)) return claimed();
+		if (atomic_compare_exchange_weak_explicit(&s->state, &expected, FORCING, memory_order_acq_rel, memory_order_acquire)) return claimed(co);
 		if (expected == FORCED) return false;
-		if (clj_force_here(v)) {
+		if (here_on(co, v)) {
 			*thrown = clj_throw_msg("Recursive realization of a lazy seq") == CLJ_THROWN;
 			return false;
 		}
@@ -437,7 +446,7 @@ static bool claim(clj_value v, bool *thrown) {
 }
 
 // The thunk goes after the publish: its release may tear down whatever it held.
-static void publish(clj_value v, clj_value value) {
+static void publish(clj_coro *co, clj_value v, clj_value value) {
 	clj_lazy_seq *s = clj_lazy_seq_of(v);
 	clj_slot_store(&s->h, &s->value, value);
 	clj_value owner = s->owner.v;
@@ -451,15 +460,15 @@ static void publish(clj_value v, clj_value value) {
 		clj_slot_store(&s->h, &s->captured[i], CLJ_NIL);
 	}
 	set_state(v, FORCED);
-	unclaimed();
+	unclaimed(co);
 	clj_release(owner);
 	for (uint32_t i = 0; i < n; i++) clj_release(held[i]);
 	if (held != small) free(held);
 }
 
-static void unclaim(clj_value v) {
+static void unclaim(clj_coro *co, clj_value v) {
 	set_state(v, UNFORCED);
-	unclaimed();
+	unclaimed(co);
 }
 
 // @ai-generated(solo)
@@ -467,7 +476,7 @@ static void unclaim(clj_value v) {
 CLJ_UNIT_ENTRY void clj_lazy_seq_let_go(const clj_value *captured, uint64_t mask) {
 	clj_lazy_seq *s = (clj_lazy_seq *)(void *)((char *)(uintptr_t)captured - offsetof(clj_lazy_seq, captured));
 #if CLJ_DEBUG
-	const clj_forcing *top = forcing_top;
+	const clj_forcing *top = forcing_top_here;
 	uint32_t           st = atomic_load_explicit(&s->state, memory_order_relaxed);
 	if (!top || top->obj != clj_from_ptr(s) || s->h.type != &clj_lazy_seq_type || !clj_is_nil(s->owner.v) || (st != FORCING && st != FORCING_WAITED) ||
 	    (s->ncaptured < 64 && mask >> s->ncaptured)) {
@@ -487,16 +496,16 @@ CLJ_UNIT_ENTRY void clj_lazy_seq_let_go(const clj_value *captured, uint64_t mask
 
 // Runs the thunk of a claimed object. Owned result. The deadline is checked per cell: a compiled thunk has no check
 // of its own, and an infinite lazy seq is realized one cell per turn here.
-static clj_value run_thunk(clj_value v) {
-	if (clj_deadline_tick()) return CLJ_THROWN;
-	clj_forcing frame;
-	clj_force_push(&frame, v);
+static clj_value run_thunk(clj_coro *co, clj_value v) {
+	if (co->shadow && clj_deadline_tick_on(co->shadow)) return CLJ_THROWN;
+	clj_forcing frame = {v, co->forcing_top};
+	co->forcing_top = &frame;
 	const clj_lazy_seq *s = clj_lazy_seq_of(v);
 	clj_value           owner = s->owner.v, r;
 	if (clj_is_nil(owner)) r = s->code(CLJ_NIL, clj_slot_values(s->captured), NULL, 0);
 	else if (clj_is_fn(owner)) r = clj_invoke(owner, NULL, 0);
 	else r = clj_lazy_thunk_run(owner, s->node, clj_slot_values(s->captured));
-	clj_force_pop(&frame);
+	co->forcing_top = frame.prev;
 	return r;
 }
 
@@ -522,23 +531,24 @@ static void chain_push(chain *c, clj_value v) {
 clj_value clj_lazy_seq_force(clj_value ls) {
 	clj_lazy_seq *s = clj_lazy_seq_of(ls);
 	if (atomic_load_explicit(&s->state, memory_order_acquire) == FORCED) return s->value.v;
-	bool thrown;
-	if (!claim(ls, &thrown)) return thrown ? CLJ_THROWN : s->value.v;
+	bool      thrown;
+	clj_coro *co = clj_coro_current();
+	if (!claim(co, ls, &thrown)) return thrown ? CLJ_THROWN : s->value.v;
 	CLJ_STAT(CLJ_STAT_LAZY_FORCE);
 
 	// Nested lazy seqs are unwrapped in a loop, so nesting depth costs no C stack (LazySeq.seq()).
 	chain inner = {.n = 0, .cap = 16};
 	inner.items = inner.small;
-	clj_value r = run_thunk(ls);
+	clj_value r = run_thunk(co, ls);
 	while (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
-		if (!claim(r, &thrown)) {
+		if (!claim(co, r, &thrown)) {
 			clj_value v = thrown ? CLJ_THROWN : clj_retain(clj_lazy_seq_of(r)->value.v);
 			clj_release(r);
 			r = v;
 			break;
 		}
 		chain_push(&inner, r);
-		r = run_thunk(r);
+		r = run_thunk(co, r);
 	}
 	// A thunk may return any seqable, an empty one included; the cache holds its seq, so () becomes nil (RT.seq).
 	if (r != CLJ_THROWN && !clj_is_nil(r)) {
@@ -548,16 +558,16 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 	}
 	if (r == CLJ_THROWN) {
 		for (size_t i = inner.n; i > 0; i--) {
-			unclaim(inner.items[i - 1]);
+			unclaim(co, inner.items[i - 1]);
 			clj_release(inner.items[i - 1]);
 		}
-		unclaim(ls);
+		unclaim(co, ls);
 	} else {
 		for (size_t i = inner.n; i > 0; i--) {
-			publish(inner.items[i - 1], clj_retain(r));
+			publish(co, inner.items[i - 1], clj_retain(r));
 			clj_release(inner.items[i - 1]);
 		}
-		publish(ls, r);
+		publish(co, ls, r);
 	}
 	if (inner.items != inner.small) free(inner.items);
 	return r == CLJ_THROWN ? CLJ_THROWN : s->value.v;
