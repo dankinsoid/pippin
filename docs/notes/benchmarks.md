@@ -158,6 +158,8 @@
     calls, took 0.3 ms per element on the Intel dev Mac (0.8 s for 3000, realized or not; a vector's goes through
     `List.toList` in microseconds), so unchanged the sort was 50 s of a 51 s iteration, past the run timeout under
     either policy. Its other `sort`s and every other workload are the source.
+  - Cost: the build 1.0 min (the compile to Dart, nine executables, nine kernels), the runs 0.4 min (aot) and 1.6
+    (jit) on the arm64 runner, on by default (bench/RESULTS.md "ClojureDart and idiomatic Dart").
   - CI: `scripts/corpus-refs-install.sh` fetches the Dart SDK 3.13.5 zip of the runner's architecture against a
     pinned sha256 into the references' cache; ClojureDart's jars go to `CORPUS_BENCH_M2`, its git checkout to
     `GITLIBS` and its analyzer helper's pub packages to `PUB_CACHE`, all under `~/.cache/corpus-bench-refs`. The
@@ -224,7 +226,9 @@
     (what a Flutter release build ships), built from a copy of the package before the workloads and outside every
     time; the harness and the EDN printer in `lib/`, the port in `bin/<name>.dart`, Dart 3 (sealed classes, records,
     switch expressions); an iteration that prints another result than the first fails the run. Its own report table,
-    "Idiomatic Dart", with `closed/dart` and `interp/dart`; the ClojureDart table has `cljd/dart`. Judgment calls:
+    "Idiomatic Dart", with `closed/dart` and `interp/dart`; the ClojureDart table has `cljd/dart`. Cost: 0.2 min of
+    builds and 0.2 min of runs on the arm64 runner, on by default (bench/RESULTS.md "ClojureDart and idiomatic
+    Dart"). Judgment calls:
     - all: a Dart `int` is 64-bit like a long, and a `String`'s `length` and `substring` count UTF-16 units like
       Java's; Dart's `List.sort` is not stable where Clojure's is, and no sort here has ties.
     - medley: a `Rec` class, its tag sets one `const` set per literal; map-vals and the filters are `Map.map` and

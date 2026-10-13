@@ -3070,3 +3070,47 @@ head's medians over 8 repetitions in the same job. Ratios are ours over Swift's.
 - **Cold**: a Swift process runs a workload start to exit in 16–94 ms.
 - **Cost**: the Swift builds 0.3 min and the runs 0.2 min; the step took 73.5 min against 78.6 for the last run with
   the references, inside the runner's spread, and the 150 min cap is far.
+
+## ClojureDart and idiomatic Dart — 7ea2a97, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+`make corpus-bench` with `--base=origin/main` and the default `--refs`, now with `dart`, `cljd-aot` and `cljd-jit`
+(docs/notes/benchmarks.md, "ClojureDart" and "Hand-ported references"), run 38430246242: Dart SDK 3.13.5; the nine
+data workloads hand-ported to Dart (`dart compile exe`, a Flutter release build's code) and the workloads' sources
+compiled by ClojureDart 0.9.20261002, as an executable (*aot*) and on the VM's JIT from kernel (*jit*, a debug
+build). ms per iteration; ours, Dart and cljd-aot take our AOT policy, cljd-jit and the JVM the JVM's; ours are the
+head's medians over 8 repetitions in the same job. Ratios are ours over theirs.
+
+| workload | JVM warm | closed | interp | dart warm / 1st / cold | cljd-aot warm / 1st / cold | cljd-jit warm / 1st / cold | closed/dart | closed/cljd-aot | closed/cljd-jit | cljd/dart |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| medley | 46.7 | 51.8 | 102.4 | 11.3 / 14 / 47 | 66.2 / 59 / 84 | 75.9 / 504 / 637 | 4.60× | 0.78× | 0.68× | 5.87× |
+| combinatorics | 71.2 | 192.7 | 350.0 | 30.3 / 31 / 61 | 226.5 / 212 / 242 | 366.1 / 1215 / 1341 | 6.36× | 0.85× | 0.53× | 7.47× |
+| dependency | 342.3 | 518.9 | 867.2 | 40.5 / 40 / 68 | 655.2 / 714 / 762 | 908.4 / 1135 / 1378 | 12.83× | 0.79× | 0.57× | 16.19× |
+| nested-update | 115.0 | 135.7 | 470.1 | 28.9 / 33 / 97 | 216.2 / 293 / 321 | 195.2 / 291 / 431 | 4.69× | 0.63× | 0.69× | 7.47× |
+| group-freq | 170.4 | 285.2 | 452.3 | 52.3 / 53 / 80 | 461.9 / 452 / 472 | 499.7 / 800 / 918 | 5.46× | 0.62× | 0.57× | 8.84× |
+| pipelines | 250.8 | 569.2 | 1117.8 | 90.1 / 95 / 131 | 463.9 / 498 / 537 | 1318.5 / 1640 / 1887 | 6.32× | 1.23× | 0.43× | 5.15× |
+| strings | 37.5 | 47.1 | 73.2 | 44.9 / 59 / 87 | 548.1 / 529 / 558 | 663.2 / 813 / 1031 | 1.05× | 0.09× | 0.07× | 12.22× |
+| render | 42.1 | 66.9 | 103.5 | 46.8 / 54 / 83 | 139.0 / 135 / 160 | 126.9 / 255 / 347 | 1.43× | 0.48× | 0.53× | 2.97× |
+| suite-data | 35.1 | 63.1 | 113.8 | 21.3 / 23 / 42 | 96.1 / 116 / 145 | 112.5 / 484 / 588 | 2.96× | 0.66× | 0.56× | 4.50× |
+
+- **Same result on all nine, both ways**: every Dart port printed the workload's `expected` literal, and ClojureDart
+  returned `expected` (`=`) in both modes; its printed pipelines differs from the JVM's only in the two double sums,
+  `22499925000.0` for `2.2499925E10` (a Dart double prints so). The async three are n/a on both: ClojureDart has no
+  core.async. ClojureDart compiled the sources unchanged but the corpus libraries' host code (patched) and one sort in
+  suite-data (a vector: its `to-array` of a seq costs 0.3 ms per element).
+- **Against ClojureDart, the closed build is faster on eight of nine**, AOT 0.48–0.85× (geomean over the nine
+  0.58×) and JIT 0.43–0.69×; pipelines is 1.23× the AOT. strings is the outlier: ClojureDart takes 548 ms where the
+  port takes 45 and closed 47.
+- **Against idiomatic Dart, closed is 3–13× slower on seven of nine** (geomean of those seven 5.6×, of the nine 4.0×),
+  level on strings (1.05×) and 1.4× on render, the same two workloads where Swift is no faster. Dart is 0.5–3.9×
+  Swift's time from the same job: ahead on dependency, combinatorics, strings and render, behind on pipelines (3.9×),
+  group-freq, suite-data, nested-update and medley. ClojureDart's AOT is 3–16× the port: what Clojure's data model
+  costs on Dart, against our 1.05–12.8×.
+- **Cold**: a Dart executable runs a workload start to exit in 42–131 ms, ClojureDart's in 84–762; the JIT from kernel
+  adds 0.1–0.25 s of startup and a slow first iteration (its *1st* is 1.2–6.6× its warm).
+- **Against run 38421523578** (the same programs before they moved to `corpus_refs.PORTS`), the Dart and cljd numbers
+  agree within the runner's spread except medley's port (16.7 → 11.3 ms), strings on both (port 61 → 45, cljd-aot
+  747 → 548) and pipelines' cljd-jit (935 → 1319): a different runner, where closed moved 14–17 % down on medley and
+  strings too, and 1 % on pipelines.
+- **Cost**: the Dart builds 0.2 min and runs 0.2 min, the ClojureDart build 1.0 min (the compile to Dart, nine
+  executables, nine kernels) and runs 0.4 (aot) and 1.6 (jit): 3.4 min. The step took 78.4 min against 73.5 for the
+  Swift run, inside the runner's spread, and the 150 min cap is far.
