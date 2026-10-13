@@ -1673,7 +1673,7 @@ static void inline_walk(const clj_node *n, void *ctx) {
 // constructor the binding would have run. At most one such materialization on any path of the binding's extent, and
 // none in a loop, so identical? sees one object per binding; a value materialized on every path keeps its allocation.
 // An intrinsic's answer holds while its var holds the builtin: the value then binds g (ROOT_IS over those ops) once,
-// each expression that folded one or materializes is (if g E' E), and E reads the object bound (if g nil MAT). A
+// each rewritten expression is (if g E' E), and E reads the object bound (if g nil MAT). A
 // redefinition by the extent's own code is seen from the next binding on, as a known path's is.
 
 enum {
@@ -1709,8 +1709,6 @@ typedef struct {
 	int8_t               alias[INLINE_SLOTS_MAX]; // slot -> the value it names, -1
 	const clj_intrinsic *ops[SR_OPS_MAX];
 	uint32_t             nops;
-	bool                 folded; // the expression being rewritten answered an intrinsic statically
-	bool                 mat;    // ... materialized a value
 	uint32_t             loops;  // loop bodies entered within the expression
 	uint32_t             guarded_args; // arguments of an inlined or lowered call's else branch being rewritten
 	bool                 fail;
@@ -1760,7 +1758,6 @@ static bool sr_trivial(const sr_ctx *c, const clj_node *n) { return trivial_read
 static uint32_t sr_fresh(sr_ctx *c) { return c->next++; }
 
 static void sr_need(sr_ctx *c, const clj_intrinsic *op) {
-	c->folded = true;
 	for (uint32_t i = 0; i < c->nops; i++) {
 		if (c->ops[i] == op) return;
 	}
@@ -1789,7 +1786,6 @@ static clj_node *sr_materialize(sr_ctx *c, uint32_t vi) {
 		m->u.seq.n = 2 * v->n;
 	}
 	if (c->loops) c->fail = true;
-	c->mat = true;
 	if (c->nmats == c->cmats) {
 		c->cmats = c->cmats ? c->cmats * 2 : 8;
 		c->mats = realloc(c->mats, c->cmats * sizeof *c->mats);
@@ -2373,7 +2369,7 @@ static void sr_ctx_free(sr_ctx *c) {
 	free(c->mat_of);
 }
 
-typedef enum { SR_KEEP, SR_DROP, SR_DIRECT, SR_VERSIONED } sr_how;
+typedef enum { SR_KEEP, SR_DROP, SR_REWRITTEN } sr_how;
 
 typedef struct {
 	const clj_node **at;  // the expression's place: a binding's init, the body, or an inlined body inside it
@@ -2449,7 +2445,6 @@ static void try_scalar(clj_node *let, uint32_t k, sr_frame *fr) {
 		*e = (sr_expr){at, NULL, SR_KEEP, -1, {0}, 0, {0}};
 		if (!sr_uses(*at, &c)) continue;
 		e->now = sr_copy(*at);
-		c.folded = c.mat = false;
 		c.npend = 0;
 		int named = sr_rw((const clj_node **)&e->now, &c, j < nb);
 		if (c.fail) break;
@@ -2465,7 +2460,7 @@ static void try_scalar(clj_node *let, uint32_t k, sr_frame *fr) {
 			c.alias[let->u.let.slots[j]] = (int8_t)named;
 			continue;
 		}
-		e->how = c.folded || c.mat ? SR_VERSIONED : SR_DIRECT;
+		e->how = SR_REWRITTEN;
 	}
 	// what the rewrite left must read no replaced value: an ICE, not a silently wrong field
 	for (uint32_t i = 0; i < nex && !c.fail; i++) {
@@ -2557,7 +2552,8 @@ static void try_scalar(clj_node *let, uint32_t k, sr_frame *fr) {
 			} else sr_free(let->u.let.inits[j]);
 			continue;
 		}
-		if (e->how == SR_VERSIONED && guarded) *e->at = sr_if(local_node(g, at), e->now, (clj_node *)*e->at, at);
+		// under a guard every rewritten expression is versioned: a derived value's fields exist only where it holds
+		if (e->how != SR_KEEP && guarded) *e->at = sr_if(local_node(g, at), e->now, (clj_node *)*e->at, at);
 		else if (e->how != SR_KEEP) sr_replace(e->at, e->now);
 		if (j < nb) {
 			slots[m] = let->u.let.slots[j];
