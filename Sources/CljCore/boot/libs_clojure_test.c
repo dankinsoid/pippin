@@ -3738,6 +3738,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	clj_value t34 = clj_retain(l4);
 	t33 = t34;
 	} else {
+	clj_c_drop(&l4);
 	clj_value t35 = K[107];
 	clj_value t36;
 	clj_value t37 = K[107];
@@ -3828,6 +3829,7 @@ CLJC_FRAME clj_value clojure_test_do_report_a1(clj_value self, const clj_value *
 	t33 = t47;
 	}
 	clj_c_drop(&l3);
+	clj_c_drop(&l4);
 	clj_value t48 = l0;
 	clj_value a8[2] = {t33, t48};
 	(void)a8;

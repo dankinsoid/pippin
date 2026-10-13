@@ -202,7 +202,8 @@
   what keeps this true from here on: zero errors over core.clj, the embedded libs and both corpora. Two more
   came from corpus/datascript, whose port corpus-bench's clj-facts measures: `seq`, `next` and `rest` add host to
   their seq-or-nil when the argument may be a deftype (`SIG_SEQ`), whose ISeq methods answer what they like —
-  persistent-sorted-set's iterator is a deftype, and its protocol `-seek` on `(seq set)` was a false ⊥; and a
+  persistent-sorted-set's iterator is a deftype, and its protocol `-seek` on `(seq set)` was a false ⊥; their `:=>`
+  in core.clj says `:any`, since the vocabulary has no tag for host and a declaration meets the signature's answer; and a
   read of a dynamic var is ⊤ (`clj_summary_var_fact`), since a `binding` moves no epoch — datascript binds
   `*implicit-source*` around its queries, whose root nil made `resolve-tuple-refs` a false error.
 - **Var reads and roots, guarded by a var epoch.** `clj_var` counts its root binds (`clj_var_epoch`, 0 while
