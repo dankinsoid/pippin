@@ -16,6 +16,7 @@ import sys
 import time
 
 import corpus_refs
+import corpus_refs_dart
 
 WORKLOADS = ["medley", "combinatorics", "dependency", "nested-update", "group-freq", "pipelines", "strings",
              "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast"]
@@ -122,7 +123,9 @@ class Bench:
 		self.head = Side("head", ROOT, "")
 		self.base = None
 		self.sides = [self.head]
-		self.refs = corpus_refs.Refs(self, args.refs, ROOT, LOAD_PATH, parse, log)
+		self.refs = corpus_refs.Refs(self, [r for r in args.refs if r not in corpus_refs_dart.REFS], ROOT, LOAD_PATH,
+		                             parse, log)
+		self.dart = corpus_refs_dart.DartRefs(self, [r for r in args.refs if r in corpus_refs_dart.REFS], ROOT, parse, log)
 		os.makedirs(self.logs, exist_ok=True)
 
 	def keep(self, name, text):
@@ -344,6 +347,7 @@ class Bench:
 				res["jvm_cold_process_ms"] = cold["process_ms"]
 				res["jvm_cold_first_ms"] = cold.get("first_ms")
 		yield from self.refs.steps(w, res)
+		yield from self.dart.steps(w, res)
 		if self.args.interp_ab:
 			hb = self.head.bin
 			off = {self.args.interp_ab: "1"}
@@ -837,6 +841,7 @@ def write_report(b, facts_path, xctrace):
 		"%s %s" % (w, (b.results[w].get("interp") or {}).get("load_failures", "—")) for w in b.args.only) + ".")
 	add("")
 	corpus_refs.section(b, b.refs, add, fmt, median_of)
+	corpus_refs_dart.section(b, b.dart, add, fmt, median_of, corpus_refs.first_difference)
 	if b.base:
 		ab_section(b, add)
 
@@ -1007,8 +1012,9 @@ def main():
 	ap.add_argument("--only", default=",".join(WORKLOADS), help="comma-separated workloads")
 	ap.add_argument("--out", default=".build/corpus-bench")
 	ap.add_argument("--sdkroot", help="the caller's SDKROOT, empty for none")
-	ap.add_argument("--refs", default=",".join(corpus_refs.REFS),
-	                help="comma-separated reference runtimes, run once per workload: " + ", ".join(corpus_refs.REFS))
+	refs = corpus_refs.REFS + corpus_refs_dart.REFS
+	ap.add_argument("--refs", default=",".join(refs),
+	                help="comma-separated reference runtimes, run once per workload: " + ", ".join(refs))
 	ap.add_argument("--skip-jvm", action="store_true", help="--refs without jvm")
 	ap.add_argument("--skip-closed", action="store_true")
 	ap.add_argument("--skip-sample", action="store_true")
@@ -1019,7 +1025,7 @@ def main():
 	args = ap.parse_args()
 	args.only = [w for w in args.only.split(",") if w]
 	args.refs = [r for r in args.refs.split(",") if r and not (args.skip_jvm and r == "jvm")]
-	unknown = [r for r in args.refs if r not in corpus_refs.REFS]
+	unknown = [r for r in args.refs if r not in refs]
 	if unknown:
 		sys.exit("corpus-bench: unknown references " + ", ".join(unknown))
 	unknown = [w for w in args.only if w not in WORKLOADS]
@@ -1037,6 +1043,7 @@ def main():
 			# The classpath is resolved once, outside every timed process.
 			sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
 		b.refs.prepare(args.only)
+		b.dart.prepare(args.only)
 		xctrace = b.xctrace_probe()
 		start = time.monotonic()
 		for w in args.only:

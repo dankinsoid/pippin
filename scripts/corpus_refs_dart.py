@@ -38,8 +38,8 @@ CLJD_PATCHES = {
 		_arm("#?(:cljs    (cljs.core/MapEntry. k v nil)", "(MapEntry k v)"),
 		# ClojureDart has no PersistentQueue; `queue` and `queue?` are not called.
 		_arm("#?(:cljs    cljs.core/PersistentQueue.EMPTY", '(throw (ex-info "no PersistentQueue in ClojureDart" {}))'),
-		_cljd_only("(instance? #?(:cljs    cljs.core/PersistentQueue\n                :default clojure.lang.PersistentQueue) x)",
-		           "false"),
+		_cljd_only("(instance? #?(:cljs    cljs.core/PersistentQueue\n"
+		           "                :default clojure.lang.PersistentQueue) x)", "false"),
 		_arm("#?(:cljs    (or (true? x) (false? x))", "(dart/is? x bool)"),
 		# partition-between and window buffer in a growable Dart List where the JVM uses an ArrayList.
 		_arm("#?(:clj  (java.util.ArrayList.)", "#dart []"),
@@ -51,8 +51,8 @@ CLJD_PATCHES = {
 		_arm("#?(:clj  (.toArray part)", "(.toList part)"),
 		# A defn inside letfn compiles to Dart naming the letfn's fn out of its scope: first* goes top level.
 		("(letfn [(first* [s v] (if s (first s) v))]\n", "(defn- first* [s v] (if s (first s) v))\n(do\n"),
-		_cljd_only("(instance? #?(:clj  java.util.UUID\n                :cljr System.Guid\n                :cljs cljs.core/UUID) x)",
-		           "(cljd.core/uuid? x)"),
+		_cljd_only("(instance? #?(:clj  java.util.UUID\n                :cljr System.Guid\n"
+		           "                :cljs cljs.core/UUID) x)", "(cljd.core/uuid? x)"),
 		_cljd_only("(instance? #?(:clj  java.util.regex.Pattern\n                :cljr System.Text.RegularExpressions.Regex\n"
 		           "                :cljs js/RegExp) x)", "(dart/is? x RegExp)"),
 	],
@@ -65,8 +65,8 @@ CLJD_PATCHES = {
 		_arm("#?(:clj\n(defmacro ^:private reify-bool", "(defn- reify-bool [statement] (if statement 1 0))"),
 	],
 	"workloads/suite_data.clj": [
-		# ClojureDart's to-array of a seq, which sort takes, costs 0.3 ms per element (0.8 s for 3000, realized or
-		# not): unchanged, this sort of 30000 is 50 s of the iteration's 51. A vector goes through List.toList.
+		# ClojureDart's to-array of a seq, which sort calls, took 0.3 ms per element on the Intel dev Mac (0.8 s for
+		# 3000, realized or not): unchanged, this sort is 50 s of a 51 s iteration. A vector goes through List.toList.
 		("(sort > (map #(mod (* % 7919) 10007) (range n)))", "(sort > (vec (map #(mod (* % 7919) 10007) (range n))))"),
 	],
 	"com/stuartsierra/dependency.cljc": [
@@ -168,6 +168,8 @@ class DartRefs:
 	def build_cljd(self, workloads):
 		"""One ClojureDart project for every workload, an entry namespace and a `bin/` file per workload, compiled to
 		Dart in one `cljd.build compile`, then each entry to an executable and to kernel."""
+		if not workloads:
+			return True
 		t0 = time.monotonic()
 		root, d = self.root, self.cljd
 		shutil.rmtree(d, ignore_errors=True)
@@ -306,12 +308,13 @@ def section(b, refs, add, fmt, median_of, first_difference):
 	add("## References: ClojureDart and idiomatic Dart")
 	add("")
 	add("The workloads' sources compiled by ClojureDart %s to Dart, and the data workloads hand-ported to idiomatic "
-	    "Dart (`bench/workloads/dart`, the fairness rules in docs/notes/benchmarks.md \"Dart references\"). *aot* is "
-	    "`dart compile exe` (Flutter's release mode), timed with ours and Hermes's policy (one iteration, then >= 3 "
-	    "and >= 2 s); *jit* the Dart VM from `dart compile kernel` (Flutter's debug mode), with the JVM's (>= 5 "
-	    "iterations and 5 s of warm-up, then >= 5 and >= 3 s). *1st* is the first iteration of a fresh process and "
-	    "*cold* that process start to exit. The programs are built before the workloads, outside every time. Ratios "
-	    "are ours over theirs (below 1: ours is faster). Versions: %s." % (
+	    "Dart (`bench/workloads/dart`, the fairness contract in docs/notes/benchmarks.md, \"Hand-ported "
+	    "references\"). *aot* is `dart compile exe` (Flutter's release mode), timed with ours and Hermes's policy (one "
+	    "iteration, then >= 3 and >= 2 s, at most 30); *jit* the Dart VM from `dart compile kernel` (Flutter's debug "
+	    "mode), with the JVM's (>= 5 iterations and 5 s of warm-up, then >= 5 and >= 3 s). *1st* is the first "
+	    "iteration of a fresh process and *cold* that process start to exit. The programs are built before the "
+	    "workloads, outside every time. Ratios are ours over theirs (below 1: ours is faster); *cljd/dart* is "
+	    "ClojureDart's AOT over the port's. Versions: %s." % (
 		    CLJD_TAG, "; ".join("%s %s" % (k, v) for k, v in refs.versions.items())))
 	add("")
 	cols = []

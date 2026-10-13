@@ -108,14 +108,18 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/corpus-bench-refs
-          key: corpus-bench-refs-${{ runner.arch }}-${{ hashFiles('scripts/corpus-refs-install.sh', 'scripts/corpus_refs.py') }}
+          key: corpus-bench-refs-${{ runner.arch }}-${{ hashFiles('scripts/corpus-refs-install.sh', 'scripts/corpus_refs.py', 'scripts/corpus_refs_dart.py') }}
 
       - name: Reference runtimes
         if: ${{ inputs.target == 'corpus-bench' }}
         run: |
           sh scripts/corpus-refs-install.sh "$HOME/.cache/corpus-bench-refs" >> "$GITHUB_PATH"
           echo "CORPUS_BENCH_M2=$HOME/.cache/corpus-bench-refs/m2" >> "$GITHUB_ENV"
+          # ClojureDart is a git dep of the Clojure CLI and its analyzer helper a pub package: cached with the rest.
+          echo "GITLIBS=$HOME/.cache/corpus-bench-refs/gitlibs" >> "$GITHUB_ENV"
+          echo "PUB_CACHE=$HOME/.cache/corpus-bench-refs/pub" >> "$GITHUB_ENV"
           node --version
+          dart --version
 
       - name: Maven cache
         uses: actions/cache@v6
