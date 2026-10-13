@@ -651,6 +651,11 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 	return r;
 }
 
+static clj_value b_sequence_xform(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_sequence_xform(args[0], args[1]);
+}
+
 // rseq of a vector? value: an O(1) view of the core vector; any other IPersistentVector is reversed eagerly.
 static clj_value b_rvec_seq(const clj_value *args, size_t n) {
 	if (clj_is_vector(args[0])) {
@@ -1727,7 +1732,7 @@ static const entry entries[] = {
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", clj_lazy_seq_star, 1, 1},
 	{"lazy-seq-realized?*", b_realized_p, 1, 1}, {"range*", b_range_star, 3, 3}, {"list*", b_list_star, 1, ANY}, {"empty?", b_empty, 1, 1},
-	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1}, {"rvec-seq*", b_rvec_seq, 1, 1},
+	{"second", b_second, 1, 1},    {"last", b_last, 1, 1},       {"butlast", b_butlast, 1, 1},  {"reverse", b_reverse, 1, 1}, {"rvec-seq*", b_rvec_seq, 1, 1}, {"sequence-xf*", b_sequence_xform, 2, 2},
 	{"into", b_into, 2, 3},        {"transient*", b_transient, 1, 1}, {"persistent!*", b_persistent, 1, 1},
 	{"symbol", b_make_symbol, 1, 2}, {"keyword", b_make_keyword, 1, 2}, {"name", b_name, 1, 1},
 	{"namespace", b_namespace, 1, 1}, {"gensym", b_gensym, 0, 1}, {"macroexpand-1", b_macroexpand_1, 1, 1}, {"macroexpand", b_macroexpand, 1, 1},

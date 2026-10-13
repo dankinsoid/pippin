@@ -14,3 +14,21 @@
 (println 'rseq-values (= (rseq [1 2 3]) '(3 2 1)) (= (hash (rseq [1 2])) (hash '(2 1))) (meta (with-meta (rseq [1 2]) {:a 1}))
          (with-meta (rseq [1 2]) {:a 1}) (rseq (subvec [1 2 3 4] 1 3)) (rseq (first {:a 1})) (rseq (sorted-set 1 2 3))
          (throws (fn [] (rseq '(1 2)))) (let [v [1 2 3] s (rseq v)] [(conj v 4) s]))
+
+;; sequence with a transducer: a realization feeds items until one emits; the end or a reduced step completes.
+(defn realized [xf]
+  (let [n (atom 0) src (map (fn [x] (swap! n inc) x) (range 100)) s (sequence xf src)]
+    [@n (first s) @n (second s) @n]))
+
+(defn rerun []
+  (let [calls (atom 0)
+        s (sequence (map (fn [x] (when (and (= x 2) (= 1 (swap! calls inc))) (throw (ex-info "once" {}))) x)) [1 2 3])]
+    [(first s) (try (second s) (catch :default e (ex-message e))) (vec s) @calls]))
+
+(println 'sequence (sequence (map inc) [1 2 3]) (sequence (filter odd?) (range 10)) (sequence (map inc) []) (sequence (filter odd?) [2 4])
+         (take 3 (sequence (map inc) (range))) (sequence (partition-all 2) [1 2 3 4 5]) (sequence (comp (filter even?) (take 2)) (range))
+         (sequence (mapcat (fn [x] [x x])) [1 2]) (sequence (dedupe) [1 1 2 2 1]) (sequence (distinct) [1 2 1 3 2]))
+(println 'sequence-ends (sequence (halt-when even?) [1 3 4 5]) (sequence (partition-by odd?) [1 3 2 4 5])
+         (sequence (comp (partition-all 2) (take 1)) [1 2 3]) (sequence (take 0) [1 2]) (seq (sequence (map inc) []))
+         (sequence (map +) [1 2] [10 20 30]) (dedupe [1 1 2]) (seq (eduction (map inc) [1 2])) (count (sequence (map inc) (range 1000))))
+(println 'sequence-lazy (realized (filter even?)) (realized (map inc)) (rerun))

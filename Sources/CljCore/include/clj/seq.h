@@ -102,6 +102,8 @@ clj_value clj_lazy_seq_star(const clj_value *args, size_t n);
 static inline bool clj_lazy_seq_star_is(clj_value root) {
 	return clj_is_fn(root) && clj_fn_of(root)->kind == CLJ_FN_NATIVE && clj_fn_of(root)->u.native.fn == clj_lazy_seq_star;
 }
+// (sequence xform coll) (sequence.c): a lazy seq, () when nothing is emitted. Owned result or CLJ_THROWN.
+clj_value clj_sequence_xform(clj_value xform, clj_value coll);
 // Borrowed realized seq (nil when empty), valid while ls is. CLJ_THROWN when the thunk throws; the
 // object stays unforced and a later force runs the thunk again.
 clj_value clj_lazy_seq_force(clj_value ls);

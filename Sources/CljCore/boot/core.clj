@@ -1001,27 +1001,12 @@
                          (cons x (keepi (inc idx) (rest s))))))))]
      (keepi 0 coll))))
 
-;; Push-based transducers over a pull-based seq: each realization feeds one input to xf, whose rf parks the
-;; outputs in buf, and the outputs come out as the next items, so an infinite source stays lazy.
+;; Push-based transducers over a pull-based seq: each realization feeds inputs to xf until one emits, and the
+;; outputs come out as the next items, so an infinite source stays lazy. One coll is C (sequence.c).
 (defn sequence
   "Coerces coll to a seq, () when empty; with xform, a lazy seq of the transformed items."
   ([coll] (if (seq? coll) coll (or (seq coll) ())))
-  ([xform coll]
-   (let [buf (volatile! [])
-         xf (xform (fn ([] nil) ([acc] acc) ([acc x] (vswap! buf conj x) nil)))
-         drain (fn [] (let [out @buf] (vreset! buf []) out))
-         step (fn step [s]
-                (lazy-seq
-                  (loop [s (seq s)]
-                    (if s
-                      (let [r (xf nil (first s))
-                            out (drain)]
-                        (cond
-                          (reduced? r) (do (xf nil) (concat out (drain)))
-                          (seq out) (concat out (step (rest s)))
-                          :else (recur (next s))))
-                      (do (xf nil) (seq (drain)))))))]
-     (step coll)))
+  ([xform coll] (sequence-xf* xform coll))
   ;; The step takes one input per collection, so (sequence (map +) a b) adds pairs; it ends with the shortest.
   ([xform coll & colls]
    (let [buf (volatile! [])

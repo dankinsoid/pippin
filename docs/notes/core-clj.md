@@ -102,10 +102,15 @@
   a bench of `conj!` against `conj` in `loop` and `reduce`, or a corpus library's transient path in a profile.
 - **Transducers**: `map filter remove keep take drop take-while drop-while mapcat interpose
   partition-all dedupe distinct map-indexed keep-indexed` carry Clojure's transducer arities, `cat`,
-  `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` is a lazy
-  seq that pulls one input per realization into the transformed rf, whose bottom parks outputs in
-  a volatile vector, so an infinite source stays lazy; each realization costs a vector copy per
-  output (`vswap! ... conj` on a cell that also holds the vector: rc 2). `eduction` is a
+  `completing`, `transduce`, `sequence`, `eduction` and `into` drive them. `sequence` over one coll
+  is C (sequence.c, `sequence-xf*`): a realization feeds inputs into the transformed rf until one
+  emits, the bottom (a native fn) buffering outputs in a C array, and that step's outputs become
+  conses ahead of one lazy cell for the rest — one cell per emitting step where the core.clj form made
+  ~3.5 lazy cells an item through `concat`. The source is realized exactly as that form did (`next`
+  past an input that emits nothing, `rest` past one that does), so an infinite source stays lazy;
+  the end or a reduced step runs the completion `(xf nil)` and flushes what it emits. A throw drops
+  the step's outputs and leaves the cell to rerun from its own source position. The multi-coll arity
+  stays in core.clj over a volatile vector. `eduction` is a
   `deftype` implementing `Seqable` (through `sequence`) and `IReduceInit` (through `transduce`),
   not a C type: the slot trampoline already existed, so the type is four lines, and it prints as
   `#object[clojure.core.Eduction]` where Clojure prints the items. `vswap!` is a macro over
