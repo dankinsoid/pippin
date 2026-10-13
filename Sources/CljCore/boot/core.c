@@ -116880,6 +116880,7 @@ CLJC_FRAME clj_value clojure_core_read_line_a0(clj_value self, const clj_value *
 	clj_release(t15);
 	clj_value t17;
 	if (t16) {
+	clj_c_drop(&l1);
 #line 2292 "Sources/CljCore/boot/core.clj"
 	clj_value t18;
 	bool o19;
@@ -117037,6 +117038,7 @@ CLJC_FRAME clj_value clojure_core_read_line_a0(clj_value self, const clj_value *
 	}
 	t3 = t17;
 	} else {
+	clj_c_drop(&l0);
 	t3 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[491], &cc);
@@ -154099,6 +154101,7 @@ CLJC_INLINE clj_value clojure_core_running_tx_a0_i(clj_value self, const clj_val
 	(void)t2;
 	clj_value t4;
 	if (t3) {
+	clj_c_drop(&l1);
 	clj_value t5;
 	clj_value t6 = K[1830];
 	clj_value t7 = l0;
@@ -154154,6 +154157,7 @@ CLJC_INLINE clj_value clojure_core_running_tx_a0_i(clj_value self, const clj_val
 	l0 = CLJ_NIL;
 	t13 = t14;
 	} else {
+	clj_c_drop(&l0);
 	t13 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[660], &cc);
@@ -157139,6 +157143,7 @@ CLJC_INLINE clj_value clojure_core_held_sends_a0_i(clj_value self, const clj_val
 	(void)t2;
 	clj_value t4;
 	if (t3) {
+	clj_c_drop(&l1);
 	clj_value t5 = l0;
 	clj_value t6 = K[35];
 	clj_value a1[2] = {t5, t6};
@@ -157213,6 +157218,7 @@ CLJC_INLINE clj_value clojure_core_held_sends_a0_i(clj_value self, const clj_val
 	}
 	t13 = t16;
 	} else {
+	clj_c_drop(&l0);
 	t13 = CLJ_NIL;
 	}
 	CLJC_LEAVE(&S[677], &cc);
@@ -157861,6 +157867,7 @@ CLJC_FRAME clj_value clojure_core_agent_dispatch_a2(clj_value self, const clj_va
 	}
 	t4 = t6;
 	} else {
+	clj_c_drop(&l2);
 #line 3074 "Sources/CljCore/boot/core.clj"
 	clj_value t20;
 	bool o21 = false;
@@ -164412,6 +164419,7 @@ static CLJC_FRAME clj_value clojure_core_Ref__r2__0_a1(clj_value self, const clj
 	}
 	t8 = t10;
 	} else {
+	clj_c_drop(&l2);
 	clj_value t14;
 	bool o15;
 	clj_value t15 = clj_c_var_borrow(V[108], &o15);
@@ -167199,6 +167207,7 @@ CLJC_FRAME clj_value clojure_core_tx_running_BANG__a0(clj_value self, const clj_
 	l0 = CLJ_NIL;
 	t4 = t5;
 	} else {
+	clj_c_drop(&l0);
 	clj_value t6;
 	bool o7;
 	clj_value t7 = clj_c_var_borrow(V[16], &o7);
@@ -193793,7 +193802,7 @@ static const clj_compiled_tree XR[228] = {
 	{clojure_core_disj_BANG_, {0xf3f7ff38ee8b2b1fULL, 0xb408c1076dbe01e0ULL}},
 	{clojure_core_pop_BANG_, {0x442465d0e1cb6855ULL, 0x508c4fc2f465ffc6ULL}},
 	{clojure_core_if_some, {0x08598ac262d03038ULL, 0xbe96ac697aff330fULL}},
-	{clojure_core___, {0xc4eb1903dba63456ULL, 0xfd1634e9b2df2f30ULL}},
+	{clojure_core___, {0x7599ab0bb4bf1512ULL, 0x67222ed07994516eULL}},
 	{clojure_core_timed_out, {0xe620bf64ec7230a3ULL, 0xb79afefd86afa2b3ULL}},
 	{clojure_core_future_call, {0x3ac3dee0ac938087ULL, 0x6748e240efe80ec3ULL}},
 	{clojure_core_future_QMARK_, {0x209dacac789f32c2ULL, 0x9a78cc23e3046163ULL}},
@@ -196359,7 +196368,7 @@ static void unit_pools(void) {
 	K[853] = clj_c_const("{:arglists ([target form]), :column 1, :line 1699, :name method-call, :ns clojure.core, :private true}", 102);
 	K[854] = clj_c_const("..", 2);
 	K[855] = clj_c_const("clojure.core/..", 15);
-	K[856] = clj_c_const("clojure.core/..", 15);
+	K[856] = clj_c_const("..", 2);
 	K[857] = clj_c_const("{:arglists ([x form] [x form & more]), :column 1, :doc \"form => methodName-symbol or (methodName-symbol args*)\\n\\n  Calls the first member on x, then the next member on its result, and so on: (.. v (init-with-frame r) layout)\\n  is (.layout (.init-with-frame v r)). A member is a .method call.\", :line 1704, :macro true, :name .., :ns clojure.core}", 348);
 	K[858] = clj_c_const("memfn", 5);
 	K[859] = clj_c_const("clojure.core/memfn", 18);
@@ -198026,7 +198035,7 @@ static void unit_pools(void) {
 	K[2520] = clj_c_const("\" cannot be cast to a map entry\"", 32);
 	K[2521] = clj_c_const("{}", 2);
 	K[2522] = clj_c_const(":=>", 3);
-	K[2523] = clj_c_const("{namespace [:=> [:cat [:or :keyword :symbol]] [:maybe :string]], set-validator! [:=> [:cat :any [:maybe [:=> {:effects #{}} [:cat :any] :any]]] :nil], swap-vals! [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :vector], swap! [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :any], neg? [:=> [:cat :number] :boolean], nth [:=> [:cat :any :int] :any], seq [:=> [:cat :any] [:maybe :seq]], count [:=> [:cat :any] :int], zero? [:=> [:cat :number] :boolean], next [:=> [:cat :any] [:maybe :seq]], conj [:=> [:cat [:maybe [:or :seq :vector :map :set]] [:* :any]] [:or :seq :vector :map :set]], rest [:=> [:cat :any] :seq], assoc [:=> [:cat [:maybe [:or :map :vector]] :any :any [:* :any]] [:or :map :vector]], lazy-seq* [:=> [:cat [:=> {:effects #{}} [:cat] :any]] :seq], dec [:=> [:cat :number] :number], inc [:=> [:cat :number] :number], name [:=> [:cat [:or :keyword :symbol :string]] :string], pos? [:=> [:cat :number] :boolean]}", 961);
+	K[2523] = clj_c_const("{namespace [:=> [:cat [:or :keyword :symbol]] [:maybe :string]], set-validator! [:=> [:cat :any [:maybe [:=> {:effects #{}} [:cat :any] :any]]] :nil], swap-vals! [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :vector], swap! [:=> [:cat :any [:=> {:effects #{}} [:cat :any] :any] [:* :any]] :any], neg? [:=> [:cat :number] :boolean], nth [:=> [:cat :any :int] :any], seq [:=> [:cat :any] :any], count [:=> [:cat :any] :int], zero? [:=> [:cat :number] :boolean], next [:=> [:cat :any] :any], conj [:=> [:cat [:maybe [:or :seq :vector :map :set]] [:* :any]] [:or :seq :vector :map :set]], rest [:=> [:cat :any] :any], assoc [:=> [:cat [:maybe [:or :map :vector]] :any :any [:* :any]] [:or :map :vector]], lazy-seq* [:=> [:cat [:=> {:effects #{}} [:cat] :any]] :seq], dec [:=> [:cat :number] :number], inc [:=> [:cat :number] :number], name [:=> [:cat [:or :keyword :symbol :string]] :string], pos? [:=> [:cat :number] :boolean]}", 943);
 	clj_c_publish(K, 2524);
 	OP[0] = clj_c_intrinsic("clojure.core/seq", 1);
 	B[0] = clj_intrinsic_builtin(OP[0]);

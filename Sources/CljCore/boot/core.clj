@@ -3898,9 +3898,11 @@
 (run! (fn [e] (alter-meta! (resolve (key e)) assoc :=> (val e)))
       {'count     [:=> [:cat :any] :int]
        'nth       [:=> [:cat :any :int] :any]
-       'next      [:=> [:cat :any] [:maybe :seq]]
-       'rest      [:=> [:cat :any] :seq]
-       'seq       [:=> [:cat :any] [:maybe :seq]]
+       ;; :any where a deftype's ISeq answers instances of its own, which have no tag; the signature table answers
+       ;; seq-or-nil for every other argument (NOTES.md, "Facts")
+       'next      [:=> [:cat :any] :any]
+       'rest      [:=> [:cat :any] :any]
+       'seq       [:=> [:cat :any] :any]
        'inc       [:=> [:cat :number] :number]
        'dec       [:=> [:cat :number] :number]
        'name      [:=> [:cat [:or :keyword :symbol :string]] :string]

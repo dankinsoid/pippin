@@ -7939,6 +7939,7 @@ CLJC_FRAME clj_value clojure_core_async_spawn_STAR__a2(clj_value self, const clj
 	}
 	t3 = t5;
 	} else {
+	clj_c_drop(&l2);
 #line 229 "<embedded>/clojure/core/async.clj"
 	clj_value t10;
 	clj_value t11 = l0;
