@@ -121,6 +121,28 @@ extension CoreTests {
 			#expect(clj_debug_live_objects() == before)
 		}
 
+		// A divergence from JVM Clojure and cljs, which call keyfn for both sides of every comparison (design §3).
+		@Test func sortByCallsKeyfnOncePerItemInOrder() throws {
+			clj_init()
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try eval("(pr-str (let [calls (atom [])] [(sort-by (fn [x] (swap! calls conj x) (- x)) [3 1 2 5 4]) @calls]))")
+				        == "[(5 4 3 2 1) [3 1 2 5 4]]")
+				#expect(try eval("(pr-str (let [calls (atom [])] [(sort-by (fn [x] (swap! calls conj x) x) > [2 9 2 7]) @calls]))")
+				        == "[(9 7 2 2) [2 9 2 7]]")
+				// One item is never compared, so keyfn runs for none, as Arrays.sort calls no comparator for it.
+				#expect(try eval("(pr-str (let [calls (atom 0)] [(sort-by (fn [x] (swap! calls inc) x) [:only]) (sort-by (fn [x] (swap! calls inc) x) []) @calls]))")
+				        == "[(:only) () 0]")
+				// The first item whose key throws, in the items' order, is the one that surfaces.
+				#expect(message("(sort-by (fn [x] (if (even? x) (throw (ex-info (str \"k\" x) {})) x)) [1 4 3 2])") == "k4")
+				// Equal keys keep their input order under a comparator too.
+				#expect(try eval("(pr-str (sort-by first > [[1 :a] [2 :b] [1 :c] [2 :d]]))") == "([2 :b] [2 :d] [1 :a] [1 :c])")
+				// The comparator sees keys, not items.
+				#expect(try eval("(pr-str (sort-by :k (fn [a b] (compare b a)) [{:k 1} {:k 3} {:k 2}]))") == "({:k 3} {:k 2} {:k 1})")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
 		@Test func hostPrimitivesDelegate() throws {
 			let rt = Runtime()
 			let before = clj_debug_live_objects()

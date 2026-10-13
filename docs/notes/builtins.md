@@ -62,6 +62,14 @@
   evaluator section. Transducer state (`take`, `partition-all`, `dedupe`, ...) lives in volatiles,
   so one transducer application (one `(xf rf)`) belongs to one thread. Trigger: a transducer
   shared across threads; Clojure's contract is the same.
+- **`sort-by` keys each item once** (compare.c `sort_by_keys`; design §3, the divergences beyond the cljs
+  limit; docs/jvm-differences.md): keyfn runs over the items in order into a C array, a stable bottom-up merge
+  sorts a permutation of indexes by those keys, and the list is built from the items in permuted order; no
+  tuple per item. Clojure runs keyfn for both sides of every comparison: ~15.6 calls an item in group-freq's
+  `(sort-by (juxt (comp - :salary) :id) ps)`, 62 % of its time. One item is never compared, so keyfn runs zero
+  times there, as on the JVM. `CompareTests.sortByCallsKeyfnOncePerItemInOrder` pins the count, the order and
+  which throw surfaces. The fuzzer needs no exclusion: its keyfns (`-`, `str`, `(mod x 3)`) are pure, and one
+  that throws on some item throws on both sides, since the JVM's sort compares every item at least once.
 - [ ] **`seq` on a map is an eager list of `[k v]` vectors** (no O(1) view, no first/next fast path):
   `(first m)` builds the whole entry list. Trigger: `first`/`some` over big maps in a profile. Fix:
   a map-seq cursor over the CHAMP trie and a map-entry type instead of 2-vectors.

@@ -146,33 +146,8 @@ bool clj_compare_with(const clj_call *call, clj_value a, clj_value b, int *out) 
 
 typedef struct {
 	const clj_call *cmp;
-	const clj_call *key; // NULL for sort, the key fn of sort-by otherwise
 	bool            thrown;
 } sort_ctx;
-
-// Keys are computed per comparison, as Clojure's sort-by does: a keyfn with side effects is called as often.
-static int sort_compare(sort_ctx *s, clj_value a, clj_value b) {
-	int out = 0;
-	if (!s->key) {
-		if (!clj_compare_with(s->cmp, a, b, &out)) s->thrown = true;
-		return out;
-	}
-	clj_value ka = clj_call_invoke(s->key, &a);
-	if (ka == CLJ_THROWN) {
-		s->thrown = true;
-		return 0;
-	}
-	clj_value kb = clj_call_invoke(s->key, &b);
-	if (kb == CLJ_THROWN) {
-		clj_release(ka);
-		s->thrown = true;
-		return 0;
-	}
-	if (!clj_compare_with(s->cmp, ka, kb, &out)) s->thrown = true;
-	clj_release(ka);
-	clj_release(kb);
-	return out;
-}
 
 // Bottom-up and stable; the result is whichever buffer the last pass wrote, NULL once a comparison threw.
 static clj_value *merge_sort(clj_value *src, clj_value *dst, size_t n, sort_ctx *s) {
@@ -182,8 +157,11 @@ static clj_value *merge_sort(clj_value *src, clj_value *dst, size_t n, sort_ctx 
 			size_t hi = lo + 2 * width < n ? lo + 2 * width : n;
 			size_t i = lo, j = mid, k = lo;
 			while (i < mid && j < hi) {
-				int c = sort_compare(s, src[i], src[j]);
-				if (s->thrown) return NULL;
+				int c = 0;
+				if (!clj_compare_with(s->cmp, src[i], src[j], &c)) {
+					s->thrown = true;
+					return NULL;
+				}
 				dst[k++] = c <= 0 ? src[i++] : src[j++];
 			}
 			while (i < mid) dst[k++] = src[i++];
@@ -196,7 +174,62 @@ static clj_value *merge_sort(clj_value *src, clj_value *dst, size_t n, sort_ctx 
 	return src;
 }
 
-static clj_value sort_items(clj_value coll, sort_ctx *s) {
+// merge_sort over indexes into keys: the same passes, so the same order of comparisons and the same stability.
+static size_t *merge_sort_keys(const clj_value *keys, size_t *src, size_t *dst, size_t n, sort_ctx *s) {
+	for (size_t width = 1; width < n; width *= 2) {
+		for (size_t lo = 0; lo < n; lo += 2 * width) {
+			size_t mid = lo + width < n ? lo + width : n;
+			size_t hi = lo + 2 * width < n ? lo + 2 * width : n;
+			size_t i = lo, j = mid, k = lo;
+			while (i < mid && j < hi) {
+				int c = 0;
+				if (!clj_compare_with(s->cmp, keys[src[i]], keys[src[j]], &c)) {
+					s->thrown = true;
+					return NULL;
+				}
+				dst[k++] = c <= 0 ? src[i++] : src[j++];
+			}
+			while (i < mid) dst[k++] = src[i++];
+			while (j < hi) dst[k++] = src[j++];
+		}
+		size_t *t = src;
+		src = dst;
+		dst = t;
+	}
+	return src;
+}
+
+// Decorate, sort, undecorate: keyfn runs once per item, in the items' order, before the first comparison, where
+// Clojure's sort-by calls it twice per comparison (design §3, the divergences beyond the cljs limit). A single item
+// is never compared, so keyfn runs for none, as Arrays.sort of one element calls no comparator. NULL once keyfn or a
+// comparison threw; else the items in sorted order, borrowed from items, in a buffer the caller frees.
+static clj_value *sort_by_keys(clj_value *items, size_t n, const clj_call *key, sort_ctx *s) {
+	clj_value *keys = malloc(n * sizeof *keys);
+	size_t    *perm = malloc(2 * n * sizeof *perm);
+	if (!keys || !perm) clj_fatal("out of memory");
+	size_t nkeys = 0;
+	for (; nkeys < n; nkeys++) {
+		clj_value k = clj_call_invoke(key, &items[nkeys]);
+		if (k == CLJ_THROWN) break;
+		keys[nkeys] = k;
+	}
+	clj_value *out = NULL;
+	if (nkeys == n) {
+		for (size_t i = 0; i < n; i++) perm[i] = i;
+		const size_t *sorted = merge_sort_keys(keys, perm, perm + n, n, s);
+		if (sorted) {
+			out = malloc(n * sizeof *out);
+			if (!out) clj_fatal("out of memory");
+			for (size_t i = 0; i < n; i++) out[i] = items[sorted[i]];
+		}
+	}
+	for (size_t i = 0; i < nkeys; i++) clj_release(keys[i]);
+	free(keys);
+	free(perm);
+	return out;
+}
+
+static clj_value sort_items(clj_value coll, sort_ctx *s, const clj_call *key) {
 	size_t    n = 0;
 	clj_value keep = CLJ_NIL;
 	// The items stay borrowed from `keep` for the whole sort: no retain per element.
@@ -205,9 +238,13 @@ static clj_value sort_items(clj_value coll, sort_ctx *s) {
 	clj_value *sorted = items;
 	clj_value *scratch = NULL;
 	if (n > 1) {
-		scratch = malloc(n * sizeof *scratch);
-		if (!scratch) clj_fatal("out of memory");
-		sorted = merge_sort(items, scratch, n, s);
+		if (key) {
+			sorted = scratch = sort_by_keys(items, n, key, s);
+		} else {
+			scratch = malloc(n * sizeof *scratch);
+			if (!scratch) clj_fatal("out of memory");
+			sorted = merge_sort(items, scratch, n, s);
+		}
 	}
 	clj_value out = sorted ? clj_list_from_array(sorted, n) : CLJ_THROWN;
 	free(scratch);
@@ -224,13 +261,13 @@ static clj_value sort_items(clj_value coll, sort_ctx *s) {
 
 clj_value clj_sort(clj_value coll, clj_value cmp) {
 	clj_call call = clj_call_prepare(cmp, 2);
-	sort_ctx s = {&call, NULL, false};
-	return sort_items(coll, &s);
+	sort_ctx s = {&call, false};
+	return sort_items(coll, &s, NULL);
 }
 
 clj_value clj_sort_by(clj_value coll, clj_value keyfn, clj_value cmp) {
 	clj_call call = clj_call_prepare(cmp, 2);
 	clj_call key = clj_call_prepare(keyfn, 1);
-	sort_ctx s = {&call, &key, false};
-	return sort_items(coll, &s);
+	sort_ctx s = {&call, false};
+	return sort_items(coll, &s, &key);
 }

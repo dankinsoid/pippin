@@ -24,7 +24,8 @@ bool clj_compare_with(const clj_call *call, clj_value a, clj_value b, int *out);
 // (sort coll) and (sort cmp coll): the items of any seqable as a list, ascending and stable; cmp nil is
 // clj_compare. Owned result or CLJ_THROWN.
 clj_value clj_sort(clj_value coll, clj_value cmp);
-// (sort-by keyfn coll) and (sort-by keyfn cmp coll): keyfn is applied per comparison, as Clojure does.
+// (sort-by keyfn coll) and (sort-by keyfn cmp coll): keyfn runs once per item, in order, before any comparison;
+// Clojure runs it per comparison (design §3, the divergences beyond the cljs limit).
 clj_value clj_sort_by(clj_value coll, clj_value keyfn, clj_value cmp);
 
 #endif
