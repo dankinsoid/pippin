@@ -1085,7 +1085,8 @@
   `pos?`, `fused-seq-rebind.clj` rebinding `cat`, `dedupe` and `partition-all`). **The driver** (`clj_fused_run_step`, mode and lead as
   `fused*`'s, analyzer-and-evaluator.md) walks a vector source itself, leaf by leaf (`clj_vector_run`), and any other
   single source through its `reduce` under a native rf; two or three sources go through `clj_seq` and one
-  `clj_seq_iter` each, every one advanced per step before the shortest ends the walk, as a multi-coll map seqs them.
+  `clj_seq_iter` each, every one advanced per step before the shortest ends the walk, as a multi-coll map seqs them;
+  the iterator walks a vector, a `rest`'s vector-seq, an `rseq`'s rvector-seq and a range by index, nothing allocated.
   `CLJ_NO_OPT=inline` takes the reduce path for vectors too and keeps every site generic; `CLJ_NO_OPT=fuse` keeps
   mapcat, dedupe, distinct, partition-all and the stage fns that are no literal generic. A transduce site's mode calls
   f's completion over the result after the stages' (fusion.c, `CLJ_FUSED_MODE_TRANSDUCE`), and `(f)` first when it
