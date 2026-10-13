@@ -529,9 +529,27 @@
 (defn partial
   "Returns a fn that calls f with args followed by the args of the call."
   ([f] f)
-  ([f arg1] (fn [& args] (apply f arg1 args)))
-  ([f arg1 arg2] (fn [& args] (apply f arg1 arg2 args)))
-  ([f arg1 arg2 arg3] (fn [& args] (apply f arg1 arg2 arg3 args)))
+  ([f arg1]
+   (fn
+     ([] (f arg1))
+     ([x] (f arg1 x))
+     ([x y] (f arg1 x y))
+     ([x y z] (f arg1 x y z))
+     ([x y z & args] (apply f arg1 x y z args))))
+  ([f arg1 arg2]
+   (fn
+     ([] (f arg1 arg2))
+     ([x] (f arg1 arg2 x))
+     ([x y] (f arg1 arg2 x y))
+     ([x y z] (f arg1 arg2 x y z))
+     ([x y z & args] (apply f arg1 arg2 x y z args))))
+  ([f arg1 arg2 arg3]
+   (fn
+     ([] (f arg1 arg2 arg3))
+     ([x] (f arg1 arg2 arg3 x))
+     ([x y] (f arg1 arg2 arg3 x y))
+     ([x y z] (f arg1 arg2 arg3 x y z))
+     ([x y z & args] (apply f arg1 arg2 arg3 x y z args))))
   ([f arg1 arg2 arg3 & more] (fn [& args] (apply f arg1 arg2 arg3 (concat more args)))))
 
 (defn constantly
@@ -1335,12 +1353,35 @@
 
 (defn juxt
   "Returns a fn that returns a vector of the results of applying each f to its args."
-  ([f] (fn [& args] [(apply f args)]))
-  ([f g] (fn [& args] [(apply f args) (apply g args)]))
-  ([f g h] (fn [& args] [(apply f args) (apply g args) (apply h args)]))
+  ([f]
+   (fn
+     ([] [(f)])
+     ([x] [(f x)])
+     ([x y] [(f x y)])
+     ([x y z] [(f x y z)])
+     ([x y z & args] [(apply f x y z args)])))
+  ([f g]
+   (fn
+     ([] [(f) (g)])
+     ([x] [(f x) (g x)])
+     ([x y] [(f x y) (g x y)])
+     ([x y z] [(f x y z) (g x y z)])
+     ([x y z & args] [(apply f x y z args) (apply g x y z args)])))
+  ([f g h]
+   (fn
+     ([] [(f) (g) (h)])
+     ([x] [(f x) (g x) (h x)])
+     ([x y] [(f x y) (g x y) (h x y)])
+     ([x y z] [(f x y z) (g x y z) (h x y z)])
+     ([x y z & args] [(apply f x y z args) (apply g x y z args) (apply h x y z args)])))
   ([f g h & fs]
    (let [fs (list* f g h fs)]
-     (fn [& args] (reduce (fn [acc f] (conj acc (apply f args))) [] fs)))))
+     (fn
+       ([] (reduce (fn [acc f] (conj acc (f))) [] fs))
+       ([x] (reduce (fn [acc f] (conj acc (f x))) [] fs))
+       ([x y] (reduce (fn [acc f] (conj acc (f x y))) [] fs))
+       ([x y z] (reduce (fn [acc f] (conj acc (f x y z))) [] fs))
+       ([x y z & args] (reduce (fn [acc f] (conj acc (apply f x y z args))) [] fs))))))
 
 (defn some-fn
   "Returns a fn that returns the first logical-true value of any p applied to its args, else the last
@@ -1365,9 +1406,22 @@
 
 (defn fnil
   "Returns a fn calling f with nil leading arguments replaced by the defaults."
-  ([f x] (fn [a & args] (apply f (if (nil? a) x a) args)))
-  ([f x y] (fn [a b & args] (apply f (if (nil? a) x a) (if (nil? b) y b) args)))
-  ([f x y z] (fn [a b c & args] (apply f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c) args))))
+  ([f x]
+   (fn
+     ([a] (f (if (nil? a) x a)))
+     ([a b] (f (if (nil? a) x a) b))
+     ([a b c] (f (if (nil? a) x a) b c))
+     ([a b c & ds] (apply f (if (nil? a) x a) b c ds))))
+  ([f x y]
+   (fn
+     ([a b] (f (if (nil? a) x a) (if (nil? b) y b)))
+     ([a b c] (f (if (nil? a) x a) (if (nil? b) y b) c))
+     ([a b c & ds] (apply f (if (nil? a) x a) (if (nil? b) y b) c ds))))
+  ([f x y z]
+   (fn
+     ([a b] (f (if (nil? a) x a) (if (nil? b) y b)))
+     ([a b c] (f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c)))
+     ([a b c & ds] (apply f (if (nil? a) x a) (if (nil? b) y b) (if (nil? c) z c) ds)))))
 
 (defn cycle
   "Returns a lazy infinite seq of repetitions of the items in coll."

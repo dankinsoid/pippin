@@ -199,7 +199,7 @@ static clj_compiled_fn CLJC_FN_clojure_core_every_QMARK__a2;
 
 #ifndef CLJ_CLOSED
 static clj_ctree XG[1] = {
-	{{0xce859344915d93d8ULL, 0xce96d635c9f98cfeULL}, NULL, NULL},
+	{{0x4121a7f4745a1060ULL, 0xae615982969167f5ULL}, NULL, NULL},
 };
 #endif
 
@@ -5924,7 +5924,7 @@ F13: ;
 	goto N13;
 	}
 	clj_c_stub_init(&S[27], K[45], 121, 1);
-	clj_c_stub_inlined(&S[28], K[46], 597, 1, &S[27]);
+	clj_c_stub_inlined(&S[28], K[46], 615, 1, &S[27]);
 	clj_c_stub_inlined(&S[29], CLJ_NIL, 125, 8, &S[28]);
 	clj_c_stub_init(&S[30], CLJ_NIL, 125, 8);
 	r = top_14();
@@ -5938,7 +5938,7 @@ F14: ;
 	goto N14;
 	}
 	clj_c_stub_init(&S[31], K[51], 127, 1);
-	clj_c_stub_inlined(&S[32], K[52], 597, 1, &S[31]);
+	clj_c_stub_inlined(&S[32], K[52], 615, 1, &S[31]);
 	clj_c_stub_inlined(&S[33], CLJ_NIL, 131, 8, &S[32]);
 	clj_c_stub_init(&S[34], CLJ_NIL, 131, 8);
 	r = top_15();
