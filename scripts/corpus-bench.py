@@ -27,7 +27,7 @@ OURS_ONLY = ["corpus/datascript/src"]
 DATASCRIPT_DEPS = 'datascript/datascript {:mvn/version "1.8.1"} persistent-sorted-set/persistent-sorted-set {:mvn/version "0.3.2"}'
 FEATURES = "clj"
 # The Clojure the fuzzer and make api-diff pin, and the core.async make api-diff diffs ours against.
-JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH if p not in OURS_ONLY)+ '] :deps {org.clojure/clojure '
+JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH if p not in OURS_ONLY) + '] :deps{org.clojure/clojure '
             '{:mvn/version "1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"} ' + DATASCRIPT_DEPS + '}}')
 # A run past this is a hang: sampled into the logs, killed, and an error of the report. The slowest workload,
 # datascript, takes about 30 s interpreted.
@@ -35,6 +35,9 @@ RUN_TIMEOUT = 240
 SAMPLE_SECONDS = 8
 # Past this the remaining workloads are reported as not run; the CI step's own cap is above it.
 TOTAL_BUDGET = 150 * 60
+# At most this many repetitions of a workload whose run takes seconds: datascript's 8 pairs would cost the default
+# --base job about 25 min more than 2 do (bench/RESULTS.md, "Datascript").
+REPS_CAP = {"datascript": 2}
 # The timed modes, in the order each repetition runs them.
 TIMED = ["interp", "dev-core", "dev", "closed"]
 TIMED_LABEL = {"interp": "interp", "dev-core": "core+interp", "dev": "dev", "closed": "closed"}
@@ -377,7 +380,7 @@ class Bench:
 		# A pair is two adjacent runs of one mode; who goes first alternates, so drift and warm-up hit both sides.
 		runs = {}
 		pairs = res["pairs"] = {m: [] for m in TIMED}
-		for rep in range(self.args.reps):
+		for rep in range(min(self.args.reps, REPS_CAP.get(w, self.args.reps))):
 			order = self.sides if rep % 2 == 0 else self.sides[::-1]
 			for mode in TIMED:
 				got = {}

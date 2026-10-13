@@ -3115,7 +3115,7 @@ head's medians over 8 repetitions in the same job. Ratios are ours over theirs.
   executables, nine kernels) and runs 0.4 (aot) and 1.6 (jit): 3.4 min. The step took 78.4 min against 73.5 for the
   Swift run, inside the runner's spread, and the 150 min cap is far.
 
-## Datascript — 08ca7b8, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+## Datascript — 22aaccd (before the rebase onto main), GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
 
 The thirteenth corpus workload, `datascript` (docs/notes/benchmarks.md, "Corpus workloads"): 400 users, 100 products
 and 1200 orders built in batches of entity maps, then upserts, retractions and `retractEntity` of component orders,
@@ -3142,5 +3142,8 @@ and persistent-sorted-set 0.3.2 from their jars; ours run the port in `corpus/da
 - **Against the other data workloads** closed runs at 1.1–3.2× the JVM and here at 30×; interp/closed is 1.3×,
   since the collector costs both alike. Node is 2.3× the JVM; Hermes, an interpreter, is level with our closed build.
 - **Cost**: datascript took 7.3 min of this one-tree run (its references included: JVM, Node, Hermes 4.5 s an
-  iteration) and 22 min of run 38420112950, whose base side failed at load; with both sides timed it should take
-  about 40 min, which puts the default `--base` step near 118 min against 78.6, inside the 150 min budget.
+  iteration) and 22 min of run 38420112950, whose base side failed at load: the head's 32 timed runs took 16.4 min
+  (31 s each), the builds and references before them 2 min, the stats runs 3.4. With both sides at 8 repetitions
+  that is about 44 min, the default `--base` step near 120 against 78.6; `REPS_CAP` keeps datascript at 2
+  repetitions (16 runs, 8 min), about 19 min in all, near 98. Two pairs show the gap to the base as a factor; a
+  change of a few per cent needs `--only=datascript --reps=8` on its own.
