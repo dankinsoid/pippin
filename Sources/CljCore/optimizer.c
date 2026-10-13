@@ -306,7 +306,10 @@ static const clj_fusion_var *driver_for(const pipeline *p, clj_fused_mode *mode)
 	if (fv_is(p->fv, "reduce")) *mode = buf ? CLJ_FUSED_MODE_SEQ_REDUCE : CLJ_FUSED_MODE_REDUCE;
 	else if (fv_is(p->fv, "count")) *mode = CLJ_FUSED_MODE_COUNT;
 	else *mode = buf ? CLJ_FUSED_MODE_SEQ_INTO : CLJ_FUSED_MODE_INTO;
-	if (many || buf || fv_is(p->fv, "mapv")) return named("clojure.core/fused*");
+	// a reductions' begin is fused*'s alone: the older drivers run no 0-arity before the walk
+	bool scan = false;
+	for (uint32_t i = 0; i < p->nstages; i++) scan = scan || p->stages[i].xfv != p->stages[i].fv;
+	if (many || buf || scan || fv_is(p->fv, "mapv")) return named("clojure.core/fused*");
 	return named(*mode == CLJ_FUSED_MODE_REDUCE ? "clojure.core/fused-reduce*" : *mode == CLJ_FUSED_MODE_COUNT ? "clojure.core/fused-count*" : "clojure.core/fused-into*");
 }
 
