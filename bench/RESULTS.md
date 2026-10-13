@@ -2886,3 +2886,58 @@ in brackets (run 1 recomputed from its logs; the run itself reported the ratio o
   async ones move by up to 7 % in allocations and 27 % in `apply` (a count of 7) between two runs of one tree.
 - **Cost**: the `make corpus-bench` step took 67 and 70 min against about 20 for one tree; builds before the workloads
   7.3 and 8.9 min, the workloads 59.2 and 61.0 min.
+
+## One outlined copy per unit — 435034b, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Design §10 step 7a (docs/notes/compiler.md, "Another unit's fn in a dev unit", the "One copy per unit" part): a dev
+unit's copy of another unit's tree that its site did not specialize is the tree's arity compiled once in the unit,
+which each site calls under the same digest guard. Same-runner `corpus-bench` 38401147428, head 435034b against
+`origin/main` 68d6505, eight alternated pairs; every workload returned the JVM's value in every mode on both sides.
+Gates: 38402668442 (dd8bd54, the fixtures over the same compiler) green.
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| medley | 0.992 [0.964–1.005] | 1.009 [0.982–1.026] | 1.009 [0.854–1.138] | 1.013 [0.963–1.021] |
+| combinatorics | 0.996 [0.938–1.088] | 0.988 [0.963–1.008] | 0.956 [0.908–1.061] | 1.007 [0.988–1.057] |
+| dependency | 0.966 [0.915–0.999]* | 1.035 [0.940–1.115] | 1.001 [0.977–1.030] | 0.995 [0.928–1.086] |
+| nested-update | 1.010 [0.977–1.063] | 0.987 [0.974–1.004] | 1.036 [0.999–1.078] | 0.993 [0.981–1.020] |
+| group-freq | 0.999 [0.970–1.045] | 1.006 [0.914–1.089] | 1.006 [0.951–1.042] | 1.071 [0.934–1.098] |
+| pipelines | 0.990 [0.983–1.028] | 0.989 [0.944–1.004] | 1.013 [0.980–1.078] | 0.989 [0.972–1.030] |
+| strings | 0.987 [0.908–1.026] | 1.001 [0.989–1.078] | 0.990 [0.936–0.996]* | 1.010 [0.998–1.053] |
+| render | 0.969 [0.938–1.030] | 0.970 [0.946–1.017] | 1.007 [0.972–1.052] | 0.987 [0.937–1.026] |
+| suite-data | 0.974 [0.925–1.011] | 1.022 [0.999–1.064] | 1.006 [0.972–1.073] | 1.036 [1.004–1.097]* |
+| async-pipeline | 1.052 [0.793–1.129] | 0.981 [0.915–1.160] | 0.992 [0.848–1.018] | 1.030 [0.886–1.206] |
+| async-libs | 0.984 [0.760–1.093] | 1.153 [0.963–1.229] | 0.984 [0.727–1.039] | 0.984 [0.805–1.013] |
+| async-broadcast | 0.885 [0.738–1.149] | 1.039 [0.997–1.429] | 1.014 [1.007–1.035]* | 1.023 [0.864–1.101] |
+| *geomean* | 0.983 | 1.014 | 1.001 | 1.011 |
+
+- **Counters.** Every dev and closed counter of the nine data workloads is equal to the base's to the unit (dev
+  `invoke` nested-update 704.7k, suite-data 682.0k, medley 613.7k, pipelines 8.75M; `c_invoke` likewise): a site
+  that called a copy calls the outlined one, and a copy nested in a copied body is inside the outlined body. The
+  async workloads moved within their A/A spread (async-libs allocations −2.3 % dev, −6.4 % closed, which this change
+  does not touch).
+- **Time.** dev geomean 1.001; the four marked cells are within the A/A run's rate (dependency interp, suite-data
+  closed: modes this change does not touch). nested-update dev 1.036 [0.999–1.078], fastest iterations 146.9 →
+  153.8 ms: its 935k `mod` calls an iteration are now a direct call each (`workloads_nested_update_step__xo0_a2`, 8.7
+  % of its dev samples) where the copy had none — a cost within the interval, which the A/A runs put at up to ±7 %
+  for this cell. Calling the outlined arity's always-inline twin instead gives the copies back to clang: −O2 on
+  nested-update's unit 0.81 → 0.95 s, the five units checked +5.8 % → +18.2 % over the pre-copy tree, so the call
+  stays.
+- **Compile cost** (x86_64 dev host, clang CPU seconds, min of five alternated; ref = 5e004a7, the tree before any
+  cross-unit copy):
+
+  | units | ref | main 68d6505 | this |
+  |---|---:|---:|---:|
+  | nested-update's own: bytes | 104 177 | 143 581 (+37.8 %) | 111 143 (+6.7 %) |
+  | — clang `-O0 -DCLJ_DEBUG=1` / `-O2` s | 0.31 / 0.78 | 0.34 / 1.04 (+33 %) | 0.33 / 0.88 (+13 %) |
+  | 12 library dev units (medley 3, combinatorics 2, dependency 3, async-libs 4): bytes | 2 317 960 | 2 405 793 (+3.8 %) | 2 365 091 (+2.0 %) |
+  | — clang `-O0` / `-O2` s | 4.67 / 15.75 | 4.75 / 16.81 (+6.7 %) | 4.80 / 16.33 (+3.7 %) |
+  | medley's core: bytes, `-O2` | 550 982, 2.81 | +10.7 %, +15.4 % | +4.6 %, +7.3 % |
+  | `com.stuartsierra.parallel`: bytes | 34 195 | +22.7 % | +5.5 % |
+  | all 22 units of the twelve workloads: bytes | 3 085 980 | +6.3 % | +2.7 % |
+
+  On this host identical C took up to ±10 % different clang time per small unit, so per-unit times below that are
+  the host's; the bytes are exact. clj-compile itself within ±3 % (medley 0.49 → 0.51 s CPU). `boot/*.c` unchanged:
+  core and the embedded libs keep their copies.
+- **Not taken**: outlining the copies that do not pay too (forwarders and loops, which stay calls) — the 22 units
+  +3.1 % bytes over this rule, the dependency workload's unit +16 % over main, for one generic dispatch per call.

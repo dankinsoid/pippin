@@ -933,8 +933,9 @@
   like are natives with no body to copy, and a literal fn of theirs is lowered instead (the "Lowered natives" entry);
   scalar replacement of what the copy now allocates in the caller's frame is step 7b.
 - [~] **Another unit's fn in a dev unit: the tree's digest as the guard** (design §6 «Инлайнинг без JIT», §10 step
-  7a; compiler.c `emit_inlined_call`, `copy_pays`, `tree_digest_text`; node_data.c `clj_node_tree_digest`; load.c
-  `clj_compiled_register_trees`, `clj_compiled_tree_is`; compiled_internal.h `clj_c_root_tree`). clj-compile runs on
+  7a; compiler.c `emit_inlined_call`, `copy_pays`, `outlined_fn`, `emit_outlined_call`, `tree_digest_text`; node_data.c
+  `clj_node_tree_digest`; load.c `clj_compiled_register_trees`, `clj_compiled_tree_is`; compiled_internal.h
+  `clj_c_root_tree`). clj-compile runs on
   the interpreted core, so a dev unit's compile has every core fn's tree and the optimizer copies them as it copies
   the unit's own; what was missing was a guard naming another unit's compiled fn. A name is not one: a unit reloaded
   with another body registers the same name. The guard is the copied tree's **digest** — two 64-bit hashes of the
@@ -952,19 +953,31 @@
   another dispatcher of another digest — each runs the call, the else branch; the unit reloaded with the same body is
   a new dispatcher of the same tree and runs the copy again; a toolchain whose core.clj differs from the binary's
   passes no guard, never a wrong one. Fixtures: `CompilerFixtureTests.crossUnitInlineFollowsTheCalleesTree` (two units
-  in one compile: the copy runs, then `with-redefs`, `alter-var-root`, an eval'd `defn`, the lib reloaded with
-  another body and with the same one) and `devUnitCopiesOfCoreFollowTheirVars` (test-compiled only, which builds the
-  plain clj-compile first: `Fixtures/dev-inline/core.clj` compiled by it, run over the compiled core — `mod` and
-  `max-key` copied, under `with-redefs`, `alter-var-root`, an eval'd `defn` in clojure.core and the root put back;
-  `clj_debug_tree_matches` shows the copies ran). **What a dev unit writes**: a cross-unit copy only when it pays
+  in one compile: `sq` copied and `poly` outlined run, then `with-redefs`, `alter-var-root`, an eval'd `defn`, the lib
+  reloaded with another body and with the same one) and `devUnitCopiesOfCoreFollowTheirVars` (test-compiled only,
+  which builds the plain clj-compile first: `Fixtures/dev-inline/core.clj` compiled by it, run over the compiled core —
+  `mod` outlined, under `with-redefs`, `alter-var-root`, an eval'd `defn` in clojure.core and the root put back, and
+  `max-key`, which calls `k` twice and stays a call, under the same; `clj_debug_tree_matches` shows the copies
+  ran). **What a dev unit writes**: a cross-unit copy only when it pays
   (`copy_pays`): the site specialized it (a literal fn copied in, a nested copy, a lowered or fused call) or it is
   straight-line intrinsic code with no loop or kept call, where the saved call is most of the cost; `(range n)` is
   `(range 0 n 1)`, `vec` is `into`, `zipmap` a loop, and those copies doubled a site's C to save one call (before the
   rule the five libraries' dev units took 268 cross-unit copies and medley's core −O2 clang +20.6 %, combinatorics'
   +25 %; after it 52). A site written as the call alone puts the else branch's dead-slot drops before it
-  (`emit_call_alone`), its only path; a written copy gets the guard's drops on both branches and its own lets'. A unit of the same set in a closed build keeps `CLJC_INL_`, so `make boot`'s libs units, whose
-  compile is a dev one, now carry core's bodies too and run them with the guard 1 under `-DCLJ_CLOSED`. `clj-compile
-  --stats` counts them ("of which from another unit"). `CLJ_NO_OPT=inline` writes the call, as before. **Cost**
+  (`emit_call_alone`), its only path; a written copy gets the guard's drops on both branches and its own lets'.
+  **One copy per unit**: a copy that pays, that the site did not specialize (`copy_is_sites`: the callee's own tree
+  has as many copies, lowered, fused and direct calls and no fewer calls of a value — a literal fn or a var argument
+  whose calls became intrinsics makes it the site's) and that has more than `OUTLINE_MIN_NODES` (4) nodes is the
+  callee's arity compiled once in the unit (`outlined_fn`, `<base>__xo<k>_a<n>`, keyed by digest and arity) from the
+  tree the guard names, under its own facts (the callee's exec root: the form's facts are indexed by other node ids)
+  and without `#line`; each site keeps the guard and calls it, `g ? <outlined>(nil, NULL, args, n) : clj_c_invoke(fn,
+  args, n)`, the var borrowed before the arguments only when the guard fails, as the call reads it, with the call's
+  drops (`emit_outlined_call`). Each copy's throw checks repeated the enclosing frame's cleanup, so a copy in a big
+  frame cost more C than its body: nested-update's 14 copies of `mod` are one body and 14 guarded calls. Core and the
+  embedded libs keep their copies, so `make boot` writes the same text. A unit of the same set in a closed build
+  keeps `CLJC_INL_`, so `make boot`'s libs units, whose compile is a dev one, now carry core's bodies too and run
+  them with the guard 1 under `-DCLJ_CLOSED`. `clj-compile --stats` counts them ("of which from another unit N
+  (outlined M into K fns)"). `CLJ_NO_OPT=inline` writes the call, as before. **Cost**
   (x86_64 dev host, min of three clang runs alternated, before = origin/main eb276f7): the five libraries' 12 dev units
   7 531 046 → 7 614 875 bytes (+1.1 %), clang `-O0 -DCLJ_DEBUG=1` 7.27 → 7.28 s (+0.2 %), `-O2` 37.25 → 37.72 s
   (+1.3 %); per unit medley's core +10.8 % bytes, +7.9 % / +10.6 % clang (30 copies of `find`, `val`, `map-entry?`),
@@ -974,10 +987,27 @@
   -DCLJ_CLOSED` 22.24 → 22.39 s; the libs' units +0–4 % bytes (`clojure.set` +4.0 %, `clojure.walk` +4.1 %,
   `clojure.string` +2.3 %), clang within the host's spread. **Effect** (bench/RESULTS.md, "Another unit's fn in a
   dev unit", three corpus-bench pairs): dev generic calls an iteration nested-update 1.64M → 705k, suite-data −29 %,
-  medley −24 %, pipelines −17 %; the dev times moved with the runners, not measurably with the change. Not done: the interpreter over the compiled core (the dev mode that interprets the edits) gets
+  medley −24 %, pipelines −17 %; the dev times moved with the runners, not measurably with the change. **Cost of one
+  copy per unit** (x86_64 dev host, clang CPU seconds, min of five alternated; ref = 5e004a7, before any cross-unit
+  copy; main = 68d6505; bench/RESULTS.md "One outlined copy per unit"): nested-update's own unit 104 177 → 143 581 →
+  111 143 bytes (ref → main → this: +37.8 % → +6.7 %), `-O2` 0.78 → 1.04 → 0.88 s (+33 % → +13 %); the 12 library dev
+  units 2 317 960 → 2 405 793 → 2 365 091 bytes (+3.8 % → +2.0 %), `-O2` 15.75 → 16.81 → 16.33 s, medley's core
+  +10.7 % → +4.6 % bytes, `parallel` +22.7 % → +5.5 %; the 22 units of the twelve workloads +6.3 % → +2.7 % bytes;
+  clj-compile within ±3 %. Identical C varied up to ±10 % in clang time per small unit on this host, so only the bytes
+  are exact per unit. Same-runner corpus-bench 38401147428: every dev and closed counter of the data workloads equal
+  to main's, dev geomean 1.001, nested-update dev 1.036 [0.999–1.078] — its `mod` calls are direct calls now; calling
+  the outlined arity's always-inline twin instead hands the copies back to clang (nested-update's unit `-O2` 0.81 →
+  0.95 s). Not done: the interpreter over the compiled core (the dev mode that interprets the edits) gets
   neither copies nor known paths — the roots are compiled fns with no tree in the binary, so `try_inline` and
   `try_path` see no closure; core's trees serialized into core.c would give it both, and the same digest would name
-  them — when that mode is measured as the dev loop. A dev unit's copy of its own unit's fn takes no `copy_pays`.
+  them — when that mode is measured as the dev loop. A copy that does not pay (a loop or a kept call: `(range n)`,
+  `subvec`'s 2-arity) stays the call, though its outlined copy would cost one body per unit and drop one generic
+  dispatch per call (measured: the 22 units +3.1 % bytes over this rule, the dependency workload's unit +16 %,
+  combinatorics' core 1 → 38 guarded sites) — when a dev profile shows such a forwarder's dispatch. A dev unit's copy
+  of its own unit's fn takes no `copy_pays`: across the 22 units 25 such copies would not pay, 27.9 KB of C, 15 of
+  them (about 20 KB, 2 % of the unit) in combinatorics' core; their counterpart of the outlined copy is a guarded
+  direct call of the unit's own arity, but core.c's closed build runs those copies under `CLJC_INL_` — when one dev
+  unit's same-unit copies of one fn pass the 15 % rule.
 - [~] **Known paths: `get-in`, `assoc-in`, `update-in` over a literal path** (design §10 step 7a; optimizer.c
   `try_path`; `CLJ_NO_OPT=path`). A call of one of the three whose path is a vector literal of 1 to
   `CLJ_INLINE_PATH_MAX` (4) keys, constant or not, becomes core's own recursion unrolled — a specialization of a
