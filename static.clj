@@ -27,7 +27,7 @@
 (deftype Usd (Money :usd))
 
 (extend (Money cur) IAdd
-  (add [a b] {:cents (+ (:cents a) (:cents b))}))
+        (add [a b] {:cents (+ (:cents a) (:cents b))}))
 ;; (+ usd eur) does not check: IAdd is Self, & Self -> Self, there is no mixed arithmetic
 
 (defn scale [m n] {:cents (* (:cents m) n)})
@@ -51,10 +51,10 @@
 (deftype Order [::id ::lines ::status ::total ::p/id])
 
 (deftype CheckoutError
-  [:enum
-   [:out-of-stock [:map [:sku Sku] [:left :int]]]
-   [:card-declined :string]
-   [:empty-cart]])
+         [:enum
+          [:out-of-stock [:map [:sku Sku] [:left :int]]]
+          [:card-declined :string]
+          [:empty-cart]])
 
 
 ;;; ── Pure core: rows, modes, refinements ────────────────────────────────────
@@ -96,8 +96,8 @@
   (title    [x] {:eff #{} :default (fn [x] (str (type-name x)))}))
 
 (extend Cart Describe
-  (describe [c] (str (title c) ": " (count (::lines c)) " lines"))
-  (title    [c] (str "cart, " ((default title) c))))   ; the default stays callable: it is a value
+        (describe [c] (str (title c) ": " (count (::lines c)) " lines"))
+        (title    [c] (str "cart, " ((default title) c))))   ; the default stays callable: it is a value
 
 (deftype CouponCode {:opaque true} [[:code :string]])
 (defn coupon [s] (CouponCode/make {:code (str/upper-case s)}))
@@ -113,10 +113,10 @@
 ;;; ── Multimethods: dispatch on a sum's tag ──────────────────────────────────
 
 (deftype OrderEvent
-  [:enum
-   [:order/created Order]
-   [:order/paid    [:map [:payment-id :string] ::total]]
-   [:order/cancelled [:map [:reason :string]]]])
+         [:enum
+          [:order/created Order]
+          [:order/paid    [:map [:payment-id :string] ::total]]
+          [:order/cancelled [:map [:reason :string]]]])
 
 ;; variant: two explicit forms. defmulti is static: its methods see the narrowed payload,
 ;; completeness is checked, it compiles to a switch on the tag.
@@ -190,7 +190,7 @@
 (defn checkout
   "Reserves stock and charges the card; returns the reservation id."
   {:example '[(with [(fake-inventory {"ABC-0001" 5}) (fake-payments :ok)]
-                (checkout (cart-of ["ABC-0001" 2 1500])))
+                    (checkout (cart-of ["ABC-0001" 2 1500])))
               :=> #uuid "00000000-0000-0000-0000-000000000001"]}
   [cart]
   (when (empty? (::o/lines cart))
@@ -208,13 +208,13 @@
 
 (defhandler http-inventory [base-url] Inventory   ; SQL or HTTP lives here, domain rules do not
   (stock [sku]
-    (-> (http/get (str base-url "/stock/" sku)) :body (json/decode [:map [:left :int]]) :left))
+         (-> (http/get (str base-url "/stock/" sku)) :body (json/decode [:map [:left :int]]) :left))
   (reserve! [lines]
-    (-> (http/post (str base-url "/reservations") {:body (json/encode lines)})
-        :body (json/decode [:map [:id :uuid]]) :id))
+            (-> (http/post (str base-url "/reservations") {:body (json/encode lines)})
+                :body (json/decode [:map [:id :uuid]]) :id))
   (release! [id]
-    (http/delete (str base-url "/reservations/" id))
-    nil))
+            (http/delete (str base-url "/reservations/" id))
+            nil))
 ;; => [:=> [:string] (Handler Inventory) {:eff #{Net Async [Fail [:or http/Error [:invalid ...]]]}}]
 
 (defhandler fake-inventory [stock] Inventory
@@ -230,13 +230,13 @@
 
 (defn handle-checkout [req]
   (handle (checkout (as Cart (json/read cart-json (:body req))))
-    (return [id] {:status 201 :body {:reservation id}})
-    (fail [e]    {:status (if (= (first e) :invalid) 400 409) :body e})))
+          (return [id] {:status 201 :body {:reservation id}})
+          (fail [e]    {:status (if (= (first e) :invalid) 400 409) :body e})))
 ;; => [:=> [[:map [:body :string] & r]] Response {:eff #{Inventory Payments Async}}]
 
 (defn schedule-sync [cart-id]
   (Scheduler/later 5000
-    (capture [Inventory Log] (fn [] (sync-cart cart-id)))))
+                   (capture [Inventory Log] (fn [] (sync-cart cart-id)))))
 ;; variant: handlers resolve at call time by default; capture binds service handlers at creation.
 ;; Capturing a control effect (Fail, Async) is a compile error.
 
@@ -309,7 +309,7 @@
          (http-inventory (env/get "INVENTORY_URL"))
          (stripe-payments (env/get "STRIPE_KEY"))
          (stdout-log)]
-    (http/serve {:port 8080} handle-checkout)))
+        (http/serve {:port 8080} handle-checkout)))
 ;; a dependency that starts writing files is an error naming the chain that requires it
 
 

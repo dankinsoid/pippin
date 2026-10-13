@@ -137,8 +137,7 @@ open is collected in [docs/open.md](docs/open.md).
 ## Merry
 
 Merry is a sketch of a static language of the Clojure family over the same runtime — Kotlin next to Java,
-Gleam next to Elixir. The name: Merry is Pippin's cousin, the careful one who plans ahead; Pippin is curious
-and acts first.
+Gleam next to Elixir.
 
 Two reasons to want it. Pippin's speed has a ceiling the facts cannot break: uniform tagged values,
 megamorphic sites, lazy seqs, number promotion, vars. And a soft compiler guarantees nothing — one unknown
