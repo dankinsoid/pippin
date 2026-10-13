@@ -377,13 +377,17 @@ class Bench:
 					if r and r.get("median_ms") is not None:
 						rs = runs.setdefault(side.prefix + mode, [])
 						rs.append(r)
-						got[side.name] = r["median_ms"]
+						# The pairs compare fastest iterations: an A/A run on the shared runner put their ratio's
+						# interval at half the width of the medians' (docs/notes/benchmarks.md).
+						got[side.name] = r.get("min_ms")
+						mins = [x["min_ms"] for x in rs if x.get("min_ms") is not None]
 						# A side's number is the median over repetitions of each run's median.
 						res[side.prefix + mode] = dict(
 							rs[0], median_ms=statistics.median(x["median_ms"] for x in rs), runs=len(rs),
+							min_ms=statistics.median(mins) if mins else None,
 							expected=next((x.get("expected") for x in rs if x.get("expected") != "same"), rs[0].get("expected")))
 					yield
-				if "base" in got and "head" in got:
+				if got.get("base") and got.get("head"):
 					pairs[mode].append((got["base"], got["head"]))
 		for side in self.sides:
 			u = units[side.name]
@@ -620,16 +624,29 @@ AB_COUNTERS = [("allocs", "alloc"), ("MB", "alloc_bytes"), ("frees", "free"), ("
                ("token used", "token_used")]
 
 
+def median_interval(sorted_values):
+	"""(lo, hi, coverage): the sign test's distribution-free interval for the median, the narrowest pair of order
+	statistics covering it with probability >= 90 %, or the extremes when no pair reaches that."""
+	n = len(sorted_values)
+	k, below = 1, 1.0 / 2 ** n
+	while k < n // 2 and 2 * (below + math.comb(n, k) / 2 ** n) <= 0.10:
+		below += math.comb(n, k) / 2 ** n
+		k += 1
+	return sorted_values[k - 1], sorted_values[n - k], 1 - 2 * below
+
+
 def ab_section(b, add):
 	base, head = b.base, b.head
 	add("## Same runner: head %s against base %s %s" % (head.rev[:10], b.args.base, base.rev[:10]))
 	add("")
+	full = median_interval(list(range(b.args.reps)))[2] if b.args.reps > 1 else None
 	add("Both trees built and run in this job, the head's workload sources on both; %d repetitions, each running every "
 	    "mode on both sides back to back, the base first in even repetitions and the head first in odd ones. A cell "
-	    "is the median over the pairs of head ms / base ms, each side's ms the run's own median iteration, with the "
-	    "smallest and largest pair's ratio in brackets: the spread is the noise of this runner over these "
-	    "repetitions, and a median inside an A/A run's spread is no change. *geomean* is over the workloads with "
-	    "every pair present." % b.args.reps)
+	    "is the median over the pairs of head / base, each side's number the run's fastest iteration, and in brackets "
+	    "the sign test's interval for that median (%s coverage with every pair present; the pair count follows when "
+	    "one is missing). `*` marks an interval without 1.000: a change, or the %s chance a cell of an A/A run takes. "
+	    "*geomean* is over the workloads with every pair present." % (
+		    b.args.reps, "%.0f %%" % (100 * full) if full else "no", "%.0f %%" % (100 * (1 - full)) if full else "full"))
 	add("")
 	add("| workload | " + " | ".join(TIMED_LABEL[m] for m in TIMED) + " |")
 	add("|---|" + "---:|" * len(TIMED))
@@ -638,26 +655,29 @@ def ab_section(b, add):
 		r = b.results[w]
 		cells = []
 		for mode in TIMED:
-			ratios = [h / bs for bs, h in r.get("pairs", {}).get(mode, []) if bs]
+			ratios = sorted(h / bs for bs, h in r.get("pairs", {}).get(mode, []))
 			if not ratios:
 				cells.append("—")
 				continue
 			med = statistics.median(ratios)
+			lo, hi, _ = median_interval(ratios)
 			if len(ratios) == b.args.reps:
 				logs[mode].append(math.log(med))
-			cells.append("%.3f [%.3f–%.3f]%s" % (med, min(ratios), max(ratios),
-			                                    "" if len(ratios) == b.args.reps else " (%d pairs)" % len(ratios)))
+			cells.append("%.3f [%.3f–%.3f]%s%s" % (med, lo, hi, "*" if lo > 1 or hi < 1 else "",
+			                                      "" if len(ratios) == b.args.reps else " (%d)" % len(ratios)))
 		add("| %s | %s |" % (w, " | ".join(cells)))
 	add("| *geomean* | %s |" % " | ".join("%.3f" % math.exp(sum(v) / len(v)) if v else "—" for v in logs.values()))
 	add("")
-	add("Medians in ms, base → head:")
+	add("ms, base → head: the median over the repetitions of each run's fastest iteration (the pairs' number), then of "
+	    "each run's median iteration (the main table's):")
 	add("")
 	add("| workload | " + " | ".join(TIMED_LABEL[m] for m in TIMED) + " |")
 	add("|---|" + "---:|" * len(TIMED))
 	for w in b.args.only:
 		r = b.results[w]
-		add("| %s | %s |" % (w, " | ".join("%s → %s" % (fmt(median_of(r.get("base-" + m))), fmt(median_of(r.get(m))))
-		                                   for m in TIMED)))
+		add("| %s | %s |" % (w, " | ".join("%s → %s; %s → %s" % (
+			fmt((r.get("base-" + m) or {}).get("min_ms")), fmt((r.get(m) or {}).get("min_ms")),
+			fmt(median_of(r.get("base-" + m))), fmt(median_of(r.get(m)))) for m in TIMED)))
 	add("")
 	for kind in ("closed-stats", "dev-stats"):
 		add("Counters per iteration, %s build (`-DCLJ_STATS=1`): the head's value, its change against the base in "
