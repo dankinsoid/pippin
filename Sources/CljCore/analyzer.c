@@ -602,7 +602,7 @@ static bool symbol_is(clj_value sym, const char *name) {
 
 typedef enum {
 	SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_RECUR, SP_VAR, SP_TRY, SP_THROW,
-	SP_SET, SP_CATCH, SP_FINALLY, SP_RESERVED
+	SP_SET, SP_NEW, SP_CATCH, SP_FINALLY, SP_RESERVED
 } special;
 
 static const struct {
@@ -612,7 +612,7 @@ static const struct {
 	// let/loop/fn are core.clj macros over the starred forms (destructuring), defmacro a core.clj macro over def.
 	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let*", SP_LET},    {"loop*", SP_LOOP},
 	{"fn*", SP_FN},      {"def", SP_DEF},   {"recur", SP_RECUR}, {"var", SP_VAR},
-	{"try", SP_TRY},     {"throw", SP_THROW},  {"set!", SP_SET},
+	{"try", SP_TRY},     {"throw", SP_THROW},  {"set!", SP_SET},      {"new", SP_NEW},
 	// Clause heads and `&` in params: not forms of their own, but syntax-quote must keep them unqualified.
 	{"catch", SP_CATCH}, {"finally", SP_FINALLY}, {"&", SP_RESERVED},
 };
@@ -1237,17 +1237,8 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 	return node;
 }
 
-// The type of a (Name. args*) head, owned, or nil: a JVM class does not resolve, so it stays unresolved.
-static clj_value ctor_head_type(const analyzer *a, clj_value v) {
-	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return CLJ_NIL;
-	clj_value   name = clj_symbol_name(v);
-	size_t      len = clj_string_len(name);
-	const char *bytes = CLJ_STR(name).bytes;
-	if (len < 2 || len > 250 || bytes[len - 1] != '.' || bytes[0] == '.') return CLJ_NIL;
-	char stem_bytes[256];
-	memcpy(stem_bytes, bytes, len - 1);
-	stem_bytes[len - 1] = '\0';
-	clj_value stem = clj_symbol_from_cstr(stem_bytes);
+// stem, consumed, when it names a type of ours, else nil.
+static clj_value user_type_named(const analyzer *a, clj_value stem) {
 	clj_value var = clj_ns_resolve(a->env.ns, stem);
 	// Unbound is the type's own name, declared before it is defined; any other value is a boxed JVM class.
 	clj_value root = clj_is_nil(var) ? CLJ_NIL : clj_var_root(var);
@@ -1258,6 +1249,19 @@ static clj_value ctor_head_type(const analyzer *a, clj_value v) {
 	}
 	clj_release(var);
 	return stem;
+}
+
+// The type of a (Name. args*) head, owned, or nil: a JVM class does not resolve, so it stays unresolved.
+static clj_value ctor_head_type(const analyzer *a, clj_value v) {
+	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return CLJ_NIL;
+	clj_value   name = clj_symbol_name(v);
+	size_t      len = clj_string_len(name);
+	const char *bytes = CLJ_STR(name).bytes;
+	if (len < 2 || len > 250 || bytes[len - 1] != '.' || bytes[0] == '.') return CLJ_NIL;
+	char stem_bytes[256];
+	memcpy(stem_bytes, bytes, len - 1);
+	stem_bytes[len - 1] = '\0';
+	return user_type_named(a, clj_symbol_from_cstr(stem_bytes));
 }
 
 // A head symbol of the (.method target args*) form: a lone . is reserved, and a namespace is not a method.
@@ -1564,6 +1568,16 @@ static clj_node *analyze_ctor(analyzer *a, scope *s, clj_value type_sym, const c
 	return node;
 }
 
+// (new Name args*) is (Name. args*); the JVM's message for a class that does not resolve.
+static clj_node *analyze_new(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
+	if (n < 2) return fail(a, "Wrong number of args (%u) passed to new", n - 1);
+	clj_value type_sym = is_unqualified_symbol(items[1]) ? user_type_named(a, clj_retain(items[1])) : CLJ_NIL;
+	if (clj_is_nil(type_sym)) return fail_form(a, "Unable to resolve classname: %s", items[1]);
+	clj_node *node = analyze_ctor(a, s, type_sym, items + 1, n - 1);
+	clj_release(type_sym);
+	return node;
+}
+
 static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tail) {
 	clj_value expanded = expand_all(a, s, form);
 	if (expanded == CLJ_THROWN) return NULL;
@@ -1590,7 +1604,8 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_TRY: node = analyze_try(a, s, items, n); break;
 	case SP_THROW: node = analyze_throw(a, s, items, n); break;
 	case SP_SET: node = analyze_set_bang(a, s, items, n); break;
-	case SP_CATCH: node = fail(a, "catch outside try"); break;
+	case SP_NEW: node = analyze_new(a, s, items, n); break;
+	case SP_CATCH:node = fail(a, "catch outside try"); break;
 	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:
 	case SP_RESERVED: {

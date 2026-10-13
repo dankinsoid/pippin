@@ -47,7 +47,8 @@ clj_value clj_protocol_method_impl(clj_value method, clj_value v);
 
 // (.name x args) on a deftype, record or reify instance: its own protocol method named name, else -name (the
 // protocol convention), called with x first — a deftype's methods are its class's methods on the JVM. The
-// selector's base is what precedes its first ':'. CLJ_UNBOUND when the type has neither.
+// selector's base is what precedes its first ':'. (.-field x) reads the field of that name first, as the JVM's field
+// access does. CLJ_UNBOUND when the type has neither.
 clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs);
 
 // Throws "No implementation of method: ..." for v.
@@ -101,6 +102,7 @@ typedef struct {
 	clj_slot  name;   // string; t.name points into it
 	clj_slot  fields; // vector of symbols
 	uint32_t  nfields;
+	bool      reified; // its fields hold the method closures, named after the methods: no field to read
 	clj_slot  core_fns[CLJ_CORE_METHOD_COUNT]; // the fn behind each core slot, nil where not given; written at creation only
 } clj_user_type;
 

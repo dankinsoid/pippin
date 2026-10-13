@@ -283,7 +283,11 @@
   than reaching `new*`: those names are bound here, to a boxed-class namespace or a host type. Unbound
   counts because `deftype` declares the name before it defines it, so a method body may construct its own
   type. Libraries write their own types this way — `com.stuartsierra.dependency` has `MapDependencyGraph.`
-  and nothing else to fix — and `->Name` stays the factory the expansion itself uses.
+  and nothing else to fix — and `->Name` stays the factory the expansion itself uses. `(new Name args)` is the
+  same rewrite under the same condition (`analyze_new`), and `new` is a special symbol, so syntax-quote keeps it
+  unqualified and `special-symbol?` answers true as on the JVM: datascript's parser records build themselves
+  with `(new ~tagname ...)` inside a macro. A name that is no type of ours is the JVM's "Unable to resolve
+  classname".
 - **A qualified symbol no var answers resolves to a host type outside `catch` too**, which is what makes
   `(derive Foundation/URLError ::network)` the ordinary `derive` it is in §4 — the JVM resolves a classname
   the same way, after the namespace map. `analyze_symbol` tries the resolver only after `clj_ns_resolve`
