@@ -131,6 +131,37 @@
   - [ ] Hermes newer than React Native 0.75's: 0.76 and on ship Hermes inside React Native without a CLI, and Hermes
     V1 (static Hermes) is a source build of `facebook/hermes` at the tag React Native pins (CMake and Ninja, the
     `hermes` target, cacheable by the tag). Trigger: a decision that rests on `closed/hermes`.
+- **Dart references (`cljd-aot`, `cljd-jit`, `dart-aot`; `scripts/corpus_refs_dart.py`, `bench/workloads/cljd`,
+  `bench/workloads/dart`).** Flutter's runtime beside Hermes: Dart compiled ahead, as a Flutter release build ships
+  (`dart compile exe`, *aot*), and on the VM's JIT from kernel, as a debug build runs (`dart compile kernel`, then
+  `dart <entry>.dill`, *jit*). All three are in the default `--refs`; their table, "References: ClojureDart and
+  idiomatic Dart", has each one's warm, 1st and cold, `closed/cljd` (against the AOT), `closed/dart` and `cljd/dart`,
+  the verdicts and every printed result that differs from the JVM's. Built before the workloads, outside every time.
+  - **ClojureDart** 0.9.20261002 (sha 247b3c2, a git dep of the Clojure CLI) compiles every workload into one Dart
+    project, an entry namespace and a `bin/` file per workload, in one `cljd.build compile`; then each entry is one
+    executable and one kernel file. The harness (`bench/workloads/cljd/src/bench/harness.cljd`) prints jvm.clj's
+    lines from a `Stopwatch`; the AOT takes our policy (one iteration, then >= 3 and >= 2 s, at most 30), the JIT
+    jvm.clj's. The nine data workloads compile unchanged but one sort in suite-data; the three async ones are n/a:
+    ClojureDart has no core.async (its concurrency is Dart's Futures and Streams).
+  - The corpus libraries compile from a patched copy (`CLJD_PATCHES`): a `:cljd` arm put first in a reader
+    conditional, or a form replaced, each anchored on its exact text so an upstream change fails the build. What a
+    workload calls keeps its algorithm. The language gaps they record: ClojureDart reads only `:cljd` and `:default`,
+    and the three libraries keep host code under `:clj` or `:default` (`java.util.ArrayList`, `clojure.lang`
+    classes, `Long/valueOf`, `Long/MAX_VALUE`, a macro defined for `:clj` only); `instance?` takes a literal Dart
+    type; there is no PersistentQueue, no `*'`/`+'` and no bigint (a Dart int wraps past 2^63, which no workload value
+    reaches); a record's positional constructor takes meta, extmap and hash too (`(R. a b nil {} -1)`; `->R` does
+    not); a required `clojure.x` resolves to `cljd.x`, so math.combinatorics is copied under that name; and a `defn`
+    inside `letfn` compiles to Dart naming the letfn's fn out of its scope (medley's map-padded: `first*` goes top
+    level).
+  - suite-data's `(sort > (map ...))` sorts `(vec (map ...))` on ClojureDart: its `to-array` of a seq, which `sort`
+    calls, took 0.3 ms per element on the Intel dev Mac (0.8 s for 3000, realized or not; a vector's goes through
+    `List.toList` in microseconds), so unchanged the sort was 50 s of a 51 s iteration, past the run timeout under
+    either policy. Its other `sort`s and every other workload are the source.
+  - The idiomatic ports (`dart-aot`) follow the fairness contract below.
+  - CI: `scripts/corpus-refs-install.sh` fetches the Dart SDK 3.13.5 zip of the runner's architecture against a
+    pinned sha256 into the references' cache; ClojureDart's jars go to `CORPUS_BENCH_M2`, its git checkout to
+    `GITLIBS` and its analyzer helper's pub packages to `PUB_CACHE`, all under `~/.cache/corpus-bench-refs`. The
+    helper is a `dart pub add analyzer` in the project, so a cold cache needs pub.dev.
 - **Hand-ported references (`swift`, `dart`): the fairness contract.** Beside the references that run the workloads'
   own sources, the nine data workloads are hand-ported to the languages iPhone apps are written in, to answer how
   much a program loses against what a native developer of that platform writes. Every port keeps to:
@@ -189,6 +220,44 @@
       `record?`/`satisfies?` a dynamic `is any Shape` on the boxed value, the multimethod an enum switch; the sorted
       map a `Dictionary` whose keys are sorted once at the end (the standard library has no sorted map); flatten a
       recursive enum walk.
+  - **dart** (`dart-aot`; `scripts/corpus_refs_dart.py`, `bench/workloads/dart`): one executable per workload from
+    `dart compile exe`, the harness and the EDN printer in `lib/`, the port in `bin/<name>.dart`, Dart 3 (sealed
+    classes, records, switch expressions). Judgment calls:
+    - all: a Dart `int` is 64-bit like a long, and a `String`'s `length` and `substring` count UTF-16 units like
+      Java's; Dart's `List.sort` is not stable where Clojure's is, and no sort here has ties.
+    - medley: a `Rec` class, its tag sets one `const` set per literal; map-vals and the filters are `Map.map` and
+      `Map.fromEntries` over `where`; deep-merge is a class merge (`n` overwritten, the tags a set); the nested
+      `{g {:n}}` map stays a `Map<int, Map<String, int>>`, and pruned is a copy of it, as the source reads both
+      versions; interleave-all a `sync*` generator over iterators; greatest-by is nil, as for Swift.
+    - combinatorics: the library's algorithms the workload reaches (lex permutations, index-combinations, algorithm H
+      with `:min`/`:max`, the odometer cartesian-product, nth-permutation by factorial digits,
+      nth-combination-distinct with n-take-k) as `sync*` iterables over mutable lists, a new list per element. The
+      dispatch (`sorted-numbers?`, `all-different?`) and the asserts are ported, the asserts as explicit checks (a Dart
+      `assert` is compiled out of an AOT build); a partition's parts stay lazy iterables, as the source's `map`
+      leaves them, so `length` builds only the groups; a branch no workload reaches throws `UnimplementedError`.
+    - dependency: a `Graph` class of maps of sets with mutating methods; `depend` checks circularity with the full
+      transitive closure as the source does, its worklist a stack (the same set); topo-sort works on a copy and the
+      pruned graph is one, where the source keeps persistent versions; remove-all walks every set as
+      `remove-from-map` does, without rebuilding the maps.
+    - nested-update: the state as classes with nullable fields, `fnil` and `keep` a `?? 0`; the 100-entry log drops
+      its head with `removeAt(0)` where the source takes a `subvec`.
+    - group-freq: a `Person` class; group-by a `putIfAbsent` helper, its groups counted after; the (city, decade) key a
+      record; merge-with over one-entry maps is `+=` into one map; the sorted maps `SplayTreeMap`s.
+    - pipelines: the lazy seqs and transducers are `Iterable` chains (`map`, `where`, `expand`, `fold`; lazy, no
+      intermediate list where the source has none), the `{:k :v}` maps a record; partition-all a `getRange` per 16;
+      iterate, dedupe, reductions, the `rseq` pairing, the first difference and reduce-kv are loops, which the library
+      lacks; distinct is `toSet`.
+    - strings: `split(',')` and `split('\n')` (the text has no `\r`), `replaceAll` with a string and with a
+      `RegExp`, `trim`, reverse as `split('').reversed.join()`, capitalize by hand; the growing string is rebuilt by
+      interpolation as `str` copies.
+    - render: sealed `Node` classes, the attributes a map sorted at render; each node renders to its own string and
+      its parent joins them, as the source's `str` does; escaping is dart:convert's `HtmlEscape` in a mode that
+      escapes exactly `<`, `>`, `&` and `"`.
+    - suite-data: sealed `Shape` classes for the protocol and records, sealed `Figure` classes and a switch for the
+      multimethod and the field-by-name reads; `record?`/`satisfies?` a `whereType` over the list as `Object`s;
+      set/index groups the 300 figures by kind into identity sets (all distinct, so the count is the same); the
+      sorted map a `SplayTreeMap`; postwalk a typed copy with each figure's fields incremented; flatten a recursive
+      `sync*` generator.
 - [ ] **Where the compiled program's time goes, ranked** (three `corpus-bench` runs, bench/RESULTS.md "Corpus
   workloads"; the shares are self time of the closed build on the nine data workloads, the counters per iteration).
   The program's own compiled code is 0.7–4.5 % of the samples and the compiled core 3–11 %; the rest is the runtime
