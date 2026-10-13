@@ -9,8 +9,12 @@ import shutil
 import subprocess
 import time
 
-REFS = ["jvm", "bb", "cljs-node", "cljs-hermes"]
-REF_LABEL = {"jvm": "JVM", "bb": "bb", "cljs-node": "cljs-node", "cljs-hermes": "cljs-hermes"}
+import corpus_swift
+
+REFS = ["jvm", "bb", "cljs-node", "cljs-hermes", "swift"]
+REF_LABEL = {"jvm": "JVM", "bb": "bb", "cljs-node": "cljs-node", "cljs-hermes": "cljs-hermes", "swift": "swift"}
+# Hand-ported sources rather than the workloads' own: each module builds, checks and reports its port.
+PORTS = {"swift": corpus_swift}
 CLJS_VERSION = "1.12.145"
 CLJS_DEPS = ('{:deps {org.clojure/clojurescript {:mvn/version "%s"} org.clojure/core.async {:mvn/version '
              '"1.6.681"}}}' % CLJS_VERSION)
@@ -69,6 +73,8 @@ class Refs:
 				m = re.search(r"Hermes release version: (\S+).*?HBC bytecode version: (\d+)", p.stdout, re.S)
 				self.versions[ref] = "Hermes %s, bytecode %s" % m.groups() if m else p.stdout[:120]
 				ready.append(ref)
+			if ref in PORTS and self.find(PORTS[ref].TOOL, ref) and PORTS[ref].build(self, workloads):
+				ready.append(ref)
 		self.refs = [r for r in self.refs if r == "jvm" or r in ready]
 		if any(r.startswith("cljs-") for r in self.refs):
 			if not self.build_cljs([w for w in workloads if w not in CLJS_NA]):
@@ -78,6 +84,9 @@ class Refs:
 				for ref in self.refs:
 					if ref.startswith("cljs-"):
 						self.na[(ref, w)] = CLJS_NA[w]
+			for ref in self.refs:
+				if ref in PORTS and w in PORTS[ref].NA:
+					self.na[(ref, w)] = PORTS[ref].NA[w]
 
 	def build_cljs(self, workloads):
 		"""One :advanced bundle per workload (bench/workloads/cljs/build.clj), and for Hermes its bytecode."""
@@ -136,6 +145,8 @@ class Refs:
 
 	def cmd(self, ref, w, once):
 		root = self.root
+		if ref in PORTS:
+			return PORTS[ref].cmd(self, w, once)
 		if ref == "bb":
 			cp = ":".join(os.path.join(root, p) for p in self.load_path)
 			return ["bb", "-cp", cp, os.path.join(root, "bench/workloads/jvm.clj"), "workloads." + w] + (["once"] if once else [])
@@ -160,6 +171,8 @@ class Refs:
 			return None
 		r = self.parse(p.stdout)
 		r["process_ms"] = ms
+		if ref in PORTS:
+			r["expected"] = PORTS[ref].verdict(self.root, w, r.get("result"))
 		r["clock_hires"] = "clock_hires false" not in p.stdout
 		return r
 
@@ -178,8 +191,15 @@ class Refs:
 
 
 def section(b, refs, add, fmt, median_of):
+	clj_section(b, refs, add, fmt, median_of)
+	for ref in refs.others():
+		if ref in PORTS:
+			PORTS[ref].section(b, refs, add, fmt, median_of)
+
+
+def clj_section(b, refs, add, fmt, median_of):
 	"""The References table: each reference's warm, 1st and cold, our builds against them, and the result check."""
-	others = refs.others()
+	others = [r for r in refs.others() if r not in PORTS]
 	if not others:
 		return
 	add("## References: babashka and ClojureScript")
@@ -244,7 +264,8 @@ def section(b, refs, add, fmt, median_of):
 	if coarse:
 		add("Timed by `Date.now` (1 ms; the Hermes CLI has no `performance.now`): " + ", ".join(coarse) + ".")
 		add("")
-	add("Wall time of the references: " + ", ".join("%s %.1f min" % (k, v / 60) for k, v in refs.cost.items() if v) + ".")
+	add("Wall time of the references: " + ", ".join("%s %.1f min" % (k, v / 60) for k, v in refs.cost.items()
+	                                               if v and k not in PORTS and k.split("-")[0] not in PORTS) + ".")
 	add("")
 
 

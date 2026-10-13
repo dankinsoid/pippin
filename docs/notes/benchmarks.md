@@ -97,8 +97,8 @@
     workers).
 - **Reference runtimes (`--refs`; `scripts/corpus_refs.py`, `bench/workloads/cljs`).** Beside the JVM, each workload
   runs once per job (not per `--base` pair) on babashka, the reference for *interp*, and as ClojureScript on Node and
-  on Hermes, React Native's engine, which is what this runtime competes with on an iPhone. `--refs=jvm,bb,cljs-node,cljs-hermes`
-  is the default; a comma list narrows it (`CORPUS_BENCH_ARGS=--refs=jvm`), and `--skip-jvm` drops `jvm`. The report's
+  on Hermes, React Native's engine, which is what this runtime competes with on an iPhone, and the hand-ported Swift
+  below. `--refs=jvm,bb,cljs-node,cljs-hermes,swift` is the default; a comma list narrows it (`CORPUS_BENCH_ARGS=--refs=jvm`), and `--skip-jvm` drops `jvm`. The report's
   "References" table has each one's warm, 1st and cold, `closed/bb`, `interp/bb`, `closed/node`, `closed/hermes`
   (ours over theirs), its `=` verdict against `expected`, and below it every printed result that differs from the JVM's.
   - **bb** runs `bench/workloads/jvm.clj` and the sources unchanged (`bb -cp <the load path>`), core.async included:
@@ -131,6 +131,63 @@
   - [ ] Hermes newer than React Native 0.75's: 0.76 and on ship Hermes inside React Native without a CLI, and Hermes
     V1 (static Hermes) is a source build of `facebook/hermes` at the tag React Native pins (CMake and Ninja, the
     `hermes` target, cacheable by the tag). Trigger: a decision that rests on `closed/hermes`.
+- **Hand-ported references (`swift`, `dart`): the fairness contract.** Beside the references that run the workloads'
+  own sources, the nine data workloads are hand-ported to the languages iPhone apps are written in, to answer how
+  much a program loses against what a native developer of that platform writes. Every port keeps to:
+  - the same algorithm, inputs and output: the same deterministic generator with its integer arithmetic matched
+    exactly (wrapping where the JVM wraps), and the printed result compared with the workload's `expected` literal,
+    the JVM's `pr-str`, so *same result* is a string equality (doubles printed as Java prints them);
+  - the platform's idiomatic data structures, expected rather than tolerated: value types, structs and enums, the
+    standard collections and string APIs as a developer of the platform uses them. No algorithmic shortcut the source
+    lacks: nothing cached across iterations or precomputed, no work skipped, each iteration building its data from
+    scratch as `run` does;
+  - written as a competent app developer writes it, not micro-optimized: no unsafe pointers, no manual memory
+    tricks. Where the platform has two common APIs for one operation, the faster, as a developer who profiled once
+    would pick. Every judgment call is named per workload below;
+  - the async workloads are n/a: structured concurrency, actors or isolates would be a different program from
+    core.async's channels and go blocks;
+  - timing is our AOT policy (one iteration, then >= 3 and >= 2 s, at most 30), each iteration's printed result
+    compared with the first outside the timed span, which also keeps the work live; *1st* and *cold* as for the
+    other references.
+  - **swift** (`scripts/corpus_swift.py`, `bench/workloads/swift`): one binary per workload from `swiftc -O -wmo`
+    (a release build: optimized, whole-module), the harness in `harness/` and the port in `workloads/<name>.swift`,
+    built before the workloads and outside every time; its own report table, "Idiomatic Swift", with `closed/swift`
+    and `interp/swift`. Judgment calls:
+    - all: Clojure's `count` and `subs` of a string are Java's UTF-16 length and indexes, so the ports count
+      `utf16.count` (O(1) on an ASCII native string) and slice by UTF-16 offsets; `count` would walk graphemes.
+    - medley: a `Record` struct; `#{:a :b}` and `#{:c}` are one shared `Set` each, as the literal is one value;
+      deep-merge is a struct merge (`:n` overwritten, `:tags` merged), update-existing-in an optional-chained `+=`.
+      The source calls greatest-by with the seq as its only argument, which returns it unrealized: `(:score best)`
+      is nil, and neither side does work for it.
+    - combinatorics: the library's algorithms for the cases the workload calls (lex permutations, index-combinations,
+      algorithm H with `:min`/`:max`, the odometer cartesian-product, nth-permutation by factorial digits,
+      nth-combination-distinct) as iterators, one array per element. The library's type dispatch (`sorted-numbers?`,
+      `all-different?`) is not ported; partitions builds each partition's groups, which the library leaves as lazy
+      seqs that `count` never realizes.
+    - dependency: a value-type graph with mutating methods; `depend` throws, its circularity check computing the full
+      transitive closure as the source does. The closure's worklist is a stack where the source appends to a lazy
+      `concat` (the same set, the same pushes); topo-sort pops its todo set in place where the source rebuilds it with
+      `(set more)`; remove-all rebuilds both maps as the source does.
+    - nested-update: the state as structs; a key the source reads through `fnil`, a `get-in` default or `keep` then
+      `+` is a field defaulting to 0 or `[]`; the 100-entry log drops its head with `removeFirst` (a shift of 99)
+      where the source takes a `subvec`.
+    - group-freq: a `Person` struct, a `Hashable` struct for the (city, decade) key, `Dictionary(grouping:by:)` for
+      group-by; merge-with over one-entry maps is `+=` into one dictionary; the sorted maps of the result are
+      dictionaries sorted when printed.
+    - pipelines: the lazy seqs and the transducers are `.lazy` chains (no intermediate array, as neither
+      materializes one), partition-all's partitions `ArraySlice`s, the `{:k :v}` maps a struct; dedupe and
+      reductions are loops, which the standard library lacks.
+    - strings: `split(separator:)`, `firstRange(of:)` for index-of, Foundation's `trimmingCharacters(in:)`, and
+      Foundation's `replacingOccurrences` for both the string and the regex replace: the standard library's
+      `replacing` and Swift Regex took 5× and 10× as long in a one-off run on the Intel dev Mac (37 and 152 ms of a
+      309 ms iteration). The growing string appends in place where Clojure's `str` copies.
+    - render: hiccup as an indirect enum, attributes a `[String: String]` sorted at render; each node renders to its
+      own string, which its parent concatenates, as the source does (rendering into one `inout String` would be
+      another algorithm); escape walks `Character`s.
+    - suite-data: a protocol over three structs held as `[any Shape]`; the field-by-name reads a type switch,
+      `record?`/`satisfies?` a dynamic `is any Shape` on the boxed value, the multimethod an enum switch; the sorted
+      map a `Dictionary` whose keys are sorted once at the end (the standard library has no sorted map); flatten a
+      recursive enum walk.
 - [ ] **Where the compiled program's time goes, ranked** (three `corpus-bench` runs, bench/RESULTS.md "Corpus
   workloads"; the shares are self time of the closed build on the nine data workloads, the counters per iteration).
   The program's own compiled code is 0.7–4.5 % of the samples and the compiled core 3–11 %; the rest is the runtime
