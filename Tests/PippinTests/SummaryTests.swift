@@ -127,6 +127,7 @@ extension CoreTests {
 			    (require 'clojure.core.async)
 			    (def sum-chan (clojure.core.async/chan))
 			    (defn sum-parks [_] (clojure.core.async/<! sum-chan))
+			    (def ^:dynamic *sum-dyn* nil)
 			    (defn sum-inc [x] (inc x))
 			    (defn sum-len [xs] (count xs))
 			    (defn sum-pred [x] (nil? x))
@@ -284,6 +285,8 @@ extension CoreTests {
 				defer { clj_summaries_free(store) }
 				#expect(try Summarized("(fn [] sum-atom)", store: store).fact(CLJ_NODE_VAR) == "atom/never")
 				#expect(try Summarized("(fn [] sum-inc)", store: store).fact(CLJ_NODE_VAR) == "fn/never")
+				// a binding moves no epoch: the root is no answer for a dynamic var
+				#expect(try Summarized("(fn [] *sum-dyn*)", store: store).fact(CLJ_NODE_VAR) == "⊤/maybe")
 				#expect(try Summarized("(fn [x] (sum-len x))", store: store).fact(CLJ_NODE_INVOKE) == "fixnum/never")
 				#expect(try Summarized("(fn [x] (sum-fact x))", store: store).fact(CLJ_NODE_INVOKE) == "fixnum|long|bigint|ratio|decimal|double/never")
 				// the requirement narrows the argument and the slot behind it
@@ -514,9 +517,10 @@ extension CoreTests {
 			}
 			let total = Int(clj_facts_nsignatures())
 			#expect(expressible == total - transfer.count - gaps.values.reduce(0) { $0 + $1.count })
-			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (154, 201, 16, 31),
+			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (151, 201, 19, 31),
 			        Comment(rawValue: "\(expressible) of \(total), \(transfer.count) transfer, gaps \(gaps.values.reduce(0) { $0 + $1.count })"))
-			#expect(Set(transfer) == ["+", "-", "*", "/", "quot", "rem", "inc", "dec", "conj", "assoc", "into", "with-meta", "vary-meta", "dissoc", "disj", "empty"])
+			#expect(Set(transfer) == ["+", "-", "*", "/", "quot", "rem", "inc", "dec", "conj", "assoc", "into", "with-meta", "vary-meta", "dissoc", "disj", "empty",
+			                          "seq", "next", "rest"])
 			// the kinds the vocabulary has no tag for (NOTES.md "Facts" lists them): design §3's vocabulary gap, not a second mechanism
 			let gapFacts = Set(gaps.keys)
 			#expect(gapFacts == ["array/never", "atom/never", "char/never", "fixnum/never", "map/never", "regex/never", "set/never",

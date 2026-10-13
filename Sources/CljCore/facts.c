@@ -249,7 +249,7 @@ bool clj_facts_value_node(clj_node_kind kind) {
 
 // ---- signatures of the C builtins and intrinsics (why a table of its own: NOTES.md, "Facts")
 
-typedef enum { SIG_FIXED, SIG_ARITH, SIG_DIV, SIG_CONJ, SIG_ASSOC, SIG_SAME, SIG_DISSOC, SIG_EMPTY } sig_rule;
+typedef enum { SIG_FIXED, SIG_ARITH, SIG_DIV, SIG_CONJ, SIG_ASSOC, SIG_SAME, SIG_DISSOC, SIG_EMPTY, SIG_SEQ } sig_rule;
 
 typedef struct {
 	const char *name; // unqualified, in clojure.core
@@ -308,8 +308,10 @@ static const fact_sig sigs[] = {
 	F("every?", 2, CLJ_T_BOOL), F("not-every?", 2, CLJ_T_BOOL), F("not-any?", 2, CLJ_T_BOOL), F("boolean", 1, CLJ_T_BOOL),
 	F("instance?", 2, CLJ_T_BOOL), F("satisfies?", 2, CLJ_T_BOOL), F("extends?", 2, CLJ_T_BOOL), F("isa?", 0, CLJ_T_BOOL),
 	// sequences: every lazy stage answers a seq or nil, the eager ones a seq
-	F("seq", 1, CLJ_T_LIST | CLJ_T_NIL), F("next", 1, CLJ_T_LIST | CLJ_T_NIL), F("keys", 1, CLJ_T_LIST | CLJ_T_NIL),
-	F("vals", 1, CLJ_T_LIST | CLJ_T_NIL), F("rest", 1, CLJ_T_LIST), FK("cons", 2, CLJ_T_LIST), FK("list", 0, CLJ_T_LIST),
+	{"seq", 1, false, SIG_SEQ, CLJ_T_LIST | CLJ_T_NIL, 0, 0, 0, false, false, 0},
+	{"next", 1, false, SIG_SEQ, CLJ_T_LIST | CLJ_T_NIL, 0, 0, 0, false, false, 0}, F("keys", 1, CLJ_T_LIST | CLJ_T_NIL),
+	F("vals", 1, CLJ_T_LIST | CLJ_T_NIL), {"rest", 1, false, SIG_SEQ, CLJ_T_LIST, 0, 0, 0, false, false, 0},
+	FK("cons", 2, CLJ_T_LIST), FK("list", 0, CLJ_T_LIST),
 	FK("list*", 0, CLJ_T_LIST | CLJ_T_NIL), FKN("map", 2, CLJ_T_LIST), FK("filter", 2, CLJ_T_LIST), FK("remove", 2, CLJ_T_LIST),
 	FK("keep", 2, CLJ_T_LIST), FKN("mapcat", 2, CLJ_T_LIST), FK("concat", 0, CLJ_T_LIST), FK("take", 2, CLJ_T_LIST),
 	FK("drop", 2, CLJ_T_LIST), FK("take-while", 2, CLJ_T_LIST), FK("drop-while", 2, CLJ_T_LIST), FK("partition", 0, CLJ_T_LIST),
@@ -1019,6 +1021,9 @@ static clj_fact sig_result(const fact_sig *s, const clj_fact *args, uint32_t n) 
 		uint32_t a = n > 0 ? args[0].types : CLJ_T_TOP;
 		return fact_of((a & CLJ_T_RECORD) ? a | CLJ_T_MAP : a);
 	}
+	case SIG_SEQ:
+		// a deftype's seq, next and rest answer whatever its ISeq methods return, often an instance of its own
+		return fact_of(s->result | (n > 0 ? args[0].types & CLJ_T_HOST : CLJ_T_HOST));
 	case SIG_EMPTY: {
 		// nil for whatever is not a collection, a string included
 		uint32_t a = n > 0 ? args[0].types : CLJ_T_TOP;

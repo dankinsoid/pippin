@@ -199,7 +199,12 @@
   is kind seq). Everything else stood: the numeric rules already promote through ratio and decimal, `/` on
   integers may answer a ratio, and the kind of a deftype that implements `IFn` is host, not fn, so `fn?`'s
   exact refinement holds. The corpus gate (`make facts-report`, `noContradictionOverCoreWithSummaries`) is
-  what keeps this true from here on: zero errors over core.clj, the embedded libs and both corpora.
+  what keeps this true from here on: zero errors over core.clj, the embedded libs and both corpora. Two more
+  came from corpus/datascript, whose port corpus-bench's clj-facts measures: `seq`, `next` and `rest` add host to
+  their seq-or-nil when the argument may be a deftype (`SIG_SEQ`), whose ISeq methods answer what they like —
+  persistent-sorted-set's iterator is a deftype, and its protocol `-seek` on `(seq set)` was a false ⊥; and a
+  read of a dynamic var is ⊤ (`clj_summary_var_fact`), since a `binding` moves no epoch — datascript binds
+  `*implicit-source*` around its queries, whose root nil made `resolve-tuple-refs` a false error.
 - **Var reads and roots, guarded by a var epoch.** `clj_var` counts its root binds (`clj_var_epoch`, 0 while
   never bound, bumped by `clj_var_bind_root`); the summary layer reads roots and metas freely and records
   every var it read, with the epoch it saw, on the entry being computed and on every entry in flight below it
@@ -286,9 +291,9 @@
   summary; the inferred one is still computed and, for a visible body, decides — for an opaque one (a native,
   a compiled closure) the declaration is trusted. `clj_fact_to_schema` is the total embedding back (a kind
   set as `[:or …]` of the widest tags that fit, nullability as `[:maybe …]`, a singleton as `[:= x]`), and
-  `signatureTableRoundTrips` projects every entry of the signature table through it and back: 154 of the
-  201 entries round-trip, 16 are transfer functions (`+ - * / quot rem inc dec conj assoc into with-meta vary-meta
-  dissoc disj empty`: the result is computed from the arguments, which is a function in the result position
+  `signatureTableRoundTrips` projects every entry of the signature table through it and back: 151 of the
+  201 entries round-trip, 19 are transfer functions (`+ - * / quot rem inc dec conj assoc into with-meta vary-meta
+  dissoc disj empty seq next rest`: the result is computed from the arguments, which is a function in the result position
   of `:=>` — out of scope here, the trigger is the comptime evaluator of design §3), and the rest name the
   **vocabulary gaps**, kinds without a tag: *array* (the twelve array constructors, `aclone`, `to-array`,
   and the reason `count`, `nth`, `next`, `rest`, `seq`, `vec` declare `:any` where they mean "seqable" — a
