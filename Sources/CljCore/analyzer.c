@@ -106,7 +106,10 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 		visit(n->u.root_is.expect.v, ctx);
 		break;
 	case CLJ_NODE_INLINE: visit_node(n->u.inline_.body, visit, ctx); break;
-	case CLJ_NODE_LOWERED: visit_nodes(n->u.lowered.args, n->u.lowered.n, visit, ctx); break;
+	case CLJ_NODE_LOWERED:
+		visit_nodes(n->u.lowered.args, n->u.lowered.n, visit, ctx);
+		visit_node(n->u.lowered.split, visit, ctx);
+		break;
 	}
 }
 
@@ -516,7 +519,10 @@ void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx) {
 		break;
 	case CLJ_NODE_ROOT_IS: break;
 	case CLJ_NODE_INLINE: child(n->u.inline_.body, visit, ctx); break;
-	case CLJ_NODE_LOWERED: children(n->u.lowered.args, n->u.lowered.n, visit, ctx); break;
+	case CLJ_NODE_LOWERED:
+		children(n->u.lowered.args, n->u.lowered.n, visit, ctx);
+		child(n->u.lowered.split, visit, ctx);
+		break;
 	}
 }
 

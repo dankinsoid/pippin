@@ -348,6 +348,20 @@ static bool walk_lowered(vctx *c, vframe *f, const vtarget *t, const clj_node *n
 	return ok;
 }
 
+// A lowered reduce's entry twin: one arity of three parameters over the literal's own captures, which the step reads
+// from the same environment; its body a frame of its own.
+static bool walk_split(vctx *c, vframe *f, const clj_node *n) {
+	const clj_node *s = n->u.lowered.split, *fn = n->u.lowered.fn;
+	if (n->u.lowered.how != CLJ_LOWER_REDUCE || s->h.type != &clj_node_type || s->kind != CLJ_NODE_FN || s->u.fn.variadic || !s->u.fn.fixed[3])
+		return bad(c, "verify/lowered-split", n, "an entry twin that is no fn of one 3-arity under a reduce");
+	for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+		if (k != 3 && s->u.fn.fixed[k]) return bad(c, "verify/lowered-split", n, "an entry twin with an arity of %u", k);
+	}
+	if (s->u.fn.ncaptures != fn->u.fn.ncaptures || (s->u.fn.ncaptures && memcmp(s->u.fn.captures, fn->u.fn.captures, s->u.fn.ncaptures * sizeof *s->u.fn.captures)))
+		return bad(c, "verify/lowered-split", n, "an entry twin whose captures are not its literal's");
+	return walk(c, f, NULL, s, false, false);
+}
+
 // @ai-generated(solo)
 static bool walk_inlined(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_, *inl = n->u.if_.then;
@@ -529,7 +543,7 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 	case CLJ_NODE_LOWERED:
 		if (n != c->lowered) return bad(c, "verify/lowered-shape", n, "a lowered call outside the then branch of its guard");
 		c->lowered = NULL;
-		return walk_all(c, f, n->u.lowered.args, n->u.lowered.n, n);
+		return walk_all(c, f, n->u.lowered.args, n->u.lowered.n, n) && (!n->u.lowered.split || walk_split(c, f, n));
 	case CLJ_NODE_INLINE: {
 		uint8_t how = n->u.inline_.how;
 		if (how == CLJ_INLINE_LEVEL || how == CLJ_INLINE_LITERAL) return walk_nested_inline(c, f, n);

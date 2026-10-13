@@ -3495,22 +3495,16 @@ static void emit_lowered_step(fnctx *f, const char *step, const char *target) {
 // the reducer hands it its own reference (clj_call.owned), so assoc and conj update a unique accumulator in place.
 // swap! offers nothing: the atom holds the old value while f runs, for other readers, the watches and the validator.
 // @ai-generated(solo)
-static temp emit_lowered(fnctx *f, const clj_node *n) {
-	const clj_node *lit = n->u.lowered.fn;
-	uint32_t        nops = n->u.lowered.n, nargs = nops + 1, at, arity;
-	clj_lowered_shape(n->u.lowered.how, nargs, &at, &arity);
-	int   k = f->naux++;
-	temp *ops = calloc(nops ? nops : 1, sizeof *ops);
-	if (!ops) clj_fatal("out of memory");
-	for (uint32_t i = 0; i < nops; i++) ops[i] = emit_borrowed(f, n->u.lowered.args[i]);
-	char        base[256];
+// The functions of a lowered call's literal (or its entry twin) at `arity`, once per node: base and the owned mask its
+// step may ask for.
+static void emit_lowered_fn(fnctx *f, const clj_node *n, const clj_node *lit, uint32_t arity, char *base, size_t cap, uint64_t *omask_out) {
 	uint64_t    omask;
 	const char *done = lowered_base_of(lit);
 	if (done) {
-		snprintf(base, sizeof base, "%s", done);
+		snprintf(base, cap, "%s", done);
 		omask = lowered_omask_of(lit);
 	} else {
-		snprintf(base, sizeof base, "%s__%u", f->base, (*f->fn_counter)++);
+		snprintf(base, cap, "%s__%u", f->base, (*f->fn_counter)++);
 		bool     accumulates = n->u.lowered.how == CLJ_LOWER_REDUCE || n->u.lowered.how == CLJ_LOWER_REDUCE_KV;
 		uint64_t asked = accumulates ? cljc_owned_literal(lit, lit->u.fn.fixed[arity], f->facts, 1, owned_positions, f) : 0;
 		lowering_ctx outer = f->c->lowering;
@@ -3530,6 +3524,20 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 		lowered_fns[nlowered_fns].omask = omask;
 		snprintf(lowered_fns[nlowered_fns++].base, sizeof lowered_fns->base, "%s", base);
 	}
+	*omask_out = omask;
+}
+
+static temp emit_lowered(fnctx *f, const clj_node *n) {
+	const clj_node *lit = n->u.lowered.fn;
+	uint32_t        nops = n->u.lowered.n, nargs = nops + 1, at, arity;
+	clj_lowered_shape(n->u.lowered.how, nargs, &at, &arity);
+	int   k = f->naux++;
+	temp *ops = calloc(nops ? nops : 1, sizeof *ops);
+	if (!ops) clj_fatal("out of memory");
+	for (uint32_t i = 0; i < nops; i++) ops[i] = emit_borrowed(f, n->u.lowered.args[i]);
+	char     base[256];
+	uint64_t omask;
+	emit_lowered_fn(f, n, lit, arity, base, sizeof base, &omask);
 	char caps[32], step[300], target[300], expr[512];
 	emit_captures(f, lit, caps);
 	snprintf(step, sizeof step, "%s__lw%u", f->base, (*f->fn_counter)++);
@@ -3545,11 +3553,28 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 		snprintf(owned, sizeof owned, "%s", ostep);
 		f->u->slots.owned_steps++;
 	}
+	// a map's reduce runs the entry twin over the key and value, under the literal's captures
+	char split[320] = "NULL", split_owned[330] = "NULL";
+	if (n->u.lowered.split) {
+		char     sbase[256], starget[300];
+		uint64_t smask;
+		emit_lowered_fn(f, n, n->u.lowered.split, 3, sbase, sizeof sbase, &smask);
+		snprintf(split, sizeof split, "%s_s", step);
+		snprintf(starget, sizeof starget, "%s_a3", sbase);
+		emit_lowered_step(f, split, starget);
+		if (smask) {
+			char otarget[340];
+			snprintf(split_owned, sizeof split_owned, "%s_s_o", step);
+			snprintf(otarget, sizeof otarget, "%s_o%llu", starget, (unsigned long long)smask);
+			emit_lowered_step(f, split_owned, otarget);
+		}
+		f->u->slots.entry_splits++;
+	}
 	sb_printf(&f->u->protos, "static clj_value %s_mk(void *ctx);\n", step);
 	sb_printf(&f->u->fns, "static clj_value %s_mk(void *ctx) {\n\t(void)ctx;\n\treturn %s;\n}\n\n", step, expr);
 	sb_printf(&f->out, "\tclj_value la%d[%u] = {", k, nargs);
 	for (uint32_t i = 0, j = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", i == at ? "CLJ_NIL" : ops[j++].name);
-	sb_printf(&f->out, "};\n\tclj_lowered lw%d = {%s, %s_mk, (void *)%s, %u, CLJ_NIL, %s};\n", k, step, step, caps, arity, owned);
+	sb_printf(&f->out, "};\n\tclj_lowered lw%d = {%s, %s_mk, (void *)%s, %u, CLJ_NIL, %s, %s, %s};\n", k, step, step, caps, arity, owned, split, split_owned);
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s = clj_lowered_call(%u, la%d, %u, &lw%d);\n", r.name, (unsigned)n->u.lowered.how, k, nargs, k);
 	check_thrown(f, r.name);

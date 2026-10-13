@@ -181,11 +181,14 @@ struct clj_node {
 		} inline_;
 		// how: the native (clj_lowered_how). fn is borrowed from the else branch's call, where it is argument `at`;
 		// args are that call's other arguments, copied, in order. fn's captures are read after them, from this frame.
+		// split, owned, or NULL: a reduce's fn over a map entry as (fn [acc k v] (let [e [k v]] body)), its captures
+		// fn's, which a map's reduce runs without making the entry (optimizer.c, scalar replacement).
 		struct {
 			const clj_node  *fn;
 			const clj_node **args;
 			uint32_t         n;
 			uint8_t          how;
+			const clj_node  *split;
 		} lowered;
 		// Labels are syntax, folded into one selector here, so no backend reads them again (design §5).
 		struct {
@@ -255,8 +258,8 @@ bool clj_inline_set_enabled(bool on);
 // Whether a call of a closure of this fn node may be inlined at some arity: what a unit offers other units' copies.
 bool clj_inline_callee_shaped(const clj_node *fn);
 // Scalar replacement so far (optimizer.c): values kept in slots, of them under an intrinsic guard, materializations
-// left in their extents, values an if of two literals made. Process totals, for clj-compile --stats.
-void clj_debug_scalar_counts(uint64_t out[4]);
+// left in their extents, values an if of two literals made, lowered reduces given an entry twin. Process totals.
+void clj_debug_scalar_counts(uint64_t out[5]);
 
 // EDN-shaped encoding of a tree (the grammar heads node_data.c): owned data, or CLJ_THROWN "not serializable:
 // <type>" for a constant that would not read back (a protocol, a deftype descriptor, a host value, a fn).

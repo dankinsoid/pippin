@@ -58,6 +58,21 @@ bool clj_reducer_step_kv(clj_reducer *r, clj_value key, clj_value val) {
 	return step(r);
 }
 
+bool clj_reducer_step_entry(clj_reducer *r, clj_value key, clj_value val) {
+	if (r->acc != CLJ_UNBOUND && r->call.split) {
+		r->args[0] = r->acc;
+		r->args[1] = key;
+		r->args[2] = val;
+		if (r->call.split_owned) return take(r, r->call.split_owned(r->call.ctx, r->args, 3), true);
+		return take(r, r->call.split(r->call.ctx, r->args, 3), false);
+	}
+	clj_value pair[2] = {key, val};
+	clj_value entry = clj_vector_from_array(pair, 2);
+	bool      more = clj_reducer_step(r, entry);
+	clj_release(entry);
+	return more;
+}
+
 clj_value clj_reducer_finish(clj_reducer *r) {
 	clj_value acc = r->acc;
 	r->acc = CLJ_NIL;

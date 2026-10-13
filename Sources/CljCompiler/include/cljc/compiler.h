@@ -94,6 +94,7 @@ typedef struct {
 	uint64_t paths;          // get-in, assoc-in and update-in sites written over their literal path
 	uint64_t lowered;        // reduce, reduce-kv, swap! and swap-vals! sites over a literal fn written without its closure
 	uint64_t scalar_guards;  // scalar replacements guarded by the intrinsics they answered (optimizer.c), as written
+	uint64_t entry_splits;   // lowered reduces with a twin over a map entry's key and value, as written
 	uint64_t defs;           // top-level defs of the unit
 	uint64_t defs_dropped;   // of those, the ones the shaker left out (closed only)
 	uint64_t def_bytes;      // C bytes the kept defs' functions take, as emitted

@@ -601,7 +601,7 @@ CLJC_FRAME clj_value clojure_walk_walk_a3(clj_value self, const clj_value *captu
 	clj_value t54 = l2;
 	clj_value c17[1] = {fr.slots[0]};
 	clj_value la16[3] = {CLJ_NIL, t53, t54};
-	clj_lowered lw16 = {clojure_walk_walk__lw1, clojure_walk_walk__lw1_mk, (void *)c17, 2, CLJ_NIL, clojure_walk_walk__lw1_o};
+	clj_lowered lw16 = {clojure_walk_walk__lw1, clojure_walk_walk__lw1_mk, (void *)c17, 2, CLJ_NIL, clojure_walk_walk__lw1_o, NULL, NULL};
 	clj_value t55 = clj_lowered_call(0, la16, 3, &lw16);
 	CLJC_SITE(&S[0]);
 	if (t55 == CLJ_THROWN) {

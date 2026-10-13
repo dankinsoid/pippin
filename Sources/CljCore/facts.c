@@ -1590,6 +1590,8 @@ static clj_fact infer_lowered(pass *p, const clj_node *n, env *e) {
 		if (c->kind == CLJ_CAPTURE_LOCAL) mark_escape(p, c->index, CLJ_ESCAPE_CAPTURED);
 		else if (c->kind == CLJ_CAPTURE_OUTER) mark_outer(p, c->depth, c->index);
 	}
+	// the entry twin's arity is a frame of its own over the same captures, as the literal's is from the else branch
+	if (n->u.lowered.split) infer_fn(p, n->u.lowered.split, e);
 	return clj_fact_top();
 }
 

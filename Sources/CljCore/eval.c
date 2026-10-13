@@ -1067,11 +1067,12 @@ static clj_value eval_fused(const clj_node *n, clj_frame *f) {
 
 // A lowered call's literal (optimizer.c try_lower): its arity run as closure_run runs it, with no fn object, over the
 // creating frame's slots as its environment. The optimizer leaves the fn's own name unread there.
-typedef struct {
-	const clj_node     *code;
-	const clj_fn_arity *arity;
-	const clj_value    *env;
-	const clj_exec     *exec;
+typedef struct lowered_fn {
+	const clj_node          *code;
+	const clj_fn_arity      *arity;
+	const clj_value         *env;
+	const clj_exec          *exec;
+	const struct lowered_fn *split; // the twin over a map entry's key and value, under the same context
 } lowered_fn;
 
 static clj_value lowered_step(void *ctx, const clj_value *args, size_t n) {
@@ -1083,6 +1084,16 @@ static clj_value lowered_step(void *ctx, const clj_value *args, size_t n) {
 // the release the driver would have made after the step. So every literal takes it, consumed or not.
 static clj_value lowered_step_owned(void *ctx, const clj_value *args, size_t n) {
 	const lowered_fn *l = ctx;
+	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL, 1);
+}
+
+static clj_value lowered_split(void *ctx, const clj_value *args, size_t n) {
+	const lowered_fn *l = ((const lowered_fn *)ctx)->split;
+	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL, 0);
+}
+
+static clj_value lowered_split_owned(void *ctx, const clj_value *args, size_t n) {
+	const lowered_fn *l = ((const lowered_fn *)ctx)->split;
 	return frame_run(CLJ_NIL, l->code, l->env, l->exec, l->arity, args, n, NULL, 1);
 }
 
@@ -1105,8 +1116,16 @@ static clj_value eval_lowered(const clj_node *n, clj_frame *f) {
 		// after the operands, where the call would already hold the closure: nothing between rebinds what it captures
 		gather_env(code, f, env);
 		for (uint32_t i = 0, k = 0; i < nargs; i++) args[i] = i == at ? CLJ_NIL : ops[k++];
-		lowered_fn  lf = {code, code->u.fn.fixed[arity], env, f->exec};
-		clj_lowered l = {lowered_step, lowered_make, &lf, arity, CLJ_NIL, clj_opt_off(CLJ_NO_OPT_OWNED) ? NULL : lowered_step_owned};
+		lowered_fn  lf = {code, code->u.fn.fixed[arity], env, f->exec, NULL};
+		clj_lowered l = {lowered_step, lowered_make, &lf, arity, CLJ_NIL, clj_opt_off(CLJ_NO_OPT_OWNED) ? NULL : lowered_step_owned, NULL, NULL};
+		// the twin over a map entry's key and value shares the literal's captures, so its environment is the same
+		const clj_node *split = n->u.lowered.split;
+		lowered_fn      sf = {split, split ? split->u.fn.fixed[3] : NULL, env, f->exec, NULL};
+		if (split) {
+			l.split = lowered_split;
+			l.split_owned = l.owned ? lowered_split_owned : NULL;
+			lf.split = &sf;
+		}
 		result = clj_lowered_call(n->u.lowered.how, args, nargs, &l);
 		release_owned(ops, nops, owned);
 		buf_free(small_env, env);
@@ -1775,7 +1794,7 @@ clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, co
 }
 
 clj_call clj_call_prepare(clj_value f, size_t n) {
-	clj_call c = {f, n, NULL, NULL, NULL, NULL, NULL, NULL};
+	clj_call c = {f, n, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
 	if (!clj_is_fn(f)) return c;
 	const clj_fn *fn = clj_fn_of(f);
 	bool          accepts = n >= fn->min_arity && (fn->max_arity == CLJ_ARITY_ANY || n <= fn->max_arity);
@@ -1784,8 +1803,9 @@ clj_call clj_call_prepare(clj_value f, size_t n) {
 	} else if (fn->kind == CLJ_FN_NATIVE && accepts) {
 		c.native = fn->u.native.fn;
 		c.consuming = clj_intrinsic_consuming(f, (uint32_t)n);
-	} else if (fn->kind == CLJ_FN_NATIVE_CTX && !clj_lowered_prepare(fn, n, &c.ctx_fn, &c.owned, &c.ctx) &&
-	           (accepts || fn->u.native_ctx.ctx == clj_to_ptr(f))) {
+	} else if (fn->kind == CLJ_FN_NATIVE_CTX && clj_lowered_prepare(fn, n, &c.ctx_fn, &c.owned, &c.ctx)) {
+		clj_lowered_prepare_split(fn, n, &c.split, &c.split_owned);
+	} else if (fn->kind == CLJ_FN_NATIVE_CTX && (accepts || fn->u.native_ctx.ctx == clj_to_ptr(f))) {
 		// fn_invoke's own branches: a compiled closure, its own ctx, refuses a count in its dispatcher
 		c.ctx_fn = fn->u.native_ctx.fn;
 		c.ctx = fn->u.native_ctx.ctx;

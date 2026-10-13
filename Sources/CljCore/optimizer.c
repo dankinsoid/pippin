@@ -993,6 +993,7 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 		m->u.lowered.args = copy_all(n->u.lowered.args, n->u.lowered.n, c, level);
 		m->u.lowered.n = n->u.lowered.n;
 		m->u.lowered.how = n->u.lowered.how;
+		m->u.lowered.split = n->u.lowered.split ? copy_node(n->u.lowered.split, c, level) : NULL;
 		break;
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN: break; // copy_fn
@@ -1720,10 +1721,12 @@ typedef struct {
 	uint32_t             npend;
 } sr_ctx;
 
-static _Atomic uint64_t sr_counts[4]; // values replaced, of them guarded, materializations, if-joins
+static _Atomic uint64_t sr_counts[5]; // values replaced, of them guarded, materializations, if-joins, entry twins
 
-void clj_debug_scalar_counts(uint64_t out[4]) {
-	for (int i = 0; i < 4; i++) out[i] = atomic_load_explicit(&sr_counts[i], memory_order_relaxed);
+static void scalar_walk(const clj_node *n, void *ctx);
+
+void clj_debug_scalar_counts(uint64_t out[5]) {
+	for (int i = 0; i < 5; i++) out[i] = atomic_load_explicit(&sr_counts[i], memory_order_relaxed);
 }
 
 static int sr_alias(const sr_ctx *c, const clj_node *n) {
@@ -2574,6 +2577,122 @@ static void try_scalar(clj_node *let, uint32_t k, sr_frame *fr) {
 	sr_ctx_free(&c);
 }
 
+// ---- the entry a reduce over a map hands its fn: a lowered reduce's literal (fn [acc e] body) gets a twin
+// (fn [acc k v] (let [e [k v]] body)), the let then the candidate above, and a map's reduce runs the twin over the
+// key and value it holds, so the entry is made only where the body materializes it. The twin is kept only when the
+// entry was replaced; its slots are the literal's with k and v in at 1 and 2, e past them all.
+
+typedef struct {
+	uint32_t e, depth; // e: where slot 1 goes; depth: direct fn bodies entered below the frame
+} sr_shift_ctx;
+
+static uint32_t sr_shifted(const sr_shift_ctx *x, uint32_t s) { return s == 1 ? x->e : s >= 2 ? s + 1 : s; }
+
+static void sr_shift(const clj_node *n, void *ctx);
+
+static void sr_shift_slots(uint32_t *slots, uint32_t n, const sr_shift_ctx *x) {
+	for (uint32_t i = 0; i < n; i++) slots[i] = sr_shifted(x, slots[i]);
+}
+
+// @ai-generated(solo)
+static void sr_shift(const clj_node *n, void *ctx) {
+	const sr_shift_ctx *x = ctx;
+	clj_node           *m = (clj_node *)n;
+	bool                own = x->depth == 0;
+	switch (m->kind) {
+	case CLJ_NODE_LOCAL:
+		if (own) m->u.local.index = sr_shifted(x, m->u.local.index);
+		return;
+	case CLJ_NODE_OUTER:
+		if (!own && m->u.outer.depth == x->depth) m->u.outer.index = sr_shifted(x, m->u.outer.index);
+		return;
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		if (own) sr_shift_slots(m->u.let.slots, m->u.let.n, x);
+		break;
+	case CLJ_NODE_RECUR:
+		if (own) sr_shift_slots(m->u.recur.slots, m->u.recur.n, x);
+		break;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; own && i < m->u.try_.ncatches; i++) m->u.try_.catches[i].slot = sr_shifted(x, m->u.try_.catches[i].slot);
+		break;
+	case CLJ_NODE_DIRECT_CALL:
+		if (m->u.direct.depth == x->depth) m->u.direct.slot = sr_shifted(x, m->u.direct.slot);
+		break;
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i < m->u.fn.ncaptures; i++) {
+			clj_capture *cap = &m->u.fn.captures[i];
+			if ((cap->kind == CLJ_CAPTURE_LOCAL && own) || (cap->kind == CLJ_CAPTURE_OUTER && cap->depth == x->depth && !own))
+				cap->index = sr_shifted(x, cap->index);
+		}
+		return; // a closure's arities are frames of their own
+	case CLJ_NODE_DIRECT_FN: {
+		sr_shift_ctx inner = {x->e, x->depth + 1};
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+			if (m->u.fn.fixed[k]) sr_shift(m->u.fn.fixed[k]->body, &inner);
+		}
+		return;
+	}
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < m->u.fused.nargs; i++) sr_shift(m->u.fused.args[i], ctx);
+		return;
+	default: break;
+	}
+	clj_node_children(m, sr_shift, ctx);
+}
+
+static bool sr_binds_literal(const clj_node *let, uint32_t slot) {
+	for (uint32_t i = 0; let->kind == CLJ_NODE_LET && i < let->u.let.n; i++) {
+		if (let->u.let.slots[i] == slot && let->u.let.inits[i]->kind == CLJ_NODE_VECTOR) return true;
+	}
+	return false;
+}
+
+// @ai-generated(solo)
+static void sr_split(clj_node *low) {
+	if (low->u.lowered.how != CLJ_LOWER_REDUCE || low->u.lowered.split) return;
+	const clj_node     *lit = low->u.lowered.fn;
+	const clj_fn_arity *a = lit->u.fn.fixed[2];
+	if (!a || a->nparams != 2 || a->variadic || a->nslots + 2 > INLINE_SLOTS_MAX) return;
+	callee_scan cs = scan_arity(a, CLJ_NIL);
+	// a recur goes back to two parameters, and the entry no parameter of the twin is
+	if (cs.arity_recur || cs.self_read || !(cs.local_only & 2)) return;
+	position      at = {lit->line, lit->col};
+	sr_shift_ctx  x = {a->nslots + 1, 0};
+	clj_node     *body = sr_copy(a->body);
+	sr_shift(body, &x);
+	const clj_node **items = zalloc(2, sizeof *items);
+	items[0] = local_node(1, at);
+	items[1] = local_node(2, at);
+	clj_fn_arity *b = zalloc(1, sizeof *b);
+	b->nparams = 3;
+	b->self_slot = a->self_slot < 0 ? -1 : (int32_t)sr_shifted(&x, (uint32_t)a->self_slot);
+	b->nslots = a->nslots + 2;
+	b->body = let1(x.e, vector_node(items, 2, at), body, at);
+	clj_node *twin = node_at(CLJ_NODE_FN, at);
+	clj_slot_store(&twin->h, &twin->u.fn.name, clj_retain(lit->u.fn.name.v));
+	if (lit->u.fn.ncaptures) {
+		clj_capture *caps = zalloc(lit->u.fn.ncaptures, sizeof *caps);
+		memcpy(caps, lit->u.fn.captures, lit->u.fn.ncaptures * sizeof *caps);
+		twin->u.fn.captures = caps;
+		twin->u.fn.ncaptures = lit->u.fn.ncaptures;
+	}
+	twin->u.fn.fixed[3] = b;
+	uint32_t size = nodes_in(b->body);
+	sr_frame inner = {b, 0, size > SR_GROWTH_MIN ? size : SR_GROWTH_MIN, UINT32_MAX};
+	scalar_walk(b->body, &inner);
+	// an entry read only for constants (a keyword lookup on what is a vector) says the source is no map: no twin
+	sr_ctx probe = {.fr = NULL};
+	memset(probe.alias, -1, sizeof probe.alias);
+	probe.alias[1] = probe.alias[2] = 0;
+	if (sr_binds_literal(b->body, x.e) || !sr_uses(b->body, &probe)) {
+		sr_free(twin);
+		return;
+	}
+	low->u.lowered.split = twin;
+	atomic_fetch_add_explicit(&sr_counts[4], 1, memory_order_relaxed);
+}
+
 // Children first: an inner let is decided before the one around it, whose rewrite copies the result; a let's bindings
 // from the last, so a value a later one holds as a field is decided before the earlier value it reads.
 static void scalar_walk(const clj_node *n, void *ctx) {
@@ -2602,6 +2721,7 @@ static void scalar_walk(const clj_node *n, void *ctx) {
 	if (m->kind == CLJ_NODE_LET && fr->arity) {
 		for (uint32_t k = m->u.let.n; k-- > 0;) try_scalar(m, k, fr);
 	}
+	if (m->kind == CLJ_NODE_LOWERED) sr_split(m);
 }
 
 // ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path

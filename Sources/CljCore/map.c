@@ -868,13 +868,7 @@ static clj_value map_seq(clj_value self) {
 
 static clj_value map_count(clj_value self) { return clj_fixnum(clj_map_count(self)); }
 
-static bool reduce_entry(clj_value key, clj_value val, void *ctx) {
-	clj_value pair[2] = {key, val};
-	clj_value entry = clj_vector_from_array(pair, 2);
-	bool      more = clj_reducer_step(ctx, entry);
-	clj_release(entry);
-	return more;
-}
+static bool reduce_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_entry(ctx, key, val); }
 
 // (reduce f init map) feeds [k v] entries, one vector per entry, without the eager entry list of map_seq.
 static clj_value map_reduce(clj_value self, clj_value f, clj_value init) {

@@ -19,6 +19,8 @@ clj_reducer clj_reducer_start(clj_value f, clj_value init, size_t nargs);
 // false when the walk must stop: the result is final (reduced) or the step threw.
 bool clj_reducer_step(clj_reducer *r, clj_value item);
 bool clj_reducer_step_kv(clj_reducer *r, clj_value key, clj_value val);
+// The entry [key val] as the item: a lowered reduce's split step takes the two where it has one, else the vector.
+bool clj_reducer_step_entry(clj_reducer *r, clj_value key, clj_value val);
 // Owned result: the accumulator, or (f) when nothing seeded it; CLJ_THROWN after a throw.
 clj_value clj_reducer_finish(clj_reducer *r);
 // Releases the accumulator of a walk the caller abandons (its source threw).

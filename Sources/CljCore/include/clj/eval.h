@@ -168,6 +168,7 @@ typedef struct {
 	void                *ctx;
 	clj_native_ctx_fn    owned;     // ctx_fn with args[0] at +1, which it consumes (a lowered step), else NULL: a driver
 	                                // that owns its accumulator hands it over, as through `consuming`
+	clj_native_ctx_fn    split, split_owned; // a lowered reduce's step over (acc key val) for an entry, under ctx, else NULL
 } clj_call;
 
 clj_call  clj_call_prepare(clj_value f, size_t n);

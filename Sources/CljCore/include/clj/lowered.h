@@ -24,6 +24,9 @@ typedef struct {
 	// The step with args[0] at +1, which it consumes, or NULL. Only a driver that owns its accumulator calls it
 	// (clj_reducer, through clj_call.owned); every other caller reaches step.
 	clj_native_ctx_fn owned;
+	// A reduce's step over (acc key val) for what would be the entry [key val], and its owned twin, or NULL: a map's
+	// reduce calls it in place of making the entry (clj_reducer_step_entry).
+	clj_native_ctx_fn split, split_owned;
 } clj_lowered;
 
 // The fn the native gets lives on this C stack: it must not outlive the call.
@@ -31,5 +34,7 @@ clj_value clj_lowered_call(clj_lowered_how how, clj_value *args, size_t n, clj_l
 // For fn the stack fn of a lowered call and n its arity: the step, its owned twin (or NULL) and their context, so a
 // prepared call skips the count test. False for any other fn or count.
 bool clj_lowered_prepare(const clj_fn *fn, size_t n, clj_native_ctx_fn *step, clj_native_ctx_fn *owned, void **ctx);
+// The split steps of the stack fn of a lowered call, prepared for n arguments, under the same context.
+void clj_lowered_prepare_split(const clj_fn *fn, size_t n, clj_native_ctx_fn *split, clj_native_ctx_fn *split_owned);
 
 #endif

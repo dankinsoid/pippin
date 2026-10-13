@@ -82,6 +82,14 @@ bool clj_lowered_prepare(const clj_fn *fn, size_t n, clj_native_ctx_fn *step, cl
 	return true;
 }
 
+void clj_lowered_prepare_split(const clj_fn *fn, size_t n, clj_native_ctx_fn *split, clj_native_ctx_fn *split_owned) {
+	*split = *split_owned = NULL;
+	if (fn->kind != CLJ_FN_NATIVE_CTX || fn->u.native_ctx.fn != entry || n != 2) return;
+	const clj_lowered *l = fn->u.native_ctx.ctx;
+	*split = l->split;
+	*split_owned = l->split ? l->split_owned : NULL;
+}
+
 CLJ_UNIT_ENTRY clj_value clj_lowered_call(clj_lowered_how how, clj_value *args, size_t n, clj_lowered *l) {
 	// Immortal, so a retain or release of it is a no-op; nothing past the call reaches it (fn_stays).
 	clj_fn fn = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_fn_type}, .kind = CLJ_FN_NATIVE_CTX, .min_arity = 0, .max_arity = CLJ_ARITY_ANY};

@@ -49,3 +49,12 @@
 (defn handled-mat [a] (let [t {:a a}] (try (if (neg? a) (throw (ex-info "neg" {})) (:a t)) (catch Exception e t))))
 (defn item-throws [a b] (try (let [[x y] [a (quot a b)]] (+ x y)) (catch Exception e (ex-message e))))
 (println (handled 2) (handled -5) (handled-mat 1) (handled-mat -1) (item-throws 6 3) (item-throws 6 0))
+
+;; a reduce over a map runs its fn over the key and value; any other source, the 2-arity's seed and the entry kept see it
+(defn without [amap x] (reduce (fn [m [k vs]] (assoc m k (disj vs x))) {} (dissoc amap x)))
+(defn odd-entries [coll] (reduce (fn [acc [k v :as e]] (if (odd? v) (conj acc e) acc)) [] coll))
+(defn first-key [coll] (reduce (fn [acc [k v]] (if (= v 2) (reduced k) acc)) nil coll))
+(defn seeded [coll] (reduce (fn [a [k v]] (if (vector? a) (+ (nth a 1) v) (+ a v))) coll))
+(defn step-throws [coll] (try (reduce (fn [acc [k v]] (+ acc (quot 10 v))) 0 coll) (catch Exception e (ex-message e))))
+(println (into (sorted-map) (without {:a #{1 2} :b #{2 3} :c #{2}} 2)) (sort (odd-entries {:a 1 :b 2 :c 3})) (odd-entries [[:x 1] [:y 2]])
+         (first-key {:a 1 :b 2}) (first-key (sorted-map :a 2 :b 2)) (seeded {:a 1}) (seeded (sorted-map :a 1 :b 2)) (step-throws {:a 5 :b 0}))
