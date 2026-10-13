@@ -93,6 +93,39 @@
   - The facts coverage is `clj-facts` with `bench/workloads` as an extra root after the corpus (its row in the
     report), and `clj-compile --closed --stats` of each program (unboxed and tag-checked arithmetic, protocol sites,
     workers).
+- **Reference runtimes (`--refs`; `scripts/corpus_refs.py`, `bench/workloads/cljs`).** Beside the JVM, each workload
+  runs once per job (not per `--base` pair) on babashka, the reference for *interp*, and as ClojureScript on Node and
+  on Hermes, React Native's engine, which is what this runtime competes with on an iPhone. `--refs=jvm,bb,cljs-node,cljs-hermes`
+  is the default; a comma list narrows it (`CORPUS_BENCH_ARGS=--refs=jvm`), and `--skip-jvm` drops `jvm`. The report's
+  "References" table has each one's warm, 1st and cold, `closed/bb`, `interp/bb`, `closed/node`, `closed/hermes`
+  (ours over theirs), its `=` verdict against `expected`, and below it every printed result that differs from the JVM's.
+  - **bb** runs `bench/workloads/jvm.clj` and the sources unchanged (`bb -cp <the load path>`), core.async included:
+    all twelve return `expected`.
+  - **ClojureScript** is `cljs.build.api` 1.12.145 (`bench/workloads/cljs/build.clj`), `:advanced`, `:language-out
+    :es5`, one bundle per workload as the closed build is one binary per workload, built before the workloads and
+    outside every time (about a minute for all). The sources are copied to `.cljs` unchanged, except what
+    `bench/workloads/cljs/src` holds: `workloads.util`, whose generator multiplies with `Math/imul` (the double
+    product passes 2^53 and loses the low bits the mask keeps; the states are the JVM's), and async-pipeline and
+    async-broadcast, whose `run` returns the channel of the result where the JVM blocks with `<!!`, which one thread
+    has not; the harness (`bench/harness.cljs`, jvm.clj's lines) times such a run to the delivery. async-libs is n/a:
+    turbine runs its routes on threads. The bundle wraps itself in `.call(globalThis)` (Closure's `goog.global` is
+    `this`, module.exports under Node) and reads Node's argv through `globalThis.process`: the browser target defines
+    its own `process` for `NODE_ENV`.
+  - **Hermes** is the last CLI release, v0.13.0 (engine 0.12.0, bytecode 96, React Native 0.75's), running bytecode
+    from `hermesc -O -emit-binary` as a release app does. The CLI takes no script arguments, so the mode is a global
+    prepended to the bundle before `hermesc`; it has `print`, `setTimeout` and `setImmediate` but no `console` and no
+    `performance.now`, so its clock is `Date.now` (1 ms) and the report names the cells timed by it.
+  - Iterations: bb (jvm.clj itself) and Node (V8 tiers like C2) take the JVM's policy, >= 5 iterations and 5 s of
+    warm-up then >= 5 and >= 3 s; Hermes has no JIT and takes ours, one iteration then >= 3 and >= 2 s (`nojit`).
+  - Numerics: `=` cannot see a JS number's long/double ambiguity, so the printed results are compared too. pipelines'
+    two double sums print `22499925000` and `14999950000` where the JVM prints `2.2499925E10` and `1.499995E10`; no
+    workload has a string outside the BMP or a product past 2^53 other than the generator's.
+  - CI: `scripts/corpus-refs-install.sh` fetches babashka 1.13.226 and the Hermes CLI, checked against pinned
+    sha256s, into `~/.cache/corpus-bench-refs`, cached with the ClojureScript jars (`CORPUS_BENCH_M2`); Node
+    24.21.0 is `actions/setup-node`.
+  - [ ] Hermes newer than React Native 0.75's: 0.76 and on ship Hermes inside React Native without a CLI, and Hermes
+    V1 (static Hermes) is a source build of `facebook/hermes` at the tag React Native pins (CMake and Ninja, the
+    `hermes` target, cacheable by the tag). Trigger: a decision that rests on `closed/hermes`.
 - [ ] **Where the compiled program's time goes, ranked** (three `corpus-bench` runs, bench/RESULTS.md "Corpus
   workloads"; the shares are self time of the closed build on the nine data workloads, the counters per iteration).
   The program's own compiled code is 0.7–4.5 % of the samples and the compiled core 3–11 %; the rest is the runtime
