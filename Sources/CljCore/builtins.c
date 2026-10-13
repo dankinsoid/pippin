@@ -1782,7 +1782,7 @@ static const entry entries[] = {
 	{"resolve", b_resolve, 1, 1},  {"deref", b_deref, 1, 3},     {"meta", b_meta, 1, 1},        {"with-meta", b_with_meta, 2, 2},
 	{"reset-meta!", b_reset_meta, 2, 2}, {"alter-meta!", b_alter_meta, 2, ANY},
 	{"reduce", b_reduce, 2, 3},    {"reduce-kv", b_reduce_kv, 3, 3}, {"reduced", b_reduced, 1, 1}, {"reduced?", b_reduced_p, 1, 1},
-	{"fused-reduce*", clj_fused_reduce, 3, 4}, {"fused-into*", clj_fused_into, 3, 3}, {"fused-count*", clj_fused_count, 2, 2},
+	{"fused-reduce*", clj_fused_reduce, 3, 4}, {"fused-into*", clj_fused_into, 3, 3}, {"fused-count*", clj_fused_count, 2, 2}, {"fused*", clj_fused_run, 4, 6},
 	{"unreduced", b_unreduced, 1, 1}, {"ensure-reduced", b_ensure_reduced, 1, 1}, {"volatile!", b_volatile, 1, 1},
 	{"volatile?", b_volatile_p, 1, 1}, {"vreset!", b_vreset, 2, 2},
 	{"atom", b_atom, 1, ANY},      {"atom?", b_atom_p, 1, 1},     {"reset!", b_reset, 2, 2},     {"reset-vals!", b_reset_vals, 2, 2},

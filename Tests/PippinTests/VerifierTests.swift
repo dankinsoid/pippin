@@ -146,6 +146,25 @@ extension CoreTests {
 			#expect(check(path, everything).ok)
 		}
 
+		// Invariant 6 for fused*: the call the optimizer builds over a multi-coll map, a mode and colls the native takes.
+		@Test func aFusedRunHoldsItsShape() throws {
+			let node = try #require(analyzed("(fn [a b] (reduce + (map * a b)))"))
+			defer { release(node) }
+			#expect(check(node, everything).ok)
+			let fused = try #require(find(node) { $0.pointee.kind == CLJ_NODE_FUSED })
+			let program = mutable(fused.pointee.u.fused.fused)
+			let n = program.pointee.u.invoke.n
+			program.pointee.u.invoke.n = 3
+			#expect(check(node, 0).kind == "verify/fused-run")
+			program.pointee.u.invoke.n = n
+			let args = program.pointee.u.invoke.args!
+			let mode = args[0], coll = args[3]
+			args[0] = coll
+			#expect(check(node, 0).kind == "verify/fused-run")
+			args[0] = mode
+			#expect(check(node, everything).ok)
+		}
+
 		@Test func theDigestSeesAWrite() throws {
 			let node = try #require(analyzed(liveAfterConj))
 			defer { release(node) }
@@ -192,7 +211,7 @@ extension CoreTests {
 			#expect(clj_no_opt_parse("reuse,passes") == clj_no_opt_parse("passes,reuse"))
 			#expect(clj_no_opt_parse("reuse,nope") == UInt32.max)
 			var buf = [CChar](repeating: 0, count: 200)
-			#expect(String(cString: clj_no_opt_describe(clj_no_opt_parse("all"), &buf, buf.count)) == "reuse, passes, specialize, lazy-seq, layouts, compiled, emit, inline, beta, path, owned, lower, drop, scalar")
+			#expect(String(cString: clj_no_opt_describe(clj_no_opt_parse("all"), &buf, buf.count)) == "reuse, passes, specialize, lazy-seq, layouts, compiled, emit, inline, beta, path, owned, lower, drop, scalar, fuse")
 		}
 
 		// The seed end to end: the verifier, run as the pass that produced the tree, kills the process naming it.

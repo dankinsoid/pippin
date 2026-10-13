@@ -211,8 +211,8 @@ extension CoreTests {
 			let before = clj_debug_live_objects()
 			do {
 				func unfused(_ source: String, ns: clj_value = CLJ_NIL) throws -> Bool { try Tree(source, ns: ns).fusedNodes.isEmpty }
-				#expect(try unfused("(reduce + (map + [1 2] [10 20]))"))
-				#expect(try cljEval("(reduce + (map + [1 2] [10 20]))") == 33)
+				#expect(try unfused("(reduce + (map + [1 2] [10 20] [1 1] [2 2]))"))
+				#expect(try cljEval("(reduce + (map + [1 2] [10 20] [1 1] [2 2]))") == 39)
 				#expect(try unfused("(reduce + (mapcat (fn [a b] [a b]) [1 2] [3 4]))"))
 				#expect(try cljEval("(reduce + (mapcat (fn [a b] [a b]) [1 2] [3 4]))") == 10)
 				#expect(try unfused("(let [map (fn [f c] [:local])] (reduce conj [] (map inc [1])))"))
@@ -225,7 +225,9 @@ extension CoreTests {
 				#expect(try Tree("(reduce conj [] (clojure.core/map inc [1]))", ns: ns).run() == [2])
 				for source in ["(first (map inc [1 2]))", "(seq (map inc []))", "(doall (map inc [1]))", "(map inc [1])", "(reduce + [1 2])", "(reduce + 0 (range 3))",
 				               "(let [p (map inc [1 2])] (reduce + p))", "(count (partition-all 2 [1 2 3]))", "(into [] (map inc) [1])", "(reduce + (eduction (map inc) [1]))",
-				               "(vec (map inc [1] [2]))", "(count (interpose 0))", "(reduce + (map inc))"] {
+				               "(vec (map inc [1] [2] [3] [4]))", "(count (interpose 0))", "(reduce + (map inc))", "(let [s (sequence (map inc) [1])] (count s))",
+				               "(count (sequence [1 2]))", "(count (sequence (comp) [1]))", "(count (sequence (comp (map inc) identity) [1]))",
+				               "(count (sequence (map inc) [1] [2]))", "(mapv inc [1])", "(vec (mapcat vector [1] [2]))"] {
 					#expect(try unfused(source), Comment(rawValue: source))
 				}
 				#expect(try cljEval("[(first (map inc [1 2])) (seq (map inc [])) (doall (map inc [1])) (let [p (map inc [1 2])] (reduce + p)) (count (partition-all 2 [1 2 3]))]") == [2, nil, Value(list: [2]), 5, 2])
@@ -441,6 +443,134 @@ extension CoreTests {
 				#expect(message { try Tree(data: Value(reading: "[:fused [clojure.core/map] [[:const 3]] [:local 1] [:local 0]]")) } == "malformed node data, slot 1 outside a frame of 1")
 				#expect(message { try Tree(data: Value(reading: "[:fused [] [] [:const 3] [:const 3]]")) } == "malformed node data, expected [guards args fused original]: [:fused [] [] [:const 3] [:const 3]]")
 				#expect(message { try Tree(data: Value(reading: "[:fused [clojure.core/map] [:const 3]]")) } == "malformed node data, expected [guards args fused original]: [:fused [clojure.core/map] [:const 3]]")
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// sequence as the consumer's coll, a comp of stage transducers its xform; a map over 2-3 colls innermost; mapv.
+		@Test func sequenceAndMultiCollShapes() throws {
+			let before = clj_debug_live_objects()
+			do {
+				let seq = try Tree("(count (sequence (comp (mapcat identity) (dedupe)) [[1 1] [2]]))")
+				#expect(seq.fusedNodes.count == 1)
+				let f = seq.fusedNodes[0].pointee.u.fused
+				#expect(f.nargs == 2 && f.nguards == 6)
+				let text = try seq.data().description
+				#expect(text.contains("[:invoke [:var clojure.core/fused-count* 1 1] [:local 1 1 1] [:vector [:invoke [:var clojure.core/dedupe 1 1] 1 1] [:invoke [:var clojure.core/mapcat 1 1] [:local 0 1 1] 1 1] 1 1] 1 1]"), Comment(rawValue: text))
+				#expect(text.contains("[:invoke [:var clojure.core/sequence 1 1] [:invoke [:var clojure.core/comp 1 1] [:invoke [:var clojure.core/mapcat 1 1] [:local 0 1 1] 1 1] [:invoke [:var clojure.core/dedupe 1 1] 1 1] 1 1] [:local 1 1 1] 1 1]"), Comment(rawValue: text))
+				#expect(try seq.run() == 2)
+				// reduce and into take each input's outputs after its stage calls: fused* in a sequence mode
+				let red = try Tree("(reduce + 0 (sequence (map inc) [1 2]))")
+				#expect(try red.data().description.contains("[:invoke [:var clojure.core/fused* 1 1] [:const 3 1 1] [:vector [:local 0 1 1] [:local 1 1 1] 1 1] [:vector [:invoke [:var clojure.core/map 1 1] [:local 2 1 1] 1 1] 1 1] [:local 3 1 1] 1 1]"))
+				#expect(try red.run() == 5)
+				let multi = try Tree("(reduce + (map * [1 2 3] [4 5]))")
+				#expect(multi.fusedNodes.count == 1)
+				#expect(try multi.data().description.contains("[:invoke [:var clojure.core/fused* 1 1] [:const 0 1 1] [:vector [:local 0 1 1] 1 1] [:vector [:invoke [:var clojure.core/map 1 1] [:local 1 1 1] 1 1] 1 1] [:local 2 1 1] [:local 3 1 1] 1 1]"))
+				#expect(try multi.run() == 14)
+				let mapv = try Tree("(mapv vector (range) [:a :b])")
+				#expect(mapv.fusedNodes.count == 1 && mapv.fusedNodes[0].pointee.u.fused.nguards == 4)
+				#expect(try mapv.run() == [[0, kw("a")], [1, kw("b")]])
+				#expect(try Tree("(mapv inc (filter odd? [1 2 3]))").run() == [2, 4])
+				// under reduce and into a stage below sequence is its source
+				let below = try Tree("(into [] (sequence (map inc) (map inc [1 2])))")
+				#expect(below.fusedNodes.count == 1 && below.fusedNodes[0].pointee.u.fused.nargs == 3)
+				#expect(try below.run() == [3, 4])
+				#expect(try Tree("(count (sequence (map inc) (map inc [1 2])))").fusedNodes[0].pointee.u.fused.nargs == 3)
+			}
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// sequence under every consumer, xform and source, and map over 2-3 colls of every length and kind: the fused
+		// form answers what the lazy one answers, every time.
+		@Test func sequenceAndMultiCollAgainstTheLazyPath() throws {
+			let sources = ["[1 2 2 3 4 5]", "'(1 2 2 3 4 5)", "(range 6)", "(lazy-seq [1 2 2 3 4 5])", "(next [0 1 2 2 3 4 5])", "\"abbc\"", "[]", "nil",
+			               "{:a 1 :b 2}", "5", "(take 6 (iterate inc 1))"]
+			let xforms = ["(map inc)", "(comp (mapcat (fn [x] [x x])) (dedupe))", "(comp (filter odd?) (take 2))", "(distinct)", "(comp (take 3) (mapcat (fn [x] [x x])))",
+			              "(comp (map-indexed vector) (keep-indexed (fn [i x] (when (odd? i) x))))", "(interpose 0)", "(comp (drop 1) (take-while (fn [x] (< x 4))))",
+			              "(comp (dedupe) (distinct) (map str))", "(comp (mapcat (fn [x] (repeat 2 x))) (take 3))", "(comp (take 0) (map inc))", "(mapcat identity)"]
+			let consumers = ["(count %)", "(vec %)", "(into [0] %)", "(into #{} %)", "(reduce + %)", "(reduce + 10 %)", "(reduce conj [] %)", "(reduce conj %)",
+			                 "(reduce (fn [a x] (if (= x 3) (reduced a) [a x])) [] %)", "(reduce (fn [a x] [a x]) %)", "(into () %)", "(into {} %)"]
+			let pairs = [("[1 2 3]", "[10 20]"), ("'(1 2)", "(range)"), ("(range 3)", "(lazy-seq [4 5 6 7])"), ("[]", "[1]"), ("nil", "nil"), ("\"ab\"", "[1 2 3]"),
+			             ("[1 2]", "5"), ("{:a 1}", "[1]"), ("(take 2 (iterate inc 0))", "(next [0 1 2 3])")]
+			let multis = ["(reduce + (map + % %%))", "(count (map vector % %%))", "(vec (map vector % %%))", "(into [] (map (fn [x y] [y x]) % %%))", "(mapv vector % %%)",
+			              "(mapv vector % %% %)", "(reduce + 0 (filter number? (map (fn [a b] b) % %%)))", "(count (take 1 (map vector % %%)))", "(reduce + (map + % %% %))",
+			              "(into [] (comp (map inc)) (map + % %%))"]
+			var forms: [String] = []
+			for consumer in consumers {
+				for xform in xforms {
+					for source in sources { forms.append(consumer.replacingOccurrences(of: "%", with: "(sequence \(xform) \(source))")) }
+				}
+			}
+			for m in multis {
+				for (a, b) in pairs { forms.append(m.replacingOccurrences(of: "%%", with: b).replacingOccurrences(of: "%", with: a)) }
+			}
+			var agreed = 0, fused = 0
+			let before = clj_debug_live_objects()
+			do {
+				for form in forms {
+					let on = Outcome(form)
+					let was = clj_fusion_set_enabled(false)
+					let off = Outcome(form)
+					clj_fusion_set_enabled(was)
+					#expect(on == off, Comment(rawValue: form))
+					if on == off { agreed += 1 }
+					if try Tree(form).fusedNodes.count > 0 { fused += 1 }
+				}
+			}
+			#expect(clj_debug_live_objects() == before)
+			#expect(agreed == forms.count)
+			#expect(fused > forms.count * 9 / 10)
+		}
+
+		// A rebound sequence or comp sends a sequence site down the original program, as into does a mapv site.
+		@Test func sequenceAndMapvGuards() throws {
+			let seqVar = coreVar("sequence"), compVar = coreVar("comp"), intoVar = coreVar("into")
+			let bootSeq = clj_var_root(seqVar), bootComp = clj_var_root(compVar), bootInto = clj_var_root(intoVar)
+			let tree = try Tree("(fn [xs] [(count (sequence (comp (map inc) (filter odd?)) xs)) (mapv + xs xs)])")
+			let f = try tree.run()
+			clj_exec_count(tree.exec, true)
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(tree.pathHits == (1, 0))
+				do {
+					let wrapper = try cljEval("(let [s sequence] (fn [& args] (apply s args)))")
+					withExtendedLifetime(wrapper) { clj_var_bind_root(seqVar, wrapper.raw) }
+				}
+				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(tree.pathHits == (1, 1))
+				clj_var_bind_root(seqVar, bootSeq)
+				do {
+					let wrapper = try cljEval("(let [c comp] (fn [& fs] (apply c fs)))")
+					withExtendedLifetime(wrapper) { clj_var_bind_root(compVar, wrapper.raw) }
+				}
+				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(tree.pathHits == (1, 2))
+				clj_var_bind_root(compVar, bootComp)
+				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(tree.pathHits == (2, 2))
+				do {
+					let wrapper = try cljEval("(let [i into] (fn [& args] (apply i args)))")
+					withExtendedLifetime(wrapper) { clj_var_bind_root(intoVar, wrapper.raw) }
+				}
+				#expect(try f([1, 2]) == [1, [2, 4]])
+				clj_var_bind_root(intoVar, bootInto)
+				#expect(clj_var_root(seqVar) == bootSeq && clj_var_root(compVar) == bootComp && clj_var_root(intoVar) == bootInto)
+			}
+			clj_exec_count(tree.exec, false)
+			#expect(clj_debug_live_objects() == before)
+		}
+
+		// fused* by hand: its modes, the lead each takes, two and three colls in step, and its refusals.
+		@Test func fusedRunByHand() throws {
+			let before = clj_debug_live_objects()
+			do {
+				#expect(try cljEval("[(fused* 0 [+] [(map inc)] [1 2 3]) (fused* 0 [+ 10] [] [1 2]) (fused* 1 [[]] [(map +)] [1 2] [10 20 30]) (fused* 2 [] [(map vector)] [1 2] (range) \"abc\")]") == [9, 13, [11, 22], 2])
+				#expect(try cljEval("[(fused* 3 [+ 0] [(mapcat (fn [x] [x x]))] [1 2]) (fused* 4 [[:a]] [(dedupe)] [1 1 2]) (fused* 0 [(fn [] :e)] [] [])]") == [6, [kw("a"), 1, 2], kw("e")])
+				#expect(evalMessage("(fused* 9 [] [] [1])") == "fused* expects a mode below 5, got: long")
+				#expect(evalMessage("(fused* 2 [1] [] [1])") == "fused* got 1 lead args for mode 2")
+				#expect(evalMessage("(fused* 2 [] (map inc) [1])") == "fused* expects vectors of the lead args and the transducers")
+				#expect(evalMessage("(let [keep (volatile! nil)] (fused* 2 [] [(fn [rf] (vreset! keep rf) rf)] [1]) (@keep nil 1))") == "reducing fn called after its reduce finished")
 			}
 			#expect(clj_debug_live_objects() == before)
 		}

@@ -298,6 +298,30 @@ static bool walk_try(vctx *c, vframe *f, const clj_node *n) {
 	return !n->u.try_.finally_ || walk(c, f, NULL, n->u.try_.finally_, false, false);
 }
 
+// fused*'s call as the optimizer builds it: a mode in range, its lead, the transducer vector, one to three colls read
+// from the argument frame. The native refuses anything else at run time; the optimizer never makes it.
+static bool fused_run_ok(vctx *c, const clj_node *n) {
+	const clj_node *p = n->u.fused.fused;
+	if (p->kind != CLJ_NODE_INVOKE || p->u.invoke.fn->kind != CLJ_NODE_VAR) return true;
+	const clj_fusion_var *fv = clj_fusion_find(p->u.invoke.fn->u.var.v);
+	if (!fv || strcmp(fv->name, "clojure.core/fused*") != 0) return true;
+	uint32_t               na = p->u.invoke.n;
+	const clj_node *const *a = p->u.invoke.args;
+	if (na < 4 || na > 6) return bad(c, "verify/fused-run", n, "fused* over %u args, not mode, lead, xfs and 1-3 colls", na);
+	if (a[0]->kind != CLJ_NODE_CONST || !clj_is_fixnum(a[0]->u.value.v) || clj_fixnum_val(a[0]->u.value.v) < 0 ||
+	    clj_fixnum_val(a[0]->u.value.v) >= CLJ_FUSED_MODES)
+		return bad(c, "verify/fused-run", n, "fused*'s mode is no constant below %d", (int)CLJ_FUSED_MODES);
+	clj_fused_mode mode = (clj_fused_mode)clj_fixnum_val(a[0]->u.value.v);
+	uint32_t       want = mode == CLJ_FUSED_MODE_COUNT ? 0 : 1, nlead = a[1]->kind == CLJ_NODE_VECTOR ? a[1]->u.seq.n : UINT32_MAX;
+	bool           reduce = mode == CLJ_FUSED_MODE_REDUCE || mode == CLJ_FUSED_MODE_SEQ_REDUCE;
+	if (reduce ? nlead != 1 && nlead != 2 : nlead != want) return bad(c, "verify/fused-run", n, "fused*'s lead does not fit mode %d", (int)mode);
+	if (a[2]->kind != CLJ_NODE_VECTOR || !a[2]->u.seq.n) return bad(c, "verify/fused-run", n, "fused*'s transducers are no vector of stages");
+	for (uint32_t i = 3; i < na; i++) {
+		if (a[i]->kind != CLJ_NODE_LOCAL) return bad(c, "verify/fused-run", n, "fused*'s coll %u is no argument of the node", i - 3);
+	}
+	return true;
+}
+
 static bool walk_fused(vctx *c, vframe *f, const clj_node *n) {
 	if (!n->u.fused.nguards || !n->u.fused.guards) return bad(c, "verify/fused-guard", n, "a fused node without guards");
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) {
@@ -305,6 +329,7 @@ static bool walk_fused(vctx *c, vframe *f, const clj_node *n) {
 		if (!g || g->role == CLJ_FUSION_GUARD || clj_fusion_find(clj_fusion_var_of(g)) != g) return bad(c, "verify/fused-guard", n, "guard %u is no stage, consumer or driver of the fusion table", i);
 	}
 	if (!n->u.fused.nargs) return bad(c, "verify/fused-args", n, "a fused node without arguments");
+	if (!fused_run_ok(c, n)) return false;
 	if (!walk_all(c, f, n->u.fused.args, n->u.fused.nargs, n)) return false;
 	vframe g = frame_new(n->u.fused.nargs);
 	g.fused = n;

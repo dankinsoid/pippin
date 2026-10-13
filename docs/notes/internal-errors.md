@@ -76,6 +76,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `owned` | owned parameters and the late take (NOTES "Compiler", owned parameters): every parameter +0, every call the +0 entry; a lazy-seq thunk keeps its captures to the publish |
   | `lower` | `reduce`, `reduce-kv`, `swap!` and `swap-vals!` over a literal fn run without its closure (NOTES "Compiler", lowered natives); `inline` turns it off too |
   | `drop` | a compiled frame's dead slot released where it dies, not at its rebind or the frame's exit (NOTES "Compiler", dead slots dropped); decided at emission, so the boot units keep theirs |
+  | `fuse` | the fusion pass over `(sequence XF src)`, a map over two or three colls and `mapv` (NOTES "Analyzer and evaluator", the fusion pass), and the compiled step's mapcat, dedupe and distinct stages (NOTES "Compiler", fused stages) |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
@@ -131,7 +132,9 @@ checks the tree and the facts between passes in debug builds; one option turns e
   6. Guards: an `INTRINSIC`'s var is the one the table names for its op at its arity — the guard compares that
      var's root with the op's builtin, so another var would run the op where the program meant something else; a
      `FUSED` node's guards are entries of the fusion table, its two programs read only its arguments, hold only
-     local reads, calls, constants, vars and vector literals, and name only guarded vars.
+     local reads, calls, constants, vars and vector literals, and name only guarded vars; a `fused*` program takes a
+     constant mode below `CLJ_FUSED_MODES`, the lead vector that mode takes, a vector of stages and one to three colls
+     read from the arguments (`verify/fused-run`).
   7. Last-use marks, which both backends act on (a hand-over in `eval_borrowed`, `taken` in `emit_local`): none
      before the liveness pass; only on a read that consumes (a let or loop init, a recur argument, a body's value,
      a def's init or meta, a thrown value, a consuming intrinsic's collection); never past slot 64 or in a fused

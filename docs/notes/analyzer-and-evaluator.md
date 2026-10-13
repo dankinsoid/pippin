@@ -751,15 +751,32 @@
   element (mark call arguments, ~2 ns per call); `transduce` with a user rf over a collection (the same
   +0 rule); a frame past 64 slots growing a collection (the bitset).
 - [~] **The fusion pass** (optimizer.c, fusion.c, `CLJ_NODE_FUSED`; bench/RESULTS.md, "Fusion"): `(reduce
-  f [init] P)`, `(into to P)`, `(vec P)` and `(count P)`, where `P` is a nest of `map keep filter
+  f [init] P)`, `(into to P)`, `(vec P)`, `(count P)` and `(mapv f P)`, where `P` is a nest of `map keep filter
   remove take drop take-while drop-while mapcat map-indexed keep-indexed interpose dedupe distinct` calls — each
-  at its lazy arity, `map`/`mapcat` with one coll, every head resolved to the `clojure.core` var — over
-  any source, become one FUSED node: the argument expressions (the consumer's, then each stage's own
-  from the consumer outwards, then the source) evaluated once in the original order into a frame of
-  their own, a guard, and two programs over those locals — the fused one calls a driver native with
+  at its lazy arity, `mapcat` with one coll, `map` with one, or with two or three as the innermost stage (and
+  `(mapv f c1 c2 [c3])` as `(into [] (map f c1 c2 [c3]))`), every head resolved to the `clojure.core` var — over
+  any source, become one FUSED node: the argument expressions, every node off the pipeline's spine in the
+  original evaluation order (the consumer's, then each stage's own from the consumer outwards, then the sources),
+  evaluated once into a frame of their own, a guard, and two programs over those locals — the fused one calls a
+  driver native with
   the stages' transducer arities in a vector literal (`(fused-reduce* f coll [(map g) (filter p)])`,
-  `fused-into*`, `fused-count*`; `vec` is `fused-into*` onto `[]`), the original one is the consumer
-  call as written. Serialized as `[:fused [vars] [args] fused original]`; the two programs' slots are
+  `fused-into*`, `fused-count*`; `vec` is `fused-into*` onto `[]`), the original one is the spine rebuilt over the
+  locals. Two or three colls, `mapv` and the buffered modes below go through `(fused* mode [lead…] [xf…] coll…)`
+  (fusion.c `clj_fused_run`, the mode a constant: reduce, into, count, and the sequence modes), one walker for the
+  transducer stack and the compiled step alike (compiler.md, "Fused stages…"): each coll is seq'd and advanced per
+  step, all of them before the shortest ends the walk, so a longer lazy coll is realized one item past the shortest
+  as the lazy map's `(seq c2)` realizes it, and the innermost transducer, `(map f)`, takes one input per coll.
+  **`(sequence XF src)` as the consumer's coll**, `XF` a stage's transducer call or a `comp` of them, flattened,
+  adds XF's stages (`comp`'s last nearest the consumer) and guards `sequence` and `comp` (`CLJ_FUSION_FORM`). The
+  lazy seq runs XF over one input, hands that input's outputs on, then pulls the next: under `count` and `vec` no
+  user code runs between, so the plain drivers serve, and lazy stages below `sequence` fuse too. Under `reduce` and
+  `into` the consumer's f or conj would interleave with the stage calls of a multi-output input, so they run in a
+  sequence mode: the walk buffers one input's outputs and hands them on after its step; a halting stage (take) runs
+  the completion before that hand-over, as `(do (xf nil) (concat out (drain)))` does; a consumer that is done
+  stops the walk without the completion, which the lazy seq never reaches; and there `sequence`'s coll is the
+  source, since a stage below it feeds it several inputs per item or ends it early
+  (`Fixtures/compiler/fused-seq.clj` traces both forms' calls; `sequenceAndMultiCollAgainstTheLazyPath`).
+  `CLJ_NO_OPT=fuse` turns off the sequence, multi-coll and `mapv` forms. Serialized as `[:fused [vars] [args] fused original]`; the two programs' slots are
   bounds-checked against the args, not the enclosing frame. The guard: every core var the two programs
   name (consumer, stages, driver) still holds the root it had when core.clj finished loading, recorded
   by `clj_fusion_install` in a static table the node points into, as an INTRINSIC points into the
@@ -775,7 +792,8 @@
   `take` never touched the `5`; and `partition-all` is not a stage, because its transducer emits
   vectors where the lazy arity emits seqs and `conj` on a 2-arity seed tells them apart (trigger: a
   `(map seq)` tail behind it once `counted?` and the type name in error messages may differ). Not
-  fused: a multi-coll `map`/`mapcat`, a head that is a local or another namespace's var, a pipeline
+  fused: a `map` over four or more colls (its lazy arity seqs them through `every?`, stopping at the first empty
+  one), a multi-coll `mapcat`, a multi-coll `sequence`, a head that is a local or another namespace's var, a pipeline
   consumed by anything else (`first`, `seq`, `doall`, a value position), a consumer whose coll is not
   a stage call; a pipeline as the source of another is fused on its own. core.clj itself is analyzed
   before the table exists, so nothing inside it is fused (the validator re-analyzes it after boot and
@@ -787,7 +805,7 @@
   `run!`/`doseq` (a reduce with early exit; design §6b item 9); a last-use source of `mapv`/`into` (the result
   written into the source's nodes, design §6b item 10); stages inlined into one C loop in compiled code (it calls
   the same driver today, design §6b «Итераторы Rust»); the barriers `sort`/`group-by` (cut a pipeline today);
-  multi-coll `map` (a multi-source driver); `partition-all` (above).
+  `partition-all` (above); `transduce`, `frequencies`, `group-by` and `(apply str P)` as consumers.
 - [ ] **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
   the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
   callee's frame; the generic path adds `closure_run` with its own 16 slots): on the order of 0.6 KB

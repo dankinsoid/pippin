@@ -1044,31 +1044,43 @@
   of another key, `next`/`rest` (their owned forms are the reuse planner's); trigger: a profile with `clj_get2` or
   `clj_next` under a compiled caller.
 - [~] **Fused stages over literal fns run as one step** (design §6b «Итераторы Rust», monomorphization of the stages;
-  compiler.c `mono_plan_of`, `emit_mono_step`; fusion.c `clj_fused_reduce_step` and friends, `walk_vector`). A `FUSED`
-  site whose stages are `map`, `filter`, `remove`, `keep`, `take-while`, `drop-while` over a literal `fn` with a fixed
-  arity 1, `map-indexed` over one with arity 2, or `take` and `drop` of any count, is written, behind the same
-  fusion guard, as one step function `<base>__fz<n>(ctx, x, &out)` that calls each stage's arity function by name —
-  its `always_inline` twin when the stage is a leaf, so the stage bodies sit in the step — and a driver
-  (`clj_fused_*_step`) that runs it under the source's `reduce` with the usual bottom: no transducer closure is made
-  and no stage is reached through `clj_invoke`. The step answers `CLJ_FUSED_SKIP` or `CLJ_FUSED_EMIT`, with
-  `CLJ_FUSED_HALT` or'd in when a take or take-while ends the walk (the driver's rf turns it into take's
-  `ensure-reduced`, take-while's `reduced`). **State**: what a stateful transducer's volatile held sits in the site's
-  ctx array past the stage args, set before the driver and released after it — take's and drop's count, decremented
-  per item as `(vswap! nv dec)` does, so a count of 2.5 takes three items as the lazy take does; drop-while's flag;
-  map-indexed's index. **Guards**: the core vars the transducers call are checked as core's bodies would see them —
-  the site takes the step only while each holds its boot root (`volatile!`, `deref`, `vreset!`, `reduced`,
-  `ensure-reduced`, `complement`, and the intrinsics; fusion table, `CLJ_FUSION_GUARD`), the original program
-  otherwise, and the step calls `dec`, `inc`, `pos?`, `not`, `nil?` through their vars' guards
-  (`Fixtures/compiler/fused-stages.clj`, `inline-guards.clj` rebinding `dec` and `pos?`). **A vector source** is walked
-  by the driver itself, leaf by leaf (`clj_vector_run`), the step and the bottom called directly: the rf and the
-  bottom fn objects and the two `clj_invoke` per item of the reduce path are gone, the step's call remains (a vector's
-  reduce already walked leaves, never a seq; a loop generated per site would add C per site to save that one indirect
-  call). Any other source runs its reduce under the rf as before; `CLJ_NO_OPT=inline` takes that path for vectors too.
-  The step is a frame fn under the consumer's name, which a trace shows
-  where the driver's transducer frames were; a stage body inlined into it names its own stub. A stage given any other
-  value, another stage kind or a variadic fn keeps the generic program. Not done: `mapcat`, `keep-indexed`,
-  `interpose`, `dedupe`, `distinct`; reduce's literal f called by its arity from the driver (it is a closure, which
-  `clj_call_invoke` reaches by its dispatcher); a range source walked as the vector is; trigger: `fused-reduce*`'s share in a closed profile.
+  compiler.c `mono_plan_of`, `emit_mono_segment`; fusion.c `clj_fused_run_step`, `clj_fused_cat`). A `FUSED` site whose
+  stages are `map`, `filter`, `remove`, `keep`, `take-while`, `drop-while`, `mapcat` over a literal `fn` with a fixed
+  arity 1, `map-indexed` over one with arity 2, the innermost `map` of two or three colls over one with that arity,
+  `take` and `drop` of any count, `dedupe` and `distinct`, is written, behind the same fusion guard, as one step function
+  `<base>__fz<n>(ctx, xs, sink)` that calls each stage's arity function by name — its `always_inline` twin when the
+  stage is a leaf, so the stage bodies sit in the step — and hands each output to the driver's sink
+  (`sink->emit`): no transducer closure is made and no stage is reached through `clj_invoke`. The step answers
+  `CLJ_FUSED_GO`, `CLJ_FUSED_HALT` when a take or take-while ends the walk or the sink is done (the consumer's
+  `reduced`), or `CLJ_FUSED_THROWN`. **mapcat** is `(comp (map f) cat)`: the step calls f and hands its coll to
+  `clj_fused_cat` with the stages below as a continuation `<base>__fz<n>c<i>`, a function of its own (none when mapcat
+  is the last stage: the items go to the sink); a vector is walked leaf by leaf, nil is empty, anything else goes
+  through its own `reduce` with a native rf that runs the continuation, which is cat's `(reduce rrf result coll)` to
+  the letter — a lazy inner coll (`repeat`) is realized as cat's reduce realizes it, a halt below is
+  preserving-reduced's and ends the outer walk. The rf is made once per walk and kept while the same continuation
+  asks. **State**: what a stateful transducer's volatile held sits in the site's ctx array past the stage args, set
+  before the driver and released after it — take's and drop's count, decremented per item as `(vswap! nv dec)` does,
+  so a count of 2.5 takes three items as the lazy take does; drop-while's flag; map-indexed's index; dedupe's prior
+  item, `:clojure.core/none` at the start and compared with `=` after the slot takes the new one, as core's body
+  orders it; distinct's set, which the slot alone holds, so `conj`'s consuming form adds in place where the
+  transducer's `vswap!` copied. **Guards**: the core vars the transducers call are checked as core's bodies would see
+  them — the site takes the step only while each holds its boot root (`volatile!`, `deref`, `vreset!`, `reduced`,
+  `ensure-reduced`, `complement`, `=`, `contains?`, `conj`, mapcat's `comp`, `map`, `cat`, `preserving-reduced`,
+  `reduce`, `reduced?`, and the intrinsics; fusion table, `CLJ_FUSION_GUARD`), the original program otherwise, and the
+  step calls `dec`, `inc`, `pos?`, `not`, `nil?`, `=`, `contains?`, `conj` through their vars' guards
+  (`Fixtures/compiler/fused-stages.clj`, `fused-seq.clj`; `inline-guards.clj` rebinding `dec` and `pos?`,
+  `fused-seq-rebind.clj` rebinding `cat` and `dedupe`). **The driver** (`clj_fused_run_step`, mode and lead as
+  `fused*`'s, analyzer-and-evaluator.md) walks a vector source itself, leaf by leaf (`clj_vector_run`), and any other
+  single source through its `reduce` under a native rf; two or three sources go through `clj_seq` and one
+  `clj_seq_iter` each, every one advanced per step before the shortest ends the walk, as a multi-coll map seqs them.
+  `CLJ_NO_OPT=inline` takes the reduce path for vectors too and keeps every site generic; `CLJ_NO_OPT=fuse` keeps
+  mapcat, dedupe and distinct generic. The step is a frame fn under the consumer's name, which a trace shows where
+  the driver's transducer frames were; a stage body inlined into it names its own stub. A stage given any other
+  value, another stage kind or a variadic fn keeps the generic program. Not done: `keep-indexed`, `interpose`, a stage
+  fn that is a var of a core fn (`(map inc …)`, `(filter pos? …)`, pipelines f2 and f15) or a keyword; reduce's
+  literal f called by its arity from the driver (it is a closure, which `clj_call_invoke` reaches by its dispatcher);
+  a range source walked as the vector is, and `(range)` as a counter instead of iterate's cells; trigger:
+  `clj_fused_run_step`'s share in a closed profile.
 - [~] **Lowered natives: `reduce`, `reduce-kv`, `swap!`, `swap-vals!` over a literal fn** (design §10 step 7a′;
   optimizer.c `try_lower`, lowered.c `clj_lowered_call`, eval.c `eval_lowered`, compiler.c `emit_lowered`, verify.c
   `walk_lowered`; `CLJ_NO_OPT=lower`, and `inline` with it). The four are C builtins: the inliner has no tree to copy,
