@@ -5625,7 +5625,7 @@ static clj_value clojure_core_seq_to_map_for_destructuring__2(void *ctx, const c
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-static clj_value clojure_core_seq_to_map_for_destructuring__lw1_s(void *ctx, const clj_value *args, size_t n) { return clojure_core_seq_to_map_for_destructuring__2_a3(CLJ_NIL, ctx, args, n); }
+static clj_value clojure_core_seq_to_map_for_destructuring__lw1_s(void *ctx, const clj_value *args, size_t n) { (void)clojure_core_seq_to_map_for_destructuring__2; return clojure_core_seq_to_map_for_destructuring__2_a3(CLJ_NIL, ctx, args, n); }
 static CLJC_FRAME clj_value clojure_core_seq_to_map_for_destructuring__lw1_s_o(void *ctx, const clj_value *args, size_t n) { return clojure_core_seq_to_map_for_destructuring__2_a3_o1_i(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_core_seq_to_map_for_destructuring__lw1_mk(void *ctx) {
 	(void)ctx;

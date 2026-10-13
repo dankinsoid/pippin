@@ -3353,7 +3353,7 @@ static clj_value clojure_core_async_do_alt__1__4(void *ctx, const clj_value *arg
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-static clj_value clojure_core_async_do_alt__1__lw3_s(void *ctx, const clj_value *args, size_t n) { return clojure_core_async_do_alt__1__4_a3(CLJ_NIL, ctx, args, n); }
+static clj_value clojure_core_async_do_alt__1__lw3_s(void *ctx, const clj_value *args, size_t n) { (void)clojure_core_async_do_alt__1__4; return clojure_core_async_do_alt__1__4_a3(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_core_async_do_alt__1__lw3_s_o(void *ctx, const clj_value *args, size_t n) { return clojure_core_async_do_alt__1__4_a3_o1(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_core_async_do_alt__1__lw3_mk(void *ctx) {
 	(void)ctx;

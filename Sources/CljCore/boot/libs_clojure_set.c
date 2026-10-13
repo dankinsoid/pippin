@@ -2399,7 +2399,7 @@ static clj_value clojure_set_rename_keys__2(void *ctx, const clj_value *args, si
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-static clj_value clojure_set_rename_keys__lw1_s(void *ctx, const clj_value *args, size_t n) { return clojure_set_rename_keys__2_a3(CLJ_NIL, ctx, args, n); }
+static clj_value clojure_set_rename_keys__lw1_s(void *ctx, const clj_value *args, size_t n) { (void)clojure_set_rename_keys__2; return clojure_set_rename_keys__2_a3(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_set_rename_keys__lw1_s_o(void *ctx, const clj_value *args, size_t n) { return clojure_set_rename_keys__2_a3_o1(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_set_rename_keys__lw1_mk(void *ctx) {
 	(void)ctx;
@@ -3309,7 +3309,7 @@ static clj_value clojure_set_map_invert__2(void *ctx, const clj_value *args, siz
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-static clj_value clojure_set_map_invert__lw1_s(void *ctx, const clj_value *args, size_t n) { return clojure_set_map_invert__2_a3(CLJ_NIL, ctx, args, n); }
+static clj_value clojure_set_map_invert__lw1_s(void *ctx, const clj_value *args, size_t n) { (void)clojure_set_map_invert__2; return clojure_set_map_invert__2_a3(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_set_map_invert__lw1_s_o(void *ctx, const clj_value *args, size_t n) { return clojure_set_map_invert__2_a3_o1(CLJ_NIL, ctx, args, n); }
 static clj_value clojure_set_map_invert__lw1_mk(void *ctx) {
 	(void)ctx;

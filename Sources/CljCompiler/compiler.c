@@ -3479,14 +3479,15 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 
 // The step of a lowered call: <step>(ctx, args, n) calls the arity <target> with self nil and the captures as ctx.
 // A leaf's body is inlined into the step, which then stands for the arity's frame in a trace.
-static void emit_lowered_step(fnctx *f, const char *step, const char *target) {
+// keep: a function the step names so it counts as used, the entry twin's dispatcher, which nothing calls; or NULL.
+static void emit_lowered_step(fnctx *f, const char *step, const char *target, const char *keep) {
 	bool leaf = pool_has(&f->u->leaves, target);
 	for (size_t i = 0; leaf && i < f->u->frames.n; i++) {
 		if (strcmp(f->u->frames.keys[i], target) == 0) frame_add(f->u, step, (uint32_t)strtoul(f->u->frames.extra[i], NULL, 10));
 	}
 	sb_printf(&f->u->protos, "static clj_value %s(void *ctx, const clj_value *args, size_t n);\n", step);
-	sb_printf(&f->u->fns, "static %sclj_value %s(void *ctx, const clj_value *args, size_t n) { return %s%s(CLJ_NIL, ctx, args, n); }\n", leaf ? "CLJC_FRAME " : "",
-	          step, target, leaf ? "_i" : "");
+	sb_printf(&f->u->fns, "static %sclj_value %s(void *ctx, const clj_value *args, size_t n) { %s%s%sreturn %s%s(CLJ_NIL, ctx, args, n); }\n",
+	          leaf ? "CLJC_FRAME " : "", step, keep ? "(void)" : "", keep ? keep : "", keep ? "; " : "", target, leaf ? "_i" : "");
 }
 
 // A lowered call (optimizer.c try_lower): the native runs over a per-site step that calls the literal's arity, its
@@ -3543,13 +3544,13 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 	snprintf(step, sizeof step, "%s__lw%u", f->base, (*f->fn_counter)++);
 	snprintf(target, sizeof target, "%s_a%u", base, arity);
 	closure_expr(f, lit, base, "(const clj_value *)ctx", expr, sizeof expr);
-	emit_lowered_step(f, step, target);
+	emit_lowered_step(f, step, target, NULL);
 	char owned[320] = "NULL";
 	if (omask) {
 		char ostep[320], otarget[340];
 		snprintf(ostep, sizeof ostep, "%s_o", step);
 		snprintf(otarget, sizeof otarget, "%s_o%llu", target, (unsigned long long)omask);
-		emit_lowered_step(f, ostep, otarget);
+		emit_lowered_step(f, ostep, otarget, NULL);
 		snprintf(owned, sizeof owned, "%s", ostep);
 		f->u->slots.owned_steps++;
 	}
@@ -3561,12 +3562,12 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 		emit_lowered_fn(f, n, n->u.lowered.split, 3, sbase, sizeof sbase, &smask);
 		snprintf(split, sizeof split, "%s_s", step);
 		snprintf(starget, sizeof starget, "%s_a3", sbase);
-		emit_lowered_step(f, split, starget);
+		emit_lowered_step(f, split, starget, sbase);
 		if (smask) {
 			char otarget[340];
 			snprintf(split_owned, sizeof split_owned, "%s_s_o", step);
 			snprintf(otarget, sizeof otarget, "%s_o%llu", starget, (unsigned long long)smask);
-			emit_lowered_step(f, split_owned, otarget);
+			emit_lowered_step(f, split_owned, otarget, NULL);
 		}
 		f->u->slots.entry_splits++;
 	}
