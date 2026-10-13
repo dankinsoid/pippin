@@ -35,7 +35,7 @@
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
   and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
   stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
-  neither gate: a CI dispatch with `target: corpus-bench` (on the arm64 runner about 20 min for one tree plus 10 for the reference runtimes, 79 with the default base; the report is the job
+  neither gate: a CI dispatch with `target: corpus-bench` (on the arm64 runner about 20 min for one tree plus 10 for the reference runtimes, 79 with the default base; datascript adds about 7 min to one tree and, timed on both sides, about 40 to the default base, bench/RESULTS.md "Datascript"; the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
   `--interp-ab=VAR` adds a stats build of the interpreter and runs the interpreter and its counters twice, the second
   time with `VAR=1` in the environment (a switch the runtime or `clj-corpus-bench` reads, `CLJ_BENCH_NO_LAZY_INLINE`
