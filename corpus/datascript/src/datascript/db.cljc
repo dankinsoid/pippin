@@ -2,7 +2,7 @@
   (:require
     #?(:cljs [goog.array :as garray])
     [clojure.walk]
-    [clojure.data]
+    ;; pippin: no clojure.data here (NOTES "Corpus"); DB's Diff and EqualityPartition go with it.
     #?(:clj [datascript.inline :refer [update]])
     [datascript.lru :as lru]
     [datascript.util :as util]
@@ -45,12 +45,8 @@
   (and (not (string? x))
     #?(:cljs (or (cljs.core/seqable? x)
                (arrays/array? x))
-       :clj  (or (seq? x)
-               (instance? clojure.lang.Seqable x)
-               (nil? x)
-               (instance? Iterable x)
-               (arrays/array? x)
-               (instance? java.util.Map x)))))
+       ;; pippin: clojure.core/seqable? is RT.canSeq, the JVM's clauses below with Iterable and Map
+     :clj  (clojure.core/seqable? x))))
 
 ;; ----------------------------------------------------------------------------
 ;; macros and funcs to support writing defrecords and updating
@@ -72,12 +68,14 @@
      (if (cljs-env? &env) then else)))
 
 #?(:clj
+   ;; pippin: the JVM swaps cljs's tags for its classes, which a symbol tag would not resolve to; there are no
+   ;; classes here, so the tag goes.
    (defn patch-tag [meta cljs-env?]
      (if cljs-env?
        meta
        (condp = (:tag meta)
-         'boolean (assoc meta :tag java.lang.Boolean)
-         'number  (assoc meta :tag clojure.core$long)
+         'boolean (dissoc meta :tag)
+         'number  (dissoc meta :tag)
          meta))))
 
 #?(:clj
@@ -104,7 +102,8 @@
          `(defn ~name' ~@rest)))))
 
 (defn combine-hashes [x y]
-  #?(:clj  (clojure.lang.Util/hashCombine x y)
+  ;; pippin: hash-combine is Util/hashCombine's ours, as hash is.
+  #?(:clj  (hash-combine x y)
      :cljs (hash-combine x y)))
 
 #?(:clj
@@ -129,19 +128,21 @@
        (list* deftype* tagname classname fields implements (vec (distinct interfaces)) rest))))
 
 #?(:clj
+   ;; pippin: a record takes protocols only (NOTES "Records"), so the JVM interfaces and Object go: DB and
+   ;; FilteredDB keep a record's hash, =, count and empty where datascript's are the datoms' (hash and = of the
+   ;; datom set, count of the datoms) and its transient is the record's (transient is persistent here).
    (defn- make-record-updatable-clj [name fields & impls]
-     (let [impl-map (->> impls (map (juxt get-sig identity)) (filter first) (into {}))
-           body     (macroexpand-1 (list* 'defrecord name fields impls))]
-       (clojure.walk/postwalk
-         (fn [form]
-           (if (and (sequential? form) (= 'deftype* (first form)))
-             (->> form
-               dedupe-interfaces
-               (remove (fn [method]
-                         (when-some [impl (-> method get-sig impl-map)]
-                           (not= method impl)))))
-             form))
-         body))))
+     (let [protocol? (fn [head]
+                       (and (simple-symbol? head)
+                         (not= 'Object head)
+                         (not-any? #{\.} (clojure.core/name head))))
+           impls     (loop [impls impls keep? false acc []]
+                       (if-some [[x & more] (seq impls)]
+                         (if (symbol? x)
+                           (recur more (protocol? x) (if (protocol? x) (conj acc x) acc))
+                           (recur more keep? (if keep? (conj acc x) acc)))
+                         acc))]
+       `(defrecord ~name ~fields ~@impls))))
 
 #?(:clj
    (defn- make-record-updatable-cljs [name fields & impls]
@@ -187,7 +188,8 @@
   (datom-tx [d] (if (pos? tx) tx (- tx)))
   (datom-added [d] (pos? tx))
   (datom-get-idx [_] idx)
-  (datom-set-idx [_ value] (set! idx (int value)))
+  ;; pippin: no mutable fields (NOTES "Type descriptor"); serialize, which is not here, is the only caller.
+  (datom-set-idx [_ value] (throw (ex-info "datom-set-idx needs a mutable field" {})))
 
   #?@(:cljs
       [IHash
@@ -216,40 +218,24 @@
          (pr-sequential-writer writer pr-writer
            "#datascript/Datom [" " " "]"
            opts [(.-e d) (.-a d) (.-v d) (datom-tx d) (datom-added d)]))]
+      ;; pippin: hasheq is hashCode's hash-datom without the _hash cache, a mutable field; no Object (toString,
+      ;; hashCode), no empty slot, and Indexed and Associative cannot be implemented by a deftype here, so
+      ;; nth, find, contains? and assoc of a datom are not (NOTES "Type descriptor").
       :clj
-      [Object
-       (hashCode [d]
-         (if (zero? _hash)
-           (let [h (int (hash-datom d))]
-             (set! _hash h)
-             h)
-           _hash))
-       (toString [d] (pr-str d))
-
-       clojure.lang.IHashEq
-       (hasheq [d] (.hashCode d))
+      [clojure.lang.IHashEq
+       (hasheq [d] (hash-datom d))
 
        clojure.lang.Seqable
        (seq [d] (seq-datom d))
 
        clojure.lang.IPersistentCollection
        (equiv [d o] (and (instance? Datom o) (equiv-datom d o)))
-       (empty [d] (throw (UnsupportedOperationException. "empty is not supported on Datom")))
        (count [d] 5)
        (cons [d [k v]] (assoc-datom d k v))
-        
-       clojure.lang.Indexed
-       (nth [this i]           (nth-datom this i))
-       (nth [this i not-found] (nth-datom this i not-found))
 
        clojure.lang.ILookup
        (valAt [d k] (val-at-datom d k nil))
-       (valAt [d k nf] (val-at-datom d k nf))
-
-       clojure.lang.Associative
-       (entryAt [d k] (some->> (val-at-datom d k nil) (clojure.lang.MapEntry k)))
-       (containsKey [e k] (#{:e :a :v :tx :added} k))
-       (assoc [d k v] (assoc-datom d k v))]))
+       (valAt [d k nf] (val-at-datom d k nf))]))
 
 #?(:cljs (goog/exportSymbol "datascript.db.Datom" Datom))
 
@@ -306,7 +292,7 @@
      2 (.-v d)
      3 (datom-tx d)
      4 (datom-added d)
-     #?(:clj  (throw (IndexOutOfBoundsException.))
+     #?(:clj  (throw (ex-info (str "Datom/nth: Index out of bounds: " i) {}))
         :cljs (throw (js/Error. (str "Datom/-nth: Index out of bounds: " i))))))
   ([^Datom d ^long i not-found]
    (case i
@@ -324,7 +310,7 @@
     :v     (datom (.-e d) (.-a d) v       (datom-tx d) (datom-added d))
     :tx    (datom (.-e d) (.-a d) (.-v d) v            (datom-added d))
     :added (datom (.-e d) (.-a d) (.-v d) (datom-tx d) v)
-    (throw (IllegalArgumentException. (str "invalid key for #datascript/Datom: " k)))))
+    (throw (ex-info (str "invalid key for #datascript/Datom: " k) {}))))
 
 ;; printing and reading
 ;; #datomic/DB {:schema <map>, :datoms <vector of [e a v tx]>}
@@ -381,7 +367,8 @@
 (defn class-identical?
   #?(:clj  {:inline (fn [x y] `(identical? (class ~x) (class ~y)))})
   [x y]
-  #?(:clj  (identical? (class x) (class y))
+  ;; pippin: no class; type is the descriptor, as for cljs.
+  #?(:clj  (identical? (type x) (type y))
      :cljs (identical? (type x) (type y))))
 
 #?(:clj
@@ -390,7 +377,8 @@
       (fn [x]
         `(let [^Object x# ~x]
            (if (nil? x#) x# (.getName (. x# (getClass))))))}
-     ^String [^Object x] (if (nil? x) x (.getName (. x (getClass))))))
+     ;; pippin: the type's name, which is not the JVM class's, so values of mixed types order differently.
+     ^String [^Object x] (if (nil? x) x (str (type x)))))
 
 (defn class-compare
   ^long [x y]
@@ -406,7 +394,8 @@
 (defn ihash
   {:inline (fn [x] `(. clojure.lang.Util (hasheq ~x)))}
   ^long [x]
-  #?(:clj  (. clojure.lang.Util (hasheq x))
+  ;; pippin: Util.hasheq is hash.
+  #?(:clj  (hash x)
      :cljs (hash x)))
 
 #?(:clj  (declare value-compare)
@@ -450,8 +439,11 @@
     (cond
       (= x y) 0
       (and (sequential? x) (sequential? y)) (seq-compare x y)
-      #?@(:clj  [(instance? Number x)       (clojure.lang.Numbers/compare x y)])
-      #?@(:clj  [(instance? Comparable x)   (.compareTo ^Comparable x y)]
+      ;; pippin: compare is Numbers.compare and compareTo; no Number or Comparable to ask, so the types here
+      ;; that are Comparable on the JVM are named. compare throws on another type as compareTo does.
+      #?@(:clj  [(number? x)       (compare x y)])
+      #?@(:clj  [(or (string? x) (keyword? x) (symbol? x) (boolean? x) (char? x) (uuid? x) (inst? x))
+                 (compare x y)]
           :cljs [(satisfies? IComparable x) (-compare x y)])
       (not (class-identical? x y)) (class-compare x y)
       #?@(:cljs [(or (number? x) (string? x) (array? x) (true? x) (false? x)) (garray/defaultCompare x y)])
@@ -481,21 +473,9 @@
    (defmacro defcomp [sym [arg1 arg2] & body]
      (let [a1 (with-meta arg1 {})
            a2 (with-meta arg2 {})]
-       `(if-cljs
-          (defn ~sym [~arg1 ~arg2]
-            ~@body)
-          (def ~sym
-            (reify
-              java.util.Comparator
-              (compare [_# ~a1 ~a2]
-                (let [~arg1 ~arg1 ~arg2 ~arg2]
-                  ~@body))
-              clojure.lang.IFn
-              (invoke [this# ~a1 ~a2]
-                (.compare this# ~a1 ~a2))
-              IFn$OOL
-              (invokePrim [this# ~a1 ~a2]
-                (.compare this# ~a1 ~a2))))))))
+       ;; pippin: a comparator is a fn here, as for cljs; the JVM's reify is a java.util.Comparator.
+       `(defn ~sym [~arg1 ~arg2]
+          ~@body))))
 
 (defcomp cmp-datoms-eavt ^long [^Datom d1, ^Datom d2]
   (combine-cmp
@@ -531,8 +511,9 @@
      (if (keyword? a1)
        (-compare a1 a2)
        (garray/defaultCompare a1 a2))
+     ;; pippin: compare is compareTo on keywords and strings.
      :clj
-     (.compareTo ^Comparable a1 a2)))
+     (compare a1 a2)))
 
 (defcomp cmp-datoms-eav-quick ^long [^Datom d1, ^Datom d2]
   (combine-cmp
@@ -667,11 +648,12 @@
     (update :avet persistent!)))
 
 #?(:clj
+   ;; pippin: = for .equals, which it is on strings and keywords.
    (defn vpred [v]
      (cond
-       (string? v)  (fn [x] (if (string? x) (.equals ^String v x) false))
+       (string? v)  (fn [x] (if (string? x) (= v x) false))
        (int? v)     (fn [x] (if (int? x) (= (long v) (long x)) false))
-       (keyword? v) (fn [x] (.equals ^Object v x))
+       (keyword? v) (fn [x] (= v x))
        (nil? v)     (fn [x] (nil? x))
        :else        (fn [x] (= v x)))))
 
@@ -784,23 +766,15 @@
       (resolve-datom db nil attr start nil e0 tx0)
       (resolve-datom db nil attr end nil emax txmax)))
                 
-  clojure.data/EqualityPartition
-  (equality-partition [x] :datascript/db)
-
-  clojure.data/Diff
-  (diff-similar [a b]
-    (diff-sorted (:eavt a) (:eavt b) cmp-datoms-eav-quick)))
+  ;; pippin: clojure.data/EqualityPartition and Diff, see the ns form.
+  )
 
 (defn db? [x]
+  ;; pippin: a protocol is no interface class here, satisfies? answers for both clauses.
   #?(:clj
-     (or
-       (and x
-         (instance? datascript.db.ISearch x)
-         (instance? datascript.db.IIndexAccess x)
-         (instance? datascript.db.IDB x))
-       (and (satisfies? ISearch x)
-         (satisfies? IIndexAccess x)
-         (satisfies? IDB x)))
+     (and (satisfies? ISearch x)
+       (satisfies? IIndexAccess x)
+       (satisfies? IDB x))
      :cljs
      (and (satisfies? ISearch x)
        (satisfies? IIndexAccess x)
@@ -1195,7 +1169,8 @@
 (defn find-datom [db index c0 c1 c2 c3]
   (validate-indexed db index c0 c1 c2 c3)
   (let [set     (get db index)
-        cmp     #?(:clj (.comparator ^clojure.lang.Sorted set) :cljs (.-comparator set))
+        ;; pippin: the set is persistent-sorted-set's cljs BTSet, whose comparator is a field.
+        cmp     #?(:clj (.-comparator set) :cljs (.-comparator set))
         from    (components->pattern db index c0 c1 c2 c3 e0 tx0)
         to      (components->pattern db index c0 c1 c2 c3 emax txmax)
         datom   (some-> set seq (set/seek from) first)]
@@ -1378,10 +1353,9 @@
       [IPrintWithWriter
        (-pr-writer [d writer opts]
          (pr-sequential-writer writer pr-writer "#datascript/AutoTempid [" " " "]" opts [id]))]
+      ;; pippin: no Object methods (NOTES "Type descriptor"); the printer is print-method's.
       :clj
-      [Object
-       (toString [d]
-         (str "#datascript/AutoTempid [" id "]"))]))
+      []))
 
 #?(:clj
    (defmethod print-method AutoTempid [^AutoTempid id, ^java.io.Writer w]
@@ -1458,10 +1432,11 @@
 #?(:clj
    (defn- ^Boolean tx-id?
      [e]
+     ;; pippin: = for String.equals.
      (or (identical? :db/current-tx e)
-       (.equals ":db/current-tx" e) ;; for datascript.js interop
-       (.equals "datomic.tx" e)
-       (.equals "datascript.tx" e)))
+       (= ":db/current-tx" e) ;; for datascript.js interop
+       (= "datomic.tx" e)
+       (= "datascript.tx" e)))
 
    :cljs
    (defn- ^boolean tx-id?

@@ -9,14 +9,15 @@
      ([m k v & kvs]
       (assert (even? (count kvs)))
       `(assoc (assoc ~m ~k ~v) ~@kvs)))}
-  ([map key val] (clojure.lang.RT/assoc map key val))
+  ;; pippin: clojure.core/assoc is RT.assoc; ex-info for the JVM exception constructor.
+  ([map key val] (clojure.core/assoc map key val))
   ([map key val & kvs]
-   (let [ret (clojure.lang.RT/assoc map key val)]
+   (let [ret (clojure.core/assoc map key val)]
      (if kvs
        (if (next kvs)
          (recur ret (first kvs) (second kvs) (nnext kvs))
-         (throw (IllegalArgumentException.
-                  "assoc expects even number of arguments after map/vector, found odd number")))
+         (throw (ex-info
+                  "assoc expects even number of arguments after map/vector, found odd number" {})))
        ret))))
 
 (defn update

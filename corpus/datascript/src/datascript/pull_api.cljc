@@ -14,20 +14,22 @@
 
 (declare pull-impl attrs-frame ref-frame ->ReverseAttrsFrame)
 
+;; pippin: ISeq's methods are not callable by name here; first, next and cons are them (RT.first and RT.next on a
+;; seq, a seq's cons).
 (defn- first-seq [#?(:clj ^ISeq xs :cljs ^seq xs)]
   (if (nil? xs)
     nil
-    #?(:clj (.first xs) :cljs (-first xs))))
+    #?(:clj (first xs) :cljs (-first xs))))
 
 (defn- next-seq [#?(:clj ^ISeq xs :cljs ^seq xs)]
   (if (nil? xs)
     nil
-    #?(:clj (.next xs) :cljs (-next xs))))
+    #?(:clj (next xs) :cljs (-next xs))))
 
 (defn- conj-seq [#?(:clj ^ISeq xs :cljs ^seq xs) x]
   (if (nil? xs)
     (list x)
-    #?(:clj (.cons xs x) :cljs (-conj xs x))))
+    #?(:clj (cons x xs) :cljs (-conj xs x))))
 
 (defn- assoc-some! [m k v]
   (if (nil? v) m (assoc! m k v)))

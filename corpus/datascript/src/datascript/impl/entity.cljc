@@ -127,23 +127,19 @@
        (-pr-writer [_ writer opts]
          (-pr-writer (assoc @cache :db/id eid) writer opts))]
 
+      ;; pippin: hasheq for hashCode, which Clojure's hash falls back to; no Object (toString, equals: = is
+      ;; equiv), no empty slot, and Associative cannot be implemented by a deftype here, so contains?, find and
+      ;; assoc of an entity are not (NOTES "Type descriptor"); cons throws as the JVM's does.
       :clj
-      [Object
-       (toString [e]      (pr-str (assoc @cache :db/id eid)))
-       (hashCode [e]      (hash-entity e))
-       (equals [e o]      (equiv-entity e o))
+      [clojure.lang.IHashEq
+       (hasheq [e]        (hash-entity e))
 
        clojure.lang.Seqable
        (seq [e]           (touch e) (seq @cache))
 
-       clojure.lang.Associative
+       clojure.lang.IPersistentCollection
        (equiv [e o]       (equiv-entity e o))
-       (containsKey [e k] (not= ::nf (lookup-entity e k ::nf)))
-       (entryAt [e k]     (some->> (lookup-entity e k) (clojure.lang.MapEntry. k)))
-
-       (empty [e]         (throw (UnsupportedOperationException.)))
-       (assoc [e k v]     (throw (UnsupportedOperationException.)))
-       (cons  [e [k v]]   (throw (UnsupportedOperationException.)))
+       (cons  [e [k v]]   (throw (ex-info "cons is not supported on Entity" {})))
        (count [e]         (touch e) (count @(.-cache e)))
 
        clojure.lang.ILookup
@@ -175,7 +171,9 @@
   (db/combine-hashes
     (hash (.-eid e))
     ;; A hash compatible with `identical?`. Consistent with `=`.
-    (#?(:clj System/identityHashCode :cljs goog/getUid) (.-db e))))
+    ;; pippin: no identity hash; one value for every db is consistent with = too, and hashing the db is the cost
+    ;; the identity hash avoids.
+    (#?(:clj (constantly 0) :cljs goog/getUid) (.-db e))))
 
 (defn- lookup-entity
   ([this attr] (lookup-entity this attr nil))

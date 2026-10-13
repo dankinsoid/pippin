@@ -7,9 +7,10 @@
 (def ^:dynamic *debug*
   false)
 
+;; pippin: no system properties here; the JVM without -Ddatascript.debug, the default.
 #?(:clj
    (defmacro log [& body]
-     (when (System/getProperty "datascript.debug")
+     (when false
        `(when *debug*
           (println ~@body)))))
 

@@ -1,6 +1,7 @@
 (ns ^:no-doc datascript.query
   (:require
-    [#?(:cljs cljs.reader :clj clojure.edn) :as edn]
+    ;; pippin: no clojure.edn here (NOTES "Corpus"); parse-rules reads with read-string.
+    #?(:cljs [cljs.reader :as edn])
     [clojure.set :as set]
     [clojure.string :as str]
     [clojure.walk :as walk]
@@ -103,16 +104,17 @@
 #?(:clj (set! *unchecked-math* true))
 
 #?(:clj
+   ;; pippin: no class to ask isArray of; da/array? asks the type, here and below.
    (defn join-tuples [t1 ^{:tag "[[Ljava.lang.Object;"} idxs1
                       t2 ^{:tag "[[Ljava.lang.Object;"} idxs2]
      (let [l1  (alength idxs1)
            l2  (alength idxs2)
            res (da/make-array (+ l1 l2))]
-       (if (.isArray (.getClass ^Object t1))
+       (if (da/array? t1)
          (dotimes [i l1] (aset res i (aget ^objects t1 (aget idxs1 i))))
          (dotimes [i l1] (aset res i (get t1 (aget idxs1 i)))))
-       (if (.isArray (.getClass ^Object t2))
-         (dotimes [i l2] (aset res (+ l1 i) (get ^objects t2 (aget idxs2 i))))
+       (if (da/array? t2)
+         (dotimes [i l2](aset res (+ l1 i) (get ^objects t2 (aget idxs2 i))))
          (dotimes [i l2] (aset res (+ l1 i) (get t2 (aget idxs2 i)))))
        res))
    :cljs
@@ -187,7 +189,7 @@
 ;;
 
 (defn parse-rules [rules]
-  (let [rules (if (string? rules) (edn/read-string rules) rules)] ;; for datascript.js interop
+  (let [rules (if (string? rules) #?(:cljs (edn/read-string rules) :clj (read-string rules)) rules)] ;; for datascript.js interop
     (dp/parse-rules rules) ;; validation
     (group-by ffirst rules)))
 
@@ -278,7 +280,7 @@
         (let [idx (int idx)]
           (fn contained-int-getter-fn [tuple]
             (let [eid #?(:cljs (da/aget tuple idx)
-                         :clj (if (.isArray (.getClass ^Object tuple))
+                         :clj (if (da/array? tuple)
                                 (aget ^objects tuple idx)
                                 (nth tuple idx)))]
               (cond
@@ -288,8 +290,9 @@
                 :else             eid))))
         ;; If the index is not an int?, the target can never be an array
         (fn contained-getter-fn [tuple]
+          ;; pippin: get is ILookup.valAt.
           (let [eid #?(:cljs (da/aget tuple idx)
-                       :clj (.valAt ^ILookup tuple idx))]
+                       :clj (get tuple idx))]
             (cond
               (number? eid)     eid ;; quick path to avoid fn call
               (sequential? eid) (resolve-fn eid)
@@ -299,20 +302,22 @@
         (let [idx (int idx)]
           (fn int-getter [tuple]
             #?(:cljs (da/aget tuple idx)
-               :clj (if (.isArray (.getClass ^Object tuple))
+               :clj (if (da/array? tuple)
                       (aget ^objects tuple idx)
                       (nth tuple idx)))))
         ;; If the index is not an int?, the target can never be an array
         (fn getter [tuple]
           #?(:cljs (da/aget tuple idx)
-             :clj (.valAt ^ILookup tuple idx)))))))
+             :clj (get tuple idx)))))))
 
 (defn tuple-key-fn
   [attrs common-attrs]
   (let [n (count common-attrs)]
     (if (== n 1)
       (getter-fn attrs (first common-attrs))
-      (let [^objects getters-arr #?(:clj (into-array Object common-attrs)
+      ;; pippin: object-array for into-array and make-array of Object; vec copies the array that
+      ;; LazilyPersistentVector/createOwning takes over.
+      (let [^objects getters-arr #?(:clj (object-array common-attrs)
                                     :cljs (into-array common-attrs))]
         (loop [i 0]
           (if (< i n)
@@ -321,13 +326,13 @@
               (recur (unchecked-inc i)))
             #?(:clj
                (fn [tuple]
-                 (let [^objects arr (make-array Object n)]
+                 (let [^objects arr (object-array n)]
                    (loop [i 0]
                      (if (< i n)
                        (do
                          (aset arr i ((aget getters-arr i) tuple))
                          (recur (unchecked-inc i)))
-                       (LazilyPersistentVector/createOwning arr)))))
+                       (vec arr)))))
                :cljs (fn [tuple]
                        (list* (.map getters-arr #(% tuple)))))))))))
 
@@ -870,7 +875,7 @@
               (fn [t2]
                 (let [res (aclone t1)]
                   #?(:clj
-                     (if (.isArray (.getClass ^Object t2))
+                     (if (da/array? t2)
                        (dotimes [i len]
                          (when-some [idx (aget ^objects copy-map i)]
                            (aset res i (aget ^objects t2 idx))))
