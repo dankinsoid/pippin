@@ -88,7 +88,9 @@
     (an allocation of the same size class in the frame of the death within the next 1 or 4 allocations), whether the
     count ever passed 1 (`CLJ_FLAG_RETAINED`, set by the stats build's retain), and whether it was born under a
     builder (`into`, the transient ops, `frequencies`, `group-by`, `zipmap`, `mapv`, `filterv`, by fn name). C
-    builtins push no frame: what they allocate belongs to the calling fn. `--calibrate` also times the inline
+    builtins push no frame: what they allocate belongs to the calling fn. Per (birth fn, type) the frame region —
+    died in the frame or in a callee — is counted too (`census_site`, a lock-free table keyed by the census frame's fn
+    node), and the report lists each workload's top 8 as `name@line:col`: what to replace is chosen by where it is born. `--calibrate` also times the inline
     retain/release over 1M shuffled headers (`clj_debug_rc_op_ns_cold`), the miss the hot number leaves out.
   - The facts coverage is `clj-facts` with `bench/workloads` as an extra root after the corpus (its row in the
     report), and `clj-compile --closed --stats` of each program (unboxed and tag-checked arithmetic, protocol sites,

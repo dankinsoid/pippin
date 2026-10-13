@@ -931,7 +931,7 @@
   inside that captures only the literal it is given (`mapv`, `filterv`, `run!` reduce over such a closure) — a
   closure specialized to its literal (defunctionalization), when they rank in a census; `swap!`, `reduce` and the
   like are natives with no body to copy, and a literal fn of theirs is lowered instead (the "Lowered natives" entry);
-  scalar replacement of what the copy now allocates in the caller's frame is step 7b.
+  scalar replacement of what the copy now allocates in the caller's frame is step 7b (the "Scalar replacement" entry).
 - [~] **Another unit's fn in a dev unit: the tree's digest as the guard** (design §6 «Инлайнинг без JIT», §10 step
   7a; compiler.c `emit_inlined_call`, `copy_pays`, `outlined_fn`, `emit_outlined_call`, `tree_digest_text`; node_data.c
   `clj_node_tree_digest`; load.c `clj_compiled_register_trees`, `clj_compiled_tree_is`; compiled_internal.h
@@ -1145,6 +1145,72 @@
   closed profile; the fn a caller passes to `mapv`, `filterv`, `run!` (core's inner fn is lowered, the caller's literal
   is still a closure: a closure specialized to its literal) — when they rank in a census; a literal that reads its own
   name — when one shows up in a profile.
+- [~] **Scalar replacement: a let-bound literal in slots, a map entry as its key and value** (design §10 step 7б,
+  §4 «Известный shape + не убегает = мапы нет вообще»; optimizer.c `try_scalar`, `sr_rw`, `sr_split`, verify.c
+  `scalar_guard_ok`, `walk_split`, reduce.c `clj_reducer_step_entry`; `CLJ_NO_OPT=scalar`). A pass of `clj_optimize`
+  after inlining, before the liveness marks, so both backends get it and nothing new is emitted but one guard. *The
+  value*: a let binding whose init is a tuple literal (1–6 items), a literal map of 1–32 constant keywords, or an `if`
+  of two such literals of one layout (the same count, the same keys in the same order) is its fields: a trivial item
+  stays the read it is, any other is bound to a fresh slot in item order, an `if`'s arm items as `(if c' a_i b_i)`
+  over the test bound once, which runs exactly the original's items in the original's order. *Reads* in the bindings
+  after it and the let's body: a read the layout alone answers — `nth`, `get`, a keyword or the value as a fn, `count`,
+  `contains?`, `first`, the type predicates, an `if` test — becomes the field or a constant. What a read answers is
+  asked of the runtime itself on a sample of the layout whose fields are fixnum sentinels (the oracle: the same
+  `clj_get`, `clj_nth`, `clj_contains_p` a call would run), so the rewrite is the runtime's semantics by construction,
+  not a restatement; only answers that depend on the layout alone are taken (`=` or `compare` would answer for the
+  sentinels). `(let [u t])` names the same fields; `(assoc m :k v)` of a key the map has (the oracle answers the same
+  count, one field replaced) derives a value of its own with one new field. *Materialization*: any other use — a
+  return, an argument, a store, a capture (bound just before the closure is made), a recur argument, metadata, `=`,
+  `hash`, `seq` — is the literal again over the fields, the very constructor the binding ran (`clj_vector_from_array`,
+  the shaped map literal), so layout, `=`, `hash` and `seq` order are the original object's. *Identity*: a value is
+  materialized at most once on any path through its binding's extent (`sr_count` over the rewritten tree; a handler
+  may follow any prefix of its body) and never inside a loop the extent enters, so `identical?` sees one object per
+  binding as before; a value that would be materialized twice on a path, in a loop, or on every path (no allocation
+  would go) keeps its allocation and nothing changes. *Guard*: an intrinsic's answer holds while its var holds the
+  builtin, so a value read through one binds `g` once — a ROOT_IS over those intrinsics (`root_is.ops`), a let init and
+  nothing else, the intrinsic guard of each as its INTRINSIC node checks it, `CLJC_GUARD` in a unit, 1 when closed —
+  and every rewritten expression of the extent is `(if g E' E)`: E' the rewritten copy, E the original over the value,
+  which is bound `(if g nil MAT)`. So a redefined `nth`, `get`, `count` or `assoc` runs the original code over the one
+  object (`Fixtures/compiler/scalar-rebind.clj`, dev only); a redefinition by the extent's own code is seen from the
+  next binding on, as a known path's is. Keyword lookups, a value invoked as a fn and `if` tests need no guard. The
+  codec writes the guard as `false`: a tree read back runs every extent's original code. *Exceptions*: fields are
+  frame slots, so a handler reads them as any local (`scalar.clj` throws between the fields and their reads, in a
+  handler, and while the items run). *Coroutines*: nothing new — the fields are frame slots, C locals of a stackful
+  coroutine across a park; the collector does not enumerate frames (design §7 Фаза 3, вариант 5), so a field the frame
+  owns makes its target black exactly as the tuple in the slot made the tuple and its fields black
+  (`scalar-park.clj`). *Budget*: a frame's growth at most `max(64, its size)` nodes, its slots the inliner's rule (≤ 64,
+  a frame of ≤ 16 stays ≤ 16), and a body of ≤ 32 nodes — an inline candidate — is not grown past 32: copied into its
+  caller, it is replaced there. **The entry twin.** A lowered `reduce` whose literal reads its item (`(fn [m [k vs]]
+  …)`) gets a twin `(fn [acc k v] (let [e [k v]] body))` over the literal's captures, its slots shifted (k and v at 1
+  and 2, e past them all); the pass above replaces the entry there, and the twin is kept only when it did and the body
+  reads a field. `LOWERED.split` holds it; the interpreter runs it over the same gathered environment, a unit as a step
+  `<base>__lw<n>_s` (and `_s_o` over its owned entry `_a3_o1`, so the accumulator stays +1). `clj_call_prepare` of the
+  stack fn hands the two steps over (`clj_lowered_prepare_split`), and a map's reduce slot calls them with the key and
+  value it walks (`clj_reducer_step_entry`) instead of making the entry vector; the 2-arity's seed, a sorted map, a
+  record, a seq of vectors, a user `IReduceInit` and a closure all still see the entry. Verifier: `verify/scalar-guard`
+  (a let-bound guard checks intrinsics of the table, var and expect its first's), `verify/scalar-guard-read` (its slot
+  is read only as an `if` test), `verify/lowered-split` (one 3-arity under a reduce, the literal's captures); ICE
+  `optimize/scalar-leftover` when a rewritten expression still reads a replaced value. `clj-compile --stats` prints the
+  process totals and per unit `scalar guards`, `entry twins`.
+  **Population, measured first** (bench/RESULTS.md "Scalar replacement"): static sites are few — none in core.clj, none
+  in the five corpus libraries' own code, two in clojure.set (`join`), one in the workloads (render's `[opts children]`);
+  entry twins: one in core.c, two in clojure.set, one in core.async, one in dependency. The census of the frame region
+  by birth site says why: what dies in its frame is made by natives (map entries of a reduce or a `find`, the
+  vector-seqs of `[x & more]`, rest-arg lists, a set's seq), not by literals.
+  **Stack allocation (design §7 «Стек») is not done**, and not for this population: what dies in its frame without a
+  field-split is a native's product passed to another call (`find`'s entry to `val`, a vector-seq to `first`/`next`, a
+  path vector to `update-existing-in`), so a stack object needs every callee proven not to keep it — parameter escape
+  summaries across the call graph, which the facts do not carry — and an RC fast path that tests a `stack` bit on
+  every retain and release of every object. Trigger: those summaries, then a census row of such objects worth more
+  than that test.
+  Not done, each with its trigger: a literal made in an inlined callee and read by the caller (two returns: the
+  INLINE body would have to bind the caller's slots) — a census row of tuples born in an inlined body dying one frame
+  up; `find`'s entry read only by `val` and its truth (medley's `update-existing-in` and `collate-by`, 60k an
+  iteration: `(contains? m k)` then `get` is two lookups for one allocation, and `key` would need the stored key) — when
+  it ranks in a closed profile; the vector-seq of `[x & more]` over a vector (render, strings, medley, pipelines:
+  100–300k each) — a guarded shape from the facts (`vector?` tested) as a cursor in two slots, when the facts carry the
+  type into the destructuring; loop variables holding a tuple (`(loop [[i acc] [0 0]] … (recur [..]))`, field slots
+  rebound by recur) and an `if`/`cond` tree deeper than one test — a census row.
 - **A compiled closure's `min_arity` is its rest arity's own count**, not its lowest, when it has a rest arity
   (`fn_arity_bounds`; the mask carries the fixed ones). Past `CLJ_FN_MAX_FIXED` + 1 spread arguments `clj_apply`
   hands the rest over as one seq at that position (`rest_at`, fn.c, docs/notes/analyzer-and-evaluator.md), as an
