@@ -591,35 +591,45 @@ extension CoreTests {
 			}
 		}
 
-		// A copy of another unit's fn runs only under a root compiled from the same tree, a reloaded one included.
+		// A copy of another unit's fn runs only under a root compiled from the same tree, a reloaded one included; poly's
+		// sites call the unit's one outlined copy of it under the same guard.
 		@Test func crossUnitInlineFollowsTheCalleesTree() throws {
 			clj_init()
 			defer { clj_ns_set_current(clj_ns_user()) }
 			let dir = String(cString: jitDir!)
-			let lib = "(ns cp.xu-lib)\n(defn sq [x] (* x x))\n"
-			try loadUnits([(lib, "\(dir)/xu/lib.clj"), ("(ns cp.xu-app)\n(defn f [y] (cp.xu-lib/sq (inc y)))\n", "\(dir)/xu/app.clj")], tag: "a")
+			let lib = "(ns cp.xu-lib)\n(defn sq [x] (* x x))\n(defn poly [x] (+ (* x x) (* 3 x) 1))\n"
+			let app = "(ns cp.xu-app)\n(defn f [y] (cp.xu-lib/sq (inc y)))\n(defn g [y] [(cp.xu-lib/poly (inc y)) (cp.xu-lib/poly y)])\n"
+			try loadUnits([(lib, "\(dir)/xu/lib.clj"), (app, "\(dir)/xu/app.clj")], tag: "a")
 			_ = try runFixtureUnit("\(dir)/xu/lib.clj")
 			_ = try runFixtureUnit("\(dir)/xu/app.clj")
 			let inlining = clj_no_opt() & (clj_no_opt_parse("inline") | clj_no_opt_parse("passes")) == 0
 			let hit0 = clj_debug_tree_matches(true), miss0 = clj_debug_tree_matches(false)
 			#expect(try cljEval("(cp.xu-app/f 2)") == 9)
+			#expect(try cljEval("(cp.xu-app/g 2)") == cljEval("[19 11]"))
 			if inlining { #expect(clj_debug_tree_matches(true) > hit0, "the copy never ran") }
 			#expect(try cljEval("(with-redefs [cp.xu-lib/sq (fn [x] (- x))] (cp.xu-app/f 2))") == -3)
+			#expect(try cljEval("(with-redefs [cp.xu-lib/poly (fn [x] (- x))] (cp.xu-app/g 2))") == cljEval("[-3 -2]"))
 			#expect(try cljEval("(cp.xu-app/f 2)") == 9)
+			#expect(try cljEval("(cp.xu-app/g 2)") == cljEval("[19 11]"))
 			_ = try cljEval("(alter-var-root #'cp.xu-lib/sq (constantly (fn [x] (+ x 100))))")
+			_ = try cljEval("(alter-var-root #'cp.xu-lib/poly (constantly (fn [x] (+ x 100))))")
 			#expect(try cljEval("(cp.xu-app/f 2)") == 103)
-			_ = try cljEval("(in-ns 'cp.xu-lib) (defn sq [x] (+ x x))")
+			#expect(try cljEval("(cp.xu-app/g 2)") == cljEval("[103 102]"))
+			_ = try cljEval("(in-ns 'cp.xu-lib) (defn sq [x] (+ x x)) (defn poly [x] (* x 10))")
 			#expect(try cljEval("(cp.xu-app/f 2)") == 6)
+			#expect(try cljEval("(cp.xu-app/g 2)") == cljEval("[30 20]"))
 			// another body compiled: another digest, so the copy of the first one must not run
-			try loadUnits([("(ns cp.xu-lib)\n(defn sq [x] (- x x))\n", "\(dir)/xu/lib2.clj")], tag: "b")
+			try loadUnits([("(ns cp.xu-lib)\n(defn sq [x] (- x x))\n(defn poly [x] (- (* x x) (* 3 x) 1))\n", "\(dir)/xu/lib2.clj")], tag: "b")
 			_ = try runFixtureUnit("\(dir)/xu/lib2.clj")
 			#expect(try cljEval("(cp.xu-app/f 2)") == 0)
+			#expect(try cljEval("(cp.xu-app/g 2)") == cljEval("[-1 -3]"))
 			if inlining { #expect(clj_debug_tree_matches(false) > miss0, "the other body was never looked up") }
 			// the same body in a new unit: a new dispatcher of the copied tree
 			let hit1 = clj_debug_tree_matches(true)
 			try loadUnits([(lib, "\(dir)/xu/lib3.clj")], tag: "c")
 			_ = try runFixtureUnit("\(dir)/xu/lib3.clj")
 			#expect(try cljEval("(cp.xu-app/f 2)") == 9)
+			#expect(try cljEval("(cp.xu-app/g 2)") == cljEval("[19 11]"))
 			if inlining { #expect(clj_debug_tree_matches(true) > hit1, "the reloaded tree was not recognized") }
 		}
 
@@ -646,9 +656,10 @@ extension CoreTests {
 			proc.waitUntilExit()
 			try #require(proc.terminationStatus == 0, "clj-compile: \(stats)")
 			let inlining = clj_no_opt() & (clj_no_opt_parse("inline") | clj_no_opt_parse("passes")) == 0
-			// mod in m7 and max-key in pick at least
+			// mod in m7 and max-key in pick at least; m7's mod calls the unit's outlined copy, pick's max-key is its own
 			let cross = stats.components(separatedBy: "of which from another unit ").dropFirst().first.flatMap { Int($0.prefix { $0.isNumber }) } ?? 0
-			if inlining { #expect(cross >= 2, "\(stats)") }
+			let outlined = stats.components(separatedBy: "(outlined ").dropFirst().first.flatMap { Int($0.prefix { $0.isNumber }) } ?? 0
+			if inlining { #expect(cross >= 2 && outlined >= 1 && outlined < cross, "\(stats)") }
 			var o = evalOptions()
 			for line in try String(contentsOf: out.appendingPathComponent("units.txt"), encoding: .utf8).split(separator: "\n") {
 				let cells = line.split(separator: "\t", maxSplits: 1).map(String.init)

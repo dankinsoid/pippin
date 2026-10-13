@@ -175,6 +175,7 @@ typedef struct {
 	pool  inlines;   // the inlined calls' targets "base_aN": a closed set that binds the var to that fn drops the guard
 	pool  trees;     // the dispatchers of its def'd fns another unit may inline, with their trees' digests
 	pool  xguards;   // the digests of other units' trees inlined here: one guard cache each
+	pool  outlined;  // "<digest>/<arity>" of another unit's tree compiled here once, with its arity function's name
 	uint32_t nstubs, ntops, nforms;
 	uint32_t nics; // inline caches of the unit, numbered across its functions (file scope, behind getters)
 	cljc_slot_stats slots;
@@ -394,6 +395,7 @@ static void unit_free(unit *u) {
 	pool_free(&u->inlines);
 	pool_free(&u->trees);
 	pool_free(&u->xguards);
+	pool_free(&u->outlined);
 	free(u);
 }
 
@@ -3286,10 +3288,137 @@ static temp emit_call_alone(fnctx *f, const clj_node *n) {
 	return emit(f, n->u.if_.else_);
 }
 
+enum {
+	// a copy this small costs no more C than the outlined call that would replace it
+	OUTLINE_MIN_NODES = 4,
+};
+
+static fnctx fnctx_child(fnctx *parent, const char *base);
+static void  fnctx_free(fnctx *f);
+static void  emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_arity *a, const char *base, uint32_t stub, bool exported);
+
+typedef struct {
+	uint32_t special; // copies, lowered and fused calls, direct calls: code made for its place
+	uint32_t calls;   // calls of a value, which a copy may have turned into an intrinsic or a copy
+} site_shape;
+
+static void count_shape(const clj_node *n, void *ctx) {
+	site_shape *s = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_INLINE:
+	case CLJ_NODE_LOWERED:
+	case CLJ_NODE_FUSED:
+	case CLJ_NODE_DIRECT_CALL: s->special++; return;
+	case CLJ_NODE_IF:
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) {
+			s->special++;
+			return;
+		}
+		break;
+	case CLJ_NODE_INVOKE:
+		if (n->u.invoke.fn->kind != CLJ_NODE_CONST || !clj_is_keyword(n->u.invoke.fn->u.value.v)) s->calls++;
+		break;
+	default: break;
+	}
+	clj_node_children(n, count_shape, ctx);
+}
+
+// The site's arguments changed the code (a literal fn copied in, a var argument's calls become intrinsics or copies).
+// @ai-generated(solo)
+static bool copy_is_sites(const clj_node *copy, const clj_node *tree) {
+	site_shape c = {0, 0}, t = {0, 0};
+	count_shape(copy, &c);
+	count_shape(tree, &t);
+	return c.special > t.special || c.calls < t.calls;
+}
+
+// The guarded tree's arity compiled once per unit. No #line: its lines are the callee's file's. Its own tree's facts:
+// the form's are indexed by other node ids.
+// @ai-generated(solo)
+static const char *outlined_fn(fnctx *f, const clj_node *code, clj_value expect, uint32_t nargs, const char *digest) {
+	char key[96];
+	snprintf(key, sizeof key, "%s/%u", digest, nargs);
+	for (size_t i = 0; i < f->u->outlined.n; i++) {
+		if (strcmp(f->u->outlined.keys[i], key) == 0) return f->u->outlined.extra[i];
+	}
+	const clj_fn_arity *a = code->u.fn.fixed[nargs];
+	if (!a) clj_ice("emit/outlined-arity", code, "an outlined call of %u args into a fn without that arity", nargs);
+	char base[300], name[320];
+	snprintf(base, sizeof base, "%s__xo%u", f->base, (*f->fn_counter)++);
+	snprintf(name, sizeof name, "%s_a%u", base, nargs);
+	bool   fresh;
+	size_t at = pool_intern(&f->u->outlined, key, name, &fresh);
+	const clj_exec *e = clj_exec_of(clj_fn_of(expect)->code.v);
+	clj_facts      *facts = clj_opt_off(CLJ_NO_OPT_EMIT) ? NULL : clj_facts_of_with(e->root, clj_specialize_store());
+	if (facts && facts_frame(facts, code, a->body) == UINT32_MAX) {
+		clj_facts_free(facts);
+		facts = NULL;
+	}
+	fnctx p = fnctx_child(f, base);
+	p.facts = facts;
+	bool line = f->c->opts.line;
+	f->c->opts.line = false;
+	emit_closure_arity(&p, code, a, base, stub_new(f->u, f, code->u.fn.name.v, code->line, code->col), false);
+	f->c->opts.line = line;
+	fnctx_free(&p);
+	clj_facts_free(facts);
+	f->u->slots.outlined_fns++;
+	return f->u->outlined.extra[at];
+}
+
+// The guard of a copy: 1 under CLJC_INL_<target> in a closed set binding the var to the very fn, else the dispatcher's
+// identity for this unit's fn, the tree's digest for another dev unit's, or 0.
+// @ai-generated(solo)
+static void emit_copy_guard(fnctx *f, const char *b, const fn_base *fb, bool local, uint32_t nargs, clj_value var, size_t xg) {
+	if (fb) {
+		char target[300];
+		snprintf(target, sizeof target, "%s_a%u", fb->base, nargs);
+		bool fresh;
+		pool_intern(&f->u->inlines, target, NULL, &fresh);
+		sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b);
+	}
+	if (local) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b, var_index(f->u, var), fb->base);
+	else if (xg != SIZE_MAX)
+		sb_printf(&f->out, "#ifdef CLJ_CLOSED\n\tbool %s = false;\n#else\n\tbool %s = clj_c_root_tree(V[%zu], &XG[%zu]);\n#endif\n", b, b, var_index(f->u, var), xg);
+	else sb_printf(&f->out, "\tbool %s = false;\n", b);
+	if (fb) sb_puts(&f->out, "#endif\n");
+}
+
+// The call's own argument nodes, hence its drops; the var is read before them, as the call reads it.
+// @ai-generated(solo)
+static temp emit_outlined_call(fnctx *f, const clj_node *n, const fn_base *fb, const char *target, size_t xg) {
+	const clj_node *call = n->u.if_.else_, *head = call->u.invoke.fn;
+	uint32_t        nargs = call->u.invoke.n;
+	size_t          vi = var_index(f->u, head->u.var.v);
+	emit_drops(f, n, 1);
+	mark_impl_candidates(f, call);
+	temp b = new_temp(f, OWN_NO);
+	emit_copy_guard(f, b.name, fb, false, nargs, head->u.var.v, xg);
+	fn_line(f, head);
+	temp fn = new_temp(f, OWN_DYN);
+	sb_printf(&f->out, "\tbool %s = false;\n\tclj_value %s = CLJ_NIL;\n\tif (!%s) %s = clj_c_var_borrow(V[%zu], &%s);\n", fn.flag, fn.name, b.name, fn.name, vi, fn.flag);
+	check_thrown(f, fn.name);
+	live_push(f, fn);
+	char array[24];
+	snprintf(array, sizeof array, "a%d", f->naux++);
+	temp *args = emit_args(f, call->u.invoke.args, nargs, array);
+	temp  r = new_temp(f, OWN_YES);
+	sb_printf(&f->out, "\tclj_value %s = %s ? %s(CLJ_NIL, NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n", r.name, b.name, target, array, nargs, fn.name, array, nargs);
+	release_args(f, args, nargs);
+	release_temp(f, &fn);
+	check_thrown(f, r.name);
+	live_push(f, r);
+	f->u->slots.inlined++;
+	f->u->slots.inlined_cross++;
+	f->u->slots.outlined++;
+	return r;
+}
+
 // An inlined call (optimizer.c): the body's guard is 1 in a closed set that binds the var to the very fn the body was
 // copied from (CLJC_INL_<target>, decided at write time as the direct targets are), the dispatcher's identity in the
 // unit that compiled that fn, the digest of the copied tree in another dev unit (clj_c_root_tree), and the call alone
-// where none can hold.
+// where none can hold. A dev unit's copy of another unit's tree that its site did not specialize is the call of the
+// tree compiled once in the unit, under the same guard.
 // @ai-generated(solo)
 static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_;
@@ -3315,27 +3444,22 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 		bool           local = fb && fb->u == f->u;
 		// another unit's tree, in a dev unit: the root's dispatcher compiled from a tree of the same digest
 		size_t xg = SIZE_MAX;
-		if (!local && !f->c->opts.closed && !copy_pays(inl->u.inline_.body)) return emit_call_alone(f, n);
 		if (!local && !f->c->opts.closed) {
+			const clj_node *copy = inl->u.inline_.body, *head = call->u.invoke.fn;
+			uint32_t        nargs = call->u.invoke.n;
+			if (!copy_pays(copy)) return emit_call_alone(f, n);
+			// a dev unit's copies of one small fn at many sites outgrow the unit: one compiled body serves them all
+			bool outline = !f->u->embedded && call->kind == CLJ_NODE_INVOKE && head->kind == CLJ_NODE_VAR && head->u.var.v == g->u.root_is.var.v &&
+			               nargs <= CLJ_FN_MAX_FIXED && code->u.fn.fixed[nargs] && !clj_lazy_seq_site(call) && clj_is_nil(protocol_method_root(head)) &&
+			               copy->nnodes > OUTLINE_MIN_NODES && !copy_is_sites(copy, code->u.fn.fixed[nargs]->body);
 			char text[64];
 			bool fresh;
 			tree_digest_text(code, text, sizeof text);
 			if (text[0]) xg = pool_intern(&f->u->xguards, text, NULL, &fresh);
+			if (outline && xg != SIZE_MAX) return emit_outlined_call(f, n, fb, outlined_fn(f, code, g->u.root_is.expect.v, nargs, text), xg);
 		}
 		if (!fb && xg == SIZE_MAX) return emit_call_alone(f, n);
-		if (fb) {
-			char target[300];
-			snprintf(target, sizeof target, "%s_a%u", fb->base, call->u.invoke.n);
-			bool fresh;
-			pool_intern(&f->u->inlines, target, NULL, &fresh);
-			sb_printf(&f->out, "#ifdef CLJC_INL_%s\n\tbool %s = true;\n#else\n", target, b.name);
-		}
-		if (local) sb_printf(&f->out, "\tbool %s = clj_c_root_runs(V[%zu], %s);\n", b.name, var_index(f->u, g->u.root_is.var.v), fb->base);
-		else if (xg != SIZE_MAX)
-			sb_printf(&f->out, "#ifdef CLJ_CLOSED\n\tbool %s = false;\n#else\n\tbool %s = clj_c_root_tree(V[%zu], &XG[%zu]);\n#endif\n", b.name, b.name,
-			          var_index(f->u, g->u.root_is.var.v), xg);
-		else sb_printf(&f->out, "\tbool %s = false;\n", b.name);
-		if (fb) sb_puts(&f->out, "#endif\n");
+		emit_copy_guard(f, b.name, fb, local, call->u.invoke.n, g->u.root_is.var.v, xg);
 		if (!local) f->u->slots.inlined_cross++;
 	}
 	temp r = new_temp(f, OWN_YES);

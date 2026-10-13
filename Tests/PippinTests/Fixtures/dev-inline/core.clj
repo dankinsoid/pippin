@@ -1,6 +1,7 @@
 ;; @ai-generated(solo)
-;; A dev unit clj-compile built over the interpreted core copies mod and max-key into m7 and pick; over a compiled core
-;; each copy runs while its var holds the fn compiled from the same tree, and the call runs otherwise.
+;; A dev unit clj-compile built over the interpreted core copies max-key into pick and mod into the unit once, which m7
+;; calls; over a compiled core each copy runs while its var holds the fn compiled from the same tree, and the call runs
+;; otherwise.
 (ns dev-inline.core)
 
 (defn m7 [x] (mod x 7))
