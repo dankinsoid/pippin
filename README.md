@@ -2,7 +2,8 @@
 
 Pippin is Clojure for Apple platforms: a runtime with its own C core, an interpreter and a compiler to C,
 and bridges to Objective-C, Swift and C. It is not a transpiler to Swift and not a port of the JVM
-implementation. The language is JVM Clojure's; every known difference is listed in
+implementation. Like ClojureScript and ClojureDart, it is a hosted Clojure: compatible with JVM Clojure
+as far as a non-JVM host allows, with every known difference listed in
 [docs/jvm-differences.md](docs/jvm-differences.md).
 
 Next to it, as research rather than a plan, is **Merry** — a static sibling language meant to share the
@@ -27,10 +28,12 @@ rendering, hot paths, Metal.
 
 ## What makes it different
 
-**It is Clojure, not a dialect.** The invariant: a valid Clojure program is valid here with the same result;
-analysis changes only cost and diagnostics, annotations are metadata the runtime ignores, and an unknown fact
-never stops compilation. Where JVM-ness forces a divergence, ClojureScript is the measure of how far one may
-go: a name cljs kept is kept, a name cljs dropped needs a reason of our own. `make api-diff` compares the
+**Compatible as far as a hosted Clojure can be.** Without the JVM there is no `Thread`, no `proxy`, no
+Java class in `catch`, so full compatibility is out of reach for any other host; ClojureScript is the measure
+of how far one may diverge. A name cljs kept is kept, a name cljs dropped needs a reason of our own, and a
+name cljs retargeted at its host may be retargeted at ours. Analysis never adds a divergence of its own: it
+changes only cost and diagnostics, annotations are metadata the runtime ignores, and an unknown fact never
+stops compilation. `make api-diff` compares the
 public API against JVM Clojure and cljs and fails on any missing name without a recorded verdict
 ([docs/api-parity.md](docs/api-parity.md)). Clojure's own test suite and third-party `.cljc` libraries run
 as the acceptance corpus ([docs/corpus.md](docs/corpus.md)).
