@@ -35,6 +35,7 @@ static const clj_fusion_var table[] = {
 	OTHER("count", CLJ_FUSION_CONSUMER),       OTHER("fused-reduce*", CLJ_FUSION_DRIVER), OTHER("fused-into*", CLJ_FUSION_DRIVER),
 	OTHER("fused-count*", CLJ_FUSION_DRIVER),      OTHER("fused*", CLJ_FUSION_DRIVER),        OTHER("mapv", CLJ_FUSION_CONSUMER),
 	OTHER("sequence", CLJ_FUSION_FORM),        OTHER("comp", CLJ_FUSION_FORM),        OTHER("transduce", CLJ_FUSION_CONSUMER),
+	OTHER("frequencies", CLJ_FUSION_CONSUMER), OTHER("group-by", CLJ_FUSION_CONSUMER),
 	{"clojure.core/partition-all", CLJ_FUSION_XF_STAGE, 2},
 	OTHER("get-in", CLJ_FUSION_GUARD),         OTHER("assoc-in", CLJ_FUSION_GUARD),       OTHER("update-in", CLJ_FUSION_GUARD),
 	OTHER("seq", CLJ_FUSION_GUARD),            OTHER("first", CLJ_FUSION_GUARD),          OTHER("next", CLJ_FUSION_GUARD),
@@ -45,6 +46,9 @@ static const clj_fusion_var table[] = {
 	OTHER("nil?", CLJ_FUSION_GUARD),           OTHER("complement", CLJ_FUSION_GUARD),     OTHER("cat", CLJ_FUSION_GUARD),
 	OTHER("preserving-reduced", CLJ_FUSION_GUARD), OTHER("=", CLJ_FUSION_GUARD),          OTHER("contains?", CLJ_FUSION_GUARD),
 	OTHER("conj", CLJ_FUSION_GUARD),           OTHER("count", CLJ_FUSION_GUARD),          OTHER("empty?", CLJ_FUSION_GUARD),
+	OTHER("transient", CLJ_FUSION_GUARD),      OTHER("transient*", CLJ_FUSION_GUARD),     OTHER("persistent!", CLJ_FUSION_GUARD),
+	OTHER("persistent!*", CLJ_FUSION_GUARD),   OTHER("assoc!", CLJ_FUSION_GUARD),         OTHER("assoc", CLJ_FUSION_GUARD),
+	OTHER("get", CLJ_FUSION_GUARD),
 };
 
 enum { N = sizeof table / sizeof *table };
@@ -53,6 +57,13 @@ enum { N = sizeof table / sizeof *table };
 static clj_value vars[N];
 static clj_value roots[N];
 static bool      enabled = true;
+
+// What frequencies' and group-by's bodies call, by name below (body_fn) and their table entries.
+enum { BODY_TRANSIENT, BODY_PERSISTENT, BODY_ASSOC_BANG, BODY_GET, BODY_INC, BODY_CONJ, BODY_CALLED, BODY_ALL = BODY_CALLED + 3 };
+static const char *const    body_names[BODY_ALL] = {"clojure.core/transient", "clojure.core/persistent!", "clojure.core/assoc!",
+                                                    "clojure.core/get",       "clojure.core/inc",         "clojure.core/conj",
+                                                    "clojure.core/transient*", "clojure.core/persistent!*", "clojure.core/assoc"};
+static const clj_fusion_var *body[BODY_ALL];
 
 const clj_fusion_var *clj_fusion_find(clj_value var) {
 	for (size_t i = 0; i < N; i++) {
@@ -103,6 +114,9 @@ void clj_fusion_install(void) {
 		if (root == CLJ_UNBOUND) clj_ice("boot/fusion-table", NULL, "%s is unbound", table[i].name);
 		roots[i] = clj_retain(root);
 		vars[i] = var;
+	}
+	for (size_t i = 0; i < BODY_ALL; i++) {
+		if (!(body[i] = clj_fusion_find_named_cstr(body_names[i]))) clj_ice("boot/fusion-table", NULL, "%s is no fusion var", body_names[i]);
 	}
 }
 
@@ -293,7 +307,57 @@ typedef struct {
 	size_t         nbuf, cap;
 	cat_rf        *cat; // the rf a mapcat hands a reduce over a coll that is no vector, kept for the walk
 	clj_value      catfn;
+	bool           boot; // frequencies and group-by: every fn their bodies call holds its boot root
 } out;
+
+// (name args…) as frequencies' or group-by's body calls it: the var's root, whatever it holds now.
+static clj_value body_call(int fn, const clj_value *args, size_t n) {
+	clj_value f = clj_var_deref(clj_fusion_var_of(body[fn]));
+	if (f == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = clj_invoke(f, args, n);
+	clj_release(f);
+	return r;
+}
+
+// (assoc! acc k v), acc the walk's own: the transient's assoc takes it, or the call answers the new one.
+static int body_assoc(out *o, clj_value k, clj_value v) {
+	clj_value r;
+	if (o->boot) {
+		r = clj_assoc_owned(o->acc, k, v);
+		o->acc = r == CLJ_THROWN ? CLJ_NIL : r;
+		return r == CLJ_THROWN ? CLJ_FUSED_THROWN : CLJ_FUSED_GO;
+	}
+	clj_value in[3] = {o->acc, k, v};
+	if ((r = body_call(BODY_ASSOC_BANG, in, 3)) == CLJ_THROWN) return CLJ_FUSED_THROWN;
+	clj_release(o->acc);
+	o->acc = r;
+	return CLJ_FUSED_GO;
+}
+
+// frequencies: (assoc! counts x (inc (get counts x 0))); group-by: (let [k (f x)] (assoc! ret k (conj (get ret k []) x)))
+static int body_step(out *o, clj_value y) {
+	clj_value k = y;
+	if (o->mode == CLJ_FUSED_MODE_GROUP_BY && (k = clj_call_invoke(&o->call, &y)) == CLJ_THROWN) return CLJ_FUSED_THROWN;
+	clj_value none = o->mode == CLJ_FUSED_MODE_GROUP_BY ? clj_vector_empty() : clj_fixnum(0);
+	clj_value in[3] = {o->acc, k, none};
+	clj_value cur = o->boot ? clj_get(o->acc, k, none) : body_call(BODY_GET, in, 3), v;
+	if (cur == CLJ_THROWN) {
+		if (k != y) clj_release(k);
+		return CLJ_FUSED_THROWN;
+	}
+	if (o->mode == CLJ_FUSED_MODE_GROUP_BY) {
+		clj_value pair[2] = {cur, y};
+		v = o->boot ? clj_conj(cur, y) : body_call(BODY_CONJ, pair, 2);
+		if (!o->boot) clj_release(cur);
+	} else {
+		v = o->boot ? clj_inc(cur) : body_call(BODY_INC, &cur, 1);
+		clj_release(cur);
+	}
+	int r = v == CLJ_THROWN ? CLJ_FUSED_THROWN : body_assoc(o, k, v);
+	if (v != CLJ_THROWN) clj_release(v);
+	if (k != y) clj_release(k);
+	return r;
+}
 
 static bool seq_mode(clj_fused_mode m) { return m == CLJ_FUSED_MODE_SEQ_REDUCE || m == CLJ_FUSED_MODE_SEQ_INTO; }
 
@@ -331,6 +395,8 @@ static int consume(out *o, clj_value y) {
 		o->acc = r;
 		return CLJ_FUSED_GO;
 	}
+	case CLJ_FUSED_MODE_FREQUENCIES:
+	case CLJ_FUSED_MODE_GROUP_BY: return body_step(o, y);
 	case CLJ_FUSED_MODES: break;
 	}
 	clj_ice("fusion/mode", NULL, "a fused walk of mode %u", (unsigned)o->mode);
@@ -535,6 +601,16 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 		o.acc = clj_retain(lead[0]);
 		break;
 	case CLJ_FUSED_MODE_COUNT: CLJ_ASSERT(nlead == 0, "a fused count takes no lead"); break;
+	case CLJ_FUSED_MODE_FREQUENCIES:
+	case CLJ_FUSED_MODE_GROUP_BY: {
+		CLJ_ASSERT(nlead == (mode == CLJ_FUSED_MODE_GROUP_BY ? 1u : 0u), "group-by takes f, frequencies nothing");
+		if (mode == CLJ_FUSED_MODE_GROUP_BY) o.call = clj_call_prepare(lead[0], 1);
+		// once read, the walk keeps to it: a body fn rebound by the walk's own code is seen from the next call on
+		o.boot = clj_fusion_guard(body, BODY_ALL);
+		clj_value empty = clj_map_empty();
+		if ((o.acc = o.boot ? clj_map_transient(empty) : body_call(BODY_TRANSIENT, &empty, 1)) == CLJ_THROWN) return CLJ_THROWN;
+		break;
+	}
 	case CLJ_FUSED_MODES: clj_ice("fusion/mode", NULL, "a fused walk of mode %u", (unsigned)mode);
 	}
 	CLJ_ASSERT(ncolls >= 1 && ncolls <= SOURCES_MAX, "a fused walk over 1 to 3 colls");
@@ -556,6 +632,11 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 		return CLJ_THROWN;
 	}
 	if (mode == CLJ_FUSED_MODE_COUNT) return clj_fixnum((intptr_t)o.count);
+	if (mode == CLJ_FUSED_MODE_FREQUENCIES || mode == CLJ_FUSED_MODE_GROUP_BY) {
+		clj_value done = o.boot ? clj_map_persistent(o.acc) : body_call(BODY_PERSISTENT, &o.acc, 1);
+		clj_release(o.acc);
+		return done;
+	}
 	if (mode == CLJ_FUSED_MODE_TRANSDUCE) {
 		// the stages' completion ends in f's: (f (reduce (xform f) init coll))
 		clj_value done = clj_invoke(o.f, &o.acc, 1);
@@ -637,7 +718,8 @@ clj_value clj_fused_run(const clj_value *args, size_t n) {
 	clj_fused_mode m = (clj_fused_mode)clj_fixnum_val(mode);
 	uint32_t       nlead = clj_vector_count(lead);
 	bool           reduce = m == CLJ_FUSED_MODE_REDUCE || m == CLJ_FUSED_MODE_SEQ_REDUCE || m == CLJ_FUSED_MODE_TRANSDUCE;
-	if (reduce ? nlead != 1 && nlead != 2 : nlead != (m == CLJ_FUSED_MODE_COUNT ? 0u : 1u)) return clj_throw_msg("fused* got %u lead args for mode %d", nlead, (int)m);
+	uint32_t       want = m == CLJ_FUSED_MODE_COUNT || m == CLJ_FUSED_MODE_FREQUENCIES ? 0u : 1u;
+	if (reduce ? nlead != 1 && nlead != 2 : nlead != want) return clj_throw_msg("fused* got %u lead args for mode %d", nlead, (int)m);
 	xf_bottom *b = malloc(sizeof *b);
 	if (!b) clj_fatal("out of memory");
 	*b = (xf_bottom){NULL, true};

@@ -55,6 +55,8 @@ typedef enum {
 	CLJ_FUSED_MODE_SEQ_REDUCE,
 	CLJ_FUSED_MODE_SEQ_INTO,
 	CLJ_FUSED_MODE_TRANSDUCE, // lead [f] or [f init]: init (f) when absent, and f's completion over the result
+	CLJ_FUSED_MODE_FREQUENCIES,
+	CLJ_FUSED_MODE_GROUP_BY, // lead [f]
 	CLJ_FUSED_MODES,
 } clj_fused_mode;
 

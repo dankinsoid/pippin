@@ -257,7 +257,8 @@ extension CoreTests {
 		                  "(take 2 (map inc (filter odd? %)))", "(interpose :k (dedupe (drop 1 %)))", "(mapcat identity (partition-all 2 %))", "(distinct (mapcat (fn [x] [x x]) %))"]
 			let consumers = ["(reduce + %)", "(reduce + 10 %)", "(reduce conj [] %)", "(reduce conj %)", "(reduce (fn [a x] (conj a x)) %)", "(reduce (fn [a x] [a x]) %)",
 		                     "(reduce (fn [a x] (if (= x 3) (reduced a) [a x])) [] %)", "(reduce (fn [] :e) %)", "(reduce (fn [a b] (if (> a b) a b)) %)", "(vec %)", "(count %)", "(into () %)",
-		                     "(into [0] %)", "(into nil %)", "(into {} %)", "(reduce str %)", "(reduce str \"\" %)"]
+		                     "(into [0] %)", "(into nil %)", "(into {} %)", "(reduce str %)", "(reduce str \"\" %)",
+		                     "(frequencies %)", "(group-by odd? %)", "(transduce (map inc) + %)", "(mapv inc %)"]
 			var fused = 0, agreed = 0, thrown = 0
 			let before = clj_debug_live_objects()
 			do {
@@ -536,34 +537,35 @@ extension CoreTests {
 		@Test func sequenceAndMapvGuards() throws {
 			let seqVar = coreVar("sequence"), compVar = coreVar("comp"), intoVar = coreVar("into")
 			let bootSeq = clj_var_root(seqVar), bootComp = clj_var_root(compVar), bootInto = clj_var_root(intoVar)
-			let tree = try Tree("(fn [xs] [(count (sequence (comp (map inc) (filter odd?)) xs)) (mapv + xs xs)])")
+			// the consumer is into, not count: an intrinsic original program does not count its hits
+			let tree = try Tree("(fn [xs] [(into [] (sequence (comp (map inc) (filter odd?)) xs)) (mapv + xs xs)])")
 			let f = try tree.run()
 			clj_exec_count(tree.exec, true)
 			let before = clj_debug_live_objects()
 			do {
-				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(try f([1, 2]) == [[3], [2, 4]])
 				#expect(tree.pathHits == (1, 0))
 				do {
 					let wrapper = try cljEval("(let [s sequence] (fn [& args] (apply s args)))")
 					withExtendedLifetime(wrapper) { clj_var_bind_root(seqVar, wrapper.raw) }
 				}
-				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(try f([1, 2]) == [[3], [2, 4]])
 				#expect(tree.pathHits == (1, 1))
 				clj_var_bind_root(seqVar, bootSeq)
 				do {
 					let wrapper = try cljEval("(let [c comp] (fn [& fs] (apply c fs)))")
 					withExtendedLifetime(wrapper) { clj_var_bind_root(compVar, wrapper.raw) }
 				}
-				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(try f([1, 2]) == [[3], [2, 4]])
 				#expect(tree.pathHits == (1, 2))
 				clj_var_bind_root(compVar, bootComp)
-				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(try f([1, 2]) == [[3], [2, 4]])
 				#expect(tree.pathHits == (2, 2))
 				do {
 					let wrapper = try cljEval("(let [i into] (fn [& args] (apply i args)))")
 					withExtendedLifetime(wrapper) { clj_var_bind_root(intoVar, wrapper.raw) }
 				}
-				#expect(try f([1, 2]) == [1, [2, 4]])
+				#expect(try f([1, 2]) == [[3], [2, 4]])
 				clj_var_bind_root(intoVar, bootInto)
 				#expect(clj_var_root(seqVar) == bootSeq && clj_var_root(compVar) == bootComp && clj_var_root(intoVar) == bootInto)
 			}
@@ -577,7 +579,7 @@ extension CoreTests {
 			do {
 				#expect(try cljEval("[(fused* 0 [+] [(map inc)] [1 2 3]) (fused* 0 [+ 10] [] [1 2]) (fused* 1 [[]] [(map +)] [1 2] [10 20 30]) (fused* 2 [] [(map vector)] [1 2] (range) \"abc\")]") == [9, 13, [11, 22], 2])
 				#expect(try cljEval("[(fused* 3 [+ 0] [(mapcat (fn [x] [x x]))] [1 2]) (fused* 4 [[:a]] [(dedupe)] [1 1 2]) (fused* 0 [(fn [] :e)] [] [])]") == [6, [kw("a"), 1, 2], kw("e")])
-				#expect(evalMessage("(fused* 9 [] [] [1])") == "fused* expects a mode below 6, got: long")
+				#expect(evalMessage("(fused* 9 [] [] [1])") == "fused* expects a mode below 8, got: long")
 				#expect(evalMessage("(fused* 2 [1] [] [1])") == "fused* got 1 lead args for mode 2")
 				#expect(evalMessage("(fused* 2 [] (map inc) [1])") == "fused* expects vectors of the lead args and the transducers")
 				#expect(evalMessage("(let [keep (volatile! nil)] (fused* 2 [] [(fn [rf] (vreset! keep rf) rf)] [1]) (@keep nil 1))") == "reducing fn called after its reduce finished")

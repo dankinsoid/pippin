@@ -94,6 +94,8 @@ static bool consumer_arity_ok(const clj_fusion_var *fv, uint32_t n) {
 	if (fv_is(fv, "reduce")) return n == 2 || n == 3;
 	if (fv_is(fv, "into")) return n == 2 || (n == 3 && !clj_opt_off(CLJ_NO_OPT_FUSE));
 	if (fv_is(fv, "transduce")) return (n == 3 || n == 4) && !clj_opt_off(CLJ_NO_OPT_FUSE);
+	if (fv_is(fv, "frequencies")) return n == 1 && !clj_opt_off(CLJ_NO_OPT_FUSE);
+	if (fv_is(fv, "group-by")) return n == 2 && !clj_opt_off(CLJ_NO_OPT_FUSE);
 	if (fv_is(fv, "mapv")) return n >= 2 && n <= 1 + MAX_SOURCES && !clj_opt_off(CLJ_NO_OPT_FUSE);
 	return n == 1; // vec, count
 }
@@ -133,7 +135,9 @@ static bool xform_stages(pipeline *p, const clj_node *xf) {
 
 // Under reduce and into a stage below sequence would move its calls across the per-input buffer: there it is the source.
 static bool sequence_ok(const pipeline *p, const clj_node *call) {
-	if (clj_opt_off(CLJ_NO_OPT_FUSE) || call->u.invoke.n != 2 || p->nstages || fv_is(p->fv, "mapv")) return false;
+	// group-by's f and frequencies' hashes would interleave with the stage calls of a multi-output input
+	bool consumer = fv_is(p->fv, "count") || fv_is(p->fv, "vec") || fv_is(p->fv, "reduce") || fv_is(p->fv, "into");
+	if (clj_opt_off(CLJ_NO_OPT_FUSE) || call->u.invoke.n != 2 || p->nstages || !consumer) return false;
 	return fv_is(fusion_head(call, CLJ_FUSION_FORM), "sequence");
 }
 
@@ -286,8 +290,8 @@ static const clj_fusion_var *named(const char *qualified) {
 // fused-reduce*, fused-into* and fused-count* keep the shapes they had; the rest is fused* with a mode.
 static const clj_fusion_var *driver_for(const pipeline *p, clj_fused_mode *mode) {
 	bool many = p->nsources > 1, buf = buffered(p);
-	if (fv_is(p->fv, "transduce")) {
-		*mode = CLJ_FUSED_MODE_TRANSDUCE;
+	if (fv_is(p->fv, "transduce") || fv_is(p->fv, "frequencies") || fv_is(p->fv, "group-by")) {
+		*mode = fv_is(p->fv, "transduce") ? CLJ_FUSED_MODE_TRANSDUCE : fv_is(p->fv, "group-by") ? CLJ_FUSED_MODE_GROUP_BY : CLJ_FUSED_MODE_FREQUENCIES;
 		return named("clojure.core/fused*");
 	}
 	if (fv_is(p->fv, "reduce")) *mode = buf ? CLJ_FUSED_MODE_SEQ_REDUCE : CLJ_FUSED_MODE_REDUCE;
@@ -358,8 +362,9 @@ static bool rewrite_fused(clj_node *n) {
 	add_guard(guards, &nguards, p.fv);
 	for (uint32_t i = 0; i < p.nforms; i++) add_guard(guards, &nguards, p.forms[i]);
 	for (uint32_t i = 0; i < p.nstages; i++) add_guard(guards, &nguards, p.stages[i].fv);
-	// mapv's body is (into [] (map f c…))
+	// mapv's body is (into [] (map f c…)); frequencies' and group-by's reduce over the stages
 	if (fv_is(p.fv, "mapv")) add_guard(guards, &nguards, named("clojure.core/into"));
+	if (fv_is(p.fv, "frequencies") || fv_is(p.fv, "group-by")) add_guard(guards, &nguards, named("clojure.core/reduce"));
 	add_guard(guards, &nguards, driver);
 	clj_node *fused = build_fused(&p, at);
 	k = 0;

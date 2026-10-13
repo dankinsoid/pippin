@@ -1,4 +1,4 @@
-;; Fused (into to XF coll) and (transduce XF f [init] coll), partition-all's buffer and completion, core fns and keywords as stage fns.
+;; Fused into and transduce over an XF, frequencies, group-by, partition-all's completion, core fns and keywords as stage fns.
 (ns fixture.fused-xform)
 
 (defn values [v]
@@ -18,7 +18,10 @@
    (vec (keep :a (map (fn [x] (if (odd? x) {:a x} {:b x})) v)))
    (vec (sequence (comp (partition-all 2) (map (fn [p] (apply + p)))) v))
    (transduce (comp (map inc) (partition-all 2)) (completing (fn [a p] (+ a (count p))) (fn [a] [:done a])) 0 v)
-   (sort (into #{} (comp (partition-all 4) (map count)) v))])
+   (sort (into #{} (comp (partition-all 4) (map count)) v))
+   (into (sorted-map) (frequencies (map (fn [x] (mod x 3)) v)))
+   (into (sorted-map) (group-by odd? (take 5 v)))
+   (count (group-by (fn [x] (mod x 7)) (filter (fn [x] (pos? x)) v)))])
 
 (println (values [3 1 1 2 5 -4 2]))
 (println (values '(3 1 1 2 5 -4 2)))
