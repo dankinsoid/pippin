@@ -31,7 +31,7 @@
         ;; jvm.clj's policy for the VM's JIT tiers as for C2; nojit is clj-corpus-bench's, for code compiled ahead.
         [warm? measure?] (if (= mode "nojit")
                            [(fn [_ _] false)
-                            (fn [acc elapsed] (or (< (count acc) 3) (< elapsed 2000.0)))]
+                            (fn [acc _] (and (< (count acc) 30) (or (< (count acc) 3) (< (reduce + acc) 2000.0))))]
                            [(fn [acc elapsed] (or (< (count acc) 5) (< elapsed 5000.0)))
                             (fn [acc _] (or (< (count acc) 5) (and (< (reduce + acc) 3000.0) (< (count acc) 50))))])]
     (if (= mode "once")
