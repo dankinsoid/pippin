@@ -722,8 +722,9 @@ clj_fact clj_summary_var_fact(clj_summaries *s, clj_value var) {
 	if (!clj_is_var(var)) return clj_fact_top();
 	note_dep(s, var);
 	clj_value root = clj_var_root(var);
-	// a lazy def's thunk is not the value: the force moves the var's epoch, and the read is asked again
-	if (root == CLJ_UNBOUND || clj_is_lazy_def(root)) return clj_fact_top();
+	// a lazy def's thunk is not the value: the force moves the var's epoch, and the read is asked again; a dynamic
+	// var's read is whatever a binding put there, which moves no epoch
+	if (root == CLJ_UNBOUND || clj_is_lazy_def(root) || clj_var_is_dynamic(var)) return clj_fact_top();
 	clj_fact f = clj_fact_of_value(root);
 	f.singleton = CLJ_UNBOUND;
 	return f;

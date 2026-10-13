@@ -160,8 +160,10 @@ extension CoreTests {
 					("(fn [a] (< a 1))", "bool/never"),
 					("(fn [a] (nil? a))", "bool/never"),
 					("(fn [a] (count a))", "fixnum/never"),
-					("(fn [a] (seq a))", "nil|seq/maybe"),
-					("(fn [a] (rest a))", "seq/never"),
+					// a deftype's seq or rest is whatever its ISeq methods return
+					("(fn [a] (seq a))", "nil|seq|host/maybe"),
+					("(fn [a] (rest a))", "seq|host/never"),
+					("(fn [a] (seq (vec a)))", "nil|seq/maybe"),
 					("(fn [a] (str a))", "string/never"),
 					("(fn [a] (keys a))", "nil|seq/maybe"),
 					("(fn [a] (name a))", "string/never"),
@@ -258,7 +260,7 @@ extension CoreTests {
 				#expect(try Facts("(fn [n] (loop [i 0 acc []] (if (< i n) (recur (inc i) (conj acc i)) acc)))").loopVars
 					== ["fixnum|long/never", "vector/never"])
 				// the init alone is not the answer: the recur argument joins into it
-				#expect(try Facts("(fn [xs] (loop [s (seq xs)] (if s (recur (next s)) s)))").loopVars == ["nil|seq/maybe"])
+				#expect(try Facts("(fn [xs] (loop [s (seq xs)] (if s (recur (next s)) s)))").loopVars == ["nil|seq|host/maybe"])
 				let rotating = try Facts("(fn [] (loop [a 0 b \"s\" c :k d \\c] (recur d a b c)))")
 				#expect(rotating.loopVars == ["⊤/maybe", "⊤/maybe", "⊤/maybe", "⊤/maybe"])
 				#expect(rotating.widenings == 4)
