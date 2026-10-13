@@ -9,12 +9,15 @@ import shutil
 import subprocess
 import time
 
+import corpus_cljd
+import corpus_dart
 import corpus_swift
 
-REFS = ["jvm", "bb", "cljs-node", "cljs-hermes", "swift"]
-REF_LABEL = {"jvm": "JVM", "bb": "bb", "cljs-node": "cljs-node", "cljs-hermes": "cljs-hermes", "swift": "swift"}
-# Hand-ported sources rather than the workloads' own: each module builds, checks and reports its port.
-PORTS = {"swift": corpus_swift}
+REFS = ["jvm", "bb", "cljs-node", "cljs-hermes", "swift", "dart", "cljd-aot", "cljd-jit"]
+REF_LABEL = {"jvm": "JVM", "bb": "bb", "cljs-node": "cljs-node", "cljs-hermes": "cljs-hermes", "swift": "swift",
+             "dart": "dart", "cljd-aot": "cljd-aot", "cljd-jit": "cljd-jit"}
+# References whose own module builds and reports them: the hand ports, and ClojureDart's two modes of one build.
+PORTS = {"swift": corpus_swift, "dart": corpus_dart, "cljd-aot": corpus_cljd.AOT, "cljd-jit": corpus_cljd.JIT}
 CLJS_VERSION = "1.12.145"
 CLJS_DEPS = ('{:deps {org.clojure/clojurescript {:mvn/version "%s"} org.clojure/core.async {:mvn/version '
              '"1.6.681"}}}' % CLJS_VERSION)
@@ -171,7 +174,7 @@ class Refs:
 			return None
 		r = self.parse(p.stdout)
 		r["process_ms"] = ms
-		if ref in PORTS:
+		if hasattr(PORTS.get(ref), "verdict"):
 			r["expected"] = PORTS[ref].verdict(self.root, w, r.get("result"))
 		r["clock_hires"] = "clock_hires false" not in p.stdout
 		return r
@@ -265,7 +268,7 @@ def clj_section(b, refs, add, fmt, median_of):
 		add("Timed by `Date.now` (1 ms; the Hermes CLI has no `performance.now`): " + ", ".join(coarse) + ".")
 		add("")
 	add("Wall time of the references: " + ", ".join("%s %.1f min" % (k, v / 60) for k, v in refs.cost.items()
-	                                               if v and k not in PORTS and k.split("-")[0] not in PORTS) + ".")
+	                                               if v and k.split("-")[0] not in {p.split("-")[0] for p in PORTS}) + ".")
 	add("")
 
 

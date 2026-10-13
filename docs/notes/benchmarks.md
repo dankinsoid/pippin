@@ -97,8 +97,9 @@
     workers).
 - **Reference runtimes (`--refs`; `scripts/corpus_refs.py`, `bench/workloads/cljs`).** Beside the JVM, each workload
   runs once per job (not per `--base` pair) on babashka, the reference for *interp*, and as ClojureScript on Node and
-  on Hermes, React Native's engine, which is what this runtime competes with on an iPhone, and the hand-ported Swift
-  below. `--refs=jvm,bb,cljs-node,cljs-hermes,swift` is the default; a comma list narrows it (`CORPUS_BENCH_ARGS=--refs=jvm`), and `--skip-jvm` drops `jvm`. The report's
+  on Hermes, React Native's engine, which is what this runtime competes with on an iPhone, as ClojureDart on Flutter's
+  Dart, and the hand-ported Swift and Dart below. `--refs=jvm,bb,cljs-node,cljs-hermes,swift,dart,cljd-aot,cljd-jit`
+  is the default; a comma list narrows it (`CORPUS_BENCH_ARGS=--refs=jvm`), and `--skip-jvm` drops `jvm`. The report's
   "References" table has each one's warm, 1st and cold, `closed/bb`, `interp/bb`, `closed/node`, `closed/hermes`
   (ours over theirs), its `=` verdict against `expected`, and below it every printed result that differs from the JVM's.
   - **bb** runs `bench/workloads/jvm.clj` and the sources unchanged (`bb -cp <the load path>`), core.async included:
@@ -131,19 +132,19 @@
   - [ ] Hermes newer than React Native 0.75's: 0.76 and on ship Hermes inside React Native without a CLI, and Hermes
     V1 (static Hermes) is a source build of `facebook/hermes` at the tag React Native pins (CMake and Ninja, the
     `hermes` target, cacheable by the tag). Trigger: a decision that rests on `closed/hermes`.
-- **Dart references (`cljd-aot`, `cljd-jit`, `dart-aot`; `scripts/corpus_refs_dart.py`, `bench/workloads/cljd`,
-  `bench/workloads/dart`).** Flutter's runtime beside Hermes: Dart compiled ahead, as a Flutter release build ships
-  (`dart compile exe`, *aot*), and on the VM's JIT from kernel, as a debug build runs (`dart compile kernel`, then
-  `dart <entry>.dill`, *jit*). All three are in the default `--refs`; their table, "References: ClojureDart and
-  idiomatic Dart", has each one's warm, 1st and cold, `closed/cljd` (against the AOT), `closed/dart` and `cljd/dart`,
-  the verdicts and every printed result that differs from the JVM's. Built before the workloads, outside every time.
-  - **ClojureDart** 0.9.20261002 (sha 247b3c2, a git dep of the Clojure CLI) compiles every workload into one Dart
-    project, an entry namespace and a `bin/` file per workload, in one `cljd.build compile`; then each entry is one
-    executable and one kernel file. The harness (`bench/workloads/cljd/src/bench/harness.cljd`) prints jvm.clj's
+- **ClojureDart (`cljd-aot`, `cljd-jit`; `scripts/corpus_cljd.py`, `bench/workloads/cljd`).** Flutter's runtime
+  beside Hermes: Dart compiled ahead, as a Flutter release build ships (`dart compile exe`, *aot*), and on the VM's JIT
+  from kernel, as a debug build runs (`dart compile kernel`, then `dart <entry>.dill`, *jit*). Both are in the default
+  `--refs`, entries of `corpus_refs.PORTS` sharing one build and one table, "ClojureDart": each mode's warm, 1st and
+  cold, `closed/cljd-aot`, `closed/cljd-jit`, `cljd/dart` (the AOT against the idiomatic Dart port), the `=` verdicts
+  and every printed result that differs from the JVM's. Built before the workloads, outside every time.
+  - The build: ClojureDart 0.9.20261002 (sha 247b3c2, a git dep of the Clojure CLI) compiles every workload into one
+    Dart project, an entry namespace and a `bin/` file per workload, in one `cljd.build compile`; then each entry is
+    one executable and one kernel file. The harness (`bench/workloads/cljd/src/bench/harness.cljd`) prints jvm.clj's
     lines from a `Stopwatch`; the AOT takes our policy (one iteration, then >= 3 and >= 2 s, at most 30), the JIT
     jvm.clj's. The nine data workloads compile unchanged but one sort in suite-data; the three async ones are n/a:
     ClojureDart has no core.async (its concurrency is Dart's Futures and Streams).
-  - The corpus libraries compile from a patched copy (`CLJD_PATCHES`): a `:cljd` arm put first in a reader
+  - The corpus libraries compile from a patched copy (`corpus_cljd.PATCHES`): a `:cljd` arm put first in a reader
     conditional, or a form replaced, each anchored on its exact text so an upstream change fails the build. What a
     workload calls keeps its algorithm. The language gaps they record: ClojureDart reads only `:cljd` and `:default`,
     and the three libraries keep host code under `:clj` or `:default` (`java.util.ArrayList`, `clojure.lang`
@@ -157,7 +158,6 @@
     calls, took 0.3 ms per element on the Intel dev Mac (0.8 s for 3000, realized or not; a vector's goes through
     `List.toList` in microseconds), so unchanged the sort was 50 s of a 51 s iteration, past the run timeout under
     either policy. Its other `sort`s and every other workload are the source.
-  - The idiomatic ports (`dart-aot`) follow the fairness contract below.
   - CI: `scripts/corpus-refs-install.sh` fetches the Dart SDK 3.13.5 zip of the runner's architecture against a
     pinned sha256 into the references' cache; ClojureDart's jars go to `CORPUS_BENCH_M2`, its git checkout to
     `GITLIBS` and its analyzer helper's pub packages to `PUB_CACHE`, all under `~/.cache/corpus-bench-refs`. The
@@ -220,9 +220,11 @@
       `record?`/`satisfies?` a dynamic `is any Shape` on the boxed value, the multimethod an enum switch; the sorted
       map a `Dictionary` whose keys are sorted once at the end (the standard library has no sorted map); flatten a
       recursive enum walk.
-  - **dart** (`dart-aot`; `scripts/corpus_refs_dart.py`, `bench/workloads/dart`): one executable per workload from
-    `dart compile exe`, the harness and the EDN printer in `lib/`, the port in `bin/<name>.dart`, Dart 3 (sealed
-    classes, records, switch expressions). Judgment calls:
+  - **dart** (`scripts/corpus_dart.py`, `bench/workloads/dart`): one executable per workload from `dart compile exe`
+    (what a Flutter release build ships), built from a copy of the package before the workloads and outside every
+    time; the harness and the EDN printer in `lib/`, the port in `bin/<name>.dart`, Dart 3 (sealed classes, records,
+    switch expressions); an iteration that prints another result than the first fails the run. Its own report table,
+    "Idiomatic Dart", with `closed/dart` and `interp/dart`; the ClojureDart table has `cljd/dart`. Judgment calls:
     - all: a Dart `int` is 64-bit like a long, and a `String`'s `length` and `substring` count UTF-16 units like
       Java's; Dart's `List.sort` is not stable where Clojure's is, and no sort here has ties.
     - medley: a `Rec` class, its tag sets one `const` set per literal; map-vals and the filters are `Map.map` and

@@ -108,7 +108,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/corpus-bench-refs
-          key: corpus-bench-refs-${{ runner.arch }}-${{ hashFiles('scripts/corpus-refs-install.sh', 'scripts/corpus_refs.py', 'scripts/corpus_refs_dart.py') }}
+          key: corpus-bench-refs-${{ runner.arch }}-${{ hashFiles('scripts/corpus-refs-install.sh', 'scripts/corpus_refs.py', 'scripts/corpus_cljd.py') }}
 
       - name: Reference runtimes
         if: ${{ inputs.target == 'corpus-bench' }}
