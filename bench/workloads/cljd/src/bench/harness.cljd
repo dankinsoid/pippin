@@ -1,0 +1,50 @@
+;; @ai-generated(solo)
+;; jvm.clj's report lines for a ClojureDart workload, on the Dart VM (JIT) or as a `dart compile exe` binary (AOT).
+(ns bench.harness)
+
+(defn- now-ms [^Stopwatch sw]
+  (/ (.-elapsedMicroseconds sw) 1000.0))
+
+(defn- median [xs]
+  (let [s (vec (sort xs))]
+    (nth s (quot (count s) 2))))
+
+(defn- timed [sw run]
+  (let [t (now-ms sw)
+        r (run)]
+    [r (- (now-ms sw) t)]))
+
+(defn- loop-times [sw run more?]
+  (let [start (now-ms sw)]
+    (loop [acc []]
+      (if (more? acc (- (now-ms sw) start))
+        (recur (conj acc (second (timed sw run))))
+        acc))))
+
+(defn run-main
+  "args are the process's: `once` for the cold-process run, `nojit` for AOT code, none for the JIT."
+  [run expected args]
+  (let [sw (doto (Stopwatch) .start)
+        mode (first args)
+        [first-result first-ms] (timed sw run)
+        verdict (if (= first-result expected) "same" "DIFFERENT")
+        ;; jvm.clj's policy for the VM's JIT tiers as for C2; nojit is clj-corpus-bench's, for code compiled ahead.
+        [warm? measure?] (if (= mode "nojit")
+                           [(fn [_ _] false)
+                            (fn [acc elapsed] (or (< (count acc) 3) (< elapsed 2000.0)))]
+                           [(fn [acc elapsed] (or (< (count acc) 5) (< elapsed 5000.0)))
+                            (fn [acc _] (or (< (count acc) 5) (and (< (reduce + acc) 3000.0) (< (count acc) 50))))])]
+    (if (= mode "once")
+      (do
+        (println (str "first_ms " first-ms))
+        (println (str "expected " verdict))
+        (println (str "result " (pr-str first-result))))
+      (let [warm (loop-times sw run warm?)
+            times (loop-times sw run measure?)]
+        (println (str "first_ms " first-ms))
+        (println (str "warmup_iterations " (count warm)))
+        (println (str "iterations " (count times)))
+        (println (str "median_ms " (median times)))
+        (println (str "min_ms " (apply min times)))
+        (println (str "expected " verdict))
+        (println (str "result " (pr-str first-result)))))))
