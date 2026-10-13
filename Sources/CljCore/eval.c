@@ -562,12 +562,18 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 }
 
 // The guard of an inlined call (optimizer.c): the root the call would read, compared with the closure the body was
-// copied from. A dynamic var's root is not what a thread binding makes the call reach.
+// copied from. A dynamic var's root is not what a thread binding makes the call reach. A scalar replacement's guard
+// is the intrinsic guard of each op it answered, as eval_intrinsic checks one.
 static clj_value eval_root_is(const clj_node *n, clj_frame *f) {
 	(void)f;
 	clj_value var = n->u.root_is.var.v;
-	return clj_bool(!clj_var_is_dynamic(var) && clj_var_root(var) == n->u.root_is.expect.v &&
-	                (!n->u.root_is.nguards || clj_fusion_guard(n->u.root_is.guards, n->u.root_is.nguards)));
+	if (clj_var_is_dynamic(var) || clj_var_root(var) != n->u.root_is.expect.v) return CLJ_FALSE;
+	if (n->u.root_is.nguards && !clj_fusion_guard(n->u.root_is.guards, n->u.root_is.nguards)) return CLJ_FALSE;
+	for (uint32_t i = 0; i < n->u.root_is.nops; i++) {
+		const clj_intrinsic *op = n->u.root_is.ops[i];
+		if (clj_var_root(clj_intrinsic_var(op)) != clj_intrinsic_builtin(op)) return CLJ_FALSE;
+	}
+	return CLJ_TRUE;
 }
 
 // An inlined body in the caller's frame: the shadow frame and the instrumentation of run_body, so a trace and a profile

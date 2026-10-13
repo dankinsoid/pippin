@@ -3573,6 +3573,20 @@ static temp emit_inline(fnctx *f, const clj_node *n) {
 	return t;
 }
 
+// A scalar replacement's guard (optimizer.c): each op's intrinsic guard, as its INTRINSIC node would check it; 1 when
+// closed, where CLJC_GUARD is.
+static temp emit_scalar_guard(fnctx *f, const clj_node *n) {
+	temp t = new_temp(f, OWN_NO);
+	sb_printf(&f->out, "\tclj_value %s = clj_bool(1", t.name);
+	for (uint32_t i = 0; i < n->u.root_is.nops; i++) {
+		const clj_intrinsic *op = n->u.root_is.ops[i];
+		sb_printf(&f->out, " && CLJC_GUARD(V[%zu], B[%zu])", var_index(f->u, clj_intrinsic_var(op)), op_index(f->u, op));
+	}
+	sb_puts(&f->out, ");\n");
+	f->u->slots.scalar_guards++;
+	return t;
+}
+
 static temp emit(fnctx *f, const clj_node *n) {
 	fn_line(f, n);
 	switch (n->kind) {
@@ -3606,7 +3620,9 @@ static temp emit(fnctx *f, const clj_node *n) {
 	case CLJ_NODE_DIRECT_CALL: return emit_direct_call(f, n);
 	case CLJ_NODE_INLINE: return emit_inline(f, n);
 	case CLJ_NODE_LOWERED: return emit_lowered(f, n);
-	case CLJ_NODE_ROOT_IS: break; // only as the test of an inlined call, which emit_inlined_call reads itself
+	case CLJ_NODE_ROOT_IS:
+		if (n->u.root_is.nops) return emit_scalar_guard(f, n);
+		break; // else only as the test of an inlined call, which emit_inlined_call reads itself
 	}
 	clj_ice("emit/unknown-kind", n, "node kind %u", (unsigned)n->kind);
 }

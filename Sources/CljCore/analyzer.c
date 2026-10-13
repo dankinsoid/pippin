@@ -147,7 +147,10 @@ static void node_finalize(void *self) {
 		free(n->u.try_.catches);
 		break;
 	case CLJ_NODE_OBJC_SEND: free(n->u.objc.args); break;
-	case CLJ_NODE_ROOT_IS: free(n->u.root_is.guards); break;
+	case CLJ_NODE_ROOT_IS:
+		free(n->u.root_is.guards);
+		free(n->u.root_is.ops);
+		break;
 	case CLJ_NODE_LOWERED: free(n->u.lowered.args); break;
 	default: break;
 	}

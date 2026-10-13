@@ -47,6 +47,7 @@ typedef struct {
 	// body may be a copy of.
 	const clj_node *calls[2 * CLJ_INLINE_DEPTH_MAX];
 	uint32_t        ncalls;
+	const clj_node *guard_test; // the if test being walked: the one place a scalar guard's slot is read
 } vctx;
 
 static bool stack_low(vctx *c) {
@@ -77,6 +78,7 @@ typedef struct vframe {
 	const clj_node      *fused; // a fused program's frame: the FUSED node
 	uint8_t             *bound;
 	const clj_node     **direct; // the DIRECT_FN bound at a slot while it is in scope
+	uint8_t             *guard;  // a scalar replacement's guard is bound at the slot
 	uint32_t             inlines; // INLINE bodies the walk is inside of, in this frame
 } vframe;
 
@@ -86,14 +88,16 @@ typedef struct {
 } vtarget;
 
 static vframe frame_new(uint32_t nslots) {
-	vframe f = {NULL, nslots, 0, false, NULL, calloc(nslots ? nslots : 1, 1), calloc(nslots ? nslots : 1, sizeof(clj_node *)), 0};
-	if (!f.bound || !f.direct) clj_fatal("out of memory");
+	vframe f = {NULL, nslots, 0, false, NULL, calloc(nslots ? nslots : 1, 1), calloc(nslots ? nslots : 1, sizeof(clj_node *)),
+	            calloc(nslots ? nslots : 1, 1), 0};
+	if (!f.bound || !f.direct || !f.guard) clj_fatal("out of memory");
 	return f;
 }
 
 static void frame_free(vframe *f) {
 	free(f->bound);
 	free(f->direct);
+	free(f->guard);
 }
 
 static const vframe *linked(const vframe *f, uint32_t depth) {
@@ -220,6 +224,21 @@ static bool walk_arities(vctx *c, vframe *f, const clj_node *n, bool direct) {
 	return true;
 }
 
+// A scalar replacement's guard (optimizer.c), bound by a let: the intrinsic guard of each op it answered statically, the
+// var and expect its first's, so what it checks is exactly what those intrinsic nodes would.
+static bool scalar_guard_ok(vctx *c, const clj_node *g) {
+	if (g->u.root_is.nguards || !g->u.root_is.nops || !g->u.root_is.ops)
+		return bad(c, "verify/scalar-guard", g, "a let-bound guard that checks no intrinsic, or fusion guards");
+	for (uint32_t i = 0; i < g->u.root_is.nops; i++) {
+		const clj_intrinsic *op = g->u.root_is.ops[i];
+		if (!op || clj_intrinsic_find(clj_intrinsic_var(op), op->arity) != op) return bad(c, "verify/scalar-guard", g, "guard op %u is no intrinsic of the table", i);
+	}
+	const clj_intrinsic *first = g->u.root_is.ops[0];
+	if (g->u.root_is.var.v != clj_intrinsic_var(first) || g->u.root_is.expect.v != clj_intrinsic_builtin(first))
+		return bad(c, "verify/scalar-guard", g, "a guard whose var and root are not its first op's");
+	return true;
+}
+
 static bool walk_let(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bool tail) {
 	uint32_t nb = n->u.let.n;
 	if (nb && (!n->u.let.slots || !n->u.let.inits)) return bad(c, "verify/missing-child", n, "%u bindings and no arrays", nb);
@@ -236,6 +255,7 @@ static bool walk_let(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bo
 			f->direct[s] = init;
 		}
 		if (!walk(c, f, NULL, init, false, true)) return false;
+		if (init && init->kind == CLJ_NODE_ROOT_IS) f->guard[s] = 1;
 		f->bound[s] = 1;
 	}
 	bool ok;
@@ -248,6 +268,7 @@ static bool walk_let(vctx *c, vframe *f, const vtarget *t, const clj_node *n, bo
 	for (uint32_t i = 0; i < nb; i++) {
 		f->bound[n->u.let.slots[i]] = 0;
 		f->direct[n->u.let.slots[i]] = NULL;
+		f->guard[n->u.let.slots[i]] = 0;
 	}
 	return ok;
 }
@@ -417,6 +438,7 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 	case CLJ_NODE_LOCAL: {
 		uint32_t i = n->u.local.index;
 		if (i >= f->nslots) return bad(c, "verify/slot-outside-frame", n, "slot %u of a frame of %u", i, f->nslots);
+		if (f->guard[i] && n != c->guard_test) return bad(c, "verify/scalar-guard-read", n, "slot %u holds a scalar guard, read here as a value", i);
 		if (n->u.local.last) {
 			if (!(c->flags & CLJ_VERIFY_MARKS)) return bad(c, "verify/last-use-before-liveness", n, "a last-use mark on slot %u before the liveness pass", i);
 			if (f->fused) return bad(c, "verify/last-use-in-fused-program", n, "a last-use mark in a fused program, whose frame is the argument array at +0");
@@ -434,8 +456,10 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 		return true;
 	case CLJ_NODE_IF:
 		if (n->u.if_.test && n->u.if_.test->kind == CLJ_NODE_ROOT_IS) return walk_inlined(c, f, t, n, tail);
-		return walk(c, f, NULL, n->u.if_.test, false, false) && walk(c, f, t, n->u.if_.then, tail, false) &&
-		       (!n->u.if_.else_ || walk(c, f, t, n->u.if_.else_, tail, false));
+		c->guard_test = n->u.if_.test;
+		bool test_ok = walk(c, f, NULL, n->u.if_.test, false, false);
+		c->guard_test = NULL;
+		return test_ok && walk(c, f, t, n->u.if_.then, tail, false) && (!n->u.if_.else_ || walk(c, f, t, n->u.if_.else_, tail, false));
 	case CLJ_NODE_DO: {
 		uint32_t k = n->u.seq.n;
 		if (!k) return bad(c, "verify/empty-do", n, "a do of no items, whose value eval_do reads from item -1");
@@ -498,6 +522,7 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 		if (!clj_is_string(n->u.objc.selector.v)) return bad(c, "verify/objc-selector", n, "a send without a selector string");
 		return walk(c, f, NULL, n->u.objc.target, false, false) && walk_all(c, f, n->u.objc.args, n->u.objc.n, n);
 	case CLJ_NODE_ROOT_IS:
+		if (n->u.root_is.nops) return init ? scalar_guard_ok(c, n) : bad(c, "verify/scalar-guard", n, "a scalar guard that is no let init");
 		if (n != c->root_is) return bad(c, "verify/inline-shape", n, "an inline guard that is no test of an inlined call");
 		c->root_is = NULL;
 		return true;
@@ -959,6 +984,7 @@ static void digest(const clj_node *n, void *ctx) {
 		x = mix(x, n->u.root_is.expect.v);
 		x = mix(x, n->u.root_is.nguards);
 		for (uint32_t i = 0; i < n->u.root_is.nguards; i++) x = mix(x, (uintptr_t)n->u.root_is.guards[i]);
+		for (uint32_t i = 0; i < n->u.root_is.nops; i++) x = mix(x, (uintptr_t)n->u.root_is.ops[i]);
 		break;
 	case CLJ_NODE_INLINE:
 		x = mix(x, (uintptr_t)n->u.inline_.fn);

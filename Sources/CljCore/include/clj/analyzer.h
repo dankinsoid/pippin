@@ -163,11 +163,15 @@ struct clj_node {
 		// The guard of an inlined body: expect is the closure the body was copied from (its node is the INLINE's fn),
 		// held so that its identity is never reused; a var redefined, rebound or dynamic fails it.
 		// guards: a known-path specialization's core vars that must hold their boot roots (fusion.h), the var among them.
+		// ops: a scalar replacement's guard (optimizer.c), a let init and nothing else: the intrinsics it answered
+		// statically on a replaced value, each var still at its builtin; var and expect are the first one's.
 		struct {
 			clj_slot               var;
 			clj_slot               expect;
 			const clj_fusion_var **guards;
 			uint32_t               nguards;
+			const clj_intrinsic  **ops;
+			uint32_t               nops;
 		} root_is;
 		// fn is borrowed: the guard's closure holds the callee's tree, its else branch a literal argument's FN node.
 		struct {
@@ -250,6 +254,9 @@ bool clj_lazy_seq_site(const clj_node *n);
 bool clj_inline_set_enabled(bool on);
 // Whether a call of a closure of this fn node may be inlined at some arity: what a unit offers other units' copies.
 bool clj_inline_callee_shaped(const clj_node *fn);
+// Scalar replacement so far (optimizer.c): values kept in slots, of them under an intrinsic guard, materializations
+// left in their extents, values an if of two literals made. Process totals, for clj-compile --stats.
+void clj_debug_scalar_counts(uint64_t out[4]);
 
 // EDN-shaped encoding of a tree (the grammar heads node_data.c): owned data, or CLJ_THROWN "not serializable:
 // <type>" for a constant that would not read back (a protocol, a deftype descriptor, a host value, a fn).

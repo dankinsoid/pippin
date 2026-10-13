@@ -1,9 +1,12 @@
 // @ai-generated(guided)
 // Runs before numbering, so the rewrites are what serializes and what every backend sees.
+#include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "clj/analyzer.h"
+#include "clj/coll.h"
 #include "clj/decimal.h"
 #include "clj/error.h"
 #include "clj/fn.h"
@@ -12,6 +15,7 @@
 #include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/lowered.h"
+#include "clj/map.h"
 #include "clj/string.h"
 #include "clj/summary.h"
 #include "clj/symbol.h"
@@ -967,6 +971,12 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 			m->u.root_is.guards = guards;
 			m->u.root_is.nguards = n->u.root_is.nguards;
 		}
+		if (n->u.root_is.nops) {
+			const clj_intrinsic **ops = zalloc(n->u.root_is.nops, sizeof *ops);
+			memcpy(ops, n->u.root_is.ops, n->u.root_is.nops * sizeof *ops);
+			m->u.root_is.ops = ops;
+			m->u.root_is.nops = n->u.root_is.nops;
+		}
 		break;
 	case CLJ_NODE_INLINE: {
 		// a guard's body is a level of the budget; a literal fn's body and a path's levels sit inside one
@@ -1655,6 +1665,949 @@ static void inline_walk(const clj_node *n, void *ctx) {
 	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_lower(m) && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
 }
 
+// ---- scalar replacement (design §10 step 7б; §4 «Известный shape + не убегает = мапы нет вообще»): a let-bound
+// tuple literal (1 to 6 items), keyword-map literal, or an if of two such literals of one layout, is its fields in
+// slots. A read the layout alone answers — (nth t 0) (:k m) (get m :k nf) (count t) (vector? t) (if t ...) — is the
+// field or a constant, asked of the runtime on a sample whose fields are sentinels; (let [u t]) names the same fields;
+// (assoc m :k v) of a key the map has derives a value; any other use is the literal again over the fields, the
+// constructor the binding would have run. At most one such materialization on any path of the binding's extent, and
+// none in a loop, so identical? sees one object per binding; a value materialized on every path keeps its allocation.
+// An intrinsic's answer holds while its var holds the builtin: the value then binds g (ROOT_IS over those ops) once,
+// each expression that folded one or materializes is (if g E' E), and E reads the object bound (if g nil MAT). A
+// redefinition by the extent's own code is seen from the next binding on, as a known path's is.
+
+enum {
+	SR_TUPLE_MAX = 6,   // clj_vector_from_array lays 1 to 6 items out inline
+	SR_KEYS_MAX = 32,   // a shape's keys
+	SR_VALUES_MAX = 16, // the candidate and the values its assocs derive
+	SR_OPS_MAX = 16,    // intrinsics one guard checks
+	SR_GROWTH_MIN = 64, // nodes a frame may grow by, or by its own size when that is larger
+	SR_PEND_MAX = 8,    // field bindings a derived value leaves for the let that binds it
+};
+
+typedef enum { SR_TUPLE, SR_MAP } sr_kind;
+
+typedef struct {
+	sr_kind   kind;
+	uint32_t  n;
+	clj_node *src[SR_KEYS_MAX];  // owned: what a read of the field copies (a LOCAL of its slot, a CONST, a trivial read)
+	clj_value keys[SR_KEYS_MAX]; // SR_MAP: the literal's keys in its order, interned keywords
+	position  at;
+} sr_value;
+
+typedef struct {
+	clj_fn_arity *arity;
+	uint32_t      grown, budget;
+	uint32_t      size; // the arity body's nodes before the pass
+} sr_frame;
+
+typedef struct {
+	sr_frame            *fr;
+	uint32_t             next; // the frame's next fresh slot
+	sr_value             vals[SR_VALUES_MAX];
+	uint32_t             nvals;
+	int8_t               alias[INLINE_SLOTS_MAX]; // slot -> the value it names, -1
+	const clj_intrinsic *ops[SR_OPS_MAX];
+	uint32_t             nops;
+	bool                 folded; // the expression being rewritten answered an intrinsic statically
+	bool                 mat;    // ... materialized a value
+	uint32_t             loops;  // loop bodies entered within the expression
+	uint32_t             guarded_args; // arguments of an inlined or lowered call's else branch being rewritten
+	bool                 fail;
+	clj_node           **mats; // every materialization made, for the path count
+	uint8_t             *mat_of;
+	uint32_t             nmats, cmats;
+	uint32_t             pend_slots[SR_PEND_MAX]; // a derived value's field bindings, for the let that binds it
+	clj_node            *pend_inits[SR_PEND_MAX];
+	uint32_t             npend;
+} sr_ctx;
+
+static _Atomic uint64_t sr_counts[4]; // values replaced, of them guarded, materializations, if-joins
+
+void clj_debug_scalar_counts(uint64_t out[4]) {
+	for (int i = 0; i < 4; i++) out[i] = atomic_load_explicit(&sr_counts[i], memory_order_relaxed);
+}
+
+static int sr_alias(const sr_ctx *c, const clj_node *n) {
+	return n->kind == CLJ_NODE_LOCAL && n->u.local.index < INLINE_SLOTS_MAX ? c->alias[n->u.local.index] : -1;
+}
+
+static clj_node *sr_copy(const clj_node *n) {
+	copy_ctx  cc = {.depth = 0};
+	clj_node *m = copy_node(n, &cc, VERBATIM);
+	copy_ctx_free(&cc);
+	return m;
+}
+
+static void sr_free(const clj_node *n) {
+	if (n) clj_release(clj_from_ptr((void *)n));
+}
+
+static void sr_replace(const clj_node **pp, clj_node *with) {
+	sr_free(*pp);
+	*pp = with;
+}
+
+// The node at *pp, out of its parent, which keeps a nil in its place.
+static clj_node *sr_detach(const clj_node **pp) {
+	clj_node *n = (clj_node *)*pp;
+	*pp = const_node(CLJ_NIL, (position){n->line, n->col});
+	return n;
+}
+
+static bool sr_trivial(const sr_ctx *c, const clj_node *n) { return trivial_read(n) && sr_alias(c, n) < 0; }
+
+static uint32_t sr_fresh(sr_ctx *c) { return c->next++; }
+
+static void sr_need(sr_ctx *c, const clj_intrinsic *op) {
+	c->folded = true;
+	for (uint32_t i = 0; i < c->nops; i++) {
+		if (c->ops[i] == op) return;
+	}
+	if (c->nops == SR_OPS_MAX) {
+		c->fail = true;
+		return;
+	}
+	c->ops[c->nops++] = op;
+}
+
+static clj_node *sr_materialize(sr_ctx *c, uint32_t vi) {
+	const sr_value *v = &c->vals[vi];
+	clj_node       *m;
+	if (v->kind == SR_TUPLE) {
+		const clj_node **items = zalloc(v->n, sizeof *items);
+		for (uint32_t i = 0; i < v->n; i++) items[i] = sr_copy(v->src[i]);
+		m = vector_node(items, v->n, v->at);
+	} else {
+		const clj_node **items = zalloc(2 * v->n, sizeof *items);
+		for (uint32_t i = 0; i < v->n; i++) {
+			items[2 * i] = const_node(v->keys[i], v->at);
+			items[2 * i + 1] = sr_copy(v->src[i]);
+		}
+		m = node_at(CLJ_NODE_MAP, v->at);
+		m->u.seq.items = items;
+		m->u.seq.n = 2 * v->n;
+	}
+	if (c->loops) c->fail = true;
+	c->mat = true;
+	if (c->nmats == c->cmats) {
+		c->cmats = c->cmats ? c->cmats * 2 : 8;
+		c->mats = realloc(c->mats, c->cmats * sizeof *c->mats);
+		c->mat_of = realloc(c->mat_of, c->cmats * sizeof *c->mat_of);
+		if (!c->mats || !c->mat_of) clj_fatal("out of memory");
+	}
+	c->mats[c->nmats] = m;
+	c->mat_of[c->nmats++] = (uint8_t)vi;
+	return m;
+}
+
+// ---- the oracle: the runtime's own answer on a sample of the layout, its fields sentinels
+
+enum { SR_SENT_NF = SR_KEYS_MAX, SR_SENT_NEW };
+
+// Immediates, so the samples of concurrent compiles share no count; no layout answer is a fixnum this large.
+static clj_value sr_sentinel(uint32_t i) { return clj_fixnum((intptr_t)0x5ca1a5e0000 + (intptr_t)i); }
+
+static clj_value sr_sample(const sr_value *v) {
+	clj_value items[2 * SR_KEYS_MAX];
+	if (v->kind == SR_TUPLE) {
+		for (uint32_t i = 0; i < v->n; i++) items[i] = sr_sentinel(i);
+		return clj_vector_from_array(items, v->n);
+	}
+	for (uint32_t i = 0; i < v->n; i++) {
+		items[2 * i] = v->keys[i];
+		items[2 * i + 1] = sr_sentinel(i);
+	}
+	return clj_map_from_items(items, 2 * v->n, NULL);
+}
+
+// What a read answered: a field, the not-found argument, a constant, or nothing the layout fixes.
+typedef enum { SR_NONE, SR_FIELD, SR_NF, SR_CONST } sr_answer;
+
+static sr_answer sr_classify(clj_value r, const sr_value *v, bool consts, uint32_t *field, clj_value *k) {
+	if (r == CLJ_THROWN) {
+		clj_release(clj_take_pending());
+		return SR_NONE;
+	}
+	for (uint32_t i = 0; i < v->n; i++) {
+		if (r == sr_sentinel(i)) {
+			*field = i;
+			clj_release(r);
+			return SR_FIELD;
+		}
+	}
+	if (r == sr_sentinel(SR_SENT_NF)) {
+		clj_release(r);
+		return SR_NF;
+	}
+	if (consts && clj_node_foldable(r) && (clj_is_nil(r) || clj_is_bool(r) || clj_is_fixnum(r))) {
+		*k = r;
+		return SR_CONST;
+	}
+	clj_release(r);
+	return SR_NONE;
+}
+
+// Answers that depend on the layout alone: = or compare would answer for the sentinels, not the fields.
+static bool sr_layout_op(const clj_intrinsic *op) {
+	if (op->arity == 1) {
+		clj_intrinsic_1 f = op->fn.f1;
+		return f == clj_count || f == clj_first || f == clj_not || f == clj_nil_p || f == clj_empty_p || f == clj_number_p ||
+		       f == clj_integer_p || f == clj_char_p || f == clj_string_p || f == clj_keyword_p || f == clj_symbol_p || f == clj_fn_p ||
+		       f == clj_vector_p || f == clj_map_p || f == clj_set_p || f == clj_list_p || f == clj_seq_p || f == clj_seqable_p ||
+		       f == clj_sequential_p || f == clj_coll_p || f == clj_counted_p || f == clj_ifn_p || f == clj_associative_p ||
+		       f == clj_indexed_p;
+	}
+	if (op->arity == 2) return op->fn.f2 == clj_nth2 || op->fn.f2 == clj_get2 || op->fn.f2 == clj_contains_p;
+	return op->fn.f3 == clj_nth3 || op->fn.f3 == clj_get;
+}
+
+static int sr_rw(const clj_node **pp, sr_ctx *c, bool bind);
+
+// A not-found argument with effects still runs before the field is read, as the call's operand did.
+static int sr_answered(const clj_node **pp, sr_ctx *c, bool bind, sr_answer a, uint32_t field, clj_value k, const clj_node **nf, uint32_t vi) {
+	position at = {(*pp)->line, (*pp)->col};
+	if (a == SR_NF) {
+		clj_node *keep = sr_detach(nf);
+		sr_replace(pp, keep);
+		return sr_rw(pp, c, bind);
+	}
+	clj_node *with = a == SR_FIELD ? sr_copy(c->vals[vi].src[field]) : const_node(k, at);
+	if (a == SR_CONST) clj_release(k);
+	if (nf && !sr_trivial(c, *nf)) {
+		clj_node        *effect = sr_detach(nf);
+		const clj_node **items = zalloc(2, sizeof *items);
+		items[0] = effect;
+		items[1] = with;
+		clj_node *seq = node_at(CLJ_NODE_DO, at);
+		seq->u.seq.items = items;
+		seq->u.seq.n = 2;
+		sr_replace(pp, seq);
+		sr_rw(&items[0], c, false);
+		sr_rw(&items[1], c, false);
+		return -1;
+	}
+	sr_replace(pp, with);
+	return sr_rw(pp, c, bind);
+}
+
+// (op v args...) of an intrinsic over a replaced value: answered by the oracle, or -2 when the call needs the object.
+static int sr_intrinsic(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi) {
+	clj_node            *n = (clj_node *)*pp;
+	const clj_intrinsic *op = n->u.intrinsic.op;
+	uint32_t             nargs = n->u.intrinsic.n;
+	clj_value            var = n->u.intrinsic.var.v;
+	if (clj_var_is_dynamic(var) || clj_var_root(var) != clj_intrinsic_builtin(op)) return -2;
+	const sr_value *v = &c->vals[vi];
+	bool            is_assoc = nargs == 3 && op->fn.f3 == clj_assoc3;
+	if (!is_assoc && !sr_layout_op(op)) return -2;
+	// every operand past the value is a constant, but a not-found argument
+	bool             has_nf = nargs == 3 && !is_assoc;
+	const clj_node **nf = has_nf ? &n->u.intrinsic.args[2] : NULL;
+	clj_value        args[3] = {0};
+	for (uint32_t i = 1; i < nargs; i++) {
+		if ((nf && i == 2) || (is_assoc && i == 2)) continue;
+		if (n->u.intrinsic.args[i]->kind != CLJ_NODE_CONST) return -2;
+		args[i] = n->u.intrinsic.args[i]->u.value.v;
+	}
+	clj_value sample = sr_sample(v);
+	args[0] = sample;
+	if (is_assoc) {
+		if (!bind || c->nvals == SR_VALUES_MAX) {
+			clj_release(sample);
+			return -2;
+		}
+		// a key the value has, answered as the same layout with one field the new one
+		args[2] = sr_sentinel(SR_SENT_NEW);
+		clj_value r = clj_intrinsic_call(op, args);
+		clj_release(sample);
+		if (r == CLJ_THROWN) {
+			clj_release(clj_take_pending());
+			return -2;
+		}
+		int32_t at = -1;
+		bool    same = (v->kind == SR_TUPLE ? clj_is_vector(r) && clj_vector_count(r) == v->n : clj_is_map(r) && clj_map_count(r) == v->n);
+		for (uint32_t i = 0; same && i < v->n; i++) {
+			clj_value key = v->kind == SR_TUPLE ? clj_fixnum((intptr_t)i) : v->keys[i];
+			clj_value got = clj_get(r, key, CLJ_UNBOUND);
+			if (got == sr_sentinel(SR_SENT_NEW) && at < 0) at = (int32_t)i;
+			else if (got != sr_sentinel(i)) same = false;
+			clj_release(got);
+		}
+		clj_release(r);
+		if (!same || at < 0) return -2;
+		sr_need(c, op);
+		uint32_t  nv = c->nvals++;
+		sr_value *d = &c->vals[nv];
+		*d = *v;
+		for (uint32_t i = 0; i < v->n; i++) d->src[i] = (int32_t)i == at ? NULL : sr_copy(v->src[i]);
+		const clj_node **val = &n->u.intrinsic.args[2];
+		if (sr_rw(val, c, false), c->fail) return -1;
+		if (sr_trivial(c, *val)) {
+			d->src[at] = sr_detach(val);
+		} else {
+			if (c->npend == SR_PEND_MAX || c->next >= INLINE_SLOTS_MAX) {
+				c->fail = true;
+				return -1;
+			}
+			uint32_t s = sr_fresh(c);
+			c->pend_slots[c->npend] = s;
+			c->pend_inits[c->npend++] = sr_detach(val);
+			d->src[at] = local_node(s, d->at);
+		}
+		sr_replace(pp, const_node(CLJ_NIL, (position){n->line, n->col}));
+		return (int)nv;
+	}
+	if (nf) args[2] = sr_sentinel(SR_SENT_NF);
+	clj_value r = clj_intrinsic_call(op, args);
+	clj_release(sample);
+	uint32_t  field = 0;
+	clj_value k = CLJ_NIL;
+	sr_answer a = sr_classify(r, v, true, &field, &k);
+	if (a == SR_NONE) return -2;
+	sr_need(c, op);
+	return sr_answered(pp, c, bind, a, field, k, nf, vi);
+}
+
+// (:k v), (:k v nf), (v i), (v k nf): a keyword's or the value's own lookup, which no var stands behind.
+static int sr_lookup(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi, bool head_is_value) {
+	clj_node       *n = (clj_node *)*pp;
+	const sr_value *v = &c->vals[vi];
+	uint32_t        nargs = n->u.invoke.n;
+	const clj_node *keyn = head_is_value ? n->u.invoke.args[0] : n->u.invoke.fn;
+	if (keyn->kind != CLJ_NODE_CONST) return -2;
+	const clj_node **nf = head_is_value ? (nargs == 2 ? &n->u.invoke.args[1] : NULL) : (nargs == 2 ? &n->u.invoke.args[1] : NULL);
+	clj_value        sample = sr_sample(v), r;
+	clj_value        nfv = nf ? sr_sentinel(SR_SENT_NF) : CLJ_NIL;
+	if (head_is_value) {
+		clj_value args[2] = {keyn->u.value.v, nfv};
+		r = clj_invoke(sample, args, nargs);
+	} else {
+		if (!clj_is_keyword(keyn->u.value.v)) {
+			clj_release(sample);
+			return -2;
+		}
+		r = clj_get(sample, keyn->u.value.v, nfv);
+	}
+	clj_release(sample);
+	uint32_t  field = 0;
+	clj_value k = CLJ_NIL;
+	sr_answer a = sr_classify(r, v, true, &field, &k);
+	if (a == SR_NONE) return -2;
+	return sr_answered(pp, c, bind, a, field, k, nf, vi);
+}
+
+// A closure capturing a replaced value captures its materialization, bound just before the closure is made.
+static void sr_capture(const clj_node **pp, sr_ctx *c) {
+	clj_node *fn = (clj_node *)*pp;
+	for (uint32_t i = 0; i < fn->u.fn.ncaptures; i++) {
+		clj_capture *cap = &fn->u.fn.captures[i];
+		if (cap->kind != CLJ_CAPTURE_LOCAL || cap->index >= INLINE_SLOTS_MAX || c->alias[cap->index] < 0) continue;
+		// a literal fn an inlined or lowered body borrows from its call is that very node: it cannot move into a let
+		if (c->guarded_args || c->next >= INLINE_SLOTS_MAX) {
+			c->fail = true;
+			return;
+		}
+		uint32_t  s = sr_fresh(c);
+		clj_node *mat = sr_materialize(c, (uint32_t)c->alias[cap->index]);
+		cap->index = s;
+		position at = {fn->line, fn->col};
+		*pp = let1(s, mat, fn, at);
+		pp = &((clj_node *)*pp)->u.let.body;
+	}
+}
+
+// Whether a direct fn's bodies read a replaced value through the static link, `depth` links up.
+static bool sr_linked_read(const clj_node *n, const sr_ctx *c, uint32_t depth);
+
+typedef struct {
+	const sr_ctx *c;
+	uint32_t      depth;
+	bool          found;
+} sr_link_scan;
+
+static void sr_link_visit(const clj_node *n, void *ctx) {
+	sr_link_scan *s = ctx;
+	if (!s->found) s->found = sr_linked_read(n, s->c, s->depth);
+}
+
+static bool sr_hit(const sr_ctx *c, uint32_t slot) { return slot < INLINE_SLOTS_MAX && c->alias[slot] >= 0; }
+
+static bool sr_linked_read(const clj_node *n, const sr_ctx *c, uint32_t depth) {
+	switch (n->kind) {
+	case CLJ_NODE_OUTER: return n->u.outer.depth == depth && sr_hit(c, n->u.outer.index);
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+		for (uint32_t i = 0; i < n->u.fn.ncaptures && n->kind == CLJ_NODE_FN; i++) {
+			const clj_capture *cap = &n->u.fn.captures[i];
+			if (cap->kind == CLJ_CAPTURE_OUTER && cap->depth == depth && sr_hit(c, cap->index)) return true;
+		}
+		if (n->kind == CLJ_NODE_DIRECT_FN) {
+			for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+				if (n->u.fn.fixed[k] && sr_linked_read(n->u.fn.fixed[k]->body, c, depth + 1)) return true;
+			}
+		}
+		return false;
+	case CLJ_NODE_FUSED: {
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) {
+			if (sr_linked_read(n->u.fused.args[i], c, depth)) return true;
+		}
+		return false;
+	}
+	default: {
+		sr_link_scan s = {c, depth, false};
+		clj_node_children(n, sr_link_visit, &s);
+		return s.found;
+	}
+	}
+}
+
+// Whether n, at this frame's level, reads a replaced value at all.
+typedef struct {
+	const sr_ctx *c;
+	bool          found;
+} sr_use_scan;
+
+static void sr_use_visit(const clj_node *n, void *ctx) {
+	sr_use_scan *s = ctx;
+	if (s->found) return;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL: s->found = sr_hit(s->c, n->u.local.index); return;
+	case CLJ_NODE_FN:
+		for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) {
+			if (n->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL && sr_hit(s->c, n->u.fn.captures[i].index)) s->found = true;
+		}
+		return;
+	case CLJ_NODE_DIRECT_FN:
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED && !s->found; k++) {
+			if (n->u.fn.fixed[k] && sr_linked_read(n->u.fn.fixed[k]->body, s->c, 1)) s->found = true;
+		}
+		return;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) sr_use_visit(n->u.fused.args[i], ctx);
+		return;
+	case CLJ_NODE_LOWERED: {
+		const clj_node *fn = n->u.lowered.fn;
+		for (uint32_t i = 0; i < fn->u.fn.ncaptures; i++) {
+			if (fn->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL && sr_hit(s->c, fn->u.fn.captures[i].index)) s->found = true;
+		}
+		break;
+	}
+	default: break;
+	}
+	clj_node_children(n, sr_use_visit, ctx);
+}
+
+static bool sr_uses(const clj_node *n, const sr_ctx *c) {
+	sr_use_scan s = {c, false};
+	sr_use_visit(n, &s);
+	return s.found;
+}
+
+static void sr_rw_all(const clj_node **nodes, uint32_t n, sr_ctx *c) {
+	for (uint32_t i = 0; i < n && !c->fail; i++) sr_rw(&nodes[i], c, false);
+}
+
+// A binding that names or derives a replaced value leaves the let; a derived value's field bindings take its place.
+static void sr_rw_let(clj_node *n, sr_ctx *c) {
+	uint32_t         nb = n->u.let.n, k = 0, cap = nb + SR_PEND_MAX * nb;
+	uint32_t        *slots = zalloc(cap, sizeof *slots);
+	const clj_node **inits = zalloc(cap, sizeof *inits);
+	uint32_t         named[64], nnamed = 0;
+	for (uint32_t i = 0; i < nb && !c->fail; i++) {
+		uint32_t s = n->u.let.slots[i];
+		c->npend = 0;
+		int v = sr_rw(&n->u.let.inits[i], c, true);
+		if (c->fail) break;
+		if (v < 0) {
+			slots[k] = s;
+			inits[k++] = n->u.let.inits[i];
+			n->u.let.inits[i] = NULL;
+			continue;
+		}
+		for (uint32_t p = 0; p < c->npend; p++) {
+			slots[k] = c->pend_slots[p];
+			inits[k++] = c->pend_inits[p];
+		}
+		c->npend = 0;
+		if (s >= INLINE_SLOTS_MAX || nnamed == 64) {
+			c->fail = true;
+			break;
+		}
+		c->alias[s] = (int8_t)v;
+		named[nnamed++] = s;
+	}
+	if (c->fail) {
+		// the copy is thrown away whole: it only has to stay a tree its release can walk
+		for (uint32_t i = 0; i < nb; i++) {
+			if (!n->u.let.inits[i]) n->u.let.inits[i] = const_node(CLJ_NIL, (position){n->line, n->col});
+		}
+		for (uint32_t j = 0; j < k; j++) sr_free(inits[j]);
+		free(slots);
+		free(inits);
+		for (uint32_t i = 0; i < nnamed; i++) c->alias[named[i]] = -1;
+		return;
+	}
+	for (uint32_t i = 0; i < nb; i++) sr_free(n->u.let.inits[i]);
+	free(n->u.let.slots);
+	free(n->u.let.inits);
+	n->u.let.slots = slots;
+	n->u.let.inits = inits;
+	n->u.let.n = k;
+	sr_rw(&n->u.let.body, c, false);
+	for (uint32_t i = 0; i < nnamed; i++) c->alias[named[i]] = -1;
+}
+
+// For the world where the guard holds. bind: *pp is a let init; a value it names or derives is returned, else -1.
+// @ai-generated(solo)
+static int sr_rw(const clj_node **pp, sr_ctx *c, bool bind) {
+	if (c->fail) return -1;
+	clj_node *n = (clj_node *)*pp;
+	switch (n->kind) {
+	case CLJ_NODE_LOCAL: {
+		int v = sr_alias(c, n);
+		if (v < 0) return -1;
+		if (bind) return v;
+		sr_replace(pp, sr_materialize(c, (uint32_t)v));
+		return -1;
+	}
+	case CLJ_NODE_CONST:
+	case CLJ_NODE_CAPTURED:
+	case CLJ_NODE_OUTER:
+	case CLJ_NODE_VAR:
+	case CLJ_NODE_ROOT_IS: return -1;
+	case CLJ_NODE_IF: {
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) {
+			// an inlined or lowered call: the body reads what the call passes, and the call's literal fn is the body's
+			sr_rw(&n->u.if_.then, c, false);
+			c->guarded_args++;
+			sr_rw(&n->u.if_.else_, c, false);
+			c->guarded_args--;
+			return -1;
+		}
+		if (sr_alias(c, n->u.if_.test) >= 0) sr_replace(&n->u.if_.test, const_node(CLJ_TRUE, (position){n->line, n->col}));
+		else sr_rw(&n->u.if_.test, c, false);
+		if (c->fail) return -1;
+		if (n->u.if_.test->kind == CLJ_NODE_CONST) {
+			fold_if(n);
+			return sr_rw(pp, c, bind);
+		}
+		sr_rw(&n->u.if_.then, c, false);
+		if (n->u.if_.else_) sr_rw(&n->u.if_.else_, c, false);
+		return -1;
+	}
+	case CLJ_NODE_DO:
+	case CLJ_NODE_VECTOR:
+	case CLJ_NODE_MAP:
+	case CLJ_NODE_SET: sr_rw_all(n->u.seq.items, n->u.seq.n, c); return -1;
+	case CLJ_NODE_LET: sr_rw_let(n, c); return -1;
+	case CLJ_NODE_LOOP:
+		sr_rw_all(n->u.let.inits, n->u.let.n, c);
+		c->loops++;
+		sr_rw(&n->u.let.body, c, false);
+		c->loops--;
+		return -1;
+	case CLJ_NODE_RECUR: sr_rw_all(n->u.recur.args, n->u.recur.n, c); return -1;
+	case CLJ_NODE_FN: sr_capture(pp, c); return -1;
+	case CLJ_NODE_DIRECT_FN:
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED; k++) {
+			if (n->u.fn.fixed[k] && sr_linked_read(n->u.fn.fixed[k]->body, c, 1)) c->fail = true;
+		}
+		return -1;
+	case CLJ_NODE_INVOKE: {
+		int vi;
+		if (n->u.invoke.fn->kind == CLJ_NODE_CONST && (n->u.invoke.n == 1 || n->u.invoke.n == 2) && (vi = sr_alias(c, n->u.invoke.args[0])) >= 0) {
+			int r = sr_lookup(pp, c, bind, (uint32_t)vi, false);
+			if (r != -2) return r;
+		}
+		if ((vi = sr_alias(c, n->u.invoke.fn)) >= 0 && (n->u.invoke.n == 1 || n->u.invoke.n == 2)) {
+			int r = sr_lookup(pp, c, bind, (uint32_t)vi, true);
+			if (r != -2) return r;
+		}
+		sr_rw(&n->u.invoke.fn, c, false);
+		sr_rw_all(n->u.invoke.args, n->u.invoke.n, c);
+		return -1;
+	}
+	case CLJ_NODE_INTRINSIC: {
+		int vi = n->u.intrinsic.n ? sr_alias(c, n->u.intrinsic.args[0]) : -1;
+		if (vi >= 0) {
+			int r = sr_intrinsic(pp, c, bind, (uint32_t)vi);
+			if (r != -2) return r;
+		}
+		sr_rw_all(n->u.intrinsic.args, n->u.intrinsic.n, c);
+		return -1;
+	}
+	case CLJ_NODE_DIRECT_CALL: sr_rw_all(n->u.direct.args, n->u.direct.n, c); return -1;
+	case CLJ_NODE_OBJC_SEND:
+		sr_rw(&n->u.objc.target, c, false);
+		sr_rw_all(n->u.objc.args, n->u.objc.n, c);
+		return -1;
+	case CLJ_NODE_DEF:
+		if (n->u.def.init) sr_rw(&n->u.def.init, c, false);
+		sr_rw(&n->u.def.meta, c, false);
+		return -1;
+	case CLJ_NODE_TRY:
+		sr_rw(&n->u.try_.body, c, false);
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) sr_rw(&n->u.try_.catches[i].handler, c, false);
+		if (n->u.try_.finally_) sr_rw(&n->u.try_.finally_, c, false);
+		return -1;
+	case CLJ_NODE_THROW: sr_rw(&n->u.throw_, c, false); return -1;
+	case CLJ_NODE_FUSED: sr_rw_all(n->u.fused.args, n->u.fused.nargs, c); return -1;
+	case CLJ_NODE_INLINE: sr_rw(&n->u.inline_.body, c, false); return -1;
+	case CLJ_NODE_LOWERED: {
+		const clj_node *fn = n->u.lowered.fn;
+		for (uint32_t i = 0; i < fn->u.fn.ncaptures; i++) {
+			if (fn->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL && sr_hit(c, fn->u.fn.captures[i].index)) c->fail = true;
+		}
+		sr_rw_all(n->u.lowered.args, n->u.lowered.n, c);
+		return -1;
+	}
+	}
+	clj_ice("optimize/scalar-kind", n, "node kind %u", (unsigned)n->kind);
+}
+
+// ---- how often each value is materialized on a path
+
+typedef struct {
+	uint8_t hi[SR_VALUES_MAX], lo[SR_VALUES_MAX]; // most and fewest on any path, 2 meaning "2 or more"
+} sr_paths;
+
+static void sr_seq(sr_paths *a, const sr_paths *b) {
+	for (uint32_t i = 0; i < SR_VALUES_MAX; i++) {
+		a->hi[i] = (uint8_t)(a->hi[i] + b->hi[i] > 2 ? 2 : a->hi[i] + b->hi[i]);
+		a->lo[i] = (uint8_t)(a->lo[i] + b->lo[i] > 2 ? 2 : a->lo[i] + b->lo[i]);
+	}
+}
+
+static sr_paths sr_count(const clj_node *n, const sr_ctx *c);
+
+typedef struct {
+	const sr_ctx *c;
+	sr_paths      p;
+} sr_count_acc;
+
+static void sr_count_visit(const clj_node *n, void *ctx) {
+	sr_count_acc *a = ctx;
+	sr_paths      q = sr_count(n, a->c);
+	sr_seq(&a->p, &q);
+}
+
+static sr_paths sr_count(const clj_node *n, const sr_ctx *c) {
+	sr_paths p = {{0}, {0}};
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN: return p;
+	case CLJ_NODE_FUSED: {
+		sr_count_acc a = {c, p};
+		for (uint32_t i = 0; i < n->u.fused.nargs; i++) sr_count_visit(n->u.fused.args[i], &a);
+		return a.p;
+	}
+	case CLJ_NODE_IF: {
+		p = sr_count(n->u.if_.test, c);
+		sr_paths t = sr_count(n->u.if_.then, c), e = {{0}, {0}};
+		if (n->u.if_.else_) e = sr_count(n->u.if_.else_, c);
+		sr_paths both;
+		for (uint32_t i = 0; i < SR_VALUES_MAX; i++) {
+			both.hi[i] = t.hi[i] > e.hi[i] ? t.hi[i] : e.hi[i];
+			both.lo[i] = t.lo[i] < e.lo[i] ? t.lo[i] : e.lo[i];
+		}
+		sr_seq(&p, &both);
+		return p;
+	}
+	case CLJ_NODE_TRY: {
+		// a handler may follow any prefix of the body: its count adds to all of the body's
+		sr_count_acc a = {c, p};
+		clj_node_children(n, sr_count_visit, &a);
+		sr_paths body = sr_count(n->u.try_.body, c);
+		for (uint32_t i = 0; i < SR_VALUES_MAX; i++) a.p.lo[i] = body.lo[i];
+		return a.p;
+	}
+	default: break;
+	}
+	sr_count_acc a = {c, p};
+	clj_node_children(n, sr_count_visit, &a);
+	for (uint32_t i = 0; i < c->nmats; i++) {
+		if (c->mats[i] == n) {
+			uint32_t v = c->mat_of[i];
+			a.p.hi[v] = (uint8_t)(a.p.hi[v] + 1 > 2 ? 2 : a.p.hi[v] + 1);
+			a.p.lo[v] = (uint8_t)(a.p.lo[v] + 1 > 2 ? 2 : a.p.lo[v] + 1);
+		}
+	}
+	return a.p;
+}
+
+// ---- the candidate
+
+// The layout a literal fixes: a tuple of 1 to 6 items, or a map of 1 to 32 distinct constant keywords.
+static bool sr_layout(const clj_node *lit, sr_value *v) {
+	if (lit->kind == CLJ_NODE_VECTOR) {
+		if (!lit->u.seq.n || lit->u.seq.n > SR_TUPLE_MAX) return false;
+		v->kind = SR_TUPLE;
+		v->n = lit->u.seq.n;
+		return true;
+	}
+	if (lit->kind != CLJ_NODE_MAP || !lit->u.seq.n || lit->u.seq.n > 2 * SR_KEYS_MAX || lit->u.seq.n % 2) return false;
+	v->kind = SR_MAP;
+	v->n = lit->u.seq.n / 2;
+	for (uint32_t i = 0; i < v->n; i++) {
+		const clj_node *k = lit->u.seq.items[2 * i];
+		if (k->kind != CLJ_NODE_CONST || !clj_is_keyword(k->u.value.v)) return false;
+		for (uint32_t j = 0; j < i; j++) {
+			if (v->keys[j] == k->u.value.v) return false;
+		}
+		v->keys[i] = k->u.value.v;
+	}
+	return true;
+}
+
+static const clj_node *sr_item(const clj_node *lit, const sr_value *v, uint32_t i) {
+	return lit->u.seq.items[v->kind == SR_TUPLE ? i : 2 * i + 1];
+}
+
+static void sr_ctx_free(sr_ctx *c) {
+	for (uint32_t v = 0; v < c->nvals; v++) {
+		for (uint32_t i = 0; i < c->vals[v].n; i++) sr_free(c->vals[v].src[i]);
+	}
+	for (uint32_t p = 0; p < c->npend; p++) sr_free(c->pend_inits[p]);
+	free(c->mats);
+	free(c->mat_of);
+}
+
+typedef enum { SR_KEEP, SR_DROP, SR_DIRECT, SR_VERSIONED } sr_how;
+
+typedef struct {
+	const clj_node **at;  // the expression's place: a binding's init, the body, or an inlined body inside it
+	clj_node        *now; // the rewritten copy
+	sr_how           how;
+	int              value; // a binding that names or derives a value: which
+	uint32_t         pend[SR_PEND_MAX], npend;
+	clj_node        *pend_inits[SR_PEND_MAX];
+} sr_expr;
+
+static clj_node *sr_if(clj_node *test, clj_node *then, clj_node *else_, position at) { return if_node(test, then, else_, at); }
+
+// Binding k of let `let`: its literal's items into slots, its uses rewritten; nothing changes unless all of it holds.
+// @ai-generated(solo)
+static void try_scalar(clj_node *let, uint32_t k, sr_frame *fr) {
+	const clj_node *init = let->u.let.inits[k];
+	uint32_t        t = let->u.let.slots[k];
+	if (t >= INLINE_SLOTS_MAX || fr->arity->nslots >= INLINE_SLOTS_MAX) return;
+	const clj_node *lits[2] = {init, NULL}, *test = NULL;
+	sr_ctx          c = {.fr = fr, .next = fr->arity->nslots};
+	memset(c.alias, -1, sizeof c.alias);
+	sr_value *v = &c.vals[0];
+	if (init->kind == CLJ_NODE_IF && init->u.if_.else_ && init->u.if_.test->kind != CLJ_NODE_ROOT_IS) {
+		lits[0] = init->u.if_.then;
+		lits[1] = init->u.if_.else_;
+		test = init->u.if_.test;
+	}
+	if (!sr_layout(lits[0], v)) return;
+	if (lits[1]) {
+		sr_value w;
+		if (!sr_layout(lits[1], &w) || w.kind != v->kind || w.n != v->n) return;
+		for (uint32_t i = 0; v->kind == SR_MAP && i < v->n; i++) {
+			if (w.keys[i] != v->keys[i]) return;
+		}
+	}
+	v->at = (position){lits[0]->line, lits[0]->col};
+	c.nvals = 1;
+	c.alias[t] = 0;
+	uint32_t nb = let->u.let.n;
+	bool     any = sr_uses(let->u.let.body, &c);
+	for (uint32_t j = k + 1; j < nb && !any; j++) any = sr_uses(let->u.let.inits[j], &c);
+	if (!any) return;
+	// the fields: a trivial item is read where it is, any other is bound in order; an if's arms each give theirs
+	uint32_t   fslots[SR_KEYS_MAX + 1], nf = 0;
+	clj_node  *finits[SR_KEYS_MAX + 1];
+	clj_node  *ttest = NULL;
+	if (test) {
+		if (sr_trivial(&c, test)) ttest = sr_copy(test);
+		else {
+			fslots[nf] = sr_fresh(&c);
+			finits[nf++] = sr_copy(test);
+			ttest = local_node(fslots[nf - 1], (position){test->line, test->col});
+		}
+	}
+	for (uint32_t i = 0; i < v->n; i++) {
+		const clj_node *a = sr_item(lits[0], v, i);
+		if (!lits[1] && sr_trivial(&c, a)) {
+			v->src[i] = sr_copy(a);
+			continue;
+		}
+		fslots[nf] = sr_fresh(&c);
+		finits[nf++] = lits[1] ? sr_if(sr_copy(ttest), sr_copy(a), sr_copy(sr_item(lits[1], v, i)), (position){a->line, a->col}) : sr_copy(a);
+		v->src[i] = local_node(fslots[nf - 1], (position){a->line, a->col});
+	}
+	sr_free(ttest);
+	// the bindings after it, then the body (an inlined body's own, so the guard's then branch stays a let over INLINE)
+	sr_expr  ex[nb - k];
+	uint32_t nex = 0;
+	for (uint32_t j = k + 1; j <= nb && !c.fail; j++) {
+		const clj_node **at = j < nb ? &let->u.let.inits[j] : &let->u.let.body;
+		if (j == nb && (*at)->kind == CLJ_NODE_INLINE) at = &((clj_node *)*at)->u.inline_.body;
+		sr_expr *e = &ex[nex++];
+		*e = (sr_expr){at, NULL, SR_KEEP, -1, {0}, 0, {0}};
+		if (!sr_uses(*at, &c)) continue;
+		e->now = sr_copy(*at);
+		c.folded = c.mat = false;
+		c.npend = 0;
+		int named = sr_rw((const clj_node **)&e->now, &c, j < nb);
+		if (c.fail) break;
+		if (named >= 0) {
+			e->value = named;
+			e->how = SR_DROP;
+			for (uint32_t p = 0; p < c.npend; p++) {
+				e->pend[p] = c.pend_slots[p];
+				e->pend_inits[p] = c.pend_inits[p];
+			}
+			e->npend = c.npend;
+			c.npend = 0;
+			c.alias[let->u.let.slots[j]] = (int8_t)named;
+			continue;
+		}
+		e->how = c.folded || c.mat ? SR_VERSIONED : SR_DIRECT;
+	}
+	// what the rewrite left must read no replaced value: an ICE, not a silently wrong field
+	for (uint32_t i = 0; i < nex && !c.fail; i++) {
+		if (ex[i].now && ex[i].how != SR_DROP && sr_uses(ex[i].now, &c))
+			clj_ice("optimize/scalar-leftover", *ex[i].at, "a replaced value is still read after its rewrite");
+		for (uint32_t p = 0; p < ex[i].npend; p++) {
+			if (sr_uses(ex[i].pend_inits[p], &c)) clj_ice("optimize/scalar-leftover", *ex[i].at, "a derived field still reads a replaced value");
+		}
+	}
+	// at most one materialization of a value on any path, and not on every path (no allocation would go)
+	bool ok = !c.fail;
+	if (ok) {
+		sr_paths p = {{0}, {0}};
+		for (uint32_t i = 0; i < nex; i++) {
+			for (uint32_t q = 0; q < ex[i].npend; q++) {
+				sr_paths r = sr_count(ex[i].pend_inits[q], &c);
+				sr_seq(&p, &r);
+			}
+			if (!ex[i].now) continue;
+			sr_paths q = sr_count(ex[i].now, &c);
+			sr_seq(&p, &q);
+		}
+		for (uint32_t i = 0; i < c.nvals && ok; i++) ok = p.hi[i] <= 1;
+		ok = ok && p.lo[0] == 0;
+	}
+	bool     guarded = c.nops > 0;
+	uint32_t grown = nf + 4;
+	for (uint32_t i = 0; ok && i < nex; i++) {
+		if (ex[i].now) grown += nodes_in(ex[i].now);
+	}
+	uint32_t slots_after = c.next + (guarded ? 1u : 0u);
+	if (ok && (fr->grown + grown > fr->budget || slots_after > INLINE_SLOTS_MAX ||
+	           (fr->arity->nslots <= INLINE_SLOTS_SMALL && slots_after > INLINE_SLOTS_SMALL)))
+		ok = false;
+	// a body small enough to be inlined stays so: copied into its caller, it is replaced there, after the copy
+	if (ok && fr->size <= INLINE_CALLEE_MAX && fr->size + fr->grown + grown > INLINE_CALLEE_MAX) ok = false;
+	if (!ok) {
+		for (uint32_t i = 0; i < nex; i++) {
+			sr_free(ex[i].now);
+			for (uint32_t p = 0; p < ex[i].npend; p++) sr_free(ex[i].pend_inits[p]);
+		}
+		for (uint32_t i = 0; i < nf; i++) sr_free(finits[i]);
+		sr_ctx_free(&c);
+		return;
+	}
+	// commit: the bindings up to k, the fields, the guard and the object it stands in for, then the rest
+	uint32_t g = guarded ? sr_fresh(&c) : UINT32_MAX;
+	position at = {init->line, init->col};
+	uint32_t cap = nb + nf + 2 + nex * (SR_PEND_MAX + 1);
+	uint32_t        *slots = zalloc(cap, sizeof *slots);
+	const clj_node **inits = zalloc(cap, sizeof *inits);
+	uint32_t         m = 0;
+	for (uint32_t j = 0; j < k; j++) {
+		slots[m] = let->u.let.slots[j];
+		inits[m++] = let->u.let.inits[j];
+	}
+	for (uint32_t i = 0; i < nf; i++) {
+		slots[m] = fslots[i];
+		inits[m++] = finits[i];
+	}
+	if (guarded) {
+		clj_node *gn = node_at(CLJ_NODE_ROOT_IS, at);
+		clj_value var = clj_intrinsic_var(c.ops[0]);
+		clj_slot_store(&gn->h, &gn->u.root_is.var, clj_retain(var));
+		clj_slot_store(&gn->h, &gn->u.root_is.expect, clj_retain(clj_intrinsic_builtin(c.ops[0])));
+		const clj_intrinsic **ops = zalloc(c.nops, sizeof *ops);
+		memcpy(ops, c.ops, c.nops * sizeof *ops);
+		gn->u.root_is.ops = ops;
+		gn->u.root_is.nops = c.nops;
+		slots[m] = g;
+		inits[m++] = gn;
+		slots[m] = t;
+		inits[m++] = sr_if(local_node(g, at), const_node(CLJ_NIL, at), sr_materialize(&c, 0), at);
+	}
+	sr_free(init);
+	for (uint32_t i = 0; i < nex; i++) {
+		sr_expr *e = &ex[i];
+		uint32_t j = k + 1 + i;
+		if (e->how == SR_DROP) {
+			for (uint32_t p = 0; p < e->npend; p++) {
+				slots[m] = e->pend[p];
+				inits[m++] = guarded ? sr_if(local_node(g, at), e->pend_inits[p], const_node(CLJ_NIL, at), at) : e->pend_inits[p];
+			}
+			sr_free(e->now);
+			// in the world where the guard failed, the binding is the object the original code reads
+			if (guarded) {
+				slots[m] = let->u.let.slots[j];
+				inits[m++] = sr_if(local_node(g, at), const_node(CLJ_NIL, at), (clj_node *)let->u.let.inits[j], at);
+			} else sr_free(let->u.let.inits[j]);
+			continue;
+		}
+		if (e->how == SR_VERSIONED && guarded) *e->at = sr_if(local_node(g, at), e->now, (clj_node *)*e->at, at);
+		else if (e->how != SR_KEEP) sr_replace(e->at, e->now);
+		if (j < nb) {
+			slots[m] = let->u.let.slots[j];
+			inits[m++] = let->u.let.inits[j];
+		}
+	}
+	free(let->u.let.slots);
+	free(let->u.let.inits);
+	let->u.let.slots = slots;
+	let->u.let.inits = inits;
+	let->u.let.n = m;
+	if (c.next > fr->arity->nslots) fr->arity->nslots = c.next;
+	fr->grown += grown;
+	atomic_fetch_add_explicit(&sr_counts[0], 1, memory_order_relaxed);
+	if (guarded) atomic_fetch_add_explicit(&sr_counts[1], 1, memory_order_relaxed);
+	atomic_fetch_add_explicit(&sr_counts[2], c.nmats - (guarded ? 1u : 0u), memory_order_relaxed);
+	if (lits[1]) atomic_fetch_add_explicit(&sr_counts[3], 1, memory_order_relaxed);
+	sr_ctx_free(&c);
+}
+
+// Children first: an inner let is decided before the one around it, whose rewrite copies the result; a let's bindings
+// from the last, so a value a later one holds as a field is decided before the earlier value it reads.
+static void scalar_walk(const clj_node *n, void *ctx) {
+	sr_frame *fr = ctx;
+	clj_node *m = (clj_node *)n;
+	switch (m->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+		for (uint32_t k = 0; k <= CLJ_FN_MAX_FIXED + 1; k++) {
+			clj_fn_arity *a = k <= CLJ_FN_MAX_FIXED ? m->u.fn.fixed[k] : m->u.fn.variadic;
+			if (!a) continue;
+			uint32_t size = nodes_in(a->body);
+			sr_frame inner = {a, 0, size > SR_GROWTH_MIN ? size : SR_GROWTH_MIN, size};
+			scalar_walk(a->body, &inner);
+		}
+		return;
+	case CLJ_NODE_FUSED:
+		for (uint32_t i = 0; i < m->u.fused.nargs; i++) scalar_walk(m->u.fused.args[i], ctx);
+		return;
+	case CLJ_NODE_DEF:
+		if (m->u.def.macro) return;
+		break;
+	default: break;
+	}
+	clj_node_children(m, scalar_walk, ctx);
+	if (m->kind == CLJ_NODE_LET && fr->arity) {
+		for (uint32_t k = m->u.let.n; k-- > 0;) try_scalar(m, k, fr);
+	}
+}
+
 // ---- last-use marks (design §6b item 4, "reuse"): a LOCAL read after which its slot is dead on every path
 // is flagged `last`, and the evaluator hands the frame's reference to the consumer instead of borrowing it,
 // so a conj/assoc on a local nobody else holds runs in place. Backward liveness over the evaluation order of
@@ -1873,6 +2826,12 @@ void clj_optimize(clj_node *root) {
 		inline_frame top = {NULL, 0, 0, 0, CLJ_NIL};
 		inline_walk(root, &top);
 		CLJ_VERIFY_TREE(root, "optimize/inline", 0);
+	}
+	if (!clj_opt_off(CLJ_NO_OPT_SCALAR)) {
+		clj_ice_pass("optimize/scalar");
+		sr_frame top = {NULL, 0, 0, 0};
+		scalar_walk(root, &top);
+		CLJ_VERIFY_TREE(root, "optimize/scalar", 0);
 	}
 	clj_ice_pass("optimize/liveness");
 	live_frame(root, 0);

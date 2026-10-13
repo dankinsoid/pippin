@@ -154,6 +154,9 @@ if opts.closed {
 
 if opts.stats {
 	func pct(_ a: UInt64, _ b: UInt64) -> String { b == 0 ? "-" : String(format: "%.1f %%", 100 * Double(a) / Double(b)) }
+	var sr = [UInt64](repeating: 0, count: 4)
+	clj_debug_scalar_counts(&sr)
+	FileHandle.standardError.write(Data("scalar: \(sr[0]) values kept in slots over the compile, \(sr[1]) of them guarded, \(sr[2]) materializations, \(sr[3]) from an if of two literals\n".utf8))
 	for i in 0..<cljc_unit_count(compiler) {
 		var st = cljc_slot_stats()
 		cljc_unit_slots(compiler, i, &st)
@@ -165,7 +168,7 @@ if opts.stats {
 		protocol sites direct \(st.proto_direct), switch \(st.proto_switch), cache \(st.proto_cache), satisfies?/extends? folded \(st.proto_folded); \
 		direct-call arrays \(st.direct_array) of \(st.direct_slots) callee slots; \
 		workers \(st.workers), primitive sites \(st.prim_sites) of which bound \(st.prim_bound); keyword-lookup sites \(st.kw_sites); \
-		reuse: cons in a dying cell \(st.reuse_tokens), next/rest handed over \(st.reuse_consumes); inlined calls \(st.inlined), of which from another unit \(st.inlined_cross) (outlined \(st.outlined) into \(st.outlined_fns) fns), known paths \(st.paths), literal fns copied \(st.literals), monomorphized fused sites \(st.mono_fused), lowered calls \(st.lowered); \
+		reuse: cons in a dying cell \(st.reuse_tokens), next/rest handed over \(st.reuse_consumes); inlined calls \(st.inlined), of which from another unit \(st.inlined_cross) (outlined \(st.outlined) into \(st.outlined_fns) fns), known paths \(st.paths), literal fns copied \(st.literals), monomorphized fused sites \(st.mono_fused), lowered calls \(st.lowered), scalar guards \(st.scalar_guards); \
 		owned entries \(st.owned_arities) over \(st.owned_params) params (\(st.owned_array) in the array), owned call sites \(st.owned_sites) handing over \(st.owned_handed), late takes \(st.reuse_takes), take-out gets \(st.reuse_takeouts), lowered literals owning their accumulator \(st.owned_lowered) at \(st.owned_steps) sites, thunk tail conses letting captures go \(st.thunk_let_go), dead slots dropped \(st.drops); \
 		defs \(st.defs) of which dropped \(st.defs_dropped), kept \(st.def_bytes) C bytes
 

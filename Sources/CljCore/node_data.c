@@ -384,6 +384,9 @@ static clj_value encode_kind(const clj_node *n) {
 	}
 	case CLJ_NODE_FUSED: return encode_fused(n);
 	case CLJ_NODE_ROOT_IS:
+		// a scalar replacement's guard reads back as failed: every extent then runs its original code
+		if (n->u.root_is.nops) return vec2(kw_const, CLJ_FALSE);
+		break;
 	case CLJ_NODE_INLINE:
 	case CLJ_NODE_LOWERED: break; // only inside the if of an inlined or lowered call, which encodes as its call
 	}

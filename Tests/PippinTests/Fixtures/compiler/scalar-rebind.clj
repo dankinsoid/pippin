@@ -1,0 +1,28 @@
+;; A redefined intrinsic fails the scalar guard; dev only, as with-redefs is (closed folds the guards).
+;; fn*: the fn macro itself destructures with nth.
+(ns fixture.scalar-rebind)
+
+(defn first-of [a b] (let [[x y] [a b]] [x y]))
+(defn cnt [a] (let [t [a a]] (count t)))
+(defn lookup [a] (let [m {:a a :b 2}] [(get m :a) (:b m)]))
+(defn bumped [a] (let [m {:n a} m2 (assoc m :n (inc a))] (:n m2)))
+(println (first-of 1 2) (cnt 1) (lookup 3) (bumped 4))
+
+(def boot-nth nth)
+(alter-var-root #'clojure.core/nth (fn* [_] (fn* ([c i] [:nth i]) ([c i nf] [:nth i]))))
+(def r1 (first-of 1 2))
+(alter-var-root #'clojure.core/nth (fn* [_] boot-nth))
+(def boot-count count)
+(alter-var-root #'clojure.core/count (fn* [_] (fn* [c] [:count (vector? c) (boot-count c)])))
+(def r2 (cnt 1))
+(alter-var-root #'clojure.core/count (fn* [_] boot-count))
+(def boot-get get)
+(alter-var-root #'clojure.core/get (fn* [_] (fn* ([m k] [:get k]) ([m k nf] [:get k]))))
+(def r3 (lookup 3))
+(alter-var-root #'clojure.core/get (fn* [_] boot-get))
+(def boot-assoc assoc)
+(alter-var-root #'clojure.core/assoc (fn* [_] (fn* [m k v] (boot-assoc m k (* 100 v)))))
+(def r4 (bumped 4))
+(alter-var-root #'clojure.core/assoc (fn* [_] boot-assoc))
+(println r1 r2 r3 r4)
+(println (first-of 1 2) (cnt 1) (lookup 3) (bumped 4))

@@ -117,6 +117,7 @@ CLJC_INLINE clj_value clojure_set_map_invert_a1_i(clj_value self, const clj_valu
 static clj_value clojure_set_map_invert(void *ctx, const clj_value *args, size_t n);
 static clj_value top_13(void);
 clj_value clojure_set_join_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_set_join_a2_o3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_join__0_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_join__0_a2_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_join__0__1_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
@@ -131,6 +132,7 @@ static clj_value clojure_set_join__lw3(void *ctx, const clj_value *args, size_t 
 static clj_value clojure_set_join__lw3_o(void *ctx, const clj_value *args, size_t n);
 static clj_value clojure_set_join__lw3_mk(void *ctx);
 clj_value clojure_set_join_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
+clj_value clojure_set_join_a3_o7(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_join__4_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_join__4_a2_o1(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_set_join__4__5_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
@@ -3177,7 +3179,13 @@ static clj_value clojure_set_join__lw3_mk(void *ctx) {
 	return clj_c_closure(CLJ_NIL, clojure_set_join__0, (const clj_value *)ctx, 2, 0x4, 2, 2);
 }
 
-CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_set_join_a2(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	clj_retain(args[1]);
+	return clojure_set_join_a2_o3(self, captured, args, nargs);
+}
+
+CLJC_FRAME clj_value clojure_set_join_a2_o3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[8];
 	clj_cframe fr = {s, captured, 0, NULL};
@@ -3191,6 +3199,10 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	clj_value l4 = CLJ_NIL;
 	clj_value l5 = CLJ_NIL;
 	clj_value l6 = CLJ_NIL;
+	clj_value l8 = CLJ_NIL;
+	clj_value l9 = CLJ_NIL;
+	clj_value l10 = CLJ_NIL;
+	clj_value l11 = CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[20], &cc);
 #line 96 "<embedded>/clojure/set.clj"
@@ -3465,170 +3477,233 @@ CLJC_FRAME clj_value clojure_set_join_a2(clj_value self, const clj_value *captur
 	if (t28 == CLJ_THROWN) {
 	goto L1;
 	}
-	bool t31 = clj_truthy(t28);
-	clj_release(t28);
-	clj_value t32;
-	if (t31) {
-	clj_value t33 = l0;
-	clj_value t34 = l1;
-	clj_value a12[2] = {t33, t34};
-	(void)a12;
-	clj_value t35 = clj_vector_from_array(a12, 2);
-	(void)t34;
-	(void)t33;
-	CLJC_SITE(&S[20]);
-	if (t35 == CLJ_THROWN) {
-	goto L1;
-	}
-	t32 = t35;
+	clj_c_rebind(&l8, t28);
+	clj_value t31 = l8;
+	bool t32 = clj_truthy(t31);
+	(void)t31;
+	clj_value t33;
+	if (t32) {
+	clj_value t34 = clj_retain(l0);
+	t33 = t34;
 	} else {
-	clj_value t36 = l1;
-	clj_value t37 = l0;
-	clj_value a13[2] = {t36, t37};
-	(void)a13;
-	clj_value t38 = clj_vector_from_array(a13, 2);
-	(void)t37;
+	clj_value t35 = clj_retain(l1);
+	t33 = t35;
+	}
+	clj_c_rebind(&l9, t33);
+	clj_value t36 = l8;
+	bool t37 = clj_truthy(t36);
 	(void)t36;
-	CLJC_SITE(&S[20]);
-	if (t38 == CLJ_THROWN) {
-	goto L1;
-	}
-	t32 = t38;
-	}
-	clj_c_rebind(&l4, t32);
-#line 97 "<embedded>/clojure/set.clj"
-	clj_value t39 = l4;
-	clj_value t40 = K[24];
-	clj_value t41 = K[2];
-	clj_value a14[3] = {t39, t40, t41};
-	(void)a14;
-	clj_value t42;
-	if (CLJC_GUARD(V[31], B[10])) {
-	t42 = clj_c_nth3(t39, t40, t41);
+	clj_value t38;
+	if (t37) {
+	clj_c_drop(&l0);
+	clj_value t39 = l1;
+	l1 = CLJ_NIL;
+	t38 = t39;
 	} else {
-	t42 = clj_c_intrinsic_fallback(V[31], a14, 3);
+	clj_c_drop(&l1);
+	clj_value t40 = l0;
+	l0 = CLJ_NIL;
+	t38 = t40;
 	}
-	(void)t41;
-	(void)t40;
-	(void)t39;
-	CLJC_SITE(&S[20]);
-	if (t42 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_c_rebind(&l5, t42);
-	clj_value t43 = l4;
-	clj_value t44 = K[25];
-	clj_value t45 = K[2];
-	clj_value a15[3] = {t43, t44, t45};
-	(void)a15;
-	clj_value t46;
-	if (CLJC_GUARD(V[31], B[10])) {
-	t46 = clj_c_nth3(t43, t44, t45);
+	clj_c_rebind(&l10, t38);
+	clj_value t41 = clj_bool(1 && CLJC_GUARD(V[31], B[10]));
+	clj_c_rebind(&l11, t41);
+	clj_value t42 = l11;
+	bool t43 = clj_truthy(t42);
+	(void)t42;
+	clj_value t44;
+	if (t43) {
+	clj_value t45 = clj_retain(K[2]);
+	t44 = t45;
 	} else {
-	t46 = clj_c_intrinsic_fallback(V[31], a15, 3);
-	}
-	(void)t45;
-	(void)t44;
-	(void)t43;
-	CLJC_SITE(&S[20]);
-	if (t46 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_c_rebind(&l6, t46);
-	clj_c_drop(&l4);
-#line 101 "<embedded>/clojure/set.clj"
-	clj_value t47;
-	bool o48 = false;
-	clj_value t48 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_set_index_a2
-	t48 = clj_c_var_borrow(V[35], &o48);
+	clj_value t46 = l9;
+	clj_value t47 = l10;
+	clj_value a12[2] = {t46, t47};
+	(void)a12;
+	clj_value t48 = clj_vector_from_array(a12, 2);
+	(void)t47;
+	(void)t46;
 	CLJC_SITE(&S[20]);
 	if (t48 == CLJ_THROWN) {
 	goto L1;
 	}
-#endif
-	clj_value t49 = l5;
-	clj_value t50 = fr.slots[3];
-	clj_value a16[2] = {t49, t50};
-	(void)a16;
-#ifdef CLJC_LOCAL_clojure_set_index_a2
-	t47 = CLJC_CALL_clojure_set_index_a2(CLJ_NIL, NULL, a16, 2);
-#elif defined(CLJC_DIRECT_clojure_set_index_a2)
-	if (!CLJC_FN_clojure_set_index_a2) CLJC_FN_clojure_set_index_a2 = clj_compiled_symbol("clojure_set_index_a2");
-	t47 = CLJC_FN_clojure_set_index_a2 ? CLJC_FN_clojure_set_index_a2(clj_var_root_relaxed(V[35]), NULL, a16, 2) : clj_c_invoke(t48, a16, 2);
-#else
-	t47 = clj_c_invoke(t48, a16, 2);
-#endif
-	(void)t50;
+	t44 = t48;
+	}
+	clj_c_rebind(&l4, t44);
+	clj_value t49 = l11;
+	bool t50 = clj_truthy(t49);
 	(void)t49;
-	if (o48) clj_release(t48);
-	CLJC_SITE(&S[20]);
-	if (t47 == CLJ_THROWN) {
-	goto L1;
+	clj_value t51;
+	if (t50) {
+	clj_value t52 = l9;
+	l9 = CLJ_NIL;
+	t51 = t52;
+	} else {
+	clj_c_drop(&l9);
+#line 97 "<embedded>/clojure/set.clj"
+	clj_value t53 = l4;
+	clj_value t54 = K[24];
+	clj_value t55 = K[2];
+	clj_value a13[3] = {t53, t54, t55};
+	(void)a13;
+	clj_value t56;
+	if (CLJC_GUARD(V[31], B[10])) {
+	t56 = clj_c_nth3(t53, t54, t55);
+	} else {
+	t56 = clj_c_intrinsic_fallback(V[31], a13, 3);
 	}
-	clj_c_set(&fr, 7, t47);
-	clj_c_drop(&l5);
-#line 102 "<embedded>/clojure/set.clj"
-	bool t51 = CLJC_LOWERED(V[11], 0);
-	clj_value t52;
-	if (t51) {
-	clj_value t53 = K[41];
-	clj_value t54 = l6;
-	clj_value c18[2] = {fr.slots[7], fr.slots[3]};
-	clj_value la17[3] = {CLJ_NIL, t53, t54};
-	clj_lowered lw17 = {clojure_set_join__lw3, clojure_set_join__lw3_mk, (void *)c18, 2, CLJ_NIL, clojure_set_join__lw3_o};
-	clj_value t55 = clj_lowered_call(0, la17, 3, &lw17);
-	CLJC_SITE(&S[20]);
-	if (t55 == CLJ_THROWN) {
-	goto L1;
-	}
+	(void)t55;
 	(void)t54;
 	(void)t53;
-	t52 = t55;
-	} else {
-	clj_value t56;
-	bool o57;
-	clj_value t57 = clj_c_var_borrow(V[11], &o57);
-	CLJC_SITE(&S[20]);
-	if (t57 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_value c20[2] = {fr.slots[7], fr.slots[3]};
-	clj_value t58 = clj_c_closure(CLJ_NIL, clojure_set_join__0, c20, 2, 0x4, 2, 2);
-	clj_value t59 = K[41];
-	clj_value t60 = l6;
-	clj_value a19[3] = {t58, t59, t60};
-	(void)a19;
-	t56 = clj_c_invoke(t57, a19, 3);
-	(void)t60;
-	(void)t59;
-	clj_release(t58);
-	if (o57) clj_release(t57);
 	CLJC_SITE(&S[20]);
 	if (t56 == CLJ_THROWN) {
 	goto L1;
 	}
-	t52 = t56;
+	t51 = t56;
 	}
-	t9 = t52;
+	clj_c_rebind(&l5, t51);
+#line 98 "<embedded>/clojure/set.clj"
+	clj_value t57 = l11;
+	bool t58 = clj_truthy(t57);
+	(void)t57;
+	clj_value t59;
+	if (t58) {
+	clj_c_drop(&l4);
+	clj_value t60 = l10;
+	l10 = CLJ_NIL;
+	t59 = t60;
 	} else {
+	clj_c_drop(&l10);
+#line 97 "<embedded>/clojure/set.clj"
+	clj_value t61 = l4;
+	clj_value t62 = K[25];
+	clj_value t63 = K[2];
+	clj_value a14[3] = {t61, t62, t63};
+	(void)a14;
+	clj_value t64;
+	if (CLJC_GUARD(V[31], B[10])) {
+	t64 = clj_c_nth3(t61, t62, t63);
+	} else {
+	t64 = clj_c_intrinsic_fallback(V[31], a14, 3);
+	}
+	(void)t63;
+	(void)t62;
+	(void)t61;
+	CLJC_SITE(&S[20]);
+	if (t64 == CLJ_THROWN) {
+	goto L1;
+	}
+	t59 = t64;
+	}
+	clj_c_rebind(&l6, t59);
+	clj_c_drop(&l4);
+#line 101 "<embedded>/clojure/set.clj"
+	clj_value t65;
+	bool o66 = false;
+	clj_value t66 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_set_index_a2
+	t66 = clj_c_var_borrow(V[35], &o66);
+	CLJC_SITE(&S[20]);
+	if (t66 == CLJ_THROWN) {
+	goto L1;
+	}
+#endif
+	clj_value t67 = l5;
+	clj_value t68 = fr.slots[3];
+	clj_value a15[2] = {t67, t68};
+	(void)a15;
+#ifdef CLJC_LOCAL_clojure_set_index_a2
+	t65 = CLJC_CALL_clojure_set_index_a2(CLJ_NIL, NULL, a15, 2);
+#elif defined(CLJC_DIRECT_clojure_set_index_a2)
+	if (!CLJC_FN_clojure_set_index_a2) CLJC_FN_clojure_set_index_a2 = clj_compiled_symbol("clojure_set_index_a2");
+	t65 = CLJC_FN_clojure_set_index_a2 ? CLJC_FN_clojure_set_index_a2(clj_var_root_relaxed(V[35]), NULL, a15, 2) : clj_c_invoke(t66, a15, 2);
+#else
+	t65 = clj_c_invoke(t66, a15, 2);
+#endif
+	(void)t68;
+	(void)t67;
+	if (o66) clj_release(t66);
+	CLJC_SITE(&S[20]);
+	if (t65 == CLJ_THROWN) {
+	goto L1;
+	}
+	clj_c_set(&fr, 7, t65);
+	clj_c_drop(&l5);
+#line 102 "<embedded>/clojure/set.clj"
+	bool t69 = CLJC_LOWERED(V[11], 0);
+	clj_value t70;
+	if (t69) {
+	clj_value t71 = K[41];
+	clj_value t72 = l6;
+	clj_value c17[2] = {fr.slots[7], fr.slots[3]};
+	clj_value la16[3] = {CLJ_NIL, t71, t72};
+	clj_lowered lw16 = {clojure_set_join__lw3, clojure_set_join__lw3_mk, (void *)c17, 2, CLJ_NIL, clojure_set_join__lw3_o};
+	clj_value t73 = clj_lowered_call(0, la16, 3, &lw16);
+	CLJC_SITE(&S[20]);
+	if (t73 == CLJ_THROWN) {
+	goto L1;
+	}
+	(void)t72;
+	(void)t71;
+	t70 = t73;
+	} else {
+	clj_value t74;
+	bool o75;
+	clj_value t75 = clj_c_var_borrow(V[11], &o75);
+	CLJC_SITE(&S[20]);
+	if (t75 == CLJ_THROWN) {
+	goto L1;
+	}
+	clj_value c19[2] = {fr.slots[7], fr.slots[3]};
+	clj_value t76 = clj_c_closure(CLJ_NIL, clojure_set_join__0, c19, 2, 0x4, 2, 2);
+	clj_value t77 = K[41];
+	clj_value t78 = l6;
+	clj_value a18[3] = {t76, t77, t78};
+	(void)a18;
+	t74 = clj_c_invoke(t75, a18, 3);
+	(void)t78;
+	(void)t77;
+	clj_release(t76);
+	if (o75) clj_release(t75);
+	CLJC_SITE(&S[20]);
+	if (t74 == CLJ_THROWN) {
+	goto L1;
+	}
+	t70 = t74;
+	}
+	t9 = t70;
+	} else {
+	clj_c_drop(&l0);
+	clj_c_drop(&l1);
 #line 96 "<embedded>/clojure/set.clj"
-	clj_value t61 = clj_retain(K[41]);
-	t9 = t61;
+	clj_value t79 = clj_retain(K[41]);
+	t9 = t79;
 	}
 	CLJC_LEAVE(&S[20], &cc);
+	clj_release(l0);
+	clj_release(l1);
 	clj_release(l2);
 	clj_release(l4);
 	clj_release(l5);
 	clj_release(l6);
+	clj_release(l8);
+	clj_release(l9);
+	clj_release(l10);
+	clj_release(l11);
 	clj_c_release_slots(&fr, 8);
 	return t9;
 L1: ;
 	CLJC_LEAVE(&S[20], &cc);
+	clj_release(l0);
+	clj_release(l1);
 	clj_release(l2);
 	clj_release(l4);
 	clj_release(l5);
 	clj_release(l6);
+	clj_release(l8);
+	clj_release(l9);
+	clj_release(l10);
+	clj_release(l11);
 	clj_c_release_slots(&fr, 8);
 	return CLJ_THROWN;
 }
@@ -3916,7 +3991,14 @@ static clj_value clojure_set_join__lw7_mk(void *ctx) {
 	return clj_c_closure(CLJ_NIL, clojure_set_join__4, (const clj_value *)ctx, 2, 0x4, 2, 2);
 }
 
-CLJC_FRAME clj_value clojure_set_join_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+clj_value clojure_set_join_a3(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+	clj_retain(args[0]);
+	clj_retain(args[1]);
+	clj_retain(args[2]);
+	return clojure_set_join_a3_o7(self, captured, args, nargs);
+}
+
+CLJC_FRAME clj_value clojure_set_join_a3_o7(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[8];
 	clj_cframe fr = {s, captured, 0, NULL};
@@ -3931,6 +4013,11 @@ CLJC_FRAME clj_value clojure_set_join_a3(clj_value self, const clj_value *captur
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
 	clj_value l5 = CLJ_NIL;
+	clj_value l8 = CLJ_NIL;
+	clj_value l9 = CLJ_NIL;
+	clj_value l10 = CLJ_NIL;
+	clj_value l11 = CLJ_NIL;
+	clj_value l12 = CLJ_NIL;
 	clj_ccall cc;
 	CLJC_ENTER(&S[20], &cc);
 #line 110 "<embedded>/clojure/set.clj"
@@ -3986,240 +4073,333 @@ CLJC_FRAME clj_value clojure_set_join_a3(clj_value self, const clj_value *captur
 	if (t4 == CLJ_THROWN) {
 	goto L1;
 	}
-	bool t7 = clj_truthy(t4);
-	clj_release(t4);
-	clj_value t8;
-	if (t7) {
-	clj_value t9 = l0;
-	clj_value t10 = l1;
+	clj_c_rebind(&l8, t4);
+	clj_value t7 = l8;
+	bool t8 = clj_truthy(t7);
+	(void)t7;
+	clj_value t9;
+	if (t8) {
+	clj_value t10 = clj_retain(l0);
+	t9 = t10;
+	} else {
+	clj_value t11 = clj_retain(l1);
+	t9 = t11;
+	}
+	clj_c_rebind(&l9, t9);
+	clj_value t12 = l8;
+	bool t13 = clj_truthy(t12);
+	(void)t12;
+	clj_value t14;
+	if (t13) {
+	clj_c_drop(&l0);
+	clj_value t15 = l1;
+	l1 = CLJ_NIL;
+	t14 = t15;
+	} else {
+	clj_c_drop(&l1);
+	clj_value t16 = l0;
+	l0 = CLJ_NIL;
+	t14 = t16;
+	}
+	clj_c_rebind(&l10, t14);
 #line 111 "<embedded>/clojure/set.clj"
-	clj_value t11;
-	bool o12 = false;
-	clj_value t12 = CLJ_NIL;
+#line 110 "<embedded>/clojure/set.clj"
+	clj_value t17 = l8;
+	bool t18 = clj_truthy(t17);
+	(void)t17;
+	clj_value t19;
+	if (t18) {
+#line 111 "<embedded>/clojure/set.clj"
+	clj_value t20;
+	bool o21 = false;
+	clj_value t21 = CLJ_NIL;
 #ifndef CLJC_LOCAL_clojure_set_map_invert_a1
-	t12 = clj_c_var_borrow(V[36], &o12);
+	t21 = clj_c_var_borrow(V[36], &o21);
 	CLJC_SITE(&S[20]);
-	if (t12 == CLJ_THROWN) {
+	if (t21 == CLJ_THROWN) {
 	goto L1;
 	}
 #endif
-	clj_value t13 = l2;
-	clj_value a4[1] = {t13};
-	(void)a4;
+	clj_value t22 = l2;
+	clj_value a3[1] = {t22};
+	(void)a3;
 #ifdef CLJC_LOCAL_clojure_set_map_invert_a1
-	t11 = CLJC_CALL_clojure_set_map_invert_a1(CLJ_NIL, NULL, a4, 1);
+	t20 = CLJC_CALL_clojure_set_map_invert_a1(CLJ_NIL, NULL, a3, 1);
 #elif defined(CLJC_DIRECT_clojure_set_map_invert_a1)
 	if (!CLJC_FN_clojure_set_map_invert_a1) CLJC_FN_clojure_set_map_invert_a1 = clj_compiled_symbol("clojure_set_map_invert_a1");
-	t11 = CLJC_FN_clojure_set_map_invert_a1 ? CLJC_FN_clojure_set_map_invert_a1(clj_var_root_relaxed(V[36]), NULL, a4, 1) : clj_c_invoke(t12, a4, 1);
+	t20 = CLJC_FN_clojure_set_map_invert_a1 ? CLJC_FN_clojure_set_map_invert_a1(clj_var_root_relaxed(V[36]), NULL, a3, 1) : clj_c_invoke(t21, a3, 1);
 #else
-	t11 = clj_c_invoke(t12, a4, 1);
+	t20 = clj_c_invoke(t21, a3, 1);
 #endif
-	(void)t13;
-	if (o12) clj_release(t12);
+	(void)t22;
+	if (o21) clj_release(t21);
 	CLJC_SITE(&S[20]);
-	if (t11 == CLJ_THROWN) {
+	if (t20 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value a3[3] = {t9, t10, t11};
-	(void)a3;
-	clj_value t14 = clj_vector_from_array(a3, 3);
-	clj_release(t11);
-	(void)t10;
-	(void)t9;
-	CLJC_SITE(&S[20]);
-	if (t14 == CLJ_THROWN) {
-	goto L1;
-	}
-	t8 = t14;
+	t19 = t20;
 	} else {
 #line 110 "<embedded>/clojure/set.clj"
-	clj_value t15 = l1;
-	clj_value t16 = l0;
-	clj_value t17 = l2;
-	clj_value a5[3] = {t15, t16, t17};
-	(void)a5;
-	clj_value t18 = clj_vector_from_array(a5, 3);
-	(void)t17;
-	(void)t16;
-	(void)t15;
-	CLJC_SITE(&S[20]);
-	if (t18 == CLJ_THROWN) {
-	goto L1;
+	clj_value t23 = l2;
+	l2 = CLJ_NIL;
+	t19 = t23;
 	}
-	t8 = t18;
-	}
-	clj_c_rebind(&l3, t8);
-	clj_value t19 = l3;
-	clj_value t20 = K[24];
-	clj_value t21 = K[2];
-	clj_value a6[3] = {t19, t20, t21};
-	(void)a6;
-	clj_value t22;
-	if (CLJC_GUARD(V[31], B[10])) {
-	t22 = clj_c_nth3(t19, t20, t21);
-	} else {
-	t22 = clj_c_intrinsic_fallback(V[31], a6, 3);
-	}
-	(void)t21;
-	(void)t20;
-	(void)t19;
-	CLJC_SITE(&S[20]);
-	if (t22 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_c_rebind(&l4, t22);
-	clj_value t23 = l3;
-	clj_value t24 = K[25];
-	clj_value t25 = K[2];
-	clj_value a7[3] = {t23, t24, t25};
-	(void)a7;
-	clj_value t26;
-	if (CLJC_GUARD(V[31], B[10])) {
-	t26 = clj_c_nth3(t23, t24, t25);
-	} else {
-	t26 = clj_c_intrinsic_fallback(V[31], a7, 3);
-	}
+	clj_c_rebind(&l11, t19);
+	clj_c_drop(&l2);
+	clj_value t24 = clj_bool(1 && CLJC_GUARD(V[31], B[10]));
+	clj_c_rebind(&l12, t24);
+	clj_value t25 = l12;
+	bool t26 = clj_truthy(t25);
 	(void)t25;
-	(void)t24;
-	(void)t23;
-	CLJC_SITE(&S[20]);
-	if (t26 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_c_rebind(&l5, t26);
-	clj_value t27 = l3;
-	clj_value t28 = K[42];
-	clj_value t29 = K[2];
-	clj_value a8[3] = {t27, t28, t29};
-	(void)a8;
-	clj_value t30;
-	if (CLJC_GUARD(V[31], B[10])) {
-	t30 = clj_c_nth3(t27, t28, t29);
+	clj_value t27;
+	if (t26) {
+	clj_value t28 = clj_retain(K[2]);
+	t27 = t28;
 	} else {
-	t30 = clj_c_intrinsic_fallback(V[31], a8, 3);
-	}
+	clj_value t29 = l9;
+	clj_value t30 = l10;
+#line 111 "<embedded>/clojure/set.clj"
+	clj_value t31 = l11;
+	clj_value a4[3] = {t29, t30, t31};
+	(void)a4;
+	clj_value t32 = clj_vector_from_array(a4, 3);
+	(void)t31;
+	(void)t30;
 	(void)t29;
-	(void)t28;
-	(void)t27;
-	CLJC_SITE(&S[20]);
-	if (t30 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_c_set(&fr, 6, t30);
-	clj_c_drop(&l3);
-#line 113 "<embedded>/clojure/set.clj"
-	clj_value t31;
-	bool o32 = false;
-	clj_value t32 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_set_index_a2
-	t32 = clj_c_var_borrow(V[35], &o32);
 	CLJC_SITE(&S[20]);
 	if (t32 == CLJ_THROWN) {
 	goto L1;
 	}
-#endif
-	clj_value t33 = l4;
-	clj_value t34;
-	bool o35 = false;
-	clj_value t35 = CLJ_NIL;
-#ifndef CLJC_LOCAL_clojure_core_vals_a1
-	t35 = clj_c_var_borrow(V[41], &o35);
-	CLJC_SITE(&S[20]);
-	if (t35 == CLJ_THROWN) {
-	if (o32) clj_release(t32);
-	goto L1;
+	t27 = t32;
 	}
-#endif
-	clj_value t36 = fr.slots[6];
-	clj_value a10[1] = {t36};
-	(void)a10;
-#ifdef CLJC_LOCAL_clojure_core_vals_a1
-	t34 = CLJC_CALL_clojure_core_vals_a1(CLJ_NIL, NULL, a10, 1);
-#elif defined(CLJC_DIRECT_clojure_core_vals_a1)
-	if (!CLJC_FN_clojure_core_vals_a1) CLJC_FN_clojure_core_vals_a1 = clj_compiled_symbol("clojure_core_vals_a1");
-	t34 = CLJC_FN_clojure_core_vals_a1 ? CLJC_FN_clojure_core_vals_a1(clj_var_root_relaxed(V[41]), NULL, a10, 1) : clj_c_invoke(t35, a10, 1);
-#else
-	t34 = clj_c_invoke(t35, a10, 1);
-#endif
-	(void)t36;
-	if (o35) clj_release(t35);
-	CLJC_SITE(&S[20]);
-	if (t34 == CLJ_THROWN) {
-	if (o32) clj_release(t32);
-	goto L1;
-	}
-	clj_value a9[2] = {t33, t34};
-	(void)a9;
-#ifdef CLJC_LOCAL_clojure_set_index_a2
-	t31 = CLJC_CALL_clojure_set_index_a2(CLJ_NIL, NULL, a9, 2);
-#elif defined(CLJC_DIRECT_clojure_set_index_a2)
-	if (!CLJC_FN_clojure_set_index_a2) CLJC_FN_clojure_set_index_a2 = clj_compiled_symbol("clojure_set_index_a2");
-	t31 = CLJC_FN_clojure_set_index_a2 ? CLJC_FN_clojure_set_index_a2(clj_var_root_relaxed(V[35]), NULL, a9, 2) : clj_c_invoke(t32, a9, 2);
-#else
-	t31 = clj_c_invoke(t32, a9, 2);
-#endif
-	clj_release(t34);
+	clj_c_rebind(&l3, t27);
+#line 110 "<embedded>/clojure/set.clj"
+	clj_value t33 = l12;
+	bool t34 = clj_truthy(t33);
 	(void)t33;
-	if (o32) clj_release(t32);
-	CLJC_SITE(&S[20]);
-	if (t31 == CLJ_THROWN) {
-	goto L1;
-	}
-	clj_c_set(&fr, 7, t31);
-	clj_c_drop(&l4);
-#line 114 "<embedded>/clojure/set.clj"
-	bool t37 = CLJC_LOWERED(V[11], 0);
-	clj_value t38;
-	if (t37) {
-	clj_value t39 = K[41];
-	clj_value t40 = l5;
-	clj_value c12[2] = {fr.slots[7], fr.slots[6]};
-	clj_value la11[3] = {CLJ_NIL, t39, t40};
-	clj_lowered lw11 = {clojure_set_join__lw7, clojure_set_join__lw7_mk, (void *)c12, 2, CLJ_NIL, clojure_set_join__lw7_o};
-	clj_value t41 = clj_lowered_call(0, la11, 3, &lw11);
-	CLJC_SITE(&S[20]);
-	if (t41 == CLJ_THROWN) {
-	goto L1;
-	}
-	(void)t40;
-	(void)t39;
-	t38 = t41;
+	clj_value t35;
+	if (t34) {
+	clj_value t36 = l9;
+	l9 = CLJ_NIL;
+	t35 = t36;
 	} else {
-	clj_value t42;
-	bool o43;
-	clj_value t43 = clj_c_var_borrow(V[11], &o43);
+	clj_c_drop(&l9);
+	clj_value t37 = l3;
+	clj_value t38 = K[24];
+	clj_value t39 = K[2];
+	clj_value a5[3] = {t37, t38, t39};
+	(void)a5;
+	clj_value t40;
+	if (CLJC_GUARD(V[31], B[10])) {
+	t40 = clj_c_nth3(t37, t38, t39);
+	} else {
+	t40 = clj_c_intrinsic_fallback(V[31], a5, 3);
+	}
+	(void)t39;
+	(void)t38;
+	(void)t37;
 	CLJC_SITE(&S[20]);
-	if (t43 == CLJ_THROWN) {
+	if (t40 == CLJ_THROWN) {
 	goto L1;
 	}
-	clj_value c14[2] = {fr.slots[7], fr.slots[6]};
-	clj_value t44 = clj_c_closure(CLJ_NIL, clojure_set_join__4, c14, 2, 0x4, 2, 2);
-	clj_value t45 = K[41];
-	clj_value t46 = l5;
-	clj_value a13[3] = {t44, t45, t46};
-	(void)a13;
-	t42 = clj_c_invoke(t43, a13, 3);
+	t35 = t40;
+	}
+	clj_c_rebind(&l4, t35);
+	clj_value t41 = l12;
+	bool t42 = clj_truthy(t41);
+	(void)t41;
+	clj_value t43;
+	if (t42) {
+	clj_value t44 = l10;
+	l10 = CLJ_NIL;
+	t43 = t44;
+	} else {
+	clj_c_drop(&l10);
+	clj_value t45 = l3;
+	clj_value t46 = K[25];
+	clj_value t47 = K[2];
+	clj_value a6[3] = {t45, t46, t47};
+	(void)a6;
+	clj_value t48;
+	if (CLJC_GUARD(V[31], B[10])) {
+	t48 = clj_c_nth3(t45, t46, t47);
+	} else {
+	t48 = clj_c_intrinsic_fallback(V[31], a6, 3);
+	}
+	(void)t47;
 	(void)t46;
 	(void)t45;
-	clj_release(t44);
-	if (o43) clj_release(t43);
 	CLJC_SITE(&S[20]);
-	if (t42 == CLJ_THROWN) {
+	if (t48 == CLJ_THROWN) {
 	goto L1;
 	}
-	t38 = t42;
+	t43 = t48;
+	}
+	clj_c_rebind(&l5, t43);
+	clj_value t49 = l12;
+	bool t50 = clj_truthy(t49);
+	(void)t49;
+	clj_value t51;
+	if (t50) {
+	clj_c_drop(&l3);
+#line 111 "<embedded>/clojure/set.clj"
+	clj_value t52 = l11;
+	l11 = CLJ_NIL;
+	t51 = t52;
+	} else {
+	clj_c_drop(&l11);
+#line 110 "<embedded>/clojure/set.clj"
+	clj_value t53 = l3;
+	clj_value t54 = K[42];
+	clj_value t55 = K[2];
+	clj_value a7[3] = {t53, t54, t55};
+	(void)a7;
+	clj_value t56;
+	if (CLJC_GUARD(V[31], B[10])) {
+	t56 = clj_c_nth3(t53, t54, t55);
+	} else {
+	t56 = clj_c_intrinsic_fallback(V[31], a7, 3);
+	}
+	(void)t55;
+	(void)t54;
+	(void)t53;
+	CLJC_SITE(&S[20]);
+	if (t56 == CLJ_THROWN) {
+	goto L1;
+	}
+	t51 = t56;
+	}
+	clj_c_set(&fr, 6, t51);
+	clj_c_drop(&l3);
+#line 113 "<embedded>/clojure/set.clj"
+	clj_value t57;
+	bool o58 = false;
+	clj_value t58 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_set_index_a2
+	t58 = clj_c_var_borrow(V[35], &o58);
+	CLJC_SITE(&S[20]);
+	if (t58 == CLJ_THROWN) {
+	goto L1;
+	}
+#endif
+	clj_value t59 = l4;
+	clj_value t60;
+	bool o61 = false;
+	clj_value t61 = CLJ_NIL;
+#ifndef CLJC_LOCAL_clojure_core_vals_a1
+	t61 = clj_c_var_borrow(V[41], &o61);
+	CLJC_SITE(&S[20]);
+	if (t61 == CLJ_THROWN) {
+	if (o58) clj_release(t58);
+	goto L1;
+	}
+#endif
+	clj_value t62 = fr.slots[6];
+	clj_value a9[1] = {t62};
+	(void)a9;
+#ifdef CLJC_LOCAL_clojure_core_vals_a1
+	t60 = CLJC_CALL_clojure_core_vals_a1(CLJ_NIL, NULL, a9, 1);
+#elif defined(CLJC_DIRECT_clojure_core_vals_a1)
+	if (!CLJC_FN_clojure_core_vals_a1) CLJC_FN_clojure_core_vals_a1 = clj_compiled_symbol("clojure_core_vals_a1");
+	t60 = CLJC_FN_clojure_core_vals_a1 ? CLJC_FN_clojure_core_vals_a1(clj_var_root_relaxed(V[41]), NULL, a9, 1) : clj_c_invoke(t61, a9, 1);
+#else
+	t60 = clj_c_invoke(t61, a9, 1);
+#endif
+	(void)t62;
+	if (o61) clj_release(t61);
+	CLJC_SITE(&S[20]);
+	if (t60 == CLJ_THROWN) {
+	if (o58) clj_release(t58);
+	goto L1;
+	}
+	clj_value a8[2] = {t59, t60};
+	(void)a8;
+#ifdef CLJC_LOCAL_clojure_set_index_a2
+	t57 = CLJC_CALL_clojure_set_index_a2(CLJ_NIL, NULL, a8, 2);
+#elif defined(CLJC_DIRECT_clojure_set_index_a2)
+	if (!CLJC_FN_clojure_set_index_a2) CLJC_FN_clojure_set_index_a2 = clj_compiled_symbol("clojure_set_index_a2");
+	t57 = CLJC_FN_clojure_set_index_a2 ? CLJC_FN_clojure_set_index_a2(clj_var_root_relaxed(V[35]), NULL, a8, 2) : clj_c_invoke(t58, a8, 2);
+#else
+	t57 = clj_c_invoke(t58, a8, 2);
+#endif
+	clj_release(t60);
+	(void)t59;
+	if (o58) clj_release(t58);
+	CLJC_SITE(&S[20]);
+	if (t57 == CLJ_THROWN) {
+	goto L1;
+	}
+	clj_c_set(&fr, 7, t57);
+	clj_c_drop(&l4);
+#line 114 "<embedded>/clojure/set.clj"
+	bool t63 = CLJC_LOWERED(V[11], 0);
+	clj_value t64;
+	if (t63) {
+	clj_value t65 = K[41];
+	clj_value t66 = l5;
+	clj_value c11[2] = {fr.slots[7], fr.slots[6]};
+	clj_value la10[3] = {CLJ_NIL, t65, t66};
+	clj_lowered lw10 = {clojure_set_join__lw7, clojure_set_join__lw7_mk, (void *)c11, 2, CLJ_NIL, clojure_set_join__lw7_o};
+	clj_value t67 = clj_lowered_call(0, la10, 3, &lw10);
+	CLJC_SITE(&S[20]);
+	if (t67 == CLJ_THROWN) {
+	goto L1;
+	}
+	(void)t66;
+	(void)t65;
+	t64 = t67;
+	} else {
+	clj_value t68;
+	bool o69;
+	clj_value t69 = clj_c_var_borrow(V[11], &o69);
+	CLJC_SITE(&S[20]);
+	if (t69 == CLJ_THROWN) {
+	goto L1;
+	}
+	clj_value c13[2] = {fr.slots[7], fr.slots[6]};
+	clj_value t70 = clj_c_closure(CLJ_NIL, clojure_set_join__4, c13, 2, 0x4, 2, 2);
+	clj_value t71 = K[41];
+	clj_value t72 = l5;
+	clj_value a12[3] = {t70, t71, t72};
+	(void)a12;
+	t68 = clj_c_invoke(t69, a12, 3);
+	(void)t72;
+	(void)t71;
+	clj_release(t70);
+	if (o69) clj_release(t69);
+	CLJC_SITE(&S[20]);
+	if (t68 == CLJ_THROWN) {
+	goto L1;
+	}
+	t64 = t68;
 	}
 	CLJC_LEAVE(&S[20], &cc);
+	clj_release(l0);
+	clj_release(l1);
+	clj_release(l2);
 	clj_release(l3);
 	clj_release(l4);
 	clj_release(l5);
+	clj_release(l8);
+	clj_release(l9);
+	clj_release(l10);
+	clj_release(l11);
+	clj_release(l12);
 	clj_c_release_slots(&fr, 8);
-	return t38;
+	return t64;
 L1: ;
 	CLJC_LEAVE(&S[20], &cc);
+	clj_release(l0);
+	clj_release(l1);
+	clj_release(l2);
 	clj_release(l3);
 	clj_release(l4);
 	clj_release(l5);
+	clj_release(l8);
+	clj_release(l9);
+	clj_release(l10);
+	clj_release(l11);
+	clj_release(l12);
 	clj_c_release_slots(&fr, 8);
 	return CLJ_THROWN;
 }
@@ -4940,11 +5120,11 @@ static const clj_frame_entry FR[44] = {
 	{(clj_code)clojure_set_map_invert_a1, &S[18]},
 	{(clj_code)clojure_set_map_invert__0_a2_o1, &S[19]},
 	{(clj_code)clojure_set_map_invert__lw1_o, &S[19]},
-	{(clj_code)clojure_set_join_a2, &S[20]},
+	{(clj_code)clojure_set_join_a2_o3, &S[20]},
 	{(clj_code)clojure_set_join__0_a2_o1, &S[21]},
 	{(clj_code)clojure_set_join__0__1_a2_o1, &S[22]},
 	{(clj_code)clojure_set_join__0__lw2_o, &S[22]},
-	{(clj_code)clojure_set_join_a3, &S[20]},
+	{(clj_code)clojure_set_join_a3_o7, &S[20]},
 	{(clj_code)clojure_set_join__4_a2_o1, &S[23]},
 	{(clj_code)clojure_set_join__4__5_a2_o1, &S[24]},
 	{(clj_code)clojure_set_join__4__lw6_o, &S[24]},
@@ -5130,7 +5310,9 @@ clj_value clj_compiled_lib_init_clojure_set(void) {
 	clj_compiled_register_symbol("clojure_set_index_a2", clojure_set_index_a2);
 	clj_compiled_register_symbol("clojure_set_map_invert_a1", clojure_set_map_invert_a1);
 	clj_compiled_register_symbol("clojure_set_join_a2", clojure_set_join_a2);
+	clj_compiled_register_symbol("clojure_set_join_a2_o3", clojure_set_join_a2_o3);
 	clj_compiled_register_symbol("clojure_set_join_a3", clojure_set_join_a3);
+	clj_compiled_register_symbol("clojure_set_join_a3_o7", clojure_set_join_a3_o7);
 	clj_compiled_register_symbol("clojure_set_subset_QMARK__a2", clojure_set_subset_QMARK__a2);
 	clj_compiled_register_symbol("clojure_set_superset_QMARK__a2", clojure_set_superset_QMARK__a2);
 #endif
