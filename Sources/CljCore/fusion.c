@@ -342,7 +342,14 @@ static int body_step(out *o, clj_value y) {
 	if (o->mode == CLJ_FUSED_MODE_GROUP_BY && (k = clj_call_invoke(&o->call, &y)) == CLJ_THROWN) return CLJ_FUSED_THROWN;
 	clj_value none = o->mode == CLJ_FUSED_MODE_GROUP_BY ? clj_vector_empty() : clj_fixnum(0);
 	clj_value in[3] = {o->acc, k, none};
-	clj_value cur = o->boot ? clj_get(o->acc, k, none) : body_call(BODY_GET, in, 3), v;
+	// group-by's vector moves out of the walk's own transient and back with the assoc, so conj grows it in place, as the
+	// compiled core's take-out get does; nothing between reads the map
+	bool      taken = false;
+	clj_value cur = !o->boot                          ? body_call(BODY_GET, in, 3)
+	                : o->mode == CLJ_FUSED_MODE_GROUP_BY ? clj_get_take(o->acc, k, none, &taken)
+	                                                    : clj_get(o->acc, k, none),
+	          v;
+	(void)taken;
 	if (cur == CLJ_THROWN) {
 		if (k != y) clj_release(k);
 		return CLJ_FUSED_THROWN;

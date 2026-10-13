@@ -786,7 +786,9 @@
   x))` over `(transient {})`, then `persistent!` — the C functions those core fns are while every one of them
   (`transient`, `transient*`, `persistent!`, `persistent!*`, `assoc!`, `assoc`, `get`, `inc`, `conj`) holds its boot
   root, else each called through its var as the body calls it, read once per walk; `reduce`, which the bodies reduce
-  with, is a guard of the node. A body fn rebound by the walk's own code is seen from the next walk on. Under them
+  with, is a guard of the node; group-by's vector moves out of the walk's own transient and back with the assoc
+  (`clj_get_take`, as the compiled core's take-out get does), so conj grows it in place. A body fn rebound by the walk's
+  own code is seen from the next walk on. Under them
   `sequence` is no stage: f and the keys' hashes would interleave with a multi-output input's stage calls.
   **`(reductions f [init] P)`** is a stage with no transducer arity in core: its xform is `(fused-scan* f [init])`
   (fusion.c), guarded beside `reductions`, a scan that seeds with the first item or, where none came, hands `(f)` on
