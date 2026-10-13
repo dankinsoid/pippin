@@ -382,6 +382,9 @@ clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx) {
 		if (clj_is_nil(target) || clj_equals(clj_symbol_name(clj_ns_name(target)), clj_symbol_ns(sym))) return clj_retain(sym);
 		return clj_symbol_new(clj_symbol_name(clj_ns_name(target)), clj_symbol_name(sym));
 	}
+	// Compiler.resolveSymbol keeps a name with a dot past its first character, a class's or a namespace's.
+	const char *name = CLJ_STR(clj_symbol_name(sym)).bytes;
+	if (strchr(name + 1, '.')) return clj_retain(sym);
 	clj_value var = clj_ns_resolve(ns, sym);
 	clj_value ns_name = clj_is_nil(var) ? clj_ns_name(ns) : clj_var_ns(var);
 	return clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(sym));

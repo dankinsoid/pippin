@@ -48,7 +48,6 @@
   {:file "test/clojure/test_clojure/evaluation.clj" :line 111 :name SymbolResolution :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 184 :name struct-with-symbols :reason "Unable to resolve symbol: defstruct in this context" :missing [defstruct]}
   {:file "test/clojure/test_clojure/evaluation.clj" :line 186 :name Metadata :reason "Unable to resolve symbol: struct in this context" :missing [struct]}
-  {:file "test/clojure/test_clojure/evaluation.clj" :line 197 :name Collections :reason "Unable to resolve symbol: clojure.lang.IPersistentMap in this context" :missing [clojure.lang.IPersistentMap]}
   {:file "test/clojure/test_clojure/fn.clj" :line 14 :name fn-error-checking :reason "Unable to resolve host type: clojure.test-helper/Throwable" :missing []}
   {:file "test/clojure/test_clojure/for.clj" :line 59 :name only :reason "Unable to resolve symbol: Exception. in this context" :missing [Exception.]}
   {:file "test/clojure/test_clojure/for.clj" :line 97 :name While-and-When-Same-Binding :reason "Unable to resolve symbol: Math/abs in this context" :missing [Math/abs]}
@@ -85,7 +84,6 @@
   {:file "test/clojure/test_clojure/predicates.clj" :line 144 :name pred-val-table :reason "Unable to resolve symbol: java.util.Date. in this context" :missing [java.util.Date.]}
   {:file "test/clojure/test_clojure/predicates.clj" :line 178 :name test-double-preds :reason "Unable to resolve symbol: Double/parseDouble in this context" :missing [Double/parseDouble]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 28 :name test-reduce :reason "Unable to resolve symbol: Integer/TYPE in this context" :missing [Integer/TYPE]}
-  {:file "test/clojure/test_clojure/sequences.clj" :line 87 :name test-into-IReduceInit :reason "Unable to resolve protocol: clojure.lang.IReduceInit" :missing []}
   {:file "test/clojure/test_clojure/sequences.clj" :line 94 :name reduce-with-varying-impls :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 251 :name test-not-empty :reason "Unable to resolve symbol: class in this context" :missing [class]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 611 :name test-nth :reason "Unable to resolve symbol: java.util.ArrayList. in this context" :missing [java.util.ArrayList.]}
@@ -94,7 +92,6 @@
   {:file "test/clojure/test_clojure/sequences.clj" :line 1113 :name test-range :reason "Unable to resolve symbol: iterator-seq in this context" :missing [iterator-seq]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1203 :name unlimited-range-create :reason "Unable to resolve symbol: clojure.lang.Range/create in this context" :missing [clojure.lang.Range/create]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1475 :name test-ArrayIter :reason "Unable to resolve symbol: clojure.lang.ArrayIter/createFromObject in this context" :missing [clojure.lang.ArrayIter/createFromObject]}
-  {:file "test/clojure/test_clojure/sequences.clj" :line 1508 :name test-seqs-implements-iobj :reason "Unable to resolve symbol: clojure.lang.IMeta in this context" :missing [clojure.lang.IMeta]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1562 :name test-iteration :reason "Unable to resolve symbol: java.nio.file.Files/newBufferedReader in this context" :missing [java.nio.file.Files/newBufferedReader]}
   {:file "test/clojure/test_clojure/sequences.clj" :line 1643 :name iteration-seq-equals-reduce :reason "Unable to resolve symbol: java.util.Random. in this context" :missing [java.util.Random.]}
   {:file "test/clojure/test_clojure/special.clj" :line 69 :name keywords-not-allowed-in-let-bindings :reason "Unable to resolve symbol: clojure.test-helper/.getCause in this context" :missing [clojure.test-helper/.getCause]}
@@ -110,7 +107,6 @@
   {:file "test/clojure/test_clojure/string.clj" :line 184 :name t-ends-with? :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
   {:file "test/clojure/test_clojure/string.clj" :line 188 :name t-includes? :reason "Unable to resolve symbol: StringBuffer. in this context" :missing [StringBuffer.]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 31 :name literal :reason "Unable to resolve symbol: gen/fmap in this context" :missing [gen/fmap]}
-  {:file "test/clojure/test_clojure/transducers.clj" :line 51 :name empty?$ :reason "Unable to resolve symbol: clojure.lang.Seqable in this context" :missing [clojure.lang.Seqable]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 54 :name gen-mapfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 57 :name gen-mapcatfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
   {:file "test/clojure/test_clojure/transducers.clj" :line 61 :name gen-predfn :reason "Unable to resolve symbol: clojure.test.check.generators/elements in this context" :missing [clojure.test.check.generators/elements]}
@@ -148,7 +144,6 @@
   {:file "test/clojure/test_clojure/vectors.clj" :line 37 :name test-vecseq :reason "Unable to resolve symbol: clojure.lang.PersistentList/EMPTY in this context" :missing [clojure.lang.PersistentList/EMPTY]}
   {:file "test/clojure/test_clojure/vectors.clj" :line 289 :name test-vec-associative :reason "Unable to resolve symbol: clojure.lang.MapEntry. in this context" :missing [clojure.lang.MapEntry.]}
   {:file "test/clojure/test_clojure/vectors.clj" :line 317 :name test-vec-creation :reason "Unable to resolve symbol: clojure.core.Vec in this context" :missing [clojure.core.Vec]}
-  {:file "test/clojure/test_clojure/vectors.clj" :line 410 :name test-vec :reason "Unable to resolve protocol: clojure.lang.IReduceInit" :missing []}
   {:file "test/clojure/test_clojure/vectors.clj" :line 428 :name test-vector-eqv-to-non-counted-types :reason "Unable to resolve symbol: new in this context" :missing [new]}
   {:file "test/clojure/test_clojure/vectors.clj" :line 436 :reason "Unable to resolve var: *warn-on-reflection* in this context" :missing [*warn-on-reflection*]}
   {:file "test/clojure/test_clojure/vectors.clj" :line 439 :name remember :reason "Unable to resolve protocol: Consumer" :missing []}

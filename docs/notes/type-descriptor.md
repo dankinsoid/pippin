@@ -55,7 +55,9 @@
   walked by `map`/`filter` costs two Clojure calls (`first`, `next`) and usually an instance
   allocation, and `count` without `Counted` walks it; `reduce` over a user type goes through its
   `IReduceInit` slot when it declares one (the trampoline seeds the 2-arity with `(f)`, as
-  `CollReduce`'s extension to `IReduceInit` does on the JVM) and otherwise through `clj_seq_iter`.
+  `CollReduce`'s extension to `IReduceInit` does on the JVM) and otherwise through `clj_seq_iter`; `into`
+  and `vec` take that slot too, as the JVM's `into` reduces its source, so a reify of `IReduceInit` alone
+  pours into a collection.
 - [ ] **No mutable fields.** Design §4 «Роли конструкций» has `^:unsynchronized-mutable`/`^:volatile-mutable`
   fields assigned by `set!` inside the type's own methods; here such a `set!` is "Cannot assign to non-mutable",
   because a method body's field is a `let` local over `field*`, bound once. What it takes: a read after a `set!`
