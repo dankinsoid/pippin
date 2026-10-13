@@ -230,3 +230,17 @@
   The suspect is `release_reaches_zero`'s read of `rc` before the decrement of a shared `REACH` object (the
   `BUFFERED` test), a second access to a contended line; the decrement and the filing must stay one operation (the
   note at `clj_cc_shared_candidate`). Trigger: a profile of a contended atom on real hardware.
+- [ ] **A large acyclic graph of arrays is walked again on every local collection** (bench/RESULTS.md, "Datascript").
+  corpus/datascript's index is persistent-sorted-set's B+ tree, whose nodes are deftypes over object arrays: an
+  array is born `REACH` and gives it to every owner, so a tree, the set that holds its root and every iterator over
+  it are `REACH`. An iterator step and a path copy retain and release leaf arrays and the set, nonzero releases that
+  file candidates, and every 256 candidates the local collection's trial deletion walks from such a candidate through
+  every node and array below it (`visit_child` over each datom slot of every leaf) to find it all alive — the
+  mechanism the profile points at; the counters of the run do not split the candidates by type.In the closed build
+  67 % of the busy samples are `cc.c` (`visit_child` 40 %, `add_node` 10 %, `blacken` 9 %, `visit` 5 %) and 11 % more
+  `array_each_child`: datascript runs at 29× the JVM where the other data workloads run at 1.1–3.2×, and level with
+  Hermes, an interpreter. Nothing in such a walk can be garbage — persistent-sorted-set writes an array only before
+  the node holding it is published — but the bit cannot know that. Directions, none taken: an array that stops
+  being written (frozen once stored into a deftype field, or `aset` refused after publication) leaving `REACH`
+  behind; a candidate whose walk found it alive not filed again until a store under it; a cap on the nodes a local
+  walk enters, as the deep walk has. Trigger: this workload, today; any persistent structure built of arrays.
