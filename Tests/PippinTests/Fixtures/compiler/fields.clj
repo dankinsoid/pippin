@@ -24,5 +24,11 @@
 (defn interfaces [] [(instance? clojure.lang.ILookup (->Pt 1 1)) (instance? clojure.lang.IPersistentMap {}) (instance? clojure.lang.Seqable [])])
 (defn statics [] [(Integer/compare 3 7) (Integer/compare 7 7) (Integer/compare 9 2) (Math/sqrt 16) (Math/sqrt 2.25)])
 
+;; into reduces its source, as the JVM's does: a reify of IReduceInit alone has no seq
+(defn reducible [] (let [r (reify clojure.lang.IReduceInit (reduce [_ f start] (reduce f start (range 4))))] [(into [] r) (vec r) (count (into #{} r))]))
+;; syntax-quote keeps a name with a dot past its first character, a class's or a namespace's
+(defmacro dotted [] `'[a.b.C clojure.lang.ILookup a.b.C. ~'x])
+
 (println (fields) (methods-still) (reified))
 (println (constructed) (interfaces) (statics))
+(println (reducible) (dotted))

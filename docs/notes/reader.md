@@ -58,8 +58,11 @@
   loader evaluates with `env.ns` nil (the current one) and reads one form before evaluating it, so an
   `in-ns` governs the forms after it; a host that reads a whole file first (`Value.readAll`) resolves
   everything in the namespace current at read time. `alias/x` is rewritten to the aliased namespace,
-  a qualified symbol whose prefix is no alias stays as written; no Java class heuristic (`foo.Bar` is
-  treated as a namespace prefix and left alone).
+  a qualified symbol whose prefix is no alias stays as written. An unqualified name with a dot past its first
+  character stays as written too, as `Compiler.resolveSymbol` keeps a class name (`foo.Bar`, `Foo.`,
+  `clojure.lang.ILookup`): qualified with the namespace, `'clojure.test-clojure.evaluation` inside a macro became a
+  qualified symbol `in-ns` refuses. A leading dot (`.method`, `..`) still resolves as a var name does, where the
+  JVM quotes a method name as is.
 - **`~`/`~@` outside syntax-quote are reader errors**, where Clojure reads `(clojure.core/unquote x)`
   and fails later. A literal `(clojure.core/unquote x)` inside a syntax-quote is still an unquote.
 - **Only lists carry positions**, so an error on a bare symbol or vector reports the innermost

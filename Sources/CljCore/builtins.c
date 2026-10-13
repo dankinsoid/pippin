@@ -22,6 +22,7 @@
 #include "clj/seq.h"
 #include "clj/sorted.h"
 #include "coro_internal.h"
+#include "proto_internal.h"
 #include "stats_internal.h"
 #include "profile_internal.h"
 
@@ -671,8 +672,22 @@ static clj_value b_rvec_seq(const clj_value *args, size_t n) {
 
 // (into to from) conj's every item in C; (into to xform from) runs the fused-into* driver under the xform, so the
 // accumulator is the driver's own and a vector grows in place (fusion.c).
+// (conj acc x), the step of into's reduce: the args are borrowed and conj consumes its collection.
+static clj_value into_step(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_conj(clj_retain(args[0]), args[1]);
+}
+
 static clj_value into(const clj_value *args, size_t n) {
 	if (n == 3) return clj_into_xform(args[0], args[1], args[2]);
+	// The JVM's into reduces its source: a type of ours with IReduceInit is walked by its own reduce, which is all a
+	// reify of that interface alone has.
+	if (clj_is_ptr(args[1]) && clj_proto_reduce_is_user(clj_type_of(args[1]))) {
+		clj_value step = clj_fn_native(CLJ_NIL, into_step, 2, 2);
+		clj_value r = clj_reduce(step, args[0], args[1]);
+		clj_release(step);
+		return r;
+	}
 	clj_value s = clj_seq(args[1]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
