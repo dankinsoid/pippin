@@ -1,4 +1,4 @@
-;; Fused into and transduce over an XF, frequencies, group-by, partition-all's completion, core fns and keywords as stage fns.
+;; Fused into/transduce over an XF, frequencies, group-by, reductions' begin, partition-all's completion, core fns and keywords as stage fns.
 (ns fixture.fused-xform)
 
 (defn values [v]
@@ -21,7 +21,12 @@
    (sort (into #{} (comp (partition-all 4) (map count)) v))
    (into (sorted-map) (frequencies (map (fn [x] (mod x 3)) v)))
    (into (sorted-map) (group-by odd? (take 5 v)))
-   (count (group-by (fn [x] (mod x 7)) (filter (fn [x] (pos? x)) v)))])
+   (count (group-by (fn [x] (mod x 7)) (filter (fn [x] (pos? x)) v)))
+   (vec (reductions + (take 4 v)))
+   (reduce max (reductions + v))
+   (vec (reductions (fn [a x] (if (> a 5) (reduced a) (+ a x))) 1 v))
+   (vec (reductions + (reductions + 10 v)))
+   (vec (take 3 (reductions conj [] (dedupe v))))])
 
 (println (values [3 1 1 2 5 -4 2]))
 (println (values '(3 1 1 2 5 -4 2)))
@@ -41,11 +46,17 @@
 (defn td-halt-lazy [note v] (let [xf (comp (partition-all 2) (take 2))] (transduce xf (fn ([a] (note :c a) a) ([a p] (note :f p) (conj a p))) [] v)))
 (defn td-init [note v] (transduce (map (fn [x] (note :m x))) (fn ([] (note :i 0) 0) ([a] (note :c a) a) ([a x] (+ a x))) v))
 (defn td-init-lazy [note v] (let [xf (map (fn [x] (note :m x)))] (transduce xf (fn ([] (note :i 0) 0) ([a] (note :c a) a) ([a x] (+ a x))) v)))
+(defn scan [note v] (reduce (fn [a x] (note :f x) (+ a x)) 0 (reductions (fn [a x] (note :s x) (+ a x)) 100 (map (fn [x] (note :m x)) v))))
+(defn scan-lazy [note v] (let [s (reductions (fn [a x] (note :s x) (+ a x)) 100 (map (fn [x] (note :m x)) v))] (reduce (fn [a x] (note :f x) (+ a x)) 0 s)))
 
 (println (= (trace #(into-pa % [1 2 3 4 5])) (trace #(into-pa-lazy % [1 2 3 4 5]))) (first (trace #(into-pa % [1 2 3 4 5])))
          (= (trace #(td % [1 2 3])) (trace #(td-lazy % [1 2 3]))) (first (trace #(td % [1 2 3])))
          (= (trace #(td-halt % [1 2 3 4 5 6])) (trace #(td-halt-lazy % [1 2 3 4 5 6]))) (first (trace #(td-halt % [1 2 3 4 5 6])))
-         (= (trace #(td-init % [1 2])) (trace #(td-init-lazy % [1 2]))) (first (trace #(td-init % [1 2]))))
+         (= (trace #(td-init % [1 2])) (trace #(td-init-lazy % [1 2]))) (first (trace #(td-init % [1 2])))
+         (= (trace #(scan % [1 2 3])) (trace #(scan-lazy % [1 2 3]))) (first (trace #(scan % [1 2 3]))))
+
+(defn counted [n cnt] ((fn src [i] (lazy-seq (when (< i n) (vswap! cnt inc) (cons i (src (inc i)))))) 0))
+(let [c (volatile! 0)] (println (vec (take 3 (reductions + 10 (counted 10 c)))) @c))
 
 (defn caught [f] (try (f) (catch :default e [(ex-message e) (ex-data e)])))
 (defn boom [x] (if (= x 3) (throw (ex-info "boom" {:x x})) x))

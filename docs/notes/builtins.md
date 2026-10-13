@@ -5,7 +5,7 @@
   hash-map hash-set set empty seq lazy-seq* realized? range* list* into second last butlast reverse empty? hash
   resolve deref identical? type instance? satisfies? extends? meta with-meta alter-meta!
   reset-meta! reduce reduce-kv reduced reduced? unreduced ensure-reduced volatile! volatile?
-  vreset! fused-reduce* fused-into* fused-count* fused*` (`deref` takes vars, reduced boxes, volatiles and atoms; `alter-meta!`/`reset-meta!`
+  vreset! fused-reduce* fused-into* fused-count* fused* fused-scan*` (`deref` takes vars, reduced boxes, volatiles and atoms; `alter-meta!`/`reset-meta!`
   take vars and atoms), the bit predicates `seq? seqable? sequential? coll? counted? ifn? associative?
   indexed? list? vector? map? char? integer?`, `symbol keyword name namespace gensym`, `str pr-str
   pr prn print println identity apply`, `macroexpand-1 macroexpand ex-info ex-message ex-data

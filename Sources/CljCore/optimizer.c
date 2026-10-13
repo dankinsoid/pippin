@@ -58,6 +58,7 @@ enum { MAX_STAGES = 64, MAX_SOURCES = 3, MAX_SPINE = 2 * MAX_STAGES };
 
 typedef struct {
 	const clj_fusion_var *fv;
+	const clj_fusion_var *xfv;  // the var whose call is its transducer: fv but for reductions, fused-scan*
 	const clj_node       *call; // its INVOKE: the lazy arity, a transducer arity in an XF, or mapv itself
 	uint32_t              nown; // its own args before the coll: f, n, or none
 	uint32_t              slot; // the FUSED local of its first own arg
@@ -81,6 +82,8 @@ typedef struct {
 	const clj_fusion_var *forms[MAX_SPINE];
 	uint32_t              nforms;
 } pipeline;
+
+static const clj_fusion_var *named(const char *qualified);
 
 static const clj_fusion_var *fusion_head(const clj_node *n, clj_fusion_role role) {
 	if (n->kind != CLJ_NODE_INVOKE || n->u.invoke.fn->kind != CLJ_NODE_VAR) return NULL;
@@ -108,7 +111,7 @@ static bool spine_add(pipeline *p, const clj_node *n) {
 
 static bool stage_add(pipeline *p, const clj_fusion_var *fv, const clj_node *call, uint32_t nown) {
 	if (p->nstages == MAX_STAGES) return false;
-	p->stages[p->nstages++] = (stage){fv, call, nown, 0};
+	p->stages[p->nstages++] = (stage){fv, fv, call, nown, 0};
 	return true;
 }
 
@@ -175,6 +178,12 @@ static bool match(const clj_node *n, pipeline *p) {
 		uint32_t              na = fv ? coll->u.invoke.n : 0;
 		if (fv && na == fv->arity) {
 			if (buffered(p) || !stage_add(p, fv, coll, na - 1) || !spine_add(p, coll)) break;
+			coll = coll->u.invoke.args[na - 1];
+			continue;
+		}
+		if (fv_is(fv, "reductions") && (na == 2 || na == 3) && !buffered(p) && !clj_opt_off(CLJ_NO_OPT_FUSE)) {
+			if (!stage_add(p, fv, coll, na - 1) || !spine_add(p, coll)) break;
+			p->stages[p->nstages - 1].xfv = named("clojure.core/fused-scan*");
 			coll = coll->u.invoke.args[na - 1];
 			continue;
 		}
@@ -309,7 +318,7 @@ static clj_node *build_fused(const pipeline *p, position at) {
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		const clj_node **xargs = zalloc(p->stages[i].nown, sizeof *xargs);
 		for (uint32_t j = 0; j < p->stages[i].nown; j++) xargs[j] = local_node(p->stages[i].slot + j, at);
-		xfs[i] = invoke_node(var_node(clj_fusion_var_of(p->stages[i].fv), at), xargs, p->stages[i].nown, at);
+		xfs[i] = invoke_node(var_node(clj_fusion_var_of(p->stages[i].xfv), at), xargs, p->stages[i].nown, at);
 	}
 	clj_node *xv = vector_node(xfs, p->nstages, at);
 	uint32_t  nlead = p->nlead + (into_empty ? 1 : 0), k = 0;
@@ -357,11 +366,14 @@ static bool rewrite_fused(clj_node *n) {
 	for (uint32_t i = 0; i < nargs; i++) clj_retain(clj_from_ptr((void *)args[i]));
 	clj_fused_mode         mode;
 	const clj_fusion_var  *driver = driver_for(&p, &mode);
-	const clj_fusion_var **guards = zalloc(p.nstages + p.nforms + 3, sizeof *guards);
+	const clj_fusion_var **guards = zalloc(2 * p.nstages + p.nforms + 3, sizeof *guards);
 	uint32_t               nguards = 0;
 	add_guard(guards, &nguards, p.fv);
 	for (uint32_t i = 0; i < p.nforms; i++) add_guard(guards, &nguards, p.forms[i]);
-	for (uint32_t i = 0; i < p.nstages; i++) add_guard(guards, &nguards, p.stages[i].fv);
+	for (uint32_t i = 0; i < p.nstages; i++) {
+		add_guard(guards, &nguards, p.stages[i].fv);
+		add_guard(guards, &nguards, p.stages[i].xfv);
+	}
 	// mapv's body is (into [] (map f c…)); frequencies' and group-by's reduce over the stages
 	if (fv_is(p.fv, "mapv")) add_guard(guards, &nguards, named("clojure.core/into"));
 	if (fv_is(p.fv, "frequencies") || fv_is(p.fv, "group-by")) add_guard(guards, &nguards, named("clojure.core/reduce"));

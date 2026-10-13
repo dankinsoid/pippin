@@ -60,6 +60,8 @@ typedef enum {
 	CLJ_FUSED_MODES,
 } clj_fused_mode;
 
+// (fused-scan* f [init]): reductions as a transducer whose 0-arity, the walk's begin, hands the init on first.
+clj_value clj_fused_scan(const clj_value *args, size_t n);
 // (fused* mode lead xfs coll & colls): two or three colls walk in step, each seq'd before the shortest ends it, as map's.
 clj_value clj_fused_run(const clj_value *args, size_t n);
 
@@ -70,12 +72,14 @@ typedef struct clj_fused_sink {
 } clj_fused_sink;
 // xs: one item per coll, borrowed; HALT when a stage or the sink ended the walk. Stage state lives in ctx.
 typedef int (*clj_fused_step)(void *ctx, const clj_value *xs, clj_fused_sink *sink);
-// The stages' completion, what (xf result) does; NULL when no stage completes.
+// The stages' completion, what (xf result) does; NULL when no stage completes. The begin is what reaches the sink
+// before the source's first item: a reductions' init. HALT from it skips the walk, not the completion.
 typedef int (*clj_fused_flush)(void *ctx, clj_fused_sink *sink);
 typedef struct {
 	clj_fused_step  step;
 	clj_fused_flush flush;
 	void           *ctx;
+	clj_fused_flush begin;
 } clj_fused_site;
 // The driver over a compiled site; lead and colls as fused*'s.
 clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value *lead, size_t nlead, const clj_value *colls, size_t ncolls, const clj_fused_site *site);

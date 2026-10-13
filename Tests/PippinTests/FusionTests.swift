@@ -254,7 +254,9 @@ extension CoreTests {
 			let stages = ["(map inc %)", "(keep (fn [x] (when (odd? x) (* x x))) %)", "(filter odd? %)", "(remove odd? %)", "(take 3 %)", "(take 0 %)", "(drop 2 %)",
 		                  "(take-while (fn [x] (< x 3)) %)", "(drop-while (fn [x] (< x 3)) %)", "(mapcat (fn [x] [x x]) %)", "(map-indexed vector %)",
 		                  "(keep-indexed (fn [i x] (when (odd? i) x)) %)", "(interpose 0 %)", "(dedupe %)", "(distinct %)", "(map str %)", "(map identity %)",
-		                  "(take 2 (map inc (filter odd? %)))", "(interpose :k (dedupe (drop 1 %)))", "(mapcat identity (partition-all 2 %))", "(distinct (mapcat (fn [x] [x x]) %))"]
+		                  "(take 2 (map inc (filter odd? %)))", "(interpose :k (dedupe (drop 1 %)))", "(mapcat identity (partition-all 2 %))", "(distinct (mapcat (fn [x] [x x]) %))",
+		              "(reductions + %)", "(reductions + 10 %)", "(reductions (fn [a x] (if (> a 5) (reduced a) (+ a x))) %)", "(take 3 (reductions conj [] (dedupe %)))",
+		              "(reductions + (reductions + 1 %))", "(reductions (fn [a x] x) (reduced :r) %)"]
 			let consumers = ["(reduce + %)", "(reduce + 10 %)", "(reduce conj [] %)", "(reduce conj %)", "(reduce (fn [a x] (conj a x)) %)", "(reduce (fn [a x] [a x]) %)",
 		                     "(reduce (fn [a x] (if (= x 3) (reduced a) [a x])) [] %)", "(reduce (fn [] :e) %)", "(reduce (fn [a b] (if (> a b) a b)) %)", "(vec %)", "(count %)", "(into () %)",
 		                     "(into [0] %)", "(into nil %)", "(into {} %)", "(reduce str %)", "(reduce str \"\" %)",
@@ -579,6 +581,8 @@ extension CoreTests {
 			do {
 				#expect(try cljEval("[(fused* 0 [+] [(map inc)] [1 2 3]) (fused* 0 [+ 10] [] [1 2]) (fused* 1 [[]] [(map +)] [1 2] [10 20 30]) (fused* 2 [] [(map vector)] [1 2] (range) \"abc\")]") == [9, 13, [11, 22], 2])
 				#expect(try cljEval("[(fused* 3 [+ 0] [(mapcat (fn [x] [x x]))] [1 2]) (fused* 4 [[:a]] [(dedupe)] [1 1 2]) (fused* 0 [(fn [] :e)] [] [])]") == [6, [kw("a"), 1, 2], kw("e")])
+				// fused-scan*: reductions as a transducer, its init handed on before the walk, (f) over an empty one
+				#expect(try cljEval("[(fused* 1 [[]] [(fused-scan* + 10)] [1 2]) (fused* 1 [[]] [(fused-scan* +)] []) (fused* 1 [[]] [(fused-scan* + (reduced 7))] 5)]") == [[10, 11, 13], [0], [7]])
 				#expect(evalMessage("(fused* 9 [] [] [1])") == "fused* expects a mode below 8, got: long")
 				#expect(evalMessage("(fused* 2 [1] [] [1])") == "fused* got 1 lead args for mode 2")
 				#expect(evalMessage("(fused* 2 [] (map inc) [1])") == "fused* expects vectors of the lead args and the transducers")

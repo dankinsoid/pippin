@@ -37,6 +37,8 @@ static const clj_fusion_var table[] = {
 	OTHER("sequence", CLJ_FUSION_FORM),        OTHER("comp", CLJ_FUSION_FORM),        OTHER("transduce", CLJ_FUSION_CONSUMER),
 	OTHER("frequencies", CLJ_FUSION_CONSUMER), OTHER("group-by", CLJ_FUSION_CONSUMER),
 	{"clojure.core/partition-all", CLJ_FUSION_XF_STAGE, 2},
+	// two lazy arities and no transducer one: the pass matches it by name, its stage being fused-scan*
+	{"clojure.core/reductions", CLJ_FUSION_STAGE, 0},           OTHER("fused-scan*", CLJ_FUSION_DRIVER),
 	OTHER("get-in", CLJ_FUSION_GUARD),         OTHER("assoc-in", CLJ_FUSION_GUARD),       OTHER("update-in", CLJ_FUSION_GUARD),
 	OTHER("seq", CLJ_FUSION_GUARD),            OTHER("first", CLJ_FUSION_GUARD),          OTHER("next", CLJ_FUSION_GUARD),
 	OTHER("apply", CLJ_FUSION_GUARD),          OTHER("reduced?", CLJ_FUSION_GUARD),       OTHER("unreduced", CLJ_FUSION_GUARD),
@@ -617,7 +619,12 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 #if CLJ_STATS
 	if (mode == CLJ_FUSED_MODE_INTO || mode == CLJ_FUSED_MODE_SEQ_INTO) clj_census_builder(1);
 #endif
-	int r = ncolls == 1 ? walk_one(&o, site, colls[0]) : walk_many(&o, site, colls, ncolls);
+	int r = CLJ_FUSED_GO;
+	if (site->begin) {
+		r = site->begin(site->ctx, &o.sink);
+		if (r == CLJ_FUSED_GO && seq) r = drain(&o);
+	}
+	if (r == CLJ_FUSED_GO) r = ncolls == 1 ? walk_one(&o, site, colls[0]) : walk_many(&o, site, colls, ncolls);
 	// once the consumer is done the lazy seq is pulled no further, so its completion never runs
 	if (r != CLJ_FUSED_THROWN && site->flush && !(seq && o.halted)) r = site->flush(site->ctx, &o.sink) == CLJ_FUSED_THROWN ? CLJ_FUSED_THROWN : r;
 	if (r != CLJ_FUSED_THROWN && seq && !o.halted) r = drain(&o);
@@ -707,6 +714,115 @@ static int xf_walk_flush(void *ctx, clj_fused_sink *sink) {
 	return xf_flush(&w->x, sink);
 }
 
+// ---- reductions as a stage: (reductions f coll) seeds with the first item, (f) over none; (reductions f init coll)
+// hands init on before it pulls; a reduced value, init, first item or f's answer, is the last item, unwrapped.
+
+typedef struct {
+	clj_value f, init; // owned
+	bool      has_init;
+} scan_xform;
+
+typedef struct {
+	clj_value rf, f, init, acc; // owned
+	bool      has_init, started;
+} scan_rf;
+
+static void scan_xform_free(void *ctx) {
+	scan_xform *x = ctx;
+	clj_release(x->f);
+	clj_release(x->init);
+	free(x);
+}
+
+static void scan_rf_free(void *ctx) {
+	scan_rf *s = ctx;
+	clj_release(s->rf);
+	clj_release(s->f);
+	clj_release(s->init);
+	clj_release(s->acc);
+	free(s);
+}
+
+// v as the scan's next item, borrowed.
+static clj_value scan_emit(scan_rf *s, clj_value result, clj_value v) {
+	clj_release(s->acc);
+	s->acc = CLJ_NIL;
+	bool last = clj_is_reduced(v);
+	if (!last) s->acc = clj_retain(v);
+	clj_value in[2] = {result, last ? clj_reduced_value(v) : v};
+	clj_value r = clj_invoke(s->rf, in, 2);
+	if (!last || r == CLJ_THROWN || clj_is_reduced(r)) return r;
+	clj_value halted = clj_reduced_new(r);
+	clj_release(r);
+	return halted;
+}
+
+static clj_value scan_rf_fn(void *ctx, const clj_value *args, size_t n) {
+	scan_rf *s = ctx;
+	if (n == 0) {
+		// the stages below begin first: theirs reach the consumer before this init does, as nested lazy seqs order them
+		clj_value r = clj_invoke(s->rf, NULL, 0);
+		if (r == CLJ_THROWN || clj_is_reduced(r) || !s->has_init) return r;
+		clj_release(r);
+		s->started = true;
+		return scan_emit(s, CLJ_NIL, s->init);
+	}
+	if (n == 1) {
+		if (!s->started) {
+			// (list (f)): an empty coll's only item, data even when reduced
+			s->started = true;
+			clj_value v = clj_invoke(s->f, NULL, 0);
+			if (v == CLJ_THROWN) return CLJ_THROWN;
+			clj_value in[2] = {args[0], v};
+			clj_value r = clj_invoke(s->rf, in, 2);
+			clj_release(v);
+			if (r == CLJ_THROWN) return CLJ_THROWN;
+			clj_release(r);
+		}
+		return clj_invoke(s->rf, args, 1);
+	}
+	if (!s->started) {
+		s->started = true;
+		return scan_emit(s, args[0], args[1]);
+	}
+	clj_value in[2] = {s->acc, args[1]};
+	clj_value a = clj_invoke(s->f, in, 2);
+	if (a == CLJ_THROWN) return CLJ_THROWN;
+	clj_value r = scan_emit(s, args[0], a);
+	clj_release(a);
+	return r;
+}
+
+static clj_value scan_xform_fn(void *ctx, const clj_value *args, size_t n) {
+	(void)n;
+	const scan_xform *x = ctx;
+	scan_rf          *s = malloc(sizeof *s);
+	if (!s) clj_fatal("out of memory");
+	*s = (scan_rf){clj_retain(args[0]), clj_retain(x->f), clj_retain(x->init), CLJ_NIL, x->has_init, false};
+	return clj_fn_native_ctx(CLJ_NIL, scan_rf_fn, s, scan_rf_free, 0, 2);
+}
+
+clj_value clj_fused_scan(const clj_value *args, size_t n) {
+	scan_xform *x = malloc(sizeof *x);
+	if (!x) clj_fatal("out of memory");
+	*x = (scan_xform){clj_retain(args[0]), n == 2 ? clj_retain(args[1]) : CLJ_NIL, n == 2};
+	return clj_fn_native_ctx(CLJ_NIL, scan_xform_fn, x, scan_xform_free, 1, 1);
+}
+
+static bool scan_xform_p(clj_value v) {
+	return clj_is_fn(v) && clj_fn_of(v)->kind == CLJ_FN_NATIVE_CTX && clj_fn_of(v)->u.native_ctx.fn == scan_xform_fn;
+}
+
+static int xf_walk_begin(void *ctx, clj_fused_sink *sink) {
+	xf_walk *w = ctx;
+	w->bottom->sink = sink;
+	clj_value r = clj_invoke(w->x.rf, NULL, 0);
+	if (r == CLJ_THROWN) return CLJ_FUSED_THROWN;
+	bool halt = clj_is_reduced(r);
+	clj_release(r);
+	return halt ? CLJ_FUSED_HALT : CLJ_FUSED_GO;
+}
+
 clj_value clj_fused_run(const clj_value *args, size_t n) {
 	CLJ_ASSERT(n >= 4, "fused* takes mode lead xfs coll & colls");
 	clj_value mode = args[0], lead = args[1], xfs = args[2];
@@ -738,8 +854,11 @@ clj_value clj_fused_run(const clj_value *args, size_t n) {
 	}
 	clj_value ld[2];
 	for (uint32_t i = 0; i < nlead; i++) ld[i] = clj_vector_nth(lead, i);
+	// the stack's 0-arity is the begin only where a scan has one: every other stage just passes (rf) on
+	bool scan = false;
+	for (uint32_t i = 0, nx = clj_vector_count(xfs); i < nx; i++) scan = scan || scan_xform_p(clj_vector_nth(xfs, i));
 	xf_walk        w = {{rf, (uint32_t)ncolls}, b};
-	clj_fused_site site = {xf_walk_step, xf_walk_flush, &w};
+	clj_fused_site site = {xf_walk_step, xf_walk_flush, &w, scan ? xf_walk_begin : NULL};
 	clj_value      r = clj_fused_run_step(m, ld, nlead, args + 3, ncolls, &site);
 	b->alive = false;
 	clj_release(rf);

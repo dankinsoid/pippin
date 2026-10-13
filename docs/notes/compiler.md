@@ -1047,7 +1047,8 @@
   compiler.c `mono_plan_of`, `emit_mono_segment`; fusion.c `clj_fused_run_step`, `clj_fused_cat`). A `FUSED` site whose
   stages are `map`, `filter`, `remove`, `keep`, `take-while`, `drop-while`, `mapcat` over a literal `fn` with a fixed
   arity 1, `map-indexed` over one with arity 2, the innermost `map` of two or three colls over one with that arity,
-  `take`, `drop` and `partition-all` of any count, `dedupe` and `distinct`, is written, behind the same fusion guard, as one step function
+  `take`, `drop` and `partition-all` of any count, `dedupe`, `distinct`, and `reductions` over a fn of arity 2, is
+  written, behind the same fusion guard, as one step function
   `<base>__fz<n>(ctx, xs, sink)` that calls each stage's arity function by name — its `always_inline` twin when the
   stage is a leaf, so the stage bodies sit in the step — and hands each output to the driver's sink
   (`sink->emit`): no transducer closure is made and no stage is reached through `clj_invoke`. A stage fn may also be
@@ -1071,7 +1072,10 @@
   replaced by `[]`. **The completion**: a site with a partition-all gets `<base>__fz<n>f`, which the driver runs where
   the transducers' `(xf result)` would run — every walk but a sequence mode's whose consumer is done — and which hands
   each non-empty buffer, from the input side down, to the stages below through a continuation `<base>__fz<n>p<i>`,
-  a halt there `unreduced` away as the transducer's completion does. **Guards**: the core vars the transducers call are checked as core's bodies would see
+  a halt there `unreduced` away as the transducer's completion does; a reductions that saw no item hands `(f)` on there.
+  **The begin**: a site with a reductions' init gets `<base>__fz<n>b`, run before the walk, which hands each init on
+  through the stages below its scan (`<base>__fz<n>s<i>`), the consumer's side first; a reduced init is the scan's
+  last item, and HALT skips the walk. The scan's state is three ctx slots: the accumulator, whether it began, the init. **Guards**: the core vars the transducers call are checked as core's bodies would see
   them — the site takes the step only while each holds its boot root (`volatile!`, `deref`, `vreset!`, `reduced`,
   `ensure-reduced`, `complement`, `=`, `contains?`, `conj`, `count`, `empty?`, `unreduced`, mapcat's `comp`, `map`,
   `cat`, `preserving-reduced`, `reduce`, `reduced?`, and the intrinsics; fusion table, `CLJ_FUSION_GUARD`), the original
@@ -1087,8 +1091,8 @@
   f's completion over the result after the stages' (fusion.c, `CLJ_FUSED_MODE_TRANSDUCE`), and `(f)` first when it
   has no init. The step is a frame fn under the consumer's name, which a trace shows where
   the driver's transducer frames were; a stage body inlined into it names its own stub. A stage given any other
-  value, another stage kind or a variadic fn keeps the generic program. Not done: `keep-indexed`, `interpose`,
-  `reductions` (no transducer arity in core to stand for); a stage fn that is a var of a core fn without an intrinsic;
+  value, another stage kind or a variadic fn keeps the generic program. Not done: `keep-indexed`, `interpose`; a stage
+  fn that is a var of a core fn without an intrinsic;
   reduce's
   literal f called by its arity from the driver (it is a closure, which `clj_call_invoke` reaches by its dispatcher);
   a range source walked as the vector is, and `(range)` as a counter instead of iterate's cells; trigger:

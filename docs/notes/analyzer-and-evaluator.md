@@ -787,7 +787,15 @@
   root, else each called through its var as the body calls it, read once per walk; `reduce`, which the bodies reduce
   with, is a guard of the node. A body fn rebound by the walk's own code is seen from the next walk on. Under them
   `sequence` is no stage: f and the keys' hashes would interleave with a multi-output input's stage calls.
-  `CLJ_NO_OPT=fuse` turns off the sequence, multi-coll, `mapv`, XF-into, transduce, frequencies and group-by forms.
+  **`(reductions f [init] P)`** is a stage with no transducer arity in core: its xform is `(fused-scan* f [init])`
+  (fusion.c), guarded beside `reductions`, a scan that seeds with the first item or, where none came, hands `(f)` on
+  at the completion, and ends the walk after a reduced value, unwrapped — init, first item or f's answer, as the lazy
+  arity's `(reduced? init)` ends it. Its init reaches the consumer before the source's first item is realized, so the
+  walk has a begin: the driver calls the stack's 0-arity first, which every core transducer passes on as `(rf)` and
+  the scan answers after the stages below it have begun, the consumer's side first as two nested lazy reductions
+  order their inits; a reduced init is the only item and the walk is skipped (the completion still runs).
+  `CLJ_NO_OPT=fuse` turns off the sequence, multi-coll, `mapv`, XF-into, transduce, frequencies, group-by and
+  reductions forms.
   Serialized as `[:fused [vars] [args] fused original]`; the two programs' slots are
   bounds-checked against the args, not the enclosing frame. The guard: every core var the two programs
   name (consumer, stages, driver) still holds the root it had when core.clj finished loading, recorded
@@ -818,9 +826,7 @@
   written into the source's nodes, design §6b item 10); stages inlined into one C loop in compiled code (it calls
   the same driver today, design §6b «Итераторы Rust»); the barriers `sort`/`group-by` (cut a pipeline today);
   `partition-all` at its lazy arity (above); `(apply str P)` (`apply` is a known path's guard entry, and the form
-  saves only P's cells: apply realizes the whole seq before str runs); `reductions` as a stage (it has no transducer
-  arity, and its init reaches the consumer before the source's first item is realized, which a transducer cannot
-  say).
+  saves only P's cells: apply realizes the whole seq before str runs).
 - [ ] **C stack per Clojure call is large.** A call is several C frames with slot and argument buffers on
   the stack (the direct path inlines the frame setup into `eval_invoke`, whose 16-slot buffer is the
   callee's frame; the generic path adds `closure_run` with its own 16 slots): on the order of 0.6 KB
