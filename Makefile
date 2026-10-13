@@ -167,9 +167,10 @@ bench-ab:
 
 # The workloads of bench/workloads on JVM Clojure 1.12.6, the interpreter, compiled dev and --closed, with runtime
 # counters, a sampled profile and the facts coverage (docs/notes/benchmarks.md, "Corpus workloads"). Opt-in and in
-# neither gate: about an hour on CI. CORPUS_BENCH_ARGS=--only=medley,strings narrows it.
+# neither gate: about an hour on CI. CORPUS_BENCH_ARGS=--only=medley,strings narrows it; CORPUS_BENCH_BASE=<ref>
+# times that ref beside this tree, alternated on one runner.
 corpus-bench:
-	python3 scripts/corpus-bench.py --sdkroot='$(SDKROOT)' $(CORPUS_BENCH_ARGS)
+	python3 scripts/corpus-bench.py --sdkroot='$(SDKROOT)' $(if $(CORPUS_BENCH_BASE),--base='$(CORPUS_BENCH_BASE)') $(CORPUS_BENCH_ARGS)
 
 # One file through the C core under ASan: FILE=x.clj make load-asan. A crash lands on the stack that caused it,
 # where the swift-testing run prints "<empty stack>".

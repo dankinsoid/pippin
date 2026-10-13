@@ -4,7 +4,9 @@
 compiled time goes (docs/notes/benchmarks.md, "Corpus workloads"). Writes <out>/report.md and prints it."""
 
 import argparse
+import math
 import queue
+import statistics
 import threading
 import os
 import re
@@ -27,6 +29,10 @@ RUN_TIMEOUT = 240
 SAMPLE_SECONDS = 8
 # Past this the remaining workloads are reported as not run; the CI step's own cap is above it.
 TOTAL_BUDGET = 150 * 60
+# The timed modes, in the order each repetition runs them.
+TIMED = ["interp", "dev-core", "dev", "closed"]
+TIMED_LABEL = {"interp": "interp", "dev-core": "core+interp", "dev": "dev", "closed": "closed"}
+HARNESS = "Sources/clj-corpus-bench/main.swift"
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -84,6 +90,17 @@ def parse(text):
 	return r
 
 
+class Side:
+	"""A source tree under test with its own builds: this checkout (head) or the base worktree. Its result keys and
+	build directories carry its prefix; every side runs the head's workload sources, from ROOT."""
+
+	def __init__(self, name, root, prefix):
+		self.name, self.root, self.prefix = name, root, prefix
+		self.bin = {}
+		self.compile = None
+		self.rev = None
+
+
 class Bench:
 	def __init__(self, args):
 		self.args = args
@@ -95,6 +112,9 @@ class Bench:
 		self.errors = []
 		# A workload that hung once is not run again: each further run would hang the same and cost RUN_TIMEOUT.
 		self.hung = set()
+		self.head = Side("head", ROOT, "")
+		self.base = None
+		self.sides = [self.head]
 		os.makedirs(self.logs, exist_ok=True)
 
 	def keep(self, name, text):
@@ -116,16 +136,46 @@ class Bench:
 		return os.path.join(self.out, scratch, "release", "clj-corpus-bench")
 
 	def tools(self):
-		sh(["swift", "build", "--scratch-path", os.path.join(ROOT, ".build/plain"), "--product", "clj-compile"],
-		   env=self.env, timeout=3600)
-		self.compile = os.path.join(ROOT, ".build/plain/debug/clj-compile")
-		self.bin = {
-			"interp": self.build("interp", []),
-			"dev": self.build("dev", ["-DCLJ_COMPILED_CORE"]),
-			"dev-stats": self.build("dev-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_STATS=1"]),
-		}
+		if self.args.base:
+			self.base = self.base_tree()
+			self.sides = [self.base, self.head]
+		self.head.rev = sh(["git", "rev-parse", "HEAD"])[0].stdout.strip()
+		for side in self.sides:
+			self.side_tools(side)
 		if self.args.interp_ab:
-			self.bin["interp-stats"] = self.build("interp-stats", ["-DCLJ_STATS=1"])
+			self.head.bin["interp-stats"] = self.build("interp-stats", ["-DCLJ_STATS=1"])
+
+	def side_tools(self, side):
+		package = None if side is self.head else side.root
+		plain = os.path.join(ROOT, ".build/plain") if side is self.head else os.path.join(self.out, "base-plain")
+		cmd = ["swift", "build", "--scratch-path", plain, "--product", "clj-compile"]
+		sh(cmd + (["--package-path", package] if package else []), env=self.env, timeout=3600)
+		side.compile = os.path.join(plain, "debug/clj-compile")
+		try:
+			side.bin["interp"] = self.build(side.prefix + "interp", [], package=package)
+		except RuntimeError as e:
+			if side is self.head:
+				raise
+			log("this harness does not build against the base; the base runs its own: %s" % str(e)[-400:])
+			sh(["git", "checkout", "--", HARNESS], cwd=side.root)
+			side.bin["interp"] = self.build(side.prefix + "interp", [], package=package)
+		side.bin["dev"] = self.build(side.prefix + "dev", ["-DCLJ_COMPILED_CORE"], package=package)
+		side.bin["dev-stats"] = self.build(side.prefix + "dev-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_STATS=1"],
+		                                   package=package)
+
+	def base_tree(self):
+		root = os.path.join(self.out, "base-src")
+		p, _ = sh(["sh", "scripts/base-tree.sh", self.args.base, root])
+		side = Side("base", root, "base-")
+		side.rev = p.stdout.strip()
+		# This tree's harness on both sides, so both print what this script parses.
+		shutil.copy(os.path.join(ROOT, HARNESS), os.path.join(root, HARNESS))
+		log("base %s = %s, in %s" % (self.args.base, side.rev, root))
+		return side
+
+	def drop_base_tree(self):
+		if self.base:
+			sh(["git", "worktree", "remove", "--force", self.base.root], check=False)
 
 	# ---- runs
 
@@ -144,11 +194,12 @@ class Bench:
 			return None, (time.monotonic() - t0) * 1000
 		return subprocess.CompletedProcess(cmd, proc.returncode, out, err), (time.monotonic() - t0) * 1000
 
-	def ours(self, tag, workload, binary, extra=(), env=None):
+	def ours(self, tag, workload, binary, extra=(), env=None, side=None):
 		cmd = [binary] + self.lp + ["--features", FEATURES, "--min-iterations", "3", "--min-seconds", "2"] + list(extra) + \
 		      ["workloads." + workload]
 		e = dict(self.env)
-		e["CLJ_EVAL_ROOT"] = ROOT
+		# The units are compiled against this root's headers, which must be the binary's own.
+		e["CLJ_EVAL_ROOT"] = (side or self.head).root
 		if env:
 			e.update(env)
 		p, ms = self.bounded(cmd, e, "%s.%s" % (workload, tag))
@@ -181,35 +232,35 @@ class Bench:
 		r["process_ms"] = ms
 		return r
 
-	def dev_units(self, workload):
-		d = os.path.join(self.out, "units", workload, "dev")
+	def dev_units(self, workload, side):
+		d = os.path.join(self.out, "units", workload, side.prefix + "dev")
 		shutil.rmtree(d, ignore_errors=True)
 		os.makedirs(d)
-		p, _ = sh([self.compile, "--lenient", "--allow-refused"] + self.lp + ["--features", FEATURES, "--ns",
+		p, _ = sh([side.compile, "--lenient", "--allow-refused"] + self.lp + ["--features", FEATURES, "--ns",
 		          "workloads." + workload, "--out", d], env=self.env, timeout=RUN_TIMEOUT, check=False)
-		self.keep("%s.compile-dev.txt" % workload, p.stderr)
+		self.keep("%s.%scompile-dev.txt" % (workload, side.prefix), p.stderr)
 		if p.returncode not in (0, 2):
-			self.errors.append("%s: clj-compile (dev) exited %d: %s" % (workload, p.returncode, p.stderr[-600:]))
+			self.errors.append("%s: %s clj-compile (dev) exited %d: %s" % (workload, side.name, p.returncode, p.stderr[-600:]))
 			return None
 		return d
 
-	def closed_tree(self, workload):
+	def closed_tree(self, workload, side):
 		"""clj-compile --core --closed of the workload, written over a copy of the sources (scripts/shake.sh)."""
-		boot = os.path.join(self.out, "units", workload, "closed")
+		boot = os.path.join(self.out, "units", workload, side.prefix + "closed")
 		shutil.rmtree(boot, ignore_errors=True)
 		os.makedirs(boot)
-		p, ms = sh([self.compile, "--core", "--closed", "--stats", "--lenient", "--allow-refused"] + self.lp +
+		p, ms = sh([side.compile, "--core", "--closed", "--stats", "--lenient", "--allow-refused"] + self.lp +
 		           ["--features", FEATURES, "--ns", "workloads." + workload, "--out", boot],
 		           env=self.env, timeout=RUN_TIMEOUT, check=False)
-		self.keep("%s.compile-closed.txt" % workload, p.stderr)
+		self.keep("%s.%scompile-closed.txt" % (workload, side.prefix), p.stderr)
 		if p.returncode not in (0, 2):
-			self.errors.append("%s: clj-compile --closed exited %d: %s" % (workload, p.returncode, p.stderr[-600:]))
+			self.errors.append("%s: %s clj-compile --closed exited %d: %s" % (workload, side.name, p.returncode, p.stderr[-600:]))
 			return None
-		self.results[workload]["compile_stats"] = p.stderr
-		tree = os.path.join(self.out, "tree")
+		self.results[workload][side.prefix + "compile_stats"] = p.stderr
+		tree = os.path.join(self.out, side.prefix + "tree")
 		os.makedirs(tree, exist_ok=True)
 		sh(["rsync", "-a", "--delete", "--exclude", ".build", "--exclude", ".git", "Sources", "Tests", "Package.swift",
-		    "Package.resolved", tree + "/"])
+		    "Package.resolved", tree + "/"], cwd=side.root)
 		bootdir = os.path.join(tree, "Sources/CljCore/boot")
 		for f in os.listdir(bootdir):
 			if f.endswith(".c"):
@@ -284,56 +335,89 @@ class Bench:
 			if cold:
 				res["jvm_cold_process_ms"] = cold["process_ms"]
 				res["jvm_cold_first_ms"] = cold.get("first_ms")
-		res["interp"] = self.ours("interp", w, self.bin["interp"])
-		yield
 		if self.args.interp_ab:
+			hb = self.head.bin
 			off = {self.args.interp_ab: "1"}
-			res["interp-off"] = self.ours("interp-off", w, self.bin["interp"], env=off)
+			res["interp-off"] = self.ours("interp-off", w, hb["interp"], env=off)
 			yield
-			res["interp-stats"] = self.ours("interp-stats", w, self.bin["interp-stats"], ["--stats"])
+			res["interp-stats"] = self.ours("interp-stats", w, hb["interp-stats"], ["--stats"])
 			yield
-			res["interp-stats-off"] = self.ours("interp-stats-off", w, self.bin["interp-stats"], ["--stats"], env=off)
+			res["interp-stats-off"] = self.ours("interp-stats-off", w, hb["interp-stats"], ["--stats"], env=off)
 			yield
-		res["dev-core"] = self.ours("dev-core", w, self.bin["dev"])
+		# What each side times: (binary, extra args) per mode; a mode whose build failed is absent.
+		timed, units, trees = {}, {}, {}
+		for side in self.sides:
+			t = timed[side.name] = {"interp": (side.bin["interp"], []), "dev-core": (side.bin["dev"], [])}
+			units[side.name] = u = self.dev_units(w, side)
+			if u:
+				t["dev"] = (side.bin["dev"], ["--units", u, "--dylib-dir", u + "-dylib"])
+			if self.args.skip_closed:
+				continue
+			trees[side.name] = tree = self.closed_tree(w, side)
+			if not tree:
+				continue
+			try:
+				t["closed"] = (self.build(side.prefix + "closed", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED"], package=tree), [])
+			except RuntimeError as e:
+				self.errors.append("%s: the %s closed build failed: %s" % (w, side.name, str(e)[-800:]))
 		yield
-		units = self.dev_units(w)
-		if units:
-			res["dev"] = self.ours("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
-			yield
-			res["dev-stats"] = self.ours("dev-stats", w, self.bin["dev-stats"],
-			                             ["--units", units, "--dylib-dir", units + "-dylib-stats", "--stats", "--census"])
-			yield
-			if not self.args.skip_sample:
-				res["dev-sample"] = self.sample("dev", w, self.bin["dev"], ["--units", units, "--dylib-dir", units + "-dylib"])
+		# A pair is two adjacent runs of one mode; who goes first alternates, so drift and warm-up hit both sides.
+		runs = {}
+		pairs = res["pairs"] = {m: [] for m in TIMED}
+		for rep in range(self.args.reps):
+			order = self.sides if rep % 2 == 0 else self.sides[::-1]
+			for mode in TIMED:
+				got = {}
+				for side in order:
+					if mode not in timed[side.name]:
+						continue
+					binary, extra = timed[side.name][mode]
+					tag = side.prefix + mode + (".r%d" % rep if self.args.reps > 1 else "")
+					r = self.ours(tag, w, binary, extra, side=side)
+					if r and r.get("median_ms") is not None:
+						rs = runs.setdefault(side.prefix + mode, [])
+						rs.append(r)
+						got[side.name] = r["median_ms"]
+						# A side's number is the median over repetitions of each run's median.
+						res[side.prefix + mode] = dict(
+							rs[0], median_ms=statistics.median(x["median_ms"] for x in rs), runs=len(rs),
+							expected=next((x.get("expected") for x in rs if x.get("expected") != "same"), rs[0].get("expected")))
+					yield
+				if "base" in got and "head" in got:
+					pairs[mode].append((got["base"], got["head"]))
+		for side in self.sides:
+			u = units[side.name]
+			if u:
+				res[side.prefix + "dev-stats"] = self.ours(side.prefix + "dev-stats", w, side.bin["dev-stats"],
+				                                           ["--units", u, "--dylib-dir", u + "-dylib-stats", "--stats",
+				                                            "--census"], side=side)
 				yield
-				res["dev-symbols"] = self.symbols("dev")
-		if self.args.skip_closed:
-			return
-		tree = self.closed_tree(w)
-		if not tree:
-			return
-		try:
-			closed = self.build("closed", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED"], package=tree)
-		except RuntimeError as e:
-			self.errors.append("%s: the closed build failed: %s" % (w, str(e)[-800:]))
-			return
-		res["closed"] = self.ours("closed", w, closed)
-		yield
-		if not self.args.skip_sample:
-			res["closed-sample"] = self.sample("closed", w, closed)
+		u = units["head"]
+		if u and not self.args.skip_sample:
+			res["dev-sample"] = self.sample("dev", w, self.head.bin["dev"], ["--units", u, "--dylib-dir", u + "-dylib"])
+			yield
+			res["dev-symbols"] = self.symbols("dev")
+		closed = timed["head"].get("closed")
+		if closed and not self.args.skip_sample:
+			res["closed-sample"] = self.sample("closed", w, closed[0])
 			yield
 			res["closed-symbols"] = self.symbols("closed")
-		if "rc_op_ns" not in self.__dict__:
-			cal = subprocess.run([closed, "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env, timeout=RUN_TIMEOUT)
+		if closed and "rc_op_ns" not in self.__dict__:
+			cal = subprocess.run([closed[0], "--calibrate"], stdout=subprocess.PIPE, text=True, env=self.env, timeout=RUN_TIMEOUT)
 			c = parse(cal.stdout)
 			self.rc_op_ns, self.rc_op_ns_cold = c.get("rc_op_ns"), c.get("rc_op_ns_cold")
-		try:
-			stats = self.build("closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
-		except RuntimeError as e:
-			self.errors.append("%s: the closed stats build failed: %s" % (w, str(e)[-800:]))
-			return
-		res["closed-stats"] = self.ours("closed-stats", w, stats, ["--stats", "--census"])
-		yield
+		for side in self.sides:
+			if "closed" not in timed[side.name]:
+				continue
+			try:
+				stats = self.build(side.prefix + "closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"],
+				                   package=trees[side.name])
+			except RuntimeError as e:
+				self.errors.append("%s: the %s closed stats build failed: %s" % (w, side.name, str(e)[-800:]))
+				continue
+			res[side.prefix + "closed-stats"] = self.ours(side.prefix + "closed-stats", w, stats, ["--stats", "--census"],
+			                                              side=side)
+			yield
 
 	def symbols(self, scratch):
 		"""Symbol -> the source file it was compiled from, over the object files of a build (nm)."""
@@ -520,6 +604,88 @@ def interp_ab_section(b, add):
 	add("")
 
 
+def kfmt(v):
+	if v is None:
+		return "—"
+	if abs(v) >= 1e6:
+		return "%.2fM" % (v / 1e6)
+	if abs(v) >= 1e3:
+		return "%.1fk" % (v / 1e3)
+	return "%.0f" % v
+
+
+AB_COUNTERS = [("allocs", "alloc"), ("MB", "alloc_bytes"), ("frees", "free"), ("rc plain", "rc_plain"),
+               ("rc shared", "rc_shared"), ("lazy forced", "lazy_force"), ("invoke", "invoke"), ("c_invoke", "c_invoke"),
+               ("apply", "apply"), ("reuse in place", "reuse_taken"), ("reuse copied", "reuse_copied"),
+               ("token used", "token_used")]
+
+
+def ab_section(b, add):
+	base, head = b.base, b.head
+	add("## Same runner: head %s against base %s %s" % (head.rev[:10], b.args.base, base.rev[:10]))
+	add("")
+	add("Both trees built and run in this job, the head's workload sources on both; %d repetitions, each running every "
+	    "mode on both sides back to back, the base first in even repetitions and the head first in odd ones. A cell "
+	    "is the median over the pairs of head ms / base ms, each side's ms the run's own median iteration, with the "
+	    "smallest and largest pair's ratio in brackets: the spread is the noise of this runner over these "
+	    "repetitions, and a median inside an A/A run's spread is no change. *geomean* is over the workloads with "
+	    "every pair present." % b.args.reps)
+	add("")
+	add("| workload | " + " | ".join(TIMED_LABEL[m] for m in TIMED) + " |")
+	add("|---|" + "---:|" * len(TIMED))
+	logs = {m: [] for m in TIMED}
+	for w in b.args.only:
+		r = b.results[w]
+		cells = []
+		for mode in TIMED:
+			ratios = [h / bs for bs, h in r.get("pairs", {}).get(mode, []) if bs]
+			if not ratios:
+				cells.append("—")
+				continue
+			med = statistics.median(ratios)
+			if len(ratios) == b.args.reps:
+				logs[mode].append(math.log(med))
+			cells.append("%.3f [%.3f–%.3f]%s" % (med, min(ratios), max(ratios),
+			                                    "" if len(ratios) == b.args.reps else " (%d pairs)" % len(ratios)))
+		add("| %s | %s |" % (w, " | ".join(cells)))
+	add("| *geomean* | %s |" % " | ".join("%.3f" % math.exp(sum(v) / len(v)) if v else "—" for v in logs.values()))
+	add("")
+	add("Medians in ms, base → head:")
+	add("")
+	add("| workload | " + " | ".join(TIMED_LABEL[m] for m in TIMED) + " |")
+	add("|---|" + "---:|" * len(TIMED))
+	for w in b.args.only:
+		r = b.results[w]
+		add("| %s | %s |" % (w, " | ".join("%s → %s" % (fmt(median_of(r.get("base-" + m))), fmt(median_of(r.get(m))))
+		                                   for m in TIMED)))
+	add("")
+	for kind in ("closed-stats", "dev-stats"):
+		add("Counters per iteration, %s build (`-DCLJ_STATS=1`): the head's value, its change against the base in "
+		    "parentheses, `=` for none:" % kind.split("-")[0])
+		add("")
+		add("| workload | " + " | ".join(name for name, _ in AB_COUNTERS) + " |")
+		add("|---|" + "---:|" * len(AB_COUNTERS))
+		for w in b.args.only:
+			hs, bs = b.results[w].get(kind), b.results[w].get("base-" + kind)
+			if not hs or not bs:
+				add("| %s | — |" % w)
+				continue
+			cells = []
+			for _, key in AB_COUNTERS:
+				h, o = hs["stat"].get(key), bs["stat"].get(key)
+				if key == "alloc_bytes":
+					h, o = (h / 1e6 if h is not None else None), (o / 1e6 if o is not None else None)
+				if h is None or o is None:
+					cells.append(kfmt(h))
+				elif h == o:
+					cells.append("%s (=)" % (fmt(h, 1) if key == "alloc_bytes" else kfmt(h)))
+				else:
+					delta = "%+.1f %%" % (100.0 * (h - o) / o) if o else "from 0"
+					cells.append("%s (%s)" % (fmt(h, 1) if key == "alloc_bytes" else kfmt(h), delta))
+			add("| %s | %s |" % (w, " | ".join(cells)))
+		add("")
+
+
 def census_section(b, add):
 	add("## Allocation census (`--census`, closed stats build; dev where closed did not run)")
 	add("")
@@ -587,14 +753,16 @@ def write_report(b, facts_path, xctrace):
 	add = lines.append
 	machine = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], stdout=subprocess.PIPE, text=True).stdout.strip()
 	ncpu = subprocess.run(["sysctl", "-n", "hw.ncpu"], stdout=subprocess.PIPE, text=True).stdout.strip()
-	head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, stdout=subprocess.PIPE, text=True).stdout.strip()
-	add("# corpus-bench — %s, %s, %s cpus, %s" % (head, machine, ncpu, os.uname().machine))
+	against = " against base %s %s" % (b.args.base, b.base.rev[:10]) if b.base else ""
+	add("# corpus-bench — %s%s, %s, %s cpus, %s" % (b.head.rev[:10], against, machine, ncpu, os.uname().machine))
 	add("")
 	add("ms per iteration of `run`, median after a warm-up (ours: 1 iteration, then >= 3 and >= 2 s; the JVM: >= 5 "
 	    "iterations and 5 s, then >= 5 and >= 3 s). *JVM cold* is a fresh `clojure -M` process running `run` once, "
 	    "start to exit; *1st* is that first iteration in-process. *core+interp* is the compiled core with the workload "
 	    "interpreted (dev mode before compiling the program); *dev* the workload compiled by clj-compile at -O2 over the "
-	    "compiled core; *closed* the whole program `--closed` (tree-shaken, direct calls).")
+	    "compiled core; *closed* the whole program `--closed` (tree-shaken, direct calls). Ours are the head's, over "
+	    "%d repetition(s): the median of the runs' medians.%s" % (
+		    b.args.reps, " *same result* covers the base's runs too." if b.base else ""))
 	add("")
 	add("| workload | JVM warm | JVM 1st | JVM cold | interp | core+interp | dev | closed | closed/JVM | interp/closed | same result |")
 	add("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
@@ -604,7 +772,8 @@ def write_report(b, facts_path, xctrace):
 		closed = median_of(r.get("closed"))
 		jw = median_of(jvm)
 		# `=` against the workload's expected value, in each runtime; the stats runs check none.
-		verdicts = {k: r[k].get("expected") for k in ("jvm", "interp", "interp-off", "dev-core", "dev", "closed") if r.get(k)}
+		verdicts = {k: r[k].get("expected") for k in ("jvm", "interp", "interp-off", "dev-core", "dev", "closed", "base-interp",
+		                                              "base-dev-core", "base-dev", "base-closed") if r.get(k)}
 		same = "—" if not verdicts else ("yes" if all(v == "same" for v in verdicts.values()) else
 		                                 "NO: " + ", ".join("%s %s" % (k, v) for k, v in verdicts.items() if v != "same"))
 		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
@@ -621,6 +790,8 @@ def write_report(b, facts_path, xctrace):
 	    " (interp/dev/closed). Forms lost to JVM interop in a lenient load: " + ", ".join(
 		"%s %s" % (w, (b.results[w].get("interp") or {}).get("load_failures", "—")) for w in b.args.only) + ".")
 	add("")
+	if b.base:
+		ab_section(b, add)
 
 	add("## Runtime counters, per iteration (`-DCLJ_STATS=1`, closed; dev in parentheses where it differs)")
 	add("")
@@ -769,6 +940,9 @@ def write_report(b, facts_path, xctrace):
 		add("")
 	add("xctrace: " + xctrace)
 	add("")
+	add("Wall time: the builds before the workloads %.1f min, the workloads %.1f min." % (
+		b.durations[0] / 60, b.durations[1] / 60))
+	add("")
 	if b.errors:
 		add("## Errors")
 		add("")
@@ -791,25 +965,36 @@ def main():
 	ap.add_argument("--skip-sample", action="store_true")
 	ap.add_argument("--skip-facts", action="store_true")
 	ap.add_argument("--interp-ab", metavar="VAR", help="also time and count the interpreter with VAR=1 in its environment")
+	ap.add_argument("--base", help="a ref built and timed beside this tree on the same runner, alternated")
+	ap.add_argument("--reps", type=int, help="timed runs per mode and side (default 8 with --base, else 1)")
 	args = ap.parse_args()
 	args.only = [w for w in args.only.split(",") if w]
 	unknown = [w for w in args.only if w not in WORKLOADS]
 	if unknown:
 		sys.exit("corpus-bench: unknown workloads " + ", ".join(unknown))
+	if args.reps is None:
+		args.reps = 8 if args.base else 1
+	if args.reps < 1:
+		sys.exit("corpus-bench: --reps must be at least 1")
 	b = Bench(args)
-	b.tools()
-	if not args.skip_jvm:
-		# The classpath is resolved once, outside every timed process.
-		sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
-	xctrace = b.xctrace_probe()
-	start = time.monotonic()
-	for w in args.only:
-		if time.monotonic() - start > TOTAL_BUDGET:
-			b.errors.append("%s: not run, the target's %d min budget was spent" % (w, TOTAL_BUDGET // 60))
-			continue
-		log("=== " + w)
-		b.run_workload(w)
-	facts = None if args.skip_facts else b.facts()
+	t0 = time.monotonic()
+	try:
+		b.tools()
+		if not args.skip_jvm:
+			# The classpath is resolved once, outside every timed process.
+			sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
+		xctrace = b.xctrace_probe()
+		start = time.monotonic()
+		for w in args.only:
+			if time.monotonic() - start > TOTAL_BUDGET:
+				b.errors.append("%s: not run, the target's %d min budget was spent" % (w, TOTAL_BUDGET // 60))
+				continue
+			log("=== " + w)
+			b.run_workload(w)
+		b.durations = (start - t0, time.monotonic() - start)
+		facts = None if args.skip_facts else b.facts()
+	finally:
+		b.drop_base_tree()
 	write_report(b, facts, xctrace)
 	# A missing number is a failed run: the report says which, and the target fails.
 	if b.errors:

@@ -34,6 +34,9 @@ on:
       make_args:
         description: variables for make, space-separated (BASE=<ref> for bench-ab)
         default: ''
+      base:
+        description: corpus-bench only, the ref timed beside this commit on the same runner; empty for this commit alone
+        default: origin/main
 
 # A push supersedes its ref's last run; each dispatch or nightly run is its own group, so a series runs side by side.
 concurrency:
@@ -145,6 +148,7 @@ jobs:
         env:
           TARGET: ${{ inputs.target || 'gates' }}
           MAKE_ARGS: ${{ inputs.make_args }}
+          CORPUS_BENCH_BASE: ${{ inputs.target == 'corpus-bench' && inputs.base || '' }}
         run: |
           set -o pipefail
           # Split on purpose: one word per variable.

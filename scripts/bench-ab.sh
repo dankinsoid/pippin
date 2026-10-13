@@ -11,14 +11,7 @@ OUT=${BUILD_ROOT:-.build}/bench-ab
 BASE_SRC=$OUT/base-src
 mkdir -p "$OUT"
 
-# CI checks out one commit, so the base may exist only on the remote.
-if ! rev=$(git rev-parse --verify --quiet "$BASE^{commit}"); then
-	git fetch --no-tags --depth=1 origin "$BASE"
-	rev=$(git rev-parse --verify FETCH_HEAD^{commit})
-fi
-
-git worktree remove --force "$BASE_SRC" 2>/dev/null || rm -rf "$BASE_SRC"
-git worktree add --detach "$BASE_SRC" "$rev" >/dev/null
+rev=$(sh scripts/base-tree.sh "$BASE" "$BASE_SRC")
 trap 'git worktree remove --force "$BASE_SRC" 2>/dev/null || true' EXIT
 
 # This tree's harness on both sides, so a selector added here runs on the base too.
