@@ -47,14 +47,27 @@
   `empty` and `applyTo` have no slot and are refused by name; `Associative`, `Indexed`,
   `IPersistentMap/Vector/List` cannot be implemented (the `assoc`/`dissoc` slots sorted.c added are
   C-only, there is no `nth` slot, and no trampoline names them — a record fills the map slots from C
-  instead, see "Records"; trigger: the first user vector type); `Object` methods
-  (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
+  instead, see "Records"; trigger: the first user vector type; datascript's Datom (`nth`, `assoc`,
+  `contains?`), Entity (`contains?`, `find`) and LRU (`assoc`) are demand too, which its port drops); `Object`
+  methods (`equals`/`hashCode`/`toString`) are not accepted (use `IEquiv`/`IHashEq`; no print slot); an
   arity error inside a method says `fn` and counts `this`, except `IFn`'s, which the trampoline
   checks first and reports with the type name; no chunked seqs, so every element of a user seq
   walked by `map`/`filter` costs two Clojure calls (`first`, `next`) and usually an instance
   allocation, and `count` without `Counted` walks it; `reduce` over a user type goes through its
   `IReduceInit` slot when it declares one (the trampoline seeds the 2-arity with `(f)`, as
   `CollReduce`'s extension to `IReduceInit` does on the JVM) and otherwise through `clj_seq_iter`.
+- [ ] **No mutable fields.** Design §4 «Роли конструкций» has `^:unsynchronized-mutable`/`^:volatile-mutable`
+  fields assigned by `set!` inside the type's own methods; here such a `set!` is "Cannot assign to non-mutable",
+  because a method body's field is a `let` local over `field*`, bound once. What it takes: a read after a `set!`
+  in the same body must see the store (a field the analyzer reads and stores through, not a local), `field*`
+  stops being pure to the facts across that store, and a store into a published instance takes the collector's
+  barrier (`clj_cc_note_store`, as an atom's does). datascript's Datom and persistent-sorted-set's BTSet cache
+  their hash in one, which their port computes on every call instead (corpus/datascript/SOURCE). Trigger: hashing
+  a datom or a BTSet in a profile, or a library whose mutable field is state rather than a cache.
+- [ ] **No Reversible slot.** `rseq` takes vectors and sorted collections; a deftype cannot answer it, where
+  `clojure.lang.Reversible` lets one on the JVM. persistent-sorted-set's port reverses its slices through a
+  protocol of its own, so `(rseq (datoms ...))` in a program does not work. Trigger: a program that `rseq`s a
+  datascript index or another user sorted collection.
 - [~] **Protocol dispatch is cached per call site** (eval.c, `proto_ic`; bench/RESULTS.md, "Call-site
   caches"): an INVOKE node whose head evaluates to a method fn keeps, in its exec's side array, the
   method's serial (a counter on `clj_method_ctx`, never reused), the definition epoch of the fill and

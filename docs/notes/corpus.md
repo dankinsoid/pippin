@@ -24,12 +24,28 @@
   so **edamame**, whose `:clj` *and* `:default` branches both require `clojure.tools.reader.reader-types`,
   goes with it, and **malli** (41), which requires edamame, `borkdude/dynaload` and `test.check`, and whose
   own `malli.impl.regex` is a `deftype` with `^:unsynchronized-mutable` fields. **datascript** imports
-  `me.tonsky.persistent_sorted_set.PersistentSortedSet`, a Java class, so there is nothing to measure.
+  `me.tonsky.persistent_sorted_set.PersistentSortedSet`, a Java class, so there is nothing to measure as it
+  stands; it is in as a port for the bench (below).
   Two libraries outside §10's list were measured for the same reason and are also out: **tools.cli** wants
   `*out*`, `*err*`, `Exception.` and `Integer/parseInt`, and **camel-snake-kebab** wants `Pattern/compile`
   and `(.end matcher)`. The demand this reports, in order of how many libraries it blocks: a `deftype` body
   over host interfaces, JVM exception constructors, the `java.lang` statics §8 refuses, `print-method`,
   `*out*`/`*err*`, `clojure.zip`/`clojure.pprint`, and `^:unsynchronized-mutable` fields.
+- **datascript 1.8.1 is in as a port, for `make corpus-bench` only** (`corpus/datascript`, its `SOURCE` and
+  `pippin.diff`; the workload `bench/workloads/src/workloads/datascript.clj`). The JVM and ClojureScript run it
+  from its jars; here its `:clj` branches are adapted where they name JVM classes, and its index is
+  persistent-sorted-set's ClojureScript implementation in this runtime's interface names. There is no
+  `manifest.edn`: a manifest would make it a corpus library whose suite the gates run, and its suite is not
+  ported. It found three gaps, fixed: `(.-field x)` on a deftype or record (NOTES "Type descriptor"), the `new`
+  special form ("Analyzer and evaluator") and the core interfaces under their `clojure.lang.` names, besides the
+  statics `Integer/compare` and `Math/sqrt` (`docs/jvm-differences.md`). The rest are open entries the port works
+  around: mutable fields, `Indexed`/`Associative` and a Reversible slot on a deftype ("Type descriptor"), a
+  record's own hash and count ("Records"), and the two namespaces of the next item.
+- [ ] **No `clojure.data` and no `clojure.edn`.** datascript's db requires `clojure.data` only to extend its
+  `Diff` and `EqualityPartition` protocols to DB, and its query reads rules given as a string with
+  `clojure.edn/read-string`; the port drops the first and reads with `read-string`. Both are JVM Clojure
+  namespaces ClojureScript carries as well. Trigger: a library whose path calls `clojure.data/diff` or reads EDN
+  it did not write.
 - **What a library of §10's class actually looks like**: one namespace over `clojure.core` (plus
   `clojure.string`/`set`/`walk`), no `deftype` over a host interface, no JVM static. `math-combinatorics` is
   the one taken — it loads whole, no top-level form lost, and passes 17 of its 18 deftests. It wanted
