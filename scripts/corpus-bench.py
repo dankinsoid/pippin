@@ -15,6 +15,8 @@ import subprocess
 import sys
 import time
 
+import corpus_refs
+
 WORKLOADS = ["medley", "combinatorics", "dependency", "nested-update", "group-freq", "pipelines", "strings",
              "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast"]
 LOAD_PATH = ["bench/workloads/src", "corpus/medley/src", "corpus/math-combinatorics/src", "corpus/dependency/src",
@@ -115,6 +117,7 @@ class Bench:
 		self.head = Side("head", ROOT, "")
 		self.base = None
 		self.sides = [self.head]
+		self.refs = corpus_refs.Refs(self, args.refs, ROOT, LOAD_PATH, parse, log)
 		os.makedirs(self.logs, exist_ok=True)
 
 	def keep(self, name, text):
@@ -327,7 +330,7 @@ class Bench:
 
 	def steps(self, w, res):
 		"""The runs of one workload, a yield after each so a hang ends the workload."""
-		if not self.args.skip_jvm:
+		if "jvm" in self.refs.refs:
 			res["jvm"] = self.jvm(w)
 			yield
 			cold = self.jvm(w, "once")
@@ -335,6 +338,7 @@ class Bench:
 			if cold:
 				res["jvm_cold_process_ms"] = cold["process_ms"]
 				res["jvm_cold_first_ms"] = cold.get("first_ms")
+		yield from self.refs.steps(w, res)
 		if self.args.interp_ab:
 			hb = self.head.bin
 			off = {self.args.interp_ab: "1"}
@@ -810,6 +814,7 @@ def write_report(b, facts_path, xctrace):
 	    " (interp/dev/closed). Forms lost to JVM interop in a lenient load: " + ", ".join(
 		"%s %s" % (w, (b.results[w].get("interp") or {}).get("load_failures", "—")) for w in b.args.only) + ".")
 	add("")
+	corpus_refs.section(b, b.refs, add, fmt, median_of)
 	if b.base:
 		ab_section(b, add)
 
@@ -980,7 +985,9 @@ def main():
 	ap.add_argument("--only", default=",".join(WORKLOADS), help="comma-separated workloads")
 	ap.add_argument("--out", default=".build/corpus-bench")
 	ap.add_argument("--sdkroot", help="the caller's SDKROOT, empty for none")
-	ap.add_argument("--skip-jvm", action="store_true")
+	ap.add_argument("--refs", default=",".join(corpus_refs.REFS),
+	                help="comma-separated reference runtimes, run once per workload: " + ", ".join(corpus_refs.REFS))
+	ap.add_argument("--skip-jvm", action="store_true", help="--refs without jvm")
 	ap.add_argument("--skip-closed", action="store_true")
 	ap.add_argument("--skip-sample", action="store_true")
 	ap.add_argument("--skip-facts", action="store_true")
@@ -989,6 +996,10 @@ def main():
 	ap.add_argument("--reps", type=int, help="timed runs per mode and side (default 8 with --base, else 1)")
 	args = ap.parse_args()
 	args.only = [w for w in args.only.split(",") if w]
+	args.refs = [r for r in args.refs.split(",") if r and not (args.skip_jvm and r == "jvm")]
+	unknown = [r for r in args.refs if r not in corpus_refs.REFS]
+	if unknown:
+		sys.exit("corpus-bench: unknown references " + ", ".join(unknown))
 	unknown = [w for w in args.only if w not in WORKLOADS]
 	if unknown:
 		sys.exit("corpus-bench: unknown workloads " + ", ".join(unknown))
@@ -1000,9 +1011,10 @@ def main():
 	t0 = time.monotonic()
 	try:
 		b.tools()
-		if not args.skip_jvm:
+		if "jvm" in args.refs:
 			# The classpath is resolved once, outside every timed process.
 			sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
+		b.refs.prepare(args.only)
 		xctrace = b.xctrace_probe()
 		start = time.monotonic()
 		for w in args.only:
