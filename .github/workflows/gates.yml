@@ -119,7 +119,6 @@ jobs:
           echo "GITLIBS=$HOME/.cache/corpus-bench-refs/gitlibs" >> "$GITHUB_ENV"
           echo "PUB_CACHE=$HOME/.cache/corpus-bench-refs/pub" >> "$GITHUB_ENV"
           node --version
-          dart --version
 
       - name: Maven cache
         uses: actions/cache@v6
