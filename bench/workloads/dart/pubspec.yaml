@@ -1,5 +1,5 @@
 name: workloads
-description: corpus-bench's data workloads hand-ported to idiomatic Dart (docs/notes/benchmarks.md, "Dart references").
+description: corpus-bench's data workloads hand-ported to idiomatic Dart (docs/notes/benchmarks.md, "Hand-ported references").
 publish_to: none
 environment:
   sdk: ^3.0.0
