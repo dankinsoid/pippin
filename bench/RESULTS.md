@@ -3226,3 +3226,30 @@ suspect is the inline paths every program takes: the mask of `clj_reach_from` in
   nothing the experiments removed. `is_unique` tests IMMORTAL, SHARED and ACYCLIC in one mask since 8adb68b; against
   0ab4ab2 (38576485958) closed nested-update 1.002 [1.001–1.003], group-freq 1.012 [0.998–1.028], medley 1.013
   [0.985–1.033], suite-data 0.992 [0.975–1.017], geomean 1.005.
+
+## No candidate for a validly marked node — 77210cb, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+A nonzero release of an unshared node whose acyclic mark is valid files nothing (design §7, «Отпускание помеченного
+кандидата не подаёт»; NOTES "RC"), with a direct-mapped cache of 1024 recent addresses beside the checked table. Run
+38592099837 is `make corpus-bench` against main 52599af, the default 8 repetitions, 2 for datascript. Same runner,
+head / base, each run's fastest iteration:
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| datascript | 0.970 [0.967–0.973]* (2) | 0.988 [0.973–1.003] (2) | 1.043 [0.947–1.139] (2) | 0.969 [0.967–0.971]* (2) |
+| *geomean, all 13* | 1.007 | 1.007 | 1.000 | 1.007 |
+
+datascript closed 1198.9 → 1161.7 ms (fastest iteration), 1288.7 → 1210.8 (median), 7.1× the JVM's 170.0 ms. The other
+cells whose interval excludes 1 — combinatorics interp 1.009, dependency interp 1.025 and dev 1.033, pipelines interp
+1.055, render closed 1.024 — are 5 of 48, near the A/A rate, in workloads where no release meets a mark (cc unfiled 0); the datascript-only run 38592107862
+(`--only=datascript --reps=8`) on a noisier runner put every mode's interval across 1 (closed 0.978 [0.811–1.071]).
+
+- **Collector work, datascript closed stats run, per iteration**: candidates 5.79M → 1.05M (−81.8 %), collections
+  15.6k → 4.1k (−74 %), nodes visited 0.99M → 0.55M (−44 %), releases of a marked node answered by the table 8.20M (more
+  than the candidates they replace: a buffered node's later releases filed nothing before either).
+- **The cache** (run 38577552311, head 1eb09c8 against its parent 8f48ccf): `clj_cc_local_unfiled` 8.0 % of datascript
+  closed's busy samples → 5.0 %, and the thread-local counter's `_tlv_get_addr` (1.8 %) gone; closed 0.986
+  [0.928–1.044], interp 0.962 [0.936–0.988]*.
+- **Profile, datascript closed**: the cycle collector's frames are 12.1 % of busy samples (17.5 % in run 38549012720):
+  `clj_cc_local_unfiled` 4.5 %, `visit_child` 2.4 %; `release_reaches_zero` 4.1 % and `clj_coro_current` 2.3 % are the
+  release path that reaches the check.

@@ -268,6 +268,10 @@
   release comes last (an old array taking a young one that points back, in both orders; a volatile). Measured (bench/RESULTS.md, "The acyclic marks", run 38549012720): datascript closed 4122 → 1134 ms, 8.0× the
   JVM where it was 28–30×, nodes visited per iteration 55.0M → 0.99M, the collector's share of busy samples 78.5 % →
   17.5 %; the other twelve workloads' geomean 1.000 / 1.004 / 0.998 / 1.011 (interp / core+interp / dev / closed).
+  No candidate for a valid mark (bench/RESULTS.md, "No candidate for a validly marked node", run 38592099837 against
+  main 52599af): datascript's candidates 5.79M → 1.05M per iteration, collections 15.6k → 4.1k, nodes visited 0.99M →
+  0.55M, 8.20M releases answered by the table; the collector 12.1 % of closed's busy samples, `clj_cc_local_unfiled`
+  4.5 % of them; closed 0.969 [0.967–0.971], geomean of all thirteen 1.007 / 1.007 / 1.000 / 1.007.
   Not done: the shared and the deep collections take no mark, so a large published structure is still walked again by
   the background thread (trigger: a profile of a workload whose shared collections walk the same live graph); the closed
   geomean's +1.1 % (nested-update +3.9 %, group-freq +2.9 %, neither filing a candidate) points at the inline mask in
