@@ -39,7 +39,7 @@ extension CoreTests {
 		// ends by defining a fn of the same shape again.
 		@Test func definesAndRedefines() throws {
 			let v = rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! + 1) }
-			let before = clj_debug_live_objects()
+			let before = clj_debug_live_objects(), census = LiveCensus()
 			do {
 				#expect(v.description == "#'user/df-twice")
 				#expect(v.typeName == "var")
@@ -59,7 +59,7 @@ extension CoreTests {
 				rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! + 100) }
 				#expect(try site(1) == 101)
 			}
-			#expect(clj_debug_live_objects() == before)
+			#expect(clj_debug_live_objects() == before, "\(LiveCensus().moves(since: census))")
 		}
 
 		@Test func arityErrorsNameTheVar() throws {
