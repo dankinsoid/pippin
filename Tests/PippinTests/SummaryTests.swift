@@ -517,13 +517,13 @@ extension CoreTests {
 			}
 			let total = Int(clj_facts_nsignatures())
 			#expect(expressible == total - transfer.count - gaps.values.reduce(0) { $0 + $1.count })
-			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (151, 201, 19, 31),
+			#expect((expressible, total, transfer.count, gaps.values.reduce(0) { $0 + $1.count }) == (149, 201, 19, 33),
 			        Comment(rawValue: "\(expressible) of \(total), \(transfer.count) transfer, gaps \(gaps.values.reduce(0) { $0 + $1.count })"))
 			#expect(Set(transfer) == ["+", "-", "*", "/", "quot", "rem", "inc", "dec", "conj", "assoc", "into", "with-meta", "vary-meta", "dissoc", "disj", "empty",
 			                          "seq", "next", "rest"])
 			// the kinds the vocabulary has no tag for (NOTES.md "Facts" lists them): design §3's vocabulary gap, not a second mechanism
 			let gapFacts = Set(gaps.keys)
-			#expect(gapFacts == ["array/never", "atom/never", "char/never", "fixnum/never", "map/never", "regex/never", "set/never",
+			#expect(gapFacts == ["array/never", "atom/never", "char/never", "fixnum/never", "fixnum|long/never", "map/never", "regex/never", "set/never",
 			                     "sorted-map/never", "sorted-set/never", "uuid/never"], Comment(rawValue: gaps.sorted { $0.key < $1.key }.description))
 		}
 
