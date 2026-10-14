@@ -955,10 +955,10 @@ def write_report(b, facts_path, xctrace):
 	    "reference type and into one with `HEAPREF`, edges into an immutable owner with `HEAPREF` (in place, late "
 	    "init); a walk where the owner has `HEAPREF` and the value `REACH_LOCAL` (lazy: a lazy-seq realization), the "
 	    "nodes walked to the end (cap 1024), walks past 64 and the cap, walks that met the owner; stores into a shared "
-	    "reference type and of a `REACH` value; the candidates filed today.")
+	    "reference type and of a `REACH` value; the candidates filed today, and the shared ones among them.")
 	add("")
-	add("| workload | edges | heapref set | into mutable | mutable w/ heapref | imm w/ heapref | walks | lazy | nodes | >64 | capped | cycles | shared | shared reach | cc candidates |")
-	add("|---|" + "---:|" * 15)
+	add("| workload | edges | heapref set | into mutable | mutable w/ heapref | imm w/ heapref | walks | lazy | nodes | >64 | capped | cycles | shared | shared reach | cc candidates | of them shared |")
+	add("|---|" + "---:|" * 16)
 	for w in b.args.only:
 		s = b.results[w].get("closed-stats") or b.results[w].get("dev-stats")
 		if not s:
@@ -967,7 +967,7 @@ def write_report(b, facts_path, xctrace):
 		add("| %s | %s |" % (w, " | ".join(k(st.get(n)) for n in (
 			"sc_edges", "sc_heapref_set", "sc_mut", "sc_mut_heapref", "sc_imm_heapref", "sc_walks", "sc_walks_lazy",
 			"sc_walk_nodes", "sc_walk_long", "sc_walk_capped", "sc_cycles", "sc_shared", "sc_shared_reach",
-			"cc_candidates"))))
+			"cc_candidates", "cc_shared_filed"))))
 	add("")
 
 	if b.args.interp_ab:

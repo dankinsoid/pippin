@@ -243,6 +243,7 @@ bool clj_cc_shared_candidate(clj_header *h) {
 			break;
 	}
 	stat_add(CLJ_CC_STAT_CANDIDATES, 1);
+	stat_add(CLJ_CC_STAT_SHARED_FILED, 1);
 	shared_push(h, true);
 	return true;
 }
@@ -265,6 +266,7 @@ void clj_cc_file(clj_header *h) {
 	while (!(cur & CLJ_RC_BUFFERED) && (cur & CLJ_RC_COUNT_MASK)) {
 		if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, cur | CLJ_RC_BUFFERED, memory_order_seq_cst, memory_order_relaxed)) {
 			stat_add(CLJ_CC_STAT_CANDIDATES, 1);
+			stat_add(CLJ_CC_STAT_SHARED_FILED, 1);
 			shared_push(h, true);
 			return;
 		}
