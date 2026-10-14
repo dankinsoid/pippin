@@ -35,8 +35,8 @@ RUN_TIMEOUT = 240
 SAMPLE_SECONDS = 8
 # Past this the remaining workloads are reported as not run; the CI step's own cap is above it.
 TOTAL_BUDGET = 150 * 60
-# At most this many repetitions of a workload whose run takes seconds: datascript's 8 pairs would cost the default
-# --base job about 25 min more than 2 do (bench/RESULTS.md, "Datascript").
+# At most this many repetitions of a workload whose run takes seconds, unless --reps is given: datascript's 8 pairs
+# would cost the default --base job about 25 min more than 2 do (bench/RESULTS.md, "Datascript").
 REPS_CAP = {"datascript": 2}
 # The timed modes, in the order each repetition runs them.
 TIMED = ["interp", "dev-core", "dev", "closed"]
@@ -380,7 +380,7 @@ class Bench:
 		# A pair is two adjacent runs of one mode; who goes first alternates, so drift and warm-up hit both sides.
 		runs = {}
 		pairs = res["pairs"] = {m: [] for m in TIMED}
-		for rep in range(min(self.args.reps, REPS_CAP.get(w, self.args.reps))):
+		for rep in range(self.args.reps if self.args.reps_given else min(self.args.reps, REPS_CAP.get(w, self.args.reps))):
 			order = self.sides if rep % 2 == 0 else self.sides[::-1]
 			for mode in TIMED:
 				got = {}
@@ -1034,6 +1034,7 @@ def main():
 	unknown = [w for w in args.only if w not in WORKLOADS]
 	if unknown:
 		sys.exit("corpus-bench: unknown workloads " + ", ".join(unknown))
+	args.reps_given = args.reps is not None
 	if args.reps is None:
 		args.reps = 8 if args.base else 1
 	if args.reps < 1:

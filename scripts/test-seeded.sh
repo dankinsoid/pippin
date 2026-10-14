@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.."
 
 SCRATCH=${SCRATCH:-.build/plain}
-# Commas too: make_args on CI splits on spaces.
+# Commas too: CI's make_args then needs no quoting.
 SEEDS=$(echo "${SEEDS:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16}" | tr ',' ' ')
 # Virtual time makes a seeded suite fast; a hang is reported (and sampled) early, not after CI's 900 s.
 export CLJ_TEST_HANG_S=${SEEDED_HANG_S:-180}

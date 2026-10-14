@@ -32,7 +32,7 @@ on:
         description: TEST_SHARDS, to deal the suites otherwise than the gate's committed count; empty runs the gate's deal
         default: ''
       make_args:
-        description: variables for make, space-separated (BASE=<ref> for bench-ab)
+        description: variables for make, split as a shell splits words (BASE=<ref> for bench-ab; CORPUS_BENCH_ARGS='--only=a,b --reps=16')
         default: ''
       base:
         description: corpus-bench only, the ref timed beside this commit on the same runner; empty for this commit alone
@@ -175,8 +175,11 @@ jobs:
           CORPUS_BENCH_BASE: ${{ inputs.target == 'corpus-bench' && inputs.base || '' }}
         run: |
           set -o pipefail
-          # Split on purpose: one word per variable.
-          make "$TARGET" $MAKE_ARGS 2>&1 | tee "$RUNNER_TEMP/gates.log"
+          # Split as a shell splits words, without eval: a quoted value keeps its spaces and nothing in it runs.
+          python3 -c 'import os, shlex, sys; sys.stdout.write("".join(a + "\0" for a in shlex.split(os.environ["MAKE_ARGS"])))' > "$RUNNER_TEMP/make-args"
+          args=()
+          while IFS= read -r -d '' a; do args+=("$a"); done < "$RUNNER_TEMP/make-args"
+          make "$TARGET" ${args[@]+"${args[@]}"} 2>&1 | tee "$RUNNER_TEMP/gates.log"
 
       - name: Gate times
         if: ${{ !cancelled() }}

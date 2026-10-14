@@ -37,6 +37,8 @@
   stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
   neither gate: a CI dispatch with `target: corpus-bench` (on the arm64 runner about 20 min for one tree plus 10 for the reference runtimes, 79 with the default base; datascript adds about 7 min to one tree and about 19 to the default base at its 2 repetitions, bench/RESULTS.md "Datascript";the report is the job
   summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
+  The workflow splits `make_args` as a shell splits words (`shlex`, no eval), so a value with spaces is quoted:
+  `-f make_args="CORPUS_BENCH_ARGS='--only=a,b --reps=16'"`; unquoted, make would read `--reps=16` as its own option.
   `--interp-ab=VAR` adds a stats build of the interpreter and runs the interpreter and its counters twice, the second
   time with `VAR=1` in the environment (a switch the runtime or `clj-corpus-bench` reads, `CLJ_BENCH_NO_LAZY_INLINE`
   the first), into an "Interpreter A/B" table: the stats runs below are compiled code, so this is the only place an
@@ -50,8 +52,8 @@
     this one does not build there, and gives it its own builds (`base-*` beside each scratch directory, its own
     clj-compile, dev units and closed tree; `CLJ_EVAL_ROOT` is the base tree, whose headers the units compile
     against). Both sides run this tree's workload sources. Per workload, after both sides' builds, `--reps` repetitions
-    (8 by default with a base; `REPS_CAP` holds datascript, whose runs take seconds, to 2, so its cells carry
-    "(2)", stay out of the geomean and show a factor, not a few per cent) each run interp, core+interp, dev and
+    (8 by default with a base; `REPS_CAP` holds datascript, whose runs take seconds, to 2 unless `--reps` is given,
+    so its cells carry "(2)", stay out of the geomean and show a factor, not a few per cent) each run interp, core+interp, dev and
     closed on both sides back to back, the base
     first in even repetitions and the head first in odd ones; then both sides' dev and closed stats runs; the
     profile, census, calibration and facts stay the head's, and the JVM runs once. The report's "Same runner"
