@@ -235,7 +235,7 @@
   the invariant and why it holds). The case it was built for: corpus/datascript's index, persistent-sorted-set's B+
   tree of deftypes over object arrays, all `REACH_LOCAL` since an object array is born with the bit, which every local
   collection walked from the path-copied nodes down to each datom slot to find it alive (bench/RESULTS.md,
-  "Datascript": 67 % of the closed build's busy samples in `cc.c`, 30× the JVM). Header bits 10–12, unshared objects
+  "Datascript": 67 % of the closed build's busy samples in `cc.c`, 30× the JVM). Header bits 11–13 (10 is a string's ASCII bit), unshared objects
   only, all cleared by `clj_share`: `CLJ_FLAG_ACYCLIC`, `CLJ_FLAG_GUARDED` and `CLJ_FLAG_DIRTY`. After `blacken` a
   local collection runs Tarjan's components over its black nodes (`black_components`, shared with the deep walk's
   rings) and marks a node whose component is trivial when nothing below it is hot — a `MUTABLE` with `DIRTY`, a lazy

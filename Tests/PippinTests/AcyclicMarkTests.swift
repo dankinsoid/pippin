@@ -40,7 +40,7 @@ extension CoreTests {
 			  (dotimes [_ 2] (cc-file! x) (cc-collect!))
 			  (cc-acyclic? x))
 			""")
-			for k in ["back", "probe", "k"] { _ = Value(keyword: k) }
+			for k in ["back", "probe", "k", "copied", "flat-marked", "flat-unmarked"] { _ = Value(keyword: k) }
 		}
 
 		// The form answers whether its structure was marked before the cycle closed; the cycle must go.
@@ -108,11 +108,12 @@ extension CoreTests {
 			for t in ["(transient {})", "(transient {:k (object-array 1)})"] {
 				let base = CoroBaseline()
 				let freed = stat(CLJ_CC_STAT_FREED)
+				// :flat-unmarked, :flat-marked or :copied: the answer must hold no object past the baseline.
 				let r = try eval("""
 				(let [t \(t) flat (identical? t (assoc! t :probe 1)) root (Node. (object-array [t]))]
-				  (let [m (mark! root)] (assoc! t :back root) [m flat]))
+				  (let [m (mark! root)] (assoc! t :back root) (cond (not flat) :copied m :flat-marked :else :flat-unmarked)))
 				""")
-				if r.array?[1] == Value(true) { #expect(r.array?[0] == Value(false), "\(t)") }
+				#expect(r != Value(keyword: "flat-marked"), "\(t)")
 				clj_cc_collect()
 				base.check()
 				#expect(stat(CLJ_CC_STAT_FREED) - freed >= 1, "\(t)")

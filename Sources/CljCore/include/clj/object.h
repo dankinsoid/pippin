@@ -86,13 +86,14 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // Reaches a lazy seq, OR'd like REACH: a realization adds an edge no bit records, so the walk of a replaced var root
 // (clj_rc_release_root) descends through it as well as through REACH.
 #define CLJ_FLAG_LAZY        ((uint32_t)1 << 9)
+// Bit 10 is a string's own: CLJ_STRING_ASCII (string.h).
 // The local collection's acyclic marks, unshared objects only (design §7, «Метка «ацикличен»»; cc.c).
 // On no cycle, while the execution's checked table names it.
-#define CLJ_FLAG_ACYCLIC     ((uint32_t)1 << 10)
+#define CLJ_FLAG_ACYCLIC     ((uint32_t)1 << 11)
 // A reference type below a mark: an edge stored into it voids every mark.
-#define CLJ_FLAG_GUARDED     ((uint32_t)1 << 11)
+#define CLJ_FLAG_GUARDED     ((uint32_t)1 << 12)
 // A reference type that took an edge since a local walk last saw it.
-#define CLJ_FLAG_DIRTY       ((uint32_t)1 << 12)
+#define CLJ_FLAG_DIRTY       ((uint32_t)1 << 13)
 #define CLJ_FLAG_CC_LOCAL    (CLJ_FLAG_ACYCLIC | CLJ_FLAG_GUARDED | CLJ_FLAG_DIRTY)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
 #define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
