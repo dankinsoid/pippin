@@ -540,6 +540,33 @@ static inline clj_value clj_c_proto_ic_call(clj_cproto_ic *ic, clj_value method,
 	return clj_c_proto_miss(ic, method, args, n, t, epoch);
 }
 
+// ---- field reads, (.-f x) with no arguments (NOTES.md "Type descriptor"): one word per site, the serial of the
+// user type last read there above the field's index. Serials are never reused, so a redefined type or a descriptor
+// freed and reallocated at the same address misses; a racing fill writes a word as consistent as its own.
+#define CLJ_C_FIELD_EMPTY UINT64_MAX
+
+#if CLJ_DEBUG
+extern _Atomic int64_t clj_debug_field_counters[2]; // hits, misses
+#define CLJ_C_FIELD_COUNT(i) atomic_fetch_add_explicit(&clj_debug_field_counters[i], 1, memory_order_relaxed)
+#else
+#define CLJ_C_FIELD_COUNT(i) ((void)0)
+#endif
+
+// clj_objc_send as is, the cell filled when the selector named a field of a deftype or record.
+clj_value clj_c_field_miss(_Atomic uint64_t *cell, clj_value x, clj_value selector);
+
+static inline clj_value clj_c_field_read(_Atomic uint64_t *cell, clj_value x, clj_value selector) {
+	if (__builtin_expect(clj_is_instance(x), 1)) {
+		const clj_user_type *ut = (const clj_user_type *)clj_type_of(x);
+		uint64_t             w = atomic_load_explicit(cell, memory_order_relaxed);
+		if (__builtin_expect(w >> 16 == ut->serial, 1)) {
+			CLJ_C_FIELD_COUNT(0);
+			return clj_retain(((const clj_instance *)clj_to_ptr(x))->fields[w & 0xffff].v);
+		}
+	}
+	return clj_c_field_miss(cell, x, selector);
+}
+
 // ---- keyword-lookup sites (NOTES.md "Shapes", the cache): per thread, as the protocol cache, so a fill never races a hit.
 typedef struct {
 	uint32_t     n; // CLJ_KW_IC_MEGA once the site gave up

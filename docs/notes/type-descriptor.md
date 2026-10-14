@@ -90,12 +90,20 @@
   a megamorphic cutoff: a site cycling through more than four receivers in a profile. A compiled site has
   its own cells — direct arms from the receiver fact and a per-thread cache ("Compiler", protocol calls).
 - **`(.-field x)` reads a field of a deftype or record by name** (`clj_instance_send`, which both backends
-  reach through `clj_objc_send`): a scan of the type's field names per call, then, with no such field, the
-  protocol method named `-field` as before. A reify has none to read: its slots are its method closures,
+  reach through `clj_objc_send`): a scan of the type's field names, then, with no such field, the
+  protocol method named `-field`. A reify has none to read: its slots are its method closures,
   named after the methods (`reified`). Inside its own method bodies a field is a local over `field*`; a deftype
   carries meta only by implementing `IObj` itself (a field for it), a record has the slot (see "Records").
-  Trigger for an index cached per site: a field read in a profile (corpus/datascript's datom comparators read
-  `.-e`, `.-a`, `.-v` on every comparison).
+  A compiled site with no arguments keeps one word (`clj_c_field_read`, compiled_internal.h): the `serial` of the
+  user type it last read a field of, above that field's index. A hit is an instance whose type's serial matches —
+  one load of the word, one of the serial, the field; anything else (nil, a reify, an ObjC object, a Swift box, a
+  method, another type) goes to `clj_c_field_miss`, which is `clj_objc_send` as before and fills the word when the
+  scan found a field. Serials count from 1 and are never reused, so a type redefined with its fields in another
+  order, or a new descriptor at a dead one's address, misses; racing fills each write a whole word, so no lock.
+  The site is one word in every mode and needs no type hint (the analyzer keeps none): a guard on a hinted type
+  and a constant index would cost the same compare. `CLJ_NO_OPT=dispatch` stops the fills (the interpreter keeps
+  the scan). corpus/datascript's comparators read `.-e`, `.-a`, `.-v` 6–8 times a comparison: ~9 % of its run
+  went to the scan (`field_named`).
 - [ ] **No protocol inheritance.** A protocol cannot extend another. `extend-type` on a core interface as the
   *type* (`(extend-type ISeq P ...)`) covers every type with those bits, on the concrete type missing; a
   user protocol cannot be a type designator. Trigger: a library whose protocol extends another.

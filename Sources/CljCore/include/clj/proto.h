@@ -103,6 +103,7 @@ typedef struct {
 	clj_slot  fields; // vector of symbols
 	uint32_t  nfields;
 	bool      reified; // its fields hold the method closures, named after the methods: no field to read
+	uint64_t  serial;  // from 1, never reused: a field-read cell keys on it, so a freed descriptor's address cannot alias
 	clj_slot  core_fns[CLJ_CORE_METHOD_COUNT]; // the fn behind each core slot, nil where not given; written at creation only
 } clj_user_type;
 
@@ -124,6 +125,8 @@ clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n);
 static inline bool clj_is_instance(clj_value v) { return clj_is_ptr(v) && clj_is_user_type(clj_from_ptr((void *)clj_type_of(v))); }
 // Borrowed; aborts out of range.
 clj_value clj_instance_field(clj_value obj, uint32_t i);
+// The field `(.-name obj)` reads, as clj_instance_send finds it: selector is "-name"; -1 for no field (a method then).
+int64_t clj_instance_field_index(clj_value obj, clj_value selector);
 clj_value clj_is_instance_of(clj_value type, clj_value v);
 // The same through a var holding the descriptor, as a catch clause naming our type does (design §4).
 clj_value clj_catch_instance(clj_value var, clj_value ex);

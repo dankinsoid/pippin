@@ -192,6 +192,24 @@ extension CoreTests {
 			#expect(cljEvalError("(cd-m)")?.contains("Wrong number of args (0)") == true)
 		}
 
+		// A dev unit's (.-f x) site fills its cell once per type; a redefined type with the field elsewhere misses it.
+		@Test func fieldReadCellMissesARedefinedType() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.fields)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			_ = try cljEval("(deftype FrT [a b])")
+			try compiledEval {
+				_ = try cljEval("(defn fr-b [x] (.-b x))")
+			}
+			let hits0 = clj_debug_field_reads(true), misses0 = clj_debug_field_reads(false)
+			#expect(try cljEval("[(fr-b (->FrT 1 2)) (fr-b (->FrT 3 4))]") == [2, 4])
+			let hits1 = clj_debug_field_reads(true), misses1 = clj_debug_field_reads(false)
+			#expect(hits1 - hits0 == 1 && misses1 - misses0 == 1, "hits \(hits1 - hits0), misses \(misses1 - misses0)")
+			_ = try cljEval("(def fr-old (->FrT 5 6)) (deftype FrT [b a])")
+			#expect(try cljEval("[(fr-b (->FrT 1 2)) (fr-b (->FrT 3 4)) (fr-b fr-old) (fr-b nil)]") == [1, 3, 6, nil])
+			#expect(clj_debug_field_reads(true) - hits1 == 1 && clj_debug_field_reads(false) - misses1 == 3)
+		}
+
 		// Compiled closures capture through the interpreter's fn constructors, so the reach bits and the collector are one.
 		@Test func cyclesMadeByCompiledCodeAreCollected() throws {
 			clj_init()

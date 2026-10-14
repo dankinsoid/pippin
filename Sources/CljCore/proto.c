@@ -308,11 +308,17 @@ static int64_t field_named(const clj_user_type *t, const char *name, size_t len)
 	return -1;
 }
 
+int64_t clj_instance_field_index(clj_value obj, clj_value selector) {
+	const char          *sel = CLJ_STR(selector).bytes;
+	const clj_user_type *ut = (const clj_user_type *)clj_type_of(obj);
+	return sel[0] == '-' && !ut->reified ? field_named(ut, sel + 1, clj_string_len(selector) - 1) : -1;
+}
+
 clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs) {
-	const char *sel = CLJ_STR(selector).bytes;
+	const char          *sel = CLJ_STR(selector).bytes;
 	const clj_user_type *ut = (const clj_user_type *)clj_type_of(target);
-	if (sel[0] == '-' && nargs == 0 && !ut->reified) {
-		int64_t i = field_named(ut, sel + 1, clj_string_len(selector) - 1);
+	if (nargs == 0) {
+		int64_t i = clj_instance_field_index(target, selector);
 		if (i >= 0) return clj_retain(clj_instance_field(target, (uint32_t)i));
 	}
 	clj_value f = method_named(&ut->t, sel, strcspn(sel, ":"));
@@ -1009,7 +1015,10 @@ static clj_value user_type_shape(clj_value name, clj_value fields, size_t nimpls
 	return CLJ_NIL;
 }
 
+static _Atomic uint64_t type_serials;
+
 clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
+	ut->serial = atomic_fetch_add_explicit(&type_serials, 1, memory_order_relaxed) + 1;
 	users_add(&ut->t);
 	if (user_type_shape(name, fields, nimpls) == CLJ_THROWN) {
 		clj_release(clj_from_ptr(ut));

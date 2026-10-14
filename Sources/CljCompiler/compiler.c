@@ -2529,7 +2529,18 @@ static temp emit_objc_send(fnctx *f, const clj_node *n) {
 	bool   ok;
 	size_t ki = const_index(f, n->u.objc.selector.v, &ok);
 	if (!ok) return emit_refused(f, n, "selector does not print and read back");
-	temp target = emit_borrowed(f, n->u.objc.target);
+	temp            target = emit_borrowed(f, n->u.objc.target);
+	clj_value       sel = n->u.objc.selector.v;
+	if (n->u.objc.n == 0 && clj_is_string(sel) && clj_string_len(sel) > 1 && CLJ_STR(sel).bytes[0] == '-' && !clj_opt_off(CLJ_NO_OPT_DISPATCH)) {
+		int  k = f->naux++;
+		temp r = new_temp(f, OWN_YES);
+		sb_printf(&f->out, "\tstatic _Atomic uint64_t FC%d = CLJ_C_FIELD_EMPTY;\n\tclj_value %s = clj_c_field_read(&FC%d, %s, K[%zu]);\n", k, r.name, k, target.name, ki);
+		f->u->slots.field_sites++;
+		release_temp(f, &target);
+		check_thrown(f, r.name);
+		live_push(f, r);
+		return r;
+	}
 	char array[24];
 	snprintf(array, sizeof array, "a%d", f->naux++);
 	temp *args = emit_args(f, n->u.objc.args, n->u.objc.n, array);

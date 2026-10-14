@@ -90,6 +90,8 @@ bool clj_core_instrumented(void);
 // Hits of compiled protocol sites' direct arms and inline caches; -1 outside CLJ_DEBUG builds.
 int64_t clj_debug_proto_arm_hits(void);
 int64_t clj_debug_proto_cache_hits(void);
+// Field reads of compiled (.-f x) sites served by their cell (hit) or not; -1 outside CLJ_DEBUG builds.
+int64_t clj_debug_field_reads(bool hit);
 // Roots a cross-unit inline guard looked up and found compiled from its tree, or not (clj_c_root_tree): any build.
 int64_t clj_debug_tree_matches(bool matched);
 

@@ -11,6 +11,7 @@
 #include "clj/keyword.h"
 #include "clj/map.h"
 #include "clj/ns.h"
+#include "clj/objc.h"
 #include "clj/printer.h"
 #include "clj/reader.h"
 #include "clj/set.h"
@@ -251,6 +252,30 @@ clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value 
 	clj_value r = clj_c_call_impl(impl, args, n);
 	clj_release(impl);
 	return r;
+}
+
+#if CLJ_DEBUG
+_Atomic int64_t clj_debug_field_counters[2];
+#endif
+
+int64_t clj_debug_field_reads(bool hit) {
+#if CLJ_DEBUG
+	return atomic_load_explicit(&clj_debug_field_counters[!hit], memory_order_relaxed);
+#else
+	(void)hit;
+	return -1;
+#endif
+}
+
+// @ai-generated(solo)
+CLJ_UNIT_ENTRY clj_value clj_c_field_miss(_Atomic uint64_t *cell, clj_value x, clj_value selector) {
+	CLJ_C_FIELD_COUNT(1);
+	if (clj_is_instance(x) && !clj_opt_off(CLJ_NO_OPT_DISPATCH)) {
+		uint64_t serial = ((const clj_user_type *)clj_type_of(x))->serial;
+		int64_t  i = clj_instance_field_index(x, selector);
+		if (i >= 0 && i <= 0xffff && serial < (uint64_t)1 << 48) atomic_store_explicit(cell, serial << 16 | (uint64_t)i, memory_order_relaxed);
+	}
+	return clj_objc_send(x, selector, &x, 0, false);
 }
 
 #if CLJ_DEBUG
