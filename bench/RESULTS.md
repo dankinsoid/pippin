@@ -3215,3 +3215,14 @@ suspect is the inline paths every program takes: the mask of `clj_reach_from` in
   candidates —, `run` 80, `blacken` 65, `black_components` 59). The workload's own frames lead now:
   `release_reaches_zero` 198, `clj_release` 170, `clj_instance_send` 149, the sorted set's `cut_n_splice` and
   `binary_search_l`.
+- **The four closed cells, 16 repetitions** (`--only=nested-update,group-freq,medley,suite-data --reps=16`, same
+  runner, closed, fastest iteration). Main 30d6a84 against 0ab4ab2, run 38560578597: nested-update 1.040
+  [1.033–1.067]*, group-freq 1.017 [0.987–1.036], medley 1.030 [1.012–1.052]*, suite-data 1.027 [1.016–1.039]*,
+  geomean 1.029; interp, core+interp and dev 0.997–1.007. Three experiments against 30d6a84, each with marks off
+  (`ck_current` returning NULL): marks off alone (38567012132) geomean 1.000, every cell 0.995–1.013; the base
+  `clj_reach_from` (38567003696) 1.003, nested-update 0.991 [0.973–1.052]; no mark clear in `is_unique` and
+  `clj_realloc` (38567007864) 1.000, nested-update 0.960 [0.938–0.983]*. The cost was nested-update's, the oracle's
+  separate `tbnz #11` on a path its 7.56M in-place reuses per iteration take; the other three cells moved with
+  nothing the experiments removed. `is_unique` tests IMMORTAL, SHARED and ACYCLIC in one mask since 8adb68b; against
+  0ab4ab2 (38576485958) closed nested-update 1.002 [1.001–1.003], group-freq 1.012 [0.998–1.028], medley 1.013
+  [0.985–1.033], suite-data 0.992 [0.975–1.017], geomean 1.005.
