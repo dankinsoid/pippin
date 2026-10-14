@@ -1290,9 +1290,15 @@ void clj_cc_store_check(clj_header *x, clj_header *y) {
 		stat_add(CLJ_CC_STAT_STORE_CYCLES, 1);
 		return;
 	}
+	clj_coro *c = clj_coro_current();
+	// A realization's value reaches what its thunk walked, a whole index for a seq over one: no walk, the entry's.
+	if (x->type == &clj_lazy_seq_type) {
+		stat_add(CLJ_CC_STAT_STORE_DEFERRED, 1);
+		file_local(c, x);
+		return;
+	}
 	if (!store_w && !(store_w = calloc(1, sizeof *store_w))) clj_fatal("out of memory");
 	store_walk *w = store_w;
-	clj_coro   *c = clj_coro_current();
 	if (++w->gen == 0) {
 		memset(w->table, 0, sizeof w->table);
 		w->gen = 1;
