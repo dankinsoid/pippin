@@ -165,7 +165,7 @@ if opts.stats {
 		slots: \(file): \(st.slots) slots, local \(st.local) (\(pct(st.local, st.slots))), promoted \(st.promoted) (\(pct(st.promoted, st.slots))) \
 		of which local \(st.promoted_local); local not promoted: param \(st.local_param), pinned \(st.local_pinned), fused \(st.local_fused); \
 		int64 slots \(st.int_slots), double slots \(st.double_slots), arithmetic nodes unboxed \(st.unboxed), tag-checked \(st.tag_checked), entry-checked frames \(st.entry_checked); \
-		protocol sites direct \(st.proto_direct), switch \(st.proto_switch), cache \(st.proto_cache), satisfies?/extends? folded \(st.proto_folded); \
+		protocol sites direct \(st.proto_direct), switch \(st.proto_switch), cache \(st.proto_cache) (arms from the implementors \(st.proto_implementor)), satisfies?/extends? folded \(st.proto_folded); \
 		direct-call arrays \(st.direct_array) of \(st.direct_slots) callee slots; \
 		workers \(st.workers), primitive sites \(st.prim_sites) of which bound \(st.prim_bound); keyword-lookup sites \(st.kw_sites), field-read sites \(st.field_sites), field*/new* in place \(st.instance_sites); \
 		reuse: cons in a dying cell \(st.reuse_tokens), next/rest handed over \(st.reuse_consumes); inlined calls \(st.inlined), of which from another unit \(st.inlined_cross) (outlined \(st.outlined) into \(st.outlined_fns) fns), known paths \(st.paths), literal fns copied \(st.literals), monomorphized fused sites \(st.mono_fused), lowered calls \(st.lowered), scalar guards \(st.scalar_guards), entry twins \(st.entry_splits); \

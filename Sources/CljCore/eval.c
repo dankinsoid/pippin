@@ -231,6 +231,15 @@ bool clj_eval_retire_root(clj_value old) {
 	return true;
 }
 
+// A bounded scan: a cache cycling through more impls than this walks the stack as before.
+bool clj_eval_retired_holds(clj_value v) {
+	enum { RECENT = 32 };
+	for (size_t i = execution.nretired, k = 0; i-- > 0 && k < RECENT; k++) {
+		if (execution.retired[i] == v) return true;
+	}
+	return false;
+}
+
 // Called where a depth returned to zero; the other one may still be up.
 static void drain_retired(void) {
 	if (in_flight()) return;

@@ -509,13 +509,16 @@ static inline clj_compiled_fn clj_c_impl_fn(clj_cproto_impl *i) {
 	return i->fn;
 }
 
-// The per-thread inline cache of a site: the method fn, the receiver's descriptor and its impl, held retained,
-// valid while the epoch stands. Per thread, so a fill never races a hit on another thread.
+// The per-thread inline cache of a site: the method fn and two {receiver descriptor, impl} ways, the impls held
+// retained, valid while the epoch stands. Per thread, so a fill never races a hit on another thread. Two ways, so
+// a site alternating two receivers (a tree's inner and leaf nodes) stops missing.
+#define CLJ_C_PROTO_WAYS 2
 typedef struct {
 	clj_value       method;
-	const clj_type *type;
-	clj_value       impl;
 	uint64_t        epoch;
+	const clj_type *type[CLJ_C_PROTO_WAYS]; // NULL: an empty way, which no receiver's descriptor is
+	clj_value       impl[CLJ_C_PROTO_WAYS];
+	uint32_t        next; // the way a fill replaces when both are taken
 } clj_cproto_ic;
 
 // A protocol method's impl at a call: a compiled closure's dispatcher directly (it checks the arity itself),
@@ -535,9 +538,15 @@ bool clj_c_satisfies_fill(_Atomic uint64_t *cell, clj_value proto, clj_value x, 
 bool clj_c_extends_fill(_Atomic uint64_t *cell, clj_value proto, clj_value type, clj_value expected, uint64_t epoch);
 
 static inline clj_value clj_c_proto_ic_call(clj_cproto_ic *ic, clj_value method, const clj_value *args, size_t n, const clj_type *t, uint64_t epoch) {
-	if (__builtin_expect(ic->epoch == epoch && ic->type == t && ic->method == method, 1)) {
-		CLJ_C_PROTO_COUNT(1);
-		return clj_c_call_impl(ic->impl, args, n);
+	if (__builtin_expect(ic->epoch == epoch && ic->method == method, 1)) {
+		if (__builtin_expect(ic->type[0] == t, 1)) {
+			CLJ_C_PROTO_COUNT(1);
+			return clj_c_call_impl(ic->impl[0], args, n);
+		}
+		if (ic->type[1] == t) {
+			CLJ_C_PROTO_COUNT(1);
+			return clj_c_call_impl(ic->impl[1], args, n);
+		}
 	}
 	return clj_c_proto_miss(ic, method, args, n, t, epoch);
 }

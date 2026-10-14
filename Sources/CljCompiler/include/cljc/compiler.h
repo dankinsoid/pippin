@@ -77,6 +77,7 @@ typedef struct {
 	uint64_t proto_switch;   // sites with several arms, or one beside kinds the cache keeps
 	uint64_t proto_cache;    // sites with the inline cache alone; an arm whose target no unit emitted counts here, as written
 	uint64_t proto_folded;   // satisfies?/extends? sites answered by a verified constant (closed)
+	uint64_t proto_implementor; // of the sites, those whose arms are the protocol's implementors, the fact naming none (closed)
 	uint64_t direct_slots;   // frame slots of the callees of direct call sites, summed per site
 	uint64_t direct_array;   // of those, the entries the caller's ds[] holds: what the callee's promotion left in the array
 	uint64_t workers;        // def'd arities with a primitive entry (closed only)

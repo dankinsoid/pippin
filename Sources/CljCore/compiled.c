@@ -232,8 +232,18 @@ static bool method_accepts(clj_value method, size_t n) {
 	return n >= mf->min_arity && (mf->max_arity == CLJ_ARITY_ANY || n <= mf->max_arity);
 }
 
+// A replaced impl may be running on this thread, borrowed from the cell by a hit up the stack, and the cell's may be
+// its last reference once an extend retired its table: it goes to the retire list, which keeps it until nothing is in
+// flight. Finding that takes a stack walk; an impl the list already holds needs none, since the list's reference
+// outlives the call (a site alternating receivers retires the same few impls over and over).
+static void retire_impl(clj_value old, bool dedupe) {
+	if (clj_is_nil(old)) return;
+	if (dedupe && clj_eval_retired_holds(old)) clj_release(old);
+	else if (!clj_eval_retire_root(old)) clj_release(old);
+}
+
 // The tables under their window, as the interpreter's miss; the cell takes the impl when the epoch read before the
-// lookup still stands, releasing the previous one through the retire list, since a call on this thread may be in it.
+// lookup still stands. A new epoch or method empties both ways first.
 // @ai-generated(solo)
 clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value *args, size_t n, const clj_type *t, uint64_t epoch) {
 	CLJ_STAT(CLJ_STAT_PROTO_MISS);
@@ -242,12 +252,24 @@ clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value 
 	clj_value impl = clj_protocol_method_impl(method, args[0]);
 	if (clj_is_nil(impl)) return clj_protocol_no_impl(method, args[0]);
 	if (clj_is_fn(impl) && clj_epoch_load() == epoch) {
-		clj_value old = ic->impl;
-		ic->method = method;
-		ic->type = t;
-		ic->impl = clj_retain(impl);
-		ic->epoch = epoch;
-		if (!clj_is_nil(old) && !clj_eval_retire_root(old)) clj_release(old);
+		bool one_way = clj_opt_off(CLJ_NO_OPT_DISPATCH);
+		if (ic->epoch != epoch || ic->method != method) {
+			for (uint32_t w = 0; w < CLJ_C_PROTO_WAYS; w++) {
+				clj_value old = ic->impl[w];
+				ic->type[w] = NULL;
+				ic->impl[w] = CLJ_NIL;
+				retire_impl(old, !one_way);
+			}
+			ic->method = method;
+			ic->epoch = epoch;
+			ic->next = 0;
+		}
+		uint32_t w = one_way || !ic->type[0] ? 0 : !ic->type[1] ? 1 : ic->next;
+		if (!one_way && ic->type[0] && ic->type[1]) ic->next = (ic->next + 1) % CLJ_C_PROTO_WAYS;
+		clj_value old = ic->impl[w];
+		ic->type[w] = t;
+		ic->impl[w] = clj_retain(impl);
+		retire_impl(old, !one_way);
 	}
 	clj_value r = clj_c_call_impl(impl, args, n);
 	clj_release(impl);

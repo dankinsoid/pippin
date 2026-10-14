@@ -587,7 +587,11 @@
   dispatches through it — nil, boolean and char their pseudo-descriptors, fixnum and long `clj_long_type`, the
   other builtins theirs, a `record`/`host` fact its descriptor when it carries one, else the protocol's single live
   user implementor of that kind (`clj_proto_each_user`, proto.c's registry of live deftype/record/reify
-  descriptors, since the caller join drops the descriptor); a deftype is guarded through its var
+  descriptors, since the caller join drops the descriptor). *Implementor arms* (`implementor_arms`, `--closed`
+  only): a site whose fact names no descriptor at all (⊤, a parameter several deftypes reach) takes an arm per
+  implementor of the protocol — the builtins of its side table and the live user types — when there are at most
+  four and none is `Object` or a core interface; persistent-sorted-set's `INode` is `Node` or `Leaf` by tree
+  level, and its 32 sites went from the cache, missing on every level change, to two arms each. A deftype is guarded through its var
   (`clj_c_var_type(V[k])`, the var found from the descriptor's `ns.Name`), so a reify or a type no var holds gets no
   arm, and so does a `seq` (many descriptors). An arm is emitted only when the impl the tables hold for that
   descriptor is a closure of the compiled set with a fixed arity that reads neither `self` nor `captured` (no
@@ -595,7 +599,8 @@
   (`clj_compiled_register_impl`: the fn values of every `deftype*`/`record*`/`extend` method map, and whatever
   another unit of the set names). *The switch shape*: at most four arms (the lattice's cap), each
   `if (pt == D && (clj_c_arm_hit(&PA, pe) || clj_c_arm_fill(…))) r = IMPL_aN(CLJ_NIL, NULL, args, n); else …`,
-  the last `else` the cache; `PA` is one `_Atomic uint64_t` per arm holding the epoch at which the tables were last
+  the last `else` the cache, which also takes every receiver an implementor arm does not name (a type extended
+  after the emit, a reify, an old descriptor of a redefined type); `PA` is one `_Atomic uint64_t` per arm holding the epoch at which the tables were last
   seen to bind D's impl to that symbol, the fill a table lookup comparing the impl's dispatcher against the symbol
   and storing the epoch only when it still stands — so a wrong fact (the host boundary), an `extend` after the
   compile or an impl replaced later in the same file (the arms name the *final* impls; before the replacing form
@@ -604,12 +609,19 @@
   site, `twice` calling `once` on `this`): a static of the same unit by name, another unit's through a
   `clj_cproto_impl` filled from the registry at the first fill; undefined, the arm is compiled out. The macros sit
   under `CLJ_CLOSED`, so dev units and the dev core see the cache alone, and `core.c` (one text) takes the arms in
-  the closed build. *The cache*: one `static _Thread_local clj_cproto_ic {method, type, impl, epoch}` per site — per
-  thread so a fill never races a hit, which is why no seqlock and no reader window: a hit is `epoch == pe && type
-  == pt && method == fn`, then the impl's dispatcher directly (`clj_c_call_impl`, a compiled closure by `ctx == fn`,
-  anything else through `clj_invoke`). The cell *owns* its impl, and a replacement releases the old one through
-  `clj_eval_retire_root` (parked until this thread is idle, as a rebound fn root is), so a call in flight on this
-  thread keeps its impl; an `extend` on another thread against a call in flight is the same accepted race as a
+  the closed build. *The cache*: one `static _Thread_local clj_cproto_ic {method, epoch, type[2], impl[2], next}` per site —
+  per thread so a fill never races a hit, which is why no seqlock and no reader window: a hit is `epoch == pe &&
+  method == fn` and `type[w] == pt` for one of the two ways, then the impl's dispatcher directly
+  (`clj_c_call_impl`, a compiled closure by `ctx == fn`, anything else through `clj_invoke`). A miss at a new epoch
+  or method empties both ways, then fills an empty way or the older one. The cell *owns* its impls, and a
+  replacement releases the old one through `clj_eval_retire_root` (parked until this thread is idle, as a rebound
+  fn root is), so a call in flight on this thread keeps its impl: a hit borrows the impl from the cell, and after an
+  `extend` the cell's reference may be the last. Finding out whether anything is in flight is a stack walk
+  (`clj_trace_compiled_on_stack`), so an impl the execution's retire list already holds among its last 32 entries
+  is released at once (`clj_eval_retired_holds`) — the list's reference outlives the call; a site cycling three
+  receivers through the two ways walks once per impl, not per miss (`CompilerFixtureTests.devInlineCacheRetiresEachImplOnce`;
+  datascript closed had 226k misses an iteration, each a walk). `CLJ_NO_OPT=dispatch` fills one way and walks
+  every time; an `extend` on another thread against a call in flight is the same accepted race as a
   `def` against a running root ("Concurrent `def`"). The epoch is the process one, so any `def` empties every cell
   and arm on its next hit — one table walk each, the interpreter's cost. *Folded predicates* (`--closed` only):
   `(satisfies? P x)` with a known receiver is a chain of the same shape whose arm answers a constant computed at
@@ -619,7 +631,7 @@
   no method at emit time (a protocol defined in the same compiled-eval form), an impl that is a native or a
   reify trampoline or captures, a variadic impl, past four descriptors, and a receiver whose kind has many
   descriptors — all of these through the cache, whose miss is the method's own tables. `clj-compile --stats` counts
-  the sites as written — each site keeps its arms' ids and `cljc_unit_slots` classifies them after `cljc_end`
+  the sites as written (and, apart, those whose arms came from the implementors) — each site keeps its arms' ids and `cljc_unit_slots` classifies them after `cljc_end`
   with the prelude's own `pimpl_defined`, so an arm compiled out is a cache site: core.clj 8 direct (the multimethod API on `MultiFn`, `-realized?` on `Delay`), clojure.test 16 direct,
   medley none, the test suite 2 cache (`defmethod` expansions whose impl is the interpreted core's closure, not of
   the set; under the compiled core they resolve). Measured (bench, closed compiled `-O2`): every monomorphic row
@@ -633,7 +645,7 @@
 - **`field*` with a constant index and `new*` read and build the instance in place** (`field_star_index`,
   `builtin_head` in compiler.c; `clj_c_field_at`, `clj_c_new` in compiled_internal.h). A deftype method body binds
   each field it names to `(field* this i)` (core.clj's method wrap) and a constructor is `(new* T fields...)`; both
-  were `clj_c_invoke` of the builtin. Now `(field* x i)` loads the slot when the var still holds the builtin
+  would be `clj_c_invoke` of the builtin. `(field* x i)` loads the slot when the var still holds the builtin
   (`CLJC_NATIVE_IS`, constant under `CLJ_CLOSED`), `x` is an instance and `i` is under its field count, and `(new*
   T ...)` allocates through `clj_instance_make` (proto_internal.h, which `clj_instance_new` is too) when `T` is a
   deftype (not a record: its extmap and meta slots are `clj_record_new`'s) and the count matches; every other case

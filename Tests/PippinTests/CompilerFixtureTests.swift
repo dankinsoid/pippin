@@ -170,8 +170,28 @@ extension CoreTests {
 			#expect(try cljEval("[(cp-is-run) (cp-is 5)]") == [false, false])
 		}
 
-		// A dev unit's site keeps a per-thread cache: it hits on a repeated receiver, misses on another, and an
-		// extend-type after the compile refills it with the new impl.
+		// A closed site whose fact names nothing takes an arm per implementor; a type extended after the compile is the cache's.
+		@Test func closedImplementorArmsCoverAParameter() throws {
+			clj_init()
+			_ = try cljEval("(ns cp.implementors)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			try compiledEval(closed: true) {
+				_ = try cljEval("(defprotocol CiP (ci-m [x])) (deftype CiA [] CiP (ci-m [x] :a)) (deftype CiB [] CiP (ci-m [x] :b))")
+				_ = try cljEval("(let [] (defn ci-any [x] (ci-m x)) (defn ci-run [xs] (mapv ci-any xs)))")
+			}
+			let (a, b, long) = (Value(keyword: "a"), Value(keyword: "b"), Value(keyword: "long"))
+			let arms0 = clj_debug_proto_arm_hits(), cache0 = clj_debug_proto_cache_hits()
+			#expect(try cljEval("(ci-run [(->CiA) (->CiB) (->CiA) (->CiB)])") == [a, b, a, b])
+			let arms1 = clj_debug_proto_arm_hits(), cache1 = clj_debug_proto_cache_hits()
+			#expect(arms1 - arms0 == 2 && cache1 == cache0, "arm hits \(arms1 - arms0), cache hits \(cache1 - cache0)")
+			_ = try cljEval("(extend-type Long CiP (ci-m [x] :long))")
+			#expect(try cljEval("[(ci-any 1) (ci-any 1) (ci-any (->CiA)) (ci-any (->CiA))]") == [long, long, a, a])
+			#expect(clj_debug_proto_cache_hits() - cache1 == 1 && clj_debug_proto_arm_hits() - arms1 == 1)
+			#expect(cljEvalError("(ci-any \"s\")")?.contains("No implementation of method: :ci-m") == true)
+		}
+
+		// A dev unit's site keeps a per-thread cache of two receivers: it hits on both once filled, and an
+		// extend-type after the compile empties it and refills with the new impl.
 		@Test func devInlineCacheRefillsAfterExtend() throws {
 			clj_init()
 			_ = try cljEval("(ns cp.dev)")
@@ -184,12 +204,33 @@ extension CoreTests {
 					== [Value(keyword: "t"), Value(keyword: "t"), Value(keyword: "long"), Value(keyword: "long"), Value(keyword: "t")])
 			}
 			let cache1 = clj_debug_proto_cache_hits()
-			#expect(cache1 - cache0 == 2, "one hit per repeated receiver: \(cache1 - cache0)")
+			#expect(cache1 - cache0 == 3, "a hit per call after each receiver's first: \(cache1 - cache0)")
 			_ = try cljEval("(extend-type Long CdP (cd-m [x] :long2))")
 			#expect(try cljEval("[(cd-any 5) (cd-any 5) (cd-any (->CdT))]") == [Value(keyword: "long2"), Value(keyword: "long2"), Value(keyword: "t")])
 			#expect(clj_debug_proto_cache_hits() - cache1 == 1)
 			#expect(cljEvalError("(cd-any \"s\")")?.contains("No implementation of method: :cd-m") == true)
 			#expect(cljEvalError("(cd-m)")?.contains("Wrong number of args (0)") == true)
+		}
+
+		// Three receivers through two ways miss every call; a replaced impl joins the retire list once, not per miss.
+		@Test func devInlineCacheRetiresEachImplOnce() throws {
+			clj_init()
+			_ = try cljEval("(intern 'user 'cw-retired nil)")
+			let probe = Value(function: "cw-retired", arity: 0...0) { _ in Value(Int(clj_debug_retired_roots())) }
+			let sym = Value(symbol: "cw-retired")
+			withExtendedLifetime((sym, probe)) { clj_var_bind_root(clj_ns_resolve(clj_ns_user(), sym.raw), probe.raw) }
+			_ = try cljEval("(ns cp.ways)")
+			defer { clj_ns_set_current(clj_ns_user()) }
+			_ = try cljEval("(defprotocol CwP (cw-m [x])) (deftype CwA [] CwP (cw-m [_] 1)) (deftype CwB [] CwP (cw-m [_] 2)) (deftype CwC [] CwP (cw-m [_] 3))")
+			try compiledEval {
+				_ = try cljEval("(defn cw-any [x] (cw-m x))")
+				_ = try cljEval("(defn cw-run [xs n] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (cw-any (nth xs (mod i (count xs)))))) [acc (user/cw-retired)])))")
+			}
+			let cache0 = clj_debug_proto_cache_hits()
+			#expect(try cljEval("(cw-run [(->CwA) (->CwB)] 100)") == [150, 0])
+			#expect(clj_debug_proto_cache_hits() - cache0 == 98)
+			#expect(try cljEval("(cw-run [(->CwA) (->CwB) (->CwC)] 300)") == [600, 3])
+			#expect(clj_debug_retired_roots() == 0)
 		}
 
 		// A dev unit's (.-f x) site fills its cell once per type; a redefined type with the field elsewhere misses it.

@@ -144,6 +144,9 @@ void     clj_shield_pop(void);
 // and releases it once the thread is idle; false when the caller releases it itself. Only fn roots are read
 // at +0 by the evaluator, so only they are parked.
 bool clj_eval_retire_root(clj_value old);
+// Whether the execution's retire list holds v among its latest entries, so that a release of another reference
+// to v cannot free it before the list drains.
+bool clj_eval_retired_holds(clj_value v);
 // Parked roots on this thread, for tests.
 size_t clj_debug_retired_roots(void);
 // What clj_exec_run brackets a top-level form with: a compiled unit's form does the same so a def inside parks fn roots.

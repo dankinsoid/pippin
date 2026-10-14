@@ -2036,6 +2036,57 @@ static proto_arms receiver_arms(fnctx *f, const clj_node *receiver, clj_value pr
 	return a;
 }
 
+typedef struct {
+	const clj_type *types[PROTO_ARMS_MAX];
+	uint32_t        n;
+	bool            open; // Object, a core interface, or more implementors than arms
+} implementor_set;
+
+static void visit_implementor(const clj_type *t, void *ctx) {
+	implementor_set *s = ctx;
+	if (t == clj_object_type() || clj_proto_is_interface_type(t) || s->n == PROTO_ARMS_MAX) s->open = true;
+	else s->types[s->n++] = t;
+}
+
+// A builtin descriptor's guard expression: the kind bit that names exactly it.
+static const char *builtin_type_expr(const clj_type *t) {
+	for (uint32_t i = 0; i < 32; i++) {
+		const clj_type *kt = NULL;
+		const char     *expr = kind_type_expr(1u << i, &kt);
+		if (expr && kt == t) return expr;
+	}
+	return NULL;
+}
+
+// Under --closed, a receiver the fact cannot name: an arm per implementor the program's tables hold, when they are
+// at most the arms' cap (persistent-sorted-set's INode is Node or Leaf). The tables are final when the site is
+// emitted, and each arm's cell still checks them, so a type extended later goes to the cache and a replaced impl
+// fails the fill.
+static proto_arms implementor_arms(fnctx *f, clj_value proto) {
+	proto_arms      a = {{{0}}, 0, true};
+	implementor_set s = {{0}, 0, false};
+	clj_proto_each_immortal(proto, visit_implementor, &s);
+	clj_proto_each_user(proto, visit_implementor, &s);
+	if (s.open) return a;
+	for (uint32_t i = 0; i < s.n; i++) {
+		const clj_type *t = s.types[i];
+		char            guard[80];
+		const char     *expr = NULL;
+		if (t->h.flags & CLJ_FLAG_IMMORTAL) {
+			expr = builtin_type_expr(t);
+		} else {
+			clj_value var = user_type_var(t);
+			if (!clj_is_nil(var)) {
+				snprintf(guard, sizeof guard, "clj_c_var_type(V[%zu])", var_index(f->u, var));
+				expr = guard;
+			}
+		}
+		if (expr) arms_add(&a, t, expr);
+	}
+	f->u->slots.proto_implementor++;
+	return a;
+}
+
 // The direct target of an arm: the impl the tables hold for the descriptor, when it is a closure of the compiled set
 // (an emitted node, or a compiled closure whose dispatcher a closed unit registered) with a fixed arity a direct
 // arm may enter. UINT32_MAX otherwise.
@@ -2099,7 +2150,9 @@ static void proto_site_add(unit *u, const proto_arms *a) {
 // target resolved), then the per-thread inline cache for every other receiver.
 static void emit_proto_call(fnctx *f, const clj_node *n, clj_value method, const temp *fn, const char *array, const temp *r) {
 	uint32_t   nargs = n->u.invoke.n;
-	proto_arms a = receiver_arms(f, n->u.invoke.args[0], clj_method_ctx_of(method)->proto);
+	clj_value  proto = clj_method_ctx_of(method)->proto;
+	proto_arms a = receiver_arms(f, n->u.invoke.args[0], proto);
+	if (a.n == 0 && f->c->opts.closed && !clj_opt_off(CLJ_NO_OPT_DISPATCH) && !clj_opt_off(CLJ_NO_OPT_EMIT)) a = implementor_arms(f, proto);
 	for (uint32_t i = 0; i < a.n; i++) a.arms[i].pimpl = arm_target(f, a.arms[i].type, method, nargs);
 	proto_site_add(f->u, &a);
 	int k = f->naux++;
