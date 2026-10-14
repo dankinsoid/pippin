@@ -953,12 +953,14 @@ def write_report(b, facts_path, xctrace):
 	add("Store check census (closed stats build, per iteration; design §7, «Проверка цикла в момент записи»): edges "
 	    "written between unshared objects, the first edge into an object (the `HEAPREF` header write), edges into a "
 	    "reference type and into one with `HEAPREF`, edges into an immutable owner with `HEAPREF` (in place, late "
-	    "init); a walk where the owner has `HEAPREF` and the value `REACH_LOCAL` (lazy: a lazy-seq realization), the "
+	    "init); a walk where the owner is a reference type with `HEAPREF` and the value has `REACH_LOCAL` (lazy: a "
+	    "lazy-seq realization), the "
 	    "nodes walked to the end (cap 1024), walks past 64 and the cap, walks that met the owner; stores into a shared "
-	    "reference type and of a `REACH` value; the candidates filed today, and the shared ones among them.")
+	    "reference type and of a `REACH` value; the candidates filed, and the shared ones among them; the checks run "
+	    "(cc.c, marks skipped, budget 256 nodes), the nodes they entered, the cycles they closed, those past the budget.")
 	add("")
-	add("| workload | edges | heapref set | into mutable | mutable w/ heapref | imm w/ heapref | walks | lazy | nodes | >64 | capped | cycles | shared | shared reach | cc candidates | of them shared |")
-	add("|---|" + "---:|" * 16)
+	add("| workload | edges | heapref set | into mutable | mutable w/ heapref | imm w/ heapref | walks | lazy | nodes | >64 | capped | cycles | shared | shared reach | cc candidates | of them shared | checks | check nodes | check cycles | deferred |")
+	add("|---|" + "---:|" * 20)
 	for w in b.args.only:
 		s = b.results[w].get("closed-stats") or b.results[w].get("dev-stats")
 		if not s:
@@ -967,7 +969,8 @@ def write_report(b, facts_path, xctrace):
 		add("| %s | %s |" % (w, " | ".join(k(st.get(n)) for n in (
 			"sc_edges", "sc_heapref_set", "sc_mut", "sc_mut_heapref", "sc_imm_heapref", "sc_walks", "sc_walks_lazy",
 			"sc_walk_nodes", "sc_walk_long", "sc_walk_capped", "sc_cycles", "sc_shared", "sc_shared_reach",
-			"cc_candidates", "cc_shared_filed"))))
+			"cc_candidates", "cc_shared_filed", "cc_store_checks", "cc_store_nodes", "cc_store_cycles",
+			"cc_store_deferred"))))
 	add("")
 
 	if b.args.interp_ab:

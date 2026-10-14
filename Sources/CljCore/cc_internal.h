@@ -7,9 +7,17 @@
 #include "clj/cc.h"
 #include "clj/coro.h"
 #include "clj/object.h"
+#include "ice_internal.h"
 
 // A dead object a candidate entry still names: torn down, out of the live count, its cell kept for the entry.
 #define CLJ_RC_ZOMBIE (CLJ_RC_WATCH | CLJ_RC_BUFFERED)
+
+// A reference type's birth bits; without the store check ONCYCLE goes wherever REACH_LOCAL does (object.h).
+static inline uint32_t clj_cc_born_local(void) {
+	return CLJ_FLAG_REACH_LOCAL | (clj_opt_off(CLJ_NO_OPT_STORE_CHECK) ? CLJ_FLAG_ONCYCLE : 0);
+}
+// A nonzero release of an unshared REACH_LOCAL object without ONCYCLE, which files nothing: debug builds audit it.
+void clj_cc_audit_unfiled(clj_header *h);
 
 // rc.c's release paths. The shared one decrements and files in one CAS (true when it did); the local one only files.
 bool clj_cc_enabled(void);

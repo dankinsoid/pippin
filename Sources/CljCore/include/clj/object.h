@@ -99,8 +99,11 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 #define CLJ_FLAG_HEAPREF     ((uint32_t)1 << 14)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
 #define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
+// On a cycle of unshared objects, or built over one: only it makes an unshared object's nonzero release a candidate.
+// Propagated as REACH_LOCAL; under CLJ_NO_OPT=store-check born with it, so it is REACH_LOCAL (design §7).
+#define CLJ_FLAG_ONCYCLE     ((uint32_t)1 << 16)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
-#define CLJ_OWNER_SHIFT 16
+#define CLJ_OWNER_SHIFT 17
 
 // The top bits of rc (cc.c). Each is set only while the collector or a candidate buffer holds a reference of its
 // own, so the count is at least 2 under either and `rc == 1` and "reached zero" need no mask.
@@ -255,6 +258,8 @@ bool      clj_is_shared(clj_value v);
 void      clj_cc_note_store(clj_header *owner, uint32_t flags);
 // An edge stored into a GUARDED owner: every acyclic mark is void (cc.c).
 void      clj_cc_guard_hit(void);
+// An edge owner → child that may close a cycle of unshared objects: its members take CLJ_FLAG_ONCYCLE (cc.c).
+void      clj_cc_store_check(clj_header *owner, clj_header *child);
 #if CLJ_STATS
 // Before an edge owner → child, the flags of both as they were: the store check's census (cc.c).
 void      clj_cc_store_census(const clj_header *owner, uint32_t oflags, clj_header *child, uint32_t cflags);
@@ -354,17 +359,32 @@ static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v
 				if (flags & CLJ_FLAG_GUARDED) clj_cc_guard_hit();
 				owner->flags = (flags | CLJ_FLAG_DIRTY) & ~CLJ_FLAG_GUARDED;
 			}
+			// After the guard hit, so a mark the walk would skip is void. An immutable owner is edited only while
+			// unique from an owned root down, and a path back to it would make that root shared (design §7).
+			if (__builtin_expect((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL, 0) &&
+			    ((flags & CLJ_FLAG_HEAPREF) || c == owner))
+				clj_cc_store_check(owner, c);
 			return;
 		}
 		flags &= ~CLJ_FLAG_ACYCLIC;
 		owner->flags = flags;
 	}
 	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
-	               ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
+	               ((f & CLJ_FLAG_SHARED) ? 0 : f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE));
 	if (!(add & ~flags)) return;
 	CLJ_ASSERT(!(flags & CLJ_FLAG_SHARED) || atomic_load_explicit(&owner->rc, memory_order_relaxed) == 1,
 	           "reach bits into a published owner another reference can read");
 	owner->flags |= add;
+}
+
+// After an edge stored into an immutable owner edited at any count (a transient map), which clj_reach_from leaves
+// unchecked: a path back to it needs no shared root.
+static inline void clj_cc_edge_check(clj_header *owner, clj_value v) {
+	if (!clj_is_ptr(v)) return;
+	clj_header *c = clj_header_of(v);
+	if ((c->flags & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL &&
+	    ((owner->flags & (CLJ_FLAG_HEAPREF | CLJ_FLAG_SHARED)) == CLJ_FLAG_HEAPREF || c == owner))
+		clj_cc_store_check(owner, c);
 }
 
 // After a store into owner: a shared reference type tells a running collection its slots moved.
@@ -395,7 +415,7 @@ static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v)
 // A node copy has its source's children, so its reach bits once rather than per slot: the path copy is hot.
 static inline void clj_reach_copy(clj_header *owner, const clj_header *src) {
 	uint32_t f = src->flags;
-	owner->flags |= f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | ((f & CLJ_FLAG_SHARED) ? 0 : CLJ_FLAG_REACH_LOCAL));
+	owner->flags |= f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | ((f & CLJ_FLAG_SHARED) ? 0 : CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE));
 }
 
 // clj_slot_init of a slot copied from src, whose bits clj_reach_copy gives the owner.
@@ -470,11 +490,17 @@ static inline clj_value clj_retain(clj_value v) {
 	return v;
 }
 
-// REACH_LOCAL in the mask: an unshared object that may lie on a cycle becomes a candidate on a nonzero release.
+// ONCYCLE in the mask: an unshared object that may lie on a cycle becomes a candidate on a nonzero release. Debug
+// builds take REACH_LOCAL too, for the audit of the releases that file nothing (cc.c).
+#if CLJ_DEBUG
+#define CLJ_RELEASE_SLOW (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ONCYCLE | CLJ_FLAG_REACH_LOCAL)
+#else
+#define CLJ_RELEASE_SLOW (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ONCYCLE)
+#endif
 static inline void clj_release(clj_value v) {
 	if (!clj_is_ptr(v)) return;
 	clj_header *h = clj_header_of(v);
-	if (__builtin_expect(h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_REACH_LOCAL), 0)) {
+	if (__builtin_expect(h->flags & CLJ_RELEASE_SLOW, 0)) {
 		CLJ_RC_COUNT(h->flags & CLJ_FLAG_IMMORTAL ? CLJ_RC_IMMORTAL : h->flags & CLJ_FLAG_SHARED ? CLJ_RC_SHARED : CLJ_RC_PLAIN);
 		clj_release_slow(h);
 		return;

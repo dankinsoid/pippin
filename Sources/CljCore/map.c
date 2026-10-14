@@ -519,6 +519,10 @@ static void flat_append(flat_map *m, clj_value key, clj_value val, uint32_t h) {
 	uint32_t e = m->used;
 	clj_slot_store(&m->h, &m->kv[2 * e], key);
 	clj_slot_store(&m->h, &m->kv[2 * e + 1], val);
+	if (m->transient) {
+		clj_cc_edge_check(&m->h, key);
+		clj_cc_edge_check(&m->h, val);
+	}
 	// after the slots: a published map's each_child may run on the collector's thread meanwhile (cc.c)
 	__atomic_store_n(&m->used, e + 1, __ATOMIC_RELEASE);
 	flat_hashes(m)[e] = h;
@@ -616,6 +620,7 @@ static clj_value flat_assoc(clj_value map, clj_value key, clj_value val) {
 		}
 		clj_value old = m->kv[2 * e + 1].v;
 		clj_slot_store(&m->h, &m->kv[2 * e + 1], clj_retain(val));
+		if (m->transient) clj_cc_edge_check(&m->h, val);
 		clj_release(old);
 		atomic_store_explicit(&m->hash, 0, memory_order_relaxed);
 		return clj_from_ptr(m);

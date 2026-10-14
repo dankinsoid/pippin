@@ -209,8 +209,8 @@ static void coro_init(clj_coro *c) {
 	c->state = CLJ_CORO_NEW;
 	c->id = 1 + atomic_fetch_add_explicit(&coro_ids, 1, memory_order_relaxed);
 #if CLJ_DEBUG
-	// 16 bits wrap after 65535 executions: two that share a tag hide each other's touches, never invent one.
-	c->debug_owner = 1 + atomic_fetch_add_explicit(&owner_tags, 1, memory_order_relaxed) % 0xFFFF;
+	// 15 bits wrap after 32767 executions: two that share a tag hide each other's touches, never invent one.
+	c->debug_owner = 1 + atomic_fetch_add_explicit(&owner_tags, 1, memory_order_relaxed) % 0x7FFF;
 #endif
 }
 

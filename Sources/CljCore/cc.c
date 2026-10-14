@@ -481,6 +481,15 @@ static void hand_off(clj_header *h, void (*share)(clj_value v)) {
 
 static int64_t collect_local(clj_coro *c, size_t max, bool mark);
 
+// An entry as a release's, with no collection nor hand-off from here.
+static void file_local(clj_coro *c, clj_header *h) {
+	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
+	if (rc & CLJ_RC_BUFFERED) return;
+	CLJ_RC_UNSHARED_STORE(h, rc | CLJ_RC_BUFFERED);
+	vec_push(&local_of(c)->buf, h);
+	stat_add(CLJ_CC_STAT_CANDIDATES, 1);
+}
+
 void clj_cc_local_candidate(clj_header *h) {
 	clj_coro *c = clj_coro_current();
 	cand_vec *b = &local_of(c)->buf;
@@ -1084,9 +1093,19 @@ static void mark_component(graph *g, const uint32_t *members, uint32_t n, void *
 	}
 }
 
+// A live cycle of a local graph is flagged: the check of a store past its budget leaves its owner to this walk.
+static void local_component(graph *g, const uint32_t *members, uint32_t n, void *ctx) {
+	if (n > 1 || self_edge(g, members[0])) {
+		for (uint32_t k = 0; k < n; k++) g->nodes[members[k]].h->flags |= CLJ_FLAG_ONCYCLE;
+		stat_add(CLJ_CC_STAT_STORE_FLAGGED, n);
+	}
+	if (g->mark) mark_component(g, members, n, ctx);
+}
+
 // After blacken, over the black nodes of a local graph (design §7, «Метка «ацикличен»»).
 static void mark_acyclic(graph *g) {
-	black_components(g, mark_component, NULL);
+	black_components(g, local_component, NULL);
+	if (!g->mark) return;
 	g->nw = 0;
 	for (uint32_t i = 0; i < g->n; i++) {
 		if (!(g->nodes[i].flags & N_MARK)) continue;
@@ -1127,12 +1146,177 @@ static int64_t run(graph *g, clj_header **roots, size_t n) {
 	judge_wakes(g);
 	if (g->shared) validate(g);
 	blacken(g);
-	if (g->mark) mark_acyclic(g);
+	if (!g->shared) mark_acyclic(g);
 	int64_t freed = free_whites(g);
 	release_survivors(g);
 	stat_add(CLJ_CC_STAT_COLLECTIONS, 1);
 	if (g->skipped) stat_add(CLJ_CC_STAT_SKIPPED, g->skipped);
 	return freed;
+}
+
+// ---- the audit of a release that files nothing
+
+#if CLJ_DEBUG
+static _Thread_local uint32_t unfiled_tick;
+
+// A cycle with a buffered member is a check past its budget, or a candidate: its collection flags the rest.
+static void audit_component(graph *g, const uint32_t *members, uint32_t n, void *ctx) {
+	(void)ctx;
+	if (n == 1 && !self_edge(g, members[0])) return;
+	for (uint32_t k = 0; k < n; k++) {
+		if (g->nodes[members[k]].flags & N_BUFFERED) return;
+	}
+	for (uint32_t k = 0; k < n; k++) {
+		const clj_header *h = g->nodes[members[k]].h;
+		if (!(h->flags & CLJ_FLAG_ONCYCLE))
+			clj_ice("cc/store-check-missed", NULL, "a %s on a cycle of %u unshared objects without CLJ_FLAG_ONCYCLE", h->type->name, n);
+	}
+}
+
+// The walk a candidate made before the store check, without freeing: every live cycle it meets must be flagged.
+void clj_cc_audit_unfiled(clj_header *h) {
+	if (clj_opt_off(CLJ_NO_OPT_STORE_CHECK) || !clj_cc_enabled() || opaque(h->type) || ++unfiled_tick % audit_every) return;
+	clj_coro *c = clj_coro_here();
+	// A teardown runs: its whites are being finalized.
+	if (!c || c->cc_collecting) return;
+	graph g = {.shared = false};
+	add_node(&g, h, 0, 0);
+	while (g.nw && g.n < AUDIT_NODES) visit(&g, g.work[--g.nw]);
+	for (uint32_t i = 0; i < g.n; i++) g.nodes[i].flags |= N_BLACK;
+	black_components(&g, audit_component, NULL);
+	graph_free(&g);
+}
+#else
+void clj_cc_audit_unfiled(clj_header *h) { (void)h; }
+#endif
+
+int clj_debug_cc_on_cycle(clj_value v) { return clj_is_ptr(v) && (clj_header_of(v)->flags & CLJ_FLAG_ONCYCLE) != 0; }
+
+// ---- the cycle check at a store (design §7, «Проверка цикла в момент записи»)
+
+// Past either the owner waits for the next local collection, which walks without a bound.
+enum { STORE_NODES = 256, STORE_READS = 4096, STORE_TABLE = 4 * STORE_NODES };
+
+// The nodes the walk from the value entered, 0 the owner (never entered), and the edges among them.
+typedef struct {
+	clj_header  *nodes[STORE_NODES + 1];
+	uint64_t     table[STORE_TABLE]; // gen << 32 | index + 1
+	uint32_t     work[STORE_NODES + 1];
+	uint32_t    *from, *to;
+	uint32_t     n, nw, ne, ecap, cur, reads, gen;
+	bool         over, found;
+	checked_set *ck;
+} store_walk;
+
+static _Thread_local store_walk *store_w;
+
+static uint32_t store_index(store_walk *w, clj_header *h) {
+	for (uint32_t s = ck_slot(STORE_TABLE, h);; s = (s + 1) & (STORE_TABLE - 1)) {
+		uint64_t e = w->table[s];
+		if ((uint32_t)(e >> 32) != w->gen) {
+			if (w->n == STORE_NODES + 1) {
+				w->over = true;
+				return NONE;
+			}
+			w->table[s] = (uint64_t)w->gen << 32 | (w->n + 1);
+			w->nodes[w->n] = h;
+			w->work[w->nw++] = w->n;
+			return w->n++;
+		}
+		if (w->nodes[(uint32_t)e - 1] == h) return (uint32_t)e - 1;
+	}
+}
+
+static bool local_enterable(const clj_header *c) { return enterable(&(graph){0}, c); }
+
+static void store_visit(clj_value v, void *ctx) {
+	store_walk *w = ctx;
+	if (!clj_is_ptr(v) || w->over) return;
+	if (++w->reads > STORE_READS) {
+		w->over = true;
+		return;
+	}
+	clj_header *c = clj_header_of(v);
+	uint32_t    i = 0;
+	if (c == w->nodes[0]) {
+		w->found = true;
+	} else {
+		// A valid mark: nothing below lies on a cycle, and the store into a guarded owner voided every mark first.
+		if (!local_enterable(c) || ck_valid(w->ck, c)) return;
+		if ((i = store_index(w, c)) == NONE) return;
+	}
+	if (w->ne == w->ecap) {
+		w->ecap = w->ecap ? w->ecap * 2 : 1024;
+		w->from = realloc(w->from, w->ecap * sizeof *w->from);
+		w->to = realloc(w->to, w->ecap * sizeof *w->to);
+		if (!w->from || !w->to) clj_fatal("out of memory");
+	}
+	w->from[w->ne] = w->cur;
+	w->to[w->ne++] = i;
+}
+
+// Every node with a path to the owner, backwards from it: with the new edge they and the owner are one component.
+static uint32_t store_flag(store_walk *w) {
+	uint32_t n = w->n, lo[STORE_NODES + 2] = {0}, adj_n = w->ne;
+	uint32_t *adj = malloc(adj_n * sizeof *adj);
+	if (!adj) clj_fatal("out of memory");
+	for (uint32_t e = 0; e < w->ne; e++) lo[w->to[e] + 1]++;
+	for (uint32_t i = 0; i < n; i++) lo[i + 1] += lo[i];
+	uint32_t fill[STORE_NODES + 1];
+	memcpy(fill, lo, n * sizeof *fill);
+	for (uint32_t e = 0; e < w->ne; e++) adj[fill[w->to[e]]++] = w->from[e];
+	bool     seen[STORE_NODES + 1] = {0};
+	uint32_t stack[STORE_NODES + 1], sp = 0, flagged = 0;
+	seen[0] = true;
+	stack[sp++] = 0;
+	while (sp) {
+		uint32_t v = stack[--sp];
+		w->nodes[v]->flags |= CLJ_FLAG_ONCYCLE;
+		flagged++;
+		for (uint32_t k = lo[v]; k < lo[v + 1]; k++) {
+			if (seen[adj[k]]) continue;
+			seen[adj[k]] = true;
+			stack[sp++] = adj[k];
+		}
+	}
+	free(adj);
+	return flagged;
+}
+
+void clj_cc_store_check(clj_header *x, clj_header *y) {
+	if (clj_opt_off(CLJ_NO_OPT_STORE_CHECK) || !clj_cc_enabled()) return;
+	if (x == y) {
+		x->flags |= CLJ_FLAG_ONCYCLE;
+		stat_add(CLJ_CC_STAT_STORE_CYCLES, 1);
+		return;
+	}
+	if (!store_w && !(store_w = calloc(1, sizeof *store_w))) clj_fatal("out of memory");
+	store_walk *w = store_w;
+	clj_coro   *c = clj_coro_current();
+	if (++w->gen == 0) {
+		memset(w->table, 0, sizeof w->table);
+		w->gen = 1;
+	}
+	w->n = w->nw = w->ne = w->reads = 0;
+	w->over = w->found = false;
+	w->ck = c->cc_local ? ck_current(c->cc_local) : NULL;
+	w->nodes[w->n++] = x;
+	store_index(w, y);
+	while (w->nw && !w->over) {
+		w->cur = w->work[--w->nw];
+		clj_header *h = w->nodes[w->cur];
+		if (h->type->each_child) h->type->each_child(h, store_visit, w);
+	}
+	stat_add(CLJ_CC_STAT_STORE_CHECKS, 1);
+	stat_add(CLJ_CC_STAT_STORE_NODES, w->n - 1);
+	if (w->over) {
+		// The slot is not written yet: the owner is filed, never collected here.
+		stat_add(CLJ_CC_STAT_STORE_DEFERRED, 1);
+		file_local(c, x);
+	} else if (w->found) {
+		stat_add(CLJ_CC_STAT_STORE_CYCLES, 1);
+		stat_add(CLJ_CC_STAT_STORE_FLAGGED, store_flag(w));
+	}
 }
 
 // ---- collections
@@ -1488,7 +1672,8 @@ void clj_cc_store_census(const clj_header *owner, uint32_t oflags, clj_header *c
 	bool self = child == owner;
 	if (!(oflags & CLJ_FLAG_HEAPREF) && !self) return;
 	CLJ_STAT((oflags & CLJ_FLAG_MUTABLE) ? CLJ_STAT_SC_MUT_HEAPREF : CLJ_STAT_SC_IMM_HEAPREF);
-	if (!(cflags & CLJ_FLAG_REACH_LOCAL) || opaque(child->type)) return;
+	// The check's own rule: an immutable owner is edited unique (a transient map's edits are left out here).
+	if (!(oflags & CLJ_FLAG_MUTABLE) || !(cflags & CLJ_FLAG_REACH_LOCAL) || opaque(child->type)) return;
 	CLJ_STAT(CLJ_STAT_SC_WALKS);
 	if (owner->type == &clj_lazy_seq_type) CLJ_STAT(CLJ_STAT_SC_WALKS_LAZY);
 	if (!sc_w && !(sc_w = calloc(1, sizeof *sc_w))) clj_fatal("out of memory");

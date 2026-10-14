@@ -149,7 +149,7 @@ static bool steps_in_place(clj_value s) {
 
 // The stepped view is a new object born where the old one died; its flags already describe the child it keeps.
 static clj_value stepped(clj_header *h, size_t size) {
-	uint32_t keep = h->flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_LAZY);
+	uint32_t keep = h->flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE | CLJ_FLAG_LAZY);
 	clj_cell_reborn(h, h->type, size, false);
 	h->flags |= keep;
 	count_used();

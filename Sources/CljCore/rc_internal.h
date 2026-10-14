@@ -15,7 +15,7 @@ struct clj_drop {
 	bool         deep;
 };
 
-// A shared or REACH_LOCAL child: release_reaches_zero, the deep walk and the collector's deferred frees.
+// A shared or ONCYCLE child: release_reaches_zero, the deep walk and the collector's deferred frees.
 void clj_drop_slow(clj_drop *d, clj_header *h);
 // An unshared child whose count just reached zero: freed now when it has nothing to tear down, else queued.
 void clj_drop_dead(clj_drop *d, clj_header *h);
@@ -31,7 +31,7 @@ static inline void clj_drop_value(clj_drop *d, clj_value v) {
 	clj_header *h = clj_header_of(v);
 	uint32_t    f = h->flags;
 	if (f & CLJ_FLAG_IMMORTAL) return;
-	if (__builtin_expect(f & (CLJ_FLAG_SHARED | CLJ_FLAG_REACH_LOCAL), 0)) {
+	if (__builtin_expect(f & (CLJ_RELEASE_SLOW & ~CLJ_FLAG_IMMORTAL), 0)) {
 		clj_drop_slow(d, h);
 		return;
 	}

@@ -44,7 +44,7 @@ clj_value clj_view_with_meta(clj_value self, clj_value m, size_t size) {
 	bool        word = !clj_is_nil(m);
 	clj_header *c = clj_alloc(h->type, size + (word ? sizeof(clj_value) : 0));
 	memcpy((char *)c + sizeof *c, (char *)h + sizeof *h, size - sizeof *h);
-	c->flags |= h->flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_LAZY);
+	c->flags |= h->flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE | CLJ_FLAG_LAZY);
 	// The copy's own flags carry no CLJ_FLAG_META yet, so each_child retains the real children only.
 	if (h->type->each_child) h->type->each_child(c, retain_child, NULL);
 	if (word) {
@@ -336,7 +336,7 @@ static clj_value lazy_seq_with_meta(clj_value self, clj_value m) {
 	atomic_init(&c->state, FORCED);
 	c->ncaptured = 0;
 	c->code = NULL;
-	c->h.flags |= s->h.flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_LAZY);
+	c->h.flags |= s->h.flags & (CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE | CLJ_FLAG_LAZY);
 	clj_slot_clear(&c->owner);
 	clj_slot_init_copied(&c->h, &c->value, clj_retain(s->value.v));
 	c->h.flags |= CLJ_FLAG_META;

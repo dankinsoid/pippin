@@ -29,6 +29,11 @@ enum {
 	CLJ_CC_STAT_EPOCHS,          // edges stored into a guarded reference type, each voiding every mark
 	CLJ_CC_STAT_UNFILED,         // nonzero releases of a validly marked node, filed as no candidate
 	CLJ_CC_STAT_SHARED_FILED,    // of the candidates, shared ones: a release's, a parked coroutine's
+	CLJ_CC_STAT_STORE_CHECKS,    // stores whose cycle check walked (design §7, «Проверка цикла в момент записи»)
+	CLJ_CC_STAT_STORE_NODES,     // nodes those walks entered
+	CLJ_CC_STAT_STORE_CYCLES,    // checks that closed a cycle
+	CLJ_CC_STAT_STORE_FLAGGED,   // objects they flagged on a cycle, and the cyclic components local collections flagged
+	CLJ_CC_STAT_STORE_DEFERRED,  // checks past their budget, the owner filed for the next local collection
 	CLJ_CC_STAT_COUNT
 };
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]);
@@ -48,7 +53,10 @@ int64_t clj_debug_cc_collect_local(void);
 void clj_debug_cc_file_local(clj_value v);
 // Whether v carries an acyclic mark the calling execution's checked table makes valid.
 int clj_debug_cc_acyclic(clj_value v);
-// The calling thread audits one skip of a marked node in n; 0 restores the default.
+// The calling thread audits one skip of a marked node in n, and one nonzero release that files nothing; 0 restores
+// the default.
 void clj_debug_cc_audit_every(uint32_t n);
+// Whether v carries CLJ_FLAG_ONCYCLE.
+int clj_debug_cc_on_cycle(clj_value v);
 
 #endif

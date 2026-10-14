@@ -61,7 +61,7 @@ enum {
 	CLJ_NO_OPT_UNFILED    = 1u << 17, // a validly marked node released to a nonzero count is filed as a candidate
 	CLJ_NO_OPT_HINT       = 1u << 18, // a long non-ASCII string's index scans from its crumb, not from the code point read last
 	CLJ_NO_OPT_GROW       = 1u << 19, // (str s x) on a unique string copies it rather than appending in place
-	// bit 20 is cc-store-check's (branch cc-store-check); renumber at merge
+	CLJ_NO_OPT_STORE_CHECK = 1u << 20, // no cycle check at a store: every unshared REACH_LOCAL object is a candidate
 	CLJ_NO_OPT_FIELDS     = 1u << 21, // a deftype field's hint as its fact in the method bodies, the receiver of a method its type
 	CLJ_NO_OPT_KNOWN      = 1u << 22, // nth, count, int, aget and the unchecked ops specialized on the facts of their arguments
 	CLJ_NO_OPT_PROTO_INLINE = 1u << 23, // a protocol method's single implementation inlined at the call under its arm's guard

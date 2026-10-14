@@ -1,6 +1,8 @@
 // @ai-generated(guided)
 #include "clj/box.h"
 
+#include "cc_internal.h"
+
 static void box_each_child(void *self, clj_visitor visit, void *ctx) { visit(((clj_reduced *)self)->value.v, ctx); }
 
 static uint32_t box_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
@@ -32,7 +34,7 @@ const clj_type clj_volatile_type = {
 
 clj_value clj_volatile_new(clj_value value) {
 	clj_volatile *v = clj_alloc(&clj_volatile_type, sizeof *v);
-	v->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | CLJ_FLAG_REACH_LOCAL;
+	v->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | clj_cc_born_local();
 	clj_slot_init(&v->h, &v->value, clj_retain(value));
 	return clj_from_ptr(v);
 }
