@@ -235,13 +235,19 @@ static bool is_unique(clj_value v) {
 	// "not unique" everywhere must still pass every suite — a copy, never a wrong result.
 	if (clj_opt_off(CLJ_NO_OPT_REUSE)) return false;
 	clj_header *h = clj_header_of(v);
-	if (h->flags & CLJ_FLAG_IMMORTAL) return false;
+	uint32_t    f = h->flags;
+	// One test on the common path: a separate mark test cost nested-update's closed build 4 % (bench/RESULTS.md).
+	if (__builtin_expect(!(f & (CLJ_FLAG_IMMORTAL | CLJ_FLAG_SHARED | CLJ_FLAG_ACYCLIC)), 1)) {
+		CLJ_OWNER_CHECK(h);
+		return CLJ_RC_UNSHARED_LOAD(h) == 1;
+	}
+	if (f & CLJ_FLAG_IMMORTAL) return false;
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
-	if (h->flags & CLJ_FLAG_SHARED) return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
+	if (f & CLJ_FLAG_SHARED) return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
 	CLJ_OWNER_CHECK(h);
 	if (CLJ_RC_UNSHARED_LOAD(h) != 1) return false;
 	// The caller may rewrite it in place (design §7, «Метка «ацикличен»»).
-	if (h->flags & CLJ_FLAG_ACYCLIC) h->flags &= ~CLJ_FLAG_ACYCLIC;
+	h->flags = f & ~CLJ_FLAG_ACYCLIC;
 	return true;
 }
 
