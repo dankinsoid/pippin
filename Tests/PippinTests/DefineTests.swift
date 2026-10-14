@@ -39,7 +39,9 @@ extension CoreTests {
 		// ends by defining a fn of the same shape again.
 		@Test func definesAndRedefines() throws {
 			let v = rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! + 1) }
-			let before = clj_debug_live_objects(), census = LiveCensus()
+			let before = settledLiveObjects("before the define test"), census = LiveCensus()
+			var steps: [String] = []
+			func step(_ name: String) { steps.append("\(name) \(LiveCensus().moves(since: census)) retired \(clj_debug_retired_roots())") }
 			do {
 				#expect(v.description == "#'user/df-twice")
 				#expect(v.typeName == "var")
@@ -47,19 +49,34 @@ extension CoreTests {
 				#expect(try rt.eval("#'df-twice") == v)
 				#expect(try rt.eval("(var df-twice)") == v)
 				#expect(try rt.eval("(map df-twice [1 2])") == Value(list: [2, 3]))
+				step("map")
 				let site = try rt.eval("(fn [x] (df-twice x))")
 				#expect(try site(1) == 2)
+				step("site")
 				let again = rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! * 10) }
+				step("again")
 				#expect(again == v)
 				#expect(try site(1) == 10)
 				#expect(try rt.eval("(df-twice 1)") == 10)
+				step("call")
 				// A Clojure def takes the var over, and a define takes it back.
 				_ = try rt.eval("(def df-twice (fn [x] (- x)))")
+				step("def")
 				#expect(try site(1) == -1)
 				rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! + 100) }
+				step("define")
 				#expect(try site(1) == 101)
 			}
-			#expect(clj_debug_live_objects() == before, "\(LiveCensus().moves(since: census))")
+			step("end")
+			let after = settledLiveObjects("after the define test")
+			if after != before {
+				let pending = "pending local \(clj_debug_cc_pending_local()) shared \(clj_debug_cc_pending_shared())"
+				let local = clj_debug_cc_collect_local()
+				clj_cc_collect()
+				steps.append("\(pending); collected local \(local); then \(LiveCensus().moves(since: census))")
+				clj_debug_coro_dump()
+			}
+			#expect(after == before, "\(steps)")
 		}
 
 		@Test func arityErrorsNameTheVar() throws {
